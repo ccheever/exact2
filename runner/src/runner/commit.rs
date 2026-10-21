@@ -600,6 +600,8 @@ impl<D: DataSource> Runner<D> {
             ));
         }
         self.take_set_modes(first_command);
+        // The scheme and root size a development host holds: kept as asked, not applied (LLP 1122 T7).
+        self.take_held(first_command);
         // `setRootFontSize` is the runner's too: the size lands in this
         // commit's layout, and the command stays for a host that mirrors it;
         // a refused one is journaled as refused, never as a command.
@@ -873,6 +875,11 @@ impl<D: DataSource> Runner<D> {
     /// body to the source's native handler with the reply, on the host's
     /// worker, which returns at once — the module's own thread answers.
     pub fn native_work(&mut self, request: &Request) -> Dispatch {
+        // A module's name called from data code: the runner's admission, then
+        // the module (LLP 1133.002 D14).
+        if let Some(dispatch) = self.module_call(&request.body) {
+            return dispatch;
+        }
         let handler = self.native_slot().handler();
         let body = request.body.clone();
         Dispatch::Run(crate::Work::Later(Box::new(move |reply| match handler {
@@ -1155,7 +1162,10 @@ impl<D: DataSource> Runner<D> {
         // the reply says: a turn that yields another request (a long native
         // call) watched them as much as the one that answers.
         if let Target::Resource(i) = p.target {
-            for topic in self.store.take_topics() {
+            // A module's source that data code read: the answer is asked
+            // again when that source's answer changes (LLP 1133.002 D14).
+            let module = (p.keepable.as_ref()).and_then(|r| self.module_topic(&r.body));
+            for topic in self.store.take_topics().into_iter().chain(module) {
                 if !self.watching[i].contains(&topic) {
                     self.watching[i].push(topic);
                 }

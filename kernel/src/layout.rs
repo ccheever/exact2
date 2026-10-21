@@ -158,7 +158,7 @@ pub struct LayoutTree {
     flowing: IdSet<u32>,
     pub(crate) unsettled: IdSet<u32>,
     // Equal engine styles are one allocation (`shared_style`).
-    shared: Interner<taffy::Style, ()>,
+    shared: Interner<taffy::Style>,
     // @ref LLP 1074 T1 — the absolutely positioned boxes, and whether the
     // engine's record of which containing block holds each one that is not its
     // parent's is stale: a position or a child list changed since it was made.
@@ -285,6 +285,10 @@ impl LayoutMirror for LayoutTree {
 
     fn restyle(&mut self, arena: &NodeArena, slot: u32, node: NodeId) {
         self.set_style(node, taffy_style(arena, slot));
+        // The title's box follows its alert's grouping (layout/alert.rs)
+        if let Some(prefix) = self.alert_prefixes.get(&slot).copied() {
+            self.write_style(prefix, alert::prefix_style(arena.grouped_alert(slot)));
+        }
     }
 
     fn sync_children(&mut self, arena: &NodeArena, parent: u32, node: NodeId) -> usize {
@@ -432,9 +436,9 @@ impl LayoutTree {
     /// One allocation for every engine style equal to `style`.
     fn share(&mut self, style: taffy::Style) -> Rc<taffy::Style> {
         let hash = engine_hash(&style);
-        match self.shared.get(hash, |_, held| *held == style) {
+        match self.shared.get(hash, |held| *held == style) {
             Some(found) => found,
-            None => self.shared.insert(hash, (), style),
+            None => self.shared.insert(hash, style),
         }
     }
 

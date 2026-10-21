@@ -4,6 +4,8 @@
 import { MalformedOperation, pointerArguments, tapWords } from './agent-keys.mjs';
 import { DRAG_BOUNDS, REACH_MS } from '../host/apple/touches.mjs';
 import { layoutArgs, perfOp } from './agent-inspect.mjs';
+import { readdirSync, readFileSync, statSync } from 'node:fs';
+import { basename, resolve } from 'node:path';
 
 /** A drag's `during` op is a read or the clock, not a second finger (drums R8).
  * A filmed screenshot (`over … every`) loops on the clock, a comparison settles
@@ -54,6 +56,10 @@ async function reorderNotes(s, since) {
   return (Array.isArray(j?.lines) ? j.lines : []).map((l) => (typeof l === 'string' ? l : JSON.stringify(l)).replace(/^t=\S+ /, '')).filter((l) => l.startsWith('reorder: '));
 }
 const noted = (r, notes) => (notes.length ? { ...r, note: [r.note, ...notes].filter(Boolean).join('; ') } : r);
+/** A scroller's drag that moved nothing (euxy FRICTION 9: a sheet's scroller as tall as its form): what to look at. */
+const still = (r, target) => (Array.isArray(r.scrolledBy) && r.scrolledBy.every((v) => v === 0)
+  ? [`nothing scrolled: the scroller is at the end of its range, or its content fits it; if it should scroll, \`layout ${target}\` shows its height, and one as tall as its content is in a column that grows with it (\`min-height=0\` on that column, the compiler's \`lower-scroll-grows\`)`]
+  : []);
 
 export function dragArguments(opts) {
   const { dx, dy, from, press = 0, over = 250, hold = 0 } = opts, drag = { press, over, hold };
@@ -91,8 +97,9 @@ export async function dragTap({ s, carrier, node, target, host, timing, tapRefus
   const inside = ([x, y]) => x >= 0 && y >= 0 && x <= vp.w && y <= vp.h;
   if (vp && !(inside(start) && inside(end))) {
     // A scroller dragged further than the viewport reaches scrolls the whole way (euxy FRICTION 14). On iOS it is the
-    // scroll view's own drag, which a viewport does not bound, under real touches too: XCTest's drag flings at its lift
-    // whatever it holds first (300 pt held 300 ms scrolled 540), so real strokes would not scroll what was asked.
+    // scroll view's own drag, which a viewport does not bound, under real touches too: a held real stroke scrolls less
+    // than its length (a 300-point one scrolled Reflow 214) and an unheld one flings, so real strokes would not scroll
+    // what was asked.
     // Elsewhere a finger's strokes (`strokes`).
     if (!(inside(start) && ['ScrollView', 'List'].includes(b.type) && !during.length && opts.to === undefined)) throw new Error(`drag: from (${start}) to (${end}) leaves the viewport (${vp.w} × ${vp.h})`);
     if (!['ios', 'host-ios'].includes(host)) return strokes(s, target, opts, start, vp);
@@ -100,16 +107,20 @@ export async function dragTap({ s, carrier, node, target, host, timing, tapRefus
     if (r.error) throw new Error(r.error);
     // Landed as an input is (`s.landed`): what the scroll settled lands its `then`s before the reply, and a landing error is said.
     const real = carrier.touches ? ['past the screen a drag is the scroll view\'s own (recognized), not a real touch: one ends inside the screen'] : [];
-    return noted(await s.landed({ ...r, target, ...(scrolled ? { scrolled } : {}), drag: said, carrier: host, mode: timing }), [...real, ...await reorderNotes(s, mark)]);
+    return noted(await s.landed({ ...r, target, ...(scrolled ? { scrolled } : {}), drag: said, carrier: host, mode: timing }), [...real, ...still(r, target), ...await reorderNotes(s, mark)]);
   }
   // Each op runs with input refused; the runner path bounds each one by the gesture.
   const held = (op) => async () => { s.held = target; try { return await op(); } finally { s.held = null; } };
   if (carrier.touches) {
     let r;
     // A still drag's ops first wait up to `REACH_MS` for the touch to reach its view, inside the finger's time: the
-    // runner holds that much longer, and the reply says the hold asked.
+    // runner holds that much longer, and the reply says the hold asked. The hold also moves the agent's clock by its
+    // length, so the app's `every` and `after` run while the finger is held (euxy FRICTION 10), as `tap down`,
+    // `clock +<ms> real`, `tap up` does; the finger is held only as long as asked (`heldTick`). Under platform timing
+    // the clock is the wall's already.
     const reach = !moves && during.length ? REACH_MS : 0;
-    try { r = await carrier.input(node.id, 'drag', { at: from ? start : undefined, drag: { ...drag, hold: hold + reach, during: during.map(held) } }); }
+    const tick = hold > 0 && timing !== 'platform' ? heldTick(s, s.now + hold, target) : undefined;
+    try { r = await carrier.input(node.id, 'drag', { at: from ? start : undefined, drag: { ...drag, hold: hold + reach, during: during.map(held), ...(tick ? { tick } : {}) } }); }
     catch (error) { throw await tapRefusal(s, target, error); }
     return noted(await s.landed({ ...r, ...(r.drag ? { drag: { ...r.drag, hold } } : {}), target, ...(scrolled ? { scrolled } : {}), carrier: host, mode: timing }), await reorderNotes(s, mark));
   }
@@ -143,7 +154,7 @@ export async function dragTap({ s, carrier, node, target, host, timing, tapRefus
       if (during.length) throw new Error('drag: during needs the finger held down, which only --touch platform does on iOS (LLP 1080.000 §11)');
       const r = await carrier.ask({ op: 'tap', id: node.id, scrollDrag: [dx, dy], ...(from ? { from: start } : {}) });
       if (r.error) throw new Error(r.error);
-      return noted(await s.tagged({ ...r, target, ...(scrolled ? { scrolled } : {}), drag: said, carrier: host, mode: timing }), await reorderNotes(s, mark));
+      return noted(await s.tagged({ ...r, target, ...(scrolled ? { scrolled } : {}), drag: said, carrier: host, mode: timing }), [...(moves ? still(r, target) : []), ...await reorderNotes(s, mark)]);
     }
     if (down.delivery === 'unsupported') {
       const { phase: _, ...refused } = down;
@@ -178,6 +189,25 @@ export async function dragTap({ s, carrier, node, target, host, timing, tapRefus
   }
   return noted(await s.tagged({ tapped: node.id, target, ...(scrolled ? { scrolled } : {}), at: down.at, drag: said, lifted: up.at, ...(done.length ? { during: done } : {}), delivery: down.delivery, carrier: host, mode: timing }), [...new Set(phaseNotes), ...await reorderNotes(s, mark)]);
 }
+
+/** A real drag's clock while its finger is held: `realTap` passes `until`, when the finger lifts less its
+ *  `TICK_MARGIN`, and `down`, which reads the dispatch log. While the finger is down the clock moves with real time
+ *  toward `to` in steps of at most `TICK_STEP` ms until `until`, then the rest at once; once it has lifted, or the
+ *  runner has ended, nothing more. What the drag's `during` ops moved it already counts, so a hold is never counted
+ *  twice. Input is refused meanwhile. */
+export const heldTick = (s, to, target) => async (until, down) => {
+  s.held = target;
+  try {
+    for (let left; s.now < to && (left = Math.floor(Math.min(to - s.now, until - Date.now(), TICK_STEP))) > 0;) {
+      if (!await down()) return;
+      await s.clock(`+${left} real`);
+    }
+    if (s.now < to && await down()) await s.clock(`+${to - s.now}`);
+  } finally { s.held = null; }
+};
+
+/** The longest real-time clock step of a hold (`heldTick`) between two reads that the finger is still down. */
+export const TICK_STEP = 100;
 
 /** How much longer than its holds a played contact with steps inside stays down: `HELD_LEAD` to see the touch begin
  *  in the dispatch log and to end the clock's real run, `REACH_MS` for the longest wait for it to reach its view (the
@@ -337,4 +367,33 @@ export async function holdTap({ s, node, target, host, timing, tapRefusal, scrol
   const r = await s.op({ op: 'tap', id: node.id, holdState });
   if (r.error) throw await tapRefusal(s, target, new Error(r.error));
   return s.landed({ ...r, tapped: node.id, target, ...(scrolled ? { scrolled } : {}), delivery: r.delivery ?? 'recognized', carrier: host, mode: r.mode ?? timing });
+}
+
+// A folder's files as the browser is handed them (a picker's answer, a paste): each path under it and its bytes.
+export const folderTree = (dir, prefix = '') => readdirSync(dir, { withFileTypes: true }).flatMap((e) => e.isDirectory() ? folderTree(resolve(dir, e.name), `${prefix}${e.name}/`) : e.isFile() ? [{ path: `${prefix}${e.name}`, bytes: readFileSync(resolve(dir, e.name)).toString('base64') }] : []);
+/** The driver's pasted paths: a file's bytes, a folder's tree. */
+export const driverFiles = (paths) => paths.map((p) => statSync(p).isDirectory() ? { name: basename(p), files: folderTree(p) } : { name: basename(p), bytes: readFileSync(p).toString('base64') });
+
+/** `tap <target> drop|dragenter <path…>` and `tap <target> dragleave` on Chrome; returns the drag it leaves held. */
+export async function fileDrag({ kind, opts, id, x, y, dragged, call, evaluate }) {
+  // A drag of files from the desktop as Chrome takes one (`Input.dispatchDragEvent`, the paths themselves, so
+  // its DataTransfer is the browser's own, folders included): it comes over the point, then drops there, or
+  // is cancelled. A drop no element accepts is refused before Chrome would open the files itself.
+  if (kind === 'dragleave') {
+    if (!dragged) throw new Error('no drag is held over the page');
+    // Out of the page first: Chrome sends the page no dragleave for a bare cancel.
+    await call('Input.dispatchDragEvent', { type: 'dragOver', x: -1, y: -1, data: dragged.data });
+    await call('Input.dispatchDragEvent', { type: 'dragCancel', x: -1, y: -1, data: dragged.data });
+    dragged = null;
+  } else {
+    const data = { items: [], files: opts[kind], dragOperationsMask: 1 };
+    if (kind === 'drop' && !await evaluate(`(() => { const dt = new DataTransfer(); dt.items.add(new File([], 'probe')); const over = new DragEvent('dragover', { clientX: ${x}, clientY: ${y}, bubbles: true, cancelable: true, dataTransfer: dt }); (document.elementFromPoint(${x}, ${y}) ?? exact.views.get(${id})).dispatchEvent(over); return over.defaultPrevented; })()`)) {
+      if (dragged) { await call('Input.dispatchDragEvent', { type: 'dragCancel', x: dragged.x, y: dragged.y, data: dragged.data }); dragged = null; }
+      throw new Error(`view ${id} took no drop (nothing at its middle accepts a file drag)`);
+    }
+    if (!dragged || dragged.data.files.join('\n') !== data.files.join('\n')) await call('Input.dispatchDragEvent', { type: 'dragEnter', x, y, data });
+    await call('Input.dispatchDragEvent', { type: 'dragOver', x, y, data });
+    if (kind === 'drop') { await call('Input.dispatchDragEvent', { type: 'drop', x, y, data }); dragged = null; } else dragged = { x, y, data };
+  }
+  return dragged;
 }

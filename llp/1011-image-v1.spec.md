@@ -413,7 +413,7 @@ symbols (rasters are tinted since 2026-09-27); Linux symbols; a placeholder
 of the host's own while an image loads or after it fails (the kernel measures
 an unknown axis as 0; macOS paints nothing; the browser paints its own
 broken-image icon and the `alt` text — the app draws its own fallback from
-`load` and `error`, §2); SVG sources on Apple (§4); a fetch policy the app
+`load` and `error`, §2); SVG sources on Apple (§4; built 2026-10-20 as LLP 1011.001: a picture drawn at the box's size, with two declared deviations); a fetch policy the app
 sets — HTML's `referrerpolicy`, a refusal of redirects (`redirect="error"`),
 a byte cap below the host's (`max-bytes`) — each a vocabulary proposal
 (#121), not built; Linux remote sources; a block-flow image at its intrinsic

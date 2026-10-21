@@ -1,5 +1,5 @@
-import { asyncContext, bundleOptions, lowered } from '../../js/bake/src/typescript.mjs';
-import { hatchWords, moduleDirectory } from '../../scripts/app.mjs';
+import { asyncContext, bundleOptions, lowered, webImplementations } from '../../js/bake/src/typescript.mjs';
+import { hatchWords, moduleDirectory, webAppManifest } from '../../scripts/app.mjs';
 // The web build's JS target: `bun host/web-js/build.mjs <app> [--plan <baked app.plan>] [--out <dir>]`.
 //
 // 1. `exact-web-js js` compiles the plan (the app's Contract, or a baked
@@ -28,7 +28,12 @@ import { withLook } from '../web/look.mjs';
 const here = dirname(fileURLToPath(import.meta.url));
 const root = resolve(here, '../..');
 const args = process.argv.slice(2);
-const app = args[0];
+// A path names the app as EXACT_APP_DIR does (scripts/app.mjs resolveApp), so
+// what is made from the name (the module crate under web-js-modules, the
+// default --out) stays out of the app's own directory.
+const given = args[0] && /[\\/]|^\.\.?$/.test(args[0]) ? resolve(args[0]) : null;
+if (given) process.env.EXACT_APP_DIR = given;
+const app = given ? basename(given) : args[0];
 const opt = (name) => { const i = args.indexOf(name); return i < 0 ? null : args[i + 1]; };
 if (!app) { console.error('usage: bun host/web-js/build.mjs <app> [--plan <app.plan> | --contract <file>] [--out <dir>] [--inline] [--render rust|js|none] [--check]'); process.exit(2); }
 // An app outside this repo is where `EXACT_APP_DIR` says (scripts/app.mjs).
@@ -80,13 +85,7 @@ const input = opt('--plan') ?? opt('--contract') ?? resolve(appDir, 'app.contrac
 const manifest = JSON.parse(readFileSync(resolve(appDir, 'app.json'), 'utf8'));
 // documents-glue reads the app's web manifest lazily. The JS path exits from
 // host/web/build.mjs after this builder succeeds, so it owns the same artifact.
-const webManifestKeys = ['name', 'short_name', 'description', 'id', 'start_url', 'display', 'theme_color', 'background_color', 'icons', 'lang', 'orientation', 'file_handlers', 'protocol_handlers', 'launch_handler'];
-const webManifest = Object.fromEntries(webManifestKeys.filter(key => manifest[key] !== undefined).map(key => [key, manifest[key]]));
-if (webManifest.file_handlers) webManifest.file_handlers = webManifest.file_handlers.filter(handler => !Object.keys(handler.accept ?? {}).includes('inode/directory'));
-if (!webManifest.file_handlers?.length) delete webManifest.file_handlers;
-webManifest.name ??= manifest.app?.name ?? manifest.name;
-webManifest.start_url ??= '/';
-webManifest.lang ??= 'en';
+const webManifest = webAppManifest(manifest, manifest.app?.name ?? manifest.name);
 writeFileSync(resolve(out, 'manifest.json'), JSON.stringify(webManifest, null, 2) + '\n');
 // Rust data: the app's own module (`rust.module`), or a module generated
 // from the DataSource its web build bakes with (host/web-js/module.mjs).
@@ -198,8 +197,19 @@ writeFileSync(resolve(gen, 'draw.js'), tsDraws ? "export { drawer } from './ts-d
 // (`advance`, a nested shape) once hid `exactTime` and its app could not boot.
 const sources = JSON.parse(readFileSync(resolve(gen, 'app.js'), 'utf8').match(/export const sources=(\{.*?\});export const wait=/)?.[1] ?? '{}');
 const time = Object.hasOwn(sources, 'exactTime');
-// A source a data module answers: not one the runtime reserves (`exact…`).
-const asks = Object.keys(sources).some(name => !/^exact[A-Z]/.test(name));
+// A native module's names and extensions (modules.js, LLP 1133.002 D13): each
+// extension's web implementation is a chunk of its own, `ext-<name>.js`, loaded
+// outside the agent on first use; an extension with none answers by name.
+const moduleFlag = existsSync(resolve(gen, 'modules.flag')) ? JSON.parse(readFileSync(resolve(gen, 'modules.flag'), 'utf8')) : { extensions: [], sources: [] };
+if (moduleFlag.extensions.length) {
+  const bound = webImplementations(appDir);
+  for (const extension of moduleFlag.extensions) {
+    const at = bound.get(extension);
+    writeFileSync(resolve(gen, `ext-${extension}.js`), at ? `export { implementation } from ${JSON.stringify(at)};\n` : 'export const implementation = null;\n');
+  }
+}
+// A source a data module answers: not one the runtime reserves (`exact…`), nor a native module's.
+const asks = Object.keys(sources).some(name => !/^exact[A-Z]/.test(name) && !moduleFlag.sources.includes(name));
 // A file input, `saveFile` or `share` (files.js), registered before any press.
 const files = existsSync(resolve(gen, 'files.flag'));
 // `showNotification` or `closeNotification` (notify.js), linked by use.
@@ -382,8 +392,8 @@ writeFileSync(resolve(gen, 'main.js'), [
   ...(notifies ? ["import './notify.js';"] : []),
   ...(soundTable ? [`import { install as sounds } from './sounds.js'; sounds(${soundTable});`] : []),
   ...(wakelock ? ["import { install as wakelock } from './wakelock.js'; wakelock();"] : []),
-  "import { data, journal, clock, advance, commit, inflight, Views, viewId, After, Clocked, R, resolvedLocale, Resources, Mutations, writeRecords } from './rt.js';",
-  ...(production ? [] : ["import { develop } from './perf.js';"]),
+  "import { data, journal, clock, advance, commit, inflight, Views, viewId, After, Clocked, R, resolvedLocale, Resources, Mutations, writeRecords, agentMode } from './rt.js';",
+  ...(production ? [] : ["import { develop } from './perf.js';", "import { goTo } from './rt.js';"]),
   // A data module's answers, watched from before the app asks (seam.js).
   ...(production || !asks ? [] : ["import { seam } from './perf.js';", 'seam();']),
   ...(time ? [
@@ -408,17 +418,33 @@ writeFileSync(resolve(gen, 'main.js'), [
   ...(manifest.hatches && !Array.isArray(manifest.hatches) ? [`  globalThis.exact.hatchWords = ${JSON.stringify(hatchWords(manifest, 'web'))};`] : []),
   // A development page counts its work and samples its frames (LLP 1079); the agent adapter, only when the agent drives it.
   // The served plan's digest, which a development page's `perf` names (LLP 1079 D2).
-  ...(production ? [] : [`  globalThis.exact.plan = ${JSON.stringify(createHash('sha256').update(readFileSync(opt('--plan') ? resolve(opt('--plan')) : resolve(gen, 'app.plan'))).digest('hex'))};`, "  develop(globalThis.exact).catch(console.error);", "  if (clock.agent) globalThis.exact.ready = import('./agent.js').then(m => m.install(globalThis.exact));"]),
+  ...(production ? [] : [`  globalThis.exact.plan = ${JSON.stringify(createHash('sha256').update(readFileSync(opt('--plan') ? resolve(opt('--plan')) : resolve(gen, 'app.plan'))).digest('hex'))};`, "  globalThis.exact.goTo = goTo;", "  develop(globalThis.exact).catch(console.error);", "  if (clock.agent) globalThis.exact.ready = import('./agent.js').then(m => m.install(globalThis.exact));"]),
+  "  booted?.();",
   "};",
+  // The declared fonts are the stylesheet's `font-display: optional` faces (src/faces.rs): a face first needed while it
+  // still loads is never used on the page, so with a slow or uncached font file the page kept the fallback for good,
+  // where the wasm host waits up to 100 ms for its faces before its first render (glue.js prepareFonts). The first
+  // render here waits the same way: each face loads, for at most 100 ms, and one loaded by then is used.
+  // Only the plan's own faces (`ExactPlanStack<n>`, exact_web::host::fonts), never another stylesheet's. While it
+  // waits, `exact.ready` is a promise the boot settles, so a reader that finds the TypeScript data's early
+  // `globalThis.exact` (the dev client, inspect) waits for the runtime rather than reading a half-made one.
+  "const faces = typeof document === 'object' && document.fonts ? [...document.fonts].filter(f => /^\"?ExactPlanStack\\d+\"?$/.test(f.family) && f.status !== 'loaded') : [];",
+  "const fonts = faces.length ? Promise.race([Promise.all(faces.map(f => f.load().catch(() => {}))), new Promise(r => setTimeout(r, 100))]) : null;",
+  "let booted; if (fonts) (globalThis.exact ??= {}).ready = new Promise(r => { booted = r; });",
+  // What armed itself at module load (sounds' output, a native page module's connection) reads `clock.agent` in a
+  // callback that a font wait lets run before the first render, where `mount` sets it: set it now.
+  "if (fonts) clock.agent = agentMode();",
+  "const go = f => fonts ? fonts.then(f) : f();",
   ...(rust ? [
     // Rust data: loaded after first pixel, asked synchronously once ready;
     // a plan with a resource that has no compiled value waits for it.
     // Counted in flight, so `clock settle` waits for the source to be ready.
     "const load = () => import('./rust-data.js').then(m => m.install(data, sources)).finally(() => inflight.n--);",
     "inflight.n++;",
-    `if (wait || ${mixed}) load().then(start); else { start(); requestAnimationFrame(() => setTimeout(load)); }`,
-  ] : ['start();']),
-  ...(containerHatches ? ["requestAnimationFrame(() => requestAnimationFrame(() => import('./hatches.js').then(m => m.containers())));"] : []),
+    `if (wait || ${mixed}) load().then(() => go(start)); else go(() => { start(); requestAnimationFrame(() => setTimeout(load)); });`,
+  ] : ['go(start);']),
+  // After the first render, which a font wait may defer (`containers()` reads the runtime's `globalThis.exact`).
+  ...(containerHatches ? ["go(() => requestAnimationFrame(() => requestAnimationFrame(() => import('./hatches.js').then(m => m.containers()))));"] : []),
 ].join('\n'));
 for (const f of ['agent.js', 'check.js', 'perf.js', 'seam.js', 'rust-data.js', 'list.js', 'facts.js', 'modules.js', 'symbols.js', 'motion.js', 'drag-target.js', 'transform.js', 'svg-transform.js', 'dataset.js', 'format.js', 'hatches.js', 'arrange.js', 'reorder.js', 'flow.js', 'native.js', 'shared.js']) cpSync(resolve(here, f), resolve(gen, f));
 // The web host's own pieces the runtime loads (glue.mjs).
@@ -439,6 +465,7 @@ const grantSection = (() => {
 // entry: a module lives in one chunk, so what only the agent reads from
 // navigation.js (the environment and page observations) or names.js
 // (every slot's type) would otherwise ride in every page's entry module.
+cpSync(resolve(root, 'host/web/frame-messages.js'), resolve(gen, 'frame-messages.js'));
 for (const f of ['navigation.js', 'names.js']) cpSync(resolve(gen, f), resolve(gen, 'agent-' + f));
 writeFileSync(resolve(gen, 'agent.js'), localImports(readFileSync(resolve(gen, 'agent.js'), 'utf8').replace("from './names.js'", "from './agent-names.js'").replace("from './navigation.js'", "from './agent-navigation.js'")));
 // A source granted `auth.session` signs in through the system browser (auth.js, LLP 1069.006).
@@ -517,9 +544,12 @@ const inside = (path, root) => { const child = relative(root, path); return chil
 // `lower`: the page's bundle lowers `async` so an answer's context survives
 // its awaits (`asyncContext`, LLP 1133.002 D14); the server render, which
 // runs at build with no device to call, does not.
+// A native module's web implementation is the page's, as an app's own page module is.
+const implementationRoots = [...webImplementations(appDir).values()].map(at => dirname(realpathSync(at)));
 const scopedModule = (code, id, lower = false) => {
   if (!ts || !isAbsolute(id) || !/\.[cm]?[jt]sx?$/.test(id)) return null;
   if (!inside(id, tsStage) && generatedRoots.some(root => inside(id, root))) return null;
+  if (implementationRoots.some(root => inside(id, root) || inside(realpathSync(id), root))) return null;
   // And the clock, timers and Math.random refused by name (LLP 1027.000 D3),
   // and the browser's own I/O, as the wasm target's realm refuses it.
   const bound = ['fetch', 'Date', 'Math', 'Intl', 'setTimeout', 'setInterval', 'requestAnimationFrame', 'requestIdleCallback',

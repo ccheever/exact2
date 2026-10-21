@@ -10,7 +10,7 @@
 
 use std::cell::RefCell;
 
-use crate::{view::flags, Change, Deco, Editor, Input, Outcome, Selected};
+use crate::{view::flags, Change, Deco, Editor, Input, Outcome, Selected, SelectionMode};
 
 /// The call was the editor's: prevent the platform's default.
 pub const HANDLED: u32 = 1;
@@ -112,6 +112,25 @@ pub extern "C" fn mde_select(h: u32, from: u32, to: u32, placed_from: u32, place
             Selected::Place => 2,
         }
     })
+}
+
+/// The app's `setSelectionRange(from, to)`.
+#[no_mangle]
+pub extern "C" fn mde_set_selection(h: u32, from: u32, to: u32) -> u32 {
+    with(h, 0, |e, _| bits(e.set_selection(from, to)))
+}
+
+/// The app's `setRangeText`: `from..to` becomes the input; `mode` 0
+/// preserve, 1 select, 2 start, 3 end.
+#[no_mangle]
+pub extern "C" fn mde_replace(h: u32, from: u32, to: u32, len: u32, mode: u32, now: f64) -> u32 {
+    let mode = match mode {
+        1 => SelectionMode::Select,
+        2 => SelectionMode::Start,
+        3 => SelectionMode::End,
+        _ => SelectionMode::Preserve,
+    };
+    with(h, len, |e, text| bits(e.replace(from, to, text, mode, now)))
 }
 
 /// Select everything.

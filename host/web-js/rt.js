@@ -1,8 +1,9 @@
 export { liveTime } from "./live-time.js";
-import { inertAncestor, renderMarkup, reportPlace, onSelection, textField, editMenu, settleRadios, installFits, contextAt } from "./navigation.js"; export { animationClocks, launchLocation } from "./navigation.js"; export { fontFamily } from './font-family.js'; // synced animations (LLP 1055.002, emit.rs `clocks`)
+import { commitGuestOrigin, guestMessageAuthorized, inertAncestor, renderMarkup, reportPlace, onSelection, textField, sourceField, editMenu, settleRadios, installFits, contextAt } from "./navigation.js"; export { animationClocks, launchLocation } from "./navigation.js"; export { fontFamily } from './font-family.js'; // synced animations (LLP 1055.002, emit.rs `clocks`)
 import { Docs, Head, head, markDocument, projectRoots, openTabs, unopened, tp } from "./document.js"; export { Head, unopened, tp }; import { conforms, eq, equal, failureCode, failureReason } from "./shape.js"; import { pointer, record } from "./pointer.js"; import { commands } from "./commands.js"; import { autofocus, press } from "./focus.js";
 let Paint; export function usePaint(pass) { Paint = pass; } export { conforms, eq, equal }; // the compiler installs `Paint` only when a plan can layer boxes
 import * as Ov from "./overlay.js"; import { beatAfter } from "./beat.js"; // optimistic writes shown over answers (the runner's writes.rs)
+const heldOr = (fact, value, apply) => { const x = globalThis.exact; if (!x) return apply(); (x.asked ??= {})[fact] = { value, apply }; if (!x.held?.[fact]) apply(); else x.onAsked?.(); }; // a fact a development page holds over the app's own: kept as asked, applied when not held (LLP 1122 T7, theme2's F2)
 export const writeRecords = () => Ov.Writes.list.map(w => ({ id: w.id, mutation: w.m.name, landed: !!w.landed })); // the agent's `state.writes`
 let Media = null; export function useMedia(m) { Media = m; } // and media.js only where a plan has a `video` or `audio`
 // The JS runtime is imported by name, so a bundle carries only what its generated plan uses.
@@ -263,7 +264,7 @@ export function act(fn, types, skip = 0, names) {
 export const Hosts = {
   focus: id => document.getElementById(id)?.focus(),
   blur: id => { const a = document.activeElement; if (a && a !== document.body && (id == null || a.id === id)) a.blur(); }, ...commands(say), // commands.js's: selectText, openURL, postMessage, reload, delivery's; `blur()` drops whatever holds focus; `blur(id)` only when that node holds it (navigation.js runFocusCommands)
-  setScheme: s => { document.documentElement.style.colorScheme = s === "system" ? "" : s; }, requestFullscreen: id => Media ? Media.requestFullscreen(id) : say(`requestFullscreen: refused: no video with id "${id}"`), // media.js's where a plan has media; without any, the same refusal
+  setScheme: s => heldOr("scheme", s, () => { document.documentElement.style.colorScheme = s === "system" ? "" : s; }), requestFullscreen: id => Media ? Media.requestFullscreen(id) : say(`requestFullscreen: refused: no video with id "${id}"`), // media.js's where a plan has media; without any, the same refusal
   copyText: t => navigator.clipboard?.writeText(t), haptic: k => navigator.vibrate?.(k === "selection" ? 5 : 12), /* LLP 1077 D14: vibration where the browser has it */ scrollIntoView: (id, block, inline, behavior) => { const e = document.getElementById(id); if (e) e.scrollIntoView({ block: block ?? "start", inline: inline ?? "nearest", behavior: behavior ?? "auto" }); else say(`scrollIntoView "${id}" refused: no live node with that id`); }, /* an element's, by id (minesweeper F3); list.js takes a row's */ scrollBy: (id, x, y) => { const e = document.getElementById(id); if (e) e.scrollBy(x, y); else say(`scrollBy "${id}" refused: no live node with that id`); }, // LLP 1101.004 R3
 };
 let KeyEvent = null, Propagating = null; Hosts.preventDefault = () => { KeyEvent?.preventDefault(); if (KeyEvent?.type === "beforeunload") KeyEvent.returnValue = ""; }; Hosts.stopPropagation = () => { const e = KeyEvent ?? Propagating; if (e) e.$stopped = true; }; // Propagating: the pointer's down or up a handler is running for, which only its `stopPropagation()` reaches (its default is the browser's); // the key, focus, wheel, beforeunload or clipboard event whose handler is running (`on`): commands run before its commit returns; a stopped key reaches no ancestor's `key` handler, its default still does (files diary F8); a prevented beforeunload is the browser's "Leave site?" (Safari reads `returnValue`)
@@ -287,6 +288,7 @@ export function time() { if (!clock.agent && !Timing && start) clock.now = Math.
 function tick() { if (Now.v !== clock.now) { Now.v = clock.now; for (const o of Now.obs) stale(o, DIRTY); } }
 // A release build never enters agent mode (LLP 1069.007 D2): its build writes this false, as the wasm host's files are gated.
 const AGENT_ADMITTED = true;
+/** Whether the agent drives this page (or a render does): the clock is then the driver's. */ export const agentMode = () => !!globalThis.__exactRender || (AGENT_ADMITTED && new URLSearchParams(location.search).has("agent"));
 /** A timer: `every(ms, action, once)`, due from mount; `i` its plan order, which breaks ties (schedule.js inserts by it). */
 let Order = 0; export const order = () => Order++, Tasks = []; // every task, for the agent's `state.tasks`
 export function every(ms, action, once, name) {
@@ -681,11 +683,12 @@ if (typeof addEventListener === "function") for (const [type, on] of [["composit
 /** A dynamic prop, by the DOM name the live host uses (`applyProps`). */
 const navigable = (v, e) => { try { const p = new URL(v, document.baseURI).protocol; return ["http:", "https:", "mailto:", "tel:"].includes(p) || p === "data:" && e?.localName === "iframe" && opaque(e); } catch { return false; } }, opaque = e => e.hasAttribute("sandbox") && !e.getAttribute("sandbox").toLowerCase().split(/[\t\n\f\r ]+/).includes("allow-same-origin"); // a frame also shows a `data:` document in an opaque sandbox (navigation.js `frameURL`)
 function frame(e, v) {
+  commitGuestOrigin(e);
   if (v?.startsWith("app:/")) e.setAttribute("data-app-src", v); else e.removeAttribute("data-app-src"); if (globalThis.__exactRender) return !!v?.startsWith("app:/");
   if (!e.$frame) { e.$frame = true; e.addEventListener("load", ev => { if (e.exactAppFrame && !e.exactAppFrame.url) ev.stopImmediatePropagation(); }, true); onEnd(() => e.exactAppFrame?.dispose()); }
   if (e.exactAppFrame?.path === v) return true; e.exactAppFrame?.dispose(); e.exactAppFrame = null; if (!v?.startsWith("app:/")) return false;
   const s = e.exactAppFrame = { path: v, live: true, url: null, dispose() { this.live = false; if (this.url) URL.revokeObjectURL(this.url); } }; e.removeAttribute("src"); inflight.n++;
-  globalThis.exact ??= {}; import(new URL("./picker-glue.js", import.meta.url).href).then(m => m.appFrame(e, s, data.appId)).finally(() => inflight.n--); return true;
+  globalThis.exact ??= {}; import(new URL("./picker-glue.js", import.meta.url).href).then(m => m.appFrame(e, s, data.appId, () => commitGuestOrigin(e))).finally(() => inflight.n--); return true;
 }
 export function P(e, name, f) {
   if (name === "aria-keyshortcuts") input();
@@ -707,6 +710,7 @@ export function P(e, name, f) {
     else if (e.getAttribute(name) !== v) { e.setAttribute(name, v); if (name.startsWith("data-exact-")) Paint?.facts(e); }
     if (e.localName === "a" && (name === "target" || name === "href" && (!e.hasAttribute("target") || e.rel === "external noopener"))) { const out = name === "href" && v != null && /^\s*(https?:)?\/\//i.test(v), t = name === "target" ? v : out ? "_blank" : null; if (t) e.setAttribute("target", t); else e.removeAttribute("target"); if (t === "_blank") e.rel = out ? "external noopener" : "noopener"; else e.removeAttribute("rel"); } // a link to an absolute URL leaves the app in a new browsing context unless its `target` is authored (element.rs `leaves_app`, `props_of`; chat F11)
     if (name === "sandbox" && e.localName === "iframe" && !e.exactAppFrame) { const source = e.$src ?? e.getAttribute("src"); if (source != null) { const s = navigable(source, e) ? source : "about:blank"; if (sandboxChanged || e.getAttribute("src") !== s) e.setAttribute("src", s); } } // a new sandbox takes effect on navigation, even to the same source; a literal source stays in src, a refused `data:` source in $src
+    if ((name === 'src' || name === 'sandbox') && e.localName === 'iframe') commitGuestOrigin(e);
   });
 }
 /** A `markup="markdown"` text (LLP 1045 D3): its source as pieces, built
@@ -747,7 +751,7 @@ export function viewId(e) { let i = Ids.get(e); if (!i) { i = NextView++; Ids.se
  * frame, only when a canvas is on the page (a loaded capability). */
 let Gpu = null;
 export function gs(e, name, values) {
-  const id = viewId(e);
+  const id = viewId(e); e.exactSurfaceName = name;
   onEnd(() => { try { globalThis.exact?.gpu?.destroy(id); } catch (err) { say(`gpu: ${err.message}`); } });
   effect(() => {
     const v = values();
@@ -786,11 +790,11 @@ export function c2(e, name, values, types, names) {
     if (!Canvas2d) {
       inflight.n++;
       Canvas2d = new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r))).then(() => import("./canvas2d.js"))
-        .then(m => m.engine({ data, clock, inflight, journal, advance, views: Views, viewId, wall: () => performance.now() - start }))
+        .then(m => m.engine({ data, clock, inflight, journal, advance, After, views: Views, viewId, wall: () => performance.now() - start }))
         .catch(err => say(`canvas2d: ${err.message}`)).finally(() => inflight.n--);
     }
-    // After the commit applied, as the runner publishes surface inputs.
-    queueMicrotask(() => Canvas2d.then(m => m?.args(c)));
+    // After the commit applied, as the runner publishes surface inputs, and before the canvas module's restyle (`After`).
+    Canvas2d.then(m => m?.args(c));
   });
 }
 /** When native code may load (LLP 1024 D7): after the browser's first paint entry, or two frames and 250 ms where it records none (glue.js `afterNativePaint`). */
@@ -884,12 +888,6 @@ export function Sm(e, prop, unit, f) {
 }
 /** A loaded piece's own handling of an event (files.js's file input): true when handled. */
 export const OnHooks = {};
-function guestOrigin(e) {
-  if (opaque(e)) return "null";
-  const src = e.getAttribute("src");
-  let o; try { o = !src || src === "about:blank" ? location.origin : new URL(src, document.baseURI).origin; } catch { return undefined; }
-  return o === "null" ? undefined : o;
-}
 // An image's `load` and `error` (LLP 1011 §2) as HTML `<img>` fires them, once per source, the error with its message (glue.js `imageEvents`); a symbol fires neither. A tinted raster paints
 // through its CSS mask (element.rs `host_css`), a CORS fetch: from an origin that sends no CORS headers it paints nothing, so a CORS probe of the source decides. An adopted page's image may have settled before this attached.
 const IMAGE_ERROR = "the image did not load", CORS_ERROR = "a tinted image from another origin needs CORS (Access-Control-Allow-Origin)", Probes = new Map();
@@ -916,7 +914,7 @@ export function on(e, kind, f, bind) {
 // (emit.rs `binder`), so a plan carries only the families it hears; any other event is a plain listener.
 // A link with a press is the app's navigation: the browser's is prevented. A modified or other-button click, a `target` or `download`, is the browser's alone and the press does not run, with a router or without (`router`, input-glue.js).
 // a press action taking one more parameter hears the MouseEvent's modifiers (gallery F20)
-export const onPress = (e, kind, f, l) => { if (!e.matches("button, a[href], input, select, textarea, summary")) input(); /* the input piece presses it by key (input-glue.js `pressesByKey`) */ return l("click", ev => { const a = ev.target.closest?.("a[href]"); if (a && a !== e && e.contains(a)) return; if (e.localName === "a" && (ev.button || ev.metaKey || ev.ctrlKey || ev.shiftKey || ev.altKey || (e.target && e.target !== "_self") || e.hasAttribute("download"))) return; ev.stopPropagation(); if (e.localName === "a") ev.preventDefault(); const done = ev.detail > 0 ? press(e) : null; try { f([ev.shiftKey, ev.ctrlKey, ev.altKey, ev.metaKey]); } finally { done?.(); } }); };
+export const onPress = (e, kind, f, l) => { if (!e.matches("button, a[href], input, select, textarea, summary")) input(); /* the input piece presses it by key (input-glue.js `pressesByKey`) */ return l("click", ev => { const a = ev.target.closest?.("a[href]"); if (a && a !== e && e.contains(a)) return; for (let n = ev.target; n && n !== e.parentNode; n = n.parentNode) if (n.nodeType === 1 && n.hasAttribute("disabled")) { ev.stopPropagation(); return; } /* a disabled box on the way presses nothing, as on iOS (PointerIOS.swift `activationTarget`) */ if (e.localName === "a" && (ev.button || ev.metaKey || ev.ctrlKey || ev.shiftKey || ev.altKey || (e.target && e.target !== "_self") || e.hasAttribute("download"))) return; ev.stopPropagation(); if (e.localName === "a") ev.preventDefault(); const done = ev.detail > 0 ? press(e) : null; try { f([ev.shiftKey, ev.ctrlKey, ev.altKey, ev.metaKey]); } finally { done?.(); } }); };
 // A checkbox's value is whether it is checked, a radio's its `value`; the platform moves the control at once, and an action that refuses snaps the box or the radio group back (glue.js, navigation.js). A host's change carries its own text (files.js: a picker's lines, which an input's value would flatten). A range's is a number (the events table). An action taking one more parameter hears the `InputEvent` (x2apps codeedit #2, survey #2).
 export const onValue = (e, kind, f, l) => { return l(kind, ev => {
       if (ev instanceof CustomEvent) return f(ev.detail);
@@ -936,7 +934,7 @@ export const onUnload = (e, kind, f, l) => { return addEventListener("beforeunlo
 // Enter's default: after every `key` handler on the path (the window's listener is last), unless one prevented it, and after the browser's own default, HTML's `change` on Enter (gallery F26); the field's next key or edit (before it applies; an Enter from a textarea or an editor edits itself) runs it first, so the action reads the text Enter submitted (r27 t2: typing at once after Enter submitted the next text)
 export const onSubmit = (e, kind, f, l) => { return l("keydown", ev => { if (ev.key === "Enter" && !ev.isComposing && !ev.$submit) { ev.$submit = true; addEventListener("keydown", w => { if (w !== ev || ev.defaultPrevented) return; const run = () => { if (run.done) return; run.done = true; e.removeEventListener("keydown", run, true); e.removeEventListener("beforeinput", run, true); f(); }; e.addEventListener("keydown", run, true); if (ev.target.localName !== "textarea" && !ev.target.isContentEditable) e.addEventListener("beforeinput", run, true); setTimeout(run); }, { once: true }); } }); };
 // Only from the origin of the src the app committed (glue.js `guestMessageAuthorized`, LLP 1020 D2): a guest that navigated away is not heard; an opaque sandbox's origin is "null".
-export const onMessage = (e, kind, f, l) => { return addEventListener("message", ev => { if (ev.source === e.contentWindow && ev.origin === guestOrigin(e)) f(typeof ev.data === "string" ? ev.data : JSON.stringify(ev.data)); }); };
+export const onMessage = (e, kind, f, l) => { return addEventListener("message", ev => { if (ev.source === e.contentWindow && guestMessageAuthorized(e, ev.origin)) f(typeof ev.data === "string" ? ev.data : JSON.stringify(ev.data)); }); };
 // The port's offsets, as the web host sends them (`glue.js` `attach`); an action taking one more parameter hears the `ScrollEvent` record.
 export const onScroll = (e, kind, f, l) => { return l(kind, () => { if (e.$bootScroll) { e.$bootScroll = false; return; } e.$bootScrollEnd = false; f(e.scrollLeft, e.scrollTop, [e.scrollLeft, e.scrollTop, e.scrollWidth, e.scrollHeight, e.clientWidth, e.clientHeight, ...(e.$list?.scrollAnchor() ?? [null, 0])]); }); }; export const onScrollend = (e, kind, f, l) => { return l(kind, () => { if (e.$bootScrollEnd) { e.$bootScrollEnd = false; return; } f(); }); }; // the boot's restored offset ends no reader's scroll, unless a smooth restore went on to deliver scrolls
 // Pull to refresh is a native port's; the web has none (`glue.js` attaches nothing).
@@ -949,14 +947,14 @@ export const onPointer = (e, kind, f, l) => { return pointer(e, kind, kind === "
 export const onContextmenu = (e, kind, f, l) => { return l(kind, ev => { if (editMenu(ev.target)) return; ev.preventDefault(); ev.stopPropagation(); f(record(e, ev)); }); };
 // DOM's own, bubbling to every ancestor's handler; one that calls `preventDefault()` keeps the scroll (a pinch is a Control-held wheel) from happening (studio diary R3).
 export const onWheel = (e, kind, f, l) => { return e.addEventListener("wheel", ev => { if (ev.$stopped || e.matches(":disabled") || inertAncestor(e)) return; const outer = KeyEvent; KeyEvent = ev; try { f([...record(e, ev).slice(0, 2), ev.deltaX, ev.deltaY, ev.deltaMode, ev.shiftKey, ev.ctrlKey, ev.altKey, ev.metaKey]); } finally { KeyEvent = outer; } }, { passive: false }); };
-// Files dropped from outside, each a `doc:` handle (files.js, documents-glue.js; studio diary R19).
-export const onFileDrop = (e, kind, f, l) => { return OnHooks.drop?.(e, f); };
+// Files dropped from outside, each a `doc:` handle, and a file drag's enter and leave (files.js, documents-glue.js; studio diary R19).
+export const onFileDrop = (e, kind, f, l) => { return OnHooks.drop?.(e, f); }; export const onFileDrag = (e, kind, f, l) => { return OnHooks.drag?.(e, kind, f); };
 // Normal blur commits before focusout chooses its DOM path. Flush callbacks run before post-flush focus commands or autofocus; retired owners never dispatch teardown blur.
 export const onFocus = (e, kind, f, l) => { const own = Owner, run = () => e.isConnected && !own?.gone && f(); return l(kind, () => Flushing ? FocusQueue.push(run) : run()); };
-// the nearest handler hears the ClipboardEvent record; the default (a field's own paste) proceeds unless it calls preventDefault() (#125)
-export const onClipboard = (e, kind, f, l) => { return l(kind, ev => { ev.stopPropagation(); const outer = KeyEvent; KeyEvent = ev; try { f([ev.clipboardData?.getData("text/plain") ?? ""]); } finally { KeyEvent = outer; } }); };
+// the nearest handler hears the ClipboardEvent record, a paste's files minted `doc:` handles (files.js); the default (a field's own paste) proceeds unless it calls preventDefault() (#125)
+export const onClipboard = (e, kind, f, l) => { if (kind === "paste") OnHooks.pasteWarm?.(); return l(kind, ev => { ev.stopPropagation(); const outer = KeyEvent; KeyEvent = ev; try { f([ev.clipboardData?.getData("text/plain") ?? "", kind === "paste" ? OnHooks.pasted?.(ev) ?? [] : []]); } finally { KeyEvent = outer; } }); };
 export const onToggle = (e, kind, f, l) => l(kind, ev => f([ev.oldState, ev.newState]));
-export const onSelectionChange = (e, kind, f, l) => { return textField(e) ? l(kind, () => f(inputRecord(e, e.value, false))) : onSelection(e, (text, a, b, rects) => f([text, a, b, rects])); };
+export const onSelectionChange = (e, kind, f, l) => { return sourceField(e) ? l(kind, () => f(inputRecord(e, e.value, false))) : onSelection(e, (text, a, b, rects) => f([text, a, b, rects])); };
 // ---------------------------------------------------------------- presence (LLP 1063)
 // `-exact-exit-animation` and `-exact-layout-transition`: the web host's own
 // presence-glue.js, fetched after the first painted frame by a plan with
@@ -970,7 +968,7 @@ export const onSelectionChange = (e, kind, f, l) => { return textField(e) ? l(ki
 let Pres = null, Presence = null, Present = null, Leave = null, Sh = null; // Sh: shared.js, loaded with presence-glue.js, runs the commits that hand on a shared element's name in a view transition (LLP 1013.000 D7)
 /** The after-paint pieces on their way (the agent waits for them before an
  * operation, as glue.js's `agentSettled` waits for `pieces.pending()`). */
-export const pieces = () => Promise.all([Motion, Inputs, Presence, Flow, Native, Media?.mediaPiece()].filter(Boolean)).then(() => {}, () => {});
+export const pieces = () => Promise.all([Motion, Inputs, Presence, Flow, Native, Media?.mediaPiece(), OnHooks.loading].filter(Boolean)).then(() => {}, () => {});
 /** A view leaves with the exit animation `css` names (a virtualized list's
  * row wrapper, list.js): whether it stays, leaving, for presence-glue.js to remove. */
 export function exitView(el, css) { if (!Pres || !css) return false; Pres.exit(el, css); return exiting(el); }
@@ -1117,8 +1115,8 @@ export function mde(e) {
       live: n => n.isConnected,
       replace(n) {
         Ids.set(n, id); Views.set(id, n);
-        Object.defineProperty(e, "value", { configurable: true, get: () => n.value, set: v => { n.value = v; } });
-        for (const t of ["input", "change", "focus", "blur", "keydown", "pointerenter", "pointerleave", "click"]) n.addEventListener(t, ev => {
+        Object.defineProperties(e, { value: { configurable: true, get: () => n.value, set: v => { n.value = v; } }, ...Object.fromEntries(["selectionStart", "selectionEnd", "selectionDirection"].map(k => [k, { configurable: true, get: () => n[k] }])) });
+        for (const t of ["input", "beforeinput", "selectionchange", "change", "focus", "blur", "keydown", "pointerenter", "pointerleave", "click"]) n.addEventListener(t, ev => {
           const forwarded = new ev.constructor(t, ev); forwarded.$stopped = ev.$stopped; if (ev.defaultPrevented) forwarded.preventDefault();
           if (!e.dispatchEvent(forwarded)) ev.preventDefault(); if (forwarded.$stopped) ev.$stopped = true;
         }, t === "keydown"); // before the editor applies its own key default
@@ -1133,7 +1131,7 @@ export function onSelect(e, f) { e.$select = f; e.addEventListener("select", () 
 /** The `InputEvent` record (contract/types selection.rs's order); a type
  * with none has its caret after its text, a control 0, 0, `none`. */
 function inputRecord(e, value, checked, event) {
-  const n = e.value?.length ?? 0, field = textField(e);
+  const n = e.value?.length ?? 0, field = sourceField(e);
   return [value, checked, field ? e.selectionStart ?? n : 0, field ? e.selectionEnd ?? n : 0, field ? e.selectionDirection ?? "none" : "none", event?.inputType ?? "", event?.data ?? null, event?.cancelable ?? false, event?.isComposing ?? false];
 }
 /** Press feedback (LLP 1061): the web host's input piece shows it, from
@@ -1393,7 +1391,7 @@ export function mount(f) {
     if (!(t.closest?.("input, textarea, select") || t.isContentEditable) && t.closest?.('[retainFocus="true"]')) ev.preventDefault();
   });
   // Under the agent, and in a render, the clock is the driver's: no timer runs by itself.
-  clock.agent = !!globalThis.__exactRender || (AGENT_ADMITTED && new URLSearchParams(location.search).has("agent"));
+  clock.agent = agentMode();
   Store.load();
   let built = false;
   Adopt = !!(checkpoint().kept && root.firstElementChild);

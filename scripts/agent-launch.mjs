@@ -5,15 +5,16 @@ import {readStatus, formatStatus} from '../game/status.mjs';
 import { widgetArguments, validateWidget } from './agent-widget.mjs';
 import { spawn, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { accessSync, constants, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync } from 'node:fs';
+import { accessSync, constants, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { basename, delimiter, dirname, isAbsolute, relative, resolve } from 'node:path';
+import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import { types as utilTypes } from 'node:util';
 import { filesystemLock } from './filesystem.mjs';
 import { chooseSimulator, phone } from '../host/apple/devices.mjs';
 import { androidDevice } from './agent-android.mjs';
-import { bakeOutput, linuxBinary, moduleDirectory, pendingBuildInputs, resolveApp, windowsFile, shaderWatchRoots, webDist } from './app.mjs';
+import { bakeOutput, gpuModules, linuxBinary, moduleDirectory, pendingBuildInputs, resolveApp, windowsFile, shaderWatchRoots, webDist } from './app.mjs';
 
 const ROOT = resolve(fileURLToPath(new URL('..', import.meta.url)));
 
@@ -182,11 +183,26 @@ export function resolveDevice(host, flags, appId) {
 export function defaultStore(host, flags) {
   return flags.storage ?? (['ios', 'macos', 'mac', 'linux'].includes(host) && !flags.url ? 'default' : undefined);
 }
-/** Says, at the first drive of the app on `device` that uses `defaultStore`, what that store is. */
-export function noteDefaultStore({ host, device, appId }, root = resolve(homedir(), '.cache/exact/agent-store-locks')) {
+/** Says, at the first drive from the app's directory `dir` on `device` that keeps `defaultStore`, that it is kept.
+ * A drive that compares starts empty and a plain one does not, so a plain drive can show what an earlier one stored
+ * (the euxy port's library); and another checkout of the same app id (a second port on this simulator) shares the store. */
+export function noteDefaultStore({ host, device, appId, dir }, root = resolve(homedir(), '.cache/exact/agent-store-locks')) {
   const part = (s) => String(s).replace(/[^\w.-]/g, '_');
-  if (existsSync(resolve(root, ...[host === 'mac' ? 'macos' : host, device, appId, 'default'].map(part)))) return;
-  console.error("note: no --storage named, so this drive uses the store `default`, kept from drive to drive as the app's own files are from launch to launch; --reset-storage empties it, --storage <name> names another");
+  let source = String(dir);
+  try { source = realpathSync(source); } catch { /* the path as given */ }
+  const store = resolve(root, ...[host === 'mac' ? 'macos' : host, device, appId, 'default'].map(part));
+  const mark = resolve(store, `.noted-${createHash('sha256').update(source).digest('hex').slice(0, 16)}`);
+  if (existsSync(mark)) return;
+  try { mkdirSync(store, { recursive: true }); writeFileSync(mark, ''); } catch { /* noted again next time */ }
+  console.error("note: no --storage named, so this drive keeps the store `default`, what earlier drives of this app on this device stored (one that compares with a reference starts empty); --reset-storage empties it, --storage <name> names another");
+}
+/** What a drive with XCTest's touches says when the simulator `udid`'s accessibility automation was off: the touches
+ * turn it on and it stays on, across reboots, so UIKit loads its accessibility runtime at every launch (euxy's debug
+ * launch: 1.25 s, then 2.45 s, iPhone 17 on iOS 27). Null when it was on already. */
+export function accessibilityNote(udid, touch) {
+  const read = spawnSync('xcrun', ['simctl', 'spawn', udid, 'defaults', 'read', 'com.apple.Accessibility', 'AutomationEnabled'], { encoding: 'utf8' });
+  return read.stdout?.trim() === '1' ? null
+    : `--touch ${touch} turns this simulator's accessibility automation on, and it stays on: every launch is then about a second slower, so time a launch on a simulator no such drive has used, or turn it off: xcrun simctl spawn ${udid} defaults write com.apple.Accessibility AutomationEnabled -bool false, then xcrun simctl shutdown ${udid} and xcrun simctl boot ${udid}`;
 }
 /** One drive at a time of a native named store (`--storage`), from before the launch to the close: a reset empties
  * the store at the app's boot, which would delete what another drive of it is using. Keyed by the host, the device as
@@ -308,26 +324,120 @@ export function launchFailure(error, log, { alive, chrome, env = process.env }) 
 // Blink's ui::PointerType fine is 4; ui::HoverType hover is 2. CDP emulation can override them.
 export const DESKTOP_INPUT = '--blink-settings=primaryPointerType=4,availablePointerTypes=4,primaryHoverType=2,availableHoverTypes=2';
 
-/** One browser lookup for the agent and its tests: an explicit override,
- * otherwise the platform's ordinary Chromium installation. A bare CHROME
- * name is resolved through PATH before a test decides whether to skip. */
-export function chromium(environment = process.env, platform = process.platform) {
-  const named = environment.CHROME ? [environment.CHROME] : platform === 'win32' ? [
-    resolve(environment.ProgramFiles ?? 'C:\\Program Files', 'Google/Chrome/Application/chrome.exe'),
-    resolve(environment['ProgramFiles(x86)'] ?? 'C:\\Program Files (x86)', 'Google/Chrome/Application/chrome.exe'),
-    ...(environment.LOCALAPPDATA ? [resolve(environment.LOCALAPPDATA, 'Google/Chrome/Application/chrome.exe')] : []),
-    resolve(environment['ProgramFiles(x86)'] ?? 'C:\\Program Files (x86)', 'Microsoft/Edge/Application/msedge.exe'),
-  ] : [platform === 'darwin' ? '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome' : '/usr/bin/chromium'];
-  const candidates = named.flatMap(name => /[/\\]/.test(name) ? [resolve(name)]
-    : (environment.PATH ?? '').split(delimiter).filter(Boolean).map(dir => resolve(dir, name)));
-  const executable = candidates.find(path => { try { accessSync(path, constants.X_OK); return true; } catch { return false; } });
-  return { executable: executable ?? named[0], unavailable: executable ? null : `Chromium is missing at ${named.join(', ')}; set CHROME to an installed browser` };
+/** The needs that take Playwright's full Chromium (Chrome for Testing, run with `--headless=new`) in place of its
+ * headless shell: WebGPU and WebGL on the GPU (the shell has only SwiftShader, whose fallback adapter a GPU app takes
+ * silently and then draws wrong), the PDF viewer, HEVC, the back/forward cache (the shell restores no page
+ * from it), and timings that should match a person's browser. */
+export const CHROMIUM_NEEDS = ['gpu', 'pdf', 'hevc', 'bfcache', 'perf'];
+const SHELL = { 'darwin-arm64': 'chrome-headless-shell-mac-arm64', 'darwin-x64': 'chrome-headless-shell-mac-x64',
+  'linux-x64': 'chrome-headless-shell-linux64', 'linux-arm64': 'chrome-headless-shell-linux-arm64', 'win32-x64': 'chrome-headless-shell-win64' };
+/** Playwright's two Chromium builds, from its full build's path: the headless shell is the same revision, beside it in
+ * the same browsers directory (Playwright has no public path for the shell). */
+export function chromiumBuilds(full, platform = process.platform, arch = process.arch) {
+  const at = /^(.*)([/\\])chromium-(\d+)\2/.exec(full), dir = SHELL[`${platform}-${arch}`];
+  if (!at || !dir) return { full, shell: null };
+  const [, browsers, separator, revision] = at, exe = platform === 'win32' ? '.exe' : '';
+  return { full, shell: [browsers, `chromium_headless_shell-${revision}`, dir, `chrome-headless-shell${exe}`].join(separator) };
+}
+let pinned;
+const playwrightFull = () => pinned ??= createRequire(import.meta.url)('playwright-core').chromium.executablePath();
+const playwrightVersion = () => JSON.parse(readFileSync(resolve(ROOT, 'package.json'), 'utf8')).devDependencies['playwright-core'];
+const executableAt = (path) => { try { accessSync(path, constants.X_OK); return true; } catch { return false; } };
+/** What a web drive of `app` (resolveApp's) needs of Chromium: the GPU when the app has a GPU module. */
+export const webNeeds = app => app?.hasGpu || (app?.manifest && gpuModules(app.manifest).length) ? ['gpu'] : [];
+/** The Chromium a drive or test launches: CHROME when it is set (a bare name is resolved through PATH; one that names
+ * no browser is `unavailable`), else the build Playwright pins (package.json): its headless shell, or its full build for a need in CHROMIUM_NEEDS. A browser
+ * that is not there is no error: `unavailable` says why and how to install it, so a test can skip on it. `environment`,
+ * `platform`, `arch` and `full` (the full build's path) are the machine's unless a test of this function names them. */
+export function chromium({ needs = [], environment = process.env, platform = process.platform, arch = process.arch, full } = {}) {
+  const unknown = needs.filter((need) => !CHROMIUM_NEEDS.includes(need));
+  if (unknown.length) throw new Error(`chromium: unknown need ${unknown.join(', ')} (${CHROMIUM_NEEDS.join(', ')})`);
+  if (environment.CHROME) {
+    const name = environment.CHROME, candidates = /[/\\]/.test(name) ? [resolve(name)]
+      : (environment.PATH ?? '').split(delimiter).filter(Boolean).map((dir) => resolve(dir, name));
+    const executable = candidates.find(executableAt);
+    return { executable: executable ?? name, unavailable: executable ? null : `CHROME names no browser: ${name}` };
+  }
+  const builds = chromiumBuilds(full ?? playwrightFull(), platform, arch), wantsFull = needs.length > 0;
+  const executable = wantsFull ? builds.full : builds.shell;
+  if (executable && executableAt(executable)) return { executable, unavailable: null };
+  const [what, browser] = wantsFull ? ['Chromium', 'chromium'] : ['Chromium headless shell', 'chromium-headless-shell'];
+  const where = executable ? `at ${executable}` : `for ${platform}-${arch}`;
+  return { executable: executable ?? builds.full, unavailable: `${what} is missing ${where}; install it with bunx playwright@${playwrightVersion()} install ${browser}, or set CHROME to a browser` };
+}
+
+const sharedBrowsers = new Map();
+/** A test suite's browser: the process's one Playwright browser of this engine (`chromium`, `firefox`, `webkit`), Chromium
+ * build (`needs`, as `chromium` takes them) and launch options, shared by every suite that asks for the same, so only the
+ * first suite to ask launches it. What a suite opens on it is its own: `newContext` and `newPage` each make a browser context, and `close`
+ * closes those, never the browser, which Playwright closes when the process exits. */
+export async function suiteBrowser(engine = 'chromium', { needs = [], timeout, ...launch } = {}) {
+  const playwright = await import('playwright-core');
+  const options = { headless: true, ...(engine === 'chromium' ? { executablePath: chromium({ needs }).executable } : {}), ...launch };
+  // A launch timeout is not part of the key: it launches the same browser.
+  const key = JSON.stringify([engine, options]);
+  if (!sharedBrowsers.has(key)) {
+    const launching = playwright[engine].launch({ ...options, timeout });
+    sharedBrowsers.set(key, launching);
+    const forget = () => { if (sharedBrowsers.get(key) === launching) sharedBrowsers.delete(key); };
+    launching.then((browser) => browser.on('disconnected', forget), forget);
+  }
+  const browser = await sharedBrowsers.get(key), contexts = new Set();
+  const own = (context) => { contexts.add(context); context.on('close', () => contexts.delete(context)); return context; };
+  return {
+    browser,
+    newContext: async (options) => own(await browser.newContext(options)),
+    newPage: async (options) => (own(await browser.newContext(options))).newPage(),
+    close: async () => { await Promise.all([...contexts].map((context) => context.close().catch(() => {}))); },
+  };
+}
+
+const sharedCdpBrowsers = new Map();
+/** A test suite's Chromium over the DevTools pipe, for a test that speaks CDP itself (`Cdp`): the process's one browser
+ * for this build (`needs`, as `chromium` takes them) and these flags (`args`, after the common ones), shared by every
+ * suite that asks for the same, so only the first suite to ask launches it. The suite has a browser context of its
+ * own: `page(url)` opens a target in it and attaches (flatten), and `close` disposes of the context, never the
+ * browser, which ends with the process (its pipe closes) or when it exits (the next suite launches another).
+ * `lines` holds the browser's stderr, past its diagnostic noise; a suite may empty it. */
+export async function cdpBrowser({ needs = [], args = [] } = {}) {
+  const { executable, unavailable } = chromium({ needs });
+  if (unavailable) throw new Error(unavailable);
+  const key = JSON.stringify([executable, args]);
+  if (!sharedCdpBrowsers.has(key)) {
+    const profile = mkdtempSync(resolve(tmpdir(), 'exact-cdp-'));
+    const child = spawn(executable, ['--headless=new', '--remote-debugging-pipe', `--user-data-dir=${profile}`, '--no-sandbox',
+      '--no-first-run', '--no-default-browser-check', '--disable-extensions', '--disable-background-networking', '--disable-component-update', ...args,
+      'about:blank'],
+    { stdio: ['ignore', 'ignore', 'pipe', 'pipe', 'pipe'] });
+    const shared = { cdp: new Cdp(child.stdio[3], child.stdio[4]), lines: [] };
+    child.stderr.on('data', (d) => { for (const l of String(d).split('\n')) if (l && !browserDiagnosticNoise(l)) shared.lines.push(l); });
+    child.on('exit', () => {
+      if (sharedCdpBrowsers.get(key) === shared) sharedCdpBrowsers.delete(key);
+      shared.cdp.fail('Chrome exited');
+      rmSync(profile, { recursive: true, force: true });
+    });
+    // Shared, it must not hold the process open: a pending call's deadline does that while one waits.
+    for (const handle of [child, child.stderr, child.stdio[3], child.stdio[4]]) handle.unref?.();
+    process.once('exit', () => child.kill('SIGKILL'));
+    sharedCdpBrowsers.set(key, shared);
+  }
+  const { cdp, lines } = sharedCdpBrowsers.get(key);
+  const { browserContextId } = await cdp.send('Target.createBrowserContext');
+  return {
+    cdp, lines, browserContextId,
+    page: async (url = 'about:blank') => {
+      const { targetId } = await cdp.send('Target.createTarget', { url, browserContextId });
+      const { sessionId } = await cdp.send('Target.attachToTarget', { targetId, flatten: true });
+      return { targetId, sessionId };
+    },
+    close: () => cdp.send('Target.disposeBrowserContext', { browserContextId }).catch(() => {}),
+  };
 }
 
 export function parseFlags(argv) {
   const selection = widgetArguments(argv);
   argv = selection.argv;
-  const flags = { json: false, ...(selection.widget ? { widget: selection.widget } : {}) };
+  const flags = { json: false, ...(selection.widget ? { widget: selection.widget } : {}), ...(selection.activity ? { activity: selection.activity } : {}) };
   const rest = [];
   for (let i = 0; i < argv.length; i++) {
     if (argv[i] === '--json') flags.json = true;
@@ -366,9 +476,13 @@ export function parseFlags(argv) {
     else if (argv[i] === '--port') flags.port = argv[++i];
     // A driver fault armed before the app's first data load (LLP 1103 D3): every fetch whose URL starts with it fails.
     else if (argv[i] === '--fail-fetch') flags.failFetch = [flags.failFetch, argv[++i]].filter(Boolean).join('\n');
+    // A module's permission as the drive starts (LLP 1133.002 §6): `--permission geolocation=granted`, a `prefer` before the first op.
+    else if (argv[i] === '--permission') { const [name, state] = String(argv[++i]).split('='); (flags.permission ??= {})[`permission.${name}`] = state; }
+    // A module answered by its implementation, not the substitute (LLP 1133.001 D7's behaviour tests; Apple, Android).
+    else if (argv[i] === '--bind') flags.bind = [flags.bind, argv[++i]].filter(Boolean).join(',');
     else rest.push(argv[i]);
   }
-  if (flags.widget && !argv.some(arg => arg === '--help' || arg === '-h')) validateWidget(flags, rest);
+  if ((flags.widget || flags.activity) && !argv.some(arg => arg === '--help' || arg === '-h')) validateWidget(flags, rest);
   if (flags.keepStorage && flags.resetStorage) throw new Error('--keep-storage and --reset-storage are mutually exclusive');
   // A native drive's store is `default` when it names none (`defaultStore`); an authored test's is its own.
   if ((flags.keepStorage || flags.resetStorage) && (flags.test ? flags.storage : defaultStore(rest[0], flags)) === undefined) throw new Error('--keep-storage and --reset-storage need --storage <name>');
@@ -680,8 +794,10 @@ export const INPUT_TREE = /^(assets|deck|gpu|art|modules|fonts|strings|logic|dat
 const AGENT_TREE = /^(shots|tools|repros)(\/|$)/;
 const TEST_FILE = /(^|\/)[^/]*\.test\.(?:m?js|ts|rs|contract)$/;
 // A shell or op-list helper outside the trees a build actually reads. A `.js`
-// or `.mjs` file counts: `app.ts` may import one (a game's own scripts are
-// `gameNonInput`'s), and a stale build run as fresh is worse than a rebuild.
+// or `.mjs` file is read through `moduleGraph` like a `.ts`: one app.ts
+// imports counts, one it never imports (an export script beside the app) is
+// no input; without a graph every one counts, since a stale build run as
+// fresh is worse than a rebuild.
 const HELPER = /\.(?:sh|ops)$/;
 const SCRIPT_TREE = /^(logic|data|gpu|render|art|assets|deck|modules)(\/|$)/;
 // What app.ts reaches (LLP 1116.003 D1.1). The bake captures every TypeScript
@@ -695,7 +811,7 @@ const SCRIPT_TREE = /^(logic|data|gpu|render|art|assets|deck|modules)(\/|$)/;
 // name: over-inclusion costs only a rebuild. Null (every TypeScript file counts)
 // without an app.ts, or when tsconfig maps bare specifiers (`paths`, `baseUrl`).
 const SPECIFIER = /(?:\bfrom\s*|\bimport\s*\(?\s*|\brequire\s*\(\s*|<reference\s+path\s*=\s*)(['"])([^'"\n]+)\1/g;
-export const MODULE_FILE = /\.(tsx?|json)$/;
+export const MODULE_FILE = /\.(tsx?|[cm]?js|json)$/;
 export const CONFIG_JSON = /^(app|package|jsconfig|tsconfig[^/]*)\.json$/;
 /** The declarations the bake writes beside app.ts: its output, never an input. */
 export const DECLARATIONS = 'app.contract.d.ts';
@@ -712,7 +828,7 @@ export function moduleGraph(dir, manifest) {
     let isFile = false; try { isFile = statSync(file).isFile(); } catch {}
     if (seen.has(at) || !isFile) continue;
     seen.add(at); graph.add(file);
-    if (!/\.tsx?$/.test(file)) continue;
+    if (!/\.(tsx?|[cm]?js)$/.test(file)) continue;
     for (const [, , spec] of readFileSync(file, 'utf8').matchAll(SPECIFIER)) {
       if (!spec.startsWith('.')) continue;
       const base = resolve(dirname(at), spec), stem = base.replace(/\.(m?js|jsx)$/, '');
@@ -831,8 +947,13 @@ export function webChanges(dist, app) {
   if (!existsSync(marker)) return { app: [], shared: [], all: [] };
   const built = JSON.parse(readFileSync(marker, 'utf8'));
   const changed = path => !built.inputs || built.inputs[path] !== contentDigest(path);
-  const { app: own, shared: roots } = webInputs(app, built.target === 'js', statSync(marker).mtimeMs);
+  // Candidates: what changed since the build read its inputs (`inputsAt`, as it started, less the file
+  // system's clock grain), else since its marker.
+  const since = typeof built.inputsAt === 'number' ? built.inputsAt - 2000 : statSync(marker).mtimeMs;
+  const { app: own, shared: roots } = webInputs(app, built.target === 'js', since);
   const appChanges = own.filter(changed), shared = roots.filter(changed);
+  // A file the build read that is gone since (a source deleted) is a change too: absence is an input.
+  for (const path of Object.keys(built.inputs ?? {})) if (path !== 'EXACT_BACKEND_ORIGIN' && built.inputs[path] !== null && !appChanges.includes(path) && !existsSync(resolve(ROOT, path))) (resolve(ROOT, path).startsWith(`${app.dir}/`) ? appChanges : shared).push(path);
   if ((built.inputs?.EXACT_BACKEND_ORIGIN ?? null) !== (process.env.EXACT_BACKEND_ORIGIN ?? null)) appChanges.push('EXACT_BACKEND_ORIGIN');
   return { app: appChanges, shared, all: [...new Set([...appChanges, ...shared])] };
 }

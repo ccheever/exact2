@@ -52,7 +52,9 @@ class BoxShadowTests: XCTestCase {
         let n = node(raised)
         let caster = try XCTUnwrap(n.shadowCaster)
         XCTAssertTrue(caster.superlayer === host(n))
-        let cast = try XCTUnwrap(caster.sublayers?.last)
+        // One shadow: the masked container casts it.
+        XCTAssertNil(caster.sublayers)
+        let cast: CALayer = caster
         XCTAssertEqual(cast.shadowRadius, 6, "CSS's blur radius is twice the deviation")
         XCTAssertEqual(cast.shadowOffset, CGSize(width: 0, height: 2))
         XCTAssertEqual(cast.shadowColor?.alpha ?? 0, 0.2, accuracy: 0.002)
@@ -135,4 +137,25 @@ class BoxShadowTests: XCTestCase {
         XCTAssertFalse(mask.path!.contains(inset.convert(CGPoint(x: 1, y: 20), from: host(n))))
         XCTAssertTrue(mask.path!.contains(inset.convert(CGPoint(x: 50, y: 20), from: host(n))))
     }
+
+    #if os(iOS)
+    /// A colour token inside a shadow crosses as its light/dark pair (the
+    /// euxy port's LED glow, `eu.labelglow`); the cast follows the view's
+    /// appearance.
+    func testALightDarkShadowCastsTheAppearancesColour() throws {
+        var glow = raised
+        glow["box_shadow"] = [["o": [0, 0], "b": 8, "s": 0, "c": [[10, 10, 12, 140], [246, 244, 244, 140]]]]
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 200, height: 200))
+        let n = node(glow)
+        window.addSubview(n); window.makeKeyAndVisible()
+        func cast(_ style: UIUserInterfaceStyle) throws -> [CGFloat] {
+            window.overrideUserInterfaceStyle = style
+            window.layoutIfNeeded(); n.layer.displayIfNeeded()
+            let c = try XCTUnwrap(n.shadowCaster?.firstColor?.components)
+            return c.map { ($0 * 255).rounded() }
+        }
+        XCTAssertEqual(try cast(.light), [10, 10, 12, 140])
+        XCTAssertEqual(try cast(.dark), [246, 244, 244, 140])
+    }
+    #endif
 }

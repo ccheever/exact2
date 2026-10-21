@@ -46,7 +46,7 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     var paintGhosts = 0
     weak var paintParent: PaintView?
     weak var ghostParent: NodeView?
-    let firstDraw: () -> Void
+    let firstDraw: DrawReceipt?
     let kind: String
     var inlineText: [InlineText] = [] { didSet { inlineAccessibility = nil } }
     /// Its runs' elements, kept until the runs change, and what else made
@@ -100,7 +100,7 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         }
     }
     var clipPath: CGPath?, clipRule = CGPathFillRule.winding
-    package var handlers: Set<String> = [] { didSet { video?.update(); if handlers.contains("hover") != oldValue.contains("hover") || handlers.contains("pointermove") != oldValue.contains("pointermove") { syncHoverTracking() }; if handlers.contains("drop") != oldValue.contains("drop") { syncDropTypes() }; syncDisabledLook() } } // the media events the player reports; a hover handler's tracking area; a drop handler's dragged types; a disabled pressable's look
+    package var handlers: Set<String> = [] { didSet { video?.update(); if handlers.contains("hover") != oldValue.contains("hover") || handlers.contains("pointermove") != oldValue.contains("pointermove") { syncHoverTracking() }; if handlers.intersection(FileDrag.events) != oldValue.intersection(FileDrag.events) { syncDropTypes() }; syncDisabledLook() } } // the media events the player reports; a hover handler's tracking area; a drop handler's dragged types; a disabled pressable's look
     var translatePx = CGPoint.zero, translatePercent = CGPoint.zero // `translate`: its lengths, and its percentages of the box (chess diary #4)
     var layoutOffset = CGPoint.zero, layoutScale = CGPoint(x: 1, y: 1) // layout*: the box layout moved it from (LLP 1063)
     var surface: SurfaceLayer? { didSet { layerPaintCache = nil } } // its surface at a layout transition's size (`Surface.swift`)
@@ -474,7 +474,7 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
 
     init(id: UInt32, kind: String, presenter: Presenter) {
         self.id = id
-        firstDraw = presenter.session?.drawReceipt() ?? {}
+        firstDraw = presenter.session?.drawReceipt()
         self.kind = kind
         self.presenter = presenter
         super.init(frame: .zero)
@@ -1013,7 +1013,7 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
             applyLayerPaint()
         }
         repaintThrough()
-        if presenter?.views[id] === self { firstDraw() }
+        if presenter?.views[id] === self { firstDraw?.drawn() }
     }
 
     /// Whether the style clips the children (`overflow: hidden` or `clip`; a paragraph's
@@ -1037,6 +1037,7 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         if old["accent_color"] != s["accent_color"] { accentChanged() }
         if s["transform_origin"] != origin { applyTransform() }
         applySpace(changedFrom: old)
+        decorationChanged(from: old)
         syncDynamicRange(from: old)
         let uniformBorder = number("border_width")
         hasBoxPaint = s["background_color"] != nil || s["background_image"] != nil
@@ -1316,7 +1317,7 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         // display pass and finds no first draw yet; an app with no later
         // batch — no image, no timer, no motion — would never load it
         // (found by the readback fixture, LLP 1014).
-        if presenter?.views[id] === self { firstDraw() }
+        if presenter?.views[id] === self { firstDraw?.drawn() }
         if !cssVisibilityHidden, let ctx = NSGraphicsContext.current?.cgContext { drawCapturedShadow(ctx) }
         // What the layer shows (`BoxLayerMac.swift`) is not painted again,
         // nor into a capture where the capture shows the layer's paint as

@@ -1,4 +1,4 @@
-import { MalformedOperation, pointerArguments, pinchArguments, intoArguments, resizeArguments } from '../../scripts/agent-keys.mjs';
+import { MalformedOperation, pointerArguments, pinchArguments, intoArguments, resizeArguments, tapWords, typeArguments } from '../../scripts/agent-keys.mjs';
 import { dragArguments } from '../../scripts/agent-drag.mjs';
 
 /** Consume the harness's words; reject malformed input before a browser can skip it. */
@@ -23,9 +23,10 @@ export function parseStep(line) {
       try { call('resize', ...resizeArguments(size)); } catch (e) { invalid(e.message); }
       break;
     }
-    case 'tap': call('tap', word()); break;
+    // A file drag from outside (`drop|dragenter <path…>`, `dragleave`), as the driver takes it.
+    case 'tap': { const target = word(); if (['drop', 'dragenter', 'dragleave'].includes(words[0])) { try { call('tap', ...tapWords([target, ...words.splice(0)])); } catch (e) { invalid(e.message); } break; } if (words[0] !== 'at') { call('tap', target); break; } words.shift(); call('tap', target, { at: [Number(word()), Number(word())] }); break; } // a press at a point of the target, from its top left
     case 'menu': call('tap', word(), { contextmenu: true }); break;
-    case 'type': { const target = word(), text = [word(), ...words.splice(0)].join(' '); call('type', target, text); break; }
+    case 'type': { const target = word(); if (words[0] === 'paste' && ['--file', '--image'].includes(words[1])) { try { call('type', ...typeArguments([target, ...words.splice(0)])); } catch (e) { invalid(e.message); } break; } const text = [word(), ...words.splice(0)].join(' '); call('type', target, text); break; } // a paste of files or an image's data, as the driver takes it
     case 'key': {
       const target = word(), key = word(), phase = optional(undefined);
       call('type', target, { key, ...(phase === 'for' ? { for: Number(word()) } : phase ? { phase } : {}) });

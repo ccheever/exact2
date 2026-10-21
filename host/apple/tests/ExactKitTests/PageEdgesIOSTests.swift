@@ -2,6 +2,7 @@
 import UIKit
 import XCTest
 @testable import ExactKit
+import ExactGroupedLists
 
 /// LLP 1130: a page with no native container keeps the area it is laid out
 /// in, the view less its safe area, and is drawn in a viewport that takes
@@ -30,8 +31,8 @@ final class PageEdgesIOSTests: XCTestCase {
 
     /// `scripts/fixtures/page-edges.contract` in a window of the test host's
     /// scene, the screen's size, so its safe area is the device's.
-    private func fixture() throws -> (ExactSession, ExactView) {
-        let plan = try fixturePlan("PAGE_EDGES")
+    private func fixture(_ key: String = "PAGE_EDGES") throws -> (ExactSession, ExactView) {
+        let plan = try fixturePlan(key)
         let session = ExactApp.shared.makeSession(label: "page-edges")
         sessions.append(session)
         let view = ExactView(session: session)
@@ -46,7 +47,7 @@ final class PageEdgesIOSTests: XCTestCase {
         XCTAssertNil(session.boot(plan: plan, size: window.bounds.size).error)
         view.frame = host.view.bounds
         view.layoutIfNeeded()
-        until("the page is laid out") { (try? node(session, "list"))?.scroll != nil }
+        until("the page is laid out") { (try? node(session, "list"))?.scrollView != nil }
         view.fit()
         return (session, view)
     }
@@ -59,7 +60,7 @@ final class PageEdgesIOSTests: XCTestCase {
         guard UIApplication.shared.connectedScenes.first is UIWindowScene else { throw missing("scene", "the status bar and the safe area are a scene window's") }
         let (session, view) = try fixture()
         let p = session.presenter, safe = view.safeAreaInsets
-        XCTAssertGreaterThan(safe.top, 0, "the test host's window has a status bar")
+        XCTAssertGreaterThan(safe.top + safe.bottom, 0, "the test host's window has a status bar or a home indicator")
         XCTAssertEqual(p.viewport.frame, view.bounds, "the viewport takes the whole view")
         XCTAssertEqual(p.viewportSize, view.bounds.inset(by: safe).size, "the kernel lays the page out in its area, as before")
         XCTAssertEqual(p.pageMargins.top, safe.top)
@@ -85,9 +86,109 @@ final class PageEdgesIOSTests: XCTestCase {
         XCTAssertEqual(sv.bounds.height - list.scrollPortInsets(sv).top - list.scrollPortInsets(sv).bottom, list.bounds.height, accuracy: 0.5)
     }
 
+    func testATouchInABandReachesTheScrollerThere() throws {
+        guard UIApplication.shared.connectedScenes.first is UIWindowScene else { throw missing("scene", "the status bar and the safe area are a scene window's") }
+        let (session, view) = try fixture()
+        let list = try node(session, "list"), sv = try XCTUnwrap(list.scroll), window = try XCTUnwrap(view.window)
+        // A finger under the status bar or on the home indicator's band, as on a hand-built table view.
+        for y in [view.safeAreaInsets.top / 2, view.bounds.maxY - view.safeAreaInsets.bottom / 2] {
+            let hit = try XCTUnwrap(window.hitTest(CGPoint(x: view.bounds.midX + 60, y: y), with: nil), "nothing at y \(y)")
+            XCTAssertTrue(hit.isDescendant(of: sv), "y \(y) reaches the scroller, not \(type(of: hit))")
+        }
+    }
+
+    func testARouteWithNoBarRunsItsScrollerUnderTheStatusBar() throws {
+        guard UIApplication.shared.connectedScenes.first is UIWindowScene else { throw missing("scene", "the status bar and the safe area are a scene window's") }
+        let (session, view) = try fixture("BARLESS_ROUTE")
+        guard view.safeAreaInsets.top > 0 else {
+            throw XCTSkip("no status bar above the route for its scroller to run under: the iPhone Duo's stands in a side column")
+        }
+        let list = try node(session, "list"), route = try node(session, "route"), top = try node(session, "list-top")
+        until("the route's scroller is UIKit's to inset") { list.scrollView?.adjustedContentInset.top ?? 0 > 0 }
+        let sv = try XCTUnwrap(list.scrollView), safe = view.safeAreaInsets
+        XCTAssertEqual(sv.convert(sv.bounds, to: nil).minY, 0, accuracy: 0.5, "its scroll view starts at the screen's top")
+        XCTAssertEqual(route.convert(route.bounds, to: nil).minY, 0, accuracy: 0.5)
+        XCTAssertEqual(top.convert(top.bounds, to: nil).minY, safe.top, accuracy: 0.5, "its content starts below the status bar")
+        XCTAssertEqual(sv.contentOffset.y + list.scrollTopInset(sv), 0, accuracy: 0.5, "at scrollTop 0")
+    }
+
+    func testAGroupedListAtTheEdgesReachesIntoTheBands() throws {
+        guard UIApplication.shared.connectedScenes.first is UIWindowScene else { throw missing("scene", "the status bar and the safe area are a scene window's") }
+        ExactGroupedLists.install()
+        let (session, view) = try fixture("PAGE_EDGES_GROUPED")
+        let list = try node(session, "list"), safe = view.safeAreaInsets
+        // The bands at the top and the foot, or only the foot's on the iPhone Duo, whose status bar stands in a side column
+        until("UIKit draws the list") { list.scrollView is UICollectionView && list.pageBand.top + list.pageBand.bottom > 0 }
+        let cv = try XCTUnwrap(list.scrollView as? UICollectionView)
+        XCTAssertEqual(list.pageBand, UIEdgeInsets(top: safe.top, left: 0, bottom: safe.bottom, right: 0))
+        XCTAssertEqual(cv.convert(cv.bounds, to: nil).minY, 0, accuracy: 0.5, "its collection view starts at the screen's top")
+        XCTAssertEqual(cv.convert(cv.bounds, to: nil).maxY, view.bounds.maxY, accuracy: 0.5, "and ends at its foot")
+        XCTAssertEqual(cv.contentOffset.y + list.scrollTopInset(cv), 0, accuracy: 0.5, "scrollTop 0 is the rest under the band")
+        cv.layoutIfNeeded()
+        let first = try XCTUnwrap(cv.visibleCells.min { $0.frame.minY < $1.frame.minY })
+        XCTAssertGreaterThanOrEqual(first.convert(first.bounds, to: nil).minY, safe.top - 0.5, "its first card starts below the status bar")
+        if safe.top > 0 {
+            let hit = try XCTUnwrap(view.window?.hitTest(CGPoint(x: view.bounds.midX, y: safe.top / 2), with: nil))
+            XCTAssertTrue(hit.isDescendant(of: cv), "a finger under the status bar reaches the list, not \(type(of: hit))")
+        }
+    }
+
+    /// LLP 1131: a route's list under its control bars, drawn through them and the route's cover.
+    func testAListRunsUnderItsControlBarsAndKeepsItsPlace() throws {
+        guard UIApplication.shared.connectedScenes.first is UIWindowScene else { throw missing("scene", "the bars and the safe area are a scene window's") }
+        guard #available(iOS 26.0, *) else { throw XCTSkip("control bars are iOS 26's, where UIKit draws the edge effect over them") }
+        let (session, _) = try fixture("CONTROL_BARS")
+        let p = session.presenter, list = try node(session, "list"), filter = try node(session, "filter"), top = try node(session, "list-top")
+        until("the switcher is a bar over the list") { list.pageBand.top > 0 }
+        let sv = try XCTUnwrap(list.scrollView), box = list.convert(list.bounds, to: nil)
+        XCTAssertEqual(sv.convert(sv.bounds, to: nil).minY, 0, accuracy: 0.5, "its scroll view runs up under the switcher and the bar")
+        XCTAssertEqual(top.convert(top.bounds, to: nil).minY, box.minY, accuracy: 0.5, "its content rests where it was laid out")
+        XCTAssertEqual(sv.contentOffset.y + list.scrollTopInset(sv), 0, accuracy: 0.5, "at scrollTop 0")
+        XCTAssertGreaterThan(filter.layer.zPosition, list.layer.zPosition, "the switcher draws over the list")
+        let hit = try XCTUnwrap(filter.window?.hitTest(filter.convert(CGPoint(x: filter.bounds.midX, y: filter.bounds.midY), to: nil), with: nil))
+        XCTAssertTrue(hit.isDescendant(of: filter), "a tap on the switcher is the switcher's, not \(type(of: hit))")
+        XCTAssertTrue(filter.interactions.contains { $0 is UIScrollEdgeElementContainerInteraction }, "UIKit's edge effect over the list")
+        sv.contentOffset.y = 100 - list.scrollTopInset(sv)
+        p.press(try node(session, "pick-chat").id)
+        until("the switcher goes and a composer comes") { list.pageBand.top == 0 && list.pageBand.bottom > 0 }
+        XCTAssertEqual(sv.contentOffset.y + list.scrollTopInset(sv), 100, accuracy: 1, "scrollTop is kept as the bands change")
+        XCTAssertNil(filter.window, "the switcher is gone")
+        XCTAssertEqual(sv.convert(sv.bounds, to: nil).maxY, try XCTUnwrap(list.window).bounds.maxY, accuracy: 0.5, "the transcript runs under the composer to the screen's foot")
+        XCTAssertGreaterThan(try node(session, "composer").layer.zPosition, list.layer.zPosition, "the composer draws over it")
+        for shape in ["caption", "painted", "large"] {
+            p.press(try node(session, "pick-\(shape)").id)
+            until("\(shape) is no bar over the list") { list.pageBand == .zero }
+        }
+    }
+
+    /// A virtualized transcript over its composer (the chat recipe), shown when its messages
+    /// arrive mid-push, opens with its newest row above the composer. As the push lands its
+    /// box grows under the bar and its top band goes to UIKit's inset, which leaves its port
+    /// the same size: keeping its scrollTop put the last two rows under the composer, and the
+    /// runner, which saw only the offset move, took it for the reader leaving the end (round
+    /// 32's chat-rooms).
+    func testAPushedTranscriptOpensWithItsNewestRowAboveItsComposer() throws {
+        guard UIApplication.shared.connectedScenes.first is UIWindowScene else { throw missing("scene", "the bars and the safe area are a scene window's") }
+        guard #available(iOS 26.0, *) else { throw XCTSkip("control bars are iOS 26's, where UIKit draws the edge effect over them") }
+        let (session, _) = try fixture("CONTROL_BARS")
+        session.presenter.press(try node(session, "pick-thread").id)
+        until("the push lands, the transcript under the bar and its composer") {
+            // Not `node`: its XCTUnwrap records a failure while the messages are on their way.
+            guard let list = session.presenter.views.values.first(where: { $0.props["testId"] == "transcript" }), list.window != nil else { return false }
+            return list.pageBand.top == 0 && list.pageBand.bottom > 0
+        }
+        RunLoop.main.run(until: Date().addingTimeInterval(0.5))
+        let composer = try node(session, "thread-composer"), last = try node(session, "message-30")
+        XCTAssertEqual(last.convert(last.bounds, to: nil).maxY, composer.convert(composer.bounds, to: nil).minY - 6, accuracy: 1,
+                       "the newest message ends at the composer's margin")
+    }
+
     func testScrollTopIsKeptWhenTheBandGoes() throws {
         guard UIApplication.shared.connectedScenes.first is UIWindowScene else { throw missing("scene", "the status bar and the safe area are a scene window's") }
-        let (session, _) = try fixture()
+        let (session, view) = try fixture()
+        guard view.safeAreaInsets.top > 0 else {
+            throw XCTSkip("no status bar above the page for its band to leave: the iPhone Duo's stands in a side column")
+        }
         let p = session.presenter, list = try node(session, "list"), sv = try XCTUnwrap(list.scroll)
         sv.contentOffset.y = 100 - list.scrollTopInset(sv)
         p.press(try node(session, "head").id)

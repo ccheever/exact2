@@ -9,7 +9,7 @@ use exact_plan::{Plan, Value};
 use exact_runner::{DataError, DataSource, Runner};
 use std::path::{Path, PathBuf};
 
-struct NoData;
+pub(super) struct NoData;
 
 impl DataSource for NoData {
     fn query(&mut self, source: &str, _: &[Value]) -> Result<Value, DataError> {
@@ -17,7 +17,7 @@ impl DataSource for NoData {
     }
 }
 
-fn app(name: &str, files: &[(&str, &str)]) -> PathBuf {
+pub(super) fn app(name: &str, files: &[(&str, &str)]) -> PathBuf {
     let dir = std::env::temp_dir().join(format!("exact2-tamber-{name}-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();
@@ -45,7 +45,7 @@ fn colour(plan: Plan, id: &str, row: StyleId) -> ColorValue {
     }
 }
 
-fn parsed(text: &str) -> ColorValue {
+pub(super) fn parsed(text: &str) -> ColorValue {
     ColorValue::parse_light_dark(text)
         .or_else(|| exact_kernel::Color::parse(text).map(ColorValue::Fixed))
         .unwrap_or_else(|| panic!("{text}"))
@@ -411,7 +411,7 @@ fn a_when_at_the_default_modes_cannot_replace_a_profile_colour() {
     assert_eq!(e.span.line, 8, "{e:?}");
 }
 
-const MODES: &str = "tamber t\n\naxes\n  dark-style = black | dim  under scheme=dark\n\ntheme\n  page = light-dark(#ffffff, #000000)\n    when dark-style=dim: light-dark(#ffffff, #161e27)\n  ink = light-dark(#111111, #eeeeee)\n    when dark-style=dim: light-dark(#111111, #cccccc)\n";
+pub(super) const MODES: &str = "tamber t\n\naxes\n  dark-style = black | dim  under scheme=dark\n\ntheme\n  page = light-dark(#ffffff, #000000)\n    when dark-style=dim: light-dark(#ffffff, #161e27)\n  ink = light-dark(#111111, #eeeeee)\n    when dark-style=dim: light-dark(#111111, #cccccc)\n";
 
 #[test]
 fn a_pin_selects_its_slice_and_a_boundary_sets_inherited_text_again() {
@@ -442,7 +442,7 @@ fn a_pin_selects_its_slice_and_a_boundary_sets_inherited_text_again() {
     );
 }
 
-fn booted(plan: Plan) -> Runner<NoData> {
+pub(super) fn booted(plan: Plan) -> Runner<NoData> {
     let plan = contract::bake(plan, NoData).unwrap();
     Runner::boot(
         plan,
@@ -454,7 +454,7 @@ fn booted(plan: Plan) -> Runner<NoData> {
     .unwrap()
 }
 
-fn row(r: &Runner<NoData>, id: &str, style: StyleId) -> ColorValue {
+pub(super) fn row(r: &Runner<NoData>, id: &str, style: StyleId) -> ColorValue {
     let key = r.kernel().find_by_test_id(id)[0];
     match r.kernel().node_by_key(key).unwrap().computed(style) {
         RowValue::ColorValue(c) => c,
@@ -630,7 +630,7 @@ fn a_changed_inherited_colour_is_set_again_at_a_boundary_below() {
 
 const TWO_AXES: &str = "tamber t\n\naxes\n  dark-style = black | dim\n  density = cozy | compact\n\ntheme\n  ink = #111111\n    when dark-style=dim: #222222\n    when density=compact: #333333\n    when dark-style=dim density=compact: #444444\n";
 
-fn press(r: &mut Runner<NoData>, id: &str) {
+pub(super) fn press(r: &mut Runner<NoData>, id: &str) {
     let view = {
         let k = r.kernel();
         k.node_by_key(k.find_by_test_id(id)[0]).unwrap().id
@@ -784,6 +784,84 @@ fn set_mode_sets_the_windows_slice_in_its_actions_commit() {
     // A literal the design lacks is refused where it is written.
     std::fs::write(&path, "component App\n  action go\n    setMode(\"density\", \"compact\")\n  view\n    button press=go\n      text \"go\"\n").unwrap();
     assert_eq!(contract::compile_path(&path).unwrap_err().id, "tamber-mode");
+}
+
+/// A design whose fold refuses a token keeps its axes for `setMode` and the
+/// pins: the build says the refusal, not that the design declares no axes
+/// (a `when` token's light side edited on its own, in the JS loop).
+#[test]
+fn a_refused_token_leaves_the_axes_set_mode_and_pins_name() {
+    let contract = "component App\n  action dim\n    setMode(\"dark-style\", \"dim\")\n  view\n    column testId=\"page\" background-color=\"page\" color=\"ink\"\n      button press=dim testId=\"dim\"\n        text \"dim\"\n      column -exact-mode=\"dark-style=black\" testId=\"pinned\" background-color=\"page\"\n        text \"p\"\n";
+    let edited_light = MODES.replace(
+        "page = light-dark(#ffffff, #000000)",
+        "page = light-dark(#fefefe, #000000)",
+    );
+    let path = app(
+        "refused-axes",
+        &[("app.tamber", &edited_light), ("app.contract", contract)],
+    );
+    let Err(refused) = contract::compile_path_all(&path, false) else {
+        panic!("a refused token builds");
+    };
+    let ids: Vec<String> = refused.into_iter().map(|e| e.id).collect();
+    assert_eq!(ids[0], "tamber-under-light", "{ids:?}");
+    assert!(!ids.iter().any(|id| id == "tamber-mode"), "{ids:?}");
+    // An axis declared twice: its refusal is said, beside a `setMode` that
+    // names a value of the second only.
+    std::fs::write(
+        path.with_file_name("app.tamber"),
+        MODES.replace(
+            "\ntheme\n",
+            "  dark-style = black | grey  under scheme=dark\n\ntheme\n",
+        ),
+    )
+    .unwrap();
+    std::fs::write(&path, contract.replace("\"dim\")", "\"grey\")")).unwrap();
+    let Err(refused) = contract::compile_path_all(&path, false) else {
+        panic!("an axis declared twice builds");
+    };
+    let ids: Vec<String> = refused.into_iter().map(|e| e.id).collect();
+    assert_eq!(ids[0], "tamber-duplicate", "the design's first: {ids:?}");
+    assert!(ids.iter().any(|id| id == "tamber-mode"), "{ids:?}");
+    assert_eq!(
+        contract::compile_path(&path).unwrap_err().id,
+        "tamber-duplicate"
+    );
+    // A refused token, then a statement that stops lowering (a share of a
+    // picture no element is): both said, the design's first.
+    std::fs::write(path.with_file_name("app.tamber"), &edited_light).unwrap();
+    std::fs::write(
+        &path,
+        contract.replace(
+            "    setMode(\"dark-style\", \"dim\")\n",
+            "    setMode(\"dark-style\", \"dim\")\n    share(files=[\"#missing\"])\n",
+        ),
+    )
+    .unwrap();
+    let Err(refused) = contract::compile_path_all(&path, false) else {
+        panic!("a refused token builds");
+    };
+    let ids: Vec<String> = refused.into_iter().map(|e| e.id).collect();
+    assert_eq!(ids, ["tamber-under-light", "lower-share-picture"]);
+    assert_eq!(
+        contract::compile_path(&path).unwrap_err().id,
+        "tamber-under-light"
+    );
+    std::fs::write(&path, contract).unwrap();
+    // The `when` line's own dark side edited: it builds, setMode and its pin
+    // intact.
+    let edited = MODES.replace("#161e27", "#171f28");
+    std::fs::write(path.with_file_name("app.tamber"), edited).unwrap();
+    let mut r = booted(contract::compile_path(&path).unwrap());
+    press(&mut r, "dim");
+    assert_eq!(
+        row(&r, "page", StyleId::BackgroundColor),
+        parsed("light-dark(#ffffff, #171f28)")
+    );
+    assert_eq!(
+        row(&r, "pinned", StyleId::BackgroundColor),
+        parsed("light-dark(#ffffff, #000000)")
+    );
 }
 
 #[test]

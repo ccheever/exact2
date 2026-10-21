@@ -20,9 +20,15 @@
 //! The column is the host's to say, once, before it boots a plan. An Apple
 //! host says its platform ([`set_column`]). A process that shows the neutral
 //! look says so with the role table's switch (`roles::set_column`), the one
-//! switch for that look's colours and its metrics: the web, and a host that
-//! paints its own controls (D17). Any other process reads the web's first
-//! look, as Android's reader does.
+//! switch for that look's colours and its metrics: every web build (the wasm
+//! host and the JS target), so the browser reads the neutral column, and a
+//! host that paints its own controls (D17). Android's reader reads its own
+//! Material column (LLP 1115.001.001), with `web` only as that column's
+//! fallback for a row it lacks. The `web` column is read only by a process
+//! that says no column (headless and test runs; D17 as corrected).
+//! The terminal's column (LLP 1121 stage 11 B) is the `web` column's in
+//! every metric, as it read before it had one; it differs in the base scale
+//! (`style::scale`), whose spacings it reads in cells.
 //! @ref LLP 1115.002 D6, D8.4
 //! @ref LLP 1115.000 D17
 
@@ -33,20 +39,27 @@ use std::sync::atomic::{AtomicU8, Ordering};
 /// The metric table's columns: a platform or a look whose shapes Exact draws.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Column {
-    /// The web's first look (LLP 1116 D1): what a process reads until its
-    /// host says otherwise.
+    /// The `web` column (LLP 1116 D1's first look): read only by a process
+    /// that says no column (headless and test runs), and as Material's
+    /// fallback for a row it lacks. The browser reads [`Column::Neutral`]
+    /// (every web build throws the neutral switch); the base scale has no
+    /// web column and reads the neutral cell here (`style::scale`).
     Web,
     /// iOS's (and tvOS's, visionOS's and watchOS's, which draw as it does).
     Ios,
     /// The Mac's.
     Mac,
-    /// The neutral look's (LLP 1115.000 D4 part B, D17): the web's, and a
-    /// host's that paints its own controls.
+    /// The neutral look's (LLP 1115.000 D4 part B, D17): the browser's (every
+    /// web build), and a host's that paints its own controls.
     Neutral,
-    /// Android's Material look (LLP 1115.001.001 D2.4): Compose Material 3's
-    /// values at the pinned version, and the web's first look's where a row
-    /// has none of its own.
+    /// Android's Material look (LLP 1115.001.001 D2.4), which Android's
+    /// reader reads: Compose Material 3's values at the pinned version, and
+    /// the `web` column's where a row has none of its own.
     Material,
+    /// The terminal's (LLP 1121 stage 11 B), which its host says: the `web`
+    /// column's in every metric (as it read before it had a column), and
+    /// its own in the base scale (cells; no corners).
+    Terminal,
 }
 
 /// The column this process said. One platform a process, so one switch.
@@ -62,6 +75,7 @@ pub fn set_column(column: Column) {
         Column::Mac => 2,
         Column::Neutral => 3,
         Column::Material => 4,
+        Column::Terminal => 5,
     };
     COLUMN.store(index, Ordering::Release);
 }
@@ -75,6 +89,7 @@ pub fn column() -> Column {
         2 => Column::Mac,
         3 => Column::Neutral,
         4 => Column::Material,
+        5 => Column::Terminal,
         _ if roles::column() == roles::Column::Neutral => Column::Neutral,
         _ => Column::Web,
     }
@@ -98,6 +113,7 @@ pub fn value(metric: &Metric, column: Column) -> MetricValue {
         Column::Mac => metric.macos,
         Column::Neutral => metric.neutral,
         Column::Material => metric.material,
+        Column::Terminal => metric.terminal,
     }
 }
 
@@ -341,53 +357,104 @@ mod tests {
         assert!(named("-exact-control-height").is_none());
     }
 
+    /// The rows the grouped sheet writes a `style` metric on, by its name, as
+    /// the row test found them before theme2's unit flag: the oracle the
+    /// flag is held to ([`the_length_marker_is_the_names_length_rows`]).
+    fn written_on(name: &str) -> &'static [StyleId] {
+        use StyleId::*;
+        match name {
+            n if n.ends_with("-fill") || n.contains("-ground") => &[BackgroundColor],
+            "grouped-separator" => &[BorderColorBottom, BorderColorTop],
+            "header-edge-width" => &[BorderWidthBottom],
+            "header-edge-style" => &[BorderStyleBottom],
+            "header-edge-color" => &[BorderColorBottom],
+            "header-position" => &[PositionType],
+            "header-top" => &[Top],
+            n if n.ends_with("-color") => &[TextColor],
+            n if n.ends_with("-tint") => &[TintColor],
+            "grouped-section-width" => &[Width],
+            "grouped-section-max-width" => &[MaxWidth],
+            "grouped-footer-font" => &[FontSize],
+            n if n.ends_with("-weight") => &[FontWeight],
+            n if n.ends_with("-radius") => &[BorderRadiusTopLeft],
+            "grouped-edge-width" => &[BorderWidthTop],
+            n if n.ends_with("-gap") => &[RowGap, ColumnGap],
+            n if n.ends_with("-min-height") => &[MinHeight],
+            n if n.ends_with("-height") => &[Height],
+            n if n.ends_with("-width") || n.ends_with("-size") && !n.contains("switch") => &[Width],
+            "grouped-switch-size" => &[ControlSize],
+            "grouped-field-align" | "grouped-title-button-align" => &[TextAlign],
+            "grouped-button-appearance" => &[Appearance],
+            "grouped-button-box-sizing" => &[BoxSizing],
+            "grouped-button-title-grow" => &[FlexGrow],
+            "grouped-button-align" => &[AlignSelf],
+            "grouped-value-wrap" => &[FlexWrap],
+            n if n.contains("padding") => &[PaddingTop, PaddingLeft],
+            _ => &[MarginTop, MarginLeft],
+        }
+    }
+
+    /// The length properties among [`written_on`]'s.
+    const LENGTH_ROWS: [StyleId; 14] = {
+        use StyleId::*;
+        [
+            Top,
+            Width,
+            MaxWidth,
+            MinHeight,
+            Height,
+            RowGap,
+            ColumnGap,
+            BorderRadiusTopLeft,
+            BorderWidthTop,
+            BorderWidthBottom,
+            PaddingTop,
+            PaddingLeft,
+            MarginTop,
+            MarginLeft,
+        ]
+    };
+
+    /// theme2's unit flag (LLP 1121 stage 11 B): the `style` rows the schema
+    /// marks as lengths (`style length`, [`Metric::length`]) are exactly
+    /// those the names said are written on a length property, so the marker
+    /// moves nothing the kernel reads.
+    #[test]
+    fn the_length_marker_is_the_names_length_rows() {
+        let mut marked = 0;
+        for m in METRICS.iter().filter(|m| m.kind == MetricKind::Style) {
+            let by_name = written_on(m.name).iter().all(|r| LENGTH_ROWS.contains(r));
+            assert_eq!(m.length, by_name, "{}", m.name);
+            marked += usize::from(m.length);
+        }
+        assert_eq!(marked, 61);
+        // A `length` row is a length too; a `number` row is not.
+        assert!(METRICS
+            .iter()
+            .all(|m| m.length == (m.kind == MetricKind::Length) || m.kind == MetricKind::Style));
+    }
+
     /// Every value of every column is one its kind of row takes: a metric
     /// that a row refused would leave a hole in one platform's sheet only.
+    /// Whether a row is a length is the schema's marker; which length (or
+    /// other) property it is written on, its name's.
     #[test]
     fn every_value_is_one_a_row_takes() {
-        // The rows the grouped sheet writes each kind of metric on.
-        let rows = |name: &str| -> &'static [StyleId] {
-            use StyleId::*;
-            match name {
-                n if n.ends_with("-fill") || n.contains("-ground") => &[BackgroundColor],
-                "grouped-separator" => &[BorderColorBottom, BorderColorTop],
-                "header-edge-width" => &[BorderWidthBottom],
-                "header-edge-style" => &[BorderStyleBottom],
-                "header-edge-color" => &[BorderColorBottom],
-                "header-position" => &[PositionType],
-                "header-top" => &[Top],
-                n if n.ends_with("-color") => &[TextColor],
-                n if n.ends_with("-tint") => &[TintColor],
-                "grouped-section-width" => &[Width],
-                "grouped-section-max-width" => &[MaxWidth],
-                "grouped-footer-font" => &[FontSize],
-                n if n.ends_with("-weight") => &[FontWeight],
-                n if n.ends_with("-radius") => &[BorderRadiusTopLeft],
-                "grouped-edge-width" => &[BorderWidthTop],
-                n if n.ends_with("-gap") => &[RowGap, ColumnGap],
-                n if n.ends_with("-min-height") => &[MinHeight],
-                n if n.ends_with("-height") => &[Height],
-                n if n.ends_with("-width") || n.ends_with("-size") && !n.contains("switch") => {
-                    &[Width]
-                }
-                "grouped-switch-size" => &[ControlSize],
-                "grouped-field-align" | "grouped-title-button-align" => &[TextAlign],
-                "grouped-button-appearance" => &[Appearance],
-                "grouped-button-box-sizing" => &[BoxSizing],
-                "grouped-button-title-grow" => &[FlexGrow],
-                "grouped-button-align" => &[AlignSelf],
-                n if n.contains("padding") => &[PaddingTop, PaddingLeft],
-                _ => &[MarginTop, MarginLeft],
-            }
-        };
         for m in METRICS.iter().filter(|m| m.kind == MetricKind::Style) {
+            let rows = written_on(m.name);
+            assert_eq!(
+                rows.iter().all(|r| LENGTH_ROWS.contains(r)),
+                m.length,
+                "{}: the marker and its row",
+                m.name
+            );
             for (column, cell) in [
                 ("iOS", m.ios),
                 ("the Mac", m.macos),
                 ("the web", m.web),
                 ("the neutral look", m.neutral),
             ] {
-                for &row in rows(m.name) {
+                for &row in rows {
                     let Some(written) = as_written(row, cell) else {
                         continue;
                     };

@@ -613,6 +613,8 @@ pub(crate) fn handler_attr(name: &str) -> bool {
             | "midimessage"
             | "wheel"
             | "drop"
+            | "dragenter"
+            | "dragleave"
             | "swiperight"
             | "refresh"
             | "reachstart"
@@ -748,6 +750,7 @@ fn refine_params_from_view(
                 // carries its formats.
                 let payload_control = contract_syntax::payload_control(tag, attrs);
                 let field = payload_control == Some("field");
+                let edits = contract_syntax::edits_text(payload_control);
                 // A file input's `change` carries the picked files (LLP
                 // 1069.002 D3); its `cancel`, nothing.
                 let file = control == Some("file");
@@ -853,7 +856,7 @@ fn refine_params_from_view(
                             // of its type or none: another type there is an
                             // argument left unbound, analysis's arity
                             // refusal (`handler_accepts`).
-                            if let Some(record) = if a.name == "selectionchange" && field {
+                            if let Some(record) = if a.name == "selectionchange" && edits {
                                 Some("InputEvent")
                             } else {
                                 crate::event_record(&a.name)

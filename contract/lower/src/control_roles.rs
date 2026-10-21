@@ -8,6 +8,10 @@
 //! around it or a class of either, or by the design's `AccentColor`; a
 //! field's by the design's `Field`, `FieldText` or `placeholder`, unless
 //! the field writes its own row (a node's own row wins over the role).
+//!
+//! Beside it, `tamber-contrast` for the design's `AccentColor` under a
+//! prominent button's white label (LLP 1116.019 D3), which `check` judges
+//! only on a screen a drive reaches.
 
 use crate::LowerError;
 use contract_syntax::{Attr, Expr, Node, Span, StyleDecl};
@@ -28,6 +32,21 @@ const PROMINENT: [&str; 4] = [
     "prominent-clear-glass",
 ];
 
+/// The contrast below which a control's label on its own fill is low:
+/// WCAG 1.4.11's 3:1, as `check` judges it (scripts/agent-check.mjs).
+const LABEL_CONTRAST: f64 = 3.0;
+
+thread_local! {
+    /// White's lowest contrast over the design's `AccentColor`, and whether
+    /// it falls in dark, while the app's view is judged.
+    static ACCENT_INK: std::cell::Cell<Option<(f64, bool)>> = const { std::cell::Cell::new(None) };
+}
+
+/// Note what white reads at on the `AccentColor` of the design lowered.
+pub(crate) fn note_accent(ink: Option<(f64, bool)>) {
+    ACCENT_INK.with(|a| a.set(ink));
+}
+
 /// A control the app draws, its first use, and where its accent comes from.
 struct Used {
     control: String,
@@ -39,6 +58,7 @@ struct Used {
 /// Unlowered, nothing read the app's targets or its design: forget an
 /// earlier compile's, so no `tamber-unreachable` reads them.
 pub(crate) fn unlowered() {
+    note_accent(None);
     crate::icons::clear(None);
     crate::theme::forget_roles();
 }
@@ -100,6 +120,25 @@ pub(crate) fn unreachable(view: &[Node], styles: &[StyleDecl], out: &mut Vec<Low
         };
         stack.extend(children.into_iter().rev().map(|c| (c, around)));
     }
+    // UIKit keeps a filled button's white label on any tint (LLP 1116.019 D3).
+    let low = ACCENT_INK
+        .with(|a| a.get())
+        .filter(|(r, _)| *r < LABEL_CONTRAST);
+    let filled = used
+        .iter()
+        .find(|u| u.control.starts_with("button-prominent") && u.accent.is_none());
+    if let (Some((r, dark)), Some(u), Some(set)) = (low, filled, role("AccentColor")) {
+        let scheme = if dark { "dark" } else { "light" };
+        out.push(LowerError {
+            id: "tamber-contrast",
+            message: format!(
+                "`AccentColor` is {:.2}:1 under a prominent button's white label in {scheme}: below {LABEL_CONTRAST}:1, a control label's ratio; UIKit keeps the label white on any tint, so leave the accent unsaid (the platform's blue) or deepen its {scheme} side (the first at line {}; LLP 1116.019 D3)",
+                (r * 100.0).floor() / 100.0,
+                u.at.line
+            ),
+            span: set,
+        });
+    }
     let mut said: Vec<(String, String, &str)> = Vec::new();
     for target in &targets {
         // A target with no column (tvOS, watchOS: not D9's hosts) is not
@@ -111,6 +150,7 @@ pub(crate) fn unreachable(view: &[Node], styles: &[StyleDecl], out: &mut Vec<Low
         else {
             continue;
         };
+        let mut found: Vec<Found> = Vec::new();
         for row in CONTROLS {
             let control = match row.state {
                 Some(state) => format!("{}:{state}", row.control),
@@ -148,19 +188,61 @@ pub(crate) fn unreachable(view: &[Node], styles: &[StyleDecl], out: &mut Vec<Low
                 continue;
             }
             said.push(key);
+            // A control and its state that the host leaves alike (a range
+            // and a disabled range) are one line.
+            match found
+                .iter_mut()
+                .find(|f| f.parameter == row.parameter && f.why == why)
+            {
+                Some(f) => f.controls.push(plural(&control)),
+                None => found.push(Found {
+                    parameter: row.parameter,
+                    why,
+                    controls: vec![plural(&control)],
+                    line: first.line,
+                    span: set,
+                }),
+            }
+        }
+        // An app made by `exact new` ships the Mac without asking for it,
+        // so the line says what ships it and how to stop. The web stays:
+        // it is the dev loop's and the agent's.
+        let stop = match crate::icons::without(&target.name) {
+            _ if target.name == "web" => String::new(),
+            Some(step) => format!(
+                ". The app ships {}; not shipping it? {step} removes it",
+                target.described()
+            ),
+            None => format!(
+                ". The app ships {}; not shipping it? delete those keys",
+                target.described()
+            ),
+        };
+        for f in found {
             out.push(LowerError {
                 id: "tamber-unreachable",
                 message: format!(
-                    "{} on {} {}: {why} (the first at line {}; LLP 1121 D9)",
-                    row.parameter,
+                    "{} on {} {}: {} (the first at line {}; LLP 1121 D9){stop}",
+                    f.parameter,
                     host_name(&target.name),
-                    plural(&control),
-                    first.line
+                    f.controls.join(" and "),
+                    f.why,
+                    f.line,
                 ),
-                span: set,
+                span: f.span,
             });
         }
     }
+}
+
+/// One line of `unreachable`: a parameter a host does not honour, for the
+/// controls that reach it for the same reason.
+struct Found {
+    parameter: &'static str,
+    why: &'static str,
+    controls: Vec<String>,
+    line: u32,
+    span: Span,
 }
 
 /// A node's rows as they may hold: its own, and each set of classes it

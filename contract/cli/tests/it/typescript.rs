@@ -142,7 +142,8 @@ fn compress_image_is_declared_as_the_docs_give_it() {
         "compressImage(from: string, to: string, options: CompressImageOptions): Promise<CompressedImage>;",
         "readonly maxDimension: number;",
         "readonly maxBytes: number;",
-        "readonly type: \"image/jpeg\";",
+        "readonly type?: \"image/jpeg\" | \"image/png\";",
+        "readonly type: \"image/jpeg\" | \"image/png\";",
         "readonly width: number;",
         "readonly height: number;",
         "readonly size: number;",
@@ -153,7 +154,9 @@ fn compress_image_is_declared_as_the_docs_give_it() {
     // The engine's positional binding is the prelude's to adapt, never the app's.
     assert!(!declared.contains("compressImage(from: string, to: string, maxDimension"));
     let reference = include_str!("../../../../docs/reference.md");
-    assert!(reference.contains("`storage.fs.compressImage(from, to, {maxDimension, maxBytes})`"));
+    assert!(
+        reference.contains("`storage.fs.compressImage(from, to, {maxDimension, maxBytes, type})`")
+    );
 }
 
 #[test]
@@ -471,6 +474,59 @@ fn build_reports_all_reachable_ambient_apis_before_bake() {
     let text = String::from_utf8_lossy(&output.stdout);
     assert!(text.contains("Date.now()"), "{text}");
     assert!(text.contains("Math.random()"), "{text}");
+}
+
+/// An import of a file git ignores (Expose's `./local`, which its hosts'
+/// build scripts write) that this checkout lacks says so, and how one gets
+/// it, beside the bundler's "could not resolve".
+#[test]
+fn a_missing_ignored_import_says_it_is_local() {
+    let fixture = Fixture::new();
+    fixture.write(
+        "app.contract",
+        "component App\n  view\n    text \"Hello\"\n",
+    );
+    fixture.write(
+        "app.ts",
+        "import { bakedKey } from './local';\nexport const key = () => bakedKey;\n",
+    );
+    fixture.write(".gitignore", "local.ts\n");
+    let git = Command::new("git")
+        .args(["init", "-q"])
+        .current_dir(&fixture.0)
+        .status()
+        .unwrap();
+    assert!(git.success());
+    let output = Command::new(env!("CARGO_BIN_EXE_contract"))
+        .args(["build", "app.contract", "--json"])
+        .current_dir(&fixture.0)
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(1), "{output:?}");
+    let text = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        text.contains("`./local` is `./local.ts`, a file git ignores here"),
+        "{text}"
+    );
+    // Once it exists, the build goes on.
+    fixture.write("local.ts", "export const bakedKey = \"\";\n");
+    let output = Command::new(env!("CARGO_BIN_EXE_contract"))
+        .args(["build", "app.contract", "--json"])
+        .current_dir(&fixture.0)
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "{output:?}");
+    // An import that is simply missing says nothing of git.
+    fixture.write(
+        "app.ts",
+        "import { other } from './nowhere';\nexport const key = () => other;\n",
+    );
+    let output = Command::new(env!("CARGO_BIN_EXE_contract"))
+        .args(["build", "app.contract", "--json"])
+        .current_dir(&fixture.0)
+        .output()
+        .unwrap();
+    assert!(!String::from_utf8_lossy(&output.stdout).contains("git ignores"));
 }
 
 #[test]

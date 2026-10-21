@@ -7,7 +7,8 @@ none listens. Start `snapback4 dev` on that origin’s port, seeded if needed;
 
 Each test opens empty app storage; backend rows survive tests and runs unless
 `fresh` at the file’s top (or leading a test) empties `snapback4 dev` before each
-test. This uses `POST /dev/reset` (Snapback4 **0.4.29**, `dev` only).
+test. This uses `POST /dev/reset` (Snapback4 **0.4.33**, `dev` only; a
+password-only app's `dev` opens it only with `--unsafe-dev-doors`).
 `fresh "seed.json"` then seeds it with `[{"table": …, "row": {…}}]`, from a path
 relative to the test file. A server lacking reset fails the test.
 Each seed row includes a stable 26-character Crockford base32 `id` (digits

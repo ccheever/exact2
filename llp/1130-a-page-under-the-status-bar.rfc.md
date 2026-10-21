@@ -106,10 +106,13 @@ the scroll view stays `.never` and the insets are the host's (no `.always`, no `
   keeps rows past its port (`QUEUE.md`).
 - When the band changes (a rotation, an iPad window with no top inset, a line put above the
   scroller, a new scroll view) the logical `scrollTop` is kept.
-- Touches in the bands are not taken: the status bar's tap and the home indicator's swipe are
-  the system's, and a drag that starts on a row under the status bar does not scroll it, as
-  it would on a hand-built screen (`QUEUE.md`).
-- A list UIKit draws (a grouped list) does not reach into the bands yet (`QUEUE.md`).
+- A touch in a band over such a scroller reaches it, as on a hand-built table view: a drag
+  that starts on a row under the status bar scrolls it. The document view takes points in
+  the page's margins and a scrolling node points out to its band (`PlainView.hitTest`,
+  `NodeView.hitTest`); the status bar's tap and the home indicator's swipe stay the system's.
+- A list UIKit draws (a grouped list's collection view) reaches into the bands the same way:
+  the band is its scroll view's, native or Exact, and a native one leaving gives it back
+  first, keeping `scrollTop`.
 - It is reconciled after each batch's frames and when the margins change, on its own path
   (navigation's `sync` returns early with no routes).
 - Offsets a layout in flight saved to restore (`beforeLayoutScroll`, `followedScroll`) move
@@ -135,7 +138,9 @@ again on an unstyled node scroller in the gate (Color Gallery writes
 - The agent's default (authored) chrome is not excluded: with no container, a person and
   `agent ios` see the same page.
 - Presented sheets and dialogs: they are not the document and keep their own insets.
-- A page inside a native container: its routes' covers already do this.
+- A page inside a native container: its routes' covers already do this. A route there that
+  says it has no bar (`navigationBar="none"`) puts its first scroller under the status bar
+  as a route with a bar puts it under the bar (`collapse`), its inset the status bar's.
 - macOS and tvOS.
 
 ## 3. The gate

@@ -15,6 +15,7 @@ import { EventEmitter } from 'node:events';
 import { developmentGate } from './install-page.mjs';
 import { spawnOwned, stopAll } from './test-children.mjs';
 import { FRAME_ANCESTORS, frameOnlyByTool, tamberServer } from './tamber-server.mjs';
+import { suiteBrowser } from './agent-launch.mjs';
 
 const ROOT = resolve(new URL('..', import.meta.url).pathname);
 const DESIGN = 'tamber t\n\ntheme\n  ink = #000000\n  edge = #101010\n';
@@ -510,8 +511,7 @@ test('no web build ships inspect: it lives in dev.js, which no build copies', as
 // LLP 1122 T2b: inspect mode in the wasm host, on the theme fixture's page.
 test('inspect on the wasm page: no tap reaches the app, a click selects the node the hit test finds and reports its site, instance and rows, a refresh reports it again, and Escape leaves', async () => {
   const { base, stop, said } = await devLoop(['--wasm'], 'theme-fixture');
-  const { chromium } = await import('playwright-core');
-  const browser = await chromium.launch({ channel: 'chrome', headless: true });
+  const browser = await suiteBrowser();
   let polling = true;
   try {
     const { token } = await (await fetch(`${base}/__tamber/token`)).json();
@@ -560,7 +560,7 @@ test('inspect on the wasm page: no tap reaches the app, a click selects the node
     const line = readFileSync(contract, 'utf8').split('\n').findIndex(l => l.includes('text "Swap pins"')) + 1;
     const selection = await until(() => events.find(e => e.event === 'selection'));
     expect(selection).toMatchObject({ build: build.id, node: Number(hit), readOnly: null, source: { line, component: 'App' } });
-    expect(realpathSync(selection.source.file)).toBe(realpathSync(contract));
+    expect(selection.source.file).toBe('app.contract'); // named from the app, as every answer names a file (tamber-paths.mjs)
     expect(selection.rows.every(r => r.editable && (r.editable.rung === 'token' || typeof r.editable.reason === 'string'))).toBe(true);
     // Its colour is the page's, inherited: read-only, a link to the token
     // the page's own row reads.
@@ -641,8 +641,7 @@ test('inspect on the wasm page: no tap reaches the app, a click selects the node
 // built in the page from the build's inspect table, and the join and
 // outline drawn from the page's own plan's map.
 test('inspect on the JS page: no tap reaches the app, and each node answers as on the wasm page, row for row, joined to the same source, with the same editability', async () => {
-  const { chromium } = await import('playwright-core');
-  const browser = await chromium.launch({ channel: 'chrome', headless: true });
+  const browser = await suiteBrowser();
   const ids = ['page', 'dim', 'swap', 'card', 'light', 'dim-preview', 'black-preview'];
   const polls = [], stops = [];
   try {
@@ -729,10 +728,12 @@ test('the JS loop: its own design server\'s lock is no edit, and an atomic save 
     // An editor's atomic save: a temporary beside the design, renamed over it.
     writeFileSync(`${file}.tmp`, was.replace('#16181c)', '#101010)'));
     renameSync(`${file}.tmp`, file);
-    // The batch, then its verifying build's word that it stands.
-    await until(() => said().includes('edit → checked'), 300_000);
+    // A value batch by either path: read, then `checked`; or, while the reader
+    // builds again, sent by the build (`built in`). Any other outcome ends the wait.
+    const outcome = /edit → checked|edit → batch ready [^\n]*\(built in|edit → plan ready|build failed/;
+    await until(() => outcome.test(said()), 300_000);
     expect(said()).toMatch(/edit → batch ready/);
-    expect(said()).not.toContain('edit → plan ready');
+    expect(said()).not.toMatch(/edit → plan ready|build failed/);
   } finally {
     await loop?.stop().catch(() => {});
     rmSync(dir, { recursive: true, force: true });
@@ -757,7 +758,7 @@ for (const [loop, flags] of [['the JS loop', []]]) {
     const { base, stop } = await devLoop(flags);
     try {
       const hello = await helloOf(base);
-      expect(hello.protocol).toBe('tamber/1.13');
+      expect(hello.protocol).toBe('tamber/1.15');
       expect(Object.keys(hello.files)).toContain('app.tamber');
       // The loop's own origin, which the design tool frames, and the page's
       // header that lets only the tool (and itself) frame it.

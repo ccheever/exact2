@@ -33,7 +33,7 @@ enum FocusSearch {
         // focus items; a route's navigation container holds exact2's nodes,
         // whose own foreign views join the nodes themselves.
         if view is NodeView || view is PlainView || view is ScrollView || view is MetalView
-            || view is UIImageView || view is UIVisualEffectView || view.next is UINavigationController
+            || view is UIImageView || view is UIVisualEffectView || view.next is UINavigationController || view.next is HeldStack
             || view is NativeButtonIOS { return } // a native button's node keeps the focus (LLP 1069.011 D4)
         candidates.add(view)
     }
@@ -54,6 +54,8 @@ enum FocusSearch {
 final class Viewport: ScrollView {
     /// Its bands past the page's area (`Presenter.pageMargins`, LLP 1130 D1).
     var pageMargins = UIEdgeInsets.zero
+    /// The control bars over its page's scrollers, each by its edge (`ControlBars.sync`, LLP 1131).
+    var controlBars: [ObjectIdentifier: ControlBars.Weak] = [:]
     // tvOS focuses exact2's own nodes (RemoteTVOS), so its search sees every view.
     #if !os(tvOS)
     override func focusItems(in rect: CGRect) -> [any UIFocusItem] { FocusSearch.items(self, in: rect) }

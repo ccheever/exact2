@@ -124,12 +124,45 @@ impl PaintedField {
         )
     }
 
+    /// `rangeFrame` (LLP 1114.007): the UTF-16 range `start..end` of the
+    /// value last painted, each of its boxes through the transform it was
+    /// painted with, then bounded as `Range.getBoundingClientRect()` bounds
+    /// them: the empty ones skipped unless all are, then the first; never
+    /// clipped, as the field's scroll leaves it. A single-line field has
+    /// none (an `input` is unavailable).
+    pub(crate) fn range_frame(&self, start: u32, end: u32) -> Option<Rect4> {
+        if !self.multiline {
+            return None;
+        }
+        let rects = self.geometry.range(start, end)?;
+        let shown = |r| super::bbox(self.transform, self.place(r));
+        let bound = rects
+            .iter()
+            .map(|r| shown(*r))
+            .filter(|r| r.2 > 0. && r.3 > 0.)
+            .reduce(|a, b| {
+                let (x, y) = (a.0.min(b.0), a.1.min(b.1));
+                let (r, d) = ((a.0 + a.2).max(b.0 + b.2), (a.1 + a.3).max(b.1 + b.3));
+                (x, y, r - x, d - y)
+            });
+        bound.or_else(|| rects.first().map(|r| shown(*r)))
+    }
+
     pub(super) fn place(&self, r: Rect4) -> Rect4 {
         (r.0 + self.origin.0, r.1 + self.origin.1, r.2, r.3)
     }
 }
 
 impl PaintedBox {
+    /// Drawn without a perspective (`space.rs`), a rotation or a skew, so
+    /// its box, and any clip round it, is square to the screen.
+    pub(crate) fn flat(&self) -> bool {
+        self.projective.is_none()
+            && self
+                .affine
+                .is_none_or(|(ts, _)| ts.kx == 0.0 && ts.ky == 0.0)
+    }
+
     /// A viewport point in the island where the field was painted. Its
     /// affine transform is inverted by `PaintedField::hit` afterwards.
     pub(crate) fn field_point(&self, x: f32, y: f32) -> (f32, f32) {

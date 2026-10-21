@@ -37,7 +37,10 @@ extension Agent {
         var bars: [(view: UIView, box: CGRect, top: Bool)] = []
         func findBars(_ v: UIView) {
             guard !v.isHidden, v.alpha > 0.01 else { return }
-            if Agent.isBar(v) { let b = v.convert(v.bounds, to: nil); if b.intersects(port) { bars.append((v, b, b.midY < port.midY)) }; return }
+            // A floating bar's glass lies over part of the screen's width, and cuts nothing beside it; what it covers,
+            // `cover` judges by its glass. One whose glass is not found is searched for the bars it holds.
+            if Agent.isFloatingBar(v) { if !Agent.glass(in: v).isEmpty { return } }
+            else if Agent.isBar(v) { let b = v.convert(v.bounds, to: nil); if b.intersects(port) { bars.append((v, b, b.midY < port.midY)) }; return }
             for s in v.subviews { findBars(s) }
         }
         roots.forEach(findBars)
@@ -184,9 +187,9 @@ extension Agent {
                 return reachable(v, hit: nil, above: false) ? nil : ["kind": "keyboard", "name": "the software keyboard"]
             }
             guard let hit = win.hitTest(p, with: nil), hit !== v, !hit.isDescendant(of: v), !v.isDescendant(of: hit) else { return nil }
-            var owner: UIView? = hit, bar: UIView? = nil
+            var owner: UIView? = hit, bar: UIView? = nil, barBox: CGRect? = nil
             while let cur = owner, !(cur is NodeView) {
-                if Agent.isBar(cur) { bar = cur }
+                if Agent.isBar(cur), let box = Agent.barBox(cur, holding: p) { bar = cur; barBox = box }
                 owner = cur.superview
             }
             // The cover whole — a bar, the node the hit is part of, or a scroller's own view (its edge effect) —
@@ -203,10 +206,10 @@ extension Agent {
                 bar = bars.first { $0.box.minX <= p.x && p.x <= $0.box.maxX && ($0.top ? p.y < $0.box.maxY : p.y > $0.box.minY) }?.view
             }
             let whole: UIView = bar ?? (own ? hit : owner ?? hit)
-            let cb = whole.convert(whole.bounds, to: nil), above = cb.midY < seen.midY
+            let cb = barBox ?? whole.convert(whole.bounds, to: nil), above = cb.midY < seen.midY
             if reachable(v, hit: hit, above: above, by: above ? cb.maxY - p.y : p.y - cb.minY) { return nil }
             let sheet = presenter.surface(containing: hit).map { ($0.kind == .route || $0.kind == .dialog) && !v.isDescendant(of: $0.view) } ?? false
-            let barName = bar.map { String(describing: Swift.type(of: $0)) }
+            let barName = bar.map { Agent.isFloatingBar($0) ? "UIKit's floating bar" : String(describing: Swift.type(of: $0)) }
             var c: [String: Any] = ["kind": barName != nil ? "bar" : sheet ? "sheet" : "node", "name": barName ?? String(describing: Swift.type(of: hit))]
             if bar == nil, let n = owner as? NodeView { c["by"] = Int(n.id) }
             return c
@@ -452,6 +455,8 @@ extension Agent {
                     item["label"] = true
                     // UIKit's white on a fill of the accent (LLP 1116.019 D3): what reads on it is the accent's choice.
                     if ButtonConfigurationIOS.filledStyles.contains(button.drawn), button.configuration?.baseForegroundColor == nil { item["onAccent"] = true }
+                    // UIKit's hue on its own pale fill: the tinted style's label in the button's tint.
+                    if button.drawn == "tinted", button.configuration?.baseForegroundColor == nil { item["tinted"] = true }
                     break
                 }
                 if cur is UIButton {
@@ -484,9 +489,29 @@ extension Agent {
     /// UIKit's bars: what a finger at the top or the bottom of a screen meets.
     static func isBar(_ v: UIView) -> Bool {
         #if os(iOS)
-        if v is UIToolbar { return true }
+        if v is UIToolbar || isFloatingBar(v) { return true }
         #endif
         return v is UINavigationBar || v is UITabBar
+    }
+
+    /// iOS 26's floating bar, which holds a bottom search field or a floating toolbar: a container as large as the
+    /// window that draws only its glass.
+    static func isFloatingBar(_ v: UIView) -> Bool {
+        String(describing: Swift.type(of: v)) == "_UIFloatingBarContainerView"
+    }
+
+    /// The part of the window bar `v` draws over point `p`: its frame, or for a floating bar the piece of glass under
+    /// `p` (nil when none is, and what the touch met is judged without it).
+    static func barBox(_ v: UIView, holding p: CGPoint) -> CGRect? {
+        guard isFloatingBar(v) else { return v.convert(v.bounds, to: nil) }
+        return glass(in: v).first { $0.contains(p) }
+    }
+
+    /// Each piece of glass a floating bar shows, in the window: a search field, a group of a toolbar's buttons.
+    static func glass(in v: UIView) -> [CGRect] {
+        guard !v.isHidden, v.alpha > 0.01 else { return [] }
+        if String(describing: Swift.type(of: v)) == "UIPlatformGlassInteractionView" { return [v.convert(v.bounds, to: nil)] }
+        return v.subviews.flatMap(glass(in:))
     }
 
     /// The software keyboard's top in the window, or nil while it is down.

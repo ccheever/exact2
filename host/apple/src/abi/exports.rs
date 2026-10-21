@@ -34,6 +34,7 @@ macro_rules! host {
             $crate::decorations::read(input, len, count)
         }
         $crate::raster_exports!();
+        $crate::svg_image_exports!();
         $crate::textflow_exports!();
         $crate::collapse_exports!();
         $crate::app_module_exports!();
@@ -419,8 +420,10 @@ macro_rules! host {
         ///
         /// # Safety
         /// `views` points to `count` valid ids, `rects` to `count * 4` doubles.
+        /// `clips` is null or points to `count * 4` doubles; NaN at an
+        /// entry's x means no clip.
         #[no_mangle]
-        pub unsafe extern "C" fn exact_top_layer(rt: u32, views: *const u32, rects: *const f64, count: u32, modal: u32) {
+        pub unsafe extern "C" fn exact_top_layer(rt: u32, views: *const u32, rects: *const f64, clips: *const f64, count: u32, modal: u32) {
             let ids = if count == 0 { &[] } else {
                 // SAFETY: the caller keeps `count` ids live for this synchronous call.
                 unsafe { std::slice::from_raw_parts(views, count as usize) }
@@ -429,8 +432,16 @@ macro_rules! host {
                 // SAFETY: the caller keeps four doubles per id live for this call.
                 unsafe { std::slice::from_raw_parts(rects, count as usize * 4) }
             };
-            let frames: Vec<_> = ids.iter().zip(rects.chunks_exact(4))
-                .map(|(&id, r)| (id, [r[0], r[1], r[2], r[3]])).collect();
+            let clips = if clips.is_null() || count == 0 { &[] } else {
+                // SAFETY: the caller keeps four doubles per id live for this call.
+                unsafe { std::slice::from_raw_parts(clips, count as usize * 4) }
+            };
+            let frames: Vec<_> = ids.iter().zip(rects.chunks_exact(4)).enumerate()
+                .map(|(i, (&id, r))| {
+                    let clip = clips.get(i * 4..i * 4 + 4).filter(|c| !c[0].is_nan())
+                        .map(|c| [c[0], c[1], c[2], c[3]]);
+                    (id, [r[0], r[1], r[2], r[3]], clip)
+                }).collect();
             let modal = (modal != u32::MAX).then_some(modal as usize);
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.top_layer(&frames, modal), |_| ())
         }
@@ -702,6 +713,13 @@ macro_rules! host {
         #[no_mangle]
         pub extern "C" fn exact_midi(rt: u32, len: usize) -> u32 {
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.midi(len), |n| n)
+        }
+
+        /// The extensions the app's module composes, a name a line in the
+        /// input buffer (LLP 1133.001 D4).
+        #[no_mangle]
+        pub extern "C" fn exact_bind_extensions(rt: u32, len: usize) {
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.bind_extensions(len), |_| ())
         }
 
         /// The agent's `prefer extension` in the input buffer (LLP 1124 D7).

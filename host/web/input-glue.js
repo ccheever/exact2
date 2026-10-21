@@ -1,5 +1,6 @@
 // Input-only glue: loaded after the baked first pixel, independently of data readiness.
 import "./prompt-glue.js"; // a prompt's Return
+import "./alert-message.js"; // a grouped alert's message box
 /** An element whose `press` the keyboard reaches only through its tabindex:
  * not one the browser activates itself (the wasm host's handler list, or the
  * JS target's `data-exact-on`). */
@@ -54,14 +55,18 @@ function radioArrow(root, event) {
   if (next !== el) { rove(all, next); next.focus(); next.click(); }
   return true;
 }
-/** @ref LLP 1115.000 D4.5 — a `tablist`'s tabs and a `menu`'s items move by the arrow keys, as WAI-ARIA's patterns give
- * the roles and a web developer expects of them: Left and Right along a tablist (Up and Down when it is vertical: its
- * `aria-orientation`, or a root tab bar the shell draws as a sidebar), Up and Down in a menu (and into an open one from
- * outside it), Home and End to the ends, wrapping, past disabled ones. The focus moves and nothing is pressed: a tab's
- * press is the app's action (a fetch, in Shelf's Discover), so Enter or Space chooses, as a `<button>` takes them. A
- * tablist is one Tab stop: its selected tab, or the tab the arrows left the focus on. */
-const ROVES = '[role="tablist"], [role="menu"]';
-const roversOf = group => [...group.querySelectorAll(group.getAttribute("role") === "menu" ? 'button, a[href], [role^="menuitem"]' : '[role="tab"]')].filter(el => el.closest(ROVES) === group);
+/** @ref LLP 1115.000 D4.5 — a `tablist`'s tabs and a `menu`'s items (a chooser's too, drawn as a menu) move by the
+ * arrow keys, as WAI-ARIA's patterns give the roles and a web developer expects of them: Left and Right along a tablist
+ * (Up and Down when it is vertical: its `aria-orientation`, or a root tab bar the shell draws as a sidebar), Up and Down
+ * in a menu, Home and End to its ends (into the one on top: Up and Down from outside, all four from a menu beneath),
+ * wrapping, past disabled ones. The focus moves and nothing is pressed: a tab's press is the app's action (a fetch, in
+ * Shelf's Discover), so Enter or Space chooses, as a `<button>` takes them. A tablist is one Tab stop: its selected tab,
+ * or the tab the arrows left the focus on. */
+const MENUS = '[role="menu"], [data-exact-chooser]', ROVES = `[role="tablist"], ${MENUS}`;
+const roversOf = group => [...group.querySelectorAll(group.matches(MENUS) ? 'button, a[href], [role^="menuitem"]' : '[role="tab"]')].filter(el => el.closest(ROVES) === group);
+// The open menu on top: the last to open (navigation.js stamps `exactOpened`), which is the top layer's order and not
+// the document's (a chooser a menu's row opens stands over the menu, wherever each is written).
+const topMenu = root => [...root.querySelectorAll(`:is(${MENUS}):popover-open`)].sort((a, b) => (a.exactOpened ?? 0) - (b.exactOpened ?? 0)).at(-1);
 function tabStops(root) {
   for (const list of root.querySelectorAll('[role="tablist"]')) {
     const all = roversOf(list), at = document.activeElement;
@@ -72,14 +77,15 @@ function tabStops(root) {
 function roveArrow(root, event) {
   const el = event.target, key = event.key, within = el?.closest?.(ROVES);
   if (!el || !(root.contains(el) || el === document.body)) return false;
-  const open = !within && /^Arrow(Up|Down)$/.test(key) && !el?.matches?.("input, textarea, select, [contenteditable]") ? root.querySelector('[role="menu"]:popover-open') : null;
+  const top = /^(Arrow(Up|Down)|Home|End)$/.test(key) && !el?.matches?.("input, textarea, select, [contenteditable]") ? topMenu(root) : null;
+  const open = top && !top.contains(el) && (within ? within.matches(MENUS) : /^Arrow/.test(key)) ? top : null; // from a menu beneath it, or by an arrow from outside
   const group = open ?? within;
   if (!group || !root.contains(group)) return false;
-  const menu = group.getAttribute("role") === "menu", all = roversOf(group), live = all.filter(item => item === el || radioUsable(item));
+  const menu = group.matches(MENUS), all = roversOf(group), live = all.filter(item => item === el || radioUsable(item));
   if (!open && !all.includes(el)) return false;
   const vertical = menu || group.getAttribute("aria-orientation") === "vertical" || group.parentElement?.hasAttribute("data-exact-sidebar"), rtl = getComputedStyle(group).direction === "rtl";
   const step = (vertical ? { ArrowDown: 1, ArrowUp: -1 } : { ArrowRight: rtl ? -1 : 1, ArrowLeft: rtl ? 1 : -1 })[key];
-  const next = open ? live.at(key === "ArrowDown" ? 0 : -1) : step ? live[(live.indexOf(el) + step + live.length) % live.length] : key === "Home" ? live[0] : key === "End" ? live.at(-1) : null;
+  const next = open ? live.at(key === "ArrowDown" || key === "Home" ? 0 : -1) : step ? live[(live.indexOf(el) + step + live.length) % live.length] : key === "Home" ? live[0] : key === "End" ? live.at(-1) : null;
   if (!next) return false;
   event.preventDefault();
   if (next !== el) { if (!menu) rove(all, next); next.focus(); }
@@ -672,24 +678,26 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
     },
     // Studio diary R22, R3, R19, R17: a `contextmenu` with its point (10),
     // `dblclick` (11), a `wheel` (37, its record; a prevented one does not
-    // scroll), files dropped from outside (38, each minted a `doc:` handle,
-    // documents-glue.js) and the window's `beforeunload` (36), as the JS
-    // target's rt.js and files.js hear them. `fire(kind, line)` dispatches.
+    // scroll), files and folders dropped from outside (38, each minted a
+    // `doc:` handle, documents-glue.js), a file drag's enter and leave (55, 56, documents-glue.js
+    // `hearDrags`) and the window's `beforeunload` (36), as the JS target's
+    // rt.js and files.js hear them. `fire(kind, line)` dispatches.
     mouse(el, kind, e, fire) {
       if (!ready()) return;
       if (kind === "beforeunload") return el.isConnected && fire(36, "");
       if (el.matches(":disabled") || inertAncestor(el)) return;
       if (kind === "wheel") return e.exactStopped || fire(37, `${pointerLine(el, e).split(",").slice(0, 2)},${e.deltaX},${e.deltaY},${e.deltaMode},${modifiers(e)}`);
       if (kind === "dragover") { if (e.dataTransfer?.types?.includes("Files")) { e.preventDefault(); e.dataTransfer.dropEffect = "copy"; } return; }
+      if (kind === "dragenter" || kind === "dragleave") return fire(kind === "dragenter" ? 55 : 56, `${pointerLine(el, e).split(",").slice(0, 2)},${modifiers(e)}`);
       if (kind === "drop") {
         const dt = e.dataTransfer;
-        if (!dt?.files?.length) return;
+        if (!dt?.types?.includes("Files")) return;
         e.preventDefault(); e.stopPropagation();
-        const at = `${pointerLine(el, e).split(",").slice(0, 2)},${modifiers(e)}`, files = [...dt.files];
-        const handles = [...dt.items].filter(i => i.kind === "file").map(i => i.getAsFileSystemHandle?.().catch(() => null) ?? null);
+        const at = `${pointerLine(el, e).split(",").slice(0, 2)},${modifiers(e)}`, files = [...dt.files], items = [...dt.items].filter(i => i.kind === "file");
+        const handles = items.map(i => i.getAsFileSystemHandle?.().catch(() => null) ?? null), entries = items.map(i => i.webkitGetAsEntry?.() ?? null);
         return documents?.().then(async (glue) => {
-          const found = await glue.dropped(await Promise.all(handles), files);
-          if (found.length) fire(38, `${at}\n${found.join("\n")}`); else log("drop: refused: no file of a type this app declares");
+          const found = await glue.dropped(await Promise.all(handles), files, entries);
+          if (found.length) fire(38, `${at}\n${found.join("\n")}`); else log("drop: refused: the browser handed over no file");
         });
       }
       // A field keeps the browser's own double-click, and a text field its edit menu (navigation.js `editMenu`); a control's input has no edit menu, so its node's `contextmenu` runs (#487).
@@ -911,6 +919,13 @@ export function viewBox(el) {
   return stretch ? new DOMRect(left, t.y, right - left, t.height) : t;
 }
 
+// How far a scroller's offset travels on each axis from one end to the other (LLP 1012 `rx`/`ry`), whether or not the
+// person can scroll it that way: `overflow: hidden` keeps a programmatic range.
+export function scrollRange(el) {
+  const r2 = (x) => Math.round(x * 100) / 100;
+  return { rx: r2(Math.max(0, el.scrollWidth - el.clientWidth)), ry: r2(Math.max(0, el.scrollHeight - el.clientHeight)) };
+}
+
 // The agent reports attached views in viewport coordinates, including folded text.
 export function layoutBoxes(views, gpu) {
   const r2 = (x) => Math.round(x * 100) / 100;
@@ -923,7 +938,7 @@ export function layoutBoxes(views, gpu) {
       const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
       n.hit = hit === el;
     }
-    if (el.dataset.scroll === "true") { n.sx = r2(el.scrollLeft); n.sy = r2(el.scrollTop); }
+    if (el.dataset.scroll === "true") { n.sx = r2(el.scrollLeft); n.sy = r2(el.scrollTop); Object.assign(n, scrollRange(el)); }
     nodes.push(n);
   }
   return nodes;
@@ -959,5 +974,5 @@ export function selectAll(el) {
   if (was === null || now === null) requestAnimationFrame(() => requestAnimationFrame(heard));
   return event;
 }
-export const agentInput = { guestOutline, guestTap, guestType, reveal, viewBox, layoutBoxes, selectAll };
+export const agentInput = { guestOutline, guestTap, guestType, reveal, viewBox, layoutBoxes, scrollRange, selectAll };
 if (globalThis.exact) Object.assign(globalThis.exact, { createInputHandlers, agentInput });

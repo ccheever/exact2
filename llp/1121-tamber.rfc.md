@@ -829,6 +829,45 @@ No spacing or radius scale ships in the base yet: the platform's metrics are alr
 rows. A base scale, with platform values rather than a brand's 4 px grid, is wanted later
 (Charlie, 2026-10-13) and is stage 11.
 
+*Amended 2026-10-19 (stage 11 B; theme2):* the base scale ships as nine base names (`space.xs`
+to `space.xl`, `radius.sm` to `radius.full`), each a length in each host's column of the
+kernel's table. A design value or a `when` arm may name one bare (`card.pad: length = space.md`,
+an alias), and what it means depends on the app's design:
+- **the base name is unset:** the alias is a per-host reference, kept as written and never
+  folded, so each host reads its own column; an expression over it is kept too (below);
+- **the app's design sets it:** it is the app's own token, and every reader folds through it as
+  through any token reference, so the app's value wins everywhere, an edit of it re-folds the
+  alias, and a ranged param naming it keeps its px.
+
+*Amended 2026-10-20 (stage 12 B2; theme2's 00:42 ruling):* an expression over an unset base
+name (`calc(space.md * 2)`, `min(space.lg, 20px)`; lengths only, with px and numbers beside it)
+is kept as written, its token references inlined and its constant parts folded, so one
+expression has one text (`calc(space.md + 2px + 2px)` is `calc(space.md + 4px)`). The scale
+table carries no arithmetic, and the schema, its digest and the wire don't move: the theme
+row's value is the expression.
+- **Each host evaluates it in its own column at run time.** The kernel substitutes each
+  base's length (the design's own definition first, as an alias reads it; the reads recorded)
+  and folds the `calc()`, `min()`, `max()` or `clamp()` with its own calc code, so Apple,
+  Linux, Android and the runner's bindings read px. The JS target writes
+  `calc(var(--exact-space-md) * 2)`, and an SVG attribute the build's column's px. The
+  terminal evaluates it in its column (cells as px), and its spaces then round as every space
+  does there (LLP 1101 §4).
+- **The compiler checks the expression in every column** and names the column it fails in
+  (`card.pad` is the length `-2px` on mac (`calc(space.md - 12px)`), which `padding` does not
+  take), a param's range included. A bare unset base name in a ranged param is checked the
+  same way, per column, where it was refused before.
+- **What is refused:** `rem`, `em` or `%` beside a base name (as in any `calc()`), a base name
+  times or over a length (a base name's or px), and a length added to a number. A base name the
+  app's design sets folds through as before.
+- *Amended 2026-10-20 (stage 12 B3; theme2's sign-off):* **a shadow token's lengths** may be any
+  of these: a bare base name, a length token, or a `calc()`, `min()`, `max()` or `clamp()` over
+  length tokens and base names. One length path for every shadow length: over a base the design
+  leaves unset it is kept, each host folding it in its own column (each base read recorded, so an
+  edit of it sets the row again); over px tokens and set bases it folds to px, so a shadow over
+  `space.md` keeps working when the app sets `space.md`. The compiler checks every column, its
+  blur never negative and its lengths within the limits. A literal `box-shadow` row's lengths
+  stay px (QUEUE).
+
 **Packages.** A package (`packages/reading`) may ship `<package>.tamber` with tokens named
 under its package (`reading.measure`, `reading.body`), which its views use. The app's design
 may set any of them by full name. Two definitions of one name from different files are a
@@ -836,6 +875,30 @@ compile error, unless the app's design sets it. Dials and axes are the app's alo
 may not declare them, and a package token's `when` lines may name only the app's axes, which
 the app must declare or the package's token is refused. What a build keeps of a package's
 tokens is D7's one retention rule.
+
+As built (stage 11 A1, theme2's rulings Q1–Q8 and 13:06): the file is `<name>.tamber` beside
+the package's entry (what its `package.json` `exports` maps `.` to, else `index.contract`), or
+the file its `package.json` `"tamber"` names inside the package (missing, or leading out of it:
+`tamber-unreadable`), for every package the app's sources link, transitively (a package vendored
+inside one and reached by a relative `use` included). `<name>` is the last part of the package's
+own name (`@exact/reading` → `reading`, whatever name a `use` installed it under); the file's
+header is `tamber <name>` and every token is `<name>.…` (`tamber-package-name`). Two linked
+packages taking one namespace that both ship a design are refused, naming both: no line of the
+app's can tell their tokens apart (the one-name rule above is then the app's and a package's: the
+app's definition wins). A token keeps its name in the one table; its source is
+`<package>/<file>` (`@exact/reading/reading.tamber`), and the design server names it
+`<package>/<file>#<token>` (stage 11 A2), as D15 names components. A package's design holds a
+`theme` block and its components' params (stage 12 B1: `component … params`, named
+`<package>/<file>#Name`): axes, dials, `params` lines, icon tokens and `exports` are refused
+(`tamber-package-block`; icons QUEUE). Its tokens join the
+app's design in the one fold; a token the app's design defines is the app's, whole (all its
+`when` lines). What a package token names, as the fold resolves it (its values and its `pair=`),
+is a token its own design declares, a role or one of the base scale's nine names (`space.xs`,
+`space.sm`, `space.md`, `space.lg`, `space.xl`, `radius.sm`, `radius.md`, `radius.lg`,
+`radius.full`, whose values are the app's until stage 11 B's; a package may not declare them),
+and no dial its values read (`tamber-unknown-token`; references across packages are QUEUE).
+A refusal in a package's design points at its line there (a token's, a `when`'s, a refused
+block's); one about the file (unreadable, a namespace taken twice) names the file.
 
 ### D12 — Every language gets generated names over the one table
 
@@ -1210,7 +1273,10 @@ component PostButton
   modes, and a change to it re-folds every param and token that reads it.
 - **Its identity is stable.** A component's identity is its declaring file, relative to its
   app or package root, and its name: `post.contract#PostButton`, or
-  `@scope/reading/article.contract#Article` for a package's. A param's full name is that
+  `@scope/reading/article.contract#Article` for a package's. A package outside the app needs a
+  name in its `package.json` (`contract-package-unnamed`, the path fix): its place from the app
+  would spell this machine's directories. A root file linked into the app's tree from elsewhere (a symlink, as
+  conform's corpus fixtures are) in no named package is the app's own, named where the link sits (one in a named package keeps its name); a file a `use` reaches is its target's (the path fix's follow-up). A param's full name is that
   identity and the param (`post.contract#PostButton.radius`). The short form
   `PostButton.radius` is accepted wherever it is unambiguous and refused where two
   components share the name (`tamber-param-ambiguous`); an import alias (`use X as Y`)
@@ -1240,7 +1306,10 @@ component PostButton
   appear) and `priority=` (1 surfaced first, 3 behind "more", default 2) apply to all. App
   dials (D4) take the same metadata.
 - **What a range checks.** A ranged length takes px literals only, so it can be checked at
-  build; a `rem`, `em` or text-style value there is refused (`tamber-range-unit`). The default,
+  build; a `rem`, `em` or text-style value there is refused (`tamber-range-unit`). A base
+  name the design leaves unset, bare or in an expression (D11, stage 12 B2), is checked in
+  every column of the scale instead, the refusal naming the first column outside the range
+  (`tamber-param-range`; theme2's 01:13 ruling). The default,
   folded for every tuple, must be inside the range (`radius.md` is 12 px in the example).
   An override that is a literal is checked against it; one that names a token is checked
   after folding. A scrub in the tool that replaces a token default with a literal is a pinned
@@ -1469,8 +1538,9 @@ Android's reader and the terminal.
     cannot write or send commands; revocation cuts off its socket and, separately, its canvas
     through the gateway; an unencrypted remote connection is refused.
     **10b. External clients** (D14): a Figma Variables bridge, a Paper or Pencil client, as
-    clients of stage 10. **Gate:** a changed accent in Figma Variables is proposed as a dial
-    change and a changed folded value as a pinned override.
+    clients of stage 10. Wire: its additions land after stage 10 closed (2026-10-19), so they
+    are the first of `tamber/1.14`, the window stage 11 shares. **Gate:** a changed accent in
+    Figma Variables is proposed as a dial change and a changed folded value as a pinned override.
     **10c. A hosted relay** (Charlie, 2026-10-19: "We will prob need one yes"; design to
     follow, its own plan): remote pairing for a team that shares no machine or LAN. What
     stage 10 already fixes, and the relay must keep (theme2's check, 2026-10-19):
@@ -1498,6 +1568,12 @@ Android's reader and the terminal.
 11. **A base spacing and radius scale** (D11), when packages need a shared vocabulary:
     `space.*` and `radius.*` with values taken from each platform's metrics, not a brand's
     4 px grid. **Gate:** two packages restyle together from one app value.
+    *As accepted (the lead, 2026-10-19, theme2's stage 11 brief):* started now, with two fixture
+    packages as the consumer; it first builds D11's package designs (no package shipped a
+    `.tamber`, and only the app's design was read); names `space.xs…xl` and
+    `radius.sm/md/lg/full`, each base value from an existing metric or measured, never a
+    multiplier, in px/points with no Dynamic Type scaling; an app may override a base name, a
+    package may not; only the listed names are reserved; package components stay stage 12's.
 12. **A component library**: `.contract` packages over Tamber, with params (D15) as their
     tweakable surface and anatomy as checked data, keeping exact1 Facet's rule, "a recipe
     styles parts; it never forecloses slots". Its own RFC. **Gate:** set by that RFC; its
@@ -2886,7 +2962,8 @@ Built and recorded in full in LLP 1115.000's as-built table (D12.2 and D12.3). F
   So the `font` shorthand lowers to only `font-style` and `font-size`. That is what lets C's type
   tokens write only the longhands they name.
 - **`layout` and inspect** name a row's source `style` or `heading`.
-- **Headings** keep an implied bold through one switch, `HEADING_BOLD`, pending Charlie.
+- **Headings** keep an implied emphasized weight through one switch, `HEADING_BOLD` (final,
+  Charlie 2026-10-19: 700 for levels 1 and 2, 600 for level 3).
 - **Bold Text** weights the system font by UIKit's measured step (400→600, 600→800, 700 and above
   →900), and leaves a bundled family alone. iOS and Android read the setting; the Mac and the web
   have none. Android's toggle is compiled and unit-tested but not observed on the emulator.
@@ -3195,7 +3272,10 @@ mistaken for one. There are 88 symbol roles plus 58 aliases, not 76.
     value (a text, an attribute that is no row, a function's argument, a condition, a state, a
     derive, an action) is refused (`tamber-param-scope`), naming the param.
   - A param named where no component owns it is refused (`tamber-param-scope`): in a `style` or a
-    `keyframes`, which any component may apply; in a state's or a derive's value. So is one in
+    `keyframes`, which any component may apply; in a state's or a derive's value. *Amended
+    2026-10-20 (LLP 1139 D3, stage 12 C3; theme2's ruling, one rule for every component):* a
+    `style` one component's view alone applies is that component's, and its `param.*` are that
+    component's params; one another component applies too is no one's and stays refused. So is one in
     what a row computes (a function's argument, a condition, a comparison, a callback): what it
     computes is data the param's value never reaches, and a duration there would never be written
     in. A package's file is named by the package's declared name: the nearest directory above the
@@ -3494,7 +3574,7 @@ Built to D8 as amended 2026-10-18 (Charlie's option B; theme2's 06:14 ruling on 
   - `border-color` and `box-shadow` in `:active` (`lower-state-row`: the press can't paint them yet);
   - `-exact-press-scale` in `:hover` or `:focus-visible` (`lower-state-row`, pointing at `:active`);
   - a node, or its class, saying a press paint both ways (`lower-state-press-paint`): `-exact-press-background-color`, `-exact-press-color`, `-exact-press-opacity` or `-exact-press-scale` beside the same `:active` row.
-- **Where an `:active` row is written** (theme2's 06:14 condition). The map's binding for a lowered row carries `"state": "active"` and `at`, the `:active` row's file and span (`sites::Origin::State`; its `origin` is still the node's or class's). `uses`, and so explain, name that line, not the node's.
+- **Where an `:active` row is written** (theme2's 06:14 condition). The map's binding for a lowered row carries `"state": "active"` and `at`, the `:active` row's file and span (`sites::Origin::State`; its `origin` is still the node's or class's). `uses`, and so explain, name that line, not the node's. (Since LLP 1122's queue item (1), on theme2's 2026-10-20 ruling: the part is the press row binding's `states` entry, `{state: "active", origin, at}`, and the binding has no base fields; `:hover` and `:focus-visible` rows are entries of their rows' `states` too.)
 - **The absolute press opacity.** The press eases from the opacity shown at the press, a hover or focus look's included, to the target. For that node it replaces D7's clamped share. A hand-written `-exact-press-opacity` keeps the share.
   - Web: `--exact-press-opacity-to`. The glue's `PAINT` list takes it, and index.html computes `base + (to − base) × paint`.
   - Apple, Linux and Android: B2 and B3.
@@ -4195,3 +4275,1426 @@ stay, marked `revoked`; (c) 8 live codes, and 5 attempts a minute per peer.
 - **Known limit (accepted, theme2):** five unauthenticated misses burn every live code, by the burn rule:
   a LAN peer can deny pairing, never gain it (rate-limited per peer; pairing is LAN-only, ruling 1).
 
+
+### Stage 10, commit C1: the canvas gateway (draft for theme2)
+
+Built to the approved plan (`~/x2theme/x2p4-s10c-plan.md` and its additions after approval) as a module on its own,
+`scripts/tamber-canvas.mjs`, with A's interface and B's listener injected; under `tamber/1.13`.
+
+- **The origin (theme2's ruling on C (a), the lead agreeing).** The canvas has its own origin: a second TLS port on
+  B's remote listener, the same per-run certificate. It is the same site as the tool's port and a different origin,
+  as the local tool (`127.0.0.1:7740`) and the framed page (`localhost:<port>`) are today, so `pageOf`'s guard
+  holds: the framed page can't lift its sandbox or reach the tool's DOM, storage or token. D12's "same-origin" reads
+  "served by the Tamber server under the paired token, never the app's dev URL handed out" (recorded in D12 by
+  theme2). `/canvas/<client>/` is only the entry; the page is then served at its own root, so no path in the dev
+  glue is rewritten and history URLs stay on the canvas.
+- **The `canvas` method** (`read`; A's METHOD_SCOPE takes `canvas: 'read'`): `{url, grant, expires}`.
+  - The grant: 256 bits from the CSPRNG, single use, valid 30 s, bound to the client. It is rate-limited per client
+    by one A `limiter({rate: 6, per: 60 s})` the gateway makes, `take('canvas:<client>')` (a burst of 6, refilled at
+    6 a minute).
+  - The url: `<canvas origin>/canvas/<client>/`, never a loopback URL.
+- **The entry**, `POST /canvas/<client>/`, with `grant` in a form or JSON body:
+  - A query string, a GET, no Origin or one other than the canvas's or the tool's (`null` included), a wrong, used
+    or expired grant, or another client's: not-found.
+  - The grant is compared timing-safe (by its SHA-256) and burned on any try.
+  - A session id (256 bits) is bound server-side to the client, its token and that grant.
+  - The answer is a 303 to `/`.
+- **The cookie rules:**
+  - `__Host-exact-canvas=<session>; Secure; HttpOnly; SameSite=Strict; Path=/`, with no Domain.
+  - A session is valid only by the gateway's map: a value it didn't mint is an unknown session.
+  - A token is never read from a cookie, and no tool or design-server path reads `Cookie` (A's rule).
+  - Cookies aren't port-scoped, and the canvas's page code is untrusted. Page code can set a cookie of that name on
+    the host (the `__Host-` prefix only makes it Secure, host-only and `Path=/`), and it grants nothing on either
+    port (a test sends one). At worst it overwrites or deletes the real cookie, which forces a fresh grant from the
+    tool. A page-set value sent beside the real one doesn't hide it: each value is tried.
+- **Every other request:**
+  - It needs the session, then its client's token through A's `lookup` (a revoked or expired token fails at once,
+    as does one whose `expires` has passed), then the route's scope through A's `allows(scope, needs, false)`: a
+    canvas request is never local.
+  - An unknown, missing, revoked or expired session: not-found, the same answer for each. A scope refused: 403
+    `{message, scope, needs}`.
+  - An allowed POST also needs `Origin` to be the canvas's, on top of SameSite=Strict.
+  - No CORS header is ever sent.
+- **The scope table** (everything else is not-found):
+
+  | scope | routes |
+  |---|---|
+  | `read` | GET/HEAD of the page and its assets (any path outside `/__…`, `/.exact/` and the entry); `/__dev` and `/__dev/page` (SSE), `/__dev/hello`, `/__dev/commands` (its query kept), `/__dev/generation/*`, `/__dev/map/*`, `/__dev/inspect.js`, `/dev-inspect.json`, `/exact.json`, `/modules/*`; GET `/__dev/design`; the page's beacons POST `/__dev/reloaded`, `/__dev/painted`, `/__dev/gpu` (the wasm page's), `/__dev/report` |
+  | `write` (theme2's ruling) | POST `/__dev/design`, `/__dev/checkpoint`, `/__dev/open`; GET `/__dev/open` (the opening page) |
+  | never | `/__tamber` and `/__tamber/*` (through the proxy the loop would see a local request and hand out its write token), `/__dev/install/ios`, `/__exact/*`, `/.exact/*` |
+
+  `/__dev/report` carries hold and held reports. Holding is a `write` command sent down the build channel, so a
+  `read` or `propose` client's page reports only holds the server asked for (A's table, ruling 5).
+- **Upstream:**
+  - The request goes over loopback to the loop as the gateway itself, with `redirect: 'manual'` and the query kept.
+  - Host is the loop's, and an allowed POST's Origin is the loop's origin.
+  - Cookie, `x-exact-tamber-token`, Referer, the client's `forwarded` and `x-forwarded-*`, and hop-by-hop headers
+    (and any the Connection header names) are dropped.
+  - The gateway adds one marker of its own, fixed and naming no peer: `forwarded: for="_exact-canvas"`. Why: the
+    gateway reaches the loop from loopback with a loopback Host, which the dev gate (`access.local`) would call
+    local, and a local request is given the install token (the install pages) and the tamber token
+    (`/__tamber/token`). With the marker the gate, unchanged, admits the request but never calls it local, so no
+    route the allow list passes, now or later, can hand either token to a remote client. The gate never sees a
+    paired credential.
+  - The body limit is `forward()`'s (1 MiB less 64 bytes), but for `/__dev/checkpoint` (`write` only), which takes
+    the loop's own cap (16 MiB, the JS loop's `CHECKPOINT_BYTES`, mirrored and checked by a test). Over it is a 413,
+    then the connection closed.
+- **Downstream:**
+  - Set-Cookie, CORS, HSTS and hop-by-hop headers are dropped, with `cache-control: no-store`.
+  - Loopback addresses are rewritten (theme2's ruling: D12's "no loopback URL handed out" is functional, not a
+    security boundary). A candidate is a web or scheme-relative URL, or a bare `host:port` standing alone.
+    - A URL's authority runs to the first `/`, `?`, `#`, `\`, whitespace, quote, `<` or `>`, so userinfo punctuation
+      (`;`, `,`, `(`, `)`) stays in it. Only an authority that doesn't parse at all with a trailing `;`, `,`, `)` or
+      `}` (a CSP's or a list's separator, a sentence's bracket) is read again without that punctuation, which stays
+      in the text.
+    - WHATWG URL's parse of it decides, nothing decoded first: a host that parses as loopback (127/8, localhost and
+      `*.localhost`, [::1], one trailing dot dropped) at any port, the default included.
+    - The loop's own origin (a loopback host at its port) maps to the canvas origin, in headers and in every body,
+      text ones included. theme2's ruling point 2 blanks only OTHER loopback URLs: any other loopback authority
+      becomes `loopback.invalid`, which never resolves.
+    - No other host is ever touched: `http://127.0.0.1%2F@evil.test/a` and `http://127.0.0.1;@evil.test/a` are
+      evil.test's and pass byte for byte.
+    - Headers (Location, Link, CSP) and text bodies (HTML, JS, CSS, plain) by those candidates; JSON bodies (an
+      envelope's type too) by parsing and rewriting each string, keys included, the bytes unchanged when nothing
+      is; SSE a line at a time, a `data:` line that is JSON as JSON.
+    - **A known limit:** escaped spellings in text (HTML character references, JSON `\u` escapes outside a JSON
+      body, a percent-encoded URL) and spellings WHATWG URL doesn't map pass as they came. A missed one only breaks
+      a link on the remote browser's own machine.
+  - `frame-ancestors` names the canvas (`'self'`) and the tool's remote origin, with no loopback source.
+  - Bodies are streamed with backpressure, as `forward()` streams them.
+- **Revoke and expiry (A's `onEnd`):**
+  - Each client's live proxied responses (SSE, long polls, in-flight requests) are kept, each with the
+    AbortController of its upstream fetch.
+  - On `onEnd(client, reason)` (`'revoked'` or `'expired'`, which end the same way; the reason goes to the log
+    with the client's name, never a secret) all of them are aborted, so the client's streams close and the loop's long poll ends. The
+    client's sessions and grants are deleted, and its next request is not-found.
+  - `close()` unsubscribes.
+- **The server:** `tamberServer({canvas: pairing => canvasGateway({loop, pairing, origin, toolOrigin})})` makes the
+  gateway from the run's pairing and returns it (`canvas`, for B's canvas port to call `handle`); `close()` closes
+  it. `canvas` is in A's METHOD_SCOPE as `read`, so A's dispatcher checks its scope like any method's. It then mints
+  for the paired token the request came with. The local token passes the table but has no paired token, so it is
+  answered 400 (the local tool frames the dev loop itself). With no gateway, the answer is 404.
+- **Tests** (`tamber-canvas.test.mjs`, a fake pairing and a fake loop on loopback, plain HTTP):
+  - the route table;
+  - mint, entry, the cookie's exact attributes, 303, the page proxied;
+  - the upstream sees no Cookie, token or client forwarding headers, and the loop's Host;
+  - the client sees no upstream Set-Cookie or CORS header, and no loopback origin of the loop's in any header or
+    passed body;
+  - the query kept on `/__dev/commands`;
+  - a grant reused, expired (an injected clock), wrong, another client's or in a query string is refused;
+  - another client's, an unknown, a page-set or no cookie is refused, and a real one beside a tossed one still works;
+  - `/__tamber`, `/__tamber/token` and the install routes are not-found and never reach the loop;
+  - a cross-origin POST is refused;
+  - `read` and `propose` are refused the `write` routes, and `write` passes;
+  - revoke, then expiry: an open SSE stream and a held long poll close at once, the fake loop sees both upstream
+    requests end, the next request is refused, and another client's stream is untouched;
+  - the mint rate limit, and `close()` unsubscribing;
+  - a `write` client's checkpoint between 1 MiB and the cap passes and one over it is 413, as is any other body over
+    1 MiB, none reaching the loop;
+  - with A's real pairing and dispatcher (a stand-in design server, the real wire): `canvas` minted by a remote
+    paired client, entry, a proxied page and SSE stream, A's `revoke` ending the stream and the loop's request at
+    once, the next request not-found and the token's next `canvas` 401; a `propose` client minting but refused the
+    `write` routes while a `write` client passes; the local token 400, no or an unknown token not-found, the local
+    token through B's listener not-found, a server with no gateway 404.
+- **What waits on A and B:**
+  - **A (reload1): landed.** The gateway runs on the run's pairing (`tamberServer(...).pairing`: each request acts
+    as `lookup`'s client, and `onEnd`, at once for a client already ended, ends its streams). `limiter` and
+    `allows` default to `scripts/tamber-pairing.mjs`'s. `canvas: 'read'` is in METHOD_SCOPE, and the method is
+    answered in A's dispatcher (the early seam is gone).
+  - **B (rt1):** the canvas's second TLS port gives `handle` its requests and the gateway its `origin`; the tool's
+    remote origin is `toolOrigin`. The real-Chrome checks wait on B: the SameSite=Strict cookie reaching the framed
+    canvas (the two origins differ only by port), the framed canvas unable to read the tool's origin, revoke closing
+    both ports, and a page-set cookie granting nothing on either port.
+  - **Then:** the test through the real dev loops (`devLoop`), a JS-target and a wasm page loading through the
+    gateway and a live edit reaching each.
+- **After review round 1 (Astra, Grok):**
+  - The raw request target is checked, and the path forwarded is exactly the path authorized (`canonical`). A target
+    the loop could read as another path is not-found: one not in origin form, an empty segment (a leading `//`
+    too), a `.` or `..` segment, a backslash, NUL or other control character, an encoded `/`, `\`, NUL or `.`, a
+    percent-encoded unreserved character, or a malformed escape. `/__` and `/.exact` compare without case.
+    `//a//b/__dev/open`, `//127.0.0.1/__tamber/token` and `/%2eexact/install/` reach nothing (Astra 1, Grok 1).
+  - Revoke ends every proxied request at once: its upstream fetch is aborted, and its request and response are
+    destroyed, so a stalled upload and a download whose client never reads end too. The body read and the
+    backpressure wait both observe the abort. A response stays tracked until it closes, not until `end()`. Requests
+    are tracked per session, so a session evicted past the cap of 16 ends its own streams, and a client has at most
+    32 requests in flight (503 past that) (Astra 2, Grok 6).
+  - `/__dev/open` no longer hands a native client's admission token to anyone but a local request:
+    `developmentLinks(app, page, access)` (host/apple/build.mjs) gives no links unless `access.local`. That covers
+    the wasm loop and the resident loop behind the JS loop (the same code, its gate given the gateway's
+    `forwarded` mark as it came). Local native clients keep their links (Astra 3, Grok 3).
+  - The rewriter covers every loopback authority at any port, and the default port with none written, in
+    percent-encoded host forms (`%6cocalhost`, `0x7f.1`, as WHATWG URL canonicalizes them). The loop's own origin
+    maps to the canvas's; any other loopback authority becomes `loopback.invalid`. A bare `host:port` is rewritten
+    only standing alone, so `https://example.test/localhost:9000.png` and `notlocalhost:9000` are untouched. One
+    pass, so nothing it writes is read again. A loopback `toolOrigin` is refused (Astra 4, Grok 2).
+  - The entry needs an explicit Origin, the canvas's or the tool's: a missing, `null` or malformed one is refused
+    (Astra 5).
+  - A `read` or `propose` canvas is refused `/__dev/checkpoint` (it stays `write`), so after a JS rebuild the JS
+    loop's page now reloads afresh on that 403 instead of keeping the old page (Astra 6).
+  - A session is looked up by its SHA-256 and the hash compared timing-safe, as a grant is (Grok 5).
+  - The dev gate (install-page.mjs) treats `forwarded` and any `x-forwarded-*` header as forwarding (Grok 7).
+  - Grok 4 (A's shapes) is settled in the plan.
+  - Tests: the canonical table, and the same targets through the gateway reaching nothing; the address cases in
+    headers, HTML, JSON and SSE; a stalled upload and a client that never reads, both closed at once on revoke with
+    the upstream request ended; session eviction and the 32-request cap; the entry's Origin cases; the JS loop's
+    client script parsing with the 403 fallback before the failure path; `install-page.test.mjs`, a later
+    `x-forwarded-*` and the gateway's mark not local, with no admission links for it; `development.rs`, no links
+    for a request that isn't local.
+- **After review round 2 (Astra RIGHT WITH CHANGES, Grok RIGHT with two nits; theme2's ruling on the rewriter):**
+  - The rewriter decides each candidate by WHATWG URL's parse with nothing decoded first, and never touches a host
+    that isn't loopback: `http://127.0.0.1%2F@evil.test/a` passes byte for byte, in headers, text, JSON and SSE
+    (Astra 1). A trailing dot (`localhost.`) is dropped in the loopback test. A bare `host:port` goes through the
+    same parse, so `127.1:port`, `foo.localhost:port` and `[::ffff:127.0.0.1]:port` are caught (Grok 1).
+  - JSON bodies are parsed and each string rewritten, so a `\u` escape in a JSON body is caught; a body with
+    nothing to rewrite keeps its bytes; one that doesn't parse is text. SSE `data:` lines that are JSON likewise.
+  - JS, CSS and plain text bodies are rewritten as HTML is; the URL-encoded and JSON-escaped text rules are gone,
+    and escaped spellings in text are the known limit above (theme2).
+  - `Range` and `If-Range` are not passed on, so a rewritten body is never a slice (Grok 2).
+  - Astra's EADDRINUSE at fixture start: each test server binds 127.0.0.1:0 once and is never rebound; three
+    concurrent runs here pass. A refused bind now fails with a message naming it (a sandbox that forbids
+    listening).
+  - Tests: the address cases in headers, HTML, JS, CSS, JSON and SSE, the evil.test URL untouched in each; a JSON
+    body with no loopback byte for byte; a JSON key and a `\u`-escaped value rewritten; the known limits passing as
+    they came; Range and If-Range not reaching the loop.
+- **After review round 3 (Astra, Grok):**
+  - A URL's authority now runs to the first `/`, `?`, `#`, `\`, whitespace, quote, `<` or `>` before WHATWG URL decides
+    (theme2's ruling). `http://127.0.0.1;@evil.test/a` (evil.test's) passes byte for byte, and
+    `http://user;name@localhost:<port>/a` is the loop's and is rewritten. Trailing `;`, `,`, `)` or `}` is set aside
+    only when the authority doesn't parse with it, so a CSP's `http://127.0.0.1:<port>;` and a sentence's
+    `(at http://localhost:<port>)` are still caught (Astra 1).
+  - Astra 2 is answered by theme2: the loop's own origin keeps mapping to the canvas origin in text bodies, and ruling
+    point 2 blanks only other loopback URLs (the downstream bullet says so).
+  - Tests: `;`, `,`, `(` and `)` in userinfo, both a non-loopback host (byte for byte) and a loopback one (rewritten),
+    in a header, HTML, JS, CSS, JSON and SSE; a CSP's and a list's separator and a sentence's bracket after a
+    loopback authority.
+
+  - Grok's nits: an https loop on its default port (no port written) is the loop's own origin, not another loopback (the port defaults from the scheme); addPort's same-origin check on the canvas port is C2's (its `origins`)
+  - After the re-check (Astra): an authority that doesn't parse is read up to its FIRST `;`, `,`, `)` or `}` and the scan goes on from there, so a compact CSP (`default-src http://127.0.0.1:9000;img-src 'self'`) and a list of sources (`a,b`) are each rewritten; a userinfo `;@` still parses whole and is never cut.
+  - After re-check 2 (Astra): that cut is made only past any userinfo (after the last `@`), so `(http://127.0.0.1;@evil.test:9000)` stays evil.test's, untouched, and `(http://user;name@localhost:9000)` is the loop's.
+  - After re-check 3 (Astra): the cut is the LONGEST prefix that parses (still past any userinfo), so a host WHATWG reads whole, such as `localhost;evil.test`, is never cut into a loopback one. Other missed loopback spellings stay the known limit above (the lead: only a changed non-loopback host blocks)..
+
+### Stage 10, commit C2: the canvas port (draft for theme2)
+
+C1's gateway on B's remote doors, in both dev loops, under `tamber/1.13`.
+
+- **The port:** with `--remote`, each dev loop (host/web/dev.mjs, host/web-js/dev.mjs) opens B's doors and then the canvas
+  port: `openRemoteCanvas(tamber, asked, loop)` (scripts/tamber-canvas.mjs).
+  - The port is another TLS listener from B's `addPort`, on the `--remote` host at a port the system picks. It uses the
+    same per-run certificate, so the fingerprint the client pinned at pairing covers it. B's Host check (the
+    certificate's names) and target check stand in front of it.
+  - Its origin is `https://<the name B shows>:<its port>`, the same site as the remote tool and a different origin.
+  - It is printed at start-up beneath B's lines. With no `--remote`, or with only `--trust-tunnel`, there is no canvas
+    port and nothing changes.
+  - A canvas port that cannot bind closes B's doors, and the loop says so and exits, as B's own failures do.
+- **The origin is known only after the bind.** The gateway is the design server's own (`tamberServer`'s default
+  `canvas`, made from the run's pairing), and it is dormant until `serve({loop, origin, toolOrigin})`. Of the three
+  ways x2-perf4 listed, this takes the settable origin before first use. The port is bound with a handler that defers
+  to the gateway, and the gateway answers nothing (not-found) and mints nothing (`canvas` answers 404, "this server has
+  no canvas port") until it is served. So no request can see a half-made gateway. `loop` is the dev loop's own
+  loopback origin, and `toolOrigin` is B's door (`info().origin`).
+- **The fragment entry** (theme2's approval of dtool2's entry, SIGNOFFS.md). It replaces C1's grant POST from the
+  tool's page.
+  - The tool sets the frame's src to `<canvas origin>/canvas/<client>/#g=<grant>`.
+  - `GET /canvas/<client>/` (no query) serves a static entry page: `no-store`, `referrer-policy: no-referrer`,
+    `nosniff`. Its CSP is `default-src 'none'; script-src '<its one inline script's sha256>'; connect-src 'self';
+    base-uri 'none'; form-action 'none'; frame-ancestors <the tool's origin>`. Nothing third-party, and no secret in
+    it: the same page for every client.
+  - Its script reads the grant from `location.hash`, then calls `history.replaceState(null, '', location.pathname)`
+    before any request, so neither the address nor its history entry keeps the fragment.
+  - It then POSTs `{grant}` as JSON, same-origin, with its own `referrerPolicy: 'same-origin'`. Under the page's
+    `no-referrer` a POST would otherwise say `Origin: null`. On 204 (the cookie set) it does `location.replace('/')`.
+  - Refused, it shows "This canvas link has expired; ask for a new one." and makes no further request; with no grant
+    in the fragment, it makes no request at all.
+  - Entered, and just before `location.replace('/')`, it tells the tool: `parent.postMessage({type:
+    'exact-canvas-entered'}, <the tool's origin>)`, to that origin alone, with no secret and no client name (review2's
+    T6 note, the lead). The origin rides in the page as `data-tool`, so the one script, and its CSP hash, stay the same
+    for every gateway and client; with no remote tool there is no `data-tool` and no message. Tested: the call order
+    (replaceState, fetch, postMessage to exactly the tool's origin, replace), no message on a refusal or without a
+    tool, and the hash of the served script.
+  - **A bounded exception to "no secrets in URLs":** the fragment carries only the grant: single use, 30 s, bound to
+    one client, burned on any try, and never the token. A fragment is never sent to a server, a Referer or a log
+    line, and the page removes it before its first request.
+  - **theme2's conditions, each tested:**
+    1. A grant is accepted only in that POST's JSON body, never from a query, a path or a form. A grant in any of
+       those is never read, so it is not burned.
+    2. Replay, expiry, another client's grant, and a POST from any Origin but the canvas's own (the tool's, none,
+       `null`, malformed, a lookalike) are each refused.
+    3. The real-Chrome gate shows that after entry the frame's `location.href` and `location.hash` carry no fragment,
+       and that going back in the frame never shows it (gate lines (a0) and (a0, history)).
+    4. The tool-origin POST path is gone: the entry admits only the canvas's own Origin. C2's draft `origins` on B's
+       `addPort` is reverted, so `scripts/tamber-remote.mjs` is as B landed it, and the port refuses every other
+       Origin, the tool's included.
+- **`toolOrigin` must be https:** C1 refused a loopback `toolOrigin`. With B bound on loopback (a test, or a developer
+  on one machine), the tool is `https://127.0.0.1:<port>`. The rule is now that `toolOrigin` is an https origin (B's
+  door), never a plain one such as the local tool's `http://127.0.0.1:7740`.
+- **Never plain HTTP from a LAN peer** (theme2's condition, with reload1's plain-LAN fix on the wire). A canvas session,
+  grant or entry page is honoured only through the canvas's TLS door (`access.remote`, which B's `addPort` gives) or
+  from this machine (`access.local`). The gateway's `handle` answers not-found to anything else, a plain request
+  through a `--lan` bind included, and reads no grant, so none is burned. `canvas` is not minted for a caller that is
+  neither local, remote nor tunnelled (404, the same as no gateway), whether or not reload1's earlier refusal on the
+  wire is there. Tested: a valid session, the entry page and a valid grant through a plain-LAN door are each
+  not-found and the grant then still enters through the TLS door; `canvas` from a plain-LAN peer is 404 and through
+  B's door 200.
+- **Revoke on both ports:** A's revoke ends the wire's streams and long polls, and through `onEnd` the canvas's
+  proxied streams. The next request on either port is refused: 401 on the wire, not-found on the canvas.
+- **Tests** (`tamber-canvas.test.mjs`, pinned TLS on loopback):
+  - The server's default gateway is dormant before its port opens.
+  - `openRemoteCanvas` on `127.0.0.1:0`: the canvas origin is printed, and a grant is minted over B's TLS wire door.
+    The tool's Origin is refused at the port (403). The entry page is framed by the tool alone, and its POST from the
+    canvas's own origin enters.
+  - The proxied page carries the canvas origin, and another Origin, the tool's too, is 403 at the port.
+  - The entry page: its headers and CSP, its one script by hash, no address in it. Its script, run in a stand-in
+    page, calls `replaceState`, then the POST (the address already clean), then `location.replace('/')`. Refused or
+    failing, it shows the message and makes no further request; with no grant, it makes no request.
+  - The grant only in the POST's JSON body: replay, expiry, wrong, another client's, a query, a path, a form, and
+    each foreign or missing Origin refused, none of them burning it.
+  - A's revoke: the canvas port's next request is not-found and the wire door's 401.
+  - No `--remote` gives no doors, and a tunnel alone gives no canvas port.
+- **The gate in a real Chrome** (`/tmp/x2p4/s10c-gate/gate.mjs`, its run in `run.txt`):
+  - A JS dev loop runs on apps/theme-fixture (by name; its design put back after) with `--remote 127.0.0.1:0`, loopback
+    only.
+  - A client is paired with a local code and then `/__tamber/pair` over TLS.
+  - Chrome gets a fresh profile per run and trusts this run's certificate only by its SPKI pin
+    (`--ignore-certificate-errors-spki-list`, read from the listener after its fingerprint is checked against the one
+    printed). Everything is torn down after, on failure too; only the processes it started are stopped.
+  - (a0) The frame's src is the entry with the grant in its fragment, as the tool will set it. After entry, the frame's
+    `location.href` and `location.hash` carry no fragment, and no request URL but the src as set holds the grant. The
+    joint session history has as many entries after entry as before the frame (2 and 2): the entry's address was
+    replaced, so no entry holds the fragment. At
+    the end, `history.back()` inside the frame never shows the fragment: the entry's history entry was replaced.
+  - (a) The `__Host-` cookie is set (Secure, HttpOnly,
+    SameSite=Strict, host-only) and sent to the framed canvas, same site and another port. The page loads, and a live
+    edit of the design reaches the frame's stream.
+  - (b) From inside the frame, `window.parent.document` and `window.parent.localStorage` throw, and fetches of the
+    tool's and the loop's `/__tamber/token` fail.
+  - (c) A's revoke ends the wire's subscription and the frame's EventSource, and the next request on both ports is
+    refused.
+  - (d) Page code's `document.cookie` cannot overwrite the HttpOnly `__Host-` cookie. After revoke, a request with only
+    a forged value, a session-shaped forgery or the old real value is not-found. The wire answers not-found to a valid
+    token or session carried only in a Cookie.
+- **What the gate found, and fixed or names:**
+  - **The tool's page sent `Origin: null`** (B's pages are `no-referrer`), which the port refused, as it should. The
+    fragment entry settles it: the grant is posted by the canvas's own entry page, whose fetch sets its own referrer
+    policy, and nothing depends on B's.
+  - **`frame-ancestors` with B on loopback:** the CSP was rewritten after the remote tool's origin was added, so a
+    loopback tool origin (`https://127.0.0.1:<port>`) became `loopback.invalid` and Chrome refused to frame the
+    canvas. Now the addresses are rewritten first and `frame-ancestors` is fixed after: other loopback sources (the
+    placeholder by then) go, and the tool's origin is added. Tested in `tamber-canvas.test.mjs`.
+  - **The live edit's evidence:** a design edit the JS loop rebuilds for reaches the frame as its reload, and the
+    framed page reloads through the gateway. That is what the gate records.
+  - **Two observations outside C.** `--app <a path>` makes the JS loop write its module's crate into the app's
+    directory (`buildModule`'s `out`); the harness passes the name. An edit of the fixture's `surface.page` (a
+    token with a `when`) made the JS rebuild fail with "this app's design declares no axes"; the gate edits
+    `accent.fill` instead. Both are QUEUE candidates, not C2's.
+- **After review round 1 (Astra, Grok):** Grok RIGHT, no findings; Astra's one should-fix (proxied pages keep `'self'` in `frame-ancestors`) answered by the lead: `'self'` stays, since code on the canvas origin already is that origin and can do anything a frame of its own page could, and apps frame their own routes. The gateway's `frame-ancestors` is now exactly `'self'` and the tool's remote origin: any other source a page names (a foreign origin, the local tool's) is dropped, so no other origin frames a canvas page (tested with a page naming `https://evil.test`).
+- **On main with the plain-LAN fix (81f2d32e8f):** the rule that a paired credential is taken only from this machine or through one of B's doors is one helper, `viaDoor(access)` in scripts/tamber-request.mjs, which the wire's check and the canvas gateway both call; dispatch's own `plain` flag is gone (the wire refuses such a request before dispatch).
+- **After the re-check (Astra):** the tool origin is written into the entry page as an escaped attribute value, and `serve()` refuses a `toolOrigin` that isn't a plain https origin (a host name or address and a port), so neither the attribute nor the CSP header can be misread.
+
+### Stage 10's gate: met (2026-10-19; the run is `~/x2theme/stage10-gate-run.txt`)
+
+exact2 main at `29ec5ae613`, the clone at `baf8b6b` (a signed-out copy), a second Chrome profile as the remote
+client trusting only the listener's certificate. Stage 10's commits: B `e85fb5c4d1`, `8f44ea2b8c` (and
+pair-code's doors, `250ce13108`..`417d8c48f7`); A1 `98d26391ca`, A2 `1dbf03d789`; the plain-HTTP fix
+`ae9e86e1ca`; C1 `f7ffce5644`..`78a7202c2b`; C2 `ec5c69fb0f`..`c92dace86a`; D (LLP 1122 T6)
+`cd6300a22a`..`2ca911ea7f`. Wire: `tamber/1.13`.
+
+| Gate line | Result |
+|---|---|
+| A second browser pairs over TLS, the fingerprint checked before anything is sent; a used code is refused and five misses burn the live codes | **Met** (1), both by the server and by the tool's own pair panel (1, D). |
+| A paired `propose` client reads, inspects read-only and proposes; writes and commands are refused with its scope named; a `write` client writes and the event names it | **Met** (2); the tool greys what writes for a `propose` client and says why (2, D). |
+| Revoke closes the client's subscription and held long poll at once and refuses its next request; separately, its canvas through the gateway, on both ports | **Met** (3), (3, C); the running tool says Revoked, its canvas goes, and it sends no more (3, D). |
+| No wire auth reads a cookie; a cookie page code sets with the gateway's name grants nothing on either port | **Met** (4), (4, C). |
+| The canvas on its own origin: entered through the gateway by the `#g=` fragment, which leaves the frame's address before any request and is in no URL or history entry; framed script can't read the tool origin's DOM, storage or token | **Met** (3, C), (5, C) ×3, and the tool frames it so and drops the grant once entered (5, D). |
+| An unencrypted remote connection is refused, pairing included; the trusted tunnel takes paired tokens and pairing, never the local token; no non-loopback peer reaches the loopback-bound listener | **Met** (6) ×3. |
+| Local clients unchanged; a release build has no Tamber endpoint; the server and tool suites green | **Met** (7) ×3: pairing 15, pairing-server 14, remote 27, canvas 31, tamber-server 30, dev-builds 3, design-tool 18. |
+
+**Found by the gate's dry run and fixed in stage 10:** with `--lan`, a plain-HTTP LAN peer could pair. A paired
+credential is now honoured only from this machine or through one of B's doors (`ae9e86e1ca`; one helper since C2).
+**First final run:** 21 of 22; (5, D) read the frame's first `src` after the entry word had already dropped the
+grant, a timing fault in the gate's check, not the tool. The check records each `src` as the tool sets it, and
+the re-run met every line.
+**Rulings written into LLP 1122 D12 with this close:** the canvas is on its own origin; `inspect` needs `read`;
+the loopback rewrite is functional, not a security boundary; the hosted relay is stage 10c.
+
+**Stage 10 is closed.** The `tamber/1.13` window is closed; the next wire change takes `tamber/1.14` (stage 11).
+
+**A fix after the close, under `tamber/1.15` (it opens the version; stage 11 closed `tamber/1.14`): no answer names the machine's directories.** It changes what every client reads in a `file` field (a local one too: app-relative or `<package>/<path>`, no longer absolute), so it is a version, not a fix inside 1.14. `hello` reports `tamber/1.15`; docs/tamber-protocol.md opens its bullet.
+`uses` gave a site's `file` as the source map's absolute path for a package's file and, past a link such as macOS's
+`/tmp`, for the app's own. A remote client saw the machine's directories. Every site file in `uses` and in
+`explain`'s icon sites is now named from the app's directory, as `explain` names a param's file
+(`node_modules/@acme/reading/index.contract`), by one helper (`tamber_uses::shown`); a package linked from outside
+the app keeps its path from `node_modules` on. A transaction's refusal names its file the same way. As a backstop,
+the server drops the app's directory, as given or canonical, from every answer's text, so a read error says
+`app.tamber: Permission denied`. Test: `tamber_serve_packages.rs` `no_answer_names_the_machines_directories`:
+`uses` on a package component's param gives the relative path, and ten answers and their events, plus a read error,
+hold neither form of the directory. It fails without the fix, checked by hand.
+The JS server (theme2's ruling: leaking local directories to remote clients is a fix): `hello`'s `app` stays the
+path for the local client, which `tamber tool` tells its own server by, and is the directory's name for any other
+(paired, through B's door or a tunnel; stage 10c's relay has no door on main yet). Every reply, stream event and
+long poll a client that is not local gets has the app's directory (as given and real) and the home directory
+dropped (a selection's source in a package was the map's absolute path). docs/tamber-protocol.md says so. Test:
+`tamber-remote.test.mjs`'s `no answer to a remote client names this machine's directories`, through the real design
+server with the app under the home directory. A paired client through B's TLS door asks hello, describe, resolve,
+explain, uses, a refused `set-row` on a package's file and a checker refusal with spans (`propose`, `transaction`),
+then hello through the tunnel and a long poll. No reply holds the app's or the home directory in either form,
+`hello.app` is the name, `uses` names `node_modules/@acme/reading/index.contract`, and the local hello is unchanged.
+It fails without the fix, checked by hand. `outline`, which takes `uses`'s sites, reads a file named from the app's
+directory as well as the map's own (its path, as given and real), so the design tool's outline of a token's sites
+still finds them (`tamber-server.test.mjs`'s wasm inspect test, which caught it).
+
+**After the path fix's review round 1 (Astra WRONG; Grok RIGHT WITH CHANGES; one rework):**
+- **No blanket replacement.** The Rust backstop in `Server::handle` and the JS one over replies, events and long polls
+  replaced the app's and home directory's text anywhere. That corrupted authored data: a token value holding
+  `<app>/assets/icon.svg`, a history's text, `/tmp/x` inside `/private/tmp/x`, and `/Users/admin` inside
+  `/Users/administrator`. The Rust one hit local clients too. Both are gone.
+- **Path metadata through one rule.** A file is named from the app's directory where it is in it (as given or
+  real); else from its package, the nearest directory above it whose `package.json` has a name
+  (`<name>/<path inside it>`, as D15's `sources::home` names a package's file, so a `file:` link outside the app and
+  the home directory is unique and stable); else `<outside>/<its name>`. Rust keeps it in `tamber_uses::shown` (for
+  `uses`, explain's icon sites and param file through `AppParams.files`, and a refusal's diagnostics), and JS in
+  `scripts/tamber-paths.mjs` `pathName`. JS applies it, by `file` fields only, to every reply and every event for
+  every client: a selection's source and chain, `inspect`, and the long poll. The stale-map and moved-file messages
+  of `tamber-inspect.mjs` name their file the same way.
+- **Machine-written messages are scrubbed at path boundaries,** for a client that is not local. The app's
+  directory becomes `<app>` and the home directory `~`, longest first, in the given and real forms, only where a
+  whole path starts and ends. It applies only to an `error`'s messages (and its diagnostics') and the `down` event's,
+  including the two 503s that bypassed it: a subscribe while down, and a long poll past the `down` event. Authored
+  text is not read.
+- **`outline` matches by the rule.** Each location's file and each map node's file are named by `pathName` and
+  compared, so a package linked from outside the app round-trips and two packages' same-named files stay apart. A
+  map's named nodes are kept per map read, since a map can move under one plan digest.
+- **Tests:**
+  - `scripts/tamber-paths.test.mjs`: the rule (inside the app, through its real path, through a link inside it, a
+    package's own path outside it, outside both); the boundaries (`/private/tmp/xy`, `<home>istrator`); and that
+    only an error's and `down`'s messages are scrubbed, never a commit's.
+  - `tamber-remote.test.mjs`, through the real design server, with the app under the home directory and
+    `@acme/linked` linked from outside both. A build is registered on the dev loop's channel whose map names the
+    package's real path. A paired client through B's door asks hello, describe, resolve, explain, uses ×2, a
+    refused `set-row` and a checker refusal (propose, transaction), and inspect. It also reads the selection in the
+    long poll (`@acme/linked/index.contract`), outlines `uses`'s site (it reaches the build: sites `[0]`), and asks
+    hello through the tunnel. No reply holds the app's, the home or the linked directory in either form, except
+    describe's authored metadata. Authored text (the token's `help` holding the app's path, the commit's message
+    naming it) is byte-identical to the local and the remote client.
+  - A design server that is down (it says the app's path on stderr): the remote subscribe and long poll are 503 with
+    `<app>`, and the `down` event in a long poll from the start is scrubbed too. Both tests fail without the
+    rework, checked by hand.
+  - `tamber_serve_packages.rs` `authored_text_holding_the_apps_path_is_kept`: a local proposal's diff, describe's
+    metadata and a scrub's fold keep a `help` value holding the app's path byte for byte.
+  - `tamber-server.test.mjs`'s wasm inspect test now expects the selection's file as `app.contract`.
+- **Not covered (round 1's view; wrong, see round 2):** a machine message naming a linked package's directory outside
+  the app and the home directory. A compile refusal does name one.
+
+**After the path fix's review round 2 (Astra WRONG; Grok RIGHT WITH CHANGES; their findings overlap):**
+- **A linked package's directory in a message is its name.** A compile or load refusal names a file by its path: a
+  missing named design (`sources/packages.rs`), an unreadable `use` target (`sources.rs`), resolution
+  (`resolve.rs`), and a transaction's diagnostics, which `uses`, `explain` and the others carry as `the app does
+  not build: …`. Round 2 rewrote each package root found under the app's `node_modules`. Its quick re-check found
+  that misses a nested dependency, a `node_modules` installed above the app, and Bun's per-file links (whose files
+  link into a store). So the scrubber no longer lists roots. In a machine message to a client that is not local,
+  every absolute path (a run from `/`, `~/` or a drive letter, up to white space, a quote, a backtick, `)` or a `:`
+  before a line number) is named by `pathName`, but a server's route (`/__…`), exempted by name: app-relative, its
+  package's `<name>/<path inside>`, or `<outside>/<name>`. It resolves from the path's nearest existing ancestor
+  (realpath, then the nearest named `package.json`), so a missing file under a missing directory of a package is
+  still the package's. (Re-check 2: a guard that kept a token unless it or its parent existed let a manifest's
+  `dist/theme.tamber`, never built, through whole.) Rust's `shown` resolves the same way. A `:line:col` after it
+  stays, and so does a sentence's full stop. The app's directory itself reads `<app>`, the home directory `~`, and
+  the app and home rule stays as a backstop for any other mention.
+- **Motion sites through a linked package keep their site.** `motion_sites` named its files for the reply before
+  `motion_instances` joined them against the elements' paths, so a linked package's duration or easing use lost its
+  instance (`site: null`) and its outline. It keeps the loader's path through the join; the finished reply is named
+  (`relative_files`).
+- **explain reads where the file is.** `AppParams` keeps each source's path on this machine (`paths`) beside its
+  name (`files`). explain reads a param's default as written through the path, so an outside package's `"4px"` keeps
+  its spelling. Only the emitted `file` is the name.
+- **The rest named too:** the subscribe snapshot (named, and scrubbed for a client that is not local), the long
+  poll's `proposals`, and export's `baseline` (`shown`, no `unwrap_or` to the absolute path).
+- **Tests:**
+  - `tamber-paths.test.mjs`: each path in a message is named and keeps its `:line:col` (`app.contract:3:7`); a
+    route is left, and a missing file under a missing directory is still named (`dist/theme.tamber`); a longer name
+    beside the app's or the home's is named from what exists above it (`<outside>/…`). A package's file is `<name>/…` however it is installed: a
+    link outside the app, a dependency nested in its `node_modules`, a `node_modules` above the app, and a Bun-style
+    per-file link into a store.
+  - `tamber-remote.test.mjs`: a design server that is down, whose stderr names a package's file outside the app
+    and the home directory, reads `… writes <app> (it read @acme/far/index.contract:2:1; no @acme/far/dist/theme.tamber)` to a remote client, in the
+    503s and the `down` event. `@acme/linked`, outside the app and the home directory, names a design under a `dist/` that was
+    never built (`dist/theme.tamber`). The local client's `uses` refusal holds the path; a paired client's refusals (`uses`, `explain`) hold
+    neither the outside directory nor the app's nor the home's, and `uses` says `@acme/linked/missing.tamber`. It
+    fails without the package rewrite.
+  - `tamber_serve_packages.rs` `a_package_linked_from_outside_keeps_its_motion_sites_and_its_defaults`: a linked
+    package outside the app. `uses` of a duration its view writes finds each instance (`site` set), named
+    `@acme/linked/index.contract`; `explain` gives the param's default as written (`"4px"`); neither names the
+    outside directory. It fails with either fix reverted.
+
+**After the path fix's re-check 3 (Astra; theme2's ruling: refuse it):**
+- **A package outside the app needs a name.** A linked package whose `package.json` has no `name` got an identity from its place from the app (`../../../Users/alice/shared/cards/index.contract#Card`),
+  which `describe` and `explain` sent whole and every param's full name carried. It is now a compile refusal,
+  `contract-package-unnamed`, at the `use` that reaches it: "the package `a` is outside the app and its `package.json`
+  has no `name`: a package outside the app needs a name in its package.json", naming the package as the `use` does,
+  never its path. `sources::home` answers none for it and the loader refuses, so no relative identity is made.
+- **A linked package ends at its root.** `home` walked every directory above a file to the app's, so a package with no
+  name inside an outer directory whose `package.json` has a name took that name: the same leak by another route. A
+  package's file is now named only by a directory between it and its package's root. A package that holds its own
+  test app (`packages/geolocation/test/fixture`) is its own: its root's name names it, where it was `../../…` before.
+- **Apps unchanged.** `contract build --json --errors-only` of all 90 `app.contract` roots in the checkout, before and
+  after: the same diagnostics (74 build, 16 refused as before). None hits the refusal; the geolocation fixture did
+  until the package-holds-the-app case above.
+- **Tests:** `tamber_params_tools.rs` `an_unnamed_package_outside_the_app_is_refused_even_inside_a_named_directory`
+  (two unnamed linked packages, refused at the app's `use` line with the package's `use` name and no directory of
+  theirs; again inside an outer named directory; named, two identities by their names) and
+  `a_package_holding_its_own_test_app_names_its_files_by_its_name`; `tamber-remote.test.mjs`'s
+  unnamed `@acme/linked` linked from outside the app and the home directory: a paired client's hello, describe,
+  explain, resolve and uses hold neither its directories nor its name nor any `../`, and `uses` says the refusal. Each
+  fails without the change.
+
+### Stage 11, commit B1: the base scale table (draft for theme2)
+
+Built to the approved plan (`~/x2theme/x2p4-s11b-plan.md`, theme2's 09:56 approval and its conditions) and theme2's 10:57
+ruling on the measured cells. The brief is stage 11 part B, with rulings 3 to 6.
+
+- **Nine base names** (ruling 5): `space.xs`, `space.sm`, `space.md`, `space.lg`, `space.xl`, `radius.sm`, `radius.md`,
+  `radius.lg` and `radius.full`. A view reads one with no design defining it. An app may set any of them in its design
+  (ruling 4), and its value wins app-wide, as any token's does. No other name is reserved, so the clone's `space.header`
+  keeps its meaning.
+- **The table:** `scale` in `kernel/tables/schema.json`, a row per name: `[name, ios, mac, neutral, material,
+  terminal]`, px (points), never scaled by Dynamic Type (ruling 6).
+
+  | name | iOS | Mac | neutral | Material | terminal |
+  |---|---|---|---|---|---|
+  | space.xs | 5 M | 6 M | 4 neutral | 4 G | 0 |
+  | space.sm | 8 =grouped-row-gap | 8 = | 8 = | 8 = | 1 cell |
+  | space.md | 16 =grouped-row-inset | 10 = | 16 = | 16 = | 1 cell |
+  | space.lg | 20 M | 20 M | 24 neutral | 24 G | 2 cells |
+  | space.xl | 35 M | 30 =grouped-label-inset (stretch) | 32 neutral | 32 G | 2 cells |
+  | radius.sm | 5.6 M | 5 M | 4 =mark-radius | 4 G | 0 |
+  | radius.md | 17 M | 6 M | 8 =control-radius | 8 G | 0 |
+  | radius.lg | 26 =grouped-card-radius | 10 = | 12 =surface-radius | 12 G | 0 |
+  | radius.full | full | full | full | full | 0 |
+
+  **No web column** (theme2, 2026-10-19): every web build (the wasm host and the JS target) throws the neutral switch,
+  so the browser reads the neutral column (LLP 1115.000 D17 as corrected). `Column::Web` is read only by a process that
+  says no column, and as Material's fallback; for the scale it reads the neutral cell (`style::scale::cell`, held by a
+  test for every name). The draft's `@ios` cell form is withdrawn with it.
+
+  Material's G cells are Material 3's spacing and shape scales. The neutral look's own steps (4, 24, 32) are its
+  definition (LLP 1115.000 D17), not Material's, though they coincide. Each look's steps are in order.
+- **The cell forms** (theme2 (a)). A cell is never a bare number, and the build (`kernel/build/scale.rs`) refuses
+  anything else: arithmetic, a missing source, a dangling metric or one with no px in that column, a reference to another
+  column (`@…`), and `full` outside radius.full or in the terminal.
+  - `=<metric>`: that metrics row's value in the same column, read when the kernel builds, so the cell cannot drift.
+    Used only where the metric names the same role (theme2 (b)): an inset is space.md, a row gap space.sm, a control's
+    corner radius.md, a card's or surface's corner radius.lg, a mark's corner radius.sm. The one exception is a role
+    stretch theme2 ruled, recorded with its reason (the Mac's space.xl, below).
+  - `{px, measured: id}` and `{px, guideline: id}`: `id` is an entry of `docs/scale-measured.md` with what was measured
+    and how (or the citation), the number, and the reason for the choice.
+  - `full` (radius.full): one oversized length, `style::scale::RADIUS_FULL` (9999), named once in the kernel crate.
+    Every host clamps it into a pill by CSS's corner-overlap rule (stage 11 C), never `50%` (theme2's C ruling).
+  - The terminal: `{cells: n}` for a spacing (`n ch`), `0` for a radius (it draws none).
+- **Measured** (`bun scripts/measure-scale.mjs mac | ios --udid <sim>`, `scripts/measure-scale/{ios,mac}.swift`; raw
+  output in `~/x2theme/s11b/`):
+  - iOS 27.0 simulator: UIKit's own values where its API states them; otherwise the inked corner at 3×, read as the
+    equivalent circular radius along the 45° diagonal. Check: the inset-grouped card measures 26.07 against the table's
+    26.
+  - macOS 27.0: AppKit's API on alignment rects; corners from the window server's composite of the tool's own window
+    (AppKit 27 bezels reach no in-process capture), at 1× on this display (±0.7 pt, recorded as whole points).
+  - Choices theme2 ruled (10:57):
+    - iOS space.xs is a small button's top inset, 5 (UIKit states no 4).
+    - iOS space.lg is a large button's leading inset, 20 (an iPhone's margin is 16, space.md's).
+    - iOS radius.sm is `cornerStyle .small` at 44 points, 5.6, a fixed length recorded with that height. UIKit's
+      `.small` scales with height; iOS 27 has no mark.
+    - iOS radius.md is the medium button's measured corner, 17: iOS 27's controls are capsules, and 17 is a length,
+      not `full`.
+  - **space.xl is the gap between grouped sections without a header, on every look.** iOS's 35 was measured without a
+    header (`.insetGrouped`, no headers), and theme2 then ruled xl headerless on every look. The Mac's headerless gap
+    between a SwiftUI `.grouped` Form's sections measures 10, below its space.lg (20). So the Mac's space.xl is a ruled
+    role stretch: 30, `=grouped-label-inset` (a grouped section label's inset, the Mac's largest grouped spacing in the
+    table), with its reason in `docs/scale-measured.md`. A gap measured with a header (56) was withdrawn, since a header
+    mixes a text height into a spacing.
+- **The fallback** (theme2 (c)): `theme::measure` reads a base name no entry defines as the scale's length in the
+  process's column, bound theme or none.
+  - A name the design defines is the design's, even in a row that can't take it, so the base never stands in silently.
+  - The read is recorded as a token's, so an edit that defines the name later sets the row again.
+  - The column is the host's (`metrics::set_column`). This commit adds `Column::Terminal`: the `web` column's value
+    in every metric (the terminal read it before) and the terminal's own in the scale. The hosts set their
+    columns in B2.
+- **theme2's conditions, and where each is held:**
+  - **The compiler knows the nine names** (`contract/lower/src/scale.rs`, `theme::measure_values`). A view reading one
+    compiles with no design. Its values are the px columns', which a row checks as a token's. It varies by column, never
+    by an app axis, so an inherited row reading it is no `tamber-inherited-axis`.
+  - **An app definition must be a length.** `tamber-base-kind` refuses a base name set to a colour, a number or any
+    other kind. A length that varies by an app axis is the app's.
+  - **One table, which describe, resolve and explain read** (`exact_kernel::style::scale`, public, every cell with its
+    source). The wire's half is split out of this commit: the design server's `describe`, `resolve` and `explain` of
+    the base names move to rt1's stage 10 D under `tamber/1.14`, reading this table, never a copy. B1 touches no wire,
+    and `tamber/1.13` is unchanged.
+  - **Retention keeps nothing for an unread base name.** The plan's theme carries no entry for a base name the design
+    leaves unset, since the kernel holds every column. One the design sets is kept only when read, as any token is.
+  - **The monotonic test** (`style::scale` tests): within each look xs ≤ sm ≤ md ≤ lg ≤ xl and radius sm ≤ md ≤ lg,
+    with radius.full left out.
+- **SCHEMA_DIGEST** moves once, in the stage's window: `0xd348_8e13_baf4_12bd` (main, after 7ce6cb98db) → `0xc76c_20d0_6202_3b03` (on the branch's base before that rebase, `0xad42_cc2d_c5b5_26f3` → `0x45a9_8459_9339_c7bf`)
+  (`kernel/src/wire/codec.rs`; the `scale` table, the metrics' terminal column and theme2's unit flag, `style length`.
+  Rounds 1 and 2 pinned `0x374f_477d_d305_5b7e` before the flag, round 3 `0x1360_51a6_5170_bf6a` before the `calc()` guard, as `codec.rs` is hashed). Nothing else pins it.
+- **QUEUE:** "A Dynamic Type opt-in for the base scale" (ruling 6, the lead's assignment to this commit).
+- **Tests:**
+  - `kernel/src/style/scale.rs`:
+    - the nine names;
+    - every cell equals its source, re-read from the metrics table;
+    - `Column::Web` reads the neutral cell for every name;
+    - each look in order;
+    - every measured and guideline id has its entry with the number;
+    - the fallback: unbound, a design's own value winning, a defined name a row can't take not falling back, the read
+      recorded.
+  - Every build refusal was checked by hand on a mutated schema.
+  - `contract/cli/tests/it/tamber_base_scale.rs`:
+    - a bare app compiles with no plan entry, and the runner reads the kernel's values;
+    - an app's own `space.md` wins and an unread `space.lg` is not kept;
+    - a colour or number definition is refused, and an axis-varying length accepted;
+    - an inherited row is no axis refusal, a number row is `tamber-kind`, and a name that is no base fails.
+- **radius.full** (theme2): an app that sets `radius.full` sets a length, as for every base name. `full` is the base's
+  own value, the clamped oversized length; an app that wants a pill leaves radius.full unset rather than overriding it.
+- **B2:** the hosts' columns: the JS target's CSS variables (until then a JS-target page does not resolve a base name),
+  Linux and Android wiring, and the terminal host's `set_column(Terminal)`, each with its unit tests.
+- **After review round 1 (Astra RIGHT WITH CHANGES, Grok RIGHT):**
+  - **Base names in design values** (Astra 1, BLOCKING; theme2's (a)). A design value or `when` arm may name a base name
+    the design leaves unset bare: `card.pad: length = space.md` is an alias.
+    - The vocabulary passes the nine names to Tamber (`Vocab::bases`). For a base name the design does not set, Tamber
+      reads a bare one as a named length, kept as written and never folded, the way a role reference survives.
+    - The kernel reads a length token whose value is a bare base name as the base in its column, the design's own
+      definition first (`theme::measure`). Both reads are recorded, so an edit of either sets the row again. A base name
+      set to itself reads the scale.
+    - A base name the design sets is its token, folded as any token reference is. Its value wins through the alias, an
+      edit of it re-folds the alias for the design server's batch, and a ranged param naming it keeps its px. theme2
+      accepted this (2026-10-19): "never folded" applies to an unset base name only. D11 is amended with both cases:
+      unset, a per-host reference never folded; set, the app's token, folded as any reference.
+    - An expression over a base name the design leaves unset (`calc(space.md + 4px)`, a shadow's length) is refused,
+      `tamber-base-expression`, telling the author to name it bare. QUEUE has the later work. Over one the design sets,
+      it is that token's expression.
+    - Tests:
+      - `contract/cli/tests/base_alias.rs`, its own process: the plan's `card.pad` is `space.md` as written; it reads
+        the neutral, Mac and iOS columns' lengths, and its `when tone=wide: space.lg` arm too; an app's `space.md`
+        folds through and re-folds on an edit.
+      - `tamber_base_scale.rs`: the expression refusals.
+      - `style::scale`: the kernel's alias reads.
+  - **An icon named as a base name is refused** (Astra 2). `tamber-base-kind` covers icon declarations as well as tokens
+    (at lowering then; round 2 moves it into the shared checker), with a refusal test. A dial's name is an identifier, so none can be one.
+  - **The build checks each source against its entry** (Astra 3): a `measured` or `guideline` id with no entry in
+    `docs/scale-measured.md` stops the build, and the page is a rerun dependency. The rerun is said in
+    `build/scale.rs`, not `build.rs`, which the schema digest hashes, so the digest does not move.
+  - **Each documented value is bound to its step** (Astra 4). Every entry has a `Binds:` line (`space.xs = 4`), and both
+    the build and the provenance test require the cell's exact `name = value` there. A shared entry's other numbers no
+    longer stand in: Material radius.md 8 → 4 now fails the build.
+- **After review round 2:**
+  - **The runner's length binding reads an alias** (fix 1). `Tamber::length` reads its token through `theme::measure`
+    at the binding's tuple, so `card.pad = space.md` resolves through the kernel's scale in the process's column, as a
+    style row's does. `base_alias.rs` binds `Token<Length>` reads of `card.pad` and `space.xl` in each column, after a
+    mode change and after an edit to `space.lg`.
+  - **The DTCG export of an alias to an unset base** (fix 2). It wrote 1px; now it writes the neutral column's px from
+    the kernel's table (the web's look; radius.full its 9999), the name kept in `lossy`. The export's conversions say
+    so. `contract_lower::theme::vocab` lists the base names' lengths in `sizes`, which `tamber gen`'s CSS reads too, so
+    neither writes a bare `space.md` outside Exact. Test: `tamber_base_scale.rs`.
+  - **`tamber-base-kind` is the shared checker's** (fix 3). `check_design` refuses a base name declared as an icon or
+    as any token but a length, by `Vocab::bases`, so a write's plan refuses it before it lands, as the build does; the
+    lowering's copy is gone. Test: `tamber_serve.rs` (`propose` and `transaction` refused, file unchanged, a length
+    accepted).
+  - **A scale cell names a metric that holds a length** (fix 4). A `style` row's bare number may be a weight or a flex
+    factor, which the table didn't mark. Round 2 asked the name's ending; theme2 ruled for a per-row unit flag
+    instead (below).
+- **theme2's unit flag** (ruling after round 2, in place of fix 4's name endings):
+  - **The marker.** A `style` metric written on a length property says so in the schema: its kind is `style length`.
+    It applies to a gap, an inset, a corner, a width or height, a padding, a margin or an offset: 59 of the 83 `style`
+    rows. Its number is px; its other cells are `unset`, `auto`, a percentage, an `em`, `rem`, `px`, `vw` or `vh`
+    length, or a `calc()`. The generated `Metric` carries it as `length`, true for a `length` row too, and its kind
+    stays `Style`, so every reader of a style row reads it as before.
+  - **The build holds the marker to the row both ways** (`codec.rs`, `style_length_marker`):
+    - a `style` row whose name says a length property (every name but a colour's, a line style's, a position's, a
+      font's, a weight's, a switch size's, an alignment's, an appearance's, a box model's or a flex factor's, as the
+      row test reads names) is refused without the marker;
+    - a marked row is refused where its name says no length, or where a cell holds no length.
+  - **A scale cell may name only a `length` or `style length` metric** (`build/scale.rs`); the name endings are gone
+    from it.
+  - **The kernel's row test reads the marker** (`style::metrics`): `every_value_is_one_a_row_takes` takes a row's being
+    a length from the marker, and only which property it is written on from its name. A new test,
+    `the_length_marker_is_the_names_length_rows`, holds the marked set to the set the names gave before the flag,
+    exactly (59 rows), so nothing the kernel reads moves.
+  - **Checked by hand on a mutated schema, each refused with its message:**
+    - `grouped-row-gap` unmarked;
+    - `grouped-header-weight` marked;
+    - a marked row with a keyword cell;
+    - `=grouped-header-weight` in a scale cell.
+  - **The digest moves within B1** (above): `0x374f_477d_d305_5b7e` → `0x45a9_8459_9339_c7bf`.
+- **After review round 3 (Astra RIGHT, Grok RIGHT WITH CHANGES):**
+  - **A binding reads the terminal's cells** (Grok, should-fix). Under `Column::Terminal` the scale's spacings are
+    cells (`1ch`, `2ch`), which `Tamber::length`'s points read as no length. It now reads a cell as its px
+    (`style::cells::parse`). `base_alias.rs` checks the terminal column: space.sm 8, space.lg 16, radius.md 0, and
+    `card.pad` 8, then 16 under `tone=wide`.
+  - **A host's length read is read aside** (Grok, nit). `Tamber::length` wraps its `theme::measure` in
+    `theme::recorded`, as `color` does, so its read joins no style parse's names.
+  - **Every misdeclared base name is said at once** (Grok, nit). Beside an icon's refusal, `check_design` appends
+    `misnamed` too. Where the checker refused another token, it still has every token's kind, written or inferred
+    (`check::check`'s refusal carries them), so `space.lg = #ffffff` is said beside it too (the re-check's nit). Test: `tamber_base_scale.rs`
+    `every_misdeclared_base_name_is_said_beside_other_refusals`.
+  - **A marked row's `calc()` is a length** (the re-check, Astra). The marker's guard parsed any `calc(…)`. It now
+    reads CSS's typed grammar: numbers and lengths (`px`, `em`, `rem`, `vw`, `vh`, a percentage), `+` and `-` between
+    two of one type and spaced, `*` by a number, `/` by a number, and parentheses; the result must be a length
+    (`codec.rs`, `calc_length`). Checked by hand on a mutated cell:
+    - refused: `calc(1deg)`, `calc(garbage)`, `calc(2 * 3)`, `calc(100%-16px)` and `calc(100% - 16)`;
+    - accepted: `calc((100% - 16px) / 2 + 1em * 2)`.
+### Stage 10b, E2+E3 follow-up: re-import judged whole (theme2's option B, 2026-10-19)
+
+E23's round 5 found super-linear paths in the importers. They are fixed in two steps.
+
+- **First, the exact part.** Outputs are byte-identical:
+  - the DTCG importer walks each path's alias chain once per tuple;
+  - re-import's transaction is tried on the text it has accepted, instead of the whole prefix again;
+  - context and design lookups go by name;
+  - one check replaces apply-then-check.
+- **Then option B.** A proposal is applied as the whole edit it is, so it is judged whole:
+  - **Each token is planned.** Its lines are planned without a check.
+  - **Then rounds.** Every pending token's lines are applied together (`edit::stepped_all`: many
+    `set-token` and `set-dial` operations with one parse). That gives the same text and the same refusal as stepping
+    them one at a time: each operation's lines are parsed alone, and anything else falls back to stepping. The
+    result is checked once, and each token's values are read from that folding.
+  - **Re-asking.** The pins a token needs are added for the next round. A round that adds a pin or drops a token
+    asks every token again, so a token is settled only on a round that changes nothing. There is no count of
+    rounds: each change is a pin (three a token; a fourth refuses it), a refusal, or lines that leave, so the rounds
+    end. A token settled beside a change that is later dropped is asked again without it (`export_dials` test).
+  - **Dial candidates are judged alone.** A token that may be a dial's change (D14) is judged on its own. Its
+    literal lines are only a fallback, and `export_dials::dials` decides which applies afterwards.
+  - **The transaction.** The dials' changes come first, then the tokens, judged the same way. A refusal reads "the
+    design would refuse it with the rest of the proposal (…)", where it used to read "…with the tokens before it".
+- **A refused set** is resolved deterministically, in the export's order of names (`export_batch::judged`):
+  - each diagnostic on a member's token or dial line refuses that member, with its own diagnostic as its reason;
+  - when a diagnostic is on any other line (an unchanged token refused for what a change made of a token it reads),
+    the set is halved, the first half before the second, each half on what was taken before it.
+
+  `judged` checks its base, then once more when nothing is refused.
+- **Where the report differs from per-token checking.** These are the two interaction cases (tests:
+  `export_batch::tests`):
+  - **A token refused alone but taken with the others now lands with them.** For example, `a` naming `b` as a
+    colour while `b` changes from a length to a colour. It used to be reported.
+  - **A token taken alone but refused with the others is now reported with its own reason.** For example, `a` naming
+    `b` while `b` becomes a length. The refusal is on `a`'s line, so `a` is refused and `b` lands. It used to be taken,
+    then refused in the transaction.
+  - A dial's change and another token's literal, both reading the dial, land together (`export_dials` test).
+  - The theme-fixture and Bluesky designs, with values flipped at four densities, report identically before and
+    after.
+- **Measured** (release, every value changed):
+
+  | Design | Before | Now |
+  |---|---|---|
+  | 400 colour tokens, each with a `when` | 51.6 s | 0.03 s |
+  | 800 colour tokens | 5–7.6 s (exact part) | 0.07 s |
+  | 3,000 colour tokens | about 90 s (extrapolated) | 0.27 s |
+  | 2,000 tokens over 64 contexts | not measured | 2.1 s |
+  | 800 refused tokens (refusal-heavy) | not measured | 0.03 s |
+  | 3,000 refused tokens (refusal-heavy) | not measured | 0.11 s |
+
+  - The DTCG export (which re-import runs on the design) found groups by scanning every name for every token in
+    every context. It now reads each name's dotted prefixes once: 0.7 s for 3,000 tokens over 64 contexts, which
+    took 4.5 s for 2,000 before.
+  - `judged` alone: 3,000 members all refused on their own lines take 30 ms. Refusals on other tokens' lines are
+    found by halving, about two checks for each refused member at each halving.
+- **The rest of rt1's entry** (iosfix, x2/import-rest; theme2's 19:07 ruling; the lead's 18:35Z task):
+  - **The budget, calibrated to the isolate.** An import runs in a child of about 1 GiB (`tamber-isolate.mjs`), and a
+    budget that outruns it turns the budget's refusal into an RSS kill. Measured (release, designs over 64 contexts,
+    one `when` per token): a fresh DTCG import holds about 12 bytes of RSS for each unit, a re-import about 30 (it
+    exports the design to compare, each context's tree now charged as it is built). So `budget.rs` has a limit per
+    path, each refusing before the isolate's kill (at 90% of 1 GiB): `IMPORT` = 3 × 2²⁴ (about 600 MB, 59% of 1
+    GiB) and `REIMPORT` = 3 × 2²³ (about 750 MB, 74%); before, one `LIMIT` of 2²⁶ let a re-import reach about 2.9
+    GB. The server's check of a client's baseline against the design's own export (`contract tamber` `plan`) builds
+    that export inside the re-import's budget too (`export::own_digest`), so a design too large for one re-import is
+    refused there with the budget's message, not exported whole first or told to pull.
+  - **Supported size:** about 650 tokens over 64 contexts re-import, and about 880 import fresh; 3,000 tokens over
+    about 14 contexts re-import (real Figma files: thousands of variables, usually 8 modes or fewer). 3,000 × 64 is
+    refused with the budget's message (re-import: 0.36 s, 470 MB). This is less than the 3,000 × 64 first asked for;
+    making that import is the QUEUE entry "share a context's tree" (the DTCG Resolver Module's sets and modifiers).
+  - Near the limits: 500 tokens × 64 re-import in 0.5 s (76% of `REIMPORT`); 700 import fresh in 0.28 s (79% of
+    `IMPORT`).
+  - **The CSS importers**, each linear and bounded, their output on 162 stylesheets (the fixtures and real Tailwind
+    and shadcn sheets found on the machine) byte-identical before and after:
+    - nested rules (`import/mod.rs` `body`): the stylesheet's marks (`{`, `}`, `;` outside strings and parentheses)
+      are read once and each `{`'s match found once, and each rule reads its own range of them (each level re-read
+      them before, and a custom property's unmatched braces were each matched by a scan to the end). A stray `)` no
+      longer lowers the parenthesis depth below zero, so every rule reads its marks as the whole text does (malformed
+      CSS only; the 162 sheets are unchanged). A rule nested past 64 is not read, and is reported (one value, with its
+      prelude's line), as is a block whose context the blocks would copy past 8 MiB in all, counting the copy in each
+      of its declarations' labels and reports; it was a stack overflow at about 100,000 levels. The context is
+      borrowed down the rules and copied only into a block kept. A custom property's name past 256 bytes, its value
+      past 4 KiB, or a prelude past 4 KiB is reported likewise (one value, its line), so no one string is copied into
+      every token, report or message that reads it (no real stylesheet's is near them);
+    - nested selectors (`engine::nested`): a selector past 1 KiB makes the chain none, checked before it is built, and
+      a list past 1,024 likewise; `& &` at each of 40 levels ran past two minutes;
+    - colour aliases (`engine.rs`): each block's chain followed once and remembered, cycles found once (Tarjan's),
+      and a failure carried down its chain a step at a time; a chain past 256 links is reported ("an alias chain
+      longer than 256", as the DTCG importer's), each block's walk stopping there, so blocks that share a long
+      chain cost at most 256 steps each. 20,000 aliases in 80 chains took 28 s in debug, now 1.3 s;
+    - shadcn's other kinds: each variable's last declaration and its declarations read once, a reference chain past
+      256 none (no name's kind standing in); the other-kind tokens grouped by variable once; each token's sources
+      (shadcn and Tailwind) and the themes found by name;
+    - the kinds' fold check (`kinds::unfolded`, shared): tokens and the design's found by name through indexes, the
+      probe's lines counted as it is written (it recounted the whole text per token), a diagnostic's token found by
+      binary search;
+    - Tailwind (`written_out`, `other_kinds`): each key written out once at each depth, with its chain's 16-deep
+      refusal as before; one value past 64 KiB is refused ("its `var()`s write out past 64 KiB"), and all of them past
+      16 MiB; the theme's keys held by name (a reset of one name looks it up; a namespace's clears a range of names,
+      passing over the names it keeps, in the order they are held), owners and redefinitions looked up by index, and what reads a redefined `inline` key found once through
+      its readers. 5,000 type keys took 38 s in debug, now 0.3 s; 20,000 keys and a 2,000-key `inline` chain 0.4 s.
+  - **`marks`**: each token found by one index (its name, then in any ASCII case, the first so named, as before), and
+    a dial's moved tokens by a name map. 3,000 set tokens and a dial take 0.14 s in debug (it was not slow there).
+  - Tests: `tests/it/scale_css.rs` (each path on a large valid input in time, and the shapes that multiply cut off) and
+    `scale.rs` `the_budget_takes_a_design_near_its_limit_and_refuses_one_past_it`.
+
+
+    factor, which the table doesn't mark, so a `style` reference must end in `-gap`, `-inset`, `-radius`, `-width` or
+    `-height`, the endings the kernel's row test maps to length properties. `=grouped-header-weight` stops the build,
+    checked by hand.
+
+
+
+### Stage 11, commit B2: the hosts' columns (draft for theme2)
+
+Built on B1, under the plan's §3 columns. Each host resolves the base names in its own column of the kernel's table and
+draws nothing new: stage 11 C draws and conforms on top.
+
+- **The web's JS target**, which keeps no kernel at run time (`host/web-js/src/base_scale.rs`):
+  - Its one look is the neutral one. Every build path says so with the role table's switch, which is the metrics'
+    column too, so its column is `metrics::column()` at build time.
+  - A static row naming a base name is that column's length: the kernel reads the literal while the sheet is
+    projected (B1's fallback).
+  - The sheet declares each base name the plan may read as a length, and its design does not define, once on `:root`,
+    as `--exact-<name>` (`--exact-space-md:16px`). The values come from the kernel's table, never copied numbers, and
+    a plan reading none declares nothing (round 1 below says which reads count).
+  - A bound row whose value may name a base name maps it to that property's `var()` (`measures::map`). An SVG
+    attribute row, which reads no property, maps it to the length.
+  - An alias to a base name the design leaves unset (B1 round 1, `card.pad: length = space.md`) is the base's property
+    wherever the token's CSS is written, except in an SVG attribute (round 1 below) (`measures::css`: `var(--exact-space-md)`), and the sheet declares that
+    property although only the alias names it. Once the design sets the base name the alias folds (theme2), so the
+    page shows the app's value and declares no base property.
+  - A design that defines a base name makes it its own token, which the token path writes, and no base property is
+    declared for it. theme2 accepted `--exact-<name>` on two conditions, each tested:
+    - the app's override wins: its own value is what the page shows, inline in a release build;
+    - it follows a live edit: in a development build the row reads the design's property (`--x-space-md`), which an
+      edit's batch (`modes::design`) sets to the new value.
+  - The web has no iOS or Mac look class to declare a second column under; one would add its rules in the same place.
+    `emit.rs` stays at its cap: its one change joins the base sheet to the theme's.
+- **The wasm web** reads the kernel's column, which its boot already sets to the neutral look's (`host.rs`). A test
+  boots the bridge and finds a base name's neutral length in the batch, one that differs from the web's first look's
+  (`@ios`) there (space.xs: 4 against 5).
+- **The terminal:** the host says `metrics::set_column(Terminal)` at boot (`host.rs`).
+  - Its metrics read as before (the web's first look's), its base spacings as cells (`n ch`, on the grid) and its base
+    radii as 0.
+  - The terminal check (`contract/cli/src/terminal.rs`) admits a base name as a terminal length, since it is cells in
+    that column.
+  - A design that redefines a base name in px is not seen by that check, as it does not see any other token's value: a
+    known limit, as for every token on the terminal.
+- **Linux and Android's reader**, through their own switches (`exact_linux::app::show_neutral_look`, the role table's;
+  `show_material_look`, the metrics'): every base name reads that column's cell. Material's cells are Material 3's
+  (`m3-spacing`, `m3-shape`). Their values coincide with the neutral look's own steps, which a test tells apart by
+  source.
+- **Tests:**
+  - `host/web-js/src/base_scale_tests.rs`:
+    - a static row is the column's length, and the sheet declares only the named bases, once, from the table;
+    - a bound row's values map to their properties;
+    - with no base named, nothing is declared; a design's own `space.md` is its token, and the others stay base.
+    - an app's own `space.md` wins and follows a live edit (40 px to 48 px on the same property), and no base property
+      is declared for it.
+  - `host/web/tests/base_scale.rs`: a web boot reads the neutral column, told apart from iOS's cell (space.xs 4
+    against 5; `Column::Web` reads the neutral cell since B1's round, so the boot's switch is what it holds).
+  - `base_scale_tests.rs`: an unset-base alias's CSS is the base property and the sheet declares it, in release and
+    development; an app-set base name folds the alias to the app's value with no base property.
+  - `host/terminal/src/host_scale_tests.rs`: the terminal's column; space.lg is two cells (16 px inline, 16 px on top)
+    and radius.md and radius.full are 0.
+  - `contract/cli/src/terminal.rs`: base names pass the terminal check.
+  - `host/linux/tests/base_scale.rs`: the desktop's neutral column and the reader's Material one, every base name, and
+    a booted row.
+- **After review round 1 (Astra: three blocking, one should-fix; Grok: one should-fix, Astra's first):**
+  - **An alias in an SVG attribute** (Astra 1, Grok). An attribute reads no CSS property, so a bound attribute row's
+    map writes an unset-base alias as the base's length in the build's column (`base_scale::value`), not its `var()`.
+    A static attribute already folds through the kernel. Test: `base_scale_tests.rs`, release and development, bound
+    (`$tla`'s `card.pad` is 16px) and static (`height` 16).
+  - **A live switch to a base the sheet lacks** (Astra 2). `card.pad: space.md` to `space.lg` was a value-only edit,
+    batched as `var(--exact-space-lg)`, which no rule declared. The dev design's `structure` (`modes::design`) now
+    carries the declared base names too, so the dev loop (`sameShape` in `dev.mjs`) builds instead, and the build
+    declares the new one. A plan declaring none keeps the plan's structure as it was. Test:
+    `host/web-js/base-scale-live.test.mjs`, in Chrome: the edit's structure moves, the rebuilt sheet declares
+    `--exact-space-lg:24px`, and the page's row is 24px.
+  - **The plan's length reads, never its string pool** (Astra 3; theme2's (B), no plan format change). The declared
+    set (`base_scale::named`) is:
+    - each base name a length row's value may be, through `?:`, `match` and `let`, read from its bytecode
+      (`returns`, an abstract walk of the VM's stack);
+    - each base name a length token aliases;
+    - all nine when a length row's value may be any string, as lowering keeps every length token then
+      (`computed_measure`): a string-typed read, a string call, or a concatenation whose every part could be inside a
+      base name (`"space." + size`). A read is typed by the plan: a state's, a derive's or a resource's type, a
+      record's field, an each item by its list's subject and a match's bound value by its option's (through the
+      region frames the node sits in); a param stays untyped. A read typed as a number or bool is no base, nor is a
+      concatenation with a part no base name holds (`w.toString() + "px"`).
+    - only rows whose codec reads a length (`base_scale::reads_length`, asked of the codec with `1px`), for the
+      declared set and the maps alike. The kernel's `admits` takes a length token on every row that is no colour's or
+      number's, keyword rows too (`color-scheme`, `font-style`, `dynamic-range-limit`), but there the codec refuses the
+      length a base name reads, so the base name is refused either way. This departs from `admits` only for such
+      values.
+
+    The maps hold the same set, so a computed name finds its property. A text or a label that says `space.md` declares
+    nothing. theme2 (B): declaring all nine where a name may be computed is safe, missing one is not. Tests in
+    `base_scale_tests.rs`: `"space." + size` and a string state declare all nine and map each; plain text, a label, a
+    condition over literals, a number state and a `+ "px"` length declare none; a literal row declares exactly its
+    own, and one condition's leaf exactly its own; an alias declares its base (the earlier test). Release output
+    compared with d7eaafb72a's exact-web-js (before B2) for 14 apps: all 14 are byte-identical in app.js, app.css,
+    paint.js, names.js and pages.json (hello, caltrain, design-tool, messages, realworld, theme-fixture,
+    color-gallery, tamber-host, svg-gallery, interaction-gallery, motion-gallery, markdown, typetour, spark). Further
+    tests: a number list's item declares none and a string list's all nine, and a keyword row (`font-style`) bound
+    to a string state declares none.
+  - **A real live edit on a page** (Astra 4). `base-scale-live.test.mjs` builds an app for development with
+    `space.md = 40px` and `card.pad: length = space.md`, shows it in Chrome, and compiles the edit to `48px` as the dev
+    loop does (`exact-web-js design`). It checks that the structure and shape hold and that both tokens change, sends
+    the batch through the page's `exact.design`, and finds the direct row and the alias's row both moved from 40px to
+    48px, on the same page.
+- **After review round 2 (Astra: four blocking, one should-fix; Grok: two should-fix, overlapping):**
+  - **All nine or none** (theme2's yes, 2026-10-19; replaces round 1's per-name set). The sheet declares every base
+    name the design does not define once the plan may read any base name as a length, and none when it can't
+    (`base_scale::named`). It may read one through a length token that aliases one, a length row whose value may be
+    one (its bytecode's constants, trimmed as the page's lookup trims), or a length row whose value may be any
+    string: a string read, a string call, or a concatenation not proven base-free. The maps hold the same set. A
+    switch between two base names then never names a property the sheet lacks, so the design's `structure` moves only
+    between none and nine. This dissolves Astra 2 and 4 and Grok 1 and 2 as filed:
+    - **Whitespace** (Astra 2, Grok 1). A concatenation is base-free only where one of its parts, trimmed, is
+      non-empty and inside no base name. `"space." + size + " "`, `" " + gap` and `gap + " "` declare the nine.
+    - **Scrubs** (Astra 4, Grok 2). `design-serve`'s patch reply now carries the structure:
+      `modes::structure_of`, the held plan's own (patching appends to its pool) with the base names the patched
+      values may read. `dev.mjs`'s `scrubPatch` keeps it, and `scrubShow` refuses a frame whose structure differs, as
+      `sameShape` rebuilds a file edit. A frame that brings the plan its first base name is refused; one between two
+      base names is shown.
+  - **A keyword row's map is its own** (Astra 1). Where the plan declares the scale, a row the kernel lets name a
+    length token but whose codec reads no length (`color-scheme`) gets a `$tk…` map without base names, so a length
+    row's `$tl…` map, which holds them, is never the keyword row's cached one. Where the plan declares none the maps
+    are alike and keep their names, so a release that uses no base name is unchanged.
+  - **A bound SVG attribute and an alias** (Astra 3). A bound attribute's map holds an alias as its length (an
+    attribute reads no property), so every token of one value such a row may name, a length or number its row takes
+    (an alias as its length, a plain constant as its CSS), is written inline (`measures::inline_tokens`). A
+    development build's edit of one builds, and a scrub refuses it, never a batch that leaves the attribute behind.
+    (The constant's case is older than B2; the lead had it widened here.) A token that varies is no attribute map's,
+    as before. Round 1's literal length
+    in the attribute and its test stay.
+  - **Built values in region frames** (Astra 5). The walk keeps a constructed option's or list's element (`Some(x)`,
+    `[12, 16]`), which a `match` or `for` frame then holds, and a bound row returning an option counts its element.
+  - **One reading an emit** (`base_scale::keep`, through `modes::every_for` as `emit.rs` is at its cap). An emit
+    walks the plan once, not once a bound row.
+  - **Tests:**
+    - `base_scale_tests.rs` `the_scale_is_declared_whole_when_the_plan_may_read_a_base_name`:
+      - a literal row, and a condition's leaf, declare the nine;
+      - five computed and whitespace-wrapped names declare the nine, and the map holds each;
+      - plain text, a label, a px condition, a number state, `w.toString() + "px"` and a keyword row bound to a string
+        declare none, with no map entry;
+      - `for n in [12, 16]`, `match some(w)` and a number list state declare none; their string forms declare the
+        nine.
+    - `a_keyword_rows_map_is_not_a_length_rows`: `color-scheme` bound first, then padding; `$tl` holds `space.md` and
+      `$tk` doesn't.
+    - `a_token_a_bound_svg_attribute_may_name_is_written_inline`: `card.pad` and the constant `tile` are both inline.
+    - `a_switch_between_base_names_keeps_the_structure`: space.md and space.lg have the same structure; 12px's is
+      another.
+    - `base-scale-live.test.mjs`, in Chrome:
+      - a scrub patch from 12px to `space.md` moves the structure, and one from `space.md` to `space.lg` doesn't;
+      - the switch compiles with the same structure and shape, goes as a batch, and the page's row moves from 16px to
+        24px with no reload;
+      - the 40px to 48px test stands.
+    - Release output against d7eaafb72a's exact-web-js: all 14 apps byte-identical.
+- **After round 2's re-review (Grok RIGHT; Astra RIGHT WITH CHANGES):**
+  - **Trimmed as JavaScript trims** (Astra, blocking). Rust's `trim` keeps U+FEFF (and strips U+0085), while the
+    page's lookup is JavaScript's `trim`, which strips U+FEFF. So `"\u{feff}" + gap` was classed base-free although the
+    page reads `space.md`. `base_scale::js_trim` trims JavaScript's set (its WhiteSpace: tab, vertical tab, form feed,
+    U+FEFF and the space separators; its LineTerminator: LF, CR, U+2028, U+2029), for an alias's value, a returned
+    constant and a concatenation's part alike. The test's leading and trailing U+FEFF and its U+3000 on both sides
+    declare the nine, and fail under Rust's `trim`, checked by hand.
+  - **`none` has no payload** (Astra, should-fix). The walk's `none` is an option whose payload is nothing, which a
+    join takes as the other side's, so `match (wide ? some(12) : none)` binding `padding=n` declares none, and its
+    string form declares the nine (tests in `the_scale_is_declared_whole_when_the_plan_may_read_a_base_name`).
+  - **QUEUE:** "A Stretch cell form in the base scale table" (theme2's optional item), to land with the next commit
+    that moves the schema digest.
+  - Release output against the commit before B2 (`d7671b5263`'s exact-web-js): all 14 apps byte-identical.
+- **After review round 3 (Grok RIGHT; Astra RIGHT WITH CHANGES):**
+  - **A bound grid track reads a base name** (Astra, blocking). A bound `grid-template-columns` or `-rows` naming
+    `space.md`, directly or through an unset-base alias, maps to `var(--exact-space-md)`. grid.js's track check
+    admitted only a design token's `var(--x-…)` and refused it as `unset`, in a release build too. It now admits
+    exactly the scale's nine `--exact-<base>` properties, no other `--exact-` one. The search for the same `--x-`-only
+    assumption found no other validator:
+    - rt.js writes a bound value through the browser, which takes any `var()`;
+    - the corner map's check refuses only a list;
+    - backdrop.js reads no length token;
+    - modes.js, modes.rs, check.js, inspect-dev.js and input-glue.js read a token's property for the live table, the
+      checker or the inspector, and never refuse a value.
+  - **Tests:**
+    - `grid.test.mjs`: the nine and a token's property are tracks; `--exact-accent`, an unknown step and a list
+      aren't. grid.js is loaded from its text, so no module mock leaks into the other files run in that process.
+    - `base_scale_tests.rs` `the_grid_track_check_names_the_scale`: grid.js's nine are the kernel's table.
+    - `base-scale-live.test.mjs`, in Chrome, in a release build and a development one: a bound track naming
+      `space.md` computes to 16px, and one naming the alias `card.pad` (space.lg) to 24px. It fails without the fix,
+      checked by hand.
+    - Release output against the commit before B2: all 14 apps byte-identical.
+
+### Stage 11, commit C2: the scale conformed and held to each host's column (draft for theme2)
+
+Built to theme2's 15:32 approval, on B1 and B2.
+
+- **The conform target `host/web-js/conformance/scale/`** (`// linux: layout`):
+  - corners by `radius.sm` to `radius.full`, inline and through a `style`;
+  - `radius.full` on a 120×32 box and a 40×96 box: the cross-host pill check, which holds every host's
+    corner-overlap clamp of the one oversized length;
+  - padding by `space.xs` to `space.xl`, and a row for each gap, `space.xs` to `space.xl`;
+  - the design's own `space.md = 12px` (ruling 4) and `space.header = 44px`, a name the scale does not reserve
+    (ruling 5), as a box's height;
+  - a bound corner that moves between `radius.md` and `radius.full` (`scale.steps`);
+  - the probe's colours as tokens fixed in either scheme.
+- **conform result.** The wasm page and the JS page agree on all 5 compares: boot, the two scripted taps,
+  conform's own extra tap, and `clock +60000`. Linux's boxes agree on all 5 too. Linux compares boxes only, so its
+  corners are held by scale-check below.
+- **Each host against its own column:** `scripts/scale-check.mjs` takes lengths by name as expectations
+  (`scale/expect.json`).
+  - A base name is read from `kernel/tables/schema.json`'s `scale` in the host's column (a metric's reference read
+    in that column). The design's own token comes from `contract tamber ir`, which finds the design as a build does.
+    Nothing is copied.
+  - It checks paddings, gaps, the header's height and corners, and the bound corner again after one and two taps,
+    each from a fresh launch.
+  - On 2026-10-19 all 20 checks passed on each host. Paddings and gaps were within 0.5 pt, corners within 0.2 pt:
+
+    | Host | Paddings and gaps xs/sm/md/lg/xl | Corners sm/md/lg | Pills | Bound, after one tap |
+    |---|---|---|---|---|
+    | web (wasm) | 4/8/12/24/32 | 4/8/12 | 16 and 20 | 8, 20 |
+    | Linux | 4/8/12/24/32 | 4.1/8.1/12.2 | 16.1 and 20 | 8.1, 20 |
+    | macOS 27 | 6/8/12/20/30 | 5.1/6.1/10.2 | 16 and 20.1 | 6.1, 20 |
+    | iOS 27 simulator | 5/8/12/20/35 | 5.6/17/26 | 16 and 20 | 17, 20 |
+    | the Android reader (x2-android emulator) | 4/8/12/24/32 | 4/8/12 | 16 and 20 | 8, 20 |
+
+    md is the design's 12 on every host, and the header is 44.
+  - The neutral and Material columns have the same px for every name. The Material column is held by the Android
+    reader's run (theme2's ruling: the scale's own boxes, not E's fixture):
+    - the reader is tested by a plan push, not by an app build: scale-check gives the reader the compiled plan,
+      pushed in place of the one an app's APK bakes (`--app unsaid`, an app that asks nothing of its data), so the
+      reader runs exactly what the other hosts run (theme2's 16:55 ruling);
+    - before measuring, every host must name the compiled plan in its `perf` (the SHA-256 of the plan's bytes), so a
+      stale or wrong plan, such as the reader's own bake if the push were not read, fails loudly;
+    - the reader's screenshot is the whole screen, so the page's top is found in it, to the fraction of a pixel,
+      from the topmost box's fill;
+    - a page offset or narrowed across the screen (side bars, a cutout, on either side) is refused rather than
+      misread: the topmost box's left and right edges are held to where the page's pixels per point put them.
+- **The terminal** (theme2's 17:39 ruling): `exact-terminal` gains two headless verbs, the terminal carrier's own
+  (not the agent protocol):
+  - `layout`: one JSON line with the viewport, the cell (8×16 px), and each node's kernel frame in px, its cells as the
+    painter rounds them, its `testId` and its corners' radii, sized against the box as a host sizes them (a
+    percentage across and down, a pair where the two differ);
+  - `plan`: the runner's digest of the running plan.
+
+  `scale-check --host terminal` drives it on the compiled plan:
+  - it reads the table's terminal cells by the reply's cell width (a `ch` is 8 px);
+  - it checks paddings, gaps and the header in px, and every corner at 0 from the reply (radius.full included);
+  - it checks the bound corner after taps, from a fresh run;
+  - it writes every box's cells, and each padded box's padding in cells (top/right/bottom/left), into its output
+    for E's gate;
+  - a step's text stays one argument (`type <id> <text…>`).
+
+  On 2026-10-19 it first passed 20 of 21. The one failure was the assertion theme2 asked for: a box padded `space.sm`
+  whose child fills it painted 1 row above and 0 below, since `1ch` down is half a row and the painter rounded each
+  edge's position.
+- **The terminal's spaces in whole cells** (theme2's 19:09 ruling, option (2), superseding the painter half of 18:35):
+  the column stays in `ch`, and the kernel lays a terminal's spaces out in whole cells. Under the terminal's space rule
+  (`Env::cell_spaces`, set only by the terminal host beside `cell_borders`; LLP 1101 §4's row), a padding, margin or
+  gap that resolves to points (a `calc()` that resolves to points, or has no percentage, included; a multi-column
+  box's `column-gap` too) is rounded before layout to whole cells
+  on its axis, rows down and columns across, to the nearest with a tie toward zero (`cells::space`). A percentage,
+  or a `calc()` with one, is not rounded: the rule's limit.
+  - The numbers: down, space.xs, sm and md (0, 8 and 8 px) are 0 rows and space.lg and xl (16 px) 1 row; the clone's
+    14, 12 and 10 px are 1 row each; across, a `ch` is a column (12 px, a column and a half, is one).
+  - px and cells agree by construction, so the painter, scroll, `scrollIntoView`, follow-end, the collections' windows
+    and the inline transcript need no change. The readers of a space outside layout follow the rule too: a
+    virtualized list's keyed jump aligns a row by its root's margins, now read from the kernel as laid out
+    (`Kernel::laid_margins`), and its `scroll-padding` and `scroll-margin` in whole cells when the rule is on
+    (`runner/src/runner/collection.rs`); a host's cover inset adds to the rounded padding. Turning a cell rule (spaces or borders) on or off after a layout restyles every box. A painter-only rounding was built first (x2/s11c2-painter-14f0953eea,
+    not landed); Astra's round 1 found it drifted from px cumulatively (item k of a gap-sm list at px 24k, painted on
+    row k).
+  - The visible change, accepted: a box padded `space.sm` shrinks to its content (the `even` box is its child's two
+    rows, 0 rows of padding each side), and a gap-sm list has no blank row between items.
+  - scale-check: the terminal's paddings and gaps are expected in whole cells on each axis, in px and in cells (a
+    reply without whole cells for a padded box or a gap's children fails), and the `even` box paints equal rows above
+    and below. Every other host is unchanged (the rule is off): conform scale 5/5, Linux 5/5.
+  - Tests: `kernel/src/style/cells.rs` (`space`, and the engine's style with and without the rule),
+    `host_scale_tests.rs` `spaces_are_whole_cells_so_rows_follow_the_layout` (item k of a gap-sm list on row k,
+    where its px frame is; revealing item 30 in a ten-row scroller shows items 21 to 30), `collections.rs`
+    `a_keyed_jump_aligns_rows_by_their_margins_in_whole_cells`, `kernel/tests/it/env.rs`
+    `the_terminal_space_rule_rounds_resolved_spaces_and_relays_when_it_turns`, `layout_and_plan_answer_as_json`
+    (`1ch` of padding: a column across, none down) and `scale-check.test.mjs`.
+  - The run: terminal 21/21 (even 0/1/0/1 cells top/right/bottom/left; sm padding 8, 0 px; md, the design's own 12
+    px, 8, 16; lg and xl 16,
+    16; gaps 0, 8, 8, 16, 16 px across; the header 44; corners 0).
+- The other hosts run the same plan, now 21 checks with the `even` box: 21/21 each on web, Linux, macOS, iOS and the
+  reader. conform: 5/5, and Linux 5/5.
+
+### Stage 11's gate: met (2026-10-20; the run is `~/x2theme/stage11-gate-run.txt`)
+
+The run on `558b0bcf8e` (E on main), every host fresh: web, iOS, the Mac, Linux, Android's reader and the terminal.
+Stage 11's parts, all on main: A1 package designs in the compiler (`d5b4507d63` and records), A2 part 1 (the server
+and `contract tamber` fold packages) and part 2 (package designs on the wire, `d98591ee32`, *1.14*); B1 the scale
+table (through `d7671b5263`) and B2 the hosts' columns (through `d750c4e996`); C2 conform and scale-check, the
+Android reader by a plan push, the terminal host, and (c) the terminal's spaces in whole cells laid out by the kernel
+(`8ddfce36be`); D's server (`ed6e1720fa` and before) and tool half (`e8cd42223a`..`7a9da404a4`); E the fixtures and
+the gate script.
+
+| Gate line | Result |
+|---|---|
+| Two packages restyle together from one app value | **Met**: `@exact/cards` and `@exact/notes` both move with the app's `space.md = 20px` on web, iOS, the Mac, Linux and the terminal; live on the web, `set-token space.md` moves both with no reload and `remove-token` returns them. |
+| With no app value, `space.*` and `radius.*` are each host's | **Met** on every host, both packages included; every scale row cites a metric reference, a measured id or a guideline, and none is a bare number. |
+| Package designs: set by full name; one name in two packages refused unless the app sets it; no dials, axes or base names in a package; a `when` only on the app's axes | **Met**, each by its test. |
+| The server and the tool | **Met**: base rows with their columns and the app's override; package tokens with `package` and `file`; `set-token` of a base or package name writes the app's line, never a package file; `add-token` of a base name points to `set-token`; the design tool's real-server test. |
+| No regressions | **Met**: the clone's own `space.header` keeps its meaning (on a signed-out copy); conform `--synthetic --strict --linux` 0 failures in 110 targets (two older Linux reds fixed first: metronome by LLP 1125 D12, decorations by the grammar's `unavailable`); release output over 504 comparisons: 446 identical, 45 only B1's schema digest, 2 the design tool's own source, 11 failing alike on both sides. |
+
+**Decided in stage 11 and recorded here:** no web column (the web reads the neutral one); an app may set a base name
+and a package may not; the terminal rounds padding, margin and gap to whole cells in the kernel
+(`Env::cell_spaces`, LLP 1101 §4); a package file is what D11, D15 and the resolver see, judged on real paths; one
+write op for overrides (`set-token`). **Left to QUEUE:** expressions over base names (stage 12 B2), the Stretch cell
+form, incremental retention after a name-moving edit, a Linux InlineGeometry reader.
+
+**Stage 11 is closed.** The `tamber/1.14` window is closed; the next wire change takes `tamber/1.15` (stage 12).
+
+### Stage 12, commit B1: package components' params (draft for theme2)
+
+Stage 12 §B's first commit, under no wire change (the server's existing fields carry it; the three levels in
+`explain`/`resolve` are B2, under tamber/1.15).
+
+- **What was there** (verified first): a package's Contract component's params already worked end to end. Its
+  identity is its file under its package (`sources.rs` `home`: `@acme/reading/index.contract#Card`), `describe`
+  lists them under `components`, `set-param`/`unset-param` by full or short name write the app's design (the server
+  writes only the app's own files), the build keeps a set one, and `uses` lists its sites in the package's file.
+  Only tests were missing.
+- **A package design's components** (D15; QUEUE "A package's `.tamber` components", closed). A package's design
+  may declare `component Name` with `params`, for a component that isn't Contract, as the app's design may. It is
+  no longer `tamber-package-block`. Its identity is its design's home and its name
+  (`@acme/reading/reading.tamber#Map`, `params::design_tokens`), so two packages' components of one name stay
+  apart: their token names differ by file, and a short name naming both is `tamber-param-ambiguous`. The three
+  places that read the app design's components read the packages' designs too: `params::tokens` (what `describe`,
+  the server and the build list), the build's retention roots (D7: such a component's params are kept, with what
+  their defaults name) and the loader's checks (`tamber-param-unknown`, `syntax-param-attribute`,
+  `tamber-param-collision`), which say a package's refusal at its line in the package's design.
+- **A package's `params` line stays refused** (`tamber-package-block`): a param's value is the app's to set, in the
+  app's design. The message says so.
+- **Tests** (`contract/cli/tests/it/tamber_package_params.rs`, through the server):
+  - `describe` lists `@acme/reading/index.contract#Card` (Contract) and `@acme/reading/reading.tamber#Map` (design)
+    with their params, full and short names, and the design param's default naming a package token;
+  - `set-param` by full name (`Card.inset`) and short name (`Map.pin`) writes the app's `params` block alone, the
+    package's files byte for byte unchanged; `resolve` and the build read both values (the plan keeps them);
+  - `uses` lists `Card.inset`'s sites in the package's `index.contract`;
+  - `unset-param` by short and full name removes both lines;
+  - a package design's `params` line is refused, and a package param's `param.nothing` is said at
+    `reading.tamber:9`;
+  - two packages each declaring `component Map`: both listed, the short name ambiguous, the full name set.
+  - `package_designs.rs`: the block test no longer lists components, and a package design with `component …
+    params` builds.
+- **Next (B2, tamber/1.15):** a param's three levels in `explain`/`resolve` (the package or base token its default
+  reaches with stage 11 D's `bases`, the app's override of that token, the param's own app value), with A2 part 2's
+  `package`/`file` fields once they land. Also: `uses` names a package file by its absolute path, where `explain`
+  names it relative to the app.
+- **After review round 1 (Astra and Grok, RIGHT WITH CHANGES):**
+  - **A short name only where `set-param` takes it** (Astra 1 = Grok 1). `describe`'s `short` read the Contract
+    components' identities alone, so two packages' `Map`, or the app's `Map` and a package's, each said
+    `short: "Map.pin"`, which `set-param` refused as ambiguous. It now reads every param's identity too, as
+    `resolve` does (`tamber_params::short`). Tests: both `Map.pin`s, across two packages and across the app and a
+    package, have no `short`; `Card.inset` keeps its own.
+  - **The server's retention key sees a package's components** (Astra 2). Retention now has a package design's
+    component params as roots, but the server's cached build of it was keyed by the walk, which leaves design files
+    out. A param a package came to declare after the server primed was no root, and an override of it varying by an
+    axis said `live`. The key now holds each package design's components (`Server::synthetic`). Test: prime, add
+    `size` to the package's `Map`, then set it under `when mode=b`: `rebuild`, as a fresh server says. It said
+    `live` without the fix, checked by hand.
+  - **A package param's default names its package's own** (Grok 2). The package reference check (`references`)
+    read only the package band's tokens, so a param's default could name another package's token, an app token or
+    a dial. A package design's param is now held to its package's rule: its own tokens, roles, base names and its
+    component's other params (`param.pin`), and no dial. A refusal is `tamber-unknown-token` at the default, in the
+    package's file. A param the app sets is the app's value and is not held to it. Tests: `maps.pin` and `ink` are
+    refused at `reading.tamber:9`; a sibling param is admitted; the app's `Map.pin = ink` builds.
+- **After review round 2 (Astra and Grok, RIGHT WITH CHANGES):**
+  - **The retention key holds each package design whole** (Astra 1). Round 1's key held a package design's
+    components, not its tokens, which a param's default reads through. The key now holds each package design's
+    digest (`Server::synthetic`). Test: `a_package_tokens_edit_moves_what_its_params_keep` primes on
+    `Map.pin → reading.pin → reading.old` (an override of `reading.old` over an axis is `rebuild`), moves
+    `reading.pin` to `reading.new`, and holds both overrides' classes to a fresh server's. With round 1's key the
+    primed server kept the old retention and classed `reading.old`'s override `rebuild` where a fresh server says
+    `live`; the package's digest is what makes them match (corrected in round 3: an earlier check ran before the
+    test primed on `reading.old`).
+  - **A written whole alias is judged as written** (Astra 2 = Grok 1, 2). A profile colour folds as `transparent`,
+    naming none, and an icon param lies on `icons`, so `pin: color = ink` (the app's `color(--brand …)`) and
+    `glyph: icon = icon.app` (the app's icon) passed. The default as written is now held to the package's rule as
+    the theme tokens' are: a whole token or icon name that isn't the package's, a role, a base name or a sibling param
+    is `tamber-unknown-token` at the default in the package's file. A literal `icon(sf "…")` names nothing. Tests:
+    both are refused at `reading.tamber:9`, and `glyph: icon = icon(sf "heart")` builds.
+  - **The app sets a package param only by a name only it answers** (Grok 3). Whether the app's `params` line sets
+    a param is decided with `resolve` over every param and the Contract components (`package_references` takes them
+    now), so an ambiguous short name sets none, and the default's refusal is said beside `tamber-param-ambiguous`.
+    Test: two packages' `Map`, the app's `Map.pin = ink`, and reading's default `ink`: `tamber-unknown-token` is
+    among the build's refusals.
+- **After review round 3 (Astra and Grok, RIGHT WITH CHANGES):**
+  - **A package param's SVG is a source of the app** (Astra). The dependency scan (`source_graph`) folded only
+    Contract params, so `glyph: icon = icon(svg "pin.svg")` in a package's design read `assets/pin.svg` without its
+    being a source: no watcher rebuilt on it, and one made later was not looked for. The scan now takes each package
+    design's params too, and so runs when the app has no design file. Test: `a_package_icon_params_svg_is_a_source`,
+    with no `app.tamber`: `pin.svg`, there, is a source; `later.svg`, not there yet, is looked for (`consulted`).
+  - **The app's design whole keys the server's retention** (Grok 1). The key held the app design's token names and
+    components, not their values or its `params` block, so an app override of a package token moving what a param's
+    default reaches (`reading.pin = reading.old` to `reading.new`) left the old retention. It now holds the app
+    design's digest (`Server::synthetic`), as it holds each package design's. Each edit of the design builds the
+    retention again, a compile, where a value edit used to reuse it. A commit needs no reset: its text moves the key.
+    Test: `the_apps_design_whole_keys_what_its_params_keep`: prime on `reading.old`, move the app's override, then
+    set `Map.pin = ink2`. The overrides of `reading.old` and `ink2` over an axis are classed as a fresh server
+    classes them (`ink2`'s `rebuild`). With the names-and-components key it fails, checked by hand.
+  - **§10's round-2 note corrected** (Grok 2): the package's digest is what makes round 2's classes match.
+- **theme2's sign-off condition: the server's retention, timed on the clone, keyed narrower.** Round 3 keyed the
+  server's cached retention (`Server::synthetic`) by each design's digest, so any design edit rebuilt it, a whole
+  compile of the app. On the clone that added seconds to the next `propose`. The key is now what can move retention
+  or the synthetic tokens (`tamber_walk::retention_key`), parsed, never compiled: for the app's design and each
+  package's, each token's and icon's name, written kind, a value's rough kind (a colour, a length, a number, other),
+  the names its value and `when` values reference, and its `when` conditions; the `params` entries, name to value;
+  each component's params with their defaults; and the axes, dials and `exports`. A value that names nothing (a
+  hex, a length) is left out, so editing it keeps the cache. A design that does not parse is keyed whole.
+  - **Test:** `a_value_edit_naming_nothing_keeps_the_cached_retention` counts builds by the server's hook
+    (`EXACT_TAMBER_RETENTION_LOG`, one line a build), not by time. A primed server keeps its one build through
+    three value edits (a hex, a length, an alias target's colour). An alias moved, a param set to a token, and a
+    colour turned into a length each build again. Round 3's alias-move and set-param tests still pass.
+  - **Timed:** `/tmp/bsky-bench.py` on `/tmp/bsky-retention`, a copy of the clone's sources (the clone itself
+    untouched). It uses debug builds, as the dev loop runs `cargo run -p contract`. A server is primed with a
+    `propose`; then five times: an edit written to `app.tamber`, the next `propose` timed (after edit), and one
+    more with no edit (warm). The value edit flips `contrast_25`'s light hex; the alias edit makes `white_50` name
+    `black_20` and back. Medians of 5, in ms:
+
+    | binary | edit | prime (cold) | after edit | warm |
+    |---|---|---|---|---|
+    | old key (token names and components; the stage-11 path fix's build) | value | 2621 | 220 | 6 |
+    | old key | alias | 2528 | 222 (no rebuild: the stale case round 3 fixed) | 6 |
+    | round 3's key (each design's digest) | value | 2607 | 3433 | 8 |
+    | round 3's key | alias | 2717 | 2493 | 7 |
+    | this key | value | 3107 | 238 | 8 |
+    | this key | alias | 2507 | 2519 | 7 |
+
+    Two more value runs, the old key and this key back to back: 223 and 224, then 224 and 221. A value edit's
+    `propose` is the old key's (within 20 ms; the limit was 50). An edit that can move retention rebuilds it, a
+    compile, as round 3's key did, in the same time. The old key took 222 ms there only because it did not rebuild
+    and kept a stale retention. (An earlier run, under heavier load, had the old key at 469 ms after a value edit and
+    round 3's at 5639 and 7695.)
+  - **After the key's re-check (Astra, blocking):**
+    - **Names compared as the checker resolves them.** A role's spelling is matched in any case and with or without
+      `-exact-` (`CANVAS` is `Canvas`), so the key folded only exact matches: `pick = CANVAS` moved to
+      `pick = CANVASTEXT` kept it while the retained chain moved. Names and references are now folded (lowercased,
+      `-exact-` dropped) before they are compared and keyed. Test: `a_role_alias_moved_by_its_case_is_followed`: a
+      param set to `pick` with `Canvas = old` and `CanvasText = fresh`. Moving `pick` by case builds again, and the
+      primed server's answers (a value edit of `old`, of `fresh`) are a fresh server's.
+    - **Each row says its section.** A token's row and an icon's were alike (`icon.brand None other []`), so a name
+      moved from `icons` to `theme` kept the key though it changes what the views may read. Rows now open with
+      `token` or `icon`. In the same sweep, a token's metadata keys the names it references (`pair=` another token).
+      Params, components, axes, dials and `exports` already have rows of their own, and colour profiles are the
+      Contract sources' (in the walk's key). Test: `a_name_moved_between_sections_or_a_pair_moved_builds_again`:
+      `pair=paper` to `pair=ground` builds again, and so does `icon.brand = icon(sf "star")` moved verbatim from
+      `icons` to `theme`. Both tests fail without their fixes, checked by hand.
+
+  - After the key's second re-check (Astra): a reference is found by its folded form but keyed as written, so two tokens differing only in case (`Foo`, `foo`) stay two; a chain moved from one to the other builds again (`two_tokens_of_one_name_in_two_cases_stay_two`, failing without the fix)
+  - After the key's fourth re-check (Astra; theme2's pre-approved fallback): the key holds a value VERBATIM whenever it names anything (a name of the designs, as folded, or any dotted word, a package token or a component's generated `param.…` name the designs don't declare); only a literal that names nothing (a hex, a length, `light-dark(#fff, #000)`, `rgba(…)`) is kept by its rough kind, so its edit is a cache hit. Each design's header name is keyed too (a package header repaired joins its tokens). So a non-literal value edit now recomputes retention, as an alias move does. Re-measured on the clone copy (/tmp/bsky-bench.py, debug, median of 5, ms; old key vs this key): a literal edit 370 vs 364 (warm 10 vs 12, a cache hit); an alias move 399 (the old key never rebuilt) vs 3354 (a whole-app compile, as round 3's key). A unit test in tamber_walk.rs holds the key's rules.
+  - After the key's fifth re-check (Astra): every string the key holds (names, values, metadata, params, component params) is written quoted, so a metadata value decoding to a newline can't spell another token's row (a unit test, failing without the quoting)..
+### Stage 12, commit B2-levels: a param's three levels (draft for theme2)
+
+Stage 12 §B's levels, under `tamber/1.15` (stage 12 D1 opened it; B2-levels adds a clause to its one summary line).
+
+- **One walker** (`contract::tamber_levels`, library). Per tuple it starts at the app's own value of a param (its
+  `params` line, by its full name or a short name only it answers, with that line's `when` for the tuple), else the
+  param's default. It then follows each bare reference, in order: another param (its app value or its default), the
+  app's token (a role's spelling in any case), then a package's token, each line's value in the tuple. It goes at
+  most 8 hops (`HOPS`) and stops at a line whose value is no reference (a literal or an expression), at a base name or
+  at a role. It answers `Step {level, name}`, the level that wins and the name there: `app-param`, `app-token`,
+  `package`, `base`, `role`, or `default`. `default` is not in the plan's list: it is the param's own default being a
+  literal or an expression, the one case none of the five names (theme2: it stays; a tool's word for it is "the
+  component's default"). rt1's stage 12 D3 reads the same walker; its
+  signature was sent to rt1.
+- **`resolve` of a param**: each tuple adds `level` and `name`, from the walker.
+- **`explain` and `resolve` of a param**: `levels: {token, app, base, param}` when the default is a reference;
+  `levels: null`, explicitly, for a literal or an expression (theme2's ruling; round 1).
+  - `token` is the first token the default names, `{name, package?, file, line, value}`: a package's own line with
+    stage 11 A2's `package` and `file` exactly, else the app's.
+  - `app` is the app's override of that package token, `{file, line, value}`, or null.
+  - `base` is the base name every tuple reaches, as stage 11 D's `bases` names it, or null when the tuples' walks
+    differ or one reaches none (theme2's ruling; each tuple's own is on `resolve`'s tuples).
+  - `param` is the app's own value, `{file, line, value}`, or null; `param.set` stays.
+- **`describe`**: a param whose default is a bare reference adds `reaches: {token, base, app_set}`, compact.
+- **Tests** (`contract/cli/tests/it/tamber_levels.rs`, through the server, with `@acme/reading`'s Contract `Card`
+  and its design's `Map`):
+  - each level wins in turn on one param: the package's line, the app's override (`levels.app`), the app's value
+    (`levels.param`, and `param.set` kept), and an app value naming an app token;
+  - a chain of package tokens;
+  - a base name (`Card.inset` through `reading.gap = space.md`), a role (`AccentColor`), and an expression
+    (`levels: null`, its tuples `default`);
+  - `describe`'s `reaches`;
+  - levels differing by tuple (`reading.gap` 12px, `when mode=b: space.lg`): `app-token` then `base`, and
+    `levels.base` null; then a `when` sending one tuple to another base (`space.md`, `when mode=b: space.lg`):
+    each tuple's base, and `levels.base` null; with no `when`, `space.md` in both and `levels.base` `space.md`;
+  - a chain of ten app tokens stopping after eight (`c7`).
+
+**After review round 1 (Astra RIGHT WITH CHANGES, Grok RIGHT WITH CHANGES):**
+- **Roles as the checker keys them** (Astra 1 = Grok 1). A role's override is found in either spelling and any case,
+  as `tamber/src/check.rs` `role_key` reads it: `Secondary-Label = …` or `-exact-Secondary-Label = …` overrides
+  `-exact-secondary-label`, and `accentcolor = …` overrides `AccentColor`. An app value written `secondary-label`
+  reaches the override too. A role or its override is named by the row spelling the fold publishes. Only a row
+  spelling stops the walk as a role, as the fold names a role.
+- **Icon params** (Astra 3). `resolve` and `explain` of an icon param returned before the additions; both return
+  paths now carry them (`Designs::annotate`, one call for every param). The walker reads the app's icon tokens. A
+  package's icons are not read yet (`tamber-package-block`), so a package icon param's default is a literal.
+- **`levels.token` walks** (Astra 4 = Grok 2). A default naming another param (`edge: color = param.pin` in a
+  `.tamber`, `edge: length = "param.inset"` in Contract) follows params' defaults, never the app's `params` lines, at
+  most 8 hops, to the first app or package token (`reading.pin`, `reading.gap`).
+- **References, not literals** (Astra 5). A reference is a bare name that is a param, an app token or icon, a package
+  token, a base name or a role's row spelling. `transparent` and `-1` are literals. A literal or an expression
+  default answers `levels: null`, explicitly. describe's `reaches` stays omitted there.
+- **`levels.base`** (Astra 2): every tuple's walk agreeing (folded in from theme2's ruling above).
+- **Tests** (Grok 3): `reaches.app_set` true under an override; a chain's `levels.token` is its first token
+  (`reading.chain`); an app-set `space.md = 10px` wins as `app-token`. Two new tests:
+  `a_roles_override_in_either_spelling_and_an_app_set_base_name` (both spellings, mixed case, the fold's value
+  agreeing) and `icon_params_param_aliases_and_literals` (a literal package icon param with `levels: null`, an app
+  component's icon param naming the app's icon, the app setting the package's icon param through its icon and as
+  written, both aliases, `transparent` and `-1`). Each fails on the commit before.
+
+**After review round 2 (Astra RIGHT WITH CHANGES, Grok RIGHT WITH CHANGES):**
+- **`levels.token` keeps the walk's cap** (Astra 1 = Grok 1). `levels` took the default's reference and then followed
+  8 more params, one hop past the walk. The default's reference is now the first hop, so `levels.token` and
+  `reaches.token` name a line the walk can reach: at most 7 params passed, the token at hop 8.
+- **A light/dark pair stops on its line** (Grok 2). A `when` naming an axis `under scheme=dark` makes a colour's pair
+  (the checker's `under_value`: light from the line without that axis, dark from the `when`). The walk followed the
+  dark side alone. It now follows neither: the line owning the pair wins, so `level` and `name` match the tuple's
+  light/dark value.
+- **Tests:**
+  - `levels_token_keeps_the_walks_eight_hops`: nine `.tamber` params, each naming the next and the last
+    `reading.pin` (eight aliases): the tuple's level is `default` on the last param, `levels.token` and
+    `reaches.token` null. Eight reach `reading.pin` at hop 8, and both say it.
+  - `a_light_dark_pair_stops_on_its_line`: `reading.chain = #ffffff` with `when dark-style=dim: reading.pin`: both
+    tuples `app-token` `reading.chain`, the dim tuple light `#ffffff`, dark `#333333`.
+  - `two_axes_overlapping_whens_on_a_package_token_and_an_app_param` (Astra 2): axes `mode` and `size`. A package
+    token has `when mode=b`, `when size=l` and `when mode=b size=l`; then the app's `params` line has its own
+    `when size=l` and `when mode=a size=l`. Every tuple's modes, level, name and value are asserted.
+  - Each fails with its fix reverted (checked by hand: `0..HOPS`; the pair arm removed; the first holding `when` in
+    place of the most specific).
+- **§10's lead sentence** (Grok 3) says `levels: null` for a literal or an expression, as the wire does.
+- **After review round 3 (Astra RIGHT, Grok RIGHT):** two NITs taken: the test summary says `levels: null` for an expression, and the stage-4 `uses` comment in contract/cli/src/lib.rs sits on `tamber_uses` again.
+- **Follow-up: a level per side** (theme2's 19:30 ruling, option (a), from dtool2's T1 reviewers' counterexample). A
+  tuple's value carries a light and a dark side, but its level was one: with every `when` on an axis `under
+  scheme=dark`, the pair arm made the owning line win both sides, though Light follows the line's own value. Each
+  tuple's `level` and `name` are now `{light, dark}`, each side walked on its own as the fold picks it: dark the most specific holding `when` of all, light the
+  most specific holding `when` naming no axis under `scheme=dark`, either the line's own value when none holds (the
+  pair arm above is gone).
+  `levels.base` is the base every tuple reaches on both sides. It changes the type of a field added in this open 1.15
+  window, which no released client reads: a correction within the window, said on the 1.15 line. rt1's D3 and
+  dtool2's T1 read the per-side shape.
+  - Tests: `a_params_line_with_dark_only_whens_wins_dark_and_follows_its_reference_light` (the counterexample: an
+    app `params` line `Map.pin = reading.chain` with dark-only `when` lines: light `package` `reading.pin`, dark
+    `app-param` in both tuples; red with the light side taking dark's `when`s); `a_light_dark_pair_is_walked_per_side`
+    (was `…stops_on_its_line`: the dim tuple's dark side now `package` `reading.pin`); the other tests assert both
+    sides alike where no axis is under `scheme=dark`.
+  - After round 1 (Astra RIGHT WITH CHANGES, Grok RIGHT): `mixed_axis_whens_are_walked_per_side` (Astra 1, Grok 1):
+    `when` lines mixing an axis under `scheme=dark` with a normal one on an app `params` line, and a two-axis normal
+    `when` outranking one under dark on a package token, each side's level, name and value asserted (red with
+    `.all(under)` for `.any(under)`); the docs say the light side takes the most specific `when` naming no axis under
+    dark, not the line's own value alone (Astra 2).
+
+### Stage 12, commit B3: shadows over base names, per host column (draft for theme2)
+
+theme2's 15:30 ruling on the plan (`~/x2theme/x2p4-s12b3-plan.md`; QUEUE's two items, the lead's 15:20Z). D11's
+2026-10-20 amendment reaches a shadow token's lengths. The schema, SCHEMA_DIGEST, FORMAT_DIGEST, `BoxShadows`, its
+codec and the wire don't move: the theme row's value is the shadow's text, its lengths written as B2's expressions.
+
+- **Tamber.** A shadow's length is a `ShadowLength`: px, or a B2 `Residual` over base names the design leaves
+  unset. A bare unset base name (read through `Names::base` first, so the "any other value" refusal no longer fires
+  in a shadow), a token aliasing one, a `Length::Base` token (inlined, its bases read), and a length's `calc()`,
+  `min()`, `max()` or `clamp()` over one (B2's own fold, so `calc(space.md)` is `space.md`) are kept. B2's refusals
+  hold as they are. `Shadows::css()` writes each residual's text: `0px calc(space.md * 2) 4px #000000ff`. The
+  token's `bases` gain every base its shadows read. A literal blur is still refused when negative; one over base
+  names is checked per column by the build. A base name the design sets is its token and folds to px, as before.
+- **Kernel.** `theme::measure_at` folds a shadow entry whose text names a base: `scale::fold_lengths` splits it at
+  white space and commas outside parentheses, folds each item naming a base (each base read as an alias reads it,
+  the design's own first, the read recorded, under the row's own rule for a varying token) with the kernel's
+  `calc()` to px in this process's column, and keeps every other item and separator byte for byte. The unchanged
+  `BoxShadows`/`TextShadow` codec reads the result, so Apple, Linux, Android, the terminal (cells as px) and the
+  wasm web get the column's px by one path. The runner's `set_tokens` keeps what a re-set row read beside what it
+  read before (`ThemeIndex::also_read`), so a later edit of a base a token's new value reads sets the row again.
+- **Lowering.** A shadow token is checked in every column (`scale::refusal`): its lengths must fold, and the row's
+  codec must take the folded text (a blur not negative, a length within a shadow's limits). The first column that
+  fails is refused, `tamber-base-expression`, naming the column and the expression (`card.shadow` is `0px 1px
+  calc(space.lg - space.xs * 3.5) #000000ff`, the shadow `0px 1px -1px #000000ff` on mac, which no host draws: a
+  blur radius is never negative). A row naming the token checks each column's text (`scale::expanded`), as a
+  length's px.
+- **JS target.** The token's CSS is the row's CSS for the build's column (colours as css.rs writes them, every
+  length said) with each length written over a base its property's `var()` or B2's `calc()` over them
+  (`base_scale::shadow`); a shadow over a base name declares the scale's nine properties. A release's static row is
+  the column's px, as the kernel folds it.
+- **Outside Exact.** The DTCG export folds each length with the base's px (the neutral column), the shadow's text in
+  `$extensions.exact.lossy`; `tamber gen`'s CSS writes the neutral column's px (`Shadows::folded`).
+- **The literal's word (QUEUE's item).** A refused shadow, border or gradient literal is looked at again: a word
+  with a `.` that names no token of the design and no role is `tamber-unknown-token` (`` `box-shadow="0px 0px 8px
+  eu.nope"`: `eu.nope` is no token of this app's design and no role``); in a shadow, a length token or a base name
+  is `tamber-kind`, pointing to a shadow token (`` a shadow row's lengths are px: name a shadow token (`x:
+  box-shadow = 0 space.md 4px black`) to read `space.md` ``). A literal shadow stays px (theme2's Q1: QUEUE). The
+  kernel's own message is unchanged.
+- **Wire.** One clause on the `tamber/1.15` line (theme2's Q2): a shadow token's `bases` list the base names its
+  lengths read. Per-column folded shadow text in `explain` and `resolve` is QUEUE's, beside D1's per-column values.
+- **Tests:** `contract/cli/tests/it/tamber_base_shadow.rs` (each kept form and its text, folded in the neutral, mac
+  and iOS columns; `bases`; a base the design sets; B2's refusals in a shadow; a negative blur on mac alone and an
+  unfoldable length, each naming its column; the literal's words; `uses` of an inlined length token; the DTCG
+  export); `tamber_shadows.rs` (a live `set-token space.md` re-setting a shadow row over it; the unknown colour now
+  `tamber-unknown-token`); `tamber_serve_base.rs` (`resolve`'s `lengths` as written, `explain`'s `bases`);
+  `tests/base_expression.rs` (a shadow row in each of the five columns, in its own
+  process); kernel `style::scale` (`fold_lengths`; `measure` of a shadow entry, the design's base first, every read
+  recorded, a varying base refused); tamber `shadow` (text, `bases`, `folded`); web-js `base_scale_tests` (the
+  `var()` text, a release row, a development build's property); host/web `tests/base_scale.rs` (a wasm boot's
+  `box-shadow` in the neutral column, through the kernel).
+
+**After review round 1 (Astra, Grok; theme2's rulings T1–T3):**
+- **A length's function in a shadow folds as a length's** (Astra 1, blocking). `calc(space.md * 2)` in a shadow
+  compiled while `space.md` was unset and was refused, read as a colour, once the design set it. Every `calc()`,
+  `min()`, `max()` and `clamp()` in a shadow now folds by B2's length fold whatever it names: px, a px length token
+  (`calc(gap * 2)`) or a base the design sets give px, an unset base a residual. Main read such a function over px or
+  a length token as a colour and refused it; it is accepted now, by the one path.
+- **`length_texts`** (theme2's T1). `resolve`'s shadow `lengths` keep their type: a length over base names is null
+  there, and a parallel `length_texts` (only when one is) gives every length's text, px ones too (`["0px",
+  "space.md", "calc(space.sm * 2)"]`). The 1.15 clause names `bases` and `length_texts`.
+- **A state look keeps what it newly read** (Grok 1). `looks::op` returns the tokens a look read as resolved again,
+  and `set_tokens` adds them to the look's (`ThemeIndex::looks_read`), as a row's: a `:hover` shadow re-set to read
+  `space.md` follows the next edit of `space.md`. The bits are added, never replaced (Grok 3's nit, left so and said
+  in `also_read`'s comment): a stale bit costs one re-set that changes nothing.
+- **A base name or length token in a border or gradient literal** (Grok 2) is no unknown token: the row's own refusal
+  stands (`lower-css-shorthand`, `lower-attr-value`). Only a dotted identifier is looked up as a token (Astra 4): a
+  letter first, then letters, digits, `.`, `_` and `-`; a number, a dimension (`-1.5px`) or a function
+  (`rgb(0.5 0.25)`) keeps the row's width or colour refusal.
+- **A colour function is kept whole by `fold_lengths`** (Grok 4): `rgb()`, `hsl()`, `lab()`, `oklch()`, `color()`,
+  `color-mix()`, `light-dark()` and their kin are never folded as lengths, a base name inside one left for the codec
+  to refuse.
+- **An export from before the header's shadow clause** (theme2's T3, Grok 5) still finds its baseline, by the header's
+  design digest: kept, or the design's own export; one value edited in it proposes exactly that edit (Astra 5).
+- **Tests:** `a_shadows_function_folds_as_a_lengths_whatever_it_names` (unset then set; `calc(gap * 2)`; px; a pick
+  over both), the literal's words for a border's and a gradient's base name and length token,
+  `state_looks::a_look_follows_a_base_its_shadows_new_value_reads`, `tamber_serve_base`'s `length_texts` (and none
+  for a px shadow), kernel `fold_lengths`' colour functions, tamber `an_export_from_before_the_shadow_clause_still_finds_its_baseline`.
+
+**After review round 2 (Astra RIGHT WITH CHANGES, Grok RIGHT WITH CHANGES; every round 1 item confirmed):**
+- **`fold_lengths` folds only a length** (Astra 1): a bare word, or a `calc()`, `min()`, `max()` or `clamp()` in any
+  case; every other function is kept whole, so a platform colour whose asset is named `space.md`
+  (`-exact-platform-color(ios named:space.md, #000)`) or a `contrast-color()` no longer makes a px shadow unfoldable.
+- **A literal's name is Tamber's** (Astra 2): `scan::dotted_name` is tamber's own `is_name` (now exported) with a `.`,
+  so `_eu.nope` is looked up as a token.
+- **An unkinded shadow of lengths' functions** (Grok 1): `shadow::looks` counts a `calc()`, `min()`, `max()` or
+  `clamp()` as a length, so `card.shadow = 0 max(1px, 2px) calc(2px * 3) black` gets "reads as a shadow: write its
+  kind", not a colour's refusal.
+- **Tests:** kernel `fold_lengths` (a platform colour, `contrast-color()`, `CALC()`);
+  `a_platform_colour_named_for_a_base_is_kept_whole` (box and text); `an_unkinded_shadow_of_functions_asks_for_its_kind`
+  (both repros); the literal's words for `_eu.nope` on a shadow and a border.
+
+**After review round 3 (Astra RIGHT WITH CHANGES, Grok RIGHT WITH CHANGES; every earlier item confirmed):**
+- **One length predicate** (both): `scale::is_length_item` (px, unitless `0`, a bare base name, or a `calc()`,
+  `min()`, `max()` or `clamp()` in any case) is what `fold_lengths` folds and what the JS target's shadow rewrite
+  counts as a length, so a platform colour whose asset is named `space.md` stays a colour there too, on a box and a
+  text shadow, and no inserted length is paired with it.
+- **QUEUE's per-column shadow entry** (Astra) says theme2's shape: `lengths` null for a length over base names, with
+  `length_texts`.
+- **An unkinded value's functions over plain numbers** (Grok) are a number's: `shadow::looks` counts a `calc()`,
+  `min()`, `max()` or `clamp()` as a length only over a dimension, a length token or dial, a named length or an
+  unset base name, so `n = min(1, 2) max(3, 4) calc(5)` keeps its earlier refusal.
+- **Tests:** web-js `a_shadow_over_base_names_writes_their_properties` (the platform colour, box and text, as the
+  row's CSS); kernel `is_length_item`; `an_unkinded_shadow_of_functions_asks_for_its_kind` (functions over base
+  names, and over numbers).

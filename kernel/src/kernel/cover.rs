@@ -77,9 +77,12 @@ impl Kernel {
             r.intrinsic(slot);
         }
         // A box replaced or given back changes what its parent's top cover
-        // takes from it (`header_inset`).
+        // takes from it (`header_inset`), and a scroller the platform
+        // insets at the bottom edge, or stops insetting, what its parent
+        // pads there (`scroller_insets_bottom`).
         let whole = |c: Option<HostCover>| c == Some(HostCover::Whole);
-        let parent = (whole(before) != whole(cover))
+        let inset = |c: Option<HostCover>| matches!(c, Some(HostCover::Inset(_)));
+        let parent = (whole(before) != whole(cover) || inset(before) != inset(cover))
             .then(|| self.arena.parent(slot))
             .flatten();
         // And a block under it is hidden or shown with it (`block::apply`).
@@ -91,7 +94,22 @@ impl Kernel {
         } else {
             Vec::new()
         };
-        for slot in std::iter::once(slot).chain(parent).chain(blocks) {
+        // And an absolutely positioned child is placed past the edges the
+        // cover names (`apply`), so its engine style is derived again.
+        let edges = |c: Option<HostCover>| matches!(c, Some(HostCover::Edges(_)));
+        let positioned: Vec<u32> = if edges(before) || edges(cover) {
+            let arena = &self.arena;
+            (arena.children(slot).iter().copied())
+                .filter(|&c| arena.style(c).position_type == crate::PositionType::Absolute)
+                .collect()
+        } else {
+            Vec::new()
+        };
+        for slot in std::iter::once(slot)
+            .chain(parent)
+            .chain(blocks)
+            .chain(positioned)
+        {
             if let (Some(node), Some(layout)) = (self.arena.taffy(slot), self.layout.as_deref_mut())
             {
                 layout.restyle(&self.arena, slot, node);
@@ -103,6 +121,41 @@ impl Kernel {
 }
 
 impl Kernel {
+    /// Set or clear (`None`) the margin the platform's cell gives the rows of
+    /// the cells list `view` at its left and right (LLP 1138). Nonfinite or
+    /// negative lengths are refused.
+    pub fn set_list_margins(
+        &mut self,
+        view: ViewId,
+        margins: Option<[f32; 2]>,
+    ) -> Result<(), KernelError> {
+        let slot = self
+            .arena
+            .slot_of(view)
+            .ok_or(LayoutError::UnknownView(view))?;
+        if !margins
+            .unwrap_or([0.0; 2])
+            .iter()
+            .all(|l| l.is_finite() && *l >= 0.0)
+        {
+            return Err(LayoutError::InvalidIntrinsicSize(view).into());
+        }
+        if self.arena.list_margins(slot) == margins {
+            return Ok(());
+        }
+        self.arena.set_list_margins(slot, margins);
+        if let Some(r) = &mut self.region {
+            r.intrinsic(slot);
+            r.within(&self.arena, slot);
+        }
+        if let Some(layout) = self.layout.as_deref_mut() {
+            for &row in self.arena.children(slot) {
+                crate::grouped::restyle(&self.arena, layout, row);
+            }
+        }
+        Ok(())
+    }
+
     /// Set or clear (`None`) the margins the platform's list gives the
     /// grouped list `view`. Nonfinite or negative lengths are refused.
     pub fn set_grouped_margins(
@@ -145,20 +198,62 @@ pub(crate) fn apply(arena: &NodeArena, slot: u32, s: &mut taffy::style::Style) {
     match arena.cover(slot) {
         Some(HostCover::Whole) => s.display = taffy::style::Display::None,
         Some(HostCover::Edges(_)) => {
-            let [top, right, bottom, left] = added_padding(arena, slot);
+            let [top, right, mut bottom, left] = added_padding(arena, slot);
+            // A scroller the platform insets at the box's bottom edge is the
+            // bar's clearance there (LLP 1116.000 D1.2): the box pads
+            // nothing, so the scroller reaches under the bar.
+            if scroller_insets_bottom(arena, slot) {
+                bottom = 0.0;
+            }
+            // The authored padding as layout reads it (whole cells under a
+            // terminal's space rule), plus the host's own inset.
+            let (down, across) = (crate::style::cells::ROW, crate::style::cells::COLUMN);
             s.padding = taffy::geometry::Rect {
-                top: style.padding_top.floor_lp(env, top),
-                right: style.padding_right.floor_lp(env, right),
-                bottom: style.padding_bottom.floor_lp(env, bottom),
-                left: style.padding_left.floor_lp(env, left),
+                top: style.padding_top.spaced(env, down).floor_lp(env, top),
+                right: style.padding_right.spaced(env, across).floor_lp(env, right),
+                bottom: style.padding_bottom.spaced(env, down).floor_lp(env, bottom),
+                left: style.padding_left.spaced(env, across).floor_lp(env, left),
             };
         }
         Some(HostCover::Inset(_)) => {
             let [_, _, bottom, _] = added_padding(arena, slot);
-            s.padding.bottom = style.padding_bottom.floor_lp(env, bottom);
+            let spaced = style.padding_bottom.spaced(env, crate::style::cells::ROW);
+            s.padding.bottom = spaced.floor_lp(env, bottom);
         }
         None => {}
     }
+    // An absolutely positioned child is placed against its parent's padding
+    // box (CSS), which the parent's cover padding does not shrink: a footer
+    // at `bottom: 0` would sit under the tab bar. The bars cover the
+    // parent's edges, so an inset from a covered edge starts where the bar
+    // ends, as on the web the footer rests above the tablist in flow and a
+    // hand-built screen pins it to the safe area. A percentage inset stays
+    // as written.
+    if s.position == taffy::style::Position::Absolute {
+        if let Some(parent) = arena.parent(slot) {
+            if matches!(arena.cover(parent), Some(HostCover::Edges(_))) {
+                let [top, right, bottom, left] = added_padding(arena, parent);
+                let past = |inset: &mut taffy::style::LengthPercentageAuto, cover: f32| {
+                    let raw = inset.into_raw();
+                    if cover > 0.0 && raw.tag() == taffy::style::CompactLength::LENGTH_TAG {
+                        *inset = taffy::style::LengthPercentageAuto::length(raw.value() + cover);
+                    }
+                };
+                past(&mut s.inset.top, top);
+                past(&mut s.inset.right, right);
+                past(&mut s.inset.bottom, bottom);
+                past(&mut s.inset.left, left);
+            }
+        }
+    }
+}
+
+/// Whether a child of `slot` is a scroller the platform insets at its
+/// bottom edge (`Inset`), the bar's own clearance for the box's bottom.
+fn scroller_insets_bottom(arena: &NodeArena, slot: u32) -> bool {
+    arena.children(slot).iter().any(
+        |&child| matches!(arena.cover(child), Some(HostCover::Inset([_, bottom])) if bottom > 0.0),
+    )
 }
 
 /// The points a cover adds to the box's padding for layout (`apply`), top,
@@ -191,17 +286,24 @@ pub(crate) fn inset(arena: &NodeArena, slot: u32) -> bool {
 pub(crate) fn without_inset(arena: &NodeArena, slot: u32, s: &mut taffy::style::Style) {
     if inset(arena, slot) {
         let (style, env) = (arena.effective_style(slot), arena.env());
-        s.padding.bottom = style.padding_bottom.floor_lp(env, 0.0);
+        let spaced = style.padding_bottom.spaced(env, crate::style::cells::ROW);
+        s.padding.bottom = spaced.floor_lp(env, 0.0);
     }
 }
 
 /// A box's children changed: a covered box's top cover may hold its first
 /// child's inset (`header_inset`), so its engine style is derived again.
-pub(crate) fn children_changed(arena: &NodeArena, layout: &mut dyn LayoutMirror, slot: u32) {
+pub(crate) fn children_changed(
+    arena: &NodeArena,
+    layout: &mut dyn LayoutMirror,
+    slot: u32,
+    touched: &mut Vec<crate::NodeKey>,
+) {
     if let (Some(HostCover::Edges(_)), Some(node)) = (arena.cover(slot), arena.taffy(slot)) {
         layout.restyle(arena, slot, node);
         layout.mark_dirty(node);
     }
+    crate::rows::children_changed(arena, layout, slot, touched);
 }
 
 /// The top inset a box's replaced first child cleared for itself: that

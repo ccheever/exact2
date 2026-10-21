@@ -19,6 +19,7 @@ use exact_kernel::StyleId;
 use exact_plan::Stdlib;
 use std::collections::{BTreeMap, BTreeSet};
 
+mod container;
 mod counts;
 mod launch;
 pub(crate) mod line_height;
@@ -86,12 +87,9 @@ pub(crate) fn with_text_styles(checked: &Checked<'_>, lowered: &TextStyles) -> V
                 let fresh = seen.insert((span.source_id, span.line, span.col, span.end_col));
                 // @ref LLP 1116.007 D3.1 — a symbol by another spelling than its role.
                 if let (true, "image", Some(source)) = (fresh, tag.as_str(), positional.first()) {
-                    out.extend(crate::symbols::aliases(source, &mut platform));
+                    out.extend(crate::symbols::image_source(source, &mut platform));
                 }
-                let button = (tag == "button")
-                    .then(|| roles::unlabelled_button(attrs, children, span))
-                    .flatten();
-                out.extend(button.filter(|_| fresh));
+                out.extend(roles::button(tag, attrs, children, span).filter(|_| fresh));
                 out.extend(roles::dialog_role(tag, attrs, span).filter(|_| fresh));
                 out.extend(roles::level_without_heading(tag, attrs, span).filter(|_| fresh));
                 if fresh {
@@ -143,8 +141,8 @@ pub(crate) fn with_text_styles(checked: &Checked<'_>, lowered: &TextStyles) -> V
         line_height::multiplier(&style.attrs, &mut out);
     }
     out.extend(screens::screen_by_state(checked));
-    // A `replace` the router refuses on a root route's screen.
-    out.extend(root_replace::root_replace(checked));
+    // A `replace` the router refuses on a root route's screen, a `select` after a push.
+    out.extend(root_replace::router(checked));
     out.extend(counts::count_plural(checked));
     // @ref LLP 1116.016 D4 — a row that searches another data list.
     out.extend(rows::row_lookup(checked));
@@ -166,6 +164,7 @@ pub(crate) fn with_text_styles(checked: &Checked<'_>, lowered: &TextStyles) -> V
     launch::launch_identity(root, &checked.file.fns, &mut out);
     width::width_padding(&root.view, &checked.file.styles, &mut out);
     scroll_bound::scroll_grows(&root.view, &checked.file.styles, &mut out);
+    container::flex_on_block(&root.view, &checked.file.styles, &mut out);
     width::text_px_width(&root.view, &checked.file.styles, lowered, &mut out);
     svg::use_foreign_object(&root.view, &mut out);
     out.extend(
@@ -181,15 +180,15 @@ pub(crate) fn with_text_styles(checked: &Checked<'_>, lowered: &TextStyles) -> V
     if let Some(source) = &checked.file.design {
         if let Ok(design) = exact_tamber::parse(&source.text) {
             let params = crate::params::tokens(checked.file);
-            out.extend(crate::params::unknown(
+            out.extend(crate::anatomy::unknown_params(
                 &design,
                 &params,
-                &crate::params::identities(checked.file),
+                checked.file,
                 source.source_id,
             ));
         }
     }
-    out.truncate(MAX_WARNINGS);
+    crate::warning_rank::keep_first(&mut out);
     out.extend(platform);
     crate::control_roles::unreachable(&root.view, &checked.file.styles, &mut out);
     one_scheme(
@@ -211,8 +210,7 @@ struct Tokens {
     /// The tokens one colour in light and dark, not marked `scheme=fixed`,
     /// with that colour and whether in every tuple (`theme::one_scheme_tokens`).
     one: Vec<(String, String, bool)>,
-    /// The tokens are a design's (`app.tamber`), which can mark one, not an
-    /// inline `theme`'s.
+    /// The tokens are a design's (`app.tamber`), which can mark one, not an inline `theme`'s.
     design: bool,
 }
 
@@ -250,8 +248,7 @@ const BOXES: &[&str] = &[
 
 /// What the iOS bar makes of one node in a route's header.
 enum Part {
-    /// An `if`, `for`, `match`, use or slot, or a computed role or type:
-    /// the benefit of the doubt.
+    /// An `if`, `for`, `match`, use or slot, or a computed role or type: the benefit of the doubt.
     Doubt,
     /// Not shown in the header on any host: `display="none"`, or a popover
     /// or dialog, which shows over the page when it opens.
@@ -392,8 +389,7 @@ struct Bar<'a> {
     unplaced: Vec<(Span, String)>,
 }
 
-/// What iOS makes of a route whose `header` is not the bar (LLP 1115.000
-/// D5.2), in `lower-header-no-bar`'s words.
+/// A route's `header` that is not the bar, in `lower-header-no-bar`'s words (LLP 1115.000 D5.2).
 const NOT_THE_BAR: &str = "the header is drawn in the page as written, and the bar has no title: a pushed route's holds the system Back button alone, above the header, and a stack's first route has no bar.";
 
 /// The other repair `lower-header-no-bar` names: the route's own chrome.
@@ -405,13 +401,11 @@ const OR_NO_BAR: &str =
 /// bar takes one heading as its title, the first text after it as the
 /// subtitle (a filled box before it as the avatar), one search field, one
 /// tablist, the buttons that press or open a popover and the readouts
-/// (`role="status"`, LLP 1075.003 §9.15); the rest of the
-/// header is hidden with it. With no heading or with two, the bar takes
-/// nothing and the header is shown as written, so nothing is dropped; that
-/// header is `lower-header-no-bar`'s (LLP 1116.003 D2.2). An `if` first
-/// among the route's children is read branch by branch: a branch's first
-/// node is the route's first child while it is taken, and `after` the
-/// route's nodes past that `if`.
+/// (`role="status"`, LLP 1075.003 §9.15); the rest of the header is hidden
+/// with it. With no heading or with two, the bar takes nothing and the
+/// header is shown as written: `lower-header-no-bar`'s (LLP 1116.003 D2.2).
+/// An `if` first among the route's children is read branch by branch: a branch's first node
+/// is the route's first child while it is taken, and `after` the route's nodes past that `if`.
 fn route_header<'a>(children: &'a [Node], after: &[&'a Node], out: &mut Vec<LowerError>) {
     if let Some(Node::When {
         then, otherwise, ..
@@ -506,6 +500,9 @@ fn walk<'a>(nodes: &'a [Node], bar: &mut Bar<'a>) {
             Part::Box => bar.unplaced.push((span, "this box".into())),
             Part::Other => {
                 let what = match node {
+                    Node::Element { tag, .. } if tag == "button" => {
+                        "a `button` that presses nothing".into()
+                    }
                     Node::Element { tag, .. } => format!("this `{tag}`"),
                     _ => "this node".into(),
                 };

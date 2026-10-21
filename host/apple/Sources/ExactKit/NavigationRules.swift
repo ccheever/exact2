@@ -64,8 +64,11 @@ enum NavigationRules {
     /// D1: the Back control is resolved at use, never captured at a
     /// gesture's start: the lowest view id among live controls whose HTML
     /// `id` is the container's `navigationBack`, that handle `press`, and are
-    /// enabled and owned by the active route. `nil` when no such control is live — and
-    /// then no gesture may begin and no dismissal may complete.
+    /// owned by the active route, else by no route at all (a header the
+    /// routes share, where an app keeps one Back for every screen); a
+    /// control in another route is that route's. A disabled one resolves to
+    /// nothing. `nil` when no such control is live — and then no gesture may
+    /// begin and no dismissal may complete.
     static func backControl<Control>(
         named target: String?,
         among controls: [Control],
@@ -73,12 +76,14 @@ enum NavigationRules {
         htmlID: (Control) -> String?,
         pressable: (Control) -> Bool,
         disabled: (Control) -> Bool,
-        inActiveRoute: (Control) -> Bool
+        inActiveRoute: (Control) -> Bool,
+        inAnyRoute: (Control) -> Bool = { _ in true }
     ) -> Control? {
         guard let target else { return nil }
-        return controls
-            .filter { htmlID($0) == target && pressable($0) && !disabled($0) && inActiveRoute($0) }
-            .min { id($0) < id($1) }
+        let named = controls.filter { htmlID($0) == target && pressable($0) }
+        let own = named.filter(inActiveRoute)
+        let candidates = own.isEmpty ? named.filter { !inAnyRoute($0) } : own
+        return candidates.filter { !disabled($0) }.min { id($0) < id($1) }
     }
 
     /// How the platform's Back (its button, edge swipe, sheet swipe-down)

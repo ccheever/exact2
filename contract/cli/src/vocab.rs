@@ -203,7 +203,10 @@ fn entry(name: &str) -> Option<Entry> {
             && recipe.is_none()
             && pattern.is_none()
     });
-    let command = HOST_COMMANDS.contains(&name).then(|| command_text(name));
+    let command = match name {
+        "exactMIDI" => Some(MIDI_SOURCE.to_string()),
+        _ => HOST_COMMANDS.contains(&name).then(|| command_text(name)),
+    };
     let function = functions::function(name);
     let part = part(name);
     let known = tag.is_some()
@@ -709,11 +712,16 @@ fn function_text(f: &Function) -> String {
     out
 }
 
+/// `exactMIDI()`, a reserved source (LLP 1125 D6), and what `sent` lists:
+/// the euxy port expected its notes with no output connected.
+const MIDI_SOURCE: &str = "reserved source, `resource midi = exactMIDI() as shape MIDI`: `state`, `inputs` and `outputs` by Web MIDI's names, and `sent`, the last 128 messages that went out ({output, data, timeStamp}) by the runner's clock. `\"\"` is no output: a track's `output=\"\"` and `sendMIDI(\"\", …)` reach no device and need no access, and `sent` lists them with `output: \"\"`, so an activity log shows what plays with no device connected (filter on `output` for what reached one). A message to a named output that is not connected, or before access is granted, goes nowhere: `sendMIDI` and a sequence's notes drop it, the journal (`logs`) says so, and `sent` never lists it (LLP 1125 D6, D7; apps/metronome)";
+
 /// A host command: an action statement, never a value.
 fn command_text(name: &str) -> String {
     let what = match name {
         "showNotification" => "; `showNotification(title=…, body=…, tag=…, showTrigger=…, navigate=…)` posts a local notification; its plain click opens `navigate=` through the navigation root (warm event or cold launch location). Needs `device.notifications` (docs/reference.md#notifications)",
-        "setRangeText" => "; `setRangeText(id, text[, start, end[, selectionMode]])`: web/macOS/iOS/Linux plain text field replacement; UTF-16 offsets, selectionMode preserve (default), select, start or end; one input (InputEvent.inputType insertReplacementText), no undo step. Markdown, Windows, Android and terminal are not supported yet (LLP 1069.001)",
+        "requestMIDIAccess" | "sendMIDI" => "; `sendMIDI` to an output that is not connected drops the message; to `\"\"`, no output, it reaches no device and `exactMIDI().sent` lists it, with no access needed (`contract vocab exactMIDI`); MIDI answers only under the grant `device.midi purpose.midi` (a line of app.ts's `export const grants`), whose second word is a strings key: `\"purpose.midi\": \"…\"` in strings/en.json, the text the person is shown when asked (apps/metronome)",
+        "setRangeText" =>"; `setRangeText(id, text[, start, end[, selectionMode]])`: web/macOS/iOS/Linux plain text field replacement, and on web/macOS/iOS the Markdown editor's, over its source; UTF-16 offsets, selectionMode preserve (default), select, start or end; one input (InputEvent.inputType insertReplacementText); no undo step on a plain field, one undo step each on the Markdown editor (LLP 1045 D1). Markdown on Linux, Windows, Android and terminal are not supported yet (LLP 1069.001)",
         "setMode" => "; `setMode(\"dark-style\", \"dim\")` sets one of the window's app modes, an axis of the app's design (`app.tamber`) and one of its values; a subtree pins its own with `-exact-mode` (LLP 1121 D5)",
         "setRootFontSize" => "; `setRootFontSize(px)` sets CSS's `:root { font-size }`, the size every `rem` follows (px above 0), over the host's own; `setRootFontSize(\"125%\")` sets a percentage of the host's size that keeps following it (Dynamic Type, the browser's setting); `setRootFontSize(\"medium\")` hands it back (LLP 1069.000 D3, LLP 1121 D6)",
         _ => "",
@@ -760,7 +768,12 @@ const AUTOCAPITALIZE: &str = "`words` for a person's name, `none` for a username
 const OVERFLOW_WRAP: &str = "text wraps between words by default; at a large text size give the row room (flex-wrap=\"wrap\" with a flex-basis in rem) rather than breaking words. `break-word` breaks only a word wider than its line (a pasted link); `anywhere` breaks inside any word (\"Octo/ber\"), which verify names on prose: it is for a URL or a token on a `link` or in a monospace face. `word-break` is not admitted";
 
 /// Round 23's chat drew its transcript as a grouped list, open at the oldest message.
-const TRANSCRIPT_END: &str = "on a `list virtualized=true` (a grouped list never is): `scroll-start=\"end\"` opens it at its last row, `scrollFollowEnd=true` keeps it at the end as rows arrive and the port resizes, while the reader is there. A chat's transcript: `contract vocab chat-thread`";
+const TRANSCRIPT_END: &str = "on a `list virtualized=true` (a grouped list never is): `scroll-start=\"end\"` opens it at its last row, `scrollFollowEnd=true` keeps it at the end as rows arrive and the port resizes, while the reader is there. A chat's transcript: `contract vocab chat-thread`. Any other scroller, a horizontal strip too, opens at the offset its `scrollLeft=` and `scrollTop=` give, and moves when the value changes";
+
+/// What reaches `navigate=`, and which tab a location lands in (LLP 1038 D8):
+/// the euxy port's warm deep link to another tab's route opened over the
+/// tab it was on.
+const NAVIGATE: &str = "on the navigation root: a location from outside the running app (a link, a protocol handler's or a notification's URL, the web's Back and Forward), whose action chooses the verb (LLP 1038 D8). `go` pops to the location when the selected stack holds it, selects the tab whose top it is, and otherwise pushes it on the selected tab, whatever tab declares its route. `open(nav, url)` lands in the route's declared tab, that tab's stack its declared chain. A cold launch's location is no event: it opens there, as `open` does";
 
 /// What `metadata=` takes (LLP 1098 D1): the Media Session's record.
 const METADATA: &str = "MediaMetadata(title=, artist=, album=, artwork=), each a string";
@@ -771,6 +784,10 @@ const DETENT: &str = "on a sheet route (`navigationPresentation=\"modal\"`), its
 /// LLP 1116.020 D3: round 18's builders drew search as a field and a Search
 /// button in the content; the bar's search field is one attribute away.
 const SEARCH_TYPE: &str = "on an `input`, HTML's (`number`, `date`, `checkbox`, …); `type=\"search\"` in a route's `header` is the bar's search field, filtering as you type (iOS: UIKit's search controller; `contract vocab search`)";
+/// `contract vocab color-scheme` (LLP 1034 §8): what it fixes, and the
+/// app's own scheme, which is `setScheme`'s (the euxy port's Theme row
+/// guessed at `prefersColorScheme`).
+const COLOR_SCHEME: &str = "`light` or `dark` fixes the node and its subtree in that scheme (`light-dark()`, platform colours, glass); left off, it follows the surrounding scheme. `normal`, `light dark` and `only` are refused, written or as a branch of a computed value. A Theme setting of Auto, Light and Dark is the app's own scheme: `setScheme(\"system\" | \"light\" | \"dark\")` in the action that chooses it (and a `mount` task, for a kept choice), which the bars, sheets and windows follow. `exactViewport().prefersColorScheme` is the system's scheme beneath `setScheme` and any subtree's, a fact to read, not one to paint by (`lower-scheme-color`)";
 const APPEARANCE: &str = "Explicit none on a header or root tablist keeps the authored bar; on a header button it keeps only that button authored in place while the rest of the header projects. A title button keeps its contents; an authored Back replaces UIKit Back. Search or a header tablist can opt out on that element; a tab button alone keeps its parent segmented. Tabs retain their panels and navigation stacks. Auto restores platform projection.";
 
 /// Where an attribute is admitted, if not on every tag.
@@ -848,6 +865,9 @@ fn attr_json(name: &str, a: &AttrTarget) -> Value {
             if name == "contextmenu" {
                 doc["note"] = CONTEXTMENU.into();
             }
+            if name == "navigate" {
+                doc["note"] = NAVIGATE.into();
+            }
         }
         AttrTarget::Surface => {}
         AttrTarget::MediaMetadata => {
@@ -878,6 +898,9 @@ fn attr_json(name: &str, a: &AttrTarget) -> Value {
     }
     if name == "appearance" {
         doc["note"] = APPEARANCE.into();
+    }
+    if name == "color-scheme" {
+        doc["note"] = COLOR_SCHEME.into();
     }
     if name == "navigationDetent" {
         doc["note"] = DETENT.into();
@@ -990,6 +1013,9 @@ fn attr_detail(name: &str, a: &AttrTarget) -> Vec<String> {
             if name == "appearance" {
                 lines.push(APPEARANCE.into());
             }
+            if name == "color-scheme" {
+                lines.push(COLOR_SCHEME.into());
+            }
             if name == "border-radius" {
                 lines.push(SHEET_RADIUS.into());
             }
@@ -1031,6 +1057,9 @@ fn attr_detail(name: &str, a: &AttrTarget) -> Vec<String> {
         }
         AttrTarget::Handler(event) if name == "contextmenu" => {
             vec![format!("event {event}"), CONTEXTMENU.into()]
+        }
+        AttrTarget::Handler(event) if name == "navigate" => {
+            vec![format!("event {event}"), NAVIGATE.into()]
         }
         AttrTarget::Handler(event) => vec![format!("event {event}")],
         AttrTarget::Surface => vec!["a canvas's surface binding: surface=name(args)".into()],

@@ -293,3 +293,82 @@ fn a_refused_mix_leaves_the_design_and_the_other_mixes_bound() {
         "{errors:#?}"
     );
 }
+
+/// The euxy port's LED glow: a colour token written inside a shadow, as a
+/// literal, in a template, through a `fn` and in a list, is the token's
+/// light/dark pair, as it is in `background-color`; a name no token has is
+/// refused, not drawn as nothing.
+#[test]
+fn a_colour_token_inside_a_shadow_is_its_light_dark_pair() {
+    let design = "tamber t\n\ntheme\n  eu.glow = light-dark(#0a0a0c8c, #f6f4f48c)\n";
+    let view = "fn glow(x: number): string = `0px 0px ${x}px eu.glow`\n\ncomponent App\n  state n = 3\n  view\n    column\n      view testId=\"bg\" width=9 height=9 background-color=\"eu.glow\"\n      view testId=\"lit\" width=9 height=9 box-shadow=\"0px 0px 8px eu.glow\"\n      view testId=\"tmpl\" width=9 height=9 box-shadow=`0px 0px ${n}px eu.glow`\n      view testId=\"fn\" width=9 height=9 box-shadow=glow(n)\n      view testId=\"list\" width=9 height=9 box-shadow=\"0px 0px 8px eu.glow, 0px 2px 4px eu.glow\"\n      text \"a\" testId=\"text\" text-shadow=\"0px 0px 8px eu.glow\"\n";
+    let path = app(
+        "colour-in-shadow",
+        &[("app.tamber", design), ("app.contract", view)],
+    );
+    let r = booted(contract::compile_path(&path).unwrap());
+    let pair = "LightDark(Color(168430732), Color(4143248524))";
+    assert!(row(&r, "bg", StyleId::BackgroundColor).contains(pair));
+    for id in ["lit", "tmpl", "fn", "list"] {
+        let shadow = row(&r, id, StyleId::BoxShadow);
+        assert!(shadow.contains(&format!("color: {pair}")), "{id}: {shadow}");
+    }
+    assert_eq!(row(&r, "list", StyleId::BoxShadow).matches(pair).count(), 2);
+    assert!(row(&r, "text", StyleId::TextShadow).contains(pair));
+    let unknown = app(
+        "colour-in-shadow-unknown",
+        &[
+            ("app.tamber", design),
+            (
+                "app.contract",
+                "component App\n  view\n    view width=9 height=9 box-shadow=\"0px 0px 8px eu.nope\"\n",
+            ),
+        ],
+    );
+    // A name no token has, in the colour row's words (stage 12 B3, QUEUE's
+    // item): no longer the kernel's "neither a length nor a colour".
+    let e = contract::compile_path(&unknown).unwrap_err();
+    assert_eq!(e.id, "tamber-unknown-token", "{e:?}");
+    assert!(e.message.contains("`eu.nope` is no token"), "{e:?}");
+}
+
+/// Stage 12 B3: a shadow over a base name reads the base as an alias does,
+/// the design's own first, and the read is recorded, so a live edit of the
+/// base (`set-token space.md`) sets the shadow's row again. (The plan keeps
+/// `space.md` only where the design sets it; the shadow's text over it is
+/// a live edit's, as the design server sends one.)
+#[test]
+fn a_live_edit_of_a_base_sets_a_shadow_over_it_again() {
+    let design =
+        "tamber t\n\ntheme\n  space.md = 10px\n  card.shadow: box-shadow = 0 2px 4px #000\n";
+    let path = app(
+        "base-edit",
+        &[
+            ("app.tamber", design),
+            ("app.contract", "component App\n  view\n    column testId=\"card\" padding=\"space.md\" box-shadow=\"card.shadow\"\n      text \"a\"\n"),
+        ],
+    );
+    let mut r = booted(contract::compile_path(&path).unwrap());
+    assert!(row(&r, "card", StyleId::BoxShadow).contains("offset: Vec2 { x: 0.0, y: 2.0 }"));
+    let (_, set) = r
+        .set_token(
+            "card.shadow",
+            "0px space.md calc(space.md / 2) #000000ff",
+            &[],
+        )
+        .unwrap();
+    assert_eq!(set, 1);
+    let card = row(&r, "card", StyleId::BoxShadow);
+    assert!(
+        card.contains("offset: Vec2 { x: 0.0, y: 10.0 }") && card.contains("blur: 5.0"),
+        "{card}"
+    );
+    // The base's edit: the padding and the shadow, both read it.
+    let (receipt, set) = r.set_token("space.md", "20px", &[]).unwrap();
+    assert!(set > 1 && receipt.layout_invalidated, "{set}");
+    let card = row(&r, "card", StyleId::BoxShadow);
+    assert!(
+        card.contains("offset: Vec2 { x: 0.0, y: 20.0 }") && card.contains("blur: 10.0"),
+        "{card}"
+    );
+}

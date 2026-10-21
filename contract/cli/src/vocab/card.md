@@ -115,7 +115,7 @@ main navigationKey=`${top(nav).id}` navigationBack="back"
             image "symbol:checkmark"
 ```
 ### a confirmation
-What can't be undone (Delete, Close Poll) asks first. `aria-label` is the question; actions run their `press` and close (`command="close"`); Cancel has no `press`. Open it with `command="show-modal"` or `showModal(id)`.
+What can't be undone (Delete) asks first. `aria-label` is the question; actions run their `press` and close (`command="close"`); Cancel has no `press`. Open it with `command="show-modal"` or `showModal(id)`.
 ```contract
 state n = 1
 action remove
@@ -184,7 +184,7 @@ test "a pick survives a relaunch"
   expect text "n" == "1"
 ```
 ### composing a screen
-One focal point. Emphasis is a part, not paint on a `button`; a longer main action is `buttonStyle="filled"`. Search is `input type="search"` in the `header`, filtering live. An entry form is a grouped list (`grouped-form`); no rows, an `EmptyState` in the list's place.
+One focal point. Emphasis is a part, not paint on a `button`; a longer main action is `buttonStyle="filled"`. Search: `input type="search"` in the `header`, filtered live. A form is a grouped list (`grouped-form`); no rows, an `EmptyState`, its `button` indented under it.
 ```contract
 use SummaryCard from "exact:content"
 column gap=16 padding=16

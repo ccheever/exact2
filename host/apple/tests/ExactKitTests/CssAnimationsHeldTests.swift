@@ -9,8 +9,8 @@ import XCTest
 class CssAnimationsHeldTests: XCTestCase {
     func testAHeldAnimationIsPlacedFromTheRenderInstantOffscreen() throws {
         let layer = CALayer()
-        let spec: [String: Any] = ["id": "fade#0#opacity", "k": "opacity", "s": 0.0, "dl": 0.0, "d": 1.0, "n": 1.0,
-                                   "t": [0.0, 1.0], "v": [0.0, 1.0], "c": [Any](), "fill": 3, "h": 0.25]
+        let spec = try XCTUnwrap(CssAnimation(["id": "fade#0#opacity", "k": "opacity", "s": 0.0, "dl": 0.0, "d": 1.0, "n": 1.0,
+                                                       "t": [0.0, 1.0], "v": [0.0, 1.0], "c": [Any](), "fill": 3, "h": 0.25]))
         let drawn: CFTimeInterval = 1000
         let offscreen = try XCTUnwrap(CssAnimations.make(spec, layer: layer, clock: nil, offscreen: drawn))
         XCTAssertEqual(offscreen.speed, 1)

@@ -389,6 +389,19 @@ final class NativeContextsIOSTests: XCTestCase {
         XCTAssertEqual(node("period-Week")?.props["accessibilityChecked"], "false")
         p.segments.sync()
         XCTAssertEqual(segments.selectedSegmentIndex, 2)
+        // The same choice with radios that paint the chosen one (a class on
+        // one arm, LLP 1104 D2): the plan makes the group the author's, so
+        // it is never a segmented control, before a pick or after it, and its
+        // radios keep the group's keys.
+        let tint = try XCTUnwrap(node("tint"))
+        XCTAssertTrue(tint.subviews.compactMap { $0 as? UISegmentedControl }.isEmpty)
+        XCTAssertEqual(node("tint-Day")?.isHidden, false)
+        XCTAssertTrue(node("tint-Day")?.ariaRadioGroup === tint)
+        p.press(try XCTUnwrap(node("tint-Day")).id)
+        p.segments.sync()
+        XCTAssertTrue(tint.subviews.compactMap { $0 as? UISegmentedControl }.isEmpty, "a pick does not project it")
+        XCTAssertEqual(node("tint-Day")?.props["accessibilityChecked"], "true")
+        XCTAssertTrue(node("tint-Week")?.ariaRadioGroup === tint)
     }
 
     /// LLP 1116.003 (r5 weather: "ExactSegmentedControl covers its middle"):

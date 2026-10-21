@@ -79,6 +79,26 @@ fn appearance_vocab_explains_authored_bars() {
         .contains("root tablist"));
 }
 
+/// `color-scheme` says what each value does and that the app's scheme is
+/// `setScheme`'s; `exactMIDI` that `sent` lists only what went out (both
+/// asked by the euxy port, 2026-10-20).
+#[test]
+fn color_scheme_and_exact_midi_say_what_a_port_asked() {
+    let out = stdout(&vocab(&["color-scheme"]));
+    assert!(
+        out.contains("`normal`, `light dark` and `only` are refused"),
+        "{out}"
+    );
+    assert!(
+        out.contains("setScheme(\"system\" | \"light\" | \"dark\")"),
+        "{out}"
+    );
+    let out = stdout(&vocab(&["exactMIDI"]));
+    assert!(out.contains("`sent` never lists it"), "{out}");
+    let out = stdout(&vocab(&["navigate"]));
+    assert!(out.contains("type <root> euxy://p/abc"), "{out}");
+}
+
 /// `range` is a standard function (2026-10-17) and, on the web, a slider's
 /// `type`: its entry says both.
 #[test]
@@ -264,7 +284,7 @@ fn contextual_attributes_are_refused_elsewhere() {
         ("reachstart", "view", "reachstart=done"),
         ("reachend", "view", "reachend=done"),
         ("text-transform", "input", "text-transform=\"uppercase\""),
-        ("transform", "view", "transform=\"scale(0.8)\""),
+        ("transform", "view", "transform=\"skewX(10deg)\""),
         ("selectionchange", "view", "selectionchange=done"),
         ("beforeinput", "view", "beforeinput=done"),
         ("name", "view", "name=\"station\""),
@@ -1180,6 +1200,33 @@ fn every_recipe_and_pattern_answers_by_name() {
         assert!(
             out.contains(&format!("`bun exact.mjs pattern {name}`")),
             "{name}: add it to vocab/recipes.rs"
+        );
+    }
+}
+
+/// An `iframe`'s `name` is HTML's frame name (the design tool names its
+/// live copies by it, LLP 1122 T7), written as the frame's own prop; on the
+/// other tags this checks it is still refused (a native button, which
+/// returns earlier, predates this).
+#[test]
+fn an_iframe_takes_a_frame_name() {
+    let source = "component App\n  view\n    iframe name=\"exact-copy-1\" src=\"https://example.com\" sandbox=\"allow-scripts\"\n";
+    let plan = contract::compile(source).expect("an iframe's name compiles");
+    assert!(
+        format!("{plan:?}").contains("exact-copy-1"),
+        "the name is the frame's prop"
+    );
+    for refused in [
+        "text \"a\" name=\"x\"",
+        "view name=\"x\"",
+        "image src=\"a.png\" name=\"x\"",
+        "input type=\"checkbox\" name=\"x\"",
+    ] {
+        let error =
+            contract::compile(&format!("component App\n  view\n    {refused}\n")).unwrap_err();
+        assert!(
+            format!("{error:?}").contains("lower-attr-tag"),
+            "{refused}: {error:?}"
         );
     }
 }

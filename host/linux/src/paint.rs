@@ -396,6 +396,11 @@ pub struct PaintedBox {
 }
 
 impl PaintedBox {
+    /// Placed by a perspective (`space.rs`), so no rectangle bounds it.
+    pub(crate) fn projected(&self) -> bool {
+        self.projective.is_some()
+    }
+
     /// The surface's box through the same transform the painter used.
     /// Projective canvas placements have no affine surface observation.
     pub fn surface(&self, shown: Presented) -> Option<Rect4> {
@@ -1351,12 +1356,15 @@ pub fn text_spec(s: &StyleProps, text: &str) -> Spec {
 
 /// A node's effective overflow per axis — the kernel's own rule: a
 /// `ScrollView`/`List` scrolls on y unless its row says otherwise, and an
-/// unset axis beside a non-visible one is scrollable (CSS Overflow §3).
+/// unset axis beside a non-visible one is scrollable (CSS Overflow §3). A
+/// neutral alert and its part boxes read the alert's defaults too
+/// (kernel/src/arena/alert.rs): its message box scrolls.
 pub fn effective_overflow(node: &NodeRef<'_>) -> (Overflow, Overflow) {
     let resolved;
     let s = if look::neutral()
-        && node.props.str(PropId::SemanticTag) == Some("dialog")
-        && node.props.str(PropId::AccessibilityRole) == Some("alertdialog")
+        && (node.props.get(PropId::AlertPart).is_some()
+            || node.props.str(PropId::SemanticTag) == Some("dialog")
+                && node.props.str(PropId::AccessibilityRole) == Some("alertdialog"))
     {
         resolved = node.computed_style(StyleMask::EMPTY);
         &resolved

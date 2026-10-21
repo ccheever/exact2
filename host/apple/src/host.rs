@@ -106,7 +106,7 @@ mod spacing_tests;
 #[path = "storage_tests.rs"]
 mod storage_tests;
 #[path = "svg.rs"]
-mod svg;
+pub(crate) mod svg;
 #[path = "svg_lower.rs"]
 mod svg_lower;
 #[cfg(test)]
@@ -567,6 +567,7 @@ impl<D: DataSource> Host<D> {
         host.native_prepare_candidate().map_err(HostError::Layout)?;
         let order = host.preorder();
         host.close_top_layer(&order);
+        host.cover_root_tablist();
         let handlers = host.runner.handlers();
         for id in &order {
             host.create(*id, handlers.get(id).map_or(&[], Vec::as_slice), &mut batch);
@@ -982,9 +983,9 @@ impl<D: DataSource> Host<D> {
 
     /// [`Host::advance`], stopping after a timer that sends as well: an
     /// agent's jump ([`exact_runner::Runner::advance_until_request`]).
+    /// While a node declares a layout transition, in steps (`presence.rs`).
     pub fn advance_until_request(&mut self, now_ms: f64) -> String {
-        let a = self.runner.advance_until_request(now_ms);
-        self.advanced(a)
+        self.advance_in_layout_steps(now_ms)
     }
 
     /// The `then`s an agent's input settled, the clock unmoved
@@ -1092,7 +1093,7 @@ impl<D: DataSource> Host<D> {
     }
 
     /// A placement root's resolved margins and whether its width is the author's
-    /// (`Kernel::placement_box`), as JSON `[left, top, right, bottom, authored]`;
+    /// (`Kernel::placement_box`), as JSON `[left, top, right, bottom, authored, minimum]`;
     /// an error names the view.
     pub fn placement_box(&mut self, view: ViewId) -> String {
         let kernel = self.runner.kernel();

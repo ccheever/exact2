@@ -22,7 +22,7 @@ import { webPortRange } from '../../scripts/agent-launch.mjs';
 import { localInstaller } from './local-install.mjs';
 import { startupBuilds } from './dev-startup.mjs';
 import { designPath, frameOnlyByTool, tamberServer } from '../../scripts/tamber-server.mjs';
-import { openRemote, remoteArgs } from '../../scripts/tamber-remote.mjs';
+import { pluginOnLoopback, remoteArgs } from '../../scripts/tamber-remote.mjs'; import { openRemoteCanvas } from '../../scripts/tamber-canvas.mjs';
 import { designDigest, patchDesign } from '../../scripts/tamber-patch.mjs';
 import { relayChannel, serveCommands, serveReport, streamFrame } from '../../scripts/tamber-builds.mjs';
 import { captureAssets, assetCards, alsoOnIPv6Loopback, freeOnIPv6Loopback, applyShaderTreeChange, sendStaticBody, watchLauncher, applyStaticChange, applyStaticTreeChange, builtAppMatches, developmentOpenPage, readDevGenerationAsync, readStaticFileAsync, readWebRequest, reflectShaderFiles, saveTrace, retainDevGeneration, shaderInterfaceDigests, syncStaticTree, watchStaticTrees, webContentType, webEnvelope, devGenerationDigest, MODULE_FILES, moduleCards } from './serve.mjs';
@@ -60,7 +60,7 @@ const host = lan && servedAs == null ? '0.0.0.0' : '127.0.0.1';
 // The addresses printed at startup are the only names requests may use.
 const origins = installBrowserOrigins({ host: lan ? '0.0.0.0' : '127.0.0.1', port: servedAs ?? port });
 const allowHosts = allowHostArgs(argv);
-let doors = null; const remoteAsked = remoteArgs(argv, { exit: true }); /* the wire's remote doors (stage 10 B), refused without a design */ if ((remoteAsked.remote || remoteAsked.tunnel != null) && servedAs == null && !designPath(app.dir)) { console.error(`${[remoteAsked.remote && '--remote', remoteAsked.tunnel != null && '--trust-tunnel'].filter(Boolean).join(' and ')} ${remoteAsked.remote && remoteAsked.tunnel != null ? 'serve' : 'serves'} the design wire: this app has no design (app.tamber)`); process.exit(2); }
+let doors = null; const remoteAsked = remoteArgs(argv, { exit: true }); /* the wire's remote doors (stage 10 B), refused without a design */ if ((remoteAsked.remote || remoteAsked.tunnel != null || remoteAsked.plugin || remoteAsked.relay) && servedAs == null && !designPath(app.dir)) { const named = [remoteAsked.remote && '--remote', remoteAsked.tunnel != null && '--trust-tunnel', remoteAsked.plugin && '--allow-plugin-origin', remoteAsked.relay && '--relay'].filter(Boolean); console.error(`${named.join(' and ')} ${named.length > 1 ? 'serve' : 'serves'} the design wire: this app has no design (app.tamber)`); process.exit(2); }
 const gate = developmentGate(origins, servedAs ?? port, allowHosts);
 const root = resolve(new URL('../..', import.meta.url).pathname);
 // An outside app's wasm loop builds apart from the JS target's `target/web-dist`,
@@ -396,7 +396,7 @@ function announcePlan(plan, bytes) {
   const sha = bytes && createHash('sha256').update(bytes).digest('hex');
   try { writeSync(mapFd, JSON.stringify({ plan, map: bytes ? { sha256: sha, bytes: bytes.length, url: `/__dev/map/${sha}` } : null }) + '\n'); } catch { /* the parent went */ }
 }
-const tamber = servedAs == null && designPath(app.dir) ? tamberServer({ appDir: app.dir, pairTtlMs: (await import('../../scripts/tamber-pairing.mjs')).pairTtlOf(argv), live: () => typescript || !portableRust, page: `http://127.0.0.1:${port}`, scrub: { patch: scrubPatch, verify: scrubVerify, preview: scrubPreview, restore: scrubRestore, released: scrubReleased }, sourceMap: (digest) => plannedMaps.get(digest ?? current?.envelope.plan.sha256) || (!digest && current?.files.get('app.plan.map.json')) || (!digest && readMap()) || null, designServed: () => designSnapshot && !previewing ? { digest: designSnapshot.design ?? null, source: designSource } : null }) : null;
+const tamber = servedAs == null && designPath(app.dir) ? tamberServer({ appDir: app.dir, pairTtlMs: (await import('../../scripts/tamber-pairing.mjs')).pairTtlOf(argv), remote: () => doors?.list() ?? [], live: () => typescript || !portableRust, page: `http://127.0.0.1:${port}`, scrub: { patch: scrubPatch, verify: scrubVerify, preview: scrubPreview, restore: scrubRestore, released: scrubReleased }, sourceMap: (digest) => plannedMaps.get(digest ?? current?.envelope.plan.sha256) || (!digest && current?.files.get('app.plan.map.json')) || (!digest && readMap()) || null, designServed: () => designSnapshot && !previewing ? { digest: designSnapshot.design ?? null, source: designSource } : null }) : null;
 // The resident compiler's map beside the plan it wrote (a generation from a
 // Rust producer carries none); the server checks its digest.
 function readMap() { try { return readFileSync(resolve(dist, 'app.plan.map.json')); } catch { return null; } }
@@ -1331,8 +1331,8 @@ async function produceGpuArtifact(files, { stem, kind, module }) {
 }
 
 const serve = async (req, res) => {
-  // Every HTML answer is framed by the design tool only (LLP 1122 T2).
-  frameOnlyByTool(res);
+  // Every HTML answer is framed by the design tool only (LLP 1122 T2); a sandboxed page's wire request (stage 10b) is the wire's first.
+  frameOnlyByTool(res); if (remoteAsked.plugin && tamber && await pluginOnLoopback(tamber, req, res)) return;
   const access = gate.check(req);
   if (!access.allowed) { res.writeHead(421, { 'cache-control': 'no-store' }); res.end(); return; }
   const url = webRequestURL(req.url);
@@ -1372,7 +1372,7 @@ const serve = async (req, res) => {
     // links this Mac's development clients admit for it (LLP 1030.000 §7).
     const page = new URL('/' + url.search, `http://${req.headers.host}`).href;
     res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store', 'referrer-policy': 'no-referrer' });
-    res.end(req.method === 'HEAD' ? undefined : developmentOpenPage(app, developmentLinks(app, page), page));
+    res.end(req.method === 'HEAD' ? undefined : developmentOpenPage(app, developmentLinks(app, page, access), page));
     return;
   }
   if (url.pathname.startsWith('/__dev/generation/')) {
@@ -1495,5 +1495,5 @@ const banner = () => {
   console.log(`  (dev loop on ${source.replace(root + '/', '')} and the wasm's crates; ${lan ? 'LAN bind — any peer on this network can read the app, its compile errors and dev generations; macOS may ask to allow bun' : 'loopback only — --lan to serve a phone on this network'}; ctrl-c to stop)`);
 };
 if (early) banner(); else await new Promise(ok => server.listen(port, host, () => { banner(); ok(); }));
-startup.handoff(stop); doors = servedAs == null && tamber ? await openRemote(tamber, remoteAsked).catch(async (e) => { console.error(`cannot listen: ${e.message}`); server.close(); server.closeAllConnections?.(); process.exitCode = 1; await stop(); }) : null;
+startup.handoff(stop); doors = servedAs == null && tamber ? await openRemoteCanvas(tamber, remoteAsked, `http://127.0.0.1:${port}`).catch(async (e) => { console.error(`cannot listen: ${e.message}`); server.close(); server.closeAllConnections?.(); process.exitCode = 1; await stop(); }) : null;
 watchLauncher(stop);

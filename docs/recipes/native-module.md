@@ -1,7 +1,8 @@
 # Recipe: a native module in Swift
 
-A platform API with no view (audio, MIDI, a measurement hook) is the app's one module, which
-`app.ts` asks: `modules/apple/*.swift`, one `ExactModule` subclass that `let exactModule` names.
+**Sound, MIDI and a transport are built in** ([guide](../contract-for-agents.md#sound-midi-and-media),
+`apps/metronome`): write no module. Another platform API with no view (a measurement
+hook) is the app's one module, which `app.ts` asks: `modules/apple/*.swift`, one `ExactModule` subclass that `let exactModule` names.
 app.json needs nothing for it ([app-json](app-json.md)).
 
 ```swift
@@ -61,11 +62,13 @@ export const answer: Answer = (source, args, store, storage, native) =>
 - **`context.changed("flags")`** asks again every answer that called `native.watch("flags")`.
   `context.now()` and `context.after(ms)` are the session's clock; `context.agent` is true
   under the agent.
-- **Launch arguments:** Exact passes none. Launched by hand, `xcrun simctl launch <udid>
-  <bundle id> -AutoPlay 1` puts each `-Name value` in `UserDefaults`, as read above.
-- **Printing:** `print` (stdout) appears in `agent ios logs` (under `host`) and in `xcrun
-  simctl launch --console`; `NSLog` does not.
-- **Exiting:** iOS has no quit. `exit(0)` ends the process without waiting for the app's
-  writes: keep it to a measurement hook, after `fflush(stdout)`.
+- **Launch arguments:** Exact passes none. `xcrun simctl launch <udid> <bundle id> -AutoPlay
+  1` puts each `-Name value` in `UserDefaults`, as read above.
+- **Printing:** `print` shows in `agent ios logs` and `xcrun simctl launch --console`;
+  `NSLog` not.
+- **`app.onLine`** (app hatch) is watched from its first read: read it once, even when
+  `isNew`, to hear changes.
+- **Exiting:** iOS has no quit. `exit(0)` skips the app's pending writes: keep it to a
+  measurement hook, after `fflush(stdout)`.
 - **A Swift edit rebuilds** (`bun exact.mjs ios`); views from the same module are
   [native-views](native-views.md).

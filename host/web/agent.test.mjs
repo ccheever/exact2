@@ -10,7 +10,7 @@ import vm from 'node:vm';
 import { render, sourceMapReader, identifyInspectedNode, heldTicket, holdOf, pickedPaths } from '../../scripts/agent.mjs';
 import { retainDevGeneration, readDevGeneration, readDevGenerationAsync, serveBuildTree } from './serve.mjs';
 import { focusController, placeReporter, timeReporter, pageReporter, appRootFontSize, grantOrigins, launchLocation } from './navigation.js';
-import { viewBox, layoutBoxes } from './input-glue.js';
+import { viewBox, layoutBoxes, scrollRange } from './input-glue.js';
 import { storageKey } from './storage-environment.js';
 import { open } from '../../scripts/agent.mjs';
 import { launchFacts, launchEnvironment, parseFlags } from '../../scripts/agent-launch.mjs';
@@ -226,7 +226,7 @@ function fixture(agentMode = true) {
     Date: class extends Date { static now() { return 123; } }, performance: { now: () => 10 }, TextEncoder, Uint8Array,
     HTMLInputElement: class {}, HTMLTextAreaElement: class {}, HTMLIFrameElement: class {}, HTMLVideoElement: class {}, HTMLMediaElement: class {},
     foldBits: () => 0 /* no fold posture (LLP 1078 D6) */,
-    document: { activeElement: null, body: {}, querySelector: () => null, getElementById: () => null }, // boot's last plan's theme: none
+    document: { activeElement: null, body: {}, querySelector: () => null, getElementById: () => null, documentElement: { scrollWidth: 0, clientWidth: 0, scrollHeight: 0, clientHeight: 0 } }, // boot's last plan's theme: none; a page with nothing to scroll
     innerWidth: 300, innerHeight: 200, devicePixelRatio: 1, scrollX: 0, scrollY: 0,
     INHERITED_CSS: {}, getComputedStyle: () => ({}), inertAncestor: () => false,
     viewBox: element => element.getBoundingClientRect(),
@@ -243,7 +243,7 @@ function fixture(agentMode = true) {
       exact_plan_fonts: () => '[]', exact_boot: () => '{"ops":[],"timers":true}',
       exact_boot_plan: () => '{"ops":[],"timers":true}', exact_advance: () => '{"ops":[],"clock":16}' },
     devAssets: null, bootAttempt: 0, encoder: new TextEncoder(), location: { pathname: '/', search: '', href: 'https://fixture.invalid/' }, URL,
-    focus: focusController({ ready: () => true, elements: () => [], inert: () => false }), loadGpuIfNeeded() {}, writeIn: value => value, send() {}, messageViews: new Set(), markupModule: null,
+    focus: focusController({ ready: () => true, elements: () => [], inert: () => false }), loadGpuIfNeeded() {}, afterPaint: fn => context.requestAnimationFrame(() => context.requestAnimationFrame(fn)), writeIn: value => value, send() {}, messageViews: new Set(), markupModule: null,
     prepareFonts: async () => [], commitFonts() {}, releaseAssets() {}, appRootFontSize() {} /* no app root rule to drop (LLP 1069.000 D3) */, incarnation: 0,
     // Ordinary boot tests model an already-loaded post-paint scheduler.
     timerFactory: () => ({ update() { events.push('ticker'); }, dispose() {} }),
@@ -261,7 +261,7 @@ function fixture(agentMode = true) {
     preferences: () => '{}', localAssetURL: source => source,
     launchLocation: () => launchLocation(context), // the launch path less the drive's facts (feed F16)
   });
-  vm.runInContext(`let toldOffset = null; const folded = () => false; /* no folded text here (LLP 1007.001) */ const viewBox = ${viewBox}; const layoutBoxes = ${layoutBoxes};\n` + ['let gpuLoading', 'const POST_BOUND', 'let frameSampler', 'const followOffset', 'const shownValue'].map(head => source.match(new RegExp(`^${head} = .*$`, 'm'))[0]).join('\n') + '\n' + ['nodeDetail', 'agentInputReady', 'agent', 'agentNow', 'agentReply', 'settleGpu', 'gpuPendingReply', 'agentSettled', 'tagged', 'clock', 'startClock', 'mutate', 'boot', 'bootNow'].map(declaration).join('\n') + '\n' + publicObject, context);
+  vm.runInContext(`let toldOffset = null; const folded = () => false; /* no folded text here (LLP 1007.001) */ const viewBox = ${viewBox}; const layoutBoxes = ${layoutBoxes}; const scrollRange = ${scrollRange};\n` + ['let gpuLoading', 'const POST_BOUND', 'let frameSampler', 'const followOffset', 'const shownValue'].map(head => source.match(new RegExp(`^${head} = .*$`, 'm'))[0]).join('\n') + '\n' + ['nodeDetail', 'agentInputReady', 'agent', 'agentNow', 'agentReply', 'settleGpu', 'gpuPendingReply', 'agentSettled', 'tagged', 'clock', 'startClock', 'mutate', 'boot', 'bootNow'].map(declaration).join('\n') + '\n' + publicObject, context);
   context.reportPlace = placeReporter(new URLSearchParams(agentMode ? 'agent=1' : ''), context);
   context.reportTime = timeReporter(new URLSearchParams(agentMode ? 'agent=1' : ''), context);
   return context;
@@ -601,8 +601,8 @@ test('page facts: the platform off the agent, the drive\'s values under it (LLP 
   // The document pickers (studio diary R31): bit 3 where the browser has them.
   platform.showOpenFilePicker = () => {}; expect(real.bits()).toBe(32 | 8);
   delete platform.showOpenFilePicker; let focused = false; platform.document.hasFocus = () => focused; expect(real.bits()).toBe(32 | 16); focused = true; expect(real.bits()).toBe(32); // #114: bit 4 while `document.hasFocus()` is false
-  real.onChange(() => {});
-  expect(listened).toEqual(['visibilitychange', 'online', 'offline', 'focus', 'blur']);
+  const on = {}; platform.addEventListener = (name, f) => { listened.push(name); on[name] = f; }; let told = 0; real.onChange(() => { told++; }); expect(listened).toEqual(['visibilitychange', 'online', 'offline', 'focus', 'blur', 'pagehide', 'pageshow']);
+  on.pageshow({ persisted: false }); on.pagehide({ persisted: false }); expect([real.bits(), told]).toEqual([32, 0]); on.pagehide({ persisted: true }); expect([real.bits(), told]).toEqual([32 | 1024, 1]); on.pageshow({ persisted: true }); expect([real.bits(), told]).toEqual([32 | 1 << 16, 2]); // the back/forward cache (LLP 1069.000 D2): bit 10 while put away, the returns above bit 16; a load's and an unload's events are neither
   const agent = pageReporter(true, new Proxy({}, {get(_, name) { if (name === 'devicePixelRatio') return 2; throw new Error('agent read the platform'); }})); // the display's scale alone is the page's own under the agent too: no drive value stands in for it (LLP 1115.000 D10.3)
   expect(agent.bits()).toBe(4 | 8 | 32 | 256); // the drive navigated to the page: `navigate` (bits 5–6: 1); files in a share, never a picture (LLP 1125 D12)
   agent.prefer({ 'visibility-state': 'hidden', online: false, 'can-open-files': false, 'has-focus': false }); expect(agent.bits()).toBe(1 | 2 | 4 | 16 | 32 | 256); agent.prefer({ 'has-focus': 'true' });
@@ -708,8 +708,7 @@ function inputFixture() {
     removeEventListener(kind, fn) { windowListeners.set(kind, (windowListeners.get(kind) ?? []).filter(g => g !== fn)); },
   });
   const module = readFileSync(new URL('./input-glue.js', import.meta.url), 'utf8');
-  const withoutPrompt = module.replace(/^import\s+["']\.\/prompt-glue\.js["'];[^\n]*\n/m, '');
-  if (withoutPrompt === module) throw new Error('input glue must retain the prompt side-effect import');
+  const withoutPrompt = ['prompt-glue', 'alert-message'].reduce((source, name) => { const out = source.replace(new RegExp(`^import\\s+["']\\./${name}\\.js["'];[^\\n]*\\n`, 'm'), ''); if (out === source) throw new Error(`input glue must retain its ${name} side-effect import`); return out; }, module);
   const tested = withoutPrompt.replaceAll('export function', 'function').replace('export const agentInput', 'const agentInput');
   vm.runInContext(tested + '\n' + declaration('attach'), f);
   f.attach(el, 7, ['pan']);
@@ -850,9 +849,9 @@ test('a pressable that is no button activates by Enter or Space', () => {
 
 // @ref LLP 1043.000 §3 D7/D8 — optional host code cannot gate data readiness.
 const checkpoint = () => new Promise(resolve => setImmediate(resolve));
-async function startupFixture(rustOnly = false, served = null) {
+async function startupFixture(rustOnly = false, served = null, timerFirst = false) {
   const data = deferred(), input = deferred(), timer = deferred();
-  const frames = [], loads = [], errors = [], events = [];
+  const frames = [], timeouts = [], loads = [], errors = [], events = [];
   const exports = { memory: {}, exact_compat: () => '{"inputs":{}}',
     exact_logic: () => '{"appId":"test.startup"}',
     exact_data_ready: () => { events.push('activate'); return '{"ops":[]}'; },
@@ -867,7 +866,7 @@ async function startupFixture(rustOnly = false, served = null) {
     fetch: async () => ({}), WebAssembly: { instantiateStreaming: async () => ({ instance: { exports } }), Module: { customSections: () => [], imports: () => [] } },
     moduleCall() {}, rustImports: {}, dataImports: {}, grantOrigins, readOut: value => value,
     boot: async () => events.push('boot'), loadGpuIfNeeded() {}, startClock() {}, httpHelpers() {}, pieces: { pending: () => null },
-    requestAnimationFrame: fn => frames.push(fn), console: { error: error => errors.push(String(error)) },
+    requestAnimationFrame: fn => frames.push(fn), setTimeout: (fn, ms) => timeouts.push([fn, ms]), console: { error: error => errors.push(String(error)) },
     motion: { commit() {} }, collections: { dataReady: () => events.push('collections') },
     applyBatch: () => events.push('batch'), inertAncestor: () => false, editMenu: () => false, focusAutofocus() {},
     resolveModuleReady: () => events.push('ready'), page: served && { holding: true, early: [] }, pageNative: undefined, log() {}, // the input piece's journal (a cancelled pan's line)
@@ -888,15 +887,15 @@ async function startupFixture(rustOnly = false, served = null) {
   if (served) return { f }; // a served document's first pixel is painted: activation is not a frame away
   expect(events).toEqual(['boot', 'navigation']); // Adoption activates navigation before optional modules or data.
   expect(loads).toEqual([]); // Neither optional nor app modules run before paint.
-  frames.shift()();
-  expect(loads).toEqual([]);
-  const activation = frames.shift()();
+  const early = timerFirst && timeouts[0][0](); // a frameless page's second (glue.js activateOnce) first: its frames, back later, start nothing more
+  frames.shift()(); if (!early) expect(loads).toEqual([]);
+  const activation = frames.shift()(); expect(timeouts.map(([, ms]) => ms)).toEqual([1000]); expect(timeouts[0][0]()).toBe(activation); if (early) expect(activation).toBe(early); // one activation, whichever comes first
   return { f, data, input, timer, activation };
 }
 
 test('pending, failed and invalid optional modules leave Rust and JS apps ready after paint', async () => {
-  for (const rustOnly of [false, true]) for (const failure of ['pending', 'reject', 'invalid']) {
-    const h = await startupFixture(rustOnly), { f } = h;
+  for (const rustOnly of [false, true]) for (const failure of ['pending', 'reject', 'invalid']) for (const timerFirst of [false, true]) {
+    const h = await startupFixture(rustOnly, null, timerFirst), { f } = h;
     if (!rustOnly) expect(f.inputReady).toBe(false);
     h.data.resolve({});
     await checkpoint();

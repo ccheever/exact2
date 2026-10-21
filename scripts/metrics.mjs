@@ -7,7 +7,8 @@
  *
  *   bun scripts/metrics.mjs            table
  *   bun scripts/metrics.mjs --json     one JSON object
- *   bun scripts/metrics.mjs --app <name> measure that resolved app
+ *   bun scripts/metrics.mjs --app <name> measure that resolved app; without its own
+ *       web/src/bin/metrics.rs, --press <testId>[,<testId>] names the update to time
  *   bun scripts/metrics.mjs --flow     Stage 2 still/serial-propagation layouts, no browser
  *   bun scripts/metrics.mjs --scaling  runner workloads (300/3000/10000 rows), no browser
  *   bun scripts/metrics.mjs --list-memory  fresh-process eager/virtualized heap/RSS comparison (25/1000/25000)
@@ -41,6 +42,7 @@ import { buildFileCards, buildTreeFile, jsTargetBuild, publicFileCards, readStat
 import { appleArtifacts, assertAppleIdentity } from '../host/apple/build.mjs';
 import { developmentBuildEnv, resolveApp, withAppFixture } from './app.mjs';
 import { Cdp, open } from './agent.mjs';
+import { chromium } from './agent-launch.mjs';
 
 const t0 = Date.now();
 const ROOT = resolve(new URL('..', import.meta.url).pathname);
@@ -305,12 +307,13 @@ mkdirSync(profile, { recursive: true });
 const failure = (r) => `${r.stderr ?? ''}\n${r.stdout ?? ''}`.split('\n').map((l) => l.trim()).filter((l) => l && !/^at |^Bun v\d/.test(l)).slice(-3).join(' / ').slice(0, 400);
 const step = async (name, f) => { const t = Date.now(); const v = await f(); out[`_${name}_s`] = (Date.now() - t) / 1000; return v; };
 
+const NATIVE_ROWS = ['compile_ms', 'bake_ms', 'decode_ms', 'plan_bytes', 'baked_bytes', 'boot_ms', 'nodes', 'text_nodes', 'layout_ms', 'update_ms', 'inherit_ms', 'inherit_touched', 'tick_ms', 'web_boot_ms', 'web_first_batch_bytes', 'web_update_ms', 'web_update_batch_bytes'];
 // 1. Native pipeline numbers (a release bin; warm cache builds in ~1 s).
 await step('native', () => {
   const source = resolve(app.dir, 'web/src/bin/metrics.rs');
   if (!existsSync(source)) {
-    Object.assign(out, Object.fromEntries(['compile_ms', 'bake_ms', 'decode_ms', 'plan_bytes', 'baked_bytes', 'boot_ms', 'nodes', 'text_nodes', 'layout_ms', 'update_ms', 'inherit_ms', 'inherit_touched', 'tick_ms', 'web_boot_ms', 'web_first_batch_bytes', 'web_update_ms', 'web_update_batch_bytes'].map((key) => [key, NaN])));
-    out.native_note = `${app.name} has no web/src/bin/metrics.rs`; // the browser/dev rows below still measure the resolved app
+    // Measured from the web build's baked plan once step 2 has made it.
+    Object.assign(out, Object.fromEntries(NATIVE_ROWS.map((key) => [key, NaN])));
     return;
   }
   const r = spawnSync('cargo', ['run', '-q', '--release', '-p', app.crate('web'), '--bin', 'metrics'], { cwd: app.workspace, encoding: 'utf8', env: developmentBuildEnv() });
@@ -349,6 +352,21 @@ await step('wasm', async () => {
   }
 });
 
+// 2b. An app without its own metrics bin: the same rows from the plan the
+// web build baked with the app's data source, booted with nothing answering
+// after (`plan-metrics`). The bake is not measured, and the update rows need
+// the test ids to press.
+if (!existsSync(resolve(app.dir, 'web/src/bin/metrics.rs'))) await step('native', () => {
+  const press = process.argv.includes('--press') ? process.argv[process.argv.indexOf('--press') + 1] : undefined;
+  const contract = resolve(app.dir, 'app.contract');
+  const r = spawnSync('cargo', ['run', '-q', '--release', '-p', 'exact-web-capabilities', '--bin', 'plan-metrics', '--',
+    resolve(ROOT, 'host/web/dist/app.plan'), ...(existsSync(contract) ? ['--contract', contract] : []), ...(press ? ['--press', press] : [])],
+    { cwd: ROOT, encoding: 'utf8', env: developmentBuildEnv() });
+  if (r.status !== 0) { out.native_note = `plan-metrics failed: ${failure(r)}`; return; }
+  Object.assign(out, JSON.parse(r.stdout.trim().split('\n').pop()));
+  out.native_note = `from the baked plan, nothing answering after boot; bake not measured${press ? '' : '; update rows need --press <testId>[,<testId>]'}`;
+});
+
 // 3. Boot modules (the fifth check's count).
 await step('boot', () => {
   const r = spawnSync(process.execPath, [resolve(ROOT, 'scripts/boot.mjs'), '--json'], { cwd: ROOT, encoding: 'utf8' });
@@ -375,10 +393,10 @@ await step('boot', () => {
     res.end(body);
   });
   await new Promise((ok) => server.listen(0, '127.0.0.1', ok));
-  const chrome = process.env.CHROME ?? '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
+  const { executable: chrome, unavailable } = chromium({ needs: ['gpu', 'perf'] });
   let child, fresh;
   try {
-    if (!existsSync(chrome)) throw new Error('no Chrome at $CHROME');
+    if (unavailable) throw new Error(unavailable);
     fresh = mkdtempSync(resolve(tmpdir(), 'exact-metrics-'));
     child = spawn(chrome, ['--headless=new', '--remote-debugging-pipe', `--user-data-dir=${fresh}`,
       '--no-sandbox', '--disable-extensions', '--disable-background-networking', '--no-first-run',
@@ -499,7 +517,7 @@ await step('boot', () => {
 // first frame of the new plan in the DOM.
 {
   const t = Date.now();
-  const chrome = process.env.CHROME ?? '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
+  const { executable: chrome, unavailable } = chromium({ needs: ['gpu', 'perf'] });
   const port = 20000 + Math.floor(Math.random() * 20000);
   const dev = spawn(process.execPath, [resolve(ROOT, 'host/web/dev.mjs'), '--app', app.name, '--port', String(port)], { cwd: ROOT, stdio: ['ignore', 'pipe', 'pipe'], detached: true });
   let compilerPid = null, diagnostic = '', devExited = false;
@@ -524,7 +542,7 @@ await step('boot', () => {
   let page = null;
   try {
     const ready = await until(/^(?:plan ready|module generation ready|Rust generation \w+ ready)/, 120000, 0); // a cold build of the dev bin can take a while; warm is ~1 s
-    if (ready && existsSync(chrome)) {
+    if (ready && !unavailable) {
       page = spawn(chrome, ['--headless=new', '--remote-debugging-pipe', `--user-data-dir=${profile}`,
         '--no-sandbox', '--disable-extensions', '--disable-background-networking', '--no-first-run',
         '--no-default-browser-check', 'about:blank'], { detached: true, stdio: ['ignore', 'ignore', 'ignore', 'pipe', 'pipe'] });
@@ -608,7 +626,7 @@ await step('boot', () => {
         : '20 distinct Contract edits; save-to-visible-DOM p50/p95, next frame opportunity reported separately; includes module producer for TypeScript apps';
     } else {
       out.reload_ms = NaN;
-      out.reload_note = ready ? 'no Chrome at $CHROME' : 'dev driver did not come up: ' + (diagnostic || lines.slice(-2).join(' | '));
+      out.reload_note = ready ? unavailable : 'dev driver did not come up: ' + (diagnostic || lines.slice(-2).join(' | '));
     }
   } catch (error) { out.reload_ms = NaN; out.reload_note = String(error); } finally {
     writeFileSync(source, original);

@@ -1,7 +1,10 @@
 //! Bounded immutable request and accepted frame wire; no live source at paint.
 use super::*;
 use crate::batch::quote;
-use exact_kernel::{motion::motion_node, AxisOffer, FontStyle, NodeType, StyleId, TextStyle};
+use exact_kernel::{
+    motion::motion_node, AxisOffer, FontStyle, NodeType, StyleId, TextDecorationLine, TextStyle,
+    ViewId,
+};
 use std::fmt::Write;
 fn axis(value: AxisOffer) -> f32 {
     match value {
@@ -31,6 +34,64 @@ fn colors(node: &exact_kernel::NodeRef<'_>, out: &mut String) {
             c.b(),
             c.a()
         );
+    }
+}
+/// The lines `leaf`'s decorating ancestors draw through its text (CSS Text
+/// Decoration 3 §2.1), each in that box's colour: the nearest box's, as
+/// `Run.propagate` takes them, whatever the box's own visibility. Up to the
+/// paragraph `owner`, and past it the boxes it stands in, as `NodeText`'s
+/// `decoratingAncestors` reads them: a box out of flow or an atomic one (a
+/// button, a control) takes none from the boxes above it.
+fn propagated(kernel: &Kernel, leaf: &exact_kernel::NodeRef<'_>, owner: ViewId, out: &mut String) {
+    use exact_kernel::PositionType;
+    let (mut underline, mut strike) = (None, None);
+    // Inline runs up to the paragraph, then the boxes it stands in.
+    let mut inside = leaf.id != owner;
+    let mut at = if inside {
+        leaf.parent
+    } else {
+        beyond(kernel, owner)
+    };
+    while let Some(node) = at.and_then(|id| kernel.node(id)) {
+        let (under, through) = match node.style.text_decoration_line {
+            TextDecorationLine::None => (false, false),
+            TextDecorationLine::Underline => (true, false),
+            TextDecorationLine::LineThrough => (false, true),
+            TextDecorationLine::UnderlineLineThrough => (true, true),
+        };
+        if under && underline.is_none() {
+            underline = Some(node.text_color());
+        }
+        if through && strike.is_none() {
+            strike = Some(node.text_color());
+        }
+        at = if inside && node.id != owner {
+            node.parent
+        } else {
+            inside = false;
+            beyond(kernel, node.id)
+        };
+    }
+    /// The box `id` stands in, unless `id` is out of flow or atomic.
+    fn beyond(kernel: &Kernel, id: ViewId) -> Option<ViewId> {
+        let node = kernel.node(id)?;
+        let out_of_flow = node.style.position_type == PositionType::Absolute;
+        let atomic = matches!(node.node_type, NodeType::Pressable | NodeType::Control);
+        (!out_of_flow && !atomic).then_some(node.parent).flatten()
+    }
+    for (line, color) in [("underline", underline), ("strike", strike)] {
+        let Some(color) = color else { continue };
+        for (label, dark) in [("Color", false), ("DarkColor", true)] {
+            let c = color.resolve(dark);
+            let _ = write!(
+                out,
+                ",\"{line}{label}\":[{},{},{},{}]",
+                c.r(),
+                c.g(),
+                c.b(),
+                c.a()
+            );
+        }
     }
 }
 pub(super) fn request(kernel: &Kernel, p: &Pending, known: u64) -> Result<String, String> {
@@ -109,6 +170,7 @@ pub(super) fn request(kernel: &Kernel, p: &Pending, known: u64) -> Result<String
                     },
                     &mut out,
                 );
+                propagated(kernel, leaf, node.id, &mut out);
                 out.push_str(",\"href\":");
                 quote(leaf.props.link().unwrap_or(""), &mut out);
                 let _ = write!(out, ",\"key\":\"{}\"}}", motion_node(leaf.key));

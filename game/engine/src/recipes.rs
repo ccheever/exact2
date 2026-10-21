@@ -61,3 +61,12 @@ pub mod blender_export {}
 /// Light and frame a scene under water.
 #[doc = include_str!("../../recipes/underwater.md")]
 pub mod underwater {}
+/// Seek, arrive, flee and wander, and a predator made of them.
+#[doc = include_str!("../../recipes/steering.md")]
+pub mod steering {}
+/// A school of fish over `near_xz`'s nearest neighbours.
+#[doc = include_str!("../../recipes/schooling.md")]
+pub mod schooling {}
+/// A shop of numbered items bound to `Actions`, with prices, levels and locks.
+#[doc = include_str!("../../recipes/shop.md")]
+pub mod shop {}

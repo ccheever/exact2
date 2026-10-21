@@ -18,11 +18,12 @@ import { createServer } from 'node:http';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { chromium } from '../../../scripts/agent-launch.mjs';
 
 const here = new URL('.', import.meta.url).pathname;
 const out = join(here, 'breaks.txt');
 const ENGINES = ['chrome', 'webkit', 'firefox'];
-const chrome = process.env.CHROME ?? '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
+const chrome = chromium().executable;
 const firefox = process.env.FIREFOX ?? '/Applications/Firefox.app/Contents/MacOS/firefox';
 const BUDGET = 2400; // UTF-16 units kept per corpus: enough to meet each script's rules
 

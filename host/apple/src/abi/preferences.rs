@@ -212,6 +212,17 @@ impl<D: DataSource> Bridge<D> {
         self.emit(out)
     }
 
+    /// The extensions the app's module composes, a name a line.
+    pub fn bind_extensions(&mut self, len: usize) {
+        let text = std::str::from_utf8(&self.input[..len.min(self.input.len())])
+            .unwrap_or("")
+            .to_owned();
+        let names: Vec<&str> = text.lines().filter(|l| !l.is_empty()).collect();
+        if let Some(h) = self.host.as_mut() {
+            h.runner_mut().bind_extensions(&names);
+        }
+    }
+
     /// The agent's `prefer extension` in the input buffer (`Host::extension`).
     pub fn extension(&mut self, len: usize) -> u32 {
         let text = std::str::from_utf8(&self.input[..len.min(self.input.len())])

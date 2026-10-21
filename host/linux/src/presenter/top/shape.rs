@@ -119,6 +119,32 @@ fn text_of(kernel: &Kernel, node: &NodeRef<'_>) -> String {
         .join(" ")
 }
 
+/// A confirmation's rows: its children, read through the `message` box of
+/// texts and the `actions` box of buttons the compiler groups an alert into
+/// (`alertPart`, contract/lower/src/alert_parts.rs) so a host that draws it
+/// can scroll its message. A box holding anything else stays a row of its
+/// own, which no confirmation's shape admits.
+fn confirmation_rows<'k>(kernel: &'k Kernel, pop: &NodeRef<'k>) -> Vec<NodeRef<'k>> {
+    let node = |id| kernel.node(id);
+    (pop.children().into_iter().filter_map(node))
+        .flat_map(|row| {
+            let rows: Vec<NodeRef<'k>> = row.children().into_iter().filter_map(node).collect();
+            let all = |keep: fn(&NodeRef<'_>) -> bool| rows.iter().all(keep);
+            let crossed = row.node_type == NodeType::View
+                && match row.props.str(PropId::AlertPart) {
+                    Some("message") => all(|r| r.node_type == NodeType::Text),
+                    Some("actions") => all(is_button),
+                    _ => false,
+                };
+            if crossed {
+                rows
+            } else {
+                vec![row]
+            }
+        })
+        .collect()
+}
+
 /// A button's row: its face's title, else its label, else its text.
 pub(in crate::presenter) fn row(kernel: &Kernel, node: &NodeRef<'_>, cancel: bool) -> Row {
     let face = kernel.press_face(node.id).unwrap_or_default();
@@ -154,9 +180,7 @@ pub fn alert(
     {
         return None;
     }
-    let children: Vec<NodeRef<'_>> = (pop.children().into_iter())
-        .filter_map(|id| kernel.node(id))
-        .collect();
+    let children = confirmation_rows(kernel, &pop);
     let button = |n: &&NodeRef<'_>| is_button(n);
     let actions: Vec<&NodeRef<'_>> = (children.iter().filter(button))
         .filter(|n| pressed(n.id))
@@ -242,3 +266,7 @@ pub(crate) fn neutral_alert(kernel: &Kernel, id: ViewId, pressed: &dyn Fn(ViewId
         })
         && alert(kernel, id, pressed, true).is_some()
 }
+
+#[cfg(test)]
+#[path = "shape_tests.rs"]
+mod tests;

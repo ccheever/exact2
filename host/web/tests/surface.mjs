@@ -68,6 +68,8 @@ export async function fixture(options = {}) {
     .replace('import { assetDelivery } from "./gpu-assets.js";', '')
     .replace('import { inertAncestor } from "./navigation.js";', '')
     .replace('import { padPoller } from "./gpu-pads.js";', '') // the pads are tested in gpu-pads.test.mjs, or passed as options.padPoller
+    .replace('import { chooseTier, TIERS } from "./gpu-tier.js";', 'const TIERS = ["high", "mid", "low"], chooseTier = async () => "high";')
+    .replace('import { showRefusal } from "./gpu-refusal.js";', 'const showRefusal = () => {};')
     .replaceAll('import.meta.url', '"http://fixture/"')
     .replace('import { pacer } from "./pace.js";', 'const pacer = () => Object.assign(now => now, {period_ms: 1000 / 120});') // the frame clock is tested in pace.test.mjs
     .replace('await import(`./gpu.js?g=${version}`)', 'await candidate(version)')

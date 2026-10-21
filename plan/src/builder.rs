@@ -12,6 +12,20 @@ use crate::{Bytes, Code, Plan, PlanError, StrId};
 use std::collections::HashMap;
 use std::hash::{BuildHasherDefault, Hasher};
 
+/// One face of a declared family, as [`PlanBuilder::font_family`] takes it:
+/// `@font-face`'s descriptors (LLP 1019 D2).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Face<'a> {
+    /// App-relative TTF/OTF source.
+    pub source: &'a str,
+    /// CSS weights, low and high; one weight is both.
+    pub weight: [u16; 2],
+    /// Widths in tenths of a percent, low and high; `[1000, 1000]` is normal.
+    pub stretch: [u16; 2],
+    /// Italic, rather than normal.
+    pub italic: bool,
+}
+
 /// A plan under construction.
 #[derive(Debug, Default)]
 pub struct PlanBuilder {
@@ -271,15 +285,18 @@ impl PlanBuilder {
         TypesId(self.plan.types.len() as u32 - 1)
     }
 
-    /// A declared static font family and its faces (LLP 1019 D1–D2).
-    pub fn font_family(&mut self, name: &str, faces: &[(&str, u16, bool)]) -> FamiliesId {
+    /// A declared font family and its faces (LLP 1019 D1–D2).
+    pub fn font_family(&mut self, name: &str, faces: &[Face<'_>]) -> FamiliesId {
         let start = self.plan.faces.len() as u32;
-        for (source, weight, italic) in faces {
-            let source = self.str(source);
+        for face in faces {
+            let source = self.str(face.source);
             self.plan.faces.push(FacesRow {
                 source,
-                weight: *weight,
-                italic: *italic,
+                weight: face.weight[0],
+                weight_max: face.weight[1],
+                stretch_min: face.stretch[0],
+                stretch_max: face.stretch[1],
+                italic: face.italic,
             });
         }
         let name = self.str(name);

@@ -1,5 +1,19 @@
 # Vendored Ibex split crates — Exact integration ledger
 
+## Mac widget Keychain (LLP 1126.001 WP16)
+
+`crates/ibex2/src/secrets/darwin_keychain.mm` selects the restricted
+`ExactKeychainAccessGroup` in the data-protection Keychain for a provisioned
+Apple widget cohort. Ordinary Mac apps keep the login Keychain. The containing
+app migrates its service's login items on its first provisioned launch;
+copy failure keeps the old item, and an existing shared item wins. Migration
+runs once per process, from `prepare` only. An unreadable item is skipped;
+errors are logged without withholding the app's I/O. Retained items can be
+retried on the next launch. The move is one-way. Extensions never migrate.
+The Objective-C fixture in
+`host/apple/tests/fixtures/keychain-migration.mm` exercises retries and failures
+with substituted Security calls; signed Keychain access still needs profiles.
+
 ## Snapshot and update recipe
 
 - Upstream: `https://github.com/expo/ibex.git` at
@@ -103,10 +117,14 @@ snapshot. Exact's render and non-Apple executors consume that portable path.
 
 Patch 9's app interface stays Exact's and is replayed on a refresh:
 `bindings/storage.d.ts` declares `compressImage(from, to, {maxDimension,
-maxBytes})` resolving to `{path, type, size, width, height}`, as Exact's docs
+maxBytes, type})` resolving to `{path, type, size, width, height}`, as Exact's docs
 give it, and Exact's prelude (`js/src/prelude.js`) adapts that to upstream's
 positional binding (`compressImage(from, to, maxDimension, maxBytes)`, replying
-`width\theight\tsize`). The October 13 refresh replaced the declaration with
+`width\theight\tsize`). Exact adds a fifth positional argument, the media type
+(exact2 LLP 1069.002 A1.11, 2026-10-20): `boundary_abi.rs` reads it into
+`fs_image::ImageRequest::format` (`ImageFormat::Jpeg` when absent, `Png`; any
+other value is an invalid argument), and the codec is Exact's. Replay both on a
+refresh. The October 13 refresh replaced the declaration with
 the positional form; `contract/cli/tests/it/typescript.rs` now pins it. Upstream
 now preserves Exact's app error branches: a source over the read cap is
 `compressImage: too-large:`, and a trial deadline before publication is
@@ -265,6 +283,14 @@ lends such a span to Hermes instead of copying it, since Hermes keeps a
 module's buffer for the runtime's life and the statics live as long; a span
 not so aligned is still copied. `include/ibex2_jsi.h` says so at
 `CompiledScript`. In euxy on iOS the copies were 81 KB of malloc at idle.
+Replay on a refresh.
+
+## Local patch 17, a host-task worker gives its stack back when idle
+
+`pool.rs`: on Apple platforms a worker that finishes a job with none queued
+releases its stack pages below its frame (`MADV_FREE_REUSABLE`). The two
+workers kept through a quiet spell otherwise keep every page a job reached
+dirty for the process's life: 80 KB in euxy on iOS after its launch's reads.
 Replay on a refresh.
 
 ## Qualification boundaries

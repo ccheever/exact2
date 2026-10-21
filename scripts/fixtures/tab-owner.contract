@@ -29,12 +29,13 @@ component TabOwner
     seen = `${e.isIntersecting}:${e.intersectionRatio}`
   action observeBeacon(e: IntersectionObserverEntry)
     beacon = `${e.isIntersecting}`
-  // A point in the card, where UIKit shows it
+  // A point in the card, where UIKit shows it (its `top` starts past the
+  // status bar the route's cover clears, whatever the phone's)
   action read
     let f = frame("card")
     frame = `${f.x},${f.y},${f.width},${f.height}`
-    hit = match elementFromPoint(40, 420) { case some(id) => id, case none => "none" }
-    all = elementsFromPoint(40, 420).join(",")
+    hit = match elementFromPoint(f.x + 24, f.y + 20) { case some(id) => id, case none => "none" }
+    all = elementsFromPoint(f.x + 24, f.y + 20).join(",")
   view
     main navigationKey=`${top(nav).id}` width="100%" height="100%" display="flex" flex-direction="column"
       column flex=1 min-height=0 position="relative"

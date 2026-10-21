@@ -387,21 +387,29 @@ pub fn sites(
                 "end_col": site["end_col"],
                 "component": site["component"],
             });
-            // A state part's row lowered onto the node is read where it is
-            // written (LLP 1121 D8: `:active`'s press paint).
+            // A state part's row is read where it is written: `:active`'s
+            // press paint (LLP 1121 D8), a look's row at its `:hover` or
+            // `:focus-visible` line (LLP 1122's queue item (1)). The map
+            // keys a part by (row, state): the row's `states`.
+            let state = look.unwrap_or("active");
             let bound = site["bindings"].as_array().into_iter().flatten();
-            if let Some(b) = bound
+            if let Some(part) = bound
                 .filter(|b| b["row"] == row.name())
-                .find(|b| b.get("state").is_some())
+                .find_map(|b| b["states"].as_array()?.iter().find(|p| p["state"] == state))
             {
-                for key in ["file", "line", "col", "end_col"] {
-                    at[key] = b["at"][key].clone();
+                // (A part with no place, a conditional class's, keeps the
+                // node's, in its state.)
+                if part.get("at").is_some() {
+                    for key in ["file", "line", "col", "end_col"] {
+                        at[key] = part["at"][key].clone();
+                    }
                 }
-                at["state"] = b["state"].clone();
+                at["state"] = part["state"].clone();
             }
             if !via.is_null() {
                 at["via"] = via;
             }
+            // (A look's row the map gives no part keeps the node's place, in its state.)
             if let Some(state) = look {
                 at["state"] = state.into();
             }
@@ -472,8 +480,6 @@ pub fn motion_sites(
     let src = std::fs::read_to_string(app).map_err(|e| format!("{}: {e}", app.display()))?;
     let root = crate::app_root(app).map_err(first)?;
     let (_, sources) = crate::sources::load(app, &src, &root).map_err(first)?;
-    let dir = app.parent().unwrap_or(app);
-    let canonical = dir.canonicalize().unwrap_or_else(|_| dir.to_path_buf());
     let mut out = Vec::new();
     for site in &sources.motion {
         let via = if site.tokens.iter().any(|t| t == token) {
@@ -484,13 +490,10 @@ pub fn motion_sites(
                 None => continue,
             }
         };
-        let path = sources.path(site.span);
-        let shown = path
-            .strip_prefix(dir)
-            .or_else(|_| path.strip_prefix(&canonical))
-            .unwrap_or(path)
-            .display()
-            .to_string();
+        // The loader's path, which `motion_instances` joins against the
+        // elements' (round 2, Astra 2): the finished reply names it
+        // (`relative_files`), never this list.
+        let shown = sources.path(site.span).to_string_lossy().into_owned();
         let mut v = json!({
             "site": Value::Null,
             "row": match site.component {
@@ -543,11 +546,96 @@ fn elements(
         {
             return Err(format!(
                 "{} changed while it was read: ask again",
-                path.display()
+                shown(path, app.parent().unwrap_or(app))
             ));
         }
     }
     Ok((file, sources))
+}
+
+/// `path` as an answer names it, never with this machine's directories
+/// (the rule `scripts/tamber-paths.mjs` keeps for the JS server too):
+/// - inside the app's directory `dir` (as given or canonical: a temporary
+///   directory may be reached through a link), from it
+///   (`node_modules/@acme/reading/index.contract`);
+/// - else inside a package (the nearest directory above the file whose
+///   `package.json` has a name), as D15 names a package's file
+///   (`sources::home`): `<name>/<path inside it>` (`@acme/linked/index.contract`
+///   for a package linked from outside the app);
+/// - else `<outside>/<its name>`.
+///
+/// A relative path is the app's already and is kept.
+pub fn shown(path: &std::path::Path, dir: &std::path::Path) -> String {
+    let slashed = |p: &std::path::Path| p.to_string_lossy().replace('\\', "/");
+    if path.is_relative() {
+        return slashed(path);
+    }
+    let canonical = dir.canonicalize().unwrap_or_else(|_| dir.to_path_buf());
+    // Real through its nearest existing ancestor, the missing rest kept (a
+    // package's `dist/theme.tamber` where there is no `dist/`).
+    let real = {
+        let mut at = path;
+        let mut rest = Vec::new();
+        while !at.exists() {
+            match (at.parent(), at.file_name()) {
+                (Some(up), Some(name)) => {
+                    rest.push(name.to_owned());
+                    at = up;
+                }
+                _ => break,
+            }
+        }
+        let mut real = at.canonicalize().unwrap_or_else(|_| at.to_path_buf());
+        real.extend(rest.iter().rev());
+        real
+    };
+    for (p, d) in [
+        (path, dir),
+        (path, canonical.as_path()),
+        (real.as_path(), canonical.as_path()),
+    ] {
+        if let Ok(rest) = p.strip_prefix(d) {
+            return slashed(rest);
+        }
+    }
+    for root in real.ancestors().skip(1) {
+        let named = std::fs::read_to_string(root.join("package.json"))
+            .ok()
+            .and_then(|t| serde_json::from_str::<Value>(&t).ok())
+            .and_then(|m| m["name"].as_str().map(str::to_string));
+        if let (Some(name), Ok(rest)) = (named, real.strip_prefix(root)) {
+            return format!("{name}/{}", slashed(rest));
+        }
+    }
+    format!(
+        "<outside>/{}",
+        real.file_name()
+            .map_or_else(String::new, |n| n.to_string_lossy().into_owned())
+    )
+}
+
+/// Every `file` in an answer's `sites` (any depth) as [`shown`] names it
+/// (tamber/1.15: an absolute path leaked the machine's directories).
+pub fn relative_files(sites: &mut [Value], dir: &std::path::Path) {
+    sites.iter_mut().for_each(|v| relative(v, dir));
+}
+
+/// [`relative_files`] of one value.
+fn relative(v: &mut Value, dir: &std::path::Path) {
+    match v {
+        Value::Object(o) => {
+            for (k, x) in o.iter_mut() {
+                match (k.as_str(), &*x) {
+                    ("file", Value::String(f)) => {
+                        *x = Value::from(shown(std::path::Path::new(f), dir))
+                    }
+                    _ => relative(x, dir),
+                }
+            }
+        }
+        Value::Array(a) => a.iter_mut().for_each(|x| relative(x, dir)),
+        _ => {}
+    }
 }
 
 /// Each element of `nodes` (recursively), with `f`.

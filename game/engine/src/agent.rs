@@ -212,6 +212,15 @@ impl<G: Game> Sim<G> {
         })
     }
 
+    fn paranoid_json(&self) -> String {
+        let mode = match self.paranoid_mode {
+            crate::Paranoid::Off => "0",
+            crate::Paranoid::Save => "1",
+            crate::Paranoid::FreshGame => "fresh-game",
+        };
+        let (skipped, owed) = self.paranoid_samples().unwrap_or((0, false));
+        format!(",\"paranoid\":{{\"mode\":\"{mode}\",\"checked\":{},\"skipped\":{skipped},\"owed\":{owed}}}", self.paranoid_checked)
+    }
     /// Answer the engine half of an agent request as JSON, always tagged with tick.
     /// Component/resource Data uses [] for None and [value] for Some(value).
     pub fn agent(&mut self, request: &str) -> String {
@@ -323,7 +332,7 @@ impl<G: Game> Sim<G> {
             "state" => {
                 let host_input = self.host_input();
                 Ok(format!("{{\"tick\":{tick},\"world\":{{\"name\":{},\"tick\":{tick},\"hz\":{},\"seed\":{},\"hash\":\"0x{:016x}\",\"entities\":{},\"paused\":{},\"loading\":{},\"assets\":{},\"restarted\":{},\"restored\":{}{}{},\"tableEdits\":{},\"args\":{},\"resources\":{},\"audio\":{},\"input\":{},\"published\":{}}}}}",
-                quote(G::NAME), w.hz(), w.seed(), w.hash(), w.len(), G::paused(&self.args), encode(&w.assets.states.iter().filter(|(_, s)| **s == crate::asset::AssetState::Pending).map(|(n, _)| n.clone()).collect::<Vec<_>>())?, w.assets.state_json(), self.restarted, self.restored, self.restored_from.as_ref().filter(|_| self.restored).map_or_else(String::new, |a| format!(",\"restoredFrom\":{a}")), if self.edits_admitted || w.set_seen.get() { ",\"developmentEdits\":true".to_owned() } else { String::new() } + &format!(",\"queuedSets\":{}", self.queued_sets()) + &self.paranoid_samples().map_or_else(String::new, |(skipped, owed)| format!(",\"paranoid\":{{\"skipped\":{skipped},\"owed\":{owed}}}")), self.table_edits(), self.args_json, w.resources_json().map_err(|e|e.to_string())?, crate::audio::state(w), self.input.state_json(&host_input, self.refused_posts)?, w.published_json(true)))
+                quote(G::NAME), w.hz(), w.seed(), w.hash(), w.len(), G::paused(&self.args), encode(&w.assets.states.iter().filter(|(_, s)| **s == crate::asset::AssetState::Pending).map(|(n, _)| n.clone()).collect::<Vec<_>>())?, w.assets.state_json(), self.restarted, self.restored, self.restored_from.as_ref().filter(|_| self.restored).map_or_else(String::new, |a| format!(",\"restoredFrom\":{a}")), if self.edits_admitted || w.set_seen.get() { ",\"developmentEdits\":true".to_owned() } else { String::new() } + &format!(",\"queuedSets\":{}", self.queued_sets()) + &self.paranoid_json(), self.table_edits(), self.args_json, w.resources_json().map_err(|e|e.to_string())?, crate::audio::state(w), self.input.state_json(&host_input, self.refused_posts)?, w.published_json(true)))
             },
             "layout" if q.entity.is_some() => {
                 let e = resolve(w,q.entity.as_deref().ok_or("layout needs an entity")?)?;

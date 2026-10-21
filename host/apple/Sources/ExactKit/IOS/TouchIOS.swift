@@ -13,13 +13,17 @@ import UIKit
 /// logs the touches it dispatched.
 public final class ExactWindow: UIWindow {
     public override func sendEvent(_ event: UIEvent) {
+        // Read before UIKit delivers the event: which lifts lost the view their touch began on (`TouchLog.viewGone`),
+        // and when the window had the event, on the mach clock of `UITouch.timestamp`
+        let gone = ExactEnv.agentMode && event.type == .touches ? TouchLog.viewGone(event) : []
+        let dispatched = ExactEnv.agentMode ? CACurrentMediaTime() : 0
         // Inspect mode takes every touch and press (InspectIOS.swift), and
         // knows the touches down when it begins. (It reached this window,
         // so the agent's touch log still has it.)
         #if EXACT_INSPECT && os(iOS)
         InspectHost.see(event)
         if Inspect.on || InspectHost.owning, InspectHost.take(event, in: self) {
-            if ExactEnv.agentMode, event.type == .touches { TouchLog.record(event, in: self) }
+            if ExactEnv.agentMode, event.type == .touches { TouchLog.record(event, in: self, gone: gone, dispatched: dispatched) }
             return
         }
         #endif
@@ -33,7 +37,7 @@ public final class ExactWindow: UIWindow {
             HeldState.input(at: touch.view) // a contact on a held node, or in it, lets its hold go (HeldState.swift)
         }
         super.sendEvent(event)
-        if ExactEnv.agentMode, event.type == .touches { TouchLog.record(event, in: self) }
+        if ExactEnv.agentMode, event.type == .touches { TouchLog.record(event, in: self, gone: gone, dispatched: dispatched) }
     }
 }
 
@@ -52,6 +56,25 @@ enum TouchLog {
     /// read inside a held touch waits for that (`touches.mjs`).
     nonisolated(unsafe) static var reached: Set<Int> = []
     static let capacity = 256
+    /// The touches down that began on a view (`viewGone`), held weakly: a cancelled touch never lifts here
+    nonisolated(unsafe) static let viewed = NSHashTable<UITouch>.weakObjects()
+
+    /// The lifts in `event` whose touch began on a view and has none now, read before the window delivers the event:
+    /// the view left the window first (a list cell's detail button UIKit rebuilds while it loads its accessibility), so
+    /// it never has the lift. A view UIKit removes as it handles a lift (a switch's lens) still has the touch then, and a
+    /// touch a system recognizer takes has no view from the start.
+    static func viewGone(_ event: UIEvent) -> Set<UITouch> {
+        var gone: Set<UITouch> = []
+        for touch in event.allTouches ?? [] {
+            if touch.phase == .began, touch.view != nil {
+                viewed.add(touch)
+            } else if touch.phase == .ended, viewed.contains(touch) {
+                viewed.remove(touch)
+                if touch.view == nil { gone.insert(touch) }
+            }
+        }
+        return gone
+    }
 
     /// Outside a scroll view a view's `touchesBegan` runs inside the
     /// window's `sendEvent`, before `record` sees the touch: either names it.
@@ -67,7 +90,7 @@ enum TouchLog {
         return nextTouch
     }
 
-    static func record(_ event: UIEvent, in window: UIWindow) {
+    static func record(_ event: UIEvent, in window: UIWindow, gone: Set<UITouch>, dispatched: TimeInterval) {
         for touch in event.allTouches ?? [] {
             let phase: String
             switch touch.phase {
@@ -86,6 +109,10 @@ enum TouchLog {
             // A touch a system recognizer takes (iOS 26's tab bar selects with
             // one on the window) has no view: where the window's hit test put it.
             for (key, value) in landing(touch.view ?? window.hitTest(p, with: nil)) { entry[key] = value }
+            if gone.contains(touch) { entry["viewGone"] = true }
+            // When the window had a touch down. One it had only after the finger lifted comes with its lift, which a
+            // list cell's `UISwitch` takes as no tap
+            if phase == "began" { entry["dispatched"] = dispatched }
             entries.append(entry)
             if entries.count > capacity { entries.removeFirst(); dropped += 1 }
         }
@@ -138,8 +165,8 @@ extension Agent {
         if nav.tabController != nil, !nav.tablistAppearanceNone, let list = nav.adoptedTablist.flatMap({ presenter.views[$0] }), v === list || v.isDescendant(of: list) {
             return "is in the authored tablist \(shown) UIKit's tab bar"
         }
-        for controller in nav.allNavigations where nav.stacks[ObjectIdentifier(controller)]?.showsBar == true {
-            for case let route as RouteController in controller.viewControllers {
+        for routes in nav.barStackRoutes {
+            for case let route as RouteController in routes {
                 guard let shape = HeaderShape.bar(of: route.node) else { continue }
                 let replaced = shape.authored.isEmpty ? [shape.header] : shape.placed
                 if replaced.contains(where: { v === $0 || v.isDescendant(of: $0) }) {
@@ -336,6 +363,11 @@ extension Agent {
             "fixed": [Agent.r2(fixed.x), Agent.r2(fixed.y)], // the screen's portrait space, where XCTest's synthesizer presses (touches.swift)
             // The size of the window's screen, by which the touch runner finds its display on a device with more than one
             "display": [Agent.r2(win.screen.bounds.width), Agent.r2(win.screen.bounds.height)],
+            // A window point's unit steps right and down in that space, by which a drag's end is found there
+            "fixedAxes": [CGPoint(x: p.x + 1, y: p.y), CGPoint(x: p.x, y: p.y + 1)].map { step in
+                let f = win.convert(step, to: win.screen.fixedCoordinateSpace)
+                return [Agent.r2(f.x - fixed.x), Agent.r2(f.y - fixed.y)]
+            },
             "at": [Agent.r2(local.x), Agent.r2(local.y)], // the viewport point, as `tap` replies it
             "window": [Agent.r2(p.x), Agent.r2(p.y)], // the window point, as the dispatch log records touches
             "viewport": [Agent.r2(vp.pageSize.width), Agent.r2(vp.pageSize.height)], // where a drag must end

@@ -29,6 +29,7 @@ import androidx.compose.material3.LocalTextStyle
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextField
@@ -81,6 +82,8 @@ private fun Inline(id: String) {
         "filled-button-disabled" -> Button(onClick = {}, enabled = false) { Text("Save") }
         "checkbox-checked" -> Checkbox(checked = true, onCheckedChange = {})
         "checkbox-unchecked" -> Checkbox(checked = false, onCheckedChange = {})
+        "radio-selected" -> RadioButton(selected = true, onClick = {})
+        "radio-unselected" -> RadioButton(selected = false, onClick = {})
         "defect-missing-control" -> Box(Modifier.size(48.dp))
         "defect-neighbour-role" -> Button(
             onClick = {},

@@ -79,6 +79,27 @@ impl ThemeIndex {
         self.rows.get(&(view, style as u16))
     }
 
+    /// `view`'s `style`, set again, read `tokens` too: a token's new value
+    /// may read one its old value didn't (a shadow over a base the design
+    /// sets, LLP 1121 stage 12 B3), which an edit of that one then sets
+    /// again. The bits are added, never replaced: a row whose text no
+    /// longer reads a token keeps its bit, which costs at most one re-set
+    /// that changes nothing (bits are already shared by names, `name_bit`),
+    /// where replacing them could drop a read the parse didn't repeat.
+    pub(crate) fn also_read(&mut self, view: ViewId, style: StyleId, tokens: u64) {
+        if let Some(row) = self.rows.get_mut(&(view, style as u16)) {
+            row.tokens |= tokens;
+        }
+    }
+
+    /// `view`'s state looks, resolved again, read `tokens` too, added as
+    /// [`ThemeIndex::also_read`] adds a row's.
+    pub(crate) fn looks_read(&mut self, view: ViewId, tokens: u64) {
+        if let Some(l) = self.looks.get_mut(&view) {
+            l.tokens |= tokens;
+        }
+    }
+
     /// `view`'s `style` reads no token now.
     pub(super) fn drop_row(&mut self, view: ViewId, style: StyleId) {
         if !self.rows.is_empty() {

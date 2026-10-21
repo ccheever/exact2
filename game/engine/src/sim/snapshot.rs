@@ -142,6 +142,12 @@ impl<G: Game> Sim<G> {
         if validated.hz() != G::HZ || validated.tick() as u128 != due {
             return Err(DataError::new("restore refused: EXSIM v8 saved world and clock disagree; no clock migration; inspect `state` and create a fresh save"));
         }
+        G::restorable(&validated).map_err(|reason| {
+            DataError::new(format!(
+                "restore refused: `{}` refuses this save: {reason}; inspect `state` and create a fresh save",
+                G::ID
+            ))
+        })?;
         input.restore_dynamic(s.input);
         // What input applied and has in progress is world state; input works on its copy.
         let applied = validated
@@ -193,6 +199,8 @@ impl<G: Game> Sim<G> {
         // before the presenter has drained that payload into the current device.
         next.textures = std::mem::take(&mut self.textures);
         next.paranoid = self.paranoid;
+        next.paranoid_mode = self.paranoid_mode;
+        next.paranoid_checked = self.paranoid_checked;
         next.development_edits = self.development_edits;
         next.edits_admitted =
             self.edits_admitted || self.world.set_seen.get() || next.world.set_seen.get();

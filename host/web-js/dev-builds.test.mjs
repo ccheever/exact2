@@ -165,3 +165,37 @@ test('the JS loop: an edit stops a young build, leaving dist as it was; a value 
     rmSync(dir, { recursive: true, force: true });
   }
 }, 1_200_000);
+
+test("the JS loop: an edit to theme-fixture's `when` token builds with setMode and its pins, and a refused one says the design's refusal", async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'exact-axes-'));
+  writeFileSync(join(dir, 'app.json'), JSON.stringify({ name: 'Axes', app: { id: 'com.exact.axes', name: 'Axes' } }));
+  writeFileSync(join(dir, 'app.contract'), 'component App\n  action dim\n    setMode("dark-style", "dim")\n  view\n    column background-color="surface.page" min-height=40\n      button press=dim\n        text "dim"\n      column -exact-mode="dark-style=black" background-color="surface.page"\n        text "pinned"\n');
+  const design = readFileSync(resolve(ROOT, 'apps/theme-fixture/app.tamber'), 'utf8');
+  const page = '  surface.page = light-dark(#ffffff, #000000)\n    when dark-style=dim: light-dark(#ffffff, #15202b)\n';
+  expect(design).toContain(page);
+  writeFileSync(join(dir, 'app.tamber'), design);
+  let loop = null;
+  try {
+    loop = await devLoop(dir);
+    const { said, base } = loop;
+    const until = async (pass, ms) => { const end = Date.now() + ms; while (!pass()) { if (Date.now() > end) throw new Error(`not seen in: ${said().slice(-2000)}`); await new Promise(ok => setTimeout(ok, 100)); } };
+    const count = (re) => (said().match(re) ?? []).length;
+    await until(() => said().includes('plan ready') && said().includes('design reader ready'), 900_000);
+    // The `when` line's dark side: its batch, then its build, which checks
+    // setMode and the pin against the design's axes.
+    const checks = count(/edit → checked|edit → batch ready .*built in|edit → plan ready/g);
+    writeFileSync(join(dir, 'app.tamber'), design.replace(page, page.replace('#15202b', '#16212c')));
+    await until(() => count(/edit → checked|edit → batch ready .*built in|edit → plan ready/g) > checks || said().includes('build failed'), 300_000);
+    expect(said()).not.toContain('build failed');
+    expect(JSON.stringify(await (await fetch(`${base}/__dev/design`)).json())).toContain('#16212c');
+    // The default's light side alone, which `under scheme=dark` refuses:
+    // the build says so, and not that the design declares no axes.
+    writeFileSync(join(dir, 'app.tamber'), design.replace(page, page.replace('#ffffff, #000000', '#fefefe, #000000')));
+    await until(() => said().includes('build failed') && said().includes('[tamber-'), 300_000);
+    expect(said()).toContain('tamber-under-light');
+    expect(said()).not.toContain('declares no axes');
+  } finally {
+    await loop?.stop().catch(() => {});
+    rmSync(dir, { recursive: true, force: true });
+  }
+}, 1_200_000);

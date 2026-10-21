@@ -26,6 +26,7 @@ public final class Agent {
     #endif
     #if EXACT_WIDGET_GALLERY && (os(iOS) || os(macOS))
     var widgetPreview: WidgetPreview?
+    var activityPreview: ActivityPreview?
     #endif
     let session: ExactSession
     init(session: ExactSession) {
@@ -176,10 +177,10 @@ public final class Agent {
             Agent.reply(["error": "session \(session.label): destroyed (runtime \(session.runtime.rt): no such runtime)"])
             return
         }
-        if req["widget"] != nil {
+        if req["widget"] != nil || req["activity"] != nil {
             #if EXACT_WIDGET_GALLERY && (os(iOS) || os(macOS))
             if op != "clock" {
-                Agent.reply(WidgetGallery.answer(op, request: req, agent: self))
+                Agent.reply(req["activity"] != nil ? ActivityAgent.answer(op, request: req, agent: self) : WidgetGallery.answer(op, request: req, agent: self))
                 return
             }
             #else
@@ -275,6 +276,10 @@ public final class Agent {
             // The touch runner's observation reads (`aim`, `log`) are not
             // inputs: they answer at once, within its own deadline.
             if req["aim"] == nil, req["log"] == nil { r = completingInput(r) }
+            session.canvases.settle(now: session.now())
+            Agent.reply(tagged(r))
+        case "type" where req["message"] != nil:
+            let r = completingInput(post(req))
             session.canvases.settle(now: session.now())
             Agent.reply(tagged(r))
         case "type":
@@ -543,6 +548,10 @@ public final class Agent {
             case ("can-share-pictures", "true"), ("can-share-pictures", "false"): facts.canSharePictures = value == "true"
             case ("can-open-files", "true"), ("can-open-files", "false"): facts.canOpenFiles = value == "true"
             case ("has-focus", "true"), ("has-focus", "false"): facts.hasFocus = value == "true"
+            // The fact, and each module's tier: its renderers are made again at the new rung (LLP 1139.003 D2).
+            case ("gpu-tier", "high"), ("gpu-tier", "mid"), ("gpu-tier", "low"):
+                PageFacts.agentGpuTier = ["high", "mid", "low"].firstIndex(of: value).map(UInt32.init) ?? 0
+                for retier in PageFacts.retiers.values { retier(PageFacts.agentGpuTier) }
             case ("root-font-size", _) where (Double(value) ?? 0) > 0 && Float(Double(value)!).isFinite: facts.rootFontSize = Double(value)!
             // Bold Text (LLP 1115.000 D12.3), as the person's setting reaches the kernel.
             case ("bold-text", "true"), ("bold-text", "false"): boldText = value == "true"
@@ -581,6 +590,7 @@ public final class Agent {
                                        "can-share-pictures": PageFacts.canSharePictures, "can-open-files": PageFacts.canOpenFiles,
                                        "has-focus": PageFacts.hasFocus(session.pageWindow), "root-font-size": PageFacts.rootFontSize,
                                        "display-scale": PageFacts.displayScale(session.presenter.viewport),
+                                       "gpu-tier": ["high", "mid", "low", "low"][Int(PageFacts.tier & 3)],
                                        "bold-text": DisplayPreferences.boldText]
         #if os(macOS)
         if let keyboardNavigation { KeyboardNavigation.agent = keyboardNavigation }
@@ -712,7 +722,7 @@ public final class Agent {
         guard to >= from else { return ["error": "the clock cannot go backwards (\(from) → \(to))"] }
         var rounds = 0, hatchDrains = 0
         #if os(iOS) || os(tvOS)
-        var wallDeadline: Date?
+        var wallDeadline: Date?, scrollDeadline: Date?
         #endif
         var world = WorldClock()
         func reply(_ landed: Double, _ settled: Bool? = nil, reason: String? = nil) -> [String: Any] {
@@ -793,9 +803,20 @@ public final class Agent {
                 // The app's own native motion on the wall clock ends first,
                 // within 1.5 s for the whole call, or the call is not settled;
                 // what its completion starts is checked below.
-                let wallUntil = wallDeadline ?? Date(timeIntervalSinceNow: 1.5)
+                var wallUntil = wallDeadline ?? Date(timeIntervalSinceNow: 1.5)
                 wallDeadline = wallUntil
-                if !awaitWallMotion(until: wallUntil) { return reply(landed, false, reason: "motion") }
+                // …and a scroll view a finger left moving, within 4 s for the
+                // whole call; what its glide's end starts is the app's motion
+                // again, with its own 1.5 s.
+                let scrollUntil = scrollDeadline ?? Date(timeIntervalSinceNow: 4)
+                scrollDeadline = scrollUntil
+                while true {
+                    if !awaitWallMotion(until: wallUntil) { return reply(landed, false, reason: "motion") }
+                    guard let glided = awaitScrollRest(until: scrollUntil) else { return reply(landed, false, reason: "scroll") }
+                    if !glided { break }
+                    wallUntil = Date(timeIntervalSinceNow: 1.5)
+                    wallDeadline = wallUntil
+                }
                 #endif
                 // A responder or presentation completion can enqueue a keyboard
                 // resize before its animation exists. Require an idle native turn
@@ -853,6 +874,31 @@ public final class Agent {
         out["settled"] = false
         out["reason"] = "transition"
         return out
+    }
+
+    /// The driver's `post` (LLP 1139.004 D1): `postMessage(text, surface)` as
+    /// the app sends it, into canvas `id`'s surface, the named one, or the
+    /// page's one world. A surface with no live canvas holds it, as it holds
+    /// the app's posts.
+    func post(_ req: [String: Any]) -> [String: Any] {
+        let canvases = session.canvases, text = req["message"] as? String ?? ""
+        let name: String
+        if let id = (req["id"] as? NSNumber)?.uint32Value {
+            guard let n = canvases.surfaceName(id) else { return ["error": "view \(id) has no world"] }
+            name = n
+        } else if let n = req["surface"] as? String {
+            name = n
+        } else {
+            let names = canvases.surfaceNames()
+            guard names.count == 1 else {
+                return ["error": names.isEmpty ? "post: no world is live; name its surface (post <surface> <text>) to hold the message until one is"
+                    : "post: \(names.count) worlds are live (\(names.joined(separator: ", "))); name one: post <surface> <text>"]
+            }
+            name = names[0]
+        }
+        if session.webviews.hasFrame(name) { return ["error": "post: \(name) is an iframe's id, not a world surface"] }
+        if let refused = canvases.post(name, text) { return ["error": "post refused: \(refused)"] }
+        return ["posted": name, "delivery": "posted", "held": canvases.waiting(name) ? true : nil].compactMapValues { $0 }
     }
 
     /// To `to`, and what is in flight lands before a timer fires — the
@@ -1017,12 +1063,23 @@ public extension ExactEnv {
     /// sees them, their items pressing the authored controls they stand for.
     /// The default paints the authored header and tablist in their place.
     static let agentChrome = environment["EXACT_AGENT_CHROME"] ?? "agent"
+    /// Whether a driver can reach this launch. On iOS it is named by
+    /// `EXACT_AGENT_SOCKET` or `EXACT_AGENT_CONNECT` (`Agent.startSocket`);
+    /// the Mac's driver owns stdio. An iOS launch with `EXACT_AGENT=1` and
+    /// neither, as a grader's `simctl launch` arming only the fault table
+    /// (`EXACT_AGENT_FAIL_FETCH`) is, has no driver to read painted chrome:
+    /// it shows what a person sees.
+    #if os(iOS) || os(tvOS)
+    static let agentDriven = agentMode && (environment["EXACT_AGENT_SOCKET"] != nil || environment["EXACT_AGENT_CONNECT"] != nil)
+    #else
+    static let agentDriven = agentMode
+    #endif
     /// Whether the authored header and tablist paint instead of UIKit's
     /// bars: the agent's default chrome.
-    static let authoredChrome = agentMode && agentChrome != "platform"
+    static let authoredChrome = agentDriven && agentChrome != "platform"
     /// Whether the agent paints the popovers a person sees as UIKit's
     /// menus (LLP 1021 D4). `EXACT_AGENT_PRESENTATION=native`, which
     /// `--touch platform` launches with (LLP 1080.000 D7), shows UIKit's:
     /// a real touch opens one and picks its item.
-    static let agentPaints = agentMode && environment["EXACT_AGENT_PRESENTATION"] != "native"
+    static let agentPaints = agentDriven && environment["EXACT_AGENT_PRESENTATION"] != "native"
 }

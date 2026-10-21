@@ -2,11 +2,12 @@
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { PassThrough } from 'node:stream';
 import { open, jsonLines, MalformedOperation, main } from './agent.mjs';
-import { chromium, launchFacts } from './agent-launch.mjs';
+import { chromium, launchFacts, noteDefaultStore } from './agent-launch.mjs';
 import { need } from './coverage.mjs';
 import { typeCommand } from './agent-keys.mjs';
 import { render, stateOp } from './agent-inspect.mjs';
@@ -63,6 +64,8 @@ test('malformed input is labelled before delivery; a state refusal is not', asyn
   carrier.ask = async () => ({ error: 'timer refused the advance' });
   await assert.rejects(() => s.clock('+100'), e => e.message.includes('timer refused') && e.malformed === undefined);
   await assert.rejects(() => main(['web', 'resize banana'], { open: async () => ({ close() {} }) }), e => e.malformed === true);
+  // A deep link is `type` on the navigation root (euxy FRICTION 11): the refusal names that form.
+  await assert.rejects(() => main(['web', 'open euxy://p/1'], { open: async () => ({ close() {} }) }), e => e.malformed === true && e.message.includes('`type <root> euxy://p/1`'));
 });
 
 test('accepted pointer, wheel, media and zero-time forms still reach the carrier', async () => {
@@ -412,6 +415,18 @@ test('compare: the CLI form and the reference are checked before any comparison'
   assert.match(helpText('agent'), /\(a select, date or checkbox: its value\)/);
 });
 
+// The euxy port's "BPM +5 per tap": a library an earlier plain drive stored, where compare drives start empty.
+test('the first drive from an app directory that keeps the store `default` says so, once per directory and device', () => {
+  const root = mkdtempSync(resolve(tmpdir(), 'exact-store-note-')), said = [], error = console.error;
+  console.error = (line) => said.push(line);
+  try {
+    const drive = (dir, device = 'sim-a') => noteDefaultStore({ host: 'ios', device, appId: 'dev.example.app', dir }, root);
+    drive('/ports/one'); drive('/ports/one'); drive('/ports/two'); drive('/ports/one', 'sim-b');
+    assert.equal(said.length, 3);
+    assert.match(said[0], /^note: no --storage named, so this drive keeps the store `default`, what earlier drives of this app on this device stored \(one that compares with a reference starts empty\)/);
+  } finally { console.error = error; rmSync(root, { recursive: true, force: true }); }
+});
+
 test('a native named store is kept unless the drive resets it, under its lock; a web one starts empty unless kept', async () => {
   const quiet = [console.log, console.error];
   console.log = () => {}; console.error = () => {};
@@ -564,15 +579,60 @@ test('a screenshot with a system sheet held says it is not drawn, and where the 
   const s = (touch, extra = {}) => ({ launchFacts: {}, carrier: { touch, ...extra }, op: async () => ({ lines: [], next: 0 }), state: async () => ({ pending }) });
   console.error = (line) => said.push(line);
   try {
-    await driveNotes(s('agent', { installNote: 'kept the Release build' }), { host: 'ios', storage: 's1' })('screenshot');
-    assert.equal(said.length, 3);
+    await driveNotes(s('agent', { installNote: 'kept the Release build', axNote: 'accessibility is on' }), { host: 'ios', storage: 's1' })('screenshot');
+    assert.equal(said.length, 4);
     assert.match(said[0], /^note: kept the Release build$/);
+    assert.match(said[1], /^note: accessibility is on$/);
+    said.splice(1, 1);
     assert.match(said[1], /no share sheet: under the agent it is held \(@1\).*under --touch platform the real one is presented/);
     assert.doesNotMatch(said[2], /--touch platform/);
     said.length = 0;
     // Under --touch platform the share sheet is presented: only the picker, which is not, is said.
     await driveNotes(s('platform'), { host: 'ios', storage: 's1' })('screenshot');
     assert.deepEqual(said.map((l) => /@(\d)/.exec(l)?.[1]), ['2']);
+  } finally { console.error = quiet; }
+});
+
+// The euxy port's pattern menu: painted in the page by the agent, it read as an app bug.
+test('a tap that opens a menu the agent paints says UIKit presents it, under --touch platform, once', async () => {
+  const { driveNotes } = await import('./agent-test.mjs');
+  const said = [], quiet = console.error;
+  const tree = (open) => [
+    { id: 1, parent: null, props: {} },
+    { id: 2, parent: 1, type: 'View', props: { popovertarget: 'patmenu', testId: 'pattern-menu' } },
+    { id: 3, parent: 2, props: {} }, // the invoker's label, which the tap may land on
+    { id: 4, parent: 1, open, props: { id: 'patmenu', popover: 'auto', accessibilityRole: 'menu' } },
+    { id: 5, parent: 4, props: { popovertarget: 'patmenu', popovertargetaction: 'hide' } }, // a row that closes it
+    { id: 6, parent: 1, props: { commandfor: 'ask', command: 'show-modal' } },
+    { id: 7, parent: 1, open: true, props: { id: 'ask', popover: 'auto', semanticTag: 'dialog' } },
+    // native-fixture's `open-native-popover`: a native button's content popover, form controls, no `role="menu"`.
+    { id: 8, parent: 1, type: 'Control', props: { type: 'button', popovertarget: 'form' } },
+    { id: 9, parent: 1, open: true, props: { id: 'form', popover: 'auto' } },
+    // A native button's popover that is `role="menu"`: UIKit's pull-down.
+    { id: 10, parent: 1, type: 'Control', props: { type: 'button', popovertarget: 'more' } },
+    { id: 11, parent: 1, open: true, props: { id: 'more', popover: 'auto', accessibilityRole: 'menu' } },
+  ];
+  let open = false;
+  const s = (touch) => ({ launchFacts: {}, carrier: { touch }, op: async () => ({ lines: [], next: 0 }), state: async () => ({}), tree: async () => ({ nodes: tree(open) }) });
+  const tap = (tapped, delivery = 'activation') => ({ tapped, delivery });
+  console.error = (line) => said.push(line);
+  try {
+    const notes = driveNotes(s('agent'), { host: 'ios', storage: 's1' });
+    // A row that closes it, a dialog, a content popover, the invoker's tap that left it closed, a hover, a contact's phase.
+    for (const reply of [tap(5), tap(6), tap(8), tap(3), tap(2, 'recognized'), { tapped: 2, delivery: 'activation', phase: 'down' }]) await notes('tap', reply);
+    open = true;
+    await notes('tap', { tapped: 2, wheel: [0, 40] }); // a wheel while it is open, as iOS replies (AgentIOS.swift)
+    await notes('tap', tap(2, 'recognized')); // a hover or pinch
+    assert.deepEqual(said, []);
+    await notes('tap', tap(3)); await notes('tap', tap(2));
+    assert.deepEqual(said, ["note: the tap opened the popover `patmenu` as the agent paints it, in the page; the app presents it as UIKit's pull-down menu, which a drive shows under --touch platform"]);
+    said.length = 0;
+    await driveNotes(s('agent'), { host: 'ios', storage: 's1' })('tap', tap(10));
+    assert.match(said[0] ?? '', /popover `more`/);
+    said.length = 0;
+    await driveNotes(s('platform'), { host: 'ios', storage: 's1' })('tap', tap(2));
+    await driveNotes(s('agent'), { host: 'web', storage: 's1' })('tap', tap(2));
+    assert.deepEqual(said, []);
   } finally { console.error = quiet; }
 });
 

@@ -26,7 +26,7 @@ class GroupedListFixture: XCTestCase {
         ])
     }
 
-    func presenter(height: Double = 874, handlers: [String] = [], props: [String: String] = [:],
+    func presenter(height: Double = 874, handlers: [String] = [], props: [String: String] = [:], style: [String: Any] = [:],
                            on given: Presenter? = nil, _ m: @escaping () -> GroupedListModel) -> Presenter {
         ExactGroupedLists.install()
         let p = given ?? Presenter()
@@ -41,7 +41,7 @@ class GroupedListFixture: XCTestCase {
         }
         let listProps = ["listStyle": "inset-grouped", "testId": "list"].merging(props) { _, value in value }
         var ops: [[String: Any]] = [
-            ["op": "create", "id": 1, "kind": "list", "props": listProps, "handlers": handlers, "style": ["overflow_y": "scroll"]],
+            ["op": "create", "id": 1, "kind": "list", "props": listProps, "handlers": handlers, "style": style.merging(["overflow_y": "scroll"]) { a, _ in a }],
             view(2, "view", ["semanticTag": "section"]), view(3, "view", ["semanticTag": "section"]),
             view(4, "view", [:]), view(5, "view", [:]),
             ["op": "create", "id": 13, "kind": "control", "props": ["type": "checkbox", "accessibilityRole": "switch", "checked": "true", "testId": "toggle"], "handlers": ["input"], "style": [:]],
@@ -900,7 +900,12 @@ final class GroupedListIOSTests: GroupedListFixture {
         let l = try list(p)
         l.collection.layoutIfNeeded()
         let shown = l.collection.supplementaryView(forElementKind: UICollectionView.elementKindSectionHeader, at: IndexPath(item: 0, section: 0)) as? UICollectionViewListCell
-        XCTAssertEqual((shown?.contentConfiguration as? UIListContentConfiguration)?.text, "Profile")
+        let text = (shown?.contentConfiguration as? UIListContentConfiguration)?.attributedText
+        XCTAssertEqual(text?.string, "Profile")
+        // A grouped table's header hyphenates as UITableView's does, not as
+        // the collection view list's (1, which drew "Reading to-gether").
+        let paragraph = text?.attribute(.paragraphStyle, at: 0, effectiveRange: nil) as? NSParagraphStyle
+        XCTAssertEqual(paragraph?.hyphenationFactor, 0.45)
     }
 
     /// LLP 1116.003 (r5 password generator: `tap history-0` refused, a

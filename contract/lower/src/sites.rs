@@ -33,8 +33,18 @@ pub struct NodeSite {
     /// Every style row the node binds, with where the binding came from —
     /// the winner when two bindings named one row.
     pub rows: Vec<(StyleId, Origin)>,
+    /// Each host-known state's look rows (`hover`, `focus-visible`), each
+    /// an [`Origin::State`] at its part's row (LLP 1122 queue item (1)).
+    pub looks: Vec<(&'static str, Vec<(StyleId, Origin)>)>,
     /// The button's compile-time appearance decision, absent on other tags.
     pub button: Option<ButtonSite>,
+    /// The part its element is named as (LLP 1139 D2, D5): what the
+    /// selection report's `library` joins, since `part=` reaches no host.
+    pub part: Option<String>,
+    /// The declaring identity of the exported library component whose own
+    /// view the element is of (LLP 1139 D0, D5); a slot fill's nodes are
+    /// their caller's.
+    pub library: Option<String>,
 }
 
 /// Development-only button admission and migration facts (LLP 1104 D2, D9).
@@ -79,8 +89,9 @@ pub enum Origin {
     Class(String, Option<Written>),
     /// The tag's fixed row (`row` sets `flex_direction`).
     Tag,
-    /// A state part's row lowered onto the node (LLP 1121 D8: `:active`'s
-    /// press paint), the node's or its class's, and where it is written.
+    /// A state part's row: `:active`'s lowered onto the node as its press
+    /// paint (LLP 1121 D8), or a `:hover` or `:focus-visible` look's row;
+    /// the node's or its class's, and where it is written.
     State {
         /// The node's or its class's.
         of: Box<Origin>,
@@ -88,6 +99,16 @@ pub enum Origin {
         state: &'static str,
         /// The state part's row.
         span: Span,
+    },
+    /// A row a `:disabled` or `:checked` part folds into one value over
+    /// its base (LLP 1122's queue item (2)): the base's attribute where an
+    /// author wrote it, none for one the node takes unwritten, and each
+    /// part folded over it (each an [`Origin::State`]).
+    Folded {
+        /// The base's origin and attribute; none where no author wrote it.
+        base: Option<Box<Origin>>,
+        /// Each part folded over it.
+        parts: Vec<Origin>,
     },
 }
 
@@ -100,6 +121,9 @@ impl Origin {
             Origin::Class(name, _) => format!("class:{name}"),
             Origin::Tag => "tag".into(),
             Origin::State { of, .. } => of.label(),
+            Origin::Folded { base, .. } => {
+                base.as_ref().map_or_else(|| "own".into(), |b| b.label())
+            }
         }
     }
 
@@ -110,6 +134,7 @@ impl Origin {
         match self {
             Origin::Own(w) | Origin::Class(_, w) => w.as_ref(),
             Origin::Tag | Origin::State { .. } => None,
+            Origin::Folded { base, .. } => base.as_ref().and_then(|b| b.written()),
         }
     }
 }
@@ -149,24 +174,33 @@ impl Sites {
     }
 }
 
-/// A node's site: its element and every style row it binds, by origin.
+/// A node's site: its element, every style row it binds, by origin, and
+/// its looks' rows.
 pub(crate) fn node_site(
     span: Span,
     instance: u32,
     button: Option<ButtonSite>,
     bindings: &[BindingsRow],
     origins: &[Origin],
+    looks: Vec<(&'static str, Vec<(StyleId, Origin)>)>,
 ) -> NodeSite {
-    let rows = bindings
+    NodeSite {
+        span,
+        instance,
+        rows: style_rows(bindings, origins),
+        looks,
+        button,
+        part: None,
+        library: None,
+    }
+}
+
+/// The style rows of `bindings`, each with its origin.
+pub(crate) fn style_rows(bindings: &[BindingsRow], origins: &[Origin]) -> Vec<(StyleId, Origin)> {
+    bindings
         .iter()
         .zip(origins)
         .filter(|(b, _)| b.kind == BindingKind::Style)
         .filter_map(|(b, o)| StyleId::from_bit(b.id as u32).map(|row| (row, o.clone())))
-        .collect();
-    NodeSite {
-        span,
-        instance,
-        rows,
-        button,
-    }
+        .collect()
 }

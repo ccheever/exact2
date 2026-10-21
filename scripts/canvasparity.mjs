@@ -27,6 +27,7 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { decodePng, encodePng } from './png.mjs';
 import { boxes, register, shot } from './parity.mjs';
+import { chromium } from './agent-launch.mjs';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const MEAN = 4, OFF = 0.06, BAND = 32, SLOP = 1, STEPS = 4;
@@ -102,7 +103,7 @@ function direct(dir, scale, check) {
   // fixtures.ts imports its types only; Bun strips them.
   const b = spawnSync('bun', ['build', resolve(ROOT, 'apps/canvas-gallery/fixtures.ts'), '--target', 'browser', '--format', 'esm', '--outfile', resolve(page, 'fixtures.js')], { encoding: 'utf8' });
   if (b.status !== 0) throw new Error(`bun build fixtures.ts: ${b.stderr}`);
-  const chrome = process.env.CHROME ?? '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
+  const chrome = chromium().executable;
   const profile = resolve(page, 'profile');
   const r = spawnSync(chrome, ['--headless=new', '--disable-gpu', '--allow-file-access-from-files', `--user-data-dir=${profile}`, '--virtual-time-budget=5000', '--dump-dom',
     `file://${resolve(page, 'direct.html')}?scale=${scale}&steps=${STEPS}`], { encoding: 'utf8', timeout: 120000, maxBuffer: 256 << 20 });

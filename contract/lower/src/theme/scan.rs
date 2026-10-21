@@ -64,6 +64,7 @@ pub(crate) fn words(text: &str) -> impl Iterator<Item = &str> {
 }
 
 /// An expression over tokens a literal writes.
+#[derive(Clone)]
 pub(crate) struct Synthetic {
     /// Its whole text, which names it in the plan.
     pub expr: String,
@@ -89,6 +90,11 @@ pub(crate) struct Said {
     /// Every word a colour keyframe writes: a token one names is folded into
     /// the keyframes, so its value is the plan's structure.
     pub folded: BTreeSet<String>,
+    /// Each element's style row whose value is literal (strings or numbers,
+    /// or a `?:` or `match` whose arms all are; never a `let`): what the design server checks
+    /// again, the compiler's way, when a write reaches a token it names
+    /// ([`super::rows::check`]).
+    pub rows: Vec<Attr>,
 }
 
 impl Said {
@@ -98,6 +104,7 @@ impl Said {
         let mut literals: Vec<(String, Span, bool)> = Vec::new();
         let mut computed = false;
         let mut computed_measure = false;
+        let mut rows: Vec<Attr> = Vec::new();
         let mut attrs = |attrs: &[Attr]| {
             for a in attrs {
                 let colour = colour_attr(&a.name);
@@ -115,21 +122,36 @@ impl Said {
         for s in &file.styles {
             attrs(&s.attrs);
         }
-        let mut stack: Vec<&Node> = root.view.iter().collect();
-        while let Some(node) = stack.pop() {
+        // Each node, with whether it is inside an `svg`, whose rows are left
+        // to the build: lowering renames some attributes into props by
+        // element (`fePointLight x` is `lightX`) and coerces some.
+        let mut stack: Vec<(&Node, bool)> = root.view.iter().map(|n| (n, false)).collect();
+        while let Some((node, svg)) = stack.pop() {
             match node {
                 Node::Element {
-                    attrs: a, children, ..
+                    tag,
+                    attrs: a,
+                    children,
+                    ..
                 } => {
                     attrs(a);
-                    stack.extend(children);
+                    let svg = svg || tag == "svg";
+                    // An element's own rows, which the build checks where it
+                    // lowers the element (a style's are checked where a node
+                    // applies it, and may be overridden there).
+                    if !svg {
+                        rows.extend(a.iter().filter(|a| super::rows::literal_row(a)).cloned());
+                    }
+                    stack.extend(children.iter().map(|c| (c, svg)));
                 }
                 Node::When {
                     then, otherwise, ..
-                } => stack.extend(then.iter().chain(otherwise)),
-                Node::Each { body, .. } => stack.extend(body),
-                Node::Match { some, none, .. } => stack.extend(some.1.iter().chain(none)),
-                Node::Use { children, .. } => stack.extend(children),
+                } => stack.extend(then.iter().chain(otherwise).map(|c| (c, svg))),
+                Node::Each { body, .. } => stack.extend(body.iter().map(|c| (c, svg))),
+                Node::Match { some, none, .. } => {
+                    stack.extend(some.1.iter().chain(none).map(|c| (c, svg)))
+                }
+                Node::Use { children, .. } => stack.extend(children.iter().map(|c| (c, svg))),
                 Node::Children { .. } => {}
             }
         }
@@ -181,6 +203,7 @@ impl Said {
             computed,
             computed_measure,
             folded,
+            rows,
             ..Default::default()
         };
         for (text, span, strict) in literals {
@@ -296,7 +319,7 @@ fn strings(e: &Expr, strict: bool, out: &mut Vec<(String, Span, bool)>) {
 }
 
 /// Visit `e` and every expression inside it.
-fn exprs(e: &Expr, f: &mut dyn FnMut(&Expr)) {
+pub(crate) fn exprs(e: &Expr, f: &mut dyn FnMut(&Expr)) {
     f(e);
     match e {
         Expr::Number(..) | Expr::Str(..) | Expr::Bool(..) | Expr::None(..) | Expr::Ident(..) => {}
@@ -342,7 +365,7 @@ fn exprs(e: &Expr, f: &mut dyn FnMut(&Expr)) {
 }
 
 /// Every expression an action's statements hold.
-fn stmts(body: &[Stmt], f: &mut dyn FnMut(&Expr)) {
+pub(crate) fn stmts(body: &[Stmt], f: &mut dyn FnMut(&Expr)) {
     for s in body {
         match s {
             Stmt::Let { expr, .. } | Stmt::Assign { expr, .. } => f(expr),
@@ -411,4 +434,56 @@ fn expressions<'t>(text: &'t str, is_token: &dyn Fn(&str) -> bool) -> Vec<&'t st
         }
     }
     out
+}
+
+/// Whether `word` is a dotted identifier, a name a design's token may have
+/// (`eu.glow`, `_eu.glow`): Tamber's own name grammar (`is_name`), with a
+/// `.`. A number, a dimension (`-1.5px`) or a function (`rgb(0.5 0 0)`) is
+/// none (stage 12 B3, round 1, Astra 4; round 2, Astra 2).
+pub(crate) fn dotted_name(word: &str) -> bool {
+    word.contains('.') && exact_tamber::is_name(word)
+}
+
+/// `tamber-unknown-token` or `tamber-kind` for a word inside a literal the
+/// kernel refused in a row that holds a colour among other words (a shadow,
+/// a border, a gradient; LLP 1121 stage 12 B3, QUEUE's item): a dotted word
+/// naming no token of the design and no role, in a colour row's words; in a
+/// shadow, a length token or a base name, which a literal's px lengths
+/// don't read, pointing to a shadow token. `None` otherwise: the kernel's
+/// refusal stands.
+pub(crate) fn literal_word(
+    attr: &str,
+    text: &str,
+    rows: &[StyleId],
+    span: Span,
+) -> Option<crate::LowerError> {
+    use exact_kernel::style::{scale, theme};
+    if !rows.iter().any(|r| colour_codec(*r)) {
+        return None;
+    }
+    let shadow = rows.iter().find_map(|r| match r.codec() {
+        StyleCodec::BoxShadow => Some("box-shadow"),
+        StyleCodec::TextShadow => Some("text-shadow"),
+        _ => None,
+    });
+    let words = text
+        .split(|c: char| c.is_whitespace() || matches!(c, ',' | '(' | ')' | '/'))
+        .filter(|w| w.starts_with(|c: char| c.is_ascii_alphabetic() || c == '_'));
+    for word in words {
+        let length =
+            scale::is_base(word) || super::measure_named(word) == Some(exact_tamber::Kind::Length);
+        let (id, message) = match shadow {
+            Some(kind) if length => (
+                "tamber-kind",
+                format!("`{attr}=\"{text}\"`: a shadow row's lengths are px: name a shadow token (`x: {kind} = 0 {word} 4px black`) to read `{word}`"),
+            ),
+            _ if dotted_name(word) && theme::bound() && !theme::names(word) && !length => (
+                "tamber-unknown-token",
+                format!("`{attr}=\"{text}\"`: `{word}` is no token of this app's design and no role"),
+            ),
+            _ => continue,
+        };
+        return Some(crate::LowerError { id, message, span });
+    }
+    None
 }

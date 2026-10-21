@@ -60,6 +60,7 @@ mod pan_release;
 mod picker;
 mod pointer;
 mod radio;
+mod range_frame;
 #[cfg(test)]
 mod save_tests;
 mod svg_hit;
@@ -215,6 +216,8 @@ pub struct Presenter<D: DataSource> {
     boxes: Vec<PaintedBox>,
     /// Bumped whenever `boxes` is replaced.
     boxes_serial: u64,
+    /// The fields `rangeFrame` reads, as painted beside `boxes`.
+    ranges: std::rc::Rc<range_frame::Painted>,
     pub(crate) dirty: bool,
     /// The app's `setScheme` (`None`: follow the system) and the appearance
     /// its shell or an agent says (LLP 1061 D5); light until either does.
@@ -484,6 +487,7 @@ impl<D: DataSource> Presenter<D> {
             control_bindings: BTreeMap::new(),
             boxes: Vec::new(),
             boxes_serial: 0,
+            ranges: Default::default(),
             dirty: true,
             deferred_collections: None,
             live_clock: None,
@@ -524,6 +528,7 @@ impl<D: DataSource> Presenter<D> {
             last_region_scale: None,
             hatches: Default::default(),
         };
+        p.read_ranges();
         p.set_system_scheme(false);
         let e = p.after_commit();
         p.booting = false;
@@ -961,6 +966,24 @@ impl<D: DataSource> Presenter<D> {
             .copied()
     }
 
+    /// How far scroll container `id`'s offset travels on each axis (LLP 1012 `rx`/`ry`): the bounds its offset is
+    /// clamped to, as `clamp_scroll` reads them.
+    fn scroll_range(&self, id: ViewId, collection_limits: &BTreeMap<ViewId, f32>) -> (f32, f32) {
+        let kernel = self.host.kernel();
+        let Some(node) = kernel.node(id) else {
+            return (0., 0.);
+        };
+        let bounds = self.display.bounds(kernel, id).unwrap_or_else(|| {
+            self.brush.scroll_bounds(
+                kernel,
+                self.host.content_region(),
+                &node,
+                collection_limits.get(&id).copied(),
+            )
+        });
+        (bounds.max.0.max(0.), bounds.max.1.max(0.))
+    }
+
     /// The agent's `layout`: every node's box in the viewport (scroll
     /// folded in), scroll containers with their offsets, by id. With a
     /// `node`, the runner's explanation of that node (LLP 1035.002 D1) plus
@@ -1002,6 +1025,7 @@ impl<D: DataSource> Presenter<D> {
             );
         }
         s.push_str("]},\"nodes\":[");
+        let limits = self.collection_scroll_limits();
         for (i, b) in boxes.iter().enumerate() {
             if i > 0 {
                 s.push(',');
@@ -1016,7 +1040,15 @@ impl<D: DataSource> Presenter<D> {
                 num(r2(b.rect.3))
             );
             if let Some((sx, sy)) = b.scroll {
-                let _ = write!(s, ",\"sx\":{},\"sy\":{}", num(r2(sx)), num(r2(sy)));
+                let (rx, ry) = self.scroll_range(b.id, &limits);
+                let _ = write!(
+                    s,
+                    ",\"sx\":{},\"sy\":{},\"rx\":{},\"ry\":{}",
+                    num(r2(sx)),
+                    num(r2(sy)),
+                    num(r2(rx)),
+                    num(r2(ry))
+                );
             }
             s.push('}');
         }
@@ -1131,6 +1163,12 @@ impl<D: DataSource> Presenter<D> {
             return None;
         }
         self.boxes();
+        self.painted_hit(x, y, current)
+    }
+
+    /// The deepest box of the latest paint under a point, as [`Self::hit`]
+    /// finds it once the boxes are fresh and the page takes a press.
+    pub(super) fn painted_hit(&self, x: f32, y: f32, current: bool) -> Option<ViewId> {
         self.boxes
             .iter()
             .rev()
@@ -1258,6 +1296,7 @@ impl<D: DataSource> Presenter<D> {
 
     /// Another host took over: it is measured as the last was, and counted.
     pub(crate) fn replaced(&mut self) {
+        self.read_ranges();
         self.scroll_end = Default::default();
         self.give_clock();
         // A new kernel may have the same epoch.

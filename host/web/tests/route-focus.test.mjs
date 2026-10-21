@@ -7,19 +7,16 @@
 // ones (CDP mouse and key events), since a pointer's press and a key's differ
 // in what the browser focuses and whether it draws the ring.
 import { test, expect } from 'bun:test';
-import { spawn } from 'node:child_process';
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import { createServer } from 'node:http';
-import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
-import { Cdp } from '../../../scripts/agent.mjs';
-import { chromium } from '../../../scripts/agent-launch.mjs';
+import { cdpBrowser, chromium } from '../../../scripts/agent-launch.mjs';
 import { withLook } from '../look.mjs';
 import { need } from '../../../scripts/coverage.mjs';
 import { readyPage } from './page.mjs';
 
 const WEB = resolve(new URL('..', import.meta.url).pathname);
-const { executable: chrome, unavailable } = chromium();
+const { unavailable } = chromium();
 const check = need('chrome', unavailable);
 
 // A root with two tabs. The first tab's root route is a list in a scroller:
@@ -42,6 +39,9 @@ const page = withLook(readFileSync(resolve(WEB, 'index.html'), 'utf8')).match(/<
           <button id="row-far" data-exact-router-press="true" style="height:60px">Far</button>
         </div>
         <div id="menu" role="menu" popover="auto"><button id="m-1">Open</button><button id="m-2" disabled>Share</button><a id="m-3" href="#x">Copy</a><button id="m-4">Remove</button></div>
+        <div id="chooser" role="alertdialog" aria-label="Open in" popover="auto"><button id="c-1" data-exact-on="press">Maps</button><button id="c-2" data-exact-on="press">Google Maps</button><button id="c-cancel">Cancel</button></div>
+        <div id="bar-menu" role="menu" popover="auto"><button id="b-1">Bump</button><button id="b-open-in" popovertarget="chooser" popovertargetaction="show">Open in…</button></div>
+        <button id="chooser-open" popovertarget="chooser">Open in</button>
       </div>
     </div>
     <div role="tabpanel" id="p2" style="flex:1;position:relative">
@@ -98,18 +98,14 @@ const page = withLook(readFileSync(resolve(WEB, 'index.html'), 'utf8')).match(/<
 async function inChrome(test, width = 600) {
   const server = createServer((req, res) => {
     if (req.url === '/') { res.writeHead(200, { 'content-type': 'text/html' }); res.end(page); return; }
-    const file = ['navigation.js', 'input-glue.js', 'prompt-glue.js'].find(name => req.url === '/' + name);
+    const file = ['navigation.js', 'input-glue.js', 'prompt-glue.js', 'alert-message.js'].find(name => req.url === '/' + name);
     if (!file) { res.writeHead(404); res.end(); return; }
     res.writeHead(200, { 'content-type': 'text/javascript' }); res.end(readFileSync(resolve(WEB, file)));
   });
   await new Promise((ok) => server.listen(0, '127.0.0.1', ok));
-  const profile = mkdtempSync(resolve(tmpdir(), 'exact-route-focus-'));
-  const child = spawn(chrome, ['--headless=new', '--remote-debugging-pipe', `--window-size=${width},900`, `--user-data-dir=${profile}`,
-    '--no-sandbox', '--no-first-run', '--disable-background-networking', 'about:blank'], { stdio: ['ignore', 'ignore', 'ignore', 'pipe', 'pipe'] });
+  const suite = await cdpBrowser({ args: [`--window-size=${width},900`] }), { cdp } = suite;
   try {
-    const cdp = new Cdp(child.stdio[3], child.stdio[4]);
-    const { targetId } = await cdp.send('Target.createTarget', { url: 'about:blank' });
-    const { sessionId } = await cdp.send('Target.attachToTarget', { targetId, flatten: true });
+    const { sessionId } = await suite.page();
     const call = (method, params) => cdp.send(method, params, sessionId);
     const evaluate = async (expression) => {
       const reply = await call('Runtime.evaluate', { expression, returnByValue: true, awaitPromise: true });
@@ -128,9 +124,8 @@ async function inChrome(test, width = 600) {
     };
     await test(evaluate, press, key);
   } finally {
-    child.kill();
+    await suite.close();
     server.close();
-    rmSync(profile, { recursive: true, force: true });
   }
 }
 const enter = (key) => key('Enter', 'Enter', 13, '\r');
@@ -272,6 +267,30 @@ check('a tablist\'s tabs and a menu\'s items move by the arrow keys', () => inCh
   // With the menu closed, and in a field, the arrows are the page's own.
   await evaluate(`document.getElementById('menu').hidePopover(); document.getElementById('search').focus()`);
   expect(await after('ArrowDown')).toBe('search list');
+  // A chooser its button opened is drawn as a menu and moves as one, from its button into it, its hidden cancel no stop.
+  await evaluate(`document.getElementById('chooser-open').focus()`);
+  await enter(key);
+  expect(await evaluate(`document.getElementById('chooser').matches(':popover-open[data-exact-chooser]')`)).toBe(true);
+  expect(await after('ArrowDown')).toBe('c-1 list');
+  expect(await after('ArrowDown')).toBe('c-2 list');
+  expect(await after('ArrowDown')).toBe('c-1 list');
+  expect(await after('End')).toBe('c-2 list');
+  expect(await after('Home')).toBe('c-1 list');
+  await evaluate(`document.getElementById('chooser').hidePopover()`);
+  // One a menu's row opens (an app bar's "Open in…") stands over the menu, which stays open beneath it, the row being
+  // its invoker. The keys go to the chooser on top, the last to open, whichever of the two is written first: Down, Up,
+  // Home and End from the row, and Down from the page, where WebKit leaves the focus after a click.
+  for (const written of ['first', 'last']) {
+    if (written === 'last') await evaluate(`document.getElementById('bar-menu').after(document.getElementById('chooser'))`);
+    await evaluate(`document.getElementById('bar-menu').showPopover(); document.getElementById('b-open-in').focus()`);
+    await enter(key);
+    const seen = [await evaluate(`[...document.querySelectorAll(':popover-open')].map(p => p.id + (p.hasAttribute('data-exact-chooser') ? ' chooser' : '')).sort()`)];
+    for (const name of ['ArrowDown', 'ArrowUp', 'Home', 'End']) { await evaluate(`document.getElementById('b-open-in').focus()`); seen.push(await after(name)); }
+    await evaluate(`document.activeElement.blur()`);
+    seen.push(await after('ArrowDown'));
+    expect([written, ...seen]).toEqual([written, ['bar-menu', 'chooser chooser'], 'c-1 list', 'c-2 list', 'c-1 list', 'c-2 list', 'c-1 list']);
+    await evaluate(`document.getElementById('chooser').hidePopover(); document.getElementById('bar-menu').hidePopover()`);
+  }
 }), 60000);
 
 check('a root tab bar drawn as a sidebar moves by Up and Down', () => inChrome(async (evaluate, press, key) => {

@@ -1,8 +1,8 @@
 // @ref LLP 1007 §3: the app is the wasm; this is its DOM host.
-import { textField, popoverCommand, contextAt, grantOrigins, createGrantSet, grantError, rawGrantText, scopedGrantSet, deferredFulfill, refusal, commitGuestOrigin, guestMessageAuthorized, focusController, runFocusCommands, controlEvent, environment, preferences, onPreferences, inertAncestor, modalLayers, editMenu, navigation, afterPaintPieces, presenceLoader, animationClock, scrollFollowers, renderMarkup, navigableURL, navigates, refuseURL, frameURL, dataURL, devFirst, reportPlace, reportTime, launchLocation, pageReporter, appRootFontSize, valuedControl, typedControl, typeControl, settleValue, foldBits, foldEnv, onFold, preferFold, fold, animationClocks, onSelection, noteFit, refitTexts, pageTitle, storeInPage } from "./navigation.js";
-let guestOutline, guestTap, guestType, reveal, viewBox, layoutBoxes, selectAll, agentInputLoading;
+import { sourceField, popoverCommand, contextAt, grantOrigins, createGrantSet, grantError, rawGrantText, scopedGrantSet, deferredFulfill, refusal, commitGuestOrigin, guestMessageAuthorized, focusController, runFocusCommands, controlEvent, environment, preferences, onPreferences, inertAncestor, modalLayers, editMenu, navigation, afterPaintPieces, afterPaint, presenceLoader, animationClock, scrollFollowers, renderMarkup, navigableURL, navigates, refuseURL, frameURL, dataURL, devFirst, reportPlace, reportTime, launchLocation, pageReporter, appRootFontSize, valuedControl, typedControl, typeControl, settleValue, foldBits, foldEnv, onFold, preferFold, fold, animationClocks, onSelection, noteFit, refitTexts, pageTitle, storeInPage } from "./navigation.js";
+let guestOutline, guestTap, guestType, reveal, viewBox, layoutBoxes, scrollRange, selectAll, agentInputLoading;
 const AGENT_ADMITTED = true; // false in a production bake: host/web/build.mjs rewrites this line (LLP 1069.007 D2)
-let httpModule, pickerModule, documentsModule, notifyModule; // the file picker (LLP 1069.002), documents (LLP 1069.010) and notifications, loaded on first use
+let httpModule, pickerModule, documentsModule, notifyModule, frameModule; // the file picker (LLP 1069.002), documents (LLP 1069.010) and notifications, loaded on first use
 const picker = (at = incarnation) => (pickerModule ??= loadAfterPaint('./picker-glue.js', 'picker').then(install => install({ appId: globalThis.exact.compat?.inputs?.app, generation: () => incarnation, dispatch: (id, kind, payload) => { if (views.has(id)) send(wasm.exact_dispatch(id, kind, writeIn(payload), now())); }, pickedPath: (name) => loadStage('inspection').then(() => ask({ op: "pickedPath", name }).path), log }))).then(m => m.at(at)); // its operations answer generation `at`, the one that asked
 // An `app:/` source (D7): the app's own file, as the picker glue's object URL once it resolves; the old picture stays meanwhile, as for any `src`, and an element with none gets none (an empty media `src` is a failed load). A media element plays it (podcast F19): the glue hears the URL as its source, and a path with no file is handed to it as written, which it refuses (`src-not-supported`) as HTML refuses a source it cannot fetch. `then` runs once it lands (a `load` command's). A `data:` source past its bound shows nothing, as on every host (LLP 1011 §2; exact_raster::MAX_DATA_URL_BYTES).
 const DATA_LIMIT = 1024 * 1024; function appSource(el, name, value, then) { const p = picker().then(m => m.appURL(value)).then(url => { if (el[`exactApp-${name}`] !== value) return; const media = el instanceof HTMLMediaElement && name === "src", to = url || (media ? value : null); if (el.getAttribute(name) !== to) to ? el.setAttribute(name, to) : el.removeAttribute(name); if (media) { then?.(); syncMedia(el, { src: to }); } }); track(p.catch(() => {})); return el.getAttribute(name); }
@@ -169,6 +169,7 @@ const clocks = animationClocks(root), { register, seek: seekAnimations, settle: 
 const seek = to => { (imageHold ??= loadAfterPaint('./image-glue.js', 'holdImages').then(f => f({ root, now: () => agentClock }))).then(h => h.seek()); seekAnimations(to); };
 const POST_BOUND = 64; // posts held per surface before its canvas is live; gpu-glue.js's exact.postBound, Linux POST_BOUND, Apple Canvases.postBound
 const now = () => agentClock ?? performance.now() - t0;
+function postSurface(name, text, at) { if ([...views.values()].some(e => e instanceof HTMLIFrameElement && e.isConnected && !retiredViews.has(e) && e.id === name)) { const refused = `postMessage: canvas name collides with an iframe id "${name}"`; log(refused); return refused; } if (globalThis.exact.gpu) return globalThis.exact.gpu.post(name, text, at); const held = globalThis.exact.pendingPosts ??= []; if (held.filter(p => p.name === name).length < POST_BOUND) return held.push({ name, text, at, generation: incarnation }), null; const refused = `postMessage: dropped: ${POST_BOUND} posts already wait for surface "${name}"`; log(refused); return refused; } // `postMessage(text, surface)` and the driver's `post` (LLP 1139.004 D1): held per surface name until one of its canvases is live, at most POST_BOUND; the refusal past it, or null
 let frameSampler = null; // a development page's frame sampler (frames.js, LLP 1079 D3)
 let timelinesMoved = false; // a batch's `timelines` op: its consumers are sought once it is applied
 let bootAttempt = 0;
@@ -543,7 +544,7 @@ function attach(el, id, handlers) {
     if (kind === "press") {
       // A link inside a pressable node is the innermost activation, as a
       // nested press is: the link navigates and the outer press stays out.
-      on("click", e => { const a = e.target.closest?.("a[href]"); if (a && a !== el && el.contains(a)) return; focus.press(e, el, () => send(wasm.exact_dispatch(id, 0, writeIn((e.shiftKey ? "Shift+" : "") + (e.ctrlKey ? "Control+" : "") + (e.altKey ? "Alt+" : "") + (e.metaKey ? "Meta+" : "")), now()))); }); // the modifiers held, `Event::press` (gallery F20)
+      on("click", e => { const a = e.target.closest?.("a[href]"); if (a && a !== el && el.contains(a)) return; for (let n = e.target; n && n !== el.parentNode; n = n.parentNode) if (n.nodeType === 1 && n.hasAttribute("disabled")) { e.stopPropagation(); return; } focus.press(e, el, () => send(wasm.exact_dispatch(id, 0, writeIn((e.shiftKey ? "Shift+" : "") + (e.ctrlKey ? "Control+" : "") + (e.altKey ? "Alt+" : "") + (e.metaKey ? "Meta+" : "")), now()))); }); // the modifiers held, `Event::press` (gallery F20)
     } else if (kind === "pan") {
       let pan;
       on("pointerdown", e => (pan ??= inputHandlers?.pan(el, id, on))?.(e));
@@ -559,14 +560,14 @@ function attach(el, id, handlers) {
       (intersects ??= loadAfterPaint('./intersect-glue.js', 'observeIntersect')).then(observe => { if (views.get(id) === el && !retiredViews.has(el)) el.exactIntersect = observe(el, r => { if (views.get(id) === el && !retiredViews.has(el)) send(wasm.exact_dispatch(id, 45, writeIn(`${Number(r.isIntersecting)},${r.intersectionRatio}`), now())); }); });
     } else if ((kind === "pointerdown" || kind === "pointerup" || kind === "pointermove") && !el.exactPointer) { let p; el.exactPointer = true; const own = () => p ??= inputHandlers?.pointer(el, on, (k, r, e) => { if (views.get(id) !== el || retiredViews.has(el)) return; const outer = [pointerEvent, pointerDepth]; pointerEvent = k === 31 ? null : e; pointerDepth = sending + 1; try { send(wasm.exact_dispatch(id, k, writeIn(r), now())); } finally { [pointerEvent, pointerDepth] = outer; } }); el.exactPointerDown = (e, hold) => own()?.(e, hold); on("pointerover", () => own()); // @ref LLP 1005 §3, LLP 1056 §3: DOM's own pointer down/up/move (input-glue `pointer`, whose root listener calls `exactPointerDown`)
     } else if (kind === "toggle") { on(kind, e => send(wasm.exact_dispatch(id, 50, writeIn(`${e.oldState},${e.newState}`), now())));
-    } else if (kind === "beforeinput" || (kind === "selectionchange" && textField(el))) { controlEvent(el, kind, on, (k, text, e) => { const outer = keyEvent; keyEvent = e; try { send(wasm.exact_dispatch(id, k, writeIn(text), now())); } finally { keyEvent = outer; } });
+    } else if (kind === "beforeinput" || (kind === "selectionchange" && sourceField(el))) { controlEvent(el, kind, on, (k, text, e) => { const outer = keyEvent; keyEvent = e; try { send(wasm.exact_dispatch(id, k, writeIn(text), now())); } finally { keyEvent = outer; } });
     } else if (kind === "selectionchange") { // its part of the page's selection (navigation.js `onSelection`): kind 35, offsets, rectangle count and coordinates, then text
       onSelection(el, (text, a, b, rects) => { if (views.get(id) === el && !retiredViews.has(el)) send(wasm.exact_dispatch(id, 35, writeIn([a, b, rects.length, ...rects.flatMap(r => r.slice(0, 4)), text].join(",")), now())); });
-    } else if (kind === "copy" || kind === "cut" || kind === "paste") { // the clipboard's events at the focused node, the nearest handler's (spreadsheet F4); a field's own paste proceeds
-      on(kind, e => { e.stopPropagation(); const outer = keyEvent; keyEvent = e; try { send(wasm.exact_dispatch(id, 32 + ["copy", "cut", "paste"].indexOf(kind), writeIn(e.clipboardData?.getData("text/plain") ?? ""), now())); } finally { keyEvent = outer; } }); // preventDefault() cancels the default (a field's own paste; #125)
-    } else if (["contextmenu", "dblclick", "wheel", "drop", "beforeunload"].includes(kind)) { // with their records (input-glue `mouse`; studio diary R22, R3, R19, R17); a running wheel or beforeunload is the event its `preventDefault()` prevents
+    } else if (kind === "copy" || kind === "cut" || kind === "paste") { // the clipboard's events at the focused node, the nearest handler's (spreadsheet F4); a field's own paste proceeds; a paste's files are minted `doc:` handles at once (57: their count, a line each, then the text; documents-glue.js `pasted`), the driver's standing in under the agent
+      if (kind === "paste") documentsGlue(); on(kind, e => { e.stopPropagation(); const outer = keyEvent; keyEvent = e; try { const text = e.clipboardData?.getData("text/plain") ?? "", driver = agentMode ? globalThis.exact.agentPaste : null; globalThis.exact.agentPaste = null; const files = kind === "paste" && (e.clipboardData?.files?.length || driver) ? globalThis.exact.documents?.pasted(e.clipboardData, driver) ?? [] : []; send(wasm.exact_dispatch(id, files.length ? 57 : 32 + ["copy", "cut", "paste"].indexOf(kind), writeIn(files.length ? `${files.length}\n${files.join("\n")}\n${text}` : text), now())); } finally { keyEvent = outer; } }); // preventDefault() cancels the default (a field's own paste; #125)
+    } else if (["contextmenu", "dblclick", "wheel", "drop", "beforeunload", "dragenter", "dragleave"].includes(kind)) { // with their records (input-glue `mouse`; studio diary R22, R3, R19, R17); a running wheel or beforeunload is the event its `preventDefault()` prevents
       const go = (k, e) => inputHandlers?.mouse(el, k, e, (n, line) => { if (views.get(id) !== el || retiredViews.has(el)) return; const outer = keyEvent; keyEvent = e; try { send(wasm.exact_dispatch(id, n, writeIn(line), now())); } finally { keyEvent = outer; } });
-      if (kind === "beforeunload") addEventListener(kind, e => go(kind, e)); else on(kind, e => go(kind, e));
+      if (kind === "beforeunload") addEventListener(kind, e => go(kind, e)); else if (kind === "dragenter" || kind === "dragleave") documentsGlue().then(() => globalThis.exact.documents.hearDrags(el, kind, () => !el.matches(":disabled") && !inertAncestor(el), e => go(kind, e))); else on(kind, e => go(kind, e));
       if (kind === "drop") on("dragover", e => go("dragover", e));
     } else if ((kind === "change" || kind === "cancel") && el.type === "file") { // a picker's files, or its dismissal (LLP 1069.002 D2, D3)
       on(kind, () => { const p = picker().then(m => kind === "change" ? m.change(el, id) : m.cancel(id)); inflight.add(p); p.finally(() => inflight.delete(p)); });
@@ -670,7 +671,7 @@ function apply(batch) {
       case "reorder-drag": { arrange.binding(op); break; }
       case "reorder-state": { arrange.state(op); break; } case "reorder-group": { arrange.group(op); break; }
       case "canvas2d": { pieces.canvas2d(op); break; } // LLP 1056 D7
-      case "surface": {
+      case "surface": { const surfaceView = views.get(op.id); if (surfaceView) surfaceView.exactSurfaceName = op.name;
         // A canvas's inputs (LLP 1009 D2): to the GPU module when it is
         // loaded, queued until then. The module itself is fetched only
         // after a rendering opportunity, and only when a canvas exists.
@@ -679,7 +680,7 @@ function apply(batch) {
           const pending = (globalThis.exact.pendingSurfaces ??= []);
           const queued = pending.find((entry) => entry.id === op.id && entry.generation === incarnation);
           if (queued) { queued.name = op.name; queued.values = op.values; }
-          else { pending.push({ id: op.id, name: op.name, values: op.values, generation: incarnation }); requestAnimationFrame(() => requestAnimationFrame(loadGpuIfNeeded)); }
+          else { pending.push({ id: op.id, name: op.name, values: op.values, generation: incarnation }); afterPaint(loadGpuIfNeeded, agentMode); }
         }
         break;
       }
@@ -767,11 +768,9 @@ function apply(batch) {
         else if (["showPopover", "hidePopover", "togglePopover"].includes(op.name)) focusCommands.push({ name: op.name, args: op.args });
         else if (op.name === "preventDefault") { keyEvent?.preventDefault(); if (keyEvent?.type === "beforeunload") keyEvent.returnValue = ""; } else if (op.name === "close" && op.args?.[0] == null) window.close(); /* studio diary R17 */ else if (op.name === "showModal" || op.name === "close") { const id = op.args?.[0], el = [...views.values()].find(el => el.id === id), close = op.name === "close"; if (el instanceof HTMLDialogElement) { if (close) el.close(); else if (!el.open) el.showModal(); else log(`showModal "${id}" ignored: dialog is already open`); } else if (el?.popover != null && el.getAttribute("role") === "alertdialog") { if (close) el.hidePopover(); else if (!el.matches(":popover-open")) el.showPopover(); } else if (!close) log(`showModal "${id}" refused: no dialog or alertdialog popover has that id`); } // `showModal(id)`, `close(id)` from an action: the dialog's own, or an alertdialog popover's (LLP 1101.001 P5, LLP 1115 D6), as host/web-js/commands.js `modal`
         else if (op.name === "stopPropagation") { const e = keyEvent ?? (sending === pointerDepth ? pointerEvent : null); if (e) e.exactStopped = true; /* no ancestor's handler hears this event (a key, focus, the pointer's down or up, a wheel); its default still happens */ } else if (op.name === "requestFullscreen") { const el = [...views.values()].find(el => el.id === op.args?.[0] && el.exactMedia); if (!el) log(`requestFullscreen: refused: no video with id "${op.args?.[0]}"`); else el.requestFullscreen().catch(e => log(`requestFullscreen: refused: ${e.name}`)); } // HTML's Element.requestFullscreen(); the element reports `fullscreenchange`
-        else if (op.name === "postMessage") { // the inverse of `message=`: text into the named surface, every one in order
-          const text = String(op.args?.[0] ?? ""), name = String(op.args?.[1] ?? ""), at = now();
-          if (globalThis.exact.gpu) globalThis.exact.gpu.post(name, text, at);
-          else if ((globalThis.exact.pendingPosts ??= []).filter(p => p.name === name).length >= POST_BOUND) log(`postMessage: dropped: ${POST_BOUND} posts already wait for surface "${name}"`);
-          else globalThis.exact.pendingPosts.push({ name, text, at, generation: incarnation });
+        else if (op.name === "postMessage") { const text = String(op.args?.[0] ?? ""), name = String(op.args?.[1] ?? ""), at = now(), frames = [...views.values()].filter(e => e instanceof HTMLIFrameElement && e.isConnected && !retiredViews.has(e) && e.id === name); // the inverse of `message=`: text into the named surface, every one in order
+          if (op.args?.[2] === "iframe") { const captured = frames.map(e => [e, e.exactFrameChannel]); (frameModule ??= loadAfterPaint('./frame-messages.js', 'frameMessages')).then(m => m.postFrameMessage(text, name, views, log, captured)); break; }
+          postSurface(name, text, at);
         }
         else if (op.name === "showPicker") { // LLP 1069.002 D2, D9: the element's own picker, inside the press's activation; under the agent, a hold
           const el = [...views.values()].find(el => el.id === op.args?.[0] && el.type === "file");
@@ -824,7 +823,7 @@ function apply(batch) {
         arrange.destroy(op.id);
         motion.destroy(op.id);
         const el = views.get(op.id); if (el) { retiredViews.add(el); el.exactAppFrame?.dispose(); el.exactIntersect?.(); el.exactMarkup?.destroy(); el.exactDecorations?.destroy(); el.exactLiveTime?.destroy(); el.exactNative?.destroy(); if (el instanceof HTMLMediaElement) { globalThis.exact.removeMedia?.(el); el.pause(); el.removeAttribute("src"); el.load(); } forgetList(el); followScroll(el, false); messageFrames.delete(el); if (!presence.live?.keeps(el) && !retiredViews.has(el.parentElement)) el.remove(); }
-        views.delete(op.id); messageViews.delete(op.id); globalThis.exact.gpu?.destroy(op.id); break;
+        views.delete(op.id); messageViews.delete(op.id); globalThis.exact.gpu?.destroy(op.id); dropSurface(op.id); break;
       }
       case "roots": {
         const roots = [];
@@ -913,7 +912,7 @@ async function prepareFonts(faces, assets) {
     try {
       const url = new URL(localAssetURL(face.source, assets), document.baseURI).href;
       row.loaded = await new FontFace(face.family, `url(${JSON.stringify(url)})`, {
-        weight: String(face.weight),
+        weight: face.weight, stretch: face.stretch,
         style: face.style,
       }).load();
       row.state = "loaded";
@@ -1034,7 +1033,7 @@ function nodeDetail(id, plan = false) {
     const aid = idOf(a);
     if (aid == null) continue;
     const cs = getComputedStyle(a);
-    if (a.dataset.scroll === "true") scroll.unshift({ id: aid, sx: r2(a.scrollLeft), sy: r2(a.scrollTop) });
+    if (a.dataset.scroll === "true") scroll.unshift({ id: aid, sx: r2(a.scrollLeft), sy: r2(a.scrollTop), ...scrollRange(a) });
     const clips = (cs.overflowX !== "visible" || cs.overflowY !== "visible" ? ["overflow"] : []).concat(cs.clipPath !== "none" ? ["clip-path"] : []);
     for (const kind of clips) {
       clip.unshift({ id: aid, kind });
@@ -1042,7 +1041,7 @@ function nodeDetail(id, plan = false) {
       if (r.right <= c.left || r.left >= c.right || r.bottom <= c.top || r.top >= c.bottom) clipped = true;
     }
   }
-  if (scrollX || scrollY) scroll.unshift({ viewport: true, sx: r2(scrollX), sy: r2(scrollY) });
+  const page = scrollRange(document.scrollingElement ?? document.documentElement); if (scrollX || scrollY || page.rx || page.ry) scroll.unshift({ viewport: true, sx: r2(scrollX), sy: r2(scrollY), ...page }); // the page's entry while it scrolls or has a range
   node.scroll = scroll;
   node.clip = clip;
   node.visible = {
@@ -1088,7 +1087,7 @@ function gpuPendingReply(request, pending) { const names = pending.map(item => i
 function agentInputReady() {
   if (viewBox) return Promise.resolve();
   return agentInputLoading ??= loadAfterPaint('./input-glue.js', 'agentInput').then(helpers => {
-    ({ guestOutline, guestTap, guestType, reveal, viewBox, layoutBoxes, selectAll } = helpers);
+    ({ guestOutline, guestTap, guestType, reveal, viewBox, layoutBoxes, scrollRange, selectAll } = helpers);
   });
 }
 // Synchronous once inspection and the agent's input helpers are ready (LLP 1043.000 D7/D8).
@@ -1101,6 +1100,7 @@ function agentNow(request) { const r = agentReply(request), decorate = globalThi
 function agentReply(request) {
   try {
     if (!wasm) return { error: "not booted" };
+    if (request.op === "type" && request.message !== undefined) { const gpu = globalThis.exact.gpu, name = request.id !== undefined ? gpu?.surfaceOf(request.id) : request.surface ?? gpu?.liveSurface(), refused = typeof name === "string" && postSurface(name, String(request.message), now()); return typeof name !== "string" ? { error: name?.error ?? (request.id !== undefined ? `view ${request.id} has no world` : "post: no world is live; name its surface (post <surface> <text>) to hold the message until one is") } : refused ? { error: `post refused: ${refused}` } : tagged({ posted: name, delivery: "posted", ...(gpu?.waiting(name) ?? true ? { held: true } : {}) }); } // the driver's `post` (LLP 1139.004 D1)
     if (request.entity !== undefined || request.world === true || request.contact !== undefined) return globalThis.exact.gpu?.handle(request, ask, tagged) ?? { error: `view ${request.id} has no world` };
     if ((request.op === "tap" || request.op === "type") && request.ticket !== undefined) { // a held device request, by ticket (LLP 1069.007 D4)
       const { files, ...held } = request, r = ask(held); if (r.capability === "auth") deferFulfill(incarnation, r.ticket, 9, 0, "", new Uint8Array()); // a picker's answer is delivered once the runner took it (LLP 1069.002 D9); an auth answer, the runner settled (LLP 1069.006 D7)
@@ -1146,7 +1146,7 @@ function agentReply(request) {
       case "midi": case "prefer": { if (request.faults) return loadAfterPaint('./faults.js', 'faults').then(m => tagged(m.faultOp(request.faults))); /* LLP 1103 D3: a fetch fault, a form of `prefer` */ if (request.op === "midi" || request.midi) { if (!wasm.exact_midi) return { error: "midi: this build has no MIDI export" }; const { batch } = applyBatch(JSON.parse(readOut(wasm.exact_midi(writeIn(JSON.stringify(request)))))); return batch.error != null ? { error: batch.error } : tagged({ midi: true }); } // @ref LLP 1125 §4: the agent's MIDI ports and a message from one are the runner's
         // @ref LLP 1069.000 D6 — the page group; the driver sets media through CDP. @ref LLP 1078 D7 — the fold group: an empty one re-reads the browser (the driver's CDP override), a filled one is the substitute.
         if (Object.entries(request.mode ?? {}).some(p => p.some(x => /[,=]/.test(String(x))))) return { malformed: true, error: 'prefer mode: an axis or value holds no `,` or `=`' }; const pins = Object.entries(request.mode ?? {}).map(([a, v]) => `${a}=${v}`).join(","), checked = request.mode ? JSON.parse(readOut(wasm.exact_set_mode(writeIn(`?${pins}`)))) : null; if (checked?.error) return { error: `prefer mode: ${checked.error}` }; try { if (request.page) pageFacts.prefer(request.page); if (request.fold) preferFold(Object.keys(request.fold).length ? request.fold : null); } catch (e) { return { error: e.message, ...(e.malformed === true ? { malformed: true } : {}) }; }
-        pageChanged(); foldChanged(); const modes = request.mode ? JSON.parse(readOut(wasm.exact_set_mode(writeIn(pins || "?")))) : null; if (pins) applyBatch(modes); if (modes?.error) return { error: `prefer mode: ${modes.error}` }; // @ref LLP 1121 D13 — the mode group: checked before any fact is set, the runner's `setMode`s in one commit after the rest
+        pageChanged(); foldChanged(); if (request.page?.["gpu-tier"]) globalThis.exact.gpu?.retier?.(request.page["gpu-tier"]); /* LLP 1139.003 D2: each world's renderer made again at the new tier's rung */ const modes = request.mode ? JSON.parse(readOut(wasm.exact_set_mode(writeIn(pins || "?")))) : null; if (pins) applyBatch(modes); if (modes?.error) return { error: `prefer mode: ${modes.error}` }; // @ref LLP 1121 D13 — the mode group: checked before any fact is set, the runner's `setMode`s in one commit after the rest
         return tagged({ page: { ...pageFacts.read() }, fold: foldEnv(), ...(modes ? { mode: modes.modes } : {}) });
       }
       case "focus": {
@@ -1234,10 +1234,10 @@ async function clock(request) {
     const to = settle ? Math.max(settleCandidate(), world.settleAt ?? agentClock) : request.to;
     if (!(to >= agentClock)) return { error: `the clock cannot go backwards (${agentClock} → ${to})` };
     let batch;
-    for (let steps = 0; ; steps++) {
-      const waited = flowDue != null && flowDue <= to && await waitForInflight(deadline), held = waited && steps < 4096;
-      ({ batch } = applyBatch(JSON.parse(readOut(wasm.exact_advance(to, held ? 1 : 0)))));
-      if (batch.error || !held) break; // a stop at `to` may leave a timer due there
+    for (let steps = 0, stops = 0; ; ) { // while a view declares a layout transition, each due time is a batch of its own, which presence plays from that time (as the native hosts lay out there), in stops apart from the 4096
+      const layout = flowDue != null && flowDue < to && stops < 36000 && presence.live?.tracking(), at = layout ? Math.max(flowDue, agentClock) : to, waited = flowDue != null && flowDue <= at && await waitForInflight(deadline), held = waited && steps < 4096;
+      ({ batch } = applyBatch(JSON.parse(readOut(wasm.exact_advance(at, held ? 1 : 0)))));
+      if (batch.error || !held && at >= to) break; if (layout && !(flowDue != null && flowDue <= at)) stops++; else steps++; // a stop at `to` may leave a timer due there
     }
     globalThis.exact.gpu?.schedule?.();
     if (flowLoading) await flowLoading;
@@ -1302,7 +1302,7 @@ async function bootNow(bytes, assets = devAssets, current = () => true, module =
   }
   const launch = encoder.encode(launchLocation()); if (wasm.exact_set_launch) { const [epoch, offset] = reportTime(now()); wasm.exact_set_launch(epoch, offset, writeIn(reportPlace())); } // @ref LLP 1038 D5; then the date and place the boot's first settle reads (LLP 1027.000.000)
   const kept = !fresh && (bytes || module) ? (await loadStage('inspection'), focus.keep(ask({ op: "tree" }), Number(document.activeElement?.closest?.("[data-view]")?.dataset.view))) : undefined;
-  let len; wasm.exact_live_clock?.(agentMode ? 0 : 1); // the page's clock owns time, the agent's when it drives (the timers RFC, D1); kept for every boot
+  const appleRoles = wasm.exact_report_colors && getComputedStyle(document.documentElement).getPropertyValue("--exact-apple-roles").trim(); if (appleRoles) { const probe = document.body.appendChild(document.createElement("i")), seen = getComputedStyle(probe), colors = []; for (const dark of [false, true]) { probe.style.colorScheme = dark ? "dark" : "light"; for (const name of JSON.parse(appleRoles).split(" ")) if (seen.getPropertyValue(`--exact-apple-${name}`).trim()) { probe.style.color = `var(--exact-apple-${name})`; colors.push([name, dark, seen.color]); } } probe.remove(); wasm.exact_report_colors(writeIn(JSON.stringify(colors))); } let len; wasm.exact_live_clock?.(agentMode ? 0 : 1); // each role look.mjs names, light and dark, as the page draws it, reported so a colour the kernel resolves itself (a canvas's ink) is the page's (src/colors.rs); the page's clock owns time, the agent's when it drives (the timers RFC, D1); kept for every boot
   if (module) {
     const id = module.rust ?? new TextEncoder().encode(JSON.stringify(module.realm.id));
     const payload = new Uint8Array(plan.length + module.receipt.length + id.length);
@@ -1365,13 +1365,13 @@ async function bootNow(bytes, assets = devAssets, current = () => true, module =
   if (bytes && flowLoading) await flowLoading;
   if (bytes && textflow) await textflow.settle();
   startClock();
-  if (bytes) requestAnimationFrame(() => requestAnimationFrame(loadGpuIfNeeded));
+  if (bytes) afterPaint(loadGpuIfNeeded, agentMode);
   return performance.now() - t;
 }
 // `agent`, `agentSettled` and `now` exist only in agent mode: a normal page has no agent
 // surface and no clock but the browser's.
 let ready;
-globalThis.exact = { ...globalThis.exact, mutate, devFirst: () => devFirst(),
+globalThis.exact = { ...globalThis.exact, mutate, devFirst: () => devFirst(), pageFacts: Object.assign(pageFacts, { changed: () => pageChanged() }), // the GPU tier's reader and teller (gpu-tier.js)
   // @ref LLP 1038 D8/D11 — synchronous for the serialized popstate caller.
   navigate: (location) => {
     const nav = root.firstElementChild;
@@ -1418,7 +1418,7 @@ globalThis.exact = { ...globalThis.exact, mutate, devFirst: () => devFirst(),
 // The GPU module, on demand: a script element after a rendering opportunity
 // (two animation-frame callbacks), never an eager import, and only when a
 // canvas is on the page. Until one is, an agent reply has nothing to settle.
-let gpuLoading = null; const gpuInPlay = () => Boolean(gpuLoading || globalThis.exact.gpu || globalThis.exact.pendingSurfaces?.length);
+let gpuLoading = null; const gpuInPlay = () => Boolean(gpuLoading || globalThis.exact.gpu || globalThis.exact.pendingSurfaces?.length); function dropSurface(id) { const queued = globalThis.exact.pendingSurfaces; if (queued) globalThis.exact.pendingSurfaces = queued.filter(s => s.id !== id); } // a surface gone before its module loads asks none
 function loadGpuIfNeeded() {
   if (gpuLoading || !(globalThis.exact.pendingSurfaces ?? []).length) return;
   gpuLoading = loadAfterPaint(globalThis.exact.compat?.inputs?.gpuModules ? './gpu-modules.js' : './gpu-glue.js', 'gpu').catch(error => console.error("exact gpu:", error)); // @ref LLP 1009 D6
@@ -1487,10 +1487,10 @@ async function main() {
       }
     }
   };
-  // Nested rAF gives a client page's baked DOM a rendering opportunity before
-  // activation; a served document has painted already.
-  if (page) activate();
-  else requestAnimationFrame(() => { root.dataset.frameCallbackMs = (performance.now() - t0).toFixed(1); requestAnimationFrame(activate); });
+  // Nested rAF gives a client page's baked DOM a rendering opportunity before activation (a served document has painted already);
+  // a page given no frames (a cross-origin frame out of view: the design tool's canvas) activates a second on, once, as rt.js `input()`; not under the agent.
+  let activated; const activateOnce = () => activated ??= activate();
+  if (page) activateOnce(); else { requestAnimationFrame(() => { root.dataset.frameCallbackMs = (performance.now() - t0).toFixed(1); requestAnimationFrame(activateOnce); }); if (!agentMode) setTimeout(activateOnce, 1000); }
 }
 ready = main();
 ready.catch((e) => { console.error(e); root.dataset.error = String(e); });

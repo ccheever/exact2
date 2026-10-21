@@ -104,10 +104,12 @@ pub(crate) fn parse_ops(ops: &Value, design: &str) -> Result<Vec<(String, Op)>, 
                 name: s(v, "name")?,
                 when: conds(v)?,
                 value: s(v, "value")?,
+                respell: None,
             },
             Some("unset-param") => Op::UnsetParam {
                 name: s(v, "name")?,
                 when: conds(v)?,
+                respell: None,
             },
             Some("remove-axis-value") => Op::RemoveAxisValue {
                 axis: s(v, "axis")?,
@@ -122,14 +124,20 @@ pub(crate) fn parse_ops(ops: &Value, design: &str) -> Result<Vec<(String, Op)>, 
 
 /// The app's params as the design's folds take them (LLP 1121 D15).
 pub(crate) fn params(app: &contract::tamber_params::AppParams) -> exact_tamber::params::Params {
-    contract_lower::params::folds(&app.tokens, &app.identities)
+    // And its packages' tokens (LLP 1121 D11), which every plan folds beside the design.
+    exact_tamber::params::Params {
+        joined: contract::tamber_params::joined(app),
+        ..contract_lower::params::folds(&app.tokens, &app.identities)
+    }
 }
 
 /// Each `set-param` and `unset-param` by a name the app has: refused for a
 /// name no param answers or an ambiguous short one; written on the line the
 /// design already has for that param, by the name that line uses, or by
 /// the name an earlier op of this transaction wrote it by, so one
-/// transaction never gives a param two lines.
+/// transaction never gives a param two lines; an exported library
+/// component's param set by its full name, its line respelled if it is
+/// short (LLP 1139 D8).
 pub(crate) fn param_names(
     ops: &mut [(String, Op)],
     snap: &[(String, String, String)],
@@ -151,8 +159,15 @@ pub(crate) fn param_names(
                 continue;
             }
         }
-        let name = match op {
-            Op::SetParam { name, .. } | Op::UnsetParam { name, .. } => name,
+        let (name, respell) = match op {
+            Op::SetParam { name, respell, .. } => (name, Some(respell)),
+            // A `when` line's removal keeps the param's line, respelled;
+            // the whole param's removes it as it is spelled.
+            Op::UnsetParam {
+                name,
+                when,
+                respell,
+            } => (name, (!when.is_empty()).then_some(respell)),
             _ => continue,
         };
         let resolve = |n: &str| contract_lower::params::resolve(&app.tokens, &app.identities, n);
@@ -168,11 +183,27 @@ pub(crate) fn param_names(
                 .find(|e| resolve(&e.name.value).is_ok_and(|q| q.token == p.token))
                 .map(|e| e.name.value.clone())
         });
+        // An earlier op's spelling first: it may have respelled the line.
         let earlier = written
             .iter()
-            .find(|(f, t, _)| f == file && *t == p.token)
+            .rfind(|(f, t, _)| f == file && *t == p.token)
             .map(|(_, _, n)| n.clone());
-        let spelled = line.or(earlier).unwrap_or_else(|| name.clone());
+        // An exported library component's param is written by its full
+        // name whatever name it was asked by, a new line and a set of a
+        // line spelled short alike: a short one is
+        // `tamber-param-short-library`, which the build refuses (LLP 1139
+        // D8). An unset removes the line as it is spelled.
+        let library = app
+            .library
+            .iter()
+            .any(|(identity, _, d)| *identity == p.identity && d.library);
+        let mut spelled = earlier.or(line).unwrap_or_else(|| name.clone());
+        if let (true, Some(respell)) = (library, respell) {
+            if spelled != p.full {
+                *respell = Some(spelled);
+                spelled = p.full.clone();
+            }
+        }
         written.push((file.clone(), p.token.clone(), spelled.clone()));
         *name = spelled;
     }

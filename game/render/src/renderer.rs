@@ -125,6 +125,8 @@ pub struct RendererWithAssets<const ASSETS: bool> {
     shadows: Option<ShadowMaps>,
     bloom: Option<BloomTargets>,
     ssao: Option<crate::ssao::Ssao>,
+    pub(crate) water: crate::water::Passes,
+    water_effects: crate::WaterEffects,
     texture_creations: u64,
     hook_binding: Option<crate::hooks::FrameBinding>,
     custom_bindings: Option<crate::hooks::MaterialBindings>,
@@ -204,6 +206,12 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
     /// four on Android and iOS.
     pub fn set_direct(&mut self, allow: bool) {
         self.allow_direct = allow;
+    }
+
+    /// Which of a `Water` resource's effects frames draw (both by default):
+    /// a present-time choice that leaves the saved resource as it is.
+    pub fn set_water_effects(&mut self, effects: crate::WaterEffects) {
+        self.water_effects = effects;
     }
 
     /// Select diffuse-only lighting before preparing any models. Default: physical.
@@ -422,6 +430,8 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
             shadows: None,
             bloom: None,
             ssao: None,
+            water: Default::default(),
+            water_effects: Default::default(),
             texture_creations: if samples == 1 { 3 } else { 4 },
             hook_binding: None,
             custom_bindings: None,

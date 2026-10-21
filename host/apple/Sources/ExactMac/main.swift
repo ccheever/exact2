@@ -112,6 +112,15 @@ final class Adapter: ExactSessionDelegate {
         guard !target.isEmpty else { return }
         // A link beside a document the person chose (LLP 1069.010 D1).
         if target.hasPrefix("doc:/") { ExactDocuments.deliver([target], to: session); return }
+        // The app's settings (LLP 1133.002 D11): macOS has no page per app, so
+        // Privacy & Security's Location Services, the one permission a module
+        // asks for today. Under the agent, journaled only.
+        if target == "app-settings:" {
+            let pane = "x-apple.systempreferences:com.apple.preference.security?Privacy_LocationServices"
+            session.log("openURL app-settings: opens \(pane)\(agentMode ? " (not under the agent)" : "")")
+            if !agentMode, let url = URL(string: pane) { NSWorkspace.shared.open(url) }
+            return
+        }
         let url = URL(string: target)
         let local = url?.isFileURL == true ? url!.standardizedFileURL.path
             : target.hasPrefix("/") ? URL(fileURLWithPath: target).standardizedFileURL.path : nil
@@ -371,7 +380,7 @@ final class DocumentWindow: NSObject, NSWindowDelegate {
         var row: [String: Any] = [
             "session": label, "title": window.title, "document": document ?? NSNull(),
             "edited": window.isDocumentEdited, "representedURL": window.representedURL?.path ?? NSNull(),
-            "key": window.isKeyWindow, "tabs": window.tabbedWindows?.count ?? 1,
+            "key": window.isKeyWindow, "visible": window.isVisible, "tabs":window.tabbedWindows?.count ?? 1,
             "footprintBefore": footprintBefore,
         ]
         // The first window's is from the process's start (what `metrics`
@@ -381,9 +390,11 @@ final class DocumentWindow: NSObject, NSWindowDelegate {
     }
 
     /// The red button, File ▸ Close Window and ⌘W ask the app first
-    /// (`beforeunload`, studio diary R17); a window it keeps stays.
+    /// (`beforeunload`, studio diary R17); a window it keeps stays. The one
+    /// window of an app that keeps running is hidden instead (LLP 1069.010 D8).
     func windowShouldClose(_ sender: NSWindow) -> Bool {
-        closing || session.beforeUnload()
+        if !closing, ExactDocuments.hidesOnClose(window, only: windows.count == 1) { return false }
+        return closing || session.beforeUnload()
     }
 
     func windowDidBecomeKey(_ notification: Notification) {
@@ -399,6 +410,7 @@ final class DocumentWindow: NSObject, NSWindowDelegate {
     /// its views, its label on the carrier.
     func windowWillClose(_ notification: Notification) {
         Agent.route(label, nil)
+        PageFacts.closed(window)
         // After AppKit has finished closing the window this holds.
         DispatchQueue.main.async { [self] in
             windows.removeAll { $0 === self }
@@ -540,11 +552,21 @@ final class Delegate: NSObject, NSApplicationDelegate {
     /// A one-window app quits with its window; one whose documents each
     /// get a window (`navigate-new`, LLP 1069.010 D4) stays, as a Mac
     /// document app does, for File ▸ New Window, Open and the Dock (LLP 1115 D8).
+    /// AppKit asks this when its last window is ordered out, so it is asked
+    /// too when an app that keeps running hides its window (LLP 1069.010 D8), and that
+    /// app ends only after its own `close()`.
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
-        ExactDocuments.launchMode != "navigate-new"
+        ExactDocuments.endsWithoutWindows(hiding: windows.contains { !$0.closing })
     }
-    /// The Dock icon clicked with no window showing: a new one.
+    /// The Dock icon clicked, or the app opened again, with no window
+    /// showing: the window an app that keeps running hid comes back as it
+    /// was (LLP 1069.010 D8); a `navigate-new` app opens a new one.
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        if !flag, ExactDocuments.keepsRunning(),
+           let hidden = windows.first(where: { !$0.window.isVisible && !$0.window.isMiniaturized }) {
+            hidden.front()
+            return false
+        }
         guard !flag, windows.isEmpty, ExactDocuments.launchMode == "navigate-new" else { return true }
         openWindow()
         return false
@@ -608,7 +630,7 @@ final class Delegate: NSObject, NSApplicationDelegate {
             if !session.booted { launchDevelopmentURL = url }
             else { ExactDevelopmentLink.open(url); frontWindow()?.front() }
             return true
-        }, document: { files.append($0) }, location: { url in
+        }, webPage: session.isWebPageFile, document: { files.append($0) }, location: { url in
             // The first window's session may have closed with its window.
             let target = frontWindow() ?? openWindow()
             if target.session.openURL(url) { target.front() }
@@ -726,8 +748,16 @@ func finishLaunching() {
     // the same from here down — and a script's (`agent.mjs --open`), whose
     // driver names the whole command line. Not under the boot smoke, which
     // measures the app's own start. @ref LLP 1033 D3
+    // An HTML file named here reaches a browser's template, as one Launch
+    // Services brings does (`isWebPageFile`).
     if !smoke {
-        route(ExactDocuments.paths(in: CommandLine.arguments))
+        var files: [URL] = []
+        IncomingURLBatch.deliver(ExactDocuments.paths(in: CommandLine.arguments).map { URL(fileURLWithPath: $0) }, development: { _ in false },
+                                 webPage: session.isWebPageFile, document: { files.append($0) }, location: { url in
+            let target = frontWindow() ?? openWindow()
+            if target.session.openURL(url) { target.front() }
+        })
+        route(ExactDocuments.paths(of: files))
     }
     firstWindow.coverChrome()
     window.makeKeyAndOrderFront(nil)

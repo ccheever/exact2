@@ -3,7 +3,7 @@
 // a builder reading it learns where the verbs are (`bun exact.mjs --help`), not this code. An
 // exact.mjs written before this file held all of it, and still runs; `bun exact.mjs update` thins it.
 import { spawn, spawnSync } from 'node:child_process';
-import { appendFileSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { appendFileSync, existsSync, mkdirSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { constants, tmpdir } from 'node:os';
 import { basename, dirname, isAbsolute, relative, resolve } from 'node:path';
 
@@ -88,6 +88,16 @@ export function appVerbs(name, dir, { host = 'web', game = false } = {}) {
 
 /** `bun exact.mjs <verb> [arguments]` for the app `name` in `dir`, with the checkout `exact2`; the exit code. */
 export async function run({ dir, name, game = false, exact2, args }) {
+  // The design tool's tests, drives and verify run on this checkout's own port (port-lock.mjs `checkoutPort`, unless
+  // EXACT_TOOL_PORT names one), from a copy staged with that origin and its stub (tamber-tool-port.mjs
+  // `stageToolTests`), so its stub never binds the 7740 a person's tool holds; EXACT_TOOL_PORT=7740 runs them in place.
+  if (['test', 'agent', 'verify'].includes(args[0]) && !args.includes('--help') && !args.includes('-h') && existsSync(resolve(exact2, 'apps/design-tool')) && realpathSync(dir) === realpathSync(resolve(exact2, 'apps/design-tool'))) {
+    process.env.EXACT_TOOL_PORT ??= String((await import(resolve(exact2, 'scripts/port-lock.mjs'))).checkoutPort(resolve(exact2)));
+    const tool = await import(resolve(exact2, 'scripts/tamber-tool-port.mjs')), rest = args.slice(1);
+    const tested = tool.testFiles(args[0], rest, (await import(resolve(exact2, 'scripts/help.mjs'))).knownFlags(args[0]));
+    const staged = tool.stageToolTests(dir, rest, i => tested.has(i));
+    if (staged) { dir = staged.dir; args = [args[0], ...staged.args]; }
+  }
   const [verb, ...rest] = args;
   const host = (verb === 'test' || verb === 'agent' || verb === 'verify') && rest[0] && !rest[0].startsWith('-') ? rest.shift() : 'web';
   const verbs = appVerbs(name, dir, { host, game });

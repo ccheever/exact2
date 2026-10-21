@@ -40,7 +40,7 @@ final class TextRasterizer {
 
     private func key(_ node: NodeView) -> TextRasterKey {
         TextRasterKey(spec: node.paragraphSpec(), size: node.bounds.size,
-                      box: node.contentBox(), scale: node.window?.backingScaleFactor ?? 2)
+                      box: node.paragraphBox(), scale: node.window?.backingScaleFactor ?? 2)
     }
 
     private func prepare(_ node: NodeView, key: TextRasterKey) -> TextRasterJob? {

@@ -1,8 +1,8 @@
 // Source-backed TextKit 2 Markdown styling, shared by UIKit and AppKit.
 // @ref LLP 1045 D1, D5 — only attributes change; source and native selection
-// stay intact. Hosts guard composition before entering this styler. Hidden
-// syntax is deliberately dimmed at full advance in the dependable baseline;
-// zero-width glyphs need phone selection/caret proof before adoption.
+// stay intact. Hosts guard composition before entering this styler. A link's
+// destination is hidden, as the web editor hides it (`MarkupHidden.swift`);
+// other syntax is dimmed at full advance.
 #if canImport(UIKit)
 import UIKit
 #else
@@ -117,9 +117,7 @@ final class MarkupEditor: NSObject, MarkdownEditing {
             }
             storage.addAttributes(attributes, range: range)
         }
-        // Until hidden-range caret and selection gestures are proven on a
-        // phone, keep every source character at its normal advance. Syntax
-        // outside the active paragraph is quieter, never zero-width.
+        // Syntax outside the active paragraph is quieter, at full advance.
         for h in object["h"] ?? [] where h.count >= 2 {
             storage.addAttribute(.foregroundColor, value: look.ink.withAlphaComponent(0.3), range: clamp(h[0], h[1]))
         }
@@ -136,6 +134,14 @@ final class MarkupEditor: NSObject, MarkdownEditing {
                 // A footnote mark: the label in a small raised run.
                 storage.addAttributes([.font: look.font((look.size * 0.75).rounded(), look.weight, look.family, false), .baselineOffset: look.size * 0.33, .foregroundColor: look.ink.withAlphaComponent(0.62)], range: range)
             }
+        }
+        // A link's `](target)`, whatever the selection, and its `[`
+        // (MarkupHidden.swift). One value marks both of a link.
+        for (n, l) in (object["l"] ?? []).enumerated() where l.count >= 4 {
+            let open = clamp(l[0], l[1]), close = clamp(l[2], l[3])
+            guard close.length > 0 else { continue }
+            storage.addAttribute(.markupHidden, value: n, range: close)
+            if open.length > 0 { storage.addAttribute(.markupOpener, value: n, range: open) }
         }
         storage.endEditing()
     }

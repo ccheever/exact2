@@ -180,8 +180,8 @@ fn custom_rows_follow_the_platforms_cards_and_cell_margins() {
     );
     assert_eq!(
         (content(&r, "hand-text", "hand-text"), edges(&r, "hand", false).1),
-        ((40.0, 382.0), 382.0),
-        "a swipe written by hand is styled as any row: its insets on its scroll, its content within it"
+        ((40.0, 382.0), 402.0),
+        "a swipe written by hand is styled as `delete=`'s: its row spans the card, its insets inside it"
     );
     r.dispatch(id(&r, "native"), Event::Press).unwrap();
     lay_out(&mut r);

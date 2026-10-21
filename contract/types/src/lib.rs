@@ -1358,12 +1358,18 @@ fn check_with_sites(
 fn check_children(file: &File, types: &mut Types, sink: &mut Sink) {
     // A child may own `state`, `derive`, and `action` (LLP 1017 P4c: its
     // instances' own), never a `resource`, `mutation`, or `task` — a row
-    // must not open N requests, and only the root has a clock.
+    // must not open N requests, and only the root has a clock — but it may
+    // read the device's facts, which open none (`DEVICE_FACTS`).
     for c in file.components.iter().skip(1) {
-        if !c.resources.is_empty() || !c.mutations.is_empty() || !c.tasks.is_empty() {
+        let data = c
+            .resources
+            .iter()
+            .any(|r| !contract_syntax::inline::reads_device(r));
+        if data || !c.mutations.is_empty() || !c.tasks.is_empty() {
             let span = c
                 .resources
-                .first()
+                .iter()
+                .find(|r| !contract_syntax::inline::reads_device(r))
                 .map(|r| r.span)
                 .or(c.mutations.first().map(|m| m.span))
                 .or(c.tasks.first().map(|t| t.span))

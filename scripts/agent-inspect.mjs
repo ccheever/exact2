@@ -95,26 +95,33 @@ export function sourceMapReader(locator) {
       return maps.size > 0;
     },
     attach(node) {
+      const origin = o => typeof o === 'string' && /^(own|tag|class:.+)$/.test(o);
       delete node.bare_reason;
       for (const style of Object.values(node.style ?? {})) { delete style.origin; delete style.state; delete style.at; }
       const map = digest(node.planDigest) ? maps.get(node.planDigest) : null;
       const entry = Number.isSafeInteger(node.site) && node.site >= 0 ? map?.nodes[node.site] : null;
       if (!entry || !location(entry) || !Array.isArray(entry.chain) || !entry.chain.every(location)
         || !Array.isArray(entry.bindings) || !entry.bindings.every(b => b && typeof b.row === 'string'
-          && typeof b.origin === 'string' && /^(own|tag|class:.+)$/.test(b.origin))) {
+          // A base origin, absent where only a state part writes the row; each part's own (theme2's 03:18).
+          && (b.origin === undefined || origin(b.origin)) && (b.states === undefined || Array.isArray(b.states) && b.states.every(p => p && typeof p.state === 'string' && origin(p.origin))))) {
         node.sourceMap = {status: 'unavailable', reason: map ? 'invalid source location' : problem};
         return;
       }
       node.sourceMap = {status: 'compatible', digest: map.digest, ...at(entry), chain: entry.chain.map(at)};
       // @ref LLP 1104 D2 — the first reason belongs only to this compatible plan site.
       if (typeof entry.bare_reason === 'string' && entry.bare_reason.length > 0 && entry.bare_reason.length <= 1024) node.bare_reason = entry.bare_reason;
-      for (const {row, origin, state, at: written} of entry.bindings) {
-        const style = node.style?.[row];
+      for (const b of entry.bindings) {
+        const style = node.style?.[b.row];
         if (!style || !['authored', 'dynamic'].includes(style.source)) continue;
-        style.origin = origin;
-        // An `:active` row is written in its part (LLP 1121 D8).
+        // A row's base origin; a press row has none, and is its `:active` part's, written in its part (LLP 1121 D8).
+        const part = b.origin === undefined ? b.states?.find(p => p.state === 'active') : null;
+        if (b.origin === undefined && !part) continue;
+        style.origin = part ? part.origin : b.origin;
+        if (part) style.state = part.state;
+        // (Its place where it has one: a conditional class's part has none.)
+        const written = part?.at;
         const placed = written && typeof written.file === 'string' && ['line', 'col', 'end_col'].every(k => Number.isSafeInteger(written[k]));
-        if (typeof state === 'string' && placed) Object.assign(style, {state, at: {file: written.file, line: written.line, col: written.col, end_col: written.end_col}});
+        if (placed) style.at = {file: written.file, line: written.line, col: written.col, end_col: written.end_col};
       }
     },
   };
@@ -181,7 +188,7 @@ export function identifyInspectedNode(reply, target) {
  *           {"  " × depth}{Type}#{id} [{testId}] hatch="…" "{text}" value="…" label="…" checked=true|false ({handlers, comma-separated})
  *           an iframe adds url="…" loading=true|false and `[guest]` outline lines
  *   layout  viewport W×H [· safe-area T R B L · keyboard K, when any is not 0] [· status bar light-content|dark-content (#id), iOS] · clock C ms
- *           #{id} [{testId}] {Type} {x},{y} {w}×{h} scroll {sx},{sy} [overscroll {ox},{oy}]
+ *           #{id} [{testId}] {Type} {x},{y} {w}×{h} scroll {sx},{sy} of {rx},{ry} [port {x},{y} {w}×{h}] [overscroll {ox},{oy}]
  *   logs    "(N earlier lines dropped by the journal ring)" when dropped > 0; the journal lines as they are;
  *           the host's lines indented two spaces; on an iOS simulator, the newest crash report of the build
  *           on that simulator since the last `logs` (its path, how it ended, the crashing thread's top
@@ -219,7 +226,7 @@ export function render(op, r, how = {}) {
       for (const n of r.nodes) {
         const depth = Math.max(0, n.depth - rootDepth);
         const p = n.props ?? {};
-        lines.push(`${'  '.repeat(depth)}${n.type}#${n.id}${p.testId != null ? ` [${p.testId}]` : ''}${p.hatch != null ? ` hatch=${q(p.hatch)}` : ''}${p.text != null ? ` ${q(p.text)}` : ''}${p.value != null ? ` value=${q(p.value)}` : ''}${p.accessibilityLabel != null ? ` label=${q(p.accessibilityLabel)}` : ''}${p.checked != null ? ` checked=${p.checked}` : ''}${n.focused ? " [focused]" : ""}${n.inactive ? " [inactive]" : ""}${n.unshown ? " [not in the iOS bar: hidden in the app]" : ""}${n.world ? ` world{${n.world.name}} · ${n.world.entities} entities · tick ${n.world.tick}` : ""}${n.handlers?.length ? ` (${n.handlers.join(', ')})` : ''}${n.url != null ? ` url=${q(n.url)} loading=${n.loading}` : ''}`);
+        lines.push(`${'  '.repeat(depth)}${n.type}#${n.id}${p.testId != null ? ` [${p.testId}]` : ''}${p.hatch != null ? ` hatch=${q(p.hatch)}` : ''}${p.text != null ? ` ${q(p.text)}` : ''}${p.value != null ? ` value=${q(p.value)}` : ''}${p.accessibilityLabel != null ? ` label=${q(p.accessibilityLabel)}` : ''}${p.checked != null ? ` checked=${p.checked}` : ''}${n.focused ? " [focused]" : ""}${n.inactive ? " [inactive]" : ""}${n.unshown ? " [not in the iOS bar: hidden in the app]" : ""}${n.world ? ` world{${n.world.name}} · ${n.world.entities} entities · tick ${n.world.tick}` : ""}${n.status != null ? ` status ${q(n.status)}` : ""}${n.handlers?.length ? ` (${n.handlers.join(', ')})` : ''}${n.url != null ? ` url=${q(n.url)} loading=${n.loading}` : ''}`);
         for (const g of n.guest ?? []) lines.push(`${'  '.repeat(depth + g.depth + 1)}[guest] ${g.tag}${g.id != null ? `#${g.id}` : ''}${g.testId != null ? ` [${g.testId}]` : ''}${g.text != null ? ` ${q(g.text)}` : ''}`);
       }
       return lines.join('\n');
@@ -243,7 +250,7 @@ export function render(op, r, how = {}) {
       const bar = r.statusBar && r.statusBar.style !== 'default' ? ` · status bar ${r.statusBar.style} (#${r.statusBar.source})` : '';
       // The title-bar area beside the window's controls, where the host defines it.
       const titlebar = e && e['titlebar-area-width'] != null ? ` · titlebar-area ${e['titlebar-area-x']},${e['titlebar-area-y']} ${e['titlebar-area-width']}×${e['titlebar-area-height']}` : '';
-      const lines = [`viewport ${r.viewport.w}×${r.viewport.h}${past(r.viewport)}${env}${titlebar}${fold}${bar} · clock ${r.clock} ms`].concat((r.nodes ?? []).map((n) => `#${n.id}${n.testId != null ? ` [${n.testId}]` : ''}${n.type != null ? ` ${n.type}` : ''}${n.bare_reason ? ` · bare: \`${n.bare_reason}\`` : ''} ${n.native?.placement === 'window' ? `${n.native.view} · system-owned geometry` : `${n.x},${n.y} ${n.w}×${n.h}${n.sx != null ? ` scroll ${n.sx},${n.sy}` : ''}${past(n)}`}`));
+      const lines = [`viewport ${r.viewport.w}×${r.viewport.h}${past(r.viewport)}${env}${titlebar}${fold}${bar} · clock ${r.clock} ms`].concat((r.nodes ?? []).map((n) => `#${n.id}${n.testId != null ? ` [${n.testId}]` : ''}${n.type != null ? ` ${n.type}` : ''}${n.bare_reason ? ` · bare: \`${n.bare_reason}\`` : ''} ${n.native?.placement === 'window' ? `${n.native.view} · system-owned geometry` : `${n.x},${n.y} ${n.w}×${n.h}${n.sx != null ? ` scroll ${n.sx},${n.sy}${rangeAndPort(n)}` : ''}${past(n)}`}`));
       lines.splice(1, 0, ...scaledLines(r));
       if (r.node) lines.push(...renderNode(r.node));
       return lines.join('\n');
@@ -347,6 +354,11 @@ export function emptySection(v) {
   return v === null || (typeof v === 'object' && (Array.isArray(v) ? !v.length : !Object.keys(v).length));
 }
 
+function rangeAndPort(scroller) {
+  const range = scroller.rx != null ? ` of ${scroller.rx},${scroller.ry}` : '', p = scroller.port;
+  return range + (p ? ` port ${p[0]},${p[1]} ${p[2]}×${p[3]}` : '');
+}
+
 /**
  * The block `layout <target>` adds under the listing (LLP 1035.002 D1): the
  * node's identity and site, one line per row with its source, its spaces,
@@ -357,7 +369,7 @@ export function emptySection(v) {
  *   node #{id} [{testId}] {Type} · site {n} · instance {keys} · epoch E · incarnation I
  *     {row} = {value} ({authored | inherited from #id | initial}[, applied {…}])
  *     space viewport X,Y W×H · frame X,Y W×H (kernel, in the parent) · window X,Y W×H · screen X,Y W×H · scale S
- *     scroll [viewport | #id] sx,sy · … (outermost first)   clip #id overflow|clip-path · …
+ *     scroll [viewport | #id] sx,sy of rx,ry · … (outermost first)   clip #id overflow|clip-path · …
  *     visible hidden=… inert=… inViewport=… clipped=…       native key=value …
  *     browser {row}="{the browser's computed value}" …      (the web's oracle beside the kernel's answer)
  */
@@ -390,7 +402,7 @@ function renderNode(n) {
   if (n.fragment_skipped) out.push(`  kept whole in its column: ${n.fragment_skipped}`);
   const sp = n.space ?? {};
   out.push(`  space viewport ${box(sp.viewport)}${n.frame ? ` · frame ${box(n.frame)} (kernel, in the parent)` : ''}${sp.window ? ` · window ${box(sp.window)}` : ''}${sp.screen ? ` · screen ${box(sp.screen)}` : ''}${sp.capture?.scale != null ? ` · scale ${sp.capture.scale}` : ''}`);
-  if (n.scroll?.length) out.push(`  scroll ${n.scroll.map((c) => `${c.id != null ? `#${c.id}` : 'viewport'} ${c.sx},${c.sy}`).join(' · ')}`);
+  if (n.scroll?.length) out.push(`  scroll ${n.scroll.map((c) => `${c.id != null ? `#${c.id}` : 'viewport'} ${c.sx},${c.sy}${rangeAndPort(c)}`).join(' · ')}`);
   if (n.clip?.length) out.push(`  clip ${n.clip.map((c) => `#${c.id} ${c.kind}`).join(' · ')}`);
   if (n.visible) out.push(`  visible ${sorted(n.visible).map(([k, v]) => `${k}=${v}`).join(' ')}`);
   if (n.native) out.push(`  native ${sorted(n.native).filter(([k]) => k !== 'subviews').map(([k, v]) => `${k}=${typeof v === 'string' ? v : q(v)}`).join(' ')}`);
@@ -716,9 +728,33 @@ export async function stateOp(s, args) {
   return args.length === 1 && has(reply, 'slots') && holds(reply) ? lookup(reply) : reply;
 }
 
+/** The tasks due within 1 ms of `now`, `[name, at]`, soonest first: an `after(1, …)` an input or an answer armed, the web's
+ * `setTimeout(f, 0)`, which runs a commit after the one that armed it. A frozen clock reaches it only when it moves, so
+ * `clock settle` runs it as part of settling and `clock data`, which fires no timer, names it (euxy FRICTION 7). */
+export async function nextCommitTasks(session, now) {
+  const tasks = Object.entries((await session.state())?.tasks ?? {});
+  return tasks.filter(([, at]) => Number.isFinite(at) && at > now && at <= now + 1).sort((a, b) => a[1] - b[1]);
+}
+
+/** `clock settle`'s reply when tasks are still due a commit later after its 16 rounds: not settled, and which. */
+export function settleBound(soon) {
+  const names = soon.map(([name]) => `\`${name}\``).join(', ');
+  return { settled: false, reason: 'tasks', tasks: Object.fromEntries(soon), diagnostic: `clock settle ran 16 rounds of tasks due a commit later and ${names} ${soon.length > 1 ? 'are' : 'is'} due again at ${soon[0][1]} ms: a task that re-arms itself \`after(1, …)\` never settles; \`clock +N\` moves past it` };
+}
+
 /** Explain a refused placed-child tap using the world's own visibility. */
 export async function tapRefusal(session, target, error) {
   if (error.transport || error.malformed) return error; // App state cannot explain malformed input or a failed transport.
+  // What covers a target may leave on one of the app's timers, which the agent's frozen clock never reaches (a boot
+  // overlay's `after(900, …)`, euxy FRICTION 9): the tasks still waiting, and the step that runs them.
+  if (/covers its middle/.test(error.message ?? '')) try {
+    const r = await session.state(), now = r?.clock;
+    const due = Object.entries(r?.tasks ?? {}).filter(([, at]) => Number.isFinite(at) && at > now).sort((a, b) => a[1] - b[1]);
+    if (Number.isFinite(now) && due.length) {
+      const shown = due.slice(0, 3).map(([name, at]) => `\`${name}\` at ${at} ms`).join(', ') + (due.length > 3 ? `, and ${due.length - 3} more` : '');
+      error.message += `; the agent's clock stands at ${now} ms, and the app's tasks wait on it (${shown}): if what covers it leaves on a timer, \`clock +${Math.ceil(due[Math.min(2, due.length - 1)][1] - now)}\` runs ${due.length > 1 ? 'them' : 'it'}`;
+    }
+  } catch { /* the refusal as it was */ }
   try {
     for (const canvas of (await session.tree()).nodes.filter(n => n.world)) {
       const canvasName = canvas.props?.testId ?? canvas.id;

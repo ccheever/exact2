@@ -282,6 +282,7 @@ export const WEB_STD = ['-Zbuild-std=std,panic_abort', '-Zbuild-std-features=opt
 // Deprecation is stable's to judge (the six checks' clippy): the nightly
 // deprecates names, like `fetch_update`, before stable has their successors.
 const WEB_RUSTFLAGS = ['-Zunstable-options', '-Cpanic=immediate-abort', '-Zlocation-detail=none', '-Adeprecated'];
+export const WEB_SIZE = [...WEB_STD, ...WEB_RUSTFLAGS].join(' ');
 /** The environment for a web build, refusing a machine without the toolchain
  * or its std sources (Cargo builds offline, so std's dependencies too). */
 export function webToolchainEnv(env) {
@@ -304,7 +305,7 @@ export function webToolchainEnv(env) {
     }
     if (ready) try { writeFileSync(marker, ''); } catch { /* a read-only toolchain checks again next time */ }
   }
-  return cargoEnvironment({ ...env, RUSTUP_TOOLCHAIN: WEB_TOOLCHAIN, EXACT_WEB_SIZE: [...WEB_STD, ...WEB_RUSTFLAGS].join(' ') });
+  return cargoEnvironment({ ...env, RUSTUP_TOOLCHAIN: WEB_TOOLCHAIN, EXACT_WEB_SIZE: WEB_SIZE });
 }
 
 // A Bun older than package.json's pin is refused before anything builds.
@@ -323,20 +324,32 @@ if (existsSync(resolve(binaryenBin, process.platform === 'win32' ? 'wasm-opt.exe
 // @ref LLP 1043.000 §3 D7/D8 — one inventory for host builds, serving and fixtures.
 // Groups preserve capability-based shipping; none of these imports enters boot.
 const WEB_HOST_GROUPS = {
-  base: ['glue.js', 'navigation.js', 'textflow-glue.js', 'timer-glue.js', 'input-glue.js',
+  base: ['glue.js', 'navigation.js', 'frame-messages.js', 'textflow-glue.js', 'timer-glue.js', 'input-glue.js',
     'http-body.js', 'grant-admission.js', 'faults.js', 'media-glue.js', 'list-selection.js', 'markup-editor.js', 'decorations.js', 'live-time-glue.js', 'document-glue.js',
     'motion-glue.js', 'group-glue.js', 'collection-glue.js', 'canvas2d-glue.js', 'presence-glue.js', 'picker-glue.js',
-    'documents-glue.js', 'auth-glue.js', 'image-glue.js', 'geometry-glue.js', 'resize-glue.js', 'intersect-glue.js', 'notify-glue.js', 'sound-glue.js', 'midi-glue.js', 'prompt-glue.js', 'wakelock-glue.js'],
+    'documents-glue.js', 'auth-glue.js', 'image-glue.js', 'geometry-glue.js', 'resize-glue.js', 'intersect-glue.js', 'notify-glue.js', 'sound-glue.js', 'midi-glue.js', 'prompt-glue.js', 'alert-message.js', 'wakelock-glue.js'],
   module: ['module-glue.js', 'module-worker.js', 'module-prelude.js'],
   storage: ['storage-request.js', 'storage.js', 'storage-environment.js', 'storage-fs.js', 'storage-image.js', 'storage-sqlite.js',
     'storage-worker.js', 'sqlite3.mjs', 'sqlite3.wasm'],
   rust: ['rust-glue.js'],
-  gpu: ['gpu-glue.js', 'pace.js', 'gpu-assets.js', 'gpu-pads.js'],
+  gpu: ['gpu-glue.js', 'pace.js', 'gpu-assets.js', 'gpu-pads.js', 'gpu-tier.js', 'gpu-refusal.js'],
   gpuModules: ['gpu-modules.js'],
   native: ['native-glue.js'],
   // A development page's frame sampler (LLP 1079 D3); a production build ships none.
   development: ['frames.js'],
 };
+
+/** A game's world surfaces by name, as its last GPU build declared them (`.shells/surfaces.json`); none before one. */
+export function worldSurfaces(dir) {
+  try { return Object.keys(JSON.parse(readFileSync(resolve(dir, '.shells/surfaces.json'), 'utf8'))); } catch { return []; }
+}
+
+/** The shell page with its world surfaces on its root (`<html data-exact-worlds="world …">`, LLP 1139.003 D1),
+ * inserted into the `<html>` tag whatever its other attributes (the manifest's `lang`). */
+export function markWorlds(html, names) {
+  const value = names.join(' ').replace(/[&"<>]/g, c => ({ '&': '&amp;', '"': '&quot;', '<': '&lt;', '>': '&gt;' })[c]);
+  return names.length ? html.replace(/<html\b/, `<html data-exact-worlds="${value}"`) : html;
+}
 
 /** The AT Protocol client-metadata documents an app with auth sessions
  * serves beside its callback page (LLP 1069.006 D6; after review, item 3):
@@ -469,6 +482,14 @@ export function moduleDirectory(dir, platform) {
 
 /** The app `nameOrCrate` names (`caltrain`, `caltrain-web`, …; `EXACT_APP_DIR`'s basename when unset): its directory, cargo workspace, target directory, crate names, and manifest. */
 export function resolveApp(nameOrCrate) {
+  // A path (`--app ../my-app`, `--app /abs/app`, `--app .`) names an app as
+  // EXACT_APP_DIR does, which the processes it starts inherit: its name is
+  // its directory's, so nothing built from the name (a crate, a target
+  // subdirectory) lands in the app's own directory.
+  if (nameOrCrate && /[\\/]|^\.\.?$/.test(String(nameOrCrate))) {
+    process.env.EXACT_APP_DIR = resolve(String(nameOrCrate));
+    nameOrCrate = undefined;
+  }
   const outside = process.env.EXACT_APP_DIR ? resolve(process.env.EXACT_APP_DIR) : null;
   let name = nameOrCrate ? String(nameOrCrate).replace(/-(web|apple|ios|macos|linux|windows|gpu)$/, '') : outside ? basename(outside) : 'caltrain';
   let dir = outside ?? resolve(ROOT, 'apps', name);
@@ -657,8 +678,33 @@ function documentTypeProblems(manifest) {
       : ![extensions].flat().some((e) => /^\.[^./]+$/.test(e)) ? [`file_handlers[${i}].accept: ${mime}, the app's own type, names no extension (".board")`]
       : []));
 }
-function protocolHandlerProblems({ protocol_handlers = [] }) {
-  return protocol_handlers.flatMap(({ protocol }, i) => protocol_handlers.findIndex(h => h.protocol.toLowerCase() === protocol.toLowerCase()) === i ? [] : [`protocol_handlers[${i}].protocol: ${protocol} is declared more than once`]);
+/** Whether a `protocol_handlers` scheme is the web's own: `http` and
+ * `https` make a native app a web browser (LLP 1030 D2, 2026-10-20), and
+ * no browser registers them (WHATWG HTML's protocol handler safelist). */
+export const isWebScheme = (protocol) => ['http', 'https'].includes(protocol.toLowerCase());
+function protocolHandlerProblems({ protocol_handlers = [], host }) {
+  const web = protocol_handlers.filter((h) => isWebScheme(h.protocol));
+  const pair = web.length && (new Set(web.map((h) => h.protocol.toLowerCase())).size !== 2 || web.some((h) => h.url !== web[0].url || !h.distribution_only !== !web[0].distribution_only));
+  const claimed = ['ios', 'macos'].flatMap((platform) => (host?.[platform]?.urlSchemes ?? []).filter(isWebScheme).map((s) => `host.${platform}.urlSchemes: ${s} is the web's own scheme; declare http and https together in protocol_handlers`));
+  return [...claimed, ...protocol_handlers.flatMap(({ protocol }, i) => protocol_handlers.findIndex(h => h.protocol.toLowerCase() === protocol.toLowerCase()) === i ? [] : [`protocol_handlers[${i}].protocol: ${protocol} is declared more than once`]),
+    ...(pair ? ['protocol_handlers: http and https come together, with one url and one distribution_only: a web browser claims both'] : [])];
+}
+/** The W3C keys of `app.json`, as the web builds write `manifest.json`
+ * (LLP 1030 D2/D10; 1030.000 D7). A browser opens files only, so
+ * `inode/directory` (the Apple bake's word for a folder) goes, and it
+ * registers neither `http` nor `https`, so those handlers go too. */
+export function webAppManifest(manifest, name) {
+  const keys = ['name', 'short_name', 'description', 'id', 'start_url', 'display', 'theme_color', 'background_color', 'icons', 'lang', 'orientation', 'file_handlers', 'protocol_handlers', 'launch_handler'];
+  const web = Object.fromEntries(keys.filter((k) => manifest[k] !== undefined).map((k) => [k, manifest[k]]));
+  if (web.file_handlers) web.file_handlers = web.file_handlers.filter((h) => !Object.keys(h.accept ?? {}).includes('inode/directory'));
+  if (web.protocol_handlers) web.protocol_handlers = web.protocol_handlers.filter((h) => !isWebScheme(h.protocol));
+  for (const key of ['file_handlers', 'protocol_handlers']) if (!web[key]?.length) delete web[key];
+  web.name ??= name;
+  web.start_url ??= '/';
+  // The document's language (`<html lang>`, WCAG 3.1.1). Every app here is in
+  // English, so an app that declares none is `en`.
+  web.lang ??= 'en';
+  return web;
 }
 export function nativeManifestMetadata(manifest, platform) { return {app:manifest.app,host:manifest.host?.[platform]??{},icons:manifest.icons??[],...(['macos','ios'].includes(platform) && manifest.protocol_handlers?.length ? {protocol_handlers:manifest.protocol_handlers} : {}),...(['ios','android'].includes(platform) && manifest.orientation ? {orientation:manifest.orientation} : {})}; }
 let cachedSchema = null;
@@ -779,20 +825,24 @@ export function readBake(app, platform, target, directory = bakeOutput(app)) {
   return receipt;
 }
 
-/** Refuse packaging bytes that differ from the binary's complete bake receipt. */
+/** Refuse packaging bytes that differ from the binary's complete bake receipt.
+ * The usual cause is an edit while the build ran: the bake read one version of a
+ * file and packaging copied another. The error's `rebuild` is true, so a build
+ * can name its own command (host/apple/build.mjs). */
 export function verifyBakeFiles(receipt, plan, assets) {
   const embedded = receipt.embedded;
   const ordered = (cards) => [...cards].sort((a, b) => a.name < b.name ? -1 : a.name > b.name ? 1 : 0);
+  const refuse = (what) => Object.assign(new Error(`the packaged ${what} differ${what === 'plan' ? 's' : ''} from the binary bake receipt: a source changed after the bake read it (an edit while the build ran); build again`), { rebuild: true });
   if (!embedded || !Array.isArray(embedded.assets)
       || embedded.plan?.sha256 !== createHash('sha256').update(plan).digest('hex')
       || embedded.plan?.bytes !== plan.length) {
-    throw new Error('the packaged plan differs from the binary bake receipt');
+    throw refuse('plan');
   }
   const copied = ordered(assets), baked = ordered(embedded.assets);
-  if (copied.length !== baked.length
-      || copied.some((asset, i) => ['name', 'sha256', 'bytes'].some((key) => asset[key] !== baked[i][key]))) {
-    throw new Error('the packaged static files differ from the binary bake receipt');
-  }
+  const same = (a, b) => a && b && ['name', 'sha256', 'bytes'].every((key) => a[key] === b[key]);
+  const differ = [...new Set([...copied, ...baked].map((a) => a.name))]
+    .filter((name) => !same(copied.find((a) => a.name === name), baked.find((a) => a.name === name)));
+  if (differ.length) throw refuse(`static files (${differ.slice(0, 3).join(', ')}${differ.length > 3 ? `, ${differ.length - 3} more` : ''})`);
 }
 
 // The compiler owns both the loaded files and the bundle requirements. This

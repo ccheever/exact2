@@ -71,6 +71,25 @@ extension Agent {
         }
     }
 
+    /// Waits until no shown scroll view in the window is decelerating, or the
+    /// deadline passes: a real drag returns as the finger lifts, and UIKit
+    /// moves the scroll view on from there, a fling's glide or the bounce
+    /// back inside its range (2.2 s for a 300-point flick at 1,200 points a
+    /// second). The window's views are walked again each frame. Answers
+    /// whether one was gliding before all came to rest, or nil at the
+    /// deadline.
+    func awaitScrollRest(until deadline: Date) -> Bool? {
+        guard let window = presenter.viewport.window else { return false }
+        func gliding(_ v: UIView) -> Bool { (v as? UIScrollView)?.isDecelerating == true || v.subviews.contains { !$0.isHidden && gliding($0) } }
+        var glided = false
+        while gliding(window) {
+            if Date() >= deadline { return nil }
+            glided = true
+            RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.016))
+        }
+        return glided
+    }
+
     /// Whether `hit` is a view the app's native code laid over the screen:
     /// outside every session and every UIKit presentation, as a module's
     /// boot splash added to the window is.

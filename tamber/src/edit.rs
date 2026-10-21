@@ -93,6 +93,10 @@ pub enum Op {
         when: Vec<(String, String)>,
         /// The value, a token's.
         value: String,
+        /// The name the param's line has now, when the write spells it
+        /// `name` instead (a library component's param, whose short
+        /// spelling the build refuses, written in full: LLP 1139 D8).
+        respell: Option<String>,
     },
     /// `unset-param name [when …]`: the param's line and its `when` lines
     /// (the component's default applies again), or one `when` line; an
@@ -102,6 +106,9 @@ pub enum Op {
         name: String,
         /// The `when` line's conditions; none is the whole param.
         when: Vec<(String, String)>,
+        /// As `set-param`'s: the line's name now, when the param's line,
+        /// which a `when` line's removal keeps, is spelled `name` instead.
+        respell: Option<String>,
     },
     /// `add-axis-value axis value`, before `before` (else last).
     AddAxisValue {
@@ -236,7 +243,7 @@ fn step(
     // that was no use (a channel, a colour space, a platform selector) would.
     if let Op::RenameToken { .. } = op {
         let folded = |text: &str| {
-            let folding = match params.list.is_empty() {
+            let folding = match params.is_empty() {
                 true => crate::check(text, vocab).ok(),
                 false => crate::parse(text)
                     .ok()
@@ -376,12 +383,22 @@ pub(crate) fn valid(op: &Op) -> Result<(), Vec<Diagnostic>> {
             name: n,
             when,
             value: v,
+            respell,
         } => {
             param(n)?;
+            respell.as_deref().map_or(Ok(()), param)?;
             conds(when)?;
             value(v)
         }
-        Op::UnsetParam { name: n, when } => param(n).and_then(|_| conds(when)),
+        Op::UnsetParam {
+            name: n,
+            when,
+            respell,
+        } => {
+            param(n)?;
+            respell.as_deref().map_or(Ok(()), param)?;
+            conds(when)
+        }
         Op::AddAxisValue {
             axis,
             value,
@@ -449,7 +466,7 @@ fn run(
         text = next;
         inverse.insert(0, undo);
     }
-    match params.list.is_empty() {
+    match params.is_empty() {
         true => drop(crate::check(&text, vocab)?),
         false => drop(crate::check_design(
             crate::params::laid(&crate::parse(&text)?, params),
@@ -457,6 +474,34 @@ fn run(
         )?),
     }
     Ok(Edited { text, inverse })
+}
+
+/// [`apply_all`] in two halves, for a caller that tries operations one group
+/// at a time on what it has accepted (re-import's transaction): `ops` applied
+/// to `src` with no check (a refused operation is `Err`, as [`apply_all`]
+/// says it), then the check. With no `Restore` among them (which
+/// `apply_all` refuses before any step), `stepped(stepped(src, a), b)` then
+/// the check is `apply_all(src, a ++ b)`: each operation reads only the text
+/// before it.
+pub(crate) fn stepped(src: &str, ops: &[Op], vocab: &Vocab) -> Result<String, Vec<Diagnostic>> {
+    if ops.iter().any(|op| matches!(op, Op::Restore { .. })) {
+        return Err(refuse("a restore is an inverse: undo applies it"));
+    }
+    let mut text = src.to_string();
+    for op in ops {
+        text = step(&text, op, vocab, &crate::params::NONE)?.0;
+    }
+    Ok(text)
+}
+
+/// [`stepped`], many `SetToken` and `SetDial` operations with one parse
+/// (`batch`): the same text and the same refusal, as stepping them one at a
+/// time, which it falls back to for any other operation or any refusal.
+pub(crate) fn stepped_all(src: &str, ops: &[Op], vocab: &Vocab) -> Result<String, Vec<Diagnostic>> {
+    match batch::stepped(src, ops, vocab) {
+        Some(text) => Ok(text),
+        None => stepped(src, ops, vocab),
+    }
 }
 
 /// A refusal with nowhere in the design to point (a name it lacks).
@@ -510,6 +555,7 @@ const KEYWORDS: &[&str] = &[
     "currentcolor",
 ];
 
+mod batch;
 mod params;
 
 /// The design's lines, which an edit splices.
@@ -520,6 +566,9 @@ struct Doc {
     /// The schema's roles, by their row spelling, which a role override
     /// answers to in any case.
     roles: Vec<(String, bool)>,
+    /// The design's tokens by name and by role, each the first, when one
+    /// parse serves many operations (`batch`): what [`token_index`] scans for.
+    index: Option<batch::Index>,
 }
 
 impl Doc {
@@ -530,6 +579,7 @@ impl Doc {
             lines: body.split('\n').map(str::to_string).collect(),
             newline,
             roles: Vec::new(),
+            index: None,
         }
     }
 
@@ -617,7 +667,10 @@ impl Doc {
                 at,
                 comment,
             } => {
-                let i = token_index(design, &self.roles, name)?;
+                let i = match &self.index {
+                    Some(index) => index.token(&self.roles, name)?,
+                    None => token_index(design, &self.roles, name)?,
+                };
                 let t = &design.tokens[i];
                 if when.is_empty() {
                     let (indent, code, trailing) = self.parts(t.name.line);
@@ -901,8 +954,17 @@ impl Doc {
                 values,
                 under_dark,
             } => self.add_axis(design, name, values, *under_dark),
-            Op::SetParam { name, when, value } => self.set_param(design, name, when, value),
-            Op::UnsetParam { name, when } => self.unset_param(design, name, when),
+            Op::SetParam {
+                name,
+                when,
+                value,
+                respell,
+            } => self.set_param(design, name, when, value, respell.as_deref()),
+            Op::UnsetParam {
+                name,
+                when,
+                respell,
+            } => self.unset_param(design, name, when, respell.as_deref()),
             Op::RemoveAxisValue { axis, value } => {
                 let a = design
                     .axes

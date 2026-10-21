@@ -59,6 +59,8 @@ public enum ExactEnv {
         return (json["inputs"] as? [String: Any])?["trust"] as? String == "production"
     }
     public static let agentMode = environment["EXACT_AGENT"] == "1"
+    /// `EXACT_AGENT_BIND` (`--bind`, LLP 1133.001 D7): extensions answered by their implementations under the agent.
+    static let agentBind = Set((environment["EXACT_AGENT_BIND"] ?? "").split(separator: ",").map(String.init))
     /// `EXACT_AGENT_TIMING=platform` (LLP 1035.003 D5, opt-in): under the
     /// agent carrier, UIKit's own transitions, presentations and keyboard
     /// animations keep their natural timing — the ordinary app with a
@@ -361,7 +363,7 @@ public final class ExactSession {
     private var dataGeneration: Int?
     var dataActivated: Bool { dataGeneration == generation }
     private var pendingActivation: (generation: Int, token: UInt64)? // retried on the session's wake
-    private var updateToken: UInt64 = 0
+    private var updateToken: UInt64 = 0, receipt: DrawReceipt?
     package let core: SessionCore
     package var runtime: Runtime { core.runtime }
     /// This session's file roots, captured outside a native module callback.
@@ -1147,8 +1149,8 @@ public final class ExactSession {
                     continue
                 }
                 if name == "postMessage" {
-                    let text = args.first as? String ?? "", surface = args.count > 1 ? args[1] as? String ?? "" : ""
-                    app.deliver { [weak self] in self?.canvases.post(surface, text) }
+                    let text = args.first as? String ?? "", surface = args.count > 1 ? args[1] as? String ?? "" : "", iframe = args.count > 2 && args[2] as? String == "iframe"
+                    app.deliver { [weak self] in self?.post(text, to: surface, iframe: iframe) }
                     continue
                 }
                 if name == "focus" || name == "selectText" {
@@ -1222,14 +1224,14 @@ public final class ExactSession {
 
     /// The first node drew: the GPU module may load now (LLP 1009 D4), on
     /// the next turn; the update store hears first pixel (LLP 1026 D11).
-    /// Capture at node creation. A delayed old draw cannot bless its successor.
-    func drawReceipt() -> () -> Void {
-        let drawnGeneration = generation
-        let token = updateToken
-        return { [weak self] in self?.firstDrawn(generation: drawnGeneration, token: token) }
+    /// Capture at node creation, one for a generation's and an update's nodes: a delayed old draw cannot bless its successor.
+    func drawReceipt() -> DrawReceipt {
+        if let receipt, receipt.generation == generation, receipt.token == updateToken { return receipt }
+        let made = DrawReceipt(self, generation: generation, token: updateToken); receipt = made
+        return made
     }
 
-    private func firstDrawn(generation drawnGeneration: Int, token: UInt64) {
+    func firstDrawn(generation drawnGeneration: Int, token: UInt64) {
         guard state != .destroyed, generation == drawnGeneration else { return }
         if firstDrawMs == nil { firstDrawMs = ExactEnv.wall() }
         app.sharedStore.firstPixel()

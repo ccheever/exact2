@@ -27,6 +27,7 @@ mod lines;
 mod messages;
 mod native;
 mod title;
+mod value;
 
 use inputs::{column_row, field_beside_label, field_kind, hidden, switch, text_field, Field};
 use native::native_row;
@@ -562,8 +563,12 @@ fn section(style: &'static str, node: &Node, first: bool) -> Result<Node, LowerE
             instance: *instance,
         }
     };
+    // A plain list has no card: its rows are the list's own ground, as
+    // UIKit's plain cells and an AppKit table's rows are, not a lighter fill.
     let mut group = vec![if cardless {
         s("background-color", "transparent", span)
+    } else if style == "plain" {
+        m("background-color", "ground-plain", span)
     } else {
         m("background-color", "card-fill", span)
     }];
@@ -600,7 +605,11 @@ fn section(style: &'static str, node: &Node, first: bool) -> Result<Node, LowerE
         group.push(m("row-gap", "separator-gap", span));
     }
     group.push(s("overflow", "hidden", span));
-    let mut styled = |n: &Node| Ok(swipe_rows::grouped(n, &|n| row(n, !cardless)));
+    let mut styled = |n: &Node| {
+        Ok(swipe_rows::grouped(n, &|n, swiped| {
+            row(n, !cardless, swiped)
+        }))
+    };
     let body = rows
         .iter()
         .map(|r| over(r, &mut styled))
@@ -765,7 +774,18 @@ fn s_val(value: &str, span: Span) -> Expr {
 /// accessory's size and colour, and what a `destructive` row is: red text
 /// where the platform's list shows that, the platform's push button where
 /// its form shows one (the Mac's, LLP 1115.002 D6).
-fn row(node: &Node, separated: bool) -> Node {
+/// `swiped`: the row is a swipe's content, which the platform's list
+/// carries as a custom row.
+/// A grouped list's row: the sheet's rows, without the look of an element
+/// that yields it to the row (`row_look`).
+fn row(node: &Node, separated: bool, swiped: bool) -> Node {
+    match crate::row_look::yielded(node) {
+        Some(own) => styled(&own, separated, swiped),
+        None => styled(node, separated, swiped),
+    }
+}
+
+fn styled(node: &Node, separated: bool, swiped: bool) -> Node {
     let Node::Element {
         tag,
         attrs,
@@ -942,8 +962,12 @@ fn row(node: &Node, separated: bool) -> Node {
         s("font-size", BODY, span),
         attr("color", tint(ink), span),
         s("text-align", "left", span),
-        // A word longer than its line breaks, as a cell's label breaks it,
-        // rather than running over the value beside it.
+        // A cell's labels hyphenate (UIListContentConfiguration's text has a
+        // hyphenationFactor of 1, iOS 27): a word that does not fit its line
+        // breaks between syllables ("Alice Ander-son"), and one with no
+        // syllable that fits breaks anywhere rather than running over the
+        // value beside it.
+        s("hyphens", "auto", span),
         s("overflow-wrap", "break-word", span),
     ];
     if field.is_some() {
@@ -1015,29 +1039,30 @@ fn row(node: &Node, separated: bool) -> Node {
     let last = shown.len().saturating_sub(1);
     let mut at_shown = 0;
     let titled = title_button(children);
-    let parts: Vec<Node> = children
-        .iter()
-        .enumerate()
-        .map(|(k, child)| {
-            let i = if hidden(child) {
-                usize::MAX
-            } else {
-                at_shown += 1;
-                at_shown - 1
-            };
-            let at = Place {
-                i,
-                last,
-                stack,
-                lines,
-                field,
-                titled: titled == Some(k),
-                tint: &tint,
-                grow: &title_grow,
-            };
-            part(child, at, &mut texts)
-        })
-        .collect();
+    let mut parts = Vec::with_capacity(children.len());
+    let mut counts = Vec::with_capacity(children.len());
+    for (k, child) in children.iter().enumerate() {
+        let i = if hidden(child) {
+            usize::MAX
+        } else {
+            at_shown += 1;
+            at_shown - 1
+        };
+        let at = Place {
+            i,
+            last,
+            stack,
+            lines,
+            field,
+            titled: titled == Some(k),
+            tint: &tint,
+            grow: &title_grow,
+        };
+        let before = texts.clone();
+        parts.push(part(child, at, &mut texts));
+        counts.push((before, texts.clone()));
+    }
+    let parts = value::boxed(children, parts, &counts, swiped, lines, title_grow(), span);
     let Node::Element {
         tag,
         positional,
@@ -1363,6 +1388,15 @@ fn part(child: &Node, at: Place<'_>, texts: &mut Count) -> Node {
                 _ => stack_of_lines(child, margins),
             }
         }
+        // The row's one part, a box the author laid its content out in (a
+        // button's face in a `row`), fills the cell, as a hand-built cell
+        // pins its stack to its content view's edges. As wide as its
+        // content, a bar in it was a share of its label's width (polls,
+        // round 29).
+        ("row" | "column" | "view", _) if i == 0 && last == 0 && !sized(child) => with(
+            child,
+            vec![attr("flex-grow", title_grow(), at), n("min-width", 0.0, at)],
+        ),
         _ => child.clone(),
     }
 }

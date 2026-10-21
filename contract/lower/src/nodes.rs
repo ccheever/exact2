@@ -78,6 +78,12 @@ impl Lowerer<'_> {
             *span,
         )?;
         let native_button = button.as_ref().is_some_and(|b| b.native);
+        let painted_group =
+            self.painted_radio_group(attrs, expanded.as_deref().unwrap_or(&[]), children, *span)?;
+        // A `button` part as the platform draws it (LLP 1139 D6).
+        if let Some(b) = button.as_ref() {
+            self.button_part(*span, b.native, b.bare_reason.as_deref());
+        }
         if native_button {
             let margins = grouped::margins_said(attrs)
                 || expanded.as_deref().is_some_and(grouped::margins_said);
@@ -100,19 +106,17 @@ impl Lowerer<'_> {
             None => attrs.as_slice(),
         };
         let inked = tags::symbol_ink(tag, positional, &expanded[sheet.len()..]);
-        let expanded = match inked {
-            Some(row) => {
-                let mut rows = expanded.to_vec();
-                rows.push(row);
-                std::borrow::Cow::Owned(rows)
-            }
-            None => std::borrow::Cow::Borrowed(expanded),
+        let added: Vec<Attr> = inked.into_iter().chain(painted_group).collect();
+        let expanded = match added.is_empty() {
+            false => std::borrow::Cow::Owned([expanded, &added].concat()),
+            true => std::borrow::Cow::Borrowed(expanded),
         };
         let expanded = &*expanded;
         decorations::check_field(tag, expanded)?;
         menus::check_menu_remove(expanded, parent_tag.is_none())?;
         values::check_position_area(expanded)?;
         menus::check_invoker(tag, expanded)?;
+        crate::alert_parts::check_authored(expanded)?;
         tags::check_exclusion(&t, expanded, self.parent_positioned)?;
         // @ref LLP 1121 D3 — a motion token an expansion carried in (a
         // component's prop, a sheet) is written in before the longhands
@@ -124,6 +128,14 @@ impl Lowerer<'_> {
         let lengths =
             svg::coerce_lengths(tag, svg::in_svg(self.svg_depth > 0, parent_tag), expanded);
         let expanded = lengths.as_deref().unwrap_or(expanded);
+        // A box's `transform` as the rows it equals (LLP 1055.000 D5's
+        // deferral keeps the rest), before `check_svg` reads the rows.
+        let boxed = crate::box_transform::lower(
+            tag,
+            svg::in_svg(self.svg_depth > 0, parent_tag),
+            expanded,
+        )?;
+        let expanded = boxed.as_deref().unwrap_or(expanded);
         self.check_svg(tag, parent_tag, expanded, *span)?;
         shorthands::check_text_box(tag, parent_tag, expanded)?;
         // @ref LLP 1034 §8 — an inline run paints in its paragraph's
@@ -166,6 +178,8 @@ impl Lowerer<'_> {
         controls::check_progress(tag, expanded, children)?;
         crate::live_time::check(tag, expanded, *span)?;
         let alert = self.check_menu_shapes(tag, expanded, children, *span)?;
+        let parted = self.alert_parts(tag, expanded, children, alert, *span, *instance);
+        let children: &[Node] = parted.as_deref().unwrap_or(children);
         let closedby = menus::implied_closedby(tag, expanded, *span, alert);
         let expanded = closedby.as_deref().unwrap_or(expanded);
         let numeric = controls::range_attrs(tag, control, expanded);
@@ -545,6 +559,44 @@ impl Lowerer<'_> {
                 } else {
                     Origin::Own(written)
                 };
+                // A folded `:disabled` or `:checked` row (LLP 1122's queue
+                // item (2)): its base's attribute where an author wrote it,
+                // and each part folded over it, each the class's by its span.
+                let fold = (states.as_ref())
+                    .filter(|s| index >= s.base_len && index < s.pressed)
+                    .map(|s| &s.folds[index - s.base_len]);
+                let origin = match fold {
+                    Some(fold) => {
+                        let class_of = |span: &Span| {
+                            class_label.as_ref().filter(|_| class_spans.contains(span))
+                        };
+                        let base = fold.base.as_ref().map(|(span, name)| {
+                            let w = crate::Written {
+                                span: *span,
+                                name: name.clone(),
+                            };
+                            Box::new(match class_of(span) {
+                                Some(label) => Origin::Class(
+                                    label.clone(),
+                                    (!label.contains('/')).then_some(w),
+                                ),
+                                None => Origin::Own(Some(w)),
+                            })
+                        });
+                        let parts = (fold.parts.iter())
+                            .map(|(state, span)| Origin::State {
+                                of: Box::new(match class_of(span) {
+                                    Some(label) => Origin::Class(label.clone(), None),
+                                    None => Origin::Own(None),
+                                }),
+                                state,
+                                span: *span,
+                            })
+                            .collect();
+                        Origin::Folded { base, parts }
+                    }
+                    None => origin,
+                };
                 // `:active`'s, lowered to the press paint: where it is written.
                 let origin = match pressed {
                     true => Origin::State {
@@ -744,9 +796,17 @@ impl Lowerer<'_> {
         // @ref LLP 1121 D8 — its host-known states' looks, each row lowered
         // as the node's own literal rows are (before the node is made: a
         // refusal leaves no node behind).
-        let mut look_rows = Vec::new();
+        let (mut look_rows, mut look_sites) = (Vec::new(), Vec::new());
         for (state, attrs) in states.as_ref().map_or(&[][..], |s| s.looks.as_slice()) {
             let mut bindings = Vec::new();
+            // Each row's origin, for the map: its part's place, the class's
+            // (by its span, as a base row's: a rewrite moves rows across
+            // `class_len`, never their spans) or the node's.
+            let mut origins = Vec::new();
+            let named = match state.as_str() {
+                "hover" => "hover",
+                _ => "focus-visible",
+            };
             for a in attrs {
                 let (mut handlers, mut surface) = (Vec::new(), None);
                 self.attr(
@@ -760,6 +820,26 @@ impl Lowerer<'_> {
                     &mut surface,
                     &font,
                 )?;
+                if self.sites.is_none() {
+                    continue;
+                }
+                let of = match &class_label {
+                    Some(label) if class_spans.contains(&a.span) => {
+                        Origin::Class(label.clone(), None)
+                    }
+                    _ => Origin::Own(None),
+                };
+                origins.resize(
+                    bindings.len(),
+                    Origin::State {
+                        of: Box::new(of),
+                        state: named,
+                        span: a.span,
+                    },
+                );
+            }
+            if self.sites.is_some() {
+                look_sites.push((named, sites::style_rows(&bindings, &origins)));
             }
             let state = match state.as_str() {
                 "hover" => 1,
@@ -781,13 +861,25 @@ impl Lowerer<'_> {
         }
         if let Some(sites) = &mut self.sites {
             debug_assert_eq!(sites.nodes.len(), id.0 as usize);
-            sites.nodes.push(sites::node_site(
+            let mut site = sites::node_site(
                 *span,
                 *instance,
                 button,
                 &bindings,
                 origins.as_deref().expect("site origins"),
-            ));
+                look_sites,
+            );
+            site.part = self
+                .part_names
+                .iter()
+                .find(|(node, _)| node == span)
+                .map(|(_, part)| part.clone());
+            site.library = self
+                .library_nodes
+                .iter()
+                .find(|(node, _)| node == span)
+                .map(|(_, identity)| identity.clone());
+            sites.nodes.push(site);
         }
         let children = if let Some(sections) = sections {
             std::borrow::Cow::Owned(sections)
@@ -795,6 +887,8 @@ impl Lowerer<'_> {
             std::borrow::Cow::Owned(rows)
         } else if let Some(face) = face {
             std::borrow::Cow::Owned(face)
+        } else if let Some(parts) = parted {
+            std::borrow::Cow::Owned(parts)
         } else {
             std::borrow::Cow::Borrowed(authored_children.as_slice())
         };

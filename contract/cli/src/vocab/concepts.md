@@ -138,14 +138,16 @@ component App
 ```
 
 - Each option is one short `text` (or a symbol `image` with an `aria-label`); leave its
-  look unsaid. Six or more options, or long labels: a `select`. On or off: `input
+  look unsaid. A radio that paints itself (its own `background-color`, `border` or
+  `border-radius`, LLP 1104 D2) makes the group your drawn control on every host, keys
+  and all; `appearance="none"` on the `radiogroup` says so whatever the radios write. Six or more options, or long labels: a `select`. On or off: `input
   type="checkbox" switch`.
 - `state tip = 18 persist` keeps the choice across launches.
 
 More: docs/recipes/persisted-setting.md
 
 ## screen: a second screen, a list and its detail, and Back
-names: navigate, navigation, back, detail, route, routes, router, list-detail, master-detail, deep-link, react-router, back button, back-button, large title, large-title, largeTitle, prefersLargeTitles, navigation bar, navigation-bar, navbar, UINavigationBar, phase, stage
+names: navigate, navigation, navigationBack, back, detail, route, routes, router, list-detail, master-detail, deep-link, deep link, protocol_handlers, openURL, url-scheme, react-router, back button, back-button, back title, large title, large-title, largeTitle, prefersLargeTitles, navigation bar, navigation-bar, navbar, UINavigationBar, phase, stage
 
 A second screen is a route. `routes` gives each screen a path, the root draws `stack(nav)`, a
 row `push`es its detail and `back` returns. That gives the web its Back (the browser's Back
@@ -207,6 +209,14 @@ component App
   has the platform's Back button and edge swipe with nothing written; a control whose `id`
   is the root's `navigationBack` runs your action and titles the button. Draw neither
   (docs/contract-for-agents.md, the table of what each host draws).
+- The Back button's title: exact2 leaves UIKit's default back button, which on iOS 26 and
+  later is a bare chevron. For "‹ Settings", put a
+  `button id="back" press=back` with `text "Settings"` (no `‹`: iOS draws it) in the pushed
+  route's `header`, with `navigationBack="back"` on the root.
+- A deep link (`protocol_handlers` in app.json, docs/recipes/app-json.md) arrives at `navigate`.
+  A drive delivers one as the system would, without iOS's "Open in …?" alert: `bun exact.mjs
+  agent ios "type <root> euxy://p/abc"`, the root being the node with `navigate=` (macOS and
+  iOS; a path such as `/recipe/Ramen` works on every host).
 
 More: docs/recipes/navigation-stack.md (a list, its detail, a create sheet, a delete alert)
 
@@ -821,7 +831,7 @@ along the gradient line. `background-attachment` takes `scroll` or `fixed`;
 hatch on separate rows does not establish one pattern across the list.
 
 ## menu: a pull-down menu of actions, and a long-press one
-names: menus, dropdown, pulldown, pull-down, popupmenu, contextPopover, UIMenu, context menu, context-menu, contextMenu, UIContextMenuInteraction
+names: menus, popover, dropdown, pulldown, pull-down, popupmenu, contextPopover, UIMenu, context menu, context-menu, contextMenu, UIContextMenuInteraction, menuitemradio, menuitemcheckbox, checkmark
 
 A menu is HTML's: a `column popover="auto" role="menu"` of `button`s, opened by a button's
 `popovertarget` (on iOS a `UIMenu`; in a `header`, the bar item's pull-down). A long-press
@@ -854,6 +864,13 @@ component App
           text "Remove"
       text picked testId="picked"
 ```
+
+- The menu's title is the popover column's `aria-label` (iOS: `UIMenu(title:)`).
+- A checkmark: `role="menuitemradio" aria-checked=(sortKey == "name")` on the row (a toggle:
+  `role="menuitemcheckbox"`).
+- A row's second `text`, under the first (a block `button`, or `flex-direction="column"`), is
+  its grey subtitle: `text "Name"` then `text "A to Z"`. Side by side they stay one title.
+- An `hr` between rows starts a section; `destructive=true` paints a row red.
 
 A test opens one with `tap "sort"`, a long-press one with `tap "row-1" contextmenu`, then
 taps the item. A row whose `popovertarget` names another menu is its submenu.
@@ -1069,8 +1086,9 @@ names: haptic, vibrate, vibration, Haptics, impactAsync, selectionAsync, notific
 `-exact-press-haptic` plays at touch-down on what is pressed, with no round trip:
 `"selection"`, or `"impact-light"`, `-medium`, `-heavy`, `-soft`, `-rigid`. From an action,
 `haptic(kind)` plays one of those or `"success"`, `"warning"` or `"error"`, as when a drag
-crosses a threshold. iOS uses the feedback generators, the web vibrates where it can, Linux
-does nothing.
+crosses a threshold; an outcome is an action's, since a press has none at touch-down. A
+native button (one with `buttonStyle`) plays its haptic from its action.
+iOS uses the feedback generators, the web vibrates where it can, Linux does nothing.
 
 ```contract
 component App
@@ -1144,3 +1162,42 @@ component App
 
 - Nothing moves the traffic lights or sets the row's height: the title bar is AppKit's.
 - More: docs/contract-grammar.md (lengths).
+
+## share: the share sheet, with a link, words, a file or a picture of an element
+names: share-sheet, sharesheet, UIActivityViewController, NSSharingServicePicker, navigator.share, Share.share, Sharing.shareAsync, shareAsync, share-card, share-image, share-png
+
+`share(title=, text=, url=, files=)` opens the system share sheet with the Web Share API's
+arguments. Each `text`, `url` and file is its own item: the sheet's header counts them ("1
+Link and 1 Image") and every target receives all of them. Pass what the button names: a
+Share Card button the picture alone, a Share Link button the `url`. A `files` entry `"#id"`
+is a PNG of that element as drawn now, named by `title` (else by the id), so `title` names
+the file a person receives; `title` is otherwise the subject Mail takes.
+
+```contract
+shape Page
+  canSharePictures: bool
+
+component App
+  state name = "untitled"
+  resource page = exactPage() as shape Page
+  action shareCard
+    share(title=`euxy-${name}`, files=["#card"])
+  action shareLink
+    share(url=`https://example.com/p/${name}`)
+  view
+    column padding=16 gap=12
+      column id="card" padding=16 border-radius=12 background-color="#111111"
+        text name color="#ffffff"
+      if page.canSharePictures
+        button press=shareCard testId="share-card"
+          text "Share Card"
+      button press=shareLink testId="share-link"
+        text "Share Link"
+```
+
+- The PNG above is `euxy-untitled.png`, the one item in the sheet, as a React Native port's
+  `Sharing.shareAsync(file)` shares it.
+- A picture is iOS's and the Mac's; the web refuses one by name, so offer it where
+  `exactPage().canSharePictures` holds. An `app:/` file needs the `fs.read` grant
+  (`contract vocab files-and-grants`).
+- More: docs/contract-grammar.md (host commands), LLP 1125 D12.

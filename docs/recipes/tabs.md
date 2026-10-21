@@ -14,7 +14,7 @@ component App
   action follow(url: string)
     nav = go(nav, url)
   view
-    main navigationKey=`${top(nav).id}` navigationBack="back" navigate=follow testId="app"
+    main navigationKey=`${top(nav).id}` navigationBack="back" navigate=follow
       width="100%" height="100%" display="flex" flex-direction="column"
       column flex=1 min-height=0 position="relative"
         for t in nav.tabs key=t.name
@@ -30,7 +30,7 @@ component App
                       text "Yesterday"
                   else
                     text "Nothing logged yet." color="-exact-secondary-label" padding=16
-      row role="tablist" testId="tabs"
+      row role="tablist"
         button role="tab" aria-controls="panel-today" aria-selected=(nav.tab == "today") press=pick("today")
           testId="tab-today" flex=1
           image "symbol:calendar"
@@ -53,16 +53,16 @@ test "each tab keeps its own stack"
 ```
 
 - The root `tablist` (each tab a symbol over a label, naming its panel with `aria-controls`)
-  is the iOS tab bar. For a segmented value picker, use a `radiogroup`
+  is the iOS tab bar. A segmented value picker is a `radiogroup`
   ([persisted-setting](persisted-setting.md)).
 - A tab is built when first selected, then stays: its stack, drafts and scroll survive
   switches; a test taps a tab before reading inside it. Reselecting the shown tab pops it.
-- A `link` uses the root's `navigate` handler to push onto the selected stack; browser
-  Back, Forward and deep links arrive there too.
-- Hide the bar with `display="none"`, never `if`: removing the tablist loses the panels' routes.
+- Links, Back, Forward and deep links reach `navigate`. `go` and `push` can put a route
+  on the selected tab, whatever tab declares it; `open(nav, url)` lands in its own.
+- Hide the bar with `display="none"`, never `if`, which loses the panels' routes.
 - A Mac window, or a web window 900 px up, draws the root column's last-child tablist as a
   sidebar; a tablist you arrange yourself stays yours.
 
-`appearance="none"` on a `header` or root `tablist` keeps the authored bar on every host.
-On a header button it keeps only that button authored (the Mac keeps the whole header).
-Styling alone does not opt out. See [the reference](../reference.md).
+`appearance="none"` on a `header` or root `tablist` keeps the authored bar on every host;
+on a header button, only that button (the Mac keeps the whole header). Styling alone does
+not opt out ([reference](../reference.md)).

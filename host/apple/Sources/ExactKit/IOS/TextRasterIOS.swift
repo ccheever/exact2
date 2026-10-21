@@ -94,7 +94,7 @@ final class TextRasterizer {
     private func key(_ node: NodeView) -> TextRasterKey {
         let scale = node.window?.screen.scale ?? node.traitCollection.displayScale
         var key = TextRasterKey(spec: node.paragraphSpec(), size: node.bounds.size,
-            box: node.contentBox(), scale: max(1, scale))
+            box: node.paragraphBox(), scale: max(1, scale))
         // Whole ordinary paragraphs, viewport bands for tall ones. Never allocate
         // to an unbreakable line's advance; the shared painter clips its ink.
         if node.bounds.height > 4096 || node.bounds.width * node.bounds.height * key.scale * key.scale * 4 > Self.maximumBytes {
@@ -149,7 +149,9 @@ final class TextRasterizer {
         let job = TextRasterJob(source: source.copy() as! NSAttributedString, ranges: geometry.ranges, baselines: geometry.baselines,
             flush: key.spec.align == 1 ? 0.5 : key.spec.align == 2 ? 1 : 0, justifies: key.spec.align == 3, insets: paragraph?.insets ?? LineInsets(key.spec, source: source),
             box: key.box, size: key.size, scale: key.scale, clip: key.clip,
-            ellipsis: key.spec.ellipsis, crop: true, clamped: geometry.clamped, shadow: key.spec.hdrShadow.map(TextRunShadow.init))
+            ellipsis: key.spec.ellipsis, crop: true, clamped: geometry.clamped, shadow: key.spec.hdrShadow.map(TextRunShadow.init),
+            // A layer shadow and a vibrancy view each take the ink as it is.
+            tints: key.spec.shadow == nil && (node.vibrantColor == nil || node.enclosingBlur == nil))
         // A job for the paragraph's previous text or box paints nothing now.
         if let pending { _ = pending.abandon() }
         node.textRasterKey = key; node.textRasterReady = false; node.textRasterFailed = false
@@ -267,7 +269,7 @@ extension NodeView {
             if textRaster != nil || textRasterLayer != nil { dropTextRaster() }
             return
         }
-        if let key = textRasterKey, key.size == bounds.size, key.box == contentBox() { return }
+        if let key = textRasterKey, key.size == bounds.size, key.box == paragraphBox() { return }
         textRasterKey = nil
         presenter?.requestTextPublication()
     }
@@ -282,10 +284,28 @@ extension NodeView {
         }
         textRaster = result.image; textRasterFrame = result.covered; textRasterScale = key.scale; textRasterSpec = key.spec
         textRasterReady = true; textRasterFailed = false
-        // The ink layer never animates (`InkLayer`), so no transaction of
-        // its own: a worker's result published between frames commits with
-        // the next frame's changes, rather than alone.
-        let ink = textRasterLayer ?? InkLayer()
+        // One colour's coverage shows through a template image in that
+        // colour; any other ink is its own pixels. Each its own layer.
+        let tint = result.tint.map { UIColor(cgColor: $0) }
+        if (tint != nil) != (textRasterTint != nil), let old = textRasterLayer {
+            old.dropTextCast(); old.removeFromSuperlayer(); textRasterLayer = nil; textRasterTint = nil
+        }
+        // The ink layer never animates (`InkLayer`, `TintInk`), so no
+        // transaction of its own: a worker's result published between frames
+        // commits with the next frame's changes, rather than alone.
+        let ink: CALayer
+        if let tint {
+            let view = textRasterTint ?? TintInk()
+            textRasterTint = view
+            // Its size first: the image view fits its contents to its bounds
+            // only in a layout pass, which none runs for it outside a commit.
+            view.layer.frame = result.frame
+            view.image = UIImage(cgImage: result.image, scale: key.scale, orientation: .up).withRenderingMode(.alwaysTemplate)
+            view.tintColor = tint
+            ink = view.layer
+        } else {
+            ink = textRasterLayer ?? InkLayer()
+        }
         // Above the box's border (`applyBoxLayer`), under everything else.
         // Inside a vibrancy view when it draws in a system colour over a
         // blur (`VibrancyIOS.swift`).
@@ -293,14 +313,14 @@ extension NodeView {
         ink.frame = result.frame
         ink.contentsScale = key.scale
         let roll = NumeralRoll.roll(ink, node: self)
-        ink.contents = result.image
+        if tint == nil { ink.contents = result.image }
         TextShadowLayer.apply(key.spec.hdrShadow == nil ? key.spec.shadow : nil, to: ink)
         ink.applyTextRange(headroom: result.headroom, limit: style["dynamic_range_limit"]?.string)
         ink.applyTextCast(result.cast, headroom: result.castHeadroom, limit: style["dynamic_range_limit"]?.string, rolling: roll)
         textRasterLayer = ink
     }
     func dropTextRaster() {
-        textRasterLayer?.dropTextCast(); textRasterLayer?.removeFromSuperlayer(); textRasterLayer = nil
+        textRasterLayer?.dropTextCast(); textRasterLayer?.removeFromSuperlayer(); textRasterLayer = nil; textRasterTint = nil
         textRaster = nil; textRasterKey = nil; textRasterReady = false; textRasterFailed = false; textRasterSpec = nil
     }
 }
@@ -309,6 +329,14 @@ extension NodeView {
 /// at once, as under `setDisableActions`, in whatever transaction is open.
 final class InkLayer: CALayer {
     override func action(forKey event: String) -> (any CAAction)? { nil }
+}
+
+/// A one-colour paragraph's ink (`TextRasterImage.tint`): its coverage as a
+/// template image, which UIKit shows in `tintColor` as Core Animation
+/// composites it, as a `UILabel` shows its text. Only its layer is in the
+/// tree, where `InkLayer` would be; like that, it never animates.
+final class TintInk: UIImageView {
+    override func action(for layer: CALayer, forKey event: String) -> (any CAAction)? { NSNull() }
 }
 
 /// One refresh's clip geometry: each ancestor's accumulated clips (at no

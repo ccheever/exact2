@@ -19,6 +19,9 @@
 #![forbid(unsafe_code)]
 #![deny(missing_docs)]
 
+mod alert_parts;
+pub mod anatomy;
+mod box_transform;
 mod buttons;
 mod cells;
 mod class;
@@ -34,6 +37,7 @@ mod edits;
 mod error;
 pub mod expr;
 mod fields;
+mod font_axes;
 mod fonts;
 mod grouped;
 mod handlers;
@@ -54,6 +58,8 @@ mod nodes;
 mod overflow;
 pub mod params;
 mod routes;
+mod row_look;
+mod scale;
 mod shorthands;
 mod sites;
 mod sounds;
@@ -69,6 +75,7 @@ mod theme;
 mod timers;
 mod type_tokens;
 mod values;
+pub mod warning_rank;
 pub use shorthands::style_values;
 pub mod vocab;
 mod warnings;
@@ -84,7 +91,59 @@ pub use native::{is_module_tag, module_tags};
 pub use sites::{ButtonSite, Declared, NodeSite, Origin, Sites, Written};
 pub use states::PRESS_OPACITY_TO;
 pub use theme::vocab as tamber_vocab;
+
+/// The base scale's names (LLP 1121 stage 11, the lead's ruling 2).
+pub const BASE_SCALE: [&str; 9] = theme::packages::BASE;
+
+/// A line of a design joined with its packages' (LLP 1121 D11): the
+/// package design's index and its line in that file; none for the app's.
+pub fn package_line(line: u32) -> Option<(usize, u32)> {
+    theme::packages::band(line)
+}
+
+/// `design` (the app's, or none) with its packages' designs' tokens joined,
+/// as the build folds them (LLP 1121 D11); what it refuses of them is the
+/// build's to say.
+pub fn with_package_designs(
+    design: Option<exact_tamber::Design>,
+    packages: &[contract_syntax::DesignSource],
+) -> Option<exact_tamber::Design> {
+    theme::packages::merge(design, packages).0
+}
+
+/// [`with_package_designs`], and what the build refuses of the packages'
+/// designs before the fold (each at its line in its file).
+pub fn join_package_designs(
+    design: Option<exact_tamber::Design>,
+    packages: &[contract_syntax::DesignSource],
+) -> (Option<exact_tamber::Design>, Vec<LowerError>) {
+    theme::packages::merge(design, packages)
+}
+
+/// What the build refuses of a folded joined design's package tokens: a
+/// name, a pair or a dial that isn't theirs to name (LLP 1121 D11).
+pub fn package_references(
+    folding: &exact_tamber::Folding,
+    packages: &[contract_syntax::DesignSource],
+    all: &[params::ParamToken],
+    identities: &[String],
+) -> Vec<LowerError> {
+    theme::packages::references(folding, packages, all, identities)
+}
+
+/// Package `band`'s `line` as a joined design numbers it, and a message's
+/// `line N` in a band as its file's line (LLP 1121 D11).
+pub fn package_band_line(band: usize, line: u32) -> u32 {
+    theme::packages::banded(band, line)
+}
+
+/// A message with each `line N` in a package's band as that file's line.
+pub fn package_unband(message: &str) -> String {
+    theme::packages::unband(message)
+}
 /// What a design is checked against (LLP 1121 D2): the schema's roles.
+pub use theme::retained::retention_only;
+pub use theme::rows;
 pub use theme::{retention, synthetic_candidates};
 pub use warnings::{warnings, MAX_WARNINGS};
 
@@ -137,6 +196,7 @@ pub(crate) struct Lowerer<'a> {
     text_styles: Option<&'a mut warnings::TextStyles>,
     pub types: &'a Types,
     pub root: &'a contract_syntax::Component,
+    pub canvas_targets: std::collections::BTreeSet<String>,
     pub ty_ids: BTreeMap<String, TypesId>,
     pub slots: Vec<exact_plan::SlotsId>,
     pub derives: Vec<exact_plan::DerivesId>,
@@ -177,6 +237,19 @@ pub(crate) struct Lowerer<'a> {
     texts_used: std::collections::BTreeSet<String>,
     /// The surface the plan is for: a terminal entry's block link is not tinted.
     profile: Profile,
+    /// Each native button named as a part with the `control` group (LLP
+    /// 1139 D6), by its node's span: one lowering draws as a bare box is
+    /// refused where it is lowered, in its instance's context.
+    pub(crate) control_parts: Vec<anatomy::ControlPart>,
+    /// Each library `button` with a control's role, refused where it is drawn
+    /// as a bare box (LLP 1139 D6).
+    pub(crate) library_buttons: Vec<LowerError>,
+    /// Each node named as a part, by its span, with the part's name: the
+    /// source map's (LLP 1139 D5).
+    pub(crate) part_names: Vec<(Span, String)>,
+    /// Each element of an exported library component's own view, by its
+    /// span, with the component's identity: the source map's (LLP 1139 D5).
+    pub(crate) library_nodes: Vec<(Span, String)>,
     /// How many `svg` elements enclose the node being lowered: `text`
     /// inside one is SVG text, outside a box (LLP 1055.000 D11).
     pub(crate) svg_depth: u32,
@@ -202,6 +275,8 @@ pub(crate) struct Lowerer<'a> {
 #[derive(Debug, Clone)]
 struct DeclaredFont {
     stack: StacksId,
+    /// Each face's heaviest weight (a variable face's range reaches it) and
+    /// whether it is italic.
     faces: Vec<(u16, bool)>,
 }
 
@@ -285,7 +360,6 @@ fn lower_with_sites(
         expanded: ex,
     } = checked;
     let root = &ex.root;
-    let root_types = &types.components[0];
     let is_fn = |name: &str| file.fns.iter().any(|f| f.name == name);
     let shared: Vec<Expr> = file
         .fns
@@ -299,6 +373,11 @@ fn lower_with_sites(
         text_styles,
         types,
         root,
+        canvas_targets: file
+            .components
+            .iter()
+            .flat_map(|c| stmts::canvas_targets(&c.view))
+            .collect(),
         ty_ids: BTreeMap::new(),
         slots: Vec::new(),
         derives: Vec::new(),
@@ -335,7 +414,54 @@ fn lower_with_sites(
         locale: None,
         texts_used: Default::default(),
         profile,
+        control_parts: Vec::new(),
+        library_buttons: Vec::new(),
+        part_names: Vec::new(),
+        library_nodes: Vec::new(),
     };
+    // A refusal that stops lowering is said after those collected before it
+    // (a refused token, then a statement no plan can hold), never in their
+    // place.
+    match lower_body(&mut l, checked, asset_root) {
+        Ok(()) => {
+            let plan = l.b.finish().map_err(|e| LowerError {
+                id: "lower-invalid-plan",
+                message: format!("{e:?}"),
+                span: root.span,
+            })?;
+            Ok((plan, l.sites))
+        }
+        Err(fatal) => {
+            let mut all = std::mem::take(&mut l.errors);
+            for e in fatal {
+                if !all
+                    .iter()
+                    .any(|o| o.id == e.id && o.span == e.span && o.message == e.message)
+                {
+                    all.push(e);
+                }
+            }
+            all.truncate(MAX_REFUSALS);
+            Err(all)
+        }
+    }
+}
+
+/// [`lower_with_sites`]'s declarations, bodies and view into `l`, for its
+/// plan: a refusal of its own as `Err`, those collected left in `l.errors`
+/// (an empty `Err` when only those stop it).
+fn lower_body(
+    l: &mut Lowerer<'_>,
+    checked: &Checked<'_>,
+    asset_root: Option<&Path>,
+) -> Result<(), Vec<LowerError>> {
+    let Checked {
+        file,
+        types,
+        expanded: ex,
+    } = checked;
+    let root = &ex.root;
+    let root_types = &types.components[0];
     l.declare_fonts(file, asset_root)?;
     l.declare_sounds(file, asset_root)?;
     // Bound before any style is parsed, the profiles first: an entry may be
@@ -347,6 +473,10 @@ fn lower_with_sites(
         names_tokens_outside_views(file, root_types),
         asset_root,
     );
+    // The design server's build: what it reads is known (`retention_only`).
+    if theme::retained::stops_at_retention() {
+        return Err(Vec::new());
+    }
     l.declare_decorations(file)?;
     // Styles: rows only, literal only (the parser holds the second), by name.
     for s in &file.styles {
@@ -395,6 +525,8 @@ fn lower_with_sites(
             });
         }
     }
+    // Each component's parts and the rows its classes bring them (LLP 1139 D2).
+    l.check_anatomy(file);
     let refused = l.declare_keyframes(file);
     l.errors.extend(refused);
     // Shapes first, in declaration order, so type ids are stable.
@@ -633,12 +765,11 @@ fn lower_with_sites(
             view[0].span(),
         ));
     }
-    l.host_transforms = tags::host_transform_recipients(&l, view);
+    l.host_transforms = tags::host_transform_recipients(l, view);
     l.nodes(view, None, None, &scope, 0, None)?;
     if !l.errors.is_empty() {
         // Row slots name regions a refused element may not have lowered.
-        l.errors.truncate(MAX_REFUSALS);
-        return Err(l.errors);
+        return Err(Vec::new());
     }
     // Child state (LLP 1017 P4c): each lifted state is initialized where its
     // instance is created — in its owning arm's scope, now that the arms
@@ -672,16 +803,15 @@ fn lower_with_sites(
         }
     }
     l.bake_texts()?;
+    // A refusal said after the elements' (none yet): never a plan beside it.
+    if !l.errors.is_empty() {
+        return Err(Vec::new());
+    }
     // @ref LLP 1121 D10 — the icons a computed source may name.
     for icon in icons::kept() {
         l.b.icon(&icon.name, &icon.sf, &icon.view_box, &icon.path, &icon.svg);
     }
-    let plan = l.b.finish().map_err(|e| LowerError {
-        id: "lower-invalid-plan",
-        message: format!("{e:?}"),
-        span: root.span,
-    })?;
-    Ok((plan, l.sites))
+    Ok(())
 }
 
 impl<'a> Lowerer<'a> {
@@ -1132,8 +1262,8 @@ impl<'a> Lowerer<'a> {
                 // CSS's one-to-four-value box shorthands: a binding a side.
                 if values::four_sided(rows) {
                     let fns = &self.fns;
-                    values::computed_list(&a.name, &a.value, &|f| fns.get(f).map(|(_, b)| *b))?;
-                    if let Some(sides) = values::sides(&a.name, &a.value)? {
+                    shorthands::computed_list(&a.name, &a.value, &|f| fns.get(f).map(|(_, b)| *b))?;
+                    if let Some(sides) = shorthands::sides(&a.name, &a.value)? {
                         for (&row, value) in rows.iter().zip(sides) {
                             let (code, ty) = self.typed_code(&value, scope, locals)?;
                             let side = Attr { value, ..a.clone() };
@@ -1275,6 +1405,7 @@ impl<'a> Lowerer<'a> {
 /// declares). The driver finds what is on disk (`DesignSource::bindable`).
 pub fn names_tokens_outside_views(file: &File, root: &contract_types::ComponentTypes) -> bool {
     file.design.as_ref().is_some_and(|d| d.bindable)
+        || file.package_designs.iter().any(|d| d.bindable)
         || root
             .sources
             .keys()

@@ -398,7 +398,12 @@ retain the existing editing session on a tap, including a button with gesture
 handlers and no press action. Messages uses it on bubbles and reaction badges
 that open Tapbacks: the panel does not exist yet at pointer down. Web prevents
 the pointer’s default focus change; iOS skips resigning the current responder.
-It neither focuses a field nor opens a keyboard. Messages also declares it on
+On iOS a button keeps the editing session without it, as a `UIButton` leaves the
+first responder alone: a press on a button (one that does not take the focus
+itself) commits what was typed as `change` and blurs nothing; a press on ground
+that presses nothing still ends the editing (LLP 1115, the keyboard is the
+platform's; ruled 2026-10-20). There `retainFocus` also keeps a pressed node
+that asks for focus from taking it. It neither focuses a field nor opens a keyboard. Messages also declares it on
 both Send controls: sending from a retained composer keeps its editing session.
 Other hosts currently ignore it.
 `focusGuide` (prop 241, string) accepts `"auto"` on a container. On tvOS,
@@ -1533,18 +1538,29 @@ CSS form and text vocabulary (app diaries kanban F11, ledger F1/F4,
 minesweeper F4, pomodoro F2): `rows` is HTML intrinsic line count and maxlength
 limits user UTF-16 edits, leaving authored values intact. Native interactive
 CSS resize handles are not implemented; Contract admits none and diagnoses
-other CSS values. user-select admits auto, none and text (2026-10-12, LLP
-1115.000 D11.6): the nearest authored value decides, and a control's label is
+other CSS values. user-select admits auto, none, text (2026-10-12, LLP
+1115.000 D11.6) and all (2026-10-20): the nearest authored value decides, and a control's label is
 not selectable unless text is said on it or inside the control. What is left
 is auto with nothing above it, the platform's: macOS resolves it as AppKit
 does (LLP 1115 D8: the chrome's label is not selectable, `article` and other
 content text is) and iOS as UIKit does (not selectable, a `UILabel`), so on
 iOS only text its author made selectable is, by UIKit's own text interaction
-over the paragraph's lines, one paragraph at a time. Declared deviation:
+over the paragraph's lines, one paragraph at a time. all is CSS UI 4's
+atomic selection on the web (the browser's own), macOS and iOS: a press in
+the element selects all of it, and a selection that takes part of it takes
+all of it, so a drag, a Shift-click or a Shift-arrow that reaches into it
+extends by the whole element; the outermost such element is the unit, an
+inline run's being its offsets in its paragraph. On macOS an element around
+paragraphs spans from its first paragraph's start to its last's end. On iOS
+a long press or a double tap in it selects it in place of a word, a tap
+selects nothing (a UITextView's), and an element around a paragraph is that
+paragraph (one selection is one paragraph). On the web, macOS and iOS an
+inline run that says all is selectable, alone, in text that is not. A
+scripted setSelectionRange is not widened. Declared deviation:
 Linux, Windows, Android and tvOS have no text selection executor, and text
-there is auto. all and contain are diagnosed at compile time
-(`lower-css-user-select`): no native presenter selects an element whole on one
-press or keeps a selection inside its element. Border shorthands reset and
+and all there are auto; the terminal's selection is the terminal's. contain
+is diagnosed at compile time (`lower-css-user-select`): no native presenter
+keeps a selection inside its element. Border shorthands reset and
 lower to existing side rows, including `inset`, `dotted` and `dashed` under
 §1's border semantics and raster deviation; other line styles are diagnosed.
 The one-to-four-value box shorthands (`padding`, `margin`, `inset`,
@@ -1556,10 +1572,15 @@ outside parentheses as CSS expands the shorthand
 (`exact_kernel::style::sides`); a literal `/` radius is refused by name. A
 computed value is bound whole to the four rows, and no host splits it: an
 overriding longhand, an `env()` substituted later and each row's grammar
-would make a run-time split differ from the browser's. So a computed value
-the compiler sees build a list (`` padding=`${pad}px 0` ``, a concatenation,
-a `fn` returning one) is refused (`lower-css-shorthand`), naming the
-longhands, each of which may be computed. A computed single value
+would make a run-time split differ from the browser's. A template is split
+at compile time at its own text's white space, as a literal is, when each
+interpolation is part of one value that also holds text, outside parentheses
+(`` padding=`${pad}px 0` ``: the top and bottom `${pad}px`, the sides `0`), and
+a literal one is one token; an interpolation holding white space reaches its
+row as a list, as a computed single value holding one does. Another computed
+value the compiler sees build a list (a concatenation, a `fn` returning one)
+is refused (`lower-css-shorthand`), naming the longhands, each of which may
+be computed. A computed single value
 (`padding=pad`) is every side's. A list that reaches a row anyway (state
 holding `"10px 5px"`) is refused by the row with a journal line on every
 host; the web's JS target refuses a list on a corner (two lengths, or a
@@ -1571,6 +1592,13 @@ underline/line-through to the existing line row; other color/style/thickness
 components are diagnosed. Linux draws its UA lines from font size and glyph
 advances; underline skip-ink:auto is not implemented and its driver log names
 that deviation once. Web and Apple use their text systems' decoration metrics.
+A box's lines cross its inline descendants' visible text in the box's colour,
+whatever the box's own visibility (CSS Text Decoration 3 §2.1); where boxes
+draw the same line, the nearest box's shows, as in Chrome. Native hosts place
+each glyph run's line by that run's font, not the decorating box's. Apple
+carries a text node's lines to its inline descendants only, not a block's to
+the paragraphs inside it. A terminal cell, and an Apple widget snapshot's text, draw
+a box's lines in the text's own colour.
 
 CSS flex shorthand admits grow/shrink factors and any admitted dimension basis,
 with the factors adjacent as CSS requires. Intrinsic flex-basis keywords

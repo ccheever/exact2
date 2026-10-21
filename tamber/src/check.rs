@@ -26,9 +26,17 @@ pub struct Checked {
     pub values: Vec<Value>,
     /// The dials it depends on, in declaration order.
     pub dials: Vec<String>,
+    /// The dials its own values name, in declaration order: what it reads
+    /// itself, where `dials` is every dial its value moves with, through
+    /// the tokens it names too.
+    pub reads: Vec<String>,
     /// The tokens its values name, the default's and every `when` line's,
     /// by their names here, in declaration order.
     pub names: Vec<String>,
+    /// The base names its own values read unset, bare (a length, a type's
+    /// size), the default's and every `when` line's, a value no tuple
+    /// selects included, first time each (stage 11 D's `bases`).
+    pub bases: Vec<String>,
     /// Marked `scheme=fixed`: one colour in every scheme by design, which the
     /// one-scheme warning leaves alone.
     pub fixed: bool,
@@ -43,6 +51,14 @@ pub(crate) enum DialValue {
     Color(Folded),
     Number(f64),
     Length(f64),
+}
+
+/// The tokens [`Checker::kind_of`] is following (`on`), the kinds it has
+/// found that met no cycle (`known`), and the cycles it has met.
+struct Walk {
+    on: Vec<bool>,
+    known: Vec<Option<Kind>>,
+    cycles: usize,
 }
 
 struct Checker<'a> {
@@ -63,9 +79,15 @@ struct Checker<'a> {
     /// Whether a word is a named length the kernel reads (a text style,
     /// `-exact-hairline`).
     named_length: &'a dyn Fn(&str) -> bool,
+    /// The vocabulary's base names (`Vocab::bases`).
+    bases: &'a [String],
     used: Vec<BTreeSet<usize>>,
     /// Per token, the tokens its values named as they folded.
     refs: Vec<BTreeSet<usize>>,
+    /// Per token, the unset base names its values read, in fold order.
+    based: Vec<Vec<String>>,
+    /// Each token's dials its own values name, by index.
+    reads: Vec<BTreeSet<usize>>,
     stack: Vec<usize>,
     /// Tokens refused as declared, which are not folded.
     refused: Vec<bool>,
@@ -76,16 +98,24 @@ struct Checker<'a> {
     selected: Vec<BTreeSet<Option<usize>>>,
 }
 
+/// The checked tokens, the tuple count and the dials' values, or the diagnostics.
+type CheckResult = Result<(Vec<Checked>, usize, Vec<DialValue>), (Vec<Diagnostic>, Vec<Kind>)>;
+
 /// Check `design` against the schema's vocabulary.
-pub(crate) fn check(
-    design: &Design,
-    vocab: &Vocab,
-) -> Result<(Vec<Checked>, usize, Vec<DialValue>), Vec<Diagnostic>> {
+pub(crate) fn check(design: &Design, vocab: &Vocab) -> CheckResult {
+    // A base name the design leaves unset, bare, is a named length too:
+    // kept as written, each host's (stage 11 B). One the design sets is its
+    // token, folded as any is, so its value wins everywhere and its edits
+    // re-fold what reads it.
+    let unset = |w: &str| {
+        vocab.bases.iter().any(|b| b == w) && !design.tokens.iter().any(|t| t.name.value == w)
+    };
     let named_length = |w: &str| {
         vocab
             .named_lengths
             .iter()
             .any(|n| n.eq_ignore_ascii_case(w))
+            || unset(w)
     };
     let mut c = Checker {
         design,
@@ -98,8 +128,11 @@ pub(crate) fn check(
         memo: HashMap::new(),
         kinds: vec![Kind::Color; design.tokens.len()],
         named_length: &named_length,
+        bases: &vocab.bases,
         used: vec![BTreeSet::new(); design.tokens.len()],
         refs: vec![BTreeSet::new(); design.tokens.len()],
+        based: vec![Vec::new(); design.tokens.len()],
+        reads: vec![BTreeSet::new(); design.tokens.len()],
         stack: Vec::new(),
         refused: vec![false; design.tokens.len()],
         refused_names: HashSet::new(),
@@ -119,7 +152,8 @@ pub(crate) fn check(
     c.declare();
     c.kinds();
     let Some(tuples) = tuples else {
-        return Err(c.finish());
+        let kinds = c.kinds.clone();
+        return Err((c.finish(), kinds));
     };
     let mut out = Vec::new();
     for (i, t) in design.tokens.iter().enumerate() {
@@ -147,7 +181,9 @@ pub(crate) fn check(
                 kind: c.kinds[i],
                 values,
                 dials: Vec::new(),
+                reads: Vec::new(),
                 names: Vec::new(),
+                bases: Vec::new(),
                 fixed,
                 pairs,
             },
@@ -166,6 +202,11 @@ pub(crate) fn check(
                 .iter()
                 .map(|&d| design.dials[d].name.value.clone())
                 .collect();
+            token.reads = c.reads[i]
+                .iter()
+                .map(|&d| design.dials[d].name.value.clone())
+                .collect();
+            token.bases = c.based[i].clone();
             token.names = c.refs[i]
                 .iter()
                 .map(|&j| {
@@ -185,10 +226,13 @@ pub(crate) fn check(
         .iter()
         .map(|d| c.dials.get(d.name.value.as_str()).map(|(_, v)| v.clone()))
         .collect::<Option<Vec<_>>>();
+    // A refusal carries each token's kind, written or inferred, so the
+    // caller can say what else is wrong (`tamber-base-kind`).
+    let kinds = c.kinds.clone();
     let errors = c.finish();
     match dials {
         Some(dials) if errors.is_empty() => Ok((out, tuples, dials)),
-        _ => Err(errors),
+        _ => Err((errors, kinds)),
     }
 }
 
@@ -648,9 +692,13 @@ impl<'a> Checker<'a> {
     /// (§3), a lone name taking the kind of what it names; else a colour.
     fn kinds(&mut self) {
         let design = self.design;
+        let mut walk = Walk {
+            on: vec![false; design.tokens.len()],
+            known: vec![None; design.tokens.len()],
+            cycles: 0,
+        };
         for i in 0..design.tokens.len() {
-            let mut path = vec![false; design.tokens.len()];
-            self.kinds[i] = self.kind_of(i, &mut path);
+            self.kinds[i] = self.kind_of(i, &mut walk);
             let t = &design.tokens[i];
             if !self.refused[i]
                 && matches!(self.kinds[i], Kind::Duration | Kind::Easing)
@@ -680,10 +728,11 @@ impl<'a> Checker<'a> {
             if !self.refused[i]
                 && self.kinds[i] == Kind::Color
                 && t.kind.is_none()
-                && crate::shadow::looks(&t.value.value, &mut |name| {
-                    let mut path = vec![false; design.tokens.len()];
-                    self.named_kind(name, i, &mut path) == Kind::Length
-                })
+                && crate::shadow::looks(
+                    &t.value.value,
+                    &mut |name| self.named_kind(name, i, &mut walk) == Kind::Length,
+                    self.named_length,
+                )
             {
                 self.refused[i] = true;
                 self.at(&t.name, "tamber-kind", format!("`{}` reads as a shadow: write its kind, `{}: box-shadow` or `{}: text-shadow`", t.name.value, t.name.value, t.name.value));
@@ -707,22 +756,37 @@ impl<'a> Checker<'a> {
         }
     }
 
-    /// Token `i`'s kind; `path` holds the names followed to it, so a cycle
-    /// (refused when it folds) ends as a colour.
-    fn kind_of(&self, i: usize, path: &mut [bool]) -> Kind {
+    /// Token `i`'s kind; `walk` holds the names followed to it, so a cycle
+    /// (refused when it folds) ends as a colour, and each kind found without
+    /// meeting one, so a chain is followed once however many tokens read it.
+    fn kind_of(&self, i: usize, walk: &mut Walk) -> Kind {
         let t = &self.design.tokens[i];
         if let Some(k) = t.kind.as_deref().and_then(Kind::parse) {
             return k;
         }
-        if std::mem::replace(&mut path[i], true) {
+        if let Some(k) = walk.known[i] {
+            return k;
+        }
+        if std::mem::replace(&mut walk.on[i], true) {
+            walk.cycles += 1;
             return Kind::Color;
         }
+        let cycles = walk.cycles;
+        let kind = self.inferred_kind(i, walk);
+        walk.on[i] = false;
+        if walk.cycles == cycles {
+            walk.known[i] = Some(kind);
+        }
+        kind
+    }
+
+    /// [`Checker::kind_of`] for a token whose kind is not written.
+    fn inferred_kind(&self, i: usize, walk: &mut Walk) -> Kind {
+        let t = &self.design.tokens[i];
         if let Some(k) = crate::typeface::inferred(&t.value.value, self.named_length) {
-            path[i] = false;
             return k;
         }
         let Ok(items) = css::parse(&t.value.value) else {
-            path[i] = false;
             return Kind::Color;
         };
         let kind = match items.as_slice() {
@@ -731,7 +795,7 @@ impl<'a> Checker<'a> {
             [css::Item::Func(f, args, _)]
                 if matches!(f.as_str(), "calc" | "min" | "max" | "clamp") =>
             {
-                Some(match self.measures(args.iter().flatten(), i, path) {
+                Some(match self.measures(args.iter().flatten(), i, walk) {
                     true => Kind::Length,
                     false => Kind::Number,
                 })
@@ -744,20 +808,19 @@ impl<'a> Checker<'a> {
                     || !(self.named_length)(name)
                         && !crate::motion::KEYWORDS.contains(&name.as_str()) =>
             {
-                Some(self.named_kind(name, i, path))
+                Some(self.named_kind(name, i, walk))
             }
             _ => measure::inferred(&items, self.named_length)
                 .or_else(|| crate::motion::inferred(&items)),
         };
-        path[i] = false;
         kind.unwrap_or(Kind::Color)
     }
 
     /// The kind of what `name` names: a token's (followed), a dial's; a
     /// colour otherwise.
-    fn named_kind(&self, name: &str, i: usize, path: &mut [bool]) -> Kind {
+    fn named_kind(&self, name: &str, i: usize, walk: &mut Walk) -> Kind {
         match self.names.get(name) {
-            Some(&j) if j != i => self.kind_of(j, path),
+            Some(&j) if j != i => self.kind_of(j, walk),
             _ => match self.dials.get(name) {
                 Some((_, DialValue::Number(_))) => Kind::Number,
                 Some((_, DialValue::Length(_))) => Kind::Length,
@@ -772,15 +835,15 @@ impl<'a> Checker<'a> {
         &self,
         items: impl Iterator<Item = &'i css::Item>,
         i: usize,
-        path: &mut [bool],
+        walk: &mut Walk,
     ) -> bool {
         for item in items {
             let length = match item {
                 css::Item::Dim(..) => true,
                 css::Item::Ident(name) => {
-                    (self.named_length)(name) || self.named_kind(name, i, path) == Kind::Length
+                    (self.named_length)(name) || self.named_kind(name, i, walk) == Kind::Length
                 }
-                css::Item::Func(_, args, _) => self.measures(args.iter().flatten(), i, path),
+                css::Item::Func(_, args, _) => self.measures(args.iter().flatten(), i, walk),
                 _ => false,
             };
             if length {
@@ -1063,7 +1126,31 @@ impl<'a> Checker<'a> {
             _ => measure::number(&items, &mut scope).map(Value::Number),
         };
         match folded {
-            Ok(v) => Some(v),
+            Ok(v) => {
+                // An unset base name it reads bare, noted on the token folding.
+                // And each an expression over base names reads (stage 12 B2),
+                // and a shadow's lengths (B3).
+                let named: Vec<&str> = match &v {
+                    Value::Length(Length::Named(n)) => vec![n],
+                    Value::Length(Length::Base(r)) => r.bases(),
+                    Value::Shadow(s) => s.bases(),
+                    Value::Type(t) => match &t.size {
+                        Length::Named(n) => vec![n],
+                        _ => Vec::new(),
+                    },
+                    _ => Vec::new(),
+                };
+                if let Some(&i) = self.stack.last() {
+                    for n in named {
+                        if self.bases.iter().any(|b| b == n)
+                            && !self.based[i].iter().any(|b| b == n)
+                        {
+                            self.based[i].push(n.to_string());
+                        }
+                    }
+                }
+                Some(v)
+            }
             Err(e) if e.id.is_empty() => None,
             Err(e) => {
                 self.at(value, e.id, e.message);
@@ -1243,7 +1330,30 @@ struct Scope<'c, 'a> {
 }
 
 impl Names for Scope<'_, '_> {
+    // A read, recorded on the token folding: one a later term cancels
+    // (`space.md - space.md + 3px`) is still read.
+    fn base(&mut self, name: &str) -> bool {
+        let c = &mut *self.checker;
+        let base = c.bases.iter().any(|b| b == name) && !c.names.contains_key(name);
+        if let (true, Some(&i)) = (base, c.stack.last()) {
+            if !c.based[i].iter().any(|b| b == name) {
+                c.based[i].push(name.to_string());
+            }
+        }
+        base
+    }
+
     fn named(&mut self, name: &str) -> Result<Named, FoldError> {
+        // A base name the design leaves unset, read where no length keeps
+        // it (a bare one is a named length, and a length's `calc()` and a
+        // shadow's length ask [`Names::base`] first): its length is each
+        // host's, so nothing folds it. One the design sets is its token.
+        if self.base(name) {
+            return Err(FoldError {
+                id: "tamber-base-expression",
+                message: format!("`{name}` is a base length, each platform's own: a length or a shadow's length names it (`card.pad = {name}`, `calc({name} * 2)`, `0 {name} 4px black`), but no other value can, unless the design sets it"),
+            });
+        }
         let c = &mut *self.checker;
         let lower = name.to_ascii_lowercase();
         // Silence: a refused token or dial said so where it is written.
@@ -1275,7 +1385,10 @@ impl Names for Scope<'_, '_> {
                 })
                 .ok_or_else(quiet);
         }
-        if let Some((_, value)) = c.dials.get(name) {
+        if let Some((d, value)) = c.dials.get(name) {
+            if let Some(&i) = c.stack.last() {
+                c.reads[i].insert(*d);
+            }
             return Ok(match value {
                 DialValue::Color(f) => Named::Color(f.clone()),
                 DialValue::Number(n) => Named::Number(*n),

@@ -697,3 +697,22 @@ fn fit_is_navigations_property() {
     );
     assert_eq!(declared(&[(StyleId::Fit, text("none"))]), "");
 }
+
+/// WebKit parses `user-select` but selects by `-webkit-user-select` alone
+/// (Playwright WebKit, measured), so the row writes both names (but for `auto`,
+/// which writes neither).
+#[test]
+fn user_select_writes_the_webkit_name_too() {
+    use exact_kernel::{StyleId, StyleProps, StyleValue};
+    for value in ["none", "text", "all"] {
+        let mut s = StyleProps::default();
+        s.set_dynamic(StyleId::UserSelect, &StyleValue::Text(value.into()))
+            .unwrap();
+        let (css, skipped) = css_text(&s, &[]);
+        assert!(skipped.is_empty(), "{skipped:?}");
+        assert!(
+            css.contains(&format!("-webkit-user-select:{value};user-select:{value};")),
+            "{css}"
+        );
+    }
+}

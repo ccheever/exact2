@@ -1,7 +1,7 @@
 export const proofSDK = import.meta.dir + "/..";
 import {refusalMessage} from '../scripts/agent-keys.mjs';
-import {proofInputFiles, proofInputExcluded, executionInputFiles} from './inputs.mjs';
-export {proofInputFiles, proofInputExcluded} from './inputs.mjs';
+import {releasePinGaps, statKey, proofInputs, proofInputReader, proofInputFiles, proofInputExcluded, executionInputFiles} from './inputs.mjs';
+export {proofInputs, proofInputReader, proofInputFiles, proofInputExcluded} from './inputs.mjs';
 // Shared lifecycle for game proofs: operations and assertions stay in the game.
 import { createHash } from 'node:crypto';
 import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
@@ -14,6 +14,9 @@ import { appleArtifacts } from '../host/apple/build.mjs';
 import { buildBake, executableName, resolveApp } from '../scripts/app.mjs';
 import { prepareProofTree } from './app/shells.mjs';
 import { closeFilesystemReader, filesystemLock } from '../scripts/filesystem.mjs';
+import { publicFileCards } from '../host/web/serve.mjs';
+import { takeWarmGame } from '../host/web-js/module.mjs';
+import { webInputDigests } from '../scripts/agent-launch.mjs';
 import { decodePng } from '../scripts/png.mjs';
 
 /** Some runtime-created stacks omit the informative Error message. */
@@ -245,7 +248,7 @@ export const webUnavailable = log => /web carrier unavailable:[^\n]*: ENOENT;/.t
 export const nativeProofHost = hosts => hosts.includes('linux') ? 'linux' : hosts.includes('windows') ? 'windows' : null;
 
 // Compare observed pins, never the old expected values, before touching pins.json.
-export function agreePins(rows, previous, hosts, app) {
+export function agreePins(rows, previous, hosts, app, {release: checkRelease = true} = {}) {
   const modes = ['0', '1', 'fresh-game'];
   const native = nativeProofHost(hosts);
   if (!native) throw new Error('repin refused: linux or windows continuous / Save / FreshGame are required');
@@ -269,13 +272,14 @@ export function agreePins(rows, previous, hosts, app) {
     }
     reference ??= row;
   }
-  for (const host of [native, ...hosts.includes('web') ? ['web'] : []]) {
+  for (const host of checkRelease ? [native, ...hosts.includes('web') ? ['web'] : []] : []) {
     const release = rows.filter(row => row.host === host && row.mode === '0' && row.profile === 'release');
     if (release.length !== 1 || release[0].failures?.length || !equal(release[0].pins, reference.pins))
       throw new Error(`repin refused: ${host} release proof missing, failed, or disagrees with gpu-dev; pins.json unchanged`);
   }
-  return {...reference.pins, hosts};
+  return {...reference.pins, hosts, modes, profiles:checkRelease ? ['gpu-dev', 'release'] : ['gpu-dev']};
 }
+export const pinCoverageGaps = releasePinGaps;
 export function pinInputs(rows) {
   const inputs=rows[0]?.inputs;
   if(!/^[a-f0-9]{64}$/.test(inputs ?? '') || rows.some(row=>row.inputs!==inputs))
@@ -492,109 +496,6 @@ export function facilityReport(replies) {
   return hints;
 }
 
-// Clean tracked bytes are identified by Git blobs. Dirty app inputs and
-// products reuse their digest only while their full stat tuple is unchanged.
-// Nanosecond timestamps and inode identity catch edits restored before the next scan.
-const statKey = path => { const s=statSync(path, {bigint:true}); return [s.dev,s.ino,s.size,s.mtimeNs,s.ctimeNs].join(':'); };
-export function proofInputs(root, app, cachePath) {
-  const git = args => spawnSync('git',args,{cwd:root,encoding:'utf8',maxBuffer:32*1024*1024});
-  const listed=git(['ls-files','-s','-z','--cached','--others','--exclude-standard']);
-  const status=git(['status','--porcelain=v1','-z','--untracked-files=no','--no-renames']);
-  const blobs=new Map(), paths=[];
-  for(const row of listed.stdout?.split('\0').filter(Boolean) ?? []) {
-    const match=/^\d+ ([a-f0-9]+) 0\t(.*)$/s.exec(row);
-    const path=match ? match[2] : row; paths.push(path);
-    if(match) blobs.set(path,match[1]);
-  }
-  const dirty=new Set((status.stdout??'').split('\0').filter(row=>row && row[1]!==' ').map(row=>row.slice(3)));
-  let cache={}; try {cache=JSON.parse(readFileSync(cachePath,'utf8'));} catch { /* First proof. */ }
-  const next={}, rows=[], prefix=relative(root,app).replaceAll('\\','/')+'/', groups={all:[],gpu:[],host:[],authored:[]}, authoredState=[], assetState=[]; let reads=0;
-  const manifest = resolve(app, '.baked-assets.json');
-  const generated = new Set([prefix + 'assets/exact-tables.json', ...(existsSync(manifest)
-    ? Object.keys(JSON.parse(readFileSync(manifest, 'utf8'))).map(name => prefix + 'assets/' + name) : [])]);
-  const ignoredDirectories = new Set();
-  const authoredFiles = new Set(proofInputFiles(root,app,listed.status===0 ? {status:0,stdout:paths.join('\0')} : undefined, ignoredDirectories));
-  const files=executionInputFiles(root,app,undefined,ignoredDirectories,authoredFiles);
-  // File stats miss sources created, consumed and removed between scans. Walk
-  // shared and app source directories, including empty ones, to retain edits.
-  const directories = new Set();
-  const sourceDirectories = dir => {
-    if (!existsSync(dir) || directories.has(dir) || ignoredDirectories.has(resolve(dir))) return;
-    const path = relative(root, dir).replaceAll('\\', '/'), file = path ? path + '/' : '';
-    if (proofInputExcluded(file + 'input.rs', basename(app), prefix, root)) return;
-    directories.add(dir);
-    for (const entry of readdirSync(dir, {withFileTypes:true}).sort((a, b) => a.name < b.name ? -1 : a.name > b.name ? 1 : 0))
-      if (entry.isDirectory() && !['.git', 'node_modules'].includes(entry.name)) sourceDirectories(resolve(dir, entry.name));
-  };
-  for(const file of files) {
-    const path=resolve(root,file), key=statKey(path); let digest=blobs.get(file);
-    if(!digest || status.status!==0 || dirty.has(file)) {
-      digest=cache[file]?.key===key ? cache[file].digest : null;
-      if(!digest) {const bytes=readFileSync(path); reads++; digest=createHash('sha1').update(`blob ${bytes.length}\0`).update(bytes).digest('hex');}
-      next[file]={key,digest};
-    }
-    rows.push([file,digest,key]);
-  }
-  for(const row of rows) {
-    const [file,digest,key]=row, input=[file.startsWith(prefix) ? 'app/' + file.slice(prefix.length) : 'sdk/' + file,digest]; groups.all.push(input);
-    if (authoredFiles.has(file) && file !== prefix + '.baked-assets.json' && !generated.has(file)) {
-      // Source provenance survives moving the app relative to the SDK. Keep
-      // execution paths and the in-flight file/directory checks unchanged.
-      groups.authored.push([file.startsWith(prefix) ? 'app/' + file.slice(prefix.length) : 'sdk/' + file, digest]);
-      authoredState.push([file,key]);
-    }
-    // Host bake depends on the declaration, not the game's implementation.
-    // Shared compiler crates remain conservative inputs of both graphs.
-    const own=file.startsWith(prefix) ? file.slice(prefix.length) : null;
-    const gpuOnly=own!==null ? /^(logic|gpu|render|art|assets|deck)\//.test(own) : /^game\/(engine|render|physics|audio|bake)\//.test(file);
-    const hostOnly=own!==null ? /\.contract$/.test(own) : /^host\//.test(file);
-    if(!hostOnly) groups.gpu.push(input);
-    if(!gpuOnly) groups.host.push(input);
-  }
-  if(cachePath) {mkdirSync(resolve(cachePath,'..'),{recursive:true});writeFileSync(cachePath,JSON.stringify(next));}
-  // Snapshot after writing our cache so its first creation is not a build edit.
-  sourceDirectories(resolve(root));
-  // The repository walk excludes other apps at their shared parent, and an
-  // external app may be outside root. Always scan this app's whole input tree.
-  sourceDirectories(resolve(app));
-  // A Git-ignored directory can contain tracked sources. New untracked entries
-  // there are ignored too; only its identity and the tracked files' full stats
-  // matter. Other directories retain timestamps to catch transient sources.
-  const ignoredMixed = new Set();
-  for (const cwd of new Set([resolve(root), resolve(app)])) {
-    const paths = [...directories].filter(dir => dir === cwd || dir.startsWith(cwd + '/'));
-    const ignored = spawnSync('git', ['check-ignore', '--no-index', '-z', '--stdin'], {
-      cwd, input:paths.map(dir => dir + '/').join('\0') + '\0', encoding:'utf8',
-    });
-    if (ignored.status === 0) for (const path of ignored.stdout.split('\0').filter(Boolean)) ignoredMixed.add(resolve(path));
-  }
-  for (const dir of directories) {
-    const path = relative(root, dir).replaceAll('\\', '/'), file = path ? path + '/' : '';
-    // Generated manifest/asset entry changes still require a rerun.
-    const state = file === prefix || file.startsWith(prefix + 'assets/') ? assetState : authoredState;
-    const key = statKey(dir);
-    state.push([file, ignoredMixed.has(dir) ? key.split(':').slice(0, 2).join(':') : key]);
-  }
-  groups.authored.sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0);
-  return {...Object.fromEntries(Object.entries({...groups,authoredState,assetState}).map(([kind,rows])=>[kind,createHash('sha256').update(JSON.stringify(rows)).digest('hex')])),reads,assetRows:assetState};
-}
-// One reader per proof. Directory changes require a rerun, even for baked assets.
-export function proofInputReader(root, app, cachePath) {
-  let previous;
-  return () => {
-    const inputs = proofInputs(root, app, cachePath);
-    // Content identity alone misses an edit that is reverted while the build reads it.
-    if (previous && previous.authoredState !== inputs.authoredState)
-      throw new Error('authored proof inputs changed during build; rerun the proof');
-    if (previous && previous.assetState !== inputs.assetState) {
-      const before = new Map(previous.assetRows), after = new Map(inputs.assetRows);
-      const changed = [...new Set([...before.keys(), ...after.keys()])].filter(dir => before.get(dir) !== after.get(dir));
-      throw new Error(`app or asset directories changed during build: ${changed.join(', ')}; rerun the proof (generated creation, pruning and atomic replacement also require a rerun)`);
-    }
-    previous = inputs;
-    return inputs;
-  };
-}
 export async function ensureLinuxReceipts({directory,app,surface,gpuInputs,hostInputs,gpuArtifact,hostArtifact,build,completeGpu = () => {}}) {
   if (surface) mkdirSync(dirname(surface),{recursive:true});
   const declaration = resolve(directory,'build-linux-surfaces.json'), assets = resolve(directory,'build-linux-assets');
@@ -602,7 +503,7 @@ export async function ensureLinuxReceipts({directory,app,surface,gpuInputs,hostI
   const keys = surface && resolve(dirname(surface),'keys.json'), keysCache = resolve(directory,'build-linux-keys.json');
   let cachedAssets = !app;
   // No cache is an ordinary miss; a cached file that would overwrite an authored one is a refusal.
-  if (app && existsSync(resolve(assets,'files.json'))) { restoreBakedAssets(assets, app); cachedAssets = true; }
+  if (app && existsSync(resolve(assets,'files.json'))) cachedAssets = restoreBakedAssets(assets, app);
   const artifact = () => {
     const product = gpuArtifact();
     if (!surface) return product;
@@ -648,6 +549,11 @@ function cacheBakedAssets(app, cache) {
 function restoreBakedAssets(cache, app) {
   const files = JSON.parse(readFileSync(resolve(cache,'files.json')));
   const manifest = resolve(app,'.baked-assets.json');
+  // Art was baked before the input scan. An older manifest must not remove ownership
+  // of a new model, restore a removed one, or replace its current bytes.
+  const cachedManifest = resolve(cache,'.baked-assets.json');
+  if (existsSync(cachedManifest) !== existsSync(manifest)
+      || existsSync(manifest) && !readFileSync(manifest).equals(readFileSync(cachedManifest))) return false;
   const generated = existsSync(manifest) ? JSON.parse(readFileSync(manifest)) : {};
   const writes = [];
   for (const name of files) {
@@ -664,6 +570,7 @@ function restoreBakedAssets(cache, app) {
     writes.push([destination,bytes]);
   }
   for (const [destination,bytes] of writes) { mkdirSync(dirname(destination),{recursive:true}); writeFileSync(destination,bytes); }
+  return true;
 }
 export async function withProofBuild(target, build) {
   for (;;) {
@@ -840,6 +747,39 @@ export function worldObservations(observations, session) {
   };
 }
 
+// Read every world's executor, including worlds removed before the session closes.
+export function executedModes(mode) {
+  const records = new Map();
+  return {
+    observe(state, session) {
+      for (const world of Array.isArray(state?.world) ? state.world : []) {
+        if (!world?.hash) continue;
+        const p = world.paranoid;
+        if (p?.mode !== mode) throw new Error(`executed mode ${p?.mode ?? 'missing'} differs from requested ${mode} (session ${session}, canvas ${world.canvas})`);
+        if (!Number.isSafeInteger(p.checked) || p.checked < 0 || typeof p.owed !== 'boolean')
+          throw new Error('paranoid reconstruction evidence missing');
+        const key = JSON.stringify([session, world.canvas, world.restarted]);
+        const previous = records.get(key);
+        records.set(key, {session, canvas:world.canvas, restarted:world.restarted, firstTick:previous?.firstTick ?? world.tick,
+          firstChecked:previous?.firstChecked ?? p.checked, tick:world.tick, ...p});
+      }
+    },
+    rows:() => [...records.values()],
+    assert() {
+      const rows = [...records.values()];
+      if (!rows.length) throw new Error('executed mode evidence missing: no worlds observed');
+      if (mode !== '0') {
+        if (!rows.some(p => p.checked > p.firstChecked)) throw new Error(`paranoid ${mode}: no completed reconstruction samples`);
+        for (const p of rows) {
+          if (p.owed) throw new Error(`paranoid ${mode}: sample still owed (session ${p.session}, canvas ${p.canvas})`);
+          if (p.tick > p.firstTick && p.checked <= p.firstChecked)
+            throw new Error(`paranoid ${mode}: advanced world has no reconstruction samples (session ${p.session}, canvas ${p.canvas})`);
+        }
+      }
+    },
+  };
+}
+
 /** What a screenshot shows of a world canvas: the canvas's box from `layout()`, less
  * the boxes of every node inside the canvas's subtree in `tree()` (its HUD, masked
  * whatever its size or overflow; a sibling or ancestor is not masked), and the share of
@@ -951,7 +891,8 @@ async function runProof(meta, script) {
     console.log(`PROOF ${failed ? 'FAIL' : unverified ? 'UNVERIFIED' : 'PASS'} ${name}: paranoid modes ${failed ? 'failed' : unverified ? 'completed without a complete baseline' : 'checked the baseline'}`);
     process.exit(failed ? 1 : unverified ? 3 : 0);
   }
-  const finalWorlds = [], paranoidSamples = [], observations = new Map();
+  const finalWorlds = [], observations = new Map();
+  const modes = executedModes(process.env.EXACT_GAME_PARANOID ?? '0');
   const previousPins = JSON.parse(readFileSync(resolve(app, 'pins.json'), 'utf8'));
   const collecting = process.env.EXACT_PROOF_REPIN === '1';
   const compareParanoid = process.env.EXACT_GAME_PARANOID_COMPARE === '1';
@@ -1039,6 +980,7 @@ async function runProof(meta, script) {
       try {
         const journal = (await raw.logs({all:true})).world ?? [];
         const state = await raw.state();
+        modes.observe(state, id);
         try { provenance.observe(state, journal, id); provenance.assert(); } catch (error) { check(error.message, false); }
         if (compareParanoid || process.env.EXACT_PROOF_COMPARE === '1') {
           const state = await raw.op({op:'state', ...await raw.target('world'), world:true});
@@ -1052,7 +994,6 @@ async function runProof(meta, script) {
             journal:worldJournal([...replies.filter(r => r.session === id && r.method === 'logs')
               .flatMap(r => r.reply?.world ?? []), ...logs])});
           if (!world?.hash) throw new Error('paranoid comparison: final world hash missing');
-          if (world.paranoid) paranoidSamples.push({session:id, ...world.paranoid});
         }
         if (looking) await lookStep(raw, id);
         sample();
@@ -1071,9 +1012,13 @@ async function runProof(meta, script) {
       if (!['op','tap','type','clock','state','tree','layout','logs','screenshot'].includes(method)) return target[method];
       return async (...args) => {
         try {
-          provenance.observe(await raw.state(), [], id);
+          const before = await raw.state();
+          modes.observe(before, id);
+          provenance.observe(before, [], id);
           const reply = await target[method](...args);
-          provenance.observe(await raw.state(), method === 'logs' ? reply.world : [], id);
+          const after = await raw.state();
+          modes.observe(after, id);
+          provenance.observe(after, method === 'logs' ? reply.world : [], id);
           if (method === 'state') worldObservations(observations, id)(reply);
           replies.push({session:id, method, args, reply, clock:target.now});
           return reply;
@@ -1124,6 +1069,14 @@ async function runProof(meta, script) {
       },
     }) : await ensureBuildReceipt({receipt, inputs:() => inputHash(readInputs().all),
       artifact:() => { const digest = artifactDigest(host, dist, artifacts); if (host === 'linux' || host === 'windows') { validatedProduct('binary'); validatedProduct('module'); } return digest; }, build:async () => {
+      if (host === 'web' && takeWarmGame(appInfo, dist, {...process.env, EXACT_GAME_PROOF_PROFILE:profile})) {
+        const marker = resolve(dist, '.exact-build.json');
+        const built = JSON.parse(readFileSync(marker, 'utf8'));
+        built.inputs = webInputDigests(appInfo, false);
+        built.files = await publicFileCards(dist).finally(closeFilesystemReader);
+        writeFileSync(marker, JSON.stringify(built) + '\n');
+        return;
+      }
       say(`BUILD stale or missing receipt ${receipt}; rebuilding: bun ${fileURLToPath(meta.url)} ${host}${device ? ' --device' : ''} --build-only`);
       if (host === 'linux') {
         if (!linuxTarget) throw new Error('rustc did not report its target');
@@ -1155,7 +1108,8 @@ async function runProof(meta, script) {
         for (const section of ['ticks','saves']) for (const key of Object.keys(previousPins[section] ?? {}))
           check(`pin ${key} observed; if intentionally removed, update the proof and pins.json together`, key in pins[section]);
     }
-  } catch (error) { check('proof interrupted',false,formatProofError(error)); }
+  // A host's typed refusal (a browser without WebGPU: `host web refused (gpu): …`) is the leg's result, by name.
+  } catch (error) { check(refusalMessage(error?.reply) ?? 'proof interrupted',false,formatProofError(error)); }
   finally {
     await closeSessions(monitor, sample, sessions, check);
     if (reusableWeb) await reusableWeb.close();
@@ -1175,7 +1129,12 @@ async function runProof(meta, script) {
     }
     if (auditUnavailable) say('SKIP descendant process audit: ps stalled; carrier close still awaited every recorded host process.');
     check('all recorded children exited', remaining.length === 0, remaining);
+    if (!process.argv.includes('--build-only')) {
+      try { modes.assert(); check('executed mode and reconstruction evidence', true); }
+      catch (error) { check(error.message, false); }
+    }
     if (compareParanoid) {
+      const paranoidSamples = modes.rows();
       // A sample owed at the end is an asset that never landed: its save was never checked.
       const skipped = paranoidSamples.reduce((n, p) => n + p.skipped, 0);
       if (skipped) say(`PARANOID ${skipped} samples deferred while shown assets were in flight`);
@@ -1212,7 +1171,7 @@ async function runProof(meta, script) {
     const status = lookFailed ? 'FAIL' : simulation;
     const reason = lookFailed ? `${verdict.reason}; the look failed` : verdict.reason;
     if (!compareParanoid && process.env.EXACT_PROOF_COMPARE !== '1') finalWorlds.push(...observations.values());
-    writeFileSync(resolve(out,'summary.json'), JSON.stringify({name, host, device, ...(phone ? {phone} : {}), status, inputs:inputDigest, sourceInputs:sourceInputDigest, mode:process.env.EXACT_GAME_PARANOID ?? '0', pins, facilities:facilityReport(replies), failures, seconds:(performance.now()-started)/1000, worlds:finalWorlds, saves, auditUnavailable, simulation, ...(looking ? {look:{status:seen.status, detail:seen.detail, failures:lookFailures, tells:looks.tells, silenced:seen.quiet.map(t => t.name), missing:seen.missing, frames:looks.frames, worlds, pictures:looks.pictures, pages:looks.pages, sheets:looks.sheets}} : {})}, null, 2)+'\n');
+    writeFileSync(resolve(out,'summary.json'), JSON.stringify({name, host, device, ...(phone ? {phone} : {}), status, inputs:inputDigest, sourceInputs:sourceInputDigest, mode:process.env.EXACT_GAME_PARANOID ?? '0', pins, paranoid:modes.rows(), facilities:facilityReport(replies), failures, seconds:(performance.now()-started)/1000, worlds:finalWorlds, saves, auditUnavailable, simulation, ...(looking ? {look:{status:seen.status, detail:seen.detail, failures:lookFailures, tells:looks.tells, silenced:seen.quiet.map(t => t.name), missing:seen.missing, frames:looks.frames, worlds, pictures:looks.pictures, pages:looks.pages, sheets:looks.sheets}} : {})}, null, 2)+'\n');
     if (process.argv.includes('--report')) for (const hint of facilityReport(replies)) say(`REPORT ${hint}`);
     if (looking) {
       say(`simulation: ${simulation} · look: ${seen.status}, ${seen.detail}`);
@@ -1224,8 +1183,11 @@ async function runProof(meta, script) {
     }
     say(`PROOF ${status} ${name} ${destination}: ${failures.length} failures; ${reason}; ${((performance.now()-started)/1000).toFixed(3)} s`);
     if (status === 'PASS' && host === 'linux') say(`Capture the PNG: ${proofCommand(fileURLToPath(meta.url), 'web')}`);
-    if (status === 'UNVERIFIED' && !collecting)
-      say(`UNVERIFIED: no pins — run ${proofCommand(resolve(import.meta.dir, 'prove.mjs'), app)}`);
+    if (status === 'UNVERIFIED' && !collecting) say(`UNVERIFIED: ${verdict.reason}; run ${proofCommand(resolve(import.meta.dir, 'prove.mjs'), app)}`);
+    if (!collecting) {
+      const gaps = pinCoverageGaps(previousPins);
+      if (gaps.length) say(`UNVERIFIED: ${gaps.join('; ')}; run prove --release (with --repin to publish coverage)`);
+    }
     writeFileSync(resolve(out,'proof.txt'),transcript.join('\n')+'\n');
     writeFileSync(resolve(out,'replies.json'),JSON.stringify(replies,null,2)+'\n');
   }

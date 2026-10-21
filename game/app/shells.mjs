@@ -1,5 +1,6 @@
 // Host adapters belong to the bake, never to a game author.
 import { spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, dirname, isAbsolute, relative, resolve, sep } from 'node:path';
@@ -35,7 +36,9 @@ export function gameDefaults(dir) {
   if (!declaration && !(overrides.game?.crate && overrides.game?.type)) return null;
   if (!declaration && (!(overrides.id ?? overrides.app?.id) || !(overrides.name ?? overrides.app?.name)))
     throw new Error(`${path}: explicit id and name are required when the Game declaration cannot be inferred`);
-  const [, type, gameId] = declaration ?? [], name = basename(dir);
+  // A proof snapshot retains the source game's inferred display name.
+  const proofName = process.env.EXACT_PROOF_NAME && resolve(process.env.EXACT_APP_DIR ?? '') === resolve(dir) ? process.env.EXACT_PROOF_NAME : null;
+  const [, type, gameId] = declaration ?? [], name = proofName ?? basename(dir);
   const cargoPath = resolve(dir, 'logic/Cargo.toml');
   const cargo = existsSync(cargoPath) ? readFileSync(cargoPath, 'utf8') : null;
   // The crate follows Game::ID, not the directory: a clone under another name still builds.
@@ -57,16 +60,18 @@ export function gameDefaults(dir) {
 // where the author wrote them. @ref llp/1046.003-game-engine-as-built.explainer.md#one-sdk-lock-2026-09-23
 function logicManifest(dir, crate) {
   const logic = resolve(dir, 'logic'), targets = [];
+  // Cargo can reuse dep-info from another workspace sharing target/. Absolute
+  // targets outside .shells bind freshness to this copy of the authored sources.
   for (const [kind, table] of [['tests', 'test'], ['examples', 'example'], ['benches', 'bench']]) {
     const folder = resolve(logic, kind);
     if (!existsSync(folder)) continue;
     for (const entry of readdirSync(folder, {withFileTypes:true}).sort((a, b) => a.name < b.name ? -1 : 1)) {
       const file = entry.isFile() && entry.name.endsWith('.rs') ? entry.name
         : entry.isDirectory() && existsSync(resolve(folder, entry.name, 'main.rs')) ? `${entry.name}/main.rs` : null;
-      if (file) targets.push(`\n[[${table}]]\nname = ${JSON.stringify(file.replace(/(\.rs|\/main\.rs)$/, ''))}\npath = ${JSON.stringify(`../../logic/${kind}/${file}`)}\n`);
+      if (file) targets.push(`\n[[${table}]]\nname = ${JSON.stringify(file.replace(/(\.rs|\/main\.rs)$/, ''))}\npath = ${JSON.stringify(resolve(folder, file))}\n`);
     }
   }
-  return `# Generated from ../../logic by the game bake. A game that adds dependencies\n# writes logic/Cargo.toml instead (game/README.md).\n[package]\nname = "${crate}"\nversion.workspace = true\nedition.workspace = true\nlicense.workspace = true\npublish = false\nautobins = false\nautoexamples = false\nautotests = false\nautobenches = false\n\n[lib]\npath = "../../logic/src/lib.rs"\n${targets.join('')}\n[dependencies]\nexact-game.workspace = true\n${hasArt(dir) ? '\n# sim_with_art! bakes art/ in memory for the hostless tests.\n[dev-dependencies]\nexact-game-bake.workspace = true\n' : ''}`;
+  return `# Generated from ../../logic by the game bake. A game that adds dependencies\n# writes logic/Cargo.toml instead (game/README.md).\n[package]\nname = "${crate}"\nversion.workspace = true\nedition.workspace = true\nlicense.workspace = true\npublish = false\nautobins = false\nautoexamples = false\nautotests = false\nautobenches = false\n\n[lib]\npath = ${JSON.stringify(resolve(logic, 'src/lib.rs'))}\n${targets.join('')}\n[dependencies]\nexact-game.workspace = true\n${hasArt(dir) ? '\n# sim_with_art! bakes art/ in memory for the hostless tests.\n[dev-dependencies]\nexact-game-bake.workspace = true\n' : ''}`;
 }
 
 // @ref LLP 1046.008#b-authored-presentation-crate — GPU-only authored hooks (renamed
@@ -121,6 +126,8 @@ export function gameShells(dir, game, workspace) {
   // Relative paths are written from the real directory: /tmp is a symlink on macOS.
   dir = realpathSync(dir);
   // Only this app is materialized. Each bake owns a generated Cargo workspace.
+  // Read before the defaults are, so a file edited meanwhile is recorded as the older.
+  const authored = existsSync(resolve(dir, 'app.json')) ? createHash('sha256').update(readFileSync(resolve(dir, 'app.json'))).digest('hex') : 'none';
   const app = {game, ...gameDefaults(dir)};
   const {crate, type, data, render} = app.game, name = crate.slice(0, -'-logic'.length);
   // Reject authored declaration errors before touching even an old generated workspace.
@@ -138,7 +145,7 @@ export function gameShells(dir, game, workspace) {
     cargo.workspace.dependencies['exact-gpu-reflect'] ??= {path:relative(source, resolve(gameRoot, '../gpu/reflect'))};
   }
   const authoredLogic = existsSync(resolve(dir, 'logic/Cargo.toml'));
-  cargo.workspace.members = ['gpu','web','apple','linux','windows','android', authoredLogic ? '../logic' : 'logic', ...(data ? ['../data'] : []), ...(render ? ['../render'] : [])];
+  cargo.workspace.members = ['bake','gpu','web','apple','linux','windows','android', authoredLogic ? '../logic' : 'logic', ...(data ? ['../data'] : []), ...(render ? ['../render'] : [])];
   delete cargo.workspace.exclude;
   // Engine crates are dependencies here: the wildcard already optimizes them.
   // Retain member overrides and any settings distinct from that wildcard.
@@ -179,6 +186,8 @@ export function gameShells(dir, game, workspace) {
   // An external game cannot inherit the SDK's compiler through its ancestors.
   writeChanged(resolve(root,'rust-toolchain.toml'), readFileSync(resolve(gameRoot,'../rust-toolchain.toml'),'utf8'), false);
   writeChanged(resolve(root, 'app.json'), JSON.stringify(app, null, 2) + '\n', false);
+  // What it was resolved from, by content: the compiler names a stale copy (contract/cli manifest.rs `generated_stale`).
+  writeChanged(resolve(root, 'app-source.sha256'), `${authored}\n`, false);
   writeChanged(resolve(root,'Cargo.toml'), '# Generated by the game bake.\n' + Object.entries(cargo)
     .map(([key,value])=>`[${key}]\n${Object.entries(value).map(([key,value])=>`${JSON.stringify(key)} = ${toml(value)}\n`).join('')}`).join('\n'), false);
   // A game's own lock is captured only when it adds dependencies; otherwise
@@ -199,6 +208,35 @@ export function gameShells(dir, game, workspace) {
     mkdirSync(logicDir, {recursive:true});
     writeChanged(manifest, logicManifest(appDir, crate), false);
   }
+  // The typed carrier baker runs before proof input capture, without a GPU build.
+  const carrier = resolve(root, 'bake');
+  mkdirSync(carrier, {recursive:true});
+  writeChanged(resolve(carrier, 'Cargo.toml'), `[package]
+name = "${name}-bake"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[[bin]]
+name = "${name}-bake"
+path = "main.rs"
+test = false
+bench = false
+
+[dependencies]
+exact-game.workspace = true
+game-logic = { package = "${crate}", path = ${JSON.stringify(relative(carrier, logicDir))} }
+`, false);
+  writeChanged(resolve(carrier, 'main.rs'), `#[path = ${JSON.stringify(resolve(source, 'bake/src/files.rs'))}]
+mod bake_files;
+fn main() {
+    type Logic = game_logic::${type};
+    let app = std::env::args_os().nth(1).expect("game directory");
+    bake_files::bake_game_level::<Logic>(&app).expect("bake level");
+    bake_files::bake_game_tables::<Logic>(&app).expect("bake tuning tables");
+}
+`, false);
   let dataDir;
   if (data !== undefined) {
     if (!data || typeof data !== 'object' || Array.isArray(data)
@@ -229,7 +267,8 @@ export function gameShells(dir, game, workspace) {
   if (!existsSync(resolve(root, '.gitignore'))) writeFileSync(resolve(root, '.gitignore'), '*\n!.gitignore\n');
   for (const kind of ['gpu', 'web', 'apple', 'linux', 'windows', 'android']) {
     const shell = resolve(root, kind);
-    const levelBake = relative(shell, resolve(source, 'bake/src/files.rs'));
+    // A cached build script can run from either the game or its deeper proof copy.
+    const levelBake = resolve(source, 'bake/src/files.rs');
     // These adapters contain entry points only; tests live in authored crates.
     const target = ['linux', 'windows'].includes(kind)
       ? `[[bin]]\nname = "${name}-${kind}"\npath = "src/main.rs"\ntest = false`
@@ -484,7 +523,7 @@ function lockedMetadata(root, flags, env) {
   if (result.status === 0) writeFileSync(cache, JSON.stringify({key:key(JSON.parse(result.stdout)), text:result.stdout}));
   return result;
 }
-const shellMembers = (game, name) => new Set([game.crate, game.data?.crate, game.render?.crate, ...['gpu','web','apple','linux','windows','android'].map(kind => `${name}-${kind}`)].filter(Boolean));
+const shellMembers = (game, name) => new Set([game.crate, game.data?.crate, game.render?.crate, ...['bake','gpu','web','apple','linux','windows','android'].map(kind => `${name}-${kind}`)].filter(Boolean));
 
 // Every ordinary bake is locked; dependency edits require an explicit update,
 // never a publisher's cache choice.
@@ -653,8 +692,15 @@ export function sdkFetch({offline = false, source = gameRoot, env = process.env}
  * build then rewrites the same files and creates no entry under the proof's watch. */
 export function prepareProofTree(dir, env = process.env) {
   const game = gameDefaults(dir)?.game;
-  if (game) gameShells(dir, game, gameRoot);
-  return bakeGameArt(dir, env);
+  if (!game) return bakeGameArt(dir, env);
+  prepareGame(dir, game, gameRoot, {env});
+  const art = bakeGameArt(dir, env);
+  const result = spawnSync('cargo', ['run', '--manifest-path', resolve(dir, '.shells/Cargo.toml'),
+    '-p', `${game.crate.slice(0, -'-logic'.length)}-bake`, '--profile', 'gpu-dev', '--locked', '--offline', '--', dir], {
+    cwd:resolve(dir, '.shells'), env, stdio:['ignore', 'inherit', 'inherit'],
+  });
+  if (result.error || result.status !== 0) throw new Error(`game carrier bake: ${result.error?.message ?? `cargo exited ${result.status ?? result.signal}`}`);
+  return art;
 }
 
 /** Bake a game's art/ into assets/ with the GPU shell's own baker (`exact-game-bake

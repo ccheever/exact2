@@ -7,7 +7,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync,
 import { tmpdir } from 'node:os';
 import { dirname, relative, resolve } from 'node:path';
 import { appleArtifacts, appleRunBinary } from '../host/apple/build.mjs';
-import { moduleGraph } from './agent-launch.mjs';
+import { moduleGraph, notBuildInput } from './agent-launch.mjs';
 import { buildArgs, buildFirst, buildReason, failureSummary, nativeBuild, overrideDir, planOverride, planSource, rebuildCommand, refuseBuild } from './agent-build.mjs';
 import { resolveApp } from './app.mjs';
 
@@ -250,14 +250,18 @@ test('a plan-only edit runs its bake on the existing build; any other edit, or a
     const app = resolveApp('plan-log');
     const at = offset => new Date(Date.now() + offset * 1000), stamp = (file, offset) => utimesSync(resolve(dir, file), at(offset), at(offset));
     // app.ts and what it imports, type-only imports included; a backend beside it that the app reaches over HTTP.
-    write('app.ts', "import type { Book } from './types';\nimport { shelf } from './lib/model.js';\nimport seed from './lib/seed.json';\nexport const grants = '';\n");
+    write('app.ts', "import type { Book } from './types';\nimport { shelf } from './lib/model.js';\nimport seed from './lib/seed.json';\nimport { money } from './lib/format.mjs';\nexport const grants = '';\n");
     write('types.ts', 'export type Book = { title: string };\n');
     write('lib/model.ts', "export const shelf = [] as const;\n");
     write('lib/seed.json', '[]\n');
+    write('lib/format.mjs', "import { digits } from './digits.mjs';\nexport const money = n => digits(n);\n");
+    write('lib/digits.mjs', 'export const digits = n => String(n);\n');
+    // A helper script beside the app that app.ts never imports (an export, a seeding script).
+    write('scripts/export.mjs', 'console.log(1);\n');
     write('server/index.ts', "import { Database } from 'bun:sqlite';\nimport { routes } from './routes';\n");
     write('server/routes.ts', 'export const routes = {};\n');
     write('server/fixtures.json', '{}\n');
-    for (const file of ['app.contract', 'app.ts', 'types.ts', 'lib/model.ts', 'lib/seed.json', 'server/index.ts', 'server/routes.ts', 'server/fixtures.json', 'app.json', 'exact.mjs', 'apple/Cargo.toml', 'web/Cargo.toml']) stamp(file, -60);
+    for (const file of ['app.contract', 'app.ts', 'types.ts', 'lib/model.ts', 'lib/seed.json', 'lib/format.mjs', 'lib/digits.mjs', 'scripts/export.mjs', 'server/index.ts', 'server/routes.ts', 'server/fixtures.json', 'app.json', 'exact.mjs', 'apple/Cargo.toml', 'web/Cargo.toml']) stamp(file, -60);
     // The build: its receipt names the plan its build script baked, beside which is the module receipt it paired.
     const target = 'aarch64-apple-ios-sim', out = resolve(app.target, target, 'host-dev/build/plan-log-apple-0123/out');
     const module = { version: 1, appId: 'com.exact.plan-log', grants: '', abi: 1, surfaces: {}, bytecodeVersion: 96 };
@@ -289,7 +293,10 @@ test('a plan-only edit runs its bake on the existing build; any other edit, or a
     const kept = () => planOverride('ios', app, nativeBuild('ios', app));
 
     // What app.ts imports is the plan's; what it does not import is no input at all (LLP 1116.003 D1.1).
-    assert.deepEqual([...moduleGraph(dir, app.manifest)].map(p => p.slice(dir.length + 1)).sort(), ['app.ts', 'lib/model.ts', 'lib/seed.json', 'types.ts']);
+    assert.deepEqual([...moduleGraph(dir, app.manifest)].map(p => p.slice(dir.length + 1)).sort(), ['app.ts', 'lib/digits.mjs', 'lib/format.mjs', 'lib/model.ts', 'lib/seed.json', 'types.ts']);
+    // A script app.ts never imports is no input, a `.mjs` as a `.ts`; one it imports, through another, is.
+    const input = notBuildInput(dir);
+    assert.deepEqual(['scripts/export.mjs', 'lib/format.mjs', 'lib/digits.mjs', 'server/index.ts'].map(f => input(resolve(dir, f))), [true, false, false, true]);
     // Only the Contract and what app.ts imports, and nothing a native build reads, is a plan-only edit.
     for (const [path, only] of [['app.contract', true], ['app.ts', true], ['types.ts', true], ['lib/model.ts', true], ['lib/seed.json', true], ['screens/list.contract', true],
       ['server/index.ts', false], ['server/fixtures.json', false], ['app.json', false], ['app.contract.d.ts', false],
@@ -318,7 +325,7 @@ test('a plan-only edit runs its bake on the existing build; any other edit, or a
     bakeSays = `${warning}\n{"version":1}\n`;
     assert.throws(() => refuseBuild('ios', nativeBuild('ios', app), app), /ios build is stale/, 'before the bake, the driver refuses as before');
     assert.equal(await drive(), 0);
-    assert.deepEqual([said.slice(0, 2), builds, bakes.length], [['iOS: app.contract changed; running the new plan on the existing build (no native rebuild)', warning], [], 1]);
+    assert.deepEqual([said.slice(0, 2), builds, bakes.length], [['iOS: app.contract changed; running the new plan on the existing build (no native rebuild). Only the agent\'s drives run it: a launch outside them (`simctl launch`, the home screen) runs the installed plan, so `bun exact.mjs ios` before timing one', warning], [], 1]);
     assert.equal(said.length, 3);
     assert.match(said[2], /^compiler: 1 warning; \S+\/\.exact\/warnings-ios\.txt lists them all$/);
     bakeSays = '';
@@ -339,7 +346,7 @@ test('a plan-only edit runs its bake on the existing build; any other edit, or a
     reset();
     assert.equal(await drive(), 0);
     assert.deepEqual([said.length, builds.length, bakes.length], [1, 0, 1]);
-    assert.match(said[0], /^iOS: (app\.contract, app\.ts|app\.ts, app\.contract) changed; running the new plan on the existing build \(no native rebuild\)$/);
+    assert.match(said[0], /^iOS: (app\.contract, app\.ts|app\.ts, app\.contract) changed; running the new plan on the existing build \(no native rebuild\)\. Only the agent's drives run it: .*`bun exact\.mjs ios` before timing one$/);
     assert.ok(kept());
 
     // A newer real build retires it: fresh, the build's own plan runs; a later touch of the same sources does not bring it back.
@@ -410,4 +417,18 @@ test('a drive says the web-only symbol warnings in one line and lists each in it
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+// An Apple build's bake says its warnings on every build: the SF Symbols only the web draws blank one line where the
+// first was (euxy's 18, every Release build), the rest each.
+test('an Apple bake says the web-only symbol warnings in one line', async () => {
+  const { bakeWarnings } = await import('./linked-plan.mjs');
+  const alias = 'app.contract:2:5 warning [lower-symbol-alias] symbol `sf/arrow.up.arrow.down` is the role `sort`: write `symbol:sort`';
+  const first = 'app.contract:4:5 warning [lower-symbol-platform] symbol `sf/a` draws only on Apple, and the app ships web (app.json `host.web`), where it is blank. Declare an icon token';
+  const later = 'app.contract:5:5 warning [lower-symbol-platform] symbol `sf/b` is blank on web too: write `symbol:add`, the role, which draws on every host';
+  assert.deepEqual(bakeWarnings('euxy', [alias, first, later]), [
+    `warning: euxy: ${alias}`,
+    'warning: euxy: app.contract:4:5 warning [lower-symbol-platform] 2 SF Symbol uses draw blank on the web, here first: an icon token or a role draws on every host (`bun exact.mjs contract build --json` says each, and how)',
+  ]);
+  assert.deepEqual(bakeWarnings('euxy', [alias]), [`warning: euxy: ${alias}`]);
 });

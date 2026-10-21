@@ -3,15 +3,17 @@
 // keeps the same geometry, colours and author precedence in all three engines.
 import { test, expect } from 'bun:test';
 import { readFileSync } from 'node:fs';
-import { withLook } from '../look.mjs';
-import { chromium as browserPath } from '../../../scripts/agent-launch.mjs';
+import { withLook, appleColors } from '../look.mjs';
+import { suiteBrowser } from '../../../scripts/agent-launch.mjs';
 
 const read = (path) => readFileSync(new URL(path, import.meta.url), 'utf8');
 const shell = read('../index.html'), neutral = read('../neutral.css');
-const sheet = () => withLook(shell).match(/<style>([\s\S]*?)<\/style>/)[1];
+// The neutral look alone, its roles the neutral column's: the Apple colours a build lays over it, in every
+// browser, are apple-colors.test.mjs's
+const sheet = () => withLook(shell).match(/<style>([\s\S]*?)<\/style>/)[1].replace(appleColors(), '');
 
-test('a build composes the neutral sheet after the browser resets', () => {
-  expect(withLook(shell)).toBe(shell.replace('</style>', () => neutral + '</style>'));
+test('a build composes the neutral sheet, then Apple\'s colours, after the browser resets', () => {
+  expect(withLook(shell)).toBe(shell.replace('</style>', () => neutral + appleColors() + '</style>'));
 });
 
 test('route header geometry is the schema\'s neutral default', () => {
@@ -49,7 +51,7 @@ test('the neutral sheet\'s lengths and ratios are the metric table\'s neutral co
   // another look's own (Android's Material rows) and no sheet's here.
   const neutralCell = (row) => (row.length === 3 ? row[2] : row[5]);
   const rows = JSON.parse(read('../../../kernel/tables/schema.json')).metrics
-    .filter((row) => row[1] !== 'style' && neutralCell(row) !== 'unset');
+    .filter((row) => !row[1].startsWith('style') && neutralCell(row) !== 'unset'); // `style` and `style length`: the grouped sheet's
   const value = new Map(rows.map((row) => [row[0], neutralCell(row)]));
   const length = (name) => { const v = value.get(name); return typeof v === 'number' ? `${v}px` : v.replace(/^0\./, '.'); };
   // The properties each length is written on.
@@ -70,10 +72,11 @@ test('the neutral sheet\'s lengths and ratios are the metric table\'s neutral co
     'sidebar-row-height': ['min-height'], 'sidebar-symbol': ['width', 'height'], 'sidebar-gap': ['--exact-button-space-width'],
     'back-padding-start': ['padding'], 'back-padding-end': ['padding'],
     'alert-width': ['width'], 'alert-margin': ['width'], 'alert-padding': ['padding'], 'alert-gap': ['gap'], 'alert-action-gap': ['gap'],
-    'alert-title': ['font-size'], 'alert-message-gap': ['margin-bottom'],
+    'alert-title': ['font-size'], 'alert-message-gap': ['margin-bottom', 'margin-top'], 'alert-scroll-gutter': ['padding-inline-end'],
     'menu-min-width': ['min-width'], 'menu-max-width': ['max-width'], 'menu-margin': ['max-width'], 'menu-padding': ['padding'], 'menu-offset': ['margin'],
     'menu-row-height': ['min-height'], 'menu-row-padding-block': ['padding'], 'menu-row-padding-inline': ['padding'], 'menu-row-gap': ['--exact-button-space-width'],
     'sheet-wide': ['@media'], 'sheet-width': ['width'], 'sheet-max-height': ['max-height'], 'sheet-margin': ['width', 'max-height'],
+    'list-row-inset': ['padding-left', 'padding-right'],
     'raised-shadow-y': ['--exact-raised'], 'raised-shadow-blur': ['--exact-raised'], 'modal-shadow-y': ['--exact-modal'], 'modal-shadow-blur': ['--exact-modal'],
   };
   // The look keeps this one from the shell's sheet, which is where it is written.
@@ -112,7 +115,7 @@ test('the neutral sheet\'s lengths and ratios are the metric table\'s neutral co
   // The ratios: how each is spelled where the sheet writes it (the shell's sheet for a select's own line).
   const percent = (name) => `${Math.round(value.get(name) * 100)}%`, alpha = (name) => String(value.get(name)).replace(/^0\./, '.');
   const RATIO = {
-    'control-line-alpha': `--exact-line: color-mix(in srgb, var(--exact-label) ${percent('control-line-alpha')}, transparent)`,
+    'control-line-alpha': `--exact-line: color-mix(in srgb, rgb(from var(--exact-label) r g b / 1) ${percent('control-line-alpha')}, transparent)`,
     'mark-dot': `radial-gradient(circle closest-side, currentColor ${percent('mark-dot')},`,
     'mark-disabled-alpha': `:disabled { opacity: ${alpha('mark-disabled-alpha')}; }`,
     'button-tint-alpha': `{ background-color: color-mix(in srgb, var(--exact-accent, AccentColor) ${percent('button-tint-alpha')}, transparent); }`,
@@ -120,6 +123,7 @@ test('the neutral sheet\'s lengths and ratios are the metric table\'s neutral co
     'button-hover-filled': `:hover { background-color: var(--exact-accent, AccentColor); background-image: linear-gradient(color-mix(in srgb, currentColor ${percent('button-hover-filled')}, transparent) 0 0); }`,
     'button-pressed-tinted': `[data-button-style="bordered-tinted"])[data-pressed] { background-image: linear-gradient(color-mix(in srgb, currentColor ${percent('button-pressed-tinted')}, transparent) 0 0); }`,
     'button-pressed-filled': `[data-button-style="bordered-prominent"])[data-pressed] { background-image: linear-gradient(color-mix(in srgb, currentColor ${percent('button-pressed-filled')}, transparent) 0 0); }`,
+    'bar-hover-alpha': `{ opacity: var(--exact-hover-dim, ${alpha('bar-hover-alpha')}); }`,
     'select-line-height-coarse': `select:not([multiple]) { line-height: ${value.get('select-line-height-coarse')}; }`,
     'switch-thumb': `radial-gradient(circle closest-side, currentColor ${percent('switch-thumb')},`,
     'segment-shadow-alpha': `box-shadow: 0 1px 2px rgb(0 0 0 / ${alpha('segment-shadow-alpha')});`,
@@ -138,18 +142,25 @@ test('the neutral sheet\'s lengths and ratios are the metric table\'s neutral co
   expect(rows.filter(([name, kind]) => kind === 'number' && !RATIO[name] && !['control-line-height', 'control-weight', 'select-line-height'].includes(name)).map(([name]) => name)).toEqual([]);
 });
 
+// Touch sizes follow the device, whichever pointer it uses now (`any-pointer`, Media Queries 4 §5.3), so no control
+// resizes as a mouse comes or goes; the agent's check asks for a touch target by the same rule.
+test('the neutral sheet sizes for touch by the device, not the current pointer', () => {
+  expect(read('../neutral.css').match(/@media[^{]*pointer[^{]*/g).filter((q) => q.trim() !== '@media (any-pointer: coarse)')).toEqual([]);
+  expect(read('../../web-js/check.js').match(/\([a-z-]*pointer: coarse\)/g)).toEqual(['(any-pointer: coarse)']);
+});
+
 // The page each browser draws: one of each control.
 const fixture = `
 <div id="exact-root">
   <main navigationKey="1" navigationBack="back" id="nav" style="display:flex;flex-direction:column;height:240px;position:relative">
     <div role="tabpanel" id="p1" style="flex:1;position:relative;color:rgb(255, 0, 0)">
-      <div navigationKey="1" id="route"><header id="bar"><h1>Inbox</h1><button type="button" data-native data-button-style="bordered" id="bar-button" style="display:grid"><span data-exact-text>Edit</span></button></header></div>
+      <div navigationKey="1" id="route"><header id="bar"><h1>Inbox</h1><button type="button" data-native data-button-style="bordered" id="bar-button" style="display:grid"><span data-exact-text>Edit</span></button><button type="button" id="bar-plain" style="width:44px;height:44px"></button><button type="button" id="bar-said" style="width:44px;height:44px;--exact-hover-dim:1"></button><button type="button" id="bar-own" data-exact-on="press pointerdown" style="width:44px;height:44px;opacity:.5"></button></header></div>
       <div navigationKey="2" navigationPresentation="modal" id="sheet" style="position:absolute;inset:0;display:flex;flex-direction:column;visibility:hidden"><header><h2>New</h2></header><div style="height:120px"></div></div>
     </div>
     <div role="tablist" id="tabs" style="display:flex"><button type="button" role="tab" aria-controls="p1" aria-selected="true" data-native data-button-style="bordered" id="tab" style="display:grid;flex:1"><span data-exact-text>Inbox</span></button></div>
   </main>
   <div id="said" style="color:rgb(255, 0, 0)">
-    <div style="display:flex;justify-content:space-between"><button type="button" data-native data-button-style="bordered" popovertarget="menu" id="invoker" style="display:grid"><span data-exact-text>Menu</span></button><button type="button" data-native data-button-style="bordered" popovertarget="menu" id="invoker-end" style="display:grid"><span data-exact-text>More</span></button></div>
+    <div style="display:flex;justify-content:space-between"><button type="button" data-native data-button-style="bordered" popovertarget="menu" id="invoker" style="display:grid"><span data-exact-text>Menu</span></button><button type="button" data-native data-button-style="bordered" popovertarget="chooser" id="chooser-invoker" style="display:grid"><span data-exact-text>Open in</span></button><button type="button" data-native data-button-style="bordered" commandfor="chooser" command="show-popover" id="chooser-command" style="display:grid"><span data-exact-text>Open with</span></button><button type="button" data-native data-button-style="bordered" popovertarget="asked" id="asked-invoker" style="display:grid"><span data-exact-text>Remove</span></button><button type="button" data-native data-button-style="bordered" popovertarget="named" id="named-invoker" style="display:grid"><span data-exact-text>Rename</span></button><button type="button" data-native data-button-style="bordered" popovertarget="kept" id="kept-invoker" style="display:grid"><span data-exact-text>Share</span></button><button type="button" data-native data-button-style="bordered" popovertarget="menu" id="invoker-end" style="display:grid"><span data-exact-text>More</span></button></div>
     <div id="held" style="height:40px"></div>
     <button type="button" data-native data-button-style="bordered" id="bordered" style="display:grid"><span data-exact-text>Button</span></button>
     <button type="button" data-native data-button-style="filled" id="filled" style="display:grid"><span data-exact-text>Button</span></button>
@@ -172,6 +183,10 @@ const fixture = `
     <div role="list" data-listrows="true" id="windowed" style="width:300px"><div aria-hidden="true" id="spacer" style="height:10px"></div><div role="listitem" data-listitemkey="a" id="cell-a"><div style="height:44px">A</div></div><div role="listitem" data-listitemkey="b" id="cell-b"><div data-exact-said="border-bottom" style="height:44px;border-bottom:1px solid red">B</div></div><div role="listitem" data-listitemkey="c" id="cell-c"><div style="height:44px">C</div></div></div>
     <div role="list" id="rows-none" style="width:300px"><div id="none-1" data-exact-on="press" style="height:44px">The author's</div><div style="height:44px">rows</div></div>
   </div>
+  <div popover="auto" role="alertdialog" aria-label="Open in" id="chooser" style="display:flex;flex-direction:column"><button type="button" data-native data-button-style="bordered" data-exact-on="press" popovertarget="chooser" popovertargetaction="hide" id="choice" style="display:grid"><span data-exact-text>Maps</span></button><button type="button" data-native data-button-style="bordered" data-exact-on="press" popovertarget="chooser" popovertargetaction="hide" id="choice-2" style="display:grid"><span data-exact-text>Google Maps</span></button><button type="button" data-native data-button-style="bordered" popovertarget="chooser" popovertargetaction="hide" id="choice-cancel" style="display:grid"><span data-exact-text>Cancel</span></button></div>
+  <div popover="auto" role="alertdialog" aria-label="Remove?" id="asked" style="display:flex;flex-direction:column"><div data-exact-text>It cannot be undone.</div><button type="button" data-native data-button-style="bordered" data-exact-on="press" popovertarget="asked" popovertargetaction="hide" id="asked-remove" style="display:grid"><span data-exact-text>Remove</span></button><button type="button" data-native data-button-style="bordered" popovertarget="asked" popovertargetaction="hide" id="asked-cancel" style="display:grid"><span data-exact-text>Cancel</span></button></div>
+  <div popover="manual" role="alertdialog" aria-label="Share" id="kept" style="display:flex;flex-direction:column"><button type="button" data-native data-button-style="bordered" data-exact-on="press" popovertarget="kept" popovertargetaction="hide" id="kept-mail" style="display:grid"><span data-exact-text>Mail</span></button><button type="button" data-native data-button-style="bordered" popovertarget="kept" popovertargetaction="hide" id="kept-cancel" style="display:grid"><span data-exact-text>Cancel</span></button></div>
+  <div popover="auto" role="alertdialog" aria-label="Rename" id="named" style="display:flex;flex-direction:column"><input data-native id="name"><button type="button" data-native data-button-style="bordered" data-exact-on="press" popovertarget="named" popovertargetaction="hide" id="named-save" style="display:grid"><span data-exact-text>Save</span></button></div>
   <div popover="auto" role="menu" id="menu" style="display:flex;flex-direction:column"><button type="button" data-native data-button-style="bordered" id="item" style="display:grid"><span data-exact-text>Rename</span></button><button type="button" data-native data-button-style="bordered" data-destructive="true" id="item-delete" style="display:grid"><span data-exact-text>Delete</span></button></div>
   <dialog id="alert" role="alertdialog" aria-label="Sure?"><div data-exact-text>It cannot be undone.</div><button type="button" data-native data-button-style="bordered" data-destructive="true" id="delete" style="display:grid"><span data-exact-text>Delete</span></button><button type="button" data-native data-button-style="bordered" id="cancel" style="display:grid"><span data-exact-text>Cancel</span></button></dialog>
 </div>`;
@@ -189,7 +204,7 @@ const helpers = `
 `;
 const launch = async (engine) => {
   const playwright = await import('playwright-core');
-  return playwright[engine].launch({ headless: true, ...(engine === 'chromium' ? { executablePath: browserPath().executable } : {}) });
+  return suiteBrowser(engine);
 };
 
 // One set of numbers for the three engines. A colour is what the engine paints: [r, g, b, alpha].
@@ -219,7 +234,7 @@ for (const engine of ['chromium', 'firefox', 'webkit']) test(`${engine}: the neu
         check: [css('check', 'appearance'), box('check').slice(2), color('check', 'borderTopColor'), color('checked', 'backgroundColor'), color('checked')],
         own: [css('own', 'borderTopWidth'), css('own', 'content', '::before')],
         radio: [box('radio').slice(2), css('radio', 'borderRadius')],
-        toggle: [css('switch', 'appearance'), css('switch', 'width', '::before'), css('switch', 'height', '::before'), color('switch', 'backgroundColor', '::before'), color('switch-on', 'backgroundColor', '::before')],
+        toggle: [css('switch', 'appearance'), css('switch', 'width', '::before'), css('switch', 'height', '::before'), color('switch', 'backgroundColor', '::before'), color('switch-on', 'backgroundColor', '::before'), color('switch'), color('switch-on')],
         spinner: [css('spinner', 'backgroundImage', '::before').includes('rgb(255, 0, 0)'), css('spinner-said', 'backgroundImage', '::before').includes('rgb(255, 0, 0)')],
         segments: [box('segments')[2] < 300, Math.abs(box('segments')[2] - box('chosen')[2] - box('segment')[2] - 6) < 1, box('segments')[3], css('chosen', 'boxShadow') !== 'none'],
         bar: [color('bar'), color('bar', 'backgroundColor'), css('bar', 'backdropFilter') ?? css('bar', 'webkitBackdropFilter'), css('bar', 'borderBottomWidth'), color('bar-button', 'borderTopColor')[3]],
@@ -248,7 +263,8 @@ for (const engine of ['chromium', 'firefox', 'webkit']) test(`${engine}: the neu
       expect([at('check'), got.check]).toEqual([at('check'), ['none', [20, 20], LINE[scheme], fill, onFill]]);
       expect([at('own'), got.own]).toEqual([at('own'), ['0px', 'none']]);
       expect([at('radio'), got.radio]).toEqual([at('radio'), [[20, 20], '50%']]);
-      expect([at('switch'), got.toggle]).toEqual([at('switch'), ['none', '36px', '20px', LINE[scheme], fill]]);
+      // A switch's thumb is white, off or on.
+      expect([at('switch'), got.toggle]).toEqual([at('switch'), ['none', '36px', '20px', LINE[scheme], fill, [255, 255, 255, 1], [255, 255, 255, 1]]]);
       // The spinner is not the text's colour around it, unless its own colour is written.
       expect([at('spinner'), got.spinner]).toEqual([at('spinner'), [false, true]]);
       // A segmented track is the width of its segments, 36 px, its chosen segment a chip.
@@ -272,6 +288,31 @@ for (const engine of ['chromium', 'firefox', 'webkit']) test(`${engine}: the neu
       expect([at('link'), await page.evaluate(() => css('inline', 'textDecorationLine'))]).toEqual([at('link'), 'underline']);
       await page.mouse.move(1, 1);
       expect(await page.evaluate(() => [css('pressable', 'backgroundImage'), css('inline', 'textDecorationLine')])).toEqual(['none', 'none']);
+      // In a bar it dims instead, to the shell's press dim, with no wash, and at once: nothing moves, hovered or left,
+      // pressed or let go. An author's hover look (here its variable) replaces the dim, and an opacity the author wrote
+      // wins.
+      const seen = (id) => page.evaluate((id) => [css(id, 'opacity'), css(id, 'backgroundImage'), document.getElementById(id).getAnimations().length], id);
+      // A press, held then let go: its opacity each time, and whether anything moved rather than changed at once.
+      const press = (id) => page.evaluate((id) => { const b = document.getElementById(id), held = []; for (const on of [true, false]) { b.toggleAttribute('data-pressed', on); held.push(css(id, 'opacity'), b.getAnimations().length); } return held; }, id);
+      expect([at('bar at rest'), await seen('bar-plain')]).toEqual([at('bar at rest'), ['1', 'none', 0]]);
+      await page.hover('#bar-plain');
+      expect([at('bar hover'), await seen('bar-plain')]).toEqual([at('bar hover'), ['0.65', 'none', 0]]);
+      expect([at('bar hover press'), await press('bar-plain')]).toEqual([at('bar hover press'), ['0.65', 0, '0.65', 0]]);
+      await page.hover('#bar-said');
+      expect([at('bar left'), await seen('bar-plain')]).toEqual([at('bar left'), ['1', 'none', 0]]);
+      expect([at('bar hover said'), await seen('bar-said')]).toEqual([at('bar hover said'), ['1', 'none', 0]]);
+      expect([at('bar press said'), await press('bar-said')]).toEqual([at('bar press said'), ['0.65', 0, '1', 0]]);
+      await page.hover('#bar-own');
+      expect([at('bar hover own'), await seen('bar-own')]).toEqual([at('bar hover own'), ['0.5', 'none', 0]]);
+      expect([at('bar press own'), await press('bar-own')]).toEqual([at('bar press own'), ['0.5', 0, '0.5', 0]]);
+      // A form control in a bar keeps its own hover.
+      await page.evaluate(() => { const select = Object.assign(document.createElement('select'), { id: 'bar-select', innerHTML: '<option>One</option>' }); select.setAttribute('data-exact-on', 'press'); document.getElementById('bar-own').after(select); });
+      await page.hover('#bar-select');
+      expect([at('bar hover select'), (await seen('bar-select'))[0]]).toEqual([at('bar hover select'), '1']);
+      await page.evaluate(() => document.getElementById('bar-select').remove());
+      await page.mouse.move(1, 1);
+      // A press with no hover (a finger) dims and comes back at once, as the shell's press does.
+      expect([at('bar press'), await press('bar-plain')]).toEqual([at('bar press'), ['0.65', 0, '1', 0]]);
 
       // A list's rows (LLP 1115.000 D16): under each row but the last one line in the separator's role, inside the
       // row's box (a row keeps its height); none beside a row whose author wrote its own top or bottom edge; a
@@ -279,7 +320,9 @@ for (const engine of ['chromium', 'firefox', 'webkit']) test(`${engine}: the neu
       const LINE_BETWEEN = [scheme === 'light' ? [0, 0, 0, 0.12] : [255, 255, 255, 0.16], true, ['0px', '-1px', '0px', '0px']];
       expect([at('rows'), await page.evaluate(() => ['row-1', 'row-2', 'row-own', 'row-before', 'row-top', 'row-last'].map(separator))])
         .toEqual([at('rows'), [LINE_BETWEEN, LINE_BETWEEN, null, null, LINE_BETWEEN, null]]);
-      expect([at('row heights'), await page.evaluate(() => [box('row-1')[3], box('row-own')[3], box('rows')[3]])]).toEqual([at('row heights'), [44, 46, 268]]);
+      // A row's box is the cell's (LLP 1138): its own edge is inside its height, and its content is inset 16.
+      expect([at('row heights'), await page.evaluate(() => [box('row-1')[3], box('row-own')[3], box('rows')[3]])]).toEqual([at('row heights'), [44, 44, 264]]);
+      expect([at('row inset'), await page.evaluate(() => [css('row-1', 'paddingLeft'), css('row-1', 'paddingRight')])]).toEqual([at('row inset'), ['16px', '16px']]);
       expect([at('windowed rows'), await page.evaluate(() => ['spacer', 'cell-a', 'cell-b', 'cell-c'].map(separator))]).toEqual([at('windowed rows'), [null, LINE_BETWEEN, null, null]]);
       expect([at('no mark'), await page.evaluate(() => separator('none-1'))]).toEqual([at('no mark'), null]);
       // A row that presses: the hover's wash, a stronger one while held (never the dim), the ring inside the row.
@@ -310,6 +353,30 @@ for (const engine of ['chromium', 'firefox', 'webkit']) test(`${engine}: the neu
       [menu, invoker] = await page.evaluate(() => [box('menu'), box('invoker-end')]);
       expect([at('menu at the end'), Math.abs(menu[0] + menu[2] - invoker[0] - invoker[2]) <= 1, menu[1] - invoker[1] - invoker[3]]).toEqual([at('menu at the end'), true, 4]);
       await page.keyboard.press('Escape');
+      // A chooser its invoker opens (an `alertdialog` popover of actions and no text) is drawn at it, as a menu headed
+      // by its name (which it already says to assistive technology, so the heading is silent) and with no row for its
+      // cancel; one with no invoker, or whose invoker is no longer shown, and an alert with text or a field, stay centred.
+      await page.click('#chooser-invoker');
+      const [chooser, opener] = await page.evaluate(() => [box('chooser'), box('chooser-invoker')]);
+      expect([at('chooser'), Math.abs(chooser[0] - opener[0]) <= 1, chooser[1] - opener[1] - opener[3], await page.evaluate(() => [css('choice', 'borderTopStyle'), css('chooser', 'content', '::before'), document.getElementById('choice-cancel').getClientRects().length])])
+        .toEqual([at('chooser'), true, 4, ['none', '"Open in" / ""', 0]]);
+      await page.keyboard.press('Escape');
+      // Popover `id` opened by clicking `by`, or by its `showPopover` with `by` as the source (after `by`'s menu closed,
+      // for 'closed-menu'): whether it is marked, and whether it stands at `under`, else centred.
+      const opened = (id, how, by, under) => page.evaluate(([id, how, by, under]) => {
+        const c = document.getElementById(id), source = by ? document.getElementById(by) : undefined;
+        if (how === 'click') source.click();
+        else if (how === 'closed-menu') { source.parentElement.showPopover(); source.parentElement.hidePopover(); c.showPopover({ source }); }
+        else c.showPopover(source && { source });
+        const r = box(id), u = under && box(under), shown = [c.hasAttribute('data-exact-chooser'), u ? Math.abs(r[0] - u[0]) <= 1 && Math.round(r[1] - u[1] - u[3]) === 4 : Math.abs(r[0] + r[2] / 2 - innerWidth / 2) <= 1];
+        c.hidePopover(); return shown;
+      }, [id, how, by, under]);
+      // A `manual` chooser ends by neither Escape nor a click outside, so it keeps its cancel's row.
+      await page.click('#kept-invoker');
+      expect([at('manual chooser'), await page.evaluate(() => { const c = document.getElementById('kept'), shown = [c.hasAttribute('data-exact-chooser'), document.getElementById('kept-cancel').getClientRects().length]; c.hidePopover(); return shown; })])
+        .toEqual([at('manual chooser'), [true, 1]]);
+      expect([at('chooser ways'), await opened('chooser', 'show'), await opened('chooser', 'show', 'bordered', 'bordered'), await opened('chooser', 'closed-menu', 'item'), await opened('asked', 'click', 'asked-invoker'), await opened('named', 'click', 'named-invoker'), await opened('chooser', 'click', 'chooser-command', 'chooser-command')])
+        .toEqual([at('chooser ways'), [false, true], [true, true], [false, true], [false, true], [false, true], [true, true]]);
       // A context menu opens at the pointer, in every engine (the release of the button that asked no longer
       // dismisses it), and in a corner it opens the other way, inside the window.
       await page.evaluate(() => document.getElementById('held').addEventListener('contextmenu', (event) => { event.preventDefault(); contextAt(event, () => [document.getElementById('menu'), event.currentTarget ?? document.getElementById('held')]); }));
@@ -333,12 +400,12 @@ for (const engine of ['chromium', 'firefox', 'webkit']) test(`${engine}: the neu
       expect([at('alert'), alert]).toEqual([at('alert'), ['416px', 'start', '12px', SURFACE[scheme], 178, 178, true, false]]);
       await context.close();
     }
-    // A narrow window: the sheet is the page's own box, full-bleed. A coarse pointer: a control is 44 px.
-    const narrow = await browser.newContext({ viewport: { width: 390, height: 700 }, ...(engine === 'chromium' ? { hasTouch: true, isMobile: true } : {}) });
+    // A narrow window: the sheet is the page's own box, full-bleed. A touch device: a control is 44 px.
+    const narrow = await browser.newContext({ viewport: { width: 390, height: 700 }, hasTouch: true, ...(engine === 'chromium' ? { isMobile: true } : {}) });
     const page = await narrow.newPage();
     await page.setContent(`<meta name="viewport" content="width=device-width, initial-scale=1"><style>${sheet()}</style>${fixture}<script>${helpers}</script>`);
     expect([engine, await page.evaluate(() => css('sheet', 'position'))]).toEqual([engine, 'absolute']);
-    if (engine === 'chromium') expect(await page.evaluate(() => [matchMedia('(pointer: coarse)').matches, box('bordered')[3], box('field')[3], box('select')[3]])).toEqual([true, 44, 44, 44]);
+    expect([engine, await page.evaluate(() => [matchMedia('(any-pointer: coarse)').matches, box('bordered')[3], box('field')[3], box('select')[3], box('check')[3]])]).toEqual([engine, [true, 44, 44, 44, 24]]);
   } finally { await browser.close(); }
 }, 90000);
 

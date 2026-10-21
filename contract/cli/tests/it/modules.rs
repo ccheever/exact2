@@ -91,10 +91,10 @@ fn a_module_send_and_source_compile_to_a_source_of_one_record() {
     assert_eq!(
         rows,
         [
-            "geolocationStatus geolocation.geolocationStatus send=false live=true request=never sync=geolocationStatusSync substitute=[\"default\", \"permission\"]",
-            "getCurrentPosition geolocation.getCurrentPosition send=true live=false request=always sync=getCurrentPositionSync substitute=[\"cancel\", \"from\", \"permission\", \"ticket\", \"timeout\"]",
-            "requestPreciseLocation geolocation.requestPreciseLocation send=true live=false request=always sync= substitute=[\"permission\"]",
-            "watchPosition geolocation.watchPosition send=false live=true request=when-prompt sync= substitute=[\"default\", \"fill\", \"permission\", \"short\"]",
+            "geolocationStatus geolocation.geolocationStatus send=false live=true request=never sync=geolocationStatusSync substitute=[\"default\", \"grants\", \"permission\"]",
+            "getCurrentPosition geolocation.getCurrentPosition send=true live=false request=always sync=getCurrentPositionSync substitute=[\"cancel\", \"from\", \"grants\", \"permission\", \"ticket\", \"timeout\"]",
+            "requestPreciseLocation geolocation.requestPreciseLocation send=true live=false request=always sync= substitute=[\"answers\", \"grants\", \"permission\", \"raise\", \"unsupported\"]",
+            "watchPosition geolocation.watchPosition send=false live=true request=when-prompt sync= substitute=[\"default\", \"fill\", \"grants\", \"permission\", \"short\"]",
         ]
     );
 }
@@ -337,4 +337,312 @@ fn a_module_send_waits_on_the_agent_s_permission_and_position_tickets() {
     assert!(logs(&r).contains("PERMISSION_DENIED"), "{}", logs(&r));
     let state = exact_runner::agent::handle(&r, r#"{"op":"state","name":"failed"}"#);
     let _ = state;
+}
+
+/// LLP 1133.002 §6: a request's own `timeout` runs on the agent's clock. A
+/// position ticket fails `TIMEOUT` once the clock passes it, and is retired;
+/// `timeout=0` with no position preferred fails at once.
+#[test]
+fn a_position_ticket_times_out_on_the_agent_clock() {
+    let app = App::new("timeout");
+    let body = "component App\n  mutation slow as shape GeolocationPosition\n  mutation now as shape GeolocationPosition\n  action wait\n    send slow = getCurrentPosition(timeout=100)\n  action instant\n    send now = getCurrentPosition(timeout=0)\n  view\n    text \"x\"\n";
+    let plan = app.compile(body).unwrap_or_else(|e| panic!("{e:?}"));
+    let mut r = exact_runner::Runner::boot(
+        plan,
+        NoData,
+        exact_kernel::Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    let mut parked = Vec::new();
+    r.extension_agent(r#"{"op":"prefer","permission":{"geolocation":"granted"}}"#)
+        .unwrap()
+        .1
+        .unwrap();
+    r.act("wait", Vec::new()).unwrap();
+    pump(&mut r, &mut parked);
+    assert!(r.device_holds().iter().any(|h| h.capability == "position"));
+    r.advance(99.0).unwrap();
+    pump(&mut r, &mut parked);
+    assert!(
+        r.device_holds().iter().any(|h| h.capability == "position"),
+        "not yet"
+    );
+    r.advance(101.0).unwrap();
+    pump(&mut r, &mut parked);
+    assert!(r.device_holds().is_empty(), "{:?}", r.device_holds());
+    assert!(
+        logs(&r).contains("geolocation.getCurrentPosition: TIMEOUT"),
+        "{}",
+        logs(&r)
+    );
+    r.act("instant", Vec::new()).unwrap();
+    pump(&mut r, &mut parked);
+    assert!(r.device_holds().is_empty());
+    assert!(
+        logs(&r).contains("send now failed: geolocation.getCurrentPosition: TIMEOUT"),
+        "{}",
+        logs(&r)
+    );
+}
+
+/// LLP 1133.002 D10 through the substitute: precise location for a task.
+/// While `granted` and `approximate` the send waits on a `precision` ticket;
+/// `allow` raises `accuracy` and the send answers the status; declined, it
+/// answers the status unchanged, never a failure; once `precise`, at once.
+#[test]
+fn a_precision_ticket_raises_the_status_or_answers_it_unchanged() {
+    let app = App::new("precision");
+    let head = "use requestPreciseLocation from \"@exact/geolocation\"\n";
+    let body = format!("{head}component App\n  resource status = geolocationStatus() as shape GeolocationStatus\n  mutation raised as shape GeolocationStatus\n  action raise\n    send raised = requestPreciseLocation(purposeKey=\"forecastPurpose\")\n  view\n    text status.accuracy\n");
+    let plan = app.compile(&body).unwrap_or_else(|e| panic!("{e:?}"));
+    let mut r = exact_runner::Runner::boot(
+        plan,
+        NoData,
+        exact_kernel::Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    let mut parked = Vec::new();
+    let show = |r: &exact_runner::Runner<NoData>, name: &str| {
+        format!("{:?}", r.resource(name).or(r.slot(name)))
+    };
+    r.act("raise", Vec::new()).unwrap();
+    pump(&mut r, &mut parked);
+    answer(&mut r, "tap", "permission", "allow");
+    pump(&mut r, &mut parked);
+    assert!(
+        show(&r, "status").contains("\"approximate\""),
+        "{}",
+        show(&r, "status")
+    );
+    answer(&mut r, "tap", "precision", "deny");
+    pump(&mut r, &mut parked);
+    assert!(
+        show(&r, "raised").contains("\"approximate\""),
+        "declined is the status unchanged: {}",
+        show(&r, "raised")
+    );
+    r.act("raise", Vec::new()).unwrap();
+    pump(&mut r, &mut parked);
+    answer(&mut r, "tap", "precision", "allow");
+    pump(&mut r, &mut parked);
+    assert!(
+        show(&r, "raised").contains("\"precise\""),
+        "{}",
+        show(&r, "raised")
+    );
+    assert!(
+        show(&r, "status").contains("\"precise\""),
+        "{}",
+        show(&r, "status")
+    );
+    r.act("raise", Vec::new()).unwrap();
+    pump(&mut r, &mut parked);
+    assert!(
+        r.device_holds().is_empty(),
+        "precise already: answered at once"
+    );
+}
+
+/// LLP 1133.002 D6, D13: an app that reads or sends a module's name writes
+/// one of its interface's grant lines; with none, the compile says which.
+#[test]
+fn a_module_without_its_grant_line_is_named() {
+    let app = App::new("grant");
+    std::fs::write(
+        app.0.join("app.json"),
+        r#"{"name":"G","app":{"id":"test.grant","name":"G"}}"#,
+    )
+    .unwrap();
+    std::fs::write(
+        app.0.join("app.ts"),
+        "export const grants = 'net.fetch https://x.test';\n",
+    )
+    .unwrap();
+    let body = "component App\n  resource status = geolocationStatus() as shape GeolocationStatus\n  view\n    text status.state\n";
+    std::fs::write(app.0.join("app.contract"), format!("{HEAD}{body}")).unwrap();
+    let warned = |app: &App| {
+        let (result, warnings) =
+            contract::compile_path_all_with_warnings(&app.0.join("app.contract"), false);
+        let errors = result.err().unwrap_or_default();
+        format!(
+            "{:?}",
+            warnings
+                .iter()
+                .chain(&errors)
+                .map(|e| (&e.id, &e.message))
+                .collect::<Vec<_>>()
+        )
+    };
+    let all = warned(&app);
+    assert!(all.contains("grant-missing"), "{all}");
+    assert!(
+        all.contains("`device.geolocation` or `device.geolocation-approximate`"),
+        "{all}"
+    );
+    std::fs::write(
+        app.0.join("app.ts"),
+        "export const grants = 'device.geolocation-approximate purpose.geolocation';\n",
+    )
+    .unwrap();
+    assert!(!warned(&app).contains("grant-missing"), "{}", warned(&app));
+}
+
+/// `contract fmt` keeps a platform's word against its `=`, as it keeps a
+/// named argument's (LLP 1133.002 D13).
+#[test]
+fn fmt_keeps_a_dotted_keyword_tight() {
+    let src = format!(
+        "{HEAD}{}",
+        locate("getCurrentPosition(maximumAge=600000, apple.desiredAccuracy=\"threeKilometers\")")
+    );
+    let out = contract_syntax::fmt::format(&src).unwrap();
+    assert!(
+        out.contains("apple.desiredAccuracy=\"threeKilometers\""),
+        "{out}"
+    );
+}
+
+/// LLP 1133.001 D4: a host that binds the extension sends its names to the
+/// native slot, the substitute set aside: no ticket, the module answers,
+/// and a call's options travel as written.
+#[test]
+fn a_bound_module_answers_through_the_native_slot() {
+    use std::sync::{Arc, Mutex};
+    let app = App::new("bound");
+    let plan = app.compile(APP).unwrap_or_else(|e| panic!("{e:?}"));
+    let mut r = exact_runner::Runner::boot(
+        plan,
+        NoData,
+        exact_kernel::Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    let asked: Arc<Mutex<Vec<String>>> = Arc::default();
+    let seen = asked.clone();
+    r.native_slot().host(Some(Arc::new(move |body: Vec<u8>, reply: exact_runner::Reply| {
+        let v: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        seen.lock().unwrap().push(v.to_string());
+        let answer = match (v["source"].as_str(), v["send"].as_str()) {
+            (Some("geolocationStatus"), _) => serde_json::json!({ "available": true, "state": "granted", "accuracy": "precise" }),
+            (_, Some("getCurrentPosition")) => serde_json::json!({ "coords": { "latitude": 35.0, "longitude": 139.0, "accuracy": 10 }, "timestamp": 1 }),
+            _ => serde_json::json!({}),
+        };
+        reply.send(exact_runner::Outcome::Response(exact_runner::Response { status: 200, headers: Vec::new(), body: answer.to_string().into_bytes() }));
+    })));
+    r.bind_extensions(&["geolocation"]);
+    r.apply_announced();
+    let pump = |r: &mut exact_runner::Runner<NoData>| {
+        for out in r.take_requests() {
+            let exact_runner::Dispatch::Run(exact_runner::Work::Later(work)) =
+                r.native_work(&out.request)
+            else {
+                panic!("a bound name goes to the native slot");
+            };
+            let (tx, rx) = std::sync::mpsc::channel();
+            work(exact_runner::Reply::new(move |o| tx.send(o).unwrap()));
+            r.fulfill(out.ticket, rx.recv().unwrap()).unwrap();
+        }
+    };
+    pump(&mut r);
+    let show = |r: &exact_runner::Runner<NoData>, name: &str| {
+        format!("{:?}", r.resource(name).or(r.slot(name)))
+    };
+    assert!(
+        show(&r, "status").contains("\"granted\""),
+        "{}",
+        show(&r, "status")
+    );
+    r.act("locate", Vec::new()).unwrap();
+    pump(&mut r);
+    assert!(
+        show(&r, "located").contains("35.0"),
+        "{}",
+        show(&r, "located")
+    );
+    assert!(r.device_holds().is_empty(), "no ticket: the module answers");
+    let calls = asked.lock().unwrap().clone();
+    assert!(
+        calls.iter().any(|c| c.contains("\"maximumAge\":600000")
+            && c.contains("\"desiredAccuracy\":\"threeKilometers\"")),
+        "the call's options travel: {calls:?}"
+    );
+}
+
+#[test]
+fn a_synchronous_form_answers_from_the_substitute_until_its_module_is_bound() {
+    use std::sync::Arc;
+    let app = App::new("sync");
+    let plan = app.compile(APP).unwrap_or_else(|e| panic!("{e:?}"));
+    let mut r = exact_runner::Runner::boot(
+        plan,
+        NoData,
+        exact_kernel::Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    r.native_slot().host_call(Some(Arc::new(|_: &[u8]| {
+        Ok(br#"{"state":"module"}"#.to_vec())
+    })));
+    r.advance(0.0).unwrap();
+    let call = r
+        .native_slot()
+        .hosted_call()
+        .expect("the host's call, behind the runner's answers");
+    let now = |body: &str| String::from_utf8(call(body.as_bytes()).unwrap()).unwrap();
+    let status = r#"{"extension":"geolocation","sync":"geolocationStatusSync","args":{}}"#;
+    let position = r#"{"extension":"geolocation","sync":"getCurrentPositionSync","args":{"maximumAge":600000}}"#;
+    assert!(now(status).contains("\"prompt\""), "{}", now(status));
+    // While `prompt` a cached fix is never answered: the request would ask.
+    assert_eq!(now(position), r#"{"error":"POSITION_UNAVAILABLE"}"#);
+    let grant = r#"{"op":"prefer","permission":{"geolocation":"granted"}}"#;
+    r.extension_agent(grant).unwrap().1.unwrap();
+    let paris = r#"{"op":"prefer","extension":{"geolocation.watchPosition":{"coords":{"latitude":48.8566,"longitude":2.3522}}}}"#;
+    r.extension_agent(paris).unwrap().1.unwrap();
+    assert!(now(status).contains("\"granted\""), "{}", now(status));
+    assert!(now(position).contains("48.8566"), "{}", now(position));
+    assert_eq!(
+        now(r#"{"extension":"geolocation","sync":"where","args":{}}"#),
+        r#"{"error":"NotSupportedError"}"#
+    );
+    // Anything else is the host's module's own call.
+    assert_eq!(now(r#"{"op":"level"}"#), r#"{"state":"module"}"#);
+    r.bind_extensions(&["geolocation"]);
+    assert_eq!(now(status), r#"{"state":"module"}"#);
+}
+
+#[test]
+fn the_rust_binding_is_the_plans_modules_with_their_wire_names() {
+    let app = App::new("rust");
+    let plan = app.compile(APP).unwrap_or_else(|e| panic!("{e:?}"));
+    let rust = contract::module_rust(&plan).unwrap();
+    for expected in [
+        "pub mod geolocation {",
+        // A call's options and a platform's words, in Rust's names.
+        "pub struct GetCurrentPositionOptions {",
+        "pub struct GetCurrentPositionApple {",
+        "pub fn get_current_position(options: &GetCurrentPositionOptions) -> Result<exact_runner::Request, m::ModuleError>",
+        "pub fn get_current_position_reply(outcome: &exact_runner::Outcome) -> Result<GeolocationPosition, m::ModuleError>",
+        // A name that takes nothing; every name of a used module, read or not.
+        "pub fn geolocation_status() -> exact_runner::Request",
+        "pub fn watch_position(",
+        // The wire keeps the declared names; an enum is checked.
+        "m::put(&mut o, \"enableHighAccuracy\", &self.enable_high_accuracy)?;",
+        "m::member(x, &[\"bestForNavigation\"",
+    ] {
+        assert!(rust.contains(expected), "{expected}\n---\n{rust}");
+    }
+    // Rust has no synchronous form (LLP 1133.002 D14).
+    assert!(!rust.contains("Sync"), "{rust}");
+    // A plan that calls no module has no binding.
+    let none = App::new("rust-none");
+    let plan = none
+        .compile("component App\n  view\n    text \"x\"\n")
+        .unwrap_or_else(|e| panic!("{e:?}"));
+    assert_eq!(contract::module_rust(&plan).unwrap().lines().count(), 1);
 }

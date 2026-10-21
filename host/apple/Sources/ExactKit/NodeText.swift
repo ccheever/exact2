@@ -16,6 +16,54 @@ extension NodeView {
     }
 
     var isParagraph: Bool { kind == "text" }
+
+    /// The node box this view stands in: the nearest node view above it,
+    /// past the containers and scroll views a box holds its children in.
+    var nodeSuperview: NodeView? {
+        var at = superview
+        while let v = at, !(v is NodeView) { at = v.superview }
+        return at as? NodeView
+    }
+
+    /// The lines each box above this paragraph draws through its text and
+    /// that box's colour, nearest first (CSS Text Decoration 3 §2.1: a block
+    /// container's lines reach its in-flow children's text). A box out of
+    /// flow or an atomic one (a button, a control) takes none from the boxes
+    /// above it, so the walk stops there.
+    func decoratingAncestors(dark: Bool) -> [(String, [Double]?)] {
+        var out: [(String, [Double]?)] = []
+        var box: NodeView = self
+        while !["absolute", "fixed"].contains(box.style["position_type"]?.string ?? ""),
+              box === self || !(box.actsAsButton || box.kind == "control"),
+              let parent = box.nodeSuperview {
+            if let lines = parent.style["text_decoration_line"]?.string, !lines.isEmpty, lines != "none" {
+                var colored: NodeView? = parent
+                while let c = colored, c.style["text_color"] == nil { colored = c.nodeSuperview }
+                out.append((lines, colored?.textChannels("text_color", dark: dark)))
+            }
+            box = parent
+        }
+        return out
+    }
+
+    /// After a style change: where this box's lines, or their colour,
+    /// changed, the paragraphs it holds draw again.
+    func decorationChanged(from old: NodeStyle) {
+        let lines = style["text_decoration_line"], was = old["text_decoration_line"]
+        guard lines != was || (lines != nil && old["text_color"] != style["text_color"]) else { return }
+        var stack: [PlatformView] = subviews
+        while let v = stack.popLast() {
+            if let node = v as? NodeView, node.isParagraph {
+                node.invalidateText()
+                #if os(macOS)
+                node.needsDisplay = true
+                #else
+                node.setNeedsDisplay()
+                #endif
+            }
+            stack.append(contentsOf: v.subviews)
+        }
+    }
     var paragraphOwner: NodeView { self }
 
     func paragraphLayout() -> Paragraph? {
@@ -88,6 +136,7 @@ extension NodeView {
         let night = drawsDark, contrast = drawsHighContrast, elevated = drawsElevated
         // The view's own tint, read once, where anything here names it (LLP 1095 D8).
         let tint = style.values.contains(where: \.namesTint) || inlineText.contains(where: \.namesTint) ? viewTint : nil
+        let ink = textChannels("text_color", dark: night) ?? SystemColor.canvasTextChannels(dark: night, contrast: contrast)
         if props["markup"] == "markdown", let source = props["text"] {
             // Markdown source: the archive expands it into runs, the same
             // expansion the measurer used (LLP 1045 D3).
@@ -104,9 +153,25 @@ extension NodeView {
             runs.append(InlineText.run(value, style: style, href: props["href"] ?? "", dark: night, contrast: contrast, elevated: elevated, tint: tint))
         } else {
             runs = inlineText.filter(\.paints).map { $0.run(dark: night, contrast: contrast, elevated: elevated, tint: tint) }
+            let decorates = inlineText.contains(where: { !$0.paints && !$0.lightRun.decoration.isEmpty })
+            let backs = inlineText.contains(where: { !$0.paints && $0.run(dark: night, contrast: contrast, elevated: elevated, tint: tint).background != nil })
+            let byId = decorates || backs ? Dictionary(inlineText.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a }) : [:]
+            // An inline container's lines reach its descendants' text, as the
+            // paragraph's own do below, whatever the box's own visibility:
+            // a hidden run paints neither its glyphs nor their lines.
+            if decorates {
+                for (i, leaf) in inlineText.filter(\.paints).enumerated() {
+                    var up = byId[leaf.parent]
+                    while let run = up {
+                        up = byId[run.parent]
+                        guard !run.lightRun.decoration.isEmpty else { continue }
+                        let paint = run.run(dark: night, contrast: contrast, elevated: elevated, tint: tint)
+                        runs[i].propagate(paint.decoration, color: paint.color ?? ink)
+                    }
+                }
+            }
             // A container's background covers its descendants' fragments (CSS).
-            if inlineText.contains(where: { !$0.paints && $0.run(dark: night, contrast: contrast, elevated: elevated, tint: tint).background != nil }) {
-                let byId = Dictionary(inlineText.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
+            if backs {
                 // A leaf paints one background, its nearest, and a box's ends
                 // are read from the characters that paint it: a box inside
                 // another visible background, and that outer box, keep square
@@ -136,8 +201,17 @@ extension NodeView {
                 for i in runs.indices { runs[i].backgroundBox = 0; runs[i].backgroundRadii = [] }
             }
         }
+        // The paragraph's own lines reach every run its children paint
+        // (CSS Text Decoration 3 §2.1); its own text's run already has them.
+        if props["text"] == nil || props["markup"] == "markdown", let lines = style["text_decoration_line"]?.string, !lines.isEmpty {
+            for i in runs.indices { runs[i].propagate(lines, color: ink) }
+        }
+        // So do the lines of the boxes it stands in, each in that box's colour.
+        for (lines, color) in decoratingAncestors(dark: night) {
+            for i in runs.indices { runs[i].propagate(lines, color: color ?? ink) }
+        }
         var spec = TextStyle.spec(runs: runs, style: style, props: props, strut: textRun(""),
-                                  color: textChannels("text_color", dark: night) ?? SystemColor.canvasTextChannels(dark: night, contrast: contrast),
+                                  color: ink,
                                   language: presenter?.documentLanguage ?? "")
         // One shadow over the paragraph when its runs agree (LLP 1077 D3).
         spec.gatherShadows()

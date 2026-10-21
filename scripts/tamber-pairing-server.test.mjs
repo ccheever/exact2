@@ -47,7 +47,9 @@ const post = async (request, token = local, path = '/__tamber', more = {}) => {
 };
 // Each pairing from a peer of its own: a peer gets five attempts a minute.
 let peers = 0;
-const fromPeer = async fn => { flags = { local: false, peer: `203.0.113.${++peers}` }; try { return await fn(); } finally { flags = null; } };
+// Each from B's TLS door, as a remote peer comes (plain HTTP from off this
+// machine reaches nothing of the wire: the test below).
+const fromPeer = async fn => { flags = { local: false, remote: true, peer: `203.0.113.${++peers}` }; try { return await fn(); } finally { flags = null; } };
 const paired = async (scope, name) => {
   const { code } = (await post({ method: 'pair-code', scope, name })).ok;
   return (await fromPeer(() => post({ code }, null, '/__tamber/pair'))).ok;
@@ -200,6 +202,26 @@ test('a token\'s own timer ends it, past a timer\'s reach too', async () => {
   long.close();
 });
 
+test('plain HTTP from off this machine (a --lan bind\'s peer) reaches nothing of the wire: no pairing, no paired token, the code not spent', async () => {
+  const { code } = (await post({ method: 'pair-code', scope: 'write', name: 'plain' })).ok;
+  const p = await paired('write', 'plain-held');
+  flags = { allowed: true, local: false, peer: '192.0.2.40' };
+  try {
+    expect((await post({ code }, null, '/__tamber/pair')).status).toBe(404);
+    // Six misses from it: past both the limiter's five and the burn's five, had they counted.
+    for (let i = 0; i < 6; i++) expect((await post({ code: 'x'.repeat(String(code).length) }, null, '/__tamber/pair')).status).toBe(404);
+    expect((await post({ method: 'hello' }, p.token)).status).toBe(404);
+    expect((await post({ after: 0, wait: false }, p.token, '/__tamber/events')).status).toBe(404);
+    const res = await fetch(`${origin}/__tamber/subscribe`, { method: 'POST', headers: { 'x-exact-tamber-token': p.token }, body: '{}' });
+    expect(res.status).toBe(404);
+    await res.body?.cancel();
+  } finally { flags = null; }
+  // Nothing was spent: the same code pairs through the door from the same peer, and the token still works there.
+  flags = { allowed: true, local: false, remote: true, peer: '192.0.2.40' };
+  try { expect((await post({ code }, null, '/__tamber/pair')).ok.client).toBe('remote:plain#1'); } finally { flags = null; }
+  expect((await fromPeer(() => post({ method: 'hello' }, p.token))).ok.client).toBe(p.client);
+});
+
 test('a LAN peer holding the local token is no one; a token past its deadline mid-body is 401; a deeply nested request is 400', async () => {
   flags = { allowed: true, local: false };
   try { expect((await post({ method: 'clients' })).status).toBe(404); } finally { flags = null; }
@@ -342,3 +364,31 @@ test('a scrub update or a held proposal past its client\'s deadline: the scrub e
   } finally { now -= 3600_000 + 1; }
 });
 
+
+// LLP 1122 T7 (*1.14*): `navigate` needs write and a present client, goes to
+// one build that can, a location on its own origin only, and is journaled
+// with its client; a build that can't is 409 naming it (the tool then
+// reloads that copy's frame instead).
+test('navigate: write scope, a present client, one build that can, a location on its own origin', async () => {
+  const frames = [], other = [];
+  const s = tamber.channel.open(f => frames.push(f)), t = tamber.channel.open(f => other.push(f));
+  tamber.channel.report(JSON.stringify({ nonce: s.nonce, kind: 'register', id: 'web-nav', host: 'web', capabilities: ['pin', 'navigate'] }));
+  tamber.channel.report(JSON.stringify({ nonce: t.nonce, kind: 'register', id: 'ios-nav', host: 'ios', capabilities: ['pin'] }));
+  const reader = await paired('propose', 'reader-nav');
+  expect((await post({ method: 'navigate', client: 'x', build: 'web-nav', location: '/x' }, reader.token)).status).toBe(403);
+  const p = await paired('write', 'writer-nav');
+  expect((await post({ method: 'navigate', client: 'x', build: 'web-nav', location: '/x' }, p.token)).status).toBe(409);
+  const sub = await subscribe(p.token, 'x');
+  expect((await post({ method: 'navigate', client: 'x', location: '/x' }, p.token)).status).toBe(400);
+  for (const bad of ['https://evil.example/x', '//evil.example/x', 'x', '/a b']) expect((await post({ method: 'navigate', client: 'x', build: 'web-nav', location: bad }, p.token)).status).toBe(400);
+  const ios = await post({ method: 'navigate', client: 'x', build: 'ios-nav', location: '/x' }, p.token);
+  expect([ios.status, ios.error.unsupported]).toEqual([409, 'navigate']);
+  expect(other.some(f => f.kind === 'navigate')).toBe(false);
+  const done = await post({ method: 'navigate', client: 'x', build: 'web-nav', location: '/posts/7#top' }, p.token);
+  expect(done.ok).toEqual({ navigated: true, build: 'web-nav', seq: done.ok.seq });
+  expect(frames.at(-1)).toEqual({ kind: 'navigate', seq: done.ok.seq, location: '/posts/7#top' });
+  expect(logged.some(l => l.includes(`${p.client} navigated web-nav to "/posts/7#top"`))).toBe(true);
+  await post({ method: 'revoke', client: p.client });
+  await sub.ended;
+  s.close(); t.close();
+});

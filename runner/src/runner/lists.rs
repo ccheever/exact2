@@ -4,7 +4,7 @@ use super::*;
 /// The host's paragraph and `user-select: auto` rules for logical copies.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ListTextPolicy {
-    /// DOM paragraphs, with the host stylesheet's unselectable button labels.
+    /// DOM paragraphs, with the host stylesheet's unselectable control labels.
     Web,
     /// AppKit labels/chrome are unselectable; native titles have no paragraph.
     MacOS,
@@ -96,12 +96,16 @@ impl<D: DataSource> Runner<D> {
         let mut ids = std::mem::take(&mut self.ids);
         let rows = std::mem::take(&mut self.row_writes);
         let result = {
+            let cell_margins = |view| super::collection::cell_margins(&self.kernel, view);
             let scroll_margin = |view| super::collection::scroll_margin(&self.kernel, view);
             let scroll_padding = |view| super::collection::scroll_padding(&self.kernel, view);
             let mut u = Update::new(self.env(&[], &[]), &self.sites, &mut ids);
             u.fonts = Some(self.fonts.clone());
             u.scroll_padding = Some(&scroll_padding);
             u.scroll_margin = Some(&scroll_margin);
+            if self.kernel.arena().env().cell_spaces {
+                u.cell_margins = Some(&cell_margins);
+            }
             u.full = self.full;
             u.discard = self.kernel.is_detached();
             u.rows = rows;

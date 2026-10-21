@@ -4,7 +4,7 @@
 // open) and `UIHingeInteraction` (an update when the hinge moves, which
 // changes a region's `isActive` without changing any bounds). Resolved by
 // name, not compiled against the SDK: the repo's default Xcode 27.0 lacks
-// the symbols and ships the same Swift 6.4 as the 27.1 beta, so no
+// the symbols and ships the same Swift 6.4 as Xcode 27.1, so no
 // `#if compiler` or `canImport` tells the two SDKs apart; a 27.0 build
 // finds neither class at run time and reports a flat viewport, a 27.1
 // build on a Duo finds both. Below iOS 27.1 the classes do not exist.
@@ -12,7 +12,7 @@
 import UIKit
 import ObjectiveC
 
-enum ReservedRegions {
+package enum ReservedRegions {
     private static let divisionKind: AnyObject? = {
         guard let kind = NSClassFromString("UIViewReservedRegionKind") as? NSObject.Type else { return nil }
         return kind.perform(NSSelectorFromString("divisionRegionKind"))?.takeUnretainedValue()
@@ -23,7 +23,7 @@ enum ReservedRegions {
 
     /// The view's division regions, active and inactive, in its own
     /// coordinates: each frame includes the margins. `nil` below 27.1.
-    static func divisions(of view: UIView) -> [(frame: CGRect, active: Bool)]? {
+    package static func divisions(of view: UIView) -> [(frame: CGRect, active: Bool)]? {
         guard let kind = divisionKind, view.responds(to: query) else { return nil }
         typealias Query = @convention(c) (AnyObject, Selector, AnyObject, UInt) -> NSArray?
         let imp = view.method(for: query)

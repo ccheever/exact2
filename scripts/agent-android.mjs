@@ -25,13 +25,14 @@
 // SwiftShader crashes it).
 import { writeTamberNames } from './tamber-names.mjs';
 import { spawn, spawnSync } from 'node:child_process';
-import { copyFileSync, cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync } from 'node:fs';
+import { copyFileSync, cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { createConnection } from 'node:net';
 import { homedir } from 'node:os';
 import { basename, dirname, resolve } from 'node:path';
 import { HOST_DEV, buildBake, copyShaders, injectedProfiles, linuxBuild, resolveApp, wholeProgram } from './app.mjs';
 import { hermesAndroidBundle } from './hermes-android.mjs';
 import { guardFlags } from './help.mjs';
+import { androidImplementations } from '../js/bake/src/typescript.mjs';
 
 export const ANDROID_TARGET = 'aarch64-linux-android';
 /** The oldest Android the binary runs on (the NDK's clang wrapper names it). */
@@ -135,12 +136,16 @@ const readerApk = (app) => resolve(READER, 'app/build', app.name, 'outputs/apk/r
 /** The reader carrier (LLP 1107 D1): install the APK and return what `androidDeploy` returns, with a process that
  * launches the app under a driver and relays the agent protocol's lines between its stdio and the app (`relay`).
  * The package is the app's id with the suffix the APK was built with (ORG_GRADLE_PROJECT_idSuffix, as the build
- * reads it). The app boots its own baked plan with its own assets, at the phone's size, in the phone's fonts: a
- * drive's `--plan`, `--world`, `--size` and launch URL do not reach it, and all but the size are refused. A dev
- * loop's `--url` does: the reader polls it (LLP 1122 D4), through `adb reverse` when it is this Mac's loopback. */
+ * reads it). The app boots its own baked plan with its own assets, at the phone's size, in the phone's fonts, or a
+ * drive's local `--plan`, pushed to the device and named by the launch extra `x_plan` (EXACT_PLAN, which the reader
+ * reads as the Linux host does). A drive's `--world`, `--size` and launch URL do not reach it, and all but the size
+ * are refused. A dev loop's `--url` does: the reader polls it (LLP 1122 D4), through `adb reverse` when it is this
+ * Mac's loopback. */
 function readerDeploy(app, apk, env) {
-  for (const [name, flag] of [['EXACT_PLAN', '--plan'], ['EXACT_WORLD', '--world'], ['EXACT_LAUNCH_URL', 'a launch URL']])
+  for (const [name, flag] of [['EXACT_WORLD', '--world'], ['EXACT_LAUNCH_URL', 'a launch URL']])
     if (env[name]) throw new Error(`android --reader: ${flag} does not reach the reader, which boots the plan its APK bakes`);
+  if (env.EXACT_PLAN && (!existsSync(env.EXACT_PLAN) || URL.parse(env.EXACT_PLAN)?.protocol?.startsWith('http')))
+    throw new Error('android --reader: --plan is a local plan file, which the drive pushes to the phone');
   // A dev loop's URL (`--url`, LLP 1122 D4): the reader polls it, as the Linux display does, through
   // `adb reverse` when it is this Mac's loopback; a file path is no URL a phone reads.
   const devUrl = env.EXACT_DEV_PLAN ? URL.parse(env.EXACT_DEV_PLAN) : null;
@@ -154,13 +159,20 @@ function readerDeploy(app, apk, env) {
   };
   run(['install', '-r', apk], `install ${apk}`);
   run(['shell', `mkdir -p ${quote(dir)}`], 'prepare');
+  // The app reads the plan from the shell's directory, which it may enter but not list.
+  if (env.EXACT_PLAN) {
+    const plan = `${dir}/plan-${process.pid}.plan`;
+    run(['push', env.EXACT_PLAN, plan], 'push the plan');
+    run(['shell', `chmod 644 ${quote(plan)}`], 'chmod the plan');
+    env = { ...env, EXACT_PLAN: plan };
+  }
   if (devUrl && ['127.0.0.1', 'localhost', '[::1]'].includes(devUrl.hostname)) {
     const port = devUrl.port || (devUrl.protocol === 'https:' ? '443' : '80');
     run(['reverse', `tcp:${port}`, `tcp:${port}`], `reverse tcp:${port}`);
   }
   // What the app reads of the drive: EXACT_AGENT and every EXACT_AGENT_* (the store, the epoch, the locale, the
-  // seed, the fetch faults), and a dev loop's URL, which reach it as the reader's `x_<name>` launch extras.
-  const vars = Object.fromEntries(Object.entries(env).filter(([k]) => k === 'EXACT_AGENT' || k.startsWith('EXACT_AGENT_') || k === 'EXACT_DEV_PLAN'));
+  // seed, the fetch faults), a pushed plan and a dev loop's URL, which reach it as the reader's `x_<name>` launch extras.
+  const vars = Object.fromEntries(Object.entries(env).filter(([k]) => k === 'EXACT_AGENT' || k.startsWith('EXACT_AGENT_') || k === 'EXACT_DEV_PLAN' || k === 'EXACT_PLAN'));
   return {
     serial, dir, shot,
     spawn: () => spawn(process.execPath, [import.meta.path, 'relay', serial, id, JSON.stringify(vars)], { env, stdio: ['pipe', 'pipe', 'pipe'] }),
@@ -232,30 +244,31 @@ async function relay([serial, id, vars]) {
   process.stdin.on('end', () => { turn.then(() => done(0)); });
 }
 
-/** The capabilities the plan of `crate` uses (LLP 1047 D2), from the `uses.txt` its build script writes beside the
- * plan (`contract::native::android_entry`), found by Cargo's JSON messages. None when the crate writes none. */
-function planUses(messages, crate) {
+/** The build script's output directory of `crate`, where it wrote its plan, `compat.json` and `uses.txt`
+ * (`contract::native::android_entry`), found by Cargo's JSON messages. */
+function planOut(messages, crate) {
   for (const line of messages.split('\n')) {
     if (!line.startsWith('{')) continue;
     const m = JSON.parse(line);
-    if (m.reason !== 'build-script-executed' || !(m.package_id.includes(`#${crate}@`) || m.package_id.startsWith(`${crate} `))) continue;
-    const file = resolve(m.out_dir, 'uses.txt');
-    return existsSync(file) ? readFileSync(file, 'utf8').split('\n').filter(Boolean) : [];
+    if (m.reason === 'build-script-executed' && (m.package_id.includes(`#${crate}@`) || m.package_id.startsWith(`${crate} `))) return m.out_dir;
   }
-  return [];
+  return null;
 }
 
-/** The same, where the build ran without JSON (a bake): the newest `uses.txt` of the crate's build scripts' outputs
+/** The capabilities the plan uses (LLP 1047 D2), one a line in `uses.txt`; none when the crate writes none. */
+const planUses = (out) => out && existsSync(resolve(out, 'uses.txt')) ? readFileSync(resolve(out, 'uses.txt'), 'utf8').split('\n').filter(Boolean) : [];
+
+/** The same, where the build ran without JSON (a bake): the crate's build script output that wrote `uses.txt` last,
  * under Cargo's `build` directory. */
-function bakedUses(dir, crate) {
+function bakedOut(dir, crate) {
   const prefix = `${crate.replaceAll('-', '_')}-`, alt = `${crate}-`;
   let newest = null;
   for (const name of existsSync(dir) ? readdirSync(dir) : []) {
     if (!name.startsWith(prefix) && !name.startsWith(alt)) continue;
     const file = resolve(dir, name, 'out/uses.txt');
-    if (existsSync(file) && (!newest || statSync(file).mtimeMs > newest.at)) newest = { file, at: statSync(file).mtimeMs };
+    if (existsSync(file) && (!newest || statSync(file).mtimeMs > newest.at)) newest = { out: resolve(dir, name, 'out'), at: statSync(file).mtimeMs };
   }
-  return newest ? readFileSync(newest.file, 'utf8').split('\n').filter(Boolean) : [];
+  return newest?.out ?? null;
 }
 
 /** The app on the Canvas reader, as an APK: its `android/` crate (a cdylib over `exact_linux::canvas_jni!`; a game's
@@ -268,18 +281,19 @@ function buildApk(app, env, profile) {
   const crate = app.crate('android');
   if (!app.manifest.game && !existsSync(resolve(app.dir, 'android/Cargo.toml'))) throw new Error(`${app.dir} has no android/ crate: the app's library for the Canvas host (apps/caltrain/android is one)`);
   const built = (name) => resolve(app.target, ANDROID_TARGET, profile, `lib${name.replaceAll('-', '_')}.so`);
-  let gpu = null, uses = [];
+  let gpu = null, out = null;
   if (app.manifest.game || app.hasGpu) {
     try { buildBake(app, 'linux', ANDROID_TARGET, { profile, env, kind: 'android' }); }
     catch (error) { console.error(error.message); return null; }
     gpu = built(app.crate('gpu'));
-    uses = bakedUses(resolve(app.target, ANDROID_TARGET, profile, 'build'), crate);
+    out = bakedOut(resolve(app.target, ANDROID_TARGET, profile, 'build'), crate);
   } else {
     // JSON on stdout, for the crate's build-script output directory; the compiler's own messages still on stderr.
     const cargo = spawnSync('cargo', ['build', ...injectedProfiles(app), ...wholeProgram('android', profile), '--profile', profile, '-p', crate, '--target', ANDROID_TARGET, '--message-format=json-render-diagnostics'], { cwd: app.workspace ?? app.dir, env, stdio: ['inherit', 'pipe', 'inherit'], maxBuffer: 1 << 28 });
     if (cargo.status !== 0) return null;
-    uses = planUses(cargo.stdout.toString(), crate);
+    out = planOut(cargo.stdout.toString(), crate);
   }
+  const uses = planUses(out);
   const staged = resolve(READER, 'app/build', app.name, 'rust');
   rmSync(staged, { recursive: true, force: true });
   mkdirSync(resolve(staged, 'jniLibs/arm64-v8a'), { recursive: true });
@@ -295,8 +309,26 @@ function buildApk(app, env, profile) {
   const compose = uses.includes('dates') ? ['-Pcompose=1'] : [];
   // The token names its hatches read (LLP 1121 D12), beside them in the build.
   if (existsSync(resolve(app.dir, 'modules/android'))) writeTamberNames(app, 'kotlin');
-  const gradle = spawnSync(resolve(READER, 'gradlew'), [':app:assembleRelease', `-Papp=${app.name}`, `-PappDir=${app.manifest.game ? app.workspace : app.dir}`, ...(gpu ? [`-PgpuModule=${basename(gpu)}`] : []), ...compose], { cwd: READER, env: { ...env, ANDROID_HOME: androidSdk(env) }, stdio: 'inherit' });
+  const gradle = spawnSync(resolve(READER, 'gradlew'), [':app:assembleRelease', `-Papp=${app.name}`, `-PappDir=${app.manifest.game ? app.workspace : app.dir}`, ...(gpu ? [`-PgpuModule=${basename(gpu)}`] : []), ...compose, ...extensionArgs(app, out)], { cwd: READER, env: { ...env, ANDROID_HOME: androidSdk(env) }, stdio: 'inherit' });
   return gradle.status === 0 ? resolve(READER, 'app/build', app.name, 'outputs/apk/release/app-release.apk') : null;
+}
+
+/** What the modules the app uses add to the APK (LLP 1133.001 D4, D5; LLP 1133.002 D6): each bound implementation's
+ * Kotlin with the roster that names them (`exact.app.ExactExtensions`, written here, never committed), and the
+ * permissions the app's grant lines derive (the bake's `reach.android`), as Gradle properties. */
+function extensionArgs(app, out) {
+  const bound = app.manifest.game ? [] : androidImplementations(app.dir), generated = resolve(READER, 'app/build', app.name, 'extensions');
+  rmSync(generated, { recursive: true, force: true });
+  let permissions = [];
+  try { permissions = JSON.parse(readFileSync(resolve(out, 'compat.json'), 'utf8')).reach?.android ?? []; } catch { /* no bake output: none */ }
+  if (bound.length) {
+    mkdirSync(resolve(generated, 'exact/app'), { recursive: true });
+    writeFileSync(resolve(generated, 'exact/app/ExactExtensions.kt'), ['// Written by scripts/agent-android.mjs (LLP 1133.001 D5); never edited.', 'package exact.app', '',
+      'class ExactExtensions : dev.exact.canvas.ExtensionRoster {',
+      '    override val extensions: Map<String, (dev.exact.canvas.ExtensionContext) -> dev.exact.canvas.ExactExtension> = mapOf(',
+      ...bound.map((b) => `        ${JSON.stringify(b.extension)} to { c -> ${b.className}(c) },`), '    )', '}', ''].join('\n'));
+  }
+  return [...(bound.length ? [`-PextensionDirs=${[...bound.flatMap((b) => b.dirs), generated].join(',')}`] : []), ...(permissions.length ? [`-Ppermissions=${permissions.join(',')}`] : [])];
 }
 
 if (import.meta.main && process.argv[2] === 'relay') {

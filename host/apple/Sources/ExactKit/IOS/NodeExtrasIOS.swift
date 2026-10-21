@@ -17,12 +17,38 @@ struct AimedGradient {
     let gradient: Gradient, stops: ([CGFloat], [CGColor])
 }
 
-/// A paragraph's specs, apart from its view: three `Spec`s inline made every
-/// `NodeView` about 1 KB larger, text or not (2112 bytes, a 2.5 KB block).
+/// A paragraph's specs and raster, apart from its view: three `Spec`s
+/// inline made every `NodeView` about 1 KB larger, text or not (2112
+/// bytes, a 2.5 KB block); the raster's fields fit in the same block.
 final class TextSpecs {
     var rasterKey: TextRasterKey?
     var rasterSpec: Spec?
     var cached: Spec?
+    var raster: CGImage?
+    var rasterLayer: CALayer?
+    /// The view whose layer `rasterLayer` is when the ink is one colour.
+    var rasterTint: TintInk?
+    var rasterFrame = CGRect.zero
+    var rasterScale: CGFloat = 1
+    var flowShapes: [TextFlowShape] = []
+    var layout: (width: CGFloat, paragraph: Paragraph)?
+}
+
+/// What some nodes set and most do not, apart from the view, so every view
+/// is smaller: a transform's parts, an image, paint ghosts, a scroll's
+/// extent. Made on the first write that is not a default (`NodeView.aside`).
+final class NodeAside {
+    var translatePx = CGPoint.zero, translatePercent = CGPoint.zero
+    var scale: CGFloat = 1
+    var rotate: CGFloat = 0
+    var content = CGSize.zero
+    var image: UIImage?
+    var raster: NativeRasterLease?
+    var imageLayer: CALayer?
+    var imageSource: String?
+    var loadGeneration = 0
+    var paintGhosts = 0
+    weak var ghostParent: NodeView?
 }
 
 /// A box's gradient and shadows, apart from `NodeExtras`: most nodes that
@@ -144,6 +170,12 @@ final class NodeExtras {
     /// The status bar's and the home indicator's bands its scroll view
     /// reaches into past its box, inset by as much (LLP 1130 D3).
     var pageBand = UIEdgeInsets.zero
+    /// The part of the band its scroll view's `contentInset` holds (LLP 1131 D2).
+    var bandInset = UIEdgeInsets.zero
+    /// A control bar over a scroller's content (LLP 1131 D3, D4): the scroller's paint rank, which it is placed
+    /// above, and UIKit's edge effect.
+    var bandOver: Int64?
+    var edgeInteraction: AnyObject?
     var scrollWritten: String?
     /// A hatched node whose hatch undoes its own additions: its row may be
     /// reused (LLP 1075.003.000.000 §8).
@@ -158,6 +190,54 @@ final class NodeExtras {
 }
 
 extension NodeView {
+    var textMore: TextSpecs {
+        if let specs { return specs }
+        let made = TextSpecs(); specs = made
+        return made
+    }
+    /// The words and style `textRaster` paints, which the paragraph's may
+    /// have left behind since (`invalidateText` keeps the old pixels up).
+    var textRasterSpec: Spec? { get { specs?.rasterSpec } set { if newValue != nil || specs != nil { textMore.rasterSpec = newValue } } }
+    var cachedTextSpec: Spec? { get { specs?.cached } set { if newValue != nil || specs != nil { textMore.cached = newValue } } }
+    var textRaster: CGImage? { get { specs?.raster } set { if newValue != nil || specs != nil { textMore.raster = newValue } } }
+    var textRasterLayer: CALayer? { get { specs?.rasterLayer } set { if newValue != nil || specs != nil { textMore.rasterLayer = newValue } } }
+    var textRasterTint: TintInk? { get { specs?.rasterTint } set { if newValue != nil || specs != nil { textMore.rasterTint = newValue } } }
+    var textRasterFrame: CGRect { get { specs?.rasterFrame ?? .zero } set { if newValue != .zero || specs != nil { textMore.rasterFrame = newValue } } }
+    var textRasterScale: CGFloat { get { specs?.rasterScale ?? 1 } set { if newValue != 1 || specs != nil { textMore.rasterScale = newValue } } }
+    var flowShapes: [TextFlowShape] { get { specs?.flowShapes ?? [] } set { if !newValue.isEmpty || specs != nil { textMore.flowShapes = newValue } } }
+    var cachedTextLayout: (width: CGFloat, paragraph: Paragraph)? { get { specs?.layout } set { if newValue != nil || specs != nil { textMore.layout = newValue } } }
+
+    var asideMade: NodeAside {
+        if let aside { return aside }
+        let made = NodeAside(); aside = made
+        return made
+    }
+    /// `translate`: its lengths, and its percentages of the box (chess diary #4).
+    var translatePx: CGPoint { get { aside?.translatePx ?? .zero } set { if newValue != .zero || aside != nil { asideMade.translatePx = newValue } } }
+    var translatePercent: CGPoint { get { aside?.translatePercent ?? .zero } set { if newValue != .zero || aside != nil { asideMade.translatePercent = newValue } } }
+    package var scale: CGFloat { get { aside?.scale ?? 1 } set { if newValue != 1 || aside != nil { asideMade.scale = newValue } } }
+    package var rotate: CGFloat { get { aside?.rotate ?? 0 } set { if newValue != 0 || aside != nil { asideMade.rotate = newValue } } }
+    /// A scroll container's content extent (the `content` op), before the
+    /// axes that do not scroll are held to the box.
+    var content: CGSize { get { aside?.content ?? .zero } set { if newValue != .zero || aside != nil { asideMade.content = newValue } } }
+    /// An image node's picture, once loaded (decoded off the main thread),
+    /// the source it came from, and which load is current: a completion
+    /// from an older load, or for a view that was destroyed, is dropped.
+    var image: UIImage? { get { aside?.image } set { if newValue != nil || aside != nil { asideMade.image = newValue } } }
+    var raster: NativeRasterLease? {
+        get { aside?.raster }
+        set {
+            if newValue != nil || aside != nil { asideMade.raster = newValue }
+            if newValue == nil, let l = imageLayer { l.removeFromSuperlayer(); imageLayer = nil }
+        }
+    }
+    /// An image's pixels as a sublayer's contents (`applyImageLayer`).
+    var imageLayer: CALayer? { get { aside?.imageLayer } set { if newValue != nil || aside != nil { asideMade.imageLayer = newValue } } }
+    var imageSource: String? { get { aside?.imageSource } set { if newValue != nil || aside != nil { asideMade.imageSource = newValue } } }
+    var loadGeneration: Int { get { aside?.loadGeneration ?? 0 } set { if newValue != 0 || aside != nil { asideMade.loadGeneration = newValue } } }
+    var paintGhosts: Int { get { aside?.paintGhosts ?? 0 } set { if newValue != 0 || aside != nil { asideMade.paintGhosts = newValue } } }
+    var ghostParent: NodeView? { get { aside?.ghostParent } set { if newValue != nil || aside != nil { asideMade.ghostParent = newValue } } }
+
     var more: NodeExtras {
         if let extras { return extras }
         let made = NodeExtras(); extras = made
@@ -291,13 +371,23 @@ extension NodeView {
     }
     /// Its page band (`NodeExtras.pageBand`), zero for most.
     var pageBand: UIEdgeInsets { extras?.pageBand ?? .zero }
+    var bandInset: UIEdgeInsets { extras?.bandInset ?? .zero }
+    var bandOver: Int64? { get { extras?.bandOver } set { if newValue != nil || extras != nil { more.bandOver = newValue } } }
+    var edgeInteraction: AnyObject? { get { extras?.edgeInteraction } set { if newValue != nil || extras != nil { more.edgeInteraction = newValue } } }
     /// Its scroll view's frame: its bounds, and the band past them.
-    var scrollFrame: CGRect { bounds.inset(by: UIEdgeInsets(top: -pageBand.top, left: 0, bottom: -pageBand.bottom, right: 0)) }
+    package var scrollFrame: CGRect { bounds.inset(by: UIEdgeInsets(top: -pageBand.top, left: 0, bottom: -pageBand.bottom, right: 0)) }
     /// Native padding and footer space are content, unlike a bar or keyboard.
     package func scrollPortInsets(_ sv: UIScrollView) -> UIEdgeInsets {
         let inset = sv.adjustedContentInset, content = extras?.nativeScrollContentInsets ?? .zero
         return UIEdgeInsets(top: inset.top - content.top, left: inset.left - content.left,
                             bottom: inset.bottom - content.bottom, right: inset.right - content.right)
+    }
+    /// Its scrollport in `sv`'s bounds: `sv` less those insets, empty where they overlap (CSS's `clientWidth` and
+    /// `clientHeight` never go below zero).
+    func scrollPort(_ sv: UIScrollView) -> CGRect {
+        let b = sv.bounds, p = scrollPortInsets(sv)
+        return CGRect(x: b.minX + min(p.left, b.width), y: b.minY + min(p.top, b.height),
+                      width: max(0, b.width - p.left - p.right), height: max(0, b.height - p.top - p.bottom))
     }
     /// The least content height UIKit takes: the box, or for a scroller
     /// UIKit insets, the port between the insets the kernel lays its content
@@ -305,7 +395,7 @@ extension NodeView {
     /// scroll by the bar and the home indicator, as a table view's does not.
     func scrollFloor(_ sv: UIScrollView) -> CGFloat {
         guard case .inset(let top, let bottom)? = presenter?.navigation.covers[id] else { return sv.bounds.height - pageBand.top - pageBand.bottom }
-        return max(0, sv.bounds.height - top - bottom)
+        return max(0, sv.bounds.height - top - bottom - pageBand.top - pageBand.bottom)
     }
 }
 extension UIColor {
@@ -326,7 +416,7 @@ extension NodeView {
     /// as an attribute or a row of its class. The style says so row by row
     /// (`written`); it is false of a value the node only inherits and of a
     /// row the compiler implied (a sheet's, a heading's, a tag's own).
-    func wrote(_ key: String) -> Bool {
+    package func wrote(_ key: String) -> Bool {
         guard case .array(let rows)? = style["written"] else { return false }
         return rows.contains(.string(key))
     }

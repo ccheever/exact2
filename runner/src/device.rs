@@ -23,6 +23,11 @@ pub struct Device {
     pub name: &'static str,
     /// iOS `Info.plist` usage keys, each given the purpose text.
     pub ios: &'static [&'static str],
+    /// iOS `Info.plist` keys set to true.
+    pub ios_flags: &'static [&'static str],
+    /// Android's runtime permissions (`<uses-permission>`), asked in one
+    /// request (LLP 1133.002 D6).
+    pub android: &'static [&'static str],
     /// macOS `Info.plist` usage keys.
     pub macos: &'static [&'static str],
     /// The macOS hardened-runtime entitlement: without it a notarised build is
@@ -42,12 +47,18 @@ pub struct Device {
     /// An app granting it keeps no answers across launches (D7): its data
     /// must not sit in `exact.kept.*` outside the platform's protection.
     pub keeps_no_answers: bool,
+    /// The row this one asks for less of (a declared deviation, as
+    /// `geolocation-approximate` is of `geolocation`, LLP 1133.002 D7): an app
+    /// grants one or the other, never both (`grant-twice`).
+    pub narrows: Option<&'static str>,
 }
 
 /// What a row has unless it says otherwise.
 const ROW: Device = Device {
     name: "",
     ios: &[],
+    ios_flags: &[],
+    android: &[],
     macos: &[],
     hardened: None,
     web: None,
@@ -55,6 +66,7 @@ const ROW: Device = Device {
     companion: None,
     tvos: true,
     keeps_no_answers: false,
+    narrows: None,
 };
 
 /// Every device grant. Adding a row is one entry here and no host code.
@@ -86,6 +98,27 @@ pub const DEVICES: &[Device] = &[
         ],
         hardened: Some("com.apple.security.personal-information.location"),
         web: Some("geolocation"),
+        android: &[
+            "android.permission.ACCESS_FINE_LOCATION",
+            "android.permission.ACCESS_COARSE_LOCATION",
+        ],
+        ..ROW
+    },
+    // Approximate location (LLP 1133.002 D7): the same keys, and on iOS the
+    // prompt opens with precise off (macOS has no such key).
+    Device {
+        name: "geolocation-approximate",
+        ios: &["NSLocationWhenInUseUsageDescription"],
+        ios_flags: &["NSLocationDefaultAccuracyReduced"],
+        // Coarse alone: a ceiling on Android, where fine can then never be asked (D7).
+        android: &["android.permission.ACCESS_COARSE_LOCATION"],
+        macos: &[
+            "NSLocationUsageDescription",
+            "NSLocationWhenInUseUsageDescription",
+        ],
+        hardened: Some("com.apple.security.personal-information.location"),
+        web: Some("geolocation"),
+        narrows: Some("geolocation"),
         ..ROW
     },
     // iOS's prompt text is fixed and the web's is not policy-controlled; the
@@ -142,6 +175,16 @@ pub const DEVICES: &[Device] = &[
         keeps_no_answers: true,
         ..ROW
     },
+    // Local network privacy (TN3179): macOS 15 and iOS 14 ask before the app
+    // first reaches a LAN address, and show this text. Deviation: the web's
+    // Local Network Access prompt is the browser's own, and Android asks
+    // for nothing, so the row writes Apple keys only.
+    Device {
+        name: "local-network",
+        ios: &["NSLocalNetworkUsageDescription"],
+        macos: &["NSLocalNetworkUsageDescription"],
+        ..ROW
+    },
     // @ref LLP 1125 D6 — Web MIDI's permission and policy feature. Apple asks
     // for nothing, so no usage key; tvOS has no CoreMIDI (`unavailable`).
     Device {
@@ -185,13 +228,13 @@ pub fn device_grants(spec: &str) -> Result<Vec<DeviceGrant<'_>>, Vec<String>> {
         };
         if line.contains(['"', '\'']) {
             errors.push(format!(
-                "`{line}`: the purpose is a strings key (LLP 1060), not a literal"
+                "`{line}`: the purpose is a strings key (LLP 1060), not a literal: `device.{name} purpose.{name}`, with `\"purpose.{name}\": \"…\"` in strings/en.json"
             ));
             continue;
         }
         let (Some(purpose), None) = (words.next(), words.next()) else {
             errors.push(format!(
-                "`{line}`: a device grant names one strings key, as in `device.{name} purpose.{name}`, whose text is the purpose"
+                "`{line}`: a device grant names one strings key, as in `device.{name} purpose.{name}`, whose text in strings/en.json (`\"purpose.{name}\": \"…\"`) is the purpose the person is shown"
             ));
             continue;
         };
@@ -202,6 +245,16 @@ pub fn device_grants(spec: &str) -> Result<Vec<DeviceGrant<'_>>, Vec<String>> {
             )),
             Some(_) => {}
             None => grants.push(DeviceGrant { device, purpose }),
+        }
+    }
+    for g in &grants {
+        if let Some(wider) = g.device.narrows {
+            if grants.iter().any(|h| h.device.name == wider) {
+                errors.push(format!(
+                    "`device.{}` and `device.{wider}` both: write the one the app needs (grant-twice)",
+                    g.device.name
+                ));
+            }
         }
     }
     if errors.is_empty() {
@@ -228,12 +281,18 @@ pub fn keeps_no_answers(spec: &str) -> bool {
 /// has. Built from the table's own names, so no app text reaches the header.
 pub fn permissions_policy(spec: &str) -> String {
     let granted = device_grants(spec).unwrap_or_default();
-    DEVICES
-        .iter()
-        .filter_map(|d| {
-            let feature = d.web?;
-            let on = granted.iter().any(|g| std::ptr::eq(g.device, d));
-            Some(format!("{feature}=({})", if on { "self" } else { "" }))
+    // A feature two rows share (`geolocation`) is named once: on when either is granted.
+    let mut features: Vec<&str> = Vec::new();
+    for feature in DEVICES.iter().filter_map(|d| d.web) {
+        if !features.contains(&feature) {
+            features.push(feature);
+        }
+    }
+    features
+        .into_iter()
+        .map(|feature| {
+            let on = granted.iter().any(|g| g.device.web == Some(feature));
+            format!("{feature}=({})", if on { "self" } else { "" })
         })
         .collect::<Vec<_>>()
         .join(", ")
@@ -242,6 +301,20 @@ pub fn permissions_policy(spec: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// LLP 1133.002 D7: the approximate line is a row of its own, granting
+    /// the same web feature; an app writes it or the precise one, not both.
+    #[test]
+    fn approximate_location_is_its_own_line_and_never_beside_the_precise_one() {
+        let one = "device.geolocation-approximate locationPurpose";
+        assert!(granted(one, "geolocation-approximate") && !granted(one, "geolocation"));
+        let policy = permissions_policy(one);
+        assert_eq!(policy.matches("geolocation=").count(), 1, "{policy}");
+        assert!(policy.contains("geolocation=(self)"), "{policy}");
+        let both = format!("{one}\ndevice.geolocation locationPurpose");
+        let errors = device_grants(&both).unwrap_err();
+        assert!(errors[0].contains("(grant-twice)"), "{errors:?}");
+    }
 
     #[test]
     fn a_device_line_names_a_row_and_one_key() {
@@ -283,6 +356,16 @@ mod tests {
             device_grants("device.health purpose.read purpose.write").is_err(),
             "the fork's one row with two keys"
         );
+    }
+
+    #[test]
+    fn local_network_writes_the_apple_key_and_no_web_policy() {
+        let all = device_grants("device.local-network purpose.lan").unwrap();
+        let row = all[0].device;
+        assert_eq!(row.ios, ["NSLocalNetworkUsageDescription"]);
+        assert_eq!(row.macos, ["NSLocalNetworkUsageDescription"]);
+        assert!(row.web.is_none() && row.android.is_empty() && row.hardened.is_none() && row.tvos);
+        assert!(!permissions_policy("device.local-network purpose.lan").contains("local"));
     }
 
     #[test]

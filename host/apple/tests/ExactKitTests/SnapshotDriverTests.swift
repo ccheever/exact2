@@ -19,6 +19,23 @@ import WidgetKit
 @MainActor
 @available(iOS 17.0, macOS 14.0, visionOS 26.0, *)
 final class SnapshotDriverTests: XCTestCase {
+    #if os(macOS)
+    func testMacExtensionFindsTheContainingAppsCatalogAndImage() throws {
+        let path = try XCTUnwrap(ProcessInfo.processInfo.environment["EXACT_SNAPSHOT_ASSETS_EXTENSION"])
+        let bundle = try XCTUnwrap(Bundle(path: path))
+        let app = try XCTUnwrap(SnapshotBundles.containingApp(of: bundle))
+        XCTAssertEqual(app.bundleURL.lastPathComponent, "SnapshotAssets.app")
+        let color = try XCTUnwrap(SnapshotBundles.all(for: bundle).compactMap { NSColor(named: "WidgetInk", bundle: $0)?.usingColorSpace(.sRGB) }.first)
+        XCTAssertEqual(color.redComponent, 1, accuracy: 0.001)
+        XCTAssertEqual(color.greenComponent, 0, accuracy: 0.001)
+        let roots = SnapshotBundles.imageRoots(for: bundle)
+        XCTAssertTrue(roots.map(\.path).contains(app.bundleURL.appendingPathComponent("Contents/Resources").path))
+        let image = try XCTUnwrap(SnapshotRasters().decode("assets/widget.png", roots: roots, appGroup: nil, appID: nil, box: CGSize(width: 1, height: 1), fit: "contain", scale: 1))
+        XCTAssertEqual(image.image.width, 1)
+        XCTAssertEqual(image.image.height, 1)
+    }
+    #endif
+
     enum Mode: String, CaseIterable { case fullColor, accented, vibrant }
     enum Content: String { case answered, placeholder, locked }
     struct Family {
@@ -223,6 +240,11 @@ final class SnapshotDriverTests: XCTestCase {
         }
         let container = HeadlessSession.Node(id: 1, kind: "view", props: ["semanticTag":"section"], children: [2])
         XCTAssertTrue(SnapshotDriver.admitsInline(HeadlessSession.Snapshot(size: .zero, roots: [1], nodes: [1:container,2:text])))
+        // A root `link` holding the line is what the compiler admits; the wire names its pressable "button".
+        let link = HeadlessSession.Node(id: 1, kind: "button", props: ["href":"/orders"], children: [2])
+        XCTAssertTrue(SnapshotDriver.admitsInline(HeadlessSession.Snapshot(size: .zero, roots: [1], nodes: [1:link,2:text])))
+        let progress = HeadlessSession.Node(id: 1, kind: "button", props: ["type":"progress"], children: [2])
+        XCTAssertFalse(SnapshotDriver.admitsInline(HeadlessSession.Snapshot(size: .zero, roots: [1], nodes: [1:progress,2:text])))
     }
 
     func testCaltrainEntryRendersEveryFamilyModeAppearanceAndSize() throws {
@@ -485,21 +507,32 @@ final class SnapshotDriverTests: XCTestCase {
         XCTAssertEqual(SnapshotTextPaint.decoration(try XCTUnwrap(label.runs.first), node: label), "line-through")
     }
 
-    /// Images resolve under the bundle roots or the app group's `data`,
-    /// `cache` and `tmp`, never outside them.
+    /// Images resolve under the bundle roots or the app's `data`, `cache`
+    /// and `tmp` directories in the group container, laid out as the app
+    /// writes them (`Library/Application Support/exact/<id>/data`,
+    /// `Library/Caches/exact/<id>/{cache,temporary}`), never outside them.
     func testImagePathsResolveUnderTheirRoots() throws {
-        let group = Self.out.appending(path: "group")
-        for dir in ["data", "cache", "temporary"] { try FileManager.default.createDirectory(at: group.appending(path: dir), withIntermediateDirectories: true) }
-        try Data([0]).write(to: group.appending(path: "cache/avatar.png"))
-        try Data([0]).write(to: group.appending(path: "temporary/picked.png"))
+        let group = Self.out.appending(path: "group"), id = "com.example.shop"
+        let roots = SnapshotRasters.appRoots(group: group, appID: id)
+        XCTAssertEqual(roots["data"]?.path, group.appending(path: "Library/Application Support/exact/com.example.shop/data").path)
+        XCTAssertEqual(roots["cache"]?.path, group.appending(path: "Library/Caches/exact/com.example.shop/cache").path)
+        XCTAssertEqual(roots["tmp"]?.path, group.appending(path: "Library/Caches/exact/com.example.shop/temporary").path)
+        for dir in roots.values { try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true) }
+        try Data([0]).write(to: roots["data"]!.appending(path: "photo.jpg"))
+        try Data([0]).write(to: roots["cache"]!.appending(path: "avatar.png"))
+        try Data([0]).write(to: roots["tmp"]!.appending(path: "picked.png"))
         try Data([0]).write(to: group.appending(path: "secret.png"))
-        XCTAssertEqual(SnapshotRasters.resolve("app:/cache/avatar.png", roots: [], appGroup: group)?.lastPathComponent, "avatar.png")
-        XCTAssertEqual(SnapshotRasters.resolve("app:/tmp/picked.png", roots: [], appGroup: group)?.path, group.appending(path: "temporary/picked.png").standardizedFileURL.resolvingSymlinksInPath().path, "app:/tmp is the host's temporary directory")
-        XCTAssertNil(SnapshotRasters.resolve("app:/cache/../secret.png", roots: [], appGroup: group))
-        XCTAssertNil(SnapshotRasters.resolve("app:/cache/avatar.png", roots: [], appGroup: nil), "no group, no app:/")
-        XCTAssertNil(SnapshotRasters.resolve("app:/other/avatar.png", roots: [], appGroup: group))
-        XCTAssertNil(SnapshotRasters.resolve("app:/cache", roots: [], appGroup: group), "a root alone")
-        XCTAssertNil(SnapshotRasters.resolve("../group/secret.png", roots: [Self.out.appending(path: "assets")], appGroup: nil))
+        try Data([0]).write(to: group.appending(path: "data.png"))
+        XCTAssertEqual(SnapshotRasters.resolve("app:/data/photo.jpg", roots: [], appGroup: group, appID: id)?.path, roots["data"]!.appending(path: "photo.jpg").standardizedFileURL.resolvingSymlinksInPath().path, "the file the app wrote")
+        XCTAssertEqual(SnapshotRasters.resolve("app:/cache/avatar.png", roots: [], appGroup: group, appID: id)?.lastPathComponent, "avatar.png")
+        XCTAssertEqual(SnapshotRasters.resolve("app:/tmp/picked.png", roots: [], appGroup: group, appID: id)?.path, roots["tmp"]!.appending(path: "picked.png").standardizedFileURL.resolvingSymlinksInPath().path, "app:/tmp is the host's temporary directory")
+        XCTAssertNil(SnapshotRasters.resolve("app:/cache/../secret.png", roots: [], appGroup: group, appID: id))
+        XCTAssertNil(SnapshotRasters.resolve("app:/data/../../../../../data.png", roots: [], appGroup: group, appID: id))
+        XCTAssertNil(SnapshotRasters.resolve("app:/cache/avatar.png", roots: [], appGroup: nil, appID: id), "no group, no app:/")
+        XCTAssertNil(SnapshotRasters.resolve("app:/cache/avatar.png", roots: [], appGroup: group, appID: nil), "no app id, no app:/")
+        XCTAssertNil(SnapshotRasters.resolve("app:/other/avatar.png", roots: [], appGroup: group, appID: id))
+        XCTAssertNil(SnapshotRasters.resolve("app:/cache", roots: [], appGroup: group, appID: id), "a root alone")
+        XCTAssertNil(SnapshotRasters.resolve("../group/secret.png", roots: [Self.out.appending(path: "assets")], appGroup: nil, appID: nil))
     }
 
     /// The invocation's raster cache keeps decoded bytes under its budget,
@@ -596,11 +629,11 @@ final class SnapshotDriverTests: XCTestCase {
         context.setFillColor(CGColor(srgbRed: 1, green: 0, blue: 0, alpha: 1)); context.fill(CGRect(x: 0, y: 0, width: 2000, height: 1500))
         try write(context.makeImage(), "assets/big")
         let rasters = SnapshotRasters()
-        let decoded = try XCTUnwrap(rasters.decode("big.png", roots: [Self.out], appGroup: nil, box: CGSize(width: 40, height: 40), fit: "fill", scale: 3))
+        let decoded = try XCTUnwrap(rasters.decode("big.png", roots: [Self.out], appGroup: nil, appID: nil, box: CGSize(width: 40, height: 40), fit: "fill", scale: 3))
         XCTAssertEqual(decoded.natural, CGSize(width: 2000, height: 1500))
         XCTAssertLessThanOrEqual(max(decoded.image.width, decoded.image.height), 120)
-        XCTAssertNil(rasters.decode("../../big.png", roots: [dir], appGroup: nil, box: CGSize(width: 10, height: 10), fit: "fill", scale: 1), "a path may not leave its root")
-        XCTAssertNil(rasters.decode("big.png", roots: [dir.appending(path: "missing")], appGroup: nil, box: CGSize(width: 10, height: 10), fit: "fill", scale: 1))
+        XCTAssertNil(rasters.decode("../../big.png", roots: [dir], appGroup: nil, appID: nil, box: CGSize(width: 10, height: 10), fit: "fill", scale: 1), "a path may not leave its root")
+        XCTAssertNil(rasters.decode("big.png", roots: [dir.appending(path: "missing")], appGroup: nil, appID: nil, box: CGSize(width: 10, height: 10), fit: "fill", scale: 1))
     }
 
     // MARK: D5: the accented groups

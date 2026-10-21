@@ -49,6 +49,27 @@ fn an_accent_on_switches_is_unreachable_on_the_mac_only() {
         said[0].starts_with("accent-color on macOS switches: NSSwitch draws the system accent"),
         "{said:?}"
     );
+    // What ships the Mac, which `exact new` writes unasked, and how to stop.
+    assert!(
+        said[0].ends_with(
+            "The app ships macos (app.json `host.macos`); not shipping it? delete those keys"
+        ),
+        "{said:?}"
+    );
+    // A control and its disabled state that the Mac leaves alike: one line.
+    let both = SWITCHES.replace("aria-label=\"B\"", "aria-label=\"B\" disabled=true");
+    let path = app(
+        "switch-disabled",
+        "\"macos\": {}",
+        "  accent.brand = #e0218a\n",
+        &both,
+    );
+    let said = unreachable(&path);
+    assert_eq!(said.len(), 1, "{said:?}");
+    assert!(
+        said[0].starts_with("accent-color on macOS switches and disabled switches: NSSwitch"),
+        "{said:?}"
+    );
     // Shipping the web alone: nothing.
     let path = app(
         "switch-web",
@@ -284,5 +305,46 @@ fn unreachable_survives_the_warning_cap() {
     assert!(
         said.iter().any(|m| m.contains("macOS switches")),
         "{said:?}"
+    );
+}
+
+/// The `tamber-contrast` messages of a compile.
+fn contrast(path: &std::path::Path) -> Vec<String> {
+    let (plan, warnings) = contract::compile_path_all_warned(path, false);
+    plan.unwrap_or_else(|e| panic!("{e:?}"));
+    warnings
+        .iter()
+        .filter(|w| w.id == "tamber-contrast")
+        .map(|w| w.message.clone())
+        .collect()
+}
+
+// @ref LLP 1116.019 D3 — a filled button keeps UIKit's white label, so a pale
+// accent under one is said when the app compiles, whatever screens a drive reaches.
+#[test]
+fn a_pale_accent_under_a_prominent_button_is_said_once() {
+    let view = "component App\n  state n = 0\n  action go\n    n = n + 1\n  view\n    column\n      button \"Save\" buttonStyle=\"bordered-prominent\" press=go\n      button \"Again\" buttonStyle=\"filled\" press=go\n";
+    // Round 28's mood journal: a deep teal in light, a pale one in dark.
+    let pale = "  AccentColor = light-dark(#3c7467, #a8cac4)\n";
+    let said = contrast(&app("accent-pale", "\"ios\": {}", pale, view));
+    assert_eq!(said.len(), 1, "{said:?}");
+    assert!(
+        said[0].starts_with(
+            "`AccentColor` is 1.76:1 under a prominent button's white label in dark: below 3:1"
+        ),
+        "{said:?}"
+    );
+    // A deep accent, or no prominent button: nothing.
+    let deep = "  AccentColor = light-dark(#3c7467, #2f7d6d)\n";
+    assert_eq!(
+        contrast(&app("accent-deep", "\"ios\": {}", deep, view)),
+        Vec::<String>::new()
+    );
+    let plain = view
+        .replace(" buttonStyle=\"bordered-prominent\"", "")
+        .replace(" buttonStyle=\"filled\"", "");
+    assert_eq!(
+        contrast(&app("accent-plain", "\"ios\": {}", pale, &plain)),
+        Vec::<String>::new()
     );
 }

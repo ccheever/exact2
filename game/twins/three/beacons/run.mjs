@@ -2,6 +2,7 @@
 import { spawn } from 'node:child_process';
 import { mkdtempSync, rmSync, readFileSync, writeFileSync } from 'node:fs';
 import { resolve, join, extname } from 'node:path';
+import { chromium } from '../../../../scripts/agent-launch.mjs';
 const here = resolve(import.meta.dir);
 const root = resolve(here, '..');
 const started = Date.now(), checks = [], browsers = [];
@@ -19,7 +20,7 @@ const url = `http://127.0.0.1:${server.port}/beacons/index.html`;
 if (process.argv.includes('--serve')) { console.log(url); await new Promise(() => {}); }
 async function launch(label) {
   const profile = mkdtempSync(join(here, '.chrome-'));
-  const child = spawn('/Applications/Google Chrome.app/Contents/MacOS/Google Chrome', [
+  const child = spawn(chromium({ needs: ['gpu', 'perf'] }).executable, [
     '--headless=new', '--no-sandbox', '--disable-crash-reporter', `--user-data-dir=${profile}`, '--remote-debugging-port=0', '--no-first-run',
     '--no-default-browser-check', '--disable-background-networking', '--disable-component-update',
     '--disable-sync', '--disable-background-timer-throttling', '--disable-renderer-backgrounding',

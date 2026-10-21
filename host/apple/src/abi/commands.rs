@@ -109,7 +109,11 @@ impl<D: DataSource> Bridge<D> {
 
     /// `exact_top_layer`: the presenter's open top-layer boxes, and where
     /// the frontmost modal presentation begins among them.
-    pub fn top_layer(&mut self, frames: &[(u32, [f64; 4])], modal: Option<usize>) {
+    pub fn top_layer(
+        &mut self,
+        frames: &[exact_runner::geometry::TopLayerFrame],
+        modal: Option<usize>,
+    ) {
         if let Some(h) = self.host.as_mut() {
             h.runner_mut().top_layer_frames(frames, modal);
         }
@@ -324,14 +328,16 @@ impl<D: DataSource> Bridge<D> {
 
     /// A navigation root's tabs (`exact_root_tabs`; `Kernel::root_tabs`, LLP
     /// 1115.001 D11), as JSON in the output buffer: `{"tablist":view,
-    /// "tabs":[view...],"panels":[view...],"unsaid":bool}`, the tabs that
+    /// "tabs":[view...],"panels":[view...],"unsaid":bool,"covered":bool}`, the tabs that
     /// name a panel and those panels in tab order, or `null` for a root with
     /// one stack. `unsaid`: the app left the bar's placement unsaid, by the
     /// web's rule for its own sidebar (`host/web/navigation.js` `unsaidBar`,
     /// LLP 1116.004 D1.1): the tablist is a direct child of the root, not
     /// vertical, in flow in the root's flex column, and itself a row. It is
     /// read here because the layout rows it asks of never cross to the
-    /// presenter (`style::presenter_ignores`). Not a batch: nothing changes.
+    /// presenter (`style::presenter_ignores`). `covered`: the tablist is
+    /// covered whole, as the boot covers one a tab bar replaces
+    /// (`closed.rs`). Not a batch: nothing changes.
     pub fn root_tabs(&mut self, view: u32) -> u32 {
         use exact_kernel::{Display, FlexDirection, PositionType, PropId};
         let list = |ids: &[u32]| ids.iter().map(u32::to_string).collect::<Vec<_>>().join(",");
@@ -349,8 +355,11 @@ impl<D: DataSource> Bridge<D> {
                     PositionType::Static | PositionType::Relative
                 )
                 && !column(bar.style.flex_direction);
+            let arena = kernel.arena();
+            let covered = arena.slot_of(tabs.tablist).and_then(|s| arena.cover(s))
+                == Some(exact_kernel::HostCover::Whole);
             Some(format!(
-                "{{\"tablist\":{},\"tabs\":[{}],\"panels\":[{}],\"unsaid\":{unsaid}}}",
+                "{{\"tablist\":{},\"tabs\":[{}],\"panels\":[{}],\"unsaid\":{unsaid},\"covered\":{covered}}}",
                 tabs.tablist,
                 list(&tabs.tabs),
                 list(&tabs.panels)
@@ -424,10 +433,24 @@ impl<D: DataSource> Bridge<D> {
             }
             json.push_str(",\"font\":");
             match l.font {
-                Some(f) => json.push_str(&format!(
-                    "{{\"size\":{},\"weight\":{},\"italic\":{},\"family\":{},\"numeric\":{}}}",
-                    f.size, f.weight, f.italic, f.family, f.numeric
-                )),
+                Some(f) => {
+                    let [size, weight, italic, family, numeric] = exact_kernel::TextFont::SAID;
+                    let part = |bit: u8, value: String| {
+                        if f.said & bit != 0 {
+                            value
+                        } else {
+                            "null".into()
+                        }
+                    };
+                    json.push_str(&format!(
+                        "{{\"size\":{},\"weight\":{},\"italic\":{},\"family\":{},\"numeric\":{}}}",
+                        part(size, f.size.to_string()),
+                        part(weight, f.weight.to_string()),
+                        part(italic, f.italic.to_string()),
+                        part(family, f.family.to_string()),
+                        part(numeric, f.numeric.to_string())
+                    ));
+                }
                 None => json.push_str("null"),
             }
             json.push('}');

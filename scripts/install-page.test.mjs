@@ -20,6 +20,7 @@ import { request as httpRequest } from 'node:http';
 import { brotliDecompressSync, gunzipSync } from 'node:zlib';
 import { publishRoot } from './deploy.mjs';
 import { DirectoryOrigin, webReleasePath } from './origin.mjs';
+import { developmentLinks } from '../host/apple/build.mjs';
 const manifest = {name:'Interview',app:{id:'com.interview.app',name:'Interview'}};
 
 test('static ancestor notifications reconcile nested trees and retain refused replacements', () => {
@@ -508,11 +509,15 @@ test('a development server answers only to its printed names; its token and phon
   assert.deepEqual(local.check(request('rebound.example:8879','127.0.0.1')),{allowed:false,local:false});
   assert.deepEqual(local.check(request('192.168.1.20:8879','127.0.0.1')),{allowed:false,local:false});
   assert.deepEqual(local.check(request(undefined,'127.0.0.1')),{allowed:false,local:false});
+  // The design tool's live copies (LLP 1122 T7): exact-copy-<n>.localhost at this port, admitted, never local; no other name under localhost.
+  assert.deepEqual(local.check(request('exact-copy-3.localhost:8879','127.0.0.1')),{allowed:true,local:false});
+  for (const host of ['exact-copy-0.localhost:8879','exact-copy-100.localhost:8879','exact-copy-3.localhost:8880','evil.localhost:8879','exact-copy-3.localhost.example:8879']) assert.deepEqual(local.check(request(host,'127.0.0.1')),{allowed:false,local:false},host);
   assert.deepEqual(shared.check(request('192.168.1.20:8879','192.168.1.33')),{allowed:true,local:false});
   // A peer naming the loopback host is still not local.
   assert.deepEqual(shared.check(request('127.0.0.1:8879','192.168.1.33')),{allowed:true,local:false});
   assert.deepEqual(shared.loopbackOrigins,['http://127.0.0.1:8879','http://localhost:8879']);
   assert.equal(developmentGate(installBrowserOrigins({host:'127.0.0.1',port:80,interfaces}),80).check(request('127.0.0.1','127.0.0.1')).allowed,true);
+  assert.equal(developmentGate(installBrowserOrigins({host:'127.0.0.1',port:80,interfaces}),80).check(request('exact-copy-2.localhost','127.0.0.1')).allowed,true);
   assert.equal(localInstallURL('simulator',lan,8879),'http://127.0.0.1:8879/');
   assert.equal(localInstallURL('device',lan,8879),'http://192.168.1.20:8879/');
   assert.throws(()=>localInstallURL('device',loopback,8879),/--lan/);
@@ -538,8 +543,12 @@ test('--allow-host admits a tunnel name to every request but never makes it loca
   assert.equal(gate.check(request('rebound.example:8879')).allowed,false);
   assert.deepEqual(gate.check(request('127.0.0.1:8879')),{allowed:true,local:true});
   // A tunnel that rewrites Host to loopback still carries the internet: not local.
-  for (const header of ['forwarded','x-forwarded-for','x-forwarded-host'])
+  // Any proxy's mark, a later x-forwarded-* and the canvas gateway's fixed one included.
+  for (const header of ['forwarded','x-forwarded-for','x-forwarded-host','x-forwarded-proto','x-forwarded-port','X-Forwarded-Server'])
     assert.deepEqual(gate.check({headers:{host:'127.0.0.1:8879',[header]:'for=203.0.113.9'},socket:{remoteAddress:'127.0.0.1'}}),{allowed:true,local:false},header);
+  assert.deepEqual(gate.check({headers:{host:'127.0.0.1:8879',forwarded:'for="_exact-canvas"'},socket:{remoteAddress:'127.0.0.1'}}),{allowed:true,local:false});
+  // So the opening page offers such a request no native client's token-bearing links.
+  assert.deepEqual(developmentLinks({}, 'http://127.0.0.1:8879/', gate.check({headers:{host:'127.0.0.1:8879',forwarded:'for="_exact-canvas"'},socket:{remoteAddress:'127.0.0.1'}})), []);
   // A cross-site browser POST is refused; a same-origin or Origin-less one is not.
   const post=(origin,host='127.0.0.1:8879')=>gate.check({method:'POST',headers:{host,...(origin===undefined?{}:{origin})},socket:{remoteAddress:'127.0.0.1'}});
   assert.deepEqual(post('https://evil.example'),{allowed:false,local:false});

@@ -7,8 +7,9 @@
 // delete (`askRemove`, `remove`, the dialog, the row's `delete=`, the menu's Delete), the
 // notes (the shape's field, the sheet's and the detail's sections), or the lock (the shape's `locked`, `setLock`, `flipLock`, the badge, the switch,
 // the menu's Lock and Delete's reason).
-// Compose as the platform does: a row pushes its detail, create and edit are sheets, a phone
-// gets one column and a wide window two (`responsive-columns`); not a form above one long list.
+// Compose as the platform does: a row pushes its detail, create and edit are sheets (an edit
+// sheet fills from its item: `edit-sheet`), a phone gets one column and a wide window two
+// (`responsive-columns`); not a form above one long list.
 // The bar's search field filters as you type (`contract vocab search`); an empty list, a failed
 // read and no match are each an `EmptyState` in the list's place. Save is disabled until valid;
 // Enter (Return on iOS) in the title saves, as a form does on the web (`submit=save`).

@@ -167,6 +167,23 @@ fn reaching_midi_without_its_grant_warns_at_the_call() {
             "{built}: {warnings:?}"
         );
     }
+    // An app that only logs to `""`, no output (LLP 1125 D6), and reads
+    // `sent` alone, never asking for access, reaches no device: no grant is
+    // owed. Asking for access, sending to a named output, or reading
+    // `state` reaches one.
+    let silent = |send: &str, extra: &str, field: &str| {
+        let src = format!("shape Message\n  output: string\n  data: number[]\n  timeStamp: number\nshape M\n  {field}\ncomponent A\n  resource midi = exactMIDI() as shape M\n  action log\n    sendMIDI({send}, [144, 60, 100])\n{extra}  view\n    button \"Log\" press=log\n");
+        std::fs::write(dir.join("app.contract"), src).unwrap();
+        grant("").is_empty()
+    };
+    assert!(silent("\"\"", "", "sent: Message[]"));
+    assert!(!silent("\"synth\"", "", "sent: Message[]"));
+    assert!(!silent(
+        "\"\"",
+        "  action ask\n    requestMIDIAccess()\n",
+        "sent: Message[]"
+    ));
+    assert!(!silent("\"\"", "", "state: string"));
     let _ = std::fs::remove_dir_all(&dir);
     let root =
         std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../apps/metronome/app.contract");
@@ -176,4 +193,36 @@ fn reaching_midi_without_its_grant_warns_at_the_call() {
         !warnings.iter().any(|w| w.id == "grant-device-missing"),
         "{warnings:?}"
     );
+}
+
+struct NoData;
+impl exact_runner::DataSource for NoData {
+    fn query(
+        &mut self,
+        source: &str,
+        _: &[exact_plan::Value],
+    ) -> Result<exact_plan::Value, exact_runner::DataError> {
+        Err(exact_runner::DataError::UnknownSource(source.into()))
+    }
+}
+
+/// `exactMIDI().sent` lists what went out, each its `output`, `data` and
+/// `timeStamp`; a message shape declaring another field is refused at the
+/// bake, naming them.
+#[test]
+fn sent_messages_answer_their_own_fields_only() {
+    let src = |extra: &str| {
+        format!("shape Message\n  output: string\n  data: number[]\n  timeStamp: number\n{extra}shape M\n  state: string\n  sent: Message[]\ncomponent A\n  resource m = exactMIDI() as shape M\n  view\n    text `${{m.sent.length}}`\n")
+    };
+    contract::bake(contract::compile(&src("")).unwrap(), NoData).unwrap();
+    match contract::bake(
+        contract::compile(&src("  velocity: number\n")).unwrap(),
+        NoData,
+    ) {
+        Err(contract::BakeError::Lint { id, message, .. }) => {
+            assert_eq!(id, "bake-midi-field");
+            assert!(message.contains("`velocity`, which a sent message does not answer; it answers output, data, timeStamp"), "{message}");
+        }
+        other => panic!("{other:?}"),
+    }
 }

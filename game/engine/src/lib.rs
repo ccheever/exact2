@@ -11,6 +11,7 @@ pub mod animation;
 pub mod args;
 mod assets_load;
 pub mod character;
+pub mod collect;
 mod color;
 pub mod data;
 pub mod diagnostics;
@@ -32,8 +33,10 @@ mod rng;
 pub mod scene;
 mod sim;
 mod spatial;
+pub mod spawn;
 mod spring;
 pub mod sprite;
+pub mod steer;
 #[allow(unsafe_code)]
 mod storage;
 mod tween;
@@ -47,8 +50,9 @@ pub use color::Color;
 pub use data::{bin, hash, json, Data, DataError, Number, Reader, Writer};
 pub use emitter::Emitter;
 pub use environment::{
-    AmbientOcclusion, AoQuality, Bloom, Environment, EnvironmentMap, Fog, SceneSamples, ShadowBox,
-    ShadowFilter, Shadows, ToneMapping,
+    AmbientOcclusion, AoQuality, Bloom, Caustics, Environment, EnvironmentMap, Fog, Quality,
+    SceneSamples, ShadowBox, ShadowFilter, Shadows, Shafts, ToneMapping, Water, Waves,
+    AUTO_RENDER_SCALE,
 };
 pub use exact_game_derive::{Args, Component, Data, Event, Presentation, Resource};
 pub use exact_motion::spring::SpringConfig;
@@ -72,7 +76,8 @@ pub use storage::{
 pub use tween::Tween;
 pub use values::Published;
 pub use world::{
-    Bundle, Component, Entity, Event, PropBuilder, Resource, SpriteBuilder, Target, World, WorldId,
+    Bundle, Component, Entity, Event, Near, PropBuilder, Resource, SpriteBuilder, Target, World,
+    WorldId,
 };
 
 pub mod audio;

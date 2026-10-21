@@ -57,7 +57,7 @@
 use crate::agent::num;
 use crate::midi::{Midi, Queued, HOLD, TICKS_PER_SECOND};
 use crate::sound::{Added, By, Cut, Sounds};
-use exact_plan::{ActionsId, Plan, Value};
+use exact_plan::{ActionsId, Plan, Value, HAPTIC_KINDS};
 use std::collections::VecDeque;
 
 pub mod clock;
@@ -89,19 +89,6 @@ pub const SHORTEST: f64 = 1.0 / 1048576.0;
 /// cannot, and past 2^53 a loop index no longer steps by 1. A finite track
 /// with fewer loops is never iterated there (its last loop is behind).
 pub const EXACT: f64 = 4503599627370496.0;
-/// A step's `haptic` kinds: `haptic()`'s (LLP 1077 D14).
-pub const HAPTIC_KINDS: [&str; 10] = [
-    "selection",
-    "impact",
-    "impact-light",
-    "impact-medium",
-    "impact-heavy",
-    "impact-soft",
-    "impact-rigid",
-    "success",
-    "warning",
-    "error",
-];
 
 /// What the transport is doing.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -318,7 +305,7 @@ impl Play {
                 .enumerate()
                 .filter_map(|(j, s)| {
                     let label = format!("{label} step {}", j + 1);
-                    step(plan, s, length, &output, &label, log)
+                    step(plan, s, length, Some(&output), &label, log)
                 })
                 .collect();
             tracks.push(Track {
@@ -338,7 +325,7 @@ impl Play {
                         plan,
                         s,
                         -from,
-                        "",
+                        None,
                         &format!("sequence {name}: count-in step {}", j + 1),
                         log,
                     )
@@ -487,13 +474,14 @@ impl Play {
 }
 
 /// One step read from its record, or why not (journaled); a step with no
-/// sample, no note its track sends (`output`) and no haptic plays nothing
-/// here and is left out unsaid.
+/// sample, no note and no haptic plays nothing here and is left out
+/// unsaid. `output` is its track's (`""`, no output, whose notes go only
+/// into `sent`, LLP 1125 D6); the count-in has none and sends no note.
 fn step(
     plan: &Plan,
     v: &Value,
     length: f64,
-    output: &str,
+    output: Option<&str>,
     label: &str,
     log: &mut Vec<String>,
 ) -> Option<Step> {
@@ -547,7 +535,7 @@ fn step(
         log.push(format!("{label} dropped: {why}"));
         return None;
     }
-    if src.is_empty() && haptic.is_empty() && (note == -1.0 || output.is_empty()) {
+    if src.is_empty() && haptic.is_empty() && (note == -1.0 || output.is_none()) {
         return None;
     }
     Some(Step {
@@ -555,7 +543,7 @@ fn step(
         src,
         gain,
         group: text(f.get(3)),
-        note: if output.is_empty() { -1.0 } else { note },
+        note: if output.is_none() { -1.0 } else { note },
         velocity,
         channel,
         duration,

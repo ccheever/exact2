@@ -182,3 +182,135 @@ fn an_author_cannot_write_the_mark() {
     let source = "component App\n  view\n    list listRows=true\n      text \"a\"\n";
     assert!(contract::compile(source).is_err());
 }
+
+/// LLP 1138: a cells list's rows are inset by the look's cell margin, or the
+/// one their host reports, at each end where their author wrote no padding;
+/// a windowed list's rows too, inside their wrappers.
+#[test]
+fn a_rows_unsaid_padding_is_its_platforms_cell_margin() {
+    let mut r = boot(
+        "list testId=\"list\" flex=1
+  row testId=\"plain\"
+    column flex=1 testId=\"plain-in\"
+  row testId=\"padded\" padding-left=4
+    column flex=1 testId=\"padded-in\"
+  input type=\"checkbox\" switch testId=\"switch\" aria-label=\"On\"
+  button appearance=\"auto\" buttonStyle=\"plain\" width=\"100%\" testId=\"native\" press=go
+    text \"Native\"
+  row testId=\"wide\" width=\"100%\"
+    column flex=1 testId=\"wide-in\"
+list testId=\"windowed\" virtualized=true estimated-item-height=44 height=200
+  for n in [\"a\", \"b\"] key=n
+    row testId=`win-${n}`
+      column flex=1 testId=`win-${n}-in`
+list testId=\"swiped\" virtualized=true estimated-item-height=44 height=200
+  for n in [\"x\"] key=n
+    row delete=go testId=`del-${n}`
+      column flex=1 testId=`del-${n}-in`
+list testId=\"leading\"
+  scroll swipeContent=\"lead-row\" swipeLeading=\"lead-act\" testId=\"lead\" display=\"flex\" overflow-x=\"scroll\" overflow-y=\"hidden\"
+    button id=\"lead-act\" width=60 testId=\"lead-act\"
+      text \"Pin\"
+    row id=\"lead-row\" width=\"100%\" flex-shrink=0 testId=\"lead-row\"
+      column flex=1 testId=\"lead-row-in\"",
+    );
+    let lay = |r: &mut Runner<NoData>| {
+        let k = r.kernel_mut();
+        let root = k.roots()[0];
+        k.compute_layout(root, Offer::definite(402.0, 874.0))
+            .unwrap();
+    };
+    // Where the row's content stands in it: its left inset, and what its right leaves.
+    let inset = |r: &Runner<NoData>, t: &str| {
+        let k = r.kernel();
+        let (row, inner) = (
+            k.node(id(r, t)).unwrap().frame,
+            k.node(id(r, &format!("{t}-in"))).unwrap().frame,
+        );
+        let x = inner.x - row.x;
+        (x, row.width - x - inner.width)
+    };
+    assert_eq!(inset(&r, "plain"), (16.0, 16.0), "the look's margin");
+    let switch = r.kernel().node(id(&r, "switch")).unwrap().key;
+    assert!(
+        !r.kernel().takes_row_inset(switch),
+        "a form control keeps its own padding"
+    );
+    // A native button row's face carries the inset its host places and measures the title by.
+    let face_inset = |r: &Runner<NoData>| {
+        let style = r
+            .kernel()
+            .button_face_style(id(r, "native"))
+            .unwrap()
+            .button;
+        let points = |d| match d {
+            exact_kernel::Dimension::Points(n) => n,
+            other => panic!("{other:?}"),
+        };
+        (points(style.padding_left), points(style.padding_right))
+    };
+    assert_eq!(face_inset(&r), (16.0, 16.0), "a native button's face");
+    // A swipe with leading actions is its author's to pad (what the web's sheet can select).
+    assert_eq!(
+        inset(&r, "lead-row"),
+        (0.0, 0.0),
+        "a swipe with leading actions"
+    );
+    // A windowed `delete=` row: its content is the row, its swipe takes none (UIKit's swipe needs them one width).
+    assert_eq!(
+        inset(&r, "del-x"),
+        (16.0, 16.0),
+        "a swipe's content is the row"
+    );
+    assert_eq!(
+        r.kernel().node(id(&r, "del-x")).unwrap().frame.x,
+        0.0,
+        "the swipe has no padding of its own"
+    );
+    assert_eq!(
+        inset(&r, "padded"),
+        (4.0, 16.0),
+        "an end the author wrote stays the author's"
+    );
+    for list in ["list", "windowed"] {
+        let view = id(&r, list);
+        r.kernel_mut()
+            .set_list_margins(view, Some([16.0, 20.0]))
+            .unwrap();
+    }
+    lay(&mut r);
+    assert_eq!(inset(&r, "plain"), (16.0, 20.0), "the cell's margins");
+    assert_eq!(
+        face_inset(&r),
+        (16.0, 20.0),
+        "a native button's face, again"
+    );
+    assert_eq!(
+        inset(&r, "padded"),
+        (4.0, 20.0),
+        "an end the author wrote stays the author's"
+    );
+    assert_eq!(
+        inset(&r, "win-a"),
+        (16.0, 20.0),
+        "a windowed row in its wrapper"
+    );
+    assert_eq!(
+        inset(&r, "wide"),
+        (16.0, 20.0),
+        "a row written as wide as its list holds its margins inside"
+    );
+    assert_eq!(
+        r.kernel().node(id(&r, "wide")).unwrap().frame.width,
+        402.0,
+        "and spans the list, as a cell does"
+    );
+    let view = id(&r, "list");
+    r.kernel_mut().set_list_margins(view, None).unwrap();
+    lay(&mut r);
+    assert_eq!(
+        inset(&r, "plain"),
+        (16.0, 16.0),
+        "cleared, the look's again"
+    );
+}

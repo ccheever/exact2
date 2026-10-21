@@ -15,6 +15,7 @@ impl<D: DataSource> Presenter<D> {
         // Every loop runs this each turn, and a reader's shell is served
         // before its first: whether a shell keeps the screen on is known.
         self.wakelock_unavailable();
+        self.modules_in();
         self.run_queued_commands();
         if self.pending_update {
             self.pending_update = false;
@@ -24,6 +25,20 @@ impl<D: DataSource> Presenter<D> {
                 Err(HostError::PreparingModule) => self.pending_update = true,
                 Err(e) => eprintln!("exact update: activate: {e}"),
             }
+        }
+    }
+
+    /// `postMessage(text, name)` into the named surface's canvas, stamped now
+    /// and held until one is live; the driver's `post` too (LLP 1139.004 D1).
+    pub(crate) fn post_message(&mut self, name: &str, text: &str) -> Result<(), String> {
+        let event = serde_json::json!({"t":"message","text":text,"at":self.host.now()});
+        if self.surfaces.post(name, event) {
+            Ok(())
+        } else {
+            Err(format!(
+                "postMessage: dropped: {} posts already wait for surface \"{name}\"",
+                crate::surfaces::POST_BOUND
+            ))
         }
     }
 
@@ -89,12 +104,12 @@ impl<D: DataSource> Presenter<D> {
                 "postMessage" => {
                     let arg = |i: usize| c.args.get(i).and_then(exact_plan::Value::as_str);
                     let (text, name) = (arg(0).unwrap_or_default(), arg(1).unwrap_or_default());
-                    let event = serde_json::json!({"t":"message","text":text,"at":self.host.now()});
-                    if !self.surfaces.post(name, event) {
-                        self.host.log(format!(
-                            "postMessage: dropped: {} posts already wait for surface \"{name}\"",
-                            crate::surfaces::POST_BOUND
-                        ));
+                    if arg(2) == Some("iframe") {
+                        self.host.log("postMessage: iframe replies are unavailable on Linux");
+                        continue;
+                    }
+                    if let Err(refused) = self.post_message(name, text) {
+                        self.host.log(refused);
                     }
                 }
                 // @ref LLP 1069.002 D8 — refused with `cancel`; the agent's

@@ -3,14 +3,14 @@
 // live host's DOM at the same URL once the runtime is ready. A difference
 // names the view. What the browser owns after layout — a symbol's sized
 // source, a surface's pixel size, focus — is left out of both sides.
-import { afterAll, test, expect } from 'bun:test';
+import { test, expect } from 'bun:test';
 import { spawn, spawnSync } from 'node:child_process';
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
-import { Cdp, open, assertWebDistApp, browserDiagnosticNoise } from '../../../scripts/agent.mjs';
-import { chromium, DESKTOP_INPUT, refuseStale, webChanges } from '../../../scripts/agent-launch.mjs';
+import { open, assertWebDistApp } from '../../../scripts/agent.mjs';
+import { cdpBrowser, chromium, DESKTOP_INPUT, refuseStale, webChanges, suiteBrowser } from '../../../scripts/agent-launch.mjs';
 import { hermesBundle, hermesTarget, resolveApp } from '../../../scripts/app.mjs';
 import { jsTargetBuild, serveStatic, serveBuildTree } from '../serve.mjs';
 import { withLook } from '../look.mjs';
@@ -22,7 +22,7 @@ const ROOT = resolve(new URL('../../..', import.meta.url).pathname);
 const SHIPPED = withLook(readFileSync(resolve(ROOT, 'host/web/index.html'), 'utf8'));
 const dist = resolve(process.env.EXACT_WEB_DIST ?? resolve(ROOT, 'host/web/dist'));
 const app = resolveApp('caltrain');
-const { executable: chrome, unavailable: browserUnavailable } = chromium();
+const { unavailable: browserUnavailable } = chromium();
 /** How the Weatherlight test is chosen: `need(kind, why)` or `notApplicable(why)`, or `test`. */
 function weatherlightCheckFor() {
   if (process.env.EXACT_GLUE_FAST === '1') return notApplicable('the async glue step does not build apps; the web-build-test step runs this test');
@@ -148,7 +148,7 @@ function differences(served, live, where = 'root', out = []) {
 
 /** Serve the rendered page for `location` beside dist/, launch Chrome, and
  * hand `drive` a way to open tabs on it; everything is torn down after. */
-async function withDocument(location, drive, { wasmAfter = null, glueAfter = null, tamper = (page) => page, origin = null, html = null, files = {}, answers = {}, requested = () => {}, hints = false } = {}) {
+async function withDocument(location, drive, { wasmAfter = null, glueAfter = null, tamper = (page) => page, origin = null, html = null, files = {}, answers = {}, requested = () => {}, hints = false, needs = [] } = {}) {
   let server = null, url = `${origin}${location}`;
   if (!origin) {
     const page = tamper(html ?? renderedPage(location));
@@ -166,14 +166,13 @@ async function withDocument(location, drive, { wasmAfter = null, glueAfter = nul
     await new Promise((ok) => server.listen(0, '127.0.0.1', ok));
     url = `http://127.0.0.1:${server.address().port}${location}`;
   }
-  const { cdp, lines } = await browser();
-  lines.length = 0;
   // A browser context of its own: no cookie, storage, cache or history of another test's
-  const { browserContextId } = await cdp.send('Target.createBrowserContext');
+  const suite = await cdpBrowser({ needs, args: [`--window-size=${width},${height}`, '--hide-scrollbars', DESKTOP_INPUT] });
+  const { cdp, lines } = suite;
+  lines.length = 0;
   try {
     const tab = async (scripts, onNew) => {
-      const { targetId } = await cdp.send('Target.createTarget', { url: 'about:blank', browserContextId });
-      const { sessionId } = await cdp.send('Target.attachToTarget', { targetId, flatten: true });
+      const { sessionId } = await suite.page();
       const call = (method, params) => cdp.send(method, params, sessionId);
       await call('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-color-scheme', value: 'light' }] }); // the light look these checks expect, in whatever appearance this machine has
       await call('Page.enable');
@@ -205,38 +204,11 @@ async function withDocument(location, drive, { wasmAfter = null, glueAfter = nul
     };
     await drive(tab);
   } finally {
-    await cdp.send('Target.disposeBrowserContext', { browserContextId }).catch(() => {});
+    await suite.close();
     server?.close();
   }
 }
 
-/** The file's one Chrome, launched at its first document and again after it exits (Bun kills it when a test times out): a
- * launch per test cost 0.17 s each. `lines` holds the stderr received since the current test reset it, which can include the
- * end of the previous test's. */
-let launched = null;
-function browser() {
-  if (launched) return launched;
-  const started = launched = (async () => {
-    const profile = mkdtempSync(resolve(tmpdir(), 'exact-document-'));
-    const child = spawn(chrome, ['--headless=new', '--remote-debugging-pipe', `--window-size=${width},${height}`, '--hide-scrollbars',
-      DESKTOP_INPUT,
-      `--user-data-dir=${profile}`, '--no-sandbox', '--disable-extensions', '--disable-background-networking',
-      '--disable-component-update', '--no-first-run', '--no-default-browser-check', 'about:blank'],
-    { detached: true, stdio: ['ignore', 'ignore', 'pipe', 'pipe', 'pipe'] });
-    const lines = [];
-    child.stderr.on('data', (d) => { for (const l of String(d).split('\n')) if (l && !browserDiagnosticNoise(l)) lines.push(l); });
-    const exited = new Promise((ok) => child.on('exit', ok));
-    exited.then(() => { if (launched === started) launched = null; });
-    const close = async () => {
-      try { process.kill(-child.pid, 'SIGKILL'); } catch {}
-      await Promise.race([exited, Bun.sleep(2000)]);
-      rmSync(profile, { recursive: true, force: true });
-    };
-    return { cdp: new Cdp(child.stdio[3], child.stdio[4]), lines, close };
-  })();
-  return started;
-}
-afterAll(async () => { if (launched) await (await launched).close(); });
 
 const settled = 'new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(() => r(true))))';
 
@@ -371,7 +343,7 @@ check(`Back from the bfcache downloads the runtime a link stopped`, async () => 
     release();
     await live.until("document.getElementById('exact-root')?.dataset.moduleReady === 'true'", 'the runtime');
     expect((await live("exact.agent({op:'state'})")).adopted).toBe(true);
-  }, { wasmAfter, answers: { '/elsewhere': [200, '<!doctype html><p>elsewhere</p>'] } });
+  }, { wasmAfter, answers: { '/elsewhere': [200, '<!doctype html><p>elsewhere</p>'] }, needs: ['bfcache'] });
 }, 180000);
 
 /** An app's render server (LLP 1048.000 D10) over its dist, on loopback —
@@ -663,6 +635,25 @@ for (const concern of ['defaults', 'nowrap', 'clamp', 'floor', 'disabled accent'
   }, {html});
 });
 
+// A face stacked in a column centres its image on its title when the image is narrower than the title's column, as the
+// Linux host paints it; the face keeps the button's alignment.
+browserCheck('native button stacked image', async () => {
+  // A column's areas and spacing, as `rows` in host/web/src/button_css.rs writes them for `flex-direction: column`.
+  const column = `--exact-button-leading-areas:'image' 'space' 'title';--exact-button-columns:minmax(var(--exact-button-title-min,min-content),auto);--exact-button-space:var(--exact-button-row-space);--exact-button-space-width:0px;--exact-button-space-height:var(--exact-button-row-gap,1em);`;
+  const button = (id, style = '') => `<button id="${id}" data-native data-button-style="filled" style="display:grid;width:160px;font-size:20px;${column}${style}"><img alt=""><span data-exact-text>Unlock now</span></button>`;
+  const html = SHIPPED.replace('<div id="exact-root"></div>', `<div id="exact-root">${button('centre')}${button('start', 'text-align:start;--exact-button-align:start;')}</div>`).replace('<script type="module" src="./glue.js"></script>', '');
+  await withDocument('/', async tab => {
+    const page = await tab(true);
+    await page.until("document.readyState === 'complete'", 'stacked fixture');
+    const facts = await page(`(() => { const mid = r => Math.round(r.left + r.width / 2); return Object.fromEntries(['centre', 'start'].map(id => { const b = document.getElementById(id); return [id, [b.querySelector('img'), b.querySelector('span'), b].map(e => mid(e.getBoundingClientRect()))]; })); })()`);
+    const [image, title, button] = facts.centre;
+    expect([image, title]).toEqual([button, button]);
+    const [startImage, startTitle, startButton] = facts.start;
+    expect(startImage).toBe(startTitle);
+    expect(startTitle).toBeLessThan(startButton);
+  }, {html});
+});
+
 // LLP 1116.003 D3.1, as the neutral look draws it (LLP 1115.000 D4 part B):
 // the ink on an accent fill is white or black, whichever reads at 4.5:1 or
 // better on the accent as the scheme resolves it. A pale dark-scheme accent
@@ -829,9 +820,13 @@ browserCheck('date and time controls take the field look', async () => {
 // dark). An authored background is the box's, under the track, as on iOS.
 browserCheck('a determinate progress is the accent over the system fill in light and dark', async () => {
   const shell = SHIPPED;
-  // As both targets write a role's accent: `accent-color` and the custom property beside it.
-  const accent = (role, pair) => `accent-color:var(--exact-${role}, ${pair});--exact-accent:var(--exact-${role}, ${pair});`;
-  const teal = accent('system-teal', 'light-dark(#30b0c7, #40c8e0)'), indigo = accent('system-indigo', 'light-dark(#5856d6, #5e5ce6)');
+  // As both targets write a role's accent: `accent-color` and the custom property beside it. A role is Apple's pair
+  // (look.mjs, from the schema), light and dark.
+  const apple = (role) => JSON.parse(readFileSync(resolve(ROOT, 'kernel/tables/schema.json'), 'utf8')).colors.find(([name]) => name === role).slice(4, 6);
+  const rgb = (hex) => [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16));
+  const [tealPair, indigoPair] = [apple('system-teal'), apple('system-indigo')];
+  const accent = (role, [light, dark]) => `accent-color:var(--exact-${role}, light-dark(${light}, ${dark}));--exact-accent:var(--exact-${role}, light-dark(${light}, ${dark}));`;
+  const teal = accent('system-teal', tealPair), indigo = accent('system-indigo', indigoPair);
   const bar = (id, style) => `<progress id="${id}" value="0.25" max="1" style="width:160px;margin:8px;${style}"></progress>`;
   // A box of the look's `-exact-fill` over the same ground as the bars beside it: what a track is drawn in.
   const fill = (id, under = '') => `<div style="width:160px;margin:8px;${under}"><div id="${id}" style="height:16px;background-color:var(--exact-fill)"></div></div>`;
@@ -853,24 +848,25 @@ browserCheck('a determinate progress is the accent over the system fill in light
     expect([light.join() === '255,255,255', dark.join() === '0,0,0', red.join() === '255,0,0']).toEqual([false, false, false]);
     for (const id of ['teal-light', 'indigo-light']) { near(at(id, 120, 8), light, `${id} track`); near(at(id, 120, 2), [255, 255, 255], `${id} above its track`); }
     for (const id of ['teal-dark', 'indigo-dark']) { near(at(id, 120, 8), dark, `${id} track`); near(at(id, 120, 2), [0, 0, 0], `${id} above its track`); }
-    near(at('teal-light', 20, 8), [0x30, 0xb0, 0xc7], 'teal bar in light');
-    near(at('indigo-light', 20, 8), [0x58, 0x56, 0xd6], 'indigo bar in light');
-    near(at('teal-dark', 20, 8), [0x40, 0xc8, 0xe0], 'teal bar in dark');
-    near(at('indigo-dark', 20, 8), [0x5e, 0x5c, 0xe6], 'indigo bar in dark');
+    near(at('teal-light', 20, 8), rgb(tealPair[0]), 'teal bar in light');
+    near(at('indigo-light', 20, 8), rgb(indigoPair[0]), 'indigo bar in light');
+    near(at('teal-dark', 20, 8), rgb(tealPair[1]), 'teal bar in dark');
+    near(at('indigo-dark', 20, 8), rgb(indigoPair[1]), 'indigo bar in dark');
     near(at('authored', 120, 2), [255, 0, 0], 'the authored background is the box');
     near(at('authored', 120, 8), red, 'the track over it');
-    near(at('authored', 20, 8), [0x30, 0xb0, 0xc7], 'the bar over it');
+    near(at('authored', 20, 8), rgb(tealPair[0]), 'the bar over it');
   }, {html});
 });
 
-browserCheck('modal routes use the platform canvas, keep author paint, and reveal the sheet beneath on Back', async () => {
+// The page's ground is the look's background role (Apple's, black in dark; not each engine's own `Canvas`).
+browserCheck('modal routes use the page\'s ground, keep author paint, and reveal the sheet beneath on Back', async () => {
   const css = SHIPPED.match(/<style>([\s\S]*?)<\/style>/)[1];
   const html = `<!doctype html><style>${css}</style><style>#exact-root#exact-root .authored {background-color:rgb(20,40,60)}</style>
     <div id="exact-root"><main id="nav" navigationKey="2" navigationBack="back">
       <section id="home" navigationKey="0"><button>Home</button></section>
       <section id="first" navigationKey="1" navigationPresentation="modal"><button>First sheet</button></section>
       <section id="second" navigationKey="2" navigationPresentation="modal"><button>Second sheet</button></section>
-    </main><div id="canvas" style="background-color:Canvas"></div><div id="bare"></div></div>`;
+    </main><div id="canvas" style="background-color:var(--exact-background)"></div><div id="bare"></div></div>`;
   await withDocument('/', async tab => {
     const page = await tab(true);
     await page.until("document.readyState === 'complete'", 'modal fixture');
@@ -928,7 +924,7 @@ async function withFocusDocument(drive, {html, files = {}}) {
   }});
   let browser;
   try {
-    browser = await chromium.launch({executablePath: chrome, headless: true});
+    browser = await suiteBrowser();
     const page = await browser.newPage();
     await page.goto(`http://127.0.0.1:${server.port}`);
     const session = await page.context().newCDPSession(page);

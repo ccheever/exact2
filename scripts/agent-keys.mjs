@@ -66,9 +66,10 @@ export function pointerArguments(phase, opts) {
   if (opts.ms !== undefined && (!Number.isFinite(opts.ms) || opts.ms < 0)) throw new MalformedOperation('pointer: expected a nonnegative finite duration');
 }
 
-export function resizeArguments(size) {
-  const m = /^(\d+)x(\d+)$/.exec(size);
-  if (!m) throw new MalformedOperation('resize <w>x<h>, as resize 800x600');
+/** `resize <w>x<h>` or `resize <w> <h>`: the words after the op. */
+export function resizeArguments(words) {
+  const m = /^(\d+)(?:x|\s+)(\d+)$/.exec([words].flat().join(' ').trim());
+  if (!m) throw new MalformedOperation('resize <w>x<h> or resize <w> <h>, as resize 800x600');
   return [Number(m[1]), Number(m[2])];
 }
 
@@ -220,7 +221,8 @@ export async function deliverClipboard({ id, opts, evaluate, ask, call, keyDown,
   // Firefox builds a synthetic paste's clipboardData from its own `dataType`
   // and `data` and ignores `clipboardData`, so its paste carried no text.
   const send = async () => {
-    const heard = await evaluate(`(() => { const el = document.activeElement?.closest?.('[data-view]') ? document.activeElement : exact.views.get(${id}), dt = new DataTransfer(); if (${JSON.stringify(opts.clipboard)} === 'paste') dt.setData('text/plain', ${JSON.stringify(opts.text ?? '')}); const ev = new ClipboardEvent(${JSON.stringify(opts.clipboard)}, { clipboardData: dt, ...(${JSON.stringify(opts.clipboard)} === 'paste' ? { dataType: 'text/plain', data: ${JSON.stringify(opts.text ?? '')} } : {}), bubbles: true, cancelable: true }); el.dispatchEvent(ev); return { editable: el.matches('input, textarea, [contenteditable]'), prevented: ev.defaultPrevented }; })()`);
+    // A paste's files stand in for the browser's (`exact.agentPaste`, documents-glue.js `pasted`): Firefox hands a synthetic paste no files.
+    const heard = await evaluate(`(() => { ${opts.pasted ? `exact.agentPaste = ${JSON.stringify(opts.pasted)};` : ''} const el = document.activeElement?.closest?.('[data-view]') ? document.activeElement : exact.views.get(${id}), dt = new DataTransfer(); if (${JSON.stringify(opts.clipboard)} === 'paste') dt.setData('text/plain', ${JSON.stringify(opts.text ?? '')}); const ev = new ClipboardEvent(${JSON.stringify(opts.clipboard)}, { clipboardData: dt, ...(${JSON.stringify(opts.clipboard)} === 'paste' ? { dataType: 'text/plain', data: ${JSON.stringify(opts.text ?? '')} } : {}), bubbles: true, cancelable: true }); el.dispatchEvent(ev); return { editable: el.matches('input, textarea, [contenteditable]'), prevented: ev.defaultPrevented }; })()`);
     if (opts.clipboard === 'paste' && heard.editable && !heard.prevented) await (insertText ?? (text => call('Input.insertText', { text })))(opts.text ?? '');
   };
   if (opts.clipboard !== 'paste') { await send(); return; }
@@ -434,6 +436,8 @@ export function tapWords(args, held = false) {
   if (held && first === 'up') return [null, { phase: 'up', ...options(args.slice(1), ['modifiers']) }];
   if (held && first === 'cancel') return [null, { phase: 'cancel', ...options(args.slice(1), []) }];
   if (form === undefined) return [first, {}];
+  // A held contact's phases name no target: the contact is the one `tap <target> down` began.
+  if (['up', 'cancel', 'hold', 'move'].includes(form)) refuse(held ? `a held contact's phases take no target: \`tap ${[form, ...rest].join(' ')}\`` : `${form} is a phase of a held contact, which none is: \`tap <target> down\`, then \`tap ${form}${form === 'move' ? ' <x> <y>' : form === 'hold' ? ' <ms>' : ''}\``);
   if (form.startsWith('{')) { try { return [first, JSON.parse(args.slice(1).join(' '))]; } catch (e) { refuse(e.message); } }
   switch (form) {
     // A click with modifiers held (gallery F20): `tap <target> modifiers Shift+Meta`.
@@ -453,6 +457,10 @@ export function tapWords(args, held = false) {
     case 'pinch': return [first, { pinch: number(rest[0], 'pinch'), ...options(rest.slice(1), ['at']) }];
     // Files dragged in from outside, each a path (studio diary R19).
     case 'drop': if (!rest.length) refuse('drop takes one or more paths'); return [first, { drop: rest.map((path) => resolve(path)) }];
+    // A drag of those files from outside comes over the target and stays there (`dragenter`), until a `drop` there
+    // or a `dragleave`, which takes it away undropped.
+    case 'dragenter': if (!rest.length) refuse('dragenter takes the dragged paths'); return [first, { dragenter: rest.map((path) => resolve(path)) }];
+    case 'dragleave': if (rest.length) refuse('dragleave takes no more words'); return [first, { dragleave: true }];
     case 'into': {
       // tap <list> into <key> [block <v>] [inline <v>]
       if (rest[0] === undefined) refuse('into takes a key');
@@ -474,7 +482,7 @@ export function tapWords(args, held = false) {
       if (!['left', 'right'].includes(rest[0]) || !(rest.length === 3 || (rest.length === 5 && rest[3] === 'for'))) refuse('stick takes left or right, x and y in [-1, 1], and optionally for <ms>');
       return [first, { stick: rest[0], value: [number(rest[1], 'stick'), number(rest[2], 'stick')], ...(rest[3] === 'for' ? { for: number(rest[4], 'for') } : {}) }];
     // Most often a target of several words left unquoted (sb4 farm wave 4, 053: `tap Why are my…`).
-    default: refuse(`unknown word ${JSON.stringify(form)}; a target of several words is quoted inside the op (\`tap "${args.join(' ').replace(/["\\]/g, '\\$&')}"\`), and after a target come only: tap <target> [at <x> <y> [modifiers <M>] | modifiers <M> | down [at <x> <y>] [modifiers <M>] | wheel <dx> <dy> [gesture] [at <x> <y>] [modifiers <M>] | mouse | dblclick | contextmenu | auxclick | clicks <1-3> (each [at <x> <y>] [modifiers <M>]) | hover | drop <path…> | into <key> … | pinch <scale> [at <x> <y>] | history <n> | mediasession <action> [seconds] | drag …]`);
+    default: refuse(`unknown word ${JSON.stringify(form)}; a target of several words is quoted inside the op (\`tap "${args.join(' ').replace(/["\\]/g, '\\$&')}"\`), and after a target come only: tap <target> [at <x> <y> [modifiers <M>] | modifiers <M> | down [at <x> <y>] [modifiers <M>] | wheel <dx> <dy> [gesture] [at <x> <y>] [modifiers <M>] | mouse | dblclick | contextmenu | auxclick | clicks <1-3> (each [at <x> <y>] [modifiers <M>]) | hover | drop <path…> | dragenter <path…> | dragleave | into <key> … | pinch <scale> [at <x> <y>] | history <n> | mediasession <action> [seconds] | drag …]`);
   }
 }
 
@@ -506,7 +514,7 @@ export function tapArguments(opts) {
   const button = ['mouse', 'contextmenu', 'auxclick', 'dblclick', 'clicks'].filter((k) => opts[k] !== undefined && opts[k] !== false);
   if (button.length > 1) throw new MalformedOperation(`tap: one of mouse, dblclick, contextmenu, auxclick and clicks at a time, not ${button.join(' and ')}`);
   if (opts.clicks !== undefined && ![1, 2, 3].includes(opts.clicks)) throw new MalformedOperation('tap … clicks: 1, 2 or 3');
-  if (opts.at !== undefined && (opts.hover || opts.history !== undefined || opts.drop || opts.into)) throw new MalformedOperation('at is a point on a press, a click (mouse, dblclick, contextmenu, auxclick, clicks), a wheel, a contact, a pinch or a drag');
+  if (opts.at !== undefined && (opts.hover || opts.history !== undefined || opts.drop || opts.dragenter || opts.dragleave || opts.into)) throw new MalformedOperation('at is a point on a press, a click (mouse, dblclick, contextmenu, auxclick, clicks), a wheel, a contact, a pinch or a drag');
   if (opts.at !== undefined && (!Array.isArray(opts.at) || opts.at.length !== 2 || !opts.at.every(Number.isFinite))) throw new MalformedOperation('tap at needs two finite numbers');
   const modifiers = opts.modifiers ?? opts.drag?.modifiers;
   if (modifiers !== undefined && !String(modifiers).split('+').filter(Boolean).every(k => ['Shift', 'Control', 'Alt', 'Meta'].includes(k))) throw new MalformedOperation(`tap … modifiers: ${modifiers} is not Shift, Control, Alt and Meta joined by +`);
@@ -542,9 +550,15 @@ export function typeCommand(line) {
   const target = matched[1] != null ? inputJSON(`"${matched[1]}"`) : matched[2];
   const rest = matched[3] ?? '';
   const head = /^\S+/.exec(rest)?.[0];
+  // A paste of files (`clipboardData.files`): paths, or one image's data with no file.
+  const files = /^paste\s+--(file|image)\s+([\s\S]*\S)\s*$/.exec(rest);
+  if (files) return typeArguments([target, 'paste', `--${files[1]}`, ...files[2].split(/\s+/)]);
   // A paste's text is a tail as typed text is: its newlines are the clipboard's.
   const pasted = /^paste\s+([\s\S]*\S[\s\S]*)$/.exec(rest);
   if (pasted) return [target, { clipboard: 'paste', text: decodeTypeText(pasted[1]) }];
+  // A world surface's message (LLP 1139.004 D1), what `post` is short for: the rest of the line.
+  const message = /^message\s+([\s\S]*\S[\s\S]*)$/.exec(rest);
+  if (message) return [target, { message: decodeTypeText(message[1]) }];
   if (head === 'key' || head === 'copy' || head === 'cut' || head === 'paste') return typeArguments([target, ...rest.trim().split(/\s+/)]);
   return [target, decodeTypeText(rest)];
 }
@@ -561,6 +575,14 @@ function decodeTypeText(text) {
 export function typeArguments(args) {
   // The clipboard's events at the target (spreadsheet F6): `copy`, `cut`, `paste <text…>`.
   if (['copy', 'cut'].includes(args[1]) && args.length === 2) return [args[0], {clipboard:args[1]}];
+  if (args[1] === 'paste' && args[2] === '--file') {
+    if (args.length < 4) throw new MalformedOperation('paste --file takes one or more paths');
+    return [args[0], {clipboard:'paste', text:'', files:args.slice(3).map((path) => resolve(path))}];
+  }
+  if (args[1] === 'paste' && args[2] === '--image') {
+    if (args.length !== 4) throw new MalformedOperation('paste --image takes one image file, pasted as its data');
+    return [args[0], {clipboard:'paste', text:'', image:resolve(args[3])}];
+  }
   if (args[1] === 'paste' && args.length > 2) return [args[0], {clipboard:'paste', text:args.slice(2).join(' ')}];
   if (args[1] !== 'key' || !args[2]) return [args[0], args.slice(1).join(' ')];
   if (args[3] === 'for') {
@@ -586,4 +608,28 @@ export async function padOp({ op, s, target, opts, host, timing }) {
   try { steps.push(await s.clock(`+${opts.for}`)); }
   finally { steps.push(await send(op === 'type' ? { phase: 'up' } : { value: [0, 0] })); }
   return s.landed(tag({ ...steps[0], for: opts.for, steps }));
+}
+
+/** The CLI `post [<surface>] <text>` (LLP 1139.004 D1): `type <surface> message <text>` with the surface
+ * optional, so the text is one word or one quoted string ("…" as JSON, '…' as a shell's). One argument is
+ * the text for the page's one world; two are the surface and the text. */
+export function postCommand(line) {
+  const body = String(line).trim().replace(/^post(?:\s+|$)/, ''), words = [];
+  for (const m of body.matchAll(/"((?:[^"\\]|\\.)*)"|'([^']*)'|(\S+)/g)) words.push(m[1] != null ? inputJSON(`"${m[1]}"`) : m[2] ?? m[3]);
+  if (words.length === 1) return [null, { message: words[0] }];
+  if (words.length === 2) return [words[0], { message: words[1] }];
+  throw new MalformedOperation(words.length ? `post [<surface>] <text>: quote text of several words, as post world "spawn gulper"; type <surface> message <text…> takes the rest of the line` : 'post [<surface>] <text>: the text a world reads from Input::messages, as post spawn-gulper');
+}
+
+/** Post `message` into a world surface, as the page's `postMessage(text, surface)` does (LLP 1139.004 D1):
+ * `target` is a canvas the tree finds (a testId, a label) or a surface's name; none, the page's one world.
+ * The host queues it as `InputEvent::Message`, the next tick reads it, and a surface with no live canvas
+ * holds it, as it holds the page's posts. */
+export async function postInto(s, target, message, { host, timing }) {
+  if (typeof message !== 'string' || !message) throw new MalformedOperation('post: expected the text to post');
+  if (s.held) throw new Error(`a drag's finger is down (${s.held}): only reads and the clock until it lifts`);
+  const node = target == null ? null : await s.find(target, false);
+  const where = target == null ? {} : node?.world ? { id: node.id } : { surface: String(target) };
+  const r = await s.op({ op: 'type', message, ...where });
+  return s.landed({ ...r, ...(target == null ? {} : { target }), delivery: r.delivery ?? 'posted', carrier: host, mode: timing });
 }

@@ -696,3 +696,138 @@ fn param_hint_names_its_own_param_whole() {
     );
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// LLP 1122's queue item (1): a `:hover` row is edited at its part's place
+/// as the compiler's map gives it (its row's `states`), never at its base
+/// row's: `set-row` with `state` on the node's own part (a side's
+/// `border-color` whole), `set-state` on a style's; undo gives the bytes
+/// back.
+#[test]
+fn a_look_row_is_edited_at_the_part_its_map_gives() {
+    let dir = app("set-row-look", DESIGN);
+    let file = dir.join("app.contract");
+    let view = "style Card\n  :hover\n    opacity=0.9\n\ncomponent App\n  view\n    column class=Card background-color=\"accent.fill\" testId=\"card\"\n      :hover\n        background-color=\"accent.pressed\"\n        border-color=\"#111111\"\n      text \"Post\"\n";
+    std::fs::write(&file, view).unwrap();
+    let (plan, map) = contract::compile_path_mapped(&file).unwrap();
+    let map: Value = serde_json::from_str(&map.json(&plan.encode())).unwrap();
+    let part = |row: &str| {
+        let bindings = map["nodes"].as_array().unwrap().iter();
+        bindings
+            .flat_map(|n| n["bindings"].as_array().unwrap())
+            .find(|b| b["row"] == row && b.get("states").is_some())
+            .map(|b| b["states"][0].clone())
+            .unwrap_or_else(|| panic!("{row}: {map}"))
+    };
+    let (bg, side, faded) = (
+        part("background_color"),
+        part("border_color_top"),
+        part("opacity"),
+    );
+    assert_eq!(
+        [&bg, &side, &faded].map(|p| (p["state"].clone(), p["at"]["line"].clone())),
+        [
+            (json!("hover"), json!(9)),
+            (json!("hover"), json!(10)),
+            (json!("hover"), json!(3))
+        ]
+    );
+    assert_eq!(faded["origin"], "class:Card");
+    let mut s = Serve::start(&dir, &[]);
+    let set = |s: &mut Serve, p: &Value, row: &str, value: &str| {
+        let at = json!({"line": p["at"]["line"], "col": p["at"]["col"]});
+        let op = json!({"op": "set-row", "file": "app.contract", "at": at, "sha256": digest(&file), "row": row, "state": "hover", "value": value});
+        transaction(s, &file, op)
+    };
+    let one = set(&mut s, &bg, "background-color", "#000000");
+    let two = set(&mut s, &side, "border-color", "#222222");
+    let op = json!({"op": "set-state", "style": "Card", "state": "hover", "row": "opacity", "value": 0.8});
+    let three = transaction(&mut s, &file, op);
+    let written = std::fs::read_to_string(&file).unwrap();
+    let changed: Vec<usize> = (view.lines().zip(written.lines()).enumerate())
+        .filter(|(_, (a, b))| a != b)
+        .map(|(i, _)| i + 1)
+        .collect();
+    // The three parts' lines, and the base row's (line 7) untouched.
+    assert_eq!(changed, [3, 9, 10], "{written}");
+    assert!(
+        written.contains("background-color=\"#000000\"")
+            && written.contains("border-color=\"#222222\"")
+            && written.contains("opacity=0.8"),
+        "{written}"
+    );
+    for done in [three, two, one] {
+        assert!(done["ok"]["inverse"].is_string(), "{done}");
+        s.ask(json!({"method": "undo", "client": "one", "inverse": done["ok"]["inverse"]}));
+    }
+    assert_eq!(std::fs::read_to_string(&file).unwrap(), view);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// LLP 1122's queue item (2): a folded row's base and each of its parts are
+/// edited apart, at the places the compiler's map gives (the base's
+/// attribute; each part's row in `states`): editing the base leaves each
+/// part's line as it was, and editing a part leaves the base's and the
+/// other part's, byte for byte (review2's 04:24); undo gives the bytes back.
+#[test]
+fn a_folded_rows_base_and_parts_are_edited_apart() {
+    let dir = app("set-row-folds", DESIGN);
+    let file = dir.join("app.contract");
+    let view = "component App\n  state flag = true\n  view\n    box background-color=\"accent.fill\" disabled=flag aria-checked=flag role=\"checkbox\" testId=\"card\"\n      :disabled\n        background-color=\"#999999\"\n      :checked\n        background-color=\"#00ff00\"\n      text \"Post\"\n";
+    std::fs::write(&file, view).unwrap();
+    let (plan, map) = contract::compile_path_mapped(&file).unwrap();
+    let map: Value = serde_json::from_str(&map.json(&plan.encode())).unwrap();
+    let bg = map["nodes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .flat_map(|n| n["bindings"].as_array().unwrap())
+        .find(|b| b["row"] == "background_color" && b.get("states").is_some())
+        .cloned()
+        .unwrap_or_else(|| panic!("{map}"));
+    assert_eq!(bg["at"]["line"], 4, "{bg}");
+    let part = |state: &str| {
+        bg["states"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|p| p["state"] == state)
+            .cloned()
+            .unwrap_or_else(|| panic!("{state}: {bg}"))
+    };
+    let (disabled, checked) = (part("disabled"), part("checked"));
+    assert_eq!(
+        (
+            disabled["at"]["line"].clone(),
+            checked["at"]["line"].clone()
+        ),
+        (json!(6), json!(8))
+    );
+    let mut s = Serve::start(&dir, &[]);
+    let edit = |s: &mut Serve, at: &Value, state: Option<&str>, value: &str| {
+        let mut op = json!({"op": "set-row", "file": "app.contract", "at": {"line": at["line"], "col": at["col"]}, "sha256": digest(&file), "row": "background-color", "value": value});
+        if let Some(state) = state {
+            op["state"] = json!(state);
+        }
+        let done = transaction(s, &file, op);
+        assert!(done["ok"]["inverse"].is_string(), "{done}");
+        let written = std::fs::read_to_string(&file).unwrap();
+        let changed: Vec<usize> = (view.lines().zip(written.lines()).enumerate())
+            .filter(|(_, (a, b))| a != b)
+            .map(|(i, _)| i + 1)
+            .collect();
+        s.ask(json!({"method": "undo", "client": "one", "inverse": done["ok"]["inverse"]}));
+        assert_eq!(
+            std::fs::read_to_string(&file).unwrap(),
+            view,
+            "undo gives the bytes back"
+        );
+        (changed, written)
+    };
+    let (base, written) = edit(&mut s, &bg["at"], None, "#ffffff");
+    assert_eq!(base, [4], "the base's line alone: {written}");
+    let (off, written) = edit(&mut s, &disabled["at"], Some("disabled"), "#888888");
+    assert_eq!(off, [6], "the `:disabled` part's line alone: {written}");
+    let (on, written) = edit(&mut s, &checked["at"], Some("checked"), "#00aa00");
+    assert_eq!(on, [8], "the `:checked` part's line alone: {written}");
+    let _ = std::fs::remove_dir_all(&dir);
+}

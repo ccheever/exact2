@@ -127,9 +127,11 @@ pub(crate) fn control(
         return Ok(Some("select"));
     }
     if tag != "input" {
+        // (An `iframe`'s `name` is HTML's: its frame's browsing context name,
+        // the target a page names it by, never in its URL.)
         if let Some(a) = attrs
             .iter()
-            .find(|a| matches!(a.name.as_str(), "checked" | "name"))
+            .find(|a| a.name == "checked" || (a.name == "name" && tag != "iframe"))
         {
             return err(
                 "lower-attr-tag",
@@ -615,6 +617,12 @@ const NATIVE_ROWS: &[StyleId] = &[
     StyleId::ExitAnimation,
 ];
 
+/// Whether a native button's box may carry row `id` ([`NATIVE_ROWS`]): what
+/// a library control's `control` group takes (LLP 1139 D6).
+pub(crate) fn native_row(id: StyleId) -> bool {
+    NATIVE_ROWS.contains(&id)
+}
+
 /// The motion a native button may carry: its opacity and transforms.
 fn native_motion(p: exact_motion::Property) -> bool {
     use exact_motion::Property as P;
@@ -740,6 +748,13 @@ impl Lowerer<'_> {
                 }
                 "flex-direction" if !literals(&a.value).is_some_and(|vs| vs.iter().all(|v| matches!(*v, "row" | "column"))) => {
                     return refuse("lower-button-style-attr", format!("a native button's `flex-direction` is `row` or `column`: {alternative}"));
+                }
+                "-exact-press-haptic" => {
+                    let kind = match &a.value {
+                        Expr::Str(k, _) => k.as_str(),
+                        _ => "impact-light",
+                    };
+                    return refuse("lower-button-style-attr", format!("a native button plays no `-exact-press-haptic`: play it from its `press` action, `haptic(\"{kind}\")`; or {alternative}"));
                 }
                 "buttonStyle" => match literals(&a.value) {
                     Some(names) => {

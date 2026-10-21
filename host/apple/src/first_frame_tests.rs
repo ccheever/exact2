@@ -639,3 +639,209 @@ fn an_input_a_live_clock_overtook_is_presented_at_the_inputs_time() {
     // a hold there.
     assert_eq!(host.engine.now(), 2.0);
 }
+
+/// A box a timer moves while another timer and a frame task run: one
+/// `clock +N` crosses all of them.
+const CAPSULE: &str = r##"component A
+  state small = false
+  state go = false
+  state beats = 0
+  state frames = 0
+  action start
+    go = true
+  action shrink
+    small = true
+  action beat
+    beats = beats + 1
+  action frame
+    frames = frames + 1
+  task later when go
+    after(100, shrink)
+  task beating when go
+    every(200, beat)
+  task framing when go
+    every(frame, frame)
+  view
+    column width="100%" height="100%" position="relative"
+      button testId="go" press=start
+        text "Go"
+      row testId="capsule" position="absolute" right=(small ? 68 : 14) bottom=14 -exact-layout-transition="400ms linear"
+        box width=(small ? 48 : 180) height=48
+"##;
+
+/// The capsule's presented left edge, and its laid-out one.
+fn capsule_x(host: &Host<NoData>) -> (f64, f32) {
+    let k = host.runner.kernel();
+    let key = k.find_by_test_id("capsule")[0];
+    let shown = host
+        .engine
+        .value(exact_kernel::motion::motion_node(key), Property::Layout)
+        .unwrap()
+        .x;
+    (shown, k.node_by_key(key).unwrap().frame.x)
+}
+
+/// `clock +N` as the agent runs it (`Agent.advanceRunner`, `clock_stepped`):
+/// the request stops it took.
+fn agent_jump(host: &mut Host<NoData>, to: f64) -> usize {
+    let mut stops = 0;
+    while stops < 4096 && host.runner.timer_due_ms().is_some_and(|d| d <= to) {
+        host.advance_until_request(to);
+        stops += 1;
+    }
+    host.advance(to);
+    stops
+}
+
+#[test]
+fn a_box_a_timer_moves_inside_an_agents_jump_starts_moving_at_the_timer() {
+    let plan = contract::compile(CAPSULE).unwrap().encode();
+    let (mut host, _) = Host::boot(
+        &plan,
+        NoData,
+        Box::new(MonospaceMeasurer::default()),
+        390.0,
+        844.0,
+    )
+    .unwrap();
+    host.start_on_frame(false, 0.0);
+    let go = id(&host, "go");
+    host.dispatch_at(go, Event::Press, 0.0);
+    assert_eq!(capsule_x(&host), (196.0, 196.0));
+    // Right-anchored: it shrinks from 180 to 48 wide at 100 ms and its left
+    // edge goes from 196 to 274, half way at 300 ms, whatever else fired.
+    assert_eq!(agent_jump(&mut host, 300.0), 1, "no request stopped it");
+    let (shown, laid) = capsule_x(&host);
+    assert_eq!(laid, 274.0);
+    assert!(
+        (shown - 235.0).abs() < 1e-6,
+        "half way at 300 ms, not {shown}"
+    );
+    agent_jump(&mut host, 1000.0);
+    assert_eq!(capsule_x(&host), (274.0, 274.0));
+    // A frame task's every frame for two minutes is one call, not a
+    // request stop each (the agent's 4,096 would end at 68 s).
+    assert_eq!(agent_jump(&mut host, 121_000.0), 1);
+    assert_eq!(host.runner.now_ms(), 121_000.0);
+}
+
+/// A box under a layout transition, and two timers that each send.
+const SENDS: &str = r##"shape Reply
+  text: string
+component A
+  state go = false
+  state small = false
+  state seen = ""
+  mutation loaded as shape Reply then note
+  action start
+    go = true
+  action load
+    small = true
+    send loaded = fetchOne("a")
+  action loadAgain
+    send loaded = fetchOne("b")
+  action note
+    match loaded
+      case some(r)
+        seen = `${seen}${r.text}`
+      case none
+        seen = seen
+  task beating when go
+    every(1000, load)
+  task again when go
+    after(1500, loadAgain)
+  view
+    column width="100%" height="100%" position="relative"
+      button testId="go" press=start
+        text "Go"
+      row testId="capsule" position="absolute" right=(small ? 68 : 14) bottom=14 -exact-layout-transition="400ms linear"
+        view width=(small ? 48 : 180) height=48
+"##;
+
+/// Each `fetchOne(word)` a request whose reply is `word`.
+#[derive(Default)]
+struct Fetches;
+impl exact_runner::DataSource for Fetches {
+    fn query(
+        &mut self,
+        source: &str,
+        _: &[exact_plan::Value],
+    ) -> Result<exact_plan::Value, exact_runner::DataError> {
+        Err(exact_runner::DataError::UnknownSource(source.into()))
+    }
+    fn answer(
+        &mut self,
+        _: &mut exact_runner::Store,
+        _: &str,
+        args: &[exact_plan::Value],
+    ) -> Result<exact_runner::Answer, exact_runner::DataError> {
+        let word = args[0].as_str().unwrap_or_default();
+        Ok(exact_runner::Answer::Later(exact_runner::Request::get(
+            &format!("https://fixture.invalid/{word}"),
+        )))
+    }
+    fn parse(
+        &mut self,
+        _: &mut exact_runner::Store,
+        _: &str,
+        _: &[exact_plan::Value],
+        outcome: exact_runner::Outcome,
+    ) -> Result<exact_runner::Answer, exact_runner::DataError> {
+        let exact_runner::Outcome::Storage(bytes) = outcome else {
+            panic!("a storage outcome")
+        };
+        Ok(exact_runner::Answer::Now(exact_plan::Value::record(vec![
+            exact_plan::Value::str(std::str::from_utf8(&bytes).unwrap()),
+        ])))
+    }
+}
+
+#[test]
+fn a_jump_stepping_for_a_layout_transition_still_stops_at_each_send() {
+    let plan = contract::compile(SENDS).unwrap().encode();
+    let (mut host, _) = Host::boot(
+        &plan,
+        Fetches,
+        Box::new(MonospaceMeasurer::default()),
+        390.0,
+        844.0,
+    )
+    .unwrap();
+    host.start_on_frame(false, 0.0);
+    let go = id_of(&host, "go");
+    host.dispatch_at(go, Event::Press, 0.0);
+    // `clock +1800` as the agent runs it: each stop's request is answered
+    // before the jump goes on (LLP 1016 D5).
+    let mut stops = Vec::new();
+    while host.runner.timer_due_ms().is_some_and(|d| d <= 1800.0) {
+        host.advance_until_request(1800.0);
+        for r in host.take_requests() {
+            let word = r.request.url.rsplit('/').next().unwrap().to_string();
+            stops.push((host.runner.now_ms(), word.clone()));
+            let landed = host.fulfill_all(
+                vec![(
+                    r.ticket,
+                    exact_runner::Outcome::Storage(word.into_bytes()),
+                    None,
+                )],
+                host.runner.now_ms(),
+            );
+            assert!(landed.contains("\"error\":null"), "{landed}");
+        }
+    }
+    host.advance(1800.0);
+    assert_eq!(
+        stops,
+        [(1000.0, "a".to_string()), (1500.0, "b".to_string())]
+    );
+    assert_eq!(
+        host.runner.slot("seen"),
+        Some(&exact_plan::Value::str("ab")),
+        "both replies landed"
+    );
+}
+
+fn id_of<D: exact_runner::DataSource>(host: &Host<D>, test_id: &str) -> u32 {
+    let k = host.runner.kernel();
+    k.node_by_key(k.find_by_test_id(test_id)[0]).unwrap().id
+}

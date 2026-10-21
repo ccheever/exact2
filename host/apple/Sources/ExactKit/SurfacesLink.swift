@@ -59,7 +59,11 @@ package protocol Canvases: AnyObject {
     func destroy(view: UInt32)
     func loadIfNeeded()
     func surfaceWork(_ op: [String: Any], generation: Int)
-    func post(_ name: String, _ text: String)
+    @discardableResult func post(_ name: String, _ text: String) -> String?
+    func hasSurface(_ name: String) -> Bool
+    func surfaceName(_ view: UInt32) -> String?
+    func surfaceNames() -> [String]
+    func waiting(_ name: String) -> Bool
     func period(_ ms: Double)
     func tick(now: Double) -> Bool
     func settle(now: Double)
@@ -179,7 +183,11 @@ final class NoCanvases: Canvases {
     func destroy(view: UInt32) {}
     func loadIfNeeded() {}
     func surfaceWork(_ op: [String: Any], generation: Int) {}
-    func post(_ name: String, _ text: String) {}
+    func post(_ name: String, _ text: String) -> String? { nil }
+    func hasSurface(_ name: String) -> Bool { false }
+    func surfaceName(_ view: UInt32) -> String? { nil }
+    func surfaceNames() -> [String] { [] }
+    func waiting(_ name: String) -> Bool { false }
     func period(_ ms: Double) {}
     func tick(now: Double) -> Bool { false }
     func settle(now: Double) {}

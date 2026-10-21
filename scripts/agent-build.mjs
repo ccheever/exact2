@@ -266,7 +266,8 @@ export async function buildFirst(host, app, { say = line => console.error(line),
     if (planOverride(host, app, state, graph)) return hashed();
     const log = resolve(app.dir, '.exact', `${host}-plan.log`), made = await makeOverride(host, app, state, { bake, log }), what = named(app, state.changed);
     if (made.made) {
-      say(`${label(host)}: ${what} changed; running the new plan on the existing build (no native rebuild)`);
+      // The euxy port timed four variants with `simctl launch`, each the installed plan.
+      say(`${label(host)}: ${what} changed; running the new plan on the existing build (no native rebuild). Only the agent's drives run it: a launch outside them (\`simctl launch\`, the home screen) runs the installed plan, so \`bun exact.mjs ${host === 'ios' ? 'ios' : 'mac'}\` before timing one`);
       for (const line of warningLines(app.dir, host, compilerWarnings(made.output))) say(line);
       return hashed();
     }

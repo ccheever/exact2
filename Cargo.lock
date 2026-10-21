@@ -1141,11 +1141,13 @@ dependencies = [
  "exact-data",
  "exact-kernel",
  "exact-markdown",
+ "exact-markdown-editor",
  "exact-motion",
  "exact-plan",
  "exact-raster",
  "exact-route",
  "exact-runner",
+ "exact-svg-file",
  "exact-textflow",
  "ibex2",
  "serde_json",
@@ -1604,6 +1606,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "exact-svg-file"
+version = "0.1.0"
+dependencies = [
+ "exact-kernel",
+ "exact-motion",
+ "exact-num",
+]
+
+[[package]]
 name = "exact-svg-filter"
 version = "0.1.0"
 
@@ -1622,6 +1633,7 @@ dependencies = [
  "exact-kernel",
  "exact-motion",
  "exact-num",
+ "libc",
  "serde_json",
 ]
 
@@ -1707,8 +1719,10 @@ dependencies = [
 name = "exact-web-capabilities"
 version = "0.1.0"
 dependencies = [
+ "contract",
  "exact-kernel",
  "exact-markdown",
+ "exact-plan",
  "exact-runner",
  "exact-web",
  "exact-web-geometry",
@@ -3178,6 +3192,37 @@ dependencies = [
  "log",
  "wasi",
  "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "module-fixture-android"
+version = "0.1.0"
+dependencies = [
+ "contract",
+ "exact-bake",
+ "exact-linux",
+ "module-fixture-data",
+]
+
+[[package]]
+name = "module-fixture-data"
+version = "0.1.0"
+dependencies = [
+ "contract",
+ "exact-data",
+ "exact-plan",
+ "exact-runner",
+]
+
+[[package]]
+name = "module-fixture-linux"
+version = "0.1.0"
+dependencies = [
+ "contract",
+ "exact-bake",
+ "exact-linux",
+ "exact-logic",
+ "module-fixture-data",
 ]
 
 [[package]]
@@ -5429,6 +5474,50 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "06abde3611657adf66d383f00b093d7faecc7fa57071cce2578660c9f1010821"
 
 [[package]]
+name = "variable-type-android"
+version = "0.1.0"
+dependencies = [
+ "contract",
+ "exact-js",
+ "exact-js-bake",
+ "exact-linux",
+ "exact-logic",
+ "exact-plan",
+]
+
+[[package]]
+name = "variable-type-apple"
+version = "0.1.0"
+dependencies = [
+ "exact-apple",
+ "exact-apple-update",
+ "exact-js",
+ "exact-js-bake",
+ "exact-logic",
+]
+
+[[package]]
+name = "variable-type-linux"
+version = "0.1.0"
+dependencies = [
+ "exact-js",
+ "exact-js-bake",
+ "exact-linux",
+ "exact-logic",
+]
+
+[[package]]
+name = "variable-type-web"
+version = "0.1.0"
+dependencies = [
+ "exact-js-bake",
+ "exact-js-web",
+ "exact-logic",
+ "exact-web",
+ "exact-web-capabilities",
+]
+
+[[package]]
 name = "vcpkg"
 version = "0.2.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5742,6 +5831,18 @@ dependencies = [
  "log",
  "once_cell",
  "pkg-config",
+]
+
+[[package]]
+name = "weatherlight-android"
+version = "0.1.0"
+dependencies = [
+ "contract",
+ "exact-js",
+ "exact-js-bake",
+ "exact-linux",
+ "exact-logic",
+ "exact-plan",
 ]
 
 [[package]]

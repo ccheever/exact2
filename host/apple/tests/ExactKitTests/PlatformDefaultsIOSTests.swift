@@ -168,7 +168,8 @@ final class PlatformDefaultsIOSTests: XCTestCase {
         cache.configure(traits, in: p.viewport)
         let measured = cache.measure(unsaid, widthKind: 2, width: 0, traits: traits)
         let fits = reference.sizeThatFits(CGSize(width: CGFloat.greatestFiniteMagnitude, height: .greatestFiniteMagnitude))
-        XCTAssertEqual(CGFloat(measured.width), ceil(fits.width * scale) / scale, accuracy: 0.01)
+        // A content width carries the device pixel its drawn edges can lose to the grid.
+        XCTAssertEqual(CGFloat(measured.width), ceil(fits.width * scale) / scale + 1 / scale, accuracy: 0.01)
         XCTAssertEqual(CGFloat(measured.height), ceil(fits.height * scale) / scale, accuracy: 0.01)
         // A destructive one is the same plain button in the system red, as SwiftUI's destructive role draws it
         // (LLP 1116.008 D7 paints every style; with no style that is red text and no fill).
@@ -250,6 +251,24 @@ final class PlatformDefaultsIOSTests: XCTestCase {
         XCTAssertEqual(editors[1].returnKeyType, .search)
         fields[1].applyProps(set: ["enterKeyHint": "enter"], clear: [])
         XCTAssertEqual(editors[1].returnKeyType, .default)
+    }
+
+    /// HTML's `enterkeyhint` labels a `textarea`'s key too. Unsaid, its
+    /// Return inserts a line break, so it keeps UIKit's plain label.
+    func testATextareaLabelsItsReturnKeyFromEnterKeyHint() throws {
+        let p = Presenter()
+        kept = p
+        let node = NodeView(id: 1, kind: "textarea", presenter: p)
+        node.frame = CGRect(x: 0, y: 0, width: 300, height: 88)
+        node.applyProps(set: ["value": ""], clear: [])
+        let editor = try XCTUnwrap(node.textArea)
+        XCTAssertEqual(editor.returnKeyType, .default)
+        node.applyProps(set: ["enterKeyHint": "next"], clear: [])
+        XCTAssertEqual(editor.returnKeyType, .next)
+        node.applyProps(set: ["enterKeyHint": "send"], clear: [])
+        XCTAssertEqual(editor.returnKeyType, .send)
+        node.applyProps(set: [:], clear: ["enterKeyHint"])
+        XCTAssertEqual(editor.returnKeyType, .default, "the word taken away: the plain key again")
     }
 
     /// D9.2: a field's `submit` runs before the keyboard goes, and the field

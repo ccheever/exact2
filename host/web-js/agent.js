@@ -8,10 +8,10 @@ import * as perf from './perf.js';
 import { observe } from './check.js';
 import { faultOp, faultsJson, setFaultLog } from '../web/faults.js';
 import { inertAncestor, displayMode, environment, navigation, unselected, foldEnv, preferFold, typedControl, typeControl, animationClocks, pageReporter } from './navigation.js';
-import { guestOutline, guestTap, guestType, viewBox, reveal, selectAll } from './input-glue.js';
+import { guestOutline, guestTap, guestType, viewBox, reveal, selectAll, scrollRange } from './input-glue.js';
 // A runtime value as the runner's typed JSON: records by field name.
 const typed = (v, t) => v == null || typeof t === 'string' ? v : Array.isArray(t) ? (t[0] === '?' ? typed(v, t[1]) : v.map(x => typed(x, t[1]))) : Object.fromEntries(Object.keys(t).map((k, i) => [k, typed(v[i], t[k])]));
-const PROPS = [['aria-live', 'accessibilityLive'], ['role', 'accessibilityRole'], ['aria-controls', 'accessibilityControls'], ['id', 'id'], ['aria-description', 'accessibilityHint'], ['aria-keyshortcuts', 'accessibilityKeyShortcuts'], ['aria-orientation', 'accessibilityOrientation'], ['aria-pressed', 'accessibilityPressed'], ['aria-level', 'accessibilityHeadingLevel', 1], ['aria-posinset', 'accessibilityPosInSet', 1], ['aria-setsize', 'accessibilitySetSize', 1], ['aria-valuenow', 'accessibilityValueNow'], ['aria-valuemin', 'accessibilityValueMin'], ['aria-valuemax', 'accessibilityValueMax'], ['aria-valuetext', 'accessibilityValueText'], ['placeholder', 'placeholder'], ['autocomplete', 'autocomplete'], ['viewportFit', 'viewportFit'], ['interactiveWidget', 'interactiveWidget'], ['data-hatch', 'hatch'], ['data-nativeviewmodulename', 'nativeViewModuleName'], ['data-nativeviewprops', 'nativeViewProps']];
+const PROPS = [['aria-live', 'accessibilityLive'], ['role', 'accessibilityRole'], ['data-alertpart', 'alertPart'], ['aria-controls', 'accessibilityControls'], ['id', 'id'], ['aria-description', 'accessibilityHint'], ['aria-keyshortcuts', 'accessibilityKeyShortcuts'], ['aria-orientation', 'accessibilityOrientation'], ['aria-pressed', 'accessibilityPressed'], ['aria-level', 'accessibilityHeadingLevel', 1], ['aria-posinset', 'accessibilityPosInSet', 1], ['aria-setsize', 'accessibilitySetSize', 1], ['aria-valuenow', 'accessibilityValueNow'], ['aria-valuemin', 'accessibilityValueMin'], ['aria-valuemax', 'accessibilityValueMax'], ['aria-valuetext', 'accessibilityValueText'], ['placeholder', 'placeholder'], ['autocomplete', 'autocomplete'], ['viewportFit', 'viewportFit'], ['interactiveWidget', 'interactiveWidget'], ['data-hatch', 'hatch'], ['data-nativeviewmodulename', 'nativeViewModuleName'], ['data-nativeviewprops', 'nativeViewProps']];
 const TYPES = { TEMPLATE: 'Head', BUTTON: 'Pressable', INPUT: 'TextInput', TEXTAREA: 'TextInput', VIDEO: 'Video', AUDIO: 'Video', IMG: 'Image', IFRAME: 'WebView', A: 'Pressable' };
 /** The view an operation names: its id, else the first node with that testId on an active screen, a covered
  * screen's or an unselected tab's copy only when no active one carries it, as the runner's `target`. */
@@ -61,7 +61,7 @@ export function install(exact) {
     if (el.hasAttribute('inert')) props.inert = true;
     // A disabled control, as the runner's tree gives its `disabled` prop (LLP 1116.010 D3: `expect disabled`, and a press refused the same on every host).
     // `aria-disabled` is its own prop, as the runner gives it: it reads as disabled, but a press still dispatches.
-    if (el.matches(':disabled')) props.disabled = true;
+    if (el.matches(':disabled, [disabled]')) props.disabled = true; // a box's own `disabled`, which `:disabled` does not match
     if (el.getAttribute('aria-disabled') === 'true') props.accessibilityDisabled = true;
     if (el.getAttribute('aria-hidden') === 'true') props.accessibilityElementsHidden = true;
     if (el.getAttribute('aria-modal') === 'true' && !sheet) props.accessibilityModal = true;
@@ -157,14 +157,15 @@ export function install(exact) {
       if (aid == null) continue;
       parent ??= aid;
       const ac = getComputedStyle(a);
-      if (a.dataset.scroll === 'true') scroll.unshift({ id: aid, sx: r2(a.scrollLeft), sy: r2(a.scrollTop) });
+      if (a.dataset.scroll === 'true') scroll.unshift({ id: aid, sx: r2(a.scrollLeft), sy: r2(a.scrollTop), ...scrollRange(a) });
       for (const kind of (ac.overflowX !== 'visible' || ac.overflowY !== 'visible' ? ['overflow'] : []).concat(ac.clipPath !== 'none' ? ['clip-path'] : [])) {
         clip.unshift({ id: aid, kind });
         const c = a.getBoundingClientRect();
         if (r.right <= c.left || r.left >= c.right || r.bottom <= c.top || r.top >= c.bottom) clipped = true;
       }
     }
-    if (scrollX || scrollY) scroll.unshift({ viewport: true, sx: r2(scrollX), sy: r2(scrollY) });
+    const page = scrollRange(document.scrollingElement ?? document.documentElement);
+    if (scrollX || scrollY || page.rx || page.ry) scroll.unshift({ viewport: true, sx: r2(scrollX), sy: r2(scrollY), ...page });
     const n = record(el, 0);
     return {
       ...tags(), id: nid, type: n.type, parent, props: n.props, style,
@@ -285,7 +286,7 @@ export function install(exact) {
           const el = views.get(n.id), b = viewBox(el);
           // An iframe says whether its centre hits it (glue.js).
           const hit = el instanceof HTMLIFrameElement ? { hit: document.elementFromPoint(b.left + b.width / 2, b.top + b.height / 2) === el } : {};
-          return { id: n.id, x: b.x, y: b.y, w: b.width, h: b.height, ...hit, ...(el.dataset.scroll === 'true' ? { sx: r2(el.scrollLeft), sy: r2(el.scrollTop) } : {}) };
+          return { id: n.id, x: b.x, y: b.y, w: b.width, h: b.height, ...hit, ...(el.dataset.scroll === 'true' ? { sx: r2(el.scrollLeft), sy: r2(el.scrollTop), ...scrollRange(el) } : {}) };
         });
         const reply = { viewport: { w: innerWidth, h: innerHeight }, env: environment(), nodes, ...tags() };
         if (req.id != null) { const node = nodeDetail(req.id); if (node.error) return node; if (req.plan && exact.plan) node.planDigest = exact.plan; reply.node = node; }
@@ -491,7 +492,7 @@ export function install(exact) {
         const mutationFailures = Object.fromEntries(exact.mutations.flatMap(m => { const failure = m.e(); return failure ? [[m.name, {code: failure[0], message: failure[1]}]] : []; }));
         // The writes shown over resources until they end or are answered (overlay.js), as the runner's `state.writes`.
         const writes = exact.writes?.() ?? [];
-        return { slots, derives, resources, ...(Object.keys(mutationFailures).length ? {mutationFailures} : {}), mutationRequests: exact.mutations.reduce((n,m)=>n+m.requests,0), device: { displayMode: displayMode(), navigationType: ownPage().read()['navigation-type'] }, ...(writes.length ? { writes } : {}), ...(Object.keys(failed).length ? { failed } : {}), pending, streams, watches: exact.watchState?.() ?? [], ...(faults.length ? { faults } : {}), ...(background ? { background } : {}), tasks, queued, notifications: exact.notices ?? [], ...(exact.sounds ? { sounds: exact.sounds.state(req.sounds === 'all') } : {}), ...(exact.transport?.declared() ? { transport: exact.transport.state() } : {}), ...(exact.midi ? { midi: exact.midi.state(req.midi === 'all') } : {}), wakelock: exact.wakelock?.() ?? { held: false, by: [] }, head, focus, language, storage, keyboard, navigation: (pageHistory() ?? navigation).observation(document.getElementById('exact-root')), media, mediaSession: exact.mediaSession?.state(id) ?? { owner: null, claimants: [], actions: [], playbackState: 'none', published: 'none' }, window: { title: document.title }, ...(exact.canvas2dState ? { canvas: exact.canvas2dState() } : {}), ...(exact.surfaceRefusals ? { surfaceRefusals: exact.surfaceRefusals() } : {}), reorder: exact.reorderState?.() ?? null, ...(exact.lists ? { scrollIntoView: exact.lists.intoView() } : {}), ...(exact.presenceLive ? { presence: presence() } : {}), ...(exact.hatchState ? { hatches: exact.hatchState() } : {}), ...tags() };
+        return { slots, derives, resources, ...(Object.keys(mutationFailures).length ? {mutationFailures} : {}), mutationRequests: exact.mutations.reduce((n,m)=>n+m.requests,0), device: { displayMode: displayMode(), navigationType: ownPage().read()['navigation-type'], gpuTier: (exact.page ?? ownPage()).read()['gpu-tier'] }, ...(writes.length ? { writes } : {}), ...(Object.keys(failed).length ? { failed } : {}), pending, streams, watches: exact.watchState?.() ?? [], ...(faults.length ? { faults } : {}), ...(background ? { background } : {}), tasks, queued, notifications: exact.notices ?? [], ...(exact.sounds ? { sounds: exact.sounds.state(req.sounds === 'all') } : {}), ...(exact.transport?.declared() ? { transport: exact.transport.state() } : {}), ...(exact.midi ? { midi: exact.midi.state(req.midi === 'all') } : {}), ...(exact.extensions ? { extensions: exact.extensions.state() } : {}), wakelock: exact.wakelock?.() ?? { held: false, by: [] }, head, focus, language, storage, keyboard, navigation: (pageHistory() ?? navigation).observation(document.getElementById('exact-root')), media, mediaSession: exact.mediaSession?.state(id) ?? { owner: null, claimants: [], actions: [], playbackState: 'none', published: 'none' }, window: { title: document.title }, ...(exact.canvas2dState ? { canvas: exact.canvas2dState() } : {}), ...(exact.surfaceRefusals ? { surfaceRefusals: exact.surfaceRefusals() } : {}), reorder: exact.reorderState?.() ?? null, ...(exact.lists ? { scrollIntoView: exact.lists.intoView() } : {}), ...(exact.presenceLive ? { presence: presence() } : {}), ...(exact.hatchState ? { hatches: exact.hatchState() } : {}), ...tags() };
       }
       // The page group (LLP 1069.000 D6), where the plan reads `exactPage` (facts.js); else the drive's facts
       // held here, so `root-font-size` still sets the root element's size `rem` follows (D3), as glue.js does.

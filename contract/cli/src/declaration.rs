@@ -59,7 +59,7 @@ pub(crate) fn read(path: &Path, text: &str, source_id: u32) -> Result<File, Refu
                 }
             }
             for entry in json["names"].as_array().into_iter().flatten() {
-                let mut decl = module(entry, package, &json["permission"], span).map_err(refuse)?;
+                let mut decl = module(entry, package, &json, span).map_err(refuse)?;
                 for (subpath, implementation) in &implementations {
                     let platform = implementation["platform"].as_str().unwrap_or(subpath);
                     let words = &implementation["options"][&decl.declared];
@@ -155,7 +155,7 @@ fn fields(map: &Map<String, Value>, span: Span) -> Result<Vec<Field>, String> {
 fn module(
     entry: &Value,
     package: &str,
-    permission: &Value,
+    interface: &Value,
     span: Span,
 ) -> Result<ModuleDecl, String> {
     let (kind, name) = match (entry["source"].as_str(), entry["send"].as_str()) {
@@ -184,22 +184,25 @@ fn module(
         live: entry["live"] == true,
         request: request.to_owned(),
         sync: entry["sync"]["name"].as_str().map(str::to_owned),
-        substitute: substitute(&entry["substitute"], permission)?,
+        substitute: substitute(&entry["substitute"], interface)?,
         span,
     })
 }
 
-/// A name's declared substitute, with its interface's `permission` beside
-/// it, as the plan carries it: what the agent's runner answers with no
-/// implementation bound (LLP 1133.002 §6).
-fn substitute(declared: &Value, permission: &Value) -> Result<String, String> {
+/// A name's declared substitute, with its interface's `permission` and
+/// `grants` beside it, as the plan carries it: what the agent's runner
+/// answers with no implementation bound (LLP 1133.002 §6), and the grant
+/// lines the app writes one of (D6).
+fn substitute(declared: &Value, interface: &Value) -> Result<String, String> {
     let mut out = match declared {
         Value::Null => Map::new(),
         Value::Object(map) => map.clone(),
         other => return Err(format!("a `substitute` is an object, not `{other}`")),
     };
-    if !permission.is_null() {
-        out.insert("permission".into(), permission.clone());
+    for field in ["permission", "grants"] {
+        if !interface[field].is_null() {
+            out.insert(field.into(), interface[field].clone());
+        }
     }
     Ok(Value::Object(out).to_string())
 }

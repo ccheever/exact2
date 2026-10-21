@@ -1148,7 +1148,9 @@ fn determine_flex_base_size(
         // its items' summed bases, so its text took one line, and the item's
         // height stayed one line after it was laid out at the narrower
         // fit-content width (determine_hypothetical_cross_size, the same
-        // condition). Leaves wrap to their available space already; a sizing
+        // condition). A leaf too: its min-content can be wider than the space
+        // (a word `overflow-wrap: break-word` breaks), and then fit-content is
+        // that width under its max, not the space it wraps to. A sizing
         // keyword keeps its own width; a ratio keeps its own path. Measured
         // only when a probe below needs it.
         let fit_content_available = match cross_axis_available_space.maybe_sub(cross_axis_margin_sum) {
@@ -1157,8 +1159,7 @@ fn determine_flex_base_size(
                     && provisional_cross_removed.cross(dir).is_none()
                     && child.size_style.cross(dir).is_auto()
                     && child.aspect_ratio.is_none()
-                    && !tree.get_flexbox_child_style(child.node).is_compressible_replaced()
-                    && tree.child_count(child.node) > 0 =>
+                    && !tree.get_flexbox_child_style(child.node).is_compressible_replaced() =>
             {
                 Some(available)
             }

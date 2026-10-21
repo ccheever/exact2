@@ -35,6 +35,10 @@ final class GroupedListSkirtIOSTests: GroupedListFixture {
         }
         XCTAssertEqual(try rgb(.light), [242, 242, 247, 255], "the list's grey, in light")
         XCTAssertEqual(try rgb(.dark), [0, 0, 0, 255], "and in dark")
+        // Only past the list's box, where the list paints its own: a translucent colour is not laid over itself
+        let mask = try XCTUnwrap((skirt.layer.mask as? CAShapeLayer)?.path)
+        XCTAssertTrue(mask.contains(CGPoint(x: 200, y: 860), using: .evenOdd), "the strip under the home indicator")
+        XCTAssertFalse(mask.contains(CGPoint(x: 200, y: 400), using: .evenOdd), "not the list's box")
         // The keyboard ends the viewport: the keys cover that edge.
         p.keyboardInset = 300
         p.apply(wireBatch([["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 402.0, "h": 840.0]]))

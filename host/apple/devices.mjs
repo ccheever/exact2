@@ -108,6 +108,56 @@ export async function withDisplay(r, path, udid, appTop = 0, { own = false, prob
   finally { rmSync(dir, { recursive: true, force: true }); }
 }
 
+/** What a drive passes from its own environment to an app that `simctl launch` (which forwards only `SIMCTL_CHILD_`
+ *  names) or `devicectl` (only what it is given) starts: `EXACT_STORE`, so `EXACT_STORE=real` gives an iOS drive the
+ *  Keychain a normal launch reads, as a macOS drive, whose app inherits the environment, has it (host/apple/src/store.rs). */
+export function forwardedEnv(env = process.env) {
+  return env.EXACT_STORE ? { EXACT_STORE: env.EXACT_STORE } : {};
+}
+
+/** A page capture (`path`) whose area holds glass or a blur, its pixels then the display's there too: the app names
+ *  that area only then (`r.materials`: x, y, width and height in window points), and `window(p)` takes a window
+ *  capture into `p` through `withDisplay`. Where that capture's pixels are the display's, the page's area is cut from
+ *  it; otherwise the picture stays the app's and says its materials are approximate, and why. Returns `r`. */
+export async function withMaterials(r, path, window) {
+  const area = r.materials;
+  delete r.materials;
+  if (!Array.isArray(area) || !(r.scale > 0)) return r;
+  const keep = (why) => {
+    r.pixels = 'app'; r.pixelsWhy = why;
+    const note = `the picture is the app's own drawing, not the display's (${why}): glass and other backdrop materials in it are approximate; \`screenshot <png> window\` takes the display's while the app is in front`;
+    r.note = r.note ? `${r.note}; ${note}` : note;
+    return r;
+  };
+  const dir = mkdtempSync(resolve(tmpdir(), 'exact-glass-'));
+  try {
+    const shot = resolve(dir, 'window.png'), whole = await window(shot);
+    if (whole.pixels !== 'display') return keep(whole.pixelsWhy ?? 'the window capture was the app\'s');
+    const display = decodePng(readFileSync(shot)), app = decodePng(readFileSync(path));
+    const [x, y] = area.map((v) => Math.round(v * r.scale));
+    if (x < 0 || y < 0 || x + app.width > display.width || y + app.height > display.height) return keep('the page lies outside the window');
+    for (let row = 0; row < app.height; row++) {
+      const from = ((y + row) * display.width + x) * 4;
+      app.data.set(display.data.subarray(from, from + app.width * 4), row * app.width * 4);
+    }
+    writeFileSync(path, encodePng(app));
+    r.pixels = 'display';
+    if (r.keyboard?.visible) { r.keyboard.captured = true; r.note = 'the software keyboard is up and in the capture where it covers the page, as the simulator draws it'; }
+    return r;
+  } catch (e) { return keep(String(e.message ?? e).split('\n')[0]); }
+  finally { rmSync(dir, { recursive: true, force: true }); }
+}
+
+/** The simulator's display as it is, into `path` over the app's own picture: whatever is over the app (a system
+ *  permission alert, a sheet of the system's) is in it, and nothing checks it against the app's drawing. */
+export function displayAsIs(r, path, udid) {
+  const taken = read('xcrun', ['simctl', 'io', udid, 'screenshot', '--type=png', path], { timeout: 20000 });
+  if (taken.status !== 0) throw new Error(`simctl io screenshot: ${(taken.stderr || '').trim().split('\n').pop() || 'failed'}`);
+  r.pixels = 'display'; r.pixelsWhy = 'the display as it is, asked for'; r.statusBar = true;
+  if (r.front !== true) r.note = `the app is not in front (${r.front}): the display shows what is over it`;
+  return r;
+}
+
 /** Why the display is not the app's at the points the app drew itself (`points`, window points), or null: around a
  *  point whose 5x5 pixels the app drew in one colour (no edge of text or shape) the display's must be within 2 levels of
  *  it, as they are exactly where nothing lies over the app (measured on the euxy port, light and dark). A notification
@@ -191,7 +241,8 @@ function bootSimulator(dev) {
   const b = read('xcrun', ['simctl', 'boot', dev.udid]);
   if (b.status !== 0 && !/current state: Booted/.test(b.stderr)) throw new Error('simctl boot: ' + b.stderr);
   const s = read('xcrun', ['simctl', 'bootstatus', dev.udid, '-b']);
-  if (s.status !== 0) throw new Error('simctl bootstatus: ' + s.stderr);
+  // A simulator this call booted is not left running when its boot does not finish.
+  if (s.status !== 0) { if (b.status === 0) read('xcrun', ['simctl', 'shutdown', dev.udid]); throw new Error('simctl bootstatus: ' + s.stderr); }
   return b.status === 0 ? { ...dev, bootedHere: true } : dev;
 }
 
@@ -513,13 +564,13 @@ const missing = (bundle, required, why) => new Error(`grant-device-profile: ${re
 
 /** A development profile on this Mac covering the phone and the bundle id (the team's wildcard or the id itself, under the profile's App ID prefix, which an older team's App IDs keep apart from its team id), unexpired; EXACT_PROFILE names one.
  * With `required` (a grant's signing entitlements), only one that allows them all, which is one for the id itself. */
-export function profile(udid, bundle, required = []) {
-  if (process.env.EXACT_PROFILE) {
-    const named = decodeProfile(process.env.EXACT_PROFILE);
+export function profile(udid, bundle, required = [], { installed = installedProfiles(), named = process.env.EXACT_PROFILE ? decodeProfile(process.env.EXACT_PROFILE) : null } = {}) {
+  if (named) {
+    if (!iosProfile(named)) throw new Error(`EXACT_PROFILE (${named.name}) is not an iOS profile; its platform is ${named.platforms.join(', ')}`);
     if (!allows(named, required)) throw missing(bundle, required, `EXACT_PROFILE (${named.name}) does not allow ${required.length > 1 ? 'them' : 'it'}`);
     return named;
   }
-  const covering = coveringProfiles(udid, bundle);
+  const covering = coveringProfiles(udid, bundle, installed);
   if (!covering.length) throw new Error(`no development provisioning profile on this Mac covers ${bundle} on this phone (${udid}); run any app on it from Xcode once with team signing, or name one with EXACT_PROFILE`);
   const found = covering.filter((p) => allows(p, required));
   if (!found.length) throw missing(bundle, required, `no development profile on this Mac for ${bundle} on this phone allows ${required.length > 1 ? 'them' : 'it'}`);
@@ -528,10 +579,23 @@ export function profile(udid, bundle, required = []) {
 
 /** The unexpired development profiles on this Mac that cover the phone and the bundle id (the team's wildcard or
  * the id itself), the longest-lived first. */
-export function coveringProfiles(udid, bundle) {
-  return profilesFor(bundle, installedProfiles()).filter((p) => p.dev && !profileMisfit(p, udid)).sort(byExpiry);
+export function coveringProfiles(udid, bundle, installed = installedProfiles()) {
+  return profilesFor(bundle, installed).filter((p) => iosProfile(p) && p.dev && !profileMisfit(p, udid)).sort(byExpiry);
+}
+/** The profile for a bundle the app embeds under an App ID of its own (its App Clip), chosen as `entryProfiles`
+ * chooses the widget extension's: for `bundle` itself or the team's wildcard, of the app's profile's (`like`) team,
+ * App ID prefix and method, naming the phone or, for an archive, every device the app's names, allowing `required`
+ * (the clip's parent-application-identifiers, which only an App ID registered with the App Clip capability grants);
+ * the longest-lived. Or a refusal naming what each profile for the id lacked. */
+export function embeddedProfile(udid, bundle, like, required = [], installed = installedProfiles()) {
+  const candidates = profilesFor(bundle, installed).filter(iosProfile).sort(byExpiry);
+  const why = candidates.map((p) => [p, profileMisfit(p, udid, like) ?? (allows(p, required) ? null : `does not allow ${required.filter((name) => !p.entitlements.includes(name)).join(', ')}`)]);
+  const found = why.find(([, reason]) => !reason)?.[0];
+  if (found) return found;
+  throw new Error(`host/apple: no ${METHODS[like.method]} profile on this Mac covers ${bundle} as the app's (${like.name}) does: ${why.length ? why.map(([p, reason]) => `"${p.name}" ${reason}`).join('; ') : 'none is for it'}. In the Apple Developer portal, register the App ID ${bundle}${required.length ? ` with ${required.join(', ')}` : ''}, make a ${METHODS[like.method]} profile for it of team ${like.team}${udid ? ' that includes this phone' : ''}, and install it.`);
 }
 export const byExpiry = (a, b) => b.expires - a.expires;
+export const iosProfile = p => !p.platforms?.length || p.platforms.includes('iOS');
 /** The profiles among `installed` whose App ID is `bundle` itself or its team's wildcard. */
 export const profilesFor = (bundle, installed) => installed.filter((p) => p.appId === `${p.prefix}.*` || p.appId === `${p.prefix}.${bundle}`);
 /** How a profile distributes, from what it carries: a debugger (development), named devices (Ad Hoc), every device
@@ -551,11 +615,11 @@ export function profileMisfit(p, udid, like = null) {
   return !missing.length ? null : udid ? 'does not include this phone' : `does not include ${missing.length} of the ${like.devices.length} devices the app's profile names`;
 }
 
-/** Every `.mobileprovision` Xcode or a download installed, decoded once per process (a hundred of them is two seconds). */
+/** Every `.mobileprovision` or `.provisionprofile` Xcode or a download installed, decoded once per process (a hundred of them is two seconds). */
 let decoded = null;
 export function installedProfiles() {
   const dirs = ['Library/Developer/Xcode/UserData/Provisioning Profiles', 'Library/MobileDevice/Provisioning Profiles'].map((d) => resolve(homedir(), d)).filter(existsSync);
-  return decoded ??= dirs.flatMap((d) => readdirSync(d).filter((f) => f.endsWith('.mobileprovision')).map((f) => decodeProfile(resolve(d, f))));
+  return decoded ??= dirs.flatMap((d) => readdirSync(d).filter((f) => /\.(mobileprovision|provisionprofile)$/.test(f)).map((f) => decodeProfile(resolve(d, f))));
 }
 
 /** The fields of a `.mobileprovision` this script reads (it is a CMS-signed XML plist). */
@@ -569,11 +633,11 @@ export function decodeProfile(path) {
   // The keys of its Entitlements whose value is not `false`: what it allows.
   const allowed = /<key>Entitlements<\/key>\s*<dict>([\s\S]*?)<\/dict>/.exec(xml)?.[1] ?? '';
   const entitlements = [...allowed.matchAll(/<key>([^<]+)<\/key>\s*(<false\/>)?/g)].filter((m) => !m[2]).map((m) => m[1]);
-  const appId = str('application-identifier');
+  const appId = str('application-identifier') ?? str('com.apple.application-identifier');
   // What an app with widgets or Live Activities needs of it (LLP 1126.001 WP13): the App Groups it grants, the
   // Keychain groups (the team's `<prefix>.*`, usually) and the push environment.
-  const dev = /<key>get-task-allow<\/key>\s*<true\/>/.test(xml), enterprise = /<key>ProvisionsAllDevices<\/key>\s*<true\/>/.test(xml);
-  return { path, name: str('Name'), team, appId, prefix: appId?.split('.')[0], devices, dev, expires: new Date(expires ?? 0), entitlements,
+  const dev = /<key>(?:com.apple.security.)?get-task-allow<\/key>\s*<true\/>/.test(xml), enterprise = /<key>ProvisionsAllDevices<\/key>\s*<true\/>/.test(xml);
+  return { path, name: str('Name'), team, appId, prefix: appId?.split('.')[0], devices, dev, expires: new Date(expires ?? 0), entitlements, platforms: strings('Platform'),
     method: dev ? 'development' : devices.length ? 'adhoc' : enterprise ? 'enterprise' : 'appstore',
     groups: strings('com.apple.security.application-groups'), keychain: strings('keychain-access-groups'), aps: str('aps-environment') ?? null };
 }

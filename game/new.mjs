@@ -9,14 +9,17 @@ import { cargoEnvironment, lockedMetadata, pathFrom, patchLines } from '../scrip
 import { APPLE_BUILD_SCRIPT, EARLIER_APPLE_BUILD_SCRIPT } from '../scripts/linked-plan.mjs';
 
 /** Type names a game's generated type may not take: the engine's public items
- * (what `use exact_game::*` brings in) and the template's own. */
+ * (what `use exact_game::*` brings in), the template's own and those it imports. */
 export function takenTypes(directory = import.meta.dir) {
   const read = path => existsSync(path) ? readFileSync(path, 'utf8') : '';
   const lib = read(resolve(directory, 'engine/src/lib.rs'));
   const exported = [...lib.matchAll(/^pub use [^;]*;/gms)].flatMap(m => m[0].match(/\b[A-Z][A-Za-z0-9]*\b/g) ?? []);
   const items = text => [...text.matchAll(/^\s*pub (?:struct|enum|trait|type) ([A-Z][A-Za-z0-9]*)/gm)].map(m => m[1]);
-  const template = [...read(resolve(directory, 'new/logic/src/lib.rs')).matchAll(/^\s*(?:pub )?(?:struct|enum|trait|type) ([A-Z][A-Za-z0-9]*)/gm)].map(m => m[1]);
-  return new Set([...exported, ...items(read(resolve(directory, 'engine/src/scene.rs'))), ...template.filter(t => t !== 'SmallGame')]);
+  const starter = read(resolve(directory, 'new/logic/src/lib.rs'));
+  const template = [...starter.matchAll(/^\s*(?:pub )?(?:struct|enum|trait|type) ([A-Z][A-Za-z0-9]*)/gm)].map(m => m[1]);
+  // Types the template imports by name (`use exact_game::spawn::Spawner;`).
+  const imported = [...starter.matchAll(/^use [^;]*;/gms)].flatMap(m => m[0].match(/\b[A-Z][A-Za-z0-9]*\b/g) ?? []);
+  return new Set([...exported, ...items(read(resolve(directory, 'engine/src/scene.rs'))), ...template.filter(t => t !== 'SmallGame'), ...imported]);
 }
 /** The `--assets` starter: a model under `art/`, shown by the scene, and hostless
  * tests that bake it in memory (`sim_with_art!`), one of them saving and restoring
@@ -119,7 +122,9 @@ export function createGame(destination, directory = import.meta.dir, options = {
   bun exact.mjs agent web tree  inspect or drive the game
   bun exact.mjs mac --run     build and launch on this Mac
   bun exact.mjs windows --run build and launch on Windows
-  bun exact.mjs prove         the proof's first baseline (pins.json), once the game plays`;
+  bun exact.mjs prove         take the first development baseline; prove --repin --release before you ship it
+  First publication runs seven legs. A warm continuous web leg is reused; Save and FreshGame
+  still compile their own wasm (the mode is compile-time). Hot-swap wasm is not reused.`;
   }
   return `Created ${local ? destination : `game/games/${name}`}\n  bun ${script('dev.mjs')} ${argument}\n  bun ${script('prove.mjs')} ${argument}
   bun ${proof} web --screenshot-only`;
@@ -145,13 +150,22 @@ export function createApp(destination, options = {}) {
   if (!destination || !/^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/.test(name) || /-(web|apple|linux|gpu)$/.test(name)) {
     throw new Error('Usage: exact new <path> [--update | --snapback [--port <n>]] (the last part names the app: lowercase-hyphenated, no host suffix)');
   }
+  const taken = ['apple', 'linux', 'web'].map(host => `${name}-${host}`).filter(crate => SDK_CRATES.has(crate));
+  if (taken.length) throw new Error(`exact new ${destination}: the folder's name ${name} would make the crate ${taken[0]}, which is one of exact2's own; name the folder after the app (my-${name}, ${name}-app)`);
   if (options.update) return updateApp(dir, name, options);
   if (options.id !== undefined && !BUNDLE_ID.test(options.id)) throw new Error(`exact new --bundle-id ${options.id}: not a reverse-DNS id; write two or more dot-separated parts of letters, digits and hyphens, each starting with a letter, as com.yourcompany.${name.replaceAll('-', '')}`);
   if (options.title !== undefined && (!options.title.trim() || /[\x00-\x1f\x7f]/.test(options.title))) throw new Error('exact new --name: give the name people see, on one line, as --name "Field Log"');
   if (existsSync(dir) && readdirSync(dir).length) throw new Error(`${dir} already exists and is not empty`);
   const port = options.snapback ? snapbackPort(options.snapback.port) : null;
   if (options.snapback?.online && !existsSync(resolve(dir, '..', 'snapback/schema.q'))) throw new Error('exact new --snapback --online: write the backend schema above the app first; the guestbook starter uses a device');
+  // A failure leaves nothing of ours behind: the directory itself when we made
+  // it, and only what it held before when the author did.
+  const existed = existsSync(dir);
   mkdirSync(dir, { recursive: true });
+  const unwrite = () => {
+    if (existed) for (const entry of readdirSync(dir)) rmSync(resolve(dir, entry), { recursive: true, force: true });
+    else rmSync(dir, { recursive: true, force: true });
+  };
   let created;
   const existingBackend = options.snapback && existsSync(resolve(dir, '..', 'snapback/schema.q'));
   try {
@@ -164,7 +178,7 @@ export function createApp(destination, options = {}) {
       writeFileSync(source, ts.replace("export const grants = '';", `const origin = 'http://127.0.0.1:${port}';\nexport const grants = \`net.fetch \${origin}${options.snapback.online ? '' : '\\nsqlite.open app:/data'}\`;`));
     }
   } catch (error) {
-    rmSync(dir, { recursive: true, force: true });
+    unwrite();
     throw error;
   }
   // The app stands; what wiring could not do (no server installed yet, a cold device build that failed) it says.
@@ -173,10 +187,14 @@ export function createApp(destination, options = {}) {
     const roster = seedRoster(dir);
     return `${created}${existingBackend ? '\nThe backend already has a schema: kept the greeting app until generated operations are available; online wiring replaces it with one query and mutation. No guestbook was substituted.' : ''}\n${wired}${roster ? '\nseed.json: sample roster rows; review the persona, role and field values before testing. app.test.contract uses fresh "seed.json".' : ''}`;
   } catch (error) {
-    rmSync(dir, { recursive: true, force: true });
+    unwrite();
     throw error;
   }
 }
+
+/** The crates an app's own depend on by path (`writeApp`, `linuxCrate`): a
+ * folder named `exact` would write an `exact-apple` beside the SDK's. */
+const SDK_CRATES = new Set(['exact-logic', 'exact-apple', 'exact-apple-update', 'exact-js', 'exact-js-bake', 'exact-linux', 'exact-web', 'exact-web-capabilities', 'exact-js-web']);
 
 const rosterRule = body => {
   const insert = /^[ \t]+insert[ \t]*<-[ \t]*([^\n]*)/m.exec(body);
@@ -958,6 +976,7 @@ exact_web::host!(
   ${run} ios --run    build and launch on an iOS simulator
   ${run} mac --run    build and launch on this Mac
   ${run} linux        build the Linux host (then test linux / agent linux, headless anywhere)
+  ${run} update --without linux  ship no Linux (an iPhone app's port: \`symbol:sf/…\` is blank there)
   ${run} help         every verb; ${run} <verb> --help gives its flags and an example${deferred ? `
 Cargo.lock is still exact2's: this machine's Cargo cache lacks some of its crates, so the
 first build resolves it, fetching them once (it needs the network then, not now).` : ''}`;
@@ -980,7 +999,7 @@ There is no wasm device, SQLite partition or offline outbox. Start the server wi
 \`../snapback/generated\`; \`app.ts\` names and grants its origin. \`bun exact.mjs snapback --rebuild\` generates operations
 and rebuilds the device, including after exact2 moves; \`snapback --port <n>\` moves the origin. Start
 \`bunx snapback4 dev --port <the origin's port>\` above before \`test web\`. \`fresh\` resets it per test
-(Snapback4 ${snapbackVersion()}, dev only). Typed reads use \`db.read(api.recent, {}, now)\`; \`send\` writes, syncs and answers
+(Snapback4 ${snapbackVersion()}, dev only; a password-only schema's dev needs \`--unsafe-dev-doors\` for it). Typed reads use \`db.read(api.recent, {}, now)\`; \`send\` writes, syncs and answers
 the write's fate. \`failure(x).reason\` carries a refusal's code. Read the guide before data code.`;
   return `Shared data: \`exact new <path> --snapback\`, or \`bun exact.mjs snapback\` here.
 Install \`snapback4@${snapbackVersion()}\` above; ${readme} has setup and server commands.`;
@@ -1043,7 +1062,7 @@ at \`${pathFrom(dir, ROOT)}\` by path (\`EXACT2\` overrides it).
 Look things up in this order before reading engine source:
 
 - \`bun exact.mjs game vocab <name>\`: a component's fields and evaluated defaults, a \`World\` verb or a method, with its recipe (no name lists them all).
-- ${sdk('game/recipes/README.md')}: runnable recipes by task (cameras, pickups, emitters, sounds, saves, art export).
+- ${sdk('game/recipes/README.md')}: runnable recipes by task: first the gameplay kit every game needs (steering, schools, pickups, spawners, a shop), which the starter's critter, coins and shop use; then cameras, emitters, sounds, saves, art export.
 - ${sdk('game/names.md')}: names from three.js, Unity and Godot, and what they are here.
 - ${sdk('game/README.md')}, by section: "The programming model", "Proof pins", "The agent's interface", "Determinism — the contract", "Assets, animation and placed UI".
 - ${sdk('game/engine/README.md')}: the engine's reference (borrowing, registration, saves and assets).
@@ -1064,7 +1083,7 @@ you name where you are, else here):
 | \`bun exact.mjs mac --run\`, \`bun exact.mjs ios --run\` | build and launch natively |
 | \`bun exact.mjs linux\`, then \`test linux\` or \`agent linux …\` | build the Linux host and drive it headless (any machine, no display); \`bun exact.mjs android\` builds the same host for Android (LLP 1107) |
 | \`bun exact.mjs windows --run\` | build and launch the standalone Windows game; omit \`--run\` to package only |
-| \`bun exact.mjs prove\`, then \`bun proof.mjs web\` | the proof: a first baseline in \`pins.json\`, then real-host checks against it. The baseline is a release step for a game that already plays, not part of the loop: it builds Linux and web in release, three simulation modes each, and takes many minutes cold; nothing before it waits on it |
+| \`bun exact.mjs prove\`, then \`bun proof.mjs web\` | \`prove\` takes the first development baseline (seven legs); \`prove --release\` before you ship it. Existing pins are checked; \`--repin\` publishes intentional changes or release coverage. A warm continuous web leg is reused; Save and FreshGame compile their own wasm because the mode is compile-time. Hot-swap wasm is not reused |
 | \`bun exact.mjs update\` | after exact2 moves; it rewrites \`exact.mjs\` and this block, and says when \`Cargo.lock\` needs \`lock\` |
 | \`bun exact.mjs lock\` | when a build says exact2 moved since the game's \`Cargo.lock\` was captured, or after adding a dependency: fetches (the network), resolves again and prints what changed; builds never change the lock |
 | \`bun exact.mjs shells\` | write \`.shells/\`, the generated workspace a crate here names, without a build (\`cargo run --example\` in \`render/\` needs it) |

@@ -6,7 +6,7 @@
 **Author:** Charlie Cheever / Claude (Fable 5.1)
 **Implementer:** Claude (initial slices); Codex / Astra (editing slice, 2026-09-21)
 **Date:** 2026-09-21
-**Revised:** 2026-09-22 r4, CodeMirror removed; the editing rules are one crate, an on-demand wasm on the web (r3, 2026-09-21: the source-editing plan)
+**Revised:** 2026-10-20 r6, Apple hides link destinations by the editor crate's rules (D5); 2026-10-19 r5, the editor's source selection and range edits (D1 Undo, D5, D6); 2026-09-22 r4, CodeMirror removed; the editing rules are one crate, an on-demand wasm on the web (r3, 2026-09-21: the source-editing plan)
 **Related:** LLP 1001 §6 (text measurement), LLP 1008 §3/§5/§9 (the Apple textarea, keyboard viewport), LLP 1007 (web textarea), LLP 1005 §3 (capability commands), LLP 1020 (`iframe`), LLP 1033 / 1044 (the reader and what its rows cost), LLP 1035.001 D7 (draft lifetime), LLP 1024 (native modules — not used)
 
 ## 1. Ask
@@ -130,7 +130,9 @@ each host:
   reruns after. A marked (composing) range is never restyled and the `value`
   write-back never happens while it exists.
 - **Undo.** The system's undo; a `format` command's replacements are one
-  group, and Return's list continuation is one group with the newline. On
+  group, Return's list continuation is one group with the newline, and each
+  `setRangeText` is one group of its own (D6), so a completion never takes
+  the person's typing history with it. On
   Apple, a genuinely different external value resets only that editor's undo
   history, because its old native ranges cannot be safely reused; an ordinary
   controlled echo retains history. The web editor resets on a genuinely
@@ -284,8 +286,9 @@ and the row is kept only if the numbers say so.
 
 - **iOS / macOS:** the existing `UITextView` / `NSTextView`, storage = source,
   on **TextKit 2** (Charlie, 2026-09-21). The source-visible editing slice
-  replaces the iOS prototype's near-zero-font hiding: every character keeps
-  its normal advance, with inactive syntax dimmed. Shared styling lives in
+  replaces the iOS prototype's near-zero-font hiding: syntax keeps its normal
+  advance, with inactive syntax dimmed, except a link's `](destination)`
+  (r6, below). Shared styling lives in
   `host/apple/Sources/ExactKit/MarkupEditor.swift`; the platform adapters apply
   edits through native text insertion and undo. Neither adapter touches
   `layoutManager`, which would switch back to TextKit 1.
@@ -293,9 +296,40 @@ and the row is kept only if the numbers say so.
   attributes in place after text or selection changes and skips marked text
   throughout composition. `format`, `select`, list Return, selection bookmarks
   across a link field, and alternate plain copy are implemented on both hosts.
-  Native markers remain visible until caret movement, selection gestures and
-  accessibility have been judged on a phone. The current proof uses a fixed
-  editor height; intrinsic `field-sizing: content` parity remains owed.
+  Other native markers remain visible until caret movement, selection
+  gestures and accessibility have been judged on a phone. The current proof
+  uses a fixed editor height; intrinsic `field-sizing: content` parity
+  remains owed.
+- **Link destinations on Apple (r6, 2026-10-20).** A link's `](destination)`
+  is hidden whatever the selection, as the web hides it: a composer's
+  citation link, whose percent-encoded target runs to thousands of
+  characters, reads as its label. Which runs are hidden is the editor
+  crate's (`exact_markdown_editor::link_destinations`, the styler's `l`):
+  each link's and image's `](target)` exactly, from the same parse as the
+  styling. A destination that spans a line break stays shown, since its
+  hidden newline would leave an empty line. The rules around a destination
+  are the crate's (`Editor::select`, `remove`, `replace_visible`,
+  `copy_range`), which the Apple host reimplements over the styler's marks,
+  because Apple hides only destinations and the crate's projection hides all
+  syntax: a caret in one or at its start sits after it; an arrow, word move
+  or deletion from either edge steps over visible text (Backspace after the
+  link deletes the label's last letter, and typing then goes back into the
+  label); a range's ends inside one go to its outer edges; a deletion or
+  replacement across one changes only the visible text, its destination and
+  its link's `[` kept; a copy whose edge meets one takes it, and a label's
+  `[` with it; a composition that starts over a selection holding one first
+  deletes what the selection shows, then composes. The styler marks each
+  destination and its `[`, and TextKit 2's paragraph delegate
+  (`NSTextContentStorageDelegate`) draws a copy of the paragraph whose
+  hidden code units are word joiners (U+2060: no advance, no glyph, no line
+  break). The storage keeps the source, so offsets, `rangeFrame`, native
+  undo, composition and `setRangeText` are unchanged, and `layoutManager`
+  is not touched. VoiceOver's value and its strings for a range omit the
+  destination; its ranges stay source ranges. The `[` before the label stays
+  dimmed, as other syntax does. The judgement for this slice is a macOS drive
+  and an iOS simulator drive (2026-10-20); a phone's VoiceOver line reading
+  through UIKit's own text input is not proven. Implemented by Claude (Opus
+  5.5), 2026-10-20.
 - **Web:** `contentEditable`, no library (Charlie, 2026-09-22). Each source
   line is a block; hidden syntax is a `display: none` span, out of layout,
   caret movement and the accessibility tree. `beforeinput` goes to
@@ -332,8 +366,13 @@ The one-command-one-undo requirement remains incomplete when another source
 edit and a format share an automatic native event group: Undo can restore the
 source preceding both edits. A manual automatic-group repair was reverted
 after a scheduled run-loop close raised an exception on iOS and macOS. It is
-not part of the editing baseline. Phone interaction and intrinsic editor sizing
-remain separate, unproven work.
+not part of the editing baseline. `setRangeText` (D6) closes the event's open
+group, which holds the earlier edits, and leaves its own step open in its
+place for the scheduled close; with no group open it closes its own
+(2026-10-19). No group it leaves is empty, which the manager would keep as a
+step that undoes nothing. Two calls in one action are two steps. A `format`
+still joins an open event group. Phone interaction and
+intrinsic editor sizing remain separate, unproven work.
 
 ### D6 — Commands and toolbar state
 
@@ -348,8 +387,8 @@ gain one entry) and carries a `MarkdownSelection` record: `formats` (space-
 separated command names, headings spelled `heading1` through `heading6`), `mixed`
 when a selection spans differing formats, `link` (the target under the caret,
 or empty), and `unavailable` (space-separated commands; inside a fence, most are).
-That is what a toolbar, a link sheet and an agent assertion need; no range
-crosses the wire. The toolbar is authored Contract (`retainFocus`), riding
+That is what a toolbar, a link sheet and an agent assertion need; `select`
+carries no range. The toolbar is authored Contract (`retainFocus`), riding
 the existing keyboard viewport on iOS. A link sheet that focuses its own
 field cannot keep the editor's selection by `retainFocus`; the host keeps a
 selection bookmark for the editor across `focus` and restores it when the
@@ -357,6 +396,46 @@ sheet's `format(link(url))` arrives. ⌘B/⌘I/⌘K and the iOS edit menu are
 host-native. No ninth agent operation: the agent drives editing with `tap` on
 the toolbar and `type` with `key`, and reads `select`'s record through `state`.
 Passing those drives proves the wiring; the iOS ergonomics bar is a phone.
+
+**Source selection and range edits (r5, 2026-10-19).** A composer that
+completes a mention or a path needs where the caret is in the source and an
+edit at a range of it. The DOM has names for both, so the editor takes them
+as a plain textarea does (LLP 1069.001), over its source, and no new verb:
+
+- **Offsets** are UTF-16 offsets into the source, the `value` (as
+  `rangeFrame`'s, LLP 1114.007 D7).
+- **`input`** carries the source and its selection after the edit, with the
+  edit's own `inputType`, `data` and `isComposing`. **`selectionchange`**
+  carries the field's `InputEvent` and reports caret moves, queued and
+  coalesced as a plain field's. **`beforeinput`** is a plain field's,
+  cancelable except while composing, and comes before the editor's own
+  handling: a Return it cancels continues no list and changes nothing. On
+  the web Undo and Redo are its `historyUndo` and `historyRedo` first, as
+  they are on Apple. A format command is the app's own and asks nothing.
+- **`setSelectionRange(id, start, end[, direction])`** clamps as a plain
+  field's and publishes the `select` record again. **`setRangeText(id,
+  text[, start, end[, selectionMode]])`** takes the four modes, normalizes
+  CRLF and fires the one `insertReplacementText` input, and is one undo step
+  (D1) on every host that edits: the web's crate (`Editor::replace`), and
+  native insertion in a group of its own on Apple (D5). Undo on the web
+  restores the source and the selection from before the call; on Apple the
+  selection is where native undo leaves it. Both are refused, and logged,
+  while an input method composes.
+- **While composing** on the web, `value` and the selection read the DOM,
+  which holds the source with the composing text, as a plain field's value
+  holds it; the source settles when the composition ends, and a cancelled
+  one the app heard is heard again with the text it left.
+- **Declared deviation (web).** Hidden syntax is `display: none`, so the
+  platform cannot draw a caret inside it: a caret the app sets there is
+  drawn at the visible edge beside it and reads back there. A range keeps
+  the ends it was given. Apple draws every source character but a link's
+  destination (D5 r6): a caret set in one sits after it, as on the web, and
+  a range's end in one goes to its edge; any other offset is kept as given.
+- **Hosts.** Linux edits Markdown as a plain textarea until its v2 (D5):
+  its `setSelectionRange` already takes the source, and it refuses
+  `setRangeText` there with a log, as Windows and Android, on its presenter,
+  do. tvOS does not edit and refuses it too. The terminal host runs neither
+  command for any field.
 
 ### D7 — Embeds are cards until asked
 

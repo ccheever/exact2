@@ -41,6 +41,22 @@ pub const ACTIVITY_PLACEMENTS: [&str; 8] = [
     "expanded.center",
     "expanded.bottom",
 ];
+/// `haptic(kind)`'s kinds, a sequence step's too (LLP 1077 D14): the
+/// presses `-exact-press-haptic` takes (`PressHaptic` in the kernel's schema),
+/// `impact` (`impact-medium`'s), and the outcomes, which an action plays and a
+/// press does not, since at touch-down nothing has succeeded yet.
+pub const HAPTIC_KINDS: [&str; 10] = [
+    "selection",
+    "impact",
+    "impact-light",
+    "impact-medium",
+    "impact-heavy",
+    "impact-soft",
+    "impact-rigid",
+    "success",
+    "warning",
+    "error",
+];
 
 pub mod shared;
 pub mod strings;
@@ -144,16 +160,21 @@ pub enum PlanError {
         mutation: u32,
         slot: u32,
     },
-    /// A static face weight is outside CSS Fonts' 1–1000 domain.
+    /// A face's weight range leaves CSS Fonts' 1–1000 domain or runs
+    /// backwards.
     FaceWeight {
         face: u32,
         weight: u16,
+    },
+    /// A face's stretch range is empty or runs backwards.
+    FaceStretch {
+        face: u32,
     },
     /// A face source is not a portable local relative path.
     FaceSource {
         face: u32,
     },
-    /// A family repeats one static `(weight, italic)` coordinate.
+    /// A family repeats one `(weight range, stretch range, italic)` face.
     DuplicateFace {
         family: u32,
         face: u32,
@@ -443,11 +464,16 @@ impl Plan {
             if !is_portable_asset_path(self.str(face.source)) {
                 return Err(PlanError::FaceSource { face: i as u32 });
             }
-            if !(1..=1000).contains(&face.weight) {
+            if !(1..=1000).contains(&face.weight)
+                || !(face.weight..=1000).contains(&face.weight_max)
+            {
                 return Err(PlanError::FaceWeight {
                     face: i as u32,
                     weight: face.weight,
                 });
+            }
+            if face.stretch_min == 0 || face.stretch_max < face.stretch_min {
+                return Err(PlanError::FaceStretch { face: i as u32 });
             }
         }
         for (i, family) in self.families.iter().enumerate() {
@@ -455,7 +481,13 @@ impl Plan {
             let mut coordinates = Vec::new();
             for face_id in family.faces.iter() {
                 let face = self.face(face_id);
-                let coordinate = (face.weight, face.italic);
+                let coordinate = (
+                    face.weight,
+                    face.weight_max,
+                    face.stretch_min,
+                    face.stretch_max,
+                    face.italic,
+                );
                 if coordinates.contains(&coordinate) {
                     return Err(PlanError::DuplicateFace {
                         family: i as u32,

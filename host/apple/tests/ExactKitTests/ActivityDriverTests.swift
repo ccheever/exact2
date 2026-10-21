@@ -147,7 +147,7 @@ final class ActivityDriverTests: XCTestCase {
                     XCTAssertGreaterThan(size.height, 0, "\(kind) \(placement.name) at \(width)")
                     if placement.fillsWidth { XCTAssertEqual(size.width, width, "\(kind) \(placement.name) fills its region") }
                     else { XCTAssertLessThanOrEqual(size.width, width, "\(kind) \(placement.name) shrinks to its content") }
-                    let laid = try XCTUnwrap(render.laidOut(placement, size: size))
+                    let laid = try XCTUnwrap(render.laidOut(placement, proposal: proposal))
                     XCTAssertEqual(laid.size.height, size.height, "\(kind) \(placement.name): the view's height is the placement's margin box")
                     if placement.fillsWidth { XCTAssertEqual(laid.size.width, width, "\(kind) \(placement.name): fills the region it was laid out in") }
                     else if laid.size.width > size.width + 0.5 {
@@ -224,14 +224,14 @@ final class ActivityDriverTests: XCTestCase {
         let sized = try self.render(try Self.plan("SNAPSHOT_SIZED"), kind: "sized", state: nil)
         func drawn(_ placement: ActivityPlacement, _ proposal: CGFloat) throws -> (size: CGSize, laid: ActivityRender.Laid) {
             let size = sized.size(placement, proposal: ProposedViewSize(width: proposal, height: nil))
-            return (size, try XCTUnwrap(sized.laidOut(placement, size: size)))
+            return (size, try XCTUnwrap(sized.laidOut(placement, proposal: ProposedViewSize(width: proposal, height: nil))))
         }
         // compactLeading: `width=120 min-width=0 flex-basis=0`, proposed 165: 120, the basis of no flex item.
         let basis = try drawn(.compactLeading, 165)
         XCTAssertEqual(basis.size.width, 120); XCTAssertEqual(basis.laid.root.frame.width, 120); XCTAssertEqual(basis.laid.viewport.width, 165)
         // compactTrailing: `min-width=200` holding "Hi", proposed 165: 200, the author's minimum, drawn 200 wide.
         let minimum = try drawn(.compactTrailing, 165)
-        XCTAssertEqual(minimum.size.width, 200); XCTAssertEqual(minimum.laid.root.frame.width, 200); XCTAssertTrue(minimum.laid.authoredWidth)
+        XCTAssertEqual(minimum.size.width, 200); XCTAssertEqual(minimum.laid.root.frame.width, 200); XCTAssertFalse(minimum.laid.authoredWidth); XCTAssertEqual(minimum.laid.minimumWidth, 200)
         // minimal: `width="50%"`, proposed 200: 100, and the drawn root is 100 wide in the 200 region it was resolved against.
         let percent = try drawn(.minimal, 200)
         XCTAssertEqual(percent.size.width, 100); XCTAssertEqual(percent.laid.root.frame.width, 100); XCTAssertEqual(percent.laid.viewport.width, 200)
@@ -278,16 +278,16 @@ final class ActivityDriverTests: XCTestCase {
     func testInterleavedProposalsDrawTheLayoutTheyWereMeasuredFrom() throws {
         let render = try self.render(try Self.plan("SNAPSHOT_DEPARTURE"), kind: "departure", state: nil)
         let wide = render.size(.expandedBottom, proposal: ProposedViewSize(width: 338, height: nil))
-        XCTAssertTrue(texts(try XCTUnwrap(render.laidOut(.expandedBottom, size: wide))).contains("On time"))
+        XCTAssertTrue(texts(try XCTUnwrap(render.laidOut(.expandedBottom, proposal: ProposedViewSize(width: 338, height: nil)))).contains("On time"))
         _ = render.size(.expandedLeading, proposal: ProposedViewSize(width: 109.33, height: nil))
         _ = render.size(.compactTrailing, proposal: ProposedViewSize(width: 101.67, height: 36.67))
-        let narrow = render.size(.expandedBottom, proposal: ProposedViewSize(width: 120, height: nil))
-        XCTAssertFalse(texts(try XCTUnwrap(render.laidOut(.expandedBottom, size: narrow))).contains("On time"))
+        _ = render.size(.expandedBottom, proposal: ProposedViewSize(width: 120, height: nil))
+        XCTAssertFalse(texts(try XCTUnwrap(render.laidOut(.expandedBottom, proposal: ProposedViewSize(width: 120, height: nil)))).contains("On time"))
         XCTAssertEqual(render.size(.expandedBottom, proposal: ProposedViewSize(width: 338, height: nil)), wide)
-        let again = try XCTUnwrap(render.laidOut(.expandedBottom, size: wide))
+        let again = try XCTUnwrap(render.laidOut(.expandedBottom, proposal: ProposedViewSize(width: 338, height: nil)))
         XCTAssertTrue(texts(again).contains("On time"), "the wide layout, after a narrow one laid the session out")
         XCTAssertEqual(again.viewport.width, 338)
-        XCTAssertEqual(try XCTUnwrap(render.laidOut(.expandedLeading, size: render.size(.expandedLeading, proposal: ProposedViewSize(width: 109.33, height: nil)))).viewport.width, 109.33)
+        XCTAssertEqual(try XCTUnwrap(render.laidOut(.expandedLeading, proposal: ProposedViewSize(width: 109.33, height: nil))).viewport.width, 109.33)
     }
 
     // MARK: D8: account content is private but for a node that says `data-privacy="public"`
@@ -347,7 +347,7 @@ final class ActivityDriverTests: XCTestCase {
         let size = tinted.size(.lockScreen, proposal: ProposedViewSize(width: 362, height: nil))
         let drawn = try XCTUnwrap(hosted(SnapshotActivity.view(tinted, placement: .lockScreen, environment: environment(.lockScreen, link: base)).background(tint).environment(\.colorScheme, .light), size: size))
         try write(drawn, "tinted-lockScreen-hosted")
-        let laid = try XCTUnwrap(tinted.laidOut(.lockScreen, size: size))
+        let laid = try XCTUnwrap(tinted.laidOut(.lockScreen, proposal: ProposedViewSize(width: 362, height: nil)))
         let title = try XCTUnwrap(laid.snapshot.nodes.values.first { $0.kind == "text" && $0.lines.first?.text == "Northbound delayed" })
         var line = title.frame
         var parent = laid.snapshot.nodes.values.first { $0.children.contains(title.id) }

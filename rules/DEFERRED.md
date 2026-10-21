@@ -195,6 +195,11 @@ the Markdown reader's remaining surfaces and Fieldnotes' backups. Take: none
 named (Charlie: "idk what to trade it for, maybe relax the limit slightly").
 **Waived (Charlie, 2026-10-11, coding-agent file attachments):** `input type="file"`
 with no `accept` (or `accept="*/*"`) may pick any file, with no trade.
+**Extended (Daehyeon Mun, 2026-10-20; no trade):** for the same consumer,
+T3 Code's composer, whose drop, paste and Attach files are one path, `drop`
+takes files and folders of any type, and a paste carries its files
+(`ClipboardEvent.files`, pasted image data as a PNG), each a `doc:` handle
+(LLP 1069.010, "Files dropped or pasted").
 Specific `accept` types remain bounded as above. `capture` stays refused
 (the camera is a native module, §Components, 2026-10-02). Linux editing is v2
 (Charlie, 2026-09-21): web, iOS and macOS first; Linux reads.
@@ -591,6 +596,12 @@ reading. Nothing that isn't HTML is added by it.
   view transitions moved behind the deck lane. LLP 1020 §6. What stays no from
   exact1's webview: `top` topology, navigation policy, the controller ops, `allow`,
   author-facing `srcdoc` — each with its return trigger in LLP 1020 §5.)
+- **Expanded (Daehyeon Mun, 2026-10-19; trade):** `postMessage(text, iframeId)` sends
+  ordered strings to one mounted iframe: D2r's replies and host-initiated updates (LLP
+  1020 §11). Unblocks T3 Code's HTML and MCP App documents: live theme, shortcut and
+  `host-context-changed` updates. Take: QUEUE "Shared elements, stage 2" (LLP 1013.000
+  §3) moves to Later. Structured clone, broadcast, a permission broker and Linux
+  delivery stay no.
 - **Expanded (LLP 1096; admitted by the orchestrator under Charlie's
   2026-10-04 delegation, "make decisions without me"):** short sounds an
   action can schedule: a `sound` declaration (a WAV in `assets/`, at most 10

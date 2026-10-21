@@ -45,7 +45,8 @@ statistics. Apply it to numeric text, keeping the platform font. See the
 
 ## Writing
 
-For all prose: comments, commit messages, guides, LLPs, issues and PR text.
+For all prose, always: comments, commit messages, guides, LLPs, issues and PR text. This
+section binds (`rules/RULES.md`, "Agents").
 
 - Write with clarity of mind. A reader should understand it on first reading and find
   nothing ambiguous.
@@ -58,6 +59,8 @@ For all prose: comments, commit messages, guides, LLPs, issues and PR text.
   Judiciously omit or remove comments or parts of comments that do not clearly explain
   anything that is not already communicated by the code, though take care not to delete
   comments with meaningful marginal value.
+- Before opening a PR or pushing to main, do an editing pass: reread the prose you added
+  or changed as a reader new to the work would, and hold each line to the points above.
 
 ## Working here
 
@@ -103,8 +106,10 @@ For all prose: comments, commit messages, guides, LLPs, issues and PR text.
   the platforms that ride on another host's code: tvOS on the UIKit presenter
   (installed on an Apple TV simulator, which that machine must have),
   plus cross-target Cargo checks of the Linux host with every Linux app (`-p '*-linux'`)
-  and the Windows host with Windows Desk. Tier 2 needs both Rust cross targets,
-  Zig (C and C++) and the pinned Linux Hermes bundle on this Mac. These checks qualify
+  and the Windows host with Windows Desk, and Weatherlight's Android APK (its Rust
+  for `aarch64-linux-android` and the reader's and its module's Kotlin). Tier 2 needs both Rust cross targets,
+  Zig (C and C++) and the pinned Linux Hermes bundle on this Mac, and for Android the SDK
+  with platform 37.2, an NDK, a JDK 17 or newer and the `aarch64-linux-android` target and Hermes bundle. These checks qualify
   compilation, not native window, KMS, or input behavior. Building
   `--all-targets` resolves features as `cargo test` does, so the two share artifacts.
 - A green `--workspace` build proves the apps compile, not that they work: their Apple
@@ -227,6 +232,6 @@ For all prose: comments, commit messages, guides, LLPs, issues and PR text.
   executor (the browser, for motion on the web) — never a cargo feature on a core crate.
   Each crate depends on strictly less than the one above it; there is no build matrix.
 
-Snapback4 consumers use published `snapback4@0.4.29` and the matching immutable
+Snapback4 consumers use published `snapback4@0.4.33` and the matching immutable
 Rust revision in `snapback4/Cargo.toml`; rebuild an app’s device with
 `bun exact.mjs snapback --rebuild` after changing these pins.

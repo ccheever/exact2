@@ -32,6 +32,15 @@ This list holds what the [agent guide](contract-for-agents.md)'s rules don't mak
   where it can prove the box keeps its px width around such text, and is silent where it
   cannot. (Bake-off round 13, weather; LLP 1116.011 D2.4.)
 
+- **A border on one cell of a grid of `flex=1` cells pushes its column out of line.**
+  A border adds to a box's outer size (CSS's `content-box`, and `border-box` too: a
+  `flex-basis` of 0 is never smaller than the border), so a calendar's today with
+  `border-width=(isToday ? 2 : 0)` is wider and taller than its neighbours and
+  the days after it sit off the columns above. Fix: give every cell the border and vary
+  its colour, `border-width=2 border-color=(isToday ? "-exact-label" : "transparent")`.
+  (Bake-off round 28, mood journal: 50.9 points against 47.4 on iOS; Chrome alike, with
+  `border-box` too.)
+
 - **A root with `min-height="100%"` and `overflow-y="auto"` does not scroll itself.**
   `min-height` lets the box grow with its in-flow content (CSS), so it has nothing to
   scroll and the document scrolls instead: on the web a screenshot shows only the first
@@ -87,6 +96,11 @@ This list holds what the [agent guide](contract-for-agents.md)'s rules don't mak
   an image's content size is its intrinsic size. Fix: give the image or its flex
   parent `min-height=0` (`min-width=0` across a row), or position it absolutely in
   a sized box. (Signal Clone DIARY, build 7.)
+- **A sheet's form does not scroll, and `tap <scroll> drag 0 -400` moves nothing.** The
+  sheet's root `column flex=1` grew to its form (1315 pt), as a browser's would, and the
+  `scroll flex=1` inside with it. Cause: CSS `min-height: auto` on the column. Fix:
+  `min-height=0` on the column, as `lower-scroll-grows` says; `layout <scroll>` shows the
+  height. A UIKit sheet sizes nothing for you here. (euxy port 14, FRICTION 9.)
 - **A sized `symbol:` image is stretched.** An ellipsis became three tall bars.
   Cause: `object-fit` defaults to `fill`, as for `<img>`. Fix: don't size a symbol;
   it follows its text (in a button, tab or bar item, its title's font; give it a
@@ -277,6 +291,15 @@ This list holds what the [agent guide](contract-for-agents.md)'s rules don't mak
   put `touch-action="none"` on that text too. (Authoring bench, LLP 1087, r32 and r33
   t4-kanban, 2026-10-06.)
 
+- **A button row's ellipsis title runs off the screen instead of truncating.** Cause: a
+  `button` is as wide as its content, as HTML's `<button>` is, `display="flex"` or not,
+  and a `white-space="nowrap"` title's narrowest width is the whole title, so the row
+  takes it: in Chrome a 1,052 px row on a 440 px page. `min-width=0` on a column inside
+  does not help; it narrows the column only once the row is narrower. Fix: give the
+  button `width="100%" box-sizing="border-box"`, and put the row's side inset in the
+  list's `padding` or the button's own, not a margin, which 100% does not include
+  (Linear Port, 2026-10-19; `issues/closed/20261020-list-row-max-content-width.md`).
+
 - **A second card drag right after a drop does nothing.** A drag that starts before
   the last one's session ends is refused (LLP 1094 D8): the drop is held until its move
   shows (a second at most; [the agent guide](contract-for-agents.md#views-layout-and-interaction),
@@ -291,6 +314,13 @@ This list holds what the [agent guide](contract-for-agents.md)'s rules don't mak
   action writes, saved through the mutation) only removes the wait for storage, which
   shortens what a person meets. (Authoring bench, LLP
   1087, r26 and r29 t4-kanban, 2026-10-05.)
+- **A white band over a grey list: a seam across the screen.** Cause: an inset-grouped
+  `list` under content on the plain page (a readout and its buttons over a stopwatch's
+  laps). Its ground is the grouped grey, and the page above it stays white; a hand-built
+  `UITableView(style: .insetGrouped)` under a white view shows the same seam, and
+  round 30's grader named it. Fix: rows under a screen's own content are a
+  `listStyle="plain"` list on the page's white, as the Clock's laps are; keep
+  inset-grouped for a list that is the whole screen.
 
 ## Native presentation and navigation (iOS)
 
@@ -379,7 +409,14 @@ This list holds what the [agent guide](contract-for-agents.md)'s rules don't mak
   sheets and a popover
   that is no menu as AppKit's popover; each is a window of its own, so a plain
   `screenshot` (the viewport's own drawing) leaves it out and says so
-  (`notShown`). (Signal Clone, builds 5 and 10; Splitter, rough 4 and 11.)
+  (`notShown`). An iOS launch no driver reaches (`simctl launch` with
+  `EXACT_AGENT=1` and `EXACT_AGENT_FAIL_FETCH`, no socket) shows the native bars
+  and menus, its fetches still failing. (Signal Clone, builds 5 and 10; Splitter,
+  rough 4 and 11; Recipe Finder, round 27.)
+- **An `EmptyState`'s button sits at the bottom of the screen.** Cause: the part
+  takes the free height it is given, so a `button` written after it lands at that
+  space's foot. Fix: indent the button under the `EmptyState` call, its slot.
+  (Recipe Finder, round 27.)
 - **An overlay's backdrop stops at the navigation or tab bar.** Cause: content
   inside a route draws under the native bars. Fix: render full-screen overlays
   (menus, action sheets) as root children after the tab container, or as a
@@ -470,10 +507,13 @@ What a port writes from habit, what the compiler says, and what to write (the eu
 | `backgroundColor`, `flexDirection`, `onPress`, `activeOpacity` | `lower-unknown-attr` | `background-color`, `flex-direction`, `press`, `-exact-press-opacity` |
 | `paddingHorizontal=16` | `lower-unknown-attr` | `padding-left=16 padding-right=16`, or `padding="0px 16px"` |
 | `marginVertical=8` | `lower-unknown-attr` | `margin-top=8 margin-bottom=8`, or `margin="8px 0px"` |
-| `shadowColor`, `shadowOpacity`, `shadowRadius`, `shadowOffset`, `elevation` | `lower-unknown-attr`, `lower-attr-tag` | one `box-shadow="<x>px <y>px <2 × radius>px <colour>"` (below) |
+| `shadowColor`, `shadowOpacity`, `shadowRadius`, `shadowOffset`, `elevation` | `lower-unknown-attr`, `lower-attr-tag` | one `box-shadow="<x>px <y>px <2 × radius>px <colour>"` (below); nothing when the same style has `overflow: "hidden"`, which iOS draws without its shadow |
 | `font-weight="bold"`, `"600"` | `lower-attr-value` | `font-weight=700`, `font-weight=600` |
 | `transform="rotate(-2deg)"` | `lower-attr-tag` | `rotate="-2deg"`, `translate="0px 25px"`, `scale=0.8` |
 | a `ScrollView` in a `flex: 1` `View`: `column flex=1` › `scroll flex=1` | `lower-scroll-grows` (warning) | `min-height=0` on the column; the scroller alone needs none |
+| `alignItems`, `justifyContent`, `gap` on a `View` (a flex column in RN) | `lower-flex-on-block` (warning) | `column` or `row`: a `view` is `display: block`, as a `<div>` is |
+| `flexDirection="row"` on a `Pressable` with content | `lower-flex-on-block` (warning) | `button display="flex"`, and `text-align="left"` where its text is not centred: a `button` is a block with centred text, as `<button>` is |
+| `<SFSymbol name="x" size={N}>`, expo-symbols `SymbolView` | nothing; hand-drawn as an `svg`, or as `font-size=N`, the glyph comes out smaller | `image "symbol:sf/x" width=N height=N object-fit="contain"`, its tint as `color` ("Values beside an SF Symbol", below) |
 
 What the original's style objects say is not always what its iOS screen shows. Port
 what the screenshot shows. (euxy port against its Expo original, judged screen by
@@ -504,9 +544,19 @@ screen, 2026-10-16.)
   (`contentInsetAdjustmentBehavior` is `never`), so its `paddingBottom: 24` was the whole
   gap and the last row sat over the home indicator. A route's last scroller in exact2 is
   inset by UIKit as a hand-built one is (`automatic`: the home indicator's 34 points, and
-  the tab bar's height on a tab), and the ported padding adds to that. Fix: subtract the
-  inset from the ported padding (`padding-bottom=0` here leaves 34); do not add
-  `env(safe-area-inset-bottom)` to it.
+  the tab bar's height on a tab; a dialog sheet's outer scroller is `always`), and the
+  ported padding adds to that. That inset is the platform's, as a hand-built table view in
+  a sheet has it (LLP 1116 D2). Its size depends on how the screen is presented and which
+  scroller is last, so measure it in your port rather than copy a number: two euxy ports
+  of the same sheet needed `margin-bottom=-10` and nothing. `layout` (no target) gives
+  the scroller's line, `#465 [lane-form] ScrollView 0,214 402×660 … port 0,214 402×626`:
+  the inset is its frame's bottom less its `port`'s, 874 − 840 = 34 here (the
+  scrollport ends where UIKit's inset begins). The original's gap is its padding, which `screenshot
+  … compare ref/x.png` measures as the last row's offset. Write `padding-bottom` = that
+  gap less the inset; where that is negative, write `padding-bottom=0` and the rest as a
+  negative `margin-bottom` on the scroller itself, which lowers its end into the inset:
+  padding cannot go below zero, and a negative margin on the last child does not move
+  it. Do not add `env(safe-area-inset-bottom)`.
 
 - **Rows with a `minHeight`, or boxes with a `height` and padding, come out taller.**
   `padding="13px 16px" min-height=24` made
@@ -551,6 +601,14 @@ screen, 2026-10-16.)
   a CSS blur radius is twice the Gaussian's deviation, and Core Animation's
   `shadowRadius` is about the deviation. Mind a scale transform over the view (euxy's
   capsule was laid out at twice its size and scaled by ½), which scales its shadow too.
+- **A capsule with a rim is a few points larger than the original's, and grows when the
+  rim thickens.** euxy's was 184 × 68 points where the original's was 180 × 64, its keys
+  2 points further in. Cause: the original drew the rim as `borderWidth` on a fixed-size
+  shell and gave the keys' padding to a child row as wide as the shell, so the rim lay
+  over the padding; its thicker armed rim was an overlay. A box with `padding=8` and
+  `border="2px solid …"` puts its content 10 points in, as CSS does, and a border whose
+  width changes with state moves the content. Fix: a rim that takes no room,
+  `box-shadow="inset 0 0 0 2px <colour>"`, with the original's padding.
 - **A glow on a tiny LED is barely there.** Cause: a blur spreads a small source thin, so
   `box-shadow="0 0 7px …"` on a 5-pt dot is at most an eighth of its colour beside the
   dot, in Chrome and on every host alike; the original's halo was a larger disc blurred
@@ -625,12 +683,6 @@ screen, 2026-10-16.)
   'flex-start'`, and it centred only because the original wrapped it in a plain `View`,
   which the port dropped as noise. Fix: keep the wrapper (`view`), or drop the
   `align-self`.
-- **A sheet's form stops 34 points short of the original's at its end.** Cause: React
-  Native's `ScrollView` defaults `contentInsetAdjustmentBehavior` to `never`, so its last
-  row scrolls under the home indicator. Exact sets a route's last scroller, and a dialog
-  sheet's outer one, to UIKit's `always`, so it rests above the indicator as a hand-built
-  table view in a sheet does (LLP 1116 D2). That is the platform's: keep it. (euxy's UIKit
-  port matched the original only by setting `.never` on that scroll view by hand.)
 
 ## Actions
 
@@ -837,6 +889,14 @@ screen, 2026-10-16.)
   a form does. (Authoring bench, LLP 1087, codex17 t7-wizard, 2026-10-05; the overlay
   checked on the web with a save that never answers, 2026-10-09.)
 
+- **A long unbroken word runs off its box.** A 500-character word, a URL or an ID in a
+  message overflows its card on every host, where UIKit's label would break it. Cause:
+  Exact keeps CSS's `overflow-wrap: normal` (LLP 1001 bit 90; ruled 2026-10-20). Fix:
+  write `overflow-wrap="anywhere"` on a text that may hold one (the chat recipe's bubble).
+  `break-word` breaks it only in a text with its own `max-width`, not one in a bounded column
+  (a bubble with its time under it), since it adds no break to min-content (CSS Text 3 §5.5).
+  (Round 23's and round 32's chat-rooms.)
+
 - **A test `drag` is a touch unless `mouse` is set.** `tap "chart" drag 20 0`
   is a finger (`pointerType` `touch`) on the web, so a `pointerup` that treats
   a touch as the finger leaving clears the hover the next assertion still wants.
@@ -979,28 +1039,29 @@ screen, 2026-10-16.)
   tap does not wait out. Fix: `clock settle` after tapping an alert's button (and
   after the action that shows it, before tapping in it), as `apps/shelf`'s tests do.
   (Shelf recipe, 2026-10-10.)
-- **After a long press made with `axe touch --down --up --delay`, the iOS simulator
-  ignores taps.** An action sheet or alert the long press opened stays up whatever
-  is tapped, and relaunching the app does not help: Apple's Settings app on that
-  simulator ignores taps too, until the simulator reboots. In an Exact app the
-  symptom can be partial: the tab bar and an alert's buttons, which are UIKit's,
-  ignore taps while the app's own buttons still answer them. UIKit's controls do
-  that while another touch is down: with `axe touch --down` holding one finger,
-  Apple's Photos ignores a tap on its tab bar exactly as an Exact app's does, and
-  a sequencer's play button still plays. Cause: AXe 1.8.0's touch command, not
-  the app. Fix: make real touches with the agent, which taps
-  an alert's buttons too: `bun exact.mjs agent ios --touch platform "tap <row> down"
-  "tap hold 900" "tap up" "clock settle" "tap <button testId>"`. (euxy port's rename
-  prompt, and its tab bar after a relaunch, 2026-10-18.)
-- **A share link's sheet closes before the screenshot.** `xcrun simctl openurl`
-  asks "Open in …?" only sometimes (the first link after the simulator boots, in
+- **An alert's buttons and the tab bar ignore `axe tap` on iOS 27; the app looks stuck.**
+  An action sheet a long press opened stays up whatever is tapped, a rename prompt
+  with it, and a first tap on a tab after launch does nothing, while the app's own
+  buttons answer. Cause: UIKit's controls (`UIAlertController`'s actions, the tab bar's
+  items) do not take AXe 1.8.0's zero-length tap, neither its default style nor
+  `--tap-style physical`; the app is not stuck. A prompt the Sequencer's menu opens
+  ignores it the same way, so the long press is not the cause either. Fix: a touch
+  held for a tenth of a second, which each of those took at once: `axe touch -x … -y
+  … --down --up --delay 0.1`; or real touches with the agent, which taps an alert's
+  buttons by `testId`: `bun exact.mjs agent ios --touch platform "tap <row> down"
+  "tap hold 900" "tap up" "clock settle" "tap <button testId>"`. (euxy ports 16 and 17,
+  2026-10-18 and 2026-10-20: the Patterns long-press sheet, measured on a dev build.)
+- **A deep link in a drive is `"type <root> euxy://p/…"`, not `simctl openurl`; a
+  blind tap where iOS's "Open in …?" alert was dismisses the sheet the link opened.**
+  `xcrun simctl openurl` asks "Open in …?" only sometimes (the first link after the simulator boots, in
   one run); otherwise the app opens the link at once. A drive that then taps where
   the confirmation's Open button would be (`axe tap -x 275 -y 474` on an iPhone 17)
   taps the dimmed screen just above the 45 % `navigationPresentation="modal"` route
   the link presented, and UIKit dismisses that sheet and pops the route, as it would
   for a person (a `dialog` sheet closes on that tap only with `closedby="any"`). Fix: check for the confirmation with
-  `axe describe-ui` and tap Open by its label only when it is there. (euxy port's
-  "Added to Library" sheet, Release build, 2026-10-18.)
+  `axe describe-ui` and tap Open by its label only when it is there; in a drive,
+  `"type <root> euxy://p/…"` delivers the link with no confirmation at all. (euxy
+  port's "Added to Library" sheet, Release build, 2026-10-18.)
 - **`xcrun simctl ui <udid> appearance dark` does not darken an agent drive.** The
   driver sets the media preferences itself. Fix: `"prefer prefers-color-scheme dark"`
   as the drive's first operation. (Shelf recipe, 2026-10-10.)
@@ -1214,7 +1275,8 @@ screen, 2026-10-16.)
   starting the server), and from then on UIKit keeps accessibility state for
   every view it moves. A phone pays this only with an assistive technology on
   (VoiceOver, Voice Control, Switch Control). `xctrace` and `sample` attached to
-  the app stall it too. Fix: time a plain launch; drive taps with `axe touch`
+  the app stall it too, and `agent ios --touch platform` turns accessibility
+  automation on for the simulator until it is erased (euxy's launch: 1.2 s more). Fix: time a plain launch; drive taps with `axe touch`
   (HID, no accessibility) or have the host press a row itself, and read frames
   from Save Trace or a temporary log, not from a run an accessibility client
   touched. (x2-perf, 2026-10-05.)

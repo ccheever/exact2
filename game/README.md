@@ -82,8 +82,8 @@ successful Rust saves rebuild the primary module and restart the world; table-on
 edits preserve it. Shared app-runtime edits reload the page. The server also prints **Open in native**.
 Edits inside `Game::setup` take effect on a fresh game; in the starter, pause and
 choose **Restart** to apply them.
-The first web build uses the size-tuned `web` profile and `wasm-opt`. After a
-Rust edit, the dev loop builds only the affected GPU module under `gpu-dev`,
+The web dev loop builds the app host under the size-tuned `web` profile and its
+GPU module under `gpu-dev`. After a Rust edit, it builds only the affected GPU module,
 then runs wasm-bindgen and swaps it into the page without `wasm-opt`. The first
 such edit compiles that profile's dependencies; later edits reuse them.
 To explore the existing sample instead, run `bun game/dev.mjs beacons`.
@@ -97,16 +97,22 @@ Once the game plays and its `proof.mjs` describes it, establish its proof baseli
 bun game/prove.mjs ./my-game
 ```
 
-This is a release step, not part of the edit loop: nothing before it waits on it, and
-cold it takes many minutes. The first baseline requires Linux and web agreement in all three simulation modes,
-plus native release and shipping-profile web runs. Later invocations verify one GPU-less Linux run by default.
-Both proof hosts build the game module under `gpu-dev`; `EXACT_GAME_PROOF_PROFILE=release`
-selects native release or the web shipping profile. Repinning refuses any pin disagreement
-between the fast and shipping profiles. Ordinary web builds and deploys keep the shipping profile.
+`prove` takes the first development baseline while you build your game;
+`prove --release` checks the shipping matrix before you ship. A first baseline and
+`--repin` run Linux and web under `gpu-dev` in continuous, Save and FreshGame modes.
+`--release` adds native release and shipping-profile web runs in continuous mode.
+With existing pins, ordinary `prove` runs `test-rust` first, then one native
+`gpu-dev` continuous leg. It fails naming the tick if the simulation changed and
+never writes `pins.json`. The first baseline publishes; subsequent publication,
+including release coverage, requires `--repin` (`prove --repin --release` to ship).
+Tests are excluded from pin inputs, so editing a test does not invalidate a pin.
+Ordinary web builds and deploys keep the shipping profile.
 Use `bun my-game/proof.mjs web --screenshot-only` for pixels only; this reports
 `UNVERIFIED` because it skips gameplay checks. Its screenshot is
 `my-game/artifacts/web/game.png`. The starter includes movement, jumping, two
-beacons, pause/restart, touch controls, a ground grid, pads, fog, sun shadows and saved glow.
+beacons, pause/restart, touch controls, a ground grid, pads, fog, sun shadows and saved glow,
+and the [gameplay kit](#what-every-game-needs) in its tick: a critter that follows the
+player and keeps away from lit beacons, the coins it drops, and a two-item shop.
 
 A bare name (`bun game/new.mjs my-game`) creates `game/games/my-game`; a path chooses
 the directory. From an empty directory, `bun /path/to/exact2/game/new.mjs .` works too.
@@ -258,6 +264,30 @@ covers borrowing, registration, observation, saving and loading.
 `bun exact.mjs game vocab <Component|verb>` in a generated game shows rustdoc,
 fields and evaluated defaults. [Familiar names](names.md) maps three.js, Unity and Godot.
 
+### What every game needs
+
+Steering, pickups, spawners and a shop are the engine's, as pure functions and
+values the tick calls; nothing runs that the tick does not call, and nothing is
+saved that the game does not save. The [starter](new/logic/src/lib.rs) uses each,
+and its `logic/tests/sim.rs` has a bot that plays five minutes to check the prices
+against the income.
+
+| Need | Engine | Recipe |
+|---|---|---|
+| Seek, arrive, flee, wander | `steer::seek(&pose, target, max_speed, turn_rate, dt)` and its siblings return this tick's `Steer { velocity, facing }` | [Steering](recipes/steering.md) |
+| A school | `steer::school(&pose, w.near_xz::<Fish>(e, r).limit(7), separation, alignment, cohesion, …)` | [Schooling](recipes/schooling.md) |
+| Pickups that come to the player | `collect::drift(item, player, radius, speed, dt)`, `collect::Collectable` | [Pickup](recipes/pickup.md) |
+| Spawning on world time | a `spawn::Spawner` per kind in a resource; `spawner.due(w.tick())` | [Spawner](recipes/spawner.md) |
+| A shop | `Actions` on `Digit1`…, rows with prices and lock reasons published to the HUD | [Shop](recipes/shop.md) |
+
+A steer is a velocity and a facing, not a component: the game writes it into the
+motion the entity already has. A creature with no physics moves its `Transform`
+(`pose.position += s.velocity * dt; pose.rotation = s.facing`). A
+[`Character`](engine/src/character.rs) is the mover when the creature should
+accelerate, brake, jump and keep to bounds like the player: step it with
+`s.velocity / character.speed` as the wish. A physics body applies the change of
+velocity as its own force.
+
 ### Arguments, pause and restart
 
 `#[derive(Args)]` supplies a typed argument struct. The canvas binds its field names:
@@ -274,12 +304,55 @@ Canvas arguments keep the app's current bindings when a world is restored. Use l
 arguments for app-owned settings; keep choices that should travel with a game save
 in components or resources.
 
-`Game::render_scale(args)` optionally reduces the world's presented raster relative
-to canvas device pixels. Return a finite value in `(0, 1]`; the default is `1`.
-The compositor stretches that raster to the same canvas box. Camera layout and
-input coordinates stay in CSS pixels, and ordinary Contract HUD children keep
-native resolution. Bind a `#[live]` argument through this method for an app setting.
-Explicit fixture and readback sizes still render at the caller's requested size.
+`Game::render_scale(args)` sets the world's presented raster relative to canvas
+device pixels: return a finite value in `(0, 1]`, which stands on every rung of the
+quality ladder below. The default, `AUTO_RENDER_SCALE`, leaves the scale to the
+rung (full size on `High`). The compositor stretches that raster to the same canvas
+box. Camera layout and input coordinates stay in CSS pixels, and ordinary Contract
+HUD children keep native resolution. Bind a `#[live]` argument through this method
+for an app setting. This is the presented raster's size, and a look frame's; a
+fixture's or a readback's size is the one its caller asks for.
+
+`Game::quality(args)` picks the renderer's rung of the quality ladder, read once,
+when the renderer is made, and never saved: the world hash is the same on every
+rung. The default `Quality::Auto` follows the device's GPU tier
+(`exactViewport().gpuTier`, `high` under the agent until `prefer gpu-tier
+low|mid|high`). The web chooses it before the GPU device from `GPUAdapterInfo`,
+else the screen's class; a native module chooses it from the adapter it requests,
+before it makes the device, and its host reports that as the page fact once the
+module loads (`high` until then). A rung clamps only what the game left unsaid:
+
+| rung | scene samples | sun shadows | raster scale | water's caustics and shafts |
+|---|---|---|---|---|
+| `Low` (a phone GPU of the Adreno 600 class) | 1 | none | 0.5 | not drawn |
+| `Mid` (a recent phone or tablet) | `Game::SAMPLES` | 1 cascade | 0.75 | as `Water` says |
+| `High` (a computer; the agent's) | `Game::SAMPLES` | as `Shadows` says | 1 | as `Water` says |
+
+What the game says stands on every rung: an inserted `Shadows` resource, an
+inserted `AmbientOcclusion`, and any `render_scale` the game returns (the default,
+`AUTO_RENDER_SCALE`, leaves the scale to the rung). `Low` leaves out a `Water`'s
+caustics and shafts at present time (`Renderer::set_water_effects`): the saved
+resource keeps them. The rung is read once, from the
+canvas's first arguments, when its renderer is made: a player's setting read in
+`Game::quality` takes effect when the canvas is made again. A look frame is the
+rung's picture too (its samples, clamps and scale).
+On a Pixel 5 the starter draws its world at 16 fps under `High` and at the 90 Hz
+display's 90 under `Low`; the world's `state` reports its row as `quality`
+(`asked`, `tier`, `rung`, `samples`, `scale`). Under the agent `prefer gpu-tier`
+remakes each world's renderer at the new rung, on the same device and under the
+same world, on every host.
+
+On a browser without WebGPU (or with no adapter) a game's web page shows, in the
+box of each world surface (its build names them on the page's root,
+`data-exact-worlds`, from the game's GPU declaration), a `role=status` page that names WebGPU and the browsers that have
+it, and the game's iOS and macOS installs when `app.json`'s `install` lists any;
+the canvas's own HUD is inert under it, the rest of the app keeps working, and a
+world request answers `host web refused (gpu): no adapter: …`, which the proof's
+web leg reports as its result. The page waits at most a second for the install
+data, and goes, with the HUD's inertness, when its surface does. Any other GPU
+surface, a game's or an app's (a decorative backdrop, such as Caltrain's sky), shows
+no page: its content stays live over the empty canvas. No WebGL renderer
+exists (LLP 1128 I6).
 
 After the first GPU build, the compiler and dev loop check surface names and
 arguments against the emitted `.shells/surfaces.json`, including hidden branches
@@ -373,6 +446,7 @@ nothing yet.
 | Ring, torus, cone and halo | `Mesh::ring(inner, outer)`, `Mesh::torus(radius, tube)`, `Mesh::cone(radius, height)`, `Material::alpha(a)`; [halo recipe](recipes/halo.md). |
 | Grid and fog | `Material::grid(Color::hex("#6f8486"), spacing)` and the saved `Environment`/`Fog` resource |
 | An underwater scene | `w.insert_resource(Environment::underwater())`, a sun from above and no opaque surface over the floor; [underwater recipe](recipes/underwater.md) |
+| A water surface, caustics and light shafts | `w.insert_resource(Water::at(8.))`: the surface at that height, seen from below through Snell's window, caustics on lit surfaces under it and shafts in the water (`caustics: None`, `shafts: None` to leave either out); [underwater recipe](recipes/underwater.md) |
 | Fade a glowing mesh | Attach `Glow` to `Material::glow`; call `beacon.glow_to(1.0, 0.5)` once. The renderer samples at frame time. |
 | Fade a point light | Attach `Lit(Spring)` and call `lit.to(w.tick_end(), intensity)`. |
 | A flashlight | `SpotLight { inner, outer, range, intensity, .. }` along the entity's −Z; intensity in candela, as `PointLight`'s |
@@ -444,7 +518,19 @@ Commands go the other way as messages: an action calls
 `postMessage("buy carrot", "world")` and the next tick reads every message posted
 since, in order, from `input.messages()`. Nothing is coalesced, nothing needs an
 acknowledgement, and a delivered message is not part of a later save. Use live
-arguments for settings, messages for things that happen once.
+arguments for settings, messages for things that happen once. A paused world holds
+a message for its first tick after the pause.
+
+The driver posts the same message with `post [<surface>] <text>`, short for
+`type <surface> message <text>`: `post spawn-gulper` to the page's one world,
+`post world "spawn gulper"` to a named surface (a canvas's testId works too). It is
+the page's `postMessage` in every respect: saved until a tick reads it, held while
+no canvas of the surface is live (64 at most, the 65th refused by name). Past the
+world's 1,024 queued events the world drops it, logs that once and counts it in
+`state`'s `input.refusedPosts`; the op has already succeeded. Use it to stage or script a scene the game
+already listens for, as `Sim::post` does in a hostless test. As from the page, a
+`set entity Component.field value` message is a
+[development edit](engine/README.md#development-edits), which a pin refuses.
 
 Typed simulation events use `#[derive(Default, Event)]`, `register_event`,
 `emit_event` and next-tick `input.events::<T>()`. Their bounded queues are resources
@@ -463,6 +549,16 @@ real-host proof's responsibility. Advancing a hostless test to another pinned ti
 adds coverage only when its options and inputs reproduce that proof's state.
 
 `pins.json` owns the game's expected tick hashes and continuation-save digests.
+`hosts`, `modes` and `profiles` record their coverage: modes `0`, `1` and
+`fresh-game` run under `gpu-dev`; the `release` profile covers continuous mode
+on the native host and web when requested. Missing `modes` or `profiles` means
+the full matrix that older files used; `hosts` still bounds their host coverage.
+A development baseline has its own publication verdict and reports `release not
+pinned`. `proof.mjs` names missing host, mode and release coverage separately from
+the simulation checks it ran. Deploy and push require a native host, web, all three
+development modes and release. Native-only repins remain available but cannot ship.
+An absent `profiles` field counts as release-covered under the legacy rule;
+missing hosts never gain coverage.
 The generated proof uses `pin(tick, snapshot)` and `pinSave(name, path)`;
 Rust tests use `sim.assert_pin(include_str!("../../pins.json"))`.
 
@@ -488,9 +584,9 @@ bun my-game/proof.mjs linux --paranoid
 bun game/prove.mjs ./my-game --repin --reason "describe the intended state change"
 ```
 
-Repinning runs Off, Save and FreshGame, requires matching execution inputs and host
-observations, and compares the fast profile with native release and, when requested,
-shipping web. A profile disagreement, failed proof or missing requested browser
+Repinning runs Off, Save and FreshGame and requires matching execution inputs and
+host observations. With `--release` it also compares the fast profile with native
+release and, when requested, shipping web. A profile disagreement, failed proof or missing requested browser
 leaves the pins unchanged. Existing pins may be updated with
 `--hosts linux` explicitly; the first baseline always requires Linux and web.
 Summaries and every pin update record two digests: `inputs` identifies the exact
@@ -541,6 +637,21 @@ under `artifacts/build/`. A target lock covers proof build validation and copyin
 each Linux proof then executes private products under its source copy's
 `artifacts/build/`, checked against their input and product digests by the driver.
 Linux GPU receipt hits restore the surface declaration and generated runtime assets.
+The web leg can copy a completed resident producer build from the game's target
+cache when its portable execution-input identity, mode and build configuration
+match. The cache is populated from the invocation's private stage before publishing
+the shared output. Reuse revalidates recorded compiler and build-script environment
+dependencies, compiler identity and copied product digests before driving the snapshot. A changed
+source, damaged product or different profile is a cache miss and builds normally;
+the proof never reads the live world's state. Release builds do not use this cache.
+Web GPU modules compile their paranoid mode into `Sim`; a continuous-mode
+module cannot serve a Save or FreshGame proof. Those modes build separately
+unless a completed receipt for that same mode matches. The seven-leg development
+matrix reuses a warm continuous web leg, but that hit does not warm the Save or
+FreshGame compilation. GPU-only hot-swap wasm is not reused; it needs a completed
+page bake. The cache keeps six keys, evicting by receipt publication mtime.
+Every proof leg checks each observed simulation's reported mode; Save and FreshGame
+require completed reconstruction samples, including for each advanced world.
 Game-local `.ts` proof helpers are relocated like `.js` and `.mjs`; an unsupported
 `proofData` declaration is refused by name.
 Direct `proof.mjs` runs use `artifacts/<host>/`.
@@ -645,8 +756,8 @@ comparing state does not advance the clock or mutate the world.
 Use Exact2's same ten operations: `tree`, `screenshot`, `tap`, `type`, `state`,
 `layout`, `logs`, `clock`, `prefer` and `perf`. `trace <file>` reads an exported
 trace separately from these session operations. The CLI also accepts `check`,
-`sample`, `resize`, `close`, `back`, `pick`, `reload`, `fail fetch` and `pass fetch`.
-An entity is addressed as `world:player`.
+`sample`, `resize`, `close`, `back`, `pick`, `reload`, `fail fetch` and `pass fetch`,
+and `post`, a form of `type` (above). An entity is addressed as `world:player`.
 
 The agent drives a pad as it drives keys: `type world key GamepadSouth [for <ms>]`
 presses a pad button and `tap world stick left 0.7 -0.2 [for <ms>]` moves a stick, in

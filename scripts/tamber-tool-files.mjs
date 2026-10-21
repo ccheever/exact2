@@ -3,11 +3,9 @@
 // scripts/tamber-remote.mjs, serve them too).
 import { existsSync, readFileSync, realpathSync, statSync } from 'node:fs';
 import { relative, resolve, sep } from 'node:path';
-
-const ROOT = resolve(new URL('..', import.meta.url).pathname);
-/** Where `bun exact.mjs tamber tool` builds the design tool, and the wire
- * serves it from. */
-export const TOOL_DIST = resolve(ROOT, 'target/design-tool-web');
+// Where `bun exact.mjs tamber tool` builds the design tool (its port's build), and the wire serves it from.
+import { TOOL_DIST } from './tamber-tool-port.mjs';
+export { TOOL_DIST };
 const TOOL_TYPES = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.mjs': 'text/javascript', '.css': 'text/css', '.json': 'application/json', '.wasm': 'application/wasm', '.svg': 'image/svg+xml', '.png': 'image/png', '.plan': 'application/octet-stream' };
 
 const json = (res, status, body) => {

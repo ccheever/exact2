@@ -23,6 +23,7 @@ pub fn paint_row(a: &contract_syntax::Attr) -> bool {
 }
 mod declaration;
 pub mod functions;
+pub mod gallery;
 mod grants;
 /// The Lean backend: a program as a term of `semantics/` (LLP-free; see
 /// `semantics/README.md`).
@@ -31,10 +32,13 @@ mod logic;
 mod manifest;
 mod map;
 mod midi;
+mod module_rust;
 mod modules;
 pub mod native;
 pub mod picker;
 mod resolve;
+mod retained;
+pub use retained::{retention_build, Kept, Retained};
 mod rust;
 mod sources;
 mod strings;
@@ -43,8 +47,9 @@ mod symbols;
 mod tests_json;
 pub use tests_json::tests_json;
 pub mod snapshot;
-/// `uses` (LLP 1121 stage 4, commit 6): where the app reads a token.
+pub mod tamber_levels;
 pub mod tamber_params;
+/// `uses` (LLP 1121 stage 4, commit 6): where the app reads a token.
 pub mod tamber_uses;
 pub mod terminal;
 mod typescript;
@@ -56,6 +61,7 @@ pub use exact_runner::DataSource;
 pub use logic::{apple_linked, rust_entry, web_linked, web_rust_mode};
 pub use manifest::{Activity, Manifest, Widget};
 pub use map::{plan_digest, SourceMap};
+pub use module_rust::module_rust;
 pub use resolve::Origin;
 pub use rust::rust;
 pub use sources::{
@@ -430,6 +436,14 @@ pub fn source_graph(path: &Path) -> SourceGraph {
     }
 }
 
+/// The `.contract` files beside the root at `path` (not tests) that no
+/// `use` from it reaches: another entry, or a file nothing uses yet.
+pub fn unreached(path: &Path) -> Vec<PathBuf> {
+    let graph = source_graph(path);
+    let root = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
+    sources::unreached(&root, |p| graph.sources.iter().any(|s| s.path == p))
+}
+
 /// A file [`fix_uses`] wrote, and the `use` lines it wrote there.
 pub type WrittenUses = (PathBuf, Vec<String>);
 
@@ -462,10 +476,15 @@ pub fn fix_uses(path: &Path) -> Result<(Vec<WrittenUses>, Vec<CompileError>), Ve
         let mut wrote = false;
         let mut refused = Vec::new();
         for fix in fixes {
-            if !fix.unresolved.is_empty() || fix.lines.is_empty() {
+            // Never a file outside the app, whatever path reached it.
+            let inside = fix
+                .path
+                .canonicalize()
+                .is_ok_and(|p| p.starts_with(&app_root));
+            if !fix.unresolved.is_empty() || fix.lines.is_empty() || !inside {
                 refused.push(fix.error.clone());
             }
-            if fix.lines.is_empty() {
+            if fix.lines.is_empty() || !inside {
                 continue;
             }
             let before =
@@ -505,6 +524,14 @@ pub fn rerun_if_changed(path: &Path) {
     // A nearer `node_modules` an install could create or fill: installing
     // edits the `package.json` and lockfile beside it, which exist.
     for consulted in graph.consulted.iter().filter(|path| !path.exists()) {
+        // A package's design not there yet (LLP 1121 D11): its directory,
+        // which making it changes.
+        if consulted.extension().is_some_and(|e| e == "tamber") {
+            if let Some(dir) = consulted.parent().filter(|d| d.is_dir()) {
+                println!("cargo:rerun-if-changed={}", dir.display());
+            }
+            continue;
+        }
         let Some(modules) = consulted
             .ancestors()
             .find(|a| a.file_name().is_some_and(|n| n == "node_modules"))
@@ -684,52 +711,38 @@ fn compile_path_all_warned_with(path: &Path, mapped: bool, surfaces: bool) -> Wa
     (result, warned)
 }
 
-/// Where a warning stands among a build's, source order kept within a rank:
-/// first what changes what the app shows, or how a person reaches it, on its
-/// native targets (a header item the bar leaves out, a button VoiceOver
-/// cannot name, a scroller that grows); then the rest; then naming advice
-/// that changes nothing shown; last a symbol blank on the web alone. The
-/// euxy port's `lower-header-unplaced` was one of 43, after 13 aliases.
+/// Where a warning stands among a build's: lowering's order
+/// ([`contract_lower::warning_rank::rank`]), which also chose which warnings
+/// its cap kept.
 pub fn warning_rank(warning: &CompileError) -> u8 {
-    if web_only(warning) {
-        return 3;
-    }
-    match warning.id.as_str() {
-        "lower-header-unplaced"
-        | "lower-header-nested"
-        | "lower-header-no-bar"
-        | "lower-navigation-key"
-        | "lower-screen-by-state"
-        | "lower-button-unlabelled"
-        | "lower-round-button-label"
-        | "lower-dialog-role"
-        | "lower-level-without-heading"
-        | "lower-scroll-grows"
-        | "lower-width-padding"
-        | "lower-swipe-wiring"
-        | "lower-row-delete-button"
-        | "lower-delete-row" => 0,
-        "lower-symbol-alias" => 2,
-        _ => 1,
-    }
+    contract_lower::warning_rank::rank(&warning.id, &warning.message)
 }
 
-/// A warning only the web's picture shows: an SF Symbol drawn blank where
-/// the web is the one target besides Apple's (with Linux too, it is blank on
-/// a native host). A build's text says these in one line.
+/// A warning only the web's picture shows
+/// ([`contract_lower::warning_rank::web_only`]).
 pub fn web_only(warning: &CompileError) -> bool {
-    // Its first use names the targets, `ships web (…) and linux (…), where
-    // it is blank`; a later one, `blank on web too`.
-    let shipped = warning
-        .message
-        .split_once(" ships ")
-        .and_then(|(_, rest)| rest.split_once(", where it is blank"))
-        .map(|(targets, _)| targets);
-    warning.id == "lower-symbol-platform"
-        && match shipped {
-            Some(targets) => targets.starts_with("web (") && !targets.contains(") and "),
-            None => warning.message.contains(" blank on web too"),
-        }
+    contract_lower::warning_rank::web_only(&warning.id, &warning.message)
+}
+
+/// [`web_only`] for a warning as it is said (`file:line:col warning [id] message`).
+pub fn web_only_said(said: &str) -> bool {
+    said.split_once(" warning [")
+        .and_then(|(_, rest)| rest.split_once("] "))
+        .is_some_and(|(id, message)| contract_lower::warning_rank::web_only(id, message))
+}
+
+/// The one line a build's text says for its [`web_only`] warnings, the
+/// first as said and their number, at the first's place: the euxy port's
+/// 21 of them buried the warnings above them. `contract build --json`
+/// lists each.
+pub fn web_only_line(first: &str, count: usize) -> String {
+    let at = first.split_once(" warning [").map_or("", |(at, _)| at);
+    let one = count == 1;
+    format!(
+        "{at} warning [lower-symbol-platform] {count} SF Symbol use{} draw{} blank on the web, here first: an icon token or a role draws on every host (`contract build --json` says each, and how)",
+        if one { "" } else { "s" },
+        if one { "s" } else { "" },
+    )
 }
 
 pub(crate) fn app_root(path: &Path) -> Result<PathBuf, Vec<CompileError>> {
@@ -835,6 +848,7 @@ fn compile_loaded(
         all.truncate(MAX_DIAGNOSTICS);
         all
     };
+    retained::keep_paths(sources.paths());
     let strings = strings::load(&app_root, path).map_err(joined)?;
     let mut own = match warned {
         Some(_) => grants::check(&file, &app_root, strings.as_deref()),
@@ -1000,8 +1014,33 @@ fn compile_file_warned(
         all
     };
     contract_analyze::check_routes_root(file, true).map_err(CompileError::from)?;
-    let checked = contract_types::check_all(file, mapped, contract_lower::tags::style, strings)
-        .map_err(|all| with_lint(each(all, hint)))?;
+    // The design server's retention build reuses the last types and
+    // expansion when the program is what they were checked from
+    // (`retained`); any other build checks them.
+    let held = strings.clone();
+    let checked = match retained::reuse(file, &held, mapped) {
+        Some((types, expanded)) if !retained::verifying() => contract_types::Checked {
+            file,
+            types,
+            expanded,
+        },
+        reused => {
+            let fresh =
+                contract_types::check_all(file, mapped, contract_lower::tags::style, strings)
+                    .map_err(|all| {
+                        // Reused types where checking again refuses: stale.
+                        if reused.is_some() {
+                            retained::refused_fresh();
+                        }
+                        with_lint(each(all, hint))
+                    })?;
+            if let Some((types, expanded)) = &reused {
+                retained::verify((&fresh.types, &fresh.expanded), (types, expanded));
+            }
+            fresh
+        }
+    };
+    retained::keep(file, &held, mapped, &checked.types, &checked.expanded);
     let analysis = contract_analyze::check_all(&checked);
     let mut lower_warnings = Vec::new();
     let result = match analysis {

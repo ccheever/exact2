@@ -2,10 +2,10 @@
 import { test, expect } from 'bun:test';
 import { baselineIn, fragmentBaseline, fragmentDiff, framePhases, fontStyle, forgetTextBoxEdges, measurementCache, textBoxCut } from './textflow-glue.js';
 import { render } from '../../scripts/agent.mjs';
-import { chromium } from '../../scripts/agent-launch.mjs';
+import { cdpBrowser, chromium } from '../../scripts/agent-launch.mjs';
 import { timerWake, createTimerScheduler } from './timer-glue.js';
 
-const { executable: chrome, unavailable: browserUnavailable } = chromium();
+const { unavailable: browserUnavailable } = chromium();
 const browserTest = need('chrome', browserUnavailable);
 
 test('plain agent layout prints web fragment ranges, shapes and refusal reasons', () => {
@@ -572,13 +572,7 @@ test('a batch that wants frames presents every animation frame and keeps timer t
 // A real DOM is needed here: document capture runs before the clone forwards
 // its event to the detached original. A mock dispatch misses the double route.
 // Run an in-page fixture (a function) in headless Chrome over these glue modules; its result by value.
-async function inChrome(fixture, modules = ['/textflow-glue.js', '/timer-glue.js', '/input-glue.js', '/prompt-glue.js'], files = {}, runtime = false, drive = null) {
-  const { spawn } = await import('node:child_process');
-  const { mkdtempSync, rmSync } = await import('node:fs');
-  const { tmpdir } = await import('node:os');
-  const { join } = await import('node:path');
-  const { Cdp } = await import('../../scripts/agent.mjs');
-  const dir = mkdtempSync(join(tmpdir(), 'exact-flow-input-'));
+async function inChrome(fixture, modules = ['/textflow-glue.js', '/timer-glue.js', '/input-glue.js', '/prompt-glue.js', '/alert-message.js'], files = {}, runtime = false, drive = null) {
   const served = new Set(modules);
   const server = Bun.serve({ port: 0, hostname: '127.0.0.1', fetch(req) {
     const path = new URL(req.url).pathname;
@@ -591,22 +585,16 @@ async function inChrome(fixture, modules = ['/textflow-glue.js', '/timer-glue.js
     return served.has(path) ? new Response(Bun.file(new URL('.' + path, import.meta.url)))
       : new Response('<!doctype html><body><main id="root"></main>', { headers: { 'content-type': 'text/html' } });
   }});
-  let child;
+  const suite = await cdpBrowser(), { cdp } = suite;
   try {
-    child = spawn(chrome,
-      ['--headless=new', '--no-sandbox', '--remote-debugging-pipe', '--disable-background-networking', `--user-data-dir=${dir}`, 'about:blank'],
-      { stdio: ['ignore', 'ignore', 'ignore', 'pipe', 'pipe'] });
-    const cdp = new Cdp(child.stdio[3], child.stdio[4]);
-    child.on('exit', () => cdp.fail('Chrome closed'));
-    const { targetId } = await cdp.send('Target.createTarget', { url: 'about:blank' });
-    const { sessionId } = await cdp.send('Target.attachToTarget', { targetId, flatten: true });
+    const { sessionId } = await suite.page();
     await cdp.send('Page.navigate', { url: `http://127.0.0.1:${server.port}` }, sessionId);
     const result = await cdp.send('Runtime.evaluate', { expression: `(${fixture})()`, awaitPromise: true, returnByValue: true }, sessionId);
     if (result.exceptionDetails) throw Error(result.exceptionDetails.exception?.description ?? result.exceptionDetails.text);
     return drive ? await drive(cdp, sessionId, result.result.value) : result.result.value;
   } finally {
-    if (child && child.exitCode === null) { const exit = new Promise(r => child.once('exit', r)); child.kill(); await exit; }
-    server.stop(true); rmSync(dir, { recursive: true, force: true });
+    await suite.close();
+    server.stop(true);
   }
 }
 

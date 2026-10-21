@@ -58,6 +58,8 @@ const APP: &str = r##"component App
         button appearance="auto" buttonStyle="filled" testId="dark-filled"
           text "Go"
         input type="checkbox" testId="dark-check"
+        input type="checkbox" role="switch" testId="dark-switch"
+        input type="checkbox" role="switch" checked=true testId="dark-switch-on"
 "##;
 
 // neutral.css styles every direct route header, including one whose two
@@ -248,8 +250,8 @@ fn a_host_with_no_toolkit_under_it_draws_the_webs_neutral_look() {
     assert_eq!(pixel(&mut p, "check", 10.0, 0.0), line);
     assert_eq!(pixel(&mut p, "checked", 10.0, 1.0), blue);
     assert_eq!(pixel(&mut p, "radio", 10.0, 0.0), line);
-    // The switch: the control's line with a thumb in the page's ground at
-    // its start; on, the accent with the thumb at its end.
+    // The switch: the control's line with a white thumb at its start; on,
+    // the accent with the thumb at its end.
     assert_eq!(pixel(&mut p, "switch", 30.0, 10.0), line);
     assert_eq!(pixel(&mut p, "switch", 10.0, 10.0), white);
     assert_eq!(pixel(&mut p, "switch-on", 10.0, 10.0), blue);
@@ -269,6 +271,9 @@ fn a_host_with_no_toolkit_under_it_draws_the_webs_neutral_look() {
     assert_eq!(pixel(&mut p, "dark", 2.0, 2.0), [0x12; 3]);
     assert_eq!(pixel(&mut p, "dark-filled", 3.0, 18.0), [0x68, 0xa5, 0xfe]);
     assert_eq!(pixel(&mut p, "dark-check", 10.0, 10.0), [0x1e; 3]);
+    // A switch's thumb is white there too, off or on.
+    assert_eq!(pixel(&mut p, "dark-switch", 10.0, 10.0), white);
+    assert_eq!(pixel(&mut p, "dark-switch-on", 26.0, 10.0), white);
 
     // A state adds one thing: where a pointer hovers, a wash of the label's
     // ink over the outline button; held down, a stronger one.

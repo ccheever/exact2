@@ -4,14 +4,46 @@
 //
 // @ref LLP 1038 D8
 import Foundation
+import UniformTypeIdentifiers
 
 extension ExactSession {
+    /// The location the agent's `type <root> <text>` delivers: a path as
+    /// written, and a URL with a scheme as the system's would arrive
+    /// (`openURL`), so a drive opens a deep link without iOS's "Open in …?"
+    /// confirmation that `simctl openurl` raises.
+    func typedLocation(_ text: String) -> String {
+        guard !text.hasPrefix("/"), let url = URL(string: text), url.scheme != nil else { return text }
+        return incomingLocation(url)
+    }
+
     func incomingLocation(_ url: URL) -> String {
         let href = url.absoluteString
+        if isWebPageFile(url), let template = webTemplate, let location = runtime.protocolLocation(of: href, protocol: "file", template: template) {
+            return location
+        }
         return protocolHandlers.lazy.compactMap { handler in
             guard let name = handler["protocol"], let template = handler["url"] else { return nil }
             return self.runtime.protocolLocation(of: href, protocol: name, template: template)
         }.first ?? runtime.location(of: href)
+    }
+
+    /// The `https` handler's template, when the app claims the web's links
+    /// (a Mac browser, LLP 1030 D2).
+    var webTemplate: String? {
+        protocolHandlers.first { $0["protocol"]?.lowercased() == "https" }?["url"]
+    }
+
+    /// Whether `url` is an HTML file Launch Services brought to a browser
+    /// (Finder's Open With, a double-click once the app owns HTML): it
+    /// arrives at the `https` template as its `file:` URL, as a page does in
+    /// Safari, unless the app's own `file_handlers` take it.
+    package func isWebPageFile(_ url: URL) -> Bool {
+        guard url.isFileURL, webTemplate != nil else { return false }
+        #if os(macOS)
+        if ExactDocuments.accepts(url) { return false }
+        #endif
+        let type = (try? url.resourceValues(forKeys: [.contentTypeKey]).contentType) ?? UTType(filenameExtension: url.pathExtension)
+        return type.map { t in [UTType.html, UTType("public.xhtml")].contains { $0.map(t.conforms(to:)) ?? false } } ?? false
     }
 
     /// A notification's location and a host URL share the cold and warm
@@ -68,12 +100,14 @@ extension ExactSession {
 }
 
 /// The adapter's URL batch entry. Each callback runs before the next URL.
+/// A file is a document unless `webPage` says it is a page for a browser's
+/// links (`isWebPageFile`).
 package enum IncomingURLBatch {
-    package static func deliver(_ urls: [URL], development: (URL) -> Bool,
+    package static func deliver(_ urls: [URL], development: (URL) -> Bool, webPage: (URL) -> Bool = { _ in false },
                                 document: (URL) -> Void, location: (URL) -> Void) {
         for url in urls {
-            if url.isFileURL { document(url) }
-            else if !development(url) { location(url) }
+            if url.isFileURL, !webPage(url) { document(url) }
+            else if url.isFileURL || !development(url) { location(url) }
         }
     }
 }

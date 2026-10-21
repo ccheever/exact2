@@ -4,16 +4,16 @@
     "90": "0xdf2367cf46480dc2"
   },
   "saves": {
-    "continuation": "bb3a308692972a706e8746420a154ea81ad04fe6c4317d9b73a27c20c455fff3"
+    "continuation": "78a0b179e63ae2b66c50f02a1fa0dd1e80debae181678e7925b66cfaa761f47b"
   },
   "hosts": [
     "linux",
     "web"
   ],
-  "inputs": "0789b9c5de7248bf102836b474b4307a8a5e4bf88857f2df7479e0ab97357647",
-  "sourceInputs": "573d5172efca9be47c77f7c36baf279c78b9bd2ce8af1bb91e8b45fb578466fd",
+  "inputs": "18229a5ebff2dceb52d738497c22804a6c3a1f36325d588d56f09bfb3eb16bbf",
+  "sourceInputs": "5496dd98f3beec2e8bac8053f0ef7cdfdfd22f11f222325bdeacf7d64a2544f5",
   "game": "beacons",
   "generated": "bun game/prove.mjs beacons --repin --hosts 'linux,web'",
-  "at": "ae80e59663a25ef07667831b2c522a1556288f48",
-  "reason": "EXSIM v8 (player: u8, pads) over EXGAME v6: continuation bytes change; tick hashes unchanged, and the InputState resource its sprint hold and context put in the world"
+  "at": "b671b1c006b24915e786b30647f0c70b0a47141f",
+  "reason": "movement tables (TableValues in the hash) on main's rings-and-halos baseline; EXGAME v6 (tableInputs)"
 }

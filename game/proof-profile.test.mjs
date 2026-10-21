@@ -26,15 +26,15 @@ test('R15 real fast and shipping game proofs refuse profile drift without changi
     if (!readFileSync(logic,'utf8').includes('struct ProfileFlag')) writeFileSync(logic, readFileSync(logic,'utf8').replace('        w.reseed(args.seed);', '        w.insert_resource(ProfileFlag(env!("PROOF_OPT_LEVEL") == "z"));\n        w.reseed(args.seed);') + '\n#[derive(Default, Resource)]\nstruct ProfileFlag(bool);\n');
     const out = resolve(root,'observed');
     const fast = await run([resolve(app,'proof.mjs'),'web'], 'fast', {EXACT_PROOF_COMPARE:'0', EXACT_PROOF_REPIN:'1', EXACT_PROOF_OUT:out, EXACT_GAME_PROOF_PROFILE:'gpu-dev'});
-    expect({status:fast.status,tail:fast.status ? fast.output.slice(-4000) : ''}).toEqual({status:0,tail:''});
+    expect({status:fast.status,tail:fast.status !== 3 ? fast.output.slice(-4000) : ''}).toEqual({status:3,tail:''});
     const fastPins = JSON.parse(readFileSync(resolve(out,'summary.json'),'utf8')).pins;
     const shipping = await run([resolve(app,'proof.mjs'),'web'], 'shipping', {EXACT_PROOF_COMPARE:'0', EXACT_PROOF_REPIN:'1', EXACT_PROOF_OUT:out, EXACT_GAME_PROOF_PROFILE:'release'});
-    expect({status:shipping.status,tail:shipping.status ? shipping.output.slice(-4000) : ''}).toEqual({status:0,tail:''});
+    expect({status:shipping.status,tail:shipping.status !== 3 ? shipping.output.slice(-4000) : ''}).toEqual({status:3,tail:''});
     const shippingPins = JSON.parse(readFileSync(resolve(out,'summary.json'),'utf8')).pins;
     expect(shippingPins.ticks).not.toEqual(fastPins.ticks);
     const pinFile=resolve(app,'pins.json'), before=JSON.stringify({...fastPins,game:'profile-drift'});
     writeFileSync(pinFile,before);
-    const repin=await run([resolve(import.meta.dir,'prove.mjs'),app,'--repin','--hosts','linux,web','--reason','negative control: Cargo OPT_LEVEL changes saved ProfileFlag only in shipping web'], 'repin');
+    const repin=await run([resolve(import.meta.dir,'prove.mjs'),app,'--repin','--release','--hosts','linux,web','--reason','negative control: Cargo OPT_LEVEL changes saved ProfileFlag only in shipping web'], 'repin');
     expect(repin.status).not.toBe(0);
     expect(repin.output).toContain('web release proof missing, failed, or disagrees with gpu-dev');
     expect(readFileSync(pinFile,'utf8')).toBe(before);

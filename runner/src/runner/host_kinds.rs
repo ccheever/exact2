@@ -11,7 +11,8 @@ impl Event {
     /// (scroll), 19 (media), 20 (pan), 21 (select), 28 (panrelease, LLP
     /// 1057 §10.6), 29 to 31 (the pointer's down, up and move), 32 to 34
     /// (the clipboard's copy, cut and paste), 35 (`selectionchange`), 36
-    /// (beforeunload), 37 (wheel), 38 (drop), 39 (resize, its
+    /// (beforeunload), 37 (wheel), 38 (drop), 55 and 56 (a file drag's
+    /// dragenter and dragleave), 57 (a paste with files), 39 (resize, its
     /// `contentRect` as `x,y,width,height`), 40 to 42 and 48 (a field's
     /// input, change, select and replacement input), 45 (intersect,
     /// `0|1,ratio`), 46 and 47 (focusin, focusout), 50 (toggle, oldState,newState)
@@ -54,6 +55,15 @@ impl Event {
             38 => super::DropEvent::parse(payload)
                 .map(Event::Drop)
                 .ok_or("invalid drop event"),
+            // A file drag's enter (55) and leave (56): the point line alone.
+            55 | 56 => super::DropEvent::parse_point(payload)
+                .map(if kind == 55 {
+                    Event::Dragenter
+                } else {
+                    Event::Dragleave
+                })
+                .ok_or("invalid drag event"),
+            57 => Event::paste_files_payload(payload).ok_or("invalid clipboard event"),
             45 => {
                 let (hit, ratio) = payload
                     .split_once(',')
@@ -203,7 +213,29 @@ impl Event {
             34 => EventKind::Paste,
             _ => return None,
         };
-        Some(Self::Clipboard(kind, payload.into()))
+        Some(Self::Clipboard(kind, payload.into(), Vec::new()))
+    }
+
+    /// Decode ABI kind 57, a `paste` whose clipboard holds files: the count
+    /// of files, a `doc:` handle a line, then the plain text verbatim (it may
+    /// hold newlines). `None` when a line is not a handle.
+    pub fn paste_files_payload(payload: &str) -> Option<Self> {
+        let (count, mut rest) = payload.split_once('\n')?;
+        let count: usize = count.parse().ok().filter(|&n| n > 0)?;
+        let mut files = Vec::with_capacity(count.min(64));
+        for i in 0..count {
+            let (file, after) = match rest.split_once('\n') {
+                Some(split) => split,
+                None if i + 1 == count => (rest, ""),
+                None => return None,
+            };
+            if !file.starts_with("doc:/") {
+                return None;
+            }
+            files.push(file.to_owned());
+            rest = after;
+        }
+        Some(Self::Clipboard(EventKind::Paste, rest.into(), files))
     }
 }
 
@@ -259,7 +291,36 @@ mod tests {
         );
         assert!(matches!(
             Event::of_host_kind(34, "a\tb\n1\t2"),
-            Ok(Event::Clipboard(exact_plan::EventKind::Paste, text)) if text == "a\tb\n1\t2"
+            Ok(Event::Clipboard(exact_plan::EventKind::Paste, text, files)) if text == "a\tb\n1\t2" && files.is_empty()
+        ));
+        // A paste with files: their count, a handle a line, then the text.
+        assert!(matches!(
+            Event::of_host_kind(57, "2\ndoc:/1/a.png\ndoc:/2/b c.txt\nline\nnext"),
+            Ok(Event::Clipboard(exact_plan::EventKind::Paste, text, files))
+                if text == "line\nnext" && files == ["doc:/1/a.png", "doc:/2/b c.txt"]
+        ));
+        assert!(matches!(
+            Event::of_host_kind(57, "1\ndoc:/3/image.png"),
+            Ok(Event::Clipboard(_, text, files)) if text.is_empty() && files == ["doc:/3/image.png"]
+        ));
+        for bad in ["0\n", "1\n/tmp/a.png\n", "2\ndoc:/1/a", "x\ndoc:/1/a\n", ""] {
+            assert_eq!(
+                Event::of_host_kind(57, bad).err(),
+                Some("invalid clipboard event"),
+                "{bad:?}"
+            );
+        }
+        assert!(matches!(
+            Event::of_host_kind(55, "3,4,Shift"),
+            Ok(Event::Dragenter(d)) if d.offset_y == 4.0 && d.held.shift && d.files.is_empty()
+        ));
+        assert!(matches!(
+            Event::of_host_kind(56, "0,0"),
+            Ok(Event::Dragleave(_))
+        ));
+        assert!(matches!(
+            Event::of_host_kind(56, "0,0\ndoc:/1/a"),
+            Err("invalid drag event")
         ));
         assert!(matches!(
             Event::of_host_kind(35, "3,9,0,a, b\nc"),

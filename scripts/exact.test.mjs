@@ -8,7 +8,7 @@ import { createHash } from 'node:crypto';
 import { cpSync, existsSync, linkSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, relative, resolve } from 'node:path';
-import { codeDigest, signingOrder, signRelease, signedGpuProduct, assertArchiveFrameworks } from '../host/apple/assets.mjs';
+import { codeDigest, signingOrder, signRelease, signedGpuProduct, assertArchiveFrameworks, plistFile } from '../host/apple/assets.mjs';
 import { appleEmbedOnly, copyAppleGpuProducts, captureAppleProduct, stripForDistribution } from '../host/apple/build.mjs';
 import { assertLinkedSdk } from '../host/apple/link.mjs';
 
@@ -609,6 +609,13 @@ test('Apple asset catalogs select platform modules and invalidate native receipt
   rmSync(resolve(dir, 'modules/apple/Shared.xcassets'), { recursive: true });
   assert.deepEqual(pendingBuildInputs(build), ['Apple asset catalogs']);
   assert.equal(appleRunBinary(launchApp), paths.binary);
+  launchApp.manifest.widgets = [{ kind: 'card', families: ['systemSmall'] }];
+  mkdirSync(paths.products, { recursive: true });
+  writeFileSync(resolve(paths.products, 'receipt.json'), JSON.stringify({ entitlements: null }));
+  assert.equal(appleRunBinary(launchApp), paths.binary, 'a widget declaration without an identity still launches the bare app');
+  writeFileSync(resolve(paths.products, 'receipt.json'), JSON.stringify({ entitlements: plistFile({ 'com.apple.security.application-groups': ['TEAM.com.exact.catalog.widgets'] }) }));
+  assert.equal(appleRunBinary(launchApp), resolve(paths.bundle, 'Contents/MacOS', paths.executable));
+  assert.equal(appleRunBinary(launchApp, true), appleArtifacts(launchApp, { host: true }).binary);
   mkdirSync(resolve(dir, 'modules/apple/Linked.xcassets'));
   symlinkSync(resolve(dir, 'outside'), resolve(dir, 'modules/apple/Linked.xcassets/Contents.json'));
   assert.throws(() => appleAssetCatalogInventory(app, 'ios'), /symlinks/);
@@ -768,7 +775,7 @@ test('docs prints the section on its words first, matching whole words', () => {
     const r = spawnSync(process.execPath, [resolve(root, 'scripts/exact.mjs'), 'docs', ...words], { cwd: root, encoding: 'utf8' });
     assert.equal(r.status, 0, r.stderr);
     const [where, ...text] = r.stdout.split('\n');
-    return { where, text: text.slice(0, 12).join('\n') };
+    return { where, text: text.slice(0, 40).join('\n') };
   };
   for (const [words, file, shows] of [
     [['exit', 'animation'], 'docs/recipes/motion.md', /-exact-exit-animation/],
@@ -787,12 +794,78 @@ test('docs prints the section on its words first, matching whole words', () => {
     // A heading that alone holds the word prints from the heading.
     [['accessibility'], 'docs/contract-for-agents.md', /^### Native views: accessibility\n+\S/],
     [['optimistic'], 'docs/contract-for-agents.md', /^### Optimistic writes: the overlay\n+\S/],
+    // What an agent porting an iOS app types. A piece of a longer hyphenated name is not the word (`fonts` is not
+    // `font-variant-numeric`), a plural never stems onto a type keyword (`strings` is app.json's key, not `: string`),
+    // and a query's own section (TOPICS) comes first however it says the words ("dark mode": light and dark).
+    [['fonts'], 'docs/recipes/app-json.md', /a `font` block's/],
+    [['strings'], 'docs/recipes/app-json.md', /`strings` \(string\n\s+tables\)/],
+    [['push'], 'docs/recipes/navigation-stack.md', /^routes nav$/m],
+    [['deploy'], 'docs/recipes/porting-and-release.md', /^# Recipe: porting an app, a release build/],
+    [['haptics'], 'docs/start-here.md', /haptic\("selection"\)/],
+    [['glass'], 'docs/contract-for-agents.md', /glass/],
+    [['detent'], 'docs/contract-for-agents.md', /detent/],
+    [['tab', 'bar'], 'docs/recipes/tabs.md', /tab bar/],
+    [['back', 'button'], 'docs/recipes/navigation-stack.md', /system Back/],
+    [['search'], 'docs/recipes/list-rows.md', /search/],
+    [['menu'], 'docs/recipes/list-rows.md', /menu/],
+    [['swipe'], 'docs/recipes/list-rows.md', /swipe/],
+    [['list'], 'docs/recipes/list-rows.md', /^# Recipe: list rows/],
+    [['safe', 'area'], 'docs/contract-grammar.md', /safe area/],
+    [['keyboard'], 'docs/recipes/keyboard-and-focus.md', /^# Recipe: the keyboard and focus/],
+    [['dark', 'mode'], 'docs/recipes/theme.md', /follows light, dark/],
+    [['image'], 'docs/recipes/app-json.md', /image "assets\/logo.png"/],
+    [['svg'], 'docs/recipes/symbols.md', /SVG/i],
+    [['animation'], 'docs/recipes/motion.md', /animation/],
+    [['transition'], 'docs/recipes/motion.md', /transition/],
+    [['timer'], 'docs/recipes/timers.md', /^# Recipe: timers/],
+    [['storage'], 'docs/recipes/files-and-grants.md', /storage/],
+    [['share'], 'docs/contract-grammar.md', /`share`/],
+    [['MIDI'], 'docs/contract-grammar.md', /exactMIDI/],
+    // A CSS name's words together are the phrase, though its pieces alone are not the words.
+    [['text', 'overflow'], 'docs/agent-pitfalls.md', /text-overflow/],
+    [['background', 'color'], 'docs/recipes/theme.md', /background-color/],
   ]) {
     const { where, text } = first(...words);
     assert.ok(where.startsWith(`${file}:`), `docs ${words.join(' ')}: ${where}`);
     assert.match(text, shows, `docs ${words.join(' ')} prints from the lines that hold them:\n${text}`);
   }
 });
+
+
+test.skipIf(!tools)('release keeps Mac widget entitlements, including the provisioned app group (LLP 1126.001 WP16)', async () => {
+  const { macWidgetEntitlements } = await import('../host/apple/widgets.mjs');
+  inDir(dir => {
+    const bundle = resolve(dir, 'Widget.app'), extension = resolve(bundle, 'Contents/PlugIns/ExactWidgets.appex');
+    const app = { id: 'dev.exact.widget', manifest: {} }, team = '0123456789';
+    const run = (command, args, input) => { const r = spawnSync(command, args, { encoding: 'utf8', input }); assert.equal(r.status, 0, r.stderr); return r.stdout; };
+    writeFileSync(resolve(dir, 'main.c'), 'int main(void) { return 0; }');
+    for (const [path, id] of [[bundle, app.id], [extension, app.id + '.widgets']]) {
+      mkdirSync(resolve(path, 'Contents/MacOS'), { recursive: true });
+      run('clang', ['-O', resolve(dir, 'main.c'), '-o', resolve(path, 'Contents/MacOS/Fixture')]);
+      writeFileSync(resolve(path, 'Contents/Info.plist'), plistFile({ CFBundleIdentifier: id, CFBundleExecutable: 'Fixture', CFBundlePackageType: path === bundle ? 'APPL' : 'XPC!' }));
+    }
+    const dump = path => JSON.parse(run('plutil', ['-convert', 'json', '-o', '-', '-'], run('codesign', ['-d', '--entitlements', '-', '--xml', path])));
+    for (const provisioned of [false, true]) {
+      const profiles = provisioned ? { app: { prefix: 'PREFIX' }, keychain: 'PREFIX.' + app.id } : null;
+      writeFileSync(resolve(bundle, 'Contents/Info.plist'), plistFile({ CFBundleIdentifier: app.id, CFBundleExecutable: 'Fixture', CFBundlePackageType: 'APPL',
+        ExactAppGroup: team + '.' + app.id + '.widgets', ...(profiles ? { ExactKeychainAccessGroup: profiles.keychain } : {}) }));
+      if (profiles) writeFileSync(resolve(bundle, 'Contents/embedded.provisionprofile'), 'profile presence: this fixture tests signing, not profile authorization');
+      const ent = resolve(dir, 'widget.plist'); writeFileSync(ent, macWidgetEntitlements({ app, team, profiles, extension: true }));
+      run('codesign', ['--force', '--sign', '-', '--entitlements', ent, extension]);
+      const before = dump(extension);
+      signRelease(bundle, { compat: { reach: { entitlements: ['com.apple.security.device.audio-input'] } }, manifest: {}, identity: '-', id: app.id, scratch: dir, timestamp: ['--timestamp=none'] });
+      assert.deepEqual(dump(extension), before);
+      const own = dump(bundle);
+      assert.deepEqual(own['com.apple.security.application-groups'], [team + '.' + app.id + '.widgets']);
+      assert.equal(own['com.apple.security.device.audio-input'], true);
+      assert.equal(own['com.apple.security.app-sandbox'], undefined);
+      assert.equal(own['com.apple.security.network.client'], undefined);
+      assert.equal(own['com.apple.application-identifier'], profiles?.keychain);
+      assert.deepEqual(own['keychain-access-groups'], profiles ? [profiles.keychain] : undefined);
+      run('codesign', ['--verify', '--deep', '--strict', bundle]);
+    }
+  });
+}, 60000);
 
 test('setup refuses the removed game warmup flag before provisioning', () => {
   const result=spawnSync(process.execPath,[resolve(import.meta.dir,'exact.mjs'),'setup','--game'],{encoding:'utf8'});

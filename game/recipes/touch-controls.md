@@ -58,6 +58,9 @@ component Game
           text "Jump"
 ```
 
+- The starter puts them in its HUD's bottom group, a strip along the bottom edge in
+  portrait (`game/new/app.contract`); its panel's Touch controls button is the
+  player's override.
 - An iPad with a trackpad or mouse attached answers `fine`, and the buttons hide;
   the pointer changes while the game runs.
 - Drive both on a desktop carrier: `bun scripts/agent.mjs web "prefer pointer coarse" tree`

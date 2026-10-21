@@ -683,25 +683,27 @@ allocation while surviving charges exceed the new capacity; growth wakes
 queued decodes. AppKit follows its view's backing-properties callback through
 the same capacity seam. The iOS deployment floor remains 17.
 
-*Exercised on the iPhone Duo simulator (Xcode 27.1 beta 27A9269, iOS 27.1
-24A94401, 2026-09-30)*, headlessly: the hinge through the vendor HID event
-Device Hub's slider sends, orientation and captures through `devicectl`, the
-apps through the agent socket. Closed, the cover panel is 466×678 pt; open
-(180°), book (130°) and half (90°) light the inner panel, 951×669 pt; this beta
-puts the status bar in an 84-pt strip on the right of both panels and the home
-indicator at the bottom, so the safe area is `right: 84, bottom: 34` on either,
-with a transient `top: 82` layout while the panels switch. Across every pose
-change, in both directions: a cover root fills the new panel and its content
-keeps out of the new insets, a non-cover viewport is the panel less the insets,
-the software keyboard rises and `resizes-content`'s bar rides it, a focused
-field keeps its text and focus, a pushed screen and a presented sheet survive,
-a scrolled list keeps its offset, and the two-session sample host's panes both
-follow (the `insets`, `keyboard-bar`, Caltrain, Messages, Fieldnotes and host
-sweeps). Not exercised: rotation and Split View, which this beta's simulator
-does not honour from CoreDevice (`devicectl device orientation set` is accepted
-and changes nothing; Device Hub's own rotate goes through an accessibility
-path) — rotation was exercised with the same bundles on the iOS 27.0 iPhone
-simulator instead — and a resizable app session, refused for the same reason.
+*Exercised on the iPhone Duo simulator (Xcode 27.1 27A9275, iOS 27.1
+24A94425, 2026-10-19)*, headlessly, by `bun scripts/smoke.mjs duo`: the hinge
+and the turns through the vendor HID events Device Hub's controls send
+(`scripts/duo/hinge_helper.c`), captures through `devicectl`, the apps through
+the agent socket. Closed, the outer display is 466×678 pt; fully open and
+partially folded (130°, 90°) light the inner display, 951×669 pt; the status bar
+stands in an 84-pt strip on the right of both displays and the home indicator
+at the bottom, so the safe area is `right: 84, bottom: 34` on either. Across
+every pose change, in both directions: a cover root fills the new display and
+its content keeps out of the new insets, a non-cover viewport is the display
+less the insets, the software keyboard rises and `resizes-content`'s bar rides
+it, a focused field keeps its text and focus, a pushed screen and a presented
+sheet survive, a scrolled list keeps its offset, the two-session sample host's
+panes both follow, the scene turns with the device at every pose, and in a
+resizable app session the Fold screen follows each window UIKit gives it (the
+`insets`, `keyboard-bar`, `lab`, `host`, `rotate` and `resize` legs). Under the
+agent's own chrome, its tablist below the routes, flat and folded like a book and
+like a laptop, the Fold screen's panes and the note sheet end where the routes
+do (the `web` leg). `devicectl device
+orientation set` is accepted and turns nothing, so the turns go through the
+helper. Not exercised: Split View with another app beside this one (QUEUE).
 
 *Reserved regions, evaluated.* UIKit 27.1 adds `UIView.reservedRegions(kind:)`
 and `UIHingeInteraction`. On the inner panel the simulator reports two

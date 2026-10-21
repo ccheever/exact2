@@ -385,8 +385,10 @@ fn round_one_refusals_and_typing() {
     // As a list's row first, then elsewhere: the row is refused, the other is not
     // judged as one (the refusal names the row, at its instance).
     assert_eq!(refused(&format!("component App\n  view\n    column\n      Card()\n      list flex=1\n        Card()\n\n{card}")), "lower-state-target");
-    // A computed list in a state's border-color, as on the node.
+    // A computed list in a state's border-color, as on the node: a template of
+    // interpolations alone and a concatenation are refused.
     assert_ne!(refused("component App\n  state c = \"#ff0000\"\n  state busy = false\n  view\n    column disabled=busy\n      :disabled\n        border-color=`${c} ${c}`\n      text \"b\"\n"), "compiled");
+    assert_ne!(refused("component App\n  state c = \"#ff0000\"\n  state busy = false\n  view\n    column disabled=busy\n      :disabled\n        border-color=c + \" \" + c\n      text \"b\"\n"), "compiled");
     // A row typed as the node's own rows are: `none` an arm.
     assert_eq!(refused("component App\n  state on = false\n  state busy = false\n  view\n    column disabled=busy\n      :disabled\n        opacity=(on ? 0.5 : none)\n      text \"b\"\n"), "compiled");
     // A child in a state.
@@ -554,9 +556,10 @@ fn a_param_read_only_by_a_state_part_is_reached() {
             .computed(StyleId::Opacity)
     );
     assert!(o.contains("0.6") || o.contains("0.59999"), "{o}");
-    // In a style's state part, which any component may apply, a param is
-    // out of scope, as in a style's row.
-    std::fs::write(dir.join("app.contract"), "component App\n  view\n    PostButton()\n\nstyle Look\n  :active\n    background-color = \"param.fill\"\n\ncomponent PostButton\n  params\n    fill: color = \"accent.fill\"\n  view\n    column class=Look background-color=\"param.fill\"\n      text \"Post\"\n").unwrap();
+    // In a style's state part, which another component applies too, a
+    // param is out of scope, as in a style's row; one component alone
+    // applying it reads its params (LLP 1139 D3).
+    std::fs::write(dir.join("app.contract"), "component App\n  view\n    PostButton()\n    column class=Look\n      text \"x\"\n\nstyle Look\n  :active\n    background-color = \"param.fill\"\n\ncomponent PostButton\n  params\n    fill: color = \"accent.fill\"\n  view\n    column class=Look background-color=\"param.fill\"\n      text \"Post\"\n").unwrap();
     let e = contract::compile_path(&dir.join("app.contract")).unwrap_err();
     assert_eq!(e.id, "tamber-param-scope", "{e:?}");
     let _ = std::fs::remove_dir_all(&dir);

@@ -5,7 +5,7 @@ import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, ut
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { decodePng, encodePng } from '../../scripts/png.mjs';
-import { chooseSimulator, crashReports, crashSummary, crashWatch, simulator, withDisplay, phoneBridge, softwareKeyboard } from './devices.mjs';
+import { chooseSimulator, crashReports, crashSummary, crashWatch, forwardedEnv, simulator, withDisplay, withMaterials, phoneBridge, softwareKeyboard } from './devices.mjs';
 import { spawn } from 'node:child_process';
 import { createConnection } from 'node:net';
 import { once } from 'node:events';
@@ -418,4 +418,42 @@ test('a failed launch reads the crash report written before it, and waits for th
     expect(watch()).toEqual([]); // said once
     late.kill();
   } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+// A page capture over glass (the Linear port's floating bar, drawn clear by drawHierarchy): the page is 4x6 points at
+// (0, 2) in the window, so its rows are the window's 4 to 15, the glass in its last four.
+const page = (dir) => {
+  const shot = resolve(dir, 'page.png');
+  writeFileSync(shot, encodePng({ width: 8, height: 12, data: Uint8Array.from({ length: 8 * 12 * 4 }, (_, i) => RED[i % 4]) }));
+  return shot;
+};
+test('a page capture over glass takes the display\'s pixels in its area, from a window capture', async () => {
+  const dir = mkdtempSync(resolve(tmpdir(), 'materials-'));
+  try {
+    const shot = page(dir);
+    const r = await withMaterials({ scale: 2, materials: [0, 2, 4, 6] }, shot, async (p) => { writeFileSync(p, DISPLAY); return { pixels: 'display' }; });
+    const at = rows(shot);
+    expect([at(0), at(7), at(8), at(11)]).toEqual([RED, RED, BLUE, BLUE]);
+    expect([r.pixels, r.materials, r.note]).toEqual(['display', undefined, undefined]);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+test('a page capture over glass whose window capture stayed the app\'s says its materials are approximate, and why', async () => {
+  const dir = mkdtempSync(resolve(tmpdir(), 'materials-'));
+  try {
+    const shot = page(dir);
+    const r = await withMaterials({ scale: 2, materials: [0, 2, 4, 6] }, shot, async (p) => { writeFileSync(p, DISPLAY); return { pixels: 'app', pixelsWhy: 'the app is not active' }; });
+    expect(rows(shot)(11)).toEqual(RED);
+    expect(r.pixels).toBe('app');
+    expect(r.note).toContain('(the app is not active): glass and other backdrop materials in it are approximate');
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+test('a page capture with no glass in it reads nothing of the display', async () => {
+  let asked = false;
+  const r = await withMaterials({ scale: 2 }, '/nonexistent.png', async () => { asked = true; return {}; });
+  expect([asked, r.pixels]).toEqual([false, undefined]);
+});
+// simctl and devicectl hand the app none of the drive's environment: EXACT_STORE=real must be passed by name.
+test('an iOS drive passes EXACT_STORE on to the app it launches, and nothing else of its environment', () => {
+  expect(forwardedEnv({ EXACT_STORE: 'real', HOME: '/h' })).toEqual({ EXACT_STORE: 'real' });
+  expect(forwardedEnv({ HOME: '/h' })).toEqual({});
 });

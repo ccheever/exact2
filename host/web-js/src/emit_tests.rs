@@ -232,6 +232,37 @@ fn a_header_with_its_own_justify_content_is_named() {
     assert!(named(headers[0]), "the first header wrote it: {}", out.js);
 }
 
+/// An author's `user-select` is written in WebKit's prefixed property too,
+/// the one Safari selects by, literal and bound; its `auto` and a clear
+/// write nothing, so the page's sheet decides, as the native hosts read `auto`.
+#[test]
+fn user_select_is_written_for_webkit_too() {
+    let plan = contract::compile(
+        "component App\n  state on = false\n  view\n    column\n      text \"Copy me\" user-select=\"text\"\n      text \"Or me\" user-select=(on ? \"text\" : \"auto\")\n      text \"Not me\" user-select=\"auto\"\n      text \"Nor me\" user-select=\"unset\"\n",
+    )
+    .unwrap();
+    let out = crate::emit::emit(&plan, false, false).unwrap();
+    let all = format!("{}{}", out.js, out.css);
+    assert!(
+        all.contains("-webkit-user-select:text;user-select:text;"),
+        "{all}"
+    );
+    for unsaid in ["user-select:auto", "user-select:unset"] {
+        assert!(!all.contains(unsaid), "{unsaid}: {all}");
+    }
+    assert_eq!(
+        out.js
+            .matches("(auto|initial|unset)\\s*$/i.test(v)?null:v")
+            .count(),
+        2,
+        "{}",
+        out.js
+    );
+    for name in ["\"-webkit-user-select\"", "\"user-select\""] {
+        assert!(out.js.contains(name), "{name}: {}", out.js);
+    }
+}
+
 /// LLP 1116 D8: a literal `value` on a `progress` is its `<progress>`'s
 /// attribute, as a bound one is its property; without it the browser draws
 /// an indeterminate bar.
@@ -328,6 +359,18 @@ fn a_scrollend_handler_is_the_dom_event_on_a_scroll() {
     ).unwrap();
     let js = crate::emit::emit(&plan, false, false).unwrap().js;
     assert!(js.contains("\"scrollend\""), "{js}");
+}
+
+#[test]
+fn a_file_drags_enter_and_leave_bind_through_the_files_piece() {
+    let plan = contract::compile(
+        "component App\n  state over = false\n  action entered\n    over = true\n  action left\n    over = false\n  view\n    column dragenter=entered dragleave=left height=100\n      text \"a\"\n",
+    ).unwrap();
+    let js = crate::emit::emit(&plan, false, false).unwrap().js;
+    assert!(
+        js.contains("onFileDrag") && js.contains("\"dragenter\"") && js.contains("\"dragleave\""),
+        "{js}"
+    );
 }
 
 #[test]

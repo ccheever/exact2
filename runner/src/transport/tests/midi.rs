@@ -647,3 +647,191 @@ fn a_parked_note_ends_in_the_segment_its_end_falls_in() {
         "{notes:?}"
     );
 }
+
+/// [`SOURCE`] reading `exactMIDI().sent`, with sends at chosen times.
+fn sent_source() -> String {
+    SOURCE
+        .replace(
+            "shape MIDI\n  state: string\n",
+            "shape Message\n  output: string\n  data: number[]\n  timeStamp: number\n\nshape MIDI\n  state: string\n  sent: Message[]\n",
+        )
+        .replace("`${midi.state} ${midi.outputs.length}`", "`${midi.state} ${midi.sent.length}`")
+        .replace(
+            "  action ask\n",
+            "  action sendLater\n    sendMIDI(\"synth\", [144, 61, 100], at=performanceNow() + 1000)\n  action sendSooner\n    sendMIDI(\"synth\", [144, 62, 100], at=performanceNow() + 10)\n  action ownTick\n    sendMIDI(\"synth\", [248], at=performanceNow() + 100)\n  action ask\n",
+        )
+}
+
+/// `exactMIDI().sent` as each message's bytes and time.
+fn listed(r: &Runner<Granted>) -> Vec<(Vec<f64>, f64)> {
+    let Some(Value::Record(f)) = r.resource("midi") else {
+        panic!()
+    };
+    let Value::List(items) = &f[1] else {
+        panic!("{:?}", f[1])
+    };
+    items
+        .iter()
+        .map(|m| match m {
+            Value::Record(m) => {
+                assert_eq!(m[0], Value::str("synth"));
+                let Value::List(d) = &m[1] else { panic!() };
+                let d = d.iter().map(|b| match b {
+                    Value::Number(n) => *n,
+                    _ => panic!(),
+                });
+                let Value::Number(at) = m[2] else { panic!() };
+                (d.collect(), at)
+            }
+            other => panic!("{other:?}"),
+        })
+        .collect()
+}
+
+/// `exactMIDI().sent` (euxy's activity log): what went out by now, oldest
+/// first, as `output`, `data` and `timeStamp`, never a clock tick or a
+/// message taken back. Each message's time answers its reader again, with
+/// no app action; a plan that declares no `sent` is answered no more often.
+#[test]
+fn sent_lists_what_went_out_and_is_answered_as_each_goes() {
+    let mut r = granted(&sent_source());
+    r.act("withClock", vec![]).unwrap();
+    r.act("start", vec![]).unwrap();
+    r.land_then();
+    // Start and the first note-on went at 0; the note-off at 250 has not.
+    assert_eq!(
+        listed(&r),
+        [(vec![250.0], 0.0), (vec![144.0, 60.0, 100.0], 0.0)]
+    );
+    let landed = r.advance(260.0).unwrap();
+    assert_eq!(landed.len(), 1, "the note-off's time is one answer");
+    assert_eq!(listed(&r).last(), Some(&(vec![128.0, 60.0, 0.0], 250.0)));
+    // A stop takes back what waits: the next note-on never goes, and Stop
+    // goes after the last clock tick handed.
+    r.act("halt", vec![]).unwrap();
+    r.advance(2000.0).unwrap();
+    let went = listed(&r);
+    assert_eq!(went.len(), 4, "{went:?}");
+    assert!(went[3].0 == [252.0] && went[3].1 > 260.0, "{went:?}");
+    assert!(!went.iter().any(|(_, at)| *at == 500.0), "{went:?}");
+    // Without `sent`, nothing is answered as messages go.
+    let mut r = granted(SOURCE);
+    r.act("start", vec![]).unwrap();
+    r.land_then();
+    assert!(r.advance(260.0).unwrap().is_empty());
+}
+
+/// `sent` is in the order messages went (time, then id), not the order
+/// they were queued; it outlives the queue's record; and Timing Clock is
+/// never listed nor answered for, whoever sent it (review round 1).
+#[test]
+fn sent_is_in_time_order_outlives_the_queue_and_leaves_out_clock() {
+    let mut r = granted(&sent_source());
+    r.act("sendLater", vec![]).unwrap();
+    r.act("sendSooner", vec![]).unwrap();
+    r.advance(1000.0).unwrap();
+    assert_eq!(
+        listed(&r),
+        [
+            (vec![144.0, 62.0, 100.0], 10.0),
+            (vec![144.0, 61.0, 100.0], 1000.0)
+        ]
+    );
+    // An app's own Timing Clock is neither listed nor an answer.
+    r.act("ownTick", vec![]).unwrap();
+    assert!(r.advance(1200.0).unwrap().is_empty());
+    assert_eq!(listed(&r).len(), 2);
+    // 1,024 messages queued ten seconds on push the sent ones out of the
+    // queue's record; `sent` keeps them.
+    r.act("floodOn", vec![]).unwrap();
+    r.act("flood", vec![]).unwrap();
+    assert!(
+        r.midi().sent().all(|s| s.at > 1200.0),
+        "the record let them go"
+    );
+    assert_eq!(listed(&r).len(), 2);
+    // Of what went, the last 128 by time.
+    r.advance(12_000.0).unwrap();
+    let went = listed(&r);
+    assert_eq!(went.len(), 128);
+    assert!(
+        went.iter().all(|(_, at)| *at == 11_200.0),
+        "{:?}",
+        &went[..2]
+    );
+}
+
+/// LLP 1125 D6 (2026-10-20, second amendment): `""` is no output. What a
+/// sequence plays to it and what `sendMIDI("")` sends is queued, taken back
+/// and listed in `sent` as any message is, with `output: ""`, whether or
+/// not MIDI access was asked for, and no host is handed it: euxy's activity
+/// log with no device. A named output that is not connected still drops.
+#[test]
+fn no_output_is_listed_and_handed_to_no_host() {
+    let source = sent_source()
+        .replace("output=\"synth\"", "output=\"\"")
+        .replace(
+            "  action ask\n",
+            "  action sendNone\n    sendMIDI(\"\", [176, 123, 0])\n  action ask\n",
+        );
+    let mut r = boot_with(&source);
+    assert_eq!(r.midi().ports().access.word(), "prompt");
+    r.act("start", vec![]).unwrap();
+    r.land_then();
+    r.advance(600.0).unwrap();
+    r.act("halt", vec![]).unwrap();
+    r.act("sendNone", vec![]).unwrap();
+    r.advance(700.0).unwrap();
+    let Some(Value::Record(f)) = r.resource("midi") else {
+        panic!()
+    };
+    let Value::List(items) = &f[1] else {
+        panic!("{:?}", f[1])
+    };
+    let went: Vec<(String, String, f64)> = items
+        .iter()
+        .map(|m| match m {
+            Value::Record(m) => {
+                let Value::List(d) = &m[1] else { panic!() };
+                let d: Vec<u8> = d
+                    .iter()
+                    .map(|b| match b {
+                        Value::Number(n) => *n as u8,
+                        _ => panic!(),
+                    })
+                    .collect();
+                let Value::Number(at) = m[2] else { panic!() };
+                (m[0].text().to_string(), crate::midi::hex(&d), at)
+            }
+            other => panic!("{other:?}"),
+        })
+        .collect();
+    let at = |hex: &str, at: f64| ("".to_string(), hex.to_string(), at);
+    // Two beats' notes, the second's note-off moved to the stop, then the
+    // app's control change; the note-on at 1000 never went.
+    assert_eq!(
+        went,
+        [
+            at("90 3c 64", 0.0),
+            at("80 3c 00", 250.0),
+            at("90 3c 64", 500.0),
+            at("80 3c 00", 600.0),
+            at("b0 7b 00", 600.0)
+        ]
+    );
+    assert!(
+        r.take_midi()
+            .iter()
+            .all(|op| !matches!(op, MidiOp::Send { .. } | MidiOp::Retract { .. })),
+        "no host is handed or asked to take back a message to no output"
+    );
+    let lines = said(&r);
+    assert!(
+        lines.contains(&"midi 1 to no output 90 3c 64 at 0".to_string()),
+        "{lines:?}"
+    );
+    assert!(
+        !lines.iter().any(|l| l.contains("notes not sent")),
+        "{lines:?}"
+    );
+}

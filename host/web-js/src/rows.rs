@@ -214,7 +214,8 @@ impl Em<'_> {
             })
             .flatten()
             .map(|m| {
-                let name = crate::measures::map_name(id, attribute, container);
+                let bases = !crate::base_scale::named(plan).is_empty();
+                let name = crate::measures::map_name(id, attribute, container, bases);
                 let map = self.uses.constant(&name, || m);
                 format!("()=>{map}(({f})())")
             });
@@ -314,6 +315,16 @@ impl Em<'_> {
         // (name, unit, map): a map is JavaScript of the value (`null` writes none).
         let one = |name: &str, map: Option<String>| vec![(name.to_string(), String::new(), map)];
         let mut writes: Vec<(String, String, Option<String>)> = match id {
+            // Safari selects by WebKit's prefixed property alone; `auto` and a
+            // clear write nothing, as css.rs writes them (css/selection.rs,
+            // css/clears.rs).
+            StyleId::UserSelect => {
+                let unsaid = || Some("v=>/^\\s*(auto|initial|unset)\\s*$/i.test(v)?null:v".to_string());
+                vec![
+                    ("-webkit-user-select".into(), String::new(), unsaid()),
+                    ("user-select".into(), String::new(), unsaid()),
+                ]
+            }
             // @ref LLP 1077 D8 — the `rotate` and `translate` attributes bind
             // these with the same value: the angle's and xy's declaration
             // writes the author's whole text.

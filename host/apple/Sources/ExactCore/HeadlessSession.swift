@@ -199,18 +199,18 @@ public final class HeadlessSession {
     }
 
     /// The margins the last layout resolved around a node's border box, and
-    /// whether its width is the author's (`width` or `min-width`) rather than
-    /// its content's (`Kernel::placement_box`, LLP 1126.001 WP10). A read of
+    /// whether its width is explicit, and its resolved minimum border-box width (`Kernel::placement_box`, LLP 1126.001 WP10). A read of
     /// the layout the tree holds; nothing is laid out again.
     public struct PlacementBox {
         /// The resolved margins: left, top, right, bottom.
         public let margins: (left: CGFloat, top: CGFloat, right: CGFloat, bottom: CGFloat)
         public let authoredWidth: Bool
+        public let minimumWidth: CGFloat
     }
     public func placementBox(_ node: UInt32) -> PlacementBox? {
         Owner.shared.sync {
             guard !core.runtime.destroyed, let v = core.runtime.placementBox(node) else { return nil }
-            return PlacementBox(margins: (v[0], v[1], v[2], v[3]), authoredWidth: v[4] > 0.5)
+            return PlacementBox(margins: (v[0], v[1], v[2], v[3]), authoredWidth: v[4] > 0.5, minimumWidth: v[5])
         }
     }
 
@@ -345,6 +345,19 @@ fileprivate final class HeadlessLines {
     init(node: HeadlessSession.Node, engine: TextEngine, language: String, rootFontSize: Double, markdown: [Run]?) {
         // Capture individual COW values, not the node and its previous line cache.
         let props = node.props, style = node.style, inline = node.inline.filter(\.paints), flow = node.flow, box = node.contentBox
+        // Each leaf's own lines and its inline containers' (CSS Text
+        // Decoration 3 §2.1); the paragraph's own are added as it is drawn
+        // (`SnapshotTextPaint.decoration`).
+        let decorates = node.inline.contains { !$0.paints && !$0.lightRun.decoration.isEmpty }
+        let byId = decorates ? Dictionary(node.inline.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a }) : [:]
+        let lines = !decorates ? inline.map(\.lightRun.decoration) : inline.map { leaf in
+            var all = [leaf.lightRun.decoration], up = byId[leaf.parent]
+            while let run = up {
+                all.append(run.lightRun.decoration)
+                up = byId[run.parent]
+            }
+            return all.filter { !$0.isEmpty }.joined(separator: " ")
+        }
         let catalog = engine.catalog, resolve = engine.resolve, read = engine.read, bundled = engine.bundled
         build = { [weak engine] in
             let engine = engine ?? {
@@ -365,7 +378,7 @@ fileprivate final class HeadlessLines {
                     letterSpacing: run.letterSpacing, numeric: run.numeric,
                     color: Self.color(input?.colorRef, light: run.color, dark: input?.darkColor),
                     background: Self.color(input?.backgroundRef, light: run.background, dark: input?.darkBackground),
-                    decoration: run.decoration, href: run.href, hidden: run.hidden, font: engine.font(run) as CTFont)
+                    decoration: input == nil ? run.decoration : lines[index], href: run.href, hidden: run.hidden, font: engine.font(run) as CTFont)
             }
             var ends: [Int] = [], offset = 0
             for run in spec.runs { offset += run.text.utf16.count; ends.append(offset) }

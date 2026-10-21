@@ -2,7 +2,7 @@
 // a keyboard does (#140), each repeat a keydown whose `repeat` is true.
 import { test, expect } from 'bun:test';
 import { chordKeys } from './agent-playwright.mjs';
-import { KEY_REPEAT, validateKey, typeFor, cdpKey, withHeldModifiers, browserKey, nativeKey, typeArguments, typeCommand, tapWords, intoArguments, MalformedOperation, clockSlices, padOp } from './agent-keys.mjs';
+import { KEY_REPEAT, validateKey, typeFor, cdpKey, withHeldModifiers, browserKey, nativeKey, typeArguments, typeCommand, tapWords, intoArguments, MalformedOperation, clockSlices, padOp, postCommand, postInto, resizeArguments } from './agent-keys.mjs';
 import { open } from './agent.mjs';
 import { launchFacts } from './agent-launch.mjs';
 
@@ -35,6 +35,13 @@ test('a pad on a world canvas: tap stick and type key Gamepad… reach the world
   await padOp({ op: 'tap', s, target: 'world', opts: { stick: 'left', value: [1, 0], for: 50 }, host: 'web', timing: 'agent' });
   expect(sent).toEqual([{ op: 'tap', id: 7, world: true, stick: 'left', value: [1, 0] }, '+50', { op: 'tap', id: 7, world: true, stick: 'left', value: [0, 0] }]);
   await expect(padOp({ op: 'tap', s, target: 'world', opts: { stick: 'left', value: [2, 0] } })).rejects.toBeInstanceOf(MalformedOperation);
+});
+
+test('a held contact\'s phase after a target says the phase takes none (euxy port: `tap dice-key up`)', () => {
+  expect(() => tapWords(['dice-key', 'up'], true)).toThrow("a held contact's phases take no target: `tap up`");
+  expect(() => tapWords(['dice-key', 'hold', '300'], true)).toThrow('`tap hold 300`');
+  expect(() => tapWords(['dice-key', 'up'], false)).toThrow('`tap <target> down`, then `tap up`');
+  expect(tapWords(['up'], true)).toEqual([null, { phase: 'up' }]);
 });
 
 test('into accepts CSS alignments and labels invalid values in the shared check and CLI', () => {
@@ -142,4 +149,25 @@ test('typed host refusals precede driver frames for arbitrary messages and nativ
   try { hostReply(reply); throw new Error('accepted'); }
   catch (error) { expect(error.reply).toBe(reply); expect(error.stack.split('\n')[0]).toBe(refusalMessage(reply)); }
   await expect(nativeKey({id:2, opts:{key:'Enter'}, ask:async () => reply})).rejects.toThrow(refusalMessage(reply));
+});
+
+test('post is type <surface> message <text>: one word or one quoted string, the surface optional (LLP 1139.004 D1)', async () => {
+  expect(postCommand('post spawn-gulper')).toEqual([null, { message: 'spawn-gulper' }]);
+  expect(postCommand('post world "spawn gulper 3"')).toEqual(['world', { message: 'spawn gulper 3' }]);
+  expect(postCommand("post 'spawn gulper'")).toEqual([null, { message: 'spawn gulper' }]);
+  expect(typeCommand('type world message spawn gulper')).toEqual(['world', { message: 'spawn gulper' }]);
+  expect(() => postCommand('post world spawn gulper')).toThrow('quote text of several words');
+  expect(() => postCommand('post')).toThrow(MalformedOperation);
+  // The wire's `type` with a `message`: a canvas the tree finds by its id, else the name as a surface's, else none.
+  const sent = [], s = { find: async (t) => t === 'tank' ? { id: 7, world: { tick: 0 } } : t === 'title' ? { id: 3 } : undefined,
+    op: async (req) => (sent.push(req), { posted: req.surface ?? 'world', delivery: 'posted' }), landed: async (r) => r };
+  for (const target of [null, 'tank', 'title', 'ocean']) await postInto(s, target, 'spawn', { host: 'web', timing: 'agent' });
+  expect(sent).toEqual([{ op: 'type', message: 'spawn' }, { op: 'type', message: 'spawn', id: 7 }, { op: 'type', message: 'spawn', surface: 'title' }, { op: 'type', message: 'spawn', surface: 'ocean' }]);
+  await expect(postInto({ ...s, held: 'a drag' }, null, 'spawn', {})).rejects.toThrow('finger is down');
+});
+
+test('resize takes <w>x<h> and <w> <h>, and its refusal names both (LLP 1139.004 D4)', () => {
+  expect(resizeArguments(['1280x800'])).toEqual([1280, 800]);
+  expect(resizeArguments(['1280', '800'])).toEqual([1280, 800]);
+  for (const words of [['1280'], ['1280', 'by', '800'], ['1280x'], []]) expect(() => resizeArguments(words)).toThrow('resize <w>x<h> or resize <w> <h>');
 });

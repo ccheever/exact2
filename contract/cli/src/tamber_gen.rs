@@ -140,18 +140,24 @@ fn tokens(folding: &exact_tamber::Folding) -> Vec<Token> {
         .collect()
 }
 
-/// A length, or a type token's size, as CSS outside Exact: a text style,
-/// an `em` or the hairline as px at the default root size (16px), which
-/// the header of `tamber.css` says (stage 6 G); the rest as written.
+/// A length, a type token's size or a shadow's lengths, as CSS outside
+/// Exact: a text style, an `em` or the hairline as px at the default root
+/// size (16px), which the header of `tamber.css` says (stage 6 G); the rest
+/// as written.
 fn outside(v: &exact_tamber::Value, vocab: &exact_tamber::Vocab) -> String {
     use exact_tamber::{Length, Value};
-    let px = |l: &Length| match l {
-        Length::Em(n) => Some(n * 16.0),
-        Length::Named(name) => vocab
+    let named = |name: &str| {
+        vocab
             .sizes
             .iter()
             .find(|(n, _)| n.eq_ignore_ascii_case(name))
-            .and_then(|(_, px)| px.parse::<f64>().ok()),
+            .and_then(|(_, px)| px.parse::<f64>().ok())
+    };
+    let px = |l: &Length| match l {
+        Length::Em(n) => Some(n * 16.0),
+        Length::Named(name) => named(name),
+        // Over base names (stage 12 B2): each base's px, as a bare one.
+        Length::Base(r) => r.fold(&named),
         _ => None,
     };
     let text = |n: f64| Length::Px(n).css();
@@ -165,6 +171,8 @@ fn outside(v: &exact_tamber::Value, vocab: &exact_tamber::Vocab) -> String {
             }
             None => v.css(),
         },
+        // A shadow's lengths over base names likewise (stage 12 B3).
+        Value::Shadow(s) => s.folded(&named).map_or_else(|| v.css(), |s| s.css()),
         _ => v.css(),
     }
 }
@@ -518,7 +526,17 @@ pub fn run(args: &[String]) -> ExitCode {
         eprintln!("{USAGE}");
         return ExitCode::from(2);
     };
-    let Some(path) = crate::tamber::design(Path::new(&input)) else {
+    // An app whose design is its packages' alone (LLP 1121 D11) has theirs, laid beside an empty one.
+    let alone = || {
+        let dir = Path::new(&input);
+        let contract = dir.join("app.contract");
+        (dir.is_dir()
+            && !contract::tamber_params::params_of(&contract)
+                .packages
+                .is_empty())
+        .then(|| dir.join("app.tamber"))
+    };
+    let Some(path) = crate::tamber::design(Path::new(&input)).or_else(alone) else {
         eprintln!("contract tamber gen: {input} has no design (an app.tamber, or the file app.json's \"tamber\" names)");
         return ExitCode::from(2);
     };
@@ -552,15 +570,22 @@ pub fn run(args: &[String]) -> ExitCode {
     }
     let params = contract::tamber_params::params_of(&contract);
     let folding = match std::fs::read_to_string(&path)
+        .or_else(|e| match path.exists() || params.packages.is_empty() {
+            true => Err(e),
+            false => Ok("tamber app\n".to_string()),
+        })
         .map_err(|e| vec![e.to_string()])
         .and_then(|src| {
-            let checked = exact_tamber::parse(&src).and_then(|mut design| {
-                contract_lower::params::add_to(&mut design, &params.tokens, &params.identities);
-                exact_tamber::check_design(design, &contract_lower::tamber_vocab())
+            // Its params and its packages' tokens laid in, as the build lays them.
+            let checked = exact_tamber::parse(&src).and_then(|design| {
+                exact_tamber::check_design(
+                    contract::tamber_params::laid(&design, &params),
+                    &contract_lower::tamber_vocab(),
+                )
             });
             checked.map_err(|all| {
                 all.iter()
-                    .map(|d| format!("{}:{d}", path.display()))
+                    .map(|d| contract::tamber_params::located(d, &params, &path))
                     .collect()
             })
         }) {

@@ -222,6 +222,14 @@ extension Agent {
         return (past(origin.x, document.width - visible.width), past(origin.y, document.height - visible.height))
     }
 
+    /// How far `sv`'s offset travels on each axis from one end to the other (LLP 1012 `rx`/`ry`): its document past its
+    /// clip view, the clip view's content insets included.
+    static func range(of sv: NSScrollView) -> [String: Any] {
+        let document = sv.documentView?.frame.size ?? .zero, visible = sv.contentView.bounds.size, i = sv.contentView.contentInsets
+        return ["rx": r2(max(0, document.width + i.left + i.right - visible.width)),
+                "ry": r2(max(0, document.height + i.top + i.bottom - visible.height))]
+    }
+
     /// The same, for a live scroller.
     static func overscroll(of sv: NSScrollView) -> (CGFloat, CGFloat) {
         overscroll(origin: sv.contentView.bounds.origin,
@@ -242,6 +250,7 @@ extension Agent {
                 let o = sv.contentView.bounds.origin
                 n["sx"] = Agent.r2(o.x)
                 n["sy"] = Agent.r2(o.y)
+                n.merge(Agent.range(of: sv)) { _, new in new }
                 // How far past its own ends this scroller currently sits.
                 // A stretched rubber band is a real state a driver could not
                 // otherwise see: the offset alone reads as an ordinary
@@ -314,14 +323,14 @@ extension Agent {
         var above = host.superview
         while let s = above {
             if let n = s as? NodeView {
-                if let sv = n.scroll { let o = sv.contentView.bounds.origin; chain.append(["id": Int(n.id), "sx": Agent.r2(o.x), "sy": Agent.r2(o.y)]) }
+                if let sv = n.scroll { let o = sv.contentView.bounds.origin; chain.append(["id": Int(n.id), "sx": Agent.r2(o.x), "sy": Agent.r2(o.y)].merging(Agent.range(of: sv)) { a, _ in a }) }
                 if n.clipsToBounds || n.clipBox != nil { clippers.append((n, "overflow")) }
                 if n.clipPath != nil { clippers.append((n, "clip-path")) }
             }
             above = s.superview
         }
         let page = clipView.bounds.origin
-        var scroll: [[String: Any]] = [["viewport": true, "sx": Agent.r2(page.x), "sy": Agent.r2(page.y)]]
+        var scroll: [[String: Any]] = [["viewport": true, "sx": Agent.r2(page.x), "sy": Agent.r2(page.y)].merging(Agent.range(of: presenter.viewport)) { a, _ in a }]
         scroll.append(contentsOf: chain.reversed())
         var clip: [[String: Any]] = []
         for (n, kind) in clippers.reversed() {
@@ -606,10 +615,11 @@ extension Agent {
         guard let v = view(req), let win = v.window else { return ["error": "no view \(req["id"] ?? "?") on screen"] }
         guard presenter.toolbar.visible(v), !v.inert else { return ["error": "view \(v.id) is hidden or inert"] }
         let b = v.tapBox(box(v))
-        // A wrapped run's union can include blank space. Hover a painted
-        // fragment, then let the normal hit test decide who receives it.
-        let inlinePoint = (req["hover"] as? Bool == true || secondary) && (req["id"] as? UInt32).flatMap(presenter.inlineText) != nil
-            ? tapPoint(req, node: v) : nil
+        // A wrapped run's union can include blank space. Hover or click a
+        // painted fragment of a run (the web's driver clicks the span's), not
+        // its paragraph's middle, then let the normal hit test decide who
+        // receives it.
+        let inlinePoint = (req["id"] as? UInt32).flatMap(presenter.inlineText) != nil ? tapPoint(req, node: v) : nil
         let center = inlinePoint ?? CGPoint(x: b.midX, y: b.midY)
         // The middle of the box as seen — through a surface's placement when
         // there is one (LLP 1014 D5) — as a point in the window. `at` is a
@@ -713,15 +723,8 @@ extension Agent {
             return ["tapped": Int(v.id), "pinch": scale, "at": at, "delivery": "platform"]
         }
         if v.kind == "iframe" { return session.webviews.tap(v, request: req, at: at) }
-        // Files dragged in from Finder (studio diary R19): the drag session
-        // AppKit would run, without a drag — each path as a dropped file's URL
-        // at the point, through the same filter, minting and event.
-        if let paths = req["drop"] as? [String] {
-            guard let node = NodeView.dropTarget(win.contentView?.hitTest(p) ?? v) else { return ["error": "view \(v.id) takes no drop: nothing under it declares `drop`"] }
-            guard node.drop(paths.map { URL(fileURLWithPath: $0) }, at: p) else { return ["error": "drop: refused: no file of a type this app declares"] }
-            session.presenter.settlePump()
-            return ["tapped": Int(node.id), "at": at, "drop": paths.count, "delivery": "presenter"]
-        }
+        // Files dragged in from Finder (studio diary R19; FileDragMac.swift).
+        if let reply = fileDragTap(req, v, at: p, in: win, reply: at) { return reply }
         // Named, a plain click presses what it names (`AgentAddressedTap.swift`):
         // its own press, never a control inside it that its middle reaches.
         var avoided: PressReach?
@@ -822,7 +825,7 @@ extension Agent {
         guard let v = view(req), let win = v.window else { return ["error": "no view \(req["id"] ?? "?") on screen"] }
         guard presenter.toolbar.visible(v), !v.inert else { return ["error": "view \(v.id) is hidden or inert"] }
         guard !v.disabled else { return ["error": "view \(v.id) is disabled"] }
-        if let edit = req["clipboard"] as? String { return clipboardType(v, edit, req["text"] as? String) }
+        if let edit = req["clipboard"] as? String { return withAgentPasteboard(req) { clipboardType(v, edit, req["text"] as? String, board: $0) } }
         if v.kind == "native", req["key"] == nil { return nativeType(v, req) }
         // A canvas key takes the same path as a real keyDown: shortcuts and
         // `key` handlers, then the event, which forwards to the surface.
@@ -832,7 +835,7 @@ extension Agent {
         if v.props["editable"] == "false", req["key"] == nil { return ["error": "view \(v.id) is readonly"] }
         // @ref LLP 1038 D11 — type on the root delivers a location.
         if v.props["navigationBack"] != nil, req["key"] == nil {
-            let location = req["text"] as? String ?? ""
+            let location = session.typedLocation(req["text"] as? String ?? "")
             return session.navigate(location) ? ["typed": Int(v.id), "value": location, "delivery": "recognized"] : ["error": "navigate refused"]
         }
         if v.kind == "iframe" { return session.webviews.type(v, request: req) }

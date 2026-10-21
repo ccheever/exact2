@@ -169,7 +169,9 @@ fn uses_names_an_active_rows_own_line() {
     assert_eq!(sites[0]["line"], 8, "the `:active` row's line: {sites:?}");
 }
 
-/// A token a `:hover` row reads is used at its node, as that state's.
+/// A token a `:hover` row reads is used where that row is written, as that
+/// state's: its `:hover` line, not its node's (LLP 1122's queue item (1);
+/// theme2's 03:18, a correction of the line it named).
 #[test]
 fn uses_finds_a_hover_looks_token() {
     let path = app(
@@ -181,6 +183,10 @@ fn uses_finds_a_hover_looks_token() {
     let sites = contract::tamber_uses::sites(&plan, &map, "ink", &Default::default(), &[]);
     assert_eq!(sites.len(), 4, "a border colour's four sides: {sites:?}");
     assert!(sites.iter().all(|s| s["state"] == "hover"), "{sites:?}");
+    assert!(
+        sites.iter().all(|s| s["line"] == 11),
+        "the `:hover` row's line: {sites:?}"
+    );
 }
 
 /// LLP 1122 D8 (stage 9 E): `layout <node>` says a node's looks' rows as it
@@ -240,4 +246,54 @@ fn a_nodes_layout_says_its_looks_rows_and_their_tokens() {
         node["style"]["press_background_color"]["token"]["names"],
         serde_json::json!(["accent.soft"])
     );
+}
+
+/// A conditional class's `:active` part says no place (either style's):
+/// `uses` reads it at its node, still as `:active`'s (Astra, round 2 of
+/// LLP 1122's queue item (1)).
+#[test]
+fn uses_keeps_a_conditional_active_parts_state_at_its_node() {
+    let view = "style A\n  :active\n    background-color = \"accent.soft\"\n\nstyle B\n  :active\n    background-color = \"accent.soft\"\n\ncomponent App\n  state n = 0\n  state flag = true\n  action go\n    n = n + 1\n  view\n    column class=(flag ? A : B) press=go testId=\"card\"\n      text \"c\"\n";
+    let path = app(
+        "uses-either",
+        &[("app.tamber", DESIGN), ("app.contract", view)],
+    );
+    let (plan, map) = contract::compile_path_mapped(&path).unwrap();
+    let map: serde_json::Value = serde_json::from_str(&map.json(&plan.encode())).unwrap();
+    let sites = contract::tamber_uses::sites(&plan, &map, "accent.soft", &Default::default(), &[]);
+    assert_eq!(sites.len(), 1, "{sites:?}");
+    assert_eq!(sites[0]["state"], "active", "{sites:?}");
+    assert_eq!(sites[0]["line"], 15, "the node's line: {sites:?}");
+}
+
+/// Stage 12 B3 (round 1, Grok 1): a look resolved again keeps what its new
+/// text read beside what it read, as a row does, so a base a re-set shadow
+/// newly reads sets the look again when it is edited.
+#[test]
+fn a_look_follows_a_base_its_shadows_new_value_reads() {
+    let design =
+        "tamber t\n\ntheme\n  space.md = 10px\n  card.shadow: box-shadow = 0 2px 4px #000\n";
+    let view = "component App\n  view\n    column testId=\"card\" padding=\"space.md\"\n      :hover\n        box-shadow = \"card.shadow\"\n      text \"c\"\n";
+    let path = app(
+        "look-base",
+        &[("app.tamber", design), ("app.contract", view)],
+    );
+    let mut r = booted(contract::compile_path(&path).unwrap_or_else(|e| panic!("{e:?}")));
+    let shadow = |r: &Runner<NoData>| {
+        let k = r.kernel();
+        let node = k.node_by_key(k.find_by_test_id("card")[0]).unwrap();
+        format!(
+            "{:?}",
+            node.looks()
+                .iter()
+                .map(|(s, p)| (*s, p.box_shadow.clone()))
+                .collect::<Vec<_>>()
+        )
+    };
+    assert!(shadow(&r).contains("y: 2.0"), "{}", shadow(&r));
+    r.set_token("card.shadow", "0px space.md 4px #000000ff", &[])
+        .unwrap();
+    assert!(shadow(&r).contains("y: 10.0"), "{}", shadow(&r));
+    r.set_token("space.md", "30px", &[]).unwrap();
+    assert!(shadow(&r).contains("y: 30.0"), "{}", shadow(&r));
 }

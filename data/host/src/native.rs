@@ -196,6 +196,14 @@ fn compress_image(
     };
     let (max_dimension, max_bytes) =
         exact_data::image::check_limits(number("maxDimension")?, number("maxBytes")?)?;
+    // `type` (A1.11): absent is a JPEG.
+    let format = match &args["type"] {
+        Value::Null => exact_data::image::Format::Jpeg,
+        Value::String(t) => exact_data::image::Format::parse(t).ok_or_else(|| {
+            exact_data::image::failure("invalid", "type must be image/jpeg or image/png")
+        })?,
+        _ => return Err("storage: type must be a string".into()),
+    };
     let service = cfg!(target_vendor = "apple")
         .then(|| ImageService::new(std::sync::Arc::new(ImageCodec), image_limits()))
         .transpose()
@@ -211,6 +219,10 @@ fn compress_image(
         ImageRequest {
             max_dimension,
             max_bytes,
+            format: match format {
+                exact_data::image::Format::Jpeg => fs_image::ImageFormat::Jpeg,
+                exact_data::image::Format::Png => fs_image::ImageFormat::Png,
+            },
         },
     )
     .map_err(error)?;
@@ -220,7 +232,7 @@ fn compress_image(
     let file = result.map_err(error)?;
     Ok(json!({
         "path": to,
-        "type": "image/jpeg",
+        "type": format.media_type(),
         "size": file.size,
         "width": file.width,
         "height": file.height
@@ -251,6 +263,10 @@ impl fs_image::ImageCodec for ImageCodec {
     ) -> Result<fs_image::CompressedImage, ibex2::boundary::HostError> {
         exact_data::image::compress_controlled(
             bytes,
+            match request.format {
+                fs_image::ImageFormat::Jpeg => exact_data::image::Format::Jpeg,
+                fs_image::ImageFormat::Png => exact_data::image::Format::Png,
+            },
             request.max_dimension,
             request.max_bytes,
             control.deadline(),

@@ -3,16 +3,16 @@
     "300": "0x4884240fd15afc36"
   },
   "saves": {
-    "continuation": "9421f2f2dd5cfcf6076976091042279acf461fe349a822f806892cd440c5c448"
+    "continuation": "e71b02ce78e20d53a090b1f3563a68c61fdfd4ad53181e59d6bdf7d0bb0e1c24"
   },
   "hosts": [
     "linux",
     "web"
   ],
-  "inputs": "e55564b09d082bf4e92a9637190c6fa1fe5936a637c11f886297d480f9b34e1f",
-  "sourceInputs": "ba830579eb2d79a427a596bbb0ca95476876860255cb5880c3bc1aec6b25b1ad",
+  "inputs": "0d6320dc1ac4063a48f8c5f8431f795509b0cd28aa1772d0e1ada2ad4cb92a68",
+  "sourceInputs": "b36b17fc9fcc2cb36a6d5c36af3b1035993714482659b39fae6fc7f0180c60f5",
   "game": "sprites-fixture",
   "generated": "bun game/prove.mjs sprites-fixture --repin --hosts 'linux,web'",
-  "at": "5a6bc8aaad4f520a7add2bbe3d42d2b02ca77db4",
-  "reason": "EXSIM v8 (player: u8, pads) over EXGAME v6: continuation bytes change; tick hashes unchanged"
+  "at": "ef762084afc2f8692a397428bfc76d9c4c61eb0e",
+  "reason": "EXGAME v6 (tableInputs after main's v5): continuation bytes change by the version byte; tick hashes unchanged"
 }

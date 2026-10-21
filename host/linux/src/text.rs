@@ -74,6 +74,8 @@ pub struct Run {
     pub family: u16,
     /// Italic.
     pub italic: bool,
+    /// CSS `font-stretch`, percent of normal width (LLP 1019 D8).
+    pub stretch: f32,
     /// Resolved logical length, or normal font metrics.
     pub line_height: Option<f32>,
     /// Points per glyph.
@@ -105,6 +107,7 @@ impl Clone for Run {
             weight: self.weight,
             family: self.family,
             italic: self.italic,
+            stretch: self.stretch,
             line_height: self.line_height,
             letter_spacing: self.letter_spacing,
             font_variant_numeric: self.font_variant_numeric,
@@ -128,6 +131,7 @@ impl Run {
             weight: style.font_weight,
             family: style.font_family,
             italic: style.font_style != exact_kernel::FontStyle::Normal,
+            stretch: style.font_stretch,
             line_height: style.line_height,
             letter_spacing: style.letter_spacing,
             font_variant_numeric: style.font_variant_numeric,

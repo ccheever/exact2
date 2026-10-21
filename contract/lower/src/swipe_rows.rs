@@ -17,13 +17,14 @@
 //! inside the row, so the cell UIKit swipes and its long-press preview hold
 //! it, as a hand-built list's cell does, and the row slides from the card's
 //! edge; the Mac's form, whose rows stand in from both edges, keeps its
-//! leading inset on the scroll (`grouped-swipe-margin`). So the separator
+//! leading inset on the scroll (`grouped-swipe-margin`, and its widest the
+//! card less it, `grouped-swipe-max-width`). So the separator
 //! the sheet's hosts draw under such a row starts at the scroll's edge (the
 //! card's), where UIKit draws its own at the inset.
 
 use crate::metrics::grouped as metric;
 use crate::LowerError;
-use contract_syntax::{Attr, Expr, Node, Span, StyleDecl, TemplatePart};
+use contract_syntax::{Attr, Expr, Node, Span, StyleDecl, TemplatePart, VisitSpans};
 
 /// The names the expansion gives the content and the action, where the
 /// row has no `id` of its own. Every row repeats them: a swipe row's names
@@ -190,20 +191,180 @@ fn scroll(parts: Parts, rows: Vec<Attr>, span: Span, instance: u32) -> Node {
 }
 
 /// A grouped list's row: `row` styles it, and a row that says `delete=` is
-/// styled so and put in its swipe.
-pub(crate) fn grouped(node: &Node, row: &dyn Fn(&Node) -> Node) -> Node {
+/// styled so and put in its swipe. A swipe written by hand (a `scroll`
+/// naming its row as `swipeContent`) is styled the same way: its row is
+/// the grouped row and the scroll takes the row's box in the card.
+/// `row` styles a row; its flag says the row is a swipe's content.
+pub(crate) fn grouped(node: &Node, row: &dyn Fn(&Node, bool) -> Node) -> Node {
+    if let Some(styled) = written(node, row) {
+        return styled;
+    }
     let mark = |name: &str| format!("{}{name}", crate::grouped::MARK);
     let sheet = |a: Attr| Attr {
         name: mark(&a.name),
         ..a
     };
     let Some(parts) = parts(node, &sheet) else {
-        return row(node);
+        return row(node, false);
     };
     let (span, instance) = match node {
         Node::Element { span, instance, .. } => (*span, *instance),
         _ => unreachable!("parts reads an element"),
     };
+    let (content, outer) = swiped(&parts.content, row, span);
+    scroll(Parts { content, ..parts }, outer, span, instance)
+}
+
+/// A hand-written swipe in a grouped list: the `scroll` whose
+/// `swipeContent` names one of its children. That child is styled as the
+/// row and the scroll takes the row's box in the card, the sheet's rows
+/// under the author's; `None` for any other node.
+fn written(node: &Node, row: &dyn Fn(&Node, bool) -> Node) -> Option<Node> {
+    let Node::Element {
+        tag,
+        positional,
+        attrs,
+        children,
+        span,
+        instance,
+    } = node
+    else {
+        return None;
+    };
+    // The child whose `id` is written as `swipeContent` is (a template
+    // such as `row-${n.id}` included): the same expression, where it is.
+    let bare = |e: &Expr| {
+        let mut e = e.clone();
+        e.visit_spans(&mut |s| *s = Span::default());
+        e
+    };
+    let name = bare(&last(attrs, "swipeContent")?.value);
+    let named = |c: &Node| matches!(c, Node::Element { attrs, .. } if last(attrs, "id").is_some_and(|a| bare(&a.value) == name));
+    // One content, and no leading inset of the author's on the scroll (the
+    // form that puts the row's insets there keeps them there); a class's
+    // rows are not read here, so a scroll with one keeps them too.
+    let padded = [
+        "padding",
+        "padding-left",
+        "padding-inline",
+        "padding-inline-start",
+        "class",
+    ]
+    .iter()
+    .any(|p| last(attrs, p).is_some());
+    // The content may stand in a wrapper (a row holding leading actions and
+    // the content, as Messages' inbox writes it), or in an `if` or `match`
+    // arm, one at a time: it is found through elements and arms. In a `for`
+    // it would be several elements of one `id`, so none is the row.
+    fn count(nodes: &[Node], named: &dyn Fn(&Node) -> bool) -> usize {
+        nodes
+            .iter()
+            .map(|n| match n {
+                _ if named(n) => 1,
+                Node::Element { children, .. } => count(children, named),
+                Node::When {
+                    then, otherwise, ..
+                } => count(then, named).max(count(otherwise, named)),
+                Node::Match { some, none, .. } => count(&some.1, named).max(count(none, named)),
+                Node::Each { body, .. } if count(body, named) > 0 => 2,
+                _ => 0,
+            })
+            .sum()
+    }
+    if tag != "scroll" || padded || count(children, &named) != 1 {
+        return None;
+    }
+    let mark = |name: &str| format!("{}{name}", crate::grouped::MARK);
+    // Laid out as a row, so its content and actions stand side by side,
+    // and sized as the row it stands for.
+    let mut outer = vec![
+        s(&mark("display"), "flex", *span),
+        s(&mark("flex-direction"), "row", *span),
+        s(&mark("box-sizing"), "border-box", *span),
+    ];
+    fn styled(
+        nodes: &[Node],
+        named: &dyn Fn(&Node) -> bool,
+        row: &dyn Fn(&Node, bool) -> Node,
+        span: Span,
+        outer: &mut Vec<Attr>,
+    ) -> Vec<Node> {
+        nodes
+            .iter()
+            .map(|c| match c {
+                _ if named(c) => {
+                    let (content, rows) = swiped(c, row, span);
+                    // Each arm's content gives the scroll the same rows.
+                    for r in rows {
+                        if !outer.iter().any(|o| o.name == r.name) {
+                            outer.push(r);
+                        }
+                    }
+                    content
+                }
+                Node::When {
+                    tag,
+                    cond,
+                    then,
+                    otherwise,
+                    span: at,
+                } => Node::When {
+                    tag: *tag,
+                    cond: cond.clone(),
+                    then: styled(then, named, row, span, outer),
+                    otherwise: styled(otherwise, named, row, span, outer),
+                    span: *at,
+                },
+                Node::Match {
+                    tag,
+                    subject,
+                    some,
+                    none,
+                    span: at,
+                } => Node::Match {
+                    tag: *tag,
+                    subject: subject.clone(),
+                    some: (some.0.clone(), styled(&some.1, named, row, span, outer)),
+                    none: styled(none, named, row, span, outer),
+                    span: *at,
+                },
+                Node::Element {
+                    tag,
+                    positional,
+                    attrs,
+                    children,
+                    span: at,
+                    instance,
+                } if count(children, named) == 1 => Node::Element {
+                    tag: tag.clone(),
+                    positional: positional.clone(),
+                    attrs: attrs.clone(),
+                    children: styled(children, named, row, span, outer),
+                    span: *at,
+                    instance: *instance,
+                },
+                other => other.clone(),
+            })
+            .collect()
+    }
+    let children = styled(children, &named, row, *span, &mut outer);
+    outer.extend(attrs.iter().cloned());
+    Some(Node::Element {
+        tag: tag.clone(),
+        positional: positional.clone(),
+        attrs: outer,
+        children,
+        span: *span,
+        instance: *instance,
+    })
+}
+
+/// `content` styled as the grouped row it stands for, and the sheet rows
+/// its swipe's scroll takes: the row's box in the card, and the swipe's
+/// leading margin. The row's own leading inset gives way to the swipe's:
+/// on the scroll where the Mac's rows stand in, in the content elsewhere.
+fn swiped(content: &Node, row: &dyn Fn(&Node, bool) -> Node, span: Span) -> (Node, Vec<Attr>) {
+    let mark = |name: &str| format!("{}{name}", crate::grouped::MARK);
     let Node::Element {
         tag,
         positional,
@@ -211,16 +372,16 @@ pub(crate) fn grouped(node: &Node, row: &dyn Fn(&Node) -> Node) -> Node {
         children,
         span: at,
         instance: own,
-    } = row(&parts.content)
+    } = row(content, true)
     else {
         unreachable!("row keeps an element")
     };
     let boxed = |a: &Attr| BOX.iter().any(|b| a.name == mark(b));
-    // The row's own leading inset gives way to the swipe's: on the scroll
-    // where the Mac's rows stand in, in the content elsewhere.
     let inset = mark("padding-left");
     let mut outer: Vec<Attr> = attrs.iter().filter(|a| boxed(a)).cloned().collect();
     outer.push(s(&mark("margin-left"), &metric("swipe-margin"), span));
+    // A scroll written as wide as its card still ends with it.
+    outer.push(s(&mark("max-width"), &metric("swipe-max-width"), span));
     let mut inner = vec![s(&inset, &metric("swipe-padding"), span)];
     inner.extend(attrs.into_iter().filter(|a| !boxed(a) && a.name != inset));
     // A leading symbol stands at the row's inset as in any row, with no
@@ -258,7 +419,7 @@ pub(crate) fn grouped(node: &Node, row: &dyn Fn(&Node) -> Node) -> Node {
         span: at,
         instance: own,
     };
-    scroll(Parts { content, ..parts }, outer, span, instance)
+    (content, outer)
 }
 
 /// The rows of a list whose rows are cells (`cells.rs`), each that says
@@ -525,11 +686,10 @@ fn drawn(attrs: &[Attr], styles: &[StyleDecl]) -> Vec<Attr> {
 /// An element's attributes without a `delete=` that is no list row's,
 /// which `lower-delete-row` names; `None` when it has none.
 pub(crate) fn stray(attrs: &[Attr]) -> Option<Vec<Attr>> {
-    attrs.iter().any(|a| a.name == "delete").then(|| {
-        attrs
-            .iter()
-            .filter(|a| a.name != "delete")
-            .cloned()
-            .collect()
-    })
+    // `-exact-row-look` speaks only to a grouped list's row (`grouped::row`), which took it out.
+    let gone = |a: &Attr| a.name == "delete" || a.name == crate::row_look::ROW_LOOK;
+    attrs
+        .iter()
+        .any(gone)
+        .then(|| attrs.iter().filter(|a| !gone(a)).cloned().collect())
 }

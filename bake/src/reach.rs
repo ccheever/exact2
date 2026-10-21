@@ -57,7 +57,7 @@ pub(crate) fn derive(app_dir: &Path, platform: &str, compat: &mut Compat) -> Res
         let (Some(strings), Some(base)) = (strings.as_ref(), base) else {
             let table = strings.as_ref().map_or_else(
                 || "the app has no strings/ directory".to_string(),
-                |s| format!("strings/{}.json has no \"{}\"", s.base, grant.purpose),
+                |s| format!("strings/{}.json has no \"{}\": add `\"{}\": \"…\"`, the text the person is shown when asked", s.base, grant.purpose, grant.purpose),
             );
             errors.push(format!(
                 "grant-purpose: `device.{} {}` names its purpose by strings key (LLP 1060), and {table}",
@@ -144,6 +144,9 @@ pub(crate) fn derive(app_dir: &Path, platform: &str, compat: &mut Compat) -> Res
     // entitlements the platform's signature must carry.
     let mut usage = Map::new();
     let mut entitlements = Vec::new();
+    let mut flags: Vec<&str> = Vec::new();
+    // Android's permissions: the Canvas host on Android bakes as Linux.
+    let mut android: Vec<&str> = Vec::new();
     let keys_of = |device: &Device| match platform {
         "ios" => device.ios,
         "macos" => device.macos,
@@ -159,7 +162,11 @@ pub(crate) fn derive(app_dir: &Path, platform: &str, compat: &mut Compat) -> Res
         // `reach.auth` (below).
         match platform {
             "macos" => entitlements.extend(grant.device.hardened),
-            "ios" => entitlements.extend(grant.device.ios_entitlements),
+            "ios" => {
+                entitlements.extend(grant.device.ios_entitlements);
+                flags.extend(grant.device.ios_flags);
+            }
+            "linux" => android.extend(grant.device.android),
             _ => {}
         }
     }
@@ -219,12 +226,16 @@ pub(crate) fn derive(app_dir: &Path, platform: &str, compat: &mut Compat) -> Res
     } else {
         Vec::new()
     };
+    android.sort_unstable();
+    android.dedup();
     let auth = auth(&ceiling, platform, compat)?;
     compat.reach = json!({
         "base": base,
         "locales": strings.as_ref().map(|s| s.tables.keys().cloned().collect::<Vec<_>>()),
         "rows": rows,
         "usage": usage,
+        "flags": flags,
+        "android": android,
         "entitlements": entitlements,
         "helperEntitlements": helpers,
         "tvOmits": tv_omits,
@@ -531,6 +542,31 @@ mod tests {
             derive_for("device.speech-recognition write", "ios")["tvOmits"],
             json!([])
         );
+    }
+
+    #[test]
+    fn local_network_writes_its_purpose_on_apple_hosts_only() {
+        let dir = app(&[
+            ("en", r#"{"lan": "Finds servers nearby."}"#),
+            ("fr", r#"{"lan": "Trouve les serveurs proches."}"#),
+        ]);
+        let text = json!({"en": "Finds servers nearby.", "fr": "Trouve les serveurs proches."});
+        for platform in ["ios", "macos"] {
+            let mut c = compat("device.local-network lan");
+            derive(&dir.0, platform, &mut c).unwrap();
+            assert_eq!(
+                c.reach["usage"],
+                json!({"NSLocalNetworkUsageDescription": text})
+            );
+            assert_eq!(c.reach["entitlements"], json!([]));
+            assert_ne!(c.id, "old", "the purpose joins the compatibility id");
+        }
+        for platform in ["web", "linux"] {
+            let mut c = compat("device.local-network lan");
+            derive(&dir.0, platform, &mut c).unwrap();
+            assert_eq!(c.reach["usage"], json!({}));
+            assert_eq!(c.reach["android"], json!([]));
+        }
     }
 
     #[test]

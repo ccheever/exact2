@@ -11,7 +11,7 @@ component Clip
     last = at
   view
     column
-      video-view src="intro.mp4" message=seeked aria-label="Intro" height=180
+      video-view source="intro.mp4" message=seeked aria-label="Intro" height=180
       text last testId="last"
 ```
 
@@ -45,13 +45,13 @@ final class Video: ExactNativeInstance {
         }
     }
     override var view: ExactNativeView { strip }
-    override func setProps(_ props: [String: String]) throws { strip.src = props["src"] ?? "" }
+    override func setProps(_ props: [String: String]) throws { strip.src = props["source"] ?? "" }
     override func destroy() { ticket?.stop() }
 }
 ```
 
 - **Props are strings**, all of them on each change. A name Contract knows (`value`,
-  `title`) is the box's: `contract vocab <name>`.
+  `src`) or an event's is the box's, refused on the tag.
 - **Events:** `events.message(text)` runs `message=`; `press()`, `change(v)`, `load()` likewise.
 - **Time is the session's:** `context.frames`, `context.after(ms)`, never a
   `CADisplayLink` or timer, so `clock +N` moves it; timed audio is a `sequence`.

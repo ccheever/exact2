@@ -3,16 +3,15 @@ import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, r
 import { tmpdir } from 'node:os';
 import { dirname, resolve, sep } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { spawn, spawnSync } from 'node:child_process';
+import { spawnSync } from 'node:child_process';
 import { Worker } from 'node:worker_threads';
-import { Cdp } from '../../scripts/agent.mjs';
 import { boundedHttpBody, request, streamed } from './http-body.js';
 import { deferredFulfill, refusal } from './navigation.js';
 import { admitsNetwork, coversPath, createGrantSet, grantError, sameGrantDeclaration, scopedGrantSet } from './grant-admission.js';
 import { createRequestExecutor, createSecretFacade, fetchWith, redirectOf } from '../web-js/admission.js';
-import { chromium } from '../../scripts/agent-launch.mjs';
+import { cdpBrowser, chromium } from '../../scripts/agent-launch.mjs';
 import { need } from '../../scripts/coverage.mjs';
-const { executable: chrome, unavailable } = chromium(), chromeTest = need('chrome', unavailable);
+const { unavailable } = chromium(), chromeTest = need('chrome', unavailable);
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 // The real `redirectOf` and `ownWithout`, for a stub `admission.js` written beside a module under test
@@ -443,7 +442,7 @@ test('the production file command refuses a source outside the admitted fs.read 
   const dir = mkdtempSync(resolve(tmpdir(), 'exact-files-admission-'));
   writeFileSync(resolve(dir, 'files.js'), readFileSync(resolve(ROOT, 'host/web-js/files.js'), 'utf8')
     .replace("from './rt.js'", "from './rt-stub.js'").replace("from './navigation.js'", "from './navigation-stub.js'"));
-  writeFileSync(resolve(dir, 'rt-stub.js'), `export const journal=[],clock={now:0,agent:true},inflight={n:0},Hosts={},OnHooks={},Views=new Map(),data={appId:'test.files'};export const nextTicket=()=>1,viewId=()=>1;\n`);
+  writeFileSync(resolve(dir, 'rt-stub.js'), `export const journal=[],clock={now:0,agent:true},inflight={n:0},Hosts={},OnHooks={},Views=new Map(),data={appId:'test.files'};export const nextTicket=()=>1,viewId=()=>1,painted=()=>Promise.resolve();\n`);
   writeFileSync(resolve(dir, 'navigation-stub.js'), `export { inertAncestor } from './navigation.js';\nexport const reportPlace=()=> ['en','UTC','1'].join(String.fromCharCode(0));\n`);
   cpSync(resolve(ROOT, 'host/web-js/pointer.js'), resolve(dir, 'pointer.js'));
   writeFileSync(resolve(dir, 'admission.js'), readFileSync(resolve(ROOT, 'host/web-js/admission.js'), 'utf8').replaceAll("'../web/grant-admission.js'", "'./grant-admission.js'").replaceAll("'../web/faults.js'", "'./faults.js'"));
@@ -552,7 +551,7 @@ test('a typescript.sources mount still builds after it moves', () => {
 chromeTest('a built TypeScript source refuses fetch and storage without grants', async () => {
   let destinationHits = 0;
   const destination = Bun.serve({ port: 0, fetch() { destinationHits++; return new Response('raw browser fetch', { headers: { 'access-control-allow-origin': '*' } }); } });
-  const dir = mkdtempSync(resolve(tmpdir(), 'exact ts fetch # ')), dist = resolve(dir, 'dist'), profile = resolve(dir, 'chrome');
+  const dir = mkdtempSync(resolve(tmpdir(), 'exact ts fetch # ')), dist = resolve(dir, 'dist');
   writeFileSync(resolve(dir, 'app.json'), JSON.stringify({ name: 'Grant probe', app: { id: 'test.grant-probe', name: 'Grant probe' }, host: { web: {} } }));
   writeFileSync(resolve(dir, 'app.contract'), `shape Result\n  value: string\ncomponent Probe\n  resource result = probe() as shape Result\n  view\n    text result.value testId="result"\n`);
   // The app dependency must be rewritten; copied host modules must retain browser
@@ -560,7 +559,7 @@ chromeTest('a built TypeScript source refuses fetch and storage without grants',
   writeFileSync(resolve(dir, 'fetch-request.ts'), `export async function attempt(_args:any,_store:any,storage:any){const results=[];try{await fetch(${JSON.stringify(destination.url.href)});results.push('raw browser fetch');}catch(error:any){results.push(error.name+':'+error.kind);}for(const call of [()=>storage.fs.readFile('app:/data/file'),()=>storage.sqlite.open('app:/data/test.db')]){try{await call();results.push('unexpected storage');}catch(error:any){results.push(error.kind+':'+error.code);}}return {value:results.join('|')};}\n`);
   writeFileSync(resolve(dir, 'app.ts'), `import type { Answer, Sources } from './app.contract.d.ts';\nimport { attempt } from './fetch-request.ts';\nexport const appId='test.grant-probe',grants='';\nconst sources: Sources = { probe: attempt };\nexport const answer: Answer = (source, args, store, storage, native) => sources[source](args as never, store, storage, native) as never;\n`);
   const built = spawnSync(process.execPath, ['host/web-js/build.mjs', 'grant-probe', '--out', dist, '--render', 'none'], { cwd: ROOT, encoding: 'utf8', env: { ...process.env, EXACT_APP_DIR: dir } });
-  let page, child, cdp, exited;
+  let page, suite;
   try {
     expect(built.status, built.stderr || built.stdout).toBe(0);
     page = Bun.serve({ port: 0, async fetch(request) {
@@ -569,12 +568,8 @@ chromeTest('a built TypeScript source refuses fetch and storage without grants',
       if (!file.startsWith(dist + sep) || !existsSync(file)) return new Response('not found', { status: 404 });
       return new Response(Bun.file(file));
     } });
-    child = spawn(chrome, ['--headless=new', '--no-sandbox', '--remote-debugging-pipe', '--no-first-run', '--disable-background-networking', `--user-data-dir=${profile}`, 'about:blank'], { detached: true, stdio: ['ignore', 'ignore', 'ignore', 'pipe', 'pipe'] });
-    cdp = new Cdp(child.stdio[3], child.stdio[4]);
-    exited = new Promise(resolveExit => child.on('exit', () => { cdp.fail('browser closed'); resolveExit(); }));
-    const { targetInfos } = await cdp.send('Target.getTargets');
-    const target = targetInfos.find(info => info.type === 'page') ?? await cdp.send('Target.createTarget', { url: 'about:blank' });
-    const { sessionId } = await cdp.send('Target.attachToTarget', { targetId: target.targetId, flatten: true });
+    suite = await cdpBrowser();
+    const { cdp } = suite, { sessionId } = await suite.page();
     const call = (method, params = {}) => cdp.send(method, params, sessionId);
     await call('Page.enable');
     await call('Page.navigate', { url: page.url.href });
@@ -585,7 +580,7 @@ chromeTest('a built TypeScript source refuses fetch and storage without grants',
     expect(existsSync(resolve(dist, 'storage-sqlite.js'))).toBe(false);
     expect(destinationHits).toBe(0);
   } finally {
-    if (child?.pid) { try { if (process.platform === 'win32') child.kill(); else process.kill(-child.pid, 'SIGKILL'); } catch {} await exited; }
+    await suite?.close();
     page?.stop(true); destination.stop(true);
     rmSync(dir, { recursive: true, force: true });
   }
@@ -696,7 +691,7 @@ chromeTest('exactBodyFrom sends an app file from the page\'s store, a picked Fil
     received.push({ type: request.headers.get('content-type'), sha: new Bun.CryptoHasher('sha256').update(body).digest('hex'), length: body.length });
     return new Response('got ' + body.length, { headers: cors });
   } });
-  const dir = mkdtempSync(resolve(tmpdir(), 'exact-body-from-')), dist = resolve(dir, 'dist'), profile = resolve(dir, 'chrome');
+  const dir = mkdtempSync(resolve(tmpdir(), 'exact-body-from-')), dist = resolve(dir, 'dist');
   const bytes = 'new Uint8Array(300000).map((_, i) => (Math.imul(i, 2654435761) >>> 13) & 255)';
   const expected = new Bun.CryptoHasher('sha256').update(new Uint8Array(300000).map((_, i) => (Math.imul(i, 2654435761) >>> 13) & 255)).digest('hex');
   writeFileSync(resolve(dir, 'app.json'), JSON.stringify({ name: 'Upload probe', app: { id: 'test.upload-probe', name: 'Upload probe' }, host: { web: {} } }));
@@ -723,7 +718,7 @@ const sources: Sources = { upload: async (_args, _store, storage) => {
 export const answer: Answer = (source, args, store, storage, native) => sources[source](args as never, store, storage, native) as never;
 `);
   const built = spawnSync(process.execPath, ['host/web-js/build.mjs', 'upload-probe', '--out', dist, '--render', 'none'], { cwd: ROOT, encoding: 'utf8', env: { ...process.env, EXACT_APP_DIR: dir } });
-  let page, child, cdp, exited;
+  let page, suite;
   try {
     expect(built.status, built.stderr || built.stdout).toBe(0);
     page = Bun.serve({ port: 0, async fetch(request) {
@@ -732,12 +727,8 @@ export const answer: Answer = (source, args, store, storage, native) => sources[
       if (!file.startsWith(dist + sep) || !existsSync(file)) return new Response('not found', { status: 404 });
       return new Response(Bun.file(file));
     } });
-    child = spawn(chrome, ['--headless=new', '--no-sandbox', '--remote-debugging-pipe', '--no-first-run', '--disable-background-networking', `--user-data-dir=${profile}`, 'about:blank'], { detached: true, stdio: ['ignore', 'ignore', 'ignore', 'pipe', 'pipe'] });
-    cdp = new Cdp(child.stdio[3], child.stdio[4]);
-    exited = new Promise(resolveExit => child.on('exit', () => { cdp.fail('browser closed'); resolveExit(); }));
-    const { targetInfos } = await cdp.send('Target.getTargets');
-    const target = targetInfos.find(info => info.type === 'page') ?? await cdp.send('Target.createTarget', { url: 'about:blank' });
-    const { sessionId } = await cdp.send('Target.attachToTarget', { targetId: target.targetId, flatten: true });
+    suite = await cdpBrowser();
+    const { cdp } = suite, { sessionId } = await suite.page();
     const call = (method, params = {}) => cdp.send(method, params, sessionId);
     await call('Page.enable');
     const result = async () => (await call('Runtime.evaluate', { expression: `(async()=>{for(const end=performance.now()+20000;performance.now()<end;){await new Promise(r=>requestAnimationFrame(r));const value=document.querySelector('[data-testid="result"]')?.textContent;if(value)return value;}return document.body.innerText;})()`, returnByValue: true, awaitPromise: true })).result.value;
@@ -756,7 +747,7 @@ export const answer: Answer = (source, args, store, storage, native) => sources[
     expect(second.slice(0, 2)).toEqual(['typed 200 got 300000', 'picked 200 got 300000']);
     expect(received.slice(1)).toEqual([{ type: 'image/jpeg', sha: expected, length: 300000 }, { type: null, sha: expected, length: 300000 }]);
   } finally {
-    if (child?.pid) { try { if (process.platform === 'win32') child.kill(); else process.kill(-child.pid, 'SIGKILL'); } catch {} await exited; }
+    await suite?.close();
     page?.stop(true); destination.stop(true);
     rmSync(dir, { recursive: true, force: true });
   }
@@ -766,13 +757,13 @@ export const answer: Answer = (source, args, store, storage, native) => sources[
 // on the JS target, bound or literal, and again after the page reloads
 // (recipes F9, gallery F7): the web host's file store, as an object URL.
 chromeTest('an app:/data image shows from the page\'s store, after a reload too', async () => {
-  const dir = mkdtempSync(resolve(tmpdir(), 'exact-app-image-')), dist = resolve(dir, 'dist'), profile = resolve(dir, 'chrome');
+  const dir = mkdtempSync(resolve(tmpdir(), 'exact-app-image-')), dist = resolve(dir, 'dist');
   const png = [137,80,78,71,13,10,26,10,0,0,0,13,73,72,68,82,0,0,0,1,0,0,0,1,8,6,0,0,0,31,21,196,137,0,0,0,13,73,68,65,84,120,218,99,252,207,192,80,15,0,4,133,1,128,132,169,140,33,0,0,0,0,73,69,78,68,174,66,96,130];
   writeFileSync(resolve(dir, 'app.json'), JSON.stringify({ name: 'Image probe', app: { id: 'test.image-probe', name: 'Image probe' }, host: { web: {} } }));
   writeFileSync(resolve(dir, 'app.contract'), `shape Photo\n  path: string\n  how: string\ncomponent Probe\n  resource photo = photo() as shape Photo\n  view\n    column\n      text photo.how testId="how"\n      image photo.path width=4 height=4 testId="bound"\n      if photo.how != ""\n        image "app:/data/p.png" width=4 height=4 testId="literal"\n`);
   writeFileSync(resolve(dir, 'app.ts'), `import type { Answer, Sources } from './app.contract.d.ts';\nexport const appId = 'test.image-probe', grants = 'fs.read app:/data\\nfs.write app:/data';\nconst P = 'app:/data/p.png';\nconst sources: Sources = { photo: async (_args, _store, storage) => {\n  try { await storage!.fs.stat(P); return { path: P, how: 'found' }; } catch {}\n  await storage!.fs.atomicWriteFile(P, new Uint8Array([${png}]));\n  return { path: P, how: 'written' };\n} };\nexport const answer: Answer = (source, args, store, storage, native) => sources[source](args as never, store, storage, native) as never;\n`);
   const built = spawnSync(process.execPath, ['host/web-js/build.mjs', 'image-probe', '--out', dist, '--render', 'none'], { cwd: ROOT, encoding: 'utf8', env: { ...process.env, EXACT_APP_DIR: dir } });
-  let page, child, cdp, exited;
+  let page, suite;
   try {
     expect(built.status, built.stderr || built.stdout).toBe(0);
     page = Bun.serve({ port: 0, async fetch(request) {
@@ -781,12 +772,8 @@ chromeTest('an app:/data image shows from the page\'s store, after a reload too'
       if (!file.startsWith(dist + sep) || !existsSync(file)) return new Response('not found', { status: 404 });
       return new Response(Bun.file(file));
     } });
-    child = spawn(chrome, ['--headless=new', '--no-sandbox', '--remote-debugging-pipe', '--no-first-run', '--disable-background-networking', `--user-data-dir=${profile}`, 'about:blank'], { detached: true, stdio: ['ignore', 'ignore', 'ignore', 'pipe', 'pipe'] });
-    cdp = new Cdp(child.stdio[3], child.stdio[4]);
-    exited = new Promise(resolveExit => child.on('exit', () => { cdp.fail('browser closed'); resolveExit(); }));
-    const { targetInfos } = await cdp.send('Target.getTargets');
-    const target = targetInfos.find(info => info.type === 'page') ?? await cdp.send('Target.createTarget', { url: 'about:blank' });
-    const { sessionId } = await cdp.send('Target.attachToTarget', { targetId: target.targetId, flatten: true });
+    suite = await cdpBrowser();
+    const { cdp } = suite, { sessionId } = await suite.page();
     const call = (method, params = {}) => cdp.send(method, params, sessionId);
     await call('Page.enable');
     // Each image's `src` (an object URL, never `app:`) once both have decoded, and what the source did.
@@ -796,7 +783,7 @@ chromeTest('an app:/data image shows from the page\'s store, after a reload too'
     await call('Page.reload');
     expect(await shown()).toEqual(['found', 'blob:', 'blob:', 1]);
   } finally {
-    if (child?.pid) { try { if (process.platform === 'win32') child.kill(); else process.kill(-child.pid, 'SIGKILL'); } catch {} await exited; }
+    await suite?.close();
     page?.stop(true);
     rmSync(dir, { recursive: true, force: true });
   }

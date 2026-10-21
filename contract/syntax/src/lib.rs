@@ -18,6 +18,7 @@
 #![forbid(unsafe_code)]
 #![deny(missing_docs)]
 
+pub mod anatomy;
 pub mod ast;
 mod clock;
 mod colours;
@@ -49,8 +50,8 @@ pub use midi::MidiStep;
 pub use module_decl::{ModuleDecl, ModuleKind, PlatformWords};
 pub use notfound::implicit_notfound;
 pub use parser::{
-    is_launch, parse, parse_source, parse_source_all, parse_source_partial, same_launch, Partial,
-    SyntaxError,
+    is_launch, is_reserved, parse, parse_source, parse_source_all, parse_source_partial,
+    same_launch, Partial, SyntaxError,
 };
 pub use sequence::Sequence;
 pub use share::share_calls;

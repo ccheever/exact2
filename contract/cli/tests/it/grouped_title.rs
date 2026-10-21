@@ -144,13 +144,175 @@ fn columns_the_author_sized_keep_their_words_width() {
 /// A `column` around the title's one text is the title as a bare text is:
 /// it grows, and the text after it is the value at the far edge, not a
 /// second title sharing the row (grocery-list's quantity mid-row, round 24).
-/// At the largest text size the value keeps its words beside the title, and
-/// a word longer than the title's line breaks, as a cell's label breaks it,
-/// rather than running over the value.
+/// Where the two do not fit one line the value goes under the title, at its
+/// leading edge, and the title takes the row's width, as UIKit's value cell
+/// stacks them (iOS 27): a long title at the default size, both at the
+/// largest. A word that does not fit the title's line breaks between
+/// syllables, as a cell's label hyphenates (round 26's "Anderso/n", broken
+/// at a letter beside its value, was a tell), or anywhere.
 #[test]
 fn a_column_holding_the_title_is_the_title_and_the_later_text_its_value() {
-    let body = "list appearance=\"auto\" testId=\"list\" flex=1\n  section\n    row press=go testId=\"item\" gap=10 align-items=\"center\"\n      input type=\"checkbox\" checked=false change=flip aria-label=\"Tomatoes\"\n      column flex=1 min-width=0 testId=\"title\"\n        text \"Extraordinarily long heirloom tomatoes\" testId=\"name\"\n      text \"× 6\" testId=\"qty\"";
-    for root in [17.0f32, 53.0] {
+    for (name, root, beside) in [
+        ("Tomatoes", 17.0f32, true),
+        ("Extraordinarily long heirloom tomatoes", 17.0, false),
+        ("Tomatoes", 53.0, false),
+        ("Extraordinarily long heirloom tomatoes", 53.0, false),
+    ] {
+        let body = format!("list appearance=\"auto\" testId=\"list\" flex=1\n  section\n    row press=go testId=\"item\" gap=10 align-items=\"center\"\n      input type=\"checkbox\" checked=false change=flip aria-label=\"Tomatoes\"\n      column flex=1 min-width=0 testId=\"title\"\n        text \"{name}\" testId=\"name\"\n      text \"× 6\" testId=\"qty\"");
+        let mut r = boot(&body);
+        r.set_root_font_size(root.into()).unwrap();
+        let k = r.kernel_mut();
+        let page = k.node_by_key(k.find_by_test_id("root")[0]).unwrap().id;
+        k.compute_layout(page, Offer::definite(402.0, 874.0))
+            .unwrap();
+        let k = r.kernel();
+        let frame = |t: &str| k.node(id(&r, t)).unwrap().frame;
+        let (row, title, qty) = (frame("item"), frame("title"), frame("qty"));
+        // The value's box is as wide as its words: grown, its words sat at
+        // its leading edge, mid-row.
+        assert!(
+            qty.width <= 3.0 * root,
+            "{name} at {root}: the value keeps its words' width: {qty:?}"
+        );
+        if beside {
+            assert!(
+                title.x + title.width <= qty.x && qty.y < title.y + title.height,
+                "{name} at {root}: the value is beside the title: {title:?} {qty:?}"
+            );
+        } else {
+            assert!(
+                qty.x == title.x && qty.y >= title.y + title.height && title.width >= 0.7 * row.width,
+                "{name} at {root}: the value is under the title, which has the row: {title:?} {qty:?} in {row:?}"
+            );
+        }
+        let style = k
+            .node(id(&r, "name"))
+            .unwrap()
+            .computed_style(StyleMask::ALL);
+        assert_eq!(
+            (style.hyphens, style.overflow_wrap),
+            (
+                exact_kernel::Hyphens::Auto,
+                exact_kernel::OverflowWrap::BreakWord
+            ),
+            "a long word breaks between syllables"
+        );
+    }
+}
+
+/// A swipe's row is carried as a custom row, so its bare title and value
+/// stack as the value cell's do where they do not fit (round 26's
+/// grocery-list: "heirloo/m" beside its quantity at the largest size). A row
+/// of two bare texts with no swipe is the value cell the platform's list
+/// draws, which stacks them itself: the sheet keeps them side by side.
+#[test]
+fn a_swipe_rows_bare_title_and_value_stack_where_they_do_not_fit() {
+    for (swipe, under) in [(" delete=go", true), ("", false)] {
+        let body = format!("list appearance=\"auto\" testId=\"list\" flex=1\n  section\n    row press=go{swipe} testId=\"item\"\n      image \"symbol:circle\"\n      text \"Tomatoes\" flex=1 min-width=0 testId=\"name\"\n      text \"× 6\" testId=\"qty\"");
+        let mut r = boot(&body);
+        r.set_root_font_size(53.0).unwrap();
+        let k = r.kernel_mut();
+        let page = k.node_by_key(k.find_by_test_id("root")[0]).unwrap().id;
+        k.compute_layout(page, Offer::definite(402.0, 874.0))
+            .unwrap();
+        let k = r.kernel();
+        let frame = |t: &str| k.node(id(&r, t)).unwrap().frame;
+        let (name, qty) = (frame("name"), frame("qty"));
+        assert_eq!(
+            qty.y >= name.y + name.height,
+            under,
+            "{swipe:?}: {name:?} {qty:?}"
+        );
+    }
+}
+
+/// A text and the worded button that ends its row stay side by side while
+/// the text keeps room for its words, and at the accessibility sizes the
+/// button goes under the text, as a hand-built cell switches its stack to
+/// vertical (household-list at the largest size: its message beside Try
+/// Again broke inside every word). A symbol-only button stays beside it.
+#[test]
+fn a_rows_trailing_button_goes_under_its_text_where_the_text_would_be_squeezed() {
+    for (button, root, under) in [
+        ("text \"Try Again\"", 17.0f32, false),
+        ("text \"Try Again\"", 23.0, false),
+        ("text \"Try Again\"", 40.0, true),
+        ("text \"Try Again\"", 53.0, true),
+        (
+            "image \"symbol:refresh\" aria-label=\"Try Again\"",
+            53.0,
+            false,
+        ),
+    ] {
+        let body = format!("list appearance=\"auto\" testId=\"list\" flex=1\n  section\n    row testId=\"item\" gap=8\n      text \"Can't reach the server. Check that it's running, then try again.\" flex=1 min-width=0 testId=\"message\"\n      button press=go testId=\"retry\"\n        {button}");
+        let mut r = boot(&body);
+        r.set_root_font_size(root.into()).unwrap();
+        let k = r.kernel_mut();
+        let page = k.node_by_key(k.find_by_test_id("root")[0]).unwrap().id;
+        k.compute_layout(page, Offer::definite(402.0, 874.0))
+            .unwrap();
+        let k = r.kernel();
+        let frame = |t: &str| k.node(id(&r, t)).unwrap().frame;
+        let (row, message, retry) = (frame("item"), frame("message"), frame("retry"));
+        if under {
+            assert!(
+                retry.y >= message.y + message.height && message.width >= 0.7 * row.width,
+                "{button} at {root}: the button is under the text, which has the row: {message:?} {retry:?} in {row:?}"
+            );
+        } else {
+            assert!(
+                message.x + message.width <= retry.x && retry.y < message.y + message.height,
+                "{button} at {root}: the button is beside the text: {message:?} {retry:?}"
+            );
+        }
+    }
+}
+
+/// A row whose one part is a box of the author's (a button's face laid out
+/// in a `row`) fills the cell, as a hand-built cell pins its stack to its
+/// content view's edges: a bar in it is a share of the row's width, not of
+/// its label's (round 29's polls: two 50% bars of different lengths).
+#[test]
+fn a_rows_one_box_fills_the_row() {
+    let option = |n: &str, label: &str, mark: &str| {
+        format!("    button press=go testId=\"{n}\"\n      row gap=8 align-items=\"center\" testId=\"{n}-face\"\n        {mark}\n        column flex=1 min-width=0\n          text \"{label}\"\n          view height=8 testId=\"{n}-track\"\n            view width=\"50%\" height=8 testId=\"{n}-bar\"\n")
+    };
+    let body = format!(
+        "list appearance=\"auto\" testId=\"list\" flex=1\n  section\n{}{}",
+        option("a", "Tacos", "image \"symbol:checkmark\""),
+        option(
+            "b",
+            "A much longer option label",
+            "if false\n          image \"symbol:checkmark\""
+        )
+    );
+    let r = boot(&body);
+    let k = r.kernel();
+    let frame = |t: &str| k.node(id(&r, t)).unwrap().frame;
+    for n in ["a", "b"] {
+        let (row, face) = (frame(n), frame(&format!("{n}-face")));
+        assert!(
+            face.width >= row.width - 40.0,
+            "{n}: the face fills its row: {face:?} in {row:?}"
+        );
+    }
+    let (a, b) = (frame("a-bar"), frame("b-bar"));
+    assert!(
+        (a.width - frame("a-track").width / 2.0).abs() < 0.5
+            && (frame("b-face").width - frame("a-face").width).abs() < 0.5,
+        "equal shares draw bars a share of the row: {a:?} {b:?}"
+    );
+}
+
+/// A bare title before two values (a lap, its time and its total) is no
+/// value cell: it is boxed with them, and each value wraps under the one
+/// before where they do not fit, as a hand-built cell's labels stack at the
+/// accessibility sizes. Beside the two at the largest size the title was
+/// squeezed to no width and the total ran past the row (stopwatch, round 30).
+#[test]
+fn a_bare_title_before_two_values_keeps_its_words_and_they_stack() {
+    for (root, beside) in [(17.0f32, true), (53.0, false)] {
+        let body = "list appearance=\"auto\" testId=\"list\" flex=1\n  section\n    row testId=\"item\" gap=8 align-items=\"center\"\n      text \"Lap 12\" flex=1 testId=\"title\"\n      text \"00:13.51\" font-variant-numeric=\"tabular-nums\" testId=\"lap\"\n      text \"03:06.12\" font-variant-numeric=\"tabular-nums\" testId=\"total\"";
         let mut r = boot(body);
         r.set_root_font_size(root.into()).unwrap();
         let k = r.kernel_mut();
@@ -159,26 +321,28 @@ fn a_column_holding_the_title_is_the_title_and_the_later_text_its_value() {
             .unwrap();
         let k = r.kernel();
         let frame = |t: &str| k.node(id(&r, t)).unwrap().frame;
-        let (row, title, name, qty) = (frame("item"), frame("title"), frame("name"), frame("qty"));
-        // The value's box is as wide as its words: grown, its words sat at
-        // its leading edge, mid-row.
+        let (row, title, lap, total) =
+            (frame("item"), frame("title"), frame("lap"), frame("total"));
         assert!(
-            row.x + row.width - (qty.x + qty.width) <= 17.0 && qty.width <= 3.0 * root,
-            "{root}: the value trails: {qty:?} in {row:?}"
+            title.width >= 2.0 * root,
+            "at {root}: the title keeps its words: {title:?}"
         );
-        assert!(
-            title.x + title.width <= qty.x && name.x + name.width <= qty.x + 0.5,
-            "{root}: the title stops at the value: {title:?} {name:?} {qty:?}"
-        );
-        let wrap = k
-            .node(id(&r, "name"))
-            .unwrap()
-            .computed_style(StyleMask::ALL)
-            .overflow_wrap;
-        assert_eq!(
-            wrap,
-            exact_kernel::OverflowWrap::BreakWord,
-            "a long word breaks"
-        );
+        for v in [lap, total] {
+            assert!(
+                v.x + v.width <= row.width + 0.5,
+                "at {root}: the value stays in the row: {v:?} in {row:?}"
+            );
+        }
+        if beside {
+            assert!(
+                title.x + title.width <= lap.x && lap.x + lap.width <= total.x && (lap.y - title.y).abs() < root,
+                "at {root}: one line, the values at the far edge: {title:?} {lap:?} {total:?} in {row:?}"
+            );
+        } else {
+            assert!(
+                lap.y >= title.y + title.height - 0.5 && total.y >= lap.y + lap.height - 0.5 && lap.x == title.x && total.x == title.x,
+                "at {root}: each value under the one before, at the title's edge: {title:?} {lap:?} {total:?}"
+            );
+        }
     }
 }

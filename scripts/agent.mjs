@@ -1,20 +1,20 @@
 #!/usr/bin/env bun
 import {refusalMessage} from './agent-keys.mjs';
 //   tree | layout | state | logs [--all] | check [light|dark|both] | screenshot <png> [window [status|app]] (an iOS simulator's window: the display's pixels when they are this app's, still; `app` the app's own drawing) | screenshot <png> compare <reference.png> | screenshot <png|apng> over <ms> every <ms> [window] | screenshot <path> <canvas> save | screenshot <png> <canvas> from <yaw> <pitch> <distance> | from top <height> | from camera [over <ms> every <ms>] (a world's look frame, LLP 1127.000) | state <canvas> draws | look · state <canvas>:<entity> visible
-//   tap <target> [at <x> <y> (a press at a point; plain, it presses what it names) | wheel <dx> <dy> [gesture] [at <x> <y>] [modifiers <Control…>] | drop <path…> | into <key> [block <v>] [inline <v>] | hover | hold-state active|hover|focus-visible|none | history <n> | {"history":n} | mouse | dblclick | contextmenu | auxclick | clicks <1-3> (each [at <x> <y>] [modifiers <Shift+Meta…>]) | modifiers <Shift+Meta…> | pinch <scale> [at <x> <y>] | mediasession <action> [seconds] | drag <dx> <dy> [from <x> <y>] [mouse] [modifiers <M>] [press <ms>] [over <ms>] [hold <ms>] [during "<op>" …, inside the hold under --touch platform] | drag to <target> [at <x> <y>] […]] | type <target> <text…> | type <target> key <Name> | type <target> copy|cut|paste <text…>
+//   tap <target> [at <x> <y> (a press at a point; plain, it presses what it names) | wheel <dx> <dy> [gesture] [at <x> <y>] [modifiers <Control…>] | drop <path…> | dragenter <path…> | dragleave | into <key> [block <v>] [inline <v>] | hover | hold-state active|hover|focus-visible|none | history <n> | {"history":n} | mouse | dblclick | contextmenu | auxclick | clicks <1-3> (each [at <x> <y>] [modifiers <Shift+Meta…>]) | modifiers <Shift+Meta…> | pinch <scale> [at <x> <y>] | mediasession <action> [seconds] | drag <dx> <dy> [from <x> <y>] [mouse] [modifiers <M>] [press <ms>] [over <ms>] [hold <ms>] [during "<op>" …, inside the hold under --touch platform] | drag to <target> [at <x> <y>] […]] | type <target> <text…> (the navigation root: a path or a deep link) | type <target> key <Name> | type <target> copy|cut|paste <text…> | type <target> paste --file <path…> | type <target> paste --image <png>
 //   tap <target> down [at <x> <y>] [modifiers <M>] · tap move [by] <x> <y> [over <ms>] [modifiers <M>] · tap hold <ms> · tap up [modifiers <M>] · tap cancel   (a held contact, LLP 1035.003 D1; its modifiers held until another names others; a hold moves the app's clock by <ms>; a plain tap is pointerdown, pointerup, then the press; the target shows pressed until the lift, so `tap row down` "screenshot held.png" `tap up` pictures it, under --touch platform too, where the holds, reads and clock +<ms> between run inside one real touch played at tap up)
 //   tap @N <choice> | type @N <value>   (a held device request, by ticket: LLP 1069.007 D4)
 //   tap @<id> <choice> | type @<id> <value>   (by the node it answers at, or its capability: files F11)
-//   clock <ms|+ms|+ms real|settle|data> | resize <w>x<h> | close | sample <x> <y> […] (extended linear sRGB under view points, LLP 1100 D12) | prefer <media feature or page fact> <value> […] | perf [<target>] [during "<op>" …] | perf frames [late <n>] | perf hatches [during "<op>" …]
+//   clock <ms|+ms|+ms real|settle|data> | resize <w>x<h> | resize <w> <h> | post [<surface>] <text> (type <surface> message <text>: a world's Input::messages) | close | sample <x> <y> […] (extended linear sRGB under view points, LLP 1100 D12) | prefer <media feature or page fact> <value> […] | perf [<target>] [during "<op>" …] | perf frames [late <n>] | perf hatches [during "<op>" …]
 //   bun scripts/agent.mjs trace <file> | trace --phone <name|udid> | trace --device   (a development session's trace, LLP 1079 D5: no app runs; a phone's last, copied off it)
 // A target is a testId, a view id, or else a view's exact label or text (interactive first; several refuse,
 // naming them; `tap "Sky off"` quotes several words); each op is one argument (quote it).
 // `tap … wheel <dx> <dy> gesture` sends the wheel as a trackpad's gesture —
 // began, changed, and the zero-delta lift that ends it (LLP 1033 D4a, macOS
 // only). Linux scrollers with a `scrollend` handler instead receive a reader sample with a 100 ms quiet deadline. `tap … hover` moves the pointer onto the target (LLP 1005 §3). --device: build/install first with build.mjs --device; no Mac-local plan/assets paths.
-import { Cdp, browserDiagnosticNoise, launchLog, launchFailure, drivePagePort, webPort, closePage, backLayer, cdpEscape, exclusiveIOS, simulatorDisplay, copyCdpFailureContext, chromium, DESKTOP_INPUT, closeWindowsBrowser, retainCleanupError, removeBrowserProfile, driveStore, exclusiveNativeStore, resolveDevice, defaultStore, noteDefaultStore, traceLocators, parseFlags, launchFacts, listenOn, launchEnvironment, withEpoch, withFaults, refuseStale, proofProductChanges, unchecked, depInfoChanges, packagedBuildChanges, webChanges, bakedPlans, parityScript, netFlags } from './agent-launch.mjs';
+import { accessibilityNote, Cdp, browserDiagnosticNoise, launchLog, launchFailure, drivePagePort, webPort, closePage, backLayer, cdpEscape, exclusiveIOS, simulatorDisplay, copyCdpFailureContext, chromium, webNeeds, DESKTOP_INPUT, closeWindowsBrowser, retainCleanupError, removeBrowserProfile, driveStore, exclusiveNativeStore, resolveDevice, defaultStore, noteDefaultStore, traceLocators, parseFlags, launchFacts, listenOn, launchEnvironment, withEpoch, withFaults, refuseStale, proofProductChanges, unchecked, depInfoChanges, packagedBuildChanges, webChanges, bakedPlans, parityScript, netFlags } from './agent-launch.mjs';
 import { widgetStep } from './agent-widget.mjs';
-import { sourceMapReaders, identifyInspectedNode, identifyLayoutNodes, withRegions, render, perfOp, partTap, readTrace, renderTrace, layoutArgs, tapRefusal, worldView, phoneTrace, stateOp, worldLook, worldTells, lookAcross, WORLD_LIMIT, worldFile, scaledScreenshot, FILM_FRAMES, FILM_PIXELS } from './agent-inspect.mjs';
+import { sourceMapReaders, identifyInspectedNode, identifyLayoutNodes, withRegions, render, perfOp, partTap, readTrace, renderTrace, layoutArgs, tapRefusal, nextCommitTasks, settleBound, worldView, phoneTrace, stateOp, worldLook, worldTells, lookAcross, WORLD_LIMIT, worldFile, scaledScreenshot, FILM_FRAMES, FILM_PIXELS } from './agent-inspect.mjs';
 import { LAUNCH_MEDIA, preferGroups, preferOp, preferWeb } from './agent-prefer.mjs';
 import { guardFlags } from './help.mjs';
 import { nativeBuild, planOverride, refuseBuild } from './agent-build.mjs';
@@ -29,22 +29,21 @@ import { contactSheet, encodeApng, encodePng } from './png.mjs';
 import { tmpdir } from 'node:os';
 import { basename, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { openTouches, realTap } from '../host/apple/touches.mjs';
+import { openTouches, realTap, springboard } from '../host/apple/touches.mjs';
 import { pageAim, namedRefusal } from './agent-aim.mjs'; import { checkOp } from './agent-check.mjs'; import { compareScreenshot, referenceNote } from './agent-compare.mjs';
-import { dragArguments, dragTap, duringAllowed, duringOp, heldDown, heldPhase, heldRead, holdTap } from './agent-drag.mjs';
+import { dragArguments, dragTap, duringAllowed, duringOp, heldDown, heldPhase, heldRead, holdTap, fileDrag, folderTree, driverFiles } from './agent-drag.mjs';
 import { peekLogs, takeWorldLogs, driveNotes, STORAGE_REFUSED, STORAGE_NOTE, runTests, nodeNamed, targetsIn, unopenedHint, refuseDisabled, reloadWeb, fetchOrigins, loopbackOrigins, faultRequest } from './agent-test.mjs';
-import { MalformedOperation, operationReply, inputJSON, keyArguments, validateKey, pinchArguments, intoArguments, pointerArguments, resizeArguments, cdpKey, browserKey, nativeKey, typeFor, ticketOf, holdOf, heldTicket, typeArguments, typeCommand, pickedPaths, mouseContact, withHeldModifiers, pasteChord, deliverClipboard, tapWords, tapArguments, pointerGap, chordModifiers, withChordModifiers, heldForClick, clockSlices, padOp } from './agent-keys.mjs';
+import { MalformedOperation, operationReply, inputJSON, keyArguments, validateKey, pinchArguments, intoArguments, pointerArguments, resizeArguments, cdpKey, browserKey, nativeKey, typeFor, ticketOf, holdOf, heldTicket, typeArguments, typeCommand, pickedPaths, mouseContact, withHeldModifiers, pasteChord, deliverClipboard, tapWords, tapArguments, pointerGap, chordModifiers, withChordModifiers, heldForClick, clockSlices, padOp, postCommand, postInto } from './agent-keys.mjs';
 import { jsonLines, hangup } from './agent-wire.mjs';
 export { jsonLines, hangup };
-export { MalformedOperation, resizeArguments, cdpKey, browserKey, nativeKey, typeFor, ticketOf, holdOf, heldTicket, typeArguments, typeCommand, pickedPaths, mouseContact, pasteChord, deliverClipboard, tapWords, pointerGap } from './agent-keys.mjs';
+export { MalformedOperation, resizeArguments, postCommand, cdpKey, browserKey, nativeKey, typeFor, ticketOf, holdOf, heldTicket, typeArguments, typeCommand, pickedPaths, mouseContact, pasteChord, deliverClipboard, tapWords, pointerGap } from './agent-keys.mjs';
 import { appleRunBinary, appleArtifacts, assertAppleIdentity, bundleId, install } from '../host/apple/build.mjs';
-import { crashReports, crashWatch, developmentLaunchEnvironment, keepInstalledRelease, phone, phoneBridge, showSimulator, simulator, withDisplay, withSoftwareKeyboard } from '../host/apple/devices.mjs';
+import { crashReports, crashWatch, developmentLaunchEnvironment, forwardedEnv, keepInstalledRelease, phone, phoneBridge, showSimulator, simulator, displayAsIs, withDisplay, withMaterials, withSoftwareKeyboard } from '../host/apple/devices.mjs';
 import { builtAppMatches, jsTargetBuild, serveBuildTree, serveStatic } from '../host/web/serve.mjs';
 import { bakeOutput, bakeTarget, executableName, linuxBinary, linuxBuild, resolveApp, webDist as defaultWebDist } from './app.mjs'; import { androidBinary, androidBuild, androidDeploy } from './agent-android.mjs';
 const ROOT = resolve(fileURLToPath(new URL('..', import.meta.url)));
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-// A completed operation must release its deadline too, so an otherwise closed
-// driver does not stay alive until a losing timeout expires.
+// Release completed operations' deadlines so a closed driver does not wait for a losing timeout.
 async function waitAtMost(operation, ms, onTimeout) {
   let timer;
   const deadline = new Promise(resolve => { timer = setTimeout(resolve, ms); }).then(onTimeout);
@@ -115,7 +114,7 @@ async function openWebUnlocked({ browser = 'chrome', plan, world, size = VIEWPOR
     throw e.code !== 'EADDRINUSE' || fixed || pagePort !== kept?.port ? e : new Error(`--storage ${storage}: its page's port ${kept.port} is in use: another drive of this store is open (a store is one drive's at a time), or another program holds the port: try another store name, or --port <n>`);
   });
   const port = server.address().port; if (!openWeb.said) console.error(`${openWeb.said = `web: ${selected.name} served at http://127.0.0.1:${port}/`}${fixed ? '' : ' (--port <n> or EXACT_PORT picks the port)'}`);
-  const chrome = chromium().executable, scale = Number(env?.EXACT_SCALE ?? process.env.EXACT_SCALE) || 0; // LLP 1115.000 D10.3: EXACT_SCALE, the Linux host's variable, launches Chrome at that device scale factor too, its own and not CDP's emulated one (which leaves a 0.5px border 1px): an override's 0 keeps it
+  const chrome = chromium({ needs: webNeeds(selected) }).executable, scale = Number(env?.EXACT_SCALE ?? process.env.EXACT_SCALE) || 0; // LLP 1115.000 D10.3: EXACT_SCALE, the Linux host's variable, launches Chrome at that device scale factor too, its own and not CDP's emulated one (which leaves a 0.5px border 1px): an override's 0 keeps it
   const profile = kept ? (mkdirSync(kept.profile, { recursive: true }), kept.profile) : mkdtempSync(resolve(tmpdir(), 'exact-agent-'));
   let child;
   try {
@@ -137,7 +136,7 @@ async function openWebUnlocked({ browser = 'chrome', plan, world, size = VIEWPOR
   } catch (error) {
     server.close();
     if (!kept) rmSync(profile, {recursive:true, force:true});
-    throw new Error(`web carrier unavailable: ${chrome}: ${error.code}; set CHROME to an installed browser`);
+    throw new Error(`web carrier unavailable: ${chrome}: ${error.code}; install Playwright's Chromium (docs/testing.md, Browsers), or set CHROME`);
   }
   onProcess?.(child);
   const hostLines = [], launchTail = launchLog();
@@ -153,7 +152,7 @@ async function openWebUnlocked({ browser = 'chrome', plan, world, size = VIEWPOR
   const cdp = new Cdp(child.stdio[3], child.stdio[4]);
   const exited = new Promise((r) => {
     child.on('exit', (code, signal) => { cdp.fail(`Chrome exited (${code ?? signal})`); r(); });
-    child.on('error', error => { cdp.fail(`web carrier unavailable: ${chrome}: ${error.code}; set CHROME to an installed browser`); r(); });
+    child.on('error', error => { cdp.fail(`web carrier unavailable: ${chrome}: ${error.code}; install Playwright's Chromium (docs/testing.md, Browsers), or set CHROME`); r(); });
   });
   const close = async () => {
     try {
@@ -254,6 +253,7 @@ async function openWebUnlocked({ browser = 'chrome', plan, world, size = VIEWPOR
     const frame = () => waitAtMost(evaluate('new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(() => r(true))))'), 250);
     // The one contact this carrier may hold (LLP 1035.003 D1).
     let contact = null;
+    let dragged = null; // a file drag `tap … dragenter` holds over the page: its point and its DragData
     const rawAsk = async (req) => {
       // The existing resize input uses Chrome's real viewport and resize event.
       if (req.op === 'tap' && req.resize !== undefined) {
@@ -307,8 +307,7 @@ async function openWebUnlocked({ browser = 'chrome', plan, world, size = VIEWPOR
         await call('Page.resetNavigationHistory');
         this.boot = Number(boot);
       },
-      ask,
-      async reveal(id) { const r = await ask({ op: 'reveal', id }); if (r.scrolled) await frame(); return r; },
+      ask, async reveal(id) { const r = await ask({ op: 'reveal', id }); if (r.scrolled) await frame(); return r; },
       prefer: (media, page, fold, mode) => preferWeb({ media, page, fold, mode, emulated, call, evaluate, frame, ask, scale }), // the browser's emulation through CDP, the glue's substitute where it offers none (agent-prefer.mjs)
       // A click with modifiers named holds them as a keyboard does (`heldForClick`; Charlie, 2026-10-07).
       input(id, kind, opts) { return heldForClick(call, kind, opts, () => this.deliverInput(id, kind, opts)); },
@@ -427,11 +426,7 @@ async function openWebUnlocked({ browser = 'chrome', plan, world, size = VIEWPOR
           return { pinch: opts.pinch, at: [cx, cy], delivery: 'platform' };
         }
         if (kind === 'wheel') await call('Input.dispatchMouseEvent', { type: 'mouseWheel', x, y, deltaX: opts.wheel[0], deltaY: opts.wheel[1], modifiers });
-        else if (kind === 'drop') { // the files' bytes as a drag's DataTransfer, its dragover then its drop at the point, as a browser delivers a drag from the desktop
-          const files = opts.drop.map(p => ({ name: basename(p), bytes: readFileSync(p).toString('base64') }));
-          const heard = await evaluate(`(() => { const el = exact.views.get(${id}), dt = new DataTransfer(); for (const f of ${JSON.stringify(files)}) dt.items.add(new File([Uint8Array.from(atob(f.bytes), c => c.charCodeAt(0))], f.name)); const at = { clientX: ${x}, clientY: ${y}, bubbles: true, cancelable: true, dataTransfer: dt }; const over = new DragEvent('dragover', at); el.dispatchEvent(over); const drop = new DragEvent('drop', at); el.dispatchEvent(drop); return { accepted: over.defaultPrevented, taken: drop.defaultPrevented }; })()`);
-          if (!heard.taken) throw new Error(`view ${id} took no drop (dragover ${heard.accepted ? 'accepted' : 'refused'})`);
-        }
+        else if (kind === 'drop' || kind === 'dragenter' || kind === 'dragleave') dragged = await fileDrag({ kind, opts, id, x, y, dragged, call, evaluate }); // Chrome's own drag (agent-drag.mjs)
         else if (kind === 'hover') await call('Input.dispatchMouseEvent', { type: 'mouseMoved', x, y });
         else if (['contextmenu', 'dblclick', 'mouse', 'auxclick', 'clicks'].includes(kind)) {
           await call('Input.dispatchMouseEvent', { type: 'mouseMoved', x, y, modifiers });
@@ -443,7 +438,7 @@ async function openWebUnlocked({ browser = 'chrome', plan, world, size = VIEWPOR
             await call('Input.dispatchMouseEvent', { type: 'mouseReleased', x, y, button, buttons: 0, clickCount, modifiers });
           }
         }
-        else if (kind === 'clipboard') await deliverClipboard({ id, opts, evaluate, call, ask });
+        else if (kind === 'clipboard') await deliverClipboard({ id, opts: { ...opts, ...(opts.files || opts.image ? { pasted: opts.image ? [{ name: 'image.png', bytes: readFileSync(opts.image).toString('base64') }] : driverFiles(opts.files) } : {}) }, evaluate, call, ask });
         else if (kind === 'key') {
           const f = await ask({ op: 'focus', id, select: false });
           if (f.error) throw new Error(f.error);
@@ -573,7 +568,7 @@ async function openStdio({ host, plan, world, size, app, env: extra = {}, sessio
   const launched = Date.now(); let closing = false;
   const child = device
     ? spawn('xcrun', ['devicectl', 'device', 'process', 'launch', '--quiet', '--console', '--terminate-existing', '--device', ph.udid,
-        '--environment-variables', JSON.stringify({ ...(size ? { EXACT_WINDOW_WIDTH: env.EXACT_WINDOW_WIDTH, EXACT_WINDOW_HEIGHT: env.EXACT_WINDOW_HEIGHT } : {}), ...extra, EXACT_AGENT: '1', ...bridge.env }), a.id], { stdio: ['pipe', 'pipe', 'pipe'] })
+        '--environment-variables', JSON.stringify({ ...forwardedEnv(), ...(size ? { EXACT_WINDOW_WIDTH: env.EXACT_WINDOW_WIDTH, EXACT_WINDOW_HEIGHT: env.EXACT_WINDOW_HEIGHT } : {}), ...extra, EXACT_AGENT: '1', ...bridge.env }), a.id], { stdio: ['pipe', 'pipe', 'pipe'] })
     : droid ? droid.spawn(env.EXACT_LAUNCH_URL ? [env.EXACT_LAUNCH_URL] : []) : spawn(bin, portable && env.EXACT_LAUNCH_URL ? [env.EXACT_LAUNCH_URL] : documents, { env, stdio: ['pipe', 'pipe', 'pipe'], windowsHide:true });
   onProcess?.(child);
   const hostLines = [];
@@ -621,7 +616,7 @@ async function openStdio({ host, plan, world, size, app, env: extra = {}, sessio
         // A contact that went down with `mouse` (a drag's) holds the left button through its phases (review A1).
         // A button's point and the modifiers held, as the request says them (#107).
         const at = opts.at !== undefined ? { at: opts.at } : {}, held = opts.modifiers ? { modifiers: opts.modifiers } : {};
-        const r = phase ? await heldButton.ask(kind, opts, (button) => ask({ op: 'tap', phase: kind, ...(id != null ? { id } : {}), x: opts.x, y: opts.y, dx: opts.dx, dy: opts.dy, ms: opts.ms, ...(opts.virtual ? { virtual: true } : {}), ...held, ...button })) : ['contextmenu', 'dblclick', 'mouse', 'auxclick'].includes(kind) ? await ask({ op: 'tap', id, [kind]: true, ...at, ...held }) : kind === 'clicks' ? await ask({ op: 'tap', id, clicks: opts.clicks, ...at, ...held }) : kind === 'pinch' ? await ask({ op: 'tap', id, pinch: opts.pinch, at: opts.at }) : kind === 'wheel' ? await ask({ op: 'tap', id, wheel: opts.wheel, ...(opts.gesture ? { gesture: true } : {}), ...at, ...held }) : kind === 'drop' ? await ask({ op: 'tap', id, drop: opts.drop }) : kind === 'hover' ? await ask({ op: 'tap', id, hover: true }) : kind === 'press' ? await ask({ op: 'tap', id, ...guest, ...at, ...(opts.modifiers ? { modifiers: opts.modifiers } : {}) }) : kind === 'mediasession' ? await ask({ op: 'tap', id, mediaSession: opts.mediaSession, ...(opts.seconds != null ? { seconds: opts.seconds } : {}) }) : await ask({ op: 'type', id, text: opts.text, ...(opts.clipboard ? { clipboard: opts.clipboard } : {}), ...guest });
+        const r = phase ? await heldButton.ask(kind, opts, (button) => ask({ op: 'tap', phase: kind, ...(id != null ? { id } : {}), x: opts.x, y: opts.y, dx: opts.dx, dy: opts.dy, ms: opts.ms, ...(opts.virtual ? { virtual: true } : {}), ...held, ...button })) : ['contextmenu', 'dblclick', 'mouse', 'auxclick'].includes(kind) ? await ask({ op: 'tap', id, [kind]: true, ...at, ...held }) : kind === 'clicks' ? await ask({ op: 'tap', id, clicks: opts.clicks, ...at, ...held }) : kind === 'pinch' ? await ask({ op: 'tap', id, pinch: opts.pinch, at: opts.at }) : kind === 'wheel' ? await ask({ op: 'tap', id, wheel: opts.wheel, ...(opts.gesture ? { gesture: true } : {}), ...at, ...held }) : kind === 'drop' ? await ask({ op: 'tap', id, drop: opts.drop }) : kind === 'dragenter' || kind === 'dragleave' ? await ask({ op: 'tap', id, [kind]: opts[kind] }) : kind === 'hover' ? await ask({ op: 'tap', id, hover: true }) : kind === 'press' ? await ask({ op: 'tap', id, ...guest, ...at, ...(opts.modifiers ? { modifiers: opts.modifiers } : {}) }) : kind === 'mediasession' ? await ask({ op: 'tap', id, mediaSession: opts.mediaSession, ...(opts.seconds != null ? { seconds: opts.seconds } : {}) }) : await ask({ op: 'type', id, text: opts.text, ...(opts.clipboard ? { clipboard: opts.clipboard } : {}), ...(opts.files ? { files: opts.files } : {}), ...(opts.image ? { image: opts.image } : {}), ...guest });
         if (r.error) throw new Error(r.error);
         return r;
       },
@@ -661,12 +656,12 @@ async function openIOS({ plan, app, size, env: extra = {}, session, hostFixture 
 async function openIOSOwned({ a, bundle, id, dev, plan, size, extra, session, hostFixture, touch, onProcess }) {
   showSimulator(dev, true); // a person watching sees what is driven, and keeps the focus
   // Real touches (LLP 1080.000, `--touch platform`; `drag`, an authored test's drag alone): the runner starts first, so its own launch never backgrounds the app.
-  const touches = touch !== 'agent' ? await openTouches({ udid: dev.udid, appId: id ?? bundleId(a.crate('apple')) }) : null;
+  const axNote = touch !== 'agent' ? accessibilityNote(dev.udid, touch) : null, touches = touch !== 'agent' ? await openTouches({ udid: dev.udid, appId: id ?? bundleId(a.crate('apple')), foldable: dev.type === 'iPhone-Duo' }) : null; // the note read before the runner turns accessibility on
   // A Release build installed under the bundle id is copied aside first, and the note says how to put it back (`keepInstalledRelease`).
   let kept = null; try { kept = keepInstalledRelease(dev.udid, id, bundle, hostFixture ? 'ExactHostIOS' : executableName(a)); if (kept.install) install(dev, bundle, a, hostFixture, true); } catch (e) { await touches?.close(); throw e; }
   const dir = mkdtempSync(resolve(tmpdir(), 'exact-ios-'));
   const sock = resolve(dir, 'agent.sock');
-  const env = { EXACT_ASSETS: appleArtifacts(a,{destination:'ios-simulator',host:hostFixture}).capture, EXACT_AGENT: '1', EXACT_AGENT_SOCKET: sock, ...(plan ? { EXACT_PLAN: plan } : {}), ...(size ? {EXACT_WINDOW_WIDTH:String(size[0]), EXACT_WINDOW_HEIGHT:String(size[1])} : {}), ...extra };
+  const env = { EXACT_ASSETS: appleArtifacts(a,{destination:'ios-simulator',host:hostFixture}).capture, ...forwardedEnv(), EXACT_AGENT: '1', EXACT_AGENT_SOCKET: sock, ...(plan ? { EXACT_PLAN: plan } : {}), ...(size ? {EXACT_WINDOW_WIDTH:String(size[0]), EXACT_WINDOW_HEIGHT:String(size[1])} : {}), ...extra };
   const childEnv = { ...process.env };
   for (const [k, v] of Object.entries(env)) childEnv[`SIMCTL_CHILD_${k}`] = v;
   const crashName = hostFixture ? 'ExactHostIOS' : executableName(a); let closing = false;
@@ -728,7 +723,8 @@ async function openIOSOwned({ a, bundle, id, dev, plan, size, extra, session, ho
     let canvasContact = false;
     return {
       host: hostFixture ? 'host-ios' : 'ios', boot: ready.boot, hostLines, gpuMs: () => null, sessions: ready.sessions ?? null, state, plan,
-      touches, touch, crashes, udid: dev.udid, installNote: kept?.note,
+      touches, touch, crashes, udid: dev.udid, installNote: kept?.note, axNote,
+      springboard: request => springboard(touches, request, name => { if (socket.destroyed || consoleDone) throw crashed(`${name}: the app's agent socket is gone; the archive comparison lost its app session`); }),
       ask, reveal: (id) => ask({ op: 'reveal', id }),
       async input(id, kind, opts) {
         if (kind === 'key') {
@@ -762,22 +758,22 @@ async function openIOSOwned({ a, bundle, id, dev, plan, size, extra, session, ho
           if (Object.values(guest).some((v) => v != null)) throw new Error('unsupported under --touch platform: a press into an iframe guest or a world entity reaches no real touch yet (LLP 1080.000 stage 1)');
           return realTap({ ask, touches, id, rel: opts.at, abandon: (why) => lines.fail(why) });
         }
-        const r = kind === 'contextmenu' || kind === 'dblclick' ? await ask({ op: 'tap', id, [kind]: true, ...(opts.at ? { at: opts.at } : {}) }) : kind === 'pinch' ? await ask({ op: 'tap', id, pinch: opts.pinch, at: opts.at }) : kind === 'wheel' ? await ask({ op: 'tap', id, wheel: opts.wheel, ...(opts.gesture ? { gesture: true } : {}), ...(opts.modifiers ? { modifiers: opts.modifiers } : {}) }) : kind === 'drop' ? await ask({ op: 'tap', id, drop: opts.drop }) : kind === 'hover' ? await ask({ op: 'tap', id, hover: true }) : kind === 'press' ? await ask({ op: 'tap', id, ...guest, ...(opts.at !== undefined ? { at: opts.at } : {}), ...(opts.modifiers ? { modifiers: opts.modifiers } : {}) }) : kind === 'mediasession' ? await ask({ op: 'tap', id, mediaSession: opts.mediaSession, ...(opts.seconds != null ? { seconds: opts.seconds } : {}) }) : await ask({ op: 'type', id, text: opts.text, ...(opts.clipboard ? { clipboard: opts.clipboard } : {}), ...guest });
+        const r = kind === 'contextmenu' || kind === 'dblclick' ? await ask({ op: 'tap', id, [kind]: true, ...(opts.at ? { at: opts.at } : {}) }) : kind === 'pinch' ? await ask({ op: 'tap', id, pinch: opts.pinch, at: opts.at }) : kind === 'wheel' ? await ask({ op: 'tap', id, wheel: opts.wheel, ...(opts.gesture ? { gesture: true } : {}), ...(opts.modifiers ? { modifiers: opts.modifiers } : {}) }) : kind === 'drop' ? await ask({ op: 'tap', id, drop: opts.drop }) : kind === 'dragenter' || kind === 'dragleave' ? await ask({ op: 'tap', id, [kind]: opts[kind] }) : kind === 'hover' ? await ask({ op: 'tap', id, hover: true }) : kind === 'press' ? await ask({ op: 'tap', id, ...guest, ...(opts.at !== undefined ? { at: opts.at } : {}), ...(opts.modifiers ? { modifiers: opts.modifiers } : {}) }) : kind === 'mediasession' ? await ask({ op: 'tap', id, mediaSession: opts.mediaSession, ...(opts.seconds != null ? { seconds: opts.seconds } : {}) }) : await ask({ op: 'type', id, text: opts.text, ...(opts.clipboard ? { clipboard: opts.clipboard } : {}), ...(opts.files ? { files: opts.files } : {}), ...(opts.image ? { image: opts.image } : {}), ...guest });
         if (r.error) throw new Error(r.error);
         return r;
       },
-      // `own`: the app's drawing alone, never the display's (smoke's canvas readback, whose reference is one).
+      // `own`: the app's drawing alone, never the display's (smoke's canvas readback); `window === 'display'`: the display as it is (`displayAsIs`).
       async screenshot(path, window = false, film = false, status = false, own = false) {
         const take = async () => {
-          const r = await ask({ op: 'screenshot', path, window, ...(film ? { film } : {}) });
-          if (r.error) throw new Error(r.error);
-          const bar = r.statusBar;
-          if (!status) delete r.statusBar;
+          const r = await ask({ op: 'screenshot', path, window: window === 'display' || window, ...(film ? { film } : {}) });
+          if (r.error) throw new Error(r.error); if (window === 'display' && !film) return displayAsIs(r, path, dev.udid);
+          const bar = r.statusBar; if (!status) delete r.statusBar;
           // The host draws the window (with an alert or sheet up, or asked); its pixels are then the display's, `simctl
           // io` captures (about 1 s), which draw glass as the device does and hold the keyboard; the status bar's only
           // when asked. `probe` asks the app, after the display is read, whether it was still in front.
-          if (!(window || r.window === true) || film) return r;
-          return withDisplay(r, path, dev.udid, status ? 0 : bar ?? 0, { own, probe: () => ask({ op: 'screenshot', probe: true }) });
+          const probe = () => ask({ op: 'screenshot', probe: true }); if (film) return r; // a page picture over glass takes the window's display pixels, cut to it:
+          if (!(window || r.window === true)) return own ? (delete r.materials, r) : withMaterials(r, path, async (p) => { const w = await ask({ op: 'screenshot', path: p, window: true }); if (w.error) throw new Error(w.error); return withDisplay(w, p, dev.udid, w.statusBar ?? 0, { probe }); });
+          return withDisplay(r, path, dev.udid, status ? 0 : bar ?? 0, { own, probe });
         };
         // Films take no display: their frames are the app's alone.
         return film ? take() : simulatorDisplay(dev.udid, take);
@@ -797,7 +793,7 @@ export const clockSpan = (span, elapsedMs) => Math.max(CLOCK_STEP_MS, Math.min(s
 /** Open a session on `host` ('web' | 'macos' | 'ios' | 'linux'); `url` opens
  * the same app address on each host; `plan` boots a local compiled contract;
  * `env` adds to a native host's environment. @ref LLP 1030.000 §7 */
-export async function open({onProcess, host = 'web', browser, plan, world, size, env, app, session, documents, url, webDist, reuse, device = false, phone: pick, timing = 'agent', touch = 'agent', chrome = 'agent', storage, seed, locale, timeZone, epoch, failFetch, mediaClock = 'wall', lineHeight = null, scale, port } = {}) {
+export async function open({onProcess, host = 'web', browser, plan, world, size, env, app, session, documents, url, webDist, reuse, device = false, phone: pick, timing = 'agent', touch = 'agent', chrome = 'agent', bind, storage, seed, locale, timeZone, epoch, failFetch, mediaClock = 'wall', lineHeight = null, scale, port } = {}) {
   browser ??= 'chrome';
   if (!['chrome', 'firefox', 'webkit'].includes(browser)) throw new Error(`browser: chrome, firefox or webkit, not ${browser}`);
   const facts = launchFacts({seed, locale, timeZone, epoch, failFetch, env});
@@ -825,6 +821,7 @@ export async function open({onProcess, host = 'web', browser, plan, world, size,
   // marked `unshown` in the tree, struck through in a screenshot, and fails an `expect` or a `tap` (LLP 1116 D2). macOS: AppKit's sidebar for a root tab bar, `native: "sidebar-row"` (LLP 1115.002 D3); a `dialog` as its sheet and a popover that is no menu as AppKit's popover, windows of their own that `screenshot <png> window` draws over the window (D7.2, D7.3).
   if (!['agent', 'platform'].includes(chrome) || (chrome !== 'agent' && !['ios', 'host-ios', 'macos'].includes(host))) throw new Error(`chrome: ${chrome} is iOS's and macOS's (agent or platform), not ${host}'s`);
   if (chrome === 'platform') env = { ...(env ?? {}), EXACT_AGENT_CHROME: 'platform' };
+  if (bind) { if (host === 'web') throw new Error('--bind: the web drives its implementations with no agent (packages/<name>/test/web.mjs)'); env = { ...(env ?? {}), EXACT_AGENT_BIND: bind }; }
   // `scale` (--scale <n>): a screenshot's pixels a point, shrunk by area from the device's (an iPhone draws 3), never enlarged.
   if (scale !== undefined && !(Number.isFinite(scale) && scale > 0)) throw new Error(`--scale ${typeof scale === 'string' ? JSON.stringify(scale) : scale}: pixels a point, a number above 0 (1 is the web's CSS pixel; an iPhone draws 3)`);
   // A drive has no app storage unless it names a scratch store apart from the app's real files (`--storage <name>`), kept
@@ -992,7 +989,7 @@ export async function open({onProcess, host = 'web', browser, plan, world, size,
      * `presenter` (seekable native recognition without OS input injection), or `unsupported`. iOS activates and
      * injects; it synthesizes no touch (LLP 1008 §9), so its held contact is recognized (AgentPanIOS.swift), a real one under --touch platform. */
     input: host === 'ios' || host === 'host-ios'
-      ? { contact: true, hold: true, delivery: (kind) => ((kind === 'drag' && carrier.touches || ['press', 'down', 'hold', 'up', 'cancel'].includes(kind) && carrier.touch === 'platform') ? 'platform' : ['contextmenu', 'dblclick', 'hover', 'pinch', 'down', 'move', 'hold', 'up', 'cancel'].includes(kind) ? 'recognized' : kind === 'drag' ? 'unsupported' : 'activation') }
+      ? { contact: true, hold: true, delivery: (kind) => ((kind === 'drag' && carrier.touches || ['press', 'down', 'hold', 'up', 'cancel'].includes(kind) && carrier.touch === 'platform') ? 'platform' : ['contextmenu', 'dblclick', 'hover', 'pinch', 'wheel', 'down', 'move', 'hold', 'up', 'cancel'].includes(kind) ? 'recognized' : kind === 'drag' ? 'unsupported' : 'activation') }
       : host === 'linux' || host === 'windows' || host === 'android'
         ? { contact: true, hold: true, delivery: (kind) => (['down', 'move', 'hold', 'up', 'cancel', 'contextmenu', 'mouse'].includes(kind) ? 'presenter' : 'platform') }
         : { contact: true, hold: true, delivery: () => 'platform' },
@@ -1071,7 +1068,7 @@ export async function open({onProcess, host = 'web', browser, plan, world, size,
       const scrolled = opts.wheel || opts.history !== undefined || (explicit && !await pointOut()) ? null : await s.reveal(node.id);
       // @ref LLP 1080.000 §11 — one whole gesture: press, one straight drag, hold, lift.
       if (opts.drag) return dragTap({ s, carrier, node, target, host, timing, tapRefusal, scrolled }, opts.drag); if (opts.holdState !== undefined) return holdTap({ s, node, target, host, timing, tapRefusal, scrolled }, opts.holdState); // a held state (LLP 1122 D8)
-      const kind = opts.history !== undefined ? 'history' : opts.pinch !== undefined ? 'pinch' : opts.down ? 'down' : opts.drop ? 'drop' : opts.wheel ? 'wheel' : opts.hover ? 'hover' : button[0] ?? 'press';
+      const kind = opts.history !== undefined ? 'history' : opts.pinch !== undefined ? 'pinch' : opts.down ? 'down' : opts.drop ? 'drop' : opts.dragenter ? 'dragenter' : opts.dragleave ? 'dragleave' : opts.wheel ? 'wheel' : opts.hover ? 'hover' : button[0] ?? 'press';
       if ((kind === 'down' || kind === 'press') && s.contact) throw new Error('a contact is already down; use `tap up` or `tap cancel` first'); // one finger at a time
       let at;
       if (kind === 'down' && opts.at) { const b = (await s.layout()).nodes.find((n) => n.id === node.id); if (!b) throw new Error(`view ${node.id} has no box on screen`); at = { x: b.x + opts.at[0], y: b.y + opts.at[1] }; }
@@ -1139,6 +1136,7 @@ export async function open({onProcess, host = 'web', browser, plan, world, size,
     },
     /** Deliver a location to a navigation root (LLP 1038 D11), or set an input's text through the host's text input path; an iframe accepts `{text, selector}` or `{key, selector}` for its guest. */
     async type(target, text) {
+      if (text?.message !== undefined) return postInto(s, target, text.message, { host, timing }); // `type <surface> message <text>`, `post` (LLP 1139.004 D1)
       if (holdOf(target)) { if (s.held) throw new Error(`a drag's finger is down (${s.held}): only reads and the clock until it lifts`); return s.answer('type', target, typeof text === 'object' && text !== null ? JSON.stringify(text) : text); }
       const options = typeof text === 'object' && text !== null ? text : { text };
       if (/^Gamepad/.test(options.key ?? '')) return padOp({ op: 'type', s, target, opts: options, host, timing }); // a pad button on a world canvas (LLP 1127.003 D3)
@@ -1183,8 +1181,7 @@ export async function open({onProcess, host = 'web', browser, plan, world, size,
         const paths = String(value).split('\n').map((p) => p.trim()).filter(Boolean).map((p) => resolve(p));
         const req = { op, ticket, text: paths.join('\n') };
         if (host === 'web') {
-          const tree = (dir, prefix = '') => readdirSync(dir, { withFileTypes: true }).flatMap((e) => e.isDirectory() ? tree(resolve(dir, e.name), `${prefix}${e.name}/`) : e.isFile() ? [{ path: `${prefix}${e.name}`, bytes: readFileSync(resolve(dir, e.name)).toString('base64') }] : []);
-          req.files = paths.map((p) => held.device.capability === 'open-directory' ? { name: basename(p), files: tree(p) }
+          req.files = paths.map((p) => held.device.capability === 'open-directory' ? { name: basename(p), files: folderTree(p) }
             : held.device.capability === 'save-file' ? { name: basename(p), bytes: '' } : { name: basename(p), bytes: readFileSync(p).toString('base64') });
         }
         return s.landed(await s.op(req));
@@ -1197,14 +1194,15 @@ export async function open({onProcess, host = 'web', browser, plan, world, size,
       if (host === 'web') req.files = paths.map(p => ({ name: basename(p), bytes: readFileSync(p).toString('base64') }));
       return s.landed(await s.op(req));
     },
-    /** Move the clock: to an absolute millisecond, by '+N', or to 'settle' — a fixed point at which nothing is in flight (`settled: false` if timers keep starting motion). Timers fire on the way, each at its own time; motion is seeked, never played. The clock lands where the runner says; a timer's refusal is the error. */
-    async clock(spec = 'settle') {
+    /** Move the clock: to an absolute millisecond, by '+N', or to 'settle' — a fixed point at which nothing is in flight (`settled: false` if timers keep starting motion), a task due a commit later (`after(1, …)`) included, for 16 rounds. Timers fire on the way, each at its own time; motion is seeked, never played. The clock lands where the runner says; a timer's refusal is the error. */
+    async clock(spec = 'settle', round = 0) {
       const real = /^\+(\d+(?:\.\d+)?)\s+real$/.exec(String(spec)), time = real ? real[1] : typeof spec === 'string' && spec.startsWith('+') ? spec.slice(1) : spec;
       if (!['settle', 'data'].includes(spec) && !Number.isFinite(Number(time))) throw new MalformedOperation(`clock: not a time: ${spec}; use clock +100, clock +100 real, clock settle or clock data; state shows the current clock`);
       // @ref LLP 1080.000 §12 — an Apple host takes its clock over at the wall under platform timing (and reports a clock it already has otherwise); a seek counts from where it stands. Settle needs no count.
       if (spec !== 'settle' && spec !== 'data' && ['ios', 'host-ios', 'macos', 'host'].includes(carrier.host)) s.now = (await s.op({ op: 'clock', take: true })).clock;
       // `data`: the app's data lands (activation, every request in flight, each `then`), the clock unmoved and no timer fired.
-      if (spec === 'data') { const r = await s.op({ op: 'clock', data: true }); if (r.settled === false) r.diagnostic = r.reason === 'data' ? 'clock data gave up on the data module\'s activation at its bound (20 s); logs say why' : 'clock data gave up on requests still in flight at its bound (20 s); state shows them under pending'; return r; }
+      if (spec === 'data') { const r = await s.op({ op: 'clock', data: true }); if (r.settled === false) r.diagnostic = r.reason === 'data' ? 'clock data gave up on the data module\'s activation at its bound (20 s); logs say why' : 'clock data gave up on requests still in flight at its bound (20 s); state shows them under pending';
+        const soon = r.settled === false ? [] : await nextCommitTasks(s, r.clock); if (soon.length) r.diagnostic = `${soon.map(([name]) => `\`${name}\``).join(', ')} ${soon.length > 1 ? 'are' : 'is'} due a commit later (${soon[0][1]} ms: an \`after(1, …)\`), which a frozen clock reaches only when it moves: \`clock settle\` or \`clock +1\` runs ${soon.length > 1 ? 'them' : 'it'}`; return r; }
       const req = { op: 'clock' };
       if (spec === 'settle') req.settle = true;
       else if (real || typeof spec === 'string' && spec.startsWith('+')) req.to = s.now + Number(time);
@@ -1231,7 +1229,10 @@ export async function open({onProcess, host = 'web', browser, plan, world, size,
       // A store's or the network's reply comes on real time, which a jump does not wait for unless a timer fires first (calendar F10).
       if (!req.settle && r.inflight) r.diagnostic = `${r.inflight} request${r.inflight === 1 ? '' : 's'} still in flight on real time (a store's, a worker's, the network's): \`clock +N\` moved the clock without waiting for ${r.inflight === 1 ? 'it' : 'them'}; \`clock data\` or \`clock settle\` lands them (then \`clock +N\`), and \`state\` lists them under pending. A native view's UIView.animate runs on for up to N ms (at most 1.5 s) of a \`clock +N\`, and \`clock settle\` waits up to 1.5 s for it; one a display link moves runs only with \`clock +N real\``;
       if (!req.settle && r.reason === 'motion') r.diagnostic = [r.diagnostic, 'the app\'s own native animation (UIView.animate, Core Animation) still runs after this jump\'s wait (its length, at most 1.5 s of real time): `clock settle` waits again, `clock +N real` lets it run on'].filter(Boolean).join('; ');
-      if (req.settle && r.settled === false) r.diagnostic = r.reason === 'motion' ? 'clock settle waited 1.5 s for the app\'s own native animation (UIView.animate, Core Animation) and it still runs: `clock +N real` lets it run on, `screenshot` shows where it is' : r.reason === 'device' ? `clock settle stops at held device requests (${(r.tickets ?? []).map(t => '@' + t).join(' ')}); state shows them under pending; answer with tap @N <choice> or type @N <value>` : r.reason === 'requests' ? 'clock settle gave up on requests still in flight at its bound (20 s native); state shows them under pending, and logs a `request N` with no `fulfil N`' : `clock settle did not reach quiescence: ${JSON.stringify(r.world ?? r)}; state world:* busy shows moving values and busy reasons; state shows held input; logs shows reload/refusals`;
+      if (req.settle && r.settled === false) r.diagnostic = r.reason === 'motion' ? 'clock settle waited 1.5 s for the app\'s own native animation (UIView.animate, Core Animation) and it still runs: `clock +N real` lets it run on, `screenshot` shows where it is' : r.reason === 'scroll' ? 'clock settle waited 4 s for a scroll view a finger left moving (a fling\'s glide, a bounce) and it still moves: `clock settle` again waits on, `layout` shows where it is' : r.reason === 'device' ? `clock settle stops at held device requests (${(r.tickets ?? []).map(t => '@' + t).join(' ')}); state shows them under pending; answer with tap @N <choice> or type @N <value>` : r.reason === 'requests' ? 'clock settle gave up on requests still in flight at its bound (20 s native); state shows them under pending, and logs a `request N` with no `fulfil N`' : `clock settle did not reach quiescence: ${JSON.stringify(r.world ?? r)}; state world:* busy shows moving values and busy reasons; state shows held input; logs shows reload/refusals`;
+      const soon = req.settle && r.settled !== false ? await nextCommitTasks(s, r.clock) : []; // an `after(1, …)` the settle's last commit armed
+      if (soon.length && round < 16) { await this.clock(String(soon[soon.length - 1][1])); return this.clock('settle', round + 1); }
+      if (soon.length) Object.assign(r, settleBound(soon));
       return req.settle ? worldTells(s, r) : r; // a drawing world's tells at rest (LLP 1127.000 D1)
     },
     /** The window to `w`x`h` points (reader: repagination): the browser's viewport, a macOS window, the Linux presenter. The wire's
@@ -1351,7 +1352,7 @@ export async function open({onProcess, host = 'web', browser, plan, world, size,
       for (const key of Object.keys(tags)) if (r[key] === undefined) r[key] = tags[key];
       return r;
     },
-    close: carrier.close,
+    close: carrier.close, springboard: carrier.springboard,
   };
   // Platform timing and Android's reader start on a live host clock; seed the driver's relative seeks where the host handed time over (LLP 1080.000 §12; LLP 1107 D1).
   // Headless Android starts at zero, so the same read keeps its seek clock unchanged.
@@ -1383,7 +1384,7 @@ export async function main(argv, injected = {}) {
   // A trace a person's session saved (LLP 1079 D5), read back with no app running.
   if (host === 'trace' && (ops.length === 1 || (!ops.length && (flags.phone || flags.device)))) { const t = await readTrace(ops[0] ?? phoneTrace(phone(flags.phone), resolveApp(flags.app)), traceLocators); console.log(flags.json ? JSON.stringify(t) : renderTrace(t)); return 0; }
   if (!host || !ops.length) {
-    console.error('usage: bun scripts/agent.mjs <web|macos|ios|linux|android|host|host-ios> [--browser chrome|firefox|webkit] [--app <name>] [--plan <file> | --url <url>] [--world <file>] [--device] [--phone <name|udid>] [--session <label>] [--open <document>] [--storage <name>] [--seed <n>] [--locale <tag>] [--time-zone <zone>] [--epoch <ISO|ms>] [--timing platform] [--touch platform] [--chrome platform] [--size <w>x<h>] [--scale <n>] [--port <n>] [--json] <op> [<op> …]\n  desktop carriers open 420x900 unless --size names another viewport; a target is a testId, a view id, or a view\'s exact label or text (`tap "Sky off"`); tap and type scroll a target out of view into it first; web defaults to chrome; EXACT_WEB_BROWSER selects the same option. Install the other engines outside the repo: bunx playwright@1.63.0 install firefox webkit\n  tree | layout | state | logs [--all] | check [light|dark|both] (what is wrong with the screen, in text: run it before a screenshot) | screenshot <png> [window [status|app]] (an iOS simulator\'s window: the display\'s pixels when they are this app\'s, still; `app` the app\'s own drawing) | screenshot <png> compare <reference.png> (where and on which nodes the screen differs from it, drawn in <png>.diff.png and the regions up close in <png>.regions.png; an iOS simulator\'s window with its bars, elsewhere the viewport) | screenshot <png|apng> over <ms> every <ms> [window] | screenshot <path> <canvas> save | screenshot <png> <canvas> from <yaw> <pitch> <distance> | from top <height> | from camera [over <ms> every <ms>] (a world\'s look frame: the clock\'s tick drawn offscreen from that view, with its tells) | state <canvas> draws | state <canvas> look | state <canvas>:<entity> visible | tap <target> [at <x> <y> (a press at a point; plain, it presses what it names) | wheel <dx> <dy> [gesture] [at <x> <y>] [modifiers <Control…>] | drop <path…> | hover | hold-state active|hover|focus-visible|none (held by the host as the real state, until real input on it or none) | history <n> | {"history":n} | mouse | dblclick | contextmenu | auxclick (the middle button) | clicks <1-3> (each [at <x> <y>: from its top left] [modifiers <Shift+Meta…>]) | modifiers <Shift+Meta…> | pinch <scale> [at <x> <y>] | mediasession <action> [seconds] | drag <dx> <dy> [from <x> <y>] [mouse: the left button, desktop pointers] [modifiers <M>] [press <ms>] [over <ms>] [hold <ms>] [during "<op>" …: after the move, the finger down; inside the hold under --touch platform] | drag to <target> [at <x> <y>: from its top left] [same options]] | tap <target> down [at <x> <y>] [modifiers <M>], then tap move [by] <x> <y> [over <ms>] [modifiers <M>] | tap hold <ms> | tap up [modifiers <M>] | tap cancel (the target shows pressed until the lift: "tap row down" "screenshot held.png" "tap up"; under --touch platform one real touch at tap up, the holds, reads and clock +<ms> between run inside it; a word a form does not use is refused; a form a carrier cannot deliver answers unsupported) | type <target> <text…> (a select, date, time, range or checkbox: its value) | type <target> key <Name> [for <ms>] | type <target> copy | cut | paste <text…> (the clipboard event at the focus) | tap @N|@<id> <choice> | type @N|@<id> <value> | clock <ms|+ms|+ms real|settle|data> | sample <x> <y> […] | resize <w>x<h> (the window: web, macOS, Linux) | close (the window\'s close button, asking its beforeunload: web, macOS) | back (the platform\'s Back: an open dialog\'s cancel, else the top sheet dismissed, else the pushed route popped) | prefer <media feature, page fact, posture folded|continuous, segments <cols>x<rows> [gap <points>]> […] | fail fetch <url-prefix> [times <n>] | pass fetch <url-prefix> (LLP 1103: a matching fetch fails as a refused connection; --fail-fetch <url-prefix> arms one before the first data load) | perf [<target>] [during "<op>" …] | perf frames [late <n>]\n       bun scripts/agent.mjs trace <file>   (a development session\'s trace, LLP 1079 D5)\n       bun scripts/agent.mjs trace --phone <name|udid> | trace --device [--app <name>]   (a phone\'s last Save Trace, copied off it)\n       bun scripts/agent.mjs <host> --test <file.test.contract>   (LLP 1017 P7: the file\'s `test` blocks, run here)');
+    console.error('usage: bun scripts/agent.mjs <web|macos|ios|linux|android|host|host-ios> [--browser chrome|firefox|webkit] [--app <name>] [--plan <file> | --url <url>] [--world <file>] [--device] [--phone <name|udid>] [--session <label>] [--open <document>] [--storage <name>] [--seed <n>] [--locale <tag>] [--time-zone <zone>] [--epoch <ISO|ms>] [--timing platform] [--touch platform] [--chrome platform] [--size <w>x<h>] [--scale <n>] [--port <n>] [--json] <op> [<op> …]\n  desktop carriers open 420x900 unless --size names another viewport; a target is a testId, a view id, or a view\'s exact label or text (`tap "Sky off"`); tap and type scroll a target out of view into it first; web defaults to chrome; EXACT_WEB_BROWSER selects the same option. Install the other engines outside the repo: bunx playwright@1.64.1 install firefox webkit\n  tree | layout | state | logs [--all] | check [light|dark|both] (what is wrong with the screen, in text: run it before a screenshot) | screenshot <png> [window [status|app]] (an iOS simulator\'s window: the display\'s pixels when they are this app\'s, still; `app` the app\'s own drawing) | screenshot <png> compare <reference.png> (where and on which nodes the screen differs from it, drawn in <png>.diff.png and the regions up close in <png>.regions.png; an iOS simulator\'s window with its bars, elsewhere the viewport) | screenshot <png|apng> over <ms> every <ms> [window] | screenshot <path> <canvas> save | screenshot <png> <canvas> from <yaw> <pitch> <distance> | from top <height> | from camera [over <ms> every <ms>] (a world\'s look frame: the clock\'s tick drawn offscreen from that view, with its tells) | state <canvas> draws | state <canvas> look | state <canvas>:<entity> visible | tap <target> [at <x> <y> (a press at a point; plain, it presses what it names) | wheel <dx> <dy> [gesture] [at <x> <y>] [modifiers <Control…>] | drop <path…> (files and folders) | dragenter <path…> (a drag of them held over it) | dragleave (it leaves undropped) | hover | hold-state active|hover|focus-visible|none (held by the host as the real state, until real input on it or none) | history <n> | {"history":n} | mouse | dblclick | contextmenu | auxclick (the middle button) | clicks <1-3> (each [at <x> <y>: from its top left] [modifiers <Shift+Meta…>]) | modifiers <Shift+Meta…> | pinch <scale> [at <x> <y>] | mediasession <action> [seconds] | drag <dx> <dy> [from <x> <y>] [mouse: the left button, desktop pointers] [modifiers <M>] [press <ms>] [over <ms>] [hold <ms>] [during "<op>" …: after the move, the finger down; inside the hold under --touch platform] | drag to <target> [at <x> <y>: from its top left] [same options]] | tap <target> down [at <x> <y>] [modifiers <M>], then tap move [by] <x> <y> [over <ms>] [modifiers <M>] | tap hold <ms> | tap up [modifiers <M>] | tap cancel (the target shows pressed until the lift: "tap row down" "screenshot held.png" "tap up"; under --touch platform one real touch at tap up, the holds, reads and clock +<ms> between run inside it; a word a form does not use is refused; a form a carrier cannot deliver answers unsupported) | type <target> <text…> (a select, date, time, range or checkbox: its value; the navigation root: a path, or a deep link as euxy://p/1, through protocol_handlers on macOS and iOS) | type <target> key <Name> [for <ms>] | type <target> copy | cut | paste <text…> | paste --file <path…> | paste --image <png> (the clipboard event at the focus; --file pastes files and folders, --image the data of one image with no file) | type <surface> message <text…> | post [<surface>] <text> (one word or one quoted string: a message the world reads from Input::messages next tick, as the page\'s postMessage(text, surface) sends it; no surface, the page\'s one world) | tap @N|@<id> <choice> | type @N|@<id> <value> | clock <ms|+ms|+ms real|settle|data> | sample <x> <y> […] | resize <w>x<h> | resize <w> <h> (the window: web, macOS, Linux) | close (the window\'s close button, asking its beforeunload: web, macOS) | back (the platform\'s Back: an open dialog\'s cancel, else the top sheet dismissed, else the pushed route popped) | prefer <media feature, page fact, posture folded|continuous, segments <cols>x<rows> [gap <points>]> […] | prefer extension <extension>.<source>=<JSON>|clear (the source of a native module, LLP 1124 D7) | prefer permission.<name> granted|denied|prompt (the permission of a module; --permission <name>=<state> sets it at launch, --bind <extension> answers it from its implementation on Apple and Android; its tickets are `tap @t allow|deny|cancel` and `type @t <value>`, LLP 1133.002 §6) | fail fetch <url-prefix> [times <n>] | pass fetch <url-prefix> (LLP 1103: a matching fetch fails as a refused connection; --fail-fetch <url-prefix> arms one before the first data load) | perf [<target>] [during "<op>" …] | perf frames [late <n>]\n       bun scripts/agent.mjs trace <file>   (a development session\'s trace, LLP 1079 D5)\n       bun scripts/agent.mjs trace --phone <name|udid> | trace --device [--app <name>]   (a phone\'s last Save Trace, copied off it)\n       bun scripts/agent.mjs <host> --test <file.test.contract>   (LLP 1017 P7: the file\'s `test` blocks, run here)');
     return 2;
   }
   const named = flags.storage !== undefined; flags.storage = defaultStore(host, flags);
@@ -1392,25 +1393,25 @@ export async function main(argv, injected = {}) {
   // starts empty unless the drive keeps it (`--keep-storage`, LLP 1086 EX4). A native host empties the whole scratch tree at its first boot (picker.rs
   // `empty_fresh_tree`), refusing one under a link. A drive that compares with a reference starts empty on every host unless kept: what an earlier drive stored is no part of the screen (euxy port); it, or --reset-storage, empties the app server's database too.
   const compares = ops.some((l) => /^\s*screenshot\s.*\scompare\s/.test(l)), fresh = flags.storage !== undefined && (host === 'web' || compares ? !flags.keepStorage : flags.resetStorage);
-  if (fresh && host !== 'web' && !flags.resetStorage) console.error(`note: --storage ${flags.storage} starts empty, as a drive that compares with a reference does (--keep-storage keeps it)`);
+  if (fresh && host !== 'web' && !flags.resetStorage) console.error(`note: --storage ${flags.storage} starts empty, as a drive that compares with a reference does, where one that does not keeps it (--keep-storage keeps it here)`);
   // The app's own server, if it has one (LLP 1116.008 D1): started under the store's lock, and stopped if the launch fails.
-  let served = null; const launch = async () => { served = injected.driveServer ? await injected.driveServer() : await (await import('./verify.mjs')).driveServer(resolveApp(flags.app).dir, flags.storage, undefined, { fresh: fresh && (compares || !!flags.resetStorage) }); try { return await (injected.open ?? open)({ host, browser, env: fresh ? {EXACT_AGENT_STORAGE_FRESH: '1'} : undefined, plan: flags.plan, world: flags.world, size: flags.size, app: flags.app, session: flags.session, documents: flags.open, url: flags.url, device: flags.device, phone: flags.phone, timing: flags.timing, touch: flags.touch, chrome: flags.chrome, storage: flags.storage, seed: flags.seed, locale: flags.locale, timeZone: flags.timeZone, epoch: flags.epoch, failFetch: flags.failFetch, scale: flags.scale, port: flags.port }); } catch (e) { await served?.stop(); throw e; } };
+  let served = null; const launch = async () => { served = injected.driveServer ? await injected.driveServer() : await (await import('./verify.mjs')).driveServer(resolveApp(flags.app).dir, flags.storage, undefined, { fresh: fresh && (compares || !!flags.resetStorage) }); try { return await (injected.open ?? open)({ host, browser, env: fresh ? {EXACT_AGENT_STORAGE_FRESH: '1'} : undefined, plan: flags.plan, world: flags.world, size: flags.size, app: flags.app, session: flags.session, documents: flags.open, url: flags.url, device: flags.device, phone: flags.phone, timing: flags.timing, touch: flags.touch, chrome: flags.chrome, bind: flags.bind, storage: flags.storage, seed: flags.seed, locale: flags.locale, timeZone: flags.timeZone, epoch: flags.epoch, failFetch: flags.failFetch, scale: flags.scale, port: flags.port }); } catch (e) { await served?.stop(); throw e; } };
   // A native named store is one drive's at a time, on its device: another drive's reset would empty it under this one.
   // The device is resolved first, and the drive launches that one, so a default and its name are one lock.
   const locking = host !== 'web' && flags.storage !== undefined, appId = locking ? resolveApp(flags.app).id : null;
-  const device = locking ? (injected.resolveDevice ?? resolveDevice)(host, flags, appId) : null; if (locking && !named) noteDefaultStore({ host, device, appId });
+  const device = locking ? (injected.resolveDevice ?? resolveDevice)(host, flags, appId) : null; if (locking && !named && !fresh) noteDefaultStore({ host, device, appId, dir: resolveApp(flags.app).dir });
   const s = locking
     ? await (injected.exclusiveNativeStore ?? exclusiveNativeStore)({ host: host === 'mac' ? 'macos' : host, device, appId, storage: flags.storage }, launch)
     : await launch();
   let at = 0;
   // One op line; `perf … during "<op>" …` drives its own through here.
-  const step = async (line) => { if (flags.widget) return widgetStep(s, flags.widget, line);
+  const step = async (line) => { if (flags.widget || flags.activity) return widgetStep(s, flags.widget ?? flags.activity, line, flags.activity ? 'activity' : 'widget');
       if (heldRead(s, line, () => step(line))) return null; // inside a played contact, answered at its tap up (agent-drag.mjs)
       const trimmed = line.trim();
       // `type` keeps the text tail, including newlines and \n, which a
       // whitespace split would flatten (notes: a body typed as one line).
       if (/^pick\s/.test(trimmed)) { const [target, value] = typeCommand(trimmed.replace(/^pick/, 'type')); return ['pick', await s.type(target.startsWith('@') ? target : '@'+target, value+'\n')]; }
-      if (/^type(\s|$)/.test(trimmed)) return ['type', await s.type(...typeCommand(trimmed))];
+      if (/^(?:type|post)(\s|$)/.test(trimmed)) return [trimmed.slice(0, 4), await s.type(...(trimmed.startsWith('post') ? postCommand : typeCommand)(trimmed))];
       // A target of several words is quoted inside the op: `tap "Sky off"`.
       const named = trimmed.match(/^(tap|tree|state|layout|perf)\s+"((?:[^"\\]|\\.)*)"(?:\s+([\s\S]*))?$/);
       const [op, ...args] = named ? [named[1], inputJSON(`"${named[2]}"`), ...(named[3] ? named[3].split(/\s+/) : [])] : trimmed.split(/\s+/);
@@ -1426,7 +1427,7 @@ export async function main(argv, injected = {}) {
           else if (args[1] === 'over') {
             if (args[3] !== 'every' || !(args.length === 5 || args.length === 6 && args[5] === 'window')) throw new MalformedOperation('screenshot <png|apng> over <ms> every <ms> [window]');
             r = await s.screenshot(args[0], { over: Number(args[2]), every: Number(args[4]), window: args[5] === 'window' });
-          } else r = await s.screenshot(args[0] ?? 'screenshot.png', args[2] === 'save' ? args[1] : args[1] === 'window', args[2], !!s.held); // inside a held touch, as it stands
+          } else r = await s.screenshot(args[0] ?? 'screenshot.png', args[2] === 'save' ? args[1] : args[1] === 'display' ? 'display' : args[1] === 'window', args[2], !!s.held); // inside a held touch, as it stands
           break;
         case 'tap':
           // The contact's phases (LLP 1035.003 D1) read as `tap move …`,
@@ -1464,23 +1465,22 @@ export async function main(argv, injected = {}) {
           else { const [target, { phase, ...opts }] = tapWords(args, !!s.contact); r = target === null && !opts.midi ? await s.pointer(phase, opts) : await s.tap(target, opts); }
           break;
         case 'clock': r = await s.clock(args.join(' ') || 'settle'); break; case 'sample': { const n = args.map(Number); if (!n.length || n.length % 2 || n.some(v => !Number.isFinite(v))) throw new MalformedOperation('sample <x> <y> [<x> <y> …]: view points; layout <target> gives a node\'s frame'); r = await s.op({ op: 'sample', points: n.flatMap((v, i) => i % 2 ? [] : [[v, n[i + 1]]]) }); break; }
-        case 'resize': r = await s.resize(...resizeArguments(args.join(''))); break;
-        case 'close': if (args.length) throw new MalformedOperation('close takes nothing: it presses the window\'s close button'); r = await s.closeWindow(); break; case 'back': if (args.length) throw new MalformedOperation('back takes nothing: it is the platform\'s Back from what is on top'); r = await s.back(); break;
+        case 'resize': r = await s.resize(...resizeArguments(args)); break; case 'close': if (args.length) throw new MalformedOperation('close takes nothing: it presses the window\'s close button'); r = await s.closeWindow(); break; case 'back': if (args.length) throw new MalformedOperation('back takes nothing: it is the platform\'s Back from what is on top'); r = await s.back(); break;
         case 'prefer': r = await s.prefer(Object.fromEntries(args.flatMap((a, i) => i % 2 ? [] : [[a, args[i + 1]]]))); break;
         case 'fail': case 'pass': r = await s.op(faultRequest(op, args, fetchOrigins(resolve(flags.webDist ?? defaultWebDist())))); break;
         case 'perf': r = await perfOp(s, args, line, step); break;
-        case 'check': r = await checkOp(s, args); break; // LLP 1116.003 D8: the presented screen, judged in text
-        default: throw new MalformedOperation(`unknown op: ${op} (tree, layout, state, logs, check, screenshot, sample, tap, type, pick, reload, clock, resize, close, back, prefer, perf, fail fetch, pass fetch)`);
+        case 'check': r = await checkOp(s, args); break; /* LLP 1116.003 D8: the presented screen, judged in text */ case 'scroll': throw new MalformedOperation(`scroll is not an op: a finger scrolls, \`tap ${args[0] ?? '<scroller>'} drag ${-(Number(args[1]) || 0)} ${-(Number(args[2] ?? 300) || 0)}\` (the content follows the finger: a scroll of 300 down is a drag of -300), a wheel \`tap <scroller> wheel <dx> <dy>\`, a list's row by key \`tap <list> into <key>\``); case 'open': case 'openurl': case 'url': case 'link': throw new MalformedOperation(`${op} is not an op: a link arrives as \`type <root> ${args[0] ?? 'euxy://p/abc'}\`, the root being the node with navigate= (its testId or id, from \`tree\`; LLP 1038 D11); on macOS and iOS a URL with a scheme goes through the app's protocol_handlers as the system delivers it, with no "Open in …?" alert`);
+        default: throw new MalformedOperation(`unknown op: ${op} (tree, layout, state, logs, check, screenshot, sample, tap, type, post, pick, reload, clock, resize, close, back, prefer, perf, fail fetch, pass fetch)`);
       }
       return [op, r, how];
   };
   // What the replies leave out, on stderr, which a --json reader's stdout never carries (agent-test.mjs `driveNotes`).
   const notes = driveNotes(s, { host, storage: flags.storage, origins: flags.url ? [] : loopbackOrigins(resolve(flags.webDist ?? defaultWebDist())) });
-  try {
+  try { if (flags.permission) await s.prefer(flags.permission); // `--permission name=state` (agent-launch.mjs)
     for (const [k, line] of ops.entries()) {
       at = k + 1;
       const done = await step(line);
-      for (const [op, r, how] of [...(s.heldReads?.splice(0) ?? []), ...(done ? [done] : [])]) { console.log(flags.json ? JSON.stringify(r) : render(op, r, how)); await notes(op); }
+      for (const [op, r, how] of [...(s.heldReads?.splice(0) ?? []), ...(done ? [done] : [])]) { console.log(flags.json ? JSON.stringify(r) : render(op, r, how)); await notes(op, r); }
     }
     if (s.contact?.whole?.queue.some((q) => q.line)) throw new Error('the steps after tap <target> down run inside the touch at its tap up, and the drive ended before it');
     await notes('end');
@@ -1495,5 +1495,5 @@ export async function main(argv, injected = {}) {
   }
 }
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  main(process.argv.slice(2)).then((code) => process.exit(code), (e) => { if (refusalMessage(e.reply)) console.error(refusalMessage(e.reply)); else console.error(e.message); if (process.env.EXACT_AGENT_DEBUG || process.argv.includes('--json')) console.error(e.stack); if (e.steps && !refusalMessage(e.reply)) console.error(render('type', {steps:e.steps})); process.exit(e.stale ? 3 : 1); });
+  (await import('./tool-drive.mjs')).toolDrive('agent', process.argv.slice(2)).then(main).then((code) => process.exit(code), (e) => { if (refusalMessage(e.reply)) console.error(refusalMessage(e.reply)); else console.error(e.message); if (process.env.EXACT_AGENT_DEBUG || process.argv.includes('--json')) console.error(e.stack); if (e.steps && !refusalMessage(e.reply)) console.error(render('type', {steps:e.steps})); process.exit(e.stale ? 3 : 1); });
 }

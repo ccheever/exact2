@@ -136,7 +136,7 @@ a second screen, a sheet: A screen is a route, not an `if`; a sheet's root adds 
             text "New" role="heading"
             button press=save buttonStyle="bordered-prominent" aria-label="Save"
               image "symbol:checkmark"
-a confirmation: What can't be undone (Delete, Close Poll) asks first. `aria-label` is the question; actions run their `press` and close (`command="close"`); Cancel has no `press`. Open it with `command="show-modal"` or `showModal(id)`.
+a confirmation: What can't be undone (Delete) asks first. `aria-label` is the question; actions run their `press` and close (`command="close"`); Cancel has no `press`. Open it with `command="show-modal"` or `showModal(id)`.
   state n = 1
   action remove
     n = 0
@@ -184,7 +184,7 @@ a test, and verify: By `testId` or exact text, each test from empty storage. `cl
     clock data
     reload
     expect text "n" == "1"
-composing a screen: One focal point. Emphasis is a part, not paint on a `button`; a longer main action is `buttonStyle="filled"`. Search is `input type="search"` in the `header`, filtering live. An entry form is a grouped list (`grouped-form`); no rows, an `EmptyState` in the list's place.
+composing a screen: One focal point. Emphasis is a part, not paint on a `button`; a longer main action is `buttonStyle="filled"`. Search: `input type="search"` in the `header`, filtered live. A form is a grouped list (`grouped-form`); no rows, an `EmptyState`, its `button` indented under it.
   use SummaryCard from "exact:content"
   column gap=16 padding=16
     SummaryCard(label="Streak", value="12", detail="days in a row", progress=none, symbol=none)
@@ -211,5 +211,5 @@ component App
 - A number field's `min`, `max`, `step` are bare numbers (`min=-40`); with `inputmode="decimal"` a negative `min` gives the pad its ± key.
 - A symbol is `"symbol:<role>"` (roles below); `symbol:sf/<name>` is Apple-only.
 - Not in Contract (`contract vocab <name>` says what to write): abs pow sqrt sort reduce find some every contains padStart parseInt.
-idioms with code (`contract vocab <name>`): scroll loading plural choice screen notfound modal confirm date persist swipe task mutation resource match for if let fn shape props derive action stepper gradients menu search menubar ::placeholder glass bar-buttons haptics status-bar toast titlebar
+idioms with code (`contract vocab <name>`): scroll loading plural choice screen notfound modal confirm date persist swipe task mutation resource match for if let fn shape props derive action stepper gradients menu search menubar ::placeholder glass bar-buttons haptics status-bar toast titlebar share
 symbol roles: back close compose add microphone send search copy select-text more delete forward home person messages notifications settings repeat activity bookmark bookmark-fill document select select-fill reorder sort filter heart heart-fill reply share ellipsis home-fill notifications-fill person-fill photo play play-fill pause pause-fill skip-back-15 skip-forward-15 skip-back-30 skip-forward-30 speaker speaker-mute moon pin link checkmark forward-chevron at hashtag follow sign-out quote feeds calendar book layers lock people stop stop-fill circle alert minus-circle pencil waveform info camera star star-fill minus chart sparkles refresh menu adjust alert-fill info-fill chooser download install open-app download-pending package mail

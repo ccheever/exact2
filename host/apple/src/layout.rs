@@ -324,6 +324,52 @@ impl<D: DataSource> Host<D> {
                 continue;
             };
             let m = self.mirror.entry(id).or_default();
+            // LLP 1131 D2: a scroller takes what its neighbours leave, which
+            // the iOS host asks before drawing it under them: an item of a
+            // column flex container growing by 1 or more with no
+            // `max-height`, which takes every point of the free space (CSS
+            // Flexbox §9.7; a factor under 1 takes only that share).
+            let column = node.parent.and_then(|p| kernel.node(p)).is_some_and(|p| {
+                p.style.display == exact_kernel::Display::Flex
+                    && matches!(
+                        p.style.flex_direction,
+                        exact_kernel::FlexDirection::Column
+                            | exact_kernel::FlexDirection::ColumnReverse
+                    )
+            });
+            let grows = (scrolls
+                && column
+                && node.style.flex_grow >= 1.0
+                && !node.style.mask.has(exact_kernel::StyleId::MaxHeight))
+            .then(|| "true".to_string());
+            if m.props.get("flexGrows") != grows.as_ref() {
+                match grows {
+                    Some(value) => {
+                        batch.props(id, &[("flexGrows", value.clone())], &[]);
+                        m.props.insert("flexGrows".into(), value);
+                    }
+                    None => {
+                        batch.props(id, &[], &["flexGrows"]);
+                        m.props.remove("flexGrows");
+                    }
+                }
+            }
+            // Where a flex text's lines go down its content box (CSS's
+            // anonymous flex item), which its paragraph is laid out from.
+            let offset = kernel.text_line_offset(&node);
+            let offset = (offset > 0.0).then(|| crate::style::num(offset));
+            if m.props.get("textOffset") != offset.as_ref() {
+                match offset {
+                    Some(value) => {
+                        batch.props(id, &[("textOffset", value.clone())], &[]);
+                        m.props.insert("textOffset".into(), value);
+                    }
+                    None => {
+                        batch.props(id, &[], &["textOffset"]);
+                        m.props.remove("textOffset");
+                    }
+                }
+            }
             let field_content = published_content_box(&node, kernel);
             let field_cell = node.is_cell_field();
             if self.layout_withheld
@@ -357,6 +403,7 @@ impl<D: DataSource> Host<D> {
             }
         }
         self.emit_fitted(&visited, &moved, batch);
+        self.emit_extents(!visited.is_empty(), batch);
         self.snap_layout(batch);
         self.emit_sticky(batch);
         self.emit_fragments(batch);
@@ -383,6 +430,36 @@ impl<D: DataSource> Host<D> {
 }
 
 impl<D: DataSource> Host<D> {
+    /// Each root that does not clip publishes its `document_extent` as its
+    /// content, which the presenter's document scrolls: measured whenever
+    /// anything was laid out anew, since a box deep below a root may have
+    /// moved without the root.
+    fn emit_extents(&mut self, laid_out: bool, batch: &mut Batch) {
+        if !laid_out && !self.layout_withheld {
+            return;
+        }
+        let kernel = self.runner.kernel();
+        let extents: Vec<_> = kernel
+            .roots()
+            .into_iter()
+            .filter(|id| !self.native_protected_id(*id))
+            .filter_map(|id| kernel.node(id))
+            .filter(|n| {
+                n.props.str(PropId::SemanticTag) != Some("dialog")
+                    && n.props.str(PropId::Popover).is_none()
+                    && style::effective_overflow(n) == (Overflow::Visible, Overflow::Visible)
+            })
+            .map(|n| (n.id, document_extent(&n, kernel)))
+            .collect();
+        for (id, c) in extents {
+            let m = self.mirror.entry(id).or_default();
+            if self.layout_withheld || m.content != Some(c) {
+                m.content = Some(c);
+                batch.content(id, c.0, c.1);
+            }
+        }
+    }
+
     /// A `fit-content` route's extent (LLP 1075.003 §9.11): the height it
     /// asks for laid out alone at its width, its own height left to its
     /// content (`Kernel::fit_content_height`), so the sheet it sizes never
@@ -476,14 +553,16 @@ pub(super) fn published_content_box(
     let (left, top, right, bottom) = kernel.resolved_padding(node.key).unwrap_or_default();
     let button = exact_kernel::ControlKind::of(node.node_type, node.props)
         == Some(exact_kernel::ControlKind::Button);
-    let side = |id: exact_kernel::StyleId, value: f32| {
-        (!button || node.style.mask.has(id)).then_some(value)
+    // A list's row inset is a side the host places the title by too (LLP 1138).
+    let row = button && kernel.takes_row_inset(node.key);
+    let side = |id: exact_kernel::StyleId, value: f32, inset: bool| {
+        (!button || node.style.mask.has(id) || inset).then_some(value)
     };
     let padding = [
-        side(exact_kernel::StyleId::PaddingTop, top),
-        side(exact_kernel::StyleId::PaddingRight, right),
-        side(exact_kernel::StyleId::PaddingBottom, bottom),
-        side(exact_kernel::StyleId::PaddingLeft, left),
+        side(exact_kernel::StyleId::PaddingTop, top, false),
+        side(exact_kernel::StyleId::PaddingRight, right, row),
+        side(exact_kernel::StyleId::PaddingBottom, bottom, false),
+        side(exact_kernel::StyleId::PaddingLeft, left, row),
     ];
     let written = button && padding.iter().any(Option::is_some);
     (written || x != 0.0 || y != 0.0 || width != f.width || height != f.height).then_some(
@@ -519,8 +598,49 @@ pub(super) fn content_size(node: &NodeRef<'_>, kernel: &Kernel) -> (f32, f32) {
         // A child in a containing block of its own is in another space.
         let own = |c: &NodeRef<'_>| kernel.host_block(c.id).is_some();
         if let Some(c) = kernel.node(child).filter(|c| !own(c)) {
-            w = w.max(c.frame.x - node.frame.x + c.frame.width + pad_right);
-            h = h.max(c.frame.y - node.frame.y + c.frame.height + pad_bottom);
+            // An absolutely positioned box counts by its border box alone:
+            // the end padding follows in-flow content (CSS Overflow 3 §2.2).
+            let (right, bottom) = if c.style.position_type == exact_kernel::PositionType::Absolute {
+                (0.0, 0.0)
+            } else {
+                (pad_right, pad_bottom)
+            };
+            w = w.max(c.frame.x - node.frame.x + c.frame.width + right);
+            h = h.max(c.frame.y - node.frame.y + c.frame.height + bottom);
+        }
+    }
+    (w, h)
+}
+
+/// What a root that does not clip adds to the document: its border box and
+/// every laid-out box below it, down to a box that clips or scrolls (whose
+/// own box counts, not what it holds), as a browser's viewport scrolls the
+/// root element's overflow (CSS Overflow 3 §2.2). The root's end padding is
+/// not added: the viewport is the scroll container, not the root. A box in
+/// another containing block, the top layer, an `svg`'s inside and the head
+/// are elsewhere. Boxes are where layout put them: a transform below the root
+/// is not projected (the presenter projects the root's own).
+pub(super) fn document_extent(root: &NodeRef<'_>, kernel: &Kernel) -> (f32, f32) {
+    let (x0, y0) = (root.frame.x, root.frame.y);
+    let (mut w, mut h) = (root.frame.width, root.frame.height);
+    let mut below = root.children();
+    while let Some(id) = below.pop() {
+        let Some(c) = kernel.node(id) else { continue };
+        let elsewhere = kernel.host_block(id).is_some()
+            || c.node_type.is_svg_element()
+            || c.node_type.is_metadata()
+            || c.props.str(PropId::SemanticTag) == Some("dialog")
+            || c.props.str(PropId::Popover).is_some();
+        if elsewhere {
+            continue;
+        }
+        // An empty box adds nothing, as Chromium's rectangle union skips one; what it holds may.
+        if c.frame.width > 0.0 && c.frame.height > 0.0 {
+            w = w.max(c.frame.x - x0 + c.frame.width);
+            h = h.max(c.frame.y - y0 + c.frame.height);
+        }
+        if style::effective_overflow(&c) == (Overflow::Visible, Overflow::Visible) {
+            below.extend(c.children());
         }
     }
     (w, h)

@@ -267,9 +267,11 @@ called from first pixel on (LLP 1075.003.000.001 D5); its frame clock works
 from its creation. It is for a cheap view that a person would otherwise see
 arrive a frame late over a bare one, a boot splash; a slow view (a map) stays
 behind the gate, which still holds every other tag. The host learns which
-tags opted in without loading the artifact: the build reads the roster (from
-a Mac Catalyst build of the module's sources for iOS) and writes the tags to
-Info.plist (`ExactFirstFrameModules`). A tvOS build reads its roster from a macOS
+tags opted in without loading the artifact: the build reads the roster (for
+iOS, by running the module's sources built for Mac Catalyst, else for an iOS
+simulator, else for macOS, the first whose dependencies have that slice and
+which compiles and runs) and writes the tags to Info.plist
+(`ExactFirstFrameModules`). A tvOS build reads its roster from a macOS
 build, which compiles none of its tvOS code, and so has no first-frame tags. Measured on an iPhone 17 simulator
 (iOS 27), nine cold launches each: a splash attached at the gate drew 70 ms
 (median) after the first frame, which showed the page without it; with
@@ -727,10 +729,24 @@ element.
 when the app’s roster is non-empty, signs it beside the web arm on macOS,
 and puts it in the iOS bundle’s `Frameworks`, where the embedded-dylib loop
 signs it (so the simulator run traverses `codesign`). It reads the
-artifact’s roster from its table (`bun:ffi`; for an iOS build, a macOS slice
-of the same sources); `host/web/build.mjs` reads the web module’s `roster`
-export. A roster tag the artifact lacks fails a production build, named, and
-warns in development.
+artifact’s roster from its table (`bun:ffi`; for an iOS build, the same
+sources run as a Mac Catalyst executable, else as an iOS simulator one under
+`simctl spawn` on the simulator `--sim` or `EXACT_SIM` names, else a booted one
+(with none booted, the build boots one and shuts it down, about 7 s), else as a
+macOS slice). A roster read is kept beside the probe's cached build, whose key
+is the arm cache's: the probe's arguments (the route's SDK and target among
+them), its sources' text, the compiler, the link flags and each library's and
+archive header's path, size and mtime. A build whose probe is unchanged reads
+it there and runs no probe. The roster is the module's table as written, not
+a runtime's answer: a `views` that varies with the OS it runs on (an
+`#available` around a tag or its `firstFrame`) is unsupported, as it already
+was, since the roster the build reads on a Mac or a simulator is the one every
+device's Info.plist carries (the simulator route: 8.6–9.0 s a build against
+2.2–3.9 s, `apps/native-fixture` with an iOS-only dependency, 2026-10-20);
+`host/web/build.mjs`
+reads the web module’s `roster` export. A roster tag the artifact lacks fails
+a production build, named, and warns in development; so does a roster no
+route can read, naming each route's cause.
 
 **The fixture (D8.3)** is `apps/native-fixture`, a fixture app rather than a
 product: `exact-fixture` (the snapshot bit; paints with a layer the ordinary

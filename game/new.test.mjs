@@ -54,7 +54,7 @@ test('a newly generated game builds, reports empty pins and captures without edi
     // An empty baseline is UNVERIFIED. All-mode first-pin agreement
     // is covered by prove's tests; it need not rebuild seven bakes in this fixture.
     await run('bun', [resolve(app, 'proof.mjs')], undefined, 3);
-    assert.match(readFileSync(resolve(app, 'artifacts/linux/proof.txt'), 'utf8'), /UNVERIFIED: no pins — run bun game\/prove.mjs/);
+    assert.match(readFileSync(resolve(app, 'artifacts/linux/proof.txt'), 'utf8'), /UNVERIFIED: no baseline yet .*run bun game\/prove.mjs/);
     await run('bun', [resolve(app, 'proof.mjs'), 'web', '--screenshot-only'], undefined, 3);
     assert.match(readFileSync(resolve(app, 'artifacts/web/proof.txt'), 'utf8'), new RegExp(`PROOF UNVERIFIED ${name} web: 0 failures`));
     const capture = JSON.parse(readFileSync(resolve(app, 'artifacts/web/replies.json'), 'utf8'));
@@ -153,7 +153,7 @@ test('ordinary cargo fmt accepts baked adapters for short and long paths', async
     const {gameDefaults,gameShells}=await import('./app/shells.mjs');
     gameShells(short,gameDefaults(short).game,workspace);
     const build=resolve(short,'.shells/gpu/build.rs');
-    assert.match(readFileSync(build,'utf8'),/"\.\.\/\.\.\/\.\.\/\.\.\/bake\/src\/files\.rs"/);
+    assert.ok(readFileSync(build,'utf8').includes(JSON.stringify(resolve(workspace,'bake/src/files.rs'))));
     const formatted=spawnSync('rustfmt',['--edition','2021','--check',build],{
       encoding:'utf8',env:{...process.env},
     });
@@ -372,7 +372,7 @@ test.skipIf(process.platform !== 'darwin')('generation inside an empty author di
 
 test('a game without logic/Cargo.toml owns a generated member over its own sources', async () => {
   const {gameDefaults, gameShells} = await import('./app/shells.mjs');
-  const dir=mkdtempSync(resolve(tmpdir(),'r12-copy-'));
+  const dir=realpathSync(mkdtempSync(resolve(tmpdir(),'r12-copy-')));
   try {
     cpSync(resolve(import.meta.dir,'new'),resolve(dir,'new'),{recursive:true});
     cpSync(resolve(import.meta.dir,'Cargo.toml'),resolve(dir,'Cargo.toml'));
@@ -654,6 +654,29 @@ test('E10 compact authored manifest survives two bakes byte for byte', async () 
 });
 
 
+test('an app.json edited after its shells: the compiler says the copy is stale, and the bake the builds run consumes the edit (LLP 1139.004 D2)', async () => {
+  const {gameDefaults,gameShells}=await import('./app/shells.mjs');
+  const root=resolve(import.meta.dir,'..'), built=spawnSync('cargo',['build','-q','-p','contract','--bin','contract'],{cwd:root,encoding:'utf8'});
+  assert.equal(built.status,0,built.stderr);
+  const parent=realpathSync(mkdtempSync(resolve(tmpdir(),'stale-shells-'))), app=resolve(parent,'my-game');
+  const build=()=>spawnSync(resolve(root,'target/debug/contract'),['build',resolve(app,'app.contract'),'-o',resolve(parent,'app.plan')],{encoding:'utf8'});
+  try {
+    createGame(app);
+    gameShells(app,gameDefaults(app).game,import.meta.dir);
+    const view=resolve(app,'app.contract');
+    writeFileSync(view,readFileSync(view,'utf8').replace('testId="play"','testId="play" data-pointer-lock="on"'));
+    const manifest=resolve(app,'app.json'), authored=existsSync(manifest)?JSON.parse(readFileSync(manifest,'utf8')):{};
+    writeFileSync(manifest,JSON.stringify({...authored,data:['pointer-lock']},null,2)+'\n');
+    const stale=build();
+    assert.notEqual(stale.status,0);
+    assert.match(stale.stderr,/`data-pointer-lock` is not declared[^]*\.shells\/app\.json is stale[^]*`bun exact\.mjs shells` regenerates it/);
+    gameShells(app,gameDefaults(app).game,import.meta.dir);
+    const fresh=build();
+    assert.equal(fresh.status,0,fresh.stderr);
+  } finally {rmSync(parent,{recursive:true,force:true});}
+}, 300000);
+
+
 test('D6 host shells discover arguments without an engine build dependency', () => {
   const parent=realpathSync(mkdtempSync(resolve(tmpdir(),'d6-shells-'))), app=resolve(parent,'my-game');
   try {
@@ -757,8 +780,8 @@ test('copies of the same game own distinct intermediate build directories', asyn
 test('a game whose type would shadow an engine export or a template item is refused', async () => {
   const {createGame,takenTypes}=await import('./new.mjs');
   const taken=takenTypes();
-  for (const type of ['World','Camera','Transform','Beacon','Options']) assert.ok(taken.has(type),type);
-  for (const name of ['world','camera','beacon']) assert.throws(()=>createGame(resolve(tmpdir(),`zz-${process.pid}`,name)),/would collide/);
+  for (const type of ['World','Camera','Transform','Beacon','Options','Spawner','Collectable','Character']) assert.ok(taken.has(type),type);
+  for (const name of ['world','camera','beacon','spawner','collectable']) assert.throws(()=>createGame(resolve(tmpdir(),`zz-${process.pid}`,name)),/would collide/);
   assert.ok(!taken.has('Garden'));
 });
 
@@ -909,3 +932,52 @@ test('SDK graph drift is repaired by the async lock refresh before locked consum
     assert.ok(steps.findIndex(s => s[0] === 'game-lock') < steps.findIndex(s => s[0] === 'game'));
   } finally { rmSync(root, {recursive:true, force:true}); }
 }, 120000);
+
+// Exercise generated source paths with a tiny library: Cargo must not reuse a
+// previous snapshot's source outside .shells/ when both share the target.
+test('generated logic targets rebuild from each snapshot sharing a Cargo target', async () => {
+  const {gameDefaults,gameShells} = await import('./app/shells.mjs');
+  const root = realpathSync(mkdtempSync(resolve(tmpdir(),'snapshot-targets-'))), target = resolve(root,'target');
+  try {
+    for (const value of [1,2]) {
+      const app = resolve(root,String(value),'tidal');
+      createGame(app);
+      gameShells(app,gameDefaults(app).game,import.meta.dir);
+      const manifest = Bun.TOML.parse(readFileSync(resolve(app,'.shells/logic/Cargo.toml'),'utf8'));
+      writeFileSync(resolve(app,'logic/src/lib.rs'), 'pub fn value() -> u32 { '+value+' }\n');
+      writeFileSync(resolve(app,'.shells/Cargo.toml'), '[workspace]\nmembers = ["logic"]\nresolver = "2"\n');
+      writeFileSync(resolve(app,'.shells/logic/Cargo.toml'), '[package]\nname = "tidal-logic"\nversion = "0.1.0"\nedition = "2021"\n[lib]\npath = '+JSON.stringify(manifest.lib.path)+'\n[[bin]]\nname = "probe"\npath = "probe.rs"\n');
+      writeFileSync(resolve(app,'.shells/logic/probe.rs'), 'fn main() { println!("{}", tidal_logic::value()); }\n');
+      const env = {...process.env,CARGO_TARGET_DIR:target,CARGO_BUILD_BUILD_DIR:target};
+      const built = spawnSync('cargo',['build','--offline','--bin','probe'],{cwd:resolve(app,'.shells'),env,encoding:'utf8'});
+      assert.equal(built.status,0,built.stderr);
+      const result = spawnSync(resolve(target,'debug/probe'),[],{encoding:'utf8'});
+      assert.equal(result.status,0,result.stderr);
+      assert.equal(result.stdout.trim(),String(value),'the product must contain this snapshot source');
+    }
+  } finally {rmSync(root,{recursive:true,force:true});}
+});
+
+test('a snapshot GPU build script reports its SDK watch independently of the invoking workspace', async () => {
+  const {gameDefaults,gameShells} = await import('./app/shells.mjs');
+  const root = realpathSync(mkdtempSync(resolve(tmpdir(),'snapshot-watch-'))), app = resolve(root,'tidal');
+  try {
+    createGame(app);
+    const snapshot = resolve(app,'artifacts/prove/run/src');
+    mkdirSync(resolve(snapshot,'logic/src'),{recursive:true});
+    cpSync(resolve(app,'logic/src/lib.rs'),resolve(snapshot,'logic/src/lib.rs'));
+    gameShells(snapshot,gameDefaults(snapshot).game,import.meta.dir);
+    const script = readFileSync(resolve(snapshot,'.shells/gpu/build.rs'),'utf8');
+    const watch = script.match(/fn level_bake_path\(\)[^{]*\{[^}]*\}/)[0];
+    const source = resolve(root,'watch.rs'), binary = resolve(root,'watch');
+    writeFileSync(source,watch+'\nfn main() { println!("{}", level_bake_path()); }\n');
+    const built = spawnSync('rustc',[source,'-o',binary],{encoding:'utf8'});
+    assert.equal(built.status,0,built.stderr);
+    for (const dir of [snapshot,app]) {
+      const cwd = resolve(dir,'.shells/gpu');
+      const run = spawnSync(binary,[],{cwd,encoding:'utf8'});
+      assert.equal(run.status,0,run.stderr);
+      assert.equal(resolve(cwd,run.stdout.trim()),resolve(import.meta.dir,'bake/src/files.rs'));
+    }
+  } finally {rmSync(root,{recursive:true,force:true});}
+});

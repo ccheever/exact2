@@ -218,6 +218,7 @@ impl<D: DataSource> Runner<D> {
                 receipts,
                 now_ms: self.now_ms,
                 error: Some(RunnerError::NonFiniteClock),
+                stopped_on_request: false,
             };
         }
         // A live clock's cutoff may be behind what its last callback
@@ -227,6 +228,7 @@ impl<D: DataSource> Runner<D> {
                 receipts,
                 now_ms: self.now_ms,
                 error: None,
+                stopped_on_request: false,
             };
         }
         if now_ms > MAX_CLOCK_MS {
@@ -234,10 +236,14 @@ impl<D: DataSource> Runner<D> {
                 receipts,
                 now_ms: self.now_ms,
                 error: Some(RunnerError::ClockOutOfRange),
+                stopped_on_request: false,
             };
         }
         let mut landed = now_ms;
+        let mut stopped_on_request = false;
         self.queues.stopped_on_next = false;
+        // A module's value ticket that timed out by now (LLP 1133.002 §6).
+        self.module_deadlines(now_ms);
         loop {
             // The earliest due timer, deterministic by index on ties.
             let due = self
@@ -289,6 +295,7 @@ impl<D: DataSource> Runner<D> {
                         error: Some(RunnerError::TimerFireLimit {
                             limit: TIMER_FIRE_LIMIT,
                         }),
+                        stopped_on_request: false,
                     };
                 }
                 self.now_ms = self.now_ms.max(at);
@@ -311,11 +318,13 @@ impl<D: DataSource> Runner<D> {
                             receipts,
                             now_ms: self.now_ms,
                             error: Some(e),
+                            stopped_on_request: false,
                         }
                     }
                 }
                 if until_request && self.next_ticket != ticket {
                     landed = self.now_ms;
+                    stopped_on_request = true;
                     break;
                 }
                 continue;
@@ -328,6 +337,7 @@ impl<D: DataSource> Runner<D> {
                         error: Some(RunnerError::TimerFireLimit {
                             limit: TIMER_FIRE_LIMIT,
                         }),
+                        stopped_on_request: false,
                     };
                 }
                 self.now_ms = self.now_ms.max(at);
@@ -344,11 +354,13 @@ impl<D: DataSource> Runner<D> {
                             receipts,
                             now_ms: self.now_ms,
                             error: Some(e),
+                            stopped_on_request: false,
                         };
                     }
                 }
                 if until_request && self.next_ticket != ticket {
                     landed = self.now_ms;
+                    stopped_on_request = true;
                     break;
                 }
                 continue;
@@ -361,6 +373,7 @@ impl<D: DataSource> Runner<D> {
                         error: Some(RunnerError::TimerFireLimit {
                             limit: TIMER_FIRE_LIMIT,
                         }),
+                        stopped_on_request: false,
                     };
                 }
                 self.now_ms = self.now_ms.max(at);
@@ -386,11 +399,13 @@ impl<D: DataSource> Runner<D> {
                             receipts,
                             now_ms: self.now_ms,
                             error: failed.err(),
+                            stopped_on_request: false,
                         };
                     }
                 }
                 if until_request && self.next_ticket != ticket {
                     landed = self.now_ms;
+                    stopped_on_request = true;
                     break;
                 }
                 continue;
@@ -416,6 +431,7 @@ impl<D: DataSource> Runner<D> {
                             receipts,
                             now_ms: self.now_ms,
                             error: Some(e),
+                            stopped_on_request: false,
                         }
                     }
                 }
@@ -433,6 +449,7 @@ impl<D: DataSource> Runner<D> {
                         error: Some(RunnerError::TimerFireLimit {
                             limit: TIMER_FIRE_LIMIT,
                         }),
+                        stopped_on_request: false,
                     };
                 }
                 self.now_ms = if live { self.now_ms.max(at) } else { at };
@@ -455,11 +472,13 @@ impl<D: DataSource> Runner<D> {
                             receipts,
                             now_ms: self.now_ms,
                             error: failed.err(),
+                            stopped_on_request: false,
                         };
                     }
                 }
                 if until_request && self.next_ticket != ticket {
                     landed = self.now_ms;
+                    stopped_on_request = true;
                     break;
                 }
                 continue;
@@ -482,6 +501,7 @@ impl<D: DataSource> Runner<D> {
                     error: Some(RunnerError::TimerFireLimit {
                         limit: TIMER_FIRE_LIMIT,
                     }),
+                    stopped_on_request: false,
                 };
             }
             let row = &self.plan.timers[i];
@@ -512,6 +532,7 @@ impl<D: DataSource> Runner<D> {
                     receipts,
                     now_ms: self.now_ms,
                     error: Some(RunnerError::ClockDidNotAdvance { timer: i }),
+                    stopped_on_request: false,
                 };
             }
             self.now_ms = if live { self.now_ms.max(at) } else { at };
@@ -553,11 +574,13 @@ impl<D: DataSource> Runner<D> {
                         receipts,
                         now_ms: self.now_ms,
                         error: failed.err(),
+                        stopped_on_request: false,
                     };
                 }
             }
             if until_request && self.next_ticket != ticket {
                 landed = self.now_ms;
+                stopped_on_request = true;
                 break;
             }
         }
@@ -578,6 +601,7 @@ impl<D: DataSource> Runner<D> {
                         receipts,
                         now_ms: self.now_ms,
                         error: Some(error),
+                        stopped_on_request: false,
                     }
                 }
             }
@@ -593,6 +617,7 @@ impl<D: DataSource> Runner<D> {
             receipts,
             now_ms: self.now_ms,
             error: None,
+            stopped_on_request,
         }
     }
 

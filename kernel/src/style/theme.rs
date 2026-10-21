@@ -211,23 +211,91 @@ pub fn declared(text: &str) -> Option<Box<str>> {
 
 /// The text a length or number entry `text` names in the bound theme, and
 /// its kind (LLP 1121 D3, D7): a row's whole value naming one of a kind
-/// `takes` admits, exactly; the read recorded as a colour's is. `None`
-/// when it names none.
+/// `takes` admits, exactly; the read recorded as a colour's is. A base name
+/// no entry defines reads the base scale's length in this process's column
+/// ([`super::scale`]), bound theme or none. `None` when it names none.
 pub fn measure(text: &str, takes: impl Fn(Kind, bool) -> bool) -> Option<(Kind, Box<str>)> {
+    measure_at(text, &takes, 0)
+}
+
+/// [`measure`], `depth` aliases in.
+fn measure_at(
+    text: &str,
+    takes: &dyn Fn(Kind, bool) -> bool,
+    depth: u8,
+) -> Option<(Kind, Box<str>)> {
     let text = text.trim();
     if text.is_empty() || text.contains([' ', '(', '#']) {
         return None;
     }
-    let (kind, name, value) = ENTRIES.with(|e| {
+    let (found, defined) = ENTRIES.with(|e| {
         let e = e.borrow();
-        let e = e
-            .as_ref()?
+        let Some(table) = e.as_ref() else {
+            return (None, false);
+        };
+        let found = table
             .iter()
-            .find(|e| e.kind != Kind::Color && *e.name == *text && takes(e.kind, e.varies))?;
-        Some((e.kind, e.name.clone(), e.value.clone()))
-    })?;
-    note(&name);
-    Some((kind, value))
+            .find(|e| e.kind != Kind::Color && *e.name == *text && takes(e.kind, e.varies))
+            .map(|e| (e.kind, e.name.clone(), e.value.clone()));
+        (found, table.iter().any(|e| *e.name == *text))
+    });
+    if let Some((kind, name, value)) = found {
+        note(&name);
+        // A length whose value is a bare base name (an alias, `card.pad =
+        // space.md`; stage 11 B, theme2's (a)): kept unfolded, so it reads
+        // the base here, per host, the design's own definition of it first
+        // (and its edits: the read is recorded). A base name set to itself
+        // reads the scale.
+        let alias = value.trim();
+        if kind == Kind::Length && super::scale::is_base(alias) && depth < 8 {
+            if alias == &*name {
+                return Some((Kind::Length, super::scale::text(alias)?.into()));
+            }
+            return measure_at(alias, takes, depth + 1);
+        }
+        // An expression over base names the design left unset (stage 12
+        // B2): each base read as a bare alias reads it, the design's own
+        // definition first and the read recorded, and the whole folded to
+        // px by the kernel's `calc()`, in this process's column.
+        if kind == Kind::Length && alias.contains('(') && depth < 8 {
+            let bases = super::scale::named_in(alias);
+            if !bases.is_empty() {
+                let text = super::scale::substitute_with(alias, |base| {
+                    measure_at(base, takes, depth + 1).map(|(_, t)| t.into())
+                })?;
+                let px = super::scale::fold(&text)?;
+                return Some((
+                    Kind::Length,
+                    format!("{}px", exact_num::Shortest32(px)).into(),
+                ));
+            }
+        }
+        // A shadow whose lengths are over base names the design left unset
+        // (stage 12 B3): each such length folded as an expression's is, in
+        // this process's column, each base read as a bare alias reads it
+        // (the design's own first, the read recorded, as the row's own rule
+        // on a token that varies says); the rest kept, so the row's codec
+        // reads px.
+        if matches!(kind, Kind::BoxShadow | Kind::TextShadow)
+            && depth < 8
+            && !super::scale::named_in(alias).is_empty()
+        {
+            let length = |k: Kind, varies: bool| k == Kind::Length && takes(kind, varies);
+            let text = super::scale::fold_lengths(alias, |base| {
+                measure_at(base, &length, depth + 1).map(|(_, t)| t.into())
+            })?;
+            return Some((kind, text.into()));
+        }
+        return Some((kind, value));
+    }
+    // A base name no entry defines (LLP 1121 stage 11 B): the scale's length
+    // in this process's column. One the design defines is the design's, even
+    // where this row may not name it.
+    if defined || !super::scale::is_base(text) || !takes(Kind::Length, false) {
+        return None;
+    }
+    note(text);
+    Some((Kind::Length, super::scale::text(text)?.into()))
 }
 
 /// The rows a number token may name (LLP 1121 D3).

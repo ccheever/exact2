@@ -28,6 +28,7 @@ impl Parser {
             sequences: Vec::new(),
             view: Vec::new(),
             params: Default::default(),
+            anatomy: Default::default(),
             span,
         };
         if !matches!(self.peek_kind(), TokenKind::Indent) {
@@ -48,7 +49,7 @@ impl Parser {
                 TokenKind::Ident(w) => {
                     if matches!(
                         w.as_str(),
-                        "props" | "inject" | "provide" | "slot" | "view" | "params"
+                        "props" | "inject" | "provide" | "slot" | "view" | "params" | "parts"
                     ) {
                         let section_span = self.peek().span;
                         if let Some((_, first)) = sections.iter().find(|(name, _)| name == &w) {
@@ -64,6 +65,16 @@ impl Parser {
                                 let (name, span) = p.ident()?;
                                 p.expect_punct(":")?;
                                 let ty = p.type_expr()?;
+                                // `disabled: bool = false`: the euxy port's default.
+                                if p.at_punct("=") {
+                                    return p.err(
+                                        "syntax-expected-newline",
+                                        match w.as_str() {
+                                            "props" => format!("a prop has no default: pass `{name}=<value>` at every use, or declare `{name}: option<{ty}>`, pass `{name}=none` where it is unset, and read it as `match {name} {{ case some(v) => v, case none => <default> }}`"),
+                                            _ => format!("an inject has no default: a component above `provide`s `{name}`"),
+                                        },
+                                    );
+                                }
                                 p.newline()?;
                                 Ok(Param {
                                     name,
@@ -106,10 +117,13 @@ impl Parser {
                             c.slot = true;
                         }
                         "params" => c.params.list = self.params_section()?,
+                        "parts" => c.anatomy.parts = self.parts_section()?,
                         "view" => {
                             self.next();
                             self.newline()?;
                             c.view = self.block(|p| p.node())?;
+                            // `part=` is the anatomy's, never a node's (LLP 1139 D2).
+                            c.anatomy.marks = crate::anatomy::take_marks(&mut c.view);
                         }
                         "state" | "derive" | "resource" | "mutation" | "action" | "task"
                         | "sequence" => {

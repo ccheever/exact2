@@ -112,7 +112,7 @@ pub fn write_entries(entries: &BTreeMap<String, Entry>, out: &Path) -> Result<()
             .values()
             .filter_map(|e| match &e.declaration {
                 Declaration::Widget(w) => Some(
-                    serde_json::json!({"kind":w.kind, "families":w.families, "watchFamilies":w.watch_families, "preview":w.preview}),
+                    serde_json::json!({"kind":w.kind, "families":w.families, "watchFamilies":w.watch_families, "requiresSecrets":w.requires_secrets, "preview":w.preview}),
                 ),
                 Declaration::Activity(_) => None,
             })
@@ -152,7 +152,9 @@ fn viewport_shape(shape: &TypeExpr, file: &File, at: Span) -> Result<(), Vec<Com
             "width" | "height" | "horizontalViewportSegments" | "verticalViewportSegments" => {
                 "number"
             }
-            "prefersReducedMotion" | "prefersReducedTransparency" => "bool",
+            "prefersReducedMotion" | "prefersReducedTransparency" | "accessibilityTextSize" => {
+                "bool"
+            }
             other if exact_runner::viewport::FIELDS.contains(&other) => "string",
             _ => {
                 return Err(fail(format!("`{}`: `{name}` has a field `{}` the viewport fact does not supply; its fields are {}", super::VIEWPORT_SLOT, field.name, exact_runner::viewport::FIELDS.join(", "))));

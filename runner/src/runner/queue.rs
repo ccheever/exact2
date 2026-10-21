@@ -356,7 +356,7 @@ impl<D: DataSource> Runner<D> {
             self.activity_request(source, args)
         } else if self.plan.module_named(source).is_some() {
             // A native module's send (LLP 1133.002 D13): the runner's substitute.
-            self.module_send(m, source)
+            self.module_send(m, source, args)
         } else {
             self.data
                 .answer_for(Target::Mutation(m), &mut self.store, source, args)

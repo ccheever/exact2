@@ -9,7 +9,9 @@
 // agent the authored tablist paints and the bar stays hidden. A tab not yet
 // selected has no routes: the runner builds a tab when it is first selected,
 // as UIKit loads a tab's view (LLP 1075.003 §3.7). Which tabs a root has is
-// NavigationTabs.swift's; what a tab shows, TabFace.swift's.
+// NavigationTabs.swift's; what a tab shows, TabFace.swift's. A tab whose
+// stack shows no bar and has pushed nothing has no navigation controller
+// until it needs one (HeldStackIOS.swift).
 #if os(iOS) || os(tvOS)
 import UIKit
 
@@ -58,22 +60,14 @@ extension NavigationHost {
     /// child is laid out: the app's container when its module, already
     /// connected, returns one; else Exact's tab controller.
     func installTabs(_ p: Projection, _ tabs: NavigationTabs, first: [RouteController], in parent: UIViewController) {
-        var navs: [UINavigationController] = []
-        for (index, panel) in tabs.panels.enumerated() {
-            let stack = index == p.at ? first : base(p.wanted[index])
-            let nav = makeNavigation(first: stack.first?.node)
-            prepareRoutes(stack, in: nav)
-            nav.setViewControllers(stack, animated: false)
-            recordOwned(nav)
-            watchPops(nav)
-            tabNavigations[panel.id] = nav
-            navs.append(nav)
-        }
         tabPanels = tabs.panels.map(\.id)
-        primaryNavigation = navs[p.at]
         routerTab = p.at
-        syncItems(tabs, navs: navs)
-        let owned = askTabContainer(tabs, navs: navs, selected: p.at)
+        let built = tabs.panels.enumerated().map { index, panel in makeTabStack(panel.id, index == p.at ? first : base(p.wanted[index])) }
+        primaryNavigation = built[p.at] as? UINavigationController
+        syncItems(tabs, navs: built)
+        let owned = askTabContainer(tabs, selected: p.at)
+        // (A hatch may have built a held tab's navigation controller.)
+        let navs = tabPanels.compactMap(tabStack)
         tabContainerAsked = presenter.session?.natives.hatchesConnected == true
         let holder: UIViewController = owned ?? {
             let container = UITabBarController()
@@ -84,10 +78,14 @@ extension NavigationHost {
             tablistAppearanceNone = tabs.tablist.wrote("appearance") && tabs.tablist.style["appearance"]?.string == "none"
             if ExactEnv.authoredChrome || tablistAppearanceNone { hideTabBar(container) }
             tabController = container
-            // A path's glyph is sized by the size class: the items again as it changes (and once the bar
-            // is in its window, whose traits it then has).
-            container.tabBar.registerForTraitChanges([UITraitHorizontalSizeClass.self]) { [weak self] (_: UITabBar, _: UITraitCollection) in
+            // A path's glyph is sized by the idiom and the size class: the items again as either changes (and
+            // once the bar is in its window, whose traits it then has).
+            container.tabBar.registerForTraitChanges([UITraitUserInterfaceIdiom.self, UITraitHorizontalSizeClass.self]) { [weak self] (_: UITabBar, _: UITraitCollection) in
                 self?.resyncTabItems()
+            }
+            // A width becoming regular on an iPad makes the bar the floating one, which the stack's wish then hides.
+            container.registerForTraitChanges([UITraitHorizontalSizeClass.self]) { [weak self] (_: UITabBarController, _: UITraitCollection) in
+                self?.refollowFloatingBar()
             }
             return container
         }()
@@ -115,11 +113,17 @@ extension NavigationHost {
     }
 
     /// The module's `tabContainer`, when it is connected: the app's own
-    /// container for these stacks, or nil.
-    private func askTabContainer(_ tabs: NavigationTabs, navs: [UINavigationController], selected: Int) -> UIViewController? {
-        guard let natives = presenter.session?.natives, natives.hatchesConnected else { return nil }
+    /// container for these stacks, or nil. It is handed a held tab's stack,
+    /// whose navigation controller `ExactTab.controller` builds when read;
+    /// a module built before that is handed navigation controllers only.
+    /// A container the app returns holds every tab's: they are all built.
+    private func askTabContainer(_ tabs: NavigationTabs, selected: Int) -> UIViewController? {
+        guard let natives = presenter.session?.natives, natives.hatchesConnected, natives.tabCalls != nil else { return nil }
+        if !natives.takesHeldStacks { for panel in tabPanels where heldTabs[panel] != nil { realize(panel, why: "the module's tabContainer takes navigation controllers only") } }
         let names = tabs.panels.map { $0.props["id"] ?? "" }
-        return natives.tabContainerHatch(names: names, nodes: tabs.tabs.map(\.id), selected: selected, controllers: navs) as? UIViewController
+        let owned = natives.tabContainerHatch(names: names, nodes: tabs.tabs.map(\.id), selected: selected, controllers: tabPanels.compactMap(tabStack)) as? UIViewController
+        if owned != nil { for panel in tabPanels where heldTabs[panel] != nil { realize(panel, why: "the app's container holds every tab's") } }
+        return owned
     }
 
     /// At a cold launch the module connects after first pixel: Exact's tab
@@ -140,8 +144,8 @@ extension NavigationHost {
         // Offer the stacks in place: a container the hook returns takes them from Exact's, as UIKit moves any
         // child. Emptying Exact's first would lose its bar's selection: a tab bar controller emptied and filled
         // again keeps its selected index but shows no tab selected (iOS 26 and 27).
-        let navs = tabPanels.compactMap { tabNavigations[$0] }
-        guard let owned = askTabContainer(tabs, navs: navs, selected: routerTab) else {
+        guard let owned = askTabContainer(tabs, selected: routerTab) else {
+            let navs = tabPanels.compactMap(tabStack)
             if container.viewControllers?.count != navs.count {
                 presenter.session?.log("hatch: tabContainer took the tabs' stacks but returned no container; Exact's has them back")
                 container.setViewControllers(navs, animated: false)
@@ -170,7 +174,7 @@ extension NavigationHost {
     /// its containers again (the router's stacks are untouched).
     func reshape(_ p: Projection) {
         let panels = p.tabs?.panels.map(\.id) ?? []
-        guard primaryNavigation != nil, panels != tabPanels else { return }
+        guard primaryOwner != nil, panels != tabPanels else { return }
         presenter.session?.log("navigation: the tabs changed; the containers are built again")
         if tabOwner != nil { retireTabs() } else if let nav = primaryNavigation {
             retireStack(nav)
@@ -200,40 +204,63 @@ extension NavigationHost {
                 tablistHidBar = hidden && !authored
             }
         }
-        let navs = tabs.panels.compactMap { tabNavigations[$0.id] }
-        guard navs.count == tabs.panels.count else { return }
+        guard tabs.panels.allSatisfy({ tabStack($0.id) != nil }) else { return }
+        // A held tab that now pushes or shows a bar, or whose controller a
+        // hatch was handed, gets its navigation controller, its route moved
+        // in first: the selected tab's push animates from it in `sync`
+        // (HeldStackIOS). Not while a transition runs, whose controllers it
+        // would replace: it waits for its end.
+        let waits = realizeWaits
+        for (index, panel) in tabs.panels.enumerated() where heldTabs[panel.id].map({ $0.built != nil || needsNavigation(base(p.wanted[index])) }) == true {
+            if waits { syncAfterTransition() } else { realize(panel.id, why: "it pushes or shows a bar") }
+        }
+        let navs = tabs.panels.compactMap { tabStack($0.id) }
         // A tab's stack is empty until the runner builds the tab, when it is
         // first selected (LLP 1075.003 §3.7): its first routes arrive here,
         // unanimated, and its bar shows as its first route says, as a stack
         // built with them would (`makeNavigation`).
-        let fill = { (nav: UINavigationController, stack: [RouteController]) in
-            guard nav.viewControllers.isEmpty, let first = stack.first else { return }
+        let fill = { (stack: UIViewController, routes: [RouteController]) in
+            guard stack.stackRoutes.isEmpty, let first = routes.first else { return }
+            if let held = stack as? HeldStack { return self.needsNavigation(routes) ? () : self.show(routes, in: held) }
+            guard let nav = stack as? UINavigationController else { return }
             nav.setNavigationBarHidden(!(self.barShows(nav) && self.bar(of: first.node, pushed: false) != .hidden), animated: false)
-            self.prepareRoutes(stack, in: nav)
-            nav.setViewControllers(stack, animated: false)
+            self.prepareRoutes(routes, in: nav)
+            nav.setViewControllers(routes, animated: false)
             self.recordOwned(nav)
         }
-        for (index, nav) in navs.enumerated() where index != p.at {
-            let stack = base(p.wanted[index])
-            fill(nav, stack)
-            prepareRoutes(stack, in: nav)
-            if nav.viewControllers.count != stack.count || !zip(nav.viewControllers, stack).allSatisfy({ $0 === $1 }) {
-                nav.setViewControllers(stack, animated: false)
+        for (index, stack) in navs.enumerated() where index != p.at {
+            let routes = base(p.wanted[index])
+            fill(stack, routes)
+            if let held = stack as? HeldStack { if !needsNavigation(routes) { show(routes, in: held) }; continue }
+            guard let nav = stack as? UINavigationController else { continue }
+            prepareRoutes(routes, in: nav)
+            if nav.viewControllers.count != routes.count || !zip(nav.viewControllers, routes).allSatisfy({ $0 === $1 }) {
+                nav.setViewControllers(routes, animated: false)
                 recordOwned(nav)
             }
         }
         // A tab selected for the first time brings its routes: its bar is
         // projected before it is shown, where nothing animates in.
         fill(navs[p.at], base(p.wanted[p.at]))
-        if routerTab != p.at { prepareRoutes(base(p.wanted[p.at]), in: navs[p.at]) }
+        if routerTab != p.at, !(navs[p.at] is HeldStack && needsNavigation(base(p.wanted[p.at]))) { prepareRoutes(base(p.wanted[p.at]), in: navs[p.at]) }
         // @ref LLP 1038 D6 — a tab change swaps immediately.
-        if let container = tabController, container.selectedIndex != p.at { container.selectedIndex = p.at }
+        if let container = tabController, container.selectedIndex != p.at {
+            container.selectedIndex = p.at
+            refollowFloatingBar() // (no push or pop: the stack it shows keeps its wish on an iPad)
+        }
         if routerTab != p.at {
             routerTab = p.at
             if tabController == nil { presenter.session?.natives.tabsHatch(nil, event: 2, index: p.at) }
         }
-        primaryNavigation = navs[p.at]
+        primaryNavigation = navs[p.at] as? UINavigationController
         syncItems(tabs, navs: navs)
+    }
+
+    /// The file a tab's raster source names: the app's own under `app:/`,
+    /// else a bundled asset of the session's resolver.
+    private func rasterURL(_ source: String) -> URL? {
+        if source.hasPrefix("app:/") { return AppFiles.url(source) }
+        return presenter.session?.app.resolver?.url(source, maximumBytes: 4 << 20)
     }
 
     /// The items, from the authored tabs: each tab's own item, written in
@@ -244,22 +271,24 @@ extension NavigationHost {
         if let (tabs, navs) = tabItemsSource { syncItems(tabs, navs: navs) }
     }
 
-    private func syncItems(_ tabs: NavigationTabs, navs: [UINavigationController]) {
+    private func syncItems(_ tabs: NavigationTabs, navs: [UIViewController]) {
         tabItemsSource = (tabs, navs)
         let faces = tabs.tabs.map(TabFace.init)
         // A tab's test id is its item's identifier, which XCUITest and
         // Maestro address it by (LLP 1116 D2); without one, its symbol or title.
         let ids = zip(tabs.tabs, faces).map { tab, face in tab.props["testId"] ?? face.base.flatMap { FaceSymbol.isPath($0) ? nil : $0 } ?? face.title }
-        // The size class sizes a path's glyph (`FaceSymbol.tabBarPoints`).
+        // The idiom and the size class size a path's glyph (`FaceSymbol.tabBarPoints`).
         // The bar's traits once it is in its window; before, the page's.
         let traits = tabController.flatMap { $0.tabBar.window == nil ? nil : $0.tabBar.traitCollection }
             ?? presenter.session?.view?.traitCollection ?? UITraitCollection.current
-        let width = traits.horizontalSizeClass.rawValue
-        let signature = zip(faces, ids).map { face, id in "\(width)|\(id)|\(face.base ?? "")|\(face.title)|\(face.disabled)|\(face.accessibilityDisabled)|\(face.badge ?? "")" }
+        let points = FaceSymbol.tabBarPoints(traits)
+        let signature = zip(faces, ids).map { face, id in "\(points)|\(id)|\(face.base ?? "")|\(face.raster ?? "")|\(face.title)|\(face.disabled)|\(face.accessibilityDisabled)|\(face.badge ?? "")" }
         for (index, (nav, face)) in zip(navs, faces).enumerated() where !tabItems.indices.contains(index) || tabItems[index] != signature[index] {
             let item: UITabBarItem = nav.tabBarItem
-            // An svg-only icon's path (stage 9 A2) at a tab bar's glyph size, one image for both states.
+            // An svg-only icon's path (stage 9 A2) at a tab bar's glyph size, one image for both states;
+            // a bundled raster the same way, as a hand-built bar takes a custom image.
             let image = face.base.flatMap { FaceSymbol.image($0, points: FaceSymbol.tabBarPoints(traits)) }
+                ?? face.raster.flatMap { rasterURL($0) }.flatMap { TabFace.rasterImage(at: $0, points: FaceSymbol.tabBarPoints(traits)) }
             item.title = face.title
             item.image = image
             item.selectedImage = face.base.flatMap { FaceSymbol.isPath($0) ? nil : UIImage(systemName: $0 + ".fill") } ?? image
@@ -329,7 +358,7 @@ extension NavigationHost {
     /// The bar would select `controller`: press its authored tab.
     func selectTab(_ controller: UIViewController) {
         guard let root = container, let tabs = NavigationTabs.of(root, presenter),
-              let panel = tabNavigations.first(where: { $0.value === controller })?.key,
+              let panel = tabPanels.first(where: { tabStack($0) === controller }),
               let index = tabs.panels.firstIndex(where: { $0.id == panel }) else { return }
         let screen = reselectedRoot(index), id = tabs.tabs[index].id
         _ = act(id, 0)
@@ -345,9 +374,9 @@ extension NavigationHost {
     /// (LLP 1038 D12), and another tab's tap selects it: nil for both. Read
     /// before the tab's press, scrolled after it (`scrollToTop`).
     func reselectedRoot(_ index: Int) -> RouteController? {
-        guard index == routerTab, tabPanels.indices.contains(index), let stack = tabNavigations[tabPanels[index]],
-              stack.viewControllers.count == 1, presentedNavigations.isEmpty else { return nil }
-        return stack.topViewController as? RouteController
+        guard index == routerTab, tabPanels.indices.contains(index), let routes = tabStack(tabPanels[index])?.stackRoutes,
+              routes.count == 1, presentedNavigations.isEmpty else { return nil }
+        return routes.last as? RouteController
     }
 
     /// A route's content scroller (`contentScroller`, the status bar's) to
@@ -371,7 +400,7 @@ extension NavigationHost {
     /// the bar. So the scroller is pulled past its top and put at rest there,
     /// unanimated: no frame shows the pull. This is the one place Exact moves
     /// a large title itself.
-    private func restAtTop(_ sv: UIScrollView, in c: RouteController) {
+    func restAtTop(_ sv: UIScrollView, in c: RouteController) {
         sv.contentOffset.y = -sv.adjustedContentInset.top
         // tvOS has no large titles.
         #if !os(tvOS)
@@ -404,6 +433,7 @@ extension NavigationHost {
             // Its routes may go into the next containers (a remount, new tabs).
             nav.setViewControllers([], animated: false)
         }
+        for held in tabPanels.compactMap({ heldTabs[$0] }) { held.hold(nil) }
         if tabsHatched, tabController != nil { presenter.session?.natives.tabsHatch(tabController, event: 1) }
         if tabController == nil, tabOwner != nil { presenter.session?.natives.tabsHatch(nil, event: 3) }
         if let holder = tabOwner {
@@ -418,6 +448,7 @@ extension NavigationHost {
         tabContainerAsked = false
         routerTab = -1
         tabNavigations = [:]
+        heldTabs = [:]
         tabPanels = []
         tabItems = []
         tabItemsSource = nil
@@ -442,6 +473,7 @@ extension NavigationHost {
     /// nothing, after the sync that measured it, so the covers settle only
     /// when they are measured where it now is.
     func followAuthoredTablist() {
+        if ExactEnv.authoredChrome, !syncing { fitOwner() }
         guard tablistAppearanceNone, !syncing, let view = presenter.session?.view,
               let list = adoptedTablist.flatMap({ presenter.views[$0] }) else { return }
         if list.convert(list.bounds, to: view) != measuredTablist { reportCovers() }
@@ -453,4 +485,47 @@ extension NavigationHost {
             !(tablist.wrote("appearance") && tablist.style["appearance"]?.string == "none")
     }
 }
+
+#if os(iOS)
+extension UITabBarController {
+    /// iPadOS 18's floating tab bar, in a regular width: no `UITabBar` in the
+    /// window (`tabBar` is out of it), but a list of the tabs' items at the
+    /// top, a collection view whose first section has a cell per tab, in
+    /// their order, and whose others are empty (iPadOS 27 keeps a second,
+    /// for tabs a person adds), beside the selected tab's view. Its cells
+    /// carry their items' accessibility identifiers (the tabs' test ids,
+    /// `syncItems`), or their titles as labels, as the agent's aim reads
+    /// them: a list of the same shape whose cells name other things (a
+    /// hatch's) is not it. Nil where the bar is UIKit's classic one, where
+    /// no such list shows, or where two would.
+    var floatingTabList: UICollectionView? {
+        guard tabBar.window == nil, let controllers = viewControllers, case let items = controllers.compactMap(\.tabBarItem), !items.isEmpty, items.count == controllers.count,
+              let selected = selectedViewController?.viewIfLoaded else { return nil }
+        func names(_ cell: UIView, _ item: UITabBarItem) -> Bool {
+            let id = item.accessibilityIdentifier ?? ""
+            if id.isEmpty, (item.title ?? "").isEmpty { return false }
+            var pending = [cell]
+            while !pending.isEmpty {
+                let v = pending.removeFirst()
+                if id.isEmpty ? v.accessibilityLabel == item.title : v.accessibilityIdentifier == id { return true }
+                pending += v.subviews
+            }
+            return false
+        }
+        var found: [UICollectionView] = [], pending: [UIView] = view.subviews
+        while !pending.isEmpty {
+            let v = pending.removeFirst()
+            guard v !== selected, !v.isHidden, !(v is NodeView) else { continue }
+            if let list = v as? UICollectionView, list.numberOfSections >= 1, list.numberOfItems(inSection: 0) == items.count,
+               (1..<list.numberOfSections).allSatisfy({ list.numberOfItems(inSection: $0) == 0 }) {
+                let shown = list.indexPathsForVisibleItems.filter { $0.section == 0 }
+                if !shown.isEmpty, shown.allSatisfy({ path in list.cellForItem(at: path).map { names($0, items[path.item]) } ?? false }) { found.append(list) }
+                continue
+            }
+            pending += v.subviews
+        }
+        return found.count == 1 ? found[0] : nil
+    }
+}
+#endif
 #endif

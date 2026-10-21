@@ -131,8 +131,21 @@ const changed = (r, topic) => {
   if (!t.again) journal.push(`t=${clock.now} changed ${topic}: ticket ${t.id} (${r.name}) lands first, then it is asked again`);
   t.again = true;
 };
-const announce = (topic, why) => commit(() => { const s = watched.get(topic); for (const r of Resources) if (s?.has(r.source)) changed(r, topic); }, `${why} ${topic}`);
+const announce = (topic, why) => commit(() => { const s = watched.get(topic), m = moduleWatched.get(topic); for (const r of Resources) if (s?.has(r.source) || m?.has(r.source)) changed(r, topic); }, `${why} ${topic}`);
 const watch = topic => (watched.get(topic) ?? watched.set(topic, new Set()).get(topic)).add(watching);
+// A native module's name called from data code (LLP 1133.002 D14): admitted by
+// the page runtime's modules.js as a Contract read is; a source's reader is
+// asked again when its answer changes, as a topic's is.
+// Its source's readers are the answers' that read it last: each answer's own
+// reads replace the last's, as the runner's `watching` does.
+const moduleWatched = new Map(); // module key -> sources
+globalThis.__exact_module = body => {
+  const key = `${body.extension}.${body.source}`;
+  if (body.source && watching) (moduleWatched.get(key) ?? moduleWatched.set(key, new Set()).get(key)).add(watching);
+  return globalThis.exact?.extensions?.call?.(body) ?? Promise.resolve({ error: 'NotSupportedError' });
+};
+(globalThis.exact ??= {}).announceModule = topic => announce(topic, 'module');
+globalThis.exact.moduleReaders = key => Resources.filter(r => moduleWatched.get(key)?.has(r.source)).map(r => r.name);
 // The documents the answers watch, for the agent's `state.watches`, as the runner lists them.
 (globalThis.exact ??= {}).watchState = () => [...watched.keys()].sort().flatMap(t => {
   const m = /^doc-watch(-recursive)?:(.*)$/.exec(t);
@@ -271,7 +284,9 @@ function storageOf(grants) {
     if (!options || typeof options !== 'object') return Promise.reject(new TypeError(`${api}: options must be {maxDimension, maxBytes}`));
     if (!Number.isInteger(d) || d < 1 || d > 8192) return Promise.reject(new TypeError(`${api}: maxDimension must be an integer from 1 to 8192`));
     if (!Number.isInteger(b) || b < 1 || b > 67108864) return Promise.reject(new TypeError(`${api}: maxBytes must be an integer from 1 to 67108864`));
-    const limits = { maxDimension: d, maxBytes: b };
+    const type = options.type === undefined ? 'image/jpeg' : options.type;
+    if (type !== 'image/jpeg' && type !== 'image/png') return Promise.reject(new TypeError(`${api}: type must be "image/jpeg" or "image/png"`));
+    const limits = { maxDimension: d, maxBytes: b, type };
     return (admitted ? queued(`compressImage ${from}`, () => files().then(f => f.compressImage(from, to, limits))) : denied('fs.compressImage')).catch(refused);
   };
   // `fs.watch(path, {recursive})` (LLP 1069.010.000 D1): the answer depends
@@ -357,6 +372,7 @@ export function install(data, mixed = false, modules = null) {
     // The store as the module sees it (LLP 1018): a read marks the answer.
     const seen = createSecretFacade(store, tsGrantSet, kept);
     asking = target ?? name; watching = name;
+    for (const sources of moduleWatched.values()) sources.delete(name);
     const call = answering.call = { stream: null, mutation, name: target ?? name, turn: true }, target_ = target ?? name;
     // What the source sent goes once the commit that asked it stands: an answer in flight's (a resource's, or a mutation's that
     // answers with a promise) whatever it then answers, a refused commit saying so (LLP 1016.000 D7, amended 2026-10-18).

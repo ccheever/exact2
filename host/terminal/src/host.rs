@@ -195,6 +195,11 @@ pub struct Host<D: DataSource> {
     /// frame written before the key was read had shown. No timer.
     pub frames: u64,
     pub(crate) born: HashMap<ViewId, u64>,
+    /// Each `autofocus` control already offered the focus: HTML's
+    /// candidates, each taken once, when it arrives with nothing focused.
+    /// One that can't take the focus yet (disabled, hidden, in a closed
+    /// layer) is offered when it can, as the Linux host has it.
+    autofocused: std::collections::HashSet<exact_kernel::NodeKey>,
     /// Largest settled tree since the last trim; halve before sweeping again.
     trim_at: usize,
     /// The frame count when the keys being handled were read.
@@ -226,8 +231,13 @@ impl<D: DataSource> Host<D> {
     ) -> Result<Host<D>, String> {
         exact_kernel::style::link_segments();
         exact_kernel::timeline::link();
+        // The terminal's own column (LLP 1121 stage 11 B2): the web's in every
+        // metric, cells for the base scale's spacings, no corners.
+        exact_kernel::style::metrics::set_column(exact_kernel::style::metrics::Column::Terminal);
         let mut kernel = Kernel::new(Box::new(crate::measure::CellMeasurer::default()));
         kernel.set_cell_borders(true);
+        // And its spaces in whole cells (LLP 1121 stage 11 (c)).
+        kernel.set_cell_spaces(true);
         // LLP 1104 D4/D7: the user's cell face, at one 16px layout row.
         let font = exact_kernel::ControlFont {
             family: "ui-monospace".into(),
@@ -281,6 +291,7 @@ impl<D: DataSource> Host<D> {
             outbound: Vec::new(),
             frames: 0,
             born: HashMap::new(),
+            autofocused: Default::default(),
             trim_at: 0,
             read_at: 0,
             arm: true,
@@ -335,6 +346,12 @@ impl<D: DataSource> Host<D> {
     /// The grid size.
     pub fn size(&self) -> (usize, usize) {
         (self.cols, self.rows)
+    }
+
+    /// The running plan, by the SHA-256 of its bytes: what every host's
+    /// agent names it by (the runner's inspection digest).
+    pub fn plan_digest(&self) -> &str {
+        self.runner.inspection_digest()
     }
 
     /// Whether an action asked the host to close.
@@ -426,8 +443,12 @@ impl<D: DataSource> Host<D> {
         if self.focus.is_some_and(|f| !self.focusables().contains(&f)) {
             self.focus = None;
         }
+        // An `autofocus` control takes the focus once, as it arrives with
+        // nothing focused; one arriving while something is (or after a blur
+        // or a click away) is spent, never refilling an empty focus later.
+        let fresh = self.autofocus();
         if self.focus.is_none() {
-            self.focus = self.autofocus();
+            self.focus = fresh;
             if let Some(f) = self.focus {
                 self.caret = self.value(f).graphemes(true).count();
             }
@@ -506,6 +527,9 @@ impl<D: DataSource> Host<D> {
             images: &self.images,
             center: self.mode == Mode::Fullscreen,
             env: self.runner.kernel().env(),
+            // A disabled or inert box is still hit, and swallows the press
+            // (`handler`), so nothing beneath it takes it either.
+            presses: Box::new(|id| self.runner.handlers_of(id).contains(&EventKind::Press)),
         }
     }
 
@@ -658,11 +682,46 @@ impl<D: DataSource> Host<D> {
         let mut at = Some(view);
         while let Some(id) = at {
             if self.runner.handlers_of(id).contains(&kind) {
-                return Some(id);
+                // A box that is disabled or inert swallows the press: it
+                // runs neither its own nor an ancestor's (a control keeps
+                // its own rule).
+                return (kind != EventKind::Press || self.presses(id) || self.is_control(id))
+                    .then_some(id);
             }
             at = self.kernel().node(id)?.parent;
         }
         None
+    }
+
+    fn is_control(&self, id: ViewId) -> bool {
+        self.kernel().node(id).is_some_and(|n| {
+            matches!(
+                n.node_type,
+                NodeType::Pressable | NodeType::TextInput | NodeType::Control
+            )
+        })
+    }
+
+    /// Whether `id`'s own `press` can run: not while it is disabled, nor
+    /// inside an `inert` subtree (a control keeps its own rule).
+    fn presses(&self, id: ViewId) -> bool {
+        let kernel = self.kernel();
+        let Some(node) = kernel.node(id) else {
+            return false;
+        };
+        if node.props.bool(PropId::Disabled) == Some(true)
+            || !self.runner.handlers_of(id).contains(&EventKind::Press)
+        {
+            return false;
+        }
+        let mut at = Some(id);
+        while let Some(n) = at.and_then(|a| kernel.node(a)) {
+            if n.props.bool(PropId::Inert) == Some(true) {
+                return false;
+            }
+            at = n.parent;
+        }
+        true
     }
 
     pub(crate) fn is_field(&self, id: ViewId) -> bool {
@@ -722,13 +781,24 @@ impl<D: DataSource> Host<D> {
         out
     }
 
-    fn autofocus(&self) -> Option<ViewId> {
+    /// The first `autofocus` control not yet offered the focus; every such
+    /// control now present is spent.
+    fn autofocus(&mut self) -> Option<ViewId> {
         let kernel = self.runner.kernel();
-        self.focusables().into_iter().find(|id| {
-            kernel
-                .node(*id)
-                .is_some_and(|n| n.props.bool(PropId::Autofocus) == Some(true))
-        })
+        let fresh: Vec<(ViewId, exact_kernel::NodeKey)> = self
+            .focusables()
+            .into_iter()
+            .filter_map(|id| {
+                let n = kernel.node(id)?;
+                (n.props.bool(PropId::Autofocus) == Some(true)
+                    && !self.autofocused.contains(&n.key))
+                .then_some((id, n.key))
+            })
+            .collect();
+        self.autofocused
+            .retain(|key| kernel.node_by_key(*key).is_some());
+        self.autofocused.extend(fresh.iter().map(|(_, key)| *key));
+        fresh.first().map(|(id, _)| *id)
     }
 
     /// Move the focus to a node (or nowhere), telling the app.
@@ -911,8 +981,15 @@ impl<D: DataSource> Host<D> {
         }
         let key = self.runner.kernel().node(id).map(|node| node.key);
         if let Some(target) = self.handler(id, EventKind::Press) {
-            if take && (self.layers.is_empty() || self.focusables().contains(&id)) {
-                self.focus(Some(id));
+            // What can hold the focus takes it (the node pressed, else the
+            // control its press is); a press on what cannot (a pressable
+            // box) moves it away, as a click on a `div` does, never
+            // scrolling the box into view as a focus would.
+            let focusables = if take { self.focusables() } else { Vec::new() };
+            if let Some(f) = [id, target].into_iter().find(|f| focusables.contains(f)) {
+                self.focus(Some(f));
+            } else if take && self.layers.is_empty() {
+                self.focus(None);
             }
             self.dispatch(target, Event::Press);
         }
@@ -1122,3 +1199,7 @@ mod invocation_tests;
 #[cfg(test)]
 #[path = "host_clock_tests.rs"]
 mod clock_tests;
+
+#[cfg(test)]
+#[path = "host_scale_tests.rs"]
+mod scale_tests;

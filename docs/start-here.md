@@ -11,8 +11,8 @@ The only required reading; the rest is lookup.
    are a `list`'s rows: its children are rows, so draw no separator and no press. A
    colour or size names a role (`-exact-secondary-label`, `font="-exact-footnote"`; `bun
    <exact2>/scripts/no-tells.mjs .` lists literals). Leave the accent unsaid: it is the
-   platform's blue, and a filled button keeps its white label (`check` reports a pale
-   accent's low contrast). A brand is an `app.tamber`; a colour names a role or
+   platform's blue, and a filled button keeps its white label (a pale accent under
+   it is warned, `tamber-contrast`). A brand is an `app.tamber`; a colour names a role or
    one of its tokens (`recipes/tamber.md`). A card is `-exact-secondary-background`
    (`-exact-secondary-grouped-background` on a grouped page).
 3. **Design your content:** a focal point (big type, a fill, a shape), a hierarchy in
@@ -22,7 +22,7 @@ The only required reading; the rest is lookup.
    `use X from "exact:content"` draws them; the card gives each one's call (`none` for an option):
    - `RoundButton`: Start, Stop. `AnswerTile`: a choice; `status` is `"idle"`, `"selected"`,
      `"correct"`, `"wrong"`, `"dimmed"` or `"chosen"` (your pick once closed). `SummaryCard`: the one number, shown once
-   - `RingProgress`, `StatBar`, `RowText`, `Badge` a status, `DoneMark` done or not; `EmptyState` over your `button`
+   - `RingProgress`, `StatBar`, `RowText`, `Badge` a status, `DoneMark` done or not; `EmptyState` with your `button` indented under it
 4. **Compose as the platform does:** a row pushes its detail; create and edit are sheets; a
    phone gets one column, a wide window two (`responsive-columns`). Tabs (a sidebar) and a
    list whose rows push (beside its detail) need no code. The rows of a list the person deletes from swipe to
@@ -45,7 +45,7 @@ shell commands have no such help, so keep one directory.
 |`bun exact.mjs …`|What it does|
 |---|---|
 |`contract build app.contract --json --errors-only`|A CI gate: `[]` and exit zero mean no errors (omit `--errors-only` to include warnings); it rewrites the types `app.ts` imports and type-checks it.|
-|`verify`, `verify ios`|Builds, runs `app.test.contract`, `check`s the first screen and where each test ends (light, dark, two widths), relaunches once on real time, and reads those screens (on the web, also the ones the tests pass through) at the largest text size, where what spills is the app's layout to fix: one report. A clean run on the app's platform is done.|
+|`verify`, `verify ios`|Builds, runs `app.test.contract`, `check`s the first screen and where each test ends (light, dark, two widths), relaunches once on real time, and reads those screens (on the web, also the ones the tests pass through) at the largest text size, where what spills is the app's layout to fix, with a remedy that keeps the text's size (no `line-clamp` in a list's row; `hyphens="auto"` only on a text of one word, which a UILabel breaks between syllables when it is longer than its line): one report. A clean run on the app's platform is done.|
 |`agent web --storage s1 "clock data" "tap add" "check both"`|Drives the app by hand, to see why something fails; `--keep-storage` reopens saved data.|
 |`web`, `ios --run`|For a person watching: its URL, rebuilds on save; a simulator.|
 
@@ -90,6 +90,7 @@ bun exact.mjs contract vocab timers dates-and-days task        # a timer, a day'
 |Not in a pattern|Look up|
 |---|---|
 |an entry or settings form|`grouped-form`|
+|a sheet that edits the row tapped, filled with its values|`edit-sheet`|
 |rows added and removed in a form|`editable-rows`|
 |a write that may be refused|`after-a-write`|
 |a failure the person must acknowledge (an alert with OK)|`error-alert`|
@@ -97,12 +98,15 @@ bun exact.mjs contract vocab timers dates-and-days task        # a timer, a day'
 |a number field, a stepper's `step`|`number-field`, `stepper`|
 |a chat that opens at its newest message|`chat-thread`|
 |a welcome at first launch|`first-launch`|
-|SQLite, grants|`files-and-grants`|
+|records kept across launches, a saved library (`state` holds values, not records): a JSON file, SQLite, grants|`files-and-grants`|
+|dice, a shuffle, a random pick or name (Contract has no `random()`: copy the recipe's `roll`)|`random-rolls`, `random-and-shuffle`|
+|location, or anything the person must allow|`permissions`|
 |another wide layout, a chart|`web-look`, `responsive-columns`, `content-design`|
 |video, a map, the camera (drawing is boxes and SVG, not Swift)|`native-views`|
 |a shared server (Snapback): wiring, tests, sign-in|`snapback`, `snapback-tests`, `snapback-auth`|
 |ports, Bun, Chrome and its stores|`ports-and-browsers`|
 |porting an app, a release build, helpers sharing a port|`porting-and-release`|
+|a metronome, drum machine, sequencer or MIDI app: sound, MIDI, a transport (built in; write no native audio module)|["Sound, MIDI and media"](contract-for-agents.md#sound-midi-and-media); `apps/metronome`|
 |transitions, keyframes, exit and layout animation|`motion`|
 |brand colours, light and dark, icon tokens|`theme`, `tamber`|
 |a module in Swift that `app.ts` asks; launch arguments|`native-module`|

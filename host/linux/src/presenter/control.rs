@@ -24,12 +24,12 @@ fn fixed_painted_size(kind: exact_kernel::ControlKind) -> Option<(f32, f32)> {
 
 /// Whether the kernel sizes `kind` from the look's rows as it lays it out,
 /// with nothing reported over that: under the neutral look a mark, sized by
-/// its font (LLP 1115.000 D17), and under the Material look its checkbox,
-/// Material's (`paint/material.rs`).
+/// its font (LLP 1115.000 D17), and under the Material look its checkbox
+/// and radio, Material's (`paint/material.rs`).
 fn kernel_sized(kind: exact_kernel::ControlKind) -> bool {
     use exact_kernel::ControlKind::{Checkbox, Radio, Range, Switch};
     (crate::paint::look::neutral() && matches!(kind, Checkbox | Radio | Switch | Range))
-        || (crate::paint::look::material() && kind == Checkbox)
+        || (crate::paint::look::material() && matches!(kind, Checkbox | Radio))
 }
 
 impl<D: DataSource> Presenter<D> {

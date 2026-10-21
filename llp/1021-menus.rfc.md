@@ -156,6 +156,15 @@ only a declared handler dispatches. There is no cancelable `beforetoggle`
 action or `interestfor` admission. Desktop/headless Linux still has no
 popover presentation; the windowed host uses LLP 1115.001 D10's shapes.
 
+**Removing the attribute (2026-10-19).** `popover` also takes an optional
+string, so `popover=(expanded ? some("manual") : none)` adds and removes the
+attribute on one mounted node. `none` clears the property through the
+runner's existing `ClearProp` lifecycle, as HTML's `removeAttribute("popover")`
+does: an open popover is hidden (HTML, "The popover attribute", attribute
+change steps) and the node returns to inline layout in its parent. Its subtree
+stays mounted, an iframe's document included. An empty string still declares
+a popover. No other property accepts an optional value.
+
 Declared deviation (LLP 1001's ledger): a bare `[popover]` on the web is
 a *centered* fixed box (`inset:0; margin:auto`). v1's popovers are
 **anchored to their invoker** instead — v1 serves menus, and the newest

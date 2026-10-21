@@ -4,6 +4,10 @@
 // runtime carries (files diary F5: `selectText` was refused here).
 import { popoverCommand, setFieldSelection, setFieldRangeText, appRootFontSize } from "./navigation.js";
 import "./prompt-glue.js"; // a prompt's Return (host/web/prompt-glue.js)
+import "./alert-message.js"; // a grouped alert's message box (host/web/alert-message.js)
+// A development page may hold a fact over the app's own (LLP 1122 T7, theme2's F2 ruling: a copy the design tool pins):
+// the app's choice kept as asked, with how to apply it, and applied only when the fact is not held.
+const asked = (fact, value, apply) => { const x = globalThis.exact; if (!x) return apply(); (x.asked ??= {})[fact] = { value, apply }; if (!x.held?.[fact]) apply(); else x.onAsked?.(); };
 export const commands = say => ({
   // The field's own method, by its id (x2apps codeedit #2); commands run
   // once the commit's tree is in place, so a value set beside it is there.
@@ -24,12 +28,17 @@ export const commands = say => ({
     let to = null;
     try { const url = new URL(u); if (["http:", "https:", "mailto:", "tel:"].includes(url.protocol)) to = url.href; } catch {}
     if (to) open(to, "_blank", "noopener,noreferrer");
+    // The app's own settings page (LLP 1133.002 D11): a browser has none to open.
+    else if (u === "app-settings:") say("openURL refused: app-settings: has no page on the web; a site's permissions are the browser's own (its address bar, its settings)");
     else say(`openURL refused: ${JSON.stringify(String(u).slice(0, 80))} is not an absolute http, https, mailto or tel URL`);
   },
   // The inverse of `message=`: text into the named surface, every post in
   // order, held until the GPU glue loads and drains `pendingPosts`
   // (gpu-glue.js); 64 a surface, as every host bounds them.
-  postMessage: (text, name) => {
+  postMessage: (text, name, kind) => {
+    const live = [...document.querySelectorAll('#exact-root *')].filter(e => !e.hasAttribute('data-exiting'));
+    if (kind === "iframe") { const captured = live.filter(e => e.localName === 'iframe' && e.id === name).map(e => [e, e.exactFrameChannel]); import('./frame-messages.js').then(m => m.postFrameMessage(text, name, null, say, captured)); return; }
+    if (live.some(e => e.localName === 'iframe' && e.id === name)) return say(`postMessage: canvas name collides with an iframe id "${name}"`);
     const x = globalThis.exact ??= {}, at = x.now?.() ?? performance.now();
     if (x.gpu) x.gpu.post(name, text, at);
     else if ((x.pendingPosts ??= []).filter(p => p.name === name).length >= 64) say(`postMessage: dropped: 64 posts already wait for surface "${name}"`);
@@ -37,7 +46,8 @@ export const commands = say => ({
   },
   // `:root { font-size }` (LLP 1069.000 D3): the stylesheet's `rem` rows
   // follow it; checked here, where no runner checked it first.
-  setRootFontSize: v => appRootFontSize(v, say),
+  // (A size the app may not set is no choice: the last one stands, and the call refuses as ever.)
+  setRootFontSize: v => v === "medium" || (typeof v === "number" && Math.fround(v) > 0 && Number.isFinite(Math.fround(v))) || (typeof v === "string" && /^[+-]?(\d+|\d*\.\d+)(e[+-]?\d+)?%$/i.test(v) && ((h) => Math.fround(parseFloat(v) / 100 * h) > 0 && Number.isFinite(Math.fround(parseFloat(v) / 100 * h)))(parseFloat(getComputedStyle(document.documentElement).fontSize) || 16)) ? asked('rootFontSize', v, () => appRootFontSize(v, say)) : appRootFontSize(v, say),
   // The window's app modes (LLP 1121 D5, D7): modes.js's, which an app with
   // axes loads; any other refuses it, as the runner does.
   setMode: (...args) => globalThis.exact?.modes ? globalThis.exact.modes.command(args) : say(`setMode(${args.map(x => JSON.stringify(x)).join(", ")}) refused: an axis of the app's design and one of its values`),

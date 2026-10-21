@@ -7,19 +7,16 @@
 // `navigationSplit` opts out or names the width; a sheet stays a sheet; a resize changes nothing else. At a
 // desktop width `check` advises (D1.3) on a tab bar left along the bottom and on a list that pushes unsplit.
 import { test, expect } from 'bun:test';
-import { spawn } from 'node:child_process';
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import { createServer } from 'node:http';
-import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
-import { Cdp } from '../../../scripts/agent.mjs';
-import { chromium } from '../../../scripts/agent-launch.mjs';
+import { cdpBrowser, chromium } from '../../../scripts/agent-launch.mjs';
 import { withLook } from '../look.mjs';
 import { need } from '../../../scripts/coverage.mjs';
 import { readyPage } from './page.mjs';
 
 const WEB = resolve(new URL('..', import.meta.url).pathname);
-const { executable: chrome, unavailable } = chromium();
+const { unavailable } = chromium();
 const check = need('chrome', unavailable);
 
 const style = withLook(readFileSync(resolve(WEB, 'index.html'), 'utf8')).match(/<style>[\s\S]*?<\/style>/)[0];
@@ -67,13 +64,9 @@ async function inChrome(html, test, w = 1280) {
     res.writeHead(200, { 'content-type': 'text/javascript' }); res.end(readFileSync(req.url === '/check.js' ? resolve(WEB, '../web-js/check.js') : resolve(WEB, 'navigation.js')));
   });
   await new Promise((ok) => server.listen(0, '127.0.0.1', ok));
-  const profile = mkdtempSync(resolve(tmpdir(), 'exact-wide-'));
-  const child = spawn(chrome, ['--headless=new', '--remote-debugging-pipe', '--window-size=1400,900', `--user-data-dir=${profile}`,
-    '--no-sandbox', '--no-first-run', '--disable-background-networking', 'about:blank'], { stdio: ['ignore', 'ignore', 'ignore', 'pipe', 'pipe'] });
+  const suite = await cdpBrowser({ args: ['--window-size=1400,900'] }), { cdp } = suite;
   try {
-    const cdp = new Cdp(child.stdio[3], child.stdio[4]);
-    const { targetId } = await cdp.send('Target.createTarget', { url: 'about:blank' });
-    const { sessionId } = await cdp.send('Target.attachToTarget', { targetId, flatten: true });
+    const { sessionId } = await suite.page();
     const call = (method, params) => cdp.send(method, params, sessionId);
     const evaluate = async (expression) => {
       const reply = await call('Runtime.evaluate', { expression, returnByValue: true, awaitPromise: true });
@@ -93,9 +86,8 @@ async function inChrome(html, test, w = 1280) {
     await readyPage(cdp, sessionId, `http://127.0.0.1:${server.address().port}/`);
     await test(evaluate, size, click);
   } finally {
-    child.kill();
+    await suite.close();
     server.close();
-    rmSync(profile, { recursive: true, force: true });
   }
 }
 
@@ -132,19 +124,33 @@ check('appearance none keeps authored root tabs across selection and restores th
   expect(await evaluate(`document.getElementById('nav').hasAttribute('data-exact-sidebar')`)).toBe(false);
 }), 60000);
 
+check('a projection with nothing to change writes nothing', () => inChrome(page(tabs(BAR)), async (evaluate) => {
+  // What projections write, but for the selection and a style the test itself sets on the tab bar.
+  await evaluate(`window.writes = (change) => new Promise(done => { const seen = [], watch = new MutationObserver(records => seen.push(...records.filter(r => r.attributeName !== 'navigationkey' && !(r.target.id === 'bar' && r.attributeName === 'style')).map(r => (r.target.id || r.target.localName) + ' ' + r.attributeName))); watch.observe(document.getElementById('exact-root'), { attributes: true, subtree: true }); change(); setTimeout(() => { watch.disconnect(); done(seen); }); })`);
+  // A split showing the detail a row's press pushed, then a bound style that does not place the bar; then a sheet
+  // over it, the tab bar inert beneath.
+  await evaluate(`select('1'); { const row = document.getElementById('r1-bo'); row.addEventListener('click', () => push('2', '/people/bo'), {once:true}); row.click(); }`);
+  expect(await evaluate(`writes(() => { select(2); document.getElementById('bar').style.backgroundColor = 'red'; select(2); }).then(seen => [document.getElementById('nav').hasAttribute('data-exact-sidebar'), document.getElementById('r1-bo').hasAttribute('data-exact-split-row'), seen])`)).toEqual([true, true, []]);
+  await evaluate(`select(3)`);
+  expect(await evaluate(`writes(() => { select(3); select(3); }).then(seen => [document.getElementById('bar').inert, seen])`)).toEqual([true, []]);
+}), 60000);
+
 check('retained root tabs yield to changed authored placement and restore without losing selection', () => inChrome(page(tabs(BAR)), async (evaluate, size) => {
+  // Each change to what places the bar, then its undoing: by an inline style, a class or the bar's orientation.
+  await evaluate(`document.head.append(Object.assign(document.createElement('style'), { textContent: '#exact-root .placed { position: absolute !important; }' }))`);
+  const style = (id, property, value) => `document.getElementById('${id}').style.${property} = '${value}'`, bar = "document.getElementById('bar')";
   const samples = [];
-  for (const [id, property, changed, restored] of [
-    ['nav', 'display', 'block', 'flex'],
-    ['bar', 'position', 'absolute', 'relative'],
-    ['nav', 'flexDirection', 'row', 'column'],
-    ['bar', 'flexDirection', 'column', 'row'],
+  for (const change of [
+    [style('nav', 'display', 'block'), style('nav', 'display', 'flex')],
+    [style('bar', 'position', 'absolute'), style('bar', 'position', 'relative')],
+    [style('nav', 'flexDirection', 'row'), style('nav', 'flexDirection', 'column')],
+    [style('bar', 'flexDirection', 'column'), style('bar', 'flexDirection', 'row')],
+    [`${bar}.classList.add('placed')`, `${bar}.classList.remove('placed')`],
+    [`${bar}.setAttribute('aria-orientation', 'vertical')`, `${bar}.removeAttribute('aria-orientation')`],
   ]) {
-    for (const value of [changed, restored]) {
-      samples.push(await evaluate(`document.getElementById(${JSON.stringify(id)}).style[${JSON.stringify(property)}] = ${JSON.stringify(value)}; select(2); [document.getElementById('nav').hasAttribute('data-exact-sidebar'), shown('r2'), shown('t1')]`));
-    }
+    for (const step of change) samples.push(await evaluate(`${step}; select(2); [document.getElementById('nav').hasAttribute('data-exact-sidebar'), shown('r2'), shown('t1')]`));
   }
-  expect(samples).toEqual(Array.from({ length: 4 }, () => [[false, true, false], [true, true, false]]).flat());
+  expect(samples).toEqual(Array.from({ length: 6 }, () => [[false, true, false], [true, true, false]]).flat());
   await size(390);
   expect(await evaluate(`document.getElementById('nav').hasAttribute('data-exact-sidebar')`)).toBe(false);
   await size(1280);

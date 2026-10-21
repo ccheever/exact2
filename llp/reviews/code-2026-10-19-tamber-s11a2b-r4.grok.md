@@ -1,0 +1,13 @@
+# Code review: LLP 1121 stage 11 A2 part 2, package designs on the wire (tamber/1.14), re-check 1 after round 3, 2026-10-19 (grok)
+
+- **Family:** xAI. Grok 4.7 via the grok CLI, xhigh, `--max-turns 400 --no-plan --no-subagents`, a throwaway worktree at `193ddb3b3f`.
+- **Method:** one brief (sha256 `cb8a35fd52fd9cf4ce7a64e2dc236cac9329d11e2d4dacbb6db373c82f2a5072`), blind to the other reviewer; the commit as amended after the previous pass. Past round 3, narrow checks under the lead's 14:09Z cap and theme2's 20:38 and 21:32 rulings (only a write path to a package file, as 21:32 defines one, blocks; watcher-late-push and out-of-definition layouts go to QUEUE). The author (Claude) is not a reviewer.
+- **Transcription:** the final message, unedited but for the worktree path prefix.
+- **Verdict:** no blocking.
+- **Disposition:** each finding taken in the next amend, as the commit message's review notes list; layouts outside theme2's 21:32 definition queued (QUEUE: "Package-file layouts outside the read-only guard's definition").
+
+No blocking findings.
+
+Round 3 holds. A file in a package is refused without a successful load: `in_package` (`contract/cli/src/tamber_packages.rs:91`) walks to the app for a named `package.json`, then any `node_modules` component, before the home/path/canonical design check. The broken-import test writes the package file and is refused. `watch.links` keeps each install directory's existing ancestors up to, but not including or outside, the app (`tamber_packages.rs:64`), so removing `@acme` leaves `node_modules` watched and a copy-back is seen; unlisted directories are dropped (`scripts/tamber-package-designs.mjs:32`). A local `propose` with `review.importer` is stored as restoring (`scripts/tamber-server.mjs:704`); the wire deletes a client's `restore` on every method, and revert/import set it only on the server's hold.
+
+The rest of the commit still matches the ruling. `set-token` of a name the app does not define (tracked across the batch), but a package or the base scale does, becomes the app's `add-token` of that value only; a `when` is refused until that line exists. `add-token` and `rename-token` refuse a package or base name and a package namespace. Scrub-fold and propose/accept run the same transform; undo applies the issued inverse and does not transform again. `hello` and `describe` add `packages` only when the app has any; resolve/explain add `package`, `file`, and `identity`; only explain adds `package_value`. A client's hello is sent with `paths: false`, so `path` and `watch` stay on the local refresh. A package digest change is a `changed` event with `edited` and `packages`, competes with a scrub, and the next accept plans on the reloaded fold.

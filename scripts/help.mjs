@@ -31,21 +31,21 @@ const DRIVE = [
   ['--size <w>x<h>', 'the viewport (default 420x900; a simulator\'s own)'],
   ['--scale <n>', 'screenshots at n pixels per point (exact.mjs agent on ios, macos: 1; an iPhone\'s own: 3)'],
   ['--chrome platform|agent', 'UIKit\'s bars (exact.mjs on iOS); agent paints the header'],
-  ['--timing platform', 'Apple: UIKit\'s transitions keep their own timing (default: frozen)'],
+  ['--timing platform · --bind <extension>', 'Apple: UIKit\'s transitions keep their own timing (default: frozen) · Apple, Android: a module answered by its implementation, not the substitute'],
   ['--touch platform', 'iOS simulator: every tap a real touch, through the XCTest runner'],
   ['--epoch <ISO|ms|now>', 'the date at the clock\'s zero (default 2026-01-01)'],
   ['--locale <tag> · --time-zone <zone> · --seed <n>', 'default en-US, UTC, 1'],
-  ['--fail-fetch <prefix>', 'each fetch whose URL starts with it fails, from the first data load'],
+  ['--fail-fetch <prefix> · --permission <name>=<state>', 'each fetch whose URL starts with it fails, from the first data load · a module\'s permission at the start (geolocation=granted)'],
   ['--url <url>', 'web: drive a page already served (the dev loop\'s) instead of building'],
-  ['--browser chrome|firefox|webkit', 'web (default chrome; bunx playwright@1.63.0 install firefox webkit)'],
+  ['--browser chrome|firefox|webkit', 'web (default chrome; bunx playwright@1.64.1 install firefox webkit)'],
   ['--sim <udid|name>', 'iOS: which simulator (default: a booted one)'],
   ['--device · --phone <udid|name> · --reader', 'a connected iPhone (built with ios --device), and which · Android: the app on the Canvas reader (its APK)'],
   ['--plan <file>', 'a compiled plan (contract build -o) in place of the app\'s'],
   ['--world <file> · --open <file>', 'a game: a saved world to load · macOS: a document on its command line'],
-  ['--family <name> · --mode fullColor|accented|vibrant · --scheme light|dark · --props <json>', 'widget only: variant and props; --size large|xxxl is its text size'],
+  ['--family <name> · --mode fullColor|accented|vibrant · --scheme light|dark · --props <json> · --placement <name> · --state <json>', 'gallery: widget variant/props or activity placement/state; --size large|xxxl is widget text size'],
   ['--json', 'one compact JSON object per op reply, one per line (default: short text)'],
 ];
-const TEST_IGNORES = ['--timing <v>', '--world <file>', '--open <file>', '--json', '--family <name>', '--mode <name>', '--scheme <name>', '--props <json>'];
+const TEST_IGNORES = ['--bind <extension>', '--timing <v>', '--world <file>', '--open <file>', '--json', '--family <name>', '--mode <name>', '--scheme <name>', '--props <json>', '--placement <name>', '--state <json>'];
 // The drive flags a first build reaches for; `--help all` shows the rest.
 const DRIVE_FIRST = ['--storage', '--size', '--chrome', '--epoch', '--sim', '--json'];
 const naming = (names, keep) => ([row]) => specs(row).some((spec) => names.includes(name(spec))) === keep;
@@ -91,6 +91,8 @@ export const HELP = {
       ['--allow-host <name>', 'also answer to this host name (a tunnel\'s); repeatable'],
       ['--remote <host:port>', 'with a design: a TLS-only listener for paired remote clients (a certificate made for this run; its fingerprint printed)'],
       ['--trust-tunnel <port>', 'with a design: a loopback port for a tunnel you run; only paired tokens work through it'],
+      ['--allow-plugin-origin', 'with a design: a sandboxed page (a Figma plugin) may call the wire with a paired token, here and through the tunnel'],
+      ['--relay <host[:port]> · --relay-account <label> · --relay-cert <file> · --relay-key <file> · --relay-name <tool> · --relay-dns-hook <command> · --relay-acme <url> · --require-caa', 'with a design: dial out to a hosted relay that hands clients down unopened; its names\' certificate got by ACME (or yours, --relay-cert/--relay-key); --relay-name <tool> <canvas>, names of your own, their ACME record put up by your --relay-dns-hook, run in its own process group and stopped with it on a timeout or close (a command that leaves the group, by setsid, is yours to stop) (--require-caa: refuse until your CAA records pin it)'],
       ['--wasm', 'the resident wasm loop (a game\'s always): a plan restarts in place, state carried'],
       ['--pair-ttl <duration>', 'a paired design client\'s token lifetime (90m, 12h, 2d; default 12h)'],
     ],
@@ -152,7 +154,7 @@ Ports    --port <n> or EXACT_PORT chooses the page’s port; otherwise web: head
     flags: DRIVE.filter(naming(DRIVE_FIRST, true)),
     more: DRIVE.filter(naming(DRIVE_FIRST, false)),
     internal: ['--test <file>', ...DRIVE_INTERNAL],
-    body: `An app's server.ts runs for the drive, its database per --storage. Widgets: ios|macos widget <entry> tree|state|screenshot|clock.
+    body: `The development gallery: ios|macos widget|activity <entry> tree|state|screenshot|clock.
 Ops      a target is a testId, else a view's exact text or label
   tree [<target>|--ax] · logs · layout|perf [<target>] · resize <w>x<h> · close · back
   state [<name>] [--full]  a state, resource or field, dotted: groceries.0.done; >8 KB: sizes
@@ -161,7 +163,7 @@ Ops      a target is a testId, else a view's exact text or label
   clock data|settle|+<ms> [real]    land in-flight work · end transitions
   check [dark|both]  what is wrong · screenshot <png> [over <ms> every <ms>] [window]  window: bars
   screenshot <png> compare <ref> · prefer <feature> <value> · fail|pass fetch <prefix>`,
-    bodyAll: `Builds if stale, launches, runs each quoted op on the agent's clock and closes. No --storage, no storage; --reset-storage empties a native store, --keep-storage keeps a web or compare's.
+    bodyAll: `Builds if stale, launches, runs each quoted op on the agent's clock and closes. A game's world: post [<surface>] <text> is a message its next tick reads (type <surface> message <text>). No --storage, no storage; --reset-storage empties a native store, --keep-storage keeps a web or compare's. A deep link is typed on the navigate= root: "type <root> euxy://p/1" (macOS, iOS: through protocol_handlers, no alert).
 Ports    web: --port/EXACT_PORT, else a named store’s port (20000-47999), else free. ${NATIVE_PORTS}`,
     example: 'bun exact.mjs agent web --storage s1 tree "tap add" "screenshot .exact/a.png"',
   },
@@ -190,7 +192,9 @@ Large    each of those screens again at the largest text size (ios: the simulato
          after; web: a 53 px root, iOS's body there, at 390x844, and the tests run again there
          to read up to 12 screens they pass through): what spills (past the edge, squeezed,
          overlapping) in the app's own layout, each with a remedy that gives the text room; a
-         smaller or fixed font is the tell. Counted ("3 at the largest text size"), never failing.
+         smaller or fixed font is the tell, and so is a line-clamp in a list's row or hyphens="auto"
+         on a text of several words (a UILabel hyphenates only a word longer than its line; a
+         grouped list's rows hyphenate as cells do). Counted ("3 at the largest text size"), never failing.
 Runs     to completion: exit 1 when the build, a test, a launch or the relaunch fails; the
          findings (check's, the relaunch's, the largest text size's) and the compiler's
          warnings are counted, never fail it. A screen no test ends on is not checked: end a test there.
@@ -328,7 +332,7 @@ Ports    none. Runs to completion.`,
   },
   tamber: {
     line: 'the app\'s design (app.tamber): checked, its tokens in one mode, its IR',
-    usage: 'bun exact.mjs tamber check <app> | eval <app> [--mode <axis>=<value>] | ir <app> [-o <tamber.json>] | fmt <app> [--check] | gen ts|rust|swift <app> [-o <dir>] | serve <app> [--port <n>] [--lan] [--remote <host:port>] [--trust-tunnel <port>] [--pair-ttl <duration>] | pair <url> --scope read|propose|write [--name <name>] | op <url> <request JSON>|subscribe | import shadcn|tailwind|dtcg|astryx <source> <url> [--app <app>] [--prefix <p>] | tool [<app>] [--via <dev url>] [--no-open]   (<app>: its directory, app.contract or a .tamber file; a flag before or after it)',
+    usage: 'bun exact.mjs tamber check <app> | eval <app> [--mode <axis>=<value>] | ir <app> [-o <tamber.json>] | fmt <app> [--check] | gen ts|rust|swift <app> [-o <dir>] | serve <app> [--port <n>] [--lan] [--remote <host:port>] [--trust-tunnel <port>] [--allow-host <name>] [--allow-plugin-origin] [--relay <host> --relay-account <label> …] [--pair-ttl <duration>] | pair <url> --scope read|propose|write [--name <name>] | op <url> <request JSON>|subscribe | import shadcn|tailwind|dtcg|astryx <source> <url> [--app <app>] [--prefix <p>] | tool [<app>] [--via <dev url>] [--no-open]   (<app>: its directory, app.contract or a .tamber file; a flag before or after it)',
     flags: [
       ['--mode <axis>=<value>[,…]', 'eval: the mode to print the tokens in; the rest at their defaults'],
       ['-o <file>', 'ir: write the IR (tamber.json, generated, never committed) there; gen: the directory (else the app\'s .exact/tamber/)'],
@@ -337,6 +341,9 @@ Ports    none. Runs to completion.`,
       ['--lan', 'serve: bind every interface; a client there still cannot have the token'],
       ['--remote <host:port>', 'serve: a TLS-only listener for paired remote clients (a certificate made for this run; its fingerprint printed)'],
       ['--trust-tunnel <port>', 'serve: a loopback port for a tunnel you run; only paired tokens work through it'],
+      ['--allow-host <name>', 'serve: the public name of a tunnel to --trust-tunnel with its own certificate; repeatable'],
+      ['--allow-plugin-origin', 'serve: a sandboxed page (a Figma plugin) may call the wire with a paired token'],
+      ['--relay <host[:port]> · --relay-account <label> · --relay-cert <file> · --relay-key <file> · --relay-name <tool> · --relay-dns-hook <command> · --relay-acme <url> · --require-caa', 'serve: dial out to a hosted relay that hands clients down unopened; its names\' certificate got by ACME (or yours, --relay-cert/--relay-key); --relay-name <tool> <canvas>, names of your own, their ACME record put up by your --relay-dns-hook, run in its own process group and stopped with it on a timeout or close (a command that leaves the group, by setsid, is yours to stop) (--require-caa: refuse until your CAA records pin it)'],
       ['--pair-ttl <duration>', 'serve: a paired client\'s token lifetime (90m, 12h, 2d; default 12h)'],
       ['--scope <s>', 'pair: the code\'s scope, read, propose or write'],
       ['--name <name>', 'pair: the name the paired client is listed by'],
@@ -357,8 +364,20 @@ one, each role override apart; every source value is mapped or reported, counted
 tool is the design tool (LLP 1122), built if stale, served by the design server at
 http://127.0.0.1:7740/__tamber/tool/ and opened. docs/recipes/tamber.md.
 Ports    serve: a loopback port (printed), until ctrl-c; tool: 127.0.0.1:7740, the one its
-grants name, until ctrl-c. The rest: none; they run to completion.`,
+grants name, until ctrl-c (EXACT_TOOL_PORT names another: the tool is built for it, and a dev
+loop must be started with the same to let it frame its pages). The rest: none; they run to
+completion.`,
     example: 'bun exact.mjs tamber eval . --mode dark-style=dim',
+  },
+  add: {
+    line: 'a standard module (geolocation): its dependency in package.json, installed',
+    usage: 'exact add <module> <app>',
+    flags: [],
+    body: `<module> is one of exact2's (geolocation, or @exact/geolocation): a path into this checkout,
+so it compiles against the SDK the app uses. Then name what you use, and its grant line:
+docs/recipes/permissions.md.
+Ports    none. Runs to completion.`,
+    example: 'bun <exact2>/scripts/exact.mjs add geolocation .',
   },
   hatch: {
     line: 'an access hatch: a stub per target the app builds, and its app.json entry',
@@ -388,9 +407,9 @@ Ports    none. Runs to completion.`,
   },
   feedback: {
     line: 'the authoring diary: preview, send, or set this project\'s standing answer',
-    usage: 'bun exact.mjs feedback [preview|send [--yes]|delete <id>|status|always|never|ask|local]',
-    flags: [['--yes', 'with send: do not ask first on a terminal']],
-    body: `  preview (the default)    exactly what send would send, redacted
+    usage: 'bun exact.mjs feedback [preview|send [--yes] [--readme]|delete <id>|status|always|never|ask|local]',
+    flags: [['--yes', 'with send: do not ask first on a terminal'], ['--readme', 'with send: attach the README (and AGENTS.md\'s own notes) too']],
+    body: `  preview (the default)    exactly what send would send, redacted; the README offered beside it
   send · delete <id>       send it · delete a sent diary by its receipt
   status                   the standing answer, and what is unsent
   always|never|ask|local   set the answer (local: keep the diary, never ask or send)
@@ -437,12 +456,13 @@ Ports    none; send makes one HTTPS request. Runs to completion.`,
   },
   prove: {
     line: 'the game\'s proof: a first baseline in pins.json, then checks against it',
-    usage: 'bun exact.mjs prove [--hosts <list>] [--repeat <n>] [--compare-saves] [--repin]',
+    usage: 'bun exact.mjs prove [--hosts <list>] [--repeat <n>] [--compare-saves] [--repin] [--release]',
     flags: [
       ['--hosts <list>', 'comma-separated, of web,linux,windows,macos,ios (default this machine\'s native host)'],
       ['--repeat <n>', 'runs per host (default 1)'],
       ['--compare-saves', 'also require identical saves across hosts'],
       ['--repin', 'accept new pins once every host and mode agrees'],
+      ['--release', 'also check native release and shipping web; --repin publishes coverage'],
       ['--continue <run>', 'reuse the snapshot and completed legs of artifacts/prove/<run>'],
       ['--device', 'ios on a connected phone'],
       ['--phone <udid|name>', 'which phone, with --device'],
@@ -493,7 +513,7 @@ export function helpText(verb, { all = false } = {}) {
 /** The index: each verb of an app's exact.mjs, then the app's own (app.json `commands`), then the forms a build uses
  * (LLP 1116.009 D6: builders read `help` and then four or five verbs' `--help` for the same flags, each a step carried in
  * context to the end; every flag a form names is one its script parses, help.test.mjs). */
-export function indexText({ verbs = Object.keys(HELP).filter((v) => v !== 'new'), own = {} } = {}) {
+export function indexText({ verbs = Object.keys(HELP).filter((v) => !['new', 'add'].includes(v)), own = {} } = {}) {
   const names = [...verbs, ...Object.keys(own)], width = Math.max(...names.map((v) => v.length));
   const line = (verb) => HELP[verb]?.line ?? (own[verb] ? `app.json commands: ${own[verb].join(' ')}` : '');
   const forms = verbs.flatMap((verb) => HELP[verb]?.common ?? []);

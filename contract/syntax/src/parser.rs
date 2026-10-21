@@ -8,6 +8,7 @@ use crate::ast::*;
 use crate::lexer::{escape, template_expr_end, LexError, Lexer, Token, TokenKind};
 use crate::Span;
 
+mod anatomy;
 mod color_profile;
 mod component;
 mod decls;
@@ -19,6 +20,7 @@ mod midi;
 mod migration;
 pub(crate) use migration::parsed_with_edits;
 mod names;
+pub use names::is_reserved;
 mod params;
 mod parts;
 #[path = "routes.rs"]

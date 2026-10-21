@@ -364,21 +364,17 @@ component Child
     assert_eq!(e.id, "tamber-param-scope", "{e:?}");
 }
 
+/// An app at `root/app` using packages `a` and `b`, linked from
+/// `root/<dir>/a` and `root/<dir>/b` with `manifest` their `package.json`.
 #[cfg(unix)]
-#[test]
-fn two_unnamed_packages_outside_the_app_are_two_identities() {
-    let root = std::env::temp_dir().join(format!("exact2-tools-unnamed-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&root);
+fn linked(root: &std::path::Path, dir: &str, manifest: &str) -> std::path::PathBuf {
+    let _ = std::fs::remove_dir_all(root);
     for (lib, px) in [("a", "4px"), ("b", "8px")] {
-        let dir = root.join("libs").join(lib);
-        std::fs::create_dir_all(&dir).unwrap();
+        let at = root.join(dir).join(lib);
+        std::fs::create_dir_all(&at).unwrap();
+        std::fs::write(at.join("package.json"), manifest.replace("{lib}", lib)).unwrap();
         std::fs::write(
-            dir.join("package.json"),
-            r#"{"exports": {".": "./index.contract"}}"#,
-        )
-        .unwrap();
-        std::fs::write(
-            dir.join("index.contract"),
+            at.join("index.contract"),
             format!("component Card\n  params\n    radius: length = \"{px}\"\n  view\n    column border-radius=\"param.radius\"\n      text \"c\"\n"),
         )
         .unwrap();
@@ -391,26 +387,155 @@ fn two_unnamed_packages_outside_the_app_are_two_identities() {
     )
     .unwrap();
     for lib in ["a", "b"] {
-        std::os::unix::fs::symlink(
-            root.join("libs").join(lib),
-            app_dir.join("node_modules").join(lib),
-        )
-        .unwrap();
+        let to = app_dir.join("node_modules").join(lib);
+        std::os::unix::fs::symlink(root.join(dir).join(lib), to).unwrap();
     }
     std::fs::write(
         app_dir.join("app.contract"),
         "use Card as A from \"a\"\nuse Card as B from \"b\"\n\ncomponent App\n  view\n    column\n      A()\n      B()\n",
     )
     .unwrap();
-    let path = app_dir.join("app.contract");
+    app_dir.join("app.contract")
+}
+
+/// A package outside the app with no `name` (theme2, the path fix): its
+/// place from the app would spell this machine's directories in every
+/// identity, so the build refuses it and asks for a name, saying the
+/// package as its `use` names it, never its path. A directory above a
+/// linked package's root is none of its: an outer `package.json` with a
+/// name does not name it.
+#[cfg(unix)]
+#[test]
+fn an_unnamed_package_outside_the_app_is_refused_even_inside_a_named_directory() {
+    let root = std::env::temp_dir().join(format!("exact2-tools-unnamed-{}", std::process::id()));
+    for outer in [None, Some(r#"{"name": "outer"}"#)] {
+        let path = linked(&root, "libs", r#"{"exports": {".": "./index.contract"}}"#);
+        if let Some(outer) = outer {
+            std::fs::write(root.join("libs/package.json"), outer).unwrap();
+        }
+        let e = contract::compile_path(&path).unwrap_err();
+        assert_eq!(e.id, "contract-package-unnamed", "{e:?}");
+        assert!(
+            e.message.contains("the package `a`")
+                && e.message.contains("needs a name in its package.json"),
+            "{}",
+            e.message
+        );
+        let real = root.canonicalize().unwrap();
+        for dir in [
+            root.display().to_string(),
+            real.display().to_string(),
+            "libs/a".into(),
+        ] {
+            assert!(!e.message.contains(&dir), "{dir}: {}", e.message);
+        }
+        // At the app's `use` line.
+        assert_eq!(e.span.line, 1);
+        assert!(
+            e.file
+                .as_deref()
+                .is_some_and(|f| f.ends_with("app/app.contract")),
+            "{e:?}"
+        );
+    }
+    // Named, the two are two identities, by their names.
+    let path = linked(
+        &root,
+        "libs",
+        r#"{"name": "@x/{lib}", "exports": {".": "./index.contract"}}"#,
+    );
     contract::compile_path(&path).unwrap_or_else(|e| panic!("{e:?}"));
     let params = contract::tamber_params::params_of(&path);
     let ids: Vec<&str> = params.tokens.iter().map(|p| p.identity.as_str()).collect();
     assert_eq!(
         ids,
-        [
-            "../libs/a/index.contract#Card",
-            "../libs/b/index.contract#Card"
-        ]
+        ["@x/a/index.contract#Card", "@x/b/index.contract#Card"]
     );
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// A package's own test app inside it (`packages/geolocation/test/fixture`)
+/// names the package's files by its name, not `../..` from the app.
+#[cfg(unix)]
+#[test]
+fn a_package_holding_its_own_test_app_names_its_files_by_its_name() {
+    let root = std::env::temp_dir().join(format!("exact2-tools-holding-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    let pkg = root.join("pkg");
+    std::fs::create_dir_all(pkg.join("test/fixture/node_modules/@x")).unwrap();
+    std::fs::write(
+        pkg.join("package.json"),
+        r#"{"name": "@x/pkg", "exports": {".": "./index.contract"}}"#,
+    )
+    .unwrap();
+    std::fs::write(pkg.join("index.contract"), "component Card\n  params\n    radius: length = \"4px\"\n  view\n    column border-radius=\"param.radius\"\n      text \"c\"\n").unwrap();
+    std::os::unix::fs::symlink(&pkg, pkg.join("test/fixture/node_modules/@x/pkg")).unwrap();
+    let path = pkg.join("test/fixture/app.contract");
+    std::fs::write(
+        &path,
+        "use Card from \"@x/pkg\"\ncomponent App\n  view\n    column\n      Card()\n",
+    )
+    .unwrap();
+    contract::compile_path(&path).unwrap_or_else(|e| panic!("{e:?}"));
+    let params = contract::tamber_params::params_of(&path);
+    let ids: Vec<&str> = params.tokens.iter().map(|p| p.identity.as_str()).collect();
+    assert_eq!(ids, ["@x/pkg/index.contract#Card"]);
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// An app's file linked into its tree from elsewhere (conform's corpus
+/// fixtures: `conformance/tabs.contract` a link to the corpus's) is the
+/// app's own, named where the link sits: no package, so no refusal.
+#[cfg(unix)]
+#[test]
+fn a_file_linked_into_the_app_is_the_apps_own_named_where_it_sits() {
+    let root = std::env::temp_dir().join(format!("exact2-tools-linked-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(root.join("corpus")).unwrap();
+    std::fs::create_dir_all(root.join("app")).unwrap();
+    std::fs::write(root.join("corpus/fixture.contract"), "component Card\n  params\n    radius: length = \"4px\"\n  view\n    column border-radius=\"param.radius\"\n      text \"c\"\n\ncomponent App\n  view\n    column\n      Card()\n").unwrap();
+    let path = root.join("app/tabs.contract");
+    std::os::unix::fs::symlink("../corpus/fixture.contract", &path).unwrap();
+    contract::compile_path(&path).unwrap_or_else(|e| panic!("{e:?}"));
+    let params = contract::tamber_params::params_of(&path);
+    let ids: Vec<&str> = params.tokens.iter().map(|p| p.identity.as_str()).collect();
+    assert_eq!(ids, ["tabs.contract#Card"]);
+    // `contract sources` reads it as the build does, and so does a bare
+    // file name, from the app's directory.
+    let graph = contract::source_graph(&path);
+    assert!(graph.errors.is_empty(), "{:?}", graph.errors);
+    let target = root.join("corpus/fixture.contract").canonicalize().unwrap();
+    assert_eq!(
+        graph.sources[0].path, target,
+        "the graph's paths stay canonical"
+    );
+    for args in [
+        &["build", "tabs.contract", "-o", "tabs.plan"][..],
+        &["sources", "tabs.contract"],
+        &["fmt", "--uses", "tabs.contract"],
+    ] {
+        let out = std::process::Command::new(env!("CARGO_BIN_EXE_contract"))
+            .args(args)
+            .current_dir(root.join("app"))
+            .output()
+            .unwrap();
+        assert!(
+            out.status.success(),
+            "{args:?}: {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+    }
+    // A file a `use` reaches through a link outside the app is still the
+    // link's target's, refused at the `use`.
+    std::os::unix::fs::symlink("../corpus/fixture.contract", root.join("app/card.contract"))
+        .unwrap();
+    let app = root.join("app/app.contract");
+    std::fs::write(
+        &app,
+        "use Card from \"./card.contract\"\n\ncomponent Main\n  view\n    column\n      Card()\n",
+    )
+    .unwrap();
+    let e = contract::compile_path(&app).unwrap_err();
+    assert_eq!(e.id, "contract-use-path", "{e:?}");
+    let _ = std::fs::remove_dir_all(&root);
 }

@@ -7,8 +7,7 @@
 // update (review C3). rt.js runs beside stand-ins for the modules it imports,
 // with the real shape.js.
 import { test, expect, describe, beforeAll, afterAll } from 'bun:test';
-import { chromium } from 'playwright-core';
-import { chromium as browserPath } from '../../../scripts/agent-launch.mjs';
+import { suiteBrowser } from '../../../scripts/agent-launch.mjs';
 import { copyFileSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
@@ -192,7 +191,7 @@ stub('storage-fs.js', `const files = new Map(); export const createFileSystem = 
   atomicWriteFile: (p, v) => new Promise((ok, no) => setTimeout(() => p.includes('absent/') ? no(Object.assign(new Error('filesystem: No such file'), { code: 'ENOENT' })) : ok(files.set(p, v)), 5)),
   writeFile: (p, v) => new Promise(ok => setTimeout(() => ok(files.set(p, v)), 1)),
   readFile: async p => files.get(p) ?? '',
-  compressImage: async (from, to, o) => ({ path: to, type: 'image/jpeg', size: o.maxBytes, width: o.maxDimension, height: 1 }) });`);
+  compressImage: async (from, to, o) => ({ path: to, type: o.type, size: o.maxBytes, width: o.maxDimension, height: 1 }) });`);
 stub('app.mjs', `export const appId = 'test';
   export function answer(source, [op, value], store, storage) {
     if (op === 'save') { storage.fs.atomicWriteFile('app:/data/song', value).catch(() => {}); return 'saved ' + value; }
@@ -206,6 +205,9 @@ stub('app.mjs', `export const appId = 'test';
       return done.then(r => JSON.stringify(r));
     }
     if (op === 'compress-bad') return storage.fs.compressImage('app:/tmp/in.jpg', 'app:/tmp/out.jpg', { maxDimension: 0, maxBytes: 1 })
+      .then(() => 'ok', e => e.constructor.name + ' ' + e.code + ' ' + e.message);
+    if (op === 'compress-png') return storage.fs.compressImage('app:/tmp/in.png', 'app:/tmp/out.png', { maxDimension: 8, maxBytes: 100, type: 'image/png' }).then(r => JSON.stringify(r));
+    if (op === 'compress-bad-type') return storage.fs.compressImage('app:/tmp/in.png', 'app:/tmp/out.webp', { maxDimension: 8, maxBytes: 100, type: 'image/webp' })
       .then(() => 'ok', e => e.constructor.name + ' ' + e.code + ' ' + e.message);
     const codes = [];
     for (let i = 0; i < 258; i++) codes.push(storage.fs.writeFile('app:/data/flood', String(i)).then(() => 'ok', e => e.code));
@@ -630,7 +632,7 @@ describe('browser TypeScript send failures', () => {
       }`, { headers: { 'Content-Type': 'text/javascript' } });
       return new Response(Bun.file(resolve(dir, path.slice(1))));
     } });
-    browser = await chromium.launch({ executablePath: browserPath().executable, headless: true });
+    browser = await suiteBrowser();
   });
   afterAll(async () => { await browser?.close(); server?.stop(true); });
   for (const failure of ['null', 'undefined', 'UnknownSource']) for (const queued of [false, true]) {
@@ -1078,6 +1080,11 @@ test('compressImage copies its options and refuses bad ones before the queue', a
   const bad = ask('compress-bad');
   expect(data.background().queued + data.background().inFlight).toBe(0);
   expect(await bad.promise).toBe('TypeError undefined storage.fs.compressImage(): maxDimension must be an integer from 1 to 8192');
+  // `type` (A1.11): JPEG when absent, PNG passed on, any other a TypeError before the queue.
+  expect(JSON.parse(await ask('compress-png').promise)).toEqual({ path: 'app:/tmp/out.png', type: 'image/png', size: 100, width: 8, height: 1 });
+  const badType = ask('compress-bad-type');
+  expect(data.background().queued + data.background().inFlight).toBe(0);
+  expect(await badType.promise).toBe('TypeError undefined storage.fs.compressImage(): type must be "image/jpeg" or "image/png"');
 });
 
 test('a string past MAX_STRING joins to itself alone and is counted in UTF-8 bytes', async () => {
@@ -1307,7 +1314,7 @@ test('clipboard handlers preserve the default unless prevented and restore the e
       let listener;
       const el = { addEventListener: (_, f) => { listener = f; } };
       on(el, kind, value => {
-        expect(value).toEqual(['clipboard text']);
+        expect(value).toEqual(['clipboard text', []]);
         if (prevent) Hosts.preventDefault();
       }, onClipboard);
       const ev = event();
