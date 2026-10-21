@@ -133,26 +133,34 @@ export function liveEnvironments(client: T3Client, native: Native | null | undef
   }
   for (const entry of source.entries.values()) {
     if (out.some(environment => environment.environmentId === entry.environmentId)) continue;
-    const saved = source.saved.find(candidate => str(candidate.environmentId) === entry.environmentId);
-    out.push({ environmentId: entry.environmentId, label: environmentLabel(entry.config, str(saved?.label, entry.environmentId)), focused: false,
-      connected: entry.phase === 'connected' && entry.synchronized === entry.generation, config: entry.config, shell: entry.shell, key: entry.key,
-      tasks: listOf(entry, entry.generation, SCHEDULED_TASKS_KEY), clones: listOf(entry, entry.generation, PROJECT_CLONES_KEY), cleanup: listOf(entry, entry.generation, STORAGE_REPORT_KEY), database: listOf(entry, entry.generation, DATABASE_STORAGE_KEY), devices: listOf(entry, entry.generation, DEVICE_HOSTS_KEY),
-      request: async (method, payload = {}) => {
-        if (!native?.available) throw new ClientError('Open this app on macOS to connect to T3 Code.');
-        const reply = await bridgeReply(EnvironmentFleet.native(native, entry.key), { op: 'request', method, payload, generation: entry.generation });
-        if (!reply.ok) throw new ClientError(reply.error!.message, reply.error!.kind);
-        return obj(reply.value);
-      },
-      ids: async count => {
-        if (!native?.available) throw new ClientError('Open this app on macOS to connect to T3 Code.');
-        const reply = await bridgeReply(EnvironmentFleet.native(native, entry.key), { op: 'ids', count, generation: entry.generation });
-        const ids = (Array.isArray(reply.value) ? reply.value : []).filter(value => typeof value === 'string' && value).map(String);
-        if (!reply.ok || ids.length !== count) throw new ClientError('Could not allocate request identifiers.');
-        return ids;
-      } });
+    out.push(fleetEnvironment(entry, source.saved.find(candidate => str(candidate.environmentId) === entry.environmentId), native));
   }
   return out;
 }
+/**
+ * One background environment. Its request closures are made here, in a call of their own: the app's Hermes bytecode is
+ * compiled without ES6 block scoping, so a `for (const entry …)` loop has one binding for all its iterations and
+ * closures made in the loop above would all address its last entry.
+ */
+function fleetEnvironment(entry: FleetEntry, saved: Obj | undefined, native: Native | null | undefined): LiveEnvironment {
+  return { environmentId: entry.environmentId, label: environmentLabel(entry.config, str(saved?.label, entry.environmentId)), focused: false,
+    connected: entry.phase === 'connected' && entry.synchronized === entry.generation, config: entry.config, shell: entry.shell, key: entry.key,
+    tasks: listOf(entry, entry.generation, SCHEDULED_TASKS_KEY), clones: listOf(entry, entry.generation, PROJECT_CLONES_KEY), cleanup: listOf(entry, entry.generation, STORAGE_REPORT_KEY), database: listOf(entry, entry.generation, DATABASE_STORAGE_KEY), devices: listOf(entry, entry.generation, DEVICE_HOSTS_KEY),
+    request: async (method, payload = {}) => {
+      if (!native?.available) throw new ClientError('Open this app on macOS to connect to T3 Code.');
+      const reply = await bridgeReply(EnvironmentFleet.native(native, entry.key), { op: 'request', method, payload, generation: entry.generation });
+      if (!reply.ok) throw new ClientError(reply.error!.message, reply.error!.kind);
+      return obj(reply.value);
+    },
+    ids: async count => {
+      if (!native?.available) throw new ClientError('Open this app on macOS to connect to T3 Code.');
+      const reply = await bridgeReply(EnvironmentFleet.native(native, entry.key), { op: 'ids', count, generation: entry.generation });
+      const ids = (Array.isArray(reply.value) ? reply.value : []).filter(value => typeof value === 'string' && value).map(String);
+      if (!reply.ok || ids.length !== count) throw new ClientError('Could not allocate request identifiers.');
+      return ids;
+    } };
+}
+
 export function liveEnvironment(client: T3Client, native: Native | null | undefined, environmentId: string): LiveEnvironment | undefined {
   return liveEnvironments(client, native).find(environment => environment.environmentId === (environmentId || client.environmentId));
 }

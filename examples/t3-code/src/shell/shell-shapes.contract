@@ -7,6 +7,7 @@ use PanelView from "../panel/panel-shapes.contract"
 use DetailsPrRowList from "../panel/pr-attachment-shapes.contract"
 use ComposerFilePreview from "../panel/pr-attachment-shapes.contract"
 use PrCheckout from "../composer/pr-checkout-shapes.contract"
+use AddMachine from "./add-project-machine-shapes.contract"
 
 shape ShellToast
   id: number
@@ -124,6 +125,8 @@ shape ShellView
   panel: PanelView
   // The branch picker's PullRequestThreadDialog (pr-checkout.ts).
   prCheckout: PrCheckout
+  // AddProjectToMachineDialog (add-project-dialog.ts).
+  addMachine: AddMachine
   // A composer file chip's AttachmentFilePreview over the draft's bytes (composer-chip-file.ts).
   composerFile: ComposerFilePreview
   highlightPending: bool // a Files / attachment code text waits for its Shiki tokens
