@@ -59,6 +59,7 @@ component SettingsInformation
     data: InformationData
     route: string
     query: string
+    dismissSearchKeyboard: bool
     legalConfiguration: string
     colors: SettingsColors
     roles: SettingsTextRoles
@@ -110,7 +111,7 @@ component SettingsInformation
             else if route == "settingsOpenSourceLicense"
               text "This license notice is unavailable." padding-top=42 text-align="center" font-size=roles.body.size color=colors.muted
         if route == "settingsOpenSourceLicenses" and data.licensesReady
-          t3-information-search query=query change=queryChanged height=64 flex-shrink=0 testId="licenses-search"
+          t3-information-search query=query dismiss-keyboard=dismissSearchKeyboard change=queryChanged height=64 flex-shrink=0 testId="licenses-search"
 component InformationAboutRow
   props
     icon: string
