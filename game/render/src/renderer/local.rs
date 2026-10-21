@@ -155,7 +155,10 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
                 local.binds = Some((binds, key));
             }
             let views = &self.local_plan.views[i * 4..(i * 4 + 4).min(self.local_plan.views.len())];
-            local.cull.write_views(&self.queue, views, items, false);
+            let outlines = [[crate::shadows::PASS_ALL; 6]; crate::shadows::MAX_CASCADES];
+            local
+                .cull
+                .write_views(&self.queue, views, &outlines, items, false);
         }
     }
     /// The scene groups changed buffers: rebuild every local cull's on next use.
