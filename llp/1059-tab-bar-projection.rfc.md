@@ -36,6 +36,12 @@ A tab bar item has exactly the second shape. A segment cannot show it.
   The authored tabs are hidden, as for segments. Selection is Contract's:
   - a tap presses the authored tab;
   - `aria-selected` selects the item.
+
+  Amended 2026-10-20: the bar spans the box's content box across, its edges
+  on the device's pixel grid, and the box's whole height down, so a tablist
+  padded at a side keeps its tabs inside the padding, as the web lays them
+  out. duo-lab pads its tablist onto a book fold's trailing segment, off the
+  hinge.
 - **D3 — The app's accent, the platform's face.** The selected item takes
   the selected symbol's authored `tint-color`. Everything else is the bar's
   own look.
@@ -43,8 +49,9 @@ A tab bar item has exactly the second shape. A segment cannot show it.
   `sizeThatFits` through the existing intrinsic-size seam, after the creating
   batch. Its height supplies the tablist's automatic minimum height, without
   changing authored rows or introducing an aspect ratio. An explicit CSS
-  `min-height` remains authoritative. The bar's frame is exactly the kernel
-  box; it never grows upward outside it. Resizing remeasures; ending the
+  `min-height` remains authoritative. The bar's frame never leaves the
+  kernel box: across, its content box (D2); it never grows upward outside
+  it. Resizing remeasures, at the content box's width; ending the
   projection clears the measurement and restores authored layout.
   A segmented control reports its `intrinsicContentSize` through the same
   seam and cache (2026-10-05, PR #93) and fills the tablist's content box,
