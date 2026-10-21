@@ -473,6 +473,12 @@ impl<D: DataSource> Presenter<D> {
     /// or none at all — a negative one is focusable but skipped — shown,
     /// not inert, with a box (display: none and `hidden` have none).
     pub(super) fn tabbable(&self, id: ViewId, boxed: &BTreeSet<ViewId>) -> bool {
+        self.focus_stop(id, boxed) && self.radio_tab_stop(id)
+    }
+
+    /// A Tab stop but for HTML's one stop to a radio group: every enabled
+    /// radio is one. A TV remote's stops (LLP 1115.001.003 D4).
+    pub(super) fn focus_stop(&self, id: ViewId, boxed: &BTreeSet<ViewId>) -> bool {
         let explicit = self
             .host
             .kernel()
@@ -481,7 +487,6 @@ impl<D: DataSource> Presenter<D> {
         self.focus_refusal(id).is_none()
             && explicit.is_none_or(|i| i >= 0)
             && self.focusable(id)
-            && self.radio_tab_stop(id)
             && boxed.contains(&id)
     }
 
@@ -597,6 +602,12 @@ impl<D: DataSource> Presenter<D> {
             }
             return;
         };
+        // A bar's target is no box of the page's: the remote's keys there are
+        // the remote's alone (LLP 1115.001.003 D4).
+        if self.remote() && self.bar_node(id) {
+            self.remote_key(id, (name, code, repeat), now_ms);
+            return;
+        }
         if !self.display.allows(self.host.kernel(), id) {
             return;
         }
@@ -629,7 +640,7 @@ impl<D: DataSource> Presenter<D> {
             return;
         }
         // A remote's Select and arrows (LLP 1115.001.003 D3).
-        if self.remote_key(id, name, code, now_ms) {
+        if self.remote_key(id, (name, code, repeat), now_ms) {
             return;
         }
         let Some(node) = self.host.kernel().node(id) else {

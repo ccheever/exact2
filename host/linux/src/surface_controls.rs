@@ -447,6 +447,14 @@ impl<D: DataSource> Presenter<D> {
             }
             return;
         }
+        // A TV remote's focus on a bar's target: that node is out of the page,
+        // so the key goes to the remote's keys, not to the page's (LLP
+        // 1115.001.003 D4).
+        let focus = self.focus;
+        if down && self.remote() && focus.is_some_and(|f| self.bar_node(f)) {
+            self.key_down_with(key, code, repeat, self.host.now());
+            return;
+        }
         if let Some(id) = self.focus.or_else(|| {
             self.surfaces.canvases.keys().copied().find(|view| {
                 self.surfaces.wants_input(*view)
