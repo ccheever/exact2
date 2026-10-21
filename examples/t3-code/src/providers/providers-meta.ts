@@ -102,6 +102,21 @@ export function versionLabel(version: unknown): string {
   return /^\d/.test(text) ? `v${text}` : text;
 }
 
+/**
+ * Antigravity's local health check verifies installation, not Google sign-in;
+ * API-key and Agent Platform warnings still need attention.
+ */
+export function antigravitySignInUnchecked(provider: Obj): boolean {
+  const auth = obj(provider.auth), type = auth.type;
+  return provider.driver === 'antigravity' && provider.installed === true && provider.status === 'warning' && auth.status === 'unknown'
+    && (type === undefined || type === null || type === 'oauth-personal' || type === 'oauth-business');
+}
+/** getProviderStatusKey: disabled, `neutral` for an unchecked Antigravity sign-in, else the probe's status. */
+export function providerStatusKey(provider: Obj | undefined): string {
+  if (provider && provider.enabled === false) return 'disabled';
+  if (provider && antigravitySignInUnchecked(provider)) return 'neutral';
+  return str(provider?.status) || 'warning';
+}
 /** Headline/detail copy as T3's getProviderSummary. */
 export function providerSummary(provider: Obj | undefined): { headline: string; detail: string } {
   if (!provider) return { headline: 'Checking provider status', detail: 'Waiting for the server to report installation and authentication details.' };
@@ -109,6 +124,7 @@ export function providerSummary(provider: Obj | undefined): { headline: string; 
   if (provider.enabled === false || provider.status === 'disabled') return { headline: 'Disabled', detail: message || 'This provider is installed but disabled for new sessions in T3 Code.' };
   if (provider.installed === false) return { headline: 'Not found', detail: message || 'CLI not detected on PATH.' };
   if (auth.status === 'unauthenticated') return { headline: label ? `Not authenticated · ${label}` : 'Not authenticated', detail: message };
+  if (antigravitySignInUnchecked(provider)) return { headline: 'Installed · Sign-in not checked', detail: message };
   if (provider.status === 'warning') return { headline: 'Needs attention', detail: message || 'The provider is installed, but the server could not fully verify it.' };
   if (provider.status === 'error') return { headline: 'Unavailable', detail: message || 'The provider failed its startup checks.' };
   if (auth.status === 'authenticated') return { headline: label ? `Authenticated · ${label}` : 'Authenticated', detail: message };
@@ -125,7 +141,8 @@ export function versionAdvisory(provider: Obj | undefined, enabled: boolean): { 
     const target = str(compatibility.recommendedVersion), recommendation = versionLabel(target) || str(compatibility.recommendedRange);
     return { title: COMPATIBILITY_TITLES[str(compatibility.status)], warning: true,
       detail: str(compatibility.message) || (recommendation ? `Use ${recommendation} for full support.` : 'Update for full support.'),
-      command: target || latestIncompatible ? '' : str(advisory.updateCommand) };
+      // An installed version that is already the package's latest cannot be fixed by updating it (the recommendation may need another package).
+      command: target || latestIncompatible || advisory.status === 'current' ? '' : str(advisory.updateCommand) };
   }
   if (!str(advisory.status) || ['current', 'unknown'].includes(str(advisory.status)) || latestIncompatible) return null;
   const latest = versionLabel(advisory.latestVersion);

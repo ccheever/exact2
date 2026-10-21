@@ -164,6 +164,23 @@ describe('T3 pull request tools (18b2132)', () => {
   });
 });
 
+describe('T3 tool labels read as sentences (presentation.test.ts)', () => {
+  const name = (tool: string, status: string) => t3ToolPresentation(t3ToolDefinition(`t3-code.${tool}`), status)?.displayName;
+  test('an interrupted unwatch differs from a completed one', () => {
+    expect(['inProgress', 'stopped', 'completed'].map(status => name('unwatch_pull_request', status)))
+      .toEqual(['Unwatching a pull request', 'Stopped unwatching a pull request', 'Stopped watching a pull request']);
+  });
+  test('starting review-guide writing in rows and groups without outcomes', () => {
+    const call = { input: {}, output: null, outcome: 'completed' as const };
+    expect(name('write_pull_request_guides', 'completed')).toBe('Started writing review guides');
+    expect(summarizeT3ToolCalls('write-pr-guides', [call]).label).toBe('Started writing review guides');
+    expect(summarizeT3ToolCalls('write-pr-guides', [call, call]).label).toBe('Started writing review guides 2 times');
+  });
+  test('delegated-task cancellation reads as an ongoing action, then a request', () => {
+    expect(['inProgress', 'completed'].map(status => name('task_cancel', status))).toEqual(['Canceling a delegated task', 'Requested cancellation of a delegated task']);
+  });
+});
+
 describe('answered questions', () => {
   test('lead with the question, trail the answer, and expand to the history', async () => {
     const questionAnswer = { requestId: 'q', answers: { scope: { answers: ['Workspace'] } }, attachmentsByQuestionId: {}, questionTextById: { scope: 'Which scope should this fixture use?' } };

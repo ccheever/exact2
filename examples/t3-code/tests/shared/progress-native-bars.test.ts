@@ -27,6 +27,8 @@ const meter = (usage: unknown) => contextMeter(({ threadId: 't', local: { client
 describe('the values', () => {
   test('Antigravity download: the bytes downloaded of the total while the size is known, no bar otherwise', () => {
     expect(runtime({ phase: 'downloading', operationId: 'op', downloadedBytes: 12_345_678, totalBytes: 45_600_000 })).toMatchObject({ progressValue: 12_345_678, progressMax: 45_600_000 });
+    // The wire does not cap downloaded bytes at the advertised total (ProviderSetupSection.browser.test.tsx).
+    expect(runtime({ phase: 'downloading', operationId: 'op', downloadedBytes: 110_000_000, totalBytes: 100_000_000 })).toMatchObject({ progressValue: 100_000_000, progressMax: 100_000_000 });
     expect(runtime({ phase: 'downloading', operationId: 'op', downloadedBytes: 1_000, totalBytes: null })).toMatchObject({ progressValue: 0, progressMax: 0 });
     expect(runtime({ phase: 'extracting', operationId: 'op' })).toMatchObject({ progressMax: 0 });
     // The workaround's fields are gone: the bar says its value itself.

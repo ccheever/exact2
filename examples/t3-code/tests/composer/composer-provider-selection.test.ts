@@ -7,7 +7,7 @@ import { describe, expect, test } from 'bun:test';
 import { obj, type Obj } from '../../src/client/domain';
 import { modelCatalog, snapshot } from '../../src/client/presentation';
 import { providerEntries, resolveComposerProviderSelection, resolveSelectableProviderInstanceEntry, resolveAppModelSelectionForInstance,
-  composerSelection, applyProviderInstanceSettings, DEFAULT_MODEL } from '../../src/composer/composer-provider-selection';
+  composerSelection, applyProviderInstanceSettings, DEFAULT_MODEL, instanceModelOptions } from '../../src/composer/composer-provider-selection';
 import { provider as fixtureProvider, Fake, storage, opened } from '../support/composer-controls-fixture';
 import { T3Client } from '../../src/client/client';
 import { composerBranches } from '../../src/composer/composer-controls-branch';
@@ -122,6 +122,13 @@ describe('instance-scoped model selection', () => {
     // The composer's own choice for that instance resolves the same way, and its options are dropped at dispatch.
     const client = { config: { providers, settings: {} }, providerId: 'codex', modelId: 'gpt-missing', local: {} };
     expect(composerSelection(client)).toMatchObject({ instanceId: 'codex', model: 'gpt-5.6-sol' });
+  });
+  test('offers and resolves every saved custom model, past the first 32', () => {
+    const providers = [wire('claudeAgent', 'claude_openrouter')];
+    const customModels = Array.from({ length: 40 }, (_, index) => `proxy/model-${index + 1}`);
+    const settings = { providerInstances: { claude_openrouter: { driver: 'claudeAgent', config: { customModels } } } };
+    expect(instanceModelOptions({}, settings, providerEntries(providers)[0]!).map(option => option.slug)).toEqual(customModels);
+    expect(resolveAppModelSelectionForInstance({}, settings, providers, 'claude_openrouter', 'proxy/model-40')).toBe('proxy/model-40');
   });
   test('preserves an explicit draft OpenCode selection while the catalog is empty', () => {
     const providers = [wire('opencode', 'opencode_work')];

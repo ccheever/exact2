@@ -1188,6 +1188,7 @@ component T3Code
   state sbLetters = ""
   state sbLettersEdited = false
   state sbEmoji = ""
+  state sbThumbs = "" // the image files the icon picker has scrolled into view, one path a line: their previews are fetched
   state sbSshHost = ""
   resource sbSshHosts = settingsBSshHosts(connecting, sbSshHost, data.revision) as shape SbSshHosts
   state sshNow = 0
@@ -1221,7 +1222,9 @@ component T3Code
       sbEmoji = value
     if which == "ssh-host"
       sbSshHost = value
-  resource sbPicker = settingsBPicker(restEditor, sbQuery, (sbLettersEdited ? sbLetters : projectsSettings.iconLetters), sbEmoji, projectsSettings.iconCwd, projectsSettings.name, data.revision) as shape SbPicker
+    if which == "thumb" and not `\n${sbThumbs}\n`.includes(`\n${value}\n`)
+      sbThumbs = sbThumbs == "" ? value : `${sbThumbs}\n${value}`
+  resource sbPicker = settingsBPicker(restEditor, sbQuery, (sbLettersEdited ? sbLetters : projectsSettings.iconLetters), sbEmoji, projectsSettings.iconCwd, projectsSettings.name, data.revision, sbThumbs) as shape SbPicker
   state modelsOpen = false
   state browseProvider = ""
   state modelQuery = ""
@@ -2108,6 +2111,7 @@ component T3Code
     taskBase = value
   action restOpen(editor: string, subject: string) // the window's half: the dialog label, the row menu
     sbQuery = ""
+    sbThumbs = ""
     sbLettersEdited = false
     sbEmoji = ""
     restEditor = editor

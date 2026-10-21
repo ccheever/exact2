@@ -1,7 +1,7 @@
 // Settings → Project → Project icon (ProjectSettingsPanel.tsx's
-// icon row, ProjectIconPickerDialog.tsx, ProjectFaviconPickerDialog.tsx,
+// icon row, ProjectIconPickerDialog.tsx, ProjectFaviconPickerDialog.tsx, ProjectFaviconThumbnail.tsx,
 // projectIconOptions.ts, projectIconColors.ts, projectIdentity.ts,
-// ProjectMonogram.tsx, ProjectFavicon.tsx; reference 9c161462c9). An override is a Lucide icon, an
+// ProjectMonogram.tsx, ProjectFavicon.tsx; reference 74541bab17). An override is a Lucide icon, an
 // emoji or a monogram; a favicon is a workspace image. Both are group-shared
 // fields, so a change fans out to every member project (updateAllMembers).
 import { arr, obj, str, initialShell, applyShell, type Obj } from '../client/domain';
@@ -173,10 +173,28 @@ export async function iconFields(client: T3Client, native: Native | null | undef
 
 // ── The picker resource (icon grid, emoji, monogram validity, image files) ──
 const fileCache = new Map<string, { entries: Obj[]; error: string }>();
-export async function iconPicker(client: T3Client, native: Native | null | undefined, editor: string, query: string, letters: string, custom: string, cwd: string, group: string, revision = 0) {
+const thumbCache = new Map<string, string>();
+/**
+ * ProjectFaviconThumbnail: a signed URL for an image file's preview, '' until it can be had. Asset URLs cost a
+ * server request, so only files whose row has been on screen (`seen`, the picker's intersect reports) get one.
+ */
+async function thumbnailSources(client: T3Client, native: Native | null | undefined, cwd: string, paths: string[]): Promise<Map<string, string>> {
+  const key = (path: string) => JSON.stringify([client.generation, client.environmentId, cwd, path]);
+  if (native?.available && cwd && client.connection === 'connected') {
+    await Promise.all(paths.filter(path => !thumbCache.has(key(path))).map(async path => {
+      let url = '';
+      try { url = assetUrl(client.origin, str(obj(await client.rpc(native, 'assets.createUrl', { resource: { _tag: 'draft-workspace-file', cwd, path } })).relativeUrl)); }
+      catch (error) { if (letGo(error)) throw error; }
+      thumbCache.set(key(path), url);
+      if (thumbCache.size > 400) thumbCache.delete(thumbCache.keys().next().value!);
+    }));
+  }
+  return new Map(paths.map(path => [path, thumbCache.get(key(path)) ?? '']));
+}
+export async function iconPicker(client: T3Client, native: Native | null | undefined, editor: string, query: string, letters: string, custom: string, cwd: string, group: string, revision = 0, seen = '') {
   const monogram = monogramOf(letters);
   const icons = editor === 'project-icon' ? filterIconNames(query).map(name => ({ name, label: iconLabel(name), d: iconPath(name) })) : [];
-  let files: { index: number; path: string; name: string; token: string }[] = [], fileEmpty = '';
+  let files: { index: number; path: string; name: string; token: string; src: string }[] = [], fileEmpty = '';
   if (editor === 'project-favicon') {
     const trimmed = query.trim(), key = `${client.generation}:${revision}:${cwd}:${trimmed}`;
     let cached = fileCache.get(key);
@@ -189,10 +207,10 @@ export async function iconPicker(client: T3Client, native: Native | null | undef
       fileCache.set(key, cached);
       if (fileCache.size > 40) fileCache.delete(fileCache.keys().next().value!);
     }
-    files = cached.entries.filter(entry => entry.kind === 'file' && str(entry.path)).map((entry, index) => {
-      const path = str(entry.path);
-      return { index, path, name: path.slice(path.lastIndexOf('/') + 1), token: fileIconToken(path) };
-    });
+    const listed = cached.entries.filter(entry => entry.kind === 'file' && str(entry.path)).map(entry => str(entry.path));
+    const shown = new Set(seen.split('\n').filter(Boolean));
+    const sources = await thumbnailSources(client, native, cwd, listed.filter(path => shown.has(path)));
+    files = listed.map((path, index) => ({ index, path, name: path.slice(path.lastIndexOf('/') + 1), token: fileIconToken(path), src: sources.get(path) ?? '' }));
     fileEmpty = cached.error || (trimmed ? 'No matching image files.' : 'No image files found.');
   }
   // The editor's starting point: the representative's override, else Folder Code in the automatic color.

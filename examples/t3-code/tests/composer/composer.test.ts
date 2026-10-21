@@ -115,6 +115,23 @@ describe('model picker catalog', () => {
     expect(catalog).toMatchObject({ count: 4, legacyCount: 1 });
     expect(catalog.models[1]!.isNew).toBe(true);
   });
+  test('a favorited legacy model rises with the favorites; unfavorited, it returns to the collapsed Legacy section', () => {
+    const legacyClient = (active: string) => client({ providerId: 'codex', modelId: active, config: { providers: [provider('codex', [{ slug: 'current', name: 'Current model' },
+      { slug: 'legacy-favorite', name: 'Legacy favorite', isLegacy: true }, { slug: 'current-favorite', name: 'Current favorite' }, { slug: 'other-legacy', name: 'Other legacy', isLegacy: true }])] } });
+    const c = legacyClient('current');
+    c.local.favoriteModels = [JSON.stringify(['codex', 'current-favorite']), JSON.stringify(['codex', 'legacy-favorite'])];
+    const rows = (catalog: ReturnType<typeof pickerCatalog>) => catalog.models.map(row => [row.kind, row.name]);
+    expect(rows(pickerCatalog(c, 'codex', '', badge))).toEqual([['model', 'Legacy favorite'], ['model', 'Current favorite'], ['model', 'Current model'],
+      ['legacy', 'Legacy models'], ['legacy-model', 'Other legacy']]);
+    c.local.favoriteModels = [JSON.stringify(['codex', 'current-favorite'])];
+    expect(rows(pickerCatalog(c, 'codex', '', badge))).toEqual([['model', 'Current favorite'], ['model', 'Current model'],
+      ['legacy', 'Legacy models'], ['legacy-model', 'Legacy favorite'], ['legacy-model', 'Other legacy']]);
+    // The active model's Legacy section opens expanded only when that model is not a favorite.
+    const favorite = legacyClient('legacy-favorite');
+    favorite.local.favoriteModels = [JSON.stringify(['codex', 'legacy-favorite'])];
+    expect(pickerCatalog(favorite, 'codex', '', badge).legacyDefault).toBe(false);
+    expect(pickerCatalog(legacyClient('other-legacy'), 'codex', '', badge).legacyDefault).toBe(true);
+  });
   test('search crosses instances, ranks by field and boosts favorites; rail hides', () => {
     const c = two();
     const catalog = pickerCatalog(c, 'other', 'astra', badge);
