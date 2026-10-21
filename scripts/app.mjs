@@ -36,7 +36,7 @@ import { createHash } from 'node:crypto';
 import { nativeSource, prepareRustBundle } from './rust.mjs';
 import { bakeOutside, linkable } from './linked-plan.mjs';
 import { throwContractErrors } from './contract-diagnosis.mjs';
-import { filesystem, installedModules, removePrivateTree } from './filesystem.mjs';
+import { filesystem, installedModules, removePrivateTree, withHostDeployment } from './filesystem.mjs';
 import { startSweep } from './sweep.mjs';
 import { installProblems } from './install-page.mjs';
 import { gameDefaults, lintGame, prepareGame } from '../game/app/shells.mjs';
@@ -55,7 +55,7 @@ export function cargoOnPath(env = process.env, home = homedir()) {
 }
 cargoOnPath(); process.env.HERMES_LEAN_SYS_OFFLINE = '1';
 /** Every Cargo process Exact starts refuses implicit Hermes acquisition. */
-export function cargoEnvironment(env = process.env) { return { ...env, HERMES_LEAN_SYS_OFFLINE: '1' }; }
+export function cargoEnvironment(env = process.env) { return withHostDeployment({ ...env, HERMES_LEAN_SYS_OFFLINE: '1' }); }
 // @ref llp/1046.006.000-render-hooks.rfc.md#d5-shaders-that-live-with-the-game
 /** Explicit source roots, relative to app.json. Only packaged names reach a host. */
 export function shaderRoots(app) {
@@ -1232,7 +1232,7 @@ export function wholeProgram(kind, profile) {
 export function buildBake(app, platform, target, options = {}) {
   // `kind` names another crate for the platform's cohort: Android's Canvas host bakes as Linux from `<app>-android`.
   const kind=options.kind??platformCrateKind(app.dir,platform), apple=['apple','ios','macos','tvos'].includes(kind);
-  let env={...process.env,...options.env};env.CARGO_TARGET_DIR=app.target;env.EXACT_BAKE_OUTPUT=options.output??bakeOutput(app,env);
+  let env=withHostDeployment({...process.env,...options.env});env.CARGO_TARGET_DIR=app.target;env.EXACT_BAKE_OUTPUT=options.output??bakeOutput(app,env);
   const watch = target.includes('apple-watchos');
   if(platform==='web'||watch)env=webToolchainEnv(env);
   if(options.analysis && env.EXACT_UPDATE_TRUST==='production')env.EXACT_BAKE_ANALYSIS='1';else delete env.EXACT_BAKE_ANALYSIS;

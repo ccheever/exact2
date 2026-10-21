@@ -30,7 +30,8 @@ const TOOL_TARGET = process.env.CARGO_TARGET_DIR ? resolve(process.env.CARGO_TAR
  * shared by every app built from it: the command that builds it (a no-op when
  * built), and where it is. */
 export const bakeTool = { command: 'cargo', args: ['build', '-q', '--profile', 'host-dev', '-p', 'exact-js-bake'], built: resolve(TOOL_TARGET, 'host-dev/exact-js-bake'),
-  options: () => ({ cwd: ROOT, env: { ...developmentBuildEnv(), EXACT_UPDATE_TRUST: 'development', CARGO_TARGET_DIR: TOOL_TARGET } }) };
+  // Built with the build's own Mac deployment target when one asks (`bakeOutside`), as its host side shares the target directory.
+  options: (build = {}) => ({ cwd: ROOT, env: { ...developmentBuildEnv(), ...(build.MACOSX_DEPLOYMENT_TARGET ? { MACOSX_DEPLOYMENT_TARGET: build.MACOSX_DEPLOYMENT_TARGET } : {}), EXACT_UPDATE_TRUST: 'development', CARGO_TARGET_DIR: TOOL_TARGET } }) };
 
 /** The Apple build script `exact new` writes: it names the platform and
  * bakes, and does nothing else a bake made before Cargo would miss. */
@@ -123,7 +124,7 @@ function fresh(record, dir, env, tool) {
  * writer of the directory. */
 export function bakeOutside(app, platform, target, env) {
   const dir = linkedBakeDir(env, platform, target), at = resolve(dir, 'inputs.json');
-  const built = spawnSync(bakeTool.command, bakeTool.args, { ...bakeTool.options(), stdio: ['ignore', 'inherit', 'inherit'] });
+  const built = spawnSync(bakeTool.command, bakeTool.args, { ...bakeTool.options(env), stdio: ['ignore', 'inherit', 'inherit'] });
   if (built.status !== 0) throw new Error(`the bake tool did not build (${bakeTool.command} ${bakeTool.args.join(' ')})`);
   const tool = `${bakeTool.built} ${statSync(bakeTool.built).mtimeMs}`;
   // Its warnings are said on every build, as Cargo replays a build script's: the SF Symbols only the web draws blank

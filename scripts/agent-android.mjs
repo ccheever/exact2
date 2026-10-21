@@ -29,7 +29,7 @@ import { copyFileSync, cpSync, existsSync, mkdirSync, readFileSync, readdirSync,
 import { createConnection } from 'node:net';
 import { homedir } from 'node:os';
 import { basename, dirname, resolve } from 'node:path';
-import { HOST_DEV, buildBake, copyShaders, injectedProfiles, linuxBuild, resolveApp, wholeProgram } from './app.mjs';
+import { HOST_DEV, buildBake, cargoEnvironment, copyShaders, injectedProfiles, linuxBuild, resolveApp, wholeProgram } from './app.mjs';
 import { hermesAndroidBundle } from './hermes-android.mjs';
 import { guardFlags } from './help.mjs';
 import { androidImplementations } from '../js/bake/src/typescript.mjs';
@@ -64,7 +64,7 @@ export function androidToolchainEnv(env = process.env) {
   // A TypeScript data module's lean Hermes VM: the Android bundle
   // `hermes-android.mjs build` made, for the target only (the host keeps its pinned one).
   const hermes = env.HERMES_LEAN_SYS_DIR_aarch64_linux_android ?? hermesAndroidBundle();
-  return { ...env, CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER: cc, CC_aarch64_linux_android: cc,
+  return { ...cargoEnvironment(env), CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER: cc, CC_aarch64_linux_android: cc,
     CXX_aarch64_linux_android: `${cc}++`, AR_aarch64_linux_android: resolve(bin, 'llvm-ar'),
     // One C++ runtime, static, as the Hermes bundle links it (ANDROID_STL=c++_static):
     // the cc crate's Android default, c++_shared, needs libc++_shared.so beside the binary.

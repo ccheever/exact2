@@ -44,6 +44,7 @@ import { tmpdir } from 'node:os';
 import { basename, dirname, isAbsolute, relative, resolve } from 'node:path';
 import { closeSync, copyFileSync, cpSync, existsSync, linkSync, mkdirSync, mkdtempSync, openSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs';
 import { evictArms, keepRoster, keptRoster, snapshotSources } from './arms.mjs';
+import { HOST_MACOS } from '../../scripts/filesystem.mjs';
 import { documentTypes, exportedTypes, importedTypes, openingLinks, webPageTypes } from './documents.mjs';
 import { executableName, HOST_DEV, checkModuleRoster, copyShaders, appleCargoClaims, awaitBuildOutput, cargoLibraryTarget, claimBuildOutput, appSourceKey, bakeOutput, buildBake, contractLast, bakeTarget, developmentBuildEnv, developmentURLScheme, gpuModules, hermesBundle, injectedProfiles, resolveApp, verifyBakeFiles } from '../../scripts/app.mjs';
 import { copyStaticTreeIfPresent, listAssets } from '../web/serve.mjs';
@@ -696,7 +697,8 @@ async function main(args, lockHeld = false) {
     ...developmentBuildEnv(),
     EXACT_WIDGET_GALLERY: gallery ? '1' : '0',
     SDKROOT: sdk,
-    MACOSX_DEPLOYMENT_TARGET: targets.macos,
+    // An iOS build's Mac side is its build scripts and proc macros: the host's target, as every cargo call's.
+    MACOSX_DEPLOYMENT_TARGET: ios ? process.env.MACOSX_DEPLOYMENT_TARGET || HOST_MACOS : targets.macos,
     ...(ios ? {
       ...(tv ? { TVOS_DEPLOYMENT_TARGET: targets.ios } : { IPHONEOS_DEPLOYMENT_TARGET: targets.ios }),
       // The bake's host dependencies compile Objective-C++ too. cc-rs

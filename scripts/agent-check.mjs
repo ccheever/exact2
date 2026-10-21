@@ -165,11 +165,16 @@ export function judge(obs, png, { host = 'web' } = {}) {
   // any width at all. Glyphs a pixel or two into a neighbour's read as one word ("GoingMaybe", event-rsvp at the largest
   // text size, round 21), and two texts set flush on purpose ("$" then "12") only touch.
   const texts = items.filter((it) => it.text && !it.control && !it.squeezed);
+  // A text drawn on the opaque fill of the view laid over another's middle (a bar over its list's row) hides that
+  // one where they meet, if that view's box holds all of the meeting: they do not run together there (the host's
+  // `beneath`, `on` and `solid`; a label running past its bar's edge still meets the row outside it).
+  const hides = (top, below, i) => below.beneath != null && top.on === below.beneath.by && top.solid && holds(below.beneath, i);
   for (const [k, a] of texts.entries()) for (const b of texts.slice(k + 1)) {
     if (holds(a, b) || holds(b, a)) continue;
     const da = drawn(a), db = drawn(b);
     if (da.w <= 0 || da.h <= 0 || db.w <= 0 || db.h <= 0) continue;
-    const i = inter(da, db);
+    const i = inter(da, db), meet = { x: Math.max(da.x, db.x), y: Math.max(da.y, db.y), w: i.w, h: i.h };
+    if (hides(a, b, meet) || hides(b, a, meet)) continue;
     if (i.w > 0.5 && i.h >= 2) add('overlap', a, { with: b.id, by: [Math.round(i.w * 10) / 10, r0(i.h)] }, 'give them room (a gap, or let the row wrap)');
   }
   // A control's own text covered with it is one finding: the control's.

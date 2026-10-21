@@ -14,6 +14,7 @@ import { fileURLToPath } from 'node:url';
 // Also for its PATH: the pinned binaryen (and Cargo) as every web build has
 // them, so a prebuild optimizes and keeps what an app's build would.
 import { WEB_STD, WEB_SIZE, WEB_TOOLCHAIN, wasmRemapFlags } from '../../scripts/app.mjs';
+import { withHostDeployment } from '../../scripts/filesystem.mjs';
 import { replaceBuild } from '../web/serve.mjs';
 import { proofInputs } from '../../game/inputs.mjs';
 import { keptProducts } from '../../scripts/kept.mjs';
@@ -406,7 +407,8 @@ async function prebuild() {
 // A game's resident producer and its proof share completed development web
 // products locally. The snapshot supplies its own inputs; the live world is never read.
 export function warmGameEnvironment(env) {
-  return {...env, EXACT_UPDATE_TRUST:env.EXACT_UPDATE_TRUST ?? 'development',
+  // The bake's own environment, which every cargo call's host deployment target is in (scripts/filesystem.mjs).
+  return {...withHostDeployment(env), EXACT_UPDATE_TRUST:env.EXACT_UPDATE_TRUST ?? 'development',
     EXACT_GAME_PARANOID:env.EXACT_GAME_PARANOID ?? '0', EXACT_WEB_LINK:env.EXACT_WEB_LINK ?? 'all',
     RUSTUP_TOOLCHAIN:WEB_TOOLCHAIN, EXACT_WEB_SIZE:WEB_SIZE};
 }

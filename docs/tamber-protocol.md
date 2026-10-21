@@ -323,7 +323,8 @@ statuses:
   dials are budgeted (20 a second, a burst of 40) whatever the relay does. The relay's names are
   served only when the certificate covers them, and no word of the relay's that carries the token
   becomes a name, an address or a log line.
-  The connector's own protocol (`EXACT-RELAY/1`) is outside `tamber/1`: scripts/tamber-relay.mjs.
+  The connector's own protocol (`EXACT-RELAY/1`, one random `run` id on every connection of a run)
+  is outside `tamber/1`: scripts/tamber-relay.mjs; the relay itself, docs/tamber-relay-service.md.
 
 ### Pairing (*1.13*)
 
