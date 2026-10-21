@@ -61,9 +61,18 @@ function serve(dir, gated = null) {
   return Object.assign(server, { open });
 }
 
+// When the tab row is observed (the resize glue attached to it): `__observed`, a promise.
+const watchObserve = () => {
+  let seen;
+  globalThis.__observed = new Promise((r) => { seen = r; });
+  const observe = ResizeObserver.prototype.observe;
+  ResizeObserver.prototype.observe = function (el, ...rest) { if (el.dataset?.testid === 'tabs') seen(); return observe.call(this, el, ...rest); };
+};
+
 // Each ResizeObserver report held until the page says `__reports()` (a loaded machine's late report); the box with
-// no layout (`unseen`) never reported at all, so only its own release lets a settle go.
+// no layout (`unseen`) never reported at all; and no 2 s bound, so only its own release lets a settle go.
 const heldReports = () => {
+  globalThis.__exactFirstSizeBound = 1e9;
   const Real = globalThis.ResizeObserver, held = [];
   let open = false;
   globalThis.__reports = () => { open = true; for (const f of held.splice(0)) f(); };
@@ -79,14 +88,16 @@ const heldReports = () => {
   };
 };
 
-// The settle, with `release` run 300 ms after it began (in the page: no driver's gap), and the state as it answered.
-const settleThen = (page, release) => page.evaluate(async (release) => {
+// The settle, begun once `ready` (a page promise's name) settles, with `release` run 300 ms in (in the page: no
+// driver's gap), and the state as it answered.
+const settleThen = (page, ready, release) => page.evaluate(async ([ready, release]) => {
+  await globalThis[ready];
   const began = performance.now(), settling = globalThis.exact.agentSettled({ op: 'clock', settle: true });
-  setTimeout(() => { if (release) globalThis[release](); }, 300);
+  setTimeout(() => globalThis[release](), 300);
   const settled = await settling;
   const state = await globalThis.exact.agentSettled({ op: 'state' });
   return { settled, slots: state.slots, ms: performance.now() - began };
-}, release);
+}, [ready, release]);
 
 test("an agent's settle waits for a view's first size, however late its report comes, and that size waits for the page's geometry; an element with no box holds nothing", async () => {
   if (webCompiler().cmd === 'cargo') throw new Error('build the compiler first: cargo build -p exact-web-js');
@@ -98,25 +109,40 @@ test("an agent's settle waits for a view's first size, however late its report c
     server = serve(dir);
     const page = await browser.newPage();
     await page.addInitScript(heldReports);
+    await page.addInitScript(watchObserve);
     await page.goto(`${server.url.href}?agent=1`);
     await page.waitForFunction(() => typeof globalThis.exact?.agentSettled === 'function');
-    const held = await settleThen(page, '__reports');
+    // Begun once the observer is attached: on main its hold was already gone, and the settle answered first.
+    const held = await settleThen(page, '__observed', '__reports');
     expect(held.settled).toMatchObject({ settled: true });
+    expect(held.ms).toBeGreaterThanOrEqual(300);
     expect(held.slots.widths.length).toBe(2);
     expect(held.slots.widths.every((w) => w > 10)).toBe(true);
-    // The box with no layout, never reported, held nothing: the settle answered long before the 2 s bound.
+    // The box with no layout, never reported and with no bound to end its wait, held nothing.
     expect(held.slots.hidden).toBe(0);
-    expect(held.ms).toBeLessThan(1500);
     await page.close();
     server.stop(true);
     // The page's geometry served only 300 ms into the settle (frames answer unavailable until it loads): the first
     // size waits for it, so the tabs are measured, not read as nothing (the clone's `-12`).
     server = serve(dir, /geometry-glue/);
+    // Released once the tab row was observed and two frames passed (when a resize glue that did not wait would have
+    // reported on unavailable frames), or 1.5 s on with nothing observed (the one that waits).
     const late = await (await browser.newContext()).newPage();
     await late.exposeFunction('__geometry', () => server.open());
+    await late.addInitScript(watchObserve);
+    await late.addInitScript(() => {
+      const frames = () => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+      globalThis.__geometryDue = Promise.race([globalThis.__observed.then(frames), new Promise((r) => setTimeout(r, 1500))]);
+    });
     await late.goto(`${server.url.href}?agent=1`);
     await late.waitForFunction(() => typeof globalThis.exact?.agentSettled === 'function');
-    const slow = await settleThen(late, '__geometry');
+    const slow = await late.evaluate(async () => {
+      const settling = globalThis.exact.agentSettled({ op: 'clock', settle: true });
+      await globalThis.__geometryDue;
+      await globalThis.__geometry();
+      const settled = await settling;
+      return { settled, slots: (await globalThis.exact.agentSettled({ op: 'state' })).slots };
+    });
     expect(slow.settled).toMatchObject({ settled: true });
     expect(slow.slots.widths.length).toBe(2);
     expect(slow.slots.widths.every((w) => w > 10)).toBe(true);

@@ -21,7 +21,8 @@ export function onResize(e, f) {
     .then(m => {
       m.observeResize(e, r => { try { if (e.isConnected) f(r.width, r.height, [r.x, r.y, r.width, r.height, r.top, r.right, r.bottom, r.left]); } finally { landed(); } });
       if (!e.isConnected || !e.getClientRects().length) landed();
-      else if (first) bound = setTimeout(landed, FIRST_MS);
+      // (`__exactFirstSizeBound`: a test's, to see a release that is no bound's.)
+      else if (first) bound = setTimeout(landed, globalThis.__exactFirstSizeBound ?? FIRST_MS);
     })
     .catch(err => { say(`resize: ${err.message}`); landed(); });
 }
