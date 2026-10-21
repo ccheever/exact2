@@ -532,11 +532,13 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
     // A remote door's request is read whole first: its connection deadline
     // (tamber-remote.mjs) clears only once the body has ended.
     const early = access.remote ? body(req, res) : null;
+    // Over the limit, answered at once: not behind a server still starting, past refuseBody's 5 s.
+    if (early && (await Promise.race([early, ready.then(() => '')])) === null) { if (!res.destroyed) json(res, 413, { error: { message: 'a request is at most 1 MiB' } }); return true; }
     await ready;
     // The client left while the server started.
     if (res.destroyed || res.writableEnded) return true;
     const text = await (early ?? body(req, res));
-    if (text == null) { json(res, 413, { error: { message: 'a request is at most 1 MiB' } }); return true; }
+    if (text == null) { if (text === null) json(res, 413, { error: { message: 'a request is at most 1 MiB' } }); return true; } // (undefined: the client left)
     const request = parse(text);
     // Nested past 64 levels: refused before anything of it is kept, since a
     // value kept (a held proposal's review) is sent on to every stream.
@@ -1422,9 +1424,9 @@ export async function forward(req, res, url, access, target) {
   res.on('close', () => gone.abort());
   try {
     // A body within the server's own limit, read here (its bytes) before it is sent on; over it, answered 413 first.
-    const bytes = req.method === 'GET' || req.method === 'HEAD' ? null : await readBody(req, BODY_LIMIT, res, true);
-    if (bytes === null && req.method !== 'GET' && req.method !== 'HEAD') { if (!res.destroyed) json(res, 413, { error: { message: 'a request is at most 1 MiB' } }); return true; }
-    const answer = await fetch(`${target}${url.pathname}`, { method: req.method, headers, redirect: 'error', signal: gone.signal, ...(bytes ? { body: bytes } : {}) });
+    const bytes = await readBody(req, BODY_LIMIT, res, true); // a GET's or a HEAD's too (none is sent on), whatever its content-length
+    if (bytes == null) { if (bytes === null && !res.destroyed) json(res, 413, { error: { message: 'a request is at most 1 MiB' } }); return true; } // (undefined: the client left)
+    const answer = await fetch(`${target}${url.pathname}`, { method: req.method, headers, redirect: 'error', signal: gone.signal, ...(req.method === 'GET' || req.method === 'HEAD' ? {} : { body: bytes }) });
     res.writeHead(answer.status, { 'content-type': answer.headers.get('content-type') ?? 'application/json', 'cache-control': 'no-store' });
     for await (const chunk of answer.body ?? []) {
       if (!res.write(chunk)) await new Promise(ok => {

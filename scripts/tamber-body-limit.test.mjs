@@ -6,6 +6,8 @@ import { afterAll, beforeAll, expect, test } from 'bun:test';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { createServer, request } from 'node:http';
 import { connect } from 'node:net';
+import { EventEmitter } from 'node:events';
+import { refuseBody } from './tamber-request.mjs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { developmentGate } from './install-page.mjs';
@@ -35,6 +37,16 @@ const send = (url, size, { headers = {}, chunked = false } = {}) => new Promise(
   let left = size;
   const more = () => { while (left > 0) { const n = Math.min(left, piece.length); left -= n; if (!req.write(piece.subarray(0, n))) return req.once('drain', more); } req.end(); };
   more();
+});
+
+/** Headers announcing a body over the limit, and not a byte of it: what comes back, and when the socket closed. */
+const announce = (port, extra = '') => new Promise(done => {
+  const sock = connect(port, '127.0.0.1');
+  let got = '';
+  const began = performance.now();
+  sock.on('data', d => { got += d; });
+  sock.on('close', () => done({ got, ms: performance.now() - began }));
+  sock.write(`POST /__tamber HTTP/1.1\r\nhost: 127.0.0.1:${port}\r\ncontent-type: application/json\r\n${extra}content-length: ${OVER}\r\n\r\n`);
 });
 
 let dir, server, tamber, origin, token;
@@ -67,17 +79,11 @@ test("the design server answers a body over 1 MiB 413, announced or chunked, and
   expect(hello.status).toBe(200);
 }, 60_000);
 
-test('a client that announces a body over 1 MiB and then sends nothing is answered 413 and let go (at once here; 5 s at most)', async () => {
-  const sock = connect(new URL(origin).port, '127.0.0.1');
-  let got = '';
-  sock.on('data', d => { got += d; });
-  const began = performance.now();
-  const closed = new Promise(ok => sock.on('close', () => ok(performance.now() - began)));
-  sock.write(`POST /__tamber HTTP/1.1\r\nhost: 127.0.0.1:${new URL(origin).port}\r\ncontent-type: application/json\r\nx-exact-tamber-token: ${token}\r\ncontent-length: ${OVER}\r\n\r\n{"method"`);
-  const ms = await closed;
+test('a client that announces a body over 1 MiB and sends none of it is answered 413 and let go', async () => {
+  const { got, ms } = await announce(Number(new URL(origin).port), `x-exact-tamber-token: ${token}\r\n`);
   expect(got).toStartWith('HTTP/1.1 413');
   expect(got.toLowerCase()).toContain('connection: close');
-  expect(ms).toBeLessThan(7000);
+  expect(ms).toBeLessThan(7000); // at once here (Bun closes it), refuseBody's 5 s at most
 }, 30_000);
 
 test("--via's proxy answers a body over 1 MiB 413 and sends nothing on; a body within it goes on byte for byte", async () => {
@@ -98,6 +104,11 @@ test("--via's proxy answers a body over 1 MiB 413 and sends nothing on; a body w
     for (const chunked of [false, true]) {
       expect({ chunked, ...(await send(at, OVER, { chunked })) }).toEqual({ chunked, ...REFUSED });
     }
+    // Announced and sent none of: refused all the same, a GET's too.
+    const announced = await announce(proxy.address().port);
+    expect(announced.got).toStartWith('HTTP/1.1 413');
+    const get = await new Promise(done => request(at, { method: 'GET', headers: { 'content-length': OVER } }, res => { res.resume(); res.on('end', () => done(res.statusCode)); }).on('error', e => done(e.code)).end());
+    expect(get).toBe(413);
     // Refused before anything was opened upstream, an announced length before a byte of it was read.
     expect({ connections, seen }).toEqual({ connections: 0, seen: [] });
     // Not text: bytes that are no UTF-8 reach the loop as they were sent.
@@ -110,3 +121,34 @@ test("--via's proxy answers a body over 1 MiB 413 and sends nothing on; a body w
     loop.close();
   }
 }, 60_000);
+
+test("refuseBody lets a request go after 5 s when its answer never finishes, and leaves no timer behind a closed socket", async () => {
+  const party = () => {
+    const socket = new EventEmitter(), req = Object.assign(new EventEmitter(), { socket, destroyed: 0, paused: 0, pause() { this.paused++; }, resume() {}, destroy() { this.destroyed++; } });
+    const res = Object.assign(new EventEmitter(), { headers: {}, setHeader(k, v) { this.headers[k] = v; } });
+    return { socket, req, res };
+  };
+  // An answer that never goes out: let go at 5 s, paused until then.
+  const stuck = party();
+  let answered = 0;
+  refuseBody(stuck.req, stuck.res, () => answered++);
+  expect({ answered, paused: stuck.req.paused, connection: stuck.res.headers.connection }).toEqual({ answered: 1, paused: 1, connection: 'close' });
+  await Bun.sleep(4500);
+  expect(stuck.req.destroyed).toBe(0);
+  await Bun.sleep(1000);
+  expect(stuck.req.destroyed).toBe(1);
+  // Its socket closed first: the timer goes with it.
+  const gone = party();
+  refuseBody(gone.req, gone.res);
+  gone.socket.emit('close');
+  await Bun.sleep(5500);
+  expect(gone.req.destroyed).toBe(0);
+  // Answered: the rest read and dropped, and let go when it ends.
+  const done = party();
+  refuseBody(done.req, done.res);
+  done.res.emit('finish');
+  expect(done.req.destroyed).toBe(0);
+  done.req.emit('data', Buffer.alloc(10));
+  done.req.emit('end');
+  expect(done.req.destroyed).toBe(1);
+}, 30_000);

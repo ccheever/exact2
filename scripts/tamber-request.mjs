@@ -12,6 +12,8 @@ export const refuseBody = (req, res, answer = () => {}) => {
   res.setHeader('connection', 'close');
   const fallback = setTimeout(() => req.destroy?.(), 5000);
   fallback.unref?.();
+  // (Its socket's close, not the response's or the request's: Bun's node:http fires those before the answer is out.)
+  (req.socket ?? res.socket)?.once?.('close', () => clearTimeout(fallback));
   res.once('finish', () => {
     req.on('data', () => {});
     req.once('end', () => { clearTimeout(fallback); req.destroy?.(); });
@@ -20,11 +22,11 @@ export const refuseBody = (req, res, answer = () => {}) => {
   answer();
 };
 
-/** The body as text (`raw`: its bytes); null when over `limit` bytes or when
- * the client left. Over it, with `res`, refused (`refuseBody`: the caller's
+/** The body as text (`raw`: its bytes); null when over `limit` bytes,
+ * undefined when the client left (`== null` for either). Over it, with `res`, refused (`refuseBody`: the caller's
  * answer goes out first); without `res`, the connection is cut. */
 export const readBody = (req, limit, res = null, raw = false) => new Promise(done => {
-  if (req.destroyed) return done(null);
+  if (req.destroyed) return done(undefined);
   const over = () => (res ? refuseBody(req, res) : req.destroy?.());
   if (Number(req.headers['content-length']) > limit) { over(); return done(null); }
   const chunks = []; let size = 0, settled = false;
@@ -32,11 +34,11 @@ export const readBody = (req, limit, res = null, raw = false) => new Promise(don
   req.on('data', chunk => {
     if (settled) return;
     size += chunk.length;
-    if (size > limit) { finish(null); over(); } else chunks.push(chunk);
+    if (size > limit) { chunks.length = 0; finish(null); over(); } else chunks.push(chunk);
   });
   req.on('end', () => finish(raw ? Buffer.concat(chunks) : Buffer.concat(chunks).toString('utf8')));
-  req.on('error', () => finish(null));
-  req.on('close', () => finish(null));
+  req.on('error', () => finish(undefined));
+  req.on('close', () => finish(undefined));
 });
 
 /** Whether `v` nests deeper than `max` arrays or objects (iterative, so a
