@@ -19,10 +19,12 @@ test('manual SSH targets parse like parseManualDesktopSshTarget', () => {
   expect(formatSshError(new Error("Error invoking remote method 'desktop:ensure-ssh-environment': SshCommandError: Permission denied"))).toBe('Permission denied');
 });
 
-test('host suggestions put alias prefixes first, then substrings', () => {
-  const hosts = [{ alias: 'staging' }, { alias: 'dev-box' }, { alias: 'box' }, { alias: 'mybox' }];
+test('host suggestions put alias prefixes first, then alias or hostname substrings, case-insensitively', () => {
+  const hosts = [{ alias: 'staging', hostname: 'staging' }, { alias: 'dev-box', hostname: 'dev-box' }, { alias: 'box', hostname: 'box' }, { alias: 'mybox', hostname: 'mybox' }];
   expect(filterSshHosts(hosts, ' BOX ').map(host => host.alias)).toEqual(['box', 'dev-box', 'mybox']);
   expect(filterSshHosts(hosts, '').length).toBe(4);
+  const resolved = [{ alias: 'devbox', hostname: 'devbox.local' }, { alias: 'gpu', hostname: 'gpu-box.local' }];
+  expect(filterSshHosts(resolved, 'box.LOCAL')).toEqual(resolved);
 });
 
 function fakeNative(handler: (request: Obj) => unknown) {
@@ -41,6 +43,16 @@ test('the autocomplete hides saved hosts, numbers the first nine and says when n
   expect(view.hasContent).toBe(true);
   expect((await sshHostsView(client, native, true, 'zz')).noMatch).toBe('No hosts match "zz".');
   expect((await sshHostsView(client, native, false, '')).hosts).toEqual([]);
+});
+
+test('a configured alias stays offered when only its resolved address is saved; a known host does not', async () => {
+  const hosts = [{ alias: 'devbox', hostname: 'devbox.example.com', username: null, port: null, source: 'ssh-config' },
+    { alias: 'build.example', hostname: 'build.example', username: null, port: null, source: 'known-hosts' }];
+  const targets = { 'http://127.0.0.1:41234': { alias: 'devbox.example.com', hostname: 'devbox.example.com' }, 'http://127.0.0.1:41235': { alias: 'build', hostname: 'build.example' } };
+  const { native } = fakeNative(request => request.op === 'sshHosts' ? ok({ hosts, available: true, targets }) : ok({}));
+  const client = { config: { keybindings: [] } } as unknown as T3Client;
+  await sshHostsView(client, native, false, '');
+  expect((await sshHostsView(client, native, true, '')).hosts.map(host => [host.alias, host.address])).toEqual([['devbox', 'devbox.example.com']]);
 });
 
 test('adding over SSH tunnels, pairs beside the focused environment and toasts', async () => {

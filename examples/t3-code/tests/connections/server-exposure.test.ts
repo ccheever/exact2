@@ -1,11 +1,12 @@
 // Network access for the embedded server: DesktopServerExposure, ported with the reference's
-// test names (MIT, see LICENSE-T3; reference 1e2ecbd975: apps/desktop/src/backend/
+// test names (MIT, see LICENSE-T3; reference 74541bab17: apps/desktop/src/backend/
 // DesktopServerExposure.test.ts). The Effect layers become injected functions: the settings store,
-// the interface read, the MagicDNS reader (the native `tailscale status`) and the probe.
+// the interface read, the status reader (the native `tailscale status`, whose per-address cache is
+// macos/tests/local-backend/network.swift's) and the probe.
 import { describe, expect, it } from 'bun:test';
 import { DEFAULT_EXPOSURE_SETTINGS, DesktopServerExposure, DesktopServerExposureModePersistenceError, DesktopTailscaleServePersistenceError, adoptNetworkPrefs,
   decodeExposureSettings, memoryExposureSettings, requiresBackendRelaunch, type ExposureSettings, type ExposureSettingsStore } from '../../src/connections/server-exposure';
-import type { NetworkInterfaces } from '../../src/connections/tailscale';
+import type { NetworkInterfaces, TailscaleStatus } from '../../src/connections/tailscale';
 import { parseDesktopSettings } from '../../src/connections/local-backend';
 import { adoptLocalPrefs } from '../../src/connections/local-environment';
 
@@ -13,14 +14,14 @@ const emptyNetworkInterfaces: NetworkInterfaces = {};
 const lanNetworkInterfaces: NetworkInterfaces = { en0: [{ address: '192.168.1.20', family: 'IPv4', internal: false }] };
 const tailnetNetworkInterfaces: NetworkInterfaces = { tailscale0: [{ address: '100.90.1.2', family: 'IPv4', internal: false }] };
 
-function harness(networkInterfaces: NetworkInterfaces, options: { env?: Record<string, string>; magicDnsName?: () => Promise<string | null>; store?: ExposureSettingsStore } = {}) {
+function harness(networkInterfaces: NetworkInterfaces, options: { env?: Record<string, string>; status?: () => Promise<TailscaleStatus | null>; store?: ExposureSettingsStore } = {}) {
   const holder = { settings: { ...DEFAULT_EXPOSURE_SETTINGS } as ExposureSettings };
   const settings = options.store ?? memoryExposureSettings(holder);
   const env = options.env ?? {};
   const exposure = new DesktopServerExposure({
     settings, readNetworkInterfaces: async () => networkInterfaces,
-    // mockSpawnerLayer("{}"): a status without a MagicDNS name.
-    readMagicDnsName: options.magicDnsName ?? (async () => null),
+    // mockSpawnerLayer("{}"): a status without a MagicDNS name or addresses.
+    readStatus: options.status ?? (async () => ({ magicDnsName: null, tailnetIpv4Addresses: [] })),
     probe: async () => false,
     config: { ...(env.T3CODE_DESKTOP_LAN_HOST ? { desktopLanHostOverride: env.T3CODE_DESKTOP_LAN_HOST } : {}),
       desktopHttpsEndpointUrls: (env.T3CODE_DESKTOP_HTTPS_ENDPOINTS ?? '').split(',').map(url => url.trim()).filter(Boolean) },
@@ -106,6 +107,30 @@ describe('DesktopServerExposure', () => {
     expect(exposure.getState()).toEqual(before);
   });
 
+  it("uses cached Tailscale identity to exclude another VPN's pairing address", async () => {
+    let statusReads = 0;
+    const { exposure } = harness({ ...lanNetworkInterfaces, pvpnksintrf1: [{ address: '100.85.0.1', family: 'IPv4', internal: false }],
+      vpn0: [{ address: '100.74.126.34', family: 'IPv4', internal: false }] },
+    { status: async () => { statusReads += 1; return { magicDnsName: null, tailnetIpv4Addresses: ['100.74.126.34'] }; } });
+    await exposure.configureFromSettings({ port: 4173 });
+    await exposure.setMode('network-accessible');
+    expect((await exposure.getAdvertisedEndpoints()).map(endpoint => endpoint.httpBaseUrl)).toEqual(['http://127.0.0.1:4173/', 'http://192.168.1.20:4173/', 'http://100.74.126.34:4173/']);
+    expect(statusReads).toBe(1);
+  });
+
+  it('advertises the Wi-Fi or Ethernet address ahead of bridges and tunnels', async () => {
+    const { exposure } = harness({ bridge0: [{ address: '192.168.2.1', family: 'IPv4', internal: false }], utun4: [{ address: '10.8.0.2', family: 'IPv4', internal: false }],
+      en0: [{ address: '192.168.1.20', family: 'IPv4', internal: false }] });
+    await exposure.configureFromSettings({ port: 4173 });
+    expect((await exposure.setMode('network-accessible')).state.advertisedHost).toBe('192.168.1.20');
+  });
+
+  it("keeps a host bridge's LAN address ahead of later adapters", async () => {
+    const { exposure } = harness({ vmbr0: [{ address: '192.168.1.30', family: 'IPv4', internal: false }], enx00e04c680001: [{ address: '192.168.42.10', family: 'IPv4', internal: false }] });
+    await exposure.configureFromSettings({ port: 4173 });
+    expect((await exposure.setMode('network-accessible')).state.advertisedHost).toBe('192.168.1.30');
+  });
+
   it('keeps LAN and Tailscale endpoints distinct when Tailscale is enumerated first', async () => {
     const { exposure } = harness({ ...tailnetNetworkInterfaces, ...lanNetworkInterfaces });
     await exposure.configureFromSettings({ port: 4173 });
@@ -126,7 +151,7 @@ describe('DesktopServerExposure', () => {
   });
 
   it('does not spawn the tailscale CLI while server exposure is local-only', async () => {
-    const { exposure } = harness(lanNetworkInterfaces, { magicDnsName: async () => { throw new Error('unexpected tailscale spawn'); } });
+    const { exposure } = harness(lanNetworkInterfaces, { status: async () => { throw new Error('unexpected tailscale spawn'); } });
     await exposure.configureFromSettings({ port: 4173 });
     // mode stays at default "local-only", tailscaleServeEnabled stays false.
     expect((await exposure.getAdvertisedEndpoints()).map(endpoint => endpoint.httpBaseUrl)).toEqual(['http://127.0.0.1:4173/']);

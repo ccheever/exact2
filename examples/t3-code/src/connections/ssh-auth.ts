@@ -1,6 +1,6 @@
 // SSH password prompts (MIT reference, see LICENSE-T3: packages/ssh/src/auth.ts,
 // apps/web/src/components/desktop/SshPasswordPromptDialog.tsx,
-// apps/desktop/src/ssh/DesktopSshPasswordPrompts.ts, at 1e2ecbd975).
+// apps/desktop/src/ssh/DesktopSshPasswordPrompts.ts, at 1e2ecbd975; the dialog's text at 74541bab17).
 // T3SshAuth.swift holds the queue and runs `ssh` again with the askpass helper; the
 // password lives only in the native secure field and the child's environment, never
 // here: the dialog's Continue asks the module to read the field it drew
@@ -50,11 +50,11 @@ export function describeSshTarget(request: { username: string | null; destinatio
 export function formatRemainingSeconds(seconds: number): string {
   return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`;
 }
-export const EXPIRED_MESSAGE = 'This SSH password prompt expired. Try connecting again.';
-export const KEYS_HINT = 'Use SSH keys to avoid repeated password prompts on new SSH sessions.';
+export const EXPIRED_MESSAGE = 'This SSH verification prompt expired. Try connecting again.';
+export const KEYS_HINT = 'SSH keys may replace a password, but your server can still require a verification code.';
 /** getPromptErrorMessage. */
 export function promptErrorMessage(error: unknown): string {
-  const message = error instanceof Error ? error.message : typeof error === 'string' && error ? error : 'SSH password prompt failed.';
+  const message = error instanceof Error ? error.message : typeof error === 'string' && error ? error : 'SSH verification prompt failed.';
   return message.includes('expired') || message.includes('no longer pending') ? EXPIRED_MESSAGE : message;
 }
 

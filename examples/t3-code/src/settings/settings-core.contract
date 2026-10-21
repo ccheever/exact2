@@ -231,6 +231,9 @@ shape SettingsCore
   environmentKeyed: ScopeChoice[]
   projectKeyed: ScopeChoice[]
   representative: string
+  showAllEnvironments: bool
+  allEnvironmentsProject: string
+  allEnvironmentsMember: string
   scopeEnvironment: string // the scope's representative environment; Settings' own setup links open Providers there
   scopeKey: string
   sections: CoreSection[]

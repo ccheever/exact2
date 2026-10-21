@@ -119,7 +119,7 @@ test('deliveries load through their owner, retain the list, and expose the rende
 });
 
 
-import { cleanupHasRules, databaseNotice, cleanupPermitted } from '../../src/settings/storage-maintenance';
+import { cleanupEntries, cleanupHasRules, cleanupPermitted, databaseCompactionNotices, formatBytes } from '../../src/settings/storage-maintenance';
 import { adoptShellPrefs, shellPrefs } from '../../src/shell/shell-prefs';
 
 test('cleanup recognizes zero-day settled and custom project rules while off suppresses inherited worktree rules', () => {
@@ -128,16 +128,57 @@ test('cleanup recognizes zero-day settled and custom project rules while off sup
   expect(cleanupHasRules({ projectSettingsOverrides: { p: { worktreeCleanup: { mode: 'custom', rules: { worktreeOnDelete: true } } } } })).toBe(true);
 });
 
-test('database reclaim notices require a GiB without incremental vacuum and persist dismissal per environment', () => {
-  const status = { reclaimableBytes: 1.5 * 1024 ** 3, incrementalVacuumEnabled: false, compactCommand: 't3 doctor --compact' };
-  expect(databaseNotice(status, 'mac', 'Mac', [])).toMatchObject({ show: true, title: 'Reclaim 1.5 GiB on Mac', command: 't3 doctor --compact' });
-  expect(databaseNotice({ ...status, reclaimableBytes: 1024 ** 3 - 1 }, 'mac', 'Mac', []).show).toBe(false);
-  expect(databaseNotice({ ...status, incrementalVacuumEnabled: true }, 'mac', 'Mac', []).show).toBe(false);
+test('one database notice lists every machine with a GiB to reclaim, largest first, and dismissal is per environment', () => {
+  const status = (gib: number, extra: Record<string, unknown> = {}) => ({ reclaimableBytes: gib * 1024 ** 3, incrementalVacuumEnabled: false, compactCommand: `t3 doctor --compact # ${gib}`, ...extra });
+  const machines = [{ environmentId: 'mac', label: 'Mac', status: status(1.5) }, { environmentId: 'remote', label: 'Remote', status: status(3.25) },
+    { environmentId: 'small', label: 'Small', status: { ...status(1), reclaimableBytes: 1024 ** 3 - 1 } }, { environmentId: 'vacuum', label: 'Vacuum', status: status(9, { incrementalVacuumEnabled: true }) },
+    { environmentId: 'loading', label: 'Loading', status: undefined }];
+  expect(databaseCompactionNotices(machines, [])).toEqual([{ environmentId: 'remote', title: '3.3 GiB on Remote', command: 't3 doctor --compact # 3.25' },
+    { environmentId: 'mac', title: '1.5 GiB on Mac', command: 't3 doctor --compact # 1.5' }]);
   const local = {}; adoptShellPrefs(local, { shell: { databaseStorageDismissals: ['mac', 3] } });
   const dismissed = shellPrefs({ local }).databaseStorageDismissals;
   expect(dismissed).toEqual(['mac']);
-  expect(databaseNotice(status, 'mac', 'Mac', dismissed).show).toBe(false);
-  expect(databaseNotice(status, 'remote', 'Remote', dismissed).show).toBe(true);
+  expect(databaseCompactionNotices(machines, dismissed).map(notice => notice.environmentId)).toEqual(['remote']);
+});
+
+test('cleanup results name the machine, project, folder and thread of each entry (StorageSettings CleanupResults)', () => {
+  const report = { omittedCount: 0, entries: [
+    { kind: 'worktree', outcome: 'removed', reason: 'Thread settled 9 days ago', path: '/Users/me/.t3/worktrees/app/t3-feature', projectPath: '/Users/me/app', threadId: 't1', threadTitle: 'Add login', bytes: 5 * 1024 ** 2, files: null },
+    { kind: 'worktree', outcome: 'kept', reason: 'No thread uses this folder, and it isn\'t a git worktree', path: '/Users/me/.t3/worktrees/app/orphan', projectPath: null, threadId: null, threadTitle: null, bytes: 2048, files: null },
+    { kind: 'logs', outcome: 'removed', reason: 'Removed 3 rotated logs', path: null, threadId: null, threadTitle: null, bytes: 1500, files: 3 },
+    { kind: 'browser-artifacts', outcome: 'failed', reason: 'Permission denied', path: null, threadId: null, threadTitle: null, bytes: null, files: null },
+  ] };
+  const { entries, omitted, empty } = cleanupEntries(report, 'Lane Mac');
+  expect(entries.map(entry => [entry.name, entry.reason, entry.failed, entry.size])).toEqual([
+    ['t3-feature', 'Thread settled 9 days ago', false, '5.00 MB'],
+    ['/Users/me/.t3/worktrees/app/orphan', 'No thread uses this folder, and it isn\'t a git worktree', false, '2.00 KB'],
+    ['Rotated logs', 'Removed 3 rotated logs', false, '3 files · 1.46 KB'],
+    ['Browser artifacts', 'Permission denied', true, ''],
+  ]);
+  expect(entries[0]!.details.map(detail => [detail.label, detail.value, detail.code])).toEqual([['Machine', 'Lane Mac', false], ['Project', '/Users/me/app', true],
+    ['Folder', '/Users/me/.t3/worktrees/app/t3-feature', true], ['Thread', 'Add login', false]]);
+  expect(entries[3]!.details.map(detail => detail.label)).toEqual(['Machine']);
+  expect([omitted, empty]).toEqual(['', '']);
+  // A server older than projectPath leaves the Project line out.
+  expect(cleanupEntries({ entries: [{ ...report.entries[0], projectPath: undefined }], omittedCount: 1234 }, 'Lane Mac')).toMatchObject({ omitted: 'Lane Mac: 1,234 more results.', empty: '' });
+  expect(cleanupEntries({ entries: [], omittedCount: 0 }, 'Lane Mac')).toMatchObject({ entries: [], omitted: '', empty: 'Lane Mac: Nothing needed cleanup.' });
+  expect([formatBytes(512), formatBytes(10.5 * 1024), formatBytes(150 * 1024 ** 3)]).toEqual(['512 B', '10.5 KB', '150 GB']);
+  // The fold's first line takes its divider from the header: the first report's first entry, or its empty line.
+  expect(cleanupEntries(report, 'Lane Mac', true).entries.map(entry => entry.first)).toEqual([true, false, false, false]);
+  expect(cleanupEntries(report, 'Lane Mac').entries.some(entry => entry.first)).toBe(false);
+  expect(cleanupEntries({ entries: [], omittedCount: 0 }, 'Lane Mac', true)).toMatchObject({ emptyFirst: true, omittedFirst: true });
+});
+
+test('the Last run fold is FoldedSettingsSection: its title and summary in the trigger, a chevron that turns when open', async () => {
+  const source = await Bun.file(appPath('settings-storage.contract')).text();
+  const fold = source.slice(source.indexOf('component CleanupLastRun'), source.indexOf('component CleanupResultRow'));
+  expect(fold).toContain('CnFolded(title="Last run", summary=summary, open=open, sectionId="storage-cleanup-last-run", toggle=toggle');
+  const kit = await Bun.file(appPath('settings-b-kit.contract')).text();
+  const folded = kit.slice(kit.indexOf('component CnFolded'), kit.indexOf('component CnSelect'));
+  // The title never shrinks away and the summary truncates after it (FoldedSettingsSection's shrink-0 / min-w-0 truncate).
+  expect(folded).toContain('text title font-size="0.875rem" line-height="1.25rem" font-weight=500 flex-shrink=0');
+  expect(folded).toContain('text summary font-size="0.75rem" line-height="1rem" min-width=0 line-clamp=1');
+  expect(folded).toContain('CnGlyph(name=(open ? "chevron-down" : "chevron-right")');
 });
 
 
