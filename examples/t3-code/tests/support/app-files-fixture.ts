@@ -24,6 +24,16 @@ export function gif(width: number, height: number, extra = 0): Uint8Array {
   bytes.set([width & 255, width >> 8, height & 255, height >> 8], 6);
   return bytes;
 }
+/** A WebP's RIFF header and VP8X chunk at `width`×`height` (opaque unless `alpha`), then `extra` bytes. */
+export function webp(width: number, height: number, alpha = false, extra = 0): Uint8Array {
+  const bytes = new Uint8Array(30 + extra);
+  bytes.set([...'RIFF'].map(char => char.charCodeAt(0)));
+  bytes.set([...'WEBPVP8X'].map(char => char.charCodeAt(0)), 8);
+  bytes[20] = alpha ? 0x10 : 0;
+  const w = width - 1, h = height - 1;
+  bytes.set([w & 255, (w >> 8) & 255, w >> 16, h & 255, (h >> 8) & 255, h >> 16], 24);
+  return bytes;
+}
 export const text = (value: string) => new TextEncoder().encode(value);
 
 const failure = (code: string) => Object.assign(new Error(code), { code });

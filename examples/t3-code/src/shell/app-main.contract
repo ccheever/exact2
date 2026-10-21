@@ -160,9 +160,10 @@ component ChatColumn
   action headerDragged(over: bool)
     overHeader = over
   action filesDropped(e: DragEvent)
+    let header = overHeader
     fileDrag = false
     overHeader = false
-    if not overHeader
+    if not header
       attachFiles("drop", e.files, [], false, "")
   // ChatComposer's hidden file input for Attach files (AttachButton's press opens its picker).
   action filesPicked(files: Picked[])

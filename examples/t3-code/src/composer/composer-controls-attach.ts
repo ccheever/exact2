@@ -30,6 +30,17 @@ export function attachOffered(client: T3Client, question: { customAllowed: boole
   return !question || (capabilities.questionAttachments === true && question.customAllowed);
 }
 
+/**
+ * addComposerAttachments' first check: a pending question takes attachments only with a custom answer the server lets
+ * carry them. True, with the reference's error, when it refuses them.
+ */
+export function questionRefuses(client: T3Client): boolean {
+  const question = requestPresentation(client).questions[0];
+  if (!question || (obj(obj(client.config.environment).capabilities).questionAttachments === true && question.customAllowed && !question.responding)) return false;
+  pushToast(client, { kind: 'error', title: 'This question cannot accept attachments.' });
+  return true;
+}
+
 /** What the window hands over (app.contract attachFiles): its `doc:` handles, or Attach files' picked copies. */
 export type IncomingFiles = { files: string[]; picked: Obj[]; asText: boolean; target: string };
 
@@ -45,12 +56,7 @@ const pickedSource = (file: Obj): AttachSource => ({ path: str(file.path), name:
 export async function attachIncoming(client: T3Client, native: Native, origin: string, incoming: IncomingFiles): Promise<string> {
   const sources = [...incoming.files.map(handleSource), ...incoming.picked.map(pickedSource)];
   if (!sources.length) return '';
-  // A pending question takes attachments only with a custom answer the server lets carry them.
-  const question = requestPresentation(client).questions[0];
-  if (question && (obj(obj(client.config.environment).capabilities).questionAttachments !== true || !question.customAllowed || question.responding)) {
-    pushToast(client, { kind: 'error', title: 'This question cannot accept attachments.' });
-    return '';
-  }
+  if (questionRefuses(client)) return '';
   const imageChips = imagesGetChips(client) && !(origin === 'paste' && incoming.asText);
   const staged = await stageFiles(client, native, sources);
   // A pasted or picked folder is the reference's empty File.

@@ -349,6 +349,18 @@ describe('files dropped on a row (consumePendingFileDrop, addDroppedFiles)', () 
     expect(client.error).toBe("'raw.tiff' is not a supported image type. Attach GIF, HEIC, HEIF, JPEG, PNG, or WebP images.");
     expect(rowDropKeys(client)).toEqual(['fleet:local:thread-9']);
   });
+  test('a pending question that takes no attachments refuses a row drop, as any attachment (addDroppedFiles)', async () => {
+    const { client, native } = rig({ threadId: 'thread-2' });
+    // The open thread's projection, with a question that has no custom answer (requests.ts requestPresentation).
+    Object.assign(client, { thread: { projection: { runtimeRequests: [{ id: 'q', kind: 'user_input', status: 'pending', responseCapability: { type: 'live' } }],
+      turnItems: [{ id: 'q-item', type: 'user_input_request', requestId: 'q', questions: [{ id: 'one', question: 'Pick one', allowCustomAnswer: false, options: [{ label: 'A' }] }] }] } } });
+    const { store } = memoryFiles({ 'doc:/1/notes.txt': text('notes') });
+    await dropOn(client, 'fleet:local:thread-2', ['doc:/1/notes.txt']);
+    expect(await takeRowDrops(client, native)).toBe(false);
+    expect(toasts(client).map(toast => toast.title)).toEqual(['This question cannot accept attachments.']);
+    expect([...store.keys()].filter(path => path.startsWith(STAGED))).toEqual([]);
+    expect(rowDropKeys(client)).toEqual([]);
+  });
   test('nothing queued for the open thread stages nothing', async () => {
     const { client, native } = rig({ threadId: 'thread-1' });
     const { store } = memoryFiles({ 'doc:/1/notes.txt': text('notes') });

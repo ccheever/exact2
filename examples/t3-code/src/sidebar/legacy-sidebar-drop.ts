@@ -12,7 +12,7 @@
 import type { T3Client } from '../client/client';
 import type { Native } from '../client/protocol';
 import { letGo } from '../client/let-go';
-import { addAttachedFiles, releaseStaged, stageFiles, type IncomingFiles } from '../composer/composer-controls-attach';
+import { addAttachedFiles, questionRefuses, releaseStaged, stageFiles, type IncomingFiles } from '../composer/composer-controls-attach';
 import { handleSource, statSource } from '../composer/composer-attach-stage';
 import { fleetThreadId, parseFleetThreadId } from '../connections/settings-b-fleet';
 
@@ -68,6 +68,8 @@ export async function takeRowDrops(client: T3Client, native: Native): Promise<bo
   const matched = queueOf(client).filter(entry => keys.includes(entry.key));
   if (!matched.length) return false;
   queues.set(client, queueOf(client).filter(entry => !matched.includes(entry)));
+  // consumePendingFileDrop takes the drop, and addDroppedFiles refuses it as any attachment is refused.
+  if (questionRefuses(client)) return false;
   try {
     const files = await stageFiles(client, native, matched.flatMap(entry => entry.files).map(handleSource));
     if (!files.length) return false;

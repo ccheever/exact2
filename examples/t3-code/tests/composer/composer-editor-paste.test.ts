@@ -17,7 +17,7 @@ import { DRAFTS, STAGED, classifyAttachment, handleName, mimeTypeOfName } from '
 import { composerFieldOwner } from '../../src/composer/auto-balance-owner';
 import { composerFieldAcknowledged, composerFieldNative, composerFieldResource } from '../../src/composer/composer-field-bridge';
 import { primary, type PrimaryTarget } from '../../src/connections/local-primary';
-import { gif, jpeg, memoryFiles, png, text } from '../support/app-files-fixture';
+import { gif, jpeg, memoryFiles, png, text, webp } from '../support/app-files-fixture';
 
 const uuid = (n: number) => `1b4e28ba-2fa1-11d2-883f-0016d3cca42${n}`;
 
@@ -88,21 +88,25 @@ describe('a drop, a paste and Attach files (addComposerAttachments)', () => {
     const { client, native } = await opened();
     const photo = jpeg(400, 300), anim = gif(30, 20);
     const { store, compressed } = memoryFiles({ 'doc:/1/wide.png': png(3000, 10), 'app:/tmp/picked/1/photo.jpg': photo, 'doc:/3/anim.gif': anim,
-      'doc:/4/big.jpg': jpeg(4000, 3000), 'doc:/5/huge.gif': gif(30, 20, 11 * 1024 * 1024), 'doc:/6/shot.heic': text('....ftypheic') });
+      'doc:/4/big.jpg': jpeg(4000, 3000), 'doc:/5/huge.gif': gif(30, 20, 11 * 1024 * 1024), 'doc:/6/shot.heic': text('....ftypheic'),
+      'doc:/7/photo.webp': webp(3000, 2000, false, 11 * 1024 * 1024) });
     await attachIncoming(client, native, 'drop', incoming(['doc:/1/wide.png', 'doc:/3/anim.gif']));
     await attachIncoming(client, native, 'pick', incoming([], { picked: [{ path: 'app:/tmp/picked/1/photo.jpg', name: 'photo.jpg', type: 'image/jpeg', size: photo.byteLength }] }));
-    await attachIncoming(client, native, 'drop', incoming(['doc:/4/big.jpg', 'doc:/5/huge.gif', 'doc:/6/shot.heic']));
+    await attachIncoming(client, native, 'drop', incoming(['doc:/4/big.jpg', 'doc:/5/huge.gif', 'doc:/6/shot.heic', 'doc:/7/photo.webp']));
     // compressImage reads app files: a dropped image is copied to the scratch folder first.
     expect(compressed.map(call => [String(call.from).replace(/[0-9a-f-]{36}/, 'id'), call.maxDimension, call.maxBytes, call.type])).toEqual([
       ['app:/tmp/composer-stage/id/wide.png', 2000, 10 * 1024 * 1024, 'image/png'],
       ['app:/tmp/composer-stage/id/big.jpg', 2000, 10 * 1024 * 1024, 'image/jpeg'],
-      ['app:/tmp/composer-stage/id/huge.gif', 8192, 10 * 1024 * 1024, 'image/png'],
+      // Every re-encoding is within 2000 px, as reencodeWithinBudget caps it; an opaque WebP becomes a JPEG.
+      ['app:/tmp/composer-stage/id/huge.gif', 2000, 10 * 1024 * 1024, 'image/png'],
       ['app:/tmp/composer-stage/id/shot.heic', 2000, 10 * 1024 * 1024, 'image/jpeg'],
+      ['app:/tmp/composer-stage/id/photo.webp', 2000, 10 * 1024 * 1024, 'image/jpeg'],
     ]);
     expect(under(store, 'app:/tmp/composer-stage')).toEqual([]);
     const drafts = client.local.snapshotDrafts[client.draftKey] ?? [];
     expect(drafts.map(image => [image.name, image.mimeType, image.downscalable])).toEqual([['wide.png', 'image/png', undefined], ['anim.gif', 'image/gif', false],
-      ['photo.jpg', 'image/jpeg', undefined], ['big.jpg', 'image/jpeg', undefined], ['huge.png', 'image/png', undefined], ['shot.jpg', 'image/jpeg', undefined]]);
+      ['photo.jpg', 'image/jpeg', undefined], ['big.jpg', 'image/jpeg', undefined], ['huge.png', 'image/png', undefined], ['shot.jpg', 'image/jpeg', undefined],
+      ['photo.jpg', 'image/jpeg', undefined]]);
     expect(store.get(`${DRAFTS}/${str(drafts[1]!.id)}.png`)).toEqual(anim);
     expect(store.get(`${DRAFTS}/${str(drafts[2]!.id)}.png`)).toEqual(photo);
   });

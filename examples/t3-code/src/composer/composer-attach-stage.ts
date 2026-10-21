@@ -23,8 +23,6 @@ export type AttachSource = { path: string; name: string; type: string };
 
 export const PROVIDER_SEND_TURN_MAX_IMAGE_BYTES = 10 * 1024 * 1024;
 export const MAX_COMPRESSIBLE_SOURCE_BYTES = 50 * 1024 * 1024;
-/** compressImage's largest `maxDimension`: a GIF or WebP keeps its size (the reference fits only PNG and JPEG). */
-const UNFITTED_EDGE = 8192;
 export { DRAFTS, STAGED } from './composer-staged-copies';
 const SCRATCH = 'app:/tmp/composer-stage';
 
@@ -124,7 +122,8 @@ async function stageImage(fs: StageFiles, source: AttachSource, size: number): P
       return { kind: 'image', id, name, mimeType: header.type, sizeBytes: bytes.byteLength, ...(fits ? {} : { downscalable: false }) };
     }
     // fitImageToMaxEdge keeps a PNG or JPEG in its own type; a HEIC converts to JPEG; another over the byte limit is
-    // re-encoded, keeping transparency as PNG. compressImage reads app files only.
+    // re-encoded, keeping transparency as PNG, within 2000 px as reencodeWithinBudget caps it. compressImage reads app
+    // files only.
     const type = !header ? (isHeic(name, source.type) ? 'image/jpeg' : 'image/png')
       : header.type === 'image/jpeg' ? 'image/jpeg' : (header.type === 'image/png' && over) || header.alpha ? 'image/png' : 'image/jpeg';
     if (!from.startsWith('app:/')) {
@@ -133,7 +132,7 @@ async function stageImage(fs: StageFiles, source: AttachSource, size: number): P
       from = `${scratch}/${scratchName(name)}`;
       await fs.writeFile(from, bytes);
     }
-    const encoded = await fs.compressImage(from, out, { maxDimension: !header || fits ? IMAGE_ATTACHMENT_MAX_EDGE : UNFITTED_EDGE, maxBytes: PROVIDER_SEND_TURN_MAX_IMAGE_BYTES, type });
+    const encoded = await fs.compressImage(from, out, { maxDimension: IMAGE_ATTACHMENT_MAX_EDGE, maxBytes: PROVIDER_SEND_TURN_MAX_IMAGE_BYTES, type });
     return { kind: 'image', id, name: header?.type === type ? name : renamed(name, type), mimeType: type, sizeBytes: encoded.size };
   } catch (error) {
     await fs.rm(out).catch(() => undefined);
