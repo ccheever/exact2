@@ -408,6 +408,9 @@ final class NavigationBarIOSTests: XCTestCase {
             }
             XCTAssertEqual(try pixel(face, 0, 0)[3], 0, "the authored round corners clip the photo")
         }
+        p.apply(wireBatch([["op": "style", "id": picture, "style": ["display": "none"]]]))
+        XCTAssertNil(route.navigationItem.rightBarButtonItems?.first?.image, "an authored display:none photo must not appear in the native item")
+        p.apply(wireBatch([["op": "style", "id": picture, "style": ["display": "block"]]]))
         XCTAssertTrue(foreground, "the native photo is on screen even though its authored header is hidden")
         XCTAssertGreaterThanOrEqual(requested, UInt32(ceil(32 * image.traitCollection.displayScale)), "decode for the native face, not a zero-sized hidden node")
         if #available(iOS 26.0, *) {
@@ -443,6 +446,51 @@ final class NavigationBarIOSTests: XCTestCase {
             nav.topViewController === route && nav.transitionCoordinator == nil && image.raster != nil
         }
         XCTAssertGreaterThan(try pixel(shown(), 16, 16)[1], 230)
+    }
+
+    func testATitlePhotoDoesNotRetainItsViewsSourceBitmap() throws {
+        let session = try fixture("title-photo-budget", module: false), p = session.presenter
+        let nav = try XCTUnwrap(p.navigation.primaryNavigation)
+        p.press(try node(session, "chat").id)
+        until("the title's route appears") { nav.transitionCoordinator == nil }
+        let route = try XCTUnwrap(nav.topViewController as? RouteController)
+        let group = try node(session, "title-group")
+        let box = try XCTUnwrap(group.container.subviews.compactMap { $0 as? NodeView }.first)
+        let picture = UInt32.max - 1024
+        p.apply(wireBatch([
+            ["op": "create", "id": picture, "kind": "image", "props": ["imageSource": "title.png"], "style": ["object_fit": "none"]],
+            ["op": "children", "id": box.id, "ids": [picture]],
+        ]))
+        let image = try XCTUnwrap(p.views[picture])
+        let title = try XCTUnwrap(route.titleView)
+        let placeholder = title.avatar.image
+        let root = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("exact-title-photo-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: false)
+        let loader = session.rasters, resolver = AssetResolver(root: root)
+        defer {
+            loader.shutdown(); image.raster = nil
+            try? FileManager.default.removeItem(at: root); withExtendedLifetime(resolver) {}
+        }
+        let format = UIGraphicsImageRendererFormat(); format.scale = 1; format.preferredRange = .standard
+        try autoreleasepool {
+            let photo = UIGraphicsImageRenderer(size: CGSize(width: 1200, height: 1200), format: format).image { context in
+                UIColor.red.setFill(); context.fill(CGRect(x: 0, y: 0, width: 1200, height: 1200))
+            }
+            try XCTUnwrap(photo.pngData()).write(to: root.appendingPathComponent("title.png"))
+        }
+        loader.fit(size: .zero, scale: 1)
+        image.loadGeneration += 1
+        autoreleasepool {
+            loader.load(image, source: "title.png", resolver: resolver)
+            until("the loaded title photo is projected") { image.raster != nil && title.avatar.image !== placeholder }
+            XCTAssertEqual(image.raster?.image.image.width, 1200)
+            // Release the node's lease and layer as parking does, while UIKit
+            // keeps its cached title. Only the small rendered face should remain.
+            loader.cancel(image.id); image.raster = nil; image.applyImageLayer()
+            loader.trimCold()
+        }
+        XCTAssertEqual(exact_raster_stats(loader.id).resident_bytes, 0, "the cached title must release its source before another decode needs the budget")
+        XCTAssertEqual(title.avatar.image?.size, CGSize(width: 32, height: 32))
     }
 
     func testADirectPhotoRefreshesItsNativeMenuItemAfterLoading() throws {

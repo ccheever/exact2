@@ -261,7 +261,9 @@ struct BadgeFace: Equatable {
     let text: String, symbol: String?
     let light: [[Double]], dark: [[Double]]
     let corners: [CGSize]
-    let photo: CGImage?
+    // Cached title faces borrow the node's bitmap so parking can release it.
+    private weak var photoNode: NodeView?
+    var photo: CGImage? { photoNode?.raster?.image.image }
     let photoID: UInt32?
     let photoSize: CGSize
     let photoFit: String
@@ -279,12 +281,14 @@ struct BadgeFace: Equatable {
     /// frame. Direct photos and `authored` boxes use it, clamped to 20 to 44;
     /// otherwise a bar item's 36.
     init?(box: NodeView, authored: Bool = false) {
+        guard box.style["display"]?.string != "none" else { return nil }
         let direct = box.kind == "image" && box.faceSymbol == nil &&
             (box.imageSource ?? box.props["imageSource"]).map { !$0.hasPrefix("symbol:") } == true
         guard direct || box.channels("background_color") != nil else { return nil }
         var text = "", symbol: String?, ink: NodeView?, pictured: NodeView? = direct ? box : nil
         func walk(_ node: NodeView) {
             for case let child as NodeView in node.container.subviews {
+                guard child.style["display"]?.string != "none" else { continue }
                 if child.kind == "image", let name = child.faceSymbol { symbol = symbol ?? name; ink = ink ?? child }
                 else if child.kind == "image", let source = child.imageSource ?? child.props["imageSource"], !source.hasPrefix("symbol:") { pictured = pictured ?? child }
                 else if child.isParagraph, text.isEmpty { text = child.accessibleText; ink = ink ?? child }
@@ -293,7 +297,7 @@ struct BadgeFace: Equatable {
         }
         walk(box)
         guard !text.isEmpty || symbol != nil || pictured != nil else { return nil }
-        photo = pictured?.raster?.image.image
+        photoNode = pictured
         photoID = pictured?.id
         photoSize = pictured?.raster?.image.naturalSize ?? .zero
         photoFit = pictured?.style["object_fit"]?.string ?? "fill"
