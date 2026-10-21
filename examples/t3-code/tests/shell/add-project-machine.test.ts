@@ -51,7 +51,7 @@ function harness(options: { listing?: boolean; writeFails?: string } = {}) {
     return {};
   };
   const client = {
-    environmentId: 'env', origin: 'http://127.0.0.1:16960', threadId: '', projectId: 'p1', draftKey: 'env:new:p1', ready: true, connection: 'connected', generation: 3, presentation: {},
+    environmentId: 'env', origin: 'http://127.0.0.1:16960', threadId: '', projectId: 'p1', draftKey: 'env:new:p1', draft: 'carry me', ready: true, connection: 'connected', generation: 3, presentation: {},
     config: { environment: { label: 'Laptop', capabilities: { projectCloneTracking: true, ignoredFileListing: options.listing !== false } }, settings: {} },
     local: { groupingMode: 'repository', groupingOverrides: {}, drafts: { 'env:new:p1': 'carry me' } as Record<string, string>, selections: {} as Record<string, { projectId: string; threadId: string }>,
       composerControls: { contexts: { 'env:new:p1': { envMode: 'worktree', branch: 'main', worktreePath: '' } } } },
