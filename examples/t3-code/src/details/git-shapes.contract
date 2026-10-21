@@ -90,6 +90,8 @@ shape GitCard
   files: GitFile[]
   fileCount: number
   selectedCount: number
+  // A changed file opens in the editor: the thread can be operated and the status names its worktree root.
+  filesOpenable: bool
   allSelected: bool
   noneSelected: bool
   someSelected: bool
