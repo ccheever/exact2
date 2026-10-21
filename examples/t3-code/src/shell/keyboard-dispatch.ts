@@ -14,7 +14,7 @@ import type { T3Client } from '../client/client';
 import { undoLive } from '../sidebar/sidebar-state';
 import { addStripShortcuts } from '../composer/composer-controls-branch';
 import { diffShown } from './button-chords'; // ⌘D
-import { openFavoriteEnabled } from '../connections/remote-open'; // the open-favorite key works only where the Open picker shows
+import { openFavoriteEnabled, remoteOpenFor } from '../connections/remote-open'; // the open-favorite key works only where the Open picker shows
 import { closeChordTarget } from '../panel/close-surface'; // ⌘W closes the active surface tab
 import { legacyTraversal } from '../sidebar/legacy-sidebar-view'; // the legacy sidebar: ⌘1-9 and ⇧⌘[ / ⇧⌘] follow its visible order
 import { resolveAdjacentThreadId } from '../sidebar/legacy-sidebar-model';
@@ -30,7 +30,9 @@ export type DispatchContext = { composerFocus: boolean; editableFocus: boolean; 
   /** The preview's chords, which the module answers while the preview has the focus. */
   previewFocus?: boolean;
   /** A terminal close confirm is open (the window's confirmOp is a terminal close). */
-  terminalClosePending?: boolean; findPanelKind?: string; prCodeOpen?: boolean };
+  terminalClosePending?: boolean; findPanelKind?: string; prCodeOpen?: boolean;
+  /** The right panel shows a file (not an attachment): its Open in picker's path, '' while that picker cannot open it. */
+  fileSurface?: boolean; fileOpenPath?: string };
 type Rule = { command: string; chord: string; whenAst: unknown };
 
 const NAMED: Record<string, string> = { ' ': 'Space', space: 'Space', escape: 'Escape', esc: 'Escape', enter: 'Enter', tab: 'Tab', arrowup: 'ArrowUp', arrowdown: 'ArrowDown', arrowleft: 'ArrowLeft', arrowright: 'ArrowRight', backspace: 'Backspace', delete: 'Delete', pageup: 'PageUp', pagedown: 'PageDown', home: 'Home', end: 'End', '+': 'Plus' };
@@ -235,8 +237,13 @@ function threadRows(add: DispatchAdd, client: T3Client, threads: Obj[], browsePr
   if (context.prNumber) add('pullRequest.copyNumber', 'pr-copy', 'PR number', 'Copy PR Number', context.prNumber);
   // thread.undo: the sidebar's live Undo notice (sidebar-commands.ts undoLatest).
   if (context.undoShown ?? undoLive(client)) add('thread.undo', 'command', 'sidebar:undo', 'Undo');
+  // editor.openFavorite: a shown file's picker takes the chord and opens the file (FilePreviewPanel's OpenInPicker,
+  // `openInShortcutEnabled={visible}`), and the thread details picker stands down for it; without one, the workspace.
+  // With the file shown and its picker unable to open it, only the window's fallback runs, on this machine alone
+  // (useOpenFavoriteEditorShortcut: `remote.mode === "local-exec"`).
   const project = (client.shell?.projects ?? []).find(candidate => candidate.id === client.projectId);
-  if (project && favoriteEditor(client.config) && openFavoriteEnabled(client, str(project.title))) add('editor.openFavorite', 'flow', 'open-favorite', 'Open in Editor', str(thread?.worktreePath, str(project.workspaceRoot)));
+  if (context.fileSurface && context.fileOpenPath) add('editor.openFavorite', 'command', 'chatlocal:surface-files-open-editor', 'Open in Editor', context.fileOpenPath);
+  else if (project && favoriteEditor(client.config) && openFavoriteEnabled(client, str(project.title)) && (!context.fileSurface || remoteOpenFor(client).state.mode === 'local-exec')) add('editor.openFavorite', 'flow', 'open-favorite', 'Open in Editor', str(thread?.worktreePath, str(project.workspaceRoot)));
 }
 /** The right panel: close, toggle, thread details, Diff, and Copy Thread ID. */
 function panelRows(add: DispatchAdd, client: T3Client, threads: Obj[], browseProvider: string, modelQuery: string, context: DispatchContext): void {
@@ -280,5 +287,6 @@ export function keyboardDispatchSource(client: T3Client, args: unknown[]): Dispa
   return keyboardDispatch(client, Array.isArray(args[0]) ? args[0] as Obj[] : [], String(args[1] || ''), String(args[2] || ''), { composerFocus: args[3] === true, editableFocus: args[3] === true || args[7] === true,
     turnRunning: args[4] === true, modelPickerOpen: args[5] === true, draftThreadRoute: args[6] === true, modalOpen: args[7] === true, settingsOpen: args[8] === true, diffOpen: args[9] === true,
     paletteOpen: args[11] === true, paletteMode: String(args[12] || ''), prNumber: String(args[13] || ''), undoShown: args.length > 14 ? args[14] === true : undefined, settingsRoute: String(args[15] || ''), page: String(args[16] || ''), modelTarget: String(args[17] || ''),
-    terminalClosePending: TERMINAL_CLOSE_CONFIRMS.includes(String(args[18] || '')), findPanelKind: args.length > 19 ? String(args[19] || '') : undefined, prCodeOpen: args.length > 20 ? args[20] === true : undefined });
+    terminalClosePending: TERMINAL_CLOSE_CONFIRMS.includes(String(args[18] || '')), findPanelKind: args.length > 19 ? String(args[19] || '') : undefined, prCodeOpen: args.length > 20 ? args[20] === true : undefined,
+    fileSurface: args[21] === true, fileOpenPath: String(args[22] || '') });
 }

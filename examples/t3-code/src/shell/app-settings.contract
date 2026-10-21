@@ -3,7 +3,7 @@ use SnapshotSetup from "../snapshot/snapshot.contract"
 use SnapshotSettings from "../shared/shapes.contract"
 use PairFields from "../connections/pairing-shapes.contract"
 use KeybindingsPanel from "../settings/settings-keybindings.contract"
-use KeybindingPage from "../settings/settings-keybindings.contract"
+use KeybindingPage, KeybindingDraft from "../settings/settings-keybindings.contract"
 use ScheduledPanel from "../settings/settings-scheduled.contract"
 use ScheduledPage from "../settings/settings-scheduled.contract"
 use SourceControlPanel from "../settings/settings-source-control.contract"
@@ -150,6 +150,8 @@ component SettingsWindow
     editKeybindingWhen: action
     recordKeybinding: action
     captureKeybinding: action
+    keybindingDrafts: KeybindingDraft[]
+    keybindingRest: action
     keybindingHeld: action // a keybinding field took or lost the focus (T3Window outsidePressDown)
     scheduled: ScheduledPage
     restEditor: string
@@ -320,7 +322,7 @@ component SettingsWindow
                 if settingsRoute == "snap-shot"
                   SnapshotPanel(data=snapshotSettings, busy=commandPending, setupOpen=snapshotSetupOpen, toggle=toggleSnapshots, setup=showSnapshotSetup(true), change=changeSnapshot, preview=previewSnapshotSound, record=recordSnapshotShortcut, saveShortcut=saveSnapshotShortcut)
                 if settingsRoute == "keybindings"
-                  KeybindingsPanel(data=bindings, query=keybindingQuery, adding=keybindingOpen, draftRow=keybindingPrevious, draftCommand=keybindingCommand, draftKey=keybindingKey, draftWhen=keybindingWhen, recording=keybindingRecording, busy=commandPending, error=modalError, search=editKeybindingQuery, searchKey=keybindingSearchKey, searchFocus=escapeFocusSet("keybindings-filter", true), searchBlur=escapeFocusSet("keybindings-filter", false), add=newKeybinding, cancelAdd=cancelKeybinding, chooseCommand=chooseKeybindingCommand, edit=editKeybinding, setKey=editKeybindingKey, setWhen=editKeybindingWhen, record=recordKeybinding, capture=captureKeybinding, held=keybindingHeld, rest=rest, openFile=rest("keybinding-open", ""))
+                  KeybindingsPanel(data=bindings, query=keybindingQuery, adding=keybindingOpen, draftRow=keybindingPrevious, draftCommand=keybindingCommand, draftKey=keybindingKey, draftWhen=keybindingWhen, drafts=keybindingDrafts, recording=keybindingRecording, busy=commandPending, error=modalError, search=editKeybindingQuery, searchKey=keybindingSearchKey, searchFocus=escapeFocusSet("keybindings-filter", true), searchBlur=escapeFocusSet("keybindings-filter", false), add=newKeybinding, cancelAdd=cancelKeybinding, chooseCommand=chooseKeybindingCommand, edit=editKeybinding, setKey=editKeybindingKey, setWhen=editKeybindingWhen, record=recordKeybinding, capture=captureKeybinding, held=keybindingHeld, save=keybindingRest, openFile=rest("keybinding-open", ""))
                 if settingsRoute == "scheduled-tasks"
                   ScheduledPanel(data=scheduled, busy=commandPending, error=(restEditor == "" ? modalError : ""), open=restOpen, rest=rest)
                 if settingsRoute == "storage"

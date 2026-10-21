@@ -57,8 +57,10 @@ component EmptyThread
   view
     column flex=1 min-height=0 width="100%" justify-content="flex-end" align-items="center" padding-left="1.25rem" padding-right="1.25rem" box-sizing="border-box" testId="empty-thread"
       if data.connected and data.threadId == "" and home.landing == ""
+        // DraftHeroHeadline: the heading is named by its content, project picker included: an aria-label of its own
+        // would hide that button inside it from a screen reader's browse mode.
         column width="100%" max-width="64rem" padding-bottom=(shoulder ? "0px" : "0.25rem") margin-bottom=(shoulder ? "-0.75rem" : "0px") box-sizing="border-box" align-items="center" flex-shrink=0
-          row width="100%" max-width="46rem" justify-content="center" flex-wrap="wrap" align-items="baseline" role="heading" aria-level=1 aria-label=(home.headline == "work" ? "What should we work on?" : home.headline == "build" ? `What should we build in ${home.projectName}?` : home.headline == "start" ? `${home.projectName} to start` : "Add a project to start") testId="draft-hero-heading"
+          row width="100%" max-width="46rem" justify-content="center" flex-wrap="wrap" align-items="baseline" role="heading" aria-level=1 testId="draft-hero-heading"
             if home.headline == "work"
               text "What should we work on?" font-size="1.875rem" line-height="2.25rem" letter-spacing=-0.75 color="light-dark(#27272a, #f5f5f5)"
             if home.headline == "build"

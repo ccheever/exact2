@@ -1,4 +1,4 @@
-// Settings → Project → Actions (T3 Code 9c161462c9 ProjectActionsSettings.tsx,
+// Settings → Project → Actions (T3 Code 74541bab17 ProjectActionsSettings.tsx,
 // ProjectActionsList.tsx, projectScriptEditor.tsx, useProjectScriptSettings.ts,
 // projectScripts.ts, lib/projectScriptKeybindings.ts, shared/projectScripts.ts).
 // Actions belong to a project: a project scope edits each selected checkout's
@@ -48,7 +48,9 @@ export function keybindingFor(keybindings: Obj[], command: string | null): strin
 }
 
 type Script = { id: string; name: string; command: string; icon: string; runOnWorktreeCreate: boolean; runOnSettle?: boolean; async?: boolean; previewUrl?: string; autoOpenPreview?: boolean };
-export type ScriptInput = { name: string; command: string; icon: string; runOnWorktreeCreate: boolean; runOnSettle: boolean; waitForSetup: boolean; keybinding: string; previewUrl: string; autoOpenPreview: boolean };
+export type ScriptInput = { name: string; command: string; icon: string; runOnWorktreeCreate: boolean; runOnSettle: boolean; waitForSetup: boolean; keybinding: string; previewUrl: string; autoOpenPreview: boolean;
+  /** The editor's shortcut differs from the one it opened with (projectScriptEditor `changesKeybinding`); true when it sent none. */
+  keybindingChanged?: boolean };
 const asScript = (value: unknown): Script => {
   const entry = obj(value);
   return { id: str(entry.id), name: str(entry.name), command: str(entry.command), icon: ICON_IDS.includes(str(entry.icon)) ? str(entry.icon) : 'play',
@@ -153,10 +155,10 @@ export async function projectActions(client: T3Client, native: Native | null | u
 /** The editor's fields as the Contract encodes them (URL query form). */
 export function decodeInput(text: string): ScriptInput & { id: string } {
   const raw = new URLSearchParams(text || '');
-  const icon = raw.get('icon') ?? 'play';
+  const icon = raw.get('icon') ?? 'play', keybinding = (raw.get('keybinding') ?? '').trim();
   return { id: (raw.get('id') ?? '').trim(), name: (raw.get('name') ?? '').trim(), command: (raw.get('command') ?? '').trim(), icon: ICON_IDS.includes(icon) ? icon : 'play',
-    runOnWorktreeCreate: raw.get('setup') === 'true', runOnSettle: raw.get('settle') === 'true', waitForSetup: raw.get('wait') === 'true', keybinding: (raw.get('keybinding') ?? '').trim(),
-    previewUrl: (raw.get('preview') ?? '').trim(), autoOpenPreview: raw.get('auto') === 'true' };
+    runOnWorktreeCreate: raw.get('setup') === 'true', runOnSettle: raw.get('settle') === 'true', waitForSetup: raw.get('wait') === 'true', keybinding,
+    previewUrl: (raw.get('preview') ?? '').trim(), autoOpenPreview: raw.get('auto') === 'true', keybindingChanged: !raw.has('initial') || (raw.get('initial') ?? '').trim() !== keybinding };
 }
 /** The editor's submit validation (projectScriptEditor submit). */
 export function validateInput(input: ScriptInput, scriptId: string | null, existing: string[]): ScriptInput {
@@ -204,7 +206,9 @@ async function runEnvironmentActionOp(client: T3Client, native: Native, op: stri
     const valid = validateInput(input, scriptId, existingIds);
     const id = scriptId ?? nextScriptId(valid.name, existingIds);
     const next = buildScript(id, valid);
-    changedId = id; keybinding = valid.keybinding || null;
+    // useProjectScriptSettings: an edit that leaves an existing action's shortcut alone writes no keybinding, so each
+    // environment keeps its own; a new action's shortcut is always written.
+    changedId = id; keybinding = scriptId === null || valid.keybindingChanged !== false ? valid.keybinding || null : undefined;
     transform = current => {
       const updated = current.map(script => script.id === id ? next : releaseClaimedRoles(script, valid));
       return current.some(script => script.id === id) ? updated : [...updated, next];
@@ -219,7 +223,7 @@ async function runEnvironmentActionOp(client: T3Client, native: Native, op: stri
   }
   try {
     await client.rpc(native, 'server.updateSettings', { patch: { projectSettingsOverrides: overrides } }, true);
-    if (changedId !== null) {
+    if (changedId !== null && keybinding !== undefined) {
       const command = commandForScript(changedId);
       const previous = keybindingFor(keybindings, command);
       if (command && keybinding) {

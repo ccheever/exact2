@@ -389,6 +389,38 @@ component PaletteKbd
       else
         text label font-size="0.75rem" line-height="1rem" font-weight=500 color="light-dark(#27272a, #f5f5f5)"
 
+// CommandPaletteDialog's finalFocus with no composer to take the focus: the window snapshots the focus the palette
+// took (on opening or at its first focusin), and the closing palette returns it there when `restore` (app.contract
+// paletteFocusBack). Its frames do not outlive it, so the next opening snapshots afresh. The overlay's id
+// follows its view (the file picker, content search), so the width does too and the one that closes is the last.
+component PaletteFinalFocus
+  inject
+    dialogOpened: action
+    dialogClosed: action
+    dialogForget: action
+  props
+    open: bool
+    owner: string
+    restore: bool
+  derive owners = ["command-palette", "project-file-picker", "project-content-search", "link-pull-request-dialog", "pull-request-thread-picker"]
+  state shown = false
+  state heldOwner = ""
+  action laidOut(width: number, height: number)
+    if width >= 2
+      heldOwner = owner
+      if not shown
+        shown = true
+        dialogOpened(owner)
+    else if shown
+      shown = false
+      // dialogClosed drops every unmounted frame as it returns the focus; otherwise they are forgotten.
+      if restore
+        dialogClosed(heldOwner)
+      else
+        dialogForget(owners)
+  view
+    box aria-hidden=true resize=laidOut position="absolute" left=0 top=0 width=(open ? 2 + max(0, owners.indexOf(owner)) : 1) height=1 opacity=0 pointer-events="none"
+
 component CommandPalette
   props
     view: PaletteView
@@ -455,17 +487,22 @@ component CommandPaletteBody
   derive listMask = fadeTop and fadeBottom ? `linear-gradient(to bottom, #00000000 0%, #000000 ${fadePct}%, #000000 ${100 - fadePct}%, #00000000 100%)` : (fadeTop ? `linear-gradient(to bottom, #00000000 0%, #000000 ${fadePct}%)` : (fadeBottom ? `linear-gradient(to bottom, #000000 ${100 - fadePct}%, #00000000 100%)` : "none"))
   // CommandPalette.tsx handleKeyDown takes every thread.jump.N chord in the field
   // (view.jumpKeys), prevented and stopped, and runs the displayed row that has it (⌘1–⌘9 on a project pick), if one
-  // does: ⌘5 with two projects, or ⌘1 on the root page, does nothing. Every other key is the root's (the arrows, Backspace).
+  // does: ⌘5 with two projects, or ⌘1 on the root page, does nothing. A new-thread chord (chat.newLocal,
+  // chat.newWithoutProject) runs the displayed row that has it, since the window's new-thread keys are off while the
+  // palette is open. Every other key is the root's (the arrows, Backspace).
   // An accessory labelled "⌘ Enter" (a highlighted row holds Enter) takes ⌘Return: Add while browsing, Create on New project.
+  // A letter is matched lowercase, and by its physical key when Option typed another character (⌥⌘N's "˜").
   action inputKey(k: string, e: KeyboardEvent)
-    let chord = `${e.metaKey ? "Meta+" : ""}${e.ctrlKey ? "Control+" : ""}${e.altKey ? "Alt+" : ""}${e.shiftKey ? "Shift+" : ""}${k}`
+    let letter = (e.code.startsWith("Key") and e.code.length == 4) ? e.code.slice(3).toLowerCase() : ""
+    let key = k.length == 1 ? (letter != "" and not "abcdefghijklmnopqrstuvwxyz".includes(k.toLowerCase()) ? letter : k.toLowerCase()) : k
+    let chord = `${e.metaKey ? "Meta+" : ""}${e.ctrlKey ? "Control+" : ""}${e.altKey ? "Alt+" : ""}${e.shiftKey ? "Shift+" : ""}${key}`
     if chord == "Meta+Enter" and view.accessoryKey == "⌘ Enter"
       preventDefault()
       stopPropagation()
       if not e.repeat and not busy and view.accessoryEnabled
         run(view.accessoryOp, view.accessoryArg, view.accessoryArg2)
     else
-      match first(view.rows.filter((r) => r.jump != "" and r.jump == chord))
+      match first(view.rows.filter((r) => r.jump != "" and r.jump.split(" ").includes(chord)))
         case some(r)
           preventDefault()
           stopPropagation()

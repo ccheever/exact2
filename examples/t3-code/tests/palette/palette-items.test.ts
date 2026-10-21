@@ -39,8 +39,9 @@ describe('New thread in...', () => {
   test('"No project" follows the active project and keeps its own shortcut', () => {
     const items = newThreadInItems(client('/scratch'));
     expect(items.map(item => item.row.title)).toEqual(['Parity fixture', 'No project', 'Single checkout two']);
-    // The fixture binds thread.jump.1 and .2 only, so the third row has no number.
-    expect(items[1]!.row).toMatchObject({ op: 'flow', arg: 'scratch', icon: 'message-square-dashed', shortcut: '⌥⌘N', jump: '' });
+    // The fixture binds thread.jump.1 and .2 only, so the third row has no number. The field runs the row by its own
+    // chat.newWithoutProject chord (CommandPalette.tsx handleKeyDown, #19055).
+    expect(items[1]!.row).toMatchObject({ op: 'flow', arg: 'scratch', icon: 'message-square-dashed', shortcut: '⌥⌘N', jump: 'Meta+Alt+n' });
     const c = client('/scratch'); c.projectId = 'p2';
     expect(newThreadInItems(c).map(item => item.row.arg)).toEqual(['p2', 'scratch', 'p1']);
   });
