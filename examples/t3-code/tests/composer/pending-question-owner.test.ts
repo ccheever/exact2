@@ -20,7 +20,7 @@ async function questionSubmission(gate?: Gate) {
   client.answers.questions = { selected: [], custom: '', index: 1 };
   client.answers['questions::first'] = { selected: [], custom: fileChipLink(first), index: 0 };
   client.answers['questions::second'] = { selected: [], custom: fileChipLink(second), index: 0 };
-  const answers = JSON.stringify(client.answers), draftKey = client.draftKey;
+  const answers = JSON.stringify(client.answers), draftKey = client.draftKey, answerScope = `${client.environmentId}\u0000${client.threadId}`;
   client.local.drafts[draftKey] = 'Keep the original draft';
   let changed = false, reached!: () => void, release!: () => void, waiting = true;
   const entered = new Promise<void>(resolve => { reached = resolve; });
@@ -46,13 +46,13 @@ async function questionSubmission(gate?: Gate) {
     if (gate === 'persist' && waiting && new TextDecoder().decode(bytes).includes('runtime-request.respond')) { waiting = false; reached(); await held; }
     return write(path, bytes);
   };
-  return { ...fixture, calls, entered, release, answers, draftKey, markChanged: () => { changed = true; } };
+  return { ...fixture, calls, entered, release, answers, answerScope, draftKey, markChanged: () => { changed = true; } };
 }
 
 describe('pending question submission ownership', () => {
   for (const gate of ['read', 'mint', 'upload', 'ids', 'persist'] as const) for (const replacement of ['thread', 'environment'] as const) {
     test(`${replacement} replacement during ${gate} cannot receive the previous request or later question uploads`, async () => {
-      const fixture = await questionSubmission(gate), { client, native, command, calls, entered, release, draftKey, answers } = fixture;
+      const fixture = await questionSubmission(gate), { client, native, command, calls, entered, release, draftKey, answers, answerScope } = fixture;
       const submitting = command('submit-answers', 'questions');
       await Promise.race([entered, submitting.then(() => { throw Error('Submission completed before the deferred boundary'); })]);
       fixture.markChanged();
@@ -66,7 +66,8 @@ describe('pending question submission ownership', () => {
       expect(client.local.pending).toEqual({});
       expect(client.local.drafts[draftKey]).toBe('Keep the original draft');
       expect(client.local.drafts[client.draftKey]).toBe('Keep the replacement draft');
-      expect(JSON.stringify(client.answers)).toBe(answers);
+      // The answers stay with the thread they were typed on.
+      expect(JSON.stringify(client.answerDrafts[answerScope])).toBe(answers);
       expect(draftFiles(client.local).filter(file => file.draftKey === draftKey)).toHaveLength(2);
     });
   }

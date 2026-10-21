@@ -191,7 +191,10 @@ The app has no desktop self-update feed, so its own download/restart step is abs
   measured reservation at its end (`composer-overlay.ts`); with Chat width Wide or Full
   the context strip's workspace control is the desktop Select. PNG, JPEG and HEIC images over
   2000 pixels on their long edge are scaled to that edge before upload; PNGs already within it keep their bytes.
-- Requests: approvals, single/multiple-choice and free-text questions.
+- Requests: approvals, single/multiple-choice and free-text questions. While an approval is pending the
+  composer stays usable: Send declines the approvals it shows, then steers the turn with the message
+  (`declineForRedirect` in `client-ops-composer.ts`); a draft edited meanwhile stays unsent. A typed answer
+  stays with its thread until the question resolves.
 - Version control in the workspace card (`src/details/git*`): the branch picker (search, create
   a ref with Enter, check out, "Start from origin"), the git actions quick action and
   menu, the commit dialog (file selection, message, "Commit on new branch"), the
