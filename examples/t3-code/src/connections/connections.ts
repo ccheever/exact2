@@ -25,7 +25,7 @@ import { CLIENT_VERSION, versionMismatch } from './version-skew';
 import { nativeUpdateDeps, updateEnvironment, updateTargetFromConfig } from './server-update';
 import { confirms } from './server-update-notices';
 import { configInstallation, desktopManagedOnly, manualUpdateCopy, serverUpdateActionLabel, DESKTOP_MANAGED_NOTE } from './server-installation';
-import { gitHubRoutingConnectionKey, routeHttpBaseUrl, savedRoutes, singleRouteKey, type ConnectionRoute } from './connection-routes';
+import { gitHubRoutingConnectionKey, hasSavedBearerRoute, routeHttpBaseUrl, savedRoutes, singleRouteKey, type ConnectionRoute } from './connection-routes';
 import { moveSavedRoute, placeRoute, removeSavedRoute, routeCountLabel, routeRows, routesTransportLabel, savedEntry, savedList } from './connection-routes-ops';
 import { letGo } from '../client/let-go';
 import { sessionPermissionRows } from './auth-scope-options';
@@ -184,6 +184,8 @@ export function savedRow(source: Source, index: number, ssh: Record<string, SshT
   // 22e9d35613: a probed descriptor names the protocol direction and whether the host can update itself.
   const outdated = outdatedRow(source.key, source.label, probes.get(source.key), jobFor(source.key));
   const unsupported = source.phase === 'unsupported' || outdated.blocked !== null, enabled = source.enabled && !unsupported, connected = source.phase === 'connected';
+  // An unsupported environment with a saved direct route can be switched on again, which retries it after a server update.
+  const blocked = unsupported && !hasSavedBearerRoute(source);
   const status = savedStatus(source.enabled, unsupported ? 'unsupported' : source.phase, source.error);
   const serverVersion = str(obj(source.config.environment).serverVersion);
   const mismatch = Object.keys(source.config).length ? versionMismatch(serverVersion) : null;
@@ -202,9 +204,9 @@ export function savedRow(source: Source, index: number, ssh: Record<string, SshT
   const detected = str(obj(obj(source.config.environment).platform).machine);
   return {
     key: source.key, first: index === 0, origin: source.origin, environmentId: source.environmentId, label: source.label, kind,
-    subtitle, tooltip, errorTone: enabled && status.tone === 'error' && !outdated.resuming, enabled, dimmed: !enabled, unsupported,
+    subtitle, tooltip, errorTone: enabled && status.tone === 'error' && !outdated.resuming, enabled, dimmed: !enabled, unsupported, blocked,
     outdatedAction: outdated.action, outdatedFrom: outdated.fromVersion, progress: outdated.progress, progressFailed: outdated.failure,
-    switchTip: unsupported ? 'Client not supported' : enabled ? 'Switch off' : 'Switch on', active: source.focused, traceId: source.traceId, mcpUrl: environmentMcpUrl(source, ssh),
+    switchTip: blocked ? 'Client not supported' : enabled ? 'Switch off' : 'Switch on', active: source.focused, traceId: source.traceId, mcpUrl: environmentMcpUrl(source, ssh),
     // ServerUpdateAction (3b0093d716): the manual label follows the install; a desktop app that cannot
     // update from here gets the sentence instead of a button.
     update: updateLabel,
