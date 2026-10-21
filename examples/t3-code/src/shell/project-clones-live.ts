@@ -1,15 +1,17 @@
 // Tracked project clones on the client (MIT reference, see LICENSE-T3; T3 Code 1e2ecbd975:
-// components/ProjectCloneToastCoordinator.tsx, hooks/useRemoveClonedProject.ts,
-// state/projectClones.ts useProjectClone, components/ChatView.tsx runProjectCloneAction,
-// components/CommandPalette.tsx submitAddProjectCloneFlow). The clone list of every
-// environment comes from live-streams.ts; this module runs the toast coordinator from the
-// shell's view build (as providerUpdates does), answers the toast and banner buttons
-// (`shell:clone-*`), and starts a tracked clone from the palette.
+// hooks/useRemoveClonedProject.ts, components/ChatView.tsx runProjectCloneAction,
+// components/CommandPalette.tsx submitAddProjectCloneFlow; T3 Code 74541bab17:
+// components/ProjectCloneToastCoordinator.tsx and state/projectClones.ts useProjectClone and its
+// silenced toasts). The clone list of every environment comes from live-streams.ts; this module
+// runs the toast coordinator and the ignored-file copies owed to a cloned project
+// (add-project-machine.ts) from the shell's view build (as providerUpdates does), answers the
+// toast and banner buttons (`shell:clone-*`), and starts a tracked clone from the palette.
 import type { T3Client } from '../client/client';
 import { applyShell, initialShell, str, type Obj } from '../client/domain';
 import { ClientError, type Files, type Native } from '../client/protocol';
 import { cloneTracking, liveEnvironment, liveEnvironments, watchLive } from '../client/live-streams';
 import { syncCloneToasts, projectCloneBanner, projectCloneSendBlockReason, type TrackedToast, type ToastPort } from './project-clones';
+import { fileCopyPass, isProjectCloneToastSilenced, projectFileCopy, silenceProjectCloneToasts } from './add-project-machine';
 import { dismissToast, pushToast, toasts, updateToast } from './toast';
 import { composerNow } from '../composer/composer-controls';
 import { letGo } from '../client/let-go';
@@ -37,9 +39,11 @@ export function activeProjectClone(client: T3Client): Obj | null {
   const clones = liveEnvironment(client, null, client.environmentId)?.clones.value ?? [];
   return clones.find(clone => clone.projectId === client.projectId) ?? null;
 }
+/** useProjectFileCopy for the viewed project. */
+const activeFileCopy = (client: T3Client) => client.projectId ? projectFileCopy(client, client.environmentId, client.projectId) : null;
 /** The send status and block for the viewed project (composer-controls-view.ts, client-ops-composer.ts send). */
-export const projectCloneBlock = (client: T3Client) => projectCloneSendBlockReason(activeProjectClone(client));
-export const projectCloneNotice = (client: T3Client) => projectCloneBanner(activeProjectClone(client));
+export const projectCloneBlock = (client: T3Client) => projectCloneSendBlockReason(activeProjectClone(client), activeFileCopy(client));
+export const projectCloneNotice = (client: T3Client) => projectCloneBanner(activeProjectClone(client), activeFileCopy(client), client.projectId);
 
 /** ProjectCloneToastCoordinator over every environment, once per shell answer. */
 export async function cloneToasts(client: T3Client, native: Native | null | undefined): Promise<void> {
@@ -48,9 +52,11 @@ export async function cloneToasts(client: T3Client, native: Native | null | unde
   for (const environment of liveEnvironments(client, native)) {
     if (!environment.connected || !cloneTracking(environment.config) || !environment.clones.value) continue;
     // The composer banner shows the same progress while that project's draft is open.
-    const viewing = environment.focused && !client.threadId ? client.projectId : '';
-    syncCloneToasts(trackedFor(client, environment.environmentId), environment.clones.value, environment.environmentId, viewing, port(client));
+    const viewing = environment.focused && !client.threadId ? client.projectId : '', id = environment.environmentId;
+    syncCloneToasts(trackedFor(client, id), environment.clones.value, id, viewing, port(client),
+      { has: projectId => isProjectCloneToastSilenced(client, id, projectId), add: projectId => silenceProjectCloneToasts(client, id, projectId) });
   }
+  void fileCopyPass(client, native).catch(() => undefined); // detached: the shell answer does not wait for the writes
 }
 
 /**

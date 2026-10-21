@@ -10,6 +10,7 @@ use ComposerNotice from "./composer-shapes.contract"
 use NoticeSegment from "./composer-shapes.contract"
 use ComposerQueued from "./composer-shapes.contract"
 use ComposerBranches from "./composer-shapes.contract"
+use AddMachineSubmenu from "../shell/add-project-machine.contract"
 use KmItem, kmTarget, kmReturn from "../shared/menu-keys.contract"
 use Tip from "../shell/shell-tip.contract"
 use TipBubble from "../shell/shell-tip.contract"
@@ -49,6 +50,8 @@ component CcIcon
     svg width=`${size / 16}rem` height=`${size / 16}rem` viewBox="0 0 24 24" color=color fill="none" stroke="currentColor" stroke-width=weight stroke-linecap="round" stroke-linejoin="round" flex-shrink=0 aria-hidden=true
       if name == "chevron-down"
         path d="m6 9 6 6 6-6"
+      if name == "plus"
+        path d="M5 12h14M12 5v14"
       if name == "target"
         circle cx=12 cy=12 r=10
         circle cx=12 cy=12 r=6
@@ -598,7 +601,7 @@ component ComposerMenus
   state workspaceFocus = ""
   state workspaceSession = -1
   derive workspaceCurrent = workspaceSession == session ? workspaceFocus : ""
-  derive workspaceItems = branches.envOptions.map((option) => KmItem(id=`run-on-${option.id}`, label=option.label)).concat(branches.gitless or branches.forceWorktree ? [] : [KmItem(id="workspace-local", label=(branches.envIcon == "folder-git-1" ? "Current worktree" : "Current checkout"))]).concat(branches.gitless ? [] : [KmItem(id="workspace-worktree", label="New worktree")]).concat(not branches.gitless and branches.previous ? [KmItem(id="workspace-previous", label="Previous worktree")] : [])
+  derive workspaceItems = branches.envOptions.map((option) => KmItem(id=`run-on-${option.id}`, label=option.label)).concat(branches.envAdd.length > 0 and branches.envOptions.length > 0 ? [KmItem(id="run-on-add", label="Add to another machine")] : []).concat(branches.gitless or branches.forceWorktree ? [] : [KmItem(id="workspace-local", label=(branches.envIcon == "folder-git-1" ? "Current worktree" : "Current checkout"))]).concat(branches.gitless ? [] : [KmItem(id="workspace-worktree", label="New worktree")]).concat(not branches.gitless and branches.previous ? [KmItem(id="workspace-previous", label="Previous worktree")] : [])
   derive searchActive = (searchSession == session ? searchFocused : true)
   derive active = (focusSession == session ? focusIndex : -1)
   derive hovered = (hoverSession == session ? hoverIndex : -1)
@@ -655,7 +658,9 @@ component ComposerMenus
         preventDefault()
         stopPropagation()
         if not e.repeat
-          if workspaceCurrent.startsWith("run-on-")
+          if workspaceCurrent == "run-on-add"
+            command("shelllocal:add-machine-open", "", "", 0)
+          else if workspaceCurrent.startsWith("run-on-")
             command("environment-run-on", "", workspaceCurrent.slice(7), 0)
           else
             command("cclocal:env-mode", "", workspaceCurrent.slice(10), 0)
@@ -676,6 +681,9 @@ component ComposerMenus
       if name == "End"
         focus(`composer-menu-item-${count - 1}`)
   action workspaceHover(id: string, over: bool)
+    // Another row takes the pointer from "Add to another machine": its submenu closes, as Base UI's does.
+    if over and id != "run-on-add" and branches.envAdd.length > 0
+      hidePopover("run-on-add-menu")
     if over and workspaceItems.map((item) => item.id).includes(id)
       focus(id)
     else if not over and workspaceCurrent == id
@@ -705,6 +713,8 @@ component ComposerMenus
                   box display="flex" flex-shrink=0 margin-left="-0.125rem" margin-right="-0.125rem"
                     CnMachineIcon(kind=option.machine, size=12, color="light-dark(#27272a, #f5f5f5)")
                   text option.label font-size="0.875rem" line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)" white-space="nowrap"
+              if branches.envAdd.length > 0
+                RunOnAddRow(branches=branches, select=wideWorkspace, current=(workspaceCurrent == "run-on-add"), hover=workspaceHover("run-on-add"), command=command)
               if not branches.gitless
                 box height=1 margin-left="0.5rem" margin-right="0.5rem" margin-top="0.25rem" margin-bottom="0.25rem" background-color="light-dark(#e4e4e7, #ffffff0f)"
             if not branches.gitless
@@ -885,6 +895,29 @@ component StripControl
         text label font-size="0.75rem" line-height="1rem" color=(over or open ? "light-dark(#27272acc, #f5f5f5cc)" : "light-dark(#71717ab3, #818181b3)") line-clamp=1 min-width=0 max-width="15rem" hatch="t3-anchor" data-anchor=`sl:${anchor}`
       box display="flex" flex-shrink=0 margin-left="-0.125rem" margin-right="-0.125rem" opacity=0.5
         CcIcon(name="chevron-down", size=12, color=(over or open ? "light-dark(#27272acc, #f5f5f5cc)" : "light-dark(#71717ab3, #818181b3)"), weight=2)
+
+// "Add to another machine" under the Run on rows, muted until highlighted (ADD_TO_MACHINE_LABEL_CLASS). In the
+// menu (MobileRunContextSelector) it is a MenuSubTrigger whose MenuSubPopup lists the machines
+// (add-project-machine.contract AddMachineSubmenu); in the Select (BranchToolbarEnvironmentSelector, the wide and
+// non-Git strips) one item that opens the dialog on the first machine.
+component RunOnAddRow
+  props
+    branches: ComposerBranches
+    select: bool
+    current: bool
+    hover: action
+    command: action
+  action addTo(id: string)
+    command("shelllocal:add-machine-open", "", id, 0)
+  view
+    if select
+      button id="run-on-add" press=command("shelllocal:add-machine-open", "", "", 0) hover=hover role="option" aria-selected=false testId="run-on-add" class=Control justify-content="flex-start" width="100%" min-height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.25rem" padding-bottom="0.25rem" gap="0.375rem" border-radius="0.375rem" background-color=(current ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000")
+        row flex=1 min-width=0 gap="0.375rem" align-items="center" opacity=(current ? 1 : 0.55)
+          box display="flex" flex-shrink=0 margin-left="-0.125rem" margin-right="-0.125rem"
+            CcIcon(name="plus", size=12, color="light-dark(#27272a, #f5f5f5)", weight=2)
+          text "Add to another machine" font-size="0.875rem" line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)" white-space="nowrap" min-width=0
+    else
+      AddMachineSubmenu(rowId="run-on-add", targets=branches.envAdd, width=branches.envAddMenuWidth, choose=addTo)
 
 component ComposerStrip
   props
