@@ -51,7 +51,8 @@ test('the neutral sheet\'s lengths and ratios are the metric table\'s neutral co
   // A row's neutral value is its third cell when it has three, else its sixth; a row whose neutral value is unset is
   // another look's own (Android's Material rows) and no sheet's here.
   const neutralCell = (row) => (row.length === 3 ? row[2] : row[5]);
-  const rows = JSON.parse(read('../../../kernel/tables/schema.json')).metrics
+  const schema = JSON.parse(read('../../../kernel/tables/schema.json'));
+  const rows = schema.metrics
     .filter((row) => !row[1].startsWith('style') && neutralCell(row) !== 'unset'); // `style` and `style length`: the grouped sheet's
   const value = new Map(rows.map((row) => [row[0], neutralCell(row)]));
   const length = (name) => { const v = value.get(name); return typeof v === 'number' ? `${v}px` : v.replace(/^0\./, '.'); };
@@ -84,6 +85,8 @@ test('the neutral sheet\'s lengths and ratios are the metric table\'s neutral co
   const SHELL = { 'select-padding-end': ['padding-inline'] };
   // What follows from rows, or is no metric.
   const half = (name, unit) => `${value.get(name) / 2}${unit}`.replace(/^0\./, '.');
+  // The large title's size at the web's 16 px root, from the text style table.
+  const largeTitle = schema.textStyles.find(([name]) => name === 'large-title')[5][schema.textStyleBodies.indexOf(16)];
   const DERIVED = {
     'min-height': [`${2 * value.get('segmented-padding')}px`], // a segment is the control's height less the track's padding either side
     'border-radius': ['1em', half('range-track', 'px')], // the switch is a pill (any radius of half its height or more); the track's ends are round
@@ -91,6 +94,7 @@ test('the neutral sheet\'s lengths and ratios are the metric table\'s neutral co
     'background-position': ['1em'], // the thumb travels the track's width less its height
     'box-shadow': ['64px'], // a hovered row's wash reaches the card's edge, past any inset a row has
     'font-size': ['1em'], // an alert's message is the body size
+    'margin-block': [`${largeTitle / 16}rem`], // a bar's level-1 title takes the large title's line
   };
   const lengths = (text) => [...text.matchAll(/(?<![\w.#])(\d*\.?\d+)(px|rem|em)\b/g)].map((m) => m[0]).filter((token) => parseFloat(token) !== 0);
   const declarations = (css) => [...css.replace(/\/\*[\s\S]*?\*\//g, '').replace(/url\("[^"]*"\)/g, '').matchAll(/\{([^{}]*)\}/g)]
@@ -134,6 +138,9 @@ test('the neutral sheet\'s lengths and ratios are the metric table\'s neutral co
     'scrim-alpha': `--exact-scrim: rgb(0 0 0 / ${alpha('scrim-alpha')});`,
   };
   for (const [name, spelled] of Object.entries(RATIO)) expect([name, neutral.includes(spelled)]).toEqual([name, true]);
+  // The one ratio the table does not hold: iOS's large-title line height, about 41 pt for 34 pt, which a bar's
+  // level-1 title takes at the large title's size.
+  expect(neutral.includes(`margin-block: max(0px, (${largeTitle / 16}rem * 1.2 - 1lh) / 2);`)).toBe(true);
   expect(shell.includes(`select:not([multiple]) { appearance: none; font: inherit; letter-spacing: inherit; color: inherit; line-height: ${value.get('select-line-height')};`)).toBe(true);
   // A control's line is one height and its title one weight, wherever the sheets write them: a select's own line
   // aside, and a menu's rows, which are regular.
@@ -699,6 +706,62 @@ for (const engine of ['chromium', 'firefox', 'webkit']) test(`${engine}: a sheet
   } finally {
     await browser.close();
   }
+}, 90000);
+
+// A bar's level-1 title takes at least the large title's line, 33 px at 1.2 (neutral.css): the bar keeps that height
+// with a smaller title, a tighter line or no text, and the title stays centred beside a button. The sheet reads the
+// role and level, not the tag: the JS target makes a level chosen between literals an `h2`.
+for (const engine of ['chromium', 'firefox', 'webkit']) test(`${engine}: a bar's level-1 title keeps the large title's line`, async () => {
+  const browser = await launch(engine);
+  try {
+    const page = await browser.newPage({ viewport: { width: 600, height: 2400 }, colorScheme: 'light' });
+    const title = (tag, level, style = 'font-size:27px', text = 'Inbox') => `<${tag} role="heading" aria-level="${level}" style="${style};font-weight:700">${text}</${tag}>`;
+    const route = (id, header, attributes = '', before = '') => `<div navigationKey="${id}" id="${id}"${attributes}>${before}<header>${header}</header></div>`;
+    // A row as a bar with a button lays it out (`display: flex`, centred). Each text's baseline is the bottom of the
+    // empty inline-block after it.
+    const mark = '<i style="display:inline-block"></i>';
+    const row = (id, style) => `<div navigationKey="${id}" id="${id}"><header style="display:flex;align-items:center;gap:8px">${title('h1', 1, style, `Inbox${mark}`)}<button style="font-size:17px">Edit${mark}</button></header></div>`;
+    const clamp = 'font-size:27px;width:80px;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:1;overflow:hidden';
+    const routes = [
+      route('page', title('h1', 1)), route('computed', title('h2', 1)),
+      route('small', title('h1', 1, 'font-size:17px')), route('tight', title('h1', 1, 'font-size:27px;line-height:1')),
+      route('boxed', `<div>${title('h1', 1)}</div>`), route('empty', title('h1', 1, undefined, '')), route('space', title('h1', 1, undefined, ' ')),
+      route('clamped', title('h1', 1, clamp, 'Inbox of every')), route('tall', title('h1', 1, 'font-size:27px;height:44px')),
+      route('tapped', `<button style="display:flex;padding:0;border:0;background:none;font:inherit">${title('span', 1)}</button>`),
+      route('own', title('h1', 1, 'font-size:27px;margin:0')), route('short', title('h1', 1, 'font-size:27px;height:20px;overflow:hidden')), route('second', title('h2', 2)), route('later', title('h1', 1), '', '<div></div>'),
+      route('dialog', `<dialog open>${title('h1', 1)}</dialog>`), route('popover', `<div popover>${title('h1', 1)}</div>`),
+      row('row-large', 'font-size:33px'), row('row-page', 'font-size:27px'), row('row-small', 'font-size:17px'),
+    ];
+    // Each presented route and the routes pushed after it are a stack of their own.
+    const presented = ['modal', 'fullscreen'].map((p) => `<div>${route(p, title('h1', 1), ` navigationPresentation="${p}"`)}${route(`${p}-pushed`, title('h1', 1))}</div>`).join('')
+      + `<div>${route('leaving', title('h1', 1), ' navigationPresentation="modal" data-exiting')}${route('after-leaving', title('h1', 1))}</div>`
+      + `<div>${route('closing', title('h1', 1), ' navigationPresentation="modal" data-exiting')}${route('closing-pushed', title('h1', 1), ' data-exiting')}</div>`;
+    // In standards mode, as the shell's page is.
+    await page.setContent(`<!doctype html><style>${sheet()}</style><div id="exact-root"><main navigationKey="page">${routes.join('')}</main>
+      ${presented}<div id="line" style="font-size:27px;font-weight:700">Inbox</div></div>`);
+    // Each bar's height, its heading's height and top margin, and the centre of each cap height in the bar from its
+    // top (a cap height is 0.7 of the size).
+    const got = await page.evaluate(() => Object.fromEntries([...document.querySelectorAll('[id] > header')].map((bar) => {
+      const top = bar.getBoundingClientRect().top, heading = bar.querySelector('[role="heading"]'), round = (v) => Math.round(v * 10) / 10;
+      const caps = [...bar.querySelectorAll('i')].map((i) => i.getBoundingClientRect().bottom - top - 0.35 * parseFloat(getComputedStyle(i).fontSize));
+      return [bar.parentElement.id, { bar: round(bar.getBoundingClientRect().height), heading: round(heading.getBoundingClientRect().height), margin: getComputedStyle(heading).marginTop, caps }];
+    })));
+    const line = await page.evaluate(() => Math.round(document.getElementById('line').getBoundingClientRect().height * 10) / 10);
+    // The shell's bar is 6 px of padding either side of its line and a 1 px edge; the large title's line is 33 px at 1.2.
+    const large = Math.round((33 * 1.2 + 13) * 10) / 10;
+    for (const id of ['page', 'computed', 'small', 'tight', 'boxed', 'empty', 'space', 'clamped', 'tapped', 'after-leaving', 'row-page', 'row-small']) expect([engine, id, got[id].bar]).toEqual([engine, id, large]);
+    // Beside a button the title's caps stay centred on the button's, within the pixel a 33 px title's are.
+    for (const id of ['row-large', 'row-page', 'row-small']) expect([engine, id, Math.abs(got[id].caps[0] - got[id].caps[1]) <= 1]).toEqual([engine, id, true]);
+    // The heading's box is its own but at least a line: one clamped line, the author's 44 px, a line for 20 px.
+    expect([engine, got.clamped.heading, got.tall.heading, got.short.heading]).toEqual([engine, line, 44, line]);
+    // The rest are the shell's bar around one line of their own.
+    for (const id of ['own', 'second', 'later', 'modal', 'modal-pushed', 'fullscreen', 'fullscreen-pushed', 'closing-pushed']) expect([engine, id, got[id].bar]).toEqual([engine, id, line + 13]);
+    expect([engine, got.dialog.margin, got.popover.margin]).toEqual([engine, '0px', '0px']);
+    // At a 20 px root, with the size in `rem` as the JS target writes `title1`, the line is the large title's there.
+    await page.setContent(`<!doctype html><style>${sheet()} html { font-size: 20px; }</style><div id="exact-root"><main navigationKey="page">
+      ${route('page', title('h1', 1, 'font-size:1.6875rem'))}</main></div>`);
+    expect([engine, await page.evaluate(() => Math.round(document.querySelector('#page > header').getBoundingClientRect().height * 10) / 10)]).toEqual([engine, Math.round((2.0625 * 20 * 1.2 + 13) * 10) / 10]);
+  } finally { await browser.close(); }
 }, 90000);
 
 // What the author writes wins (LLP 1115). In CSS a minimum outranks a size and a border box is never narrower than
