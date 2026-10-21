@@ -471,9 +471,7 @@ fn transparent_is_a_colour() {
     );
 }
 
-/// LLP 1066: `background-image` takes `none` or one gradient — as an
-/// attribute, in a `style`, and in a conditional — and what no host draws
-/// is refused at compile time, by name.
+/// Literal and computed images use the same grammar and refusal reasons.
 #[test]
 fn background_image_takes_one_gradient_and_refuses_the_rest_by_name() {
     use exact_kernel::gradient::BackgroundImage;
