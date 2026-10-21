@@ -2,9 +2,39 @@
 // GAP 005: iOS Contract text refuses user-select:text; delete this view after native selection lands.
 // UIKit owns scrolling and whole-paragraph Copy; no synthetic measure loop.
 import UIKit
+
+// Primary365 leaves text at RN's 14 pt default; Expo fits a system-size symbol in a 16 pt view.
+private final class T3InformationSourceButton: UIButton {
+    let label = UILabel()
+    private let symbol = UIImageView()
+    override var isHighlighted: Bool { didSet { alpha = isHighlighted ? 0.6 : 1 } }
+    override var intrinsicContentSize: CGSize {
+        CGSize(width: label.intrinsicContentSize.width + 7 + 16, height: max(42, label.intrinsicContentSize.height + 14))
+    }
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        label.text = "Project source"; label.font = UIFont(name: "DMSans-Medium", size: 14) ?? .systemFont(ofSize: 14, weight: .medium)
+        symbol.contentMode = .scaleAspectFit
+        [label, symbol].forEach { $0.translatesAutoresizingMaskIntoConstraints = false; $0.isAccessibilityElement = false; addSubview($0) }
+        NSLayoutConstraint.activate([label.leadingAnchor.constraint(equalTo: leadingAnchor), label.centerYAnchor.constraint(equalTo: centerYAnchor),
+            label.topAnchor.constraint(greaterThanOrEqualTo: topAnchor, constant: 7), label.bottomAnchor.constraint(lessThanOrEqualTo: bottomAnchor, constant: -7),
+            symbol.leadingAnchor.constraint(equalTo: label.trailingAnchor, constant: 7), symbol.trailingAnchor.constraint(equalTo: trailingAnchor), symbol.centerYAnchor.constraint(equalTo: centerYAnchor),
+            symbol.widthAnchor.constraint(equalToConstant: 16), symbol.heightAnchor.constraint(equalToConstant: 16), heightAnchor.constraint(greaterThanOrEqualToConstant: 42)])
+        isAccessibilityElement = true; accessibilityTraits = .link; accessibilityLabel = "Project source, arrow.up.right"; accessibilityHint = "Opens the project website"
+    }
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+    func setColor(_ tint: UIColor) {
+        label.textColor = tint
+        guard let image = UIImage(systemName: "arrow.up.right") else { return }
+        symbol.image = image
+        symbol.preferredSymbolConfiguration = UIImage.SymbolConfiguration(pointSize: UIFont.systemFontSize, weight: .semibold, scale: .unspecified).applying(UIImage.SymbolConfiguration.preferringMonochrome())
+        symbol.image = image.withTintColor(tint, renderingMode: .alwaysOriginal); symbol.tintColor = tint
+    }
+}
+
 final class T3MobileInformationNotice: ExactNativeInstance {
     static let factory = ExactNativeFactory { props, events in let view = T3MobileInformationNotice(events: events); try view.setProps(props); return view }
-    private let scroll = UIScrollView(), stack = UIStackView(), header = UIStackView(), title = UILabel(), metadata = UILabel(), source = UIButton(type: .system), text = T3SelectableWorkText(frame: .zero), card = UIView()
+    private let scroll = UIScrollView(), stack = UIStackView(), header = UIStackView(), title = UILabel(), metadata = UILabel(), source = T3InformationSourceButton(type: .custom), text = T3SelectableWorkText(frame: .zero), card = UIView()
     private var entry = "", alive = true
     override var view: UIView { scroll }
     override init(events: ExactNativeEvents) {
@@ -12,9 +42,7 @@ final class T3MobileInformationNotice: ExactNativeInstance {
         scroll.showsVerticalScrollIndicator = false; scroll.contentInsetAdjustmentBehavior = .automatic
         stack.axis = .vertical; stack.spacing = 17.5; stack.translatesAutoresizingMaskIntoConstraints = false; scroll.addSubview(stack)
         title.numberOfLines = 0; metadata.numberOfLines = 0
-        source.setTitle("Project source ↗", for: .normal); source.contentHorizontalAlignment = .leading; source.accessibilityTraits = .link
         source.addAction(UIAction { [weak self] _ in guard let self, alive, !entry.isEmpty else { return }; events.change(entry) }, for: .touchUpInside)
-        source.heightAnchor.constraint(greaterThanOrEqualToConstant: 42).isActive = true
         text.backgroundColor = .clear
         text.allowsCopy = { [weak self] in
             guard let self, alive, !entry.isEmpty, !(text.attributedText?.string.isEmpty ?? true),
@@ -23,9 +51,10 @@ final class T3MobileInformationNotice: ExactNativeInstance {
             return UIApplication.shared.applicationState == .active
         }
         text.translatesAutoresizingMaskIntoConstraints = false; card.addSubview(text); card.layer.cornerRadius = 24; card.layer.cornerCurve = .continuous
-        header.axis = .vertical; header.spacing = 7; header.isLayoutMarginsRelativeArrangement = true; header.layoutMargins = UIEdgeInsets(top: 0, left: 3.5, bottom: 0, right: 3.5)
+        header.axis = .vertical; header.alignment = .leading; header.spacing = 7; header.isLayoutMarginsRelativeArrangement = true; header.layoutMargins = UIEdgeInsets(top: 0, left: 3.5, bottom: 0, right: 3.5)
         [title, metadata, source].forEach { header.addArrangedSubview($0) }; stack.addArrangedSubview(header); stack.addArrangedSubview(card)
-        NSLayoutConstraint.activate([stack.leadingAnchor.constraint(equalTo: scroll.contentLayoutGuide.leadingAnchor, constant: 17.5), stack.trailingAnchor.constraint(equalTo: scroll.contentLayoutGuide.trailingAnchor, constant: -17.5),
+        NSLayoutConstraint.activate([title.widthAnchor.constraint(equalTo: header.layoutMarginsGuide.widthAnchor), metadata.widthAnchor.constraint(equalTo: header.layoutMarginsGuide.widthAnchor),
+            stack.leadingAnchor.constraint(equalTo: scroll.contentLayoutGuide.leadingAnchor, constant: 17.5), stack.trailingAnchor.constraint(equalTo: scroll.contentLayoutGuide.trailingAnchor, constant: -17.5),
             stack.topAnchor.constraint(equalTo: scroll.contentLayoutGuide.topAnchor, constant: 14), stack.bottomAnchor.constraint(equalTo: scroll.contentLayoutGuide.bottomAnchor, constant: -36), stack.widthAnchor.constraint(equalTo: scroll.frameLayoutGuide.widthAnchor, constant: -35),
             text.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: 14), text.trailingAnchor.constraint(equalTo: card.trailingAnchor, constant: -14), text.topAnchor.constraint(equalTo: card.topAnchor, constant: 14), text.bottomAnchor.constraint(equalTo: card.bottomAnchor, constant: -14)])
     }
@@ -35,7 +64,6 @@ final class T3MobileInformationNotice: ExactNativeInstance {
         let size = CGFloat(Double(props["notice-point-size"] ?? "14") ?? 14), line = CGFloat(Double(props["notice-line-height"] ?? "21") ?? 21)
         let titleSize = CGFloat(Double(props["notice-title-size"] ?? "26") ?? 26), titleLine = CGFloat(Double(props["notice-title-line-height"] ?? "32") ?? 32)
         let titleFont = UIFont(name: "DMSans-Bold", size: titleSize) ?? .systemFont(ofSize: titleSize, weight: .bold), metadataFont = UIFont(name: "DMSans-Regular", size: size) ?? .systemFont(ofSize: size)
-        source.titleLabel?.font = UIFont(name: "DMSans-Medium", size: size) ?? .systemFont(ofSize: size, weight: .medium)
         let paragraph = NSMutableParagraphStyle(); paragraph.minimumLineHeight = line; paragraph.maximumLineHeight = line
         let titleParagraph = NSMutableParagraphStyle(); titleParagraph.minimumLineHeight = titleLine; titleParagraph.maximumLineHeight = titleLine
         title.attributedText = NSAttributedString(string: title.text ?? "", attributes: [.font: titleFont, .foregroundColor: color(props["notice-foreground"]), .paragraphStyle: titleParagraph])
@@ -43,7 +71,7 @@ final class T3MobileInformationNotice: ExactNativeInstance {
         let notice = NSAttributedString(string: props["notice-text"] ?? "", attributes: [.font: UIFont.systemFont(ofSize: size, weight: .regular), .foregroundColor: color(props["notice-foreground"]), .paragraphStyle: paragraph])
         if entry != nextEntry || text.attributedText?.isEqual(to: notice) != true { text.cancelMenu(); text.attributedText = notice }
         entry = nextEntry
-        source.setTitleColor(color(props["notice-link"]), for: .normal)
+        source.setColor(color(props["notice-link"]))
         scroll.backgroundColor = color(props["notice-sheet"]); card.backgroundColor = color(props["notice-card"]); source.isHidden = props["has-source"] != "true"
         scroll.contentInset.bottom = max(0, CGFloat(Double(props["notice-bottom"] ?? "36") ?? 36) - 36)
     }
