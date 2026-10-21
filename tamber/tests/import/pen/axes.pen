@@ -1,0 +1,36 @@
+{
+  "version": "2.21",
+  "themes": { "Mode": ["Light", "Dark"], "device": ["phone", "tablet"] },
+  "imports": { "kit": "./kit.pen" },
+  "variables": {
+    "--primary": { "type": "color", "value": [
+      { "value": "#FF8400" },
+      { "value": "#FFAA00", "theme": { "Mode": "Dark" } },
+      { "value": "#0000FF", "theme": { "device": "tablet" } },
+      { "value": "#00FF00", "theme": { "Mode": "Dark", "device": "tablet" } }
+    ] },
+    "--primary-foreground": { "type": "color", "value": "$--primary" },
+    "--edge": { "type": "color", "value": [
+      { "value": "#333333" },
+      { "value": "#111111", "theme": { "Mode": "Dark", "device": "tablet" } },
+      { "value": "#222222", "theme": { "device": "tablet" } }
+    ] },
+    "--tablet-only": { "type": "color", "value": [ { "value": "#444444", "theme": { "device": "tablet" } } ] },
+    "gap": { "type": "number", "value": [ { "value": 8 }, { "value": 12, "theme": { "device": "tablet" } } ] },
+    "weight": { "type": "number", "value": 600 },
+    "leading": { "type": "number", "value": 1.5 },
+    "mixed": { "type": "number", "value": 4 },
+    "unused": { "type": "number", "value": 3 },
+    "font": { "type": "string", "value": "JetBrains Mono" },
+    "label": { "type": "string", "value": "Hello" },
+    "flag": { "type": "boolean", "value": true },
+    "odd": { "type": "gradient", "value": "linear" },
+    "stray": { "type": "color", "value": [ { "value": "#123456", "theme": { "size": "big" } } ] }
+  },
+  "children": [
+    { "type": "frame", "id": "a", "fill": "$--primary", "gap": "$gap", "children": [
+      { "type": "text", "fill": "$--primary-foreground", "fontFamily": "$font", "fontWeight": "$weight", "lineHeight": "$leading" },
+      { "type": "frame", "gap": "$mixed", "children": [ { "type": "text", "lineHeight": "$mixed", "stroke": { "fill": "$--edge" } } ] }
+    ] }
+  ]
+}
