@@ -58,6 +58,8 @@ shape ComposerNotice
   iconTone: string
   sep: bool
   liveRole: string
+  // The title is cut off: an info button shows it in full (NoticeText).
+  titleDetails: bool
   // The multi-machine update banner's popover rows, and its title's accessible name.
   machines: NoticeMachine[]
   menuLabel: string

@@ -143,7 +143,7 @@ export function compactChip(client: T3Client, now: number, editingQueued: boolea
   const count = formatTokens(tokens), keep = keepsFullHistory(client), word = keep ? 'Full' : 'Compact';
   const anchor = obj(client.presentation.anchors)[`compact:${word}:${count}`], width = Array.isArray(anchor) ? Number(anchor[1]) : NaN;
   return { compactTokens: count, compactKeepFull: keep, compactSend: !keep, compactWidth: Number.isFinite(width) && width > 0 ? width : Math.ceil(22 + 14 + 6 + textWidth(word, true) + 6 + textWidth(count.replace(/\d/g, '0'), true)),
-    compactTip: keep ? `Next send keeps all ${count} tokens. Click to compact first` : `Next send compacts ${count} tokens first. Click to keep full history` };
+    compactTip: keep ? `Next send keeps all ${count} tokens.\nClick to compact first` : `Next send compacts ${count} tokens first.\nClick to keep full history` };
 }
 
 // ── Docked banners ─────────────────────────────────────────────────────────
@@ -157,7 +157,9 @@ export type ComposerNotice = { id: string; variant: string; icon: string; title:
   /** Auto balance: the multi-machine banner's popover rows and its title's accessible name. */
   machines: MachineRow[]; menuLabel: string;
   /** A description that is an account address (RedactedSensitiveText, then `redactAfter`), and the /usage-limits body. */
-  redact: string; redactMask: string; redactAfter: string; usage: UsageAccountView[] };
+  redact: string; redactMask: string; redactAfter: string; usage: UsageAccountView[];
+  /** The title is cut off (composer-presentation.ts noticeTitleDetails). */
+  titleDetails?: boolean };
 const notice = (value: Partial<ComposerNotice> & { id: string; title: string }): ComposerNotice => ({ variant: 'info', icon: '', description: '',
   action: '', actionLabel: '', action2: '', action2Label: '', dismiss: '', dismissLabel: '', priority: 2, lines: [], actionReason: '', actionId: '', dismissId: '', segments: [],
   tip: '', actionTip: '', action2Tip: '', iconTone: '', sep: false, liveRole: '', machines: [], menuLabel: '', redact: '', redactMask: '', redactAfter: '', usage: [], ...value });
@@ -327,15 +329,32 @@ export function formatTokens(value: number | null): string {
   return `${(value / 1_000_000).toFixed(1).replace(/\.0$/, '')}m`;
 }
 const finite = (value: unknown): number | null => typeof value === 'number' && Number.isFinite(value) ? value : null;
+/**
+ * contextWindow.ts latestProviderTurnTokenUsage (74541bab17): the newest live turn usage. A run fork with none of its own, and no
+ * provider-thread report, keeps the usage its fork transfer carried from the source thread, while the transfer is
+ * pending or resolved as a native fork on the same provider instance.
+ */
+export function liveTokenUsage(projection: Obj): Obj | null {
+  const latest = latestTokenUsage(arr(projection.providerTurns));
+  const thread = obj(projection.thread), providerThread = arr(projection.providerThreads).find(entry => entry.id === thread.activeProviderThreadId);
+  if (latest !== null || providerThread?.contextUsage != null) return latest;
+  const forkedFrom = obj(thread.forkedFrom);
+  if (forkedFrom.type !== 'run') return null;
+  const transfer = arr(projection.contextTransfers).find(transfer => transfer.type === 'fork' && transfer.targetThreadId === thread.id
+    && transfer.sourceThreadId === forkedFrom.threadId && obj(transfer.sourcePoint).runId === forkedFrom.runId
+    && transfer.sourceProviderInstanceId === obj(thread.modelSelection).instanceId
+    && (transfer.status === 'pending' || obj(transfer.resolution).strategy === 'native_fork'));
+  return transfer?.sourceTokenUsage == null ? null : obj(transfer.sourceTokenUsage);
+}
 /** deriveLatestContextWindowSnapshot: live turn usage, else the provider thread's report, else the last compaction. */
 export type ContextUsage = { used: number; max: number | null; total: number | null; cost: Obj | null; auto: boolean; threshold: number | null; updatedAt: string;
   /** The provider's prompt cache lifetime, reported with live usage only. */
   promptCacheTtlMs?: number };
 export function contextSnapshot(projection: Obj): ContextUsage | null {
-  const usage = latestTokenUsage(arr(projection.providerTurns));
+  const usage = liveTokenUsage(projection);
   if (usage) {
     const used = Math.max(0, finite(usage.usedTokens) ?? 0), max = finite(usage.maxTokens), ttl = finite(usage.promptCacheTtlMs);
-    return { used, max, total: null as number | null, cost: null as Obj | null, auto: true, threshold: null as number | null, updatedAt: str(usage.updatedAt),
+    return { used, max, total: null as number | null, cost: null as Obj | null, auto: true, threshold: finite(usage.autoCompactThreshold), updatedAt: str(usage.updatedAt),
       ...(ttl !== null && ttl > 0 ? { promptCacheTtlMs: ttl } : {}) };
   }
   const thread = arr(projection.providerThreads).find(entry => entry.id === obj(projection.thread).activeProviderThreadId);
@@ -365,7 +384,7 @@ export function contextMeter(client: T3Client, modelName: string) {
     contextPercent: usage.max !== null && fraction !== null ? percentLabel(fraction) : '', contextOffset: Math.round(circumference * (1 - normalized / 100) * 100) / 100,
     contextOver: normalized > 90, contextUsed: formatTokens(usage.used), contextMax: usage.max !== null ? formatTokens(usage.max) : '',
     contextTotal: usage.total !== null && usage.total > 0 ? formatTokens(usage.total) : '', contextCost: cost,
-    contextNote: !usage.auto ? '' : usage.threshold !== null && usage.threshold > 0 ? `Compacts automatically at ${usage.threshold.toLocaleString('en-US')} tokens.`
+    contextNote: !usage.auto ? '' : usage.threshold !== null && usage.threshold > 0 ? `Compacts automatically at about ${usage.threshold.toLocaleString('en-US')} tokens.`
       : modelName ? `Context for ${modelName} compacts automatically when needed.` : 'Context compacts automatically when needed.',
     contextCompact: arr(provider?.slashCommands).some(command => command.name === 'compact'),
     // The bar's `aria-valuenow`, as ContextWindowMeter's: the used share, held to 0–100 and rounded.

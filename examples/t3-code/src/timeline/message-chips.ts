@@ -17,6 +17,7 @@ import { assistantCitationLabel, parseAssistantCitationHref } from './diff-citat
 import { COMPOSER_CITATION } from '../composer/composer-source-chips';
 import { markdownLinkHref, markdownMediaChips, noteMarkdownDocument, type MediaScope } from '../media/media-views'; // a message's images and their actions
 import type { ThreadLinkGlyph } from './markdown-thread-glyphs';
+import { parseThreadLinkHref, percentDecodedThreadLinkId, resolveThreadLink } from './thread-links';
 
 export interface ChipView {
   id: string; href: string; kind: string; label: string; size: string; tip: string;
@@ -160,6 +161,8 @@ export function messageChips(item: Obj, root: string, threads: Obj[], owner = ''
   // A citation by its destination, whatever its label reads, as the composer sends it (COMPOSER_CITATION).
   if (text.includes('](t3-citation:')) for (const match of text.matchAll(COMPOSER_CITATION)) if (parseAssistantCitationHref(match[1]!)) add(citationChip(match[1]!));
   if (text.includes('](')) for (const link of markdownLinks(text)) {
+    // A thread link is its thread's chip (MarkdownThreadLink → ThreadContextChip, T3 Code 74541bab17).
+    if (!link.image && link.href.startsWith('t3-thread://v1/')) { const chip = threadLinkChip(link.href, link.label, threads, client); if (chip) add(chip); continue; }
     // Exactly the destinations markdown.rs draws as file chips.
     if (link.image || !markdownLinkHref(link.href).startsWith('t3-file:')) continue;
     add({ href: `t3-file:${link.href}`, kind: 'link', label: link.label, size: '', tip: fileLinkTarget(link.href, root), detail: '', icon: fileIconToken(link.href), target: '' });
@@ -190,6 +193,19 @@ function citationChip(href: string): Omit<ChipView, 'id' | 'owner'> {
   const citation = parseAssistantCitationHref(href);
   return { href, kind: 'citation', label: citation ? assistantCitationLabel(citation) : '', size: citation?.comment ?? '', tip: citation?.text ?? '',
     detail: citation?.messageId ?? '', icon: '', target: citation?.threadId ?? '' };
+}
+/**
+ * A `t3-thread://v1/<id>` link's chip: the thread's live title (the link's label until it resolves), "Open thread" or
+ * "Thread no longer available", and what a press opens (`target`; `detail` "link" routes it through openThreadLink, so an
+ * archived thread's transcript still opens and another environment's thread focuses that environment).
+ */
+function threadLinkChip(href: string, label: string, threads: Obj[], client?: T3Client): Omit<ChipView, 'id' | 'owner'> | null {
+  const written = parseThreadLinkHref(href);
+  if (!written) return null;
+  const local = threads.find(thread => thread.id === written) ?? threads.find(thread => thread.id === percentDecodedThreadLinkId(written));
+  const target = client ? resolveThreadLink(client, written) : local ? { id: str(local.id), thread: local } : null;
+  return { href, kind: 'thread', label: str(target?.thread.title).trim() || label.trim() || written, size: '', tip: target ? 'Open thread' : 'Thread no longer available',
+    detail: 'link', icon: '', target: target?.id ?? written };
 }
 const UNAVAILABLE = 'This context is no longer available.';
 function contextChip(href: string, kind: string, label: string, record: Obj | undefined, attachments: Map<string, Obj>, threads: Obj[]): Omit<ChipView, 'id' | 'owner'> {

@@ -19,6 +19,7 @@ import { activeRef, terminalOpen } from '../terminal/terminal-drawer-view'; // C
 import { annotatingInThread, sendChordsWhileAnnotating } from '../browser/browser-annotation'; // ⌘↩ in Annotate
 import { measuredLabels } from './composer-measure';
 import { atRootFontSize, composerMenus, effortMenuWidth, measured, probe, traitsMenuHeight } from './composer-menus';
+import { anchorFrame } from '../shared/laid-out-widths';
 import { clampInterfaceFontSize } from '../appearance/appearance-fonts';
 import { environmentView } from '../details/git-env';
 import { ULTRATHINK_LOCKED_MESSAGE, ultrathinkTraits, withImplicitFastModeDefault } from './composer-provider-state';
@@ -228,7 +229,7 @@ export function composerSnapshot(client: T3Client, now = 0) {
   const tasks = tasksProgress(client), sync = syncStatus(client), anchors = anchorsFrom(client.presentation);
   // The activity row (sync, else the running turn's tasks unless a request blocks the drawer) leads the stack.
   const activity = sync ? 'sync' : tasks.tasksTotal > 0 && !requests.approvals.length && !question ? 'tasks' : '';
-  const notices = composerNotices(client, now).map((notice, index) => ({ ...notice, front: !activity && index === 0 }));
+  const notices = composerNotices(client, now).map((notice, index) => ({ ...notice, front: !activity && index === 0, titleDetails: noticeTitleDetails(client.presentation, notice) }));
   const queue = queuedView(client), action = primaryAction(client, phase);
   if (queue.queueEditing) Object.assign(action, { sendLabel: 'Update queued message', sendIcon: 'check', sendTooltip: 'Update queued message', sendRunning: true });
   // A send that compacts first says so (ComposerPrimaryActions submitLabel, submitTooltip).
@@ -252,6 +253,21 @@ export function composerSnapshot(client: T3Client, now = 0) {
     // TooltipPopup: 12pt text inset 8pt plus its 1pt border, for the window-edge shift.
     sendTipWidth: Math.ceil(measured(client.presentation, action.sendTooltip, 12, 400) + 18),
     // Menu widths from measured texts (composer-menus.ts); Run on's labels join the probes.
-    ...composerMenus(client.presentation, view, environmentView(client).envOptions.map(option => option.label), [probe(action.sendTooltip, 12, 400)]),
+    ...composerMenus(client.presentation, view, environmentView(client).envOptions.map(option => option.label), [probe(action.sendTooltip, 12, 400), ...notices.map(notice => probe(notice.title, 12, 500))]),
     syncStatus: bar.subagent ? '' : sync, activity: bar.subagent ? '' : activity, notices, resetConfirm: bar.subagent ? '' : usageConfirm(client), implementX: anchors.implement.x, implementWidth: anchors.implement.width }, rootFontSize);
+}
+
+/**
+ * ComposerBannerStack NoticeText (T3 Code 74541bab17): whether a notice's plain title is cut off, from its laid-out width
+ * (its probe) against the content row it shares with the "·" and the description, which shrinks to nothing first. The
+ * details button never counts against the title, so showing it cannot keep itself shown.
+ */
+export function noticeTitleDetails(presentation: Obj, notice: { id: string; title: string; tip: string; sep: boolean; description: string; redact: string; segments: unknown[]; machines: unknown[] }): boolean {
+  if (notice.tip || notice.machines.length > 0 || !notice.title) return false;
+  const content = anchorFrame(presentation, `notice-content:${notice.id}`);
+  const probed = anchorFrame(presentation, probe(notice.title, 12, 500).key);
+  if (!content || !probed) return false;
+  const after = notice.sep ? 4 + measured(presentation, '·', 12, 400) + (notice.description || notice.redact || notice.segments.length ? 4 : 0)
+    : notice.description || notice.redact || notice.segments.length ? 4 : 0;
+  return probed[1] > content[1] - after + 0.5;
 }

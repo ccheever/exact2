@@ -546,6 +546,9 @@ shape Snapshot
   requestKey: string
   clientError: string
   errorWarning: bool
+  // ThreadErrorBanner's collapsed message (a JSON error's message) and whether it expands to the full text.
+  errorSummary: string
+  errorExpandable: bool
   look: Look
 shape Change
   revision: number
