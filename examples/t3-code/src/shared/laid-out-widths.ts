@@ -36,3 +36,12 @@ export function alertClip(presentation: Obj): string {
   if (left < 0 || right > wrapper[1] + 0.5 || right <= left) return 'none';
   return `path('M ${left} 0 H ${right} V 4000 H ${left} Z')`;
 }
+
+/**
+ * DraftHeroProjectHeading's fit check reads the natural width of "What should we build in <project>?" on one line,
+ * from its hidden probe (app-main.contract `hero-inline`). The probe stays mounted with the chat column, so a new
+ * draft's heading has its width at once; 0 before the probe has been laid out.
+ */
+export function heroInlineWidth(presentation: Obj): number {
+  return anchorFrame(presentation, 'hero-inline')?.[1] ?? 0;
+}

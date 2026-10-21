@@ -323,10 +323,10 @@ component TaskMessage
       if description != ""
         text description font-size="0.75rem" line-height="1.125rem" color="light-dark(#70707acc, #818181cc)" max-width="36rem"
 
-// resolveBranchTriggerLabel for a future worktree (WorktreeBaseBranchPicker): "origin/" only while Start from origin is on
+// resolveBranchTriggerLabel for a future worktree (WorktreeBaseBranchPicker): "(remote)" only while Start from remote is on
 // and the ref is a local branch the project lists; a ref it does not list (the Verification fixture's "No refs found.")
 // or a remote one reads as it is.
-fn taskBaseLabel(baseRef: string, startFromOrigin: bool, local: bool): string = baseRef == "" ? "Select ref" : (startFromOrigin and local ? `From origin/${baseRef}` : `From ${baseRef}`)
+fn taskBaseLabel(baseRef: string, startFromOrigin: bool, local: bool): string = baseRef == "" ? "Select ref" : (startFromOrigin and local ? `From ${baseRef} (remote)` : `From ${baseRef}`)
 // The editor's picker as the root's page resource reads it (scheduled-view.ts pickerOf): the project it shows, the base to
 // look up when that project's list lacks it, and the search the server filters by (usePaginatedBranches' query).
 fn taskPicker(key: string, project: string, ref: string, query: string): string = `key=${encodeURIComponent(key)}&project=${encodeURIComponent(project)}&ref=${encodeURIComponent(ref)}&query=${encodeURIComponent(query)}`
@@ -334,7 +334,7 @@ fn taskPicker(key: string, project: string, ref: string, query: string): string 
 // ScheduledTaskEditorDialog. Per-instance state starts from the server's
 // draft each time the dialog opens (the draft row is new per opening). A new task's "Runs on" switches its environment
 // in place, as the reference's setEnvironmentId and setDraft: the dialog stays open with
-// its name, prompt, workspace, schedule and Enabled; project, model, base branch, Start from origin and checkout path
+// its name, prompt, workspace, schedule and Enabled; project, model, base branch, Start from remote and checkout path
 // start over, and the page resource (scheduled-view.ts) gives the chosen environment's projects, models and refs.
 component ScheduledEditor
   // Model is the provider picker (ProviderModelPicker, no setup and no disabled reasons), opened by the
@@ -530,7 +530,7 @@ component ScheduledEditor
                   text taskBaseLabel(baseRef, startFromOrigin, baseLocal) font-size="0.875rem" font-weight=500 line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)" flex=1 min-width=0 line-clamp=1 text-align="left" testId="task-base-label"
                   LucideChevronDown(size=14, color="light-dark(#71717b, #818181)")
                 // BranchPicker: ComboboxPopup at the trigger's width, Search refs..., the refs with
-                // their current/worktree/remote/default tag, and the Start from origin row. WorktreeBaseBranchPicker's
+                // their current/worktree/remote/default tag, and the Start from remote row. WorktreeBaseBranchPicker's
                 // popup is align="start" side="bottom": 4 pt below, flipping near an edge.
                 column id="task-branch-menu" popover="auto" position-area="bottom span-right" position-try-fallbacks="flip-block, flip-inline, flip-block flip-inline" position="absolute" margin-top="0.25rem" width="32.875rem" box-sizing="border-box" border-radius="0.625rem" border-style="solid" border-width=1 border-color="light-dark(#e4e4e7, #ffffff14)" background-color="light-dark(#ffffff, #181818)" box-shadow="0 8px 24px #00000026" overflow="hidden" aria-label="Base branch" testId="task-branch-menu"
                   column padding-top="0.625rem" padding-left="0.75rem" padding-right="0.75rem" box-sizing="border-box" width="100%"
@@ -554,8 +554,8 @@ component ScheduledEditor
                   row align-items="center" justify-content="space-between" gap="0.75rem" padding-left="0.75rem" padding-right="0.75rem" padding-top="0.5rem" padding-bottom="0.5rem" border-top-style="solid" border-top-width=1 border-color="light-dark(#e4e4e799, #ffffff0f)"
                     row align-items="center" gap="0.375rem" min-width=0
                       LucideRefreshCw(size=12, color="light-dark(#71717b, #818181)")
-                      text "Start from origin" font-size="0.75rem" font-weight=500 line-height="1rem" color="light-dark(#71717b, #818181)" line-clamp=1
-                    SettingsSwitch(checked=startFromOrigin, label="Start worktree from origin", disabled=busy, switchId="task-origin", toggle=toggle("origin"))
+                      text "Start from remote" font-size="0.75rem" font-weight=500 line-height="1rem" color="light-dark(#71717b, #818181)" line-clamp=1
+                    SettingsSwitch(checked=startFromOrigin, label="Start worktree from remote", disabled=busy, switchId="task-origin", toggle=toggle("origin"))
                   // ComboboxStatus: the error, "Loading more refs..." or "Showing 100 of 122 refs" while more remain.
                   for group in data.branches key=group.projectId
                     if group.projectId == chosenProject and group.status != ""

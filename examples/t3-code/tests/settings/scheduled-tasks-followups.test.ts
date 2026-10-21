@@ -1,6 +1,6 @@
 // Scheduled tasks against T3 Code 1e2ecbd975 (MIT, see
 // LICENSE-T3): ScheduledTaskEditorDialog's "Runs on" switches a new task's environment (the scope's connected
-// environments; project, model, base branch, Start from origin and checkout path start over, the rest is kept);
+// environments; project, model, base branch, Start from remote and checkout path start over, the rest is kept);
 // ProjectCloneToastCoordinator's "Open project" on every environment's success toast (handleNewThread with that
 // environment's project ref); ThreadAutomationsPanel's three TooltipPopups.
 import { afterEach, describe, expect, test } from 'bun:test';

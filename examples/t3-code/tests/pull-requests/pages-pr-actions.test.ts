@@ -18,7 +18,7 @@ import {
   PULL_REQUEST_ACTIONS, allowsSinglePullRequestMerge, isStackedPullRequestBase, pullRequestActionMenuHasGroup, pullRequestActionNeedsHostRefresh,
   resolveBaseFreshness, resolvePullRequestMergeMethod, resolvePullRequestPrimaryControl,
 } from '../../src/details/pr-row-logic';
-import { applyPullRequestOverrides, pullRequestOverrideAfterAction, settlePullRequestOverrides, type ListOverride } from '../../src/pull-requests/pages-pr-actions';
+import { actionState, applyPullRequestOverrides, prActionUi, pullRequestOverrideAfterAction, settlePullRequestOverrides, type ListOverride } from '../../src/pull-requests/pages-pr-actions';
 import { pullRequestStackView, savedPullRequestStack } from '../../src/pull-requests/pages-pr-stack';
 import { noteNow } from '../../src/composer/composer-controls';
 
@@ -580,19 +580,51 @@ describe('inline confirmation input', () => {
   test('Escape belongs to the active confirmation, inside the menu while that menu owns modal shortcuts', () => {
     const escape = contractComponent('pages-pr-actions.contract', 'PrdConfirmEscape');
     const actions = { armedAction: 'close', armedControl: 'menu' };
-    expect(escape.drawn('aria-keyshortcuts="Escape"', {}, { actions, inMenu: true })).toBe(true);
-    expect(escape.drawn('aria-keyshortcuts="Escape"', {}, { actions, inMenu: false })).toBe(false);
+    expect(escape.drawn('aria-keyshortcuts="Escape"', {}, { actions, layer: 'menu' })).toBe(true);
+    expect(escape.drawn('aria-keyshortcuts="Escape"', {}, { actions, layer: 'panel' })).toBe(false);
     actions.armedControl = 'primary';
-    expect(escape.drawn('aria-keyshortcuts="Escape"', {}, { actions, inMenu: false })).toBe(true);
+    expect(escape.drawn('aria-keyshortcuts="Escape"', {}, { actions, layer: 'panel' })).toBe(true);
+    // Close with comment's arming is the composer popover's Escape, which would otherwise close the popover.
+    actions.armedControl = 'comment';
+    expect([escape.drawn('aria-keyshortcuts="Escape"', {}, { actions, layer: 'comment' }), escape.drawn('aria-keyshortcuts="Escape"', {}, { actions, layer: 'panel' })]).toEqual([true, false]);
     actions.armedAction = '';
-    expect(escape.drawn('aria-keyshortcuts="Escape"', {}, { actions, inMenu: false })).toBe(false);
+    expect(escape.drawn('aria-keyshortcuts="Escape"', {}, { actions, layer: 'comment' })).toBe(false);
+  });
+  // PullRequestCommentForm: Close with comment asks first, in place.
+  test('Close with comment arms on the first press, closes on the second, and lets go when it loses the focus', () => {
+    const composer = contractComponent('pages-pr-compose.contract', 'PrdComposer');
+    const calls: unknown[][] = [];
+    const scope = (armed: boolean) => ({ selected: 'pr7', comment: 'Superseded by #8', locked: false, actions: { armedControl: armed ? 'comment' : '', armedAction: armed ? 'close' : '' },
+      writes: { submitting: '' }, local: (...args: unknown[]) => calls.push(['local', ...args]), act: (...args: unknown[]) => calls.push(['act', ...args]),
+      post: (kind: string) => calls.push(['act', `comment-${kind}`, 'Superseded by #8']) });
+    composer.call('confirmClose', {}, scope(false), []);
+    composer.call('confirmClose', {}, scope(true), []);
+    composer.call('closeBlur', {}, scope(true), []);
+    composer.call('closeBlur', {}, scope(false), []);
+    // The confirming press disarms before it posts, so a refused comment leaves nothing armed.
+    expect(calls).toEqual([['local', 'pr-ui-arm', 'pr7', 'comment|close'], ['local', 'pr-ui-disarm', 'pr7', 'comment|close'], ['act', 'comment-close', 'Superseded by #8'], ['local', 'pr-ui-disarm', 'pr7', 'comment|close']]);
+    // An empty comment arms nothing.
+    calls.length = 0;
+    composer.call('confirmClose', {}, { ...scope(false), comment: '  ' }, []);
+    expect(calls).toEqual([]);
+  });
+  test('the comment form\'s arming is the one armed confirmation, and its label holds "Close with comment"\'s width', () => {
+    const { client } = fakeClient({});
+    const ctx = { key: 'k7', detail: null, reference: {} };
+    prActionUi(client as never, 'arm', ctx, 'primary|merge');
+    prActionUi(client as never, 'arm', ctx, 'comment|close');
+    expect(actionState(client).confirm).toMatchObject({ key: 'k7', control: 'comment', action: 'close' });
+    prActionUi(client as never, 'disarm', ctx, 'comment|close');
+    expect(actionState(client).confirm).toBeNull();
+    const button = contractComponent('pages-pr-compose.contract', 'PrdCloseWithComment');
+    expect(button.drawn('text "Close with comment"', {}, { label: 'Confirm close?' })).toBe(true);
   });
   test('a pointer on non-focusable content disarms, while the armed button keeps its confirmation', () => {
     const window = contractComponent('app-window.contract', 'T3Window');
     const sent: unknown[][] = [];
     const scope = { prDetail: { ref: 'pr7', actions: { armedAction: 'merge', armedSerial: 9 } }, prConfirmTarget: 'pull-request-primary',
       frame: () => ({ x: 20, y: 20, width: 80, height: 24 }), prConfirmDisarm: (...args: unknown[]) => sent.push(args), chipShown: false, detailsOpen: false };
-    const state = { outsideDown: false, keybindingField: '', citeFor: '' };
+    const state = { outsideDown: false, keybindingField: '', citeFor: '', citeParked: '' };
     window.call('outsidePressDown', state, scope, [{ buttons: 1, clientX: 40, clientY: 30 }]);
     expect(sent).toEqual([]);
     window.call('outsidePressDown', state, scope, [{ buttons: 1, clientX: 400, clientY: 300 }]);

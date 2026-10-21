@@ -141,7 +141,9 @@ impl DataSource for Markdown {
             } else {
                 fields.get(1).and_then(Value::as_str).unwrap_or("")
             };
+            // A workflow thread's opening carries its script as a fenced block (timeline-workflow-opening.ts).
             if kind != "assistant"
+                && kind != "workflow"
                 && kind != "plan"
                 && kind != "user"
                 && kind != "file"
@@ -198,6 +200,8 @@ include!("markdown_runs.rs");
 /// The resolver's mark for a workspace file link (`[label](src/a.ts:3)`): T3
 /// draws it as a file chip, not a web link.
 const FILE_LINK: &str = "t3-file:";
+/// A link to another thread (`[title](t3-thread://v1/<id>)`): drawn as that thread's chip.
+const THREAD_LINK: &str = "t3-thread://v1/";
 
 /// MarkdownFileLink's chip label: the file's name, then " · L3" for a line.
 fn file_chip(target: &str) -> (String, &'static str) {
@@ -272,6 +276,9 @@ fn chat_run(value: Value, link_start: bool) -> Value {
         }
     } else if href.starts_with("t3-skill:") {
         ("context-skill", "")
+    } else if href.starts_with(THREAD_LINK) {
+        // A thread link is its thread's chip (MarkdownThreadLink); message-chips.ts resolves it by the href.
+        ("context-thread", "")
     } else if href.starts_with("t3-citation://") {
         // An assistant quote: the chip shows the quoted text.
         let quoted = query_param(&href, "text").unwrap_or_default();
@@ -789,6 +796,7 @@ fn flow_tokens(block: &markdown_parse::Block) -> Option<Vec<markdown_parse::Run>
             || run.href.starts_with("t3-context://")
             || run.href.starts_with("t3-citation://")
             || run.href.starts_with("t3-skill:")
+            || run.href.starts_with(THREAD_LINK)
         {
             tokens.push(run.clone());
             continue;
@@ -859,6 +867,7 @@ fn collapse_spaces(tokens: Vec<markdown_parse::Run>) -> Vec<markdown_parse::Run>
             || token.href.starts_with("t3-context://")
             || token.href.starts_with("t3-citation://")
             || token.href.starts_with("t3-skill:")
+            || token.href.starts_with(THREAD_LINK)
         {
             previous_space = false;
             collapsed.push(token);

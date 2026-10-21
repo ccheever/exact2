@@ -3,9 +3,10 @@
 // systemComposerBannerItems, the reconnect grace and the disconnect action;
 // ChatView.logic.ts ENVIRONMENT_RECONNECT_WARNING_GRACE_MS and
 // hasEnvironmentReconnectWarningGraceElapsed; hooks/useEnvironmentDisconnectDelay.ts;
-// chat/ComposerServerUpdateStatus.tsx; chat/ThreadDetailsPanel.tsx's version card;
+// chat/ComposerServerUpdateStatus.tsx's icon; chat/ThreadDetailsPanel.tsx's version card;
 // chat/PanelLayoutControls.tsx threadPanelHasAttention; confirmDialog's
-// requestConfirmDialog for a desktop-managed update).
+// requestConfirmDialog for a desktop-managed update). The server-version notice's
+// title and description follow chat/useSystemComposerBanners.tsx at 74541bab17.
 // Port changes: data sources have no timers (exact2 #124), so the snapshot names
 // the current reconnecting and unavailable episodes (`serverUpdate.reconnecting` /
 // `.unavailable`, an environment id and a serial) and root tasks in app.contract wait
@@ -87,13 +88,13 @@ export const updateState = (client: T3Client): ServerUpdateState =>
 
 /** What the composer's ComposerNotice needs from a system item (composer-controls-view.ts wraps it). */
 export type SystemNotice = { id: string; title: string; variant: string; icon: string; priority: number; description?: string; action?: string; actionLabel?: string; actionTip?: string;
-  action2?: string; action2Label?: string; action2Tip?: string; dismiss?: string; dismissLabel?: string; dismissId?: string; tip?: string; iconTone?: string; sep?: boolean; liveRole?: string };
+  action2?: string; action2Label?: string; action2Tip?: string; dismiss?: string; dismissLabel?: string; dismissId?: string; tip?: string; iconTone?: string };
 
 /**
  * systemComposerBannerItems: "<label> is reconnecting|offline" (after the 2 s grace, never while an
  * update runs; Disconnect server after 20 s for a non-primary environment), then the server-version
- * notice: idle "Server update available", running "Updating <server> · Downloading…", failed
- * "Could not update <server> · <message>".
+ * notice: idle "Server update available", running "Updating <server>" with its stage, failed
+ * "Could not update <server>" with the failure.
  */
 export function systemComposerNotices(client: T3Client, options: { automaticEnvironment?: boolean } = {}): SystemNotice[] {
   const items: SystemNotice[] = [];
@@ -117,10 +118,11 @@ export function systemComposerNotices(client: T3Client, options: { automaticEnvi
   const serverLabel = serverUpdateLabel(client), failed = state.status === 'failed', target = updateTargetFromConfig(client.config, '', client.environmentId, serverLabel);
   const notice: SystemNotice = { id: `server-version:${client.environmentId}`, variant: failed ? 'error' : 'default', priority: running ? 1 : 2,
     icon: running ? 'spinner' : failed ? 'circle-alert' : 'download', iconTone: failed ? 'error' : '', title: 'Server update available' };
-  if (state.status !== 'idle') {
-    const title = `${failed ? 'Could not update' : 'Updating'} ${serverLabel}`, detail = state.status === 'failed' ? state.message : serverUpdateStageLabel(state.stage);
-    Object.assign(notice, { title, description: detail, sep: true, tip: `${title}: ${detail}`, liveRole: failed ? 'alert' : 'status' });
-  } else if (version.mismatch) {
+  // A running or failed update is a plain title and description; the notice offers its details only when the
+  // description is clipped (NoticeDescription, composer-presentation.ts).
+  if (state.status !== 'idle') Object.assign(notice, { title: `${failed ? 'Could not update' : 'Updating'} ${serverLabel}`,
+    description: state.status === 'failed' ? state.message : serverUpdateStageLabel(state.stage) });
+  else if (version.mismatch) {
     notice.tip = `${serverLabel} ${version.mismatch.serverVersion} → ${version.mismatch.clientVersion}`;
     if (target.selfUpdate !== null && !(target.selfUpdate === 'desktop-managed' && target.desktopAppUpdate)) notice.description = serverUpdateGuidance(target.selfUpdate);
   }

@@ -31,7 +31,7 @@ export async function refreshNewThreadContext(client: T3Client, native: Native):
   const key = `${client.environmentId}:${client.generation}:${root}`;
   if (files.get(client)?.key === key) return;
   let file: Obj | null = null;
-  try { const read = await client.restAccess(native).request('projects.readFile', { cwd: root, relativePath: 't3.json' }); if (read.truncated !== true) file = parseProjectFile(str(read.contents)); }
+  try { const read = await client.restAccess(native).request('projects.readFile', { cwd: root, relativePath: 't3.json', allowMissing: true }); if (read.exists !== false && read.truncated !== true) file = parseProjectFile(str(read.contents)); }
   catch (error) { if (letGo(error)) throw error; }
   files.set(client, { key, file });
 }

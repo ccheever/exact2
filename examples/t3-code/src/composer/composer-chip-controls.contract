@@ -1,6 +1,7 @@
 use ComposerRichView from "./composer-rich.contract"
 use TimelineIcon from "../timeline/timeline-icons-kit.contract"
 use FileTypeIcon from "../shared/timeline-files.contract"
+use SidebarProjectGlyph from "../sidebar/sidebar-icons-kit.contract"
 
 shape ComposerChipRequest
   generation: number
@@ -43,6 +44,8 @@ component ComposerChipControls
                   FileTypeIcon(token=chip.face.fileToken, size=(font * 0.85 * 16 / rem))
                 else if chip.face.imageId != ""
                   box width=(font * 0.85) height=(font * 0.85) hatch="t3-snapshot-tile" data-snapshot-id=`thumb:${chip.face.imageId}`
+                else if chip.face.glyph.kind != ""
+                  SidebarProjectGlyph(g=chip.face.glyph, size=(font * 0.85 * 16 / rem), dim=false)
                 else
                   TimelineIcon(name=chip.face.icon, size=(font * 0.85 * 16 / rem), color="light-dark(#71717a, #a1a1aa)")
                 text chip.face.label min-width=0 line-clamp=2

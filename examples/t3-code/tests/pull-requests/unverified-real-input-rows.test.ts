@@ -37,7 +37,7 @@ describe('No age on the Timeline has a tip, as PullRequestTimelineTab', () => {
   });
   test('the Summary tab keeps its full-date tip (CommentMeta)', () => {
     const view = presentSummary({ detail, activity, activityPending: false, activityError: '', now: NOW, listEntry: null });
-    const card = view.newest.find(entry => entry.id === 'c1')!;
+    const card = view.newest.find(entry => entry.card.id === 'c1')!.card;
     expect(card.ageTip).toContain('Open comment on host');
     expect(card.ageTip.length).toBeGreaterThan(' · Open comment on host'.length);
   });

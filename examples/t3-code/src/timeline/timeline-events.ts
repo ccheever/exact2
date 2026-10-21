@@ -1,6 +1,7 @@
 // Lifecycle rows adapted from T3 Code (MIT, see LICENSE-T3):
 // apps/web/src/components/chat/V2LifecycleRow.tsx (interrupts, handoffs,
-// forks and subagents; HandoffRow and HandoffEndpoint at 9c161462c9),
+// forks and subagents; HandoffRow and HandoffEndpoint at 9c161462c9), TimelineV2EventRow.tsx's
+// V2SubagentGroup and its .logic.ts subagentGroupTiming at 74541bab17, client-runtime state/subagentDisplay.ts,
 // TimelineSystemDivider.tsx, packages/client-runtime/src/handoff.ts
 // (resolveHandoffEndpoints) and ProviderInstanceIcon.tsx (providerTextColor).
 import { subagentCard } from '../sidebar/subagent-card';
@@ -112,6 +113,38 @@ export function subagent(item: Obj, context: SubagentContext = NO_CONTEXT): Acti
     driverIcon: resolveProviderInstanceAcpRegistryIconUrl({ driverKind: driver, iconUrl: str(provider?.iconUrl) || undefined }) ?? '' };
 }
 
+const workingStatus = (status: string) => status === 'pending' || status === 'running' || status === 'waiting';
+/** subagentGroupSummary (client-runtime state/subagentDisplay.ts): whether any member works, or failed. */
+export function subagentGroupSummary(members: ReadonlyArray<{ status: string }>): { active: boolean; failed: boolean } {
+  return { active: members.some(member => workingStatus(member.status)), failed: members.some(member => member.status === 'failed') };
+}
+/** summarizeSubagentStatuses: "2 working · 1 done", in that order of kinds. */
+export function summarizeSubagentStatuses(statuses: ReadonlyArray<string>): string {
+  const counts = { working: 0, done: 0, failed: 0, stopped: 0, idle: 0 };
+  for (const status of statuses) {
+    if (workingStatus(status)) counts.working += 1;
+    else if (status === 'completed') counts.done += 1;
+    else if (status === 'failed') counts.failed += 1;
+    else if (status === 'idle') counts.idle += 1;
+    else counts.stopped += 1;
+  }
+  return (Object.keys(counts) as Array<keyof typeof counts>).filter(key => counts[key] > 0).map(key => `${counts[key]} ${key}`).join(' · ');
+}
+/** subagentGroupTiming (TimelineV2EventRow.logic.ts): the earliest start to the latest end; no end while any works or one has none. */
+export function subagentGroupTiming(agents: ReadonlyArray<{ status: string; startedAt: unknown; completedAt: unknown }>): { status: string; startedAt: string | null; completedAt: string | null } {
+  let startMs: number | null = null, endMs: number | null = null, endUnknown = false;
+  for (const agent of agents) {
+    const started = typeof agent.startedAt === 'string' ? Date.parse(agent.startedAt) : NaN;
+    if (Number.isFinite(started)) startMs = startMs === null ? started : Math.min(startMs, started);
+    const completed = typeof agent.completedAt === 'string' ? Date.parse(agent.completedAt) : NaN;
+    if (Number.isFinite(completed)) endMs = endMs === null ? completed : Math.max(endMs, completed);
+    else endUnknown = true;
+  }
+  const live = agents.some(agent => workingStatus(agent.status));
+  return { status: live ? 'running' : 'completed', startedAt: startMs === null ? null : new Date(startMs).toISOString(),
+    completedAt: live || endUnknown || endMs === null ? null : new Date(endMs).toISOString() };
+}
+
 /** A lifecycle item as a timeline row (V2LifecycleRow). */
 export function eventRow(item: Obj, group: Obj[], row: Obj, context: SubagentContext = NO_CONTEXT): Partial<Message> & { kind: string } {
   const type = str(item.type);
@@ -134,7 +167,17 @@ export function eventRow(item: Obj, group: Obj[], row: Obj, context: SubagentCon
     }
     case 'subagent': {
       const members = (group.length ? group : [item]).map(member => subagent(member, context));
-      return { kind: members.length > 1 ? 'subagents' : 'subagent', title: members.length > 1 ? `${members.length} subagents` : members[0]!.label,
+      if (members.length === 1) return { kind: 'subagent', title: members[0]!.label, activities: members, runId: str(item.runId) };
+      // V2SubagentGroup: several subagents fold under one row with their avatars, a status summary and the group's time.
+      const records = (group.length ? group : [item]).map(member => {
+        const agent = member.subagentId === undefined ? undefined : context.agents.find(candidate => candidate.id === member.subagentId);
+        return { status: str(agent?.status ?? member.status), startedAt: agent?.startedAt ?? member.startedAt, completedAt: agent?.completedAt ?? member.completedAt };
+      });
+      const summary = subagentGroupSummary(records), timing = subagentGroupTiming(records);
+      const elapsed = timing.status === 'running' ? null : subagentElapsedMs(timing, 0);
+      const startedMs = timing.status === 'running' && timing.startedAt ? Date.parse(timing.startedAt) : NaN;
+      return { kind: 'subagents', title: `${members.length} subagents`, detail: summarizeSubagentStatuses(records.map(record => record.status)),
+        live: summary.active, failed: summary.failed, startedMs: Number.isFinite(startedMs) ? startedMs : 0, elapsed: elapsed === null ? '' : formatElapsedSeconds(elapsed / 1000),
         activities: members, runId: str(item.runId) };
     }
     default: return { kind: 'event', title: str(item.title).trim() || type.replace(/_/g, ' '), detail: '', tone: item.status === 'failed' ? 'danger' : 'neutral', icon: 'wrench' };

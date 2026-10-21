@@ -107,7 +107,8 @@ describe('/feedback in a Codex thread', () => {
     // A reply that never comes because the connection changed ends as an interruption (no banner, no rows).
     const before = notices(client).length;
     await command('send', '', '/feedback fourth');
-    expect(notices(client)[0]).toMatchObject({ title: 'Sending feedback to OpenAI...', priority: 0 });
+    // The earlier failures (errors) lead the stack; the upload in flight is activity behind them.
+    expect(notices(client).find(notice => notice.priority === 0)).toMatchObject({ title: 'Sending feedback to OpenAI...' });
     client.generation += 1; settleStaleReplies(client); // adoptStatus does this when the connection changes
     await settle();
     expect(notices(client)).toHaveLength(before);

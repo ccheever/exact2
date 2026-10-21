@@ -99,9 +99,11 @@ describe('background work (151c241cd2, a5b34b2537)', () => {
   });
   test('a subagent with its own thread is an inline link in the roster', () => {
     const roster = presentBackgroundWork([{ kind: 'command', description: 'npm test' }, { kind: 'subagent', description: 'Subagent: Review', childThreadId: 'child-1' }])!;
-    expect(roster.segments).toEqual([{ key: '0:Review', label: 'Review', threadId: 'child-1', last: false }, { key: '1:npm test', label: 'npm test', threadId: '', last: true }]);
-    expect(presentBackgroundWork([{ kind: 'subagent', description: 'Review', childThreadId: 'c' }])).toMatchObject({ title: 'Waiting on subagent Review', description: 'Review',
-      segments: [{ label: 'Review', threadId: 'c', last: true }] });
+    expect(roster.segments).toEqual([{ key: '0:Review', label: 'Review', threadId: 'child-1', aria: 'Open subagent Review', last: false },
+      { key: '1:npm test', label: 'npm test', threadId: '', aria: 'Open subagent npm test', last: true }]);
+    // The title already names a lone subagent, so its link reads "Show" (#16022).
+    expect(presentBackgroundWork([{ kind: 'subagent', description: 'Review', childThreadId: 'c' }])).toMatchObject({ title: 'Waiting on subagent Review', description: 'Show',
+      segments: [{ label: 'Show', aria: 'Show subagent Review', threadId: 'c', last: true }] });
   });
   test('only commands left (a dev server) run rather than wait, and do not pulse', () => {
     expect(presentBackgroundWork([{ kind: 'command', description: 'Start the dev server' }])).toEqual({ title: 'Running: Start the dev server', description: '', waiting: false, segments: [] });

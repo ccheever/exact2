@@ -2,7 +2,7 @@
 import { codeAt, composerMarkdown, type ComposerBlock, type ComposerBlockOrigin } from './composer-markdown';
 import type { ComposerRange } from './composer-markdown';
 import type { ComposerEdit } from './composer-markdown-edit';
-import { assistantCitationLabel, collectAssistantCitations } from '../timeline/diff-citations';
+import { assistantCitationLabel, parseAssistantCitationHref } from '../timeline/diff-citations';
 
 type ChipSource = ComposerRange & { source: string; label: string };
 export type ComposerChip = ChipSource & (
@@ -16,6 +16,16 @@ const basename = (path: string) => path.slice(Math.max(path.lastIndexOf('/'), pa
 const unescape = (text: string) => text.replace(/\\(.)/g, '$1');
 const decode = (text: string) => { try { return decodeURIComponent(text); } catch { return text; } };
 const overlaps = (a: ComposerRange, b: ComposerRange) => a.start < b.end && a.end > b.start;
+/** A citation is known by its `t3-citation:` destination, whatever its label reads. The
+ *  reference reads only `[Assistant quote]` (collectAssistantCitations): its chip is an atom
+ *  whose label cannot change, where here the label is source text. The label holds no `[`, so
+ *  an unclosed one before a citation stays text. Group 1 is the destination. */
+export const COMPOSER_CITATION = /\[[^[\]\n]{0,512}\]\((t3-citation:\/\/v1\/[^\s)]+)\)/g;
+/** COMPOSER_CITATION as the whole of `link`; its destination, or null. */
+export function composerCitationHref(link: string): string | null {
+  const match = new RegExp(`^${COMPOSER_CITATION.source}$`).exec(link);
+  return match?.[1] ?? null;
+}
 
 export function composerChips(value: string): ComposerChip[] {
   const links: ComposerChip[] = [], tokens: ComposerChip[] = [];
@@ -24,9 +34,10 @@ export function composerChips(value: string): ComposerChip[] {
     if (parts.length !== 2 || !/^[a-z][a-z0-9-]{0,39}$/.test(kind) || !/^[a-z0-9_-]{1,128}$/i.test(id)) continue;
     links.push({ kind: 'context', start: match.index, end: match.index + match[0].length, source: match[0], label: match[2] ?? '', contextKind: kind, contextId: id, image: match[1] === '!' });
   }
-  for (const match of collectAssistantCitations(value)) {
-    const { citation, source, start, end } = match;
-    links.push({ kind: 'citation', start, end, source, href: source.slice('[Assistant quote]('.length, -1),
+  for (const match of value.matchAll(COMPOSER_CITATION)) {
+    const href = match[1] ?? '', citation = parseAssistantCitationHref(href);
+    if (!citation) continue;
+    links.push({ kind: 'citation', start: match.index, end: match.index + match[0].length, source: match[0], href,
       quote: citation.text, comment: citation.comment ?? null, label: assistantCitationLabel(citation) });
   }
   for (const match of value.matchAll(/(^|\s)\[((?:\\.|[^\]\\]){0,512})\]\(([^)\s]+)\)(?=\s)/g)) {
@@ -80,6 +91,69 @@ export function reconcileComposerChips(previous: string, value: string, current:
   return [...carried, ...composerChips(value).filter(chip => !carried.some(old => overlaps(chip, old)))].sort((a, b) => a.start - b.start);
 }
 
+
+/** The selection with each end that falls inside a reference moved out of it, as the
+ *  reference's atom chips never hold the caret: a caret after its reference, a range's
+ *  ends outward over the references they cut. */
+export function outsideComposerChips(selection: ComposerRange, chips: readonly ComposerChip[]): ComposerRange {
+  const within = (at: number) => chips.find(chip => at > chip.start && at < chip.end);
+  if (selection.start === selection.end) {
+    const caret = within(selection.start)?.end ?? selection.start;
+    return { start: caret, end: caret };
+  }
+  return { start: within(selection.start)?.start ?? selection.start, end: within(selection.end)?.end ?? selection.end };
+}
+
+/** Backspace or Delete at a reference removes all of its source in one edit, as at the
+ *  reference's atom chip; null when the key deletes no reference. */
+export function composerChipDeletion(selection: ComposerRange, chips: readonly ComposerChip[], backward: boolean): ComposerEdit | null {
+  let range = outsideComposerChips(selection, chips);
+  if (selection.start === selection.end) {
+    const at = selection.start, chip = chips.find(chip => backward ? at > chip.start && at <= chip.end : at >= chip.start && at < chip.end);
+    if (!chip) return null;
+    range = chip;
+  } else if (range.start === selection.start && range.end === selection.end) return null;
+  return { start: range.start, end: range.end, text: '', selection: { start: range.start, end: range.start } };
+}
+
+/** Option-Backspace or Option-Delete at a reference, or with only spaces between it and the
+ *  caret, removes the reference and those spaces, as word deletion takes an atom chip whole. */
+export function composerChipWordDeletion(value: string, selection: ComposerRange, chips: readonly ComposerChip[], backward: boolean): ComposerEdit | null {
+  if (selection.start !== selection.end) return composerChipDeletion(selection, chips, backward);
+  const at = selection.start, gap = (from: number, to: number) => /^[^\S\n]*$/.test(value.slice(from, to));
+  const chip = chips.find(chip => at > chip.start && at < chip.end)
+    ?? (backward ? chips.filter(chip => chip.end <= at && gap(chip.end, at)).at(-1) : chips.find(chip => chip.start >= at && gap(at, chip.start)));
+  if (!chip) return null;
+  const start = backward ? chip.start : Math.min(at, chip.start), end = backward ? Math.max(at, chip.end) : chip.end;
+  return { start, end, text: '', selection: { start, end: start } };
+}
+
+const graphemes = typeof Intl !== 'undefined' && 'Segmenter' in Intl ? new Intl.Segmenter(undefined, { granularity: 'grapheme' }) : null;
+/** What Backspace or Delete removes with no reference at the caret: the selection, or the one
+ *  character beside the caret (a grapheme where the runtime segments them, else a code point). */
+export function composerCharacterDeletion(value: string, selection: ComposerRange, backward: boolean): ComposerEdit | null {
+  let { start, end } = selection;
+  if (start === end) {
+    const window = backward ? value.slice(Math.max(0, start - 64), start) : value.slice(start, start + 64);
+    const parts = graphemes ? [...graphemes.segment(window)].map(part => part.segment) : Array.from(window);
+    const step = (backward ? parts.at(-1) : parts[0])?.length ?? 0;
+    if (!step) return null;
+    if (backward) start -= step; else end += step;
+  }
+  return { start, end, text: '', selection: { start, end: start } };
+}
+
+/** What Option-Backspace or Option-Delete removes with no reference beside the caret: the
+ *  selection, or the word and the spaces beside the caret. */
+export function composerWordDeletion(value: string, selection: ComposerRange, backward: boolean): ComposerEdit | null {
+  let { start, end } = selection;
+  if (start === end) {
+    const word = backward ? /[\p{L}\p{N}_]*[^\p{L}\p{N}_\n]*$/u.exec(value.slice(0, start))?.[0] ?? '' : /^[^\p{L}\p{N}_\n]*[\p{L}\p{N}_]*/u.exec(value.slice(end))?.[0] ?? '';
+    if (!word) return composerCharacterDeletion(value, selection, backward);
+    if (backward) start -= word.length; else end += word.length;
+  }
+  return { start, end, text: '', selection: { start, end: start } };
+}
 
 export function composerTrigger(value: string, cursor: number, chips = composerChips(value), styling = true, blockOrigins?: readonly ComposerBlockOrigin[]): ComposerTrigger | null {
   if (!Number.isInteger(cursor) || cursor < 0 || cursor > value.length || chips.some(chip => cursor > chip.start && cursor < chip.end)) return null;

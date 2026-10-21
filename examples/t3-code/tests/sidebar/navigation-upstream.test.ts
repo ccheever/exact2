@@ -44,8 +44,25 @@ test('a branch PR number finds the thread even without a current link', async ()
   const { client } = await opened();
   const thread = { branchPullRequest: { number: 42, repository: 'org/repo', url: 'https://github.com/org/repo/pull/42' }, pullRequests: [] };
   expect(pullRequestSearchTerms(thread)).toContain('org/repo#42');
-  expect(searchPullRequest(client, thread, '#42')).toMatchObject({ number: 42 });
+  // A stored reference's number shows before the pull request's details load.
+  expect(searchPullRequest(client, thread, '#42')).toEqual({ text: '42', icon: 'git-pull-request-arrow', state: '', label: 'PR #42, status pending' });
   expect(searchPullRequest(client, thread, '#99')).toBeNull();
+});
+
+test('a search result shows the sidebar row\'s pull request badge once its terms match', async () => {
+  const { client } = await opened();
+  const link = (number: number, state: string, extra: Record<string, unknown> = {}) => ({ number, repository: 'org/repo', host: 'github.com', url: `https://github.com/org/repo/pull/${number}`,
+    linkedAt: `2026-10-0${number % 9 + 1}T00:00:00.000Z`, snapshot: { title: `Change ${number}`, state, isDraft: false, headBranch: `b${number}`, baseBranch: 'main' }, ...extra });
+  const one = { id: 't-one', projectId: 'p1', pullRequests: [link(7, 'merged')] };
+  // The query matches the link's title; the badge is the link's number in its state, as on the row.
+  expect(searchPullRequest(client, one, 'change 7')).toEqual({ text: '7', icon: 'git-merge', state: 'merged', label: 'PR #7 - Merged: Change 7' });
+  // Several unrelated links fold into "+N" whichever one matched, labelled by the current one.
+  const many = { id: 't-many', projectId: 'p1', pullRequests: [link(7, 'merged'), link(8, 'open')] };
+  expect(searchPullRequest(client, many, '#7')).toEqual({ text: '+2', icon: 'git-pull-request-arrow', state: 'open', label: 'PR #8 - Open: Change 8, and 1 more linked; overall open' });
+  // One chain is a stack of N.
+  const stack = { id: 't-stack', projectId: 'p1', pullRequests: [link(7, 'open'), link(8, 'open', { snapshot: { title: 'Change 8', state: 'open', isDraft: false, headBranch: 'b8', baseBranch: 'b7' } })] };
+  expect(searchPullRequest(client, stack, '#8')).toEqual({ text: '2', icon: 'layers', state: 'open', label: 'Stack of 2 pull requests, open' });
+  expect(searchPullRequest(client, stack, '#99')).toBeNull();
 });
 
 test('passive VCS reads retain no remote poller lease; active reads do', () => {

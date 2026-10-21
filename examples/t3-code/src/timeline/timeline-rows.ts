@@ -5,7 +5,7 @@
 import { arr, obj, str, type Obj } from '../client/domain';
 import {
   displayFailed, formatDuration, groupAction, isToolLike, liveEntryLabel, projectedWorkEntry,
-  singleToolCallLabel, successKeepsLive, last, findLast, findLastIndex, summarizeToolGroup, summaryIcon, summaryKind, toolPresentation, visibleInGroup, type WorkEntry,
+  singleToolCallLabel, successKeepsLive, contextCompactionTokenCounts, last, findLast, findLastIndex, summarizeToolGroup, summaryIcon, summaryKind, toolPresentation, visibleInGroup, type WorkEntry,
 } from './timeline-worklog';
 import { inlineReference, type InlineReference } from './inline-documents';
 import { compactDynamicToolOutput } from './inline-tool-output';
@@ -34,7 +34,7 @@ export type Row =
   | { kind: 'group'; id: string; createdAt: string; runId: string; groupId: string; count: number; expanded: boolean; summary: string; icon: string; toolIcon: Obj | null; failed: boolean; continues?: boolean }
   | { kind: 'fold'; id: string; createdAt: string; runId: string; label: string; expanded: boolean }
   | { kind: 'attempt'; id: string; createdAt: string; runId: string; attemptId: string; expanded: boolean }
-  | { kind: 'compaction'; id: string; createdAt: string; label: string; active: boolean }
+  | { kind: 'compaction'; id: string; createdAt: string; label: string; tokenCounts: { before: string; after: string } | null; active: boolean }
   | { kind: 'message'; id: string; createdAt: string; entry: Extract<Entry, { kind: 'message' }>; meta: boolean; inProgress: boolean; revert: number }
   | { kind: 'meta'; id: string; createdAt: string; entry: Extract<Entry, { kind: 'message' }> }
   | { kind: 'event'; id: string; createdAt: string; entry: Extract<Entry, { kind: 'event' }>; subagents: Obj[]; summary: boolean }
@@ -52,6 +52,10 @@ export interface RowInput {
   worktreeSetup?: Obj | null;
   expandedRuns: ReadonlySet<string>; expandedAttempts: ReadonlySet<string>; expandedGroups: ReadonlySet<string>;
   root: string; rollback: boolean;
+  /** The thread start's ready checkpoint is loaded (a paged window cannot tell its first run is the thread's first). */
+  threadStartCheckpointReady?: boolean;
+  /** The run ordinals the provider conversation can rewind to (ChatView availableRevertTurnCounts); undefined: any. */
+  availableRevertTurnCounts?: ReadonlySet<number>;
 }
 
 const STANDALONE = new Set(['fork', 'handoff', 'run_interrupt_request', 'run_interrupt_result', 'subagent', 'secret_request']);
@@ -115,8 +119,8 @@ const failedItem = (entry: Entry): Obj | null => {
 const messageEnd = (entry: Entry) => entry.kind === 'message' ? str(entry.item.updatedAt, entry.createdAt) : entry.createdAt;
 const latestIso = (a: string | null, b: string | null) => !a ? b : !b ? a : Date.parse(b) > Date.parse(a) ? b : a;
 
-/** deriveMessagesTimelineRows, without T3's tool catalogue, worktree setup or created-thread summaries. */
-export function deriveRows(input: RowInput): Row[] {
+/** The turn folds over `input`'s rows (deriveTimelineTurnFolds) and what deriveRows reads beside them. */
+function foldState(input: RowInput) {
   const entries = withoutDelegationRows(settleReasoning(timelineEntries(input)));
   const latestRun = input.latestRun;
   const unsettled = input.runningRunId || (latestRun && !(latestRun.completedAt && !['running', 'starting', 'waiting'].includes(str(latestRun.status))) ? str(latestRun.id) : '');
@@ -131,8 +135,33 @@ export function deriveRows(input: RowInput): Row[] {
     terminal.set(entry.item.runId ? `turn:${str(entry.item.runId)}` : `unkeyed:${responseIndex}`, entry.id);
   }
   const terminalIds = new Set(terminal.values());
-  // Superseded attempts the steer cut off: one whose reply had already finished stays like any turn output.
   const liveSubagents = liveSubagentCardIds(entries), completeReplies = completeSupersededReplyIds(entries);
+  // Runs still forming the visible response.
+  const boundary = findLastIndex(entries, startsResponse);
+  const activeRuns = new Set<string>();
+  if (unsettled) {
+    activeRuns.add(unsettled);
+    if (input.isWorking) for (const entry of entries.slice(boundary + 1)) { const run = runOf(entry); if (run) activeRuns.add(run); }
+  }
+  const runlessWorkActive = input.isWorking && input.runlessWorkActive === true;
+  const folds = turnFolds(entries, terminalIds, latestRun, new Set([...activeRuns, ...failedRuns]), runlessWorkActive, new Set([...liveSubagents, ...completeReplies]));
+  return { entries, latestRun, unsettled, failedRuns, terminalIds, liveSubagents, completeReplies, boundary, activeRuns, runlessWorkActive, folds };
+}
+
+/**
+ * timelineTurnFoldRunIdsByEntryId: the fold each hidden entry is under, by the fold's run key. An imported or
+ * runless turn folds under a key of its own (`runless:<prompt>`), not its entries' run id.
+ */
+export function turnFoldRunIds(input: RowInput): Map<string, string> {
+  const byEntry = new Map<string, string>();
+  for (const fold of foldState(input).folds.values()) for (const id of fold.hidden) byEntry.set(id, fold.runId);
+  return byEntry;
+}
+
+/** deriveMessagesTimelineRows, without T3's tool catalogue, worktree setup or created-thread summaries. */
+export function deriveRows(input: RowInput): Row[] {
+  const { entries, latestRun, unsettled, failedRuns, terminalIds, liveSubagents, completeReplies, boundary, activeRuns, runlessWorkActive, folds } = foldState(input);
+  // Superseded attempts the steer cut off: one whose reply had already finished stays like any turn output.
   const completeAttempts = new Set(entries.flatMap(entry => entry.attempt && completeReplies.has(entry.id) ? [entry.attempt.id] : []));
   const attemptGroups = new Map<string, Entry[]>();
   for (const entry of entries) {
@@ -145,15 +174,6 @@ export function deriveRows(input: RowInput): Row[] {
     const first = group[0]!;
     attemptFolds.set(first.id, { runId: first.attempt!.runId, attemptId: first.attempt!.id, createdAt: first.createdAt, hidden: new Set(group.map(entry => entry.id)) });
   }
-  // Runs still forming the visible response.
-  const boundary = findLastIndex(entries, startsResponse);
-  const activeRuns = new Set<string>();
-  if (unsettled) {
-    activeRuns.add(unsettled);
-    if (input.isWorking) for (const entry of entries.slice(boundary + 1)) { const run = runOf(entry); if (run) activeRuns.add(run); }
-  }
-  const runlessWorkActive = input.isWorking && input.runlessWorkActive === true;
-  const folds = turnFolds(entries, terminalIds, latestRun, new Set([...activeRuns, ...failedRuns]), runlessWorkActive, new Set([...liveSubagents, ...completeReplies]));
   const collapsed = new Set<string>();
   for (const fold of folds.values()) if (!input.expandedRuns.has(fold.runId)) fold.hidden.forEach(id => collapsed.add(id));
   const collapsedAttempts = new Set<string>();
@@ -169,7 +189,7 @@ export function deriveRows(input: RowInput): Row[] {
     for (let index = entries.length - 1; index >= headerIndex; index--) {
       const entry = entries[index]!;
       if (entry.kind !== 'work' || entry.entry.tone === 'error' || entry.entry.sourceActivityKind === 'runtime.error'
-        || ['system_notice', 'notification'].includes(entry.entry.itemType) || !inActive(entry.entry.runId)
+        || ['system_notice', 'notification'].includes(entry.entry.itemType) || entry.entry.questionAnswer !== undefined || !inActive(entry.entry.runId)
         || entry.entry.sourceActivityKind === 'context-compaction' || collapsed.has(entry.id) || collapsedAttempts.has(entry.id)
         || folds.has(entry.id) || attemptFolds.has(entry.id)) break;
       const attempt = entry.attempt?.id ?? null;
@@ -198,7 +218,8 @@ export function deriveRows(input: RowInput): Row[] {
     rows.push(liveRow); activity ||= liveRow.active;
     if (liveRow.expanded) rows.push({ kind: 'details', id: `${liveRow.groupId}:details`, createdAt: liveRow.createdAt, entries: liveRow.entries });
   };
-  const revertCounts = input.rollback ? revertTurnCounts(entries, input.checkpoints) : new Map<string, number>();
+  const revertCounts = input.rollback ? revertTurnCounts(entries, input.checkpoints, { threadStartCheckpointReady: input.threadStartCheckpointReady === true,
+    availableRevertTurnCounts: input.availableRevertTurnCounts, unsettledRunId: unsettled }) : new Map<string, number>();
 
   for (let index = 0; index < entries.length; index++) {
     const entry = entries[index]!;
@@ -214,13 +235,13 @@ export function deriveRows(input: RowInput): Row[] {
     if (collapsedAttempts.has(entry.id) || liveIds.has(entry.id)) continue;
     if (entry.kind === 'work' && entry.entry.sourceActivityKind === 'context-compaction') {
       const active = entryActive(entry.entry); compacting ||= active;
-      rows.push({ kind: 'compaction', id: entry.id, createdAt: entry.createdAt, label: entry.entry.label, active });
+      rows.push({ kind: 'compaction', id: entry.id, createdAt: entry.createdAt, label: entry.entry.label, tokenCounts: contextCompactionTokenCounts(entry.entry.item), active });
       continue;
     }
     if (entry.kind === 'work') {
       const work = entry.entry;
       if (work.runId && failedRuns.has(work.runId) || work.itemType === 'error' && work.status === 'failed' || work.tone === 'error'
-        || work.sourceActivityKind === 'runtime.error' || work.itemType === 'system_notice' || work.itemType === 'notification') {
+        || work.sourceActivityKind === 'runtime.error' || work.itemType === 'system_notice' || work.itemType === 'notification' || work.questionAnswer !== undefined) {
         // WorkGroupSection draws only what a collapsed group shows: a failed run's unfinished tool call has no row.
         if (visibleInGroup(work)) rows.push({ kind: 'entry', id: entry.id, createdAt: entry.createdAt, entries: [work] });
         continue;
@@ -231,7 +252,7 @@ export function deriveRows(input: RowInput): Row[] {
         const next = entries[cursor]!;
         if (next.kind !== 'work' || next.entry.sourceActivityKind === 'context-compaction' || next.entry.tone === 'error'
           || next.entry.sourceActivityKind === 'runtime.error' || ['system_notice', 'notification'].includes(next.entry.itemType)
-          || liveIds.has(next.id) || collapsed.has(next.id) || collapsedAttempts.has(next.id) || folds.has(next.id) || attemptFolds.has(next.id)
+          || next.entry.questionAnswer !== undefined || liveIds.has(next.id) || collapsed.has(next.id) || collapsedAttempts.has(next.id) || folds.has(next.id) || attemptFolds.has(next.id)
           || next.entry.runId !== work.runId || next.attempt?.id !== entry.attempt?.id) break;
         grouped.push(next.entry); cursor++;
       }
@@ -444,7 +465,8 @@ function turnFolds(entries: Entry[], terminalIds: Set<string>, latestRun: Obj | 
       const trailing = entry.kind === 'work' && entry.entry.status !== 'inProgress' && !displayFailed(entry.entry);
       if (!compaction && index > terminalIndex && !trailing) return;
       // Linked resources, still-working children and finished replies a steer superseded outlive the fold.
-      if (persistentResource(entry) || kept.has(entry.id) || entry.kind === 'work' && entry.entry.itemType === 'notification') return;
+      // An answered question stays visible after the surrounding work settles.
+      if (persistentResource(entry) || kept.has(entry.id) || entry.kind === 'work' && (entry.entry.itemType === 'notification' || entry.entry.questionAnswer !== undefined)) return;
       hidden.add(entry.id);
     });
     if (!hidden.size || !group.entries.some(entry => hidden.has(entry.id) && !(entry.kind === 'work' && entry.entry.sourceActivityKind === 'context-compaction'))) continue;
@@ -501,17 +523,65 @@ function attachTrailingTools(rows: Row[]): Row[] {
   return result;
 }
 
-/** session-logic deriveRevertTurnCountByUserMessageId: a started turn with a ready checkpoint can be edited. */
-export function revertTurnCounts(entries: Entry[], checkpoints: Obj[]): Map<string, number> {
-  const ready = new Map<string, Obj>();
-  for (const checkpoint of checkpoints) if (checkpoint.status === 'ready' && checkpoint.runId) ready.set(str(checkpoint.runId), checkpoint);
-  const counts = new Map<string, number>();
+/**
+ * session-logic deriveRevertTurnCountByUserMessageId (T3 Code 74541bab17): a started turn rewinds to the checkpoint of the
+ * run before it, the thread start's for the first. Run ordinals keep increasing after a rewind, so only the visible local
+ * runs (a message's, a notification's) define predecessors; inherited history belongs to the source thread.
+ */
+export function revertTurnCounts(entries: Entry[], checkpoints: Obj[], options: { threadStartCheckpointReady?: boolean;
+  availableRevertTurnCounts?: ReadonlySet<number> | undefined; unsettledRunId?: string } = {}): Map<string, number> {
+  const ready = new Map<string, number>();
+  for (const checkpoint of checkpoints) if (checkpoint.status === 'ready' && checkpoint.runId && typeof checkpoint.appRunOrdinal === 'number') ready.set(str(checkpoint.runId), checkpoint.appRunOrdinal);
+  const targets = new Map<string, number | undefined>(), counts = new Map<string, number>();
+  let previous: string | null = null;
   for (const entry of entries) {
-    if (entry.kind !== 'message' || entry.role !== 'user' || !['turn_start', 'queued_turn'].includes(str(entry.item.inputIntent)) || !entry.item.runId) continue;
-    const checkpoint = ready.get(str(entry.item.runId));
-    if (checkpoint && typeof checkpoint.appRunOrdinal === 'number') counts.set(str(entry.item.messageId), Math.max(0, checkpoint.appRunOrdinal - 1));
+    if (entry.kind !== 'message' && entry.kind !== 'work') continue;
+    if (entry.row.visibility === 'inherited') continue;
+    const runId = entry.kind === 'message' ? str(entry.item.runId) : entry.entry.itemType === 'notification' ? entry.entry.runId : '';
+    if (!runId) continue;
+    if (!targets.has(runId)) {
+      targets.set(runId, previous === null ? options.threadStartCheckpointReady ? 0 : undefined : ready.get(previous));
+      previous = runId;
+    }
+    if (entry.kind !== 'message' || entry.role !== 'user' || (options.unsettledRunId && runId === options.unsettledRunId)) continue;
+    if (!['turn_start', 'queued_turn'].includes(str(entry.item.inputIntent))) continue;
+    const target = targets.get(runId);
+    if (target !== undefined && (options.availableRevertTurnCounts === undefined || options.availableRevertTurnCounts.has(target))) counts.set(str(entry.item.messageId), target);
   }
   return counts;
+}
+
+/** findRevertCheckpoint: the ready checkpoint a rewind to `turnCount` restores (the thread start's for 0). */
+export function findRevertCheckpoint(checkpoints: Obj[], turnCount: number): Obj | undefined {
+  return [...checkpoints].reverse().find(checkpoint => checkpoint.status === 'ready' && (turnCount === 0
+    ? checkpoint.ordinalWithinScope === 0 && checkpoint.appRunOrdinal == null : checkpoint.appRunOrdinal === turnCount));
+}
+
+/**
+ * ChatView availableRevertTurnCounts: the provider conversation can rewind to the thread start and to each run whose
+ * latest provider turn ran on the active provider thread, when that thread has a session on the thread's provider.
+ * A ready file checkpoint alone cannot restore the conversation.
+ */
+export function availableRevertTurnCounts(projection: Obj): Set<number> {
+  const available = new Set<number>(), thread = obj(projection.thread);
+  const providerThread = arr(projection.providerThreads).find(candidate => candidate.id === thread.activeProviderThreadId);
+  if (!providerThread?.providerSessionId || providerThread.providerInstanceId !== obj(thread.modelSelection).instanceId) return available;
+  available.add(0);
+  const attempts = new Map(arr(projection.attempts).map(attempt => [str(attempt.id), attempt]));
+  const turns = new Map<string, Obj>(), latestByAttempt = new Map<string, Obj>();
+  for (const turn of arr(projection.providerTurns)) {
+    turns.set(str(turn.id), turn);
+    if (turn.runAttemptId == null) continue;
+    const latest = latestByAttempt.get(str(turn.runAttemptId));
+    if (!latest || Number(turn.ordinal) > Number(latest.ordinal)) latestByAttempt.set(str(turn.runAttemptId), turn);
+  }
+  for (const run of arr(projection.runs)) {
+    if (run.activeAttemptId == null) continue;
+    const attempt = attempts.get(str(run.activeAttemptId));
+    const turn = latestByAttempt.get(str(run.activeAttemptId)) ?? (attempt?.providerTurnId == null ? undefined : turns.get(str(attempt.providerTurnId)));
+    if (turn?.providerThreadId === providerThread.id && typeof run.ordinal === 'number') available.add(run.ordinal);
+  }
+  return available;
 }
 
 export function runList(projection: Obj): Obj[] { return arr(projection.runs); }
