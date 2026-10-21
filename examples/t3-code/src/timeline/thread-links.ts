@@ -61,7 +61,7 @@ export async function openThreadLink(client: T3Client, native: Native, id: strin
   if (client.shell.threads.some(thread => thread.id === id)) return client.openSelected(native, id);
   const snapshot = threadSnapshot(await client.restAccess(native).http(`/api/orchestration/threads/${encodeURIComponent(id)}/bounded`));
   client.projectId = str(obj(snapshot.projection.thread).projectId, client.projectId);
-  client.threadId = id; client.absentThreadId = ''; client.thread = snapshot; client.diffOpen = false; client.answers = {};
+  client.threadId = id; client.absentThreadId = ''; client.thread = snapshot; client.diffOpen = false;
   const diffHeld = holdThreadDiff(client);
   await client.openThread(native, id, true);
   client.ensureSelection();

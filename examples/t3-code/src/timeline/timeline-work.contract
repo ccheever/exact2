@@ -515,7 +515,7 @@ component SystemDivider
           text `· ${detail}` min-width=0 max-width="20rem" line-clamp=1 opacity=0.7 font-size="0.6875rem" line-height="0.9375rem" color=(danger ? "light-dark(#fb2c36, #fb414a)" : "light-dark(#71717b, #818181)")
       box flex=1 height=1 background-color="light-dark(#e4e4e7b3, #ffffff0b)"
 
-// HandoffRow (V2LifecycleRow.tsx at 9c161462c9): the divider's pill with the label and, with no separator and no
+// HandoffRow (V2LifecycleRow.tsx at 74541bab17): the divider's pill with the label and, with no separator and no
 // width cap, the endpoints: each provider's icon and model in the provider's colour, the sources (comma-separated)
 // before an arrow, then the target. The pill wraps when they do not fit. Each endpoint is a Tab stop whose
 // tooltip names the provider and the model (`result`).
@@ -553,8 +553,14 @@ component HandoffEndpoint
     focused = value
   view
     TimelineTip(label=endpoint.result, side="top", align="center", offset=20)
-      row tabindex=0 focus=focus(true) blur=focus(false) testId=`handoff-endpoint-${endpoint.id}` min-width=0 align-items="center" gap="0.25rem" border-radius="0.25rem" box-shadow=(focused ? "inset 0 0 0 2px light-dark(#1447e6, #50a2ff)" : "none")
-        DriverMark(driver=endpoint.detail, size=12, initials=endpoint.initials, icon=endpoint.driverIcon)
+      row tabindex=0 focus=focus(true) blur=focus(false) testId=`handoff-endpoint-${endpoint.id}` min-width=0 align-items="center" gap="0.375rem" border-radius="0.25rem" box-shadow=(focused ? "inset 0 0 0 2px light-dark(#1447e6, #50a2ff)" : "none")
+        // ProviderInstanceIcon size "compact": the 14pt mark, dimmed under an instance badge on the page's background.
+        box width="0.875rem" height="0.875rem" position="relative" flex-shrink=0
+          box opacity=(endpoint.badge != "" ? 0.6 : 1)
+            DriverMark(driver=endpoint.detail, size=14, initials=endpoint.initials, icon=endpoint.driverIcon)
+          if endpoint.badge != ""
+            box position="absolute" right="-0.1875rem" bottom="-0.1875rem" min-width="0.75rem" height="0.75rem" padding-left="0.125rem" padding-right="0.125rem" box-sizing="border-box" border-radius="1.25rem" border-width=1 border-style="solid" border-color="light-dark(#ffffff, #0a0a0a)" background-color=(endpoint.badgeColor != "" ? endpoint.badgeColor : "light-dark(#ffffff, #111111)") display="flex" flex-direction="row" align-items="center" justify-content="center" testId=`handoff-badge-${endpoint.id}`
+              text endpoint.badge font-size="0.4375rem" font-weight=600 line-height=1 color=(endpoint.badgeColor != "" ? "#ffffff" : "light-dark(#71717b, #a3a3a3)")
         text endpoint.label min-width=0 line-clamp=1 font-size="0.6875rem" font-weight=500 line-height="0.9375rem" color=(endpoint.iconLight != "" ? `light-dark(${endpoint.iconLight}, ${endpoint.iconDark})` : danger ? "light-dark(#fb2c36, #fb414a)" : "light-dark(#71717b, #818181)")
 
 // AgentElapsed's formatElapsedSeconds: "0s", "12s", "1m 05s", "1h 02m".
