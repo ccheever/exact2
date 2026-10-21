@@ -34,6 +34,7 @@ import { groupLabel, repositoryGroupingKey } from '../sidebar/project-groups';
 import { adoptModelPrefs } from '../providers/settings-b-models';
 import { openQuestionDraft, questionAttachmentKey, type RequestDraft } from '../composer/requests';
 import { pinSnapshot, snapshotAttachmentKey } from '../composer/question-attachments';
+import { reservedAttachments } from '../composer/composer-editor-attach';
 import { DiffState, DIFF_LOCAL_OPS } from '../diff/diff';
 import { TELEMETRY_KEY, telemetryEvent } from '../settings/settings-a-telemetry';
 import { mostRecentProjectId } from '../pages/pages-home';
@@ -1004,11 +1005,9 @@ export class T3Client {
   private snapshotKey(id: string, owner: string, threadKey: string): string {
     return snapshotAttachmentKey(this.snapshotQuestionPins, id, threadKey, owner === this.snapshotOwner ? openQuestionDraft(this)?.key ?? null : null);
   }
-  /** A question's answer and a message each take 100 attachments; a question's count is its whole request's. */
+  /** A question's answer and a message each take 100 attachments; a question's count is its whole request's, file chips included. */
   private snapshotDraftFull(key: string): boolean {
-    const question = openQuestionDraft(this);
-    const keys = question?.key === key ? question.requestKeys : [key];
-    return keys.reduce((total, entry) => total + (this.local.snapshotDrafts[entry] || []).length, 0) >= 100;
+    return (openQuestionDraft(this)?.key === key ? reservedAttachments(this) : (this.local.snapshotDrafts[key] || []).length) >= 100;
   }
   async flushSnapshotReleases(native: Native, storage: Files): Promise<void> {
     if (!this.local.snapshotReleases.length) return;

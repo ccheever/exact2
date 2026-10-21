@@ -14,7 +14,7 @@ import { markdownEnv, messageChips } from '../timeline/message-chips';
 import { relabelThreadLinks } from '../timeline/thread-links';
 import { renderCodexInlineDirectivesAsMarkdown } from '../highlight/codex-directives.js';
 import { markdownThreadGlyphs } from '../timeline/markdown-thread-glyphs';
-import { questionDraftKey, questionDraftPrefix, releaseQuestionDrafts } from './question-attachments';
+import { answerSubmitting, attachmentsStaging, questionDraftKey, questionDraftPrefix, releaseQuestionDrafts } from './question-attachments';
 
 /** One draft per question (`request::question`) and one per request (its question index). */
 export type RequestDraft = { selected: string[]; custom: string; index: number };
@@ -65,7 +65,7 @@ export function pendingRequests(projection: Obj): { approvals: PendingApproval[]
 }
 
 function draft(client: T3Client, key: string): RequestDraft { return client.answers[key] ?? { selected: [], custom: '', index: 0 }; }
-/** A question's attachments: its image count, and whether they keep it unanswered (a server that takes none). */
+/** A question's attachments: its image count, and whether they keep it unanswered (a server that takes none, or files still staging). */
 type QuestionAttachments = { count: number; blocked: boolean };
 /**
  * resolvePendingUserInputAnswer: a non-empty custom answer outranks selected options; with neither, attachments alone
@@ -82,9 +82,18 @@ export function resolveAnswer(question: Question, answer: RequestDraft | undefin
 }
 const questionAttachmentsSupported = (client: T3Client) => obj(obj(client.config.environment).capabilities).questionAttachments === true;
 function questionAttachments(client: T3Client, requestId: string, questionId: string): QuestionAttachments {
-  const count = client.threadId ? (client.local.snapshotDrafts[questionDraftKey(client.environmentId, client.threadId, requestId, questionId)] ?? []).length : 0;
-  return { count, blocked: count > 0 && !questionAttachmentsSupported(client) };
+  if (!client.threadId) return { count: 0, blocked: false };
+  const key = questionDraftKey(client.environmentId, client.threadId, requestId, questionId), count = (client.local.snapshotDrafts[key] ?? []).length;
+  return { count, blocked: (count > 0 && !questionAttachmentsSupported(client)) || attachmentsStaging(client, key) > 0 };
 }
+/** onRespondToUserInput's first check: a question of the composer's request is still staging files. */
+export function questionAttachmentsStaging(client: T3Client): boolean {
+  const current = client.threadId ? composerInput(client) : undefined;
+  return !!current && current.input.questions.some(question =>
+    attachmentsStaging(client, questionDraftKey(client.environmentId, client.threadId, current.input.requestId, question.id)) > 0);
+}
+/** activePendingIsResponding: the answer is being uploaded or sent. */
+const respondingTo = (client: T3Client, requestId: string) => str(client.pending?.payload.requestId) === requestId || answerSubmitting(client, requestId);
 function progress(client: T3Client, input: PendingInput) {
   for (const question of input.questions) {
     const key = `${input.requestId}::${question.id}`;
@@ -139,17 +148,14 @@ export function questionAttachmentKey(client: T3Client): string | null {
   return current?.active ? questionDraftKey(client.environmentId, client.threadId, current.input.requestId, current.active.id) : null;
 }
 /**
- * questionTakesSnapShots: the composer's question takes a SnapShot while the server takes question attachments, the
- * question takes a custom answer and its answer is not being submitted. `requestKeys`: every question draft of its
- * request, whose attachments share one answer's limit.
+ * questionTakesSnapShots: the draft of the composer's question while it takes a SnapShot: the server takes question
+ * attachments, the question takes a custom answer and its answer is not being submitted.
  */
-export function openQuestionDraft(client: T3Client): { key: string; requestKeys: string[] } | null {
+export function openQuestionDraft(client: T3Client): { key: string } | null {
   const current = client.threadId ? composerInput(client) : undefined;
   if (!current?.active || !current.active.allowCustom || !questionAttachmentsSupported(client)) return null;
-  if (str(client.pending?.payload.requestId) === current.input.requestId) return null;
-  const { environmentId, threadId } = client, requestId = current.input.requestId;
-  return { key: questionDraftKey(environmentId, threadId, requestId, current.active.id),
-    requestKeys: current.input.questions.map(question => questionDraftKey(environmentId, threadId, requestId, question.id)) };
+  if (respondingTo(client, current.input.requestId)) return null;
+  return { key: questionDraftKey(client.environmentId, client.threadId, current.input.requestId, current.active.id) };
 }
 
 function responseReason(client: T3Client, resumable: boolean): string {
@@ -183,7 +189,7 @@ export function requestPresentation(client: T3Client) {
   pruneAnswers(client);
   const { approvals: pendingApprovals } = composerRequests(client);
   const pending = client.pending;
-  const responding = (id: string) => !!pending && str(pending.payload.requestId) === id;
+  const responding = (id: string) => (!!pending && str(pending.payload.requestId) === id) || answerSubmitting(client, id);
   const approvals = pendingApprovals.slice(0, 1).map(approval => {
     const reason = responseReason(client, approval.live);
     const options = approval.options.map(option => ({ id: str(option.decision), label: str(option.label), warning: str(option.warning),

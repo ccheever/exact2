@@ -5,9 +5,12 @@ import type { Files, Native } from '../../src/client/protocol';
 import { opened } from '../support/composer-controls-fixture';
 import { addAttachedFiles } from '../../src/composer/composer-controls-attach';
 import { reservedAttachments } from '../../src/composer/composer-editor-attach';
-import { advanceQuestion, requestPresentation, resolveAnswer } from '../../src/composer/requests';
+import { advanceQuestion, openQuestionDraft, requestPresentation, resolveAnswer } from '../../src/composer/requests';
 import { questionDraftKey, releaseQuestionDrafts, snapshotAttachmentKey } from '../../src/composer/question-attachments';
 import { draftRows } from '../../src/sidebar/sidebar-view';
+import { fileChipLink, stageTextAttachment } from '../../src/composer/composer-editor-files';
+import { toasts } from '../../src/shell/toast';
+import { memoryFiles, png } from '../support/app-files-fixture';
 
 const uuid = (n: number) => `aaaaaaaa-aaaa-4aaa-8aaa-${String(n).padStart(12, '0')}`;
 const asked = (questions: Obj[] = [{ id: 'first', header: 'First', question: 'Which window?', allowCustomAnswer: true, options: [] }]) => ({
@@ -70,7 +73,62 @@ async function questionClient(capabilities: Obj = { questionAttachments: true })
   return { ...context, calls, first, second };
 }
 
+const picks = (path: string) => JSON.stringify({ files: [], picked: [{ path, name: 'shot.png', type: 'image/png', size: 33 }], asText: false, target: '' });
+/** memoryFiles whose `stat` (statSource, the first step of staging) waits until `open` runs. */
+function gatedFiles() {
+  const files = memoryFiles({ 'app:/tmp/picked/1/shot.png': png(4, 3) }), stat = files.fs.stat.bind(files.fs);
+  let open!: () => void, reached!: () => void;
+  const gate = new Promise<void>(resolve => { open = resolve; }), entered = new Promise<void>(resolve => { reached = resolve; });
+  files.fs.stat = async (path: string) => { reached(); await gate; return stat(path); };
+  return { open, entered };
+}
+
 describe('a question takes images beside its answer', () => {
+  test('an image still being staged keeps the question unanswered, and the answer waits for it', async () => {
+    const { client, native, command, first } = await questionClient();
+    client.answers.questions = { selected: [], custom: '', index: 1 };
+    client.answers['questions::first'] = { selected: [], custom: 'This one', index: 0 };
+    client.answers['questions::second'] = { selected: [], custom: 'Nothing else', index: 0 };
+    client.answers.questions = { selected: [], custom: '', index: 0 };
+    const gate = gatedFiles();
+    const attaching = command('cclocal:attach-files', 'pick', picks('app:/tmp/picked/1/shot.png'));
+    await gate.entered;
+    expect(requestPresentation(client).questions[0]).toMatchObject({ canAdvance: false, complete: false });
+    for (const op of ['submit-answers', 'advance-question']) {
+      expect((await command(op, 'questions')).message).toBe('Still attaching files to this answer. Submit again once they appear.');
+    }
+    expect((await command('send', '', 'This one')).message).toBe('Still attaching files to this answer. Submit again once they appear.');
+    expect(native.committed.filter(request => request.type === 'runtime-request.respond')).toEqual([]);
+    gate.open(); await attaching;
+    expect(client.local.snapshotDrafts[first]).toMatchObject([{ name: 'shot.png' }]);
+    expect(requestPresentation(client).questions[0]).toMatchObject({ canAdvance: true, complete: true });
+    client.answers.questions = { selected: [], custom: '', index: 1 };
+    await command('submit-answers', 'questions');
+    expect(native.committed.at(-1)).toMatchObject({ type: 'runtime-request.respond', attachmentsByQuestionId: { first: [{ type: 'image', name: 'shot.png' }] } });
+  });
+  test('while the answer uploads, its shelves take no drop or SnapShot and give up no image', async () => {
+    const { client, native, command, first } = await questionClient();
+    client.local.snapshotDrafts[first] = [image(1)];
+    client.answers.questions = { selected: [], custom: '', index: 1 };
+    client.answers['questions::second'] = { selected: [], custom: 'Nothing else', index: 0 };
+    const later = native.later.bind(native);
+    let open!: () => void, reached!: () => void;
+    const gate = new Promise<void>(resolve => { open = resolve; }), entered = new Promise<void>(resolve => { reached = resolve; });
+    native.later = async input => { if (obj(input).method === 'attachments.createUploadUrl') { reached(); await gate; } return later(input); };
+    const submitting = command('submit-answers', 'questions');
+    await entered;
+    client.answers.questions = { selected: [], custom: '', index: 0 };
+    expect(requestPresentation(client).questions[0]).toMatchObject({ responding: true, action: 'Submitting...' });
+    expect(openQuestionDraft(client)).toBeNull();
+    memoryFiles({ 'app:/tmp/picked/1/shot.png': png(4, 3) });
+    await command('cclocal:attach-files', 'pick', picks('app:/tmp/picked/1/shot.png'));
+    expect(toasts(client).map(toast => toast.title)).toContain('This question cannot accept attachments.');
+    expect((await command('remove-snapshot', uuid(1))).message).toBe('Wait for the answer to finish submitting before removing its attachments.');
+    expect(client.local.snapshotDrafts[first]).toHaveLength(1);
+    open(); await submitting;
+    expect(native.committed.at(-1)).toMatchObject({ type: 'runtime-request.respond', attachmentsByQuestionId: { first: [{ type: 'image', id: 'uploaded-shot-1.png' }] } });
+    expect(requestPresentation(client).questions[0]?.responding).toBe(false);
+  });
   test('a drop, a paste or Attach files puts images on the active question’s shelf, without an image chip', async () => {
     const { client, native, calls, first } = await questionClient();
     client.local.drafts[client.draftKey] = 'The thread draft keeps its text';
@@ -169,6 +227,16 @@ describe('SnapShots during a question', () => {
     f.question(false); f.captured();
     await f.client.adoptSnapshots(f.native, f.files);
     expect(f.client.local.snapshotDrafts['env:t']).toMatchObject([{ id: f.id }]);
+  });
+  test('a question full with its request’s images and its answer’s file chips refuses the capture', async () => {
+    const f = captureFixture();
+    f.question(true); f.captured();
+    f.client.local.snapshotDrafts[f.key] = Array.from({ length: 99 }, (_, n) => image(100 + n));
+    const file = stageTextAttachment(f.client, 'notes', 'notes.txt', 'text/plain', uuid(500));
+    f.client.answers['questions::first'] = { selected: [], custom: fileChipLink(file), index: 0 };
+    await f.client.adoptSnapshots(f.native, f.files);
+    expect(f.client.error).toBe(`Snapshot failed. Capture ${f.id}: Remove an attachment, then try this capture again.`);
+    expect(f.client.local.snapshotDrafts[f.key]).toHaveLength(99);
   });
   test('a server that takes no question attachments keeps captures on the thread', async () => {
     const f = captureFixture({ questionAttachments: false });

@@ -24,7 +24,7 @@ import { isUsageLimitsCommand, usageLimitsOffered, openUsageLimits } from '../co
 import { feedbackCommandFor, feedbackInFlight, sendFeedback } from '../composer/composer-feedback';
 import { threadContextRecords, withMessageContext } from '../composer/composer-editor';
 import { projectPendingUserInputAnswer } from '../timeline/thread-links';
-import { questionDraftKey } from '../composer/question-attachments';
+import { holdSubmitting, questionDraftKey } from '../composer/question-attachments';
 import { pendingThreadImports } from '../composer/composer-thread-import';
 import { annotationAttachedToDraft, annotationSendMarked, takeAnnotationSend } from '../browser/browser-annotation'; // an annotation's send
 import { markAnnotationSend } from '../browser/browser-annotation';
@@ -34,7 +34,7 @@ import { pressGesture, sendIntent } from '../composer/composer-editor-intent';
 import { launchTitle } from '../composer/composer-editor-title';
 import { promptLengthMessage } from '../composer/composer-editor-menu';
 import { composerFileAttachments, draftFiles } from '../composer/composer-editor-files';
-import { activeInput, pendingRequests, composerInput, composerRequests, setCustomAnswer, chooseOption, advanceQuestion, previousQuestion, dismissPayload, approvalPayload, declinePendingApprovals } from '../composer/requests';
+import { activeInput, pendingRequests, composerInput, composerRequests, setCustomAnswer, chooseOption, advanceQuestion, previousQuestion, dismissPayload, approvalPayload, declinePendingApprovals, questionAttachmentsStaging } from '../composer/requests';
 import { pushToast } from '../shell/toast';
 import { machineLabel, unreadableThreads } from '../composer/composer-thread-machines';
 import { releaseHeldRequests } from '../composer/composer-typing-guard';
@@ -94,6 +94,7 @@ export async function composerWrites(this: T3Client, op: string, id: string, val
       op = 'send'; id = ''; value = annotation.value;
     }
     if (['send', 'submit-answers', 'advance-question', 'pick-option'].includes(op) && pendingThreadImports(this)) throw new ClientError('Still bringing attached context into this message. Send again once its chip resolves.');
+    if ((['submit-answers', 'advance-question', 'pick-option'].includes(op) || (op === 'send' && composerInput(this))) && questionAttachmentsStaging(this)) throw new ClientError('Still attaching files to this answer. Submit again once they appear.');
     // A request held while the user typed (composer-typing-guard.ts) leaves the composer theirs: this send goes to the
     // thread, and sending releases the request. A shown approval leaves it theirs too: the send declines it and
     // redirects the agent (declineForRedirect).
@@ -382,15 +383,19 @@ async function submitAnswers(this: T3Client, native: Native, storage: Files, id:
     };
     const projected = Object.fromEntries(Object.entries(answers).map(([id, answer]) => [id, projectPendingUserInputAnswer(answer, threadContextRecords(this, typeof answer === 'string' ? answer : ''))]));
     const attachmentsByQuestionId: Obj = {};
-    for (const [id, answer] of Object.entries(answers)) {
-      assertOwner();
-      const images = await this.uploadSnapshots(native, storage, questionDraftKey(owner.environmentId, owner.threadId, requestId, id), assertOwner);
-      assertOwner();
-      const files = await composerFileAttachments(this, native, typeof answer === 'string' ? answer : '', assertOwner);
-      assertOwner();
-      if (images.length || files.length) attachmentsByQuestionId[id] = [...images, ...files];
-    }
-    await dispatchRequest.call(this, native, storage, { type: 'runtime-request.respond', threadId: owner.threadId, requestId, answers: projected,
-      ...(Object.keys(attachmentsByQuestionId).length ? { attachmentsByQuestionId } : {}) }, 'Answers', assertOwner);
+    // The request is submitting from its first upload: its shelves take no drop or SnapShot and give up no image.
+    const release = holdSubmitting(this, requestId);
+    try {
+      for (const [id, answer] of Object.entries(answers)) {
+        assertOwner();
+        const images = await this.uploadSnapshots(native, storage, questionDraftKey(owner.environmentId, owner.threadId, requestId, id), assertOwner);
+        assertOwner();
+        const files = await composerFileAttachments(this, native, typeof answer === 'string' ? answer : '', assertOwner);
+        assertOwner();
+        if (images.length || files.length) attachmentsByQuestionId[id] = [...images, ...files];
+      }
+      await dispatchRequest.call(this, native, storage, { type: 'runtime-request.respond', threadId: owner.threadId, requestId, answers: projected,
+        ...(Object.keys(attachmentsByQuestionId).length ? { attachmentsByQuestionId } : {}) }, 'Answers', assertOwner);
+    } finally { release(); }
   }
 }

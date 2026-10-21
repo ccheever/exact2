@@ -19,6 +19,7 @@ import { rememberVideoFrame } from './composer-attachments';
 import { handleSource, stageAttachment, statSource, type AttachSource } from './composer-attach-stage';
 import { requestPresentation } from './requests';
 import { composerFieldOwner } from './auto-balance-owner';
+import { holdStaging } from './question-attachments';
 
 export const MAX_ATTACHMENTS = 100; // PROVIDER_SEND_TURN_MAX_ATTACHMENTS
 
@@ -59,11 +60,16 @@ export async function attachIncoming(client: T3Client, native: Native, origin: s
   if (!sources.length) return '';
   if (questionRefuses(client)) return '';
   const imageChips = imagesGetChips(client) && !(origin === 'paste' && incoming.asText);
-  const staged = await stageFiles(client, native, sources);
-  // A pasted or picked folder is the reference's empty File.
-  const folders = origin === 'drop' ? staged.filter(file => file.kind === 'folder') : [];
-  const others = staged.filter(file => !folders.includes(file)).map(file => file.kind === 'folder' ? { kind: 'unreadable', name: file.name, sizeBytes: 0 } : file);
-  if (others.length) await addAttachedFiles(client, native, others, imageChips);
+  // Held from staging until the files join the draft, so an answer cannot leave between the two.
+  const release = holdStaging(client, client.attachmentKey);
+  let folders: Obj[] = [];
+  try {
+    const staged = await stageFiles(client, native, sources);
+    // A pasted or picked folder is the reference's empty File.
+    folders = origin === 'drop' ? staged.filter(file => file.kind === 'folder') : [];
+    const others = staged.filter(file => !folders.includes(file)).map(file => file.kind === 'folder' ? { kind: 'unreadable', name: file.name, sizeBytes: 0 } : file);
+    if (others.length) await addAttachedFiles(client, native, others, imageChips);
+  } finally { release(); }
   if (folders.length) {
     const remote = folderDropTarget({ localEnvironmentDisabled: primary.disabled, environmentId: client.environmentId, primaryEnvironmentId: primary.target?.environmentId || null }) === 'remote';
     if (remote) pushToast(client, { kind: 'error', title: "Folders can't be dropped into remote environments" });
@@ -81,17 +87,20 @@ export async function stageFiles(client: T3Client, native: Native, sources: Atta
   if (!client.projectId) throw new ClientError('Choose a project first.');
   const key = client.attachmentKey, limit = attachStagingLimit(client), staged: Obj[] = [];
   let room = MAX_ATTACHMENTS - reservedAttachments(client);
-  for (const source of sources) {
-    const stat = await statSource(source);
-    if (!stat) staged.push({ kind: 'unreadable', name: source.name, sizeBytes: 0 });
-    else if (stat.folder) staged.push({ kind: 'folder', name: source.name, path: source.path });
-    else if (room <= 0) staged.push({ kind: 'over-limit', name: source.name });
-    else {
-      const file = await stageAttachment(native, source, stat.size, limit);
-      if (file.kind === 'image' || str(file.id)) room -= 1;
-      staged.push(file);
+  const release = holdStaging(client, key);
+  try {
+    for (const source of sources) {
+      const stat = await statSource(source);
+      if (!stat) staged.push({ kind: 'unreadable', name: source.name, sizeBytes: 0 });
+      else if (stat.folder) staged.push({ kind: 'folder', name: source.name, path: source.path });
+      else if (room <= 0) staged.push({ kind: 'over-limit', name: source.name });
+      else {
+        const file = await stageAttachment(native, source, stat.size, limit);
+        if (file.kind === 'image' || str(file.id)) room -= 1;
+        staged.push(file);
+      }
     }
-  }
+  } finally { release(); }
   return key === client.attachmentKey ? staged : (await releaseStaged(client, native, staged), []);
 }
 
@@ -118,6 +127,7 @@ export async function addAttachedFiles(client: T3Client, native: Native, files: 
   const accepted: Obj[] = [], chips: DraftFile[] = [];
   let reserved = reservedAttachments(client);
   const release = holdDraftFiles(client.local, threadKey); // a file chip's file is the thread draft's, in an answer too
+  const staging = holdStaging(client, key);
   try {
     for (const file of files) {
       if (!current()) { await releaseStaged(client, native, [file]); continue; }
@@ -144,5 +154,5 @@ export async function addAttachedFiles(client: T3Client, native: Native, files: 
     if (accepted.length) client.local.snapshotDrafts[key] = [...(client.local.snapshotDrafts[key] ?? []), ...accepted];
     const inserted = await insertFileChips(client, native, chips, imageChips && !question ? accepted : [], owner || identity.snapshotOwner);
     if (current()) client.error = error || (!inserted ? 'The prompt changed before attachment references could be inserted. Attach the files again.' : '');
-  } finally { release(); }
+  } finally { staging(); release(); }
 }

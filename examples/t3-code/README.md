@@ -197,7 +197,8 @@ The app has no desktop self-update feed, so its own download/restart step is abs
   stays with its thread until the question resolves. While the composer answers a question the server lets
   carry attachments, its shelf is that question's (`question-attachments.ts`): a dropped, pasted or picked image
   joins it without a chip, as does a SnapShot taken while the question is open (pinned when the capture is
-  first seen); the answer uploads each question's images beside its file chips, and the drafts go when the
+  first seen); a question whose shelf is still staging files stays unanswered; the answer uploads each question's
+  images beside its file chips, its shelves taking and giving up nothing meanwhile, and the drafts go when the
   request resolves.
 - Version control in the workspace card (`src/details/git*`): the branch picker (search, create
   a ref with Enter, check out, "Start from origin"), the git actions quick action and
