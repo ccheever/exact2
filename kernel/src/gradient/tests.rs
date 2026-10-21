@@ -99,7 +99,7 @@ fn what_is_not_drawn_is_refused_by_name() {
         ("conic-gradient(from up, #000, #fff)", "`from` takes an angle"),
         ("conic-gradient(#000 10px, #fff)", "percentage or an angle"),
         ("linear-gradient(#000, 30%, #fff)", "colour hints"),
-        ("linear-gradient(#000 10em, #fff)", "colour"),
+        ("linear-gradient(#000 10em, #fff)", "other lengths are not implemented"),
         ("linear-gradient(#000 -10%, #fff 120%)", "0% to 100%"),
         ("linear-gradient(#000)", "at least two"),
         ("linear-gradient(red, blurple)", "stop's colour"),

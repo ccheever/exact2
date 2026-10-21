@@ -24,7 +24,7 @@ pub mod tabs;
 mod text;
 pub mod theme;
 
-use crate::bridge;
+use crate::bridge::{self, invalid};
 use crate::vm::{self, Env, Frame, RowSlots, Trap};
 pub use deps::RowWrites;
 use deps::{Bits, Reads, Seen};
@@ -1260,13 +1260,6 @@ impl NodeInst {
         // tree just drops.
         u.ops.push(Op::DestroyView { id: self.view });
     }
-}
-
-/// The journal line for a value a row refused.
-fn invalid(view: ViewId, row: &str, value: &Value) -> String {
-    let mut shown = String::new();
-    crate::agent::untyped_json(value, &mut shown);
-    format!("view {view}: invalid {row} value {shown}; unset")
 }
 
 /// A row's identity: its key's canonical text, or for the `dup`th repeat

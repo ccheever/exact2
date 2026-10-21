@@ -508,6 +508,14 @@ fn background_image_takes_one_gradient_and_refuses_the_rest_by_name() {
             "linear-gradient(#000 10, #fff)",
             "a stop's position is a percentage",
         ),
+        (
+            "linear-gradient(transparent 0px, #000 20em)",
+            "other lengths are not implemented",
+        ),
+        (
+            "linear-gradient(transparent 0px, #000 calc(20px + 1%))",
+            "other lengths are not implemented",
+        ),
     ] {
         let e = refused(&format!("background-image=\"{value}\""));
         assert_eq!(e.id, "lower-attr-value", "{value}: {e}");

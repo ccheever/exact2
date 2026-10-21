@@ -1213,6 +1213,10 @@ is refused at build time even when another branch is numeric.
 gradients; `mask-image` takes one. Stops take percentages, or px lengths for
 linear/radial gradients (unitless zero is allowed). For example,
 `background-image="repeating-linear-gradient(-45deg, transparent 0 4.243px, #e6e6e6 4.243px 5.657px)"`.
+Other length units and `calc()` stop positions are refused. Computed stop positions
+are checked on each update too. A refused computed image unsets the whole row,
+including its other layers; `agent web logs` or `agent ios logs` gives the value
+and the parser's reason. Use px or percentages for linear/radial stops.
 A repeating gradient’s px period stays fixed as a box resizes; mixed px/%
 and omitted stops use CSS fix-up after layout. A zero period paints its last
 stop, as Chrome does. `background-attachment="local"` is still

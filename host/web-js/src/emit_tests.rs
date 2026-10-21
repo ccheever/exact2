@@ -2,6 +2,85 @@
 use exact_runner::{DataError, DataSource, Value};
 
 #[test]
+fn computed_gradient_stops_obey_the_native_grammar() {
+    let plan = contract::compile(
+        "fn image(value: string): string = value\ncomponent App\n  state paint = \"none\"\n  view\n    view background-image=image(paint) mask-image=image(paint)\n",
+    ).unwrap();
+    let js = crate::emit::emit(&plan, false, false).unwrap().js;
+    let values = [
+        "linear-gradient(transparent 0px, black 460px)",
+        "linear-gradient(transparent 0%, black 60%)",
+        "linear-gradient(45deg, transparent 0px, black 460px), linear-gradient(135deg, red, transparent 70%), linear-gradient(45deg, green, transparent 70%)",
+        "linear-gradient(to top right in oklab, light-dark(red, blue) -10px 20%, transparent)",
+        "radial-gradient(circle at 20px 50%, red 0px, blue 60px)",
+        "conic-gradient(from 20deg, red 0deg 90deg, blue 1turn)",
+        "repeating-linear-gradient(-45deg, transparent 0 4px, black 4px 8px)",
+        "linear-gradient(transparent 0px, black 20em)",
+        "linear-gradient(transparent 0px, black calc(20px + 1%))",
+        "linear-gradient(transparent -1%, black 100%)",
+        "radial-gradient(transparent -1px, black 10px)",
+        "conic-gradient(transparent 0deg, black 20px)",
+        "linear-gradient(transparent 0px, black 20em), linear-gradient(red, blue)",
+        "linear-gradient(red, 20%, blue)",
+        "linear-gradient(red 0px 10px 20px, blue)",
+        "repeating-radial-gradient(red, blue)",
+    ];
+    let script = format!(
+        r#"
+let current;const reads={{}};
+const journal=[], say=line=>journal.push(line);
+globalThis.exact={{journal,now:()=>0}};
+const source={}.replace(/^import.*$/gm, '').replace('export default function', 'function start').replaceAll('export ', '');
+const start=new Function('sig','h','mount','S','P','blank','say','usePaint','$paint',source+';return start')(
+  ()=>()=>current, ()=>({{}}), f=>f({{}}), (e,p,u,f)=>{{reads[p]=f}}, ()=>{{}}, v=>v,say,()=>{{}},()=>{{}});
+start();
+console.log(JSON.stringify({}.map(v=>{{current=v;return Object.fromEntries(Object.entries(reads).map(([row,read])=>{{journal.length=0;return [row,{{value:read(),notes:[...journal]}}]}}))}})));
+"#,
+        serde_json::to_string(&js).unwrap(),
+        serde_json::to_string(&values).unwrap()
+    );
+    let out = std::process::Command::new(std::env::var("BUN").unwrap_or_else(|_| "bun".into()))
+        .args(["--eval", &script])
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let got: Vec<serde_json::Value> = serde_json::from_slice(&out.stdout).unwrap();
+    for (value, got) in values.iter().zip(got) {
+        for (row, checked) in [
+            (
+                "background-image",
+                exact_kernel::gradient::BackgroundImage::check(value),
+            ),
+            (
+                "mask-image",
+                exact_kernel::gradient::BackgroundImage::check_mask(value),
+            ),
+        ] {
+            let got = &got[row];
+            match checked {
+                Ok(_) => {
+                    assert_eq!(got["value"], *value);
+                    assert_eq!(got["notes"], serde_json::json!([]));
+                }
+                Err(reason) => {
+                    assert_eq!(got["value"], "unset", "{value}");
+                    assert!(
+                        got["notes"][0]
+                            .as_str()
+                            .is_some_and(|note| note.contains(reason)),
+                        "{got}: {reason}"
+                    );
+                }
+            }
+        }
+    }
+}
+
+#[test]
 fn collection_edges_keep_the_compilers_refusal_for_a_plan_without_virtualization() {
     for event in ["reachstart", "reachend"] {
         let source = format!("component App\n  state disabled = false\n  action more\n    let n = 1\n  view\n    list virtualized=true height=200 {event}=more\n      for x in [1, 2] key=x\n        text `${{x}}`\n");

@@ -529,20 +529,11 @@ impl Em<'_> {
                         (Some(m), None) => Some(m.to_string()),
                         (None, cm) => cm.clone(),
                     };
-                    // A computed image the native hosts refuse is dropped
-                    // here too, and journaled as they journal it, so the web
-                    // never paints what a Mac drops (studio diary R15).
                     let map = if matches!(id, StyleId::BackgroundImage | StyleId::MaskImage) {
-                        let names = exact_kernel::gradient::REFUSED
-                            .iter()
-                            .map(|(p, _)| p.trim_end_matches('('))
-                            .collect::<Vec<_>>()
-                            .join("|");
+                        self.uses.rt("say");
+                        let check = self.uses.share('m', style::gradient_stop_map(id));
                         let inner = map.unwrap_or_else(|| "v=>v".into());
-                        Some(format!(
-                            "v=>{{if(v!=null&&/(^|[^a-z0-9-])({names})\\(/i.test(v)){{const x=globalThis.exact;x?.journal?.push(`t=${{x.now?.()??0}} invalid {} value ${{JSON.stringify(String(v))}}; unset`);return \"unset\"}}return({inner})(v)}}",
-                            id.name().replace('_', "-")
-                        ))
+                        Some(format!("v=>({inner})({check}(v))"))
                     } else {
                         map
                     };

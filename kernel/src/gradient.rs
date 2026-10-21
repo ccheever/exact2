@@ -1063,10 +1063,15 @@ fn fix_up(stops: &mut [Stop]) {
 
 fn is_position(word: &str) -> bool {
     let lower = word.to_ascii_lowercase();
-    let number = lower
-        .strip_suffix('%')
-        .or_else(|| lower.strip_suffix("px"))
-        .unwrap_or(&lower);
+    // Recognize unsupported lengths too, so their refusal names the position
+    // grammar rather than treating `red 2em` as a malformed colour.
+    if ["calc(", "min(", "max(", "clamp("]
+        .iter()
+        .any(|prefix| lower.starts_with(prefix))
+    {
+        return true;
+    }
+    let number = lower.trim_end_matches(|c: char| c.is_ascii_alphabetic() || c == '%');
     exact_num::parse_f32(number).is_ok()
 }
 

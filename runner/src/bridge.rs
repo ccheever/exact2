@@ -128,6 +128,23 @@ pub enum BridgeError {
     },
 }
 
+/// The journal line for a value a row refused.
+pub(crate) fn invalid(view: exact_kernel::ViewId, row: &str, value: &Value) -> String {
+    let mut shown = String::new();
+    crate::agent::untyped_json(value, &mut shown);
+    let reason = value.as_str().and_then(|css| match row {
+        "background-image" => exact_kernel::gradient::BackgroundImage::check(css).err(),
+        "mask-image" => exact_kernel::gradient::BackgroundImage::check_mask(css).err(),
+        _ => None,
+    });
+    let mut line = format!("view {view}: invalid {row} value {shown}; unset");
+    if let Some(reason) = reason {
+        line.push_str(": ");
+        line.push_str(reason);
+    }
+    line
+}
+
 /// @ref LLP 1121 D10 — a computed `symbol:` source naming an icon token, by
 /// its name or (`sf/<name>`) by its SF Symbol, written as the source form a
 /// host reads, as the compiler writes a literal one; any other value as it is.

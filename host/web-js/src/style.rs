@@ -630,6 +630,86 @@ pub fn color_map(plan: &Plan) -> String {
     }
 }
 
+/// Stop restrictions the browser's larger grammar would otherwise accept.
+/// Reasons come from the kernel parser, as the native runtime's notes do.
+pub fn gradient_stop_map(id: StyleId) -> String {
+    use exact_kernel::gradient::{BackgroundImage, MAX_LAYERS, MAX_STOPS, REFUSED};
+    let mut reasons = serde_json::Map::new();
+    for (name, css) in [
+        ("length", "linear-gradient(red 1em, blue)"),
+        ("percent", "linear-gradient(red -1%, blue)"),
+        ("conic", "conic-gradient(red 1px, blue)"),
+        ("radial", "radial-gradient(red -1px, blue)"),
+        ("hint", "linear-gradient(red, 20%, blue)"),
+        ("color", "linear-gradient(red 0px 1px 2px, blue)"),
+        ("few", "linear-gradient(red)"),
+    ] {
+        reasons.insert(name.into(), BackgroundImage::check(css).unwrap_err().into());
+    }
+    let many = format!("linear-gradient({})", vec!["red"; MAX_STOPS + 1].join(","));
+    reasons.insert(
+        "many".into(),
+        BackgroundImage::check(&many).unwrap_err().into(),
+    );
+    let layers = vec!["linear-gradient(red, blue)"; MAX_LAYERS + 1].join(",");
+    reasons.insert(
+        "layers".into(),
+        BackgroundImage::check(&layers).unwrap_err().into(),
+    );
+    reasons.insert(
+        "mask".into(),
+        BackgroundImage::check_mask("linear-gradient(red, blue), linear-gradient(red, blue)")
+            .unwrap_err()
+            .into(),
+    );
+    const SOURCE: &str = r#"(why, refused, row, max, maxLayers)=>v=>{
+if(v==null||typeof v!=="string"||!v.trim())return v;
+const reject=reason=>{say(`invalid ${row} value ${JSON.stringify(v)}; unset: ${reason}`);return "unset"};
+const lower=v.toLowerCase();
+for(const [prefix,reason] of refused){let at=lower.indexOf(prefix);while(at>=0){if(at===0||!/[a-z0-9-]/.test(lower[at-1]))return reject(reason);at=lower.indexOf(prefix,at+1)}}
+const split=(text,sep)=>{const out=[];let depth=0,start=0;for(let i=0;i<text.length;i++){const c=text[i];if(c==='(')depth++;else if(c===')')depth--;else if(!depth&&(sep===' '?/\s/.test(c):c===sep)){const word=text.slice(start,i).trim();if(word||sep!==' ')out.push(word);start=i+1}}const word=text.slice(start).trim();if(word||sep!==' ')out.push(word);return out};
+const number='[+-]?(?:[0-9]+(?:\\.[0-9]*)?|\\.[0-9]+)(?:[eE][+-]?[0-9]+)?';
+const numeric=new RegExp(`^(${number})([a-z%]*)$`,'i');
+const angle=word=>{const m=numeric.exec(word);if(!m)return null;const n=Math.fround(Number(m[1])),unit=m[2].toLowerCase();const scale=({deg:1,grad:0.9,rad:180/Math.PI,turn:360})[unit];const deg=scale?Math.fround(n*Math.fround(scale)):!unit&&n===0?0:NaN;return Number.isFinite(deg)?deg:null};
+const position=word=>numeric.test(word)||/^(calc|min|max|clamp)\(/i.test(word);
+const layers=split(v,',');
+if(layers.length>maxLayers)return reject(why.layers);
+for(const layer of layers){
+  const call=/^(linear-gradient|repeating-linear-gradient|radial-gradient|conic-gradient)\((.*)\)$/is.exec(layer);
+  if(!call)continue;
+  const kind=call[1].toLowerCase(),conic=kind==='conic-gradient',radial=kind==='radial-gradient',args=split(call[2],',');
+  const first=split(args[0],' ')[0]??'';
+  if(/^in$/i.test(first)||(radial?/^(circle|ellipse|at|closest-side|closest-corner|farthest-side|farthest-corner)$/i.test(first):conic?/^(from|at)$/i.test(first):/^to$/i.test(first)||angle(first)!=null))args.shift();
+  let count=0;
+  for(const arg of args){
+    const words=split(arg,' ');let end=words.length;
+    while(end>0&&words.length-end<2&&position(words[end-1]))end--;
+    if(!end)return reject(why.hint);
+    if(position(words[end-1]))return reject(why.color);
+    const stops=words.slice(end);count+=stops.length||1;
+    for(const stop of stops){
+      const m=numeric.exec(stop),unit=m?.[2].toLowerCase(),n=m?Math.fround(Number(m[1])):NaN;
+      const degrees=conic?angle(stop):null;
+      if(unit==='%'||degrees!=null){const pct=unit==='%'?n:Math.fround(degrees/Math.fround(3.6));if(!(pct>=0&&pct<=100))return reject(why.percent)}
+      else if(conic)return reject(why.conic);
+      else if(!Number.isFinite(n)||(unit!=='px'&&(unit!==''||n!==0)))return reject(why.length);
+      else if(radial&&n<0)return reject(why.radial);
+    }
+  }
+  if(count<2)return reject(why.few);
+  if(count>max)return reject(why.many);
+}
+if(row==='mask-image'&&layers.length>1)return reject(why.mask);
+return v
+}"#;
+    format!(
+        "({SOURCE})({},{},{:?},{MAX_STOPS},{MAX_LAYERS})",
+        serde_json::Value::Object(reasons),
+        serde_json::to_string(&REFUSED).unwrap(),
+        css_property(id)
+    )
+}
+
 /// @ref LLP 1095 D4 — a bound colour that names a theme entry, or a role the
 /// theme overrides, writes what the literal path writes for the entry: the
 /// kernel's CSS for the colour it stands for. `None` without a theme.

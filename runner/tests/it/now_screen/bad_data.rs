@@ -2,6 +2,45 @@
 //! poisoned runner leaks (nothing).
 use super::*;
 
+#[test]
+fn computed_gradients_report_the_parser_reason_and_recover() {
+    let plan = contract::compile(
+        "fn image(value: string): string = value\ncomponent App\n  state paint = \"none\"\n  action change(value: string)\n    paint = value\n  view\n    view background-image=image(paint)\n",
+    ).unwrap();
+    let mut r = Runner::boot(
+        plan,
+        Schedule::default(),
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    let view = r.roots()[0];
+    for value in [
+        "linear-gradient(transparent 0px, black 460px)",
+        "linear-gradient(transparent 0px, black 20em)",
+        "linear-gradient(transparent 0px, black 20em), linear-gradient(red, blue)",
+        "linear-gradient(transparent 0%, black 60%), linear-gradient(red, blue)",
+    ] {
+        r.act("change", vec![Value::str(value)]).unwrap();
+        let node = r.kernel().node(view).unwrap();
+        match exact_kernel::gradient::BackgroundImage::check(value) {
+            Ok(image) => assert_eq!(node.style.background_image, image),
+            Err(reason) => {
+                assert!(!node.style.mask.has(StyleId::BackgroundImage));
+                assert!(
+                    r.journal()
+                        .any(|line| line.contains("invalid background-image")
+                            && line.contains(value)
+                            && line.contains(reason)),
+                    "missing reason: {reason}"
+                );
+            }
+        }
+        assert!(!r.is_poisoned());
+    }
+}
+
 /// A repeated key is the data's error, not a reason to restart.
 struct Duplicates;
 
