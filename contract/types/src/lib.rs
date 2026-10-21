@@ -43,7 +43,7 @@ mod selection;
 mod shadows;
 mod tasks;
 pub use bounds::MAX_TYPE_DEPTH;
-pub use payload::handler_arity_message;
+pub use payload::{handler_arity_message, handler_signature};
 pub use selection::event_record;
 /// The strings call and the tables it is checked against (LLP 1060).
 pub mod strings;

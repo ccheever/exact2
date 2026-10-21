@@ -17,6 +17,35 @@ fn stdout(output: &Output) -> String {
     String::from_utf8(output.stdout.clone()).unwrap()
 }
 
+/// A handler's entry leads with the action it calls (the euxy port guessed
+/// `scroll=` passed one `ScrollEvent`; `moved(x, y)` was a later bullet).
+#[test]
+fn a_handler_leads_with_the_action_it_calls() {
+    let out = stdout(&vocab(&["scroll"]));
+    let lines: Vec<&str> = out.lines().collect();
+    let at = lines.iter().position(|l| *l == "scroll: handler attribute");
+    let next = at.and_then(|i| lines.get(i + 1)).copied().unwrap_or("");
+    assert_eq!(
+        next,
+        "  `scroll=act` calls `action act(scrollLeft: number, scrollTop: number)`, or `action act(scrollLeft: number, scrollTop: number, event: ScrollEvent)` for its `ScrollEvent`",
+        "{out}"
+    );
+    let out = stdout(&vocab(&["press"]));
+    assert!(
+        out.contains("`press=act` calls `action act`, or `action act(event: MouseEvent)`"),
+        "{out}"
+    );
+    let json: Value = serde_json::from_str(&stdout(&vocab(&["--json", "scroll"]))).unwrap();
+    assert!(
+        json.to_string()
+            .contains("`scroll=act` calls `action act(scrollLeft: number, scrollTop: number)`"),
+        "{json}"
+    );
+    // A record that depends on the element (a field's `InputEvent`) is no one signature.
+    let out = stdout(&vocab(&["selectionchange"]));
+    assert!(!out.contains("`selectionchange=act` calls"), "{out}");
+}
+
 /// LLP 1116.009 D6: a builder guessed a colour role (tip-splitter), so a colour property's entry lists the roles it takes:
 /// Exact's, written `-exact-<role>`, and CSS's system colours by name; a property that is not a colour lists none.
 #[test]

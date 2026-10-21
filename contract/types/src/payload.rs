@@ -152,3 +152,31 @@ pub fn handler_arity_message(
     }
     format!("{calls}; declare {declaration}")
 }
+
+/// The action `event=act` calls, for `contract vocab`: what the event
+/// appends, then optionally its record. `None` where the payload or record
+/// depends on the element (`change`, `input`, `select`, `selectionchange`)
+/// or the payload is optional (`navigate`): the refusal of a wrong arity
+/// spells the one that fits there.
+pub fn handler_signature(event: &str) -> Option<String> {
+    if matches!(
+        event,
+        "change" | "input" | "select" | "selectionchange" | "navigate"
+    ) {
+        return None;
+    }
+    let mut params: Vec<String> = payload(event, None)
+        .iter()
+        .map(|(n, ty, _)| format!("{n}: {ty}"))
+        .collect();
+    let declare = |params: &[String]| match params {
+        [] => "`action act`".to_string(),
+        _ => format!("`action act({})`", params.join(", ")),
+    };
+    let mut signature = format!("`{event}=act` calls {}", declare(&params));
+    if let Some(record) = crate::event_record(event) {
+        params.push(format!("event: {record}"));
+        signature += &format!(", or {} for its `{record}`", declare(&params));
+    }
+    Some(signature)
+}

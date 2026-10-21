@@ -862,6 +862,9 @@ fn attr_json(name: &str, a: &AttrTarget) -> Value {
         }
         AttrTarget::Handler(event) => {
             doc["event"] = (*event).into();
+            if let Some(calls) = contract_types::handler_signature(name) {
+                doc["calls"] = calls.into();
+            }
             if name == "contextmenu" {
                 doc["note"] = CONTEXTMENU.into();
             }
@@ -1061,7 +1064,12 @@ fn attr_detail(name: &str, a: &AttrTarget) -> Vec<String> {
         AttrTarget::Handler(event) if name == "navigate" => {
             vec![format!("event {event}"), NAVIGATE.into()]
         }
-        AttrTarget::Handler(event) => vec![format!("event {event}")],
+        // The action's signature first: the scroll port guessed one
+        // `ScrollEvent` parameter, and `moved(x, y)` was a later bullet.
+        AttrTarget::Handler(event) => contract_types::handler_signature(name)
+            .into_iter()
+            .chain([format!("event {event}")])
+            .collect(),
         AttrTarget::Surface => vec!["a canvas's surface binding: surface=name(args)".into()],
         AttrTarget::MediaMetadata => vec![
             format!("record {METADATA}"),
