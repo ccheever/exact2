@@ -247,15 +247,20 @@ fn a_length_keeps_the_terminal_column_and_a_shadow_has_none() {
 }
 
 /// A zero is never negative (rt1's D1 carry-over): `calc(space.md * -0)`
-/// compiles to a px length of -0 (B3's own `lengths` keep its sign), and a
-/// length over a base may fold to zero; each is `0px` in every column's
-/// text and 0 among its numbers.
+/// compiles to a px length of -0, and a length over a base may fold to
+/// zero; each is `0px` in every column's text and 0 among its numbers, and
+/// B3's own `lengths` write it 0 too (theme2's 18:45, *1.16*).
 #[test]
 fn a_zero_is_never_negative() {
     let dir = app("shadow-columns-zero", DESIGN);
     let mut s = Serve::start(&dir, &[]);
     let r = token(&mut s, "resolve", "flip");
     let tuple = &r["tuples"][0];
+    let lengths = &tuple["shadows"][0]["lengths"];
+    assert!(
+        !lengths[0].as_f64().unwrap().is_sign_negative(),
+        "B3's lengths: {r}"
+    );
     for (key, c) in drawing() {
         let text = format!("0px 0px {}px #000000ff", px("space.md", c));
         assert_eq!(tuple["columns"][key]["value"], text, "{key} {r}");

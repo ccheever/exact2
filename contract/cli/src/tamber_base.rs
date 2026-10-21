@@ -441,7 +441,8 @@ impl Server {
                                     .lengths
                                     .iter()
                                     .map(|l| match l {
-                                        ShadowLength::Px(n) => json!(n),
+                                        // A zero never negative (`calc(space.md * -0)`), *1.16*.
+                                        ShadowLength::Px(n) => json!(if *n == 0.0 { 0.0 } else { *n }),
                                         ShadowLength::Base(_) => Value::Null,
                                     })
                                     .collect();
