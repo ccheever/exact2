@@ -635,6 +635,7 @@ pub fn compile_watch(app: &Path, entry: &manifest::WatchEntry) -> Result<Plan, V
             related: Box::default(),
         }]);
     }
+    // The app's own plan's profile: the watch runs the same runner and kernel.
     compile_path_checked(&path, &src, false, true, contract_lower::Profile::Web)
         .map(|(plan, _)| plan)
 }

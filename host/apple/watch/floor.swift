@@ -1,8 +1,22 @@
 // The watch floor: an empty hand-built SwiftUI watch app, the launch a watch app
-// costs before any of Exact's (LLP 1126.002 §4, the startup budget). It prints its
-// first frame in ms after the kernel started the process, as the watch app's
-// `exact-watch phases` line does: `swiftc -O -parse-as-library -target
-// arm64-apple-watchos26.0 -sdk <watchos> -o <bundle>/ExactFloor host/apple/watch/floor.swift`.
+// costs before any of Exact's (LLP 1126.002 §4, the startup budget: Exact's share
+// is the watch app's first frame less this one's, same watch, same build kind).
+// It prints its first frame in ms after the kernel started the process, as the
+// watch app's launch phases line does. To build and run it on a watch:
+//   1. `xcrun --sdk watchos swiftc -O -parse-as-library -target arm64-apple-watchos26.0
+//      -sdk $(xcrun --sdk watchos --show-sdk-path) -o ExactFloor.app/ExactFloor floor.swift`
+//   2. `ExactFloor.app/Info.plist`: CFBundleIdentifier `com.exact.floor.watchkitapp`,
+//      CFBundleExecutable `ExactFloor`, CFBundlePackageType `APPL`, CFBundleVersion `1`,
+//      CFBundleShortVersionString `0.1.0`, CFBundleSupportedPlatforms `[WatchOS]`,
+//      DTPlatformName `watchos`, MinimumOSVersion `26.0`, UIDeviceFamily `[4]`,
+//      WKApplication and WKWatchOnly `true`.
+//   3. Copy a development profile naming the watch to `embedded.mobileprovision`; sign
+//      with entitlements `application-identifier` (`<prefix>.com.exact.floor.watchkitapp`),
+//      `com.apple.developer.team-identifier` and `get-task-allow`: `codesign --force
+//      --sign <identity> --entitlements <plist> ExactFloor.app`.
+//   4. `xcrun devicectl device install app --device <watch> ExactFloor.app`, then ten or
+//      more `xcrun devicectl device process launch --console --terminate-existing
+//      --device <watch> com.exact.floor.watchkitapp`, the watch awake; take the median.
 import SwiftUI
 
 private func processStart() -> Date {
