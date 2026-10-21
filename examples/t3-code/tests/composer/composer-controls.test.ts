@@ -308,6 +308,12 @@ describe('docked banners, activity and the provider control', () => {
     // Not laid out yet: no button.
     client.presentation.anchors = {};
     expect(withNoticeDetails(client, [base] as never[], 16)[0]!.details).toBe(false);
+    // A roster measures its links (medium), plain items and commas: 120 + 4 + 90 = 214 natural.
+    const roster = { ...base, id: 'r', description: 'Review, npm test', segments: [{ key: '0', label: 'Review', threadId: 'c', aria: '', last: false }, { key: '1', label: 'npm test', threadId: '', aria: '', last: true }] };
+    client.presentation.anchors = { [probeKey('Review', 12, 500)]: [0, 120], [probeKey(', ', 12, 400)]: [0, 4], [probeKey('npm test', 12, 400)]: [0, 90], 'nd:r': [40, 200] };
+    expect(withNoticeDetails(client, [roster] as never[], 16)[0]!.details).toBe(true);
+    client.presentation.anchors = { ...client.presentation.anchors as object, 'nd:r': [40, 220] };
+    expect(withNoticeDetails(client, [roster] as never[], 16)[0]!.details).toBe(false);
   });
   test('a lone subagent link reads Show, several name each subagent', () => {
     expect(presentBackgroundWork([{ kind: 'subagent', description: 'Review', childThreadId: 'c1' }])!.segments)

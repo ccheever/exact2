@@ -219,19 +219,25 @@ export function frameTops(presentation: Obj) {
 }
 
 /**
- * NoticeDescription (ComposerBannerStack.tsx): a plain description offers its details while its natural width (its
- * probe) exceeds the width it was laid out at (its `nd:` anchor). While the button shows, its 24pt and the 4pt gap
- * before it count as room, so it cannot keep itself shown once the text would fit.
+ * NoticeDescription (ComposerBannerStack.tsx): a description, plain or a roster of segments, offers its details while
+ * its natural width (its probes) exceeds the width it was laid out at (its `nd:` anchor). While the button shows, its
+ * 24pt and the 4pt gap before it count as room, so it cannot keep itself shown once the text would fit.
  */
 const detailsShown = new WeakMap<T3Client, Set<string>>();
-const plainDescription = (notice: ComposerNotice) => !!notice.description && !notice.segments.length && !notice.redact && !notice.machines.length;
+const measurable = (notice: ComposerNotice) => (!!notice.description || notice.segments.length > 0) && !notice.redact && !notice.machines.length;
+/** The texts a description lays out, each at its size and weight: a roster's links are medium, its commas regular. */
+function descriptionTexts(notice: ComposerNotice): Array<[string, number]> {
+  if (!notice.segments.length) return [[notice.description, 400]];
+  return notice.segments.flatMap(segment => [[segment.label, segment.threadId ? 500 : 400] as [string, number], ...(segment.last ? [] : [[', ', 400] as [string, number]])]);
+}
 export function withNoticeDetails<T extends ComposerNotice>(client: T3Client, notices: T[], rootFontSize: number): T[] {
   const anchors = obj(client.presentation.anchors), shown = detailsShown.get(client), next = new Set<string>();
   const width = (name: string) => { const value = anchors[name]; return Array.isArray(value) ? Number(value[1]) : NaN; };
   const out = notices.map(notice => {
-    if (!plainDescription(notice)) return notice;
-    const laidOut = width(`nd:${notice.id}`), natural = width(probeKey(notice.description, 12, 400)) * rootFontSize / 16;
-    if (!(laidOut >= 0) || !(natural > 0)) return notice;
+    if (!measurable(notice)) return notice;
+    const laidOut = width(`nd:${notice.id}`), parts = descriptionTexts(notice).map(([text, weight]) => width(probeKey(text, 12, weight)));
+    if (!(laidOut >= 0) || !parts.every(part => part > 0)) return notice;
+    const natural = parts.reduce((sum, part) => sum + part, 0) * rootFontSize / 16;
     const details = natural > laidOut + (shown?.has(notice.id) ? 28 * rootFontSize / 16 : 0) + 0.5;
     if (details) next.add(notice.id);
     return { ...notice, details };
@@ -281,7 +287,7 @@ export function composerSnapshot(client: T3Client, now = 0) {
     sendTipWidth: Math.ceil(measured(client.presentation, action.sendTooltip, 12, 400) + 18),
     // Menu widths from measured texts (composer-menus.ts); Run on's labels join the probes.
     ...composerMenus(client.presentation, view, environmentView(client).envOptions.map(option => option.label),
-      [probe(action.sendTooltip, 12, 400), ...notices.filter(plainDescription).map(notice => probe(notice.description, 12, 400)), ...stripLabelTexts(client).map(text => probe(text, 12, 400))]),
+      [probe(action.sendTooltip, 12, 400), ...notices.filter(measurable).flatMap(notice => descriptionTexts(notice).map(([text, weight]) => probe(text, 12, weight))), ...stripLabelTexts(client).map(text => probe(text, 12, 400))]),
     stripCompact: stripLabelsCompact(client, rootFontSize),
     syncStatus: bar.subagent ? '' : sync, activity: bar.subagent ? '' : activity, activityFront: !bar.subagent && activityFront, activityLast: !bar.subagent && activityLast, notices, resetConfirm: bar.subagent ? '' : usageConfirm(client), implementX: anchors.implement.x, implementWidth: anchors.implement.width }, rootFontSize);
 }

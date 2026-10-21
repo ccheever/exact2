@@ -427,9 +427,13 @@ function present(row: Row, context: PresentContext): Message {
     case 'checkpoint': return { ...base, kind: 'checkpoint', title: 'Changes', checkpointId: str(row.entry.item.checkpointId), runId: str(row.entry.item.runId),
       sourceThreadId: str(row.entry.row.sourceThreadId), files: arr(row.entry.item.files).map(file => ({ path: str(file.path), additions: num(file.additions), deletions: num(file.deletions) })) };
     case 'event': if (row.entry.item.type === 'secret_request') return { ...base, kind: 'secret', secret: secretCard(context.client, row.entry.item, row.entry.row.visibility) };
-      return { ...base, ...eventRow(row.entry.item, row.subagents, row.entry.row, { agents: context.subagents, providers: context.providers, runs: arr(context.client.projection.runs), threads: context.threads }),
-        // A group of subagents opens and closes as a work group does (the `group` toggle, kept per thread).
-        groupId: `subagent-group:${row.id}`, expanded: view.open.has(scoped(context.client, 'group', `subagent-group:${row.id}`)) };
+    {
+      const event = eventRow(row.entry.item, row.subagents, row.entry.row, { agents: context.subagents, providers: context.providers, runs: arr(context.client.projection.runs), threads: context.threads });
+      if (event.kind !== 'subagents') return { ...base, ...event };
+      // A group of subagents opens and closes as a work group does (the `group` toggle, kept per thread).
+      const groupId = `subagent-group:${row.id}`;
+      return { ...base, ...event, groupId, expanded: view.open.has(scoped(context.client, 'group', groupId)) };
+    }
 
     case 'meta': return { ...base, kind: 'meta', body: str(row.entry.item.text), runId: str(row.entry.item.runId), completed: true, canFork: forkable(context.client, row.entry.row, row.entry.item),
       actionsId: row.entry.id, copied: view.copies.get(row.entry.id)?.nonce ?? 0, copyFailed: view.copies.get(row.entry.id)?.ok === false };

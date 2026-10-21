@@ -7,6 +7,7 @@ use TextProbes from "./composer-label-probes.contract"
 use Viewport from "../shared/shapes.contract"
 use ProviderInstanceMark from "../shared/icons-kit.contract"
 use ComposerNotice from "./composer-shapes.contract"
+use NoticeSegment from "./composer-shapes.contract"
 use ComposerQueued from "./composer-shapes.contract"
 use ComposerBranches from "./composer-shapes.contract"
 use KmItem, kmTarget, kmReturn from "../shared/menu-keys.contract"
@@ -1091,7 +1092,7 @@ component NoticeRow
               text notice.title font-size="0.75rem" font-weight=500 line-height="1.5rem" color="light-dark(#27272a, #f5f5f5)" min-width=0 line-clamp=1 testId=`notice-title-${notice.id}`
           if notice.segments.length > 0
             // The background-work roster: a subagent with its own thread is an InlineButton (tone muted).
-            row width=0 flex-grow=1 min-width=0 align-items="center" overflow="hidden" testId=`notice-segments-${notice.id}`
+            row width=0 flex-grow=1 min-width=0 align-items="center" overflow="hidden" hatch="t3-anchor" data-anchor=`nd:${notice.id}` testId=`notice-segments-${notice.id}`
               for seg in notice.segments key=seg.key
                 if seg.threadId != ""
                   button press=command("select-thread", seg.threadId, "", 0) disabled=busy aria-label=seg.aria testId=`notice-open-${seg.threadId}` padding=0 border-width=0 background-color="#00000000" display="flex" flex-direction="row" flex-shrink=0
@@ -1100,6 +1101,8 @@ component NoticeRow
                   text seg.label font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)" white-space="nowrap" flex-shrink=0
                 if not seg.last
                   text ", " font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)" white-space="pre" flex-shrink=0
+            if notice.details
+              NoticeDetails(id=notice.id, label="Show notice details", text=notice.description, segments=notice.segments, busy=busy, command=command)
           else
             if notice.redact != ""
               // An account address stays blurred until clicked (AccountSummary).
@@ -1109,7 +1112,7 @@ component NoticeRow
               // NoticeDescription: its laid-out width (the `nd:` anchor) against its natural width decides `details`.
               text notice.description font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)" width=0 flex-grow=1 min-width=0 line-clamp=1 hatch="t3-anchor" data-anchor=`nd:${notice.id}` testId=`notice-description-${notice.id}`
               if notice.details
-                NoticeDetails(label="Show notice details", text=notice.description, testId=`notice-details-${notice.id}`)
+                NoticeDetails(id=notice.id, label="Show notice details", text=notice.description, segments=[], busy=busy, command=command)
         if notice.action != "" or notice.action2 != "" or notice.dismiss != ""
           row margin-left="auto" gap="0.25rem" align-items="center" justify-content="flex-end" flex-shrink=0 testId=`notice-actions-${notice.id}`
             if notice.action != ""
@@ -1130,25 +1133,58 @@ component NoticeRow
           for line in notice.lines key=line
             text line font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)"
 
-// NoticeDescription's details button: shown only while the description is clipped;
-// hovering or pressing it shows the whole description above it (a hover Popover in
-// the tooltip style there).
+// NoticeDescription's details: an info button, shown only while the description is
+// clipped, opens the whole description above it (Popover openOnHover, tooltipStyle,
+// side="top"). Hovering the button or the card shows it; a press keeps it open until
+// Escape, a press outside or another press. It wraps anywhere within min(30rem,
+// 100vw - 2rem) and scrolls past min(24rem, 40vh). A roster's subagent links stay
+// links inside it.
 component NoticeDetails
+  inject
+    rem: number
   props
+    id: string
     label: string
     text: string
-    testId: string
-  state over = false
-  state open = false
+    segments: NoticeSegment[]
+    busy: bool
+    command: action
+  state pinned = false
+  state shown = false
   action hover(value: bool)
-    over = value
-  action toggle
-    open = not open
+    if value
+      showPopover(`notice-details-card-${id}`, source=`notice-details-${id}`)
+    else if not pinned
+      hidePopover(`notice-details-card-${id}`)
+  action pressed
+    if pinned and shown
+      hidePopover(`notice-details-card-${id}`)
+    else
+      pinned = true
+      showPopover(`notice-details-card-${id}`, source=`notice-details-${id}`)
+  action toggled(e: ToggleEvent)
+    shown = e.newState == "open"
+    if not shown
+      pinned = false
   view
     box position="relative" display="flex" flex-shrink=0 hover=hover
-      button press=toggle aria-label=label aria-expanded=(over or open) testId=testId width="1.5rem" height="1.5rem" padding=0 border-radius="0.5rem" border-width=0 background-color=(over or open ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") display="flex" flex-direction="row" align-items="center" justify-content="center" title=""
+      button id=`notice-details-${id}` press=pressed aria-label=label aria-expanded=shown aria-haspopup="dialog" testId=`notice-details-${id}` width="1.5rem" height="1.5rem" padding=0 border-radius="0.5rem" border-width=0 background-color=(shown ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") display="flex" flex-direction="row" align-items="center" justify-content="center" title=""
         CcIcon(name="info", size=14, color="light-dark(#71717b, #818181)", weight=2)
-      TipBubble(label=text, side="top", align="center", offset=28, inset=0, shown=(over or open))
+      // The 4pt between the card and the button is the card's own padding, so the pointer crossing it stays on the card.
+      column id=`notice-details-card-${id}` popover="auto" toggle=toggled role="dialog" aria-label="Notice details" position="absolute" position-area="top" position-try-fallbacks="flip-block, flip-inline, flip-block flip-inline" padding-bottom="0.25rem" max-width=`min(${30 * rem}px, calc(100vw - ${2 * rem}px))` background-color="#00000000" testId=`notice-details-card-${id}`
+        scroll max-height=`min(${24 * rem}px, 40vh)` padding-left="0.5rem" padding-right="0.5rem" padding-top="0.25rem" padding-bottom="0.25rem" box-sizing="border-box" border-radius="0.5rem" border-style="solid" border-width=1 border-color="light-dark(#e4e4e7, #ffffff0f)" background-color="light-dark(#ffffff, #111111)" box-shadow="0 4px 6px -1px #0000000d, 0 2px 4px -2px #0000000d"
+          if segments.length > 0
+            row flex-wrap="wrap" align-items="baseline"
+              for seg in segments key=seg.key
+                if seg.threadId != ""
+                  button press=command("select-thread", seg.threadId, "", 0) disabled=busy aria-label=seg.aria padding=0 border-width=0 background-color="#00000000" display="flex" flex-direction="row" title=""
+                    text seg.label font-size="0.75rem" font-weight=500 line-height="1.03125rem" overflow-wrap="anywhere" text-align="left" color="light-dark(#71717b, #818181)"
+                else
+                  text seg.label font-size="0.75rem" line-height="1.03125rem" overflow-wrap="anywhere" color="light-dark(#27272a, #f5f5f5)"
+                if not seg.last
+                  text ", " font-size="0.75rem" line-height="1.03125rem" white-space="pre" color="light-dark(#27272a, #f5f5f5)"
+          else
+            text text font-size="0.75rem" line-height="1.03125rem" white-space="normal" overflow-wrap="anywhere" color="light-dark(#27272a, #f5f5f5)" testId=`notice-details-text-${id}`
 
 // ComposerActivityRow: the thread is loading or resynchronising.
 component SyncRow
