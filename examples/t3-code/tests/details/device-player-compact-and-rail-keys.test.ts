@@ -59,6 +59,16 @@ describe('ThreadDetailsCard measures its content per density', () => {
     expect(resolveThreadDetailsCardDensity(250, { full: expanded.full!, compact: expanded.compact! })).toBe('full');
   });
 
+  // The expanded list of other pull requests scrolls with the card, as Lineage does.
+  test('expanding a long pull request list keeps the section and workspace controls', () => {
+    const measured = (list: number) => measureThreadDetailsCard({ ...fullLayout, [DETAILS_FRAMES.content]: [1292, 64, 280, 325 + list], [DETAILS_FRAMES.prList]: [1300, 210, 264, list] });
+    const collapsed = measureThreadDetailsCard(fullLayout), expanded = measured(480);
+    expect([expanded.full, expanded.compact, expanded.content]).toEqual([collapsed.full, collapsed.compact, FULL + 480]);
+    expect(resolveThreadDetailsCardDensity(400, { full: expanded.full!, compact: expanded.compact! })).toBe('full');
+    // Shown compact, the list is left out the same way.
+    expect(measureThreadDetailsCard({ [DETAILS_FRAMES.content]: [0, 0, 280, 660], [DETAILS_FRAMES.compact]: [0, 0, 0, 0], [DETAILS_FRAMES.prList]: [0, 120, 264, 480] })).toEqual({ compact: 182 });
+  });
+
   test('resolveThreadDetailsCardDensity: full while it fits, then compact, then essential', () => {
     expect(resolveThreadDetailsCardDensity(400, { full: FULL, compact: COMPACT })).toBe('full');
     expect(resolveThreadDetailsCardDensity(250, { full: FULL, compact: COMPACT })).toBe('compact');

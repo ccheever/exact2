@@ -3,7 +3,9 @@
 // from its trigger. The wrapper owns hover; the bubble is mounted with the
 // trigger (opacity 0) so its delayed fade has a starting value, sits after the
 // trigger in paint order and never takes hits. `side` is where the reference
-// lands after collision flipping; `align` where it lands after shifting.
+// lands after collision flipping; `align` where it lands after shifting. Focus that
+// enters the trigger from the keyboard shows it too (Base UI opens a tooltip on its
+// trigger's focus), so a control that cannot act still says why; focus a press gave does not.
 component Tip
   props
     label: string
@@ -12,13 +14,22 @@ component Tip
     offset: number
   slot
   state over = false
+  state focused = false
+  state pressed = false
   action setOver(value: bool)
     over = value
+  action focusEntered(e: FocusEvent)
+    focused = true
+  action focusLeft(e: FocusEvent)
+    focused = false
+    pressed = false
+  action pressDown(e: PointerEvent)
+    pressed = true
   view
-    box position="relative" hover=setOver flex-shrink=0 display="flex" flex-direction="row" align-items="center" min-width=0
+    box position="relative" hover=setOver focusin=focusEntered focusout=focusLeft pointerdown=pressDown flex-shrink=0 display="flex" flex-direction="row" align-items="center" min-width=0
       children
       if label != ""
-        TipBubble(label=label, side=side, align=align, offset=offset, inset=0, shown=over)
+        TipBubble(label=label, side=side, align=align, offset=offset, inset=0, shown=(over or (focused and not pressed)))
 
 // TooltipScrollDismissArea (ui/tooltip.tsx; T3 Code 1e2ecbd975, MIT, see LICENSE-T3): a tooltip in the transcript
 // closes when the transcript scrolls, unless its trigger holds the focus, and stays closed until the pointer moves.

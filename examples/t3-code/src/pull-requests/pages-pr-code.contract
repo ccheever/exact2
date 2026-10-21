@@ -13,6 +13,7 @@ use DiffTool from "../diff/diff-rows.contract"
 use DiffGlyph from "../diff/diff-glyphs.contract"
 use diffInk from "../appearance/settings-appearance-look.contract"
 use PgIcon from "../shared/pages-icons.contract"
+use PrdDiffUnavailable from "./pages-pr-diff-unavailable.contract"
 use LayerTip from "../shell/hover-layer.contract" // the Tips on the window's hover layer (#307), so the list and the cards around them do not clip them
 use PrMenuBox from "./pages-prs.contract"
 use PrMenuItem from "./pages-prs.contract"
@@ -53,6 +54,10 @@ shape PrCodeView
   key: string
   phase: string
   message: string
+  errorTitle: string
+  errorDescription: string
+  providerName: string
+  url: string
   raw: PrCodeRaw[]
   scopeLabel: string
   allSelected: bool
@@ -93,6 +98,7 @@ shape PrCodeView
   treeBusy: bool
   draftOpen: bool
   canComment: bool
+  reviewable: bool
   viewedQueued: number
   threadPending: bool
 
@@ -178,7 +184,9 @@ component PrdCode
             box width="66%" height="0.625rem" border-radius="0.3125rem" background-color="light-dark(#f0f0f1, #161616)"
             box width="80%" height="0.625rem" border-radius="0.3125rem" background-color="light-dark(#f0f0f1, #161616)"
             box width="60%" height="0.625rem" border-radius="0.3125rem" background-color="light-dark(#f0f0f1, #161616)"
-      if code.phase == "error" or code.phase == "empty"
+      if code.phase == "error"
+        PrdDiffUnavailable(error=code.message, title=code.errorTitle, description=code.errorDescription, providerName=code.providerName, url=code.url, retry=press("retry", ""))
+      if code.phase == "empty"
         text code.message padding-left="1rem" padding-right="1rem" padding-top="1.25rem" padding-bottom="1.25rem" font-size="0.875rem" line-height="1.25rem" color=pcMuted() testId="pull-request-code-message"
       if code.phase == "raw"
         PrdCodeRaw(raw=code.raw, bordered=false)
@@ -430,7 +438,7 @@ component PrdCodeRow
           if item.kind == "pr-pending"
             PrdPendingCard(id=item.entry, body=item.text, discard=press("discard", item.entry))
           if item.kind == "pr-draft"
-            PrdCodeDraft(rangeLabel=item.label, text=draftText, selected=item.selected, edit=editDraft, cancel=cancel, add=add, agent=agent, local=local)
+            PrdCodeDraft(rangeLabel=item.label, text=draftText, selected=item.selected, reviewable=code.reviewable, edit=editDraft, cancel=cancel, add=add, agent=agent, local=local)
           if item.selected
             box position="absolute" left=0 top=0 bottom=0 width="0.25rem" background-color=diffSel("bar")
       if item.kind == "pr-footer"

@@ -11,6 +11,7 @@ import { forget as forgetStandin } from "../acp-standin/install.mjs";
 import { makeHub, HUB_ACCOUNTS } from "./usage-hub.mjs";
 import { answer, PULL_REQUEST } from "./gh-standin.mjs";
 import { respond } from "./github-api-standin.mjs";
+import { resetDetail } from "./github-api-detail.mjs";
 import { githubCertificates, ENVIRONMENTS, HUB, LOCAL_PORT, SEEDS, STANDIN_INSTANCE, assertOfflinePortClosed, checkPort, envDir, fixturePaths, offlineEnv, run, seedRepository, seedSettings, serverEnv, setupEnvironment, standinInstance, turnCompleted, turnSeeded, welcomeWait } from "./lib.mjs";
 
 const root = mkdtempSync(join(tmpdir(), "t3-fixture-env-test-"));
@@ -186,9 +187,24 @@ describe("the GitHub API stand-in (seed --pull-request)", () => {
     expect(graphql("query PullRequestSummary($owner:String!){}", { owner: "t3-fixture", name: "shared-notes", number: 7, stacks: false }).data.repository.pullRequest)
       .toMatchObject({ state: "OPEN", isDraft: false, mergeable: "MERGEABLE", additions: 12 });
     expect(graphql("query PullRequestByNumber($owner:String!){}", { owner: "other", name: "repo", number: 7 }).data.repository).toBeNull();
-    expect(graphql("query PullRequestCore($owner:String!){}", {}).errors[0].message).toContain("PullRequestCore");
+    expect(graphql("query PullRequestSearch($owner:String!){}", {}).errors[0].message).toContain("PullRequestSearch");
     expect(JSON.parse(respond("GET", "/user", "").body)).toMatchObject({ login: PULL_REQUEST.author });
     expect(respond("GET", "/repos/t3-fixture/shared-notes/pulls/7/files", "").status).toBe(404);
+  });
+  test("answers the detail panel: core with its checks, activity, review threads, the patch, then a comment and a close", () => {
+    resetDetail();
+    const v = { owner: "t3-fixture", name: "shared-notes", number: 7 };
+    const core = graphql("query PullRequestCore($owner:String!){}", { ...v, headRef: "refs/pull/7/head", required: true }).data.repository.pullRequest;
+    expect([core.state, core.commits.nodes[0].commit.statusCheckRollup.contexts.nodes.map((node: { name?: string; context?: string }) => node.name ?? node.context)]).toEqual(["OPEN", ["build", "lint", "test (macos)", "docs/preview"]]);
+    const threads = graphql("query ReviewThreads($owner:String!){}", v).data.repository.pullRequest.reviewThreads.nodes;
+    expect(threads[0].comments.nodes.map((comment: { id: string }) => comment.id)).toEqual(["PRRC_1", "PRRC_2"]);
+    const patch = respond("GET", "/repos/t3-fixture/shared-notes/pulls/7", "", "application/vnd.github.diff");
+    expect([patch.status, patch.body.includes("+++ b/notes/outline.ts")]).toEqual([200, true]);
+    graphql("mutation AddComment($subjectId:ID!){}", { subjectId: "PR_7", body: "Superseded by #8" });
+    graphql("mutation ClosePullRequest($pullRequestId:ID!){}", { pullRequestId: "PR_7" });
+    const comments = graphql("query PullRequestActivity($owner:String!){}", { ...v, head: true, withComments: true, withReviews: true }).data.repository.pullRequest.comments.nodes;
+    expect([comments.at(-1).body, graphql("query PullRequestCore($owner:String!){}", { ...v, headRef: "refs/pull/7/head", required: true }).data.repository.pullRequest.state]).toEqual(["Superseded by #8", "CLOSED"]);
+    resetDetail();
   });
   test("its certificate is made once, and again when it would expire within a day", () => {
     const dir = join(root, "github-certs");

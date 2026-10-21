@@ -50,7 +50,8 @@ export class DiffState {
   selection: { scope: string; path: string; range: SelectedLineRange } | null = null;
   /** The gutter's drag in progress (diff-line-drag.ts), in the selection's scope. */
   drag: LineDrag | null = null;
-  draft: { scope: string; path: string; id: string; range: SelectedLineRange; rangeLabel: string } | null = null;
+  /** `previous` and `status`: the file's old path and change type as the draft opened, which name its file (AnnotatableCodeView's fileKey). */
+  draft: { scope: string; path: string; previous: string; status: string; id: string; range: SelectedLineRange; rangeLabel: string } | null = null;
   saved: { contextId: string; scope: string; path: string; range: SelectedLineRange; rangeLabel: string; text: string }[] = [];
   /** The thread whose open draft's textarea took the focus ('' when it let go): the composer's Send then leaves ⌘↩ to it
    * (composer-presentation.ts). The host sends no blur when a focused view leaves the tree (LLP 1008), so it counts only
@@ -322,6 +323,13 @@ export function diffSnapshot(client: T3Client, now: number) {
   const state = client.diffState, selection = currentSelection(client), turns = turnSummaries(client.projection);
   // Outside git nothing is listed, not even files a fetch before the status arrived returned.
   const notGit = diffNotGit(client), files = notGit ? [] : diffFiles(client), lazy = state.lazy, scope = state.scopeKey, section = reviewSection(client);
+  // AnnotatableCodeView: a draft whose file is no longer listed (another scope, or a refresh that dropped or changed the
+  // file) is released, so it stops holding the gutter. A file is its path, old path and change type; a lazy file still
+  // loading has a provisional change type, so its two paths are enough.
+  const draftFile = (file: FileView) => file.path === state.draft!.path && file.previous === state.draft!.previous && (file.pending || file.status === state.draft!.status);
+  if (state.draft && !client.diffLoading && (state.draft.scope !== scope || !files.some(draftFile))) {
+    state.draft = null; state.selection = null; noteDraftFocus(client, false);
+  }
   state.find.reset(scope);
   state.find.search(files.map(file => ({ path: file.path, lines: reviewLinesOf(state, file) })));
   const findMatch = state.find.active;

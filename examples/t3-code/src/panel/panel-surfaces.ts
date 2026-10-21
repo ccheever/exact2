@@ -32,7 +32,7 @@ import { openThreadPullRequest, linkedLocal, linkedCommand, linkedTab, linkedVie
 import { emptyAttachment, type AttachmentView, type AttachmentMeta } from './attachment-surface';
 import { crumbsHidden } from './files-crumbs-mount'; // The Files preview unmounted
 import { restoreRightPanel } from './saved-panel'; // The panel as the last launch left it
-import { restoredEffects } from './saved-surfaces'; // With its Diff and device
+import { isDetailTab, restoredEffects } from './saved-surfaces'; // With its Diff and device
 import { deviceTargetOf, deviceThreadId, miniStoreOf, restoreDeviceTarget, type DeviceTarget } from '../device/device-session';
 import { ensureDraftThreadId } from '../composer/draft-thread-id';
 import type { PrTarget } from './pr-surface';
@@ -47,7 +47,10 @@ import { browserTabAudio, browserTabMute } from '../browser/browser-automation-t
 export type SurfaceKind = 'terminal' | 'diff' | 'files' | 'file' | 'pull-requests' | 'device' | 'pull-request' | 'attachment' | 'browser';
 export type Surface = { id: string; kind: SurfaceKind; path: string; line: number; reveal: number;
   /** Files and file surfaces: set when breadcrumbs moved a folder browser up, the deepest path the crumbs keep offering on the way back down. */
-  folderTrail?: string; pr?: PrTarget; attachment?: AttachmentMeta; device?: DeviceTarget; title?: string; terminal?: PanelTerminal; browser?: { tabId: string; threadKey: string } };
+  folderTrail?: string; pr?: PrTarget;
+  /** A pull request surface's detail tab as the reader left it (rightPanelStore `detailTab`); summary when unset. */
+  detailTab?: string;
+  attachment?: AttachmentMeta; device?: DeviceTarget; title?: string; terminal?: PanelTerminal; browser?: { tabId: string; threadKey: string } };
 export type PanelState = { surfaces: Surface[]; active: string; visible: boolean; userRevision: number; maximized?: boolean };
 export type PanelTab = { id: string; kind: string; title: string; icon: string; tone: string; fileToken: string; active: boolean; pending: boolean; renaming: boolean; renameValue: string; closeTitle: string; closeBody: string; closeTarget: string; menu: TabMenuRow[]; favicon: string; faviconFallback: string; audio: string };
 export type PanelView = {
@@ -237,6 +240,9 @@ export async function surfaceLocal(client: T3Client, native: Native, op: string,
   if (targetKey === panelKey(client)) syncDiff(client, state);
   if (op === 'maximize') { state.maximized = !state.maximized; return ''; }
   if (op === 'move') { moveSurface(state, id, Number(value)); return ''; }
+  // setPullRequestDetailTab: the tab a pull request surface shows, kept with the surface.
+  // The revision moves so the panels' save (syncRightPanels) writes the choice now, before a quick quit.
+  if (op === 'pr-tab') { const surface = state.surfaces.find(entry => entry.id === id && entry.kind === 'pull-request'); if (surface && isDetailTab(value) && surface.detailTab !== value) { surface.detailTab = value; state.userRevision++; } return ''; }
   state.userRevision++;
   installTerminalPanelCleanup(client, native, state, parseScopedThreadKey(targetKey)); installBrowserCleanup(client, native);
   if (op.startsWith('terminal-')) return terminalPanelLocal(client, native, op.slice(9), id, value);
