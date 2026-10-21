@@ -129,47 +129,68 @@ fn an_inset_three_boxes_down_restyles_its_route_and_nothing_above() {
     assert_eq!(f.y + f.height, 844.0 - 34.0, "the sheet keeps its padding");
 }
 
-/// The same with the covers said the other way round: the inset first, then
-/// the route's and the sheet's bars.
+/// The covers said in every order (round 2: a covered box that comes or
+/// goes decides where the chain stops), then the route's bar cleared: its
+/// scroller is then the sheet's.
 #[test]
 fn the_covers_in_any_order_leave_the_sheet_its_padding() {
-    let mut k = Kernel::with_monospace();
-    let mut ops = vec![];
-    for id in 1..=6 {
-        ops.push(Op::CreateView {
-            id,
-            node_type: NodeType::View,
-        });
+    let sheet = Some(HostCover::Edges([0.0, 0.0, 34.0, 0.0]));
+    let route = Some(HostCover::Edges([0.0, 0.0, 83.0, 0.0]));
+    let inset = Some(HostCover::Inset([0.0, 83.0]));
+    let orders = [
+        [0, 1, 2],
+        [0, 2, 1],
+        [1, 0, 2],
+        [1, 2, 0],
+        [2, 0, 1],
+        [2, 1, 0],
+    ];
+    for order in orders {
+        let mut k = Kernel::with_monospace();
+        let mut ops = vec![];
+        for id in 1..=6 {
+            ops.push(Op::CreateView {
+                id,
+                node_type: NodeType::View,
+            });
+            ops.push(style(
+                id,
+                &[
+                    (StyleId::Display, StyleValue::Text("flex".into())),
+                    (StyleId::FlexDirection, StyleValue::Text("column".into())),
+                    (StyleId::FlexGrow, StyleValue::Number(1.0)),
+                    (StyleId::MinHeight, StyleValue::Number(0.0)),
+                ],
+            ));
+        }
+        ops.push(style(1, &[(StyleId::Height, StyleValue::Number(844.0))]));
         ops.push(style(
-            id,
-            &[
-                (StyleId::Display, StyleValue::Text("flex".into())),
-                (StyleId::FlexDirection, StyleValue::Text("column".into())),
-                (StyleId::FlexGrow, StyleValue::Number(1.0)),
-                (StyleId::MinHeight, StyleValue::Number(0.0)),
-            ],
+            6,
+            &[(StyleId::OverflowY, StyleValue::Text("scroll".into()))],
         ));
+        for (parent, child) in [(1, 2), (2, 3), (3, 4), (4, 5), (5, 6)] {
+            ops.push(Op::SetChildren {
+                id: parent,
+                children: vec![child],
+            });
+        }
+        ops.push(Op::AttachRoot { id: 1 });
+        k.apply(0, 1, &ops).unwrap();
+        k.compute_layout(1, Offer::definite(390.0, 844.0)).unwrap();
+        for i in order {
+            let (id, cover) = [(2, sheet), (3, route), (6, inset)][i];
+            k.set_host_cover(id, cover).unwrap();
+        }
+        k.compute_layout(1, Offer::definite(390.0, 844.0)).unwrap();
+        let f = k.node(6).unwrap().frame;
+        assert_eq!(f.y + f.height, 844.0 - 34.0, "{order:?}");
+        k.set_host_cover(3, None).unwrap();
+        k.compute_layout(1, Offer::definite(390.0, 844.0)).unwrap();
+        let f = k.node(6).unwrap().frame;
+        assert_eq!(
+            f.y + f.height,
+            844.0,
+            "the route uncovered, the sheet's scroller: {order:?}"
+        );
     }
-    ops.push(style(1, &[(StyleId::Height, StyleValue::Number(844.0))]));
-    ops.push(style(
-        6,
-        &[(StyleId::OverflowY, StyleValue::Text("scroll".into()))],
-    ));
-    for (parent, child) in [(1, 2), (2, 3), (3, 4), (4, 5), (5, 6)] {
-        ops.push(Op::SetChildren {
-            id: parent,
-            children: vec![child],
-        });
-    }
-    ops.push(Op::AttachRoot { id: 1 });
-    k.apply(0, 1, &ops).unwrap();
-    k.set_host_cover(6, Some(HostCover::Inset([0.0, 83.0])))
-        .unwrap();
-    k.set_host_cover(3, Some(HostCover::Edges([0.0, 0.0, 83.0, 0.0])))
-        .unwrap();
-    k.set_host_cover(2, Some(HostCover::Edges([0.0, 0.0, 34.0, 0.0])))
-        .unwrap();
-    k.compute_layout(1, Offer::definite(390.0, 844.0)).unwrap();
-    let f = k.node(6).unwrap().frame;
-    assert_eq!(f.y + f.height, 844.0 - 34.0);
 }

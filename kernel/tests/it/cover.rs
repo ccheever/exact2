@@ -734,3 +734,95 @@ fn a_box_moved_onto_the_chain_or_off_it_re_derives_the_route() {
         .unwrap();
     assert_eq!(frame(&mut kernel, 4).3, 709.0, "the route padded again");
 }
+
+/// Round 2 (Astra, Grok): a footer attached, or moved away, after the
+/// route's cover has settled is placed past it, or no longer; a box that
+/// clips across (`overflow-x: hidden`, so its `visible` height scrolls as
+/// the engine computes it) is a scroller the chain stops at; and the
+/// padding the route reports is what layout pads.
+#[test]
+fn a_footer_attached_late_a_clipping_box_and_the_reported_padding() {
+    let mut kernel = nested();
+    kernel
+        .set_host_cover(6, Some(HostCover::Inset([0.0, 83.0])))
+        .unwrap();
+    assert_eq!(frame(&mut kernel, 4).3, 792.0);
+    let late = vec![
+        Op::CreateView {
+            id: 8,
+            node_type: NodeType::View,
+        },
+        Op::SetStyle {
+            id: 8,
+            patch: Box::new(style(&[
+                (StyleId::PositionType, StyleValue::Text("absolute".into())),
+                (StyleId::Bottom, StyleValue::Number(0.0)),
+                (StyleId::Left, StyleValue::Number(0.0)),
+                (StyleId::Height, StyleValue::Number(20.0)),
+                (StyleId::Width, StyleValue::Number(20.0)),
+            ])),
+        },
+        Op::SetChildren {
+            id: 2,
+            children: vec![3, 4, 7, 8],
+        },
+    ];
+    kernel.apply(1, 2, &late).unwrap();
+    assert_eq!(
+        frame(&mut kernel, 8).1,
+        844.0 - 83.0 - 20.0,
+        "attached late, on the bar"
+    );
+    // Moved into the header, which no bar covers: placed as written, at the
+    // foot of its containing block (the positioned route), under the bar.
+    let moved = [
+        Op::SetChildren {
+            id: 2,
+            children: vec![3, 4, 7],
+        },
+        Op::SetChildren {
+            id: 3,
+            children: vec![8],
+        },
+    ];
+    kernel.apply(1, 3, &moved).unwrap();
+    assert_eq!(
+        frame(&mut kernel, 8).1,
+        844.0 - 20.0,
+        "no longer past a cover"
+    );
+    // The route's own padding at its bottom, as layout pads it: the
+    // authored 16, none of the bar's.
+    kernel
+        .apply(
+            1,
+            4,
+            &[Op::SetStyle {
+                id: 2,
+                patch: Box::new(style(&[(StyleId::PaddingBottom, StyleValue::Number(16.0))])),
+            }],
+        )
+        .unwrap();
+    frame(&mut kernel, 4);
+    let key = kernel.node(2).unwrap().key;
+    assert_eq!(kernel.layout_padding(key).unwrap().3, 16.0);
+    assert_eq!(kernel.resolved_padding(key).unwrap().3, 16.0);
+    assert_eq!(kernel.cover_bottom(key), 0.0);
+    // The column clipping across scrolls as the engine computes it: the
+    // inset below it is past the chain's end, and the route pads again.
+    kernel
+        .apply(
+            1,
+            5,
+            &[Op::SetStyle {
+                id: 4,
+                patch: Box::new(style(&[(
+                    StyleId::OverflowX,
+                    StyleValue::Text("hidden".into()),
+                )])),
+            }],
+        )
+        .unwrap();
+    assert_eq!(frame(&mut kernel, 4).3, 844.0 - 83.0 - 16.0 - 52.0);
+    assert_eq!(kernel.cover_bottom(key), 83.0);
+}

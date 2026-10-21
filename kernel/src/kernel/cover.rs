@@ -52,9 +52,7 @@ impl Kernel {
     /// bottom edge takes it as its platform inset.
     pub fn cover_bottom(&self, key: crate::NodeKey) -> f32 {
         match self.arena.cover(key.index) {
-            Some(HostCover::Edges(_)) if !scroller_insets_bottom(&self.arena, key.index) => {
-                added_padding(&self.arena, key.index)[2]
-            }
+            Some(HostCover::Edges(_)) => applied_padding(&self.arena, key.index)[2],
             _ => 0.0,
         }
     }
@@ -95,9 +93,14 @@ impl Kernel {
         let whole = |c: Option<HostCover>| c == Some(HostCover::Whole);
         let bottom = |c: Option<HostCover>| matches!(c, Some(HostCover::Inset([_, b])) if b > 0.0);
         // A box replaced or given back also leaves the chain or joins it.
-        let chain = (bottom(before) != bottom(cover) || whole(before) != whole(cover))
-            .then(|| covering(&self.arena, slot))
-            .flatten();
+        // So does a box that comes to be covered, or stops: the walk stops
+        // at it (`scroller_insets_bottom`).
+        let edges = |c: Option<HostCover>| matches!(c, Some(HostCover::Edges(_)));
+        let chain = (bottom(before) != bottom(cover)
+            || whole(before) != whole(cover)
+            || edges(before) != edges(cover))
+        .then(|| covering(&self.arena, slot))
+        .flatten();
         let parent = (whole(before) != whole(cover))
             .then(|| self.arena.parent(slot))
             .flatten();
@@ -215,13 +218,7 @@ pub(crate) fn apply(arena: &NodeArena, slot: u32, s: &mut taffy::style::Style) {
     match arena.cover(slot) {
         Some(HostCover::Whole) => s.display = taffy::style::Display::None,
         Some(HostCover::Edges(_)) => {
-            let [top, right, mut bottom, left] = added_padding(arena, slot);
-            // A scroller the platform insets at the box's bottom edge is the
-            // bar's clearance there (LLP 1116.000 D1.2): the box pads
-            // nothing, so the scroller reaches under the bar.
-            if scroller_insets_bottom(arena, slot) {
-                bottom = 0.0;
-            }
+            let [top, right, bottom, left] = applied_padding(arena, slot);
             // The authored padding as layout reads it (whole cells under a
             // terminal's space rule), plus the host's own inset.
             let (down, across) = (crate::style::cells::ROW, crate::style::cells::COLUMN);
@@ -301,14 +298,17 @@ fn scroller_insets_bottom(arena: &NodeArena, slot: u32) -> bool {
 /// Whether `slot` scrolls vertically, as its engine style says (`style.rs`).
 fn scrolls(arena: &NodeArena, slot: u32) -> bool {
     let s = arena.style(slot);
-    if s.mask.has(crate::StyleId::OverflowY) {
-        matches!(
-            s.overflow_y,
-            crate::Overflow::Auto | crate::Overflow::Scroll
-        )
+    let y = if !s.mask.has(crate::StyleId::OverflowY) && arena.node_type(slot).scrolls_by_default()
+    {
+        crate::Overflow::Auto
     } else {
-        arena.node_type(slot).scrolls_by_default()
-    }
+        s.overflow_y
+    };
+    // As the engine computes it: `visible` beside a clipping axis scrolls.
+    matches!(
+        y.computed(s.overflow_x),
+        crate::Overflow::Auto | crate::Overflow::Scroll
+    )
 }
 
 /// The nearest box above `slot` a container's bars cover (`Edges`), whose
@@ -337,8 +337,8 @@ pub(crate) fn style_changed(
     slot: u32,
     mask: &crate::StyleMask,
 ) {
-    use crate::StyleId::{Display, OverflowY, PositionType};
-    if [Display, PositionType, OverflowY]
+    use crate::StyleId::{Display, OverflowX, OverflowY, PositionType};
+    if [Display, PositionType, OverflowX, OverflowY]
         .iter()
         .any(|&id| mask.has(id))
     {
@@ -360,6 +360,22 @@ pub(crate) fn chain_changed(arena: &NodeArena, layout: &mut dyn LayoutMirror, sl
         layout.restyle(arena, above, node);
         layout.mark_dirty(node);
     }
+}
+
+/// The points a cover adds to the box's padding as layout pads it (`apply`):
+/// `added_padding`, but nothing at the bottom where the scroller at the
+/// box's bottom edge takes the bar's clearance as its platform inset (LLP
+/// 1116.000 D1.2), so it reaches under the bar. An absolutely positioned
+/// child is still placed past the whole cover (`added_padding`).
+pub(crate) fn applied_padding(arena: &NodeArena, slot: u32) -> [f32; 4] {
+    let [top, right, bottom, left] = added_padding(arena, slot);
+    let edges = matches!(arena.cover(slot), Some(HostCover::Edges(_)));
+    let bottom = if edges && scroller_insets_bottom(arena, slot) {
+        0.0
+    } else {
+        bottom
+    };
+    [top, right, bottom, left]
 }
 
 /// The points a cover adds to the box's padding for layout (`apply`), top,
@@ -409,12 +425,24 @@ pub(crate) fn children_changed(
         layout.restyle(arena, slot, node);
         layout.mark_dirty(node);
     }
-    // And the scroller at the covered box's bottom edge may be another
-    // (`scroller_insets_bottom`), however deep the change, unless the box
-    // is that covered box itself (above) or a scroller, where the search
-    // stops.
-    if !matches!(arena.cover(slot), Some(HostCover::Edges(_))) && !scrolls(arena, slot) {
-        chain_changed(arena, layout, slot);
+    if layout.tree_ref().is_some() {
+        // An absolutely positioned child placed past its parent's cover, or
+        // no longer (`apply`): a child attached, or moved here from a
+        // covered box, is derived again.
+        for &c in arena.children(slot) {
+            if arena.style(c).position_type == crate::PositionType::Absolute {
+                if let Some(node) = arena.taffy(c) {
+                    layout.restyle(arena, c, node);
+                }
+            }
+        }
+        // And the scroller at the covered box's bottom edge may be another
+        // (`scroller_insets_bottom`), however deep the change, unless the
+        // box is that covered box itself (above) or a scroller, where the
+        // search stops.
+        if !matches!(arena.cover(slot), Some(HostCover::Edges(_))) && !scrolls(arena, slot) {
+            chain_changed(arena, layout, slot);
+        }
     }
     crate::rows::children_changed(arena, layout, slot, touched);
 }
