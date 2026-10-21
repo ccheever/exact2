@@ -361,7 +361,7 @@ fn a_rejected_report_s_padding_changes_nothing() {
     let Child::Node(root) = &mut h.tree.children[0] else {
         panic!()
     };
-    let list = root.collection.as_mut().unwrap();
+    let list = root.collection_mut().unwrap();
     list.begin_into_view(&mut u, &[], "n:50", Align::Start, false, None)
         .unwrap();
     let offset = list.correction.unwrap().offset;
@@ -442,7 +442,7 @@ fn padded_extent_overflow_is_rejected_before_any_geometry_mutation() {
                 let Child::Node(root) = &mut h.tree.children[0] else {
                     panic!()
                 };
-                root.collection.as_mut().unwrap().estimated_height = 1e38;
+                root.collection_mut().unwrap().estimated_height = 1e38;
             }
             let before = h.snapshot();
             let fingerprint = h.collection().index.fingerprint();

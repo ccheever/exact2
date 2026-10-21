@@ -118,12 +118,12 @@ fn site_index_keeps_parent_arm_and_stable_mixed_order() {
     assert!(sites.children(Some(right), Some(arms[1])).is_empty());
 }
 
-/// A realized child fits Apple's allocator's 128-byte size class, as does a
-/// `Vec` of one; the next class is 160 bytes.
+/// A realized child fits Apple's allocator's 112-byte size class, as does a
+/// `Vec` of one; the next class is 128 bytes.
 #[test]
-fn a_child_fits_in_128_bytes() {
+fn a_child_fits_in_112_bytes() {
     assert!(
-        std::mem::size_of::<Child>() <= 128,
+        std::mem::size_of::<Child>() <= 112,
         "{}",
         std::mem::size_of::<Child>()
     );

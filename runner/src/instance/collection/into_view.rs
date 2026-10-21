@@ -384,7 +384,7 @@ fn lists<'a>(
                     Some(ref v @ exact_plan::str_value!()) => v.to_shared_str(),
                     _ => None,
                 };
-                match &mut node.collection {
+                match crate::instance::rare::list_mut(&mut node.rare) {
                     Some(c) => out.push((c, id, frames.to_vec())),
                     None => lists(&mut node.children, (plan, sites), frames, out),
                 }
@@ -418,10 +418,10 @@ fn by_view<'a>(
     for child in children {
         match child {
             Child::Node(node) => {
-                if node.collection.as_ref().is_some_and(|c| c.view == view) {
-                    return node.collection.as_deref_mut().map(|c| (c, frames.to_vec()));
+                if node.collection().is_some_and(|c| c.view == view) {
+                    return node.collection_mut().map(|c| (c, frames.to_vec()));
                 }
-                if let Some(c) = &mut node.collection {
+                if let Some(c) = crate::instance::rare::list_mut(&mut node.rare) {
                     for m in &mut c.mounted {
                         let mut inner = frames.to_vec();
                         inner.push(m.row.frame.clone());
@@ -643,7 +643,7 @@ impl Tree {
         while let Some(child) = stack.pop() {
             match child {
                 Child::Node(node) => {
-                    if let Some(c) = &node.collection {
+                    if let Some(c) = node.collection() {
                         if let Some((key, status)) = &c.into_view_status {
                             if out.len() > 1 {
                                 out.push(',');

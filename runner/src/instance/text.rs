@@ -27,10 +27,10 @@ fn list_region<'a>(
                 Child::Node(n) => {
                     let selectable = plan.map_or(selectable, |p| selectable.at(n, p, policy));
                     if n.view == view {
-                        return n.collection.as_deref().map(|c| (c, selectable));
+                        return n.collection().map(|c| (c, selectable));
                     }
                     // A nested list lives in a mounted row (LLP 1070 §4.7).
-                    if let Some(c) = &n.collection {
+                    if let Some(c) = n.collection() {
                         for (_, row) in c.mounted_rows() {
                             frames.push(row.frame.clone());
                             if let Some(r) =

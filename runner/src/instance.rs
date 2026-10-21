@@ -19,6 +19,7 @@ mod document;
 mod find;
 mod foresee;
 pub mod looks;
+mod rare;
 mod region;
 pub mod tabs;
 mod text;
@@ -142,20 +143,17 @@ pub struct NodeInst {
     /// Last emitted value per binding that can change, in binding order
     /// ([`NodeInst::slot`]); a constant binding's is the site index's.
     last: Box<[Option<Value>]>,
-    /// Last published surface inputs (a canvas node), by a thin pointer: `Child` fits 128 bytes.
-    #[allow(clippy::box_collection)]
-    last_surface: Option<Box<Vec<Value>>>,
     /// Ordered children: static nodes and regions interleaved by `order`.
     children: Vec<Child>,
     /// Last emitted child list.
     last_children: Box<[ViewId]>,
-    collection: Option<Box<collection::Collection>>,
+    /// What few nodes keep, behind one pointer: `Child` is 112 bytes, a
+    /// class of Apple's allocator, and most child vectors hold one.
+    rare: Option<Box<rare::Rare>>,
     /// The app tuple its rows and children are in (LLP 1121 D5).
     tuple: u32,
     /// Which of its bindings' text read a token.
     themed: theme::Themed,
-    /// A mode boundary's implied rows, by [`theme::INHERITED`] (D7).
-    implied: Option<Box<[Option<Value>; 8]>>,
     /// One of its inherited colour rows was set since its children last
     /// took the text they inherit (D7): they are visited again.
     colour_moved: bool,
@@ -896,13 +894,11 @@ impl NodeInst {
             view,
             last: vec![None; Self::slot(u.sites, &row, row.bindings.len as usize)]
                 .into_boxed_slice(),
-            last_surface: None,
             children: Vec::new(),
             last_children: Box::default(),
-            collection: None,
+            rare: None,
             tuple: u.theme.tuple,
             themed: theme::Themed::default(),
-            implied: None,
             colour_moved: false,
             around: u.theme.tuple,
         };
@@ -913,11 +909,10 @@ impl NodeInst {
         let lists = u.env.lists;
         let realized = (|| {
             let wait = tabs::wait(u, node, view);
-            inst.collection = match lists {
-                Some(lists) if !wait => (lists.create)(u, node, view, frames)?,
-                _ => None,
-            };
-            if !wait && inst.collection.is_none() {
+            if let Some(lists) = lists.filter(|_| !wait) {
+                inst.set_collection((lists.create)(u, node, view, frames)?);
+            }
+            if !wait && inst.collection().is_none() {
                 inst.children = realize(u, Some(node), row.arm, frames)?;
                 inst.emit_children(u);
             }
@@ -1168,7 +1163,7 @@ impl NodeInst {
             for a in s.args.iter() {
                 values.push(u.eval(plan.surface_arg(a).expr, frames)?);
             }
-            if self.last_surface.as_deref() != Some(&values) {
+            if self.rare.as_ref().and_then(|r| r.last_surface.as_ref()) != Some(&values) {
                 u.surfaces.push(SurfaceUpdate {
                     view: self.view,
                     name: plan.str(s.name).to_string(),
@@ -1182,7 +1177,7 @@ impl NodeInst {
                         .collect(),
                     values: values.clone(),
                 });
-                self.last_surface = Some(Box::new(values));
+                self.rare().last_surface = Some(values);
             }
         }
         Ok(())
@@ -1215,7 +1210,7 @@ impl NodeInst {
         frames: &[Frame],
     ) -> Result<(), InstanceError> {
         let plan = u.env.plan;
-        let follow = self.collection.is_some()
+        let follow = self.collection().is_some()
             && plan
                 .node(self.node)
                 .bindings
@@ -1226,7 +1221,7 @@ impl NodeInst {
                         && b.id == exact_kernel::PropId::ScrollFollowEnd as u16
                 })
                 .is_some_and(|i| self.emitted(plan, u.sites, i) == Some(Value::Bool(true)));
-        if let Some(collection) = &mut self.collection {
+        if let Some(collection) = self.collection_mut() {
             collection.around = theme::Around {
                 retheme: false,
                 ..u.theme.clone()
@@ -1414,7 +1409,7 @@ impl NodeInst {
         if self.view == view {
             return Some((self.node, self.tuple));
         }
-        if let Some(collection) = &self.collection {
+        if let Some(collection) = self.collection() {
             if let Some(found) = collection.site(view, path) {
                 return Some(found);
             }

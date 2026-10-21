@@ -114,7 +114,7 @@ fn inner_lists<'a>(
         match child {
             Child::Node(node) => {
                 let here = format!("{site}{}", node.node.0);
-                match &mut node.collection {
+                match crate::instance::rare::list_mut(&mut node.rare) {
                     Some(c) => out.push((c, here, frames.to_vec())),
                     None => inner_lists(&mut node.children, frames, site, sites, out),
                 }
@@ -145,7 +145,7 @@ fn inner_pins(children: &[Child], sites: &InnerSites, out: &mut [Option<ViewId>;
             continue;
         }
         match child {
-            Child::Node(node) => match &node.collection {
+            Child::Node(node) => match node.collection() {
                 Some(c) => {
                     if let Some(g) = &c.geometry {
                         out[0] = out[0].or(g.focus_view);
@@ -345,7 +345,7 @@ impl Tree {
         while let Some(child) = stack.pop() {
             match child {
                 Child::Node(node) => {
-                    if let Some(c) = &node.collection {
+                    if let Some(c) = node.collection() {
                         c.kept.json(c.view, &mut out);
                         c.add_children(&mut stack);
                     }

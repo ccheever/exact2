@@ -135,7 +135,7 @@ impl Index {
                             }
                         }
                     }
-                    let kids = match n.collection {
+                    let kids = match n.collection() {
                         Some(_) => Vec::new(),
                         None => roots_of(&n.children),
                     };
@@ -491,17 +491,17 @@ fn open_in(
                     // rows now, as it would have when made.
                     match u.env.lists {
                         Some(lists) => (lists.create)(u, n.node, n.view, frames)
-                            .map(|made| n.collection = made),
+                            .map(|made| n.set_collection(made)),
                         None => Ok(()),
                     }
-                    .and_then(|()| match n.collection {
+                    .and_then(|()| match n.collection() {
                         Some(_) => Ok(()),
                         None => open_panel(u, n, frames).map(|made| {
                             n.children = made;
                             n.emit_children(u);
                         }),
                     })
-                } else if n.collection.is_none() {
+                } else if n.collection().is_none() {
                     open_in(u, &mut n.children, frames, open, left)
                 } else {
                     Ok(())

@@ -300,7 +300,7 @@ impl Build<'_> {
             )));
         }
         let (style, props) = self.fold(n)?;
-        let list = match &n.collection {
+        let list = match n.collection() {
             Some(list) => Some(
                 list.document_children(self.plan)
                     .map_err(|e| DocTreeError::Refused(format!("{e:?}")))?,
