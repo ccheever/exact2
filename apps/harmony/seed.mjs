@@ -259,8 +259,8 @@ async function head(origin, status) {
 // seeded before counts as written to), and then by `/seed`, an upsert that erases
 // nothing, so a write landing after the head was read stays. (Not one to a row
 // this seed writes, which it updates: only if another seed of this server landed
-// in those milliseconds and someone edited what it wrote; no request can make
-// the head check and the seed one step.) What a store holds can't be read whole
+// between this one's head read and its seed and someone edited what it wrote; no
+// request can make the head check and the seed one step.) What a store holds can't be read whole
 // from outside (a query shows only what a persona may see), so any other store,
 // in memory or not, may hold what people wrote and is refused unless `--force`
 // (or `--reset`) says to empty it first (`/dev/reset`). Both name the dev
