@@ -309,7 +309,7 @@ export function citations(schema, measured) {
       } else if (!terminal && cell && typeof cell === 'object' && 'stretch' in cell) {
         // A stretch (stage 13 D5): a metric, why in a line, and its entry under Role stretches.
         const ok = typeof cell.stretch === 'string' && cell.stretch.startsWith('=') && metrics.has(cell.stretch.slice(1));
-        const stretches = (measured.split('\n## ').find(s => s.startsWith('Role stretches\n')) ?? '').split('\n### ');
+        const stretches = (measured.replaceAll('\r\n', '\n').split('\n## ').find(s => s.startsWith('Role stretches\n')) ?? '').split('\n### ');
         if (!ok || Object.keys(cell).length !== 2 || typeof cell.why !== 'string' || !cell.why.trim() || cell.why.includes('\n')) bad.push(`${where}: ${JSON.stringify(cell)} is no stretch of a metrics row with its why in a line`);
         else if (!stretches.some(e => e.startsWith(`\`${cell.stretch}\``))) bad.push(`${where}: ${cell.stretch} has no entry under Role stretches`);
       } else if (cell === 'full') {

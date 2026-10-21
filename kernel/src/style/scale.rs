@@ -7,8 +7,9 @@
 //!   unset reads this table. The compiler knows the nine names, so a view
 //!   reading one compiles with no design (`contract_lower::theme`), and the
 //!   plan keeps nothing for them: the kernel already holds every column.
-//! - Every cell names its source (a metrics row, a measurement or a
-//!   guideline, `docs/scale-measured.md`), which the build resolves. This is
+//! - Every cell names its source (a metrics row, a stretch of one theme2
+//!   ruled, a measurement or a guideline, `docs/scale-measured.md`), which
+//!   the build resolves. This is
 //!   the one table every reader of the base takes (theme2's condition (c)):
 //!   the design server's `describe`, `resolve` and `explain` read it under
 //!   `tamber/1.14` (rt1's stage 10 D), never a copy.

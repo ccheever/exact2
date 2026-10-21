@@ -157,6 +157,8 @@ fn scale_cell(
                 !why.trim().is_empty() && !why.contains('\n'),
                 "schema: scale {at}: a stretch's `why` says why in one line"
             );
+            // (by lines, whatever the page's line ends)
+            let doc = doc.replace("\r\n", "\n");
             let stretches = doc
                 .split("\n## ")
                 .find(|s| s.starts_with("Role stretches\n"))
