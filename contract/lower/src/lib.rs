@@ -658,7 +658,7 @@ impl<'a> Lowerer<'a> {
                 span,
                 instance,
             } => {
-                let Some(t) = tags::tag(tag).or_else(|| native::tag(tag)) else {
+                let Some(mut t) = tags::tag(tag).or_else(|| native::tag(tag)) else {
                     return Err(unknown_tag(tag, *span));
                 };
                 // Two layout refusals the compiler can make without measuring
@@ -675,6 +675,7 @@ impl<'a> Lowerer<'a> {
                     }
                     None => attrs.as_slice(),
                 };
+                tags::inline_content(tag, &mut t, expanded, parent_tag, *span)?;
                 tags::check_exclusion(&t, expanded, self.parent_positioned)?;
                 let composed = self.compose_animation(expanded)?;
                 let expanded = composed.as_deref().unwrap_or(expanded);
@@ -957,7 +958,7 @@ impl<'a> Lowerer<'a> {
                     // paragraph's each/when still produces only text runs.
                     fn run(c: &Node) -> bool {
                         match c {
-                            Node::Element { tag, .. } => tag == "text",
+                            Node::Element { tag, .. } => matches!(tag.as_str(), "text" | "image"),
                             Node::Each { body, .. } => body.iter().all(run),
                             Node::When {
                                 then, otherwise, ..
@@ -968,7 +969,7 @@ impl<'a> Lowerer<'a> {
                     if let Some(bad) = children.iter().find(|c| !run(c)) {
                         return err(
                             "lower-leaf-children",
-                            "`text` may hold only `text` runs",
+                            "`text` may hold `text` runs and inline `image` boxes",
                             bad.span(),
                         );
                     }

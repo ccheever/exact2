@@ -63,7 +63,9 @@ pub(super) fn publish(arena: &mut NodeArena, tree: &mut LayoutTree, root: u32) -
             tree.publication_visits += 1;
         }
         let own_hidden = arena.style(slot).display == crate::Display::None;
-        let hidden = hidden || own_hidden;
+        let hidden = hidden
+            || own_hidden
+            || (arena.is_inline_box(slot) && !tree.inline_frames.contains_key(&slot));
         if hidden {
             arena.flags_mut(slot).insert(NodeFlags::HIDDEN);
         } else {
@@ -81,6 +83,19 @@ pub(super) fn publish(arena: &mut NodeArena, tree: &mut LayoutTree, root: u32) -
                 x: ox,
                 y: oy,
                 ..Frame::default()
+            }
+        } else if let Some(relative) = tree
+            .inline_frames
+            .get(&slot)
+            .copied()
+            .filter(|_| arena.is_inline_box(slot))
+        {
+            let owner = arena.measure_owner(arena.parent(slot).expect("inline parent"));
+            let origin = arena.frame(owner);
+            Frame {
+                x: origin.x + relative.x,
+                y: origin.y + relative.y,
+                ..relative
             }
         } else if inline {
             Frame::default()

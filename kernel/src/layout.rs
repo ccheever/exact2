@@ -13,6 +13,7 @@
 #[cfg(test)]
 mod containment_tests;
 mod hoist;
+mod inline;
 mod publication;
 
 use crate::id::{IdMap, IdSet};
@@ -100,6 +101,7 @@ struct Measurement {
 /// The engine tree. Measured leaves retain their height proof and bounded offers.
 pub struct LayoutTree {
     taffy: TaffyTree<MeasureContext>,
+    inline_frames: IdMap<u32, Frame>,
     pass: u64,
     fault: Option<String>,
     slots: IdMap<NodeId, u32>,
@@ -324,6 +326,7 @@ impl LayoutTree {
         taffy.set_calc_resolver(crate::style::resolve_calc);
         LayoutTree {
             taffy,
+            inline_frames: IdMap::default(),
             pass: 0,
             fault: None,
             slots: IdMap::default(),
@@ -426,6 +429,7 @@ impl LayoutTree {
         self.deferred.remove(&node);
         if let Some(slot) = self.slots.remove(&node) {
             self.flowing.remove(&slot);
+            self.inline_frames.remove(&slot);
         }
         self.offers.remove(&node);
         self.presented_heights
@@ -1210,9 +1214,15 @@ pub fn compute(
     let root = arena
         .taffy(root_slot)
         .ok_or_else(|| LayoutError::Engine("root has no engine node".into()))?;
+    inline::prepare(arena, tree, measurer, root_slot)?;
     tree.compute(root, offer, arena, measurer)?;
+    // Percentage dimensions and shrink-to-fit text use their paragraph's settled content width.
+    if inline::prepare(arena, tree, measurer, root_slot)? {
+        tree.compute(root, offer, arena, measurer)?;
+    }
     let (flow_passes, flow_comparisons) =
         tree.settle_flow(root, root_slot, offer, arena, measurer)?;
+    inline::place(arena, tree, measurer, root_slot)?;
     let mut receipt = publication::publish(arena, tree, root_slot);
     receipt.flow_passes = flow_passes;
     receipt.flow_comparisons = flow_comparisons;

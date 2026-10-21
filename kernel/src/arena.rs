@@ -46,6 +46,8 @@ pub struct NodeArena {
     layout_passes: Vec<u64>,
     geometry_passes: Vec<(u32, u64)>,
     frames: Vec<Frame>,
+    pub(crate) inline_slots: SlotSet,
+    pub(crate) inline_boxes: IdMap<u32, crate::text::InlineBox>,
     // @ref LLP 1043.000 §3 D4 — no per-node vector or allocation.
     pub(crate) flow: IdMap<u32, crate::flow::FlowState>,
     pub(crate) exclusion_slots: SlotSet,
@@ -98,6 +100,8 @@ impl Clone for NodeArena {
             layout_passes: self.layout_passes.clone(),
             geometry_passes: self.geometry_passes.clone(),
             frames: self.frames.clone(),
+            inline_boxes: self.inline_boxes.clone(),
+            inline_slots: self.inline_slots.clone(),
             flow: self.flow.clone(),
             exclusion_slots: self.exclusion_slots.clone(),
             relative_slots: self.relative_slots.clone(),
@@ -399,7 +403,10 @@ impl NodeArena {
     /// by the topmost consecutive `Text` ancestor.
     pub fn measure_owner(&self, slot: u32) -> u32 {
         let mut owner = slot;
-        while let Some(p) = self.parents[owner as usize] {
+        while !self.is_inline_box(owner) {
+            let Some(p) = self.parents[owner as usize] else {
+                break;
+            };
             if self.node_types[p as usize] == NodeType::Text {
                 owner = p;
             } else {
@@ -456,8 +463,26 @@ impl NodeArena {
     /// Whether this slot is an inline run (a `Text` whose parent is a `Text`).
     pub fn is_inline_run(&self, slot: u32) -> bool {
         self.node_types[slot as usize] == NodeType::Text
+            && self.styles[slot as usize].display != crate::Display::InlineBlock
             && self.parents[slot as usize]
                 .is_some_and(|p| self.node_types[p as usize] == NodeType::Text)
+    }
+
+    fn update_inline(&mut self, slot: u32) {
+        if self.is_inline_box(slot) {
+            self.inline_slots.insert(slot);
+        } else {
+            self.inline_slots.remove(slot);
+            self.inline_boxes.remove(&slot);
+        }
+    }
+
+    /// An image or explicitly atomic text child of a paragraph.
+    pub(crate) fn is_inline_box(&self, slot: u32) -> bool {
+        self.parent(slot)
+            .is_some_and(|p| self.node_type(p) == NodeType::Text)
+            && (self.node_type(slot) == NodeType::Image
+                || self.style(slot).display == crate::Display::InlineBlock)
     }
 
     /// The slot whose own row supplies `id` for `slot`: the slot itself when
@@ -589,6 +614,7 @@ impl NodeArena {
                         .unwrap_or(" ")
                 };
                 out.push(TextRun {
+                    inline_box: None,
                     text: text.into(),
                     style,
                 });
@@ -600,6 +626,7 @@ impl NodeArena {
                     && text.ends_with('\n')
                 {
                     out.push(TextRun {
+                        inline_box: None,
                         text: "\u{200b}".into(),
                         style,
                     });
@@ -613,10 +640,26 @@ impl NodeArena {
                         crate::text::case::shown(computed.text_transform, text, *boundary)
                     };
                     boundary.push(text);
-                    out.push(TextRun { text: shown, style });
+                    out.push(TextRun {
+                        inline_box: None,
+                        text: shown,
+                        style,
+                    });
                 } else {
                     for child in &self.children[s] {
-                        if self.node_types[*child as usize] == NodeType::Text {
+                        if self.style(*child).display == crate::Display::None {
+                            continue;
+                        }
+                        if self.is_inline_box(*child) {
+                            out.push(TextRun {
+                                text: "\u{fffc}".into(),
+                                style,
+                                inline_box: Some(
+                                    self.inline_boxes.get(child).copied().unwrap_or_default(),
+                                ),
+                            });
+                            boundary.push(" ");
+                        } else if self.node_types[*child as usize] == NodeType::Text {
                             self.text_runs_after(*child, out, boundary);
                         }
                     }
@@ -660,7 +703,12 @@ impl NodeArena {
             return out.push(slot);
         }
         for child in &self.children[slot as usize] {
-            if self.node_types[*child as usize] == NodeType::Text {
+            if self.style(*child).display == crate::Display::None {
+                continue;
+            }
+            if self.is_inline_box(*child) {
+                out.push(*child);
+            } else if self.node_types[*child as usize] == NodeType::Text {
                 self.text_leaves(*child, out);
             }
         }
@@ -725,6 +773,8 @@ impl NodeArena {
     }
 
     pub(crate) fn free_slot(&mut self, slot: u32) {
+        self.inline_slots.remove(slot);
+        self.inline_boxes.remove(&slot);
         self.exclusion_slots.remove(slot);
         self.relative_slots.remove(slot);
         self.layout_dirty.remove(slot);
@@ -753,6 +803,7 @@ impl NodeArena {
 
     pub(crate) fn set_parent(&mut self, slot: u32, parent: Option<u32>) {
         self.parents[slot as usize] = parent;
+        self.update_inline(slot);
     }
 
     pub(crate) fn set_children(&mut self, slot: u32, children: Vec<u32>) {
@@ -824,6 +875,7 @@ impl NodeArena {
             self.relative_slots.insert(slot);
         }
         self.styles[slot as usize] = self.shared.intern(style);
+        self.update_inline(slot);
     }
 
     /// Distinct styles the arena holds for its nodes, beyond the initial one.

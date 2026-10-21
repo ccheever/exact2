@@ -129,14 +129,29 @@ impl<D: DataSource> Host<D> {
                     continue;
                 };
                 // Non-text controls are never absorbed into a paragraph.
-                if !run.is_inline_run() {
+                if !run.is_inline_run() && !run.is_inline_box() {
                     continue;
                 }
-                let props = props_for(&run);
+                let mut props = props_for(&run);
+                if run.is_inline_box() {
+                    props.insert("text".into(), "\u{fffc}".into());
+                }
                 // A run painting an inherited `color` that moves (LLP 1062 D5).
                 let mut shown = style::Shown::default();
                 shown.set(Property::Color, self.paint.runs.get(&id).copied());
-                let (style, _) = style::style_json_presented(&run, &kernel.env(), &shown);
+                let (mut style, _) = style::style_json_presented(&run, &kernel.env(), &shown);
+                if let Some(b) = run.inline_box() {
+                    style.pop();
+                    if style.len() > 1 {
+                        style.push(',');
+                    }
+                    use std::fmt::Write;
+                    let _ = write!(
+                        style,
+                        "\"inline_width\":{},\"inline_height\":{},\"inline_baseline\":{}}}",
+                        b.width, b.height, b.baseline
+                    );
+                }
                 let handlers: Vec<_> = self
                     .inline_runs
                     .get(&id)
@@ -144,7 +159,8 @@ impl<D: DataSource> Host<D> {
                     .flat_map(|(_, events)| events.iter().copied())
                     .filter_map(handler_name)
                     .collect();
-                let paints = active && run.props.str(PropId::Text).is_some();
+                let paints =
+                    active && (run.is_inline_box() || run.props.str(PropId::Text).is_some());
                 if !first {
                     runs.push(',');
                 }
@@ -321,10 +337,42 @@ impl<D: DataSource> Host<D> {
         for child in &children {
             self.reconcile_projection(*child, batch);
         }
-        if self.native_protected_id(id) || self.paragraph_owner(id).is_some() {
+        if self
+            .runner
+            .kernel()
+            .node(id)
+            .is_some_and(|n| n.is_inline_run())
+        {
+            if let Some(owner) = self.paragraph_owner(id) {
+                self.emit_children(owner, batch);
+            }
+            return;
+        }
+        if self.native_protected_id(id) {
             return;
         }
         let mut children = children;
+        if node_type == NodeType::Text {
+            let mut stack: Vec<_> = children.into_iter().rev().collect();
+            children = Vec::new();
+            while let Some(child) = stack.pop() {
+                if let Some(n) = self.runner.kernel().node(child) {
+                    if n.is_inline_run() {
+                        if n.props.str(PropId::Text).is_none() {
+                            stack.extend(n.children().into_iter().rev());
+                        }
+                    } else {
+                        children.push(child);
+                    }
+                }
+            }
+        }
+        children.retain(|child| {
+            self.runner
+                .kernel()
+                .node(*child)
+                .is_some_and(|n| !n.is_inline_run())
+        });
         if self.native_mode() {
             children.retain(|child| {
                 !self.native_protected_id(*child) || self.native_selected_id(*child)

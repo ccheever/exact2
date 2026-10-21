@@ -128,14 +128,17 @@ extension BatchReader {
     }
     mutating func inlineStyle() throws -> InlineStyle {
         var style = InlineStyle(), height: BatchValue?
+        var box: [String: CGFloat] = [:]
         try object { r, key in
             switch key {
+            case "inline_width", "inline_height", "inline_baseline": box[key] = CGFloat(Float(try BatchFields.number(r.value())))
             case "font_size", "font_weight", "font_family", "font_style", "letter_spacing", "text_color", "text_decoration_line", "background_color", "font_variant_numeric":
                 try style.set(key, r.value())
             case "line_height": height = try r.value()
             default: try r.skip()
             }
         }
+        if let width=box["inline_width"] {style.run.inlineBox=TextInlineBox(width:width,height:box["inline_height"] ?? 0,baseline:box["inline_baseline"] ?? 0)}
         try style.height(height)
         return style
     }
@@ -229,6 +232,9 @@ extension InlineStyle {
             if key == "font_weight" { run.weight = Int(n) } else { run.family = Int(n) }
         case "font_style": run.italic = try BatchFields.string(value) == "italic"
         case "letter_spacing": run.letterSpacing = CGFloat(Float(try BatchFields.number(value)))
+        case "inline_width", "inline_height", "inline_baseline":
+            let n=CGFloat(Float(try BatchFields.number(value))), b=run.inlineBox ?? TextInlineBox(width:0,height:0,baseline:0)
+            run.inlineBox=TextInlineBox(width:key == "inline_width" ? n : b.width,height:key == "inline_height" ? n : b.height,baseline:key == "inline_baseline" ? n : b.baseline)
         case "font_variant_numeric": run.numeric = Int(try BatchFields.number(value)) & 0xff
         case "text_decoration_line": run.decoration = try BatchFields.string(value)
         case "text_color":

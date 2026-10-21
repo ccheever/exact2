@@ -1399,3 +1399,32 @@ pub(crate) fn host_transform_recipients(
     }
     recipients
 }
+
+/// Atomic text boxes are supported in paragraphs; images there remain inline despite the host reset.
+pub(crate) fn inline_content(
+    tag: &str,
+    t: &mut Tag,
+    attrs: &[contract_syntax::Attr],
+    parent: Option<&str>,
+    span: contract_syntax::Span,
+) -> Result<(), crate::LowerError> {
+    use contract_syntax::Expr;
+    if attrs
+        .iter()
+        .any(|a| a.name == "display" && matches!(&a.value,Expr::Str(v,_) if v=="inline-block"))
+        && !((tag == "text" || tag == "image") && parent == Some("text"))
+    {
+        return crate::err(
+            "lower-inline-block",
+            "`inline-block` is supported on `text` and `image` inside a `text` paragraph",
+            span,
+        );
+    }
+    if t.node_type == NodeType::Image
+        && parent == Some("text")
+        && !attrs.iter().any(|a| a.name == "display")
+    {
+        t.fixed_styles = &[(StyleId::Display, "inline-block")];
+    }
+    Ok(())
+}

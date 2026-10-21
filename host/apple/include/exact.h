@@ -93,6 +93,8 @@ typedef struct ExactTextRun {
     float line_height;     /* points; zero is a real length */
     float letter_spacing;  /* points per glyph */
     uint8_t font_variant_numeric; /* CSS bits: 1 tabular-nums (the face's tnum) */
+    uint8_t has_inline_box;
+    float inline_width, inline_height, inline_baseline;
 } ExactTextRun;
 
 /* LLP 1053 G5. CSS white space collapsing (normal, nowrap, pre-line) of a paragraph's
@@ -142,6 +144,8 @@ ExactFlowResult exact_textflow_flow(uint64_t handle, const ExactFlowShape *shape
 /* Zero, stale, and repeated free are harmless. */
 void exact_textflow_free(uint64_t handle);
 
+typedef struct ExactInlinePosition { float x, y; } ExactInlinePosition;
+
 typedef struct ExactMeasureRequest {
     uint32_t view, node_index, node_generation;
     uint64_t revision;
@@ -158,6 +162,7 @@ typedef struct ExactMeasureRequest {
     const ExactFlowShape *exclusions;
     size_t exclusion_count;
     uint8_t markup;        /* 1: the one run is Markdown source; expand it with exact_markup_pieces (LLP 1045 D3) */
+    ExactInlinePosition *inline_positions; /* optional synchronous output, count points; metrics.baseline then names the last line */
 } ExactMeasureRequest;
 
 /* LLP 1045 D3/D4. Markdown source into display pieces, the same for measure and paint. */

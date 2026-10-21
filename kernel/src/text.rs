@@ -4,7 +4,8 @@
 //! [`TextMeasurer`] per kernel — there is no process-global callback — and the
 //! kernel hands it a paragraph as ordered [`TextRun`]s with the offer it must
 //! fit. A `Text` node with its own `text` prop is one run; otherwise its `Text`
-//! children are its runs, flattened in order. The same runs feed measurement,
+//! children are flattened in order; images and atomic text contribute a box run.
+//! The same runs feed measurement,
 //! export, and (later) selection: one traversal, per-consumer projections.
 //!
 //! [`MonospaceMeasurer`] is the deterministic reference measurer used by tests
@@ -18,6 +19,7 @@ use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 
 pub(crate) mod case;
+mod inline;
 
 /// A payload-free lifetime namespace. Allocation identity is valid only while
 /// retained: it is never a wire id, address handle, or serialized cache key.
@@ -206,6 +208,30 @@ pub struct TextRun<'a> {
     pub text: Cow<'a, str>,
     /// Its style.
     pub style: TextStyle,
+    /// An atomic inline box, represented by U+FFFC rather than glyph ink.
+    pub inline_box: Option<InlineBox>,
+}
+
+/// Typographic dimensions of an atomic inline box, including its margins.
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+pub struct InlineBox {
+    /// Advance along the line.
+    pub width: f32,
+    /// Above and below the shared alphabetic baseline.
+    pub height: f32,
+    /// Distance from the margin box's top to the baseline.
+    pub baseline: f32,
+}
+
+/// A run's margin-box origin in paragraph content coordinates.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct InlinePosition {
+    /// Index in the request's canonical runs.
+    pub run: usize,
+    /// Horizontal origin.
+    pub x: f32,
+    /// Vertical origin.
+    pub y: f32,
 }
 
 impl AsRef<str> for TextRun<'_> {
@@ -260,6 +286,29 @@ pub trait TextMeasurer {
 
     /// Size a paragraph under an offer.
     fn measure(&mut self, request: &TextMeasureRequest<'_>) -> TextMetrics;
+
+    /// Last line's alphabetic baseline, used by CSS inline-block text.
+    fn inline_baseline(&mut self, request: &TextMeasureRequest<'_>) -> Option<f32> {
+        let m = self.measure(request);
+        let line = request
+            .runs
+            .iter()
+            .map(|r| r.style.line_height.unwrap_or(r.style.font_size * 1.2))
+            .fold(
+                request
+                    .paragraph
+                    .strut
+                    .line_height
+                    .unwrap_or(request.paragraph.strut.font_size * 1.2),
+                f32::max,
+            );
+        m.first_baseline.map(|b| m.height - line + b)
+    }
+
+    /// Locate atomic inline boxes with the same shaping and line breaks as measurement.
+    fn inline_positions(&mut self, request: &TextMeasureRequest<'_>) -> Vec<InlinePosition> {
+        MonospaceMeasurer::default().inline_layout(request).1
+    }
 
     /// Size a kernel-identified paragraph. Existing measurers use the ordinary
     /// synchronous path; callers constructing requests still need no stamp.
@@ -391,6 +440,9 @@ impl MonospaceMeasurer {
 
 impl TextMeasurer for MonospaceMeasurer {
     fn measure(&mut self, request: &TextMeasureRequest<'_>) -> TextMetrics {
+        if request.runs.iter().any(|r| r.inline_box.is_some()) {
+            return self.inline_layout(request).0;
+        }
         if let AxisOffer::Definite(width) = request.width {
             if !request.exclusions.is_empty() {
                 return self.flow(request, width);
@@ -563,6 +615,7 @@ mod tests {
 
     fn measure(text: &str, width: AxisOffer, lines: u32) -> TextMetrics {
         let runs = [TextRun {
+            inline_box: None,
             text: text.into(),
             style: style(10.0),
         }];
@@ -608,6 +661,7 @@ mod tests {
 
     fn measure_in(text: &str, width: AxisOffer, white_space: crate::WhiteSpace) -> TextMetrics {
         let runs = [TextRun {
+            inline_box: None,
             text: text.into(),
             style: style(10.0),
         }];
@@ -696,10 +750,12 @@ mod tests {
     fn runs_take_the_tallest_line_height() {
         let runs = [
             TextRun {
+                inline_box: None,
                 text: "ab".into(),
                 style: style(10.0),
             },
             TextRun {
+                inline_box: None,
                 text: "cd".into(),
                 style: style(20.0),
             },
@@ -718,6 +774,7 @@ mod tests {
     #[test]
     fn overflow_wrap_changes_emergency_breaks_and_only_anywhere_changes_min_content() {
         let runs = [TextRun {
+            inline_box: None,
             text: "abcdefghijklmnopqrst".into(),
             style: style(10.0),
         }];

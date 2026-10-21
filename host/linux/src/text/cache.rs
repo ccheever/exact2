@@ -834,6 +834,9 @@ fn fingerprint(spec: &Spec) -> u64 {
         run.line_height.map(f32::to_bits).hash(&mut h);
         run.letter_spacing.to_bits().hash(&mut h);
         run.font_variant_numeric.hash(&mut h);
+        run.inline_box
+            .map(|b| (b.width.to_bits(), b.height.to_bits(), b.baseline.to_bits()))
+            .hash(&mut h);
     }
     h.finish()
 }
@@ -856,6 +859,7 @@ fn equal(a: &Spec, b: &Spec) -> bool {
                     && a.line_height.map(f32::to_bits) == b.line_height.map(f32::to_bits)
                     && a.letter_spacing.to_bits() == b.letter_spacing.to_bits()
                     && a.font_variant_numeric == b.font_variant_numeric
+                    && a.inline_box == b.inline_box
             })
 }
 

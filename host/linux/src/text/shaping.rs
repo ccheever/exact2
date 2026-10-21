@@ -168,7 +168,7 @@ impl ShapedSource {
                 // Under `ltr` the first strong character still decides
                 // (declared in LLP 1001 §1): the text-flow walker cannot yet
                 // break an RTL run inside an LTR paragraph.
-                let shape = ShapeLine::new_with_base(
+                let mut shape = ShapeLine::new_with_base(
                     &mut catalog.fonts,
                     line.text(),
                     line.attrs_list(),
@@ -176,6 +176,21 @@ impl ShapedSource {
                     8,
                     (spec.direction == exact_kernel::Direction::Rtl).then_some(true),
                 );
+                for glyph in shape
+                    .spans
+                    .iter_mut()
+                    .flat_map(|s| &mut s.words)
+                    .flat_map(|w| &mut w.glyphs)
+                {
+                    if let Some(b) = spec.runs[glyph.metadata].inline_box {
+                        let size = spec.runs[glyph.metadata].size.max(0.5);
+                        glyph.x_advance = b.width / size;
+                        glyph.ascent = b.baseline / size;
+                        glyph.descent = (b.height - b.baseline) / size;
+                        glyph.x_offset = 0.0;
+                        glyph.y_offset = 0.0;
+                    }
+                }
                 let align = line.align();
                 Line {
                     text: line.into_text(),
@@ -338,6 +353,13 @@ impl ShapedSource {
             let mut above_explicit = spec.strut.line_height.is_some();
             let mut below_explicit = above_explicit;
             for glyph in run.glyphs {
+                if let Some(b) = spec.runs[glyph.metadata].inline_box {
+                    above = above.max(b.baseline);
+                    below = below.max(b.height - b.baseline);
+                    above_explicit = true;
+                    below_explicit = true;
+                    continue;
+                }
                 if let Some(m) =
                     last_font_metrics.get(&mut catalog.fonts, glyph.font_id, glyph.font_weight)
                 {
@@ -498,6 +520,13 @@ fn line_box<'a>(
     let mut above_explicit = spec.strut.line_height.is_some();
     let mut below_explicit = above_explicit;
     for glyph in glyphs {
+        if let Some(b) = spec.runs[glyph.metadata].inline_box {
+            above = above.max(b.baseline);
+            below = below.max(b.height - b.baseline);
+            above_explicit = true;
+            below_explicit = true;
+            continue;
+        }
         if let Some(font) = catalog.fonts.get_font(glyph.font_id, glyph.font_weight) {
             let m = font.metrics();
             let scale = glyph.font_size / m.units_per_em as f32;

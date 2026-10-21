@@ -41,13 +41,14 @@ struct Run: Hashable {
     var href: String = ""
     /// The inline box's `background-color`: paint, never metrics.
     var background: [Double]? = nil
+    var inlineBox: TextInlineBox? = nil
 
     static func == (lhs: Run, rhs: Run) -> Bool {
         guard lhs.size == rhs.size, lhs.weight == rhs.weight, lhs.family == rhs.family,
               lhs.italic == rhs.italic, lhs.lineHeight == rhs.lineHeight,
               lhs.letterSpacing == rhs.letterSpacing, lhs.numeric == rhs.numeric, lhs.color == rhs.color,
               lhs.decoration == rhs.decoration, lhs.href == rhs.href,
-              lhs.background == rhs.background else { return false }
+              lhs.background == rhs.background, lhs.inlineBox == rhs.inlineBox else { return false }
         // CoreText's ranges address the original UTF16 source. Swift String's
         // canonical equality would alias NFC/NFD paragraphs with different
         // source lengths, so both equality and hashing use the exact UTF8.
@@ -72,6 +73,7 @@ struct Run: Hashable {
         hasher.combine(decoration)
         hasher.combine(href)
         hasher.combine(background)
+        hasher.combine(inlineBox)
     }
 }
 
@@ -728,10 +730,14 @@ final class TextEngine {
             if r.letterSpacing != 0 { a[.kern] = r.letterSpacing }
             if r.decoration.contains("underline") || (r.decoration.isEmpty && !r.href.isEmpty) { a[.underlineStyle] = NSUnderlineStyle.single.rawValue }
             if r.decoration.contains("line-through") { a[.strikethroughStyle] = NSUnderlineStyle.single.rawValue }
-            if let fill = r.background.map(TextEngine.color), fill.cgColor.alpha > 0 {
+            if r.inlineBox == nil, let fill = r.background.map(TextEngine.color), fill.cgColor.alpha > 0 {
                 let f = a[.font] as! PlatformFont
                 let (ascent, descent) = CSSLineBox.content(f as CTFont)
                 a[.exactBackground] = InlineBackground(color: fill.cgColor, ascent: ascent, descent: descent)
+            }
+            if let box = r.inlineBox {
+                a[NSAttributedString.Key(kCTRunDelegateAttributeName as String)] = box.delegate()
+                a[.foregroundColor] = PlatformColor.clear
             }
             let length = r.text.utf16.count
             if length > 0 { s.setAttributes(a, range: NSRange(location: offset, length: length)) }
@@ -1004,7 +1010,9 @@ final class TextEngine {
                     if offset >= range.location + range.length { break }
                     let authored = spec.runs[index]
                     matched = true
-                    if authored.lineHeight != nil {
+                    if let box = authored.inlineBox {
+                        include(box.baseline, box.height - box.baseline, explicit: true)
+                    } else if authored.lineHeight != nil {
                         // Explicit boxes use authored metrics; fallback ink
                         // can overflow without enlarging the inline box.
                         let (a, b) = authoredExtents(authored)
@@ -1187,6 +1195,7 @@ final class TextEngine {
     /// paints.
     func measure(_ request: ExactMeasureRequest) -> ExactMetrics {
         measureCount += 1
+        if request.inline_positions != nil { return measureInline(request) }
         #if os(macOS)
         if let pending = readerMeasureOnUI(request) { return pending }
         #endif
@@ -1225,7 +1234,7 @@ final class TextEngine {
         // decoding: a fallback adds its failed borrowed lookup interval below.
         let lookupSeconds = CACurrentMediaTime() - lookupStarted
         func run(_ run: ExactTextRun) -> Run {
-            Run(text: String(decoding: UnsafeBufferPointer(start: run.text, count: run.len), as: UTF8.self), size: CGFloat(run.font_size), weight: Int(run.font_weight), family: Int(run.font_family), italic: run.italic != 0, lineHeight: run.has_line_height != 0 ? CGFloat(run.line_height) : nil, letterSpacing: CGFloat(run.letter_spacing), numeric: Int(run.font_variant_numeric))
+            Run(text: String(decoding: UnsafeBufferPointer(start: run.text, count: run.len), as: UTF8.self), size: CGFloat(run.font_size), weight: Int(run.font_weight), family: Int(run.font_family), italic: run.italic != 0, lineHeight: run.has_line_height != 0 ? CGFloat(run.line_height) : nil, letterSpacing: CGFloat(run.letter_spacing), numeric: Int(run.font_variant_numeric), inlineBox: TextInlineBox(run))
         }
         let spec: Spec
         if let knownIdentity {

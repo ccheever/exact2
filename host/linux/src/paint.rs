@@ -793,10 +793,18 @@ impl Painter {
             return;
         }
         if (walk.scene.hidden)(id)
-            || node.is_inline_run()
             || node.style.display == Display::None
+            || (node.is_inline_box() && node.frame.width == 0.0 && node.frame.height == 0.0)
             || node.props.str(PropId::SemanticTag) == Some("dialog")
         {
+            return;
+        }
+        if node.is_inline_run() {
+            if node.props.str(PropId::Text).is_none() {
+                for child in node.children() {
+                    self.node(walk, child, ts, offset, clip_rect);
+                }
+            }
             return;
         }
         let f = node.frame;
@@ -907,11 +915,7 @@ impl Painter {
                 // descendants deliberately have zero frames, not paint boxes.
                 let build = || {
                     let mut spec = text_spec(&node.computed_style(StyleMask::INHERITED), "");
-                    spec.runs = node
-                        .text_runs()
-                        .iter()
-                        .map(|run| Run::from_style(&run.text, run.style))
-                        .collect();
+                    spec.runs = node.text_runs().iter().map(Run::from_run).collect();
                     spec.collapse_white_space()
                 };
                 let paragraph = if let Some(stamp) = node.paragraph_stamp() {
