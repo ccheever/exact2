@@ -644,7 +644,11 @@ async function main(args, lockHeld = false) {
   }
   const app = quietFor(resolveApp(args.find((a, i) => !a.startsWith('--') && !['--sim', '--phone', '--url', '--archive', '--optimize', '--link', '--watch-sim'].includes(args[i - 1]))), root);
   if (args.includes('--watchos')) return (await import('./watch.mjs')).buildWatch(app, args, { runApple, appleArtifacts, appleBuildLock, receipt, buildParent: args => main(args, true) });
-  if (args.includes('--prebuild')) { process.exitCode = await (await import('../../scripts/agent-build.mjs')).prebuild(app, args); return; } // LLP 1116.003 D1.2
+  // A background build's failure, said by the next build (scripts/agent-build.mjs `reportPrebuild`).
+  const prebuilt = existsSync(resolve(app.dir, '.exact', `${tv ? 'tvos' : ios ? 'ios' : 'macos'}-prebuild.json`));
+  const agentBuild = prebuilt || args.includes('--prebuild') ? await import('../../scripts/agent-build.mjs') : null;
+  if (prebuilt) await agentBuild.reportPrebuild(app, args);
+  if (args.includes('--prebuild')) { process.exitCode = await agentBuild.prebuild(app, args); return; } // LLP 1116.003 D1.2
   const gallery = process.env.EXACT_UPDATE_TRUST !== 'production' && !tv && (args.includes('--widget-gallery') || process.env.EXACT_WIDGET_GALLERY === '1');
   // An entry of either kind (a widget, a Live Activity) is the extension, the shared framework, the App Group and
   // the Keychain group (LLP 1126.001 WP13); tvOS has none of them.

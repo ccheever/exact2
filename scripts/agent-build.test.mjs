@@ -8,7 +8,7 @@ import { tmpdir } from 'node:os';
 import { dirname, relative, resolve } from 'node:path';
 import { appleArtifacts, appleRunBinary } from '../host/apple/build.mjs';
 import { moduleGraph, notBuildInput } from './agent-launch.mjs';
-import { buildArgs, buildFirst, buildReason, failureSummary, nativeBuild, overrideDir, planOverride, planSource, rebuildCommand, refuseBuild } from './agent-build.mjs';
+import { buildArgs, buildFirst, buildReason, failureSummary, nativeBuild, overrideDir, planOverride, planSource, prebuild, rebuildCommand, refuseBuild } from './agent-build.mjs';
 import { resolveApp } from './app.mjs';
 
 /** An outside app, as `exact new` lays one out, with only what the decision reads. */
@@ -401,6 +401,51 @@ test('a plan-only edit runs its bake on the existing build; any other edit, or a
 
 // A drive's compiler warnings keep the compiler's order, the symbols only the web draws blank one line at the end;
 // the file beside the app lists each (the euxy port's header warning was one of 43, behind 21 of them).
+// A background build ends apart from every shell, so the next build or drive says once how it failed (the euxy port's
+// `--prebuild --release`, failed by an edit, said so only in its log).
+test('a failed background build is said once by the next drive, from its part of the log', async () => {
+  const previous = process.env.EXACT_APP_DIR;
+  const { dir, write } = scratchApp('prebuilt-log');
+  try {
+    process.env.EXACT_APP_DIR = dir;
+    const app = resolveApp('prebuilt-log'), said = [];
+    // The drive rebuilds, writing the build log anew.
+    const drive = () => buildFirst('ios', app, { say: line => said.push(line), wait: () => {}, build: async (args, log) => (writeFileSync(log, 'rebuilt'), { code: 0, output: '' }) });
+    const build = 'app: the bake failed:\napp.contract:14:10 [syntax-expected] expected `)`, found `like`\n';
+    write('.exact/ios-build.log', `${build}   Compiling the bake tool\n`);
+    write('.exact/ios-prebuild.json', JSON.stringify({ args: ['--ios', 'prebuilt-log-apple', '--release'], started: '08:02:54', pid: 1, exit: 1, bytes: build.length }));
+    await drive();
+    assert.match(said[0], /^app: the bake failed:\napp\.contract:14:10 \[syntax-expected\] expected `\)`, found `like`\nthe background iOS build \(--prebuild --ios --release, started 08:02:54\) failed \(exit 1\); its whole log: \S*\.exact\/ios-prebuild-failed\.log$/);
+    assert.equal(readFileSync(resolve(dir, '.exact/ios-prebuild-failed.log'), 'utf8'), build, 'its part, kept from the rebuild');
+    assert.ok(!existsSync(resolve(dir, '.exact/ios-prebuild.json')), 'said once');
+    said.length = 0;
+    await drive();
+    assert.ok(!said.some(line => line.includes('background')), said.join('\n'));
+    // One that ended before it could say (its shell gone) is dropped, unsaid.
+    write('.exact/ios-prebuild.json', JSON.stringify({ args: ['--ios'], started: '08:02:54', pid: 2 ** 22 + 1 }));
+    await drive();
+    assert.ok(!said.some(line => line.includes('background')) && !existsSync(resolve(dir, '.exact/ios-prebuild.json')));
+    // A second started while a build holds the claim starts nothing, and leaves the first's log and record.
+    const lock = appleArtifacts(app).lock;
+    mkdirSync(dirname(lock), { recursive: true });
+    writeFileSync(lock, JSON.stringify({ pid: process.pid, app: app.id, source: dir, started: new Date().toISOString() }) + '\n');
+    write('.exact/ios-prebuild.json', '{"id":"first"}');
+    assert.equal(await prebuild(app, ['--ios', 'prebuilt-log-apple', '--prebuild'], { say: line => said.push(line) }), 1);
+    assert.match(said.at(-1), /already running, so none was started/);
+    assert.equal(readFileSync(resolve(dir, '.exact/ios-prebuild.json'), 'utf8'), '{"id":"first"}');
+    assert.equal(readFileSync(resolve(dir, '.exact/ios-build.log'), 'utf8'), 'rebuilt');
+    rmSync(lock);
+    // So does one started before the first's build has claimed it: that record names a live shell.
+    write('.exact/ios-prebuild.json', JSON.stringify({ id: 'first', pid: process.pid }));
+    assert.equal(await prebuild(app, ['--ios', 'prebuilt-log-apple', '--prebuild'], { say: line => said.push(line) }), 1);
+    assert.equal(JSON.parse(readFileSync(resolve(dir, '.exact/ios-prebuild.json'), 'utf8')).id, 'first');
+    assert.equal(readFileSync(resolve(dir, '.exact/ios-build.log'), 'utf8'), 'rebuilt');
+  } finally {
+    if (previous === undefined) delete process.env.EXACT_APP_DIR; else process.env.EXACT_APP_DIR = previous;
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test('a drive says the web-only symbol warnings in one line and lists each in its file', async () => {
   const { warningLines } = await import('./app-cli.mjs');
   const dir = realpathSync(mkdtempSync(resolve(tmpdir(), 'exact-warning-lines-')));
