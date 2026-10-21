@@ -250,6 +250,8 @@ export class Transport {
       return { ok: true, generation: 0, value: {} };
     }
     if (op === 'status') return this.status(module, value);
+    // The client recorded something the window shows (a draft's launch, draft-launch.ts): the snapshot is read again.
+    if (op === 'snapshotNews') { this.news += 1; this.bump(); return { ok: true, generation: 0, value: {} }; }
     if (SESSION_OPS.has(op)) return this.focused.perform(value);
     return module.later(request);
   }

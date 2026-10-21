@@ -49,11 +49,11 @@ export function defaultRefName(client: T3Client): string {
   return refs && !refs.query ? str(refs.refs.find(ref => ref.isDefault === true)?.name) : '';
 }
 
-/** resolveBranchTriggerLabel's origin prefix: "From origin/main" for a local base ref. */
+/** resolveBranchTriggerLabel's remote marker: "From main (remote)" for a local base ref (only the server knows its remote). */
 export function originLabel(client: T3Client, branch: string): string {
   if (!startFromOrigin(client) || !branch) return branch;
   const known = branchState(client).refs?.refs.find(ref => ref.name === branch);
-  return known && known.isRemote !== true ? `origin/${branch}` : branch;
+  return known && known.isRemote !== true ? `${branch} (remote)` : branch;
 }
 
 async function loadRefs(client: T3Client, native: Native, cwd: string, query: string): Promise<Refs> {
