@@ -7,7 +7,7 @@ use super::role_named;
 use contract_syntax::{Attr, Component, Expr, File, Node, Span, Stmt, TemplatePart};
 use exact_kernel::{StyleCodec, StyleId};
 use exact_tamber::Design;
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 /// CSS's colour functions: an expression over a token is one of them.
 const COLOUR_FNS: &[&str] = &[
@@ -93,18 +93,25 @@ pub(crate) struct Said {
     /// Each element's style row whose value is literal (strings or numbers,
     /// or a `?:` or `match` whose arms all are; never a `let`): what the design server checks
     /// again, the compiler's way, when a write reaches a token it names
-    /// ([`super::rows::check`]).
-    pub rows: Vec<Attr>,
+    /// ([`super::rows::check`]); a font row with its node's fonts.
+    pub rows: Vec<(Attr, Option<super::rows::Fonts>)>,
 }
 
 impl Said {
     /// What `file`'s styles, `root`'s view and the `fn`s, states, derives and
     /// actions they read say of `design`'s tokens.
-    pub(crate) fn of(file: &File, root: &Component, design: &Design) -> Said {
+    /// `declared`: the app's fonts, which a font row is judged with.
+    pub(crate) fn of(
+        file: &File,
+        root: &Component,
+        design: &Design,
+        declared: &BTreeMap<String, crate::DeclaredFont>,
+    ) -> Said {
         let mut literals: Vec<(String, Span, bool)> = Vec::new();
         let mut computed = false;
         let mut computed_measure = false;
-        let mut rows: Vec<Attr> = Vec::new();
+        let mut rows: Vec<(Attr, Option<super::rows::Fonts>)> = Vec::new();
+        let declared = std::sync::Arc::new(declared.clone());
         let mut attrs = |attrs: &[Attr]| {
             for a in attrs {
                 let colour = colour_attr(&a.name);
@@ -139,8 +146,22 @@ impl Said {
                     // An element's own rows, which the build checks where it
                     // lowers the element (a style's are checked where a node
                     // applies it, and may be overridden there).
+                    // A font row with its node's fonts, or not at all when
+                    // they aren't known (an unknown class, the build's).
                     if !svg {
-                        rows.extend(a.iter().filter(|a| super::rows::literal_row(a)).cloned());
+                        let mut fonts = None;
+                        for r in a.iter().filter(|a| super::rows::literal_row(a)) {
+                            if !super::rows::font_row(&r.name) {
+                                rows.push((r.clone(), None));
+                                continue;
+                            }
+                            let fonts = fonts.get_or_insert_with(|| {
+                                super::rows::Fonts::of(file, a, !children.is_empty(), &declared)
+                            });
+                            if let Some(f) = fonts {
+                                rows.push((r.clone(), Some(f.clone())));
+                            }
+                        }
                     }
                     stack.extend(children.iter().map(|c| (c, svg)));
                 }

@@ -272,7 +272,7 @@ pub(crate) struct Lowerer<'a> {
     host_transforms: std::collections::BTreeSet<(Span, u32)>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 struct DeclaredFont {
     stack: StacksId,
     /// Each face's heaviest weight (a variable face's range reaches it) and

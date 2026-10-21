@@ -12,17 +12,23 @@
 //! the build says, so a write that only turns one failure into another is
 //! not refused either.
 //!
+//! A font row (`font`, `font-family`, `font-weight`, `font-style`) is
+//! judged with its node's fonts ([`Fonts`]) through lowering's own
+//! `type_tokens::tokens_named` and `fonts::font_use` (stage 13 D1).
+//!
 //! Not checked here, and still caught by the build after a miss: a row
 //! whose value is computed (a name, a template with holes), which the
-//! kernel reads at run time; `font` and `font-family` rows, whose type
-//! tokens are `type_tokens.rs`'s; a state part's row; and refusals outside a
-//! style row (an SVG attribute, a canvas).
+//! kernel reads at run time; a `font` shorthand naming no type token; a
+//! state part's row; and refusals outside a style row (an SVG attribute, a
+//! canvas).
 
 use super::{bind, fold, profiles, scan, Origin, Refusals, Sink, ThemeEntry};
-use crate::LowerError;
+use crate::{DeclaredFont, LowerError};
 use contract_syntax::{Attr, Expr, Span};
 use exact_tamber as tamber;
 use std::cell::RefCell;
+use std::collections::BTreeMap;
+use std::sync::Arc;
 
 thread_local! {
     /// The literal rows the last design lowered on this thread names.
@@ -37,6 +43,58 @@ pub struct Row {
     pub attr: Attr,
     /// Each place it is written.
     pub places: Vec<Place>,
+    /// A font row's node's fonts, as lowering judges the row with them.
+    pub fonts: Option<Fonts>,
+}
+
+/// What lowering judges a node's font row with: the node's `font-family`
+/// and `font-style` (its own or its class's, as `fonts::font_use` reads
+/// them), whether it has element children (`type_tokens::tokens_named`
+/// refuses a type token varying by an axis there), and the app's declared
+/// fonts.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Fonts {
+    attrs: Vec<Attr>,
+    children: bool,
+    declared: Arc<BTreeMap<String, DeclaredFont>>,
+}
+
+impl Fonts {
+    /// The fonts of an element whose rows are `attrs` (`file`'s classes
+    /// applied as lowering applies them, `crate::class::rows`) and whose
+    /// children are `children`; `None` when a class is unknown, which the
+    /// build refuses.
+    pub(crate) fn of(
+        file: &contract_syntax::File,
+        attrs: &[Attr],
+        children: bool,
+        declared: &Arc<BTreeMap<String, DeclaredFont>>,
+    ) -> Option<Fonts> {
+        let style = |name: &str| {
+            file.styles
+                .iter()
+                .rfind(|s| s.name == name)
+                .map(|s| s.attrs.as_slice())
+        };
+        let class = crate::class::rows(attrs, &style).ok()?;
+        let all = class.map(|(_, rows)| rows).unwrap_or_default();
+        let attrs = all
+            .iter()
+            .chain(attrs)
+            .filter(|a| matches!(a.name.as_str(), "font-family" | "font-style"))
+            .cloned()
+            .collect();
+        Some(Fonts {
+            attrs,
+            children,
+            declared: declared.clone(),
+        })
+    }
+}
+
+/// Whether `name` is a row lowering judges with its node's fonts.
+pub(crate) fn font_row(name: &str) -> bool {
+    matches!(name, "font" | "font-family" | "font-weight" | "font-style")
 }
 
 /// Where a literal is written: the authored row it is a literal of (one
@@ -66,11 +124,22 @@ impl Place {
 
 /// `attrs` as [`Row`]s: each literal a row may write (every arm of a `?:`
 /// or `match`, which the build checks each of, whatever the condition), as
-/// a row of its own; those alike as one.
-fn grouped(attrs: Vec<Attr>) -> Vec<Row> {
+/// a row of its own; those alike, with alike fonts, as one.
+fn grouped(attrs: Vec<(Attr, Option<Fonts>)>) -> Vec<Row> {
     let mut out: Vec<Row> = Vec::new();
-    let mut at: std::collections::HashMap<(String, bool, String), usize> = Default::default();
-    for a in attrs {
+    let mut at: std::collections::HashMap<(String, bool, String, usize), usize> =
+        Default::default();
+    // Each distinct node's fonts, by its place here (few: most nodes set
+    // none, and an expanded app repeats the rest).
+    let mut seen: Vec<Option<Fonts>> = vec![None];
+    for (a, fonts) in attrs {
+        let node = match seen.iter().position(|f| *f == fonts) {
+            Some(i) => i,
+            None => {
+                seen.push(fonts.clone());
+                seen.len() - 1
+            }
+        };
         // A plain literal is refused at its attribute; an arm of a choice at
         // its own literal, as the build refuses it. Rows alike share a
         // representative only with their own kind of place.
@@ -88,7 +157,7 @@ fn grouped(attrs: Vec<Attr>) -> Vec<Row> {
                 at: if plain { a.span } else { literal },
                 literal,
             };
-            let k = (a.name.clone(), plain, key);
+            let k = (a.name.clone(), plain, key, node);
             match at.get(&k) {
                 Some(&i) => out[i].places.push(place),
                 None => {
@@ -100,6 +169,7 @@ fn grouped(attrs: Vec<Attr>) -> Vec<Row> {
                             ..a.clone()
                         },
                         places: vec![place],
+                        fonts: fonts.clone(),
                     });
                 }
             }
@@ -110,21 +180,20 @@ fn grouped(attrs: Vec<Attr>) -> Vec<Row> {
 
 /// Whether `a` is an element's style row [`check`] judges as the build
 /// does: rows, a literal value (strings or numbers, or a `?:` or `match`
-/// whose arms all are; never a `let`); not a shorthand (the build projects it into longhands
-/// first); not a row the build judges with the node's fonts (`font`,
-/// `font-family`, `font-weight`, `font-style`); not a transition's or an
-/// animation's, whose motion tokens the loader writes in before this map
-/// is read.
+/// whose arms all are; never a `let`); not a shorthand (the build projects
+/// it into longhands first) but `font`, whose type tokens are judged whole
+/// ([`font_row`]); not a transition's or an animation's, whose motion
+/// tokens the loader writes in before this map is read.
 pub(crate) fn literal_row(a: &Attr) -> bool {
     let n = a.name.as_str();
-    if matches!(n, "font" | "font-family" | "font-weight" | "font-style")
-        || n.contains("transition")
+    if n.contains("transition")
         || n.contains("animation")
         || crate::tags::rows(a).is_empty()
-        || matches!(
-            crate::tags::attr_valued(n, &a.value),
-            Some(crate::tags::AttrTarget::Shorthand | crate::tags::AttrTarget::Flex)
-        )
+        || (n != "font"
+            && matches!(
+                crate::tags::attr_valued(n, &a.value),
+                Some(crate::tags::AttrTarget::Shorthand | crate::tags::AttrTarget::Flex)
+            ))
     {
         return false;
     }
@@ -151,7 +220,7 @@ fn written<'e>(v: &'e Expr, out: &mut Vec<&'e Expr>) -> bool {
 }
 
 /// Leave `rows` for [`rows`] (the design server's build reads it).
-pub(crate) fn note(rows: Vec<Attr>) {
+pub(crate) fn note(rows: Vec<(Attr, Option<Fonts>)>) {
     ROWS.with(|r| *r.borrow_mut() = grouped(rows));
 }
 
@@ -204,12 +273,16 @@ pub fn check(
         }
     }
     let reaches = |w: &str| hit.contains(w);
+    // A row's own literals, and its node's `font-family`'s (a write to a
+    // family token reaches `font-weight=700` beside it).
     let reached: Vec<&Row> = rows
         .iter()
         .filter(|r| {
-            let a = &r.attr;
             let mut leaves = Vec::new();
-            written(&a.value, &mut leaves);
+            written(&r.attr.value, &mut leaves);
+            for a in r.fonts.iter().flat_map(|f| &f.attrs) {
+                super::leaves(&a.value, &mut Vec::new(), &mut leaves);
+            }
             leaves.iter().any(|l| match l {
                 Expr::Str(text, _) => scan::words(text).any(reaches),
                 _ => false,
@@ -219,8 +292,7 @@ pub fn check(
     if reached.is_empty() {
         return Vec::new();
     }
-    let attrs: Vec<&Attr> = reached.iter().map(|r| &r.attr).collect();
-    let Some(failing) = judged(after, Some(folded), &attrs, exprs, params) else {
+    let Some(failing) = judged(after, Some(folded), &reached, exprs, params) else {
         return Vec::new();
     };
     let failing: Vec<(&Row, LowerError)> = reached
@@ -245,8 +317,7 @@ pub fn check(
         .iter()
         .filter(|r| r.places.iter().any(|p| authored.contains(&p.row)))
         .collect();
-    let attrs: Vec<&Attr> = theirs.iter().map(|r| &r.attr).collect();
-    let Some(was) = judged(&before, None, &attrs, exprs, params) else {
+    let Some(was) = judged(&before, None, &theirs, exprs, params) else {
         return Vec::new();
     };
     let failed_before: std::collections::HashSet<Span> = theirs
@@ -315,7 +386,7 @@ impl Sink for Quiet {
 fn judged(
     design: &tamber::Design,
     folded: Option<&tamber::Folding>,
-    rows: &[&Attr],
+    rows: &[&Row],
     exprs: &[(String, bool)],
     params: &[crate::params::ParamToken],
 ) -> Option<Vec<Result<(), LowerError>>> {
@@ -350,19 +421,46 @@ fn judged(
     let scope = contract_types::Scope::default();
     let out = rows
         .iter()
-        .map(|a| {
-            let rows = crate::tags::rows(a);
-            let mut leaves = Vec::new();
-            super::leaves(&a.value, &mut Vec::new(), &mut leaves);
-            let ty = match leaves.iter().all(|e| matches!(e, Expr::Number(..))) {
-                true => contract_types::Ty::Number,
-                false => contract_types::Ty::String,
-            };
-            crate::values::check_style_value(a, &rows, &ty, &[], &scope, &shapes)
+        .map(|r| {
+            judge(&r.attr, r.fonts.as_ref(), &scope, &shapes)
                 .map_err(|e| super::shown_errors(vec![e]).remove(0))
         })
         .collect();
     Some(out)
+}
+
+/// One row judged as lowering judges it, under the design bound: a type
+/// or family token's row by `type_tokens::tokens_named`, as `type_font`
+/// and `family_token` judge it (a value naming none is the shorthand's or
+/// a literal family's, left to the build); any other by
+/// `values::check_style_value`, with the node's fonts as
+/// `fonts::font_use` reads them.
+fn judge(
+    a: &Attr,
+    fonts: Option<&Fonts>,
+    scope: &contract_types::Scope,
+    shapes: &contract_types::Shapes,
+) -> Result<(), LowerError> {
+    let uses = fonts
+        .and_then(|f| crate::fonts::font_use(&f.declared, &f.attrs).ok())
+        .unwrap_or_default();
+    let kind = match a.name.as_str() {
+        "font" => Some((tamber::Kind::Type, &uses[..])),
+        "font-family" => Some((tamber::Kind::Family, &[][..])),
+        _ => None,
+    };
+    if let (Some((kind, uses)), Some(f)) = (kind, fonts) {
+        return crate::type_tokens::tokens_named(a, kind, uses, &f.declared, f.children)
+            .map(|_| ());
+    }
+    let rows = crate::tags::rows(a);
+    let mut leaves = Vec::new();
+    super::leaves(&a.value, &mut Vec::new(), &mut leaves);
+    let ty = match leaves.iter().all(|e| matches!(e, Expr::Number(..))) {
+        true => contract_types::Ty::Number,
+        false => contract_types::Ty::String,
+    };
+    crate::values::check_style_value(a, &rows, &ty, &uses, scope, shapes)
 }
 
 /// The tables [`bind`] and the params set, as they were before a check,
@@ -429,6 +527,7 @@ mod tests {
                 written: true,
             },
             places: vec![Place::plain(Span::default())],
+            fonts: None,
         };
         let broken = check(&[row], &["gap"], &design, &folded, || None, &[], &[]);
         assert!(broken.is_empty());

@@ -399,6 +399,7 @@ fn a_worst_case_write_is_checked_within_the_budget() {
             places: vec![contract_lower::rows::Place::plain(
                 contract_syntax::Span::default(),
             )],
+            fonts: None,
         })
         .collect();
     let vocab = contract_lower::tamber_vocab();
@@ -435,4 +436,107 @@ fn a_worst_case_write_is_checked_within_the_budget() {
     assert!(took.as_millis() < 10, "a passing write: {took:?}");
     let took = best("#202020", 102);
     assert!(took.as_millis() < 10, "a breaking write: {took:?}");
+}
+
+/// `reading(tag)` with the fonts fixture's two files in its assets, and the
+/// contract's declarations of them: one family with a bold face, one
+/// without.
+fn with_fonts(tag: &str) -> std::path::PathBuf {
+    let dir = reading(tag);
+    std::fs::create_dir_all(dir.join("assets")).unwrap();
+    let fixtures =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../scripts/fixtures/fonts/assets");
+    for name in ["DejaVuSans.ttf", "DejaVuSans-Bold.ttf"] {
+        std::fs::copy(fixtures.join(name), dir.join("assets").join(name)).unwrap();
+    }
+    dir
+}
+
+const FONTS: &str = "use Card from \"@acme/reading\"\nfont \"Fixture Sans\"\n  400 = \"assets/DejaVuSans.ttf\"\n  700 = \"assets/DejaVuSans-Bold.ttf\"\nfont \"Regular Only\" = \"assets/DejaVuSans.ttf\"\n";
+
+/// Stage 13 D1: a write to a family token that leaves `font-weight=700`
+/// beside it on a family with no bold face is refused as the build
+/// refuses it (`lower-font-face`), through the node's `font-family`, which
+/// the weight's own row doesn't name.
+#[test]
+fn a_family_write_breaking_a_weight_beside_it_is_refused() {
+    let design = "tamber t\n\ntheme\n  ink = #111111\n  family.text = \"Fixture Sans\"\n";
+    let contract = format!("{FONTS}component App\n  view\n    column\n      text \"x\" font-family=\"family.text\" font-weight=700\n      Card()\n");
+    same_words(
+        &with_fonts("rows-font-weight"),
+        design,
+        &contract,
+        json!({"op": "set-token", "name": "family.text", "value": "\"Regular Only\""}),
+        &design.replace("\"Fixture Sans\"", "\"Regular Only\""),
+    );
+}
+
+/// The same through the node's class: lowering reads a class's
+/// `font-family` as the node's own.
+#[test]
+fn a_family_write_through_a_class_is_refused() {
+    let design = "tamber t\n\ntheme\n  ink = #111111\n  family.text = \"Fixture Sans\"\n";
+    let contract = format!("{FONTS}style Body\n  font-family = \"family.text\"\ncomponent App\n  view\n    column\n      text \"x\" class=Body font-style=\"normal\" font-weight=700\n      Card()\n");
+    same_words(
+        &with_fonts("rows-font-class"),
+        design,
+        &contract,
+        json!({"op": "set-token", "name": "family.text", "value": "\"Regular Only\""}),
+        &design.replace("\"Fixture Sans\"", "\"Regular Only\""),
+    );
+}
+
+/// A type token whose write asks for a bold face its family doesn't ship
+/// (`type_tokens`' `bundled_faces`), and one whose write makes it a family
+/// token, which `font` doesn't name (`tamber-kind`).
+#[test]
+fn a_type_token_write_is_judged_as_the_build_judges_it() {
+    let design = "tamber t\n\ntheme\n  ink = #111111\n  body = 400 1rem \"Regular Only\"\n";
+    let contract = format!(
+        "{FONTS}component App\n  view\n    column\n      text \"x\" font=\"body\"\n      Card()\n"
+    );
+    same_words(
+        &with_fonts("rows-font-face"),
+        design,
+        &contract,
+        json!({"op": "set-token", "name": "body", "value": "700 1rem \"Regular Only\""}),
+        &design.replace("400 1rem", "700 1rem"),
+    );
+    same_words(
+        &with_fonts("rows-font-kind"),
+        design,
+        &contract,
+        json!({"op": "set-token", "name": "body", "value": "\"Regular Only\""}),
+        &design.replace("400 1rem \"Regular Only\"", "\"Regular Only\""),
+    );
+}
+
+/// A write the build accepts is accepted: the family made one with a bold
+/// face under `font-weight=700`, and a type token's weight its family
+/// ships.
+#[test]
+fn a_font_write_the_build_accepts_is_accepted() {
+    let dir = with_fonts("rows-font-ok");
+    let design = "tamber t\n\ntheme\n  ink = #111111\n  family.text = \"Regular Only\"\n  body = 400 1rem \"Fixture Sans\"\n";
+    let contract = format!("{FONTS}component App\n  view\n    column\n      text \"x\" font-family=\"family.text\" font-weight=400\n      text \"y\" font=\"body\"\n      Card()\n");
+    std::fs::write(dir.join("app.tamber"), design).unwrap();
+    std::fs::write(dir.join("app.contract"), &contract).unwrap();
+    contract::compile_path(&dir.join("app.contract")).unwrap();
+    let mut s = Serve::start(&dir, &[]);
+    s.ask(json!({"method": "propose", "ops": [{"op": "set-token", "name": "ink", "value": "#444444"}]}));
+    let w = transaction(
+        &mut s,
+        &dir,
+        json!({"op": "set-token", "name": "body", "value": "700 1rem \"Fixture Sans\""}),
+    );
+    assert!(w.get("ok").is_some(), "a shipped bold face: {w}");
+    let w = transaction(
+        &mut s,
+        &dir,
+        json!({"op": "set-token", "name": "family.text", "value": "\"Fixture Sans\""}),
+    );
+    assert!(w.get("ok").is_some(), "a family with the weight: {w}");
+    drop(s);
+    contract::compile_path(&dir.join("app.contract")).unwrap();
+    let _ = std::fs::remove_dir_all(&dir);
 }
