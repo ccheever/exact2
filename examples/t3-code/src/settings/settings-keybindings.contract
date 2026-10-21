@@ -92,6 +92,8 @@ shape KeybindingPage
   error: string
   path: string
   rows: KeybindingRowView[]
+  // Every row's id, whatever the search shows: a held draft whose row is gone is dropped (app.contract).
+  ids: string[]
   groups: KeybindingGroup[]
   commands: SelectOption[]
   draftConflict: string

@@ -2,6 +2,7 @@ use SettingsSelect from "../settings/settings-kit.contract"
 use SelectOption from "../settings/settings-kit.contract"
 use TerminalProcessIndicator from "../sidebar/sidebar-row.contract"
 use prdTone from "../pull-requests/pages-pr-detail.contract"
+use PgIcon from "../shared/pages-icons.contract"
 use Viewport from "../shared/shapes.contract"
 use ThemeOrb from "../settings/settings-core.contract"
 use ProjectMark from "../shared/icons-kit.contract"
@@ -35,6 +36,7 @@ shape PaletteRow
   terminalCount: number
   // A thread's pull request number that the search matched, its lifecycle tone ('' muted) and accessible label.
   prNumber: string
+  prIcon: string
   prState: string
   prLabel: string
   key: string
@@ -328,8 +330,11 @@ component PaletteRowView
                 box width="1rem" height="1rem" border-radius="0.25rem" border-width=1 border-style="solid" box-sizing="border-box" flex-shrink=0 display="flex" align-items="center" justify-content="center" border-color=(row.checked ? "light-dark(#1b4ed8, #346bf1)" : "light-dark(#d4d4d8, #ffffff26)") background-color=(row.checked ? "light-dark(#1b4ed8, #346bf1)" : "#00000000") aria-hidden=true
                   if row.checked
                     PaletteIcon(name="check", size=12, color="#ffffff")
+              // ThreadSearchPullRequestNumber: the sidebar row's badge, its glyph and text in the state's tone.
               if row.prNumber != ""
-                text `#${row.prNumber}` flex-shrink=0 font-size="0.75rem" line-height="1rem" font-variant-numeric="tabular-nums" color=(row.prState == "" ? "light-dark(#71717b, #818181)" : prdTone(row.prState)) aria-label=row.prLabel testId=`palette-pr-${row.key}`
+                row flex-shrink=0 gap="0.125rem" align-items="center" aria-label=row.prLabel testId=`palette-pr-${row.key}`
+                  PgIcon(name=row.prIcon, size=12, color=(row.prState == "" ? "light-dark(#71717b, #818181)" : prdTone(row.prState)))
+                  text row.prNumber font-size="0.75rem" line-height="1rem" font-variant-numeric="tabular-nums" color=(row.prState == "" ? "light-dark(#71717b, #818181)" : prdTone(row.prState))
               if row.terminalCount > 0
                 TerminalProcessIndicator(label="Terminal process running", tooltip="Terminal process running", size=12, reduced=reduced, id=`palette-terminal-status-${row.key}`)
               if row.timestamp != ""

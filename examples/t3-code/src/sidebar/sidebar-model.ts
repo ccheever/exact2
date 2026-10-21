@@ -1,4 +1,4 @@
-// Adapted from T3 Code 9c161462c9 (MIT); see LICENSE-T3.
+// Adapted from T3 Code 74541bab17 (MIT); see LICENSE-T3.
 // The sidebar's thread model (Sidebar.tsx, Sidebar.logic.ts, client-runtime
 // models.ts/threadSettled.ts/threadSort.ts; MIT, see LICENSE-T3): status, the
 // shelf a thread lives on, the static sort, unread/woke/recede prominence and
@@ -96,12 +96,22 @@ export function hasQueuedTurnStart(thread: Obj, now: number): boolean {
 export function canSnooze(thread: Obj, now: number): boolean {
   return thread.pendingRuntimeRequest == null && !pendingApproval(thread) && !pendingInput(thread) && pendingSubagentRequest(thread) === null && !hasQueuedTurnStart(thread, now);
 }
-/** threadRaisedHandWhileSnoozed: it or a subagent is blocked on the user, a fresh failure, or a newer completion. */
+/**
+ * threadRaisedHandWhileSnoozed: it or a subagent is blocked on the user, or a run failed after the snooze. A completed
+ * run never wakes it: a snoozed thread that keeps waking itself for background work stays hidden until its timer.
+ */
 export function raisedHand(thread: Obj): boolean {
   if (thread.pendingRuntimeRequest != null || pendingApproval(thread) || pendingInput(thread) || pendingSubagentRequest(thread) !== null) return true;
-  const runtime = shellRuntime(thread), run = latestRun(thread), snoozedAt = thread.snoozedAt == null ? null : str(thread.snoozedAt);
-  if ((runtime?.status === 'error' || runtime?.status === 'failed') && (snoozedAt == null || parse(runtime.updatedAt) > parse(snoozedAt))) return true;
-  return snoozedAt != null && run?.status === 'completed' && run.completedAt != null && parse(run.completedAt) > parse(snoozedAt);
+  const failedAt = failureEdgeAt(thread), snoozedAt = thread.snoozedAt == null ? null : str(thread.snoozedAt);
+  return failedAt !== undefined && (snoozedAt == null || (failedAt != null && parse(failedAt) > parse(snoozedAt)));
+}
+/** threadSettled.ts failureEdgeAt: the failed run's completion, since the runtime's updatedAt moves on metadata writes. */
+function failureEdgeAt(thread: Obj): string | null | undefined {
+  const runtime = shellRuntime(thread);
+  if (runtime?.status !== 'error' && runtime?.status !== 'failed') return undefined;
+  const run = latestRun(thread);
+  if (run?.status === 'failed' && run.completedAt != null) return run.completedAt;
+  return runtime.updatedAt || null;
 }
 export function effectiveSnoozed(thread: Obj, now: number): boolean {
   if (thread.snoozedUntil == null) return false;
@@ -115,9 +125,10 @@ export function wokeAt(thread: Obj, now: number): string | null {
   const wake = parse(thread.snoozedUntil);
   if (!Number.isFinite(wake)) return null;
   if (raisedHand(thread)) {
-    const run = latestRun(thread), snoozedAt = thread.snoozedAt == null ? null : str(thread.snoozedAt);
-    if (snoozedAt != null && run?.status === 'completed' && run.completedAt != null && parse(run.completedAt) > parse(snoozedAt)) return run.completedAt;
-    return shellRuntime(thread)?.updatedAt ?? snoozedAt;
+    // An old failure must not replace the activity time of an approval or input wake.
+    const failedAt = failureEdgeAt(thread), snoozedAt = thread.snoozedAt == null ? null : str(thread.snoozedAt);
+    if (failedAt != null && (snoozedAt == null || parse(failedAt) > parse(snoozedAt))) return failedAt;
+    return shellRuntime(thread)?.updatedAt || snoozedAt;
   }
   return wake <= now ? str(thread.snoozedUntil) : null;
 }

@@ -46,7 +46,7 @@ describe('one draft per row (app.contract)', () => {
       keybindingDrafts: [], keybindingSaving: '', modalError: '', commandPending: false, pendingModal: '', restEditor: '', settingsRefresh: 0, noticeExit: '',
       routeKeyboard: '', renameAfterOp: '', lineageStopping: false };
     const sent: unknown[][] = [];
-    const scope: Env = { KeybindingDraft: draft, settingsEnvironmentId: 'env', settingsProjectId: '', command: (...args: unknown[]) => sent.push(args), routeKeyboardComplete: () => '', routeKeyboardOwned: false };
+    const scope: Env = { bindings: { ids: ['a', 'b'] }, KeybindingDraft: draft, settingsEnvironmentId: 'env', settingsProjectId: '', command: (...args: unknown[]) => sent.push(args), routeKeyboardComplete: () => '', routeKeyboardOwned: false };
     for (const name of ['editKeybinding', 'restRaw']) scope[name] = (...args: unknown[]) => root.call(name, state, scope, args);
     const call = (name: string, ...args: unknown[]) => root.call(name, state, scope, args);
     return { state, scope, sent, call };
@@ -86,5 +86,16 @@ describe('one draft per row (app.contract)', () => {
     s.call('restRaw', 'rest:keybinding-open', 'env:', '');
     root.call('commandCompleted', s.state, { ...s.scope, changed: { message: '', relaunch: false, routeReorder: 0 } }, []);
     expect(s.state).toMatchObject({ keybindingSaving: '', keybindingPrevious: 'b', keybindingKey: 'mod+shift+j' });
+  });
+
+  test('a held draft whose row left the bindings is dropped', () => {
+    const s = settings();
+    s.state.keybindingDrafts = [{ row: 'gone', command: 'chat.new', key: 'mod+u', when: '' }, { row: 'a', command: 'thread.pin', key: 'mod+alt+p', when: '' }];
+    s.call('editKeybinding', 'b', 'terminal.toggle', 'mod+j', '');
+    expect(s.state.keybindingDrafts).toEqual([{ row: 'a', command: 'thread.pin', key: 'mod+alt+p', when: '' }]);
+    s.state.keybindingDrafts = [{ row: 'gone', command: 'chat.new', key: 'mod+u', when: '' }, { row: 'new', command: 'chat.new', key: '', when: '' }];
+    s.call('keybindingRest', 'b', 'action=save&previous=b&command=terminal.toggle&key=mod%2Bk&when=');
+    root.call('commandCompleted', s.state, { ...s.scope, changed: { message: '', relaunch: false, routeReorder: 0 } }, []);
+    expect(s.state.keybindingDrafts).toEqual([{ row: 'new', command: 'chat.new', key: '', when: '' }]);
   });
 });

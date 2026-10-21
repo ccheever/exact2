@@ -96,7 +96,7 @@ function resolvedDefault(rule: { key: string; command: string; when?: string }):
 /** A row's unsaved draft while another row is edited (settings-keybindings.contract KeybindingDraft). */
 export type HeldDraft = { row: string; command: string; key: string; when: string };
 export async function keybindingSettings(client: T3Client, native: Native | null | undefined, environmentId: string, query: string, active: boolean, draftRow = '', draftKey = '', draftWhen = '', draftCommand = '', drafts: HeldDraft[] = []) {
-  const empty = { available: false, writable: false, notice: '', error: '', path: '', rows: [] as KeybindingRowView[], groups: [] as KeybindingGroup[],
+  const empty = { available: false, writable: false, notice: '', error: '', path: '', rows: [] as KeybindingRowView[], ids: [] as string[], groups: [] as KeybindingGroup[],
     commands: [] as { value: string; label: string; selected: boolean }[], draftConflict: '', draftValid: true, draftCommandLabel: '', draftKeyLabel: '',
     held: [] as { row: string; conflict: string; valid: boolean; commandLabel: string }[], whenView: whenEditor(draftWhen) };
   if (!active) return empty;
@@ -117,7 +117,7 @@ export async function keybindingSettings(client: T3Client, native: Native | null
       const view = whenEditor(draft.when), key = draft.key.trim(), condition = view.error ? '' : printWhen(parseWhen(draft.when.trim()) || undefined);
       return { row: draft.row, conflict: conflictText(conflictLabels(all, { id: draft.row, key, when: condition })), valid: !view.error, commandLabel: draft.command ? commandLabel(draft.command) : 'new keybinding' };
     });
-    return { ...empty, available: true, writable, path: str(config.keybindingsConfigPath), rows, groups: groupRows(rows),
+    return { ...empty, available: true, writable, path: str(config.keybindingsConfigPath), rows, ids: listed.map(row => row.id), groups: groupRows(rows),
       notice: writable ? '' : !connected ? 'Connect an environment to change keybindings.' : 'This connection can view keybindings but cannot change them.',
       commands: commandOptions(bindings).map(option => ({ ...option, selected: option.value === draftCommand })), draftConflict: conflict, draftValid: !when.error,
       draftCommandLabel: draftCommand ? commandLabel(draftCommand) : 'new keybinding', draftKeyLabel: draftKeyValue ? shortcutLabel(draftKeyValue) : '', held, whenView: when };

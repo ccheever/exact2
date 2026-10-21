@@ -25,6 +25,9 @@ import { previewToggleRow } from '../browser/browser-navigation'; // ⇧⌘J
 
 export type DispatchContext = { composerFocus: boolean; editableFocus: boolean; turnRunning: boolean; modelPickerOpen: boolean; draftThreadRoute: boolean; modalOpen: boolean; settingsOpen: boolean; diffOpen: boolean;
   terminalFocus?: boolean; terminalOpen?: boolean; paletteOpen?: boolean; paletteMode?: string; prNumber?: string; undoShown?: boolean; settingsRoute?: string; page?: string;
+  /** A new undo notice owns its chord even in a field until another key or an edit (showThreadUndoNotice's claim), and
+   *  the sidebar that shows the notice is open. */
+  undoClaimed?: boolean;
   /** The open picker's Settings row (settings-model-picker.ts); '' for the composer's. */
   modelTarget?: string;
   /** The preview's chords, which the module answers while the preview has the focus. */
@@ -115,8 +118,9 @@ export function keyboardDispatch(client: T3Client, threads: Obj[], browseProvide
   const out: Dispatch[] = [];
   // One button per chord: the host files a button's first ⌘ chord as its menu key
   // equivalent, so chat.new's ⇧⌘O and ⌘N each need their own to work while no view holds the focus.
-  const add = (command: string, kind: string, target: string, label: string, extra = '') => chords(command).split(' ').filter(Boolean).forEach((chord, index) =>
-    out.push({ id: `${command}:${target}:${extra}${index ? `:${chord}` : ''}`, command, chord, kind, target, extra, label }));
+  const add: DispatchAdd = Object.assign((command: string, kind: string, target: string, label: string, extra = '') => chords(command).split(' ').filter(Boolean).forEach((chord, index) =>
+    out.push({ id: `${command}:${target}:${extra}${index ? `:${chord}` : ''}`, command, chord, kind, target, extra, label })),
+  { chord: (command: string, chord: string, kind: string, target: string, label: string, extra = '') => out.push({ id: `${command}:${target}:${chord}`, command, chord, kind, target, extra, label }) });
   // The search overlay's three modes toggle from anywhere the palette can open,
   // including while it is open (re-pressing a mode's chord closes it).
   const overlays = () => {
@@ -145,7 +149,27 @@ export function keyboardDispatch(client: T3Client, threads: Obj[], browseProvide
   if (find) add('chat.find', 'command', find.slot === 'pr' ? 'chatlocal:pr-code-find-open' : 'chatlocal:diff-find-open', 'Find in Diff', find.reference);
   else if (client.threadId) add('chat.find', 'command', 'chatlocal:find-open', 'Find in Thread');
   for (const row of MAIN_ROWS) row(add, client, threads, browseProvider, modelQuery, context);
-  return out;
+  // A claimed undo chord is the notice's alone, as the reference's capture listener stops it before anything else.
+  const undo = new Set(out.filter(row => row.command === 'thread.undo').map(row => row.chord));
+  return out.filter(row => row.command === 'thread.undo' || !undo.has(row.chord));
+}
+
+/**
+ * thread.undo's chords (AppSidebarLayout ThreadUndoShortcut): with the focus at a field, only while the notice claims
+ * them, resolved as if no field had the focus, so a field's own undo comes back once the claim is released.
+ */
+function undoChords(client: T3Client, context: DispatchContext): string[] {
+  const claimed = context.editableFocus && context.undoClaimed === true;
+  const winners = chordWinners(arr(client.config.keybindings), claimed ? { ...context, editableFocus: false } : context);
+  return [...winners].filter(([, command]) => command === 'thread.undo').map(([chord]) => chord);
+}
+/**
+ * A chord's character key, lowercased, which a held chord's repeats carry as `KeyboardEvent.key` with ⌘ held, whatever
+ * the layout puts under it; '' for a named key.
+ */
+export function chordKey(chord: string): string {
+  const key = chord.slice(chord.lastIndexOf('+', chord.length - 2) + 1);
+  return key.length === 1 ? key.toLowerCase() : '';
 }
 
 /** The confirm ops of a terminal close (the drawer's and a panel terminal's, and a Terminal surface's tab). */
@@ -162,8 +186,9 @@ function refuseTerminalClose(client: T3Client, rows: Dispatch[]): Dispatch[] {
     ...closing.map(chord => ({ id: `terminal.close:refused:${chord}`, command: 'terminal.close', chord, kind: 'refuse', target: '', extra: '', label: 'Close Terminal' }))];
 }
 
-/** `add` files one button per winning chord of a command (keyboardDispatch). */
-export type DispatchAdd = (command: string, kind: string, target: string, label: string, extra?: string) => void;
+/** `add` files one button per winning chord of a command (keyboardDispatch); `add.chord` files one for a chord it names. */
+export type DispatchAdd = ((command: string, kind: string, target: string, label: string, extra?: string) => void) &
+  { chord(command: string, chord: string, kind: string, target: string, label: string, extra?: string): void };
 /** One main-window row: the buttons it adds, from the dispatch's own arguments. */
 export type DispatchRow = (add: DispatchAdd, client: T3Client, threads: Obj[], browseProvider: string, modelQuery: string, context: DispatchContext) => void;
 // The main window's commands after the search overlay's three, in button
@@ -235,8 +260,8 @@ function threadRows(add: DispatchAdd, client: T3Client, threads: Obj[], browsePr
   }
   // pullRequest.copyNumber: the open pull request detail panel copies its "#N" (PullRequestDetailPanel copyFromShortcut).
   if (context.prNumber) add('pullRequest.copyNumber', 'pr-copy', 'PR number', 'Copy PR Number', context.prNumber);
-  // thread.undo: the sidebar's live Undo notice (sidebar-commands.ts undoLatest).
-  if (context.undoShown ?? undoLive(client)) add('thread.undo', 'command', 'sidebar:undo', 'Undo');
+  // thread.undo: the sidebar's live Undo notice (sidebar-commands.ts undoLatest), never under the model picker.
+  if ((context.undoShown ?? undoLive(client)) && !context.modelPickerOpen) for (const chord of undoChords(client, context)) add.chord('thread.undo', chord, 'command', 'sidebar:undo', 'Undo', chordKey(chord));
   // editor.openFavorite: a shown file's picker takes the chord and opens the file (FilePreviewPanel's OpenInPicker,
   // `openInShortcutEnabled={visible}`), and the thread details picker stands down for it; without one, the workspace.
   // With the file shown and its picker unable to open it, only the window's fallback runs, on this machine alone
@@ -287,6 +312,6 @@ export function keyboardDispatchSource(client: T3Client, args: unknown[]): Dispa
   return keyboardDispatch(client, Array.isArray(args[0]) ? args[0] as Obj[] : [], String(args[1] || ''), String(args[2] || ''), { composerFocus: args[3] === true, editableFocus: args[3] === true || args[7] === true,
     turnRunning: args[4] === true, modelPickerOpen: args[5] === true, draftThreadRoute: args[6] === true, modalOpen: args[7] === true, settingsOpen: args[8] === true, diffOpen: args[9] === true,
     paletteOpen: args[11] === true, paletteMode: String(args[12] || ''), prNumber: String(args[13] || ''), undoShown: args.length > 14 ? args[14] === true : undefined, settingsRoute: String(args[15] || ''), page: String(args[16] || ''), modelTarget: String(args[17] || ''),
-    terminalClosePending: TERMINAL_CLOSE_CONFIRMS.includes(String(args[18] || '')), findPanelKind: args.length > 19 ? String(args[19] || '') : undefined, prCodeOpen: args.length > 20 ? args[20] === true : undefined,
-    fileSurface: args[21] === true, fileOpenPath: String(args[22] || '') });
+    terminalClosePending: TERMINAL_CLOSE_CONFIRMS.includes(String(args[18] || '')), findPanelKind: args.length > 19 ? String(args[19] || '') : undefined, prCodeOpen: args.length > 20 ? args[20] === true : undefined, undoClaimed: args[21] === true,
+    fileSurface: args[22] === true, fileOpenPath: String(args[23] || '') });
 }
