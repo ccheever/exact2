@@ -4,7 +4,7 @@
 // clone's tab bar: `tabWidths -12`). A plan runs here as conform runs a synthetic one: on a wasm Caltrain dist, by
 // `exact.reload`. The report is held back, as a loaded machine holds it.
 import { test, expect } from 'bun:test';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { extname, resolve } from 'node:path';
@@ -25,6 +25,10 @@ async function prerequisite() {
     const app = resolveApp('caltrain');
     await assertWebDistApp(wasmDist, app);
     if (jsTargetBuild(wasmDist)) return ['fixture', `${wasmDist} is a JS-target build; this test reads the wasm target (EXACT_WEB_LINK=all bun host/web/build.mjs caltrain-web --wasm)`];
+    // Without every capability linked the module imports no geometry, and `frame()` reads nothing whatever the order.
+    let receipt;
+    try { receipt = JSON.parse(readFileSync(resolve(wasmDist, 'bake.json'), 'utf8')); } catch { return ['fixture', `${wasmDist} has no readable bake receipt`]; }
+    if (receipt.binary?.configuration?.flags?.EXACT_WEB_LINK !== 'all') return ['fixture', `${wasmDist} was not built with EXACT_WEB_LINK=all`];
     refuseStale('web', resolve(wasmDist, '.exact-build.json'), webChanges(wasmDist, app).all, 'EXACT_WEB_LINK=all bun host/web/build.mjs caltrain-web --wasm');
   } catch (error) { return ['fixture', error.message]; }
   return null;
@@ -132,9 +136,9 @@ check("the wasm host: an agent's settle waits for a view's first size, however l
     expect(held.slots.hidden).toBe(0);
     await page.close();
     server.stop(true);
-    // The page's geometry served only once the plan's tab row was observed and two frames passed (when a resize glue
-    // that did not wait would have reported on unavailable frames), or 1.5 s on with nothing observed (the one that
-    // waits): the first size waits for it, so the tabs are measured, not read as nothing (the clone's `-12`).
+    // The page's geometry served only once the resize glue has run and a frame passed (a resize glue that did not wait
+    // has observed the tab row by then), and two more frames if it did (its report run on unavailable frames): the
+    // first size waits for it, so the tabs are measured, not read as nothing (the clone's `-12`).
     server = serve(plan, /geometry-glue/);
     const late = await (await browser.newContext()).newPage();
     await late.exposeFunction('__geometry', () => server.open());
@@ -144,9 +148,16 @@ check("the wasm host: an agent's settle waits for a view's first size, however l
     const slow = await late.evaluate(async () => {
       const frames = () => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
       const bytes = await fetch('/__plan').then((r) => r.arrayBuffer());
+      let observed = false;
+      globalThis.__observed.then(() => { observed = true; });
       await globalThis.exact.reload(new Uint8Array(bytes), true);
-      const settling = globalThis.exact.agentSettled({ op: 'clock', settle: true });
-      await Promise.race([globalThis.__observed.then(frames), new Promise((r) => setTimeout(r, 1500))]);
+      const settling = globalThis.exact.agentSettled({ op: 'clock', settle: true }), end = performance.now() + 20000;
+      while (!globalThis.exact.observeResize) {
+        if (performance.now() > end) throw new Error('the resize glue never ran');
+        await new Promise((r) => requestAnimationFrame(r));
+      }
+      await new Promise((r) => requestAnimationFrame(r));
+      if (observed) await frames();
       await globalThis.__geometry();
       const settled = await settling;
       return { settled, slots: (await globalThis.exact.agentSettled({ op: 'state' })).slots };
