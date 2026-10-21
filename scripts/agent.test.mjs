@@ -6,11 +6,40 @@ import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { PassThrough } from 'node:stream';
-import { open, jsonLines, MalformedOperation, main } from './agent.mjs';
+import { open, jsonLines, MalformedOperation, main, webFrame } from './agent.mjs';
 import { chromium, launchFacts, noteDefaultStore } from './agent-launch.mjs';
 import { need } from './coverage.mjs';
 import { typeCommand } from './agent-keys.mjs';
 import { render, stateOp } from './agent-inspect.mjs';
+
+test('a web frame fallback settles its evaluate request when two RAFs do not complete', async () => {
+  for (const completed of [0, 1, 2]) {
+    const frames = new Map(), timers = new Map(); let next = 0, inFlight = 0;
+    const evaluate = async expression => {
+      inFlight++;
+      try {
+        return await Function('requestAnimationFrame', 'cancelAnimationFrame', 'setTimeout', 'clearTimeout', `return ${expression}`)(
+          callback => { const id = ++next; frames.set(id, callback); return id; },
+          id => frames.delete(id),
+          (callback, ms) => { const id = ++next; timers.set(id, { callback, ms }); return id; },
+          id => timers.delete(id),
+        );
+      } finally { inFlight--; }
+    };
+    const pending = webFrame(evaluate);
+    assert.equal(inFlight, 1);
+    assert.deepEqual([...timers.values()].map(timer => timer.ms), [250]);
+    for (let i = 0; i < completed; i++) {
+      const [id, callback] = frames.entries().next().value;
+      frames.delete(id); callback();
+    }
+    if (completed < 2) timers.values().next().value.callback();
+    assert.equal(await pending, completed === 2);
+    assert.equal(inFlight, 0);
+    assert.equal(frames.size, 0);
+    assert.equal(timers.size, 0);
+  }
+});
 
 test('a simulator console retries one stale FIFO failure and leaves other exits alone', async () => {
   const { simulatorConsole } = await import('./agent-wire.mjs');
