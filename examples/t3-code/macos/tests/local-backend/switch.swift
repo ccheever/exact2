@@ -5,7 +5,8 @@ import XCTest
 // The Local environment switch's stopgap (exact2
 // cannot relaunch, issues/closed/20261009-native-process-relaunch.md, #122), the primary's descriptor in the status, the switch read at
 // launch (desktop-settings.json: settings.swift; the failed-start test starts from an
-// old t3-code.json, which the attach carries over), and `handleFatalStartupError` (T3LocalFatal.swift). Each test runs its own
+// old t3-code.json, which the attach carries over), a runtime pruned while the server is stopped, and
+// `handleFatalStartupError` (T3LocalFatal.swift). Each test runs its own
 // T3LocalBackend over a real child (a fake `t3` shell script on a fixed T3_LOCAL_PORT) with an HTTP double for
 // the token exchange and the descriptor; readiness answers at once (FakeProber).
 private final class LocalServer: URLProtocol, @unchecked Sendable {
@@ -14,7 +15,7 @@ private final class LocalServer: URLProtocol, @unchecked Sendable {
     override func startLoading() {
         let body: [String: Any] = request.url!.path == "/oauth/token"
             ? ["access_token": "local-bearer", "token_type": "Bearer"]
-            : ["environmentId": "local-env", "label": "Lane Mac", "serverVersion": "0.1.1-nightly.20261018.3302"]
+            : ["environmentId": "local-env", "label": "Lane Mac", "serverVersion": "0.1.2-nightly.20261021.3457"]
         client?.urlProtocol(self, didReceive: HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: "HTTP/1.1", headerFields: ["content-type": "application/json"])!, cacheStoragePolicy: .notAllowed)
         client?.urlProtocol(self, didLoad: try! JSONSerialization.data(withJSONObject: body))
         client?.urlProtocolDidFinishLoading(self)
@@ -34,7 +35,7 @@ final class LocalSwitchTests: XCTestCase {
     /// A runtime folder whose `t3` runs `body` after `--version`.
     private func runtime(_ body: String) -> URL {
         let directory = scratch("runtime"), script = directory.appendingPathComponent("t3")
-        try! "#!/bin/sh\nif [ \"$1\" = --version ]; then echo 't3 v0.1.1-nightly.20261018.3302'; exit 0; fi\n\(body)\n".write(to: script, atomically: true, encoding: .utf8)
+        try! "#!/bin/sh\nif [ \"$1\" = --version ]; then echo 't3 v0.1.2-nightly.20261021.3457'; exit 0; fi\n\(body)\n".write(to: script, atomically: true, encoding: .utf8)
         try! FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: script.path)
         return directory
     }
@@ -88,13 +89,38 @@ final class LocalSwitchTests: XCTestCase {
         let (again, _) = setEnabled(backend, true)
         XCTAssertNil(again)
         XCTAssertTrue(until(2) { !self.alive(pid) }, "the old process is gone")
-        XCTAssertEqual(backend.statusValue()["lastExit"] as? String, "signal=9", "SIGKILL ended it")
+        XCTAssertEqual(backend.statusValue()["lastExit"] as? String, "killed by SIGKILL", "SIGKILL ended it")
         let next = backend.statusValue()["pid"] as? Int ?? 0
         XCTAssertTrue(next > 1 && next != pid && alive(next), "a new pid")
         XCTAssertEqual(backend.statusValue()["state"] as? String, "ready")
         XCTAssertEqual(backend.statusValue()["enabled"] as? Bool, true)
         backend.detach(owner)
         XCTAssertTrue(until(6) { !self.alive(next) })
+    }
+
+    /// `t3 update` and a starting background service prune a runtime no process runs (74541bab17,
+    /// pinnedRuntime.ts `prunePinnedRuntimes`): the next start unpacks the bundled archive again.
+    func testARuntimePrunedWhileTheServerIsStoppedIsUnpackedAgainAtTheNextStart() {
+        let fixture = Fixture(t3: "while :; do sleep 0.1; done"), data = scratch("data")
+        let backend = backend(runtime: scratch("unused"), port: 16866, dataRoot: data)
+        backend.environment = { ["T3_LOCAL_HOME": fixture.home.path, "T3_LOCAL_PORT": "16866", "PATH": "/usr/bin:/bin"] }
+        backend.resources = { fixture.bundleDir.deletingLastPathComponent() }
+        backend.startTimeout = 10
+        backend.attach(owner, dataRoot: data, changed: { _ in })
+        XCTAssertTrue(until(10) { backend.statusValue()["state"] as? String == "ready" }, "\(backend.statusValue())")
+        let paths = T3LocalRuntime.paths(home: fixture.home, version: fixture.version)
+        XCTAssertTrue(T3LocalRuntime.installed(paths, version: fixture.version))
+        XCTAssertNil(setEnabled(backend, false).0)
+        // The prune renames the runtime out of the way, then removes it.
+        let pruned = fixture.versions.appendingPathComponent(".pruned-\(fixture.version)")
+        try! FileManager.default.moveItem(at: paths.versionDir, to: pruned)
+        try! FileManager.default.removeItem(at: pruned)
+        XCTAssertNil(setEnabled(backend, true).0)
+        XCTAssertEqual(backend.statusValue()["state"] as? String, "ready")
+        XCTAssertTrue(T3LocalRuntime.installed(paths, version: fixture.version))
+        let pid = backend.statusValue()["pid"] as? Int ?? 0
+        backend.detach(owner)
+        XCTAssertTrue(until(6) { !self.alive(pid) })
     }
 
     func testAFailedStartAnswersWhyAndLeavesTheServerStopped() {

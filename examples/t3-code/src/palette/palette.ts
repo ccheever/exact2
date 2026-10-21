@@ -27,7 +27,7 @@ export type PaletteRow = {
   /** The chord that runs this row from the field (thread.jump.N on a project pick, aria grammar: `Meta+1`); '' for none. */
   jump: string;
   publishHost: string; publishHostLabel: string; publishHosts: { value: string; label: string; selected: boolean }[];
-  terminalCount: number; prNumber: string; prState: string; prLabel: string;
+  terminalCount: number; prNumber: string; prIcon: string; prState: string; prLabel: string;
   badge: string; badgeOp: string; checkbox: boolean; checked: boolean; project: string; projectInk: string; projectSurface: string; env: string;
   /** A remote environment's machine glyph before `env` on a project row ('' for none). */
   envMachine: string;
@@ -46,7 +46,7 @@ export type PaletteView = {
 
 export const RECENT_THREAD_LIMIT = 12;
 const blankRow: PaletteRow = { key: '', index: -1, header: '', headerGap: false, kind: 'action', op: '', arg: '', arg2: '', icon: '', prefix: '', title: '', bold: '',
-  publishHost: '', publishHostLabel: '', publishHosts: [], terminalCount: 0, prNumber: '', prState: '', prLabel: '', description: '', shortcut: '', jump: '', timestamp: '', trailing: '', badge: '', badgeOp: '', checkbox: false, checked: false, project: '', projectInk: '', projectSurface: '', env: '', envMachine: '',
+  publishHost: '', publishHostLabel: '', publishHosts: [], terminalCount: 0, prNumber: '', prIcon: '', prState: '', prLabel: '', description: '', shortcut: '', jump: '', timestamp: '', trailing: '', badge: '', badgeOp: '', checkbox: false, checked: false, project: '', projectInk: '', projectSurface: '', env: '', envMachine: '',
   branch: '', provider: '', current: false, matchLabel: '', matchParts: [], titleParts: [], line: '', orbs: [], top: 0, height: 32 };
 export function row(fields: Partial<PaletteRow>): PaletteRow { return { ...blankRow, ...fields }; }
 
@@ -182,9 +182,9 @@ export function threadItems(client: T3Client, now: number, matches: Map<string, 
   });
 }
 /** ThreadSearchPullRequestNumber in a thread row: a settled thread's number stays muted (no row hover tints it here). */
-function palettePullRequest(client: T3Client, thread: Obj, query: string): Pick<PaletteRow, 'prNumber' | 'prState' | 'prLabel'> {
+function palettePullRequest(client: T3Client, thread: Obj, query: string): Pick<PaletteRow, 'prNumber' | 'prIcon' | 'prState' | 'prLabel'> {
   const pr = searchPullRequest(client, thread, query);
-  return pr ? { prNumber: String(pr.number), prState: thread.settledOverride === 'settled' ? '' : pr.state, prLabel: pr.label } : { prNumber: '', prState: '', prLabel: '' };
+  return pr ? { prNumber: pr.text, prIcon: pr.icon, prState: thread.settledOverride === 'settled' ? '' : pr.state, prLabel: pr.label } : { prNumber: '', prIcon: '', prState: '', prLabel: '' };
 }
 /** ThreadSearchMatchExcerpt: the snippet with every case-folded occurrence of the query marked. */
 export function contentParts(snippet: string, query: string): PalettePart[] {

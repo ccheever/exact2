@@ -1,4 +1,4 @@
-// SidebarProviderUpdatePill (components/sidebar/SidebarProviderUpdatePill.tsx,
+// SidebarProviderUpdatePill (T3 Code 74541bab17 components/sidebar/SidebarProviderUpdatePill.tsx,
 // ProviderUpdateLaunchNotification.logic.ts getProviderUpdateSidebarPillView;
 // MIT, see LICENSE-T3): above the footer icons while a provider updates, then
 // its outcome — failed and still-outdated notices until dismissed, a success
@@ -33,19 +33,31 @@ function byDriver(providers: Obj[]): Obj[] {
   }
   return [...latest.values()];
 }
+/**
+ * latestTerminalProvidersByDriver: each driver's most recently finished instance, so an update on a non-default instance
+ * is not hidden behind an older outcome on the driver's default one.
+ */
+function latestTerminalByDriver(providers: Obj[]): Obj[] {
+  const latest = new Map<string, Obj>();
+  for (const provider of providers) {
+    const current = latest.get(str(provider.driver));
+    if (!current || (finishedAt(provider) ?? '') >= (finishedAt(current) ?? '')) latest.set(str(provider.driver), provider);
+  }
+  return [...latest.values()];
+}
 const tail = (providers: Obj[]) => providers.map(provider => `${str(provider.driver)}:${finishedAt(provider) ?? 'pending'}:${str(obj(provider.updateState).message)}`).sort().join('|');
 const latestFinished = (providers: Obj[]) => providers.reduce<string | null>((latest, provider) => { const at = finishedAt(provider); return at !== null && (latest === null || at > latest) ? at : latest; }, null);
 
 export function providerPillView(providers: Obj[], visibleAfter: string | undefined, dismissed: ReadonlySet<string>): ProviderPill | null {
-  const deduped = byDriver(providers);
-  const active = deduped.filter(provider => ['queued', 'running'].includes(status(provider)));
+  // Update state is per instance: pick the instances with an update before collapsing to one per driver.
+  const active = byDriver(providers.filter(provider => ['queued', 'running'].includes(status(provider))));
   if (active.length > 0) {
     return { key: `loading:${active.map(provider => `${str(provider.driver)}:${status(provider) || 'idle'}`).sort().join('|')}`, tone: 'loading',
       title: active.length === 1 ? `Updating ${name(active[0]!)}` : `Updating ${active.length} providers`,
       description: active.length === 1 ? `${list(active)} update in progress.` : `${list(active)} updates are in progress.`, dismissible: false, dismissAfterMs: 0 };
   }
-  const recent = deduped.filter(provider => ['failed', 'unchanged', 'succeeded'].includes(status(provider))
-    && (visibleAfter === undefined || (finishedAt(provider) !== null && finishedAt(provider)! >= visibleAfter)));
+  const recent = latestTerminalByDriver(providers.filter(provider => ['failed', 'unchanged', 'succeeded'].includes(status(provider))
+    && (visibleAfter === undefined || (finishedAt(provider) !== null && finishedAt(provider)! >= visibleAfter))));
   const failed = recent.filter(provider => status(provider) === 'failed');
   const unchanged = recent.filter(provider => status(provider) === 'unchanged');
   const succeeded = recent.filter(provider => status(provider) === 'succeeded');

@@ -1,4 +1,4 @@
-// The "Sidebar (legacy)" projection (LegacySidebar.tsx, T3 Code 1e2ecbd975; MIT,
+// The "Sidebar (legacy)" projection (LegacySidebar.tsx, T3 Code 74541bab17; MIT,
 // see LICENSE-T3): projects grouped across this environment and the fleet's
 // background environments (sidebarProjectGrouping.ts), sorted by Sort projects
 // (Manual keeps the persisted project order), each with its threads sorted by
@@ -14,7 +14,7 @@ import { groupLabel, logicalKey } from './project-groups';
 import { projectGlyph } from './sidebar-glyph';
 import type { ProjectGlyph } from './sidebar-glyph';
 import { canArchive, menuRows, type MenuRow } from './sidebar-menu';
-import { lastVisited } from './sidebar-model';
+import { lastVisited, sidebarVisible } from './sidebar-model';
 import { sidebarPrefs, sidebarSession } from './sidebar-state';
 import { terminalProcessCount, shortcutLabel, threadJumpModifiers, type SidebarHelpers } from './sidebar-view';
 import { currentPullRequestLink } from '../panel/shell-pr';
@@ -131,13 +131,16 @@ export function legacyGroups(client: T3Client, source: EnvironmentFleet = fleet)
   }
   return [...groups.values()].map(group => ({ ...group, name: groupLabel(group.members.map(member => member.project)) || group.members[0]!.title }));
 }
-/** Every unarchived thread of this environment and the fleet, by its group's key (a stale row's threads by its winner's). */
+/**
+ * Every thread the sidebar lists (filterSidebarV2VisibleThreads: not archived, not a native subagent) of this
+ * environment and the fleet, by its group's key (a stale row's threads by its winner's).
+ */
 function threadsByGroup(client: T3Client, groups: LegacyGroup[]): Map<string, Obj[]> {
   const groupOf = new Map<string, string>();
   for (const group of groups) for (const member of group.members) for (const id of member.aliases) groupOf.set(id, group.key);
   const out = new Map<string, Obj[]>();
   for (const thread of [...client.shell.threads, ...fleetThreads()]) {
-    if (thread.archivedAt != null || thread.deletedAt != null) continue;
+    if (!sidebarVisible(thread)) continue;
     const key = groupOf.get(str(thread.projectId));
     if (key) out.set(key, [...(out.get(key) ?? []), thread]);
   }

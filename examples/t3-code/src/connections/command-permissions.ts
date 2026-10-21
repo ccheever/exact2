@@ -1,4 +1,4 @@
-// T3 Code 9c161462c9 (MIT, LICENSE-T3): auth/RpcAuthorization.ts and contracts/clientRpcPermissions.ts.
+// T3 Code 74541bab17 (MIT, LICENSE-T3): auth/RpcAuthorization.ts and contracts/clientRpcPermissions.ts.
 // Client guards provide immediate feedback; the server authorizes every request.
 import { obj, str, type Obj } from '../client/domain';
 import { ClientError } from '../client/protocol';
@@ -17,6 +17,7 @@ const RPC_SCOPES: Record<string, Permission> = {
   'device.close': 'orchestration:operate',
   'device.configure': 'settings:write',
   'device.detail': 'orchestration:read',
+  'device.easAccount': 'settings:write',
   'device.list': 'orchestration:read',
   'device.open': 'orchestration:operate',
   'device.shutdown': 'orchestration:operate',
@@ -62,6 +63,7 @@ const RPC_SCOPES: Record<string, Permission> = {
   'projects.createNew': 'orchestration:operate',
   'projects.ensureScratch': 'orchestration:operate',
   'projects.listEntries': 'filesystem:read',
+  'projects.listIgnoredFiles': 'filesystem:read',
   'projects.mutate': 'orchestration:operate',
   'projects.readFile': 'filesystem:read',
   'projects.searchContents': 'filesystem:read',
@@ -88,6 +90,7 @@ const RPC_SCOPES: Record<string, Permission> = {
   'pullRequests.comment': 'source-control:write',
   'pullRequests.detail': 'orchestration:read',
   'pullRequests.diffFileContents': 'orchestration:read',
+  'pullRequests.changeBreakdown': 'orchestration:read',
   'pullRequests.filesViewed': 'orchestration:read',
   'pullRequests.generateReviewGuide': 'orchestration:operate',
   'pullRequests.invalidate': 'orchestration:read',
@@ -225,6 +228,8 @@ export function rpcPermissions(method: string, payload: Obj): Permission[] {
   }
   if (method === 'projects.mutate') return payload.type === 'project.delete' || payload.scripts === undefined ? ['orchestration:operate'] : ['orchestration:operate', 'settings:write'];
   if (method === 'git.preparePullRequestThread' && payload.mode === 'worktree' && payload.threadId !== undefined) return ['source-control:write', 'orchestration:operate'];
+  // A pull request generated for a thread includes that thread's context.
+  if (method === 'git.runStackedAction' && payload.threadId !== undefined && (payload.action === 'create_pr' || payload.action === 'commit_push_pr')) return ['source-control:write', 'orchestration:read'];
   if (method === 'device.list' && (payload.retryHostId !== undefined || payload.updateTool === true)) return ['orchestration:operate'];
   const permission = RPC_SCOPES[method];
   return permission ? [permission] : [];

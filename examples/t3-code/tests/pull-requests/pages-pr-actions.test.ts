@@ -623,7 +623,7 @@ describe('inline confirmation input', () => {
     const sent: unknown[][] = [];
     const scope = { prDetail: { ref: 'pr7', actions: { armedAction: 'merge', armedSerial: 9 } }, prConfirmTarget: 'pull-request-primary',
       frame: () => ({ x: 20, y: 20, width: 80, height: 24 }), prConfirmDisarm: (...args: unknown[]) => sent.push(args), chipShown: false, detailsOpen: false };
-    const state = { outsideDown: false, keybindingField: '', citeFor: '' };
+    const state = { outsideDown: false, keybindingField: '', citeFor: '', citeParked: '' };
     window.call('outsidePressDown', state, scope, [{ buttons: 1, clientX: 40, clientY: 30 }]);
     expect(sent).toEqual([]);
     window.call('outsidePressDown', state, scope, [{ buttons: 1, clientX: 400, clientY: 300 }]);

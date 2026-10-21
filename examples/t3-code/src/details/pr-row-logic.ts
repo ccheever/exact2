@@ -45,11 +45,14 @@ export function rowAction(detail: Obj | null): '' | 'resolve' | 'ready' | 'fix' 
   return offered(detail, 'merge') && allowedMergeMethods(detail).length > 0 ? 'merge' : '';
 }
 
+// Capability arrays drop members this build does not know (contracts pullRequest.ts ForwardCompatibleArray), so a
+// newer server's method is never offered here.
+const MERGE_METHODS: readonly string[] = ['merge', 'squash', 'rebase'], UPDATE_METHODS: readonly string[] = ['merge', 'rebase'];
 /** allowedPullRequestMergeMethods: what the host offers, narrowed to what the repository allows. */
 export function allowedMergeMethods(detail: Obj | null): MergeMethod[] {
   if (!detail) return [];
   const allowed = obj(detail.mergeCapabilities);
-  return names(obj(detail.capabilities).mergeMethods).filter(method => allowed[method] === true) as MergeMethod[];
+  return names(obj(detail.capabilities).mergeMethods).filter(method => MERGE_METHODS.includes(method) && allowed[method] === true) as MergeMethod[];
 }
 /** resolveSelectedMergeMethod: the preference where allowed, else the first allowed method. */
 export function selectedMergeMethod(allowed: readonly MergeMethod[], preferred: MergeMethod = 'merge'): MergeMethod {
@@ -238,7 +241,7 @@ export function resolveBaseFreshness(detail: Obj): { behindBy: number | null; me
   if (detail.state !== 'open' || detail.baseComparison !== 'behind') return null;
   if (detail.mergeability !== 'mergeable') return null;
   const offered = names(obj(detail.capabilities).updateMethods), allowed = names(obj(detail.viewerPermissions).updateMethods);
-  return { behindBy: typeof detail.behindBy === 'number' ? detail.behindBy : null, methods: offered.filter(method => allowed.includes(method)) as UpdateMethod[] };
+  return { behindBy: typeof detail.behindBy === 'number' ? detail.behindBy : null, methods: offered.filter(method => UPDATE_METHODS.includes(method) && allowed.includes(method)) as UpdateMethod[] };
 }
 /** pullRequestActionNeedsHostRefresh: an update moves the head; approved workflows are data the normal detail omits. */
 const ACTION_NEEDS_HOST_REFRESH: Record<PullRequestAction, boolean> = { 'update-branch': true, merge: false, ready: false, draft: false, close: false, reopen: false,

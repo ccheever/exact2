@@ -158,11 +158,21 @@ const SECRET_REQUEST_FAILURE_MESSAGES: Record<string, string> = {
   consume_failed: "Could not use that secretRef. Try again.",
 };
 
+/** GitCommandFailureReason (contracts git.ts): a reason this build does not know decodes as absent. */
+const GIT_FAILURE_REASONS = ['authentication_failed', 'branch_already_exists', 'branch_checked_out_in_worktree', 'host_key_unverified', 'not_a_repository',
+  'path_already_exists', 'ref_not_found', 'remote_unreachable', 'tag_would_be_clobbered'];
+
 function typed(value: unknown): TransportFailure {
   if (!isObject(value)) return failure(value);
   const tag = text(value._tag) || text(value.name) || 'RPC';
   const field = (key: string) => text(value[key]).trim();
   if (tag === 'SecretRequestError') return new TransportFailure(tag, SECRET_REQUEST_FAILURE_MESSAGES[field('reason')] ?? 'Could not answer the request. Try again.', false, field('reason'));
+  if (tag === 'GitCommandError') {
+    // Its message is a getter, not a wire field.
+    const reason = GIT_FAILURE_REASONS.includes(field('reason')) ? field('reason') : '';
+    const message = field('message') || `Git command failed in ${field('operation')} (${field('cwd')}): ${field('detail')}${reason ? ` (${reason})` : ''}`;
+    return new TransportFailure(tag, message, false, reason, field('detail'));
+  }
   let message = field('message');
   // PullRequestOperationError's and PullRequestUnavailableError's messages are getters, not wire fields.
   if (!message && tag === 'PullRequestOperationError' && field('detail')) message = `Pull request operation ${field('operation')} failed: ${field('detail')}`;
