@@ -286,11 +286,17 @@ package struct BatchReader {
 }
 
 /// Decoded style dictionaries by their exact bytes (`BatchReader.style`).
-/// Bounded: when full it starts over. Batches decode on more than one
-/// thread (a session's executor, the main thread), so a lock guards it.
+/// An entry keeps the bytes' length and two independent hashes of them, not
+/// the bytes: FNV-1a 64 finds it and the process-seeded SipHash of `Hasher`
+/// confirms it. Equality is therefore probabilistic: on 64-bit targets two
+/// different styles of one length pass both by a chance too small to matter
+/// for the host's own style text (it is no defence against crafted input). A
+/// copy of every style's bytes (the host's mirrors keep the same texts) was
+/// as large as the dictionaries. Bounded: when full it starts over. Batches decode on more than one thread (a session's executor, the
+/// main thread), so a lock guards it.
 package final class StyleCache: @unchecked Sendable {
     package static let shared = StyleCache()
-    private struct Entry { let bytes: [UInt8]; let style: NodeStyle }
+    private struct Entry { let count: Int; let check: Int; let style: NodeStyle }
     private var entries: [UInt64: Entry] = [:]
     private let lock = NSLock()
     private static let capacity = 1024
@@ -300,18 +306,25 @@ package final class StyleCache: @unchecked Sendable {
         for byte in b { h = (h ^ UInt64(byte)) &* 0x0000_0100_0000_01b3 }
         return h
     }
+    private static func check(_ b: UnsafeRawBufferPointer) -> Int {
+        var h = Hasher()
+        h.combine(bytes: b)
+        return h.finalize()
+    }
     package func get(_ b: UnsafeRawBufferPointer) -> NodeStyle? {
         let h = Self.hash(b)
-        lock.lock(); defer { lock.unlock() }
-        guard let e = entries[h], e.bytes.count == b.count,
-              e.bytes.withUnsafeBytes({ memcmp($0.baseAddress!, b.baseAddress!, b.count) == 0 }) else { return nil }
+        lock.lock()
+        let found = entries[h]
+        lock.unlock()
+        guard let e = found, e.count == b.count, e.check == Self.check(b) else { return nil }
         return e.style
     }
     package func put(_ b: UnsafeRawBufferPointer, _ style: NodeStyle) {
         guard b.count > 2 else { return }
+        let entry = Entry(count: b.count, check: Self.check(b), style: style)
         let h = Self.hash(b)
         lock.lock(); defer { lock.unlock() }
         if entries.count >= Self.capacity { entries.removeAll(keepingCapacity: true) }
-        entries[h] = Entry(bytes: Array(b), style: style)
+        entries[h] = entry
     }
 }
