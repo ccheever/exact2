@@ -1,6 +1,6 @@
 import { expect, test } from 'bun:test';
 import { formatUsd, formatTokens, formatPercent, formatCount, formatDayShort, formatHourShort, formatDateTimeShort, makeWindow, enumerateDays, enumerateHourStarts, mergeUsage, niceScale,
-  curvePath, buildChart, presentUsage, emptyUsage, usageKeys, shortcutGlyphs, plotWidth, usagePrefs, saveUsagePrefs, isModelCostUnknown } from '../../src/usage/pages-usage';
+  curvePath, buildChart, periodColumns, presentUsage, emptyUsage, usageKeys, shortcutGlyphs, plotWidth, usagePrefs, saveUsagePrefs, isModelCostUnknown } from '../../src/usage/pages-usage';
 import { keybindingDefaults } from '../../src/settings/keybinding-settings';
 import { collectLimitAccounts, collectLimitPools } from '../../src/usage/usage-limits-pools';
 import { formatResetsIn } from '../../src/usage/usage-limits';
@@ -57,6 +57,14 @@ test('hourly labels follow the Time format setting', () => {
   const page = presentUsage(emptyUsage('cost', 1, 'time', 600), mergeUsage([]), hourly, {}, undefined, false);
   expect(page.windowLabel).toBe('Oct 3, 15:00 to Oct 4, 15:00');
   expect([page.chart.start, page.chart.end]).toEqual(['15:00', '14:00']);
+});
+
+// UsagePage.tsx 805ff51e58: auto table layout, the period column w-2/5, every column at least its figures.
+test('the Day/Hour table shares its room by each column\'s longest string and never shrinks a column below its figures', () => {
+  const cells = (text: string) => [{ key: 'claude', text, loading: false }];
+  const columns = periodColumns({ columns: [{ key: 'claude', label: 'Claude Code' }],
+    periods: [{ key: 'a', label: 'Oct 1', cells: cells('$29,401.92'), total: '$29,401.92', tokens: '57.5M' }, { key: 'b', label: 'Oct 2', cells: cells('$1.00'), total: '$1.00', tokens: '9K' }] });
+  expect(columns).toBe('minmax(max-content, 40%) minmax(max-content, 11fr) minmax(max-content, 10fr) minmax(max-content, 6fr)');
 });
 
 const bucket = (over: Obj): Obj => ({ day: '2026-10-01', provider: 'codex', model: 'gpt-6-astra', totals: { uncachedInputTokens: 100, cachedInputTokens: 900, cacheCreationTokens: 0, outputTokens: 50, reasoningTokens: 10 },

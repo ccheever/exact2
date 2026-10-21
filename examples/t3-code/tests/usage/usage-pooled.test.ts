@@ -593,7 +593,7 @@ describe('pooled segments at 74541bab17', () => {
     const rig = new Rig(two, null);
     const before = (await rig.page()).pooled;
     const [first, second] = before.pools[0]!.windows[0]!.segments;
-    expect(before.drawn).toContain(`${second!.id}=${second!.identity}`);
+    expect(before.drawn).toContain(`${second!.id}=${second!.identity}.1`);
     expect(before.drawn.join('\n')).not.toContain('example.com');
     // The first account leaves: its column goes, and the id it had now draws another account.
     (two.providers as Obj[]).shift();
@@ -601,6 +601,45 @@ describe('pooled segments at 74541bab17', () => {
     const moved = after.pools[0]!.windows[0]!.segments[0]!;
     expect(moved.id).toBe(first!.id);
     expect(moved.identity).toBe(second!.identity);
-    expect(after.drawn).not.toContain(`${first!.id}=${first!.identity}`);
+    expect(after.drawn.some(entry => entry.startsWith(`${first!.id}=${first!.identity}.`))).toBe(false);
+    // The moved account keeps its appearance: only its column changed.
+    expect(after.drawn).toContain(`${moved.id}=${second!.identity}.1`);
+  });
+
+  it('a segment that comes back is a new appearance, so a popover kept for the old one stays closed', async () => {
+    const two = laptop();
+    const work = provider({ instanceId: 'codex-work', displayName: 'Work', auth: { status: 'authenticated', email: 'work@example.com' },
+      usageLimits: { checkedAt: iso(-60_000), windows: [session(10, { resetsAt: iso(3 * HOUR) })] } });
+    (two.providers as Obj[]).push(work);
+    const rig = new Rig(two, null);
+    const entryOf = (drawn: string[], identity: string) => drawn.find(entry => entry.includes(`=${identity}.`));
+    const first = (await rig.page()).pooled;
+    const identity = first.pools[0]!.windows[0]!.segments.find(segment => segment.name === 'Work')!.identity;
+    const opened = entryOf(first.drawn, identity);
+    expect(entryOf((await rig.page()).pooled.drawn, identity)).toBe(opened); // a redraw is the same appearance
+    (two.providers as Obj[]).pop();
+    expect(entryOf((await rig.page({ refresh: 1 })).pooled.drawn, identity)).toBeUndefined();
+    (two.providers as Obj[]).push(work);
+    const back = entryOf((await rig.page({ refresh: 2 })).pooled.drawn, identity);
+    expect(back).toBeDefined();
+    expect(back).not.toBe(opened);
+  });
+});
+
+// The gap fns of usage-bars.contract and usage-pooled.contract (paceMarkStyles' clip-path slot), evaluated as written.
+describe('the even-pace gap', () => {
+  const fnOf = async (file: string, name: string) => {
+    const source = await Bun.file(appPath(file)).text();
+    const match = new RegExp(`fn ${name}\\(width: number, height: number, at: number\\): string = (\`[^\n]*\`)`).exec(source);
+    expect(match).not.toBeNull();
+    return new Function('width', 'height', 'at', `return ${match![1]}`) as (width: number, height: number, at: number) => string;
+  };
+  it('clips one layer to the bar less a 6 px slot at the tick, reaching 1 px past the box', async () => {
+    for (const [file, name] of [['usage-bars.contract', 'barGapClip'], ['usage-pooled.contract', 'segGapClip']] as const) {
+      const clip = await fnOf(file, name);
+      expect(clip(200, 24, 80)).toBe("path('M -1 -1 H 77 V 25 H -1 Z M 83 -1 H 201 V 25 H 83 Z')");
+      const source = await Bun.file(appPath(file)).text();
+      expect(source).not.toContain('-after');
+    }
   });
 });

@@ -130,6 +130,8 @@ shape UsageView
   detail: UsageModelDetail
   prices: UsagePrices
   periodLabel: string
+  // The Day/Hour table's grid-template-columns (pages-usage.ts periodColumns).
+  periodColumns: string
   columns: UsageColumn[]
   periods: UsagePeriodRow[]
   pooled: PooledView
@@ -195,7 +197,7 @@ component UsagePage
   // at its trigger's rect in the content (x, y, w, h), taken when it opens. A press outside the page closes the
   // hover-opened one too (`hoverAt`: `outside` at the last enter), as Base UI's outside press does however it opened.
   // A popover whose segment is no longer drawn (ActiveSegmentPopover) closes at once, with no fade: each opening
-  // keeps its segment's `id=identity` (`pinnedDrawn`, `hoverDrawn`, `lastDrawn`; "" for a trigger that is not a
+  // keeps its segment's `id=identity.appearance` (`pinnedDrawn`, `hoverDrawn`, `lastDrawn`; "" for a trigger that is not a
   // segment), and a kept entry missing from `page.pooled.drawn` closes it.
   state pinned = ""
   state pinnedAt = 0
@@ -817,8 +819,8 @@ component ModelTable
 
 // Breakdown → Day / Hour (UsagePage, 805ff51e58): a table whose columns are never narrower than their
 // figures (whitespace-nowrap), the period column 40% when there is room; a narrow page scrolls it
-// sideways (a focusable region). Laid out as a grid so the columns line up across rows; each cell
-// draws its row's rule and hover fill (bg-muted/50).
+// sideways (a focusable region). Laid out as a grid so the columns line up across rows (pages-usage.ts
+// periodColumns); each cell draws its row's rule and hover fill (bg-muted/50).
 component PeriodTable
   props
     page: UsageView
@@ -827,23 +829,25 @@ component PeriodTable
     hovered = over ? rowKey : (hovered == rowKey ? "" : hovered)
   view
     scroll width="100%" overflow-x="scroll" overflow-y="hidden" role="region" aria-label="Usage breakdown by time" tabindex=0 testId="usage-period-scroll"
-      box width="100%" display="grid" grid-template-columns=`minmax(max-content, 40%) repeat(${page.columns.length + 2}, minmax(max-content, 1fr))` role="table" testId="usage-period-table"
-        text page.periodLabel padding-top="0.5rem" padding-bottom="0.5625rem" white-space="nowrap" font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)" border-bottom-width=1 border-bottom-style="solid" border-color="light-dark(#e4e4e7, #ffffff0f)" role="columnheader"
-        for column in page.columns key=column.key
-          text column.label padding-top="0.5rem" padding-bottom="0.5625rem" padding-left="1rem" text-align="right" white-space="nowrap" font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)" border-bottom-width=1 border-bottom-style="solid" border-color="light-dark(#e4e4e7, #ffffff0f)" role="columnheader"
-        text "Total" padding-top="0.5rem" padding-bottom="0.5625rem" padding-left="1rem" text-align="right" white-space="nowrap" font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)" border-bottom-width=1 border-bottom-style="solid" border-color="light-dark(#e4e4e7, #ffffff0f)" role="columnheader"
-        text "Tokens" padding-top="0.5rem" padding-bottom="0.5625rem" padding-left="1rem" text-align="right" white-space="nowrap" font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)" border-bottom-width=1 border-bottom-style="solid" border-color="light-dark(#e4e4e7, #ffffff0f)" role="columnheader"
-        if page.periods.length == 0
-          text "No activity in this window." grid-column="1 / -1" padding-top="1.5rem" padding-bottom="1.5rem" text-align="center" font-size="0.875rem" line-height="1.25rem" color="light-dark(#71717b, #818181)"
-        for period in page.periods key=period.key
-          text period.label hover=hover(period.key) padding-top="0.5rem" padding-bottom="0.5625rem" white-space="nowrap" font-size="0.875rem" line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)" border-bottom-width=1 border-bottom-style="solid" border-color="light-dark(#e3e3e780, #ffffff08)" background-color=(hovered == period.key ? "light-dark(#fafafa80, #ffffff04)" : "#00000000")
-          for cell in period.cells key=cell.key
+      // A flex item never shrinks below its content (min-width: auto), so a grid wider than the page overflows the row and the region scrolls.
+      row width="100%"
+        box flex-grow=1 flex-shrink=1 flex-basis=0 display="grid" grid-template-columns=page.periodColumns role="table" testId="usage-period-table"
+          text page.periodLabel padding-top="0.5rem" padding-bottom="0.5625rem" white-space="nowrap" font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)" border-bottom-width=1 border-bottom-style="solid" border-color="light-dark(#e4e4e7, #ffffff0f)" role="columnheader"
+          for column in page.columns key=column.key
+            text column.label padding-top="0.5rem" padding-bottom="0.5625rem" padding-left="1rem" text-align="right" white-space="nowrap" font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)" border-bottom-width=1 border-bottom-style="solid" border-color="light-dark(#e4e4e7, #ffffff0f)" role="columnheader"
+          text "Total" padding-top="0.5rem" padding-bottom="0.5625rem" padding-left="1rem" text-align="right" white-space="nowrap" font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)" border-bottom-width=1 border-bottom-style="solid" border-color="light-dark(#e4e4e7, #ffffff0f)" role="columnheader"
+          text "Tokens" padding-top="0.5rem" padding-bottom="0.5625rem" padding-left="1rem" text-align="right" white-space="nowrap" font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)" border-bottom-width=1 border-bottom-style="solid" border-color="light-dark(#e4e4e7, #ffffff0f)" role="columnheader"
+          if page.periods.length == 0
+            text "No activity in this window." grid-column="1 / -1" padding-top="1.5rem" padding-bottom="1.5rem" text-align="center" font-size="0.875rem" line-height="1.25rem" color="light-dark(#71717b, #818181)"
+          for period in page.periods key=period.key
+            text period.label hover=hover(period.key) padding-top="0.5rem" padding-bottom="0.5625rem" white-space="nowrap" font-size="0.875rem" line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)" border-bottom-width=1 border-bottom-style="solid" border-color="light-dark(#e3e3e780, #ffffff08)" background-color=(hovered == period.key ? "light-dark(#fafafa80, #ffffff04)" : "#00000000")
+            for cell in period.cells key=cell.key
+              box hover=hover(period.key) padding-top="0.5rem" padding-bottom="0.5625rem" padding-left="1rem" border-bottom-width=1 border-bottom-style="solid" border-color="light-dark(#e3e3e780, #ffffff08)" background-color=(hovered == period.key ? "light-dark(#fafafa80, #ffffff04)" : "#00000000")
+                text cell.text text-align="right" white-space="nowrap" font-size="0.875rem" line-height="1.25rem" font-variant-numeric="tabular-nums" color="light-dark(#71717b, #818181)" opacity=usageDim(cell.loading) transition=usageFade(cell.loading)
             box hover=hover(period.key) padding-top="0.5rem" padding-bottom="0.5625rem" padding-left="1rem" border-bottom-width=1 border-bottom-style="solid" border-color="light-dark(#e3e3e780, #ffffff08)" background-color=(hovered == period.key ? "light-dark(#fafafa80, #ffffff04)" : "#00000000")
-              text cell.text text-align="right" white-space="nowrap" font-size="0.875rem" line-height="1.25rem" font-variant-numeric="tabular-nums" color="light-dark(#71717b, #818181)" opacity=usageDim(cell.loading) transition=usageFade(cell.loading)
-          box hover=hover(period.key) padding-top="0.5rem" padding-bottom="0.5625rem" padding-left="1rem" border-bottom-width=1 border-bottom-style="solid" border-color="light-dark(#e3e3e780, #ffffff08)" background-color=(hovered == period.key ? "light-dark(#fafafa80, #ffffff04)" : "#00000000")
-            text period.total text-align="right" white-space="nowrap" font-size="0.875rem" line-height="1.25rem" font-variant-numeric="tabular-nums" color="light-dark(#27272a, #f5f5f5)" opacity=usageDim(page.loading) transition=usageFade(page.loading)
-          box hover=hover(period.key) padding-top="0.5rem" padding-bottom="0.5625rem" padding-left="1rem" border-bottom-width=1 border-bottom-style="solid" border-color="light-dark(#e3e3e780, #ffffff08)" background-color=(hovered == period.key ? "light-dark(#fafafa80, #ffffff04)" : "#00000000")
-            text period.tokens text-align="right" white-space="nowrap" font-size="0.875rem" line-height="1.25rem" font-variant-numeric="tabular-nums" color="light-dark(#71717b, #818181)" opacity=usageDim(page.loading) transition=usageFade(page.loading)
+              text period.total text-align="right" white-space="nowrap" font-size="0.875rem" line-height="1.25rem" font-variant-numeric="tabular-nums" color="light-dark(#27272a, #f5f5f5)" opacity=usageDim(page.loading) transition=usageFade(page.loading)
+            box hover=hover(period.key) padding-top="0.5rem" padding-bottom="0.5625rem" padding-left="1rem" border-bottom-width=1 border-bottom-style="solid" border-color="light-dark(#e3e3e780, #ffffff08)" background-color=(hovered == period.key ? "light-dark(#fafafa80, #ffffff04)" : "#00000000")
+              text period.tokens text-align="right" white-space="nowrap" font-size="0.875rem" line-height="1.25rem" font-variant-numeric="tabular-nums" color="light-dark(#71717b, #818181)" opacity=usageDim(page.loading) transition=usageFade(page.loading)
 
 // UsageSkeleton: the loaded page's shape while the first summary arrives
 // (Skeleton: bg-muted-foreground/15, rounded-sm; pills and the card toggle).

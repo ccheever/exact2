@@ -478,7 +478,7 @@ export function emptyUsage(metric: string, windowDays: number, breakdown: string
     chartTitle: '', chart: emptyChart(),
     totals: [] as { key: string; label: string; value: string }[],
     models: [] as (ModelRowView & { loading: boolean })[], shares: [] as ShareBarView[], detail: emptyDetail(), prices: emptyPrices(),
-    periodLabel: 'Day', columns: [] as { key: string; label: string }[],
+    periodLabel: 'Day', columns: [] as { key: string; label: string }[], periodColumns: '',
     periods: [] as { key: string; label: string; cells: { key: string; text: string; loading: boolean }[]; total: string; tokens: string }[],
     pooled: emptyPooled(), coverage: [] as { key: string; text: string }[],
   };
@@ -535,7 +535,22 @@ export function presentUsage(page: UsageView, merged: Merged, window: UsageWindo
   page.periods = [...(hourly ? merged.hourly : merged.daily)].reverse().map(period => ({ key: period.key, label: hourly ? formatHourShort(period.key, hour12) : formatDayShort(period.key),
     cells: active.map(provider => ({ key: provider, text: formatUsd(period.byProvider.get(provider)?.costUsd ?? 0), loading: isLoading(provider) })),
     total: formatUsd(period.costUsd), tokens: formatTokens(period.totalTokens) }));
+  page.periodColumns = periodColumns(page);
   return page;
+}
+
+/**
+ * The Day/Hour table's grid columns, as HTML's auto table layout sizes UsagePage's: none narrower than its
+ * longest figure (whitespace-nowrap), the period column 40% when there is room (w-2/5), and the room left
+ * shared by the other columns in proportion to their longest string.
+ */
+export function periodColumns(page: Pick<UsageView, 'columns' | 'periods'>): string {
+  const longest = (header: string, cells: string[]) => Math.max(header.length, ...cells.map(cell => cell.length));
+  const figures = [
+    ...page.columns.map((column, index) => longest(column.label, page.periods.map(period => period.cells[index]?.text ?? ''))),
+    longest('Total', page.periods.map(period => period.total)), longest('Tokens', page.periods.map(period => period.tokens)),
+  ];
+  return ['minmax(max-content, 40%)', ...figures.map(length => `minmax(max-content, ${length}fr)`)].join(' ');
 }
 
 /** pages:usage-* local commands: remember the metric, the period and the hidden providers. */

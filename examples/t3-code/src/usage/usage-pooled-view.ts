@@ -158,8 +158,7 @@ export function pooledView(state: UsageState, statuses: EnvironmentUsageStatus[]
     wide,
     empty: pools.length === 0 && notices.length === 0 && cursorEnvironments.length === 0 && links.length === 0,
     pools: views,
-    // Each drawn segment as `id=identity`: the page closes a popover whose segment is no longer drawn.
-    drawn: views.flatMap(pool => pool.windows.flatMap(window => window.segments.map(segment => `${segment.id}=${segment.identity}`))),
+    drawn: drawnEntries(state, views.flatMap(pool => pool.windows.flatMap(window => window.segments))),
     cursorAfter: cursorEnvironments.length > 0 && cursorPromptAt === pools.length,
     cursor: cursorEnvironments.map(environment => ({ key: environment.environmentId, label: environment.label,
       button: cursorEnvironments.length > 1 ? `Enable on ${environment.label}` : 'Enable', busy: state.cursorPending.has(environment.environmentId) })),
@@ -170,6 +169,19 @@ export function pooledView(state: UsageState, statuses: EnvironmentUsageStatus[]
   };
 }
 export type PooledView = ReturnType<typeof pooledView>;
+
+/**
+ * Each drawn segment as `id=identity.appearance`: the page closes a popover whose entry is no longer
+ * drawn (ActiveSegmentPopover). An identity drawn again after a draw without it is a new appearance,
+ * so a popover opened on its earlier one stays closed when the segment comes back, as Base UI's
+ * close on unmount leaves it.
+ */
+function drawnEntries(state: UsageState, segments: readonly { id: string; identity: string }[]): string[] {
+  const now = new Set(segments.map(segment => segment.identity));
+  for (const identity of now) if (!state.drawnIdentities.has(identity)) state.appearances.set(identity, (state.appearances.get(identity) ?? 0) + 1);
+  state.drawnIdentities = now;
+  return segments.map(segment => `${segment.id}=${segment.identity}.${state.appearances.get(segment.identity) ?? 1}`);
+}
 
 type SideWindow = { count: number; refill: string; description: string; statuses: unknown[];
   segments: { side: string; email: string; plan: string; whereLabel: string; resetsAt: string; evenPace: string; restores: string; redeemable: boolean }[] };
