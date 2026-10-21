@@ -16,11 +16,16 @@
 //! judged with its node's fonts ([`Fonts`]) through lowering's own
 //! `type_tokens::tokens_named` and `fonts::font_use` (stage 13 D1).
 //!
-//! Not checked here, and still caught by the build after a miss: a row
-//! whose value is computed (a name, a template with holes), which the
-//! kernel reads at run time; a `font` shorthand naming no type token; a
-//! state part's row; and refusals outside a style row (an SVG attribute, a
-//! canvas).
+//! A row whose value is computed (a name, a template with holes, a choice
+//! with such an arm) is judged whole, as the build judges it: its literal
+//! arms, and, where its type is a string for certain ([`typed`]), every
+//! number token a number row's value may name (stage 13 D2).
+//!
+//! Not checked here, and still caught by the build after a miss: a
+//! computed row whose type the root's scope doesn't give (a call, a `for`'s
+//! item), whose number tokens are the build's; a row through a `let`; a
+//! `font` shorthand naming no type token; a state part's row; and refusals
+//! outside a style row (an SVG attribute, a canvas).
 
 use super::{bind, fold, profiles, scan, Origin, Refusals, Sink, ThemeEntry};
 use crate::{DeclaredFont, LowerError};
@@ -45,6 +50,9 @@ pub struct Row {
     pub places: Vec<Place>,
     /// A font row's node's fonts, as lowering judges the row with them.
     pub fonts: Option<Fonts>,
+    /// A computed row's type, as lowering types it where that is known for
+    /// certain (a string), else `Ty::Unknown`; `None` for a literal row.
+    pub computed: Option<contract_types::Ty>,
 }
 
 /// What lowering judges a node's font row with: the node's `font-family`
@@ -125,14 +133,19 @@ impl Place {
 /// `attrs` as [`Row`]s: each literal a row may write (every arm of a `?:`
 /// or `match`, which the build checks each of, whatever the condition), as
 /// a row of its own; those alike, with alike fonts, as one.
-fn grouped(attrs: Vec<(Attr, Option<Fonts>)>) -> Vec<Row> {
+fn grouped(attrs: Vec<Said>) -> Vec<Row> {
     let mut out: Vec<Row> = Vec::new();
     let mut at: std::collections::HashMap<(String, bool, String, usize), usize> =
         Default::default();
     // Each distinct node's fonts, by its place here (few: most nodes set
     // none, and an expanded app repeats the rest).
     let mut seen: Vec<Option<Fonts>> = vec![None];
-    for (a, fonts) in attrs {
+    for Said {
+        attr: a,
+        fonts,
+        computed,
+    } in attrs
+    {
         let node = match seen.iter().position(|f| *f == fonts) {
             Some(i) => i,
             None => {
@@ -140,6 +153,29 @@ fn grouped(attrs: Vec<(Attr, Option<Fonts>)>) -> Vec<Row> {
                 seen.len() - 1
             }
         };
+        // A computed row is judged whole, as the build judges it: refused
+        // where the build's refusal is said. Alike, one value and one type.
+        if let Some(ty) = computed {
+            let place = Place {
+                row: a.span,
+                at: a.span,
+                literal: a.value.span(),
+            };
+            let k = (a.name.clone(), false, format!("c{:?} {ty}", a.value), node);
+            match at.get(&k) {
+                Some(&i) => out[i].places.push(place),
+                None => {
+                    at.insert(k, out.len());
+                    out.push(Row {
+                        attr: a,
+                        places: vec![place],
+                        fonts,
+                        computed: Some(ty),
+                    });
+                }
+            }
+            continue;
+        }
         // A plain literal is refused at its attribute; an arm of a choice at
         // its own literal, as the build refuses it. Rows alike share a
         // representative only with their own kind of place.
@@ -170,6 +206,7 @@ fn grouped(attrs: Vec<(Attr, Option<Fonts>)>) -> Vec<Row> {
                         },
                         places: vec![place],
                         fonts: fonts.clone(),
+                        computed: None,
                     });
                 }
             }
@@ -185,6 +222,50 @@ fn grouped(attrs: Vec<(Attr, Option<Fonts>)>) -> Vec<Row> {
 /// ([`font_row`]); not a transition's or an animation's, whose motion
 /// tokens the loader writes in before this map is read.
 pub(crate) fn literal_row(a: &Attr) -> bool {
+    let mut leaves = Vec::new();
+    style_row(a) && written(&a.value, &mut leaves)
+}
+
+/// Whether `a` is an element's style row whose value is computed (a name,
+/// a template with holes, or a choice with such an arm beside literal
+/// ones; never through a `let`, which the build judges through the
+/// binding), which [`check`] judges whole as the build does: its literal
+/// arms, and, in a number row whose value is a string for certain, every
+/// number token it may name (stage 13 D2).
+pub(crate) fn computed_row(a: &Attr) -> bool {
+    let mut leaves = Vec::new();
+    style_row(a) && !written(&a.value, &mut leaves) && !bound(&a.value)
+}
+
+/// `v`'s type as lowering's `expr::compile` gives it, for the values it
+/// types by their form alone in `scope` (a string, a template, a name, a
+/// `?:` of those, a number); `None` for any other (a call, a `match`).
+pub(crate) fn typed(v: &Expr, scope: &contract_types::Scope) -> Option<contract_types::Ty> {
+    use contract_types::Ty;
+    match v {
+        Expr::Str(..) | Expr::Template(..) => Some(Ty::String),
+        Expr::Number(..) => Some(Ty::Number),
+        Expr::Ident(name, _) => scope.lookup(name).map(|(_, t)| t.clone()),
+        Expr::Ternary(_, yes, no, _) => {
+            let (yes, no) = (typed(yes, scope)?, typed(no, scope)?);
+            Some(yes.unify(&no).unwrap_or(Ty::Unknown))
+        }
+        _ => None,
+    }
+}
+
+/// Whether `v` binds a name with a `let` anywhere a leaf may come from.
+fn bound(v: &Expr) -> bool {
+    match v {
+        Expr::Let { .. } => true,
+        Expr::Ternary(_, yes, no, _) => bound(yes) || bound(no),
+        Expr::Match { some, none, .. } => bound(some) || bound(none),
+        _ => false,
+    }
+}
+
+/// [`literal_row`] and [`computed_row`]'s rows, whatever the value.
+fn style_row(a: &Attr) -> bool {
     let n = a.name.as_str();
     if n.contains("transition")
         || n.contains("animation")
@@ -197,8 +278,7 @@ pub(crate) fn literal_row(a: &Attr) -> bool {
     {
         return false;
     }
-    let mut leaves = Vec::new();
-    written(&a.value, &mut leaves)
+    true
 }
 
 /// Each literal `v` writes as written, into `out`: a string or number, or
@@ -219,8 +299,16 @@ fn written<'e>(v: &'e Expr, out: &mut Vec<&'e Expr>) -> bool {
     }
 }
 
+/// A row the retention build's walk keeps ([`scan::Said::of`]): the row,
+/// a font row's node's fonts, and a computed row's type ([`Row`]'s).
+pub(crate) struct Said {
+    pub attr: Attr,
+    pub fonts: Option<Fonts>,
+    pub computed: Option<contract_types::Ty>,
+}
+
 /// Leave `rows` for [`rows`] (the design server's build reads it).
-pub(crate) fn note(rows: Vec<(Attr, Option<Fonts>)>) {
+pub(crate) fn note(rows: Vec<Said>) {
     ROWS.with(|r| *r.borrow_mut() = grouped(rows));
 }
 
@@ -273,13 +361,22 @@ pub fn check(
         }
     }
     let reaches = |w: &str| hit.contains(w);
+    // A computed string in a number row may name any number token
+    // (`theme::measure_row`): it is reached by a write reaching one.
+    let numbers = folded
+        .tokens
+        .iter()
+        .any(|t| t.kind == tamber::Kind::Number && hit.contains(t.name.as_str()));
     // A row's own literals, and its node's `font-family`'s (a write to a
     // family token reaches `font-weight=700` beside it).
     let reached: Vec<&Row> = rows
         .iter()
         .filter(|r| {
+            if numbers && reads_numbers(r) {
+                return true;
+            }
             let mut leaves = Vec::new();
-            written(&r.attr.value, &mut leaves);
+            super::leaves(&r.attr.value, &mut Vec::new(), &mut leaves);
             for a in r.fonts.iter().flat_map(|f| &f.attrs) {
                 super::leaves(&a.value, &mut Vec::new(), &mut leaves);
             }
@@ -358,6 +455,15 @@ pub fn check(
     out
 }
 
+/// Whether `r` is a computed string in a row every number token suits,
+/// which `theme::measure_row` judges against each of them.
+fn reads_numbers(r: &Row) -> bool {
+    r.computed.as_ref().is_some_and(|t| t.is_string())
+        && crate::tags::rows(&r.attr).iter().all(|id| {
+            exact_kernel::style::theme::admits(exact_kernel::style::theme::Kind::Number, *id)
+        })
+}
+
 /// The design server's [`Sink`]: its refusals are the fold's, not the
 /// write's, and it keeps no plan.
 struct Quiet;
@@ -421,10 +527,7 @@ fn judged(
     let scope = contract_types::Scope::default();
     let out = rows
         .iter()
-        .map(|r| {
-            judge(&r.attr, r.fonts.as_ref(), &scope, &shapes)
-                .map_err(|e| super::shown_errors(vec![e]).remove(0))
-        })
+        .map(|r| judge(r, &scope, &shapes).map_err(|e| super::shown_errors(vec![e]).remove(0)))
         .collect();
     Some(out)
 }
@@ -434,13 +537,14 @@ fn judged(
 /// and `family_token` judge it (a value naming none is the shorthand's or
 /// a literal family's, left to the build); any other by
 /// `values::check_style_value`, with the node's fonts as
-/// `fonts::font_use` reads them.
+/// `fonts::font_use` reads them, and a computed row's type as the walk
+/// knew it.
 fn judge(
-    a: &Attr,
-    fonts: Option<&Fonts>,
+    r: &Row,
     scope: &contract_types::Scope,
     shapes: &contract_types::Shapes,
 ) -> Result<(), LowerError> {
+    let (a, fonts) = (&r.attr, r.fonts.as_ref());
     let uses = fonts
         .and_then(|f| crate::fonts::font_use(&f.declared, &f.attrs).ok())
         .unwrap_or_default();
@@ -456,9 +560,13 @@ fn judge(
     let rows = crate::tags::rows(a);
     let mut leaves = Vec::new();
     super::leaves(&a.value, &mut Vec::new(), &mut leaves);
-    let ty = match leaves.iter().all(|e| matches!(e, Expr::Number(..))) {
-        true => contract_types::Ty::Number,
-        false => contract_types::Ty::String,
+    let ty = match (
+        &r.computed,
+        leaves.iter().all(|e| matches!(e, Expr::Number(..))),
+    ) {
+        (Some(ty), _) => ty.clone(),
+        (None, true) => contract_types::Ty::Number,
+        (None, false) => contract_types::Ty::String,
     };
     crate::values::check_style_value(a, &rows, &ty, &uses, scope, shapes)
 }
@@ -528,6 +636,7 @@ mod tests {
             },
             places: vec![Place::plain(Span::default())],
             fonts: None,
+            computed: None,
         };
         let broken = check(&[row], &["gap"], &design, &folded, || None, &[], &[]);
         assert!(broken.is_empty());

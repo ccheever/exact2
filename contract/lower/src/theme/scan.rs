@@ -93,24 +93,27 @@ pub(crate) struct Said {
     /// Each element's style row whose value is literal (strings or numbers,
     /// or a `?:` or `match` whose arms all are; never a `let`): what the design server checks
     /// again, the compiler's way, when a write reaches a token it names
-    /// ([`super::rows::check`]); a font row with its node's fonts.
-    pub rows: Vec<(Attr, Option<super::rows::Fonts>)>,
+    /// ([`super::rows::check`]); a font row with its node's fonts; and each
+    /// whose value is computed, with its type where it is known.
+    pub rows: Vec<super::rows::Said>,
 }
 
 impl Said {
     /// What `file`'s styles, `root`'s view and the `fn`s, states, derives and
     /// actions they read say of `design`'s tokens.
-    /// `declared`: the app's fonts, which a font row is judged with.
+    /// `declared`: the app's fonts, which a font row is judged with;
+    /// `scope`: the root's, which types a computed row as lowering does.
     pub(crate) fn of(
         file: &File,
         root: &Component,
         design: &Design,
         declared: &BTreeMap<String, crate::DeclaredFont>,
+        scope: &contract_types::Scope,
     ) -> Said {
         let mut literals: Vec<(String, Span, bool)> = Vec::new();
         let mut computed = false;
         let mut computed_measure = false;
-        let mut rows: Vec<(Attr, Option<super::rows::Fonts>)> = Vec::new();
+        let mut rows: Vec<super::rows::Said> = Vec::new();
         let declared = std::sync::Arc::new(declared.clone());
         let mut attrs = |attrs: &[Attr]| {
             for a in attrs {
@@ -131,9 +134,12 @@ impl Said {
         }
         // Each node, with whether it is inside an `svg`, whose rows are left
         // to the build: lowering renames some attributes into props by
-        // element (`fePointLight x` is `lightX`) and coerces some.
-        let mut stack: Vec<(&Node, bool)> = root.view.iter().map(|n| (n, false)).collect();
-        while let Some((node, svg)) = stack.pop() {
+        // element (`fePointLight x` is `lightX`) and coerces some; and
+        // whether a `for` or a `match` binds a name around it, which the
+        // root's scope does not type.
+        let mut stack: Vec<(&Node, bool, bool)> =
+            root.view.iter().map(|n| (n, false, false)).collect();
+        while let Some((node, svg, local)) = stack.pop() {
             match node {
                 Node::Element {
                     tag,
@@ -147,32 +153,52 @@ impl Said {
                     // lowers the element (a style's are checked where a node
                     // applies it, and may be overridden there).
                     // A font row with its node's fonts, or not at all when
-                    // they aren't known (an unknown class, the build's).
+                    // they aren't known (an unknown class, the build's). A
+                    // computed row with its type, a string only when the
+                    // root's scope types it so with no local name around.
                     if !svg {
                         let mut fonts = None;
-                        for r in a.iter().filter(|a| super::rows::literal_row(a)) {
-                            if !super::rows::font_row(&r.name) {
-                                rows.push((r.clone(), None));
-                                continue;
-                            }
-                            let fonts = fonts.get_or_insert_with(|| {
-                                super::rows::Fonts::of(file, a, !children.is_empty(), &declared)
+                        for r in a.iter() {
+                            let computed = match super::rows::literal_row(r) {
+                                true => None,
+                                false if super::rows::computed_row(r) => Some(
+                                    (!local)
+                                        .then(|| super::rows::typed(&r.value, scope))
+                                        .flatten()
+                                        .filter(contract_types::Ty::is_string)
+                                        .unwrap_or(contract_types::Ty::Unknown),
+                                ),
+                                false => continue,
+                            };
+                            let fonts = match super::rows::font_row(&r.name) {
+                                false => None,
+                                true => match fonts.get_or_insert_with(|| {
+                                    super::rows::Fonts::of(file, a, !children.is_empty(), &declared)
+                                }) {
+                                    Some(f) => Some(f.clone()),
+                                    None => continue,
+                                },
+                            };
+                            rows.push(super::rows::Said {
+                                attr: r.clone(),
+                                fonts,
+                                computed,
                             });
-                            if let Some(f) = fonts {
-                                rows.push((r.clone(), Some(f.clone())));
-                            }
                         }
                     }
-                    stack.extend(children.iter().map(|c| (c, svg)));
+                    stack.extend(children.iter().map(|c| (c, svg, local)));
                 }
                 Node::When {
                     then, otherwise, ..
-                } => stack.extend(then.iter().chain(otherwise).map(|c| (c, svg))),
-                Node::Each { body, .. } => stack.extend(body.iter().map(|c| (c, svg))),
+                } => stack.extend(then.iter().chain(otherwise).map(|c| (c, svg, local))),
+                Node::Each { body, .. } => stack.extend(body.iter().map(|c| (c, svg, true))),
                 Node::Match { some, none, .. } => {
-                    stack.extend(some.1.iter().chain(none).map(|c| (c, svg)))
+                    stack.extend(some.1.iter().map(|c| (c, svg, true)));
+                    stack.extend(none.iter().map(|c| (c, svg, local)));
                 }
-                Node::Use { children, .. } => stack.extend(children.iter().map(|c| (c, svg))),
+                Node::Use { children, .. } => {
+                    stack.extend(children.iter().map(|c| (c, svg, local)))
+                }
                 Node::Children { .. } => {}
             }
         }

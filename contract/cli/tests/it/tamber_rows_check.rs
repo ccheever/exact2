@@ -205,10 +205,11 @@ fn an_arm_of_a_choice_is_refused_at_its_literal() {
     );
 }
 
-/// A row with a computed arm is the build's (a number row's computed arm
-/// reads every number token, a refusal of its own); a row whose other arm
-/// already fails is the build's too, though this arm breaks (theme2's Q1:
-/// the authored row passed or it didn't). An `svg` subtree's rows are left
+/// A computed row whose type the root's scope doesn't give (a `for`'s
+/// item) is the build's (a number row's computed string reads every number
+/// token, a refusal of its own); a row whose other arm already fails is the
+/// build's too, though this arm breaks (theme2's Q1: the authored row
+/// passed or it didn't). An `svg` subtree's rows are left
 /// to the build whole: lowering renames some of its attributes into props
 /// by element (`fePointLight x` is `lightX`) and coerces some, so a rect's
 /// `x`, still a row the build refuses as a colour, is the build's here.
@@ -223,7 +224,7 @@ fn rows_the_build_judges_otherwise_are_left_to_it() {
     .unwrap();
     std::fs::write(
         dir.join("app.contract"),
-        "use Card from \"@acme/reading\"\ncomponent App\n  state on = false\n  state other = \"2\"\n  view\n    column padding=(on ? \"good\" : \"bad\")\n      button \"Go\" -exact-press-scale=(on ? \"one\" : other)\n      svg width=10 height=10 viewBox=\"0 0 10 10\"\n        rect x=\"pos\" width=10 height=10\n      Card()\n",
+        "use Card from \"@acme/reading\"\ncomponent App\n  state on = false\n  state picks = [\"2\"]\n  view\n    column padding=(on ? \"good\" : \"bad\")\n      for p in picks\n        button \"Go\" -exact-press-scale=p\n      svg width=10 height=10 viewBox=\"0 0 10 10\"\n        rect x=\"pos\" width=10 height=10\n      Card()\n",
     )
     .unwrap();
     let mut s = Serve::start(&dir, &[]);
@@ -400,6 +401,7 @@ fn a_worst_case_write_is_checked_within_the_budget() {
                 contract_syntax::Span::default(),
             )],
             fonts: None,
+            computed: None,
         })
         .collect();
     let vocab = contract_lower::tamber_vocab();
@@ -536,6 +538,69 @@ fn a_font_write_the_build_accepts_is_accepted() {
         json!({"op": "set-token", "name": "family.text", "value": "\"Fixture Sans\""}),
     );
     assert!(w.get("ok").is_some(), "a family with the weight: {w}");
+    drop(s);
+    contract::compile_path(&dir.join("app.contract")).unwrap();
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Stage 13 D2: a computed string in a number row may name any number
+/// token, so a write making one unfit for the row is refused as the build
+/// refuses it (`theme::measure_row`'s words): a state's name, a template
+/// with holes, and a choice of a literal and a name.
+#[test]
+fn a_computed_number_row_is_judged_against_every_number_token() {
+    let design = "tamber t\n\ntheme\n  ink = #111111\n  one = 1\n";
+    for (tag, row) in [
+        ("rows-computed-name", "pick"),
+        ("rows-computed-template", "`${pick}`"),
+        ("rows-computed-choice", "(on ? \"one\" : pick)"),
+    ] {
+        let contract = format!("use Card from \"@acme/reading\"\ncomponent App\n  state on = false\n  state pick = \"2\"\n  view\n    column\n      button \"Go\" -exact-press-scale={row}\n      Card()\n");
+        same_words(
+            &reading(tag),
+            design,
+            &contract,
+            json!({"op": "set-token", "name": "one", "value": "0"}),
+            &design.replace("one = 1", "one = 0"),
+        );
+    }
+}
+
+/// A literal arm beside a computed one is judged as the build judges it,
+/// at its literal: removing the token it names.
+#[test]
+fn a_literal_arm_beside_a_computed_one_is_judged() {
+    let design = "tamber t\n\ntheme\n  ink = #111111\n  mute = #777777\n";
+    let contract = "use Card from \"@acme/reading\"\ncomponent App\n  state on = false\n  state c = \"#000000\"\n  view\n    column color=(on ? \"mute\" : c)\n      Card()\n";
+    same_words(
+        &reading("rows-computed-arm"),
+        design,
+        contract,
+        json!({"op": "remove-token", "name": "mute"}),
+        &design.replace("  mute = #777777\n", ""),
+    );
+}
+
+/// What the build accepts of a computed row is accepted: a number token
+/// still fit for the row, a computed colour row naming no literal token,
+/// and a length row's computed string, which the kernel reads at run time.
+#[test]
+fn a_computed_row_the_build_accepts_is_accepted() {
+    let dir = reading("rows-computed-ok");
+    let design = "tamber t\n\ntheme\n  ink = #111111\n  one = 1\n  gap = 8px\n";
+    let contract = "use Card from \"@acme/reading\"\ncomponent App\n  state pick = \"2\"\n  state c = \"#000000\"\n  state g = \"gap\"\n  view\n    column color=c padding=g\n      button \"Go\" -exact-press-scale=pick\n      Card()\n";
+    std::fs::write(dir.join("app.tamber"), design).unwrap();
+    std::fs::write(dir.join("app.contract"), contract).unwrap();
+    let mut s = Serve::start(&dir, &[]);
+    s.ask(json!({"method": "propose", "ops": [{"op": "set-token", "name": "ink", "value": "#444444"}]}));
+    for (name, value) in [("one", "2"), ("gap", "#333333")] {
+        let w = transaction(
+            &mut s,
+            &dir,
+            json!({"op": "set-token", "name": name, "value": value}),
+        );
+        assert!(w.get("ok").is_some(), "{name}: {w}");
+    }
     drop(s);
     contract::compile_path(&dir.join("app.contract")).unwrap();
     let _ = std::fs::remove_dir_all(&dir);

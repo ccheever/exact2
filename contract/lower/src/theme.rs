@@ -312,7 +312,8 @@ impl Lowerer<'_> {
             self.push(LowerError { span, ..e });
         }
         crate::params::add_to(&mut design, &kinded, &identities);
-        let mut said = Said::of(file, root, &design, &self.declared_fonts);
+        let scope = self.types.component_scope(root, &self.types.components[0]);
+        let mut said = Said::of(file, root, &design, &self.declared_fonts, &scope);
         // The rows a design server's write check reads again (`rows`).
         rows::note(std::mem::take(&mut said.rows));
         // D7's retention, left for the design server before the design is
