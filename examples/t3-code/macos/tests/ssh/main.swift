@@ -27,10 +27,70 @@ final class SshTests: XCTestCase {
         setenv("T3_SSH_HOME", home, 1)
         defer { unsetenv("T3_SSH_HOME") }
         let ssh = T3Ssh(agent: true)
-        let hosts = ssh.discover()
-        XCTAssertEqual(hosts.map { $0["alias"] as? String ?? "" }, ["devbox", "gpu", "staging", "10.0.0.7", "build.example", "git.example"])
-        XCTAssertEqual(hosts.first?["source"] as? String, "ssh-config")
-        XCTAssertEqual(hosts.last?["source"] as? String, "known-hosts")
+        // gpu's HostName is inside an Include under `Host devbox staging *.wild`, so it does not apply to gpu.
+        XCTAssertEqual(rows(ssh.discover()), [["10.0.0.7", "10.0.0.7", "known-hosts"], ["build.example", "build.example", "known-hosts"],
+                                              ["devbox", "devbox.example", "ssh-config"], ["git.example", "git.example", "known-hosts"],
+                                              ["gpu", "gpu", "ssh-config"], ["staging", "devbox.example", "ssh-config"]])
+    }
+
+    private func rows(_ hosts: [[String: Any]]) -> [[String]] {
+        hosts.map { [$0["alias"] as? String ?? "", $0["hostname"] as? String ?? "", $0["source"] as? String ?? ""] }
+    }
+    private func discover(_ files: [String: String]) throws -> [[String: Any]] {
+        let home = NSTemporaryDirectory() + "t3-ssh-\(UUID().uuidString)"
+        for (path, text) in files {
+            let url = URL(fileURLWithPath: home + "/" + path)
+            try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try text.write(to: url, atomically: true, encoding: .utf8)
+        }
+        setenv("T3_SSH_HOME", home, 1)
+        defer { unsetenv("T3_SSH_HOME") }
+        return T3Ssh(agent: true).discover()
+    }
+
+    // config.test.ts (74541bab17) "deduplicates hosts through quoted and escaped Include paths like OpenSSH".
+    func test_deduplicates_hosts_through_quoted_and_escaped_include_paths_like_openssh() throws {
+        let hosts = try discover([
+            "quoted dir/team#1=a.conf": "Host quoted\n  HostName quoted\".example.com\"\nHost *\n",
+            "escaped space.conf": "Host escaped\n  HostName escaped.example.com\nHost *\n",
+            ".ssh/config": "Include \"~/quoted dir/team#1=a.conf\" # comment\nInclude ~/escaped\\ space.conf\n",
+            ".ssh/known_hosts": "escaped.example.com ssh-ed25519 AAAA\nquoted.example.com ssh-ed25519 AAAA\n",
+        ])
+        XCTAssertEqual(rows(hosts), [["escaped", "escaped.example.com", "ssh-config"], ["quoted", "quoted.example.com", "ssh-config"]])
+    }
+
+    // "discovers ssh config hosts across included files": a HostName applies to every alias of its Host line and hides
+    // its known_hosts entry.
+    func test_discovers_ssh_config_hosts_across_included_files() throws {
+        let hosts = try discover([
+            ".ssh/config": "Host devbox devbox-admin\n  HostName 'devbox.example.com'\nHost=equalsbox\nHost *\nInclude=config.d/*.conf\n",
+            ".ssh/config.d/team.conf": "Host staging\n  HostName staging.example.com\nHost *\n  ServerAliveInterval 30\n",
+            ".ssh/known_hosts": "devbox.example.com ssh-ed25519 AAAA\nstaging.example.com ssh-ed25519 AAAA\nknown.example.com ssh-ed25519 AAAA\n|1|hashed|entry ssh-ed25519 AAAA\n[bastion.example.com]:2222 ssh-ed25519 AAAA\n",
+        ])
+        XCTAssertEqual(rows(hosts), [["bastion.example.com", "bastion.example.com", "known-hosts"], ["devbox", "devbox.example.com", "ssh-config"],
+                                     ["devbox-admin", "devbox.example.com", "ssh-config"], ["equalsbox", "equalsbox", "ssh-config"],
+                                     ["known.example.com", "known.example.com", "known-hosts"], ["staging", "staging.example.com", "ssh-config"]])
+    }
+
+    // "retains raw targets when included hostnames are inactive or uncertain".
+    func test_retains_raw_targets_when_included_hostnames_are_inactive_or_uncertain() throws {
+        let hosts = try discover([
+            ".ssh/config": ["Host WORK*", "  HostName case-sensitive.example.com", "Host work", "Host dev", "  Include conditional.conf", "Host prod", "Host matched",
+                            "Match originalhost matched", "  Include match.conf", "Host matched", "  HostName fallback.example.com", "Host bracketed",
+                            "  Include bracket-[ab].conf", "  HostName bracket-fallback.example.com", ""].joined(separator: "\n"),
+            ".ssh/conditional.conf": "Host prod\n  HostName blocked.example.com\n",
+            ".ssh/match.conf": "Host matched\n  HostName match.example.com\n",
+            ".ssh/bracket-a.conf": "HostName bracket-real.example.com\n",
+            ".ssh/known_hosts": ["bracket-real.example.com", "bracket-fallback.example.com", "blocked.example.com", "case-sensitive.example.com", "match.example.com",
+                                 "fallback.example.com"].map { "\($0) ssh-ed25519 AAAA" }.joined(separator: "\n") + "\n",
+        ])
+        XCTAssertEqual(hosts.filter { $0["source"] as? String == "known-hosts" }.map { $0["hostname"] as? String ?? "" },
+                       ["blocked.example.com", "bracket-fallback.example.com", "bracket-real.example.com", "case-sensitive.example.com", "fallback.example.com", "match.example.com"])
+        let hostname = { (alias: String) in hosts.first { $0["alias"] as? String == alias }?["hostname"] as? String }
+        XCTAssertEqual(hostname("bracketed"), "bracketed")
+        XCTAssertEqual(hostname("prod"), "prod")
+        XCTAssertEqual(hostname("work"), "work")
+        XCTAssertEqual(hostname("matched"), "matched")
     }
 
     func testAgentRunsNeverReachRealSsh() {

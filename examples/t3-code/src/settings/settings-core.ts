@@ -26,7 +26,7 @@ import { notificationPermission, notificationPermissionMessage } from '../shell/
 import { type QrMark } from './settings-mobile-beta';
 import { CLIENT_VERSION } from '../connections/connections';
 import { primaryEnvironmentId } from '../connections/local-primary';
-import { ALL_ENVIRONMENTS_VALUE, environmentAxisValue, resolveSettingsScope, scopeSearch, settingsScopeEnvironmentAddress, settingsScopeEnvironmentLabel, settingsScopeEnvironmentLabels,
+import { ALL_ENVIRONMENTS_VALUE, environmentAxisValue, projectScopeMenuGroups, resolveSettingsScope, scopeSearch, settingsScopeEnvironmentAddress, settingsScopeEnvironmentLabel, settingsScopeEnvironmentLabels,
   settingsScopeProjectMachines, type ResolvedSettingsScope, type ScopeGroup } from './settings-scope';
 import { persistScopedSettingsPatch, planProjectOverridesClear, planScopedSettingsClear, planScopedSettingsPatch, resolveScopedSettingsTargets, scopedPlanNotice, scopedSettingsSource,
   selectScopedSettingsEnvironments, type ScopedSettingsEnvironment, type ScopedSettingsPlan, type ScopedSettingsTarget } from './scoped-settings-plan';
@@ -195,14 +195,17 @@ export function resolveScope(client: T3Client, machine: string, projectKey: stri
   const group = groups.find(candidate => candidate.projectKey === projectKey);
   const { environments: selected, connectedEnvironments } = selectScopedSettingsEnvironments(resolved, environments, primaryEnvironmentId());
   // EnvironmentScopeMenu and ProjectScopeMenu's options: the line under a name is the address (an environment) or the
-  // checkout path, and the machines when another project has the same name.
+  // checkout path, and the machines when another project has the same name. A chosen project lists only the environments
+  // it has a checkout on (an unknown one lists them all, so it stays recoverable); a chosen environment lists only its projects.
+  const memberEnvironmentIds = group ? new Set(group.memberProjects.map(member => member.environmentId)) : null;
+  const environmentOptions = memberEnvironmentIds ? environments.filter(environment => memberEnvironmentIds.has(environment.environmentId)) : environments;
   const environmentChoices: ScopeChoice[] = [{ id: '', label: 'All environments', secondary: '', mark: '', ink: '', surface: '', member: '', selected: axis === ALL_ENVIRONMENTS_VALUE, offline: false },
-    ...environments.map(environment => {
+    ...environmentOptions.map(environment => {
       const { primary, secondary } = settingsScopeEnvironmentLabels(environment, environments);
       return { id: environment.environmentId, label: primary, secondary: environments.length <= 1 ? '' : secondary || settingsScopeEnvironmentAddress(environment), mark: environment.kind,
         ink: '', surface: '', member: '', selected: environment.environmentId === axis, offline: environment.connection.phase !== 'connected' };
     })];
-  const projects = groups.map(candidate => ({ group: candidate, machines: settingsScopeProjectMachines(candidate, environments, true).join(', ') }));
+  const projects = projectScopeMenuGroups(groups, search).map(candidate => ({ group: candidate, machines: settingsScopeProjectMachines(candidate, environments, true).join(', ') }));
   const projectChoices: ScopeChoice[] = [{ id: '', label: 'All projects', secondary: '', mark: '', ink: '', surface: '', member: '', selected: projectKey === '', offline: false },
     ...projects.map(({ group: candidate, machines }) => {
       const sameName = projects.filter(other => other.group.projectKey !== candidate.projectKey && other.group.displayName === candidate.displayName);

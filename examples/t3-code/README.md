@@ -357,8 +357,9 @@ first, persists the setting and then relaunches the app through Contract's `rela
 reference does, and the Version row. Under it (`connections-network.ts`) are Network access ("Reachable at <url>" and its endpoints; the server
 binds 0.0.0.0 while it is on, loopback otherwise, and refuses when no LAN or Tailscale IPv4
 exists), Tailscale HTTPS (the server runs `tailscale serve` on the chosen port; the app reads
-`tailscale status --json` only while network access or Serve is on, cached 60 s,
-`T3LocalNetwork.swift`), and the Authorized clients fold: pairing links with their permissions,
+`tailscale status --json` only while network access or Serve is on, cached 60 s per set of
+Tailscale IPv4 addresses, `T3LocalNetwork.swift`; an address in 100.64.0.0/10 is a Tailscale IP
+only on Tailscale's adapter or when that status lists it), and the Authorized clients fold: pairing links with their permissions,
 expiry, Share (endpoint choice, link, code, QR; HTTPS endpoints pair through the hosted app,
 `pairing-urls.ts`) and Revoke, and the paired clients live from `subscribeAuthAccess`
 (`auth-access.ts`). A change that needs a relaunch is persisted before Contract calls `relaunch()`;

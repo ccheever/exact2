@@ -1,7 +1,7 @@
 // Ported from T3 Code 1e2ecbd975 settingsScope.test.ts and settingsScopeAxis.test.ts (MIT, LICENSE-T3).
 // Original describe/it names; EnvironmentId/ProjectId.make become plain strings.
 import { describe, expect, it } from 'bun:test';
-import { environmentAxisValue, projectAxisValue, resolveSettingsScope, selectEnvironmentAxis, selectProjectAxis, settingsScopeEnvironmentLabel,
+import { environmentAxisValue, projectAxisValue, projectScopeMenuGroups, resolveSettingsScope, selectEnvironmentAxis, selectProjectAxis, settingsScopeEnvironmentLabel,
   settingsScopeEnvironmentAddress, settingsScopeEnvironmentLabels, settingsScopeProjectMachines,
   validateSettingsScopeSearch, type ScopeGroup, type ScopeMember } from '../../src/settings/settings-scope';
 
@@ -125,5 +125,20 @@ describe('environmentAxisValue', () => {
     expect(environmentAxisValue({ project: 'p', checkout: 'c' }, 'laptop')).toBe('laptop');
     expect(environmentAxisValue({ project: 'p' }, null)).toBe('all');
     expect(environmentAxisValue({ machine: 'desk' }, 'laptop')).toBe('desk');
+  });
+});
+
+// settingsScopeAxis.test.ts at 74541bab17.
+describe('settings project picker', () => {
+  it('offers groups with any checkout on the chosen environment, or all groups without one', () => {
+    const local = group('local', [member('local-laptop', laptopId)]), shared = group('shared', [member('shared-laptop', laptopId), member('shared-server', serverId)]);
+    const remote = group('remote', [member('remote-server', serverId)]);
+    const all = [local, shared, remote];
+    expect(projectScopeMenuGroups(all, { machine: serverId })).toEqual([shared, remote]);
+    expect(projectScopeMenuGroups(all, { machine: laptopId })).toEqual([local, shared]);
+    expect(projectScopeMenuGroups(all, { machine: 'unknown' })).toEqual([]);
+    expect(projectScopeMenuGroups(all, {})).toEqual(all);
+    expect(projectScopeMenuGroups([], { machine: serverId })).toEqual([]);
+    expect(projectScopeMenuGroups([], {})).toEqual([]);
   });
 });
