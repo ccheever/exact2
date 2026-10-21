@@ -1,6 +1,8 @@
 // Copied from T3 Code 1e2ecbd975 (MIT reference, see LICENSE-T3: apps/web/src/terminal-links.test.ts).
 // Changes from the reference:
 // - `vite-plus/test` is `bun:test`.
+// - 74541bab17's Unicode relative path cases, without the backslash and quoted forms the clone's
+//   `FILE_PATH_PATTERN` does not take (terminal-links.ts).
 import { describe, expect, it } from "bun:test";
 
 import {
@@ -74,6 +76,15 @@ describe("extractTerminalLinks", () => {
       },
     ]);
   });
+
+  it.each(["src/żółć.ts:12:7", "żółć/main.ts:12", "src/cafe\u0301.ts:12", "src/𐐀.ts:12"])(
+    "keeps the complete Unicode relative path %s",
+    (text) => {
+      expect(extractTerminalLinks(`see ${text} for details`)).toEqual([
+        { kind: "path", text, start: 4, end: 4 + text.length },
+      ]);
+    },
+  );
 
   it("finds Windows absolute paths with forward slashes", () => {
     const line = "see C:/Users/someone/project/src/file.ts:42 for details";

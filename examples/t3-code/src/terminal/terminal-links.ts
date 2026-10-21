@@ -2,6 +2,8 @@
 // Changes from the reference:
 // - `splitFilePathPosition` / `formatFilePathPosition` come from `terminal-host/src/shims/markdown-links.ts` (client-runtime markdownLinks.ts).
 // - `isMacPlatform` comes from `terminal-host/src/shims/utils.ts` (lib/utils.ts).
+// - `FILE_PATH_PATTERN` takes 74541bab17's Unicode path segments; its bare relative paths still split
+//   only on `/`, as 1e2ecbd975's do.
 import {
   formatFilePathPosition,
   splitFilePathPosition,
@@ -36,8 +38,10 @@ export interface WrappedTerminalLinkLine {
 }
 
 const URL_PATTERN = /https?:\/\/[^\s"'`<>]+/giu;
+// Bare paths start only at a segment boundary: hover detection runs this on
+// every frame, so separator-free output must not be rescanned at every suffix.
 const FILE_PATH_PATTERN =
-  /(?:~\/|\.{1,2}\/|\/|[A-Za-z]:[\\/]|\\\\)[^\s"'`<>]+|[A-Za-z0-9._-]+(?:\/[A-Za-z0-9._-]+)+(?::\d+){0,2}/g;
+  /(?:~\/|\.{1,2}\/|\/|[A-Za-z]:[\\/]|\\\\)[^\s"'`<>]+|(?<![\p{L}\p{M}\p{N}._-])[\p{L}\p{M}\p{N}._-]+(?:\/[\p{L}\p{M}\p{N}._-]+)+(?::\d+){0,2}/gu;
 const TRAILING_PUNCTUATION_PATTERN = /[.,;!?]+$/;
 // Paths also drop a trailing colon: compilers end `file:line:col:` with one.
 const TRAILING_PATH_PUNCTUATION_PATTERN = /[.,;:!?]+$/;

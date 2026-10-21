@@ -33,6 +33,8 @@ function fixture(options: { fail?: string[]; connected?: boolean } = {}) {
   return { client: client as unknown as T3Client, raw: client, calls, native };
 }
 const out = () => ({ message: '', id: '', value: '' });
+const session = (terminalId: string, extra: Obj = {}) => ({ threadId: 'thread-1', terminalId, cwd: '/repo/.t3/wt-1', worktreePath: '/repo/.t3/wt-1',
+  status: 'running', pid: 1, exitCode: null, exitSignal: null, hasRunningSubprocess: false, label: 'zsh', updatedAt: '2026-10-06T00:00:00.000Z', ...extra });
 const run = (client: T3Client, op: string, id = '', value = '') => terminalOps.call(client, `terminallocal:${op}`, id, value, 0, {} as Native, {} as Files, out());
 
 describe('terminal drawer commands', () => {
@@ -327,4 +329,60 @@ test('dedicated focus operations update pane context without dispatching a termi
   expect(focusedTerminal(client)?.terminalId).toBe('term-2');
   await run(client, 'focus-out', 'env-a:thread-1|term-2', 'drawer');
   expect(focusedTerminal(client)).toBeNull(); expect(calls).toEqual([]);
+});
+
+describe('project actions in the terminal', () => {
+  const ref = { environmentId: 'env-a', threadId: 'thread-1' };
+  test('before the server lists sessions, an action starts a new terminal instead of guessing one is idle', async () => {
+    const { client, calls } = fixture();
+    terminalUiStore(client).getState().ensureTerminal(ref, 'term-1', { open: true });
+    await run(client, 'run-command', '', 'bun dev');
+    expect(calls[0]).toMatchObject({ method: 'terminal.open', payload: { terminalId: 'term-2', cols: 120, rows: 30 } });
+  });
+
+  test('reuses an idle drawer terminal, never a right-panel one, and types a shell command as is', async () => {
+    const { client, calls } = fixture();
+    terminalMetadataEvent(client, { subscriptionId: '3-1', value: { type: 'snapshot', terminals: [session('term-1'), session('term-2')] } });
+    const store = terminalUiStore(client).getState();
+    store.ensureTerminal(ref, 'term-1', { open: true });
+    // term-1 is also a right-panel terminal; the server's term-2 is one this drawer has not opened yet.
+    surfaceStore(client).panels.set('env-a:thread-1', { surfaces: [{ id: 'terminal:1', kind: 'terminal', path: '', line: 0, reveal: 0,
+      terminal: { terminalIds: ['term-1'], activeTerminalId: 'term-1', splitDirection: 'horizontal' } }], active: 'terminal:1', visible: true, userRevision: 1 });
+    await run(client, 'run-command', '', 'git status');
+    expect(calls.map(call => [call.method, call.payload.terminalId, call.payload.cols, call.payload.data])).toEqual([
+      ['terminal.open', 'term-2', undefined, undefined], ['terminal.write', 'term-2', undefined, 'git status\r']]);
+  });
+
+  test('a busy drawer terminal is skipped for the next idle one', async () => {
+    const { client, calls } = fixture();
+    terminalMetadataEvent(client, { subscriptionId: '3-1', value: { type: 'snapshot', terminals: [session('term-1', { hasRunningSubprocess: true }), session('term-2')] } });
+    const store = terminalUiStore(client).getState();
+    store.ensureTerminal(ref, 'term-1', { open: true }); store.newTerminal(ref, 'term-2'); store.setActiveTerminal(ref, 'term-1');
+    await run(client, 'run-command', '', 'ls');
+    expect(calls[0]?.payload.terminalId).toBe('term-2');
+  });
+
+  test('a checkout terminal keeps the project root while the thread works in a worktree', async () => {
+    const { client } = fixture();
+    terminalMetadataEvent(client, { subscriptionId: '3-1', value: { type: 'snapshot', terminals: [session('term-1', { cwd: '/repo', worktreePath: null })] } });
+    const store = terminalUiStore(client).getState();
+    store.ensureTerminal(ref, 'term-1', { open: true }); store.splitTerminal(ref, 'term-2');
+    const view = await terminalDrawerView(client, null, 840, 0);
+    expect(view.panes.map(pane => [pane.terminalId, pane.cwd, pane.worktree, pane.env])).toEqual([
+      ['term-1', '/repo', '', JSON.stringify({ T3CODE_PROJECT_ROOT: '/repo' })],
+      ['term-2', '/repo/.t3/wt-1', '/repo/.t3/wt-1', JSON.stringify({ T3CODE_PROJECT_ROOT: '/repo', T3CODE_WORKTREE_PATH: '/repo/.t3/wt-1' })]]);
+  });
+
+  test('a reconnect to the same environment keeps the known sessions until its first snapshot', async () => {
+    const { client, raw } = fixture();
+    await terminalDrawerView(client, { available: true } as Native, 840, 0);
+    terminalMetadataEvent(client, { subscriptionId: '3-7', value: { type: 'snapshot', terminals: [session('term-1', { cwd: '/repo', worktreePath: null })] } });
+    terminalUiStore(client).getState().ensureTerminal(ref, 'term-1', { open: true });
+    raw.generation = 4;
+    const reconnected = await terminalDrawerView(client, { available: true } as Native, 840, 0);
+    expect(reconnected.panes[0]).toMatchObject({ cwd: '/repo', worktree: '' });
+    // Another environment's sessions are not this one's.
+    raw.generation = 5; raw.environmentId = 'env-b';
+    expect((await terminalDrawerView(client, { available: true } as Native, 840, 0)).metadata).toBe('waiting');
+  });
 });
