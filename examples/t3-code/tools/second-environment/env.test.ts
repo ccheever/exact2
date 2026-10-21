@@ -6,7 +6,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { FINISH_WELCOME, pairOps, redact } from "./env.mjs";
+import { FINISH_WELCOME, driverFlags, pairOps, redact } from "./env.mjs";
 import { forget as forgetStandin } from "../acp-standin/install.mjs";
 import { makeHub, HUB_ACCOUNTS } from "./usage-hub.mjs";
 import { answer, PULL_REQUEST } from "./gh-standin.mjs";
@@ -121,6 +121,10 @@ describe("a drive", () => {
     expect(pairOps("http://127.0.0.1:16510/pair#token=A", 0, true).slice(0, 2)).toEqual(["tap welcome-add-computer", "type welcome-pairing-link http://127.0.0.1:16510/pair#token=A"]);
     expect(pairOps("http://127.0.0.1:16511/pair#token=B", 1, true).filter(op => op === "tap welcome-add-computer")).toHaveLength(1);
     expect(FINISH_WELCOME).toContain("tap welcome-skip-import");
+  });
+  test("passes --epoch to the driver with the size and the store", () => {
+    expect(driverFlags(["--local", "--epoch", "now", "--storage", "s1"])).toEqual(["--size", "1280x840", "--storage", "s1", "--epoch", "now"]);
+    expect(driverFlags(["--size", "900x700", "--json"])).toEqual(["--size", "900x700", "--storage", "t3-fixtures", "--json"]);
   });
   test("prints no pairing token", () => {
     expect(redact('typed #448 "welcome-pairing-link" · value="http://127.0.0.1:16510/pair#token=LEY3T64Y3TVC"')).toBe('typed #448 "welcome-pairing-link" · value="http://127.0.0.1:16510/pair#token=<redacted>"');
