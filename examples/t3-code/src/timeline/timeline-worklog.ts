@@ -55,7 +55,7 @@ export function formatTokens(value: number): string {
 }
 
 export function contextCompactionLabel(item: Obj): string {
-  if (item.status === 'running') return 'Compacting context';
+  if (['pending', 'running', 'waiting'].includes(str(item.status))) return 'Compacting context'; // isOrchestrationV2WorkActive
   if (typeof item.beforeTokenCount === 'number' && typeof item.afterTokenCount === 'number') {
     return `Context compacted ${formatTokens(item.beforeTokenCount)} → ${formatTokens(item.afterTokenCount)} tokens`;
   }
