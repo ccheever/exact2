@@ -242,6 +242,29 @@ public final class ExactView: UIView {
     public override var canBecomeFirstResponder: Bool { true }
     public override var keyCommands: [UIKeyCommand]? { session.presenter.shortcutCommands(#selector(exactShortcut(_:))) }
     @objc private func exactShortcut(_ command: UIKeyCommand) { session.presenter.performShortcut(command) }
+    // This view holds the focus while nothing else does: a hardware key that
+    // no shortcut took reaches the first root's `keycapture`, `key` and
+    // `keyup` handlers, and ⌘X, ⌘C and ⌘V its `cut`, `copy` and `paste`,
+    // as the DOM's `window` listeners hear them at `<body>` (`keyRoot`).
+    public override func pressesBegan(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
+        if isFirstResponder, let key = presses.first?.key, let root = session.presenter.keyRoot, root.hardwareKey(key, down: true) { return }
+        super.pressesBegan(presses, with: event)
+    }
+    public override func pressesEnded(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
+        if isFirstResponder, let key = presses.first?.key, let root = session.presenter.keyRoot { _ = root.hardwareKey(key, down: false) }
+        super.pressesEnded(presses, with: event)
+    }
+    private func rootHearer(_ action: Selector) -> NodeView? {
+        guard isFirstResponder, let root = session.presenter.keyRoot, root.clipboardHearer(action)?.node === root else { return nil }
+        return root
+    }
+    public override func canPerformAction(_ action: Selector, withSender sender: Any?) -> Bool {
+        if [#selector(copy(_:)), #selector(cut(_:)), #selector(paste(_:))].contains(action) { return rootHearer(action) != nil }
+        return super.canPerformAction(action, withSender: sender)
+    }
+    public override func copy(_ sender: Any?) { rootHearer(#selector(copy(_:)))?.clipboard(#selector(copy(_:))) }
+    public override func cut(_ sender: Any?) { rootHearer(#selector(cut(_:)))?.clipboard(#selector(cut(_:))) }
+    public override func paste(_ sender: Any?) { rootHearer(#selector(paste(_:)))?.clipboard(#selector(paste(_:))) }
     #endif
 
     public override func willMove(toWindow newWindow: UIWindow?) {

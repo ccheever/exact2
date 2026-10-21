@@ -1599,7 +1599,14 @@ macOS; touch hosts show none.
 Windows and Linux keyboards, the Edit menu, an iPad's hardware keyboard) with
 the focus at a node or inside it are heard by the nearest node with the
 handler, itself or an ancestor — so a node with one takes the focus, as a
-`key` node does. An action that takes one more parameter gets a
+`key` node does. With nothing focused they go to the first root, as the
+DOM's go to `<body>` (web, macOS and iOS; the Edit menu's item is enabled
+while the root has the handler; a Mac sheet's own window holds none). On the web and macOS Paste and Match Style
+(⌥⇧⌘V on the Mac) is a `paste` too, as Chrome's is: an app that treats it
+apart tells by the key before it, as a page does. In a field whose node or
+an ancestor hears `paste`, Paste is enabled on the Mac while the clipboard
+holds only files or image data, which the field cannot take itself; the
+paste carries them as `files` and inserts nothing. An action that takes one more parameter gets a
 `ClipboardEvent` whose `text` is the clipboard's plain text: what is pasted,
 and empty on `copy` and `cut`, as the DOM's is until a listener sets it — the
 action writes the clipboard with `copyText`. Its `files` is the paste's
@@ -1862,7 +1869,16 @@ macOS, iOS and iPadOS with a hardware keyboard, Linux):
   handler (such an element takes the focus, as `tabindex="0"` gives it, and
   is in the Tab order), or with a `tabindex`. It then bubbles: the
   focused element's handler hears it first, then every ancestor's, innermost
-  first. With nothing focused, only `aria-keyshortcuts` buttons hear keys.
+  first. With nothing focused (at load, or after the focused element is
+  removed) the path is the first root, the app's outermost node: its
+  `keycapture`, `key` and `keyup` handlers hear the key after the
+  `aria-keyshortcuts` buttons, as the DOM's `window` listeners hear a key
+  whose target is `<body>`, and a `preventDefault()` there cancels the key's
+  default (Tab's move to the first stop; the terminal's scroll). The root
+  takes no focus by it: no `focus` event, no ring, no Tab stop. So on the
+  web, macOS, iOS, Linux and Windows. The terminal's root hears `key` alone,
+  and first, as its focused node's handler does: before the shortcuts and a
+  dialog's Escape. Android hands keys only to a focused field.
   On the Mac a click on a `button`, or on a box that is only pressable, leaves
   the focus where it is, as a click on an AppKit button does: a field beside
   it keeps its caret, and its pending `change` is committed before the `press`
@@ -1882,9 +1898,13 @@ macOS, iOS and iPadOS with a hardware keyboard, Linux):
   field's `input` heard as it was composed (the commit is not heard again). A
   composer's ⌘Enter `key` action sends what was typed. On macOS such a chord
   presses no `aria-keyshortcuts` button, as the web's skip a key that came
-  composing. On the web, Chrome hands the `key` handlers every key while
-  composing (`isComposing`, which Contract does not carry) and commits
-  nothing first.
+  composing. On macOS a press outside the field (a mouse-down anywhere else
+  in its window) commits the composition before the press runs, as
+  Chrome's mousedown ends one, where AppKit would leave it marked: a Send
+  button's action reads committed text, and no syllable stays with the
+  input method once the action clears the field. On the web, Chrome hands
+  the `key` handlers every key while composing (`isComposing`, which
+  Contract does not carry) and commits nothing before a chord's handlers.
 - **Modifiers.** An action that takes one more parameter, typed
   `KeyboardEvent`, hears the event too: the record `{ key: string, shiftKey:
   bool, ctrlKey: bool, altKey: bool, metaKey: bool, code: string, repeat:
