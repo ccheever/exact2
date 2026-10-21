@@ -8,6 +8,7 @@ use MermaidDiagram from "../timeline/markdown.contract"
 use MarkdownEnv from "../timeline/markdown.contract"
 use WorktreeSetupView from "../timeline/timeline-worktree-shapes.contract"
 use MinimapItem from "../timeline/timeline-minimap.contract"
+use FindLine from "../timeline/thread-find.contract"
 use MessageImage from "../timeline/timeline-attachments.contract"
 use MessageFile from "../timeline/timeline-attachments.contract"
 use ComposerView from "../composer/composer-shapes.contract"
@@ -173,6 +174,8 @@ shape Message
   // Code font/size, word wrap and the message's chips (message-chips.ts).
   md: MarkdownEnv
   secret: SecretCardView[]
+  // A workflow opening's title, description and phase titles with the thread find's matches marked.
+  findLines: FindLine[]
 shape Provider
   id: string
   name: string
@@ -513,6 +516,11 @@ shape Snapshot
   diffTreeAllOpen: bool
   diffCommentOpen: bool
   diffLoadingLabel: string
+  // Loading with no answer for this selection yet (DiffPanel isLoadingSelectedPatch): only then the skeleton shows.
+  diffPending: bool
+  // A turn diff's named file to scroll to, and the reveal request that bumps each time it is opened (DiffPanel revealDiffFile).
+  diffReveal: number
+  diffRevealTarget: string
   projects: Project[]
   searchFirstId: string
   snoozePresets: SnoozePreset[]
@@ -554,6 +562,9 @@ shape Snapshot
   requestKey: string
   clientError: string
   errorWarning: bool
+  // ThreadErrorBanner's collapsed message (a JSON error's message) and whether it expands to the full text.
+  errorSummary: string
+  errorExpandable: bool
   look: Look
 shape Change
   revision: number

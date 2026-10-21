@@ -322,16 +322,18 @@ describe('⌘↩ in a line comment draft', () => {
     await command('diff-view', 'file', 'src/app.ts');
     await command('diffreview', 'comment:additions', 'src/app.ts', 7);
     expect(chords()).toBe('');
-    // A keyboard thread switch closes the panel and keeps the draft; no blur comes (LLP 1008). The Diff reopened on
-    // another thread draws the same file and line under the same scope, but the focus was this thread's.
+    // A keyboard thread switch closes the panel; no blur comes (LLP 1008). The Diff reopened on another thread is that
+    // thread's own scope (collapseScopeKey), so the draft is released with the viewer it belonged to, and the hold with it.
     client.threadId = 't2';
     client.diffOpen = false;
     await command('diff');
-    expect(snapshot(client).diffCommentOpen).toBe(true);
+    expect(snapshot(client).diffCommentOpen).toBe(false);
     expect(chords()).toContain('Meta+Enter');
-    // Back on the first thread the card mounts again with the focus (autofocus reports it).
+    // Back on the first thread a new draft takes the focus (autofocus reports it).
     client.threadId = 't1';
     await command('diff');
+    expect(snapshot(client).diffCommentOpen).toBe(false);
+    await command('diffreview', 'comment:additions', 'src/app.ts', 7);
     await command('diffreview', 'focus');
     expect(chords()).toBe('');
     // A refresh whose diff no longer has the draft's file: the card is gone, and so is the hold.

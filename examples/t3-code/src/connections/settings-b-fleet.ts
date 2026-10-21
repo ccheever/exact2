@@ -28,6 +28,7 @@ import { fleetSetupHost } from '../providers/codex-fleet-host'; // a background 
 import { fleetPortsEvent, fleetPortsPass } from '../sidebar/legacy-sidebar-ports'; // a background environment's discovered ports
 import { sessionHasLegacyPermissions, sessionPermissions } from './remote-scopes';
 import { accessFleetPass } from './auth-access';
+import { syncProjectFavicons } from '../sidebar/sidebar-glyph';
 
 export type FleetPhase = 'available' | 'connecting' | 'reconnecting' | 'connected' | 'error' | 'unsupported';
 export interface FleetEntry {
@@ -173,6 +174,9 @@ export class EnvironmentFleet {
     await liveFleetPass(request => this.call(remote, entry, request), entry); // live-streams.ts: scheduled tasks and clones
     await keepAliveFleetPass(request => this.call(remote, entry, request), entry); // keep-alive.ts: running threads' detail streams, the primary's lifecycle
     await fleetPortsPass(request => this.call(remote, entry, request), entry); // legacy-sidebar-ports.ts: the legacy rows' discovered ports
+    // sidebar-glyph.ts: this server's project favicons, for its sidebar rows and thread chips.
+    await syncProjectFavicons({ environmentId: entry.environmentId, generation: entry.generation }, entry.origin, entry.shell.projects,
+      payload => this.call(remote, entry, { op: 'request', method: 'assets.createUrl', payload }));
   }
 
   private async call(remote: Native, entry: FleetEntry, request: Obj): Promise<Obj> {

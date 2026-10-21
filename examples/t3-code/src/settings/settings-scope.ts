@@ -61,7 +61,7 @@ export function resolveSettingsScope(search: SettingsScopeSearch, groups: readon
   return { kind: 'all', label: 'All environments', members: [], environmentIds: environments.map(candidate => candidate.environmentId) };
 }
 
-// ── settingsScopeAxis.ts (T3 Code 9c161462c9) ─────────────────────────────
+// ── settingsScopeAxis.ts (T3 Code 9c161462c9; projectScopeMenuGroups at 74541bab17) ─────────────────────────────
 type AxisEnvironment = { environmentId: string; label: string; displayUrl?: string | null };
 
 /** The environment's host (`host:port`), its display URL when that is not a URL, or its id without one. */
@@ -108,6 +108,13 @@ export function environmentAxisValue(search: SettingsScopeSearch, resolvedEnviro
 }
 /** The project axis: `all` or a project key. */
 export function projectAxisValue(search: SettingsScopeSearch): string { return search.project ?? ALL_PROJECTS_VALUE; }
+
+/** projectScopeMenuGroups: with an environment chosen, the project menu lists only that environment's projects. */
+export function projectScopeMenuGroups<T extends Pick<ScopeGroup, 'memberProjects'>>(groups: readonly T[], search: Pick<SettingsScopeSearch, 'machine'>): readonly T[] {
+  const { machine } = search;
+  if (machine === undefined) return groups;
+  return groups.filter(group => group.memberProjects.some(member => member.environmentId === machine));
+}
 
 /** Choosing an environment keeps the project; a pre-existing checkout narrowing is dropped. */
 export function selectEnvironmentAxis(search: SettingsScopeSearch, value: string): SettingsScopeSearch {

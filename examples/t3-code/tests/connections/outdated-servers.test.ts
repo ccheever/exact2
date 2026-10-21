@@ -68,7 +68,8 @@ describe('Connections: an outdated saved host', () => {
     setJobs({});
     const page = await connectionsPage(host(), native, true);
     const row = page.environments.find(entry => entry.environmentId === 'env-old')!;
-    expect(row).toMatchObject({ unsupported: true, enabled: false, outdatedAction: 'Update', subtitle: 'https://old.example.com/ · Client not supported', switchTip: 'Client not supported',
+    // Its saved direct route keeps the switch, so switching it on retries the connection (registry.ts setEnabled).
+    expect(row).toMatchObject({ unsupported: true, blocked: false, enabled: false, outdatedAction: 'Update', subtitle: 'https://old.example.com/ · Client not supported', switchTip: 'Switch on',
       tooltip: 'This client requires a newer server. Update T3 Code on Old box to connect.' });
     expect(native.calls.some(call => call.op === 'fleetOutdatedProbe' && call.fleet === KEY)).toBe(true);
   });

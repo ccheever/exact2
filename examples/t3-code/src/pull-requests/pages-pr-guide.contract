@@ -162,7 +162,8 @@ component GuideTour
                       for question in guide.questions key=question.key
                         if guide.canAsk
                           button press=ask(question.text) aria-label=`Ask an agent: ${question.text}` testId=`pull-request-guide-question-${question.key}` padding-left="0.75rem" padding-right="0.75rem" padding-top="0.375rem" padding-bottom="0.375rem" box-sizing="border-box" max-width="100%" border-width=1 border-style="solid" border-color=pgtBorder() border-radius="0.5rem" background-color="#00000000" display="flex" align-items="flex-start" gap="0.5rem" text-align="left"
-                            box margin-top="0.125rem"
+                            // size-3.5 h-lh: centred on the question's first line.
+                            box height="1.25rem" flex-shrink=0 display="flex" align-items="center"
                               ShellIcon(name="message-circle-question", size=14, color=pgtMuted())
                             text question.text min-width=0 font-size="0.875rem" line-height="1.25rem" color=pgtInk()
                         else

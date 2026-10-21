@@ -38,6 +38,7 @@ import { mostRecentProjectId } from '../pages/pages-home';
 import { landHome, settleHome, settleHomeElsewhere, type HomeTarget } from '../pages/home-landing';
 import { adoptPagesPrefs } from '../pages/pages-prefs';
 import { adoptClosedViews } from '../panel/closed-views';
+import { holdThreadDiff, reopenThreadDiff } from '../panel/panel-surfaces';
 import { adoptShellPrefs } from '../shell/shell-prefs';
 import { adoptFilesPrefs } from '../panel/files-prefs';
 import { adoptSidebarWidth } from '../sidebar/sidebar-width';
@@ -837,7 +838,9 @@ export class T3Client {
       await this.openDraft(native, this.projectId); this.threadId = this.absentThreadId = id; return; // a missing thread shows NoActiveThreadState
     }
     this.threadId = id; this.thread = keptThread(this, id); this.diffOpen = false; this.answers = {}; // keep-alive.ts: a running thread's kept detail
+    const diffHeld = holdThreadDiff(this); // panel-surfaces.ts: the thread's Diff shows again
     this.ensureSelection(); await this.openThread(native, id, this.thread !== null);
+    await reopenThreadDiff(this, native, diffHeld);
     sidebarOpened(this, native);
   }
   /**

@@ -6,7 +6,7 @@
 // buildMultiSelectThreadContextMenuItems, isTrailingDoubleClick,
 // resolveAdjacentThreadId), apps/web/src/uiStateStore.ts (resolveProjectExpanded,
 // reorderProjects), apps/web/src/timestampFormat.ts (formatRelativeTimeLabel) and
-// LegacySidebar.tsx's own helpers. Pure functions over the raw V2 thread shell.
+// LegacySidebar.tsx's own helpers; resolveThreadStatusPill follows 74541bab17. Pure functions over the raw V2 thread shell.
 import { pendingSubagentRequest } from './subagent-requests';
 import { str, type Obj } from '../client/domain';
 import { latestRun, pendingApproval, pendingInput, shellRuntime, backgroundHolds, unseenCompletion } from './sidebar-model';
@@ -98,10 +98,10 @@ export function sortProjectsForSidebar<P extends SortableProject>(projects: read
     .map(entry => entry.project);
 }
 
-export type StatusLabel = 'Working' | 'Connecting' | 'Completed' | 'Pending Approval' | 'Awaiting Input' | 'Waiting' | 'Plan Ready';
+export type StatusLabel = 'Working' | 'Connecting' | 'Completed' | 'Failed' | 'Pending Approval' | 'Awaiting Input' | 'Waiting' | 'Plan Ready';
 /** ThreadStatusPill with the Tailwind classes as the clone's light-dark colours (text, dot). */
 export interface StatusPill { label: StatusLabel; color: string; dot: string; pulse: boolean }
-const PRIORITY: Record<StatusLabel, number> = { 'Pending Approval': 5, 'Awaiting Input': 4, Working: 3, Connecting: 3, Waiting: 2.5, 'Plan Ready': 2, Completed: 1 };
+const PRIORITY: Record<StatusLabel, number> = { 'Pending Approval': 5, 'Awaiting Input': 4, Failed: 3.5, Working: 3, Connecting: 3, Waiting: 2.5, 'Plan Ready': 2, Completed: 1 };
 const pill = (label: StatusLabel, color: string, dot: string, pulse = false): StatusPill => ({ label, color, dot, pulse });
 const SKY = pill('Working', 'light-dark(#0084d1, #74d4ffcc)', 'light-dark(#00a6f4, #74d4ffcc)', true);
 /** session-logic.ts isLatestRunSettled: the latest run ended and is not the runtime's active run. */
@@ -109,15 +109,30 @@ function latestRunSettled(thread: Obj): boolean {
   const run = latestRun(thread), runtime = shellRuntime(thread);
   return run !== null && !['preparing', 'queued', 'starting', 'running', 'waiting'].includes(run.status) && runtime?.activeRunId !== str(thread.latestRunId);
 }
-/** resolveThreadStatusPill: approval, input, work, connecting, background wait, plan ready, then an unseen completion. */
+/**
+ * hasUnseenFailure: a failed latest run not looked at since it ended. Unlike a completion, a thread nobody has opened
+ * yet (an automation's, say) counts: its failure still needs someone.
+ */
+function unseenFailure(thread: Obj, lastVisitedAt: string | undefined): boolean {
+  const run = latestRun(thread);
+  if (run?.status !== 'failed') return false;
+  if (!lastVisitedAt) return true;
+  const completed = Date.parse(run.completedAt ?? ''), visited = Date.parse(lastVisitedAt);
+  return Number.isNaN(completed) || Number.isNaN(visited) || completed > visited;
+}
+/**
+ * resolveThreadStatusPill: approval, input, work, connecting, a wait (on another thread or background work), an unseen
+ * failure, plan ready, then an unseen completion.
+ */
 export function resolveThreadStatusPill(thread: Obj, lastVisitedAt: string | undefined): StatusPill | null {
   const subagent = pendingSubagentRequest(thread); // a hidden subagent's request shows on its parent
   if (pendingApproval(thread) || subagent === 'approval') return pill('Pending Approval', 'light-dark(#e17100, #ffd230e6)', 'light-dark(#fe9a00, #ffd230e6)');
   if (pendingInput(thread) || subagent === 'user_input') return pill('Awaiting Input', 'light-dark(#4f39f6, #a3b3ffe6)', 'light-dark(#615fff, #a3b3ffe6)');
-  const status = shellRuntime(thread)?.status ?? '';
-  if (status === 'running' || status === 'waiting') return SKY;
+  const status = shellRuntime(thread)?.status ?? '', threadWait = status === 'running' && thread.blockedOnThreadWait === true;
+  if (status === 'running' && !threadWait || status === 'waiting') return SKY;
   if (status === 'preparing' || status === 'starting' || status === 'queued') return { ...SKY, label: 'Connecting' };
-  if (backgroundHolds(thread)) return pill('Waiting', 'light-dark(#71717b, #818181)', 'light-dark(#71717b, #818181)');
+  if (threadWait || backgroundHolds(thread)) return pill('Waiting', 'light-dark(#71717b, #818181)', 'light-dark(#71717b, #818181)');
+  if (unseenFailure(thread, lastVisitedAt)) return pill('Failed', 'light-dark(#e7000b, #ffa2a2e6)', 'light-dark(#fb2c36, #ffa2a2e6)');
   if (thread.interactionMode === 'plan' && latestRunSettled(thread) && thread.hasActionableProposedPlan === true)
     return pill('Plan Ready', 'light-dark(#7f22fe, #c4b4ffe6)', 'light-dark(#8e51ff, #c4b4ffe6)');
   if (unseenCompletion(thread, lastVisitedAt)) return pill('Completed', 'light-dark(#009966, #5ee9b5e6)', 'light-dark(#00bc7d, #5ee9b5e6)');

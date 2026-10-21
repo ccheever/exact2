@@ -1,9 +1,11 @@
 // Network facts for "This machine", after T3 Code
-// (MIT, see LICENSE-T3; reference 1e2ecbd975): apps/desktop/src/backend/DesktopNetworkInterfaces.ts
+// (MIT, see LICENSE-T3; reference 74541bab17): apps/desktop/src/backend/DesktopNetworkInterfaces.ts
 // (`os.networkInterfaces()`), packages/tailscale/src/tailscale.ts (`readTailscaleStatus`: `tailscale
 // status --json`, 1.5 s, the stderr diagnostics that never quote the CLI, `probeTailscaleHttpsEndpoint`:
 // 2xx on `/.well-known/t3/environment` within 2.5 s) and DesktopServerExposure.ts (the status read is
-// cached 60 s: on the App Store build each spawn can raise macOS's "Other apps" prompt).
+// cached 60 s per set of Tailscale IPv4 addresses on the interfaces: on the App Store build each spawn
+// can raise macOS's "Other apps" prompt, and a changed address set reads afresh, so a new tailnet's
+// name and identity never come from the old cache).
 //
 // TypeScript asks for the facts (`localNetworkFacts`) and computes the exposure state and endpoints
 // (server-exposure.ts). This answers at once from the caches and refreshes in the background; when a
@@ -82,6 +84,11 @@ enum T3NetworkInterfaces {
     }
     static func hasTailscaleIpv4(_ interfaces: [String: [T3NetworkAddress]]) -> Bool {
         interfaces.values.contains { $0.contains { !$0.isInternal && $0.family == "IPv4" && isTailscaleIpv4($0.address) } }
+    }
+    /// tailscaleIpv4AddressKey: the status cache's key, the distinct Tailscale IPv4 addresses sorted and joined.
+    static func tailscaleIpv4Key(_ interfaces: [String: [T3NetworkAddress]]) -> String {
+        Set(interfaces.values.flatMap { $0 }.filter { !$0.isInternal && $0.family == "IPv4" && isTailscaleIpv4($0.address) }.map(\.address))
+            .sorted().joined(separator: ",")
     }
 }
 
@@ -226,7 +233,7 @@ final class T3LocalNetwork: @unchecked Sendable {
     static let probeFreshness: TimeInterval = 30
 
     private let lock = NSLock()
-    private var status: (value: T3TailscaleCLI.Status?, at: Date)?
+    private var status: (value: T3TailscaleCLI.Status?, at: Date, key: String)?
     private var statusReading = false
     private var probes: [String: (reachable: Bool, at: Date)] = [:]
     private var probing = Set<String>()
@@ -262,14 +269,17 @@ final class T3LocalNetwork: @unchecked Sendable {
     }
 
     /// `localNetworkFacts {tailscale, probe, refresh}`: interfaces now; the status and the probe from
-    /// their caches (`read: false` until the first answer), refreshed in the background when stale.
+    /// their caches (`read: false` until the first answer for these Tailscale addresses), refreshed in
+    /// the background when stale.
     func facts(tailscale wantsStatus: Bool, probe url: String, refresh: Bool) -> [String: Any] {
         var value: [String: Any] = ["lanHostOverride": lanHostOverride ?? "", "httpsEndpointUrls": httpsEndpointUrls]
-        do { value["interfaces"] = T3NetworkInterfaces.json(try interfaces()) }
+        var read: [String: [T3NetworkAddress]] = [:]
+        do { read = try interfaces(); value["interfaces"] = T3NetworkInterfaces.json(read) }
         catch { value["interfaces"] = [String: Any](); value["interfacesError"] = (error as? T3NetworkInterfaces.ReadError)?.message ?? "Failed to read desktop network interfaces on darwin." }
+        let key = T3NetworkInterfaces.tailscaleIpv4Key(read)
         let now = now()
         lock.lock()
-        let cached = status, cachedProbe = url.isEmpty ? nil : probes[url]
+        let cached = status?.key == key ? status : nil, cachedProbe = url.isEmpty ? nil : probes[url]
         let readStatus = wantsStatus && !statusReading && (cached == nil || now.timeIntervalSince(cached!.at) >= Self.statusTtl)
         if readStatus { statusReading = true }
         let readProbe = !url.isEmpty && !probing.contains(url) && (cachedProbe == nil || refresh || now.timeIntervalSince(cachedProbe!.at) >= Self.probeFreshness)
@@ -286,8 +296,8 @@ final class T3LocalNetwork: @unchecked Sendable {
                 statusReading = false
                 // A failed read answers null (`Effect.orElseSucceed(() => null)`) and is cached like a success.
                 let next = (try? result.get())
-                let differs = status?.value != next || status == nil
-                if epoch == generation { status = (next, self.now()) }
+                let differs = status?.value != next || status?.key != key
+                if epoch == generation { status = (next, self.now(), key) }
                 lock.unlock()
                 if case let .failure(failure) = result { FileHandle.standardError.write(Data("t3.local: \(failure.message)\n".utf8)) }
                 if differs { changed() }

@@ -110,7 +110,7 @@ component ChatHeader
               ShellIcon(name="panel-bottom", size=16, color="light-dark(#27272acc, #f5f5f5cc)")
             TipBubble(label=(shell.terminalAvailable ? (shell.keyTerminal == "" ? "Toggle terminal drawer" : `Toggle terminal drawer (${shell.keyTerminal})`) : "Terminal drawer is unavailable"), side="bottom", align="end", offset=32, inset=40, shown=(hovered == "terminal"))
           box position="relative" flex-shrink=0
-            button press=toggleRight hover=hover("right") aria-label="Toggle right panel" testId="toggle-right-panel" width="1.75rem" height="1.75rem" padding=0 border-radius="0.625rem" border-width=0 display="flex" flex-direction="row" align-items="center" justify-content="center" background-color=(hovered == "right" ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") title=""
+            button id="toggle-right-panel" press=toggleRight hover=hover("right") aria-label="Toggle right panel" testId="toggle-right-panel" width="1.75rem" height="1.75rem" padding=0 border-radius="0.625rem" border-width=0 display="flex" flex-direction="row" align-items="center" justify-content="center" background-color=(hovered == "right" ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") title=""
               ShellIcon(name="panel-right", size=16, color="light-dark(#27272acc, #f5f5f5cc)")
             TipBubble(label=(shell.keyRightPanel == "" ? "Toggle right panel" : `Toggle right panel (${shell.keyRightPanel})`), side="bottom", align="end", offset=32, inset=8, shown=(hovered == "right"))
 
@@ -152,7 +152,9 @@ component AlertStack
           row max-width="48rem" padding-left="0.875rem" padding-right="0.875rem" padding-top="0.75rem" padding-bottom="0.75rem" box-sizing="border-box" gap="0.5rem" align-items="flex-start" border-radius="0.875rem" border-style="solid" border-width=1 border-color=(data.errorWarning ? "light-dark(#fe9a0052, #fe9a0052)" : "light-dark(#fb2c3652, #fb414a52)") background-color=(data.errorWarning ? "light-dark(#fcf8f2, #14100a)" : "light-dark(#fcf4f4, #140c0d)") testId="error-banner" role="alert"
             row width="1rem" height="1.25rem" margin-top="0.125rem" align-items="center" justify-content="center" flex-shrink=0
               Icon(name="circle-alert", size=16, color=(data.errorWarning ? "#fe9a00" : "light-dark(#fb2c36, #fb414a)"))
-            text data.error aria-description=data.error flex-shrink=1 min-width=0 padding-top="0.125rem" font-size="0.875rem" line-height="1.25rem" line-clamp=3 color=(data.errorWarning ? "light-dark(#bb4d00cc, #ffb900cc)" : "light-dark(#c10007cc, #ff6467cc)")
+            // A new error starts collapsed.
+            for error in [data.error] key=error
+              ErrorBannerText(text=error, summary=data.errorSummary, expandable=data.errorExpandable, warning=data.errorWarning)
             button press=command("dismiss-error", "", "", 0) width="1.5rem" height="1.5rem" padding=0 flex-shrink=0 border-radius="0.5rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center" aria-label="Dismiss error" title=""
               Icon(name="x", size=14, color="light-dark(#71717b, #818181)")
       if data.uncertain
@@ -163,6 +165,27 @@ component AlertStack
             text data.uncertainMessage flex-shrink=1 min-width=0 padding-top="0.125rem" font-size="0.875rem" line-height="1.25rem" line-clamp=3 color="light-dark(#bb4d00, #ffb900)"
             button press=command("retry", "", "", 0) disabled=(busy or not data.connected or not data.syncComplete) height="1.5rem" padding-left="0.4375rem" padding-right="0.4375rem" flex-shrink=0 border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#e4e4e7, #ffffff0f)" background-color="#00000000" display="flex" flex-direction="row" align-items="center"
               text "Retry request" font-size="0.75rem" font-weight=500 line-height="1rem" color="light-dark(#27272a, #f5f5f5)"
+
+// ExpandableText in ThreadErrorBanner: the message (a JSON error's own message) clamped to three lines, and
+// "Show full error" / "Show less" (InlineButton tone="muted", mt-1) when the exact text says more.
+component ErrorBannerText
+  props
+    text: string
+    summary: string
+    expandable: bool
+    warning: bool
+  state expanded = false
+  action toggle
+    expanded = not expanded
+  view
+    column flex-shrink=1 min-width=0 padding-top="0.125rem" align-items="flex-start"
+      if expanded
+        text text aria-description=text testId="error-banner-text" font-size="0.875rem" line-height="1.25rem" white-space="pre-wrap" overflow-wrap="anywhere" color=(warning ? "light-dark(#bb4d00cc, #ffb900cc)" : "light-dark(#c10007cc, #ff6467cc)")
+      else
+        text summary aria-description=summary testId="error-banner-text" font-size="0.875rem" line-height="1.25rem" white-space="pre-wrap" overflow-wrap="anywhere" line-clamp=3 color=(warning ? "light-dark(#bb4d00cc, #ffb900cc)" : "light-dark(#c10007cc, #ff6467cc)")
+      if expandable
+        button press=toggle aria-expanded=expanded testId="error-banner-expand" margin-top="0.25rem" padding=0 border-width=0 background-color="#00000000"
+          text (expanded ? "Show less" : "Show full error") font-size="0.875rem" font-weight=500 line-height="1.25rem" color="light-dark(#71717b, #818181)"
 
 // EmptyThread (the draft hero and the empty landings) lives in pages-hero.contract.
 
@@ -214,5 +237,8 @@ component LoadEarlier
     hovering = over
   view
     row width="100%" padding-left="1.25rem" padding-right="1.25rem" padding-top="1rem" box-sizing="border-box" justify-content="center" flex-shrink=0
-      button hover=setHover press=load disabled=(busy or loading) aria-label="Load earlier turns" testId="load-earlier" width="100%" max-width="46rem" padding-top="0.375rem" padding-bottom="0.375rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" justify-content="center"
-        text (loading ? "Loading earlier turns…" : "Load earlier turns") font-size="0.75rem" line-height="1rem" color=(hovering and not loading ? "light-dark(#27272a, #f5f5f5)" : "light-dark(#71717b99, #81818199)")
+      // The label between two hairlines (h-px flex-1 bg-border/70, gap-3), text-muted-foreground.
+      button hover=setHover press=load disabled=(busy or loading) aria-label="Load earlier turns" testId="load-earlier" width="100%" max-width="46rem" padding-top="0.375rem" padding-bottom="0.375rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" gap="0.75rem"
+        box flex=1 height=1 aria-hidden=true background-color="light-dark(#e4e4e7b3, #ffffff0b)"
+        text (loading ? "Loading earlier turns…" : "Load earlier turns") flex-shrink=0 font-size="0.75rem" line-height="1rem" color=(hovering and not loading ? "light-dark(#27272a, #f5f5f5)" : "light-dark(#71717b, #818181)")
+        box flex=1 height=1 aria-hidden=true background-color="light-dark(#e4e4e7b3, #ffffff0b)"

@@ -43,6 +43,10 @@ describe('the values', () => {
     expect(meter({ usedTokens: 9_000, maxTokens: null })).toMatchObject({ contextMax: '', contextValueNow: 0 });
     expect((meter({ usedTokens: 1, maxTokens: 2 }) as Record<string, unknown>).contextValueLabel).toBeUndefined();
   });
+  test('context window: the configured auto-compact threshold reads as approximate (#18332)', () => {
+    expect(meter({ usedTokens: 1, maxTokens: 2, autoCompactThreshold: 150_000 })).toMatchObject({ contextNote: 'Compacts automatically at about 150,000 tokens.' });
+    expect(meter({ usedTokens: 1, maxTokens: 2 })).toMatchObject({ contextNote: 'Context compacts automatically when needed.' });
+  });
 });
 
 describe('the markup', () => {

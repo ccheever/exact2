@@ -122,6 +122,7 @@ describe('terminal links', () => {
 import { runProjectTerminalScript, lastInvokedProjectScript, cardScripts } from '../../src/details/project-scripts';
 import type { Files, Native } from '../../src/client/protocol';
 import type { Obj } from '../../src/client/domain';
+import { terminalMetadataEvent } from '../../src/terminal/terminal-drawer-view';
 const native: Native = { available: true, watch() {}, async later() { return { ok: true, generation: 0, value: {} }; } };
 const storage: Files = { fs: { async mkdir() {}, async atomicWriteFile() {}, async readFile() { return new ArrayBuffer(0); } } };
 function scriptClient(fail = '') {
@@ -136,13 +137,16 @@ function scriptClient(fail = '') {
 describe('project script integration', () => {
   test('script runs through open/write, remembers secondary choice and updates primary label', async () => {
     const { client, calls } = scriptClient();
+    // The server's session list arrived (empty): the drawer's own idle terminal may be reused.
+    terminalMetadataEvent(client, { subscriptionId: '1-1', value: { type: 'snapshot', terminals: [] } });
     await runProjectTerminalScript(client, native, storage, 'build');
     expect(calls.map(call => call.method)).toEqual(['terminal.open', 'terminal.write']);
-    expect(calls[1]?.payload).toMatchObject({ threadId: 't', data: 'bun build\r' });
+    // A leading space keeps the script out of the shell's history.
+    expect(calls[1]?.payload).toMatchObject({ threadId: 't', data: ' bun build\r' });
     expect(lastInvokedProjectScript(client)).toBe('build');
     expect(cardScripts({}, client.shell.projects[0], lastInvokedProjectScript(client)).scriptName).toBe('Build');
     await runProjectTerminalScript(client, native, storage, '');
-    expect(calls[3]?.payload.data).toBe('bun build\r');
+    expect(calls[3]?.payload.data).toBe(' bun build\r');
     expect(calls[2]?.payload.terminalId).toBe(calls[0]?.payload.terminalId);
   });
   test('autoOpenPreview runs the script, then opens its preview URL in a Browser tab', async () => {

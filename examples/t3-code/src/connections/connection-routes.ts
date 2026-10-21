@@ -1,4 +1,4 @@
-// One environment, several routes (T3 Code 9c161462c9 packages/client-runtime/src/connection/
+// One environment, several routes (T3 Code 9c161462c9, hasSavedBearerRoute at 74541bab17: packages/client-runtime/src/connection/
 // routes.ts and githubRoutingPermissions.ts gitHubRoutingConnectionKey; MIT, see LICENSE-T3). A
 // saved environment keeps an ordered list of routes: direct URLs (loopback, LAN, tailnet, other
 // VPNs, public) and SSH tunnels. The client connects over the first route
@@ -128,6 +128,14 @@ export function connectionRouteLabel(route: ConnectionRoute): string {
 export function connectionRouteAddress(route: ConnectionRoute): string | null {
   if (route.kind === 'ssh') return route.ssh ? route.ssh.alias : null;
   return routeHttpBaseUrl(route);
+}
+
+/**
+ * hasSavedBearerRoute: a direct route paired with a bearer token, which a cached "client not supported" rejection may
+ * retry after a server update. Learned routes alone do not count, and neither do SSH tunnels or T3 Connect.
+ */
+export function hasSavedBearerRoute(entry: Pick<RouteEntry, 'routes'>): boolean {
+  return entry.routes.some(route => !route.learned && route.kind !== 'ssh' && route.kind !== 'relay');
 }
 
 /** Whether the environment can be reached through T3 Connect. */
