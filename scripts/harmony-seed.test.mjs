@@ -1,10 +1,10 @@
-// Harmony's `seed --post` seeds a temporary (in-memory) store unasked and refuses one that keeps its data unless told
-// to erase it (the lead's 2026-10-21 ask): the demo's dev server on this machine holds what people wrote, and an
-// agent following the README would erase it. Run against servers of the test's own: one in memory, one keeping its
-// data in a directory of the test's, never the origin the app names.
+// Harmony's `seed --post` seeds a store nothing was written to unasked and refuses any other unless told to erase it
+// (the lead's 2026-10-21 ask): the demo's dev server on this machine holds what people wrote, and an agent following
+// the README would erase it. Run against servers of the test's own: one in memory, one keeping its data in a directory
+// of the test's, and stand-ins answering as a dev server would; never the origin the app names.
 import { afterEach, expect, test } from 'bun:test';
 import { spawnSync } from 'node:child_process';
-import { cpSync, existsSync, mkdtempSync, rmSync } from 'node:fs';
+import { cpSync, existsSync, mkdtempSync, readdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { createInterface } from 'node:readline';
@@ -42,7 +42,8 @@ async function server(cwd, memory) {
 const seed = (...args) => {
   const json = mkdtempSync(join(tmpdir(), 'harmony-seed-json-'));
   dirs.push(json);
-  return spawnSync(process.execPath, ['seed.mjs', '--json', join(json, 'seed.json'), ...args], { cwd: BACKEND, encoding: 'utf8', timeout: 60_000 });
+  const r = spawnSync(process.execPath, ['seed.mjs', '--json', join(json, 'seed.json'), ...args], { cwd: BACKEND, encoding: 'utf8', timeout: 60_000 });
+  return { ...r, wrote: readdirSync(json).length > 0 };
 };
 const people = async (origin) => (await (await fetch(`${origin}/q/people`, { method: 'POST',
   headers: { 'content-type': 'application/json', 'x-snapback-persona': 'ada' }, body: '{"args":{}}' })).json()).data;
@@ -57,35 +58,35 @@ async function sentinel(origin) {
 }
 const adaStatus = async (origin) => (await people(origin)).find((p) => p.handle === 'ada')?.status;
 
-test('a temporary store is seeded unasked', async () => {
+test('a store nothing was written to is seeded unasked; one seeded before is refused, nothing erased, unless --force', async () => {
   const origin = await server(BACKEND, true);
   expect(seed('--post', origin).status).toBe(0);
   expect((await people(origin)).length).toBe(6);
-  // and seeded again, whatever it holds: its data goes when it stops anyway.
-  await sentinel(origin);
-  expect(seed('--post', origin).status).toBe(0);
-  expect(await adaStatus(origin)).toBe('Shipping Harmony 🚀');
-}, 120_000);
-
-test('a store that keeps its data is refused, nothing erased, and erased with --force or --reset in either order', async () => {
-  const dir = mkdtempSync(join(tmpdir(), 'harmony-seed-store-'));
-  dirs.push(dir);
-  cpSync(resolve(BACKEND, 'snapback'), join(dir, 'snapback'), { recursive: true });
-  const origin = await server(dir, false);
+  // In memory or not, a store written to may hold what people wrote.
+  const written = await sentinel(origin);
   const refused = seed('--post', origin);
   expect(refused.status).toBe(1);
   expect(refused.stderr).toContain("ERASE EVERYONE'S MESSAGES");
   expect(refused.stderr).toContain('Nothing was erased');
   expect(refused.stderr).toContain('--force');
-  expect(await people(origin)).toEqual([]);
-  // Each flag erases on its own, the origin before or after it (`bun exact.mjs seed --force <origin>` arrives as
-  // `--post --force <origin>`), and the next refusal leaves what was written.
-  for (const flags of [['--post', '--force', origin], ['--post', origin, '--reset']]) {
+  expect(await adaStatus(origin)).toBe(written);
+  expect(seed('--post', '--force', origin).status).toBe(0);
+  expect(await adaStatus(origin)).toBe('Shipping Harmony 🚀');
+}, 120_000);
+
+test('a store that keeps its data and was written to is refused, and erased by --force or --reset, before or after the origin', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'harmony-seed-store-'));
+  dirs.push(dir);
+  cpSync(resolve(BACKEND, 'snapback'), join(dir, 'snapback'), { recursive: true });
+  const origin = await server(dir, false);
+  // `bun exact.mjs seed --force <origin>` arrives as `--post --force <origin>`.
+  for (const flags of [['--post', '--force', origin], ['--post', origin, '--force'], ['--post', '--reset', origin], ['--post', origin, '--reset']]) {
     const written = await sentinel(origin);
-    expect(seed('--post', origin).status).toBe(1);
+    const refused = seed('--post', origin);
+    expect(refused.status).toBe(1);
+    expect(refused.stderr).toContain('kept on disk');
     expect(await adaStatus(origin)).toBe(written);
-    const r = seed(...flags);
-    expect(r.status).toBe(0);
+    expect(seed(...flags).status).toBe(0);
     expect(await adaStatus(origin)).toBe('Shipping Harmony 🚀');
   }
 }, 120_000);
@@ -94,5 +95,48 @@ test('an argument seed does not take, two origins, or an origin without --post i
   for (const args of [['--post', '--origin', 'http://127.0.0.1:1'], ['--post', 'http://127.0.0.1:1', 'http://127.0.0.1:2'], ['http://127.0.0.1:1']]) {
     const r = seed(...args);
     expect(r.status).toBe(2);
+    expect(r.wrote).toBe(false);
   }
 });
+
+/** A stand-in answering `/dev/status` with each of `statuses` in turn and a head of 0, counting resets. */
+function standIn(statuses) {
+  const seen = { resets: [] };
+  let n = 0;
+  const s = Bun.serve({ port: 0, hostname: '127.0.0.1', fetch(req) {
+    const path = new URL(req.url).pathname;
+    if (path === '/dev/status') return Response.json(statuses[Math.min(n++, statuses.length - 1)]);
+    if (path === '/changes') return Response.json({ seq: 0, store_id: 's1' });
+    if (path === '/dev/reset') { seen.resets.push(req.headers.get('x-snapback-dev-instance')); return Response.json({ reset: true }); }
+    return new Response('', { status: 404 });
+  } });
+  stands.push(s);
+  return { origin: `http://127.0.0.1:${s.port}`, seen };
+}
+const stands = [];
+/** `seed` run without blocking this process, which answers as the stand-in. */
+async function seedAsync(...args) {
+  const json = mkdtempSync(join(tmpdir(), 'harmony-seed-json-'));
+  dirs.push(json);
+  const p = Bun.spawn([process.execPath, 'seed.mjs', '--json', join(json, 'seed.json'), ...args], { cwd: BACKEND, stdout: 'pipe', stderr: 'pipe' });
+  const [status, stderr] = await Promise.all([p.exited, new Response(p.stderr).text()]);
+  return { status, stderr };
+}
+afterEach(() => { for (const s of stands.splice(0)) s.stop(true); });
+const ok = { storeId: 's1', instance: 'i1', pid: 4242, personas: ['ada'], temporary: true };
+
+test('a malformed status, or a server replaced between its two readings, is never reset; the reset names the instance asked', async () => {
+  for (const bad of [{ storeId: '', temporary: true }, { ...ok, instance: '' }, { ...ok, pid: undefined }, { ...ok, personas: [] }]) {
+    const { origin, seen } = standIn([bad]);
+    expect((await seedAsync('--post', '--force', origin)).status).toBe(1);
+    expect(seen.resets).toEqual([]);
+  }
+  const replaced = standIn([ok, { ...ok, instance: 'i2' }]);
+  const r = await seedAsync('--post', replaced.origin);
+  expect(r.status).toBe(1);
+  expect(r.stderr).toContain('changed while it was asked');
+  expect(replaced.seen.resets).toEqual([]);
+  const same = standIn([ok]);
+  expect((await seedAsync('--post', same.origin)).status).toBe(0);
+  expect(same.seen.resets).toEqual(['i1']);
+}, 60_000);
