@@ -44,7 +44,7 @@ export function mobileHomeView(args: unknown[], client: T3Client = mobileClient,
     return { environmentId: String(row.environmentId ?? ''), label: String(row.label ?? ''), machineSymbol: String(row.machineSymbol ?? '') }; });
   const result = mobileHome(Number(now), { drafts, draftEnvironments, orderSnapshot: order, query: String(query ?? ''), settledVisibleCount: Number(settledCount) || 10,
     environmentId: String(environmentId ?? ''), projectKey: String(projectKey ?? ''), selectedThreadKey: String(selectedThreadKey ?? ''),
-    groupingMode: String(groupingMode ?? 'repository'), preferencesLoaded: loaded === true, workingEnabled: workingEnabled === true, workingExpanded: workingExpanded === true,
+    groupingMode: String(groupingMode ?? 'repository'), catalogLoaded: catalogLoaded !== false, preferencesLoaded: loaded === true, workingEnabled: workingEnabled === true, workingExpanded: workingExpanded === true,
     snoozedExpanded: snoozedExpanded === true, settledExpanded: settledExpanded === true }, client, background);
   const live = liveEnvironments(client, null, background);
   const contexts = new Map(live.map(environment => {
