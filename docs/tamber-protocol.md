@@ -140,8 +140,10 @@ on macOS and Linux.
   `columns` on `explain`'s value, each `when` line and each of `resolve`'s tuples (D1's form, but for the
   terminal's), and each of `resolve`'s shadows' `columns` with its `value` and `lengths`; and a shadow's
   `lengths` (*1.15*, stage 12 B3) write a zero as 0, never -0 (`calc(space.md * -0)`), a correction;
-  and `explain`'s `bases_by_tuple` beside `bases` (stage 13 D4): each tuple's base names, as it folds
-  there (`bases` keeps its meaning, as wide as `names`).
+  `explain`'s `bases_by_tuple` beside `bases` (stage 13 D4): each tuple's base names, as it folds
+  there (`bases` keeps its meaning, as wide as `names`); and the base rows emit the reserved source
+  kind `{kind: "stretch", ref, why}` (stage 13 D5): the Mac's `space.xl` now reads `stretch` (`ref`
+  `grouped-label-inset`, with its why), which read `metric` before.
 
 ## Where it runs
 
