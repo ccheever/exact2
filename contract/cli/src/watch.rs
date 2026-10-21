@@ -155,7 +155,8 @@ pub fn check(file: &File) -> Result<(), Vec<CompileError>> {
         if routes.rows.iter().filter(|r| r.tab).count() > 1 {
             errors.push(refusal(
                 "watch-tabs",
-                "the watch shows one tab's routes; declare one `tab` in the watch entry's routes".into(),
+                "the watch shows one tab's routes; declare one `tab` in the watch entry's routes"
+                    .into(),
                 routes.span,
             ));
         }
@@ -232,7 +233,11 @@ mod tests {
             let n = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
             let dir = std::env::temp_dir().join(format!("exact-watch-{}-{n}", std::process::id()));
             std::fs::create_dir_all(&dir).unwrap();
-            std::fs::write(dir.join("app.json"), r#"{"name":"W","app":{"id":"dev.exact.w","name":"W"}}"#).unwrap();
+            std::fs::write(
+                dir.join("app.json"),
+                r#"{"name":"W","app":{"id":"dev.exact.w","name":"W"}}"#,
+            )
+            .unwrap();
             for (name, src) in files {
                 std::fs::write(dir.join(name), src).unwrap();
             }
@@ -259,7 +264,10 @@ mod tests {
 
     #[test]
     fn the_named_component_must_be_the_files_first() {
-        let app = App::new(&[("watch.contract", "component Root\n  view\n    text \"hi\"\n")]);
+        let app = App::new(&[(
+            "watch.contract",
+            "component Root\n  view\n    text \"hi\"\n",
+        )]);
         assert_eq!(app.compile("Root"), Vec::<String>::new());
         assert_eq!(app.compile("Other"), ["watch-component"]);
     }
@@ -267,8 +275,14 @@ mod tests {
     #[test]
     fn a_used_files_components_are_admitted_too() {
         let app = App::new(&[
-            ("watch.contract", "use Card from \"./card.contract\"\ncomponent Root\n  view\n    Card()\n"),
-            ("card.contract", "component Card\n  view\n    canvas width=10\n"),
+            (
+                "watch.contract",
+                "use Card from \"./card.contract\"\ncomponent Root\n  view\n    Card()\n",
+            ),
+            (
+                "card.contract",
+                "component Card\n  view\n    canvas width=10\n",
+            ),
         ]);
         assert_eq!(app.compile("Root"), ["watch-tag"]);
     }

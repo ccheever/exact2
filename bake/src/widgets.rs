@@ -270,9 +270,8 @@ mod tests {
     /// at `plans/watch.plan`, and no widget: `widgets.json` does not list it.
     #[test]
     fn the_watch_entry_bakes_its_plan_beside_no_widget() {
-        let dir = TempDir(
-            std::env::temp_dir().join(format!("exact-watch-bake-{}", std::process::id())),
-        );
+        let dir =
+            TempDir(std::env::temp_dir().join(format!("exact-watch-bake-{}", std::process::id())));
         let out = dir.0.join("out");
         std::fs::create_dir_all(&out).unwrap();
         let app = Path::new(env!("CARGO_MANIFEST_DIR")).join("../apps/caltrain");
