@@ -107,12 +107,6 @@ final class NavigationCollapseIOSTests: XCTestCase {
         return session
     }
 
-    /// LLP 1115.000 D11.1 over `scripts/fixtures/large-title.contract`: one
-    /// stack with no tabs, the shape `exact new` makes, whose first screen
-    /// names no scroller. Its large title opens expanded, its content below
-    /// it, and collapses as the content scrolls. UIKit shows the title
-    /// collapsed when the stack is laid out in the window before it has its
-    /// root (`installPrimary`).
     /// `navigationBar="transparent"` over `scripts/fixtures/transparent-bar.contract`:
     /// the bar shows, clear at the top of the route's scroller, whose content
     /// starts at the top edge under it (UIKit insets it nothing), as under a
@@ -123,7 +117,7 @@ final class NavigationCollapseIOSTests: XCTestCase {
         let nav = try XCTUnwrap(session.presenter.navigation.primaryNavigation)
         let route = try XCTUnwrap(nav.topViewController as? RouteController)
         XCTAssertFalse(nav.isNavigationBarHidden, "the bar shows")
-        XCTAssertTrue(route.navigationItem.scrollEdgeAppearance === NavigationHost.clearScrollEdge, "clear at the scroller's top")
+        XCTAssertEqual(route.navigationItem.scrollEdgeAppearance, NavigationHost.clearScrollEdge, "clear at the scroller's top")
         let home = try node(session, "home-scroll"), sv = try XCTUnwrap(home.scroll)
         XCTAssertTrue(route.collapseScroll === home, "the bar follows the route's scroller")
         XCTAssertEqual(sv.contentInsetAdjustmentBehavior, .never)
@@ -133,6 +127,12 @@ final class NavigationCollapseIOSTests: XCTestCase {
         XCTAssertEqual(home.scrollOrigin, 0, "CSS scrollTop 0 is the top edge")
     }
 
+    /// LLP 1115.000 D11.1 over `scripts/fixtures/large-title.contract`: one
+    /// stack with no tabs, the shape `exact new` makes, whose first screen
+    /// names no scroller. Its large title opens expanded, its content below
+    /// it, and collapses as the content scrolls. UIKit shows the title
+    /// collapsed when the stack is laid out in the window before it has its
+    /// root (`installPrimary`).
     func testASingleStacksFirstScreenOpensWithItsLargeTitleExpanded() throws {
         let session = try booted("EXACT_LARGE_TITLE_PLAN", label: "large-title", beforeItsWindow: true)
         let nav = try XCTUnwrap(session.presenter.navigation.primaryNavigation)

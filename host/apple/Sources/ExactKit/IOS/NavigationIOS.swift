@@ -41,6 +41,8 @@ final class RouteController: UIViewController {
     /// The scroller that is the route's last in-flow child, which reaches
     /// the screen's bottom edge (LLP 1116 D2).
     weak var edgeScroll: NodeView?
+    /// The bottom cover the route has with no such scroller (`reportCovers`).
+    var bottomClearance: CGFloat = 0
     /// The targets of the bar items projected from its header.
     var barPresses: [BarPress] = []
     /// The bar items of its header's readouts, by node, kept across

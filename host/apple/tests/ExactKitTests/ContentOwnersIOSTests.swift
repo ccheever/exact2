@@ -184,7 +184,10 @@ final class ContentOwnersIOSTests: XCTestCase {
             return n.count == 4 && zip(n, [rect.minX, rect.minY, rect.width, rect.height]).allSatisfy { abs($0 - $1) < 1e-6 }
         }
         let shown = seen(session, card)
-        XCTAssertEqual(shown, CGRect(x: 16, y: 400, width: 100, height: 40), "the route fills the window")
+        // The route fills the window, covered by the status bar, which the
+        // card's `top` starts past (`cover::apply`) as below it on the web.
+        let status = try XCTUnwrap(window).safeAreaInsets.top
+        XCTAssertEqual(shown, CGRect(x: 16, y: 400 + status, width: 100, height: 40), "the route fills the window")
         until("the observers have run") { slots()["beacon"] as? String == "true" && slots()["seen"] as? String != "unseen" }
         let before = try read()
         XCTAssertTrue(near(before[0], shown), before[0])

@@ -736,7 +736,8 @@ extension NavigationHost {
             // where the route says so or has nothing to go back to.
             c.pushed = index > 0
             let transparent = Self.transparentBar(c.node)
-            if (c.navigationItem.scrollEdgeAppearance === Self.clearScrollEdge) != transparent {
+            // The item keeps a copy, equal and not the same object.
+            if (c.navigationItem.scrollEdgeAppearance == Self.clearScrollEdge) != transparent {
                 c.navigationItem.scrollEdgeAppearance = transparent ? Self.clearScrollEdge : nil
                 c.navigationItem.compactScrollEdgeAppearance = transparent ? Self.clearScrollEdge : nil
             }
@@ -1015,6 +1016,11 @@ extension NavigationHost {
             ?? (shows || whole ? kids.first(where: flowing) : nil)
         let target = shape?.authored.isEmpty != false && node?.scrollView != nil && node === scroller ? node : nil
         let physical = target?.scrollView
+        // A route that turns transparent, or back, keeps its scroller: only
+        // whether UIKit insets it follows.
+        if let sv = physical, c.collapseScroll === target, c.collapseScrollView === sv {
+            sv.contentInsetAdjustmentBehavior = Self.transparentBar(c.node) ? .never : .automatic
+        }
         guard c.collapseScroll !== target || c.collapseScrollView !== physical else { return }
         let old = c.collapseScroll, oldView = c.collapseScrollView
         if let old, let sv = oldView { old.retainScrollPosition(from: sv) }
@@ -1087,9 +1093,16 @@ extension NavigationHost {
     /// (`adjustedContentInset.bottom`), as a hand-built table view's is. The
     /// route keeps no bottom cover for it (`reportCovers`). A footer under
     /// the scroller keeps the cover; so does a page under `viewport-fit=cover`,
-    /// whose own `env()` insets would be added to UIKit's.
+    /// whose own `env()` insets would be added to UIKit's, and a transparent
+    /// bar's scroller, which UIKit insets nothing (`collapse`).
     private func reachBottom(_ c: RouteController) {
-        let target = presenter.viewportFit != "cover" ? Self.bottomScroller(in: c.node) : nil
+        // Until a scroller reaches the bottom edge the route's bottom cover
+        // pads its in-flow content above the bars, and its content box is
+        // the authored one: a scroller there ends that far above it. The
+        // cover it has without one, so a scroller that does not grow as the
+        // cover goes is at the edge either way.
+        let found = presenter.viewportFit != "cover" ? Self.bottomScroller(in: c.node, cover: c.bottomClearance) : nil
+        let target = found === c.collapseScroll && Self.transparentBar(c.node) ? nil : found
         guard c.edgeScroll !== target || c.contentScrollView(for: .bottom) !== (target?.scrollView ?? c.bandedBottom) else { return }
         if let old = c.edgeScroll, let sv = old.scrollView, old !== c.collapseScroll { sv.contentInsetAdjustmentBehavior = .never }
         if let previous = c.contentScrollView(for: .bottom), previous !== target?.scrollView,
@@ -1119,8 +1132,9 @@ extension NavigationHost {
     /// short of its parent's bottom (a padding, a border or a margin under
     /// it), or has a sibling beside it in a row or a grid, keeps the route's
     /// cover. One that scrolls vertically only: UIKit's bottom inset would
-    /// let a sideways carousel scroll up and down.
-    static func bottomScroller(in route: NodeView) -> NodeView? {
+    /// let a sideways carousel scroll up and down. `cover` is the route's
+    /// bottom cover, which the route's child may end above.
+    static func bottomScroller(in route: NodeView, cover: CGFloat = 0) -> NodeView? {
         let flowing = inFlow
         // The last in-flow child spans the bottom edge alone when every other
         // ends above its top, as children stacked down a block or a column
@@ -1135,9 +1149,10 @@ extension NavigationHost {
             let children = parent.container.subviews.compactMap { $0 as? NodeView }.filter(flowing)
             guard let last = children.last, alone(last, among: children) else { return nil }
             // Each reaches the foot of its parent's content box: the route's
-            // child the box its cover already shortens, a deeper one its
-            // parent's bottom, with nothing (a padding, a border) under it.
-            let foot = parent === route ? parent.contentBox().maxY : parent.bounds.maxY
+            // child that box less the cover the kernel may pad it by, a
+            // deeper one its parent's bottom, with nothing (a padding, a
+            // border) under it.
+            let foot = parent === route ? parent.contentBox().maxY - cover : parent.bounds.maxY
             if parent !== route, parent.contentBox().maxY < foot - 0.5 { return nil }
             if parent.convert(last.bounds, from: last).maxY < foot - 0.5 { return nil }
             if last.scrollView != nil { return ["scroll", "auto"].contains(last.style["overflow_y"]?.string ?? "") ? last : nil }

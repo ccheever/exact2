@@ -25,10 +25,7 @@ extension NavigationHost {
     /// view (`whole`) or the page covers it (`covered`: `viewport-fit="cover"`,
     /// whose `env()` is the window's safe area and not the tab bar's, which a
     /// child of a `UITabBarController` reads in its own), and the bottom only
-    /// as far as the route reaches it. A scroller at the bottom edge takes
-    /// the bottom's clearance itself (`reachBottom`, an `.inset` cover): the
-    /// kernel pads the route nothing there and still clears an absolutely
-    /// positioned footer past the bar.
+    /// as far as the route reaches it.
     static func routeEdges(safe: UIEdgeInsets, document: UIEdgeInsets, presented: Bool, whole: Bool, covered: Bool = false,
                            collapses: Bool, reached: CGFloat) -> HostCover.Edges {
         let env = presented ? .zero : document
@@ -110,8 +107,17 @@ extension NavigationHost {
                 // Only what the route reaches of the bottom bars is covered:
                 // none once the keyboard ends it above them (`ownerFrame`).
                 let reached = c.node.convert(c.node.bounds, to: c.view).maxY - (c.view.bounds.height - safe.bottom)
-                edges = Self.routeEdges(safe: safe, document: presenter.insets, presented: presented, whole: whole, covered: covered,
-                                        collapses: c.collapseScroll != nil, reached: reached)
+                let clear = Self.routeEdges(safe: safe, document: presenter.insets, presented: presented, whole: whole, covered: covered,
+                                            collapses: c.collapseScroll != nil, reached: reached)
+                // A scroller at the bottom edge takes the bottom's clearance
+                // itself (`reachBottom`), and the route keeps none there: UIKit
+                // insets it only while it reaches under the bars, which the
+                // cover's padding would end it above for good (a scroller made
+                // in its place, a keyboard come and gone; the kernel's
+                // `scroller_insets_bottom` reads only an `.inset` child, which
+                // the scroller's own safe area then no longer gives).
+                c.bottomClearance = clear.bottom
+                edges = c.edgeScroll == nil ? clear : .init(top: clear.top, right: clear.right, bottom: 0, left: clear.left)
             } else if case .edges(let e)? = covers[c.node.id] {
                 edges = e
             } else { continue }
