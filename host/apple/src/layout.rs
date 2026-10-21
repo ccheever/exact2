@@ -261,9 +261,9 @@ impl<D: DataSource> Host<D> {
             // views drop this state with their mirror, and [] clears old ink.
             // Region-owned views still receive flow invalidation even when
             // their frames come from the selected native artifact below.
-            if self.layout_withheld || m.flow != node.flow_shapes() {
+            if self.layout_withheld || *m.flow != *node.flow_shapes() {
                 batch.flow(id, node.flow_shapes());
-                m.flow = node.flow_shapes().to_vec();
+                m.flow = node.flow_shapes().into();
             }
             if native_protected {
                 continue;
@@ -307,7 +307,7 @@ impl<D: DataSource> Host<D> {
                 if m.props.get("spellcheck") != spelling.as_ref() {
                     if let Some(value) = spelling {
                         batch.props(id, &[("spellcheck", value.clone())], &[]);
-                        m.props.insert("spellcheck".into(), value);
+                        m.props.insert("spellcheck", value);
                     } else {
                         batch.props(id, &[], &["spellcheck"]);
                         m.props.remove("spellcheck");
@@ -320,7 +320,7 @@ impl<D: DataSource> Host<D> {
                 match fit {
                     Some(scale) => {
                         batch.props(id, &[("fitScale", scale.clone())], &[]);
-                        m.props.insert("fitScale".into(), scale);
+                        m.props.insert("fitScale", scale);
                     }
                     None => {
                         batch.props(id, &[], &["fitScale"]);
@@ -356,7 +356,7 @@ impl<D: DataSource> Host<D> {
                 match grows {
                     Some(value) => {
                         batch.props(id, &[("flexGrows", value.clone())], &[]);
-                        m.props.insert("flexGrows".into(), value);
+                        m.props.insert("flexGrows", value);
                     }
                     None => {
                         batch.props(id, &[], &["flexGrows"]);
@@ -372,7 +372,7 @@ impl<D: DataSource> Host<D> {
                 match offset {
                     Some(value) => {
                         batch.props(id, &[("textOffset", value.clone())], &[]);
-                        m.props.insert("textOffset".into(), value);
+                        m.props.insert("textOffset", value);
                     }
                     None => {
                         batch.props(id, &[], &["textOffset"]);
@@ -383,10 +383,10 @@ impl<D: DataSource> Host<D> {
             let field_content = published_content_box(&node, kernel);
             let field_cell = node.is_cell_field();
             if self.layout_withheld
-                || m.field_content != field_content
+                || m.field_content.as_deref() != field_content.as_ref()
                 || m.field_cell != field_cell
             {
-                m.field_content = field_content;
+                m.field_content = field_content.map(Box::new);
                 m.field_cell = field_cell;
                 batch.field_content(id, field_content, field_cell);
             }
@@ -1013,6 +1013,7 @@ mod tests {
         assert_eq!(
             host.mirror[&(bare as ViewId)]
                 .field_content
+                .as_deref()
                 .map(|c| c.rect.y),
             Some(22.0),
             "min(30, 20) is still 20"

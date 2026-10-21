@@ -143,14 +143,15 @@ impl std::fmt::Display for HostError {
 
 #[derive(Debug, Clone, Default, PartialEq)]
 pub(crate) struct Mirror {
-    props: exact_kernel::SortedMap<String, String>,
+    props: exact_kernel::SortedMap<&'static str, String>,
     /// The style the presenter last heard, one allocation per text ([`paragraph::StyleTexts`]).
     style: std::rc::Rc<str>,
-    children: Vec<ViewId>,
+    children: Box<[ViewId]>,
     frame: Option<(f32, f32, f32, f32)>,
     content: Option<(f32, f32)>,
-    flow: Vec<exact_kernel::FlowShape>,
-    field_content: Option<crate::batch::ContentBox>,
+    flow: Box<[exact_kernel::FlowShape]>,
+    /// Boxed: only a text field has one, and inline it was a quarter of the mirror.
+    field_content: Option<Box<crate::batch::ContentBox>>,
     field_cell: bool,
     block: Option<(f32, f32)>,
 }
@@ -166,7 +167,7 @@ pub struct Host<D: DataSource> {
     /// The active head's `edited` (LLP 1069.010 D6), sent with the title.
     head_edited: bool,
     language: Option<String>,
-    /// Boxed: a mirror is 200 bytes, and the table has up to twice as many slots as views.
+    /// Boxed: a mirror is 128 bytes, and the table has up to twice as many slots as views.
     mirror: IdMap<ViewId, Box<Mirror>>,
     style_texts: paragraph::StyleTexts,
     keys: IdMap<NodeKey, ViewId>,
