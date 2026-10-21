@@ -16,9 +16,9 @@
 // another by EXACT2. EXACT_SIM names the simulator.
 import { spawn, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { closeSync, existsSync, mkdirSync, openSync, readFileSync, writeFileSync } from 'node:fs';
+import { closeSync, existsSync, mkdirSync, openSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { homedir, release } from 'node:os';
-import { join, resolve } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { decodePng } from './png.mjs';
 import { baseLength, cellsOf, drive as scaleDrive, overridesOf, pageTop } from './scale-check.mjs';
 import { webDist } from './app.mjs';
@@ -881,6 +881,8 @@ export function releaseSources() {
  * app), and release identity over stage 12 E's commits. */
 export function noRegressions(opts) {
   const work = join(ROOT, 'target', 'stage12-gate');
+  // This run's own report: an earlier one is never read for it.
+  rmSync(join(work, 'conform', 'report.json'), { force: true });
   const conform = run(process.execPath, [join(ROOT, 'host/web-js/conform.mjs'), '--synthetic', '--strict', '--linux', '--build', '--jobs', '1', '--wasm-root', join(work, 'wasm'), '--out', join(work, 'conform')], { timeout: 7_200_000 });
   const said = conform.out.split('\n');
   const summary = said.find(l => /failures across/.test(l)) ?? `no summary${conform.error ? ` (${conform.error.code ?? conform.error.message})` : ''}: ${conform.out.trim().split('\n').slice(-3).join(' / ').slice(0, 400)}`;
@@ -889,10 +891,11 @@ export function noRegressions(opts) {
   // A failure the branch's run shares with the same run on its base is the
   // base's (stage 9's and 11's precedent: a conform red identical on main
   // is unchanged), so the line holds when the branch adds none.
-  const mine = conformReport(join(work, 'conform', 'report.json'));
-  const base = opts.conformBase ? conformReport(opts.conformBase) : null;
+  const finished = !conform.error && said.some(l => /failures across/.test(l));
+  const mine = finished ? conformReport(join(work, 'conform', 'report.json'), ROOT) : null;
+  const base = opts.conformBase ? conformReport(opts.conformBase, run('git', ['rev-parse', '--show-toplevel'], { cwd: dirname(resolve(opts.conformBase)) }).out.trim()) : null;
   const added = mine && base ? mine.failures.filter(f => !base.failures.includes(f)) : null;
-  const clean = conform.ok || (mine && base && mine.targets > 0 && !added.length);
+  const clean = conform.ok || !!(mine && base && mine.targets > 0 && base.targets > 0 && !added.length);
   const evidence = [`conform --synthetic --strict --linux: ${summary}`, ...failed.map(l => `  ${l}`),
     ...(conform.ok ? [] : !base ? ['  its failures are compared with the same run on the branch\'s base (--conform-base <its report.json>), which wasn\'t given'] : !mine ? ['  its report.json was not read'] : [`  against the base's run (${opts.conformBase}, ${base.failures.length} failures over ${base.targets} targets): ${added.length ? `${added.length} the branch adds` : 'every failure the base\'s own'}`, ...added.map(f => `    NEW ${f}`), ...mine.failures.map(f => `    both: ${f}`)]),
     `@exact/reading's users: ${readers.join(', ') || 'none'} (in release identity)`];
@@ -902,12 +905,14 @@ export function noRegressions(opts) {
   return pass(...evidence);
 }
 
-/** A conform report.json's failures, each `target | step | what`, and its
- * targets compared; null when unreadable. */
-export function conformReport(file) {
+/** A conform report.json's failures, each `target | step | what` with the
+ * checkout that ran it (`root`) taken out of its paths, and its targets
+ * compared; null when unreadable. */
+export function conformReport(file, root) {
   try {
     const r = JSON.parse(readFileSync(file, 'utf8'));
-    return { targets: Object.keys(r.targets ?? {}).length, failures: (r.failures ?? []).map(f => `${f.target} | ${f.step} | ${String(f.what).replace(/\/\S*?\/(exact2[^/]*|iosfix-rel12)\//g, '/')}`) };
+    const prefix = `${String(root).replace(/\/+$/, '')}/`;
+    return { targets: Object.keys(r.targets ?? {}).length, failures: (r.failures ?? []).map(f => `${f.target} | ${f.step} | ${String(f.what).split(prefix).join('<checkout>/')}`) };
   } catch { return null; }
 }
 

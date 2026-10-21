@@ -183,9 +183,10 @@ test('the components a source map\'s view nodes come from, by declared name', ()
 test('a conform report\'s failures, keyed without the checkout\'s path', () => {
   const dir = mkdtempSync(join(tmpdir(), 's12e-conf-'));
   const f = join(dir, 'report.json');
-  writeFileSync(f, JSON.stringify({ targets: { a: {}, b: {} }, failures: [{ target: 'a', step: 'contract-build', what: '/Users/x/x2ios/exact2/host/t.contract:0:0 [id] m' }] }));
-  expect(conformReport(f)).toEqual({ targets: 2, failures: ['a | contract-build | /host/t.contract:0:0 [id] m'] });
-  writeFileSync(f, JSON.stringify({ targets: { a: {} }, failures: [{ target: 'a', step: 'contract-build', what: '/tmp/iosfix-rel12/host/t.contract:0:0 [id] m' }] }));
-  expect(conformReport(f).failures).toEqual(['a | contract-build | /host/t.contract:0:0 [id] m']);
-  expect(conformReport(join(dir, 'none.json'))).toBe(null);
+  writeFileSync(f, JSON.stringify({ targets: { a: {}, b: {} }, failures: [{ target: 'a', step: 'contract-build', what: '/Users/x/exact2/host/t.contract:0:0 [id] m' }] }));
+  expect(conformReport(f, '/Users/x/exact2')).toEqual({ targets: 2, failures: ['a | contract-build | <checkout>/host/t.contract:0:0 [id] m'] });
+  // Only the checkout's own prefix: two paths under it stay apart.
+  writeFileSync(f, JSON.stringify({ targets: { a: {} }, failures: [{ target: 'a', step: 's', what: '/r/exact2/host/a/exact2-one/t.contract' }, { target: 'a', step: 's', what: '/r/exact2/host/b/exact2-two/t.contract' }] }));
+  expect(new Set(conformReport(f, '/r/exact2/').failures).size).toBe(2);
+  expect(conformReport(join(dir, 'none.json'), '/r')).toBe(null);
 });
