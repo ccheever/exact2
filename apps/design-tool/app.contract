@@ -183,7 +183,10 @@ shape Imported
 // hand-back), and the last command it could not apply.
 shape InspectRefusal
   id: string
-  text: string
+  host: string
+  // As the Builds list names it; and the rest of its sentence.
+  name: string
+  tail: string
 
 shape Build
   id: string
@@ -1694,7 +1697,11 @@ component DesignTool
                   text "" display="none"
               if inspected.inspecting
                 for r in changes.refusals key=r.id
-                  text r.text color="-exact-system-orange" font="-exact-footnote" testId=`inspect-refused-${r.id}`
+                  // A copy in the grid by its tile's label, as the grid shows it now.
+                  if gridAt.tiles.filter(t => t.build == r.id).length > 0
+                    text `The ${gridAt.tiles.filter(t => t.build == r.id).map(t => t.label).join(", ")} copy (${r.host})${r.tail}` color="-exact-system-orange" font="-exact-footnote" testId=`inspect-refused-${r.id}`
+                  else
+                    text `${r.name}${r.tail}` color="-exact-system-orange" font="-exact-footnote" testId=`inspect-refused-${r.id}`
                 if changes.refusedMore > 0
                   text `and ${changes.refusedMore} more builds could not turn Inspect on` color="-exact-system-orange" font="-exact-footnote" testId="inspect-refused-more"
               if not inspected.has
