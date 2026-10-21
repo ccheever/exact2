@@ -16,7 +16,7 @@
 // another by EXACT2. EXACT_SIM names the simulator.
 import { spawn, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { closeSync, existsSync, mkdirSync, openSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { closeSync, existsSync, mkdirSync, openSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { homedir, release } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { decodePng } from './png.mjs';
@@ -911,8 +911,12 @@ export function noRegressions(opts) {
 export function conformReport(file, root) {
   try {
     const r = JSON.parse(readFileSync(file, 'utf8'));
-    const prefix = `${String(root).replace(/\/+$/, '')}/`;
-    return { targets: Object.keys(r.targets ?? {}).length, failures: (r.failures ?? []).map(f => `${f.target} | ${f.step} | ${String(f.what).split(prefix).join('<checkout>/')}`) };
+    // The checkout as given and as resolved (/tmp is /private/tmp), the
+    // longer first.
+    const bare = String(root).replace(/\/+$/, '');
+    const prefixes = [...new Set([bare, existsSync(bare) ? realpathSync(bare) : bare])].sort((a, b) => b.length - a.length).map(p => `${p}/`);
+    const strip = what => prefixes.reduce((w, p) => w.split(p).join('<checkout>/'), String(what));
+    return { targets: Object.keys(r.targets ?? {}).length, failures: (r.failures ?? []).map(f => `${f.target} | ${f.step} | ${strip(f.what)}`) };
   } catch { return null; }
 }
 
