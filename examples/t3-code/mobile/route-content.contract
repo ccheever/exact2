@@ -480,7 +480,7 @@ component MobileRouteContent
         else
           text "Loading preview…" padding=21 color=look.colors.muted
     else if (focused and informationRoute.active) or informationListCovered
-      SettingsInformation(data=informationData, route=routeName, query=informationQuery, dismissSearchKeyboard=(informationListCovered and not workspace.usesSplitView), legalConfiguration=informationLegal.configuration, colors=settingsData.root.colors, roles=settingsData.root.roles, bottom=settingsData.root.bottom, navigate=openInformation, command=informationCommand, queryChanged=informationSearch)
+      SettingsInformation(data=informationData, route=routeName, routeKey=routeId, query=informationQuery, dismissSearchKeyboard=(informationListCovered and not workspace.usesSplitView), legalConfiguration=informationLegal.configuration, colors=settingsData.root.colors, roles=settingsData.root.roles, bottom=settingsData.root.bottom, navigate=openInformation, command=informationCommand, queryChanged=informationSearch)
     else if routeName == "settings"
       SettingsRoot(data=settingsData.root, displayScale=layout.displayScale, navigate=openSetting)
       if focused
