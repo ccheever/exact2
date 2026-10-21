@@ -27,6 +27,9 @@ final class T3Menus: NSObject, NSMenuItemValidation, NSMenuDelegate {
     private var monitor: Any?
     private var frameObserver: NSObjectProtocol?
     private(set) var zoomLevel: Double = 0
+    /// The zoom as a factor (Chromium's 1.2^level), and a call after it changes (the browser lays its tabs out again).
+    var zoomFactor: Double { pow(1.2, zoomLevel) }
+    var zoomed: (() -> Void)?
     let quit = T3QuitHold()
     private lazy var overlay = T3QuitOverlay()
     /// confirmQuit from the client settings ("direct", "hold" or "double-click").
@@ -271,7 +274,7 @@ final class T3Menus: NSObject, NSMenuItemValidation, NSMenuDelegate {
     /// lays out in a viewport of `frame / factor` CSS points, as a zoomed browser page does.
     func applyZoom() {
         guard let content = window?.contentView else { return }
-        let factor = pow(1.2, zoomLevel)
+        let factor = zoomFactor
         let target = NSSize(width: content.frame.width / factor, height: content.frame.height / factor)
         let old = content.bounds.size
         guard abs(old.width - target.width) > 0.01 || abs(old.height - target.height) > 0.01 else { return }
@@ -291,6 +294,7 @@ final class T3Menus: NSObject, NSMenuItemValidation, NSMenuDelegate {
         content.layoutSubtreeIfNeeded()
         content.needsDisplay = true
         if let window { T3WindowChrome.positionControls(in: window) }
+        zoomed?()
     }
 
     /// Open in Finder: the native folder picker, starting where the palette is browsing.

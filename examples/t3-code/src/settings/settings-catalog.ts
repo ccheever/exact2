@@ -97,6 +97,7 @@ export const CATALOG: readonly (readonly [string, string, string, string, string
   ["browser-recording-key-presses", "Show key presses in recordings", "integrations", "", "browser preview keyboard shortcuts keystrokes overlay capture", "", ""],
   ["browser-recording-mouse-presses", "Show mouse presses in recordings", "integrations", "", "browser preview clicks buttons drag overlay capture", "", ""],
   ["browser-link-target", "Open links in", "integrations", "", "links default browser in-app browser external open", "", ""],
+  ["browser-search-engine", "Search engine", "integrations", "", "address bar duckduckgo google bing brave kagi ecosia custom", "", ""],
   ["pull-request-links-open-in-app", "Open pull requests in T3 Code", "integrations", "", "pr links github browser external click default pull request view panel", "", ""],
   ["browser-auto-show-floating-preview", "Auto-show floating preview", "integrations", "", "agent opens browser device simulator pop into view hide", "", ""],
   ["automatic-pull", "Automatically pull", "source-control", "", "auto pull default branch current checkout fast forward upstream", "project-defaults", ""],

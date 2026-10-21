@@ -172,8 +172,11 @@ final class T3BrowserSessions {
     }
 
     /// The module's status (`presentation.browserTabs`, `presentation.browserLog`).
+    /// The main window's zoom (T3Menus), which a desktop tab's layout divides its own by (useBrowserLayoutZoomFactor).
+    var windowZoom: () -> Double = { 1 }
     var status: [String: Any] {
-        ["browserTabs": sessions.mapValues { $0.report.merging($0.navigationReport) { first, _ in first } }, "browserLog": log] // zoom, appearance
+        ["browserTabs": sessions.mapValues { $0.report.merging($0.navigationReport) { first, _ in first } }, "browserLog": log, // zoom, appearance
+         "browserWindowZoom": windowZoom()]
     }
 
     /// The data module's ops (T3Module+Browser.swift); nil for any other op.
