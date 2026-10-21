@@ -6,6 +6,7 @@ import { afterEach, expect, test } from 'bun:test';
 import { spawnOwned, stopAll } from '../../scripts/test-children.mjs';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:http';
+import { connect } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { suiteBrowser } from '../../scripts/agent-launch.mjs';
@@ -34,9 +35,13 @@ test('a page that closes is no build of the loop any more, by 127.0.0.1 or by lo
     return hello.ok.builds.length;
   };
   try {
-    await until(() => out.includes('plan ready'), 900_000, 'the first build');
-    browser = await suiteBrowser();
-    for (const host of ['127.0.0.1', 'localhost']) {
+    // Listening (its banner comes after both listeners), and its first build done.
+    await until(() => out.includes(`127.0.0.1:${port}/`) && out.includes('plan ready'), 900_000, 'the first build');
+    // localhost resolved to [::1] (as the design tool's canvas is reached first), not left to Chrome to choose.
+    browser = await suiteBrowser('chromium', { args: ['--host-resolver-rules=MAP localhost [::1]'] });
+    const six = await new Promise(ok => { const c = connect(port, '::1'); c.once('connect', () => { c.destroy(); ok(true); }); c.once('error', () => ok(false)); });
+    if (!six) console.warn('no IPv6 loopback here: only 127.0.0.1 is checked');
+    for (const host of six ? ['127.0.0.1', 'localhost'] : ['127.0.0.1']) {
       const context = await browser.newContext(), page = await context.newPage();
       await page.goto(`http://${host}:${port}/`);
       await until(async () => (await builds()) === 1, 60_000, `${host}: the page's build`);

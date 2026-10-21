@@ -1053,7 +1053,9 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
  * the port there, which a localhost URL would reach instead. */
 export function alsoOnIPv6Loopback(server, port) {
   const six = createServer((req, res) => server.emit('request', req, res));
-  six.on('upgrade', (req, socket, head) => server.emit('upgrade', req, socket, head));
+  // (An upgrade no one takes is closed, as an HTTP server with no `upgrade` listener closes it.)
+  six.on('upgrade', (req, socket, head) => { if (!server.emit('upgrade', req, socket, head)) socket.destroy(); });
+  // Its connections ended first: Bun's close() lets go of the native server, after which they cannot be.
   server.on('close', () => { six.closeAllConnections?.(); six.close(); });
   return new Promise((ok, fail) => {
     six.once('error', (e) => (e.code === 'EADDRINUSE' ? fail(e) : ok(null)));
