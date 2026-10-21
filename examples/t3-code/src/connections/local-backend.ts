@@ -50,7 +50,7 @@ export interface LocalBackendStatus {
   restartAttempt: number;
   /** Milliseconds until a scheduled restart, when one is scheduled. */
   nextRestartMs: number | null;
-  /** The last exit of a server run: `code=<n>` or `signal=<n>`. */
+  /** The last exit of a server run: `code=<n>` or `killed by <SIGNAME>`. */
   lastExit: string;
   /** While installing: the phase and its fraction; when missing or failed: the reason. */
   install: { phase: string; fraction: number; reason: string } | null;

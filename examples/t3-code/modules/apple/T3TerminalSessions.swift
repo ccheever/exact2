@@ -14,8 +14,8 @@ import Foundation
 ///   reference's MAX_HIDDEN_MOUNTED_TERMINAL_THREADS hidden threads plus the active one), so a hidden
 ///   thread keeps its stream and buffer without a web view; its view replays the buffer
 ///   when it shows again. An unretained session without views detaches after a short grace.
-/// - A lost socket ends every attach stream; the sessions attach again once the data module's connection
-///   is back (the reference's durable subscription waits for the next session the same way). A stream that fails
+/// - A lost socket ends every attach stream; the sessions attach again, resuming, once the data module's
+///   connection is back (the reference's durable subscription waits for the next session the same way). A stream that fails
 ///   (an authorization error, a bad cwd) is not retried until the drawer shows the terminal again.
 /// - Writes are one RPC per input, as in the reference: a paste over 65,536 characters is refused by
 ///   the server and shown as `[terminal] <message>`.
@@ -32,6 +32,8 @@ final class T3TerminalSession {
     var status = "closed", error: String? = nil, version = 0, lifecycleVersion = 0
     var label = "", hasRunningSubprocess = false
     var streamId: String? = nil, attaching = false, failed = false
+    /// The server answered this subscription; its attach after a lost socket resumes (terminal.ts `attach`).
+    var replied = false
     var readOnly = false
     var retained = false
     /// The link the current stream is opening or open on (the stream ends with that link's socket);
@@ -102,7 +104,7 @@ final class T3TerminalSessions {
         sessions[key] = session
         if session.readOnly != readOnly {
             if let id = session.streamId { session.streamLink?.terminalDetach(id) }
-            session.streamId = nil; session.streamLink = nil; session.attaching = false
+            session.streamId = nil; session.streamLink = nil; session.attaching = false; session.replied = false
         }
         session.readOnly = readOnly
         session.cwd = cwd; session.worktreePath = worktreePath; session.env = env; session.providerInstance = providerInstance
@@ -167,17 +169,12 @@ final class T3TerminalSessions {
         session.status = "closed"; session.error = nil; session.version = 0; session.lifecycleVersion = 0
         session.lastSize = (cols: 0, rows: 0)
         session.attaches += 1
-        var payload: [String: Any] = ["threadId": session.threadId, "terminalId": session.terminalId, "cwd": session.cwd,
-                                      "worktreePath": session.worktreePath.isEmpty ? NSNull() : session.worktreePath]
-        if !session.env.isEmpty { payload["env"] = session.env }
-        if !session.providerInstance.isEmpty { payload["providerInstanceId"] = session.providerInstance }
         // A closed terminal ID may be reused before queued delivery from its old stream drains.
         let key = session.key, generation = session.output.generation
-        if session.readOnly { payload = ["threadId": session.threadId, "terminalId": session.terminalId] }
-        link.terminalAttach(payload: payload, readOnly: session.readOnly, receive: { [weak self, weak session] values, acknowledge in
+        link.terminalAttach(payload: Self.attachPayload(session), readOnly: session.readOnly, receive: { [weak self, weak session] values, acknowledge in
             DispatchQueue.main.async {
                 if let self, let session, self.sessions[key] === session, session.output.generation == generation {
-                    session.chunks += 1
+                    session.chunks += 1; session.replied = true
                     for value in values { if let event = value as? [String: Any] { self.apply(event, to: session) } }
                     session.acknowledged += 1
                     self.changed(key)
@@ -187,18 +184,7 @@ final class T3TerminalSessions {
         }, ended: { [weak self, weak session] failure, lost in
             DispatchQueue.main.async {
                 guard let self, let session, self.sessions[key] === session, session.output.generation == generation else { return }
-                session.streamId = nil; session.attaching = false; session.streamLink = nil
-                if let failure {
-                    // useAttachedTerminalSession: an attach error shows as the session's error.
-                    session.failed = true
-                    session.status = "error"; session.error = failure.message; session.version += 1
-                    self.changed(key)
-                } else if lost {
-                    // The next socket attaches again (connectionChanged).
-                } else {
-                    // The server ended the stream (the session closed).
-                    session.failed = true
-                }
+                self.streamEnded(session, failure: failure, lost: lost)
             }
         }, opened: { [weak self, weak session] id, failure in
             DispatchQueue.main.async {
@@ -214,6 +200,35 @@ final class T3TerminalSessions {
                 }
             }
         })
+    }
+
+    /// A session's stream ended: a lost socket keeps the subscription (the next attach resumes); a failure or the
+    /// server's end closes it, and the terminal is not attached again until the drawer shows it again.
+    func streamEnded(_ session: T3TerminalSession, failure: T3Failure?, lost: Bool) {
+        session.streamId = nil; session.attaching = false; session.streamLink = nil
+        if failure != nil || !lost { session.replied = false }
+        if let failure {
+            // useAttachedTerminalSession: an attach error shows as the session's error.
+            session.failed = true
+            session.status = "error"; session.error = failure.message; session.version += 1
+            changed(session.key)
+        } else if !lost {
+            session.failed = true
+        }
+    }
+
+    /// `terminal.attach`'s input, or `terminal.observe`'s for a read-only session. A resubscription after the server
+    /// answered sends `resume: true`, so a terminal closed meanwhile stays closed and one the server lost in a restart
+    /// recovers; an unanswered first attach is retried unchanged, so it can still open the shell (T3 Code
+    /// 74541bab17, packages/client-runtime/src/state/terminal.ts).
+    static func attachPayload(_ session: T3TerminalSession) -> [String: Any] {
+        if session.readOnly { return ["threadId": session.threadId, "terminalId": session.terminalId] }
+        var payload: [String: Any] = ["threadId": session.threadId, "terminalId": session.terminalId, "cwd": session.cwd,
+                                      "worktreePath": session.worktreePath.isEmpty ? NSNull() : session.worktreePath]
+        if !session.env.isEmpty { payload["env"] = session.env }
+        if !session.providerInstance.isEmpty { payload["providerInstanceId"] = session.providerInstance }
+        if session.replied { payload["resume"] = true }
+        return payload
     }
 
     /// applyTerminalAttachStreamEvent (terminalSession.ts), on the native buffer.

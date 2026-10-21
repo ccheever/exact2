@@ -23,18 +23,20 @@ private func run(_ tool: String, _ args: [String]) {
 }
 
 /// A release-shaped archive (`t3-<version>-darwin-arm64/…`), its pin and stage-runtime.mjs's manifest.
-private struct Fixture {
+/// Its `t3` prints the version, then runs `body` when it is given.
+struct Fixture {
     let bundleDir: URL
     let home: URL
     let version = "1.2.3"
 
-    init() {
+    init(t3 body: String? = nil) {
         let root = scratch("fixture")
         let tree = root.appendingPathComponent("t3-1.2.3-darwin-arm64", isDirectory: true)
         let files = FileManager.default
         try! files.createDirectory(at: tree.appendingPathComponent("node_modules/@scope/pkg"), withIntermediateDirectories: true)
         try! files.createDirectory(at: tree.appendingPathComponent("client"), withIntermediateDirectories: true)
-        try! "#!/bin/sh\necho \"t3 v1.2.3\"\n".write(to: tree.appendingPathComponent("t3"), atomically: true, encoding: .utf8)
+        let script = body.map { "#!/bin/sh\nif [ \"$1\" = --version ]; then echo 't3 v1.2.3'; exit 0; fi\n\($0)\n" } ?? "#!/bin/sh\necho \"t3 v1.2.3\"\n"
+        try! script.write(to: tree.appendingPathComponent("t3"), atomically: true, encoding: .utf8)
         try! files.setAttributes([.posixPermissions: 0o755], ofItemAtPath: tree.appendingPathComponent("t3").path)
         try! "module.exports = 1\n".write(to: tree.appendingPathComponent("node_modules/@scope/pkg/index.js"), atomically: true, encoding: .utf8)
         try! files.createSymbolicLink(atPath: tree.appendingPathComponent("node_modules/@scope/pkg/main.js").path, withDestinationPath: "index.js")

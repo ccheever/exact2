@@ -102,12 +102,16 @@ describe('a drop on a default sidebar row (Sidebar.tsx SidebarThreadRow)', () =>
   test('a drag rings the row; a drop names the row and whether it is open; a draft row takes none', () => {
     const row = contractComponent('sidebar-row.contract', 'ThreadRow'), state: Env = { fileDrag: false };
     const calls: unknown[][] = [];
-    const scope = { t: { id: 't-2', draft: false }, isOpen: true, attachFiles: (...args: unknown[]) => calls.push(args) };
+    // The open thread's row; a parent standing in for an open subagent is highlighted but not it (resolveSidebarRowThreadId).
+    const scope = { t: { id: 't-2', draft: false, routeThread: true }, page: '', isOpen: true, attachFiles: (...args: unknown[]) => calls.push(args) };
     row.call('fileDragged', state, scope, [true]);
     expect(state.fileDrag).toBe(true);
     row.call('filesDropped', state, scope, [{ files: ['doc:/1/notes.txt'] }]);
     expect(state.fileDrag).toBe(false);
     expect(calls).toEqual([['row', ['doc:/1/notes.txt'], [], false, '1\tt-2\t']]);
+    row.call('filesDropped', state, { ...scope, t: { id: 't-1', draft: false, routeThread: false } }, [{ files: ['doc:/1/notes.txt'] }]);
+    expect(calls.at(-1)).toEqual(['row', ['doc:/1/notes.txt'], [], false, '0\tt-1\t']);
+    calls.length = 1;
     const draft = { ...scope, t: { id: 'd-1', draft: true } };
     row.call('fileDragged', state, draft, [true]);
     row.call('filesDropped', state, draft, [{ files: ['doc:/1/notes.txt'] }]);

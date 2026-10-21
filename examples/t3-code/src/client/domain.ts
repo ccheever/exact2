@@ -509,3 +509,37 @@ export function effectiveWorktreeRules(settings: Obj, override: Obj): Obj {
     worktreeAfterDays: typeof rules.worktreeAfterDays === 'number' ? rules.worktreeAfterDays : null,
     worktreeOnMerge: rules.worktreeOnMerge === true, worktreeOnDelete: rules.worktreeOnDelete === true, worktreeUnchanged: rules.worktreeUnchanged === true };
 }
+
+/**
+ * DeviceServiceState as decoded (reference 74541bab17, packages/contracts/src/device.ts): EAS hosts travel as `easHosts`, so
+ * older clients that read `hosts` as local or SSH hosts still decode the state, and join `hosts` here.
+ */
+export function decodeDeviceState(state: Obj): Obj {
+  if (!Array.isArray(state.easHosts)) return state;
+  const { easHosts, ...rest } = state;
+  return { ...rest, hosts: [...arr(state.hosts), ...arr(easHosts)] };
+}
+
+/** projects.listIgnoredFiles (contracts project.ts ProjectListIgnoredFilesResult): untracked files git ignores. */
+export function decodeIgnoredFiles(value: unknown): { files: { path: string; byteLength: number }[]; truncated: boolean } {
+  const result = obj(value);
+  return { files: arr(result.files).filter(file => str(file.path)).map(file => ({ path: str(file.path), byteLength: num(file.byteLength) })), truncated: result.truncated === true };
+}
+
+export type LineCount = { additions: number; deletions: number };
+const CHANGE_KINDS = ['code', 'tests', 'mocks', 'generated', 'docs'] as const;
+/**
+ * pullRequests.changeBreakdown (contracts pullRequest.ts PullRequestChangeBreakdown): null when the host gives no
+ * per-file counts. Servers from before the docs split send no `docs`; their docs lines are in `code`.
+ */
+export function decodeChangeBreakdown(value: unknown): Record<(typeof CHANGE_KINDS)[number], LineCount> | null {
+  if (!isObject(value)) return null;
+  const count = (entry: unknown): LineCount => ({ additions: num(obj(entry).additions), deletions: num(obj(entry).deletions) });
+  return Object.fromEntries(CHANGE_KINDS.map(kind => [kind, count(value[kind])])) as Record<(typeof CHANGE_KINDS)[number], LineCount>;
+}
+
+/** device.easAccount (contracts device.ts DeviceEasAccount): the Expo account a credential signs in as. */
+export function decodeEasAccount(value: unknown): { signedInAs: string; credentialSource: string; apps: { id: string; fullName: string }[] } {
+  const account = obj(value);
+  return { signedInAs: str(account.signedInAs), credentialSource: str(account.credentialSource), apps: arr(account.apps).map(app => ({ id: str(app.id), fullName: str(app.fullName) })) };
+}

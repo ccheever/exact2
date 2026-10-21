@@ -22,7 +22,7 @@ import { turnItemHasDetail, turnItemNeedsDetailFetch } from './timeline-item-det
 import { arr, num, obj, str, type Activity, type Message, type Obj } from '../client/domain';
 import { ClientError, activeRun, type Files, type Native } from '../client/protocol';
 import type { T3Client } from '../client/client';
-import { deriveRows, type Row } from './timeline-rows';
+import { deriveRows, rowKey, turnFoldRunIds, type Row, type RowInput } from './timeline-rows';
 import { displayFailed, entryDisplayLabel, entryIcon, inspectorDetail, isToolLike, liveThoughtLine, thoughtText, threadReadLabel, workspaceRelativePath, type WorkEntry } from './timeline-worklog';
 import { eventRow } from './timeline-events';
 import { messageCodeBlocks } from '../highlight/timeline-highlight';
@@ -156,7 +156,7 @@ export async function chatLocal(client: T3Client, native: Native, op: string, id
     view.citing++;
     try {
       return await revealCitation(client, native, id, value, () => view.lastRows.threadId === client.threadId ? view.lastRows.rows : [],
-        key => { view.citeJump = { threadId: client.threadId, key, nonce: view.citeJump.nonce + 1 }; });
+        key => { view.citeJump = { threadId: client.threadId, key, nonce: view.citeJump.nonce + 1 }; }, messageId => openCitedFold(client, messageId));
     } finally { view.citing--; }
   }
   if (op === 'chip-pr') { if (!id) throw new ClientError('That pull request is no longer available.'); await openPullRequest(client, native, id); return ''; } // a sent pull request chip (pr-chip-open.ts)
@@ -316,21 +316,43 @@ function activity(entry: WorkEntry, root: string, client: T3Client, label?: stri
     answer: entry.questionAnswer && hasQuestionAnswer(entry.questionAnswer) ? questionAnswerPreview(entry.questionAnswer) : '' };
 }
 
-/** T3's timeline rows for the selected thread (MessagesTimeline.logic deriveMessagesTimelineRows). */
-export function transcriptRows(client: T3Client): Message[] {
+/** The selected thread's row input (deriveRows, turnFoldRunIds). */
+function rowInput(client: T3Client, setup = threadWorktreeSetup(client)): RowInput {
   const projection = client.projection, view = timelineView(client), root = workspaceRoot(client);
   const runs = arr(projection.runs), running = activeRun(projection), runless = runlessWorkStartedAt(projection);
-  const setup = threadWorktreeSetup(client);
   const open = (kind: string) => new Set([...view.open].filter(key => key.startsWith(`${client.threadId}\u0000${kind}\u0000`)).map(key => key.split('\u0000')[2]!));
   const provider = arr(client.config.providers).find(provider => provider.instanceId === obj(obj(projection.thread).modelSelection).instanceId);
-  const rows = deriveRows({ rows: client.thread ? arr(projection.visibleTurnItems) : [], runs, attempts: arr(projection.attempts), nodes: arr(projection.nodes),
+  return { rows: client.thread ? arr(projection.visibleTurnItems) : [], runs, attempts: arr(projection.attempts), nodes: arr(projection.nodes),
     checkpoints: arr(projection.checkpoints), isWorking: !!running || runless !== '', runningRunId: str(running?.id), latestRun: runs[runs.length - 1] ?? null,
     // orchestrationV2RunWorkStartedAt: a wake run keeps the start of the work it continues.
     activeStartedAt: running ? str(running.workStartedAt ?? running.startedAt ?? running.requestedAt) : runless, runlessWorkActive: runless !== '', worktreeSetup: setup.snapshot,
-    expandedRuns: threadFindExpanded(client) ? new Set(runs.map(run => str(run.id))) : open('fold'), expandedAttempts: threadFindExpanded(client) ? new Set(arr(projection.attempts).map(attempt => str(attempt.id))) : open('attempt'), expandedGroups: open('group'), root, rollback: provider?.supportsConversationRollback !== false });
+    expandedRuns: threadFindExpanded(client) ? new Set(runs.map(run => str(run.id))) : open('fold'), expandedAttempts: threadFindExpanded(client) ? new Set(arr(projection.attempts).map(attempt => str(attempt.id))) : open('attempt'), expandedGroups: open('group'), root, rollback: provider?.supportsConversationRollback !== false };
+}
+
+/** T3's timeline rows for the selected thread (MessagesTimeline.logic deriveMessagesTimelineRows). */
+export function transcriptRows(client: T3Client): Message[] {
+  const projection = client.projection, view = timelineView(client), root = workspaceRoot(client);
+  const setup = threadWorktreeSetup(client);
+  const rows = deriveRows(rowInput(client, setup));
   const context: PresentContext = { client, root, view, subagents: arr(projection.subagents), providers: arr(client.config.providers), format: client.local.deviceSettings.timestampFormat,
     preparing: setup.preparing, detailsOpen: worktreeDetailsOpen(client), threads: client.shell.threads };
   return rows.map(row => present(row, context));
+}
+
+/**
+ * useAssistantCitationTarget's onExpandTurn: opens the turn fold that hides the cited assistant answer, by the
+ * fold's own key (an imported or runless turn's is not its answer's run id). True when it opened one.
+ */
+export function openCitedFold(client: T3Client, messageId: string): boolean {
+  const bare = (id: string) => id.replace(/^(?:turn-item|message):/, '');
+  const wanted = bare(messageId);
+  const row = arr(client.projection.visibleTurnItems).find(row => obj(row.item).type === 'assistant_message' && bare(str(row.sourceItemId)) === wanted);
+  const runId = row && wanted ? turnFoldRunIds(rowInput(client)).get(rowKey(row)) : undefined;
+  if (!runId) return false;
+  const view = timelineView(client), key = scoped(client, 'fold', runId);
+  if (view.open.has(key)) return false;
+  view.open.add(key);
+  return true;
 }
 
 /**

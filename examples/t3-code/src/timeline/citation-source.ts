@@ -1,12 +1,14 @@
 // An assistant citation's "View source" (T3 Code, MIT; see LICENSE-T3:
 // components/chat/AssistantCitationChip.tsx assistantCitationNavigation, ChatView's
-// citationRequest and AssistantCitationSource.tsx). The cited thread opens and its
-// answer scrolls to min(120pt, a third of the viewport) under the transcript's top:
-// this names the row, and the chat column places it (app-main.contract citePlace).
+// citationRequest, AssistantCitationSource.tsx and, at 74541bab17,
+// chat/useAssistantCitationTarget.ts). The cited thread opens, a folded turn hiding the
+// answer opens, and the answer scrolls to min(120pt, a third of the viewport) under the
+// transcript's top: this names the row, and the chat column places it (app-main.contract citePlace).
 import type { T3Client } from '../client/client';
 import { ClientError, type Native } from '../client/protocol';
 import type { MinimapRow } from './timeline-minimap';
 import { pushToast } from '../shell/toast';
+import { letGo } from '../client/let-go';
 
 /**
  * The assistant row a citation names. The served client cites a message by its
@@ -30,15 +32,22 @@ export function citationJump(rows: readonly MinimapRow[], index: number): string
 /**
  * Opens the cited thread when it is another one, waits (at most ~2 s) for its
  * rows to be drawn, then asks for the cited answer's placement (`place`, the
- * row's key). A citation whose answer is gone leaves the thread open where it is.
+ * row's key). An answer a turn fold hides is not drawn: `unfold` opens that fold
+ * (true when it did) and the rows are read again. A citation whose answer is gone
+ * leaves the thread open where it is.
  */
-export async function revealCitation(client: T3Client, native: Native, threadId: string, messageId: string, rows: () => readonly MinimapRow[], place: (key: string) => void): Promise<string> {
+export async function revealCitation(client: T3Client, native: Native, threadId: string, messageId: string, rows: () => readonly MinimapRow[], place: (key: string) => void,
+  unfold: (messageId: string) => boolean = () => false): Promise<string> {
   if (!threadId || !client.shell.threads.some(thread => thread.id === threadId)) throw new ClientError('Thread no longer available');
   const access = client.restAccess(native);
   if (threadId !== client.threadId) await client.openSelected(native, threadId);
   for (let attempt = 0; attempt < 12; attempt++) {
     if (client.threadId !== threadId) return '';
     const current = rows(), index = citedRow(current, messageId);
+    // The data source reads the rows again when woken (t3.notify); a wake let go is made again by the next answer.
+    if (index < 0 && unfold(messageId)) {
+      try { await native.later({ op: 'wake', topic: 't3.notify' }); } catch (error) { if (letGo(error)) throw error; }
+    }
     if (index >= 0) {
       place(citationJump(current, index));
       // resolveAssistantCitationRange found no quote: the answer shows unhighlighted, with the reference's warning.

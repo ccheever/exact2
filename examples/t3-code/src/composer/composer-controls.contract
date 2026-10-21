@@ -1239,7 +1239,8 @@ component ComposerDock
   view
     column width="100%" testId="composer-dock"
       if behind > 0
-        column width="100%" position="relative" min-height="0.75rem"
+        // data-composer-banner-stack: the transcript's reservation leaves out what opening it adds (composer-overlay.ts).
+        column width="100%" position="relative" min-height="0.75rem" hatch="t3-frame" data-frame="notices"
           if expanded
             column width="100%" gap="0.5rem" padding-bottom="0.5rem" box-sizing="border-box" role="group" aria-label="Other notices" testId="composer-other-notices"
               for n in data.composer.notices key=n.id
