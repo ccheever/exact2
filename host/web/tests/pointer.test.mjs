@@ -1,0 +1,194 @@
+// `pointerdown`/`pointerup` in a real browser (LLP 1005 §Events): the input
+// glue's `pointer`, driven by CDP mouse events. Down before any press, up
+// wherever the button lifts (heard on the document; no click), both bubbling
+// to every ancestor that hears them, the primary button only,
+// nothing on a disabled node; `pointermove` and the `PointerEvent` record
+// (LLP 1056 §8.6): a held pointer's moves anywhere, a free one's over it.
+import { test, expect } from 'bun:test';
+import { readFileSync } from 'node:fs';
+import { createServer } from 'node:http';
+import { resolve } from 'node:path';
+import { cdpBrowser, chromium } from '../../../scripts/agent-launch.mjs';
+import { need } from '../../../scripts/coverage.mjs';
+import { readyPage } from './page.mjs';
+
+const WEB = resolve(new URL('..', import.meta.url).pathname);
+const { unavailable } = chromium();
+const check = need('chrome', unavailable);
+
+const page = `<!doctype html>
+<div id="exact-root" style="padding:20px">
+  <button id="mic" style="width:100px;height:100px">m</button>
+  <button id="off" disabled style="width:100px;height:50px">d</button>
+  <div id="outer" style="width:200px;height:120px;padding:10px"><button id="inner" style="width:100px;height:60px">i</button></div>
+  <div id="wrap" style="width:200px;height:80px;padding:10px"><button id="child" style="width:100px;height:40px">c</button></div>
+  <div id="dparent" style="width:200px;height:80px;padding:10px"><div id="dkid" disabled style="width:100px;height:40px">k</div></div>
+  <div id="hoverbox" style="width:200px;height:80px;padding:10px"><div id="tapkid" style="width:100px;height:40px">t</div></div>
+  <div id="lid" style="width:200px;height:80px;padding:10px"><div id="mover" style="width:100px;height:40px">v</div></div>
+  <div id="panbox" style="width:200px;height:80px;padding:10px"><div id="panner" style="width:100px;height:40px;touch-action:none">p</div></div>
+</div>
+<script type="module">
+  import { createInputHandlers } from './input-glue.js';
+  const root = document.getElementById('exact-root');
+  const views = new Map();
+  const h = createInputHandlers({ root, views, retiredViews: new Set(), ready: () => true, inertAncestor: () => false, dispatch() {} });
+  window.log = []; window.records = [];
+  for (const id of ['mic', 'off', 'outer', 'inner', 'wrap', 'dparent', 'dkid', 'hoverbox', 'tapkid', 'lid', 'mover', 'panbox']) {
+    const el = document.getElementById(id);
+    el.exactHandlers = id === 'mover' ? ['pointermove'] : ['pointerdown', 'pointerup', 'press', ...(id === 'mic' || id === 'hoverbox' ? ['pointermove'] : [])];
+    const on = (type, f) => el.addEventListener(type, f);
+    let p;
+    const own = () => p ??= h.pointer(el, on, (k, r) => {
+      window.log.push(id + (k === 29 ? ' down' : k === 30 ? ' up' : ' move')); window.records.push(r);
+      // A down handler that removes the branch around it (window.detach).
+      if (k === 29 && window.detach === id) document.getElementById('outer').remove();
+      if (k === 29 && window.disable === id) document.getElementById('outer').setAttribute('disabled', '');
+    });
+    el.exactPointerDown = (e, hold) => own()(e, hold);
+    on('pointerover', () => own());
+    on('click', () => window.log.push(id + ' press'));
+  }
+  document.getElementById('child').addEventListener('click', () => window.log.push('child press'));
+  // A pan, which stops the contact's down from reaching the recognizers above it.
+  const panner = document.getElementById('panner');
+  views.set(99, panner);
+  const pan = h.pan(panner, 99, (t, f) => panner.addEventListener(t, f));
+  panner.addEventListener('pointerdown', e => pan(e));
+  window.ready = true;
+</script>`;
+
+check('down before the press, up wherever the button lifts, nothing when disabled', async () => {
+  const server = createServer((req, res) => {
+    if (req.url === '/') { res.writeHead(200, { 'content-type': 'text/html' }); res.end(page); return; }
+    res.writeHead(200, { 'content-type': 'text/javascript' }); res.end(readFileSync(resolve(WEB, 'input-glue.js')));
+  });
+  await new Promise((ok) => server.listen(0, '127.0.0.1', ok));
+  const suite = await cdpBrowser({ args: ['--window-size=600,900'] }), { cdp } = suite;
+  try {
+    const { sessionId } = await suite.page();
+    const call = (method, params) => cdp.send(method, params, sessionId);
+    const evaluate = async (expression) => {
+      const reply = await call('Runtime.evaluate', { expression, returnByValue: true, awaitPromise: true });
+      if (reply.exceptionDetails) throw new Error(reply.exceptionDetails.exception?.description ?? reply.exceptionDetails.text);
+      return reply.result.value;
+    };
+    await readyPage(cdp, sessionId, `http://127.0.0.1:${server.address().port}/`);
+    const centre = (id) => evaluate(`(() => { const r = document.getElementById('${id}').getBoundingClientRect(); return [r.x + r.width / 2, r.y + r.height / 2]; })()`);
+    // `force` as a mouse's hardware reports it: DOM's 0.5 while a button is down.
+    const mouse = (type, [x, y], button = 'left', buttons = type === 'mouseReleased' ? 0 : button === 'left' ? 1 : 2) => call('Input.dispatchMouseEvent', { type, x, y, button, buttons, force: buttons ? 0.5 : 0, clickCount: 1 });
+    const log = () => evaluate('window.log.splice(0)');
+    const frame = () => evaluate('new Promise(r => requestAnimationFrame(() => r()))');
+    const records = () => evaluate('window.records.splice(0).map(r => r.split(","))');
+
+    const mic = await centre('mic');
+    await mouse('mousePressed', mic);
+    // Focus moving (the press focuses the button, blurring what had it)
+    // does not end the hold.
+    await evaluate(`document.getElementById('off').focus(); document.getElementById('mic').focus()`);
+    expect(await log()).toEqual(['mic down']);
+    await mouse('mouseReleased', mic);
+    expect(await log()).toEqual(['mic up', 'mic press']);
+    // Lifted far away: the up still arrives, and there is no click; the
+    // held pointer's move is the mic's there too, from its content box.
+    await records();
+    await mouse('mousePressed', mic);
+    await mouse('mouseMoved', [500, 800], 'left', 1);
+    await frame();
+    await mouse('mouseReleased', [500, 800]);
+    expect(await log()).toEqual(['mic down', 'mic move', 'mic up']);
+    const [down, held, up] = await records();
+    const box = await evaluate(`(() => { const e = document.getElementById('mic'), r = e.getBoundingClientRect(), s = getComputedStyle(e); return [r.x + parseFloat(s.borderLeftWidth) + parseFloat(s.paddingLeft), r.y + parseFloat(s.borderTopWidth) + parseFloat(s.paddingTop)]; })()`);
+    expect([...down.slice(2, 6), down[8]]).toEqual(['1', '0.5', 'mouse', '1', '']); // no modifier held (gallery F20)
+    expect([+down[6], +down[7]]).toEqual(mic);
+    expect([+held[0], +held[1]]).toEqual([500 - box[0], 800 - box[1]]);
+    expect([+held[6], +held[7]]).toEqual([500, 800]); // the viewport point (LLP 1094 D11)
+    expect(held.slice(2, 5)).toEqual(['1', '0.5', 'mouse']);
+    expect(up.slice(2, 4)).toEqual(['0', '0']);
+    // A free pointer moving over it: its move, no button down.
+    await mouse('mouseMoved', mic, 'none', 0);
+    await frame();
+    expect(await log()).toEqual(['mic move']);
+    expect((await records())[0].slice(2, 5)).toEqual(['0', '0', 'mouse']);
+    // The secondary button's too, as the DOM's (studio diary R22): `buttons` says which.
+    await mouse('mousePressed', mic, 'right');
+    await mouse('mouseReleased', mic, 'right');
+    expect((await log()).filter(l => !l.endsWith('press'))).toEqual(['mic down', 'mic up']);
+    expect((await records())[0][2]).toBe('2');
+    // A disabled node hears nothing.
+    const off = await centre('off');
+    await mouse('mousePressed', off);
+    await mouse('mouseReleased', off);
+    expect(await log()).toEqual([]);
+    // Nested pointer nodes: the down and the up bubble, innermost first
+    // (Charlie, 2026-10-15), and the up still comes to both lifted elsewhere.
+    const inner = await centre('inner');
+    await mouse('mousePressed', inner);
+    await mouse('mouseReleased', inner);
+    expect((await log()).filter(l => !l.endsWith('press'))).toEqual(['inner down', 'outer down', 'inner up', 'outer up']);
+    await mouse('mousePressed', inner);
+    await mouse('mouseReleased', [500, 800]);
+    expect(await log()).toEqual(['inner down', 'outer down', 'inner up', 'outer up']);
+    // A child hearing only `pointermove` holds the moves and takes nothing
+    // from its parent's down and up (#20261010, X71).
+    await mouse('mousePressed', await centre('mover'));
+    await mouse('mouseMoved', [500, 800], 'left', 1);
+    await frame();
+    await mouse('mouseReleased', [500, 800]);
+    expect(await log()).toEqual(['lid down', 'mover move', 'lid up']);
+    // A pointer node around a pressable child leaves the child its press.
+    const kid = await centre('child');
+    await mouse('mousePressed', kid);
+    await mouse('mouseReleased', kid);
+    expect(await log()).toEqual(['wrap down', 'wrap up', 'child press', 'wrap press']);
+    // A disabled non-control node passes the pointer to its enabled parent.
+    const dkid = await centre('dkid');
+    await mouse('mousePressed', dkid);
+    await mouse('mouseReleased', dkid);
+    expect((await log()).filter(l => !l.endsWith('press'))).toEqual(['dparent down', 'dparent up']);
+    // A child hearing only down and up lets a free move by to the ancestor
+    // that hears moves (Astra's batch 2 review, finding 4).
+    await mouse('mouseMoved', await centre('tapkid'), 'none', 0);
+    await frame();
+    expect(await log()).toEqual(['hoverbox move']);
+    // Held, the innermost holds the moves: its parent hears the down and
+    // up, and none of the moves.
+    await mouse('mousePressed', await centre('tapkid'));
+    await mouse('mouseMoved', [500, 800], 'left', 1);
+    await frame();
+    await mouse('mouseReleased', [500, 800]);
+    expect(await log()).toEqual(['tapkid down', 'hoverbox down', 'tapkid up', 'hoverbox up']);
+    // The window losing focus ends the hold: every holder's up is at the
+    // pointer's latest point, the parent's too, though only the child holds
+    // the moves.
+    await mouse('mousePressed', await centre('tapkid'));
+    await mouse('mouseMoved', [500, 800], 'left', 1);
+    await records();
+    await evaluate("window.dispatchEvent(new Event('blur'))");
+    expect(await log()).toEqual(['tapkid down', 'hoverbox down', 'tapkid up', 'hoverbox up']);
+    expect((await records()).map(r => [+r[6], +r[7]])).toEqual([[500, 800], [500, 800]]);
+    await mouse('mouseReleased', [500, 800]);
+    // A pan that takes its contact takes nothing from the pointer events:
+    // its ancestor hears the down and the up (Charlie, 2026-10-15).
+    await mouse('mousePressed', await centre('panner'));
+    await mouse('mouseMoved', [400, 700], 'left', 1);
+    await frame();
+    await mouse('mouseReleased', [400, 700]);
+    expect((await log()).filter(l => !l.endsWith('press'))).toEqual(['panbox down', 'panbox up']);
+    // A down handler that disables its ancestor: the ancestor hears no down,
+    // yet still hears the up, as on the native hosts.
+    await evaluate("window.disable = 'inner'");
+    await mouse('mousePressed', await centre('inner'));
+    await mouse('mouseReleased', [500, 800]);
+    expect(await log()).toEqual(['inner down', 'inner up', 'outer up']);
+    await evaluate("window.disable = null; document.getElementById('outer').removeAttribute('disabled')");
+    // A down handler that removes its ancestor: the removed one hears nothing.
+    await evaluate("window.detach = 'inner'");
+    const gone = await centre('inner');
+    await mouse('mousePressed', gone);
+    await mouse('mouseReleased', gone);
+    expect((await log()).filter(l => l.startsWith('outer'))).toEqual([]);
+  } finally {
+    await suite.close();
+    server.close();
+  }
+}, 60000);

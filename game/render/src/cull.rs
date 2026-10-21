@@ -1,12 +1,14 @@
 //! GPU frustum culling: per-view compacted slot lists and indirect draws.
 //! @ref llp/1046.003-game-engine-as-built.explainer.md#culling-and-environment-lighting-2026-09-23
 //!
-//! Transforms live on the GPU, so the test runs there too: one compute pass after
-//! skinning tests every opaque item's interpolation-swept sphere against the camera
-//! and each sun cascade, then writes each view's visible slots, in retained order,
-//! into its own 256-byte-aligned region. Draws read their region through the scene
-//! group's dynamic `slots` offset and take counts from `draw_indexed_indirect` with
-//! a zero first instance, so WebGPU's optional `indirect-first-instance` is unused.
+//! Transforms live on the GPU, so the test runs there too: three compute passes after
+//! skinning test every opaque item's interpolation-swept sphere against the camera
+//! and each sun cascade, then write each view's visible slots, in retained order,
+//! into its own 256-byte-aligned region. Draws take counts from
+//! `draw_indexed_indirect`. Where the device has `INDIRECT_FIRST_INSTANCE`, each
+//! draw's first instance is its region, so the scene group binds all the lists
+//! once per pass; otherwise it is zero and the scene group's dynamic `slots`
+//! offset selects the region, which costs a bind per draw.
 use crate::buffers::{bytes, Buffer};
 use exact_gpu::wgpu;
 use glam::Mat4;
@@ -21,10 +23,22 @@ pub(crate) const RECORD_WORDS: usize = 8;
 pub(crate) const SKIN_WORDS: usize = 20;
 /// Group flag: keep every item (game-deformed vertices have no engine bound).
 pub(crate) const KEEP_ALL: u32 = 16;
+/// Depth buckets of the camera's chunk order (cull.wgsl `BUCKETS`).
+const BUCKETS: u32 = 256;
+/// A group of at least this many chunks has its camera order sorted (cull.wgsl
+/// `sort_chunks`), with a histogram region of its own.
+pub(crate) const SORTED_CHUNKS: u32 = 16;
+/// Setup word 13 of a group that keeps its order.
+pub(crate) const UNSORTED: u32 = u32::MAX;
 pub(crate) const CAPSULE: u32 = 64;
 pub(crate) const PLAIN: u32 = 128;
+pub(crate) const OUTLINE: u32 = 256;
+/// Group flag: never occluded (a view model, drawn in its own depth range).
+pub(crate) const EXEMPT: u32 = 32;
 const CHUNK: u32 = 64;
-const UNIFORM_BYTES: u64 = 24 * 16 + 3 * 16;
+/// Words per item of the cull's account for a look frame (cull.wgsl `probe`).
+pub(crate) const PROBE_WORDS: u32 = 6;
+const UNIFORM_BYTES: u64 = 24 * 16 + 4 * 16;
 
 /// One indirect draw per view: a contiguous slot-list range with one pipeline.
 #[derive(Clone, Debug, PartialEq)]
@@ -35,8 +49,14 @@ pub(crate) struct Group {
     pub flags: u32,
 }
 
+/// What the test bind groups bind: the buffers, then the occlusion pyramid.
+type TestKey = ([wgpu::Buffer; 9], wgpu::TextureView);
+
 pub(crate) struct Cull {
     test: wgpu::ComputePipeline,
+    /// cull.wgsl's module, for the look frame's `probe` entry, made on first use.
+    module: wgpu::ShaderModule,
+    probe: std::cell::OnceCell<wgpu::ComputePipeline>,
     scan: wgpu::ComputePipeline,
     scatter: wgpu::ComputePipeline,
     test_layout: wgpu::BindGroupLayout,
@@ -47,7 +67,9 @@ pub(crate) struct Cull {
     pub compacted: Buffer,
     pub indirect: Buffer,
     no_palette: wgpu::Buffer,
-    test_binds: Option<([wgpu::BindGroup; 2], [wgpu::Buffer; 9])>,
+    /// Bound where this frame has no occlusion pyramid.
+    pub no_pyramid: wgpu::TextureView,
+    test_binds: Option<([wgpu::BindGroup; 2], TestKey)>,
     list_bind: Option<(wgpu::BindGroup, [wgpu::Buffer; 5])>,
     /// This frame's draw groups, in draw order.
     pub groups: Vec<Group>,
@@ -65,10 +87,14 @@ pub(crate) struct Cull {
     pub window: u64,
     /// Diagnostic: keep every item, drawing exactly what an unculled frame drew.
     pub keep_all: bool,
+    /// Groups with a histogram region (setup word 13), counted by the setup.
+    pub sorted: u32,
     /// The lists exceed this device's storage limits, or it has no indirect
     /// execution (the iOS simulator's Metal): draw every group directly.
     pub direct: bool,
     pub indirect_execution: bool,
+    /// Indirect draws start at their region (`INDIRECT_FIRST_INSTANCE`).
+    pub first_instance: bool,
     // Regions start on the device's dynamic storage offset alignment, in words.
     align: u32,
     limit: u64,
@@ -83,10 +109,12 @@ struct Counts {
     groups: usize,
     views: usize,
     last: Option<[u64; VIEWS as usize]>,
+    // Camera-view triangles of the same read frame.
+    triangles: u64,
 }
 
 impl Cull {
-    pub fn new(device: &wgpu::Device) -> Self {
+    pub fn new(device: &wgpu::Device, cache: Option<&wgpu::PipelineCache>) -> Self {
         let entry = |binding, ty| wgpu::BindGroupLayoutEntry {
             binding,
             visibility: wgpu::ShaderStages::COMPUTE,
@@ -120,6 +148,16 @@ impl Cull {
                 entry(7, read),
                 entry(8, read),
                 entry(9, write),
+                wgpu::BindGroupLayoutEntry {
+                    binding: 12,
+                    visibility: wgpu::ShaderStages::COMPUTE,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Float { filterable: false },
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                        multisampled: false,
+                    },
+                    count: None,
+                },
             ],
         );
         let list_layout = layout(
@@ -150,15 +188,22 @@ impl Cull {
                 module: &module,
                 entry_point: Some(entry),
                 compilation_options: Default::default(),
-                cache: None,
+                cache,
             })
         };
         let storage = |label| Buffer::new(device, 256, wgpu::BufferUsages::STORAGE, label);
         let indirect_execution = indirect_execution(device);
+        let (test, scan, scatter) = (
+            pipeline(&test_layout, "test"),
+            pipeline(&list_layout, "scan"),
+            pipeline(&list_layout, "scatter"),
+        );
         Self {
-            test: pipeline(&test_layout, "test"),
-            scan: pipeline(&list_layout, "scan"),
-            scatter: pipeline(&list_layout, "scatter"),
+            test,
+            module,
+            probe: Default::default(),
+            scan,
+            scatter,
             test_layout,
             list_layout,
             uniform: device.create_buffer(&wgpu::BufferDescriptor {
@@ -186,6 +231,22 @@ impl Cull {
                 usage: wgpu::BufferUsages::STORAGE,
                 mapped_at_creation: false,
             }),
+            no_pyramid: device
+                .create_texture(&wgpu::TextureDescriptor {
+                    label: Some("game cull no pyramid"),
+                    size: wgpu::Extent3d {
+                        width: 1,
+                        height: 1,
+                        depth_or_array_layers: 1,
+                    },
+                    mip_level_count: 1,
+                    sample_count: 1,
+                    dimension: wgpu::TextureDimension::D2,
+                    format: wgpu::TextureFormat::R32Float,
+                    usage: wgpu::TextureUsages::TEXTURE_BINDING,
+                    view_formats: &[],
+                })
+                .create_view(&Default::default()),
             test_binds: None,
             list_bind: None,
             groups: Vec::new(),
@@ -200,8 +261,13 @@ impl Cull {
             views: 0,
             window: 256,
             keep_all: false,
+            sorted: 0,
             direct: !indirect_execution,
             indirect_execution,
+            first_instance: indirect_execution
+                && device
+                    .features()
+                    .contains(wgpu::Features::INDIRECT_FIRST_INSTANCE),
             align: (device.limits().min_storage_buffer_offset_alignment / 4).max(1),
             limit: device
                 .limits()
@@ -223,6 +289,7 @@ impl Cull {
                 groups: 0,
                 views: 0,
                 last: None,
+                triangles: 0,
             });
         }
     }
@@ -271,12 +338,20 @@ impl Cull {
             if let Some(ok) = counts.done.lock().unwrap().take() {
                 if ok {
                     let data = counts.buffer.slice(..).get_mapped_range().unwrap();
+                    let word = |at: usize| {
+                        u64::from(u32::from_ne_bytes(
+                            data[at * 4..at * 4 + 4].try_into().unwrap(),
+                        ))
+                    };
                     let mut totals = [0u64; VIEWS as usize];
+                    counts.triangles = 0;
                     for (v, total) in totals.iter_mut().enumerate().take(counts.views) {
                         for g in 0..counts.groups {
-                            let at = ((v * counts.groups + g) * 5 + 1) * 4;
-                            *total +=
-                                u64::from(u32::from_ne_bytes(data[at..at + 4].try_into().unwrap()));
+                            let at = (v * counts.groups + g) * 5;
+                            *total += word(at + 1);
+                            if v == 0 {
+                                counts.triangles += word(at) / 3 * word(at + 1);
+                            }
                         }
                     }
                     drop(data);
@@ -289,6 +364,13 @@ impl Cull {
         counts.last
     }
 
+    /// Camera-view triangles the GPU cull kept in the frame `culled` last read.
+    pub fn culled_triangles(&self) -> Option<u64> {
+        self.counts
+            .as_ref()
+            .and_then(|c| c.last.map(|_| c.triangles))
+    }
+
     /// Whether this frame's groups differ from the uploaded setup.
     pub fn stale(&self) -> bool {
         self.uploaded_epoch != Some(self.epoch) || self.uploaded != self.groups
@@ -299,6 +381,7 @@ impl Cull {
     pub fn begin_setup(&mut self) {
         self.words.clear();
         self.regions.clear();
+        self.sorted = 0;
         let mut region = 0;
         let mut chunk = 0;
         for group in &self.groups {
@@ -351,9 +434,13 @@ impl Cull {
             .max(self.align);
         let sizes = [
             (self.words.len() as u64 * 4).max(4),
-            (u64::from(items) + u64::from(self.chunks) * 5).max(1) * 4,
+            (u64::from(items)
+                + u64::from(self.chunks) * 7
+                + u64::from(self.sorted) * 64 * u64::from(BUCKETS))
+            .max(1)
+                * 4,
             (u64::from(VIEWS) * u64::from(self.stride) + u64::from(window)) * 4,
-            (u64::from(VIEWS) * self.groups.len() as u64 * 20).max(20),
+            ((u64::from(VIEWS) + 1) * self.groups.len() as u64 * 20).max(20),
         ];
         // Per-slot list storage is below the 64-byte attachment arena behind
         // max_slots(); only region padding can exceed a tiny limit. Then draw directly.
@@ -369,6 +456,21 @@ impl Cull {
         self.indirect.grow(device, queue, sizes[3]);
     }
 
+    /// Rewrite each model record's hidden word (a level of detail not drawn this
+    /// frame) without rebuilding the setup.
+    pub fn hide_records(&mut self, queue: &wgpu::Queue, hidden: &[bool]) {
+        let start = self.sections[2] as usize;
+        if self.direct || start + hidden.len() * RECORD_WORDS > self.words.len() {
+            return;
+        }
+        for (i, &h) in hidden.iter().enumerate() {
+            self.words[start + i * RECORD_WORDS + 2] = u32::from(h);
+        }
+        let end = start + hidden.len() * RECORD_WORDS;
+        self.setup
+            .write(queue, start as u64 * 4, bytes(&self.words[start..end]));
+    }
+
     /// Byte offsets of group `index` in view `view`: the slot region and its draw.
     pub fn offsets(&self, view: u32, index: usize) -> (u32, u64) {
         (
@@ -376,9 +478,32 @@ impl Cull {
             (u64::from(view) * self.groups.len() as u64 + index as u64) * 20,
         )
     }
+    /// Byte offset of the indirect arguments for group `index`'s hull: the
+    /// camera's draw with a zero base vertex, as hull streams start at zero.
+    pub fn hull_draw(&self, index: usize) -> u64 {
+        (u64::from(VIEWS) * self.groups.len() as u64 + index as u64) * 20
+    }
+    /// Group `index`'s draw in view `view`: the scene group's dynamic `slots`
+    /// offset and the byte offset of its indirect arguments.
+    pub fn draw(&self, view: u32, index: usize) -> (u32, u64) {
+        let (region, draw) = self.offsets(view, index);
+        (if self.first_instance { 0 } else { region }, draw)
+    }
+    /// The size of the scene group's `slots` binding over the lists: all of them
+    /// when draws start at their region, else the largest region.
+    pub fn binding(&self) -> Option<u64> {
+        (!self.first_instance).then_some(self.window)
+    }
 
-    /// Per-frame view planes and counts; `items` is the slot-list length.
-    pub fn write_views(&mut self, queue: &wgpu::Queue, views: &[Mat4], items: u32) {
+    /// Per-frame view planes and counts; `items` is the slot-list length, and
+    /// `occluding` whether the bound pyramid is this frame's.
+    pub fn write_views(
+        &mut self,
+        queue: &wgpu::Queue,
+        views: &[Mat4],
+        items: u32,
+        occluding: bool,
+    ) {
         self.views = views.len() as u32;
         let mut data = [0u32; UNIFORM_BYTES as usize / 4];
         for (v, matrix) in views.iter().enumerate() {
@@ -397,7 +522,14 @@ impl Cull {
             self.stride,
         ]);
         data[tail + 4..tail + 8].copy_from_slice(&self.sections);
-        data[tail + 8..tail + 12].copy_from_slice(&[items, items + self.chunks, 0, 0]);
+        data[tail + 8..tail + 12].copy_from_slice(&[
+            items,
+            items + self.chunks,
+            items + self.chunks * 5,
+            items + self.chunks * 6,
+        ]);
+        data[tail + 12] = u32::from(occluding);
+        data[tail + 13] = u32::from(self.first_instance);
         queue.write_buffer(&self.uniform, 0, bytes(&data));
     }
 
@@ -412,8 +544,10 @@ impl Cull {
         slots: &wgpu::Buffer,
         attachments: &wgpu::Buffer,
         palette: Option<&wgpu::Buffer>,
+        pyramid: Option<&wgpu::TextureView>,
     ) {
         let palette = palette.unwrap_or(&self.no_palette);
+        let pyramid = pyramid.unwrap_or(&self.no_pyramid).clone();
         let key = [
             frame.clone(),
             transforms[0].clone(),
@@ -425,29 +559,10 @@ impl Cull {
             self.setup.raw.clone(),
             self.scratch.raw.clone(),
         ];
+        let key = (key, pyramid);
         if self.test_binds.as_ref().is_none_or(|(_, old)| *old != key) {
             let binds = std::array::from_fn(|current| {
-                let buffers = [
-                    (0, frame),
-                    (1, transforms[1 - current]),
-                    (2, transforms[current]),
-                    (3, materials),
-                    (4, slots),
-                    (5, attachments),
-                    (6, &self.uniform),
-                    (7, &self.setup.raw),
-                    (8, palette),
-                    (9, &self.scratch.raw),
-                ];
-                let entries = buffers.map(|(binding, buffer)| wgpu::BindGroupEntry {
-                    binding,
-                    resource: buffer.as_entire_binding(),
-                });
-                device.create_bind_group(&wgpu::BindGroupDescriptor {
-                    label: Some("game cull test"),
-                    layout: &self.test_layout,
-                    entries: &entries,
-                })
+                self.test_bind(device, &key, current, &self.scratch.raw)
             });
             self.test_binds = Some((binds, key));
         }
@@ -479,35 +594,132 @@ impl Cull {
             self.list_bind = Some((bind, key));
         }
     }
-    /// Encode the three dispatches. Nothing is encoded without a group.
+    /// The test pass's bind group over `key`'s buffers, with `scratch` bound as scratch.
+    fn test_bind(
+        &self,
+        device: &wgpu::Device,
+        key: &TestKey,
+        current: usize,
+        scratch: &wgpu::Buffer,
+    ) -> wgpu::BindGroup {
+        let (b, pyramid) = key;
+        let buffers = [
+            (0, &b[0]),
+            (1, &b[2 - current]),
+            (2, &b[1 + current]),
+            (3, &b[3]),
+            (4, &b[4]),
+            (5, &b[5]),
+            (6, &self.uniform),
+            (7, &b[7]),
+            (8, &b[6]),
+            (9, scratch),
+        ];
+        let mut entries = buffers
+            .map(|(binding, buffer)| wgpu::BindGroupEntry {
+                binding,
+                resource: buffer.as_entire_binding(),
+            })
+            .to_vec();
+        entries.push(wgpu::BindGroupEntry {
+            binding: 12,
+            resource: wgpu::BindingResource::TextureView(pyramid),
+        });
+        device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("game cull test"),
+            layout: &self.test_layout,
+            entries: &entries,
+        })
+    }
+
+    /// A look frame's account of each item (cull.wgsl `probe`), dispatched
+    /// after the frame's passes into a buffer of its own: `PROBE_WORDS` words
+    /// an item, by chunk and lane. `None` in a direct frame or with no group.
+    pub fn encode_probe(
+        &self,
+        device: &wgpu::Device,
+        encoder: &mut wgpu::CommandEncoder,
+        current: usize,
+    ) -> Option<wgpu::Buffer> {
+        if self.groups.is_empty() || self.direct {
+            return None;
+        }
+        let (_, key) = self.test_binds.as_ref()?;
+        let out = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("game look cull account"),
+            size: u64::from(self.chunks) * u64::from(CHUNK * PROBE_WORDS) * 4,
+            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC,
+            mapped_at_creation: false,
+        });
+        let bind = self.test_bind(device, key, current, &out);
+        let pipeline = self.probe.get_or_init(|| {
+            device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+                label: Some("game look cull account"),
+                layout: Some(
+                    &device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                        label: Some("game look cull account"),
+                        bind_group_layouts: &[Some(&self.test_layout)],
+                        immediate_size: 0,
+                    }),
+                ),
+                module: &self.module,
+                entry_point: Some("probe"),
+                compilation_options: Default::default(),
+                cache: None,
+            })
+        });
+        let mut pass = encoder.begin_compute_pass(&Default::default());
+        pass.set_pipeline(pipeline);
+        pass.set_bind_group(0, &bind, &[]);
+        pass.dispatch_workgroups(self.chunks.min(65535), self.chunks.div_ceil(65535), 1);
+        Some(out)
+    }
+
+    /// Each dependent dispatch has its own pass. Nothing is encoded without a group.
     pub fn encode(
         &self,
         encoder: &mut wgpu::CommandEncoder,
         current: usize,
         timestamps: Option<&wgpu::QuerySet>,
-    ) {
+    ) -> bool {
         if self.groups.is_empty() || self.direct {
-            return;
+            return false;
         }
-        let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
-            label: Some("game cull"),
-            timestamp_writes: timestamps.map(|query_set| wgpu::ComputePassTimestampWrites {
-                query_set,
-                beginning_of_pass_write_index: Some(crate::timing::CULL * 2),
-                end_of_pass_write_index: Some(crate::timing::CULL * 2 + 1),
-            }),
-        });
         let grid = |n: u32| (n.min(65535), n.div_ceil(65535));
         let (chunks, groups) = (grid(self.chunks), grid(self.groups.len() as u32));
-        pass.set_pipeline(&self.test);
-        pass.set_bind_group(0, &self.test_binds.as_ref().unwrap().0[current], &[]);
-        pass.dispatch_workgroups(chunks.0, chunks.1, 1);
         let lists = &self.list_bind.as_ref().unwrap().0;
-        pass.set_pipeline(&self.scan);
-        pass.set_bind_group(0, lists, &[]);
-        pass.dispatch_workgroups(groups.0, groups.1, 1);
-        pass.set_pipeline(&self.scatter);
-        pass.dispatch_workgroups(chunks.0, chunks.1, 1);
+        // The Adreno 620 corrupts compacted model slots when these dependent
+        // stages share a pass. Pass boundaries preserve the storage handoffs;
+        // the GPU readback regression checks every slot, not just draw counts.
+        for (stage, (pipeline, bind, size)) in [
+            (
+                &self.test,
+                &self.test_binds.as_ref().unwrap().0[current],
+                chunks,
+            ),
+            (&self.scan, lists, groups),
+            (&self.scatter, lists, chunks),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+                label: Some("game cull"),
+                timestamp_writes: timestamps
+                    .map(|query_set| wgpu::ComputePassTimestampWrites {
+                        query_set,
+                        beginning_of_pass_write_index: (stage == 0)
+                            .then_some(crate::timing::CULL * 2),
+                        end_of_pass_write_index: (stage == 2)
+                            .then_some(crate::timing::CULL * 2 + 1),
+                    })
+                    .filter(|_| stage != 1),
+            });
+            pass.set_pipeline(pipeline);
+            pass.set_bind_group(0, bind, &[]);
+            pass.dispatch_workgroups(size.0, size.1, 1);
+        }
+        true
     }
 }
 

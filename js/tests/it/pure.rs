@@ -7,27 +7,34 @@ use std::process::Command;
 
 #[test]
 fn pure_utilities_match_the_web_executor() {
-    let chrome = std::env::var("CHROME")
-        .unwrap_or_else(|_| "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome".into());
-    if !std::path::Path::new(&chrome).exists() {
-        eprintln!("pure utility browser sweep unavailable: set CHROME");
-        return;
-    }
     let script = concat!(env!("OUT_DIR"), "/pure.js");
-    let reference = Command::new("bun")
+    let reference = Command::new(std::env::var_os("BUN").unwrap_or_else(|| "bun".into()))
         .args(["--input-type=module", "-e", CHROME_UTILITIES])
         .env("EXACT_PURE_SCRIPT", script)
-        .env("CHROME", chrome)
         .current_dir(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(".."))
         .output()
-        .expect("Bun launches the Chrome utility oracle; set CHROME to its executable");
+        .expect("Bun launches the Chrome utility oracle");
+    if let Some(why) = String::from_utf8_lossy(&reference.stdout)
+        .lines()
+        .find_map(|line| line.strip_prefix("missing chrome: "))
+        .map(str::to_owned)
+    {
+        // EXACT_REQUIRED=1 (the async lane): a missing prerequisite fails (scripts/coverage.mjs).
+        assert_ne!(
+            std::env::var("EXACT_REQUIRED").as_deref(),
+            Ok("1"),
+            "missing chrome: {why}"
+        );
+        eprintln!("pure utility browser sweep unavailable: {why}");
+        return;
+    }
     assert!(
         reference.status.success(),
         "{}",
         String::from_utf8_lossy(&reference.stderr)
     );
     let expected: Vec<String> = serde_json::from_slice(&reference.stdout).unwrap();
-    let plan = contract::compile("component App\n  resource text = text() as shape string\n  resource url = url() as shape string\n  resource base64 = base64() as shape string\n  view\n    text text\n").unwrap();
+    let plan = contract::compile("component App\n  resource text = text() as shape string\n  resource url = url() as shape string\n  resource base64 = base64() as shape string\n  resource standard = standard() as shape string\n  resource microtask = microtask() as shape string\n  resource abort = abort() as shape string\n  resource hooks = hooks() as shape string\n  resource intl = intl() as shape string\n  view\n    text text\n").unwrap();
     let mut module = Module::loaded(
         include_bytes!(concat!(env!("OUT_DIR"), "/pure.hbc")).to_vec(),
         "test.pure",
@@ -35,24 +42,45 @@ fn pure_utilities_match_the_web_executor() {
     )
     .unwrap();
     module.bind(&plan);
-    for (source, expected) in ["text", "url", "base64"].into_iter().zip(expected) {
-        assert_eq!(
-            module.query(source, &[]).unwrap().as_str().unwrap(),
-            expected,
-            "{source}"
-        );
+    // A formatter per locale and option set is slow to make on Apple's Intl.
+    module.set_budget_ms(f64::INFINITY);
+    for (source, expected) in [
+        "text",
+        "url",
+        "base64",
+        "standard",
+        "microtask",
+        "abort",
+        "hooks",
+        "intl",
+    ]
+    .into_iter()
+    .zip(expected)
+    {
+        let actual = module.query(source, &[]).unwrap();
+        let actual = actual.as_str().unwrap();
+        if source == "hooks" {
+            assert_eq!(
+                actual,
+                r#"{"present":false,"own":"undefined","subscribe":"undefined"}"#,
+                "the abort hook handoff and its own/subscribe functions must be unreachable after load"
+            );
+        }
+        assert_eq!(actual, expected, "{source}");
     }
 }
 
 const CHROME_UTILITIES: &str = r#"
 import { Cdp } from './scripts/agent.mjs';
+import { chromium } from './scripts/agent-launch.mjs';
+const { executable: browserExecutable, unavailable: browserMissing } = chromium();
+if (browserMissing) { console.log(`missing chrome: ${browserMissing}`); process.exit(0); }
 import { spawn } from 'node:child_process';
 import { existsSync, readFileSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-if (!existsSync(process.env.CHROME)) throw new Error('Chrome utility oracle unavailable: set CHROME to its executable');
 const profile = mkdtempSync(join(tmpdir(), 'exact-pure-browser-'));
-const child = spawn(process.env.CHROME, [
+const child = spawn(browserExecutable, [
   '--headless=new', '--no-sandbox', '--remote-debugging-pipe', '--no-first-run',
   '--disable-background-networking', `--user-data-dir=${profile}`, 'about:blank',
 ], { detached:true, stdio:['ignore','ignore','ignore','pipe','pipe'] });
@@ -68,8 +96,8 @@ try {
   });
   const fixture = readFileSync(process.env.EXACT_PURE_SCRIPT, 'utf8');
   const result = await cdp.send('Runtime.evaluate', {
-    expression:fixture + '\n;JSON.stringify(["text","url","base64"].map(source=>globalThis.exact.answer(source)))',
-    returnByValue:true,
+    expression:fixture + '\n;Promise.all(["text","url","base64","standard","microtask","abort","hooks","intl"].map(source=>globalThis.exact.answer(source))).then(JSON.stringify)',
+    returnByValue:true, awaitPromise:true,
   }, sessionId);
   if (result.exceptionDetails) throw new Error(result.exceptionDetails.exception?.description ?? result.exceptionDetails.text);
   console.log(result.result.value);
@@ -87,7 +115,7 @@ fn large_native_strings_preserve_json_semantics_and_call_ownership() {
     use exact_js::{from_json, to_json, Shape};
     use exact_plan::Value;
     let script = concat!(env!("OUT_DIR"), "/pure.js");
-    let declarations = "shape Leaf\n  text: string\nshape Pair\n  first: string\n  second: string\nshape Branch\n  left: Leaf\n  right: Leaf\nshape Branches\n  first: Branch\n  second: Leaf\n  last: list<Branch>\n  reads: number\nshape Object\n  first: string\n  second: string\n  aliases: list<Leaf>\n  reads: number\n";
+    let declarations = "shape Leaf\n  text: string\nshape Pair\n  first: string\n  second: string\nshape Branch\n  left: Leaf\n  right: Leaf\nshape Branches\n  first: Branch\n  second: Leaf\n  last: Branch[]\n  reads: number\nshape Object\n  first: string\n  second: string\n  aliases: Leaf[]\n  reads: number\n";
     let mut module = Module::loaded(
         include_bytes!(concat!(env!("OUT_DIR"), "/pure.hbc")).to_vec(),
         "test.pure",
@@ -99,7 +127,7 @@ fn large_native_strings_preserve_json_semantics_and_call_ownership() {
         ("boxed", "string"),
         ("object", "Object"),
         ("branches", "Branches"),
-        ("nullable", "list<option<number>>"),
+        ("nullable", "option<number>[]"),
         ("extra", "Pair"),
         ("missing", "Pair"),
         ("throw", "Pair"),
@@ -116,7 +144,7 @@ fn large_native_strings_preserve_json_semantics_and_call_ownership() {
         ))
         .unwrap();
         let shape = Shape::from_plan(&plan, plan.sources[0].ty).unwrap();
-        let reference = Command::new("bun")
+        let reference = Command::new(std::env::var_os("BUN").unwrap_or_else(|| "bun".into()))
             .args(["-e", &format!("require({}); process.stdout.write(JSON.stringify(globalThis.exact.answer('transfer',[{}])))", serde_json::to_string(script).unwrap(), serde_json::to_string(mode).unwrap())])
             .output()
             .unwrap();
@@ -129,6 +157,13 @@ fn large_native_strings_preserve_json_semantics_and_call_ownership() {
         };
         module.bind(&plan);
         let actual = module.query("transfer", &[Value::str(mode)]);
+        if matches!(mode, "arrayMethodsHook" | "arrayHook") {
+            assert!(
+                actual.is_err(),
+                "{mode}: universal hardening must refuse application mutation of Array intrinsics"
+            );
+            continue;
+        }
         match expected {
             Ok(value) => assert_eq!(
                 to_json(
@@ -145,10 +180,11 @@ fn large_native_strings_preserve_json_semantics_and_call_ownership() {
 }
 
 #[test]
-fn native_envelopes_preserve_syntax_metadata_and_async_dispatch() {
+fn universal_hardening_prevents_application_envelope_parser_replacement() {
     use exact_plan::Value;
     let plan = contract::compile("component App\n  resource reply = wire(\"\", \"sync\") as shape string\n  resource later = transfer(\"small\") as shape string\n  view\n    text \"fixture\"\n").unwrap();
-    for (wire, mode, expected) in [
+    let big = "a\\\0é😀\u{2028}\u{2029}".repeat(8192);
+    for (wire, mode, _previously_injectable) in [
         (r#"{"tag":0,"value":7,"value":"last"}"#, "sync", Ok("last")),
         (r#"{"value":"first","tag":2,"tag":0}"#, "sync", Ok("first")),
         (
@@ -216,13 +252,13 @@ fn native_envelopes_preserve_syntax_metadata_and_async_dispatch() {
         module.set_budget_ms(f64::INFINITY);
         module.bind(&plan);
         let answer = module.query("wire", &[Value::str(wire), Value::str(mode)]);
-        match expected {
-            Ok(value) => assert_eq!(answer.unwrap().as_str(), Some(value), "{wire}"),
-            Err(message) => assert!(
-                format!("{:?}", answer.unwrap_err()).contains(message),
-                "{wire}: expected {message}"
-            ),
-        }
+        let value = answer.unwrap();
+        let expected = if mode.contains("capture") {
+            big.as_str()
+        } else {
+            "settled"
+        };
+        assert_eq!(value.as_str(), Some(expected), "{wire}");
         // A refused or captured reply cannot contaminate the next answer.
         assert_eq!(
             module
@@ -232,7 +268,6 @@ fn native_envelopes_preserve_syntax_metadata_and_async_dispatch() {
             Some("a later call")
         );
     }
-    let big = "a\\\0é😀\u{2028}\u{2029}".repeat(8192);
     for (wire, mode) in [
         (r#"{"tag":0,"value":""}"#, "capture"),
         (r#"{"tag":3,"call":1}"#, "async-capture"),

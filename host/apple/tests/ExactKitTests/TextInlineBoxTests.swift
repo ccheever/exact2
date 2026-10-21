@@ -4,6 +4,7 @@ import CoreText
 import AppKit
 #endif
 @testable import ExactKit
+@testable import ExactCore
 
 final class TextInlineBoxTests: XCTestCase {
     func testAtomicRunReservesItsWidthAndRaisesOnlyItsLine() {
@@ -72,7 +73,7 @@ final class TextInlineBoxTests: XCTestCase {
         XCTAssertNil(presenter.inlineText(2),"the native view, not a text fragment, receives the press")
         XCTAssertTrue(presenter.textHost(2) === mention)
         XCTAssertTrue(owner.inlineText[0].isBox)
-        XCTAssertEqual(owner.paragraphAccessibilityText,"@Alice")
+        XCTAssertEqual(owner.visibleParagraphText,"@Alice")
     }
     #endif
 

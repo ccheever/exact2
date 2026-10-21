@@ -1,5 +1,5 @@
 //! The display loop's input dispatch, testable without a DRM master.
-use crate::input::{InputEvent, Key};
+use crate::input::InputEvent;
 use crate::Presenter;
 use exact_runner::DataSource;
 
@@ -11,13 +11,15 @@ pub(super) fn dispatch<D: DataSource>(
     event: InputEvent,
     now_ms: f64,
 ) -> Result<(), String> {
-    if !matches!(event, InputEvent::Key(_) | InputEvent::Cancel)
-        && !p.display_input_mapping(viewport, scale)
+    if !matches!(
+        event,
+        InputEvent::Key { .. } | InputEvent::Pad { .. } | InputEvent::Back | InputEvent::Cancel
+    ) && !p.display_input_mapping(viewport, scale)
     {
         // An uncertified physical release must end capture without executing
         // a drop. Refusing its coordinates must not strand a hold or item pin.
-        if matches!(event, InputEvent::Button(false)) {
-            p.pointer_cancel(now_ms)?;
+        if matches!(event, InputEvent::Button(false) | InputEvent::Aux(_, false)) {
+            p.pointer_lost(now_ms)?;
         }
         return Err("pointer mapping does not match the acknowledged surface".into());
     }
@@ -26,6 +28,8 @@ pub(super) fn dispatch<D: DataSource>(
             pointer.0 = (pointer.0 + dx / scale).clamp(0., viewport.0 - 1.);
             pointer.1 = (pointer.1 + dy / scale).clamp(0., viewport.1 - 1.);
             p.set_pointer(Some(*pointer));
+            // A canvas sees the device's motion, unbounded by the screen edge.
+            p.raw_motion(dx / scale, dy / scale);
             p.pointer_move(pointer.0, pointer.1, now_ms)?;
         }
         InputEvent::Absolute(fx, fy) => {
@@ -44,15 +48,37 @@ pub(super) fn dispatch<D: DataSource>(
         InputEvent::Button(false) => {
             p.pointer_up(pointer.0, pointer.1, now_ms)?;
         }
-        InputEvent::Cancel => p.pointer_cancel(now_ms)?,
-        InputEvent::Wheel(dx, dy) => p.wheel_at(pointer.0, pointer.1, dx, dy),
-        InputEvent::Key(Key::Char(c)) => p.key(Some(c), false, now_ms),
-        InputEvent::Key(Key::Backspace) => p.key(None, true, now_ms),
-        InputEvent::Key(Key::Escape) => {
-            p.pointer_cancel(now_ms)?;
-            p.blur();
+        InputEvent::Aux(bit, down) => p.pointer_aux(bit, down, pointer.0, pointer.1, now_ms),
+        InputEvent::Cancel => p.pointer_lost(now_ms)?,
+        // A mouse's back button (LLP 1115.000 D5.4): Back, in the presenter's
+        // order. With nowhere to go back to a desktop app stays as it is.
+        InputEvent::Back => {
+            p.system_back(now_ms);
         }
-        InputEvent::Key(Key::Enter) => p.key(Some('\n'), false, now_ms),
+        InputEvent::Wheel(dx, dy) => p.wheel_at(pointer.0, pointer.1, dx, dy),
+        // The report's own time, as the read converted it.
+        InputEvent::Pad {
+            index,
+            connected,
+            reading,
+            at,
+        } => p.hardware_pad(index, connected, reading.buttons, reading.axes, at),
+        // The same targeted path as VNC and agent keys: text, Escape blur and a
+        // canvas's held keys (`hardware_key`). Escape also ends a pointer hold.
+        InputEvent::Key {
+            code,
+            shift,
+            down,
+            repeat,
+        } => {
+            let Some((code, key)) = crate::input::key(code, shift) else {
+                return Ok(());
+            };
+            if code == "Escape" && down {
+                p.pointer_lost(now_ms)?;
+            }
+            p.hardware_key(code, key, down, repeat);
+        }
     }
     Ok(())
 }
@@ -62,28 +88,30 @@ mod tests {
     use super::*;
     use crate::presenter::PainterChoice;
     use exact_kernel::PropId;
-    use exact_runner::{DataError, Value};
     use std::path::PathBuf;
-    struct NoData;
-    impl DataSource for NoData {
-        fn query(&mut self, name: &str, _: &[Value]) -> Result<Value, DataError> {
-            Err(DataError::UnknownSource(name.into()))
+    /// An evdev key press (1 Escape, 45 x).
+    fn press(code: u16) -> InputEvent {
+        InputEvent::Key {
+            code,
+            shift: false,
+            down: true,
+            repeat: false,
         }
     }
-    fn fixture() -> Presenter<NoData> {
+    fn fixture() -> Presenter<()> {
         let plan = contract::compile(r#"component App
   state count = 0
-  action reply writes count
+  action reply
     count = count + 1
   view
     column
-      box testId="row" width=400 height=100 swiperight=reply touch-action="pan-y" transition="translate spring(300, 30, 1)"
+      box testId="row" width=400 height=100 swiperight=reply touch-action="pan-y" transition="translate -exact-spring(300, 30, 1)"
         text "swipe"
       text `${count}` testId="count"
 "#).unwrap();
         Presenter::boot_with(
             &plan.encode(),
-            NoData,
+            (),
             (400., 500.),
             1.,
             PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/../../apps/caltrain")),
@@ -92,7 +120,7 @@ mod tests {
         .unwrap()
         .0
     }
-    fn count(p: &Presenter<NoData>) -> &str {
+    fn count(p: &Presenter<()>) -> &str {
         let k = p.host().kernel();
         k.node_by_key(k.find_by_test_id("count")[0])
             .unwrap()
@@ -100,13 +128,82 @@ mod tests {
             .str(PropId::Text)
             .unwrap()
     }
+    /// LLP 1115.000 D5.4: a desktop's ways Back as evdev reports them, a
+    /// mouse's back button, Alt (56) around Left (105), and KEY_BACK (158),
+    /// each popping a pushed route that says nothing about Back.
+    #[test]
+    fn the_back_button_and_the_back_keys_pop_a_pushed_route() {
+        let plan = contract::compile(
+            r#"routes nav
+  home "/"
+    detail "/detail"
+component App
+  action open
+    nav = push(nav, "/detail")
+  view
+    main navigationKey=`${top(nav).id}` width="100%" height="100%"
+      for e in stack(nav) key=e.id
+        column navigationKey=`${e.id}` position="absolute" inset=0
+          if e.name == "home"
+            button press=open testId="open"
+              text "Open"
+          if e.name == "detail"
+            text "Detail" testId="detail"
+"#,
+        )
+        .unwrap();
+        let mut p = Presenter::boot_with(
+            &plan.encode(),
+            (),
+            (400., 500.),
+            1.,
+            PathBuf::new(),
+            PainterChoice::Cpu,
+        )
+        .unwrap()
+        .0;
+        let find = |p: &Presenter<()>, name: &str| {
+            let k = p.host().kernel();
+            (k.find_by_test_id(name).first()).and_then(|key| Some(k.node_by_key(*key)?.id))
+        };
+        let on_detail = |p: &Presenter<()>| {
+            find(p, "detail").is_some_and(|id| !p.host().route_visibility(id).0)
+        };
+        let key = |code, down| InputEvent::Key {
+            code,
+            shift: false,
+            down,
+            repeat: false,
+        };
+        let mut at = (20., 40.);
+        let ways = [
+            vec![InputEvent::Back],
+            vec![
+                key(56, true),
+                key(105, true),
+                key(105, false),
+                key(56, false),
+            ],
+            vec![key(158, true), key(158, false)],
+        ];
+        for way in ways {
+            let open = find(&p, "open").unwrap();
+            p.dispatch_press(open, 0., false);
+            assert!(on_detail(&p), "pushed");
+            for event in &way {
+                dispatch(&mut p, &mut at, (400., 500.), 1., *event, 10.).unwrap();
+            }
+            assert!(!on_detail(&p), "{way:?} went back");
+            // From the first screen there is nowhere to go: nothing happens.
+            for event in &way {
+                dispatch(&mut p, &mut at, (400., 500.), 1., *event, 20.).unwrap();
+            }
+            assert!(find(&p, "open").is_some());
+        }
+    }
     #[test]
     fn relative_and_absolute_display_events_release_or_escape_once() {
-        for cancel in [
-            None,
-            Some(InputEvent::Key(Key::Escape)),
-            Some(InputEvent::Cancel),
-        ] {
+        for cancel in [None, Some(press(1)), Some(InputEvent::Cancel)] {
             let mut p = fixture();
             let mut at = (20., 40.);
             for (time, event) in [
@@ -177,15 +274,7 @@ mod tests {
             )
             .is_err());
             assert_eq!(at, (20., 40.));
-            dispatch(
-                &mut p,
-                &mut at,
-                extent,
-                scale,
-                InputEvent::Key(Key::Char('x')),
-                1.,
-            )
-            .unwrap();
+            dispatch(&mut p, &mut at, extent, scale, press(45), 1.).unwrap();
             dispatch(&mut p, &mut at, extent, scale, InputEvent::Cancel, 1.).unwrap();
         }
         let b = p.display_frame().unwrap();
@@ -193,7 +282,7 @@ mod tests {
             &contract::compile("component App\n  view\n    text \"new\"\n")
                 .unwrap()
                 .encode(),
-            NoData,
+            (),
         )
         .unwrap();
         assert!(dispatch(
@@ -276,26 +365,22 @@ mod tests {
   state target = 180
   state count = 0
   state seen = 0
-  action release(h: number, v: number) writes target, count, seen
+  action release(h: number, v: number)
     count = count + 1
     seen = h
     target = 360
   view
     box width=400 height=500
-      column id="panel" testId="panel" position="absolute" bottom=0 width=400 height=target max-height="100%" box-sizing="border-box" transition="height spring(300,30,1)"
+      column id="panel" testId="panel" position="absolute" bottom=0 width=400 height=target max-height="100%" box-sizing="border-box" transition="height -exact-spring(300,30,1)"
         box heightDragFor="panel" heightrelease=release height=40
           text "drag header"
       text `${count}` testId="count"
       text `${seen}` testId="seen"
 "#).unwrap();
-        for cancel in [
-            None,
-            Some(InputEvent::Cancel),
-            Some(InputEvent::Key(Key::Escape)),
-        ] {
+        for cancel in [None, Some(InputEvent::Cancel), Some(press(1))] {
             let mut p = Presenter::boot_with(
                 &plan.encode(),
-                NoData,
+                (),
                 (400., 500.),
                 1.,
                 PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/../../apps/caltrain")),

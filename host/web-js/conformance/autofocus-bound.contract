@@ -1,0 +1,13 @@
+// Synthetic conformance plan: a bound `autofocus` that is false focuses
+// nothing (bsky5, b32). The JavaScript target wrote it as the attribute
+// `autofocus="false"`, which HTML reads as true, so the field took the
+// focus at mount; a static `autofocus=false` was already no attribute.
+component AutofocusBound
+  state on = false
+  state log = ""
+  action focusIn
+    log = `${log}+`
+  view
+    column
+      input value="" autofocus=on focus=focusIn testId="field"
+      text log testId="log"

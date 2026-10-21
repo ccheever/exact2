@@ -1,10 +1,10 @@
 #!/usr/bin/env bun
+import { warmGameInputs, warmGameEnvironment, publishWarmGame } from '../web-js/module.mjs';
 // Build the web app (LLP 1071): the JS target, `host/web-js/build.mjs`, the
 // plan compiled to one ES module over a small runtime, into the same dist;
 // what it refuses (a capability the runtime lacks, named) fails the build.
-// A game (LLP 1046), and `--wasm`, get the wasm target: the wasm under the `web` profile (size-tuned),
-// `wasm-opt -Oz` when binaryen is on PATH, then `dist/` = index.html +
-// glue.js + app.wasm.
+// Games and `--wasm` use the wasm target. Shipping modules use `web` plus
+// wasm-opt; proofs may select `gpu-dev` without wasm-opt. The host stays `web`.
 // Usage: bun host/web/build.mjs [crate=caltrain-web]
 // (`--js` is accepted and is the default.) `--wasm` is internal, for what the
 // retiring wasm target still serves (LLP 1071 §7, "Retiring the wasm target
@@ -15,24 +15,30 @@
 // `target: 'js'`, so the dev loop, the agent and the smoke know which they got.
 // EXACT_WEB_NAMES=1 keeps the wasm's function names, for metrics' byte
 // attribution (LLP 1047 D9); EXACT_WEB_LINK=all links every capability, as
-// the dev loop does (LLP 1047 D7).
+// the dev loop does (LLP 1047 D7). Either target draws the neutral look
+// (LLP 1115.000 D4 part B; look.mjs composes the sheet).
 // Developer builds bake development trust; EXACT_UPDATE_TRUST=production
 // requires signing keys, and the deploy verb always selects production.
+import { grantOrigins } from './navigation.js';
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, relative, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { gzipSync } from 'node:zlib';
-import { rolldown } from 'rolldown';
-import { minifySync } from 'rolldown/experimental';
 import { writeInstallPages } from '../../scripts/install-page.mjs';
-import { authClientMetadata, checkModuleRoster, gpuModules, rustPolicy, webGpuArtifacts, webHostFiles } from '../../scripts/app.mjs';
+import { compilerWarnings, webInputDigests } from '../../scripts/agent-launch.mjs';
+import { authClientMetadata, checkModuleRoster, gpuModules, markWorlds, rustPolicy, webGpuArtifacts, webHostFiles, worldSurfaces } from '../../scripts/app.mjs';
 import { buildRust, rustFiles, rustCards, rustPackage } from '../../scripts/rust.mjs';
-import { webDist, copyShaders, bakeOutput, buildBake, readBake, verifyBakeFiles, developmentBuildEnv, resolveApp, wasmRemapFlags, WEB_STD, WEB_TOOLCHAIN, webToolchainEnv } from '../../scripts/app.mjs';
+import { webAppManifest, webDist, copyShaders, bakeOutput, buildBake, contractLast, readBake, verifyBakeFiles, developmentBuildEnv, resolveApp } from '../../scripts/app.mjs';
+import { buildEditor, buildFlow } from '../web-js/module.mjs';
 import { closeFilesystemReader } from '../../scripts/filesystem.mjs';
+import { guardFlags } from '../../scripts/help.mjs';
 import { BINARYEN_DOWNLOAD, splitStages, unsplitReason } from './stages.mjs';
-import { appManifestDigest, buildFileCards, copyStaticTreeIfPresent, listAssets, publicFileCards, webEnvelope, moduleCards, MODULE_FILES } from './serve.mjs';
+import { withLook } from './look.mjs';
+import { appManifestDigest, buildFileCards, copyStaticTreeIfPresent, listAssets, publicFileCards, replaceBuild, webEnvelope, moduleCards, MODULE_FILES } from './serve.mjs';
 
+guardFlags('web-build', process.argv.slice(2));
 const target = ['--js', '--wasm'].find((flag) => process.argv.includes(flag));
 // `--bake` (internal, delivery's): the web crate's bake without its wasm —
 // `cargo check` runs the build script (the baked plan, its receipt, a
@@ -45,28 +51,61 @@ process.argv = process.argv.filter((a) => a !== '--js' && a !== '--wasm' && a !=
 const renderFlag = process.argv.indexOf('--render');
 const render = renderFlag < 0 ? [] : process.argv.splice(renderFlag, 2);
 const app = resolveApp(process.argv[2]);
+// After resolveApp, which names `bun install` when the packages are missing.
+const [{ rolldown }, { minifySync }] = await Promise.all([import('rolldown'), import('rolldown/experimental')]);
 // A game's web build is the wasm target (Charlie, 2026-09-29: "Game runtime
 // is fine to be on wasm"; LLP 1071 §8). For an app the JS target is the web
 // build, and what it refuses is an error; `--wasm` is internal (below).
 const game = app.manifest.game !== undefined;
 if (target !== '--wasm' && !game && !bakeOnly) {
-  // An app outside apps/ reaches it through EXACT_APP_DIR, as here.
-  const js = spawnSync(process.execPath, [resolve(new URL('../web-js/build.mjs', import.meta.url).pathname), app.name, '--out', webDist(), ...render], { stdio: ['ignore', 'inherit', 'pipe'], encoding: 'utf8', env: { ...process.env, EXACT_APP_DIR: app.dir } });
+  // An app outside apps/ reaches it through EXACT_APP_DIR, as here. It builds in a stage of its own beside the
+  // output, which replaces the output only when complete (`replaceBuild`), so builds run at once never mix.
+  const dist = webDist();
+  mkdirSync(dirname(dist), { recursive: true });
+  let stage = mkdtempSync(`${dist}.stage-`);
+  process.on('exit', () => { if (stage) rmSync(stage, { recursive: true, force: true }); });
+  // What this build reads, and when, as it starts: the next check (webChanges) compares every input
+  // changed since then, so a source changed or gone while it compiles, or a build published over it
+  // meanwhile, is a change, never taken as built.
+  const inputsAt = Date.now(), inputs = webInputDigests(app, true);
+  const js = spawnSync(process.execPath, [fileURLToPath(new URL('../web-js/build.mjs', import.meta.url)), app.name, '--out', stage, ...render], { stdio: ['ignore', 'pipe', 'pipe'], encoding: 'utf8', env: { ...process.env, EXACT_APP_DIR: app.dir } });
+  // What it says names the output, not the stage.
+  const said = (text) => (text ?? '').replaceAll(stage, dist);
+  js.stderr = said(js.stderr);
+  process.stdout.write(said(js.stdout));
+  // The compiler's warnings, as `contract build` says them, its file from here: the count names them (LLP 1116.004 D7).
+  const compiler = compilerWarnings(js.stderr);
   if (js.status === 0) {
-    writeFileSync(resolve(webDist(), '.exact-build.json'), JSON.stringify({ exactBuild: 1, target: 'js', app: { id: app.id, name: app.displayName },
-      manifestSha256: appManifestDigest(app), files: buildFileCards(webDist()) }) + '\n');
+    // What the JS target warned of, in its own words: the count it prints names nothing (workout F3, kanban F30).
+    // The bundler's notes on the generated glue are not the app's to act on. The types app.ts imports, when
+    // the build rewrote them, are one line (LLP 1116.001 D4.5).
+    for (const line of compiler) console.error(line);
+    for (const line of (js.stderr ?? '').split('\n')) if (/^(warning|app\.contract\.d\.ts): /.test(line)) console.error(line);
+    writeFileSync(resolve(stage, '.exact-build.json'), JSON.stringify({ exactBuild: 1, target: 'js', app: { id: app.id, name: app.displayName },
+      manifestSha256: appManifestDigest(app), files: buildFileCards(stage), inputs, inputsAt }) + '\n');
+    replaceBuild(stage, dist);
+    stage = null;
     process.exit(0);
   }
   // The child's own message, not the tail of Bun's trace (a frame and its version line).
-  const lines = (js.stderr ?? '').trim().split('\n').filter((l) => !/^\s*(Compiling|Finished|Running|warning)/.test(l));
-  const message = lines.filter((l) => /^(error|[A-Z]\w*Error|E[A-Z]+)\b:?/.test(l.trim()) || /\bunoptimized$|\bnot on PATH\b/.test(l));
+  const ambientDiagnostic = (l) => /^.+:\d+:\d+: .+ is unavailable in data sources[;:]/.test(l);
+  const all = (js.stderr ?? '').trim().split('\n').filter((l) => ambientDiagnostic(l) || !/^\s*(Compiling|Finished|Running)/.test(l) && !compilerWarnings(l).length);
+  const warnings = all.filter((l) => !ambientDiagnostic(l) && /^warning: /.test(l)), lines = all.filter((l) => ambientDiagnostic(l) || !/^\s*warning/.test(l));
+  // Keep TypeScript's lines (`app.ts(2,8): error TS…`), the shared ambient
+  // check's file:line:col diagnostics, including paths with spaces, and its
+  // refusals of package code (js/bake/src/typescript.mjs `capturedSources`).
+  const packageRefusal = (l) => / (?:imports Node's built-in|uses the DOM's|uses Node's|loads a module by a computed name|loads code from a string|uses the page's)|, (?:which is not installed|a native addon|which the checked capture did not resolve)|: not an npm package name and version| must be a constant the build reads without running|^(?:Error: )?two copies of /.test(l);
+  const message = lines.filter((l) => /^(error|[A-Z]\w*Error|E[A-Z]+)\b:?/.test(l.trim()) || /\): error TS\d+:|^(?:Error: )?(?:tsconfig: |module outside captured app: |source links are not captured: )|^note: /.test(l) || ambientDiagnostic(l) || packageRefusal(l) || /\bunoptimized$|\bnot on PATH\b/.test(l))
+    // The bundler's refusal, in the words the type check uses (`Error: ` is its wrapper).
+    .map((l) => l.replace(/^Error: (?=module outside captured app: )/, ''));
   const reason = (message.length ? message : lines.slice(-3)).join('\n');
-  console.error(`${reason}\n${app.name}: the web build (the JS target) failed; the wasm target is internal (--wasm)`);
+  const types = all.filter((l) => /^app\.contract\.d\.ts: /.test(l));
+  console.error(`${[...types, ...warnings, reason, ...compiler].join('\n')}\n${app.name}: the web build (the JS target) failed; the wasm target is internal (--wasm)`);
   process.exit(1);
 }
 const crate = app.crate('web');
 const kib = (n) => `${(n / 1024).toFixed(0)} KiB`;
-const root = resolve(new URL('../..', import.meta.url).pathname);
+const root = resolve(fileURLToPath(new URL('../..', import.meta.url)));
 // `EXACT_WEB_DIST` names another output directory: `exact deploy` bakes into a
 // run-specific one and never publishes from the dev server's shared dist/.
 const dist = webDist();
@@ -78,6 +117,11 @@ if (!existsSync(dist) && existsSync(previous)) renameSync(previous, dist);
 else if (existsSync(dist) && existsSync(previous)) rmSync(previous, { recursive: true, force: true });
 const buildEnv = developmentBuildEnv();
 buildEnv.EXACT_BAKE_OUTPUT = bakeOutput(app, buildEnv);
+// Proofs select the requested game profile under either trust mode; ordinary builds ship web.
+const proofProfile = game ? process.env.EXACT_GAME_PROOF_PROFILE : undefined;
+if (proofProfile && !['gpu-dev', 'release'].includes(proofProfile)) throw new Error('EXACT_GAME_PROOF_PROFILE must be gpu-dev or release');
+const gpuProfile = proofProfile === 'gpu-dev' ? 'gpu-dev' : 'web';
+if (proofProfile === 'gpu-dev') Object.assign(buildEnv, warmGameEnvironment(buildEnv));
 // `EXACT_WEB_NAMES=1` keeps the wasm's name section for attribution (LLP 1047
 // D9, metrics.mjs --long): rustc strips only DWARF, which would stop binaryen's
 // duplicate-function elimination, and wasm-opt keeps names. The code is the
@@ -87,9 +131,10 @@ const keepNames = process.env.EXACT_WEB_NAMES === '1';
 // (LLP 1047.000 §9), which needs the names too; they are stripped after the
 // split. The dev loop's `EXACT_WEB_LINK=all` build and the names build stay
 // whole, as does a machine whose binaryen isn't the pinned one.
-const unsplit = keepNames || process.env.EXACT_WEB_LINK === 'all' ? 'a development or names build' : unsplitReason();
+const unsplit = keepNames || buildEnv.EXACT_WEB_LINK === 'all' ? 'a development or names build' : unsplitReason();
 if (keepNames || !unsplit) buildEnv.CARGO_PROFILE_WEB_STRIP = 'debuginfo';
-const buildReceipt = buildBake(app, 'web', 'wasm32-unknown-unknown', {env:buildEnv, check:bakeOnly});
+const warmInputs = !bakeOnly ? warmGameInputs(app, {...buildEnv, EXACT_GAME_PROOF_PROFILE:proofProfile}) : null;
+const buildReceipt = contractLast(() => buildBake(app, 'web', 'wasm32-unknown-unknown', {env:buildEnv, check:bakeOnly, gpuProfile}));
 const built = resolve(app.target, 'wasm32-unknown-unknown/web', crate.replace(/-/g, '_') + '.wasm');
 // Build one app into its own staging directory. Only a complete build replaces
 // dist, so a server sees the previous app or the next one, never a mixture;
@@ -144,7 +189,8 @@ copyStaticTreeIfPresent(deck, resolve(stage, 'deck'));
 // page, fetched and registered by the GPU glue before a surface is created
 // — never a string in the wasm.
 copyShaders(app, resolve(stage, 'shaders'));
-copyFileSync(resolve(root, 'host/web/index.html'), resolve(stage, 'index.html'));
+// The neutral sheet follows the browser resets (LLP 1115.000 D4 part B; look.mjs).
+writeFileSync(resolve(stage, 'index.html'), withLook(readFileSync(resolve(root, 'host/web/index.html'), 'utf8')));
 // A production bake never enters agent mode (LLP 1069.007 D2, ruled): every
 // host file that reads `?agent` declares `AGENT_ADMITTED`, and this build
 // ships it false, so the minifier drops the agent's paths from a release.
@@ -166,23 +212,12 @@ function copyHostFiles(group) {
   }
 }
 if (!bakeOnly) copyHostFiles('base');
-// The Markdown editor's rules (exact-markdown-editor, LLP 1045 D5) are their
-// own wasm beside markup-editor.js, fetched only when a Markdown textarea mounts.
-const webEnv = webToolchainEnv(buildEnv);
-if (!bakeOnly) {
-const editor = spawnSync('cargo', ['build', '--locked', '--offline', '-q', ...WEB_STD, ...wasmRemapFlags(app, WEB_TOOLCHAIN), '-p', 'exact-markdown-editor', '--lib', '--target', 'wasm32-unknown-unknown', '--profile', 'web'], { cwd: root, env: webEnv, stdio: 'inherit' });
-if (editor.status !== 0) process.exit(editor.status ?? 1);
-const editorBuilt = resolve(process.env.CARGO_TARGET_DIR ? resolve(process.env.CARGO_TARGET_DIR) : resolve(root, 'target'), 'wasm32-unknown-unknown/web/exact_markdown_editor.wasm');
-const editorWasm = resolve(stage, 'markup-editor.wasm');
-if (spawnSync('wasm-opt', ['-Oz', '--enable-bulk-memory', '--enable-nontrapping-float-to-int', '--enable-sign-ext', '--enable-mutable-globals', '--strip-debug', '--strip-producers', '-o', editorWasm, editorBuilt], { stdio: 'inherit' }).status !== 0) copyFileSync(editorBuilt, editorWasm);
-
-// The exclusions walker is its own leaf artifact; ordinary apps fetch none of it.
-const flow = spawnSync('cargo', ['build', '--locked', '--offline', '-q', ...WEB_STD, ...wasmRemapFlags(app, WEB_TOOLCHAIN), '-p', 'exact-textflow', '--bin', 'textflow-web', '--target', 'wasm32-unknown-unknown', '--profile', 'web'], { cwd: root, env: webEnv, stdio: 'inherit' });
-if (flow.status !== 0) process.exit(flow.status ?? 1);
-const flowBuilt = resolve(process.env.CARGO_TARGET_DIR ? resolve(process.env.CARGO_TARGET_DIR) : resolve(root, 'target'), 'wasm32-unknown-unknown/web/textflow-web.wasm');
-const flowWasm = resolve(stage, 'textflow.wasm');
-if (spawnSync('wasm-opt', ['-Oz', '--enable-bulk-memory', '--enable-nontrapping-float-to-int', '--enable-sign-ext', '--enable-mutable-globals', '--strip-debug', '--strip-producers', '-o', flowWasm, flowBuilt], { stdio: 'inherit' }).status !== 0) copyFileSync(flowBuilt, flowWasm);
-}
+if (!bakeOnly && !production) copyHostFiles('development');
+// These app-independent modules use the same input-checked products as the JS
+// target, so a gameplay edit does not rerun Cargo and wasm-opt for either leaf.
+if (!bakeOnly) await Promise.all([
+  [buildEditor, 'markup-editor.wasm'], [buildFlow, 'textflow.wasm'],
+].map(async ([build, name]) => copyFileSync(await build({keepFresh:true}), resolve(stage, name))));
 
 // The plan and its pointer card (LLP 1023 D1/D2): extract the exact bytes
 // baked into the produced, optimized wasm. Compiling app.contract a second
@@ -197,7 +232,7 @@ if (bakeOnly) planBytes = readFileSync(resolve(buildEnv.EXACT_BAKE_OUTPUT, 'web-
 else {
 wasm = readFileSync(out);
 const unbooted = () => { throw new Error('app logic ran while extracting baked bytes'); };
-const { instance } = await WebAssembly.instantiate(wasm, { exact_js: { call: unbooted }, exact_rust: { load: unbooted, call: unbooted, read: unbooted, drop: unbooted }, exact_data: { random: unbooted, agent_seed: unbooted }, exact_geometry: { read: unbooted } });
+const { instance } = await WebAssembly.instantiate(wasm, { exact_grants: grantOrigins(() => instance.exports.memory), exact_js: { call: unbooted }, exact_rust: { load: unbooted, call: unbooted, read: unbooted, drop: unbooted }, exact_data: { random: unbooted, agent_seed: unbooted }, exact_clock: { now: unbooted }, exact_geometry: { range: unbooted, read: unbooted, point: unbooted, points: unbooted, shown: unbooted } });
 exports = instance.exports;
 if (typeof exports.exact_plan !== 'function' || typeof exports.exact_out !== 'function' || !(exports.memory instanceof WebAssembly.Memory)) {
   throw new Error('the web wasm does not export exact_plan, exact_out, and memory');
@@ -232,9 +267,10 @@ if (bakeOnly ? !!moduleInput : typeof exports.exact_module_artifact === 'functio
   copyHostFiles('module');
   // Remove the module-glue → storage → fs/sqlite request chain's middle
   // step. Keep the stateful adapters as shared modules: Rust requests also
-  // import them, and must share the same filesystem mutation queues.
+  // import them, and must share the same filesystem mutation queues, and
+  // the pickers' handles live in the page's one documents-glue.js.
   const bundle = await rolldown({ input: resolve(root, 'host/web/module-glue.js'), platform: 'browser',
-    external: ['./storage-fs.js', './storage-sqlite.js'], plugins: [{ name: 'agent-gate', transform: (code, id) => ({ code: gateAgent(code, id) }) }] });
+    external: ['./storage-fs.js', './storage-sqlite.js', './documents-glue.js'], plugins: [{ name: 'agent-gate', transform: (code, id) => ({ code: gateAgent(code, id) }) }] });
   try { await bundle.write({ file: resolve(stage, 'module-glue.js'), format: 'es', minify: true }); }
   finally { await bundle.close(); }
 }
@@ -249,6 +285,8 @@ if (!bakeOnly) {
 if (pairedModule || /^\s*(?:fs\.|sqlite\.)/m.test(bakedReceipt.inputs.grantCeiling ?? '')) {
   copyHostFiles('storage');
 }
+copyStaticTreeIfPresent(resolve(buildEnv.EXACT_BAKE_OUTPUT, 'web-wasm32-unknown-unknown.entries/plans'), resolve(stage, 'plans'));
+copyStaticTreeIfPresent(resolve(buildEnv.EXACT_BAKE_OUTPUT, 'web-wasm32-unknown-unknown.entries/activities'), resolve(stage, 'activities'));
 const copiedAssets = listAssets(stage);
 verifyBakeFiles(bakedReceipt, planBytes, copiedAssets);
 let pairedRust = null;
@@ -266,17 +304,7 @@ writeFileSync(resolve(stage, 'exact.json'), JSON.stringify({ ...webEnvelope(app,
 // name as the title, and its first icon as the favicon. An installed PWA's
 // icon and name are the browser's cached copies of these — the origin's
 // carrier, at its real strength.
-const webKeys = ['name', 'short_name', 'id', 'start_url', 'display', 'theme_color', 'background_color', 'icons', 'lang', 'file_handlers', 'launch_handler'];
-const webManifest = Object.fromEntries(webKeys.filter((k) => app.manifest[k] !== undefined).map((k) => [k, app.manifest[k]]));
-// `inode/directory` is the Apple bake's word for a folder; a browser's
-// file handler opens files only (LLP 1069.010 slice 4).
-if (webManifest.file_handlers) webManifest.file_handlers = webManifest.file_handlers.filter((h) => !Object.keys(h.accept ?? {}).includes('inode/directory'));
-if (!webManifest.file_handlers?.length) delete webManifest.file_handlers;
-webManifest.name ??= app.displayName;
-webManifest.start_url ??= '/';
-// The document's language (`<html lang>`, WCAG 3.1.1). Every app here is in
-// English, so an app that declares none is `en`.
-webManifest.lang ??= 'en';
+const webManifest = webAppManifest(app.manifest, app.displayName);
 writeFileSync(resolve(stage, 'manifest.json'), JSON.stringify(webManifest, null, 2) + '\n');
 const sourceRevision = spawnSync('git', ['rev-parse', '--short=10', 'HEAD'], {cwd:app.dir,encoding:'utf8'});
 const sourceChanges = spawnSync('git', ['status', '--porcelain'], {cwd:app.dir,encoding:'utf8'});
@@ -310,17 +338,25 @@ function minifyCss(css) {
 const pageNative = app.modules.web;
 // The page in the app's first-frame background from its first paint (the
 // manifest's background colours, as the iOS launch screen), so nothing lighter or
-// darker shows before the first frame.
+// darker shows before the first frame. Only until then: from the first frame
+// the app paints its own, and the canvas beyond it is the browser's for the
+// page's colour scheme, as on the JS target (a launch white kept under an
+// app that chose dark showed beside its root; Markdown's conformance).
 const launchLight = app.manifest.background_color, launchDark = app.manifest.background_color_dark;
 const hex = (value) => /^#(?:[0-9a-f]{3}|[0-9a-f]{6}|[0-9a-f]{8})$/i.test(value ?? '') ? value : null;
-const launchCss = hex(launchLight) ? `html{background-color:${launchLight}}${hex(launchDark) ? `@media (prefers-color-scheme:dark){html{background-color:${launchDark}}}` : ''}` : '';
+const launchHtml = 'html:has(#exact-root:empty)';
+const launchCss = hex(launchLight) ? `${launchHtml}{background-color:${launchLight}}${hex(launchDark) ? `@media (prefers-color-scheme:dark){${launchHtml}{background-color:${launchDark}}}` : ''}` : '';
 writeFileSync(resolve(stage, 'index.html'), readFileSync(resolve(stage, 'index.html'), 'utf8')
   .replace(/<style>([\s\S]*?)<\/style>/, (_, css) => `<style>${minifyCss(css)}${launchCss}</style>`)
   .replace('<html lang="en">', `<html lang="${escapeHtml(webManifest.lang)}">`)
   .replace('<title>Exact</title>', `<title>${escapeHtml(webManifest.name)}</title>`)
+  // LLP 1116 D8: the app's icon in place of the shell's default one.
+  .replace(/<link rel="icon"[^>]*>/, (link) => icon ? `<link rel="icon" type="${escapeHtml(icon.type ?? 'image/png')}" href="./${escapeHtml(icon.src)}">` : link)
+  // `app.json`'s `audio_session` (LLP 1096 D7), which sound-glue.js gives the Audio Session API where it exists.
+  .replace('<div id="exact-root"></div>', app.manifest.audio_session ? `<div id="exact-root" data-audio-session="${escapeHtml(app.manifest.audio_session)}"></div>` : '<div id="exact-root"></div>')
   .replace(
     '<script type="module" src="./glue.js"></script>',
-    `<link rel="alternate" type="application/vnd.exact.envelope+json" href="./exact.json">\n<link rel="manifest" href="./manifest.json">\n${icon ? `<link rel="icon" type="${escapeHtml(icon.type ?? 'image/png')}" href="./${escapeHtml(icon.src)}">\n` : ''}${webManifest.theme_color ? `<meta name="theme-color" content="${escapeHtml(webManifest.theme_color)}">\n` : ''}${pageNative ? '<meta name="exact-native" content="./modules/index.js">\n' : ''}<script type="module" src="./glue.js"></script>`,
+    `<link rel="alternate" type="application/vnd.exact.envelope+json" href="./exact.json">\n<link rel="manifest" href="./manifest.json">\n${webManifest.theme_color ? `<meta name="theme-color" content="${escapeHtml(webManifest.theme_color)}">\n` : ''}${pageNative ? '<meta name="exact-native" content="./modules/index.js">\n' : ''}<script type="module" src="./glue.js"></script>`,
   ));
 // app.wasm's URL names its build (LLP 1047.000 §9): `./app.wasm?v=` and
 // the first 16 hex digits of its SHA-256, in the shell's preload, which the
@@ -425,12 +461,15 @@ if (authReach.sessions) {
 // the web) and wasm-opt. Only when the app has a GPU crate.
 // Each declared GPU module (LLP 1009 D6) is its own wasm under gpu/, fetched
 // the first time a canvas of one of its surfaces mounts.
-const gpu = bakeOnly ? { note: 'none (--bake)', built: false } : webGpuArtifacts(app, stage);
+const gpu = bakeOnly ? { note: 'none (--bake)', built: false } : webGpuArtifacts(app, stage, {profile:gpuProfile});
 let gpuNote = gpu.note;
 if (gpu.built) {
   copyHostFiles('gpu');
   if (gpuModules(app.manifest).length) copyHostFiles('gpuModules');
   gpuNote += ', on demand';
+  // A game's world surfaces, by name, as its GPU build declared them (`.shells/surfaces.json`): a browser without
+  // WebGPU shows the refusal page over these and no other canvas (gpu-refusal.js, LLP 1139.003 D1).
+  if (game) writeFileSync(resolve(stage, 'index.html'), markWorlds(readFileSync(resolve(stage, 'index.html'), 'utf8'), worldSurfaces(app.dir)));
 }
 // @ref LLP 1024 D3/D5 — the app's module table, beside the page only when the
 // app has modules (the GPU gate): its web executor under `modules/`, fetched
@@ -453,17 +492,12 @@ if (app.modules.tags.length || app.modules.web) {
 writeFileSync(resolve(stage, '.exact-build.json'), JSON.stringify({
   exactBuild: 1, app: { id: app.id, name: app.displayName }, manifestSha256: appManifestDigest(app),
   files: await publicFileCards(stage).finally(closeFilesystemReader),
+  // Content digests of what this build read: a staleness check compares bytes, not times.
+  inputs: webInputDigests(app, false),
 }) + '\n');
-rmSync(previous, { recursive: true, force: true });
-if (existsSync(dist)) renameSync(dist, previous);
-try {
-  renameSync(stage, dist);
-  stage = null;
-} catch (error) {
-  if (existsSync(previous)) renameSync(previous, dist);
-  throw error;
-}
-rmSync(previous, { recursive: true, force: true });
+// In place in one step where the system has one (serve.mjs `replaceBuild`).
+publishWarmGame(app, stage, dist, warmInputs, buildReceipt, {...buildEnv, EXACT_GAME_PROOF_PROFILE:proofProfile});
+stage = null;
 if (bakeOnly) { console.log(`${relative(process.cwd(), dist) || "."}: the bake (no wasm): app.plan ${kib(planBytes.length)}, exact.json, index.html; documents: ${documentNote}${authNote}; modules: ${moduleNote}`); process.exit(0); }
 const textFlowWasm = readFileSync(resolve(dist, 'textflow.wasm'));
 const markdownEditor = readFileSync(resolve(dist, 'markup-editor.wasm'));

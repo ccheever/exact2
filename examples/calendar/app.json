@@ -1,0 +1,53 @@
+{
+  "$schema": "../../scripts/app.schema.json",
+  "name": "Calendar",
+  "short_name": "Calendar",
+  "id": "com.exact.calendar",
+  "start_url": "/",
+  "display": "standalone",
+  "theme_color": "#F7F7FA",
+  "background_color": "#F7F7FA",
+  "icons": [
+    {
+      "src": "assets/icon.png",
+      "sizes": "1024x1024",
+      "type": "image/png"
+    }
+  ],
+  "app": {
+    "id": "com.exact.calendar",
+    "name": "Calendar"
+  },
+  "modules": [
+    "calendar-input-root",
+    "calendar-drag-handle"
+  ],
+  "rust": "off",
+  "host": {
+    "ios": {
+      "minimumOS": "17.0",
+      "deviceFamily": [
+        "iphone",
+        "ipad"
+      ]
+    },
+    "macos": {
+      "minimumOS": "14.0",
+      "window": {
+        "width": 1180,
+        "height": 800,
+        "minWidth": 320,
+        "minHeight": 480
+      }
+    },
+    "web": {}
+  },
+  "deploy": {
+    "store": {
+      "web": "0",
+      "ios": "0",
+      "macos": "0",
+      "linux": "0"
+    }
+  }
+}

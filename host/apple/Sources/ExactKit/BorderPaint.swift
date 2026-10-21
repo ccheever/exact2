@@ -14,15 +14,59 @@
 // the quadrilateral covers all of the corner's border. Sides that share a
 // colour are one clip, so no seam shows where they meet.
 import CoreGraphics
+import QuartzCore
 
-enum BorderPaint {
+package enum BorderPaint {
+    /// Percentages use the border box's width and height independently.
+    static func radii(_ style: NodeStyle, in rect: CGRect, inset: CGFloat = 0) -> [CGSize] {
+        ["top_left", "top_right", "bottom_right", "bottom_left"].map { name in
+            let value = style["border_radius_" + name] ?? style["border_radius"]
+            func length(_ basis: CGFloat) -> CGFloat {
+                max(0, (value?.length(basis: basis) ?? 0) - inset)
+            }
+            return CGSize(width: length(rect.width + 2 * inset), height: length(rect.height + 2 * inset))
+        }
+    }
+
+    /// A private material/media layer owns its mask. Keep the circular fast
+    /// path; percentages on non-square boxes need the resolved elliptical path.
+    @discardableResult
+    static func clip(_ layer: CALayer, in rect: CGRect, radii: [CGSize]) -> CGFloat {
+        let corners = reduced(radii, in: rect)
+        let first = corners[0]
+        let circular = first.width == first.height && corners.allSatisfy { $0 == first }
+        let radius = circular ? first.width : 0
+        layer.cornerRadius = radius
+        layer.masksToBounds = true
+        layer.mask = circular ? nil : ClipPath.mask(roundedRect(rect, corners))
+        return radius
+    }
+
+    /// The outline `clip` masks with: nil when the radius says it.
+    static func uncircular(in rect: CGRect, radii: [CGSize]) -> CGPath? {
+        let corners = reduced(radii, in: rect)
+        let first = corners[0]
+        return first.width == first.height && corners.allSatisfy({ $0 == first }) ? nil : roundedRect(rect, corners)
+    }
+
+    /// A replaced element's content edge: reduce at the border edge first,
+    /// then remove each adjacent border/padding inset from that corner.
+    static func contentRadii(_ radii: [CGSize], outer: CGRect, inner: CGRect) -> [CGSize] {
+        let r = reduced(radii, in: outer)
+        let left = inner.minX - outer.minX, right = outer.maxX - inner.maxX
+        let top = inner.minY - outer.minY, bottom = outer.maxY - inner.maxY
+        return zip(r, [CGSize(width: left, height: top), CGSize(width: right, height: top),
+                       CGSize(width: right, height: bottom), CGSize(width: left, height: bottom)])
+            .map { CGSize(width: max(0, $0.width - $1.width), height: max(0, $0.height - $1.height)) }
+    }
+
     /// Circle-to-cubic control distance for a quarter arc.
     private static let kappa: CGFloat = 0.5522847498
 
     /// CSS's radius reduction: every corner scaled by the one factor that
     /// keeps two neighbours from overlapping an edge. `radii` are top-left,
     /// top-right, bottom-right, bottom-left, as (horizontal, vertical).
-    static func reduced(_ radii: [CGSize], in rect: CGRect) -> [CGSize] {
+    package static func reduced(_ radii: [CGSize], in rect: CGRect) -> [CGSize] {
         let sums = [radii[0].width + radii[1].width, radii[3].width + radii[2].width,
                     radii[0].height + radii[3].height, radii[1].height + radii[2].height]
         let edges = [rect.width, rect.width, rect.height, rect.height]
@@ -31,8 +75,10 @@ enum BorderPaint {
         return radii.map { CGSize(width: max(0, $0.width * factor), height: max(0, $0.height * factor)) }
     }
 
-    /// A rectangle with an elliptical radius per corner, clockwise on screen.
-    static func roundedRect(_ r: CGRect, _ radii: [CGSize]) -> CGMutablePath {
+    /// A rectangle with an elliptical radius per corner, clockwise on screen;
+    /// with a `corner-shape`, the kernel's outline (LLP 1077 D1).
+    package static func roundedRect(_ r: CGRect, _ radii: [CGSize], shape: CornerShape? = nil) -> CGMutablePath {
+        if let shape { return shape.outline(r, radii) }
         let p = CGMutablePath()
         let (tl, tr, br, bl) = (radii[0], radii[1], radii[2], radii[3])
         let k = kappa
@@ -60,10 +106,10 @@ enum BorderPaint {
     /// Paint `box`'s border. `widths` and `colors` are top, right, bottom,
     /// left; `radii` the authored corner radii (top-left, top-right,
     /// bottom-right, bottom-left), reduced here as CSS reduces them.
-    static func paint(_ ctx: CGContext, box: CGRect, widths: [CGFloat], colors: [CGColor], radii: [CGFloat]) {
+    static func paint(_ ctx: CGContext, box: CGRect, widths: [CGFloat], colors: [CGColor], radii: [CGSize], styles: [String] = Array(repeating: "solid", count: 4), shape: CornerShape? = nil) {
         let w = widths.map { max(0, $0) }
         guard w.contains(where: { $0 > 0 }), box.width > 0, box.height > 0 else { return }
-        let outer = reduced(radii.map { CGSize(width: max(0, $0), height: max(0, $0)) }, in: box)
+        let outer = reduced(radii, in: box)
         let inner = CGRect(x: box.minX + w[3], y: box.minY + w[0],
                            width: max(0, box.width - w[3] - w[1]), height: max(0, box.height - w[0] - w[2]))
         // The padding box's radii: each outer radius less the adjacent widths.
@@ -73,12 +119,12 @@ enum BorderPaint {
             CGSize(width: outer[2].width - w[1], height: outer[2].height - w[2]),
             CGSize(width: outer[3].width - w[3], height: outer[3].height - w[2]),
         ].map { CGSize(width: max(0, $0.width), height: max(0, $0.height)) }, in: inner)
-        let ring = roundedRect(box, outer)
-        ring.addPath(roundedRect(inner, innerRadii))
+        let ring = roundedRect(box, outer, shape: shape)
+        ring.addPath(roundedRect(inner, innerRadii, shape: shape))
 
         // Visible sides, grouped by colour.
         var groups: [(CGColor, [Int])] = []
-        for side in 0..<4 where w[side] > 0 && colors[side].alpha > 0 {
+        for side in 0..<4 where w[side] > 0 && colors[side].alpha > 0 && styles[side] != "dotted" && styles[side] != "dashed" {
             if let i = groups.firstIndex(where: { $0.0 == colors[side] }) { groups[i].1.append(side) }
             else { groups.append((colors[side], [side])) }
         }
@@ -98,6 +144,74 @@ enum BorderPaint {
             ctx.addPath(ring); ctx.setFillColor(color); ctx.fillPath(using: .evenOdd)
             ctx.restoreGState()
         }
+        for side in 0..<4 where w[side] > 0 && colors[side].alpha > 0 && (styles[side] == "dotted" || styles[side] == "dashed") {
+            ctx.saveGState()
+            ctx.addPath(ring); ctx.clip(using: .evenOdd)
+            ctx.addLines(between: quads[side]); ctx.closePath(); ctx.clip()
+            paintPattern(ctx, box: box, widths: w, outer: outer, innerRadii: innerRadii,
+                         side: side, color: colors[side], style: styles[side], shape: shape)
+            ctx.restoreGState()
+        }
+    }
+
+    private static func bestGap(_ length: CGFloat, dash: CGFloat, gap: CGFloat, closed: Bool) -> CGFloat {
+        let available = closed ? length : length + gap
+        let low = max(1, floor(available / (dash + gap))), high = low + 1
+        let a = (length - low * dash) / max(1, closed ? low : low - 1)
+        let b = (length - high * dash) / max(1, closed ? high : high - 1)
+        return b <= 0 || abs(a - gap) < abs(b - gap) ? a : b
+    }
+
+    private static func paintPattern(_ ctx: CGContext, box: CGRect, widths: [CGFloat], outer: [CGSize], innerRadii: [CGSize],
+                                     side: Int, color: CGColor, style: String, shape: CornerShape?) {
+        let width = widths[side]
+        let curved = outer.contains { $0.width > 0 && $0.height > 0 }
+        let mid = box.insetBy(left: widths[3] / 2, top: widths[0] / 2, right: widths[1] / 2, bottom: widths[2] / 2)
+        let midRadii = reduced((0..<4).map { i in CGSize(width: (outer[i].width + innerRadii[i].width) / 2,
+                                                          height: (outer[i].height + innerRadii[i].height) / 2) }, in: mid)
+        let path = CGMutablePath()
+        let length: CGFloat
+        if curved {
+            path.addPath(roundedRect(mid, midRadii, shape: shape))
+            let straight = max(0, mid.width - midRadii[0].width - midRadii[1].width)
+                + max(0, mid.width - midRadii[2].width - midRadii[3].width)
+                + max(0, mid.height - midRadii[1].height - midRadii[2].height)
+                + max(0, mid.height - midRadii[3].height - midRadii[0].height)
+            let arcs = midRadii.reduce(CGFloat(0)) { sum, r in
+                let a = r.width, b = r.height
+                return sum + (a + b == 0 ? 0 : .pi / 4 * (3 * (a + b) - sqrt((3 * a + b) * (a + 3 * b))))
+            }
+            length = straight + arcs
+        } else {
+            let phase = style == "dotted" && width > 3 ? width / 2 : 0
+            let thinDot = style == "dotted" && width <= 3
+            let p: [CGPoint] = [CGPoint(x: thinDot ? box.maxX : box.minX + phase, y: box.minY + width / 2),
+                                CGPoint(x: box.maxX - width / 2, y: thinDot ? box.maxY : box.minY + phase),
+                                CGPoint(x: thinDot ? box.maxX : box.minX + phase, y: box.maxY - width / 2),
+                                CGPoint(x: box.minX + width / 2, y: thinDot ? box.maxY : box.minY + phase)]
+            let q: [CGPoint] = [CGPoint(x: thinDot ? box.minX : box.maxX + phase, y: p[0].y),
+                                CGPoint(x: p[1].x, y: thinDot ? box.minY : box.maxY + phase),
+                                CGPoint(x: thinDot ? box.minX : box.maxX + phase, y: p[2].y),
+                                CGPoint(x: p[3].x, y: thinDot ? box.minY : box.maxY + phase)]
+            path.move(to: p[side]); path.addLine(to: q[side])
+            length = side % 2 == 0 ? abs(q[side].x - p[side].x) : abs(q[side].y - p[side].y)
+        }
+        let dotted = style == "dotted", round = dotted && width > 3
+        var dash = round ? CGFloat(0.01) : dotted ? width : width * (width >= 3 ? 2 : 3)
+        let nominalGap = dotted ? width : width * (width >= 3 ? 1 : 2)
+        var gap = round ? bestGap(length, dash: width, gap: width, closed: curved) + width - dash
+            : dotted ? nominalGap : bestGap(length, dash: dash, gap: nominalGap, closed: curved)
+        if !round && length <= 2 * dash {
+            dash = length; gap = 0
+        } else if !round && length <= 2 * dash + nominalGap * (curved ? 2 : 1) {
+            let scale = length / (2 * dash + nominalGap * (curved ? 2 : 1))
+            dash *= scale; gap = nominalGap * scale
+        }
+        ctx.setStrokeColor(color)
+        ctx.setLineWidth(width)
+        ctx.setLineCap(round ? .round : .butt)
+        ctx.setLineDash(phase: 0, lengths: gap > 0 ? [dash, max(0.01, gap)] : [])
+        ctx.addPath(path); ctx.strokePath()
     }
 
     /// Each side's quadrilateral (top, right, bottom, left): outer corner,

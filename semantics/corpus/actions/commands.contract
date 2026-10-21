@@ -1,0 +1,35 @@
+// Host commands issued by an action are observed after its commit, in
+// statement order; a refused action issues none.
+component App
+  state n = 1
+  state d = 1
+  action copy
+    copyText(`n is ${n}`)
+    haptic("success")
+  action branchy(v: number)
+    if v > 0
+      copyText("positive")
+    else
+      openURL("https://example.com/?q=" + encodeURIComponent(`${v} & more`))
+    n = n + 1
+  action broken
+    copyText("never")
+    n = n / (d - 1)
+  view
+    column
+      text `${n}` testId="n"
+      button "copy" press=copy testId="copy"
+      button "pos" press=branchy(1) testId="pos"
+      button "neg" press=branchy(-1) testId="neg"
+      button "broken" press=broken testId="broken"
+
+test "commands in order"
+  tap "copy"
+  tap "pos"
+  tap "neg"
+  expect state n == 3
+
+test "refused action issues no command"
+  tap "broken"
+  expect state n == 1
+  tap "copy"

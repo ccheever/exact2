@@ -1,0 +1,9 @@
+[package]
+name = "wind-fixture-logic"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+workspace = "../.shells"
+
+[dependencies]
+exact-game.workspace = true

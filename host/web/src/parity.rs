@@ -45,9 +45,21 @@ pub const COLOR_TOLERANCE: (f64, f64) = (1.0, 1.0 / 255.0 + 1e-3);
 /// LLP 1001 §5: sibling z-index cannot escape a later static paint group.
 /// Blending is an SVG-only row (LLP 1055.000); the island supplies its own
 /// backdrop. The two halves distinguish internal and external blue paint.
-pub const PAINT_SOURCE: &str = r##"component PaintGroups
+/// The flat fills below them are the colours web and macOS once disagreed
+/// on: `hsl()` (feed F13), `currentcolor` (feed F1), a button's bound
+/// `light-dark()` face after a press (trivia F6), and opacity keyframes half
+/// way through (feed F20); probes marked `after` are read after `flip` and
+/// 500 ms of the agent's clock.
+pub const PAINT_SOURCE: &str = r##"keyframes fade
+  from opacity=1
+  to opacity=0
+
+component PaintGroups
+  state on = false
+  action flip
+    on = not on
   view
-    column testId="root" width=240 height=200 background-color="#ffffff"
+    column testId="root" width=240 height=240 background-color="#ffffff"
       view testId="nested-z" position="relative" width=120 height=80
         view position="absolute" width=120 height=80 z-index=1 background-color="#0000ff"
         view width=120 height=80
@@ -58,13 +70,25 @@ pub const PAINT_SOURCE: &str = r##"component PaintGroups
           svg width=120 height=80 viewBox="0 0 120 80"
             rect width=60 height=80 fill="#0000ff"
             rect width=120 height=80 fill="#ff0000" mix-blend-mode="multiply"
+      row testId="fills" width=240 height=40
+        view testId="hsl" width=60 height=40 background-color=(on ? "hsl(120, 100%, 25%)" : "hsl(0, 100%, 50%)")
+        view testId="current" width=60 height=40 color="#0000ff" background-color="currentcolor"
+        button testId="flip" press=flip disabled=on width=60 height=40 border-width=0 background-color=(on ? "light-dark(#00ff00, #000000)" : "light-dark(#ff0000, #000000)")
+        if on
+          view testId="fade" width=60 height=40 background-color="#0000ff" animation="fade 1000ms linear both"
 "##;
 
 /// Samples are well inside flat fills, away from antialiasing and edges.
 pub const PAINT_EXPECTED: &str = r#"[
   {"node":"nested-z","x":60,"y":40,"rgb":[0,0,255]},
   {"node":"svg-blend","x":30,"y":40,"rgb":[0,0,0]},
-  {"node":"svg-blend","x":90,"y":40,"rgb":[255,0,0]}
+  {"node":"svg-blend","x":90,"y":40,"rgb":[255,0,0]},
+  {"node":"hsl","x":30,"y":20,"rgb":[255,0,0]},
+  {"node":"current","x":30,"y":20,"rgb":[0,0,255]},
+  {"node":"flip","x":30,"y":20,"rgb":[255,0,0]},
+  {"node":"hsl","x":30,"y":20,"rgb":[0,128,0],"after":true},
+  {"node":"flip","x":30,"y":20,"rgb":[0,255,0],"after":true},
+  {"node":"fade","x":30,"y":20,"rgb":[128,128,255],"after":true}
 ]"#;
 
 /// Fixed boxes avoid platform font metrics; the root's viewport offset is
@@ -77,11 +101,11 @@ component PresenceTimeline
   state moved = false
   state large = false
   state shown = true
-  action move writes moved
+  action move
     moved = not moved
-  action grow writes large
+  action grow
     large = not large
-  action hide writes shown
+  action hide
     shown = false
   view
     column testId="root" width=300 height=500
@@ -90,9 +114,9 @@ component PresenceTimeline
         button "Grow" testId="grow" press=grow width=80 height=30
         button "Hide" testId="hide" press=hide width=80 height=30
       view height=(moved ? 120 : 20) flex-shrink=0
-      when shown
-        view testId="card" width=(large ? 180 : 100) height=(large ? 80 : 40) flex-shrink=0 background-color="#ff0000" layout-transition="1000ms linear" exit-animation="leave 400ms linear both"
-      view testId="sibling" width=50 height=30 flex-shrink=0 background-color="#0000ff" layout-transition="1000ms linear"
+      if shown
+        view testId="card" width=(large ? 180 : 100) height=(large ? 80 : 40) flex-shrink=0 background-color="#ff0000" -exact-layout-transition="1000ms linear" -exact-exit-animation="leave 400ms linear both"
+      view testId="sibling" width=50 height=30 flex-shrink=0 background-color="#0000ff" -exact-layout-transition="1000ms linear"
 "##;
 
 /// Relative agent-clock advances, sampled after every operation. Resizing
@@ -132,7 +156,7 @@ pub const GEOMETRY_SOURCE: &str = r##"component GeometryReads
   state missing = false
   state seenA = 0
   state seenB = 0
-  action read writes room, top, left, natural, sized, answered, missing
+  action read
     room = frame("bay").height
     top = frame("sheet").y
     left = frame("sheet").x
@@ -140,10 +164,10 @@ pub const GEOMETRY_SOURCE: &str = r##"component GeometryReads
     sized = frame("sheet").height
     answered = not frame("bay").unavailable and not measure("sheet").unavailable
     missing = frame("nowhere").unavailable
-  action first writes seenA, bayPx
+  action first
     seenA = frame("bay").height
     bayPx = bayPx + 100
-  action second writes seenB, bayPx
+  action second
     seenB = frame("bay").height
     bayPx = bayPx + 100
   task a mount
@@ -530,7 +554,7 @@ pub fn cases() -> Vec<Case> {
         single(
             "color-spring",
             Property::BackgroundColor,
-            "background-color spring(180, 12, 1)",
+            "background-color -exact-spring(180, 12, 1)",
             rgba(0, 0, 0, 1.0),
             rgba(255, 128, 0, 1.0),
             &[0.05, 0.1, 0.2, 0.3, 0.45],
@@ -563,7 +587,7 @@ pub fn cases() -> Vec<Case> {
     out.push(single(
         "spring",
         Property::Scale,
-        "scale spring(180, 12, 1)",
+        "scale -exact-spring(180, 12, 1)",
         o(1.0),
         o(1.5),
         &[0.05, 0.1, 0.1020833333, 0.2, 0.35, 0.5, 0.8],

@@ -136,7 +136,7 @@ impl Data for Counted {
     }
 }
 #[test]
-fn clock_streams_eight_reasons_and_serializes_each_row_only_twice() {
+fn clock_streams_eight_reasons_and_serializes_each_unwritten_row_once() {
     struct Many;
     impl Game for Many {
         type Args = ();
@@ -159,7 +159,7 @@ fn clock_streams_eight_reasons_and_serializes_each_row_only_twice() {
         "reason visits {}",
         MOVES.load(Ordering::Relaxed)
     );
-    assert_eq!(WRITES.load(Ordering::Relaxed), 400);
+    assert_eq!(WRITES.load(Ordering::Relaxed), 200);
 }
 #[test]
 fn helper_matches_hosts_initial_read_and_fifteen_followups() {

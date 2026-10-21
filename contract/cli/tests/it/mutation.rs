@@ -8,6 +8,146 @@ use exact_runner::{
     RunnerError, Value,
 };
 
+const WITH_CONTEXT: &str = r#"component App
+  state car = "train"
+  state minute = 10
+  state display = true
+  derive sample = minute + 1
+  resource status = status(car) with sample, display as shape string
+  resource plain = status(car, sample, display) as shape string
+  resource singleton = singleton() with sample as shape number
+  action tick(value: number)
+    minute = value
+  action toggle
+    display = not display
+  action choose(value: string)
+    car = value
+  view
+    text status
+"#;
+
+#[test]
+fn resource_context_lowers_types_and_evaluates_in_full_argument_order() {
+    use exact_plan::{Plan, TypeKind};
+    #[derive(Default)]
+    struct ContextData(Vec<(String, Vec<Value>)>);
+    impl DataSource for ContextData {
+        fn query(&mut self, source: &str, args: &[Value]) -> Result<Value, DataError> {
+            self.0.push((source.into(), args.to_vec()));
+            match (source, args) {
+                ("status", [car, Value::Number(minute), Value::Bool(display)])
+                    if car.as_str().is_some() =>
+                {
+                    Ok(Value::str(&format!(
+                        "{}/{minute}/{display}",
+                        car.as_str().unwrap()
+                    )))
+                }
+                ("singleton", [Value::Number(minute)]) => Ok(Value::Number(*minute)),
+                _ => Err(DataError::Unavailable("wrong argument order".into())),
+            }
+        }
+    }
+    let plan = contract::compile(WITH_CONTEXT).unwrap();
+    let plan = Plan::decode(&plan.encode()).unwrap();
+    assert_eq!(
+        plan.resources
+            .iter()
+            .map(|r| (r.args.len, r.context))
+            .collect::<Vec<_>>(),
+        [(3, 2), (3, 0), (1, 1)]
+    );
+    let signature = plan
+        .sources
+        .iter()
+        .find(|r| plan.str(r.name) == "status")
+        .unwrap();
+    let params: Vec<_> = signature
+        .params
+        .iter()
+        .map(|p| plan.source_param(p).ty)
+        .collect();
+    assert_eq!(
+        params
+            .iter()
+            .map(|ty| plan.type_(*ty).kind)
+            .collect::<Vec<_>>(),
+        [TypeKind::String, TypeKind::Number, TypeKind::Bool]
+    );
+    let typescript = contract::typescript(&plan).unwrap();
+    assert!(typescript.contains(&format!(
+        "\"status\": {{ args: [T{}, T{}, T{}]; result:",
+        params[0].0, params[1].0, params[2].0
+    )));
+    let mut r = Runner::boot(
+        plan,
+        ContextData::default(),
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    let expected = |minute, display| {
+        vec![
+            Value::str("train"),
+            Value::Number(minute),
+            Value::Bool(display),
+        ]
+    };
+    assert_eq!(
+        r.data().0,
+        [
+            ("status".into(), expected(11.0, true)),
+            ("status".into(), expected(11.0, true)),
+            ("singleton".into(), vec![Value::Number(11.0)]),
+        ]
+    );
+    r.act("tick", vec![Value::Number(10.0)]).unwrap();
+    assert_eq!(r.data().0.len(), 3, "equal full arguments reuse the answer");
+    r.act("tick", vec![Value::Number(20.0)]).unwrap();
+    assert_eq!(
+        &r.data().0[3..],
+        [
+            ("status".into(), expected(21.0, true)),
+            ("status".into(), expected(21.0, true)),
+            ("singleton".into(), vec![Value::Number(21.0)]),
+        ]
+    );
+    r.act("toggle", vec![]).unwrap();
+    assert_eq!(
+        &r.data().0[6..],
+        [
+            ("status".into(), expected(21.0, false)),
+            ("status".into(), expected(21.0, false)),
+        ]
+    );
+    assert_eq!(
+        r.resource_args("status"),
+        Some(expected(21.0, false).as_slice())
+    );
+}
+
+#[test]
+fn resource_context_participates_in_source_signature_checks() {
+    for replacement in ["with sample", "with sample, car"] {
+        let error = contract::compile(&WITH_CONTEXT.replace("with sample, display", replacement))
+            .unwrap_err();
+        assert_eq!(error.id, "type-source-signature", "{error}");
+    }
+}
+
+#[test]
+fn resource_context_count_refuses_overflow() {
+    let values = vec!["0"; usize::from(u16::MAX) + 1].join(",");
+    let source = format!(
+        "component App\n  resource result = status() with {values} as shape number\n  view\n    text result\n"
+    );
+    assert_eq!(
+        contract::compile(&source).unwrap_err().id,
+        "lower-resource-context"
+    );
+}
+
 const SRC: &str = r#"
 shape Session
   ok: bool
@@ -25,16 +165,16 @@ component App
   resource balance = balance(token) as shape Balance
   derive busy = pending(session)
 
-  action setWho(v) writes who
+  action setWho(v)
     who = v
-  action setPassword(v) writes password
+  action setPassword(v)
     password = v
-  action submit writes session
+  action submit
     send session = login(who, password)
-  action logout writes session
+  action logout
     send session = logout(token)
     session = none
-  action paid writes who
+  action paid
     refresh balance
 
   view
@@ -47,11 +187,11 @@ component App
         text "Log out"
       button press=paid aria-label="Paid" testId="paid"
         text "Paid"
-      when busy
+      if busy
         text "Logging in…" testId="busy"
       match session
         case some(s)
-          when s.ok
+          if s.ok
             text `Signed in as ${s.username}` testId="signed-in"
           else
             text s.error testId="error"
@@ -257,9 +397,9 @@ fn send_asks_the_host_and_fulfill_fills_the_slot() {
 }
 
 /// No host delivers a ticket twice, so a reply the source fails to take is
-/// let go: the mutation ends unsent and the view stops showing it pending.
+/// let go without retry, and the view stops showing the mutation pending.
 #[test]
-fn a_failed_fulfill_ends_the_mutation_unsent() {
+fn a_failed_fulfill_ends_the_mutation_without_retry() {
     let mut r = boot();
     r.dispatch(view_of(&r, "login"), Event::Press).unwrap();
     let ticket = r.take_requests()[0].ticket;
@@ -272,7 +412,7 @@ fn a_failed_fulfill_ends_the_mutation_unsent() {
     assert!(r.journal().any(|l| l.contains("parse refused")));
     assert!(r
         .journal()
-        .any(|l| l.contains("failed and is no longer pending: it ends unsent")));
+        .any(|l| l.contains("failed and is no longer pending: it is not retried")));
     assert!(
         r.fulfill(ticket, ok(200)).unwrap().is_none(),
         "a released ticket commits nothing"
@@ -280,7 +420,7 @@ fn a_failed_fulfill_ends_the_mutation_unsent() {
 }
 
 #[test]
-fn a_mutation_refused_admission_ends_unsent_and_is_never_retried() {
+fn a_mutation_refused_admission_is_never_retried() {
     let mut r = boot();
     r.dispatch(view_of(&r, "login"), Event::Press).unwrap();
     let ticket = r.take_requests()[0].ticket;
@@ -295,7 +435,7 @@ fn a_mutation_refused_admission_ends_unsent_and_is_never_retried() {
     assert!(r.take_requests().is_empty(), "a write is never retried");
     assert!(r
         .journal()
-        .any(|l| l.contains("was refused admission: it ends unsent")));
+        .any(|l| l.contains("failed and is no longer pending: it is not retried")));
 }
 
 #[test]
@@ -468,12 +608,6 @@ fn the_language_refuses_what_it_should() {
         let e = contract::compile(&SRC.replace(edit, with)).unwrap_err();
         assert!(format!("{e}").contains(id), "{e}");
     };
-    // A send needs its mutation in `writes`.
-    refuse(
-        "action submit writes session",
-        "action submit",
-        "analyze-write-not-declared",
-    );
     // `send` only to a mutation; `refresh` only a resource.
     refuse(
         "send session = login(who, password)",
@@ -494,7 +628,7 @@ fn the_language_refuses_what_it_should() {
 /// (LLP 1018 §4's `current`): the fixpoint waits for `?` to fill.
 #[test]
 fn a_derive_over_a_matched_record_types_in_any_order() {
-    let src = "shape Session\n  ok: bool\n  username: string\n\ncomponent App\n  derive signedIn = current.ok\n  derive who = current.username\n  resource remembered = remember() as shape Session\n  mutation session as shape Session\n  derive current = match session { case some(s) => s, case none => remembered }\n  action go writes session\n    send session = login()\n  view\n    text `${who} ${signedIn}` press=go\n";
+    let src = "shape Session\n  ok: bool\n  username: string\n\ncomponent App\n  derive signedIn = current.ok\n  derive who = current.username\n  resource remembered = remember() as shape Session\n  mutation session as shape Session\n  derive current = match session { case some(s) => s, case none => remembered }\n  action go\n    send session = login()\n  view\n    text `${who} ${signedIn}` press=go\n";
     let plan = contract::compile(src).unwrap();
     assert_eq!(plan.derives.len(), 3);
     // And a field that never types is still refused, by name.
@@ -512,17 +646,17 @@ shape Effect
 
 component App
   state trigger = 0
-  resource items = items(trigger) as shape list<Item>
+  resource items = items(trigger) as shape Item[]
   mutation effect as shape Effect
 
-  action go writes trigger, effect
+  action go
     send effect = effect()
     trigger = trigger + 1
     setScheme("dark")
 
   view
     column testId="root"
-      each item in items key=item.id
+      for item in items key=item.id
         text item.id + item.id
 "#;
 
@@ -593,6 +727,19 @@ fn poison_leaks_no_effects_from_the_failed_commit() {
     assert!(r.store_names().is_empty());
 }
 
+/// `STORE_SRC` compiled and baked once for the binary; each test boots its own runner over it.
+fn store_plan() -> exact_plan::Plan {
+    static PLAN: std::sync::OnceLock<exact_plan::Plan> = std::sync::OnceLock::new();
+    PLAN.get_or_init(|| {
+        contract::bake(
+            contract::compile(STORE_SRC).unwrap(),
+            StoreSource::default(),
+        )
+        .unwrap()
+    })
+    .clone()
+}
+
 const STORE_SRC: &str = r#"
 shape Session
   username: string
@@ -607,11 +754,11 @@ component App
   resource writer = writer(clear) as shape Flag
   mutation session as shape Session
 
-  action submit writes session
+  action submit
     send session = login()
-  action logout writes session
+  action logout
     send session = logout()
-  action clearStore writes clear
+  action clearStore
     clear = true
 
   view
@@ -688,8 +835,7 @@ impl DataSource for StoreSource {
 
 #[test]
 fn a_parse_store_write_reanswers_store_reading_resources() {
-    let plan = contract::compile(STORE_SRC).unwrap();
-    let baked = contract::bake(plan, StoreSource::default()).unwrap();
+    let baked = store_plan();
     let mut r = Runner::boot_stored(
         baked,
         StoreSource {
@@ -728,8 +874,7 @@ fn a_parse_store_write_reanswers_store_reading_resources() {
 
 #[test]
 fn a_mutation_answer_store_write_reanswers_store_reading_resources() {
-    let plan = contract::compile(STORE_SRC).unwrap();
-    let baked = contract::bake(plan, StoreSource::default()).unwrap();
+    let baked = store_plan();
     let mut r = Runner::boot_stored(
         baked,
         StoreSource {
@@ -760,8 +905,7 @@ fn a_mutation_answer_store_write_reanswers_store_reading_resources() {
 
 #[test]
 fn a_resource_answer_store_write_reanswers_an_earlier_store_reader() {
-    let plan = contract::compile(STORE_SRC).unwrap();
-    let baked = contract::bake(plan, StoreSource::default()).unwrap();
+    let baked = store_plan();
     let mut r = Runner::boot_stored(
         baked,
         StoreSource {
@@ -791,8 +935,7 @@ fn a_resource_answer_store_write_reanswers_an_earlier_store_reader() {
 
 #[test]
 fn a_baked_store_dependency_is_transitive_through_resource_arguments() {
-    let plan = contract::compile(STORE_SRC).unwrap();
-    let baked = contract::bake(plan, StoreSource::default()).unwrap();
+    let baked = store_plan();
     for name in ["remembered", "echoed"] {
         let row = baked
             .resources
@@ -837,11 +980,11 @@ component App
   state greeted = ""
   state landings = 0
   mutation session as shape Session then signedIn
-  action submit writes session
+  action submit
     send session = login(who, "pw")
-  action quick writes session
+  action quick
     send session = greet(who)
-  action signedIn writes greeted, landings
+  action signedIn
     landings = landings + 1
     match session
       case some(s)
@@ -928,6 +1071,44 @@ fn then_runs_after_an_answer_in_the_sending_commit_and_not_after_a_failure() {
     assert_eq!(text_of(&r, "greeted").as_deref(), Some("/0"));
 }
 
+/// An agent's input ends by landing what it settled (LLP 1012 §2; trivia
+/// F3): `land_then` runs the armed `then` without moving the clock or
+/// firing a timer due at it.
+#[test]
+fn land_then_runs_the_armed_then_and_no_timer() {
+    let source = THEN.replace(
+        "  action quick\n",
+        "  state ticks = 0\n  action tick\n    ticks = ticks + 1\n  task ticking mount\n    every(100, tick)\n  action quick\n",
+    );
+    let baked = contract::bake(contract::compile(&source).unwrap(), Castle::default()).unwrap();
+    let mut r = Runner::boot(
+        baked,
+        Castle::default(),
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    assert_eq!(r.advance(50.0).unwrap().len(), 0);
+    assert!(
+        r.land_then().receipts.is_empty(),
+        "nothing armed, nothing run"
+    );
+    r.dispatch(view_of(&r, "quick"), Event::Press).unwrap();
+    assert_eq!(text_of(&r, "greeted").as_deref(), Some("/0"));
+    let landed = r.land_then();
+    assert!(landed.error.is_none());
+    assert_eq!(landed.receipts.len(), 1, "the then, as its own commit");
+    assert_eq!(landed.now_ms, 50.0, "the clock stays");
+    assert_eq!(text_of(&r, "greeted").as_deref(), Some("hello ada/1"));
+    assert_eq!(
+        r.timer_due_ms(),
+        Some(100.0),
+        "the timer is still the clock's"
+    );
+    assert!(r.land_then().receipts.is_empty(), "spent");
+}
+
 #[test]
 fn then_names_an_action_that_takes_nothing() {
     let refuse = |edit: &str, with: &str, id: &str| {
@@ -936,8 +1117,8 @@ fn then_names_an_action_that_takes_nothing() {
     };
     refuse("then signedIn", "then nobody", "analyze-unknown-action");
     refuse(
-        "action signedIn writes",
-        "action signedIn(x: number) writes",
+        "action signedIn\n",
+        "action signedIn(x: number)\n",
         "analyze-handler-arity",
     );
 }
@@ -949,20 +1130,12 @@ fn then_cannot_send_its_own_mutation_even_in_a_branch() {
         "    if who == \"ada\"\n      send session = greet(who)",
         "    match session\n      case some(s)\n        send session = greet(s.username)\n      case none\n        greeted = \"?\"",
     ] {
-        let src = THEN.replace(
-            "action signedIn writes greeted, landings",
-            "action signedIn writes greeted, landings, session",
-        ).replace("    landings = landings + 1", body);
+        let src = THEN.replace("    landings = landings + 1", body);
         let error = contract::compile(&src).unwrap_err();
         assert_eq!(error.id, "analyze-then-self-send");
     }
     // Clearing the answer is allowed; only sending can arm the action again.
-    let src = THEN
-        .replace(
-            "action signedIn writes greeted, landings",
-            "action signedIn writes greeted, landings, session",
-        )
-        .replace("    landings = landings + 1", "    session = none");
+    let src = THEN.replace("    landings = landings + 1", "    session = none");
     contract::compile(&src).unwrap();
 }
 
@@ -974,4 +1147,99 @@ fn two_answers_before_advance_currently_coalesce_into_one_then() {
     assert_eq!(r.advance(0.0).unwrap().len(), 1);
     assert_eq!(text_of(&r, "greeted").as_deref(), Some("hello ada/1"));
     assert_eq!(r.timer_due_ms(), None);
+}
+
+/// LLP 1088 D8 (flashcards F4): two sends to one mutation on one path are
+/// refused — the second forgets the first's reply (LLP 1016 D5). Exclusive
+/// arms pass, and so do sequential `if`s that test one unchanged name
+/// against different literals; an arm's send and another in the common
+/// suffix do not.
+#[test]
+fn two_sends_to_one_mutation_on_one_path_are_refused() {
+    let app = |body: &str| {
+        format!("shape Ack\n  op: string\ncomponent App\n  state open = true\n  state mode = \"a\"\n  mutation edited as shape Ack then afterEdit\n  action afterEdit\n    open = false\n  action commitEdit(k: string)\n{body}  view\n    button \"s\" press=commitEdit(\"1\")\n")
+    };
+    let message = "`commitEdit` sends `edited` twice; only the last send's reply reaches `then afterEdit` (LLP 1016 D5). Send once, use a mutation per request, or declare `mutation edited … queue` to run both in order".to_string();
+    // A send in an arm says why both can run (chess #2).
+    let armed = |a: u32, b: u32| {
+        format!("`commitEdit` sends `edited` twice on one path, at lines {a} and {b}: every `if` is read as one that can run, unless the two sends are arms of one `if`/`else` or `match`, or sit in `if`s testing one unchanged name against different literals. Only the last send's reply reaches `then afterEdit` (LLP 1016 D5): send once, make the sends arms of one `if … else if`, use a mutation per request, or declare `mutation edited … queue` to run both in order")
+    };
+    for (body, message) in [
+        // Flashcards' `commitEdit`.
+        (
+            "    send edited = saveCard(\"a\")\n    send edited = setImage(\"b\")\n",
+            message,
+        ),
+        // An arm, then the common suffix.
+        (
+            "    if k == \"1\"\n      send edited = setImage(\"b\")\n    send edited = saveCard(\"a\")\n",
+            armed(11, 12),
+        ),
+        // A `match` arm, then the suffix.
+        (
+            "    match some(k)\n      case some(x)\n        send edited = setImage(x)\n      case none\n        open = true\n    send edited = saveCard(\"a\")\n",
+            armed(12, 15),
+        ),
+        // The tested name changes between the two tests.
+        (
+            "    if mode == \"a\"\n      send edited = saveCard(\"a\")\n      mode = \"b\"\n    if mode == \"b\"\n      send edited = setImage(\"b\")\n",
+            armed(11, 14),
+        ),
+        // Two tests that can both hold: chess's confirm and reset paths.
+        (
+            "    if k == \"1\"\n      send edited = saveCard(\"a\")\n    if open\n      send edited = setImage(\"b\")\n",
+            armed(11, 13),
+        ),
+    ] {
+        let e = contract::compile(&app(body)).unwrap_err();
+        assert_eq!(
+            (e.id.as_str(), e.message.as_str()),
+            ("analyze-send-twice", message.as_str()),
+            "{body}"
+        );
+        assert_eq!(e.related.len(), 1, "{body}");
+    }
+    for body in [
+        "    if k == \"1\"\n      send edited = setImage(\"b\")\n    else\n      send edited = saveCard(\"a\")\n",
+        "    match some(k)\n      case some(x)\n        send edited = setImage(x)\n      case none\n        send edited = saveCard(\"a\")\n",
+        // A key handler's sequential, mutually exclusive tests.
+        "    if k == \"1\" and open\n      send edited = saveCard(\"a\")\n    if k == \"2\" or k == \"3\"\n      send edited = setImage(\"b\")\n    mode = \"c\"\n",
+        "    send edited = saveCard(\"a\")\n",
+    ] {
+        let plan = contract::compile(&app(body));
+        assert!(plan.is_ok(), "{body}\n{plan:?}");
+    }
+}
+
+/// LLP 1088 D8 on the expanded body: a child's action that calls a root
+/// action through its prop runs that action's sends in its own commit, so the
+/// walk reads the root with every call expanded (LLP 1089 D6) — the callee's
+/// double send is refused once, and a single send through the call compiles.
+#[test]
+fn a_send_twice_is_found_through_a_tail_call_once() {
+    let src = |body: &str| {
+        format!("shape Ack\n  op: string\ncomponent App\n  mutation edited as shape Ack\n  action save(why: string)\n{body}  view\n    Editor(done=save)\ncomponent Editor\n  props\n    done: action\n  state n = 0\n  action commit\n    n = n + 1\n    done(\"x\")\n  view\n    button \"s\" press=commit\n")
+    };
+    let dir = std::env::temp_dir().join(format!("exact-send-tail-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("app.contract");
+    std::fs::write(
+        &path,
+        src("    send edited = saveCard(why)\n    send edited = setImage(why)\n"),
+    )
+    .unwrap();
+    let Err(errors) = contract::compile_path_all(&path, false) else {
+        panic!("a double send compiled");
+    };
+    std::fs::remove_dir_all(&dir).unwrap();
+    assert_eq!(
+        errors
+            .iter()
+            .filter(|e| e.id == "analyze-send-twice")
+            .count(),
+        1,
+        "{errors:?}"
+    );
+    let plan = contract::compile(&src("    send edited = saveCard(why)\n"));
+    assert!(plan.is_ok(), "{plan:?}");
 }

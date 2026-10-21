@@ -3,6 +3,7 @@
 //! carousel (LLP 1070 H2).
 use super::{err, values::numeric_literal, LowerError, Lowerer};
 use contract_syntax::{Attr, Expr, Node, Span};
+use contract_types::{Scope, Ty};
 
 fn literal<'a>(attrs: &'a [Attr], name: &str) -> Option<&'a Attr> {
     attrs.iter().find(|a| a.name == name)
@@ -28,7 +29,34 @@ impl Lowerer<'_> {
         attrs: &[Attr],
         children: &[Node],
         span: Span,
+        scope: &Scope,
     ) -> Result<(), LowerError> {
+        // Reorder is a collection's (LLP 1010 §6, LLP 1043.000): every host
+        // drags only a virtualized list's measured rows, so anywhere else
+        // `reorderdrop` would never fire, on any host (the weather diary's
+        // F1 met it as the web build's refusal).
+        let virtualized = tag == "list"
+            && attrs
+                .iter()
+                .any(|a| a.name == "virtualized" && matches!(a.value, Expr::Bool(true, _)));
+        if !virtualized {
+            if let Some(edge) = attrs
+                .iter()
+                .find(|a| matches!(a.name.as_str(), "reachstart" | "reachend"))
+            {
+                return err(
+                    "lower-collection-edge",
+                    super::vocab::collection_edge_refusal(&edge.name),
+                    edge.span,
+                );
+            }
+        }
+        if let Some(reorder) = attrs.iter().find(|a| a.name == "reorderdrop") {
+            if !virtualized {
+                return err("lower-reorder-collection", format!("`reorderdrop` reorders a virtualized list's rows, and every host drags only those: write `list virtualized=true` with one `for`, and give each row a handle with `reorderFor` naming the list's `id`; on {} it would never fire", if tag == "list" { "a list that is not virtualized".to_string() } else { format!("`{tag}`") }), reorder.span);
+            }
+        }
+        self.check_group(virtualized, attrs, children, scope)?;
         let Some(opt) = attrs.iter().find(|a| a.name == "virtualized") else {
             return Ok(());
         };
@@ -49,23 +77,29 @@ impl Lowerer<'_> {
         if !row
             && !attrs.iter().any(|a| match a.name.as_str() {
                 "height" | "max-height" => !matches!(&a.value, Expr::Str(s, _) if s == "auto"),
-                "flex" => numeric_literal(&a.value).is_none_or(|n| n > 0.0),
+                "flex" => super::values::flex_bounds(&a.value),
                 _ => false,
             })
         {
             return err("lower-collection-unbounded", "a virtualized list needs height, max-height, or flex constraining its vertical scrollport", span);
         }
+        // A class's rows are its literals: a percentage there is refused too.
+        let mut own = attrs.to_vec();
+        if let Some((_, rows)) = self.class_rows(attrs).ok().flatten() {
+            own.extend(rows);
+        }
+        self.collection_inset(&own, row, scope)?;
         self.collection_flow(attrs, Some(row))?;
         let [Node::Each { body, .. }] = children else {
             return err(
                 "lower-collection-template",
-                "a virtualized list initially supports exactly one direct each",
+                "a virtualized list initially supports exactly one direct `for`",
                 span,
             );
         };
         self.check_nested(body, false)?;
         let [Node::Element { tag, attrs, .. }] = body.as_slice() else {
-            return err("lower-collection-template", "each in a virtualized list needs exactly one element flow root (wrap conditional or multiple roots in column)", span);
+            return err("lower-collection-template", "a `for` in a virtualized list needs exactly one element flow root (wrap conditional or multiple roots in column)", span);
         };
         if tag == "dialog" {
             return err(
@@ -80,6 +114,48 @@ impl Lowerer<'_> {
             expanded.extend(rows);
         }
         self.collection_flow(&expanded, None)
+    }
+
+    /// `reorderGroup` (@ref LLP 1094 D1): lists that share one exchange rows,
+    /// so each takes the drop (`reorderdrop`), is named by its `id` in the
+    /// drop's `ReorderEvent`, and keys its rows by strings, the keys a row
+    /// carries from one list to another. A row list and a nested list are
+    /// refused by their own reorder rules (LLP 1094 §7).
+    fn check_group(
+        &self,
+        virtualized: bool,
+        attrs: &[Attr],
+        children: &[Node],
+        scope: &Scope,
+    ) -> Result<(), LowerError> {
+        let Some(group) = attrs.iter().find(|a| a.name == "reorderGroup") else {
+            return Ok(());
+        };
+        let has = |name: &str| attrs.iter().any(|a| a.name == name);
+        if !virtualized || !has("reorderdrop") || !has("id") {
+            return err("lower-reorder-group", "`reorderGroup` joins lists that take a drop: give this `list virtualized=true` a `reorderdrop` and an `id`", group.span);
+        }
+        let [Node::Each {
+            var,
+            index,
+            list,
+            key,
+            ..
+        }] = children
+        else {
+            return Ok(());
+        };
+        let shapes = &self.types.shapes;
+        let item = match contract_types::infer(list, scope, shapes) {
+            Ok(Ty::List(item)) => *item,
+            _ => Ty::Unknown,
+        };
+        let mut inner = scope.clone();
+        inner.push_each(var, index.as_deref(), item);
+        match contract_types::infer(key, &inner, shapes) {
+            Ok(t) if !t.is_string() && t.is_complete() => err("lower-reorder-group", format!("a grouped list's rows move between lists by their keys, so its `for` is keyed by a string, not a {t}: key it by the item's string id"), key.span()),
+            _ => Ok(()),
+        }
     }
 
     /// The rules that make a list's axis CSS's and keep its index's starts
@@ -110,6 +186,11 @@ impl Lowerer<'_> {
         if let Some(restoration) = literal(attrs, "scroll-restoration") {
             if !matches!(string(restoration), Some("auto" | "manual")) {
                 return err("lower-attr-value", "`scroll-restoration` is `auto` (a nested list keeps where its reader left it) or `manual` (the app does)", restoration.span);
+            }
+        }
+        if let Some(start) = literal(attrs, "scroll-start") {
+            if !matches!(string(start), Some("start" | "end")) {
+                return err("lower-attr-value", "`scroll-start` is `start` (the default) or `end` (the list opens at its last row)", start.span);
             }
         }
         if let Some(reorder) = literal(attrs, "reorderdrop").filter(|_| row) {
@@ -187,7 +268,7 @@ impl Lowerer<'_> {
                     self.check_nested(&some.1, inner)?;
                     self.check_nested(none, inner)?;
                 }
-                Node::Each { body, .. } | Node::Provide { body, .. } => {
+                Node::Each { body, .. } => {
                     self.check_nested(body, inner)?;
                 }
                 Node::Use { children, .. } => self.check_nested(children, inner)?,
@@ -197,34 +278,65 @@ impl Lowerer<'_> {
         Ok(())
     }
 
+    /// Main-axis padding on a virtualized list (@ref LLP 1010 §6.9): CSS's
+    /// room before the first row and after the last, inside the scroll
+    /// content. It takes what padding takes elsewhere (a number,
+    /// `env(safe-area-inset-*)`, `calc(env(…) ± px)`), computed too: each
+    /// host reports the padding it laid out with the list's offset.
+    /// A percentage is refused: Apple's hosts place rows from the authored
+    /// padding, which has no containing block to resolve one against.
+    /// `scroll-padding` along the axis takes the same forms: the inset a
+    /// `scrollIntoView` aligns within, which the runner reads from the
+    /// list's style when the request is made.
+    fn collection_inset(&self, attrs: &[Attr], row: bool, scope: &Scope) -> Result<(), LowerError> {
+        let (ends, sides) = if row {
+            (["left", "right"], [3, 1])
+        } else {
+            (["top", "bottom"], [0, 2])
+        };
+        let main_axis = |name: &str| {
+            ["padding", "scroll-padding"].into_iter().any(|family| {
+                name == family || ends.iter().any(|end| name == format!("{family}-{end}"))
+            })
+        };
+        for a in attrs.iter().filter(|a| main_axis(&a.name)) {
+            let main = match super::shorthands::sides(&a.name, &a.value)? {
+                Some(four) if !a.name.ends_with(ends[0]) && !a.name.ends_with(ends[1]) => {
+                    sides.map(|i| four[i].clone()).to_vec()
+                }
+                _ => vec![a.value.clone()],
+            };
+            for value in &main {
+                self.inset_value(a, value, scope)?;
+            }
+        }
+        Ok(())
+    }
+    fn inset_value(&self, a: &Attr, value: &Expr, scope: &Scope) -> Result<(), LowerError> {
+        match value {
+            Expr::Str(s, _) if s.contains('%') => err("lower-collection-flow", format!("`{}` on a virtualized list is a length: a percentage resolves against the containing block's width, which the list's windowing does not follow; write points or `env(safe-area-inset-*)`", a.name), a.span),
+            Expr::Str(..) | Expr::Number(..) => Ok(()),
+            Expr::Ternary(_, yes, no, _) => {
+                self.inset_value(a, yes, scope)?;
+                self.inset_value(a, no, scope)
+            }
+            _ => match contract_types::infer(value, scope, &self.types.shapes) {
+                Ok(Ty::Number) => Ok(()),
+                // The value's own binding names a type error.
+                Err(_) => Ok(()),
+                Ok(_) => err("lower-collection-flow", format!("a computed `{}` on a virtualized list is a number (points): a computed string could be a percentage, which the list's windowing does not follow; choose between literal lengths instead", a.name), a.span),
+            },
+        }
+    }
+
     fn collection_flow(&self, attrs: &[Attr], row: Option<bool>) -> Result<(), LowerError> {
         let container = row.is_some();
         let horizontal = row == Some(true);
-        let main_padding: &[&str] = if horizontal {
-            &["padding", "padding-left", "padding-right"]
-        } else {
-            &["padding", "padding-top", "padding-bottom"]
-        };
         for a in attrs {
-            if container
-                && main_padding.contains(&a.name.as_str())
-                && numeric_literal(&a.value) != Some(0.0)
-            {
-                let (axis, cross) = if horizontal {
-                    ("left/right", "padding-top and padding-bottom")
-                } else {
-                    ("top/end", "padding-left and padding-right")
-                };
-                return err("lower-collection-flow", format!("`{}` on a virtualized list container requires literal zero; put {axis} spacing inside measured rows until a collection inset policy is supported ({cross} remain allowed)", a.name), a.span);
-            }
             let allowed = match a.name.as_str() {
                 "position" => {
                     matches!(&a.value, Expr::Str(s, _) if s == "relative" || s == "static")
                 }
-                "top" | "bottom" | "left" | "right" | "rotate" => {
-                    numeric_literal(&a.value) == Some(0.0)
-                }
-                "scale" => numeric_literal(&a.value) == Some(1.0),
                 "margin" | "margin-top" | "margin-bottom" => {
                     numeric_literal(&a.value).is_some_and(|v| v >= 0.0)
                 }
@@ -256,6 +368,13 @@ impl Lowerer<'_> {
                 }
                 _ => true,
             };
+            if !allowed
+                && a.name == "position"
+                && matches!(&a.value, Expr::Str(s, _) if s == "sticky")
+            {
+                // @ref LLP 1083 D5 — each row is laid out in a wrapper of its own.
+                return err("lower-collection-flow", "a windowed row's root would stick only inside its own row: make a section one row, and its header `position: sticky` inside it", a.span);
+            }
             if !allowed {
                 return err("lower-collection-flow", format!("`{}` is not supported on this virtual collection flow root; absolute/overlapping rows and alternate container layouts are not windowed", a.name), a.span);
             }

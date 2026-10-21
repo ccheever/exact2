@@ -38,7 +38,7 @@ static LINKED: std::sync::OnceLock<&'static Grammars> = std::sync::OnceLock::new
 /// Link the `animation` shorthand's and `@keyframes`' grammars (LLP 1047
 /// D2, linked by use): ~5 KiB of a web core that none of Caltrain, RealWorld
 /// or the video player animates with. A web artifact links them when its
-/// plan declares keyframes or binds `animation` or `exit-animation`, and a
+/// plan declares keyframes or binds `animation` or `-exact-exit-animation`, and a
 /// plan that does so unlinked is refused at boot (D6), so an unlinked
 /// artifact never parses one. Native artifacts and the compiler parse
 /// without it.
@@ -314,7 +314,7 @@ impl Keyframes {
             rest = rest[close + 1..].trim_start();
         }
         frames.sort_by(|a, b| a.offset.total_cmp(&b.offset));
-        let keyframes = Keyframes(frames);
+        let keyframes = Keyframes(frames.into());
         keyframes.validate().map_err(ParseError::InvalidAnimation)?;
         Ok(keyframes)
     }
@@ -323,7 +323,7 @@ impl Keyframes {
     /// `@keyframes name { … }`.
     pub fn css(&self) -> String {
         let mut out = String::new();
-        for frame in &self.0 {
+        for frame in self.0.iter() {
             let _ = write!(out, "{}%{{", Shortest(frame.offset * 100.0));
             if let Some(e) = &frame.easing {
                 let _ = write!(out, "animation-timing-function:{};", easing_css(e));
@@ -370,7 +370,14 @@ impl Keyframes {
 /// A property value in CSS, with the unit CSS requires.
 pub fn value_css(property: Property, v: Value) -> String {
     match property {
-        Property::Translate => format!("{}px {}px", Shortest(v.x), Shortest(v.y)),
+        Property::Translate => {
+            let axis = |px: f64, pct: f64| match (px, pct) {
+                (_, 0.0) => format!("{}px", Shortest(px)),
+                (0.0, _) => format!("{}%", Shortest(pct)),
+                _ => format!("calc({}px + {}%)", Shortest(px), Shortest(pct)),
+            };
+            format!("{} {}", axis(v.x, v.z), axis(v.y, v.w))
+        }
         Property::Rotate => format!("{}deg", Shortest(v.x)),
         Property::R
         | Property::Height
@@ -439,9 +446,15 @@ fn easing_keyword(part: &str) -> Option<Result<Easing, ParseError>> {
     let known = matches!(
         part,
         "linear" | "ease" | "ease-in" | "ease-out" | "ease-in-out" | "step-start" | "step-end"
-    ) || ["cubic-bezier(", "steps(", "linear(", "spring("]
-        .iter()
-        .any(|f| part.starts_with(f));
+    ) || [
+        "cubic-bezier(",
+        "steps(",
+        "linear(",
+        "spring(",
+        "-exact-spring(",
+    ]
+    .iter()
+    .any(|f| part.starts_with(f));
     known.then(|| easing_only(part))
 }
 
@@ -575,13 +588,23 @@ fn keyframe_values(
 fn keyframe_value(property: Property, value: &str) -> Result<Value, ParseError> {
     let bad = || ParseError::BadValue(format!("{}: {value}", property.name()));
     Ok(match property {
+        // A length or a percentage of the box per axis (chess diary #4):
+        // lengths in x and y, percentages in z and w.
         Property::Translate => {
+            let axis = |part: &str| match part.strip_suffix('%') {
+                Some(n) => exact_num::parse_f64(n.trim())
+                    .ok()
+                    .filter(|n| n.is_finite())
+                    .map(|n| (0.0, n)),
+                None => length(part).map(|l| (l, 0.0)),
+            };
             let parts: Vec<&str> = value.split_whitespace().collect();
-            match parts.as_slice() {
-                [x] => Value::new(length(x).ok_or_else(bad)?, 0.0),
-                [x, y] => Value::new(length(x).ok_or_else(bad)?, length(y).ok_or_else(bad)?),
+            let ((x, px), (y, py)) = match parts.as_slice() {
+                [x] => (axis(x).ok_or_else(bad)?, (0.0, 0.0)),
+                [x, y] => (axis(x).ok_or_else(bad)?, axis(y).ok_or_else(bad)?),
                 _ => return Err(bad()),
-            }
+            };
+            Value::four(x, y, px, py)
         }
         Property::Rotate => {
             let n = value.strip_suffix("deg").unwrap_or(value);

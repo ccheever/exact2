@@ -5,7 +5,8 @@
 pub const SESSION_BYTES: u64 = 32 * 1024 * 1024;
 pub const RUNNING_DECODES: usize = 2;
 pub const DELIVERY_CELLS: usize = 2;
-/// Includes queued, running, ready-but-undelivered, and failed requests.
+/// Queued (waiting on the budget or not), running, and ready-but-untaken
+/// decodes; a delivered picture and a failed decode hold no place.
 pub const PENDING_JOBS: usize = 64;
 /// Live subscriptions plus detached cache entries pinned by external leases.
 pub const SUBSCRIPTIONS: usize = 1024;
@@ -13,22 +14,71 @@ pub const COLD_ENTRIES: usize = 256;
 pub const MAX_ENCODED_BYTES: u64 = 64 * 1024 * 1024;
 pub const MAX_HEADER_BYTES: u64 = 256 * 1024;
 pub const MAX_SOURCE_PIXELS: u64 = 64 * 1024 * 1024;
+/// A `data:` image source's bound, in bytes of URL text, on every host (LLP
+/// 1011 §2): small generated pictures, not photos (those are `app:/` files).
+/// Apple's `RasterInput.dataLimit` and the web hosts' `DATA_LIMIT` are this.
+pub const MAX_DATA_URL_BYTES: usize = 1024 * 1024;
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash)]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Ord, PartialOrd, Hash)]
 pub struct PixelSize {
     pub width: u32,
     pub height: u32,
 }
 
+/// The part of a picture a key's pixels are, when they are not all of it: a
+/// picture decoded at `full` and cut to the key's `pixels` from (`x`, `y`).
+/// The default (a zero `full`) is the whole picture. A different part of one
+/// source at one size is a different key: nothing is served the wrong part.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Ord, PartialOrd, Hash)]
+pub struct Crop {
+    pub x: u32,
+    pub y: u32,
+    pub full: PixelSize,
+}
+impl Crop {
+    /// Whether the key's pixels are the whole picture.
+    pub fn whole(&self) -> bool {
+        self.full.width == 0
+    }
+}
+
+/// The storage a decode produces (LLP 1100 D7). Every adapter applies EXIF
+/// orientation and decodes the first frame.
+pub mod variant {
+    /// 8-bit sRGB: a standard picture, or one an adapter can only show as sRGB.
+    pub const SRGB8: u32 = 1;
+    /// 8-bit in the picture's own colour space: a wide picture.
+    pub const OWN8: u32 = 2;
+    /// 16-bit float in the picture's own colour space: a deep picture, or an
+    /// HDR picture's SDR rendition when that is deeper than 8 bits.
+    pub const DEEP: u32 = 3;
+    /// 16-bit float, extended range, with headroom: an HDR picture shown as HDR.
+    pub const HDR: u32 = 4;
+    /// 8-bit in the picture's own space for a deep or HDR picture that did not
+    /// fit the budget at full depth: the budget's last resort.
+    pub const REDUCED8: u32 = 5;
+
+    /// Bytes per pixel of a variant's output, or `None` for an unknown one.
+    pub fn bytes_per_pixel(variant: u32) -> Option<u64> {
+        match variant {
+            SRGB8 | OWN8 | REDUCED8 => Some(4),
+            DEEP | HDR => Some(8),
+            _ => None,
+        }
+    }
+}
+
 /// Source IDs belong to the adapter's bounded live/job/cache resolver mapping.
 /// Never intern every visited source. `generation` identifies immutable bytes.
-/// `variant` identifies the adapter's fixed orientation/color decoding policy.
+/// `variant` is one of [`variant`]'s storage formats.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash)]
 pub struct RasterKey {
     pub source: u64,
     pub generation: u64,
     pub pixels: PixelSize,
     pub variant: u32,
+    /// Which part of the picture `pixels` are ([`Crop`]).
+    pub crop: Crop,
 }
 
 /// A native view identity including its incarnation; cancellation is exact.
@@ -61,8 +111,8 @@ pub struct DecodeCost {
 }
 
 impl DecodeCost {
-    /// Both native adapters normalize to premultiplied RGBA8. Admission checks
-    /// stride >= requested width * 4 and output bytes == stride * height.
+    /// Admission checks stride >= requested width * the variant's bytes per
+    /// pixel ([`variant::bytes_per_pixel`]) and output bytes == stride * height.
     pub fn checked(stride: u64, height: u32, scratch: u64, copy: u64) -> Result<Self, Refusal> {
         let output_bytes = stride
             .checked_mul(u64::from(height))

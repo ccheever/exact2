@@ -393,6 +393,28 @@ fn anchors_preserve_key_and_offset_through_prepend_reorder_and_height_changes() 
     assert_eq!(index.restore_anchor(&anchor, 20.0).unwrap(), 95.0);
 }
 
+/// At its start a list anchors nothing, as CSS scroll anchoring selects no
+/// anchor at a zero offset: a row inserted on top shows (mail F8). An end it
+/// follows still wins where the start is also the end.
+#[test]
+fn a_list_at_its_start_shows_rows_inserted_above() {
+    let mut short = index(&[5.0; 2]);
+    let transcript = short.capture_anchor(0.0, 20.0, true).unwrap();
+    let mut index = index(&[10.0; 5]);
+    let top = index.capture_anchor(0.0, 20.0, false).unwrap();
+    let mut prepended = keys(5);
+    prepended.insert(0, "new".into());
+    index.replace_keys(prepended).unwrap();
+    assert_eq!(index.restore_anchor(&top, 20.0).unwrap(), 0.0);
+    assert!(!index.kept_row(&top, 20.0, 0.0), "the start stays absolute");
+    short.replace_keys(keys(6)).unwrap();
+    assert!(short.restore_anchor(&transcript, 20.0).unwrap() > 0.0);
+    assert_eq!(
+        short.restore_anchor(&transcript, 20.0).unwrap(),
+        short.total_height() - 20.0
+    );
+}
+
 #[test]
 fn deleted_anchor_chooses_next_survivor_in_old_order_then_previous() {
     let mut index = index(&[10.0; 10]);
@@ -467,7 +489,7 @@ fn end_follow_accepts_integer_dom_scroll_height_rounding() {
     assert_eq!(index.max_offset(viewport) - dom_bottom, 0.078_125);
     let anchor = index.capture_anchor(dom_bottom, viewport, true).unwrap();
     let reader = index
-        .capture_anchor(index.max_offset(viewport) - 0.500_001, viewport, true)
+        .capture_anchor(index.max_offset(viewport) - 1.0, viewport, true)
         .unwrap();
     let disabled = index.capture_anchor(dom_bottom, viewport, false).unwrap();
     assert!(
@@ -476,7 +498,7 @@ fn end_follow_accepts_integer_dom_scroll_height_rounding() {
     );
     assert!(
         !reader.follows_end,
-        "reader farther than half a pixel stays anchored"
+        "a reader a whole pixel up stays anchored"
     );
     assert!(!disabled.follows_end);
     index.replace_keys(keys(3)).unwrap();
@@ -505,13 +527,38 @@ fn end_follow_accepts_browser_integer_scroll_range_rounding() {
 }
 
 #[test]
-fn end_follow_rounding_tolerance_is_half_a_logical_pixel_on_every_host() {
-    // The .5 boundary is inclusive at small, medium and large extents alike.
+fn end_follow_accepts_webkit_flooring_a_fractional_scroll_range() {
+    // Seen in WebKit (synthetic-lists conformance, 2026-10-07): rows sum to
+    // 210.72 px in a 140 px port; Chrome scrolls to 71, WebKit stops at 70,
+    // 0.72 short of the end. Both are at the end, so both follow it.
+    let mut index = index(&[28.375, 29.594, 31.594, 29.594, 33.594, 28.375, 29.594]);
+    let viewport = 140.0;
+    for reported in [70.0, 71.0] {
+        assert!(
+            index
+                .capture_anchor(reported, viewport, true)
+                .unwrap()
+                .follows_end,
+            "{reported}"
+        );
+    }
+    let anchor = index.capture_anchor(70.0, viewport, true).unwrap();
+    index.replace_keys(keys(8)).unwrap();
+    assert_eq!(
+        index.restore_anchor(&anchor, viewport).unwrap(),
+        index.max_offset(viewport)
+    );
+}
+
+#[test]
+fn end_follow_slack_is_less_than_one_logical_pixel_on_every_host() {
+    // Less than END_SLACK short follows; a whole pixel short does not, at
+    // small, medium and large extents alike.
     for (height, viewport) in [(100.0, 20.0), (1_048_576.0, 512.0), (268_435_456.0, 512.0)] {
         let mut index = index(&[height]);
         let maximum = index.max_offset(viewport);
-        let boundary = maximum - 0.5;
-        let outside = boundary - 0.000_001;
+        let outside = maximum - END_SLACK;
+        let boundary = outside + 0.001;
         let following = index.capture_anchor(boundary, viewport, true).unwrap();
         let reading = index.capture_anchor(outside, viewport, true).unwrap();
         assert!(following.follows_end, "height={height}");
@@ -547,9 +594,16 @@ fn invalid_numbers_and_duplicates_leave_index_unchanged() {
         assert_eq!(index.total_height(), 30.0);
         assert_eq!(index.measurement_token("k0"), Some(token));
         assert!(index.row_at(bad).is_err());
-        assert!(index.window(bad, 10.0, [None; 2]).is_err());
+        // A negative offset is a port in the padding before the first row
+        // (LLP 1010 §6.9): at the rows' start.
+        if bad < 0.0 && bad.is_finite() {
+            assert_eq!(index.window(bad, 10.0, [None; 2]).unwrap().offset, 0.0);
+            assert!(index.capture_anchor(bad, 10.0, false).is_ok());
+        } else {
+            assert!(index.window(bad, 10.0, [None; 2]).is_err());
+            assert!(index.capture_anchor(bad, 10.0, false).is_err());
+        }
         assert!(index.window(0.0, bad, [None; 2]).is_err());
-        assert!(index.capture_anchor(bad, 10.0, false).is_err());
         assert!(index.capture_anchor(0.0, bad, false).is_err());
         let anchor = index.capture_anchor(0.0, 10.0, false).unwrap();
         assert!(index.restore_anchor(&anchor, bad).is_err());
@@ -589,6 +643,73 @@ fn extent_overflow_is_transactional_and_large_geometry_saturates() {
     assert_eq!(huge.replace_keys(keys(2)), Err(IndexError::ExtentOverflow));
     assert_eq!(huge.len(), 1);
     assert_eq!(huge.next_generation, generation);
+}
+
+#[test]
+fn sufficient_padded_bound_includes_boundary_and_bounds_actual_binary_sums() {
+    for count in [0, 1, 2, 3, 257, 25_000] {
+        let mut i = index(&vec![0.0; count]);
+        let bound = (f32::MAX as f64) / (4.0 * i.tree.base as f64);
+        assert!(i.padded_extent_definitely_fits(bound));
+        assert!(!i.padded_extent_definitely_fits(f64::from_bits(bound.to_bits() + 1)));
+        for invalid in [-1.0, f64::NAN, f64::INFINITY] {
+            assert!(!i.padded_extent_definitely_fits(invalid));
+        }
+        for p in 0..count {
+            i.set_measured_height_at(p, i.measurement_token_at(p).unwrap(), bound)
+                .unwrap();
+        }
+        assert!(i.total_height() <= i.tree.base as f64 * bound);
+        // Unequal padding exercises both physical and relative addition orders.
+        for [leading, trailing] in [[bound, bound], [bound / 3.0, bound], [bound, 0.0]] {
+            assert!(i.total_height() + leading + trailing <= f32::MAX as f64);
+            assert!(i.total_height() + trailing + leading <= f32::MAX as f64);
+        }
+    }
+}
+
+#[test]
+fn sparse_height_preview_is_exact_bounded_and_allocation_free_for_equal_samples() {
+    let empty = SizeIndex::new(32.0).unwrap();
+    let preview = empty.preview_heights();
+    assert_eq!(preview.total_height(), 0.0);
+    assert!(preview.sums.is_none());
+    for count in [1, 257, 25_000] {
+        let mut i = index(&vec![58.0; count]);
+        let before = i.fingerprint();
+        let mut preview = i.preview_heights();
+        for p in 0..count.min(32) {
+            preview.set_height(p, i.denoised(p, 58.00003));
+            preview.set_height(p, 58.0);
+        }
+        assert!(
+            preview.sums.is_none(),
+            "equal/noisy samples allocate no overlay"
+        );
+        assert_eq!(preview.total_height().to_bits(), i.total_height().to_bits());
+        let changes = [
+            (0, 1e38),
+            (count / 2, 7.162362434933901e36),
+            (count - 1, 0.0),
+        ];
+        for (p, h) in changes {
+            preview.set_height(p, h);
+        }
+        let nodes = preview.sums.as_ref().unwrap().len();
+        assert!(nodes <= changes.len() * (i.tree.base.ilog2() as usize + 1));
+        let predicted = preview.total_height();
+        drop(preview);
+        assert_eq!(
+            i.fingerprint(),
+            before,
+            "preview never changes the live tree/epochs"
+        );
+        for (p, h) in changes {
+            i.set_measured_height_at(p, i.measurement_token_at(p).unwrap(), h)
+                .unwrap();
+        }
+        assert_eq!(i.total_height().to_bits(), predicted.to_bits());
+    }
 }
 
 #[test]
@@ -839,4 +960,52 @@ fn a_splice_equals_the_replacement_and_refuses_a_repeat_untouched() {
         ));
         assert_eq!(a.fingerprint(), before);
     }
+}
+
+/// The padding after the last row (LLP 1010 §6.9) extends the scroll range,
+/// not the rows: an offset past the rows' end keeps the last row in the
+/// window, follows the end there, and is where a followed end restores to.
+#[test]
+fn trailing_padding_extends_the_range_past_the_rows() {
+    let mut i = index(&[100.; 10]);
+    i.set_trailing(83.);
+    near(i.max_offset(600.), 483.);
+    near(i.scroll_extent(), 1083.);
+    let w = i.window(483., 600., [None, None]).unwrap();
+    near(w.offset, 483.);
+    assert_eq!(w.visible, 4..10);
+    let end = i.capture_anchor(483., 600., true).unwrap();
+    assert!(SizeIndex::follows_end(&end));
+    near(i.restore_anchor(&end, 600.).unwrap(), 483.);
+    // The rows' end is short of it: not followed.
+    let short = i.capture_anchor(400., 600., true).unwrap();
+    assert!(!SizeIndex::follows_end(&short));
+    // Padding as tall as the port leaves only padding in view.
+    i.set_trailing(600.);
+    let w = i.window(1000., 600., [None, None]).unwrap();
+    assert!(w.visible.is_empty(), "{:?}", w.visible);
+    i.set_trailing(f64::NAN);
+    near(i.max_offset(600.), 400.);
+}
+
+/// A list shorter than its port and paddings ends in the padding before its
+/// first row (LLP 1010 §6.9): the range's end is negative, down to that
+/// padding; a port there follows the end, one above it does not, and the
+/// window still starts at the first row.
+#[test]
+fn a_short_list_ends_in_the_padding_before_its_rows() {
+    let mut i = index(&[100.; 5]);
+    i.set_leading(92.);
+    i.set_trailing(83.);
+    near(i.max_offset(600.), -17.);
+    let end = i.capture_anchor(-17., 600., true).unwrap();
+    assert!(SizeIndex::follows_end(&end));
+    near(i.restore_anchor(&end, 600.).unwrap(), -17.);
+    let top = i.capture_anchor(-92., 600., true).unwrap();
+    assert!(!SizeIndex::follows_end(&top));
+    assert_eq!(i.window(-17., 600., [None, None]).unwrap().offset, 0.0);
+    let mut i = index(&[100.; 4]);
+    i.set_leading(92.);
+    i.set_trailing(83.);
+    near(i.max_offset(600.), -92.);
 }

@@ -1,0 +1,36 @@
+// Initializers: a root slot reads the slots before it; a child's slot is
+// initialized from its props, which may read root slots.
+component App
+  state a = 2
+  state b = a * 10
+  state c = `${a}-${b}`
+  action bump
+    a = a + 1
+  view
+    column
+      text c testId="c"
+      Child(start=b, label=c)
+      button "bump" press=bump testId="bump"
+
+component Child
+  props
+    start: number
+    label: string
+  state mine = start + 1
+  state tag = `${label}/${mine}`
+  action inc
+    mine = mine + 1
+  view
+    button "inc" press=inc testId="inc"
+      text `${mine} ${tag} ${start}` testId="child"
+
+test "init"
+  expect state b == 20
+  expect state c == "2-20"
+  expect text "child" == "21 2-20/21 20"
+
+test "initializers run once"
+  tap "bump"
+  expect state b == 20
+  tap "inc"
+  expect text "child" == "22 2-20/21 20"

@@ -4,7 +4,7 @@ use super::*;
 impl SizeIndex {
     /// Nearest midpoint boundary; rightmost logical boundary for coincident zero
     /// heights. None means measurement is missing, never logical end by guessing.
-    #[cfg(test)]
+    /// A foreign target's gap: nothing of its own is dragged (LLP 1094 D4).
     pub(crate) fn certified_gap(&self, y: f64) -> Result<Option<usize>, IndexError> {
         self.gap(y, None)
     }

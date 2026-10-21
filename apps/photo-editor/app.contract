@@ -11,17 +11,17 @@ component PhotoEditor
   state edit = "scale 1.00× · rotation 0.0° · pan x 0.00 y 0.00 · crop x 0.00 y 0.00 w 1.00 h 1.00"
   state edits = 0
   state ready = false
-  action rotate writes turns
+  action rotate
     turns = turns + 1
-  action reset writes turns, resets
+  action reset
     turns = 0
     resets = resets + 1
-  action changed(value: string) writes edit
+  action changed(value: string)
     edit = value
-  action told(message: string) writes edits
+  action told(message: string)
     if message == "edited"
       edits = edits + 1
-  action loaded writes ready
+  action loaded
     ready = true
   view
     main testId="photo-editor-app" width="100%" height="100%" display="flex" flex-direction="column" background-color="#111318" color="#f2f3f5" font-family="system-ui"
@@ -32,7 +32,7 @@ component PhotoEditor
       column flex-shrink=0 gap=10 padding=16 background-color="#1a1d24"
         text "Edit" font-size=12 font-weight=600 color="#9aa1ad"
         text edit testId="edit" aria-live="polite" font-size=15 font-variant-numeric="tabular-nums"
-        text ("Edited " + toString(edits) + (edits == 1 ? " time" : " times")) testId="edits" font-size=13 color="#9aa1ad"
+        text ("Edited " + edits.toString() + (edits == 1 ? " time" : " times")) testId="edits" font-size=13 color="#9aa1ad"
         row gap=10
           button press=rotate testId="rotate" aria-label="Rotate the photo 90 degrees clockwise" padding-left=16 padding-right=16 padding-top=10 padding-bottom=10 border-radius=8 background-color="#2d6cdf" color="#ffffff"
             text "Rotate 90°" font-size=15 font-weight=600

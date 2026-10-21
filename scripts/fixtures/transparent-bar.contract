@@ -1,0 +1,18 @@
+// A route whose scroller opens with a full-bleed picture, under a
+// transparent bar (`navigationBar="transparent"`): the content starts at
+// the top edge, under the bar, and the bar insets nothing of the scroller
+// (NavigationCollapseIOSTests).
+routes nav
+  home "/"
+
+component TransparentBar
+  view
+    main navigationKey=`${top(nav).id}` testId="app" width="100%" height="100%"
+      for e in stack(nav) key=e.id
+        column navigationKey=`${e.id}` navigationBar="transparent" testId="route-home" position="absolute" inset=0 display="flex" flex-direction="column"
+          header testId="header-home" display="flex" align-items="center" padding="8px 16px"
+            text "Product" role="heading" aria-level=2
+          scroll testId="home-scroll" flex=1 min-height=0 overflow-x="hidden"
+            view testId="hero" height=320 background-color="-exact-fill"
+            text "Below the picture" testId="home-top"
+            column height=1600 width=300

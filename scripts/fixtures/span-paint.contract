@@ -1,0 +1,34 @@
+// LLP 1077 D3/D7 per inline run: a `text` run's own `text-shadow` and
+// `-webkit-text-stroke`, which CSS paints per inline box (each run's shadow
+// under its own glyphs, a run's value overriding its paragraph's). Five
+// paragraphs on 95-point rows: a shadow on one run only; a paragraph's
+// shadow with a run that sets `none`; two runs with different shadows; a
+// stroke on one run only; a paragraph's stroke with a run that turns it off
+// and a run in another colour. Text is the pinned font natively and the
+// system's in Chrome, so cases are checked by where their colours land.
+// Chrome's pictures (the web host at 1×) are span-paint.web.png as booted
+// and span-paint.web-dark.png after `dark`.
+component SpanPaint
+  state dark = false
+  action scheme
+    dark = not dark
+    setScheme(dark ? "light" : "dark")
+  view
+    main testId="span-paint" position="relative" width=390 height=520 background-color="light-dark(#ffffff, #121212)"
+      text testId="one-run" position="absolute" left=20 top=20 width=350 height=70 font-size=40 font-weight=800 color="light-dark(#212121, #eeeeee)"
+        text "Pl "
+        text "Glow" testId="one-run-glow" text-shadow="0 0 6px #e53935"
+      text testId="run-none" position="absolute" left=20 top=115 width=350 height=70 font-size=40 font-weight=800 color="light-dark(#212121, #eeeeee)" text-shadow="4px 4px 0 #1e88e5"
+        text "Sh "
+        text "None" testId="run-none-off" text-shadow="none"
+      text testId="two-shadows" position="absolute" left=20 top=210 width=350 height=70 font-size=40 font-weight=800 color="light-dark(#212121, #eeeeee)"
+        text "Up " text-shadow="0 -6px 0 #43a047"
+        text "Down" text-shadow="0 6px 0 #e53935"
+      text testId="one-stroke" position="absolute" left=20 top=305 width=350 height=70 font-size=40 font-weight=800 color="#fdd835"
+        text "Ab "
+        text "Cd" testId="one-stroke-cd" -webkit-text-stroke="2px #000000"
+      text testId="stroke-runs" position="absolute" left=20 top=400 width=350 height=70 font-size=40 font-weight=800 color="#fdd835" -webkit-text-stroke="2px #e53935"
+        text "Ab "
+        text "Off " -webkit-text-stroke-width=0
+        text "Gr" -webkit-text-stroke-color="#43a047"
+      button testId="dark" press=scheme aria-label="Scheme" position="absolute" left=340 top=470 width=40 height=40 background-color="#757575"

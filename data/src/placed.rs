@@ -15,6 +15,7 @@ use exact_runner::{
 };
 use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use std::sync::mpsc::{channel, Sender};
+use std::sync::{Arc, Mutex};
 
 fn unavailable(message: impl Into<String>) -> DataError {
     DataError::Unavailable(message.into())
@@ -30,7 +31,7 @@ enum Job {
         target: Option<Target>,
         source: String,
         args: Vec<Vec<u8>>,
-        snapshot: Vec<(String, String)>,
+        snapshot: Vec<(String, Vec<u8>)>,
         reply: Reply,
     },
     Resume {
@@ -38,12 +39,41 @@ enum Job {
         source: String,
         args: Vec<Vec<u8>>,
         outcome: Outcome,
-        snapshot: Vec<(String, String)>,
+        snapshot: Vec<(String, Vec<u8>)>,
         reply: Reply,
     },
     /// What is still in flight, after a commit that let requests go: the
     /// instance drops the calls it parked for the rest, in turn order.
-    Forgotten(Vec<(Target, String, Vec<Vec<u8>>)>),
+    Forgotten(Arc<Mutex<Option<Retirement>>>),
+}
+
+type Retirement = (Vec<(Target, String, Vec<Vec<u8>>)>, Vec<(String, Vec<u8>)>);
+
+struct OwnerQueue {
+    sender: Sender<Job>,
+    pending: Option<Arc<Mutex<Option<Retirement>>>>,
+}
+
+impl OwnerQueue {
+    fn forgotten(&mut self, retirement: Retirement) {
+        if let Some(slot) = &self.pending {
+            let mut current = slot.lock().unwrap();
+            if current.is_some() {
+                *current = Some(retirement);
+                return;
+            }
+        }
+        let slot = Arc::new(Mutex::new(Some(retirement)));
+        if self.sender.send(Job::Forgotten(slot.clone())).is_ok() {
+            self.pending = Some(slot);
+        }
+    }
+
+    fn turn(&mut self, job: Job) {
+        // A later view cannot pass this turn, even if its marker is still queued.
+        self.pending = None;
+        let _ = self.sender.send(job);
+    }
 }
 
 fn encode_args(args: &[Value]) -> Vec<Vec<u8>> {
@@ -138,11 +168,15 @@ pub struct Placed<D> {
     native: Option<exact_runner::Native>,
     /// The Canvas 2D roster, read at construction (LLP 1056 D1).
     canvas_surfaces: Vec<(String, usize)>,
-    owner: Option<Sender<Job>>,
+    owner: Option<Arc<Mutex<OwnerQueue>>>,
     recorded: BTreeMap<u64, Recorded>,
     stages: HashMap<Key, VecDeque<Stage>>,
     next: u64,
     validation: bool,
+    logs: Vec<String>,
+    storage_changed: Arc<std::sync::atomic::AtomicBool>,
+    /// The sources the journal said don't overlay on the owner thread.
+    told_overlay: std::collections::BTreeSet<String>,
 }
 
 impl<D: DataSource + Send + 'static> Placed<D> {
@@ -169,6 +203,7 @@ impl<D: DataSource + 'static> Placed<D> {
 
     fn with_spawn(source: D, placement: Placement, spawn: Spawn<D>) -> Self {
         Self {
+            storage_changed: Default::default(),
             app_id: source.app_id().to_string(),
             grants: source.grants().to_string(),
             revision: source.revision().map(str::to_string),
@@ -183,6 +218,8 @@ impl<D: DataSource + 'static> Placed<D> {
             stages: HashMap::new(),
             next: 0,
             validation: false,
+            logs: Vec::new(),
+            told_overlay: Default::default(),
         }
     }
 
@@ -260,8 +297,7 @@ impl<D: DataSource + 'static> Placed<D> {
         }
         match stage {
             Some(Stage::Turn) => {
-                let mut logs = Vec::new();
-                let answer = envelope::apply(outcome, store, &mut logs);
+                let answer = envelope::apply(outcome, store, &mut self.logs);
                 if let Ok(Answer::Later(_)) = &answer {
                     self.stages.entry(k).or_default().push_back(Stage::Yielded);
                 }
@@ -287,15 +323,19 @@ impl<D: DataSource + 'static> Placed<D> {
     fn spawn_owner(&mut self, obtain: Obtain<D>) -> Result<(), DataError> {
         let (jobs, rx) = channel::<Job>();
         let grants = self.grants.clone();
+        let storage_changed = self.storage_changed.clone();
         std::thread::Builder::new()
             .name("exact-owner".into())
             .spawn(move || {
                 let mut source = obtain();
                 for job in rx {
                     let (target, name, args, outcome, snapshot, reply) = match job {
-                        Job::Forgotten(in_flight) => {
-                            if let Ok(source) = &mut source {
-                                forget(source, &in_flight);
+                        Job::Forgotten(slot) => {
+                            let retirement = slot.lock().unwrap().take();
+                            if let (Ok(source), Some((in_flight, snapshot))) =
+                                (&mut source, retirement)
+                            {
+                                forget(source, &Store::new(&grants, snapshot), &in_flight);
                             }
                             continue;
                         }
@@ -322,13 +362,20 @@ impl<D: DataSource + 'static> Placed<D> {
                             turn(source, &mut local, target, &name, &args, outcome)
                         }),
                     };
-                    reply.send(envelope::encode(result, &mut local, Vec::new()));
+                    if source.as_mut().is_ok_and(|s| s.take_storage_changed()) {
+                        storage_changed.store(true, std::sync::atomic::Ordering::Release);
+                    }
+                    let logs = source.as_mut().map(|s| s.take_logs()).unwrap_or_default();
+                    reply.send(envelope::encode(result, &mut local, logs));
                 }
                 // Retired on its owner, after its last turn.
                 drop(source);
             })
             .map_err(|e| unavailable(format!("the owner thread could not start: {e}")))?;
-        self.owner = Some(jobs);
+        self.owner = Some(Arc::new(Mutex::new(OwnerQueue {
+            sender: jobs,
+            pending: None,
+        })));
         Ok(())
     }
 }
@@ -336,7 +383,11 @@ impl<D: DataSource + 'static> Placed<D> {
 /// Tell the instance on its owner what is still in flight, without tokens:
 /// the proxy's mean nothing there. An argument that doesn't cross leaves its
 /// request out, which only lets its call go too.
-fn forget<D: DataSource>(source: &mut D, in_flight: &[(Target, String, Vec<Vec<u8>>)]) {
+fn forget<D: DataSource>(
+    source: &mut D,
+    store: &Store,
+    in_flight: &[(Target, String, Vec<Vec<u8>>)],
+) {
     let decoded: Vec<(Target, &str, Vec<Value>)> = in_flight
         .iter()
         .filter_map(|(target, name, args)| Some((*target, name.as_str(), decode_args(args).ok()?)))
@@ -350,7 +401,7 @@ fn forget<D: DataSource>(source: &mut D, in_flight: &[(Target, String, Vec<Vec<u
             continuation: None,
         })
         .collect();
-    source.forgotten(&view);
+    source.forgotten(store, &view);
 }
 
 /// One turn (LLP 1027.002 D3, change 3): begin or resume; stay on the owner
@@ -387,6 +438,47 @@ fn turn<D: DataSource>(
 }
 
 impl<D: DataSource + 'static> DataSource for Placed<D> {
+    fn prepare_snapshot(
+        &mut self,
+        module: Option<exact_runner::SnapshotModule<'_>>,
+        deadline: std::time::Instant,
+    ) -> Result<(), DataError> {
+        self.here()?.prepare_snapshot(module, deadline)?;
+        // The headless invocation already has an owner. Keep its disposable
+        // source there, including its interrupt and read-only storage policy.
+        self.placement = Placement::Main;
+        self.interrupt = self.here()?.interrupt();
+        Ok(())
+    }
+
+    fn take_storage_changed(&mut self) -> bool {
+        let owner = self
+            .storage_changed
+            .swap(false, std::sync::atomic::Ordering::AcqRel);
+        self.inner
+            .as_mut()
+            .is_some_and(DataSource::take_storage_changed)
+            || owner
+    }
+
+    fn set_document_owner(&mut self, owner: u64) {
+        if let Some(inner) = &mut self.inner {
+            inner.set_document_owner(owner);
+        }
+    }
+
+    /// The wrapper's envelope lines, plus the inline module's journal.
+    /// A worker owner keeps the module's journal (LLP 1097 D6): nothing of
+    /// it is forwarded while the owner holds it.
+    fn take_logs(&mut self) -> Vec<String> {
+        if self.owner.is_none() {
+            if let Some(source) = &mut self.inner {
+                self.logs.extend(DataSource::take_logs(source));
+            }
+        }
+        std::mem::take(&mut self.logs)
+    }
+
     fn placement(&self) -> Placement {
         if self.validation {
             Placement::Main
@@ -452,6 +544,13 @@ impl<D: DataSource + 'static> DataSource for Placed<D> {
         match &self.inner {
             Some(inner) => inner.preload(),
             None => Ok(true),
+        }
+    }
+
+    fn when_preloaded(&self, wake: Box<dyn FnOnce() + Send>) {
+        match &self.inner {
+            Some(inner) => inner.when_preloaded(wake),
+            None => wake(),
         }
     }
 
@@ -550,6 +649,26 @@ impl<D: DataSource + 'static> DataSource for Placed<D> {
         self.parse_with(None, store, source, args, outcome)
     }
 
+    /// Inline, the source's own overlay. On its owner thread it can't be
+    /// called synchronously, so the answer shows; the journal says so once.
+    fn overlay(
+        &mut self,
+        source: &str,
+        args: &[Value],
+        answer: &Value,
+        writes: &[exact_runner::Write<'_>],
+    ) -> Result<Option<exact_runner::Overlaid>, DataError> {
+        if self.inline() {
+            return self.here()?.overlay(source, args, answer, writes);
+        }
+        if self.told_overlay.insert(source.to_string()) {
+            self.logs.push(format!(
+                "overlay: {source} runs on its owner thread, so its writes show when answered"
+            ));
+        }
+        Ok(None)
+    }
+
     fn parse_for(
         &mut self,
         target: Target,
@@ -569,7 +688,7 @@ impl<D: DataSource + 'static> DataSource for Placed<D> {
     /// on the owner ends there; the runner drops its reply. The source hears
     /// the same, in turn order on its owner, where it has no call yet for a
     /// key whose recorded call hasn't been dispatched.
-    fn forgotten(&mut self, in_flight: &[InFlight<'_>]) {
+    fn forgotten(&mut self, store: &exact_runner::Store, in_flight: &[InFlight<'_>]) {
         let tokens: HashSet<u64> = in_flight.iter().filter_map(|f| f.continuation).collect();
         self.recorded.retain(|token, _| tokens.contains(token));
         let live: HashMap<Key, Option<u64>> = in_flight
@@ -597,9 +716,10 @@ impl<D: DataSource + 'static> DataSource for Placed<D> {
                 })
                 .map(|f| (f.target, f.source.to_string(), encode_args(f.args)))
                 .collect();
-            let _ = owner.send(Job::Forgotten(view));
+            let snapshot = envelope::snapshot(store, &self.grants);
+            owner.lock().unwrap().forgotten((view, snapshot));
         } else if let Some(inner) = self.inner.as_mut() {
-            inner.forgotten(in_flight);
+            inner.forgotten(store, in_flight);
         }
     }
 
@@ -648,7 +768,7 @@ impl<D: DataSource + 'static> DataSource for Placed<D> {
                 },
             };
             // A closed channel drops the reply, which reports `Aborted`.
-            let _ = owner.send(job);
+            owner.lock().unwrap().turn(job);
         })))
     }
 
@@ -685,6 +805,34 @@ impl<D: DataSource + 'static> DataSource for Placed<D> {
         self.inner.as_mut()?.continuation(token)
     }
 
+    /// Background work is the inline module's alone (LLP 1097 D6): a
+    /// worker's answers wait for their storage, so nothing is forwarded
+    /// while an owner holds the module.
+    fn background(&mut self, store: &Store) -> Option<Request> {
+        match self.inner.as_mut() {
+            Some(inner) if self.owner.is_none() => inner.background(store),
+            _ => None,
+        }
+    }
+
+    fn background_landed(
+        &mut self,
+        store: &Store,
+        outcome: Outcome,
+    ) -> Result<Option<Request>, DataError> {
+        match self.inner.as_mut() {
+            Some(inner) if self.owner.is_none() => inner.background_landed(store, outcome),
+            _ => Ok(None),
+        }
+    }
+
+    fn background_state(&self) -> Option<exact_runner::BackgroundState> {
+        match self.inner.as_ref() {
+            Some(inner) if self.owner.is_none() => inner.background_state(),
+            _ => None,
+        }
+    }
+
     /// A replacement keeps its placement (LLP 1027.002 §6). A moved source
     /// has no `Self` left here to pair; a built one is replaced through its
     /// template.
@@ -712,5 +860,123 @@ impl<D> Drop for Placed<D> {
         // Closing the channel ends the owner after its current turn; the
         // runner's thread never waits on it (LLP 1027.002 D5).
         self.owner.take();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::{Arc, Mutex};
+    use std::time::Duration;
+
+    struct Slow {
+        started: Sender<()>,
+        release: std::sync::mpsc::Receiver<()>,
+        retired: Arc<Mutex<Vec<String>>>,
+    }
+
+    impl DataSource for Slow {
+        fn query(&mut self, _: &str, _: &[Value]) -> Result<Value, DataError> {
+            Ok(Value::Number(0.0))
+        }
+
+        fn app_id(&self) -> &str {
+            "com.exact.test"
+        }
+
+        fn grants(&self) -> &str {
+            "secret.keep document"
+        }
+
+        fn answer(
+            &mut self,
+            _: &mut Store,
+            source: &str,
+            _: &[Value],
+        ) -> Result<Answer, DataError> {
+            if source == "slow" {
+                self.started.send(()).unwrap();
+                self.release.recv().unwrap();
+            }
+            Ok(Answer::Now(Value::Number(0.0)))
+        }
+
+        fn forgotten(&mut self, store: &Store, _: &[InFlight<'_>]) {
+            self.retired
+                .lock()
+                .unwrap()
+                .push(store.get("document").unwrap_or("").to_string());
+        }
+    }
+
+    fn send(dispatch: Dispatch) -> std::sync::mpsc::Receiver<Outcome> {
+        let Dispatch::Run(Work::Later(work)) = dispatch else {
+            panic!("an owner turn");
+        };
+        let (tx, rx) = channel();
+        work(Reply::new(move |outcome| {
+            tx.send(outcome).unwrap();
+        }));
+        rx
+    }
+
+    #[test]
+    fn blocked_owner_keeps_only_latest_retirement_before_next_turn() {
+        let (started_tx, started_rx) = channel();
+        let (release_tx, release_rx) = channel();
+        let retired = Arc::new(Mutex::new(Vec::new()));
+        let mut placed = Placed::new(
+            Slow {
+                started: started_tx,
+                release: release_rx,
+                retired: retired.clone(),
+            },
+            Placement::Worker,
+        );
+        placed.activate().unwrap();
+        let mut store = Store::new("secret.keep document", []);
+        let slow = match placed.answer(&mut store, "slow", &[]).unwrap() {
+            Answer::Later(request) => request.continuation.unwrap(),
+            _ => panic!("a worker answer"),
+        };
+        let first = send(placed.dispatch(slow, &store));
+        started_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+        for i in 0..128 {
+            store
+                .set("document", &format!("{i}:{}", "x".repeat(256 * 1024)))
+                .unwrap();
+            placed.forgotten(&store, &[]);
+        }
+        let queue = placed.owner.as_ref().unwrap().lock().unwrap();
+        let slot = queue.pending.as_ref().unwrap().lock().unwrap();
+        let snapshot = &slot.as_ref().unwrap().1;
+        assert_eq!(snapshot.len(), 1);
+        assert!(snapshot[0].1.len() < 257 * 1024);
+        drop(slot);
+        drop(queue);
+        let next = match placed.answer(&mut store, "next", &[]).unwrap() {
+            Answer::Later(request) => request.continuation.unwrap(),
+            _ => panic!("a worker answer"),
+        };
+        let second = send(placed.dispatch(next, &store));
+        store.set("document", "after-next").unwrap();
+        placed.forgotten(&store, &[]);
+        let barrier = match placed.answer(&mut store, "barrier", &[]).unwrap() {
+            Answer::Later(request) => request.continuation.unwrap(),
+            _ => panic!("a worker answer"),
+        };
+        let third = send(placed.dispatch(barrier, &store));
+        release_tx.send(()).unwrap();
+        first.recv_timeout(Duration::from_secs(5)).unwrap();
+        second.recv_timeout(Duration::from_secs(5)).unwrap();
+        third.recv_timeout(Duration::from_secs(5)).unwrap();
+        let seen = retired.lock().unwrap();
+        assert_eq!(
+            seen.len(),
+            2,
+            "redundant retirement snapshots reached the owner"
+        );
+        assert!(seen[0].starts_with("127:"));
+        assert_eq!(seen[1], "after-next");
     }
 }

@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- From Android 14 the platform has Material's `surface` as a colour of its own, the one the reader tells the
+         host is behind an unsaid page (Palette, LLP 1115.001 D4): the launch window and the window behind the first
+         frame are that colour, so nothing changes shade when the first frame lands. The bars' icons are dark over
+         it, as the reader sets them once the host says the scheme (ExactActivity.chrome). Below Android 14 there is
+         no such colour to name here, and the launch window is the device theme's own background (values/). -->
+    <style name="ExactLaunch" parent="@android:style/Theme.DeviceDefault.Light.NoActionBar">
+        <item name="android:windowSplashScreenBackground">@android:color/system_surface_light</item>
+        <item name="android:windowBackground">@android:color/system_surface_light</item>
+        <item name="android:windowSplashScreenAnimatedIcon">@android:color/transparent</item>
+        <item name="android:windowSplashScreenIconBackgroundColor">@android:color/transparent</item>
+        <item name="android:windowLightStatusBar">true</item>
+        <item name="android:windowLightNavigationBar">true</item>
+    </style>
+</resources>

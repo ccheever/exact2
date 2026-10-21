@@ -261,13 +261,6 @@ mod tests {
         );
     }
     #[test]
-    #[should_panic(expected = "world:player")]
-    fn missing_character_is_a_setup_error() {
-        let mut w = World::new(60, 7);
-        w.spawn_named("player", Transform::default());
-        w.character("player");
-    }
-    #[test]
     fn nearest_uses_current_global_pose_and_stable_ties() {
         let mut w = World::new(60, 7);
         let parent = w.spawn(Transform::at(10.0, 0.0, 0.0));

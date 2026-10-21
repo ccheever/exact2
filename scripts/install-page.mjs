@@ -6,9 +6,14 @@ import { resolve, extname, sep } from 'node:path';
 export const INSTALL_ROOT = '/.exact/install/';
 export const INSTALL_PLATFORMS = ['web', 'ios', 'macos'];
 export const INSTALL_FILES = [INSTALL_ROOT + 'index.html', ...INSTALL_PLATFORMS.map(p => `${INSTALL_ROOT}${p}/index.html`)];
+// The pages' content as data, for a client that draws its own (Exact2 Go, a native app's sheet).
+export const INSTALL_DATA = '/.exact/install.json';
+/** Every public install route: the pages and their data. */
+export const INSTALL_PUBLIC = [...INSTALL_FILES, INSTALL_DATA];
 export const LOCAL_IOS_INSTALL_ENDPOINT = '/__dev/install/ios';
 const kinds = { web: ['browser'], ios: ['go', 'direct', 'testflight', 'app-store'], macos: ['go', 'download', 'terminal'] };
 const labels = { browser: 'Open in browser', go: 'Open in Exact2 Go', direct: 'Install on iPhone or iPad', testflight: 'Install with TestFlight', 'app-store': 'View in the App Store', download: 'Download for Mac', terminal: 'Install from Terminal' };
+const details = { go: 'Run this app inside Exact2 Go. Exact2 Go must be installed first.', terminal: 'Review the command, then paste it into Terminal.', direct: 'Device enrollment may be required. Follow the installation steps.', browser: '' };
 const escape = value => String(value).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 
 function https(value) {
@@ -58,15 +63,47 @@ export function installRoute(route) {
 
 function methodsFor(manifest, platform) {
   const config = manifest.install?.[platform];
-  const methods = config?.methods ?? (platform === 'web' ? [{ kind: 'browser', url: manifest.start_url ?? '/' }] : []);
+  const appdrop = manifest.deploy?.appdrop?.url;
+  const methods = config?.methods ?? (platform === 'web' ? [{ kind: 'browser', url: manifest.start_url ?? '/' }] : platform === 'ios' && appdrop ? [{ kind: 'direct', url: appdrop, label: 'Install with AppDrop', description: 'Opens AppDrop on your iPhone, which installs the app with your Apple ID.' }] : []);
   return methods.map((m, i) => ({ ...m, order: i, recommended: config?.recommended === m.kind }))
     .sort((a, b) => Number(b.recommended) - Number(a.recommended) || a.order - b.order);
 }
 
-export function installPage(manifest, presentation = {}) {
+/** What the install pages say (`/.exact/install.json`): the app, its build,
+ * each platform's methods in presentation order with their labels and
+ * descriptions resolved, and what it can reach. The HTML below is one
+ * rendering of it; a native client draws its own from the same data. A
+ * root-relative URL (a browser destination, a brand asset) resolves against
+ * the origin it was read from. A terminal method's `command` is shown for a
+ * person to copy, never run. `reach` is null where the build did not compute
+ * it (a JS development build has no bake receipt), never an empty claim;
+ * `build.source` and `build.dirty` are null where git did not answer. */
+export function installData(manifest, build = {}) {
   const errors = installProblems(manifest);
+  if (methodsFor(manifest, 'web').some(m => !validURL(m.url, 'browser'))) errors.push('install.web: invalid browser URL');
   if (errors.length) throw new Error(errors.join('\n'));
-  const name = escape(manifest.app?.name ?? manifest.name);
+  const brand = manifest.brand ?? {}, rooted = path => path && '/' + path;
+  const wordmark = brand.wordmark && { ...brand.wordmark, ...(brand.wordmark.image ? { image: rooted(brand.wordmark.image) } : {}), ...(brand.wordmark.font ? { font: rooted(brand.wordmark.font) } : {}) };
+  const platforms = Object.fromEntries(INSTALL_PLATFORMS.map(platform => [platform, {
+    methods: methodsFor(manifest, platform).map(({ order, ...m }) => {
+      const description = m.description ?? details[m.kind] ?? 'Install this app on your device.';
+      return { ...m, label: m.label ?? labels[m.kind], ...(description ? { description } : {}) };
+    }),
+    ...(platform === 'web' && manifest.install?.web?.urls ? { urls: manifest.install.web.urls } : {}),
+  }]));
+  return {
+    exactInstall: 1,
+    app: { name: manifest.app?.name ?? manifest.name, ...(manifest.app?.version ? { version: manifest.app.version } : {}) },
+    ...(brand.logo || wordmark ? { brand: { ...(brand.logo ? { logo: rooted(brand.logo) } : {}), ...(wordmark ? { wordmark } : {}) } } : {}),
+    build: { id: build.id ?? null, source: build.source ?? null, dirty: build.dirty ?? null, builtAt: build.builtAt ?? null, mode: build.mode ?? null },
+    platforms,
+    reach: build.reach ?? null,
+  };
+}
+
+export function installPage(manifest, presentation = {}) {
+  const data = installData(manifest, presentation.build);
+  const name = escape(data.app.name);
   const titles = { web: 'Web', ios: 'iOS', macos: 'macOS' };
   const brand = manifest.brand ?? {}, wordmark = brand.wordmark ?? {};
   const heading = presentation.wordmark ? `<img class="wordmark-image" src="${escape(presentation.wordmark)}" alt="${name}">` : `<span class="wordmark">${escape(wordmark.text ?? manifest.app?.name ?? manifest.name)}</span>`;
@@ -75,16 +112,15 @@ export function installPage(manifest, presentation = {}) {
   const version = manifest.app?.version ? `Version ${manifest.app.version} · ` : '';
   const exactMark = readFileSync(new URL('../assets/brand/exact-mark.svg', import.meta.url), 'utf8');
   const panels = INSTALL_PLATFORMS.map(platform => {
-    const methods = methodsFor(manifest, platform);
+    const { methods, urls = [] } = data.platforms[platform];
     const local = platform === 'ios' ? '<!-- exact-local-ios -->' : '';
     return `<section class="platform${methods.length ? '' : ' unavailable'}" id="${platform}" aria-labelledby="heading-${platform}"><h2 id="heading-${platform}">${titles[platform]}</h2>${local}${methods.length ? methods.map(m => {
-      const label = escape(m.label ?? labels[m.kind]);
-      const detail = m.description ?? (m.kind === 'go' ? 'Run this app inside Exact2 Go. Exact2 Go must be installed first.' : m.kind === 'terminal' ? 'Review the command, then paste it into Terminal.' : m.kind === 'direct' ? 'Device enrollment may be required. Follow the installation steps.' : m.kind === 'browser' ? '' : 'Install this app on your device.');
-      return `<article>${m.recommended ? '<span class="badge">Recommended</span>' : ''}<h3>${label}</h3>${detail ? `<p>${escape(detail)}</p>` : ''}${m.kind === 'browser' ? `<div class="browser-urls"><div class="browser-destination"><span class="url-label" data-current-label>This address</span><a class="browser-url" data-browser-url href="${escape(m.url)}">${escape(m.url)}</a></div>${(manifest.install?.web?.urls ?? []).map(entry => `<div class="browser-destination"><span class="url-label">${escape(entry.label)}</span><a class="browser-url" href="${escape(entry.url)}">${escape(entry.url)}</a></div>`).join('')}</div>` : ''}${m.version ? `<p class="version">${escape(m.version)}</p>` : ''}${m.kind === 'terminal' ? `<pre><code id="command-${platform}">${escape(m.command)}</code></pre><button type="button" data-copy="command-${platform}">Copy command</button><a class="secondary" href="${escape(m.url)}" rel="noopener noreferrer">Installation instructions</a>` : `<a class="action" href="${escape(m.url)}" rel="noopener noreferrer">${label}<span aria-hidden="true"> ↗</span></a>`}${m.kind === 'go' && m.setupUrl ? `<a class="secondary" href="${escape(m.setupUrl)}" rel="noopener noreferrer">Get Exact2 Go</a>` : ''}</article>`;
+      const label = escape(m.label), detail = m.description;
+      return `<article>${m.recommended ? '<span class="badge">Recommended</span>' : ''}<h3>${label}</h3>${detail ? `<p>${escape(detail)}</p>` : ''}${m.kind === 'browser' ? `<div class="browser-urls"><div class="browser-destination"><span class="url-label" data-current-label>This address</span><a class="browser-url" data-browser-url href="${escape(m.url)}">${escape(m.url)}</a></div>${urls.map(entry => `<div class="browser-destination"><span class="url-label">${escape(entry.label)}</span><a class="browser-url" href="${escape(entry.url)}">${escape(entry.url)}</a></div>`).join('')}</div>` : ''}${m.version ? `<p class="version">${escape(m.version)}</p>` : ''}${m.kind === 'terminal' ? `<pre><code id="command-${platform}">${escape(m.command)}</code></pre><button type="button" data-copy="command-${platform}">Copy command</button><a class="secondary" href="${escape(m.url)}" rel="noopener noreferrer">Installation instructions</a>` : `<a class="action" href="${escape(m.url)}" rel="noopener noreferrer">${label}<span aria-hidden="true"> ↗</span></a>`}${m.kind === 'go' && m.setupUrl ? `<a class="secondary" href="${escape(m.setupUrl)}" rel="noopener noreferrer">Get Exact2 Go</a>` : ''}</article>`;
     }).join('') : '<p class="unavailable-note">Not available yet</p>'}</section>`;
   }).join('');
   // What this app can reach (LLP 1069.008 D7): the bake's rows, base-locale purposes.
-  const rows = meta.reach ?? [];
+  const rows = data.reach ?? [];
   const reach = rows.length ? `<section class="platform reach" id="reach" aria-labelledby="heading-reach"><h2 id="heading-reach">What this app can reach</h2><ul>${rows.map(r => `<li><code>${escape(r.grant)}</code>${r.purpose ? `<p>${escape(r.purpose)}</p>` : ''}<p class="enforced">Enforced by ${escape(r.enforced)}</p></li>`).join('')}</ul></section>` : '';
   return `<!doctype html>
 <html lang="${escape(manifest.lang ?? 'en')}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="referrer" content="no-referrer"><title>Get ${name}</title>
@@ -186,11 +222,8 @@ export function developmentInstallPage(page, token) {
 }
 
 export function writeInstallPages(dist, manifest, build = {}) {
-  // The default browser URL is validated too, before writing any output.
-  const browser = methodsFor(manifest, 'web');
-  const errors = installProblems(manifest);
-  if (browser.some(m => !validURL(m.url, 'browser'))) errors.push('install.web: invalid browser URL');
-  if (errors.length) throw new Error(errors.join('\n'));
+  // Validated (the default browser URL too) before writing any output.
+  installData(manifest, build);
   const asset = (name, font = false) => {
     if (!name) return null;
     if (!/^assets\//.test(name)) throw new Error('brand assets must be inside assets/');
@@ -206,6 +239,7 @@ export function writeInstallPages(dist, manifest, build = {}) {
     mkdirSync(path, { recursive: true });
     writeFileSync(resolve(path, 'index.html'), installPage(manifest, presentation));
   }
+  writeFileSync(resolve(dist, '.' + INSTALL_DATA), JSON.stringify(installData(manifest, build), null, 2) + '\n');
 }
 
 // Addresses come from the listener and local interfaces, never proxy/request
@@ -231,20 +265,54 @@ export function installBrowserOrigins({host, port, interfaces = networkInterface
 }
 /** The development server's request gate. It answers only to the names it
  * printed at startup (`origins`, from installBrowserOrigins) and `localhost`:
- * a DNS-rebinding page reaches a loopback socket under its own name. A
- * request is local — it may see the installer's token — only from a loopback
- * peer naming a loopback host. */
-export function developmentGate(origins, port) {
+ * a DNS-rebinding page reaches a loopback socket under its own name. Each
+ * `allowHosts` name (`--allow-host`, a tunnel's public name) is admitted too:
+ * `name` at any port, `name:port` at that port. A request is local — it may
+ * see the installer's token — only from a loopback peer naming a loopback
+ * host, never through an allowed name, and never with a proxy's forwarding
+ * headers: a tunnel that rewrites Host to 127.0.0.1 is still the internet. A
+ * browser POST whose Origin is not the host it names is refused (cross-site).
+ * The design tool's live copies (LLP 1122 T7, theme2's F1 ruling) are each
+ * at a loopback name of its own, `exact-copy-<n>.localhost` at this port (n
+ * 1 to 99), so six of them are not six streams on one host's six
+ * connections: admitted, never local. */
+export function developmentGate(origins, port, allowHosts = []) {
   const loopback = [`http://127.0.0.1:${port}`, `http://localhost:${port}`].map(origin => new URL(origin));
   const names = new Set([...origins.map(o => new URL(o.origin).host), ...loopback.map(u => u.host)]);
+  const allowed = allowHosts.map(allowHostName);
   const peers = new Set(['127.0.0.1', '::1', '::ffff:127.0.0.1']);
   return {
     loopbackOrigins: loopback.map(u => u.origin),
+    allowHosts: allowed,
     check(req) {
-      const host = String(req.headers.host ?? '').toLowerCase();
-      return { allowed: names.has(host), local: loopback.some(u => u.host === host) && peers.has(req.socket?.remoteAddress) };
+      const headers = req.headers ?? {};
+      const host = String(headers.host ?? '').toLowerCase();
+      const name = host.replace(/:\d+$/, '');
+      // Any proxy's mark: `forwarded`, or any `x-forwarded-*` (a later one too).
+      const forwarded = Object.keys(headers).some(h => { const k = h.toLowerCase(); return (k === 'forwarded' || k.startsWith('x-forwarded-')) && headers[h] !== undefined; });
+      let crossSite = false;
+      if (req.method === 'POST' && headers.origin !== undefined) {
+        try { crossSite = new URL(headers.origin).host.toLowerCase() !== host; } catch { crossSite = true; }
+      }
+      // (At port 80 a browser names no port.)
+      const copy = new RegExp(`^exact-copy-[1-9]\\d?\\.localhost(?::${port})${port === 80 ? '?' : ''}$`).test(host);
+      const admitted = !crossSite && (names.has(host) || copy || allowed.some(a => a === host || a === name));
+      return { allowed: admitted, local: admitted && !forwarded && loopback.some(u => u.host === host) && peers.has(req.socket?.remoteAddress) };
     },
   };
+}
+/** One `--allow-host` value, lowercased: a DNS name or IPv4 address, with an
+ * optional `:port`. Anything else (a URL, a wildcard, an empty name) throws. */
+export function allowHostName(value) {
+  const name = String(value ?? '').toLowerCase();
+  if (!/^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)*(?::\d{1,5})?$/.test(name)) throw new Error(`--allow-host takes a host name (example.trycloudflare.com, or name:port), not ${JSON.stringify(value ?? '')}`);
+  return name;
+}
+/** Every `--allow-host <name>` in argv, in order (the flag repeats). */
+export function allowHostArgs(argv) {
+  const names = [];
+  for (let i = 0; i < argv.length; i++) if (argv[i] === '--allow-host') names.push(allowHostName(argv[++i]));
+  return names;
 }
 
 /** The app URL a local iOS build opens: one of this server's printed

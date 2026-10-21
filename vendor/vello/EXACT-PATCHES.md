@@ -39,3 +39,9 @@ are gone, so the module carries no WGSL front end and compiles no shader source.
 image (the canvas's previous pixels), writing premultiplied colour, so a
 canvas keeps its bitmap without a copy pass. A scene of solid paths keeps the
 image atlas instead of shrinking it (an upstream bug that blanked images).
+
+## Cargo workspace boundary
+
+`Cargo.toml` declares an empty workspace so `cargo fmt --all` in a nested
+Exact worktree does not attach this excluded path dependency to the enclosing
+checkout. This is an Exact integration patch to retain when updating.

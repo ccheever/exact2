@@ -10,34 +10,55 @@
 //! stable id and a span.
 //!
 //! This crate also owns [`Scope`] and [`Ref`]: how a name resolves to a slot,
-//! derive, resource, prop, parameter, action, `each` item, or `match`
+//! derive, resource, prop, parameter, action, `for` item, or `match`
 //! binding. Later passes resolve names through the same code, so a name means
 //! one thing everywhere.
 
 #![forbid(unsafe_code)]
 #![deny(missing_docs)]
 
+mod actions;
+mod activities;
+pub use activities::option_type as activity_option_type;
+mod bounds;
+mod calls;
 mod checks;
 mod component;
+mod decorations;
+mod enums;
+mod failure;
 mod geometry;
+mod injects;
 mod lists;
+mod literals;
+mod media;
+mod payload;
+mod persist;
 /// Router declaration checking and compile-time path expansion (LLP 1038 D2/D3).
 pub mod placeholder;
+mod posts;
+pub mod records;
 pub mod routes;
 mod selection;
+mod tasks;
+pub use bounds::MAX_TYPE_DEPTH;
+pub use payload::handler_arity_message;
+pub use selection::event_record;
 /// The strings call and the tables it is checked against (LLP 1060).
 pub mod strings;
 mod uses;
 
+use checks::check_shape_cycles;
 use contract_syntax::{BinOp, Component, Expr, File, Span, TemplatePart, TypeExpr, UnOp};
 use exact_plan::Stdlib;
+use injects::check_injects;
 use std::{collections::BTreeMap, sync::Arc};
-
-use checks::{check_injects, check_shape_cycles};
 
 /// A closed type.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Ty {
+    /// A finite vocabulary of strings.
+    Enum(Vec<String>),
     /// `number`
     Number,
     /// `string`
@@ -64,10 +85,19 @@ impl std::fmt::Display for Ty {
         match self {
             Ty::Number => write!(f, "number"),
             Ty::String => write!(f, "string"),
+            Ty::Enum(values) => write!(
+                f,
+                "enum<{}>",
+                values
+                    .iter()
+                    .map(|s| format!("{s:?}"))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ),
             Ty::Bool => write!(f, "bool"),
             Ty::Unit => write!(f, "unit"),
             Ty::Option(t) => write!(f, "option<{t}>"),
-            Ty::List(t) => write!(f, "list<{t}>"),
+            Ty::List(t) => write!(f, "{t}[]"),
             Ty::Record(n) => write!(f, "{n}"),
             Ty::Action(ps) => write!(
                 f,
@@ -83,6 +113,14 @@ impl std::fmt::Display for Ty {
 }
 
 impl Ty {
+    /// Whether a finite vocabulary is present, including under option/list/action.
+    pub fn contains_enum(&self) -> bool {
+        enums::contains(self)
+    }
+    /// An ordinary string, including a finite string vocabulary.
+    pub fn is_string(&self) -> bool {
+        matches!(self, Ty::String | Ty::Enum(_))
+    }
     /// Whether any `?` remains.
     pub fn is_complete(&self) -> bool {
         match self {
@@ -92,10 +130,19 @@ impl Ty {
             _ => true,
         }
     }
-
     /// The most specific type both agree on, or `None` when they conflict.
     pub fn unify(&self, other: &Ty) -> Option<Ty> {
         match (self, other) {
+            (Ty::String, Ty::Enum(_)) | (Ty::Enum(_), Ty::String) => Some(Ty::String),
+            (Ty::Enum(a), Ty::Enum(b)) => {
+                let mut values = a.clone();
+                for value in b {
+                    if !values.contains(value) {
+                        values.push(value.clone());
+                    }
+                }
+                Some(Ty::Enum(values))
+            }
             (Ty::Unknown, t) | (t, Ty::Unknown) => Some(t.clone()),
             (Ty::Option(a), Ty::Option(b)) => a.unify(b).map(|t| Ty::Option(Box::new(t))),
             (Ty::List(a), Ty::List(b)) => a.unify(b).map(|t| Ty::List(Box::new(t))),
@@ -112,18 +159,22 @@ impl Ty {
             _ => None,
         }
     }
-
     /// Whether a value of this type may be passed where the roster spells `spec`.
     pub fn matches_roster(&self, spec: &str) -> bool {
         match spec {
             "number" => *self == Ty::Number,
-            "string" => *self == Ty::String,
+            "string" => matches!(self, Ty::String | Ty::Enum(_)),
             "bool" => *self == Ty::Bool,
-            "any" => matches!(self, Ty::Number | Ty::String | Ty::Bool | Ty::List(_)),
+            "any" => matches!(
+                self,
+                Ty::Number | Ty::String | Ty::Enum(_) | Ty::Bool | Ty::List(_)
+            ),
+            "list<number>" => {
+                matches!(self, Ty::List(t) if matches!(**t, Ty::Number | Ty::Unknown))
+            }
             _ => *self == Self::from_roster(spec) && *self != Ty::Unknown,
         }
     }
-
     /// The roster's return spelling as a type.
     pub fn from_roster(spec: &str) -> Ty {
         match spec {
@@ -133,59 +184,11 @@ impl Ty {
             "Router" | "Entry" | "Geometry" => Ty::Record(spec.into()),
             "list<Entry>" => Ty::List(Box::new(Ty::Record("Entry".into()))),
             "list<string>" => Ty::List(Box::new(Ty::String)),
+            "list<number>" => Ty::List(Box::new(Ty::Number)),
+            "option<string>" => Ty::Option(Box::new(Ty::String)),
+            "option<number>" => Ty::Option(Box::new(Ty::Number)),
             _ => Ty::Unknown,
         }
-    }
-}
-
-/// Whether a roster parameter admits `t`. The roster table spells three
-/// parameters `any`; each is held to the values its runner entry reads, so a
-/// call that would fail at runtime (`length(5)`) is refused here instead.
-fn roster_accepts(f: Stdlib, spec: &str, t: &Ty) -> bool {
-    match (f, spec) {
-        (Stdlib::Length | Stdlib::IsEmpty, "any") => matches!(t, Ty::String | Ty::List(_)),
-        (Stdlib::ToString, "any") => matches!(t, Ty::Number | Ty::String | Ty::Bool),
-        (Stdlib::First | Stdlib::At, "any") => matches!(t, Ty::List(_)),
-        _ => t.matches_roster(spec),
-    }
-}
-
-/// A roster parameter spelled as string literals (`"medium" | "month-year"`)
-/// takes one of them, written as a literal: a style is chosen where the call
-/// is written, never computed or forwarded (@ref LLP 1054.000.003 D9; the
-/// precedent is `path()`'s route name).
-fn literal_argument(name: &str, i: usize, spec: &str, arg: &Expr) -> Result<(), TypeError> {
-    let written = match arg {
-        Expr::Str(value, _) => {
-            let quoted = format!("\"{value}\"");
-            if spec.split(" | ").any(|choice| choice == quoted) {
-                return Ok(());
-            }
-            format!("`{quoted}`")
-        }
-        _ => "an expression".into(),
-    };
-    err(
-        "type-format-style",
-        format!(
-            "argument {} of `{name}` is one of {}, written as a string literal; given {written}",
-            i + 1,
-            spec.split(" | ")
-                .map(|c| format!("`{c}`"))
-                .collect::<Vec<_>>()
-                .join(", ")
-        ),
-        arg.span(),
-    )
-}
-
-/// A roster parameter as a refusal spells it.
-fn roster_spelling(f: Stdlib, spec: &str) -> &str {
-    match (f, spec) {
-        (Stdlib::Length | Stdlib::IsEmpty, "any") => "string | list",
-        (Stdlib::ToString, "any") => "number | string | bool",
-        (Stdlib::First | Stdlib::At, "any") => "list",
-        _ => spec,
     }
 }
 
@@ -271,6 +274,9 @@ pub struct Shapes {
     pub routes: Option<exact_route::Table>,
     /// Shape name → fields in order.
     pub map: BTreeMap<String, Vec<(String, Ty)>>,
+    /// The shapes the app declares, which `Shape(field=…)` builds
+    /// (LLP 1035.005.000 D3); the compiler's own are left out.
+    pub declared: std::collections::BTreeSet<String>,
     /// `fn` name → (parameter types, result type) (LLP 1017 P5).
     pub fns: BTreeMap<String, (Vec<Ty>, Ty)>,
     /// Which attribute names set style rows (lowering's table): their
@@ -278,12 +284,34 @@ pub struct Shapes {
     pub style_attr: Option<fn(&str) -> bool>,
     /// The app's strings tables, when it has them (LLP 1060 D1).
     pub strings: Option<Arc<strings::Strings>>,
+    /// Action name → the first component that declares it: a statement
+    /// naming one out of its scope is told where it is (LLP 1089 D10).
+    pub actions: BTreeMap<String, String>,
+    /// Shape name → how deep its values can nest (LLP 1090 D2), once every
+    /// shape's fields are known.
+    pub depths: BTreeMap<String, u32>,
+    /// Call statements refused as ambiguous (LLP 1089 D1): never checked as
+    /// host commands too, so their refusal is the only one.
+    pub ambiguous: std::collections::BTreeSet<Span>,
+    /// The sounds the app declares, by path (LLP 1096 D1): a literal
+    /// `playSound` source names one.
+    pub sounds: std::collections::BTreeSet<String>,
+    /// Where `x.length` reads a record's field (`lists::LengthReads`).
+    pub(crate) lengths: Arc<std::sync::Mutex<lists::LengthReads>>,
 }
 
 impl Shapes {
-    /// Resolve a written type.
+    /// Resolve a written type, refusing one no value of could cross every
+    /// target ([`Shapes::bounded`]).
     pub fn resolve(&self, t: &TypeExpr) -> Result<Ty, TypeError> {
+        let ty = self.resolve_unbounded(t)?;
+        self.bounded(&ty, t.span())?;
+        Ok(ty)
+    }
+
+    fn resolve_unbounded(&self, t: &TypeExpr) -> Result<Ty, TypeError> {
         Ok(match t {
+            TypeExpr::Enum(values, _) => Ty::Enum(values.clone()),
             TypeExpr::Named(n, span) => match n.as_str() {
                 "number" => Ty::Number,
                 "string" => Ty::String,
@@ -302,8 +330,8 @@ impl Shapes {
                     }
                 }
             },
-            TypeExpr::Option(inner, _) => Ty::Option(Box::new(self.resolve(inner)?)),
-            TypeExpr::List(inner, _) => Ty::List(Box::new(self.resolve(inner)?)),
+            TypeExpr::Option(inner, _) => Ty::Option(Box::new(self.resolve_unbounded(inner)?)),
+            TypeExpr::List(inner, _) => Ty::List(Box::new(self.resolve_unbounded(inner)?)),
         })
     }
 
@@ -335,9 +363,9 @@ pub enum Ref {
     Prop(u32),
     /// An action parameter, by index.
     Param(u32),
-    /// An `each` item, `depth` region frames out (0 = innermost).
+    /// A `for` item, `depth` region frames out (0 = innermost).
     Item(u32),
-    /// An `each` item's position, `depth` region frames out (LLP 1062 D8).
+    /// A `for` item's position, `depth` region frames out (LLP 1062 D8).
     Index(u32),
     /// A `match` binding, `depth` region frames out.
     Bound(u32),
@@ -360,9 +388,17 @@ pub struct Scope {
     frames: Vec<Arc<Frame>>,
     // Inside an action's body, where geometry reads are allowed (LLP 1051.000 D2).
     action: bool,
+    // The component whose declarations are the bottom frame; empty for a
+    // scope of values alone.
+    component: Arc<str>,
 }
 
 impl Scope {
+    /// The component this scope belongs to, for a refusal that names it.
+    pub fn component(&self) -> &str {
+        &self.component
+    }
+
     /// Mark this scope as an action's body: geometry reads are allowed here
     /// and nowhere else (LLP 1051.000 D2).
     pub fn enter_action(&mut self) {
@@ -387,7 +423,7 @@ impl Scope {
         }));
     }
 
-    /// Push a region frame binding at most one name (`each` item or `match` binding).
+    /// Push a region frame binding at most one name (`for` item or `match` binding).
     pub fn push_region(&mut self, name: Option<(String, Ref, Ty)>) {
         self.frames.push(Arc::new(Frame {
             names: name.into_iter().collect(),
@@ -395,7 +431,7 @@ impl Scope {
         }));
     }
 
-    /// Push an `each` row's frame: its item, and its position when named.
+    /// Push a `for` row's frame: its item, and its position when named.
     pub fn push_each(&mut self, item: &str, index: Option<&str>, ty: Ty) {
         let mut names = vec![(item.to_string(), Ref::Item(0), ty)];
         names.extend(index.map(|i| (i.to_string(), Ref::Index(0), Ty::Number)));
@@ -559,6 +595,8 @@ pub struct Types {
 impl Types {
     /// The component's declaration scope: props, slots, derives, resources, actions.
     pub fn component_scope(&self, c: &Component, ct: &ComponentTypes) -> Scope {
+        #[cfg(test)]
+        component::SCOPE_BUILDS.with(|count| count.set(count.get() + 1));
         let mut names = Vec::new();
         for (i, p) in c.props.iter().enumerate() {
             names.push((p.name.clone(), Ref::Prop(i as u32), ct.props[i].clone()));
@@ -594,7 +632,10 @@ impl Types {
                 Ty::Action(ct.actions[i].clone()),
             ));
         }
-        let mut scope = Scope::default();
+        let mut scope = Scope {
+            component: Arc::from(c.name.as_str()),
+            ..Scope::default()
+        };
         scope.push(names);
         scope
     }
@@ -614,7 +655,8 @@ pub(crate) fn source_argument(
 ) -> Result<Ty, TypeError> {
     fn untyped_literal(e: &Expr) -> bool {
         match e {
-            Expr::EmptyList(_) | Expr::None(_) => true,
+            Expr::None(_) => true,
+            Expr::List(items, _) => items.iter().all(untyped_literal),
             Expr::Some(inner, _) => untyped_literal(inner),
             _ => false,
         }
@@ -632,8 +674,41 @@ pub(crate) fn source_argument(
     )
 }
 
-/// Infer an expression's type in `scope`.
+/// `t`, a use's argument, as the declared type of the prop it fills
+/// ([`Expr::Typed`]): `none`'s `option<?>` becomes the declared option.
+pub fn ascribe(
+    t: &Ty,
+    expr: &Expr,
+    declared: &TypeExpr,
+    shapes: &Shapes,
+    span: Span,
+    scope: &Scope,
+) -> Result<Ty, TypeError> {
+    let declared = shapes.resolve(declared)?;
+    match checks::accepts_expr(&declared, expr, t, scope, shapes) {
+        true => Ok(if declared.contains_enum() {
+            declared
+        } else {
+            declared.unify(t).expect("accepted types unify")
+        }),
+        false => err(
+            "type-prop",
+            format!("this argument is `{t}`, where the prop is declared `{declared}`"),
+            span,
+        ),
+    }
+}
+
+/// Infer an expression's type in `scope`, refusing one no value of could
+/// cross every target ([`Shapes::bounded`]): `some`, `map` and the roster's
+/// options and lists are where an inferred type grows.
 pub fn infer(e: &Expr, scope: &Scope, shapes: &Shapes) -> Result<Ty, TypeError> {
+    let t = infer_unbounded(e, scope, shapes)?;
+    shapes.bounded(&t, e.span())?;
+    Ok(t)
+}
+
+fn infer_unbounded(e: &Expr, scope: &Scope, shapes: &Shapes) -> Result<Ty, TypeError> {
     Ok(match e {
         Expr::Number(..) => Ty::Number,
         Expr::Str(..) => Ty::String,
@@ -642,7 +717,7 @@ pub fn infer(e: &Expr, scope: &Scope, shapes: &Shapes) -> Result<Ty, TypeError> 
             for p in parts {
                 if let TemplatePart::Expr(x) = p {
                     let t = infer(x, scope, shapes)?;
-                    if !matches!(t, Ty::Number | Ty::String | Ty::Bool) {
+                    if !matches!(t, Ty::Number | Ty::String | Ty::Enum(_) | Ty::Bool) {
                         return err(
                             "type-template-part",
                             format!("a template part must be a number, string, or bool, not `{t}`"),
@@ -654,15 +729,35 @@ pub fn infer(e: &Expr, scope: &Scope, shapes: &Shapes) -> Result<Ty, TypeError> 
             Ty::String
         }
         Expr::None(_) => Ty::Option(Box::new(Ty::Unknown)),
+        // `[a, b]`'s items unify as the arms of `?:` do (LLP 1088 §9.1).
         // `[]` is a `list<?>` as `none` is an `option<?>`: the other arm of a
         // `match` or `?:`, a declared `list<T>`, or a write into the state
         // it initializes fills the `?` through `unify`.
-        Expr::EmptyList(_) => Ty::List(Box::new(Ty::Unknown)),
+        Expr::List(items, _) => {
+            let mut item = Ty::Unknown;
+            for (i, x) in items.iter().enumerate() {
+                let t = infer(x, scope, shapes)?;
+                item = match item.unify(&t) {
+                    Some(u) => u,
+                    None => {
+                        return err(
+                            "type-list-item",
+                            format!(
+                                "a list's items have one type: item {} is `{t}`, the items before it `{item}`",
+                                i + 1
+                            ),
+                            x.span(),
+                        )
+                    }
+                };
+            }
+            Ty::List(Box::new(item))
+        }
         Expr::Some(inner, _) => Ty::Option(Box::new(infer(inner, scope, shapes)?)),
         Expr::NamedArg(_, _, span) => {
             return err(
                 "type-named-argument",
-                "named arguments belong to a canvas surface binding",
+                "named arguments go to a component use, a shape's call (`Row(title=…)`), `empty(…)`, `t(…)`, a canvas `surface=` binding and `share`, `scrollIntoView`; another call's arguments are positional",
                 *span,
             )
         }
@@ -695,7 +790,8 @@ pub fn infer(e: &Expr, scope: &Scope, shapes: &Shapes) -> Result<Ty, TypeError> 
                     // `xs.length`, `xs.map`: the web's properties and methods.
                     let fix = match field.as_str() {
                         "length" | "map" | "filter" | "join" | "includes" | "startsWith"
-                        | "endsWith" => {
+                        | "endsWith" | "concat" | "slice" | "indexOf" | "split" | "count"
+                        | "size" => {
                             format!(": {}", contract_syntax::idioms::method_fix(field))
                         }
                         _ => String::new(),
@@ -713,26 +809,11 @@ pub fn infer(e: &Expr, scope: &Scope, shapes: &Shapes) -> Result<Ty, TypeError> 
                 routes::expand_path(args, *span, scope, shapes)?;
                 return Ok(Ty::String);
             }
-            if strings::is_text_call(name, scope) {
+            if !shapes.fns.contains_key(name) && strings::is_text_call(name, scope) {
                 return strings::check_call(args, *span, scope, shapes);
             }
-            if name == "failed" {
-                // Like `pending`, this reads a resource's status, not its value.
-                let [Expr::Ident(target, tspan)] = args.as_slice() else {
-                    return err(
-                        "type-failed-argument",
-                        "`failed(x)` names one resource",
-                        *span,
-                    );
-                };
-                return match scope.lookup(target) {
-                    Some((Ref::Resource(_), _)) => Ok(Ty::Bool),
-                    _ => err(
-                        "type-failed-argument",
-                        format!("`{target}` is not a resource"),
-                        *tspan,
-                    ),
-                };
+            if let Some(t) = failure::check(name, args, *span, scope) {
+                return t;
             }
             if name == "pending" {
                 // `pending(x)`: whether resource or mutation `x` has a
@@ -754,6 +835,9 @@ pub fn infer(e: &Expr, scope: &Scope, shapes: &Shapes) -> Result<Ty, TypeError> 
                     ),
                 };
             }
+            if records::is_record_call(name, shapes) {
+                return records::infer_record(name, args, *span, scope, shapes);
+            }
             if let Some((params, ret)) = shapes.fns.get(name) {
                 // A `fn` (LLP 1017 P5): typed like a roster call.
                 if args.len() != params.len() {
@@ -765,12 +849,12 @@ pub fn infer(e: &Expr, scope: &Scope, shapes: &Shapes) -> Result<Ty, TypeError> 
                 }
                 for (i, (arg, want)) in args.iter().zip(params).enumerate() {
                     let t = infer(arg, scope, shapes)?;
-                    if !checks::can_unify(want, &t) {
+                    if !checks::accepts_expr(want, arg, &t, scope, shapes) {
                         return err(
                             "type-argument",
                             format!(
-                                "argument {} of `{name}` expects `{want}`, given `{t}`",
-                                i + 1
+                                "{} expects `{want}`, given `{t}`",
+                                contract_syntax::idioms::argument(name, i)
                             ),
                             arg.span(),
                         );
@@ -784,41 +868,26 @@ pub fn infer(e: &Expr, scope: &Scope, shapes: &Shapes) -> Result<Ty, TypeError> 
                 .lookup(name)
                 .filter(|_| !routes::value_call(name, args, scope, shapes))
             {
-                // A curried action reference: `action(args)` binds the leading parameters.
-                if args.len() > params.len() && !params.is_empty() {
-                    return err(
-                        "type-arity",
-                        format!(
-                            "`{name}` takes at most {} argument(s), given {}",
-                            params.len(),
-                            args.len()
-                        ),
-                        *span,
-                    );
-                }
-                for (arg, pt) in args.iter().zip(params.iter()) {
-                    let t = infer(arg, scope, shapes)?;
-                    if !checks::can_unify(&t, pt) {
-                        return err(
-                            "type-argument",
-                            format!("`{name}` expects `{pt}`, given `{t}`"),
-                            arg.span(),
-                        );
-                    }
-                }
-                Ty::Action(params.iter().skip(args.len()).cloned().collect())
+                component::action_call(name, params, args, *span, scope, shapes)?
             } else if let Some(f) = Stdlib::from_name(name).filter(|f| lists::is_list_op(*f)) {
                 return lists::infer_call(f, args, *span, scope, shapes);
             } else if let Some(f) = Stdlib::from_name(name) {
+                routes::not_the_router(f, args, scope, shapes, *span)?;
                 routes::require_table(f, shapes, *span)?;
                 geometry::check_call(f, args, scope, *span)?;
-                if args.len() != f.arity() {
+                // Trailing optional parameters (`slice`'s `end`) may be
+                // omitted from a call the roster resolved; lowering fills
+                // their defaults (LLP 1088 D2).
+                if !(f.min_arity()..=f.arity()).contains(&args.len()) {
                     return err(
                         "type-arity",
                         checks::call_arity(
                             name,
                             args.len(),
-                            f.params().iter().map(|spec| roster_spelling(f, spec)),
+                            f.params().iter().enumerate().map(|(i, spec)| {
+                                let optional = if i >= f.min_arity() { "?" } else { "" };
+                                format!("{}{optional}", checks::roster_spelling(f, spec))
+                            }),
                         ),
                         *span,
                     );
@@ -826,25 +895,39 @@ pub fn infer(e: &Expr, scope: &Scope, shapes: &Shapes) -> Result<Ty, TypeError> 
                 let mut given = Vec::with_capacity(args.len());
                 for (i, (arg, spec)) in args.iter().zip(f.params()).enumerate() {
                     if spec.starts_with('"') {
-                        literal_argument(name, i, spec, arg)?;
+                        literals::literal_argument(name, i, spec, arg)?;
                         given.push(Ty::String);
+                        continue;
+                    }
+                    if let Some(range) = spec.split_once("..=") {
+                        literals::digits_argument(name, i, range, arg)?;
+                        given.push(Ty::Number);
                         continue;
                     }
                     let t = infer(arg, scope, shapes)?;
                     given.push(t.clone());
-                    if !roster_accepts(f, spec, &t) {
+                    if !checks::roster_accepts(f, spec, &t) {
+                        // @ref LLP 1116.016 D5 — the web's `String.prototype.at`.
+                        let text = if f == Stdlib::At && i == 0 && t.is_string() {
+                            ": for text, `s.slice(i, i + 1)`, `\"\"` past the end"
+                        } else {
+                            ""
+                        };
                         return err(
                             "type-argument",
                             format!(
-                                "argument {} of `{name}` expects `{}`, given `{t}`",
-                                i + 1,
-                                roster_spelling(f, spec)
+                                "{} expects `{}`, given `{t}`{text}",
+                                contract_syntax::idioms::argument(name, i),
+                                checks::roster_spelling(f, spec)
                             ),
                             arg.span(),
                         );
                     }
                 }
                 routes::location(f, args, shapes)?;
+                if f == Stdlib::FormatNumber {
+                    literals::currency_code(args, *span)?;
+                }
                 match (f, given.first()) {
                     // `first(list<T>)` is `option<T>` (LLP 1054.000 C4).
                     (Stdlib::First, Some(Ty::List(item))) => Ty::Option(item.clone()),
@@ -853,7 +936,7 @@ pub fn infer(e: &Expr, scope: &Scope, shapes: &Shapes) -> Result<Ty, TypeError> 
                     _ => Ty::from_roster(f.returns()),
                 }
             } else {
-                return Err(checks::unknown_function(name, scope, shapes, *span));
+                return Err(calls::unknown_function(name, scope, shapes, *span));
             }
         }
         Expr::Unary(op, inner, span) => {
@@ -887,7 +970,18 @@ pub fn infer(e: &Expr, scope: &Scope, shapes: &Shapes) -> Result<Ty, TypeError> 
             match op {
                 BinOp::Add => match (&ta, &tb) {
                     (Ty::Number, Ty::Number) => Ty::Number,
-                    (Ty::String, Ty::String) => Ty::String,
+                    (a, b) if a.is_string() && b.is_string() => Ty::String,
+                    // @ref LLP 1116.016 D5 — `"Total: " + n` is a template.
+                    (a, b)
+                        if (a.is_string() && matches!(b, Ty::Number | Ty::Bool))
+                            || (b.is_string() && matches!(a, Ty::Number | Ty::Bool)) =>
+                    {
+                        return err(
+                            "type-operand",
+                            format!("`+` joins two strings, given `{ta}` and `{tb}`: write a template, `` `Total: ${{n}}` `` for `\"Total: \" + n`"),
+                            *span,
+                        )
+                    }
                     _ => {
                         return err(
                             "type-operand",
@@ -908,18 +1002,22 @@ pub fn infer(e: &Expr, scope: &Scope, shapes: &Shapes) -> Result<Ty, TypeError> 
                     }
                     Ty::Number
                 }
+                // Two strings compare as JavaScript's `IsLessThan` does: in
+                // UTF-16 code-unit order (LLP 1088 D1).
                 BinOp::Lt | BinOp::Le | BinOp::Gt | BinOp::Ge => {
-                    if ta != Ty::Number || tb != Ty::Number {
+                    if !(ta == Ty::Number && tb == Ty::Number || ta.is_string() && tb.is_string()) {
                         return err(
                             "type-operand",
-                            format!("comparison needs numbers, given `{ta}` and `{tb}`"),
+                            format!(
+                                "comparison needs two numbers or two strings, given `{ta}` and `{tb}`"
+                            ),
                             *span,
                         );
                     }
                     Ty::Bool
                 }
                 BinOp::Eq | BinOp::Ne => {
-                    if !checks::can_unify(&ta, &tb) {
+                    if ta.unify(&tb).is_none() {
                         return err(
                             "type-operand",
                             format!("cannot compare `{ta}` with `{tb}`"),
@@ -952,10 +1050,14 @@ pub fn infer(e: &Expr, scope: &Scope, shapes: &Shapes) -> Result<Ty, TypeError> 
             inner.push(vec![(name.clone(), Ref::Local(0), t)]);
             infer(body, &inner, shapes)?
         }
+        Expr::Typed(value, ty, span) => {
+            let t = infer(value, scope, shapes)?;
+            ascribe(&t, value, ty, shapes, *span, scope)?
+        }
         Expr::Arrow { span, .. } => {
             return err(
                 "type-arrow-position",
-                "an arrow function is only the second argument of `map` or `filter`: `map(list, (item, index) => …)`",
+                "an arrow function is only the callback of `map`, `filter` or `sortBy`: `xs.map((item, index) => …)`, `sortBy(xs, item => key)`",
                 *span,
             )
         }
@@ -1028,18 +1130,36 @@ pub(crate) fn disagree(e: &Expr, ta: &Ty, tb: &Ty) -> TypeError {
 /// Navigation uses the same declaration rules as executable compilation.
 pub fn check_declarations(file: &File) -> Result<Shapes, TypeError> {
     let mut shapes = Shapes::default();
+    for c in &file.components {
+        for a in &c.actions {
+            shapes
+                .actions
+                .entry(a.name.clone())
+                .or_insert_with(|| c.name.clone());
+        }
+    }
+    shapes.sounds = file.sounds.iter().map(|s| s.source.clone()).collect();
     routes::declare(file, &mut shapes)?;
     selection::declare(&mut shapes);
     geometry::declare(&mut shapes);
+    decorations::declare(&mut shapes);
+    failure::declare(&mut shapes);
     for s in &file.shapes {
         if shapes.map.contains_key(&s.name) {
-            return err(
-                "type-duplicate-shape",
-                format!("shape `{}` declared twice", s.name),
-                s.span,
-            );
+            // A compiler-declared shape (`Geometry`, `Failure`, `Router`, …) is not a second declaration
+            // of the app's own (authoring bench).
+            let message = if shapes.declared.contains(&s.name) {
+                format!("shape `{}` declared twice", s.name)
+            } else {
+                format!(
+                    "`{}` is a shape the compiler declares; name the app's shape another way",
+                    s.name
+                )
+            };
+            return err("type-duplicate-shape", message, s.span);
         }
         shapes.map.insert(s.name.clone(), Vec::new());
+        shapes.declared.insert(s.name.clone());
     }
     check_shape_cycles(file, &shapes)?;
     for s in &file.shapes {
@@ -1049,17 +1169,28 @@ pub fn check_declarations(file: &File) -> Result<Shapes, TypeError> {
         }
         shapes.map.insert(s.name.clone(), fields);
     }
+    shapes.measure_shapes();
+    for s in &file.shapes {
+        shapes.bounded(&Ty::Record(s.name.clone()), s.span)?;
+    }
     // `fn`s (LLP 1017 P5): signatures first, then each body in a scope of
     // its parameters only — pure by construction — against the declared
     // result; a cycle through calls is refused, since a body is expanded
     // where it is called.
+    //
+    // A `fn` named like a roster entry shadows it, in every expression of
+    // the program, as a JavaScript function declared over a global does:
+    // a later roster that gains the name never breaks an app that had it
+    // first (x2apps files' `fn indexOf`, batch 6).
     for f in &file.fns {
-        if Stdlib::from_name(&f.name).is_some() {
+        // @ref LLP 1035.005.000 D3 — `Name(…)` builds a declared shape.
+        if shapes.declared.contains(&f.name) || records::COMPILER_RECORDS.contains(&f.name.as_str())
+        {
             return err(
-                "contract-fn-shadows-roster",
+                "type-fn-shape-name",
                 format!(
-                    "`fn {}` has the roster's name; a roster entry is the framework's — pick another",
-                    f.name
+                    "`fn {}` has a shape's name, and `{}(field=…)` builds that shape: pick another",
+                    f.name, f.name
                 ),
                 f.span,
             );
@@ -1096,7 +1227,7 @@ pub fn check_declarations(file: &File) -> Result<Shapes, TypeError> {
                 .collect(),
         );
         let t = infer(&f.body, &scope, &shapes)?;
-        if !checks::can_unify(ret, &t) {
+        if !checks::accepts_expr(ret, &f.body, &t, &scope, &shapes) {
             return err(
                 "type-fn-return",
                 format!("`fn {}` declares `{ret}` but its body is `{t}`", f.name),
@@ -1143,6 +1274,10 @@ fn check_with_sites(
     let mut shapes = check_declarations(file).map_err(|e| vec![e])?;
     shapes.style_attr = Some(style_attr);
     shapes.strings = strings;
+    // A call naming both a host command and an action in its component's
+    // scope, refused before anything expands (LLP 1089 D1).
+    let ambiguous = contract_syntax::inline::calls::ambiguous(file);
+    shapes.ambiguous = ambiguous.iter().map(|a| a.span).collect();
     let mut types = Types {
         shapes,
         components: Vec::new(),
@@ -1164,7 +1299,25 @@ fn check_with_sites(
         ..ComponentTypes::default()
     });
     let mut sink = Sink::default();
-    check_children(file, &mut types, &mut sink);
+    for a in &ambiguous {
+        sink.push(TypeError {
+            id: contract_syntax::inline::calls::Ambiguous::ID,
+            message: a.message(),
+            span: a.span,
+        });
+    }
+    posts::check_targets(file, &types.shapes.ambiguous, &mut sink);
+    // Each component's calls of its own actions, expanded in its own scope
+    // before any body is checked (LLP 1089 D7): a child's body holds them.
+    let (called, refused) = contract_syntax::inline::calls::expand_file(file);
+    for e in refused {
+        sink.push(TypeError {
+            id: e.id,
+            message: e.message,
+            span: e.span,
+        });
+    }
+    check_children(&called, &mut types, &mut sink);
     let children = sink.errors.len();
     // The root is checked against its inlined view, so a handler's real call
     // site (behind a child's prop) types the action's parameters.
@@ -1172,7 +1325,7 @@ fn check_with_sites(
     // child's own declarations, lifted in — what lowering will lower.
     // A use that cannot be expanded is refused and left out; the rest of the
     // root is still checked, what it lacked reading as `?`.
-    let (expanded, refused) = contract_syntax::expand_all(file, capture_sites);
+    let (mut expanded, refused) = contract_syntax::expand_checked(&called, capture_sites);
     for e in refused {
         sink.push(TypeError {
             id: e.id,
@@ -1181,6 +1334,10 @@ fn check_with_sites(
         });
     }
     check_root(file, &mut types, &expanded, &mut sink);
+    persist::check(file, &types, &expanded, &mut sink);
+    // What lowering lowers: each caller's names renamed apart from what its
+    // callees read, after the checks spoke in the author's (LLP 1089 D7).
+    contract_syntax::hygiene(&mut expanded, file);
     if sink.errors.is_empty() {
         Ok(Checked {
             file,
@@ -1188,13 +1345,11 @@ fn check_with_sites(
             expanded,
         })
     } else {
-        Err(prefer_call_sites(
-            sink.errors,
-            children,
-            file,
-            &types,
-            &expanded,
-        ))
+        let mut errors = prefer_call_sites(sink.errors, children, file, &types, &expanded);
+        for e in &mut errors {
+            records::nominal(e, &types.shapes, file);
+        }
+        Err(errors)
     }
 }
 
@@ -1203,19 +1358,27 @@ fn check_with_sites(
 fn check_children(file: &File, types: &mut Types, sink: &mut Sink) {
     // A child may own `state`, `derive`, and `action` (LLP 1017 P4c: its
     // instances' own), never a `resource`, `mutation`, or `task` — a row
-    // must not open N requests, and only the root has a clock.
+    // must not open N requests, and only the root has a clock — but it may
+    // read the device's facts, which open none (`DEVICE_FACTS`).
     for c in file.components.iter().skip(1) {
-        if !c.resources.is_empty() || !c.mutations.is_empty() || !c.tasks.is_empty() {
+        let data = c
+            .resources
+            .iter()
+            .any(|r| !contract_syntax::inline::reads_device(r));
+        if data || !c.mutations.is_empty() || !c.tasks.is_empty() {
             let span = c
                 .resources
-                .first()
+                .iter()
+                .find(|r| !contract_syntax::inline::reads_device(r))
                 .map(|r| r.span)
                 .or(c.mutations.first().map(|m| m.span))
                 .or(c.tasks.first().map(|t| t.span))
                 .unwrap_or(c.span);
             sink.push(TypeError {
                 id: "type-child-resource",
-                message: format!("component `{}` takes props: a resource, mutation, or task lives in the root (a child may own state, derives, and actions)", c.name),
+                // The rule and the root lead (chess #3): a root written
+                // below its helpers reads as the child.
+                message: tasks::child_owns(&file.components[0].name, c),
                 span,
             });
         }
@@ -1248,7 +1411,16 @@ fn check_root(
     let scope = types.component_scope(&expanded.root, &types.components[0]);
     let root = &file.components[0];
     uses::check_uses(&root.view, &scope, types, file, sink);
-    sink.keep_unit(check_injects(&root.view, &scope, types, file));
+    for b in &root.provides {
+        sink.keep(infer(&b.expr, &scope, &types.shapes));
+    }
+    sink.keep_unit(check_injects(
+        &root.view,
+        &root.provides,
+        &scope,
+        types,
+        file,
+    ));
 }
 
 /// Refusals are first checked against the call sites that lead to them: a

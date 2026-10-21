@@ -1,0 +1,21 @@
+// Comparisons with -0, Infinity and NaN operands inside expressions.
+component App
+  state z = 0
+  derive negZeroLess = -z < z
+  derive negZeroLe = -z <= z
+  derive infGreater = 1 / z > 179769313486231570000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+  derive infEq = 1 / z == 2 / z
+  derive negInfLess = -1 / z < -1000000
+  derive nanAll = (z / z < 1) or (z / z > 1) or (z / z == z / z)
+  derive nanNotGe = not (z / z >= 0)
+  view
+    text `${negZeroLess} ${negZeroLe}` testId="r"
+
+test "special compares"
+  expect state negZeroLess == false
+  expect state negZeroLe == true
+  expect state infGreater == true
+  expect state infEq == true
+  expect state negInfLess == true
+  expect state nanAll == false
+  expect state nanNotGe == true

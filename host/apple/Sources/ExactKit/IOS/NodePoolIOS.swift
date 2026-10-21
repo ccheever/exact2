@@ -45,14 +45,15 @@
 // boxes, text, images, buttons, `svg`s, waiting scrolls and heavy leaves; a
 // live UIScrollView; a platform subview other than the node's glyph, its
 // material or its clip box; a placement; gesture recognizers or
-// interactions (menus, reorder handles, drags); a press, drag or swipe in
+// interactions (menus, reorder handles, drags) other than a context menu's
+// at rest (LLP 1021 §5.1, `contextual`); a press, drag or swipe in
 // progress, or a projected swipe row; focus, a focus ring, editing, a
 // pending focus — on a heavy leaf too; flow shapes, a context transform, a
 // pending scroll; a view kept by a modal's retiring root; a subtree node
 // the batch does not destroy (it may be moving elsewhere).
 // While VoiceOver or Switch Control runs nothing parks: its cursor stays on
 // the element it was on, never on a view that is now another row.
-#if os(iOS)
+#if os(iOS) || os(tvOS)
 import UIKit
 
 final class NodePool {
@@ -87,8 +88,12 @@ final class NodePool {
     /// Kinds whose platform view is heavy: a row pools around them (LLP 1068 §4.0).
     /// A 2D canvas (`canvas2d`, LLP 1056 D10) is one until stage 3 pools its
     /// bitmap: its view and replayer go with the row's node, and the next
-    /// row's canvas is a new view drawn by its own lifetime's lists.
-    static let leaves: Set<String> = ["video", "iframe", "native", "canvas", "canvas2d", "input", "textarea"]
+    /// row's canvas is a new view drawn by its own lifetime's lists. A
+    /// control (a switch, a checkbox, a select, a slider, a date, a native
+    /// button, LLP 1069.011.000 D8) is one too: its node and its `UIControl`
+    /// go as an unpooled control goes, and the next row's is built fresh,
+    /// so no value, touch or callback crosses rows.
+    static let leaves: Set<String> = ["video", "iframe", "native", "canvas", "canvas2d", "input", "textarea", "control"]
     /// What `state` reports (LLP 1068 §6): parks, takes, evictions, and the
     /// heavy leaves destroyed at a park and built at a take, by kind.
     private(set) var parks = 0, takes = 0, evictions = 0
@@ -128,7 +133,7 @@ final class NodePool {
             parked[shape] = kept.isEmpty ? nil : kept
         }
         // A reused view the batch gave no frame has a fresh view's.
-        for view in unframed.values where view.frame != .zero { view.frame = .zero }
+        for view in unframed.values { if view.frame != .zero { view.frame = .zero }; view.grid = nil }
         unframed.removeAll()
     }
     /// Reused views, until the batch frames them.
@@ -145,6 +150,9 @@ final class NodePool {
         let root = tree.views[0]!
         roots.remove(ObjectIdentifier(root))
         if tree.list != nil { innerCount -= 1 } else { count -= 1 }
+        #if os(iOS)
+        for case let view? in tree.views { presenter.menus.context.dropped(view) }
+        #endif
         for view in tree.views { view?.forget() }
         root.removeFromSuperview()
     }
@@ -178,7 +186,7 @@ final class NodePool {
     private func children(_ view: NodeView) -> [NodeView]? {
         guard view.scroll == nil, view.overlay == nil else { return nil }
         let container = view.container
-        func own(_ sub: UIView) -> Bool { sub === view.symbolView || sub === view.materialView || sub === view.clipBox }
+        func own(_ sub: UIView) -> Bool { sub === view.symbolView || sub === view.materialView || sub === view.clipBox || sub === view.glassGroupView || sub === view.glassSlot }
         if container !== view {
             guard view.subviews.allSatisfy({ own($0) || ($0 === container) }) else { return nil }
         }
@@ -220,10 +228,20 @@ final class NodePool {
     /// unzoomed, no authored scroll pending (LLP 1068 §4.2.1).
     private func atRest(_ list: NodeView) -> Bool {
         guard let sv = list.scroll else { return false }
+        #if os(tvOS)
+        // tvOS has no refresh control.
         return !sv.isTracking && !sv.isDragging && !sv.isDecelerating && !presenter.collections.correcting
+            && presenter.elementScrolls.revealing(sv) == nil
+            && sv.zoomScale == 1
+            && list.pendingScrollTop == nil && list.pendingScrollLeft == nil
+            && sv.layer.animationKeys()?.isEmpty ?? true
+        #else
+        return !sv.isTracking && !sv.isDragging && !sv.isDecelerating && !presenter.collections.correcting
+            && presenter.elementScrolls.revealing(sv) == nil
             && sv.refreshControl?.isRefreshing != true && sv.zoomScale == 1
             && list.pendingScrollTop == nil && list.pendingScrollLeft == nil
             && sv.layer.animationKeys()?.isEmpty ?? true
+        #endif
     }
     private func destroyedIDs() -> Set<UInt32> {
         if let destroyed { return destroyed }
@@ -249,7 +267,7 @@ final class NodePool {
         guard let shape = shape(root, &views, &leaves, &lists), list == nil || lists.isEmpty else { return false }
         let destroyed = destroyedIDs()
         guard views.allSatisfy({ $0.map { destroyed.contains($0.id) && recyclable($0) } ?? true }),
-              leaves.allSatisfy({ destroyed.contains($0.id) && idle($0) }) else { return false }
+              leaves.allSatisfy({ destroyed.contains($0.id) && idle($0) && unhatched($0) }) else { return false }
         // The cards an inner list shows park under it before the list itself
         // is reset; the rest of its content goes by its own destroy ops.
         var cards: [(NodeView, NodeView)] = []
@@ -271,6 +289,9 @@ final class NodePool {
         let images = views.lazy.compactMap { $0 }.filter { $0.kind == "image" }.map { $0.imageSource ?? "" }.joined(separator: "|")
         for case let view? in views {
             view.incarnation = 0
+            #if os(iOS)
+            presenter.menus.context.parked(view)
+            #endif
             presenter.release(view.id) { $0.recycle() }
         }
         root.isHidden = true
@@ -310,12 +331,57 @@ final class NodePool {
             && v.overlay == nil && v.canvasInput == nil
             && idle(v)
             && v.swipeHold == nil && v.heightHold == nil && v.reorderHold == nil && v.transformHold == nil
-            && !v.pressed && (v.gestureRecognizers?.isEmpty ?? true) && v.interactions.isEmpty
+            && !v.pressed && !v.hasPressContact && (v.gestureRecognizers ?? []).allSatisfy({ ($0 as? PointerRecognizer)?.idle == true || contextual($0, of: v) || lookAtRest($0, of: v) })
+            && v.interactions.allSatisfy({ contextual($0, of: v) })
             && v.flowShapes.isEmpty && v.contextTransform.isIdentity
             && v.pendingScrollLeft == nil && v.pendingScrollTop == nil
+            // A hatched node's view is the app's to keep (LLP 1075.003.000),
+            // unless its hatch undoes what it adds (`reusable`, LLP
+            // 1075.003.000.000 §8); the checks above still refuse a view
+            // with interactions or gestures left on it. Its props and the mark
+            // stay until it is forgotten, after its own destroy op.
+            && unhatched(v)
     }
+    /// A `:hover` look's recognizer with no pointer over it (LookHoverIOS.swift):
+    /// it follows the style, which the next row's create ops set again
+    /// (`rebind` drops the paint it shows).
+    private func lookAtRest(_ recognizer: UIGestureRecognizer, of v: NodeView) -> Bool {
+        #if os(iOS)
+        guard recognizer === v.lookHoverRecognizer, recognizer.state == .possible else { return false }
+        // (Not a hover held there: the hold's own recognizer goes with the hold.)
+        return MainActor.assumeIsolated { !(HeldState.view === v && HeldState.state == "hover") }
+        #else
+        return false
+        #endif
+    }
+    /// Not a hatched node, or one whose hatch undoes what it adds: a hatched
+    /// heavy leaf is destroyed as any is, but its row stays out of the pool
+    /// as the journal says (LLP 1075.003.000 §3.3).
+    private func unhatched(_ v: NodeView) -> Bool { v.props["hatch"] == nil || v.hatchReusable }
     /// Not placed, focused, editing or about to be: a leaf so held keeps
     /// its row out of the pool, destroyed as before.
+    /// A context menu's own (LLP 1021 §5.1): the node's long-press
+    /// recognizer at rest, and its menu's interaction while no menu shows
+    /// from it. They follow the node's handlers and props, so the next row's
+    /// create ops and the menu host's sync set them again (`park` takes the
+    /// interaction off first). A row whose menu is up is destroyed as before,
+    /// and the menu ends as any unmounted source's does.
+    private func contextual(_ recognizer: UIGestureRecognizer, of v: NodeView) -> Bool {
+        // `.possible` holds while a touch is still being judged (a long press
+        // waiting out its duration): at rest means no touch as well.
+        guard recognizer.state == .possible, recognizer.numberOfTouches == 0 else { return false }
+        #if os(iOS)
+        if presenter.menus.context.owns(recognizer, on: v) { return true }
+        #endif
+        return recognizer === v.contextRecognizer
+    }
+    private func contextual(_ interaction: UIInteraction, of v: NodeView) -> Bool {
+        #if os(iOS)
+        return presenter.menus.context.owns(interaction, on: v) && presenter.menus.context.open?.source !== v
+        #else
+        return false
+        #endif
+    }
     private func idle(_ v: NodeView) -> Bool {
         presenter.views[v.id] === v && v.placement == nil && !v.placementHidden && v.focusRing == nil
             && !v.isFirstResponder && v.field?.isFirstResponder != true && v.textArea?.isFirstResponder != true
@@ -407,6 +473,17 @@ final class NodePool {
     }
     private func rebound(_ view: NodeView, _ id: UInt32) -> NodeView { view.rebind(id); return view }
 
+    /// What `layout agree` checks (LLP 1080.001 D2): each parked tree's root,
+    /// which must stay hidden, and every view of every parked tree.
+    var inspection: (roots: [NodeView], members: Set<ObjectIdentifier>) {
+        var roots: [NodeView] = [], members = Set<ObjectIdentifier>()
+        for tree in parked.values.joined() {
+            if let root = tree.views.first ?? nil { roots.append(root) }
+            for case let view? in tree.views { members.insert(ObjectIdentifier(view)) }
+        }
+        return (roots, members)
+    }
+
     /// `state`'s pool section (LLP 1068 §6): what is parked, by shape
     /// count and in total, and the counters since launch.
     var observation: [String: Any] {
@@ -420,6 +497,10 @@ extension NodeView {
     /// Parked (`NodePool`): what `forget` drops, except the view's presenter
     /// and its symbol glyph view, which the next row reuses.
     func recycle() {
+        holdGone() // a held state goes with its node, parked under its row (HeldState.swift)
+        cancelPressContact()
+        pressContact = nil
+        scrollEnd?.reset()
         presenter?.forgetParagraph(self)
         cancelSurfaceControls()
         invalidateText()
@@ -434,13 +515,20 @@ extension NodeView {
         if symbolView == nil { image = nil }
         symbolRefusal = nil
         inlinePressed = nil
+        // The next node's hatch decides again.
+        hatchReusable = false
         content = .zero
+        // The next node's layout sends its own content box, if any
+        kernelContentBox = nil; kernelPadding = nil
         needsCapture = false; paintedThisTurn = false
         // A parked view keeps no bitmap: its create ops paint it again.
         if layer.contents != nil { layer.contents = nil }
         // Its material goes, its children back in the node (LLP 1068 §4.1):
         // the next row's props make a new one.
         if materialView != nil { props["backgroundMaterial"] = nil; updateMaterial() }
+        // `glassGroupAuto` with it: a row recycled onto a numeric group must
+        // not report the old one's `auto` (LLP 1053.000.000.000).
+        if glassGroupView != nil { props["glassGroup"] = nil; props["glassGroupAuto"] = nil; syncGlassGroup() }
     }
     /// An inner list parked with its row (LLP 1068 §4.2.1): back to a new
     /// list's scroll, with its delegate detached while it resets.
@@ -449,13 +537,14 @@ extension NodeView {
         let delegate = sv.delegate
         sv.delegate = nil
         sv.setContentOffset(.zero, animated: false)
+        presenter?.elementScrolls.forget(sv)
         sv.contentSize = .zero
         sv.delegate = delegate
         content = .zero
         if let e = extras {
             e.beforeLayoutScroll = nil; e.hiddenScroll = nil; e.followedScroll = nil
-            e.anchoredScrollTop = nil; e.retainedScrollTop = nil; e.lastScrollEvent = .zero
-            e.readingAnchors.removeAll(); e.activeReadingAnchor = nil
+            e.anchoredScrollTop = nil; e.retainedScrollTop = nil; e.lastScrollEvent = (.zero, 0)
+            e.readingAnchors.removeAll(); e.activeReadingAnchor = nil; e.scrollAnchor = nil
             e.pendingScrollTop = nil; e.pendingScrollLeft = nil
         }
     }
@@ -463,12 +552,17 @@ extension NodeView {
     /// a never-used incarnation (LLP 1068 §4.9). The create ops that install
     /// its props and handlers run in this batch, before any callback can.
     func rebind(_ newID: UInt32) {
+        cancelPressContact()
+        pressContact = nil
         id = newID
         incarnation = NodePool.issue()
+        scrollEnd?.reset()
+        focusedBySurfaceTouch = false
+        if presenter?.pressHandoff?.control === self { presenter?.pressHandoff = nil } // another node's view now
         // UIKit's setters are not free, even to the same value.
         if isHidden { isHidden = false }
         if alpha != 1 { alpha = 1 }
-        translate = .zero; layoutOffset = .zero; layoutScale = CGPoint(x: 1, y: 1); endSurface(); scale = 1; rotate = 0; press = PressFeedback()
+        translatePx = .zero; translatePercent = .zero; layoutOffset = .zero; layoutScale = CGPoint(x: 1, y: 1); endSurface(); scale = 1; rotate = 0; stopPressEase(); press = PressFeedback(); dropPressPaint()
         if !transform.isIdentity { transform = .identity }
         if !isUserInteractionEnabled { isUserInteractionEnabled = true }
         if isAccessibilityElement { isAccessibilityElement = false }
@@ -478,6 +572,7 @@ extension NodeView {
         if accessibilityHint != nil { accessibilityHint = nil }
         if accessibilityIdentifier != nil { accessibilityIdentifier = nil }
         if accessibilityElementsHidden { accessibilityElementsHidden = false }
+        if accessibilityViewIsModal { accessibilityViewIsModal = false }
         props = [:]
         // The presenter's indexes for the new id (LLP 1068 §4.0): each is
         // filled by a property observer a rebind does not fire.

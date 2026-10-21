@@ -16,16 +16,28 @@ pub(crate) fn vec3(v: Vector) -> Vec3 {
     Vec3::from_array(v.to_array())
 }
 pub(crate) fn pose(t: Transform) -> Pose {
-    assert!(
+    try_pose(t).unwrap_or_else(|e| panic!("{e}"))
+}
+// Each fallible conversion names what it refuses; the panicking forms are for
+// game-supplied values, the fallible ones for values read from a save.
+pub(crate) fn try_pose(t: Transform) -> Result<Pose, &'static str> {
+    check(
         t.position.is_finite()
             && t.rotation.is_finite()
             && (t.rotation.length_squared() - 1.0).abs() < 1e-3,
-        "physics: invalid pose"
-    );
-    Pose::from_parts(
+        "physics: invalid pose",
+    )?;
+    Ok(Pose::from_parts(
         vector(t.position),
         Rotation::from_array(t.rotation.to_array()),
-    )
+    ))
+}
+pub(crate) fn check(ok: bool, refusal: &'static str) -> Result<(), &'static str> {
+    if ok {
+        Ok(())
+    } else {
+        Err(refusal)
+    }
 }
 pub(crate) fn transform(p: &Pose, scale: Vec3) -> Transform {
     Transform {
@@ -35,40 +47,46 @@ pub(crate) fn transform(p: &Pose, scale: Vec3) -> Transform {
     }
 }
 pub(crate) fn shape(s: &Shape, scale: Vec3) -> SharedShape {
-    assert!(
+    try_shape(s, scale).unwrap_or_else(|e| panic!("{e}"))
+}
+pub(crate) fn try_shape(s: &Shape, scale: Vec3) -> Result<SharedShape, &'static str> {
+    check(
         scale.is_finite() && scale.min_element() > 0.0,
-        "physics: invalid scale"
-    );
+        "physics: invalid scale",
+    )?;
     let curved = |radius: f32, height: f32| {
-        assert!(
+        check(
             radius.is_finite()
                 && radius > 0.0
                 && height.is_finite()
                 && height > 0.0
                 && scale.x == scale.y
                 && scale.y == scale.z,
-            "physics: curved shapes require positive dimensions and uniform scale"
-        );
+            "physics: curved shapes require positive dimensions and uniform scale",
+        )
     };
-    match s {
+    Ok(match s {
         Shape::Sphere { radius } => {
-            curved(*radius, 1.0);
+            curved(*radius, 1.0)?;
             SharedShape::ball(radius * scale.x)
         }
         Shape::Capsule { radius, height } => {
-            curved(*radius, *height);
-            assert!(*height >= 2.0 * radius);
+            curved(*radius, *height)?;
+            check(
+                *height >= 2.0 * radius,
+                "physics: capsule height must be at least twice its radius",
+            )?;
             SharedShape::capsule_y((height * 0.5 - radius) * scale.y, radius * scale.x)
         }
         Shape::Cylinder { radius, height } => {
-            curved(*radius, *height);
+            curved(*radius, *height)?;
             SharedShape::cylinder(height * 0.5 * scale.y, radius * scale.x)
         }
         Shape::Box { half } => {
-            assert!(
+            check(
                 half.is_finite() && half.min_element() > 0.0,
-                "physics: invalid box"
-            );
+                "physics: invalid box",
+            )?;
             let h = *half * scale;
             SharedShape::cuboid(h.x, h.y, h.z)
         }
@@ -78,15 +96,15 @@ pub(crate) fn shape(s: &Shape, scale: Vec3) -> SharedShape {
             heights,
             scale: extents,
         } => {
-            assert!(
+            check(
                 *rows >= 2
                     && *cols >= 2
                     && u64::from(*rows) * u64::from(*cols) == heights.len() as u64
                     && heights.iter().all(|x| x.is_finite())
                     && extents.is_finite()
                     && extents.min_element() > 0.0,
-                "physics: invalid heightfield"
-            );
+                "physics: invalid heightfield",
+            )?;
             let samples = Array2::from_fn(*rows as usize, *cols as usize, |r, c| {
                 heights[r * *cols as usize + c]
             });
@@ -97,22 +115,30 @@ pub(crate) fn shape(s: &Shape, scale: Vec3) -> SharedShape {
             )
         }
         Shape::Mesh { vertices, indices } => {
-            assert!(
+            check(
                 vertices.iter().all(|v| v.is_finite())
                     && indices
                         .iter()
                         .flatten()
                         .all(|i| (*i as usize) < vertices.len()),
-                "physics: invalid mesh"
-            );
+                "physics: invalid mesh",
+            )?;
             SharedShape::trimesh_with_flags(
                 vertices.iter().map(|v| vector(*v * scale)).collect(),
                 indices.clone(),
                 TriMeshFlags::FIX_INTERNAL_EDGES,
             )
-            .expect("physics: invalid mesh")
+            .map_err(|_| "physics: invalid mesh")?
         }
-    }
+    })
+    .and_then(|shape| {
+        let aabb = shape.compute_local_aabb();
+        check(
+            aabb.mins.is_finite() && aabb.maxs.is_finite(),
+            "physics: shape extent overflows",
+        )?;
+        Ok(shape)
+    })
 }
 // Read current component writes, even before the engine propagates hierarchy.
 pub(crate) fn world_pose(world: &World, entity: Entity) -> Transform {

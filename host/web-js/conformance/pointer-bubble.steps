@@ -1,0 +1,11 @@
+# Nested: inner, outer, root hear the down; outer and root the up.
+tap pick
+# A box hearing only pointermove holds the moves; the root still hears the down and up.
+down move-row
+move 30 0
+up
+# A pan takes its contact; the root still hears the down and the up.
+drag panner 60 0 200
+# In a popover: the popover's up, then its authored ancestors'.
+tap open
+tap pop-row

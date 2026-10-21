@@ -26,7 +26,7 @@ import { arch, cpus, platform, release, totalmem } from 'node:os';
 import { resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { open } from './agent.mjs';
-import { resolveApp } from './app.mjs';
+import { linuxBinary, resolveApp } from './app.mjs';
 import { appleArtifacts } from '../host/apple/build.mjs';
 import { summarize } from './stress-metrics.mjs';
 
@@ -132,7 +132,7 @@ export async function run(config) {
   const app = resolveApp(config.app);
   const executable = config.host === 'macos'
     ? process.env.EXACT_MAC_BIN ?? appleArtifacts(app).binary
-    : process.env.EXACT_LINUX_BIN ?? resolve(app.target, `release/${config.app}-linux`);
+    : process.env.EXACT_LINUX_BIN ?? linuxBinary(app);
   const git = (...args) => spawnSync('git', args, { cwd: app.workspace, encoding: 'utf8' }).stdout?.trim() ?? null;
   const report = {
     app: config.app, host: config.host, config, at: new Date().toISOString(),

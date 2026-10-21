@@ -115,6 +115,13 @@ fn native_library_uses_copied_buffers_and_keeps_existing_sessions_alive() {
     assert!(!crate::native::preload(&bytes).unwrap());
     assert!(!crate::native::preload(b"queued invalid image").unwrap());
     assert_eq!(crate::native::mapping_count(&bytes), 1);
+    // A pending activation is woken once its image's load ends, failed or not.
+    let (woke, wakes) = std::sync::mpsc::channel();
+    for image in [&bytes[..], b"queued invalid image"] {
+        let woke = woke.clone();
+        crate::native::when_loaded(image, Box::new(move || woke.send(()).unwrap()));
+    }
+    assert!(wakes.try_recv().is_err());
     // Execute the new Wasm even while a real native constructor is blocked.
     let portable = crate::tests::wasm_with_contract("", true);
     let pair = |wasm: &[u8], native: &[u8]| {
@@ -141,6 +148,11 @@ fn native_library_uses_copied_buffers_and_keeps_existing_sessions_alive() {
     drop(crate::tiered::load(&pair(&portable, obsolete)).unwrap());
     assert_eq!(crate::native::mapping_count(obsolete), 0);
     fs::write(&release, b"ready").unwrap();
+    for _ in 0..2 {
+        wakes
+            .recv_timeout(std::time::Duration::from_secs(180))
+            .expect("the loader wakes each waiter");
+    }
     while !crate::native::preload(&bytes).unwrap() {
         assert!(std::time::Instant::now() < deadline);
         std::thread::sleep(std::time::Duration::from_millis(10));

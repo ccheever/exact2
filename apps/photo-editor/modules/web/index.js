@@ -83,6 +83,7 @@ class Editor {
   destroy() {
     this.resize.disconnect();
     cancelAnimationFrame(this.frame);
+    this.animation?.cancel();
     this.dead = true;
   }
 
@@ -150,17 +151,32 @@ class Editor {
   /// A new gesture lands the one in flight where it was going.
   finish() {
     cancelAnimationFrame(this.frame);
+    this.animation?.cancel(); this.animation = null;
     if (this.target) { this.edit = this.target; this.target = null; this.apply(); }
   }
 
   animate(target, ms, done) {
     cancelAnimationFrame(this.frame);
+    this.animation?.cancel();
     this.target = target;
-    const from = { ...this.edit, crop: { ...this.edit.crop } }, start = performance.now();
+    const from = { ...this.edit, crop: { ...this.edit.crop } };
+    // The browser timeline in an ordinary page; under the agent the web
+    // host's animation clock seeks every Web Animation. A no-op effect makes
+    // this module's hand-drawn interpolation part of that same clock.
+    // Put the marker on the custom-element host: Document.getAnimations(),
+    // which both agent clocks use, does not descend into this shadow root.
+    const animation = this.animation = this.root.host.animate([{}, {}], ms);
     const mix = (a, b, t) => a + (b - a) * t;
-    const step = (now) => {
-      const u = Math.min(1, (now - start) / ms), t = 1 - (1 - u) ** 3;
-      if (u >= 1) { this.edit = target; this.target = null; this.apply(); done?.(); return; }
+    const land = () => {
+      if (this.animation !== animation) return;
+      cancelAnimationFrame(this.frame);
+      this.edit = target; this.target = null; this.animation = null;
+      animation.cancel(); this.apply(); done?.();
+    };
+    animation.onfinish = land;
+    const step = () => {
+      const u = Math.min(1, Number(animation.currentTime ?? 0) / ms), t = 1 - (1 - u) ** 3;
+      if (u >= 1) { land(); return; }
       this.edit = { ...target, scale: mix(from.scale, target.scale, t), x: mix(from.x, target.x, t), y: mix(from.y, target.y, t),
         turns: from.turns, rotation: mix(from.rotation, target.rotation, t), turning: mix(from.turning ?? 0, (target.turns - from.turns) * Math.PI / 2, t),
         crop: { l: mix(from.crop.l, target.crop.l, t), t: mix(from.crop.t, target.crop.t, t), r: mix(from.crop.r, target.crop.r, t), b: mix(from.crop.b, target.crop.b, t) } };

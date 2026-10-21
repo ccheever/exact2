@@ -1,6 +1,7 @@
 //! Offline, bounded interaction fixtures for LLP 1041 §8.5.
 #![forbid(unsafe_code)]
 
+pub mod board;
 pub mod model;
 
 use exact_plan::Value;
@@ -11,6 +12,7 @@ use model::{Id, Mode, Photo, ReorderRefusal, ReorderResult, Return};
 #[derive(Default)]
 pub struct Gallery {
     model: model::Gallery,
+    board: board::Board,
     full_rows: Option<(u32, Value)>,
     page_rows: Option<(u32, usize, Value)>,
 }
@@ -207,6 +209,18 @@ impl Gallery {
         Ok(())
     }
 
+    fn board_cards(&self) -> Value {
+        Value::list(
+            self.board
+                .cards()
+                .into_iter()
+                .map(|(id, title, col)| {
+                    Value::record(vec![Value::str(id), Value::str(title), Value::str(col)])
+                })
+                .collect(),
+        )
+    }
+
     fn reorder(&mut self, item: &str, before: Option<&str>, expected_revision: u32) -> Value {
         let revision = self.model.revision;
         let result = match (Id::parse(item), before.map(Id::parse).transpose()) {
@@ -264,6 +278,15 @@ impl DataSource for Gallery {
                 let revision = integer(revision)?;
                 let before = before.as_ref().map(|v| v.as_str().ok_or_else(|| DataError::BadArguments("reorder destination must be option<string>".into()))).transpose()?;
                 Ok(self.reorder(item.text(), before, revision))
+            }
+            // The cross-list reorder fixture's board (LLP 1094 D12).
+            ("boardCards", []) => Ok(self.board_cards()),
+            ("boardColumns", []) => Ok(Value::list(
+                ["todo", "doing", "done"].map(Value::str).to_vec(),
+            )),
+            ("boardMove", [item @ exact_plan::str_value!(), col @ exact_plan::str_value!(), before @ exact_plan::str_value!()]) => {
+                self.board.move_card(item.text(), col.text(), before.text());
+                Ok(self.board_cards())
             }
             ("gallery" | "galleryRows" | "theme" | "galleryAction" | "galleryReorder", _) => Err(DataError::BadArguments(
                 "gallery(), galleryRows(revision, page, full), theme(), galleryAction(op, id, n), or galleryReorder(item, before, expectedRevision)".into(),

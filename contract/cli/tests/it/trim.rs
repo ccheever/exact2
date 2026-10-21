@@ -14,12 +14,12 @@ impl DataSource for NoData {
 
 const SRC: &str = r#"component App
   state draft = ""
-  action edit(value: string) writes draft
+  action edit(value: string)
     draft = value
   view
     column
       input value=draft change=edit testId="draft"
-      button "Send" disabled=(trim(draft) == "") testId="send"
+      button "Send" disabled=(draft.trim() == "") testId="send"
 "#;
 
 #[test]
@@ -49,7 +49,7 @@ fn a_draft_of_spaces_leaves_send_disabled() {
 
 #[test]
 fn trim_takes_a_string() {
-    let src = SRC.replace("trim(draft)", "trim(3)");
+    let src = SRC.replace("draft.trim()", "(3).trim()");
     let e = contract::compile(&src).unwrap_err();
     assert_eq!(e.id, "type-argument");
 }

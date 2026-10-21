@@ -1,0 +1,11 @@
+clock +100
+tap down
+clock +100
+tap up
+clock +100
+tap toggle
+clock +100
+tap toggle
+clock +100
+wheel port 150
+clock +100

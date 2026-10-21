@@ -4,14 +4,9 @@ use super::*;
 use exact_kernel::{StyleProps, WhiteSpace};
 
 fn engine(font: &'static [u8], family: &str) -> TextEngine {
-    let mut db = fontdb::Database::new();
-    db.load_font_source(fontdb::Source::Binary(Arc::new(font.to_vec())));
-    db.set_sans_serif_family(family);
-    TextEngine::with_catalog(catalog::Catalog::with_fonts(
-        FontSystem::new_with_locale_and_db("en-US".into(), db),
-    ))
+    TextEngine::with_catalog(catalog::Catalog::from_bytes(&[font], family))
 }
-const INTER: &[u8] = include_bytes!("../../../../vendor/cosmic-text/fonts/Inter-Regular.ttf");
+const INTER: &[u8] = include_bytes!("../../tests/fonts/Inter-Regular.ttf");
 const DEJAVU: &[u8] = include_bytes!("../../../../scripts/fixtures/fonts/assets/DejaVuSans.ttf");
 
 fn spec(text: &str, white_space: WhiteSpace) -> Spec {
@@ -23,6 +18,22 @@ fn spec(text: &str, white_space: WhiteSpace) -> Spec {
         },
         text,
     )
+}
+
+#[test]
+fn empty_text_has_no_line_box() {
+    let mut e = engine(INTER, "Inter");
+    for white_space in [WhiteSpace::Normal, WhiteSpace::PreWrap, WhiteSpace::Pre] {
+        let s = spec("", white_space);
+        for width in [
+            AxisOffer::MinContent,
+            AxisOffer::MaxContent,
+            AxisOffer::Definite(0.0),
+            AxisOffer::Definite(200.0),
+        ] {
+            assert_eq!(e.measure(&s, width), TextMetrics::default());
+        }
+    }
 }
 
 #[test]
@@ -176,6 +187,39 @@ fn pre_keeps_spaces_and_tabs_and_breaks_only_at_line_feeds() {
 }
 
 #[test]
+fn content_ending_within_a_64th_of_a_pixel_past_the_width_fits() {
+    // Blink decides fit in LayoutUnits (1/64 px), and content may end one
+    // unit past the available width: Chrome keeps a message line it measures
+    // at exactly 200.00 px on one line where the float advances sum a few
+    // thousandths over (LLP 1085.000 host parity).
+    let mut e = engine(INTER, "Inter");
+    let s = spec("fits within a unit", WhiteSpace::Normal);
+    let full = e
+        .paragraph(&s, None)
+        .layout_runs()
+        .map(|r| r.line_w)
+        .fold(0.0, f32::max);
+    let mut lines = |w: f32| e.paragraph(&s, Some(w)).layout_runs().count();
+    assert_eq!(lines(full), 1);
+    assert_eq!(lines(full - 0.005), 1, "within one unit of {full}");
+    assert_eq!(lines(full - 0.03), 2, "past one unit of {full}");
+}
+
+#[test]
+fn pre_wrap_min_content_hangs_a_tab_that_ends_a_segment() {
+    // Chrome hangs a preserved tab at a line's end under `pre-wrap`, as it
+    // hangs a space: "\tend\t" is as narrow as "end" (28.77 px in Chrome's
+    // Noto Sans at 16 px; LLP 1085.000 host parity).
+    let mut e = engine(INTER, "Inter");
+    let end = e.measure(&spec("end", WhiteSpace::PreWrap), AxisOffer::MaxContent);
+    let tabs = spec("\tend\t", WhiteSpace::PreWrap);
+    assert_eq!(e.measure(&tabs, AxisOffer::MinContent).width, end.width);
+    // Max-content still takes the leading tab to its stop.
+    let max = e.measure(&tabs, AxisOffer::MaxContent).width;
+    assert!(max > end.width + 20.0, "{max}");
+}
+
+#[test]
 fn ellipsis_ends_an_over_wide_nowrap_line_in_paint_only() {
     let mut e = engine(INTER, "Inter");
     let s = spec(
@@ -207,6 +251,99 @@ fn ellipsis_ends_an_over_wide_nowrap_line_in_paint_only() {
         .map(|g| g.to_string())
         .collect();
     assert_ne!(visible, plain);
+}
+
+/// The ellipsized line's text glyphs' extent and its "…" glyph.
+fn cut_line(p: &Paragraph, line: usize) -> ((f32, f32), LayoutGlyph) {
+    let run = p.layout_runs().nth(line).expect("line");
+    let ellipsis = *run.glyphs.iter().find(|g| g.start == g.end).expect("…");
+    let text = run
+        .glyphs
+        .iter()
+        .filter(|g| g.start < g.end)
+        .fold((f32::INFINITY, f32::NEG_INFINITY), |a, g| {
+            (a.0.min(g.x), a.1.max(g.x + g.w))
+        });
+    (text, ellipsis)
+}
+
+#[test]
+fn a_clamped_line_keeps_its_alignment_and_its_ellipsis_follows_it() {
+    // Blink's line truncator, which Chrome's screenshots show: the line keeps
+    // its alignment, text stays while it and "…" fit the width measured from
+    // where the aligned line starts, and "…" follows what stays, past the
+    // box's end edge if alignment put it there (Chrome clips it there).
+    let mut e = engine(INTER, "Inter");
+    let mut s = spec("first line here\nshort\nthird line", WhiteSpace::PreWrap);
+    s.line_clamp = 2;
+    s.align = TextAlign::Center;
+    let ((left, right), ellipsis) = cut_line(&e.paragraph(&s, Some(200.0)), 1);
+    assert!(
+        ((left + right) / 2.0 - 100.0).abs() < 0.5,
+        "centred: {left}..{right}"
+    );
+    assert!((ellipsis.x - right).abs() < 0.01, "follows: {}", ellipsis.x);
+    s.align = TextAlign::Right;
+    let ((_, right), ellipsis) = cut_line(&e.paragraph(&s, Some(200.0)), 1);
+    assert!((right - 200.0).abs() < 0.5, "right-aligned: {right}");
+    assert!(
+        (ellipsis.x - right).abs() < 0.01,
+        "past the edge: {}",
+        ellipsis.x
+    );
+    // A soft-wrapped clamped line keeps the space it ends in before "…".
+    let mut s = spec(
+        "The quick brown fox jumps over the lazy dog",
+        WhiteSpace::Normal,
+    );
+    s.line_clamp = 1;
+    let p = e.paragraph(&s, Some(120.0));
+    let run = p.layout_runs().next().unwrap();
+    let ellipsis = run.glyphs.iter().find(|g| g.start == g.end).unwrap();
+    let space = run
+        .glyphs
+        .iter()
+        .filter(|g| &run.text[g.start as usize..g.end as usize] == " ")
+        .map(|g| g.x + g.w)
+        .fold(0.0f32, f32::max);
+    assert!(
+        (ellipsis.x - space).abs() < 0.01,
+        "after the space: {}",
+        ellipsis.x
+    );
+}
+
+#[test]
+fn an_ltr_line_of_rtl_text_is_cut_at_its_right_end() {
+    // Under `ltr` the first strong character sets the bidi base (LLP 1001
+    // §1), but "…" takes the line box's CSS end edge, as in Chrome: Hebrew
+    // in an `ltr` box starts at the left with its logical end, and its
+    // logical start is cut at the right.
+    let mut e = engine(DEJAVU, "DejaVu Sans");
+    let text = "\u{5d6}\u{5d4}\u{5d5} \u{5de}\u{5e9}\u{5e4}\u{5d8} \u{5d0}\u{5e8}\u{5d5}\u{5da} \u{5de}\u{5d0}\u{5d5}\u{5d3} \u{5d1}\u{5e2}\u{5d1}\u{5e8}\u{5d9}\u{5ea}";
+    let s = spec(text, WhiteSpace::Nowrap);
+    let shown = e
+        .paragraph(&s, Some(100.0))
+        .ellipsized(100.0)
+        .expect("over-wide");
+    let ((left, right), ellipsis) = cut_line(&shown, 0);
+    assert!(left.abs() < 0.5, "the line starts at the left: {left}");
+    assert!(
+        (ellipsis.x - right).abs() < 0.01,
+        "… at the right end: {}",
+        ellipsis.x
+    );
+    assert!(ellipsis.x + ellipsis.w <= 100.0 + 0.01);
+    let run = shown.layout_runs().next().unwrap();
+    let last = (text.len() - "\u{5ea}".len()) as u32;
+    assert!(
+        run.glyphs.iter().any(|g| g.start == last),
+        "the logical end stays"
+    );
+    assert!(
+        !run.glyphs.iter().any(|g| g.start == 0 && g.end > 0),
+        "the logical start is cut"
+    );
 }
 
 fn digits(e: &mut TextEngine, text: &str, numeric: u8) -> f32 {
@@ -279,9 +416,210 @@ fn document_language_replaces_the_shaping_catalog_and_cached_paragraphs() {
     let old = shared.borrow().catalog.clone();
     measurer.set_language("ar");
     let engine = shared.borrow();
-    assert_eq!(engine.catalog.borrow().fonts.locale(), "ar");
+    assert_eq!(engine.catalog.borrow().locale, "ar");
     assert!(!std::rc::Rc::ptr_eq(&old, &engine.catalog));
     drop(engine);
     measurer.set_language("en");
-    assert_eq!(shared.borrow().catalog.borrow().fonts.locale(), "en");
+    assert_eq!(shared.borrow().catalog.borrow().locale, "en");
+}
+
+/// The reader diary: a line broken at a soft hyphen shows one (the face's
+/// own `-`, its advance part of the line), as Chrome does, and breaks there
+/// only if the hyphen fits too; one not chosen stays invisible.
+#[test]
+fn a_line_broken_at_a_soft_hyphen_shows_the_faces_hyphen() {
+    let mut e = engine(INTER, "Inter");
+    let dash = e.paragraph(&spec("-", WhiteSpace::Normal), None);
+    let dash = dash.layout_runs().next().unwrap().glyphs[0];
+    let fits = e
+        .paragraph(&spec("an incom-", WhiteSpace::Normal), None)
+        .layout_runs()
+        .next()
+        .unwrap()
+        .line_w;
+    let s = spec(
+        "an extra\u{ad}ordinary incom\u{ad}prehensibly",
+        WhiteSpace::Normal,
+    );
+    let shy = |l: &LayoutRun<'_>, g: &LayoutGlyph| &l.text[g.range()] == "\u{ad}";
+    let wide = |e: &mut TextEngine, width: f32| {
+        let s = spec("an incom\u{ad}prehensibly", WhiteSpace::Normal);
+        let p = e.paragraph(&s, Some(width));
+        let first = p.layout_runs().next().unwrap();
+        (
+            first
+                .glyphs
+                .last()
+                .map(|g| (shy(&first, g), g.glyph_id, g.w)),
+            first.line_w,
+        )
+    };
+    let (last, line_w) = wide(&mut e, fits + 0.5);
+    assert_eq!(
+        last.map(|l| (l.0, l.1)),
+        Some((true, dash.glyph_id)),
+        "breaks at the soft hyphen and shows `-`"
+    );
+    assert!(
+        (last.unwrap().2 - dash.w).abs() < 1e-3 && (line_w - fits).abs() < 0.01,
+        "its advance is the line's"
+    );
+    let (last, _) = wide(&mut e, fits - 0.5);
+    assert_eq!(
+        last.map(|l| l.0),
+        Some(false),
+        "where the hyphen would not fit the word moves whole"
+    );
+    let p = e.paragraph(&s, Some(1000.0));
+    for line in p.layout_runs() {
+        for g in line.glyphs.iter().filter(|g| shy(&line, g)) {
+            assert_eq!(g.w, 0.0, "an unchosen soft hyphen stays invisible");
+        }
+    }
+    // `hyphens: none` reaches the runs as U+034F (the kernel's): no break there.
+    let none = spec("an incom\u{34f}prehensibly", WhiteSpace::Normal);
+    let p = e.paragraph(&none, Some(fits + 0.5));
+    let first = p.layout_runs().next().unwrap();
+    assert!(
+        first.glyphs.iter().all(|g| &first.text[g.range()] != "p"),
+        "the word moves whole"
+    );
+}
+
+/// CSS `text-indent`: the first line starts that far in and has that much
+/// less room; it counts in max-content and in the first word's min-content.
+#[test]
+fn text_indent_insets_the_first_line_only() {
+    let mut e = engine(INTER, "Inter");
+    let mut s = spec("aaa bbb ccc ddd eee fff", WhiteSpace::Normal);
+    let plain = e.measure(&s, AxisOffer::MaxContent);
+    let word = e.measure(&s, AxisOffer::MinContent);
+    s.text_indent = 24.0;
+    let indented = e.measure(&s, AxisOffer::MaxContent);
+    assert_eq!(indented.width, (plain.width + 24.0).ceil());
+    // The widest piece is now the first word with the indent before it.
+    let first = e.measure(&spec("aaa", WhiteSpace::Normal), AxisOffer::MaxContent);
+    let min = e.measure(&s, AxisOffer::MinContent);
+    assert!(
+        min.width > word.width && min.width >= first.width - 1.0 + 24.0,
+        "{min:?}"
+    );
+    let p = e.paragraph(&s, Some(100.0));
+    let lines: Vec<_> = p.layout_runs().collect();
+    assert!(lines.len() >= 2);
+    assert_eq!(lines[0].glyphs[0].x, 24.0, "the first line is inset");
+    assert_eq!(lines[1].glyphs[0].x, 0.0, "the second is not");
+    assert!(
+        lines[0].line_w <= 100.0,
+        "the indent took room from the line"
+    );
+    // Under `rtl` the start edge is the right.
+    s.direction = exact_kernel::Direction::Rtl;
+    s.align = TextAlign::Right;
+    let p = e.paragraph(&s, Some(100.0));
+    let first = p.layout_runs().next().unwrap();
+    let right = first.glyphs.iter().map(|g| g.x + g.w).fold(0.0, f32::max);
+    assert!(
+        (right - 76.0).abs() < 0.5,
+        "rtl first line ends 24 in from the right: {right}"
+    );
+}
+
+/// LLP 1045 D4: a Markdown list item's lines all start at its level's
+/// indent (the browser's `padding-inline-start: 40px` per `<ul>`/`<ol>`),
+/// its marker hung before the first, ending at the indent, so ordered
+/// numbers right-align as the browser's outside markers do; the measured
+/// width is the painted one.
+#[test]
+fn a_markdown_list_items_lines_start_at_its_indent() {
+    let mut e = engine(DEJAVU, "DejaVu Sans");
+    let source = "Top\n\n- one two three four five six seven eight\n  - nested\n\n9. nine\n10. ten";
+    let s = spec(source, WhiteSpace::PreWrap).markdown();
+    let p = e.paragraph(&s, Some(200.0));
+    // Each visual line: its first glyph's run, where it starts, and where
+    // the marker (a hung run) ends.
+    let lines: Vec<(String, f32, Option<f32>)> = p
+        .layout_runs()
+        .filter(|line| !line.glyphs.is_empty())
+        .map(|line| {
+            let text = |g: &LayoutGlyph| &s.runs[g.run()];
+            let marker = line
+                .glyphs
+                .iter()
+                .filter(|g| text(g).hang)
+                .map(|g| g.x + g.w)
+                .reduce(f32::max);
+            let first = line
+                .glyphs
+                .iter()
+                .find(|g| !text(g).hang)
+                .map_or(0.0, |g| g.x);
+            let from = line
+                .glyphs
+                .iter()
+                .find(|g| !text(g).hang)
+                .map_or(0, |g| g.start as usize);
+            (line.text[from..].trim().to_string(), first, marker)
+        })
+        .collect();
+    let at = |prefix: &str| {
+        lines
+            .iter()
+            .find(|l| l.0.starts_with(prefix))
+            .unwrap_or_else(|| panic!("{prefix}: {lines:?}"))
+    };
+    assert_eq!(at("Top").1, 0.0);
+    let (one, wrapped) = (
+        at("one"),
+        lines
+            .iter()
+            .find(|l| l.2.is_none() && l.1 > 0.0 && !l.0.starts_with("one"))
+            .unwrap(),
+    );
+    assert!(
+        (one.1 - 40.0).abs() < 0.01 && (one.2.unwrap() - 40.0).abs() < 0.01,
+        "{lines:?}"
+    );
+    assert!(
+        (wrapped.1 - 40.0).abs() < 0.01,
+        "a wrapped line starts at the indent: {lines:?}"
+    );
+    let nested = at("nested");
+    assert!(
+        (nested.1 - 80.0).abs() < 0.01 && (nested.2.unwrap() - 80.0).abs() < 0.01,
+        "{lines:?}"
+    );
+    for number in ["nine", "ten"] {
+        let l = at(number);
+        assert!(
+            (l.1 - 40.0).abs() < 0.01 && (l.2.unwrap() - 40.0).abs() < 0.01,
+            "{number}: {lines:?}"
+        );
+    }
+    // Measure answers what paint lays out.
+    let measured = e.measure(&s, AxisOffer::Definite(200.0));
+    assert_eq!((measured.height, measured.width), (p.height, p.width));
+    assert!(p.width <= 200.0, "{}", p.width);
+}
+
+#[test]
+fn a_common_character_after_a_cjk_bracket_is_shaped_in_the_brackets_run() {
+    // Chrome itemizes a Common character by its Script_Extensions: `「`
+    // (Han, Kana, …) after Latin starts a run that `“` joins, so `“` is not
+    // kerned with the Latin letter after it (LLP 1085.000 host parity: the
+    // mixed paragraph's max-content was 0.97 px narrow). Inter kerns `“A`.
+    let mut e = engine(INTER, "Inter");
+    let quote = |e: &mut TextEngine, t: &str| {
+        let p = e.paragraph(&spec(t, WhiteSpace::Normal), None);
+        let run = p.layout_runs().next().unwrap();
+        let at = t.find('\u{201c}').unwrap() as u32;
+        run.glyphs.iter().find(|g| g.start == at).unwrap().w
+    };
+    let alone = quote(&mut e, "\u{201c}");
+    let kerned = quote(&mut e, "x \u{201c}A");
+    assert!(
+        kerned < alone - 1.0,
+        "Latin keeps its kerning: {kerned} {alone}"
+    );
+    assert_eq!(quote(&mut e, "x \u{300c}\u{201c}A"), alone);
 }

@@ -1,0 +1,63 @@
+{
+  "name": "exact-contract",
+  "displayName": "Exact Contract",
+  "description": "Syntax highlighting for Exact Contract files, and a problem matcher for the Contract compiler's diagnostics.",
+  "version": "0.3.0",
+  "private": true,
+  "publisher": "exact",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Programming Languages"
+  ],
+  "contributes": {
+    "languages": [
+      {
+        "id": "exact-contract",
+        "aliases": [
+          "Exact Contract",
+          "Contract"
+        ],
+        "extensions": [
+          ".contract"
+        ],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "exact-contract",
+        "scopeName": "source.exact-contract",
+        "path": "./syntaxes/exact-contract.tmLanguage.json"
+      }
+    ],
+    "problemMatchers": [
+      {
+        "name": "exact-contract",
+        "label": "Exact Contract compiler",
+        "owner": "exact-contract",
+        "source": "contract",
+        "fileLocation": [
+          "autoDetect",
+          "${workspaceFolder}"
+        ],
+        "severity": "error",
+        "pattern": {
+          "regexp": "^(.+?):(\\d+):(\\d+) (?:(warning) )?\\[([a-z0-9-]+)\\] (.*)$",
+          "file": 1,
+          "line": 2,
+          "column": 3,
+          "severity": 4,
+          "code": 5,
+          "message": 6
+        }
+      }
+    ]
+  },
+  "files": [
+    "README.md",
+    "language-configuration.json",
+    "syntaxes/*.json"
+  ]
+}

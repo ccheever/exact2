@@ -1,6 +1,6 @@
 //! A hand-built plan of the Caltrain "Now" screen's shape, run end to end:
 //! boot → kernel tree, press → state → resource re-request → keyed rows,
-//! text change → `when` flip, a timer under the seekable clock, `match` on an
+//! text change → `if` flip, a timer under the seekable clock, `match` on an
 //! option, and the refusals that leave the kernel untouched.
 //!
 //! This plan is also the first expected output of the compiler corpus
@@ -283,6 +283,7 @@ fn style(id: &str, expr: Code) -> BindingsRow {
         kind: BindingKind::Style,
         id: style_id(id),
         expr,
+        written: true,
     }
 }
 
@@ -291,6 +292,7 @@ fn prop(id: &str, expr: Code) -> BindingsRow {
         kind: BindingKind::Prop,
         id: prop_id(id),
         expr,
+        written: true,
     }
 }
 
@@ -302,15 +304,15 @@ fn prop(id: &str, expr: Code) -> BindingsRow {
 /// resource stations = stations()               (compiled: constant args)
 /// resource board = departures(selected)        (requested when `selected` changes)
 /// derive count = length(board)
-/// action selectStation(id) writes stationId    action setQuery(q) writes query
-/// action tick writes nowMs                     task ticker mount: every(1000, tick)
+/// action selectStation(id)                    action setQuery(q)
+/// action tick                                  task ticker mount: every(1000, tick)
 /// view
 ///   column testId="main"
 ///     text `${count} trains` font-size=24 font-weight=700 testId="count"
 ///     when query == ""
 ///       each d in board key=d.id
 ///         button press=selectStation(d.id) aria-label=`Train ${d.train}` testId=`dep-${d.id}`
-///           text formatCountdownMinutes(d.at, nowMs)
+///           text toString(max(0, -floor(-((d.at - nowMs) / 60000))))
 ///     else
 ///       text "searching" testId="searching"
 ///     input value=query input=setQuery testId="search"
@@ -387,7 +389,7 @@ fn now_screen() -> (Plan, Vec<TypesId>) {
     let setq = b.code(setq);
     let set_query = b.action("setQuery", &[("q", string)], &[query], setq);
     let mut tick = Asm::new();
-    tick.call(Stdlib::Now).store_slot(now_ms);
+    tick.call(Stdlib::PerformanceNow).store_slot(now_ms);
     let tick = b.code(tick);
     let tick = b.action("tick", &[], &[now_ms], tick);
     b.timer(1000, tick, false);
@@ -464,7 +466,7 @@ fn now_screen() -> (Plan, Vec<TypesId>) {
         key,
         1,
     );
-    // Inside the row, frames are [when-arm, row], innermost last: the item is depth 0.
+    // Inside the row, frames are [if-arm, row], innermost last: the item is depth 0.
     let train = b.str("Train ");
     let dep_prefix = b.str("dep-");
     let mut label = Asm::new();
@@ -493,12 +495,22 @@ fn now_screen() -> (Plan, Vec<TypesId>) {
         &[(EventKind::Press, select_station, &[press_arg])],
         None,
     );
+    // `toString(max(0, -floor(-((d.at - nowMs) / 60000))))`: whole minutes
+    // to the departure, a ceiling as the negated floor of the negation.
     let mut countdown = Asm::new();
     countdown
+        .number(0.0)
         .load_item(0)
         .field(2)
         .load_slot(now_ms)
-        .call(Stdlib::FormatCountdownMinutes);
+        .simple(Opcode::Sub)
+        .number(60_000.0)
+        .simple(Opcode::Div)
+        .simple(Opcode::Neg)
+        .call(Stdlib::Floor)
+        .simple(Opcode::Neg)
+        .call(Stdlib::Max)
+        .call(Stdlib::ToString);
     let countdown = b.code(countdown);
     b.node(
         NodeType::Text as u8,
@@ -849,7 +861,7 @@ fn commands_exit_the_side_and_refusals_leave_the_kernel_untouched() {
 
     r.data().wrong_shape = true;
     let err = r.act("selectStation", vec![Value::str("pa")]).unwrap_err();
-    assert!(matches!(err, RunnerError::Shape { ref resource } if resource == "board"));
+    assert!(matches!(err, RunnerError::Shape { ref resource, .. } if resource == "board"));
     assert_eq!(
         r.kernel().export(None).unwrap(),
         before,
@@ -957,19 +969,20 @@ fn values_conform_to_declared_types_at_every_boundary() {
 #[test]
 fn a_region_at_the_plan_root_is_refused() {
     let (mut plan, _) = now_screen();
-    // Detach the `when` region from its parent: it becomes a root site.
+    // Detach the `if` region from its parent: it becomes a root site.
     plan.regions[0].parent = None;
     // Remove the root node so the site count stays one.
     let root_children: Vec<usize> = (0..plan.nodes.len())
-        .filter(|i| plan.nodes[*i].parent == Some(exact_plan::NodesId(0)))
+        .filter(|i| plan.nodes.get(*i).unwrap().parent == Some(exact_plan::NodesId(0)))
         .collect();
     for i in root_children {
-        plan.nodes[i].parent = None;
+        plan.nodes.to_mut()[i].parent = None;
     }
-    plan.nodes.remove(0);
+    plan.nodes.to_mut().remove(0);
     // Every surviving parent index moves down with the removal.
     for parent in plan
         .nodes
+        .to_mut()
         .iter_mut()
         .map(|n| &mut n.parent)
         .chain(plan.regions.iter_mut().map(|r| &mut r.parent))

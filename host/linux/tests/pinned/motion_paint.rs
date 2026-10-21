@@ -2,7 +2,6 @@
 //! painted over their rows; an appearance change (`setScheme`) re-targets a
 //! `light-dark()` colour and transitions it, as Chrome's computed value does.
 
-use crate::borders::NoData;
 use crate::pin_font;
 use exact_linux::Presenter;
 use exact_motion::Property;
@@ -11,9 +10,9 @@ use std::path::PathBuf;
 const APP: &str = r##"component App
   state on = false
   state dark = false
-  action toggle writes on
+  action toggle
     on = not on
-  action scheme writes dark
+  action scheme
     dark = not dark
     setScheme(dark ? "light" : "dark")
   view
@@ -23,26 +22,52 @@ const APP: &str = r##"component App
       button testId="scheme" press=scheme width=40 height=20
 "##;
 
-fn boot() -> Presenter<NoData> {
+fn boot() -> Presenter<()> {
     pin_font();
     let plan = contract::compile(APP).unwrap();
     let assets = PathBuf::from(concat!(
         env!("CARGO_MANIFEST_DIR"),
         "/../../apps/caltrain/assets"
     ));
-    let (p, error) = Presenter::boot(&plan.encode(), NoData, (200.0, 300.0), 1.0, assets).unwrap();
+    let (p, error) = Presenter::boot(&plan.encode(), (), (200.0, 300.0), 1.0, assets).unwrap();
     assert!(error.is_none(), "{error:?}");
     p
 }
 
-fn view(p: &Presenter<NoData>, test_id: &str) -> u32 {
+fn view(p: &Presenter<()>, test_id: &str) -> u32 {
     let k = p.host().kernel();
     k.node_by_key(k.find_by_test_id(test_id)[0]).unwrap().id
 }
 
-fn pixel(p: &mut Presenter<NoData>, x: u32, y: u32) -> [u8; 4] {
+fn pixel(p: &mut Presenter<()>, x: u32, y: u32) -> [u8; 4] {
     let c = p.frame().pixel(x, y).unwrap().demultiply();
     [c.red(), c.green(), c.blue(), c.alpha()]
+}
+
+#[test]
+fn unchanged_ticks_keep_ui_cached_but_motion_and_resize_invalidate_it() {
+    let mut p = boot();
+    p.frame();
+    assert!(!p.dirty());
+    p.tick(16.);
+    assert!(
+        !p.dirty(),
+        "advancing time alone does not repaint static UI"
+    );
+    p.tap(view(&p, "toggle")).unwrap();
+    assert!(p.dirty());
+    p.frame();
+    p.tick(516.);
+    assert!(p.dirty(), "active colour motion must repaint the HUD");
+    p.frame();
+    p.tick(1016.);
+    assert!(p.dirty(), "the final animation frame must also repaint");
+    p.frame();
+    p.resize(240., 320.);
+    assert!(p.dirty());
+    assert_eq!(p.frame().width(), 240);
+    p.set_pointer(Some((20., 20.)));
+    assert!(p.dirty(), "pointer changes invalidate the cached UI");
 }
 
 #[test]
@@ -59,8 +84,10 @@ fn a_colour_transition_paints_premultiplied_and_hands_its_row_back() {
         Some([255, 0, 0, 128])
     );
     assert_eq!(pixel(&mut p, 50, 30), [255, 127, 127, 255]);
+    // LLP 1104: the outer two pixels are the focused button's ring;
+    // sample the inner half of this four-pixel border for its transition.
     assert_eq!(
-        pixel(&mut p, 1, 20),
+        pixel(&mut p, 3, 20),
         [128, 128, 0, 255],
         "the border, halfway"
     );
@@ -75,7 +102,7 @@ fn a_colour_transition_paints_premultiplied_and_hands_its_row_back() {
         "arrived: the rows paint again"
     );
     assert!(p.host().presented(label).colors.is_empty());
-    assert_eq!(pixel(&mut p, 1, 20), [0, 255, 0, 255]);
+    assert_eq!(pixel(&mut p, 3, 20), [0, 255, 0, 255]);
 }
 
 #[test]
@@ -84,7 +111,7 @@ fn an_appearance_change_transitions_a_light_dark_colour() {
     let page = view(&p, "page");
     assert_eq!(pixel(&mut p, 150, 250), [255, 255, 255, 255]);
     let _ = p.tap(view(&p, "scheme")).unwrap();
-    p.run_commands(|| NoData);
+    p.run_commands(|| ());
     p.tick(250.0);
     assert_eq!(
         p.host()
@@ -103,7 +130,7 @@ fn the_first_appearance_report_corrects_boot_without_a_transition() {
     let plan = contract::compile(APP).unwrap();
     let (mut host, error) = exact_linux::Host::boot(
         &plan.encode(),
-        NoData,
+        (),
         Box::new(exact_kernel::MonospaceMeasurer::default()),
         200.0,
         300.0,
@@ -166,7 +193,7 @@ fn currentcolor_borders_and_inline_runs_follow_an_animating_color() {
   to box-shadow="0 16px 24px #1d4ed8"
 component App
   state on = false
-  action toggle writes on
+  action toggle
     on = not on
   view
     column testId="page" width=200 height=300
@@ -183,8 +210,7 @@ component App
         env!("CARGO_MANIFEST_DIR"),
         "/../../apps/caltrain/assets"
     ));
-    let (mut p, error) =
-        Presenter::boot(&plan.encode(), NoData, (200.0, 300.0), 1.0, assets).unwrap();
+    let (mut p, error) = Presenter::boot(&plan.encode(), (), (200.0, 300.0), 1.0, assets).unwrap();
     assert!(error.is_none(), "{error:?}");
     assert_eq!(pixel(&mut p, 1, 30), [0, 0, 0, 255]);
     let _ = p.tap(view(&p, "toggle")).unwrap();

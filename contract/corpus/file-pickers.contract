@@ -14,13 +14,13 @@ component App
     showDirectoryPicker("folder")
   action saveAs
     showSaveFilePicker("saved", "notes.md")
-  action gotFile(value) writes opened
+  action gotFile(value)
     opened = value
-  action gotFolder(value) writes folder
+  action gotFolder(value)
     folder = value
-  action gotSave(value) writes saved
+  action gotSave(value)
     saved = value
-  action cancelled writes cancels
+  action cancelled
     cancels = cancels + 1
   view
     column padding=16 gap=8

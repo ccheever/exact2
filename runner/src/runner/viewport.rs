@@ -1,7 +1,7 @@
 //! Host-owned viewport answers; never baked or carried device data.
-//! @ref LLP 1039 D1–D3; LLP 1061 D4
+//! @ref LLP 1039 D1–D3; LLP 1061 D4; LLP 1078 D2
 use super::{DataError, DataSource, Runner, RunnerError};
-use crate::viewport::{Preferences, Viewport, SOURCE};
+use crate::viewport::{Fold, Preferences, Viewport, SOURCE};
 use exact_kernel::CommitReceipt;
 use exact_plan::{TypeKind, Value};
 
@@ -43,7 +43,35 @@ impl<D: DataSource> Runner<D> {
             preferences,
             ..self.viewport
         };
-        self.replace_viewport(viewport, "preferences")
+        // Bold Text is the kernel's, no resource's (LLP 1115.000 D12.3): a
+        // change commits, whether or not a resource reads the rest.
+        let bold = self.kernel.set_bold_text(preferences.bold_text);
+        let result = self.replace_viewport(viewport, "preferences");
+        if bold && result.is_err() {
+            // Refused: the setting waits for the next one, not the next commit.
+            let _ = self.kernel.set_bold_text(!preferences.bold_text);
+        }
+        if !bold || !matches!(result, Ok(None)) {
+            return result;
+        }
+        let result = self.commit_again(Vec::new(), "bold text");
+        if result.is_err() {
+            let _ = self.kernel.set_bold_text(!preferences.bold_text);
+        }
+        result.map(Some)
+    }
+
+    /// The device's posture or the segments a fold makes changed (LLP 1078
+    /// D2): re-answer every viewport resource in one commit; the same fold
+    /// again, or no reader, commit nothing. A grid without a column or a
+    /// row is refused before anything changes.
+    pub fn set_fold(&mut self, fold: Fold) -> Result<Option<CommitReceipt>, RunnerError> {
+        fold.validate()?;
+        let viewport = Viewport {
+            fold,
+            ..self.viewport
+        };
+        self.replace_viewport(viewport, "fold")
     }
 
     fn replace_viewport(
@@ -83,7 +111,14 @@ impl<D: DataSource> Runner<D> {
         let mut fields = Vec::with_capacity(ty.fields.len as usize);
         for f in ty.fields.iter() {
             let name = self.plan.str(self.plan.field(f).name);
-            match self.viewport.field(name) {
+            let value = if name == "gpuTier" {
+                Some(Value::str(self.page.gpu_tier()))
+            } else if name == "accessibilityTextSize" {
+                Some(Value::Bool(self.accessibility_text_size()))
+            } else {
+                self.viewport.field(name)
+            };
+            match value {
                 Some(v) => fields.push(v),
                 None => {
                     return Err(DataError::Unavailable(format!(

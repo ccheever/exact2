@@ -1,0 +1,179 @@
+// A copy of the Bluesky clone's design (bluesky-exact2-v2 at 7166baf, b40), kept as
+// tamber fmt's fixture (LLP 1121 stage 3): it formats to a fixed point.
+// Bluesky's palette (ALF, @bsky.app/alf 0.1.15: src/alf/themes.ts) as Tamber
+// tokens (LLP 1121). The palette's own steps keep ALF's names (contrast_0 ..
+// contrast_975, primary_*, positive_*, negative_*) and are light-dark() of the
+// light theme's step and the dark theme's. Bluesky has two dark themes, Dim and
+// Dark (true black), chosen in Settings > Appearance (its darkTheme setting):
+// here the dark-style axis, under scheme=dark, so a when line writes only a
+// dark side. Dim is Bluesky's default darkTheme, so it is the axis's default,
+// and each token's dark side below is Dim's; `when dark-style=black` gives
+// Dark's. The app calls setMode("dark-style", …) from Appearance and at launch
+// (app.contract applyDarkTheme); the vertical video feed pins dark-style=black
+// (Bluesky draws it in its dark theme).
+//
+// A name joining two steps (contrast_100_200) is a pair the clone took from
+// two ALF steps: the light theme's first, the dark theme's second.
+tamber bluesky
+
+axes
+  dark-style = dim | black  under scheme=dark
+
+theme
+
+  // ALF's palette steps and text atoms.
+  contrast_0 = light-dark(#ffffff, #151d28)
+    when dark-style=black: #000000
+  contrast_25 = light-dark(#f9fafb, #1c2736)
+    when dark-style=black: #111822
+  contrast_50 = light-dark(#eff2f6, #222e3f)
+    when dark-style=black: #19222e
+  contrast_100 = light-dark(#dce2ea, #2c3a4e)
+    when dark-style=black: #232e3e
+  contrast_200 = light-dark(#c0cad8, #394960)
+    when dark-style=black: #313f54
+  contrast_300 = light-dark(#a5b2c5, #485b75)
+    when dark-style=black: #405168
+  contrast_400 = light-dark(#8798b0, #586c89)
+    when dark-style=black: #526580
+  contrast_500 = light-dark(#667b99, #6f839f)
+    when dark-style=black: #667b99
+  contrast_700 = light-dark(#405168, #abb8c9)
+    when dark-style=black: #a5b2c5
+  contrast_900 = light-dark(#232e3e, #e2e7ee)
+    when dark-style=black: #dce2ea
+  primary_25 = light-dark(#f5f9ff, #122136)
+    when dark-style=black: #001533
+  primary_50 = light-dark(#e5f0ff, #122949)
+    when dark-style=black: #001e47
+  primary_100 = light-dark(#cce1ff, #123464)
+    when dark-style=black: #002861
+  primary_300 = light-dark(#75afff, #1258bd)
+    when dark-style=black: #0048ad
+  primary_500 = light-dark(#006aff, #0f73ff)
+    when dark-style=black: #006aff
+  primary_600 = light-dark(#0059d6, #4d97ff)
+    when dark-style=black: #4291ff
+  positive_500 = light-dark(#09b35e, #0ac266)
+    when dark-style=black: #09b35e
+  negative_25 = light-dark(#fff5f7, #3e0915)
+    when dark-style=black: #30030d
+  negative_50 = light-dark(#fee7ec, #500b1c)
+    when dark-style=black: #430413
+  negative_300 = light-dark(#f891a9, #ba1239)
+    when dark-style=black: #a71134
+  // atoms.text
+  text = light-dark(#000000, #ffffff)
+  // atoms.text_inverted
+  text_inverted = light-dark(#ffffff, #000000)
+
+  // Pairs of two ALF steps, and colours with an alpha, that differ in Dim and Dark.
+  // links and inline text buttons: primary_500, primary_600 dark
+  primary_500_600 = light-dark(#006aff, #4d97ff)
+    when dark-style=black: #4291ff
+  // thread lines outside a thread; contrast_200 dark
+  contrast_100_200 = light-dark(#dce2ea, #394960)
+    when dark-style=black: #313f54
+  // icon fill: contrast_600, contrast_700 dark
+  contrast_600_700 = light-dark(#526580, #abb8c9)
+    when dark-style=black: #a5b2c5
+  // raised surfaces (toast, cards): white, contrast_25 dark
+  contrast_0_25 = light-dark(#ffffff, #1c2736)
+    when dark-style=black: #111822
+  // the logged-out splash's light pill
+  contrast_50_900 = light-dark(#eff2f6, #e2e7ee)
+    when dark-style=black: #dce2ea
+  // its text
+  contrast_700_0 = light-dark(#405168, #151d28)
+    when dark-style=black: #000000
+  // the reset-password hint
+  contrast_900_alt = light-dark(#212d3b, #e2e7ee)
+    when dark-style=black: #dce2ea
+  // a link card's veil over a thumbnail
+  contrast_975_0 = light-dark(#111822, #151d28)
+    when dark-style=black: #000000
+  // a link card's play glyph
+  contrast_975_25 = light-dark(#111822, #1c2736)
+    when dark-style=black: #111822
+  // behind video and hidden media
+  media_ground = light-dark(#000000, #1c2736)
+    when dark-style=black: #111822
+  // the hairline inside images and avatars (60% contrast_300)
+  inset_border = light-dark(#dce2ea99, #485b7599)
+    when dark-style=black: #40516899
+  // the composer toolbar fade's clear end
+  contrast_0_clear = light-dark(rgba(255,255,255,0), #151d2800)
+    when dark-style=black: #00000000
+  // the drawer's overlay (shell overlayStyle)
+  scrim = light-dark(rgba(0,57,117,0.1), rgba(10,13,16,0.8))
+    when dark-style=black: rgba(1,82,168,0.1)
+
+  // Pairs that are the same in Dim and Dark.
+  // a link card's veil without a thumbnail
+  contrast_975_black = light-dark(#111822, #000000)
+  // the search screen's ground
+  contrast_50_black = light-dark(#eff2f6, #000000)
+  // headings in interstitials
+  contrast_900_white = light-dark(#232e3e, #ffffff)
+  // the splash's butterfly
+  primary_500_white = light-dark(#006aff, #ffffff)
+  // chat's Unblock / Leave chat buttons
+  inverse_ground = light-dark(#1c2736, #eff2f6)
+  // a drop-down menu's panel (UIMenu's)
+  menu_ground = light-dark(#f2f2f7, #2c2c2e)
+  // a composer image while it loads
+  placeholder_ground = light-dark(#e5e9ef, #1e2936)
+  // a warning notice's text and glyph
+  warning = light-dark(#c99a00, #ffc404)
+  // a warning notice's ground
+  warning_ground = light-dark(#fff4e5, #3b2a12)
+  // Discard
+  negative_text = light-dark(#ca123d, #f65a7f)
+  // the video feed's pause veil
+  veil = light-dark(rgba(255, 255, 255, 0.8), rgba(0, 0, 0, 0.8))
+
+  // One colour in light and both dark themes; the opaque ones are marked
+  // scheme=fixed (deliberately the same in every mode), the translucent
+  // ones are overlays either way.
+  // text and glyphs on primary, media and dark veils
+  white_100 = #ffffff  scheme=fixed
+  // my chat bubble's quoted-reply border
+  white_50 = rgba(255, 255, 255, 0.5)
+  // the lightbox's page dots
+  white_40 = #ffffff66
+  // media grounds
+  black_100 = #000000  scheme=fixed
+  // controls over media
+  black_50 = #00000080
+  // ALT badges, remove buttons
+  black_75 = rgba(0,0,0,0.75)
+  // the video feed's caption gradient
+  black_95 = rgba(0,0,0,0.95)
+  black_70 = rgba(0,0,0,0.7)
+  black_40 = rgba(0,0,0,0.4)
+  black_20 = rgba(0,0,0,0.2)
+  // the toast's shadow
+  black_12 = rgba(0,0,0,0.12)
+  // shadow_md, chat's drop zone
+  black_10 = rgba(0,0,0,0.1)
+  // a card's shadow
+  black_06 = rgba(0,0,0,0.06)
+  // errors and destructive actions (negative_500, kept in dark)
+  negative = #e91646  scheme=fixed
+  // the composer's character count over 300
+  over_limit = #e60000  scheme=fixed
+  // a liked heart (ALF palette.like)
+  like = #ec4899  scheme=fixed
+  // ALF gradients.sky
+  gradient_sky_0 = #0a7aff  scheme=fixed
+  gradient_sky_1 = #59b9ff  scheme=fixed
+  // UserAvatar's default
+  avatar_default = #0070ff  scheme=fixed
+  // Attie's Visit site pill
+  attie = #6338ff  scheme=fixed
+  // the trending flame
+  trending = #f04466  scheme=fixed
+  // a muted-words error
+  mute_banner = #ff5c74  scheme=fixed
+  // the video play button (contrast_25 in every mode)
+  contrast_25_light = #f9fafb  scheme=fixed

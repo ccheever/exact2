@@ -1,0 +1,1070 @@
+//! Host-selected app directories, anchored by directory descriptors.
+//! @ref LLP 0059.000#311-fs--delegating-capability-bearing-author-required — app paths
+use crate::stdlib::fs::{FsOp, FsResult, Stat};
+use crate::{
+    boundary::HostError,
+    grant::{GrantSet, Operation},
+};
+use std::{
+    ffi::{CStr, CString},
+    fs::File,
+    io::{self, Write},
+    os::fd::{AsRawFd, FromRawFd},
+    path::Path,
+    sync::Arc,
+};
+
+/// The host supplies existing absolute directories. Handles pin the selected
+/// directories even if their names are subsequently moved or replaced.
+#[derive(Clone, Debug)]
+pub struct AppDirectories {
+    roots: Arc<[Option<File>; 3]>,
+    paths: Arc<[std::path::PathBuf; 3]>,
+}
+fn error(e: impl std::fmt::Display) -> HostError {
+    HostError::Failed(format!("filesystem: {e}"))
+}
+fn name(s: &str) -> io::Result<CString> {
+    CString::new(s).map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "NUL in path"))
+}
+fn open_at(dir: &File, path: &str, flags: i32) -> io::Result<File> {
+    open_at_mode(dir, path, flags, 0o600)
+}
+fn open_at_mode(dir: &File, path: &str, flags: i32, mode: u32) -> io::Result<File> {
+    let path = name(path)?;
+    open_at_raw(dir, &path, flags, mode)
+}
+fn open_at_raw(dir: &File, path: &CStr, flags: i32, mode: u32) -> io::Result<File> {
+    // SAFETY: the descriptor and terminated pathname are live throughout openat.
+    let fd = unsafe {
+        libc::openat(
+            dir.as_raw_fd(),
+            path.as_ptr(),
+            flags | libc::O_CLOEXEC | libc::O_NOFOLLOW,
+            mode,
+        )
+    };
+    if fd < 0 {
+        Err(io::Error::last_os_error())
+    } else {
+        Ok(unsafe { File::from_raw_fd(fd) })
+    }
+}
+fn directory(dir: &File, path: &str) -> io::Result<File> {
+    open_at(dir, path, libc::O_RDONLY | libc::O_DIRECTORY)
+}
+fn directory_raw(dir: &File, path: &CStr) -> io::Result<File> {
+    open_at_raw(dir, path, libc::O_RDONLY | libc::O_DIRECTORY, 0o600)
+}
+fn mkdir(dir: &File, path: &str) -> io::Result<()> {
+    mkdir_mode(dir, path, 0o700)
+}
+fn mkdir_mode(dir: &File, path: &str, mode: libc::mode_t) -> io::Result<()> {
+    let path = name(path)?;
+    if unsafe { libc::mkdirat(dir.as_raw_fd(), path.as_ptr(), mode) } == 0 {
+        Ok(())
+    } else {
+        let e = io::Error::last_os_error();
+        if e.kind() == io::ErrorKind::AlreadyExists {
+            Ok(())
+        } else {
+            Err(e)
+        }
+    }
+}
+fn unlink(dir: &File, path: &str, is_dir: bool) -> io::Result<()> {
+    let path = name(path)?;
+    unlink_raw(dir, &path, is_dir)
+}
+fn unlink_raw(dir: &File, path: &CStr, is_dir: bool) -> io::Result<()> {
+    if unsafe {
+        libc::unlinkat(
+            dir.as_raw_fd(),
+            path.as_ptr(),
+            if is_dir { libc::AT_REMOVEDIR } else { 0 },
+        )
+    } == 0
+    {
+        Ok(())
+    } else {
+        Err(io::Error::last_os_error())
+    }
+}
+fn rename(from: &File, source: &str, to: &File, target: &str) -> io::Result<()> {
+    let source = name(source)?;
+    let target = name(target)?;
+    if unsafe {
+        libc::renameat(
+            from.as_raw_fd(),
+            source.as_ptr(),
+            to.as_raw_fd(),
+            target.as_ptr(),
+        )
+    } == 0
+    {
+        Ok(())
+    } else {
+        Err(io::Error::last_os_error())
+    }
+}
+fn each_name(
+    dir: &File,
+    limit: usize,
+    mut visit: impl FnMut(&CStr) -> io::Result<()>,
+) -> io::Result<()> {
+    let duplicate = directory(dir, ".")?;
+    use std::os::fd::IntoRawFd;
+    let fd = duplicate.into_raw_fd();
+    let stream = unsafe { libc::fdopendir(fd) };
+    if stream.is_null() {
+        unsafe { libc::close(fd) };
+        return Err(io::Error::last_os_error());
+    }
+    let mut count = 0;
+    let mut failure = None;
+    loop {
+        // POSIX distinguishes EOF from failure using errno. A stale errno from
+        // a successful visit must not hide or invent an enumeration error.
+        #[cfg(target_vendor = "apple")]
+        unsafe {
+            *libc::__error() = 0;
+        }
+        #[cfg(target_os = "linux")]
+        unsafe {
+            *libc::__errno_location() = 0;
+        }
+        #[cfg(target_os = "android")]
+        unsafe {
+            *libc::__errno() = 0;
+        }
+        let entry = unsafe { libc::readdir(stream) };
+        if entry.is_null() {
+            #[cfg(any(target_vendor = "apple", target_os = "linux", target_os = "android"))]
+            {
+                let error = io::Error::last_os_error();
+                if error.raw_os_error().is_some_and(|code| code != 0) {
+                    failure = Some(error);
+                }
+            }
+            break;
+        }
+        let s = unsafe { CStr::from_ptr((*entry).d_name.as_ptr()) };
+        if s.to_bytes() != b"." && s.to_bytes() != b".." {
+            if let Err(error) = visit(s) {
+                failure = Some(error);
+                break;
+            }
+            count += 1;
+            if count == limit {
+                break;
+            }
+        }
+    }
+    unsafe { libc::closedir(stream) };
+    if let Some(error) = failure {
+        return Err(error);
+    }
+    Ok(())
+}
+fn names(dir: &File) -> io::Result<Vec<String>> {
+    let mut out = Vec::new();
+    let mut used = 0;
+    each_name(dir, usize::MAX, |s| {
+        crate::stdlib::fs::push_name(&mut out, &mut used, s.to_string_lossy().into_owned())
+    })?;
+    out.sort();
+    Ok(out)
+}
+fn batch_names(dir: &File) -> io::Result<Vec<CString>> {
+    let mut out = Vec::new();
+    each_name(dir, 256, |s| {
+        out.push(s.to_owned());
+        Ok(())
+    })?;
+    Ok(out)
+}
+fn require_progress(dir: &File, entries: &[CString], removed: bool) -> io::Result<bool> {
+    if removed {
+        return Ok(false);
+    }
+    let next = batch_names(dir)?;
+    if next.is_empty() {
+        Ok(true)
+    } else if next == entries {
+        Err(io::Error::from_raw_os_error(libc::ENOTEMPTY))
+    } else {
+        Ok(false)
+    }
+}
+fn remove(dir: &File, path: &str) -> io::Result<()> {
+    remove_raw(dir, &name(path)?).map(|_| ())
+}
+fn remove_raw(dir: &File, path: &CStr) -> io::Result<bool> {
+    match directory_raw(dir, path) {
+        Ok(child) => {
+            loop {
+                let entries = batch_names(&child)?;
+                if entries.is_empty() {
+                    break;
+                }
+                let mut removed = false;
+                for entry in &entries {
+                    removed |= remove_raw(&child, entry)?;
+                }
+                if require_progress(&child, &entries, removed)? {
+                    break;
+                }
+            }
+            unlink_raw(dir, path, true).map(|_| true)
+        }
+        Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(false),
+        Err(_) => unlink_raw(dir, path, false).map(|_| true),
+    }
+}
+fn atomic(dir: &File, target: &str, data: &[u8]) -> io::Result<()> {
+    let mut bytes = [0; 16];
+    getrandom::getrandom(&mut bytes).map_err(|e| io::Error::other(e.to_string()))?;
+    let temp = format!(
+        ".ibex-{}",
+        bytes.iter().map(|b| format!("{b:02x}")).collect::<String>()
+    );
+    let mut file = open_at(dir, &temp, libc::O_WRONLY | libc::O_CREAT | libc::O_EXCL)?;
+    let result = (|| {
+        file.write_all(data)?;
+        file.sync_all()?;
+        rename(dir, &temp, dir, target)
+    })();
+    if result.is_err() {
+        let _ = unlink(dir, &temp, false);
+    }
+    result
+}
+
+impl AppDirectories {
+    pub fn new(
+        data: impl AsRef<Path>,
+        cache: impl AsRef<Path>,
+        tmp: impl AsRef<Path>,
+    ) -> Result<Self, HostError> {
+        Self::open_roots([data.as_ref(), cache.as_ref(), tmp.as_ref()], false)
+    }
+    /// Pin the roots already published by the app without creating any. A
+    /// missing root stays absent for this snapshot, and reads fail as missing
+    /// files so the data module can apply its first-launch behavior (LLP 1126 D8).
+    pub fn snapshot(
+        data: impl AsRef<Path>,
+        cache: impl AsRef<Path>,
+        tmp: impl AsRef<Path>,
+    ) -> Result<Self, HostError> {
+        Self::open_roots([data.as_ref(), cache.as_ref(), tmp.as_ref()], true)
+    }
+    fn open_roots(paths: [&Path; 3], missing_ok: bool) -> Result<Self, HostError> {
+        let mut roots = [None, None, None];
+        let mut physical = paths.map(Path::to_owned);
+        for (i, path) in paths.iter().enumerate() {
+            if !path.is_absolute() {
+                return Err(error("app directory must be absolute"));
+            }
+            let file = match File::open(path) {
+                Ok(file) => file,
+                Err(e) if missing_ok && e.kind() == io::ErrorKind::NotFound => continue,
+                Err(e) => return Err(error(e)),
+            };
+            if !file.metadata().map_err(error)?.is_dir() {
+                return Err(error("app root is not a directory"));
+            }
+            physical[i] = std::fs::canonicalize(path).map_err(error)?;
+            roots[i] = Some(file);
+        }
+        Ok(Self {
+            roots: Arc::new(roots),
+            paths: Arc::new(physical),
+        })
+    }
+    fn root(&self, index: usize) -> Result<File, HostError> {
+        self.roots[index]
+            .as_ref()
+            .ok_or_else(|| error(io::Error::from(io::ErrorKind::NotFound)))?
+            .try_clone()
+            .map_err(error)
+    }
+    fn parse<'a>(&self, path: &'a str) -> Result<(usize, Vec<&'a str>), HostError> {
+        let tail = path
+            .strip_prefix("app:/")
+            .ok_or_else(|| error("cannot mix app and native paths"))?;
+        let mut components = tail.split('/').filter(|c| !c.is_empty());
+        let index = match components.next() {
+            Some("data") => 0,
+            Some("cache") => 1,
+            Some("tmp") => 2,
+            _ => return Err(error("unknown app directory")),
+        };
+        let parts: Vec<_> = components.collect();
+        if parts
+            .iter()
+            .any(|s| *s == ".." || *s == "." || s.contains('\0'))
+        {
+            return Err(error("app path contains traversal or NUL"));
+        }
+        Ok((index, parts))
+    }
+    pub(crate) fn open_parent(&self, path: &str) -> Result<(File, String), HostError> {
+        let (index, parts) = self.parse(path)?;
+        let (leaf, parents) = parts
+            .split_last()
+            .ok_or_else(|| error("operation needs a path below the app root"))?;
+        let mut dir = self.root(index)?;
+        for part in parents {
+            dir = directory(&dir, part).map_err(error)?;
+        }
+        Ok((dir, (*leaf).to_owned()))
+    }
+    /// SQLite's native VFS needs a physical filename. The host must keep this
+    /// directory ancestry stable while a database is open. FS operations do not
+    /// have this restriction: they use the retained descriptors directly.
+    pub(crate) fn sqlite_path(&self, path: &str) -> Result<std::path::PathBuf, HostError> {
+        use std::os::unix::fs::MetadataExt;
+        let (index, parts) = self.parse(path)?;
+        let (parent, leaf) = self.open_parent(path)?;
+        let physical = self.paths[index].join(parts.join("/"));
+        let actual = std::fs::metadata(physical.parent().unwrap()).map_err(error)?;
+        let pinned = parent.metadata().map_err(error)?;
+        if (actual.dev(), actual.ino()) != (pinned.dev(), pinned.ino()) {
+            return Err(error("app directory was replaced"));
+        }
+        match open_at(&parent, &leaf, libc::O_RDONLY | libc::O_NONBLOCK) {
+            Ok(file) if !file.metadata().map_err(error)?.is_file() => {
+                return Err(error("database is not a regular file"))
+            }
+            Ok(_) => {}
+            Err(e) if e.kind() == io::ErrorKind::NotFound => {}
+            Err(e) => return Err(error(e)),
+        }
+        Ok(physical)
+    }
+    fn open(&self, path: &str) -> Result<File, HostError> {
+        let (index, parts) = self.parse(path)?;
+        if parts.is_empty() {
+            return self.root(index);
+        }
+        let (parent, leaf) = self.open_parent(path)?;
+        open_at(&parent, &leaf, libc::O_RDONLY | libc::O_NONBLOCK).map_err(error)
+    }
+    pub(crate) fn prepare_atomic(
+        &self,
+        grants: &GrantSet,
+        path: &str,
+    ) -> Result<AtomicTarget, HostError> {
+        self.parse(path)?;
+        crate::boundary::admit(grants, &Operation::FsWrite { path: path.into() })?;
+        let (parent, leaf) = self.open_parent(path)?;
+        Ok(AtomicTarget { parent, leaf })
+    }
+    /// Open a granted regular file relative to the retained app roots.
+    /// Trusted Rust callers own subsequent read scheduling and byte bounds.
+    pub fn open_file(&self, grants: &GrantSet, path: &str) -> Result<File, HostError> {
+        self.parse(path)?;
+        crate::boundary::admit(grants, &Operation::FsRead { path: path.into() })?;
+        let file = self.open(path)?;
+        if !file.metadata().map_err(error)?.is_file() {
+            return Err(error("read needs a regular file"));
+        }
+        Ok(file)
+    }
+    /// Read at most `cap` bytes, refusing a larger file, observing cancellation between chunks.
+    pub fn read_capped(
+        &self,
+        grants: &GrantSet,
+        path: &str,
+        cap: u64,
+    ) -> Result<Vec<u8>, HostError> {
+        self.read_bounded(grants, path, cap, &|| false)
+    }
+    pub fn read_bounded(
+        &self,
+        grants: &GrantSet,
+        path: &str,
+        cap: u64,
+        canceled: &dyn Fn() -> bool,
+    ) -> Result<Vec<u8>, HostError> {
+        crate::stdlib::fs::read_bounded_file(self.open_file(grants, path)?, cap, canceled)
+            .map_err(error)
+    }
+    pub(crate) fn run(
+        &self,
+        grants: &GrantSet,
+        op: FsOp,
+        path: &str,
+        destination: Option<&str>,
+        data: Option<&[u8]>,
+    ) -> Result<FsResult, HostError> {
+        self.parse(path)?;
+        let check = |write: bool, p: &str| {
+            crate::boundary::admit(
+                grants,
+                &if write {
+                    Operation::FsWrite { path: p.into() }
+                } else {
+                    Operation::FsRead { path: p.into() }
+                },
+            )
+        };
+        let (read, write) = op.required();
+        if read {
+            check(false, path)?;
+        }
+        if op.takes_second_path() {
+            let to = destination.ok_or_else(|| error("operation needs destination"))?;
+            self.parse(to)?;
+            check(true, to)?;
+            if op == FsOp::Rename {
+                check(true, path)?;
+            }
+        } else if write {
+            check(true, path)?;
+        }
+        let data = data.unwrap_or(&[]);
+        match op {
+            FsOp::ReadFile => {
+                let file = self.open(path)?;
+                if !file.metadata().map_err(error)?.is_file() {
+                    return Err(error("read needs a regular file"));
+                }
+                Ok(FsResult::Bytes(
+                    crate::stdlib::fs::read_result(file).map_err(error)?,
+                ))
+            }
+            FsOp::ReadDir => Ok(FsResult::Names(names(&self.open(path)?).map_err(error)?)),
+            FsOp::Stat => {
+                let m = self.open(path)?.metadata().map_err(error)?;
+                Ok(FsResult::Stat(Stat {
+                    size: m.len(),
+                    is_file: m.is_file(),
+                    is_directory: m.is_dir(),
+                    modified_ms: m
+                        .modified()
+                        .ok()
+                        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                        .map(|d| d.as_millis() as u64)
+                        .unwrap_or(0),
+                }))
+            }
+            FsOp::Realpath => {
+                self.open(path)?;
+                let (i, parts) = self.parse(path)?;
+                let root = ["data", "cache", "tmp"][i];
+                Ok(FsResult::Text(if parts.is_empty() {
+                    format!("app:/{root}")
+                } else {
+                    format!("app:/{root}/{}", parts.join("/"))
+                }))
+            }
+            FsOp::Mkdir => {
+                let (i, parts) = self.parse(path)?;
+                let mut dir = self.root(i)?;
+                for part in parts {
+                    mkdir(&dir, part).map_err(error)?;
+                    dir = directory(&dir, part).map_err(error)?;
+                }
+                Ok(FsResult::Done)
+            }
+            FsOp::CopyFile => {
+                let mut source = self.open(path)?;
+                let (parent, leaf) = self.open_parent(destination.unwrap())?;
+                let mut target = open_at(
+                    &parent,
+                    &leaf,
+                    libc::O_WRONLY | libc::O_CREAT | libc::O_NONBLOCK,
+                )
+                .map_err(error)?;
+                use std::os::unix::fs::MetadataExt;
+                let a = source.metadata().map_err(error)?;
+                let b = target.metadata().map_err(error)?;
+                if !a.is_file() || !b.is_file() || (a.dev(), a.ino()) == (b.dev(), b.ino()) {
+                    return Err(error("copy requires distinct regular files"));
+                }
+                target.set_len(0).map_err(error)?;
+                io::copy(&mut source, &mut target).map_err(error)?;
+                Ok(FsResult::Done)
+            }
+            _ => {
+                let (parent, leaf) = self.open_parent(path)?;
+                match op {
+                    FsOp::WriteFile | FsOp::AppendFile => {
+                        let flags = libc::O_WRONLY
+                            | libc::O_CREAT
+                            | libc::O_NONBLOCK
+                            | if op == FsOp::AppendFile {
+                                libc::O_APPEND
+                            } else {
+                                0
+                            };
+                        let mut file = open_at(&parent, &leaf, flags).map_err(error)?;
+                        if !file.metadata().map_err(error)?.is_file() {
+                            return Err(error("write needs a regular file"));
+                        }
+                        if op == FsOp::WriteFile {
+                            file.set_len(0).map_err(error)?;
+                        }
+                        file.write_all(data).map_err(error)?;
+                    }
+                    FsOp::AtomicWriteFile => atomic(&parent, &leaf, data).map_err(error)?,
+                    FsOp::Remove => remove(&parent, &leaf).map_err(error)?,
+                    FsOp::Rename => {
+                        let (to, target) = self.open_parent(destination.unwrap())?;
+                        rename(&parent, &leaf, &to, &target).map_err(error)?;
+                    }
+                    _ => unreachable!(),
+                }
+                Ok(FsResult::Done)
+            }
+        }
+    }
+}
+/// Native recursive removal shares the bounded raw-name iterator used by app roots.
+pub(crate) fn remove_native(path: &Path) -> Result<FsResult, HostError> {
+    let parent_path = path
+        .parent()
+        .ok_or_else(|| error("cannot remove filesystem root"))?;
+    let leaf = path
+        .file_name()
+        .ok_or_else(|| error("remove needs a filename"))?;
+    use std::os::unix::ffi::OsStrExt;
+    let leaf = CString::new(leaf.as_bytes()).map_err(error)?;
+    let parent = match File::open(parent_path) {
+        Ok(parent) => parent,
+        Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(FsResult::Done),
+        Err(e) => return Err(error(e)),
+    };
+    remove_raw(&parent, &leaf).map_err(error)?;
+    Ok(FsResult::Done)
+}
+
+pub(crate) fn atomic_native(path: &Path, data: &[u8]) -> Result<FsResult, HostError> {
+    let parent = path
+        .parent()
+        .ok_or_else(|| error("atomic write needs a parent"))?;
+    let leaf = path
+        .file_name()
+        .and_then(|p| p.to_str())
+        .ok_or_else(|| error("atomic write needs a filename"))?;
+    atomic(&File::open(parent).map_err(error)?, leaf, data).map_err(error)?;
+    Ok(FsResult::Done)
+}
+
+/// Chosen document paths resolve beneath the directory retained at selection.
+/// Every component is opened relative to an owned descriptor with NOFOLLOW;
+/// neither a replaced root name nor a descendant symlink redirects an op.
+fn document_metadata(parent: &File, leaf: Option<&str>) -> io::Result<libc::stat> {
+    let mut info = std::mem::MaybeUninit::<libc::stat>::uninit();
+    let result = match leaf {
+        Some(leaf) => {
+            let leaf = name(leaf)?;
+            // SAFETY: the parent, terminated leaf and output remain live;
+            // the OS inspects this entry without following a symlink.
+            unsafe {
+                libc::fstatat(
+                    parent.as_raw_fd(),
+                    leaf.as_ptr(),
+                    info.as_mut_ptr(),
+                    libc::AT_SYMLINK_NOFOLLOW,
+                )
+            }
+        }
+        None => unsafe { libc::fstat(parent.as_raw_fd(), info.as_mut_ptr()) },
+    };
+    if result < 0 {
+        return Err(io::Error::last_os_error());
+    }
+    // SAFETY: the successful OS call initialized info.
+    let info = unsafe { info.assume_init() };
+    if info.st_mode & libc::S_IFMT == libc::S_IFLNK {
+        return Err(io::Error::from_raw_os_error(libc::ELOOP));
+    }
+    Ok(info)
+}
+
+pub(crate) fn document(
+    root: &File,
+    path: &str,
+    op: FsOp,
+    data: Option<&[u8]>,
+) -> io::Result<FsResult> {
+    let parts: Vec<_> = if path.is_empty() {
+        Vec::new()
+    } else {
+        path.split('/').collect()
+    };
+    if parts
+        .iter()
+        .any(|p| p.is_empty() || *p == "." || *p == ".." || p.contains(['\\', '\0']))
+    {
+        return Err(io::Error::other("invalid document path"));
+    }
+    let mut parents = vec![root.try_clone()?];
+    if op == FsOp::Mkdir {
+        for part in parts {
+            mkdir_mode(parents.last().unwrap(), part, 0o777)?;
+            parents.push(directory(parents.last().unwrap(), part)?);
+        }
+        return Ok(FsResult::Done);
+    }
+    let (leaf, ancestors) = parts
+        .split_last()
+        .map_or((None, &[][..]), |(leaf, parents)| (Some(*leaf), parents));
+    for part in ancestors {
+        parents.push(directory(parents.last().unwrap(), part)?);
+    }
+    let parent = parents.last().unwrap();
+    let open = || match leaf {
+        Some(leaf) => open_at(parent, leaf, libc::O_RDONLY | libc::O_NONBLOCK),
+        None => parent.try_clone(),
+    };
+    let regular = |file: &File| -> io::Result<()> {
+        let meta = file.metadata()?;
+        if meta.is_dir() {
+            return Err(io::Error::from_raw_os_error(libc::EISDIR));
+        }
+        if !meta.is_file() {
+            return Err(io::Error::other("document must be a regular file"));
+        }
+        Ok(())
+    };
+    match op {
+        FsOp::ReadFile => {
+            let file = open()?;
+            regular(&file)?;
+            Ok(FsResult::Bytes(crate::stdlib::fs::read_result(file)?))
+        }
+        FsOp::ReadDir => {
+            let dir = match leaf {
+                Some(leaf) => directory(parent, leaf)?,
+                None => parent.try_clone()?,
+            };
+            Ok(FsResult::Names(names(&dir)?))
+        }
+        FsOp::Stat => {
+            let meta = document_metadata(parent, leaf)?;
+            Ok(FsResult::Stat(Stat {
+                size: u64::try_from(meta.st_size).unwrap_or(0),
+                is_file: meta.st_mode & libc::S_IFMT == libc::S_IFREG,
+                is_directory: meta.st_mode & libc::S_IFMT == libc::S_IFDIR,
+                modified_ms: u64::try_from(meta.st_mtime)
+                    .map(|s| {
+                        s.saturating_mul(1000)
+                            .saturating_add((meta.st_mtime_nsec as u64) / 1_000_000)
+                    })
+                    .unwrap_or(0),
+            }))
+        }
+        FsOp::WriteFile | FsOp::AppendFile => {
+            let leaf = leaf.ok_or_else(|| io::Error::from_raw_os_error(libc::EISDIR))?;
+            let flags = libc::O_WRONLY
+                | libc::O_CREAT
+                | libc::O_NONBLOCK
+                | if op == FsOp::AppendFile {
+                    libc::O_APPEND
+                } else {
+                    0
+                };
+            let mut file = open_at_mode(parent, leaf, flags, 0o666)?;
+            regular(&file)?;
+            if op == FsOp::WriteFile {
+                file.set_len(0)?;
+            }
+            file.write_all(data.unwrap_or(&[]))?;
+            Ok(FsResult::Done)
+        }
+        FsOp::AtomicWriteFile => {
+            let leaf = leaf.ok_or_else(|| io::Error::from_raw_os_error(libc::EISDIR))?;
+            match document_metadata(parent, Some(leaf)) {
+                Ok(meta) if meta.st_mode & libc::S_IFMT == libc::S_IFREG => {}
+                Ok(_) => return Err(io::Error::other("document must be a regular file")),
+                Err(e) if e.kind() == io::ErrorKind::NotFound => {}
+                Err(e) => return Err(e),
+            }
+            atomic(parent, leaf, data.unwrap_or(&[]))?;
+            Ok(FsResult::Done)
+        }
+        FsOp::Remove => {
+            let leaf =
+                leaf.ok_or_else(|| io::Error::other("cannot remove the chosen directory"))?;
+            let meta = document_metadata(parent, Some(leaf))?;
+            unlink(parent, leaf, meta.st_mode & libc::S_IFMT == libc::S_IFDIR)?; // empty directories only
+            Ok(FsResult::Done)
+        }
+        _ => Err(io::Error::other("operation is not available on a document")),
+    }
+}
+
+/// Admit a database in its logical namespace before selecting a native filename.
+/// The host owns the selected ancestry for the lifetime of the connection.
+pub fn resolve_sqlite(
+    grants: &GrantSet,
+    directories: Option<&AppDirectories>,
+    path: &str,
+) -> Result<std::path::PathBuf, HostError> {
+    if path.starts_with("app:") {
+        crate::boundary::admit(grants, &Operation::SqliteOpen { path: path.into() })?;
+        directories
+            .ok_or_else(|| error("app directories are not configured"))?
+            .sqlite_path(path)
+    } else {
+        let path = crate::stdlib::fs::normalize(path)?;
+        crate::boundary::admit(
+            grants,
+            &Operation::SqliteOpen {
+                path: path.to_string_lossy().into_owned(),
+            },
+        )?;
+        let real = crate::stdlib::fs::realize(&path);
+        crate::boundary::admit(
+            &grants.realized_fs(),
+            &Operation::SqliteOpen {
+                path: real.to_string_lossy().into_owned(),
+            },
+        )?;
+        Ok(real)
+    }
+}
+
+pub(crate) struct AtomicTarget {
+    parent: File,
+    leaf: String,
+}
+impl AtomicTarget {
+    pub(crate) fn write(self, data: &[u8]) -> Result<(), HostError> {
+        atomic(&self.parent, &self.leaf, data).map_err(error)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::stdlib::fs::run;
+    use std::path::PathBuf;
+    struct Fixture {
+        path: PathBuf,
+        dirs: AppDirectories,
+    }
+    impl Fixture {
+        fn new() -> Self {
+            let id = crate::stdlib::crypto::random_uuid().unwrap();
+            let path = std::env::temp_dir().join(format!("ibex-app-fs-{id}"));
+            for root in ["data", "cache", "tmp"] {
+                std::fs::create_dir_all(path.join(root)).unwrap();
+            }
+            let dirs = AppDirectories::new(path.join("data"), path.join("cache"), path.join("tmp"))
+                .unwrap();
+            Self { path, dirs }
+        }
+        fn call(
+            &self,
+            op: FsOp,
+            path: &str,
+            destination: Option<&str>,
+            data: Option<&[u8]>,
+        ) -> Result<FsResult, HostError> {
+            run(
+                &GrantSet::parse("fs.read app:/\nfs.write app:/").unwrap(),
+                Some(&self.dirs),
+                op,
+                path,
+                destination,
+                data,
+            )
+        }
+    }
+    impl Drop for Fixture {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.path);
+        }
+    }
+    #[test]
+    fn app_roots_are_explicit_and_separate_from_native_authority() {
+        let f = Fixture::new();
+        let logical = GrantSet::parse("fs.read app:/data\nfs.write app:/data").unwrap();
+        assert!(run(
+            &logical,
+            None,
+            FsOp::WriteFile,
+            "app:/data/file",
+            None,
+            Some(b"x")
+        )
+        .is_err());
+        assert!(run(
+            &logical,
+            Some(&f.dirs),
+            FsOp::WriteFile,
+            "app:/cache/file",
+            None,
+            Some(b"x")
+        )
+        .is_err());
+        assert!(run(
+            &logical,
+            Some(&f.dirs),
+            FsOp::WriteFile,
+            f.path.join("data/file").to_str().unwrap(),
+            None,
+            Some(b"x")
+        )
+        .is_err());
+        let native = GrantSet::parse(&format!("fs.write {}", f.path.display())).unwrap();
+        assert!(run(
+            &native,
+            Some(&f.dirs),
+            FsOp::WriteFile,
+            "app:/data/file",
+            None,
+            Some(b"x")
+        )
+        .is_err());
+        assert!(AppDirectories::new("relative", "relative", "relative").is_err());
+        assert!(AppDirectories::new(f.path.join("absent"), &f.path, &f.path).is_err());
+    }
+    #[test]
+    fn all_app_operations_round_trip_without_exposing_native_paths() {
+        let f = Fixture::new();
+        f.call(FsOp::Mkdir, "app:/data/deep/dir", None, None)
+            .unwrap();
+        f.call(FsOp::WriteFile, "app:/data/deep/dir/a", None, Some(b"one"))
+            .unwrap();
+        f.call(FsOp::AppendFile, "app:/data/deep/dir/a", None, Some(b"two"))
+            .unwrap();
+        assert_eq!(
+            f.call(FsOp::ReadFile, "app:/data/deep/dir/a", None, None)
+                .unwrap(),
+            FsResult::Bytes(b"onetwo".to_vec())
+        );
+        f.call(
+            FsOp::CopyFile,
+            "app:/data/deep/dir/a",
+            Some("app:/cache/copy"),
+            None,
+        )
+        .unwrap();
+        f.call(
+            FsOp::Rename,
+            "app:/cache/copy",
+            Some("app:/tmp/moved"),
+            None,
+        )
+        .unwrap();
+        assert_eq!(
+            f.call(FsOp::Realpath, "app:/tmp//moved", None, None)
+                .unwrap(),
+            FsResult::Text("app:/tmp/moved".into())
+        );
+        assert_eq!(
+            f.call(FsOp::ReadDir, "app:/tmp", None, None).unwrap(),
+            FsResult::Names(vec!["moved".into()])
+        );
+        let FsResult::Stat(stat) = f.call(FsOp::Stat, "app:/tmp/moved", None, None).unwrap() else {
+            panic!()
+        };
+        assert_eq!(stat.size, 6);
+        assert!(stat.is_file);
+        f.call(FsOp::Remove, "app:/data/deep", None, None).unwrap();
+        f.call(FsOp::Remove, "app:/data/deep", None, None).unwrap();
+        assert_eq!(
+            f.call(FsOp::ReadDir, "app:/data", None, None).unwrap(),
+            FsResult::Names(vec![])
+        );
+    }
+    #[test]
+    fn recursive_remove_drains_multiple_bounded_batches() {
+        let f = Fixture::new();
+        let large = f.path.join("cache/large");
+        std::fs::create_dir(&large).unwrap();
+        for index in 0..600 {
+            let name = format!("{index:05}{}", "x".repeat(250));
+            std::fs::write(large.join(name), b"").unwrap();
+        }
+        assert_eq!(
+            batch_names(&File::open(&large).unwrap()).unwrap().len(),
+            256
+        );
+        assert_eq!(
+            f.call(FsOp::Remove, "app:/cache/large", None, None)
+                .unwrap(),
+            FsResult::Done
+        );
+        assert!(!large.exists());
+    }
+    #[test]
+    fn recursive_remove_requires_progress_each_pass() {
+        let f = Fixture::new();
+        let tree = f.path.join("cache/tree");
+        std::fs::create_dir(&tree).unwrap();
+        std::fs::write(tree.join("file"), b"x").unwrap();
+        let child = File::open(tree).unwrap();
+        let entries = batch_names(&child).unwrap();
+        assert!(!require_progress(&child, &entries, true).unwrap());
+        assert_eq!(
+            require_progress(&child, &entries, false)
+                .unwrap_err()
+                .raw_os_error(),
+            Some(libc::ENOTEMPTY)
+        );
+    }
+    #[test]
+    fn recursive_remove_allows_concurrent_removal_after_listing() {
+        let f = Fixture::new();
+        let tree = f.path.join("cache/tree");
+        std::fs::create_dir(&tree).unwrap();
+        std::fs::write(tree.join("file"), b"x").unwrap();
+        let child = File::open(&tree).unwrap();
+        let entries = batch_names(&child).unwrap();
+        assert_eq!(entries.len(), 1);
+        std::fs::remove_file(tree.join("file")).unwrap();
+        assert!(!remove_raw(&child, &entries[0]).unwrap());
+        assert!(require_progress(&child, &entries, false).unwrap());
+        std::fs::write(tree.join("replacement"), b"x").unwrap();
+        assert!(!require_progress(&child, &entries, false).unwrap());
+    }
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn recursive_remove_keeps_non_utf8_filename_bytes() {
+        use std::os::unix::ffi::OsStrExt;
+        let f = Fixture::new();
+        let tree = f.path.join("cache/tree");
+        std::fs::create_dir(&tree).unwrap();
+        std::fs::write(tree.join(std::ffi::OsStr::from_bytes(b"bad\xff")), b"x").unwrap();
+        assert_eq!(
+            f.call(FsOp::Remove, "app:/cache/tree", None, None).unwrap(),
+            FsResult::Done
+        );
+        assert!(!tree.exists());
+    }
+    #[test]
+    fn traversal_and_symlink_escape_fail_closed_and_root_replacement_stays_pinned() {
+        use std::os::unix::fs::symlink;
+        let f = Fixture::new();
+        std::fs::write(f.path.join("cache/secret"), b"private").unwrap();
+        symlink(f.path.join("cache"), f.path.join("data/link")).unwrap();
+        symlink(f.path.join("cache/secret"), f.path.join("data/file")).unwrap();
+        for path in [
+            "app:/data/../cache/secret",
+            "app:/data/link/secret",
+            "app:/data/file",
+            "app:/data/./file",
+        ] {
+            assert!(f.call(FsOp::ReadFile, path, None, None).is_err(), "{path}");
+            assert!(
+                f.call(FsOp::WriteFile, path, None, Some(b"wrong")).is_err(),
+                "{path}"
+            );
+        }
+        assert_eq!(
+            std::fs::read(f.path.join("cache/secret")).unwrap(),
+            b"private"
+        );
+        std::fs::rename(f.path.join("data"), f.path.join("old-data")).unwrap();
+        symlink(f.path.join("cache"), f.path.join("data")).unwrap();
+        f.call(FsOp::WriteFile, "app:/data/new", None, Some(b"pinned"))
+            .unwrap();
+        assert!(f.path.join("old-data/new").exists());
+        assert!(!f.path.join("cache/new").exists());
+        assert!(f.dirs.sqlite_path("app:/data/new.db").is_err());
+    }
+    #[test]
+    fn rename_requires_source_write_and_copy_does_not() {
+        let f = Fixture::new();
+        f.call(FsOp::WriteFile, "app:/data/a", None, Some(b"keep"))
+            .unwrap();
+        let grants = GrantSet::parse("fs.read app:/data\nfs.write app:/cache").unwrap();
+        assert!(run(
+            &grants,
+            Some(&f.dirs),
+            FsOp::Rename,
+            "app:/data/a",
+            Some("app:/cache/a"),
+            None
+        )
+        .is_err());
+        run(
+            &grants,
+            Some(&f.dirs),
+            FsOp::CopyFile,
+            "app:/data/a",
+            Some("app:/cache/a"),
+            None,
+        )
+        .unwrap();
+        assert_eq!(std::fs::read(f.path.join("data/a")).unwrap(), b"keep");
+    }
+    #[test]
+    fn atomic_replace_is_complete_under_concurrency_and_cleans_up_failure() {
+        let f = Fixture::new();
+        f.call(
+            FsOp::AtomicWriteFile,
+            "app:/data/value",
+            None,
+            Some(&vec![0; 8192]),
+        )
+        .unwrap();
+        let dirs = &f.dirs;
+        std::thread::scope(|scope| {
+            for value in 1..5u8 {
+                scope.spawn(move || {
+                    let grants = GrantSet::parse("fs.write app:/data/value").unwrap();
+                    for _ in 0..16 {
+                        run(
+                            &grants,
+                            Some(dirs),
+                            FsOp::AtomicWriteFile,
+                            "app:/data/value",
+                            None,
+                            Some(&vec![value; 8192]),
+                        )
+                        .unwrap();
+                    }
+                });
+            }
+            for _ in 0..128 {
+                let bytes = std::fs::read(f.path.join("data/value")).unwrap();
+                assert_eq!(bytes.len(), 8192);
+                assert!(bytes.iter().all(|b| *b == bytes[0]));
+            }
+        });
+        f.call(FsOp::Mkdir, "app:/data/is-directory", None, None)
+            .unwrap();
+        assert!(f
+            .call(
+                FsOp::AtomicWriteFile,
+                "app:/data/is-directory",
+                None,
+                Some(b"failure")
+            )
+            .is_err());
+        assert_eq!(
+            f.call(FsOp::ReadDir, "app:/data", None, None).unwrap(),
+            FsResult::Names(vec!["is-directory".into(), "value".into()])
+        );
+        let native = f.path.join("cache/native");
+        atomic_native(&native, b"old").unwrap();
+        atomic_native(&native, b"new").unwrap();
+        assert_eq!(std::fs::read(native).unwrap(), b"new");
+    }
+    #[test]
+    fn sqlite_uses_only_its_own_grant_in_original_namespace() {
+        let f = Fixture::new();
+        assert!(resolve_sqlite(
+            &GrantSet::parse("fs.write app:/data").unwrap(),
+            Some(&f.dirs),
+            "app:/data/db"
+        )
+        .is_err());
+        let grants = GrantSet::parse("sqlite.open app:/data").unwrap();
+        assert_eq!(
+            resolve_sqlite(&grants, Some(&f.dirs), "app:/data/db").unwrap(),
+            std::fs::canonicalize(f.path.join("data"))
+                .unwrap()
+                .join("db")
+        );
+        assert!(resolve_sqlite(&grants, Some(&f.dirs), "app:/cache/db").is_err());
+        assert!(resolve_sqlite(&grants, Some(&f.dirs), "app:/data/../cache/db").is_err());
+    }
+}

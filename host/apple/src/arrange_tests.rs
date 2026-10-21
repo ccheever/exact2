@@ -29,19 +29,19 @@ impl DataSource for Rows {
 const SOURCE: &str = r#"component App
   state count = 0
   state disabled = false
-  resource initial = rows() as shape list<string>
-  mutation changed as shape list<string>
+  resource initial = rows() as shape string[]
+  mutation changed as shape string[]
   derive rows = match changed { case some(value) => value, case none => initial }
-  action receive(item: string, before: option<string>) writes changed, count
+  action receive(item: string, before: option<string>)
     send changed = move(item, before)
     count = count + 1
-  action block writes disabled
+  action block
     disabled = true
   view
     column
       button testId="block" press=block width=60 height=20
       list id="arrange" testId="list" virtualized=true height=100 reorderdrop=receive
-        each x in rows key=x
+        for x in rows key=x
           column reorderFor="arrange" disabled=disabled testId=`grip-${x}` height=20
             text x
 "#;
@@ -64,6 +64,7 @@ fn feedback(h: &mut Host<Rows>, top: f64, pin: Option<ViewId>) {
             port_cross: 320.,
             port_main: 100.,
             cross: 320.,
+            padding: [0.0; 2],
             focus_view: None,
             interaction_view: pin,
             measurements: c
@@ -267,18 +268,10 @@ fn refusals_take_no_hold_and_invalid_samples_change_nothing() {
 
 #[test]
 fn eager_lists_do_not_admit_physical_reorder() {
+    // An eager list never reorders: the compiler refuses it (3f8cbb165, LLP 1094).
     let source = SOURCE.replace("virtualized=true", "virtualized=false");
-    let plan = contract::compile(&source).unwrap().encode();
-    let rows = Rows((0..10).map(|i| i.to_string()).collect());
-    let (mut h, _) = Host::boot(
-        &plan,
-        rows,
-        Box::new(MonospaceMeasurer::default()),
-        320.,
-        400.,
-    )
-    .unwrap();
-    let grip = view(&h, "grip-0");
-    assert_eq!(state(&h.reorder_begin(grip, 0., 100.)).1, "refused");
-    assert!(h.arrange.is_none());
+    assert_eq!(
+        contract::compile(&source).unwrap_err().id,
+        "lower-reorder-collection"
+    );
 }

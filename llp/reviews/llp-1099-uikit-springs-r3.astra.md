@@ -1,0 +1,31 @@
+# RFC review: LLP 1099, UIKit's springs everywhere (r3, `16f12c461`), 2026-10-05 (astra, round 3)
+
+- **Family:** OpenAI — `gpt-6-astra` via `codex exec` (codex-cli 0.157.1), reasoning effort max, read-only sandbox, `-C` a detached worktree at `16f12c461`.
+- **Method:** the round-3 brief (sha256 `6e5daa5734ecc0b1b74f56a8b82afd4ca6d8cd7df66e2253e71ba4faf3eb64e0`): check r3's round-2 dispositions, then review afresh, reporting only what would block a correct implementation or misinform the decision; blind to the other round-3 review. The author (Claude) is not a reviewer.
+- **Transcription:** the run's final message (`-o`), unedited but for paths made repo-relative.
+- **Verdict:** NEEDS REWORK.
+- **Disposition:** LLP 1099 r4 §11 (round 3; unreviewed, the last round).
+
+---
+
+NEEDS REWORK
+
+1. **BLOCKING — The sampler is undefined for required release states.** [D5 permits zero-distance releases](llp/1099-uikit-springs.rfc.md:404), but [D6’s step formula](llp/1099-uikit-springs.rfc.md:453) gives `h = 0` when Δ = 0. For `spring(400ms, .8)` released at 100 pt/s, I computed M ≈ 3747.62 and displacement **1.8832 pt at 50 ms**: this is not a stationary curve. Define a positive, velocity-aware error scale, including per-axis handling, and test this release through web lowering.
+
+2. **MATERIAL — Parse-time validation cannot enforce the aggregate frame bound.** [D6 checks 16,384 frames at parse](llp/1099-uikit-springs.rfc.md:463), while [D5 retains independently ending components](llp/1099-uikit-springs.rfc.md:342). A valid 60-second spring can accumulate 8,193 retargets before any component ends; their distinct cuts alone require **16,386 end frames**. Gesture velocity also changes sampling cost after parsing. Specify bounds and atomic refusal for actual running tracks, including accumulated components, rather than claiming declaration validation suffices.
+
+3. **MATERIAL — Round-2 A2 remains incomplete for delayed cuts.** [Tag 9 preserves the end but omits delay](llp/1099-uikit-springs.rfc.md:473); [delay remains f32 on the wire](kernel/src/wire/codec.rs:332). With the measured icon spring and a 100 ms delay, text ends at `0.30000000000000004`, wire at `0.30000000149011613`. At the former time, I computed **1 versus 1.77289953 moves**. Preserve delay as f64 too, or specify identical canonicalization at every ingress; test delayed cuts exactly.
+
+4. **MATERIAL — Warned literals have no specified runtime acceptance path.** [§4.3 accepts literals but refuses dynamic strings](llp/1099-uikit-springs.rfc.md:640). Currently, [literals compile to strings](contract/lower/src/expr.rs:89), and [the runner sends those strings through `set_dynamic`](runner/src/bridge.rs:108), whose [transition parser has no provenance](kernel/build.rs:1306). Adding the proposed runtime refusal would also reject the warned literal. Specify a compiler rewrite to a resolved, timed physical spring, or carry checked-literal information through the plan and runner. Test both paths end-to-end.
+
+5. **MATERIAL — Position measurements do not establish arithmetic scale retargeting.** [D5 applies residual addition per property](llp/1099-uikit-springs.rfc.md:345), but [R measures only center and opacity](motion/tests/fixtures/uikit-springs/probe/main.swift:216). The [scale probes create additive `transform` animations](motion/tests/fixtures/uikit-springs/ios-27.0.txt:2), and Apple defines additive affine transforms through matrix concatenation. [Apple documentation](https://developer.apple.com/documentation/quartzcore/capropertyanimation/isadditive?language=objc). Consequently, matching position does not establish the proposed scale sum. Add rendered scale/rotation retargets and their transform values to Stage 0; derive their composition rule or declare a deviation.
+
+6. **MATERIAL — Residual `height` frames cannot implement growing heights.** [D6 groups height with additive layout offsets](llp/1099-uikit-springs.rfc.md:436). A 100→200 px height needs an initial residual of −100 px, but negative CSS heights are invalid; [the existing serializer clamps them to zero](host/web/motion-glue.js:96). Adding that to 200 px displays 200 immediately. [CSS sizing rules](https://www.w3.org/TR/css-sizing-3/#sizing-values). Keep numeric height on absolute, replace-mode frames; reserve residual addition for layout translation. Test growth and shrinkage.
+
+7. **MATERIAL — The paint approximation has no defined accuracy contract.** [D6 promises an unnamed band while evenly thinning to 64 stops](llp/1099-uikit-springs.rfc.md:437). For `spring(100ms, .01)`, I obtained 2,165 adaptive frames with error below 0.0005; thinning them uniformly to 64 stops, preserving the terminal pair, produces **0.5435 moves** error. The curve has 73 interior extrema, so this is not merely poor stop placement. Define and test a paint tolerance, then refuse curves that cannot meet it within 64 stops—or explicitly present this substantial approximation as a decision.
+
+8. **MINOR — The near-tangent test rounds away essential input precision.** [§8’s `ω=1, v=1.2262 → 5.4216`](llp/1099-uikit-springs.rfc.md:776) is incorrect. Running `criticalSettle` gives **5.454495022** for that velocity; **5.421646815** requires `v=1.2261769259289865`. Preserve the full counterexample input in D3 and the test plan.
+
+9. **MINOR — The linearity conditions are unnecessarily exclusive.** [D5 says equivalence requires textbook branches](llp/1099-uikit-springs.rfc.md:361). D4’s swapped-coefficient curve still solves the same linear ODE. With equal normalized coefficients and the summed actual derivative, a textbook restart reproduces even quirk components before cuts; my numerical check differed by only **5.7·10⁻¹⁴**. Remove condition 2 or describe the listed conditions as sufficient, rather than necessary.
+
+10. **MINOR — Core Animation’s getter does not universally reproduce UIKit’s physical-spring end.** [The idiom table](llp/1099-uikit-springs.rfc.md:98) and [Q3’s alternative](llp/1099-uikit-springs.rfc.md:877) imply it does. Yet [row X](motion/tests/fixtures/uikit-springs/ios-27.0.txt:2619) reports animation duration **0.923503661** versus `settlingDuration` **1.0**. Qualify the claim to the measured underdamped cases; adopting the getter alone would not ensure UIKit completion parity.

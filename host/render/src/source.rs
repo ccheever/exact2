@@ -4,6 +4,11 @@
 //! be written), no files, no SQLite, no key-value storage — so a render
 //! answers what a new anonymous device would see. A render never configures
 //! storage and never replaces the logic it booted with.
+//!
+//! A scheme-wide line (`net.fetch https:`) is not among them: a request's
+//! route can choose what a source fetches, and on the server nothing stands
+//! between that choice and the operator's own network. Such a source keeps
+//! its placeholder, and the client fetches it after adoption.
 use exact_plan::{Plan, Value};
 use exact_runner::{
     Answer, DataError, DataSource, Dispatch, InFlight, Interrupt, Outcome, Placement, Store, Target,
@@ -22,7 +27,13 @@ impl<D: DataSource> Anonymous<D> {
             .grants()
             .lines()
             .map(str::trim)
-            .filter(|line| line.split_whitespace().next() == Some("net.fetch"))
+            .filter(|line| {
+                let mut words = line.split_whitespace();
+                words.next() == Some("net.fetch")
+                    && words
+                        .next()
+                        .is_some_and(|target| !target.ends_with(':') || target.contains('/'))
+            })
             .collect::<Vec<_>>()
             .join("\n");
         Self { inner, grants }
@@ -30,6 +41,17 @@ impl<D: DataSource> Anonymous<D> {
 }
 
 impl<D: DataSource> DataSource for Anonymous<D> {
+    fn prepare_snapshot(
+        &mut self,
+        module: Option<exact_runner::SnapshotModule<'_>>,
+        deadline: std::time::Instant,
+    ) -> Result<(), DataError> {
+        self.inner.prepare_snapshot(module, deadline)
+    }
+    fn take_storage_changed(&mut self) -> bool {
+        self.inner.take_storage_changed()
+    }
+
     fn query(&mut self, source: &str, args: &[Value]) -> Result<Value, DataError> {
         self.inner.query(source, args)
     }
@@ -103,6 +125,9 @@ impl<D: DataSource> DataSource for Anonymous<D> {
     fn preload(&self) -> Result<bool, DataError> {
         self.inner.preload()
     }
+    fn when_preloaded(&self, wake: Box<dyn FnOnce() + Send>) {
+        self.inner.when_preloaded(wake)
+    }
     fn activate(&mut self) -> Result<(), DataError> {
         self.inner.activate()
     }
@@ -121,8 +146,18 @@ impl<D: DataSource> DataSource for Anonymous<D> {
     fn native(&self) -> Option<exact_runner::Native> {
         self.inner.native()
     }
-    fn forgotten(&mut self, in_flight: &[InFlight<'_>]) {
-        self.inner.forgotten(in_flight);
+    fn overlay(
+        &mut self,
+        source: &str,
+        args: &[Value],
+        answer: &Value,
+        writes: &[exact_runner::Write<'_>],
+    ) -> Result<Option<exact_runner::Overlaid>, DataError> {
+        self.inner.overlay(source, args, answer, writes)
+    }
+
+    fn forgotten(&mut self, store: &exact_runner::Store, in_flight: &[InFlight<'_>]) {
+        self.inner.forgotten(store, in_flight);
     }
     fn dispatch(&mut self, token: u64, store: &Store) -> Dispatch {
         self.inner.dispatch(token, store)
@@ -132,5 +167,21 @@ impl<D: DataSource> DataSource for Anonymous<D> {
     }
     fn discard(&mut self, token: u64) {
         self.inner.discard(token);
+    }
+    fn background(&mut self, store: &Store) -> Option<exact_runner::Request> {
+        self.inner.background(store)
+    }
+    fn background_landed(
+        &mut self,
+        store: &Store,
+        outcome: Outcome,
+    ) -> Result<Option<exact_runner::Request>, DataError> {
+        self.inner.background_landed(store, outcome)
+    }
+    fn background_state(&self) -> Option<exact_runner::BackgroundState> {
+        self.inner.background_state()
+    }
+    fn take_logs(&mut self) -> Vec<String> {
+        self.inner.take_logs()
     }
 }

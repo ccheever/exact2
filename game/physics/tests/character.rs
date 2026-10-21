@@ -285,3 +285,75 @@ fn one_sided_controller_errors_name_the_missing_requested_controller() {
         );
     }
 }
+// Two controllers walking into each other: each blocks the other, sliding around
+// rather than through, and a pair spawned overlapping is pushed apart, the same
+// through save/restore. A character on a layer outside the mover's mask passes.
+fn crowd(apart: bool, restore_at: Option<usize>) -> (World, f32) {
+    let mut w = World::new(60, 0);
+    physics::register(&mut w);
+    ground(&mut w);
+    // Apart: a (layer 2) and b (layer 4) each move against the ground's layer only.
+    let layers = |layer: u32| Collider {
+        layer: if apart { layer } else { 1 },
+        mask: if apart { 1 } else { u32::MAX },
+        ..Collider::default()
+    };
+    let a = w.spawn((
+        Transform::at(-1.5, 0.91, 0.0),
+        CapsuleController::default(),
+        layers(2),
+    ));
+    let b = w.spawn((
+        Transform::at(1.5, 0.91, 0.05),
+        CapsuleController::default(),
+        layers(4),
+    ));
+    let c = w.spawn((Transform::at(0.0, 0.91, 4.0), CapsuleController::default()));
+    let d = w.spawn((Transform::at(0.2, 0.91, 4.0), CapsuleController::default()));
+    let mut closest = f32::INFINITY;
+    for tick in 0..120 {
+        if restore_at == Some(tick) {
+            let bytes = w.save();
+            w = World::new(60, 0);
+            physics::register(&mut w);
+            w.load(&bytes).unwrap();
+        }
+        let moves = [
+            (a, Vec3::X),
+            (b, -Vec3::X),
+            (c, Vec3::ZERO),
+            (d, Vec3::ZERO),
+        ];
+        for (e, v) in moves {
+            w.get_mut::<CapsuleController>(e).unwrap().velocity.y -= 9.81 / 60.0;
+            physics::capsule(&mut w, e).step(v * 2.0);
+        }
+        physics::step(&mut w);
+        let at = |e| w.get::<Transform>(e).unwrap().position * Vec3::new(1.0, 0.0, 1.0);
+        closest = closest.min((at(a) - at(b)).length());
+    }
+    let at = |e| w.get::<Transform>(e).unwrap().position;
+    assert!(
+        (at(c) - at(d)).length() > 0.55,
+        "overlapping pair not separated"
+    );
+    assert!(
+        at(a).y > 0.85 && at(b).y > 0.85,
+        "a character climbed the other"
+    );
+    (w, closest)
+}
+#[test]
+fn controllers_block_each_other_unless_masked() {
+    let (w, closest) = crowd(false, None);
+    // Two 0.3 m radii, less the controllers' 1 cm offsets and contact slop.
+    assert!(closest > 0.57, "characters overlapped: {closest}");
+    let save = w.save();
+    for at in [1, 37, 60] {
+        assert_eq!(crowd(false, Some(at)).0.save(), save, "restored at {at}");
+    }
+    assert!(
+        crowd(true, None).1 < 0.1,
+        "an unmasked layer must pass through"
+    );
+}

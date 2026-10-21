@@ -38,12 +38,7 @@ pub fn page(shell: &str, rendered: &Rendered) -> Result<String, String> {
         html.replace_range(at..stop, with);
         Ok(())
     };
-    let lang = rendered
-        .document
-        .lang
-        .replace('&', "&amp;")
-        .replace('"', "&quot;")
-        .replace('<', "&lt;");
+    let lang = lang_attr(shell, &rendered.document.lang);
     cut(
         &mut html,
         "<html",
@@ -82,9 +77,10 @@ pub fn page(shell: &str, rendered: &Rendered) -> Result<String, String> {
         cut(&mut html, navigation, navigation, "")?;
         cut(&mut html, wasm, ">\n", "")?;
     }
-    let root = "<div id=\"exact-root\"></div>";
-    let document = format!("<div id=\"exact-root\">{}</div>", rendered.document.root);
-    cut(&mut html, root, root, &document)?;
+    let (open, close) =
+        shell_root(&html).ok_or("the shell has no `<div id=\"exact-root\"></div>`")?;
+    let document = format!("{}{}</div>", &html[open.clone()], rendered.document.root);
+    html.replace_range(open.start..close, &document);
     let glue = "<script type=\"module\" src=\"./glue.js\"></script>";
     let entry = if interaction {
         "<script type=\"module\" src=\"./document-glue.js\"></script>"
@@ -197,7 +193,10 @@ pub(crate) fn is_js(shell: &str) -> bool {
 struct Places {
     html: (usize, usize),
     title: (usize, usize),
+    /// The root's opening tag, and the end of its `</div>`.
     root: usize,
+    root_open: usize,
+    root_end: usize,
     entry: usize,
 }
 
@@ -211,15 +210,18 @@ fn places(shell: &str) -> Result<Places, String> {
         .ok_or_else(|| lacks("viewport"))?
         + title;
     let stop = shell[meta..].find(">\n").ok_or_else(|| lacks("viewport"))? + meta + 2;
-    let root = shell.find(ROOT).ok_or_else(|| lacks(ROOT))?;
+    let (root, root_end) =
+        shell_root(shell).ok_or_else(|| lacks("<div id=\"exact-root\"></div>"))?;
     let entry = shell.find(JS_ENTRY).ok_or_else(|| lacks(JS_ENTRY))?;
-    if !(end <= title && stop <= root && root + ROOT.len() <= entry) {
+    if !(end <= title && stop <= root.start && root_end <= entry) {
         return Err("the JavaScript shell's places are out of order".into());
     }
     Ok(Places {
         html: (open, end),
         title: (title, stop),
-        root,
+        root: root.start,
+        root_open: root.end,
+        root_end,
         entry,
     })
 }
@@ -239,6 +241,27 @@ fn preloads(shell: &str, places: &Places) -> Vec<(usize, usize)> {
     found
 }
 
+/// A rendered page's `<html lang>` value, escaped: the language of the
+/// strings table the render resolved, or, for a plan with no table (`lang`
+/// is empty), the one the shell carries, which the build wrote from the
+/// manifest's `lang` (LLP 1115.000 D4.6).
+fn lang_attr(shell: &str, lang: &str) -> String {
+    if !lang.is_empty() {
+        return lang
+            .replace('&', "&amp;")
+            .replace('"', "&quot;")
+            .replace('<', "&lt;");
+    }
+    // As the build wrote it, escaped already.
+    let tag = shell
+        .find("<html")
+        .and_then(|at| shell[at..].find('>').map(|end| &shell[at..at + end]));
+    tag.and_then(|tag| tag.split(" lang=\"").nth(1))
+        .and_then(|value| value.split('"').next())
+        .unwrap_or("")
+        .to_string()
+}
+
 /// What of a JavaScript page comes before anything its render decides: the
 /// doctype and `<html lang dir>`, the charset and base, the capture script,
 /// the entry's `modulepreload`s when `preload` (an `interaction` page has
@@ -256,10 +279,7 @@ pub(crate) fn head_js(
     scroll: bool,
 ) -> String {
     let at = &js.at;
-    let lang = lang
-        .replace('&', "&amp;")
-        .replace('"', "&quot;")
-        .replace('<', "&lt;");
+    let lang = lang_attr(shell, lang);
     let mut out = String::with_capacity(at.root + 1024);
     out.push_str(&shell[..at.html.0]);
     let _ = std::fmt::Write::write_fmt(
@@ -352,7 +372,7 @@ pub(crate) fn body_open_js(
             out.push_str(&shell[start..stop]);
         }
     }
-    out.push_str("<div id=\"exact-root\">");
+    out.push_str(&shell[js.at.root..js.at.root_open]);
     out
 }
 
@@ -368,7 +388,7 @@ pub(crate) fn body_close_js(
     let at = &js.at;
     let mut out = String::with_capacity(shell.len() - at.root + checkpoint.len() + 256);
     out.push_str("</div>");
-    out.push_str(&shell[at.root + ROOT.len()..at.entry]);
+    out.push_str(&shell[at.root_end..at.entry]);
     let _ = std::fmt::Write::write_fmt(
         &mut out,
         format_args!(
@@ -415,8 +435,37 @@ fn without_fonts(head: &str) -> String {
     out
 }
 
-/// The document's element in the shell.
-const ROOT: &str = "<div id=\"exact-root\"></div>";
+/// The document's element in the shell, `<div id="exact-root"></div>`,
+/// with what the build writes on it (`data-audio-session`, LLP 1096 D7):
+/// its opening tag's range and where its `</div>` ends.
+fn shell_root(shell: &str) -> Option<(std::ops::Range<usize>, usize)> {
+    const OPEN: &str = "<div id=\"exact-root\"";
+    let at = shell.find(OPEN)?;
+    let rest = &shell[at + OPEN.len()..];
+    let attrs = match rest.strip_prefix(" data-audio-session=\"") {
+        Some(value) => {
+            let quote = value.find('"')?;
+            if !value[..quote]
+                .bytes()
+                .all(|b| b.is_ascii_lowercase() || b == b'-')
+            {
+                return None;
+            }
+            " data-audio-session=\"".len() + quote + 1
+        }
+        None => 0,
+    };
+    let open = at + OPEN.len() + attrs;
+    shell[open..]
+        .starts_with("></div>")
+        .then(|| (at..open + 1, open + "></div>".len()))
+}
+
+/// The shell's root opening tag, attributes and all (`direct.rs` marks a
+/// boot document's copy).
+pub(crate) fn root_open(shell: &str) -> &str {
+    shell_root(shell).map_or("<div id=\"exact-root\">", |(open, _)| &shell[open])
+}
 
 /// The shell stylesheet's static classes (`host/web-js/build.mjs`: `.c<n>{…}`
 /// inside `#exact-root#exact-root{…}`): by their CSS text, and, for a class
@@ -690,5 +739,21 @@ mod tests {
         assert!(!body_js(shell, &js, &rendered, false, true).contains(&mark));
         rendered.document.scroll_document = false;
         assert!(!body_js(shell, &js, &rendered, false, false).contains(&mark));
+    }
+
+    /// LLP 1115.000 D4.6: a rendered page keeps the manifest's `lang`, which
+    /// the build wrote on the shell, when its plan has no strings table to
+    /// name a language (`lang` empty); a resolved table's language still wins.
+    #[test]
+    fn a_rendered_page_keeps_the_shells_lang_when_the_plan_names_none() {
+        let shell = "<!doctype html>\n<html lang=\"pt-BR\">\n<meta charset=\"utf-8\">\n<base href=\"/\">\n<title>Olá</title>\n<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n<style></style>\n<div id=\"exact-root\"></div>\n<script type=\"module\" src=\"./app.js\"></script>\n";
+        let js = Js::of(shell).unwrap();
+        let head = head_js(shell, &js, "", "ltr", true, false);
+        assert!(head.contains("<html lang=\"pt-BR\" dir=\"ltr\">"), "{head}");
+        let head = head_js(shell, &js, "fr", "ltr", true, false);
+        assert!(head.contains("<html lang=\"fr\" dir=\"ltr\">"), "{head}");
+        assert_eq!(lang_attr("<html lang=\"pt-BR\">", ""), "pt-BR");
+        assert_eq!(lang_attr("<html>", ""), "");
+        assert_eq!(lang_attr("<html lang=\"en\">", "a\"b"), "a&quot;b");
     }
 }

@@ -98,7 +98,7 @@ impl Kept {
 }
 
 /// Every collection in `children` (a row's roots), outside other collections'
-/// rows, with its site: its plan node and the keys of any eager `each` rows
+/// rows, with its site: its plan node and the keys of any eager `for` rows
 /// crossed to reach it, and the frames in force there.
 fn inner_lists<'a>(
     children: &'a mut [Child],
@@ -122,7 +122,7 @@ fn inner_lists<'a>(
             Child::Region(region) => match &mut region.active {
                 Active::Arm { roots, frame, .. } => {
                     let mut inner = frames.to_vec();
-                    inner.push(frame.clone());
+                    inner.push(frame.scope());
                     inner_lists(roots, &inner, site, sites, out);
                 }
                 Active::Rows { rows } => {
@@ -203,8 +203,8 @@ impl Collection {
             let start = self.index.prefix(self.index.position(&key)?)?;
             return Some((key, within, start));
         };
-        let max = (self.index.total_height() - g.port_main).max(0.0);
-        let offset = g.offset.clamp(0.0, max);
+        let max = self.index.max_offset(g.port_main);
+        let offset = g.offset.min(max).max(0.0);
         if offset <= 0.0 {
             return None;
         }
@@ -322,11 +322,14 @@ impl Collection {
             .map_err(index_error)?;
         let offset = self.index.prefix(position).unwrap_or(0.0) + within;
         self.start_offset = offset;
+        self.at_end = false;
         self.restored = true;
         self.restored_at = self.index.shared_key(position).map(|k| (k.clone(), within));
         self.correction = Some(AnchorCorrection {
             scroll_sequence: 0,
             offset,
+            from: None,
+            smooth: false,
         });
         self.realize_window(u, frames, false, CollectionFill::default())?;
         advance(&mut self.revision)?;
@@ -363,6 +366,22 @@ impl Tree {
     }
 }
 
+/// A count that moves whenever any list's own pins change or a list
+/// holding one goes: an outer list's cached answer for the pins inside its
+/// rows is good while the count stands. One count for the process, so a
+/// runner booted on one thread and run on another reads the same count
+/// (it only ever grows; a bump on another runner only costs a recount).
+pub(super) struct PinEpoch;
+static PIN_EPOCH: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+impl PinEpoch {
+    pub(super) fn now() -> u64 {
+        PIN_EPOCH.load(std::sync::atomic::Ordering::Relaxed)
+    }
+    pub(super) fn bump() {
+        PIN_EPOCH.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -385,21 +404,5 @@ mod tests {
         assert!(kept.get("r10", "7").is_none());
         kept.retain_rows(|row| row == "new");
         assert_eq!(kept.len(), 1);
-    }
-}
-
-/// A count that moves whenever any list's own pins change or a list
-/// holding one goes: an outer list's cached answer for the pins inside its
-/// rows is good while the count stands. Per thread, as a runner is.
-pub(super) struct PinEpoch;
-thread_local! {
-    static PIN_EPOCH: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
-}
-impl PinEpoch {
-    pub(super) fn now() -> u64 {
-        PIN_EPOCH.with(std::cell::Cell::get)
-    }
-    pub(super) fn bump() {
-        PIN_EPOCH.with(|e| e.set(e.get() + 1));
     }
 }

@@ -54,8 +54,18 @@ fn compat_cli_validates_all_options_before_reading_the_manifest() {
         "gpu/shaders/fixture.wgsl",
         "@compute @workgroup_size(1) fn main() {}",
     );
+    // The filesystem helper this process checked, named to each child as the bake names it to
+    // its own Bun calls: the children are about their options, not about checking the helper
+    let helper = exact_bake::bun()
+        .get_envs()
+        .find(|(name, _)| *name == "EXACT_FILESYSTEM_HELPER")
+        .and_then(|(_, value)| value.map(std::ffi::OsStr::to_owned));
     let run = |args: &[&str]| {
-        Command::new(env!("CARGO_BIN_EXE_exact-bake"))
+        let mut command = Command::new(env!("CARGO_BIN_EXE_exact-bake"));
+        if let Some(helper) = &helper {
+            command.env("EXACT_FILESYSTEM_HELPER", helper);
+        }
+        command
             .arg("compat")
             .args(args)
             .current_dir(&app.0)

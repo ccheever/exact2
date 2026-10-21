@@ -87,6 +87,30 @@ fn frame(k: &Kernel, id: u32) -> (f32, f32, f32, f32) {
     (f.x, f.y, f.width, f.height)
 }
 
+fn child_nodes_match_snapshots(k: &Kernel, id: u32) {
+    let parent = k.node(id).unwrap();
+    let ids = parent.children();
+    let mut nodes = parent.child_nodes();
+    assert_eq!(nodes.len(), ids.len());
+    for id in &ids {
+        let child = nodes.next().unwrap();
+        let looked_up = k.node(*id).unwrap();
+        assert_eq!(child.id, *id);
+        assert_eq!(child.key, looked_up.key);
+        assert_eq!(child.node_type, looked_up.node_type);
+        assert_eq!(child.parent, looked_up.parent);
+        assert_eq!(child.frame, looked_up.frame);
+        assert_eq!(child.content, looked_up.content);
+        assert_eq!(child.is_root, looked_up.is_root);
+        assert!(std::ptr::eq(child.style, looked_up.style));
+        assert!(std::ptr::eq(child.props, looked_up.props));
+    }
+    assert!(nodes.next().is_none());
+    assert_eq!(
+        parent.child_nodes().rev().map(|n| n.id).collect::<Vec<_>>(),
+        ids.into_iter().rev().collect::<Vec<_>>()
+    );
+}
 #[test]
 fn column_layout_stacks_children_and_stretches_width() {
     let mut k = build();
@@ -100,6 +124,9 @@ fn column_layout_stacks_children_and_stretches_width() {
         (0.0, 50.0, 200.0, 20.0),
         "frames are absolute"
     );
+    for id in 1..=4 {
+        child_nodes_match_snapshots(&k, id);
+    }
 }
 
 #[test]
@@ -883,7 +910,11 @@ fn identical_writes_do_not_touch_nodes_or_advance_the_epoch() {
                     id: 3,
                     patch: height(70.0),
                 },
-                Op::ClearStyle { id: 2, mask: unset },
+                Op::ClearStyle {
+                    id: 2,
+                    mask: unset,
+                    written: false,
+                },
                 Op::SetChildren {
                     id: 1,
                     children: vec![2, 3],
@@ -915,7 +946,17 @@ fn clear_style_restores_defaults() {
     k.compute_layout(1, Offer::definite(400.0, 400.0)).unwrap();
     let mut mask = exact_kernel::StyleMask::EMPTY;
     mask.set(StyleId::Height);
-    let receipt = k.apply(0, 2, &[Op::ClearStyle { id: 3, mask }]).unwrap();
+    let receipt = k
+        .apply(
+            0,
+            2,
+            &[Op::ClearStyle {
+                id: 3,
+                mask,
+                written: false,
+            }],
+        )
+        .unwrap();
     assert!(receipt.layout_invalidated);
     assert_eq!(k.node(3).unwrap().style.height, Dimension::Auto);
     assert!(!k.node(3).unwrap().style.mask.has(StyleId::Height));
@@ -974,9 +1015,27 @@ fn text_color_inherits_through_reparenting_and_cleared_overrides() {
     assert_eq!(k.node(4).unwrap().text_color(), red);
     let mut mask = StyleMask::EMPTY;
     mask.set(StyleId::TextColor);
-    k.apply(0, 4, &[Op::ClearStyle { id: 2, mask }]).unwrap();
+    k.apply(
+        0,
+        4,
+        &[Op::ClearStyle {
+            id: 2,
+            mask,
+            written: false,
+        }],
+    )
+    .unwrap();
     assert_eq!(k.node(4).unwrap().text_color(), pair);
-    k.apply(0, 5, &[Op::ClearStyle { id: 1, mask }]).unwrap();
+    k.apply(
+        0,
+        5,
+        &[Op::ClearStyle {
+            id: 1,
+            mask,
+            written: false,
+        }],
+    )
+    .unwrap();
     assert_eq!(
         k.node(4).unwrap().text_color(),
         StyleProps::default().text_color
@@ -1199,7 +1258,17 @@ fn text_rows_inherit_into_runs_and_a_change_touches_only_the_runs_that_follow_it
     // Clearing falls back to the initial value, and touches only followers.
     let mut mask = StyleMask::EMPTY;
     mask.set(StyleId::FontSize);
-    let receipt = k.apply(0, 4, &[Op::ClearStyle { id: 2, mask }]).unwrap();
+    let receipt = k
+        .apply(
+            0,
+            4,
+            &[Op::ClearStyle {
+                id: 2,
+                mask,
+                written: false,
+            }],
+        )
+        .unwrap();
     assert_eq!(ids(&k, &receipt.touched), vec![2, 4]);
     assert_eq!(k.node(4).unwrap().text_style().font_size, 16.0);
     assert_eq!(k.node(4).unwrap().source_of(StyleId::FontSize), None);
@@ -1277,6 +1346,7 @@ fn inherited_line_height_resolves_per_font_and_invalidates_through_tree_changes(
         &[Op::ClearStyle {
             id: 2,
             mask: StyleMask::of(StyleId::LineHeight),
+            written: false,
         }],
     )
     .unwrap();
@@ -1423,4 +1493,7 @@ fn touched_receipt_is_unique_ordered_and_excludes_destroyed_or_created_generatio
     expected.sort_unstable();
     assert_eq!(next.touched, expected);
     assert!(next.created.is_empty());
+    for id in [1, 2, 6, 7] {
+        child_nodes_match_snapshots(&k, id);
+    }
 }

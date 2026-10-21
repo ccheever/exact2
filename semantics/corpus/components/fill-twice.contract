@@ -1,0 +1,33 @@
+// A slot component that shows `children` twice: each place the fill
+// renders is its own instance, so a stateful child in it has two counts.
+// A tap reaches the first `inc` in the tree; the second copy stays at 0.
+component App
+  state label = "count"
+  view
+    column
+      Twice()
+        Counter(label=label)
+
+component Twice
+  slot
+  view
+    column
+      row
+        children
+      row
+        children
+
+component Counter
+  props
+    label: string
+  state n = 0
+  action inc
+    n = n + 1
+  view
+    button "inc" press=inc testId="inc"
+      text `${label} ${n}` testId="n"
+
+test "each children is its own instance"
+  tap "inc"
+  tap "inc"
+  tap "inc"

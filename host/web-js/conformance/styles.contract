@@ -1,11 +1,22 @@
 // Synthetic conformance plan: dynamic style rows — colours, dimensions in
-// points and percent, auto, enums, numbers — and dynamic props.
+// points and percent, auto, enums, numbers — and dynamic props. Colours take
+// every CSS form the browser paints, parsed by the kernel to the same value
+// (feed F13: `hsl()` painted on the web and was refused on macOS).
 component Styles
   state on = false
   state width = 120
-  action flip writes on
+  state title = ""
+  state body = ""
+  state unlocked = ""
+  action titleInput(value: string)
+    title = value
+  action bodyInput(value: string)
+    body = value
+  action unlockedInput(value: string)
+    unlocked = value
+  action flip
     on = not on
-  action widen writes width
+  action widen
     width = width + 40
   view
     column testId="root" padding=10 gap=8
@@ -13,8 +24,36 @@ component Styles
         text on ? "on" : "off"
       button press=widen testId="widen"
         text "widen"
-      view testId="box" width=width height=(on ? "40%" : 60) background-color=(on ? "#2a9d8f" : "#e76f51") opacity=(on ? 0.5 : 1) border-radius=(on ? 20 : 4)
+      view testId="box" width=width height=(on ? "40%" : 60) background-color=(on ? "#2a9d8f" : "#e76f51") opacity=(on ? 0.5 : 1) border-radius=(on ? "50%" : "4px")
       row testId="row" justify-content=(on ? "flex-end" : "flex-start") gap=(on ? 12 : 4)
         text "left" color=(on ? "#264653" : "#000000") font-size=(on ? 20 : 14)
         text "right" font-weight=(on ? 700 : 400)
-      view testId="auto" width=(on ? "auto" : 200) height=20 background-color="#999999"
+      view flex=(on ? "none" : "0 1 auto") testId="auto" width=(on ? "auto" : 200) height=20 background-color="#999999"
+      view testId="ellipse" width=160 height=80 background-color="#2468ac" border-radius="50%"
+      view testId="dotted-1" width=100 height=30 border-bottom="1px dotted #888888"
+      view testId="dotted-2" width=100 height=30 border="2px dotted #888888" border-radius=10
+      view testId="dotted-4" width=100 height=30 border="4px dotted #888888" border-radius=10
+      view testId="dashed-1" width=100 height=30 border-bottom="1px dashed #888888"
+      view testId="dashed-2" width=100 height=30 border="2px dashed #888888" border-radius=10
+      view testId="dashed-4" width=100 height=30 border="4px dashed #888888" border-radius=10
+      view testId="mixed-border" width=100 height=30 border-width="1px 2px 4px 2px" border-style="dotted dashed solid none" border-color="#aa0000 #00aa00 #0000aa #000000" border-radius=10
+      input testId="title" value=title readonly=on input=titleInput
+      textarea testId="body" value=body readonly=(on or width > 300) input=bodyInput
+      input testId="locked" value="locked" readonly=true
+      input testId="unlocked" value=unlocked readonly=false input=unlockedInput
+      view cursor=(on ? "grabbing" : "grab") testId="auto-scroll" width=200 height=60 overflow=(on ? "hidden" : "auto")
+        view width=400 height=200 background-color="#aaccee"
+      view testId="viewport" width=(on ? "30vw" : "60vw") height="5vh" max-width="50vmin" padding-top="1dvh" background-color="#88aaff"
+      view testId="hsl" width=60 height=20 border-width=3 border-style="solid" background-color=(on ? "hsl(326, 55%, 52%)" : "rebeccapurple") border-color=(on ? "hwb(200 10% 20%)" : "hsla(120deg 60% 40% / 50%)")
+      row testId="ordered" width=240 gap=4
+        view testId="ordered-a" width=40 height=12 background-color="tomato"
+        view testId="ordered-b" width=40 height=12 background-color="steelblue" order=(on ? -1 : 0)
+        view testId="ordered-c" width=40 height=12 background-color="gold" order=1
+      view testId="current" width=60 height=20 color="#2a9d8f" background-color=(on ? "currentcolor" : "#e76f51")
+      text "inherits" testId="inherits" color=(on ? "unset" : "#e76f51")
+      text "Settle every thread in this section and keep the newest one open" testId="balanced" width=180 text-wrap=(on ? "auto" : "balance")
+      input testId="free"
+      textarea testId="free-body"
+      input testId="hinted" placeholder="Search"
+        ::placeholder
+          color=(on ? "#2a9d8f80" : "#e76f51")

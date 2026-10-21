@@ -1,0 +1,114 @@
+// LLP 1116.003 D2.1: workout-log's inline set form at the foot of a tab's
+// grouped list — number fields with their Add button below them, a second
+// exercise's form under the first. Focused, a field and its Add button stay
+// above the keyboard, the floating tab bar under it, and Return with
+// `enterkeyhint="next"` moves on to the next field and shows it likewise
+// (KeyboardFormIOSTests). The other tab's empty state gives way in place to
+// a grouped list, as workout-log's active workout did (LLP 1116.003 D2.2).
+// A third tab is a form in a scroll under an absolute bar pinned to the
+// bottom (book-club's Add button, LLP 1116.008 D8): the focused field, the
+// last of the form, is shown above the bar, not under it.
+routes nav
+  tab log "/"
+  tab other "/other"
+  tab pinned "/pinned"
+
+component KeyboardForm
+  state reps = ""
+  state weight = ""
+  state benchReps = ""
+  state added = 0
+  state author = ""
+  state memo = ""
+  action pick(name: string)
+    nav = select(nav, name)
+  action editReps(v: string)
+    reps = v
+  action editWeight(v: string)
+    weight = v
+  action editBenchReps(v: string)
+    benchReps = v
+  action add
+    added = added + 1
+  action editAuthor(v: string)
+    author = v
+  action editMemo(v: string)
+    memo = v
+  view
+    main navigationKey=`${top(nav).id}` testId="app" width="100%" height="100%" display="flex" flex-direction="column"
+      column flex=1 min-height=0 position="relative"
+        for t in nav.tabs key=t.name
+          column role="tabpanel" id=`panel-${t.name}` position="absolute" inset=0
+            for e in t.stack key=e.id
+              column navigationKey=`${e.id}` navigationScroll=`content-${e.id}` testId=`route-${e.name}` position="absolute" inset=0 display="flex" flex-direction="column"
+                header display="flex" align-items="center" padding="8px 16px"
+                  text (e.name == "log" ? "Workout" : e.name == "pinned" ? "Pinned" : "Other") role="heading" aria-level=1
+                if e.name == "log"
+                  list id=`content-${e.id}` appearance="auto" listStyle="inset-grouped" flex=1 min-height=0 testId="form-list"
+                    section
+                      row
+                        text "Date"
+                        text "Jan 1, 2026"
+                      row
+                        text "Volume"
+                        text "1,200 lb"
+                      row
+                        text "Duration"
+                        text "45 min"
+                    section
+                      button press=add testId="add-exercise"
+                        text "Add Exercise"
+                    section
+                      header
+                        text "Squat"
+                      row
+                        text "8 × 150 lb"
+                      row
+                        text "Reps"
+                        input appearance="none" value=reps input=editReps inputmode="numeric" placeholder="8"
+                          aria-label="Reps" enterkeyhint="next" text-align="end" testId="reps" flex=1 min-width=0
+                      row
+                        text "Weight (lb)"
+                        input appearance="none" value=weight input=editWeight inputmode="decimal" placeholder="150"
+                          aria-label="Weight" enterkeyhint="next" text-align="end" testId="weight" flex=1 min-width=0
+                      row
+                        button press=add testId="add-set" flex=1
+                          text "Add Set"
+                    section
+                      header
+                        text "Bench Press"
+                      row
+                        text "Reps"
+                        input appearance="none" value=benchReps input=editBenchReps inputmode="numeric" placeholder="8"
+                          aria-label="Bench reps" text-align="end" testId="bench-reps" flex=1 min-width=0
+                      row
+                        button press=add testId="bench-add" flex=1
+                          text "Add Set"
+                else if e.name == "pinned"
+                  scroll id=`content-${e.id}` flex=1 min-height=0 padding=16 gap=12 testId="pinned-scroll"
+                    column height=480
+                      text "Cover"
+                    input value=author input=editAuthor placeholder="Author" aria-label="Author" testId="pinned-author"
+                    input value=memo input=editMemo placeholder="Memo" aria-label="Memo" testId="pinned-memo"
+                  row padding=16 position="absolute" bottom=0 left=0 right=0 background-color="-exact-secondary-background" testId="pinned-bar"
+                    button press=add flex=1 testId="pinned-add"
+                      text "Add to shelf"
+                else if added == 0
+                  scroll id=`content-${e.id}` flex=1 min-height=0
+                    button press=add testId="fill"
+                      text "Fill"
+                else
+                  list id=`content-${e.id}` appearance="auto" listStyle="inset-grouped" flex=1 min-height=0 testId="other-list"
+                    section
+                      row
+                        text "Filled"
+      row role="tablist" testId="tabs"
+        button role="tab" aria-controls="panel-log" aria-selected=(nav.tab == "log") press=pick("log") testId="tab-log" flex=1
+          image "symbol:activity"
+          text "Workout"
+        button role="tab" aria-controls="panel-other" aria-selected=(nav.tab == "other") press=pick("other") testId="tab-other" flex=1
+          image "symbol:chart"
+          text "Other"
+        button role="tab" aria-controls="panel-pinned" aria-selected=(nav.tab == "pinned") press=pick("pinned") testId="tab-pinned" flex=1
+          image "symbol:add"
+          text "Pinned"

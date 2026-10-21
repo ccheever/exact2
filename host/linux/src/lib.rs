@@ -6,7 +6,7 @@
 //!
 //! The third host and the first that paints. The runner and kernel run
 //! natively; after every commit the host lays the tree out with the
-//! kernel's own layout (Taffy, measuring text with cosmic-text), seeks the
+//! kernel's own layout (Taffy, measuring text with Parley), seeks the
 //! motion engine to the app's clock, and the painter draws the kernel tree
 //! itself — vello on the GPU, tiny-skia on the CPU where there is none —
 //! **the kernel is the display list**: no batch, no mirror, no view tree of
@@ -16,7 +16,7 @@
 //! fleet Linux box with no GPU, or on macOS in the seconds-loop. Pure Rust
 //! end to end; no system library is linked.
 //!
-//! - [`text`] — cosmic-text: one paragraph cache answers measure and paint.
+//! - [`text`] — Parley: one paragraph cache answers measure and paint.
 //! - [`paint`] — the painter: one walk of the tree, every box recorded,
 //!   emitted to a backend.
 //! - [`gpu`] — the vello backend, the main one: wgpu, a texture, a readback.
@@ -25,6 +25,8 @@
 //! - [`host`] — the runner wrapped: commits → layout → motion.
 //! - [`image`] — sources under the asset root, PNG decoded off-thread.
 //! - [`presenter`] — scroll, focus, hit-testing, the host-side operations.
+//! - [`hatches`] — access hatches: an app's own code at its nodes' boxes,
+//!   their overlays and the input that lands there (LLP 1075.003.000.001).
 //! - [`agent`] — the agent API on stdio (`Agent.swift`'s twin).
 //! - [`executor`] — `ibex2::host` on a worker thread for a request that
 //!   leaves the process (LLP 1016 D2), its wake a socketpair the loop polls.
@@ -38,31 +40,90 @@
 #![deny(missing_docs)]
 
 pub mod agent;
+#[cfg(target_os = "android")]
+pub mod android;
+#[cfg(target_os = "android")]
+pub mod android_hint;
 pub mod app;
+mod build_channel;
+#[cfg(any(target_os = "android", test))]
+pub mod canvas;
 mod canvas2d;
 pub mod content_region;
 pub mod delivery;
 #[cfg(target_os = "linux")]
 pub mod display;
+mod doc_watch;
 pub mod executor;
 pub mod fetch;
+pub mod fields;
+mod file;
+pub mod frames;
+pub mod gamepad;
 pub mod gpu;
+pub mod hatches;
 pub mod host;
 pub mod image;
 #[cfg(target_os = "linux")]
 pub mod input;
+mod media_session;
 pub mod navigation;
 pub mod paint;
 pub mod picker;
 mod placement;
 pub mod presenter;
 pub mod raster;
+mod scroll_anchor;
 mod surfaces;
+mod tamber;
+pub mod teardown;
 pub mod text;
+#[cfg(any(target_os = "android", test))]
+#[path = "canvas/travel.rs"]
+mod travel;
 #[cfg(target_os = "linux")]
 pub mod vnc;
+mod wake;
 mod zone;
 
-pub use app::run;
+/// Install the Windows event-loop wake for native work, images and text results.
+/// Removing it at shutdown releases the event loop without stopping shared workers.
+#[cfg(windows)]
+pub fn set_event_waker(waker: Option<std::sync::Arc<dyn Fn() + Send + Sync>>) {
+    wake::install(waker);
+}
+
+pub use app::{run, run_with_hatches};
+pub use hatches::Hatches;
 pub use host::{Host, HostError};
 pub use presenter::Presenter;
+
+/// Run `f` inside an atrace section on Android (Perfetto shows it on this
+/// thread); elsewhere just `f`.
+#[inline]
+pub(crate) fn traced<T>(_name: &core::ffi::CStr, f: impl FnOnce() -> T) -> T {
+    #[cfg(target_os = "android")]
+    return android::trace(_name, f);
+    #[cfg(not(target_os = "android"))]
+    f()
+}
+
+/// A Contract source compiled and encoded once per test binary: the tests boot fresh presenters
+/// from a few constant sources many times, and a compile depends on nothing but its source.
+#[cfg(test)]
+pub(crate) fn test_plan(source: &str) -> Vec<u8> {
+    use std::collections::HashMap;
+    use std::sync::{Mutex, OnceLock};
+    static PLANS: OnceLock<Mutex<HashMap<String, Vec<u8>>>> = OnceLock::new();
+    let plans = PLANS.get_or_init(Default::default);
+    if let Some(plan) = plans.lock().unwrap_or_else(|e| e.into_inner()).get(source) {
+        return plan.clone();
+    }
+    // Compiled outside the lock, so one test's compile never waits on another's
+    let plan = contract::compile(source).unwrap().encode();
+    plans
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .insert(source.to_owned(), plan.clone());
+    plan
+}

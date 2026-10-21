@@ -1,0 +1,48 @@
+// `concat`, `slice` and `includes` over lists are JavaScript's (LLP 1088
+// §9.1): `slice` clamps as text's does (negative from the end, NaN is 0,
+// fractions truncate, an omitted end is the end), and `includes` is
+// SameValueZero (NaN is found, -0 is 0). HN's collapsed comments and mail's
+// selection, as session state.
+component App
+  state collapsed = []
+  state picked = ["a"]
+  state nums = [1, -0, 3]
+  derive both = picked.concat(["b", "c"])
+  derive none2 = [].concat(picked)
+  derive tail = both.slice(1)
+  derive back = both.slice(0, -1)
+  derive frac = both.slice(0.9, 2.7)
+  derive nan = both.slice(0 / 0, 1)
+  derive past = both.slice(5)
+  derive reversed = both.slice(2, 1)
+  derive hasNaN = nums.concat([0 / 0]).includes(0 / 0)
+  derive hasZero = nums.includes(0)
+  derive hasTwo = nums.includes(2)
+  derive hasB = both.includes("b")
+  derive bools = [true, false].includes(false)
+  derive text = "abc".includes("b")
+  action toggle(id: string)
+    collapsed = collapsed.includes(id) ? collapsed.filter(c => c != id) : collapsed.concat([id])
+  action add(id: string)
+    picked = picked.concat([id])
+  view
+    column
+      text collapsed.join(",") testId="collapsed"
+      text picked.join(",") testId="picked"
+      button "x" press=toggle("x") testId="x"
+      button "y" press=toggle("y") testId="y"
+      button "add" press=add("z") testId="add"
+
+test "construct"
+  expect text "picked" == "a"
+  tap "x"
+  tap "y"
+  expect text "collapsed" == "x,y"
+  tap "x"
+  expect text "collapsed" == "y"
+  tap "add"
+  expect text "picked" == "a,z"
+  expect state hasNaN == true
+  expect state hasZero == true
+  expect state hasTwo == false
+  expect state text == true

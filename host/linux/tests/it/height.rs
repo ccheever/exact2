@@ -5,23 +5,13 @@ use exact_kernel::{
 };
 use exact_linux::Host;
 use exact_motion::{HoldEnd, Property, Value};
-use exact_runner::{DataError, DataSource, Event};
+use exact_runner::Event;
 use std::{cell::Cell, rc::Rc};
 
-struct Empty;
-impl DataSource for Empty {
-    fn query(
-        &mut self,
-        name: &str,
-        _: &[exact_runner::Value],
-    ) -> Result<exact_runner::Value, DataError> {
-        Err(DataError::UnknownSource(name.into()))
-    }
-}
-fn boot(source: &str, measurer: Box<dyn TextMeasurer>) -> Host<Empty> {
+fn boot(source: &str, measurer: Box<dyn TextMeasurer>) -> Host<()> {
     let (h, error) = Host::boot(
         &contract::compile(source).unwrap().encode(),
-        Empty,
+        (),
         measurer,
         400.,
         300.,
@@ -34,13 +24,13 @@ const APP: &str = r#"component App
   state target = 180
   state showing = true
   state hidden = false
-  action grow writes target
+  action grow
     target = 420
-  action shrink writes target
+  action shrink
     target = 100
-  action hide writes hidden
+  action hide
     hidden = true
-  action toggle writes showing
+  action toggle
     showing = !showing
   view
     box width=400 height="100%"
@@ -53,26 +43,26 @@ const APP: &str = r#"component App
       button testId="toggle" press=toggle
         text "toggle"
       box height="100%" position="absolute" top=0 display=(hidden ? "none" : "block") testId="ancestor"
-        when showing
-          box testId="panel" width=300 height=target position="absolute" bottom=0 max-height="100%" box-sizing="border-box" padding=8 border-width=2 border-style="solid" transition="height spring(300,30,1), translate spring(300,30,1)"
+        if showing
+          box testId="panel" width=300 height=target position="absolute" bottom=0 max-height="100%" box-sizing="border-box" padding=8 border-width=2 border-style="solid" transition="height -exact-spring(300,30,1), translate -exact-spring(300,30,1)"
             text "panel text"
       box testId="other" height=70 box-sizing="border-box"
       box testId="content" height=80
       image testId="image"
 "#;
-fn fixture() -> Host<Empty> {
+fn fixture() -> Host<()> {
     boot(APP, Box::new(MonospaceMeasurer::default()))
 }
-fn id(h: &Host<Empty>, name: &str) -> u32 {
+fn id(h: &Host<()>, name: &str) -> u32 {
     h.kernel()
         .node_by_key(h.kernel().find_by_test_id(name)[0])
         .unwrap()
         .id
 }
-fn height(h: &Host<Empty>, view: u32) -> f32 {
+fn height(h: &Host<()>, view: u32) -> f32 {
     h.kernel().node(view).unwrap().frame.height
 }
-fn press(h: &mut Host<Empty>, name: &str, now: f64) {
+fn press(h: &mut Host<()>, name: &str, now: f64) {
     assert!(h.dispatch_at(id(h, name), Event::Press, now).is_none());
 }
 
@@ -101,12 +91,12 @@ fn no_implicit_height_adoption_and_invalid_registration_is_atomic() {
 #[test]
 fn runner_refuses_multiple_roots_before_registration() {
     let mut plan = contract::compile("component App\n  view\n    box height=100 box-sizing=\"border-box\" testId=\"a\"\n      box height=100 box-sizing=\"border-box\"\n").unwrap();
-    plan.nodes[1].parent = None;
-    plan.nodes[1].order = 1;
+    plan.nodes.to_mut()[1].parent = None;
+    plan.nodes.to_mut()[1].order = 1;
     assert!(matches!(
         Host::boot(
             &plan.encode(),
-            Empty,
+            (),
             Box::new(MonospaceMeasurer::default()),
             400.,
             300.
@@ -309,7 +299,7 @@ fn translate_only_frames_do_not_relayout_or_remeasure() {
 #[test]
 fn zero_target_negative_release_clamps_layout_without_changing_the_curve() {
     let mut h = boot(
-        "component App\n  view\n    box width=400 height=300\n      box testId=\"panel\" position=\"absolute\" bottom=0 width=300 height=0 box-sizing=\"border-box\" transition=\"height spring(300,30,1)\"\n",
+        "component App\n  view\n    box width=400 height=300\n      box testId=\"panel\" position=\"absolute\" bottom=0 width=300 height=0 box-sizing=\"border-box\" transition=\"height -exact-spring(300,30,1)\"\n",
         Box::new(MonospaceMeasurer::default()),
     );
     let panel = id(&h, "panel");
@@ -366,7 +356,7 @@ fn zero_target_negative_release_clamps_layout_without_changing_the_curve() {
 #[test]
 fn negative_release_lobe_clamps_only_height_presentation() {
     let mut h = boot(
-        "component App\n  view\n    box width=400 height=300\n      box testId=\"panel\" width=300 height=20 box-sizing=\"border-box\" transition=\"height spring(180,12,1)\"\n",
+        "component App\n  view\n    box width=400 height=300\n      box testId=\"panel\" width=300 height=20 box-sizing=\"border-box\" transition=\"height -exact-spring(180,12,1)\"\n",
         Box::new(MonospaceMeasurer::default()),
     );
     let panel = id(&h, "panel");
@@ -418,9 +408,9 @@ fn inactive_retained_route_retires_hold_then_readopts_generation_on_return() {
     let mut h = boot(
         r#"component App
   state selected = "panel"
-  action away writes selected
+  action away
     selected = "away"
-  action back writes selected
+  action back
     selected = "panel"
   view
     main width=400 height=300 navigationKey=selected navigationBack="back"
@@ -461,13 +451,13 @@ fn overdue_height_timer_retargets_held_layout_without_rewinding_engine() {
     let mut h = boot(
         r#"component App
   state target = 180
-  action step writes target
+  action step
     target = target + 10
   task ticker mount
     every(100, step)
   view
     box width=400 height=300
-      box height=target box-sizing="border-box" transition="height spring(300,30,1)" testId="panel"
+      box height=target box-sizing="border-box" transition="height -exact-spring(300,30,1)" testId="panel"
 "#,
         Box::new(MonospaceMeasurer::default()),
     );
@@ -495,7 +485,7 @@ fn overdue_height_timer_retargets_held_layout_without_rewinding_engine() {
 #[test]
 fn negative_spring_height_catch_uses_padding_border_and_minimum_constraints() {
     for (minimum, expected) in [(0, 24.), (50, 50.)] {
-        let source = format!("component App\n  view\n    box width=400 height=300\n      box testId=\"panel\" height=20 min-height={minimum} padding=10 border-width=2 border-style=\"solid\" box-sizing=\"border-box\" transition=\"height spring(180,12,1)\"\n");
+        let source = format!("component App\n  view\n    box width=400 height=300\n      box testId=\"panel\" height=20 min-height={minimum} padding=10 border-width=2 border-style=\"solid\" box-sizing=\"border-box\" transition=\"height -exact-spring(180,12,1)\"\n");
         let mut h = boot(&source, Box::new(MonospaceMeasurer::default()));
         let panel = id(&h, "panel");
         h.set_height_owner(Some(panel)).unwrap();

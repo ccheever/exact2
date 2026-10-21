@@ -1,0 +1,5 @@
+4:14: tamber-residual: `color-mix(in srgb, -exact-label 50%, white)` over the host value `-exact-label` does not fold at build, and a device evaluates none until LLP 1095 D10's mixes are built
+5:15: tamber-residual: `light-dark()` with the host value `-exact-label` as a side has no form in the kernel until LLP 1095 D10
+6:19: tamber-residual: `contrast-color(Canvas)` over the host value `Canvas` does not fold at build, and a device evaluates none until LLP 1095 D10's mixes are built
+7:19: tamber-residual: `oklch(from AccentColor l c h)` over the host value `AccentColor` does not fold at build, and a device evaluates none until LLP 1095 D10's mixes are built
+8:18: tamber-residual: `color-mix(in srgb, -exact-platform-color(ios systemTealColor, #30b0c7), white)` over the host value `-exact-platform-color(ios systemTealColor, #30b0c7ff)` does not fold at build, and a device evaluates none until LLP 1095 D10's mixes are built

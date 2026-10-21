@@ -314,6 +314,7 @@ impl super::Device {
             format: desc.format,
             copy_size: desc.copy_extent(),
             identity,
+            surface_image: false,
         }
     }
 
@@ -667,6 +668,116 @@ impl super::Device {
         Ok(memory)
     }
 
+    /// EXACT (EXACT-PATCHES.md, 8). A texture over an `AHardwareBuffer`'s
+    /// memory: a render target another API (the platform's own renderer)
+    /// samples. One mip, one layer, a format the buffer was allocated with.
+    ///
+    /// # Safety
+    ///
+    /// - `buffer` is a live `AHardwareBuffer*` of `desc`'s size and format,
+    ///   allocated with the GPU usages `desc.usage` needs. Vulkan takes its
+    ///   own reference; the caller keeps (and releases) its own.
+    #[cfg(target_os = "android")]
+    pub unsafe fn texture_from_hardware_buffer(
+        &self,
+        buffer: *mut core::ffi::c_void,
+        desc: &crate::TextureDescriptor,
+    ) -> Result<super::Texture, crate::DeviceError> {
+        use ash::android::external_memory_android_hardware_buffer as ahb;
+        if !self.shared.enabled_extensions.contains(&ahb::NAME) {
+            log::error!(
+                "Vulkan driver does not support VK_ANDROID_external_memory_android_hardware_buffer"
+            );
+            return Err(crate::DeviceError::Unexpected);
+        }
+        let functions = ahb::Device::new(&self.shared.instance.raw, &self.shared.raw);
+        let mut properties = vk::AndroidHardwareBufferPropertiesANDROID::default();
+        unsafe { functions.get_android_hardware_buffer_properties(buffer.cast(), &mut properties) }
+            .map_err(super::map_host_device_oom_err)?;
+
+        let mut external = vk::ExternalMemoryImageCreateInfo::default()
+            .handle_types(vk::ExternalMemoryHandleTypeFlags::ANDROID_HARDWARE_BUFFER_ANDROID);
+        // Not `create_image_without_memory`: an image of this handle type
+        // has no memory requirements to ask for until it is bound.
+        // EXACT (EXACT-PATCHES.md, 8): compatible views of an imported buffer.
+        let view_formats: Vec<_> = desc
+            .view_formats
+            .iter()
+            .chain(core::iter::once(&desc.format))
+            .map(|f| self.shared.private_caps.map_texture_format(*f))
+            .collect();
+        let mut format_list = vk::ImageFormatListCreateInfo::default().view_formats(&view_formats);
+        let mut info = vk::ImageCreateInfo::default()
+            .flags(if desc.view_formats.is_empty() {
+                vk::ImageCreateFlags::empty()
+            } else {
+                vk::ImageCreateFlags::MUTABLE_FORMAT
+            })
+            .image_type(vk::ImageType::TYPE_2D)
+            .format(self.shared.private_caps.map_texture_format(desc.format))
+            .extent(conv::map_copy_extent(&desc.copy_extent()))
+            .mip_levels(1)
+            .array_layers(1)
+            .samples(vk::SampleCountFlags::TYPE_1)
+            .tiling(vk::ImageTiling::OPTIMAL)
+            .usage(conv::map_texture_usage(desc.usage))
+            .sharing_mode(vk::SharingMode::EXCLUSIVE)
+            .initial_layout(vk::ImageLayout::UNDEFINED)
+            .push_next(&mut external);
+        // Imported images need the same compatible-view declaration as owned images.
+        // https://docs.vulkan.org/spec/latest/chapters/memory.html#memory-external-android-hardware-buffer
+        if !desc.view_formats.is_empty() && self.shared.private_caps.image_format_list {
+            info = info.push_next(&mut format_list);
+        }
+        let image = unsafe { self.shared.raw.create_image(&info, None) }
+            .map_err(super::map_host_device_oom_and_ioca_err)?;
+
+        let memory = (|| {
+            let index = self
+                .find_memory_type_index(
+                    properties.memory_type_bits,
+                    vk::MemoryPropertyFlags::empty(),
+                )
+                .ok_or(crate::DeviceError::Unexpected)?;
+            let mut dedicated = vk::MemoryDedicatedAllocateInfo::default().image(image);
+            let mut import =
+                vk::ImportAndroidHardwareBufferInfoANDROID::default().buffer(buffer.cast());
+            let allocate = vk::MemoryAllocateInfo::default()
+                .allocation_size(properties.allocation_size)
+                .memory_type_index(index as _)
+                .push_next(&mut import)
+                .push_next(&mut dedicated);
+            let memory = unsafe { self.shared.raw.allocate_memory(&allocate, None) }
+                .map_err(super::map_host_device_oom_err)?;
+            unsafe { self.shared.raw.bind_image_memory(image, memory, 0) }.map_err(|e| {
+                unsafe { self.shared.raw.free_memory(memory, None) };
+                super::map_host_device_oom_err(e)
+            })?;
+            Ok(memory)
+        })();
+        match memory {
+            Ok(memory) => {
+                let mut texture = unsafe {
+                    self.texture_from_raw(
+                        image,
+                        desc,
+                        None,
+                        super::TextureMemory::Dedicated(memory),
+                    )
+                };
+                // Rendered into every frame, as a swapchain image is: its
+                // views and framebuffers are the device's (patch 6), until
+                // `destroy_texture`.
+                texture.surface_image = true;
+                Ok(texture)
+            }
+            Err(e) => {
+                unsafe { self.shared.raw.destroy_image(image, None) };
+                Err(e)
+            }
+        }
+    }
+
     fn create_shader_module_impl(
         &self,
         spv: &[u32],
@@ -777,11 +888,23 @@ impl super::Device {
                     crate::PipelineError::PipelineConstants(stage_flags, format!("{e}"))
                 })?;
 
-                let spv = {
+                let mut spv = {
                     profiling::scope!("naga::spv::write_vec");
                     naga::back::spv::write_vec(&module, &info, options, Some(&pipeline_options))
                 }
                 .map_err(|e| crate::PipelineError::Linkage(stage_flags, format!("{e}")))?;
+                // EXACT (EXACT-PATCHES.md, 11): Naga declares uniform 16-bit
+                // storage even for function-local f16. Never send an unsupported
+                // capability to Vulkan, nor erase one a uniform really needs.
+                if !options
+                    .capabilities
+                    .as_ref()
+                    .unwrap()
+                    .contains(&naga::back::spv::Capability::UniformAndStorageBuffer16BitAccess)
+                {
+                    super::f16::restrict_uniforms(&module, &mut spv)
+                        .map_err(|e| crate::PipelineError::Linkage(stage_flags, e.into()))?;
+                }
                 self.create_shader_module_impl(&spv, &None)?
             }
         };
@@ -1230,6 +1353,12 @@ impl crate::Device for super::Device {
     }
 
     unsafe fn destroy_texture(&self, texture: super::Texture) {
+        // EXACT (EXACT-PATCHES.md, 8): a hardware-buffer texture's cached
+        // views and framebuffers go with it (a swapchain's go with the
+        // swapchain; its images are not this device's memory).
+        if texture.surface_image && matches!(texture.memory, super::TextureMemory::Dedicated(_)) {
+            self.shared.forget_surface_images(&[texture.identity]);
+        }
         if texture.drop_guard.is_none() {
             unsafe { self.shared.raw.destroy_image(texture.raw, None) };
         }
@@ -1278,31 +1407,61 @@ impl crate::Device for super::Device {
             vk_info = vk_info.push_next(&mut image_view_info);
         }
 
-        let raw = unsafe { self.shared.raw.create_image_view(&vk_info, None) }
-            .map_err(super::map_host_device_oom_and_ioca_err)?;
-
-        if let Some(label) = desc.label {
-            unsafe { self.shared.set_object_name(raw, label) };
-        }
-
-        let identity = self.shared.texture_view_identity_factory.next();
+        let make = || -> Result<super::IdentifiedTextureView, crate::DeviceError> {
+            let raw = unsafe { self.shared.raw.create_image_view(&vk_info, None) }
+                .map_err(super::map_host_device_oom_and_ioca_err)?;
+            if let Some(label) = desc.label {
+                unsafe { self.shared.set_object_name(raw, label) };
+            }
+            let identity = self.shared.texture_view_identity_factory.next();
+            Ok(super::IdentifiedTextureView { raw, identity })
+        };
+        // EXACT (EXACT-PATCHES.md, 6): a swapchain image's view is the
+        // device's, made once for the image and description.
+        let view = if texture.surface_image {
+            let key = super::SurfaceViewKey {
+                texture_identity: texture.identity,
+                raw_format,
+                view_type: conv::map_view_dimension(desc.dimension),
+                aspect_mask: subresource_range.aspect_mask,
+                range: [
+                    subresource_range.base_mip_level,
+                    subresource_range.level_count,
+                    subresource_range.base_array_layer,
+                    subresource_range.layer_count,
+                ],
+                usage: u32::from(desc.usage.bits()),
+            };
+            match self.shared.surface_views.lock().entry(key) {
+                Entry::Occupied(e) => *e.get(),
+                Entry::Vacant(e) => *e.insert(make()?),
+            }
+        } else {
+            make()?
+        };
 
         self.counters.texture_views.add(1);
 
         Ok(super::TextureView {
             raw_texture: texture.raw,
-            raw,
+            raw: view.raw,
             _layers: layers,
             format: desc.format,
             raw_format,
             base_mip_level: desc.range.base_mip_level,
             dimension: desc.dimension,
             texture_identity: texture.identity,
-            view_identity: identity,
+            view_identity: view.identity,
+            cached: texture.surface_image,
         })
     }
     unsafe fn destroy_texture_view(&self, view: super::TextureView) {
-        unsafe { self.shared.raw.destroy_image_view(view.raw, None) };
+        // EXACT (EXACT-PATCHES.md, 6): the device destroys its own.
+        if !view.cached {
+            // EXACT (EXACT-PATCHES.md, 13).
+            self.shared.forget_view(view.view_identity);
+            unsafe { self.shared.raw.destroy_image_view(view.raw, None) };
+        }
 
         self.counters.texture_views.sub(1);
     }
@@ -2161,19 +2320,15 @@ impl crate::Device for super::Device {
                 .render_pass(raw_pass)
         }];
 
-        let pipeline_cache = desc
-            .cache
-            .map(|it| it.raw)
-            .unwrap_or(vk::PipelineCache::null());
-
         let mut raw_vec = {
             profiling::scope!("vkCreateGraphicsPipelines");
-            unsafe {
+            // EXACT (EXACT-PATCHES.md, 10): exclude snapshots during creation.
+            super::PipelineCache::with_creation(desc.cache, |pipeline_cache| unsafe {
                 self.shared
                     .raw
                     .create_graphics_pipelines(pipeline_cache, &vk_infos, None)
                     .map_err(|(_, e)| super::map_pipeline_err(e))
-            }?
+            })?
         };
 
         let raw = raw_vec.pop().unwrap();
@@ -2244,19 +2399,15 @@ impl crate::Device for super::Device {
                 .stage(compiled.create_info)
         }];
 
-        let pipeline_cache = desc
-            .cache
-            .map(|it| it.raw)
-            .unwrap_or(vk::PipelineCache::null());
-
         let mut raw_vec = {
             profiling::scope!("vkCreateComputePipelines");
-            unsafe {
+            // EXACT (EXACT-PATCHES.md, 10): exclude snapshots during creation.
+            super::PipelineCache::with_creation(desc.cache, |pipeline_cache| unsafe {
                 self.shared
                     .raw
                     .create_compute_pipelines(pipeline_cache, &vk_infos, None)
                     .map_err(|(_, e)| super::map_pipeline_err(e))
-            }?
+            })?
         };
 
         let raw = raw_vec.pop().unwrap();
@@ -2376,18 +2527,14 @@ impl crate::Device for super::Device {
                 .groups(&groups)
         }];
 
-        let pipeline_cache = desc
-            .cache
-            .map(|it| it.raw)
-            .unwrap_or(vk::PipelineCache::null());
-
         let fns = self
             .shared
             .extension_fns
             .ray_tracing_pipelines
             .as_ref()
             .unwrap();
-        let pipelines = unsafe {
+        // EXACT (EXACT-PATCHES.md, 10): exclude snapshots during creation.
+        let pipelines = super::PipelineCache::with_creation(desc.cache, |pipeline_cache| unsafe {
             fns.create_ray_tracing_pipelines(
                 vk::DeferredOperationKHR::null(),
                 pipeline_cache,
@@ -2395,7 +2542,7 @@ impl crate::Device for super::Device {
                 None,
             )
             .map_err(|(_, e)| super::map_pipeline_err(e))
-        }?;
+        })?;
 
         if let Some(raw_module) = compiled_ray_gen.temp_raw_module {
             unsafe { self.shared.raw.destroy_shader_module(raw_module, None) };
@@ -2463,13 +2610,19 @@ impl crate::Device for super::Device {
         let raw = unsafe { self.shared.raw.create_pipeline_cache(&info, None) }
             .map_err(super::map_host_device_oom_err)?;
 
-        Ok(super::PipelineCache { raw })
+        Ok(super::PipelineCache {
+            raw: RwLock::new(raw),
+        })
     }
     fn pipeline_cache_validation_key(&self) -> Option<[u8; 16]> {
         Some(self.shared.pipeline_cache_validation_key)
     }
     unsafe fn destroy_pipeline_cache(&self, cache: super::PipelineCache) {
-        unsafe { self.shared.raw.destroy_pipeline_cache(cache.raw, None) }
+        unsafe {
+            self.shared
+                .raw
+                .destroy_pipeline_cache(cache.raw.into_inner(), None)
+        }
     }
     unsafe fn create_query_set(
         &self,
@@ -2622,8 +2775,8 @@ impl crate::Device for super::Device {
     }
 
     unsafe fn pipeline_cache_get_data(&self, cache: &super::PipelineCache) -> Option<Vec<u8>> {
-        let data = unsafe { self.raw_device().get_pipeline_cache_data(cache.raw) };
-        data.ok()
+        // EXACT (EXACT-PATCHES.md, 10): hold through both size and data queries.
+        cache.with_data(|raw| unsafe { self.raw_device().get_pipeline_cache_data(raw) }.ok())
     }
 
     unsafe fn get_acceleration_structure_build_sizes<'a>(

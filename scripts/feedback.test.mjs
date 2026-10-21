@@ -1,0 +1,168 @@
+import { test } from 'bun:test';
+import assert from 'node:assert/strict';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { homedir, tmpdir } from 'node:os';
+import { resolve } from 'node:path';
+import { DETAILED, attachmentPreview, attachments, instructions, pending, redact, send, setStanding, standing, status, workarounds } from './feedback.mjs';
+import worker, { attachments as stored, needs, summary } from './feedback-worker.js';
+
+function app() {
+  const parent = mkdtempSync(resolve(tmpdir(), 'exact-feedback-'));
+  const dir = resolve(parent, 'field-log');
+  mkdirSync(resolve(dir, '.exact/diary'), { recursive: true });
+  writeFileSync(resolve(dir, 'app.json'), JSON.stringify({ name: 'Field Log', id: 'com.acme.fieldlog', app: { id: 'com.acme.fieldlog' } }));
+  process.env.EXACT_CONFIG_DIR = resolve(parent, 'config');
+  return { parent, dir };
+}
+
+test('the app, its paths and anything shaped like a credential are replaced before sending', () => {
+  const { parent, dir } = app();
+  try {
+    const text = redact(`Field Log (com.acme.fieldlog) failed in ${realpathSync(dir)}/web and ${homedir()}/x; field-log; field-logger; `
+      + 'token: abcdef123456 ghp_abcdefghijklmnopqrstuvwxyz AKIAABCDEFGHIJKLMNOP https://hooks.slack.com/services/T/B/x', dir);
+    assert.equal(text, '<app> (<app>) failed in <app>/web and ~/x; <app>; field-logger; token: [redacted] [redacted] [redacted] [redacted]');
+  } finally { rmSync(parent, { recursive: true, force: true }); }
+});
+
+test('send posts what is unsent once, marks it sent, and never sends for a project set to never', async () => {
+  const { parent, dir } = app();
+  try {
+    writeFileSync(resolve(dir, '.exact/diary/2026-10-04-a.md'), '### Rough\n- a slow build\n');
+    writeFileSync(resolve(dir, '.exact/commands.jsonl'), `${JSON.stringify({ at: 't', exact2: 'abc', verb: 'web', exit: 0, ms: 1200 })}\n`);
+    const posts = [];
+    const fetch = async (url, init) => (posts.push([url, JSON.parse(init.body)]), { ok: true, json: async () => ({ id: 'receipt-1' }) });
+    setStanding(dir, 'never');
+    assert.match(await send(dir, { yes: true, fetch }), /never/);
+    assert.equal(posts.length, 0);
+    setStanding(dir, 'ask');
+    assert.equal(standing(dir), 'ask');
+    assert.match(await send(dir, { yes: true, fetch }), /Receipt: receipt-1/);
+    assert.equal(posts.length, 1);
+    assert.equal(posts[0][1].exact2, 'abc');
+    assert.match(posts[0][1].text, /a slow build[^]*abc web exit=0 1\.2s/);
+    assert.ok(existsSync(resolve(dir, '.exact/diary/sent/2026-10-04-a.md')));
+    assert.deepEqual(JSON.parse(readFileSync(resolve(dir, '.exact/sent.json'), 'utf8')).receipts, ['receipt-1']);
+    assert.equal(pending(dir).text, '');
+    assert.equal(await send(dir, { yes: true, fetch }), 'Nothing unsent.');
+    // A failed post marks nothing sent.
+    writeFileSync(resolve(dir, '.exact/diary/2026-10-05-b.md'), 'b');
+    await assert.rejects(send(dir, { yes: true, fetch: async () => ({ ok: false, status: 500 }) }), /500; nothing was marked sent/);
+    assert.ok(existsSync(resolve(dir, '.exact/diary/2026-10-05-b.md')));
+  } finally { rmSync(parent, { recursive: true, force: true }); }
+});
+
+test('local keeps the diary and never sends; a * entry answers for projects without their own', async () => {
+  const { parent, dir } = app();
+  try {
+    writeFileSync(resolve(dir, '.exact/diary/2026-10-04-a.md'), '### Rough\n- a slow build\n');
+    mkdirSync(process.env.EXACT_CONFIG_DIR, { recursive: true });
+    writeFileSync(resolve(process.env.EXACT_CONFIG_DIR, 'feedback.json'), JSON.stringify({ '*': 'local' }));
+    assert.equal(standing(dir), 'local');
+    const posts = [];
+    const fetch = async (url, init) => (posts.push(url), { ok: true, json: async () => ({ id: 'r' }) });
+    assert.match(await send(dir, { yes: true, fetch }), /never sends/);
+    assert.equal(posts.length, 0);
+    assert.ok(existsSync(resolve(dir, '.exact/diary/2026-10-04-a.md')));
+    // The project's own answer wins over *, and `ask` undoes local even under *.
+    setStanding(dir, 'always');
+    assert.equal(standing(dir), 'always');
+    setStanding(dir, 'ask');
+    assert.equal(standing(dir), 'ask');
+    // A * entry never consents to sending.
+    writeFileSync(resolve(process.env.EXACT_CONFIG_DIR, 'feedback.json'), JSON.stringify({ '*': 'always' }));
+    assert.equal(standing(dir), 'ask');
+  } finally { rmSync(parent, { recursive: true, force: true }); }
+});
+
+test('status prints what to keep under ask, local and always, nothing more under never, and the detailed diary only when asked', () => {
+  const { parent, dir } = app();
+  try {
+    // Each answer says what it asks (the chess diary: `ask` read as undefined), first.
+    const ask = status(dir, {});
+    assert.ok(ask.startsWith('ask (keep the diary; ask once before sending): 0 unsent diaries, 0 unsent logged commands\n\n# The authoring diary\n\n## What to keep'), ask);
+    assert.match(ask, /### Needed[^]*## What not to write[^]*## Asking to share[^]*feedback send --yes/);
+    assert.doesNotMatch(ask, /detailed diary/);
+    // The instructions are docs/diary.md's from "What to keep" on, not its list of answers.
+    assert.doesNotMatch(ask, /skip everything below/);
+    assert.match(status(dir, { EXACT_DIARY: 'detailed' }), /^ask \(keep the diary; ask once before sending\): 0 unsent[^]*### Needed[^]*detailed diary[^]*date '\+%F %T'[^]*self-assessment/);
+    // docs/diary.md reads `never` in this output as the opt-out; the detailed instructions must not say it.
+    assert.doesNotMatch(DETAILED, /never/);
+    setStanding(dir, 'always');
+    assert.match(status(dir, {}), /^always \(keep the diary; send it at the end of each task, saying so\)[^]*## Asking to share/);
+    // `local` keeps the diary but never asks or sends, so it gets no "Asking to share".
+    setStanding(dir, 'local');
+    assert.match(status(dir, {}), /^local \(keep the diary; ask nothing, send nothing\)[^]*## What to keep[^]*## What not to write/);
+    assert.doesNotMatch(status(dir, {}), /Asking to share|feedback send/);
+    setStanding(dir, 'never');
+    assert.equal(status(dir, { EXACT_DIARY: 'detailed' }), 'never (keep no diary; never ask): 0 unsent diaries, 0 unsent logged commands');
+    assert.equal(instructions('never'), '');
+  } finally { rmSync(parent, { recursive: true, force: true }); }
+});
+
+test('the endpoint tells Slack counts from the diary, not its content', () => {
+  assert.deepEqual(summary('# a.md\n\n### Rough\n- one\n- two\n\n### Lean in\n- nice\n\n### Checkpoints\n- exact new: smooth\n- iOS build: rough (see Rough)\n\n# commands\n\nt abc web exit=0 1.0s\nt abc ios exit=1 9.0s\n'),
+    { diaries: 1, rough: 2, lean: 1, smooth: 1, roughSteps: 1, commands: 2, failed: 1, needs: [] });
+});
+
+test('Needed lines are counted per capability across diaries; anything else in the section is not', () => {
+  const a = '# a.md\n\n### Needed\n- Camera: by hand (~40 min; a Swift bridge)\n- notifications: missing (skipped)\n- haptics: provided\n- scan receipts with the camera\n\n### Checkpoints\n- camera: by hand\n';
+  const b = '# b.md\n\n### Needed\n- camera: by hand\n- share sheet: provided, rough (see Rough)\n';
+  assert.deepEqual(summary(a).needs, [['camera', 'by hand'], ['notifications', 'missing'], ['haptics', 'provided']]);
+  assert.deepEqual(needs([a, b, '# c.md\n\n### Needed\nnone\n']), [
+    { name: 'camera', provided: 0, 'by hand': 2, missing: 0 },
+    { name: 'notifications', provided: 0, 'by hand': 0, missing: 1 },
+    { name: 'haptics', provided: 1, 'by hand': 0, missing: 0 },
+    { name: 'share sheet', provided: 1, 'by hand': 0, missing: 0 },
+  ]);
+});
+
+test('the README goes beside the diary only with consent, its workarounds previewed first, once per text (LLP 1139.004 D5)', async () => {
+  const { parent, dir } = app();
+  try {
+    writeFileSync(resolve(dir, '.exact/diary/2026-10-19-a.md'), '### Rough\n- a slow proof\n');
+    // exact2-4's README (Fishslop rerun): two workarounds among ordinary prose, and the app's name.
+    writeFileSync(resolve(dir, 'README.md'), '# Field Log\n\nSwim and feed the fish.\n\nIf `bun exact.mjs web` fails after `prove`, delete the GPU crate\'s cached outputs.\n\n- If `prove` refuses a new model, `rm -rf assets` and rerun it.\n- Arrow keys steer.\n');
+    writeFileSync(resolve(dir, 'AGENTS.md'), '<!-- exact:begin (exact new writes this block; bun exact.mjs update rewrites it) -->\nRun anything; delete freely.\n<!-- exact:end -->\n');
+    const files = attachments(dir);
+    assert.deepEqual(files.map(f => [f.name, f.workarounds.length]), [['README.md', 2]], 'AGENTS.md with only the generated block is not offered');
+    assert.match(files[0].text, /^# <app>/);
+    assert.match(attachmentPreview(files), /^# Attachment: README\.md[^]*workarounds:\n\n> If `bun exact\.mjs web` fails[^]*> - If `prove` refuses[^]*## README\.md/);
+    assert.deepEqual(workarounds('Arrow keys steer.\n\nPress E to light.'), []);
+    // The collector answers with the attachment names it stored (feedback-worker.js).
+    const posts = [], fetch = async (url, init) => { const body = JSON.parse(init.body); posts.push(body); return { ok: true, json: async () => ({ id: `receipt-${posts.length}`, attachments: (body.attachments ?? []).map(a => a.name) }) }; };
+    // The diary's yes is not the README's: without --readme it stays home.
+    await send(dir, { yes: true, fetch });
+    assert.equal(posts[0].attachments, undefined);
+    writeFileSync(resolve(dir, '.exact/diary/2026-10-19-b.md'), 'b');
+    assert.match(await send(dir, { yes: true, readme: true, fetch }), /and README\.md\. Receipt: receipt-2/);
+    assert.deepEqual(posts[1].attachments.map(a => [a.name, a.workarounds.length]), [['README.md', 2]]);
+    assert.deepEqual(attachments(dir), [], 'sent once in this form');
+    // A README alone, with no diary or command to send, is still sendable with its consent.
+    writeFileSync(resolve(dir, 'README.md'), 'If the web build fails, delete target/ and rerun it.\n');
+    assert.equal(await send(dir, { yes: true, fetch }), 'Nothing unsent.', 'not without --readme');
+    assert.match(await send(dir, { yes: true, readme: true, fetch }), /0 diaries, 0 logged commands and README\.md\. Receipt: receipt-3/);
+    assert.equal(posts[2].text, '');
+    assert.equal(posts[2].attachments[0].workarounds.length, 1);
+    // A collector that keeps only the text (one older than attachments) answers 200 without the names: nothing is marked sent.
+    writeFileSync(resolve(dir, 'README.md'), 'Delete assets/ when a model is refused, then rerun.\n');
+    const old = async (url, init) => (posts.push(JSON.parse(init.body)), { ok: true, json: async () => ({ id: 'receipt-old' }) });
+    assert.match(await send(dir, { yes: true, readme: true, fetch: old }), /did not store README\.md[^]*stays unsent/);
+    assert.equal(attachments(dir).length, 1);
+    // local and never send nothing, README or not.
+    writeFileSync(resolve(dir, '.exact/diary/2026-10-19-c.md'), 'c');
+    writeFileSync(resolve(dir, 'README.md'), 'If it fails, rerun it.\n');
+    setStanding(dir, 'local');
+    assert.match(await send(dir, { yes: true, readme: true, fetch }), /never sends it/);
+    assert.equal(posts.length, 4);
+    // The collector keeps them under the diary's own key, and refuses anything else.
+    const kept = new Map(), env = { DIARIES: { put: async (k, v) => kept.set(k, v) } };
+    const request = body => worker.fetch(new Request('https://x/diary', { method: 'POST', body: JSON.stringify(body) }), env, { waitUntil() {} });
+    const answer = await request({ text: 't', attachments: posts[1].attachments });
+    assert.deepEqual([answer.status, (await answer.json()).attachments], [200, ['README.md']]);
+    assert.equal((await request({ text: '', attachments: posts[1].attachments })).status, 200, 'a README alone');
+    assert.equal((await request({ text: '' })).status, 400);
+    assert.deepEqual(JSON.parse([...kept.values()][0]).attachments, posts[1].attachments);
+    assert.equal((await request({ text: 't', attachments: [{ name: 'lib.rs', text: 'x', workarounds: [] }] })).status, 400);
+    assert.equal(stored(undefined).length, 0);
+  } finally { rmSync(parent, { recursive: true, force: true }); }
+});

@@ -37,7 +37,7 @@ fn the_shorthand_assigns_parts_as_css_does() {
     assert_eq!(Animations::parse("none").unwrap(), Animations::NONE);
     assert_eq!(Animations::parse("a 1s, b 2s").unwrap().0.len(), 2);
     assert!(Animations::parse("a 1s 2s 3s").is_err());
-    assert!(Animations::parse("a spring(100, 10, 1) 1s").is_err());
+    assert!(Animations::parse("a -exact-spring(100, 10, 1) 1s").is_err());
     assert!(Animations::parse("a -1s").is_err());
     assert!(Animations::parse("a b").is_err());
 }
@@ -69,7 +69,9 @@ fn keyframes_parse_merge_and_order() {
             (Property::R, Value::scalar(2.0))
         ]
     );
-    assert!(Keyframes::parse("from{color:red}").is_err());
+    assert!(Keyframes::parse("from{color:blurple}").is_err());
+    assert!(Keyframes::parse("from{color:hsl(0 100% 50%)}").is_ok());
+    assert!(Keyframes::parse("from{color:reddish}").is_err());
     assert!(Keyframes::parse("from{height:3px}").is_err());
     assert!(Keyframes::parse("120%{opacity:1}").is_err());
     assert_eq!(Keyframes::parse(&k.css()).unwrap(), k);

@@ -10,7 +10,11 @@ use exact_kernel::{Color, StyleProps};
 /// A gradient for one appearance: stops resolved, placement still the box's.
 pub(super) struct Captured {
     gradient: exact_kernel::gradient::Gradient,
-    stops: Vec<(f32, Color)>,
+    dark: bool,
+    /// Its wide stops' colours by value, which its stops are read through:
+    /// the retained paint holds no slot, and the ramp mixes the exact
+    /// colours (LLP 1121 stage 4).
+    values: exact_kernel::style::wide::Values,
 }
 
 /// What a backend fills: placement in the shape's coordinates, and the
@@ -20,29 +24,74 @@ pub(super) struct Captured {
 pub struct GradientPaint {
     /// Where stop 0 and stop 1 fall.
     pub geometry: Geometry,
+    /// Repeat the linear ramp’s one period.
+    pub repeat: bool,
     /// Positions and colours.
     pub stops: Vec<(f32, Color)>,
 }
 
 impl Captured {
-    pub(super) fn capture(style: &StyleProps, dark: bool) -> Option<Captured> {
-        let gradient = style.background_image.gradient()?.clone();
-        let stops = gradient.resolved(dark);
-        Some(Captured { gradient, stops })
+    /// The layers, the first on top (LLP 1077 D5).
+    pub(super) fn capture(style: &StyleProps, dark: bool) -> Vec<Captured> {
+        style
+            .background_image
+            .layers()
+            .iter()
+            .map(|gradient| Captured::new(gradient.clone(), dark))
+            .collect()
+    }
+
+    /// CSS `mask-image`'s gradient (LLP 1077 D2), placed in the border box.
+    pub(super) fn mask(style: &StyleProps, dark: bool) -> Option<Captured> {
+        let gradient = style.rare.mask_image.gradient()?.clone();
+        Some(Captured::new(gradient, dark))
+    }
+
+    fn new(gradient: exact_kernel::gradient::Gradient, dark: bool) -> Captured {
+        let values = exact_kernel::style::wide::Values::of(gradient.stops.iter().map(|s| s.color));
+        Captured {
+            gradient,
+            dark,
+            values,
+        }
     }
 
     /// The paint for a padding box. A radial gradient whose ending shape has
     /// no area is its last colour everywhere, as CSS draws it.
     pub(super) fn place(&self, padding: Rect4) -> Result<GradientPaint, [u8; 4]> {
         let (x, y, w, h) = padding;
-        let geometry = match self.gradient.geometry(w, h) {
+        let wide = |id| self.values.get(id);
+        let (mut ramp, mut geometry) = self.gradient.placed_with(w, h, self.dark, &wide);
+        let count = self.gradient.stops.len();
+        let repeat = self.gradient.repeating && ramp.stops.len() > count;
+        if repeat {
+            // Keep one period for the backends' native Repeat spread mode:
+            // Vello's finite ramp texture must sample a period, not the box.
+            ramp.stops.truncate(count);
+            let first = ramp.stops[0].at / 100.0;
+            let last = ramp.stops[count - 1].at / 100.0;
+            if let Geometry::Linear { start, end } = &mut geometry {
+                let d = (end.0 - start.0, end.1 - start.1);
+                *end = (start.0 + d.0 * last, start.1 + d.1 * last);
+                *start = (start.0 + d.0 * first, start.1 + d.1 * first);
+            }
+            for stop in &mut ramp.stops {
+                stop.at = (stop.at / 100.0 - first) / (last - first) * 100.0;
+            }
+        }
+        let stops = ramp.resolved_with(self.dark, &wide);
+        let geometry = match geometry {
             Geometry::Linear { start, end } => Geometry::Linear {
                 start: (start.0 + x, start.1 + y),
                 end: (end.0 + x, end.1 + y),
             },
+            Geometry::Conic { center, from } => Geometry::Conic {
+                center: (center.0 + x, center.1 + y),
+                from,
+            },
             Geometry::Radial { center, radii } => {
                 if radii.0 <= 0.0 || radii.1 <= 0.0 {
-                    let last = self.stops.last().map_or(Color::TRANSPARENT, |s| s.1);
+                    let last = stops.last().map_or(Color::TRANSPARENT, |s| s.1);
                     return Err(super::rgba(last));
                 }
                 Geometry::Radial {
@@ -53,15 +102,18 @@ impl Captured {
         };
         Ok(GradientPaint {
             geometry,
-            stops: self.stops.clone(),
+            repeat,
+            stops,
         })
     }
 }
 
-/// Fill `shape` with the gradient through a backend's two primitives.
+/// Fill `clip` with the gradient, placed in `outer`'s padding box, through
+/// a backend's two primitives.
 pub(super) fn paint(
     captured: &Captured,
     outer: &Shape,
+    clip: &Shape,
     widths: [f32; 4],
     backend: &mut dyn super::Backend,
     ts: tiny_skia::Transform,
@@ -77,7 +129,7 @@ pub(super) fn paint(
         (h - widths[0] - widths[2]).max(0.0),
     );
     match captured.place(padding) {
-        Ok(gradient) => backend.fill_gradient(outer, &gradient, ts),
-        Err(color) => backend.fill(outer, color, ts),
+        Ok(gradient) => backend.fill_gradient(clip, &gradient, ts),
+        Err(color) => backend.fill(clip, color, ts),
     }
 }

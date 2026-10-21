@@ -71,7 +71,7 @@ enum SvgGradientMask {
             }
             els = c
         }
-        guard els.count == 1, let e = els[0] as? [String: Any], let g = e["f"] as? [String: Any], g["pt"] == nil,
+        guard els.count == 1, let e = els[0] as? [String: Any], let g = SvgPaint.server(e["f"]), g["pt"] == nil,
               e["s"] == nil || e["s"] is NSNull, e["g"] == nil, e["tx"] == nil, e["tf"] == nil, e["inv"] == nil,
               e["cl"] == nil, e["mk"] == nil, e["fl"] == nil, e["pos"] == nil, e["po"] == nil, e["bl"] == nil, e["iso"] == nil,
               (e["a"] as? [Any] ?? []).isEmpty, (g["sp"] as? NSNumber)?.intValue ?? 0 == 0,

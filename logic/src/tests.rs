@@ -141,8 +141,42 @@ fn deferred_replacement_executes_only_after_activation_and_copies_store_effects(
         Answer::Now(Value::Number(42.))
     );
     assert_eq!(store.reads(), 1);
-    assert_eq!(store.take_writes()[0].value.as_deref(), Some("new"));
+    assert_eq!(store.take_writes()[0].value.as_deref(), Some(&b"new"[..]));
     assert_eq!(embedded.query("x", &[]).unwrap(), Value::Number(1.));
+}
+
+/// A candidate built from the source the binary compiled natively runs that
+/// native code; one built from other source is interpreted.
+#[test]
+fn a_candidate_of_the_native_source_runs_natively() {
+    let plan = plan();
+    let module = wasm("");
+    let stamped = |source: &str| {
+        let mut meta: serde_json::Value = serde_json::from_str(&receipt(&plan, &module)).unwrap();
+        meta["source"] = json!(source);
+        meta.to_string()
+    };
+    let installed = Swappable::wasm(Fixture).with_native("abc", || Fixture);
+    let mut same = installed
+        .replacement(&plan, &stamped("abc"), module.clone())
+        .unwrap();
+    assert!(same.embedded.is_some() && same.bytes.is_none());
+    assert_eq!(same.query("x", &[]).unwrap(), Value::Number(1.));
+    // It stays native-aware: a later candidate is judged the same way.
+    let changed = same
+        .replacement(&plan, &stamped("def"), module.clone())
+        .unwrap();
+    assert!(changed.embedded.is_none() && changed.bytes.is_some());
+    assert!(changed
+        .replacement(&plan, &stamped("abc"), module.clone())
+        .unwrap()
+        .embedded
+        .is_some());
+    // A binary that names no native source interprets every candidate.
+    let unnamed = Swappable::wasm(Fixture)
+        .replacement(&plan, &stamped("abc"), module)
+        .unwrap();
+    assert!(unnamed.embedded.is_none());
 }
 
 #[test]
@@ -204,4 +238,33 @@ fn wasm_fuel_memory_imports_and_export_bounds_are_enforced() {
     let excessive = wasm("i32.const 0 global.set $out i32.const 0 global.set $len");
     let mut executor = crate::wasm::load(&excessive).unwrap();
     assert!(executor.call(&vec![0; abi::MAX_MESSAGE + 1]).is_err());
+}
+
+// @ref LLP 1029.000 — work in proportion to the input passes the flat base: 100
+// loop turns a byte over 60,000 bytes is past 20 million fuel, within the
+// per-byte allowance.
+#[test]
+fn wasm_fuel_grows_with_the_input_it_is_handed() {
+    let turns = "local.get 2 i32.const 100 i32.mul global.set $len \
+        (loop $l global.get $len i32.const 1 i32.sub global.set $len global.get $len br_if $l)";
+    let mut input = vec![0; 60_000];
+    input[4] = 9;
+    let mut executor = crate::wasm::load(&wasm(turns)).unwrap();
+    assert!(executor.call(&input).is_ok(), "{:?}", executor.call(&input));
+    assert!(crate::wasm::budget(input.len()) > 20_000_000);
+}
+
+// @ref LLP 1029.000 — the same input's loop with no bound still stops, at the
+// fuel that input bought. A test of its own, so it runs beside the one above:
+// each spends tens of millions of fuel.
+#[test]
+fn wasm_fuel_stops_a_runaway_loop_at_the_inputs_budget() {
+    let mut input = vec![0; 60_000];
+    input[4] = 9;
+    let mut runaway = crate::wasm::load(&wasm("(loop $forever br $forever)")).unwrap();
+    let refused = runaway.call(&input).unwrap_err();
+    assert!(
+        refused.contains("fuel") && refused.contains("60000 input bytes"),
+        "{refused}"
+    );
 }

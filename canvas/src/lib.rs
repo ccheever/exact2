@@ -5,18 +5,20 @@
 //!
 //! - [`context`]: the recorder, [`Context2d`], with web-sys's method names.
 //! - [`list`]: the bytes every host replays, and the structural check.
-//! - [`color`]: CSS Color 4's sRGB forms and the canvas serialisation.
+//! - [`color`]: CSS Color 4 and the canvas serialisation — exact-motion's
+//!   parser, the one every colour row reads with.
 //! - [`geom`]: the author matrix and f64 arc, `arcTo` and `roundRect`
 //!   geometry, resolved at the call.
 //! - [`seam`]: the TypeScript recorder's reply (`canvas/recorder.js`).
 //!
-//! A leaf: it depends on nothing, so the runner and every host can reach it.
+//! It depends on nothing above exact-motion, so the runner and every host
+//! can reach it.
 //! An app's artifact carries it only if its data module draws.
 
 #![forbid(unsafe_code)]
 #![deny(missing_docs)]
 
-pub mod color;
+pub use exact_motion::color::css as color;
 pub mod context;
 pub mod font;
 pub mod geom;
@@ -26,8 +28,8 @@ pub mod seam;
 
 pub use color::Rgba;
 pub use context::{
-    images_in, CanvasGradient, CanvasPattern, CanvasWindingRule, Context2d, DomException,
-    DomMatrix, Env, ImageData, ImageSlot, ImageTable, Images, Style,
+    images_in, CanvasGradient, CanvasPattern, CanvasWindingRule, ColorSpace, Context2d,
+    DomException, DomMatrix, Env, ImageData, ImageSlot, ImageTable, Images, Style,
 };
 pub use font::{Font, RawMetrics, TextEngine, TextMetrics, TextRun};
 pub use geom::{Matrix, Radius};
@@ -90,8 +92,11 @@ impl Causes {
     pub const IMAGE: Causes = Causes(16);
     /// A font it used became available (stage 2).
     pub const FONT: Causes = Causes(32);
+    /// The colour or direction it draws in changed (`currentColor`,
+    /// `direction = "inherit"`): its node's, or the scheme's it resolves in.
+    pub const STYLE: Causes = Causes(64);
 
-    const NAMES: [&'static str; 6] = ["mount", "args", "size", "frame", "image", "font"];
+    const NAMES: [&'static str; 7] = ["mount", "args", "size", "frame", "image", "font", "style"];
 
     /// Whether `other`'s causes are all present.
     pub fn has(self, other: Causes) -> bool {
@@ -108,17 +113,17 @@ impl Causes {
         self.0 == 0
     }
 
-    /// `frame.cause`: the first of mount, args, size, frame, image, font
-    /// present.
+    /// `frame.cause`: the first of mount, args, size, frame, image, font,
+    /// style present.
     pub fn primary(self) -> &'static str {
-        (0..6)
+        (0..7)
             .find(|i| self.0 & (1 << i) != 0)
             .map_or("frame", |i| Self::NAMES[i])
     }
 
     /// Every cause present, by name.
     pub fn names(self) -> Vec<&'static str> {
-        (0..6)
+        (0..7)
             .filter(|i| self.0 & (1 << i) != 0)
             .map(|i| Self::NAMES[i])
             .collect()

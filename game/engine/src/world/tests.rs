@@ -1,6 +1,61 @@
 use super::*;
 
 #[test]
+fn named_index_preserves_duplicates_recycling_and_restored_state() {
+    let mut w = World::new(60, 7);
+    let names = ["", "part", "part-tail", "part", "λ", "part#2"];
+    let mut live: Vec<_> = (0..1024)
+        .map(|i| w.spawn_named(names[i % names.len()], ()))
+        .collect();
+    let check = |w: &World| {
+        let saved = w.save();
+        let hash = w.hash();
+        for name in names.into_iter().chain(["absent", "part-tail-extra"]) {
+            let expected = w.entities().find(|&e| w.name(e) == Some(name));
+            assert_eq!(w.named(name), expected);
+        }
+        assert_eq!(w.save(), saved);
+        assert_eq!(w.hash(), hash);
+    };
+    check(&w);
+    let saved = w.save();
+    for round in 0..128 {
+        let slot = round * 7 % live.len();
+        let old = live[slot];
+        assert!(w.despawn(old));
+        check(&w);
+        let new = w.spawn_named(names[(round + 2) % names.len()], ());
+        assert_eq!(old.index(), new.index());
+        assert_ne!(old.generation(), new.generation());
+        live[slot] = new;
+        check(&w);
+    }
+    w.load(&saved).unwrap();
+    check(&w);
+}
+
+#[test]
+fn named_index_checks_full_names_within_a_hash_collision() {
+    let mut w = World::new(60, 0);
+    let other = w.spawn_named("other", ());
+    let first = w.spawn_named("target", ());
+    let second = w.spawn_named("target", ());
+    // Force unrelated text into the same bucket without relying on a naturally
+    // occurring 64-bit collision. The smallest matching slot must still win.
+    let key = name_key("target");
+    *w.names.borrow_mut() = Some(vec![
+        (key, other.index()),
+        (key, first.index()),
+        (key, second.index()),
+    ]);
+    assert_eq!(w.named("target"), Some(first));
+    w.despawn(first);
+    assert_eq!(w.named("target"), Some(second));
+    w.despawn(second);
+    assert_eq!(w.named("target"), None);
+}
+
+#[test]
 fn fresh_membership_tracks_first_poses_recycling_and_tick_boundaries() {
     let mut w = World::new(60, 0);
     let a = w.spawn(());
@@ -119,10 +174,8 @@ fn loading_moves_asset_ownership_only_after_all_validation_succeeds() {
     world.assets.redelivery.insert("pending.model".into());
     world
         .assets
-        .dependencies
-        .insert("ready.model".into(), vec!["ready.tex".into()]);
+        .set_dependencies("ready.model", vec!["ready.tex".into()]);
     world.assets.retired.push("retired.model".into());
-    world.assets.refusal = Some(("refused.model".into(), "reason".into()));
     let saved = world.save();
     let names: Vec<_> = world.assets.states.keys().map(|n| n.as_ptr()).collect();
     let check = |world: &World| {
@@ -146,7 +199,6 @@ fn loading_moves_asset_ownership_only_after_all_validation_succeeds() {
             &["ready.tex"]
         );
         assert_eq!(world.assets.retired, ["retired.model"]);
-        assert_eq!(world.assets.refusal.as_ref().unwrap().1, "reason");
     };
     let mut trailing = saved.clone();
     trailing.push(0);
@@ -258,16 +310,23 @@ fn hierarchy_and_fresh_tick() {
 
 #[test]
 fn save_entity_limit_is_checked_before_reserving_slots() {
+    // A columnar entity table: no index runs or names, one empty shape, and a row
+    // count past the limit, which must refuse before any slot is reserved.
+    let mut table = vec![0, 0, 1, 0];
+    let mut n = crate::data::MAX_LOAD_ENTITIES as u64 + 1;
+    while n >= 128 {
+        table.push(n as u8 | 128);
+        n >>= 7;
+    }
+    table.push(n as u8);
     let mut out = bin::Encoder::default();
     out.begin_struct();
     out.field("state");
     out.begin_struct();
     out.field("slots");
-    out.begin_seq(crate::data::MAX_LOAD_ENTITIES + 1);
+    out.bytes(crate::data::Bulk::U8(&table));
     let mut bytes = MAGIC.to_vec();
     bytes.extend(out.finish());
-    // Enough input to satisfy the codec's minimum byte count, without constructing entities.
-    bytes.resize(bytes.len() + crate::data::MAX_LOAD_ENTITIES + 1, 0);
     let mut w = World::new(60, 0);
     let before = w.save();
     let err = w.load(&bytes).unwrap_err().to_string();
@@ -315,6 +374,97 @@ fn singleton_load_claims_inline_allocation_before_factory() {
             assert!(MADE.load(Ordering::SeqCst));
             assert_eq!(source.save(), target.save());
             assert_eq!(source.hash(), target.hash());
+        }
+    }
+}
+
+// The paged hash must equal a from-scratch hash after every kind of write, and a
+// seek's observation must see every change a full read would.
+#[test]
+fn paged_hash_and_observation_follow_every_write_path() {
+    #[derive(Default, Clone, Data)]
+    struct Score(u32);
+    impl Resource for Score {
+        const NAME: &'static str = "Score";
+    }
+    #[derive(Default, Clone, Data)]
+    struct Tag(String);
+    impl Component for Tag {
+        const NAME: &'static str = "Tag";
+    }
+    let fresh_hash = |w: &World| {
+        let mut scratch = w.registered_scratch();
+        scratch.load(&w.save()).unwrap();
+        scratch.hash()
+    };
+    let mut w = World::new(60, 4);
+    w.insert_resource(Score(0));
+    let mut live = vec![];
+    for i in 0..1_500 {
+        live.push(w.spawn((Transform::at(i as f32, 0., 0.), Tag(format!("t{}", i % 3)))));
+    }
+    let mut seed = 0x9e37_79b9_7f4a_7c15u64;
+    let mut next = move |n: u64| {
+        seed ^= seed << 13;
+        seed ^= seed >> 7;
+        seed ^= seed << 17;
+        seed % n
+    };
+    let mut before = Observation::default();
+    let mut after = Observation::default();
+    for round in 0..400 {
+        w.observe(&mut before);
+        let pick = live[next(live.len() as u64) as usize];
+        let op = next(10);
+        match op {
+            0 => w.get_mut::<Transform>(pick).unwrap().position.y += 1.0,
+            1 => {
+                for (_, t) in w.query::<&mut Transform>().iter().take(3) {
+                    t.scale.x += 0.5;
+                }
+            }
+            2 => {
+                for mut tag in w.query::<&mut Tag>().into_iter().skip(700).take(2) {
+                    tag.0.push('!');
+                }
+            }
+            3 => {
+                w.despawn(pick);
+                live.retain(|e| *e != pick);
+                live.push(w.spawn(Tag("new".into())));
+            }
+            4 => {
+                w.insert(pick, crate::Ambient);
+            }
+            5 => {
+                w.remove::<Tag>(pick);
+            }
+            6 => w.resource_mut::<Score>().0 += 1,
+            7 => {
+                w.rng().next_u32();
+            }
+            8 => {
+                let _ = w.get_mut::<Tag>(pick);
+            }
+            _ => w.teleport(pick, Transform::at(-1., -2., -3.)),
+        }
+        w.propagate();
+        assert_eq!(w.hash(), fresh_hash(&w), "round {round} op {op}");
+        w.observe(&mut after);
+        w.compare(&before, &after);
+        let observed = !w.has::<crate::Ambient>(pick);
+        if op == 6 || op == 7 || (op == 0 && observed) {
+            assert!(
+                w.observation == ObservationState::Changing,
+                "round {round} op {op}"
+            );
+        }
+        if op == 8 {
+            assert!(
+                w.observation == ObservationState::Still,
+                "round {round}: {:?}",
+                w.changing
+            );
         }
     }
 }

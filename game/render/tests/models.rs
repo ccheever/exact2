@@ -45,19 +45,18 @@ impl Game for ModelGame {
         ));
         w.insert_resource(Environment {
             fog: None,
-            background: Some([0.055, 0.065, 0.085]),
+            background: Some([0.055, 0.065, 0.085].into()),
             ..Default::default()
         });
     }
     fn tick(_: &mut World, _: &Input, _: &()) {}
 }
 fn draw(gpu: &exact_gpu::Gpu, model: &Model, name: &str) -> fixture::Pixels {
-    let mut surface =
-        WorldSurface::<ModelGame, exact_game_render::ModelPresentation, true>::default();
+    let mut surface = WorldSurface::<ModelGame, exact_game_render::ModelExecutor, true>::default();
     surface.device_ready(exact_gpu::wgpu::Features::empty());
     surface.bind(&[], None).unwrap();
     assert_eq!(surface.assets().requests, ["sample.model"]);
-    surface.asset("sample.model", Ok(&bin::to_vec(model)));
+    surface.asset("sample.model", Ok(&exact_game::asset::encode_model(model)));
     surface.prepare_assets(
         &gpu.device,
         &gpu.queue,
@@ -84,6 +83,7 @@ fn draw(gpu: &exact_gpu::Gpu, model: &Model, name: &str) -> fixture::Pixels {
         period_ms: 0.0,
         children_generation: 0,
         shader_generation: 0,
+        headroom: 1.0,
     };
     let (pixels, _) = fixture::render(gpu, &mut surface, &frame).unwrap();
     assert!(surface.error().is_none(), "{:?}", surface.error());

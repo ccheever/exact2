@@ -1,25 +1,35 @@
-//! Text: cosmic-text, one engine for measuring and painting — the lesson of
+//! Text: Parley, one engine for measuring and painting — the lesson of
 //! LLP 1008 §3 (measure with one engine, paint with another, and every
-//! difference is a bug), in Rust this time.
+//! difference is a bug), in Rust this time (LLP 1085.000: Parley in place
+//! of cosmic-text; fontique finds the faces, swash rasterizes them).
 //!
 //! @ref LLP 1015 §3; LLP 1001 §6 (a per-kernel injected measurer)
 //!
 //! A [`Paragraph`] is a width-specific snapshot sharing an immutable full
-//! cosmic-text shape and its font catalog. Layout vectors and CSS baselines
-//! are immutable and may be shared by distinct exact-request wrappers. It is
-//! cached by (spec, width); the measurer answers
+//! Parley shape and its font catalog. Line and glyph vectors and CSS
+//! baselines are immutable and may be shared by distinct exact-request
+//! wrappers. It is cached by (spec, width); the measurer answers
 //! from it and the painter paints from it, so what was measured is what is
 //! painted, by construction. `line-height: normal` is the font's ascent +
 //! descent + line gap (the browser's); a set line height centers the glyphs
-//! in the box, which cosmic-text does itself. Glyphs are rasterized by swash
-//! once per (glyph, color) into small premultiplied pixmaps.
+//! in the box. Glyphs are rasterized by swash once per (glyph, color) into
+//! small premultiplied pixmaps.
 
-mod cache;
+#[cfg(test)]
+mod background_tests;
+pub(crate) mod backgrounds;
+pub(crate) mod cache;
 mod catalog;
 mod catalog_recipe;
+pub(crate) mod decorations;
+mod fallback;
+pub(crate) mod field;
 mod flow;
 #[cfg(test)]
 mod flow_tests;
+mod font_cache;
+mod fonts;
+mod lines;
 mod shaping;
 #[allow(dead_code)] // Private transfer proof; controller integration is a separate increment.
 pub(crate) mod transfer;
@@ -27,14 +37,14 @@ pub(crate) mod transfer;
 mod transfer_tests;
 use shaping::ShapedSource;
 mod ink;
+pub(crate) mod markup;
 pub use cache::{HandoffResidency, Residency, RetiringResidency};
+pub(crate) use catalog::scaler_id;
+pub use catalog::FaceId;
+pub use lines::{Face, LayoutGlyph, LayoutLine, Lines};
+pub use shaping::LayoutRun;
 
 use crate::image::Assets;
-use cosmic_text::{
-    fontdb, Align, Attrs, Buffer, CacheKey, CacheKeyFlags, Ellipsize, EllipsizeHeightLimit, Family,
-    FontSystem, LayoutGlyph, Metrics, PenikoFont, Shaping, Style, SwashCache, SwashContent, Weight,
-    Wrap,
-};
 use exact_kernel::{
     AxisOffer, ParagraphStamp, TextAlign, TextMeasureRequest, TextMeasurer, TextMetrics,
 };
@@ -64,14 +74,31 @@ pub struct Run {
     pub family: u16,
     /// Italic.
     pub italic: bool,
+    /// CSS `font-stretch`, percent of normal width (LLP 1019 D8).
+    pub stretch: f32,
+    /// CSS `font-variation-settings` (LLP 1019 D9).
+    pub variations: exact_kernel::style::FontVariations,
     /// Resolved logical length, or normal font metrics.
     pub line_height: Option<f32>,
     /// Points per glyph.
     pub letter_spacing: f32,
     /// CSS `font-variant-numeric` bits (LLP 1053 G4): 1 is `tabular-nums`.
     pub font_variant_numeric: u8,
-    /// Atomic inline margin-box metrics, with no glyph ink.
+    /// Atomic inline margin-box metrics.
     pub inline_box: Option<exact_kernel::InlineBox>,
+    /// A Markdown list item's head indent, points: where its paragraph's
+    /// lines start (LLP 1045 D4).
+    pub indent: f32,
+    /// A Markdown list item's marker, hung before the indent.
+    pub hang: bool,
+    /// A Markdown piece's paint ([`markup::QUIET`], `UNDERLINE`, `STRIKE`);
+    /// 0 for every other run.
+    pub mark: u8,
+    /// A Markdown link's target ([`markup::target`]); empty otherwise.
+    pub href: String,
+    /// Bold Text weights this run (`TextStyle::bold_text`, LLP 1115.000
+    /// D12.3): a Markdown piece's own weight takes the step too.
+    pub bold_text: bool,
 }
 
 #[cfg(test)]
@@ -84,16 +111,23 @@ impl Clone for Run {
             weight: self.weight,
             family: self.family,
             italic: self.italic,
+            stretch: self.stretch,
+            variations: self.variations,
             line_height: self.line_height,
             letter_spacing: self.letter_spacing,
             font_variant_numeric: self.font_variant_numeric,
             inline_box: self.inline_box,
+            indent: self.indent,
+            hang: self.hang,
+            mark: self.mark,
+            href: self.href.clone(),
+            bold_text: self.bold_text,
         }
     }
 }
 
 impl Run {
-    /// The kernel's complete run, including an optional atomic box.
+    /// The kernel's complete run, including an atomic box.
     pub fn from_run(run: &exact_kernel::TextRun<'_>) -> Self {
         let mut value = Self::from_style(&run.text, run.style);
         value.inline_box = run.inline_box;
@@ -109,10 +143,17 @@ impl Run {
             weight: style.font_weight,
             family: style.font_family,
             italic: style.font_style != exact_kernel::FontStyle::Normal,
+            stretch: style.font_stretch,
+            variations: style.font_variations,
             line_height: style.line_height,
             letter_spacing: style.letter_spacing,
             font_variant_numeric: style.font_variant_numeric,
             inline_box: None,
+            indent: 0.0,
+            hang: false,
+            mark: 0,
+            href: String::new(),
+            bold_text: style.bold_text,
         }
     }
 }
@@ -132,12 +173,21 @@ pub struct Spec {
     pub overflow_wrap: exact_kernel::OverflowWrap,
     /// CSS whitespace processing mode.
     pub white_space: exact_kernel::WhiteSpace,
+    /// CSS `text-wrap-style`; `balance` balances the lines before the first
+    /// forced break (`shaping::ShapedSource::balanced`).
+    pub text_wrap_style: exact_kernel::TextWrapStyle,
     /// CSS paragraph base direction.
     pub direction: exact_kernel::Direction,
+    /// CSS `text-indent`, points: the first line's inset from its start edge.
+    pub text_indent: f32,
+    /// CSS `text-box-trim` and `text-box-edge` (Inline Layout 3 §4).
+    pub text_box_trim: exact_kernel::TextBoxTrim,
+    /// The edges a trim cuts to.
+    pub text_box_edge: exact_kernel::TextBoxEdge,
 }
 
 impl Spec {
-    /// CSS white space collapsing, before shaping (LLP 1053 G5): cosmic-text
+    /// CSS white space collapsing, before shaping (LLP 1053 G5): the shaper
     /// shapes what it is given, the browser collapses first. Collapsed runs are
     /// the spec's identity, so equal renderings share one shape.
     pub fn collapse_white_space(mut self) -> Self {
@@ -150,18 +200,49 @@ impl Spec {
         self
     }
 
+    /// The runs as the paragraph shows them: Markdown expanded ([`Self::markdown`]),
+    /// anything else collapsed ([`Self::collapse_white_space`]).
+    pub fn shown(self, markdown: bool) -> Self {
+        if markdown {
+            self.markdown()
+        } else {
+            self.collapse_white_space()
+        }
+    }
+
+    /// A `markup="markdown"` paragraph's: its one run of source expanded
+    /// into pieces (LLP 1045 D3), which keep their own lines — the source
+    /// is never collapsed, as on Apple.
+    pub fn markdown(mut self) -> Self {
+        if let [source] = self.runs.as_slice() {
+            self.runs = markup::expand(source);
+        }
+        self
+    }
+
     /// The spec a kernel measure request describes.
     pub fn from_request(request: &TextMeasureRequest<'_>) -> Spec {
-        Spec {
+        // A soft hyphen breaks and shows here as on every host; `auto`'s own
+        // hyphenation points need a language's patterns, which this pure-Rust
+        // host does not carry (LLP 1001).
+        static AUTO: std::sync::Once = std::sync::Once::new();
+        if request.paragraph.hyphens == exact_kernel::Hyphens::Auto {
+            AUTO.call_once(|| eprintln!("[Text] hyphens-auto: Linux has no hyphenation dictionary; `hyphens: auto` breaks only at soft hyphens, as `manual` (LLP 1001)"));
+        }
+        let spec = Spec {
             strut: Run::from_style("", request.paragraph.strut),
             runs: request.runs.iter().map(Run::from_run).collect(),
             align: request.paragraph.text_align,
             line_clamp: request.paragraph.line_clamp,
             overflow_wrap: request.paragraph.overflow_wrap,
             white_space: request.paragraph.white_space,
+            text_wrap_style: request.paragraph.text_wrap_style,
             direction: request.paragraph.direction,
-        }
-        .collapse_white_space()
+            text_indent: request.paragraph.text_indent,
+            text_box_trim: request.paragraph.text_box_trim,
+            text_box_edge: request.paragraph.text_box_edge,
+        };
+        spec.shown(request.paragraph.markup == exact_kernel::Markup::Markdown)
     }
 
     /// Whether there is nothing to shape.
@@ -175,7 +256,17 @@ impl Spec {
 pub struct Paragraph {
     /// Width-independent canonical text, shape and catalog.
     source: Rc<ShapedSource>,
-    layouts: Arc<Vec<Vec<cosmic_text::LayoutLine>>>,
+    /// This width's lines and glyphs. A width only measured keeps none (the
+    /// storage spike's arrangement (c)): the first paint breaks the shared
+    /// shape at `remake` again and keeps them (b).
+    record: std::cell::OnceCell<Arc<Lines>>,
+    /// The lines its measure broke, held until this frame's paint takes
+    /// them for `record` ([`TextEngine::finish_text_frame`] drops any left),
+    /// so a width measured and painted in one frame is broken once.
+    measured: RefCell<Option<Arc<Lines>>>,
+    /// The width to break again for `record`; `None` when it is always kept
+    /// (flowed, clamped, ellipsized and adopted widths).
+    remake: Option<Option<f32>>,
     flow: Option<flow::FlowLayout>,
     #[cfg(test)]
     layout_lifetime: Arc<()>,
@@ -187,10 +278,12 @@ pub struct Paragraph {
     pub first_baseline: f32,
     /// CSS shared-baseline placement for each wrapped line, used by both painters.
     baselines: Arc<Vec<f32>>,
+    /// Each wrapped line box's bottom (LLP 1093 D6): where a column may end.
+    bottoms: Arc<Vec<f32>>,
     ink: RefCell<ink::Cache>,
     ellipsized: RefCell<Option<(f32, Rc<Paragraph>)>>,
-    // S + L, excluding canonical key K. Shared S must be deduplicated across
-    // snapshots; lazy ink is read separately below.
+    // S + width scalars, excluding canonical key K. Shared S must be
+    // deduplicated across snapshots; lazy lines and ink are read separately.
     resident_capacity_bytes: usize,
     // Moved source String capacities are included above; no length estimate.
     private_text_bytes_estimate: usize,
@@ -208,18 +301,50 @@ pub struct RunPaint {
 }
 
 impl Paragraph {
-    /// Full immutable width layout and canonical source in cosmic line order.
-    pub fn layout_runs(&self) -> impl Iterator<Item = cosmic_text::LayoutRun<'_>> {
+    /// Full immutable width layout and canonical source, line by line.
+    pub fn layout_runs(&self) -> impl Iterator<Item = LayoutRun<'_>> {
         shaping::Runs::new(self)
+    }
+
+    /// This width's lines, glyphs and faces (made now if it was only
+    /// measured).
+    pub fn lines(&self) -> &Lines {
+        self.layouts()
+    }
+
+    /// The shared record of this width's lines, made on first use.
+    pub(crate) fn layouts(&self) -> &Arc<Lines> {
+        self.record.get_or_init(|| {
+            if let Some(lines) = self.measured.borrow_mut().take() {
+                return lines;
+            }
+            let width = self.remake.expect("a kept record is present");
+            Arc::new(self.source.remake(width))
+        })
+    }
+
+    /// The record's bytes if it exists.
+    fn lines_capacity_bytes(&self) -> usize {
+        self.record.get().map_or(0, |l| l.capacity_bytes())
     }
 
     fn layout_capacity_bytes(&self) -> usize {
         self.owned_capacity_bytes() - self.source.accessible_capacity_bytes
     }
 
+    /// The runs it was shaped from, in the order glyphs' `metadata` index.
+    pub fn runs(&self) -> &[Run] {
+        &self.source.spec.runs
+    }
+
     /// CSS baselines in original wrapped-line order.
     pub fn baselines(&self) -> &[f32] {
         &self.baselines
+    }
+
+    /// Each wrapped line box's bottom, in the same order (LLP 1093 D6).
+    pub fn line_bottoms(&self) -> &[f32] {
+        &self.bottoms
     }
 
     /// Current CPU ink arrays, counted by allocated capacity. This grows lazily
@@ -256,7 +381,7 @@ impl Paragraph {
     /// Current accessible capacity in O(1), without visiting shaped glyphs.
     /// Accounting/maintenance runs outside paint's exclusive ink borrow.
     fn owned_capacity_bytes(&self) -> usize {
-        self.resident_capacity_bytes + self.ink_capacity_bytes()
+        self.resident_capacity_bytes + self.lines_capacity_bytes() + self.ink_capacity_bytes()
     }
 
     /// CSS inline backgrounds (LLP 1053 §0): each run's `background-color`
@@ -275,18 +400,18 @@ impl Paragraph {
         for (line, baseline) in self.layout_runs().zip(self.baselines.iter()) {
             let mut spans: Vec<(f32, f32, usize)> = Vec::new();
             for g in line.glyphs {
-                if backgrounds.get(g.metadata).copied().flatten().is_none() {
+                if backgrounds.get(g.run()).copied().flatten().is_none() {
                     continue;
                 }
                 let (lo, hi) = (g.x.min(g.x + g.w), g.x.max(g.x + g.w));
                 match spans.last_mut() {
                     Some(last)
-                        if last.2 == g.metadata && lo <= last.1 + 0.01 && hi >= last.0 - 0.01 =>
+                        if last.2 == g.run() && lo <= last.1 + 0.01 && hi >= last.0 - 0.01 =>
                     {
                         last.0 = last.0.min(lo);
                         last.1 = last.1.max(hi);
                     }
-                    _ => spans.push((lo, hi, g.metadata)),
+                    _ => spans.push((lo, hi, g.run())),
                 }
             }
             spans.sort_by(|a, b| a.0.total_cmp(&b.0));
@@ -340,7 +465,7 @@ impl Paragraph {
             .flat_map(move |(line, baseline)| {
                 line.glyphs
                     .iter()
-                    .map(move |glyph| (glyph, *baseline, palette[glyph.metadata]))
+                    .map(move |glyph| (glyph, *baseline, palette[glyph.run()]))
             })
     }
 }
@@ -359,14 +484,14 @@ pub(crate) enum FamilyChoice {
     Declared(String),
 }
 
-/// Canvas 2D's own font system (LLP 1056 D8): the catalog's fonts and
-/// family choices for `plan`, detached from its `Rc` caches so the canvas
-/// text engine can live behind a `Mutex`, with each family name a canvas
-/// `font` may give (the generics and the plan's declared families).
+/// Canvas 2D's own fonts (LLP 1056 D8): the catalog's faces and family
+/// choices for `plan`, detached from its `Rc` caches so the canvas text
+/// engine can live behind a `Mutex`, with each family name a canvas `font`
+/// may give (the generics and the plan's declared families).
 pub(crate) fn canvas_font_system(
     plan: &Plan,
     assets: &Assets,
-) -> (FontSystem, Vec<(String, FamilyChoice)>) {
+) -> (parley::FontContext, Vec<(String, FamilyChoice)>) {
     let c = catalog::Catalog::for_assets(plan, assets);
     let mut names: Vec<(String, FamilyChoice)> = [
         ("sans-serif", FamilyChoice::SansSerif),
@@ -393,31 +518,33 @@ pub(crate) fn canvas_font_system(
     (c.fonts, names)
 }
 
-impl FamilyChoice {
-    pub(crate) fn cosmic(&self) -> Family<'_> {
-        match self {
-            FamilyChoice::SansSerif => Family::SansSerif,
-            FamilyChoice::Serif => Family::Serif,
-            FamilyChoice::Monospace => Family::Monospace,
-            FamilyChoice::Declared(name) => Family::Name(name),
-        }
-    }
-}
-
 /// A run of glyphs from one font at one size, for a backend that draws
 /// outlines itself (the GPU): glyph ids with their positions in points from
 /// the paragraph's top-left.
 pub struct GlyphRun {
     /// The font's data and collection index.
-    pub font: PenikoFont,
+    pub font: parley::FontData,
+    /// Normalized variation coordinates (a variable face's `wght`).
+    pub coords: std::sync::Arc<[i16]>,
+    /// The face's file and collection index, when it was loaded from one.
+    pub file: Option<(std::sync::Arc<str>, u32)>,
+    /// The requested CSS weight; a declared face may pin a different `wght`.
+    pub weight: u16,
     /// Points.
     pub size: f32,
     /// Canonical run index, retained across font fallback and wrapping.
     pub run_index: usize,
     /// Resolved ink and logical source identity.
     pub paint: RunPaint,
-    /// Match cosmic-text's synthesized oblique outline when no italic face exists.
+    /// Parley's synthesized oblique when the family has no italic face.
     pub synthetic_italic: bool,
+    /// The face's variation settings in the axes' own units, as fontique
+    /// chose them (`coords` normalized): `ital` 1 for an italic drawn from
+    /// a face's axis rather than synthesized.
+    pub synthesis: fontique::Synthesis,
+    /// The run's `font-variation-settings`, set after `synthesis` and
+    /// optical size, in the axes' own units (LLP 1019 D9).
+    pub variations: exact_kernel::style::FontVariations,
     /// (glyph id, x, y) — y is the baseline.
     pub glyphs: Vec<(u32, f32, f32)>,
 }
@@ -449,80 +576,9 @@ pub struct TextEngine {
     pub flow_walk: Duration,
     /// The family sans-serif resolves to.
     pub sans: String,
-}
-
-/// The installed family `sans-serif` should mean: `EXACT_FONT`, else the
-/// database's default when it is installed, else the first present of
-/// fontconfig's preference list for `sans-serif` (60-latin.conf) with the
-/// platform's own families after it.
-fn sans_family(db: &fontdb::Database) -> Option<String> {
-    let installed = |name: &str| {
-        db.faces()
-            .any(|f| f.families.iter().any(|(n, _)| n.eq_ignore_ascii_case(name)))
-    };
-    if let Ok(name) = std::env::var("EXACT_FONT") {
-        if installed(&name) {
-            return Some(name);
-        }
-        eprintln!("exact: EXACT_FONT {name} is not an installed family");
-    }
-    let current = db.family_name(&fontdb::Family::SansSerif).to_string();
-    if installed(&current) {
-        return Some(current);
-    }
-    // fontconfig's 60-latin.conf order on Linux; the browser's on macOS.
-    let preferred: &[&str] = if cfg!(target_os = "macos") {
-        &["Helvetica Neue", "Helvetica", "Arial", "Verdana"]
-    } else {
-        &[
-            "Noto Sans",
-            "DejaVu Sans",
-            "Verdana",
-            "Arial",
-            "Liberation Sans",
-            "Nimbus Sans",
-            "Cantarell",
-            "Ubuntu",
-            "Roboto",
-            "Segoe UI",
-        ]
-    };
-    preferred
-        .iter()
-        .find(|n| installed(n))
-        .map(|n| n.to_string())
-}
-
-/// Keep a configured generic when installed. Otherwise choose a real
-/// monospace family before cosmic-text's per-glyph fallback: an absent
-/// `Courier New` on a minimal Linux image can select an oblique face even
-/// for normal code. Font matching within the family then owns style/weight.
-fn monospace_family(db: &fontdb::Database) -> Option<String> {
-    let installed = |name: &str| {
-        db.faces()
-            .any(|f| f.monospaced && f.families.iter().any(|(n, _)| n.eq_ignore_ascii_case(name)))
-    };
-    let current = db.family_name(&fontdb::Family::Monospace);
-    if installed(current) {
-        return Some(current.to_owned());
-    }
-    [
-        "Noto Sans Mono",
-        "DejaVu Sans Mono",
-        "Liberation Mono",
-        "Menlo",
-        "Monaco",
-        "Courier New",
-    ]
-    .into_iter()
-    .find(|name| installed(name))
-    .map(str::to_owned)
-    .or_else(|| {
-        db.faces()
-            .filter(|f| f.monospaced && f.style == fontdb::Style::Normal)
-            .flat_map(|f| f.families.iter().map(|(name, _)| name.clone()))
-            .min()
-    })
+    /// Paragraphs holding their measure's lines for this frame's paint,
+    /// one per shaped source (the latest width measured).
+    held: HashMap<*const ShapedSource, std::rc::Weak<Paragraph>>,
 }
 
 /// The engine shared between the measurer and the painter.
@@ -538,18 +594,20 @@ impl TextEngine {
     /// Load the system's fonts (`EXACT_FONTS` adds a directory) and settle
     /// what `sans-serif` means: `EXACT_FONT` when set, else the first
     /// installed family in fontconfig's own preference order — the answer
-    /// a browser gets from `fc-match sans-serif`. Left to its default,
-    /// cosmic-text names a family that may not exist ("Open Sans" on Linux),
-    /// and its per-glyph fallback then scores every font on the machine by
-    /// weight: at 600 the Caltrain app's button came out in URW Bookman with
-    /// a space from Noto Color Emoji, 16 pt wide.
+    /// a browser gets from `fc-match sans-serif`.
     pub fn new() -> TextEngine {
         Self::with_catalog(catalog::Catalog::new())
+    }
+
+    #[cfg(test)]
+    pub(crate) fn from_font_files(paths: &[&Path], sans: &str) -> Self {
+        Self::with_catalog(catalog::Catalog::from_files(paths, sans))
     }
 
     fn with_catalog(catalog: catalog::Catalog) -> Self {
         Self {
             sans: catalog.sans.clone(),
+            held: HashMap::new(),
             catalog: Rc::new(RefCell::new(catalog)),
             paragraphs: cache::Cache::default(),
             shape_calls: 0,
@@ -596,24 +654,27 @@ impl TextEngine {
         self.install_plan_assets(plan, &Assets::embedded(assets.to_path_buf()));
     }
 
+    /// Add newly interned installed-family lists before the next measure.
+    pub fn install_runtime(&mut self, compiled: usize, lists: &[String]) {
+        let added = self.catalog.borrow_mut().install_runtime(compiled, lists);
+        if !added.is_empty() {
+            self.paragraphs.invalidate_families(added);
+        }
+    }
+
     fn install_plan_assets(&mut self, plan: &Plan, assets: &Assets) {
         *self = Self::with_catalog(catalog::Catalog::for_assets(plan, assets));
     }
 
-    /// The exact loaded face id chosen for a run, for identity assertions.
-    pub fn resolved_face_id(
-        &mut self,
-        family: u16,
-        weight: u16,
-        italic: bool,
-    ) -> Option<fontdb::ID> {
+    /// The exact loaded face chosen for a run, for identity assertions.
+    pub fn resolved_face_id(&mut self, family: u16, weight: u16, italic: bool) -> Option<FaceId> {
         self.catalog
             .borrow_mut()
             .resolved_face_id(family, weight, italic)
     }
 
-    /// The id loaded for one declared face before matching.
-    pub fn declared_face_id(&self, family: u16, weight: u16, italic: bool) -> Option<fontdb::ID> {
+    /// The face loaded for one declared face before matching.
+    pub fn declared_face_id(&self, family: u16, weight: u16, italic: bool) -> Option<FaceId> {
         self.catalog
             .borrow()
             .declared_face_id(family, weight, italic)
@@ -621,7 +682,7 @@ impl TextEngine {
 
     /// How many font faces are loaded.
     pub fn face_count(&self) -> usize {
-        self.catalog.borrow().face_count()
+        self.catalog.borrow_mut().face_count()
     }
 
     /// CSS `line-height: normal` for a run: the font's ascent + descent +
@@ -645,8 +706,9 @@ impl TextEngine {
     }
 
     pub(crate) fn finish_text_frame(&mut self) {
+        self.release_held();
         self.paragraphs.finish_handoff();
-        self.trim_paragraphs();
+        self.paragraphs.maintain();
     }
 
     pub(crate) fn retiring_accepted<'a>(
@@ -656,6 +718,7 @@ impl TextEngine {
         self.paragraphs.retiring(accepted)
     }
 
+    #[cfg(test)]
     pub(crate) fn trim_paragraphs(&mut self) {
         self.paragraphs.trim(None);
     }
@@ -665,6 +728,21 @@ impl TextEngine {
     pub fn paragraph(&mut self, spec: &Spec, width: Option<f32>) -> Rc<Paragraph> {
         let key = self.paragraphs.identity(spec);
         self.paragraph_for(spec, width, key)
+    }
+
+    /// [`TextEngine::paragraph`] for a text that replaces the one `owner`
+    /// (a field's node and which of its texts) showed before: the replaced
+    /// one is not kept ([`cache::Cache::superseding`]).
+    pub(crate) fn paragraph_replacing(
+        &mut self,
+        owner: (u32, u8),
+        spec: &Spec,
+        width: Option<f32>,
+    ) -> Rc<Paragraph> {
+        let key = self.paragraphs.identity(spec);
+        let p = self.paragraph_for(spec, width, key);
+        self.paragraphs.superseding(owner, key);
+        p
     }
 
     fn identified_spec(
@@ -722,7 +800,8 @@ impl TextEngine {
         }
         self.paragraphs.before_shape(key);
         let source = self.source(key);
-        let p = Rc::new(self.layout_source(&source, width, None));
+        let p = Rc::new(self.layout_source(&source, width, true));
+        self.hold(&source, &p);
         self.paragraphs.insert(key, width.into(), &p);
         p
     }
@@ -744,43 +823,76 @@ impl TextEngine {
         Rc::new(ShapedSource::new(self.catalog.clone(), spec))
     }
 
+    /// Keep `p`'s measured lines for this frame's paint; another width of
+    /// the same source measured before it lets its lines go.
+    fn hold(&mut self, source: &Rc<ShapedSource>, p: &Rc<Paragraph>) {
+        if p.measured.borrow().is_none() {
+            return;
+        }
+        if let Some(earlier) = self
+            .held
+            .insert(Rc::as_ptr(source), Rc::downgrade(p))
+            .and_then(|w| w.upgrade())
+        {
+            if !Rc::ptr_eq(&earlier, p) {
+                earlier.measured.borrow_mut().take();
+            }
+        }
+    }
+
+    /// The end of a frame: measured lines no paint took are let go.
+    fn release_held(&mut self) {
+        for (_, p) in self.held.drain() {
+            if let Some(p) = p.upgrade() {
+                p.measured.borrow_mut().take();
+            }
+        }
+    }
+
+    /// A width of `source`; `hold` keeps the lines it broke for this
+    /// frame's paint ([`Self::hold`]).
     fn layout_source(
         &mut self,
         source: &Rc<ShapedSource>,
         width: Option<f32>,
-        wrap: Option<Wrap>,
+        hold: bool,
     ) -> Paragraph {
         #[cfg(test)]
         if let Some(callback) = &mut self.before_layout {
             callback();
         }
         self.layout_calls += 1;
-        source.layout(width, wrap)
+        if hold {
+            source.layout_held(width)
+        } else {
+            source.layout(width)
+        }
     }
 
     #[cfg(test)]
     fn layout(&mut self, spec: &Spec, width: Option<f32>) -> Paragraph {
         let source = self.build_source(Arc::new(spec.clone()));
-        self.layout_source(&source, width, None)
+        self.layout_source(&source, width, false)
     }
 
     // Intrinsic questions retain the shared source and scalar answers only.
-    // Zero-width layout scratch drops before the final min-content layout.
-    fn intrinsic(&mut self, spec: &Spec, minimum: bool, key: (u64, u64)) -> TextMetrics {
+    // Min-content is Parley's content width (no layout); the paragraph at
+    // that width answers the height.
+    fn intrinsic(&mut self, _spec: &Spec, minimum: bool, key: (u64, u64)) -> TextMetrics {
         if let Some(metrics) = self.paragraphs.intrinsic(key, minimum) {
             return metrics;
         }
         self.paragraphs.release_handoff(key.1);
         self.paragraphs.before_shape(key);
         let source = self.source(key);
-        let width = if minimum {
-            let wrap =
-                (spec.overflow_wrap == exact_kernel::OverflowWrap::BreakWord).then_some(Wrap::Word);
-            Some(self.layout_source(&source, Some(0.0), wrap).width)
-        } else {
-            None
-        };
-        let metrics = paragraph_metrics(&self.layout_source(&source, width, None));
+        let width = minimum.then(|| source.min_content().ceil());
+        let mut metrics = paragraph_metrics(&self.layout_source(&source, width, false));
+        // Min-content is the widest unbreakable run, not the widest line at that
+        // width: a preserved trailing space counts toward a line but not toward
+        // min-content, as in Chrome.
+        if let Some(w) = width {
+            metrics.width = metrics.width.min(w);
+        }
         self.paragraphs.set_intrinsic(key, minimum, metrics);
         metrics
     }
@@ -824,7 +936,7 @@ impl TextEngine {
     /// Paint a paragraph. `origin` is the paragraph's top-left in points;
     /// `transform` maps points to device pixels (the scale included);
     /// glyphs are rasterized at the device scale and positioned on the
-    /// pixel grid by cosmic-text.
+    /// pixel grid in quarter-pixel phases.
     #[allow(clippy::too_many_arguments)]
     pub fn paint(
         &mut self,
@@ -853,10 +965,17 @@ impl TextEngine {
         transform: Transform,
         mask: Option<&Mask>,
         clip: (f32, f32, f32, f32),
-    ) {
+    ) -> std::ops::Range<u32> {
         // Glyph positions already carry device scale. The GPU stream is separate
         // and remains full; only this CPU loop selects conservative ink spans.
         let glyph_ts = transform.pre_scale(1.0 / scale, 1.0 / scale);
+        let height = target.height();
+        let mut rows = if glyph_ts.is_identity() {
+            0..0
+        } else {
+            0..height
+        };
+        paragraph.layouts();
         let mut catalog = paragraph.source.catalog.borrow_mut();
         let mut cache = paragraph.ink.borrow_mut();
         if !cache.matches(&catalog.ink_catalog, scale) {
@@ -868,8 +987,9 @@ impl TextEngine {
             cache.index = ink::Index::build(&mut catalog, paragraph, scale).map(Into::into);
         }
         let paint = PixmapPaint::default();
+        let slots = ink::slots(&mut catalog, paragraph.layouts());
         let mut draw = |g: &LayoutGlyph, baseline: f32, ink: RunPaint| {
-            if paragraph.source.spec.runs[g.metadata].inline_box.is_some() {
+            if paragraph.source.spec.runs[g.run()].inline_box.is_some() {
                 return;
             }
             #[cfg(test)]
@@ -879,13 +999,31 @@ impl TextEngine {
             if ink.color[3] == 0 {
                 return;
             }
-            let phys = g.physical((origin.0 * scale, (origin.1 + baseline) * scale), scale);
-            let Some(glyph) = catalog.glyph(phys.cache_key, ink.color) else {
+            let (key, x, y) = ink::physical(
+                g,
+                slots[g.face as usize],
+                (origin.0 * scale, (origin.1 + baseline) * scale),
+                scale,
+            );
+            let Some(glyph) = catalog.glyph(key, ink.color) else {
                 return;
             };
+            let gy = y - glyph.top;
+            if glyph_ts.is_identity() {
+                let start = (i64::from(gy) - 1).clamp(0, i64::from(height)) as u32;
+                let end = (i64::from(gy) + i64::from(glyph.pixmap.height()) + 1)
+                    .clamp(0, i64::from(height)) as u32;
+                if start < end {
+                    rows = if rows.is_empty() {
+                        start..end
+                    } else {
+                        rows.start.min(start)..rows.end.max(end)
+                    };
+                }
+            }
             target.draw_pixmap(
-                phys.x + glyph.left,
-                phys.y - glyph.top,
+                x + glyph.left,
+                gy,
                 glyph.pixmap.as_ref(),
                 &paint,
                 glyph_ts,
@@ -900,7 +1038,7 @@ impl TextEngine {
             let _nodes = index.visit(query, |line| {
                 let (glyphs, baseline) = index.glyphs(paragraph, line);
                 for g in glyphs {
-                    draw(g, baseline, palette[g.metadata]);
+                    draw(g, baseline, palette[g.run()]);
                 }
             });
             #[cfg(test)]
@@ -912,6 +1050,7 @@ impl TextEngine {
                 draw(g, baseline, ink);
             }
         }
+        rows
     }
 }
 
@@ -920,42 +1059,44 @@ impl TextEngine {
     /// points from the paragraph's top-left, the same numbers the raster
     /// path snaps to pixels.
     pub fn glyph_runs(&mut self, paragraph: &Paragraph, palette: &[RunPaint]) -> Vec<GlyphRun> {
-        type Key = (fontdb::ID, u16, u32, usize, bool);
+        type Key = (u16, u32, usize);
         type Runs = Vec<(Key, Vec<(u32, f32, f32)>)>;
         let mut runs: Runs = Vec::new();
         for (g, baseline, _) in paragraph.paint_glyphs(palette) {
-            if paragraph.source.spec.runs[g.metadata].inline_box.is_some() {
+            if paragraph.source.spec.runs[g.run()].inline_box.is_some() {
                 continue;
             }
-            let key = (
-                g.font_id,
-                g.font_weight.0,
-                g.font_size.to_bits(),
-                g.metadata,
-                g.cache_key_flags.contains(CacheKeyFlags::FAKE_ITALIC),
-            );
-            let x = g.x + g.x_offset * g.font_size;
-            let y = baseline + g.y - g.y_offset * g.font_size;
+            let key = (g.face, g.font_size.to_bits(), g.run());
+            let y = baseline + g.y;
             match runs.last_mut() {
-                Some((k, glyphs)) if *k == key => glyphs.push((g.glyph_id as u32, x, y)),
-                _ => runs.push((key, vec![(g.glyph_id as u32, x, y)])),
+                Some((k, glyphs)) if *k == key => glyphs.push((g.glyph_id, g.x, y)),
+                _ => runs.push((key, vec![(g.glyph_id, g.x, y)])),
             }
         }
-        let mut catalog = paragraph.source.catalog.borrow_mut();
+        let catalog = paragraph.source.catalog.borrow();
+        let faces = &paragraph.layouts().faces;
         runs.into_iter()
-            .filter_map(
-                |((id, weight, size, run_index, synthetic_italic), glyphs)| {
-                    let font = catalog.font_data(id, Weight(weight))?;
-                    Some(GlyphRun {
-                        font,
-                        size: f32::from_bits(size),
-                        run_index,
-                        paint: palette[run_index],
-                        synthetic_italic,
-                        glyphs,
-                    })
-                },
-            )
+            .filter_map(|((face, size, run_index), glyphs)| {
+                let face = faces.get(face as usize)?;
+                Some(GlyphRun {
+                    font: face.font.clone(),
+                    coords: face.coords.clone(),
+                    file: catalog.file(&face.font),
+                    weight: face.weight,
+                    size: f32::from_bits(size),
+                    run_index,
+                    paint: palette[run_index],
+                    synthetic_italic: face.skew,
+                    synthesis: face.synthesis,
+                    variations: paragraph
+                        .source
+                        .spec
+                        .runs
+                        .get(run_index)
+                        .map_or_else(Default::default, |r| r.variations),
+                    glyphs,
+                })
+            })
             .collect()
     }
 }
@@ -1000,16 +1141,21 @@ impl TextMeasurer for Measurer {
             AxisOffer::Definite(w) => Some(w),
             _ => None,
         };
-        let paragraph = self.0.borrow_mut().paragraph(&spec, width);
+        let mut engine = self.0.borrow_mut();
+        let paragraph = if let Some(width) = width.filter(|_| !request.exclusions.is_empty()) {
+            engine.paragraph_flow(&spec, width, request.exclusions, None)
+        } else {
+            engine.paragraph(&spec, width)
+        };
         let runs = &spec.runs;
         paragraph
             .layout_runs()
             .flat_map(|line| {
                 line.glyphs.iter().filter_map(move |g| {
-                    runs[g.metadata]
+                    runs[g.run()]
                         .inline_box
                         .map(|b| exact_kernel::InlinePosition {
-                            run: g.metadata,
+                            run: g.run(),
                             x: g.x,
                             y: line.line_y - b.baseline,
                         })
@@ -1018,23 +1164,56 @@ impl TextMeasurer for Measurer {
             .collect()
     }
 
+    fn format_time(&mut self, r: &exact_kernel::time::TimeRequest<'_>) -> Option<String> {
+        #[cfg(target_os = "android")]
+        if let Some(text) = crate::canvas::time::format(r) {
+            return Some(text);
+        }
+        let mut request = *r;
+        if r.format.starts_with("date-") || r.format.starts_with("time-") {
+            request.utc_offset = crate::zone::offset_minutes_at(r.time_zone, r.datetime);
+        }
+        exact_kernel::time::english(&request)
+    }
+
+    fn button_measure(
+        &mut self,
+        request: &exact_kernel::ButtonMeasureRequest,
+    ) -> Option<exact_kernel::ButtonMeasure> {
+        Some(crate::paint::button::measure(
+            &mut self.0.borrow_mut(),
+            request,
+        ))
+    }
+
+    fn field_chrome(
+        &mut self,
+        request: &exact_kernel::FieldChromeRequest,
+    ) -> exact_kernel::FieldChrome {
+        crate::paint::control::field_chrome(request.font.size, request.labelled)
+    }
+
+    /// The shell's own field measures a field it hosts (LLP 1115.001 D8).
+    fn field_text(
+        &mut self,
+        kind: exact_kernel::FieldKind,
+        request: &TextMeasureRequest<'_>,
+    ) -> Option<TextMetrics> {
+        crate::fields::measure(&mut self.0.borrow_mut(), kind, request)
+    }
+
     fn set_language(&mut self, language: &str) {
         let mut engine = self.0.borrow_mut();
         let catalog = engine.catalog.borrow();
-        if catalog.fonts.locale() == language {
+        if catalog.locale == language {
             return;
         }
         // Retained paragraphs keep their old catalog for an accepted frame.
-        let mut next = catalog::Catalog::with_fonts(FontSystem::new_with_locale_and_db(
-            language.into(),
-            catalog.fonts.db().clone(),
-        ));
-        next.families = catalog.families.clone();
-        next.declared_faces = catalog.declared_faces.clone();
-        next.sans = catalog.sans.clone();
+        let next = catalog.with_locale(language);
         drop(catalog);
         engine.catalog = Rc::new(RefCell::new(next));
         engine.paragraphs = cache::Cache::default();
+        engine.release_held();
     }
 
     fn measure_identified(
@@ -1044,6 +1223,38 @@ impl TextMeasurer for Measurer {
     ) -> TextMetrics {
         self.0.borrow_mut().measure_identified(stamp, request)
     }
+    fn height_free(&self) -> bool {
+        true
+    }
+    fn measure_known(
+        &mut self,
+        stamp: &ParagraphStamp,
+        width: AxisOffer,
+        _height: AxisOffer,
+    ) -> Option<TextMetrics> {
+        // Offers here are width-only: height never changes a paragraph.
+        let mut engine = self.0.borrow_mut();
+        let (key, spec) = engine.paragraphs.identified(stamp)?;
+        Some(engine.measure_for(&spec, width, key))
+    }
+
+    /// @ref LLP 1093 D6 — the line boxes of the paragraph the measure built.
+    fn lines(
+        &mut self,
+        stamp: &ParagraphStamp,
+        request: &TextMeasureRequest<'_>,
+        bottoms: &mut Vec<f32>,
+    ) {
+        let AxisOffer::Definite(width) = request.width else {
+            return;
+        };
+        let mut engine = self.0.borrow_mut();
+        let (key, spec) = engine.identified_spec(stamp, || Spec::from_request(request));
+        if !spec.is_empty() {
+            bottoms.extend_from_slice(engine.paragraph_for(&spec, Some(width), key).line_bottoms());
+        }
+    }
+
     fn measure(&mut self, request: &TextMeasureRequest<'_>) -> TextMetrics {
         let spec = Spec::from_request(request);
         let mut engine = self.0.borrow_mut();
@@ -1069,17 +1280,6 @@ mod tests {
     #[test]
     fn installed_normal_monospace_is_used_for_normal_code() {
         let mut engine = TextEngine::new();
-        if !engine
-            .catalog
-            .borrow()
-            .fonts
-            .db()
-            .faces()
-            .any(|f| f.monospaced && f.style == fontdb::Style::Normal && f.weight == Weight::NORMAL)
-        {
-            eprintln!("normal monospace face unavailable; installed-font regression not checked");
-            return;
-        }
         let style = exact_kernel::StyleProps {
             font_family: 5,
             font_size: 16.0,
@@ -1087,15 +1287,33 @@ mod tests {
         };
         let spec = crate::paint::text_spec(&style, "let section = 0;");
         let paragraph = engine.paragraph(&spec, Some(300.0));
-        let glyph = &paragraph.layout_runs().next().unwrap().glyphs[0];
-        let catalog = paragraph.source.catalog.borrow();
-        let face = catalog.fonts.db().face(glyph.font_id).unwrap();
-        assert!(face.monospaced, "code selected {:?}", face.families);
+        let Some(glyph) = paragraph
+            .layout_runs()
+            .next()
+            .and_then(|r| r.glyphs.first().copied())
+        else {
+            eprintln!("no face shapes code; installed-font regression not checked");
+            return;
+        };
+        let face = &paragraph.lines().faces[glyph.face as usize];
+        let font = swash::FontRef::from_index(face.font.data.data(), face.font.index as usize)
+            .expect("a face");
+        if !font.metrics(&[]).is_monospace {
+            // Only when one is installed: the configured or listed families.
+            let mut catalog = paragraph.source.catalog.borrow_mut();
+            let any = fonts::family_names(&mut catalog.fonts.collection)
+                .iter()
+                .any(|n| fonts::monospaced(&mut catalog.fonts.collection, n));
+            assert!(
+                !any,
+                "code selected a proportional face beside a monospace one"
+            );
+            return;
+        }
         assert_eq!(
-            face.style,
-            fontdb::Style::Normal,
-            "code selected {:?}",
-            face.families
+            font.attributes().style(),
+            swash::Style::Normal,
+            "code selected an oblique face"
         );
     }
 }
@@ -1123,6 +1341,26 @@ mod span_capacity_tests;
 #[cfg(test)]
 #[path = "text/css_tests.rs"]
 mod css_tests;
+
+#[cfg(test)]
+#[path = "text/eviction_tests.rs"]
+mod eviction_tests;
+
+#[cfg(test)]
+#[path = "text/text_box_tests.rs"]
+mod text_box_tests;
+
+#[cfg(test)]
+#[path = "text/balance_tests.rs"]
+mod balance_tests;
+
+#[cfg(test)]
+#[path = "text/live_time_tests.rs"]
+mod live_time_tests;
+
+#[cfg(test)]
+mod variable_face_tests;
+
 #[cfg(test)]
 #[path = "text/inline_tests.rs"]
 mod inline_tests;

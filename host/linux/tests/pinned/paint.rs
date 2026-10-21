@@ -6,7 +6,7 @@
 use crate::pin_font;
 use exact_linux::presenter::PainterChoice;
 use exact_linux::Presenter;
-use exact_runner::{DataError, DataSource, Value};
+use exact_runner::DataSource;
 use std::path::PathBuf;
 use std::time::Duration;
 use tiny_skia::Pixmap;
@@ -38,9 +38,8 @@ fn painters() -> Vec<PainterChoice> {
 
 fn boot(choice: PainterChoice) -> Presenter<caltrain_data::Caltrain> {
     pin_font();
-    let plan = caltrain::build().unwrap();
     let (mut p, _) = Presenter::boot_with(
-        &plan.encode(),
+        crate::caltrain_plan(),
         caltrain_data::Caltrain,
         (390.0, 844.0),
         1.0,
@@ -52,15 +51,7 @@ fn boot(choice: PainterChoice) -> Presenter<caltrain_data::Caltrain> {
     p
 }
 
-#[derive(Default)]
-struct NoData;
-impl DataSource for NoData {
-    fn query(&mut self, s: &str, _: &[Value]) -> Result<Value, DataError> {
-        Err(DataError::UnknownSource(s.into()))
-    }
-}
-
-fn fixture(name: &str, scale: f32, choice: PainterChoice) -> Presenter<NoData> {
+fn fixture(name: &str, scale: f32, choice: PainterChoice) -> Presenter<()> {
     let src = std::fs::read_to_string(format!(
         "{}/../../contract/corpus/{name}.contract",
         env!("CARGO_MANIFEST_DIR")
@@ -78,19 +69,12 @@ const CARD: &str = "component Card
       view width=300 height=120 border-radius=16 background-color=\"#f7f7f7\" testId=\"card\"
 ";
 
-fn compiled(src: &str, scale: f32, choice: PainterChoice) -> Presenter<NoData> {
+fn compiled(src: &str, scale: f32, choice: PainterChoice) -> Presenter<()> {
     pin_font();
     let plan = contract::compile(src).unwrap();
-    Presenter::boot_with(
-        &plan.encode(),
-        NoData,
-        (390.0, 844.0),
-        scale,
-        assets(),
-        choice,
-    )
-    .unwrap()
-    .0
+    Presenter::boot_with(&plan.encode(), (), (390.0, 844.0), scale, assets(), choice)
+        .unwrap()
+        .0
 }
 
 fn view<D: DataSource>(p: &Presenter<D>, test_id: &str) -> u32 {
@@ -118,7 +102,8 @@ fn page<D: DataSource>(p: &Presenter<D>) -> (u8, u8, u8) {
     // (LLP 1034 D1). This fixture reads the light half, which is the
     // appearance a headless painter draws in unless the app says otherwise.
     let c = p.host().kernel().node(id).unwrap().style.background_color;
-    let [r, g, b, a] = exact_linux::paint::rgba(c.resolve(false));
+    let [r, g, b, a] =
+        exact_linux::paint::rgba(c.expect("a colour, not currentcolor").resolve(false));
     assert_eq!(a, 255, "the page is opaque");
     (r, g, b)
 }
@@ -385,6 +370,29 @@ fn border_style_controls_pixels_and_layout_with_current_color() {
     }
 }
 
+#[test]
+fn patterned_borders_leave_gaps_without_losing_width() {
+    for style in ["dotted", "dashed"] {
+        let source = format!(
+            "component Borders\n  view\n    column background-color=\"#ffffff\" width=200 height=100 padding=10\n      box testId=\"border\" width=100 height=40 border-width=4 border-style=\"{style}\" border-color=\"#ff0000\"\n"
+        );
+        for painter in painters() {
+            let mut p = compiled(&source, 1.0, painter);
+            let (x, y, w, h) = rect(&mut p, "border");
+            assert_eq!((w, h), (108.0, 48.0));
+            let frame = p.frame();
+            let top: Vec<_> = (10..90)
+                .map(|dx| px(&frame, x + dx as f32, y + 2.0))
+                .collect();
+            assert!(top.contains(&(255, 0, 0)), "{style} has ink on {painter:?}");
+            assert!(
+                top.contains(&(255, 255, 255)),
+                "{style} leaves gaps on {painter:?}"
+            );
+        }
+    }
+}
+
 /// LLP 1064 D2: a `box-shadow` falls outside the border box only — offset
 /// hard, or blurred as a Gaussian of half the blur radius — on every painter,
 /// and a clipping node's shadow is not clipped by it.
@@ -449,7 +457,7 @@ fn an_unsupported_dialog_stays_unpainted_and_cannot_run_its_action() {
     let mut p = compiled(
         r##"component Dialog
   state count = 0
-  action invoked writes count
+  action invoked
     count = count + 1
   view
     column width="100%" height="100%" background-color="#ffffff"
@@ -531,11 +539,13 @@ fn clipped_rectangle_fills_match_full_path_pixels() {
                         for (index, clip) in [
                             Shape {
                                 rect: (4.5, 5.25, 77.0, 65.5),
-                                radii: [radius; 4],
+                                radii: [(radius, radius); 4],
+                                corners: None,
                             },
                             Shape {
                                 rect: (14.0 + offset, 9.0 + offset, 47.5, 46.25),
-                                radii: [radius / 2.0; 4],
+                                radii: [(radius / 2.0, radius / 2.0); 4],
+                                corners: None,
                             },
                         ]
                         .into_iter()
@@ -570,7 +580,8 @@ fn clipped_rectangle_fills_match_full_path_pixels() {
                         ] {
                             let shape = Shape {
                                 rect,
-                                radii: [radius; 4],
+                                radii: [(radius, radius); 4],
+                                corners: None,
                             };
                             raster.fill(&shape, color, transform);
                             let mut paint = Paint::default();
@@ -701,136 +712,151 @@ fn rectangular_damage_fills_keep_mask_pixels_and_clip_lifetime() {
     use exact_linux::raster::{rounded_rect, Raster};
     use tiny_skia::{Color, FillRule, Mask, Paint, PathBuilder, Rect, Transform};
 
-    let mut cases = 0;
-    for scale in [0.75_f32, 1.0, 1.25, 2.0] {
-        for width in [96_u32, 8191, 8192] {
-            for rects in [
-                vec![(8.0, 8.0, 64.0, 48.0)],
-                vec![(8.0, 8.0, 64.0, 48.0), (16.0, 16.0, 8.25, 9.75)],
-                vec![(8.0, 8.0, 12.0, 20.0), (40.0, 16.0, 16.0, 16.0)],
-                vec![(8.25, 8.5, 64.25, 47.75)],
-                vec![(-8.0, -8.0, width as f32 + 16.0, 80.0)],
-                vec![(f32::NAN, 8.0, 4.0, 4.0), (8.0, 8.0, 64.0, 48.0)],
-            ] {
-                for stop in 0..5 {
-                    for (rect, alpha, radius, ts) in [
-                        (
-                            (0.0, 0.0, width as f32, 64.0),
-                            255,
-                            0.0,
-                            Transform::identity(),
-                        ),
-                        ((16.0, 16.0, 32.0, 32.0), 255, 0.0, Transform::identity()),
-                        ((0.0, 0.0, 96.0, 64.0), 117, 0.0, Transform::identity()),
-                        ((0.25, 0.5, 95.5, 63.25), 255, 0.0, Transform::identity()),
-                        ((0.0, 0.0, 96.0, 64.0), 255, 4.0, Transform::identity()),
-                        (
-                            (0.0, 0.0, 96.0, 64.0),
-                            255,
-                            0.0,
-                            Transform::from_rotate(7.0),
-                        ),
-                        (
-                            (0.0, 0.0, 96.0, 64.0),
-                            255,
-                            0.0,
-                            Transform::from_row(-1.0, 0.0, 0.0, 1.0, 96.0, 0.0),
-                        ),
-                    ]
-                    .into_iter()
-                    .take(if width == 96 { 7 } else { 2 })
-                    {
-                        let (w, h) = (
-                            (width as f32 * scale).round() as u32,
-                            (64.0 * scale).round() as u32,
-                        );
-                        let mut raster = Raster::new();
-                        raster.begin(width as f32, 64.0, scale);
-                        let mut expected = Pixmap::new(w, h).unwrap();
-                        expected.fill(Color::WHITE);
-                        assert!(raster.damage(&expected, &rects));
-                        let device = Transform::from_scale(scale, scale);
-                        let mut root = Mask::new(w, h).unwrap();
-                        for &(x, y, w, h) in &rects {
-                            if let Some(rect) = Rect::from_xywh(x, y, w, h) {
-                                root.fill_path(
-                                    &PathBuilder::from_rect(rect),
+    // Each (scale, width) builds its own rasters and masks: the 12 run on threads of their
+    // own, and their cases add up to the same count
+    let pairs: Vec<(f32, u32)> = [0.75_f32, 1.0, 1.25, 2.0]
+        .into_iter()
+        .flat_map(|scale| [96_u32, 8191, 8192].map(|width| (scale, width)))
+        .collect();
+    let cases: usize = std::thread::scope(|threads| {
+        let runs: Vec<_> = pairs
+            .iter()
+            .map(|&(scale, width)| {
+                threads.spawn(move || {
+                    let mut cases = 0;
+                    for rects in [
+                        vec![(8.0, 8.0, 64.0, 48.0)],
+                        vec![(8.0, 8.0, 64.0, 48.0), (16.0, 16.0, 8.25, 9.75)],
+                        vec![(8.0, 8.0, 12.0, 20.0), (40.0, 16.0, 16.0, 16.0)],
+                        vec![(8.25, 8.5, 64.25, 47.75)],
+                        vec![(-8.0, -8.0, width as f32 + 16.0, 80.0)],
+                        vec![(f32::NAN, 8.0, 4.0, 4.0), (8.0, 8.0, 64.0, 48.0)],
+                    ] {
+                        for stop in 0..5 {
+                            for (rect, alpha, radius, ts) in [
+                                (
+                                    (0.0, 0.0, width as f32, 64.0),
+                                    255,
+                                    0.0,
+                                    Transform::identity(),
+                                ),
+                                ((16.0, 16.0, 32.0, 32.0), 255, 0.0, Transform::identity()),
+                                ((0.0, 0.0, 96.0, 64.0), 117, 0.0, Transform::identity()),
+                                ((0.25, 0.5, 95.5, 63.25), 255, 0.0, Transform::identity()),
+                                ((0.0, 0.0, 96.0, 64.0), 255, 4.0, Transform::identity()),
+                                (
+                                    (0.0, 0.0, 96.0, 64.0),
+                                    255,
+                                    0.0,
+                                    Transform::from_rotate(7.0),
+                                ),
+                                (
+                                    (0.0, 0.0, 96.0, 64.0),
+                                    255,
+                                    0.0,
+                                    Transform::from_row(-1.0, 0.0, 0.0, 1.0, 96.0, 0.0),
+                                ),
+                            ]
+                            .into_iter()
+                            .take(if width == 96 { 7 } else { 2 })
+                            {
+                                let (w, h) = (
+                                    (width as f32 * scale).round() as u32,
+                                    (64.0 * scale).round() as u32,
+                                );
+                                let mut raster = Raster::new();
+                                raster.begin(width as f32, 64.0, scale);
+                                let mut expected = Pixmap::new(w, h).unwrap();
+                                expected.fill(Color::WHITE);
+                                assert!(raster.damage(&expected, &rects));
+                                let device = Transform::from_scale(scale, scale);
+                                let mut root = Mask::new(w, h).unwrap();
+                                for &(x, y, w, h) in &rects {
+                                    if let Some(rect) = Rect::from_xywh(x, y, w, h) {
+                                        root.fill_path(
+                                            &PathBuilder::from_rect(rect),
+                                            FillRule::Winding,
+                                            false,
+                                            device,
+                                        );
+                                    }
+                                }
+                                let clip = Shape {
+                                    rect: (16.0, 12.0, 48.0, 40.0),
+                                    radii: [(7.0, 7.0); 4],
+                                    corners: None,
+                                };
+                                let mut nested = root.clone();
+                                nested.intersect_path(
+                                    &rounded_rect(&clip).unwrap(),
                                     FillRule::Winding,
-                                    false,
+                                    true,
                                     device,
                                 );
+                                let mut replacement = Mask::new(w, h).unwrap();
+                                replacement.fill_path(
+                                    &rounded_rect(&clip).unwrap(),
+                                    FillRule::Winding,
+                                    true,
+                                    device,
+                                );
+                                for stage in 0..=stop {
+                                    let mask = match stage {
+                                        0 => Some(&root),
+                                        1 => {
+                                            raster.push_clip(&clip, Transform::identity());
+                                            Some(&nested)
+                                        }
+                                        2 => {
+                                            raster.pop_clip();
+                                            Some(&root)
+                                        }
+                                        3 => {
+                                            raster.pop_clip();
+                                            raster.push_clip(&clip, Transform::identity());
+                                            Some(&replacement)
+                                        }
+                                        _ => {
+                                            raster.begin(width as f32, 64.0, scale);
+                                            expected.fill(Color::WHITE);
+                                            None
+                                        }
+                                    };
+
+                                    let shape = Shape {
+                                        rect,
+                                        radii: [(radius, radius); 4],
+                                        corners: None,
+                                    };
+                                    let color = [31 + stage * 23, 117, 193, alpha];
+                                    raster.fill(&shape, color, ts);
+                                    let mut paint = Paint::default();
+                                    paint.set_color(Color::from_rgba8(
+                                        color[0], color[1], color[2], color[3],
+                                    ));
+                                    paint.anti_alias = true;
+                                    expected.fill_path(
+                                        &rounded_rect(&shape).unwrap(),
+                                        &paint,
+                                        FillRule::Winding,
+                                        device.pre_concat(ts),
+                                        mask,
+                                    );
+                                }
+                                assert!(
+                                    raster.finish().unwrap().data() == expected.data(),
+                                    "scale={scale}, width={width}, stop={stop}, rects={rects:?}"
+                                );
+                                cases += 1;
                             }
                         }
-                        let clip = Shape {
-                            rect: (16.0, 12.0, 48.0, 40.0),
-                            radii: [7.0; 4],
-                        };
-                        let mut nested = root.clone();
-                        nested.intersect_path(
-                            &rounded_rect(&clip).unwrap(),
-                            FillRule::Winding,
-                            true,
-                            device,
-                        );
-                        let mut replacement = Mask::new(w, h).unwrap();
-                        replacement.fill_path(
-                            &rounded_rect(&clip).unwrap(),
-                            FillRule::Winding,
-                            true,
-                            device,
-                        );
-                        for stage in 0..=stop {
-                            let mask = match stage {
-                                0 => Some(&root),
-                                1 => {
-                                    raster.push_clip(&clip, Transform::identity());
-                                    Some(&nested)
-                                }
-                                2 => {
-                                    raster.pop_clip();
-                                    Some(&root)
-                                }
-                                3 => {
-                                    raster.pop_clip();
-                                    raster.push_clip(&clip, Transform::identity());
-                                    Some(&replacement)
-                                }
-                                _ => {
-                                    raster.begin(width as f32, 64.0, scale);
-                                    expected.fill(Color::WHITE);
-                                    None
-                                }
-                            };
-
-                            let shape = Shape {
-                                rect,
-                                radii: [radius; 4],
-                            };
-                            let color = [31 + stage * 23, 117, 193, alpha];
-                            raster.fill(&shape, color, ts);
-                            let mut paint = Paint::default();
-                            paint.set_color(Color::from_rgba8(
-                                color[0], color[1], color[2], color[3],
-                            ));
-                            paint.anti_alias = true;
-                            expected.fill_path(
-                                &rounded_rect(&shape).unwrap(),
-                                &paint,
-                                FillRule::Winding,
-                                device.pre_concat(ts),
-                                mask,
-                            );
-                        }
-                        assert!(
-                            raster.finish().unwrap().data() == expected.data(),
-                            "scale={scale}, width={width}, stop={stop}, rects={rects:?}"
-                        );
-                        cases += 1;
                     }
-                }
-            }
-        }
-    }
+                    cases
+                })
+            })
+            .collect();
+        runs.into_iter().map(|run| run.join().unwrap()).sum()
+    });
     assert_eq!(cases, 1320);
 }
 
@@ -887,7 +913,8 @@ fn rounded_interiors_match_full_masked_paths_at_edges_and_in_layers() {
                             }
                             let shape = Shape {
                                 rect: (3.25, 4.5, 88.25, 70.25),
-                                radii,
+                                radii: radii.map(|r| (r, r)),
+                                corners: None,
                             };
                             if layer {
                                 raster.push_opacity(0.37);
@@ -963,7 +990,8 @@ fn damage_begin_resets_frames_and_preserves_full_repaint_fallback() {
                         raster.push_clip(
                             &Shape {
                                 rect: (2.0, 3.0, 40.0, 32.0),
-                                radii: [4.0; 4],
+                                radii: [(4.0, 4.0); 4],
+                                corners: None,
                             },
                             Transform::identity(),
                         );
@@ -1011,7 +1039,7 @@ fn damage_begin_resets_frames_and_preserves_full_repaint_fallback() {
 fn accessibility_focus_is_session_scoped_and_buttons_activate_from_keys() {
     let source = include_str!("../../../../contract/corpus/accessibility.contract");
     let mut p = compiled(source, 1.0, PainterChoice::Cpu);
-    let id = |p: &Presenter<NoData>, name: &str| view(p, name);
+    let id = |p: &Presenter<()>, name: &str| view(p, name);
     let first = id(&p, "first");
     assert_eq!(p.focus(), Some(first));
     let reply = exact_linux::agent::handle(
@@ -1037,11 +1065,16 @@ fn accessibility_focus_is_session_scoped_and_buttons_activate_from_keys() {
         .find(|n| n["id"] == other)
         .unwrap();
     assert_eq!(row["focused"], true);
-    assert_eq!(row["accessibleName"], "Other");
+    let ax: serde_json::Value = serde_json::from_str(&exact_linux::agent::handle(
+        &mut p,
+        r#"{"op":"tree","ax":true}"#,
+    ))
+    .unwrap();
+    assert_eq!(ax["ax"]["unavailable"], true);
     let state: serde_json::Value =
         serde_json::from_str(&exact_linux::agent::handle(&mut p, r#"{"op":"state"}"#)).unwrap();
     assert_eq!(state["focus"]["logical"], other);
-    p.reload(&contract::compile(source).unwrap().encode(), NoData)
+    p.reload(&contract::compile(source).unwrap().encode(), ())
         .unwrap();
     // A carried reload is the same document: focus stays at Other's place,
     // and First's autofocus does not take it back (LLP 1035.000 D9).
@@ -1049,4 +1082,127 @@ fn accessibility_focus_is_session_scoped_and_buttons_activate_from_keys() {
     assert!(p.host().agent(r#"{"op":"state"}"#).contains(r#""count":3"#));
     p.key(Some('\n'), false, 2000.0);
     assert!(p.host().agent(r#"{"op":"state"}"#).contains(r#""count":4"#));
+}
+
+#[test]
+fn percentage_radius_paints_an_ellipse_in_a_nonsquare_box() {
+    let source = r##"component Rounded
+  view
+    view width=200 height=150 background-color="#ffffff"
+      view width=160 height=80 border-radius="50%" background-color="#2468ac"
+"##;
+    for choice in painters() {
+        let mut p = compiled(source, 1.0, choice);
+        let frame = p.frame();
+        assert_eq!(px(&frame, 80.0, 40.0), (36, 104, 172));
+        assert_eq!(
+            px(&frame, 20.0, 5.0),
+            (255, 255, 255),
+            "ellipse, not a pill: {choice:?}"
+        );
+        assert_eq!(px(&frame, 80.0, 5.0), (36, 104, 172));
+    }
+}
+
+#[test]
+fn disabled_fields_keep_authored_placeholder_ink() {
+    for appearance in ["auto", "none"] {
+        let source = format!(
+            r##"component App
+  view
+    column background-color="#ffffff" color-scheme="light"
+      input placeholder="MMMM" disabled=true appearance="{appearance}" font-size=32 width=200 height=60
+        ::placeholder
+          color="#ff0000"
+"##
+        );
+        let mut p = compiled(&source, 1.0, PainterChoice::Cpu);
+        let pixels = p.frame();
+        assert!(
+            pixels
+                .pixels()
+                .iter()
+                .any(|c| c.red() > 240 && c.green() < 20 && c.blue() < 20),
+            "{appearance}: disabled placeholder must contain authored red ink"
+        );
+    }
+}
+
+#[test]
+fn full_window_split_preserves_premultiplied_composition_and_refuses_clips() {
+    use exact_linux::paint::{Backend, Shape};
+    use exact_linux::raster::Raster;
+    use std::sync::Arc;
+    use tiny_skia::Transform;
+    let rect = (0., 0., 16., 8.);
+    let shape = Shape::rect(rect);
+    let ts = Transform::identity();
+    let mut game = Pixmap::new(16, 8).unwrap();
+    game.fill(tiny_skia::Color::from_rgba8(200, 40, 80, 128));
+    let game = Arc::new(game);
+    let mut reference = Raster::new();
+    reference.begin(16., 8., 1.);
+    reference.fill(&shape, [30, 60, 90, 255], ts);
+    reference.canvas(&game, rect, &[shape], ts);
+    reference.fill(&Shape::rect((0., 0., 8., 8.)), [20, 220, 100, 96], ts);
+    let expected = reference.finish().unwrap();
+    let mut split = Raster::new();
+    split.begin(16., 8., 1.);
+    split.fill(&shape, [30, 60, 90, 255], ts);
+    assert!(split.split_window_canvas(rect, &[shape], ts));
+    split.fill(&Shape::rect((0., 0., 8., 8.)), [20, 220, 100, 96], ts);
+    let below = split.take_window_underlay().unwrap().into_pixels();
+    let above = split.finish().unwrap();
+    for (((b, g), a), expected) in below
+        .data()
+        .chunks_exact(4)
+        .zip(game.data().chunks_exact(4))
+        .zip(above.data().chunks_exact(4))
+        .zip(expected.data().chunks_exact(4))
+    {
+        for channel in 0..4 {
+            let composed = a[channel] as f32
+                + (g[channel] as f32 + b[channel] as f32 * (1. - g[3] as f32 / 255.))
+                    * (1. - a[3] as f32 / 255.);
+            assert!((composed.round() as i32 - expected[channel] as i32).abs() <= 1);
+        }
+    }
+    split.recycle_window_layers(below, Some(above), split.window_overlay_rows());
+    split.begin(16., 8., 1.);
+    assert!(split.split_window_canvas(rect, &[], ts));
+    let below = split.take_window_underlay().unwrap().into_pixels();
+    let above = split.finish().unwrap();
+    assert!(
+        below.data().iter().all(|&c| c == 255),
+        "reused background is repainted"
+    );
+    assert!(
+        above.data().iter().all(|&c| c == 0),
+        "removed HUD ink must disappear"
+    );
+    split.recycle_window_layers(below, Some(above), split.window_overlay_rows());
+    split.begin(8., 4., 1.);
+    assert!(split.split_window_canvas((0., 0., 8., 4.), &[], ts));
+    assert_eq!(
+        split.take_window_underlay().unwrap().into_pixels().width(),
+        8
+    );
+    let resized = split.finish().unwrap();
+    assert_eq!((resized.width(), resized.height()), (8, 4));
+    assert!(resized.data().iter().all(|&c| c == 0));
+    split.begin(16., 8., 1.);
+    split.push_clip(&Shape::rect((0., 0., 8., 8.)), ts);
+    assert!(!split.split_window_canvas(rect, &[shape], ts));
+    assert!(split.take_window_underlay().is_none());
+    split.pop_clip();
+    assert!(split.split_window_canvas(rect, &[], ts));
+    split.backdrop_filter(
+        &Shape::rect((0., 0., 4., 4.)),
+        &exact_kernel::style::BackdropFilter(vec![exact_kernel::style::BackdropOp::Blur(2.)]),
+        ts,
+    );
+    assert!(
+        split.take_window_underlay().is_none(),
+        "backdrop effects require ordinary capture"
+    );
 }

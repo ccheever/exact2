@@ -89,7 +89,7 @@ fn a_hosts_facts_re_answer_the_resource_in_one_commit_and_the_agent_sees_them() 
         })
         .unwrap()
         .expect("the resource is declared, so its answer changed");
-    // One commit: the two texts changed, and the `when` arm swapped one
+    // One commit: the two texts changed, and the `if` arm swapped one
     // text node for the other.
     assert!(
         !receipt.touched.is_empty() || !receipt.created.is_empty(),
@@ -201,6 +201,17 @@ fn manifest_identity_survives_an_unnamed_data_standin_and_conflicts_fail() {
         }
     }
     assert!(contract::bake(compiled, Conflict).is_err());
+    std::fs::create_dir_all(directory.join(".shells")).unwrap();
+    std::fs::rename(
+        directory.join("app.json"),
+        directory.join(".shells/app.json"),
+    )
+    .unwrap();
+    let generated = contract::compile_path(&path).unwrap();
+    assert_eq!(
+        contract::bake(generated, NoData).unwrap().app_id,
+        "com.exact.standin"
+    );
     std::fs::remove_dir_all(directory).unwrap();
 }
 
@@ -212,24 +223,30 @@ import { readFileSync } from 'node:fs';
 import { validate } from './scripts/app.mjs';
 import { macInfoPlist } from './host/apple/build.mjs';
 const schema = JSON.parse(readFileSync('./scripts/app.schema.json'));
-const app = {name:'Notebook',app:{id:'test.exact.notebook',name:'Notebook'},host:{macos:{window:{width:1100,height:760,minWidth:760,minHeight:560}}}};
+const app = {name:'Notebook',app:{id:'test.exact.notebook',name:'Notebook'},host:{macos:{window:{width:1100,height:760,minWidth:760,minHeight:560,keepRunning:true}}}};
 assert.deepEqual(validate(app,schema,'',schema),[]);
 const plist = macInfoPlist({id:app.app.id,displayName:app.app.name,manifest:app});
-for (const key of ['ExactWindow','width','height','minWidth','minHeight']) assert.ok(plist.includes(`<key>${key}</key>`));
+for (const key of ['ExactWindow','width','height','minWidth','minHeight','keepRunning']) assert.ok(plist.includes(`<key>${key}</key>`));
+assert.match(plist,/<key>keepRunning<\/key>\s*<true\/>/);
 assert.ok(plist.includes('<string>Notebook</string>'));
 for (const bad of [0,-1,16385,'1100',null]) {
   app.host.macos.window.width=bad;
   assert.ok(validate(app,schema,'',schema).length,JSON.stringify(bad));
 }
+app.host.macos.window={keepRunning:'yes'};
+assert.ok(validate(app,schema,'',schema).length,'keepRunning is a boolean');
+app.host.macos.window={keepRunning:false};
+assert.deepEqual(validate(app,schema,'',schema),[],'a window may say only whether it keeps running');
 delete app.host.macos.window;
 assert.deepEqual(validate(app,schema,'',schema),[]);
 assert.ok(!macInfoPlist({id:app.app.id,displayName:app.app.name,manifest:app}).includes('ExactWindow'));
 "#;
-    let output = std::process::Command::new("bun")
-        .args(["--input-type=module", "-e", script])
-        .current_dir(Path::new(env!("CARGO_MANIFEST_DIR")).join("../.."))
-        .output()
-        .unwrap();
+    let output =
+        std::process::Command::new(std::env::var_os("BUN").unwrap_or_else(|| "bun".into()))
+            .args(["--input-type=module", "-e", script])
+            .current_dir(Path::new(env!("CARGO_MANIFEST_DIR")).join("../.."))
+            .output()
+            .unwrap();
     assert!(
         output.status.success(),
         "{}",

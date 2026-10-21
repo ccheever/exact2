@@ -1,0 +1,33 @@
+# tpx.py buckets rules for exact2's main thread: label<TAB>substring[|substring]. A sample goes to the FIRST
+# rule (top of this file wins) any of whose substrings is in any frame of its stack, so specific work is listed
+# before the containers it runs under. Refined against a real trace (the "(other)" row and --rest say what is left).
+text: paint on main (draw, first pixels)	TextEngine.draw|TextRasterJob.render|TextLinePaint|CTLineDraw|CGContextDelegateDrawGlyphs
+text: layout/shape on main	paragraphLayout|TextEngine.paragraph|CTTypesetterCreate|TextEngine.attributed|TextEngine.clampedLine
+text: refresh scan (bands, raster asks)	refreshVisibleText|TextViewportIndex|canRasterText|TextRasterizer.
+map: MapKit render on main	md::MapEngine|ggl::|MKMapView|VectorKit|-[MK
+web: WKWebView create/load	WebKit::|WKWebView|WebArm.
+video: AVPlayer	AVPlayer|FigPlayer|VideoModule|AVFoundation
+image: decode/raster reconcile	RasterLoader|CGImageSource|ImageIO
+svg: scene and animations apply	SvgScene|SvgHost|CssAnimations
+canvas2d / gpu canvases on main	Canvas2D|Canvases.|GpuModule|CAMetalLayer
+box paint in draw(_:)	NodeView.draw(
+backing store / layer display	CABackingStoreUpdate_|-[NSViewBackingLayer display]|CA::Layer::display_|-[CALayer _display]
+apply: create NodeView	NodeView.init|NodeView.__allocating_init
+apply: style	NodeView.applyStyle|applyBoxLayer|applyLayerPaint|applyClipRadius|applyShadow
+apply: props / accessibility	NodeView.applyProps|syncAccessibility|NSAccessibility|accessibility
+apply: children (addSubview, remove, order)	-[NSView addSubview|removeFromSuperview|_setSuperview|sortSubviews|orderChildren
+apply: frames	-[NSView setFrame|setFrameSize|setFrameOrigin|textRasterGeometryChanged|fitScroll
+apply: destroy / release	Presenter.release|NodeView.forget|NodeView.deinit
+batch decode on main	BatchReader|Batch.decode
+apply: other	Presenter.apply|ExactSession.apply
+collections: facts, flush, feedback encode	CollectionHost.|preparedCover|focusedView
+owner round trip (main's side)	Owner.|Runtime.
+tracking areas	TrackingArea|updateTrackingAreas
+AppKit layout / constraints	_layoutSubtree|layoutSubtreeIfNeeded|NSISEngine|updateConstraints
+AppKit display cycle / layer tree	NSDisplayCycle|_buildLayerTree|NSWindowUpdateLayerTree|NSViewBuildLayerTree
+CA commit	CA::Transaction::commit|CA::Context::commit_transaction|CA::Layer::
+scroll: clip view move, notifications	-[NSClipView|reflectScrolledClipView|_postBoundsChangeNotification|NodeView.clipScrolled|Presenter.scrolled
+frames: tick / timers	Frames.tick|exact_tick|exact_advance
+# The probe comes LAST: its tick is the outer frame of the whole scroll callback (scrollToPoint → the app's own work),
+# so listed first it swallowed everything the app does inside a scroll callback (found 2026-09-30: 245 ms/s "probe").
+probe itself (its tick and sampler, nothing of the app's under it)	-[LBProbe |CGWindowListCreateImage|probe-mac

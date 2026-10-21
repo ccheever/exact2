@@ -4,8 +4,8 @@
 //! wheel scrolling, judged against the display's own frame interval, at 1×
 //! and 4× CPU throttling. Needs `CHROME` and a Fieldnotes `host/web/dist`
 //! built as the dev loop builds it (`EXACT_WEB_LINK=all bun
-//! host/web/build.mjs fieldnotes`; `EXACT_WEB_DIST` names another); skips
-//! otherwise. The drive swaps the module generation, the dev loop's module
+//! host/web/build.mjs fieldnotes`; `EXACT_FIELDNOTES_DIST`, else `EXACT_WEB_DIST`,
+//! names another); skips otherwise, or fails under `EXACT_REQUIRED=1`. The drive swaps the module generation, the dev loop's module
 //! swap: a shipped TypeScript client takes no module replacement (LLP 1047
 //! D6, D7). The numbers are reported, not asserted: the bar is the RFC's to
 //! judge, on a named device.
@@ -14,14 +14,9 @@ use std::process::Command;
 
 #[test]
 fn fieldnotes_web_drives_on_its_placement_and_reports_frame_gaps_under_a_backup() {
-    let chrome = std::env::var("CHROME")
-        .unwrap_or_else(|_| "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome".into());
-    if !Path::new(&chrome).exists() {
-        eprintln!("Fieldnotes web drive unavailable: set CHROME");
-        return;
-    }
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../..");
-    let dist = std::env::var_os("EXACT_WEB_DIST")
+    let dist = std::env::var_os("EXACT_FIELDNOTES_DIST")
+        .or_else(|| std::env::var_os("EXACT_WEB_DIST"))
         .map(PathBuf::from)
         .unwrap_or_else(|| root.join("host/web/dist"));
     let receipt = std::fs::read_to_string(dist.join("app.module.json")).unwrap_or_default();
@@ -29,19 +24,29 @@ fn fieldnotes_web_drives_on_its_placement_and_reports_frame_gaps_under_a_backup(
     if !receipt.contains("\"com.exact.fieldnotes\"")
         || !build.contains("\"EXACT_WEB_LINK\":\"all\"")
     {
-        eprintln!(
-            "Fieldnotes web drive unavailable: {} is not a development Fieldnotes build (EXACT_WEB_LINK=all bun host/web/build.mjs fieldnotes)",
-            dist.display()
+        missing(
+            "fixture",
+            &format!(
+                "Fieldnotes web drive unavailable: {} is not a development Fieldnotes build (EXACT_WEB_LINK=all bun host/web/build.mjs fieldnotes)",
+                dist.display()
+            ),
         );
         return;
     }
-    let result = Command::new("bun")
+    let result = Command::new(std::env::var_os("BUN").unwrap_or_else(|| "bun".into()))
         .args(["--input-type=module", "-e", PROBE])
-        .env("CHROME", chrome)
         .env("EXACT_WEB_DIST", &dist)
         .current_dir(root)
         .output()
         .unwrap();
+    if let Some(why) = String::from_utf8_lossy(&result.stdout)
+        .lines()
+        .find_map(|line| line.strip_prefix("missing chrome: "))
+        .map(str::to_owned)
+    {
+        missing("chrome", &why);
+        return;
+    }
     eprintln!("{}", String::from_utf8_lossy(&result.stdout));
     assert!(
         result.status.success(),
@@ -53,6 +58,9 @@ fn fieldnotes_web_drives_on_its_placement_and_reports_frame_gaps_under_a_backup(
 
 const PROBE: &str = r#"
 import { Cdp } from './scripts/agent.mjs';
+import { chromium } from './scripts/agent-launch.mjs';
+const { executable: browserExecutable, unavailable: browserMissing } = chromium();
+if (browserMissing) { console.log(`missing chrome: ${browserMissing}`); process.exit(0); }
 import { readStaticFile, webContentType } from './host/web/serve.mjs';
 import { createServer } from 'node:http';
 import { spawn } from 'node:child_process';
@@ -69,7 +77,7 @@ const server = createServer((req, res) => {
 });
 await new Promise(r => server.listen(0, '127.0.0.1', r));
 const profile = mkdtempSync(resolve(tmpdir(), 'exact-fieldnotes-worker-'));
-const child = spawn(process.env.CHROME, ['--headless=new', '--no-sandbox', '--remote-debugging-pipe', '--no-first-run', '--disable-background-networking', '--disable-extensions', `--user-data-dir=${profile}`, 'about:blank'], { detached: true, stdio: ['ignore', 'ignore', 'ignore', 'pipe', 'pipe'] });
+const child = spawn(browserExecutable, ['--headless=new', '--no-sandbox', '--remote-debugging-pipe', '--no-first-run', '--disable-background-networking', '--disable-extensions', `--user-data-dir=${profile}`, 'about:blank'], { detached: true, stdio: ['ignore', 'ignore', 'ignore', 'pipe', 'pipe'] });
 const cdp = new Cdp(child.stdio[3], child.stdio[4]);
 const exited = new Promise(r => child.on('exit', () => { cdp.fail('browser closed'); r(); }));
 const logs = [];
@@ -245,3 +253,14 @@ try {
   await exited; server.closeAllConnections(); await new Promise(r => server.close(r)); rmSync(profile, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
 }
 "#;
+
+/// A prerequisite this run lacks: skipped, and a failure under EXACT_REQUIRED=1,
+/// which the async lane sets (scripts/coverage.mjs).
+fn missing(kind: &str, why: &str) {
+    assert_ne!(
+        std::env::var("EXACT_REQUIRED").as_deref(),
+        Ok("1"),
+        "missing {kind}: {why}"
+    );
+    eprintln!("SKIP missing {kind}: {why}");
+}

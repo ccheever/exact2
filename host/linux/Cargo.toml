@@ -1,5 +1,5 @@
 # The Linux host: the runner and kernel natively, laying out with Taffy and
-# measuring text with cosmic-text, running exact-motion, painting the kernel
+# measuring text with Parley, running exact-motion, painting the kernel
 # tree itself (vello on the GPU, tiny-skia on the CPU) — the kernel is the display list — onto DRM/KMS
 # dumb buffers with evdev input, or into a buffer with no display at all.
 # Pure Rust end to end: no system library is linked, so it builds on any
@@ -20,8 +20,10 @@ name = "exact_linux"
 crate-type = ["rlib"]
 
 [dependencies]
+exact-grants = { path = "../../grants" }
 exact-canvas = { path = "../../canvas" }
 exact-data = { path = "../../data" }
+exact-color = { path = "../../color" }
 exact-kernel = { path = "../../kernel" }
 exact-textflow = { path = "../../textflow" }
 exact-motion = { path = "../../motion" }
@@ -30,19 +32,39 @@ exact-raster = { path = "../raster" }
 # SVG islands (LLP 1055.000 §8 ruling 4): a loaded module on Apple, linked
 # here beside the tiny-skia this host already has.
 exact-svg-raster = { path = "../svg-raster" }
+# An SVG file as an image (LLP 1011.001 D2): parsed into the kernel's SVG
+# nodes and resolved to the scene the painter draws as an island.
+exact-svg-file = { path = "../svg-file" }
 exact-route = { path = "../../route" }
+# A `markup="markdown"` text's pieces (LLP 1045 D4): the painter links Rust,
+# so the reader expands its source here, as Apple's archive does.
+exact-markdown = { path = "../../markdown" }
 exact-runner = { path = "../../runner" }
 # The executor for a request that leaves the process (LLP 1016 D2): ibex2's
 # standard library for a Rust consumer (ibex LLP 0068) — rustls off Apple
 # (its OQ2) — from the sibling checkout, as the Apple host takes it.
-ibex2 = { path = "../../vendor/ibex2", default-features = false }
+# `websocket`: the transport for an app's WebSockets (exactStream sockets); the
+# vendored v4 crate gates it behind a default feature (27275f3d4), which
+# default-features = false had turned off.
+# `portable-http`: rustls and the portable sockets on a Mac too, which
+# conformance's network runs this host over (src/executor.rs).
+ibex2 = { path = "../../vendor/ibex/crates/ibex2", default-features = false, features = ["websocket", "portable-http"] }
 sha2 = "0.10"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 libloading = "0.8"
 base64 = "0.22"
 tiny-skia = "0.12"
-cosmic-text = { version = "0.19", features = ["peniko"] }
+unicode-segmentation = "1.13"
+# Text (LLP 1085.000): Parley lays out, fontique finds and matches faces
+# (its `system` feature off: no fontconfig, no platform font API), swash
+# rasterizes the face Parley chose. Every one is Rust.
+parley = { version = "0.11.1", default-features = false, features = ["std"] }
+fontique = { version = "0.11.1", default-features = false, features = ["std"] }
+swash = "0.2"
+# Canvas 2D's vertical metrics read `hhea` and `OS/2` (the version Parley uses).
+skrifa = { version = "0.44", default-features = false, features = ["std"] }
+memmap2 = "0.9"
 # Scratch reservation is audited against this decoder's row-buffer growth.
 png = "=0.18.1"
 libc = "0.2"
@@ -55,11 +77,35 @@ iana-time-zone = "0.1"
 vello = "0.10"
 wgpu = { version = "29", default-features = false, features = ["wgsl", "metal", "vulkan"] }
 
+# Android presents into the window's swapchain (gpu/present.rs).
+[target.'cfg(target_os = "android")'.dependencies]
+raw-window-handle = "0.6"
+jni-sys = "0.3"
+mimalloc = { version = "0.1", default-features = false, features = ["local_dynamic_tls", "v2"] }
+
 [target.'cfg(target_os = "linux")'.dependencies]
+# The font directories and generic families fontconfig's own files name,
+# read as files (no fontconfig library is linked).
+fontconfig-parser = "0.5"
 drm = "0.15"
 evdev = "0.13"
 
+[target.'cfg(windows)'.dependencies]
+chrono = "0.4"
+chrono-tz = "0.10"
+windows-sys = { version = "0.61", features = ["Win32_Storage_FileSystem", "Win32_UI_Shell", "Win32_System_Com"] }
+
+[features]
+# Integration tests only: a new executor waits for a native-worker slot
+# (src/executor.rs `WAIT_FOR_SLOT`), turned on by the dev-dependency below.
+test-wait = []
+
 [dev-dependencies]
+exact-update = { path = "../../update" }
+exact-linux = { path = ".", features = ["test-wait"] }
+cc = "1"
 caltrain = { path = "../../apps/caltrain" }
 caltrain-data = { path = "../../apps/caltrain/data" }
 contract = { path = "../../contract/cli" }
+# A scripted socket transport names the URL type its trait takes.
+url = "2.5"

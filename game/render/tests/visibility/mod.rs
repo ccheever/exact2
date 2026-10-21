@@ -1,0 +1,344 @@
+use super::*;
+use exact_game::{DirectionalLight, Environment, Parent, PointLight, Visible};
+
+#[derive(Default, exact_game::Args)]
+struct Options {
+    objects: bool,
+}
+struct VisibilityScene;
+type VisibilitySurface = WorldSurface<VisibilityScene, exact_game_render::ModelExecutor, true>;
+
+fn render(gpu: &Gpu, surface: &mut VisibilitySurface, now: f64, name: &str) -> Pixels {
+    let (pixels, _) = fixture::render(gpu, surface, &frame(now)).unwrap();
+    assert!(surface.error().is_none(), "{:?}", surface.error());
+    pixels.save(name);
+    pixels
+}
+impl Game for VisibilityScene {
+    const ID: &'static str = "parent-visibility-pixels";
+    const ASSETS: &'static [&'static str] = &["crate.model"];
+    type Args = Options;
+    fn setup(w: &mut World, args: &Options) {
+        w.insert_resource(Environment {
+            bloom: None,
+            fog: None,
+            ..Default::default()
+        });
+        let root = w.spawn_named("root", (Transform::default(), Visible(true)));
+        w.spawn((
+            Transform::at(0., 3., 6.).looking_at(Vec3::ZERO, Vec3::Y),
+            Camera::default(),
+            Visible(false),
+        ));
+        w.spawn((
+            Transform::at(3., 6., 3.).looking_at(Vec3::ZERO, Vec3::Y),
+            DirectionalLight::default(),
+        ));
+        w.spawn((
+            Transform::default(),
+            Mesh::plane(30., 30.),
+            Material::rgb(0.4, 0.4, 0.4),
+        ));
+        if args.objects {
+            w.spawn((
+                Transform::at(-1., 0.6, 0.),
+                Parent(root),
+                Mesh::cube(1.2),
+                Material::rgb(0.9, 0.15, 0.05),
+            ));
+            w.spawn((
+                Transform::at(1., 0.7, 0.),
+                Parent(root),
+                Mesh::asset("crate.model"),
+            ));
+            w.spawn((
+                Transform::at(0., 1.5, 0.),
+                Parent(root),
+                PointLight {
+                    color: [0.1, 1., 0.2],
+                    intensity: 30_000.,
+                    ..Default::default()
+                },
+            ));
+        }
+    }
+    fn tick(_: &mut World, _: &Input, _: &Options) {}
+}
+
+#[test]
+fn parent_visibility_pixels_remove_mesh_model_shadow_and_light_without_a_tick() {
+    let Some(gpu) = gpu() else { return };
+    let make = |objects| {
+        let mut s = VisibilitySurface::default();
+        s.device_ready(exact_gpu::wgpu::Features::empty());
+        s.bind(&[Value::Bool(objects)], None).unwrap();
+        let mut model: exact_game::asset::Model =
+            exact_game::bin::from_slice(include_bytes!("../../../bake/tests/fixtures/crate.model"))
+                .unwrap();
+        model.materials.fill(Default::default());
+        model.textures.clear();
+        model.validate().unwrap();
+        s.asset("crate.model", Ok(&exact_game::asset::encode_model(&model)));
+        s.prepare_assets(
+            &gpu.device,
+            &gpu.queue,
+            exact_gpu::wgpu::TextureFormat::Rgba8Unorm,
+        );
+        assert!(s.assets().requests.is_empty());
+        assert!(!s.sim().unwrap().is_loading());
+        s
+    };
+    let mut surface = make(true);
+    let shown = render(&gpu, &mut surface, 0., "parent-visibility-shown");
+    let mut empty = make(false);
+    let baseline = render(&gpu, &mut empty, 0., "parent-visibility-empty");
+    assert!(
+        shown
+            .data
+            .iter()
+            .zip(&baseline.data)
+            .filter(|(a, b)| a != b)
+            .count()
+            > 1000
+    );
+    surface
+        .sim()
+        .unwrap()
+        .world()
+        .require_mut::<Visible>("root")
+        .0 = false;
+    // A direct test edit must notify the surface; binding identical arguments
+    // requests a feed without advancing time or restarting the simulation.
+    surface.bind(&[Value::Bool(true)], None).unwrap();
+    let hidden = render(&gpu, &mut surface, 0., "parent-visibility-hidden");
+    assert!(
+        hidden.data == baseline.data,
+        "hidden objects leave no color, model, shadow or light pixels"
+    );
+    let saved = surface.carry().unwrap().unwrap();
+    let mut fresh = make(true);
+    render(&gpu, &mut fresh, 0., "parent-visibility-before-restore");
+    fresh.restore(&saved, exact_gpu::Restore::Open).unwrap();
+    let restored = render(&gpu, &mut fresh, 0., "parent-visibility-restored");
+    assert!(
+        restored.data == baseline.data,
+        "restored hidden pixels differ"
+    );
+    surface
+        .sim()
+        .unwrap()
+        .world()
+        .require_mut::<Visible>("root")
+        .0 = true;
+    surface.bind(&[Value::Bool(true)], None).unwrap();
+    let revealed = render(&gpu, &mut surface, 0., "parent-visibility-revealed");
+    assert!(
+        revealed.data == shown.data,
+        "revealed pixels differ from initial frame"
+    );
+    assert_eq!(surface.sim().unwrap().world().tick(), 0);
+}
+
+/// `state world:<entity> visible` for model states (LLP 1127.000 D4).
+struct ModelStates;
+impl Game for ModelStates {
+    const ID: &'static str = "visible-model-states";
+    const ASSETS: &'static [&'static str] = &["crate.model"];
+    const STREAMED: &'static [&'static str] = &["pending.model"];
+    type Args = ();
+    fn setup(w: &mut World, _: &()) {
+        w.spawn_named(
+            "camera",
+            (
+                Transform::at(0., 3., 6.).looking_at(Vec3::ZERO, Vec3::Y),
+                Camera::default(),
+            ),
+        );
+        w.spawn_named(
+            "crate",
+            (Transform::at(1., 0.7, 0.), Mesh::asset("crate.model")),
+        );
+        w.spawn_named(
+            "pending",
+            (Transform::at(-1., 0.7, 0.), Mesh::asset("pending.model")),
+        );
+        w.spawn_named(
+            "lodded",
+            (
+                Transform::at(0., 0.6, -24.),
+                Mesh::asset("crate.model"),
+                exact_game::ModelLod {
+                    levels: Vec::new(),
+                    hide: Some(5.),
+                },
+            ),
+        );
+    }
+    fn tick(_: &mut World, _: &Input, _: &()) {}
+}
+
+#[test]
+fn visible_names_a_pending_model_and_a_hidden_level() {
+    let Some(gpu) = gpu() else { return };
+    let mut s = WorldSurface::<ModelStates, exact_game_render::ModelExecutor, true>::default();
+    s.device_ready(exact_gpu::wgpu::Features::empty());
+    s.bind(&[], None).unwrap();
+    let mut model: exact_game::asset::Model =
+        exact_game::bin::from_slice(include_bytes!("../../../bake/tests/fixtures/crate.model"))
+            .unwrap();
+    model.materials.fill(Default::default());
+    model.textures.clear();
+    s.asset("crate.model", Ok(&exact_game::asset::encode_model(&model)));
+    fixture::render(&gpu, &mut s, &frame(0.)).unwrap();
+    fixture::render(&gpu, &mut s, &frame(20.)).unwrap();
+    let mut word = |name: &str| {
+        let reply = s
+            .agent(&format!(
+                r#"{{"op":"state","entity":"{name}","visible":true}}"#
+            ))
+            .unwrap();
+        let value: serde_json::Value = serde_json::from_str(&reply).unwrap();
+        value["visible"]
+            .as_str()
+            .unwrap_or_else(|| panic!("{reply}"))
+            .to_owned()
+    };
+    assert_eq!(word("crate"), "drawn");
+    assert_eq!(word("pending"), "asset-pending pending.model");
+    assert_eq!(word("lodded"), "lod-hidden 30 m");
+}
+
+/// `visible` for sprites (LLP 1127.000 D4): what the quads decided, by the
+/// texture's residency and the quad's own extent about its anchor.
+struct SpriteStates;
+impl Game for SpriteStates {
+    const ID: &'static str = "visible-sprite-states";
+    const ASSETS: &'static [&'static str] = &["white.tex"];
+    const STREAMED: &'static [&'static str] = &["missing.tex"];
+    type Args = ();
+    fn setup(w: &mut World, _: &()) {
+        use exact_game::{Sprite, Vec2};
+        w.spawn_named("camera", (Transform::at(0., 0., 10.), Camera::default()));
+        let sprite = |texture: &str, size: [f32; 2]| Sprite::new(texture, size);
+        w.spawn_named(
+            "near",
+            (Transform::default(), sprite("white.tex", [1., 1.])),
+        );
+        w.spawn_named(
+            "missing",
+            (Transform::at(1., 0., 0.), sprite("missing.tex", [1., 1.])),
+        );
+        // A 40 m banner anchored at its left end 20 m left of the view's
+        // centre: its origin is outside the view, and its quad crosses it.
+        w.spawn_named(
+            "banner",
+            (
+                Transform::at(-20., 0., 0.),
+                Sprite {
+                    anchor: Vec2::new(0., 0.5),
+                    ..sprite("white.tex", [40., 1.])
+                },
+            ),
+        );
+        w.spawn_named(
+            "away",
+            (Transform::at(60., 0., 0.), sprite("white.tex", [1., 1.])),
+        );
+    }
+    fn tick(_: &mut World, _: &Input, _: &()) {}
+}
+
+#[test]
+fn visible_reads_a_sprites_residency_and_its_anchored_extent() {
+    let Some(gpu) = gpu() else { return };
+    let mut s = WorldSurface::<SpriteStates, exact_game_render::ModelExecutor, true>::default();
+    s.device_ready(exact_gpu::wgpu::Features::empty());
+    s.bind(&[], None).unwrap();
+    let white = exact_game::asset::TextureData {
+        width: 1,
+        height: 1,
+        mips: vec![vec![255; 4]],
+        ..Default::default()
+    };
+    s.asset("white.tex", Ok(&exact_game::bin::to_vec(&white)));
+    fixture::render(&gpu, &mut s, &frame(0.)).unwrap();
+    fixture::render(&gpu, &mut s, &frame(20.)).unwrap();
+    assert!(s.error().is_none(), "{:?}", s.error());
+    let mut word = |name: &str| {
+        let reply = s
+            .agent(&format!(
+                r#"{{"op":"state","entity":"{name}","visible":true}}"#
+            ))
+            .unwrap();
+        let value: serde_json::Value = serde_json::from_str(&reply).unwrap();
+        value["visible"]
+            .as_str()
+            .unwrap_or_else(|| panic!("{reply}"))
+            .to_owned()
+    };
+    assert_eq!(word("near"), "drawn");
+    assert_eq!(word("missing"), "asset-pending missing.tex");
+    assert_eq!(word("banner"), "drawn");
+    assert_eq!(word("away"), "frustum");
+}
+
+/// The cull's own spheres (LLP 1127.000 D3, D4): a skinned cube whose joint
+/// holds it 20 m from its rest box is drawn where the joint holds it, and a
+/// plan view frames it there.
+struct Deformed;
+impl Game for Deformed {
+    const ID: &'static str = "visible-deformed";
+    const ASSETS: &'static [&'static str] = &["deformed.model"];
+    type Args = ();
+    fn setup(w: &mut World, _: &()) {
+        w.spawn_named(
+            "camera",
+            (
+                Transform::at(20., 3., 6.).looking_at(Vec3::new(20., 0.5, 0.), Vec3::Y),
+                Camera::default(),
+            ),
+        );
+        w.spawn_named(
+            "deformed",
+            (Transform::default(), Mesh::asset("deformed.model")),
+        );
+    }
+    fn tick(_: &mut World, _: &Input, _: &()) {}
+}
+
+#[test]
+fn a_skinned_model_is_drawn_and_framed_where_its_joint_holds_it() {
+    let Some(gpu) = gpu() else { return };
+    let mut model = crate::skin_fixture::skinned_model();
+    let joint = model.skins[0].joints[0] as usize;
+    model.nodes[joint].transform =
+        exact_game::Mat4::from_translation(Vec3::new(20., 0., 0.)).to_cols_array();
+    model.materials.fill(Default::default());
+    model.textures.clear();
+    let mut s = WorldSurface::<Deformed, exact_game_render::ModelExecutor, true>::default();
+    s.device_ready(exact_gpu::wgpu::Features::empty());
+    s.bind(&[], None).unwrap();
+    s.asset(
+        "deformed.model",
+        Ok(&exact_game::asset::encode_model(&model)),
+    );
+    fixture::render(&gpu, &mut s, &frame(0.)).unwrap();
+    fixture::render(&gpu, &mut s, &frame(20.)).unwrap();
+    assert!(s.error().is_none(), "{:?}", s.error());
+    let reply = s
+        .agent(r#"{"op":"state","entity":"deformed","visible":true}"#)
+        .unwrap();
+    let value: serde_json::Value = serde_json::from_str(&reply).unwrap();
+    // Its rest box, at the origin, is outside the view; the cull's sphere is not.
+    assert_eq!(value["visible"], "drawn", "{reply}");
+    let reply = s
+        .agent(r#"{"op":"screenshot","form":"look","top":30}"#)
+        .unwrap();
+    let value: serde_json::Value = serde_json::from_str(&reply).unwrap();
+    let centre = value["bounds"]["centre"][0].as_f64();
+    assert!(
+        centre.is_some_and(|x| (x - 20.).abs() < 3.),
+        "{}",
+        value["bounds"]
+    );
+}

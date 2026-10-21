@@ -29,23 +29,25 @@ component App
   mutation probe as shape Session
   derive busy = pending(session)
 
-  action setWho(v) writes who
+  action setWho(v)
     who = v
-  action setPassword(v) writes password
+  action setPassword(v)
     password = v
-  action submit writes session
+  action submit
     send session = login(who, password)
-  action profile writes session
+  action profile
     send session = profile()
-  action logout writes session
+  action logout
     send session = logout()
-  action stuck writes probe
+  action stuck
     send probe = stuck()
-  action refused writes probe
+  action refused
     send probe = refused()
-  action refusedLater writes probe
+  action refusedLater
     send probe = refusedLater()
-  action parallel writes probe
+  action refusedWhy(offline: string)
+    send probe = refusedWhy(offline)
+  action parallel
     send probe = parallel()
 
   view
@@ -59,7 +61,7 @@ component App
       button press=logout aria-label="Log out" testId="logout"
         text "Log out"
       text remembered.username testId="remembered"
-      when busy
+      if busy
         text "busy" testId="busy"
       match session
         case some(s)
@@ -89,7 +91,7 @@ fn unloaded() -> Module {
 }
 
 fn store() -> Store {
-    Store::new(GRANTS, Vec::<(String, String)>::new())
+    Store::new(GRANTS, Vec::<(String, Vec<u8>)>::new())
 }
 
 fn response(status: u16, body: &str) -> Outcome {
@@ -183,11 +185,168 @@ fn independent_fetch_is_explicit_bounded_and_keeps_each_invocation() {
             )
             .unwrap_err();
         assert!(
-            matches!(&error, DataError::Unavailable(message) if message.contains("maxResponseBytes")),
+            matches!(&error, DataError::Failed(exact_runner::failure::FailureCode::Error, message, _) if message.contains("maxResponseBytes")),
             "{error:?}"
         );
         assert_eq!(m.in_flight(), 0);
     }
+}
+
+#[test]
+fn a_fetch_deadline_reaches_the_request_and_its_timeout_rejects_with_its_kind() {
+    let mut m = module();
+    m.bind(&contract::compile("component App\n  resource result = timed(250) as shape string\n  view\n    text result\n").unwrap());
+    let mut s = store();
+    let args = [Value::Number(250.0)];
+    let request = later(m.answer(&mut s, "timed", &args).unwrap());
+    assert_eq!(request.timeout_ms, Some(250));
+    let timed_out = Outcome::Failed {
+        kind: exact_runner::FailureKind::Timeout,
+        message: "the request timed out after 250 ms".into(),
+    };
+    assert_eq!(
+        now(m.parse(&mut s, "timed", &args, timed_out).unwrap()),
+        Value::str("failed: Timeout: the request timed out after 250 ms")
+    );
+    // A deadline out of range is the fetch's TypeError, before any request.
+    for bad in [0.0, -1.0, 1.5, 3600001.0] {
+        let refused = now(m.answer(&mut s, "timed", &[Value::Number(bad)]).unwrap());
+        assert!(
+            refused.as_str().is_some_and(|m| m.contains(
+                "exactTimeout must be an integer number of milliseconds from 1 to 3600000"
+            )),
+            "{refused:?}"
+        );
+        assert_eq!(m.in_flight(), 0);
+    }
+}
+
+/// LLP 1069.002 D4: an ArrayBuffer or a view as a fetch's body is sent as
+/// its bytes, every value of a byte intact, copied when `fetch` is called.
+#[test]
+fn a_buffer_source_body_is_sent_as_its_bytes() {
+    let mut m = unloaded();
+    m.load().unwrap();
+    m.bind(&contract::compile("component App\n  resource result = upload(\"view\") as shape string\n  view\n    text result\n").unwrap());
+    let mut s = store();
+    for (kind, bytes) in [
+        ("view", vec![0u8, 255, 128, 10, 13, 0]),
+        ("dataview", vec![0, 255, 128, 10, 13, 0]),
+        ("buffer", vec![9, 0, 255, 128, 10, 13, 0, 9]),
+    ] {
+        let args = [Value::str(kind)];
+        let request = later(m.answer(&mut s, "upload", &args).unwrap());
+        assert_eq!(request.method, "POST");
+        assert_eq!(request.body, bytes, "{kind}");
+        assert!(request
+            .headers
+            .contains(&("content-type".into(), "image/png".into())));
+        assert_eq!(
+            now(m
+                .parse(&mut s, "upload", &args, response(200, "ok"))
+                .unwrap()),
+            Value::str("ok")
+        );
+    }
+}
+
+/// Fetch refuses any body on a GET or HEAD, an empty one too, and a view on
+/// a SharedArrayBuffer or a resizable buffer, before any request; a detached
+/// buffer is sent as no bytes (Web IDL's copy of a BufferSource).
+#[test]
+fn a_body_fetch_refuses_is_refused_before_any_request() {
+    let mut m = unloaded();
+    m.load().unwrap();
+    m.bind(&contract::compile("component App\n  resource result = oddUpload(\"get\") as shape string\n  view\n    text result\n").unwrap());
+    let mut s = store();
+    for (kind, message) in [
+        ("get", "a GET request cannot have a body"),
+        ("head", "a HEAD request cannot have a body"),
+        (
+            "shared",
+            "a body on a SharedArrayBuffer is not a BufferSource",
+        ),
+        (
+            "resizable",
+            "a body on a resizable ArrayBuffer is not a BufferSource",
+        ),
+    ] {
+        let refused = match m.answer(&mut s, "oddUpload", &[Value::str(kind)]).unwrap() {
+            Answer::Now(v) => v,
+            Answer::Later(r) => panic!("{kind}: a request for {}", r.url),
+        };
+        let text = refused.as_str().unwrap_or_default();
+        assert!(
+            text == "unsupported" || text.contains(message),
+            "{kind}: {refused:?}"
+        );
+        assert_eq!(m.in_flight(), 0, "{kind}");
+    }
+    let args = [Value::str("detached")];
+    match m.answer(&mut s, "oddUpload", &args).unwrap() {
+        Answer::Now(v) => assert_eq!(v, Value::str("unsupported")),
+        Answer::Later(request) => {
+            assert!(request.body.is_empty());
+            assert_eq!(
+                now(m
+                    .parse(&mut s, "oddUpload", &args, response(200, "ok"))
+                    .unwrap()),
+                Value::str("ok")
+            );
+        }
+    }
+}
+
+#[test]
+fn fetch_carries_its_redirect_mode_and_refuses_an_unknown_one() {
+    let mut m = module();
+    m.bind(&contract::compile("component App\n  resource result = redirected(\"manual\") as shape string\n  resource thrown = redirectThrows() as shape string\n  resource aborted = redirectAborted() as shape string\n  view\n    column\n      text result\n      text thrown\n      text aborted\n").unwrap());
+    let mut s = store();
+    for (mode, expected) in [
+        ("", exact_runner::Redirect::Follow),
+        ("follow", exact_runner::Redirect::Follow),
+        ("manual", exact_runner::Redirect::Manual),
+        ("error", exact_runner::Redirect::Error),
+    ] {
+        let request = later(m.answer(&mut s, "redirected", &[Value::str(mode)]).unwrap());
+        assert_eq!(request.redirect, expected, "{mode:?}");
+    }
+    // A manual redirect is the response: its Location is the module's to read.
+    later(
+        m.answer(&mut s, "redirected", &[Value::str("manual")])
+            .unwrap(),
+    );
+    let moved = Outcome::Response(Response {
+        status: 302,
+        headers: vec![("location".into(), "app.example:/callback?code=c0de".into())],
+        body: Vec::new(),
+    });
+    assert_eq!(
+        now(m
+            .parse(&mut s, "redirected", &[Value::str("manual")], moved)
+            .unwrap()),
+        Value::str("302 app.example:/callback?code=c0de")
+    );
+    // An unknown mode is refused before anything is asked of the host.
+    let before = m.in_flight();
+    let error = m
+        .answer(&mut s, "redirected", &[Value::str("sideways")])
+        .unwrap_err();
+    assert!(
+        matches!(&error, DataError::Failed(exact_runner::failure::FailureCode::Error, message, _) if message.contains("redirect")),
+        "{error:?}"
+    );
+    assert_eq!(m.in_flight(), before);
+    // A getter that throws rejects the fetch's promise, so the source's `catch` recovers.
+    assert_eq!(
+        now(m.answer(&mut s, "redirectThrows", &[]).unwrap()),
+        Value::str("recovered: no mode")
+    );
+    assert_eq!(
+        now(m.answer(&mut s, "redirectAborted", &[]).unwrap()),
+        Value::str("TypeError: redirect must be follow, manual or error")
+    );
+    assert_eq!(m.in_flight(), before);
 }
 
 fn event(id: &str, data: &str, coalesced: u32) -> Outcome {
@@ -196,6 +355,7 @@ fn event(id: &str, data: &str, coalesced: u32) -> Outcome {
         id: id.into(),
         data: data.into(),
         coalesced,
+        binary: None,
     })
 }
 
@@ -281,7 +441,7 @@ fn a_socket_answer_is_a_stream_to_a_wss_url() {
 /// held, and a newer argument forgets the stream's call in the module.
 #[test]
 fn a_stream_answer_through_the_runner() {
-    let src = "component App\n  state since = \"0\"\n  resource feed = events(since) as shape string\n  action next writes since\n    since = \"9\"\n  view\n    text feed testId=\"feed\"\n";
+    let src = "component App\n  state since = \"0\"\n  resource feed = events(since) as shape string\n  action next\n    since = \"9\"\n  view\n    text feed testId=\"feed\"\n";
     let plan = contract::compile(src).unwrap();
     let mut r = Runner::boot(
         plan,
@@ -402,6 +562,21 @@ fn a_failed_fetch_is_a_fetch_error_the_module_turns_into_its_own_words() {
     assert_eq!(session(&v).2, "Castle answered HTTP 500 without JSON");
 }
 
+/// Hermes watches a fetch's signal through Ibex's abort hooks, which an
+/// app's listener cannot stop, and leaves no listener behind (review r4a
+/// 7, 8; the browser realm's listener is js/web/tests/it/browser.rs's).
+#[test]
+fn a_reused_signal_gains_no_listener_per_fetch() {
+    let mut m = module();
+    m.bind(&contract::compile(&SHARED.replace("thread(story)", "reused()")).unwrap());
+    let mut s = store();
+    for _ in 0..2 {
+        later(m.answer(&mut s, "reused", &[]).unwrap());
+        let v = now(m.parse(&mut s, "reused", &[], response(200, "ok")).unwrap());
+        assert_eq!(session(&v).2, "0/0");
+    }
+}
+
 #[test]
 fn an_answer_may_await_two_fetches_in_a_row() {
     let mut m = module();
@@ -431,13 +606,68 @@ fn an_answer_may_await_two_fetches_in_a_row() {
     assert_eq!(m.in_flight(), 0);
 }
 
+/// LLP 1109 D3: a fetch's rejection the module lets through keeps its
+/// class, as host/web-js does (shape.js `failureCode`); an aborted one is
+/// the module's error.
+#[test]
+fn a_rejection_let_through_keeps_its_class() {
+    use exact_runner::failure::FailureCode;
+    for (kind, code) in [
+        (FailureKind::Network, Some(FailureCode::Offline)),
+        (FailureKind::Timeout, Some(FailureCode::Timeout)),
+        (FailureKind::Refused, Some(FailureCode::Refused)),
+        (FailureKind::Aborted, None),
+    ] {
+        let mut m = module();
+        let mut s = store();
+        later(m.answer(&mut s, "refusedLater", &[]).unwrap());
+        let message = "the network is gone".to_string();
+        let failed = Outcome::Failed {
+            kind,
+            message: message.clone(),
+        };
+        let err = m.parse(&mut s, "refusedLater", &[], failed).unwrap_err();
+        match code {
+            Some(code) => assert_eq!(
+                err,
+                DataError::Failed(code, message, String::new()),
+                "{kind:?}"
+            ),
+            None => assert_eq!(err, DataError::Unavailable(message), "{kind:?}"),
+        }
+    }
+}
+
+/// LLP 1109 D3, amended (the author's ruling of 2026-10-12): an error's
+/// `reason` crosses the seam as `failure(x).reason`, its code unchanged.
+#[test]
+fn a_thrown_reason_crosses_the_seam() {
+    use exact_runner::failure::FailureCode;
+    for (offline, code, reason) in [
+        ("", FailureCode::Error, "SLOT_FULL"),
+        ("yes", FailureCode::Offline, "E_OFFLINE"),
+    ] {
+        let mut m = module();
+        let mut s = store();
+        let args = [Value::str(offline)];
+        later(m.answer(&mut s, "refusedWhy", &args).unwrap());
+        let err = m
+            .parse(&mut s, "refusedWhy", &args, response(200, "{}"))
+            .unwrap_err();
+        assert_eq!(
+            err,
+            DataError::Failed(code, format!("{reason}: no"), reason.into())
+        );
+    }
+}
+
 #[test]
 fn refusals_thrown_before_and_after_a_fetch_and_an_answer_pending_on_nothing() {
     let mut m = module();
     let mut s = store();
     assert!(matches!(
         m.answer(&mut s, "refused", &[]),
-        Err(DataError::Unavailable(ref e)) if e == "refused on purpose"
+        Err(DataError::Failed(exact_runner::failure::FailureCode::Error, ref e, _)) if e == "refused on purpose"
     ));
     later(m.answer(&mut s, "refusedLater", &[]).unwrap());
     assert!(matches!(
@@ -446,7 +676,7 @@ fn refusals_thrown_before_and_after_a_fetch_and_an_answer_pending_on_nothing() {
     ));
     assert!(matches!(
         m.answer(&mut s, "stuck", &[]),
-        Err(DataError::Unavailable(ref e)) if e.contains("pending on nothing")
+        Err(DataError::Failed(exact_runner::failure::FailureCode::Error, ref e, _)) if e.contains("pending on nothing")
     ));
     // A reply for nothing in flight, and a fetching source at bake.
     assert!(matches!(
@@ -554,7 +784,7 @@ component App
   mutation first as shape Session
   mutation second as shape Session
 
-  action both writes first, second
+  action both
     send first = profile()
     send second = profile()
 
@@ -629,6 +859,159 @@ fn two_targets_asking_one_source_with_equal_arguments_each_settle_with_their_own
     assert_eq!(text_of(&r, "first-text").as_deref(), Some("ada's"));
     assert_eq!(text_of(&r, "second-user").as_deref(), Some("bob"));
     assert_eq!(text_of(&r, "second-text").as_deref(), Some("bob's"));
+    assert!(!r.has_pending());
+    assert_eq!(r.data().in_flight(), 0);
+}
+
+/// Two resources whose answers share one fetch (hn-reader F7).
+const SHARED: &str = r#"
+shape Session
+  ok: bool
+  username: string
+  error: string
+
+component App
+  state story = ""
+  resource detail = item(story) as shape Session
+  resource comments = thread(story) as shape Session
+  action open
+    story = "8863"
+  view
+    column
+      button press=open testId="open"
+        text "Open"
+      text detail.error testId="detail"
+      text comments.error testId="comments"
+"#;
+
+/// An answer that awaits a promise another answer's fetch settles waits for
+/// it, as in a browser, rather than refusing the press that asked
+/// (LLP 1027.003.000 §13, the module-wide rule; hn-reader F7).
+#[test]
+fn an_answer_awaiting_another_answers_fetch_waits_for_it_and_both_settle() {
+    use exact_runner::Dispatch;
+    let plan = contract::compile(SHARED).expect("the fixture's Contract compiles");
+    let baked = contract::bake(plan, Module::loaded(HBC.to_vec(), APP, GRANTS).unwrap()).unwrap();
+    let mut r = Runner::boot(
+        baked,
+        Module::loaded(HBC.to_vec(), APP, GRANTS).unwrap(),
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    r.dispatch(view_of(&r, "open"), Event::Press).unwrap();
+    let asked = r.take_requests();
+    assert_eq!(asked.len(), 2, "the fetch, and the answer that waits on it");
+    let (fetch, waiting): (Vec<_>, Vec<_>) =
+        asked.iter().partition(|a| a.request.continuation.is_none());
+    assert_eq!(fetch[0].request.url, "https://api.castle.xyz/item/8863");
+    let token = waiting[0].request.continuation.unwrap();
+    assert!(
+        matches!(r.dispatch_work(token), Dispatch::Held),
+        "it waits while the fetch it shares is in flight"
+    );
+    assert!(r.release_work().is_empty(), "nothing has landed yet");
+    r.fulfill(fetch[0].ticket, response(200, "the story"))
+        .unwrap();
+    let released = r.release_work();
+    assert_eq!(released.len(), 1, "the delivery wakes the waiting answer");
+    // Asked again with no work to run (LLP 1041 §8.4, amended 2026-10-09).
+    let (woken, Dispatch::Again) = released.into_iter().next().unwrap() else {
+        panic!("a waiting answer is asked again at once");
+    };
+    assert_eq!(woken, token);
+    r.fulfill(waiting[0].ticket, Dispatch::again_outcome())
+        .unwrap();
+    assert_eq!(text_of(&r, "detail").as_deref(), Some("the story"));
+    assert_eq!(text_of(&r, "comments").as_deref(), Some("the story"));
+    assert!(!r.has_pending());
+    assert_eq!(r.data().in_flight(), 0);
+}
+
+/// An answer that awaits another's fetch and then fetches on its own: its
+/// second request runs, though its continuation ran as the other answer,
+/// which had already settled (review r4a, finding 1).
+#[test]
+fn a_fetch_made_after_awaiting_another_answers_fetch_is_not_left_behind() {
+    use exact_runner::Dispatch;
+    let plan = contract::compile(&SHARED.replace("thread(story)", "followup(story)"))
+        .expect("the fixture's Contract compiles");
+    let baked = contract::bake(plan, Module::loaded(HBC.to_vec(), APP, GRANTS).unwrap()).unwrap();
+    let mut r = Runner::boot(
+        baked,
+        Module::loaded(HBC.to_vec(), APP, GRANTS).unwrap(),
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    r.dispatch(view_of(&r, "open"), Event::Press).unwrap();
+    let asked = r.take_requests();
+    let (fetch, waiting): (Vec<_>, Vec<_>) =
+        asked.iter().partition(|a| a.request.continuation.is_none());
+    let token = waiting[0].request.continuation.unwrap();
+    assert!(matches!(r.dispatch_work(token), Dispatch::Held));
+    r.fulfill(fetch[0].ticket, response(200, "the story"))
+        .unwrap();
+    assert_eq!(text_of(&r, "detail").as_deref(), Some("the story"));
+    let (_, Dispatch::Again) = r.release_work().into_iter().next().unwrap() else {
+        panic!("the waiting answer is asked again");
+    };
+    r.fulfill(waiting[0].ticket, Dispatch::again_outcome())
+        .unwrap();
+    let more = r.take_requests();
+    assert_eq!(more.len(), 1, "its own second fetch is handed out");
+    assert_eq!(more[0].request.url, "https://api.castle.xyz/comments/8863");
+    r.fulfill(more[0].ticket, response(200, "talk")).unwrap();
+    assert_eq!(text_of(&r, "comments").as_deref(), Some("the story + talk"));
+    assert!(!r.has_pending());
+    assert_eq!(r.data().in_flight(), 0);
+}
+
+/// An answer that fetches without awaiting and finishes while another answer
+/// awaits its own fetch: its request is still handed out, not left in the
+/// module (Grok's batch 2 review, runtime). A ticket made while the answer
+/// was still in flight is its own, whoever else is pending.
+#[test]
+fn an_unawaited_fetch_is_sent_while_another_answer_is_in_flight() {
+    let src = SHARED
+        .replace(
+            "  resource comments = thread(story) as shape Session\n",
+            "  mutation saved as shape Session\n  action save\n    send saved = saveQuietly(\"8863\")\n",
+        )
+        .replace(
+            "      text comments.error testId=\"comments\"\n",
+            "      button press=save testId=\"save\"\n        text \"Save\"\n      match saved\n        case some(s)\n          text s.error testId=\"saved\"\n        case none\n          text \"\"\n",
+        );
+    let plan = contract::compile(&src).expect("the fixture's Contract compiles");
+    let baked = contract::bake(plan, Module::loaded(HBC.to_vec(), APP, GRANTS).unwrap()).unwrap();
+    let mut r = Runner::boot(
+        baked,
+        Module::loaded(HBC.to_vec(), APP, GRANTS).unwrap(),
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    r.dispatch(view_of(&r, "open"), Event::Press).unwrap();
+    let item = r.take_requests();
+    assert_eq!(item.len(), 1);
+    assert_eq!(item[0].request.url, "https://api.castle.xyz/item/8863");
+    r.dispatch(view_of(&r, "save"), Event::Press).unwrap();
+    let saved = r.take_requests();
+    assert_eq!(
+        saved.len(),
+        1,
+        "the unawaited POST is handed out: {saved:?}"
+    );
+    assert_eq!(saved[0].request.url, "https://api.castle.xyz/save/8863");
+    assert_eq!(saved[0].request.method, "POST");
+    r.fulfill(saved[0].ticket, response(200, "")).unwrap();
+    assert_eq!(text_of(&r, "saved").as_deref(), Some("saved"));
+    r.fulfill(item[0].ticket, response(200, "the story"))
+        .unwrap();
+    assert_eq!(text_of(&r, "detail").as_deref(), Some("the story"));
     assert!(!r.has_pending());
     assert_eq!(r.data().in_flight(), 0);
 }
@@ -727,7 +1110,7 @@ fn a_store_reading_resource_boots_from_its_kept_answer_and_is_asked_again_once_t
 
     // The keychain was cleared underneath: the kept answer shows for a
     // frame, then the engine corrects it.
-    let cleared: Vec<(String, String)> = snapshot
+    let cleared: Vec<(String, Vec<u8>)> = snapshot
         .into_iter()
         .filter(|(n, _)| n != "castle.session")
         .collect();
@@ -814,4 +1197,116 @@ fn a_worker_placed_answer_takes_a_large_reply_as_it_takes_a_small_one() {
         assert!(ok && username == "ada", "{size}");
         assert_eq!(text.len(), size, "{size}");
     }
+}
+
+/// A superseded send's continuation runs, never vanishes (the Signal
+/// clone's stuck `flushing` flag): the runner lets its request go, its fetch
+/// rejects as `Aborted`, and its `finally` clears what it set.
+#[test]
+fn a_let_go_call_waiting_on_a_fetch_runs_its_continuation() {
+    use exact_runner::{DataSource, Target};
+    let mut m = module();
+    m.bind(&contract::compile("component App\n  mutation sent as shape string\n  resource busy = flushing() as shape string\n  action go(v: string)\n    send sent = flush(v)\n  view\n    text busy\n").unwrap());
+    let mut s = store();
+    let request = later(
+        m.answer_for(Target::Mutation(0), &mut s, "flush", &[Value::str("hi")])
+            .unwrap(),
+    );
+    assert_eq!(request.method, "POST");
+    assert_eq!(
+        now(m.answer(&mut s, "flushing", &[]).unwrap()),
+        Value::str("true ")
+    );
+    // A newer send replaced it: nothing of the first is in flight.
+    m.forgotten(&s, &[]);
+    assert_eq!(
+        now(m.answer(&mut s, "flushing", &[]).unwrap()),
+        Value::str("false Aborted: the answer was let go before this reply; the request may already have been sent")
+    );
+    assert_eq!(m.in_flight(), 0);
+}
+
+/// A stream's promise never settles, ended or let go: no second rejection
+/// after its mapper took the end (review of the let-go fix).
+#[test]
+fn a_let_go_stream_does_not_reject_its_fetch() {
+    use exact_runner::{DataSource, Target};
+    let mut m = module();
+    m.bind(&contract::compile("component App\n  resource feed = events(\"0\") as shape string\n  view\n    text feed\n").unwrap());
+    let mut s = store();
+    let request = later(
+        m.answer_for(Target::Resource(0), &mut s, "events", &[Value::str("0")])
+            .unwrap(),
+    );
+    assert!(request.stream);
+    m.forgotten(&s, &[]);
+    assert_eq!(m.in_flight(), 0);
+    let logs = m.take_logs().join("\n");
+    assert!(!logs.contains("unhandled rejection"), "{logs}");
+}
+
+/// A waiting answer whose re-ask is refused for good (a retired executor,
+/// say): the answer fails and keeps its last value, its call is unlinked
+/// from the module's bookkeeping, and nothing is left in flight for it
+/// (LLP 1041 §8.4 Q5). The shared fetch still settles the answer it
+/// belongs to. This is bookkeeping, not cancellation: a continuation the
+/// shared promise runs is not stopped by it.
+#[test]
+fn a_refused_re_ask_fails_its_answer_and_unlinks_its_call() {
+    use exact_runner::{Dispatch, FailureKind, Outcome};
+    let plan = contract::compile(SHARED).expect("the fixture's Contract compiles");
+    let baked = contract::bake(plan, Module::loaded(HBC.to_vec(), APP, GRANTS).unwrap()).unwrap();
+    let mut r = Runner::boot(
+        baked,
+        Module::loaded(HBC.to_vec(), APP, GRANTS).unwrap(),
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    r.dispatch(view_of(&r, "open"), Event::Press).unwrap();
+    let asked = r.take_requests();
+    let (fetch, waiting): (Vec<_>, Vec<_>) =
+        asked.iter().partition(|a| a.request.continuation.is_none());
+    let (owner, waiter) = (fetch[0].target.clone(), waiting[0].target.clone());
+    let id = |target: &str| {
+        if target == "detail" {
+            "detail"
+        } else {
+            "comments"
+        }
+    };
+    let token = waiting[0].request.continuation.unwrap();
+    assert!(matches!(r.dispatch_work(token), Dispatch::Held));
+    assert_eq!(r.data().in_flight(), 2);
+    assert_eq!(r.data().calls_open(), Some(2));
+    r.refuse_request(waiting[0].ticket, "native executor retired", true);
+    let (ticket, outcome) = r.take_request_refusal(true).unwrap();
+    assert!(matches!(
+        outcome,
+        Outcome::Failed {
+            kind: FailureKind::Refused,
+            ..
+        }
+    ));
+    r.fulfill(ticket, outcome).unwrap();
+    assert_eq!(
+        r.data().in_flight(),
+        1,
+        "the refused call is no longer parked"
+    );
+    assert_eq!(
+        r.data().calls_open(),
+        Some(1),
+        "and the prelude no longer tracks it: only the fetch's owner is left"
+    );
+    assert_eq!(r.failed_resources().len(), 1);
+    r.fulfill(fetch[0].ticket, response(200, "the story"))
+        .unwrap();
+    assert_eq!(text_of(&r, id(&owner)).as_deref(), Some("the story"));
+    assert_eq!(text_of(&r, id(&waiter)).as_deref(), Some(""));
+    assert!(!r.has_pending());
+    assert_eq!(r.data().in_flight(), 0);
+    assert_eq!(r.data().calls_open(), Some(0));
+    assert!(r.take_requests().is_empty());
 }

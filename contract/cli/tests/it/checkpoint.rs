@@ -19,7 +19,7 @@ component Blog
   state id = "7"
   resource post = post(id) as shape Post else emptyPost()
   resource viewer = viewer() as shape string
-  action next writes id
+  action next
     id = "8"
   view
     column
@@ -136,7 +136,7 @@ fn boot(
         checkpoint,
         store
             .iter()
-            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .map(|(k, v)| (k.to_string(), v.as_bytes().to_vec()))
             .collect(),
         Delivery::default(),
         Default::default(),

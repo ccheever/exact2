@@ -1,0 +1,11 @@
+tap before
+key before Tab
+tap b
+tap a
+tap after
+tap programmatic
+tap a
+key a Enter
+tap stopA
+tap stopB
+tap after

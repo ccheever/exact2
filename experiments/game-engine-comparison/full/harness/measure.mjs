@@ -1,3 +1,4 @@
+import { homedir as browserHome } from 'node:os';
 import { chromium } from 'playwright';
 import { mkdir, readFile, readdir, writeFile, stat } from 'node:fs/promises';
 import { gzipSync } from 'node:zlib';
@@ -26,7 +27,7 @@ console.log(JSON.stringify({stage:"package-scanned",engine:args.engine,files:siz
 const launches=[];
 for(let trial=0;trial<Number(args.trials || 5);trial++) {
   console.log(JSON.stringify({stage:"launch",trial,engine:args.engine}));
-  const browser=await chromium.launch({executablePath:process.env.CHROMIUM||'/home/ccheever/.cache/ms-playwright/chromium-1234/chrome-linux64/chrome',headless:true,args:['--no-sandbox','--use-gl=angle','--use-angle=swiftshader','--enable-unsafe-swiftshader']});
+  const browser=await chromium.launch({executablePath:process.env.CHROMIUM||(process.env.CHROME || browserHome() + "/.cache/ms-playwright/chromium-1234/chrome-linux64/chrome"),headless:true,args:['--no-sandbox','--use-gl=angle','--use-angle=swiftshader','--enable-unsafe-swiftshader']});
   try {
     const page=await browser.newPage({viewport:{width:1280,height:800}});
     page.setDefaultTimeout(90000);

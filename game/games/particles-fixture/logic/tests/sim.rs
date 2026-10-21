@@ -107,6 +107,7 @@ fn primitive_particles_render_and_do_not_pick() {
         period_ms: 0.,
         children_generation: 0,
         shader_generation: 0,
+        headroom: 1.0,
     };
     let first = fixture::render(&gpu, &mut s, &frame).unwrap().0;
     frame.now_ms = 5000.;

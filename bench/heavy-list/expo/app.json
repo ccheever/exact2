@@ -1,0 +1,16 @@
+{
+  "expo": {
+    "name": "HeavyBenchExpo",
+    "slug": "heavybench-expo",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "dev.exact.heavybench.expo"
+    },
+    "plugins": [
+      "expo-image"
+    ]
+  }
+}

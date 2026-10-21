@@ -1,0 +1,6 @@
+10:5: tamber-when-ambiguous: this `when` and the one on line 9 both hold and name as many axes
+13:5: tamber-when-ambiguous: this `when` and the one on line 12 both hold and name as many axes
+14:20: tamber-syntax: `rgb(1 2)`: three channels and an optional `/ alpha`
+18:5: tamber-unknown-axis: `contrast` is no declared axis
+19:5: tamber-unknown-axis: `tight` is not a value of `density`
+20:5: tamber-syntax: `density` twice in one `when`

@@ -1,6 +1,56 @@
 use super::*;
 use exact_runner::Request;
-use sha2::{Digest, Sha256};
+
+pub(super) fn compile_fixture(source: &std::path::Path, path: &std::path::Path) {
+    #[cfg(not(windows))]
+    let mut command = {
+        let mut command = std::process::Command::new("cc");
+        command
+            .args(["-shared", "-fPIC"])
+            .arg(source)
+            .arg("-o")
+            .arg(path);
+        command
+    };
+    #[cfg(windows)]
+    let mut command = {
+        let target = format!("{}-pc-windows-msvc", std::env::consts::ARCH);
+        let compiler = cc::windows_registry::find_tool(&target, "cl.exe")
+            .expect("the Windows native tests require the MSVC C compiler");
+        let mut command = compiler.to_command();
+        command
+            .arg("/nologo")
+            .arg("/LD")
+            .arg(source)
+            .arg(format!("/Fe:{}", path.display()))
+            .arg(format!("/Fo:{}", source.with_extension("obj").display()))
+            .arg("/link")
+            .arg(format!("/IMPLIB:{}", path.with_extension("lib").display()));
+        let text = std::fs::read_to_string(source).unwrap();
+        for line in text.lines().filter(|line| {
+            ["void ", "bool ", "uint32_t ", "const "]
+                .iter()
+                .any(|p| line.starts_with(p))
+        }) {
+            if let Some((declaration, _)) = line.split_once('(') {
+                let name = declaration
+                    .split_whitespace()
+                    .last()
+                    .unwrap()
+                    .trim_start_matches('*');
+                command.arg(format!("/EXPORT:{name}"));
+            }
+        }
+        command
+    };
+    let output = command.output().unwrap();
+    assert!(
+        output.status.success(),
+        "fixture C compile: {}\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
 
 #[test]
 fn surface_work_scope_is_refused_before_presenter_effects() {
@@ -103,6 +153,17 @@ pub(super) fn fixture() -> (PathBuf, Value) {
 #include <stdio.h>
 #include <string.h>
 void gpu_load_headless(void) {}
+static uint32_t tier_code = 2, retiers;
+uint32_t gpu_tier(uint32_t code) { if (code < 3) tier_code = code; return tier_code; }
+void gpu_retier(void) { retiers++; }
+uint32_t test_retiers(void) { return retiers; }
+static uint32_t lifecycle_count, lifecycle_codes[32], lifecycle_ids[32];
+void gpu_lifecycle(uint32_t id, uint32_t code) {
+  if (lifecycle_count < 32) { lifecycle_ids[lifecycle_count] = id; lifecycle_codes[lifecycle_count++] = code; }
+}
+uint32_t test_lifecycle_count(void) { return lifecycle_count; }
+uint32_t test_lifecycle_code(uint32_t at) { return lifecycle_codes[at]; }
+uint32_t test_lifecycle_id(uint32_t at) { return lifecycle_ids[at]; }
 uint32_t gpu_recover(void) { return 0; }
 uint32_t gpu_child_view(void) { return 0; }
 uint32_t gpu_children_count(void) { return 0; }
@@ -121,25 +182,47 @@ uint32_t gpu_bind_at(uint32_t id, const unsigned char *text, size_t len, double 
 }
 const char *test_bound(void) { return bound; }
 static const char reply[] = "{\"hit\":{\"name\":\"cpu\"}}";
+static char journal_reply[256];
+static const char *output;
+static uint32_t journal_next;
+void test_journal_next(uint32_t next) { journal_next = next; }
 uint32_t gpu_agent(uint32_t id, const unsigned char *text, size_t len) {
+  output = reply;
+  char query[4096];
+  if(len>=sizeof(query)) return 268435457;
+  memcpy(query,text,len); query[len]=0;
+  if (strstr(query,"logs")) {
+    unsigned long since=0;
+    const char *cursor=strstr(query,"\"since\":");
+    if(cursor) sscanf(cursor+8,"%lu",&since);
+    unsigned long from=journal_next>4096 ? journal_next-4096 : 0;
+    if(since>from) from=since;
+    if(from>journal_next) from=journal_next;
+    snprintf(journal_reply,sizeof(journal_reply),"{\"from\":%lu,\"next\":%u,\"lines\":[]}",from,journal_next);
+    output=journal_reply; return strlen(output);
+  }
   for (size_t i=0; i+6<=len; ++i) if (!memcmp(text+i, "layout", 6)) return sizeof(reply)-1;
   return 268435457;
 }
 static uint32_t cancels = 0;
 uint32_t test_cancels(void) { return cancels; }
 static char event[2048];
+static char previous_event[2048];
 static uint32_t event_id, event_count;
 const char *test_input(void) { return event; }
+const char *test_previous_input(void) { return previous_event; }
 uint32_t test_input_id(void) { return event_id; }
 uint32_t test_input_count(void) { return event_count; }
 uint32_t gpu_input(uint32_t id, const unsigned char *text, size_t len) {
-  if(len>=sizeof(event)) return 1; memcpy(event,text,len);event[len]=0;
+  if(len>=sizeof(event)) return 1; memcpy(previous_event,event,sizeof(event)); memcpy(event,text,len);event[len]=0;
   event_id=id; event_count++;
+  if (id == 97 && strstr(event,"wheel")) return 1;
   if (strstr(event,"RejectKey")) return 1;
   if (strstr(event,"cancel") || strstr(event,"blur")) cancels++;
   return strstr(event,"control") && !strstr(event,"jump") ? 1 : 0;
 }
-uint32_t gpu_wants_input(void) { return 1; }
+uint32_t gpu_wants_input(uint32_t id) { return id != 98; }
+uint32_t gpu_presentation_flags(uint32_t id) { return 0; }
 uint32_t gpu_assets(void) { return 0; }
 bool gpu_asset(void) { return true; }
 uint32_t gpu_published(void) { return 268435457; }
@@ -148,19 +231,12 @@ uint32_t gpu_carry(void) { return 268435457; }
 uint32_t gpu_restore(void) { return 1; }
 void gpu_destroy(void) {}
 uint32_t gpu_error(void) { return 0; }
-const unsigned char* gpu_out_ptr(void) { return (const unsigned char*)reply; }
+const unsigned char* gpu_out_ptr(void) { return (const unsigned char*)(output ? output : reply); }
 "#,
     )
     .unwrap();
-    assert!(std::process::Command::new("cc")
-        .args(["-shared", "-fPIC"])
-        .arg(&source)
-        .arg("-o")
-        .arg(&path)
-        .status()
-        .unwrap()
-        .success());
-    let digest = format!("{:x}", Sha256::digest(std::fs::read(&path).unwrap()));
+    compile_fixture(&source, &path);
+    let digest = digest::file(&path, true).unwrap();
     let compat = json!({"id":"cohort", "inputs":{"app":"test.app"}, "embedded":{"gpu":{
             "name":path.file_name().unwrap().to_str().unwrap(),"sha256":digest,
             "app":"test.app","cohort":"cohort","trust":"production"}}});
@@ -186,23 +262,33 @@ fn module_identity_refuses_stale_foreign_and_missing_bakes_before_loading() {
     }
     assert!(Abi::open_path(&path, &Value::Null, "").is_err());
     drop(Abi::open_path(&path, &compat, "").unwrap());
+    let mut development = compat.clone();
+    development["embedded"]["gpu"]["trust"] = json!("development");
+    development["embedded"]["gpu"]["receipt"] = json!(true);
+    let receipt = format!("{}.proof.json", path.display());
+    std::fs::write(
+        &receipt,
+        json!({"inputs":"a".repeat(64),
+        "artifact":digest::bytes_digest(&std::fs::read(&path).unwrap(), false)})
+        .to_string(),
+    )
+    .unwrap();
+    verify_module(&path, &development, "").unwrap();
+    verify_module(&path, &compat, "").unwrap();
+    development["embedded"]["gpu"]["receipt"] = json!(false);
+    development["embedded"]["gpu"]["sha256"] = json!("wrong digest");
+    assert!(verify_module(&path, &development, "").is_err());
+
     // A digest-authenticated old child ABI must refuse before any call.
     let source = path.with_file_name("probe.c");
     let old = std::fs::read_to_string(&source)
         .unwrap()
         .replace("gpu_child_view", "gpu_child");
     std::fs::write(&source, old).unwrap();
-    assert!(std::process::Command::new("cc")
-        .args(["-shared", "-fPIC"])
-        .arg(&source)
-        .arg("-o")
-        .arg(&path)
-        .status()
-        .unwrap()
-        .success());
+    compile_fixture(&source, &path);
     let mut old_compat = compat.clone();
     old_compat["embedded"]["gpu"]["sha256"] =
-        format!("{:x}", Sha256::digest(std::fs::read(&path).unwrap())).into();
+        digest::bytes_digest(&std::fs::read(&path).unwrap(), true).into();
     let error = Abi::open_path(&path, &old_compat, "")
         .err()
         .expect("old ABI refused");
@@ -211,21 +297,11 @@ fn module_identity_refuses_stale_foreign_and_missing_bakes_before_loading() {
 }
 #[test]
 fn cpu_canvas_pick_is_forwarded_without_a_device() {
-    struct NoData;
-    impl DataSource for NoData {
-        fn query(
-            &mut self,
-            name: &str,
-            _: &[exact_runner::Value],
-        ) -> Result<exact_runner::Value, exact_runner::DataError> {
-            Err(exact_runner::DataError::UnknownSource(name.into()))
-        }
-    }
     let (path, compat) = fixture();
     let plan = contract::compile("component App\n  view\n    text \"test\"\n").unwrap();
     let (mut p, _) = Presenter::boot(
         &plan.encode(),
-        NoData,
+        (),
         (100., 100.),
         1.,
         path.parent().unwrap().into(),
@@ -252,26 +328,20 @@ fn cpu_canvas_pick_is_forwarded_without_a_device() {
     );
     let reply = p.surface_request(1, json!({"op":"layout","x":50,"y":50}));
     assert_eq!(reply["hit"]["name"], "cpu");
+    let screenshot = p.merge_surfaces(r#"{"op":"screenshot"}"#, "{}".into());
+    assert!(screenshot.contains("flat (no device)"));
+    p.surfaces.abis.get_mut("").unwrap().rendered = true;
+    let screenshot = p.merge_surfaces(r#"{"op":"screenshot"}"#, "{}".into());
+    assert!(!screenshot.contains("no device"));
     drop(p);
     std::fs::remove_dir_all(path.parent().unwrap()).unwrap();
 }
 #[test]
 fn controls_own_release_and_focus_and_placed_siblings_cover() {
-    #[derive(Default)]
-    struct NoData;
-    impl DataSource for NoData {
-        fn query(
-            &mut self,
-            n: &str,
-            _: &[exact_runner::Value],
-        ) -> Result<exact_runner::Value, exact_runner::DataError> {
-            Err(exact_runner::DataError::UnknownSource(n.into()))
-        }
-    }
     let (path, compat) = fixture();
     let source = r#"component Controls
   state renamed = false
-  action rename writes renamed
+  action rename
     renamed = true
   view
     column
@@ -282,13 +352,13 @@ fn controls_own_release_and_focus_and_placed_siblings_cover() {
     let plan = contract::compile(source).unwrap();
     let (mut p, _) = Presenter::boot(
         &plan.encode(),
-        NoData,
+        (),
         (100., 200.),
         1.,
         path.parent().unwrap().into(),
     )
     .unwrap();
-    let find = |p: &Presenter<NoData>, name: &str| {
+    let find = |p: &Presenter<()>, name: &str| {
         p.host
             .preorder()
             .into_iter()
@@ -369,7 +439,7 @@ fn controls_own_release_and_focus_and_placed_siblings_cover() {
     drop(p);
     let source = r#"component Placed
   state count = 0
-  action press writes count
+  action press
     count = count + 1
   view
     canvas testId="world" width=100 height=100
@@ -379,7 +449,7 @@ fn controls_own_release_and_focus_and_placed_siblings_cover() {
     let plan = contract::compile(source).unwrap();
     let (mut p, _) = Presenter::boot(
         &plan.encode(),
-        NoData,
+        (),
         (100., 100.),
         1.,
         path.parent().unwrap().into(),
@@ -470,5 +540,168 @@ fn oversized_module_output_is_a_structured_refusal() {
     assert!(abi.bytes(u32::MAX).is_none());
     assert_eq!(abi.bytes(0), Some(vec![]));
     drop(abi);
+    std::fs::remove_dir_all(path.parent().unwrap()).unwrap();
+}
+
+/// Grow a Garden's HUD went past the record limit after a harvest and the
+/// agent's `clock` failed with it (diary 004, limit 2). A refused record is
+/// the surface's: the operation that carried it answers, `state` names the
+/// refusal with the record's size and the limit, and the last record stands.
+#[test]
+fn an_oversized_record_is_reported_in_state_not_as_the_operations_error() {
+    let source = "shape Hud\n  score: number\ncomponent App\n  resource hud = exactSurface(\"world\") as shape Hud\n  view\n    text `${hud.score}` testId=\"hud\"\n";
+    let (mut h, error) = Host::boot(
+        &crate::test_plan(source),
+        (),
+        Box::new(exact_kernel::MonospaceMeasurer::default()),
+        400.,
+        500.,
+    )
+    .unwrap();
+    assert!(error.is_none(), "{error:?}");
+    assert!(h.surface_record("world", Some(r#"{"score":3}"#)).is_none());
+    let limit = exact_runner::surface_record::MAX_BYTES;
+    let over = format!(r#"{{"score":4,"pad":"{}"}}"#, "x".repeat(limit));
+    assert!(h.surface_record("world", Some(&over)).is_none());
+    let state: Value = serde_json::from_str(&h.agent(r#"{"op":"state"}"#)).unwrap();
+    assert_eq!(
+        state["resources"]["hud"]["score"], 3,
+        "the last record stands"
+    );
+    let why = state["surfaceRefusals"]["world"].as_str().unwrap();
+    assert!(
+        why.contains(&format!("record is {} bytes", over.len()))
+            && why.contains(&format!("{limit}-byte (16 MiB) limit")),
+        "{why}"
+    );
+    assert!(h.surface_record("world", Some(r#"{"score":5}"#)).is_none());
+    let state: Value = serde_json::from_str(&h.agent(r#"{"op":"state"}"#)).unwrap();
+    assert_eq!(state["resources"]["hud"]["score"], 5);
+    assert_eq!(state["surfaceRefusals"], json!({}));
+}
+
+// postMessage parity (review S2): a post waits for its surface's canvas, at
+// most POST_BOUND per name, on every host.
+#[test]
+fn posts_wait_for_their_surface_up_to_the_bound() {
+    let mut s = Surfaces::default();
+    let event = || serde_json::json!({"t":"message","text":"buy","at":0.0});
+    for _ in 0..POST_BOUND {
+        assert!(s.post("world", event()));
+    }
+    assert!(!s.post("world", event()), "the 65th post is dropped");
+    assert!(s.post("other", event()), "the bound is per surface name");
+    s.deliver_posts();
+    assert_eq!(s.posts["world"].len(), POST_BOUND, "no canvas: still held");
+}
+
+#[test]
+fn rendered_lifecycle_preserves_both_causes_and_initializes_replacements() {
+    let (path, compat) = fixture();
+    let mut abi = Abi::open_path(&path, &compat, "").unwrap();
+    // The C fixture records the existing ABI without allocating a real device.
+    abi.rendered = true;
+    let mut surfaces = Surfaces::default();
+    surfaces.abis.insert(String::new(), abi);
+    surfaces.canvases.insert(
+        7,
+        Canvas {
+            id: 41,
+            name: "world".into(),
+            artifact: String::new(),
+            owner: true,
+            since: 0,
+            held: BTreeSet::new(),
+            restored_controls: None,
+            restore_error: None,
+            restore_input: false,
+            restore_bytes: None,
+            restore_logged: false,
+        },
+    );
+    surfaces.lifecycle(true, true);
+    surfaces.lifecycle(true, true); // redundant event makes no device transition
+    surfaces.lifecycle(false, true); // visible still interrupted
+    surfaces.lifecycle(false, false);
+    surfaces.lifecycle(true, true);
+    surfaces.initial_lifecycle(&surfaces.abis[""], 99);
+    let abi = &surfaces.abis[""];
+    // SAFETY: these signatures are the C test fixture's exported observers.
+    unsafe {
+        let count = abi.symbol::<unsafe extern "C" fn() -> u32>(b"test_lifecycle_count")();
+        assert_eq!(count, 8);
+        let code = abi.symbol::<unsafe extern "C" fn(u32) -> u32>(b"test_lifecycle_code");
+        let id = abi.symbol::<unsafe extern "C" fn(u32) -> u32>(b"test_lifecycle_id");
+        assert_eq!(
+            (0..count).map(|i| (id(i), code(i))).collect::<Vec<_>>(),
+            [
+                (41, 0),
+                (41, 2),
+                (41, 1),
+                (41, 3),
+                (41, 0),
+                (41, 2),
+                (99, 0),
+                (99, 2)
+            ]
+        );
+    }
+    drop(surfaces);
+    std::fs::remove_dir_all(path.parent().unwrap()).unwrap();
+}
+
+#[test]
+fn a_module_is_absent_only_without_an_identity_or_a_file() {
+    use super::{absent, NO_IDENTITY};
+    let here = std::env::temp_dir().join(format!("exact-absent-{}", std::process::id()));
+    std::fs::write(&here, b"module").unwrap();
+    assert!(absent(Err(NO_IDENTITY.into())));
+    assert!(absent(Ok(here.with_extension("missing"))));
+    assert!(
+        !absent(Ok(here.clone())),
+        "a file that is there refuses by name"
+    );
+    assert!(
+        !absent(Err("EXACT_NATIVE_LIBS is not set".into())),
+        "an unknown directory is no absence"
+    );
+    let _ = std::fs::remove_file(here);
+}
+
+/// LLP 1139.003 D2: the module's tier (here its own choice, low) is the
+/// page's `gpuTier`; `prefer gpu-tier` tells every module and remakes its
+/// renderers, and the page follows the module's answer.
+#[test]
+fn the_page_fact_follows_the_modules_gpu_tier() {
+    let (path, compat) = fixture();
+    let plan = contract::compile("component App\n  view\n    text \"test\"\n").unwrap();
+    let (mut p, _) = Presenter::boot(
+        &plan.encode(),
+        (),
+        (100., 100.),
+        1.,
+        path.parent().unwrap().into(),
+    )
+    .unwrap();
+    let abi = Abi::open_path(&path, &compat, "").unwrap();
+    // SAFETY: the C fixture's own observer.
+    let retiers = unsafe {
+        *abi.library
+            .get::<unsafe extern "C" fn() -> u32>(b"test_retiers")
+            .unwrap()
+    };
+    p.surfaces.abis.insert(String::new(), abi);
+    assert_eq!(
+        p.host.runner().page().gpu_tier(),
+        "high",
+        "before the module speaks"
+    );
+    p.sync_surfaces();
+    assert_eq!(p.host.runner().page().gpu_tier(), "low");
+    p.retier_surfaces(1);
+    assert_eq!(unsafe { retiers() }, 1);
+    p.sync_surfaces();
+    assert_eq!(p.host.runner().page().gpu_tier(), "mid");
+    drop(p);
     std::fs::remove_dir_all(path.parent().unwrap()).unwrap();
 }

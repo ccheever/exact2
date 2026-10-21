@@ -11,6 +11,13 @@ impl DataSource for Rows {
                 Value::Number(first + 1.),
             ]));
         }
+        if let [Value::Number(first), Value::Number(count)] = args {
+            return Ok(Value::list(
+                (0..*count as u32)
+                    .map(|n| Value::Number(first + f64::from(n)))
+                    .collect(),
+            ));
+        }
         Ok(Value::list(
             (0..25_000).map(|n| Value::Number(n as f64)).collect(),
         ))
@@ -19,12 +26,12 @@ impl DataSource for Rows {
 fn boot(row: &str) -> Presenter<Rows> {
     let source = format!(
         r#"component App
-  resource rows = rows() as shape list<number>
+  resource rows = rows() as shape number[]
   view
     column width="100%" padding=20 box-sizing="border-box"
       text "nested port"
       list virtualized=true width="100%" height=180 padding-left=10 padding-right=10 border-width=2 border-style="solid" box-sizing="border-box" testId="port"
-        each x in rows key=x
+        for x in rows key=x
           {row}
 "#
     );
@@ -32,7 +39,7 @@ fn boot(row: &str) -> Presenter<Rows> {
 }
 fn boot_source(source: &str) -> Presenter<Rows> {
     let (p, error) = Presenter::boot_with(
-        &contract::compile(source).unwrap().encode(),
+        &crate::test_plan(source),
         Rows,
         (400., 500.),
         1.,
@@ -84,16 +91,16 @@ fn bidirectional_tiny_edges_reach_the_endpoint_and_become_idle() {
     let mut p = boot_source(
         r#"component App
   state first = 0
-  resource rows = rows(first) as shape list<number>
-  action start writes first
+  resource rows = rows(first) as shape number[]
+  action start
     if first > 0
       first = 0
-  action end writes first
+  action end
     if first < 12
       first = 12
   view
     list virtualized=true height=180 width=320 reachstart=start reachend=end
-      each x in rows key=x
+      for x in rows key=x
         text `${x}` height=1
 "#,
     );
@@ -139,14 +146,14 @@ fn an_edge_before_activation_commits_and_activation_asks_once() {
     let source = r#"component App
   state next = 0
   resource answer = answer(next) as shape number
-  resource rows = rows() as shape list<number>
-  action start writes next
+  resource rows = rows() as shape number[]
+  action start
     next = next + 1
   view
     column
       text `${answer}`
       list virtualized=true height=180 width=320 reachstart=start
-        each x in rows key=x
+        for x in rows key=x
           text `${x}` height=24
 "#;
     let plan = contract::bake(contract::compile(source).unwrap(), Deferred(true)).unwrap();
@@ -189,15 +196,15 @@ fn authored_collection_scroll_top_is_consumed_once_and_latest_reissues_it() {
     let mut p = boot_source(
         r#"component App
   state requested = 1000000
-  resource rows = rows() as shape list<number>
-  action latest writes requested
+  resource rows = rows() as shape number[]
+  action latest
     requested = requested + 1000
   view
     column
       button press=latest testId="latest"
         text "Latest"
       list virtualized=true scrollFollowEnd=true scrollTop=requested height=180 width=400
-        each x in rows key=x
+        for x in rows key=x
           text `${x}` height=24
 "#,
     );
@@ -232,10 +239,10 @@ fn ordinary_scroll() -> Presenter<Rows> {
   state top = 300
   state left = 50
   state count = 0
-  action jump writes top, left
+  action jump
     top = top + 100
     left = left + 25
-  action other writes count
+  action other
     count = count + 1
   view
     column
@@ -302,9 +309,9 @@ fn ordinary_follow_end_tracks_growth_and_resize_only_while_at_the_end() {
         r#"component App
   state height = 500
   state port = 100
-  action grow writes height
+  action grow
     height = height + 200
-  action resize writes port
+  action resize
     port = 200
   view
     column
@@ -336,7 +343,7 @@ fn ordinary_hidden_overflow_scrolls_programmatically_and_acknowledges_pixels() {
     let mut p = boot_source(
         r#"component App
   state top = 300
-  action jump writes top
+  action jump
     top = 500
   view
     column
@@ -376,11 +383,13 @@ fn ordinary_authored_scroll_events_wait_for_ack_and_coalesce_with_reader_input()
   state top = 200
   state observed = 0
   state count = 0
-  action jump writes top
+  state away = 0
+  action jump
     top = top + 100
-  action moved(x, y) writes observed, count
+  action moved(x: number, y: number, e: ScrollEvent)
     observed = y
     count = count + 1
+    away = e.scrollHeight - e.scrollTop - e.clientHeight
   view
     column
       button "Jump" press=jump testId="jump"
@@ -392,26 +401,32 @@ fn ordinary_authored_scroll_events_wait_for_ack_and_coalesce_with_reader_input()
     let port = named(&p, "ordinary");
     let observed = |p: &Presenter<Rows>| p.host.runner().slot("observed").cloned();
     let count = |p: &Presenter<Rows>| p.host.runner().slot("count").cloned();
-    assert_eq!(observed(&p), Some(Value::Number(200.)));
-    assert_eq!(count(&p), Some(Value::Number(1.)));
+    // The boot's own offset is no reader's scroll: a browser page hears
+    // none (rt.js `Booting`, the conformance oracle).
+    assert_eq!(observed(&p), Some(Value::Number(0.)));
+    assert_eq!(count(&p), Some(Value::Number(0.)));
+    assert_eq!(p.scroll_of(port).1, 200.);
     let first = p.display_frame().unwrap();
     assert!(p.display_complete(&first));
     p.tap(named(&p, "jump")).unwrap();
     assert!(p.pump(p.host.now()).is_none());
-    assert_eq!(observed(&p), Some(Value::Number(200.)));
+    assert_eq!(observed(&p), Some(Value::Number(0.)));
     let next = p.display_frame().unwrap();
     assert!(p.display_complete(&next));
-    assert_eq!(observed(&p), Some(Value::Number(200.)));
+    assert_eq!(observed(&p), Some(Value::Number(0.)));
     assert!(p.pump(p.host.now()).is_none());
     assert_eq!(observed(&p), Some(Value::Number(300.)));
-    assert_eq!(count(&p), Some(Value::Number(2.)));
+    assert_eq!(count(&p), Some(Value::Number(1.)));
+    // The `ScrollEvent`'s extents: what is left below the port (chat F4).
+    let away = p.host.runner().slot("away").cloned();
+    assert_eq!(away, Some(Value::Number(1000. - 300. - 100.)));
     p.tap(named(&p, "jump")).unwrap();
     let next = p.display_frame().unwrap();
     assert!(p.display_complete(&next));
     p.wheel(port, 0., 50.).unwrap();
     assert!(p.pump(p.host.now()).is_none());
     assert_eq!(observed(&p), Some(Value::Number(450.)));
-    assert_eq!(count(&p), Some(Value::Number(3.)));
+    assert_eq!(count(&p), Some(Value::Number(2.)));
 }
 
 #[test]
@@ -422,14 +437,14 @@ fn ordinary_scroll_events_preserve_change_order_and_observe_prior_handler_writes
   state b = 0
   state order = ""
   state observed = 0
-  action moveA writes a
+  action moveA
     a = 100
-  action moveB writes b
+  action moveB
     b = 100
-  action observeA(x, y) writes order, b
+  action observeA(x, y)
     order = order + "A"
     b = 500
-  action observeB(x, y) writes order, observed
+  action observeB(x, y)
     order = order + "B"
     observed = y
   view
@@ -477,11 +492,11 @@ fn ordinary_scroll_events_preserve_change_order_and_observe_prior_handler_writes
 fn fractional_high_extent_end_follow_needs_one_wheel_without_false_origin_changes() {
     let mut p = boot_source(
         r#"component App
-  resource rows = rows() as shape list<number>
+  resource rows = rows() as shape number[]
   view
     column width="100%" padding=20 box-sizing="border-box"
       list virtualized=true scrollFollowEnd=true height=180 width="100%" padding-left=10 padding-right=10 border-width=2 border-style="solid" box-sizing="border-box"
-        each x in rows key=x
+        for x in rows key=x
           text `row ${x}` height=100.1
 "#,
     );
@@ -522,6 +537,37 @@ fn fractional_high_extent_end_follow_needs_one_wheel_without_false_origin_change
         "one wheel must consume the end correction"
     );
     assert!(!p.dirty(), "bounded refinement eventually becomes idle");
+}
+
+/// LLP 1010 §6.9: a padding change that keeps the list's size and offset (a
+/// fixed border-box list) is still reported, so a followed end follows it.
+#[test]
+fn a_padding_only_change_reaches_the_runner_and_the_end_follows_it() {
+    let mut p = boot_source(
+        r#"component App
+  resource rows = rows() as shape number[]
+  state end = 83
+  action grow
+    end = end + 26
+  view
+    column
+      button "Grow" press=grow testId="grow"
+      list virtualized=true scrollFollowEnd=true height=180 width=200 padding-top=20 padding-bottom=end box-sizing="border-box" testId="feed"
+        for x in rows key=x
+          text `row ${x}` height=24
+"#,
+    );
+    settle(&mut p);
+    let view = named(&p, "feed");
+    p.wheel(view, 0., 10_000_000.).unwrap();
+    settle(&mut p);
+    let end = p.collection_scroll_limits()[&view];
+    assert_eq!(p.scroll_of(view).1, end, "at the true end");
+    p.tap(named(&p, "grow")).unwrap();
+    settle(&mut p);
+    let grown = p.collection_scroll_limits()[&view];
+    assert_eq!(grown, end + 26.);
+    assert_eq!(p.scroll_of(view).1, grown, "followed to the grown end");
 }
 
 #[test]
@@ -584,14 +630,14 @@ fn ordinary_scroll_handler_runs_beside_collection_observation() {
     let mut p = boot_source(
         r#"component App
   state top = 0
-  resource rows = rows() as shape list<number>
-  action moved(x, y) writes top
+  resource rows = rows() as shape number[]
+  action moved(x, y)
     top = y
   view
     column
       text `${top}` testId="observed"
       list virtualized=true height=180 width="100%" scroll=moved testId="port"
-        each x in rows key=x
+        for x in rows key=x
           text `${x}` height=24
 "#,
     );
@@ -600,6 +646,11 @@ fn ordinary_scroll_handler_runs_beside_collection_observation() {
     p.wheel(list, 0., 8_000.).unwrap();
     settle(&mut p);
     let key = p.host.kernel().find_by_test_id("observed")[0];
+    // The handler last heard where the port came to rest: the wheel's 8000,
+    // then the anchor correction's write, which a browser's scrollTop
+    // write reports with a `scroll` too.
+    let rest = p.scroll_of(list).1;
+    assert!(rest > 7_000.);
     assert_eq!(
         p.host
             .kernel()
@@ -607,7 +658,7 @@ fn ordinary_scroll_handler_runs_beside_collection_observation() {
             .unwrap()
             .props
             .str(PropId::Text),
-        Some("8000")
+        Some(rest.to_string().as_str())
     );
     assert!(p.host.collections()[0].rows.iter().all(|r| r.index > 100));
 }
@@ -634,6 +685,7 @@ fn feedback_budget_schedules_later_progress_and_stale_rows_do_not_commit() {
         port_cross: 360.,
         port_main: 180.,
         cross: 336.,
+        padding: [0.0; 2],
         measurements: vec![exact_runner::RowMeasurement {
             view: snapshot.rows[0].view,
             epoch: snapshot.rows[0].epoch + 1,
@@ -652,10 +704,10 @@ fn interaction_release_cancel_and_navigation_clear_the_pin() {
     let mut p = boot_source(
         r#"component App
   state selected = "list"
-  resource rows = rows() as shape list<number>
-  action away writes selected
+  resource rows = rows() as shape number[]
+  action away
     selected = "away"
-  action back writes selected
+  action back
     selected = "list"
   view
     main navigationKey=selected navigationBack="back"
@@ -665,7 +717,7 @@ fn interaction_release_cancel_and_navigation_clear_the_pin() {
         text "back"
       column navigationKey="list"
         list virtualized=true height=180 width="100%"
-          each x in rows key=x
+          for x in rows key=x
             button testId=`row-${x}` height=24
               text `${x}`
       column navigationKey="away"
@@ -706,21 +758,21 @@ fn interaction_release_cancel_and_navigation_clear_the_pin() {
 fn height_projection_refines_real_25k_port_through_hold_ticks_resize_and_typing() {
     use exact_motion::HoldEnd;
     let source = r#"component App
-  resource rows = rows() as shape list<number>
+  resource rows = rows() as shape number[]
   state draft = ""
   state target = 180
-  action edit(value) writes draft
+  action edit(value)
     draft = value
-  action grow writes target
+  action grow
     target = 420
   view
     box width="100%" height="100%"
-      input value=draft change=edit testId="input"
+      input value=draft input=edit testId="input"
       button press=grow testId="grow"
         text "grow"
-      column position="absolute" bottom=0 width="100%" height=target max-height="100%" padding=8 border-width=2 border-style="solid" box-sizing="border-box" transition="height spring(300,30,1)" testId="panel"
+      column position="absolute" bottom=0 width="100%" height=target max-height="100%" padding=8 border-width=2 border-style="solid" box-sizing="border-box" transition="height -exact-spring(300,30,1)" testId="panel"
         list virtualized=true scrollFollowEnd=true flex=1 min-height=0 width="100%" testId="port"
-          each x in rows key=x
+          for x in rows key=x
             text `row ${x}` height=24
 "#;
     let mut p = boot_source(source);
@@ -776,8 +828,7 @@ fn height_projection_refines_real_25k_port_through_hold_ticks_resize_and_typing(
     settle(&mut p);
     assert!(!p.dirty());
     let old = p.height_begin(10_000.).unwrap().unwrap();
-    p.reload(&contract::compile(source).unwrap().encode(), Rows)
-        .unwrap();
+    p.reload(&crate::test_plan(source), Rows).unwrap();
     assert!(p.host.height_owner().is_none());
     assert!(!p.height_update(old.token, f64::NAN, f64::NAN).unwrap());
     assert!(!p.height_end(old.token, HoldEnd::Cancel, f64::NAN).unwrap());
@@ -789,15 +840,15 @@ fn strip(list_attrs: &str, card: &str) -> String {
     format!(
         r#"component App
   state jump = 0
-  action far writes jump
+  action far
     jump = jump + 50000
-  resource rows = rows() as shape list<number>
+  resource rows = rows() as shape number[]
   view
     column width="100%"
       button press=far testId="far"
         text "Far"
       list {list_attrs} display="flex" width=400 height=120 overflow-x="scroll" overflow-y="hidden" padding-top=8 padding-bottom=8 box-sizing="border-box" testId="strip"
-        each x in rows key=x
+        for x in rows key=x
           box testId=`c-${{x}}` width=90 height=80 margin-right=4 {card}
 "#
     )
@@ -900,7 +951,8 @@ fn horizontal_first_measurements_correct_x_and_scroll_left_builds_before_it_move
 #[test]
 fn horizontal_card_boxes_match_the_eager_strip_at_the_same_scroll_left() {
     let boxes = |attrs: &str, left: f32| {
-        let mut p = boot_source(&strip(attrs, "flex-shrink=0"));
+        // Mount 200 cards, not 25,000: the eager strip lays out every one
+        let mut p = boot_source(&strip(attrs, "flex-shrink=0").replace("rows()", "rows(0, 200)"));
         settle(&mut p);
         let view = named(&p, "strip");
         p.wheel(view, left, 0.).unwrap();
@@ -924,12 +976,12 @@ fn horizontal_card_boxes_match_the_eager_strip_at_the_same_scroll_left() {
 fn nested(strip_attrs: &str) -> Presenter<Rows> {
     boot_source(&format!(
         r#"component App
-  resource rows = rows() as shape list<number>
+  resource rows = rows() as shape number[]
   view
     scroll testId="outer" width=400 height=300 overflow-x="hidden"
       box height=200
       list virtualized=true estimated-item-width=94 display="flex" width=400 height=120 overflow-x="scroll" overflow-y="hidden" {strip_attrs} testId="strip"
-        each x in rows key=x
+        for x in rows key=x
           box width=90 height=80 margin-right=4
       box height=2000
 "#
@@ -1006,4 +1058,160 @@ fn overscroll_contain_keeps_a_tick_at_the_edge() {
         (p.scroll_of(strip), p.scroll_of(outer)),
         ((0., 0.), (0., 120.))
     );
+}
+
+#[test]
+fn overflow_auto_accepts_reader_scrolling() {
+    let mut p = boot_source(
+        r#"component App
+  view
+    box testId="port" width=200 height=100 overflow="auto"
+      box width=200 height=500
+"#,
+    );
+    settle(&mut p);
+    let port = named(&p, "port");
+    p.wheel(port, 0., 120.).unwrap();
+    assert_eq!(p.scroll_of(port).1, 120.);
+}
+
+/// An app's `scrollIntoView("element-id", …)` on any element (minesweeper
+/// F3): the scroller above it aligns it by CSSOM View's rules.
+#[test]
+fn scroll_into_view_aligns_any_element_in_its_scroller() {
+    let cells: String = (0..20)
+        .map(|i| format!("        box id=\"cell-{i}\" height=50 width=200\n"))
+        .collect();
+    let mut p = boot_source(&format!(
+        r#"component App
+  action nearest
+    scrollIntoView("cell-9", block="nearest")
+  action start
+    scrollIntoView("cell-3")
+  action center
+    scrollIntoView("cell-10", block="center")
+  view
+    column
+      button "nearest" press=nearest testId="nearest"
+      button "start" press=start testId="start"
+      button "center" press=center testId="center"
+      scroll testId="port" width=200 height=100
+        column
+{cells}"#
+    ));
+    settle(&mut p);
+    let port = named(&p, "port");
+    // Below the port, `nearest` aligns its end; above it (from the centred
+    // cell-10), its start.
+    for (button, top) in [
+        ("nearest", 400.),
+        ("start", 150.),
+        ("center", 475.),
+        ("nearest", 450.),
+    ] {
+        p.tap(named(&p, button)).unwrap();
+        p.run_commands(Rows::default);
+        settle(&mut p);
+        assert_eq!(p.scroll_of(port).1, top, "{button}");
+    }
+}
+
+#[test]
+fn scroll_into_view_applies_padding_and_margin() {
+    let cells: String = (0..20)
+        .map(|i| {
+            format!("        box id=\"cell-{i}\" height=50 width=200 scroll-margin=\"8 0 6\"\n")
+        })
+        .collect();
+    let mut p = boot_source(&format!(
+        r#"component App
+  action nearest
+    scrollIntoView("cell-9", block="nearest")
+  action start
+    scrollIntoView("cell-3")
+  action center
+    scrollIntoView("cell-10", block="center")
+  view
+    column
+      button "nearest" press=nearest testId="nearest"
+      button "start" press=start testId="start"
+      button "center" press=center testId="center"
+      scroll testId="port" width=200 height=100 scroll-padding="24 0 12"
+        column
+{cells}"#
+    ));
+    settle(&mut p);
+    let port = named(&p, "port");
+    // Below the port, `nearest` aligns its end; above it (from the centred
+    // cell-10), its start.
+    for (button, top) in [
+        ("nearest", 418.),
+        ("start", 118.),
+        ("center", 468.),
+        ("nearest", 418.),
+    ] {
+        p.tap(named(&p, button)).unwrap();
+        p.run_commands(Rows::default);
+        settle(&mut p);
+        assert_eq!(p.scroll_of(port).1, top, "{button}");
+    }
+}
+
+#[test]
+fn scroll_padding_percent_uses_the_port_inside_borders() {
+    let mut p = boot_source(
+        r#"component App
+  action start
+    scrollIntoView("target")
+  action end
+    scrollIntoView("target", block="end", inline="end")
+  view
+    column
+      button "start" press=start testId="start"
+      button "end" press=end testId="end"
+      scroll testId="port" width=200 height=200 border-top="20px solid black" border-left="10px solid black" scroll-padding="25%"
+        box width=1000 height=400
+        box id="target" width=50 height=50 margin-left=400
+        box width=1000 height=550
+"#,
+    );
+    settle(&mut p);
+    let port = named(&p, "port");
+    for (button, expected) in [("start", (300., 350.)), ("end", (300., 300.))] {
+        p.tap(named(&p, button)).unwrap();
+        p.run_commands(Rows::default);
+        settle(&mut p);
+        assert_eq!(p.scroll_of(port), expected, "{button}");
+    }
+}
+
+/// An app's `scrollBy("element-id", x, y)`: that scroller moves by the
+/// pixels given, clamped to its travel, as the web's `Element.scrollBy`.
+#[test]
+fn scroll_by_moves_a_scroller_within_its_travel() {
+    let cells: String = (0..20)
+        .map(|i| format!("        box height=50 width=200 testId=\"c{i}\"\n"))
+        .collect();
+    let mut p = boot_source(&format!(
+        r#"component App
+  action down
+    scrollBy("port", 0, 120)
+  action up
+    scrollBy("port", 0, -500)
+  view
+    column
+      button "down" press=down testId="down"
+      button "up" press=up testId="up"
+      scroll id="port" testId="port" width=200 height=100
+        column
+{cells}"#
+    ));
+    settle(&mut p);
+    let port = named(&p, "port");
+    for (button, top) in [("down", 120.), ("down", 240.), ("up", 0.)] {
+        p.tap(named(&p, button)).unwrap();
+        p.run_commands(Rows::default);
+        settle(&mut p);
+        assert_eq!(p.scroll_of(port).1, top, "{button}");
+    }
 }

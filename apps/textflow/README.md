@@ -23,14 +23,14 @@ transforms or transitions on `left`/`top`. No font or image binaries are require
 export EXACT_UPDATE_TRUST=development
 
 # Web (open the URL printed by the dev server)
-EXACT_APP=textflow bun host/web/dev.mjs
+bun host/web/dev.mjs --app textflow
 
 # macOS; append --ios for the simulator
 bun host/apple/build.mjs --app textflow --run
 bun host/apple/build.mjs --app textflow --ios --run
 
 # Linux's CPU painter, also usable headlessly on macOS
-cargo build --release -p textflow-linux --offline
+cargo build --profile host-dev -p textflow-linux --offline
 bun scripts/agent.mjs linux --app textflow --size 960x900 tree
 ```
 
@@ -80,7 +80,7 @@ The browser coalesces samples into one action per animation frame. Native hosts
 commit each delivered recognized sample. `touch-action="none"` on the orbs keeps
 the page scroll gesture outside their hit areas.
 
-The scene source is `sceneGeometry(scene, elapsedMs, width) -> list<Part>`.
+The scene source is `sceneGeometry(scene, elapsedMs, width) -> Part[]`.
 Its input is app time advanced by `every(16, step)`; scene selection resets app
 time, pause freezes it. Geometry is independent of query history. Six discs use
 fixed 16 ms steps and elastic impulses. A smooth 60-second cycle traverses a

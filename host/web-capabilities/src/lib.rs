@@ -14,24 +14,29 @@
 pub mod animations;
 pub mod auth;
 pub mod backdrop;
-pub mod canvas_colors;
 pub mod collections;
+pub mod dataset;
 pub mod documents;
 pub mod drag;
 pub mod effects;
 pub mod format;
 pub mod geometry;
 pub mod gradients;
+pub mod grid;
 pub mod inspection;
 pub mod markdown;
 pub mod materials;
 pub mod motion;
+pub mod notifications;
 pub mod picker;
 pub mod router;
+pub mod segments;
 pub mod share;
 pub mod surfaces;
+pub mod tabs;
 pub mod text_transform;
 pub mod timelines;
+pub mod wide_colors;
 
 /// The [`exact_web::Linked`] of the named capabilities, as a constant:
 /// `linked!(markdown)`. The generated entry writes one; nothing else should.
@@ -55,7 +60,7 @@ pub const ALL: exact_web::Linked = linked!(
     router,
     format,
     inspection,
-    canvas_colors,
+    wide_colors,
     materials,
     backdrop,
     auth,
@@ -67,5 +72,10 @@ pub const ALL: exact_web::Linked = linked!(
     effects,
     animations,
     gradients,
-    geometry
+    grid,
+    geometry,
+    segments,
+    dataset,
+    tabs,
+    notifications
 );

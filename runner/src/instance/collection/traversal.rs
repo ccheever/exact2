@@ -47,7 +47,7 @@ impl Collection {
         &self,
         view: ViewId,
         path: &mut Vec<InstanceStep>,
-    ) -> Option<NodesId> {
+    ) -> Option<(NodesId, u32)> {
         for row in &self.mounted {
             path.push(InstanceStep::Row {
                 region: self.region,
@@ -68,8 +68,80 @@ impl Collection {
     }
 }
 impl Tree {
+    /// The event's physical offset, not a pending correction's destination.
+    pub(crate) fn collection_scroll_anchor(
+        &self,
+        kernel: &exact_kernel::Kernel,
+        view: ViewId,
+        left: f64,
+        top: f64,
+        width: f64,
+        height: f64,
+    ) -> Option<(Value, f64)> {
+        if !self.has_collections {
+            return None;
+        }
+        let c = find_collection(&self.children, view)?;
+        let (at, port) = match c.axis {
+            ListAxis::Vertical => (top, height),
+            ListAxis::Horizontal => (left, width),
+        };
+        // Native scroll coordinates include the border; browser scroll offsets
+        // already exclude it and have no kernel layout insets.
+        let origin = kernel
+            .node(view)
+            .and_then(|node| {
+                let (left, top, _, _) = kernel.resolved_padding(node.key)?;
+                let (border_left, border_top, _, _) = kernel.resolved_border(node.key)?;
+                Some(match c.axis {
+                    ListAxis::Vertical => f64::from(top + border_top),
+                    ListAxis::Horizontal => f64::from(left + border_left),
+                })
+            })
+            .unwrap_or_else(|| c.index.leading());
+        let offset = (at - origin).max(-c.index.leading());
+        let position = c.index.row_at(offset.max(0.0)).ok()??;
+        let start = c.index.prefix(position)?;
+        if port <= 0.0 || start >= offset + port {
+            return None;
+        }
+        Some((
+            Value::str(&super::super::key_text(c.keys.get(position)?)?[2..]),
+            offset - start,
+        ))
+    }
     /// O(live instances) snapshots. No unmounted record/key serialization.
     pub fn collections(&self) -> Vec<CollectionSnapshot> {
+        self.collections_with(usize::MAX)
+    }
+    /// [`Tree::collections`] with only each list's first mounted row: what a
+    /// host's per-step scheduling and port geometry read, without a row
+    /// record per mounted row.
+    pub fn collections_shallow(&self) -> Vec<CollectionSnapshot> {
+        self.collections_with(1)
+    }
+    /// One list's snapshot ([`Tree::collections`]'s entry for `view`).
+    pub fn collection(&self, view: ViewId) -> Option<CollectionSnapshot> {
+        if !self.has_collections {
+            return None;
+        }
+        find_collection(&self.children, view).map(Collection::snapshot)
+    }
+    /// `view`'s mounted rows as (wrapper, epoch) into `out` (cleared first):
+    /// which rows are mounted and bound to what, without their geometry.
+    pub fn collection_mounted(&self, view: ViewId, out: &mut Vec<(ViewId, u64)>) {
+        out.clear();
+        if !self.has_collections {
+            return;
+        }
+        if let Some(collection) = find_collection(&self.children, view) {
+            out.extend(collection.mounted.iter().map(|r| (r.wrapper, r.epoch)));
+        }
+    }
+    /// Each mounted list's view, data generation and whether it runs along
+    /// x, with no snapshot: what a host compares between layouts to know
+    /// whose rows its data moved.
+    pub fn collection_data(&self) -> Vec<(ViewId, u64, bool)> {
         if !self.has_collections {
             return Vec::new();
         }
@@ -79,7 +151,38 @@ impl Tree {
             match child {
                 Child::Node(node) => {
                     if let Some(collection) = &node.collection {
-                        out.push(collection.snapshot());
+                        out.push((
+                            collection.view,
+                            collection.data_generation,
+                            collection.axis == super::ListAxis::Horizontal,
+                        ));
+                        collection.add_children(&mut stack);
+                    }
+                    stack.extend(node.children.iter());
+                }
+                Child::Region(region) => match &region.active {
+                    Active::Arm { roots, .. } => stack.extend(roots.iter()),
+                    Active::Rows { rows } => {
+                        for row in rows {
+                            stack.extend(row.roots.iter());
+                        }
+                    }
+                },
+            }
+        }
+        out
+    }
+    fn collections_with(&self, rows: usize) -> Vec<CollectionSnapshot> {
+        if !self.has_collections {
+            return Vec::new();
+        }
+        let mut out = Vec::new();
+        let mut stack: Vec<_> = self.children.iter().collect();
+        while let Some(child) = stack.pop() {
+            match child {
+                Child::Node(node) => {
+                    if let Some(collection) = &node.collection {
+                        out.push(collection.snapshot_rows(rows));
                         collection.add_children(&mut stack);
                     }
                     stack.extend(node.children.iter());
@@ -161,7 +264,7 @@ impl Tree {
                     start: c.index.prefix(row.position).unwrap(),
                     size: c.index.height(row.position).unwrap(),
                     epoch: row.epoch,
-                    measured: c.index.is_measured(c.index.key(row.position).unwrap()),
+                    measured: c.index.is_measured_at(row.position),
                 });
             }
             out.push(CollectionSnapshot {
@@ -234,7 +337,7 @@ impl Tree {
             self.last_work = u.work;
             return Ok((false, None));
         };
-        let Some(by_view) = target.prepare_feedback(&feedback)? else {
+        let Some(by_view) = target.prepare_feedback(&feedback, fill)? else {
             self.last_work = u.work;
             return Ok((false, None));
         };
@@ -249,13 +352,15 @@ impl Tree {
         };
         let (changed, edge) = feedback_walk(&mut self.children, u, &[], &feedback, &by_view, fill)?
             .unwrap_or((false, None));
-        let (mut live, gone): (Vec<_>, Vec<_>) = std::mem::take(&mut u.ops)
-            .into_iter()
-            .partition(|op| !matches!(op, Op::DestroyView { .. }));
-        live.extend(gone);
-        u.ops = live;
+        u.detach_before_destroy();
         self.last_work = u.work;
         Ok((changed || released, edge))
+    }
+    /// [`Collection::reveal_at`] for list `view`.
+    pub(crate) fn show_collection(&mut self, u: &mut Update<'_>, view: ViewId, offset: f64) {
+        if let Some(collection) = find_collection_mut(&mut self.children, view) {
+            collection.reveal_at(u, offset);
+        }
     }
     pub(crate) fn has_collection(&self, view: ViewId) -> bool {
         find_collection(&self.children, view).is_some()
@@ -339,7 +444,7 @@ fn feedback_walk(
             Child::Region(region) => match &mut region.active {
                 Active::Arm { roots, frame, .. } => {
                     let mut inner = frames.to_vec();
-                    inner.push(frame.clone());
+                    inner.push(frame.scope());
                     feedback_walk(roots, u, &inner, feedback, by_view, fill)?
                 }
                 Active::Rows { rows } => {
@@ -448,7 +553,7 @@ fn release_other_pins(
             Child::Region(region) => match &mut region.active {
                 Active::Arm { roots, frame, .. } => {
                     let mut inner = frames.to_vec();
-                    inner.push(frame.clone());
+                    inner.push(frame.scope());
                     changed |= release_other_pins(roots, u, &inner, target, categories)?;
                 }
                 Active::Rows { rows } => {
@@ -601,7 +706,7 @@ pub(in crate::instance) fn invalidate_typography(
             Child::Region(region) => match &mut region.active {
                 Active::Arm { roots, frame, .. } => {
                     let mut inner = frames.to_vec();
-                    inner.push(frame.clone());
+                    inner.push(frame.scope());
                     invalidate_typography(roots, u, &inner)?;
                 }
                 Active::Rows { rows } => {
@@ -652,7 +757,7 @@ fn edit_walk<T>(
             Child::Region(r) => match &mut r.active {
                 Active::Arm { roots, frame, .. } => {
                     let mut inner = frames.to_vec();
-                    inner.push(frame.clone());
+                    inner.push(frame.scope());
                     edit_walk(roots, view, u, &inner, edit)?
                 }
                 Active::Rows { rows } => {
@@ -721,4 +826,9 @@ fn first_root_bounded<'a>(
         }
     }
     Err("collection row has no authored root")
+}
+
+/// The mounted collections as a batch's JSON, through [`super::super::LISTS`].
+pub(in crate::instance) fn collections_json(tree: &Tree) -> String {
+    super::snapshots_json(&tree.collections())
 }

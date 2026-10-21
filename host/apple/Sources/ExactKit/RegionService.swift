@@ -8,7 +8,7 @@ enum RegionTextExecutor {
     static let queue: OperationQueue = {
         let q = OperationQueue()
         q.name = "exact.text"; q.qualityOfService = .userInitiated
-        #if os(iOS)
+        #if os(iOS) || os(tvOS)
         q.maxConcurrentOperationCount = TextRasterizer.concurrency
         #else
         q.maxConcurrentOperationCount = 2

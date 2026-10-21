@@ -1,6 +1,6 @@
 //! The claim, held on the CPU painter: what the data crate measured is what
 //! the host laid out. Card heights, column line counts, flowed fragments and
-//! ASCII rows are compared against cosmic-text's own layout of the same text
+//! ASCII rows are compared against Parley's own layout of the same text
 //! in the same face.
 use exact_kernel::{PropId, ViewId};
 use exact_linux::{presenter::PainterChoice, Presenter};
@@ -136,7 +136,7 @@ fn magazine_columns_hold_exactly_the_lines_they_were_cut_to() {
         let cut = f[2].as_number().unwrap() as usize;
         assert_eq!(
             painted, cut,
-            "mag-{i}: cosmic-text painted {painted} lines, cut at {cut}"
+            "mag-{i}: Parley painted {painted} lines, cut at {cut}"
         );
     }
 }

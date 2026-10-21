@@ -12,7 +12,7 @@ use crate::{
     style_helpers::*, AlignContent, BoxGenerationMode, BoxSizing, CoreStyle, Direction, GridContainerStyle,
     GridItemStyle, JustifyContent, LayoutGridContainer, RequestedAxis,
 };
-use crate::compute::ratio::sizes_through_ratio;
+use crate::compute::ratio::container_sizes_through_ratio;
 use crate::compute::common::absolute::AbsolutePass;
 use alignment::{align_and_position_item, align_tracks, static_position};
 use explicit_grid::{compute_explicit_grid_size_in_axis, initialize_grid_tracks, AutoRepeatStrategy};
@@ -69,15 +69,24 @@ pub fn compute_grid_layout<Tree: LayoutGridContainer>(
     let box_sizing_adjustment =
         if style.box_sizing() == BoxSizing::ContentBox { padding_border_size } else { Size::ZERO };
 
+    // EXACT PATCH 56: in ContentSize, omit preferred sizes before ratio
+    // resolution so an incoming dimension can transfer into the other axis.
+    let preferred_size = if inputs.sizing_mode == SizingMode::InherentSize {
+        style.size().maybe_resolve(parent_size, |val, basis| tree.calc(val, basis)).maybe_add(box_sizing_adjustment)
+    } else {
+        Size::NONE
+    };
     // EXACT PATCH 12: the container's own size styles through the ratio (`compute::ratio`).
-    let (style_size, min_size, max_size) = sizes_through_ratio(
+    // A definite width assigned by the parent (including grid-item stretch during track
+    // measurement) supplies the ratio's automatic height floor just as an authored width does.
+    let (preferred_size, min_size, max_size) = container_sizes_through_ratio(
         &style,
         padding_border_size,
-        style.size().maybe_resolve(parent_size, |val, basis| tree.calc(val, basis)).maybe_add(box_sizing_adjustment),
+        known_dimensions.or(preferred_size),
         style.min_size().maybe_resolve(parent_size, |val, basis| tree.calc(val, basis)).maybe_add(box_sizing_adjustment),
         style.max_size().maybe_resolve(parent_size, |val, basis| tree.calc(val, basis)).maybe_add(box_sizing_adjustment),
+        inputs.sizing_mode,
     );
-    let preferred_size = if inputs.sizing_mode == SizingMode::InherentSize { style_size } else { Size::NONE };
 
     // Scrollbar gutters are reserved when the `overflow` property is set to `Overflow::Scroll`.
     // However, the axis are switched (transposed) because a node that scrolls vertically needs

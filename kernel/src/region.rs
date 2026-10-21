@@ -83,11 +83,24 @@ const _: () = assert!(std::mem::size_of::<ScalarFact>() <= 48);
 struct FactSet {
     entries: Vec<ScalarFact>,
     sources: Vec<Arc<RegionTextSource>>,
+    /// The installed measurer's `TextMeasurer::height_free` when these facts
+    /// were gathered: a fact then answers every height at its width.
+    height_free: bool,
 }
 impl FactSet {
+    /// A paragraph's fact at an offer. Under a measurer whose metrics never
+    /// depend on the height offered (`TextMeasurer::height_free`) a fact at
+    /// the same width answers every height, as the ordinary path's
+    /// measurement cache does: an intrinsic width probe under a definite,
+    /// min-content or max-content height is one measurement, not three.
     fn find(&self, stamp: &ParagraphStamp, offer: Offer) -> Option<usize> {
         self.entries.iter().position(|f| {
-            self.sources[f.source as usize].stamp == *stamp && same_offer(f.offer, offer)
+            self.sources[f.source as usize].stamp == *stamp
+                && if self.height_free {
+                    same_axis(f.offer.width, offer.width)
+                } else {
+                    same_offer(f.offer, offer)
+                }
         })
     }
     fn push(&mut self, fact: ScalarFact) {
@@ -99,14 +112,16 @@ impl FactSet {
         self.entries.push(fact);
     }
 }
-fn same_offer(a: Offer, b: Offer) -> bool {
+fn same_axis(a: crate::AxisOffer, b: crate::AxisOffer) -> bool {
     use crate::AxisOffer::*;
-    let same = |a, b| match (a, b) {
+    match (a, b) {
         (Definite(a), Definite(b)) => a.to_bits() == b.to_bits(),
         (MinContent, MinContent) | (MaxContent, MaxContent) => true,
         _ => false,
-    };
-    same(a.width, b.width) && same(a.height, b.height)
+    }
+}
+fn same_offer(a: Offer, b: Offer) -> bool {
+    same_axis(a.width, b.width) && same_axis(a.height, b.height)
 }
 fn same_metrics(a: TextMetrics, b: TextMetrics) -> bool {
     a.width.to_bits() == b.width.to_bits()
@@ -299,6 +314,20 @@ impl RegionOffset {
 pub(crate) struct RegionGeometry {
     frames: Vec<RegionFrame>,
     offsets: Vec<RegionOffset>,
+    facts: BoxFacts,
+    provisional_chrome: bool,
+}
+
+/// What a few boxes of a pass have beside their frames, by node, so a region
+/// without them allocates nothing: a native field's editor box, a native
+/// button's containing width, and a padding or border other than none, each
+/// as this pass resolved it. They belong to the immutable pass, not every
+/// retained node.
+#[derive(Clone, Default)]
+pub(crate) struct BoxFacts {
+    pub(crate) field_content: crate::id::IdMap<NodeKey, Frame>,
+    pub(crate) button_bases: crate::id::IdMap<NodeKey, Option<f32>>,
+    pub(crate) insets: crate::id::IdMap<NodeKey, crate::id::BoxInset>,
 }
 impl RegionGeometry {
     fn validate(&self, origin: Frame) -> Result<(), LayoutError> {
@@ -385,6 +414,12 @@ impl RegionPublication {
     /// projection; these local coordinates remain immutable source geometry.
     pub fn frames(&self) -> &[RegionFrame] {
         &self.geometry.frames
+    }
+    /// Local native editor content box from this accepted layout pass. It stays
+    /// unchanged when frames are projected at another origin, and never reads
+    /// live arena styles or aliases a node whose slot was reused.
+    pub fn field_content_rect(&self, node: NodeKey) -> Option<Frame> {
+        self.geometry.facts.field_content.get(&node).copied()
     }
     /// Default: all retained offers. Split profile: final paint owners only.
     pub fn artifacts(&self) -> &[RegionArtifact] {

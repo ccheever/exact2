@@ -2,18 +2,27 @@
 // UIKit as the checkbox is: `select` is iOS's pop-up button (a `UIButton`
 // whose menu chooses, `changesSelectionAsPrimaryAction`), its options read
 // from the kernel. Contract owns the value: the control moves at once,
-// reports HTML's `input` then `change`, and shows the committed value after
-// the action (D4).
-#if os(iOS)
+// reports HTML's `input` then `change`, and shows the bound value when it
+// changes, keeping the person's choice until then (D4, amended 2026-10-04).
+#if os(iOS) || os(tvOS)
 import UIKit
 
 extension ControlHost {
     func makeValueControl(_ kind: String, _ id: UInt32) -> UIControl {
+        #if os(tvOS)
+        // tvOS has no UISlider or UIDatePicker; the pop-up button stands in.
+        #else
         if kind == "range" { return makeRange() }
         if ControlKinds.dates.contains(kind) { return makeDate(kind) }
+        #endif
         var config = UIButton.Configuration.plain()
         config.indicator = .popup
+        #if os(tvOS)
+        // The focused button is a filled pill; its text needs room inside it.
+        config.contentInsets = NSDirectionalEdgeInsets(top: 12, leading: 24, bottom: 12, trailing: 24)
+        #else
         config.contentInsets = .zero
+        #endif
         let button = UIButton(configuration: config)
         button.showsMenuAsPrimaryAction = true
         button.changesSelectionAsPrimaryAction = true
@@ -21,16 +30,91 @@ extension ControlHost {
     }
 
     func configureValue(_ control: UIControl, _ owner: NodeView, accent: UIColor?) {
-        if let slider = control as? UISlider { configureRange(slider, owner, accent: accent); return }
+        #if !os(tvOS)
+        if let slider = control as? RangeSlider {
+            // The accent is the slider's tint, which draws its filled track as a default slider's: grey behind a modal
+            assign(slider, \.tintColor, accent)
+            configureRange(slider, owner)
+            return
+        }
         if let picker = control as? UIDatePicker { configureDate(picker, owner, accent: accent); return }
+        #endif
         guard let button = control as? UIButton else { return }
-        button.tintColor = accent
+        assign(button, \.tintColor, accent)
+        #if os(iOS)
+        if owner.props["type"] == "select" {
+            let alignment = selectAlignment(owner)
+            if button.contentHorizontalAlignment != alignment {
+                button.contentHorizontalAlignment = alignment
+                // UIKit caches this alignment in its configuration layout.
+                // Reapply only on a change; the button and its menu stay put.
+                let configuration = button.configuration
+                button.configuration = nil
+                button.configuration = configuration
+            }
+        }
+        #endif
         let menu = presenter.selectOptions?(owner.id) ?? SelectMenu()
         guard menus[owner.id] != menu else { return }
         menus[owner.id] = menu
-        let id = owner.id
+        picked.removeValue(forKey: owner.id)
+        install(button, menu, id: owner.id, showing: menu.chosen)
+    }
+
+    #if os(iOS)
+    /// Align the closed value and its native indicator; an unstyled select
+    /// keeps UIKit's centering. Logical edges follow the computed direction.
+    func selectAlignment(_ owner: NodeView) -> UIControl.ContentHorizontalAlignment {
+        let rtl = owner.style["direction"]?.string == "rtl"
+        // Unsaid, a value beside its label trails it, as a hand-built cell's and a SwiftUI `Form` picker's do;
+        // on a line of its own (a row that wraps at the larger text sizes) it leads, as theirs does there.
+        if !owner.wrote("text_align"), ["left", "start", nil].contains(owner.style["text_align"]?.string), let beside = besideLabel(owner) {
+            return beside == rtl ? .left : .right
+        }
+        switch owner.style["text_align"]?.string {
+        case "left": return .left
+        case "right": return .right
+        case "start", "justify": return rtl ? .right : .left
+        case "end": return rtl ? .left : .right
+        default: return .center
+        }
+    }
+
+    /// Whether a box shares its line with a sibling before it (true), sits on a line below its siblings
+    /// (false), or has none (nil), by the laid-out frames.
+    private func besideLabel(_ owner: NodeView) -> Bool? {
+        var up = owner.superview
+        while let v = up, !(v is NodeView) { up = v.superview }
+        guard let parent = up as? NodeView else { return nil }
+        // Its siblings before it as layout placed them, those drawn as layers (`FlatLeaves`) too; one not seen
+        // (hidden, `visibility: hidden`, or no area) is no label.
+        let seen = { (v: NodeView) in !v.isHidden && !v.cssVisibilityHidden && v.layoutBounds.width > 0 && v.layoutBounds.height > 0 }
+        let before: [CGRect]
+        if let ids = presenter.flats.children(of: parent.id) {
+            before = ids.prefix { $0 != owner.id }.compactMap { id in
+                if let leaf = presenter.flats.leaves[id] { return leaf.layout.width > 0 && leaf.layout.height > 0 ? leaf.layout : nil }
+                return presenter.views[id].flatMap { seen($0) ? $0.frame : nil }
+            }
+        } else { before = parent.container.subviews.compactMap { $0 as? NodeView }.prefix { $0 !== owner }.filter(seen).map(\.frame) }
+        guard !before.isEmpty else { return nil }
+        let box = owner.frame
+        return before.contains { $0.maxX <= box.minX + 0.5 || $0.minX >= box.maxX - 0.5 ? $0.minY < box.maxY && $0.maxY > box.minY : false }
+    }
+    #endif
+
+    /// The menu, with the option at `showing` the one shown. A select with
+    /// no options shows no title and opens nothing, as the web's. It holds
+    /// no menu: under `changesSelectionAsPrimaryAction`, `setMenu:` with an
+    /// empty one raises "Menu does not have a valid element for default
+    /// selection" (NSInternalInconsistencyException; app farm 008).
+    private func install(_ button: UIButton, _ menu: SelectMenu, id: UInt32, showing: Int?) {
+        guard !menu.options.isEmpty else {
+            button.menu = nil
+            button.configuration?.title = nil
+            return
+        }
         button.menu = UIMenu(children: menu.options.enumerated().map { i, option in
-            UIAction(title: option.label, attributes: option.disabled ? .disabled : [], state: i == menu.chosen ? .on : .off) { [weak self] _ in
+            UIAction(title: option.label, attributes: option.disabled ? .disabled : [], state: i == showing ? .on : .off) { [weak self] _ in
                 self?.chose(id, option.value)
             }
         })
@@ -38,13 +122,19 @@ extension ControlHost {
 
     /// HTML sizes a select to its widest option, whichever is shown (D3).
     func naturalSize(_ control: UIControl, _ owner: NodeView) -> CGSize {
-        // A slider has no natural width; Chrome's range is 129 wide.
+        #if !os(tvOS)
+        // A slider has no width of its own: it is as wide as its node, which
+        // the plan makes `width: 100%` (LLP 1115.000 D10.2). 129 is the
+        // range's intrinsic width on every host (`ControlKind::default_size`):
+        // what the node falls back to where that has nothing to resolve against.
         if control is UISlider { return CGSize(width: 129, height: ceil(control.intrinsicContentSize.height)) }
         // A compact date picker sizes by Auto Layout, not before it lays out.
         if control is UIDatePicker {
             let s = control.systemLayoutSizeFitting(UIView.layoutFittingCompressedSize)
             return CGSize(width: ceil(s.width), height: ceil(s.height))
         }
+        #endif
+        if let button = control as? NativeButtonIOS { return button.naturalSize }
         guard let button = control as? UIButton, let config = button.configuration else { return control.intrinsicContentSize }
         let probe = UIButton(configuration: config)
         var size = CGSize.zero
@@ -56,11 +146,28 @@ extension ControlHost {
         return size == .zero ? button.intrinsicContentSize : CGSize(width: ceil(size.width), height: ceil(size.height))
     }
 
-    /// A choice from the menu: `input` then `change`, then the committed
-    /// value shown again, which an action that refused leaves unchanged.
+    #if os(iOS)
+    /// The select's height at `width`, its shown title wrapped there (a
+    /// frame-sized button's Auto Layout fitting answers its one-line size).
+    func selectHeight(_ button: UIButton, width: CGFloat) -> CGFloat {
+        ceil(button.sizeThatFits(CGSize(width: width, height: CGFloat.greatestFiniteMagnitude)).height)
+    }
+    #endif
+
+    /// A choice from the menu: `input` then `change`. The bound value is
+    /// shown when it changes, as the web build's select: an action that
+    /// wrote none leaves the person's choice showing (LLP 1069.001 D4,
+    /// amended 2026-10-04).
     func chose(_ id: UInt32, _ value: String) {
         guard presenter.views[id] != nil else { return }
+        let before = presenter.selectOptions?(id)
         presenter.controlValue(id, value, input: true, change: true)
+        if let before, presenter.selectOptions?(id) == before, let button = controls[id] as? UIButton {
+            picked[id] = value
+            install(button, before, id: id, showing: before.options.firstIndex { $0.value == value })
+            return
+        }
+        picked.removeValue(forKey: id)
         menus.removeValue(forKey: id)
         if let owner = presenter.views[id], let control = controls[id] {
             configureValue(control, owner, accent: owner.channels("accent_color").map { TextEngine.color($0) })
@@ -73,6 +180,7 @@ extension ControlHost {
     /// chooses (LLP 1069.001 D9, as a held contact is refused in LLP 1035.003).
     func openValue(_ control: UIControl) -> Bool { control.window != nil }
     func unopened(_ node: NodeView) -> [String: Any]? {
+        #if !os(tvOS)
         if controls[node.id] is UIDatePicker {
             return ["tapped": Int(node.id), "delivery": "unsupported", "native": "control",
                     "reason": "the iOS carrier opens no picker (UIKit presents one under a finger); `type <id> <value>` sets it"]
@@ -81,14 +189,16 @@ extension ControlHost {
             return ["tapped": Int(node.id), "delivery": "unsupported", "native": "control",
                     "reason": "the iOS carrier drags no thumb (UIKit moves one under a finger); `type <id> <value>` sets it"]
         }
-        guard controls[node.id] is UIButton else { return nil }
+        #endif
+        guard controls[node.id] is UIButton, !(controls[node.id] is NativeButtonIOS) else { return nil }
         return ["tapped": Int(node.id), "delivery": "unsupported", "native": "control",
                 "reason": "the iOS carrier opens no menu (UIKit presents one under a finger); `type <id> <value>` chooses"]
     }
 
     /// The agent's `type <id> <value>` (D9): the choice a menu would make.
     func type(_ node: NodeView, _ value: String) -> [String: Any]? {
-        if let slider = controls[node.id] as? UISlider {
+        #if !os(tvOS)
+        if let slider = controls[node.id] as? RangeSlider {
             guard slider.isEnabled, !node.inert else { return ["error": "control #\(node.id) is disabled or inert"] }
             return typeRange(slider, node, value)
         }
@@ -96,23 +206,45 @@ extension ControlHost {
             guard picker.isEnabled, !node.inert else { return ["error": "control #\(node.id) is disabled or inert"] }
             return typeDate(picker, node, value)
         }
-        guard let control = controls[node.id], control is UIButton else { return nil }
+        #endif
+        if kinds[node.id] == "radio" { return typeRadio(node, value) } // x2apps survey #2
+        // A checkbox (or `switch`) takes `true` or `false`, and is toggled when that differs, as on the web.
+        if kinds[node.id] == "checkbox" || kinds[node.id] == "switch", let control = controls[node.id], !(control is NativeButtonIOS) {
+            guard value == "true" || value == "false" else { return ["error": "checkbox \(node.id) takes true or false, not \"\(value)\""] }
+            if checked(control) != (value == "true"), activate(node) != true { return ["error": "control #\(node.id) is disabled, inert or not shown"] }
+            return ["typed": Int(node.id), "checked": checked(control), "delivery": "host-activation", "native": "control"]
+        }
+        guard let control = controls[node.id], control is UIButton, !(control is NativeButtonIOS) else { return nil }
         guard control.isEnabled, !node.inert else { return ["error": "control #\(node.id) is disabled or inert"] }
-        if let refusal = (presenter.selectOptions?(node.id) ?? SelectMenu()).refusal(value, id: node.id) { return ["error": refusal] }
-        chose(node.id, value)
-        return ["typed": Int(node.id), "value": menus[node.id]?.chosenValue ?? "", "delivery": "host-activation", "native": "control"]
+        let choice = (presenter.selectOptions?(node.id) ?? SelectMenu()).choose(value, id: node.id)
+        guard let chosen = choice.value else { return ["error": choice.refusal ?? "select \(node.id) refused \"\(value)\""] }
+        chose(node.id, chosen)
+        return ["typed": Int(node.id), "value": picked[node.id] ?? menus[node.id]?.chosenValue ?? "", "delivery": "host-activation", "native": "control"]
+    }
+
+    /// Whether a checkbox or a switch is on.
+    func checked(_ control: UIControl) -> Bool {
+        #if os(tvOS)
+        return (control as? ExactCheckbox)?.isOn ?? false
+        #else
+        return (control as? UISwitch)?.isOn ?? (control as? ExactCheckbox)?.isOn ?? false
+        #endif
     }
 
     func valueObservation(_ control: UIControl) -> [String: Any]? {
+        #if !os(tvOS)
         if let slider = control as? UISlider {
             return ["view": "UISlider", "value": Double(slider.value), "min": Double(slider.minimumValue), "max": Double(slider.maximumValue)]
         }
         if let picker = control as? UIDatePicker {
-            return ["view": "UIDatePicker(compact)", "value": DateValue.format(kinds[UInt32(picker.tag)] ?? "date", picker.date)]
+            return ["view": "UIDatePicker(compact)", "value": DateValue.shown(kinds[UInt32(picker.tag)] ?? "date", picker)]
         }
-        guard let button = control as? UIButton else { return nil }
+        #endif
+        guard let button = control as? UIButton, !(button is NativeButtonIOS) else { return nil }
         let menu = menus[UInt32(button.tag)]
-        return ["view": "UIButton(pop-up)", "value": menu?.chosenValue as Any, "title": button.currentTitle as Any,
+        // `currentTitle` keeps the last selection's title after its menu goes.
+        let title = menu?.options.isEmpty == false ? button.currentTitle : nil
+        return ["view": "UIButton(pop-up)", "value": menu?.chosenValue as Any, "title": title as Any,
                 "options": menu?.options.map(\.label) ?? []]
     }
 }

@@ -13,21 +13,32 @@ pub struct Options {
 pub struct Beacon {
     pub lit: bool,
 }
+#[derive(Default, Data)]
+pub struct Movement {
+    pub speed: asset::Curve,
+    pub jump: f32,
+}
+/// A held sprint runs at this many times the movement table's speed.
+const SPRINT: f32 = 1.75;
 pub struct Beacons;
 impl Game for Beacons {
     const ID: &'static str = "beacons";
     const HZ: u32 = 60;
+    const TABLES: &'static [asset::Table] = &[asset::Table::of::<Movement>("movement.json")];
     type Args = Options;
     fn actions() -> Actions {
         Actions::new()
-            .stick("move", Stick::wasd().or_arrows())
-            .button("light", &["KeyE"])
-            .button("jump", &["Space"])
+            .stick("move", Stick::wasd().or_arrows().or_pad(Pad::Left))
+            .button("jump", &["Space", "GamepadSouth"])
+            // Held 200 ms, Shift runs; a tap of it does nothing.
+            .hold("sprint", &["ShiftLeft", "GamepadL1"], 0.2)
+            // E lights a beacon only within reach of one.
+            .context("beacon", |a| a.button("light", &["KeyE", "GamepadWest"]))
     }
     fn setup(w: &mut World, args: &Options) {
         w.reseed(args.seed);
         w.insert_resource(Environment {
-            background: Some([0.49, 0.67, 0.64]),
+            background: Some(Color([0.49, 0.67, 0.64])),
             ..Environment::default()
         });
         w.spawn((
@@ -94,6 +105,22 @@ impl Game for Beacons {
                     Beacon::default(),
                 ),
             );
+            w.spawn_named(
+                format!("ring-{}", i + 1),
+                (
+                    Transform::at(x, 0.205, z),
+                    Mesh::ring(0.72, 0.9),
+                    Material::glow([0.12, 0.55, 0.6]),
+                ),
+            );
+            w.spawn_named(
+                format!("halo-{}", i + 1),
+                (
+                    Transform::at(x, 1.0, z),
+                    Mesh::sphere(0.7),
+                    Material::glow([0.12, 0.55, 0.6]).alpha(0.12),
+                ),
+            );
         }
         w.publish("lit", 0);
         w.publish("near", "");
@@ -102,18 +129,31 @@ impl Game for Beacons {
         args.paused
     }
     fn tick(w: &mut World, input: &Input, _: &Options) {
+        // Set before the step, every tick: the table tunes walking, a held
+        // sprint scales it, and a sprint released while paused (no edge) walks
+        // again from the first tick on resume.
+        {
+            let tuning = w.table::<Movement>("movement.json").unwrap();
+            let walk = tuning.speed.at(input.stick_xz("move").length());
+            let mut player = w.require_mut::<Character>("player");
+            player.speed = if input.held("sprint") { walk * SPRINT } else { walk };
+            player.jump = tuning.jump;
+        }
         w.character("player")
             .step(input.stick_xz("move"), input.pressed("jump"));
         let mut near = "";
-        if let Some((entity, mut beacon)) = w.nearest_xz_mut::<Beacon>("player", 1.5, |b| !b.lit) {
+        let mut reach = false;
+        if let Some((_, mut beacon)) = w.nearest_xz_mut::<Beacon>("player", 1.5, |b| !b.lit) {
+            reach = true;
             if input.pressed("light") {
                 beacon.lit = true;
-                w.require_mut::<Glow>(entity).0.to(w.tick_end(), 1.0, 0.5);
+                beacon.glow_to(1.0, 0.5);
             } else {
-                near = w.name(entity).unwrap_or_default();
+                near = beacon.name().unwrap_or_default();
             }
         }
         w.publish("lit", w.count::<Beacon>(|b| b.lit));
         w.publish("near", near);
+        w.input_context("beacon", reach);
     }
 }

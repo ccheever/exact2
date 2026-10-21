@@ -1,0 +1,27 @@
+// Lists of records holding lists: nested map/filter with callbacks that
+// read outer callback parameters.
+shape Group
+  name: string
+  members: string[]
+  weights: number[]
+
+component App
+  resource groups = groups() as shape Group[]
+  state minLen = 1
+  derive sizes = groups.map(g => g.members.length).join(",")
+  derive long = groups.map(g => g.members.filter(m => m.length >= minLen))
+  derive labelled = groups.map((g, gi) => g.members.map((m, mi) => `${gi}.${mi}=${m}@${g.name}`).join(" ")).join(" | ")
+  derive total = groups.map(g => g.weights.filter(w => w > minLen).length).join(",")
+  action raise
+    minLen = minLen + 1
+  view
+    column
+      text sizes testId="sizes"
+      text labelled testId="labelled"
+      text total testId="total"
+      button "raise" press=raise testId="raise"
+
+test "nested"
+  tap "raise"
+  tap "raise"
+  expect state minLen == 3

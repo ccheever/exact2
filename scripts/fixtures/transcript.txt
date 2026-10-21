@@ -9,16 +9,28 @@ View#1 [root]
 viewport 420×900 · clock 1500 ms
 #1 [root] View 0,0 420×900
 #2 Text 20,12.5 380×18
-#5 [rows] ScrollView 0,40 420×200 scroll 0,100
+#5 [rows] ScrollView 0,40 420×200 scroll 0,100 of 0,640 port 0,90 420×150
 node #2 Text · site 3 · instance "north" · epoch 2 · incarnation 1
   font_size = 20 (authored)
   letter_spacing = 0 (initial)
   text_color = light-dark(#000000, #ffffff) (inherited from #1)
   space viewport 20,12.5 380×18 · frame 20,12.5 380×18 (kernel, in the parent) · window 20,56.5 380×18 · scale 2
-  scroll viewport 0,0 · #5 0,100
+  scroll viewport 0,0 of 0,0 · #5 0,100 of 0,640 port 0,90 420×150
   clip #5 overflow
   visible clipped=false hidden=false inViewport=true inert=false
   native controller=RouteController route=home view=NodeView
+  subviews view · 4 entries, depth 3 · truncated depth
+    view NodeView #2 20,12.5 380×18
+      view UIImageView glyph of #2 [inert] 20,12.5 18×18
+      layer CAShapeLayer flat-run #3 #4 path 40,12.5 300×1
+      view UITextField editor of #2 [hidden] [alpha 0.5] [masks] [z 1] [transform 1,0,0,1,0,8] 40,12.5 360×18 · opaque platform, 2 children
+
+--- layout agree
+agreement INCOMPLETE (spanned) · 3 disagreements · ±0.33 px · roots ExactView, modal #31 (retiring)
+  coverage stray 640 judged, 85 opaque · frame 512 compared, 40 size-only, 86 skipped · hidden 552 compared, 3 claimed · parked roots 6 · leaving 0
+  stray UIView under #40 [inbox-list] 0,0 390×44
+  frame #41 [row-3] kernel 0,132 390×44 · native 0,176 390×44 (Δ 0,44 0×0)
+  … 1 more (truncated)
 
 --- logs
 t=0 press view 3 (go) → epoch 2 (+1 −0 ~1)
@@ -33,54 +45,34 @@ t=1500 advance → 1 timer fired, epoch 3
 t=4990000 advance → 1 timer fired, epoch 9
 
 --- state
-{
-  "clock": 1500,
-  "slots": {
-    "query": "",
-    "stationId": null
-  },
-  "derives": {
-    "selectedId": "mv"
-  },
-  "resources": {
-    "station": {
-      "id": "mv",
-      "name": "Mountain View"
-    },
-    "board": [
-      {
-        "id": "a",
-        "at": 1
-      }
-    ]
-  },
-  "focus": {
-    "logical": 7,
-    "editor": 7,
-    "responder": "UITextField",
-    "pending": null
-  },
-  "keyboard": {
-    "visible": true,
-    "overlap": 335,
-    "top": 539,
-    "guide": 539,
-    "policy": "resizes-content",
-    "interactive": false
-  },
-  "navigation": {
-    "route": "compose",
-    "stack": [
-      "compose"
-    ],
-    "presentation": "modal",
-    "closedby": "closerequest",
-    "transition": {
-      "interactive": false,
-      "phase": "idle"
-    }
-  }
-}
+epoch 4 · incarnation 1 · clock 1500 ms
+slots {"query":"","stationId":null}
+derives {"selectedId":"mv"}
+resources {"station":{"id":"mv","name":"Mountain View"},"board":[{"id":"a","at":1}]}
+focus {"logical":7,"editor":7,"responder":"UITextField","pending":null}
+keyboard {"visible":true,"overlap":335,"top":539,"guide":539,"policy":"resizes-content","interactive":false}
+navigation {"route":"compose","stack":["compose"],"presentation":"modal","closedby":"closerequest","transition":{"interactive":false,"phase":"idle"}}
+head {"title":null,"description":null,"edited":false}
+storage {"available":false,"code":"agent","message":"storage is unavailable in agent mode unless the drive names a scratch store (--storage <name>)"}
+mediaSession {"owner":null,"claimants":[],"actions":[],"playbackState":"none","published":"none"}
 
 --- tap
-{"at":[210,45.5],"tapped":3,"target":"go","delivery":"platform","carrier":"macos","mode":"agent"}
+tapped #3 "go" · delivery platform
+
+--- type
+typed #4 "q" · delivery platform · epoch 5 · clock 1500 ms
+
+--- tap unsupported
+tap #3 "Sky off" · delivery unsupported · epoch 5 · incarnation 2 · clock 1500 ms · reason="linux has no pinch (LLP 1057.001 §4)" · pinch=2
+
+--- tap up
+tap up · delivery platform · epoch 6 · clock 1516 ms
+
+--- ax
+ax       chrome-cdp · Chrome 153.0.0.0 · order tree · epoch 4 · incarnation 1 · clock 0 ms · 5 elements
+button "Increment" [focused] #2 [first] 0,40 420×18
+button "" #9 [unnamed] 0,96 20×20
+heading "Section" [level=2] #14 [heading]
+textbox "Secret" [protected] #17 [secret]
+findings
+  ! unnamed button #9 [unnamed]

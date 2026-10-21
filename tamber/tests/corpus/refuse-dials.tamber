@@ -1,0 +1,15 @@
+tamber dials
+
+dials
+  far: number = 3  in 0..2
+  ranged: color = #fff  in 0..1
+  open: number = 1
+  backwards: number = 1  in 2..0
+  red: color = #f00
+  host: color = -exact-label
+  named: color = brand
+  wide: length = 2em  in 0px..4px
+
+theme
+  brand = color-mix(in srgb, far 50%, white)
+  uses = rgb(from #000 calc(far + ranged + open + backwards + red + host + named + wide) 0 0)

@@ -1,0 +1,705 @@
+# LLP 1086: What an app author is given
+
+**Type:** RFC
+**Status:** Draft r2, 2026-10-04; implemented the same day (§3 as built). Reviewed blind by Astra (max) and Grok (xhigh): both SOUND WITH CHANGES; §6 lists what r2 changed. Charlie asked for it to be implemented after review (2026-10-04); his request is the approval RULES asks for the build script (D3) and the DEFERRED bullet (D9).
+**Systems:** Scaffolding (`game/new.mjs`: the files `exact new` writes and `--update` rewrites, `.vscode/tasks.json` among them), the app's command runner (the generated `exact.mjs`), setup (`scripts/exact.mjs` `setup`), the app manifest schema (`scripts/app.schema.json`, `scripts/app.mjs` validation), the Contract CLI (`contract/cli`: a `vocab` command), the author docs (`docs/contract-for-humans.md`, `docs/contract-for-agents.md`, `docs/contract-grammar.md`, `docs/reference.md`), `README.md`, `AGENTS.md`/`CLAUDE.md`, `rules/DEFERRED.md`, LLP 1000
+**Author:** Claude (Opus 5.5) for Charlie Cheever
+**Date:** 2026-10-04
+**Revised:** 2026-10-14
+**Related:** LLP 1036.001 (apps outside the repository: what `exact new` writes); LLP 1035.005 (Contract authoring ergonomics: `fmt`, `symbols`, maps); LLP 1081 (moves the style-name table out of `tags.rs`, which would make D3's enumeration direct); `docs/agent-pitfalls.md` (its rule: an entry is deleted by the change that fixes the footgun); the authoring diaries: `signal-exact2/DIARY.md` (2026-10-02 to 10-03), `bluesky-exact2/DIARY.md`, the dice-tray diary (2026-10-04, fixes on `origin/tuft/diary-fixes`)
+
+## Summary
+
+The first submitted diaries are recorded in [LLP 1086.000](1086.000-the-first-submitted-diaries.research.md),
+with proposed follow-up work in [LLP 1086.000.000](1086.000.000-improvements-from-the-first-diaries.rfc.md).
+They distinguish these original fixes from later reported friction.
+
+Charlie asked what the repository still needs so that people, and the agents
+working for them, can build with exact2 as easily as possible.
+
+A lot is already there. The README has a quick start and a coding-agent prompt
+that a fresh session finished in about 23 minutes. Three guides exist: one for
+humans, one for agents, and a grammar reference. Their 16 complete Contract
+programs all compile on today's compiler. The pitfalls list is kept honest by
+its own deletion rule. The compiler's diagnostics teach well: stable ids, exact
+ranges, "did you mean", and JavaScript idioms translated into Contract.
+
+The gaps are at the edges an author meets first. Each was hit in a recorded
+trial or is visible on `main`:
+
+1. **A new app can't find the docs.** `exact new` writes no `AGENTS.md`. An
+   agent working in `../hello` never learns the guides exist. This was the
+   dice-tray diary's first complaint.
+2. **The data module is undocumented.** No guide, and nothing in
+   `reference.md`, shows a line of `app.ts`.
+3. **No list of what can be written.** The grammar reference declines to list
+   style properties and points at `schema.json` and `tags.rs`. Agents guess
+   CSS and are refused.
+4. **The guides' commands assume the exact2 root.** They use
+   `cargo run -p contract -- … apps/caltrain/…`, which doesn't work from an
+   outside app. Three of the dice-tray fixes are still unmerged.
+5. **`app.json` has no author-facing description**, and the scaffold gives
+   editors no schema.
+6. **Setup reports missing prerequisites one at a time.** `exact new` checks
+   none of them.
+7. **Nothing tells a learner which example apps to read.** Caltrain, the
+   reference app, has no README.
+8. **Some pointers are stale.** `AGENTS.md` names Weird Castle, which no
+   longer exists. LLP 1000 predates the JS target.
+
+Two process gaps sit underneath these. Policy says "sparse prose", so docs
+drift is nobody's job. And nothing fails when a guide's example stops
+compiling.
+
+This RFC has eleven decisions. D1–D8 fix the eight gaps above, D9–D10 fix the
+two process gaps, and D11 is the trial practice that found them. None adds a
+blocking check. D10 is a test in an existing suite.
+
+## 1. The author's path today
+
+What an author meets, in order, with what happens at each step:
+
+| Step | Today |
+|---|---|
+| Read the README | Good: principles, quick start, the agent prompt, what works. |
+| Install the tools | Five bullets. `exact setup` covers Rust, wasm-bindgen, Binaryen and `bun install`. Xcode, Chrome and Hermes stay manual, and a missing one shows up as the next build's failure. |
+| `exact new ../hello` | Smooth when Cargo's cache is warm. Writes `app.contract`, `app.ts`, `app.json`, the host crates and `exact.mjs`. **No README, no AGENTS.md, no `$schema`.** |
+| Learn Contract | `docs/contract-for-agents.md` (the trial agent called it excellent), the human guide, the grammar. **Reachable only from exact2's README.** |
+| Write the view | Diagnostics are good. **No list of style properties.** CSS shorthands such as `padding="12px 40px"` are refused (fixed on `tuft/diary-fixes`). |
+| Write `app.ts` | **Nothing shows how.** The scaffold's 10-line `greeting` source is the only example short of reading Weatherlight or Fieldnotes. |
+| Compile, inspect | **Every guide command is the exact2-root form.** |
+| Test and drive | `bun exact.mjs test web` and `agent web …`. Good once the app is built. Before the first build it gives a root-form hint (fixed on `tuft/diary-fixes`). |
+
+## 2. Design
+
+### D1. `exact new` writes the app's agent instructions
+
+`exact new` writes `AGENTS.md` and an identical `CLAUDE.md` into the app. They
+are identical because exact2 itself keeps its two copies that way: two
+harnesses, one text. The file is short and says only what an agent in the
+app's directory can't discover:
+
+- **What this is.** An Exact app. The view is in `app.contract`, the data in
+  `app.ts`, the manifest in `app.json`.
+- **Read first.** The three guides and the pitfalls list, as paths relative
+  to the app, computed the same way `exact.mjs` computes its `EXACT2` default.
+- **The app's commands.** Every `bun exact.mjs` verb, including D4's
+  `contract`.
+- **The loop.** `bun exact.mjs contract types app.contract -o
+  app.contract.d.ts` first, because `app.ts` imports the file it writes and
+  nothing else creates it before a host build. Then edit, `contract build
+  --json`, `test web`, drive with `agent web`, and finally the native hosts.
+- **Don't edit the generated parts.** The `[patch.crates-io]` table,
+  `rust-toolchain.toml`, forced-offline `.cargo/config.toml`, and `exact.mjs`
+  are rewritten by `bun exact.mjs update`.
+
+> **Amended by LLP 1115 D7.** `docs/start-here.md` is the only required reading; the long
+> guides are lookup.
+
+The generated text sits between `<!-- exact:begin -->` and `<!-- exact:end -->`
+markers. `--update` rewrites only what is between the markers, and appends the
+block when they are missing, so an author's own notes survive. An app that has
+neither file gets both. An app with only one gets the block in that one only.
+
+A game gets the same (2026-10-04, the platformer's diary R1: a game had no
+`exact.mjs`, `AGENTS.md` or test file). `exact new <path> --game`, or
+`game/new.mjs` with a path outside the checkout, writes them beside the
+template's files; its `exact.mjs` adds `test-rust` (the hostless Rust tests)
+and `prove` (the proof's baseline), its notes point at `game/README.md`, and
+`--update` rewrites only those two, since a game's Cargo workspace is the
+bake's (`.shells/`).
+
+The template's root is full-bleed (2026-10-07, the authoring bench's iOS
+diaries: the status-bar strip was black and finding the fix cost about five
+minutes): `viewport-fit="cover"` on `main`, and padding of
+`calc(env(safe-area-inset-*) + 24px)` on each side, so the background fills
+behind the status bar and the content keeps clear of it. On the web the insets
+are 0 and the page is unchanged.
+
+> **Amended by LLP 1115 D7.** The template writes no colour, no font size and no safe-area
+> padding; it says structure and leaves the rest to the platform.
+
+The app's workspace holds three host crates: `apple/`, `web/` and, since
+2026-10-07 (Charlie, toward Android bench cells, LLP 1107), `linux/`, in the
+shape of the repo's own (`apps/duo-lab/linux`: one executable with the runner,
+the kernel, the baked plan and the TypeScript data module). The Linux host runs
+headless anywhere, so `bun exact.mjs linux` builds it (`scripts/build-linux.mjs`)
+and `test linux` / `agent linux …` drive it on any machine. The Android host is
+the same crate built for Android: `bun exact.mjs android`
+(`scripts/agent-android.mjs build`). `--update` adds `linux/` to an app made
+before, unless the app has its own.
+
+> **Amended (2026-10-17, the euxy port: removing Linux by hand took app.json, the
+> workspace and Cargo.lock, about 20 minutes).** `bun exact.mjs update --without linux`
+> removes the crate, its workspace member and app.json's `linux` keys, and re-resolves
+> Cargo.lock. `--update` adds `linux/` only to an app whose app.json names
+> `deploy.store.linux`, which the scaffold writes, so a removal stays removed.
+
+> **Amended (2026-10-17, the euxy port: the bundle id renamed after the first build
+> made the next build a cold 46 s and orphaned the installed app).** `exact new <path>
+> --name <name> --bundle-id <id>` writes app.json's `app.name`, `name` and `short_name`,
+> its `app.id` and `id`, app.ts's `appId` and the template's heading; the component keeps
+> the folder's name. `AGENTS.md` says to set the two before the first build.
+
+An app, and a game outside the checkout, also gets `.vscode/tasks.json`
+(2026-10-07, Doug Lowder: VS Code support, "declarative first"; this is the
+approval RULES asks for the config file). Its tasks run the app's own
+`bun exact.mjs` verbs: build or format the open `.contract` file, `web`,
+`test web` (the default test task), `mac --run`, `ios --run`, and a game's
+`test-rust`. They read the compiler's lines through `$exact-contract`, the
+problem matcher of exact2's `editors/vscode` extension, and Cargo's through
+rust-analyzer's `$rustc`. The file is the author's once written: `--update`
+writes it only when it is missing and never rewrites it.
+
+Not taken:
+
+- **A skill directory in the app.** Skills are discovered per harness, and a
+  plain file reaches every harness.
+- **Copying the guides into the app.** Copies go stale. Paths follow the
+  checkout because `--update` rewrites them.
+
+### D2. The data module gets a worked example
+
+The README already shows a complete `app.ts`: the todo list, which is in
+memory. `docs/contract-for-humans.md` gains a section, "Writing the data
+module", that continues that example instead of starting over. It contains one
+complete, compiling `app.ts` beside the Contract that uses it:
+
+- a synchronous source;
+- an async source that uses `fetch`, with the `net.fetch` grant it needs;
+- a source that reads and writes `storage` (SQLite, with its grants), plus a
+  mutation over it that `refreshes` the list;
+- the `answer` dispatcher, `appId` and `grants`.
+
+The section also states the rules an author otherwise learns by failing:
+
+- Baking runs with no network or storage, and catching `Unavailable` gives a
+  placeholder.
+- SQLite integers are `bigint` and must be converted before they are returned.
+- `app.ts` imports only local files. There are no npm packages yet.
+- Grant verbs are a closed list (`grants/src/lib.rs`), and the section names
+  all of them.
+- A Rust data crate is the alternative. It is shown in a paragraph pointing at
+  `contract rust` and Caltrain's `data/`, not taught.
+- **How to verify it.** Generate the types, build, then drive with
+  `--storage <name>`, which an ordinary agent drive refuses
+  (`host/web/storage-environment.js`). Without that flag a drive exercises
+  only the storage-unavailable path. Authored tests took no `--storage` at all
+  when this was written; main's `agent-test.mjs` (`af670d6b9`, the same day)
+  now gives each test an empty store of its own, so `test web` needs no flag. On the web, every drive starts a new
+  browser profile, so persistence across launches is shown in the dev loop or on
+  a native host, not by a second drive.
+
+`docs/contract-for-agents.md` gains the same example in condensed form under
+"Data requests and side effects".
+
+`docs/reference.md`'s TypeScript section keeps its reference prose. It loses
+the run log in its second half: the iPhone 17 Pro Max sweeps, the gesture
+mitigations, "manual verification remains owed", and the Safari delay. That
+material is history, and git and LLP 1027 keep it. What a reader needs from it
+moves into one "Limits" paragraph: no Linux native TypeScript, no npm capture,
+no signed module updates.
+
+The example is checked by D10, and also built and driven as a real outside app
+before it lands.
+
+### D3. `contract vocab`: the compiler lists what it accepts
+
+The new command is `contract vocab [--json] [<name>]`. It prints what the
+compiler admits:
+
+- every built-in tag, with its family and the kernel node it makes;
+- every attribute, with its kind:
+  - a **style** attribute, with the rows it sets, each row's codec
+    (`dimension`, `color`, an enum's values and so on) and its default;
+  - a **prop**, with its type;
+  - a **handler**;
+- the renamed spellings, each with its replacement.
+
+With a name, it prints just that entry. If the name isn't admitted, it prints
+the same "did you mean" the compiler would.
+
+**The list comes from the lookups themselves.** `tags.rs`'s `tag()` and
+`attr()` are `match name` expressions with no table to iterate. `renamed()`
+and `html_tag()` are the same.
+
+1. **Scan.** A build script in `contract-lower` scans those four functions'
+   `match name` arms, and only the patterns left of `=>`. Value literals
+   inside arm bodies (`"flex"`, `"pre-wrap"`) are never candidates. It follows
+   or-patterns across lines.
+2. **Fail on anything else.** The script fails the build if an arm in those
+   matches is anything other than string-literal patterns or `_`. That makes
+   the scan complete rather than sampled: a new arm is either seen, or it
+   breaks the build with a message saying why.
+3. **Filter and classify.** `vocab` keeps the candidates the live lookup
+   admits, and classifies each by its `AttrTarget`: `Styles`, `Prop`,
+   `InvertedBoolProp`, `Handler`, `Flex` or `Surface`.
+4. **Describe.** It attaches each style row's codec, enum values and default
+   from the kernel's schema. The lookup's return can't supply those.
+5. **Rules no table lists.** It prints them from the compiler's own constants:
+   - the `head` fields;
+   - the attributes admitted only on certain tags (`lib.rs`'s contextual
+     refusals);
+   - the two open sets that bypass the lookups: a hyphenated tag is a native
+     module declared in `app.json` (`native.rs`), and `data-*` must be
+     declared too (`dataset.rs`).
+
+The generated list is a build artefact, not a committed file. It can't drift:
+the scan is total over the patterns, and admission is decided by the same
+function the compiler calls. A unit test checks that every scanned candidate
+resolves or is a refusal (`renamed`, `html_tag`).
+
+If LLP 1081 lands its iterable `style_names.rs` table, the style half of the
+scan is replaced by that table, as Astra recommends.
+
+`docs/contract-grammar.md`'s "Style and prop names come from `schema.json` and
+`tags.rs`… This document does not duplicate their changing property tables"
+becomes "run `contract vocab`". The agent guide's inventory says the same.
+
+Not taken:
+
+- **A generated Markdown table committed to `docs/`.** Generated files are
+  built, not committed.
+- **Rewriting `tags.rs` as a table.** That is LLP 1081's job, and `tags.rs`
+  is at 1,499 of its 1,500 lines.
+
+### D4. One command form that works from the app
+
+The generated `exact.mjs` gains a `contract` verb. It runs exact2's compiler
+as `cargo +<pinned stable> run -q --manifest-path <exact2>/Cargo.toml -p
+contract -- …` with the remaining arguments.
+
+- **Debug, not `--release`.** The guides already use the debug build, and a
+  release build would add a cold kernel-and-runner compile to the author's
+  first command.
+- **From the app directory**, so relative paths resolve against it.
+- **The environment:**
+  - The toolchain is named explicitly, and an ambient `RUSTUP_TOOLCHAIN` is
+    dropped. rustup picks the toolchain from the cwd and the environment, not
+    from `--manifest-path`, and `scripts/app.mjs` already guards against
+    mise's override.
+  - An inherited `CARGO_TARGET_DIR` is dropped, so the compiler builds into
+    exact2's own `target/` and never into the app's or another checkout's.
+
+So `bun exact.mjs contract build app.contract --json` and `bun exact.mjs
+contract vocab padding` work from inside the app.
+
+Every command in the three guides is shown in the app form. The root form
+(`cargo run -q -p contract -- … apps/<name>/…`) is kept once, as "inside the
+exact2 checkout".
+
+`origin/tuft/diary-fixes` lands first: `cc0b33e65` and `5ad4813de`, the three
+dice-tray fixes and an `exact.mjs` that builds a stale web app before driving
+it. They were reviewed with the diary and are independent of this RFC.
+
+### D5. `app.json` describes itself
+
+- The scaffold writes `"$schema"` as the path to `scripts/app.schema.json`,
+  relative to the app. `--update` rewrites it when the checkout moves. Editors
+  that read JSON Schema then complete keys and show descriptions.
+- `app.schema.json` already admits a top-level `$schema`, and both web
+  builders whitelist manifest keys, so it never reaches a web manifest. No
+  validator change is needed.
+- Each key that an author sets, or that `exact new` writes, gets a
+  `description` that says what it does in a sentence. The LLP citation follows
+  the sentence instead of replacing it. Those keys are:
+  - `name`, `short_name`, `id`
+  - `app.id`, `app.name`, `app.command`
+  - `host.ios`, `host.macos`, `host.web`
+  - `deploy.store`
+  - `modules`, `data`, `typescript.placement`, `rust.placement`
+  - icons
+  - `file_handlers`
+  
+  Internal keys keep their current text.
+
+### D6. Setup reports everything missing, once
+
+- `exact setup --check` collects every problem and reports them together,
+  instead of throwing at the first. It exits non-zero only after printing the
+  whole table.
+- It gains rows for:
+  - exact2's `node_modules`;
+  - Chrome, found through the agent's own `chromium()` lookup
+    (`agent-launch.mjs`). It is needed for the web loop, which is how every
+    app is driven.
+  - on macOS, an Xcode `xcode-select -p`, not the Command Line Tools;
+  - the digest-pinned Ibex **host Hermes bundle**, including its paired
+    `hermesc`, lean archive and receipt. This row is required: `setup --check`
+    fails when it is absent, and `setup` runs the install-once bundle installer
+    for the host target;
+  - on macOS, optional rows for the exact iOS Simulator target and
+    `aarch64-apple-ios` device target. Each prints its complete installer
+    command. `host/apple/build.mjs` preflights that selected target and repeats
+    the command rather than acquiring during Cargo. tvOS TypeScript refuses
+    until E2's v4 bundles.
+
+  Rows that depend on the app are reported as *needed for …*, not as
+  failures: a Rust app needs no Hermes.
+- `exact new` runs the check in report mode **before** it touches Cargo. A
+  missing `cargo` today fails at `cargo metadata` and deletes the half-written
+  app, and a report printed afterwards can't help with that. It then writes
+  the app and prints anything missing below its command list.
+
+`exact new` also writes the root's forced-offline Hermes Cargo configuration
+into the outside workspace and names the one-time installer in generated
+`AGENTS.md`. Its generated command runner exports the offline refusal too, so
+an older or edited workspace cannot turn an ordinary app build into engine
+acquisition. Setup does not install Xcode or the optional iOS bundles.
+
+### D7. Say which apps to learn from
+
+The README's "Example apps" section opens with four apps to read, and what
+each teaches:
+
+| App | What it teaches |
+|---|---|
+| Caltrain | Rust data, authored tests, routes, a GPU module |
+| Weatherlight | TypeScript with `fetch` and grants |
+| Fieldnotes | storage: SQLite, files, backup |
+| Recorder | strings, native modules |
+
+Caltrain gets a README of about 30 lines: what it is, how to run it on each
+host, and which files to read first. Fixtures and stress apps get no README.
+Their names already say what they are.
+
+### D8. Stale pointers
+
+- `AGENTS.md` and `CLAUDE.md` gain three lines at the top. If you are building
+  an app rather than working on exact2, read the agent guide and the pitfalls
+  list, and use `exact new`.
+- The Weird Castle line becomes `exact new`, in `AGENTS.md` and in
+  `game/README.md`.
+- LLP 1000's map gains `host/web-js` (LLP 1071) and `host/render`, the render
+  host (LLP 1048). Its web dev-loop description is brought up to date: the JS
+  target is the default build, and the ~20 ms resident loop is `--wasm`. Its
+  "`apps/caltrain/gpu` is … the line map" is corrected: the map left the GPU
+  module for Canvas 2D (`apps/caltrain/gpu/src/lib.rs:1-3`).
+
+### D9. The docs under `docs/` are part of the product
+
+`rules/DEFERRED.md`'s "Sparse prose. The code and the checks are the authority"
+and the 20-document cap were written against a governance corpus. Author docs
+are something else. DEFERRED gains one bullet beside them:
+
+> The guides under `docs/` describe the shipped product to its authors. A
+> change that alters what an author writes or runs updates them in the same
+> change. That is not apparatus, and it needs no approval.
+
+The enforced document caps are on `llp/current/` and `llp/foundation/`. The
+20-document sentence is about a governance corpus, and `docs/` is outside it.
+
+RULES' "agents add no design doc" is unchanged. It is about adding documents,
+and this is about keeping four existing ones true. New files under `docs/`
+still need a person to say so. This RFC is that for the files it names.
+
+### D10. Every example in the guides compiles, in `cargo test`
+
+Add a test to the Contract CLI's existing integration suite
+(`contract/cli/tests/it/docs.rs`). It does two things:
+
+- Every fenced `contract` block in `docs/*.md` and `README.md` must compile with
+  no diagnostics. The test compiles in-process and reports every failure in one
+  run. A block that is deliberately partial is fenced as `text`. The README's
+  todo app is fenced bare today, so it is labeled `contract`, `ts` and
+  `contract-test`.
+- Every `contract-test` block must parse.
+- Paths come from `CARGO_MANIFEST_DIR/../../`, as `corpus.rs` already does.
+
+The TypeScript examples are taken from the docs themselves, not from a fixture
+copy. Each `ts` block that follows a `contract` block in the same section is
+type-checked with `tsc` against that Contract's `contract types` output. The
+check runs in the existing async-lane `tsc` test (`typescript.rs`), not in the
+blocking gate.
+
+This is not DEFERRED's refused "executable `contract` assertions". Those were
+assertions inside language sections, which LLP 1006 refused in favor of `test`
+blocks. Here, examples compile.
+
+Cost: about 20 small compiles, well under a second. It isn't a new check. It
+runs inside `cargo test`, one of the five. The one block that fails today, the
+native `list` fragment at `contract-for-humans.md:754`, is refenced as `text`.
+
+### D11. The trial is the measurement
+
+The README's agent prompt and the authoring diaries found every gap above. No
+new tooling comes from this, and it is not a gate: a 23-minute run cannot
+block anything under RULES. When a change alters what an author meets first
+(the scaffold, setup, the guides' structure), someone re-runs the README
+prompt in a fresh session soon after. They record the elapsed time and the
+machine's provisioning state (warm Cargo cache, Hermes present). The README
+tip is updated to match, and anything rough goes in `docs/agent-pitfalls.md`
+or `issues/`. A storage-backed task (D2's example) is a good second prompt.
+
+### D12. `exact new --snapback`: an app wired to its backend in one step
+
+**Author ruling 2026-10-12, via the sb4 app farm** (waves 1–6: eleven builds
+in wave 6 pasted the snapback4 README's setup block; the ruling is the
+approval RULES asks for a new flag and verb). `exact new <path> --snapback
+[--port <n>]`, run in the backend's directory, writes the app with a
+guestbook when there is no backend schema yet: `app.contract`, `app.ts` (its `appId`
+the manifest's, the origin `http://127.0.0.1:<port>`, 4400 by default, and
+the grants for it and for the partition), `app.test.contract` (`epoch now`,
+the fetch prefixes at that origin), `/assets/snapback4.wasm` in
+`.gitignore`, and `../snapback/schema.q` only when there is none. It then
+does what the pasted block did, as the app's new verb `bun exact.mjs
+snapback` (`scripts/exact.mjs snapback <app>`, `game/new.mjs`
+`wireSnapback`): `snapback4 check` above when nothing is generated and the
+server is installed there; the `snapback4` mount (always relative) and the
+`backend` mount of `../snapback/generated` when present; the device build
+(`snapback4/web/build.mjs assets/snapback4.wasm`); and lines naming what is
+left (the server to install or start, an `appId` that disagrees). The
+notes' backend paragraph describes a wired app, else how to wire one.
+`update` rewrites the `snapback4` mount after the checkout moves, as it does
+the Cargo paths. Not done: native linking of `exact_snapback4::Module` (the
+farm's apps are driven on the web).
+
+**Wave 8 correction (Charlie’s EX3 task, 2026-10-12):** when the backend
+already has a schema, `new --snapback` keeps the greeting app and wires its
+generated operations; it does not write the guestbook for a different
+schema. `snapback --port N` updates an identifiable loopback `const origin`,
+matching literal grants and test fetch prefixes, and prints `dev --port N`.
+A grant written as `net.fetch ${origin}` follows the constant. An origin it
+cannot identify or a production origin is refused for this port edit.
+
+**Wave 9 correction (Charlie’s EX4 task, 2026-10-12):** a plain scaffold
+with no origin gets a literal origin and fetch/SQLite grants from `snapback
+--port N`; an existing computed declaration requires an explicit edit.
+The device build validates bindgen and optimizer wasm and uses private output directories.
+
+**HS correction (2026-10-13):** HAND and EX4 were developed against different contracts. The `snapback4-device` crate now owns a `snapback4.engine` custom section containing `{format:1, version, capabilities}`. The section is canonical compact UTF-8 JSON with exactly those fields in that order; both readers reject lexical alternatives, duplicates and invalid UTF-8. Exact's build preserves it, derives the diagnostic `assets/snapback4.wasm.json` from it, and never infers identity from Cargo.lock. Preflight and Snapback `check` read only this embedded identity. Preflight compares the server's `device_compatibility` floor and required capabilities at `GET /` on dev and serve, allowing compatible version skew. Offline preflight still validates the embedded identity. Web/native hosts answer `engine_info` and `engine_headers` before partition open; the Rust client's Fetch constructors use the device crate's header helper and both transport drivers forward `x-snapback-device` after caller credentials. No app needs a stamp script or headers callback for device identity. A fresh guestbook regression imports generated backend operations and runs offline write/reconnect against both server modes, including a positive server-side delivered-write assertion. HS round 4 returned READY from both independent Muse and fresh Codex reviewers; verbatim provenance-tracked records are under `llp/reviews/3000.001.000-hs-r4.{muse,codex}.md`.
+
+**EX5 amendment (Charlie’s wave-10 task, 2026-10-13; implementer Codex):** default
+`snapback` rebuilds through Cargo before preflight, so a missing/stale stamp repairs
+without `--rebuild`. An existing divergent mount refuses with a diff before any edit.
+The release regression packs the local npm snapshot with `npm pack --ignore-scripts`,
+installs the tarball, scaffolds, checks and writes through the browser against dev and
+serve. `--online` mounts the separate `snapback4/online` HTTP adapter, without wasm,
+SQLite, prediction or retries. Interrupted writes have unknown server fate and throw.
+The Snapback checker must gate actual device consumers, not generated operations
+mounts; this upstream gate is fixed in Snapback 0.4.27. `snapback --port N` is the setting
+that updates the constant, grants and generated test prefixes; `backend [dev|serve
+<release>]` derives its port from that same constant. Temporary test pages bind port
+zero, unless the author explicitly selects a page port. Native bakes resolve the
+versioned Bun home installation before PATH; an explicit BUN is version-checked.
+Staged declaration internals use skipLibCheck, while application sources stay strict.
+
+**EX6 amendment (Charlie’s wave-11 E1–E7 task, 2026-10-14; implementer Codex):**
+`bun exact.mjs snapback --rebuild --artifact-only` builds only the wasm and its
+identity diagnostics, without inspecting or rewriting mounts or app sources;
+`--port` and `--online` are refused in that mode. Preflight names an obsolete
+`x-snapback-device` shim in app.ts. Device identity is sent on the device-to-server
+leg, after caller credentials; the app-to-host leg supplies no engine identity.
+Production `serve` requires authentication even for `GET /` (401 E_AUTH without it),
+so offline/unauthenticated preflight validates only the artifact; the first
+credentialed device exchange and backend `check` enforce the server floor.
+Online reads expose the server envelope (`complete`, `cut`, branded cursor,
+`denied`); both adapters' media methods use the server asset routes. Online mode
+adds no SQLite grant, upload outbox or durable intent: those intents belong to
+the device. Generated app declarations export structural `ArgsOf` for backend
+handles, without adding a Snapback dependency to a plain app's declaration.
+`contract build` refreshes an existing `<input>.d.ts` from a successful compile,
+only when bytes differ; it creates none and retains the last declaration on
+compile failure. `--json` stays a single diagnostic array.
+Automatic page and resident ports stay within inclusive `PORT_LO`/`PORT_HI` when
+both are set; named `--port`/`EXACT_PORT` still wins. Exhaustion or a malformed
+range refuses. `snapback --port` preserves the origin's quotes, slash and other
+source bytes, and writes nothing when the port and mounts already agree. Matching
+grants and test prefixes migrate with or without that slash; transport boundaries
+remove trailing slashes before joining device request and asset paths.
+A literal `showPicker` target with no declared file input id is diagnosed at
+compile time; a dynamic id or target retains runtime resolution. TestId remains
+the driver's identifier. The author guide shows form values, held pickers,
+optional failures/results, shared state/action names and sampled resource clocks.
+
+**EX7 amendment (Charlie’s wave-12 E1–E5/H2 task, 2026-10-14; implementer Codex):**
+The online adapter adds `signup`, `login`, `logout`, `restore(now)` and explicit
+`refreshSession(now)`, using Exact's `secret.keep` store and Contract epoch time.
+Auth operations sharing an origin/key serialize across per-answer secret facades; requests fenced by the stored session
+reject after identity changes. A refused current token is forgotten after pending auth settles, so an old-token
+refusal cannot discard an in-flight successful rotation. A later clock sample
+never exposes an expired session, but leaves the matching secret in place while
+that rotation is in flight, so expiry cleanup cannot destroy its replacement; offline logout
+still forgets locally. `readAll` follows opaque cursors, preserves every page's
+completeness/cut, and throws on any page refusal, non-list data, repeated cursors or
+row-limit overflow. Online `Read` and device `Outcome` narrow by their discriminants;
+`hasData` narrows a device read without treating unavailable data as a successful page.
+The README's complete online password example proves reload, logout and login, and
+uses one Contract poll with sampled time and principal-matched rendering of kept rows.
+Durable upload intents remain device-owned; no second app outbox is introduced.
+
+Online wiring beside a schema replaces only an untouched greeting, after generated
+operations exist, with one typed query and mutation and JSON argument editors. It
+preserves authored code and never invents schema fields or credentials. The origin
+constant in `app.ts` feeds both the adapter and `net.fetch`; `test web` resolves
+`fail fetch "backend"` / `pass fetch "backend"` from that built grant at runtime,
+refusing ambiguity. Literal URLs retain their meaning; `snapback --port` still
+migrates older literal prefixes and `backend` derives its launch port from the constant.
+`analyze-resource-clock` warns on live clock resource arguments (including `with` context), derives
+and functions, while sampled state stops the dependency. Advice stays on stderr;
+`contract build --json` keeps one diagnostic array and a successful exit.
+
+The root and generated launchers start through a shell header using `BUN`, then the
+versioned home install, independently of PATH; the app also captures the generating
+Bun's absolute path as fallback. The shared resolver validates the selected version,
+relaunches an old Bun, and exports the selected binary and its PATH to descendants,
+including backend checks and the app's own commands. No new blocking check is added.
+
+Guestbook tests
+now begin with `fresh` so the default dev suite can run repeatedly.
+
+**EX8 amendment (Charlie’s wave-13 E1–E10 task, 2026-10-16; implementer Codex):**
+Both isolated adapters expose an authenticated served-release catalog and observed
+generation subscriptions; Contract owns polling, including when operation gates close.
+`EXACT_BACKEND_ORIGIN` and `test web --backend` select a bake input: only the
+captured top-level literal origin and matching grant change. `snapback --port`
+records an ignored local development selection, preserves authored source/tests,
+and reuses a compatible device artifact; an explicit rebuild still rebuilds.
+The existing device outbox owns durable upload bytes and placement dependencies.
+No app-local durable queue is introduced. Driver mutations advance the UI virtual
+clock one millisecond; the backend's clock remains its own.
+
+**EX9 amendment (Charlie’s wave-14 E1–E11/H10 task, 2026-10-16; implementer Codex):**
+Both adapters expose stored, fenced guest sessions and public auth configuration.
+The mixed identity recipe tests guest admission, optional send arguments, persona
+selection resetting to signed out on reload, and password-session restoration.
+Mutation sources throw `refused(why)`. The compiler emits mutation source names
+from the plan; the Snapback bake constrains their bool `ok` result fields to
+`true` through TypeScript, so returned failures are refused with that rewrite. The refusal’s
+code and message remain separate, including in the web agent’s mutation failures.
+Roster scaffolds write explicit-id seed rows for `insert <- deny` tables (including
+the default deny when no `insert` rule is present) and use
+`fresh "seed.json"`; unsupported field types require an authored backend seed.
+A failed unseeded test with authorization refusals names that repair. The driver
+warns when its epoch and a development backend’s clock differ by more than a day.
+Healthy rebuilds name resolved virtual mounts on one line. The README retest
+command runs every complete documented app twice against a selected registry;
+only a successful run publishes the pin, dated claims and input-hashed receipt.
+The checker refuses a version edit or changed tested source without that rerun.
+
+**EX10 amendment (Charlie’s wave-15 W1–W12/H6 task, 2026-10-18; implementer Codex):**
+The author explicitly requests the dialect migrator and upgrade note as an exception
+to the pre-1.0 rule against migration paths. `contract migrate` applies parser-backed
+edits for retired syntax; builds report those spellings together, and
+`--json --errors-only` filters advisory warnings. Apps expose `lock`, while `update`
+reports stale locks. Backend diagnostics name the selected origin and its source;
+a bake warns when a saved origin shadows an edited literal. Tests assert expected
+mutation refusals explicitly; other refusals remain wiring problems. Roster seed
+inference runs within scaffold rollback. Guest sessions require logout before account
+sign-in, and secret keys use the grant grammar. No runtime compatibility dialect or
+new blocking check is introduced.
+
+### D13. `fresh`: a test file empties the backend before each test
+
+**Author ruling 2026-10-12, via the sb4 app farm** (wave 4: 091; wave 7:
+E1, six builds, 49 minutes, the largest Exact item: a run's tests share one
+`snapback4 dev` and every write before it). `fresh` is a launch line of the
+test grammar (`contract/syntax` `Step::Fresh`; the JSON step `{op: "fresh",
+seed}`): at a file's top level it applies to every test, leading a test to
+that test, and `fresh "seed.json"` names a seed file from the test file's
+directory. Before each such test opens, `scripts/agent-test.mjs`
+`resetBackends` asks each loopback origin the app's web build fetches (its
+`net.fetch` grants) for `/dev/status`; each that is a `snapback4 dev`
+server (a `storeId`) gets `POST /dev/reset`, with the file's
+`[{table, row}]` as the body when one is named. The door is snapback4's
+(dev only: the app's tables and derived data emptied, then seeded; it
+answers `{reset: true, seeded, generation}`); 0.4.23 has it. A 404
+fails the test naming the older server and the pinned version to install.
+No `test web --fresh` flag: the line says it in the file, as `epoch now`
+does. Verified against the published 0.4.23 door and a scratch app's two
+tests that each start empty (2026-10-12); the README's per-file
+`test-fresh.mjs` workaround is removed. `serve` has no development reset.
+
+**Wave 9 browser-store correction (EX4):** a Chrome CLI `agent web --storage NAME`
+starts empty; `--keep-storage` preserves a named profile, and
+`--reset-storage` explicitly resets it. An OS lock owns the profile before
+any deletion, through browser shutdown, across different page ports. These
+flags do not alter `open()`'s programmatic persistence or authored tests:
+tests already use unique per-run/per-test stores and `reload` preserves that
+test's data. Backend rows remain server-owned; `fresh` is dev-only and a
+serve proof provisions uniquely keyed fixtures or logs in to an existing
+test account. Existing managed-auth `E_AUTH` handling forgets the refused
+current token, preserving a newer token after a late old-token refusal.
+
+**Native `--reset-storage` (2026-10-17):** the CLI had asked only Chrome to
+empty a store, so `agent ios --storage s5 --reset-storage` emptied nothing and
+a second drive read the first one's `app:/data` file (the euxy port lost ten
+minutes to it). A native named store is still kept between drives; with
+`--reset-storage` the host empties its whole tree at its first boot (`app:/`
+roots, SQLite, kept state, secrets), refusing a tree with a symbolic link at
+or above it under the cache base (`host/apple/src/picker.rs`,
+`host/linux/src/picker.rs` `unlinked`). The CLI holds a lock per host, device,
+app id and store for the whole drive, so a second drive of a store is refused
+rather than emptying it under the first (`exclusiveNativeStore`).
+
+
+**EX7 visibility (2026-10-14):** before opening any test browser, `test web` prints
+`fresh: reseeding before each of N tests`, counting the compiled tests that actually
+request reset, including per-test overrides. Every selected test still receives its
+own reset and browser store; a repeated password suite proves those boundaries.
+
+
+## 3. Implementation order
+
+1. Land `origin/tuft/diary-fixes` (D4's prerequisite).
+2. D8, D9: text only.
+3. D5, D1, D4: the scaffold and its update path, with `game/new-app.test.mjs`
+   covering the generated files and the marker-preserving update.
+4. D6: setup's report.
+5. D3: `contract vocab`, its build script and tests.
+6. D2, D10: the data-module section, its fixture, and the docs test.
+7. D7: the README table and Caltrain's README.
+8. Verify end to end: `exact new` into a temporary directory, paste D2's
+   example, then build, test and drive it on the web from inside the app,
+   using only the app's `AGENTS.md`.
+
+`llp/current/` is at its cap of 15, so linking this RFC means archiving one
+document. The candidate is the one whose work has most fully landed; see §5.
+
+## 4. Costs
+
+- **Two generated files in every new app.** They are short, and `--update`
+  owns them.
+- **A build script in `contract-lower`.** It scans one file and is about 40
+  lines.
+- **A docs test that fails when an author changes Contract without updating
+  the guides.** That is the point of D9. The failure names the file and line.
+- **D2 adds about 120 lines to the human guide. D2 and D7 delete more than
+  that from `reference.md`.**
+
+## 5. Questions settled for implementation
+
+Charlie asked for this to be implemented after review without stopping on
+details. These were settled by the author on the recommendation, and are open
+to reversal:
+
+1. **CLAUDE.md is a copy**, as the repo's own is. It works in every harness.
+2. **LLP 1075.003 leaves `llp/current/`.** It is the native platform control
+   plan, merged per its title. This RFC takes its place.
+3. **D9's wording is as written.** It is the one change here that moves a
+   binding document. Charlie should read it.
+
+## 6. Revisions
+
+**r2 (2026-10-04)**, after blind reviews by Astra (max) and Grok (xhigh). Both
+returned SOUND WITH CHANGES. Their findings are in
+`llp/reviews/rfc-2026-10-04-1086.{astra,grok}.md`.
+
+- **D3:** scan only arm patterns, fail on a non-literal arm, take codecs from
+  the schema, and print the contextual rules and the open sets. (Both
+  reviewers.)
+- **D4:** debug rather than release, an explicit toolchain, no inherited
+  `CARGO_TARGET_DIR`, and the app as cwd. (Both.)
+- **D6:** corrected the Hermes orders, separate `hermesc` and engine rows,
+  Chrome through `chromium()`, and the check before Cargo. (Both.)
+- **D1:** `contract types` comes first in the loop. **D2:** grant verbs, and
+  the `--storage` verification. (Grok; Astra.)
+- **D2:** continues the README's todo example. **D10:** README fences labeled,
+  TypeScript taken from the docs, scope against DEFERRED stated. (Astra;
+  Grok.)
+- **D8:** Grok's #5 said the "line map is Canvas 2D" correction was a misread.
+  It was checked and kept: `apps/caltrain/gpu/src/lib.rs:1-3` says the map
+  left the GPU module for Canvas 2D (LLP 1056). Grok's `game/README.md` find
+  is taken.
+- **D11:** not a gate. (Astra.)
+- **D5:** `$schema` is already admitted. (Astra.)

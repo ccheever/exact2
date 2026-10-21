@@ -1,0 +1,73 @@
+// A symbol image on AppKit (`image "symbol:<role>"`, LLP 1011, 1035.004.000):
+// the node stays an image leaf; an NSImageView in a clip draws the glyph and
+// its tint. Moved out of NodeViewMac.swift (the 1,500-line cap).
+#if os(macOS)
+import AppKit
+
+private final class SymbolClip: NSView {
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+}
+
+extension NodeView {
+    // A symbol remains an image leaf; AppKit owns glyph rendering and tint.
+    func clearSymbol() {
+        symbolClip?.removeFromSuperview(); symbolClip = nil; symbolView = nil; symbolKey = nil; symbolFound = false
+    }
+    func updateSymbol() {
+        guard kind == "image", let source = imageSource, source.hasPrefix("symbol:") else { return }
+        updateRoleAccessibility()
+        let name = props["symbolName"] ?? "", points = number("font_size", PageFacts.defaultRootFontSize), weight = number("font_weight", 400)
+        let key = "\(source):\(name):\(points):\(weight):\(symbolLookKey)"
+        if symbolKey != key {
+            symbolKey = key; loadGeneration += 1
+            let generation = loadGeneration
+            // An icon with no SF Symbol draws its own path (D10, stage 9 A).
+            image = name.isEmpty ? iconPathImage(side: points) : symbolImage(name, symbolConfiguration(SymbolMeasure.configuration(points: points, weight: weight)))
+            symbolFound = image != nil; if points <= 0 { image = nil }
+            if name.isEmpty, props["symbolPath"] == nil, !source.hasPrefix("symbol:sf/"), source != "symbol:", symbolRefusal != source { symbolRefusal = source; presenter?.session?.log("image \(source) refused: unknown symbol role") }
+            if !name.isEmpty || source.hasPrefix("symbol:sf/") || source == "symbol:" { symbolRefusal = nil }
+            let leaf = symbolView ?? NSImageView()
+            if symbolView == nil {
+                let clip = SymbolClip(); clip.wantsLayer = true; clip.layer?.masksToBounds = true
+                symbolClip = clip; symbolView = leaf; leaf.wantsLayer = true; clip.addSubview(leaf); addSubview(clip)
+            }
+            showSymbol(image, on: leaf); leaf.setAccessibilityElement(false)
+            // The symbol's size when the kernel's measurer could not say
+            let size = SymbolMeasure.size(name, points: points, weight: weight)
+            DispatchQueue.main.async { [weak self] in
+                guard let self, self.loadGeneration == generation, let presenter = self.presenter,
+                      presenter.views[self.id] === self else { return }
+                presenter.intrinsic(self.id, size)
+            }
+        }
+        // An icon path is the node's tint, else its colour (D10); a symbol is its tint, else its written colour (stage 9 B).
+        symbolView?.contentTintColor = props["symbolPath"] != nil ? iconPathTint : symbolTint ?? symbolInk ?? unsaidSymbolTint
+        // A colour that comes or goes while its row is selected (TableInkMac.swift).
+        symbolView?.cell?.backgroundStyle = symbolBackground(inEmphasizedRow)
+        if let leaf = symbolView { applySymbolEffect(leaf) }
+        layoutSymbol()
+    }
+    func layoutSymbol() {
+        guard let leaf = symbolView, let clip = symbolClip else { return }
+        let content = contentBox()
+        clip.frame = content; leaf.frame = clip.bounds
+        switch style["object_fit"]?.string ?? "fill" {
+        // `fill` too: a symbol keeps its aspect, as an SVG does (NodeViewIOS `layoutSymbol`).
+        case "contain", "fill": leaf.imageScaling = .scaleProportionallyUpOrDown
+        case "none": leaf.imageScaling = .scaleNone
+        case "scale-down": leaf.imageScaling = .scaleProportionallyDown
+        case "cover":
+            let size = image?.size ?? .zero
+            if size.width > 0 && size.height > 0 {
+                let ratio = max(content.width / size.width, content.height / size.height)
+                leaf.frame = CGRect(x: (content.width - size.width * ratio) / 2, y: (content.height - size.height * ratio) / 2, width: size.width * ratio, height: size.height * ratio)
+            }
+            leaf.imageScaling = .scaleAxesIndependently
+        default: leaf.imageScaling = .scaleAxesIndependently
+        }
+        let path = roundedPath(in: bounds).cgPath
+        var transform = CGAffineTransform(translationX: -content.minX, y: -content.minY)
+        let mask = CAShapeLayer(); mask.path = path.copy(using: &transform); clip.layer?.mask = mask
+    }
+}
+#endif

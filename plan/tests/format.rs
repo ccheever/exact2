@@ -2,7 +2,7 @@
 //! and values conform to their shapes or are refused.
 
 use exact_plan::asm::Asm;
-use exact_plan::builder::PlanBuilder;
+use exact_plan::builder::{Face, PlanBuilder};
 use exact_plan::bytes::Reader;
 use exact_plan::{
     BindingKind, BindingsRow, Code, CodeError, EventKind, Opcode, Plan, PlanError, RegionKind,
@@ -11,7 +11,7 @@ use exact_plan::{
 
 /// A small but complete plan: a counter slot, a derive, a resource, an
 /// action with a write, a timer, a root node with a text binding, and a
-/// `when` region with two arms.
+/// `if` region with two arms.
 fn sample() -> Plan {
     let mut b = PlanBuilder::new(0xdead_beef, 0x1234);
     let number = b.primitive(TypeKind::Number);
@@ -52,6 +52,7 @@ fn sample() -> Plan {
             kind: BindingKind::Prop,
             id: 0,
             expr: text,
+            written: true,
         }],
         &[(EventKind::Press, tick, &[])],
         None,
@@ -76,22 +77,173 @@ fn a_plan_round_trips_and_its_bytes_are_canonical() {
     assert_eq!(sample().encode(), bytes, "building twice is byte-identical");
 }
 
-/// A plan linked into the program decodes to the same plan, its data pool
-/// left in the program's bytes rather than copied.
 #[test]
-fn a_static_plan_keeps_its_data_pool_in_place() {
+fn resource_context_defaults_to_zero_and_decoding_refuses_an_oversized_tail() {
     let plan = sample();
-    assert!(!plan.data.is_empty(), "the sample has constants");
+    assert_eq!(plan.resources[0].context, 0);
+    let mut b = PlanBuilder::from_plan(plan);
+    let resource = exact_plan::ResourcesId(0);
+    b.set_resource_context(resource, 1);
+    let plan = b.finish().unwrap();
+    assert_eq!(plan.resources[0].context, 1, "an empty identity is valid");
+    assert_eq!(Plan::decode(&plan.encode()).unwrap(), plan);
+
+    let mut bad = plan.clone();
+    bad.resources[0].context = 2;
+    assert!(matches!(
+        Plan::decode(&bad.encode()),
+        Err(PlanError::BadReference {
+            table: "resources",
+            row: 0,
+            field: "context",
+        })
+    ));
+    let mut b = PlanBuilder::from_plan(plan);
+    let string = b.primitive(TypeKind::String);
+    let empty = b.resource("empty", "empty", &[], string, None);
+    b.set_resource_context(empty, 1);
+    assert!(matches!(
+        b.finish(),
+        Err(PlanError::BadReference {
+            table: "resources",
+            row: 1,
+            field: "context",
+        })
+    ));
+}
+
+/// A plan linked into the program decodes to the same plan, its pools and
+/// its lent tables left in the program's bytes until a row is edited.
+#[test]
+fn a_static_plan_lends_pools_and_rows_until_mutated() {
+    let mut plan = sample();
+    let mut binding = plan.binding(exact_plan::BindingsId(0));
+    binding.id = 0x1234;
+    binding.kind = BindingKind::Style;
+    binding.written = false;
+    plan.bindings.to_mut().push(binding);
+    plan.nodes.to_mut()[1].bindings.len = 2;
+    plan.nodes.to_mut()[1].order = 0x1234_5678;
+    plan.nodes.to_mut()[1].node_type = 0xab;
+    plan.validate().unwrap();
     let bytes: &'static [u8] = plan.encode().leak();
     let decoded = Plan::decode_static(bytes).unwrap();
+    let owned = Plan::decode(bytes).unwrap();
     assert_eq!(decoded, plan);
-    let range = bytes.as_ptr_range();
+    assert_eq!(decoded, owned);
+    assert_eq!(decoded.encode(), bytes);
+    assert_eq!(decoded.structure(), owned.structure());
+    assert!(decoded.bindings.is_lent());
+    assert!(decoded.nodes.is_lent());
+    assert!(!owned.bindings.is_lent());
+    assert!(!owned.nodes.is_lent());
+    assert!(!plan.bindings.is_lent());
+    assert!(!plan.nodes.is_lent());
+    assert!(!decoded.data.is_empty());
     assert!(matches!(decoded.data, std::borrow::Cow::Borrowed(_)));
-    assert!(range.contains(&decoded.data.as_ptr()));
+    assert!(bytes.as_ptr_range().contains(&decoded.data.as_ptr()));
+    assert!(matches!(owned.data, std::borrow::Cow::Owned(_)));
+    assert!(matches!(decoded.code, std::borrow::Cow::Borrowed(_)));
+    assert!(bytes.as_ptr_range().contains(&decoded.code.as_ptr()));
+    assert!(!decoded.bindings.is_empty());
+    assert!(!decoded.nodes.is_empty());
+    assert_eq!(decoded.bindings.iter().len(), owned.bindings.len());
+    assert_eq!(decoded.nodes.iter().len(), owned.nodes.len());
+    for (i, row) in owned.bindings.iter().enumerate() {
+        assert_eq!(decoded.binding(exact_plan::BindingsId(i as u32)), row);
+    }
+    for (i, row) in owned.nodes.iter().enumerate() {
+        assert_eq!(decoded.node(exact_plan::NodesId(i as u32)), row);
+    }
+    for i in [decoded.bindings.len(), usize::MAX] {
+        assert_eq!(decoded.bindings.get(i), None);
+    }
+    for i in [decoded.nodes.len(), usize::MAX] {
+        assert_eq!(decoded.nodes.get(i), None);
+    }
+    let mut edited = decoded.clone();
+    assert!(edited.bindings.is_lent());
+    assert!(edited.nodes.is_lent());
+    edited.bindings.to_mut()[0].written = false;
+    assert!(!edited.bindings.is_lent());
+    assert!(edited.nodes.is_lent());
+    edited.nodes.to_mut()[0].order = 7;
+    assert!(!edited.nodes.is_lent());
+    assert!(decoded.binding(exact_plan::BindingsId(0)).written);
+    assert_eq!(decoded.node(exact_plan::NodesId(0)).order, 0);
+    assert_ne!(edited, decoded);
+    edited.validate().unwrap();
+    assert_eq!(Plan::decode(&edited.encode()).unwrap(), edited);
+    let pointer = edited.bindings.to_mut().as_ptr();
+    assert_eq!(edited.bindings.to_mut().as_ptr(), pointer);
+    let mut builder = PlanBuilder::from_plan(decoded.clone());
+    builder.node(
+        0,
+        None,
+        None,
+        9,
+        &[decoded.binding(exact_plan::BindingsId(0))],
+        &[],
+        None,
+    );
+    let built = builder.finish().unwrap();
+    assert!(!built.bindings.is_lent());
+    assert!(!built.nodes.is_lent());
+    assert_eq!(built.nodes.len(), decoded.nodes.len() + 1);
+    assert_eq!(built.bindings.len(), decoded.bindings.len() + 1);
+
+    let empty = PlanBuilder::new(0, 0).finish().unwrap().encode().leak();
+    let empty = Plan::decode_static(empty).unwrap();
+    assert!(empty.bindings.is_lent() && empty.bindings.is_empty());
+    assert!(empty.nodes.is_lent() && empty.nodes.is_empty());
+    assert_eq!(empty.bindings.get(0), None);
+    assert_eq!(empty.nodes.iter().next(), None);
+}
+
+#[test]
+fn static_decode_refuses_truncation_corrupt_rows_and_bad_references() {
+    let plan = sample();
+    let bytes: &'static [u8] = plan.encode().leak();
+    for end in 0..bytes.len() {
+        let owned = Plan::decode(&bytes[..end]).unwrap_err();
+        assert_eq!(
+            Plan::decode_static(&bytes[..end]).unwrap_err(),
+            owned,
+            "end {end}"
+        );
+    }
+    let mut other = plan.clone();
+    other.bindings.to_mut()[0].kind = BindingKind::Style;
+    other.bindings.to_mut()[0].written = false;
+    other.nodes.to_mut()[0].parent = Some(exact_plan::NodesId(1));
+    other.nodes.to_mut()[0].bindings.len = 1;
+    let other = other.encode();
+    for at in (0..bytes.len()).filter(|&i| bytes[i] != other[i]) {
+        let mut bad = bytes.to_vec();
+        bad[at] = 0xfe;
+        let owned = Plan::decode(&bad).unwrap_err();
+        assert_eq!(
+            Plan::decode_static(bad.leak()).unwrap_err(),
+            owned,
+            "byte {at}"
+        );
+    }
+    let mut cycle = plan;
+    cycle.nodes.to_mut()[0].parent = Some(exact_plan::NodesId(1));
     assert!(matches!(
-        Plan::decode(bytes).unwrap().data,
-        std::borrow::Cow::Owned(_)
+        Plan::decode_static(cycle.encode().leak()),
+        Err(PlanError::SiteTooDeep { .. })
     ));
+}
+
+/// A face at `weight` (one weight, or a range) of normal width.
+fn face(source: &str, weight: [u16; 2]) -> Face<'_> {
+    Face {
+        source,
+        weight,
+        stretch: [1000, 1000],
+        italic: false,
+    }
 }
 
 #[test]
@@ -100,8 +252,8 @@ fn font_tables_round_trip_and_validate_their_identity_graph() {
     let family = b.font_family(
         "Fixture Sans",
         &[
-            ("assets/FixtureSans.ttf", 400, false),
-            ("assets/FixtureSans-Bold.ttf", 700, false),
+            face("assets/FixtureSans.ttf", [400, 400]),
+            face("assets/FixtureSans-Bold.ttf", [700, 700]),
         ],
     );
     let stack = b.font_stack(&[(StackMemberKind::Family, Some(family))]);
@@ -113,6 +265,7 @@ fn font_tables_round_trip_and_validate_their_identity_graph() {
 
     let mut duplicate_coordinate = plan.clone();
     duplicate_coordinate.faces[1].weight = 400;
+    duplicate_coordinate.faces[1].weight_max = 400;
     assert_eq!(
         duplicate_coordinate.validate(),
         Err(PlanError::DuplicateFace {
@@ -122,6 +275,27 @@ fn font_tables_round_trip_and_validate_their_identity_graph() {
             italic: false,
         })
     );
+
+    // A variable face's ranges: one face beside the static ones is not a
+    // duplicate, and a range that runs backwards is refused.
+    let mut ranged = plan.clone();
+    ranged.faces[1].weight = 100;
+    ranged.faces[1].weight_max = 900;
+    ranged.faces[1].stretch_min = 750;
+    ranged.faces[1].stretch_max = 1250;
+    assert_eq!(ranged.validate(), Ok(()));
+    let mut backwards = ranged.clone();
+    backwards.faces[1].weight_max = 99;
+    assert_eq!(
+        backwards.validate(),
+        Err(PlanError::FaceWeight {
+            face: 1,
+            weight: 100
+        })
+    );
+    let mut narrow = ranged;
+    narrow.faces[1].stretch_max = 700;
+    assert_eq!(narrow.validate(), Err(PlanError::FaceStretch { face: 1 }));
 
     let mut dangling = plan.clone();
     dangling.stack_members[8].family = Some(exact_plan::FamiliesId(99));
@@ -146,7 +320,7 @@ fn font_tables_round_trip_and_validate_their_identity_graph() {
 fn font_sources_are_portable_local_relative_paths() {
     let build = |source: &str| {
         let mut b = PlanBuilder::new(0xdead_beef, 0x1234);
-        let family = b.font_family("Fixture Sans", &[(source, 400, false)]);
+        let family = b.font_family("Fixture Sans", &[face(source, [400, 400])]);
         b.font_stack(&[(StackMemberKind::Family, Some(family))]);
         b.finish()
     };
@@ -172,6 +346,30 @@ fn font_sources_are_portable_local_relative_paths() {
             "accepted {source:?}"
         );
     }
+}
+
+/// A bool is 0 or 1. Any other byte is refused, not read as `true`: a
+/// binding's `written` is a claim about its author (LLP 1115.000 D2).
+#[test]
+fn a_bool_is_zero_or_one_and_nothing_else() {
+    let written = sample();
+    let mut implied = sample();
+    implied.bindings.to_mut()[0].written = false;
+    let (a, b) = (written.encode(), implied.encode());
+    let differing: Vec<usize> = (0..a.len()).filter(|&i| a[i] != b[i]).collect();
+    assert_eq!(differing.len(), 1, "the bit is one byte of the plan");
+    let at = differing[0];
+    assert_eq!((a[at], b[at]), (1, 0));
+    let mut corrupt = a.clone();
+    corrupt[at] = 2;
+    assert_eq!(
+        Plan::decode(&corrupt),
+        Err(PlanError::UnknownEnum {
+            table: "bindings",
+            field: "written",
+            value: 2
+        })
+    );
 }
 
 #[test]
@@ -233,9 +431,14 @@ fn loading_is_a_validation_pass() {
     // A code body that indexes a missing slot is refused by pc and table.
     let mut bad_code = plan.clone();
     let start = bad_code.code.len() as u32;
-    bad_code
-        .code
-        .extend_from_slice(&[Opcode::LoadSlot as u8, 7, 0, 0, 0, Opcode::Return as u8]);
+    bad_code.code.to_mut().extend_from_slice(&[
+        Opcode::LoadSlot as u8,
+        7,
+        0,
+        0,
+        0,
+        Opcode::Return as u8,
+    ]);
     bad_code.derives[0].body = Code {
         offset: start,
         len: 6,
@@ -257,7 +460,7 @@ fn loading_is_a_validation_pass() {
     // A body without a terminating Return is refused.
     let mut no_return = plan.clone();
     let start = no_return.code.len() as u32;
-    no_return.code.push(Opcode::Unit as u8);
+    no_return.code.to_mut().push(Opcode::Unit as u8);
     no_return.derives[0].body = Code {
         offset: start,
         len: 1,
@@ -273,7 +476,10 @@ fn loading_is_a_validation_pass() {
     // An unknown opcode byte is refused.
     let mut unknown = plan.clone();
     let start = unknown.code.len() as u32;
-    unknown.code.extend_from_slice(&[250, Opcode::Return as u8]);
+    unknown
+        .code
+        .to_mut()
+        .extend_from_slice(&[250, Opcode::Return as u8]);
     unknown.derives[0].body = Code {
         offset: start,
         len: 2,
@@ -296,7 +502,8 @@ fn mutations_require_a_global_option_slot_of_their_result_type() {
     let none = b.constant(&Value::NONE);
     let slot = b.slot("result", optional_number, none);
     let unit = b.constant(&Value::Unit);
-    let (owner, _) = b.region(RegionKind::Each, None, None, 0, unit, unit, 1);
+    let (_, arms) = b.region(RegionKind::Each, None, None, 0, unit, unit, 1);
+    let owner = arms[0];
     b.mutation("save", slot, number);
     let valid = b.finish().unwrap();
 
@@ -417,9 +624,14 @@ fn control_flow_is_forward_only_and_instruction_aligned() {
     // A backward jump (`Jump 0; Return`) would loop forever at boot.
     let mut looping = plan.clone();
     let start = looping.code.len() as u32;
-    looping
-        .code
-        .extend_from_slice(&[Opcode::Jump as u8, 0, 0, 0, 0, Opcode::Return as u8]);
+    looping.code.to_mut().extend_from_slice(&[
+        Opcode::Jump as u8,
+        0,
+        0,
+        0,
+        0,
+        Opcode::Return as u8,
+    ]);
     looping.slots[0].init = Code {
         offset: start,
         len: 6,
@@ -439,7 +651,7 @@ fn control_flow_is_forward_only_and_instruction_aligned() {
     body.extend_from_slice(&1.0f64.to_le_bytes());
     body.push(Opcode::Return as u8);
     let len = body.len() as u32;
-    misaligned.code.extend_from_slice(&body);
+    misaligned.code.to_mut().extend_from_slice(&body);
     misaligned.slots[0].init = Code { offset: start, len };
     assert!(matches!(
         misaligned.validate(),
@@ -452,6 +664,7 @@ fn control_flow_is_forward_only_and_instruction_aligned() {
     let mut fine = plan.clone();
     let start = fine.code.len() as u32;
     fine.code
+        .to_mut()
         .extend_from_slice(&[Opcode::Jump as u8, 5, 0, 0, 0, Opcode::Return as u8]);
     fine.slots[0].init = Code {
         offset: start,
@@ -511,8 +724,8 @@ fn a_huge_announced_count_reserves_little_before_it_is_refused() {
     // (count > remaining), and never reserved 16M entries first.
     let plan = sample();
     let mut bytes = plan.encode();
-    // strings count sits right after the 44-byte header.
-    bytes[44..48].copy_from_slice(&(1u32 << 24).to_le_bytes());
+    // strings count sits right after the 52-byte header.
+    bytes[52..56].copy_from_slice(&(1u32 << 24).to_le_bytes());
     assert!(matches!(Plan::decode(&bytes), Err(PlanError::BadCount(_))));
 }
 
@@ -630,7 +843,11 @@ fn router_format_round_trips_and_checks_semantic_links() {
         ("params", vec!["Router", "string"], "list<string>"),
         ("searchParam", vec!["Entry", "string"], "string"),
         ("encodeURIComponent", vec!["string"], "string"),
-        ("includes", vec!["string", "string"], "bool"),
+        ("includes", vec!["any", "any"], "bool"),
+        ("slice", vec!["any", "number", "number"], "any"),
+        ("concat", vec!["any", "any"], "any"),
+        ("indexOf", vec!["any", "any"], "number"),
+        ("split", vec!["string", "string"], "list<string>"),
         ("startsWith", vec!["string", "string"], "bool"),
         ("endsWith", vec!["string", "string"], "bool"),
     ] {
@@ -639,8 +856,8 @@ fn router_format_round_trips_and_checks_semantic_links() {
         assert_eq!(f.returns(), result);
         assert_eq!(Stdlib::from_wire(f as u8), Some(f));
     }
-    assert_eq!(Stdlib::Now as u8, 0);
-    assert_eq!(Stdlib::Min as u8, 10);
+    assert_eq!(Stdlib::PerformanceNow as u8, 0);
+    assert_eq!(Stdlib::Min as u8, 7);
 }
 
 #[test]
@@ -660,7 +877,7 @@ fn sites_nest_at_most_max_site_depth_and_types_never_contain_themselves() {
         Err(PlanError::SiteTooDeep { table: "nodes", .. })
     ));
     let mut cycle = deep(2).unwrap();
-    cycle.nodes[0].parent = Some(exact_plan::NodesId(1));
+    cycle.nodes.to_mut()[0].parent = Some(exact_plan::NodesId(1));
     assert!(matches!(
         cycle.validate(),
         Err(PlanError::SiteTooDeep { .. })
@@ -684,7 +901,7 @@ fn a_callback_body_is_entered_and_left_only_at_its_ends() {
         let mut p = plan.clone();
         let start = p.code.len() as u32;
         let len = body.len() as u32;
-        p.code.extend_from_slice(&body);
+        p.code.to_mut().extend_from_slice(&body);
         p.slots[0].init = Code { offset: start, len };
         p.validate()
     };
@@ -739,4 +956,44 @@ fn a_callback_body_is_entered_and_left_only_at_its_ends() {
     crossed.push(Opcode::Unit as u8);
     crossed.push(Opcode::Return as u8);
     assert_eq!(with(crossed), bad(7, 14));
+}
+
+#[test]
+fn a_plan_without_compiled_values_keeps_every_other_data_range() {
+    let mut b = PlanBuilder::from_plan(sample());
+    let ty = b.plan().resources[0].ty;
+    let other = b.resource("nearby#else", "no_stations", &[], ty, None);
+    b.set_resource_placeholder(exact_plan::ResourcesId(0), other);
+    let empty = Value::list(Vec::new());
+    b.set_resource_placeholder_value(other, &empty);
+    let plan = b.finish().unwrap();
+    let bare = plan.without_compiled_values();
+    // Decoding is the validation pass, so the rewritten plan is a valid one.
+    assert_eq!(Plan::decode(&bare.encode()).unwrap(), bare);
+    for row in &bare.resources {
+        assert_eq!((row.initial.len, row.initial_args.len), (0, 0));
+    }
+    assert!(bare.data.len() < plan.data.len());
+    let kept = &bare.resources[other.0 as usize];
+    assert_eq!(
+        Value::from_bytes(bare.bytes(kept.placeholder_value)).unwrap(),
+        empty
+    );
+    // Nothing else changes.
+    let mut same = bare.clone();
+    same.resources = plan.resources.clone();
+    same.data = plan.data.clone();
+    assert_eq!(same, plan);
+}
+
+/// `dragenter` and `dragleave` join the event kinds (LLP 1069.010, "Files
+/// dropped or pasted"). Every host needs a new binary for this plan format.
+/// The format digest is pinned: a change to `tables/format.json`, a comment
+/// included, moves it, and every host then needs a new binary (LLP 1030 D3a).
+#[test]
+fn the_format_digest_is_pinned() {
+    assert_eq!(
+        FORMAT_DIGEST, 0x6acd_8fd6_e21c_e140,
+        "the plan format digest moved: if intended, name the break and the hosts that move"
+    );
 }

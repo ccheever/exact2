@@ -1,6 +1,7 @@
 // Synthetic conformance plan: the router's verbs and reads (LLP 1038) —
 // tabs, a deep chain, parameters, a query, a modal, refusals, history.
-// linux: state only (its text prints each entry's id and the page's address, which the web runner's boot takes from the browser; the router sweep holds them)
+// Entry ids and addresses are the same on every host: the page launches
+// where a native host does (feed F16), so the Linux comparison takes the tree.
 routes nav
   tab home "/"
     post "/post/:post"
@@ -13,22 +14,22 @@ routes nav
 
 component Router
   derive current = top(nav)
-  action open(url: string) writes nav
+  action open(url: string)
     nav = open(nav, url)
-  action push(url: string) writes nav
+  action push(url: string)
     nav = push(nav, url)
-  action replace(url: string) writes nav
+  action replace(url: string)
     nav = replace(nav, url)
-  action back writes nav
+  action back
     nav = back(nav)
-  action selectTab(name: string) writes nav
+  action selectTab(name: string)
     nav = select(nav, name)
-  action go(url: string) writes nav
+  action go(url: string)
     nav = go(nav, url)
   view
     main navigationKey=`${current.id}` navigationBack="back" navigate=go testId="navigation" width="100%" height="100%"
       column testId="bar" gap=4 padding=8
-        text `${nav.tab} · ${current.name} · ${current.url} · depth ${depth(nav)} · q=${searchParam(current, "q")} · ${join(params(nav, "question"), ",")}` testId="where"
+        text `${nav.tab} · ${current.name} · ${current.url} · depth ${depth(nav)} · q=${searchParam(current, "q")} · ${params(nav, "question").join(",")}` testId="where"
         row gap=4 flex-wrap="wrap"
           button press=selectTab("home") testId="tab-home"
             text "home"
@@ -52,6 +53,6 @@ component Router
             text "refused"
           button press=back testId="back"
             text "back"
-      each e in stack(nav) key=e.id
+      for e in stack(nav) key=e.id
         column navigationKey=`${e.id}` navigationPresentation=(e.name == "ask" ? "modal" : "") testId=`route-${e.name}` padding=8
           text `${e.id} ${e.name} ${e.url} ${e.tab}` testId=`entry-${e.name}`

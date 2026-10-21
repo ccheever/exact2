@@ -1,0 +1,39 @@
+// The motion row's third tile (SPEC 13). The other stacks play `anim/motion-0N.json` in
+// lottie-ios; exact2 refuses Lottie (rules/DEFERRED.md: "No `lottie`, `rive`, …", upheld by
+// Charlie 2026-09-27), so the Bodymovin file is ported by hand to inline SVG and CSS `@keyframes`
+// (a declared difference, SPEC Decisions). Each file is the same three shape layers on a
+// 240 × 240 stage, 60 fps, 120 frames (a 2 s loop), top layer first in Lottie and last here:
+//
+// - `ball`: a 44 circle at (120, 50) → (120, 176) at frame 60 → (120, 50), each half eased
+//   (i/o 0.42/0.58: CSS `ease-in-out`);
+// - `square`: a 64 × 64 rounded (14) square at (60, 170), rotating 0 → 360°, linear;
+// - `ring`: a 60 circle stroked 8 at (180, 170), scale 60 % → 130 % and opacity 1 → 0,
+//   eased (its first keyframe carries the same i/o).
+//
+// The colours are each file's (the data source reads them). Frozen (SPEC "freeze"): progress
+// 0.5, a paused animation 1 s in.
+
+keyframes lottieBall
+  from cy=50 animation-timing-function="ease-in-out"
+  50% cy=176 animation-timing-function="ease-in-out"
+  to cy=50
+
+keyframes lottieSpin
+  from rotate=0
+  to rotate=360
+
+keyframes lottieRing
+  from scale=0.6 opacity=1
+  to scale=1.3 opacity=0
+
+component Lottie
+  props
+    c1: string
+    c2: string
+    c3: string
+    frozen: bool
+  view
+    svg viewBox="0 0 240 240" width="100%" height="100%" display="block"
+      circle cx=180 cy=170 r=30 fill="none" stroke=c3 stroke-width=8 transform-box="fill-box" transform-origin="center" animation=(frozen ? "lottieRing 2000ms ease-in-out -1000ms paused" : "lottieRing 2000ms ease-in-out infinite")
+      rect x=28 y=138 width=64 height=64 rx=14 fill=c2 transform-box="fill-box" transform-origin="center" animation=(frozen ? "lottieSpin 2000ms linear -1000ms paused" : "lottieSpin 2000ms linear infinite")
+      circle cx=120 cy=50 r=22 fill=c1 animation=(frozen ? "lottieBall 2000ms linear -1000ms paused" : "lottieBall 2000ms linear infinite")

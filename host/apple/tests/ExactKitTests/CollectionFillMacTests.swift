@@ -39,7 +39,7 @@ final class CollectionFillMacTests: XCTestCase {
         return (p, list, list.scroll!.documentView as! FlippedView)
     }
     private func limit(_ wire: Data) -> UInt32 {
-        wire.subdata(in: 72..<76).withUnsafeBytes { $0.loadUnaligned(as: UInt32.self) }
+        wire.subdata(in: 88..<92).withUnsafeBytes { $0.loadUnaligned(as: UInt32.self) }
     }
 
     func testResponsiveScrollingIsPreparedOnlyAsFarAsTheBuiltRows() {
@@ -100,7 +100,7 @@ final class CollectionFillMacTests: XCTestCase {
     }
 
     private func flags(_ wire: Data) -> UInt32 {
-        wire.subdata(in: 76..<80).withUnsafeBytes { $0.loadUnaligned(as: UInt32.self) }
+        wire.subdata(in: 92..<96).withUnsafeBytes { $0.loadUnaligned(as: UInt32.self) }
     }
 
     /// @ref LLP 1072 §3, §5 — a slice goes off main build-only; while it is in

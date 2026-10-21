@@ -40,6 +40,7 @@ fn frame(now_ms: f64) -> Frame {
         seekable: false,
         period_ms: 0.0,
         shader_generation: exact_gpu::shaders::shader_generation(),
+        headroom: 1.0,
     }
 }
 

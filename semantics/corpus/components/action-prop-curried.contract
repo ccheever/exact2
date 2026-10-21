@@ -1,0 +1,32 @@
+// An action passed as a prop, called by the child with curried arguments
+// that mix the child's props and state.
+component App
+  state log = ""
+  action record(who: string, n: number)
+    log = `${log}${who}${n};`
+  view
+    column
+      text log testId="log"
+      Stepper(name="a", onStep=record)
+      Stepper(name="b", onStep=record)
+
+component Stepper
+  props
+    name: string
+    onStep: action
+  state n = 0
+  action inc
+    n = n + 1
+  view
+    row
+      button "inc" press=inc testId=`inc-${name}`
+      button "send" press=onStep(name, n * 10) testId=`send-${name}`
+
+test "curried action prop"
+  tap "send-a"
+  tap "inc-b"
+  tap "inc-b"
+  tap "send-b"
+  tap "inc-a"
+  tap "send-a"
+  expect state log == "a0;b20;a10;"

@@ -1,4 +1,4 @@
-//! Springs on the web: a `spring()` in a node's `transition` row reaches the
+//! Springs on the web: a `-exact-spring()` in a node's `transition` row reaches the
 //! page as frames the browser plays (LLP 1002 D2), released from wherever the
 //! property is at that moment — the engine's value, the same rule natively.
 
@@ -162,7 +162,7 @@ fn translate_frames_are_pairs() {
         "translate",
         0.0,
         250.0,
-        &[(0.0, 0.0), (10.5, -2.0)],
+        &[[0.0; 4], [10.5, -2.0, 0.0, 0.0]],
         true,
     );
     b.animate(7, "opacity", 0.0, 0.0, &[], false);
@@ -188,12 +188,12 @@ impl DataSource for Rows {
 #[test]
 fn destroying_animated_virtual_rows_releases_bookkeeping_before_remount_or_reset() {
     let source = r#"component App
-  resource rows = rows() as shape list<number>
+  resource rows = rows() as shape number[]
   state shown = true
   state big = false
-  action hide writes shown
+  action hide
     shown = not shown
-  action toggle writes big
+  action toggle
     big = not big
   view
     column
@@ -201,12 +201,12 @@ fn destroying_animated_virtual_rows_releases_bookkeeping_before_remount_or_reset
         text "Hide"
       button press=toggle testId="toggle"
         text "Toggle"
-      text "survivor" testId="survivor" scale=(big ? 1.5 : 1) transition="scale spring(180, 12, 1)"
-      when shown
+      text "survivor" testId="survivor" scale=(big ? 1.5 : 1) transition="scale -exact-spring(180, 12, 1)"
+      if shown
         list virtualized=true height=180
-          each x in rows key=x
+          for x in rows key=x
             column height=32
-              text `${x}` scale=(big ? 1.5 : 1) opacity=(big ? 0.5 : 1) transition="scale spring(180, 12, 1), opacity spring(180, 12, 1)"
+              text `${x}` scale=(big ? 1.5 : 1) opacity=(big ? 0.5 : 1) transition="scale -exact-spring(180, 12, 1), opacity -exact-spring(180, 12, 1)"
 "#;
     let plan = contract::compile(source).unwrap().encode();
     exact_web::link(exact_web_capabilities::ALL);

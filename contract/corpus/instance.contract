@@ -1,5 +1,5 @@
 // Accept fixture: per-instance state (LLP 1017 P4c) — a child component
-// owns `state`, `derive`, and `action`. Used under an `each`, they are the
+// owns `state`, `derive`, and `action`. Used under a `for`, they are the
 // row's: kept with its key across reorders, dropped with the row, started
 // from the initializer when the row is created. Used once, they are that
 // use's own root slots, carried by name across a reload like any other.
@@ -9,14 +9,14 @@ shape Station
 
 component App
   state order = "asc"
-  resource stations = stations(order) as shape list<Station>
-  action flip writes order
+  resource stations = stations(order) as shape Station[]
+  action flip
     order = order == "asc" ? "desc" : "asc"
   view
     column testId="root"
       Counter(label="a")
       Counter(label="b")
-      each s in stations key=s.id
+      for s in stations key=s.id
         StationRow(station=s)
       button press=flip testId="flip"
         text "flip"
@@ -26,7 +26,7 @@ component Counter
     label: string
   state n = 0
   derive doubled = n * 2
-  action bump writes n
+  action bump
     n = n + 1
   view
     button press=bump testId=`count-${label}`
@@ -37,7 +37,7 @@ component StationRow
     station: Station
   state label = station.name
   state hot = false
-  action setHot(over) writes hot
+  action setHot(over)
     hot = over
   view
     row hover=setHot testId=`station-${station.id}`

@@ -27,6 +27,37 @@
 pub mod asm;
 pub mod builder;
 pub mod bytes;
+mod entry;
+pub mod pool;
+pub use entry::entry_identifier;
+/// ActivityKit's ordered placement identities (LLP 1126.001 WP8).
+pub const ACTIVITY_PLACEMENTS: [&str; 8] = [
+    "lockScreen",
+    "compactLeading",
+    "compactTrailing",
+    "minimal",
+    "expanded.leading",
+    "expanded.trailing",
+    "expanded.center",
+    "expanded.bottom",
+];
+/// `haptic(kind)`'s kinds, a sequence step's too (LLP 1077 D14): the
+/// presses `-exact-press-haptic` takes (`PressHaptic` in the kernel's schema),
+/// `impact` (`impact-medium`'s), and the outcomes, which an action plays and a
+/// press does not, since at touch-down nothing has succeeded yet.
+pub const HAPTIC_KINDS: [&str; 10] = [
+    "selection",
+    "impact",
+    "impact-light",
+    "impact-medium",
+    "impact-heavy",
+    "impact-soft",
+    "impact-rigid",
+    "success",
+    "warning",
+    "error",
+];
+
 pub mod shared;
 pub mod strings;
 pub mod value;
@@ -72,6 +103,8 @@ pub enum PlanError {
         available: usize,
     },
     BadMagic,
+    /// A running host received a snapshot, or the snapshot reader received another entry.
+    WrongEntry,
     UnsupportedVersion(u32),
     FormatDigestMismatch {
         expected: u64,
@@ -99,7 +132,7 @@ pub enum PlanError {
     UnknownValueTag(u8),
     NonFiniteValue,
     ValueTooDeep,
-    /// A region's arm count does not match its kind (`when`/`match` 2, `each` 1).
+    /// A region's arm count does not match its kind (`if`/`match` 2, `for` 1).
     RegionArms {
         region: u32,
         kind: RegionKind,
@@ -127,27 +160,28 @@ pub enum PlanError {
         mutation: u32,
         slot: u32,
     },
-    /// A static face weight is outside CSS Fonts' 1–1000 domain.
+    /// A face's weight range leaves CSS Fonts' 1–1000 domain or runs
+    /// backwards.
     FaceWeight {
         face: u32,
         weight: u16,
+    },
+    /// A face's stretch range is empty or runs backwards.
+    FaceStretch {
+        face: u32,
     },
     /// A face source is not a portable local relative path.
     FaceSource {
         face: u32,
     },
-    /// A declared family has no face.
-    EmptyFamily {
-        family: u32,
-    },
-    /// A family repeats one static `(weight, italic)` coordinate.
+    /// A family repeats one `(weight range, stretch range, italic)` face.
     DuplicateFace {
         family: u32,
         face: u32,
         weight: u16,
         italic: bool,
     },
-    /// v1 accepts one member per stack (the table remains a range).
+    /// A CSS fallback stack requires one to 64 members.
     StackMembers {
         stack: u32,
         members: u32,
@@ -225,6 +259,42 @@ impl Plan {
     /// progress. Called by the generated `validate`, so every loaded or built
     /// plan has passed it.
     pub fn validate_semantics(&self) -> Result<(), PlanError> {
+        let activity = !self.activity_slots.is_empty();
+        if self.snapshot_entry.is_empty() {
+            if self.snapshot_refresh.is_some() || activity {
+                return Err(PlanError::WrongEntry);
+            }
+        } else if self.snapshot_refresh.is_some() == activity {
+            return Err(PlanError::WrongEntry);
+        }
+        if activity {
+            if self.activity_slots.len() != ACTIVITY_PLACEMENTS.len() {
+                return Err(PlanError::WrongEntry);
+            }
+            let roots: Vec<_> = self
+                .nodes
+                .iter()
+                .enumerate()
+                .filter(|(_, n)| n.parent == Some(NodesId(0)) && n.arm.is_none())
+                .map(|(i, _)| i as u32)
+                .collect();
+            for (i, slot) in self.activity_slots.iter().enumerate() {
+                if self.str(slot.name) != ACTIVITY_PLACEMENTS[i]
+                    || roots.get(i) != Some(&slot.root.0)
+                {
+                    return Err(PlanError::WrongEntry);
+                }
+            }
+            if roots.len() != ACTIVITY_PLACEMENTS.len()
+                || !self.slots.iter().any(|s| {
+                    self.str(s.name) == "snapshot_state"
+                        && s.owner.is_none()
+                        && self.type_(s.ty).kind == TypeKind::Record
+                })
+            {
+                return Err(PlanError::WrongEntry);
+            }
+        }
         // @ref LLP 1038 D2 — declaration order and the one root router slot.
         let mut notfound = false;
         for (i, route) in self.routes.iter().enumerate() {
@@ -253,11 +323,37 @@ impl Plan {
         }
         if let Some(id) = self.router {
             let slot = self.slot(id);
-            if self.type_(slot.ty).kind != TypeKind::Record || slot.owner.is_some() {
+            if self.type_(slot.ty).kind != TypeKind::Record || slot.owner.is_some() || slot.late {
                 return Err(PlanError::BadReference {
                     table: "header",
                     row: 0,
                     field: "router",
+                });
+            }
+        }
+        // A late slot is a root slot: an owned one is its instance's. A
+        // persisted one is an authored root slot of a small setting (LLP
+        // 1116 D5).
+        for (i, slot) in self.slots.iter().enumerate() {
+            let here = Some(SlotsId(i as u32));
+            if slot.late && (slot.owner.is_some() || self.locale == here) {
+                return Err(PlanError::BadReference {
+                    table: "slots",
+                    row: i as u32,
+                    field: "late",
+                });
+            }
+            if slot.persist
+                && (slot.owner.is_some()
+                    || slot.late
+                    || self.locale == here
+                    || self.router == here
+                    || !self.persistable(slot.ty))
+            {
+                return Err(PlanError::BadReference {
+                    table: "slots",
+                    row: i as u32,
+                    field: "persist",
                 });
             }
         }
@@ -278,6 +374,14 @@ impl Plan {
         }
         // @ref LLP 1038 D5 — compiled data and its argument list form one cache entry.
         for (i, resource) in self.resources.iter().enumerate() {
+            // @ref LLP 1027.005 D6 — the identity is the remaining prefix.
+            if u32::from(resource.context) > resource.args.len {
+                return Err(PlanError::BadReference {
+                    table: "resources",
+                    row: i as u32,
+                    field: "context",
+                });
+            }
             let valid = if resource.initial.len == 0 {
                 resource.initial_args.len == 0
             } else {
@@ -360,22 +464,30 @@ impl Plan {
             if !is_portable_asset_path(self.str(face.source)) {
                 return Err(PlanError::FaceSource { face: i as u32 });
             }
-            if !(1..=1000).contains(&face.weight) {
+            if !(1..=1000).contains(&face.weight)
+                || !(face.weight..=1000).contains(&face.weight_max)
+            {
                 return Err(PlanError::FaceWeight {
                     face: i as u32,
                     weight: face.weight,
                 });
             }
+            if face.stretch_min == 0 || face.stretch_max < face.stretch_min {
+                return Err(PlanError::FaceStretch { face: i as u32 });
+            }
         }
         for (i, family) in self.families.iter().enumerate() {
-            if family.faces.len == 0 {
-                return Err(PlanError::EmptyFamily { family: i as u32 });
-            }
             // A family's faces are few: a scan, not a hash table's code.
             let mut coordinates = Vec::new();
             for face_id in family.faces.iter() {
                 let face = self.face(face_id);
-                let coordinate = (face.weight, face.italic);
+                let coordinate = (
+                    face.weight,
+                    face.weight_max,
+                    face.stretch_min,
+                    face.stretch_max,
+                    face.italic,
+                );
                 if coordinates.contains(&coordinate) {
                     return Err(PlanError::DuplicateFace {
                         family: i as u32,
@@ -391,7 +503,7 @@ impl Plan {
             return Err(PlanError::TooManyStacks(self.stacks.len()));
         }
         for (i, stack) in self.stacks.iter().enumerate() {
-            if stack.members.len != 1 {
+            if !(1..=64).contains(&stack.members.len) {
                 return Err(PlanError::StackMembers {
                     stack: i as u32,
                     members: stack.members.len,
@@ -426,6 +538,28 @@ impl Plan {
         {
             return Err(PlanError::GenericStacks);
         }
+        // @ref LLP 1121 D8 — looks by node, then state, one a state a node
+        // (hosts binary-search by node).
+        if let Some(i) = self
+            .looks
+            .windows(2)
+            .position(|pair| (pair[0].node.0, pair[0].state) >= (pair[1].node.0, pair[1].state))
+        {
+            return Err(PlanError::BadReference {
+                table: "looks",
+                row: i as u32 + 1,
+                field: "node",
+            });
+        }
+        // A look is `:hover` (1) or `:focus-visible` (2): `:active` (0) lowers
+        // to the press paint (LLP 1121 D8 as amended 2026-10-18).
+        if let Some(i) = self.looks.iter().position(|l| !(1..=2).contains(&l.state)) {
+            return Err(PlanError::BadReference {
+                table: "looks",
+                row: i as u32,
+                field: "state",
+            });
+        }
         self.validate_texts()?;
         self.validate_site_depth()?;
         self.validate_acyclic_types()
@@ -439,7 +573,10 @@ impl Plan {
         let mut depth = vec![0u32; first_region + self.regions.len()];
         let up = |site: usize| -> Option<usize> {
             let (parent, arm) = match site.checked_sub(first_region) {
-                None => (self.nodes[site].parent, self.nodes[site].arm),
+                None => {
+                    let node = self.node(NodesId(site as u32));
+                    (node.parent, node.arm)
+                }
                 Some(r) => (self.regions[r].parent, self.regions[r].arm),
             };
             match (parent, arm) {
@@ -524,6 +661,26 @@ impl Plan {
         Ok(())
     }
 
+    /// Whether a slot of type `ty` may be persisted (LLP 1116 D5): a number,
+    /// string or bool, or an option or list of one.
+    pub fn persistable(&self, ty: TypesId) -> bool {
+        let scalar = |t: TypesId| {
+            matches!(
+                self.type_(t).kind,
+                TypeKind::Number | TypeKind::String | TypeKind::Bool
+            )
+        };
+        let t = self.type_(ty);
+        scalar(ty)
+            || (matches!(t.kind, TypeKind::Option | TypeKind::List) && t.elem.is_some_and(scalar))
+    }
+
+    /// The region whose instance frame holds an owned slot's value: its
+    /// owning arm's region. `None` for a root slot.
+    pub fn owner_region(&self, slot: &SlotsRow) -> Option<RegionsId> {
+        slot.owner.map(|arm| self.arm(arm).region)
+    }
+
     /// Validate the slot relation a mutation assignment relies on at runtime.
     pub fn validate_mutation_slot(&self, mutation: MutationsId) -> Result<(), PlanError> {
         let row = self.mutation(mutation);
@@ -542,6 +699,35 @@ impl Plan {
             });
         }
         Ok(())
+    }
+
+    /// This plan without its resources' compiled values (`initial` and
+    /// `initial_args`), the data pool rebuilt to hold only what its other
+    /// rows still name. It is what a data module binds with: a source reads
+    /// the plan's declarations there, never the bake's answers, which can be
+    /// most of a baked plan's bytes.
+    pub fn without_compiled_values(&self) -> Plan {
+        let mut plan = self.clone();
+        for row in &mut plan.resources {
+            row.initial = Bytes::default();
+            row.initial_args = Bytes::default();
+        }
+        let mut data = Vec::new();
+        let mut moved = std::collections::HashMap::new();
+        plan.each_bytes_mut(&mut |b: &mut Bytes| {
+            if b.len == 0 {
+                *b = Bytes::default();
+                return;
+            }
+            let offset = *moved.entry((b.offset, b.len)).or_insert_with(|| {
+                let at = data.len() as u32;
+                data.extend_from_slice(&self.data[b.offset as usize..(b.offset + b.len) as usize]);
+                at
+            });
+            b.offset = offset;
+        });
+        plan.data = std::borrow::Cow::Owned(data);
+        plan
     }
 }
 
@@ -563,6 +749,90 @@ pub fn is_portable_asset_path(source: &str) -> bool {
         .all(|segment| !segment.is_empty() && segment != "." && segment != "..")
 }
 
+/// Whether `member`, one unquoted member of a `font-family` list, is a
+/// family name as CSS parses it (CSS Fonts 4 §2.1 `<custom-ident>+`): CSS
+/// identifiers separated by whitespace. A lone identifier may not be a
+/// CSS-wide keyword or `default`, and a complete generic family may not
+/// begin a longer name. Chrome, Firefox and WebKit agree on each case
+/// (`CSS.supports("font-family", …)`, 2026-10-12); compiled literals and
+/// run-time strings are checked by this one rule.
+pub fn is_css_family_name(member: &str) -> bool {
+    const SPACE: [char; 5] = [' ', '\t', '\n', '\r', '\x0c'];
+    let start = |c: char| c.is_ascii_alphabetic() || c == '_' || !c.is_ascii();
+    let escape =
+        |rest: &str| rest.starts_with('\\') && !rest[1..].starts_with(['\n', '\r', '\x0c']);
+    let mut idents = Vec::new();
+    let mut rest = member.trim_matches(SPACE);
+    while !rest.is_empty() {
+        let mut chars = rest.chars();
+        let first = chars.next().unwrap();
+        let second = chars.as_str();
+        let begins = if first == '-' {
+            second.starts_with('-') || second.starts_with(start) || escape(second)
+        } else {
+            start(first) || escape(rest)
+        };
+        if !begins {
+            return false;
+        }
+        let mut i = 0;
+        while i < rest.len() {
+            let tail = &rest[i..];
+            if escape(tail) {
+                // `\` then up to six hex digits and one whitespace, or any
+                // one other character; at the end, U+FFFD.
+                let hex = tail[1..]
+                    .bytes()
+                    .take(6)
+                    .take_while(u8::is_ascii_hexdigit)
+                    .count();
+                i += 1 + match hex {
+                    0 => tail[1..].chars().next().map_or(0, char::len_utf8),
+                    n => n + usize::from(tail[1 + n..].starts_with(SPACE)),
+                };
+                continue;
+            }
+            let c = tail.chars().next().unwrap();
+            if start(c) || c.is_ascii_digit() || c == '-' {
+                i += c.len_utf8();
+            } else if SPACE.contains(&c) {
+                break;
+            } else {
+                return false;
+            }
+        }
+        idents.push(&rest[..i]);
+        rest = rest[i..].trim_start_matches(SPACE);
+    }
+    let is = |ident: &str, words: &[&str]| words.iter().any(|w| ident.eq_ignore_ascii_case(w));
+    match idents.as_slice() {
+        [] => false,
+        [one] => !is(
+            one,
+            &[
+                "inherit",
+                "initial",
+                "unset",
+                "revert",
+                "revert-layer",
+                "default",
+            ],
+        ),
+        [first, ..] => !is(
+            first,
+            &[
+                "serif",
+                "sans-serif",
+                "cursive",
+                "fantasy",
+                "monospace",
+                "system-ui",
+                "math",
+            ],
+        ),
+    }
+}
+
 impl std::fmt::Display for PlanError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{self:?}")
@@ -572,9 +842,71 @@ impl std::fmt::Display for PlanError {
 impl std::error::Error for PlanError {}
 
 /// Sources answered by the runner, with a result shape selected by each reader.
+pub const RUNNER_OWNED_SOURCES: &[&str] = &[
+    "exactDelivery",
+    "exactViewport",
+    "exactPage",
+    "exactSurface",
+    "exactTime",
+    "exactTransport",
+    "exactMIDI",
+    "exactActivities",
+    "startActivity",
+    "updateActivity",
+    "endActivity",
+];
+
+/// Whether the runner answers `name` ([`RUNNER_OWNED_SOURCES`]).
 pub fn runner_owned_source(name: &str) -> bool {
-    matches!(
-        name,
-        "exactDelivery" | "exactViewport" | "exactPage" | "exactSurface" | "exactTime"
-    )
+    RUNNER_OWNED_SOURCES.contains(&name)
+}
+
+impl Plan {
+    /// The bit a platform holds in a `hatches` row's mask (LLP
+    /// 1075.003.000.001 §4.3), in the order the manifest's names are listed.
+    pub fn hatch_platform_bit(platform: &str) -> u16 {
+        ["ios", "tvos", "macos", "web", "linux", "windows", "android"]
+            .iter()
+            .position(|p| *p == platform)
+            .map_or(0, |i| 1 << i)
+    }
+
+    /// Declare a hatch word and the platforms that handle it, after
+    /// lowering: the row comes from `app.json`, not from Contract.
+    pub fn add_hatch(&mut self, word: &str, platforms: u16) {
+        let found = self.strings.iter().position(|s| s == word);
+        let id = match found {
+            Some(i) => StrId(i as u32),
+            None => {
+                let id = StrId(self.strings.len() as u32);
+                self.strings.push(word);
+                id
+            }
+        };
+        self.hatches.push(HatchesRow {
+            word: id,
+            platforms,
+        });
+    }
+
+    /// The native module row of source `name`, when a module answers it
+    /// rather than the app's data (LLP 1133.002 D13).
+    pub fn module_named(&self, name: &str) -> Option<&ModulesRow> {
+        self.modules
+            .iter()
+            .find(|m| self.str(self.sources[m.source.0 as usize].name) == name)
+    }
+
+    /// Whether `platform`'s module handles `word`, as the plan says it: true
+    /// for a plan that lists no words at all (one baked before the row, or an
+    /// app that declares none), since then only the module can say.
+    pub fn handles_hatch(&self, word: &str, platform: &str) -> bool {
+        if self.hatches.is_empty() {
+            return true;
+        }
+        let bit = Self::hatch_platform_bit(platform);
+        self.hatches
+            .iter()
+            .any(|row| self.str(row.word) == word && row.platforms & bit != 0)
+    }
 }

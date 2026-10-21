@@ -40,9 +40,9 @@ fn pan_abi_20_commits_deltas_and_refuses_nonfinite_payload_before_clock() {
     let plan = contract::compile(
         r#"component Test
   state x = 0
-  action move(dx: number, dy: number) writes x
+  action move(dx: number, dy: number)
     x = x + dx + dy
-  action playback(seconds: number) writes x
+  action playback(seconds: number)
     x = seconds
   view
     box pan=move testId="pan"

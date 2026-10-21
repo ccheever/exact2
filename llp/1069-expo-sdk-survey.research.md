@@ -119,7 +119,7 @@ Legend for the exact2 column (web / macOS / iOS / Linux):
 - **–** — absent.
 - **✕** — deferred in `rules/DEFERRED.md` (renamed from NOT-DOING.md on 2026-09-27: "what isn't a current priority, not what will never be done").
 
-Evidence is by grep over `host/`, `runner/`, `contract/` and `vendor/ibex2`,
+Evidence is by grep over `host/`, `runner/`, `contract/` and `vendor/ibex/crates/ibex2`,
 2026-09-27.
 
 ### 2.1 UI and components

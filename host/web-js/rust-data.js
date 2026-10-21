@@ -1,5 +1,9 @@
+import { admitsSecret, createRequestExecutor, fetchHostAsset, sameGrantDeclaration, setAppGrantSet } from './admission.js';
+import { rustGrantSet, tsGrantSet } from './admission-data.js';
+import { boundedHttpBody, streamed } from './http-body.js';
 // A Rust data module on the JS runtime (LLP 1029.000's seam, ABI 3,
-// `logic/abi/src/lib.rs`): the app's importless module wasm and its plan,
+// `logic/abi/src/lib.rs`): the app's importless module wasm and its plan's
+// declarations (`app.bind.plan`, the plan without the bake's answers),
 // fetched after first pixel; once bound and activated, every answer is a
 // synchronous call, as the runner's `DataSource::answer` is. Until then the
 // runtime keeps each resource's compiled value and asks again at `ready`.
@@ -13,6 +17,7 @@ function writer() {
     u16(v) { room(2); new DataView(buf.buffer).setUint16(at, v, true); at += 2; },
     u32(v) { room(4); new DataView(buf.buffer).setUint32(at, v, true); at += 4; },
     f64(v) { room(8); new DataView(buf.buffer).setFloat64(at, v, true); at += 8; },
+    u64(v) { room(8); new DataView(buf.buffer).setBigUint64(at, BigInt(v), true); at += 8; },
     bytes(b) { w.u32(b.length); room(b.length); buf.set(b, at); at += b.length; },
     str(s) { w.bytes(utf8.encode(s)); },
     done: () => buf.subarray(0, at),
@@ -44,6 +49,7 @@ function reader(b) {
     u8: () => b[at++],
     u32: () => { const v = d.getUint32(at, true); at += 4; return v; },
     f64: () => { const v = d.getFloat64(at, true); at += 8; return v; },
+    u64: () => { const v = Number(d.getBigUint64(at, true)); at += 8; return v; },
     str: () => { const n = r.u32(), s = text.decode(b.subarray(at, at + n)); at += n; return s; },
     bytes: n => { const x = b.slice(at, at + n); at += n; return x; },
     value() {
@@ -61,8 +67,8 @@ function reader(b) {
   return r;
 }
 
-export async function install(data, sources, load = p => fetch(p).then(r => r.arrayBuffer())) {
-  const [wasm, plan] = await Promise.all([load('./rust/wasm/app.module.wasm'), load('./app.plan')]);
+export async function install(data, sources, load = p => fetchHostAsset(p).then(r => r.arrayBuffer())) {
+  const [wasm, plan] = await Promise.all([load('./rust/wasm/app.module.wasm'), load('./app.bind.plan')]);
   // Bytes, or a module a renderer compiled once for every render.
   const made = await WebAssembly.instantiate(wasm, {}), instance = made.instance ?? made;
   const e = instance.exports;
@@ -89,11 +95,11 @@ export async function install(data, sources, load = p => fetch(p).then(r => r.ar
     if (tag >= 2 && tag <= 4) throw Object.assign(new Error(r.str()), { unknown: tag === 2, refuse: true });
     if (tag === 1 || tag === 6 || tag === 9) {
       const http = tag === 1 ? 'ordered' : `independent:${r.u32()}`;
-      if (r.u8()) r.str(); else r.str();
+      const scoped = r.u8() === 1, scope = r.str();
       const method = r.str(), url = r.str(), headers = [];
       for (let n = r.u32(); n--;) headers.push([r.str(), r.str()]);
       const n = r.u32(), body = r.bytes(n);
-      return { req: { method, url, headers, body: text.decode(body), raw: body, http, stream: tag === 9 } };
+      return { req: { method, url, headers, body: text.decode(body), raw: body, http, maxResponseBytes: http === 'ordered' ? undefined : Number(http.split(':')[1]), scope: scoped ? scope : null, stream: tag === 9 } };
     }
     // Storage work (LLP 1027.001 D2): a portable request the host runs
     // through the web host's own `storage-request.js`, under its scope.
@@ -102,6 +108,7 @@ export async function install(data, sources, load = p => fetch(p).then(r => r.ar
   };
   const op = (code, fill) => { const w = writer(); w.u32(ABI); w.u8(code); fill?.(w); return call(w.done()); };
   let r = op(0); r.u8(); const meta = [r.str(), r.str()];
+  if (!sameGrantDeclaration(rustGrantSet, meta[1])) throw new Error('Rust module grants differ from the admitted build');
   r = op(1, w => w.bytes(new Uint8Array(plan))); r.u8(); result(r);
   r = op(2); r.u8(); result(r);
   // One call (`call_request`): source, arguments by type, the store's
@@ -109,37 +116,65 @@ export async function install(data, sources, load = p => fetch(p).then(r => r.ar
   const callWith = (code, source, args, store, outcome) => {
     const r = op(code, w => {
       w.str(source); w.u8(6); w.u32(args.length);
-      const t = sources[source] ?? ''; let i = 0; for (const a of args) i = encode(w, a, t, i);
-      const pairs = [...store.map].filter(([k]) => !k.startsWith('kept.'));
+      const t = (sources[source] ?? '').split('|')[0]; let i = 0; for (const a of args) i = encode(w, a, t, i);
+      const pairs = [...store.map].filter(([k]) => admitsSecret(rustGrantSet, k));
       w.u32(pairs.length); for (const [k, v] of pairs) { w.str(k); w.str(v); }
       if (outcome) {
         if (outcome.storage) { w.u8(5); w.bytes(outcome.storage); }
-        else if (outcome.failed) { w.u8(1); w.str(outcome.message); }
+        // One message of a stream (LLP 1016.000), the ABI's tag 8.
+        else if (outcome.streamed) { const m = outcome.streamed; w.u8(8); w.str(m.event); w.str(m.id); w.str(m.data); w.u32(m.coalesced); }
+        else if (outcome.failed) { w.u8(outcome.failed); w.str(outcome.message); }
         else { w.u8(0); w.u16(outcome.status); w.u32(outcome.headers.length); for (const [k, v] of outcome.headers) { w.str(k); w.str(v); } w.bytes(outcome.body); }
       }
     });
     if (r.u8() !== 2) throw new Error('expected a call reply');
     const observed = r.u8() === 1;
-    for (let n = r.u32(); n--;) { const k = r.str(); store.set(k, r.u8() ? r.str() : null); }
-    const out = result(r);
+    const writes = [];
+    for (let n = r.u32(); n--;) { const k = r.str(); const v = r.u8() ? r.str() : null; if (!admitsSecret(rustGrantSet, k)) throw new Error(`secret ${k} is not granted`); writes.push([k, v]); }
+    let out;
+    try { out = result(r); } catch (error) { if (error.refuse) for (const [k, v] of writes) store.set(k, v); throw error; }
+    for (const [k, v] of writes) store.set(k, v);
     if (observed) out.store = true;
     return out;
   };
   const rust = (source, args, store) => callWith(3, source, args, store), ts = data.ts;
-  data.answer = ts ? (source, args, store, target) => { try { return rust(source, args, store); } catch (e) { if (e.unknown) return ts(source, args, store, target); throw e; } } : rust;
+  data.answer = ts ? (source, args, store, target, mutation) => { try { return rust(source, args, store); } catch (e) { if (e.unknown) return ts(source, args, store, target, mutation); throw e; } } : rust;
   data.parse = (source, args, outcome, store) => callWith(4, source, args, store, outcome);
-  // The host runs the request (`glue.js` `ask`): the browser's fetch.
-  let storage = null;
-  data.fetch = async req => {
-    if (req.storage != null) {
-      storage ??= import(new URL('storage-request.js', document.baseURI).href).then(m => m.createStorageRequests(data.appId, data.grants));
-      return { storage: await (await storage).run(req.storage, req.scope ?? undefined) };
-    }
-    const res = await fetch(req.url, { method: req.method, headers: req.headers, body: ['GET', 'HEAD'].includes(req.method) ? undefined : req.raw });
-    return { status: res.status, headers: [...res.headers], body: new Uint8Array(await res.arrayBuffer()) };
+  // An overlay (`overlay_request`): what a resource shows while writes affect it; none from the Rust module asks
+  // the TypeScript one's, beside it.
+  const types = s => (sources[s] ?? '|').split('|'), tsOverlay = data.overlay;
+  data.overlay = (source, args, answer, writes) => {
+    const [params, result] = types(source);
+    const r = op(5, w => {
+      w.str(source); w.u8(6); w.u32(args.length); let i = 0; for (const a of args) i = encode(w, a, params, i);
+      encode(w, answer, result); w.u32(writes.length);
+      for (const x of writes) {
+        const [p, res] = types(x.source); w.u64(x.id); w.str(x.mutation); w.str(x.source);
+        w.u8(6); w.u32(x.args.length); let k = 0; for (const a of x.args) k = encode(w, a, p, k);
+        if (x.reply === undefined) w.u8(0); else { w.u8(1); encode(w, x.reply, res); }
+        w.u8(x.answered ? 1 : 0);
+      }
+    });
+    if (r.u8() !== 3) throw new Error('expected an overlay reply');
+    const tag = r.u8();
+    if (tag === 2) throw new Error(r.str());
+    // A source the Rust module does not answer: the TypeScript module's overlay, beside it.
+    if (tag === 3) return tsOverlay?.(source, args, answer, writes);
+    if (tag === 0) return undefined;
+    const value = r.value(), keep = []; for (let n = r.u32(); n--;) keep.push(r.u64());
+    return { value, keep };
   };
+  // The host runs the request under this child's own authority. An absent
+  // request scope is therefore the Rust child set, not the mixed-app union.
+  // A stream (`Answer::stream`, LLP 1016.000) is the web host's own reader, under the same authority;
+  // its end is the outcome a single request's would be.
+  const run = createRequestExecutor(data.appId ?? meta[0], rustGrantSet, boundedHttpBody);
+  data.fetch = (req, message, controller) => !req.stream ? run(req) : streamed(req, rustGrantSet, message, controller).then(o => o.kind
+    ? { failed: o.kind, message: text.decode(o.body) }
+    : { status: o.status, headers: o.headers ? o.headers.split('\n').map(l => [l.slice(0, l.indexOf(': ')), l.slice(l.indexOf(': ') + 2)]) : [], body: o.body });
   // What a loaded capability needs of the module (canvas2d.js's draws).
   data.logic = { exports: e, session, writer, reader, encode, ABI };
-  data.appId ??= meta[0]; data.grants = meta[1];
+  data.appId ??= meta[0];
+  data.grants = setAppGrantSet(tsGrantSet, rustGrantSet);
   for (const f of data.q.splice(0)) f();
 }

@@ -5,7 +5,7 @@ shape Note
   excerpt: string
   pinned: bool
 shape Library
-  notes: list<Note>
+  notes: Note[]
   total: number
   message: string
   ready: bool
@@ -34,138 +34,129 @@ shape Page
   visibilityState: string
   onLine: bool
   canShare: bool
+  canShareFiles: bool
+// What the editor shows of a note.
+shape Fields
+  title: string
+  body: string
+  pinned: bool
+// One editing session: the note it opened, the id its saves land on, the
+// draft and the last saved copy over the opened note (none until there is
+// one), the generation its replies must carry, and a pending delete question.
+shape Session
+  noteId: string
+  savedId: string
+  draft: option<Fields>
+  original: option<Fields>
+  version: number
+  confirmDelete: bool
+
+// Ending a session starts the next one with every field named: a field added
+// to `Session` is reset here, or the app does not compile.
+fn nextSession(noteId: string, ended: Session): Session = Session(noteId=noteId, savedId="", draft=none, original=none, version=ended.version + 1, confirmDelete=false)
+
+// @ref LLP 1039 — no pointer is a TV's remote, whose focus ring is drawn
+// outside the focused note: the list leaves room for it.
+shape Viewport
+  pointer: string
 
 component Fieldnotes
   state query = ""
-  state noteId = ""
-  state savedId = ""
-  state draftTitle = none
-  state draftBody = none
-  state draftPinned = none
-  state originalTitle = none
-  state originalBody = none
-  state originalPinned = none
-  state version = 0
+  state session = Session(noteId="", savedId="", draft=none, original=none, version=0, confirmDelete=false)
   state backups = false
   state importText = ""
   state confirmRestore = false
   state importPath = ""
   state importName = ""
   state exportNote = ""
-  state confirmDelete = false
   mutation saved as shape Saved
   mutation status as shape Status
   derive saveRevision = match saved { case some(s) => s.revision, case none => 0 }
   derive serviceRevision = match status { case some(s) => s.revision, case none => 0 }
   resource library = library(query, saveRevision, serviceRevision) as shape Library
   mutation opened as shape Opened
-  derive openedTitle = match opened { case some(n) => n.version == version ? n.title : "", case none => "" }
-  derive openedBody = match opened { case some(n) => n.version == version ? n.body : "", case none => "" }
-  derive openedPinned = match opened { case some(n) => n.version == version and n.pinned, case none => false }
-  derive openedReady = noteId == "" or match opened { case some(n) => n.version == version and n.ready, case none => false }
-  derive openInterrupted = noteId != "" and not pending(opened) and match opened { case some(n) => n.version != version, case none => true }
-  derive openedMessage = match opened { case some(n) => n.version == version ? n.message : "", case none => "" }
-  derive title = match draftTitle { case some(value) => value, case none => openedTitle }
-  derive body = match draftBody { case some(value) => value, case none => openedBody }
-  derive pinned = match draftPinned { case some(value) => value, case none => openedPinned }
-  derive baseTitle = match originalTitle { case some(value) => value, case none => openedTitle }
-  derive baseBody = match originalBody { case some(value) => value, case none => openedBody }
-  derive basePinned = match originalPinned { case some(value) => value, case none => openedPinned }
-  derive baseId = savedId != "" ? savedId : noteId
-  derive editingId = match saved { case some(s) => s.version == version and not s.failed ? s.id : baseId, case none => baseId }
-  derive referenceTitle = match saved { case some(s) => s.version == version and not s.failed ? s.title : baseTitle, case none => baseTitle }
-  derive referenceBody = match saved { case some(s) => s.version == version and not s.failed ? s.body : baseBody, case none => baseBody }
-  derive referencePinned = match saved { case some(s) => s.version == version and not s.failed ? s.pinned : basePinned, case none => basePinned }
-  derive dirty = title != referenceTitle or body != referenceBody or pinned != referencePinned
+  derive loaded = match opened { case some(n) => n.version == session.version ? Fields(title=n.title, body=n.body, pinned=n.pinned) : Fields(title="", body="", pinned=false), case none => Fields(title="", body="", pinned=false) }
+  derive openedReady = session.noteId == "" or match opened { case some(n) => n.version == session.version and n.ready, case none => false }
+  derive openInterrupted = session.noteId != "" and not pending(opened) and match opened { case some(n) => n.version != session.version, case none => true }
+  derive openedMessage = match opened { case some(n) => n.version == session.version ? n.message : "", case none => "" }
+  derive fields = match session.draft { case some(d) => d, case none => loaded }
+  derive base = match session.original { case some(o) => o, case none => loaded }
+  derive baseId = session.savedId != "" ? session.savedId : session.noteId
+  derive editingId = match saved { case some(s) => s.version == session.version and not s.failed ? s.id : baseId, case none => baseId }
+  derive reference = match saved { case some(s) => s.version == session.version and not s.failed ? Fields(title=s.title, body=s.body, pinned=s.pinned) : base, case none => base }
+  derive dirty = fields != reference
   derive busy = pending(saved) or pending(status) or pending(library) or pending(opened)
   derive backupText = match status { case some(s) => s.backupText, case none => "" }
   // The share sheet, where the host has one (LLP 1069.003 D5).
   resource page = exactPage() as shape Page
+  resource viewport = exactViewport() as shape Viewport
+  derive tv = viewport.pointer == "none"
 
-  action search(value) writes query
+  action search(value)
     query = value
-  action beginSearch writes backups
+  action beginSearch
     backups = false
     focus("search")
-  action closeSearch writes query
+  action closeSearch
     query = ""
     focus("note-body")
-  action changeTitle(value) writes draftTitle
+  action changeTitle(value)
     if openedReady and not pending(opened)
-      draftTitle = some(value)
-  action changeBody(value) writes draftBody
+      session = Session(session, draft=some(Fields(fields, title=value)))
+  action changeBody(value)
     if openedReady and not pending(opened)
-      draftBody = some(value)
-  action togglePin writes draftPinned
-    draftPinned = some(not pinned)
-  action edit(id: string) writes opened, noteId, savedId, draftTitle, draftBody, draftPinned, originalTitle, originalBody, originalPinned, version, confirmDelete
-    send opened = openNote(id, version + 1)
-    noteId = id
-    savedId = ""
-    draftTitle = none
-    draftBody = none
-    draftPinned = none
-    originalTitle = none
-    originalBody = none
-    originalPinned = none
-    version = version + 1
-    confirmDelete = false
+      session = Session(session, draft=some(Fields(fields, body=value)))
+  action togglePin
+    if openedReady and not pending(opened)
+      session = Session(session, draft=some(Fields(fields, pinned=not fields.pinned)))
+  action edit(id: string)
+    send opened = openNote(id, session.version + 1)
+    session = nextSession(id, session)
     focus("note-body")
-  action newNote writes noteId, savedId, draftTitle, draftBody, draftPinned, originalTitle, originalBody, originalPinned, version, confirmDelete, query, backups
-    noteId = ""
-    savedId = ""
-    draftTitle = none
-    draftBody = none
-    draftPinned = none
-    originalTitle = none
-    originalBody = none
-    originalPinned = none
-    version = version + 1
-    confirmDelete = false
+  action newNote
+    session = nextSession("", session)
     query = ""
     backups = false
     focus("note-title")
-  action discard writes draftTitle, draftBody, draftPinned
-    draftTitle = some(referenceTitle)
-    draftBody = some(referenceBody)
-    draftPinned = some(referencePinned)
-  action save writes saved, savedId, originalTitle, originalBody, originalPinned
-    savedId = editingId
-    originalTitle = some(referenceTitle)
-    originalBody = some(referenceBody)
-    originalPinned = some(referencePinned)
-    send saved = saveNote(editingId, title, body, pinned, version)
-  action showBackups writes backups
+  action discard
+    session = Session(session, draft=some(reference))
+  action save
+    session = Session(session, savedId=editingId, original=some(reference))
+    send saved = saveNote(editingId, fields.title, fields.body, fields.pinned, session.version)
+  action showBackups
     if backups
       focus("note-body")
     backups = not backups
-  action backup writes status
+  action backup
     send status = backupNotes()
-  action readBackup writes status
+  action readBackup
     send status = readBackup()
-  action changeImport(value) writes importText
+  action changeImport(value)
     importText = value
-  action askRestore writes confirmRestore
+  action askRestore
     confirmRestore = true
   action chooseImport
     showPicker("import-file")
   // Export is a copy the host makes of the saved backup (LLP 1069.010 D3).
-  action exportBackup writes exportNote
+  action exportBackup
     exportNote = ""
     saveFile("export-file", "app:/data/backups/fieldnotes.json", "fieldnotes.json")
-  action exported(name) writes exportNote
+  // The saved backup as a file in the share sheet (LLP 1125 D12).
+  action shareBackup
+    share(title="Fieldnotes backup", files=["app:/data/backups/fieldnotes.json"])
+  action exported(name)
     exportNote = `Exported ${name}.`
-  action exportCancelled writes exportNote
+  action exportCancelled
     exportNote = "The backup was not exported."
-  action importPicked(files: list<Picked>) writes importPath, importName, confirmRestore
+  action importPicked(files: Picked[])
     importPath = match first(files) { case some(f) => f.path, case none => "" }
     importName = match first(files) { case some(f) => f.name, case none => "" }
-    confirmRestore = length(files) > 0
-  action cancelRestore writes confirmRestore, importPath, importName
+    confirmRestore = files.length > 0
+  action cancelRestore
     confirmRestore = false
     importPath = ""
     importName = ""
-  action restore writes status, confirmRestore, importPath, importName, noteId, savedId, draftTitle, draftBody, originalTitle, originalBody, draftPinned, originalPinned, version
+  action restore
     if importPath != ""
       send status = importNotes(importPath)
     else
@@ -173,33 +164,16 @@ component Fieldnotes
     confirmRestore = false
     importPath = ""
     importName = ""
-    noteId = ""
-    savedId = ""
-    draftTitle = none
-    draftBody = none
-    originalTitle = none
-    originalBody = none
-    draftPinned = none
-    originalPinned = none
-    version = version + 1
+    session = nextSession("", session)
   action shareNote
-    share(title=title, text=body)
-  action askDelete writes confirmDelete
-    confirmDelete = true
-  action cancelDelete writes confirmDelete
-    confirmDelete = false
-  action remove writes status, confirmDelete, noteId, savedId, draftTitle, draftBody, originalTitle, originalBody, draftPinned, originalPinned, version
+    share(title=fields.title, text=fields.body)
+  action askDelete
+    session = Session(session, confirmDelete=true)
+  action cancelDelete
+    session = Session(session, confirmDelete=false)
+  action remove
     send status = deleteNote(editingId)
-    confirmDelete = false
-    noteId = ""
-    savedId = ""
-    draftTitle = none
-    draftBody = none
-    originalTitle = none
-    originalBody = none
-    draftPinned = none
-    originalPinned = none
-    version = version + 1
+    session = nextSession("", session)
 
   view
     main testId="fieldnotes" display="flex" flex-direction="column" width="100%" height="100%" box-sizing="border-box" overflow-y="scroll" background-color="#f6f3eb" color="#263f35" padding=16 gap=16
@@ -210,7 +184,7 @@ component Fieldnotes
         row gap=8 align-items="center"
           button press=newNote disabled=(dirty or busy) testId="new-note" aria-label="New note" aria-keyshortcuts="Meta+N Control+N" padding=10 background-color="#31554a" border-radius=8
             row gap=6 align-items="center"
-              image "symbol:add" font-size=13 font-weight=600 tint-color="#ffffff"
+              image "symbol:add" font-size=13 font-weight=600 -exact-tint-color="#ffffff"
               text "New note" color="#ffffff" font-weight=600 font-size=13
           button press=beginSearch testId="find-notes" aria-label="Find notes" aria-keyshortcuts="Meta+F Control+F" padding=10 border-style="solid" border-width=1 border-color="#cbd3c8" border-radius=8 background-color="#f6f3eb"
             text "Find" font-size=13 color="#31554a"
@@ -218,22 +192,22 @@ component Fieldnotes
             text (backups ? "Back to notes" : "Backups") font-size=13 color="#31554a"
       row justify-content="space-between" align-items="center" gap=12 flex-wrap="wrap" flex-shrink=0
         text `${library.total} ${library.total == 1 ? "note" : "notes"} · on this device` font-size=12 color="#63766a" testId="note-count"
-        when busy
+        if busy
           text "Working…" font-size=12 color="#63766a" testId="working"
         else
-          when dirty
+          if dirty
             text "Unsaved changes" font-size=12 color="#92622f" testId="unsaved"
           else
-            when library.ready
+            if library.ready
               text "All changes saved" font-size=12 color="#63766a" testId="saved-indicator"
-      when library.message != ""
+      if library.message != ""
         text library.message font-size=13 color="#92622f" testId="library-message" flex-shrink=0
       match status
         case some(s)
           text s.message font-size=13 color=(s.failed ? "#a34336" : "#31554a") testId="status-message" flex-shrink=0
         case none
           text "Private, local, and yours." font-size=12 color="#63766a" flex-shrink=0
-      when backups
+      if backups
         column padding=20 gap=12 background-color="#e9eee4" border-radius=12 testId="backup-panel"
           text "Keep a spare copy" font-family="serif" font-size=23
           text "Save a backup on this device, or copy the backup text somewhere safe. Restoring replaces all current notes." font-size=14 color="#63766a"
@@ -243,85 +217,88 @@ component Fieldnotes
             button press=readBackup disabled=busy testId="read-backup" padding=12 background-color="#ffffff" border-radius=7
               text "Show saved backup" color="#31554a"
           input id="export-file" testId="export-file" display="none" change=exported cancel=exportCancelled
-          when backupText != ""
-            textarea font-family="sans-serif" value=backupText readonly=true aria-label="Backup text to copy" testId="backup-text" height=130 width="100%" box-sizing="border-box" padding=12 font-size=12 background-color="#ffffff" border-style="solid" border-width=1 border-color="#cbd3c8" border-radius=7
+          if backupText != ""
+            textarea appearance="none" font-family="sans-serif" value=backupText readonly=true aria-label="Backup text to copy" testId="backup-text" height=130 width="100%" box-sizing="border-box" padding=12 font-size=12 background-color="#ffffff" border-style="solid" border-width=1 border-color="#cbd3c8" border-radius=7
             row gap=10 align-items="center" flex-wrap="wrap"
-              button press=exportBackup disabled=busy testId="export-backup" padding=10
+              button appearance="none" press=exportBackup disabled=busy testId="export-backup" padding=10
                 text "Export backup file…" color="#31554a"
-              when exportNote != ""
+              if page.canShareFiles
+                button appearance="none" press=shareBackup disabled=busy testId="share-backup" padding=10
+                  text "Share backup file…" color="#31554a"
+              if exportNote != ""
                 text exportNote font-size=13 color="#63766a" testId="export-note"
-          textarea font-family="sans-serif" value=importText input=changeImport aria-label="Paste a Fieldnotes backup" placeholder="Paste backup text here, or leave empty to restore this device's saved backup" testId="import-text" height=90 width="100%" box-sizing="border-box" padding=12 font-size=13 background-color="#ffffff" border-style="solid" border-width=1 border-color="#cbd3c8" border-radius=7
+          textarea appearance="none" font-family="sans-serif" value=importText input=changeImport aria-label="Paste a Fieldnotes backup" placeholder="Paste backup text here, or leave empty to restore this device's saved backup" testId="import-text" height=90 width="100%" box-sizing="border-box" padding=12 font-size=13 background-color="#ffffff" border-style="solid" border-width=1 border-color="#cbd3c8" border-radius=7
           input type="file" accept="application/json" id="import-file" testId="import-file" display="none" change=importPicked
-          when confirmRestore
+          if confirmRestore
             row gap=12 align-items="center" flex-wrap="wrap"
               text (importName == "" ? "Replace all notes with this backup?" : `Replace all notes with ${importName}?`) font-size=14 testId="restore-question"
               button press=restore disabled=(busy or dirty) testId="confirm-restore" padding=10 background-color="#a34336" border-radius=7
                 text "Replace notes" color="#ffffff"
-              button press=cancelRestore testId="cancel-restore" padding=10
+              button appearance="none" press=cancelRestore testId="cancel-restore" padding=10
                 text "Cancel"
           else
             row gap=10 flex-wrap="wrap"
-              button press=askRestore disabled=(busy or dirty) testId="restore-backup" padding=10
+              button appearance="none" press=askRestore disabled=(busy or dirty) testId="restore-backup" padding=10
                 text "Restore backup…" color="#a34336"
-              button press=chooseImport disabled=(busy or dirty) testId="import-backup" padding=10
+              button appearance="none" press=chooseImport disabled=(busy or dirty) testId="import-backup" padding=10
                 text "Import backup file…" color="#31554a"
       else
         row testId="workspace" flex=1 min-height=400 gap=16 flex-wrap="wrap" align-items="stretch"
           column testId="sidebar" flex=1 min-width=220 min-height=400 gap=12
             row gap=6 align-items="center" flex-shrink=0
-              input id="search" value=query input=search placeholder="Search your notes" aria-label="Search notes" testId="search" flex=1 min-width=0 box-sizing="border-box" padding=12 border-style="solid" border-width=1 border-color="#cbd3c8" border-radius=9 background-color="#ffffff" font-size=14
+              input appearance="none" id="search" value=query input=search placeholder="Search your notes" aria-label="Search notes" testId="search" flex=1 min-width=0 box-sizing="border-box" padding=12 border-style="solid" border-width=1 border-color="#cbd3c8" border-radius=9 background-color="#ffffff" font-size=14
               button press=closeSearch testId="close-search" aria-label="Close search" aria-keyshortcuts="Escape" padding=10 border-radius=8 background-color="#e9eee4"
-                image "symbol:close" font-size=18 font-weight=400 tint-color="#31554a"
+                image "symbol:close" font-size=18 font-weight=400 -exact-tint-color="#31554a"
             scroll testId="note-list" flex=1 min-height=160
-              column gap=10
-                when length(library.notes) == 0
+              column gap=10 padding=(tv ? 10 : 0)
+                if library.notes.length == 0
                   column padding=20 gap=8
                     text (query == "" ? "Your notebook starts here." : "No matching notes.") font-family="serif" font-size=22 testId="empty-notebook"
                     text (query == "" ? "Write a thought, a list, or something worth keeping." : "Try a different word.") font-size=14 color="#63766a"
-                each note in library.notes key=note.id
+                for note in library.notes key=note.id
                   button press=edit(note.id) disabled=(dirty or busy) testId=`note-${note.id}` aria-label=note.title padding=16 border-style="solid" border-width=1 border-color=(note.id == editingId ? "#31554a" : "#dedfd5") border-radius=9 background-color=(note.id == editingId ? "#e9eee4" : "#fcfbf7")
                     column gap=6 align-items="flex-start"
-                      when note.pinned
+                      if note.pinned
                         text "PINNED" font-size=10 font-weight=700 letter-spacing=1 color="#7b7957"
                       text note.title font-size=17 font-weight=600 text-align="left"
                       text note.excerpt font-size=13 color="#63766a" text-align="left"
-            when dirty
+            if dirty
               text "Save or discard your draft before opening another note." font-size=12 color="#92622f"
           column testId="editor" flex=3 min-width=300 min-height=400 gap=14 padding=20 box-sizing="border-box" background-color="#fffefa" border-style="solid" border-width=1 border-color="#dedfd5" border-radius=12
             row justify-content="space-between" align-items="center"
               text (editingId == "" ? "A NEW PAGE" : "YOUR NOTE") font-size=11 font-weight=700 letter-spacing=2 color="#63766a"
-              button press=togglePin disabled=(busy or not openedReady) testId="pin-note" padding=8
-                text (pinned ? "Pinned" : "Pin note") font-size=13 color="#63766a"
-            input id="note-title" value=(pending(opened) ? "" : title) readonly=(pending(opened) or not openedReady) input=changeTitle placeholder="Untitled note" aria-label="Note title" testId="note-title" width="100%" box-sizing="border-box" padding=10 font-family="serif" font-size=27 border-width=0 background-color="#fffefa"
-            textarea id="note-body" font-family="sans-serif" value=(pending(opened) ? "" : body) readonly=(pending(opened) or not openedReady) input=changeBody placeholder="What's on your mind?" aria-label="Note body" testId="note-body" width="100%" flex=1 min-height=160 box-sizing="border-box" padding=10 font-size=16 line-height="24px" border-width=0 background-color="#fffefa"
+              button appearance="none" press=togglePin disabled=(busy or not openedReady) testId="pin-note" padding=8
+                text (fields.pinned ? "Pinned" : "Pin note") font-size=13 color="#63766a"
+            input appearance="none" id="note-title" value=(pending(opened) ? "" : fields.title) readonly=(pending(opened) or not openedReady) input=changeTitle placeholder="Untitled note" aria-label="Note title" testId="note-title" width="100%" box-sizing="border-box" padding=10 font-family="serif" font-size=27 border-width=0 background-color="#fffefa"
+            textarea appearance="none" id="note-body" font-family="sans-serif" value=(pending(opened) ? "" : fields.body) readonly=(pending(opened) or not openedReady) input=changeBody placeholder="What's on your mind?" aria-label="Note body" testId="note-body" width="100%" flex=1 min-height=160 box-sizing="border-box" padding=10 font-size=16 line-height="24px" border-width=0 background-color="#fffefa"
             row gap=10 align-items="center" flex-wrap="wrap" flex-shrink=0
-              button press=save disabled=(busy or not openedReady or not dirty or (title == "" and body == "")) testId="save-note" aria-keyshortcuts="Meta+S Control+S" padding=12 background-color="#31554a" border-radius=7
+              button press=save disabled=(busy or not openedReady or not dirty or (fields.title == "" and fields.body == "")) testId="save-note" aria-keyshortcuts="Meta+S Control+S" padding=12 background-color="#31554a" border-radius=7
                 text "Save note" color="#ffffff" font-weight=600
-              when dirty
-                button press=discard disabled=busy testId="discard" padding=12
+              if dirty
+                button appearance="none" press=discard disabled=busy testId="discard" padding=12
                   text "Discard changes" color="#63766a"
-              when page.canShare and (title != "" or body != "")
-                button press=shareNote disabled=busy testId="share-note" aria-label="Share note" padding=12
+              if page.canShare and (fields.title != "" or fields.body != "")
+                button appearance="none" press=shareNote disabled=busy testId="share-note" aria-label="Share note" padding=12
                   text "Share…" color="#31554a"
-              when editingId != ""
-                button press=askDelete disabled=busy testId="delete-note" padding=12
+              if editingId != ""
+                button appearance="none" press=askDelete disabled=busy testId="delete-note" padding=12
                   text "Delete…" color="#a34336"
-            when confirmDelete
+            if session.confirmDelete
               row gap=12 align-items="center" flex-wrap="wrap"
                 text "Delete this note?" color="#a34336" font-size=14
-                button press=remove disabled=busy testId="confirm-delete" padding=10
+                button appearance="none" press=remove disabled=busy testId="confirm-delete" padding=10
                   text "Delete note" color="#a34336" font-weight=700
-                button press=cancelDelete testId="cancel-delete" padding=10
+                button appearance="none" press=cancelDelete testId="cancel-delete" padding=10
                   text "Keep it"
-            when openInterrupted
+            if openInterrupted
               text "Opening this note was interrupted. Try again." font-size=13 color="#a34336" testId="open-interrupted"
-              button press=edit(noteId) disabled=busy testId="retry-open" padding=10 align-self="flex-start"
+              button appearance="none" press=edit(session.noteId) disabled=busy testId="retry-open" padding=10 align-self="flex-start"
                 text "Retry opening note" color="#31554a"
-            when openedMessage != ""
+            if openedMessage != ""
               text openedMessage font-size=13 color="#a34336" testId="open-message"
             match saved
               case some(s)
-                when s.version == version
+                if s.version == session.version
                   text s.message font-size=13 color=(s.failed ? "#a34336" : "#63766a") testId="save-message"
               case none
                 text "Your words stay here until you choose to back them up." font-size=12 color="#63766a"

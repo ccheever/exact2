@@ -54,7 +54,8 @@ impl Reader<'_> {
                 for _ in 0..n {
                     let p = Property::from_wire(self.u8()?).ok_or(DecodeError::BadAnimation)?;
                     // Each value carries its property's components: one,
-                    // two for `translate`, four for a colour.
+                    // four for `translate` (lengths, then percentages),
+                    // four for a colour.
                     let mut c = [0.0f64; 4];
                     for slot in c.iter_mut().take(p.components()) {
                         *slot = self.f32()? as f64;
@@ -92,7 +93,7 @@ impl Reader<'_> {
                 direction,
                 fill,
                 paused,
-                keyframes: Keyframes(keyframes),
+                keyframes: Keyframes(keyframes.into()),
             });
         }
         let animations = Animations(out);
@@ -118,7 +119,7 @@ impl Writer {
             self.u8(entry.fill as u8);
             self.u8(entry.paused as u8);
             self.u8(entry.keyframes.0.len() as u8);
-            for frame in &entry.keyframes.0 {
+            for frame in entry.keyframes.0.iter() {
                 self.f32(frame.offset as f32);
                 match &frame.easing {
                     None => self.u8(0),

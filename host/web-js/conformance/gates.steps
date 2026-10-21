@@ -1,0 +1,13 @@
+tap show-a
+clock +3000
+tap show-b
+clock +4000
+clock +2000
+tap start
+clock +3000
+tap fly
+clock +200
+tap fly
+clock +1000
+tap fly
+clock +1000

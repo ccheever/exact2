@@ -26,6 +26,8 @@ struct Blog {
     not_loaded: std::rc::Rc<std::cell::Cell<bool>>,
     /// A failure isn't data here: parse refuses it (a worker-placed module).
     refuse_failures: bool,
+    /// A launch's module, whose home post isn't the bake's (feed F24).
+    live: bool,
 }
 
 fn post(id: &str, title: &str) -> Value {
@@ -40,7 +42,7 @@ impl DataSource for Blog {
     fn query(&mut self, source: &str, args: &[Value]) -> Result<Value, DataError> {
         match source {
             "emptyPost" => Ok(post("", "")),
-            "post" if home(args) => Ok(post("", "Home")),
+            "post" if home(args) => Ok(post("", if self.live { "Home, live" } else { "Home" })),
             "comments" if home(args) => Ok(Value::list(Vec::new())),
             other => Err(DataError::Unavailable(format!("{other} answers later"))),
         }
@@ -79,6 +81,7 @@ impl DataSource for Blog {
             // A failure is data the source shapes (LLP 1016 D4).
             ("post", _) => post("7", "Unavailable"),
             ("comments", _) => Value::list(vec![Value::str("first")]),
+            ("savePost", _) => post("8", "Saved"),
             (other, _) => return Err(DataError::UnknownSource(other.into())),
         }))
     }
@@ -275,9 +278,8 @@ fn a_module_not_loaded_at_boot_shows_placeholders_until_data_ready() {
     let requests = r.take_requests();
     let targets: Vec<&str> = requests.iter().map(|q| q.target.as_str()).collect();
     assert_eq!(targets, ["post", "comments"]);
-    // The bake answered the placeholder's own arguments from no store: that
-    // answer stands, as it does when the source is ready at boot (Seth's
-    // Crew port asked each `#else` again, a worker turn each).
+    // A placeholder row is the bake's for every launch: it isn't asked
+    // again (Seth's Crew port asked each `#else` again, a worker turn each).
     assert!(
         !r.journal().any(|l| l.contains("query post#else")),
         "{:?}",
@@ -290,7 +292,134 @@ fn a_module_not_loaded_at_boot_shows_placeholders_until_data_ready() {
 }
 
 #[test]
-fn asks_refused_admission_are_asked_again_once_the_last_refusal_settles() {
+fn a_send_before_the_module_loads_waits_for_it() {
+    // Notes diary: a document opened at launch reached an action before the
+    // native host loaded the TypeScript module, and its send was refused —
+    // the document lost. The send waits, pending, and goes at data_ready.
+    let src = corpus()
+        .replace(
+            "  resource comments",
+            "  mutation saved as shape Post refreshes comments then afterSave\n  state note = \"\"\n  action save\n    send saved = savePost(\"7\")\n  action afterSave\n    note = \"then ran\"\n  resource comments",
+        )
+        .replace(
+            "      text `${comments.length}",
+            "      text (pending(saved) ? \"sending\" : note) testId=\"sent\"\n      text `${comments.length}",
+        );
+    let built = Blog {
+        later_at_build: true,
+        ..Blog::default()
+    };
+    let plan = contract::bake(contract::compile(&src).unwrap(), built).unwrap();
+    let data = Blog::default();
+    data.not_loaded.set(true);
+    let loaded = data.not_loaded.clone();
+    let mut r = boot(&plan, data, "/").unwrap();
+    r.act("save", vec![])
+        .expect("the action commits; its send waits");
+    assert_eq!(text_of(&r, "sent"), "sending");
+    assert!(
+        r.take_requests().is_empty(),
+        "nothing asks a module that isn't loaded"
+    );
+    assert!(
+        r.journal()
+            .any(|l| l.ends_with("send saved: waits until the data source is ready")),
+        "{:?}",
+        r.journal().collect::<Vec<_>>()
+    );
+    loaded.set(false);
+    r.data_ready().unwrap();
+    let requests = r.take_requests();
+    let saved = requests
+        .iter()
+        .find(|q| q.target == "saved")
+        .expect("sent at data_ready");
+    assert_eq!(text_of(&r, "sent"), "sending");
+    let before = r.journal().count();
+    r.fulfill(saved.ticket, ok()).unwrap();
+    r.land_then();
+    assert_eq!(text_of(&r, "sent"), "then ran");
+    // What the mutation refreshes is asked again when its reply lands.
+    let after: Vec<&str> = r.journal().skip(before).collect();
+    assert!(
+        after.iter().any(|l| l.contains("query comments")),
+        "{after:?}"
+    );
+
+    // An assignment to the mutation's slot drops a send still waiting, as it
+    // forgets a request in flight.
+    let src = src.replace(
+        "    note = \"then ran\"",
+        "    note = \"then ran\"\n  action clear\n    saved = none",
+    );
+    let plan = contract::bake(
+        contract::compile(&src).unwrap(),
+        Blog {
+            later_at_build: true,
+            ..Blog::default()
+        },
+    )
+    .unwrap();
+    let data = Blog::default();
+    data.not_loaded.set(true);
+    let loaded = data.not_loaded.clone();
+    let mut r = boot(&plan, data, "/").unwrap();
+    r.act("save", vec![]).unwrap();
+    r.act("clear", vec![]).unwrap();
+    assert_eq!(text_of(&r, "sent"), "");
+    loaded.set(false);
+    r.data_ready().unwrap();
+    assert!(!r.take_requests().iter().any(|q| q.target == "saved"));
+}
+
+#[test]
+fn a_build_time_answer_is_the_first_frame_and_asked_again_when_the_module_loads() {
+    // Feed F24: a no-argument resource kept its bake's answer forever on
+    // macOS while the web, which asks its module at launch, showed a live
+    // one. The bake's answer is the first frame; data_ready asks again.
+    let plan = contract::bake(contract::compile(&corpus()).unwrap(), Blog::default()).unwrap();
+    let data = Blog {
+        live: true,
+        ..Blog::default()
+    };
+    data.not_loaded.set(true);
+    let loaded = data.not_loaded.clone();
+    let mut r = boot(&plan, data, "/").unwrap();
+    assert_eq!(text_of(&r, "title"), "Home");
+    assert_eq!(text_of(&r, "state"), "ready");
+    assert!(r.take_requests().is_empty());
+    let shown = |name: &str| format!("{name} shows its build-time answer until its source answers");
+    for name in ["post", "comments"] {
+        assert!(r.journal().any(|l| l.ends_with(&shown(name))), "{name}");
+    }
+    assert!(!r.journal().any(|l| l.ends_with(&shown("post#else"))));
+    loaded.set(false);
+    r.data_ready().unwrap();
+    assert_eq!(text_of(&r, "title"), "Home, live");
+    assert_eq!(text_of(&r, "state"), "ready");
+    let journal: Vec<&str> = r.journal().collect();
+    assert!(
+        !journal.iter().any(|l| l.contains("query post#else")),
+        "{journal:?}"
+    );
+    assert!(
+        journal
+            .iter()
+            .any(|l| l.ends_with("post answered: replaces its build-time answer")),
+        "{journal:?}"
+    );
+    assert!(
+        journal
+            .iter()
+            .any(|l| l.ends_with("comments answered: equal to its build-time answer")),
+        "{journal:?}"
+    );
+    // Asked once: a later commit leaves the answer alone.
+    assert_eq!(r.data_ready().unwrap(), None);
+}
+
+#[test]
+fn asks_refused_admission_fail_without_restarting_their_sources() {
     let plan = contract::bake(contract::compile(&corpus()).unwrap(), Blog::default()).unwrap();
     let data = Blog {
         refuse_failures: true,
@@ -302,23 +431,25 @@ fn asks_refused_admission_are_asked_again_once_the_last_refusal_settles() {
     for q in &asked {
         r.refuse_request(q.ticket, "native executor admission limit reached", true);
     }
-    // The source can't shape the refusal: the ticket isn't kept pending
-    // forever. Asked again now, it would be refused behind the other one.
+    // Each refusal ends pending and publishes failure, even while another
+    // refusal waits. Neither one restarts its source after the cohort ends.
     let (first, outcome) = r.take_request_refusal(true).unwrap();
-    assert_eq!(r.fulfill(first, outcome).unwrap(), None);
+    assert!(r.fulfill(first, outcome).unwrap().is_some());
     assert!(!r.holds(first));
     assert!(r.take_requests().is_empty());
+    assert_eq!(r.failed_resources().len(), 1);
     let (second, outcome) = r.take_request_refusal(true).unwrap();
     assert!(r.fulfill(second, outcome).unwrap().is_some());
     assert!(!r.holds(second));
-    let again = r.take_requests();
-    let targets: Vec<&str> = again.iter().map(|q| q.target.as_str()).collect();
-    assert_eq!(targets, ["post", "comments"]);
-    assert!(again.iter().all(|q| r.holds(q.ticket)));
-    assert_eq!(text_of(&r, "state"), "loading");
+    assert!(r.take_requests().is_empty());
+    assert!(r.pending().is_empty());
+    assert_eq!(r.failed_resources().len(), 2);
+    assert_eq!(text_of(&r, "state"), "failed");
+    assert_eq!(text_of(&r, "title"), "");
+    assert_eq!(text_of(&r, "comments"), "0 comments");
     assert_eq!(
         r.journal()
-            .filter(|l| l.contains("was refused admission: asked again"))
+            .filter(|l| l.contains("failed and is no longer pending: it keeps its last value"))
             .count(),
         2
     );
@@ -379,7 +510,7 @@ fn a_placeholder_shown_before_the_source_is_ready_is_never_compiled_as_its_answe
 
 #[test]
 fn empty_nests_and_every_other_field_is_its_zero() {
-    let src = "shape Author\n  name: string\n  found: bool\n  image: option<string>\nshape Article\n  title: string\n  author: Author\n  count: number\n  tags: list<string>\ncomponent App\n  resource post = article() as shape Article else empty(title=\"…\", count=-1, author=empty(found=true, image=some(\"/a.svg\")))\n  view\n    column\n      text post.author.name\n";
+    let src = "shape Author\n  name: string\n  found: bool\n  image: option<string>\nshape Article\n  title: string\n  author: Author\n  count: number\n  tags: string[]\ncomponent App\n  resource post = article() as shape Article else empty(title=\"…\", count=-1, author=empty(found=true, image=some(\"/a.svg\")))\n  view\n    column\n      text post.author.name\n";
     let plan = contract::compile(src).unwrap();
     let row = plan
         .resources
@@ -465,7 +596,7 @@ impl DataSource for FailedSearch {
 }
 
 fn failed_search(stored: bool) -> Runner<FailedSearch> {
-    let src = "component App\n  state query = \"Menl\"\n  resource results = search(query) as shape string\n  mutation changed as shape bool\n  action search(q: string) writes query\n    query = q\n  action touch(v: string) writes changed\n    send changed = touch(v)\n  action retry\n    refresh results\n  view\n    text `${results}/${pending(results)}`\n";
+    let src = "component App\n  state query = \"Menl\"\n  resource results = search(query) as shape string\n  mutation changed as shape bool\n  action search(q: string)\n    query = q\n  action touch(v: string)\n    send changed = touch(v)\n  action retry\n    refresh results\n  view\n    text `${results}/${pending(results)}`\n";
     Runner::boot(
         contract::compile(src).unwrap(),
         FailedSearch {
@@ -598,11 +729,11 @@ fn failed_search_is_readable_and_clears_on_changed_arguments_refresh_and_success
   resource results = search(query) as shape string
   derive unavailable = failed(results)
   resource status = report(failed(results)) as shape bool
-  resource rows = rows() as shape list<number>
+  resource rows = rows() as shape number[]
   mutation changed as shape bool
-  action search(q: string) writes query
+  action search(q: string)
     query = q
-  action touch(v: string) writes changed
+  action touch(v: string)
     send changed = touch(v)
   action retry
     refresh results
@@ -610,9 +741,9 @@ fn failed_search_is_readable_and_clears_on_changed_arguments_refresh_and_success
     column
       text `${results}/${pending(results)}/${failed(results)}` testId="state"
       text `${unavailable}/${status}` testId="derived"
-      each n in rows key=n
+      for n in rows key=n
         text `${failed(results)}` testId=`row-${n}`
-      when failed(results)
+      if failed(results)
         text "Couldn't load" testId="failure"
 "#;
     for full in [false, true] {
@@ -694,7 +825,6 @@ fn failed_names_one_resource() {
         "failed()",
         "failed(results, results)",
         "failed(query)",
-        "failed(changed)",
         "failed(1)",
         "failed(missing)",
     ] {

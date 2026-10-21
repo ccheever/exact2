@@ -1,4 +1,7 @@
 //! @ref LLP 1043.000 §3 D1/D8 — identical filled and excluded polygon vertices.
+//! The sines, arctangents and hypotenuses are the `libm` crate's, so a wasm page and a
+//! native host compute the same bits; std's call the platform's libm, whose last digits
+//! differ.
 use exact_plan::Value;
 use std::f64::consts::{PI, TAU};
 type Point = (f64, f64);
@@ -67,19 +70,22 @@ fn polygon(id: &str, points: &[Point], scale: f64, offset: Point, color: &str) -
 }
 // Twelve vertices, including both semicircular ends. Shared endpoints overlap.
 fn capsule(a: Point, b: Point, r: f64) -> Vec<Point> {
-    let angle = (b.1 - a.1).atan2(b.0 - a.0);
+    let angle = libm::atan2(b.1 - a.1, b.0 - a.0);
     [(b, angle - PI / 2.), (a, angle + PI / 2.)]
         .into_iter()
         .flat_map(|(p, t)| {
             (0..6).map(move |i| {
                 let t = t + PI * i as f64 / 5.;
-                (p.0 + r * t.cos(), p.1 + r * t.sin())
+                (p.0 + r * libm::cos(t), p.1 + r * libm::sin(t))
             })
         })
         .collect()
 }
 fn joint(p: Point, length: f64, angle: f64) -> Point {
-    (p.0 + length * angle.sin(), p.1 + length * angle.cos())
+    (
+        p.0 + length * libm::sin(angle),
+        p.1 + length * libm::cos(angle),
+    )
 }
 
 // Six equal-density discs; fixed 16 ms steps, elastic impulses and wall reflection.
@@ -104,7 +110,7 @@ fn orbs(ms: f64, width: f64) -> Vec<Value> {
         (1.22, -0.45),
         (-0.82, -0.72),
     ];
-    let phase = 15_000. + 15_000. * (ms.max(0.) % 60_000. * TAU / 60_000.).sin();
+    let phase = 15_000. + 15_000. * libm::sin(ms.max(0.) % 60_000. * TAU / 60_000.);
     for _ in 0..(phase / 16.) as usize {
         for i in 0..6 {
             p[i].0 += v[i].0;
@@ -131,7 +137,7 @@ fn orbs(ms: f64, width: f64) -> Vec<Value> {
                 if dx.abs() >= reach || dy.abs() >= reach {
                     continue;
                 }
-                let distance = dx.hypot(dy);
+                let distance = libm::hypot(dx, dy);
                 if distance >= reach || distance < 0.0001 {
                     continue;
                 }
@@ -170,9 +176,9 @@ fn orbs(ms: f64, width: f64) -> Vec<Value> {
 fn dancer(ms: f64, width: f64) -> Vec<Value> {
     let t = ms.max(0.) % 24_000. / 1000.;
     let beat = t * TAU / 6.;
-    let breath = beat.sin();
-    let bend = (1. - (beat * 0.5).cos()) * 0.5;
-    let lean = 0.10 * (beat - 0.4).sin();
+    let breath = libm::sin(beat);
+    let bend = (1. - libm::cos(beat * 0.5)) * 0.5;
+    let lean = 0.10 * libm::sin(beat - 0.4);
     let hip = (0., 221. + 10. * bend);
     let shoulder = (-15. * breath, 141. + 10. * bend);
     let neck = (shoulder.0 - 3. * breath, 120. + 10. * bend);
@@ -180,10 +186,10 @@ fn dancer(ms: f64, width: f64) -> Vec<Value> {
     // 38 px head; neutral crown-to-toe about 304 px, the eight-head figure canon.
     let ls = (shoulder.0 - 20., shoulder.1);
     let rs = (shoulder.0 + 20., shoulder.1);
-    let le = joint(ls, 52., -1.65 - 0.8 * (beat - 0.5).sin());
-    let re = joint(rs, 52., 1.9 + 0.75 * (beat + 0.4).sin());
-    let lw = joint(le, 47., -1.1 - 1.1 * (beat - 0.9).sin());
-    let rw = joint(re, 47., 2.65 + 0.75 * (beat - 0.2).sin());
+    let le = joint(ls, 52., -1.65 - 0.8 * libm::sin(beat - 0.5));
+    let re = joint(rs, 52., 1.9 + 0.75 * libm::sin(beat + 0.4));
+    let lw = joint(le, 47., -1.1 - 1.1 * libm::sin(beat - 0.9));
+    let rw = joint(re, 47., 2.65 + 0.75 * libm::sin(beat - 0.2));
     let lh = (hip.0 - 13., hip.1);
     let rh = (hip.0 + 13., hip.1);
     let lk = joint(lh, 77., -0.16 - 0.48 * bend + lean);
@@ -229,7 +235,7 @@ fn dancer(ms: f64, width: f64) -> Vec<Value> {
         offset,
         ink,
     ));
-    let swing = 12. * (beat - 0.5).sin();
+    let swing = 12. * libm::sin(beat - 0.5);
     out.push(polygon(
         "dancer-skirt",
         &[

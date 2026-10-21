@@ -4,6 +4,11 @@ use exact_plan::{TypeKind, Value};
 use exact_runner::{Answer, DataError, Store};
 use std::sync::{Arc, Mutex};
 
+#[path = "abi_entry_tests.rs"]
+mod entries;
+#[path = "abi_refusal_tests.rs"]
+mod refusals;
+
 fn plan(resource: Option<&str>) -> Vec<u8> {
     let mut builder = PlanBuilder::new(exact_kernel::SCHEMA_DIGEST, 1);
     if let Some(name) = resource {
@@ -20,6 +25,163 @@ fn plan(resource: Option<&str>) -> Vec<u8> {
         None,
     );
     builder.finish().unwrap().encode()
+}
+
+#[test]
+fn the_first_preboot_launch_location_is_the_boot_fact() {
+    let mut bridge = Bridge::<StorageModule>::new();
+    bridge.input_write(b"/first");
+    bridge.set_launch_location(6);
+    bridge.input_write(b"/second");
+    bridge.set_launch_location(7);
+    assert_eq!(bridge.launch.as_deref(), Some("/first"));
+}
+
+#[test]
+fn the_launch_time_is_the_last_valid_one_told_and_set_time_leaves_it() {
+    let mut bridge = Bridge::<StorageModule>::new();
+    bridge.set_launch_time(1_790_000_000_000.0, -420.0);
+    bridge.set_launch_time(f64::NAN, 0.0);
+    bridge.set_time(1_800_000_000_000.0, 60.0);
+    let time = bridge.launch_facts.time.unwrap();
+    assert_eq!(
+        (time.epoch_at_zero, time.utc_offset),
+        (1_790_000_000_000.0, -420.0)
+    );
+}
+
+#[test]
+fn the_launch_place_is_the_last_valid_one_told() {
+    let mut bridge = Bridge::<StorageModule>::new();
+    let told = |bridge: &mut Bridge<StorageModule>, text: &str| {
+        bridge.input_write(text.as_bytes());
+        bridge.set_launch_place(text.len())
+    };
+    assert_eq!(told(&mut bridge, "fr-FR\0Europe/Paris\x007"), 0);
+    for invalid in [
+        "\0Europe/Paris\x007",
+        "de-DE\0Europe/Berlin",
+        "en-US\0UTC\x004294967296",
+    ] {
+        assert!(told(&mut bridge, invalid) > 0);
+        assert!(std::str::from_utf8(&bridge.output)
+            .unwrap()
+            .contains("invalid launch place"));
+    }
+    let place = bridge.launch_facts.place.clone().unwrap();
+    assert_eq!(
+        (place.locale.as_str(), place.time_zone.as_str(), place.seed),
+        ("fr-FR", "Europe/Paris", 7.0)
+    );
+}
+
+#[derive(Clone, Default)]
+struct DocumentOwnerSource {
+    owner: u64,
+}
+
+impl DataSource for DocumentOwnerSource {
+    fn app_id(&self) -> &str {
+        "test.exact.document.owner"
+    }
+    fn query(&mut self, name: &str, _: &[Value]) -> Result<Value, DataError> {
+        Err(DataError::UnknownSource(name.into()))
+    }
+    fn set_document_owner(&mut self, owner: u64) {
+        self.owner = owner;
+    }
+    fn preload(&self) -> Result<bool, DataError> {
+        assert_ne!(self.owner, 0);
+        Ok(true)
+    }
+    fn activate_for_validation(&mut self) -> Result<(), DataError> {
+        assert_ne!(self.owner, 0);
+        Ok(())
+    }
+    fn replacement(&self, _: &[u8], _: &str, _: Vec<u8>) -> Result<Self, DataError> {
+        Ok(Self::default())
+    }
+}
+
+#[test]
+fn plan_and_module_reloads_keep_the_document_owner() {
+    let bytes = plan(None);
+    let mut registry = crate::abi::registry::Registry::<DocumentOwnerSource>::default();
+    let rt = registry.create();
+    let entry = registry.get(rt).unwrap();
+    let mut entry = entry.borrow_mut();
+    let bridge = &mut entry.bridge;
+    bridge.boot(
+        &bytes,
+        DocumentOwnerSource::default(),
+        Hooks::none(),
+        100.0,
+        100.0,
+    );
+    let file = std::env::temp_dir().join(format!("exact-document-owner-{rt}"));
+    std::fs::write(&file, b"owned").unwrap();
+    let request = format!(
+        r#"{{"op":"mintDocument","owner":{rt},"path":"{}"}}"#,
+        file.display()
+    );
+    let reply = bridge.host.as_mut().unwrap().answer_hold(&request).unwrap();
+    let doc = exact_runner::agent::field_str(&reply, "doc").unwrap();
+    let resolves = |bridge: &mut Bridge<DocumentOwnerSource>| {
+        use ibex2::stdlib::fs::{DocumentError, DocumentLease, FsOp, FsResult};
+        let owner = bridge.host.as_mut().unwrap().runner_mut().data().owner;
+        let grants = ibex2::grant::GrantSet::parse("fs.read doc:/").unwrap();
+        let result = ibex2::stdlib::fs::run_document(
+            &grants,
+            Some(&move |path, _access| {
+                let resolved =
+                    exact_data::documents::resolve(path, owner).map_err(DocumentError::from)?;
+                let guard = std::sync::Arc::new(());
+                match resolved {
+                    exact_data::documents::Resolved::Root(name) => DocumentLease::root(name, guard),
+                    exact_data::documents::Resolved::Real {
+                        directory,
+                        path,
+                        selected_file: Some(name),
+                    } => DocumentLease::selected_file_named(directory, path, name, guard),
+                    exact_data::documents::Resolved::Real {
+                        directory,
+                        path,
+                        selected_file: None,
+                    } => DocumentLease::directory(directory, path, guard),
+                }
+            }),
+            FsOp::ReadFile,
+            &doc,
+            None,
+        )
+        .unwrap();
+        assert_eq!(result, FsResult::Bytes(b"owned".to_vec()));
+        assert!(exact_data::documents::resolve(&doc, u64::from(rt) + 1).is_err());
+    };
+    resolves(bridge);
+    bridge.painted = true;
+    bridge.input_write(&bytes);
+    bridge.prepare_plan(
+        bytes.len(),
+        DocumentOwnerSource::default(),
+        Hooks::none(),
+        100.0,
+        100.0,
+    );
+    bridge.commit_plan();
+    resolves(bridge);
+    bridge.input_write(&bytes);
+    bridge.prepare_module(
+        [bytes.len(), 0, 0],
+        DocumentOwnerSource::default(),
+        Hooks::none(),
+        100.0,
+        100.0,
+    );
+    bridge.commit_plan();
+    resolves(bridge);
+    exact_data::documents::forget(u64::from(rt));
+    std::fs::remove_file(file).unwrap();
 }
 
 #[derive(Clone, Default)]
@@ -84,7 +246,7 @@ impl DataSource for StorageModule {
 #[test]
 fn pending_native_preparation_keeps_the_running_app_and_carries_later_input() {
     use std::sync::atomic::Ordering;
-    let bytes = contract::compile("component App\n  state count = 0\n  action increment writes count\n    count = count + 1\n  view\n    button press=increment testId=\"increment\"\n      text `${count}`\n").unwrap().encode();
+    let bytes = contract::compile("component App\n  state count = 0\n  action increment\n    count = count + 1\n  view\n    button press=increment testId=\"increment\"\n      text `${count}`\n").unwrap().encode();
     let source = StorageModule::default();
     let mut bridge = Bridge::new();
     bridge.boot(&bytes, source.clone(), Hooks::none(), 390.0, 844.0);
@@ -229,7 +391,7 @@ fn fresh_preparation_reads_platform_secrets_and_defers_effects_until_commit() {
     let _restore = Restore;
     let name = "exact.prepare.returning";
     let grants = "secret.keep exact.prepare.returning\n";
-    let bindings = endow(grants).unwrap();
+    let bindings = crate::store::endow(grants).unwrap();
     assert_eq!(bindings.secrets.get(name).unwrap(), None);
     bindings.secrets.set(name, "returning").unwrap();
     let seen = Arc::new(Mutex::new(Vec::new()));
@@ -411,7 +573,7 @@ fn candidate_delivery_precedes_initial_and_carried_resource_queries() {
 }
 
 #[test]
-fn module_replacement_preserves_pending_requests_at_prepare_and_commit() {
+fn module_replacement_keeps_pending_requests_unless_the_dev_loop_lets_them_go() {
     #[derive(Clone)]
     struct Held(Arc<Mutex<usize>>);
     impl DataSource for Held {
@@ -429,7 +591,7 @@ fn module_replacement_preserves_pending_requests_at_prepare_and_commit() {
             Ok(self.clone())
         }
     }
-    let plan = contract::compile("shape Reply\n  value: string\ncomponent App\n  mutation reply as shape Reply\n  action start writes reply\n    send reply = write()\n  view\n    button press=start testId=\"start\"\n      text \"send\"\n").unwrap().encode();
+    let plan = contract::compile("shape Reply\n  value: string\ncomponent App\n  mutation reply as shape Reply\n  action start\n    send reply = write()\n  view\n    button press=start testId=\"start\"\n      text \"send\"\n").unwrap().encode();
     let calls = Arc::new(Mutex::new(0));
     let source = Held(calls.clone());
     let mut bridge = Bridge::new();
@@ -458,7 +620,13 @@ fn module_replacement_preserves_pending_requests_at_prepare_and_commit() {
         .contains("retry after they settle"));
     assert_eq!(bridge.host.as_ref().unwrap().runner().pending(), pending);
     bridge.input_write(&plan);
-    let count = bridge.prepare_module([plan.len(), 0, 0], source, Hooks::none(), 390.0, 844.0);
+    let count = bridge.prepare_module(
+        [plan.len(), 0, 0],
+        source.clone(),
+        Hooks::none(),
+        390.0,
+        844.0,
+    );
     assert!(
         String::from_utf8_lossy(bridge.output_bytes(count as usize)).contains("pending requests")
     );
@@ -468,6 +636,27 @@ fn module_replacement_preserves_pending_requests_at_prepare_and_commit() {
         "refusal precedes loading candidate code"
     );
     assert_eq!(bridge.host.as_ref().unwrap().runner().pending(), pending);
+    assert!(String::from_utf8_lossy(bridge.output_bytes(count as usize))
+        .starts_with("{\"requests\":true,"));
+    // The dev loop's generation past its settle window lets the POST go (LLP 1007 §6).
+    bridge.input_write(&plan);
+    let count = bridge.prepare_module_with_delivery(
+        [plan.len(), 0, 0],
+        source,
+        Hooks::none(),
+        390.0,
+        844.0,
+        None,
+        true,
+    );
+    assert!(
+        bridge.prepared.is_some(),
+        "{}",
+        String::from_utf8_lossy(bridge.output_bytes(count as usize))
+    );
+    let count = bridge.commit_plan();
+    assert!(!String::from_utf8_lossy(bridge.output_bytes(count as usize)).contains("\"error\":\""));
+    assert!(bridge.host.as_ref().unwrap().runner().pending().is_empty());
 }
 
 #[test]
@@ -521,7 +710,7 @@ fn invalid_hold_property_preserves_status_and_other_presentations() {
     let bytes = contract::compile(
         r#"component App
   state count = 0
-  action tick writes count
+  action tick
     count = count + 1
   task clock mount
     every(100, tick)
@@ -567,7 +756,7 @@ fn height_release_abi_separates_synthesis_from_generation_checked_pointer_comple
     let bytes = contract::compile(
         r#"component App
   state height = 180
-  action release(value: number, velocity: number) writes height
+  action release(value: number, velocity: number)
     height = value
   view
     box id="sheet" height=height box-sizing="border-box" transition="height 200ms linear"
@@ -753,7 +942,7 @@ fn pan_dispatch_twenty_commits_deltas_without_using_reorder_eighteen() {
     let bytes = contract::compile(
         r#"component App
   state x = 0
-  action move(dx: number, dy: number) writes x
+  action move(dx: number, dy: number)
     x = x + dx + dy
   view
     box
@@ -802,12 +991,12 @@ fn pan_release_twenty_eight_reaches_the_action_and_refuses_bad_velocity() {
   state vx = 0
   state vy = 0
   state released = 0
-  action release(x: number, y: number) writes vx, vy, released
+  action release(x: number, y: number)
     vx = x
     vy = y
     released = released + 1
   state x = 0
-  action move(dx: number, dy: number) writes x
+  action move(dx: number, dy: number)
     x = x + dx + dy
   view
     box testId="pan" pan=move panrelease=release
@@ -850,11 +1039,11 @@ fn dispatch_names_every_kind_and_refuses_unknown_ones() {
     let bytes = contract::compile(
         r#"component App
   state text = "hello"
-  action edit(value: string) writes text
+  action edit(value: string)
     text = value
   view
     box
-      input testId="field" value=text change=edit
+      input testId="field" value=text input=edit change=edit
 "#,
     )
     .unwrap()
@@ -880,7 +1069,21 @@ fn dispatch_names_every_kind_and_refuses_unknown_ones() {
     let n = bridge.dispatch(view, 18, len, 0.);
     let out = std::str::from_utf8(bridge.output_bytes(n as usize)).unwrap();
     assert!(out.contains("invalid reorder event"), "{out}");
-    for kind in [29, 99, u32::MAX] {
+    // focusin and focusout (#283) carry a length-prefixed target and an
+    // optional related id; a payload that does not parse is refused.
+    for kind in [46, 47] {
+        let len = bridge.input_write(b"5:field0");
+        let n = bridge.dispatch(view, kind, len, 0.);
+        let out = std::str::from_utf8(bridge.output_bytes(n as usize)).unwrap();
+        // Decoded and named: the field has no such handler, not a bad kind.
+        assert!(out.contains("NoHandler"), "{out}");
+        let len = bridge.input_write(b"typed");
+        let n = bridge.dispatch(view, kind, len, 0.);
+        let out = std::str::from_utf8(bridge.output_bytes(n as usize)).unwrap();
+        assert!(out.contains("invalid focus event"), "{out}");
+        assert_eq!(slots(&bridge), hello);
+    }
+    for kind in [45, 99, u32::MAX] {
         let len = bridge.input_write(b"typed");
         let n = bridge.dispatch(view, kind, len, 0.);
         let out = std::str::from_utf8(bridge.output_bytes(n as usize)).unwrap();
@@ -888,8 +1091,114 @@ fn dispatch_names_every_kind_and_refuses_unknown_ones() {
         assert_eq!(slots(&bridge), hello);
     }
     let len = bridge.input_write(b"typed");
+    let n = bridge.dispatch(view, 48, len, 0.);
+    let out = std::str::from_utf8(bridge.output_bytes(n as usize)).unwrap();
+    assert!(out.contains("invalid field selection"), "{out}");
+    let len = bridge.input_write(b"5,5,none,range");
+    bridge.dispatch(view, 48, len, 0.);
+    assert_eq!(slots(&bridge), vec![("text".into(), Value::str("range"))]);
+    let len = bridge.input_write(b"typed");
     bridge.dispatch(view, 1, len, 0.);
     assert_eq!(slots(&bridge), vec![("text".into(), Value::str("typed"))]);
+}
+
+#[test]
+fn keycapture_abi_kind_reaches_the_runner() {
+    let bytes = contract::compile(
+        r#"component App
+  state heard = ""
+  action captured(k: string, e: KeyboardEvent)
+    heard = `${k}:${e.code}`
+  view
+    box keycapture=captured testId="root"
+"#,
+    )
+    .unwrap()
+    .encode();
+    let mut bridge = Bridge::new();
+    bridge.boot(&bytes, StorageModule::default(), Hooks::none(), 400., 800.);
+    let host = bridge.host.as_ref().unwrap();
+    let key = host.runner().kernel().find_by_test_id("root")[0];
+    let view = host.runner().kernel().node_by_key(key).unwrap().id;
+    let len = bridge.input_write(b"x\nKeyX\nfalse");
+    let n = bridge.dispatch(view, 44, len, 0.);
+    let out = std::str::from_utf8(bridge.output_bytes(n as usize)).unwrap();
+    assert!(out.contains("\"error\":null"), "{out}");
+    assert_eq!(
+        bridge.host.as_ref().unwrap().carry().slots,
+        vec![("heard".into(), Value::str("x:KeyX"))]
+    );
+}
+
+#[test]
+fn a_fields_selection_kinds_and_a_radios_group_reach_the_runner() {
+    // x2apps codeedit #2: kinds 40 to 42 carry the selection; survey #2:
+    // the presenter reads a radio's group and its arrows' moves.
+    let bytes = contract::compile(
+        r#"component App
+  state text = ""
+  state caret = ""
+  state picked = ""
+  state color = "red"
+  action edit(value: string, e: InputEvent)
+    text = value
+    caret = `${e.selectionStart} ${e.selectionEnd} ${e.selectionDirection}`
+  action chose(e: InputEvent)
+    picked = `${e.selectionStart}-${e.selectionEnd} ${e.selectionDirection}`
+  action pick(value: string)
+    color = value
+  view
+    box
+      input testId="field" value=text input=edit change=edit select=chose
+      input type="radio" name="c" value="red" checked=color == "red" change=pick testId="red"
+      input type="radio" name="c" value="gray" disabled=true checked=color == "gray" change=pick testId="gray"
+      input type="radio" name="c" value="blue" checked=color == "blue" change=pick testId="blue"
+"#,
+    )
+    .unwrap()
+    .encode();
+    let mut bridge = Bridge::new();
+    bridge.boot(&bytes, StorageModule::default(), Hooks::none(), 400., 800.);
+    let id = |b: &Bridge<StorageModule>, test_id: &str| {
+        let kernel = b.host.as_ref().unwrap().runner().kernel();
+        kernel
+            .node_by_key(kernel.find_by_test_id(test_id)[0])
+            .unwrap()
+            .id
+    };
+    let field = id(&bridge, "field");
+    let slot = |b: &Bridge<StorageModule>, name: &str| {
+        let slots = b.host.as_ref().unwrap().carry().slots;
+        slots.into_iter().find(|(n, _)| n == name).map(|(_, v)| v)
+    };
+    let send = |b: &mut Bridge<StorageModule>, view: u32, kind: u32, payload: &str| {
+        let len = b.input_write(payload.as_bytes());
+        let n = b.dispatch(view, kind, len, 0.);
+        std::str::from_utf8(b.output_bytes(n as usize))
+            .unwrap()
+            .to_owned()
+    };
+    let out = send(&mut bridge, field, 40, "2,2,none,a,\nb");
+    assert!(out.contains("\"error\":null"), "{out}");
+    assert_eq!(slot(&bridge, "text"), Some(Value::str("a,\nb")));
+    assert_eq!(slot(&bridge, "caret"), Some(Value::str("2 2 none")));
+    send(&mut bridge, field, 41, "0,1,forward,a,\nb");
+    assert_eq!(slot(&bridge, "caret"), Some(Value::str("0 1 forward")));
+    send(&mut bridge, field, 42, "1,3,backward,a,\nb");
+    assert_eq!(slot(&bridge, "picked"), Some(Value::str("1-3 backward")));
+    let out = send(&mut bridge, field, 42, "3,1,none,abc");
+    assert!(out.contains("invalid field selection"), "{out}");
+    let (red, gray, blue) = (id(&bridge, "red"), id(&bridge, "gray"), id(&bridge, "blue"));
+    let n = bridge.radio_group(red);
+    let json = std::str::from_utf8(bridge.output_bytes(n as usize)).unwrap();
+    assert_eq!(
+        json,
+        format!("{{\"group\":[{red},{gray},{blue}],\"next\":{blue},\"previous\":{blue}}}")
+    );
+    send(&mut bridge, blue, 1, "blue");
+    assert_eq!(slot(&bridge, "color"), Some(Value::str("blue")));
+    let out = send(&mut bridge, blue, 1, "red");
+    assert!(out.contains("a radio reports its own"), "{out}");
 }
 
 #[test]
@@ -1008,3 +1317,125 @@ fn kept_answers_reach_the_platform_store_without_an_app_grant() {
         "{kept:?}"
     );
 }
+
+#[test]
+fn candidate_profiles_are_isolated_until_commit_and_after_discard() {
+    let source = |asset: &str| {
+        format!("color-profile --candidate-test src=\"{asset}\" rendering-intent=\"perceptual\"\ncomponent App\n  state on = false\n  action toggle\n    on = !on\n  view\n    column\n      button testId=\"toggle\" press=toggle\n        text \"Toggle\"\n      box testId=\"color\" width=20 height=20 background-color=(on ? \"color(--candidate-test 0 1 0)\" : \"color(--candidate-test 1 0 0)\")\n")
+    };
+    let a = contract::compile(&source("assets/live.icc"))
+        .unwrap()
+        .encode();
+    let b = contract::compile(&source("assets/candidate.icc"))
+        .unwrap()
+        .encode();
+    let mut bridge = Bridge::new();
+    bridge.boot(&a, StorageModule::default(), Hooks::none(), 100.0, 100.0);
+    let check = |bridge: &mut Bridge<StorageModule>, expected: &str| {
+        let host = bridge.host.as_mut().unwrap();
+        let kernel = host.runner().kernel();
+        let button = kernel
+            .node_by_key(kernel.find_by_test_id("toggle")[0])
+            .unwrap()
+            .id;
+        let batch = host.dispatch_at(button, Event::Press, 1.0);
+        assert!(batch.contains(expected), "{batch}");
+    };
+    bridge.input_write(&b);
+    bridge.prepare_plan(
+        b.len(),
+        StorageModule::default(),
+        Hooks::none(),
+        100.0,
+        100.0,
+    );
+    assert!(bridge.prepared.is_some());
+    check(&mut bridge, "icc:assets/live.icc");
+    bridge.discard_plan();
+    check(&mut bridge, "icc:assets/live.icc");
+    bridge.input_write(&b);
+    bridge.prepare_plan(
+        b.len(),
+        StorageModule::default(),
+        Hooks::none(),
+        100.0,
+        100.0,
+    );
+    assert!(bridge.prepared.is_some());
+    bridge.commit_plan();
+    check(&mut bridge, "icc:assets/candidate.icc");
+}
+
+#[test]
+fn block_axis_records_distinguish_size_maximum_and_route_fitting() {
+    use exact_kernel::{BlockAxis, HostBlock};
+    let plan = contract::compile(
+        "component Page\n  view\n    column\n      box testId=\"route\" width=480 height=300\n",
+    )
+    .unwrap()
+    .encode();
+    let mut bridge = Bridge::new();
+    bridge.boot(&plan, StorageModule::default(), Hooks::none(), 800.0, 600.0);
+    let k = bridge.host.as_ref().unwrap().runner().kernel();
+    let id = k.node_by_key(k.find_by_test_id("route")[0]).unwrap().id;
+    for (width, height, expected, size) in [
+        (
+            2.0_f32,
+            2.0_f32,
+            HostBlock {
+                width: BlockAxis::Fit(400.0),
+                height: BlockAxis::Fit(200.0),
+            },
+            (480.0, 300.0),
+        ),
+        (
+            1.0,
+            1.0,
+            HostBlock {
+                width: BlockAxis::AtMost(400.0),
+                height: BlockAxis::AtMost(200.0),
+            },
+            (400.0, 200.0),
+        ),
+        (
+            2.0,
+            1.0,
+            HostBlock {
+                width: BlockAxis::Fit(400.0),
+                height: BlockAxis::AtMost(200.0),
+            },
+            (480.0, 200.0),
+        ),
+        (
+            0.0,
+            0.0,
+            HostBlock {
+                width: BlockAxis::Is(400.0),
+                height: BlockAxis::Is(200.0),
+            },
+            (400.0, 200.0),
+        ),
+    ] {
+        let bytes: Vec<_> = [
+            id,
+            4,
+            400.0_f32.to_bits(),
+            200.0_f32.to_bits(),
+            width.to_bits(),
+            height.to_bits(),
+        ]
+        .into_iter()
+        .flat_map(u32::to_le_bytes)
+        .collect();
+        bridge.input_write(&bytes);
+        let len = bridge.covers(bytes.len());
+        let batch = std::str::from_utf8(bridge.output_bytes(len as usize)).unwrap();
+        assert!(batch.contains("\"error\":null"), "{batch}");
+        let k = bridge.host.as_ref().unwrap().runner().kernel();
+        assert_eq!(k.host_block(id), Some(expected));
+        assert_eq!(k.host_block_size(id), Some(size));
+    }
+}
+
+#[path = "abi_roles_tests.rs"]
+mod roles;

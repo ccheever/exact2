@@ -87,6 +87,7 @@ fn settle_at(
             cross: c.rows.first().map_or(port.width, |row| {
                 r.kernel().node(row.view).unwrap().frame.width
             }) as f64,
+            padding: [0.0; 2],
             measurements: c
                 .rows
                 .iter()

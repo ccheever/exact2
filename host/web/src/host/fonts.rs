@@ -12,25 +12,62 @@ pub struct FontFace {
     pub declared: String,
     /// The face's file, relative to the app.
     pub source: String,
-    /// Its weight.
-    pub weight: u16,
+    /// Its weights, low and high; one weight is both (LLP 1019 D2).
+    pub weight: [u16; 2],
+    /// Its widths in tenths of a percent, low and high.
+    pub stretch: [u16; 2],
     /// Whether it is italic.
     pub italic: bool,
 }
 
+impl FontFace {
+    /// `@font-face`'s `font-weight` descriptor: one weight, or a range.
+    pub fn weight_css(&self) -> String {
+        match self.weight {
+            [low, high] if low == high => low.to_string(),
+            [low, high] => format!("{low} {high}"),
+        }
+    }
+
+    /// `@font-face`'s `font-stretch` descriptor: one width, or a range.
+    pub fn stretch_css(&self) -> String {
+        let percent = |tenths: u16| format!("{}%", exact_num::Shortest(f64::from(tenths) / 10.0));
+        match self.stretch {
+            [low, high] if low == high => percent(low),
+            [low, high] => format!("{} {}", percent(low), percent(high)),
+        }
+    }
+}
+
 pub(super) fn font_names(plan: &Plan) -> Vec<String> {
-    plan.stacks
-        .iter()
-        .enumerate()
-        .map(|(i, _)| {
-            let stack = plan.stack(StacksId(i as u32));
-            let member = plan.stack_member(stack.members.iter().next().expect("validated stack"));
-            match member.kind {
-                StackMemberKind::Family => format!("ExactPlanStack{i}"),
-                generic => generic.name().to_string(),
-            }
-        })
-        .collect()
+    crate::css::font_family_names(plan)
+}
+
+pub(super) fn font_names_for_runner<D: DataSource>(runner: &Runner<D>) -> Vec<String> {
+    let mut names = font_names(runner.plan());
+    names.extend(
+        runner
+            .runtime_font_stacks()
+            .iter()
+            .map(|list| crate::css::runtime_font_family(list)),
+    );
+    names
+}
+
+impl<D: DataSource> Host<D> {
+    pub(super) fn sync_runtime_font_names(&mut self) {
+        let compiled = self.runner.plan().stacks.len();
+        if self.runner.runtime_font_count() == self.font_names.len().saturating_sub(compiled) {
+            return;
+        }
+        let runtime = self.runner.runtime_font_stacks();
+        for name in runtime
+            .iter()
+            .skip(self.font_names.len().saturating_sub(compiled))
+        {
+            self.font_names.push(crate::css::runtime_font_family(name));
+        }
+    }
 }
 
 thread_local! {
@@ -60,26 +97,16 @@ pub(crate) fn decode_plan(bytes: &[u8]) -> Result<Plan, exact_plan::PlanError> {
 /// The plan's declared faces, in stack order.
 pub fn font_faces(plan: &Plan) -> Vec<FontFace> {
     let mut out = Vec::new();
-    for (stack_index, stack) in plan.stacks.iter().enumerate() {
-        let member = plan.stack_member(
-            stack
-                .members
-                .iter()
-                .next()
-                .expect("validated non-empty stack"),
-        );
-        if member.kind != StackMemberKind::Family {
-            continue;
-        }
-        let family = plan.familie(member.family.expect("validated family member"));
-        let name = format!("ExactPlanStack{stack_index}");
+    for (i, family) in plan.families.iter().enumerate() {
+        let name = crate::css::font_alias(plan, exact_plan::FamiliesId(i as u32));
         for face_id in family.faces.iter() {
             let face = plan.face(face_id);
             out.push(FontFace {
                 family: name.clone(),
                 declared: plan.str(family.name).to_string(),
                 source: plan.str(face.source).to_string(),
-                weight: face.weight,
+                weight: [face.weight, face.weight_max],
+                stretch: [face.stretch_min, face.stretch_max],
                 italic: face.italic,
             });
         }
@@ -101,8 +128,9 @@ pub(super) fn font_catalog(faces: &[FontFace]) -> String {
         crate::batch::quote(&face.source, &mut out);
         let _ = write!(
             out,
-            ",\"weight\":{},\"style\":\"{}\"}}",
-            face.weight,
+            ",\"weight\":\"{}\",\"stretch\":\"{}\",\"style\":\"{}\"}}",
+            face.weight_css(),
+            face.stretch_css(),
             if face.italic { "italic" } else { "normal" }
         );
     }

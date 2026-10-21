@@ -1,6 +1,8 @@
 //! Arrange's bounded browser presentation owner. @ref LLP 1041 §8.5.
 //! Wire v3: 176-byte header and <=4096 32-byte wrapper samples. All keys,
 //! runtime and serials are LE u64 / decimal JSON strings. See `Input`.
+//! A grouped list's session (LLP 1094) takes the same packets, its ops in
+//! `group_drag.rs`.
 use super::{Batch, Host, HostError};
 use exact_kernel::{motion::motion_node, CommitReceipt, NodeKey, ViewId};
 use exact_motion::{HoldEnd, HoldToken, Property, Value};
@@ -19,6 +21,8 @@ struct Handle {
 struct Active {
     binding: ReorderBinding,
     token: ReorderToken,
+    /// A grouped session (LLP 1094): no holds, a host-drawn ghost.
+    grouped: bool,
     holds: BTreeMap<NodeKey, HoldToken>,
     terminal: bool,
     captured: bool,
@@ -59,6 +63,9 @@ struct Sample {
 }
 struct Input {
     op: u32,
+    /// The header's spare word: a grouped begin's kind (1 a ghost, 2 the
+    /// keys) or a step's direction (LLP 1094 D5, D9); 0 otherwise.
+    flags: u32,
     runtime: u64,
     binding: ReorderBinding,
     token: u64,
@@ -99,10 +106,12 @@ impl Input {
             let revision = r.u64()?;
             let scroll_sequence = r.u64()?;
             let count = r.u32()? as usize;
-            if r.u32()? != 0
+            let flags = r.u32()?;
+            // 21 is `reorder-preview-into` and 22 `reorder-step` (LLP 1094 D5).
+            if !(flags == 0 || op == 15 && flags <= 2 || op == 22 && (1..=4).contains(&flags))
                 || count > MAX_WRAPPERS
                 || bytes.len() != 176 + count * 32
-                || !(15..=20).contains(&op)
+                || !(15..=22).contains(&op)
             {
                 return Err(PlanError::BadCount(count as u32));
             }
@@ -130,6 +139,7 @@ impl Input {
             }
             Ok(Self {
                 op,
+                flags,
                 runtime,
                 binding,
                 token,
@@ -163,8 +173,11 @@ impl Input {
         {
             return Err("invalid reorder sample");
         }
-        if [15, 16, 20].contains(&self.op) && !self.rows.is_empty() {
+        if [15, 16, 20, 22].contains(&self.op) && !self.rows.is_empty() {
             return Err("unexpected reorder samples");
+        }
+        if self.op == 21 && self.rows.len() != 1 {
+            return Err("reorder-preview-into names its target list once");
         }
         let mut keys = std::collections::BTreeSet::new();
         if self.rows.iter().any(|s| !keys.insert(s.key)) {
@@ -184,6 +197,14 @@ impl<D: DataSource> Host<D> {
         let i = Input::decode(bytes)?;
         if i.runtime != self.reorder_drags.runtime {
             return Ok(stale());
+        }
+        let grouped = self
+            .reorder_drags
+            .active
+            .as_ref()
+            .is_some_and(|a| a.grouped);
+        if (i.op == 15 && i.flags != 0) || grouped || i.op >= 21 {
+            return self.group_input(&i);
         }
         if i.op == 15 {
             if i.token != 0
@@ -320,6 +341,7 @@ impl<D: DataSource> Host<D> {
         self.reorder_drags.active = Some(Active {
             binding: i.binding,
             token: admitted.token,
+            grouped: false,
             holds: BTreeMap::from([(i.binding.wrapper, start.token)]),
             terminal: false,
             captured: false,
@@ -551,8 +573,17 @@ impl<D: DataSource> Host<D> {
             }
             h.published = Some(binding);
             batch.reorder_drag(view, self.reorder_drags.runtime, h.key, binding, kernel);
+            batch.push_op(group_binding(&self.runner, view, h.key, binding));
         }
-        if let Some(a) = self.reorder_drags.active.as_mut() {
+        if self
+            .reorder_drags
+            .active
+            .as_ref()
+            .is_some_and(|a| a.grouped)
+        {
+            let state = self.group_state();
+            batch.push_op(state);
+        } else if let Some(a) = self.reorder_drags.active.as_mut() {
             a.terminal |= self
                 .runner
                 .reorder_frame(a.token)
@@ -570,6 +601,9 @@ impl<D: DataSource> Host<D> {
 fn stale() -> String {
     "{\"accepted\":false}".into()
 }
+#[path = "group_drag.rs"]
+mod group;
+use group::group_binding;
 #[cfg(all(test, not(target_arch = "wasm32")))]
 #[path = "reorder_tests.rs"]
 mod tests;

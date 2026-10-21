@@ -1,0 +1,8 @@
+# These inputs have receipt-bound byte identities; preserve their exact newlines.
+js/windows-intl.patch -text
+js/windows-intl-case.inc -text
+js/windows-intl-date.inc -text
+js/windows-intl-number.inc -text
+js/windows-intl-probe.js -text
+js/windows-intl-probe.cc -text
+js/windows-intl.json -text

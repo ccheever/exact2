@@ -45,14 +45,8 @@ fn rays_have_closed_form_distances_and_normals() {
             assert_eq!(got.is_some(), expected.is_some());
             if let (Some(g), Some(distance)) = (got, expected) {
                 assert_eq!(g.entity, e);
-                // 3 mm bounds the iterative capsule ray hit for gameplay picking.
-                let tolerance = if matches!(shape, Shape::Capsule { .. }) {
-                    0.003
-                } else {
-                    1e-4
-                };
                 assert!(
-                    (g.distance - distance).abs() <= tolerance,
+                    (g.distance - distance).abs() <= 1e-4,
                     "ray {shape:?} origin={origin:?}: got={} closed form={distance}",
                     g.distance
                 );
@@ -64,19 +58,49 @@ fn rays_have_closed_form_distances_and_normals() {
                     }
                     _ => -Vec3::X,
                 };
-                // Rapier's measured capsule-ray normal error is 1.8448492°; allow 3°.
-                let error = (g.normal - normal).length().min(2.0) * 0.5;
-                let degrees = error.asin().to_degrees() * 2.0;
-                if matches!(shape, Shape::Capsule { .. }) {
-                    assert!(
-                        degrees <= 3.0,
-                        "ray {origin:?}: normal error={degrees} degrees"
-                    );
-                } else {
-                    assert!(g.normal.distance(normal) < 1e-4);
+                assert!(g.normal.distance(normal) < 1e-4, "ray {shape:?} {origin:?}");
+            }
+        }
+    }
+}
+// RIVALS' sweep: Parry 0.30's support-map capsule raycast returned no hit for 64
+// of these 16,000 rays aimed inside a capsule, offset or not.
+#[test]
+fn every_ray_aimed_inside_a_capsule_hits_it() {
+    for offset in [Vec3::ZERO, Vec3::new(0.0, 0.25, 0.0)] {
+        let mut w = World::new(120, 1);
+        physics::register(&mut w);
+        let c = w.spawn((
+            Transform::at(0.0, 0.92, 13.0),
+            Collider {
+                shape: Shape::Capsule {
+                    radius: 0.35,
+                    height: 1.8,
+                },
+                offset,
+                layer: 4,
+                ..Collider::default()
+            },
+        ));
+        let eye = Vec3::new(0.0, 1.62, 18.0);
+        let mut misses = vec![];
+        for i in 0..4000 {
+            let x = -2.0 + 4.0 * i as f32 / 4000.0;
+            w.get_mut::<Transform>(c).unwrap().position.x = x;
+            for dy in [0.0f32, 0.3, -0.3, 0.6] {
+                let target = Vec3::new(x, 0.92 + dy, 13.0) + offset;
+                match physics::raycast(&w, eye, target - eye, 40.0, 4) {
+                    Some(hit) => assert!(hit.entity == c && hit.distance < 5.2),
+                    None => misses.push((x, dy)),
                 }
             }
         }
+        assert!(
+            misses.is_empty(),
+            "{} misses, first {:?}",
+            misses.len(),
+            misses[0]
+        );
     }
 }
 #[test]

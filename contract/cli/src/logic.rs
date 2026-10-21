@@ -4,6 +4,19 @@
 /// Generate `AppData` and `app_data()` for a host's source type and constructor.
 /// `mode` is the validated `compat.inputs.rustMode` from the actual target bake.
 pub fn rust_entry(data: &str, constructor: &str, mode: &str) -> Result<String, String> {
+    // The digest of the source this binary compiles `constructor`'s crate
+    // from (`scripts/app.mjs` `nativeSource`): a Rust update built from the
+    // same source then runs this native code, not the module.
+    println!("cargo:rerun-if-env-changed=EXACT_NATIVE_SOURCE");
+    let native = match std::env::var("EXACT_NATIVE_SOURCE") {
+        Ok(source) if !source.is_empty() => {
+            if !source.bytes().all(|b| b.is_ascii_hexdigit()) || source.len() != 64 {
+                return Err("EXACT_NATIVE_SOURCE must be a sha256 in hex".into());
+            }
+            format!(".with_native({source:?}, || {constructor})")
+        }
+        _ => String::new(),
+    };
     let supplemental = if let Some(directory) = std::env::var_os("EXACT_RUST_BUNDLE") {
         let receipt: serde_json::Value = serde_json::from_slice(
             &std::fs::read(std::path::Path::new(&directory).join("app.module.json"))
@@ -23,9 +36,9 @@ pub fn rust_entry(data: &str, constructor: &str, mode: &str) -> Result<String, S
         ) {
             return Err("invalid supplemental Rust module filename".into());
         }
-        format!("{{ use exact_logic::exact_runner::DataSource; exact_logic::Swappable::{mode}({constructor}).replacement(include_bytes!(concat!(env!(\"OUT_DIR\"), \"/app.plan\")), include_str!(concat!(env!(\"OUT_DIR\"), \"/rust/app.module.json\")), include_bytes!(concat!(env!(\"OUT_DIR\"), \"/rust/{file}\")).to_vec()).expect(\"validated baked Rust pair\") }}")
+        format!("{{ use exact_logic::exact_runner::DataSource; exact_logic::Swappable::{mode}({constructor}){native}.replacement(include_bytes!(concat!(env!(\"OUT_DIR\"), \"/app.plan\")), include_str!(concat!(env!(\"OUT_DIR\"), \"/rust/app.module.json\")), include_bytes!(concat!(env!(\"OUT_DIR\"), \"/rust/{file}\")).to_vec()).expect(\"validated baked Rust pair\") }}")
     } else {
-        format!("exact_logic::Swappable::{mode}({constructor})")
+        format!("exact_logic::Swappable::{mode}({constructor}){native}")
     };
     match mode {
         "off" => Ok(format!("type AppData = {data};\n#[allow(dead_code)]\nfn app_data() -> AppData {{ {constructor} }}\n")),
@@ -49,6 +62,9 @@ pub fn web_rust_mode(inputs: &serde_json::Value) -> &str {
         _ => "off",
     }
 }
+
+/// The wide colour functions (LLP 1056 §8.2).
+const WIDE_COLORS: [&str; 5] = ["lab(", "lch(", "oklab(", "oklch(", "color("];
 
 /// Whether the app's Rust data crate (`../data` beside the web crate that
 /// builds this) names a wide colour function in its source: Canvas 2D's
@@ -79,11 +95,10 @@ fn names_wide_colors() -> bool {
                     // Inside string literals only: the odd pieces between
                     // quotes on a line.
                     s.lines().any(|line| {
-                        line.split('"').skip(1).step_by(2).any(|lit| {
-                            ["lab(", "lch(", "oklab(", "oklch(", "color("]
-                                .iter()
-                                .any(|f| lit.contains(f))
-                        })
+                        line.split('"')
+                            .skip(1)
+                            .step_by(2)
+                            .any(|lit| WIDE_COLORS.iter().any(|f| lit.contains(f)))
                     })
                 })
         })
@@ -128,11 +143,37 @@ pub fn web_linked(plan: &exact_plan::Plan, inputs: &serde_json::Value) -> String
                 .is_some_and(|module| !module.is_empty()));
     // Inspection is linked by policy, not by use: in production too, so the
     // smoked artifact is the shipped one (LLP 1047 §10, Q3).
+    // A grouped list is its authored nodes on the web, and the browser does
+    // its own I/O and plays CSS's transitions (LLP 1047.001 D2); its file
+    // input is the media picker, `auth` below is the sign-in sheet, and its
+    // numerals roll in the runtime's text (LLP 1077 D15), and its date and
+    // time controls are the browser's own (LLP 1115.001.000 D2).
     let names: Vec<&str> = uses
         .iter()
+        .filter(|c| {
+            !matches!(
+                c,
+                Capability::GroupedLists
+                    | Capability::Io
+                    | Capability::Transitions
+                    | Capability::MediaPicker
+                    | Capability::AuthSession
+                    | Capability::Numerals
+                    | Capability::Dates
+            )
+        })
         .map(|c| c.name())
         .chain(["inspection"])
-        .chain((all || names_wide_colors()).then_some("canvas_colors"))
+        // A colour row's text, literal or a template's piece, names one in
+        // the plan's strings; a drawing names one in the data crate.
+        .chain(
+            (all || plan
+                .strings
+                .iter()
+                .any(|s| WIDE_COLORS.iter().any(|f| s.contains(f)))
+                || names_wide_colors())
+            .then_some("wide_colors"),
+        )
         .chain((all || grants(inputs, "auth.session")).then_some("auth"))
         .collect();
     let mut entry = format!("/// What this artifact links beyond the core (LLP 1047 D3).\nconst EXACT_LINKED: ::exact_web::Linked = ::exact_web_capabilities::linked!({});\n", names.join(", "));
@@ -158,7 +199,49 @@ pub fn web_linked(plan: &exact_plan::Plan, inputs: &serde_json::Value) -> String
             | Capability::Effects
             | Capability::Animations
             | Capability::Gradients
-            | Capability::Geometry => {}
+            | Capability::Grid
+            | Capability::Geometry
+            | Capability::Segments
+            | Capability::Dataset
+            | Capability::Tabs
+            | Capability::Notifications
+            | Capability::GroupedLists
+            | Capability::Io
+            | Capability::Transitions
+            | Capability::MediaPicker
+            | Capability::AuthSession
+            | Capability::Numerals
+            | Capability::Dates => {}
+        }
+    }
+    entry
+}
+
+/// The Apple entry's `EXACT_LINKED` (LLP 1047.001 D2, D3), which the entry
+/// passes as `host!(…; linked = EXACT_LINKED)`, and the export groups of what
+/// it names. `host` is the crate whose `host!` the entry calls
+/// (`exact_apple`, or `exact_apple_update` above it). Which capabilities an
+/// archive links is `exact_bake::apple_link`'s to say.
+pub fn apple_linked(uses: exact_runner::Uses, host: &str) -> String {
+    use exact_runner::Capability;
+    let apple = if host == "exact_apple" {
+        "::exact_apple".to_owned()
+    } else {
+        format!("::{host}::exact_apple")
+    };
+    let link = format!("{apple}::link");
+    let mut set = format!("{link}::Uses::NONE");
+    for capability in uses.iter() {
+        set.push_str(&format!(".with({link}::Capability::{capability:?})"));
+    }
+    let mut entry = format!("/// What this archive links beyond the core (LLP 1047.001 D2).\nconst EXACT_LINKED: {link}::Uses = {set};\n");
+    // A capability's export group, where it has one on Apple.
+    for (capability, group) in [
+        (Capability::GroupedLists, "grouped_list_exports"),
+        (Capability::Markdown, "markup_exports"),
+    ] {
+        if uses.has(capability) {
+            entry.push_str(&format!("{apple}::{group}!();\n"));
         }
     }
     entry
@@ -167,6 +250,34 @@ pub fn web_linked(plan: &exact_plan::Plan, inputs: &serde_json::Value) -> String
 #[cfg(test)]
 mod tests {
     use super::web_rust_mode;
+
+    /// LLP 1047.001 D3: the entry names its set and invokes the export
+    /// groups of what it names, through whichever host crate it calls.
+    #[test]
+    fn an_apple_entry_names_its_set_and_its_groups() {
+        use exact_runner::{Capability, Uses};
+        let grouped = Uses::NONE.with(Capability::GroupedLists);
+        let entry = super::apple_linked(grouped, "exact_apple");
+        assert!(
+            entry.contains("::exact_apple::link::Capability::GroupedLists"),
+            "{entry}"
+        );
+        assert!(
+            entry.contains("::exact_apple::grouped_list_exports!();"),
+            "{entry}"
+        );
+        let update = super::apple_linked(grouped, "exact_apple_update");
+        assert!(
+            update.contains("::exact_apple_update::exact_apple::grouped_list_exports!();"),
+            "{update}"
+        );
+        assert!(!super::apple_linked(Uses::NONE, "exact_apple").contains("exports!"));
+        let markdown = super::apple_linked(Uses::NONE.with(Capability::Markdown), "exact_apple");
+        assert!(
+            markdown.contains("::exact_apple::markup_exports!();"),
+            "{markdown}"
+        );
+    }
 
     #[test]
     fn a_web_entry_links_a_rust_executor_only_for_a_declared_module() {

@@ -14,10 +14,45 @@ fn a_socket_grant_is_a_connect_source() {
 }
 
 #[test]
+fn a_scheme_line_is_a_scheme_source() {
+    let policy = csp(
+        "net.fetch HTTP:\nnet.websocket ws:\nnet.websocket wss://feed.test/path",
+        Path::new("/nonexistent"),
+    );
+    assert!(
+        policy.contains("connect-src 'self' http: ws: wss://feed.test;"),
+        "{policy}"
+    );
+}
+
+#[test]
+fn connect_sources_use_app_grants_even_when_a_request_has_a_narrower_source_scope() {
+    let policy = csp(
+        "net.fetch https://a.test\nnet.fetch https://b.test\nnet.fetch https://c.test",
+        Path::new("/nonexistent"),
+    );
+    assert!(
+        policy.contains("connect-src 'self' https://a.test https://b.test https://c.test;"),
+        "{policy}"
+    );
+}
+
+#[test]
+fn the_boot_swap_script_is_admitted_by_its_hash() {
+    // @ref LLP 1048.005 — the one inline script a boot document's page adds.
+    let policy = csp("", Path::new("/nonexistent"));
+    use sha2::{Digest, Sha256};
+    let digest = Sha256::digest(crate::direct::boot_swap_js().as_bytes());
+    let admitted = format!("'sha256-{}'", exact_data::envelope::base64(&digest));
+    assert!(policy.contains(&admitted), "{policy}");
+}
+
+#[test]
 fn the_cache_budget_counts_each_page_s_variants() {
     let page = |body: usize| {
         CachedPage {
             target: "/p".into(),
+            class: String::new(),
             created: Instant::now(),
             response: Response::text(200, "").header("ETag", "\"t\""),
             best: Arc::new(OnceLock::new()),
@@ -74,20 +109,24 @@ fn a_page_carries_the_permissions_policy_its_grants_derive() {
     let policy = exact_runner::device::permissions_policy(
         "net.fetch https://x/\ndevice.microphone purpose.mic",
     );
-    assert_eq!(policy, "microphone=(self), camera=(), geolocation=()");
+    assert_eq!(
+        policy,
+        "microphone=(self), camera=(), geolocation=(), midi=()"
+    );
     for (content_type, expected) in [("text/html; charset=utf-8", true), ("text/plain", false)] {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let mut client = TcpStream::connect(listener.local_addr().unwrap()).unwrap();
         let (mut server, _) = listener.accept().unwrap();
         let mut page = Response::text(200, "<p>");
         page.headers[0].1 = content_type.into();
-        page.write(&mut server, false, "default-src 'self'", &policy, false);
+        let lines = format!("Permissions-Policy: {policy}\r\n");
+        page.write(&mut server, false, "default-src 'self'", &lines, false);
         server.shutdown(std::net::Shutdown::Write).unwrap();
         let mut received = String::new();
         client.read_to_string(&mut received).unwrap();
         assert_eq!(
             received.contains(
-                "\r\nPermissions-Policy: microphone=(self), camera=(), geolocation=()\r\n"
+                "\r\nPermissions-Policy: microphone=(self), camera=(), geolocation=(), midi=()\r\n"
             ),
             expected,
             "{received}"

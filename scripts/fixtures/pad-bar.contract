@@ -1,0 +1,60 @@
+// LLP 1116.006 D6: the keyboard's accessory bar is the platform's, on iOS.
+// Unit-converter's shape: a large-title header over a grouped list whose
+// FROM section holds a decimal field that asks for ± and Done (a negative
+// `min`, `enterkeyhint="done"`) and a Swap button under it, low enough that
+// the keys would cover them, then a TO section. Focused, the field and its
+// section stay above the keyboard's top, the accessory bar's included; the
+// bar paints no band of its own, and what shows behind it is the list's
+// background, not the canvas's (PadBarIOSTests).
+routes nav
+  convert "/"
+
+component PadBar
+  state from = "1"
+  state to = "33.8"
+  state swaps = 0
+  action editFrom(v: string)
+    from = v
+  action editTo(v: string)
+    to = v
+  action swap
+    swaps = swaps + 1
+  action dismiss
+    blur()
+  view
+    main navigationKey=`${top(nav).id}` testId="app" width="100%" height="100%"
+      for e in stack(nav) key=e.id
+        column navigationKey=`${e.id}` navigationScroll="content" position="absolute" inset=0 display="flex" flex-direction="column"
+          header display="flex" align-items="center" padding="8px 16px"
+            text "Unit Converter" role="heading" aria-level=1
+          list id="content" appearance="auto" listStyle="inset-grouped" flex=1 min-height=0 testId="content"
+            section
+              header
+                text "RECENT"
+              row
+                text "1 °C → 33.8 °F"
+              row
+                text "10 km → 6.21 mi"
+              row
+                text "5 lb → 2.27 kg"
+              row
+                text "2 L → 0.53 gal"
+              row
+                text "100 m → 328 ft"
+            section
+              header
+                text "FROM"
+              row
+                input value=from input=editFrom submit=dismiss inputmode="decimal" min="-1e100" enterkeyhint="done"
+                  aria-label="From value" testId="from-value" flex=1 min-width=0
+              row
+                button press=swap testId="swap" flex=1
+                  text "Swap units"
+            section
+              header
+                text "TO"
+              row
+                input value=to input=editTo submit=dismiss inputmode="decimal" min="-1e100" enterkeyhint="done"
+                  aria-label="To value" testId="to-value" flex=1 min-width=0
+              footer
+                text "Results rounded to 6 significant digits."

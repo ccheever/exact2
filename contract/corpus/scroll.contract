@@ -5,7 +5,7 @@
 // smooth` animates that write (and only that: a wheel is the reader's own).
 component Rows
   state top = 0
-  action jump writes top
+  action jump
     top = 600
   view
     column testId="root" gap=8 padding=12

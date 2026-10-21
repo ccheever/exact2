@@ -1,7 +1,7 @@
 //! PNG row sampling. The caller reserves `cost` before constructing a decoder.
 //! Natural dimensions never depend on the sampled raster's resolution.
 use exact_raster::{
-    DecodeCost, Metadata, PixelSize, Refusal, MAX_ENCODED_BYTES, MAX_HEADER_BYTES,
+    Crop, DecodeCost, Metadata, PixelSize, Refusal, MAX_ENCODED_BYTES, MAX_HEADER_BYTES,
     MAX_SOURCE_PIXELS, SESSION_BYTES,
 };
 use std::io::{BufReader, Read, Seek, SeekFrom};
@@ -16,6 +16,58 @@ pub(super) struct Header {
     interlaced: bool,
 }
 
+/// `color` for a JPEG, GIF or WebP (not a PNG colour type); its pixels come
+/// from `jpeg_decode`, the platform's decoder.
+const JPEG: u8 = 0xFF;
+/// `color` for an SVG document (LLP 1011.001): its pixels are painted from
+/// the resolved scene (`super::svg_picture`).
+const SVG: u8 = 0xFE;
+
+impl Header {
+    /// Whether [`DecodePlan::new`] snaps this source's decode to a
+    /// power-of-two subsample (Android's platform decoder): a request for it
+    /// is then the size wanted, not a size rounded up to a bucket, which
+    /// could push it past a subsample to the full size (heavy's 1600×900
+    /// photos in a 433-pixel square: an 896-pixel bucket, so a full decode
+    /// where a half-size one covers it).
+    pub(super) fn snaps(&self) -> bool {
+        // Read once: a plan is made at every poll, for every picture.
+        static EXACT: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+        cfg!(target_os = "android")
+            && self.color == JPEG
+            && !*EXACT.get_or_init(|| std::env::var_os("EXACT_EXACT_DECODE").is_some())
+    }
+
+    /// A JPEG's, GIF's or WebP's header: decoded as 8-bit RGBA by the platform
+    /// (a GIF's or WebP's first frame).
+    pub(super) fn jpeg(metadata: Metadata) -> Header {
+        Header {
+            metadata,
+            depth: 8,
+            channels: 4,
+            color: JPEG,
+            interlaced: false,
+        }
+    }
+
+    /// An SVG's header: its natural size the document's (LLP 1011.001 D1),
+    /// its pixels painted at any size up to the island's.
+    pub(super) fn svg(metadata: Metadata) -> Header {
+        Header {
+            metadata,
+            depth: 8,
+            channels: 4,
+            color: SVG,
+            interlaced: false,
+        }
+    }
+
+    /// Whether the picture is an SVG document, drawn rather than decoded.
+    pub(super) fn is_svg(&self) -> bool {
+        self.color == SVG
+    }
+}
+
 /// Metadata inspection allocates no image/decoder buffers and inspects at most
 /// 256 KiB before IDAT. Encoded length is checked before any file buffering.
 pub(super) fn inspect(
@@ -28,11 +80,34 @@ pub(super) fn inspect(
     input
         .seek(SeekFrom::Start(0))
         .map_err(|_| Refusal::DecodeFailed)?;
+    // As much of the first 33 bytes as there are: an SVG may be shorter.
     let mut head = [0; 33];
-    input
-        .read_exact(&mut head)
-        .map_err(|_| Refusal::DecodeFailed)?;
-    if &head[..8] != b"\x89PNG\r\n\x1a\n"
+    let mut got = 0;
+    while got < head.len() {
+        match input.read(&mut head[got..]) {
+            Ok(0) => break,
+            Ok(n) => got += n,
+            Err(_) => return Err(Refusal::DecodeFailed),
+        }
+    }
+    let head = &head[..got];
+    if super::jpeg_decode::is_jpeg(head) {
+        return super::jpeg_decode::inspect(input, encoded_bytes);
+    }
+    if let Some(header) = super::jpeg_decode::inspect_animated(head, encoded_bytes)? {
+        return Ok(header);
+    }
+    if super::svg_picture::could_be(head) {
+        if let Some(header) = super::svg_picture::inspect(input, encoded_bytes)? {
+            return Ok(header);
+        }
+        // The SVG read took a prefix: the chunk walk starts after the head.
+        input
+            .seek(SeekFrom::Start(got as u64))
+            .map_err(|_| Refusal::DecodeFailed)?;
+    }
+    if head.len() < 33
+        || &head[..8] != b"\x89PNG\r\n\x1a\n"
         || head[8..12] != 13u32.to_be_bytes()
         || &head[12..16] != b"IHDR"
         || crc(&head[12..29]) != u32::from_be_bytes(head[29..33].try_into().unwrap())
@@ -116,12 +191,24 @@ fn crc(bytes: &[u8]) -> u32 {
 #[derive(Clone, Copy, Debug)]
 pub(super) struct DecodePlan {
     pub header: Header,
+    /// The picture's pixels, as cached and charged.
     pub pixels: PixelSize,
     pub cost: DecodeCost,
+    /// The part of the picture `pixels` are, when not all of it
+    /// ([`DecodePlan::part`]).
+    pub crop: Crop,
 }
 impl DecodePlan {
+    /// Whether the platform's decoder decodes this (JPEG, GIF, WebP).
+    #[cfg(target_os = "android")]
+    pub(super) fn platform(&self) -> bool {
+        self.header.color == JPEG
+    }
     pub fn new(header: Header, pixels: (u32, u32)) -> Result<Self, Refusal> {
         let natural = header.metadata.natural;
+        if header.is_svg() {
+            return Self::svg(header, pixels);
+        }
         if pixels.0 == 0 || pixels.1 == 0 || pixels.0 > natural.width || pixels.1 > natural.height {
             return Err(Refusal::InvalidDimensions);
         }
@@ -139,6 +226,49 @@ impl DecodePlan {
             .checked_mul(32)
             .and_then(|n| n.checked_add(1024 * 1024))
             .ok_or(Refusal::Overflow)?;
+        // A JPEG's platform decode holds the whole file and its own row
+        // buffers (two source rows of 4 bytes a pixel) beside the output.
+        let scratch = if header.color == JPEG {
+            header
+                .metadata
+                .encoded_bytes
+                .checked_add(u64::from(natural.width) * 8 + 1024 * 1024)
+                .ok_or(Refusal::Overflow)?
+        } else {
+            scratch
+        };
+        // Android's platform decoder subsamples a JPEG by powers of two in the
+        // DCT: the largest power-of-two subsample that still covers the
+        // request is what it decodes. Kept at that size when it is near the
+        // request; otherwise scaled to the request by the decoder (bilinear,
+        // a ratio under 2, beside that subsample in its own buffer), as an
+        // image loader scales its bitmap to the view: a cached picture two to
+        // four times the size it shows at made the cache hold that many
+        // fewer, and the list decode them again (heavy: 309 decodes a fling
+        // against Views' 132).
+        let (pixels, scratch) = if header.snaps() {
+            let mut s = 1u32;
+            while natural.width.div_ceil(s * 2) >= pixels.0
+                && natural.height.div_ceil(s * 2) >= pixels.1
+                && s < 8
+            {
+                s *= 2;
+            }
+            let decode = (natural.width.div_ceil(s), natural.height.div_ceil(s));
+            let near = u64::from(decode.0) * u64::from(decode.1) * 10
+                <= u64::from(pixels.0) * u64::from(pixels.1) * 13;
+            if near || std::env::var_os("EXACT_NO_RESAMPLE").is_some() {
+                (decode, scratch)
+            } else {
+                let buffer = u64::from(decode.0) * 4 * u64::from(decode.1);
+                (
+                    pixels,
+                    scratch.checked_add(buffer).ok_or(Refusal::Overflow)?,
+                )
+            }
+        } else {
+            (pixels, scratch)
+        };
         let cost = DecodeCost::checked(u64::from(pixels.0) * 4, pixels.1, scratch, 0)?;
         if cost.peak()? > SESSION_BYTES {
             return Err(Refusal::TooLarge);
@@ -150,7 +280,94 @@ impl DecodePlan {
                 height: pixels.1,
             },
             cost,
+            crop: Crop::default(),
         })
+    }
+    /// An SVG's plan (LLP 1011.001 D1): drawn at `pixels`, which may exceed
+    /// the natural size, up to the island's side. The output is the
+    /// painter's own pixmap; the scratch bounds the parse (the document's
+    /// text, its ops and the scratch kernel's nodes: a few times the file).
+    fn svg(header: Header, pixels: (u32, u32)) -> Result<Self, Refusal> {
+        let side = super::svg_picture::MAX_SIDE;
+        if pixels.0 == 0 || pixels.1 == 0 || pixels.0 > side || pixels.1 > side {
+            return Err(Refusal::InvalidDimensions);
+        }
+        let scratch = header
+            .metadata
+            .encoded_bytes
+            .checked_mul(4)
+            .and_then(|n| n.checked_add(1024 * 1024))
+            .ok_or(Refusal::Overflow)?;
+        let cost = DecodeCost::checked(u64::from(pixels.0) * 4, pixels.1, scratch, 0)?;
+        if cost.peak()? > SESSION_BYTES {
+            return Err(Refusal::TooLarge);
+        }
+        Ok(Self {
+            header,
+            pixels: PixelSize {
+                width: pixels.0,
+                height: pixels.1,
+            },
+            cost,
+            crop: Crop::default(),
+        })
+    }
+    /// This plan cut to `pixels` of it from (`x`, `y`): the same decode,
+    /// which keeps only that part (what a box that clips the picture
+    /// shows). The scratch is the whole decode's; the output is the part.
+    pub fn part(self, x: u32, y: u32, pixels: (u32, u32)) -> Result<Self, Refusal> {
+        let full = self.pixels;
+        if !self.crop.whole()
+            || pixels.0 == 0
+            || pixels.1 == 0
+            || x.checked_add(pixels.0).is_none_or(|r| r > full.width)
+            || y.checked_add(pixels.1).is_none_or(|b| b > full.height)
+        {
+            return Err(Refusal::InvalidDimensions);
+        }
+        if (pixels.0, pixels.1) == (full.width, full.height) {
+            return Ok(self);
+        }
+        let cost = DecodeCost::checked(
+            u64::from(pixels.0) * 4,
+            pixels.1,
+            self.cost.scratch_bytes,
+            0,
+        )?;
+        Ok(Self {
+            pixels: PixelSize {
+                width: pixels.0,
+                height: pixels.1,
+            },
+            cost,
+            crop: Crop { x, y, full },
+            ..self
+        })
+    }
+    /// The plan a key names: its pixels, of the whole picture or a part.
+    pub fn of_key(header: Header, key: &exact_raster::RasterKey) -> Result<Self, Refusal> {
+        if key.crop.whole() {
+            return Self::new(header, (key.pixels.width, key.pixels.height));
+        }
+        let full = Self::new(header, (key.crop.full.width, key.crop.full.height))?;
+        // The whole decode's size is the planner's own, not any size at all.
+        if full.pixels != key.crop.full {
+            return Err(Refusal::InvalidDimensions);
+        }
+        full.part(
+            key.crop.x,
+            key.crop.y,
+            (key.pixels.width, key.pixels.height),
+        )
+    }
+    /// The size the picture is decoded at: `pixels`, or the whole a part is
+    /// cut from.
+    pub fn full(self) -> PixelSize {
+        if self.crop.whole() {
+            self.pixels
+        } else {
+            self.crop.full
+        }
     }
     pub fn natural(self) -> (u32, u32) {
         (
@@ -182,6 +399,9 @@ pub(super) fn decode_rows<R: Read + Seek>(
     plan: &DecodePlan,
     cancelled: impl Fn() -> bool,
 ) -> Result<Pixmap, Refusal> {
+    if plan.header.color == JPEG {
+        return super::jpeg_decode::decode(input, plan, cancelled);
+    }
     if cancelled() {
         return Err(Refusal::Stale);
     }
@@ -258,14 +478,18 @@ pub(super) fn decode_rows<R: Read + Seek>(
             }
             // Each destination selects one source pixel, including odd/final
             // Adam7 passes. Only the small output and one source row exist.
-            let oy = (u64::from(y) * u64::from(plan.pixels.height) / u64::from(h)) as u32;
-            for oy in oy.saturating_sub(1)..(oy + 2).min(plan.pixels.height) {
-                let sy = sample(oy, plan.pixels.height, h);
-                if sy != y {
+            // A part of the picture (`DecodePlan::part`) is the same
+            // samples of the whole decode, the ones inside it.
+            let (full, part) = (plan.full(), plan.crop);
+            let oy = (u64::from(y) * u64::from(full.height) / u64::from(h)) as u32;
+            for oy in oy.saturating_sub(1)..(oy + 2).min(full.height) {
+                let sy = sample(oy, full.height, h);
+                if sy != y || oy < part.y || oy - part.y >= plan.pixels.height {
                     continue;
                 }
+                let oy = oy - part.y;
                 for ox in 0..plan.pixels.width {
-                    let sx = sample(ox, plan.pixels.width, w);
+                    let sx = sample(ox + part.x, full.width, w);
                     if sx < x0 || !(sx - x0).is_multiple_of(dx) {
                         continue;
                     }

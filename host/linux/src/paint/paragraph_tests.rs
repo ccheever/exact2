@@ -1,22 +1,13 @@
 use super::*;
 use crate::presenter::{PainterChoice, Presenter};
-use exact_runner::{DataError, DataSource, Value};
 use std::rc::Rc;
 
-#[derive(Default)]
-struct NoData;
-impl DataSource for NoData {
-    fn query(&mut self, source: &str, _: &[Value]) -> Result<Value, DataError> {
-        Err(DataError::UnknownSource(source.into()))
-    }
-}
-
-fn fixture(text: &str) -> Presenter<NoData> {
+fn fixture(text: &str) -> Presenter<()> {
     let source = format!("component App\n  view\n    column width=\"100%\" padding=20 box-sizing=\"border-box\"\n{text}");
     let plan = contract::compile(&source).unwrap();
     let (presenter, error) = Presenter::boot_with(
         &plan.encode(),
-        NoData,
+        (),
         (300.0, 300.0),
         1.0,
         std::path::PathBuf::new(),
@@ -34,7 +25,7 @@ fn nested_text_paints_the_same_paragraph_that_layout_measured() {
     for width in [300.0, 160.0, 240.0] {
         assert!(plain.resize(width, 300.0).is_none());
         assert!(nested.resize(width, 300.0).is_none());
-        let frame = |p: &Presenter<NoData>| {
+        let frame = |p: &Presenter<()>| {
             let kernel = p.host().kernel();
             kernel
                 .node_by_key(kernel.find_by_test_id("paragraph")[0])
@@ -59,19 +50,23 @@ fn nested_text_paints_the_same_paragraph_that_layout_measured() {
     }
 }
 
-fn scene_frame(p: &Presenter<NoData>, dark: bool, backend: Box<dyn Backend>) -> Frame {
+fn scene_frame(p: &Presenter<()>, dark: bool, backend: Box<dyn Backend>) -> Frame {
     let kernel = p.host().kernel();
     let scene = Scene {
         kernel,
         roots: &kernel.roots(),
         hidden: &|_| false,
         presented: &|_| Presented::IDENTITY,
+        paths: &|_| None,
         scroll: &BTreeMap::new(),
         page: (0.0, 0.0),
         images: &BTreeMap::new(),
         focus: None,
+        selection: None,
+        caret_upstream: false,
         pointer: None,
         controls: &BTreeMap::new(),
+        chosen: &BTreeMap::new(),
         menu: None,
     };
     let mut painter = Painter::new(p.text().clone(), 1.0, backend);
@@ -122,8 +117,8 @@ fn styled_paragraph_metrics_and_cpu_gpu_glyph_batches_agree() {
         assert_eq!(spec.runs[1].size, 18.0);
         let mut light = Vec::new();
         let mut dark = Vec::new();
-        text_palette(kernel, &node, false, &mut light);
-        text_palette(kernel, &node, true, &mut dark);
+        text_palette(kernel, &node, false, None, &mut light);
+        text_palette(kernel, &node, true, None, &mut dark);
         assert_eq!(light.len(), canonical.len());
         assert_eq!(dark.len(), canonical.len());
         let leaf = kernel.node(light[1].source).unwrap();
@@ -141,13 +136,12 @@ fn styled_paragraph_metrics_and_cpu_gpu_glyph_batches_agree() {
                 .paint_glyphs(palette)
                 .map(|(g, baseline, ink)| {
                     (
-                        g.glyph_id as u32,
-                        g.x + g.x_offset * g.font_size,
-                        baseline + g.y - g.y_offset * g.font_size,
-                        g.metadata,
+                        g.glyph_id,
+                        g.x,
+                        baseline + g.y,
+                        g.run(),
                         ink,
-                        g.cache_key_flags
-                            .contains(cosmic_text::CacheKeyFlags::FAKE_ITALIC),
+                        paragraph.lines().faces[g.face as usize].skew,
                     )
                 })
                 .collect();
@@ -228,6 +222,12 @@ fn styled_paragraph_pixels_on_real_gpu_when_available() {
     let gpu = match crate::gpu::Gpu::new() {
         Ok(gpu) => gpu,
         Err(error) => {
+            // A missing GPU fails under EXACT_REQUIRED=1, which the async lane sets (scripts/coverage.mjs).
+            assert_ne!(
+                std::env::var("EXACT_REQUIRED").as_deref(),
+                Ok("1"),
+                "missing gpu: {error}"
+            );
             eprintln!("GPU paragraph pixels NOT checked: {error}; common batch test still runs");
             return;
         }
@@ -241,12 +241,16 @@ fn styled_paragraph_pixels_on_real_gpu_when_available() {
         roots: &kernel.roots(),
         hidden: &|_| false,
         presented: &|_| Presented::IDENTITY,
+        paths: &|_| None,
         scroll: &BTreeMap::new(),
         page: (0.0, 0.0),
         images: &BTreeMap::new(),
         focus: None,
+        selection: None,
+        caret_upstream: false,
         pointer: None,
         controls: &BTreeMap::new(),
+        chosen: &BTreeMap::new(),
         menu: None,
     };
     for (dark, colors) in [
@@ -283,5 +287,220 @@ fn styled_paragraph_pixels_on_real_gpu_when_available() {
                 );
             }
         }
+    }
+}
+
+#[test]
+fn css_strike_through_changes_pixels_without_changing_layout() {
+    let mut plain = fixture("      text \"MMMM WWWW\" testId=\"line\" font-size=24\n");
+    let mut strike = fixture(
+        "      text \"MMMM WWWW\" testId=\"line\" font-size=24 text-decoration=\"line-through\"\n",
+    );
+    let frame = |p: &Presenter<()>| {
+        p.host()
+            .kernel()
+            .node_by_key(p.host().kernel().find_by_test_id("line")[0])
+            .unwrap()
+            .frame
+    };
+    assert_eq!(frame(&plain), frame(&strike));
+    let before = plain.frame();
+    let after = strike.frame();
+    assert_ne!(
+        before.data(),
+        after.data(),
+        "the decoration must actually paint"
+    );
+}
+
+#[test]
+fn a_box_draws_its_lines_through_nested_text_in_its_own_colour() {
+    // CSS Text Decoration 3 §2.1: the paragraph's lines cross its blue child
+    // in the paragraph's red; the paragraph has no text of its own.
+    let mut p = fixture(
+        "      text text-decoration=\"underline line-through\" color=\"#ff0000\" font-size=24\n        text \"MMMM\" color=\"#0000ff\"\n",
+    );
+    let frame = p.frame();
+    let (mut red, mut blue) = (0, 0);
+    for px in frame.data().chunks_exact(4) {
+        match (px[0], px[1], px[2], px[3]) {
+            (200.., ..160, ..160, 200..) => red += 1,
+            (..160, ..160, 200.., 200..) => blue += 1,
+            _ => {}
+        }
+    }
+    assert!(blue > 0, "the child's glyphs keep their colour");
+    // Two lines across four glyphs at 24 px; in the child's colour, none.
+    assert!(
+        red >= 100,
+        "the lines are the paragraph's colour: {red} red pixels, {blue} blue"
+    );
+}
+
+#[test]
+fn the_nearest_box_line_shows_and_hidden_text_draws_none() {
+    // As Chrome: the green box's line-through shows over the red
+    // paragraph's on the blue text, and the hidden text has no line.
+    let mut p = fixture(
+        "      text text-decoration=\"line-through\" color=\"#ff0000\" font-size=24\n        text text-decoration=\"line-through\" color=\"#00ff00\"\n          text \"MMMM\" color=\"#0000ff\"\n        text \"WWWW\" visibility=\"hidden\"\n",
+    );
+    let frame = p.frame();
+    let (mut red, mut green) = (0, 0);
+    for px in frame.data().chunks_exact(4) {
+        match (px[0], px[1], px[2], px[3]) {
+            (200.., ..160, ..160, 200..) => red += 1,
+            (..160, 200.., ..160, 200..) => green += 1,
+            _ => {}
+        }
+    }
+    assert_eq!(red, 0, "no line of the paragraph's shows");
+    assert!(
+        green >= 40,
+        "the nearer box's line shows: {green} green pixels"
+    );
+}
+
+#[test]
+fn html_maxlength_is_enforced_by_linux_typing() {
+    let plan = contract::compile("component App\n  state draft = \"\"\n  action edit(value: string)\n    draft = value\n  view\n    input value=draft input=edit maxlength=3 testId=\"limited\"\n").unwrap();
+    let (mut p, error) = Presenter::boot_with(
+        &plan.encode(),
+        (),
+        (300.0, 300.0),
+        1.0,
+        std::path::PathBuf::new(),
+        PainterChoice::Cpu,
+    )
+    .unwrap();
+    assert!(error.is_none());
+    let key = p.host().kernel().find_by_test_id("limited")[0];
+    let id = p.host().kernel().node_by_key(key).unwrap().id;
+    p.type_text(id, "a😀b").unwrap();
+    assert_eq!(
+        p.host().kernel().node(id).unwrap().props.str(PropId::Value),
+        Some("a😀")
+    );
+}
+
+#[test]
+fn paint_ranks_survive_repaints_and_scroll_until_a_kernel_commit() {
+    let mut p = fixture("      box height=900 testId=\"row\"\n");
+    p.frame();
+    let passes = p.brush.rank_passes;
+    let epoch = p.host().kernel().epoch();
+    p.frame();
+    p.wheel_at(40., 40., 0., 80.);
+    p.frame();
+    assert_eq!(p.host().kernel().epoch(), epoch);
+    assert_eq!(
+        p.brush.rank_passes, passes,
+        "repaint and scroll reuse the ranks"
+    );
+    let id = p.host().kernel().find_by_test_id("row")[0];
+    let id = p.host().kernel().node_by_key(id).unwrap().id;
+    let mut style = exact_kernel::StyleProps {
+        opacity: 0.5,
+        ..Default::default()
+    };
+    style.mask.set(exact_kernel::StyleId::Opacity);
+    p.host
+        .runner_mut()
+        .kernel_mut()
+        .apply(
+            0,
+            epoch + 1,
+            &[exact_kernel::Op::SetStyle {
+                id,
+                patch: Box::new(style),
+            }],
+        )
+        .unwrap();
+    p.frame();
+    assert_eq!(
+        p.brush.rank_passes,
+        passes + 1,
+        "a style commit recomputes ranks"
+    );
+    assert_eq!(p.brush.ranks[&id], 1);
+    let plan = contract::compile("component App\n  view\n    box width=100 height=100\n").unwrap();
+    p.reload(&plan.encode(), ()).unwrap();
+    p.frame();
+    assert_eq!(
+        p.brush.rank_passes,
+        passes + 2,
+        "replacement kernels invalidate ranks"
+    );
+}
+
+#[test]
+fn inline_border_radius_cuts_the_background_corners() {
+    let draw = |radius| {
+        let mut p = fixture(&format!(
+            "      text font-size=24 color=\"transparent\"\n        text \"rounded inline\" background-color=\"#ff0000\" border-radius={radius}\n"
+        ));
+        *p.text().borrow_mut() = TextEngine::from_font_files(
+            &[std::path::Path::new(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/tests/fonts/Inter-Regular.ttf"
+            ))],
+            "Inter",
+        );
+        p.frame().clone()
+    };
+    let square = draw(0);
+    let rounded = draw(8);
+    let first = square
+        .pixels()
+        .iter()
+        .position(|p| p.red() == 255 && p.green() == 0 && p.alpha() == 255)
+        .expect("the inline background paints red");
+    assert!(
+        rounded.pixels()[first].green() > 200,
+        "border-radius must expose the page at the background's corner"
+    );
+    assert!(has_color(&rounded, [255, 0, 0, 255]));
+}
+
+#[test]
+fn nested_visible_inline_backgrounds_keep_both_boxes_square() {
+    let p = fixture(
+        "      text testId=\"paragraph\"\n        text background-color=\"#ff0000\" border-radius=6 testId=\"outer\"\n          text \"before\"\n          text\n            text \"inner\" background-color=\"#0000ff\" border-radius=9\n          text \"after\"\n        text background-color=\"#00ff00\" border-radius=3\n          text \"independent\" background-color=\"transparent\"\n",
+    );
+    let kernel = p.host().kernel();
+    let node = kernel
+        .node_by_key(kernel.find_by_test_id("paragraph")[0])
+        .unwrap();
+    let backgrounds = text_backgrounds(kernel, &node, false, None);
+    assert_eq!(backgrounds.len(), 4);
+    let values: Vec<_> = backgrounds.into_iter().map(Option::unwrap).collect();
+    assert_eq!(values[0].id, values[2].id);
+    assert_ne!(values[0].id, values[1].id);
+    assert_eq!(values[0].color, [255, 0, 0, 255]);
+    assert_eq!(values[1].color, [0, 0, 255, 255]);
+    for value in &values[..3] {
+        assert_eq!(value.radii, [Dimension::Points(0.0); 4]);
+    }
+    assert_eq!(
+        values[3].radii,
+        [Dimension::Points(3.0); 4],
+        "a transparent descendant keeps its ancestor's rounding"
+    );
+    for inner in [
+        "text background-color=\"#0000ff\"",
+        "text \"\" background-color=\"#0000ff\"",
+    ] {
+        let p = fixture(&format!(
+            "      text testId=\"paragraph\"\n        text background-color=\"#ff0000\" border-radius=6\n          text \"hello\"\n          {inner}\n"
+        ));
+        let kernel = p.host().kernel();
+        let node = kernel
+            .node_by_key(kernel.find_by_test_id("paragraph")[0])
+            .unwrap();
+        let backgrounds = text_backgrounds(kernel, &node, false, None);
+        assert_eq!(
+            backgrounds[0].unwrap().radii,
+            [Dimension::Points(6.0); 4],
+            "{inner}"
+        );
     }
 }

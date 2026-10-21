@@ -20,21 +20,36 @@ mod cull_tests;
 mod frame;
 pub mod hooks;
 mod ibl;
+mod lights;
+mod local_shadows;
+mod lod;
+mod look;
+mod look_bounds;
 mod model_pipeline;
 mod models;
+mod node_poses;
+mod occlusion;
+mod outline;
 mod perf;
 mod pipeline;
 mod placed;
 #[cfg(test)]
 mod quad_tests;
 mod quads;
+pub mod quality;
 mod renderer;
 mod shadows;
 pub mod shapes;
 mod skinning;
+mod ssao;
 mod surface;
+pub mod tells;
 mod timing;
 mod trace;
+#[cfg(test)]
+mod translucent_tests;
+mod water;
+pub use water::WaterEffects;
 pub mod world;
 
 /// Simulation vocabulary, also used by module! without a direct dependency.
@@ -44,9 +59,9 @@ pub use exact_gpu;
 pub use hooks::{
     FrameView, HookGpu, HookTime, HookWork, Hooks, Needs, PostInputs, RenderWorld, SceneCopy,
 };
-pub use models::ModelPresentation;
-pub use surface::{Presentation, WorldSurface};
-pub use world::scene::DisplayedAttachment;
+pub use models::ModelExecutor;
+pub use surface::{Executor, WorldSurface};
+pub use world::scene::{DisplayedAttachment, PHOTOMETRIC_SCALE};
 pub use world::Feed;
 
 use exact_gpu::wgpu;
@@ -117,6 +132,10 @@ pub struct DrawInstance {
     pub local: Mat4,
     /// Renderer-owned skin template; absent for unskinned nodes.
     pub skin: Option<u32>,
+    /// This node's base-colour multiplier (`NodeMaterials`); `[1; 4]` keeps it.
+    pub tint: [f32; 4],
+    /// Linear emission added to this node; zero adds none.
+    pub glow: [f32; 3],
 }
 
 /// One tightly packed, 48-byte mesh vertex.
@@ -142,7 +161,18 @@ pub struct Batch {
     pub slots: Range<u32>,
     /// Whether this draw participates in sun shadow passes; true in [`Batch::new`].
     pub casts_shadows: bool,
+    /// Drawn in the viewmodel layer: the nearest [`VIEWMODEL_DEPTH`] of the depth
+    /// range, in front of the whole world; false in [`Batch::new`].
+    pub viewmodel: bool,
+    /// The level of detail its instances draw at (0, their own model, in
+    /// [`Batch::new`]). Each frame one level per entity draws; direct drawing
+    /// (no GPU cull) draws level 0 only.
+    pub level: u8,
 }
+
+/// The depth range the viewmodel layer takes while any viewmodel draws; the
+/// world draws behind it in the rest. Without a viewmodel the world takes 0–1.
+pub const VIEWMODEL_DEPTH: f32 = 0.05;
 
 impl Batch {
     /// A retained draw that casts shadows by default.
@@ -151,6 +181,16 @@ impl Batch {
             mesh,
             slots,
             casts_shadows: true,
+            viewmodel: false,
+            level: 0,
+        }
+    }
+    /// This draw in the viewmodel layer, casting no shadows.
+    pub fn viewmodel(self) -> Self {
+        Self {
+            casts_shadows: false,
+            viewmodel: true,
+            ..self
         }
     }
 }
@@ -162,7 +202,7 @@ pub struct Sun {
     pub direction: Vec3,
     /// Linear RGB tint.
     pub color: Vec3,
-    /// Incident illuminance multiplier.
+    /// Incident radiance: `Feed` supplies lux times [`PHOTOMETRIC_SCALE`].
     pub illuminance: f32,
     /// None skips all shadow work and releases the shadow textures.
     pub shadows: Option<Shadows>,
@@ -179,39 +219,46 @@ impl Default for Sun {
     }
 }
 
-/// Sun shadow quality and reach. Up to three 2048² depth layers.
+pub use exact_game::{Bloom, Environment, Fog, ShadowBox, ShadowFilter, Shadows};
+
+/// An equirectangular environment texture ([`FrameInput::environment_map`]).
 #[derive(Debug, Clone, Copy)]
-pub struct Shadows {
-    /// Camera view depth reached by shadows, in metres (default 60).
-    pub distance: f32,
-    /// Number of cascades, clamped to 1–3 (default 3).
-    pub cascades: u32,
-    /// 3×3 PCF radius in shadow texels (default 1.5).
-    pub softness: f32,
-}
-impl Default for Shadows {
-    fn default() -> Self {
-        Self {
-            distance: 60.0,
-            cascades: 3,
-            softness: 1.5,
-        }
-    }
+pub struct EnvironmentMapInput<'a> {
+    /// A texture added with `add_texture` (or delivered as a `.tex` asset).
+    pub texture: &'a str,
+    /// Linear radiance multiplier.
+    pub intensity: f32,
+    /// RGBM range, or zero for plain RGB.
+    pub rgbm: f32,
+    /// Also draw it as the visible sky.
+    pub visible: bool,
+    /// Yaw about +Y in radians.
+    pub rotation: f32,
 }
 
-pub use exact_game::{Bloom, Environment, Fog};
+/// Local lights drawn per frame, nearest the camera first. Further eligible
+/// lights are counted in `FrameInput::lights_dropped`, never silently lost.
+pub const MAX_LIGHTS: usize = 256;
 
-/// An inverse-square point light, smoothly extinguished at its range.
+/// An inverse-square point or spot light, smoothly extinguished at its range.
 #[derive(Debug, Clone, Copy, Default)]
-pub struct PointLightInput {
+pub struct LightInput {
     /// World-space position.
     pub position: Vec3,
     /// Linear RGB tint.
     pub color: Vec3,
-    /// Radiant intensity multiplier.
+    /// Renderer radiance at 1 m: `Feed` supplies `PointLight.intensity` (candela)
+    /// times [`PHOTOMETRIC_SCALE`], the sun's lux scale.
     pub intensity: f32,
     /// Positive cutoff distance in world units.
     pub range: f32,
+    /// Unit direction a spot light points (its −Z); ignored without a cone.
+    pub direction: Vec3,
+    /// A spot light's cosines of its inner and outer half-angles: full intensity
+    /// inside the inner, smoothly zero at the outer. None is a point light.
+    pub cone: Option<[f32; 2]>,
+    /// Wants a shadow map; the renderer shadows the first few such lights.
+    pub shadows: bool,
 }
 
 /// Retained emissive tween and material for one entity; only presentation samples it.
@@ -224,11 +271,15 @@ pub struct GlowInput {
     pub(crate) material: [f32; 12],
     pub(crate) tween: exact_game::Tween,
     pub(crate) hz: u32,
+    pub(crate) model: bool,
 }
 impl GlowInput {
     pub(crate) fn material_at(&self, seconds: f64) -> [f32; 12] {
         let intensity = self.tween.value_at(seconds, self.hz);
         let mut material = self.material;
+        if self.model {
+            material[9] = intensity.max(0.);
+        }
         for value in &mut material[6..9] {
             let emissive = *value * intensity;
             let shoulder = value.max(2.);
@@ -255,15 +306,31 @@ pub struct FrameInput<'a> {
     pub alpha: f32,
     /// Optional directional light.
     pub sun: Option<Sun>,
-    /// Point lights; only the first sixteen are used.
-    pub points: &'a [PointLightInput],
+    /// A second, never shadowed directional light: the moon, or a fill.
+    pub fill: Option<Sun>,
+    /// Point and spot lights, nearest first; at most [`MAX_LIGHTS`] are used.
+    pub lights: &'a [LightInput],
+    /// Eligible lights left out beyond [`MAX_LIGHTS`].
+    pub lights_dropped: usize,
     /// Displayed socket attachments, evaluated from the interpolated local chain.
     pub attachments: &'a [DisplayedAttachment],
     /// Hemisphere lighting and background.
     pub environment: Environment,
+    /// An authored environment map lighting the scene in place of the sky:
+    /// a texture added under this name, its intensity and RGBM range.
+    pub environment_map: Option<EnvironmentMapInput<'a>>,
+    /// Screen-space ambient occlusion; None (the default) draws none.
+    pub ambient_occlusion: Option<exact_game::AmbientOcclusion>,
+    /// A water surface and its effects (`water.rs`); None (the default) draws none.
+    pub water: Option<exact_game::Water>,
     /// Optional pass timestamps. Requires TIMESTAMP_QUERY on the device.
     /// Reserve [`GPU_PASS_COUNT`] pairs in the query set. Resolve/read outside draw.
     pub timestamps: Option<&'a wgpu::QuerySet>,
+    /// How far above SDR white the tone curve reaches (LLP 1100 D12b); 1 for
+    /// an SDR target.
+    pub headroom: f32,
+    /// CSS viewport height for outline pixel floors; None uses the target pixel height.
+    pub viewport_css_height: Option<f32>,
 }
 
 impl Default for FrameInput<'_> {
@@ -281,10 +348,17 @@ impl Default for FrameInput<'_> {
             camera_position: Vec3::ZERO,
             alpha: 1.0,
             sun: Some(Sun::default()),
-            points: &[],
+            fill: None,
+            lights: &[],
+            lights_dropped: 0,
             attachments: &[],
             environment: Environment::default(),
+            environment_map: None,
+            ambient_occlusion: None,
+            water: None,
             timestamps: None,
+            headroom: 1.0,
+            viewport_css_height: None,
         }
     }
 }
@@ -301,6 +375,9 @@ pub struct Stats {
     pub triangles: u64,
     /// Cumulative attachment textures created by this renderer, including bloom/shadows.
     pub texture_creations: u64,
+    /// Cumulative frames drawn straight into the target, with no HDR image or
+    /// tone pass (`Renderer::set_direct`).
+    pub direct_frames: u64,
 }
 
 #[cfg(all(test, not(target_arch = "wasm32")))]
@@ -319,6 +396,108 @@ mod tests {
             .unwrap();
         }
     }
+
+    /// The half-precision forward modules validate with the capability and
+    /// translate to Metal and SPIR-V without 16-bit buffer or interface data.
+    #[test]
+    fn half_precision_forward_modules_validate_and_translate() {
+        use exact_gpu::wgpu::naga;
+        for early in [false, true] {
+            for source in [
+                super::pipeline::primitive_forward_source(early),
+                super::pipeline::model_sources(false, early),
+            ] {
+                let source = super::pipeline::half_precision(&source);
+                let module = naga::front::wgsl::parse_str(&source)
+                    .unwrap_or_else(|error| panic!("{}", error.emit_to_string(&source)));
+                let info = naga::valid::Validator::new(
+                    naga::valid::ValidationFlags::all(),
+                    naga::valid::Capabilities::SHADER_FLOAT16
+                        | naga::valid::Capabilities::EARLY_DEPTH_TEST,
+                )
+                .validate(&module)
+                .unwrap();
+                let (module, info) = naga::back::pipeline_constants::process_overrides(
+                    &module,
+                    &info,
+                    None,
+                    &Default::default(),
+                )
+                .unwrap();
+                fn has_half(module: &naga::Module, ty: naga::Handle<naga::Type>) -> bool {
+                    use naga::TypeInner as T;
+                    match &module.types[ty].inner {
+                        T::Scalar(s)
+                        | T::Vector { scalar: s, .. }
+                        | T::Matrix { scalar: s, .. } => s.width == 2,
+                        T::Array { base, .. } => has_half(module, *base),
+                        T::Struct { members, .. } => members.iter().any(|m| has_half(module, m.ty)),
+                        _ => false,
+                    }
+                }
+                for (_, var) in module.global_variables.iter() {
+                    assert!(
+                        !has_half(&module, var.ty),
+                        "buffer {} contains f16",
+                        var.name.as_deref().unwrap_or("?")
+                    );
+                }
+                for entry in &module.entry_points {
+                    for arg in &entry.function.arguments {
+                        assert!(!has_half(&module, arg.ty));
+                    }
+                    if let Some(result) = &entry.function.result {
+                        assert!(!has_half(&module, result.ty));
+                    }
+                }
+                let spv = naga::back::spv::write_vec(
+                    &module,
+                    &info,
+                    &naga::back::spv::Options {
+                        use_storage_input_output_16: false,
+                        ..Default::default()
+                    },
+                    None,
+                )
+                .unwrap();
+                let mut at = 5;
+                let mut caps = Vec::new();
+                while at < spv.len() {
+                    if spv[at] & 0xffff == 17 {
+                        caps.push(spv[at + 1]);
+                    }
+                    at += (spv[at] >> 16) as usize;
+                }
+                eprintln!("forward early={early} SPIR-V capabilities: {caps:?}");
+                assert!(caps.contains(&(naga::back::spv::Capability::Float16 as u32)));
+                assert!(!caps.contains(&(naga::back::spv::Capability::StorageInputOutput16 as u32)));
+                let options = naga::back::msl::Options {
+                    lang_version: (2, 4),
+                    ..Default::default()
+                };
+                naga::back::msl::write_string(&module, &info, &options, &Default::default())
+                    .unwrap();
+            }
+        }
+    }
+
+    #[test]
+    fn the_early_forward_entry_points_validate_with_the_capability() {
+        use exact_gpu::wgpu::naga;
+        for source in [
+            super::pipeline::early_forward_source(),
+            super::pipeline::model_sources(false, true),
+        ] {
+            let module = naga::front::wgsl::parse_str(&source)
+                .unwrap_or_else(|error| panic!("{}", error.emit_to_string(&source)));
+            naga::valid::Validator::new(
+                naga::valid::ValidationFlags::all(),
+                naga::valid::Capabilities::EARLY_DEPTH_TEST,
+            )
+            .validate(&module)
+            .unwrap();
+        }
+    }
 }
 
 /// Export one game's surface and the native or wasm GPU module ABI.
@@ -326,10 +505,10 @@ mod tests {
 macro_rules! module {
     ($game:ty, hooks = $hooks:ty) => { $crate::module!($game, render_hooks (), false, $hooks, &[]); };
     ($game:ty, hooks = $hooks:ty, shaders = $shaders:expr) => { $crate::module!($game, render_hooks (), false, $hooks, $shaders); };
-    ($game:ty, assets, hooks = $hooks:ty, shaders = $shaders:expr) => { $crate::module!($game, render_hooks $crate::ModelPresentation, true, $hooks, $shaders); };
-    ($game:ty, assets, hooks = $hooks:ty) => { $crate::module!($game, render_hooks $crate::ModelPresentation, true, $hooks, &[]); };
+    ($game:ty, assets, hooks = $hooks:ty, shaders = $shaders:expr) => { $crate::module!($game, render_hooks $crate::ModelExecutor, true, $hooks, $shaders); };
+    ($game:ty, assets, hooks = $hooks:ty) => { $crate::module!($game, render_hooks $crate::ModelExecutor, true, $hooks, &[]); };
     ($game:ty) => { $crate::module!($game, hook (), false); };
-    ($game:ty, assets) => { $crate::module!($game, hook $crate::ModelPresentation, true); };
+    ($game:ty, assets) => { $crate::module!($game, hook $crate::ModelExecutor, true); };
     ($game:ty, audio) => { $crate::module!($game, audio_mode false); };
     ($game:ty, audio, assets) => { $crate::module!($game, audio_mode true); };
     ($game:ty, audio, hooks = $hooks:ty, shaders = $shaders:expr) => { $crate::module!($game, audio_mode false, $hooks, $shaders); };
@@ -340,7 +519,7 @@ macro_rules! module {
     ($game:ty, audio_mode $assets:tt, $hooks:ty, $shaders:expr) => {
         #[derive(Default)]
         struct GameAudio(exact_game_audio::SurfacePlayer, Option<$crate::exact_game::audio::Sounds>);
-        impl $crate::Presentation for GameAudio {
+        impl $crate::Executor for GameAudio {
             fn wants_audio(&self) -> bool { true }
             fn clock(&mut self, seekable: bool) { self.0.clock(seekable); }
             fn suspend(&mut self, suspended: bool) {
@@ -364,7 +543,7 @@ macro_rules! module {
         $crate::module!($game, audio_hook GameAudio, $assets, $hooks, $shaders);
     };
     ($game:ty, audio_hook $hook:ty, false, $hooks:ty, $shaders:expr) => { $crate::module!($game, render_hooks $hook, false, $hooks, $shaders); };
-    ($game:ty, audio_hook $hook:ty, true, $hooks:ty, $shaders:expr) => { $crate::module!($game, render_hooks $crate::ModelPresentation<$hook>, true, $hooks, $shaders); };
+    ($game:ty, audio_hook $hook:ty, true, $hooks:ty, $shaders:expr) => { $crate::module!($game, render_hooks $crate::ModelExecutor<$hook>, true, $hooks, $shaders); };
     ($game:ty, hook $hook:ty, $assets:literal) => {
         $crate::module!($game, render_hooks $hook, $assets, (), &[]);
     };
@@ -375,11 +554,20 @@ macro_rules! module {
                 <$game as $crate::exact_game::Game>::NAME,
                 <<$game as $crate::exact_game::Game>::Args as $crate::exact_game::Args>::FIELDS
                     .len(),
-                || Box::new($crate::WorldSurface::<$game, $hook, $assets, $hooks>::default()),
+                || Box::new($crate::WorldSurface::<$game, $hook, $assets, $hooks>::default().development_edits($crate::development_build())),
             )],
             shaders: $shaders,
         };
         $crate::exact_gpu::module!(REGISTRY);
+        #[cfg(target_arch = "wasm32")]
+        #[wasm_bindgen::prelude::wasm_bindgen]
+        pub fn exact_game_tables(text: &str) -> Result<String, wasm_bindgen::JsValue> {
+            if text.is_empty() {
+                return $crate::exact_game::json::to_string(&<$game as $crate::exact_game::Game>::TABLES.iter().map(|t| t.name.to_owned()).collect::<Vec<_>>()).map_err(|e| wasm_bindgen::JsValue::from_str(&e.to_string()));
+            }
+            $crate::exact_game::asset::validate_tables::<$game>(text).map_err(|e| wasm_bindgen::JsValue::from_str(&e.to_string()))?;
+            Ok(text.into())
+        }
     };
 }
 
@@ -404,3 +592,15 @@ mod test_model;
 #[cfg(test)]
 #[path = "../tests/fixture/device.rs"]
 mod test_device;
+
+#[cfg(test)]
+mod visibility_tests;
+
+/// Whether this build answers development requests: every build but one
+/// baked with `EXACT_UPDATE_TRUST=production`. build.rs passes the trust to
+/// rustc (unset as `development`, as `scripts/app.mjs` and
+/// `bake/src/compat.rs` take it), so a rebake with another trust recompiles
+/// this crate.
+pub fn development_build() -> bool {
+    env!("EXACT_UPDATE_TRUST") != "production"
+}

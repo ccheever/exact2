@@ -1,0 +1,44 @@
+// A call (LLP 1089): the callee's statements where the call stands, in the
+// caller's one commit, each reading the state the action started with.
+// First, in the middle, in an arm, and twice.
+component App
+  state log = ""
+  state n = 0
+  action note(what: string)
+    log = `${log}${what};`
+  action bump
+    n = n + 1
+  action first
+    note("a")
+    n = 10
+  action middle
+    n = 5
+    note("b")
+    let k = n
+    log = `${k}`
+  action arm(go: bool)
+    if go
+      bump()
+    else
+      note("c")
+  action twice
+    bump()
+    note("d")
+  view
+    column
+      text `${n} ${log}` testId="out"
+      button "first" press=first testId="first"
+      button "middle" press=middle testId="middle"
+      button "yes" press=arm(true) testId="yes"
+      button "no" press=arm(false) testId="no"
+      button "twice" press=twice testId="twice"
+
+test "positions"
+  tap "first"
+  expect text "out" == "10 a;"
+  tap "middle"
+  expect text "out" == "5 10"
+  tap "yes"
+  tap "no"
+  tap "twice"
+  expect text "out" == "7 10c;d;"

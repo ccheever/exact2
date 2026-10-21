@@ -3,19 +3,22 @@ import XCTest
 @testable import ExactKit
 
 final class CollectionTests: XCTestCase {
-    func testWireIsVersionThreeLittleEndianAndPreservesLargeEpochs() {
+    func testWireIsVersionFourLittleEndianAndPreservesLargeEpochs() {
         let facts = CollectionFacts(offset: 12, portMain: 480, portCross: 320, cross: 300,
-            measurements: [.init(view: 23, epoch: 0xfedcba9876543210, size: 72)], focus: 31, interaction: nil)
+            measurements: [.init(view: 23, epoch: 0xfedcba9876543210, size: 72)], focus: 31, interaction: nil,
+            paddingStart: 92, paddingEnd: 83)
         let bytes = [UInt8](facts.encode(view: 17, revision: 9, sequence: 11))
-        XCTAssertEqual(bytes.count, 104)
-        XCTAssertEqual(Array(bytes.prefix(8)), [3, 0, 0, 0, 17, 0, 0, 0])
-        XCTAssertEqual(Array(bytes[32..<40]), [UInt8](withUnsafeBytes(of: (480.0).bitPattern.littleEndian, Array.init)), "the main axis first")
+        let double = { (n: Double) in [UInt8](withUnsafeBytes(of: n.bitPattern.littleEndian, Array.init)) }
+        XCTAssertEqual(bytes.count, 120)
+        XCTAssertEqual(Array(bytes.prefix(8)), [4, 0, 0, 0, 17, 0, 0, 0])
+        XCTAssertEqual(Array(bytes[32..<40]), double(480), "the main axis first")
         XCTAssertEqual(Array(bytes[8..<16]), [9, 0, 0, 0, 0, 0, 0, 0])
-        XCTAssertEqual(Array(bytes[56..<64]), [31, 0, 0, 0, 0, 0, 0, 0])
-        XCTAssertEqual(Array(bytes[72..<84]), [255, 255, 255, 255, 0, 0, 0, 0, 1, 0, 0, 0], "no limit, no moving ancestor, one row")
-        XCTAssertEqual(Array(bytes[88..<96]), [0x10, 0x32, 0x54, 0x76, 0x98, 0xba, 0xdc, 0xfe])
+        XCTAssertEqual(Array(bytes[56..<72]), double(92) + double(83), "the padding laid out (LLP 1010 §6.9)")
+        XCTAssertEqual(Array(bytes[72..<80]), [31, 0, 0, 0, 0, 0, 0, 0])
+        XCTAssertEqual(Array(bytes[88..<100]), [255, 255, 255, 255, 0, 0, 0, 0, 1, 0, 0, 0], "no limit, no moving ancestor, one row")
+        XCTAssertEqual(Array(bytes[104..<112]), [0x10, 0x32, 0x54, 0x76, 0x98, 0xba, 0xdc, 0xfe])
         let filled = [UInt8](facts.encode(view: 17, revision: 9, sequence: 11, velocity: -2, limit: 3, ancestorMoving: true))
-        XCTAssertEqual(Array(filled[64..<80]), [0, 0, 0, 0, 0, 0, 0, 0xc0, 3, 0, 0, 0, 1, 0, 0, 0])
+        XCTAssertEqual(Array(filled[80..<96]), [0, 0, 0, 0, 0, 0, 0, 0xc0, 3, 0, 0, 0, 1, 0, 0, 0])
     }
 
     func testCorrectionIsOncePerRevisionAndCannotReplaceNewUserIntent() {
@@ -41,6 +44,10 @@ final class CollectionTests: XCTestCase {
         XCTAssertNotEqual(a, b)
         b = a; b.interaction = nil
         XCTAssertNotEqual(a, b)
+        // A padding change alone, which keeps a border-box list's size, is
+        // reported too (LLP 1010 §6.9)
+        b = a; b.paddingEnd = 109
+        XCTAssertNotEqual(a, b)
     }
 
     func testMalformedSnapshotsDoNotBecomeGeometry() {
@@ -52,6 +59,16 @@ final class CollectionTests: XCTestCase {
         XCTAssertNil(CollectionSnapshot(broken))
         broken = value; broken["rows"] = [row, row]
         XCTAssertNil(CollectionSnapshot(broken))
+        // A `scrollIntoView` into the padding before the first row is a
+        // negative correction (LLP 1010 §6.9); a non-finite one is not.
+        var padded = value; padded["correction"] = ["scrollSequence": 1, "offset": -92]
+        XCTAssertEqual(CollectionSnapshot(padded)?.correction?.offset, -92)
+        // An anchor's correction taken from a port in that padding keeps its
+        // `from`, so it stays relative (Grok's scroll-padding review r2).
+        padded["correction"] = ["scrollSequence": 1, "offset": 500, "from": -92]
+        XCTAssertEqual(CollectionSnapshot(padded)?.correction?.from, -92)
+        padded["correction"] = ["scrollSequence": 1, "offset": -Double.infinity]
+        XCTAssertNil(CollectionSnapshot(padded))
     }
 
 

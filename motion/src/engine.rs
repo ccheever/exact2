@@ -17,11 +17,19 @@
 
 use crate::property::{Property, Value};
 use crate::transition::{Curve, Running, Transition, TransitionError, Transitions};
-use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::hash::{BuildHasherDefault, Hasher};
 
 mod animate;
+mod clock;
+mod first_frame;
 mod hold;
+mod links;
+pub use links::EngineLinks;
+mod path;
+mod played;
+mod slots;
+pub use played::{PlayedCurve, PlayedTransition, TransitionEnds};
 mod timeline;
 pub use animate::AnimationPlay;
 pub use hold::{HoldEnd, HoldStart, HoldToken, TransformHold};
@@ -73,8 +81,9 @@ pub enum EngineError {
 /// receipt sync), and almost all are settled: presented at their target,
 /// nothing running, no hold. A settled slot is its target alone; the rest
 /// lives in a box made when the presentation leaves the target and dropped
-/// when it settles again. A list's peak of nodes is then 56 bytes a
-/// property here, not 104. Readers see the same values either way.
+/// when it settles again. One settled at its property's identity is not
+/// even that, but a bit ([`slots::Slots`]). Readers see the same values
+/// either way.
 #[derive(Debug, Clone, PartialEq)]
 struct Slot {
     target: Value,
@@ -232,23 +241,58 @@ impl Hasher for SlotHasher {
     }
 }
 
+std::thread_local! {
+    static STILL: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// While it lives, a change any engine on this thread observes jumps to its
+/// value: no transition starts, and one running on the property stops there
+/// (a scrub's frame, which follows the tool's gesture, LLP 1121 D13): the
+/// whole commit's, its layout and heights observed after its rows
+/// included. An animation plays on.
+#[must_use]
+pub struct Still(bool);
+
+/// See [`Still`].
+pub fn still() -> Still {
+    Still(STILL.with(|s| s.replace(true)))
+}
+
+impl Drop for Still {
+    fn drop(&mut self) {
+        STILL.with(|s| s.set(self.0));
+    }
+}
+
 /// The motion state of every node the host has told it about.
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct Engine {
+    // The input clock: inputs, holds, releases and timer receipts move it.
     now: f64,
+    // The latest presented frame's instant (LLP 1003.001 D5); every sample is
+    // at the later of the two, `sample_time`.
+    shown: f64,
+    // Curves an author's commit begins wait for the first presented frame
+    // (LLP 1003.001): a host whose display drives the clock turns this on.
+    start_on_frame: bool,
+    // Keys whose running curve may be pending, for the frame that starts them.
+    pending: BTreeSet<(u64, Property)>,
     transitions: BTreeMap<u64, Transitions>,
-    slots: HashMap<(u64, Property), Slot, BuildHasherDefault<SlotHasher>>,
+    slots: slots::Slots,
     // Observed targets provide CSS's before-change style, but only live curves
     // need a clock. Holds and settled slots never enter this index.
     running: BTreeSet<(u64, Property)>,
+    // Transitions a host plays itself (`play_transition`): kept for a
+    // reversal's arithmetic, never sampled, dropped once ended.
+    played: BTreeSet<(u64, Property)>,
     dirty: HashSet<(u64, Property), BuildHasherDefault<SlotHasher>>,
     // CSS animations per node (LLP 1055 D5), and the nodes a sampling host
     // must still advance: some animation running and not yet ended.
     animations: BTreeMap<u64, Vec<AnimationPlay>>,
     animating: BTreeSet<u64>,
-    // Indexed by property; one past the wire's for `Property::Layout`,
+    // Indexed by property; past the wire's for `Property::Layout` and `d`,
     // which no animation names and nothing lowers.
-    lowered: [bool; Property::COUNT + 1],
+    lowered: [bool; Property::SLOTS],
     // Nodes whose animations are sampled whatever `lowered` says: a host
     // decides per node what its compositor plays faithfully (LLP 1055.000
     // D15: eligibility is per effect, not per property name).
@@ -256,7 +300,7 @@ pub struct Engine {
     // Held presentations, by hold serial, for a release velocity where the
     // platform measures none (LLP 1057.001 §3). Only live holds keep one.
     held: BTreeMap<u64, crate::velocity::VelocityTracker>,
-    // Each node's `layout-transition` declaration (LLP 1063): the only thing
+    // Each node's `-exact-layout-transition` declaration (LLP 1063): the only thing
     // that moves `Property::Layout`, so `transition: all` never covers layout.
     layout: BTreeMap<u64, Transition>,
     // The appearance a keyframe's `light-dark()` colour takes (LLP 1062 D9),
@@ -265,6 +309,14 @@ pub struct Engine {
     node_dark: BTreeMap<u64, bool>,
     // Drag timelines (LLP 1057.003): sources and bound consumers.
     timelines: timeline::Timelines,
+    // Clock timelines (LLP 1055.002): each node's, and each one's origin.
+    clocks: clock::Clocks,
+    // Each path's `d`, and the two ends of its transition (LLP 1055.000
+    // D15); the progress is the node's `Property::D` slot.
+    paths: BTreeMap<u64, path::PathTrack>,
+    // What plays: every animation, or nothing but settled values (LLP
+    // 1047.001 D3), chosen once when the engine is made.
+    links: &'static links::EngineLinks,
 }
 
 impl Engine {
@@ -283,9 +335,7 @@ impl Engine {
     /// holding more than twice what it needs shrinks, so a steady one never
     /// churns.
     pub fn trim(&mut self) {
-        if self.slots.capacity() > 2 * self.slots.len().max(256) {
-            self.slots.shrink_to_fit();
-        }
+        self.slots.trim();
         if self.dirty.capacity() > 2 * self.dirty.len().max(256) {
             self.dirty.shrink_to_fit();
         }
@@ -294,6 +344,14 @@ impl Engine {
     /// Set a node's `transition` row. Governs changes observed from now on;
     /// a transition already running keeps its own declaration.
     pub fn set_transitions(
+        &mut self,
+        node: u64,
+        transitions: Transitions,
+    ) -> Result<(), EngineError> {
+        (self.links.set_transitions)(self, node, transitions)
+    }
+
+    pub(super) fn set_transitions_full(
         &mut self,
         node: u64,
         transitions: Transitions,
@@ -307,11 +365,19 @@ impl Engine {
         Ok(())
     }
 
-    /// Set a node's `layout-transition` row (LLP 1063): the last declaration
+    /// Set a node's `-exact-layout-transition` row (LLP 1063): the last declaration
     /// that covers every property governs [`Property::Layout`] changes
     /// observed from now on. One that names a property governs nothing, as
     /// `transition: opacity 1s` does not move a box.
     pub fn set_layout_transition(
+        &mut self,
+        node: u64,
+        transitions: &Transitions,
+    ) -> Result<(), EngineError> {
+        (self.links.set_layout_transition)(self, node, transitions)
+    }
+
+    pub(super) fn set_layout_transition_full(
         &mut self,
         node: u64,
         transitions: &Transitions,
@@ -324,6 +390,51 @@ impl Engine {
         Ok(())
     }
 
+    /// Keep `slot` for `key`, noting that the node holds the property.
+    fn keep(&mut self, key: (u64, Property), slot: Slot) {
+        self.slots.insert(key, slot);
+    }
+
+    /// Whether the engine holds nothing of `node`'s but settled values: no
+    /// transition, layout transition, animation, appearance, timeline, clock
+    /// or path, no curve running, pending or played, no hold. (Whether a
+    /// host samples the node's animations itself, [`Engine::set_node_sampled`],
+    /// is not counted: it has none, and the host says so again for every
+    /// node it restates.) Forgetting
+    /// such a node and observing its values again leaves what observing
+    /// them alone does (and presents only those that changed): what a
+    /// producer that renews a node (a list row rebound, LLP 1078) may count
+    /// on when the node's new rows are as bare.
+    pub fn at_rest(&self, node: u64) -> bool {
+        let none = |keys: &BTreeSet<(u64, Property)>| {
+            keys.range((node, Property::Translate)..)
+                .next()
+                .is_none_or(|key| key.0 != node)
+        };
+        let mut held = self.slots.held(node);
+        let mut settled = true;
+        while held != 0 && settled {
+            let property = Property::from_slot(held.trailing_zeros());
+            held &= held - 1;
+            settled = self
+                .slots
+                .get(&(node, property))
+                .is_none_or(|slot| slot.live.is_none());
+        }
+        settled
+            && !self.transitions.contains_key(&node)
+            && !self.layout.contains_key(&node)
+            && !self.node_dark.contains_key(&node)
+            && !self.animations.contains_key(&node)
+            && !self.animating.contains(&node)
+            && !self.paths.contains_key(&node)
+            && !self.timelines.names(node)
+            && !self.clocks.names(node)
+            && none(&self.running)
+            && none(&self.pending)
+            && none(&self.played)
+    }
+
     /// Forget a node entirely.
     pub fn remove(&mut self, node: u64) {
         self.transitions.remove(&node);
@@ -333,25 +444,25 @@ impl Engine {
         self.animating.remove(&node);
         self.forced.remove(&node);
         self.forget_timelines(node);
+        self.forget_clock(node);
+        self.paths.remove(&node);
         // Removing a list must not scan every other node once per row, nor
         // probe every table once per property: a list row's retirement
-        // removes a node per box. Its running curves are one range of the
-        // ordered index; its pending frame entries (`dirty`) present nothing
-        // once its slots and animations are gone (`frame` finds neither), so
-        // the next frame's drain takes them.
-        let running: Vec<(u64, Property)> = self
-            .running
-            .range((node, Property::Translate)..)
-            .take_while(|key| key.0 == node)
-            .copied()
-            .collect();
-        for key in running {
-            self.running.remove(&key);
+        // removes a node per box. Its running, pending and played curves are
+        // one range of each ordered index; its pending frame entries
+        // (`dirty`) present nothing once its slots and animations are gone
+        // (`frame` finds neither), so the next frame's drain takes them.
+        for keys in [&mut self.running, &mut self.pending, &mut self.played] {
+            let of_node: Vec<(u64, Property)> = keys
+                .range((node, Property::Translate)..)
+                .take_while(|key| key.0 == node)
+                .copied()
+                .collect();
+            for key in of_node {
+                keys.remove(&key);
+            }
         }
-        for property in Property::ALL {
-            self.slots.remove(&(node, property));
-        }
-        self.slots.remove(&(node, Property::Layout));
+        self.slots.remove_node(node);
     }
 
     /// Forget only this property's target, curve, hold and pending frame.
@@ -359,8 +470,13 @@ impl Engine {
     /// declaration survive; readoption takes a new value without transitioning.
     /// No clock change occurs, and old hold tokens immediately become stale.
     pub fn remove_property(&mut self, node: u64, property: Property) -> bool {
+        if property == Property::D {
+            self.paths.remove(&node);
+        }
         self.dirty.remove(&(node, property));
         self.running.remove(&(node, property));
+        self.pending.remove(&(node, property));
+        self.played.remove(&(node, property));
         self.slots.remove(&(node, property)).is_some()
     }
 
@@ -379,13 +495,24 @@ impl Engine {
     /// `transition` declaration starts one from the current value, or
     /// interrupts and possibly reverses the one running.
     pub fn observe(&mut self, change: Change) -> Result<(), EngineError> {
+        (self.links.observe)(self, change)
+    }
+
+    pub(super) fn observe_full(&mut self, change: Change) -> Result<(), EngineError> {
+        let observed = self.observe_slot(change);
+        self.slots.compact(&(change.node, change.property));
+        observed
+    }
+
+    fn observe_slot(&mut self, change: Change) -> Result<(), EngineError> {
         validate_value(change.property, change.value)?;
         if let Some(velocity) = change.velocity {
             validate_value(change.property, velocity)?;
         }
         let key = (change.node, change.property);
-        let now = self.now;
-        // Layout moves only under `layout-transition`; a spring on a
+        let now = self.sample_time();
+        let pend = self.start_on_frame.then_some(now);
+        // Layout moves only under `-exact-layout-transition`; a spring on a
         // property no spring drives as physics is its curve from rest (LLP
         // 1062 D3).
         let declaration = if change.property == Property::Layout {
@@ -395,16 +522,26 @@ impl Engine {
                 .get(&change.node)
                 .and_then(|t| t.matching(change.property))
         }
-        .filter(|t| t.starts())
+        .filter(|t| t.starts() && !STILL.with(std::cell::Cell::get))
         .map(|t| t.governing(change.property));
 
+        // An unchanged settled slot (most of a touched node's) changes
+        // nothing; asking for it mutably would make an entry of a bit.
+        let unchanged = |slot: &Slot| slot.live.is_none() && slot.target == change.value;
+        if self.slots.get(&key).is_some_and(unchanged) {
+            self.played.remove(&key);
+            return Ok(());
+        }
         let Some(slot) = self.slots.get_mut(&key) else {
-            self.slots.insert(key, Slot::settled(change.value));
+            self.keep(key, Slot::settled(change.value));
             self.dirty.insert(key);
             return Ok(());
         };
 
         let after = change.value;
+        // A played transition comes back to be sampled (or played again):
+        // a retarget measures from its curve, as for a running one.
+        let played = self.played.remove(&key);
         if matches!(slot.owner(), Some(Owner::Held(_))) {
             slot.set_target(after);
             return Ok(());
@@ -420,8 +557,9 @@ impl Engine {
                 match declaration {
                     Some(declaration) => {
                         let velocity = change.velocity.unwrap_or(Value::ZERO);
-                        let running =
+                        let mut running =
                             Running::start(&declaration, before, after, velocity, now, before, 1.0);
+                        running.pending = pend;
                         let presented = running.sample(now).value;
                         slot.set_running(Some(running));
                         slot.set_presented(presented);
@@ -430,8 +568,14 @@ impl Engine {
                 }
             }
             Some(running) => {
-                if after == running.to {
+                // An unchanged target leaves the transition as it is.
+                // Compared as changes state it (the slot's target): a curve
+                // between colour spaces ends in Oklab
+                if after == slot.target {
                     slot.set_running(Some(running));
+                    if played {
+                        self.played.insert(key);
+                    }
                     return Ok(());
                 }
                 slot.set_owner(None);
@@ -440,6 +584,7 @@ impl Engine {
                 let Some(declaration) = declaration.filter(|_| current.value != after) else {
                     slot.set_presented(after);
                     self.running.remove(&key);
+                    self.pending.remove(&key);
                     self.dirty.insert(key);
                     return Ok(());
                 };
@@ -448,7 +593,7 @@ impl Engine {
                     declaration.timing,
                     crate::transition::TimingFunction::Easing(_)
                 );
-                let next = if is_easing && after == running.reversing_adjusted_start {
+                let mut next = if is_easing && after == running.reversing_adjusted_start {
                     // CSS §3.2, the reversing case.
                     let progress = running.easing_progress(now);
                     let factor = (progress * running.reversing_shortening
@@ -475,6 +620,7 @@ impl Engine {
                         1.0,
                     )
                 };
+                next.pending = pend;
                 let presented = next.sample(now).value;
                 slot.set_running(Some(next));
                 slot.set_presented(presented);
@@ -482,8 +628,31 @@ impl Engine {
         }
         if slot.running().is_some() {
             self.running.insert(key);
+            if pend.is_some() {
+                self.pending.insert(key);
+            }
         }
         self.dirty.insert(key);
+        Ok(())
+    }
+
+    /// A change no author made — a list's rows moved because rows above them
+    /// were built or measured — taken with no transition: an idle property's
+    /// target and presentation both become the value, so nothing moves on
+    /// screen and nothing is left to present. A property that is running or
+    /// held is observed as an ordinary change.
+    pub fn observe_settled(&mut self, change: Change) -> Result<(), EngineError> {
+        validate_value(change.property, change.value)?;
+        let key = (change.node, change.property);
+        let idle = |slot: &Slot| slot.running().is_none() && slot.owner().is_none();
+        if !self.slots.get(&key).is_some_and(idle) {
+            return self.observe(change);
+        }
+        let slot = self.slots.get_mut(&key).expect("an observed property");
+        slot.set_target(change.value);
+        slot.set_presented(change.value);
+        self.slots.compact(&key);
+        self.played.remove(&key);
         Ok(())
     }
 
@@ -491,12 +660,23 @@ impl Engine {
     /// Seeking is the only operation: the result depends on `now`, never on
     /// how many calls it took to get there.
     pub fn advance(&mut self, now: f64) -> Result<(), EngineError> {
+        (self.links.advance)(self, now)
+    }
+
+    pub(super) fn advance_full(&mut self, now: f64) -> Result<(), EngineError> {
         self.validate_time(now)?;
         self.now = now;
+        let now = self.sample_time();
         self.running.retain(|key| {
             let slot = self.slots.get_mut(key).expect("running slot");
             let sample = slot.running().expect("indexed curve").sample(now);
-            slot.set_presented(sample.value);
+            // Done presents the target in its own encoding: the curve may
+            // have run in Oklab (LLP 1100 D2).
+            slot.set_presented(if sample.done {
+                slot.target
+            } else {
+                sample.value
+            });
             if sample.done {
                 slot.set_running(None);
                 slot.set_owner(None);
@@ -504,6 +684,7 @@ impl Engine {
             self.dirty.insert(*key);
             !sample.done
         });
+        self.retire_played(now);
         self.advance_animations();
         Ok(())
     }
@@ -555,12 +736,20 @@ impl Engine {
     /// `None` for held, settled, unknown properties and easings. A host may lower
     /// frames only when this descriptor differs from its last playback.
     pub fn spring_descriptor(&self, node: u64, property: Property) -> Option<SpringDescriptor> {
+        (self.links.spring_descriptor)(self, node, property)
+    }
+
+    pub(super) fn spring_descriptor_full(
+        &self,
+        node: u64,
+        property: Property,
+    ) -> Option<SpringDescriptor> {
         let running = self.slots.get(&(node, property))?.running()?;
         let Curve::Spring { config, velocity } = &running.curve else {
             return None;
         };
         Some(SpringDescriptor {
-            start: running.start,
+            start: running.start_at(self.sample_time()),
             from: running.from,
             target: running.to,
             velocity: *velocity,
@@ -571,12 +760,16 @@ impl Engine {
     /// The spring running on one property, lowered to frames; `None` when
     /// nothing runs there or what runs is an easing.
     pub fn spring_frames(&self, node: u64, property: Property) -> Option<SpringFrames> {
+        (self.links.spring_frames)(self, node, property)
+    }
+
+    pub(super) fn spring_frames_full(&self, node: u64, property: Property) -> Option<SpringFrames> {
         let running = self.slots.get(&(node, property))?.running()?;
         let (duration, values) = running.spring_frames()?;
         Some(SpringFrames {
             node,
             property,
-            start: running.start,
+            start: running.start_at(self.sample_time()),
             duration,
             values,
         })
@@ -608,7 +801,7 @@ impl Engine {
 
     /// Whether nothing is running.
     pub fn quiescent(&self) -> bool {
-        self.running.is_empty() && self.animating.is_empty()
+        self.running.is_empty() && self.animating.is_empty() && !self.clock_pending()
     }
 
     /// Whether anything moving changes where or how big something is —
@@ -624,17 +817,22 @@ impl Engine {
                 .animating
                 .iter()
                 .flat_map(|node| &self.animations[node])
-                .filter(|p| p.hold.is_none() && p.local(self.now) <= p.animation.end_time())
+                .filter(|p| {
+                    p.hold.is_none() && p.local(self.sample_time()) <= p.animation.end_time()
+                })
                 .any(|p| p.animation.keyframes.properties().into_iter().any(spatial))
     }
 
-    /// The clock time at which the last running transition or finite
-    /// animation ends, or `None` when none is. An agent advances here instead
-    /// of waiting; an infinite animation never settles (LLP 1055 D10).
+    /// The clock time at which the last running or played transition or
+    /// finite animation ends, or `None` when none is. An agent advances here
+    /// instead of waiting; an infinite animation never settles (LLP 1055 D10).
     pub fn settle_time(&self) -> Option<f64> {
+        let now = self.sample_time();
+        let end = |key: &(u64, Property)| self.slots.get(key)?.running().map(|c| c.end_at(now));
         self.running
             .iter()
-            .map(|key| self.slots[key].running().expect("indexed curve").end_time())
+            .map(|key| end(key).expect("indexed curve"))
+            .chain(self.played.iter().filter_map(end))
             .chain(self.animations_settle_time())
             .fold(None, |acc, t| Some(acc.map_or(t, |a: f64| a.max(t))))
     }
@@ -683,9 +881,16 @@ mod tests {
         assert!(engine.frame().is_empty());
         assert_eq!(engine.slots.len(), 4096);
         assert_eq!(engine.settle_time(), None);
-        // A settled slot is its target alone.
-        assert!(engine.slots.values().all(|slot| slot.live.is_none()));
-        assert_eq!(std::mem::size_of::<Slot>(), 40);
+        // A settled slot is its target alone, and one settled at its
+        // identity is a bit.
+        assert!(engine.slots.entries().all(|slot| slot.live.is_none()));
+        assert_eq!(engine.slots.entry_count(), 0);
+        // Observing the same values again leaves them bits.
+        for node in 0..4096 {
+            engine.observe(change(node, 1.0)).unwrap();
+        }
+        assert_eq!(engine.slots.entry_count(), 0);
+        assert_eq!(std::mem::size_of::<Slot>(), 48);
 
         engine
             .set_transitions(

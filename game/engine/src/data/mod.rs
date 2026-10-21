@@ -3,6 +3,7 @@
 use std::fmt;
 
 pub mod bin;
+pub(crate) mod columns;
 pub mod hash;
 mod impls;
 pub(crate) mod limits;
@@ -76,6 +77,16 @@ pub mod text;
 /// enum Discriminants { #[default] A = 1, B = 2 }
 /// ```
 pub trait Data: Sized + Default + 'static {
+    /// Persisted table identity. The derive captures the declaring module and type name.
+    /// Manual table records must provide their own stable, qualified identity.
+    const TYPE_ID: &'static str = "";
+    /// Development edit of one declared scalar field; custom formats refuse by default.
+    fn set_field(&mut self, field: &str, _text: &str) -> Result<(), DataError> {
+        Err(DataError::new(format!(
+            "unknown or uneditable field {field}"
+        )))
+    }
+
     /// Whether any nested spring is still moving. Derives walk non-transient fields.
     fn moving(&self, _now: crate::Now) -> bool {
         false
@@ -265,10 +276,21 @@ pub trait Writer {
     fn option(&mut self, some: bool);
     /// End an option.
     fn end_option(&mut self);
+    /// Whether this sink is a hash, which accepts a value's own digest in place of
+    /// its content. A value that keeps a digest of everything it would write (a
+    /// deterministic function of that content, recomputed identically after a
+    /// load) may write that number instead. Saves, JSON and inspection say no.
+    fn digests(&self) -> bool {
+        false
+    }
 }
 
 /// An object-safe cursor. End markers are consumed by `item` and `field`.
 pub trait Reader {
+    /// Complete tuning records require every non-transient named field.
+    fn complete(&self) -> bool {
+        false
+    }
     /// Account decoded allocations before reserving input-controlled storage.
     fn claim(&mut self, _bytes: usize) -> Result<(), DataError> {
         Ok(())
@@ -346,4 +368,19 @@ pub(crate) fn f64_bits(n: f64) -> u64 {
 }
 pub(crate) fn type_name<T>() -> &'static str {
     std::any::type_name::<T>().rsplit("::").next().unwrap()
+}
+
+/// Decode and check finite JSON before replacing a live-edit candidate's field.
+#[doc(hidden)]
+pub fn edit_field<T: Data>(value: &mut T, text: &str) -> Result<(), DataError> {
+    // Edits deliberately accept only scalar and string fields. Data's general
+    // decoder defaults missing record members and array tails.
+    let current = json::to_string(value)?;
+    if current.starts_with(['{', '[']) || text.trim_start().starts_with(['{', '[']) {
+        return Err(DataError::new("set accepts only scalar or string fields"));
+    }
+    let candidate: T = json::from_str(text)?;
+    json::to_string(&candidate)?;
+    *value = candidate;
+    Ok(())
 }

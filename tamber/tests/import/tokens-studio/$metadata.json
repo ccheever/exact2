@@ -1,0 +1,11 @@
+{
+  "tokenSetOrder": [
+    "core",
+    "button",
+    "casual",
+    "business",
+    "green",
+    "blue",
+    "purple"
+  ]
+}

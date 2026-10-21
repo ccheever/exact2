@@ -85,30 +85,97 @@ pub fn carry_length(len: usize) -> Option<u32> {
     }
 }
 
+/// Every canvas takes the told tier ([`Module::retier`]).
+pub fn retier() {
+    with(|m| m.retier());
+}
+
 /// Create the device and the module. Returns 0 on success, 1 on failure
 /// (see [`error`]).
-pub fn load(registry: &'static Registry) -> u32 {
-    let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
-        backends: wgpu::Backends::PRIMARY,
-        ..wgpu::InstanceDescriptor::new_without_display_handle()
-    });
-    match crate::block_on(crate::load_gpu(instance, None)) {
+pub fn load(registry: &'static Registry, artifact: &'static str) -> u32 {
+    crate::report_panics();
+    let prepared = {
+        let mut slot = PREPARED.0.lock().unwrap_or_else(|e| e.into_inner());
+        // A device [`prepare`] is still creating: wait for it.
+        while matches!(*slot, Prepared::Creating) {
+            slot = PREPARED.1.wait(slot).unwrap_or_else(|e| e.into_inner());
+        }
+        match std::mem::replace(&mut *slot, Prepared::None) {
+            Prepared::Ready(gpu) => Some(gpu),
+            _ => None,
+        }
+    };
+    match prepared.unwrap_or_else(create_gpu) {
         Ok(gpu) => {
             let mut module = Module::new(registry);
+            module.cache_artifact = Some(artifact);
             module.set_gpu(gpu);
             MODULE.with(|m| *m.borrow_mut() = Some(module));
             0
         }
         Err(e) => {
-            ERROR.with(|s| *s.borrow_mut() = e);
+            ERROR.with(|s| *s.borrow_mut() = e.to_string());
             1
         }
     }
 }
 
+fn create_gpu() -> Result<crate::Gpu, crate::DeviceFailure> {
+    let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
+        backends: wgpu::Backends::PRIMARY,
+        flags: crate::device::instance_flags(),
+        ..wgpu::InstanceDescriptor::new_without_display_handle()
+    });
+    crate::block_on(crate::device::load_gpu_as(instance, None, true))
+}
+
+enum Prepared {
+    None,
+    Creating,
+    Ready(Result<crate::Gpu, crate::DeviceFailure>),
+}
+
+/// The device [`prepare`] creates, for the next [`load`] on any thread.
+static PREPARED: (std::sync::Mutex<Prepared>, std::sync::Condvar) = (
+    std::sync::Mutex::new(Prepared::None),
+    std::sync::Condvar::new(),
+);
+
+/// Create the device on a thread of its own, now, for the next [`load`]
+/// (which waits for it): a host starting up makes it while it boots, and
+/// the canvas's first frame does not (LLP 1076). The device and queue are
+/// `Send`; the module itself stays on the thread that loads it.
+pub fn prepare() {
+    {
+        let mut slot = PREPARED.0.lock().unwrap_or_else(|e| e.into_inner());
+        if !matches!(*slot, Prepared::None) {
+            return;
+        }
+        *slot = Prepared::Creating;
+    }
+    let made = std::thread::Builder::new()
+        .name("exact-gpu-prepare".into())
+        .spawn(|| {
+            let gpu = create_gpu();
+            *PREPARED.0.lock().unwrap_or_else(|e| e.into_inner()) = Prepared::Ready(gpu);
+            PREPARED.1.notify_all();
+        });
+    if made.is_err() {
+        *PREPARED.0.lock().unwrap_or_else(|e| e.into_inner()) = Prepared::None;
+    }
+}
+
+/// Whether a [`load`] would take its device now: 0 while [`prepare`]'s thread
+/// is still making it (a host skips its canvases for a frame rather than
+/// wait), 1 otherwise.
+pub fn prepared() -> u32 {
+    let slot = PREPARED.0.lock().unwrap_or_else(|e| e.into_inner());
+    u32::from(!matches!(*slot, Prepared::Creating))
+}
+
 /// The active Metal device identity, for filtering host removal notifications.
 pub fn device_registry_id() -> u64 {
-    #[cfg(any(target_os = "macos", target_os = "ios"))]
+    #[cfg(any(target_os = "macos", target_os = "ios", target_os = "tvos"))]
     return with(|m| {
         use objc2_metal::MTLDevice;
         let gpu = m.gpu.as_ref()?;
@@ -117,7 +184,7 @@ pub fn device_registry_id() -> u64 {
     })
     .flatten()
     .unwrap_or(0);
-    #[cfg(not(any(target_os = "macos", target_os = "ios")))]
+    #[cfg(not(any(target_os = "macos", target_os = "ios", target_os = "tvos")))]
     0
 }
 
@@ -128,21 +195,25 @@ pub fn device_is_lost() -> bool {
 
 /// Recover the loaded module without replacing its surface table. JSON outcome.
 pub fn recover() -> String {
-    with(|m| crate::block_on(m.recover()))
-        .unwrap_or_else(|| Err("GPU module not loaded".into()))
-        .unwrap_or_else(|error| {
-            refuse(&error);
-            let quoted = json::strings(&[error]);
-            format!(
-                "{{\"status\":\"failed\",\"error\":{}}}",
-                &quoted[1..quoted.len() - 1]
-            )
-        })
+    let Some(result) = with(|m| crate::block_on(m.recover())) else {
+        refuse("GPU module not loaded");
+        return "{\"status\":\"failed\",\"code\":\"recovery\",\"error\":\"GPU module not loaded\"}"
+            .into();
+    };
+    match result {
+        Ok(report) => report,
+        Err(error) => {
+            refuse(error.message());
+            error.json()
+        }
+    }
 }
 
 /// Load surface ownership only; no adapter is requested.
-pub fn load_headless(registry: &'static Registry) {
+pub fn load_headless(registry: &'static Registry, artifact: &'static str) {
+    crate::report_panics();
     let mut module = Module::new(registry);
+    module.cache_artifact = Some(artifact);
     module.set_seekable(true);
     MODULE.with(|m| *m.borrow_mut() = Some(module));
 }
@@ -166,7 +237,7 @@ pub fn unload() {
 ///
 /// # Safety
 /// `layer` must be a live `CAMetalLayer` that outlives the canvas.
-#[cfg(any(target_os = "macos", target_os = "ios"))]
+#[cfg(any(target_os = "macos", target_os = "ios", target_os = "tvos"))]
 pub unsafe fn create(name: &str, layer: *mut c_void, width: u32, height: u32) -> u32 {
     let created = with(|m| {
         let gpu = m.gpu()?;
@@ -197,12 +268,90 @@ pub unsafe fn create(name: &str, layer: *mut c_void, width: u32, height: u32) ->
 ///
 /// # Safety
 /// None: `layer` is never read.
-#[cfg(not(any(target_os = "macos", target_os = "ios")))]
+#[cfg(not(any(target_os = "macos", target_os = "ios", target_os = "tvos")))]
 pub unsafe fn create(name: &str, _layer: *mut c_void, _width: u32, _height: u32) -> u32 {
     refuse(&format!(
         "gpu_create `{name}`: this platform has no presentable target yet"
     ));
     0
+}
+
+/// Give canvas `id` (made by [`create_headless`]) an Android window to
+/// present to. 0 on success, 1 on a refusal (see [`error`]).
+///
+/// # Safety
+/// `window` must be a live `ANativeWindow` that outlives the attachment
+/// (until [`detach`] or the canvas's destroy).
+#[cfg(target_os = "android")]
+pub unsafe fn attach(id: u32, window: *mut c_void, width: u32, height: u32) -> u32 {
+    use wgpu::rwh::{
+        AndroidDisplayHandle, AndroidNdkWindowHandle, RawDisplayHandle, RawWindowHandle,
+    };
+    let Some(window) = std::ptr::NonNull::new(window) else {
+        refuse("gpu_attach: a null window");
+        return 1;
+    };
+    let attached = with(|m| {
+        m.join_retired();
+        let gpu = m.gpu()?;
+        // SAFETY: the caller's contract — the window outlives the surface.
+        let target = unsafe {
+            gpu.instance
+                .create_surface_unsafe(wgpu::SurfaceTargetUnsafe::RawHandle {
+                    raw_display_handle: Some(
+                        RawDisplayHandle::Android(AndroidDisplayHandle::new()),
+                    ),
+                    raw_window_handle: RawWindowHandle::AndroidNdk(AndroidNdkWindowHandle::new(
+                        window,
+                    )),
+                })
+        };
+        match target {
+            Ok(t) => Some(m.attach(id, t, width, height)),
+            Err(e) => {
+                ERROR.with(|s| *s.borrow_mut() = format!("{e}"));
+                None
+            }
+        }
+    })
+    .flatten();
+    u32::from(attached != Some(true))
+}
+
+/// No window to attach off Android.
+///
+/// # Safety
+/// None: `window` is never read.
+#[cfg(not(target_os = "android"))]
+pub unsafe fn attach(_id: u32, _window: *mut c_void, _width: u32, _height: u32) -> u32 {
+    refuse("gpu_attach: this platform presents through gpu_create");
+    1
+}
+
+/// Give canvas `id` buffers to render into, which a reader draws itself
+/// (`crate::buffers`). 0 on success, 1 on a refusal (see [`error`]).
+#[cfg(target_os = "android")]
+pub fn attach_buffers(id: u32, width: u32, height: u32) -> u32 {
+    u32::from(with(|m| m.attach_buffers(id, width, height)) != Some(true))
+}
+
+/// Canvas `id`'s newest finished frame: its `AHardwareBuffer*` (alive until
+/// the canvas is detached or resized) with `[generation, slot, serial]` in
+/// `out`, or null.
+#[cfg(target_os = "android")]
+pub fn buffer(id: u32, out: &mut [u32; 3]) -> *mut c_void {
+    match with(|m| m.buffer(id)).flatten() {
+        Some((words, buffer)) => {
+            *out = words;
+            buffer
+        }
+        None => std::ptr::null_mut(),
+    }
+}
+
+/// Drop canvas `id`'s window target; its state stays.
+pub fn detach(id: u32) {
+    with(|m| m.detach(id));
 }
 
 /// Register the text of shader `name` (LLP 1030 D8): validated, its
@@ -263,6 +412,7 @@ pub fn render(id: u32, width: f32, height: f32, scale: f32, now_ms: f64) -> u32 
         seekable: false,
         period_ms: 0.0,
         shader_generation: 0,
+        headroom: 1.0,
     };
     match with(|m| m.render(id, &frame)).flatten() {
         Some(true) => 1,
@@ -340,7 +490,7 @@ pub fn sync() -> u32 {
 /// # Safety
 /// `raw` is a live `MTLTexture` of `width`×`height`, `rgba8Unorm`, kept
 /// alive by the host while the canvas lives.
-#[cfg(any(target_os = "macos", target_os = "ios"))]
+#[cfg(any(target_os = "macos", target_os = "ios", target_os = "tvos"))]
 pub unsafe fn texture_from_metal(id: u32, width: u32, height: u32, raw: *mut c_void) -> u32 {
     // SAFETY: the caller's contract, passed on.
     match with(|m| unsafe { m.texture_from_metal(id, width, height, raw) }) {
@@ -363,34 +513,84 @@ pub fn readback(id: u32, width: f32, height: f32, scale: f32, now_ms: f64, out: 
         seekable: false,
         period_ms: 0.0,
         shader_generation: 0,
+        headroom: 1.0,
     };
-    match with(|m| m.readback(id, &frame)).flatten() {
-        Some((px, wants)) if out.len() >= px.data.len() => {
-            out[..px.data.len()].copy_from_slice(&px.data);
-            if wants {
-                2
-            } else {
-                0
-            }
-        }
-        Some((px, _)) => {
-            ERROR.with(|s| {
-                *s.borrow_mut() = format!(
-                    "readback: {} bytes for {} pixels",
-                    out.len(),
-                    px.data.len() / 4
-                )
-            });
-            1
-        }
+    match with(|m| m.readback_into(id, &frame, out)).flatten() {
+        Some(true) => 2,
+        Some(false) => 0,
         None if with(|m| m.instances.contains_key(&id) && m.gpu().is_none()).unwrap_or(false) => 3,
         None => 1,
     }
 }
 
+/// Current instance policy: bit 0 promises alpha one; bit 1 requests SDR.
+/// Available before attachment, including for headless canvases.
+pub fn presentation_flags(id: u32) -> u32 {
+    with(|m| m.presentation_flags(id)).unwrap_or(0)
+}
+
 /// Whether a canvas wants raw input.
 pub fn wants_input(id: u32) -> bool {
     with(|m| m.wants_input(id)).unwrap_or(false)
+}
+
+/// Present between CPU UI layers without reading the game back.
+/// # Safety
+/// The HWND remains live until `window_detach`; slices contain premultiplied RGBA.
+#[cfg(windows)]
+#[allow(clippy::too_many_arguments)]
+pub unsafe fn window_frame(
+    id: u32,
+    hwnd: usize,
+    hinstance: usize,
+    width: f32,
+    height: f32,
+    scale: f32,
+    now_ms: f64,
+    below: &[u8],
+    above: &[u8],
+    changed: bool,
+    above_rows: std::ops::Range<u32>,
+) -> u32 {
+    let frame = Frame {
+        width,
+        height,
+        scale,
+        now_ms,
+        children_generation: 0,
+        seekable: false,
+        period_ms: 0.,
+        shader_generation: 0,
+        headroom: 1.,
+    };
+    match with(|m| unsafe {
+        m.present_window(
+            id, hwnd, hinstance, &frame, below, above, changed, above_rows,
+        )
+    }) {
+        Some(Ok(())) => 0,
+        Some(Err(e)) => {
+            refuse(&e);
+            1
+        }
+        None => 1,
+    }
+}
+
+/// Release the native window before its HWND goes away.
+#[cfg(windows)]
+pub fn window_detach() {
+    with(|m| m.detach_window());
+}
+
+/// Whether a canvas draws above SDR white (LLP 1100 D12b).
+pub fn high_dynamic_range(id: u32) -> bool {
+    with(|m| m.high_dynamic_range(id)).unwrap_or(false)
+}
+
+/// The headroom an HDR canvas draws its next frames to (LLP 1100 D12b).
+pub fn headroom(id: u32, headroom: f32) {
+    with(|m| m.set_headroom(id, headroom));
 }
 
 /// Deliver a JSON device event. True on success.
@@ -504,7 +704,19 @@ macro_rules! module {
         /// Create the device. 0 on success.
         #[no_mangle]
         pub extern "C" fn gpu_load() -> u32 {
-            $crate::native::load(&$registry)
+            $crate::native::load(&$registry, concat!(env!("CARGO_PKG_NAME"), "@", env!("CARGO_PKG_VERSION")))
+        }
+
+        /// Start creating the device on a thread of its own; `gpu_load` takes it.
+        #[no_mangle]
+        pub extern "C" fn gpu_prepare() {
+            $crate::native::prepare()
+        }
+
+        /// 1 when `gpu_load` would not wait for a prepared device, 0 while it is made.
+        #[no_mangle]
+        pub extern "C" fn gpu_prepared() -> u32 {
+            $crate::native::prepared()
         }
 
         /// Active Metal registry identity, or zero off Metal.
@@ -528,7 +740,7 @@ macro_rules! module {
 
         /// Load ownership without a GPU.
         #[no_mangle]
-        pub extern "C" fn gpu_load_headless() { $crate::native::load_headless(&$registry); }
+        pub extern "C" fn gpu_load_headless() { $crate::native::load_headless(&$registry, concat!(env!("CARGO_PKG_NAME"), "@", env!("CARGO_PKG_VERSION"))); }
 
         /// Create ownership without a presentation target. Zero means refusal.
         /// # Safety
@@ -552,6 +764,32 @@ macro_rules! module {
             if layer.is_null() { $crate::native::refuse("gpu_create: a null layer"); return 0 }
             unsafe { $crate::native::create(name, layer, width, height) }
         }
+
+        /// Give a canvas made headless an Android window (an `ANativeWindow`) to present to. 0 on success.
+        ///
+        /// # Safety
+        /// `window` is a live `ANativeWindow` until `gpu_detach` or `gpu_destroy`.
+        #[no_mangle]
+        pub unsafe extern "C" fn gpu_attach(id: u32, window: *mut ::std::ffi::c_void, width: u32, height: u32) -> u32 {
+            unsafe { $crate::native::attach(id, window, width, height) }
+        }
+
+        /// Drop a canvas's window target; its state stays.
+        #[no_mangle]
+        pub extern "C" fn gpu_detach(id: u32) { $crate::native::detach(id) }
+
+        /// Buffers for a canvas a reader draws itself; 0 on success.
+        #[cfg(target_os = "android")]
+        #[no_mangle]
+        pub extern "C" fn gpu_attach_buffers(id: u32, width: u32, height: u32) -> u32 { $crate::native::attach_buffers(id, width, height) }
+
+        /// The canvas's newest finished buffer, `[generation, slot, serial]` in `out`; or null.
+        ///
+        /// # Safety
+        /// `out` is three writable `u32`s.
+        #[cfg(target_os = "android")]
+        #[no_mangle]
+        pub unsafe extern "C" fn gpu_buffer(id: u32, out: *mut u32) -> *mut ::std::ffi::c_void { $crate::native::buffer(id, &mut *out.cast::<[u32; 3]>()) }
 
         /// Clear the previous complete shader namespace after app acceptance.
         #[no_mangle]
@@ -693,7 +931,7 @@ macro_rules! module {
         /// # Safety
         /// `raw` is a live `MTLTexture` of that size, `rgba8Unorm`, alive
         /// while the canvas is.
-        #[cfg(any(target_os = "macos", target_os = "ios"))]
+        #[cfg(any(target_os = "macos", target_os = "ios", target_os = "tvos"))]
         #[no_mangle]
         pub unsafe extern "C" fn gpu_texture_metal(id: u32, width: u32, height: u32, raw: *mut ::std::ffi::c_void) -> u32 {
             unsafe { $crate::native::texture_from_metal(id, width, height, raw) }
@@ -711,9 +949,42 @@ macro_rules! module {
             $crate::native::readback(id, width, height, scale, now_ms, out)
         }
 
+        /// Present a canvas between CPU UI layers. The HWND outlives this attachment.
+        /// # Safety
+        /// `above` contains `len` bytes. `below` contains four premultiplied RGBA
+        /// bytes when flag bit 1 is set, otherwise `len`. Bit 0 marks changed UI.
+        /// The overlay is transparent outside `above_top..above_bottom` device rows.
+        /// HWND stays live until detach.
+        #[cfg(windows)]
+        #[no_mangle]
+        pub unsafe extern "C" fn gpu_window_frame(id: u32, hwnd: usize, hinstance: usize, width: f32, height: f32,
+            scale: f32, now_ms: f64, below: *const u8, above: *const u8, len: usize, changed: u32,
+            above_top: u32, above_bottom: u32) -> u32 {
+            let below_len = if changed & 2 != 0 { 4 } else { len };
+            let Some(below) = (unsafe { $crate::native::bytes("gpu_window_frame", below, below_len) }) else { return 1 };
+            let Some(above) = (unsafe { $crate::native::bytes("gpu_window_frame", above, len) }) else { return 1 };
+            unsafe { $crate::native::window_frame(id, hwnd, hinstance, width, height, scale, now_ms, below, above, changed & 1 != 0, above_top..above_bottom) }
+        }
+
+        /// Release the native window before its HWND goes away.
+        #[cfg(windows)]
+        #[no_mangle]
+        pub extern "C" fn gpu_window_detach() { $crate::native::window_detach(); }
+
         /// Whether a canvas wants raw input.
         #[no_mangle]
         pub extern "C" fn gpu_wants_input(id: u32) -> u32 { u32::from($crate::native::wants_input(id)) }
+        /// Instance policy: bit 0 promises alpha one, bit 1 requests SDR.
+        #[no_mangle]
+        pub extern "C" fn gpu_presentation_flags(id: u32) -> u32 { $crate::native::presentation_flags(id) }
+
+        /// Whether a canvas draws above SDR white (LLP 1100 D12b): 1 or 0.
+        #[no_mangle]
+        pub extern "C" fn gpu_high_dynamic_range(id: u32) -> u32 { u32::from($crate::native::high_dynamic_range(id)) }
+
+        /// The headroom an HDR canvas draws its next frames to.
+        #[no_mangle]
+        pub extern "C" fn gpu_headroom(id: u32, headroom: f32) { $crate::native::headroom(id, headroom) }
 
         /// Deliver one JSON event; 0 on success, 1 on refusal.
         /// # Safety
@@ -820,6 +1091,18 @@ macro_rules! module {
         #[no_mangle]
         pub extern "C" fn gpu_period(period_ms: f64) { $crate::native::period(period_ms); }
 
+        /// The host's GPU tier before `gpu_load` (`GpuTier::code`: 0 high, 1 mid,
+        /// 2 low); 3 asks. Returns the tier the module's surfaces use.
+        #[no_mangle]
+        pub extern "C" fn gpu_tier(code: u32) -> u32 {
+            if code < 3 { $crate::set_tier($crate::GpuTier::from_code(code)); }
+            $crate::tier().code()
+        }
+
+        /// Remake each canvas's renderer at the told tier, keeping its world.
+        #[no_mangle]
+        pub extern "C" fn gpu_retier() { $crate::native::retier(); }
+
         /// Output address, valid until the next carry, published, agent, messages or error call.
         #[no_mangle]
         pub extern "C" fn gpu_out_ptr() -> *const u8 { EXACT_GPU_OUT.with(|b| b.borrow().as_ptr()) }
@@ -890,409 +1173,9 @@ macro_rules! module {
 }
 
 #[cfg(test)]
-mod placement_abi_tests {
-    use super::{bind, child, create_headless, error, load, recover, unload, with};
-    use crate::{wgpu, Frame, Placement, Registry, Surface, SurfaceError, Value};
-    #[derive(Default)]
-    struct Sign {
-        frame: [f32; 4],
-        preparations: usize,
-        retired: bool,
-        formats: Vec<wgpu::TextureFormat>,
-        lose_on_prepare: bool,
-        child_name: String,
-    }
-    impl Surface for Sign {
-        fn bind(&mut self, _: &[Value], _: Option<f64>) -> Result<(), SurfaceError> {
-            Ok(())
-        }
-        fn render(
-            &mut self,
-            _: &Frame,
-            _: &wgpu::Device,
-            _: &wgpu::Queue,
-            _: &mut wgpu::CommandEncoder,
-            _: &wgpu::TextureView,
-            _: wgpu::TextureFormat,
-        ) -> bool {
-            false
-        }
-        fn children_mode(&self) -> crate::ChildrenMode {
-            if self.retired {
-                crate::ChildrenMode::Overlay
-            } else {
-                crate::ChildrenMode::Each
-            }
-        }
-        fn prepare_assets(
-            &mut self,
-            device: &wgpu::Device,
-            _: &wgpu::Queue,
-            format: wgpu::TextureFormat,
-        ) {
-            if self.lose_on_prepare {
-                self.lose_on_prepare = false;
-                device.destroy();
-                let _ = device.poll(wgpu::PollType::Poll);
-            }
-            self.formats.push(format);
-            self.preparations += 1;
-        }
-        fn agent(&mut self, request: &str) -> Option<String> {
-            self.retired = request == "retire";
-            if request == "lose-on-prepare" {
-                self.lose_on_prepare = true;
-            }
-            Some(format!(
-                "{{\"preparations\":{},\"formats\":\"{:?}\",\"child\":{:?}}}",
-                self.preparations, self.formats, self.child_name
-            ))
-        }
-        fn child(&mut self, _: usize, name: &str, _: Option<&wgpu::TextureView>, frame: [f32; 4]) {
-            self.child_name = name.into();
-            self.frame = frame;
-        }
-        fn placement(&self, index: usize) -> Option<Placement> {
-            (index != 0).then_some(Placement {
-                clip_depth: [[0., 0., 1.]; 2],
-                hidden: index == 2,
-                homography: [self.frame[2]; 9],
-                depth: -3.,
-            })
-        }
-    }
-    static REGISTRY: Registry = Registry {
-        surfaces: &[("sign", 0, || Box::<Sign>::default())],
-        shaders: &[],
-    };
-    crate::module!(REGISTRY);
-    #[test]
-    fn retiring_each_releases_textures_and_zero_frame_releases_a_capture() {
-        assert_eq!(load(&REGISTRY), 0);
-        let id = create_headless("sign");
-        assert_eq!(bind(id, "[]"), 0);
-        for _ in 0..3 {
-            with(|m| m.agent(id, "active"));
-            assert_eq!(child(id, 0, "", [0., 0., 20., 20.], [1, 1], &[255; 4]), 0);
-            assert_eq!(
-                with(|m| m.instances[&id].each.iter().filter(|t| t.is_some()).count()),
-                Some(1)
-            );
-            assert_eq!(child(id, 0, "", [0.; 4], [0, 0], &[]), 0);
-            assert_eq!(
-                with(|m| m.instances[&id].each.iter().filter(|t| t.is_some()).count()),
-                Some(0)
-            );
-            assert_eq!(child(id, 0, "", [0., 0., 20., 20.], [1, 1], &[255; 4]), 0);
-            with(|m| m.agent(id, "retire"));
-            assert_eq!(gpu_children_mode(id), 0);
-            assert_eq!(with(|m| m.instances[&id].each.len()), Some(0));
-            assert_eq!(
-                with(|m| m.placement(id, 1).unwrap().homography),
-                Some([0.; 9])
-            );
-        }
-        unload();
-    }
-
-    /// A drawable acquired off the main thread and never taken is discarded
-    /// through its surface, so it must go before the surface does. On the
-    /// iPad a list retiring a row dropped it after the canvas's handle and
-    /// the acquiring thread's were gone, and wgpu's discard panicked. Here
-    /// in that order: the `Acquire` keeps the surface until the channel goes.
-    #[cfg(target_os = "macos")]
-    #[test]
-    fn an_untaken_acquired_texture_is_discarded_while_its_surface_exists() {
-        #[link(name = "QuartzCore", kind = "framework")]
-        extern "C" {}
-        assert_eq!(load(&REGISTRY), 0);
-        // SAFETY: retained layer outlives the module's presentation target.
-        let layer: objc2::rc::Retained<objc2::runtime::AnyObject> =
-            unsafe { objc2::msg_send![objc2::class!(CAMetalLayer), new] };
-        let ptr = objc2::rc::Retained::as_ptr(&layer) as *mut std::ffi::c_void;
-        let id = unsafe { super::create("sign", ptr, 16, 16) };
-        assert_ne!(id, 0);
-        let target = with(|m| m.instances[&id].presentation.clone().unwrap()).unwrap();
-        let mut acquire = crate::acquire::Acquire::default();
-        acquire.request(&target);
-        std::thread::sleep(std::time::Duration::from_millis(200));
-        // The canvas's handle goes, then the thread's; the texture has landed.
-        drop(target);
-        super::destroy(id);
-        let answer = acquire.hang_up().unwrap();
-        std::thread::sleep(std::time::Duration::from_millis(200));
-        drop(answer);
-        drop(acquire);
-        unload();
-    }
-
-    #[cfg(target_os = "macos")]
-    #[test]
-    fn presented_device_loss_rebinds_live_layer_and_readback_keeps_its_format() {
-        #[link(name = "QuartzCore", kind = "framework")]
-        extern "C" {}
-        assert_eq!(load(&REGISTRY), 0);
-        // SAFETY: retained layer outlives the module's presentation target.
-        let layer: objc2::rc::Retained<objc2::runtime::AnyObject> =
-            unsafe { objc2::msg_send![objc2::class!(CAMetalLayer), new] };
-        let ptr = objc2::rc::Retained::as_ptr(&layer) as *mut std::ffi::c_void;
-        let id = unsafe { super::create("sign", ptr, 16, 16) };
-        assert_ne!(id, 0);
-        assert_eq!(bind(id, "[]"), 0);
-        let frame = Frame {
-            width: 16.,
-            height: 16.,
-            scale: 1.,
-            now_ms: 0.,
-            seekable: true,
-            period_ms: 0.,
-            children_generation: 0,
-            shader_generation: 0,
-        };
-        with(|m| {
-            assert!(m.render(id, &frame).is_some());
-            let format = m.instances[&id].config.as_ref().unwrap().format;
-            assert_eq!(format, wgpu::TextureFormat::Bgra8Unorm);
-            assert!(m.readback(id, &frame).is_some());
-            let state = m.agent(id, "state").unwrap();
-            assert!(!state.contains("Rgba8"), "{state}");
-            let gpu = m.gpu.as_ref().unwrap();
-            gpu.device.destroy();
-            let _ = gpu.device.poll(wgpu::PollType::Poll);
-            m.check_device();
-            assert!(
-                m.instances[&id].presentation.is_none(),
-                "dead presentation must be dropped"
-            );
-            assert!(
-                m.instances[&id].config.is_some(),
-                "retry retains configuration"
-            );
-        });
-        assert!(recover().contains("recovered"));
-        with(|m| {
-            assert!(m.has_device(id));
-            assert!(m.render(id, &frame).is_some());
-            assert!(m.readback(id, &frame).is_some());
-            let state = m.agent(id, "state").unwrap();
-            assert!(!state.contains("Rgba8"), "{state}");
-        });
-        unload();
-    }
-
-    #[test]
-    fn replacement_lost_during_preparation_refuses_then_retries() {
-        assert_eq!(load(&REGISTRY), 0);
-        let id = create_headless("sign");
-        with(|m| {
-            m.agent(id, "lose-on-prepare");
-            m.lose_device();
-        });
-        let failed = recover();
-        assert!(
-            failed.contains("replacement device was lost during recovery"),
-            "{failed}"
-        );
-        assert!(super::device_is_lost());
-        assert!(recover().contains("recovered"));
-        unload();
-    }
-
-    #[test]
-    fn recovery_of_a_healthy_device_does_not_prepare_again() {
-        assert_eq!(load(&REGISTRY), 0);
-        let id = create_headless("sign");
-        let before = with(|m| m.agent(id, "state")).unwrap();
-        assert!(recover().contains("healthy"));
-        assert_eq!(with(|m| m.agent(id, "state")).unwrap(), before);
-        unload();
-    }
-
-    #[test]
-    fn destroyed_device_recovers_without_replacing_the_surface_table() {
-        if load(&REGISTRY) != 0 {
-            eprintln!("SKIP native recovery: {}", error());
-            return;
-        }
-        let id = create_headless("sign");
-        assert_ne!(id, 0);
-        assert_eq!(bind(id, "[]"), 0);
-        assert_eq!(child(id, 0, "", [10., 20., 100., 50.], [0, 0], &[]), 0);
-        with(|m| {
-            m.instances
-                .get_mut(&id)
-                .unwrap()
-                .messages
-                .push("pending".into())
-        });
-        with(|m| {
-            m.gpu().unwrap().device.destroy();
-            let _ = m.gpu.as_ref().unwrap().device.poll(wgpu::PollType::Poll);
-        });
-        let result = recover();
-        assert!(result.contains("recovered"), "{result}");
-        assert!(result.contains("\"preparations\":1"), "{result}");
-        assert_eq!(
-            with(|m| m.instances.get(&id).unwrap().messages.clone()).unwrap(),
-            ["pending"]
-        );
-        assert!(with(|m| m.instances.get(&id).unwrap().bound).unwrap());
-        assert_eq!(
-            with(|m| m.placement(id, 1).unwrap().homography).unwrap(),
-            [100.; 9]
-        );
-        assert!(with(|m| m.gpu().is_some()).unwrap());
-        unload();
-    }
-
-    #[test]
-    fn frame_only_child_and_explicit_hidden_out_do_not_need_a_device() {
-        gpu_load_headless();
-        let report = recover();
-        assert!(report.contains("no device"), "{report}");
-        // SAFETY: name bytes and output arrays live across these synchronous ABI calls.
-        unsafe {
-            let id = gpu_create_headless(b"sign".as_ptr(), 4);
-            assert_ne!(id, 0);
-            assert_eq!(gpu_children_mode(id), 3);
-            assert_eq!(
-                gpu_child_view(
-                    id,
-                    0,
-                    b"sign".as_ptr(),
-                    4,
-                    10.,
-                    20.,
-                    100.,
-                    50.,
-                    0,
-                    0,
-                    std::ptr::null(),
-                    0
-                ),
-                0
-            );
-            let name = "標識 🏮";
-            assert_eq!(
-                gpu_child_view(
-                    id,
-                    0,
-                    name.as_ptr(),
-                    name.len(),
-                    10.,
-                    20.,
-                    100.,
-                    50.,
-                    0,
-                    0,
-                    std::ptr::null(),
-                    0
-                ),
-                0
-            );
-            assert!(with(|m| m.agent(id, "").unwrap()).unwrap().contains(name));
-            assert_eq!(
-                gpu_child_view(
-                    id,
-                    0,
-                    [0xff].as_ptr(),
-                    1,
-                    10.,
-                    20.,
-                    100.,
-                    50.,
-                    0,
-                    0,
-                    std::ptr::null(),
-                    0
-                ),
-                1
-            );
-            assert!(
-                with(|m| m.agent(id, "").unwrap()).unwrap().contains(name),
-                "refusal leaves previous metadata intact"
-            );
-            let mut out = [77.; 10];
-            assert_eq!(gpu_placement(id, 0, out.as_mut_ptr(), out.len()), 0);
-            assert_eq!(out, [77.; 10]);
-            assert_eq!(gpu_placement(id, 2, out.as_mut_ptr(), out.len()), 2);
-            assert_eq!(out, [77.; 10]);
-            assert_eq!(gpu_placement(id, 1, out.as_mut_ptr(), out.len()), 1);
-            assert_eq!(out[..9], [100.; 9]);
-            assert_eq!(out[9], -3.);
-        }
-        gpu_unload();
-    }
-}
+#[path = "native_placement_tests.rs"]
+mod placement_abi_tests;
 
 #[cfg(test)]
-mod device_loss_tests {
-    use crate::*;
-    struct Probe;
-    impl Surface for Probe {
-        fn bind(&mut self, _: &[Value], _: Option<f64>) -> Result<(), SurfaceError> {
-            Ok(())
-        }
-        fn render(
-            &mut self,
-            _: &Frame,
-            _: &wgpu::Device,
-            _: &wgpu::Queue,
-            _: &mut wgpu::CommandEncoder,
-            _: &wgpu::TextureView,
-            _: wgpu::TextureFormat,
-        ) -> bool {
-            panic!("lost device rendered")
-        }
-        fn agent(&mut self, _: &str) -> Option<String> {
-            Some("alive".into())
-        }
-    }
-    static REGISTRY: Registry = Registry {
-        surfaces: &[("probe", 0, || Box::new(Probe))],
-        shaders: &[],
-    };
-    #[test]
-    fn device_loss_guards_each_gpu_entry_before_any_other_call() {
-        for operation in 0..7 {
-            let Some(gpu) = fixture::device_or_skip(fixture::device()) else {
-                return;
-            };
-            let mut m = Module::new(&REGISTRY);
-            m.set_gpu(gpu);
-            let id = m.create_headless("probe").unwrap();
-            m.bind(id, &[], None);
-            // Model the asynchronous callback, without calling lose_device first.
-            m.device_lost.store(true, Ordering::Release);
-            match operation {
-                0 => assert!(!m.child(id, 0, "", [0., 0., 1., 1.], [1, 1], &[0; 4])),
-                1 => assert!(!m.texture(id, 1, 1, &[0; 4])),
-                2 => assert!(m
-                    .readback(
-                        id,
-                        &Frame {
-                            width: 1.,
-                            height: 1.,
-                            scale: 1.,
-                            now_ms: 0.,
-                            seekable: true,
-                            period_ms: 0.,
-                            children_generation: 0,
-                            shader_generation: 0
-                        }
-                    )
-                    .is_none()),
-                3 => assert!(!m.dirty(id)),
-                4 => assert!(!m.sync()),
-                5 => assert!(m.gpu().is_none()),
-                _ => {
-                    #[cfg(any(target_os = "macos", target_os = "ios"))]
-                    // A sentinel must never be retained/imported after loss.
-                    assert!(!unsafe { m.texture_from_metal(id, 1, 1, std::ptr::dangling_mut()) });
-                }
-            }
-            assert_eq!(m.agent(id, "state").as_deref(), Some("alive"));
-            assert!(!m.dirty(id));
-        }
-    }
-}
+#[path = "native_device_loss_tests.rs"]
+mod device_loss_tests;

@@ -1,5 +1,6 @@
 import Foundation
 import CExact
+import ExactCore
 #if os(macOS)
 import AppKit
 #else
@@ -28,6 +29,11 @@ private struct RasterSourceKey: Hashable {
     let name: String
     let resolver: ObjectIdentifier
 }
+/// One decode of a source: the core's entry, less the source.
+struct RasterDecodeKey: Hashable {
+    let width: Int, height: Int, variant: UInt32
+}
+
 private final class RasterSource: RasterSourceOwner, @unchecked Sendable {
     let id: UInt64
     let key: RasterSourceKey
@@ -40,9 +46,26 @@ private final class RasterSource: RasterSourceOwner, @unchecked Sendable {
     var input: RasterInput?
     var cancellation = RasterCancellation()
     var failure: String?
+    /// The decodes whose last attempt failed in ImageIO or Core Graphics over
+    /// bytes whose size it read (`RasterFailure.decode`): a busy system does
+    /// that, so their views ask again before the `error`
+    /// (`RasterLoader.declineDelays`). One per decode, as two views can ask
+    /// for two sizes and one can land while the other is declined.
+    var declined: Set<RasterDecodeKey> = []
+    /// An SVG's device pixels per CSS pixel by decode, which the core's work
+    /// does not carry (LLP 1011.001 D3): the worker draws the scene at the
+    /// plan's size over this. Under the backend lock.
+    var svgScales: [RasterDecodeKey: Double] = [:]
     init(id: UInt64, name: String, resolver: AssetResolver) {
         self.id = id; key = RasterSourceKey(name: name, resolver: ObjectIdentifier(resolver)); self.resolver = resolver
     }
+}
+/// What admission answered: a source, a cap that frees as inspections and
+/// views finish (the caller waits), or a refusal no retry changes.
+private enum RasterAcquire {
+    case source(RasterSource)
+    case busy
+    case refused
 }
 private final class WeakRasterSource {
     weak var value: RasterSource?
@@ -58,7 +81,9 @@ private final class RasterBackend: @unchecked Sendable {
     var sources: [UInt64: WeakRasterSource] = [:]
     var byName: [RasterSourceKey: UInt64] = [:]
     private var cold: [RasterSource] = []
-    static let sourceLimit = 1152
+    static let defaultSourceLimit = 1152
+    let sourceLimit: Int
+    let metadataLimit: Int
     var serial: UInt64 = 0
     var stopped = false
     var paused = false
@@ -66,25 +91,46 @@ private final class RasterBackend: @unchecked Sendable {
     var metadataReads = 0
     var decoded = 0
     var refusals = 0
+    #if DEBUG
+    /// Decodes still to fail as ImageIO's do on a busy system.
+    var testDeclines = 0
+    #endif
     private var budgetNotice: [UInt64] = []
-    init(id: UInt64) { self.id = id }
+    init(id: UInt64, sourceLimit: Int = defaultSourceLimit, metadataLimit: Int = 64) {
+        self.id = id; self.sourceLimit = sourceLimit; self.metadataLimit = metadataLimit
+    }
 
-    func acquire(_ name: String, resolver: AssetResolver) -> RasterSource? {
+    func acquire(_ name: String, resolver: AssetResolver) -> RasterAcquire {
+        RasterWorkers.shared.start()
         lock.lock(); defer { lock.unlock() }
-        guard !stopped, name.utf8.count <= 4096 else { return nil }
+        guard !stopped, name.utf8.count <= (name.hasPrefix("data:") ? RasterInput.dataLimit : 4096) else { return .refused }
         pruneLocked()
         let key = RasterSourceKey(name: name, resolver: ObjectIdentifier(resolver))
-        if let id = byName[key], let source = sources[id]?.value, source.resolver === resolver,
+        if let known = byName[key], let source = sources[known]?.value, source.resolver === resolver,
            !source.cancellation.isCancelled {
-            source.users += 1; return source
+            cold.removeAll { $0 === source }
+            source.users += 1
+            // Released before its header was read: a worker reads it now.
+            if source.users == 1 && source.metadata == nil && source.failure == nil { exact_raster_session_control(self.id, 5) }
+            return .source(source)
         }
-        let live = sources.values.compactMap(\.value)
-        guard live.count < Self.sourceLimit,
-              live.filter({ $0.metadata == nil && $0.failure == nil }).count < 64 else { refusals += 1; return nil }
+        var live = sources.values.compactMap(\.value)
+        // Cold metadata is a cache, never what keeps a shown image out at the
+        // source cap: its identity goes first (a painted lease keeps pixels).
+        if live.count >= sourceLimit {
+            _ = evictColdLocked(live.count - sourceLimit + 1)
+            live = sources.values.compactMap(\.value)
+        }
+        guard live.count < sourceLimit,
+              live.filter({ $0.metadata == nil && $0.failure == nil }).count < metadataLimit else {
+            refusals += 1; return .busy
+        }
         serial += 1
         let source = RasterSource(id: serial, name: name, resolver: resolver)
         source.users = 1; sources[serial] = WeakRasterSource(source); byName[key] = serial
-        return source
+        // A worker waiting on the gate wakes to read this source's metadata.
+        exact_raster_session_control(id, 5)
+        return .source(source)
     }
     func release(_ id: UInt64) {
         lock.lock()
@@ -95,23 +141,45 @@ private final class RasterBackend: @unchecked Sendable {
             if source.users == 0 && source.inspecting { cancellation = source.cancellation }
             if source.users == 0 && source.metadata != nil && !cold.contains(where: { $0 === source }) { cold.append(source) }
         }
-        // Detach strong cold owners under lock; destroy them after unlocking.
-        let evicted = Array(cold.prefix(max(0, cold.count - RasterLoader.coldSources)))
-        cold.removeFirst(evicted.count)
+        // Detach strong cold owners and their cache identities under lock;
+        // destroy them after unlocking. A painted lease keeps its pixels.
+        let evicted = evictColdLocked(max(0, cold.count - RasterLoader.coldSources))
         pruneLocked()
         lock.unlock(); cancellation?.cancel()
         withExtendedLifetime(evicted) {}
         withExtendedLifetime(source) {}
+        // A freed source may admit an image waiting at a cap.
+        wake()
     }
     private func pruneLocked() {
         sources = sources.filter { $0.value.value != nil }
         byName = byName.filter { sources[$0.value]?.value != nil }
     }
+    private func evictColdLocked(_ count: Int) -> [RasterSource] {
+        guard count > 0 else { return [] }
+        var evicted: [RasterSource] = [], retained: [RasterSource] = []
+        for source in cold {
+            if evicted.count < count && source.users == 0 {
+                sources.removeValue(forKey: source.id)
+                if byName[source.key] == source.id { byName.removeValue(forKey: source.key) }
+                evicted.append(source)
+            } else { retained.append(source) }
+        }
+        cold = retained
+        return evicted
+    }
     func invalidate(_ name: String) {
         lock.lock(); byName = byName.filter { $0.key.name != name }; lock.unlock()
     }
+    /// The scale an SVG's decode draws at, for the worker (`svgScales`).
+    func noteScale(_ source: RasterSource, _ key: RasterDecodeKey, _ scale: Double) {
+        lock.lock(); source.svgScales[key] = scale; lock.unlock()
+    }
     func metadata(_ source: RasterSource) -> (RasterMetadata?, String?) {
         lock.lock(); defer { lock.unlock() }; return (source.metadata, source.failure)
+    }
+    func declined(_ source: RasterSource, _ key: RasterDecodeKey) -> Bool {
+        lock.lock(); defer { lock.unlock() }; return source.declined.contains(key)
     }
     func inspectOne() -> Bool {
         lock.lock()
@@ -125,7 +193,7 @@ private final class RasterBackend: @unchecked Sendable {
             guard let resolver = source.resolver else { throw RasterFailure.decode }
             input = try RasterInput.open(source.name, resolver: resolver, cancellation: cancellation)
             metadata = try input!.metadata()
-        } catch { failure = String(describing: error) }
+        } catch { failure = error is RasterFailure || error is RasterHTTPStatus ? String(describing: error) : error.localizedDescription }
         lock.lock()
         if cancellation.isCancelled {
             source.cancellation = RasterCancellation()
@@ -152,13 +220,25 @@ private final class RasterBackend: @unchecked Sendable {
               let source, let metadata, let input, let resolver = source.resolver else {
             exact_raster_fail(work.permit); return
         }
+        let key = RasterDecodeKey(width: Int(work.width), height: Int(work.height), variant: work.variant)
         do {
             // Decode scope drops encoded data, source and staging before complete.
             let image: RasterImage = try autoreleasepool {
-                let bytes = try withExtendedLifetime(resolver) { try input.bytes() }
-                let plan = try RasterDecodePlan(metadata: metadata, maxPixel: Int(max(work.width, work.height)))
+                // An SVG's plan is the work's own size (the box's, under `fill`), at the scale the request noted.
+                var plan = try RasterDecodePlan(metadata: metadata, maxPixel: Int(max(work.width, work.height)), variant: work.variant,
+                                                aspect: metadata.svg ? (Int(work.width), Int(work.height)) : nil)
                 guard plan.width == work.width, plan.height == work.height else { throw RasterFailure.reservation }
+                if metadata.svg { lock.lock(); plan.scale = source.svgScales[key] ?? 1; lock.unlock() }
+                if let name = input.catalog, exact_raster_is_cancelled(work.permit) == 0,
+                   let image = RasterImage.catalog(name, metadata: metadata, plan: plan, charge: charge, sourceOwner: source) {
+                    return image
+                }
+                let bytes = try withExtendedLifetime(resolver) { try input.bytes() }
                 guard exact_raster_is_cancelled(work.permit) == 0 else { throw RasterFailure.decode }
+                #if DEBUG
+                lock.lock(); let decline = testDeclines > 0; testDeclines = max(0, testDeclines - 1); lock.unlock()
+                if decline { throw RasterFailure.decode }
+                #endif
                 return try RasterImage.decode(bytes, metadata: metadata, plan: plan, charge: charge, sourceOwner: source, url: input.url)
             }
             let owner = UInt64(UInt(bitPattern: Unmanaged.passRetained(image).toOpaque()))
@@ -167,10 +247,13 @@ private final class RasterBackend: @unchecked Sendable {
                     Unmanaged<RasterImage>.fromOpaque(pointer).release()
                 }
             }, UInt64(image.residentBytes))
-            lock.lock(); decoded += 1; lock.unlock()
+            lock.lock(); decoded += 1; source.declined.remove(key); lock.unlock()
         } catch {
+            // Set before the core's failure is visible to the pass that reads both.
+            lock.lock(); refusals += 1
+            if error as? RasterFailure == .decode { source.declined.insert(key) } else { source.declined.remove(key) }
+            lock.unlock()
             exact_raster_fail(work.permit)
-            lock.lock(); refusals += 1; lock.unlock()
         }
         wake()
     }
@@ -210,9 +293,10 @@ private final class RasterBackend: @unchecked Sendable {
         lock.unlock(); cancellations.forEach { $0.cancel() }
     }
     func trim() {
-        lock.lock(); let evicted = cold; cold.removeAll(); lock.unlock()
+        lock.lock(); let evicted = evictColdLocked(cold.count); lock.unlock()
         exact_raster_session_control(id, 4)
         withExtendedLifetime(evicted) {}
+        wake()
     }
 }
 
@@ -239,7 +323,12 @@ final class RasterWorkers: @unchecked Sendable {
         lock.unlock()
     }
     var single: Bool { lock.lock(); defer { lock.unlock() }; return !fast.isEmpty }
-    private init() {
+    private var started = false
+    /// The workers start with the process's first image source: an app that
+    /// shows no picture keeps no decode threads.
+    func start() {
+        lock.lock(); let first = !started; started = true; lock.unlock()
+        guard first else { return }
         for i in 0..<2 { Thread.detachNewThread { [self] in run(i) } }
     }
     fileprivate func add(_ backend: RasterBackend) { lock.lock(); backends[backend.id] = WeakRasterBackend(backend); lock.unlock() }
@@ -262,21 +351,32 @@ final class RasterWorkers: @unchecked Sendable {
     }
     private func run(_ index: Int) {
         var metadataFirst = false
+        // Whether this worker decoded or inspected since it last went idle.
+        var worked = false
         while true {
             autoreleasepool {
                 // The second worker only reads metadata while one decodes.
                 if index > 0 && single {
-                    if !metadataTurn() { Thread.sleep(forTimeInterval: 0.005) }
+                    if metadataTurn() { worked = true } else { Thread.sleep(forTimeInterval: 0.005) }
                     return
                 }
                 // Each decode earns a metadata turn, even under continuous
                 // ready-metadata traffic from another session.
-                if metadataFirst { metadataFirst = false; if metadataTurn() { return } }
-                let work = exact_raster_next_decode(0)
-                if work.permit != 0 { metadataFirst = true; deliver(work); return }
-                if metadataTurn() { return }
-                let waited = exact_raster_next_decode(50)
-                if waited.permit != 0 { metadataFirst = true; deliver(waited) }
+                if metadataFirst { metadataFirst = false; if metadataTurn() { worked = true; return } }
+                let work = exact_raster_next_decode(0, 0)
+                if work.permit != 0 { metadataFirst = true; worked = true; deliver(work); return }
+                // Read before looking: a source acquired while this worker
+                // looks wakes the gate after it, and the wait returns at once.
+                let since = exact_raster_wake_sequence()
+                if metadataTurn() { worked = true; return }
+                // Going idle: the pages ImageIO's frames reached (up to 64 KB
+                // in euxy's launch) are dead until the next decode.
+                if worked { worked = false; releaseStackBelowCaller() }
+                // Work wakes the gate: a decode admitted or freed, a source
+                // acquired, a session resumed. The timeout is a backstop, long
+                // enough not to be a poll, so an idle app's workers sleep.
+                let waited = exact_raster_next_decode(1000, since)
+                if waited.permit != 0 { metadataFirst = true; worked = true; deliver(waited) }
             }
         }
     }
@@ -289,16 +389,51 @@ final class RasterWorkers: @unchecked Sendable {
 /// Main-thread view interests. Replacement keeps the old lease/natural size
 /// until this exact generation accepts a new lease; metadata alone never paints.
 final class RasterLoader {
+    /// An image waiting at the source or metadata cap. Weak: it keeps no
+    /// removed view, resolver generation or session alive while it waits.
+    private final class DeferredInterest {
+        weak var view: NodeView?
+        weak var resolver: AssetResolver?
+        let generation: Int
+        let source: String
+        init(view: NodeView, resolver: AssetResolver, source: String) {
+            self.view = view; self.resolver = resolver; generation = view.loadGeneration; self.source = source
+        }
+    }
     private struct Interest {
         weak var view: NodeView?
         let generation: Int
         let source: RasterSource
         var request: UInt64 = 0
+        var variant = RasterVariant.own8
         var requestedPixel = 0
+        /// The decode its request asked for.
+        var decode: RasterDecodeKey?
         var offeredPixel = 0
         var failure: String?
         var delivered = false
+        /// Its `load` or `error` went out: once per source, as `<img>`'s.
+        var announced = false
+        /// The core's request queue was full: asked again on the next pass.
+        var admissionDeferred = false
+        /// Declined decodes since it last painted, and the delay it waits out
+        /// before asking again: its token, which a reset or a new wait retires.
+        var declines = 0
+        var waiting: Int?
+        /// Off screen, its picture let go of or its decode not asked for
+        /// (`park`): asked for again once its view is on screen.
+        var parked = false
+        /// An SVG under `object-fit: fill`: the box's pixel size its plan
+        /// took, a different picture once either axis moves (LLP 1011.001 D1).
+        var aspect: [Int] = []
     }
+    /// How long a view waits after each declined decode before asking again;
+    /// past the last, the decline is its `error`, as a page's `<img>` errs
+    /// for a file and never for a busy machine. ImageIO says only that a
+    /// decode failed; a JPEG or PNG it cannot decode fails its header read
+    /// first (macOS 27), so a file that fails here anyway errs 1.75 s late,
+    /// inside the agent's 3 s bound.
+    static let declineDelays: [Double] = [0.25, 0.5, 1]
     /// Eight viewport-sized RGBA bitmaps, bounded to 32–192 MiB. Start at
     /// the floor until the owning view has geometry, never a process screen.
     static let minimumBudget: UInt64 = 32 * 1024 * 1024
@@ -313,13 +448,38 @@ final class RasterLoader {
     let id: UInt64
     private let backend: RasterBackend
     private var interests: [UInt32: Interest] = [:]
+    private var deferred: [UInt32: DeferredInterest] = [:]
+    /// The source each view's last refusal before a fetch named: its `error`
+    /// goes out once, though every props op asks for that source again.
+    private var refused: [UInt32: String] = [:]
+    private var deferredCursor: UInt32 = 0
+    /// The views parked off screen (`park`), for the scroll check.
+    private var parked = Set<UInt32>()
+    #if os(macOS)
+    private var scrollObserver: NSObjectProtocol?
+    #else
+    private final class ScrollWatch {
+        weak var scroller: UIScrollView?
+        let observation: NSKeyValueObservation
+        init(_ scroller: UIScrollView, _ observation: NSKeyValueObservation) { self.scroller = scroller; self.observation = observation }
+    }
+    private var scrollWatches: [ObjectIdentifier: ScrollWatch] = [:]
+    #endif
     private var paused = false
     private var destroyed = false
     private var pressure: DispatchSourceMemoryPressure?
-    init(budget: UInt64 = RasterLoader.minimumBudget) {
+    #if DEBUG
+    private(set) var testReconciliations = 0
+    /// Stands in for the core's request: a request id, or 0 and its refusal.
+    var testRequest: ((ExactRasterDemand) -> (request: UInt64, refusal: UInt64?))?
+    /// The next `count` decodes fail as ImageIO's do on a busy system.
+    func testDecline(next count: Int) { backend.lock.lock(); backend.testDeclines = count; backend.lock.unlock() }
+    #endif
+    init(budget: UInt64 = RasterLoader.minimumBudget,
+         sourceLimit: Int = 1152, metadataLimit: Int = 64) {
         self.budget = max(Self.minimumBudget, budget)
         id = exact_raster_session_create(self.budget)
-        backend = RasterBackend(id: id); backend.loader = self
+        backend = RasterBackend(id: id, sourceLimit: sourceLimit, metadataLimit: metadataLimit); backend.loader = self
         RasterWorkers.shared.add(backend)
         let pressure = DispatchSource.makeMemoryPressureSource(eventMask: [.warning, .critical], queue: .global(qos: .utility))
         pressure.setEventHandler { [weak backend] in backend?.trim() }
@@ -332,40 +492,124 @@ final class RasterLoader {
         budget = next
         exact_raster_session_budget(id, next)
     }
-    /// Reconsider decode resolution even when the boxes kept their point sizes.
+    /// Reconsider decode resolution even when the boxes kept their point
+    /// sizes, and HDR against the display (LLP 1100 D9).
     func displayChanged() {
         for interest in Array(interests.values) {
-            if let view = interest.view { resized(view) }
+            if let view = interest.view { resized(view); rangeChanged(view) }
         }
     }
+    /// Re-plan an HDR picture whose decode no longer matches its node's
+    /// limit or display (LLP 1100 D8, D9).
+    func rangeChanged(_ view: NodeView) {
+        guard let interest = interests[view.id], interest.request != 0 || interest.delivered,
+              let metadata = backend.metadata(interest.source).0, metadata.hdr else { return }
+        if Self.wantsHDR(view, metadata) != (interest.variant == RasterVariant.hdr) { retry(view.id) }
+    }
     @discardableResult func load(_ view: NodeView, source: String, resolver: AssetResolver) -> Bool {
-        guard !destroyed, (interests[view.id] != nil || interests.count < 1024), let record = backend.acquire(source, resolver: resolver) else {
-            view.presenter?.session?.log("image deferred: raster metadata/subscriber/source limit"); return false
+        func refuse(_ reason: String) {
+            if refused[view.id] != source { refused[view.id] = source; Self.announce([(view, nil, reason)]) }
         }
-        cancel(view.id)
-        interests[view.id] = Interest(view: view, generation: view.loadGeneration, source: record)
+        if source.hasPrefix("data:"), source.utf8.count > RasterInput.dataLimit {
+            view.presenter?.session?.log("image refused: a data: source is over \(RasterInput.dataLimit) bytes (LLP 1011 §2)")
+            refuse("a data: source over \(RasterInput.dataLimit) bytes"); return false
+        }
+        let retained = interests[view.id] != nil || deferred[view.id] != nil
+        guard !destroyed, retained || interests.count + deferred.count < 1024 else {
+            view.presenter?.session?.log("image deferred: raster subscriber limit")
+            refuse("raster subscriber limit"); return false
+        }
+        switch backend.acquire(source, resolver: resolver) {
+        case .source(let record):
+            cancel(view.id)
+            interests[view.id] = Interest(view: view, generation: view.loadGeneration, source: record)
+        case .busy:
+            // The caps free as inspections land and views go; each wakes a
+            // pass that admits it (`admitDeferred`), with no prop change.
+            cancel(view.id)
+            deferred[view.id] = DeferredInterest(view: view, resolver: resolver, source: source)
+            view.presenter?.session?.log("image queued: raster metadata/source admission")
+        case .refused:
+            view.presenter?.session?.log("image deferred: invalid raster source or stopped loader")
+            refuse("invalid raster source"); return false
+        }
+        refused.removeValue(forKey: view.id)
         // Initial props run before Presenter registers the new view. Reconcile
         // after the batch, when identity checks can distinguish it from removal.
         if !paused { backend.wake() }
         return true
     }
     func cancel(_ view: UInt32) {
+        deferred.removeValue(forKey: view)
+        refused.removeValue(forKey: view)
+        unpark(view)
         guard let interest = interests.removeValue(forKey: view) else { return }
         if interest.request != 0 { exact_raster_cancel(id, interest.request) }
         backend.release(interest.source.id)
     }
     func invalidate(_ source: String) { backend.invalidate(source) }
-    /// Images on screen still loading (the agent's `clock` waits for them).
+    /// Images on screen still loading (the agent's `clock` and `screenshot`
+    /// wait for them).
     var loadingOnScreen: Int {
-        interests.values.filter { i in !i.delivered && i.failure == nil && i.view.map { VideoVisibilityHost.fraction($0) > 0 } == true }.count
+        interests.values.filter { i in !i.delivered && i.failure == nil && i.view.map(Self.mayShow) == true }.count
+            + deferred.values.filter { $0.view.map(Self.mayShow) == true }.count
+    }
+    /// A loading image's box is on screen. An image sized on one axis
+    /// (`width=96`, no height) has an empty box until its natural size
+    /// lands, so an empty side counts as one point.
+    private static func mayShow(_ view: NodeView) -> Bool {
+        guard view.window != nil else { return false }
+        let probe = CGRect(origin: view.bounds.origin, size: CGSize(width: max(1, view.bounds.width), height: max(1, view.bounds.height)))
+        var root: MediaPlatformView = view
+        while let parent = root.superview {
+            if root.isHidden { return false }
+            root = parent
+        }
+        var clipped = view.convert(probe, to: root).intersection(root.bounds)
+        var ancestor = view.superview
+        while let current = ancestor, !clipped.isEmpty {
+            #if os(macOS)
+            let clips = current is NSClipView || current.clipsToBounds || current.layer?.masksToBounds == true
+            #else
+            let clips = current.clipsToBounds
+            #endif
+            if clips { clipped = clipped.intersection(current.convert(current.bounds, to: root)) }
+            ancestor = current.superview
+        }
+        return !clipped.isEmpty
     }
     /// Drop every decoded image no view shows (as memory pressure does).
     func trimCold() { backend.trim() }
     func resized(_ view: NodeView) {
-        guard let interest = interests[view.id], interest.offeredPixel > 0 else { return }
-        let pixel = requestedPixel(view, backend.metadata(interest.source).0)
+        guard let interest = interests[view.id] else { return }
+        // Laid out on screen, a parked view asks for its picture.
+        if interest.parked { if Self.mayShow(view) { backend.wake() }; return }
+        guard interest.offeredPixel > 0 else { return }
+        let metadata = backend.metadata(interest.source).0
+        let pixel = requestedPixel(view, metadata)
         // Avoid re-decoding for every one-pixel live resize or small rounding.
-        if pixel > interest.offeredPixel * 5 / 4 || pixel * 5 / 4 < interest.offeredPixel { retry(view.id) }
+        if pixel > interest.offeredPixel * 5 / 4 || pixel * 5 / 4 < interest.offeredPixel { retry(view.id); return }
+        // An SVG filling its box is drawn at the box's ratio: either axis past the band is another picture.
+        if let aspect = metadata.flatMap({ Self.svgAspect(view, $0) }), interest.aspect.count == 2 {
+            let moved = zip([aspect.0, aspect.1], interest.aspect).contains { now, was in now > was * 5 / 4 || now * 5 / 4 < was }
+            if moved { retry(view.id) }
+        }
+    }
+    /// The view's device pixels per point.
+    private static func displayScale(_ view: NodeView) -> CGFloat {
+        #if os(macOS)
+        return view.window?.backingScaleFactor ?? 1
+        #else
+        return view.traitCollection.displayScale
+        #endif
+    }
+    /// For an SVG under `object-fit: fill` (CSS's initial value), the box's
+    /// pixel size, which is the concrete object size the picture is drawn at
+    /// (LLP 1011.001 D1); nil for a bitmap or another fit.
+    private static func svgAspect(_ view: NodeView, _ metadata: RasterMetadata) -> (Int, Int)? {
+        guard metadata.svg, (view.style["object_fit"]?.string ?? "fill") == "fill", view.bounds.width > 0, view.bounds.height > 0 else { return nil }
+        let scale = displayScale(view)
+        return (max(1, Int((view.bounds.width * scale).rounded())), max(1, Int((view.bounds.height * scale).rounded())))
     }
     /// The decoded image's longest side: enough device pixels for the box
     /// at its object-fit (`cover` and `fill` scale the image until both axes
@@ -395,76 +639,295 @@ final class RasterLoader {
     private func retry(_ view: UInt32) {
         guard var item = interests[view] else { return }
         if item.request != 0 { exact_raster_cancel(id, item.request) }
-        item.request = 0; item.requestedPixel = 0; item.failure = nil; item.delivered = false; interests[view] = item
+        item.request = 0; item.requestedPixel = 0; item.failure = nil; item.delivered = false
+        item.admissionDeferred = false; item.waiting = nil; interests[view] = item
         reconcile()
     }
+    /// Ask again for a decode ImageIO declined, unless the wait was retired
+    /// (a reset, a new source or view under the same id, another wait).
+    private func decodeAgain(_ view: UInt32, token: Int) {
+        guard var item = interests[view], item.waiting == token else { return }
+        item.waiting = nil; interests[view] = item
+        reconcile()
+    }
+    private var nextWait = 0
     func reconcile() {
+        #if DEBUG
+        testReconciliations += 1
+        #endif
         guard !destroyed, !paused else { return }
+        admitDeferred()
         // Every image this turn lands reports its natural size together,
         // after the loop: one layout for them all, not one each.
         var landed: [(view: NodeView, generation: Int, size: CGSize)] = []
-        defer { report(landed) }
+        var settled: [(view: NodeView, generation: Int?, failure: String?)] = []
+        // Whether this pass gave the core's queue room: a picture taken, a
+        // request let go of.
+        var progress = false
+        defer {
+            report(landed); Self.announce(settled)
+            // The interests a full queue refused ask again on the next pass.
+            // A decode landing wakes one, but the last may already have
+            // landed, so a pass that made room wakes one itself.
+            if progress && interests.values.contains(where: \.admissionDeferred) { backend.wake() }
+        }
+        // Each source's first outcome, its `load` or its `error`.
+        func settle(_ item: inout Interest, _ view: NodeView) {
+            if !item.announced { item.announced = true; settled.append((view, item.generation, item.failure)) }
+        }
         for viewID in Array(interests.keys) {
             guard var item = interests[viewID], let view = item.view,
                   view.loadGeneration == item.generation, view.presenter?.views[viewID] === view else { cancel(viewID); continue }
-            if item.failure != nil || item.delivered { continue }
+            if item.parked {
+                guard Self.mayShow(view) else { continue }
+                item.parked = false; interests[viewID] = item; unpark(viewID)
+            }
+            if item.failure != nil || item.delivered || item.waiting != nil { continue }
             if item.request != 0 {
                 let state = exact_raster_status(id, item.request)
                 if state == 4, let lease = NativeRasterLease(exact_raster_take_ready(id, item.request)) {
-                    item.delivered = true; interests[viewID] = item
-                    if let size = view.acceptRaster(lease, generation: item.generation) { landed.append((view, item.generation, size)) }
+                    item.delivered = true; item.declines = 0; progress = true
+                    if let size = view.acceptRaster(lease, generation: item.generation) { landed.append((view, item.generation, size)); settle(&item, view) }
+                    interests[viewID] = item
+                } else if state == 115, item.declines < Self.declineDelays.count,
+                          let decode = item.decode, backend.declined(item.source, decode) {
+                    // Cancelled now, so the core forgets the failed decode once
+                    // every view of it has let go, and the next request decodes.
+                    let delay = Self.declineDelays[item.declines]
+                    exact_raster_cancel(id, item.request); item.request = 0; item.requestedPixel = 0; progress = true
+                    nextWait += 1
+                    item.declines += 1; item.waiting = nextWait; interests[viewID] = item
+                    view.presenter?.session?.log("image queued: ImageIO declined a decode; again in \(Int(delay * 1000)) ms")
+                    let token = nextWait
+                    DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+                        self?.decodeAgain(viewID, token: token)
+                    }
+                    continue
                 } else if state >= 100 {
-                    item.failure = Self.refusal(UInt64(state - 100)); interests[viewID] = item
+                    item.failure = Self.refusal(UInt64(state - 100)); settle(&item, view)
+                    // A failed decode is let go of, its error kept: held, it
+                    // is the core's answer to the next view that asks for it.
+                    if state == 115 { exact_raster_cancel(id, item.request); item.request = 0; progress = true }
+                    interests[viewID] = item
                     view.presenter?.session?.log("image deferred: \(item.failure!)")
                 }
-                if state != 2 || item.requestedPixel <= 1 { continue }
-                // Admission can become capacity-blocked after initially free
-                // metadata was queued. A worker's changed-budget notice, never
-                // a layout callback, reduces this pending demand in place,
-                // unless it fits once the decodes holding reservations land:
-                // then it waits for them, at the size it asked for.
-                if let metadata = backend.metadata(item.source).0,
-                   let plan = try? RasterDecodePlan(metadata: metadata, maxPixel: item.requestedPixel),
-                   plan.peakBytes <= available() { continue }
-                exact_raster_cancel(id, item.request); item.request = 0
+                if state != 2 { continue }
+                // Waiting on the budget. The decodes in flight hold
+                // reservations `available` does not count: once they land
+                // it may fit, at the size it asked for.
+                let plan = backend.metadata(item.source).0.flatMap {
+                    try? RasterDecodePlan(metadata: $0, maxPixel: item.requestedPixel, variant: item.variant, aspect: Self.svgAspect(view, $0))
+                }
+                if let plan, plan.peakBytes <= available() { continue }
+                // The pictures views hold leave it no room. Off screen it
+                // holds no place in the queue and takes no lower resolution:
+                // it asks again on screen. On screen, the pictures held off
+                // screen make room, and the core retries it as they go.
+                if !Self.mayShow(view) { park(viewID, &item, view); progress = true; continue }
+                if let plan, release(plan.peakBytes - available()) > 0 { progress = true; continue }
+                if item.requestedPixel <= 1 { continue }
+                // Nothing off screen to let go of: a lower resolution, in
+                // place. A worker's changed-budget notice, never a layout
+                // callback, brought it here.
+                exact_raster_cancel(id, item.request); item.request = 0; progress = true
                 item.requestedPixel = max(1, item.requestedPixel / 2)
                 interests[viewID] = item
             }
             let (metadata, failure) = backend.metadata(item.source)
             if let failure {
-                item.failure = failure; interests[viewID] = item
+                item.failure = failure; settle(&item, view); interests[viewID] = item
                 view.presenter?.session?.log("image deferred: \(failure)"); continue
             }
             guard let metadata else { continue }
             let offered = requestedPixel(view, metadata)
             var pixel = item.requestedPixel > 0 ? min(offered, item.requestedPixel) : offered
-            let available = available()
-            var plan = try? RasterDecodePlan(metadata: metadata, maxPixel: pixel)
-            while pixel > 1 && (plan == nil || plan!.peakBytes > available) {
-                pixel = max(1, pixel / 2); plan = try? RasterDecodePlan(metadata: metadata, maxPixel: pixel)
+            var available = available()
+            let hdr = Self.wantsHDR(view, metadata)
+            let aspect = Self.svgAspect(view, metadata)
+            var plan = Self.fit(metadata, pixel: pixel, available: available, hdr: hdr, aspect: aspect)
+            if let need = plan?.peakBytes, need > available {
+                // The pictures views hold leave it no room at its size: off
+                // screen it waits for its turn on screen; on screen the
+                // pictures held off screen make room, and it is planned again.
+                guard Self.mayShow(view) else { park(viewID, &item, view); continue }
+                if release(need - available) > 0 {
+                    available = self.available(); plan = Self.fit(metadata, pixel: pixel, available: available, hdr: hdr, aspect: aspect)
+                }
             }
-            guard let plan else { item.failure = "decode plan too large"; interests[viewID] = item; continue }
+            while pixel > 1 && (plan == nil || plan!.peakBytes > available) {
+                pixel = max(1, pixel / 2); plan = Self.fit(metadata, pixel: pixel, available: available, hdr: hdr, aspect: aspect)
+            }
+            guard var plan else { item.failure = "decode plan too large"; settle(&item, view); interests[viewID] = item; continue }
+            if metadata.svg { plan.scale = Double(Self.displayScale(view)) }
+            item.aspect = aspect.map { [$0.0, $0.1] } ?? []
             var demand = ExactRasterDemand()
             demand.view = UInt64(viewID); demand.view_generation = UInt64(item.generation)
             demand.source = item.source.id; demand.generation = item.source.id
             demand.width = UInt32(plan.width); demand.height = UInt32(plan.height)
-            #if os(macOS)
-            demand.priority = view.visibleRect.isEmpty ? 1 : 0
-            #else
-            demand.priority = view.window.map { view.convert(view.bounds, to: $0).intersects($0.bounds) } == true ? 0 : 1
-            #endif
+            demand.priority = Self.mayShow(view) ? 0 : 1
             demand.natural_width = UInt32(metadata.naturalSize.width); demand.natural_height = UInt32(metadata.naturalSize.height)
             demand.encoded_bytes = UInt64(metadata.encodedBytes); demand.header_bytes = UInt64(metadata.headerBytes)
             demand.stride = UInt64(plan.stride); demand.scratch_bytes = UInt64(plan.scratchBytes)
-            item.request = exact_raster_request(id, demand); item.requestedPixel = pixel; item.offeredPixel = offered
+            demand.variant = plan.variant
+            #if DEBUG
+            let submitted = testRequest?(demand)
+            item.request = submitted?.request ?? exact_raster_request(id, demand)
+            #else
+            item.request = exact_raster_request(id, demand)
+            #endif
+            item.requestedPixel = pixel; item.offeredPixel = offered
+            item.variant = plan.variant
+            item.decode = RasterDecodeKey(width: plan.width, height: plan.height, variant: plan.variant)
+            if metadata.svg, let key = item.decode { backend.noteScale(item.source, key, plan.scale) }
             if item.request == 0 {
-                item.failure = Self.refusal(exact_raster_stats(id).last_refusal)
-                view.presenter?.session?.log("image deferred: \(item.failure!)")
+                #if DEBUG
+                let refusal = submitted?.refusal ?? exact_raster_stats(id).last_refusal
+                #else
+                let refusal = exact_raster_stats(id).last_refusal
+                #endif
+                if Self.transientRequestRefusal(refusal) {
+                    if !item.admissionDeferred { view.presenter?.session?.log("image queued: raster request admission") }
+                    item.admissionDeferred = true
+                } else {
+                    item.failure = Self.refusal(refusal); settle(&item, view)
+                    view.presenter?.session?.log("image deferred: \(item.failure!)")
+                }
+            } else {
+                item.admissionDeferred = false
             }
             interests[viewID] = item
             // A cache hit has no worker completion to wake delivery. Queue one
             // coalesced UI turn, keeping intrinsic publication outside a batch.
             if item.request != 0 && exact_raster_status(id, item.request) >= 4 { backend.wake() }
+        }
+    }
+    /// The view lets go of its picture and its request while off screen,
+    /// keeping its interest. The pixels it held go cold, for the core to
+    /// evict when a decode needs their room, and `reconcile` asks for them
+    /// again once the view is on screen (`scrolled`, `resized`). Returns
+    /// the bytes the picture held.
+    @discardableResult private func park(_ viewID: UInt32, _ item: inout Interest, _ view: NodeView) -> Int {
+        let bytes = view.raster?.image.residentBytes ?? 0
+        if item.request != 0 { exact_raster_cancel(id, item.request) }
+        item.request = 0; item.requestedPixel = 0; item.delivered = false
+        item.admissionDeferred = false; item.waiting = nil; item.parked = true
+        interests[viewID] = item
+        if view.raster != nil {
+            // The sublayer's contents and a player's frames hold the pixels too.
+            view.raster = nil; view.applyImageLayer(); AnimatedRasters.shared.attach(view)
+            #if os(macOS)
+            view.needsDisplay = true
+            #else
+            view.setNeedsDisplay()
+            #endif
+        }
+        #if os(macOS)
+        if parked.isEmpty { watchScrolls() }
+        #else
+        watchScrolls(above: view)
+        #endif
+        parked.insert(viewID)
+        return bytes
+    }
+    private func unpark(_ viewID: UInt32) {
+        guard parked.remove(viewID) != nil, parked.isEmpty else { return }
+        stopWatchingScrolls()
+    }
+    /// Pictures held by views off screen, let go of until `bytes` are
+    /// covered, the view farthest from the window first: a view on screen
+    /// waits on the budget they fill. Returns the bytes let go of.
+    private func release(_ bytes: Int) -> Int {
+        guard bytes > 0 else { return 0 }
+        var held: [(distance: CGFloat, id: UInt32)] = []
+        for (viewID, item) in interests where item.delivered {
+            // A flying picture is a flight's stand-in until it lands.
+            guard let view = item.view, view.raster != nil, view.flightLook == nil, !Self.mayShow(view) else { continue }
+            held.append((Self.distance(view), viewID))
+        }
+        held.sort { $0.distance > $1.distance }
+        var freed = 0
+        for (_, viewID) in held where freed < bytes {
+            guard var item = interests[viewID], let view = item.view else { continue }
+            freed += park(viewID, &item, view)
+        }
+        return freed
+    }
+    /// How far a view's box is from the window, in points: 0 inside it.
+    private static func distance(_ view: NodeView) -> CGFloat {
+        #if os(macOS)
+        guard let root = view.window?.contentView else { return .greatestFiniteMagnitude }
+        #else
+        guard let root = view.window else { return .greatestFiniteMagnitude }
+        #endif
+        let box = view.convert(view.bounds, to: root), port = root.bounds
+        return max(0, box.minX - port.maxX, port.minX - box.maxX) + max(0, box.minY - port.maxY, port.minY - box.maxY)
+    }
+    /// A scroll container moved: a parked view may be on screen now, and a
+    /// pass asks for its picture. Only the parked views are looked at.
+    private func scrolled() {
+        guard !parked.isEmpty else { return }
+        for viewID in parked where interests[viewID]?.view.map(Self.mayShow) == true { backend.wake(); return }
+    }
+    #if os(macOS)
+    /// Every clip view that posts its bounds (the viewport's, a node's
+    /// scroller's), while a view is parked; none otherwise.
+    private func watchScrolls() {
+        scrollObserver = NotificationCenter.default.addObserver(forName: NSView.boundsDidChangeNotification, object: nil, queue: .main) { [weak self] _ in self?.scrolled() }
+    }
+    private func stopWatchingScrolls() {
+        if let scrollObserver { NotificationCenter.default.removeObserver(scrollObserver) }
+        scrollObserver = nil
+    }
+    #else
+    /// Each scroll view above a parked view (the viewport, a node's, a
+    /// grouped list's), while one is parked; none otherwise.
+    private func watchScrolls(above view: NodeView) {
+        scrollWatches = scrollWatches.filter { $0.value.scroller != nil }
+        var ancestor = view.superview
+        while let current = ancestor {
+            if let scroller = current as? UIScrollView, scrollWatches[ObjectIdentifier(scroller)] == nil {
+                scrollWatches[ObjectIdentifier(scroller)] = ScrollWatch(scroller, scroller.observe(\.contentOffset) { [weak self] _, _ in self?.scrolled() })
+            }
+            ancestor = current.superview
+        }
+    }
+    private func stopWatchingScrolls() { scrollWatches.removeAll() }
+    #endif
+    /// The plan for a picture at `pixel` (LLP 1100 D7): HDR if wanted and it
+    /// fits, else its own variant, else for a deep picture 8 bits before any
+    /// resolution is given up.
+    private static func fit(_ metadata: RasterMetadata, pixel: Int, available: Int, hdr: Bool, aspect: (Int, Int)? = nil) -> RasterDecodePlan? {
+        if hdr, let shown = try? RasterDecodePlan(metadata: metadata, maxPixel: pixel, variant: RasterVariant.hdr, aspect: aspect),
+           shown.peakBytes <= available { return shown }
+        let full = try? RasterDecodePlan(metadata: metadata, maxPixel: pixel, aspect: aspect)
+        if let full, full.peakBytes <= available || !full.deep { return full }
+        return (try? RasterDecodePlan(metadata: metadata, maxPixel: pixel, variant: RasterVariant.reduced8, aspect: aspect)) ?? full
+    }
+    private static func wantsHDR(_ view: NodeView, _ metadata: RasterMetadata) -> Bool {
+        metadata.hdr && DisplayRange.showsHDR(view, limit: view.style["dynamic_range_limit"]?.string)
+    }
+    /// The metadata and source caps are an admission queue, not a refusal.
+    /// Taken in turn from after the last admitted view, so one source that
+    /// stays busy does not hold back the rest.
+    private func admitDeferred() {
+        let keys = deferred.keys.sorted()
+        for viewID in keys.filter({ $0 > deferredCursor }) + keys.filter({ $0 <= deferredCursor }) {
+            guard let item = deferred[viewID], let view = item.view,
+                  view.loadGeneration == item.generation, let resolver = item.resolver else {
+                deferred.removeValue(forKey: viewID); continue
+            }
+            switch backend.acquire(item.source, resolver: resolver) {
+            case .source(let source):
+                deferred.removeValue(forKey: viewID)
+                interests[viewID] = Interest(view: view, generation: item.generation, source: source)
+                deferredCursor = viewID
+            case .busy:
+                continue
+            case .refused:
+                deferred.removeValue(forKey: viewID)
+                view.presenter?.session?.log("image deferred: invalid raster source or stopped loader")
+                Self.announce([(view, item.generation, "invalid raster source")])
+            }
         }
     }
     /// What a decode can have without lowering its resolution: the budget
@@ -476,6 +939,22 @@ final class RasterLoader {
         let used = exact_raster_stats(id)
         let held = used.resident_bytes - min(used.resident_bytes, used.cold_bytes)
         return Int(budget - min(budget, held))
+    }
+    /// HTML `<img>`'s `load`, or its `error` with the reason (LLP 1011 §4),
+    /// to a node that hears it: on the next main turn, after the sizes this
+    /// turn reported and the batch that set the source, and only while the
+    /// view still shows that load (`generation`; nil for a source refused
+    /// before it had one).
+    private static func announce(_ events: [(view: NodeView, generation: Int?, failure: String?)]) {
+        for (view, generation, failure) in events {
+            DispatchQueue.main.async { [weak view] in
+                guard let view, generation.map({ $0 == view.loadGeneration }) ?? true,
+                      let session = view.presenter?.session, view.presenter?.views[view.id] === view,
+                      view.handlers.contains(failure == nil ? "load" : "error") else { return }
+                session.apply(failure.map { session.runtime.media(view.id, event: "error", payload: $0, now: session.now()) }
+                              ?? session.runtime.load(view.id, now: session.now()))
+            }
+        }
     }
     private func report(_ landed: [(view: NodeView, generation: Int, size: CGSize)]) {
         guard let presenter = landed.first?.view.presenter else { return }
@@ -489,16 +968,22 @@ final class RasterLoader {
         self.paused = paused
         backend.setPaused(paused)
         exact_raster_session_control(id, paused ? 1 : 2)
-        for key in interests.keys { interests[key]?.request = 0; interests[key]?.failure = nil; interests[key]?.delivered = false }
+        for key in interests.keys {
+            interests[key]?.request = 0; interests[key]?.failure = nil; interests[key]?.delivered = false
+            interests[key]?.admissionDeferred = false; interests[key]?.waiting = nil
+        }
         if !paused { reconcile() }
     }
     func reset() {
-        interests.removeAll(); backend.reset(stop: false); exact_raster_session_control(id, 0)
+        interests.removeAll(); deferred.removeAll(); refused.removeAll(); deferredCursor = 0
+        parked.removeAll(); stopWatchingScrolls()
+        backend.reset(stop: false); exact_raster_session_control(id, 0)
     }
     func shutdown() {
         guard !destroyed else { return }; destroyed = true
         pressure?.cancel(); pressure = nil
-        interests.removeAll(); backend.reset(stop: true); exact_raster_session_control(id, 3)
+        interests.removeAll(); deferred.removeAll(); parked.removeAll(); stopWatchingScrolls()
+        backend.reset(stop: true); exact_raster_session_control(id, 3)
     }
     var diagnostics: [String: Any] {
         let s = exact_raster_stats(id)
@@ -508,15 +993,36 @@ final class RasterLoader {
             "running": s.process_running, "sessionRunning": s.running, "ready": s.ready, "deliveryCells": s.delivery_cells,
             "pending": s.pending_jobs, "subscribers": s.subscribers, "coldEntries": s.cold_entries,
             "sources": backend.sources.count, "metadataReads": backend.metadataReads, "decoded": backend.decoded,
-            "cancelled": s.cancelled, "sourceLimit": RasterBackend.sourceLimit,
+            "cancelled": s.cancelled, "sourceLimit": backend.sourceLimit,
             "refusals": backend.refusals, "viewInterests": interests.count, "lastRefusal": Self.refusal(s.last_refusal),
             "images": interests.map { view, interest -> [String: Any] in
                 ["view": view, "source": String(interest.source.id), "offeredPixel": interest.offeredPixel,
                  "admittedPixel": interest.requestedPixel, "status": exact_raster_status(id, interest.request),
-                 "failure": interest.failure ?? "", "pixels": [interest.view?.raster?.image.image.width ?? 0, interest.view?.raster?.image.image.height ?? 0]]
+                 "failure": interest.failure ?? "", "declines": interest.declines, "parked": interest.parked, "pixels": [interest.view?.raster?.image.image.width ?? 0, interest.view?.raster?.image.image.height ?? 0],
+                 "color": Self.colorFacts(interest)]
             },
-            "deferred": interests.values.filter { $0.failure != nil || ($0.request != 0 && exact_raster_status(id, $0.request) == 2) }.count,
+            "deferred": interests.values.filter { $0.admissionDeferred || $0.failure != nil || ($0.request != 0 && exact_raster_status(id, $0.request) == 2) }.count,
+            "deferredAdmission": deferred.count, "parked": parked.count,
             "scope": "Exact-owned RGBA storage plus conservative thumbnail/conversion reservation; ImageIO internals excluded"]
+    }
+    /// What the agent sees of a picture's storage (LLP 1100 D12).
+    private static func colorFacts(_ interest: Interest) -> [String: Any] {
+        let names: [UInt32: String] = [RasterVariant.srgb8: "srgb8", RasterVariant.own8: "own8",
+                                       RasterVariant.deep: "deep", RasterVariant.hdr: "hdr", RasterVariant.reduced8: "reduced8"]
+        var facts: [String: Any] = ["variant": names[interest.variant] ?? String(interest.variant),
+                                    "fallback": interest.variant == RasterVariant.reduced8 ? "budget" : NSNull()]
+        if let image = interest.view?.raster?.image.image {
+            facts["space"] = image.colorSpace.map(colorSpaceName) ?? "none"
+            facts["bitsPerComponent"] = image.bitsPerComponent
+            facts["bytesPerPixel"] = image.bitsPerPixel / 8
+            if let raster = interest.view?.raster?.image, raster.isHDR { facts["headroom"] = raster.headroom }
+            if let layer = interest.view?.imageLayer {
+                var shown = layer.dynamicRangeFacts
+                shown["current"] = (layer.contents as AnyObject?) === image
+                facts["layer"] = shown
+            }
+        }
+        return facts
     }
     private static func refusal(_ code: UInt64) -> String {
         let names = ["none", "overflow", "invalid dimensions", "encoded limit", "header limit", "source pixels",
@@ -524,4 +1030,8 @@ final class RasterLoader {
             "stale", "actual exceeds reservation", "decode failed"]
         return code < names.count ? names[Int(code)] : "unknown refusal"
     }
+    /// A full request queue is temporary: every decode that lands or fails
+    /// wakes reconciliation, which asks again, and a pass that makes room
+    /// wakes one itself. Any other refusal stands.
+    static func transientRequestRefusal(_ code: UInt64) -> Bool { code == 8 }
 }

@@ -1,0 +1,41 @@
+// Synthetic conformance plan: action calls (LLP 1089). A call is its
+// callee's statements expanded by the compiler, so the JS target and the
+// wasm runner run the same plan: a same-component call in a child, a prop
+// call before the child's own write, a chain, and a callee's refusal that
+// rolls back its caller.
+component Calls
+  state log = ""
+  state total = 0
+  state z = 0
+  action note(what: string)
+    log = `${log}${what};`
+  action add(by: number)
+    total = total + by
+  action both(by: number)
+    add(by)
+    note(`+${by}`)
+  action divide
+    z = 1 / z
+  action broken
+    note("never")
+    divide()
+  view
+    column testId="root" gap=8 padding=8
+      button "both" press=both(2) testId="both" padding=8
+      button "broken" press=broken testId="broken" padding=8
+      Row(label="a", picked=note)
+      Row(label="b", picked=note)
+      text `${total} ${z} ${log}` testId="out"
+
+component Row
+  props
+    label: string
+    picked: action
+  state taps = 0
+  action count(by: number)
+    taps = taps + by
+  action tap
+    picked(label)
+    count(1)
+  view
+    button `${label} ${taps}` press=tap testId=`row-${label}` padding=8

@@ -1,0 +1,82 @@
+// LLP 1035.005.000 D2: `let` in actions. A local is immutable and read by
+// the statements after it in its block and the blocks nested there; each
+// branch is its own block. Writes still land together, so a local read after
+// a write still sees the action's starting state. A child's local never
+// captures a name its parent passes in, and lifted into the root it may
+// spell a root name the child never saw.
+shape Point
+  x: number
+  y: number
+
+component App
+  state count = 5
+  state before = 0
+  state after = 0
+  state label = ""
+  state spot = Point(x=0, y=0)
+  state room = 0
+  state twice = 0
+  action step
+    let start = count
+    count = count + 1
+    let seen = count
+    before = start
+    after = seen
+  action describe(n: number)
+    let big = n > 10
+    if big
+      let word = "big"
+      label = `${word} ${n}`
+    else
+      let word = "small"
+      let sentence = `${word} ${n}`
+      label = sentence
+  action place(maybe: option<Point>)
+    match maybe
+      case some(p)
+        let moved = Point(p, x=p.x + 1)
+        let lifted = Point(moved, y=moved.y + count)
+        spot = lifted
+      case none
+        spot = Point(x=0, y=0)
+  action read
+    let bay = frame("bay")
+    room = bay.height
+    twice = bay.height * 2
+  view
+    column id="bay" height=300
+      text `${count} ${before} ${after}` testId="counts"
+      text label testId="label"
+      text `${spot.x},${spot.y}` testId="spot"
+      text `${room} ${twice}` testId="room"
+      button press=step testId="step"
+        text "step"
+      button press=describe(3) testId="small"
+        text "small"
+      button press=describe(30) testId="big"
+        text "big"
+      button press=place(some(Point(x=1, y=2))) testId="place"
+        text "place"
+      button press=place(none) testId="clear"
+        text "clear"
+      button press=read testId="read"
+        text "read"
+      Child(amount=count)
+
+component Child
+  props
+    amount: number
+  state doubled = 0
+  state said = ""
+  action double
+    let count = 2
+    doubled = amount * count
+  action say
+    let label = "child"
+    said = label
+  view
+    row
+      button press=double testId="double"
+        text `${doubled}` testId="doubled"
+      button press=say testId="say"
+        text said testId="said"

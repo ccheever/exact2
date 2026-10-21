@@ -107,6 +107,8 @@ export function loadSigner(app, keysDir) {
     keyId,
     path,
     publicKey: rawPublic(createPublicKey(privateKey)).toString('base64'),
+    /** An Ed25519 signature over `bytes`: how an AppDrop origin authenticates a write. */
+    signBytes(bytes) { return sign(null, bytes, privateKey); },
     /** The `signature` member for `head` (which must not carry one yet). */
     sign(head) { return { keyId, ed25519: sign(null, canonicalBytes(head), privateKey).toString('base64') }; },
   };

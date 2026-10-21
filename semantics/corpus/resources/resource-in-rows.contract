@@ -1,0 +1,30 @@
+// A resource list's records rendered in rows, read through fields of
+// nested records and lists.
+shape Author
+  name: string
+  verified: bool
+
+shape Post
+  id: string
+  author: Author
+  likes: number
+  tags: string[]
+
+component App
+  resource posts = posts() as shape Post[]
+  derive verified = posts.filter(p => p.author.verified)
+  derive likeSum = posts.map(p => p.likes * 2).join("+")
+  view
+    column
+      text `${verified.length}/${posts.length}` testId="verified"
+      text likeSum testId="likes"
+      for p, i in posts key=i
+        row testId=`post-${i}`
+          text p.author.name testId=`author-${i}`
+          text `${p.likes} likes` testId=`likes-${i}`
+          text p.tags.join("#") testId=`tags-${i}`
+          if p.author.verified
+            text "✓" testId=`check-${i}`
+
+test "renders"
+  expect tree has "verified"

@@ -1,62 +1,59 @@
-// @ref LLP 1044.000 §6 S1 — textual descendants are paragraph values.
+import ExactCore
 import Foundation
 import CoreText
 
-struct InlineText {
-    let id: UInt32
-    let parent: UInt32
-    let props: [String: String]
-    private let lightRun: Run
-    private let darkColor: [Double]?
-    private let darkBackground: [Double]?
-    let hasSchemeColor: Bool
-    let handlers: Set<String>
-    let paints: Bool
-    var range: NSRange = NSRange(location: 0, length: 0)
-
-    init(id: UInt32, parent: UInt32, props: [String: String], style: InlineStyle,
-         handlers: Set<String>, paints: Bool) {
-        self.id = id; self.parent = parent; self.props = props
-        var value = style.run
-        value.text = props["text"] ?? ""
-        value.href = props["href"] ?? ""
-        lightRun = value
-        darkColor = style.darkColor
-        darkBackground = style.darkBackground
-        hasSchemeColor = style.paired
-        self.handlers = handlers; self.paints = paints
-    }
-
-    var text: String { lightRun.text }
-    var isBox: Bool { lightRun.inlineBox != nil }
-    func run(dark: Bool) -> Run {
+extension InlineText {
+    /// Whether a colour here is the view's tint (LLP 1095 D8).
+    var namesTint: Bool { colorRef?.namesTint == true || backgroundRef?.namesTint == true || paint.namesTint }
+    /// The run in its paragraph owner's traits: `contrast` and `elevated`
+    /// as `BatchValue.channels` takes them (LLP 1095 D5).
+    func run(dark: Bool, contrast: Bool? = nil, elevated: Bool = false, tint: PlatformColor? = nil) -> Run {
         var value = lightRun
         if dark { value.color = darkColor; value.background = darkBackground }
+        if let colorRef { value.color = colorRef.channels(dark: dark, contrast: contrast, elevated: elevated, tint: tint) }
+        value.fixedInk = fixedInk
+        if let backgroundRef { value.background = backgroundRef.channels(dark: dark, contrast: contrast, elevated: elevated, tint: tint) }
+        (value.shadow, value.stroke) = paint.resolve(dark: dark, contrast: contrast, elevated: elevated, tint: tint,
+                                                     color: value.color ?? SystemColor.canvasTextChannels(dark: dark, contrast: contrast))
         return value
     }
-
-    static func run(_ text: String, style: NodeStyle, href: String = "", dark: Bool) -> Run {
+    static func run(_ text: String, style: NodeStyle, href: String = "", dark: Bool, contrast: Bool? = nil, elevated: Bool = false,
+                    tint: PlatformColor? = nil) -> Run {
         func number(_ key: String, _ fallback: Double = 0) -> Double { style[key]?.number ?? fallback }
-        let size = Float(number("font_size", 16))
+        let size = Float(number("font_size", Double(PageFacts.defaultRootFontSize)))
         let height: CGFloat?
         if let ratio = style["line_height"]?.number { height = CGFloat(Float(ratio) * size) }
         else if let px = style["line_height"]?.string, px.hasSuffix("px"), let value = Float(px.dropLast(2)) { height = CGFloat(value) }
         else { height = nil }
-        return Run(text: text, size: CGFloat(size), weight: Int(number("font_weight", 400)),
-                   family: Int(number("font_family")), italic: style["font_style"]?.string == "italic",
-                   lineHeight: height, letterSpacing: CGFloat(Float(number("letter_spacing"))),
-                   numeric: Int(number("font_variant_numeric")),
-                   color: style["text_color"]?.channels(dark: dark),
-                   decoration: style["text_decoration_line"]?.string ?? "", href: href)
+        var run = Run(text: text, size: CGFloat(size), weight: Int(number("font_weight", 400)),
+                      family: Int(number("font_family")), italic: style["font_style"]?.string == "italic",
+                      lineHeight: height, letterSpacing: CGFloat(Float(number("letter_spacing"))),
+                      numeric: Int(number("font_variant_numeric")),
+                      stretch: CGFloat(Float(number("font_stretch", 100))),
+                      variations: FontAxis.of(style["font_variation_settings"]),
+                      color: style["text_color"]?.textChannels(dark: dark, contrast: contrast, elevated: elevated, tint: tint),
+                      decoration: style["text_decoration_line"]?.string ?? "", href: href)
+        (run.shadow, run.stroke) = RunPaintRows(style).resolve(dark: dark, contrast: contrast, elevated: elevated, tint: tint,
+                                                               color: run.color ?? SystemColor.canvasTextChannels(dark: dark, contrast: contrast))
+        run.hidden = style["visibility"]?.string == "hidden"
+        run.fixedInk = style["text_color"]?.fixesInk == true
+        return run
     }
 }
 
-// Resolved while reading a paragraph; no dictionary of unused layout rows.
-struct InlineStyle {
-    var run = Run(text: "", size: 16, weight: 400, family: 0, italic: false, lineHeight: nil, letterSpacing: 0)
-    var darkColor: [Double]?
-    var darkBackground: [Double]?
-    var paired = false
+extension Run {
+    /// Whether it is drawn underlined: written, or a link run with no
+    /// decoration written where the platform underlines links. AppKit's
+    /// `NSTextView.linkTextAttributes` does; UIKit's text links are the tint
+    /// alone (LLP 1115 §3), so iOS invents none.
+    var underlined: Bool {
+        decoration.contains("underline") || (Run.linksUnderlined && decoration.isEmpty && !href.isEmpty)
+    }
+    #if os(macOS)
+    static let linksUnderlined = true
+    #else
+    static let linksUnderlined = false
+    #endif
 }
 
 extension Presenter {
@@ -67,22 +64,40 @@ extension Presenter {
               node.inlineText.indices.contains(location.index) else { return nil }
         return node.inlineText[location.index]
     }
-    func inlineEnabled(_ id: UInt32) -> Bool {
-        guard let host = textHost(id), !host.inert, !host.disabled,
-              let value = inlineText(id), value.props["disabled"] != "true" else { return false }
-        var current: InlineText? = value
+    func inlineAriaUnavailable(_ id: UInt32) -> Bool {
+        var current = inlineText(id)
         while let run = current {
-            if run.props["inert"] == "true" { return false }
+            if let value = run.props["accessibilityDisabled"] { return value == "true" }
             current = inlineText(run.parent)
         }
-        return true
+        return textHost(id)?.ariaUnavailable == true
+    }
+    func inlineEnabled(_ id: UInt32) -> Bool {
+        guard let host = textHost(id), !host.disabled,
+              let value = inlineText(id), value.props["disabled"] != "true" else { return false }
+        return !inlineInert(id)
+    }
+    func inlineInert(_ id: UInt32) -> Bool {
+        guard let host = textHost(id), !host.inert, let value = inlineText(id) else { return true }
+        var current: InlineText? = value
+        while let run = current {
+            if run.props["inert"] == "true" { return true }
+            current = inlineText(run.parent)
+        }
+        return false
     }
     func forgetParagraph(_ node: NodeView) {
         for run in node.inlineText where inlineOwners[run.id]?.owner == node.id { inlineOwners.removeValue(forKey: run.id) }
         node.inlineText.removeAll()
+        #if os(iOS)
+        textSelection.remove(node) // its text interaction and selection go with it
+        #endif
     }
     func applyParagraph(_ id: UInt32, _ runs: [InlineText]) {
         guard let node = views[id] else { return }
+        #if os(macOS)
+        let hadLinks = node.inlineText.contains(where: \.isLink)
+        #endif
         forgetParagraph(node)
         var offset = 0
         var rows = runs
@@ -102,6 +117,12 @@ extension Presenter {
         node.invalidateText()
         node.updateInlineInteraction()
         node.updateTextAccessibility()
+        #if os(macOS)
+        // Its `href` runs' pointing hand (`resetCursorRects`).
+        if hadLinks || rows.contains(where: \.isLink) { node.window?.invalidateCursorRects(for: node) }
+        keyViewLoopStale = true
+        if !node.inlineKeyViews.isEmpty { _ = node.syncInlineKeyViews() }
+        #endif
     }
 }
 
@@ -111,8 +132,9 @@ extension NodeView {
         #if os(macOS)
         if let readerParagraph { return readerParagraph.offset(at: point, node: self) }
         #endif
-        let box = contentBox()
-        guard box.contains(point), let paragraph = paragraphLayout() else { return nil }
+        // A fragmented paragraph's point, in its unfragmented box (LLP 1093 D8).
+        let box = paragraphBox()
+        guard let point = paragraphPoint(point), box.contains(point), let paragraph = paragraphLayout() else { return nil }
         let spec = paragraphSpec()
         guard let line = paragraph.lineIndex(at: CGPoint(x: point.x - box.minX, y: point.y - box.minY), align: spec.align, width: box.width) else { return nil }
         let x = box.minX + paragraph.origin(line, align: spec.align, width: box.width)
@@ -132,7 +154,14 @@ extension NodeView {
         }
         guard lo > 0 else { return nil }
         var run: InlineText? = inlineText[lo - 1]
+        var innermost = true
         while let current = run {
+            // Hidden text is no target; a visible run's hidden container
+            // still hears it, as a DOM event bubbles through it.
+            if innermost, NSLocationInRange(offset, current.range) {
+                if current.hidden { return nil }
+                innermost = false
+            }
             if NSLocationInRange(offset, current.range),
                handler.map({ current.handlers.contains($0) }) ?? (current.props["href"] != nil || current.paints) { return current }
             run = presenter?.inlineText(current.parent)
@@ -149,7 +178,7 @@ extension NodeView {
         var start = 0
         for run in paragraphSpec().runs {
             let end = start + run.text.utf16.count
-            if offset >= start && offset < end { return run.href.isEmpty ? nil : run.href }
+            if offset >= start && offset < end { return run.href.isEmpty || run.hidden ? nil : run.href }
             start = end
         }
         return nil
@@ -162,15 +191,28 @@ extension NodeView {
         }
         return nil
     }
-    func activateInline(_ id: UInt32) -> Bool {
+    var defaultLink: String? {
+        guard kind == "button", !handlers.contains("press"), let url = props["href"], !url.isEmpty else { return nil }
+        return url
+    }
+    func activateLink(_ url: String, bubbled: Bool = false) -> Bool {
+        guard let session = presenter?.session, !disabled, !(bubbled ? authoredInert : inert) else { return false }
+        if url.hasPrefix("/") && !url.hasPrefix("//") { return session.navigate(url) }
+        session.delegate?.exactSession(session, command: "openURL", args: [url]); return true
+    }
+    /// Whether `activateInline` acts on run `id`: it is enabled and has a
+    /// `press`, or an `href` and a session to follow it. An assistive app's
+    /// press answers with this and activates later (TextInteraction.swift).
+    func canActivateInline(_ id: UInt32) -> Bool {
         guard let presenter, presenter.inlineEnabled(id), let run = presenter.inlineText(id) else { return false }
+        return run.handlers.contains("press") || (presenter.session != nil && !(run.props["href"] ?? "").isEmpty)
+    }
+    func activateInline(_ id: UInt32) -> Bool {
+        guard canActivateInline(id), let presenter, let run = presenter.inlineText(id) else { return false }
         if run.handlers.contains("press") { presenter.press(id); return true }
-        if let url = run.props["href"], !url.isEmpty, let session = presenter.session {
-            // A path in this app is a location for the navigation root, as the
-            // web's same-document link is; anything else leaves the app.
-            if url.hasPrefix("/") && !url.hasPrefix("//") { return session.navigate(url) }
-            session.delegate?.exactSession(session, command: "openURL", args: [url]); return true
-        }
-        return false
+        // A route in the note navigates; anything else is the app's to open
+        // (session.follow). A button's own `href` uses `activateLink`.
+        guard let url = run.props["href"], let session = presenter.session else { return false }
+        return session.follow(url)
     }
 }

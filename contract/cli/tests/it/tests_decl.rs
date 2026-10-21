@@ -1,37 +1,40 @@
 //! LLP 1017 P7: `test` blocks parse to the agent's steps and print as JSON
 //! the driver reads (`scripts/agent.mjs --test`).
 
-use contract_syntax::Step;
+use contract_syntax::{Expr, Step, TapForm};
 
 #[test]
 fn a_test_block_parses_to_the_eight_operations_and_expects() {
-    let src = "test \"login\"\n  tap \"title\"\n  type \"who\" \"alice\"\n  type \"password\" key \"Enter\"\n  clock settle\n  clock +500\n  screenshot \"after.png\"\n  expect tree has \"login-error\"\n  expect tree missing \"signed-in\"\n  expect text \"login-error\" == \"Wrong password\"\n  expect state password == \"\"\n  expect state attempt == 1\n  expect state ok == false\n  expect state picked == none\n  expect state tags == []\n";
+    let src = "test \"login\"\n  tap \"title\"\n  type \"who\" \"alice\"\n  type \"password\" key \"Enter\"\n  clock settle\n  clock +500\n  clock +250 real\n  screenshot \"after.png\"\n  expect tree has \"login-error\"\n  expect tree missing \"signed-in\"\n  expect text \"login-error\" == \"Wrong password\"\n  expect state password == \"\"\n  expect state attempt == 1\n  expect state ok == false\n  expect state picked == none\n  expect state tags == []\n";
     let tests = contract::tests(src).unwrap();
     assert_eq!(tests.len(), 1);
     let t = &tests[0];
     assert_eq!(t.name, "login");
-    assert_eq!(t.steps.len(), 14);
-    assert!(matches!(&t.steps[0], Step::Tap { target, hover: false, .. } if target == "title"));
+    assert_eq!(t.steps.len(), 15);
+    assert!(
+        matches!(&t.steps[0], Step::Tap { target, form: TapForm::Press, .. } if target == "title")
+    );
     assert!(matches!(&t.steps[2], Step::Key { key, .. } if key == "Enter"));
     assert!(matches!(&t.steps[4], Step::Clock { arg, .. } if arg == "+500"));
+    assert!(matches!(&t.steps[5], Step::Clock { arg, .. } if arg == "+250 real"));
     assert!(matches!(
-        &t.steps[7],
+        &t.steps[8],
         Step::ExpectTree { present: false, .. }
     ));
-    assert!(matches!(&t.steps[8], Step::ExpectText { .. }));
+    assert!(matches!(&t.steps[9], Step::ExpectText { .. }));
     let json = contract::tests_json(&tests);
-    assert!(json.starts_with("[{\"name\":\"login\",\"steps\":[{\"op\":\"tap\",\"target\":\"title\",\"hover\":false,\"line\":2}"), "{json}");
+    assert!(json.starts_with("[{\"name\":\"login\",\"steps\":[{\"op\":\"tap\",\"target\":\"title\",\"form\":\"press\",\"line\":2}"), "{json}");
     assert!(
-        json.contains("{\"op\":\"expect-state\",\"name\":\"attempt\",\"value\":1,\"line\":12}"),
+        json.contains("{\"op\":\"expect-state\",\"name\":\"attempt\",\"value\":1,\"line\":13}"),
         "{json}"
     );
     assert!(
-        json.contains("{\"op\":\"expect-state\",\"name\":\"picked\",\"value\":null,\"line\":14}"),
+        json.contains("{\"op\":\"expect-state\",\"name\":\"picked\",\"value\":null,\"line\":15}"),
         "{json}"
     );
     // `[]` is the empty list on the wire too, never `null`.
     assert!(
-        json.contains("{\"op\":\"expect-state\",\"name\":\"tags\",\"value\":[],\"line\":15}"),
+        json.contains("{\"op\":\"expect-state\",\"name\":\"tags\",\"value\":[],\"line\":16}"),
         "{json}"
     );
     assert!(
@@ -51,6 +54,53 @@ fn a_step_that_is_not_an_operation_is_refused() {
 }
 
 #[test]
+fn expect_value_says_text_reads_a_controls_value() {
+    let e = contract::tests("test \"t\"\n  expect value \"people\" == \"2\"\n").unwrap_err();
+    assert_eq!(e.id, "syntax-expected-step", "{e}");
+    assert!(
+        e.message.ends_with(
+            "not `value`; `expect text` reads a control's value too (a checkbox with a `checked` binding reads `true` or `false`)"
+        ),
+        "{e}"
+    );
+}
+
+#[test]
+fn an_assertion_word_from_elsewhere_names_its_rewrite() {
+    let refused = |src: &str| contract::tests(&format!("test \"t\"\n  {src}\n")).unwrap_err();
+    let e = refused("expect tree lacks \"banner\"");
+    assert_eq!(e.id, "syntax-expected-step", "{e}");
+    assert!(
+        e.message
+            .contains("not `lacks`; for a node that is not there, write `expect tree missing"),
+        "{e}"
+    );
+    let e = refused("expect tree contains \"banner\"");
+    assert!(
+        e.message
+            .contains("not `contains`; it matches a testId only"),
+        "{e}"
+    );
+    for src in [
+        "expect text \"row\" contains \"UPS\"",
+        "expect text \"row\" != \"UPS\"",
+    ] {
+        let e = refused(src);
+        assert_eq!(e.id, "syntax-expected-step", "{e}");
+        assert!(
+            e.message
+                .starts_with("`expect text` compares the whole text with `==`"),
+            "{e}"
+        );
+        assert!(e.message.contains("descendants' joined"), "{e}");
+    }
+    assert!(contract::tests(
+        "test \"t\"\n  expect tree missing \"banner\"\n  expect text \"row\" == \"UPS\"\n"
+    )
+    .is_ok());
+}
+
+#[test]
 fn the_apps_tests_parse() {
     let src = std::fs::read_to_string(concat!(
         env!("CARGO_MANIFEST_DIR"),
@@ -59,4 +109,663 @@ fn the_apps_tests_parse() {
     .unwrap();
     let tests = contract::tests(&src).unwrap();
     assert_eq!(tests.len(), 3);
+}
+
+#[test]
+fn a_test_drags_a_card_to_another_list() {
+    // LLP 1094 D12: `drag to` ends at the other node's middle, or at a
+    // point in its box.
+    let src = "test \"board\"\n  tap \"grip-a1\" drag to \"list-b\" over 300\n  tap \"grip-a2\" drag to \"list-c\" at 10 -4 mouse hold 50\n";
+    let tests = contract::tests(src).unwrap();
+    let t = &tests[0];
+    assert!(
+        matches!(&t.steps[0], Step::Drag { to: Some((to, None)), over: Some(o), .. } if to == "list-b" && *o == 300.0)
+    );
+    assert!(
+        matches!(&t.steps[1], Step::Drag { to: Some((to, Some((x, y)))), mouse: true, hold: Some(h), .. } if to == "list-c" && *x == 10.0 && *y == -4.0 && *h == 50.0)
+    );
+    let json = contract::tests_json(&tests);
+    assert!(
+        json.contains(
+            "{\"op\":\"drag\",\"target\":\"grip-a1\",\"to\":\"list-b\",\"over\":300,\"line\":2}"
+        ),
+        "{json}"
+    );
+    assert!(
+        json.contains("\"to\":\"list-c\",\"at\":[10,-4],\"mouse\":true,\"hold\":50"),
+        "{json}"
+    );
+    let e = contract::tests("test \"t\"\n  tap \"a\" drag to 3\n").unwrap_err();
+    assert_eq!(e.id, "syntax-expected-string", "{e}");
+}
+
+#[test]
+fn a_test_drags_and_opens_at_its_size() {
+    // kanban F18, paint F5: a drag, as the driver's `tap … drag`, and the
+    // viewport a test's session opens at, as its `--size`.
+    let src = "test \"board\"\n  size 1280x800\n  tap \"card\" drag 300 -60 hold 100\n  tap \"card\" drag -4.5 0\n  tap \"row\" drag 0 -100 from 12 8 mouse over 300\n";
+    let tests = contract::tests(src).unwrap();
+    let t = &tests[0];
+    assert!(
+        matches!(&t.steps[0], Step::Size { width, height, .. } if *width == 1280.0 && *height == 800.0)
+    );
+    assert!(
+        matches!(&t.steps[1], Step::Drag { dx, dy, hold: Some(h), press: None, .. } if *dx == 300.0 && *dy == -60.0 && *h == 100.0)
+    );
+    assert!(matches!(&t.steps[2], Step::Drag { dx, .. } if *dx == -4.5));
+    // Where in the node it starts, and the left button (files diary F10).
+    assert!(
+        matches!(&t.steps[3], Step::Drag { from: Some((x, y)), mouse: true, over: Some(o), .. } if *x == 12.0 && *y == 8.0 && *o == 300.0)
+    );
+    let json = contract::tests_json(&tests);
+    assert!(
+        json.contains("{\"op\":\"size\",\"width\":1280,\"height\":800,\"line\":2}"),
+        "{json}"
+    );
+    assert!(
+        json.contains(
+            "{\"op\":\"drag\",\"target\":\"card\",\"dx\":300,\"dy\":-60,\"hold\":100,\"line\":3}"
+        ),
+        "{json}"
+    );
+    assert!(
+        json.contains(
+            "{\"op\":\"drag\",\"target\":\"row\",\"dx\":0,\"dy\":-100,\"from\":[12,8],\"mouse\":true,\"over\":300,\"line\":5}"
+        ),
+        "{json}"
+    );
+    // The session opens at its size: a later `size` is refused, as is an
+    // option given twice, or a size not written as the driver's flag is.
+    let e = contract::tests("test \"t\"\n  tap \"a\"\n  size 800x600\n").unwrap_err();
+    assert_eq!((e.id.as_str(), e.span.line), ("syntax-expected-step", 3));
+    let e = contract::tests("test \"t\"\n  tap \"a\" drag 1 2 over 10 over 20\n").unwrap_err();
+    assert_eq!(e.id, "syntax-expected-step");
+    let e = contract::tests("test \"t\"\n  tap \"a\" drag 1 2 mouse mouse\n").unwrap_err();
+    assert_eq!(e.id, "syntax-expected-step");
+    let e = contract::tests("test \"t\"\n  size 800 600\n").unwrap_err();
+    assert_eq!(e.id, "syntax-expected-step");
+}
+
+#[test]
+fn a_test_pinches_holds_a_key_and_indexes_state() {
+    // stocks: pinch. platformer R7: a key held on the virtual clock, and a
+    // drag that holds. drums R7–R8: `during`, a list index, a negative number.
+    let src = "test \"play\"\n  tap \"chart\" pinch 2\n  tap \"map\" pinch 1.5 at 4 -2\n  type \"board\" key \"KeyW\" down\n  type \"board\" key \"KeyW\" up\n  type \"board\" key \"Space\" for 40\n  tap \"card\" drag 10 0 hold 100 during \"clock +500\"\n  expect state items.0 == -3\n  expect state song.patterns.0.rows.0 == 3\n";
+    let tests = contract::tests(src).unwrap();
+    let t = &tests[0];
+    assert!(matches!(
+        &t.steps[0],
+        Step::Tap { form: TapForm::Pinch { scale, at: None }, .. } if *scale == 2.0
+    ));
+    assert!(matches!(
+        &t.steps[1],
+        Step::Tap { form: TapForm::Pinch { scale, at: Some((x, y)) }, .. } if *scale == 1.5 && *x == 4.0 && *y == -2.0
+    ));
+    assert!(matches!(
+        &t.steps[2],
+        Step::Key { key, phase: Some(p), duration: None, .. } if key == "KeyW" && p == "down"
+    ));
+    assert!(matches!(
+        &t.steps[3],
+        Step::Key { phase: Some(p), .. } if p == "up"
+    ));
+    assert!(matches!(
+        &t.steps[4],
+        Step::Key { key, phase: None, duration: Some(ms), .. } if key == "Space" && *ms == 40.0
+    ));
+    assert!(matches!(
+        &t.steps[5],
+        Step::Drag { hold: Some(h), during, .. } if *h == 100.0 && during.as_slice() == ["clock +500"]
+    ));
+    assert!(matches!(
+        &t.steps[6],
+        Step::ExpectState { name, value: Expr::Number(n, _), .. } if name == "items.0" && *n == -3.0
+    ));
+    assert!(matches!(
+        &t.steps[7],
+        Step::ExpectState { name, .. } if name == "song.patterns.0.rows.0"
+    ));
+    let json = contract::tests_json(&tests);
+    assert!(
+        json.contains(
+            "{\"op\":\"tap\",\"target\":\"chart\",\"form\":\"pinch\",\"scale\":2,\"line\":2}"
+        ),
+        "{json}"
+    );
+    assert!(
+        json.contains("\"form\":\"pinch\",\"scale\":1.5,\"at\":[4,-2]"),
+        "{json}"
+    );
+    assert!(
+        json.contains(
+            "{\"op\":\"key\",\"target\":\"board\",\"key\":\"KeyW\",\"phase\":\"down\",\"line\":4}"
+        ),
+        "{json}"
+    );
+    assert!(
+        json.contains(
+            "{\"op\":\"key\",\"target\":\"board\",\"key\":\"Space\",\"for\":40,\"line\":6}"
+        ),
+        "{json}"
+    );
+    assert!(
+        json.contains("\"hold\":100,\"during\":[\"clock +500\"]"),
+        "{json}"
+    );
+    assert!(
+        json.contains("{\"op\":\"expect-state\",\"name\":\"items.0\",\"value\":-3,\"line\":8}"),
+        "{json}"
+    );
+    // `pinch` is not a leftover word on the line (stocks: syntax-expected-newline).
+    let e = contract::tests("test \"t\"\n  tap \"chart\" pinch\n").unwrap_err();
+    assert_eq!(e.id, "syntax-expected-step");
+    let e = contract::tests("test \"t\"\n  tap \"a\" drag 1 0 during \"clock +1\" hold 10\n")
+        .unwrap_err();
+    assert_eq!(e.id, "syntax-expected-step");
+    let e = contract::tests("test \"t\"\n  tap \"a\" drag 1 0 during \"tap b\"\n").unwrap_err();
+    assert_eq!(e.id, "syntax-expected-step");
+    let e = contract::tests("test \"t\"\n  type \"a\" key \"Space\" down for 10\n").unwrap_err();
+    assert_eq!(e.id, "syntax-expected-step");
+    let e = contract::tests("test \"t\"\n  expect state n == -1 + 2\n").unwrap_err();
+    assert_eq!(e.id, "syntax-expected-step");
+}
+
+#[test]
+fn a_file_and_a_test_carry_their_launch_facts() {
+    // habits F7, calendar F13: the date, zone, locale, seed and viewport a
+    // test needs are written in the file, not remembered as driver flags.
+    // The file's lines lead every test that does not name its own.
+    let src = "epoch \"2026-09-21T12:00:00Z\"\ntime-zone \"America/New_York\"\nsize 1200x800\n\ntest \"a\"\n  locale \"fr-FR\"\n  seed 7\n  tap \"x\"\n\ntest \"b\"\n  epoch 1790000000000\n  size 420x900\n  expect tree has \"y\"\n";
+    let tests = contract::tests(src).unwrap();
+    let json = contract::tests_json(&tests);
+    assert!(json.starts_with("[{\"name\":\"a\",\"steps\":[{\"op\":\"epoch\",\"value\":\"2026-09-21T12:00:00Z\",\"line\":1},{\"op\":\"time-zone\",\"value\":\"America/New_York\",\"line\":2},{\"op\":\"size\",\"width\":1200,\"height\":800,\"line\":3},{\"op\":\"locale\",\"value\":\"fr-FR\",\"line\":6},{\"op\":\"seed\",\"value\":7,\"line\":7},{\"op\":\"tap\""), "{json}");
+    assert!(json.contains("{\"name\":\"b\",\"steps\":[{\"op\":\"time-zone\",\"value\":\"America/New_York\",\"line\":2},{\"op\":\"epoch\",\"value\":\"1790000000000\",\"line\":11},{\"op\":\"size\",\"width\":420,\"height\":900,\"line\":12},{\"op\":\"expect-tree\""), "{json}");
+    // Each leads its test's steps and is named once; the values are the
+    // driver's: an ISO date or whole milliseconds, a whole seed.
+    for (src, line) in [
+        ("test \"t\"\n  tap \"a\"\n  seed 7\n", 3),
+        ("test \"t\"\n  locale \"fr\"\n  locale \"de\"\n", 3),
+        ("seed 1\nseed 2\n", 2),
+        ("test \"t\"\n  epoch \"Sept 21\"\n", 2),
+        ("test \"t\"\n  epoch today\n", 2),
+        ("test \"t\"\n  epoch \"now\"\n", 2),
+        ("test \"t\"\n  seed 1.5\n", 2),
+        ("test \"t\"\n  seed 4294967296\n", 2),
+        ("test \"t\"\n  time-zone UTC\n", 2),
+    ] {
+        let e = contract::tests(src).unwrap_err();
+        assert_eq!(e.span.line, line, "{src}: {e}");
+    }
+    // The launch seed is below 2^32 on every host (LLP 1116.005 D5).
+    let e = contract::tests("test \"t\"\n  seed 4294967296\n").unwrap_err();
+    assert!(e.message.contains("0 through 2^32 - 1"), "{e}");
+    assert!(contract::tests("test \"t\"\n  seed 4294967295\n").is_ok());
+}
+
+#[test]
+fn epoch_now_is_the_machines_clock_read_by_the_driver_at_launch() {
+    // App farm round 2: a test against a live backend (Snapback 4's dev
+    // server runs on real time) opts into the machine's clock; the driver
+    // reads it once at launch, so the word travels as written.
+    let src = "epoch now\n\ntest \"a\"\n  tap \"x\"\n\ntest \"b\"\n  epoch now\n  tap \"y\"\n";
+    let tests = contract::tests(src).unwrap();
+    assert!(matches!(&tests[0].steps[0], Step::Epoch { value, .. } if value == "now"));
+    let json = contract::tests_json(&tests);
+    assert!(
+        json.starts_with(
+            "[{\"name\":\"a\",\"steps\":[{\"op\":\"epoch\",\"value\":\"now\",\"line\":1},"
+        ),
+        "{json}"
+    );
+    assert!(
+        json.contains(
+            "{\"name\":\"b\",\"steps\":[{\"op\":\"epoch\",\"value\":\"now\",\"line\":7},"
+        ),
+        "{json}"
+    );
+}
+
+#[test]
+fn a_test_waits_for_the_apps_data_unless_it_says_before_data() {
+    // habits, pomodoro, kanban: every test's first step waits for the app's
+    // data, as `clock data` does; `before data` does not wait, and
+    // `clock data` lands what a step started without moving the clock.
+    let src = "before data\n\ntest \"a\"\n  expect text \"x\" == \"Opening…\"\n  clock data\n\ntest \"b\"\n  before data\n  size 420x900\n  tap \"y\"\n";
+    let tests = contract::tests(src).unwrap();
+    assert!(matches!(&tests[0].steps[0], Step::BeforeData { .. }));
+    assert!(matches!(&tests[0].steps[2], Step::Clock { arg, .. } if arg == "data"));
+    let json = contract::tests_json(&tests);
+    assert!(
+        json.starts_with("[{\"name\":\"a\",\"steps\":[{\"op\":\"before-data\",\"line\":1},"),
+        "{json}"
+    );
+    assert!(
+        json.contains("{\"op\":\"clock\",\"arg\":\"data\",\"line\":5}"),
+        "{json}"
+    );
+    assert!(
+        json.contains(
+            "{\"name\":\"b\",\"steps\":[{\"op\":\"before-data\",\"line\":8},{\"op\":\"size\""
+        ),
+        "{json}"
+    );
+    for (src, line) in [
+        ("test \"t\"\n  tap \"a\"\n  before data\n", 3),
+        ("test \"t\"\n  before \"a\"\n", 2),
+        ("before data\nbefore data\n", 2),
+    ] {
+        let e = contract::tests(src).unwrap_err();
+        assert_eq!(e.span.line, line, "{src}: {e}");
+    }
+}
+
+#[test]
+fn fresh_resets_the_backend_before_each_test_it_leads() {
+    // The author's ruling of 2026-10-12 (sb4 app farm): a launch line, at the
+    // top for every test or leading one, with an optional seed file.
+    let src = "fresh\n\ntest \"a\"\n  tap \"x\"\n\ntest \"b\"\n  fresh \"fixtures/seed.json\"\n  tap \"y\"\n";
+    let tests = contract::tests(src).unwrap();
+    assert!(matches!(&tests[0].steps[0], Step::Fresh { seed: None, .. }));
+    assert!(
+        matches!(&tests[1].steps[0], Step::Fresh { seed: Some(s), .. } if s == "fixtures/seed.json")
+    );
+    let json = contract::tests_json(&tests);
+    assert!(
+        json.starts_with(
+            "[{\"name\":\"a\",\"steps\":[{\"op\":\"fresh\",\"seed\":null,\"line\":1},"
+        ),
+        "{json}"
+    );
+    assert!(
+        json.contains("{\"name\":\"b\",\"steps\":[{\"op\":\"fresh\",\"seed\":\"fixtures/seed.json\",\"line\":7},"),
+        "{json}"
+    );
+    for (src, line) in [
+        ("test \"t\"\n  tap \"a\"\n  fresh\n", 3),
+        ("test \"t\"\n  fresh 7\n", 2),
+        ("fresh\nfresh \"s.json\"\n", 2),
+    ] {
+        let e = contract::tests(src).unwrap_err();
+        assert_eq!(e.span.line, line, "{src}: {e}");
+    }
+}
+
+#[test]
+fn a_test_resizes_the_window_mid_test() {
+    // reader: repagination on resize is driven, not polled for by hand.
+    let tests =
+        contract::tests("test \"t\"\n  size 1200x800\n  tap \"a\"\n  resize 800x600\n").unwrap();
+    assert!(
+        matches!(&tests[0].steps[2], Step::Resize { width, height, .. } if *width == 800.0 && *height == 600.0)
+    );
+    let json = contract::tests_json(&tests);
+    assert!(
+        json.contains("{\"op\":\"resize\",\"width\":800,\"height\":600,\"line\":4}"),
+        "{json}"
+    );
+    for src in ["test \"t\"\n  resize 800\n", "test \"t\"\n  resize 0x600\n"] {
+        let e = contract::tests(src).unwrap_err();
+        assert!(e.message.starts_with("`resize` takes"), "{e}");
+    }
+}
+
+#[test]
+fn a_test_closes_the_window_as_its_close_button_does() {
+    // studio diary R17: `beforeunload` and "Save changes?" are driven.
+    let tests = contract::tests("test \"t\"\n  type \"note\" \"x\"\n  close\n").unwrap();
+    assert!(matches!(&tests[0].steps[1], Step::Close { .. }));
+    let json = contract::tests_json(&tests);
+    assert!(json.contains("{\"op\":\"close\",\"line\":3}"), "{json}");
+}
+
+#[test]
+fn a_test_goes_back_as_a_person_does() {
+    // LLP 1116.006 D4 (chat-rooms, round 8): a test that opened a detail
+    // returns to the list by the platform's Back, not the app's own control.
+    let tests = contract::tests("test \"t\"\n  tap \"row\"\n  back\n  clock settle\n").unwrap();
+    assert!(matches!(&tests[0].steps[1], Step::Back { .. }));
+    let json = contract::tests_json(&tests);
+    assert!(json.contains("{\"op\":\"back\",\"line\":3}"), "{json}");
+    let e = contract::tests("test \"t\"\n  back \"list\"\n").unwrap_err();
+    assert!(e.message.starts_with("`back` takes nothing"), "{e}");
+}
+
+#[test]
+fn a_test_answers_a_held_picker_by_its_node() {
+    // files F11: a picker's hold is answered by the node its answer
+    // arrives at, never by a ticket a test cannot predict.
+    let src = "test \"import\"\n  tap \"choose\"\n  pick \"folder-input\" \"fixtures/notes\"\n  pick \"files\" \"a.txt\" \"b.txt\"\n  pick \"open-directory\" cancel\n";
+    let tests = contract::tests(src).unwrap();
+    let t = &tests[0];
+    assert!(
+        matches!(&t.steps[1], Step::Pick { target, paths, .. } if target == "folder-input" && paths == &["fixtures/notes"])
+    );
+    assert!(matches!(&t.steps[2], Step::Pick { paths, .. } if paths.len() == 2));
+    assert!(matches!(&t.steps[3], Step::Pick { paths, .. } if paths.is_empty()));
+    let json = contract::tests_json(&tests);
+    assert!(
+        json.contains("{\"op\":\"pick\",\"target\":\"folder-input\",\"paths\":[\"fixtures/notes\"],\"line\":3}"),
+        "{json}"
+    );
+    assert!(
+        json.contains("{\"op\":\"pick\",\"target\":\"open-directory\",\"paths\":[],\"line\":5}"),
+        "{json}"
+    );
+    let e = contract::tests("test \"t\"\n  pick \"folder-input\"\n").unwrap_err();
+    assert_eq!(e.id, "syntax-expected-string");
+}
+
+/// Spreadsheet F6: the clipboard's events are test steps, a paste carrying
+/// its text as the clipboard's.
+#[test]
+fn clipboard_steps_parse_and_print() {
+    let tests = contract::tests(
+        "test \"grid\"\n  type \"grid\" paste \"a\\tb\"\n  type \"grid\" copy\n  type \"grid\" cut\n  tap \"b3\" modifiers \"Shift\"\n",
+    )
+    .unwrap();
+    let steps = &tests[0].steps;
+    assert!(
+        matches!(&steps[0], Step::Clipboard { edit, text, .. } if edit == "paste" && text == "a\tb")
+    );
+    assert!(
+        matches!(&steps[1], Step::Clipboard { edit, text, .. } if edit == "copy" && text.is_empty())
+    );
+    let json = contract::tests_json(&tests);
+    assert!(
+        json.contains(
+            "{\"op\":\"clipboard\",\"target\":\"grid\",\"edit\":\"cut\",\"text\":\"\",\"line\":4}"
+        ),
+        "{json}"
+    );
+    // Gallery F20: a press with keys held.
+    assert!(
+        json.contains(
+            "{\"op\":\"tap\",\"target\":\"b3\",\"form\":\"press\",\"modifiers\":\"Shift\",\"line\":5}"
+        ),
+        "{json}"
+    );
+}
+
+#[test]
+fn a_test_double_clicks_scrolls_a_list_appends_reloads_and_reads_a_field() {
+    // feed F8/F10, mail F19, kanban F25: the driver's `tap` forms, a list
+    // brought to a row by its key, typing after a prefill, a restart on the
+    // same store, and a field of a record.
+    let src = "test \"feed\"\n  tap \"post-1\" dblclick\n  tap \"post-1\" contextmenu\n  tap \"post-1\" hover\n  tap \"timeline\" into \"s2981\"\n  type \"reply\" \"agree\" append\n  reload\n  expect state s.queued == 1\n  expect state feed.page.next == \"b\"\n";
+    let tests = contract::tests(src).unwrap();
+    let t = &tests[0];
+    assert!(matches!(
+        &t.steps[0],
+        Step::Tap {
+            form: TapForm::Dblclick,
+            ..
+        }
+    ));
+    assert!(matches!(
+        &t.steps[1],
+        Step::Tap {
+            form: TapForm::Contextmenu,
+            ..
+        }
+    ));
+    assert!(matches!(
+        &t.steps[2],
+        Step::Tap {
+            form: TapForm::Hover,
+            ..
+        }
+    ));
+    assert!(matches!(&t.steps[3], Step::Tap { form: TapForm::Into(key), .. } if key == "s2981"));
+    assert!(matches!(&t.steps[4], Step::Type { append: true, .. }));
+    assert!(matches!(&t.steps[5], Step::Reload { .. }));
+    assert!(matches!(&t.steps[6], Step::ExpectState { name, .. } if name == "s.queued"));
+    let json = contract::tests_json(&tests);
+    for want in [
+        "{\"op\":\"tap\",\"target\":\"post-1\",\"form\":\"dblclick\",\"line\":2}",
+        "{\"op\":\"tap\",\"target\":\"timeline\",\"form\":\"into\",\"key\":\"s2981\",\"line\":5}",
+        "{\"op\":\"type\",\"target\":\"reply\",\"text\":\"agree\",\"append\":true,\"line\":6}",
+        "{\"op\":\"reload\",\"line\":7}",
+        "{\"op\":\"expect-state\",\"name\":\"feed.page.next\",\"value\":\"b\",\"line\":9}",
+    ] {
+        assert!(json.contains(want), "{want} in {json}");
+    }
+    // `into` names its key; a path ends on a field name.
+    let e = contract::tests("test \"t\"\n  tap \"list\" into\n").unwrap_err();
+    assert_eq!(e.id, "syntax-expected-string");
+    assert!(contract::tests("test \"t\"\n  expect state a. == 1\n").is_err());
+}
+
+#[test]
+fn a_list_position_in_a_state_path_parses() {
+    // feed F10, drums R7: `cards.0.id` is a path, the same form as `items.0`.
+    let tests = contract::tests("test \"t\"\n  expect state cards.0.id == \"a\"\n").unwrap();
+    assert!(matches!(
+        &tests[0].steps[0],
+        Step::ExpectState { name, value: Expr::Str(s, _), .. } if name == "cards.0.id" && s == "a"
+    ));
+    let json = contract::tests_json(&tests);
+    assert!(
+        json.contains(
+            "{\"op\":\"expect-state\",\"name\":\"cards.0.id\",\"value\":\"a\",\"line\":2}"
+        ),
+        "{json}"
+    );
+}
+
+#[test]
+fn a_negative_number_is_an_expect_state_value() {
+    let tests = contract::tests("test \"t\"\n  expect state offset == -1\n").unwrap();
+    assert!(matches!(
+        &tests[0].steps[0],
+        Step::ExpectState { value: contract_syntax::Expr::Number(n, _), .. } if *n == -1.0
+    ));
+    let json = contract::tests_json(&tests);
+    assert!(
+        json.contains("{\"op\":\"expect-state\",\"name\":\"offset\",\"value\":-1,\"line\":2}"),
+        "{json}"
+    );
+}
+
+/// The test-step EBNF is what an agent copies. It has to name `drag to`,
+/// which the parser accepts (`tap "a" drag to "b" at 1 2`).
+#[test]
+fn the_test_step_grammar_names_drag_to() {
+    let grammar = std::fs::read_to_string(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../docs/contract-grammar.md"
+    ))
+    .unwrap();
+    let start = grammar
+        .find("\"tap\" STRING \"drag\"")
+        .expect("the drag production");
+    let window = &grammar[start..grammar.len().min(start + 280)];
+    assert!(
+        window.contains("\"to\" STRING") && window.contains("\"at\" NUMBER NUMBER"),
+        "{window}"
+    );
+    let tests = contract::tests("test \"t\"\n  tap \"a\" drag to \"b\" at 1 2\n").unwrap();
+    assert!(matches!(
+        &tests[0].steps[0],
+        Step::Drag { to: Some((to, Some((x, y)))), .. } if to == "b" && *x == 1.0 && *y == 2.0
+    ));
+}
+
+#[test]
+fn fail_fetch_leads_as_a_launch_line_or_is_a_step_and_inherits_by_prefix() {
+    // LLP 1103 D3: leading lines arm before the first data load; later ones
+    // are steps; the file's lines lead every test that names no such prefix.
+    let src = "fail fetch \"https://api.test/\"\nfail fetch \"https://cdn.test/\" times 2\n\ntest \"a\"\n  fail fetch \"https://cdn.test/\"\n  tap \"retry\"\n  fail fetch \"https://api.test/x\" times 1\n  pass fetch \"https://api.test/\"\n";
+    let tests = contract::tests(src).unwrap();
+    let json = contract::tests_json(&tests);
+    assert!(
+        json.starts_with("[{\"name\":\"a\",\"steps\":[{\"op\":\"fail-fetch\",\"prefix\":\"https://api.test/\",\"times\":null,\"line\":1},{\"op\":\"fail-fetch\",\"prefix\":\"https://cdn.test/\",\"times\":null,\"line\":5},{\"op\":\"tap\""),
+        "the file's cdn line is the test's own: {json}"
+    );
+    assert!(
+        json.contains("{\"op\":\"fail-fetch\",\"prefix\":\"https://api.test/x\",\"times\":1,\"line\":7},{\"op\":\"pass-fetch\",\"prefix\":\"https://api.test/\",\"line\":8}"),
+        "{json}"
+    );
+    for (src, line) in [
+        (
+            "test \"t\"\n  fail fetch \"https://a.test/\"\n  fail fetch \"https://a.test/\"\n",
+            3,
+        ),
+        ("test \"t\"\n  fail fetch \"https://a.test/\" times 0\n", 2),
+        (
+            "test \"t\"\n  fail fetch \"https://a.test/\" times 1.5\n",
+            2,
+        ),
+        ("test \"t\"\n  fail \"https://a.test/\"\n", 2),
+        ("test \"t\"\n  pass fetch \"\"\n", 2),
+    ] {
+        let e = contract::tests(src).unwrap_err();
+        assert_eq!(e.span.line, line, "{src}: {e}");
+    }
+}
+
+#[test]
+fn only_a_tests_leading_fail_fetch_overrides_the_files() {
+    // A later `fail fetch` of the same prefix is a step: the file's launch
+    // line still arms it before the first data load (LLP 1103 D3).
+    let src = "fail fetch \"https://api.test/\"\n\ntest \"a\"\n  tap \"go\"\n  fail fetch \"https://api.test/\" times 1\n";
+    let json = contract::tests_json(&contract::tests(src).unwrap());
+    assert!(
+        json.starts_with("[{\"name\":\"a\",\"steps\":[{\"op\":\"fail-fetch\",\"prefix\":\"https://api.test/\",\"times\":null,\"line\":1},{\"op\":\"tap\""),
+        "{json}"
+    );
+}
+
+#[test]
+fn a_test_asserts_that_a_control_is_disabled_or_enabled() {
+    // LLP 1116.010 D3: `expect disabled "id"` and `expect enabled "id"`, each one testId.
+    let src = "test \"t\"\n  expect disabled \"send\"\n  tap \"arm\"\n  expect enabled \"send\"\n";
+    let tests = contract::tests(src).unwrap();
+    let steps = &tests[0].steps;
+    assert!(
+        matches!(&steps[0], Step::ExpectDisabled { target, disabled: true, .. } if target == "send")
+    );
+    assert!(
+        matches!(&steps[2], Step::ExpectDisabled { target, disabled: false, .. } if target == "send")
+    );
+    let json = contract::tests_json(&tests);
+    assert!(
+        json.contains(
+            "{\"op\":\"expect-disabled\",\"target\":\"send\",\"disabled\":true,\"line\":2}"
+        ),
+        "{json}"
+    );
+    assert!(
+        json.contains(
+            "{\"op\":\"expect-disabled\",\"target\":\"send\",\"disabled\":false,\"line\":4}"
+        ),
+        "{json}"
+    );
+    for (src, line) in [
+        ("test \"t\"\n  expect disabled send\n", 2),
+        ("test \"t\"\n  expect enabled\n", 2),
+        ("test \"t\"\n  expect disabled \"a\" \"b\"\n", 2),
+    ] {
+        let e = contract::tests(src).unwrap_err();
+        assert_eq!(e.span.line, line, "{src}: {e}");
+    }
+}
+
+#[test]
+fn a_test_writes_through_the_apps_server_as_another_person() {
+    // LLP 1116.006 D8: method, a path under the server the app calls (or a
+    // whole URL), a JSON body that may span lines, and the persona.
+    let src = "test \"t\"\n  request POST \"/polls/1/votes\" {\"option\": 2, \"note\": \"a \\\"b\\\"\", \"tags\": [true, null, -1.5], \"by\": {}} as bob\n  request DELETE \"/items/3\" as \"token-grace\"\n  request GET \"http://127.0.0.1:8787/health\"\n  request PATCH \"/items/1\" {\n    \"locked\": false\n  }\n  clock +5000\n";
+    let tests = contract::tests(src).unwrap();
+    let steps = &tests[0].steps;
+    assert!(matches!(
+        &steps[0],
+        Step::Request { method, path, body: Some(body), persona: Some(who), .. }
+            if method == "POST" && path == "/polls/1/votes" && who == "bob"
+                && body == "{\"option\":2,\"note\":\"a \\\"b\\\"\",\"tags\":[true,null,-1.5],\"by\":{}}"
+    ));
+    assert!(
+        matches!(&steps[1], Step::Request { body: None, persona: Some(who), .. } if who == "token-grace")
+    );
+    let json = contract::tests_json(&tests);
+    assert!(
+        json.contains("{\"op\":\"request\",\"method\":\"POST\",\"path\":\"/polls/1/votes\",\"body\":\"{\\\"option\\\":2,"),
+        "{json}"
+    );
+    assert!(
+        json.contains("{\"op\":\"request\",\"method\":\"GET\",\"path\":\"http://127.0.0.1:8787/health\",\"body\":null,\"as\":null,\"line\":4}"),
+        "{json}"
+    );
+    assert!(
+        json.contains("{\"op\":\"request\",\"method\":\"PATCH\",\"path\":\"/items/1\",\"body\":\"{\\\"locked\\\":false}\",\"as\":null,\"line\":5},{\"op\":\"clock\""),
+        "{json}"
+    );
+    // LLP 1116.010 D3: `expect 409` after the persona, the status a refusal answers; in the JSON only when written.
+    let src = "test \"t\"\n  request POST \"/items\" {\"title\": \"Bread\"} as bob expect 409\n  request DELETE \"/items/3\" expect 404\n  request GET \"/items\"\n";
+    let tests = contract::tests(src).unwrap();
+    let steps = &tests[0].steps;
+    assert!(
+        matches!(&steps[0], Step::Request { persona: Some(who), status: Some(409), .. } if who == "bob")
+    );
+    assert!(matches!(
+        &steps[1],
+        Step::Request {
+            persona: None,
+            status: Some(404),
+            ..
+        }
+    ));
+    assert!(matches!(&steps[2], Step::Request { status: None, .. }));
+    let json = contract::tests_json(&tests);
+    assert!(
+        json.contains("\"as\":\"bob\",\"expect\":409,\"line\":2}"),
+        "{json}"
+    );
+    assert!(
+        json.contains("\"as\":null,\"expect\":404,\"line\":3}"),
+        "{json}"
+    );
+    assert!(
+        json.contains("{\"op\":\"request\",\"method\":\"GET\",\"path\":\"/items\",\"body\":null,\"as\":null,\"line\":4}"),
+        "{json}"
+    );
+    for (src, line) in [
+        ("test \"t\"\n  request POST \"/items\" expect\n", 2),
+        ("test \"t\"\n  request POST \"/items\" expect 99\n", 2),
+        ("test \"t\"\n  request POST \"/items\" expect 409.5\n", 2),
+        ("test \"t\"\n  request POST \"/items\" expect \"409\"\n", 2),
+        ("test \"t\"\n  request post \"/items\"\n", 2),
+        ("test \"t\"\n  request POST \"items\"\n", 2),
+        ("test \"t\"\n  request POST \"/items\" {\"a\": 1,}\n", 2),
+        ("test \"t\"\n  request POST \"/items\" {a: 1}\n", 2),
+        ("test \"t\"\n  request POST \"/items\" {\"a\": x}\n", 2),
+        ("test \"t\"\n  request POST \"/items\" as\n", 2),
+        ("test \"t\"\n  request POST \"/items\" \"body\"\n", 2),
+    ] {
+        let e = contract::tests(src).unwrap_err();
+        assert_eq!(e.span.line, line, "{src}: {e}");
+    }
+}
+
+#[test]
+fn the_forms_guide_key_syntax_parses_as_a_key_step() {
+    let file = contract_syntax::parse(
+        r#"test "enter in a field"
+  type "draft" key "Enter"
+"#,
+    )
+    .unwrap();
+    assert_eq!(file.tests.len(), 1);
+    assert!(
+        matches!(&file.tests[0].steps[0], contract_syntax::Step::Key { target, key, .. } if target == "draft" && key == "Enter")
+    );
+}
+
+#[test]
+fn expected_refusal_keeps_the_mutation_and_source_line() {
+    let tests = contract::tests("test \"refused send\"\n  expect refusal \"saved\"\n").unwrap();
+    let json: serde_json::Value = serde_json::from_str(&contract::tests_json(&tests)).unwrap();
+    assert_eq!(
+        json[0]["steps"][0],
+        serde_json::json!({"op":"expect-refusal", "target":"saved", "line":2})
+    );
 }

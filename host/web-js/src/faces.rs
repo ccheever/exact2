@@ -7,6 +7,9 @@
 //! host's own policy (glue.js `prepareFonts`: a face not ready within about
 //! 100 ms stays unused for the page, no swap after paint) — and a preload in
 //! the served head, so a face is usually there before the text that needs it.
+//! The page's first render waits for its faces up to those 100 ms, as the wasm
+//! host's does (build.mjs's `main.js`): an `optional` face first needed while
+//! still loading would otherwise never be used, as with an uncached font file.
 
 use exact_plan::{Opcode, Plan};
 use exact_runner::vm::instructions;
@@ -36,10 +39,11 @@ pub fn fonts(plan: &Plan) -> Result<Fonts, String> {
             return Err(format!("font source {:?} can't be a CSS string", f.source));
         }
         out.css.push_str(&format!(
-            "@font-face{{font-family:\"{}\";src:url(\"{}\");font-weight:{};font-style:{};font-display:optional}}",
+            "@font-face{{font-family:\"{}\";src:url(\"{}\");font-weight:{};font-stretch:{};font-style:{};font-display:optional}}",
             f.family,
             f.source,
-            f.weight,
+            f.weight_css(),
+            f.stretch_css(),
             if f.italic { "italic" } else { "normal" }
         ));
         // host/web/src/page.rs `fonts`: a preload each, for the formats a

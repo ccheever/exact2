@@ -85,6 +85,77 @@ final class RasterImageTests: XCTestCase {
         XCTAssertThrowsError(try RasterDecodePlan(metadata: metadata, maxPixel: 0))
         XCTAssertThrowsError(try RasterMetadata.validated(width: 100000, height: 100000, orientation: 1, encodedBytes: 20, headerBytes: 20))
     }
+    /// A whole file no decoder here reads is its format, which the image's
+    /// `error` names (LLP 1011 §4); a prefix too short to size stays the
+    /// header limit.
+    /// An SVG file is a picture (LLP 1011.001): its header gives the natural
+    /// size in CSS pixels, the plan may exceed that size (a 3× screen gets a
+    /// 3× drawing), under `fill` the plan is the box's own ratio with the
+    /// picture letterboxed inside as the browser does, and the pixels are the
+    /// file's shapes at the plan's size, the top row the picture's top.
+    func testAnSVGIsAPictureDrawnAtThePlannedSize() throws {
+        let text = "<?xml version=\"1.0\"?>\n<!-- a wordmark -->\n<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"20\" height=\"10\" viewBox=\"0 0 20 10\"><rect width=\"10\" height=\"10\" fill=\"#ff0000\"/><script>bad()</script></svg>"
+        let bytes = Data(text.utf8)
+        let metadata = try RasterMetadata.read(prefix: bytes, encodedBytes: bytes.count)
+        XCTAssertTrue(metadata.svg)
+        XCTAssertEqual(metadata.naturalSize, CGSize(width: 20, height: 10))
+        XCTAssertEqual(metadata.variant, RasterVariant.own8)
+        var plan = try RasterDecodePlan(metadata: metadata, maxPixel: 200)
+        XCTAssertEqual([plan.width, plan.height], [200, 100], "above the natural size")
+        plan.scale = 2
+        let image = try RasterImage.decode(bytes, metadata: metadata, plan: plan, charge: TestRasterCharge())
+        XCTAssertEqual([image.image.width, image.image.height], [200, 100])
+        XCTAssertEqual(image.naturalSize, CGSize(width: 20, height: 10))
+        let pixels = try rgba(image.image)
+        XCTAssertEqual(pixels(10, 50), [255, 0, 0, 255], "the rect fills the left half")
+        XCTAssertEqual(pixels(190, 50)[3], 0, "the right half is clear")
+        XCTAssertEqual(pixels(10, 2), [255, 0, 0, 255], "the picture's top is the first row")
+        // Under `fill` the plan takes the box's ratio and the file letterboxes inside (xMidYMid meet).
+        let filled = try RasterDecodePlan(metadata: metadata, maxPixel: 200, aspect: (200, 200))
+        XCTAssertEqual([filled.width, filled.height], [200, 200])
+        // The worker rebuilds the plan from the work's own size (the box's), as it reconstructs a bitmap's from its longest side.
+        let rebuilt = try RasterDecodePlan(metadata: metadata, maxPixel: 200, variant: filled.variant, aspect: (filled.width, filled.height))
+        XCTAssertEqual([rebuilt.width, rebuilt.height, rebuilt.peakBytes], [filled.width, filled.height, filled.peakBytes])
+        let square = try rgba(try RasterImage.decode(bytes, metadata: metadata, plan: filled, charge: TestRasterCharge()).image)
+        XCTAssertEqual(square(50, 100), [255, 0, 0, 255], "the rect, centred vertically")
+        XCTAssertEqual(square(50, 10)[3], 0, "the letterbox above it is clear")
+        // A viewBox alone is the natural size (the declared deviation); a size alone the default ratio; neither the default.
+        for (root, size) in [("viewBox=\"0 0 4 2\"", CGSize(width: 4, height: 2)), ("width=\"1in\" viewBox=\"0 0 4 2\"", CGSize(width: 96, height: 48)), ("", CGSize(width: 300, height: 150))] {
+            let bytes = Data("<svg xmlns=\"http://www.w3.org/2000/svg\" \(root)/>".utf8)
+            XCTAssertEqual(try RasterMetadata.read(prefix: bytes, encodedBytes: bytes.count).naturalSize, size, root)
+        }
+        // Refused by the parser: the reason, with its line, is the image's error.
+        let broken = Data("<svg xmlns=\"http://www.w3.org/2000/svg\">\n<g>\n</svg>".utf8)
+        let brokenMetadata = try RasterMetadata.read(prefix: broken, encodedBytes: broken.count)
+        XCTAssertThrowsError(try RasterImage.decode(broken, metadata: brokenMetadata, plan: try RasterDecodePlan(metadata: brokenMetadata, maxPixel: 10), charge: TestRasterCharge())) { error in
+            XCTAssertEqual(String(describing: error), "not an SVG this host reads: line 3: `</svg>` closes `<g>` from line 2")
+        }
+        // Bytes decide, not a name: a PNG stays a PNG.
+        let png = try fixture(40, 20)
+        XCTAssertFalse(try RasterMetadata.read(prefix: png.prefix(RasterMetadata.headerLimit), encodedBytes: png.count).svg)
+    }
+    private func rgba(_ image: CGImage) throws -> (Int, Int) -> [UInt8] {
+        var bytes = [UInt8](repeating: 0, count: image.width * image.height * 4)
+        let ctx = try XCTUnwrap(CGContext(data: &bytes, width: image.width, height: image.height, bitsPerComponent: 8, bytesPerRow: image.width * 4,
+            space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+        ctx.draw(image, in: CGRect(x: 0, y: 0, width: image.width, height: image.height))
+        // Core Graphics' rows run bottom up: row 0 of the picture is the last.
+        return { x, y in let at = ((image.height - 1 - y) * image.width + x) * 4; return Array(bytes[at..<at + 4]) }
+    }
+    func testAWholeFileNoDecoderReadsIsItsFormat() throws {
+        for text in ["not an image", "<html><svg/></html>"] {
+            let bytes = Data(text.utf8)
+            XCTAssertThrowsError(try RasterMetadata.read(prefix: bytes, encodedBytes: bytes.count)) { error in
+                XCTAssertEqual(error as? RasterFailure, .format)
+                XCTAssertEqual(String(describing: error), "not an image format this host decodes")
+            }
+        }
+        let bytes = try fixture(40, 20)
+        XCTAssertThrowsError(try RasterMetadata.read(prefix: Data(bytes.prefix(4)), encodedBytes: bytes.count)) { error in
+            XCTAssertEqual(error as? RasterFailure, .headerLimit)
+        }
+        XCTAssertEqual(String(describing: RasterHTTPStatus(code: 404)), "HTTP 404")
+    }
     func testProviderRetainsChargeUntilLastImageAliasDropsOnWorker() throws {
         let bytes = try fixture(120, 60)
         let metadata = try RasterMetadata.read(prefix: bytes, encodedBytes: bytes.count)

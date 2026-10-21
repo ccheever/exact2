@@ -30,10 +30,123 @@ final class CollectionMacTests: XCTestCase {
             ["op": "roots", "ids": [1]],
             ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 300.0, "h": 200.0],
             ["op": "frame", "id": 2, "x": 10.0, "y": 20.0, "w": 280.0, "h": 72.0],
+            contentOp(1, 300, 200, padding: [20, 10, 0, 10]),
             ["op": "content", "id": 1, "w": 300.0, "h": 3020.0]
         ]))
         return (p, p.views[1]!)
     }
+    func testAppOwnedAnchorRestoresABorderedListWithoutDrift() throws {
+        _ = NSApplication.shared
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let source = """
+        component App
+          state shown = true
+          state first = none
+          state within = 0
+          state saved = none
+          state offset = 0
+          action moved(x: number, y: number, e: ScrollEvent)
+            first = e.firstVisibleKey
+            within = e.firstVisibleOffset
+          action save
+            saved = first
+            offset = within
+          action toggle
+            shown = not shown
+          action restore
+            match saved
+              case some(key)
+                scrollIntoView("feed", key, offset=offset)
+              case none
+                offset = 0
+          view
+            column
+              button press=save testId="save"
+                text "Save"
+              button press=toggle testId="toggle"
+                text "Toggle"
+              button press=restore testId="restore"
+                text "Restore"
+              text `${within}` testId="within"
+              if shown
+                list id="feed" testId="feed" virtualized=true estimated-item-height=100 height=300 width=400 border-top="10px solid black" scroll=moved
+                  for n in [\((0..<80).map(String.init).joined(separator: ", "))] key=n
+                    text `${n}` height=100
+
+        """
+        try source.write(to: dir.appendingPathComponent("app.contract"), atomically: true, encoding: .utf8)
+        let compiler = Process()
+        compiler.executableURL = URL(fileURLWithPath: try XCTUnwrap(ProcessInfo.processInfo.environment["EXACT_CONTRACT"]))
+        compiler.arguments = ["build", dir.appendingPathComponent("app.contract").path, "-o", dir.appendingPathComponent("app.plan").path]
+        try compiler.run(); compiler.waitUntilExit()
+        XCTAssertEqual(compiler.terminationStatus, 0)
+        let session = ExactApp.shared.makeSession(label: "scroll-anchor-border")
+        defer { session.destroy() }
+        XCTAssertNil(session.boot(plan: try Data(contentsOf: dir.appendingPathComponent("app.plan")), size: CGSize(width: 500, height: 600)).error)
+        let p = session.presenter
+        func node(_ name: String) throws -> NodeView {
+            try XCTUnwrap(p.views.values.first { $0.props["testId"] == name })
+        }
+        func settle() {
+            p.settlePump()
+            let delivered = expectation(description: "queued scroll event")
+            DispatchQueue.main.async { DispatchQueue.main.async { delivered.fulfill() } }
+            wait(for: [delivered], timeout: 5)
+            p.settlePump()
+        }
+        func press(_ name: String) throws { p.press(try node(name).id); settle() }
+        settle()
+        try XCTUnwrap(node("feed").scroll).contentView.scroll(to: NSPoint(x: 0, y: 1861))
+        settle()
+        for _ in 0..<3 {
+            XCTAssertEqual(try node("within").props["text"], "51")
+            try press("save")
+            try press("toggle")
+            try press("toggle")
+            try press("restore")
+            XCTAssertEqual(try XCTUnwrap(node("feed").scroll).contentView.bounds.minY, 1861, accuracy: 0.5)
+        }
+    }
+
+    func testCSSCursorKeywordsReachAppKit() {
+        XCTAssertTrue(CSSCursor.value("grab") === NSCursor.openHand)
+        XCTAssertTrue(CSSCursor.value("grabbing") === NSCursor.closedHand)
+        XCTAssertTrue(CSSCursor.value("pointer") === NSCursor.pointingHand)
+        XCTAssertNil(CSSCursor.value("auto"))
+        // The resize keywords are macOS 15's frame-resize cursors, as Chrome
+        // and Safari draw them there: an edge or a corner moves outward, a
+        // two-way keyword both ways, and a divider is a column or a row.
+        guard #available(macOS 15, *) else { return }
+        let outward: [(String, NSCursor.FrameResizePosition)] = [
+            ("n-resize", .top), ("e-resize", .right), ("s-resize", .bottom), ("w-resize", .left),
+            ("ne-resize", .topRight), ("nw-resize", .topLeft), ("se-resize", .bottomRight), ("sw-resize", .bottomLeft),
+        ]
+        for (name, position) in outward {
+            XCTAssertTrue(CSSCursor.value(name) === NSCursor.frameResize(position: position, directions: .outward), name)
+        }
+        let both: [(String, NSCursor.FrameResizePosition)] = [("ns-resize", .top), ("ew-resize", .left), ("nesw-resize", .topRight), ("nwse-resize", .topLeft)]
+        for (name, position) in both {
+            XCTAssertTrue(CSSCursor.value(name) === NSCursor.frameResize(position: position, directions: .all), name)
+        }
+        XCTAssertTrue(CSSCursor.value("col-resize") === NSCursor.columnResize)
+        XCTAssertTrue(CSSCursor.value("row-resize") === NSCursor.rowResize)
+    }
+    func testOverflowAutoCreatesAnAutohidingScrollContainer() {
+        _ = NSApplication.shared
+        let p = Presenter()
+        p.apply(batchFixture(ops: [
+            ["op": "create", "id": 1, "kind": "view", "style": ["overflow_x": "auto", "overflow_y": "auto"]],
+            ["op": "roots", "ids": [1]],
+            ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 200.0, "h": 100.0],
+            ["op": "content", "id": 1, "w": 400.0, "h": 500.0]
+        ], timers: false, motion: false, clock: nil, error: nil))
+        let sv = p.views[1]!.scroll!
+        XCTAssertTrue(sv.scrollsX && sv.scrollsY)
+        XCTAssertTrue(sv.autohidesScrollers)
+    }
+
     func testMeasuresActualNestedClipViewWithoutAuthoredScrollHandler() throws {
         let (p, list) = fixture(estimatedItemHeight: "24")
         defer { p.collections.reset() }
@@ -52,7 +165,7 @@ final class CollectionMacTests: XCTestCase {
         p.collections.onFeedback = { feedback.append($0) }
         p.collections.flush()
         XCTAssertEqual(feedback.count, 1)
-        XCTAssertEqual(feedback[0].count, 104)
+        XCTAssertEqual(feedback[0].count, 120)
         p.collections.changed(1)
         p.collections.flush()
         XCTAssertEqual(feedback.count, 1, "identical layout must not reenter Rust")
@@ -122,6 +235,54 @@ final class CollectionMacTests: XCTestCase {
             correction: ["scrollSequence": 0, "offset": 900])]]]))
         XCTAssertEqual(clip.bounds.minY, 220, "stale correction must not replace newer user intent")
     }
+    /// An anchor's correction (`from`) is relative: it applies after the
+    /// reader moved on (a fling's frames since the report) by how far the
+    /// rows before the anchor moved, once, and a later revision carrying
+    /// the same correction adds nothing; one from before an authored jump
+    /// is stale.
+    func testAnAnchorsCorrectionMovesTheOffsetByItsShiftWhateverWasSampled() throws {
+        let (p, list) = fixture()
+        defer { p.collections.reset() }
+        let clip = try XCTUnwrap(list.scroll?.contentView)
+        p.apply(batch([["op": "collections", "items": [snapshot(revision: 2, correction: ["scrollSequence": 0, "offset": 200])]]]))
+        XCTAssertEqual(clip.bounds.minY, 220)
+        // The reader moves 100 on; the report from before that move comes back corrected.
+        clip.scroll(to: NSPoint(x: 0, y: 320)); list.scroll?.reflectScrolledClipView(clip)
+        p.collections.userIntent(1, travel: true)
+        let shifted: [String: Any] = ["scrollSequence": 0, "offset": 172, "from": 200]
+        p.apply(batch([["op": "collections", "items": [snapshot(revision: 3, correction: shifted)]]]))
+        XCTAssertEqual(clip.bounds.minY, 292, "rows above came in 28 shorter: the port moves 28 back with them")
+        p.apply(batch([["op": "collections", "items": [snapshot(revision: 4, correction: shifted)]]]))
+        XCTAssertEqual(clip.bounds.minY, 292, "the same correction again moves nothing")
+        p.apply(batch([["op": "collections", "items": [snapshot(revision: 5,
+            correction: ["scrollSequence": 0, "offset": 162, "from": 200])]]]))
+        XCTAssertEqual(clip.bounds.minY, 282, "a grown correction moves only by what it adds")
+        // An authored offset since the report: its correction is stale.
+        p.collections.userIntent(1)
+        p.apply(batch([["op": "collections", "items": [snapshot(revision: 6,
+            correction: ["scrollSequence": 0, "offset": 100, "from": 200])]]]))
+        XCTAssertEqual(clip.bounds.minY, 282, "not across an authored jump")
+    }
+    /// Rows put above the reader in the batch that also resizes the port (a
+    /// pull-to-refresh zone closing as the new posts land) still move the
+    /// offset with them: the resize is not the reader moving (feed F14).
+    func testAnAnchorsCorrectionLandsInTheBatchThatResizesThePort() throws {
+        let (p, list) = fixture()
+        defer { p.collections.reset() }
+        let clip = try XCTUnwrap(list.scroll?.contentView)
+        clip.scroll(to: NSPoint(x: 0, y: 100)); list.scroll?.reflectScrolledClipView(clip)
+        p.apply(batch([
+            ["op": "collections", "items": [snapshot(revision: 2, correction: ["scrollSequence": 0, "offset": 940, "from": 100])]],
+            ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 300.0, "h": 248.0],
+        ]))
+        XCTAssertEqual(clip.bounds.minY, 940, "two posts of 420 came in above the reader")
+        // The next resize is a jump: a correction planned before it is stale.
+        p.apply(batch([
+            ["op": "collections", "items": [snapshot(revision: 3, correction: ["scrollSequence": 0, "offset": 1000, "from": 100])]],
+            ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 300.0, "h": 200.0],
+        ]))
+        XCTAssertEqual(clip.bounds.minY, 940)
+    }
     func testClearedSnapshotRetiresStateAndObserver() {
         let (p, _) = fixture()
         p.collections.pointer(3)
@@ -158,7 +319,7 @@ final class CollectionMacTests: XCTestCase {
         ]))
         var interactions: [UInt32] = []
         p.collections.onFeedback = { bytes in
-            interactions.append((0..<4).reduce(0) { $0 | UInt32(bytes[60 + $1]) << ($1 * 8) })
+            interactions.append((0..<4).reduce(0) { $0 | UInt32(bytes[76 + $1]) << ($1 * 8) })
         }
         func drain() {
             let done = expectation(description: "pin feedback continuation")
@@ -200,6 +361,7 @@ final class CollectionMacTests: XCTestCase {
             ["op": "roots", "ids": [1]],
             ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 400.0, "h": 132.0],
             ["op": "frame", "id": 2, "x": 0.0, "y": 8.0, "w": 150.0, "h": 116.0],
+            contentOp(1, 400, 132, padding: [8, 0, 8, 0]),
             ["op": "content", "id": 1, "w": 3000.0, "h": 132.0]
         ]))
         let list = try XCTUnwrap(p.views[1])
@@ -325,7 +487,7 @@ final class CollectionMacTests: XCTestCase {
             (0..<4).reduce(0) { $0 | UInt32(bytes[offset + $1]) << ($1 * 8) }
         }
         p.collections.onFeedback = { bytes in
-            accepted[u32(bytes, 4)] = (u32(bytes, 56), u32(bytes, 60))
+            accepted[u32(bytes, 4)] = (u32(bytes, 72), u32(bytes, 76))
             XCTAssertLessThanOrEqual(accepted.values.filter { $0.0 != 0 }.count, 1)
             XCTAssertLessThanOrEqual(accepted.values.filter { $0.1 != 0 }.count, 1)
         }
@@ -507,6 +669,79 @@ final class CollectionMacTests: XCTestCase {
         p.apply(batch([["op": "children", "id": 1, "ids": [5, 6]]]))
         XCTAssertEqual(container.removed, [2], "a retired row must still detach")
         XCTAssertFalse(window.firstResponder === paragraph)
+    }
+
+    /// A row playing `-exact-exit-animation` is a subview but no longer a child;
+    /// ordering the rows keeps it, a paint ghost at its old place that paints
+    /// over them (its paint rank), instead of trapping (mail F22).
+    func testAnExitingRowKeepsARankWhileTheRowsReorder() throws {
+        let (p, list) = fixture()
+        defer { p.collections.reset(); p.reset() }
+        p.apply(batch([
+            ["op": "create", "id": 4, "kind": "view"],
+            ["op": "create", "id": 5, "kind": "view"],
+            ["op": "children", "id": 1, "ids": [2, 4, 5]],
+            ["op": "exit", "id": 2],
+            ["op": "children", "id": 1, "ids": [5, 4]],
+        ]))
+        XCTAssertEqual(list.container.subviews.compactMap { ($0 as? NodeView)?.id }, [2, 5, 4])
+        // The first of the nodes: a vertical list's table is under its rows in the same document (LLP 1115.002 D5).
+        XCTAssertTrue(try XCTUnwrap(list.container.subviews.compactMap { $0 as? NodeView }.first).paintGhost, "the leaving row is a paint ghost")
+        p.apply(batch([["op": "destroy", "id": 2]]))
+        XCTAssertEqual(list.container.subviews.compactMap { ($0 as? NodeView)?.id }, [5, 4])
+    }
+
+    func testReorderingOrdinaryChildrenKeepsMountsAndFieldFocus() throws {
+        for decorated in [false, true] {
+            _ = NSApplication.shared
+            let p = Presenter()
+            defer { p.reset() }
+            p.viewport.frame = NSRect(x: 0, y: 0, width: 400, height: 300)
+            p.apply(batch([
+                ["op": "create", "id": 1, "kind": "view", "style": ["overflow_y": "scroll"]],
+                ["op": "create", "id": 2, "kind": "view"],
+                ["op": "create", "id": 3, "kind": "input", "props": ["value": "retained text"]],
+                ["op": "create", "id": 4, "kind": "view"],
+            ]))
+            let parent = try XCTUnwrap(p.views[1])
+            let container = MountObservedView()
+            try XCTUnwrap(parent.scroll).documentView = container
+            XCTAssertFalse(p.collections.owns(parent.id))
+            p.apply(batch([
+                ["op": "children", "id": 1, "ids": [2, 3, 4]],
+                ["op": "roots", "ids": [1]],
+                ["op": "frame", "id": 1, "x": 0, "y": 0, "w": 400, "h": 300],
+                ["op": "frame", "id": 3, "x": 0, "y": 40, "w": 200, "h": 30],
+                ["op": "content", "id": 1, "w": 400, "h": 300],
+            ]))
+            let decoration = NSView()
+            if decorated { container.addSubview(decoration, positioned: .below, relativeTo: p.views[3]) }
+            let window = NSWindow(contentRect: p.viewport.frame, styleMask: [.titled], backing: .buffered, defer: false)
+            window.isReleasedWhenClosed = false
+            window.contentView = p.viewport
+            defer { window.makeFirstResponder(nil); window.close() }
+            let field = try XCTUnwrap(p.views[3]?.field)
+            XCTAssertTrue(window.makeFirstResponder(field))
+            let editor = try XCTUnwrap(field.currentEditor() as? NSTextView)
+            let selection = NSRange(location: 2, length: 4)
+            editor.setSelectedRange(selection)
+            container.added.removeAll(); container.removed.removeAll()
+
+            for ids in [[4, 2, 3], [4, 3, 2], [2, 3, 4]] {
+                p.apply(batch([["op": "children", "id": 1, "ids": ids]]))
+                XCTAssertEqual(container.subviews.compactMap { ($0 as? NodeView)?.id }, ids.map(UInt32.init))
+                XCTAssertEqual(container.removed, [], "retained siblings must never detach")
+                XCTAssertEqual(container.added, [], "retained siblings must never remount")
+                XCTAssertTrue(window.firstResponder === editor)
+                XCTAssertTrue(field.currentEditor() === editor)
+                XCTAssertEqual(editor.selectedRange(), selection)
+                XCTAssertEqual(editor.string, "retained text")
+                if decorated { XCTAssertTrue(container.subviews.first === decoration) }
+            }
+            p.apply(batch([["op": "children", "id": 1, "ids": [2, 3]]]))
+            XCTAssertEqual(container.removed, [4], "only a child removed from the tree detaches")
+            XCTAssertTrue(window.firstResponder === editor)
+        }
     }
 
     func testPrependingANewNativeChildKeepsRetainedSiblingsMounted() throws {

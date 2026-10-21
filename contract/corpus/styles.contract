@@ -18,7 +18,7 @@ style Idle
 
 component Styles
   state selected = false
-  action toggle writes selected
+  action toggle
     selected = not selected
   view
     column testId="root" gap=8

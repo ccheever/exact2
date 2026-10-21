@@ -1,0 +1,7 @@
+{
+  "name": "@exact/reading",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Contract components and shapes for reading parsed Markdown (LLP 1091).",
+  "exports": { ".": "./index.contract" }
+}

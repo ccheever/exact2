@@ -3,8 +3,9 @@
 // in module-glue.js, off the page's main thread. Trusted app code, NOT a
 // security sandbox. Values cross as messages; the page's runner commits.
 // Loaded only after the page's first pixel, by module-glue.js.
-import { createStorage } from './storage.js';
+import { bindAnswerStorage, createStorage, finishLetGo } from './storage.js';
 import { agentStream, keyStore } from './storage-environment.js';
+import { sameGrantDeclaration } from './grant-admission.js';
 
 const checkpoint = () => new Promise(resolve => {
   const channel = new MessageChannel();
@@ -13,6 +14,14 @@ const checkpoint = () => new Promise(resolve => {
 });
 let context = null, storage = null, admitted = null, tail = Promise.resolve(), stream = null;
 const pending = new Map();
+// Calls the runner let go between storage steps. Delivered to the end, then
+// retired, as the page realm does.
+const owed = new Map();
+const scratch = owner => ({owner, store:new Map(), grants:new Set(), reads:[], writes:[], externalRead:false, entropy:false, topics:[], requests:new Map()});
+function release(owner, callId) {
+  if (!String(self.__exact_forget(String(callId))).startsWith('storage')) { storage.retire(owner); return; } // 'storage', or 'storage rejected'
+  owed.set(callId, owner);
+}
 // The page's SHA-256 digests in flight, on a LAN dev page (see `init`).
 const digests = new Map();
 let nextDigest = 1;
@@ -51,11 +60,21 @@ const evaluate = source => (0, eval)(source);
 
 function init(message) {
   admitted = message.admitted;
-  // Disable accidental browser I/O before the module captures globals.
-  for (const name of ['XMLHttpRequest', 'WebSocket', 'EventSource', 'setTimeout', 'setInterval', 'requestAnimationFrame']) {
-    Object.defineProperty(self, name, { value: () => { throw new Error(`${name} is unavailable in data sources`); }, configurable: false });
+  // Disable accidental browser I/O before the module captures globals: a
+  // function, so `new WebSocket(url)` refuses by name too, as the JS target's
+  // ts-fetch.js does. The prelude refuses timers and the clock, by name, as
+  // Hermes does.
+  for (const name of ['XMLHttpRequest', 'WebSocket', 'EventSource']) {
+    Object.defineProperty(self, name, { value: function () { throw new Error(`${name} is unavailable in data sources`); }, configurable: false });
   }
-  storage = createStorage(self, admitted, () => context.owner, message.storage);
+  // The worker's timers, before the prelude takes them from this global: a storage lock's bound (storage-fs.js),
+  // held in this closure and never the module's.
+  const timers = { set: self.setTimeout.bind(self), clear: self.clearTimeout.bind(self) };
+  storage = createStorage(self, admitted, () => context.owner, message.storage, timers);
+  // A cell belongs to the answer that accepted the call, though its operation
+  // may be issued in another answer's turn (one queued behind it), as in the
+  // page realm.
+  bindAnswerStorage(self, storage, () => context.owner);
   // The page reads the drive's seed; this realm's stream starts here (D2b).
   if (message.seed !== null && message.seed !== undefined) stream = agentStream(message.seed, 'typescript');
   // A LAN dev page has no `crypto.subtle`: SHA-256 is the dev protocol's,
@@ -73,7 +92,7 @@ function init(message) {
   self.__exact_storage = storage.capability;
   self.__exact_install_storage();
   evaluate(message.script);
-  if ((self.exact?.abi !== 1 && self.exact?.abi !== 2) || self.exact.appId !== admitted.appId || self.exact.grants?.trim() !== admitted.grants.trim() || typeof self.exact.answer !== 'function') throw new Error('module exports mismatch the admitted client');
+  if ((self.exact?.abi !== 1 && self.exact?.abi !== 2) || self.exact.appId !== admitted.appId || !sameGrantDeclaration(admitted.grantSet, self.exact.grants) || typeof self.exact.answer !== 'function') throw new Error('module exports mismatch the admitted client');
 }
 
 function begin(request) {
@@ -103,28 +122,86 @@ function finish(answer, request) {
 
 // The runner let go of every targeted call not in flight (LLP 1016 D5):
 // drop it, its storage owner, and its call in the prelude.
-function forget(inFlight) {
-  const keep = new Set(inFlight.map(key));
+async function forget(inFlight) {
+  const staying = new Set(inFlight.map(key));
   for (const [parkedKey, parked] of pending) {
-    if (JSON.parse(parkedKey)[0] === null || keep.has(parkedKey)) continue;
-    pending.delete(parkedKey); storage.retire(parked.owner); self.__exact_forget(String(parked.call));
+    if (JSON.parse(parkedKey)[0] === null || staying.has(parkedKey)) continue;
+    pending.delete(parkedKey); release(parked.owner, parked.call);
+  }
+  // An answer parked behind another's storage is let go too, its turn
+  // refused, as the page realm does.
+  parked = parked.filter(p => {
+    if ((p.request.target ?? null) === null || staying.has(key(p.request))) return true;
+    release(p.context.owner, p.answer.call);
+    p.done.reject(new Error('the runner let this answer go'));
+    return false;
+  });
+  if (owed.size) await finishLetGo(storage, owed, letGoHooks);
+}
+const letGoHooks = {
+  letGo: () => self.__exact_let_go('', ''),
+  disposed: () => false,
+  deliver: async owner => {
+    const prev = context;
+    context = scratch(owner);
+    try { await storage.deliver(owner); deliveries++; await checkpoint(); }
+    finally { context = prev; }
+  },
+};
+
+// An answer whose storage operation is queued behind another answer's waits
+// with the module (prelude.js `settle`'s `waiting`): it parks and lets the
+// turn go, so the answer whose operation is in flight can be resumed and
+// deliver it, and is asked again after each delivery, until a pass delivers
+// nothing (LLP 1097 D3), as the page realm does (module-glue.js). Held in
+// the turn instead, it waited on an operation only that other answer's turn
+// could deliver.
+let parked = [], deliveries = 0;
+async function proceed(answer, request, done) {
+  for (;;) {
+    if (answer.tag === 1 && answer.ticket === 0 && !answer.waiting) {
+      await storage.deliver(context.owner);
+      deliveries++;
+      await checkpoint();
+      answer = JSON.parse(self.__exact_settle(String(answer.call)));
+      continue;
+    }
+    if (answer.tag === 1 && answer.waiting) {
+      parked.push({ answer, request, context, done });
+      context = null;
+      return;
+    }
+    done.resolve(finish(answer, request));
+    return;
   }
 }
+async function resettle() {
+  for (;;) {
+    const before = deliveries;
+    // A let-go chain a delivery made the head, finished first.
+    if (owed.size) await finishLetGo(storage, owed, letGoHooks);
+    const waiting = parked; parked = [];
+    for (const p of waiting) {
+      context = p.context;
+      try { await proceed(JSON.parse(self.__exact_settle(String(p.answer.call))), p.request, p.done); }
+      catch (error) { storage.retire(context?.owner); context = null; p.done.reject(error); }
+    }
+    if (deliveries === before || !(parked.length || owed.size)) break;
+  }
+}
+const deferred = () => { const d = {}; d.promise = new Promise((resolve, reject) => { d.resolve = resolve; d.reject = reject; }); return d; };
 
-// One turn: begin or resume; stay here through every storage wait; end at
-// an answer or at a `fetch`, which the page's host runs (LLP 1027.002 D3).
-async function turn(request) {
+// One turn: begin or resume; stay here through its own storage; end at an
+// answer, at a `fetch`, which the page's host runs (LLP 1027.002 D3), or
+// parked behind another answer's storage. Its result comes when its `done`
+// does, perhaps after later turns.
+async function turn(request, done) {
   let answer = begin(request);
   if (answer.tag === 3) {
     await checkpoint();
     answer = JSON.parse(self.__exact_settle(String(answer.call)));
   }
-  while (answer.tag === 1 && answer.ticket === 0) {
-    await storage.deliver(context.owner);
-    await checkpoint();
-    answer = JSON.parse(self.__exact_settle(String(answer.call)));
-  }
-  return finish(answer, request);
+  await proceed(answer, request, done);
 }
 
 self.onmessage = ({ data }) => {
@@ -139,12 +216,17 @@ self.onmessage = ({ data }) => {
     return;
   }
   // After the turns before it, so a call they park is dropped too.
-  if (data.op === 'forget') { tail = tail.then(() => forget(data.inFlight)).catch(() => {}); return; }
+  if (data.op === 'forget') { tail = tail.then(() => forget(data.inFlight)).then(() => { if (parked.length || owed.size) return resettle(); }).catch(() => {}); return; }
   if (data.op !== 'turn') return;
+  const done = deferred();
   const run = tail.then(async () => {
-    try { return await turn(data.request); }
-    catch (error) { storage?.retire(context?.owner); context = null; throw error; }
+    const before = deliveries;
+    try { await turn(data.request, done); }
+    catch (error) { storage?.retire(context?.owner); context = null; done.reject(error); }
+    // Its delivery may have put a parked answer's operation in flight:
+    // asked again in a turn of its own, after this one.
+    if (deliveries !== before && (parked.length || owed.size)) { const again = tail.then(resettle); tail = again.catch(() => {}); }
   });
   tail = run.catch(() => {});
-  run.then(result => postMessage({ token: data.token, result }), error => postMessage({ token: data.token, error: String(error?.message ?? error) }));
+  done.promise.then(result => postMessage({ token: data.token, result }), error => postMessage({ token: data.token, error: String(error?.message ?? error) }));
 };

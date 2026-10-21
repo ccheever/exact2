@@ -16,6 +16,43 @@
         "pattern": "^[a-z][a-z0-9_]*(-[a-z][a-z0-9_]*)+$"
       }
     },
+    "data": {
+      "type": "array",
+      "description": "The app's data-* words (LLP 1075.003 Q2), without the `data-`: real attributes on the web, read by the app module's hatches on Apple through typed keys the build writes from this list (ExactDataKey). A data-* attribute in the Contract that this list lacks is bake-undeclared-data.",
+      "items": {
+        "type": "string",
+        "pattern": "^[a-z][a-z0-9]*(-[a-z][a-z0-9]*)*$"
+      }
+    },
+    "hatches": {
+      "description": "The app's hatch words (LLP 1075.003.000 Q1): a node marked hatch=\"word\" hands its platform object (a UIView or NSView and its kind's UIKit or AppKit object, or a DOM element) to the app module's element hatch, which compares it with typed keys the build writes from this list (ExactHatchKey). A hatched node leaves the host's fast path. A hatch word in the Contract that this list lacks is bake-undeclared-hatch. Either a list of words, each handled on every platform the app builds, or an object giving each word the platforms whose module handles it, as {\"avatar\": [\"ios\", \"macos\", \"web\"]} (LLP 1075.003.000.001 §5): a platform the word does not name shows the node and never calls a hatch for it, and its typed keys leave the word out.",
+      "oneOf": [
+        {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9]*(-[a-z][a-z0-9]*)*$"
+          }
+        },
+        {
+          "type": "object",
+          "propertyNames": { "pattern": "^[a-z][a-z0-9]*(-[a-z][a-z0-9]*)*$" },
+          "additionalProperties": {
+            "type": "array",
+            "items": { "enum": ["ios", "tvos", "macos", "web", "linux", "windows", "android"] }
+          }
+        }
+      ]
+    },
+    "implementations": {
+      "description": "The implementation each module interface binds on a target (LLP 1133.001 D4), where the build cannot choose alone: {\"@exact/geolocation\": {\"web\": \"@fast/geolocation-web\"}}. Unnamed, a target binds the app's one direct dependency that implements the interface there, else the one the interface carries; two such dependencies are bake-implementation-ambiguous.",
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "propertyNames": { "enum": ["ios", "tvos", "macos", "web", "linux", "windows", "android"] },
+        "additionalProperties": { "type": "string" }
+      }
+    },
     "gpu": {
       "type": "object",
       "additionalProperties": false,
@@ -30,7 +67,7 @@
         },
         "shaderPreludes": {
           "type": "object",
-          "description": "Ordered WGSL library paths relative to app.json, prepended to the named shader stem before reflection and packaging.",
+          "description": "Ordered WGSL library paths relative to app.json, prepended to the named shader stem before reflection and packaging. A game may also name the renderer's own sets: exact-game-render:frame, exact-game-render:material and exact-game-render:material_shadows.",
           "additionalProperties": {
             "type": "array",
             "items": {
@@ -61,6 +98,29 @@
         "audio": { "type": "boolean" },
         "assets": { "type": "boolean" },
         "crate": { "type": "string", "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*-logic$" },
+        "look": {
+          "type": "object",
+          "description": "The proof's look result (LLP 1127.000 D1): tells the game's look intends, silenced by name. A silenced tell is still printed and recorded.",
+          "additionalProperties": false,
+          "properties": {
+            "silence": {
+              "type": "array",
+              "uniqueItems": true,
+              "items": { "enum": ["near-black", "near-white", "clipped", "particles-uncovered", "no-shadow-casters"] }
+            }
+          }
+        },
+        "render": {
+          "type": "object",
+          "description": "Optional GPU-only render hooks in render/ (formerly game.presentation, LLP 1046.008 amendment). The crate may read game logic types; logic and host metadata must not depend on it. hooks names its exact_game_render::Hooks type; shaders names its reflected registry symbol, a Rust path, not shader files: those come from gpu.shaderRoots and gpu.shaderPreludes.",
+          "required": ["crate", "hooks"],
+          "additionalProperties": false,
+          "properties": {
+            "crate": { "type": "string", "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*-render$" },
+            "hooks": { "type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]*(?:::[A-Za-z_][A-Za-z0-9_]*)*$" },
+            "shaders": { "type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]*(?:::[A-Za-z_][A-Za-z0-9_]*)*$" }
+          }
+        },
         "data": {
           "type": "object",
           "description": "An optional linked Rust DataSource in the app's data/ crate, constructed with Default and wrapped by host storage.",
@@ -75,22 +135,32 @@
       }
     },
     "$schema": {
+      "description": "The path or URL of this schema (scripts/app.schema.json in the exact2 checkout); `exact new` writes it and `bun exact.mjs update` follows a checkout that moved, so an editor completes and explains every key. Builds ignore it.",
       "type": "string"
     },
     "name": {
+      "description": "The app's full name, as the web manifest and an installed web app show it.",
       "type": "string",
       "minLength": 1
     },
     "short_name": {
+      "description": "The name where space is short: a home screen, a dock tile.",
+      "type": "string"
+    },
+    "description": {
+      "description": "What the app does, in a sentence: the web manifest's `description`, which an install prompt or a store listing can show.",
       "type": "string"
     },
     "id": {
+      "description": "The web app's identity (the web manifest's `id`); usually the same as `app.id`.",
       "type": "string"
     },
     "start_url": {
+      "description": "The web page the installed app opens at; `/` for most apps.",
       "type": "string"
     },
     "display": {
+      "description": "How an installed web app is framed: `standalone` (its own window, no browser chrome) is the usual choice.",
       "type": "string",
       "enum": [
         "fullscreen",
@@ -99,22 +169,46 @@
         "browser"
       ]
     },
+    "orientation": {
+      "type": "string",
+      "description": "The Web App Manifest's default screen orientation (Screen Orientation API values). The web manifest carries it; the iPhone and Android lock to it; iPad keeps every orientation, as its multitasking requires.",
+      "enum": [
+        "any",
+        "natural",
+        "landscape",
+        "landscape-primary",
+        "landscape-secondary",
+        "portrait",
+        "portrait-primary",
+        "portrait-secondary"
+      ]
+    },
     "theme_color": {
       "type": "string"
     },
     "background_color_dark": {
       "type": "string",
-      "description": "The dark first-frame background beside background_color, used by the web page and iOS launch screen."
+      "pattern": "^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$",
+      "description": "The dark first-frame background beside background_color, used by the web page and iOS launch screen: #RGB, #RRGGBB or #RRGGBBAA, the forms the launch screen's colour set takes."
     },
     "background_color": {
-      "type": "string"
+      "type": "string",
+      "pattern": "^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$",
+      "description": "The first-frame background, the web page's and the iOS launch screen's: #RGB, #RRGGBB or #RRGGBBAA, the forms the launch screen's colour set takes, so a colour the web accepts is one every host builds. Unset, the iOS launch screen is the platform's: systemBackground, or the grouped background where the first route scrolls a grouped list."
     },
     "lang": {
       "description": "The W3C manifest's language: a BCP 47 tag for the page's <html lang> and the web manifest. Absent is en.",
       "type": "string",
       "pattern": "^[A-Za-z]{2,3}(-[A-Za-z0-9]{1,8})*$"
     },
+    "link": {
+      "type": "array",
+      "items": { "enum": ["markdown", "motion", "collections", "drag", "surfaces", "router", "format", "materials", "backdrop", "share", "documents", "picker", "timelines", "text_transform", "effects", "animations", "gradients", "grid", "geometry", "segments", "dataset", "tabs", "notifications", "grouped_lists", "io", "transitions", "media_picker", "auth_session", "numerals", "dates"] },
+      "uniqueItems": true,
+      "description": "Capabilities a native production build links before any plan uses them (LLP 1047 D8; LLP 1047.001), so a later bundle may: an archive otherwise links what its plan uses (and `auth_session` what its grants name) and nothing else, and a bundle that needs more is a new binary. Development links every capability but `media_picker` and `auth_session`, which it links as production would (LLP 1047.001.000 F). Names are the runner's (`exact_runner::Capability::name`)."
+    },
     "icons": {
+      "description": "The app's raster icons, as the web manifest spells them (`src`, `sizes`, `type`, `purpose`). Apple bakes derive their icon sets from these unless host.ios.icon or host.macos.icon selects an Icon Composer project; an iOS distribution build requires either that project or a square raster of at least 512 px.",
       "type": "array",
       "items": {
         "type": "object",
@@ -136,6 +230,150 @@
           }
         },
         "additionalProperties": false
+      }
+    },
+    "live_activities": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "kind",
+          "component",
+          "state",
+          "preview"
+        ],
+        "properties": {
+          "kind": {
+            "type": "string",
+            "pattern": "^[A-Za-z][A-Za-z0-9_-]*$"
+          },
+          "component": {
+            "type": "string",
+            "pattern": "^[A-Za-z][A-Za-z0-9_-]*$"
+          },
+          "state": {
+            "type": "string",
+            "pattern": "^[A-Za-z][A-Za-z0-9_-]*$"
+          },
+          "title": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "^(?=.*\\S)[^\\u0000-\\u001f\\u007f-\\u009f\\u2028\\u2029]*(?![\\s\\S])",
+            "description": "Literal platform label; no control characters."
+          },
+          "description": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "^(?=.*\\S)[^\\u0000-\\u001f\\u007f-\\u009f\\u2028\\u2029]*(?![\\s\\S])",
+            "description": "Literal platform label; no control characters."
+          },
+          "preview": {
+            "type": "object"
+          },
+          "push": {
+            "type": "boolean",
+            "default": false
+          },
+          "frequent": {
+            "type": "boolean",
+            "default": false
+          }
+        }
+      }
+    },
+    "widgets": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "kind",
+          "families",
+          "component",
+          "props",
+          "refresh",
+          "preview"
+        ],
+        "properties": {
+          "kind": {
+            "type": "string",
+            "pattern": "^[A-Za-z][A-Za-z0-9_-]*$"
+          },
+          "title": {
+            "type": "string",
+            "description": "Gallery display name; defaults to the humanised kind."
+          },
+          "description": {
+            "type": "string",
+            "description": "Gallery description; defaults to the humanised kind."
+          },
+          "component": {
+            "type": "string",
+            "pattern": "^[A-Za-z][A-Za-z0-9_-]*$"
+          },
+          "props": {
+            "type": "string",
+            "pattern": "^[A-Za-z][A-Za-z0-9_-]*$"
+          },
+          "refresh": {
+            "type": "string",
+            "pattern": "^[A-Za-z][A-Za-z0-9_-]*$"
+          },
+          "families": {
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": true,
+            "items": {
+              "enum": [
+                "systemSmall",
+                "systemMedium",
+                "systemLarge",
+                "systemExtraLarge",
+                "accessoryCircular",
+                "accessoryRectangular",
+                "accessoryInline",
+                "accessoryCorner"
+              ]
+            }
+          },
+          "requiresSecrets": {
+            "type": "boolean",
+            "default": false,
+            "description": "Set when this entry's refresh reads account data. Without shared Keychain profiles, the Mac shows its placeholder before reading cached props."
+          },
+          "watchFamilies": {
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": true,
+            "items": {
+              "enum": [
+                "accessoryCircular",
+                "accessoryRectangular",
+                "accessoryInline",
+                "accessoryCorner"
+              ]
+            },
+            "description": "Optional watchOS families; defaults to the accessory families in families."
+          },
+          "preview": {
+            "type": "object"
+          }
+        }
+      }
+    },
+    "protocol_handlers": {
+      "type": "array",
+      "description": "The Web App Manifest's protocol handlers. A native host registers each protocol and delivers its complete incoming URL through the existing navigation root at the path template's %s. The template is an absolute app path with exactly one %s; use a query parameter such as /open?u=%s. `http` and `https` come as a pair with one template: on macOS they make the app a web browser the person can choose in System Settings, and an HTML file opened from Finder arrives at the same template as its file: URL. iOS and the web register neither.",
+      "items": {
+        "type": "object",
+        "required": ["protocol", "url"],
+        "additionalProperties": false,
+        "properties": {
+          "protocol": { "type": "string", "pattern": "^[A-Za-z][A-Za-z0-9+.-]*$" },
+          "url": { "type": "string", "pattern": "^/(?!/)(?:(?!%s|#).)*%s(?:(?!%s|#).)*$" },
+          "distribution_only": { "type": "boolean", "description": "Register this handler in Apple bundles only for an archive or --distribution build. Defaults to false." }
+        }
       }
     },
     "file_handlers": {
@@ -181,6 +419,7 @@
       "additionalProperties": false
     },
     "app": {
+      "description": "The app's identity on every platform (LLP 1030 D2). Required.",
       "type": "object",
       "required": [
         "id",
@@ -188,14 +427,17 @@
       ],
       "properties": {
         "id": {
+          "description": "The reverse-DNS identity: the bundle identifier on Apple, the update stream's app id, and app.ts's `appId`. `exact new` writes com.example.<name>-<six hex digits>, unique to the app; change it before distributing.",
           "type": "string",
           "pattern": "^[a-zA-Z][a-zA-Z0-9-]*(\\.[a-zA-Z][a-zA-Z0-9-]*)+$"
         },
         "name": {
+          "description": "The name a native host shows: the menu bar, the app switcher, Finder.",
           "type": "string",
           "minLength": 1
         },
         "origin": {
+          "description": "The https origin a web build is served from, when it signs people in (OAuth callbacks are derived from it).",
           "type": "string",
           "pattern": "^https?://"
         },
@@ -208,13 +450,39 @@
       "additionalProperties": false
     },
     "host": {
+      "description": "Per-platform host settings the build bakes into each native app; a platform's key may be empty.",
       "type": "object",
       "properties": {
         "ios": {
+          "description": "iOS: `minimumOS` (default 17.0), `deviceFamily` (iphone, ipad), and the keys below.",
           "type": "object",
           "properties": {
+            "icon": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Primary Icon Composer .icon directory, relative to app.json and inside the app. Compiled with the app's catalogs; conflicts with an .appiconset in those catalogs are refused. Absent: use icons. tvOS does not inherit this field."
+            },
             "minimumOS": {
+              "description": "The oldest iOS the app runs on, as \"17.0\"; never below 17.0.",
               "type": "string"
+            },
+            "launchImage": {
+              "description": "A picture the launch screen centres on `background_color` (UILaunchScreen's UIImageName), drawn `width` points wide: the app's first frame drawn ahead of it, so the launch shows what the first frame shows (Expo's splash `image` and `imageWidth`). A PNG in the app's directory; light and dark alike.",
+              "type": "object",
+              "required": ["src", "width"],
+              "additionalProperties": false,
+              "properties": {
+                "src": { "type": "string", "pattern": "\\.png$", "description": "The PNG, relative to the app's directory." },
+                "width": { "type": "number", "minimum": 1, "description": "Its width on the launch screen, in points; its height follows its aspect." }
+              }
+            },
+            "optimize": {
+              "enum": ["speed", "size"],
+              "description": "What a production build optimizes the Rust archive and ExactKit for (LLP 1047.001 D9): \"speed\" (opt-level 3, Swift -O) or \"size\" (opt-level z, Swift -Osize -internalize-at-link; on 2026-10-06 a one-text app's 9.8 MB was 6.2). Absent: speed for an app, size for an embed (`build.mjs --embed`). `build.mjs --optimize` overrides it."
+            },
+            "designRequiresCompatibility": {
+              "type": "boolean",
+              "description": "Draw UIKit in its design before iOS 26 (no Liquid Glass), as Apple's UIDesignRequiresCompatibility key did; iOS 27 ignores that key, so the link records the iOS 18 SDK, the last before the new design, and every UIKit behaviour keyed on a later SDK is off. App Store Connect requires uploads to be built with a recent SDK and reads the recorded one. Absent or false: the SDK the app is built with."
             },
         "link": {
           "type": "array",
@@ -239,10 +507,23 @@
                 "boolean"
               ]
             },
+            "appTransportSecurity": {
+              "description": "App Transport Security keys the build writes into the iOS Info.plist's `NSAppTransportSecurity`. Absent: no key, and ATS refuses cleartext `http://` to a named host. `localNetworking` adds `NSAllowsLocalNetworking` beside these.",
+              "type": "object",
+              "properties": {
+                "allowsArbitraryLoadsInWebContent": {
+                  "type": "boolean",
+                  "description": "`NSAllowsArbitraryLoadsInWebContent`: an `iframe` loads `http://` from any host, as a browser does. Web views only; a module's `URLSession` stays under ATS. Every build carries it, store builds too, and App Review may ask why."
+                }
+              },
+              "additionalProperties": false
+            },
             "backgroundModes": {
               "type": "array",
               "items": {
-                "type": "string"
+                "type": "string",
+                "pattern": "^(?!remote-notification$).*$",
+                "description": "remote-notification is refused; ActivityKit update tokens need no background mode (LLP 1126.001 WP9)."
               }
             },
             "associatedDomains": {
@@ -251,10 +532,37 @@
                 { "type": "array", "items": { "type": "string" } }
               ]
             },
+            "appClip": {
+              "description": "An App Clip (LLP 1126 D12: an App Clip is an app). `{}` embeds the whole app a second time at `<App>.app/AppClips/<name>.app`, with `NSAppClip` in its Info.plist, the app as its parent application and each `applinks:` domain of `associatedDomains` as an `appclips:` invocation domain (the app's entitlements list those too). A device build needs a profile for the clip's App ID, registered with the App Clip capability, of the app's profile's team and method.",
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "id": {
+                  "description": "The clip's bundle identifier. Absent: `<app id>.Clip`.",
+                  "type": "string",
+                  "pattern": "^[a-zA-Z][a-zA-Z0-9-]*(\\.[a-zA-Z][a-zA-Z0-9-]*)+$"
+                },
+                "name": {
+                  "description": "The clip's display name and bundle name. Absent: the app's.",
+                  "type": "string",
+                  "minLength": 1
+                }
+              }
+            },
             "urlSchemes": {
               "type": "array",
+              "description": "Further URL schemes the bundle registers. Not http or https: those are protocol_handlers' pair.",
               "items": {
                 "type": "string"
+              }
+            },
+            "queriesSchemes": {
+              "description": "Other apps' URL schemes a native module may ask `canOpenURL` about, to see whether the app is installed (Info.plist's LSApplicationQueriesSchemes): iOS answers false for any scheme not listed, and honours at most 50. A scheme as RFC 3986 writes it, without `:`.",
+              "type": "array",
+              "maxItems": 50,
+              "items": {
+                "type": "string",
+                "pattern": "^[A-Za-z][A-Za-z0-9+.-]*$"
               }
             },
             "team": {
@@ -264,10 +572,40 @@
           "additionalProperties": false
         },
         "macos": {
+          "description": "macOS: `minimumOS` (default 14.0), the first window's size, and the keys below.",
           "type": "object",
           "properties": {
+            "icon": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Primary Icon Composer .icon directory, relative to app.json and inside the app. Compiled with the app's catalogs; conflicts with an .appiconset in those catalogs are refused. Absent: use icons."
+            },
+            "resources": {
+              "description": "Native-only resource trees, copied under Contents with modes and internal relative symlinks preserved, before the bundle is sealed (a build stamp placed here is inside the seal). Excluded from plan assets and TypeScript capture; changing them requires a new binary. Mach-O code is signed with the bundle; a helper executable needing a hardened-runtime exception names it in the source's grants, as `runtime.allow-jit Helpers/node/bin/node`; the app's own executable takes none (LLP 1069.008 D9).",
+              "type": "array",
+              "items": {
+                "type": "object", "required": ["from", "to"], "additionalProperties": false,
+                "properties": {
+                  "from": {"type": "string", "description": "Separate directory relative to app.json, for example server. Not assets, source or output roots."},
+                  "to": {"type": "string", "description": "Private destination under Contents, for example Resources/server or Helpers/server."}
+                }
+              }
+            },
             "minimumOS": {
+              "description": "The oldest macOS the app runs on, as \"14.0\"; never below 14.0.",
               "type": "string"
+            },
+            "optimize": {
+              "enum": ["speed", "size"],
+              "description": "What a production build optimizes the Rust archive and ExactKit for (LLP 1047.001 D9): \"speed\" (opt-level 3, Swift -O) or \"size\" (opt-level z, Swift -Osize -internalize-at-link; on 2026-10-06 a one-text app's 9.8 MB was 6.2). Absent: speed for an app, size for an embed (`build.mjs --embed`). `build.mjs --optimize` overrides it."
+            },
+            "oneTimeCodeAutofill": {
+              "enum": ["marked"],
+              "description": "\"marked\": macOS offers verification codes from Messages and Mail only in fields marked `autocomplete=\"one-time-code\"` (`NSAutoFillRequiresTextContentTypeForOneTimeCodeOnMac`). Absent: the platform's default; macOS 26 offers them in any text field."
+            },
+            "designRequiresCompatibility": {
+              "type": "boolean",
+              "description": "Draw AppKit in its design before macOS 26 (no Liquid Glass bezels or control metrics), as Apple's UIDesignRequiresCompatibility key did; macOS 27 ignores that key, so the link records the macOS 15 SDK, the last before the new design, and every AppKit behaviour keyed on a later SDK is off. App Store Connect requires uploads to be built with a recent SDK and reads the recorded one. Absent or false: the SDK the app is built with."
             },
         "link": {
           "type": "array",
@@ -276,11 +614,23 @@
             "type": "string"
           }
         },
+            "appTransportSecurity": {
+              "description": "App Transport Security keys the build writes into the macOS Info.plist's `NSAppTransportSecurity`. Absent: no key, and ATS refuses cleartext `http://` to a named host.",
+              "type": "object",
+              "properties": {
+                "allowsArbitraryLoadsInWebContent": {
+                  "type": "boolean",
+                  "description": "`NSAllowsArbitraryLoadsInWebContent`: an `iframe` loads `http://` from any host, as a browser does. Web views only; a module's `URLSession` stays under ATS. Every build carries it, store builds too, and App Review may ask why."
+                }
+              },
+              "additionalProperties": false
+            },
             "team": {
               "type": "string"
             },
             "urlSchemes": {
               "type": "array",
+              "description": "Further URL schemes the bundle registers. Not http or https: those are protocol_handlers' pair.",
               "items": {
                 "type": "string"
               }
@@ -307,22 +657,40 @@
                   "type": "number",
                   "minimum": 1,
                   "maximum": 16384
+                },
+                "keepRunning": {
+                  "type": "boolean",
+                  "description": "Closing the window (⌘W, File ▸ Close Window, the red button) hides it and the app keeps running, its session and native module alive; the Dock icon or `open -a` shows it again as it was. ⌘Q still quits. For an app with work the person expects to go on without the window (a server, a sync), as Mail and Messages do. Absent or false: the app ends with its window. A `launch_handler.client_mode` of `navigate-new` already outlives its last window, and this changes nothing there."
                 }
               },
-              "required": [
-                "width",
-                "height"
-              ],
               "additionalProperties": false
             }
           },
           "additionalProperties": false
         },
+        "android": {
+          "description": "Android: `minimumOS` (default 12).",
+          "type": "object",
+          "properties": {
+            "minimumOS": {
+              "description": "The oldest Android the app runs on, as \"12\"; never below 10. Below 12 the APK carries the reader's Android 10 and 11 code (host/android/README.md, \"Android 10 and 11\"); at 12 or later it carries none.",
+              "enum": ["10", "11", "12", "13", "14", "15", "16"]
+            }
+          },
+          "additionalProperties": false
+        },
         "linux": {
+          "description": "The Linux host has no settings yet; an empty object.",
+          "type": "object",
+          "additionalProperties": false
+        },
+        "windows": {
+          "description": "The Windows host has no settings yet; an empty object.",
           "type": "object",
           "additionalProperties": false
         },
         "web": {
+          "description": "The web host has no settings yet; an empty object.",
           "type": "object",
           "additionalProperties": false
         }
@@ -330,6 +698,7 @@
       "additionalProperties": false
     },
     "deploy": {
+      "description": "How the app is delivered and updated (LLP 1030.000): policy, never identity. `exact new` writes only `store`.",
       "type": "object",
       "properties": {
         "origin": {
@@ -362,6 +731,7 @@
           }
         },
         "store": {
+          "description": "Per platform (web, macos, ios, linux), whether an installed app has an update store: \"0\" links none, so every change ships as a new binary; \"A\" links the store, so signed plans and assets update over the air (LLP 1030 D4). `exact new` writes \"0\" everywhere: signed TypeScript and Rust module delivery isn't implemented.",
           "type": "object",
           "additionalProperties": {
             "type": "string",
@@ -391,6 +761,7 @@
           }
         },
         "channels": {
+          "description": "Each channel's update origin: a directory or URL, or \"appdrop\" for AppDrop's origin named after deploy.signing.key (https://appdrop.app/u/<key id>), which needs no account or server.",
           "type": "object",
           "additionalProperties": {
             "type": "string"
@@ -400,7 +771,8 @@
           "type": "string",
           "enum": [
             "next-launch",
-            "app-decides"
+            "app-decides",
+            "immediate"
           ]
         },
         "check": {
@@ -432,6 +804,14 @@
         },
         "brownfield": {
           "type": "boolean"
+        },
+        "appdrop": {
+          "description": "Publish iOS binary changes to AppDrop, after the streams (`scripts/deploy-appdrop.mjs`). `{}` makes the first such deploy create the link and write its `url` here, to commit. The update key stays out of app.json: $APPDROP_MANAGE_KEY, or the one the appdrop CLI saved. The install page offers the link for iOS when install.ios names no methods.",
+          "type": "object",
+          "properties": {
+            "url": { "type": "string", "pattern": "^https://[^/]+/d/[A-Za-z0-9]+/?$" }
+          },
+          "additionalProperties": false
         },
         "signing": {
           "type": "object",
@@ -573,6 +953,19 @@
       ],
       "description": "Rust live replacement, enabled by default in dev and prod. Resolve root, environment, platform, then platform environment. false/off removes replacement support at bake; true/auto uses browser Wasm, iOS Wasm interpreter, native desktop, Android native dev / Wasm prod. Android and Windows hosts remain future work."
     },
+    "commands": {
+      "description": "The app's own verbs for the exact.mjs `exact new` generates, by name: each a command as argv, run in the app's directory with the arguments after the verb, EXACT_APP_DIR and EXACT2 set. `\"verify\": [\"bun\", \"verify.mjs\"]` makes `bun exact.mjs verify web` run `bun verify.mjs web`. `bun exact.mjs update` rewrites exact.mjs and keeps these; a name exact.mjs already uses (test, agent, web, …) is refused.",
+      "type": "object",
+      "additionalProperties": {
+        "type": "array",
+        "minItems": 1,
+        "items": { "type": "string", "minLength": 1 }
+      }
+    },
+    "tamber": {
+      "type": "string",
+      "description": "The app's design (LLP 1121 D2): a `.tamber` file, relative to app.json. Without it, `app.tamber` beside app.contract is the design when there is one."
+    },
     "strings": {
       "type": "object",
       "description": "The UI's string tables (LLP 1060): strings/<locale>.json beside app.contract, read by `t(\"key\", name=value)`.",
@@ -616,7 +1009,35 @@
         }
       },
       "additionalProperties": false,
-      "description": "The TypeScript module's placement (LLP 1027.002), globally and per platform, and the directories it imports from outside the app."
+      "description": "Where app.ts runs: `placement` is \"main\" (the default) or \"worker\". The TypeScript module's placement (LLP 1027.002), globally and per platform, and the directories it imports from outside the app."
+    },
+    "verify": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "accept": {
+          "type": "array",
+          "description": "Findings of `verify`'s check that are the app's design (a brand palette's contrast, a reference's small keys): each names the check's finding kind (or `fixed-type`, a font size the app's Contract fixes; `fixed-symbol`, a symbol sized in points beside text; `broken-words`, `overflow-wrap: anywhere` on prose) and a node by its testId (or the testId of the control whose label it is; a trailing * matches a prefix, `mute-*`) and says why. verify prints them as accepted and does not count them.",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["finding", "node", "why"],
+            "properties": {
+              "finding": { "type": "string", "enum": ["covered", "squeezed", "clipped", "overflow", "overlap", "contrast", "card", "target", "fixed-type", "fixed-symbol", "broken-words"] },
+              "node": { "type": "string", "pattern": "^[^*]+\\*?$", "description": "A testId, or a non-empty prefix of one and a single trailing *: a bare * would accept the finding on every node." },
+              "why": { "type": "string", "minLength": 1 }
+            }
+          }
+        }
+      }
+    },
+    "audio_session": {
+      "type": "string",
+      "enum": [
+        "ambient",
+        "playback"
+      ],
+      "description": "The audio session the app's sounds, media and canvas audio share (LLP 1096 D8): ambient by default, so the ring/silent switch mutes them and other apps' audio keeps playing; playback for an app whose sound is the point (a drum machine, a player). iOS and tvOS set the AVAudioSession category; WebKit's Audio Session API takes it as navigator.audioSession.type; the Mac has no session."
     },
     "dev": {
       "type": "object",

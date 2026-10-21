@@ -1,5 +1,6 @@
 //! @ref LLP 1027.000.000 — the date is a host fact: unknown (0) at bake and
 //! boot, then one commit when the host says it; refused when implausible.
+//! And tasks that wait for state (LLP 1092 D7–D11), below.
 use exact_kernel::Kernel;
 use exact_runner::{DataError, DataSource, Runner, RunnerError, Value};
 
@@ -10,7 +11,7 @@ impl DataSource for NoData {
     }
 }
 
-const APP: &str = "shape Time\n  epochAtZero: number\n  utcOffset: number\ncomponent App\n  resource time = exactTime() as shape Time\n  derive date = time.epochAtZero + now()\n  view\n    text `${date}/${time.utcOffset}` testId=\"date\"\n";
+const APP: &str = "shape Time\n  epochAtZero: number\n  utcOffset: number\ncomponent App\n  resource time = exactTime() as shape Time\n  derive date = time.epochAtZero + performanceNow()\n  view\n    text `${date}/${time.utcOffset}` testId=\"date\"\n";
 
 fn text(r: &Runner<NoData>) -> String {
     let key = r.kernel().find_by_test_id("date")[0];
@@ -46,6 +47,338 @@ fn the_date_arrives_as_one_commit_and_bad_facts_are_refused() {
         Err(RunnerError::InvalidTime)
     ));
     assert_eq!(text(&r), "1790000000000/120");
+}
+
+/// A host that knows the date at launch boots under it: the first frame
+/// reads it, and telling the same fact after commits nothing; an invalid
+/// fact boots on zero, as before.
+#[test]
+fn a_date_known_at_launch_is_read_from_the_first_frame() {
+    let plan = contract::bake(contract::compile(APP).unwrap(), NoData).unwrap();
+    let boot = |time| {
+        exact_runner::time::launching(time, || {
+            Runner::boot(
+                plan.clone(),
+                NoData,
+                Kernel::with_monospace(),
+                Default::default(),
+                "/",
+            )
+        })
+        .unwrap()
+    };
+    let at = exact_runner::time::WallTime {
+        epoch_at_zero: 1_790_000_000_000.0,
+        utc_offset: -420.0,
+    };
+    let mut r = boot(Some(at));
+    assert_eq!(text(&r), "1790000000000/-420");
+    assert!(r.set_time(1_790_000_000_000.0, -420.0).unwrap().is_none());
+    let bad = exact_runner::time::WallTime {
+        epoch_at_zero: f64::NAN,
+        utc_offset: 0.0,
+    };
+    assert_eq!(text(&boot(Some(bad))), "0/0");
+    // Outside `launching`, nothing is left behind, a panic inside included.
+    let outside = || {
+        Runner::boot(
+            plan.clone(),
+            NoData,
+            Kernel::with_monospace(),
+            Default::default(),
+            "/",
+        )
+        .unwrap()
+    };
+    assert_eq!(text(&outside()), "0/0");
+    let unwound = std::panic::catch_unwind(|| {
+        exact_runner::time::launching(Some(at), || panic!("a boot that fails"))
+    });
+    assert!(unwound.is_err());
+    assert_eq!(text(&outside()), "0/0");
+}
+
+/// A live clock's reading at launch starts a fresh runner's clock: what its
+/// boot arms is due from then, not from zero, so a window booted a minute
+/// into the process does not fire its `after` at its first advance. A seek
+/// clock's boot (none told) and a reading that is no clock time start at zero.
+#[test]
+fn a_live_clock_known_at_launch_starts_a_fresh_runners_clock() {
+    const TIMER_APP: &str = "component App\n  state ticks = 0\n  task tick mount\n    after(10000, step)\n  action step\n    ticks = ticks + 1\n  view\n    text `${ticks}/${performanceNow()}` testId=\"date\"\n";
+    let plan = contract::bake(contract::compile(TIMER_APP).unwrap(), NoData).unwrap();
+    let boot = |clock: Option<f64>| {
+        let launch = exact_runner::time::Launch {
+            clock,
+            ..exact_runner::time::Launch::NONE
+        };
+        exact_runner::time::launching_with(launch, || {
+            Runner::boot(
+                plan.clone(),
+                NoData,
+                Kernel::with_monospace(),
+                Default::default(),
+                "/",
+            )
+        })
+        .unwrap()
+    };
+    let mut r = boot(Some(60_000.0));
+    assert_eq!(text(&r), "0/60000");
+    assert_eq!(r.timer_due_ms(), Some(70_000.0));
+    r.advance(65_000.0).unwrap();
+    assert_eq!(
+        text(&r),
+        "0/60000",
+        "the timer is not due until 10 s after the boot"
+    );
+    r.advance(70_000.0).unwrap();
+    assert_eq!(text(&r), "1/70000");
+    assert_eq!(boot(None).timer_due_ms(), Some(10_000.0));
+    assert_eq!(boot(Some(f64::NAN)).timer_due_ms(), Some(10_000.0));
+    assert_eq!(boot(Some(-1.0)).timer_due_ms(), Some(10_000.0));
+}
+
+/// Where the viewer is, known at launch: the first frame reads the locale,
+/// zone and seed, and the same place told after commits nothing; a place
+/// that does not validate boots on the defaults.
+#[test]
+fn a_place_known_at_launch_is_read_from_the_first_frame() {
+    const PLACE_APP: &str = "shape Time\n  locale: string\n  timeZone: string\n  seed: number\ncomponent App\n  resource time = exactTime() as shape Time\n  view\n    text `${time.locale}/${time.timeZone}/${time.seed}` testId=\"date\"\n";
+    let plan = contract::bake(contract::compile(PLACE_APP).unwrap(), NoData).unwrap();
+    let boot = |place: Option<exact_runner::time::Place>| {
+        let launch = exact_runner::time::Launch {
+            time: None,
+            place,
+            clock: None,
+        };
+        exact_runner::time::launching_with(launch, || {
+            Runner::boot(
+                plan.clone(),
+                NoData,
+                Kernel::with_monospace(),
+                Default::default(),
+                "/",
+            )
+        })
+        .unwrap()
+    };
+    let place = |locale: &str| exact_runner::time::Place {
+        locale: locale.into(),
+        time_zone: "America/Los_Angeles".into(),
+        seed: 7.0,
+    };
+    let mut r = boot(Some(place("fr-FR")));
+    assert_eq!(text(&r), "fr-FR/America/Los_Angeles/7");
+    assert!(r
+        .set_place("fr-FR", "America/Los_Angeles", Some(7.0))
+        .unwrap()
+        .is_none());
+    assert_eq!(text(&boot(Some(place("")))), "en-US/UTC/0");
+    assert_eq!(text(&boot(None)), "en-US/UTC/0");
+}
+
+/// Euxy's library: a store-reading source passed the date after `with`,
+/// whose answer stamps it. The bake's date is unknown (zero), so its answer
+/// is left out of the plan (LLP 1027.000.000 D2): a fresh install's first
+/// frame shows the placeholder, never patterns stamped at 1970, and the
+/// device's source is asked with the launch's date once it is ready. A
+/// resource that reads the date through a derive, or by its offset, is left
+/// out too; one that reads none of it is compiled as before.
+#[test]
+fn the_bake_compiles_no_answer_asked_at_its_unknown_date() {
+    const LIBRARY: &str = "shape Time\n  epochAtZero: number\n  utcOffset: number\nshape Library\n  loaded: bool\n  stamp: number\ncomponent App\n  resource time = exactTime() as shape Time\n  derive date = time.epochAtZero + performanceNow()\n  resource lib = loadLibrary() with time.epochAtZero as shape Library else empty(loaded=false)\n  resource dated = loadLibrary(date) as shape Library\n  resource zoned = loadLibrary(time.utcOffset) as shape Library\n  resource chips = loadLibrary(1) as shape Library\n  view\n    text `${lib.loaded}/${lib.stamp}|${dated.stamp}|${chips.stamp}` testId=\"date\"\n";
+    struct Library(std::rc::Rc<std::cell::Cell<bool>>);
+    impl DataSource for Library {
+        fn query(&mut self, _: &str, args: &[Value]) -> Result<Value, DataError> {
+            let stamp = match args.first() {
+                Some(Value::Number(n)) => *n,
+                _ => -1.0,
+            };
+            Ok(Value::record(vec![Value::Bool(true), Value::Number(stamp)]))
+        }
+        fn ready(&self) -> bool {
+            self.0.get()
+        }
+    }
+    let ready = || std::rc::Rc::new(std::cell::Cell::new(true));
+    let plan = contract::bake(contract::compile(LIBRARY).unwrap(), Library(ready())).unwrap();
+    let compiled = |name: &str| {
+        plan.resources
+            .iter()
+            .any(|r| plan.str(r.name) == name && r.initial.len > 0)
+    };
+    assert!(!compiled("lib") && !compiled("dated") && !compiled("zoned"));
+    assert!(compiled("chips"));
+
+    // A module loaded after the first pixel, on a host that knows the date.
+    let loaded = std::rc::Rc::new(std::cell::Cell::new(false));
+    let at = exact_runner::time::WallTime {
+        epoch_at_zero: 1_790_000_000_000.0,
+        utc_offset: 60.0,
+    };
+    let mut r = exact_runner::time::launching(Some(at), || {
+        Runner::boot(
+            plan.clone(),
+            Library(loaded.clone()),
+            Kernel::with_monospace(),
+            Default::default(),
+            "/",
+        )
+    })
+    .unwrap();
+    let shown = |r: &Runner<Library>| {
+        let key = r.kernel().find_by_test_id("date")[0];
+        let node = r.kernel().node_by_key(key).unwrap();
+        node.props
+            .str(exact_kernel::PropId::Text)
+            .unwrap_or("")
+            .to_string()
+    };
+    assert_eq!(shown(&r), "false/0|0|1");
+    loaded.set(true);
+    r.data_ready().unwrap();
+    assert_eq!(shown(&r), "true/1790000000000|1790000000000|1");
+    assert_eq!(
+        r.resource("zoned"),
+        Some(&Value::record(vec![Value::Bool(true), Value::Number(60.0)]))
+    );
+}
+
+/// The date reaches a resource's arguments by more than a derive: through
+/// another resource asked with it (and a field of its answer), a state an
+/// action assigns it (directly or through a `let`), and a state copied
+/// from another dated state, and a state the date only decides: written in
+/// either arm of a branch on it, or from a conditional expression on it.
+/// None of those answers is compiled. States that copy each other without
+/// the date terminate the analysis and keep theirs, as does a write after
+/// the dated branch has joined.
+#[test]
+fn the_bake_follows_the_date_through_resources_and_states() {
+    const APP: &str = r#"shape Time
+  epochAtZero: number
+shape Stamp
+  at: number
+component App
+  resource time = exactTime() as shape Time
+  resource stamp = stampOf(time.epochAtZero) as shape Stamp
+  resource viaResource = answer() with stamp.at as shape number
+  state at = 0
+  state held = 0
+  state copied = 0
+  state a = 0
+  state b = 0
+  state flag = 0
+  state other = 0
+  state after = 0
+  state pick = 0
+  action decide
+    if time.epochAtZero > 0
+      flag = 1
+    else
+      other = 1
+    after = 2
+  action choose
+    pick = time.epochAtZero > 0 ? 2 : 1
+  action prime
+    at = time.epochAtZero
+    let t = time.epochAtZero + 1
+    held = t
+  action copy
+    copied = at
+  action swap
+    a = b
+    b = a
+  task boot mount
+    after(1, prime)
+  resource viaAction = answer() with at as shape number
+  resource viaLet = answer(held) as shape number
+  resource viaCopy = answer(copied) as shape number
+  resource cycle = answer(a + b) as shape number
+  resource decided = answer(flag) as shape number
+  resource otherwise = answer(other) as shape number
+  resource joined = answer(after) as shape number
+  resource picked = answer(pick) as shape number
+  resource plain = answer(1) as shape number
+  view
+    text "{viaResource}{viaAction}{viaLet}{viaCopy}{cycle}{decided}{otherwise}{joined}{picked}{plain}"
+"#;
+    struct Source;
+    impl DataSource for Source {
+        fn query(&mut self, source: &str, args: &[Value]) -> Result<Value, DataError> {
+            let n = match args.first() {
+                Some(Value::Number(n)) => *n,
+                _ => 7.0,
+            };
+            Ok(match source {
+                "stampOf" => Value::record(vec![Value::Number(n)]),
+                _ => Value::Number(n),
+            })
+        }
+    }
+    let plan = contract::bake(contract::compile(APP).unwrap(), Source).unwrap();
+    let compiled = |name: &str| {
+        plan.resources
+            .iter()
+            .find(|r| plan.str(r.name) == name)
+            .unwrap_or_else(|| panic!("no resource {name}"))
+            .initial
+            .len
+            > 0
+    };
+    for dated in [
+        "stamp",
+        "viaResource",
+        "viaAction",
+        "viaLet",
+        "viaCopy",
+        "decided",
+        "otherwise",
+        "picked",
+    ] {
+        assert!(
+            !compiled(dated),
+            "{dated} is asked at the bake's date: not compiled"
+        );
+    }
+    assert!(compiled("cycle") && compiled("joined") && compiled("plain"));
+}
+
+/// The runner says which resources read the date in one pass over the
+/// plan, which the bake asks once: here a chain of 300 resources, each
+/// asked with the one before, from the date, beside 300 that are not.
+#[test]
+fn the_resources_reading_the_date_are_found_in_one_pass() {
+    let mut src = String::from(
+        "shape Time\n  epochAtZero: number\ncomponent App\n  resource time = exactTime() as shape Time\n  resource d0 = answer(time.epochAtZero) as shape number\n  resource p0 = answer(0) as shape number\n",
+    );
+    for i in 1..300 {
+        src.push_str(&format!(
+            "  resource d{i} = answer(d{}) as shape number\n  resource p{i} = answer(p{}) as shape number\n",
+            i - 1,
+            i - 1
+        ));
+    }
+    src.push_str("  view\n    text \"{d299}{p299}\"\n");
+    struct Source;
+    impl DataSource for Source {
+        fn query(&mut self, _: &str, args: &[Value]) -> Result<Value, DataError> {
+            Ok(args.first().cloned().unwrap_or(Value::Number(0.0)))
+        }
+    }
+    let plan = contract::compile(&src).unwrap();
+    let r = Runner::boot(
+        plan,
+        Source,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    let dated = r.resources_reading_clock();
+    for (i, row) in r.plan().resources.iter().enumerate() {
+        let name = r.plan().str(row.name);
+        assert_eq!(dated[i], name.starts_with('d'), "{name}");
+    }
 }
 
 const PLACED: &str = "shape Time\n  epochAtZero: number\n  locale: string\n  timeZone: string\ncomponent App\n  resource time = exactTime() as shape Time\n  view\n    text `${time.locale}|${time.timeZone}|${time.epochAtZero}` testId=\"date\"\n";
@@ -121,7 +454,14 @@ fn the_launch_seed_arrives_as_a_host_fact_and_nothing_else_is_one() {
         .set_place("en-GB", "Europe/London", Some(123_456_789.0))
         .unwrap()
         .is_none());
-    for bad in [-1.0, 0.5, f64::NAN, 9_007_199_254_740_992.0] {
+    // Below 2^32 (LLP 1116.005 D5): a seed past it is refused, not wrapped.
+    for bad in [
+        -1.0,
+        0.5,
+        f64::NAN,
+        4_294_967_296.0,
+        9_007_199_254_740_991.0,
+    ] {
         assert!(matches!(
             r.set_place("fr-FR", "Europe/Paris", Some(bad)),
             Err(RunnerError::InvalidPlace)
@@ -132,4 +472,638 @@ fn the_launch_seed_arrives_as_a_host_fact_and_nothing_else_is_one() {
             "bad seed refuses the whole place"
         );
     }
+    r.set_place("en-GB", "Europe/London", Some(4_294_967_295.0))
+        .unwrap();
+    assert_eq!(text(&r), "4294967295|en-GB", "2^32 - 1 is the largest seed");
+}
+
+// ---------------------------------------------------------------- gated tasks
+// @ref LLP 1092 D7–D11 — a task that exists while its gate holds, restarted
+// by a new key; nothing runs when the gate changes.
+
+/// Answers `flag()` with its field, `items()` with one row, `later()` with a
+/// request, and `calc(n)` with `{ n }` now.
+#[derive(Default)]
+struct Gated {
+    flag: bool,
+}
+impl DataSource for Gated {
+    fn query(&mut self, source: &str, args: &[Value]) -> Result<Value, DataError> {
+        match source {
+            "flag" => Ok(Value::Bool(self.flag)),
+            "items" => Ok(Value::list(vec![Value::str("a")])),
+            "calc" => Ok(Value::record(vec![args[0].clone()])),
+            other => Err(DataError::UnknownSource(other.into())),
+        }
+    }
+    fn answer(
+        &mut self,
+        _: &mut exact_runner::Store,
+        source: &str,
+        args: &[Value],
+    ) -> Result<exact_runner::Answer, DataError> {
+        match source {
+            "later" => Ok(exact_runner::Answer::Later(exact_runner::Request::get(
+                "https://gated.test/later",
+            ))),
+            _ => self.query(source, args).map(exact_runner::Answer::Now),
+        }
+    }
+    fn parse(
+        &mut self,
+        _: &mut exact_runner::Store,
+        _: &str,
+        _: &[Value],
+        _: exact_runner::Outcome,
+    ) -> Result<exact_runner::Answer, DataError> {
+        Ok(exact_runner::Answer::Now(Value::record(vec![
+            Value::Number(1.0),
+        ])))
+    }
+}
+
+fn gated(src: &str, data: Gated) -> Runner<Gated> {
+    let plan = contract::bake(contract::compile(src).unwrap(), Gated { flag: data.flag }).unwrap();
+    Runner::boot(
+        plan,
+        data,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap()
+}
+
+fn num(r: &Runner<Gated>, slot: &str) -> f64 {
+    r.slot(slot).and_then(Value::as_number).unwrap()
+}
+
+const GATED: &str = "component App
+  state on = false
+  state n = 0
+  state k = 0
+  state other = 0
+  action set(v: bool)
+    on = v
+  action rekey(v: number)
+    k = v
+  action bump
+    other = other + 1
+  action tick
+    n = n + 1
+  task t when on
+    after(1000, tick)
+  task r key=k
+    after(1000, tick)
+  view
+    text `${n}`
+";
+
+#[test]
+fn a_gate_on_then_off_before_its_due_time_fires_nothing_and_idle_reports_no_time() {
+    let mut r = gated(
+        &GATED.replace("  task r key=k\n    after(1000, tick)\n", ""),
+        Gated::default(),
+    );
+    assert_eq!(
+        r.timer_due_ms(),
+        None,
+        "an idle gated task keeps no host awake"
+    );
+    r.act("set", vec![Value::Bool(true)]).unwrap();
+    assert_eq!(r.timer_due_ms(), Some(1000.0));
+    r.advance(500.0).unwrap();
+    r.act("set", vec![Value::Bool(false)]).unwrap();
+    assert_eq!(r.timer_due_ms(), None);
+    r.advance(5000.0).unwrap();
+    assert_eq!(num(&r, "n"), 0.0, "nothing ran");
+    // On again: armed from now, not from the first arming.
+    r.act("set", vec![Value::Bool(true)]).unwrap();
+    assert_eq!(r.timer_due_ms(), Some(6000.0));
+}
+
+#[test]
+fn a_key_change_re_arms_a_nan_key_refuses_and_negative_zero_is_zero() {
+    // A key computed past every number: NaN is no key (slots and derives
+    // hold only finite numbers).
+    let src = GATED
+        .replace("  task t when on\n    after(1000, tick)\n", "")
+        .replace("task r key=k", "task r key=k == 5 ? 0 / 0 : k");
+    let mut r = gated(&src, Gated::default());
+    assert_eq!(
+        r.timer_due_ms(),
+        Some(1000.0),
+        "`key=` alone is `when true`"
+    );
+    r.advance(400.0).unwrap();
+    r.act("rekey", vec![Value::Number(1.0)]).unwrap();
+    assert_eq!(r.timer_due_ms(), Some(1400.0));
+    r.advance(600.0).unwrap();
+    r.act("rekey", vec![Value::Number(1.0)]).unwrap();
+    assert_eq!(r.timer_due_ms(), Some(1400.0), "an unchanged key leaves it");
+    assert!(matches!(
+        r.act("rekey", vec![Value::Number(5.0)]),
+        Err(RunnerError::TaskKey { task }) if task == "r"
+    ));
+    assert_eq!(num(&r, "k"), 1.0, "the refused commit wrote nothing");
+    assert_eq!(r.timer_due_ms(), Some(1400.0), "and moved no timer");
+    r.act("rekey", vec![Value::Number(0.0)]).unwrap();
+    assert_eq!(r.timer_due_ms(), Some(1600.0));
+    r.advance(700.0).unwrap();
+    r.act("rekey", vec![Value::Number(-0.0)]).unwrap();
+    assert_eq!(
+        r.timer_due_ms(),
+        Some(1600.0),
+        "`-0` is `0`, as a `for` key"
+    );
+}
+
+#[test]
+fn a_spent_after_stays_spent_and_an_every_that_clears_its_gate_stops() {
+    let mut r = gated(
+        &GATED.replace("  task r key=k\n    after(1000, tick)\n", ""),
+        Gated::default(),
+    );
+    r.act("set", vec![Value::Bool(true)]).unwrap();
+    r.advance(1000.0).unwrap();
+    assert_eq!(num(&r, "n"), 1.0);
+    r.act("bump", vec![]).unwrap();
+    assert_eq!(r.timer_due_ms(), None, "spent while the gate holds");
+    let every = GATED
+        .replace("  task r key=k\n    after(1000, tick)\n", "")
+        .replace(
+            "    n = n + 1\n",
+            "    n = n + 1\n    if n >= 2\n      on = false\n",
+        )
+        .replace("after(1000, tick)", "every(100, tick)");
+    let mut r = gated(&every, Gated::default());
+    r.act("set", vec![Value::Bool(true)]).unwrap();
+    r.advance(1000.0).unwrap();
+    assert_eq!(num(&r, "n"), 3.0, "its own fire's commit dropped it");
+    assert_eq!(r.timer_due_ms(), None);
+}
+
+#[test]
+fn a_boot_gate_reads_a_derive_over_a_baked_answer() {
+    let src = "component App
+  state x = 1
+  state n = 0
+  resource flag = flag() as shape bool
+  derive go = flag and x > 0
+  action tick
+    n = n + 1
+  task t when go
+    after(10, tick)
+  view
+    text `${n}`
+";
+    assert_eq!(gated(src, Gated { flag: true }).timer_due_ms(), Some(10.0));
+    assert_eq!(gated(src, Gated { flag: false }).timer_due_ms(), None);
+}
+
+/// D8: an `after` fires at its deadline exactly, so an action that
+/// re-tests it with a strict `>` does nothing; one that clears clears.
+#[test]
+fn an_after_fires_at_its_deadline_so_a_strict_retest_does_nothing() {
+    let src = "component App
+  state toast = \"\"
+  state until = 0
+  action show
+    toast = \"hi\"
+    until = performanceNow() + 5000
+  action expire
+    if performanceNow() > until
+      toast = \"\"
+  task hide when toast != \"\" key=until
+    after(5000, expire)
+  view
+    text toast
+";
+    let mut r = gated(src, Gated::default());
+    r.act("show", vec![]).unwrap();
+    r.advance(60_000.0).unwrap();
+    assert_eq!(r.slot("toast"), Some(&Value::str("hi")), "up forever");
+    let mut r = gated(
+        &src.replace(
+            "    if performanceNow() > until\n      toast = \"\"\n",
+            "    toast = \"\"\n",
+        ),
+        Gated::default(),
+    );
+    r.act("show", vec![]).unwrap();
+    r.advance(5000.0).unwrap();
+    assert_eq!(r.slot("toast"), Some(&Value::str("")));
+    assert_eq!(r.timer_due_ms(), None);
+}
+
+#[test]
+fn frames_skip_an_idle_frame_task_a_seek_never_fires_one_and_wants_frames_follows() {
+    let src = "component App
+  state flying = false
+  state framed = 0
+  action fly(v: bool)
+    flying = v
+  action step
+    framed = framed + 1
+  task f when flying
+    every(frame, step)
+  view
+    text `${framed}`
+";
+    let mut r = gated(src, Gated::default());
+    r.present_frames(true);
+    assert!(!r.wants_frames());
+    assert!(r.frame(16.0).receipts.is_empty());
+    r.act("fly", vec![Value::Bool(true)]).unwrap();
+    assert!(r.wants_frames());
+    r.frame(32.0);
+    r.frame(48.0);
+    assert_eq!(num(&r, "framed"), 2.0);
+    r.act("fly", vec![Value::Bool(false)]).unwrap();
+    assert!(!r.wants_frames());
+    r.frame(64.0);
+    // A seek: an idle frame task's virtual frames never fire.
+    r.present_frames(false);
+    r.advance(2000.0).unwrap();
+    assert_eq!(num(&r, "framed"), 2.0);
+    // Armed while seeking: virtual frames from the commit's time.
+    r.act("fly", vec![Value::Bool(true)]).unwrap();
+    r.advance(3000.0).unwrap();
+    assert_eq!(num(&r, "framed"), 62.0, "sixty virtual frames a second");
+}
+
+/// b6 review A3: a frame task armed by another frame task's commit in the
+/// same frame waits for the next frame, as the web's `paint`, which fires
+/// the tasks armed as the frame starts; one dropped there does not fire.
+#[test]
+fn a_frame_task_armed_mid_frame_waits_for_the_next_one() {
+    let src = "component App
+  state second = false
+  state a = 0
+  state b = 0
+  action stepA
+    a = a + 1
+    second = not second
+  action stepB
+    b = b + 1
+  task fa mount
+    every(frame, stepA)
+  task fb when second
+    every(frame, stepB)
+  view
+    text `${a} ${b}`
+";
+    let mut r = gated(src, Gated::default());
+    r.present_frames(true);
+    r.frame(16.0);
+    assert_eq!((num(&r, "a"), num(&r, "b")), (1.0, 0.0), "armed mid-frame");
+    r.frame(32.0);
+    assert_eq!(
+        (num(&r, "a"), num(&r, "b")),
+        (2.0, 0.0),
+        "dropped by fa before its turn"
+    );
+    r.frame(48.0);
+    assert_eq!((num(&r, "a"), num(&r, "b")), (3.0, 0.0));
+}
+
+#[test]
+fn a_gate_armed_inside_an_advance_fires_within_it() {
+    let src = GATED
+        .replace("  task r key=k\n    after(1000, tick)\n", "")
+        .replace("after(1000, tick)", "after(50, tick)")
+        .replace(
+            "  view\n",
+            "  action arm\n    on = true\n  task a mount\n    after(100, arm)\n  view\n",
+        );
+    let mut r = gated(&src, Gated::default());
+    r.advance(1000.0).unwrap();
+    assert_eq!(num(&r, "n"), 1.0, "armed at 100, fired at 150");
+}
+
+/// D10's seek rule: one `advance(60_000)` equals sixty `advance(1_000)`s,
+/// with a gate that turns on and off and a key that re-arms on the way.
+#[test]
+fn one_long_advance_equals_sixty_short_ones() {
+    let src = "component App
+  state on = true
+  state n = 0
+  state m = 0
+  state k = 0
+  action tick
+    n = n + 1
+    if n % 5 == 0
+      on = false
+      k = k + 1
+  action wake
+    m = m + 1
+    on = true
+  task beat when on
+    every(700, tick)
+  task again key=k
+    after(1300, wake)
+  view
+    text `${n} ${m}`
+";
+    let mut long = gated(src, Gated::default());
+    long.advance(60_000.0).unwrap();
+    let mut short = gated(src, Gated::default());
+    for s in 1..=60 {
+        short.advance(f64::from(s) * 1000.0).unwrap();
+    }
+    for slot in ["on", "n", "m", "k"] {
+        assert_eq!(long.slot(slot), short.slot(slot), "{slot}");
+    }
+    assert_eq!(long.timer_due_ms(), short.timer_due_ms());
+    assert!(num(&long, "m") > 5.0, "the gate cycled");
+}
+
+/// The driver's case (D10): a gated tick sends; the reply's `then` clears
+/// the gate. A jump stops at the commit that hands out the request and
+/// lands its reply first, so `clock +60000` and sixty `clock +1000` stop
+/// together.
+#[test]
+fn a_gated_tick_whose_then_clears_the_gate_stops_the_same_under_any_jump() {
+    let src = "shape Ack
+  n: number
+component App
+  state on = true
+  state ticks = 0
+  mutation m as shape Ack then done
+  action tick
+    ticks = ticks + 1
+    send m = later()
+  action done
+    on = false
+  task beat when on
+    every(1000, tick)
+  view
+    text `${ticks}`
+";
+    let jump = |r: &mut Runner<Gated>, to: f64| loop {
+        let a = r.advance_until_request(to);
+        assert!(a.error.is_none());
+        let requests = r.take_requests();
+        for q in &requests {
+            r.fulfill(
+                q.ticket,
+                exact_runner::Outcome::Failed {
+                    kind: exact_runner::FailureKind::Network,
+                    message: "offline".into(),
+                },
+            )
+            .unwrap();
+        }
+        if requests.is_empty() && a.now_ms >= to {
+            break;
+        }
+    };
+    let mut long = gated(src, Gated::default());
+    jump(&mut long, 60_000.0);
+    let mut short = gated(src, Gated::default());
+    for s in 1..=60 {
+        jump(&mut short, f64::from(s) * 1000.0);
+    }
+    for r in [&long, &short] {
+        assert_eq!(num(r, "ticks"), 1.0);
+        assert_eq!(r.slot("on"), Some(&Value::Bool(false)));
+        assert_eq!(r.timer_due_ms(), None);
+    }
+}
+
+/// D8: the gate step is on the settlement path, inside its rollback. A
+/// key that refuses a row action's commit leaves the row slot it wrote and
+/// the request it sent unapplied.
+#[test]
+fn a_gate_refusal_rolls_back_row_slots_and_requests() {
+    let src = "shape Ack
+  n: number
+component App
+  state bad = false
+  resource items = items() as shape string[]
+  mutation m as shape Ack
+  action go
+    send m = later()
+    bad = true
+  action tick
+    bad = false
+  task t key=bad ? 0 / 0 : 1
+    after(1000, tick)
+  view
+    column
+      for it in items key=it
+        Row(id=it, go=go)
+component Row
+  props
+    id: string
+    go: action
+  state n = 0
+  action press
+    n = n + 1
+    go()
+  view
+    button press=press testId=`row-${id}`
+      text `${n}` testId=`n-${id}`
+";
+    let mut r = gated(src, Gated::default());
+    let row = |r: &Runner<Gated>| {
+        let key = r.kernel().find_by_test_id("row-a")[0];
+        r.kernel().node_by_key(key).unwrap().id
+    };
+    let label = |r: &Runner<Gated>| {
+        let k = r.kernel();
+        let key = k.find_by_test_id("n-a")[0];
+        let node = k.node_by_key(key).unwrap();
+        node.props
+            .str(exact_kernel::PropId::Text)
+            .unwrap_or("")
+            .to_string()
+    };
+    assert_eq!(label(&r), "0");
+    let e = r.dispatch(row(&r), exact_runner::Event::Press).unwrap_err();
+    assert!(matches!(e, RunnerError::TaskKey { .. }), "{e:?}");
+    assert!(r.take_requests().is_empty(), "no request went out");
+    assert!(r.pending().is_empty());
+    r.act("tick", vec![]).unwrap();
+    assert_eq!(label(&r), "0", "the row slot was put back");
+}
+
+#[test]
+fn a_task_gate_parses_in_three_forms_and_lowers_to_plan_code() {
+    let plan = contract::compile(GATED).unwrap();
+    let rows: Vec<_> = plan
+        .timers
+        .iter()
+        .map(|t| (plan.str(t.name), t.gated, t.keyed))
+        .collect();
+    assert_eq!(rows, [("t", true, false), ("r", true, true)]);
+    let both = GATED.replace("task t when on\n", "task t when on and n < 3 key=k\n");
+    let plan = contract::compile(&both).unwrap();
+    assert!(plan.timers[0].gated && plan.timers[0].keyed);
+    // `mount` stays ungated, its gate the constant `true`.
+    let plan = contract::compile(&GATED.replace("task t when on\n", "task t mount\n")).unwrap();
+    assert!(!plan.timers[0].gated && !plan.timers[0].keyed);
+    let e = contract::compile(&GATED.replace("task t when on\n", "task t\n")).unwrap_err();
+    assert_eq!(e.id, "syntax-task-start");
+}
+
+/// D9's refusals, each message whole.
+#[test]
+fn a_gate_takes_a_bool_a_key_a_scalar_and_neither_reads_the_clock() {
+    let src = |gate: &str| {
+        format!("shape P\n  x: number\nfn late(t: number): bool = performanceNow() > t\ncomponent App\n  state toast = \"\"\n  state p = P(x=1)\n  state n = 0\n  derive clock = performanceNow() > 5\n  action tick\n    n = n + 1\n  task hide {gate}\n    after(5000, tick)\n  view\n    text toast\n")
+    };
+    let says = |gate: &str, id: &str, message: &str| {
+        let e = contract::compile(&src(gate)).unwrap_err();
+        assert_eq!((e.id.as_str(), e.message.as_str()), (id, message), "{gate}");
+    };
+    says(
+        "when toast",
+        "type-task-gate",
+        "`when` takes a bool; `toast` is a string; write `toast != \"\"`",
+    );
+    says(
+        "key=p",
+        "type-task-key",
+        "a task's `key=` is a string, number or bool, as a `for` key is; this one is P",
+    );
+    let clock = "A gate is read at commits, not as the clock moves, so an `after` gated on `performanceNow()` cannot be dropped before it fires, and an `every` stops up to an interval late. Gate on state (`toast != \"\"`) and let `after(5000, …)` measure the time";
+    says(
+        "when performanceNow() > 100",
+        "analyze-task-gate-clock",
+        &format!("`task hide`'s gate reads `performanceNow()`. {clock}"),
+    );
+    says(
+        "when clock",
+        "analyze-task-gate-clock",
+        &format!("`task hide`'s gate reads `performanceNow()` through `clock`. {clock}"),
+    );
+    says(
+        "when toast != \"\" key=late(3)",
+        "analyze-task-gate-clock",
+        &format!("`task hide`'s key reads `performanceNow()` through `fn late`. {clock}"),
+    );
+    contract::compile(&src("when toast != \"\" key=n")).unwrap();
+}
+
+/// @ref LLP 1109 D1 — `now()` is deleted, not deprecated: wherever an
+/// expression may call it, it is refused at its own span with both repairs
+/// in one sentence, and an app's `fn now` still shadows nothing away.
+#[test]
+fn now_is_refused_with_both_repairs_at_its_span() {
+    let cases = [
+        ("  derive d = 1 + now()\n  view\n    text d.toString()\n", 4, 18),
+        ("  view\n    text `${now()}`\n", 5, 13),
+        ("  state at = 0\n  action stamp\n    at = now() + 7 * 86400000\n  view\n    text at.toString()\n", 6, 10),
+        ("  state at = 0\n  action set(t: number)\n    at = t\n  view\n    button \"s\" press=set(now())\n", 8, 26),
+    ];
+    for (body, line, col) in cases {
+        let src = format!("shape Clock\n  epochAtZero: number\ncomponent App\n{body}");
+        let e = contract::compile(&src).unwrap_err();
+        assert_eq!(e.id, "type-now-renamed", "{body}: {e}");
+        assert_eq!(
+            (e.span.line, e.span.col, e.span.end_col),
+            (line, col, col + 3),
+            "{body}: {e}"
+        );
+        for repair in [
+            "`performanceNow()` for durations and timers",
+            "`time.epochAtZero + performanceNow()` for the date",
+            "`resource time = exactTime() as shape Clock`",
+        ] {
+            assert!(e.message.contains(repair), "{body}: {}", e.message);
+        }
+        assert_eq!(
+            e.message.matches(". ").count(),
+            0,
+            "one sentence: {}",
+            e.message
+        );
+    }
+    let e = contract::compile(
+        "fn f(): number = now()\ncomponent App\n  view\n    text f().toString()\n",
+    )
+    .unwrap_err();
+    assert_eq!(e.id, "type-now-renamed", "{e}");
+    // An app's own `fn now` shadows the refusal as it would a roster name.
+    contract::compile("fn now(): number = 7\ncomponent App\n  view\n    text now().toString()\n")
+        .unwrap();
+    // The web's spellings meet the same repairs.
+    for web in ["Date.now()", "performance.now()"] {
+        let e = contract::compile(&format!(
+            "component App\n  view\n    text ({web}).toString()\n"
+        ))
+        .unwrap_err();
+        assert!(
+            e.message
+                .contains("`performanceNow()` for durations and timers"),
+            "{web}: {e}"
+        );
+    }
+}
+
+#[test]
+fn live_resource_arguments_warn_through_derives_and_functions_but_sampled_state_does_not() {
+    let file = contract_syntax::parse(
+        r#"
+fn clockValue(): number = performanceNow()
+shape Reply
+  value: number
+component App
+  state sampledAt = 0
+  derive live = clockValue() + 1
+  derive forwarded = live
+  resource direct = read(performanceNow()) as shape Reply else empty()
+  resource indirect = read(forwarded) as shape Reply else empty()
+  resource context = read() with performanceNow() as shape Reply else empty()
+  resource sampled = read(sampledAt) as shape Reply else empty()
+  action tick
+    sampledAt = performanceNow()
+  view
+    text direct.value
+"#,
+    )
+    .unwrap();
+    let warnings = contract_analyze::resource_clock_warnings(&file);
+    assert_eq!(warnings.len(), 3);
+    assert!(warnings[0].message.contains("`direct`"));
+    assert!(warnings[1].message.contains("`indirect`"));
+    assert!(warnings[2].message.contains("`context`"));
+    assert!(warnings
+        .iter()
+        .all(|w| w.id == "analyze-resource-clock" && w.message.contains("sample")));
+}
+
+#[test]
+fn resource_clock_advice_keeps_json_build_success_and_stdout_valid() {
+    let root = std::env::temp_dir().join(format!("exact-clock-advice-{}", std::process::id()));
+    std::fs::create_dir_all(&root).unwrap();
+    let path = root.join("app.contract");
+    std::fs::write(&path, "shape Reply\n  value: number\ncomponent App\n  resource reply = read(performanceNow()) as shape Reply else empty()\n  view\n    text `${reply.value}`\n").unwrap();
+    let run = std::process::Command::new(env!("CARGO_BIN_EXE_contract"))
+        .args(["build", path.to_str().unwrap(), "--json"])
+        .output()
+        .unwrap();
+    assert!(
+        run.status.success(),
+        "{}",
+        String::from_utf8_lossy(&run.stderr)
+    );
+    // The advice is among the array's warnings, and stderr is empty.
+    let reply = serde_json::from_slice::<serde_json::Value>(&run.stdout).unwrap();
+    let advice = reply.as_array().unwrap();
+    assert!(!advice.is_empty(), "{reply}");
+    assert!(
+        advice
+            .iter()
+            .all(|w| w["id"] == "analyze-resource-clock" && w["severity"] == "warning"),
+        "{reply}"
+    );
+    assert_eq!(String::from_utf8_lossy(&run.stderr), "");
+    let human = std::process::Command::new(env!("CARGO_BIN_EXE_contract"))
+        .args(["build", path.to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(String::from_utf8_lossy(&human.stderr).contains("analyze-resource-clock"));
+    std::fs::remove_dir_all(root).unwrap();
 }

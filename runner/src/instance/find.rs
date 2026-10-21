@@ -36,7 +36,7 @@ fn locate<'a>(
         match &r.active {
             Active::Arm { roots, frame, .. } => {
                 if has_root(roots, target) {
-                    frames.push(frame.clone());
+                    frames.push(frame.scope());
                     return locate(roots, target, frames, scanned);
                 }
             }

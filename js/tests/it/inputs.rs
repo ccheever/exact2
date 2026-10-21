@@ -48,6 +48,11 @@ const FORMS: &[(&str, &str)] = &[
         "intl-parts-prototype",
         "Intl.DateTimeFormat.formatToParts()",
     ),
+    ("timeout", "setTimeout()"),
+    ("interval", "setInterval()"),
+    ("computed-timeout", "setTimeout()"),
+    ("frame", "requestAnimationFrame()"),
+    ("performance", "performance.now()"),
 ];
 
 const SRC: &str = r#"
@@ -57,23 +62,23 @@ component App
   state form = "now"
   resource value = explicit(elapsedMs, seed) as shape string
   mutation result as shape string
-  action refreshValue writes elapsedMs
+  action refreshValue
     refresh value
-  action tick writes elapsedMs
-    elapsedMs = now()
-  action reseed(v: number) writes seed
+  action tick
+    elapsedMs = performanceNow()
+  action reseed(v: number)
     seed = v
-  action ambient writes result
+  action ambient
     send result = ambient(form)
-  action ambientLater writes result
+  action ambientLater
     send result = ambientLater(form)
-  action explicitLater writes result
+  action explicitLater
     send result = explicitLater(elapsedMs, seed)
-  action atInit writes result
+  action atInit
     send result = atInit(form)
-  action utc writes result
+  action utc
     send result = utc()
-  action intl writes result
+  action intl
     send result = intl(elapsedMs)
   view
     text value testId="value"
@@ -195,7 +200,9 @@ fn explicit_dates_and_seeds_repeat_across_calls_modules_and_async_interleaving()
 fn bake_refuses_ambient_reads_and_keeps_explicit_inputs_as_compiled_data() {
     for &(form, api) in FORMS {
         let source = SRC.replace("explicit(elapsedMs, seed)", &format!("ambient(\"{form}\")"));
-        let error = contract::bake(contract::compile(&source).unwrap(), module()).unwrap_err();
+        let mut baking = Module::inspect(HBC.to_vec()).unwrap();
+        baking.set_budget_ms(f64::INFINITY);
+        let error = contract::bake(contract::compile(&source).unwrap(), baking).unwrap_err();
         diagnostic(&error.to_string(), api);
     }
     let a = contract::bake(plan(), module()).unwrap();
@@ -232,12 +239,22 @@ fn runner_cache_refresh_clock_and_reload_observe_only_the_declared_inputs() {
     );
     runner.act("refreshValue", vec![]).unwrap();
     assert_eq!(runner.resource("value"), Some(&initial));
-    assert_eq!(runner.data().take_logs(), ["explicit 0 7"]);
+    assert!(runner.journal().any(|line| line.ends_with("explicit 0 7")));
+    assert!(
+        runner.data().take_logs().is_empty(),
+        "the runner drained the module"
+    );
 
     runner.act("tick", vec![]).unwrap();
     let at_1000 = Value::str("1970-01-01T00:00:01.000Z/1025555898");
     assert_eq!(runner.resource("value"), Some(&at_1000));
-    assert_eq!(runner.data().take_logs(), ["explicit 1000 7"]);
+    assert!(runner
+        .journal()
+        .any(|line| line.ends_with("explicit 1000 7")));
+    assert!(
+        runner.data().take_logs().is_empty(),
+        "the runner drained the module"
+    );
     runner.act("tick", vec![]).unwrap();
     assert!(
         runner.data().take_logs().is_empty(),
@@ -265,7 +282,13 @@ fn runner_cache_refresh_clock_and_reload_observe_only_the_declared_inputs() {
         runner.resource("value"),
         Some(&Value::str("1970-01-01T00:00:01.000Z/1027220423"))
     );
-    assert_eq!(runner.data().take_logs(), ["explicit 1000 8"]);
+    assert!(runner
+        .journal()
+        .any(|line| line.ends_with("explicit 1000 8")));
+    assert!(
+        runner.data().take_logs().is_empty(),
+        "the runner drained the module"
+    );
 }
 
 #[test]
@@ -288,6 +311,10 @@ fn newer_explicit_arguments_and_reload_do_not_accept_stale_async_results() {
     assert!(runner.fulfill(old, response()).unwrap().is_none());
     assert_eq!(runner.slot("result"), Some(&Value::NONE));
     runner.fulfill(current, response()).unwrap();
+    assert!(runner
+        .journal()
+        .any(|line| line.ends_with("explicitLater 1000 7")));
+    assert!(runner.data().take_logs().is_empty());
     let expected = Value::some(Value::str("1970-01-01T00:00:01.000Z/1025555898"));
     assert_eq!(runner.slot("result"), Some(&expected));
 
@@ -388,4 +415,136 @@ component App
     next.fulfill(fresh, response()).unwrap();
     assert_eq!(next.resource("result"), Some(&Value::str("settled")));
     assert!(!next.has_pending());
+}
+
+fn refusal_runner(queue: bool) -> Runner<Module> {
+    let source = r#"
+component App
+  state query = "idle"
+  state edits = 0
+  state landed = 0
+  resource resolved = ambient(query) as shape string else empty()
+  mutation result as shape string QUEUE then didLand
+  action edit(v: string)
+    query = v
+  action send(v: string)
+    edits = edits + 1
+    send result = ambient(v)
+  action later
+    send result = ambientLater("idle")
+  action didLand
+    landed = landed + 1
+  view
+    column
+      input value=query input=edit testId="query"
+      text resolved
+      text (match failure(resolved) { case some(f) => f.code, case none => "ok" }) testId="status"
+"#
+    .replace("QUEUE", if queue { "queue" } else { "" });
+    let plan = contract::compile(&source).unwrap();
+    Runner::boot(
+        plan,
+        module(),
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap()
+}
+
+#[test]
+fn refused_answer_keeps_typed_input_and_fails_the_resource() {
+    let mut r = refusal_runner(false);
+    let key = r.kernel().find_by_test_id("query")[0];
+    let view = r.kernel().node_by_key(key).unwrap().id;
+    r.dispatch(view, exact_runner::Event::Input("computed-timeout".into()))
+        .unwrap();
+    assert_eq!(r.slot("query"), Some(&Value::str("computed-timeout")));
+    assert_eq!(r.resource("resolved"), Some(&Value::str("idle")));
+    assert!(r.failed_resources()[0].1.contains("setTimeout()"));
+    let status = r.kernel().find_by_test_id("status")[0];
+    assert_eq!(
+        r.kernel()
+            .node_by_key(status)
+            .unwrap()
+            .props
+            .str(exact_kernel::PropId::Text),
+        Some("error")
+    );
+    assert!(!r.has_pending());
+    r.act("edit", vec![Value::str("idle")]).unwrap();
+    assert!(r.failed_resources().is_empty());
+}
+
+#[test]
+fn refused_send_keeps_state_and_ends_unsent() {
+    let mut r = refusal_runner(false);
+    r.act("later", vec![]).unwrap();
+    let older = r.take_requests()[0].ticket;
+    r.act("send", vec![Value::str("computed-timeout")]).unwrap();
+    assert_eq!(r.slot("edits"), Some(&Value::Number(1.)));
+    assert_eq!(r.slot("result"), Some(&Value::NONE));
+    assert_eq!(r.slot("landed"), Some(&Value::Number(0.)));
+    assert!(!r.has_pending());
+    assert!(r.fulfill(older, response()).unwrap().is_none());
+    assert!(r
+        .journal()
+        .any(|line| line.contains("send result failed:") && line.ends_with("it ends unsent")));
+}
+
+#[test]
+fn refused_queued_send_ends_and_the_next_send_runs() {
+    let mut r = refusal_runner(true);
+    r.act("later", vec![]).unwrap();
+    let first = r.take_requests()[0].ticket;
+    for form in ["computed-timeout", "idle"] {
+        r.act("send", vec![Value::str(form)]).unwrap();
+    }
+    assert_eq!(r.queued(), vec![("result".into(), 2)]);
+    r.fulfill(first, response()).unwrap();
+    r.advance(1.).unwrap();
+    assert_eq!(r.slot("edits"), Some(&Value::Number(2.)));
+    assert_eq!(r.slot("result"), Some(&Value::some(Value::str("idle"))));
+    assert_eq!(r.slot("landed"), Some(&Value::Number(2.)));
+    assert!(!r.has_pending());
+    assert!(r.queued().is_empty());
+    assert!(r
+        .journal()
+        .any(|line| line.contains("send result failed:") && line.ends_with("it ends unsent")));
+}
+
+#[test]
+fn runtime_failure_uses_placeholder_but_bake_and_validation_refuse() {
+    let plan = contract::compile(
+        r#"component App
+  resource result = ambient("computed-timeout") as shape string else empty()
+  view
+    text result
+"#,
+    )
+    .unwrap();
+    let r = Runner::boot(
+        plan.clone(),
+        module(),
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    assert_eq!(r.resource("result"), Some(&Value::str("")));
+    assert_eq!(r.failed_resources().len(), 1);
+    assert!(!r.has_pending());
+    let mut baking = Module::inspect(HBC.to_vec()).unwrap();
+    baking.set_budget_ms(f64::INFINITY);
+    assert!(contract::bake(plan.clone(), baking).is_err());
+    let mut validating = module();
+    validating.activate_for_validation().unwrap();
+    assert!(Runner::boot(
+        plan,
+        validating,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/"
+    )
+    .is_err());
 }

@@ -79,6 +79,28 @@ impl Lexer {
         }
     }
 
+    /// Whether the innermost open block holds only `name=` lines: an
+    /// element's continued attributes, with no nested block of its own.
+    fn attributes_only(out: &[Token]) -> bool {
+        let Some(open) = out
+            .iter()
+            .rposition(|t| matches!(t.kind, TokenKind::Indent))
+        else {
+            return false;
+        };
+        let block = &out[open + 1..];
+        !block.iter().any(|t| matches!(t.kind, TokenKind::Dedent))
+            && block
+                .split(|t| matches!(t.kind, TokenKind::Newline))
+                .filter(|line| !line.is_empty())
+                .all(|line| {
+                    matches!(
+                        (line.first().map(|t| &t.kind), line.get(1).map(|t| &t.kind)),
+                        (Some(TokenKind::Ident(_)), Some(TokenKind::Punct("=")))
+                    )
+                })
+    }
+
     /// Tokens and every line's refusal. A refused line ends where it failed
     /// (brackets it opened are closed), so the lines after it lex, and parse,
     /// as they would without it.
@@ -109,7 +131,7 @@ impl Lexer {
                 && indent == 0
                 && matches!(
                     word,
-                    Some("component" | "font" | "shape" | "style" | "fn" | "test")
+                    Some("component" | "font" | "shape" | "style" | "decoration" | "fn" | "test")
                 )
             {
                 *depth = 0;
@@ -151,8 +173,10 @@ impl Lexer {
                         },
                     });
                 } else {
+                    let mut popped = 0;
                     while indent < *indents.last().unwrap() {
                         indents.pop();
+                        popped += 1;
                         out.push(Token {
                             kind: TokenKind::Dedent,
                             span: Span {
@@ -160,6 +184,16 @@ impl Lexer {
                                 ..Span::point(line_no, first_col)
                             },
                         });
+                    }
+                    // An element's continued `name=` lines may sit deeper than
+                    // its children: the children then open the same block at
+                    // their own level, as if the attributes had been indented to it.
+                    if popped == 1
+                        && indent > *indents.last().unwrap()
+                        && Self::attributes_only(&out[..out.len() - 1])
+                    {
+                        out.pop();
+                        indents.push(indent);
                     }
                     if indent != *indents.last().unwrap() {
                         return Err(LexError {
@@ -189,12 +223,36 @@ impl Lexer {
                     break;
                 }
                 let span = col_of(pos);
-                if c.is_ascii_alphabetic() || c == '_' {
+                // A vendor-prefixed CSS name, as the Compat Standard spells
+                // some (`-webkit-text-stroke`, LLP 1077 D7), or one Exact
+                // invents (`-exact-press-scale`, LLP 1081 D7): these prefixes
+                // only, and only as an attribute's name (followed by `=`),
+                // so `-webkit-x` in an expression stays a negation.
+                let vendor = ["-webkit-", "-apple-", "-exact-"].iter().any(|p| {
+                    trimmed[pos..].starts_with(p)
+                        && bytes
+                            .get(pos + p.len())
+                            .is_some_and(|n| (*n as char).is_ascii_alphabetic())
+                        && {
+                            let rest = &trimmed[pos + 1..];
+                            let end = rest
+                                .find(|c: char| {
+                                    !(c.is_ascii_alphanumeric() || c == '-' || c == '_')
+                                })
+                                .unwrap_or(rest.len());
+                            let after = rest[end..].trim_start_matches([' ', '\t']);
+                            after.starts_with('=') && !after.starts_with("==")
+                        }
+                });
+                if c.is_ascii_alphabetic() || c == '_' || vendor {
                     // An identifier may contain hyphens — `font-size`,
                     // `aria-label` — as CSS's do; so, as in CSS `calc()`,
                     // subtraction between two names needs spaces (`a - b`),
                     // while `x-1` still lexes as `x`, `-`, `1` (LLP 1017 §8.1).
                     let start = pos;
+                    if vendor {
+                        pos += 1;
+                    }
                     while pos < bytes.len()
                         && ((bytes[pos] as char).is_ascii_alphanumeric()
                             || bytes[pos] == b'_'
@@ -216,17 +274,51 @@ impl Lexer {
                 }
                 if c.is_ascii_digit() {
                     let start = pos;
-                    while pos < bytes.len()
-                        && ((bytes[pos] as char).is_ascii_digit() || bytes[pos] == b'.')
-                    {
+                    while pos < bytes.len() && (bytes[pos] as char).is_ascii_digit() {
                         pos += 1;
                     }
+                    // A dot is the decimal point only when a digit follows, so
+                    // `rows.0.steps` is an index and then a field, not the
+                    // number `0.` (drums R7).
+                    if bytes.get(pos) == Some(&b'.')
+                        && bytes
+                            .get(pos + 1)
+                            .is_some_and(|n| (*n as char).is_ascii_digit())
+                    {
+                        pos += 1;
+                        while pos < bytes.len() && (bytes[pos] as char).is_ascii_digit() {
+                            pos += 1;
+                        }
+                    }
+                    // An exponent, as JavaScript and CSS write one (`1e300`,
+                    // `2.5E-3`, `4e+2`): `e` or `E`, an optional sign and at
+                    // least one digit. Without the digit the `e` is not part of
+                    // the number, so a unit written against it (`2em`) is still
+                    // the unquoted length it was. One that overflows is no number.
+                    let mut exponent = false;
+                    if matches!(bytes.get(pos), Some(b'e' | b'E')) {
+                        let sign = usize::from(matches!(bytes.get(pos + 1), Some(b'+' | b'-')));
+                        if bytes
+                            .get(pos + 1 + sign)
+                            .is_some_and(|n| (*n as char).is_ascii_digit())
+                        {
+                            exponent = true;
+                            pos += 1 + sign;
+                            while pos < bytes.len() && (bytes[pos] as char).is_ascii_digit() {
+                                pos += 1;
+                            }
+                        }
+                    }
                     let text = &trimmed[start..pos];
-                    let n: f64 = text.parse().map_err(|_| LexError {
-                        id: "syntax-bad-number",
-                        message: format!("`{text}` is not a number"),
-                        span,
-                    })?;
+                    let n: f64 = text
+                        .parse()
+                        .ok()
+                        .filter(|n: &f64| n.is_finite() || !exponent)
+                        .ok_or(LexError {
+                            id: "syntax-bad-number",
+                            message: format!("`{text}` is not a number"),
+                            span,
+                        })?;
                     out.push(Token {
                         kind: TokenKind::Number(n),
                         span: Span {
@@ -262,6 +354,36 @@ impl Lexer {
                         },
                     });
                     pos = end + 1;
+                    continue;
+                }
+                if c == '#' {
+                    // A hex color is a string, bare as CSS writes it
+                    // (`background-color=#1f9d6244`, in a keyframe as on a
+                    // node; x2apps dash): `#` and 3, 4, 6 or 8 hex digits.
+                    // Anything else names what `#` is not.
+                    let digits = bytes[pos + 1..]
+                        .iter()
+                        .take_while(|b| b.is_ascii_hexdigit())
+                        .count();
+                    let end = pos + 1 + digits;
+                    let word = bytes
+                        .get(end)
+                        .is_some_and(|b| b.is_ascii_alphanumeric() || *b == b'_' || *b == b'-');
+                    if !matches!(digits, 3 | 4 | 6 | 8) || word {
+                        return Err(LexError {
+                            id: "syntax-unexpected-char",
+                            message: "unexpected `#`: a hex color is `#` and 3, 4, 6 or 8 hex digits (`#1f9d62`), and a comment starts with `//`".into(),
+                            span,
+                        });
+                    }
+                    out.push(Token {
+                        kind: TokenKind::Str(trimmed[pos..end].to_string()),
+                        span: Span {
+                            end_col: col_of(end).col,
+                            ..span
+                        },
+                    });
+                    pos = end;
                     continue;
                 }
                 let mut matched = None;
@@ -339,26 +461,23 @@ impl Lexer {
         span: Span,
     ) -> Result<(String, usize), LexError> {
         let mut out = String::new();
-        let mut chars = text[start + 1..].char_indices();
-        while let Some((i, c)) = chars.next() {
+        let mut pos = start + 1;
+        while let Some(c) = text[pos..].chars().next() {
             match c {
-                '\\' => match chars.next() {
-                    Some((_, 'n')) => out.push('\n'),
-                    Some((_, 't')) => out.push('\t'),
-                    Some((_, '"')) => out.push('"'),
-                    Some((_, '\\')) => out.push('\\'),
-                    Some((_, '`')) => out.push('`'),
-                    Some((_, '$')) => out.push('$'),
-                    _ => {
-                        return Err(LexError {
-                            id: "syntax-bad-escape",
-                            message: "unknown escape".into(),
-                            span,
-                        })
-                    }
-                },
-                c if c == quote => return Ok((out, start + 1 + i + 1)),
-                c => out.push(c),
+                '\\' => {
+                    let (decoded, len) = escape(&text[pos + 1..]).map_err(|message| LexError {
+                        id: "syntax-bad-escape",
+                        message,
+                        span,
+                    })?;
+                    out.push(decoded);
+                    pos += 1 + len;
+                }
+                c if c == quote => return Ok((out, pos + 1)),
+                c => {
+                    out.push(c);
+                    pos += c.len_utf8();
+                }
             }
         }
         Err(LexError {
@@ -367,6 +486,54 @@ impl Lexer {
             span,
         })
     }
+}
+
+/// The escapes a string accepts, as a refusal names them.
+const ACCEPTED: &str = r#"a string accepts \n \t \" \\ \` \$ and \u{…}, a Unicode code point in hex (`\u{2011}`, `\u2011`)"#;
+
+/// The character the escape at the start of `rest` (the text after a `\`)
+/// stands for, and the bytes it takes, in a `"…"` string and a template's
+/// text alike: `\n`, `\t`, `\"`, `\\`, `` \` ``, `\$` (so `\${` is literal),
+/// and `\u{…}`, one to six hex digits naming a Unicode scalar value, as
+/// JavaScript and Swift write it (and JavaScript's four-digit `\u2011`).
+/// `Err` is the refusal's message.
+pub(crate) fn escape(rest: &str) -> Result<(char, usize), String> {
+    let Some(c) = rest.chars().next() else {
+        return Err(format!(
+            "a `\\` ends the line, escaping nothing; {ACCEPTED}"
+        ));
+    };
+    let simple = match c {
+        'n' => '\n',
+        't' => '\t',
+        '"' => '"',
+        '\\' => '\\',
+        '`' => '`',
+        '$' => '$',
+        'u' => {
+            // `{` one to six digits `}`, or JavaScript's four digits bare.
+            let after = &rest[1..];
+            let (hex, len) = match after.strip_prefix('{') {
+                Some(braced) => match braced.split_once('}') {
+                    Some((hex, _)) if (1..=6).contains(&hex.len()) => (hex, hex.len() + 3),
+                    _ => ("", 0),
+                },
+                None => (after.get(..4).unwrap_or(""), 5),
+            };
+            if hex.is_empty() || !hex.bytes().all(|b| b.is_ascii_hexdigit()) {
+                return Err(format!(
+                    "`\\u` takes a code point in hex, in braces (`\\u{{2011}}`, `\\u{{1F600}}`) or as four digits (`\\u2011`); {ACCEPTED}"
+                ));
+            }
+            return u32::from_str_radix(hex, 16)
+                .ok()
+                .and_then(char::from_u32)
+                .map(|decoded| (decoded, len))
+                .ok_or_else(|| format!("`\\u{{{hex}}}` is no Unicode character: a code point is 0 to 10FFFF, and not a surrogate (write `\\u{{1F600}}`, not a surrogate pair)"));
+        }
+        c => return Err(format!("unknown escape `\\{c}`; {ACCEPTED}")),
+    };
+    Ok((simple, c.len_utf8()))
 }
 
 /// The byte offset of the backtick closing a template literal. Nested

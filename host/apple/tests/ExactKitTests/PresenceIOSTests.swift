@@ -37,27 +37,55 @@ final class PresenceIOSTests: XCTestCase {
 
     private func tabBarFixture() -> Presenter {
         let p = fixture()
-        p.apply(wireBatch([
+        p.apply(tabBar(y: 0, height: 20))
+        return p
+    }
+
+    /// A tablist of two symbol-over-label tabs, a root at `y`, `height` tall.
+    private func tabBar(y: Double, height: Double) -> Batch {
+        wireBatch([
             ["op": "create", "id": 10, "kind": "view", "props": ["accessibilityRole": "tablist"]],
             ["op": "create", "id": 11, "kind": "button", "props": ["accessibilityRole": "tab"], "handlers": ["press"]],
             ["op": "create", "id": 12, "kind": "button", "props": ["accessibilityRole": "tab"], "handlers": ["press"]],
-            ["op": "create", "id": 13, "kind": "image", "props": ["symbolName": "house"]],
+            ["op": "create", "id": 13, "kind": "image", "props": ["imageSource": "symbol:sf/house", "symbolName": "house"]],
             ["op": "create", "id": 14, "kind": "text", "props": ["text": "Home"]],
-            ["op": "create", "id": 15, "kind": "image", "props": ["symbolName": "star"]],
+            ["op": "create", "id": 15, "kind": "image", "props": ["imageSource": "symbol:sf/star", "symbolName": "star"]],
             ["op": "create", "id": 16, "kind": "text", "props": ["text": "Saved"]],
             ["op": "children", "id": 11, "ids": [13, 14]],
             ["op": "children", "id": 12, "ids": [15, 16]],
             ["op": "children", "id": 10, "ids": [11, 12]],
             ["op": "roots", "ids": [1, 10]],
-            ["op": "frame", "id": 10, "x": 0.0, "y": 0.0, "w": 400.0, "h": 20.0],
-        ]))
-        return p
+            ["op": "frame", "id": 10, "x": 0.0, "y": y, "w": 400.0, "h": height],
+        ])
     }
 
     private func drainIntrinsicSizes() {
         let delivered = expectation(description: "intrinsic size delivered after the batch")
         DispatchQueue.main.async { delivered.fulfill() }
         wait(for: [delivered], timeout: 2)
+    }
+
+    func testARIAUnavailableProjectedTabsStayEnabledForInput() throws {
+        let p = tabBarFixture()
+        defer { p.reset(); window.isHidden = true }
+        p.apply(wireBatch([["op": "props", "id": 11, "set": ["accessibilityDisabled": "true"]]]))
+        let owner = try XCTUnwrap(p.views[10])
+        let bar = try XCTUnwrap(owner.subviews.compactMap { $0 as? UITabBar }.first)
+        let item = try XCTUnwrap(bar.items?.first)
+        XCTAssertTrue(item.isEnabled)
+        XCTAssertTrue(item.accessibilityTraits.contains(.notEnabled), "the projected item speaks as disabled")
+
+        p.apply(wireBatch([
+            ["op": "children", "id": 11, "ids": [14]],
+            ["op": "children", "id": 12, "ids": [16]],
+        ]))
+        let control = try XCTUnwrap(p.segments.control(of: 10) as? LabelledSegmentedControl)
+        control.layoutIfNeeded()
+        XCTAssertTrue(control.isEnabledForSegment(at: 0))
+        XCTAssertTrue(try XCTUnwrap(control.segmentViews.first).accessibilityTraits.contains(.notEnabled), "the projected segment speaks as disabled")
+        p.apply(wireBatch([["op": "props", "id": 11, "set": ["accessibilityDisabled": "false"]]]))
+        control.layoutIfNeeded()
+        XCTAssertFalse(try XCTUnwrap(control.segmentViews.first).accessibilityTraits.contains(.notEnabled))
     }
 
     func testTabBarReportsItsHeightAndAlwaysFillsTheKernelBox() throws {
@@ -77,19 +105,283 @@ final class PresenceIOSTests: XCTestCase {
         XCTAssertEqual(bar.frame, owner.bounds)
         drainIntrinsicSizes()
         XCTAssertEqual(reports.count, 1, "applying the measured box does not remeasure forever")
+        // Its width is its narrowest, none (LLP 1116.004 D2): a narrower box
+        // keeps the one report.
+        XCTAssertEqual(size.width, 1)
         p.apply(wireBatch([["op": "frame", "id": 10, "x": 0.0, "y": 0.0,
                             "w": 300.0, "h": Double(size.height)]]))
         drainIntrinsicSizes()
-        XCTAssertEqual((reports.last ?? nil)?.width, 300)
+        XCTAssertEqual(reports.count, 1, "the bar's narrowest does not follow its box")
         XCTAssertEqual(bar.frame, owner.bounds)
         p.apply(wireBatch([["op": "props", "id": 10,
                             "set": ["accessibilityRole": "tablist", "accessibilityOrientation": "vertical"]]]))
         drainIntrinsicSizes()
-        XCTAssertEqual(reports.count, 3)
+        XCTAssertEqual(reports.count, 2)
         XCTAssertNil(reports.last ?? nil, "leaving the projection clears its native minimum")
         XCTAssertNil(bar.superview)
         XCTAssertFalse(try XCTUnwrap(p.views[11]).isHidden)
         p.reset()
+    }
+
+    /// A tablist padded at a side keeps its bar inside the padding, the
+    /// bar's edges on the device's pixel grid (LLP 1059 D2): duo-lab's tabs
+    /// on a book fold's trailing segment, from 495.5 points.
+    func testTabBarSpansAPaddedTablistsContentBoxOnThePixelGrid() throws {
+        let p = tabBarFixture()
+        defer { p.reset() }
+        p.apply(wireBatch([["op": "frame", "id": 10, "x": 0.0, "y": 0.0, "w": 951.0, "h": 83.0],
+                           ["op": "fieldContent", "id": 10, "rect": [495.5, 0.0, 455.5, 83.0], "padding": [0.0, 0.0, 0.0, 495.5]]]))
+        let owner = try XCTUnwrap(p.views[10])
+        let bar = try XCTUnwrap(owner.subviews.first { $0 is UITabBar })
+        XCTAssertEqual(bar.frame.minX, PixelGrid.round(495.5, scale: p.gridScale), accuracy: 0.0001, "the left edge on the grid, inside the padding")
+        XCTAssertEqual(bar.frame.maxX, owner.bounds.maxX, accuracy: 0.0001)
+        XCTAssertEqual(bar.frame.height, owner.bounds.height)
+        p.apply(wireBatch([["op": "fieldContent", "id": 10]]))
+        XCTAssertEqual(bar.frame, owner.bounds, "unpadded, the bar fills the box again")
+    }
+
+    /// A bar first laid out inside the home indicator's inset, before its box
+    /// took its measured height, has its labels sized again as it grows:
+    /// UIKit sizes them in the room the bar has then (duo-lab under the
+    /// agent's chrome). The selected tab's glyph is its symbol filled.
+    func testATabBarFirstLaidOutInTheBottomInsetSizesItsLabelsAgainAsItGrows() throws {
+        let p = fixture()
+        defer { p.reset(); window.isHidden = true }
+        let host = UIViewController()
+        host.additionalSafeAreaInsets.bottom = 34
+        window.rootViewController = host
+        host.view.addSubview(p.viewport)
+        p.apply(tabBar(y: 366, height: 34))
+        p.apply(wireBatch([["op": "props", "id": 11, "set": ["accessibilitySelected": "true"]]]))
+        let bar = try XCTUnwrap(p.views[10]?.subviews.first { $0 is UITabBar } as? UITabBar)
+        window.layoutIfNeeded()
+        XCTAssertEqual(bar.safeAreaInsets.bottom, 34, "laid out inside the inset")
+        let height = bar.sizeThatFits(CGSize(width: 400, height: 0)).height
+        p.apply(wireBatch([["op": "frame", "id": 10, "x": 0.0, "y": 400 - Double(height), "w": 400.0, "h": Double(height)]]))
+        window.layoutIfNeeded()
+        drainIntrinsicSizes()
+        window.layoutIfNeeded()
+        func labels(_ view: UIView) -> [UILabel] { view.subviews.flatMap { ($0 as? UILabel).map { [$0] } ?? labels($0) } }
+        XCTAssertFalse(labels(bar).isEmpty)
+        for label in labels(bar) {
+            XCTAssertGreaterThanOrEqual(label.bounds.height, label.intrinsicContentSize.height - 0.5, "\(label.text ?? "") is cut short")
+        }
+        XCTAssertEqual(bar.items?.first?.selectedImage?.pngData(), UIImage(systemName: "house.fill")?.pngData())
+        // A symbol written filled stays filled when unselected.
+        p.apply(wireBatch([["op": "props", "id": 15, "set": ["imageSource": "symbol:sf/star.fill", "symbolName": "star.fill"]]]))
+        drainIntrinsicSizes()
+        XCTAssertEqual(bar.items?.last?.image?.pngData(), UIImage(systemName: "star.fill")?.pngData())
+    }
+
+    /// Measured again when what sizes it changes: a segment's title, the
+    /// text size, a hatch's background image; not otherwise.
+    func testASegmentedTablistIsMeasuredAgainWhenWhatSizesItChanges() throws {
+        let p = tabBarFixture()
+        defer { p.reset() }
+        var reports: [CGSize?] = []
+        p.onIntrinsic = { sizes in
+            for (id, size) in sizes where id == 10 { reports.append(size) }
+        }
+        p.apply(wireBatch([
+            ["op": "children", "id": 11, "ids": [14]],
+            ["op": "children", "id": 12, "ids": [16]],
+        ]))
+        let control = try XCTUnwrap(p.segments.control(of: 10))
+        drainIntrinsicSizes()
+        XCTAssertEqual(reports.last ?? nil, CGSize(width: 1, height: control.intrinsicContentSize.height))
+        // A hatch's background image, taller than the control.
+        let tall = UIGraphicsImageRenderer(size: CGSize(width: 4, height: 60)).image { _ in }
+        control.setBackgroundImage(tall, for: .normal, barMetrics: .default)
+        p.segments.sync()
+        drainIntrinsicSizes()
+        XCTAssertEqual((reports.last ?? nil)?.height, control.intrinsicContentSize.height, "a hatch's look is measured")
+        control.setBackgroundImage(nil, for: .normal, barMetrics: .default)
+        p.segments.sync()
+        drainIntrinsicSizes()
+        XCTAssertEqual((reports.last ?? nil)?.height, control.intrinsicContentSize.height, "and again when it goes")
+        // A larger text size.
+        control.traitOverrides.preferredContentSizeCategory = .accessibilityExtraExtraExtraLarge
+        control.updateTraitsIfNeeded()
+        p.segments.sync()
+        drainIntrinsicSizes()
+        XCTAssertEqual((reports.last ?? nil)?.height, control.intrinsicContentSize.height, "the text size is in what it is measured from")
+    }
+
+    func testSegmentsReportNativeHeightWithoutRepeatedOrStaleMeasurements() throws {
+        let p = tabBarFixture()
+        defer { p.reset() }
+        var reports: [CGSize?] = []
+        p.onIntrinsic = { sizes in
+            for (id, size) in sizes where id == 10 { reports.append(size) }
+        }
+        p.apply(wireBatch([
+            ["op": "children", "id": 11, "ids": [14]],
+            ["op": "children", "id": 12, "ids": [16]],
+        ]))
+        let owner = try XCTUnwrap(p.views[10])
+        let control = try XCTUnwrap(p.segments.control(of: 10))
+        drainIntrinsicSizes()
+        let size = try XCTUnwrap(reports.last ?? nil)
+        XCTAssertEqual(size, CGSize(width: 1, height: control.intrinsicContentSize.height),
+                       "the control's own height, not the box's; its narrowest none (LLP 1116.004 D2)")
+        XCTAssertGreaterThan(size.height, 20, "an unsized text row must not squash the native control")
+        XCTAssertEqual(control.frame, owner.contentBox(), "the kernel still owns the final box")
+        p.apply(wireBatch([["op": "frame", "id": 10, "x": 0.0, "y": 0.0,
+                            "w": 400.0, "h": Double(size.height)]]))
+        drainIntrinsicSizes()
+        let count = reports.count
+        p.segments.sync()
+        drainIntrinsicSizes()
+        XCTAssertEqual(reports.count, count, "unchanged native sizes are not published again")
+        p.apply(wireBatch([["op": "frame", "id": 10, "x": 0.0, "y": 0.0,
+                            "w": 300.0, "h": Double(size.height)]]))
+        drainIntrinsicSizes()
+        XCTAssertEqual(reports.count, count, "its height does not follow the box's width, so a resize does not remeasure")
+        XCTAssertEqual(control.frame, owner.contentBox())
+        // The control fills the content box: a border-box minimum also holds
+        // the padding and border around it; a content-box one does not.
+        p.apply(wireBatch([["op": "style", "id": 10,
+                            "style": ["box_sizing": "border-box", "padding_top": 6.0, "padding_bottom": 4.0]],
+                           contentOp(10, 300, Double(size.height), padding: [6, 0, 4, 0])]))
+        drainIntrinsicSizes()
+        XCTAssertEqual((reports.last ?? nil)?.height, size.height + 10)
+        p.apply(wireBatch([["op": "frame", "id": 10, "x": 0.0, "y": 0.0,
+                            "w": 300.0, "h": Double(size.height + 10)],
+                           contentOp(10, 300, Double(size.height + 10), padding: [6, 0, 4, 0])]))
+        XCTAssertEqual(control.frame, owner.contentBox())
+        XCTAssertEqual(control.frame.height, size.height, "the padding does not squash the control")
+        p.apply(wireBatch([["op": "style", "id": 10,
+                            "style": ["box_sizing": "content-box", "padding_top": 6.0, "padding_bottom": 4.0]]]))
+        drainIntrinsicSizes()
+        XCTAssertEqual((reports.last ?? nil)?.height, size.height)
+        // Measured at zero width too: tabs replaced there still reserve it.
+        p.apply(wireBatch([["op": "frame", "id": 10, "x": 0.0, "y": 0.0, "w": 0.0, "h": 0.0],
+                           ["op": "children", "id": 10, "ids": [12, 11]]]))
+        drainIntrinsicSizes()
+        XCTAssertEqual((reports.last ?? nil)?.height, size.height, "a zero-width tablist keeps its native minimum")
+        let replaced = try XCTUnwrap(p.segments.control(of: 10))
+        p.apply(wireBatch([["op": "props", "id": 10,
+                            "set": ["accessibilityRole": "tablist", "accessibilityOrientation": "vertical"]]]))
+        drainIntrinsicSizes()
+        XCTAssertNil(reports.last ?? nil, "leaving the projection clears its native minimum")
+        XCTAssertNil(control.superview)
+        XCTAssertNil(replaced.superview)
+        XCTAssertFalse(try XCTUnwrap(p.views[11]).isHidden)
+    }
+
+    func testMissingRawSymbolsKeepTabBarsAndClearSegmentImages() throws {
+        let p = tabBarFixture()
+        defer { p.reset() }
+        let owner = try XCTUnwrap(p.views[10])
+        let icon = try XCTUnwrap(p.views[13])
+        let bar = try XCTUnwrap(owner.subviews.first { $0 is UITabBar } as? UITabBar)
+        p.apply(wireBatch([["op": "props", "id": 11, "set": ["accessibilitySelected": "true"]]]))
+        var sizes: [CGSize?] = []
+        p.onIntrinsic = { reports in for (id, size) in reports where id == 13 { sizes.append(size) } }
+        for name in ["airpodsmax", "exact.nonexistent.symbol", "", "airpodsmax"] {
+            p.apply(wireBatch([["op": "props", "id": 13,
+                "set": ["imageSource": "symbol:sf/\(name)", "symbolName": name]]]))
+            drainIntrinsicSizes()
+            XCTAssertTrue(bar.superview === owner, "lookup never changes projection")
+            XCTAssertEqual(bar.selectedItem?.tag, 0)
+            XCTAssertEqual(bar.items?.first?.title, "Home")
+            let found = name == "airpodsmax"
+            XCTAssertEqual(icon.image != nil, found)
+            XCTAssertEqual(bar.items?.first?.image != nil, found)
+            XCTAssertNil(icon.symbolRefusal)
+            // Unsized, a symbol is the platform body size (LLP 1115 D3).
+            let body = PageFacts.defaultRootFontSize
+            if !found { XCTAssertEqual(sizes.last ?? nil, CGSize(width: body, height: body)) }
+        }
+        p.apply(wireBatch([
+            ["op": "props", "id": 11, "set": ["accessibilityLabel": "Home"]],
+            ["op": "children", "id": 11, "ids": [13]],
+            ["op": "children", "id": 12, "ids": [15]],
+            ["op": "frame", "id": 13, "x": 0.0, "y": 0.0, "w": 24.0, "h": 24.0],
+        ]))
+        let segments = try XCTUnwrap(owner.subviews.first { $0 is UISegmentedControl } as? UISegmentedControl)
+        XCTAssertNotNil(segments.imageForSegment(at: 0))
+        for name in ["exact.nonexistent.symbol", "", "airpodsmax"] {
+            p.apply(wireBatch([["op": "props", "id": 13,
+                "set": ["imageSource": "symbol:sf/\(name)", "symbolName": name]]]))
+            XCTAssertEqual(icon.image != nil, name == "airpodsmax")
+            XCTAssertEqual(segments.imageForSegment(at: 0)?.accessibilityLabel, "Home")
+            XCTAssertNil(segments.titleForSegment(at: 0))
+            XCTAssertEqual(segments.selectedSegmentIndex, 0)
+        }
+    }
+
+    /// LLP 1116.004 D2 (unit-converter, round 6): four text tabs in a
+    /// grouped row overflowed it by the hidden tabs' own widths. The control
+    /// reports no narrowest width, so the kernel fits the tablist to the row;
+    /// in a box narrower than its equal segments need, each segment takes
+    /// its content's share, so the longest title keeps its letters.
+    func testASegmentedControlTooWideForItsBoxApportionsItsSegmentsByContent() throws {
+        let p = tabBarFixture()
+        defer { p.reset() }
+        var reports: [CGSize?] = []
+        p.onIntrinsic = { sizes in for (id, size) in sizes where id == 10 { reports.append(size) } }
+        p.apply(wireBatch([
+            ["op": "props", "id": 14, "set": ["text": "Length"]],
+            ["op": "props", "id": 16, "set": ["text": "Temperature and pressure"]],
+            ["op": "children", "id": 11, "ids": [14]],
+            ["op": "children", "id": 12, "ids": [16]],
+        ]))
+        let control = try XCTUnwrap(p.segments.control(of: 10))
+        drainIntrinsicSizes()
+        XCTAssertEqual((reports.last ?? nil)?.width, 1, "the tablist's automatic minimum width: none")
+        XCTAssertFalse(control.apportionsSegmentWidthsByContent, "wide enough: equal segments")
+        let equal = control.intrinsicContentSize.width
+        XCTAssertLessThan(equal, 400)
+        // Short of two equal segments, room for the two titles side by side.
+        let narrow = (equal * 0.75).rounded()
+        p.apply(wireBatch([["op": "frame", "id": 10, "x": 0.0, "y": 0.0, "w": Double(narrow), "h": 32.0]]))
+        XCTAssertEqual(control.frame.width, narrow, "the control fills the kernel's box")
+        XCTAssertTrue(control.apportionsSegmentWidthsByContent, "narrower than its equal segments: by content")
+        control.layoutIfNeeded()
+        let views = (control as? LabelledSegmentedControl)?.segmentViews ?? []
+        XCTAssertEqual(views.count, 2)
+        if views.count == 2 { XCTAssertGreaterThan(views[1].bounds.width, views[0].bounds.width, "the long title its share") }
+        p.apply(wireBatch([["op": "frame", "id": 10, "x": 0.0, "y": 0.0, "w": 400.0, "h": 32.0]]))
+        XCTAssertFalse(control.apportionsSegmentWidthsByContent, "wide again: equal")
+    }
+
+    /// LLP 1116 D6: a text tab whose `aria-label` says more than its words
+    /// (`Temp`, named `Temperature`) keeps the native segmented control —
+    /// the words its title, the label its segment's accessibility label —
+    /// where it fell back to the authored pills (unit-converter). LLP 1116
+    /// D2: each segment, and a tab bar's item, carries its tab's `testId`.
+    func testASegmentsAriaLabelIsItsAccessibilityLabelAndItsTestIdItsIdentifier() throws {
+        let p = tabBarFixture()
+        defer { p.reset() }
+        let owner = try XCTUnwrap(p.views[10])
+        let bar = try XCTUnwrap(owner.subviews.first { $0 is UITabBar } as? UITabBar)
+        p.apply(wireBatch([
+            ["op": "props", "id": 11, "set": ["testId": "tab-home"]],
+            ["op": "props", "id": 12, "set": ["testId": "tab-saved"]],
+        ]))
+        XCTAssertEqual(bar.items?.map(\.accessibilityIdentifier), ["tab-home", "tab-saved"], "a tab bar item's identifier is its tab's testId")
+        XCTAssertEqual(bar.items?.map(\.title), ["Home", "Saved"])
+        p.apply(wireBatch([
+            ["op": "props", "id": 10, "set": ["testId": "units"]],
+            ["op": "props", "id": 12, "set": ["accessibilityLabel": "Saved items"]],
+            ["op": "children", "id": 11, "ids": [14]],
+            ["op": "children", "id": 12, "ids": [16]],
+        ]))
+        let control = try XCTUnwrap(p.segments.control(of: 10) as? LabelledSegmentedControl, "still the native control")
+        XCTAssertTrue(try XCTUnwrap(p.views[12]).isHidden, "the authored pill is not drawn")
+        XCTAssertEqual([control.titleForSegment(at: 0), control.titleForSegment(at: 1)], ["Home", "Saved"], "the words are the titles")
+        XCTAssertEqual(control.accessibilityIdentifier, "units")
+        control.frame = CGRect(x: 0, y: 0, width: 300, height: 32)
+        control.layoutIfNeeded()
+        let segments = control.segmentViews
+        XCTAssertEqual(segments.count, 2)
+        XCTAssertEqual(segments.last?.accessibilityLabel, "Saved items", "the aria-label is the segment's name")
+        XCTAssertEqual(segments.map(\.accessibilityIdentifier), ["tab-home", "tab-saved"])
+        // The label taken away: the segment's name is its words again.
+        p.apply(wireBatch([["op": "props", "id": 12, "set": [:], "clear": ["accessibilityLabel"]]]))
+        control.layoutIfNeeded()
+        XCTAssertNotEqual(control.segmentViews.last?.accessibilityLabel, "Saved items")
     }
 
     func testResetRestoresTabBarMembersAndDropsTheProjection() throws {
@@ -154,7 +446,9 @@ final class PresenceIOSTests: XCTestCase {
         XCTAssertNil(p.views[3], "its subtree too")
         XCTAssertTrue(leaving.superview === parent, "still in the window")
         XCTAssertTrue(inner.superview === leaving)
-        XCTAssertTrue(parent.subviews.last === leaving, "above its old siblings")
+        XCTAssertTrue(parent.subviews.first === leaving, "the ghost keeps its tree slot")
+        XCTAssertGreaterThan(leaving.paintZPosition, sibling.paintZPosition)
+        XCTAssertEqual(parent.paintRank, 1)
         XCTAssertEqual(leaving.frame, CGRect(x: 0, y: 0, width: 400, height: 50), "its last box")
         XCTAssertEqual(sibling.frame.minY, 0, "its sibling takes its place")
         XCTAssertFalse(leaving.isUserInteractionEnabled)
@@ -163,6 +457,7 @@ final class PresenceIOSTests: XCTestCase {
         XCTAssertEqual(leaving.alpha, 0.25, accuracy: 1e-6, "the engine animates it")
         p.apply(wireBatch([["op": "destroy", "id": 2]]))
         XCTAssertNil(leaving.superview, "the exit ended")
+        XCTAssertEqual(parent.paintRank, parent.rank)
         XCTAssertNil(inner.superview?.superview)
         XCTAssertTrue(p.views[4] === sibling)
     }

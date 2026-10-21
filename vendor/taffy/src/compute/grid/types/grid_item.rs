@@ -490,6 +490,13 @@ impl GridItem {
         available_space: Size<Option<f32>>,
     ) -> f32 {
         let known_dimensions = self.known_dimensions(tree, grid_area_size);
+        // EXACT PATCH 58: auto tracks must retain content wider than the
+        // ratio transfer, before final alignment chooses whether to stretch.
+        let ratio_minimum = if axis == AbstractAxis::Inline {
+            crate::compute::ratio::minimum_ratio_width(tree, self.node, grid_area_size, None)
+        } else {
+            None
+        };
         // The child sees the grid area as its containing block during intrinsic measurement, so
         // percentage box properties resolve against the grid area when that size is definite.
         // Spec:
@@ -511,6 +518,7 @@ impl GridItem {
             axis.as_abs_naive(),
             Line::FALSE,
         )
+        .maybe_max(ratio_minimum)
     }
 
     /// Retrieve the item's min content contribution from the cache or compute it using the provided parameters
@@ -538,6 +546,11 @@ impl GridItem {
         available_space: Size<Option<f32>>,
     ) -> f32 {
         let known_dimensions = self.known_dimensions(tree, grid_area_size);
+        let ratio_minimum = if axis == AbstractAxis::Inline {
+            crate::compute::ratio::minimum_ratio_width(tree, self.node, grid_area_size, None)
+        } else {
+            None
+        };
         // See the min-content path above. Max-content measurement uses the same containing-block
         // basis so percentage-dependent item geometry is measured from the grid area rather than
         // from the container.
@@ -557,6 +570,7 @@ impl GridItem {
             axis.as_abs_naive(),
             Line::FALSE,
         )
+        .maybe_max(ratio_minimum)
     }
 
     /// Override the available space in each axis whose size style is a sizing keyword that
@@ -568,10 +582,11 @@ impl GridItem {
         available_space: Size<AvailableSpace>,
         tree: &impl LayoutPartialTree,
     ) -> Size<AvailableSpace> {
+        let margins = self.margins_axis_sums_with_baseline_shims(grid_area_size.width, tree);
+        let available_space = available_space.maybe_sub(margins);
         if !self.size.width.is_sizing_keyword() && !self.size.height.is_sizing_keyword() {
             return available_space;
         }
-        let margins = self.margins_axis_sums_with_baseline_shims(grid_area_size.width, tree);
         let mut adjusted = available_space;
         for axis in [AbstractAxis::Inline, AbstractAxis::Block] {
             let size_style = self.size.get(axis);
@@ -625,14 +640,13 @@ impl GridItem {
         let padding_border_size = (padding + border).sum_axes();
         let box_sizing_adjustment =
             if self.box_sizing == BoxSizing::ContentBox { padding_border_size } else { Size::ZERO };
-        // EXACT PATCH 12: the size styles through the ratio (`compute::ratio`). A minimum only
-        // the ratio gives (a transferred one, or the floor a derived height is) holds beside the
-        // automatic minimum, not in its place.
+        // EXACT PATCH 12: the size styles through the ratio (`compute::ratio`).
+        // A derived block-size floor holds beside the automatic minimum.
         let authored_min = self
             .min_size
             .maybe_resolve(grid_area_size, |val, basis| tree.calc(val, basis))
             .maybe_add(box_sizing_adjustment);
-        let (size, min_size, _) = resolve_through(
+        let (size, min_size, max_size) = resolve_through(
             Ratio::from_parts(self.aspect_ratio, self.aspect_ratio_content_box, padding_border_size),
             self.size.maybe_resolve(grid_area_size, |val, basis| tree.calc(val, basis)).maybe_add(box_sizing_adjustment),
             authored_min,
@@ -641,9 +655,19 @@ impl GridItem {
                 .maybe_add(box_sizing_adjustment),
             self.ratio_floors_height,
         );
-        let ratio_minimum = if authored_min.get(axis).is_none() { min_size.get(axis) } else { None };
+        let ratio_minimum = if axis == AbstractAxis::Block && authored_min.height.is_none() {
+            min_size.height
+        } else {
+            None
+        };
+        // EXACT PATCH 58: a preferred size contributes its bounded size,
+        // as in known_dimensions, rather than growing the track past max-size.
         let contribution = size
+            .maybe_clamp(min_size, max_size)
             .get(axis)
+            // A transferred width is not an authored preferred width. Its
+            // content minimum follows the auto-track and fixed-limit rules below.
+            .filter(|_| axis != AbstractAxis::Inline || !self.size.width.is_auto())
             .or_else(|| authored_min.get(axis))
             .or_else(|| self.overflow.get(axis).maybe_into_automatic_min_size())
             .unwrap_or_else(|| {
@@ -657,14 +681,15 @@ impl GridItem {
                 // TODO: support overflow property
 
                 // it spans at least one track in that axis whose min track sizing function is auto
-                let spans_auto_min_track = axis_tracks
+                let spans_auto_min_track = item_axis_tracks
                     .iter()
                     // TODO: should this be 'behaves as auto' rather than just literal auto?
                     .any(|track| track.min_track_sizing_function.is_auto());
 
                 // if it spans more than one track in that axis, none of those tracks are flexible
                 let only_span_one_track = item_axis_tracks.len() == 1;
-                let spans_a_flexible_track = axis_tracks.iter().any(|track| track.max_track_sizing_function.is_fr());
+                let spans_a_flexible_track =
+                    item_axis_tracks.iter().any(|track| track.max_track_sizing_function.is_fr());
 
                 let use_content_based_minimum =
                     spans_auto_min_track && (only_span_one_track || !spans_a_flexible_track);

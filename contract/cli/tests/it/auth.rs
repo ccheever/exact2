@@ -49,7 +49,7 @@ impl DataSource for Signer {
     }
 }
 
-const APP: &str = "shape R\n  text: string\ncomponent App\n  state cb = \"app.test:/cb\"\n  mutation signed as shape R\n  mutation other as shape R\n  action go writes signed\n    send signed = signIn(cb)\n  action bad writes signed\n    send signed = signIn(\"app.test:/elsewhere\")\n  action two writes other\n    send other = other(cb)\n  view\n    column\n      button press=go testId=\"go\"\n        text \"go\"\n      button press=bad testId=\"bad\"\n        text \"bad\"\n      button press=two testId=\"two\"\n        text \"two\"\n      match signed\n        case some(s)\n          text s.text testId=\"out\"\n        case none\n          text \"\" testId=\"out\"\n";
+const APP: &str = "shape R\n  text: string\ncomponent App\n  state cb = \"app.test:/cb\"\n  mutation signed as shape R\n  mutation other as shape R\n  action go\n    send signed = signIn(cb)\n  action bad\n    send signed = signIn(\"app.test:/elsewhere\")\n  action two\n    send other = other(cb)\n  view\n    column\n      button press=go testId=\"go\"\n        text \"go\"\n      button press=bad testId=\"bad\"\n        text \"bad\"\n      button press=two testId=\"two\"\n        text \"two\"\n      match signed\n        case some(s)\n          text s.text testId=\"out\"\n        case none\n          text \"\" testId=\"out\"\n";
 
 fn boot() -> Runner<Signer> {
     Runner::boot(

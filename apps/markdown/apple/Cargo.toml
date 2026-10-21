@@ -10,6 +10,8 @@ build = "build.rs"
 [lib]
 name = "markdown_apple"
 crate-type = ["rlib"]
+test = false
+bench = false
 
 [dependencies]
 exact-data-host = { path = "../../../data/host" }

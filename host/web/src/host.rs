@@ -8,32 +8,34 @@
 //! only where the host's per-view cache says something changed. The kernel
 //! is the single source of truth; the cache is a memo of what the page has
 //! already been told.
-
 use crate::batch::Batch;
 use crate::css;
 use crate::motion::{Lowered, Motion, Still};
 use exact_kernel::{CommitReceipt, Kernel, NodeKey, NodeType, PropId, ViewId};
 use exact_motion::{EngineError, HoldEnd, HoldStart, Property, Value as MotionValue};
-use exact_plan::{EventKind, Plan, StackMemberKind, StacksId};
+use exact_plan::{EventKind, Plan};
 use exact_runner::{
     Carried, DataSource, Dispatch, Event, FailureKind, Outcome, RequestOut, Response, Runner,
     RunnerError, SurfaceOutcome, Timed, Work,
 };
+use mode::mirror::Mirror;
 
 #[path = "auth.rs"]
 mod auth;
 #[path = "canvas2d.rs"]
 mod canvas2d;
 pub mod fonts;
+mod mode;
+mod scale;
 pub(crate) use fonts::{decode_plan, plan_font_catalog};
-use fonts::{font_catalog, font_faces, font_names};
+use fonts::{font_catalog, font_faces, font_names, font_names_for_runner};
 #[path = "document.rs"]
 pub mod document;
 #[path = "element.rs"]
 mod element;
 #[path = "template.rs"]
 pub mod template;
-use element::{css_style, host_css, in_button, props_for, svg_props, tag_for};
+use element::{css_style, css_style_named, host_css, in_button, props_for, svg_props, tag_for};
 #[path = "height_drag.rs"]
 mod height_drag;
 pub use height_drag::HeightDragBinding;
@@ -41,11 +43,12 @@ pub use height_drag::HeightDragBinding;
 mod flow_host;
 #[path = "layers.rs"]
 pub mod layers;
+#[path = "own.rs"]
+mod own;
 #[path = "reorder_drag.rs"]
 mod reorder_drag;
 #[path = "transform_drag.rs"]
 mod transform_drag;
-
 /// A reply as the ABI carries it, as the runner's `Outcome`. Kind 8 is one
 /// message of a stream: `event`, `id` and `coalesced` as header lines, the
 /// data as the body (LLP 1016.000).
@@ -64,6 +67,7 @@ pub fn outcome_from(kind: u32, status: u32, headers: &str, body: Vec<u8>) -> Out
                 id: field("id"),
                 coalesced: field("coalesced").parse().unwrap_or(0),
                 data: String::from_utf8_lossy(&body).into_owned(),
+                binary: None,
             })
         }
         5 => Outcome::Storage(body),
@@ -91,6 +95,7 @@ pub fn outcome_from(kind: u32, status: u32, headers: &str, body: Vec<u8>) -> Out
                 2 => FailureKind::Refused,
                 3 => FailureKind::Unsupported,
                 4 => FailureKind::Aborted,
+                10 => FailureKind::Timeout,
                 _ => FailureKind::Network,
             },
             message: String::from_utf8_lossy(&body).into_owned(),
@@ -108,8 +113,7 @@ pub enum HostError {
     Plan(exact_plan::PlanError),
     Runner(RunnerError),
     RuntimeIdExhausted,
-    /// The plan uses these capabilities, which this artifact doesn't link
-    /// (LLP 1047 D6).
+    /// The plan uses these capabilities, which this artifact doesn't link (LLP 1047 D6).
     Unlinked(String),
 }
 
@@ -117,15 +121,6 @@ impl std::fmt::Display for HostError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{self:?}")
     }
-}
-
-#[derive(Debug, Clone, Default, PartialEq)]
-struct Mirror {
-    props: SortedMap<String, String>,
-    css: String,
-    children: Vec<ViewId>,
-    /// Created inside a `<button>`, where a container is a `<span>`.
-    in_button: bool,
 }
 
 /// What a host links that is generic over its data source (LLP 1047 D3):
@@ -181,28 +176,7 @@ impl<D: DataSource> HostLinks<D> {
             } else {
                 None
             },
-            device: exact_runner::DeviceLinks {
-                auth: if linked.auth {
-                    Some(exact_runner::AuthLinks::LINKED)
-                } else {
-                    None
-                },
-                share: if linked.share {
-                    exact_runner::DeviceLinks::<D>::ALL.share
-                } else {
-                    None
-                },
-                documents: if linked.documents {
-                    exact_runner::DeviceLinks::<D>::ALL.documents
-                } else {
-                    None
-                },
-                picker: if linked.picker.is_some() {
-                    Some(exact_runner::PickerLinks::LINKED)
-                } else {
-                    None
-                },
-            },
+            device: linked.device_links(),
             auth: if linked.auth {
                 Some(Host::<D>::auth_linked)
             } else {
@@ -295,6 +269,8 @@ impl exact_kernel::TextMeasurer for BrowserMeasures {
 /// engine's tree only if a layout is ever asked for, and links no text
 /// measurer of its own (LLP 1047 §6).
 pub(crate) fn browser_kernel() -> Kernel {
+    exact_kernel::style::roles::set_column(exact_kernel::style::roles::Column::Neutral);
+    exact_kernel::style::wide::set_available(|wide| !wide.space.is_hdr());
     Kernel::on_demand(Box::new(BrowserMeasures))
 }
 
@@ -372,7 +348,7 @@ impl<D: DataSource> Host<D> {
     pub fn boot_stored(
         plan_bytes: &[u8],
         data: D,
-        snapshot: Vec<(String, String)>,
+        snapshot: Vec<(String, Vec<u8>)>,
         viewport: exact_runner::Viewport,
         launch: &str,
     ) -> Result<(Host<D>, String), HostError> {
@@ -408,7 +384,7 @@ impl<D: DataSource> Host<D> {
         plan_bytes: &[u8],
         data: D,
         carried: Option<&Carried>,
-        snapshot: Vec<(String, String)>,
+        snapshot: Vec<(String, Vec<u8>)>,
         compat: Option<&str>,
         viewport: exact_runner::Viewport,
         launch: &str,
@@ -432,7 +408,7 @@ impl<D: DataSource> Host<D> {
         plan_bytes: &[u8],
         data: D,
         carried: Option<&Carried>,
-        snapshot: Vec<(String, String)>,
+        snapshot: Vec<(String, Vec<u8>)>,
         compat: Option<&str>,
         viewport: exact_runner::Viewport,
         launch: &str,
@@ -444,7 +420,7 @@ impl<D: DataSource> Host<D> {
         let delivery = compat.map_or_else(Default::default, |json| {
             exact_runner::Delivery::default().with_compat(json)
         });
-        let runner = Runner::boot_with_delivery_linked(
+        let mut runner = Runner::boot_with_delivery_linked(
             crate::link::runner_links(),
             plan,
             data,
@@ -456,6 +432,8 @@ impl<D: DataSource> Host<D> {
             launch,
         )
         .map_err(HostError::Runner)?;
+        runner.measure_unless_production(compat, false); // LLP 1079 D1: the browser lays out
+        runner.admit_live(compat);
         Host::open(links, runner, launch, Batch::new(), Default::default())
     }
 
@@ -469,8 +447,12 @@ impl<D: DataSource> Host<D> {
         computed: document::Computed,
     ) -> Result<(Host<D>, String), HostError> {
         let mut runner = runner;
+        let _roles = runner.bind_roles(); // Its own while it opens (LLP 1121 stage 5).
         runner.set_device_links(links.device);
-        let font_names = font_names(runner.plan());
+        // @ref LLP 1095 D4 — the theme's reach into the host's own sheet (a
+        // new runner's page drops the last one's, glue.js).
+        batch.theme(&exact_kernel::style::roles::theme_css());
+        let font_names = font_names_for_runner(&runner);
         let font_catalog = font_catalog(&font_faces(runner.plan()));
         let mut host = Host {
             runner,
@@ -550,6 +532,7 @@ impl<D: DataSource> Host<D> {
         for c in host.runner.take_commands() {
             batch.command(&c.name, &c.args, c.source);
         }
+        batch.timed(&mut host.runner, true);
         for w in host.runner.take_store_writes() {
             batch.store(&w);
         }
@@ -607,13 +590,9 @@ impl<D: DataSource> Host<D> {
             }
         }
         self.now_ms = now_ms.max(self.now_ms);
-        match self.runner.dispatch(view, event) {
-            Ok(receipt) => {
-                let at_ms = self.now_ms;
-                self.batch_for(&[Timed { at_ms, receipt }], None)
-            }
-            Err(e) => self.batch_for(&[], Some(&format!("{e:?}"))),
-        }
+        // At the event's time: an action's `performanceNow()` is the page's (LLP 1096 D3).
+        let a = self.runner.dispatch_at(view, event, self.now_ms);
+        self.batch_for(&a.receipts, a.error.map(|e| format!("{e:?}")).as_deref())
     }
 
     /// [`Host::dispatch_at`] at the clock's last value.
@@ -657,8 +636,7 @@ impl<D: DataSource> Host<D> {
         Ok(self.finish(batch, None))
     }
 
-    /// The page's line for the runner's journal (LLP 1012 §3): a refused
-    /// intent and its reason.
+    /// The page's line for the runner's journal (LLP 1012 §3): a refused intent and its reason.
     pub fn log(&mut self, line: &str) {
         self.runner.log(line);
     }
@@ -707,7 +685,7 @@ impl<D: DataSource> Host<D> {
         self.advanced(a)
     }
 
-    fn advanced(&mut self, a: exact_runner::Advanced) -> String {
+    pub(crate) fn advanced(&mut self, a: exact_runner::Advanced) -> String {
         self.now_ms = a.now_ms.max(self.now_ms);
         // LLP 1056 D5: a canvas that asked for a frame draws at the landed time.
         self.runner.canvas_frame();
@@ -732,8 +710,8 @@ impl<D: DataSource> Host<D> {
         self.batch_for(&receipts, error.as_deref())
     }
 
-    /// The size and the display preferences, in one batch.
-    /// @ref LLP 1039 D2; LLP 1061 D4
+    /// The size, the display preferences and the fold, in one batch.
+    /// @ref LLP 1039 D2; LLP 1061 D4; LLP 1078 D6
     pub fn resize(&mut self, viewport: exact_runner::Viewport, now_ms: f64) -> String {
         let a = self.runner.advance_timed(now_ms);
         self.now_ms = a.now_ms.max(self.now_ms);
@@ -742,6 +720,7 @@ impl<D: DataSource> Host<D> {
         let answers = [
             self.runner.set_viewport(viewport.width, viewport.height),
             self.runner.set_preferences(viewport.preferences),
+            self.runner.set_fold(viewport.fold), // the fold rides the same report (LLP 1078 D6)
         ];
         for answer in answers {
             match answer {
@@ -856,6 +835,12 @@ impl<D: DataSource> Host<D> {
                 let error = result.error.map(|e| format!("collection: {e:?}"));
                 let mut batch = Batch::new();
                 batch.accept_collection();
+                // A report can bind a grip with no commit: a row's first
+                // measurement at its estimate travels only (30fbf7f15), and a
+                // grip binds once its row is measured. Publish what changed.
+                if let Some(drag) = self.drag.filter(|_| result.receipts.is_empty()) {
+                    (drag.publish)(self, &mut batch);
+                }
                 self.batch_from(batch, &result.receipts, error.as_deref())
             }
             Err(error) => self.finish(Batch::new(), Some(&format!("collection: {error:?}"))),
@@ -902,12 +887,14 @@ impl<D: DataSource> Host<D> {
     }
 
     fn batch_from(&mut self, mut batch: Batch, receipts: &[Timed], error: Option<&str>) -> String {
+        let _roles = self.runner.bind_roles(); // Its own, crossing (LLP 1121 stage 5).
+        self.sync_runtime_font_names();
         self.emit_receipts(receipts, &mut batch);
         self.complete(batch, error.map(str::to_string))
     }
 
     fn emit_receipts(&mut self, receipts: &[Timed], batch: &mut Batch) {
-        // Which views are `relative` in the tree the receipts end at (layers.rs).
+        // Paint isolation in the final tree, before creates and updates.
         let changed: Vec<ViewId> = (receipts.iter())
             .flat_map(|t| t.receipt.created.iter().chain(&t.receipt.touched))
             .filter_map(|key| self.runner.kernel().node_by_key(*key).map(|n| n.id))
@@ -935,7 +922,9 @@ impl<D: DataSource> Host<D> {
                         self.head_dirty = true;
                         continue;
                     }
-                    self.mirror.remove(&id);
+                    if self.mirror.remove(&id).is_some_and(|m| !m.looks.is_empty()) {
+                        batch.looks(id, "");
+                    }
                     self.layers.forget(id);
                     self.exclusions.remove(&id);
                     if let Some(drag) = self.drag {
@@ -967,25 +956,30 @@ impl<D: DataSource> Host<D> {
             // is in the page before the frames that approach it start playing.
             // Adopt this receipt's time/targets/transitions while the hold is
             // live, then cancel invalid bindings and lower dirty frames once.
-            let synced = self.springs.synchronize(
-                self.runner.kernel(),
-                std::slice::from_ref(r),
-                t.at_ms / 1000.0,
-            );
+            // Never past the host's clock: a live runner observes an input's
+            // commit at a sample after the input's time, whose gesture runs on
+            let at = t.at_ms.min(self.now_ms) / 1000.0;
+            let synced =
+                self.springs
+                    .synchronize(self.runner.kernel(), std::slice::from_ref(r), at);
             Self::emit_lowered(batch, synced);
             if let Some(drag) = self.drag {
                 (drag.receipt)(self, batch);
             }
-            self.emit_springs(batch, &[], t.at_ms / 1000.0);
+            self.emit_springs(batch, &[], at);
         }
         // Earlier receipts also read the final tree, whose children can be
         // created by a later receipt in this seek. Attach only after all creates.
-        for t in receipts {
-            for key in t.receipt.created.iter().chain(t.receipt.touched.iter()) {
-                if let Some(node) = self.runner.kernel().node_by_key(*key) {
-                    self.emit_children(node.id, batch);
-                }
-            }
+        let mut refold = std::collections::BTreeSet::new();
+        for id in changed {
+            let parent = self.runner.kernel().node(id).and_then(|n| n.parent);
+            self.emit_children(id, batch);
+            refold.extend(std::iter::once(id).chain(parent));
+        }
+        // One parent visit per batch: a theme flip touches every text row,
+        // but their shared parent's fold needs to be decided only once.
+        for id in refold {
+            self.refold(id, batch);
         }
         let roots = self.page_roots();
         if roots != self.roots {
@@ -1013,6 +1007,7 @@ impl<D: DataSource> Host<D> {
         for c in self.runner.take_commands() {
             batch.command(&c.name, &c.args, c.source);
         }
+        batch.timed(&mut self.runner, false);
         // What the commit kept or forgot (LLP 1018 D1), for the page to persist.
         for w in self.runner.take_store_writes() {
             batch.store(&w);
@@ -1069,10 +1064,10 @@ impl<D: DataSource> Host<D> {
         self.finish(batch, error.as_deref())
     }
 
-    /// Close a batch with the runner's deadline, whether it wants each
-    /// animation frame (LLP 1073 D5), and its clock.
+    /// Close a batch: the runner's deadline, frames wanted (LLP 1073 D5), clock, `seq` (LLP 1079).
     pub(crate) fn finish(&self, batch: Batch, error: Option<&str>) -> String {
         let due = self.runner.timer_due_ms();
+        let batch = batch.seq(self.runner.seq_range());
         batch.finish(due, self.runner.wants_frames(), self.runner.now_ms(), error)
     }
 
@@ -1110,6 +1105,8 @@ impl<D: DataSource> Host<D> {
                 batch.request(&r);
             }
             Dispatch::Run(Work::Now(work)) => immediate.push((r.ticket, work())),
+            // A re-ask settles at once, as the no-op it replaces did.
+            Dispatch::Again => immediate.push((r.ticket, Dispatch::again_outcome())),
             Dispatch::Run(Work::Later(_)) => immediate.push((
                 r.ticket,
                 Outcome::Failed {
@@ -1203,8 +1200,7 @@ impl<D: DataSource> Host<D> {
         self.springs.track_hold(serial, now_ms / 1000.0, shown)
     }
 
-    /// Release at the velocity the engine measured over the hold's values,
-    /// for input the platform gives no velocity (LLP 1057.001 §3).
+    /// Release at the engine-measured velocity when the platform supplies none (LLP 1057.001 §3).
     pub fn end_hold_measured(
         &mut self,
         serial: u64,
@@ -1317,7 +1313,8 @@ impl<D: DataSource> Host<D> {
                     duration,
                     values,
                 } => {
-                    let pairs: Vec<(f64, f64)> = values.iter().map(|v| (v.x, v.y)).collect();
+                    let pairs: Vec<[f64; 4]> =
+                        values.iter().map(|v| [v.x, v.y, v.z, v.w]).collect();
                     batch.spring(
                         at * 1000.0,
                         view,
@@ -1361,18 +1358,26 @@ impl<D: DataSource> Host<D> {
             Some((view, ..)) if *view == id => self.computed.pop(),
             _ => None,
         };
-        let (props, css) = match kept {
+        let (mut props, css) = match kept {
             // The projection's, for this view of this tree: the same values.
-            Some((_, kept, props, css)) if kept == tag => (props, css),
+            Some((_, kept, props, css)) if kept == tag => (props, self.paint_css(&node, css)),
             _ => {
                 let kernel = self.runner.kernel();
                 let (css, _skipped) = css::css_text(&css_style(kernel, &node), &self.font_names);
                 let mut props = props_for(&node);
-                svg_props(kernel, &node, &mut props);
-                let css = host_css(&node, css, tag);
-                (props, layers::with_isolation(css, self.layers.isolated(id)))
+                if let Some(raw) = props.get("data-decoration-styles") {
+                    let css = crate::css::decoration_styles(raw, &self.font_names);
+                    props.insert("data-decoration-styles".into(), css);
+                }
+                svg_props(self.runner.kernel(), &node, &mut props);
+                let css = host_css(kernel, &node, css, tag);
+                let css = element::folded_css(kernel, &node, css, !kinds.is_empty());
+                let handled = |c| self.mirror.get(&c).is_some_and(|m| m.handled);
+                let css = element::blocks(css, element::holds_folded(kernel, &node, &handled));
+                (props, self.paint_css(&node, css))
             }
         };
+        element::router_press(&mut props, self.runner.press_writes_router(id));
         let handlers: Vec<&str> = kinds
             .iter()
             .filter(|e| !matches!(e, EventKind::Reachstart | EventKind::Reachend))
@@ -1388,8 +1393,11 @@ impl<D: DataSource> Host<D> {
                 css,
                 children: Vec::new(),
                 in_button,
+                handled: !kinds.is_empty(),
+                looks: String::new(),
             },
         );
+        self.emit_looks(id, batch);
         self.keys.insert(key, id);
     }
 
@@ -1415,20 +1423,20 @@ impl<D: DataSource> Host<D> {
         let node = self.runner.kernel().node(id).expect("live");
         // An exit's rules too, while its node lives (LLP 1063 D7).
         crate::css::send_keyframes(&mut self.keyframes, node.style, batch);
-        // @ref LLP 1053.000 D4 — a computed name the table lacks draws
-        // ultra-thin, and says so once.
+        // @ref LLP 1053.000 D4 — a computed name absent from the table draws ultra-thin and logs once.
         let note = node
             .props
             .str(PropId::BackgroundMaterial)
             .zip(crate::link::linked().materials)
             .and_then(|(name, material)| (material.1)(name));
         let mut props = props_for(&node);
+        if let Some(raw) = props.get("data-decoration-styles") {
+            let css = crate::css::decoration_styles(raw, &self.font_names);
+            props.insert("data-decoration-styles".into(), css);
+        }
+        element::router_press(&mut props, self.runner.press_writes_router(id));
         svg_props(self.runner.kernel(), &node, &mut props);
-        let (css, _skipped) =
-            css::css_text(&css_style(self.runner.kernel(), &node), &self.font_names);
-        let in_button = self.mirror.get(&id).is_some_and(|m| m.in_button);
-        let css = host_css(&node, css, tag_for(&node, in_button));
-        let css = layers::with_isolation(css, self.layers.isolated(id));
+        let css = self.view_css(&node);
         let m = self.mirror.entry(id).or_default();
         if props != m.props {
             let set: Vec<(&str, String)> = props
@@ -1449,6 +1457,7 @@ impl<D: DataSource> Host<D> {
             batch.style(id, &css);
             m.css = css;
         }
+        self.emit_looks(id, batch);
         if let Some(note) = note {
             self.runner.log(note);
         }
@@ -1476,8 +1485,7 @@ impl<D: DataSource> Host<D> {
         roots
     }
 
-    /// The page's `<head>`, when a commit may have moved it (LLP 1048.003
-    /// D1): the runner's active head, sent only when it changed.
+    /// Sends the runner's active `<head>` only when it changes (LLP 1048.003 D1).
     fn emit_head(&mut self, batch: &mut Batch) {
         if !std::mem::take(&mut self.head_dirty) {
             return;

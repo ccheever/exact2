@@ -13,8 +13,16 @@ use exact_motion::{Presentation, Property, Value};
 use exact_runner::DataSource;
 
 impl<D: DataSource> Host<D> {
+    /// A path's `d` while a transition moves it (LLP 1055.000 D15); `None`
+    /// paints the attribute.
+    pub fn presented_path(&self, id: ViewId) -> Option<exact_motion::PathValue> {
+        let key = self.runner.kernel().node(id)?.key;
+        self.engine.presented_path(motion_node(key))
+    }
+
     /// Adopt a commit's paint, after its `motion_sync` set the rows.
     pub(super) fn sync_paint(&mut self, receipt: &CommitReceipt) {
+        let _roles = self.runner.bind_roles(); // Its own (LLP 1121 stage 5).
         let retired = self
             .paint
             .sync(self.runner.kernel(), receipt, &mut self.engine);
@@ -23,6 +31,7 @@ impl<D: DataSource> Host<D> {
 
     /// Adopt the whole tree's paint at boot.
     pub(super) fn boot_paint(&mut self) {
+        let _roles = self.runner.bind_roles(); // Its own (LLP 1121 stage 5).
         self.paint.adopt(
             self.runner.kernel(),
             self.keys.keys().copied(),
@@ -46,6 +55,7 @@ impl<D: DataSource> Host<D> {
     /// Report the session's appearance: first quietly, then transitioning
     /// `light-dark()` targets under their rows (LLP 1062 D4).
     pub fn set_scheme(&mut self, dark: bool) {
+        let _roles = self.runner.bind_roles(); // Its own (LLP 1121 stage 5).
         if let Some(retired) = self.paint.set_scheme(
             self.runner.kernel(),
             &mut self.engine,
@@ -58,9 +68,28 @@ impl<D: DataSource> Host<D> {
         }
     }
 
+    /// The platform's colours resolve differently (the device's shell
+    /// reported its palette, LLP 1115.001 D4): every paint owner re-targets
+    /// under its appearance, as the Apple host's does (LLP 1095 D6).
+    /// `first`: the first report, a correction in place without motion.
+    pub(crate) fn colors_changed(&mut self, first: bool) {
+        let _roles = self.runner.bind_roles(); // Its own (LLP 1121 stage 5).
+        if let Some(retired) = self.paint.colors_changed(
+            self.runner.kernel(),
+            &mut self.engine,
+            self.now_ms / 1000.0,
+            first,
+        ) {
+            self.retire_paint(retired);
+            self.present();
+        }
+        self.flow_damage.repaint();
+    }
+
     /// Report a view's own appearance, following the same first-report
     /// correction and later transitions as the session's.
     pub fn set_view_scheme(&mut self, view: ViewId, dark: bool) {
+        let _roles = self.runner.bind_roles(); // Its own (LLP 1121 stage 5).
         let Some(key) = self.runner.kernel().node(view).map(|n| n.key) else {
             return;
         };
@@ -140,13 +169,17 @@ impl<D: DataSource> Host<D> {
     }
 
     fn paint_over(&mut self, view: ViewId, property: Property, value: Option<Value>) {
-        let base = self.presented(view);
+        if let Some(n) = self.runner.kernel().node(view) {
+            self.row_dirty.node(n.key);
+        }
+        let base = self.unpresented(view);
         let entry = self.presented.entry(view).or_insert(base);
         entry.colors.set(property, value);
     }
 
     /// The views below `node` whose `color` is `node`'s: no own row on the
-    /// way, and no paint motion of their own.
+    /// way, no platform start that stops it (a field's), and no paint
+    /// motion of their own.
     fn inheritors_of(&self, node: u64, property: Property) -> Vec<ViewId> {
         let row = match property {
             Property::Color => StyleId::TextColor,
@@ -162,7 +195,10 @@ impl<D: DataSource> Host<D> {
             let Some(child) = kernel.node(id) else {
                 continue;
             };
-            if child.style.mask.has(row) || self.paint.owns(motion_node(child.key), property) {
+            if child.style.mask.has(row)
+                || child.starts(row)
+                || self.paint.owns(motion_node(child.key), property)
+            {
                 continue;
             }
             out.push(id);

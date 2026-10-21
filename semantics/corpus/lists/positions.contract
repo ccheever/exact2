@@ -1,0 +1,42 @@
+// `indexOf` and `split` are JavaScript's (LLP 1088 §9.1, 2026-10-04 note):
+// `indexOf` over a list is IsStrictlyEqual (NaN is never found, -0 is 0),
+// over text a position in UTF-16 code units, -1 for none and 0 for the empty
+// needle; `split` cuts text at each match of its separator, an empty one
+// into code units (an astral character's halves are two U+FFFD), `""` into
+// no pieces. Mail's open row and its recipient chips.
+component App
+  state nums = [1, -0, 3]
+  state ids = ["a", "b", "b"]
+  state to = "ann, bo,, 😀"
+  state open = "b"
+  derive openAt = ids.indexOf(open)
+  derive at = [nums.concat([0 / 0]).indexOf(0 / 0), nums.indexOf(0), openAt, [true, false].indexOf(false), to.indexOf("bo"), to.indexOf("😀"), to.indexOf(""), "abc".indexOf("z")].join(",")
+  derive chips = to.split(", ")
+  derive units = "a😀".split("")
+  derive halfAt = units.join("").indexOf("😀".slice(0, 1))
+  derive counts = [units.length, "".split("").length, "".split(",").length, "aaa".split("aa").length].join(",")
+  derive overlap = "aaa".split("aa").join("|")
+  action pick(id: string)
+    open = id
+  action add(chip: string)
+    to = `${to}, ${chip}`
+  view
+    column
+      text chips.join("|") testId="chips"
+      text `${openAt}` testId="open"
+      button "a" press=pick("a") testId="a"
+      button "z" press=pick("z") testId="z"
+      button "add" press=add("cy") testId="add"
+
+test "positions"
+  expect state at == "-1,1,1,1,5,10,0,-1"
+  expect text "chips" == "ann|bo,|😀"
+  expect state halfAt == 1
+  expect state counts == "3,0,1,2"
+  expect state overlap == "|a"
+  tap "a"
+  expect text "open" == "0"
+  tap "z"
+  expect text "open" == "-1"
+  tap "add"
+  expect text "chips" == "ann|bo,|😀|cy"

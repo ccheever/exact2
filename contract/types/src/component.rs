@@ -3,11 +3,44 @@
 //! handler call sites, action bodies, then the view.
 
 use super::{
-    checks::{check_stmts, check_view, infer_owned_state_initializers},
+    checks::{self, check_view, infer_owned_state_initializers},
     err, infer, record_source, ComponentTypes, Ref, Scope, Shapes, Sink, Ty, TypeError, Types,
 };
-use contract_syntax::{Component, Expr, Node, Span, TemplatePart};
+use crate::calls::CAPTURE;
+use contract_syntax::inline::calls::shown;
+use contract_syntax::{Component, Expr, Node, Owner, Param, Span, Stmt, TemplatePart};
 use std::{collections::BTreeMap, sync::Arc};
+
+#[cfg(test)]
+thread_local! {
+    pub(super) static SCOPE_BUILDS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+#[test]
+fn action_checks_reuse_declarations_and_observe_prior_writes() {
+    let mut source = String::from("component App\n  state first = none\n  state second = none\n");
+    for i in 0..32 {
+        source.push_str(&format!(
+            "  action set{i}(n: number)\n    first = some(n)\n"
+        ));
+    }
+    source.push_str("  action copy\n    second = first\n  view\n    text \"ok\"\n");
+    let file = contract_syntax::parse(&source).unwrap();
+    let c = &file.components[0];
+    let mut sink = Sink::default();
+    SCOPE_BUILDS.with(|count| count.set(0));
+    let ct = check_component(c, &Types::default(), None, &mut sink);
+    assert!(sink.errors.is_empty(), "{:?}", sink.errors);
+    assert_eq!(ct.slots, vec![Ty::Option(Box::new(Ty::Number)); 2]);
+    // Call-parameter refinement still has one scope per action; body checks
+    // and slot probes must not rebuild all declarations for each action too.
+    let builds = SCOPE_BUILDS.with(|count| count.get());
+    assert!(
+        builds < c.actions.len() * 2,
+        "{builds} declaration scopes for {} actions",
+        c.actions.len()
+    );
+}
 
 /// Check one component, recording each refusal in `sink` and carrying on
 /// with `?` wherever a type could not be found, so one run reports every
@@ -16,7 +49,7 @@ use std::{collections::BTreeMap, sync::Arc};
 pub(crate) fn check_component(
     c: &Component,
     types: &Types,
-    owners: Option<&[Option<u32>]>,
+    owners: Option<&[Owner]>,
     sink: &mut Sink,
 ) -> ComponentTypes {
     let shapes = &types.shapes;
@@ -37,10 +70,15 @@ pub(crate) fn check_component(
         .chain(c.mutations.iter().map(|m| (&m.name, m.span)))
         .chain(c.actions.iter().map(|a| (&a.name, a.span)))
     {
-        if seen.insert(name.clone(), span).is_some() {
+        if let Some(first) = seen.insert(name.clone(), span) {
+            // The survey diary's `mutation exported` and `action exported`:
+            // say that the kinds share one set of names.
             sink.push(TypeError {
                 id: "type-duplicate-name",
-                message: format!("`{name}` declared twice"),
+                message: format!(
+                    "`{name}` is declared twice in `{}` (first on line {}): its props, injects, states, derives, resources, mutations and actions share one set of names; rename one",
+                    c.name, first.line
+                ),
                 span,
             });
         }
@@ -54,6 +92,9 @@ pub(crate) fn check_component(
                 p.span,
             )),
         };
+        if let Some(e) = hides_fn(c, p, &ty, "prop", shapes) {
+            sink.push(e);
+        }
         ct.props.push(ty);
     }
     for p in &c.injects {
@@ -65,13 +106,19 @@ pub(crate) fn check_component(
                 p.span,
             )),
         };
+        if let Some(e) = hides_fn(c, p, &ty, "inject", shapes) {
+            sink.push(e);
+        }
         ct.props.push(ty);
     }
     for r in &c.resources {
         ct.resources.push(sink.keep(shapes.resolve(&r.shape)));
     }
     for m in &c.mutations {
-        ct.mutations.push(sink.keep(shapes.resolve(&m.shape)));
+        let t = sink.keep(shapes.resolve(&m.shape));
+        // A mutation holds `option<T>` of its answer (LLP 1090 D2).
+        sink.keep_unit(shapes.bounded(&Ty::Option(Box::new(t.clone())), m.shape.span()));
+        ct.mutations.push(t);
         // @ref LLP 1054.000.000 D1 — what a send to this mutation refreshes.
         for (i, (name, span)) in m.refreshes.iter().enumerate() {
             if !c.resources.iter().any(|r| &r.name == name) {
@@ -110,8 +157,14 @@ pub(crate) fn check_component(
                 Ty::Record("Router".into())
             } else if owners
                 .and_then(|owners| owners.get(i))
-                .is_some_and(Option::is_some)
+                .is_some_and(|o| *o != Owner::Root)
             {
+                // A child's state, typed in its use site's scope once the
+                // derives and resources it may read are
+                // (`infer_owned_state_initializers`).
+                Ty::Unknown
+            } else if let Some(e) = initializer_scope(c, i, &scope, shapes) {
+                sink.push(e);
                 Ty::Unknown
             } else {
                 sink.keep(infer(&s.expr, &scope, shapes))
@@ -133,37 +186,45 @@ pub(crate) fn check_component(
         }
         ct.actions.push(params);
     }
-    // Derives: iterate to a fixpoint so order does not matter and `?` fills.
-    // Each is inferred after the derives it reads, and its type enters the
-    // scope at once, so a set without a cycle settles in one round (and one
-    // to confirm) rather than one round per link of a chain.
+    // Derives, then the slots action writes type, until neither changes: a
+    // state `none` or `[]` declares is typed by its first write, and what
+    // reads it (a derive, a view head, a handler's or a resource's
+    // argument) must see that type, whatever the declaration order.
     ct.derives = vec![Ty::Unknown; c.derives.len()];
-    // Every declaration now has a type entry before constructing a full scope.
-    let first_derive = c.props.len() + c.injects.len() + c.states.len();
-    let mut scope = types.component_scope(c, &ct);
+    // One ordered pass first, not a fixed point (LLP 1088 D6 is deferred): a
+    // row's state is typed from its initializer before the derives that read
+    // it (shop F3's `derive chosen = at(…, pick)` over a row's `state pick =
+    // 0`). Its refusals are made where the same pass runs again below, once
+    // the derives and resources a child's state may read have types.
+    let _ = infer_owned_state_initializers(c, &mut ct, types, owners);
     let order = derive_order(c);
-    for _round in 0..(c.derives.len() + 2) {
-        let mut changed = false;
-        for &i in &order {
-            // An expression over a derive not yet typed (`current.ok` while
-            // `current` is still `?`) waits for a later round; the strict
-            // pass below reports what never types.
-            if let Ok(t) = infer(&c.derives[i].expr, &scope, shapes) {
-                if t != ct.derives[i] {
-                    scope.retype(first_derive + i, t.clone());
-                    ct.derives[i] = t;
-                    changed = true;
-                }
-            }
-        }
-        if !changed {
+    for _round in 0..(c.states.len() + 2) {
+        settle_derives(c, &mut ct, types, &order);
+        if ct.slots.iter().all(Ty::is_complete) || !probe_writes(c, &mut ct, types) {
             break;
         }
     }
     // Everything must now type; re-infer derives strictly to surface errors.
     let scope = types.component_scope(c, &ct);
-    for (i, d) in c.derives.iter().enumerate() {
-        match infer(&d.expr, &scope, shapes) {
+    let results: Vec<_> = c
+        .derives
+        .iter()
+        .map(|d| infer(&d.expr, &scope, shapes))
+        .collect();
+    // A derive left incomplete because one it reads was refused is refused
+    // with it, not reported again as a cycle (`derive bill = Number(text)`,
+    // then `derive total = bill + tip`).
+    let reads = derive_reads(c);
+    let mut refused: Vec<bool> = results.iter().map(Result::is_err).collect();
+    for &i in &order {
+        if matches!(&results[i], Ok(t) if !t.is_complete()) && reads[i].iter().any(|&d| refused[d])
+        {
+            refused[i] = true;
+        }
+    }
+    for ((i, d), result) in c.derives.iter().enumerate().zip(results) {
+        match result {
+            Ok(t) if !t.is_complete() && refused[i] => {}
             // What types only incompletely depends on itself; what fails to
             // type is refused for that reason alone.
             // An `[]` nothing pairs with a typed list is the one leaf that
@@ -172,7 +233,7 @@ pub(crate) fn check_component(
                 Some(span) => TypeError {
                     id: "type-cannot-infer",
                     message: format!(
-                        "cannot infer what `[]` holds in `{}`: pair it with a typed arm (`match`/`?:`) or write it where a `list<T>` is declared",
+                        "cannot infer what `[]` holds in `{}`: pair it with a typed arm (`match`/`?:`) or write it where a `T[]` is declared",
                         d.name
                     ),
                     span,
@@ -204,7 +265,27 @@ pub(crate) fn check_component(
     // Row initializers have just resolved the lifted child slots. Curried
     // action-prop arguments must see those types too, not the earlier scope.
     let scope = types.component_scope(c, &ct);
-    sink.keep_unit(refine_params_from_view(&c.view, &scope, c, &mut ct, shapes));
+    let mut miscounted = Vec::new();
+    sink.keep_unit(refine_params_from_view(
+        &c.view,
+        &scope,
+        c,
+        &mut ct,
+        shapes,
+        &mut miscounted,
+    ));
+    // Then the calls in action bodies (LLP 1089 D8), before any body is checked.
+    crate::calls::refine(c, &mut ct, types);
+    share_captures(c, &mut ct);
+    // A handler whose payload does not fit its action, which it left with
+    // a parameter untyped: its arity refusal, at the handler, before any
+    // body reads that parameter. Analysis gives it when every parameter is
+    // typed, and never runs after this stage refuses.
+    for (ai, e) in &miscounted {
+        if !ct.actions[*ai].iter().all(Ty::is_complete) {
+            sink.push(e.clone());
+        }
+    }
     // Action bodies: writes refine slots; assignments must unify. Two
     // rounds, so a `send` whose argument is a state a later action writes
     // (`state q = none`, typed by `q = some(s)`) records the written type
@@ -213,8 +294,8 @@ pub(crate) fn check_component(
     for round in 0..2 {
         let mut scratch = Sink::default();
         let report = if round == 0 { &mut scratch } else { &mut *sink };
+        let mut scope = types.component_scope(c, &ct);
         for (ai, a) in c.actions.iter().enumerate() {
-            let mut scope = types.component_scope(c, &ct);
             scope.push(
                 a.params
                     .iter()
@@ -229,7 +310,11 @@ pub(crate) fn check_component(
                     .collect(),
             );
             scope.enter_action();
-            check_stmts(&a.body, &scope, c, &mut ct, shapes, report);
+            // A lifted child action is `name#N` (LLP 1017 P4c).
+            let lifted = a.name.contains('#');
+            crate::actions::check_body(&a.body, &scope, lifted, c, &mut ct, shapes, report);
+            scope.pop();
+            scope.retype_slots(c, &ct);
         }
     }
     // The seam's signatures (LLP 1027 D2): every resource's arguments against
@@ -288,6 +373,19 @@ pub(crate) fn check_component(
                 }
                 continue;
             }
+            // `else Row(title="…")` (app farm round 1): a shape's call
+            // builds a record, and a placeholder is a source's.
+            if shapes.declared.contains(&p.source) {
+                sink.push(TypeError {
+                    id: "type-placeholder-shape",
+                    message: format!(
+                        "`{}`'s placeholder calls the shape `{}`: write `else empty(field=…)`, the shape's zero with `field=constant` overrides",
+                        r.name, p.source
+                    ),
+                    span: p.span,
+                });
+                continue;
+            }
             if let Some((name, span)) = p.args.iter().find_map(|a| reads_state(a, &scope)) {
                 sink.push(TypeError {
                     id: "type-placeholder-reads",
@@ -323,27 +421,38 @@ pub(crate) fn check_component(
             });
         }
     }
+    let mut said = Vec::new();
     for (ai, a) in c.actions.iter().enumerate() {
+        // Said at its handler, above.
+        if miscounted.iter().any(|(i, _)| *i == ai) {
+            continue;
+        }
         for (i, p) in a.params.iter().enumerate() {
-            if !ct.actions[ai][i].is_complete() {
-                sink.push(TypeError { id: "type-cannot-infer", message: format!("cannot infer the type of parameter `{}`; write `{}: <type>` or call the action from a handler", p.name, p.name), span: p.span });
+            if ct.actions[ai][i].is_complete() || said.contains(&p.name) {
+                continue;
             }
+            if p.name.starts_with(CAPTURE) {
+                // Hidden: what an action prop was curried with (LLP 1089
+                // D7), said once, at that prop's binding.
+                said.push(p.name.clone());
+                sink.push(untyped_capture(c, &p.name, p.span));
+                continue;
+            }
+            sink.push(TypeError { id: "type-cannot-infer", message: format!("cannot infer the type of parameter `{}`; write `{}: <type>` or call the action from a handler", p.name, p.name), span: p.span });
         }
     }
-    // The view types.
+    // A child's `provide` section and the view type. The expanded root's
+    // section is checked with its uses (`check_root`), after the expansion,
+    // so a provided value is refused where a child reads it (LLP 1006 §3).
     let scope = types.component_scope(c, &ct);
-    check_view(&c.view, &scope, shapes, sink);
-    for t in &c.tasks {
-        match infer(&t.timer.0, &scope, shapes) {
-            Ok(Ty::Number) => {}
-            Ok(_) => sink.push(TypeError {
-                id: "type-timer",
-                message: "a task needs a number of milliseconds".into(),
-                span: t.timer.2,
-            }),
-            Err(e) => sink.push(e),
+    if owners.is_none() {
+        for b in &c.provides {
+            sink.keep(infer(&b.expr, &scope, shapes));
         }
     }
+    check_view(&c.view, &scope, shapes, sink);
+    super::tasks::check_tasks(c, &scope, shapes, sink);
+    super::tasks::sequences::check(c, owners.is_some(), &scope, shapes, sink);
     ct
 }
 
@@ -359,10 +468,260 @@ impl Scope {
         Arc::make_mut(&mut self.frames[0]).names[index].2 = ty;
     }
 
-    pub(crate) fn frames_reset(&mut self, names: &[(String, Ref, Ty)]) {
-        self.frames.clear();
-        self.push(names.to_vec());
+    // Only slots can change while checking a body. Refresh between bodies,
+    // where a fresh component scope would have observed the preceding writes.
+    fn retype_slots(&mut self, c: &Component, ct: &ComponentTypes) {
+        let first = c.props.len() + c.injects.len();
+        for (i, ty) in ct.slots.iter().enumerate() {
+            if &self.frames[0].names[first + i].2 != ty {
+                self.retype(first + i, ty.clone());
+            }
+        }
     }
+}
+
+/// An action prop or inject named like an app `fn`, where the component
+/// calls that name in an expression: inlining rewrites the call to the
+/// bound action's (`subst_expr`), where the checker typed it as the fn. A
+/// handler's own call (`press=name(…)`) is the action's both ways, and a
+/// name only handlers use, or nothing does, clashes with nothing.
+fn hides_fn(c: &Component, p: &Param, ty: &Ty, kind: &str, shapes: &Shapes) -> Option<TypeError> {
+    if !matches!(ty, Ty::Action(_)) || !shapes.fns.contains_key(&p.name) {
+        return None;
+    }
+    let call = expression_call(c, &p.name)?;
+    let name = &p.name;
+    let mut chars = name.chars();
+    let on: String = chars
+        .next()
+        .map(|c| c.to_ascii_uppercase())
+        .into_iter()
+        .chain(chars)
+        .collect();
+    Some(TypeError {
+        id: "type-prop-hides-fn",
+        message: format!(
+            "rename the action {kind} `{name}` (as in `on{on}`) or `fn {name}`: in `{}` the call `{name}(…)` at line {} cannot be both the {kind} and the fn",
+            c.name, call.line
+        ),
+        span: p.span,
+    })
+}
+
+/// The first call of `name` in the component's derives, states, provides or
+/// view that is not a handler's own (`press=name(…)`): a handler's arguments count,
+/// as does a use's argument.
+fn expression_call(c: &Component, name: &str) -> Option<Span> {
+    fn in_expr(e: &Expr, name: &str) -> Option<Span> {
+        let mut found = None;
+        walk_exprs(e, &mut |x| {
+            if let Expr::Call(n, _, span) = x {
+                if n == name && found.is_none() {
+                    found = Some(*span);
+                }
+            }
+        });
+        found
+    }
+    fn in_nodes(nodes: &[Node], name: &str) -> Option<Span> {
+        nodes.iter().find_map(|n| match n {
+            Node::Children { .. } => None,
+            Node::Element {
+                positional,
+                attrs,
+                children,
+                ..
+            } => positional
+                .iter()
+                .find_map(|e| in_expr(e, name))
+                .or_else(|| {
+                    attrs.iter().find_map(|a| match &a.value {
+                        Expr::Call(n, args, _) if n == name && handler_attr(&a.name) => {
+                            args.iter().find_map(|e| in_expr(e, name))
+                        }
+                        value => in_expr(value, name),
+                    })
+                })
+                .or_else(|| in_nodes(children, name)),
+            Node::Use { args, children, .. } => args
+                .iter()
+                .find_map(|a| in_expr(&a.value, name))
+                .or_else(|| in_nodes(children, name)),
+            Node::When {
+                cond,
+                then,
+                otherwise,
+                ..
+            } => in_expr(cond, name)
+                .or_else(|| in_nodes(then, name))
+                .or_else(|| in_nodes(otherwise, name)),
+            Node::Each {
+                list, key, body, ..
+            } => in_expr(list, name)
+                .or_else(|| in_expr(key, name))
+                .or_else(|| in_nodes(body, name)),
+            Node::Match {
+                subject,
+                some,
+                none,
+                ..
+            } => in_expr(subject, name)
+                .or_else(|| in_nodes(&some.1, name))
+                .or_else(|| in_nodes(none, name)),
+        })
+    }
+    c.derives
+        .iter()
+        .chain(&c.states)
+        .chain(&c.provides)
+        .find_map(|b| in_expr(&b.expr, name))
+        .or_else(|| in_nodes(&c.view, name))
+}
+
+/// The attributes whose value is a handler: an action named, or called
+/// with its leading arguments (lowering's `AttrTarget::Handler`).
+pub(crate) fn handler_attr(name: &str) -> bool {
+    matches!(
+        name,
+        "press"
+            | "change"
+            | "input"
+            | "select"
+            | "hover"
+            | "focus"
+            | "blur"
+            | "focusin"
+            | "focusout"
+            | "key"
+            | "keycapture"
+            | "keyup"
+            | "submit"
+            | "load"
+            | "message"
+            | "contextmenu"
+            | "delete"
+            | "dblclick"
+            | "pointerdown"
+            | "pointerup"
+            | "pointermove"
+            | "copy"
+            | "cut"
+            | "paste"
+            | "selectionchange"
+            | "beforeinput"
+            | "beforeunload"
+            | "midimessage"
+            | "wheel"
+            | "drop"
+            | "dragenter"
+            | "dragleave"
+            | "swiperight"
+            | "refresh"
+            | "reachstart"
+            | "reachend"
+            | "scroll"
+            | "scrollend"
+            | "pan"
+            | "panrelease"
+            | "heightrelease"
+            | "transformgeometry"
+            | "transformrelease"
+            | "reorderdrop"
+            | "loadedmetadata"
+            | "durationchange"
+            | "fullscreenchange"
+            | "timeupdate"
+            | "play"
+            | "playing"
+            | "pause"
+            | "ended"
+            | "waiting"
+            | "seeking"
+            | "seeked"
+            | "ratechange"
+            | "volumechange"
+            | "error"
+            | "canplay"
+            | "seekbackward"
+            | "seekforward"
+            | "seekto"
+            | "previoustrack"
+            | "nexttrack"
+            | "stop"
+            | "navigate"
+            | "cancel"
+            | "close"
+            | "toggle"
+            | "resize"
+            | "intersect"
+    )
+}
+
+/// Derives to a fixpoint, so order does not matter and `?` fills. Each is
+/// inferred after the derives it reads, and its type enters the scope at
+/// once, so a set without a cycle settles in one round (and one to confirm)
+/// rather than one round per link of a chain.
+fn settle_derives(c: &Component, ct: &mut ComponentTypes, types: &Types, order: &[usize]) {
+    let first_derive = c.props.len() + c.injects.len() + c.states.len();
+    let mut scope = types.component_scope(c, ct);
+    for _round in 0..(c.derives.len() + 2) {
+        let mut changed = false;
+        for &i in order {
+            // An expression over a derive not yet typed (`current.ok` while
+            // `current` is still `?`) waits for a later round; the strict
+            // pass reports what never types.
+            if let Ok(t) = infer(&c.derives[i].expr, &scope, &types.shapes) {
+                if t != ct.derives[i] {
+                    scope.retype(first_derive + i, t.clone());
+                    ct.derives[i] = t;
+                    changed = true;
+                }
+            }
+        }
+        if !changed {
+            break;
+        }
+    }
+}
+
+/// Check every action body against a copy of the types, its findings
+/// dropped, and keep only what its writes say about the slots; whether a
+/// slot changed. The bodies are checked for real once everything is typed.
+fn probe_writes(c: &Component, ct: &mut ComponentTypes, types: &Types) -> bool {
+    let mut probe = ct.clone();
+    let mut scratch = Sink::default();
+    let mut scope = types.component_scope(c, &probe);
+    for (ai, a) in c.actions.iter().enumerate() {
+        scope.push(
+            a.params
+                .iter()
+                .enumerate()
+                .map(|(i, p)| {
+                    (
+                        p.name.clone(),
+                        Ref::Param(i as u32),
+                        probe.actions[ai][i].clone(),
+                    )
+                })
+                .collect(),
+        );
+        scope.enter_action();
+        let lifted = a.name.contains('#');
+        crate::actions::check_body(
+            &a.body,
+            &scope,
+            lifted,
+            c,
+            &mut probe,
+            &types.shapes,
+            &mut scratch,
+        );
+        scope.pop();
+        scope.retype_slots(c, &probe);
+    }
+    let changed = probe.slots != ct.slots;
+    ct.slots = probe.slots;
+    changed
 }
 
 fn refine_params_from_view(
@@ -371,10 +730,10 @@ fn refine_params_from_view(
     c: &Component,
     ct: &mut ComponentTypes,
     shapes: &Shapes,
+    miscounted: &mut Vec<(usize, TypeError)>,
 ) -> Result<(), TypeError> {
     for n in nodes {
         match n {
-            Node::Provide { body, .. } => refine_params_from_view(body, scope, c, ct, shapes)?,
             Node::Children { .. } => {}
             Node::Element {
                 tag,
@@ -386,6 +745,12 @@ fn refine_params_from_view(
                 // checked (LLP 1069.001 D4); a text field's, its text.
                 let control = contract_syntax::input_control(tag, attrs);
                 let checkbox = control == Some("checkbox");
+                // A text field's `select` is HTML's, its selection the
+                // `InputEvent` (x2apps codeedit #2); the Markdown editor's
+                // carries its formats.
+                let payload_control = contract_syntax::payload_control(tag, attrs);
+                let field = payload_control == Some("field");
+                let edits = contract_syntax::edits_text(payload_control);
                 // A file input's `change` carries the picked files (LLP
                 // 1069.002 D3); its `cancel`, nothing.
                 let file = control == Some("file");
@@ -401,44 +766,7 @@ fn refine_params_from_view(
                             && !contract_syntax::text_input_type(&a.value)
                     });
                 for a in attrs {
-                    if matches!(
-                        a.name.as_str(),
-                        "press"
-                            | "change"
-                            | "input"
-                            | "select"
-                            | "hover"
-                            | "focus"
-                            | "blur"
-                            | "key"
-                            | "submit"
-                            | "load"
-                            | "message"
-                            | "contextmenu"
-                            | "dblclick"
-                            | "swiperight"
-                            | "refresh"
-                            | "reachstart"
-                            | "reachend"
-                            | "scroll"
-                            | "panrelease"
-                            | "loadedmetadata"
-                            | "durationchange"
-                            | "timeupdate"
-                            | "play"
-                            | "playing"
-                            | "pause"
-                            | "ended"
-                            | "waiting"
-                            | "seeking"
-                            | "seeked"
-                            | "ratechange"
-                            | "volumechange"
-                            | "error"
-                            | "canplay"
-                            | "navigate"
-                            | "cancel"
-                    ) {
+                    if handler_attr(&a.name) {
                         let (name, args): (&str, &[Expr]) = match &a.value {
                             Expr::Ident(n, _) => (n, &[]),
                             Expr::Call(n, args, _) => (n, args),
@@ -448,6 +776,27 @@ fn refine_params_from_view(
                             for (i, arg) in args.iter().enumerate() {
                                 if i < ct.actions[ai].len() {
                                     let t = infer(arg, scope, shapes)?;
+                                    if ct.actions[ai][i].contains_enum()
+                                        && !checks::accepts_expr(
+                                            &ct.actions[ai][i],
+                                            arg,
+                                            &t,
+                                            scope,
+                                            shapes,
+                                        )
+                                    {
+                                        return err(
+                                            "type-argument",
+                                            format!(
+                                                "`{name}` expects `{}`, given `{t}`",
+                                                ct.actions[ai][i]
+                                            ),
+                                            arg.span(),
+                                        );
+                                    }
+                                    if ct.actions[ai][i].contains_enum() {
+                                        continue;
+                                    }
                                     if let Some(u) = ct.actions[ai][i].unify(&t) {
                                         ct.actions[ai][i] = u;
                                     }
@@ -476,34 +825,122 @@ fn refine_params_from_view(
                             // Event payloads: change/input/key/message are
                             // strings (a checkbox's are bools); hover is
                             // whether the pointer is over.
-                            let payload = match a.name.as_str() {
+                            let mut payload = match a.name.as_str() {
                                 "change" | "input" if bound_type => vec![],
                                 "change" | "input" if checkbox => vec![Ty::Bool],
                                 "change" | "input" if range => vec![Ty::Number],
                                 "change" | "input" if file => {
                                     vec![Ty::List(Box::new(Ty::Record("Picked".into())))]
                                 }
-                                "change" | "input" | "key" | "message" | "navigate" | "error" => {
+                                "change" | "input" | "key" | "keycapture" | "keyup" | "message"
+                                | "navigate" | "error" => {
                                     vec![Ty::String]
                                 }
                                 "timeupdate" | "durationchange" => vec![Ty::Number],
-                                "hover" => vec![Ty::Bool],
+                                "hover" | "fullscreenchange" => vec![Ty::Bool],
+                                "select" if field => vec![Ty::Record("InputEvent".into())],
                                 "select" => vec![Ty::Record("MarkdownSelection".into())],
-                                "scroll" | "panrelease" => vec![Ty::Number, Ty::Number],
+                                // A drag's numbers and a drop's keys, as
+                                // analysis's `handler_arity` counts them
+                                // (LLP 1057 §1.1).
+                                "scroll" | "pan" | "panrelease" | "heightrelease" | "resize" => {
+                                    vec![Ty::Number, Ty::Number]
+                                }
+                                "transformgeometry" => vec![Ty::Number; 4],
+                                "transformrelease" => vec![Ty::Number; 6],
+                                "reorderdrop" => vec![Ty::String, Ty::Option(Box::new(Ty::String))],
                                 _ => vec![],
                             };
+                            // Then the event's record, when the action
+                            // declares one more parameter (`event_record`)
+                            // of its type or none: another type there is an
+                            // argument left unbound, analysis's arity
+                            // refusal (`handler_accepts`).
+                            if let Some(record) = if a.name == "selectionchange" && edits {
+                                Some("InputEvent")
+                            } else {
+                                crate::event_record(&a.name)
+                            } {
+                                let n = args.len() + payload.len() + 1;
+                                let fits = ct.actions[ai].len() == n
+                                    && match &ct.actions[ai][n - 1] {
+                                        Ty::Unknown => true,
+                                        Ty::Record(r) => r == record,
+                                        _ => false,
+                                    };
+                                if fits {
+                                    payload.push(Ty::Record(record.into()));
+                                }
+                            }
+                            // The payload types the last parameters. When
+                            // their count is off, it may land on the wrong
+                            // ones (a `reorderdrop` action's third, not a
+                            // `ReorderEvent`): a clash there is no type
+                            // mistake but analysis's arity refusal, which
+                            // spells what fits. This stage says it for an
+                            // action the miscount leaves untyped
+                            // (`check_component`), as analysis never runs
+                            // then. A bound `type` leaves the payload
+                            // unknown, its count too.
+                            let counted = args.len() + payload.len() == ct.actions[ai].len();
+                            let unknown = payload.is_empty()
+                                && bound_type
+                                && matches!(a.name.as_str(), "change" | "input");
+                            if !counted && !unknown && !miscounted.iter().any(|(i, _)| *i == ai) {
+                                let params: Vec<(String, Ty)> = (c.actions[ai].params.iter())
+                                    .map(|p| p.name.clone())
+                                    .zip(ct.actions[ai].iter().cloned())
+                                    .collect();
+                                let arg_types: Vec<Option<Ty>> =
+                                    args.iter().map(|x| infer(x, scope, shapes).ok()).collect();
+                                let message = crate::handler_arity_message(
+                                    &a.name,
+                                    payload_control,
+                                    name,
+                                    args,
+                                    &params,
+                                    &arg_types,
+                                );
+                                let (id, span) = ("analyze-handler-arity", a.span);
+                                miscounted.push((ai, TypeError { id, message, span }));
+                            }
                             let start = ct.actions[ai].len().saturating_sub(payload.len());
                             for (offset, ty) in payload.into_iter().enumerate() {
                                 let last = start + offset;
                                 if args.len() < ct.actions[ai].len() && last < ct.actions[ai].len()
                                 {
                                     let declared = ct.actions[ai][last].clone();
-                                    let Some(unified) = declared.unify(&ty) else {
+                                    let Some(unified) = declared.unify(&ty).filter(|_| {
+                                        !declared.contains_enum()
+                                            || checks::can_unify(&declared, &ty)
+                                    }) else {
+                                        if !counted {
+                                            continue;
+                                        }
+                                        // LLP 1116.018: a repair that only
+                                        // retyped the parameter dropped the
+                                        // guard on a radio's deselection.
+                                        let param = &c.actions[ai].params[last].name;
+                                        let keep = match (&ty, &declared) {
+                                            (Ty::String, Ty::Number) => format!(
+                                                ", and read the number with `match parseNumber({param})`"
+                                            ),
+                                            // A radio's `change` fires only as it
+                                            // becomes checked (HTML), so a guard on
+                                            // being on is already kept.
+                                            (Ty::String, Ty::Bool) if payload_control == Some("radio") => format!(
+                                                " (it is the radio's `value`): a radio's `change` runs only when it becomes checked, so it needs no `if {param}`"
+                                            ),
+                                            (Ty::Bool, _) => format!(
+                                                ": whether the control is now on, so `if {param}` keeps a guard on a deselection"
+                                            ),
+                                            _ => String::new(),
+                                        };
                                         return err(
                                             "type-handler-payload",
                                             format!(
-                                                "`{}=` supplies `{ty}` to parameter `{}`, declared `{declared}`",
-                                                a.name, c.actions[ai].params[last].name
+                                                "declare `{param}: {ty}` in `{}`{keep}: `{}=` passes its captured arguments, then its payload, a `{ty}`, which lands on `{param}`, declared `{declared}`",
+                                                c.actions[ai].name, a.name
                                             ),
                                             a.span,
                                         );
@@ -514,10 +951,10 @@ fn refine_params_from_view(
                         }
                     }
                 }
-                refine_params_from_view(children, scope, c, ct, shapes)?;
+                refine_params_from_view(children, scope, c, ct, shapes, miscounted)?;
             }
             Node::Use { args, children, .. } => {
-                refine_params_from_view(children, scope, c, ct, shapes)?;
+                refine_params_from_view(children, scope, c, ct, shapes, miscounted)?;
                 for a in args {
                     let _ = a;
                 }
@@ -525,8 +962,8 @@ fn refine_params_from_view(
             Node::When {
                 then, otherwise, ..
             } => {
-                refine_params_from_view(then, scope, c, ct, shapes)?;
-                refine_params_from_view(otherwise, scope, c, ct, shapes)?;
+                refine_params_from_view(then, scope, c, ct, shapes, miscounted)?;
+                refine_params_from_view(otherwise, scope, c, ct, shapes, miscounted)?;
             }
             Node::Each {
                 var,
@@ -538,7 +975,7 @@ fn refine_params_from_view(
                 if let Ok(Ty::List(item)) = infer(list, scope, shapes) {
                     let mut inner = scope.clone();
                     inner.push_each(var, index.as_deref(), *item);
-                    refine_params_from_view(body, &inner, c, ct, shapes)?;
+                    refine_params_from_view(body, &inner, c, ct, shapes, miscounted)?;
                 }
             }
             Node::Match {
@@ -550,68 +987,150 @@ fn refine_params_from_view(
                 if let Ok(Ty::Option(item)) = infer(subject, scope, shapes) {
                     let mut inner = scope.clone();
                     inner.push_region(Some((some.0.clone(), Ref::Bound(0), *item)));
-                    refine_params_from_view(&some.1, &inner, c, ct, shapes)?;
+                    refine_params_from_view(&some.1, &inner, c, ct, shapes, miscounted)?;
                 }
                 let mut none_scope = scope.clone();
                 none_scope.push_region(None);
-                refine_params_from_view(none, &none_scope, c, ct, shapes)?;
+                refine_params_from_view(none, &none_scope, c, ct, shapes, miscounted)?;
             }
         }
     }
     Ok(())
 }
 
-/// Derive indices, each after the derives its expression names (a cycle is
-/// left in declaration order; the fixpoint refuses it).
-fn derive_order(c: &Component) -> Vec<usize> {
-    fn names<'a>(e: &'a Expr, out: &mut Vec<&'a str>) {
-        use contract_syntax::TemplatePart;
-        match e {
-            Expr::Ident(n, _) => out.push(n),
-            Expr::Call(n, args, _) => {
-                out.push(n);
-                args.iter().for_each(|a| names(a, out));
+/// Every lifted action of one use takes the same hidden captures, of the
+/// same values (LLP 1089 D7): one that a handler or a call types gives its
+/// type to the others, a sibling nothing binds included.
+fn share_captures(c: &Component, ct: &mut ComponentTypes) {
+    let mut typed: BTreeMap<&str, Ty> = BTreeMap::new();
+    for (a, params) in c.actions.iter().zip(&ct.actions) {
+        for (p, t) in a.params.iter().zip(params) {
+            if p.name.starts_with(CAPTURE) && t.is_complete() {
+                typed.entry(&p.name).or_insert_with(|| t.clone());
             }
-            Expr::Some(x, _)
-            | Expr::Unary(_, x, _)
-            | Expr::Member(x, _, _)
-            | Expr::NamedArg(_, x, _) => names(x, out),
-            Expr::Binary(_, a, b, _) => {
-                names(a, out);
-                names(b, out);
-            }
-            Expr::Ternary(a, b, x, _) => {
-                names(a, out);
-                names(b, out);
-                names(x, out);
-            }
-            Expr::Match {
-                subject,
-                some,
-                none,
-                ..
-            } => {
-                names(subject, out);
-                names(some, out);
-                names(none, out);
-            }
-            Expr::Let { value, body, .. } => {
-                names(value, out);
-                names(body, out);
-            }
-            Expr::Arrow { body, .. } => names(body, out),
-            Expr::Template(parts, _) => parts.iter().for_each(|p| {
-                if let TemplatePart::Expr(x) = p {
-                    names(x, out)
-                }
-            }),
-            Expr::Number(..)
-            | Expr::Str(..)
-            | Expr::Bool(..)
-            | Expr::None(_)
-            | Expr::EmptyList(_) => {}
         }
     }
+    for (a, params) in c.actions.iter().zip(&mut ct.actions) {
+        for (p, t) in a.params.iter().zip(params) {
+            if let Some(u) = typed.get(p.name.as_str()).and_then(|known| t.unify(known)) {
+                *t = u;
+            }
+        }
+    }
+}
+
+/// The refusal of a hidden capture nothing typed: no action of its use is
+/// bound or called. It names the prop's binding (`tell=note`) and the
+/// action that calls the prop, never the capture, which no author wrote.
+fn untyped_capture(c: &Component, capture: &str, declared: Span) -> TypeError {
+    let found = (c.actions.iter()).find_map(|a| Some((a, handed_on(&a.body, capture)?)));
+    let message = match found {
+        Some((a, (callee, _))) => {
+            let (caller, callee) = (shown(&a.name), shown(callee));
+            format!("cannot infer the type of what `{callee}` carries from this binding into `{caller}`, which calls it: bind `{caller}` to a handler or call it from one")
+        }
+        None => "cannot infer the type of what this action prop was curried with: bind the action that calls it to a handler or call it from one".into(),
+    };
+    let span = found.map_or(declared, |(_, (_, binding))| binding);
+    TypeError {
+        id: "type-cannot-infer",
+        message,
+        span,
+    }
+}
+
+/// The call in `body` that hands `capture` on, as its callee and the
+/// binding of the prop it calls through.
+fn handed_on<'b>(body: &'b [Stmt], capture: &str) -> Option<(&'b str, Span)> {
+    body.iter().find_map(|s| match s {
+        Stmt::Call {
+            action,
+            args,
+            binding,
+            body,
+            ..
+        } => binding
+            .filter(|_| (args.iter()).any(|x| matches!(x, Expr::Ident(n, _) if n == capture)))
+            .map(|at| (action.as_str(), at))
+            .or_else(|| handed_on(body, capture)),
+        Stmt::If {
+            then, otherwise, ..
+        } => handed_on(then, capture).or_else(|| handed_on(otherwise, capture)),
+        Stmt::Match { some, none, .. } => {
+            handed_on(&some.1, capture).or_else(|| handed_on(none, capture))
+        }
+        _ => None,
+    })
+}
+
+/// Derive indices, each after the derives its expression names (a cycle is
+/// left in declaration order; the fixpoint refuses it).
+/// The derives each derive reads, by index.
+fn derive_reads(c: &Component) -> Vec<Vec<usize>> {
+    let index: BTreeMap<&str, usize> = c
+        .derives
+        .iter()
+        .enumerate()
+        .map(|(i, d)| (d.name.as_str(), i))
+        .collect();
+    c.derives
+        .iter()
+        .map(|d| {
+            let mut out = Vec::new();
+            names(&d.expr, &mut out);
+            out.iter().filter_map(|n| index.get(n).copied()).collect()
+        })
+        .collect()
+}
+
+fn names<'a>(e: &'a Expr, out: &mut Vec<&'a str>) {
+    use contract_syntax::TemplatePart;
+    match e {
+        Expr::Ident(n, _) => out.push(n),
+        Expr::Call(n, args, _) => {
+            out.push(n);
+            args.iter().for_each(|a| names(a, out));
+        }
+        Expr::Some(x, _)
+        | Expr::Unary(_, x, _)
+        | Expr::Member(x, _, _)
+        | Expr::NamedArg(_, x, _)
+        | Expr::Typed(x, _, _) => names(x, out),
+        Expr::Binary(_, a, b, _) => {
+            names(a, out);
+            names(b, out);
+        }
+        Expr::Ternary(a, b, x, _) => {
+            names(a, out);
+            names(b, out);
+            names(x, out);
+        }
+        Expr::Match {
+            subject,
+            some,
+            none,
+            ..
+        } => {
+            names(subject, out);
+            names(some, out);
+            names(none, out);
+        }
+        Expr::Let { value, body, .. } => {
+            names(value, out);
+            names(body, out);
+        }
+        Expr::Arrow { body, .. } => names(body, out),
+        Expr::Template(parts, _) => parts.iter().for_each(|p| {
+            if let TemplatePart::Expr(x) = p {
+                names(x, out)
+            }
+        }),
+        Expr::List(items, _) => items.iter().for_each(|x| names(x, out)),
+        Expr::Number(..) | Expr::Str(..) | Expr::Bool(..) | Expr::None(_) => {}
+    }
+}
+
+fn derive_order(c: &Component) -> Vec<usize> {
     fn visit(i: usize, reads: &[Vec<usize>], seen: &mut [bool], order: &mut Vec<usize>) {
         if std::mem::replace(&mut seen[i], true) {
             return;
@@ -621,21 +1140,7 @@ fn derive_order(c: &Component) -> Vec<usize> {
         }
         order.push(i);
     }
-    let index: BTreeMap<&str, usize> = c
-        .derives
-        .iter()
-        .enumerate()
-        .map(|(i, d)| (d.name.as_str(), i))
-        .collect();
-    let reads: Vec<Vec<usize>> = c
-        .derives
-        .iter()
-        .map(|d| {
-            let mut out = Vec::new();
-            names(&d.expr, &mut out);
-            out.iter().filter_map(|n| index.get(n).copied()).collect()
-        })
-        .collect();
+    let reads = derive_reads(c);
     let (mut seen, mut order) = (vec![false; c.derives.len()], Vec::new());
     for i in 0..c.derives.len() {
         visit(i, &reads, &mut seen, &mut order);
@@ -644,10 +1149,11 @@ fn derive_order(c: &Component) -> Vec<usize> {
 }
 
 /// The first `[]` in `e`, whose element type nothing fixed when `e` typed
-/// as a `list<?>`.
+/// as a `?[]`.
 fn empty_list_in(e: &Expr) -> Option<Span> {
     match e {
-        Expr::EmptyList(span) => Some(*span),
+        Expr::List(items, span) if items.is_empty() => Some(*span),
+        Expr::List(items, _) => items.iter().find_map(empty_list_in),
         Expr::Number(..) | Expr::Str(..) | Expr::Bool(..) | Expr::None(..) | Expr::Ident(..) => {
             None
         }
@@ -658,6 +1164,7 @@ fn empty_list_in(e: &Expr) -> Option<Span> {
         Expr::Some(x, _)
         | Expr::Member(x, _, _)
         | Expr::NamedArg(_, x, _)
+        | Expr::Typed(x, _, _)
         | Expr::Unary(_, x, _) => empty_list_in(x),
         Expr::Call(_, args, _) => args.iter().find_map(empty_list_in),
         Expr::Binary(_, a, b, _) => empty_list_in(a).or_else(|| empty_list_in(b)),
@@ -680,53 +1187,244 @@ fn empty_list_in(e: &Expr) -> Option<Span> {
 /// The first name in `e` the component declares: state a placeholder's
 /// arguments may not read (LLP 1048.003 D6).
 fn reads_state(e: &Expr, scope: &Scope) -> Option<(String, Span)> {
-    fn walk(e: &Expr, scope: &Scope, bound: &mut Vec<String>) -> Option<(String, Span)> {
+    first_free(e, &|_| false, &|name| scope.lookup(name).is_some())
+}
+
+/// @ref LLP 1088 D4 — a state's initializer runs before any resource
+/// answers and before any derive, so it reads only props, injects and the
+/// states declared above it. A name it reads that the component declares
+/// otherwise is refused as what it is; an unknown name keeps its
+/// near-name suggestion.
+pub(crate) fn initializer_scope(
+    c: &Component,
+    i: usize,
+    scope: &Scope,
+    shapes: &Shapes,
+) -> Option<TypeError> {
+    let state = c.states[i].name.split('#').next().unwrap_or_default();
+    let declared = |name: &str| {
+        c.states[i..].iter().any(|s| s.name == name)
+            || c.derives.iter().any(|d| d.name == name)
+            || c.resources.iter().any(|r| r.name == name)
+            || c.mutations.iter().any(|m| m.name == name)
+            || c.actions.iter().any(|a| a.name == name)
+    };
+    // A call's name resolves as `infer` resolves it: `failed`/`pending`, a
+    // record's constructor and a file `fn` come before the component's
+    // names, and of those only an action is callable; any other name a
+    // call makes is the roster's (`state length = length("abc")`).
+    let calls = |name: &str| {
+        !matches!(name, "failed" | "failure" | "pending")
+            && !crate::records::is_record_call(name, shapes)
+            && !shapes.fns.contains_key(name)
+            && c.actions.iter().any(|a| a.name == name)
+            && scope.lookup(name).is_none()
+    };
+    let (name, span) = first_free(&c.states[i].expr, &calls, &|name| {
+        scope.lookup(name).is_none() && declared(name)
+    })?;
+    let shown = name.split('#').next().unwrap_or_default();
+    let reads = "a state's initializer runs before any resource answers, and reads only props, injects and earlier states";
+    let message = if c.resources.iter().any(|r| r.name == name) {
+        let path = member_path(&c.states[i].expr, &name).unwrap_or_else(|| shown.to_string());
+        format!(
+            "`{shown}` is a resource; {reads}. Derive it from `{shown}`, or keep per-row state in a component used inside `for … in {path}`"
+        )
+    } else if c.derives.iter().any(|d| d.name == name) {
+        format!(
+            "`{shown}` is a derive; {reads}. Make `{state}` a derive too, or start it from a value and write it in an action"
+        )
+    } else if c.mutations.iter().any(|m| m.name == name) {
+        format!("`{shown}` is a mutation; {reads}. Write its answer into `{state}` from the mutation's `then` action")
+    } else if c.actions.iter().any(|a| a.name == name) {
+        format!("`{shown}` is an action; {reads}")
+    } else if c.states[i].name == name {
+        format!("`{shown}` is the state this initializer starts; {reads}")
+    } else {
+        format!("`{shown}` is declared after `{state}`; {reads}: declare `{shown}` above `{state}`")
+    };
+    Some(TypeError {
+        id: "type-initializer-scope",
+        message,
+        span,
+    })
+}
+
+/// The longest member chain in `e` rooted at `name`, as written (`board.cols`).
+fn member_path(e: &Expr, name: &str) -> Option<String> {
+    fn chain(e: &Expr) -> Option<String> {
+        match e {
+            Expr::Ident(n, _) => Some(n.split('#').next().unwrap_or_default().to_string()),
+            Expr::Member(inner, field, _) => chain(inner).map(|c| format!("{c}.{field}")),
+            _ => None,
+        }
+    }
+    fn root(e: &Expr) -> Option<&str> {
+        match e {
+            Expr::Ident(n, _) => Some(n),
+            Expr::Member(inner, _, _) => root(inner),
+            _ => None,
+        }
+    }
+    let mut best: Option<String> = None;
+    let mut visit = |x: &Expr| {
+        if let Some(c) = chain(x).filter(|_| matches!(x, Expr::Member(..)) && root(x) == Some(name))
+        {
+            if best.as_ref().is_none_or(|b| c.len() > b.len()) {
+                best = Some(c);
+            }
+        }
+    };
+    walk_exprs(e, &mut visit);
+    best
+}
+
+/// Visit `e` and every expression inside it.
+fn walk_exprs(e: &Expr, f: &mut dyn FnMut(&Expr)) {
+    f(e);
+    match e {
+        Expr::Number(..) | Expr::Str(..) | Expr::Bool(..) | Expr::None(..) | Expr::Ident(..) => {}
+        Expr::Template(parts, _) => parts.iter().for_each(|p| {
+            if let TemplatePart::Expr(x) = p {
+                walk_exprs(x, f)
+            }
+        }),
+        Expr::List(items, _) => items.iter().for_each(|a| walk_exprs(a, f)),
+        Expr::Some(x, _)
+        | Expr::Member(x, _, _)
+        | Expr::NamedArg(_, x, _)
+        | Expr::Typed(x, _, _)
+        | Expr::Unary(_, x, _) => walk_exprs(x, f),
+        Expr::Call(_, args, _) => args.iter().for_each(|a| walk_exprs(a, f)),
+        Expr::Binary(_, a, b, _) => {
+            walk_exprs(a, f);
+            walk_exprs(b, f);
+        }
+        Expr::Ternary(a, b, c, _) => {
+            walk_exprs(a, f);
+            walk_exprs(b, f);
+            walk_exprs(c, f);
+        }
+        Expr::Match {
+            subject,
+            some,
+            none,
+            ..
+        } => {
+            walk_exprs(subject, f);
+            walk_exprs(some, f);
+            walk_exprs(none, f);
+        }
+        Expr::Let { value, body, .. } => {
+            walk_exprs(value, f);
+            walk_exprs(body, f);
+        }
+        Expr::Arrow { body, .. } => walk_exprs(body, f),
+    }
+}
+
+/// The first free name in `e` (not bound by a `let`, a `match` or an arrow
+/// inside it) that `hit` accepts, or the first name a call is made by that
+/// `calls` accepts, with where.
+fn first_free(
+    e: &Expr,
+    calls: &dyn Fn(&str) -> bool,
+    hit: &dyn Fn(&str) -> bool,
+) -> Option<(String, Span)> {
+    fn walk(
+        e: &Expr,
+        calls: &dyn Fn(&str) -> bool,
+        hit: &dyn Fn(&str) -> bool,
+        bound: &mut Vec<String>,
+    ) -> Option<(String, Span)> {
         let within = |name: &str, x: &Expr, bound: &mut Vec<String>| {
             bound.push(name.to_string());
-            let found = walk(x, scope, bound);
+            let found = walk(x, calls, hit, bound);
             bound.pop();
             found
         };
         match e {
-            Expr::Ident(name, span) => (!bound.contains(name) && scope.lookup(name).is_some())
-                .then(|| (name.clone(), *span)),
-            Expr::Number(..)
-            | Expr::Str(..)
-            | Expr::Bool(..)
-            | Expr::None(..)
-            | Expr::EmptyList(..) => None,
+            Expr::Ident(name, span) => {
+                (!bound.contains(name) && hit(name)).then(|| (name.clone(), *span))
+            }
+            Expr::Number(..) | Expr::Str(..) | Expr::Bool(..) | Expr::None(..) => None,
+            Expr::List(items, _) => items.iter().find_map(|a| walk(a, calls, hit, bound)),
             Expr::Template(parts, _) => parts.iter().find_map(|p| match p {
-                TemplatePart::Expr(x) => walk(x, scope, bound),
+                TemplatePart::Expr(x) => walk(x, calls, hit, bound),
                 _ => None,
             }),
             Expr::Some(x, _)
             | Expr::Member(x, _, _)
             | Expr::NamedArg(_, x, _)
-            | Expr::Unary(_, x, _) => walk(x, scope, bound),
-            Expr::Call(_, args, _) => args.iter().find_map(|a| walk(a, scope, bound)),
-            Expr::Binary(_, a, b, _) => walk(a, scope, bound).or_else(|| walk(b, scope, bound)),
-            Expr::Ternary(a, b, c, _) => walk(a, scope, bound)
-                .or_else(|| walk(b, scope, bound))
-                .or_else(|| walk(c, scope, bound)),
+            | Expr::Typed(x, _, _)
+            | Expr::Unary(_, x, _) => walk(x, calls, hit, bound),
+            Expr::Call(name, args, span) => {
+                if !bound.contains(name) && calls(name) {
+                    return Some((name.clone(), *span));
+                }
+                args.iter().find_map(|a| walk(a, calls, hit, bound))
+            }
+            Expr::Binary(_, a, b, _) => {
+                walk(a, calls, hit, bound).or_else(|| walk(b, calls, hit, bound))
+            }
+            Expr::Ternary(a, b, c, _) => walk(a, calls, hit, bound)
+                .or_else(|| walk(b, calls, hit, bound))
+                .or_else(|| walk(c, calls, hit, bound)),
             Expr::Match {
                 subject,
                 var,
                 some,
                 none,
                 ..
-            } => walk(subject, scope, bound)
+            } => walk(subject, calls, hit, bound)
                 .or_else(|| within(var, some, bound))
-                .or_else(|| walk(none, scope, bound)),
+                .or_else(|| walk(none, calls, hit, bound)),
             Expr::Let {
                 name, value, body, ..
-            } => walk(value, scope, bound).or_else(|| within(name, body, bound)),
+            } => walk(value, calls, hit, bound).or_else(|| within(name, body, bound)),
             Expr::Arrow { params, body, .. } => {
                 bound.extend(params.iter().cloned());
-                let found = walk(body, scope, bound);
+                let found = walk(body, calls, hit, bound);
                 bound.truncate(bound.len() - params.len());
                 found
             }
         }
     }
-    walk(e, scope, &mut Vec::new())
+    walk(e, calls, hit, &mut Vec::new())
+}
+
+/// A curried action reference, `action(args)`: the leading parameters
+/// bound, the rest left to the event; its type is what remains.
+pub(crate) fn action_call(
+    name: &str,
+    params: &[Ty],
+    args: &[Expr],
+    span: Span,
+    scope: &Scope,
+    shapes: &Shapes,
+) -> Result<Ty, TypeError> {
+    if args.len() > params.len() && !params.is_empty() {
+        return err(
+            "type-arity",
+            format!(
+                "`{name}` takes at most {} argument(s), given {}",
+                params.len(),
+                args.len()
+            ),
+            span,
+        );
+    }
+    for (arg, pt) in args.iter().zip(params.iter()) {
+        let t = infer(arg, scope, shapes)?;
+        if !checks::accepts_expr(pt, arg, &t, scope, shapes) {
+            return err(
+                "type-argument",
+                format!("`{name}` expects `{pt}`, given `{t}`"),
+                arg.span(),
+            );
+        }
+    }
+    Ok(Ty::Action(
+        params.iter().skip(args.len()).cloned().collect(),
+    ))
 }

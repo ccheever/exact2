@@ -43,7 +43,15 @@ pub(super) fn hash(floats: &[f32]) -> u64 {
 struct Stamp {
     generation: Option<u64>,
     hash: u64,
+    /// Checks left that write the page without hashing it: set when a hash
+    /// found it changed, as a page written every tick (a spinning crowd) is.
+    unhashed: u8,
 }
+/// Checks after a changed hash that skip hashing. A page that stops changing is
+/// written at most this many more times; one that keeps changing is hashed on
+/// two checks in `UNHASHED + 2` (the first after the run, against a hash the
+/// run left unknown, cannot tell a change).
+const UNHASHED: u8 = 7;
 #[derive(Default, Clone)]
 pub(super) struct Pages(Vec<Stamp>);
 impl Pages {
@@ -65,11 +73,25 @@ impl Pages {
             self.0.resize(page + 1, Stamp::default());
         }
         let stamp = &mut self.0[page];
+        if filter && stamp.unhashed > 0 {
+            // Writing an unchanged page is correct; hashing a changed one is waste.
+            *stamp = Stamp {
+                generation: Some(generation),
+                hash: 0,
+                unhashed: stamp.unhashed - 1,
+            };
+            return true;
+        }
         let hash = if filter { hash(values) } else { 0 };
         let dirty = hash == 0 || stamp.hash != hash;
         *stamp = Stamp {
             generation: Some(generation),
             hash,
+            unhashed: if filter && dirty && stamp.hash != 0 {
+                UNHASHED
+            } else {
+                0
+            },
         };
         dirty
     }
@@ -88,6 +110,27 @@ mod tests {
             data[i] = 0.;
         }
         assert_ne!(hash(&data[..10]), hash(&data[..20]));
+    }
+    #[test]
+    fn a_page_changing_every_check_is_written_unhashed_and_stops_when_it_stops() {
+        let mut pages = Pages::default();
+        let (a, b) = (vec![1.0; 20], vec![2.0; 20]);
+        let mut written = Vec::new();
+        // Alternating values: every check is a change, including back to an earlier value.
+        for generation in 0..20u64 {
+            let values = if generation % 2 == 0 { &a } else { &b };
+            written.push(pages.dirty(0, generation, values, true));
+        }
+        assert!(written.iter().all(|&w| w), "{written:?}");
+        let hashed = pages.0[0].unhashed;
+        // Then unchanged: written until a hash can see it stopped, then never.
+        let mut tail = Vec::new();
+        for generation in 20..40u64 {
+            tail.push(pages.dirty(0, generation, &a, true));
+        }
+        let last = tail.iter().rposition(|&w| w).unwrap();
+        assert!(last <= UNHASHED as usize + 1, "{tail:?} after {hashed}");
+        assert!(tail[last + 1..].iter().all(|&w| !w));
     }
     #[test]
     #[ignore = "release bandwidth diagnostic"]

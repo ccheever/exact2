@@ -2,8 +2,14 @@
 // (LLP 1045 D3): what measure expands is what paint expands.
 import XCTest
 @testable import ExactKit
+@testable import ExactMarkdown
 
 final class MarkupRunsTests: XCTestCase {
+    override func setUp() {
+        super.setUp()
+        ExactMarkdown.install() // LLP 1047.001 D4: the capability this tests
+    }
+
     func testNavigationTargetsUseSupportedParsedAbsoluteSchemes() {
         let unsafe = ["javascript:probe", "JaVaScRiPt:probe", "\u{0}\u{1f} javascript:probe",
                       "java\tscript:probe", "java\nscript:probe", "java\rscript:probe",
@@ -15,12 +21,17 @@ final class MarkupRunsTests: XCTestCase {
             XCTAssertNotNil(MarkupRuns.navigationURL(href), href)
         }
         let base = Run(text: "", size: 16, weight: 400, family: 0, italic: false, lineHeight: nil, letterSpacing: 0)
-        for href in ["javascript:probe", "data:text/plain,probe", "file:///tmp/probe", "custom:probe", "/relative"] {
+        for href in ["javascript:probe", "data:text/plain,probe", "file:///tmp/probe", "custom:probe", "relative", "../sibling", "//example.test/path"] {
             let runs = MarkupRuns.expand("[visible](\(href))", base: base, color: nil)
             XCTAssertEqual(runs.map(\.text).joined(), "visible", href)
             XCTAssertTrue(runs.allSatisfy { $0.href.isEmpty }, href)
             XCTAssertTrue(runs.allSatisfy { !$0.decoration.contains("underline") }, href)
         }
+        // An absolute path needs no document base: a location in the app,
+        // followed through the navigation root (notes diary, LLP 1045 D4).
+        let path = MarkupRuns.expand("[Ideas](/note/3)", base: base, color: nil)
+        XCTAssertEqual(path.first { $0.text == "Ideas" }?.href, "/note/3")
+        XCTAssertEqual(path.first { $0.text == "Ideas" }?.decoration, "underline")
     }
 
     func testASourceExpandsIntoStyledRunsAgainstTheNodesFont() {
@@ -40,6 +51,16 @@ final class MarkupRunsTests: XCTestCase {
         XCTAssertEqual(MarkupRuns.expand("", base: base, color: nil), [])
     }
 
+    /// LLP 1115.000 D12.3: under Bold Text the kernel steps the node's
+    /// weight; a piece's own bold takes the same step (700 to 900).
+    func testBoldTextStepsAPiecesOwnWeight() {
+        let base = Run(text: "", size: 16, weight: 600, family: 0, italic: false, lineHeight: nil, letterSpacing: 0)
+        let runs = MarkupRuns.expand("Some **bold**", base: base, color: nil, boldText: true)
+        XCTAssertEqual(runs.first { $0.text == "Some " }?.weight, 600)
+        XCTAssertEqual(runs.first { $0.text == "bold" }?.weight, 900)
+        XCTAssertEqual([400, 450, 700, 1000].map(TextEngine.bolder), [600, 650, 900, 1000])
+    }
+
     func testMarkersTakeTheInkAtReducedOpacity() {
         let base = Run(text: "", size: 16, weight: 400, family: 0, italic: false, lineHeight: nil, letterSpacing: 0)
         let runs = MarkupRuns.expand("- one\n\n> quoted", base: base, color: [0, 0, 0, 255])
@@ -47,6 +68,10 @@ final class MarkupRunsTests: XCTestCase {
         XCTAssertEqual(bullet.color?[3], 255 * 0.62)
         XCTAssertEqual(runs.first { $0.text == "quoted" }?.color?[3], 255 * 0.62)
         // The item's text is its own run, followed by the block's newline glyph.
-        XCTAssertEqual(runs.first { $0.text == " one" }?.color?[3], 255)
+        XCTAssertEqual(runs.first { $0.text == "one" }?.color?[3], 255)
+        // The item's runs carry its indent, its marker hung before it (LLP 1045 D4).
+        XCTAssertTrue(bullet.hang); XCTAssertEqual(bullet.indent, 40)
+        XCTAssertEqual(runs.first { $0.text == "one" }?.indent, 40)
+        XCTAssertEqual(runs.first { $0.text == "quoted" }?.indent, 0)
     }
 }

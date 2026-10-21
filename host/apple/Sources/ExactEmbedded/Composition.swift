@@ -1,7 +1,51 @@
 // The app composition is chosen by the baked target's store level (LLP 1030 D4).
 import ExactKit
+#if EXACT_LINK_GROUPED_LISTS
+import ExactGroupedLists
+#endif
+#if EXACT_LINK_MARKDOWN
+import ExactMarkdown
+#endif
+#if EXACT_LINK_SURFACES
+import ExactSurfaces
+#endif
+#if EXACT_LINK_DRAG
+import ExactDrag
+#endif
+#if EXACT_LINK_MEDIA_PICKER
+import ExactMediaPicker
+#endif
+#if EXACT_LINK_AUTH_SESSION
+import ExactAuthSession
+#endif
+#if EXACT_LINK_NUMERALS
+import ExactNumerals
+#endif
 public enum ExactComposition {
     public static let app: ExactApp = {
+        // The linked capabilities' Swift halves (LLP 1047.001 D4), before
+        // any session is made.
+        #if EXACT_LINK_GROUPED_LISTS
+        ExactGroupedLists.install()
+        #endif
+        #if EXACT_LINK_MARKDOWN
+        ExactMarkdown.install()
+        #endif
+        #if EXACT_LINK_SURFACES
+        ExactSurfaces.install()
+        #endif
+        #if EXACT_LINK_DRAG
+        ExactDrag.install()
+        #endif
+        #if EXACT_LINK_MEDIA_PICKER
+        ExactMediaPicker.install()
+        #endif
+        #if EXACT_LINK_AUTH_SESSION
+        ExactAuthSession.install()
+        #endif
+        #if EXACT_LINK_NUMERALS
+        ExactNumerals.install()
+        #endif
         let app = ExactApp.shared
         return app
     }()

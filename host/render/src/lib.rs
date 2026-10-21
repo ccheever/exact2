@@ -30,7 +30,9 @@ mod pages;
 mod serve;
 mod source;
 mod stream;
+mod viewport;
 
+pub use direct::boot_swap_js;
 pub use executor::Executor;
 pub use page::{capture, capture_js, page, scroll_document_js};
 pub use pages::pages;
@@ -141,13 +143,27 @@ pub enum Ids {
     Any,
 }
 
+/// The kernel's document writer for whose runtime adopts the page: the
+/// JavaScript runtime's writes no bare text style's rows, as its template
+/// writes none (LLP 1115.000 D12.2).
+fn project_for<D: DataSource>(
+    ids: Ids,
+) -> fn(&Runner<D>) -> Result<Document, exact_web::document::DocumentError> {
+    match ids {
+        Ids::Runtime => project,
+        Ids::Any => exact_web::document::project_for_js,
+    }
+}
+
 /// Whether the tree a runner settles to projects as the tree one booted from
 /// its checkpoint builds, view ids apart. Regions, rows and bindings follow
 /// state; what could differ is only state fixed where a slot is first made:
 /// an initializer that read a resource (or a derive, or a pending or failed
 /// flag) would see the placeholder in the runner that settled and the answer
-/// in a boot from the checkpoint. The compiler lets an initializer read only
-/// earlier slots today; this holds the render to that if it ever changes.
+/// in a boot from the checkpoint. An initializer reads props, injects and
+/// earlier slots, and a prop may carry a parent's resource (a row's state
+/// seeded from it, `host/web-js/conformance/budget.contract`); such a plan
+/// renders with a kernel.
 pub fn projects_as_booted(plan: &Plan) -> bool {
     use exact_plan::Opcode::*;
     plan.slots.iter().all(|slot| {
@@ -155,7 +171,12 @@ pub fn projects_as_booted(plan: &Plan) -> bool {
             i.is_ok_and(|i| {
                 !matches!(
                     i.op,
-                    LoadResource | LoadDerive | PendingResource | FailedResource | PendingMutation
+                    LoadResource
+                        | LoadDerive
+                        | PendingResource
+                        | FailedResource
+                        | FailureResource
+                        | PendingMutation
                 )
             })
         })
@@ -264,7 +285,9 @@ pub fn render_with_at<D: DataSource + 'static, F: Fn() -> D>(
     now_ms: f64,
 ) -> Result<Rendered, String> {
     let direct = direct_for(plan, ids, projection)?;
-    let page = settle_at(plan, data, viewport, location, deadline, direct, now_ms)?;
+    let mut page = settle_at(
+        plan, data, viewport, location, deadline, direct, now_ms, None,
+    )?;
     let settled_tree = if direct {
         match page.runner.document_tree() {
             Ok(tree) => {
@@ -277,7 +300,7 @@ pub fn render_with_at<D: DataSource + 'static, F: Fn() -> D>(
             // would have refused: the page renders again, with a kernel,
             // which writes it or reports the refusal as ever.
             Err(why) if projection == Projection::Auto => {
-                println!("render {location}: with a kernel ({why})");
+                crate::log(format_args!("render {location}: with a kernel ({why})"));
                 retire(page, data);
                 return render_with_at(
                     plan,
@@ -298,7 +321,7 @@ pub fn render_with_at<D: DataSource + 'static, F: Fn() -> D>(
         }
     } else if ids == Ids::Any && projects_as_booted(plan) {
         Some((
-            project(&page.runner).map_err(|e| e.to_string())?,
+            project_for(ids)(&page.runner).map_err(|e| e.to_string())?,
             page.runner.handlers(),
         ))
     } else {
@@ -317,7 +340,7 @@ pub fn render_with_at<D: DataSource + 'static, F: Fn() -> D>(
     let (document, handlers) = match settled_tree {
         Some(settled) => settled,
         None => {
-            let booted = Runner::boot_checkpoint(
+            let mut booted = Runner::boot_checkpoint(
                 plan.clone(),
                 Anonymous::new(data()),
                 Kernel::with_monospace_on_demand(),
@@ -328,8 +351,11 @@ pub fn render_with_at<D: DataSource + 'static, F: Fn() -> D>(
                 location,
             )
             .map_err(|e| format!("boot from the checkpoint: {e:?}"))?;
+            booted
+                .build_every_tab()
+                .map_err(|e| format!("boot from the checkpoint: {e:?}"))?;
             (
-                project(&booted).map_err(|e| e.to_string())?,
+                project_for(ids)(&booted).map_err(|e| e.to_string())?,
                 booted.handlers(),
             )
         }
@@ -358,6 +384,10 @@ fn render_time() -> f64 {
         .as_millis() as f64
 }
 
+/// What sees a render's runner as it boots, before its first answer (a
+/// route's boot document, LLP 1048.005).
+pub(crate) type OnBoot<'a, D> = &'a mut dyn FnMut(&mut Runner<Anonymous<D>>);
+
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn settle_at<D: DataSource + 'static, F: Fn() -> D>(
     plan: &Plan,
@@ -367,7 +397,10 @@ pub(crate) fn settle_at<D: DataSource + 'static, F: Fn() -> D>(
     deadline: Duration,
     detached: bool,
     now_ms: f64,
+    on_boot: Option<OnBoot<'_, D>>,
 ) -> Result<Settling<D>, String> {
+    // Both complete documents and streamed JS pages settle through this entry.
+    exact_kernel::style::roles::set_column(exact_kernel::style::roles::Column::Neutral);
     // A renderer runs any plan it is handed: every capability is linked
     // (LLP 1047 D7), so a projection never meets one it can't write.
     exact_web::link(exact_web_capabilities::ALL);
@@ -409,16 +442,43 @@ pub(crate) fn settle_at<D: DataSource + 'static, F: Fn() -> D>(
         .unwrap_or_else(|| Executor::start(&grants));
     let until = Instant::now() + deadline;
     let watchdog = Watchdog::arm(settling.interrupt(), until);
-    let kernel = if detached {
-        Kernel::detached()
-    } else {
-        Kernel::with_monospace_on_demand()
+    let kernel = || {
+        if detached {
+            Kernel::detached()
+        } else {
+            Kernel::with_monospace_on_demand()
+        }
     };
-    let mut runner = Runner::boot_at(plan.clone(), settling, kernel, viewport, location, now_ms)
+    let boot = |source| Runner::boot_at(plan.clone(), source, kernel(), viewport, location, now_ms);
+    // A realm made ahead (or kept warm) is active, so boot asks its sources
+    // itself: a call the deadline stops there is the deadline, as it is in
+    // `activate` for a fresh realm. The page boots again on a realm not yet
+    // active, which asks nothing, and ends at the deadline with what boot
+    // asked shown as placeholders (a boot error was a 500 before).
+    let (mut runner, booted_late) = match boot(settling) {
+        Ok(runner) => (runner, false),
+        Err(_) if watchdog.fired() => (
+            boot(Anonymous::new(data())).map_err(|e| format!("boot: {e:?}"))?,
+            true,
+        ),
+        Err(e) => return Err(format!("boot: {e:?}")),
+    };
+    // A rendered page holds every tab panel, which the JS target adopts at
+    // boot, building every one (LLP 1075.003 §9.14).
+    runner
+        .build_every_tab()
         .map_err(|e| format!("boot: {e:?}"))?;
-    let settled = match activate(&mut runner, until)
-        .and_then(|()| settle(&mut runner, &executor, until).map_err(|e| format!("{e:?}")))
-    {
+    // The boot document, before any answer: a route's `paint=boot`
+    // (LLP 1048.005).
+    if let Some(on_boot) = on_boot {
+        on_boot(&mut runner);
+    }
+    let settled = match if booted_late {
+        Ok(Settled::Deadline)
+    } else {
+        activate(&mut runner, until)
+            .and_then(|()| settle(&mut runner, &executor, until).map_err(|e| format!("{e:?}")))
+    } {
         Ok(settled) => settled,
         // The call running at the deadline was stopped and refused, so what
         // it answers shows its placeholder: the render ends at the deadline.
@@ -561,6 +621,19 @@ fn warm_realms() -> bool {
 pub(crate) fn retire_renders() {
     let retired = RETIRED.with(|r| std::mem::take(&mut *r.borrow_mut()));
     drop(retired);
+}
+
+/// Drop this render thread's JavaScript runtimes while its supporting
+/// thread-locals are still available.
+pub(crate) fn shutdown_render_thread() {
+    let retired = RETIRED.with(|r| std::mem::take(&mut *r.borrow_mut()));
+    let made = MADE.with(|m| m.borrow_mut().take());
+    let realms = REALMS.with(|r| std::mem::take(&mut *r.borrow_mut()));
+    let executors = EXECUTORS.with(|e| std::mem::take(&mut *e.borrow_mut()));
+    drop(retired);
+    drop(made);
+    drop(realms);
+    drop(executors);
 }
 
 /// Make this worker's next render's module realm now (LLP 1048.000 D10's
@@ -735,6 +808,11 @@ pub fn settle<D: DataSource>(
                 }
                 runner.fulfill_measured(ticket, outcome, elapsed_ms)?;
             }
+            // Replies that keep coming (an answer re-asked without end) still
+            // meet the deadline.
+            if Instant::now() >= deadline {
+                return Ok(Settled::Deadline);
+            }
             continue;
         }
         if runner
@@ -770,9 +848,8 @@ struct Held {
 }
 
 fn hand_out<D: DataSource>(runner: &mut Runner<D>, executor: &Executor, held: &mut Held) {
-    // The runner holds no refusals in a render, so nothing fences the lane.
     executor.forget(|ticket| runner.holds(ticket));
-    executor.resume_ordered();
+    lift(executor, held);
     for r in runner.take_requests() {
         // Device capabilities: the environment has none.
         if r.request.surface.is_some() || r.request.storage.is_some() {
@@ -791,6 +868,24 @@ fn hand_out<D: DataSource>(runner: &mut Runner<D>, executor: &Executor, held: &m
             run(executor, held, r, dispatch);
         }
     }
+    // Again for what this batch put behind a refusal with nothing earlier
+    // in flight: no completion would come to lift it.
+    lift(executor, held);
+}
+
+/// The runner holds no refusals in a render, so the ordered fence lifts once
+/// the work admitted before it has drained, as a refusal settles on a host:
+/// what it held is admitted, or the render is busy. A refusal with nothing
+/// in flight lifts again, until something runs or none is held.
+fn lift(executor: &Executor, held: &mut Held) {
+    while executor.ordered_idle() {
+        let refused = executor.resume_ordered();
+        if refused.is_empty() {
+            return;
+        }
+        held.busy
+            .extend(refused.into_iter().map(|(ticket, _)| ticket));
+    }
 }
 
 fn run(executor: &Executor, held: &mut Held, r: RequestOut, dispatch: Dispatch) {
@@ -803,6 +898,8 @@ fn run(executor: &Executor, held: &mut Held, r: RequestOut, dispatch: Dispatch) 
             }
             Ok(())
         }
+        // A re-ask: settled in its ordered place, no work (LLP 1041 §8.4).
+        Dispatch::Again => executor.again(&r),
         Dispatch::Host(_) | Dispatch::Missing => executor.run(r, None),
     };
     if admitted.is_err() {
@@ -965,19 +1062,7 @@ pub fn main<D: DataSource + 'static>(baked: &[u8], data: fn() -> D) -> std::proc
                 return ExitCode::FAILURE;
             }
         };
-        println!("serving http://{}/", server.addr());
-        let _ = std::io::Write::flush(&mut std::io::stdout());
-        drain_on_signal(server.stopper());
-        return match server.run(data) {
-            Ok(()) => {
-                println!("drained");
-                ExitCode::SUCCESS
-            }
-            Err(e) => {
-                eprintln!("render: serve: {e}");
-                ExitCode::FAILURE
-            }
-        };
+        return run_server(server, data);
     }
     if build {
         match build_locations(&decoded) {
@@ -1071,12 +1156,40 @@ pub fn main<D: DataSource + 'static>(baked: &[u8], data: fn() -> D) -> std::proc
         line.push('}');
         println!("{line}");
     }
+    shutdown_render_thread();
     if failed {
         ExitCode::FAILURE
     } else {
         ExitCode::SUCCESS
     }
 }
+
+// Losing the log reader must not interrupt a response or SIGTERM's drain.
+fn log(line: std::fmt::Arguments<'_>) {
+    use std::io::Write;
+    let mut stdout = std::io::stdout().lock();
+    let _ = writeln!(stdout, "{line}");
+    let _ = stdout.flush();
+}
+
+fn run_server<D: DataSource + 'static>(server: Server, data: fn() -> D) -> std::process::ExitCode {
+    use std::process::ExitCode;
+    log(format_args!("serving http://{}/", server.addr()));
+    drain_on_signal(server.stopper());
+    match server.run(data) {
+        Ok(()) => {
+            log(format_args!("drained"));
+            ExitCode::SUCCESS
+        }
+        Err(e) => {
+            eprintln!("render: serve: {e}");
+            ExitCode::FAILURE
+        }
+    }
+}
+
+#[cfg(all(test, unix))]
+mod stdout_tests;
 
 /// SIGTERM or SIGINT drains the server (D10): a restart loses no render
 /// in flight.
@@ -1097,8 +1210,7 @@ fn drain_on_signal(stopper: Stopper) {
             while !SIGNALLED.load(Ordering::SeqCst) {
                 std::thread::sleep(Duration::from_millis(20));
             }
-            println!("draining");
-            let _ = std::io::Write::flush(&mut std::io::stdout());
+            log(format_args!("draining"));
             stopper.stop();
         });
 }
@@ -1181,5 +1293,185 @@ mod realm_tests {
         assert!(MADE.with(|m| m.borrow().is_none()));
         retire_renders();
         assert!(RETIRED.with(|r| r.borrow().is_empty()));
+    }
+}
+
+#[cfg(test)]
+mod fence_tests {
+    use super::*;
+    use exact_plan::Value;
+    use exact_runner::{Answer, DataError, Outcome, Request, Store};
+    use std::sync::atomic::AtomicUsize;
+
+    static GOOD: AtomicUsize = AtomicUsize::new(0);
+
+    /// `bad` asks for a continuation with an independent-HTTP opt-in, which
+    /// the executor refuses; `good` for one it runs.
+    struct Fenced;
+    impl DataSource for Fenced {
+        fn query(&mut self, source: &str, _: &[Value]) -> Result<Value, DataError> {
+            Err(DataError::UnknownSource(source.into()))
+        }
+        fn answer(
+            &mut self,
+            _: &mut Store,
+            source: &str,
+            _: &[Value],
+        ) -> Result<Answer, DataError> {
+            Ok(Answer::Later(match source {
+                "bad" => Request::continuation(1).independent_http(4096),
+                _ => Request::continuation(2),
+            }))
+        }
+        fn continuation(&mut self, _: u64) -> Option<Box<dyn FnOnce() -> Outcome + Send>> {
+            Some(Box::new(|| Outcome::Storage(vec![])))
+        }
+        fn parse(
+            &mut self,
+            _: &mut Store,
+            _: &str,
+            _: &[Value],
+            _: Outcome,
+        ) -> Result<Answer, DataError> {
+            GOOD.fetch_add(1, Ordering::SeqCst);
+            Ok(Answer::Now(Value::Number(1.)))
+        }
+    }
+
+    static BURST: AtomicUsize = AtomicUsize::new(0);
+
+    /// Each `rN` asks for work it runs at once.
+    struct Burst;
+    impl DataSource for Burst {
+        fn query(&mut self, source: &str, _: &[Value]) -> Result<Value, DataError> {
+            Err(DataError::UnknownSource(source.into()))
+        }
+        fn answer(
+            &mut self,
+            _: &mut Store,
+            source: &str,
+            _: &[Value],
+        ) -> Result<Answer, DataError> {
+            let n: u64 = source[1..].parse().unwrap();
+            Ok(Answer::Later(Request::continuation(n + 1)))
+        }
+        fn continuation(&mut self, _: u64) -> Option<Box<dyn FnOnce() -> Outcome + Send>> {
+            Some(Box::new(|| Outcome::Storage(vec![])))
+        }
+        fn parse(
+            &mut self,
+            _: &mut Store,
+            _: &str,
+            _: &[Value],
+            _: Outcome,
+        ) -> Result<Answer, DataError> {
+            BURST.fetch_add(1, Ordering::SeqCst);
+            Ok(Answer::Now(Value::Number(1.)))
+        }
+    }
+
+    /// Eighteen asks with room for sixteen: the seventeenth is refused (the
+    /// render is busy) and the eighteenth, held behind it, runs once a
+    /// completion has made room, not refused at once against the full lane
+    /// (Astra, round 2).
+    #[test]
+    fn a_burst_past_the_limit_refuses_one_and_runs_the_rest() {
+        let mut src = String::from("component App\n");
+        for n in 0..18 {
+            src.push_str(&format!("  resource r{n} = r{n}() as shape number\n"));
+        }
+        src.push_str("  view\n    text \"x\"\n");
+        let plan = contract::compile(&src).unwrap();
+        let site = Site {
+            name: "Burst",
+            origin: None,
+        };
+        let rendered = render(&plan, || Burst, Default::default(), "/", &site, DEADLINE).unwrap();
+        assert_eq!(BURST.load(Ordering::SeqCst), 17, "all but the seventeenth");
+        assert_eq!(rendered.settled, Settled::Busy);
+    }
+
+    static AGAINS: AtomicUsize = AtomicUsize::new(0);
+
+    /// Each `rN` waits on shared work: every continuation is a re-ask
+    /// (`Dispatch::Again`). `forever` never stops waiting.
+    struct Waiting;
+    impl DataSource for Waiting {
+        fn query(&mut self, source: &str, _: &[Value]) -> Result<Value, DataError> {
+            Err(DataError::UnknownSource(source.into()))
+        }
+        fn answer(
+            &mut self,
+            _: &mut Store,
+            source: &str,
+            _: &[Value],
+        ) -> Result<Answer, DataError> {
+            let n: u64 = source[1..].parse().unwrap_or(0);
+            Ok(Answer::Later(Request::continuation(n + 1)))
+        }
+        fn dispatch(&mut self, _: u64, _: &Store) -> Dispatch {
+            Dispatch::Again
+        }
+        fn parse(
+            &mut self,
+            _: &mut Store,
+            source: &str,
+            _: &[Value],
+            _: Outcome,
+        ) -> Result<Answer, DataError> {
+            if source == "forever" {
+                return Ok(Answer::Later(Request::continuation(9999)));
+            }
+            AGAINS.fetch_add(1, Ordering::SeqCst);
+            Ok(Answer::Now(Value::Number(1.)))
+        }
+    }
+
+    /// 150 waiting answers, past the re-ask markers' window of 128: each is
+    /// settled with no work and the render completes, not busy (LLP 1041
+    /// §8.4, amended 2026-10-09). An answer that never stops waiting keeps
+    /// the render open until its deadline: a pending re-ask is not complete.
+    #[test]
+    fn re_asks_complete_a_render_and_one_still_waiting_meets_the_deadline() {
+        let mut src = String::from("component App\n");
+        for n in 0..150 {
+            src.push_str(&format!("  resource r{n} = r{n}() as shape number\n"));
+        }
+        src.push_str("  view\n    text \"x\"\n");
+        let plan = contract::compile(&src).unwrap();
+        let site = Site {
+            name: "Waiting",
+            origin: None,
+        };
+        let rendered = render(&plan, || Waiting, Default::default(), "/", &site, DEADLINE).unwrap();
+        assert_eq!(AGAINS.load(Ordering::SeqCst), 150);
+        assert_eq!(rendered.settled, Settled::Complete);
+        let plan = contract::compile(
+            "component App\n  resource f = forever() as shape number\n  view\n    text \"x\"\n",
+        )
+        .unwrap();
+        let short = Duration::from_millis(300);
+        let rendered = render(&plan, || Waiting, Default::default(), "/", &site, short).unwrap();
+        assert_eq!(rendered.settled, Settled::Deadline);
+    }
+
+    /// A refusal with nothing in flight before it fences the next request:
+    /// the hand-out lifts the fence again, so the next one runs at once
+    /// rather than at the deadline (review of the held ordered lane).
+    #[test]
+    fn a_request_fenced_with_nothing_in_flight_runs_without_waiting_for_the_deadline() {
+        let plan = contract::compile(
+            "component App\n  resource bad = bad() as shape number\n  resource good = good() as shape number\n  view\n    text \"x\"\n",
+        )
+        .unwrap();
+        let site = Site {
+            name: "Fenced",
+            origin: None,
+        };
+        let started = Instant::now();
+        let rendered = render(&plan, || Fenced, Default::default(), "/", &site, DEADLINE).unwrap();
+        assert!(started.elapsed() < DEADLINE / 2, "{:?}", started.elapsed());
+        assert_eq!(GOOD.load(Ordering::SeqCst), 1, "good was answered");
+        assert_eq!(rendered.settled, Settled::Busy);
     }
 }

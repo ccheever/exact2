@@ -485,6 +485,20 @@ impl BroadPhaseBvh {
             let tree = &self.tree;
             let pair_adjacency = &self.pair_adjacency;
             let updated_mask = &self.updated_mask;
+            let types_admit = |h0: ColliderHandle, h1: ColliderHandle| {
+                let (Some(co0), Some(co1)) = (colliders.get(h0), colliders.get(h1)) else {
+                    return true;
+                };
+                let rb_type = |co: &Collider| {
+                    co.parent
+                        .and_then(|p| bodies.get(p.handle))
+                        .map(|rb| rb.body_type)
+                        .unwrap_or(RigidBodyType::Fixed)
+                };
+                let (t0, t1) = (rb_type(co0), rb_type(co1));
+                co0.flags.active_collision_types.test(t0, t1)
+                    || co1.flags.active_collision_types.test(t0, t1)
+            };
             let scan =
                 |handle: &ColliderHandle, out: &mut Vec<(ColliderHandle, ColliderHandle, bool)>| {
                     let Some(others) = pair_adjacency.get(handle.0) else {
@@ -531,6 +545,11 @@ impl BroadPhaseBvh {
                             || node1.is_changed())
                             && !node0.intersects(node1)
                         {
+                            out.push((h0, h1, true));
+                        } else if !types_admit(h0, h1) {
+                            // Exact2: a pair whose collision types now reject it (a
+                            // sensor turned solid between two fixed colliders) ends
+                            // like a separation, as the creation filter would refuse it.
                             out.push((h0, h1, true));
                         }
                     }

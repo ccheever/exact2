@@ -2,6 +2,7 @@
 import AppKit
 import XCTest
 @testable import ExactKit
+@testable import ExactSurfaces
 
 private var periods: [Double] = []
 private var events: [UInt32] = []
@@ -29,20 +30,21 @@ private final class VisibleWindow: NSWindow {
 }
 
 final class CanvasClockAudioTests: XCTestCase {
+    override class func setUp() { super.setUp(); ExactSurfaces.install() } // LLP 1047.001 D4
     func testFailedRecoveryLeavesCanvasEligibleForRetry() {
         let s = session(module())
         defer { s.destroy() }
-        s.canvases.recoveredDevice(false, error: "transient adapter failure")
-        XCTAssertTrue(s.canvases.entries[100]!.presentable)
-        XCTAssertTrue(s.canvases.entries[100]!.wants)
+        s.surfaceHost.recoveredDevice(false, error: "transient adapter failure")
+        XCTAssertTrue(s.surfaceHost.entries[100]!.presentable)
+        XCTAssertTrue(s.surfaceHost.entries[100]!.wants)
     }
 
     func testRecoveryCoalescesFiltersDeviceAndRetriesOneLossGeneration() {
         for failOnce in [false, true] {
             recoveryCalls = 0; mockLost = true; failRecoveryOnce = failOnce
             let m = module()
-            let s = session(m); defer { s.destroy() }; m.canvases.add(s.canvases)
-            let entry = s.canvases.entries[100]!
+            let s = session(m); defer { s.destroy() }; m.canvases.add(s.surfaceHost)
+            let entry = s.surfaceHost.entries[100]!
             m.recover = { recoverReply() }; m.deviceLost = { mockLost }; m.deviceID = { 0 }
             XCTAssertNotNil(m.deliveryClock(entry, now: 500)["now"])
             m.removedDevice(42, generation: 0)
@@ -62,9 +64,9 @@ final class CanvasClockAudioTests: XCTestCase {
 
     func testSecondRestoreReplacesContactsIncludingEmptySave() {
         let m=module(), s=session(module()); defer { s.destroy() }
-        let e=s.canvases.entries[100]!
+        let e=s.surfaceHost.entries[100]!
         e.controls[7]=SurfaceControl(node:101,name:"jump",offset:.zero,position:.zero)
-        e.restorePending=true; restoreState(true); s.canvases.finishRestore(m,e)
+        e.restorePending=true; restoreState(true); s.surfaceHost.finishRestore(m,e)
         XCTAssertTrue(e.controls.isEmpty)
     }
 
@@ -85,13 +87,13 @@ final class CanvasClockAudioTests: XCTestCase {
     private func session(_ module: GpuModule) -> ExactSession {
         _ = NSApplication.shared
         let s = ExactApp.shared.makeSession(label: "clock-audio")
-        s.canvases.modules[""] = module
-        s.canvases.attempted = [""]
+        s.surfaceHost.modules[""] = module
+        s.surfaceHost.attempted = [""]
         let view = NodeView(id: 100, kind: "canvas", presenter: s.presenter)
-        let entry = Canvases.Entry(view: view, name: "fixture", values: [])
+        let entry = CanvasesHost.Entry(view: view, name: "fixture", values: [])
         entry.id = 1
         entry.module = module
-        s.canvases.entries[100] = entry
+        s.surfaceHost.entries[100] = entry
         return s
     }
     private func window(_ s: ExactSession) -> NSWindow {
@@ -123,13 +125,13 @@ final class CanvasClockAudioTests: XCTestCase {
     }
     func testAlternatingSessionsPublishBeforeEveryRenderIncludingTheFirst() {
         let m = module(), a = session(module()), b = session(module())
-        for s in [a, b] { s.canvases.modules[""] = m; for e in s.canvases.entries.values { e.module = m } }
+        for s in [a, b] { s.surfaceHost.modules[""] = m; for e in s.surfaceHost.entries.values { e.module = m } }
         defer { a.destroy(); b.destroy() }
         periods = []
         for frame in 0..<6 {
             for (s, hz) in [(a, 60.0), (b, 120.0)] {
                 let count = periods.count
-                s.canvases.period(1000 / hz)
+                s.surfaceHost.period(1000 / hz)
                 XCTAssertEqual(periods.count, count + 1, "publication precedes this session's render")
                 XCTAssertEqual(periods.last!, frame < 2 ? 0 : 1000 / hz)
             }
@@ -138,14 +140,14 @@ final class CanvasClockAudioTests: XCTestCase {
     func testNoResumePolicyAppliesToNewLifecycleAndGestureRecovers() {
         let s = session(module()), w = window(s)
         defer { w.orderOut(nil); s.destroy() }
-        let first = CanvasLifecycle(s.canvases, activate: { true })
+        let first = CanvasLifecycle(s.surfaceHost, activate: { true })
         first.interruption(began: true, shouldResume: false)
         first.interruption(began: false, shouldResume: false)
         defer { first.interruption(began: false, shouldResume: true) }
         var attempts = 0
-        let second = CanvasLifecycle(s.canvases, activate: { attempts += 1; return true })
+        let second = CanvasLifecycle(s.surfaceHost, activate: { attempts += 1; return true })
         events = []
-        second.deliver(1, module: s.canvases.modules[""]!)
+        second.deliver(1, module: s.surfaceHost.modules[""]!)
         XCTAssertEqual(events.last, 2)
         second.refresh()
         second.requestAudio(userInitiated: false)
@@ -159,8 +161,8 @@ final class CanvasClockAudioTests: XCTestCase {
         let s = session(module()), w = window(s)
         defer { w.orderOut(nil); s.destroy() }
         var attempts = 0
-        let lifecycle = CanvasLifecycle(s.canvases, activate: { attempts += 1; return true })
-        s.canvases.lifecycle = lifecycle
+        let lifecycle = CanvasLifecycle(s.surfaceHost, activate: { attempts += 1; return true })
+        s.surfaceHost.lifecycle = lifecycle
         lifecycle.requestAudio()
         lifecycle.interruption(began: true, shouldResume: false)
         lifecycle.interruption(began: false, shouldResume: false)
@@ -177,7 +179,7 @@ final class CanvasClockAudioTests: XCTestCase {
         let s = session(module()), w = window(s)
         defer { w.orderOut(nil); s.destroy() }
         var attempts = 0
-        let lifecycle = CanvasLifecycle(s.canvases, activate: { attempts += 1; return attempts > 1 })
+        let lifecycle = CanvasLifecycle(s.surfaceHost, activate: { attempts += 1; return attempts > 1 })
         events = []
         lifecycle.gesture()
         XCTAssertEqual(attempts, 0, "silent surfaces do not activate an audio session")
@@ -193,11 +195,11 @@ final class CanvasClockAudioTests: XCTestCase {
     func testDetachRefreshesExistingLifecycle() {
         let s = session(module()), w = window(s)
         defer { w.orderOut(nil); s.destroy() }
-        s.canvases.lifecycle.refresh()
-        XCTAssertFalse(s.canvases.lifecycle.hidden)
+        s.surfaceHost.lifecycle.refresh()
+        XCTAssertFalse(s.surfaceHost.lifecycle.hidden)
         events = []
         w.contentView = nil
-        XCTAssertTrue(s.canvases.lifecycle.hidden)
+        XCTAssertTrue(s.surfaceHost.lifecycle.hidden)
         XCTAssertEqual(events.last, 0)
     }
     func testQuantizerNeverExceedsDisplayMaximumAndRepublishesStableClass() {
@@ -214,8 +216,8 @@ final class CanvasClockAudioTests: XCTestCase {
         let a = session(module()), b = session(module()), wa = window(a), wb = window(b)
         defer { wa.orderOut(nil); wb.orderOut(nil); a.destroy(); b.destroy() }
         var ac = 0, bc = 0
-        let first = CanvasLifecycle(a.canvases, activate: { ac += 1; return true })
-        let second = CanvasLifecycle(b.canvases, activate: { bc += 1; return true })
+        let first = CanvasLifecycle(a.surfaceHost, activate: { ac += 1; return true })
+        let second = CanvasLifecycle(b.surfaceHost, activate: { bc += 1; return true })
         first.interruption(began: true, shouldResume: false)
         second.interruption(began: true, shouldResume: false)
         first.interruption(began: false, shouldResume: false)
@@ -233,14 +235,14 @@ final class CanvasClockAudioTests: XCTestCase {
         defer { s.destroy() }
         m.bindAt = { _, _, _, at in periods.append(at); return 0 }
         s.clock = 1234.5; periods = []
-        XCTAssertEqual(s.canvases.bindSurface(m, s.canvases.entries[100]!), 0)
+        XCTAssertEqual(s.surfaceHost.bindSurface(m, s.surfaceHost.entries[100]!), 0)
         XCTAssertEqual(periods, [1234.5])
     }
     func testDeferredRestoreRetainsCarrierUntilCommitAndReportsLateRefusalOnce() {
         for refused in [true, false] {
             let m = module(), s = session(m)
             defer { s.destroy() }
-            let c = s.canvases, e = c.entries[100]!
+            let c = s.surfaceHost, e = c.entries[100]!
             m.restore = { _, _, _, _ in true }
             m.carry = { _ in 0 }
             c.worldInput.bytes = Data([1, 2, 3])

@@ -1,0 +1,20 @@
+# The sparkline surface (LLP 1009): a dylib natively, loaded on demand after the
+# first pixel. Never linked into the app's host library.
+[package]
+name = "exact-crypto-gpu-gpu"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Crypto list: the per-row sparkline surface"
+publish = false
+build = "build.rs"
+
+[lib]
+name = "exact_crypto_gpu_gpu"
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+exact-gpu = { path = "../../../../gpu" }
+
+[build-dependencies]
+exact-gpu-reflect = { path = "../../../../gpu/reflect" }

@@ -35,6 +35,21 @@ No listener opens on the phone. This is a trusted-LAN developer carrier, not TLS
 or an internet control API; allow local networking and keep the app foregrounded.
 Agent startup disables UIKit's idle timer for that test process only, since
 agent input does not reset the user-idle timer; normal launches are unchanged.
+Physical startup now waits for the application to be active and retries transient
+socket connection refusals under one 15-second monotonic deadline, including time
+spent inactive. UIKit lifecycle state is observed on the main thread; socket
+waiting runs on a worker. Every failed attempt closes its descriptor, and the
+successful descriptor returns to blocking mode before the token announcement.
+The existing driver's 20-second startup bound has room for a native terminal
+diagnostic. Cancellation and socket handoff have one order: cancellation before
+handoff closes the attempt; afterward the established carrier owns the socket.
+Retries end before authentication. They never reconnect an authenticated carrier
+or replay an agent command or app HTTP request. Loopback witnesses cover a real
+delayed listener, inactive admission, cancellation and a bounded refusal; the
+driver still refuses a wrong per-launch token before accepting the right one.
+This addresses the previous single-attempt startup gap. Earlier physical first
+launches reported `No route to host` and later launches connected, but their cause
+was not established; a current-source iPad baseline connected on its first try.
 Host-local plan/assets paths refuse: use embedded artifacts or `--url`.
 Only explicit launch environment crosses to the phone. Screenshots are written
 in the app's temporary directory and copied back with its app-container file
@@ -190,15 +205,23 @@ responses; the public operations are unchanged.
 
 Public: what `scripts/agent.mjs` exposes as a session (`open({host, plan,
 size})`), and what the CLI runs one per argument. A target is a `testId`
-(first in preorder) or a view id; the driver resolves it through `tree`, so a
-host input path only ever sees a view id. LLP 1038 D5/D11: on native, `--url` with an
+(first in preorder on a selected route of a selected tab; a covered screen's or
+an unselected tab's copy only when no active one carries it, flagged `inactive`
+in `tree`) or a view id; the driver resolves it through `tree`, so a
+host input path only ever sees a view id. A tab never selected has no views
+to address: the runner builds it at its first selection (LLP 1075.003
+§9.14), and `tree` marks its empty panel `unopened`. Nothing is opened for
+a drive or a test, which select the tab as a person would (`tap
+tab-patterns`); a target no view carries while a tab is unopened is refused
+naming each unopened panel and the tap that selects it, and so is an
+`expect text` or `expect tree has` that finds nothing. LLP 1038 D5/D11: on native, `--url` with an
 app scheme or path supplies the cold launch location; HTTP(S) retains the
 development-plan locator form only and never supplies a launch location. Apple uses the
 same pre-boot fact as the OS callbacks; Linux receives the URL as argv.
 
 `tree <target>` (library `tree(target)`) returns the target and its descendants.
 The wire request adds `target`, a numeric view id or string `testId`; repeated
-`testId`s select the first node in live structural preorder. Missing, retired,
+`testId`s select the first active node in live structural preorder. Missing, retired,
 and malformed targets are refused. `roots` names the selected node; node fields,
 including the real parent and absolute tree depth, match the full response.
 The text renderer removes only the common leading indentation. Without a target,
@@ -215,17 +238,31 @@ instance-tree walk; a single-node response uses point lookup. Handler order and
 empty lists are unchanged; no handler map survives the response, so branch and
 collection changes are observed afresh.
 
+Development Apple builds made with `--widget-gallery` (or `EXACT_WIDGET_GALLERY=1`) take an entry address before the operations:
+`bun scripts/agent.mjs ios widget next-trains --family systemMedium --mode accented --scheme dark --size xxxl tree "screenshot widget.png" state`.
+`macos` takes the same address. Family defaults to the entry's first declared family;
+mode to `fullColor`, scheme to `light`, text size to `large` (`xxxl` is the other size).
+This selects the in-process gallery render, using its entry plan and snapshot driver
+(LLP 1126 D14); it does not load a WidgetKit extension. Ordinary development and production builds refuse it and name the rebuild. `--props <json>` replaces preview props for this read and takes precedence over refresh. A refresh answering `Later` uses preview or given props. Only `tree`, `screenshot`, `state` and the app’s `clock` are supported; widget screenshots refuse film, window, compare and `--scale` options.
+
+| Widget read | Result |
+|---|---|
+| `tree` | Snapshot nodes, frames and kernel text lines |
+| `screenshot <png>` | The selected entry alone, at 1 pixel per point; family container and mode stand-ins match WP4's baseline |
+| `state` | Entry props, refresh status and an unavailable refresh's reason; an immediate refresh supplies its first timeline entry, otherwise preview or given props |
+| `clock <ms|+ms|settle|data>` | Advances the app clock; the next widget read refreshes and renders at that instant |
+
 | op | request to the host | reply | who answers |
 |---|---|---|---|
 | `tree` | `{"op":"tree"[,"target":V or "testId"][,"shallow":true]}` | `epoch`, `incarnation`, `clock`, `roots`, `nodes[]` in preorder: `id`, `parent`, `depth`, `type` (schema name), `props` by schema name, `handlers` (`press`/`change`/`hover`/`focus`/`blur`/`key`), `children` | runner (kernel topology + props) |
-| `state` | `{"op":"state"}` | `epoch`, `incarnation`, `clock`; `slots`, `derives`, `resources` by declared name as typed JSON: records keyed by field name, `none`/unit `null`. **Then the host's three sections (2026-09-10, LLP 1035.002 D2)** — observations of its view tree, never a second model: `focus{logical, editor, responder, pending}` (the node holding the platform's focus, the editor when it is one, the responder's class, a focus a sheet is still holding for its presentation), `keyboard{visible, overlap, top?, guide?, policy, interactive}` (the software keyboard's overlap with the viewport, its top edge and the layout guide in the viewport's space where the host has them, the `interactiveWidget` policy, a drag dismissing it), `navigation{url, route, stack[], presentation, closedby, transition{interactive, phase}}` (the last `router` op's canonical URL or null when absent (LLP 1038 D11), the route the root names, the platform's stack by key, `modal` or null, the close policy, and `idle`｜`in-progress`｜`cancelled`｜`completed`). UIKit reports its first responder, keyboard and navigation controller; AppKit its first responder, no keyboard, the stack as the rule's prefix; the page `activeElement`, `visualViewport` and the DOM's routes; Linux each section as `{"unavailable": true}`, present so "no keyboard" reads apart from "no report" | runner (the plan's type table) + host (the sections) |
-| `logs` | `{"op":"logs","since":N}` | `next`, `from`, `lines[]` — the journal from `since` (§3); the driver adds `host[]` (page console / app stderr) and `dropped` | runner |
-| `layout` | `{"op":"layout"}` / `{…,"id":V}` | `clock`, `viewport{w,h}`, `env{…}` (2026-08-30: the page's environment by the web's `env()` names — `safe-area-inset-top/right/bottom/left`, the insets the host gave the kernel under `viewport-fit=cover`, and `keyboard-inset-height`, a software keyboard's overlap with the screen's viewport; under `interactive-widget="resizes-content"` `viewport` itself shrinks to the keyboard's top, as Chrome's `innerHeight` does; zeros on macOS and Linux, the browser's own on the web), `nodes[]`: `id`, `x`, `y`, `w`, `h` (+ `sx`, `sy` on scroll containers); the driver adds `type` and `testId`. **With `id` (2026-09-09, LLP 1035.002 D1, `layout <target>` on the CLI): `node{…}` explains that one node** — the runner's half (`epoch`, `incarnation`, `site`, `instance`, every row it sets or inherits as `{value, source: authored | inherited (+from) | initial}`, `props`, the kernel's `frame` in the parent and `absolute`) merged with the host's (`space{viewport, local, window?, screen?, capture{scale}}`, the `scroll` and `clip` chains outermost first, `visible{hidden, inert, inViewport, clipped}`, `native{…}` — what was mounted; the web adds `browser{…}`, its own computed values for the inherited rows). A space a host cannot observe is absent; a stale id is refused by name | runner (the node's rows and sources, the private `node` message) + host (the spaces) |
-| `tap` | `{"op":"tap","id":V}` / `{…,"wheel":[dx,dy]}` / `{…,"hover":true}` / `{…,"history":n}` on the navigation root (LLP 1038 D11; CLI `tap <root> history -1` or `tap <root> {"history":-1}`) / **a contact's phases** (2026-09-09, LLP 1035.003 D1): `{…,"phase":"down"[,"x","y"]}`, then `{"op":"tap","phase":"move","x","y"｜"dx","dy"[,"ms"]}`, `"hold"[,"ms"]`, `"up"`, `"cancel"` — CLI `tap <target> down [at <x> <y>]`, `tap move <x> <y>｜by <dx> <dy> [over <ms>]`, `tap hold [<ms>]`, `tap up`, `tap cancel`, the phase words read as phases only while a contact is down | `tapped`, `at` (+ `hover`); a phase replies `phase`, `at`; **every input reply carries `delivery`** — `platform` (a real input event through the platform's path: CDP mouse/touch, `NSWindow.sendEvent`), `recognized` (an already-recognized event injected: iOS `contextmenu`/`dblclick`/`hover`), `activation` (a hit-test and a direct call: iOS `tap`), or `unsupported` — plus `carrier` and `mode`, added by the driver from the host's answer and its own table (D2); the driver adds `target`. On iOS (2026-08-30) a tap also does what a touch up does first: the nearest node that takes the focus takes it, and when none does the field being edited is blurred (LLP 1008 §9); a phase on iOS or Linux is `unsupported`, never an activation dressed as a finger | host input path (the web: CDP touch events under touch emulation, switched on by the first contact; macOS: the mouse button held across requests, a timed move as dragged events with the run loop turning between them, `cancel` unsupported because AppKit has none; the simulator (2026-09-10): a real mouse on the Mac's desktop posted into the Simulator's window by `host/apple/pointer.swift`, the mapping calibrated by hovering at two desktop points and reading `layout.pointer`, refused with the covering app's name when the Simulator's window is not topmost at the point; a phone: unsupported) |
+| `state` | `{"op":"state"}` | `epoch`, `incarnation`, `clock`; `slots`, `derives`, `resources` by declared name as typed JSON: records keyed by field name, `none`/unit `null`. **Then the host's three sections (2026-09-10, LLP 1035.002 D2)** — observations of its view tree, never a second model: `focus{logical, editor, responder, pending}` (the node holding the platform's focus, the editor when it is one, the responder's class, a focus a sheet is still holding for its presentation; on iOS also `native`, a token for the native editor UIKit holds as first responder, never reused, and `events`, the last resignations and window detachments of Exact's native editors with their tokens and, for a resignation, `uikit-keyboards` or `other` for who called it, so a test tells UIKit's resignation from Exact's, 2026-10-16), `keyboard{visible, overlap, top?, guide?, policy, interactive}` (the software keyboard's overlap with the viewport, its top edge and the layout guide in the viewport's space where the host has them, the `interactiveWidget` policy, a drag dismissing it), `navigation{url, route, stack[], presentation, closedby, transition{interactive, phase}}` (the last `router` op's canonical URL or null when absent (LLP 1038 D11), the route the root names, the platform's stack by key, `modal` or null, the close policy, and `idle`｜`in-progress`｜`cancelled`｜`completed`). UIKit reports its first responder, keyboard and navigation controller; AppKit its first responder, no keyboard, the stack as the rule's prefix; the page `activeElement`, `visualViewport` and the DOM's routes; Linux each section as `{"unavailable": true}`, present so "no keyboard" reads apart from "no report" | runner (the plan's type table) + host (the sections) |
+| `logs` | `{"op":"logs","since":N}` | `next`, `from`, `lines[]` — the journal from `since` (§3); the driver adds `host[]` (page console / app stderr) and `dropped`; on an iOS simulator, `crash[]`: the newest crash report of the build on that simulator since the last `logs`, `.ips` or older `.crash`; a launch that fails before it is ready, and an app that hangs up mid-drive, say the same, after waiting up to 3 s for the report of a crash they just had (amended 2026-10-16) | runner |
+| `layout` | `{"op":"layout"}` / `{…,"id":V}` | `clock`, `viewport{w,h}`, `env{…}` (2026-08-30: the page's environment by the web's `env()` names — `safe-area-inset-top/right/bottom/left`, the insets the host gave the kernel under `viewport-fit=cover`, and `keyboard-inset-height`, a software keyboard's overlap with the screen's viewport; under `interactive-widget="resizes-content"` `viewport` itself shrinks to the keyboard's top, as Chrome's `innerHeight` does; zeros on macOS and Linux, the browser's own on the web; **and the fold (2026-10-02, LLP 1078 D7)**: `device-posture` (`continuous`｜`folded`), `horizontal-viewport-segments` and `vertical-viewport-segments` (integers from 1), and `viewport-segments` (`[x, y, w, h]` per segment in viewport points, row-major, empty for one segment) — UIKit 27.1's division regions and hinge on iOS, the browser's Device Posture API and `viewport.segments` on the web, `continuous` 1×1 on macOS, Linux and older iOS unless `prefer posture`/`prefer segments` said otherwise), `nodes[]`: `id`, `x`, `y`, `w`, `h` (+ `sx`, `sy` on scroll containers, and `rx`, `ry` beside them, 2026-10-19: how far each offset travels; on iOS `port` too, 2026-10-19: the scrollport); the driver adds `type` and `testId`. **With `id` (2026-09-09, LLP 1035.002 D1, `layout <target>` on the CLI): `node{…}` explains that one node** — the runner's half (`epoch`, `incarnation`, `site`, `instance`, every row it sets or inherits as `{value, source: authored | inherited (+from) | initial}`, `props`, the kernel's `frame` in the parent and `absolute`) merged with the host's (`space{viewport, local, window?, screen?, capture{scale}}`, the `scroll` and `clip` chains outermost first (each `scroll` entry with `rx`, `ry` beside its `sx`, `sy`, and on iOS a scroller's entry with its `port`, the viewport's or a presentation's with none), `visible{hidden, inert, inViewport, clipped}`, `native{…}` — what was mounted; the web adds `browser{…}`, its own computed values for the inherited rows). A space a host cannot observe is absent; a stale id is refused by name. The driver drops `nodes` from a targeted reply (2026-10-05): the answer is the target, its box `node.space.viewport`, and every view's box beside it let an assertion over `nodes` pass whatever the target was | runner (the node's rows and sources, the private `node` message) + host (the spaces) |
+| `tap` | `{"op":"tap","id":V}` / `{…,"wheel":[dx,dy]}` / `{…,"hover":true}` / **a held state** (2026-10-18, LLP 1122 D8, LLP 1121 stage 8 E): `{…,"holdState":"active"｜"hover"｜"focus-visible"}`, let go with `"holdState":null` — CLI `tap <target> hold-state active｜hover｜focus-visible｜none` — held by the host as the real state (`active` the press the node resolves to, its paint and scale; a look's otherwise), handlers never told, until real input on that node, its disabling or its going; one at a time; a disabled node refuses one; `delivery: "recognized"`, and `unsupported` where a host can't hold that state (iOS `hover`); named `holdState` so it is never read as a contact's `hold` phase / **the mouse's buttons** (2026-10-07, #107): `{…,"mouse"｜"dblclick"｜"contextmenu"｜"auxclick":true}` or `{…,"clicks":1｜2｜3}`, each with `"at":[x,y]` (a point in the target) and `"modifiers":"Shift+Meta"`, both also on a wheel; `"modifiers"` on a contact's `down` (held to its lift; a `move` or `up` naming others holds those from it on) and on a drag — CLI `tap <target> auxclick｜clicks <n>｜… [at <x> <y>] [modifiers <M>]`, `wheel <dx> <dy> [gesture] [at <x> <y>] [modifiers <M>]`, `down [at <x> <y>] [modifiers <M>]`, `drag … [modifiers <M>]`; a word the parser does not use is refused by name, never dropped, and a form a carrier cannot deliver as a hand's answers `delivery: "unsupported"` (iOS, Linux, Windows, Firefox and WebKit, for a middle click, `clicks`, a wheel or double click at a point, and modifiers through a button other than a plain press's or a contact) / `{…,"history":n}` on the navigation root (LLP 1038 D11; CLI `tap <root> history -1` or `tap <root> {"history":-1}`) / **a contact's phases** (2026-09-09, LLP 1035.003 D1): `{…,"phase":"down"[,"x","y"]}`, then `{"op":"tap","phase":"move","x","y"｜"dx","dy"[,"ms"]}`, `"hold"[,"ms"]`, `"up"`, `"cancel"` — CLI `tap <target> down [at <x> <y>]`, `tap move <x> <y>｜by <dx> <dy> [over <ms>]`, `tap hold [<ms>]`, `tap up`, `tap cancel`, the phase words read as phases only while a contact is down / **one whole gesture** (2026-10-03, LLP 1080.000 §11): CLI `tap <target> drag <dx> <dy> [from <x> <y>] [press <ms>] [over <ms>] [hold <ms>] [during "<op>" …]` — press, one straight drag, hold, lift, with reads and `clock` run while the finger is down | `tapped`, `at` (+ `hover`); a phase replies `phase`, `at`; **every input reply carries `delivery`** — `platform` (a real input event through the platform's path: CDP mouse/touch, `NSWindow.sendEvent`), `recognized` (an already-recognized event injected: iOS `contextmenu`/`dblclick`/`hover`), `activation` (a hit-test and a direct call: iOS `tap`), or `unsupported` — plus `carrier` and `mode`, added by the driver from the host's answer and its own table (D2); the driver adds `target`. On iOS (2026-08-30) a tap also does what a touch up does first: the nearest node that takes the focus takes it, and when none does the field being edited is blurred (LLP 1008 §9); its `pointerdown` and `pointerup` come first, as a finger's (amended 2026-10-16); a phase on iOS is a recognized contact, never an activation dressed as a finger | host input path (the web: CDP touch events under touch emulation, switched on by the first contact; macOS: the mouse button held across requests, a timed move as dragged events with the run loop turning between them, `cancel` unsupported because AppKit has none; a simulator under `--touch platform` (2026-10-03, LLP 1080.000): a plain `tap` is a real touch from the XCTest touch runner (`host/apple/touches.mjs`), aimed by the host and confirmed by the window's dispatch log, `delivery: platform`; without the flag, `activation`; a contact's phases on iOS are recognized (a `pan` node's, else a finger's pointer events and its lift's press, amended 2026-10-16), since no touch stays down across requests (P3), and a `drag` is the runner's one call, the same barrier plus its travel; without the runner a `drag` takes the carrier's own phases and their delivery (on iOS a `pan` node's or a canvas's recognized contact, else `unsupported`); the desktop pointer of 2026-09-10 is deleted; a phone: unsupported) |
 | `type` | `{"op":"type","id":V,"text":…}` / `{…,"key":"Enter"}` | `typed` (+ `value` on macOS) / `key`; the driver adds `target`. On the navigation root, text is a location: `type <navigation root> "/post/42"` dispatches `navigate` once, with `delivery: recognized`, without focusing an editor (LLP 1038 D11); the same target resolution applies | host text or navigation event path |
-| `clock` | `{"op":"clock","to":ms}` / `{…,"settle":true}` | `clock` (where it landed), `settled` for `settle`; under `EXACT_AGENT_TIMING=platform` (2026-09-10, LLP 1035.003 D5 — `open({timing:'platform'})`, `--timing platform`: UIKit's push/pop, sheet and keyboard animations keep their natural timing while the driver still owns the runner's clock) `settle` also waits, bounded at two seconds, for the iOS navigation and modal hosts to leave a transition, and replies `settled: false, reason: "transition"` past the bound | host, both clocks |
-| `screenshot` | `{"op":"screenshot","path":…}` (+`"window":true` on macOS) | `screenshot`, `w`, `h` (viewport points / CSS px, not PNG pixels; `scale` for a window capture) | host |
-| `prefer` | `{"op":"prefer","media":{"prefers-reduced-motion":"reduce"}}` — CSS's media feature names: `prefers-reduced-motion` and `prefers-reduced-transparency` (`reduce`/`no-preference`), `prefers-color-scheme` (`dark`/`light`); an unnamed feature stays; CLI `prefer <feature> <value> […]` (2026-09-27, LLP 1061 D5) | `media{…}`: all three as the host now reports them | host (the web: `Emulation.setEmulatedMedia`; Apple: the accessibility settings replaced for the process, the window scene's style or, on macOS while the app follows the system, `NSApp.appearance`; Linux: the runner and the painter's system scheme). An unknown feature is refused and nothing applies |
+| `clock` | `{"op":"clock","to":ms}` / `{…,"settle":true}` | `clock` (where it landed), `settled` for `settle`; under `EXACT_AGENT_TIMING=platform` (2026-09-10, LLP 1035.003 D5 — `open({timing:'platform'})`, `--timing platform`: UIKit's push/pop, sheet and keyboard animations keep their natural timing while the driver still owns the runner's clock) `settle` also waits, bounded at two seconds, for the iOS navigation and modal hosts to leave a transition and for a list's smooth correction to land (2026-10-03, iOS and macOS), and replies `settled: false, reason: "transition"` past the bound | host, both clocks |
+| `screenshot` | `{"op":"screenshot","path":…}` (+`"window":true` on macOS) | `screenshot`, `w`, `h` (viewport points / CSS px, not PNG pixels; `scale` for a window capture). **A drive's `--scale <n>` (2026-10-08)**: the driver shrinks the PNG by area to n pixels a point (`--scale 1`: an iPhone's 1206×2622 becomes 402×874, one pixel a point as on the web) and the reply's `scale` is n; an n above the capture's is refused, never enlarged | host (the driver shrinks) |
+| `prefer` | `{"op":"prefer","media":{"prefers-reduced-motion":"reduce"}}` — CSS's media feature names: `prefers-reduced-motion` and `prefers-reduced-transparency` (`reduce`/`no-preference`), `prefers-color-scheme` (`dark`/`light`); an unnamed feature stays; CLI `prefer <feature> <value> […]` (2026-09-27, LLP 1061 D5); **the fold (2026-10-02, LLP 1078 D7)**: `{…,"fold":{"posture":"folded","cols":2,"rows":1,"gap":40}}`, CLI `prefer posture folded｜continuous`, `prefer segments <cols>x<rows> [gap <points>]` — a host without a fold splits its viewport evenly with the gap centred on each divider; a host with a real fold (a Duo on 27.1) refuses: the device decides; `0x1`, `1x0` and a gap wider than the viewport are refused by name; **Bold Text (2026-10-17, LLP 1121 stage 6 G)**: a page fact (LLP 1069), `{…,"page":{"bold-text":"true"}}`, CLI `prefer bold-text true｜false` — Apple only (the accessibility setting replaced for the process; the system font one step heavier, LLP 1115.000 D12.3); the web and Linux refuse it by name | `media{…}`: all three as the host now reports them; `fold{…}`: the four `layout.env` names | host (the web: `Emulation.setEmulatedMedia`; Apple: the accessibility settings replaced for the process, the window scene's style or, on macOS while the app follows the system, `NSApp.appearance`; Linux: the runner and the painter's system scheme). An unknown feature is refused and nothing applies |
 
 Errors are `{"error":"…"}` on the wire; the session throws `"<op>: <message>"`.
 
@@ -250,26 +287,66 @@ the Linux host implements this list, not that file):
 - **Membership and order.** Every view attached to the document (web:
   `isConnected`; macOS: in a window), whether or not it lies inside the
   viewport, in ascending id order. `sx`/`sy` present only on scroll
-  containers. On iOS, `ox`/`oy` measure elastic displacement beyond the
-  scroll view's adjusted inset bounds. A valid negative resting offset is not
+  containers. `rx`/`ry` beside them are how far the offset travels on each
+  axis from one end to the other, never negative, in the offset's own units,
+  whether or not a wheel or a drag may move it that way: the web's
+  `scrollWidth − clientWidth` (an `overflow: hidden` element keeps a
+  programmatic range), UIKit's content and adjusted insets less the bounds,
+  AppKit's document and the clip view's insets less the clip view, Linux's
+  clamp bounds; not elastic travel, and not a promise that `0 ≤ sx ≤ rx` (a
+  negative resting offset is valid). An iOS scroll not yet made (a closed
+  swipe row's) reports 0. On iOS, `ox`/`oy` measure elastic displacement beyond the
+  scroll view's adjusted inset bounds; a valid negative resting offset is not
   overscroll. Wheel routing uses those same bounds, including reachable top,
   left, bottom and right insets; an exhausted child chains to its ancestor.
+  Also on iOS, `port` is the scrollport, `[x, y, w, h]` in the space of the nodes' boxes,
+  in `nodes` and in `layout <target>`'s scroll chain alike:
+  the scroll view less the room UIKit insets its content by (a bar, the keyboard, a page
+  band, a refreshing control; native padding and footer room are content), what the web's
+  `clientWidth` and `clientHeight` measure, so it is empty, never negative, where those
+  insets overlap; a scroll not yet made has none. The scroller UIKit's bar insets (a
+  route's) runs beneath the bar, its port starting at the bar's bottom.
 - **`tap`** presses at the box's center through the platform's own hit-test
   and dispatch — CDP `Input.dispatchMouseEvent` mousePressed/Released on the
-  web (Chrome synthesizes the click), `NSWindow.sendEvent` mouse down/up on
-  macOS — never `Runner::dispatch`. A press on a node without a handler
-  reaches its parent the way a DOM click bubbles. With `wheel: [dx, dy]`,
+  web (Chrome synthesizes the click), `NSApplication.sendEvent` mouse down/up
+  on macOS, so the app's local event monitors see it as they see a hand's
+  (2026-10-07, #107; it was `NSWindow.sendEvent`, which they never saw) —
+  never `Runner::dispatch`. The mouse's forms (#107): `contextmenu` is the
+  right button, `auxclick` the middle (CDP `button: "middle"`, `buttons: 4`;
+  AppKit `otherMouseDown`, `buttonNumber` 2), `clicks n` n presses with the
+  count rising 1…n (`detail`; AppKit `clickCount`), `at` a point in the
+  target, `modifiers` held through every event of the form. AppKit's right,
+  middle and wheel events are made as the window server makes them: a
+  `CGEvent` with the button's own number, placed in the window by its
+  window number and window location (`CGEventSetWindowLocation`, exported
+  but not in the headers; without it the form is refused), so
+  `locationInWindow` is the point named — a window-less wheel read it in
+  screen space. A press on a node without a handler
+  reaches its parent the way a DOM click bubbles. **A tap that names a node
+  presses that node** (2026-10-09; the Bluesky clone's `tap post-0` liked and
+  reposted real people's posts): one with its own press whose middle holds
+  another control — whatever a press there would deliver: a press, a link run,
+  a form control or field, a grouped list's row, a canvas — is pressed at the
+  nearest point of its box a grid search finds reaching it (`avoided` in the
+  reply), else refused; one without is refused when its middle holds a
+  control, naming both. `tap <target> at <x> <y>`
+  (`{"op":"tap","id":V,"at":[x,y]}`) is a press at a point in the target,
+  whatever a finger there reaches, on every carrier (Windows and Android
+  share the Linux presenter's). With `wheel: [dx, dy]`,
   `dy > 0` scrolls down on both hosts; the web sends CDP `mouseWheel` under
   `--disable-smooth-scrolling` (fractional deltas allowed), macOS a phase-less
   pixel-unit `CGEvent` (`wheel1 = −dy`, `wheel2 = −dx`, rounded to whole
-  pixels, bounded, non-finite refused) to the hit view — `scrollWheel(with:)`
-  on `hitTest(center)`, so the responder chain carries it up as a trackpad's
-  would. With `hover: true` (2026-08-30), the pointer moves onto the box's
+  pixels, bounded, non-finite refused) at the center or `at`, through
+  `NSApplication.sendEvent`: the window hit-tests the point and the
+  responder chain carries it up as a trackpad's would. With `hover: true` (2026-08-30), the pointer moves onto the box's
   center and stays there — CDP `mouseMoved` on the web (the browser fires
   the enter/leave pair); on macOS and iOS the presenter's own hover path from
   the hit view up to the first node with a `hover` handler, leaving whatever
   was hovered (no public pointer synthesis on iOS; on macOS the same for
-  symmetry — a tracking area needs the window's real cursor). CLI:
+  symmetry — a tracking area needs the window's real cursor). The pointer
+  rests there: a layout or scroll that moves other content under it is
+  hovered at the next frame, as the browser's is (macOS and Linux, #139;
+  a macOS contact going down ends the rest). CLI:
   `tap X hover`. Browser Back/Forward (LLP 1038 D11) is `tap <navigation
   root> {"history":-1}` / `{"history":1}` (CLI also `history -1` / `history 1`).
   The web calls `history.go(n)` and handles its real `popstate`; `n` must be a
@@ -288,6 +365,14 @@ the Linux host implements this list, not that file):
   target first responder; iOS direct delivery (§9 of LLP 1008). CLI: `type X
   key Enter` — which, at an input with a `submit` handler, is the web's
   implicit submission on every host. Not on the Linux carrier yet (its lane).
+  The up runs the focus's `keyup` handlers (2026-10-07, #140), whether it
+  follows the down in one request or comes as `"phase":"up"`; a lone
+  modifier's down holds it and its up releases it, as DOM's flags say.
+  `"phase":"down","repeat":true` is an auto-repeat keydown (CDP's
+  `autoRepeat`, AppKit's `isARepeat`), which `type X key K for <ms>` sends
+  while the key is held, at macOS's default rate on the virtual clock (the
+  first 500 ms after the down, then every 83 ms; a modifier alone repeats
+  none). UIKit's presses carry no repeat, so iOS reports `repeat` as given.
 - **`clock`** is monotonic (a backwards `to` is refused). It moves the
   runner's clock and the host's motion clock to one instant and **lands where
   the runner says** (`batch.clock`): a timer's refusal stops the advance at
@@ -299,7 +384,8 @@ the Linux host implements this list, not that file):
 - **`screenshot`** is the rendered pixels: `Page.captureScreenshot`, or
   `cacheDisplay` of the viewport with every canvas painting its readback
   picture (as a capture does; a Metal layer alone would be blank — since
-  2026-08-30), or with `window` the window server's picture
+  2026-08-30; a pending capture is rendered at the agent's clock first, as
+  `clock` leaves it — since 2026-10-03), or with `window` the window server's picture
   (`screencapture -l`, needs screen-capture permission and a display that
   is on).
 
@@ -319,7 +405,9 @@ document cites it rather than restating it as a second law. **`prefer`
 (2026-09-27, LLP 1061 D5) is the ninth** (Charlie, 2026-09-27: "relax the
 rule and allow a 9th button"): a display preference is no input, so it is
 not a form of `tap` or `type`. It is the operation that sets every device
-fact (LLP 1069.007 §3 P1), and a tenth now replaces one of the nine.
+fact (LLP 1069.007 §3 P1). **`perf` (2026-10-02, LLP 1079) is the tenth**, under
+Charlie's waiver: a subtree's work by plan site and a host's presented frames.
+An eleventh replaces one of the ten.
 
 ## 2. The clock
 
@@ -340,6 +428,27 @@ waits for the reply under the call's deadline and advances on. A jump whose
 timers send nothing is one advance; past the deadline, or 4096 stops, the
 rest is one advance; a request with no timer after it in the jump lands when
 it lands, as a fetch does under a real clock.
+
+**Real time (2026-10-04, jukebox F14).** What runs on real time — a playing
+video (LLP 1042 §3), a store, the network — is never held or seeked to the
+clock, and a jump takes no real time, so between two operations it moves only
+as far as the drive took. `clock +N real`, a form of `clock` and of a test's
+`clock` step, is the driver's alone: it lets N ms of real time pass, moving the
+clock to the elapsed time every 50 ms (`{"op":"clock","to":…}` on the wire), so
+timers fire beside a video's `timeupdate`s; the reply adds `real`, the ms it took.
+
+**An input's end (2026-10-04, trivia F3, kanban F19).** A mutation's `then`
+is armed at the clock its answer lands at and runs at the host's next advance
+— on a wall clock at once, but the agent's clock stood still, so the screen a
+`tap` opened through `mutation … then` was there only after a `clock` step.
+Now every input the driver delivers (`tap` in each form, a contact's phase,
+`type`, a held request's answer) ends with `{"op":"clock","land":true}`:
+the `then` of every answer already landed runs, each its own commit, with the
+clock unmoved and no timer fired (`Runner::land_then`; mode 2 of
+`exact_advance` on the web and Apple ABIs; the JS target's `advance(now, …,
+timers false)`). The reply's tags are read after it. What is still on real
+time — a store's reply, the network's — is not waited for: it lands at a
+`clock` step, as before.
 
 Agent mode is opt-in per launch: `?agent=1` on the page (only then does
 `globalThis.exact` carry `agent` and `now`), `EXACT_AGENT=1` for the macOS
@@ -378,7 +487,9 @@ page's `now()` in agent mode and never reschedules itself; `clock` asks it
 for a frame.
 
 **What still moves on its own** — host I/O, not the clock: an image
-finishing decoding (the kernel relays out; poll `layout`), the GPU module
+finishing decoding (the kernel relays out; poll `layout`; `screenshot` on the
+web, macOS and iOS, and the Apple `clock`, first wait up to 3 s for images on
+screen, and a screenshot that stopped waiting says `imagesPending: n`), the GPU module
 loading after the first paint. The smoke polls for both and says so. On
 macOS the display link keeps ticking under agent mode; every tick seeks the
 engine and the canvases to the same agent clock, so it repaints the same
@@ -409,7 +520,9 @@ live node with that id`), a root `navigationKey` that names no route (once
 per key), a back gesture refused for want of an enabled `navigationBack`
 control, and a modal route refused because the owner already presents
 (once per route); the web page journals a `focus` whose element is missing.
-Nothing a host refuses is silent.
+Nothing a host refuses is silent. Native data modules drain their console lines
+into this journal after each answer and reply, including refused turns; storage,
+mixed composition and worker placement forward those lines exactly once.
 
 `logs` replies `{"next":N,"from":M,"lines":[…]}` with `from = clamp(since,
 journal_start, next)`: a reader whose cursor the ring has passed gets the
@@ -521,31 +634,72 @@ CLI splits argv, and nothing reads the outline in.
 ```
 tree     epoch E · incarnation I · clock C ms · N nodes
          {"  " × depth}{Type}#{id} [{testId}] "{text}" value="…" label="…" ({handlers, ", "-joined})
-layout   viewport W×H [· safe-area T R B L · keyboard K, when any is not 0] · clock C ms
-         #{id} [{testId}] {Type} {x},{y} {w}×{h} scroll {sx},{sy}
+layout   viewport W×H [· safe-area T R B L · keyboard K, when any is not 0] [· posture P · segments C×R [x,y w×h]…, when not flat] · clock C ms
+         #{id} [{testId}] {Type} {x},{y} {w}×{h} scroll {sx},{sy} of {rx},{ry} port {x},{y} {w}×{h}
 logs     "(N earlier lines dropped by the journal ring)" when dropped > 0;
          the journal lines as they are; the host's lines indented two spaces;
+         on an iOS simulator, the newest crash report since the build that names this
+         app's bundle id and this simulator's UDID, unindented: its path and time, the
+         exception, the app's message and the crashing thread's top eight frames;
          "(nothing new)" when there is nothing at all
-state    the JSON, indented two spaces (JSON.stringify(reply, null, 2))
-others   the JSON on one line
+state    [epoch E · incarnation I · clock C ms], then one line per other section:
+         {name} {its JSON on one line}; an app's state without its empty sections.
+         Over 8 KB (`STATE_CAP`; `state … --full` lifts it), in its place:
+         state [{name}] is {size}, over the 8.0 KB printed whole [· the tags]
+         {section} {its JSON on one line}: slots, derives, then the smallest, up to 2 KB between them (`STATE_SHOWN`)
+         not shown: {section} {size} · … (largest first)
+         one section: "state {largest}" … | one key: "state {name}.{key}" | one item: "state {name}.0"; all of it: "state [{name}] --full", or --json
+tap      [ERROR {error} · ]tapped #{id} "{target}" [· at X,Y] · delivery D · epoch E
+         [· incarnation I, when not 1] · clock C ms [· key=JSON for each other field but carrier and mode]
+type     the same, `typed`; a reply with an error or `delivery: unsupported` reads `tap`｜`type`, a contact's phase `tap {phase}`,
+         a held request's answer `answered @{ticket} "{choice}"`; `at` shows for a phase and a drag only, and an
+         input delivered whose answers did not land keeps its verb and adds `landing failed: …` (`landError`)
+clock    clock C ms [· settled | NOT settled (reason)] [· epoch E] [· incarnation I] [· key=JSON …]
+screenshot  screenshot {path} · W×H [· epoch E] [· clock C ms] [· key=JSON …]; a comparison its text
+others   {op} [· epoch E] [· incarnation I, when not 1] [· clock C ms] [· key=JSON for each other field but carrier and mode]
 ```
+
+**What an agent pays to read (2026-10-08, revised 2026-10-09; measured while
+an agent built and drove a 30-screen app).** A
+`tap` printed its whole reply, 144–165 bytes, so 60 taps were about 9 KB; it
+is now one line of 74–92 bytes. `delivery` stays, since it says whether a
+finger was simulated or substituted (LLP 1080.000). A failed input says
+`ERROR` first, and neither it nor an `unsupported` form reads `tapped`; a
+contact's `down` reads `tap down`, held; a phase or a drag keeps `at`, where
+the finger is; an input delivered whose answers then failed to land keeps
+`tapped` and says `landing failed` (the reply's `landError`, not `error`),
+so an agent does not send it again; a test still stops there. `state` was the JSON pretty-printed,
+which cost an app's state over half again its compact JSON; it is now one
+line a section (Caltrain, web: 13,654 → 8,150 bytes; on an iPad simulator
+24,123 → 14,202; a one-node app 1,237 → 761). An app's state (a reply with
+`slots`) leaves out a top-level section that is null, an empty list or an
+empty record (`emptySection` in `scripts/agent-inspect.mjs`), and judges
+nothing else: a first cut that also hid each host's defaults (a hidden
+keyboard, an idle navigation, the agent-mode storage refusal) saved about 300
+bytes more on Caltrain and hid real values in three review rounds (a keyboard
+still insetting the content, a task due at 0, a route named `idle`). A
+world's or an entity's reply has no `slots` and is never filtered: an empty
+`busy` is its answer. `tree` is unchanged and is now most of a drive's text
+(15.9 of 24.4 KB in a seven-op Caltrain drive on the web). `--json` prints
+every field.
 
 A part in `[brackets]` appears when its field is present — `!= null`, so an
 empty string shows (`label=""`); `(handlers)` when the array is non-empty;
-`scroll` when `sx` is present. `text`, `value`, and `label` are JSON-quoted;
+`scroll` when `sx` is present, its ` of {rx},{ry}` when `rx` is, and then ` port {x},{y} {w}×{h}` when `port` is. `text`, `value`, and `label` are JSON-quoted;
 `testId` and `Type` are not (they are identifiers). The fixture:
 `scripts/fixtures/transcript.json` is an object of named samples, each
 rendered as `--- name` + newline + the rendering, joined by blank lines,
 with a final newline; a sample named `empty` or `dropped` is a `logs`
 reply, the rest are named by their op. `scripts/smoke.mjs` checks it before
 opening a host; `--record` rewrites it after a deliberate change. The input
-grammar — `tap <target> [wheel <dx> <dy> | hover | contextmenu | dblclick |
-down [at <x> <y>]]`, `tap move <x> <y>｜by <dx> <dy> [over <ms>]`, `tap
-hold [<ms>]`, `tap up`, `tap cancel` (the four phase words only while a
-contact is down), `type <target> <text…>`, `clock <ms|+ms|settle>`,
+grammar — `tap <target> [at <x> <y> | wheel <dx> <dy> [gesture] [at <x> <y>] [modifiers <M>] | hover |
+mouse | dblclick | contextmenu | auxclick | clicks <1-3>` (each `[at <x> <y>] [modifiers <M>]`)
+`| modifiers <M> | down [at <x> <y>] [modifiers <M>]]`, `tap move <x> <y>｜by <dx> <dy> [over <ms>]
+[modifiers <M>]`, `tap hold [<ms>]`, `tap up [modifiers <M>]`, `tap cancel` (the four phase
+words only while a contact is down; a word no form uses is refused, #107), `type <target> <text…>`, `clock <ms|+ms|settle>`,
 `screenshot <png> [window]`, `screenshot <png|apng> over <ms> every <ms>` (film on
 the clock, LLP 1012.001.000 D2), `layout [<target>]` — is the whole of it. `layout <target>` (2026-09-09, LLP 1035.002) renders its
-`node` as a block under the listing — `node #id [testId] Type · site ·
+`node` as a block under the viewport line, without the listing (2026-10-05) — `node #id [testId] Type · site ·
 instance · epoch · incarnation`, one `row = value (source)` line per row,
 then `space`, `scroll`, `clip`, `visible`, `native` and, on the web,
 `browser` lines, each present only when the host reported it (`renderNode`
@@ -631,3 +785,246 @@ deterministic and a smoke against real credentials leaves nothing behind.
   no-preference`), not the machine's until the first `prefer`; the UTC offset
   is told again after every `clock`, so a move across a DST change re-answers
   `exactTime()` (a timer fired inside that jump still reads the old offset).
+
+## Amended (2026-10-16: a tap's pointer events, a hold on the clock)
+
+- **A tap is what a finger there delivers.** A plain `tap` that presses
+  what the pointer reaches sends the pointer's `pointerdown` and `pointerup`,
+  bubbled as a real contact's and with the modifiers it holds, then the
+  press, in DOM's order (Pointer Events 3 §4.1; UI Events §3.5). The web and
+  macOS already did, through CDP and `sendEvent`; iOS's activation and
+  Linux's presenter press now send both first (`AgentIOS.swift`,
+  `addressed_tap.rs`). The press goes to what the pointer went down on: one
+  its handlers took away or replaced presses nothing. A control that holds
+  on `pointerdown` (a hold-to-repeat stepper, a charge) works under the
+  agent, not only under a real touch (euxy port, FRICTION §2). Not yet: a tap
+  the host activates natively before that path (on iOS a native control, a
+  segment, a grouped list's row, a swipe action, a confirmation's row, a bar
+  item; on Linux a top-layer surface's row or a bar's item) sends no
+  pointer events (QUEUE).
+- **One finger at a time.** A press while a contact is held is refused, as a
+  second `down` is, on every carrier.
+- **A hold is the clock's.** `tap <target> down`, `tap hold <ms>`, `tap up`
+  is a press held for `<ms>`: under agent timing the hold moves the app's
+  clock by `<ms>`, its timers firing as they would, and no wall time passes;
+  under `--timing platform` `<ms>` of real time passes (the main run loop
+  turns on iOS and macOS), so the platform's own motion runs on. A drag's
+  `press` and `hold` already were; Linux's always were. Under `--touch
+  platform` on iOS the three are one real touch pressed at `tap up`: once it
+  has reached its view, the clock moves the holds' `<ms>` on real time under
+  either timing (the clock is the agent's then, as after any landed input),
+  and the finger lifts after it (LLP 1080.000 §14).
+- **A held target shows pressed** (amended 2026-10-17). Between `tap
+  <target> down` and `tap up` the target shows its press, its
+  `-exact-press-scale` or the platform's dim, on every host, so `tap row
+  down`, `screenshot held.png`, `tap up` pictures the press and then presses
+  once. Under `--touch platform` on iOS the holds, reads and `clock +<ms>`
+  steps written between run inside the one real touch in the order written (a
+  `clock +<ms>` counts toward the hold), after UIKit has handed the touch to
+  its view, and each answers at `tap up`, in that order; any other op between,
+  a waiting `clock` too, is refused, naming `tap up` and `tap cancel`, and a
+  `tap cancel` runs them after it with nothing pressed (LLP 1080.000 §14).
+- **iOS holds a contact.** Off a `pan` node, where no swipe or other drag
+  could take it, `tap … down` is a recognized finger (`delivery: recognized`,
+  `AgentPanIOS.swift`): its `pointerdown` as
+  it lands, `pointermove`s as it moves (nothing scrolls: `tap <scroller>
+  drag` does), its `pointerup` (to every node its down reached that is
+  still that node, though one disabled itself) and then the press a finger
+  lifted there makes, if it is still on its target; meanwhile its target
+  shows pressed while the finger is inside it. It is no `UITouch`: no
+  UIKit recognizer sees it, under either timing. A drag's contact still
+  asks for a `pan` node's alone. `input` on iOS reports `contact` and `hold`.
+  Under `--touch platform` the contact is one real touch instead, played
+  whole at `tap up` (LLP 1080.000 §14).
+
+## Amended (2026-10-16: an iOS screenshot says what it paints)
+
+Under the agent an open popover is painted in the page (LLP 1021 D4), and
+under `--chrome agent` the authored header and tablist are, where the app
+shows UIKit's menu, navigation bar and tab bar. The picture cannot say so,
+so the `screenshot` reply does: `painted` (the open popovers, by id and
+`testId`) with `paintedNote`, and `chrome` (the headers and tablist the
+bars stand for) with `chromeNote`. Under `--chrome platform`, `exact.mjs`'s
+default on iOS, the bars are UIKit's and `screenshot <png> window` draws
+them; a bar item that only opens a menu is refused as `unsupported`, by
+name, since UIKit's pull-down from the bar has no public way to open it.
+Under `--touch platform` a real touch opens it (next amendment).
+
+## Amended (2026-10-16: an app's own native motion and views on iOS)
+
+The euxy port (its FRICTION §9 and §10) drove the real app with AXe and
+`simctl io screenshot` because the agent could not finish its native work.
+
+- **The app's own motion ends as a person sees it.** Core Animation runs on
+  the wall's time, which the agent's clock cannot seek: a native module's
+  `UIView.animate` (euxy's boot overlay, a view added to the window and
+  faded out) ran on, but `clock +N` took no real time and a tap came while
+  the overlay still covered the app ("UIView covers its middle"). Now a
+  Core Animation animation still running on a running layer of the app's
+  window (finite, not held at speed 0, not kept on its layer past its end;
+  one kept with no begin time is timed from when it is first seen, every
+  animation looked at in each pass so ones attached together are timed
+  together) is waited for, its completion then run and what that starts (a
+  second fade) waited for in the same budget, once per command: `clock +N`
+  gives it up to N ms and at most 1.5 s, after its last step (the driver
+  marks a long seek's other steps `step` and sends the whole `jump`, and
+  `+N real` waits on none, real time passing anyway); `clock settle` gives
+  it 1.5 s for the whole call. Still running past either budget, the reply
+  says `settled: false` with reason `motion` (`awaitWallMotion`,
+  `AgentMotionIOS.swift`). A tap, at the point it will press, waits up to
+  3 s while something moves there in a view the app laid on the window,
+  outside every session and every UIKit presentation: a layer of it whose
+  presentation is over the point (a fading one's too, no longer
+  hit-tested) and animates or changes from frame to frame. It stops after
+  half a second with nothing moving there; one that stays is then refused,
+  named. A toast moving in another corner of such a view delays nothing. Motion a display link
+  draws frame by frame has no animation to see: `clock +N real` lets it run.
+  Driving the window layer's time from the agent's clock (`speed` 0, a
+  `timeOffset`) was not chosen: it would hold UIKit's own animations as
+  well, transitions whose completions UIKit waits on among them, and a
+  display link reads `CACurrentMediaTime` regardless.
+- **Contract motion held at speed 0 is the clock's.** A lowered `@keyframes`
+  animation stays on its layer at speed 0 for the clock to seek; it had
+  counted as native geometry in flight, so every `clock settle` while one
+  was on screen (euxy's tip) waited 2 s and answered `settled: false`.
+  Geometry repeating for ever, or kept past its end, no longer holds
+  `clock settle` either.
+- **A tap on a module's native view is refused, not swallowed.** The
+  agent's press reaches no control, gesture recognizer or `touchesBegan` of
+  a native module's view (UIKit has no public touch synthesis): a plain tap
+  landing on one with no Contract press reaching it, no pointer listener
+  around it and no responder there for it to focus answers `unsupported`,
+  naming `--touch platform`, where it is a real touch (`moduleTouch`,
+  `AgentIOS.swift`). With a pointer listener, its pointer events are
+  delivered and the reply's `unreached` says what was not.
+- **UIKit's menus and tab bar under real touches.** `--touch platform`
+  launches with `EXACT_AGENT_PRESENTATION=native` (LLP 1080.000 D7): a
+  popover a person sees as UIKit's menu (LLP 1021 D3), a bar item's
+  pull-down included, is UIKit's. A tap on its invoker opens it. A tap
+  naming a row aims at that row: UIKit puts no identifier on the element it
+  shows for an action, so the host keeps the rows it gave each menu, in
+  order, and which popovers it last gave UIKit to present (a menu and its
+  submenus). The row's popover must be one of those; the host finds the
+  one run of shown rows (accessibility elements outside every session, by
+  list, in reading order) whose labels are its rows' and aims at the row's
+  place in it. A duplicate title, a label that is another's prefix or
+  another popover's menu reading the same picks nothing else; a row of a
+  popover not presented, of two presented popovers that read the same, of
+  a menu shown twice, or scrolled out of a menu that scrolls (its rows off
+  the screen are not in the view hierarchy; the rows it shows are matched
+  as one slice of its rows, and a slice that could be two places is
+  refused; drive it without the flag) is refused before any touch. The reply's `native` names it
+  (`{"kind":"menuItem","label":…,"row":…}`). A screenshot while such a menu
+  shows is the window's (`presented: "menu"`), however UIKit presents it.
+  Under `--chrome platform` a tab aims at the one element UIKit shows with
+  its item's identifier (its tab's test id), refusing none or several.
+  Context menus stay painted and confirmations UIKit's alerts, refused to a
+  real touch as before. The dispatch log records a touch a system
+  recognizer took without a view (iOS 26's tab bar) where the window's hit
+  test put it.
+
+## Amended (2026-10-16: a screenshot compared with a reference)
+
+An agent porting an app matches each screen to a screenshot of the original.
+Three ports of the euxy Expo app were judged against its screenshots; most
+of the exact2 port's deficits were authoring a pixel comparison would have
+named (note pads 8 pt too tall, a share card centred instead of left-aligned,
+a swipe action's text white instead of black), and the UIKit porter, who
+diffed its screenshots with scripts of its own, scored highest. So the
+driver compares, as a form of `screenshot` (a question about the picture,
+not an eleventh operation): `screenshot <png> compare <reference.png>`
+(`compareScreenshot`, `scripts/agent-compare.mjs`). It says only what the
+pixels show.
+
+- **The capture.** On an iOS simulator, the window with its status bar
+  (`window status`); the rows of the window's safe area (`safeArea` in the
+  screenshot reply: the status bar and the home indicator, whatever the
+  page's `viewport-fit`) are never scored. Nodes are placed where the window
+  has the viewport (a node's `space.window` less its `space.viewport`); a
+  viewport drawn at another size than its points (`--size`) is refused.
+  Elsewhere the viewport, the only capture `layout`'s boxes are in; macOS
+  says the windows its capture leaves out (`notShown`). On the web `layout`
+  is read with `picture: true`, which holds a transition under way where the
+  screenshot shows it. The reference must have the screen's shape and at
+  least its size in points on each axis. The capture's notes follow the
+  report as `capture:` lines.
+- **Regions.** On a grid of one cell a point (each the area mean of the
+  pixels it covers, flattened on white), two cells match when each is within
+  40 (of 255) in every channel of the other's 3×3 neighbourhood, so
+  anti-aliasing and sub-point offsets do not count. The differing cells,
+  merged into boxes, are the regions, the six largest reported: each with
+  the innermost node whose box holds its centre and the smallest named one
+  (`under`; a shown screen's before a covered one's), and either a hint or
+  the colours. The hint is given when the region's content plainly sits
+  elsewhere in the reference: one vertical or horizontal offset of 2 to 64 pt
+  at which the region matches the reference both ways, leaving at most a
+  tenth of its differences, with no other offset close. Otherwise the fill
+  and ink of its differing cells on each side, where they differ.
+- **Boxes.** A node over a region whose four edges both pictures show (a
+  fill at least 12 unlike what is around it) is measured in each; one 2 pt
+  or more apart in size or place is given at both sizes. No size is derived
+  from a move, and none is given for an edge not found.
+- **The picture.** `<png>.diff.png`: the reference, the screen, and the
+  screen faded with what differs in red and the regions boxed, each panel
+  labelled above it; the head line names them in that order. Beside it,
+  `<png>.regions.png` holds the regions alone, a row each in their numbers'
+  order, the same three panels cut from each picture at its own resolution,
+  so a region is read without cropping the whole screen.
+
+On the euxy port the four screens the judge marked down came out as the
+judge saw them: the note pads (`pad-57 (View "A2") [146,361 25×48]: 25×40 at
+146,353 in the reference`), the share card (`share-card [36,237 330×452]:
+344×470 at 23,237 in the reference`), the lane editor's values (a region
+under `listen`: `its content sits 4 pt left in the reference`), and the swipe
+action's text (`under Text "Delete": here #ddd on #f42, in the reference
+#000 on #f42`). A row a third of a point short (the judge's "rows slightly
+shorter") is under the grid's resolution.
+
+## Amended (2026-10-17: what a port's screenshots met)
+
+The euxy porter, capturing screens for a visual-fidelity judge, lost a screen
+to each of these.
+
+- **System sheets under `--touch platform`.** The share sheet and the
+  document pickers (`showOpenFilePicker`, `showDirectoryPicker`,
+  `showSaveFilePicker`) are held for the agent as before, so `state`'s
+  `pending` lists what was asked and `tap @t` / `type @t` answer it, and on
+  an iOS simulator under `--touch platform` they are also presented for real
+  (`"present": true` beside `"agent": true` in the runner's request). A
+  screenshot then waits for the sheet to arrive and is the window's
+  (`presented: "share sheet"` or `"sheet"`), drawn from the display. What the
+  person does in the sheet answers the hold, journalled as the agent's answer
+  is; the agent's answer, or `back`, closes the sheet. The photo and file
+  input picker, the export sheet and the sign-in sheet stay held only. A
+  screenshot taken while any held sheet is undrawn says so on stderr, naming
+  `--touch platform` where it would draw it.
+- **A painted menu's note** names `--touch platform` as the way to picture
+  UIKit's menu, and is not given under it, where what is painted is what a
+  person sees painted (a content popover). Under the flag a screenshot with a
+  UIKit menu or sheet up was already the window's (LLP 1116.012 D3): that
+  default stays, since a plain screenshot that leaves out what is on screen is
+  the surprise.
+- **The development build replacing a Release one.** The build a drive runs
+  first installs nothing (`--no-install`); the drive installs. Before its
+  first install over a build whose receipt is not a development one, it
+  copies that build aside (an APFS clone under
+  `~/.cache/exact/simulator-releases/<udid>-<id>/`, replacing an older copy
+  for that pair; a copy that fails stops the drive before the install), and
+  stderr says it was replaced, with the one command that puts it back:
+  `xcrun simctl install <udid> '<copy>'`. Nothing is reinstalled for the
+  drive: an automatic restore raced other drives and builds, and cost two
+  installs a session. The drive's later sessions find the development build
+  and copy nothing. `build.mjs --ios` says when its development build
+  replaced such a build, with the command that puts it back. Bundle ids are
+  unchanged.
+- **`compare` starts from an empty store.** A drive with a `screenshot …
+  compare` and `--storage` empties the store on every host unless
+  `--keep-storage` keeps it: what an earlier drive stored (a die rolled) is no
+  part of the screen. A region's ink leaves out an edge's anti-aliasing: a
+  cell on a run of up to three across or down between two colours present in
+  the region, every cell of the run a mix of theirs (one fraction of the way
+  in every channel). A side whose differing cells are only that reads `#fff, its
+  edge's anti-aliasing #bbb beside it`, and both sides' clauses are said. A
+  1 pt border off the line between its two sides keeps its colour; one on it
+  (grey between white and black) reads as a blend, which the pixels cannot
+  tell apart.

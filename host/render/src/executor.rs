@@ -8,6 +8,11 @@ use std::time::Instant;
 #[path = "../../apple/src/executor_core.rs"]
 #[allow(dead_code)] // `run` is the core's own tests' entry
 mod core;
+/// A new executor waits for a native-worker slot under test: the crate's own
+/// tests, and the integration binary, whose every test's servers and renders
+/// share one process's bound (`test-wait`, which only the dev-dependency on
+/// this crate turns on). A server refuses (`Busy`) at the bound instead.
+const WAIT_FOR_SLOT: bool = cfg!(any(test, feature = "test-wait"));
 
 /// The native core with a condition variable for its wake.
 pub struct Executor {
@@ -29,9 +34,18 @@ impl Executor {
             Arc::new(ibex2::host::Host::new)
         } else {
             Arc::new(|| {
-                ibex2::host::Host::with_transport(Box::new(
+                let host = ibex2::host::Host::with_transport(Box::new(
                     ibex2::transport::RustlsHttpTransport::new(),
-                ))
+                ));
+                // Under conformance's network (`EXACT_NET_PROXY`) a Mac's sockets are the
+                // portable ones too, which take the run's proxy; the platform's do not
+                if cfg!(target_vendor = "apple") && std::env::var_os("EXACT_NET_PROXY").is_some() {
+                    host.with_socket_transport(Box::new(
+                        ibex2::transport::websocket::TcpSocketTransport::new(),
+                    ))
+                } else {
+                    host
+                }
             })
         };
         let host = transport();
@@ -54,6 +68,13 @@ impl Executor {
         Self { core, wake }
     }
 
+    /// Where an app's files are, for a request whose body is one of them
+    /// (LLP 1108 D6 R2). A render serves no app files and never sets them,
+    /// so such a request is refused; an embedder that has them may.
+    pub fn set_app_roots(&self, roots: [std::path::PathBuf; 3]) {
+        self.core.set_app_roots(roots);
+    }
+
     /// Admit work, or refuse it (a limit, the core retired).
     pub fn run(&self, request: RequestOut, work: Option<Work>) -> Result<(), &'static str> {
         self.core.run_owned(request, work)
@@ -65,11 +86,23 @@ impl Executor {
         self.core.drain()
     }
 
-    /// Lift the ordered lane's fence after a refusal.
-    pub fn resume_ordered(&self) {
-        self.core.resume_ordered();
+    /// Lift the ordered lane's fence after a refusal, admitting the ordered
+    /// requests held behind it; returns those refused at a limit.
+    pub fn resume_ordered(&self) -> Vec<(u64, &'static str)> {
+        self.core.resume_ordered()
     }
 
+    /// No admitted ordered work is in flight or undrained.
+    pub fn ordered_idle(&self) -> bool {
+        self.core.ordered_idle()
+    }
+
+    /// Settle a re-ask (`Dispatch::Again`) in its ordered place, with no
+    /// work (LLP 1041 §8.4, amended 2026-10-09); kept pending while the
+    /// window is full. An error is terminal, for the host to record.
+    pub fn again(&self, request: &RequestOut) -> Result<(), &'static str> {
+        self.core.again(request.ticket)
+    }
     /// Let go of the work for tickets the runner no longer holds.
     pub fn forget(&self, held: impl Fn(u64) -> bool) {
         self.core.forget(held);

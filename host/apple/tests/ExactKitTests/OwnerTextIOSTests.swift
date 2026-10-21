@@ -27,7 +27,7 @@ final class OwnerTextIOSTests: XCTestCase {
             out.font_size = Float(r.size); out.font_weight = UInt16(r.weight); out.font_family = UInt16(r.family)
             out.italic = r.italic ? 1 : 0; out.has_line_height = r.lineHeight == nil ? 0 : 1
             out.line_height = Float(r.lineHeight ?? 0); out.letter_spacing = Float(r.letterSpacing)
-            out.font_variant_numeric = UInt8(r.numeric)
+            out.font_variant_numeric = UInt8(r.numeric); out.font_stretch = Float(r.stretch)
             return out
         }
         let texts = spec.runs.map { Array($0.text.utf8) }
@@ -148,7 +148,7 @@ final class OwnerTextIOSTests: XCTestCase {
         // A face to declare: a monospaced system face's own file, as bytes.
         let mono = CTFontCreateWithName("Courier New" as CFString, 16, nil)
         guard let url = CTFontCopyAttribute(mono, kCTFontURLAttribute) as? URL, let data = try? Data(contentsOf: url) else {
-            throw XCTSkip("no readable file for the fixture face")
+            throw missing("fonts", "no readable file for the fixture face")
         }
         var s = spec(4)
         s.runs[0].family = 1; s.strut = s.runs[0]

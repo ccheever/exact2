@@ -44,6 +44,11 @@ pub struct IntoView {
     /// The list by its view instead of its `id`: the agent's `tap <list>
     /// into <key>`, whose target is a mounted list.
     pub view: Option<ViewId>,
+    /// `behavior="smooth"` (LLP 1070.000 §6.2): the host animates to the
+    /// destination; the window is built there at once, as for `auto`.
+    pub smooth: bool,
+    /// Explicit pixels into the row wrapper; overrides main-axis alignment.
+    pub offset: Option<f64>,
 }
 
 /// Correcting reports a request may take before it ends `unconverged`.
@@ -54,6 +59,8 @@ const CORRECTIONS: u8 = 6;
 pub(super) struct Target {
     key: Rc<str>,
     align: Align,
+    smooth: bool,
+    offset: Option<f64>,
 
     reports: u8,
     /// Consecutive reports that said the port was travelling.
@@ -105,10 +112,9 @@ impl Collection {
             ListAxis::Horizontal => request.inline,
         }
     }
-    /// The row root's margins along this list's axis, when it is mounted:
-    /// its wrapper encloses them, and the web aligns the element's border
-    /// box, inside them.
-    fn root_margins(&self, plan: &Plan, position: usize) -> (f64, f64) {
+    /// Insets from the row wrapper to its alignment area: ordinary margins
+    /// bring it to the border box, and scroll margins expand that box.
+    fn root_margins(&self, u: &Update<'_>, position: usize) -> (f64, f64) {
         use exact_kernel::StyleId;
         let Some(Child::Node(root)) = self
             .mounted
@@ -122,33 +128,87 @@ impl Collection {
             ListAxis::Vertical => [StyleId::MarginTop, StyleId::MarginBottom],
             ListAxis::Horizontal => [StyleId::MarginLeft, StyleId::MarginRight],
         };
-        let number = |id| match root.bound_style(plan, id) {
-            Some(Value::Number(n)) if n.is_finite() => *n,
+        // As the kernel lays it out, under a terminal's rule (any length, in
+        // whole cells); else as the plan binds it.
+        let laid = u.cell_margins.map(|margins| margins(root.view));
+        let number = |id| match (laid, root.bound_style(u.env.plan, id)) {
+            (Some([t, r, b, l]), _) => match id {
+                StyleId::MarginTop => t,
+                StyleId::MarginRight => r,
+                StyleId::MarginBottom => b,
+                _ => l,
+            },
+            (None, Some(Value::Number(n))) if n.is_finite() => *n,
             _ => 0.0,
         };
-        (number(a), number(b))
+        let [top, right, bottom, left] = u
+            .scroll_margin
+            .map_or([0.0; 4], |resolve| resolve(root.view));
+        let (start, end) = match self.axis {
+            ListAxis::Vertical => (top, bottom),
+            ListAxis::Horizontal => (left, right),
+        };
+        (number(a) - start, number(b) - end)
     }
-    /// The offset that aligns row `position` by `align`, from the index.
-    fn aligned(&self, plan: &Plan, position: usize, align: Align, current: f64) -> f64 {
-        let (before, after) = self.root_margins(plan, position);
+    /// The list's `scroll-padding` at each end along its axis, as its
+    /// committed style resolves it now: CSSOM View reads it when
+    /// `scrollIntoView` runs.
+    fn scroll_padding(&self, u: &Update<'_>) -> [f64; 2] {
+        let Some(resolve) = u.scroll_padding else {
+            return [0.0; 2];
+        };
+        let [top, right, bottom, left] =
+            resolve(self.view).map(|n| if n.is_finite() { n.max(0.0) } else { 0.0 });
+        match self.axis {
+            ListAxis::Vertical => [top, bottom],
+            ListAxis::Horizontal => [left, right],
+        }
+    }
+    /// The offset that aligns row `position` by `align`, from the index,
+    /// within the port less its `scroll-padding`, as CSS aligns in the
+    /// snapport (@ref LLP 1010 §6.9). It may be negative, down to the padding
+    /// before the first row: `scrollTop` 0.
+    fn aligned(
+        &self,
+        u: &Update<'_>,
+        position: usize,
+        align: Align,
+        current: f64,
+        offset: Option<f64>,
+    ) -> f64 {
+        if let Some(offset) = offset {
+            let port = self.geometry.as_ref().map_or(0.0, |g| g.port_main);
+            return (self.index.prefix(position).unwrap_or(0.0) + offset)
+                .clamp(-self.index.leading(), self.index.max_offset(port));
+        }
+        let (before, after) = self.root_margins(u, position);
         let start = self.index.prefix(position).unwrap_or(0.0) + before;
         let size = (self.index.height(position).unwrap_or(0.0) - before - after).max(0.0);
         let port = self.geometry.as_ref().map_or(0.0, |g| g.port_main);
+        let [inset_start, inset_end] = self.scroll_padding(u);
+        // The snapport, as offsets from the port's start.
+        let (low, high) = (inset_start, (port - inset_end).max(inset_start));
+        let view = high - low;
         let at = match align {
-            Align::Start => start,
-            Align::Center => start + size / 2.0 - port / 2.0,
-            Align::End => start + size - port,
-            Align::Nearest if start < current => start,
-            Align::Nearest if start + size > current + port => {
-                if size > port {
-                    start
+            Align::Start => start - low,
+            Align::Center => start + size / 2.0 - (low + high) / 2.0,
+            Align::End => start + size - high,
+            // CSSOM View's "nearest": a row that covers the snapport, or
+            // fits inside it, stays; else the nearer edge aligns.
+            Align::Nearest => {
+                let (top, bottom) = (start - current, start + size - current);
+                let above = top < low;
+                let below = bottom > high;
+                if above == below {
+                    current
+                } else if above == (size <= view) {
+                    start - low
                 } else {
-                    start + size - port
+                    start + size - high
                 }
             }
-            Align::Nearest => current,
         };
-        at.clamp(0.0, (self.index.total_height() - port).max(0.0))
+        at.clamp(-self.index.leading(), self.index.max_offset(port))
     }
     /// Start a request for the row keyed `key`: its window is built at the
     /// destination now, and the host is told to move there before it paints.
@@ -158,17 +218,22 @@ impl Collection {
         frames: &[Frame],
         key: &str,
         align: Align,
+        smooth: bool,
+        within: Option<f64>,
     ) -> Result<(), InstanceError> {
         let position = self.index.position(key).expect("resolved");
         let current = self
             .geometry
             .as_ref()
             .map_or(self.start_offset, |g| g.offset);
-        let offset = self.aligned(u.env.plan, position, align, current);
+        let offset = self.aligned(u, position, align, current, within);
         self.restored_at = None;
+        self.at_end = false;
         self.target = Some(Target {
             key: self.index.shared_key(position).expect("resolved").clone(),
             align,
+            smooth,
+            offset: within,
             reports: 0,
             travelling: 0,
             aligned: 0,
@@ -183,17 +248,21 @@ impl Collection {
                 self.correction = Some(AnchorCorrection {
                     scroll_sequence: g.scroll_sequence,
                     offset,
+                    from: None,
+                    smooth,
                 });
             }
             None => {
-                self.start_offset = offset;
+                self.start_offset = offset.max(0.0);
                 self.correction = Some(AnchorCorrection {
                     scroll_sequence: 0,
                     offset,
+                    from: None,
+                    smooth: false,
                 });
             }
         }
-        self.realize_window(u, frames, false, CollectionFill::default())?;
+        self.realize_window_with_row(u, frames, false, CollectionFill::default(), Some(position))?;
         advance(&mut self.revision)?;
         Ok(())
     }
@@ -222,11 +291,11 @@ impl Collection {
     /// After a report's measurements: where the target now aligns.
     pub(super) fn settle_into_view(
         &mut self,
-        plan: &Plan,
+        u: &Update<'_>,
         reported: f64,
     ) -> Option<IntoViewStatus> {
         let target = self.target.clone()?;
-        let ended = self.settle_target(plan, &target, reported);
+        let ended = self.settle_target(u, &target, reported);
         if let Some(status) = &ended {
             self.into_view_status = Some((target.key, status.clone()));
         }
@@ -234,7 +303,7 @@ impl Collection {
     }
     fn settle_target(
         &mut self,
-        plan: &Plan,
+        u: &Update<'_>,
         target: &Target,
         reported: f64,
     ) -> Option<IntoViewStatus> {
@@ -245,7 +314,7 @@ impl Collection {
         let g = self.geometry.as_ref()?;
         // Judged where the host says the port is, not where the runner
         // last asked it to be.
-        let desired = self.aligned(plan, position, target.align, reported);
+        let desired = self.aligned(u, position, target.align, reported, target.offset);
         // Every mounted row up to it: one above the port, laid out at its
         // real size but still an estimate here, puts the target elsewhere.
         let first = self
@@ -287,6 +356,8 @@ impl Collection {
         self.correction = Some(AnchorCorrection {
             scroll_sequence: sequence,
             offset: desired,
+            from: None,
+            smooth: target.smooth,
         });
         if let Some(t) = &mut self.target {
             t.reports += 1;
@@ -316,7 +387,7 @@ fn lists<'a>(children: &'a mut [Child], plan: &Plan, frames: &[Frame], out: &mut
             Child::Region(region) => match &mut region.active {
                 Active::Arm { roots, frame, .. } => {
                     let mut inner = frames.to_vec();
-                    inner.push(frame.clone());
+                    inner.push(frame.scope());
                     lists(roots, plan, &inner, out);
                 }
                 Active::Rows { rows } => {
@@ -362,7 +433,7 @@ fn by_view<'a>(
             Child::Region(region) => match &mut region.active {
                 Active::Arm { roots, frame, .. } => {
                     let mut inner = frames.to_vec();
-                    inner.push(frame.clone());
+                    inner.push(frame.scope());
                     if let Some(found) = by_view(roots, view, &inner) {
                         return Some(found);
                     }
@@ -393,6 +464,13 @@ impl Collection {
                 }
             }
         }
+        if let Some(s) = key.as_str() {
+            if let Ok(b) = s.parse::<bool>() {
+                if let Ok(found) = self.resolve_exactly(&Value::Bool(b)) {
+                    return Ok(found);
+                }
+            }
+        }
         self.resolve_exactly(key)
     }
     fn resolve_exactly(&self, key: &Value) -> Result<String, String> {
@@ -412,6 +490,46 @@ impl Collection {
 }
 
 impl Tree {
+    /// Keyboard traversal already knows a logical row position. Resolve its
+    /// identity here, without exporting the unmounted keys to a host.
+    pub(crate) fn reveal_collection_index(
+        &mut self,
+        u: &mut Update<'_>,
+        view: ViewId,
+        index: usize,
+    ) -> Result<bool, InstanceError> {
+        let Some((list, frames)) = by_view(&mut self.children, view, &[]) else {
+            return Ok(false);
+        };
+        let Some(key) = list.index.key(index).map(str::to_owned) else {
+            return Ok(false);
+        };
+        // Keyboard focus owns the next position. An earlier authored seek
+        // must not pull it back after a resize (including a zero-sized port).
+        let cancelled = list
+            .target
+            .take()
+            .map(|target| (target.key, IntoViewStatus::Cancelled));
+        if cancelled.is_some() || list.correction.is_some() {
+            list.correction = None;
+            advance(&mut list.revision)?;
+        }
+        if let Some(cancelled) = cancelled {
+            list.into_view_status = Some(cancelled);
+        }
+        if list.mounted.iter().any(|row| row.position == index) {
+            return Ok(true);
+        }
+        let status = list.into_view_status.take();
+        list.begin_into_view(u, &frames, &key, Align::Nearest, false, None)?;
+        // This window is provisional. The host focuses its chosen descendant
+        // before reporting geometry; ordinary focus reveal sets the offset.
+        list.target = None;
+        list.correction = None;
+        list.into_view_status = status;
+        Ok(true)
+    }
+
     /// Carry out one `scrollIntoView` (LLP 1070.000 §2): resolve the list,
     /// and for an inner one its outer row, and begin the request on each
     /// scroller between the target and the list.
@@ -419,8 +537,14 @@ impl Tree {
         &mut self,
         u: &mut Update<'_>,
         request: &IntoView,
+        continuation: &mut Option<IntoView>,
     ) -> Result<IntoViewStatus, InstanceError> {
         let plan = u.env.plan;
+        if request.offset.is_some_and(|n| !n.is_finite()) {
+            return Ok(IntoViewStatus::Refused(
+                "offset must be a finite number of CSS pixels".into(),
+            ));
+        }
         if let Some(view) = request.view {
             let Some((list, frames)) = by_view(&mut self.children, view, &[]) else {
                 return Ok(IntoViewStatus::Refused(format!(
@@ -432,7 +556,7 @@ impl Tree {
                 Err(why) => return Ok(IntoViewStatus::Refused(why)),
             };
             let align = list.align_for(request);
-            list.begin_into_view(u, &frames, &key, align)?;
+            list.begin_into_view(u, &frames, &key, align, request.smooth, request.offset)?;
             return Ok(IntoViewStatus::Pending);
         }
         let mut found = Vec::new();
@@ -452,7 +576,7 @@ impl Tree {
                 Err(why) => return Ok(IntoViewStatus::Refused(why)),
             };
             let align = list.align_for(request);
-            list.begin_into_view(u, &frames, &key, align)?;
+            list.begin_into_view(u, &frames, &key, align, request.smooth, request.offset)?;
             return Ok(IntoViewStatus::Pending);
         };
         // An inner list: the outer list whose rows hold lists with this id,
@@ -468,7 +592,7 @@ impl Tree {
         };
         let row_key = outer.resolve(row).expect("resolved");
         let align = outer.align_for(request);
-        outer.begin_into_view(u, &frames, &row_key, align)?;
+        outer.begin_into_view(u, &frames, &row_key, align, request.smooth, None)?;
         let Some(mounted) = outer.mounted.iter_mut().find(|m| {
             super::super::ident(&m.row.key, m.row.dup).as_deref() == Some(row_key.as_str())
         }) else {
@@ -489,12 +613,14 @@ impl Tree {
                 request.list
             )));
         };
-        let key = match list.resolve(&request.key) {
-            Ok(key) => key,
-            Err(why) => return Ok(IntoViewStatus::Refused(why)),
-        };
-        let align = list.align_for(request);
-        list.begin_into_view(u, &frames, &key, align)?;
+        // The outer seek may have just created this list. Its styles must
+        // compute before the inner alignment reads them, within the same commit.
+        let _ = frames;
+        *continuation = Some(IntoView {
+            view: Some(list.view),
+            row: None,
+            ..request.clone()
+        });
         Ok(IntoViewStatus::Pending)
     }
 }

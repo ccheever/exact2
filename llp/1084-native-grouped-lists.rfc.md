@@ -1,0 +1,379 @@
+# LLP 1084: A grouped list is UIKit's own list on iOS — `list appearance="auto"`
+
+**Type:** RFC
+**Status:** Implemented 2026-10-03 (§6, as built). Numbered 1082 until 2026-10-04, when it was renumbered because LLP 1082 (hosting) had landed under the same number. Charlie approved the direction on 2026-10-03: "A native grouped-list role mapped to UICollectionView list layout." That approval is the human word for the fixture page (`scripts/fixtures/grouped-list.contract`) and for the DEFERRED entry this adds (§5).
+**Systems:** Contract (`contract/lower/src/grouped.rs`, new: the shape checks and the sheet; `lib.rs`: the hook; `tags.rs`: `listStyle`), Kernel (`schema.json`: prop 225 `listStyle`, prop 8 `groupedRowSeparator`, the `info` symbol role; `kernel/src/grouped.rs`, new: `Kernel::grouped_list`; `grouped/separator.rs`: `Kernel::grouped_separator`), Linux host (`paint.rs`, `paint/svg.rs`: symbol roles painted, §4; `paint/grouped.rs`: the separator), Apple host (`abi/commands.rs`, `abi/exports.rs`, `include/exact.h`: `exact_grouped_list`; `ExactGroupedLists/GroupedListIOS.swift`, new; `PresenterIOS.swift`, `Bridge.swift`, `Session.swift`, `ChromeIndex.swift`, `AgentIOS.swift`, `AgentNativeIOS.swift`: the wiring; `src/separator.rs`, `GroupedSeparator.swift`: the separator), terminal (`paint/grouped.rs`), web (`index.html`: the separator)
+**Author:** Claude (Opus 5.5) for Charlie Cheever
+**Implementer:** Claude (Opus 5.5), on `grouped-list`, 2026-10-03
+**Date:** 2026-10-03
+**Related:** LLP 1069.011 (native buttons: `appearance="auto"` as the switch, the children as data, a style vocabulary); LLP 1059 (a tablist projects to a tab bar by shape); LLP 1008 §9 (swipe cells: authored content carried into a UIKit cell, the kernel owning its size); LLP 1010 and LLP 1070 (collections: the virtualized `list`, which this is not); LLP 1080.001 D3 (what the inspection walk accounts for); LLP 1081 D5 (a Contract attribute is outside the `-exact-` rule). The Signal Clone's diary (`~/.tuft/projects/signal-exact2/DIARY.md`, "inset-grouped tables are four small components"): the consumer. Reviews: `llp/reviews/code-2026-10-03-grouped-list.{astra,grok}.md`.
+
+## Summary
+
+Settings screens are inset-grouped lists. Today an app draws one out of boxes: the Signal Clone's `Section`, `Row`, `ActionRow`. The result looks close to iOS, but it is not iOS. There is no cell highlight on touch-down, no dynamic type, no native separators, and VoiceOver reads the rows as buttons.
+
+This RFC makes a `list` whose `appearance` is the literal `auto` a grouped list:
+
+```
+list appearance="auto" listStyle="inset-grouped" flex=1
+  section
+    header
+      text "Account"
+    button press=openProfile
+      image "symbol:person"
+      text "Profile"
+      image "symbol:forward-chevron"
+    row
+      text "Read Receipts"
+      input type="checkbox" switch checked=receipts input=setReceipts
+    footer
+      text "Who can see you."
+```
+
+On iOS the list is a `UICollectionView` with `UICollectionLayoutListConfiguration`. Its rows are `UICollectionViewListCell`s configured with `UIListContentConfiguration` and cell accessories, so UIKit draws the separators, the highlight, the fonts at the reader's text size and the dark appearance. On the web, macOS and Linux, Contract writes a sheet of ordinary style rows. It is measured from UIKit on iOS 27, and the author's own rows replace any of it. A row Contract cannot read as a standard cell keeps its own views. iOS carries them into their cell; that is the escape hatch.
+
+## 1. What exists
+
+- **`list`** is `NodeType::List` with the role `list`. It scrolls by default (`node.rs:142`). With `virtualized=true` it is a collection (LLP 1010, 1070): the runner builds rows near the viewport. Without it, every row is built and laid out, as in any scroll.
+- **Native projections** take three forms, chosen by the shape of the authored tree:
+  - A tablist is a segmented control or a tab bar (LLP 1059, by shape).
+  - A native button's children are its face, read as kernel data (LLP 1069.011 D5).
+  - A swipe row's content is carried into a one-row `UITableView` while a swipe can start (LLP 1008 §9). It goes back before every batch, so the presenter only ever sees the authored hierarchy.
+- **Nothing in the Apple host is a `UICollectionView` or a `UITableView` list today.** The collection infrastructure (`Collection.swift`, `CollectionIOS.swift`) is a virtualized window over one `UIScrollView`, laid out by the kernel. Its reason to exist is building rows near the viewport. A grouped list has no such window, so §3 D6 reuses none of it.
+
+## 2. Measured
+
+These numbers come from a scratch UIKit app on the iOS 27 simulator (iPhone 18 Pro, 402 pt wide, 3×). It is a `UICollectionView` with `UICollectionLayoutListConfiguration` in each appearance, with a header and footer per section. The cells are `.cell()`, `.valueCell()` and `.subtitleCell()`, with a disclosure, a checkmark, a detail button and a `UISwitch`. Its subviews were dumped and its pixels read.
+
+| Fact | `.insetGrouped` (light / dark) |
+|---|---|
+| Background | `#f2f2f7` / `#000000` |
+| Cell | `#ffffff` / `#1c1c1e`, 16 pt from each edge, corners radius 26 (circular within 0.5 pt) |
+| Row height | 52; subtitle cell 68.33 (title at +15, subtitle 15 pt at +35.33) |
+| Symbol | centred at 28 pt from the cell's leading edge, about 20 pt tall, the accent `#0088ff` / `#0091ff` |
+| Text | 17 pt regular; at 16 pt from the cell, or 56 pt after a symbol |
+| Value | 17 pt, secondary label (`#3c3c43` at 0.6 / `#ebebf5` at 0.6), 8 pt before the accessory |
+| Separator | 1 pt, `#3c3c43` at 0.12 / `#545458` at 0.5, from the text to the cell's trailing edge; none under a section's last row |
+| Disclosure | 10.33 × 14, tertiary label (0.3), 16 pt from the trailing edge |
+| Header | 17 pt semibold, secondary label, 16 pt into the section, 10 above and below (40.33 tall for one line) |
+| Footer | 13 pt regular, secondary label, 8 above and 6 below |
+| Gaps | footer → next header 0; footer → a section without a header 17.67; a section without a footer → header 17.33; above a first section without a header 35.33 |
+
+`.grouped` has the same metrics, with full-width cells, no corners, and full-width separators above and below each section. `.plain` has a white background, full-width cells and no gaps between sections. UIKit pins a plain list's headers and footers to the visible bounds, and the iOS 26 scroll-edge effect shades content under a pinned footer.
+
+## 3. Design
+
+**D1. The switch: a `list` whose `appearance` is the literal `auto`.** The switch is the same one LLP 1069.011 D1 uses for buttons: CSS's own name for "the platform's control".
+- The attribute must be a literal, after class rows, because it decides what the node's children are. A bound value is refused (`lower-grouped-list`). An app that switches between a grouped list and a plain list writes `when`.
+- Unlike `button`, `list` gets no fixed `appearance: none` row. A plain `list` keeps the rows it has today, and the switch reads the authored attribute, not the computed row. `tags.rs` is at its line cap, and a fixed row on every `list` would change every list's `layout` output to say nothing new.
+- A grouped list is never `virtualized` (refused). It builds every row, as a settings screen does. A long feed stays a collection.
+
+**D2. `listStyle`: UIKit's three appearances.** `inset-grouped` (the default), `grouped` and `plain`.
+- It is a literal, because the sheet Contract writes for the other hosts is chosen when the view compiles. It is refused anywhere but a grouped list.
+- It is a Contract attribute and the kernel's prop 225 (`str`), outside LLP 1081's naming rule (its D5), like `buttonStyle`.
+- Contract always writes it, so a host finds a grouped list by its prop (`ChromeIndex`'s `listStyle` key). There is no scan.
+- `sidebar` and `sidebarPlain` are left out (§7).
+
+**D3. The shape: sections, each a header, rows, a footer.** Contract checks it and refuses anything else with `lower-grouped-list`.
+- **The list's children are `section`s**, possibly under `when`, `each` and `match`.
+- **A section's first child may be a `header`, and its last child may be a `footer`.** Each must be a direct child, at most one of each, holding a `text`. A `header` or `footer` anywhere else in the section would be a row's, and is refused.
+- **Everything between them is the section's rows**, under any control flow. Contract wraps them in one `column`, the group the sheet paints. The kernel reads that column's children as the rows. A row is any element: a `button` is tappable, and a `row` or anything else is not.
+
+This is HTML's own structure (`section` > `header`, the rows, `footer`), so the web reads it as written.
+
+**D4. A row's parts, by shape, read live by the kernel.** `Kernel::grouped_list(view)` walks the tree as it stands, so a `when` between parts counts. It reads a row's direct children, outside in:
+1. **The trailing accessory, the last child:**
+   - an image of `chevron.forward` or `chevron.right` is the disclosure indicator;
+   - an image of `checkmark` is the checkmark;
+   - a checkbox or switch `Control` is a toggle, which flips that control;
+   - a `button` holding only an `info.circle` symbol is the detail button, which presses that button.
+2. **The leading symbol, the first child:** an image whose source is a `symbol:`.
+3. **What is left** (children with `display: none` are not counted, and neither is a hidden section or row):
+   - one `text` is the title;
+   - two `text`s are the title and its value (UIKit's value cell);
+   - a `column` (a flex column: what Contract's sheet styles) of one or two `text`s is the title over its subtitle (the subtitle cell). A `row` or plain box of texts is custom.
+4. **A row that is itself a `column`** (LLP 1116 D2, 2026-10-10) keeps its direction: the sheet stacks its children from the text's margin with the subtitle cell's 15 pt above and below, and the kernel reads it whole, before steps 1–3: one or two `text`s are the subtitle cell, anything else is custom. The sheet wrote it a flex row before, so its children ran across the cell while tests passed (two bake-off apps).
+
+A row of any other shape is **custom**: a raster image, a third text, a nested box. A row with no title is custom too. A custom row carries only its node, its press and its state, and the host shows its views. `destructive` (the existing prop 68) draws the title and symbol red, and `disabled` dims the row and makes it untappable. Roles name symbols as everywhere else, so `forward-chevron` is `chevron.forward`. This RFC adds the role `info` (`info.circle`), so the detail button has a web path.
+
+**D5. iOS: UIKit's list is the scroll owner.** `GroupedListHost` (`ExactGroupedLists/GroupedListIOS.swift`) runs after each batch:
+- **It reads the model through `exact_grouped_list`**, which returns JSON as `exact_press_face` does.
+- **It installs the list's only `UIScrollView`, a `UICollectionView`, in the list's box.** The original section roots remain in the authored hierarchy and are hidden by the host; no duplicate scroll or wrapper is created. The layout is a compositional layout per section, so a section has a header or footer only where it has the text. The data source is a diffable data source keyed by the section and row node ids. A row whose parts changed is reconfigured, never reloaded. An unchanged snapshot is not reapplied; custom rows refresh their carried views and height during mounting without reconfiguration.
+- **A standard row** is a `UIListContentConfiguration`: `.cell()`, `.valueCell()` or `.subtitleCell()`. Its image is `UIImage(systemName:)`. Its accessories are `.disclosureIndicator()`, `.checkmark()`, `.detail` (which presses the button), or a `UISwitch` as a custom-view accessory. The switch shows the control's committed `checked` and reports through the control's own path (`presenter.checked`), and the committed state is authoritative, as in LLP 1069.001 D4.
+- **A tap** is the collection view's own selection. UIKit highlights the row, deselects it, and presses it. Rows that are not buttons, or are disabled, do not highlight.
+- **A custom row's node is carried into its cell** and given back before every batch, as LLP 1008 §9 carries a swipe row's.
+  - It sits at its place in the group: its kernel x, top at 0.
+  - The cell is the row's kernel height: the separator the cell draws is decoration on the other hosts (D7), which takes no height, and a bottom border the row's author wrote is the row's own, drawn in the cell. The cell's content view clips.
+  - Where a row's author wrote the edge under it (its `border-bottom-width` or `border-bottom-style`, or the next row's top edge: `GroupedRow::authored_edge`) and that edge is a carried row's, the list's separator handler hides UIKit's line there (`itemSeparatorHandler`), as a hand-built cell hides its separator, and the carried row shows the author's edge. A standard cell draws no authored box style, so UIKit's line stays beside one.
+  - A prepared cell carries the row again when UIKit displays it; a batch may have restored the row after cell preparation. A changed height requests the existing coalesced projection refresh, without reconfiguring or invalidating inside the display callback.
+- **Scroll configuration uses the shared owner.** The node's `scrollView` is the collection. Refresh, keyboard dismissal, indicator style, authored offsets, events and navigation use it directly; the collection delegate forwards the shared scroll callbacks while retaining native row selection. UIKit owns its content extent. Navigation registers the physical backend before its first layout, and shared offset writes follow navigation and keyboard inset adoption. An immediate logical write that changes the collection's title inset settles that transition once before its final target; it retains no later offset replay. A plain scroller's extent remains the kernel's.
+- **Content room stays content.** Native insets implement the list's top and bottom padding and the space under a footer, as this module's own delta. Shared scroll metrics, focus reveal and alignment exclude that room from UI obstructions; the kernel's scroll facts do not add authored padding twice. Backend replacement retains the logical offset and transfers an existing keyboard-toolbar inset after mounting.
+- **Geometry resolves by row identity.** A standard or offscreen row's native layout attributes supply its projected box; a carried custom descendant supplies its own box. Reveal and reading anchors use those boxes rather than the hidden section positions. Navigation binds after mounting and compares the physical scroller identity. A fractional difference within 0.5 points at the native start is not a reading anchor; an idle follow-end list at that start uses the new native minimum when its inset changes.
+- **A plain list's footers are not pinned.** UIKit pins them by default and shades the rows under them (§2); a settings footer belongs under its rows.
+
+**D6. Reuse, and what is not reused.** The list is still a `list` node, laid out by the kernel, mounted by the presenter, with its native scroll, its `testId` and its handlers. The projection follows the swipe cell's pattern: `prepare()` before a batch, `sync(changed:)` after it, hosts registered with the inspection walk. A virtualized collection's window is not reused, because a grouped list has no window (§1). The two never meet: D1 refuses `virtualized`.
+
+**D7. The other hosts draw the sheet.** Contract adds rows to the list, the sections, the header and footer, the group and each row's parts. They are prepended to the author's rows, so a class or attribute of the author's replaces any of them. Every host lays them out as it lays out any rows, and on iOS that layout remains on the original sections and determines custom-row sizes. Each host draws one thing the sheet cannot write as CSS: the separator (below).
+- **The list:** the grouped or plain background.
+- **A section:** margins of 0, 17.33 or 35.33 (§2).
+- **The group:** the cell colour; with `inset-grouped`, 16 pt margins and radius 26; with `grouped`, top and bottom separators. It always clips.
+- **A row:** a flex row, `border-box` and as wide as its card, 52 pt tall at least on iOS and the web (36 on the Mac, its padding included).
+  - Its insets are its padding, so a row its author makes as wide as its card (`width="100%"`) stays inside it, its trailing value too. Its content starts at the text: 16 pt in, or 56 pt after a leading symbol, which is pulled into that padding (`margin-left: -40`); it ends 16 pt before the trailing edge. An authored padding or `box-sizing` replaces the sheet's. Where UIKit chooses other cell margins (an iPad, landscape, the iPhone Duo's side strip), the iOS host reports them and the kernel moves these paddings by the difference (`grouped::apply_margins`), an end the author wrote staying the author's.
+  - The separator under it is the platform's decoration, not a border. The sheet asks for it (`groupedRowSeparator`, which no author can write) and writes no bottom border. `Kernel::grouped_separator` places it: one point high at the foot of the row's padding box, from its content edge to `grouped-separator-end` before its trailing edge (0 on iOS, where UIKit's line runs to the card's edge, and on the web; 10 on the Mac), in the platform's colour (`grouped-separator`). Where a platform's rows stand apart (`grouped-separator-gap`, the Mac's 1 pt) it is drawn in that gap, below the row's box, where SwiftUI's is; the rows' pitch and the card's height are those of the measured form. It takes no layout, is drawn over the row's own ground and under its children (an opaque child covers it, on every host), and in a colour the author does not set: `border-bottom-color` alone recolours nothing, as a colour on a zero-width border paints nothing. The card's last row has none.
+  - Where a row's author wrote its bottom edge (`border-bottom-width` or `border-bottom-style`, `none` and 0 included), or the next row shown its top edge, or the row its own `background-image` (where the web draws the line), that edge is the author's and no separator is drawn there: the rule `Kernel::row_separator` follows for a list's rows (LLP 1115.000 D16), one predicate (`rows::yields`) for every host, the terminal included. A row's neighbour is the next one shown, as UIKit's list has it, so a row followed only by hidden rows is the last; a row that is not visible draws none; a `delete=` row's edges are its content's.
+  - Linux paints it with the row's ground (`paint/grouped.rs`); Apple's NodeView puts a layer under the row's children (`GroupedSeparator.swift`, from the derived prop `groupedSeparator`; iOS sends none, its list being UIKit's); the terminal draws `─` on the row's last line (`paint/grouped.rs`). The web, whose page keeps no kernel, draws the same line with its sheet (`host/web/index.html`): a background layer from the row's content box, clipped to its padding box, below its bottom padding (`--exact-padding-bottom`, a length only: under a percentage bottom padding, which a background cannot resolve, the line stands at the content box's foot), not under the last row whose inline `display` shows it nor where the page's marks (`data-exact-said`, bound edges included) say the author wrote the edge; a hovered row's wash lies over it (`neutral.css`).
+  - A `delete=` row's swipe (`swipe_rows::grouped`) is the row in its card and takes the separator; its content keeps the swipe's insets, so the line starts at the scroll's edge. The swipe clips what it holds, so on the Mac its line is its own last point, not the gap below it.
+  - On the Mac a `destructive` row is the form's push button (LLP 1115.002 D6), whose box is that button's: content-box, inset 10 pt from both edges, its title at the button's padding (`grouped-button-` metrics).
+  - A stack of lines in a row (a part laid out as a column around two parts or more, not the subtitle stack) keeps the cell's margins: 15 pt above and below it, as a hand-built cell pinned to its content view's margins and a `column` row (§3 step 4) have them. They are the stack's margins, so a taller part beside it (an avatar with its own) sets the row's height as before, and a row whose author wrote its vertical padding gets none. Before 2026-10-10 it had none, and its first line touched the card and its last the separator on every host (team-kanban's cards, household-list's items). A row of controls keeps 52.
+  - Its texts are drawn as the subtitle cell draws its lines (LLP 1116.000 D3.2, 2026-10-10): the first the title, in the row's 17 pt and label colour, a later one 15 pt in the secondary label colour, a text shown by a condition counted as above. It is presentation left unsaid, which LLP 1115 gives the platform. What the author wrote wins row by row: a text's own `font`, `font-size` or `color`, and the stack's own, which its lines inherit (in the subtitle stack too). A control's label (a `button` or `link` stacking lines) keeps its own. Before, every line was a 17-pt title (household-list's items).
+- **Precedence:** the sheet's rows go under the element's classes and its own attributes. The rewrite marks them (`ua:`, a name no author can write), and the lowering takes them out before it expands classes (`grouped::split`).
+- **The inset follows a leading symbol shown by a condition** (`padding-left` becomes a choice on that `when`). A `match` or `each` in first place is styled as no symbol, its image included.
+- **A text after a `when` is styled by that `when`'s condition.** Where the arms write different numbers of texts, its `flex-grow` and colour become choices on the condition, so it is the title or the value as the kernel reads it. A conditional first line in a stack inherits its row's colour, as an unconditional title does; the subtitle keeps the secondary colour. This preserves destructive and disabled tint and an authored row colour (2026-10-12). Deeper conditions and a `match` count the fewer texts. A text written `display="none"` is not counted.
+- **A subtitle stack is the shape the kernel reads.** It is one `column` of one or two texts, a `when` showing the second line included, between a leading symbol and a trailing accessory (each possibly under a `when`). Any other `column` is the author's.
+- **A native button row** (`button appearance="auto"`, LLP 1069.011) gets only the rows a native button takes, and no separator: its inset as a `margin-left` (after a leading symbol too, where a class makes the row one), its height, and `max-width` the card less that inset (`grouped-button-max-width` and its `-symbol` and `-pushed` forms, for a symbol and a destructive row's push button: `calc(100% - 16px)` on iOS and the web, `calc(100% - 10px)` on the Mac, 12 for its push button), so one its author makes as wide as its row ends with the card, and an unsized one is as wide as before (stretched on iOS and the web, at its own size on the Mac). The platform's control keeps its own box, chrome and padding (LLP 1069.011 D6). Where UIKit's cell margin moves the inset (`grouped::apply_margins`), the `max-width` moves with it. A row whose author wrote a horizontal margin is placed by them, with no `max-width` from the sheet; an authored `max-width` is the author's. The kernel reads the row as custom, so iOS carries the platform's control.
+- **A plain list's sections have no margins.** A header or footer holds exactly one `text`.
+- **The parts:** 17 pt label colour, red when `destructive` (a bound `destructive` becomes a choice); the value and subtitle in the secondary colour; the accessory's size and colour; a subtitle stack's 15-pt padding. A `when` is read through.
+
+Colours are `light-dark()` pairs of §2's values.
+
+**D8. The agent.**
+- `tap` on a row UIKit draws is the cell's own selection (`delivery: host-activation`, `native: grouped-list`).
+- `tap` on a toggle's control flips the cell's switch, and `tap` on a detail button is the accessory's action.
+- Each is refused, having done nothing, when the cell is outside the list's port or something covers its middle, as a finger would miss it. The generic viewport check, which reads the hidden row's place, is skipped for nodes a grouped list draws.
+- A wheel on the list, on a row it draws or on a carried view scrolls the collection view, wherever the hidden node lies.
+- A row whose node or ancestor (its section included) is `inert` takes no tap: its cell takes no touch and is no accessibility element. The agent's tap is refused under the software keyboard, as `Agent.obscured` refuses one.
+- A custom row is its own views: the agent's ordinary tap path finds them, a nested control included.
+- Before `tap` or `type`, reveal locates a row by its model identity, scrolls the collection and lays it out, even when the cell has not been realized. A custom row's views are carried into the cell before the ordinary hit test.
+- `layout <list>` reports `groupedList: {view: UICollectionView, listStyle, sections, rows, offset, content, insets}`, and a row reports its cell and accessory.
+- The inspection walk (LLP 1080.001 D3) accounts for the collection view (`grouped-list`), names this host as the hider of the authored rows, and skips a carried row as projected.
+
+## 4. What is declared, not fixed
+
+- **The sheet is iOS 27's inset-grouped look on every other host.** It is not macOS's grouped form or a GTK list. Like the native-button looks, it is a stated approximation.
+- **Where the fallbacks differ from UIKit (§6's comparison sheets).** One gap is fixed; the rest are declared.
+  - *Fixed: Linux draws symbol roles.* The paint walk strokes a portable role's path the way the web does (`paint/svg.rs` `symbol`): the leading icons, the chevrons, the checkmark and the info button. Before this, Linux painted every `symbol:` image as an empty box. An `sf/` name still draws nothing there (LLP 1035.004.000 D4). This applies to every app on Linux, not only grouped lists. Tested in `host/linux/tests/it/svg.rs`.
+  - *Declared: the web's switch is a checkbox.* Chrome has no `switch` attribute, and LLP 1069.001 D1 specifies the checkbox fallback. Drawing a 51 × 31 track in `index.html` would be a few lines of CSS. But it would move every switch's box on the web away from the Chrome-oracle table (`kernel/tests/it/browser_controls.rs`) and the kernel's 13 × 13 default. That is a change to form controls, not a grouped-list fix, so it is queued.
+    > **Amended by LLP 1116 D1 (2026-10-10).** Fixed: the web draws a switch in WebKit's 38 × 22 box, and the oracle table and the kernel's default were recorded again at that size.
+  - *Declared: the web's row titles look heavier than UIKit's.* The sheet sets no weight, so a title is `system-ui` at 400. The agent's web screenshots are 1× rasters, while UIKit's are 3×. This was checked in the CSS, not against a 2× capture.
+  - *Declared: the web's chevrons are faint.* A role symbol is a stroked path in a 24-unit box (LLP 1035.004.000). In the chevron's 14-pt box the stroke is about 1.4 px. A larger box would draw Apple's own glyph too large on macOS, which fits `chevron.forward` to the box.
+  - *Declared: Linux's section headers look bold.* A header is weight 600, UIKit's semibold. The Linux host's pinned face, DejaVu Sans, has no semibold, so 600 draws Bold.
+- **The sheet is fixed at 17 pt.** Dynamic type is UIKit's, on iOS.
+- **The sheet has no pressed highlight.** A web row is a `button` and keeps the button's own focus ring.
+- **Symbols on the web are role paths in a 24-unit box** (LLP 1035.004.000), so a sheet-sized chevron draws a little smaller there than UIKit's glyph. An `sf/` name draws nothing on the web or Linux, as everywhere.
+- ~~**A custom row's width is the kernel's.** In a wider UIKit layout margin (an iPad, landscape), its views keep the sheet's 16-pt inset, while UIKit's own cells follow the margin.~~ Closed 2026-10-17: after each batch the iOS host reads where UIKit put the list's cards and its cells' layout margins and tells the kernel (`Kernel::set_grouped_margins`), and the sheet's card inset, row inset and trailing padding (a `delete=` row's content's paddings) move to them wherever the author wrote neither. A custom row then starts and ends where a standard row's text and accessory do. Measured on the simulators: 20-point margins on the iPhone Duo (open, at 130 degrees and closed; the card ends at the side strip) and in an iPhone 17 Pro's landscape, where custom rows sat at 16; 16 on the iPhone upright, unchanged.
+- ~~**Swipe actions (`swipeContent`) on a grouped list's rows are not projected into its cells.**~~ Closed 2026-10-11 (LLP 1116.001 D1): a row that names them takes its list cell's own swipe, UIKit's actions from `trailingSwipeActionsConfigurationProvider` and its leading twin, a full swipe performing the first. The swipe host keeps the row's controls hidden while the list carries it and makes no table (`SwipeActionsIOS.swift`, `GroupedListIOS.swift`).
+- **A part hidden by a class's `display: none` is counted by the sheet.** The sheet sees only a literal `display="none"` written on the part. A class is applied when that part is lowered, after the row's parts are counted, so the kernel and the sheet can disagree about which text is the title. Write the attribute, or use `when`.
+- **The 35.33-pt first gap goes only to a section written first.** A first section under `when`, `match` or `each` may share its body with others or follow nothing, so it gets the 17.33-pt gap.
+- **A custom row takes no cell highlight.** Its carried views keep their own touch handling, so its press, press feedback and nested controls stay the author's.
+- **Native and authored geometry are distinct.** The kernel still lays out the sheet and its custom rows; UIKit lays out native cells and sections. Native scroll positions, ranges and projected row boxes come from the collection, without mirroring an offset onto a second scroller.
+
+## 5. Scope
+
+This adds to `rules/DEFERRED.md` as Charlie approved, without a take: one tag meaning (`list appearance="auto"`), one prop and one symbol role. There is no new node type, tag, event or agent operation.
+
+## 6. As built
+
+- **Contract.** `grouped.rs` holds the checks and the sheet. `lib.rs` has the hook and the precedence split, and `tags.rs` gains `listStyle`; one comment was folded to stay at the cap. `contract/cli/tests/it/grouped_list.rs` has 15 tests:
+  - the kernel's model, read live;
+  - the sheet's metrics against §2 (rows 52 apart, the text at 72 after a symbol and at 32 without one);
+  - the author's attributes and classes over the sheet;
+  - conditional symbols, texts and subtitle lines in both states;
+  - hidden parts, plain sections, native button rows;
+  - each refusal.
+- **Kernel.** `grouped.rs`, `Kernel::grouped_list`. Adding a prop and a role moved `SCHEMA_DIGEST`'s snapshot (`wire/codec.rs`).
+- **Apple.** `exact_grouped_list` and `GroupedListIOS.swift`. `GroupedListIOSTests` includes:
+  - the collection view as the only scroll owner, with hidden authored section roots;
+  - initial and same-batch scroll writes, native extents and events, refresh and keyboard style;
+  - projected offscreen geometry, reading anchors and nested scroll reveal;
+  - prepend/resize reading positions, native end following, padded metrics and focus reveal;
+  - backend offset transfers and authored-write precedence;
+  - cells of the model's parts;
+  - the tap: highlighted, pressed once, refused when scrolled away or inert;
+  - a switch following its control's state and target, and one rebuilt only after its own action;
+  - custom rows carried, given back in order, turning custom and back, and keeping their section's inertness;
+  - a header's text changing;
+  - the wheel;
+  - a list that goes.
+- **Fixture.** `scripts/fixtures/grouped-list.contract` is a settings screen with a profile card (custom), symbol rows, a value, a subtitle, a detail button, a switch, a checkmark choice, a destructive row, and a segmented control for the three styles.
+- **Sheet insertion.** `GroupedRevealTests` drives `scripts/fixtures/grouped-list-reveal.contract`: a sheet inserts an offscreen custom row, then reveal and tap reach its nested button and set `removed`. UIKit also checks that the collection scrolled and carried the button into a visible cell; AppKit exercises its ordinary scroll hierarchy.
+- **Seen.** The fixture was driven beside §2's scratch UIKit app, in light and dark, on the iOS 27 simulator, the web (Chrome) and Linux.
+  - On iOS the agent tapped rows, the detail button, the switch and the choice, and wheeled the list to tap a row below the fold.
+  - Plain footers stay under their rows.
+  - macOS draws the same sheet Linux and the web do; it was not driven.
+- **Review.** Three rounds each by Astra and Grok (`llp/reviews/code-2026-10-03-grouped-list.*.md`). Round 3 ended with Astra at DO NOT LAND and Grok at LAND WITH FIXES. Every round-3 finding is fixed or declared in §4.
+
+### 6.1 The symbol's tint (2026-10-04)
+
+The sheet takes the author's attributes over its own (D7), but UIKit's cells
+did not. Signal Clone's settings symbols came out in UIKit's accent colour
+rather than the label colour it wrote.
+- **A standard row's symbol** takes the tint the sheet draws: the author's
+  `tint-color` over the sheet's own `light-dark(#0088ff, #0091ff)`. It is a
+  dynamic colour, so each side of a `light-dark()` pair follows the
+  appearance with no batch.
+- **The symbol** is the one the model named: the row's first shown child,
+  when it is that symbol's image, as `kernel/src/grouped.rs` reads it.
+  `display: none` children are skipped.
+- A row whose symbol tint changes is configured again. A destructive or
+  disabled row's colour still wins.
+- A custom row's background is not changed: on the sheet a transparent row
+  shows its group's cell colour, and so does the cell (r1 cleared the cell,
+  and both reviews found that not to be parity).
+
+`GroupedListIOSTests.testASymbolTakesItsAuthoredTintForEachAppearance` covers
+a hidden image before the symbol, a chevron after it, and both appearances.
+
+**Amended 2026-10-11 (LLP 1116.004 D2):**
+- Where a list's box meets an edge of a viewport the safe area keeps short of
+  the screen's, its background goes on to the screen's edge, under the home
+  indicator or the status bar (`GroupedListView.hem`; chat-rooms).
+- A footer's and a cell's texts keep their line feeds where their
+  `white-space` keeps them (`pre-line`, `pre-wrap`, `pre`), and are collapsed
+  as the web collapses them otherwise (unit-converter).
+- The sheet's accent, a leading symbol's and a checkmark's tint, is
+  `AccentColor`, not iOS 27's measured blue: it follows the nearest
+  `accent-color` (LLP 1116.001 D2), as a list cell's image and checkmark
+  follow UIKit's `tintColor`. A standard row's symbol in that accent sets no
+  tint of its own on iOS, so the cell's applies (polls).
+
+## 6.2 A section without its card (2026-10-04, Signal Clone)
+
+Signal's profile header and conversation-settings header sit on the list's
+background, not on a card: a section whose cell background is clear. The
+author writes `section background-color="transparent"`.
+- **Contract.** That literal is the only `background-color` a section takes
+  (`lower-grouped-list` refuses another value, and a `class` beside it): a
+  coloured card would be the system's card on iOS. The group the sheet
+  paints as the card is then transparent, its rows draw no separators, and a
+  `grouped` list draws no borders around it.
+- **Kernel.** `GroupedSection.card` is false when the group's background is
+  transparent; `exact_grouped_list` carries it as `"card"`.
+- **iOS.** That section's cells take a clear background, and a pressable
+  standard row still shows UIKit's highlight while pressed (a configuration
+  update handler). Its layout shows no separators (iOS only: tvOS has no
+  `showsSeparators`), and keeps the appearance's list background: the inset
+  card is the cells' background, not the section's (a clear section
+  background showed the route's white, simulator, 2026-10-04). A custom row
+  keeps its full height, as every carried row does (D5). A
+  row whose card changed, its section's or by moving, is configured again,
+  and the list is laid out again.
+
+Proofs: `contract/cli/tests/it/grouped_list.rs`
+`a_transparent_section_has_no_card` and
+`a_cardless_section_draws_no_separators_and_takes_only_transparent`;
+`GroupedListIOSTests.testACardlessSectionsCellsAreClear`.
+
+## 6.3 A real touch on what the list draws (2026-10-04, Signal Clone)
+
+Under `--touch platform` (LLP 1080.000), `tap` on a row, its toggle's control
+or its detail button was aimed at the hidden authored node and refused
+(`_UISystemBackgroundView covers its middle`). The aim (D4) now takes the view
+UIKit draws for it, as D8's host activation does: the row's cell, the cell's
+switch, or UIKit's detail button (a control in the cell outside its content).
+It is refused when the cell is outside the list's port, when the point is,
+when anything but that view (an ancestor beside a clipped cell included) is
+hit there, and when the switch or detail button is not shown: never the row
+in its place. The node the dispatch log must see the touch land on is the
+list's for every row, so the log and the aim also carry `projected: {row,
+part}` (`cell`, `switch` or `detail`) and the driver refuses a touch that
+landed on another row or part. Unlike host activation it does not refuse a disabled row or control:
+the finger lands, and UIKit declines it, as on a device. A custom row needs
+nothing: its views are carried into the cell.
+
+Proofs: `GroupedListIOSTests.testARealTouchAimsAtTheCellOrAccessoryUIKitDraws`;
+`scripts/smoke-touch.mjs` taps `contract/corpus/grouped-touch.contract`'s
+switch twice, its detail button and a row with real touches, each read back
+from the app's state.
+
+## 6.4 A section's authored spacing (2026-10-04, Signal Clone)
+
+Signal's tables put 20 points between sections (`OWSTableViewController2`'s
+`defaultSpacingBetweenSections`), where UIKit's list leaves 35. The author
+writes the section's margins, as on the web: `section margin-top=20
+margin-bottom=0`.
+- **The sheet's numbers are UIKit's.** A margin of 0 beside a header or a
+  footer or in a plain list, 17.33, or 35.33 above a first section, is the
+  sheet's (§2), and iOS keeps UIKit's own gap there (its last footerless
+  section has 20 below it, which the sheet's 17.33 stands for). Any other
+  number is the author's: a margin written as exactly one of those numbers,
+  where the sheet writes it, reads as UIKit's (a first section's authored
+  17.33 keeps UIKit's 35). The kernel cannot tell an authored value from the
+  sheet's once lowered; carrying that provenance is open (§7).
+- **Kernel.** At a boundary where either margin is the author's, the space
+  is the web's: the two margins collapse as block margins do, the largest
+  positive plus the most negative (30 and 40 are 40, not 70; 30 and -10
+  are 20).
+  `GroupedSection.space_above` carries it, `GroupedList.space_below` the
+  last section's authored `margin-bottom`; `exact_grouped_list` writes
+  `"spaceAbove"` and `"spaceBelow"`. Only points count; a percentage is 0.
+- **iOS.** The whole space goes above the later section, and the earlier
+  one's bottom inset is 0 unless it has a footer (that inset is UIKit's gap
+  between its rows and the footer). Above a header the space is the list
+  configuration's `headerTopPadding`: a section's top inset under a header
+  is the header-to-rows gap (measured, iOS 27). The space under the last
+  section is its bottom inset, or under a footer the collection's bottom
+  content inset (added as this module's own delta, preserving refresh and keyboard insets).
+
+Proofs: `contract/cli/tests/it/grouped_list.rs`
+`an_authored_margin_is_the_webs_space_and_the_sheets_is_uikits` and
+`authored_margins_collapse_as_the_web_lays_them_out` (the kernel's own
+layout agrees; no browser was run) and
+`a_negative_margin_collapses_as_css_has_it`;
+`GroupedListIOSTests.testAnAuthoredSpaceSitsAboveTheSectionAndItsHeader` and
+`testAnAuthoredSpaceUnderTheLastSectionIsUnderItsFooter`; the Signal clone's settings sheet on the iOS 27 simulator (20-point
+gaps, a titled section's header 20 under the card above).
+
+## 6.5 The list's authored ground (2026-10-20, a guidance evaluation)
+
+An app drew decorative art, an `aria-hidden` `svg` at `z-index=-1`, behind a
+native inset-grouped list and wrote `background-color="transparent"` on the
+list. On the other hosts that background replaces the sheet's grouped one
+(D7); iOS kept UIKit's grey, and the art showed only in the status bar's
+strip.
+- **iOS.** Where the list's author writes `background-color` (`wrote`, LLP
+  1115.000 D2), UIKit's grounds are clear and the list's own layer paints the
+  background in its box, as any node's: contrast, elevation and wide colour
+  follow as elsewhere. UIKit's grounds are two: the list configuration's
+  `backgroundColor`, which it paints behind each section, and the collection
+  view's own background, which shows through a clear section ground and
+  below a short list. UIKit gives the collection view the appearance's
+  ground only for a layout with none of its own, and leaves its default
+  `systemBackground` for one with a ground, so the host sets it from the
+  first layout on. It is clear where a background is written, else the
+  theme's ground for the appearance (LLP 1095 D4: `grouped-background`, or
+  for a plain list the page's, `background` else `Canvas`), else UIKit's
+  (`systemGroupedBackground`, or `systemBackground`). The cards keep their
+  own background, as UIKit's list cells keep theirs over a clear collection
+  view.
+- **Past the box.** The list's background past the viewport's edge (§6
+  amended 2026-10-11, `hem`) is masked to what lies outside the list's box,
+  where the list itself paints, so a translucent colour is not laid over
+  itself; it resolves the colour as the list's layer does, and a background
+  written with no colour leaves it clear, as the box is.
+
+Proofs: `GroupedGroundIOSTests` (UIKit's grounds with nothing written,
+light and dark; a translucent colour on the list's layer around opaque
+cards, UIKit's grounds clear, and UIKit's again once unwritten; a ground
+written from the first layout; a plain list's system background, and a
+themed one's `Canvas`; a theme's grouped ground from the first layout);
+`GroupedListSkirtIOSTests` (the mask); the evaluation's app on an iPhone 17
+Pro simulator (iOS 27.0), its art behind the list.
+
+## 7. Open
+
+- **A real touch's identity when a row's control is replaced.** §6.3's `projected: {row, part}` tells rows and parts apart, not the authored control behind one switch: a `when` that replaces a row's control between the aim and the touch passes as the old one (the switch the finger meets is the same one). Carrying the target id needs the host's model in the dispatch log's landing (astra, round 3 of `code-2026-10-04-grouped-platform-tap`, deferred).
+- **A section margin's provenance.** §6.4 reads the sheet's own numbers as
+  UIKit's; Contract could carry which margins the author wrote instead.
+- **A grouped list made a flex container.** §6.4 collapses section margins
+  as a block list's are; a list the author writes `display="flex"` adds them
+  on the web. Contract could refuse it, or the kernel follow the display.
+- **A browser's boundaries.** §6.4's proofs read the kernel's layout and
+  UIKit's; a fixture compared in a browser beside UIKit would close it.
+- **A background image or radius without a colour.** §6.5 clears UIKit's
+  grounds only for a written `background-color`: a list's `background-image`
+  or `border-radius` alone stays under UIKit's square grey on iOS, where the
+  web draws the image over the sheet's grey and rounds the corners.
+
+- **`sidebar` and `sidebarPlain`.** These are UIKit's other two appearances. They wait for an iPad or Mac consumer.
+- ~~**Swipe actions on rows.**~~ Built 2026-10-11 (LLP 1116.001 D1; §6.2's entry).
+- **The Signal Clone.** Its `Section`, `Row` and `ActionRow` become a grouped list. That is a change in the clone's repository, not this one.

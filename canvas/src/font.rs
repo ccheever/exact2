@@ -10,11 +10,14 @@
 //! `textBaseline = "alphabetic"`), with Chrome's formulas
 //! (`TextMetrics::Update`, `GetFontBaseline`), so a replayer only draws a run
 //! from its left end on its alphabetic baseline. The engine is the host's:
-//! Core Text on Apple, cosmic-text on Linux, the browser's own context on
+//! Core Text on Apple, Parley on Linux, the browser's own context on
 //! the web; the replayer draws with the same engine, so what was measured is
 //! what is drawn.
 
 use std::fmt::Write as _;
+
+/// A number as JavaScript's `String(n)` writes it (the colour parser's).
+pub use exact_motion::color::css::js_number;
 
 /// `fontVariantCaps`'s values; the list's `caps` operand is the index.
 pub const CAPS: [&str; 7] = [
@@ -113,19 +116,6 @@ impl Default for Font {
             families: vec!["sans-serif".into()],
         }
     }
-}
-
-/// A number as JavaScript's `String(n)` writes it, for the shapes canvas
-/// serialisations take (finite, not huge).
-pub fn js_number(v: f64) -> String {
-    if v == v.trunc() && v.abs() < 1e15 {
-        return format!("{}", v as i64);
-    }
-    let mut s = format!("{v}");
-    if s.contains('e') {
-        s = format!("{v:.6}");
-    }
-    s
 }
 
 impl Font {

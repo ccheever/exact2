@@ -1,0 +1,5 @@
+# Gradle's outputs and caches, Kotlin's session files, and this machine's SDK path.
+build/
+.gradle/
+.kotlin/
+local.properties

@@ -9,9 +9,9 @@ import { createTextFlow, createFlowRequest } from './textflow-glue.js';
 
 // kernel FlowRefusal::message, for the journal line the executor writes.
 const REFUSAL = {
-  context: 'its wrapping context (the exclusion\'s parent) is flex or grid, sets align-content, or is position: static; make that parent display: block and position: relative, or give the text a height',
+  context: 'its wrapping context (the exclusion\'s parent) is flex or grid, a button, sets align-content, or is position: static; make that parent display: block and position: relative, or give the text a height',
   placement: 'an exclusion\'s top or height depends on its context\'s height; give every exclusion there a top and a height in points (not %, not bottom), or give the text a height',
-  chain: 'the text, or a box between it and the wrapping context, is absolutely positioned, flex or grid, sets align-content, or has a percentage top or bottom; keep ordinary in-flow blocks between them, or give the text a height',
+  chain: 'the text, or a box between it and the wrapping context, is absolutely positioned, flex or grid, a button, sets align-content, or has a percentage top or bottom; keep ordinary in-flow blocks between them, or give the text a height',
 };
 
 export async function flow({ views, viewId, wraps, clock, wall, say }) {
@@ -24,7 +24,8 @@ export async function flow({ views, viewId, wraps, clock, wall, say }) {
   const value = (el, p) => el.computedStyleMap?.().get(p);
   const own = (el, p) => { const v = value(el, p); return v?.unit === 'px' || v?.unit === 'number'; };
   const auto = (el, p) => { const v = value(el, p); return v == null || v.value === 'auto' || v.value === 'none'; };
-  const orders = el => { const s = cs(el); return (s.display === 'block' || el.parentElement?.id === 'exact-root' && s.display === 'flow-root') && s.alignContent === 'normal'; };
+  // A block <button> centres its content (kernel `orders`).
+  const orders = el => { const s = cs(el); return (s.display === 'block' || el.parentElement?.id === 'exact-root' && s.display === 'flow-root') && s.alignContent === 'normal' && el.tagName !== 'BUTTON'; };
   // A static box's insets do nothing; the context contains its exclusions (LLP 1074 T1).
   const inFlow = el => cs(el).position === 'static' || cs(el).position === 'relative' && ['top', 'bottom'].every(p => auto(el, p) || own(el, p));
   const contains = el => el.parentElement?.id === 'exact-root' || cs(el).position !== 'static';

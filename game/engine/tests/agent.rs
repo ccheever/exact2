@@ -16,7 +16,7 @@ fn hierarchy_preorder_under_and_cap() {
     let mut s = Sim::<Scene>::new(()).unwrap();
     assert_eq!(
         s.agent(r#"{"op":"tree","under":"root"}"#),
-        r#"{"tick":0,"entities":[{"id":1,"name":"root","parent":null,"depth":0,"components":["Transform"],"tags":[]},{"id":0,"name":"child","parent":1,"depth":1,"components":["Parent","Transform"],"tags":[]}],"truncated":false}"#
+        r#"{"tick":0,"entities":[{"id":1,"name":"root","parent":null,"depth":0,"components":["Transform"],"tags":[]},{"id":0,"name":"child","parent":1,"depth":1,"components":["Parent","Transform"],"tags":[]}],"truncated":false,"total":2}"#
     );
     assert!(s
         .agent(r#"{"op":"layout","entity":"child"}"#)
@@ -26,7 +26,16 @@ fn hierarchy_preorder_under_and_cap() {
     }
     let tree = s.agent(r#"{"op":"tree"}"#);
     assert_eq!(tree.matches("\"id\":").count(), 512);
-    assert!(tree.ends_with("\"truncated\":true}"));
+    assert!(tree.ends_with("\"truncated\":true,\"total\":523,\"next\":512}"));
+    // The forest's 2k-tree world was refused as truncated: pages reach every entity.
+    let rest = s.agent(r#"{"op":"tree","from":512,"limit":100}"#);
+    assert_eq!(rest.matches("\"id\":").count(), 11);
+    assert!(rest.ends_with("\"truncated\":false,\"total\":523}"));
+    let all = s.agent(r#"{"op":"tree","limit":100000}"#);
+    assert_eq!(all.matches("\"id\":").count(), 523);
+    assert!(s
+        .agent(r#"{"op":"tree","limit":0}"#)
+        .contains("limit must be 1..=100000"));
     assert_eq!(
         s.agent(r#"{"op":"tree","under":"bad"}"#),
         r#"{"tick":0,"error":"no entity named `bad`; `tree world` lists names; add `w.spawn_named(\"bad\", (Transform::default(),));` in setup if intended"}"#
@@ -148,7 +157,7 @@ fn restore_format_refusal_is_not_double_wrapped() {
     let error = s.restore(b"old-format").unwrap_err().to_string();
     assert_eq!(error.matches("restore refused").count(), 1, "{error}");
     assert!(
-        error.contains("expected EXSIM v5") && error.contains("no cross-version migration"),
+        error.contains("expected EXSIM v8") && error.contains("no cross-version migration"),
         "{error}"
     );
     assert!(!error.contains("named additions"), "{error}");
@@ -219,4 +228,37 @@ fn screen_bounds_clip_near_without_changing_saved_state() {
     s.world_mut().teleport(entity, Transform::at(0., 0., 0.));
     let rect = s.layout("box").unwrap().screen;
     assert!((rect.w - 200.).abs() < 0.0001 && (rect.h - 200.).abs() < 0.0001);
+}
+
+#[test]
+fn reported_paranoid_mode_and_completed_samples_follow_the_executor() {
+    let mut expected = None;
+    for (mode, name) in [
+        (Paranoid::Off, "0"),
+        (Paranoid::Save, "1"),
+        (Paranoid::FreshGame, "fresh-game"),
+    ] {
+        let mut sim = Sim::<Scene>::new(()).unwrap().paranoid(mode);
+        let before = sim.agent(r#"{"op":"state"}"#);
+        assert!(before.contains(&format!(
+            r#""paranoid":{{"mode":"{name}","checked":0,"skipped":0,"owed":false}}"#
+        )));
+        sim.run(100.0);
+        let state = sim.agent(r#"{"op":"state"}"#);
+        assert!(state.contains(&format!(
+            r#""paranoid":{{"mode":"{name}","checked":{},"skipped":0,"owed":false}}"#,
+            if mode == Paranoid::Off { 0 } else { 1 }
+        )));
+        let bytes = sim.save().unwrap();
+        if let Some(expected) = &expected {
+            assert_eq!(&bytes, expected);
+        } else {
+            expected = Some(bytes.clone());
+        }
+        sim.restore(&bytes).unwrap();
+        assert_eq!(
+            sim.agent(r#"{"op":"state"}"#).split("\"paranoid\":").nth(1),
+            state.split("\"paranoid\":").nth(1)
+        );
+    }
 }

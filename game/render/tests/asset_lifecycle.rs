@@ -13,7 +13,7 @@ impl Game for Art {
     }
     fn tick(_: &mut World, _: &Input, _: &()) {}
 }
-fn fresh() -> WorldSurface<Art, exact_game_render::ModelPresentation, true> {
+fn fresh() -> WorldSurface<Art, exact_game_render::ModelExecutor, true> {
     let mut surface = WorldSurface::default();
     surface.bind(&[], None).unwrap();
     surface
@@ -24,7 +24,10 @@ fn deferred_refusal_reports_once_and_leaves_fresh_world_usable() {
     surface
         .restore(b"invalid save", exact_gpu::Restore::Open)
         .unwrap();
-    surface.asset("crate.model", Ok(&bin::to_vec(&Model::default())));
+    surface.asset(
+        "crate.model",
+        Ok(&exact_game::asset::encode_model(&Model::default())),
+    );
     assert!(surface.take_error().unwrap().0.contains("save"));
     assert!(surface.take_error().is_none());
     assert!(surface.error().is_none());
@@ -35,7 +38,10 @@ fn deferred_refusal_reports_once_and_leaves_fresh_world_usable() {
 fn pending_restore_never_escapes_as_a_current_save() {
     let mut source = Sim::<Art>::new(()).unwrap();
     source
-        .asset("crate.model", Some(&bin::to_vec(&Model::default())))
+        .asset(
+            "crate.model",
+            Some(&exact_game::asset::encode_model(&Model::default())),
+        )
         .unwrap();
     source.run(500.);
     let mut surface = fresh();
@@ -63,6 +69,7 @@ fn terminal_declaration_requests_no_more_frames() {
             period_ms: 0.,
             children_generation: 0,
             shader_generation: 0,
+            headroom: 1.0,
         },
     )
     .unwrap();
@@ -115,7 +122,7 @@ fn loaded_content_reprepares_after_device_loss() {
     let (model, mut textures) = exact_game_bake::assets(&path).unwrap();
     // The authored RGBA8 names: what a device without block families fetches.
     textures.retain(|name, _| model.textures.contains(name));
-    surface.asset("crate.model", Ok(&bin::to_vec(&model)));
+    surface.asset("crate.model", Ok(&exact_game::asset::encode_model(&model)));
     for (name, texture) in &textures {
         surface.asset(name, Ok(&bin::to_vec(texture)));
     }
@@ -162,7 +169,7 @@ fn attaching_a_device_after_headless_delivery_requests_texture_bytes() {
     let (model, mut textures) = exact_game_bake::assets(&path).unwrap();
     // The authored RGBA8 names: what a device without block families fetches.
     textures.retain(|name, _| model.textures.contains(name));
-    surface.asset("crate.model", Ok(&bin::to_vec(&model)));
+    surface.asset("crate.model", Ok(&exact_game::asset::encode_model(&model)));
     for (name, texture) in &textures {
         surface.asset(name, Ok(&bin::to_vec(texture)));
     }
@@ -185,7 +192,10 @@ fn deferred_restore_preserves_the_last_texture_until_upload() {
     textures.retain(|name, _| model.textures.contains(name));
     let mut source = Sim::<Art>::new(()).unwrap();
     source
-        .asset("crate.model", Some(&bin::to_vec(&model)))
+        .asset(
+            "crate.model",
+            Some(&exact_game::asset::encode_model(&model)),
+        )
         .unwrap();
     for (name, texture) in &textures {
         source.asset(name, Some(&bin::to_vec(texture))).unwrap();
@@ -194,7 +204,7 @@ fn deferred_restore_preserves_the_last_texture_until_upload() {
     let mut surface = fresh();
     surface.device_ready(exact_gpu::wgpu::Features::empty());
     surface.restore(&save, exact_gpu::Restore::Open).unwrap();
-    surface.asset("crate.model", Ok(&bin::to_vec(&model)));
+    surface.asset("crate.model", Ok(&exact_game::asset::encode_model(&model)));
     for (name, texture) in &textures {
         surface.asset(name, Ok(&bin::to_vec(texture)));
     }
@@ -225,8 +235,7 @@ fn replacement_device_draws_identical_pixels() {
     let Some(gpu) = crate::test_device::device_or_skip(exact_gpu::fixture::device()) else {
         return;
     };
-    let mut surface =
-        WorldSurface::<VisibleArt, exact_game_render::ModelPresentation, true>::default();
+    let mut surface = WorldSurface::<VisibleArt, exact_game_render::ModelExecutor, true>::default();
     surface.device_ready(exact_gpu::wgpu::Features::empty());
     surface.bind(&[], None).unwrap();
     let path =
@@ -234,7 +243,7 @@ fn replacement_device_draws_identical_pixels() {
     let (model, mut textures) = exact_game_bake::assets(&path).unwrap();
     // The authored RGBA8 names: what a device without block families fetches.
     textures.retain(|name, _| model.textures.contains(name));
-    surface.asset("crate.model", Ok(&bin::to_vec(&model)));
+    surface.asset("crate.model", Ok(&exact_game::asset::encode_model(&model)));
     for (name, texture) in &textures {
         surface.asset(name, Ok(&bin::to_vec(texture)));
     }
@@ -247,6 +256,7 @@ fn replacement_device_draws_identical_pixels() {
         period_ms: 0.,
         children_generation: 0,
         shader_generation: 0,
+        headroom: 1.0,
     };
     let (before, _) = fixture::render(&gpu, &mut surface, &frame).unwrap();
     surface.device_lost();
@@ -272,7 +282,8 @@ fn textureless_live_model_survives_unrelated_retirement_and_module_device_loss()
     struct Pair;
     impl Game for Pair {
         const ID: &'static str = "retirement-pair";
-        const ASSETS: &'static [&'static str] = &["a.model", "b.model"];
+        // B is declared and stays resident; A is a cosmetic, which retires unshown.
+        const ASSETS: &'static [&'static str] = &["b.model"];
         type Args = ();
         fn actions() -> Actions {
             Actions::new().button("retire", &["KeyR"])
@@ -292,7 +303,7 @@ fn textureless_live_model_survives_unrelated_retirement_and_module_device_loss()
     }
     static REGISTRY: Registry = Registry {
         surfaces: &[("world", 0, || {
-            Box::<WorldSurface<Pair, exact_game_render::ModelPresentation, true>>::default()
+            Box::<WorldSurface<Pair, exact_game_render::ModelExecutor, true>>::default()
         })],
         shaders: &[],
     };
@@ -306,16 +317,17 @@ fn textureless_live_model_survives_unrelated_retirement_and_module_device_loss()
     for material in &mut model.materials {
         *material = Default::default();
     }
-    let bytes = bin::to_vec(&model);
+    let bytes = exact_game::asset::encode_model(&model);
     let mut module = Module::new(&REGISTRY);
     module.set_gpu(gpu);
     module.set_seekable(true);
     let id = module.create_headless("world").unwrap();
     assert!(module.bind(id, &[], None));
-    assert_eq!(module.take_assets(id).requests, ["a.model", "b.model"]);
-    for name in ["a.model", "b.model"] {
-        assert!(module.asset(id, name, Ok(&bytes)));
-    }
+    // Setup waits for B; A is requested once setup shows it.
+    assert_eq!(module.take_assets(id).requests, ["b.model"]);
+    assert!(module.asset(id, "b.model", Ok(&bytes)));
+    assert_eq!(module.take_assets(id).requests, ["a.model"]);
+    assert!(module.asset(id, "a.model", Ok(&bytes)));
     let mut frame = Frame {
         width: 64.,
         height: 64.,
@@ -325,6 +337,7 @@ fn textureless_live_model_survives_unrelated_retirement_and_module_device_loss()
         period_ms: 0.,
         children_generation: 0,
         shader_generation: 0,
+        headroom: 1.0,
     };
     let (before, _) = module.readback(id, &frame).unwrap();
     assert!(
@@ -353,4 +366,47 @@ fn textureless_live_model_survives_unrelated_retirement_and_module_device_loss()
     assert!(module.take_assets(id).requests.is_empty());
     let (recovered, _) = module.readback(id, &frame).unwrap();
     assert_eq!(before.data, recovered.data, "textureless module recovery");
+}
+
+#[test]
+fn a_live_table_update_crosses_the_module_asset_gate_and_invalid_data_is_refused() {
+    #[derive(Default, exact_game::Data)]
+    struct Movement {
+        speed: f32,
+    }
+    struct Tuning;
+    impl Game for Tuning {
+        const ID: &'static str = "module-tables";
+        const TABLES: &'static [exact_game::asset::Table] =
+            &[exact_game::asset::Table::of::<Movement>("movement.json")];
+        type Args = ();
+        fn setup(_: &mut World, _: &()) {}
+        fn tick(_: &mut World, _: &Input, _: &()) {}
+    }
+    static TABLES: exact_gpu::Registry = exact_gpu::Registry {
+        surfaces: &[("tables", 0, || Box::<WorldSurface<Tuning>>::default())],
+        shaders: &[],
+    };
+    let mut module = exact_gpu::Module::new(&TABLES);
+    let id = module.create_headless("tables").unwrap();
+    assert!(module.bind(id, &[], None));
+    assert_eq!(
+        module.take_assets(id).requests,
+        [exact_game::asset::TABLE_ASSET]
+    );
+    let deliver = |module: &mut exact_gpu::Module, text: &str| {
+        let rows =
+            std::collections::BTreeMap::from([("movement.json".to_owned(), text.to_owned())]);
+        let bytes = exact_game::json::to_string(&rows).unwrap();
+        module.asset(id, exact_game::asset::TABLE_ASSET, Ok(bytes.as_bytes()))
+    };
+    assert!(deliver(&mut module, r#"{"speed":4}"#));
+    assert!(deliver(&mut module, r#"{"speed":8}"#));
+    assert!(!deliver(&mut module, "{}"));
+    assert!(module.take_error().contains("movement.json.Movement.speed"));
+    assert!(module
+        .agent(id, r#"{"op":"state"}"#)
+        .unwrap()
+        .contains("\"tableEdits\":1"));
+    assert!(deliver(&mut module, r#"{"speed":6}"#));
 }

@@ -14,6 +14,8 @@ thread_local! { static MODEL_HASHES: std::cell::Cell<usize> = const { std::cell:
 pub(crate) fn model_hash_count() -> usize {
     MODEL_HASHES.with(|n| n.get())
 }
+#[cfg(test)]
+thread_local! { static POSE_STEPS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) }; }
 pub(crate) fn model_digest(model: &Model) -> u64 {
     #[cfg(test)]
     MODEL_HASHES.with(|n| n.set(n.get() + 1));
@@ -25,24 +27,76 @@ pub(crate) struct Material {
     bytes: u64,
     pub alpha: AlphaMode,
     pub double_sided: bool,
+    pub untextured: bool,
     data: MaterialData,
     names: [Option<String>; 5],
 }
+/// u32 words per model instance record: header, local, normal, tint, glow.
+pub(crate) const INSTANCE_WORDS: usize = 44;
+/// A record's look word flag: its tint replaces the material's base colour factor.
+pub(crate) const REPLACE: u32 = 1 << 31;
+/// A record's look word flag: its draw has parts of several materials, which
+/// its vertices number in `uv.x` (merge.rs).
+pub(crate) const NUMBERED: u32 = 1 << 30;
+/// A merged part's entry: tint, glow, its first vertex as bits; then, in a
+/// draw of several materials, its material (merge.rs `PartMaterial`).
+pub(crate) type PartLook = [f32; 16];
 pub(crate) type ModelNode = (MeshId, MaterialId, Mat4, Option<u32>);
+/// What the feed batches one loaded model from.
+pub(crate) struct Draws<'a> {
+    pub nodes: &'a [ModelNode],
+    /// Each node's name, for `NodeMaterials`.
+    pub names: &'a [String],
+    /// The merged draw list (empty when nothing merges) and each draw's part names.
+    pub merged: &'a [ModelNode],
+    pub members: &'a [Vec<String>],
+    pub starts: &'a [Vec<u32>],
+    /// Each merged draw's part materials when it has several, else empty.
+    pub parts: &'a [Vec<merge::PartMaterial>],
+    /// Renderer materials, by model material index.
+    pub materials: &'a [MaterialId],
+    /// Materials a game's `CustomMaterial` shades: a model with any of them in
+    /// a merged draw draws its parts unmerged.
+    pub custom: &'a std::collections::BTreeSet<MaterialId>,
+}
 pub(crate) struct Uploaded {
     pub nodes: Vec<ModelNode>,
+    /// Each drawn node's name, for `NodeMaterials`.
+    pub names: Vec<String>,
+    /// `nodes` with rigid parts sharing a material merged; empty when none merge.
+    pub merged: Vec<ModelNode>,
+    /// Each `merged` draw's node names, in vertex part order, and where each
+    /// part's vertices start in its mesh.
+    pub members: Vec<Vec<String>>,
+    pub starts: Vec<Vec<u32>>,
+    pub parts: Vec<Vec<merge::PartMaterial>>,
     pub(crate) digest: u64,
     pub active: bool,
     pub meshes: Vec<MeshId>,
     pub materials: Vec<MaterialId>,
     pub skins: Vec<u32>,
 }
+impl Uploaded {
+    /// Meshes with per-vertex joint words: skinned and rigid-palette nodes, and
+    /// animated merged meshes.
+    pub(crate) fn weighted_meshes(&self) -> impl Iterator<Item = usize> + '_ {
+        (self.nodes.iter().chain(&self.merged))
+            .filter(|n| n.3.is_some())
+            .map(|n| n.0 .0)
+    }
+}
+mod looks;
+mod merge;
+mod poses;
+pub(crate) use poses::Moved;
 mod textures;
 use textures::upload_texture;
 pub(crate) use textures::Texture;
 struct PoseHistory {
     entity: exact_game::Entity,
     saved: Option<(u64, u64, [exact_game::Transform; 2])>,
+    /// A negative owner scale axis at either endpoint (counted in `mirrored`).
+    mirrored: bool,
 }
 #[derive(Default)]
 pub(crate) struct Models {
@@ -58,14 +112,25 @@ pub(crate) struct Models {
     pub instances: Option<Buffer>,
     pub skinning: Option<crate::skinning::Skinning>,
     pub bind: Option<wgpu::BindGroup>,
-    pub no_shadow: Option<wgpu::BindGroup>,
     pub transparent: Vec<(usize, u32, f32)>,
     pub poses: Vec<[exact_game::Transform; 2]>,
     pub pose_indices: Vec<usize>,
     pose_history: Vec<PoseHistory>,
+    /// Histories still interpolating, which the next tick must collapse.
+    moving: Vec<usize>,
+    touched: Vec<usize>,
+    mirrored: usize,
     bind_buffers: Option<(wgpu::BindGroupLayout, [wgpu::Buffer; 3])>,
     words: Vec<u32>,
     normals: Vec<([u32; 16], [u32; 16])>,
+    /// Per record, 1 + the first of its merged parts' looks (0: none), and
+    /// those looks (tint, glow, then the part's first vertex as bits; a
+    /// `u32::MAX` start ends each record's run), appended after the records.
+    pub(crate) part_looks: (Vec<u32>, Vec<PartLook>),
+    /// Materials a game's `CustomMaterial` shades (never merged).
+    pub(crate) custom: std::collections::BTreeSet<MaterialId>,
+    /// The feed's looks for the next `set_draw_instances`, part starts relative.
+    pub(crate) pending_looks: (Vec<u32>, Vec<PartLook>),
 }
 impl Models {
     pub fn custom_data(&mut self, queue: &wgpu::Queue, data: impl Fn(u32) -> u32) {
@@ -74,7 +139,7 @@ impl Models {
             let value = data(record.transform);
             if record.data != value {
                 record.data = value;
-                self.words[i * 36 + 2] = value;
+                self.words[i * INSTANCE_WORDS + 2] = value;
                 changed = true;
             }
         }
@@ -85,7 +150,8 @@ impl Models {
                 .write(queue, 0, bytes(&self.words));
         }
     }
-    fn reconcile_pose_history(&mut self, entities: &[exact_game::Entity]) {
+    // Whether the instance list changed; histories follow their entities.
+    fn reconcile_pose_history(&mut self, entities: &[exact_game::Entity]) -> bool {
         if self.pose_history.len() == entities.len()
             && self
                 .pose_history
@@ -93,7 +159,7 @@ impl Models {
                 .zip(entities)
                 .all(|(history, entity)| history.entity == *entity)
         {
-            return;
+            return false;
         }
         let mut old = std::mem::take(&mut self.pose_history)
             .into_iter()
@@ -106,8 +172,9 @@ impl Models {
             {
                 old.next();
             }
-            let saved = if old.peek().is_some_and(|history| history.entity == entity) {
-                old.next().unwrap().saved
+            let (saved, mirrored) = if old.peek().is_some_and(|history| history.entity == entity) {
+                let history = old.next().unwrap();
+                (history.saved, history.mirrored)
             } else {
                 if old
                     .peek()
@@ -115,11 +182,17 @@ impl Models {
                 {
                     old.next();
                 }
-                None
+                (None, false)
             };
-            merged.push(PoseHistory { entity, saved });
+            merged.push(PoseHistory {
+                entity,
+                saved,
+                mirrored,
+            });
         }
         self.pose_history = merged;
+        self.mirrored = self.pose_history.iter().filter(|h| h.mirrored).count();
+        true
     }
     fn prepare(&mut self, device: &wgpu::Device, family: &crate::pipeline::ModelPipelines) {
         if self.instances.is_some() {
@@ -131,7 +204,7 @@ impl Models {
             wgpu::BufferUsages::STORAGE,
             "game model instances",
         );
-        let skinning = crate::skinning::Skinning::new(device);
+        let skinning = crate::skinning::Skinning::new(device, family.cache.as_ref());
         self.bind = Some(instance_bind(
             device,
             &family.instance,
@@ -140,11 +213,6 @@ impl Models {
         ));
         self.skinning = Some(skinning);
         self.instances = Some(instances);
-        self.no_shadow = Some(device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("game no shadows"),
-            layout: &family.empty,
-            entries: &[],
-        }));
     }
     pub fn set(
         &mut self,
@@ -160,8 +228,11 @@ impl Models {
         let words = &mut self.words;
         words.clear();
         self.normals.resize(records.len(), ([0; 16], [0; 16]));
-        for ((record, cached), &palette) in
-            records.iter().zip(&mut self.normals).zip(&skinning.offsets)
+        for (index, ((record, cached), &palette)) in records
+            .iter()
+            .zip(&mut self.normals)
+            .zip(&skinning.offsets)
+            .enumerate()
         {
             let key = record.local.to_cols_array().map(f32::to_bits);
             if cached.0 != key {
@@ -182,6 +253,25 @@ impl Models {
             ]);
             words.extend(record.local.to_cols_array().map(f32::to_bits));
             words.extend(normal);
+            words.extend(record.tint.map(f32::to_bits));
+            words.extend(record.glow.map(f32::to_bits));
+            // Low 30 bits: 1 + the record's first part look; then the flags.
+            let look = self.part_looks.0.get(index).copied().unwrap_or(0);
+            let base = look & !(REPLACE | NUMBERED);
+            let at = if base == 0 {
+                0
+            } else {
+                records.len() as u32 + base
+            };
+            words.push(at | (look & (REPLACE | NUMBERED)));
+        }
+        // A merged part's look is one record-sized entry: its tint and glow,
+        // and in `local`'s first two columns its material, when it has one.
+        for look in &self.part_looks.1 {
+            words.extend([0; 4]);
+            words.extend(look[8..].iter().map(|v| v.to_bits()));
+            words.extend([0; 24]);
+            words.extend(look[..8].iter().map(|v| v.to_bits()));
         }
         if words.len() as u64 * 4 > device.limits().max_storage_buffer_binding_size {
             return Err(RenderError::scene(
@@ -251,7 +341,7 @@ impl<const ASSETS: bool> crate::renderer::RendererWithAssets<ASSETS> {
         model: &Model,
     ) -> Result<(Vec<MeshId>, Vec<MaterialId>), RenderError> {
         model.validate().map_err(RenderError::scene)?;
-        self.pipelines.prepare_model(&self.device, model);
+        self.pipelines.prepare_model(&self.device);
         self.models
             .prepare(&self.device, self.pipelines.models.as_ref().unwrap());
         for (name, pixel, srgb) in [
@@ -290,6 +380,9 @@ impl<const ASSETS: bool> crate::renderer::RendererWithAssets<ASSETS> {
                     })
                     .collect();
                 let id = self.add_mesh(&vertices, &mesh.indices);
+                if let Some(outline) = &mesh.outline {
+                    self.add_outline(id, outline, None);
+                }
 
                 if !mesh.joints.is_empty() {
                     let start = self.meshes[id.0].base_vertex as u64 * 32;
@@ -327,9 +420,9 @@ impl<const ASSETS: bool> crate::renderer::RendererWithAssets<ASSETS> {
                 &self.device,
                 &self.queue,
                 &self.pipelines.models.as_ref().unwrap().material,
-                material,
-                &names,
+                (material, &names),
                 &self.models.textures,
+                self.untextured_twin(material, &names),
             );
             if slot == self.models.materials.len() {
                 self.models.materials.push(material);
@@ -338,6 +431,29 @@ impl<const ASSETS: bool> crate::renderer::RendererWithAssets<ASSETS> {
             }
         }
         Ok((meshes, materials))
+    }
+    /// A live group with the contents of `m`'s when `m` has no textures:
+    /// untextured materials with the same factors share one, so neighbouring
+    /// draws of them bind it once.
+    pub(crate) fn untextured_twin(
+        &self,
+        m: &MaterialData,
+        names: &[Option<String>; 5],
+    ) -> Option<&wgpu::BindGroup> {
+        if names.iter().any(Option::is_some) {
+            return None;
+        }
+        let values = baked(m);
+        let bits = |values: &[f32]| values.iter().map(|v| v.to_bits()).collect::<Vec<_>>();
+        self.models
+            .materials
+            .iter()
+            .find(|t| {
+                t.bind.is_some()
+                    && t.names.iter().all(Option::is_none)
+                    && bits(&baked(&t.data)) == bits(&values)
+            })
+            .and_then(|t| t.bind.as_ref())
     }
     /// Prepare a named model inside its Pending window. Later feeds only read handles.
     pub fn prepare_model(&mut self, name: &str, model: &Model) -> Result<(), RenderError> {
@@ -361,7 +477,9 @@ impl<const ASSETS: bool> crate::renderer::RendererWithAssets<ASSETS> {
             }
             return Ok(());
         }
-        model.validate().map_err(RenderError::scene)?;
+        model
+            .validate()
+            .map_err(|e| RenderError::scene(format!("{name}: {e}")))?;
         let replaced = self.models.loaded.remove(name).is_some();
         if replaced {
             self.reclaim_orphan_slots();
@@ -370,38 +488,72 @@ impl<const ASSETS: bool> crate::renderer::RendererWithAssets<ASSETS> {
         for id in &meshes {
             self.meshes[id.0].asset = true;
         }
-        let skins = self
-            .models
-            .skinning
-            .as_mut()
-            .unwrap()
-            .add(&self.device, &self.queue, model);
+        let animated = merge::animated_groups(model);
+        let skins = self.models.skinning.as_mut().unwrap().add_merged(
+            &self.device,
+            &self.queue,
+            model,
+            &animated,
+        );
         if replaced {
             self.models.skinning.as_mut().unwrap().mark_fresh(&skins);
         }
+        let mut rigid = skins.iter().skip(model.skins.len());
+        let names = model
+            .nodes
+            .iter()
+            .filter(|n| n.mesh.is_some())
+            .map(|n| n.name.clone())
+            .collect();
         let nodes = model
             .nodes
             .iter()
             .zip(model.offsets().map_err(RenderError::scene)?)
             .filter_map(|(n, local)| {
                 n.mesh.map(|m| {
+                    let skin = n
+                        .skin
+                        .map(|s| skins[s as usize])
+                        .or_else(|| rigid.next().copied());
                     (
-                        meshes[m as usize],
+                        if skin.is_some() && n.skin.is_none() && local.determinant() < 0. {
+                            self.mirrored_rigid_mesh(&model.meshes[m as usize])
+                        } else {
+                            meshes[m as usize]
+                        },
                         materials[model.meshes[m as usize].material as usize],
-                        if n.skin.is_some() {
+                        if skin.is_some() {
                             Mat4::IDENTITY
                         } else {
                             local
                         },
-                        n.skin.map(|s| skins[s as usize]),
+                        skin,
                     )
                 })
             })
-            .collect();
+            .collect::<Vec<ModelNode>>();
+        let drawn: Vec<u32> = model.nodes.iter().filter_map(|n| n.mesh).collect();
+        let first = skins.len() - animated.len();
+        let merged = self.merge_static(model, &nodes, &drawn, &animated, &skins[first..]);
+        let mut meshes = meshes;
+        for node in &nodes {
+            if !meshes.contains(&node.0) {
+                meshes.push(node.0);
+            }
+        }
+        meshes.extend(merged.meshes);
+        // Shared materials follow the model's own: indices stay its materials'.
+        let mut materials = materials;
+        materials.extend(merged.materials);
         self.models.loaded.insert(
             name.into(),
             Uploaded {
                 nodes,
+                names,
+                merged: merged.draws,
+                members: merged.members,
+                starts: merged.starts,
+                parts: merged.parts,
                 digest,
                 active: true,
                 meshes,
@@ -432,6 +584,13 @@ impl<const ASSETS: bool> crate::renderer::RendererWithAssets<ASSETS> {
         // and orphan spans remain retired until a GPU-to-GPU packing pass.
         self.mesh_buffer_bytes().saturating_sub(live_mesh_bytes)
             + self
+                .meshes
+                .iter()
+                .enumerate()
+                .filter(|(i, m)| m.asset && !retained.contains(i))
+                .map(|(_, m)| m.outline.as_ref().map_or(0, |h| h.bytes))
+                .sum::<u64>()
+            + self
                 .models
                 .loaded
                 .iter()
@@ -452,7 +611,7 @@ impl<const ASSETS: bool> crate::renderer::RendererWithAssets<ASSETS> {
                     .loaded
                     .iter()
                     .filter(|(n, m)| m.active && live.contains(*n))
-                    .flat_map(|(_, m)| m.nodes.iter().filter(|n| n.3.is_some()).map(|n| n.0 .0))
+                    .flat_map(|(_, m)| m.weighted_meshes())
                     .collect::<std::collections::BTreeSet<_>>()
                     .iter()
                     .map(|&i| self.meshes[i].vertex_bytes)
@@ -514,6 +673,7 @@ impl<const ASSETS: bool> crate::renderer::RendererWithAssets<ASSETS> {
             if m.asset && !meshes.contains(&i) {
                 m.indices = 0..0;
                 m.vertex_bytes = 0;
+                m.outline = None;
             }
         }
         for (i, m) in self.models.materials.iter_mut().enumerate() {
@@ -587,9 +747,9 @@ impl<const ASSETS: bool> crate::renderer::RendererWithAssets<ASSETS> {
                     &self.device,
                     &self.queue,
                     &self.pipelines.models.as_ref().unwrap().material,
-                    &material.data,
-                    &material.names,
+                    (&material.data, &material.names),
                     &self.models.textures,
+                    None,
                 );
             }
         }
@@ -599,8 +759,11 @@ impl<const ASSETS: bool> crate::renderer::RendererWithAssets<ASSETS> {
     pub fn asset_work(&self) -> (usize, u64) {
         (
             self.pipelines.models.as_ref().map_or(0, |m| {
-                m.forward.iter().filter(|p| p.is_some()).count()
-                    + m.shadow.iter().filter(|p| p.is_some()).count()
+                m.forward.iter().filter(|p| p.get().is_some()).count()
+                    + m.shadow.iter().filter(|p| p.get().is_some()).count()
+                    + m.camera_depth.iter().filter(|p| p.get().is_some()).count()
+                    + m.fallback.iter().filter(|p| p.get().is_some()).count()
+                    + self.outlines.as_ref().map_or(0, |o| o.count())
             }),
             self.models.uploads,
         )
@@ -616,6 +779,7 @@ impl<const ASSETS: bool> crate::renderer::RendererWithAssets<ASSETS> {
             texture_uploads: textures,
             mesh_uploads: self.mesh_uploads,
             pipeline_creations: crate::pipeline::STARTUP_PIPELINES
+                + self.pipelines.variant_count()
                 + pipelines as u64
                 + skin.map_or(0, |s| s.pipeline_creations)
                 + self.quads.work_pipelines(),
@@ -628,11 +792,29 @@ impl<const ASSETS: bool> crate::renderer::RendererWithAssets<ASSETS> {
     /// Replace additional draw records. Primitive batches retain their compact identity
     /// record: slot = transform = material, geometry in the batch, local = identity.
     pub fn set_draw_instances(&mut self, records: &[DrawInstance]) -> Result<(), RenderError> {
+        self.model_poses_current = false;
         self.cull.epoch += 1;
         let Some(family) = &self.pipelines.models else {
             assert!(records.is_empty(), "model instances need prepared assets");
             return Ok(());
         };
+        // Part starts become absolute vertices; direct callers bring no looks.
+        let (bases, mut looks) = std::mem::take(&mut self.models.pending_looks);
+        for (record, &base) in records.iter().zip(&bases) {
+            let base = base & !(REPLACE | NUMBERED);
+            if base == 0 {
+                continue;
+            }
+            let first = self.meshes[record.geometry.0].base_vertex as u32;
+            for look in &mut looks[base as usize - 1..] {
+                let start = look[7].to_bits();
+                if start == u32::MAX {
+                    break;
+                }
+                look[7] = f32::from_bits(first + start);
+            }
+        }
+        self.models.part_looks = (bases, looks);
         self.models.set(
             &self.device,
             &self.queue,
@@ -641,65 +823,45 @@ impl<const ASSETS: bool> crate::renderer::RendererWithAssets<ASSETS> {
             records,
         )
     }
-    /// Feed poses for transparency and winding on completed ticks. O(model instances).
-    pub(crate) fn model_poses(
-        &mut self,
-        world: &exact_game::World,
-        entities: &[exact_game::Entity],
-        initial: bool,
-    ) {
-        if let Some(skinning) = &mut self.models.skinning {
-            skinning.feed(&self.queue, world, entities, initial);
-        }
-        self.models.reconcile_pose_history(entities);
-        let loaded = &self.models.loaded;
-        for (active, history) in self
-            .models
-            .poses
-            .iter_mut()
-            .zip(&mut self.models.pose_history)
-        {
-            let entity = history.entity;
-            let digest = world
-                .get::<exact_game::Mesh>(entity)
-                .and_then(|m| match &*m {
-                    exact_game::Mesh::Asset(name) => loaded.get(name).map(|m| m.digest),
-                    _ => None,
-                })
-                .unwrap_or(0);
-            if let Some(pose) = crate::world::scene::pose(world, entity) {
-                let saved = history
-                    .saved
-                    .get_or_insert((digest, world.tick(), [pose; 2]));
-                if initial || saved.0 != digest || crate::world::scene::snap(world, entity, false) {
-                    saved.2 = [pose; 2];
-                } else {
-                    if saved.1 != world.tick() {
-                        saved.2[0] = saved.2[1];
-                    }
-                    saved.2[1] = pose;
-                }
-                saved.0 = digest;
-                saved.1 = world.tick();
-                *active = saved.2;
-            }
-        }
-    }
 }
+
+/// `m`'s group over its uniform and named textures, or `twin`, a live group
+/// with the same contents, which allocates nothing.
 fn material_bind(
     device: &wgpu::Device,
     queue: &wgpu::Queue,
     layout: &wgpu::BindGroupLayout,
-    m: &MaterialData,
-    names: &[Option<String>; 5],
+    (m, names): (&MaterialData, &[Option<String>; 5]),
     textures: &BTreeMap<String, Texture>,
+    twin: Option<&wgpu::BindGroup>,
 ) -> Material {
+    let (bind, bytes) = match twin {
+        Some(bind) => (bind.clone(), 0),
+        None => new_material_bind(device, queue, layout, m, names, textures),
+    };
+    Material {
+        bytes,
+        bind: Some(bind),
+        alpha: m.alpha_mode,
+        double_sided: m.double_sided,
+        untextured: crate::model_pipeline::untextured(m),
+        data: m.clone(),
+        names: names.clone(),
+    }
+}
+
+/// The material's uniform (model.wgsl `BakedMaterial`).
+fn baked(m: &MaterialData) -> Vec<f32> {
     let mut values = Vec::new();
     values.extend(m.base_color);
     values.extend([
         m.metallic,
         m.roughness,
-        m.normal_scale,
+        if m.normal_texture.is_some() {
+            m.normal_scale
+        } else {
+            0.
+        },
         m.occlusion_strength,
     ]);
     values.extend(m.emissive);
@@ -710,13 +872,25 @@ fn material_bind(
             AlphaMode::Mask => 1.,
             AlphaMode::Blend => 2.,
         },
-        0.,
+        m.rim,
         0.,
         0.,
     ]);
     for uv in m.uv_transforms {
         values.extend([uv[0], uv[1], uv[2], uv[3], uv[4], uv[5], 0., 0.]);
     }
+    values
+}
+
+fn new_material_bind(
+    device: &wgpu::Device,
+    queue: &wgpu::Queue,
+    layout: &wgpu::BindGroupLayout,
+    m: &MaterialData,
+    names: &[Option<String>; 5],
+    textures: &BTreeMap<String, Texture>,
+) -> (wgpu::BindGroup, u64) {
+    let values = baked(m);
     let uniform = device.create_buffer(&wgpu::BufferDescriptor {
         label: Some("game baked material"),
         size: (values.len() * 4) as u64,
@@ -753,18 +927,12 @@ fn material_bind(
             resource: wgpu::BindingResource::Sampler(&texture.sampler),
         });
     }
-    Material {
-        bytes: uniform.size(),
-        bind: Some(device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("game material textures"),
-            layout,
-            entries: &entries,
-        })),
-        alpha: m.alpha_mode,
-        double_sided: m.double_sided,
-        data: m.clone(),
-        names: names.clone(),
-    }
+    let bind = device.create_bind_group(&wgpu::BindGroupDescriptor {
+        label: Some("game material textures"),
+        layout,
+        entries: &entries,
+    });
+    (bind, uniform.size())
 }
 
 fn texture_names(m: &MaterialData, names: &[String]) -> [Option<String>; 5] {
@@ -778,145 +946,7 @@ fn texture_names(m: &MaterialData, names: &[String]) -> [Option<String>; 5] {
     .map(|i| i.map(|i| names[i as usize].clone()))
 }
 #[cfg(test)]
-mod arrival_tests {
-    use super::*;
-    #[test]
-    fn content_digest_reuses_equal_bytes_and_replaces_changed_names() {
-        let Some(gpu) = crate::test_device::device_or_skip(exact_gpu::fixture::device()) else {
-            return;
-        };
-        let mut renderer =
-            crate::Renderer::new(&gpu.device, &gpu.queue, wgpu::TextureFormat::Rgba8Unorm);
-        let mut model = Model {
-            meshes: vec![exact_game::asset::MeshData {
-                positions: vec![0.; 9],
-                normals: vec![0.; 9],
-                uvs: vec![0.; 6],
-                indices: vec![0, 1, 2],
-                ..Default::default()
-            }],
-            nodes: vec![exact_game::asset::Node {
-                mesh: Some(0),
-                ..Default::default()
-            }],
-            materials: vec![MaterialData::default()],
-            ..Default::default()
-        };
-        renderer.prepare_model("resident.model", &model).unwrap();
-        let before = renderer.residency_work();
-        let old_mesh = renderer.models.loaded["resident.model"].nodes[0].0;
-        renderer
-            .prepare_model("resident.model", &model.clone())
-            .unwrap();
-        assert_eq!(before.json(), renderer.residency_work().json());
-        model.meshes[0].positions[0] = 0.5;
-        renderer.prepare_model("resident.model", &model).unwrap();
-        assert_eq!(
-            old_mesh, renderer.models.loaded["resident.model"].nodes[0].0,
-            "replacement reuses the retired slot after accepting its digest"
-        );
-        let delta = renderer.residency_work().since(before);
-        assert_eq!(delta.mesh_uploads, 1);
-        assert_eq!(delta.pipeline_creations, 0);
-        assert_eq!(delta.texture_uploads, 0);
-        let mut texture = TextureData {
-            width: 1,
-            height: 1,
-            mips: vec![vec![255; 4]],
-            ..Default::default()
-        };
-        renderer.add_texture("resident.tex", &texture).unwrap();
-        let before = renderer.residency_work();
-        renderer
-            .add_texture("resident.tex", &texture.clone())
-            .unwrap();
-        assert_eq!(before.json(), renderer.residency_work().json());
-        texture.mips[0][0] = 0;
-        renderer.add_texture("resident.tex", &texture).unwrap();
-        assert_eq!(renderer.residency_work().since(before).texture_uploads, 1);
-        texture.srgb = !texture.srgb;
-        renderer.add_texture("resident.tex", &texture).unwrap();
-        texture.wrap[0] = Wrap::Clamp;
-        renderer.add_texture("resident.tex", &texture).unwrap();
-        assert_eq!(renderer.residency_work().since(before).texture_uploads, 3);
-    }
-    #[test]
-    fn normal_cache_and_rebatch_scratch_follow_the_live_records() {
-        let Some(gpu) = crate::test_device::device_or_skip(exact_gpu::fixture::device()) else {
-            return;
-        };
-        let mut renderer =
-            crate::Renderer::new(&gpu.device, &gpu.queue, wgpu::TextureFormat::Rgba8Unorm);
-        renderer
-            .prepare_model("empty.model", &Model::default())
-            .unwrap();
-        let layout = &renderer.pipelines.models.as_ref().unwrap().instance;
-        for x in 0..8 {
-            let records = [DrawInstance {
-                data: 0,
-                transform: 0,
-                geometry: MeshId(0),
-                material: MaterialId(0),
-                local: Mat4::from_translation(glam::Vec3::new(x as f32, 0., 0.)),
-                skin: None,
-            }];
-            renderer
-                .models
-                .set(&gpu.device, &gpu.queue, layout, &renderer.uniform, &records)
-                .unwrap();
-            assert_eq!(renderer.models.normals.len(), 1);
-            let ptr = renderer.models.words.as_ptr();
-            renderer
-                .models
-                .set(&gpu.device, &gpu.queue, layout, &renderer.uniform, &records)
-                .unwrap();
-            assert_eq!(ptr, renderer.models.words.as_ptr());
-        }
-    }
-    #[test]
-    fn material_waits_for_all_textures_before_rebinding() {
-        let Some(gpu) = crate::test_device::device_or_skip(exact_gpu::fixture::device()) else {
-            return;
-        };
-        let mut renderer =
-            crate::Renderer::new(&gpu.device, &gpu.queue, wgpu::TextureFormat::Rgba8Unorm);
-        let model = Model {
-            meshes: vec![exact_game::asset::MeshData {
-                positions: vec![0.; 9],
-                normals: vec![0.; 9],
-                uvs: vec![0.; 6],
-                indices: vec![0, 1, 2],
-                ..Default::default()
-            }],
-            nodes: vec![exact_game::asset::Node {
-                mesh: Some(0),
-                ..Default::default()
-            }],
-            materials: vec![MaterialData {
-                base_color_texture: Some(0),
-                normal_texture: Some(1),
-                ..Default::default()
-            }],
-            textures: vec!["color.tex".into(), "normal.tex".into()],
-            ..Default::default()
-        };
-        renderer.prepare_model("two.model", &model).unwrap();
-        let initial = renderer.models.materials[0].bind.clone();
-        let texture = TextureData {
-            width: 1,
-            height: 1,
-            mips: vec![vec![255; 4]],
-            ..Default::default()
-        };
-        renderer.add_texture("color.tex", &texture).unwrap();
-        assert_eq!(renderer.models.materials[0].bind, initial);
-        renderer.add_texture("normal.tex", &texture).unwrap();
-        let final_bind = renderer.models.materials[0].bind.clone();
-        assert_ne!(final_bind, initial);
-        renderer.add_texture("normal.tex", &texture).unwrap();
-        assert_eq!(renderer.models.materials[0].bind, final_bind);
-    }
-}
+mod arrival_tests;
 
 #[cfg(test)]
 mod retirement_regressions {
@@ -967,6 +997,8 @@ mod retirement_regressions {
                     data: 0,
                     transform,
                     skin: None,
+                    tint: [1.; 4],
+                    glow: [0.; 3],
                     ..records[0]
                 })
                 .collect();
@@ -983,6 +1015,186 @@ mod retirement_regressions {
                 .map(|r| r.transform)
                 .eq(transforms.iter().copied()));
         }
+    }
+
+    #[test]
+    fn static_instances_cost_no_pose_steps_and_moved_ones_still_interpolate() {
+        let Some(gpu) = crate::test_device::device_or_skip(exact_gpu::fixture::device()) else {
+            return;
+        };
+        let mut renderer =
+            crate::Renderer::new(&gpu.device, &gpu.queue, wgpu::TextureFormat::Rgba8Unorm);
+        let model: Model =
+            exact_game::bin::from_slice(include_bytes!("../../bake/tests/fixtures/crate.model"))
+                .unwrap();
+        renderer.prepare_model("crate.model", &model).unwrap();
+        struct Grove;
+        impl exact_game::Game for Grove {
+            type Args = ();
+            const ID: &'static str = "static-model-poses";
+            fn setup(w: &mut exact_game::World, _: &()) {
+                for i in 0..3 * exact_game::PAGE {
+                    w.spawn((
+                        exact_game::Transform::at(i as f32, 0., 0.),
+                        exact_game::Mesh::asset("crate.model"),
+                    ));
+                }
+                w.spawn_named("walker", exact_game::Transform::default());
+            }
+            fn tick(w: &mut exact_game::World, _: &exact_game::Input, _: &()) {
+                w.require_mut::<exact_game::Transform>("walker").position.z += 1.;
+            }
+        }
+        let steps = || POSE_STEPS.with(|n| n.get());
+        let mut sim = exact_game::Sim::<Grove>::new(()).unwrap();
+        let mut feed = crate::Feed::default();
+        feed.feed(sim.world(), &mut renderer).unwrap();
+        let tick = 1000. / 60.;
+        for _ in 0..2 {
+            sim.run(tick);
+            feed.feed(sim.world(), &mut renderer).unwrap();
+        }
+        // The walker shares no page with any instance: a tick steps none.
+        let before = steps();
+        sim.run(tick);
+        feed.feed(sim.world(), &mut renderer).unwrap();
+        assert_eq!(steps(), before);
+        let poses = |r: &crate::Renderer| r.models.poses[exact_game::PAGE + 7];
+        let start = poses(&renderer)[1];
+        let moved = sim
+            .world()
+            .query::<&exact_game::Transform>()
+            .iter()
+            .nth(exact_game::PAGE + 7)
+            .unwrap()
+            .0;
+        sim.world_mut()
+            .get_mut::<exact_game::Transform>(moved)
+            .unwrap()
+            .position
+            .y = 5.;
+        sim.run(tick);
+        feed.feed(sim.world(), &mut renderer).unwrap();
+        // Only the written page steps, and the moved instance interpolates.
+        assert_eq!(steps() - before, exact_game::PAGE);
+        assert_eq!(poses(&renderer)[0], start);
+        assert_eq!(poses(&renderer)[1].position.y, 5.);
+        sim.run(tick);
+        feed.feed(sim.world(), &mut renderer).unwrap();
+        // The next tick collapses the moved history without revisiting the page.
+        assert_eq!(steps() - before, exact_game::PAGE + 1);
+        assert_eq!(poses(&renderer)[0], poses(&renderer)[1]);
+        sim.run(tick);
+        feed.feed(sim.world(), &mut renderer).unwrap();
+        assert_eq!(steps() - before, exact_game::PAGE + 1);
+    }
+
+    #[test]
+    fn static_parented_instances_cost_no_pose_steps_and_follow_a_moved_parent() {
+        let Some(gpu) = crate::test_device::device_or_skip(exact_gpu::fixture::device()) else {
+            return;
+        };
+        let mut renderer =
+            crate::Renderer::new(&gpu.device, &gpu.queue, wgpu::TextureFormat::Rgba8Unorm);
+        let model: Model =
+            exact_game::bin::from_slice(include_bytes!("../../bake/tests/fixtures/crate.model"))
+                .unwrap();
+        renderer.prepare_model("crate.model", &model).unwrap();
+        struct Orchard;
+        impl exact_game::Game for Orchard {
+            type Args = ();
+            const ID: &'static str = "static-parented-poses";
+            fn setup(w: &mut exact_game::World, _: &()) {
+                for i in 0..2 * exact_game::PAGE {
+                    let plant = w.spawn((
+                        exact_game::Transform::at(i as f32, 0., 0.),
+                        exact_game::Mesh::asset("crate.model"),
+                    ));
+                    w.spawn((
+                        exact_game::Transform::at(0., 1., 0.),
+                        exact_game::Mesh::asset("crate.model"),
+                        exact_game::Parent(plant),
+                    ));
+                }
+                w.spawn_named("walker", exact_game::Transform::default());
+            }
+            fn tick(w: &mut exact_game::World, _: &exact_game::Input, _: &()) {
+                w.require_mut::<exact_game::Transform>("walker").position.z += 1.;
+            }
+        }
+        let steps = || POSE_STEPS.with(|n| n.get());
+        let mut sim = exact_game::Sim::<Orchard>::new(()).unwrap();
+        let mut feed = crate::Feed::default();
+        feed.feed(sim.world(), &mut renderer).unwrap();
+        let tick = 1000. / 60.;
+        for _ in 0..2 {
+            sim.run(tick);
+            feed.feed(sim.world(), &mut renderer).unwrap();
+        }
+        let before = steps();
+        sim.run(tick);
+        feed.feed(sim.world(), &mut renderer).unwrap();
+        assert_eq!(steps(), before, "a static hierarchy steps nothing");
+        // Move a plant in the second block: its fruit (a parented instance) follows.
+        let plant = sim
+            .world()
+            .query::<&exact_game::Transform>()
+            .without::<exact_game::Parent>()
+            .iter()
+            .nth(exact_game::PAGE + 3)
+            .unwrap()
+            .0;
+        let fruit = sim
+            .world()
+            .query::<&exact_game::Parent>()
+            .iter()
+            .find(|(_, p)| p.0 == plant)
+            .unwrap()
+            .0;
+        let fruit_at = renderer
+            .models
+            .pose_history
+            .iter()
+            .position(|h| h.entity.index() == fruit.index())
+            .unwrap();
+        sim.world_mut()
+            .get_mut::<exact_game::Transform>(plant)
+            .unwrap()
+            .position
+            .y = 5.;
+        sim.run(tick);
+        feed.feed(sim.world(), &mut renderer).unwrap();
+        let pair = renderer.models.poses[fruit_at];
+        assert_eq!((pair[0].position.y, pair[1].position.y), (1., 6.));
+        assert!(
+            steps() - before <= 2 * exact_game::PAGE,
+            "{}",
+            steps() - before
+        );
+        let cached = renderer.models.poses.clone();
+        let entities: Vec<_> = renderer
+            .models
+            .pose_history
+            .iter()
+            .map(|h| h.entity)
+            .collect();
+        renderer.model_poses(sim.world(), &entities, false, Moved::All, &[], None);
+        assert_eq!(
+            renderer.models.poses, cached,
+            "cached and recomputed poses agree"
+        );
+        let cached = renderer.models.poses.clone();
+        let entities: Vec<_> = renderer
+            .models
+            .pose_history
+            .iter()
+            .map(|h| h.entity)
+            .collect();
+        renderer.model_poses(sim.world(), &entities, false, Moved::All, &[], None);
+        assert_eq!(
+            renderer.models.poses, cached,
+            "parented cached poses match recomputation"
+        );
     }
 
     #[test]
@@ -1033,7 +1245,7 @@ mod retirement_regressions {
             renderer.models.poses,
             vec![[exact_game::Transform::default(); 2]]
         );
-        renderer.model_poses(sim.world(), &[hero], false);
+        renderer.model_poses(sim.world(), &[hero], false, Moved::All, &[], None);
         assert_eq!(renderer.models.poses, expected);
     }
 
@@ -1067,11 +1279,13 @@ mod retirement_regressions {
             material: node.1,
             local: node.2,
             skin: None,
+            tint: [1.; 4],
+            glow: [0.; 3],
         };
         renderer
             .set_draw_instances(std::slice::from_ref(&record))
             .unwrap();
-        renderer.model_poses(&world, &[missing], false);
+        renderer.model_poses(&world, &[missing], false, Moved::All, &[], None);
         assert_eq!(
             renderer.models.poses[0],
             [exact_game::Transform::default(); 2]
@@ -1082,7 +1296,7 @@ mod retirement_regressions {
         let missing = world.resolve("model").unwrap();
         assert!(!world.is_fresh(missing));
         let propagated = crate::world::scene::pose(&world, missing).unwrap();
-        renderer.model_poses(&world, &[missing], false);
+        renderer.model_poses(&world, &[missing], false, Moved::All, &[], None);
         assert_eq!(renderer.models.poses[0], [propagated; 2]);
 
         assert!(world.despawn(missing));
@@ -1105,7 +1319,7 @@ mod retirement_regressions {
             .set_draw_instances(std::slice::from_ref(&record))
             .unwrap();
         assert_eq!(renderer.models.poses[0], [propagated; 2]);
-        renderer.model_poses(&world, &[replacement], false);
+        renderer.model_poses(&world, &[replacement], false, Moved::All, &[], None);
         assert_eq!(renderer.models.poses[0], [replacement_pose; 2]);
     }
 
@@ -1211,11 +1425,11 @@ mod retirement_regressions {
 
 /// Model-capable presentation executor. Primitive modules never instantiate it.
 #[derive(Default)]
-pub struct ModelPresentation<P: crate::Presentation = ()> {
+pub struct ModelExecutor<P: crate::Executor = ()> {
     inner: P,
     definitions: Option<exact_game::animation::Definitions>,
 }
-impl<P: crate::Presentation> crate::Presentation for ModelPresentation<P> {
+impl<P: crate::Executor> crate::Executor for ModelExecutor<P> {
     fn wants_audio(&self) -> bool {
         self.inner.wants_audio()
     }

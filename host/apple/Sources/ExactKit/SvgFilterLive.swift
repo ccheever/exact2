@@ -56,11 +56,6 @@ final class SvgFilterLive {
     }
     /// The last input drawn, for the frames of its animations.
     private var last: Input?
-    /// Drives a draw a frame while the sub-scene holds a running animation
-    /// (iOS: the picture follows its content there; macOS draws islands).
-    #if os(iOS)
-    private var link: CADisplayLink?
-    #endif
     private var pending: Input?
     private var scheduled = false
     /// A draw off the main thread not yet shown (main thread only).
@@ -80,7 +75,7 @@ final class SvgFilterLive {
 
     init(layer: CALayer) {
         self.layer = layer
-        scene.offscreen = true
+        scene.offscreen = CACurrentMediaTime()
         root.isGeometryFlipped = true
         root.anchorPoint = .zero
         root.addSublayer(top)
@@ -155,15 +150,18 @@ final class SvgFilterLive {
         return false
     }
 
+    /// A draw each frame of the app's clock while the sub-scene holds a
+    /// running animation (iOS: the picture follows its content there; macOS
+    /// draws islands).
     private func animate(_ on: Bool) {
-        #if os(iOS)
-        if on, link == nil {
-            let l = CADisplayLink(target: LinkTarget(self), selector: #selector(LinkTarget.tick))
-            l.add(to: .main, forMode: .common)
-            link = l
-        } else if !on, let l = link {
-            l.invalidate()
-            link = nil
+        #if os(iOS) || os(tvOS)
+        // A nested filter is updated inside its outer one's encode, on the
+        // queue; the app's clock is the main thread's.
+        guard Thread.isMainThread else { DispatchQueue.main.async { [weak self] in self?.animate(on) }; return }
+        if on, !FrameClock.shared.wants(self) {
+            FrameClock.shared.want(self, .svgFilter, rate: FrameClock.full(on: nil)) { [weak self] _ in self?.tick() }
+        } else if !on {
+            FrameClock.shared.drop(self)
         }
         #endif
     }
@@ -184,12 +182,6 @@ final class SvgFilterLive {
 
     /// Stop drawing (the element is gone).
     func stop() { animate(false); last = nil; pending = nil }
-
-    deinit {
-        #if os(iOS)
-        link?.invalidate()
-        #endif
-    }
 
     /// Main thread: start the next draw when none is running.
     private func kick() {
@@ -293,12 +285,16 @@ final class SvgFilterLive {
             cleared = false
         }
         let (tw, th) = (targets[0].texture.width, targets[0].texture.height)
+        // One instant for the held animations' placement and the render.
+        let at = CACurrentMediaTime()
+        scene.offscreen = at
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         scene.scale = p.k
         scene.fonts = p.fonts
         let m = CGAffineTransform(translationX: -p.rect.minX, y: -p.rect.minY)
         if !p.again {
+            scene.root.bounds = CGRect(origin: .zero, size: p.rect.size)
             scene.apply(["box": [0, 0, p.rect.width, p.rect.height], "t": [m.a, m.b, m.c, m.d, m.tx, m.ty], "els": p.els], dark: p.dark, clock: p.clock)
         }
         // A held animation runs here from where it is held
@@ -322,7 +318,7 @@ final class SvgFilterLive {
         }
         cleared = false
         renderer.bounds = CGRect(x: 0, y: 0, width: tw, height: th)
-        renderer.beginFrame(atTime: CACurrentMediaTime(), timeStamp: nil)
+        renderer.beginFrame(atTime: at, timeStamp: nil)
         renderer.addUpdate(renderer.bounds)
         renderer.render()
         renderer.endFrame()
@@ -353,10 +349,4 @@ final class SvgFilterLive {
         guard let task = SvgFilterGPU.start(image, linear: linear, size: CGSize(width: w, height: h), into: surface) else { return nil }
         return (surface, { _ = try? task.waitUntilCompleted() }, shown)
     }
-}
-/// The display link's target, holding its picture weakly.
-private final class LinkTarget: NSObject {
-    weak var owner: SvgFilterLive?
-    init(_ owner: SvgFilterLive) { self.owner = owner }
-    @objc func tick() { owner?.tick() }
 }

@@ -10,8 +10,6 @@ use std::env;
 use std::fmt::Write as _;
 use std::fs;
 use std::path::PathBuf;
-const SCHEMA_PATH: &str = "tables/schema.json";
-const DIGEST_DOMAIN: &[u8] = b"exact-kernel-schema-v1\0";
 #[derive(Deserialize)]
 struct Schema {
     #[serde(rename = "schemaVersion")]
@@ -23,7 +21,22 @@ struct Schema {
     styles: Vec<StyleRow>,
     opcodes: Vec<OpcodeRow>,
     symbols: Vec<[String; 3]>,
+    #[serde(rename = "symbolAliases")]
+    symbol_aliases: Vec<[String; 2]>,
     materials: Vec<[String; 7]>,
+    #[serde(rename = "buttonStyles")]
+    button_styles: Vec<[String; 5]>,
+    colors: Vec<[String; 8]>,
+    #[serde(rename = "textStyleBodies")]
+    text_style_bodies: Vec<f32>,
+    #[serde(rename = "textStyles")]
+    text_styles: Vec<TextStyleRow>,
+    lengths: Vec<String>,
+    #[serde(rename = "lengthRamps")]
+    length_ramps: Vec<(String, Vec<f32>)>,
+    metrics: Vec<MetricRow>,
+    scale: Vec<Vec<serde_json::Value>>,
+    controls: Vec<[String; 9]>,
 }
 #[derive(Deserialize)]
 struct NodeTypeRow {
@@ -37,6 +50,8 @@ struct PropRow {
     kind: String,
     #[serde(default)]
     measure: bool,
+    #[serde(default)]
+    styleable: bool,
 }
 #[derive(Deserialize)]
 struct EnumDef {
@@ -50,6 +65,9 @@ struct StyleRow {
     codec: String,
     #[serde(rename = "admitsAuto", default)]
     admits_auto: bool,
+    /// A dimension row CSS gives no percentage (`column-width`).
+    #[serde(rename = "refusesPercent", default)]
+    refuses_percent: bool,
     #[serde(default)]
     layout: bool,
     #[serde(default)]
@@ -66,6 +84,11 @@ struct StyleRow {
     /// An `animations` row whose every animation must end (LLP 1063).
     #[serde(default)]
     ends: bool,
+    /// Few nodes set it: kept apart, behind [`build/rare.rs`]'s pointer.
+    #[serde(default)]
+    rare: bool,
+    #[serde(default)]
+    cold: bool,
 }
 #[derive(Deserialize)]
 struct OpcodeRow {
@@ -102,28 +125,29 @@ fn packed_name(ty: &str, rows: &[(u64, &str)]) -> String {
 include!("build/names.rs");
 include!("build/codec.rs");
 include!("build/validate.rs");
-fn digest(canonical: &str) -> u64 {
+include!("build/rare.rs");
+include!("build/cold.rs");
+include!("build/scale.rs");
+fn digest(canonical: &str, codecs: &[(&str, String)]) -> u64 {
     let mut hasher = Sha256::new();
     hasher.update(DIGEST_DOMAIN);
     hasher.update(canonical.as_bytes());
+    for (path, source) in codecs {
+        hasher.update(b"\0wire-codec\0");
+        hasher.update(path.as_bytes());
+        hasher.update(b"\0");
+        // Tests do not define wire bytes, so exclude them and the snapshot itself.
+        hasher.update(
+            source
+                .split_once("\n#[cfg(test)]\n")
+                .map_or(source.as_str(), |(production, _)| production)
+                .as_bytes(),
+        );
+    }
     let bytes = hasher.finalize();
     let mut first = [0u8; 8];
     first.copy_from_slice(&bytes[..8]);
     u64::from_le_bytes(first)
-}
-/// `#rrggbb` or `#rrggbbaa` as RGBA.
-fn hex_rgba(hex: &str) -> [u8; 4] {
-    let h = hex
-        .strip_prefix('#')
-        .expect("schema: a tint is #rrggbb[aa]");
-    assert!(matches!(h.len(), 6 | 8), "schema: a tint is #rrggbb[aa]");
-    let byte = |i: usize| u8::from_str_radix(&h[i..i + 2], 16).expect("schema: a tint is hex");
-    [
-        byte(0),
-        byte(2),
-        byte(4),
-        if h.len() == 8 { byte(6) } else { 255 },
-    ]
 }
 fn generate(schema: &Schema, digest: u64) -> String {
     let mut o = String::new();
@@ -151,6 +175,7 @@ fn generate(schema: &Schema, digest: u64) -> String {
         writeln!(w, "{role:?} => Some(({apple:?}, {path:?}, {filled})),").unwrap();
     }
     writeln!(w, "_ => None, }} }}").unwrap();
+    write_symbol_role(w, schema);
     // @ref LLP 1053.000 D4 — `backgroundMaterial`'s vocabulary.
     writeln!(
         w,
@@ -185,13 +210,51 @@ fn generate(schema: &Schema, digest: u64) -> String {
     writeln!(w, "_ => None, }} }}").unwrap();
     writeln!(
         w,
+        "/// `buttonStyle`'s names, one per platform button style (LLP 1069.011 D2).\npub const BUTTON_STYLES: &[&str] = &{:?};",
+        schema.button_styles.iter().map(|row| &row[0]).collect::<Vec<_>>()
+    )
+    .unwrap();
+    w.push_str(concat!(
+        "/// One `buttonStyle`: what each platform draws for it (`~` when it draws\n",
+        "/// another in its place) and the web's and Linux's stated look.\n",
+        "#[derive(Debug, Clone, Copy, PartialEq, Eq)]\n",
+        "pub struct ButtonStyle {\n",
+        "    /// `UIButton.Configuration`'s factory, iOS 26 and later.\n    pub ios: &'static str,\n",
+        "    /// The factory before iOS 26.\n    pub ios_before_26: &'static str,\n",
+        "    /// The `NSButton` look (`borderless`, `push`, `push-accent`, `glass`, `glass-accent`).\n    pub macos: &'static str,\n",
+        "    /// The web's and Linux's look (`ua`, `text`, `soft`, `fill`, `glass`, `glass-fill`).\n    pub look: &'static str,\n",
+        "}\n",
+    ));
+    writeln!(w, "/// A button style by its name; never a platform name.\npub fn button_style(name: &str) -> Option<ButtonStyle> {{ match name {{").unwrap();
+    for [name, ios, before, macos, look] in &schema.button_styles {
+        writeln!(
+            w,
+            "{name:?} => Some(ButtonStyle {{ ios: {ios:?}, ios_before_26: {before:?}, macos: {macos:?}, look: {look:?} }}),"
+        )
+        .unwrap();
+    }
+    writeln!(w, "_ => None, }} }}").unwrap();
+    write_color_roles(w, &schema.colors, |h| u32::from_be_bytes(hex_rgba(h)));
+    write_text_styles(w, &schema.text_style_bodies, &schema.text_styles);
+    write_lengths(w, &schema.lengths);
+    write_length_ramps(
+        w,
+        &schema.text_style_bodies,
+        &schema.length_ramps,
+        &schema.lengths,
+    );
+    write_metrics(w, &schema.metrics, &exact_names(schema));
+    write_scale(w, &schema.scale, &schema.metrics);
+    write_controls(w, &schema.controls);
+    writeln!(
+        w,
         "// Generated by build.rs from {SCHEMA_PATH}. Do not edit."
     )
     .unwrap();
     writeln!(w, "use crate::error::{{DecodeError, StyleDomainError}};").unwrap();
     writeln!(
         w,
-        "use crate::error::StyleValueError;\nuse crate::style::{{Color, ColorValue, Dimension, LineHeight, GridPlacement, GridTracks, RowValue, StyleValue, Transitions, Animations, Vec2, MAX_GRID_TRACKS}};"
+        "use crate::error::StyleValueError;\nuse crate::style::{{Color, ColorValue, Dimension, LineHeight, GridPlacement, GridTracks, RowValue, StyleValue, Transitions, Animations, Vec2}};"
     )
     .unwrap();
     writeln!(w, "use crate::wire::codec::{{Reader, Writer}};").unwrap();
@@ -229,7 +292,7 @@ fn generate(schema: &Schema, digest: u64) -> String {
     ));
     writeln!(
         w,
-        "/// Domain-separated SHA-256 (first 8 bytes, little-endian) of the canonical schema."
+        "/// Domain-separated SHA-256 (first 8 bytes, little-endian) of the canonical schema and wire codec sources."
     )
     .unwrap();
     writeln!(w, "pub const SCHEMA_DIGEST: u64 = {digest:#018x};").unwrap();
@@ -401,6 +464,24 @@ fn generate(schema: &Schema, digest: u64) -> String {
     writeln!(w, "        }}").unwrap();
     writeln!(w, "    }}").unwrap();
     writeln!(w, "    /// The declared value kind.").unwrap();
+    writeln!(
+        w,
+        "    /// Whether a `style` may set this prop (LLP 1069.011 D12)."
+    )
+    .unwrap();
+    writeln!(w, "    pub fn styleable(self) -> bool {{").unwrap();
+    let styleable: Vec<String> = schema
+        .props
+        .iter()
+        .filter(|row| row.styleable)
+        .map(|row| format!("PropId::{}", pascal(&row.name)))
+        .collect();
+    if styleable.is_empty() {
+        writeln!(w, "        false").unwrap();
+    } else {
+        writeln!(w, "        matches!(self, {})", styleable.join(" | ")).unwrap();
+    }
+    writeln!(w, "    }}").unwrap();
     writeln!(w, "    pub fn kind(self) -> PropKind {{").unwrap();
     writeln!(w, "        match self {{").unwrap();
     for row in &schema.props {
@@ -531,7 +612,7 @@ fn generate(schema: &Schema, digest: u64) -> String {
     // ---- StyleId / StyleCodec --------------------------------------------
     writeln!(w, "/// Wire codec of a style row.").unwrap();
     writeln!(w, "#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]").unwrap();
-    writeln!(w, "pub enum StyleCodec {{ Dimension, LineHeight, F32, U8, U16, U32, I32, Rgba8, ColorValue, KeywordColor, Vec2, Color2, Tracks, Placement, Transitions, Animations, ClipPath, ShapeOutside, AspectRatio, Paint, DashArray, Transform, TransformOrigin, PaintOrder, Marker, Filter, BackgroundImage, DragTimeline, AnimationTimeline, AnimationRange, TimelineScope, Enum }}").unwrap();
+    writeln!(w, "pub enum StyleCodec {{ Dimension, LineHeight, F32, U8, U16, U32, I32, Rgba8, ColorValue, KeywordColor, Vec2, Color2, Tracks, Placement, Transitions, Animations, ClipPath, ShapeOutside, AspectRatio, Paint, DashArray, Transform, TransformOrigin, PaintOrder, Marker, Filter, BackgroundImage, BackdropFilter, BoxShadow, TextShadow, FontVariations, MaskImage, CornerShape, RotateAxis, SymbolPalette, DragTimeline, AnimationTimeline, AnimationRange, TimelineScope, PositionTryFallbacks, Enum }}").unwrap();
     writeln!(w, "/// One style row; the discriminant is the mask bit.").unwrap();
     writeln!(w, "#[repr(u8)]").unwrap();
     writeln!(
@@ -661,6 +742,11 @@ fn generate(schema: &Schema, digest: u64) -> String {
             "admits_auto",
             "Whether `auto` is a legal value (dimension rows only).",
             (|r: &StyleRow| r.admits_auto) as fn(&StyleRow) -> bool,
+        ),
+        (
+            "refuses_percent",
+            "Whether CSS gives the row no percentage, alone or in a calculation (dimension rows only).",
+            |r| r.refuses_percent,
         ),
         ("affects_layout", "Whether a change re-runs layout.", |r| {
             r.layout
@@ -831,7 +917,21 @@ fn generate(schema: &Schema, digest: u64) -> String {
     )
     .unwrap();
     writeln!(w, "    /// Iterate the set rows in bit order.").unwrap();
-    writeln!(w, "    pub fn iter(self) -> impl Iterator<Item = StyleId> {{ StyleId::ALL.into_iter().filter(move |id| self.has(*id)) }}").unwrap();
+    w.push_str(concat!(
+        "    pub fn iter(self) -> impl Iterator<Item = StyleId> {\n",
+        "        let mut words = self.words; let mut i = 0;\n",
+        "        std::iter::from_fn(move || {\n",
+        "            while i < words.len() {\n",
+        "                let word = words[i];\n",
+        "                if word == 0 { i += 1; continue; }\n",
+        "                let bit = word.trailing_zeros(); words[i] = word & (word - 1);\n",
+        "                if let Some(id) = StyleId::from_bit(i as u32 * 64 + bit) { return Some(id); }\n",
+        "                i += 1;\n",
+        "            }\n",
+        "            None\n",
+        "        })\n",
+        "    }\n",
+    ));
     writeln!(w, "}}").unwrap();
     // Compact, transient before/after values for inheritance invalidation.
     // Derive the field set from the same schema as StyleMask::INHERITED.
@@ -909,7 +1009,7 @@ fn generate(schema: &Schema, digest: u64) -> String {
     .unwrap();
     writeln!(w, "#[derive(Debug, Clone, PartialEq)]").unwrap();
     writeln!(w, "pub struct StyleProps {{").unwrap();
-    for row in &schema.styles {
+    for row in schema.styles.iter().filter(|r| !r.rare && !r.cold) {
         writeln!(
             w,
             "    pub {}: {},",
@@ -920,35 +1020,45 @@ fn generate(schema: &Schema, digest: u64) -> String {
     }
     writeln!(w, "    /// Rows explicitly set.").unwrap();
     writeln!(w, "    pub mask: StyleMask,").unwrap();
+    w.push_str("    /// The declarations the author wrote on this node (@ref LLP 1115.000 D2): an attribute or a class's row,\n    /// never one the compiler implied or one only inherited. Bits outside `mask` request CSS unset.\n    pub written: StyleMask,\n");
     writeln!(
         w,
         "    /// The rows authored in `rem`/`em`, which the kernel keeps resolved (LLP 1069.000 D3)."
     )
     .unwrap();
     writeln!(w, "    pub relative: crate::style::relative::Relative,").unwrap();
+    writeln!(
+        w,
+        "    /// The rows few nodes set ([`RareRows`]).\n    pub rare: Rare,"
+    )
+    .unwrap();
+    writeln!(
+        w,
+        "    /// Effect rows, shared until written.\n    pub cold: Cold,"
+    )
+    .unwrap();
     writeln!(w, "}}").unwrap();
+    emit_rare(w, schema);
+    emit_cold(w, schema);
     writeln!(w, "impl Default for StyleProps {{").unwrap();
     writeln!(w, "    fn default() -> Self {{").unwrap();
     writeln!(w, "        StyleProps {{").unwrap();
-    for row in &schema.styles {
+    for row in schema.styles.iter().filter(|r| !r.rare && !r.cold) {
         let codec = parse_codec(&row.codec);
-        writeln!(
-            w,
-            "            {}: {},",
-            row.field,
-            codec.default_expr(&row.default, &row.field)
-        )
-        .unwrap();
+        let default = default_of(&codec, &row.default, &row.field, &schema.colors);
+        writeln!(w, "            {}: {},", row.field, default).unwrap();
     }
-    writeln!(w, "            mask: StyleMask::EMPTY,").unwrap();
+    w.push_str("            mask: StyleMask::EMPTY,\n            written: StyleMask::EMPTY,\n");
     writeln!(w, "            relative: Default::default(),").unwrap();
+    writeln!(w, "            rare: Rare::default(),").unwrap();
+    writeln!(w, "            cold: Cold::default(),").unwrap();
     writeln!(w, "        }}").unwrap();
     writeln!(w, "    }}").unwrap();
     writeln!(w, "}}").unwrap();
     writeln!(w, "impl StyleProps {{").unwrap();
     writeln!(
         w,
-        "    /// Copy every row set in `patch.mask` from `patch`, and mark it set here."
+        "    /// Apply value rows and authored clears; each affected row takes the patch's provenance."
     )
     .unwrap();
     writeln!(
@@ -957,7 +1067,7 @@ fn generate(schema: &Schema, digest: u64) -> String {
     )
     .unwrap();
     // One masked copy serves the patch, the reset and the row copy.
-    writeln!(w, "        self.copy_rows(patch, patch.mask);").unwrap();
+    w.push_str("        let affected = patch.mask.union(patch.written);\n        self.clear(patch.written.minus(patch.mask));\n        self.copy_rows(patch, patch.mask);\n        self.written = self.written.minus(affected).union(patch.written);\n");
     writeln!(w, "    }}").unwrap();
     writeln!(
         w,
@@ -967,11 +1077,11 @@ fn generate(schema: &Schema, digest: u64) -> String {
     writeln!(w, "    pub fn clear(&mut self, mask: StyleMask) {{").unwrap();
     writeln!(w, "        let before = self.mask;").unwrap();
     writeln!(w, "        self.copy_rows(&StyleProps::default(), mask);").unwrap();
-    writeln!(w, "        self.mask = before.minus(mask);").unwrap();
+    w.push_str("        self.mask = before.minus(mask);\n        self.written = self.written.minus(mask);\n");
     writeln!(w, "    }}").unwrap();
     writeln!(
         w,
-        "    /// Copy the rows in `mask` from `from` and mark them set here, whatever `from`'s own mask says."
+        "    /// Copy the rows in `mask` from `from` and mark them set here, whatever `from`'s own mask says.\n    /// Which rows are written does not change: a patch says that (`apply_patch`), an inherited value never."
     )
     .unwrap();
     writeln!(
@@ -979,7 +1089,9 @@ fn generate(schema: &Schema, digest: u64) -> String {
         "    pub fn copy_rows(&mut self, from: &StyleProps, mask: StyleMask) {{"
     )
     .unwrap();
-    for row in &schema.styles {
+    emit_rare_copy(w, schema);
+    emit_cold_copy(w, schema);
+    for row in schema.styles.iter().filter(|r| !r.rare && !r.cold) {
         let id = pascal(&row.field);
         let clone = if parse_codec(&row.codec).is_copy() {
             ""
@@ -1007,7 +1119,11 @@ fn generate(schema: &Schema, digest: u64) -> String {
     )
     .unwrap();
     writeln!(w, "        let mut changed = StyleMask::EMPTY;").unwrap();
-    writeln!(w, "        for id in patch.mask.iter() {{").unwrap();
+    writeln!(
+        w,
+        "        for id in patch.mask.union(patch.written).iter() {{"
+    )
+    .unwrap();
     writeln!(
         w,
         "            let relative = (self.relative.get(id), patch.relative.get(id));"
@@ -1017,7 +1133,7 @@ fn generate(schema: &Schema, digest: u64) -> String {
     // each copy resolved to; written another way, it is changed.
     writeln!(
         w,
-        "            if !self.mask.has(id) || relative.0 != relative.1 || (relative.1.is_none() && self.get(id) != patch.get(id)) {{ changed.set(id); }}"
+        "            if self.mask.has(id) != patch.mask.has(id) || self.written.has(id) != patch.written.has(id) || (patch.mask.has(id) && (relative.0 != relative.1 || (relative.1.is_none() && self.get(id) != patch.get(id)))) {{ changed.set(id); }}"
     )
     .unwrap();
     writeln!(w, "        }}").unwrap();
@@ -1025,25 +1141,25 @@ fn generate(schema: &Schema, digest: u64) -> String {
     writeln!(w, "    }}").unwrap();
     writeln!(
         w,
-        "    /// Rows in `mask` that are currently explicit and would actually be cleared."
+        "    /// Rows whose value or authored-clear intent this clear changes."
     )
     .unwrap();
     writeln!(
         w,
-        "    pub fn cleared_mask(&self, mask: StyleMask) -> StyleMask {{"
+        "    pub fn cleared_mask(&self, mask: StyleMask, written: bool) -> StyleMask {{"
     )
     .unwrap();
     writeln!(w, "        let mut changed = StyleMask::EMPTY;").unwrap();
     writeln!(
         w,
-        "        for id in mask.iter() {{ if self.mask.has(id) {{ changed.set(id); }} }}"
+        "        for id in mask.iter() {{ if self.mask.has(id) || self.written.has(id) != written {{ changed.set(id); }} }}"
     )
     .unwrap();
     writeln!(w, "        changed").unwrap();
     writeln!(w, "    }}").unwrap();
     writeln!(
         w,
-        "    /// Decode a masked patch: the mask words, then each set row's value in bit order."
+        "    /// Decode a masked patch: the mask words, the written rows' words, then each set row's value in bit order."
     )
     .unwrap();
     writeln!(
@@ -1051,20 +1167,22 @@ fn generate(schema: &Schema, digest: u64) -> String {
         "    pub fn decode_patch(r: &mut Reader<'_>) -> Result<StyleProps, DecodeError> {{"
     )
     .unwrap();
-    writeln!(w, "        let mask = r.style_mask()?;").unwrap();
-    writeln!(w, "        let mut out = StyleProps::default();").unwrap();
+    w.push_str("        let (mask, written) = (r.style_mask()?, r.style_mask()?);\n        let mut out = StyleProps::default();\n");
     for row in &schema.styles {
         let id = pascal(&row.field);
+        if emit_grid_seam(w, &id, GridSeam::Decode) {
+            continue;
+        }
         let codec = parse_codec(&row.codec);
         writeln!(
             w,
             "        if mask.has(StyleId::{id}) {{ out.{f} = {}; }}",
             codec.decode_expr(&id, row.admits_auto),
-            f = row.field
+            f = at(row)
         )
         .unwrap();
     }
-    writeln!(w, "        out.mask = mask;").unwrap();
+    writeln!(w, "        (out.mask, out.written) = (mask, written);").unwrap();
     writeln!(
         w,
         "        out.validate_domain().map_err(DecodeError::from)?;"
@@ -1072,24 +1190,7 @@ fn generate(schema: &Schema, digest: u64) -> String {
     .unwrap();
     writeln!(w, "        Ok(out)").unwrap();
     writeln!(w, "    }}").unwrap();
-    writeln!(w, "    /// Encode the rows in `mask` as a masked patch.").unwrap();
-    writeln!(
-        w,
-        "    pub fn encode_masked(&self, mask: StyleMask, w: &mut Writer) {{"
-    )
-    .unwrap();
-    writeln!(w, "        w.style_mask(mask);").unwrap();
-    for row in &schema.styles {
-        let id = pascal(&row.field);
-        let codec = parse_codec(&row.codec);
-        writeln!(
-            w,
-            "        if mask.has(StyleId::{id}) {{ {} }}",
-            codec.encode_stmt(&format!("self.{}", row.field))
-        )
-        .unwrap();
-    }
-    writeln!(w, "    }}").unwrap();
+    emit_style_encoding(w, schema);
     writeln!(
         w,
         "    /// The first masked row carrying an infinite or NaN number, if any."
@@ -1124,11 +1225,11 @@ fn generate(schema: &Schema, digest: u64) -> String {
             | Codec::Tracks
             | Codec::Transitions
             | Codec::Animations => {
-                format!("self.{}.is_finite()", row.field)
+                format!("self.{}.is_finite()", at(row))
             }
             Codec::Vec2 => format!(
                 "self.{f}.x.is_finite() && self.{f}.y.is_finite()",
-                f = row.field
+                f = at(row)
             ),
             _ => continue,
         };
@@ -1140,49 +1241,7 @@ fn generate(schema: &Schema, digest: u64) -> String {
     }
     writeln!(w, "        Ok(())").unwrap();
     writeln!(w, "    }}").unwrap();
-    writeln!(
-        w,
-        "    /// Validate every masked row against the schema's closed value domain."
-    )
-    .unwrap();
-    writeln!(
-        w,
-        "    pub fn validate_domain(&self) -> Result<(), StyleDomainError> {{"
-    )
-    .unwrap();
-    writeln!(
-        w,
-        "        self.check_finite().map_err(StyleDomainError::NonFinite)?;"
-    )
-    .unwrap();
-    for row in &schema.styles {
-        let id = pascal(&row.field);
-        let field = &row.field;
-        match parse_codec(&row.codec) {
-            Codec::LineHeight => {
-                writeln!(w, "        if self.mask.has(StyleId::{id}) && !self.{field}.is_valid() {{ return Err(StyleDomainError::InvalidLineHeight); }}").unwrap();
-            }
-            Codec::Dimension if !row.admits_auto => {
-                writeln!(w, "        if self.mask.has(StyleId::{id}) && matches!(self.{field}, Dimension::Auto) {{ return Err(StyleDomainError::AutoNotAdmitted(StyleId::{id})); }}").unwrap();
-            }
-            Codec::Tracks => {
-                writeln!(w, "        if self.mask.has(StyleId::{id}) && self.{field}.0.len() > MAX_GRID_TRACKS {{ return Err(StyleDomainError::TooManyTracks {{ style: StyleId::{id}, count: self.{field}.0.len() }}); }}").unwrap();
-            }
-            Codec::Placement => {
-                writeln!(w, "        if self.mask.has(StyleId::{id}) && !self.{field}.is_valid() {{ return Err(StyleDomainError::InvalidGridSpan(StyleId::{id})); }}").unwrap();
-            }
-            Codec::Transitions => {
-                writeln!(w, "        if self.mask.has(StyleId::{id}) {{ self.{field}.validate().map_err(StyleDomainError::InvalidTransition)?; }}").unwrap();
-            }
-            Codec::Animations => {
-                let check = ["validate", "validate_ending"][row.ends as usize];
-                writeln!(w, "        if self.mask.has(StyleId::{id}) {{ self.{field}.{check}().map_err(StyleDomainError::InvalidAnimation)?; }}").unwrap();
-            }
-            _ => {}
-        }
-    }
-    writeln!(w, "        Ok(())").unwrap();
-    writeln!(w, "    }}").unwrap();
+    write_validate_domain(w, schema);
     writeln!(
         w,
         "    /// Set one row from an untyped value and mark it. The one place a producer"
@@ -1194,29 +1253,21 @@ fn generate(schema: &Schema, digest: u64) -> String {
     )
     .unwrap();
     writeln!(w, "    pub fn set_dynamic(&mut self, id: StyleId, value: &StyleValue) -> Result<(), StyleValueError> {{").unwrap();
-    // `rem`/`em` store their pixels at the initial root size, and are
-    // remembered for the kernel to resolve (LLP 1069.000 D3).
-    writeln!(
-        w,
-        "        let relative = crate::style::relative::of(id, value)?;"
-    )
-    .unwrap();
-    writeln!(
-        w,
-        "        let provisional = relative.map(|r| crate::style::relative::provisional(id, r));"
-    )
-    .unwrap();
-    writeln!(
-        w,
-        "        let value = provisional.as_ref().unwrap_or(value);"
-    )
-    .unwrap();
+    // Dispatch disjoint length suffixes once; ordinary style text needs no conversion.
+    // A metric's name is its value in this platform's column, or no row (LLP 1115.002 D6).
+    // A length or number token's name is its value in the node's slice (LLP 1121 D7).
+    w.push_str("        let measured = crate::style::theme::measured(id, value);\n        let value = measured.as_ref().unwrap_or(value);\n");
+    w.push_str("        let metric = crate::style::metrics::of(id, value);\n        let Some(value) = metric.as_ref().map_or(Some(value), Option::as_ref) else { return Ok(()) };\n");
+    w.push_str("        let (relative, converted) = crate::style::relative::prepare(id, value)?;\n        let value = converted.as_ref().unwrap_or(value);\n");
     writeln!(w, "        match id {{").unwrap();
     // Rows that convert alike share one conversion, then store by row: the
     // conversion (and its refusal) is written once per codec, not per row.
     let mut groups: Vec<(String, Vec<(String, String)>)> = Vec::new();
     for row in &schema.styles {
         let id = pascal(&row.field);
+        if emit_grid_seam(w, &id, GridSeam::Dynamic) {
+            continue;
+        }
         let conv = match parse_codec(&row.codec) {
             Codec::U8 if row.keywords.is_some() => format!(
                 "{}::bits(value.text(id)?).ok_or(StyleValueError::UnknownEnumValue {{ style: id }})?",
@@ -1233,6 +1284,9 @@ fn generate(schema: &Schema, digest: u64) -> String {
             Codec::ColorValue => "value.color_value(id)?".to_string(),
             Codec::KeywordColor(keyword) => format!("value.keyword_color(id, {keyword:?})?"),
             Codec::Vec2 => "value.vec2(id)?".to_string(),
+            Codec::Enum(name) if matches!(name.as_str(), "GridAutoFlow" | "JustifyItems" | "TextDecorationLine") => format!(
+                "{name}::from_css(value.text(id)?).ok_or(StyleValueError::UnknownEnumValue {{ style: id }})?"
+            ),
             Codec::Enum(name) => format!(
                 "{name}::from_name(value.text(id)?).ok_or(StyleValueError::UnknownEnumValue {{ style: id }})?"
             ),
@@ -1241,12 +1295,15 @@ fn generate(schema: &Schema, digest: u64) -> String {
             // An exit must end (LLP 1063 D2), refused here as on the wire.
             Codec::Animations if row.ends => "Animations::parse(value.text(id)?).ok().filter(|a| a.validate_ending().is_ok()).ok_or(StyleValueError::BadAnimation { style: id })?".to_string(),
             Codec::Animations => "Animations::parse(value.text(id)?).map_err(|_| StyleValueError::BadAnimation { style: id })?".to_string(),
+            Codec::CssValue { variant: "BackdropFilter", path, .. } => format!("{path}::check(&value.css_text(id)?).map_err(|reason| StyleValueError::BadBackdropFilter {{ style: id, reason }})?"),
             Codec::CssValue { path, error, .. } => format!("{path}::parse(&value.css_text(id)?).ok_or(StyleValueError::{error} {{ style: id }})?"),
-            Codec::Color2 | Codec::Tracks | Codec::Placement => String::new(),
+            Codec::Tracks => "GridTracks::parse(&value.css_text(id)?).ok_or(StyleValueError::BadGridTracks { style: id })?".to_string(),
+            Codec::Placement => "GridPlacement::parse(&value.css_text(id)?).ok_or(StyleValueError::BadGridPlacement { style: id })?".to_string(),
+            Codec::Color2 => String::new(),
         };
         match groups.iter_mut().find(|(c, _)| *c == conv) {
-            Some((_, rows)) => rows.push((id, row.field.clone())),
-            None => groups.push((conv, vec![(id, row.field.clone())])),
+            Some((_, rows)) => rows.push((id, at(row))),
+            None => groups.push((conv, vec![(id, at(row))])),
         }
     }
     for (conv, rows) in &groups {
@@ -1285,7 +1342,7 @@ fn generate(schema: &Schema, digest: u64) -> String {
     writeln!(w, "        match id {{").unwrap();
     for row in &schema.styles {
         let id = pascal(&row.field);
-        let f = &row.field;
+        let f = &at(row);
         let expr = match parse_codec(&row.codec) {
             Codec::LineHeight => format!("RowValue::LineHeight(self.{f})"),
             Codec::Dimension => format!("RowValue::Dimension(self.{f})"),
@@ -1301,7 +1358,7 @@ fn generate(schema: &Schema, digest: u64) -> String {
             Codec::Color2 => format!("RowValue::Color2(self.{f})"),
             Codec::Enum(_) => format!("RowValue::Enum(self.{f}.name())"),
             Codec::Tracks => format!("RowValue::Tracks(&self.{f})"),
-            Codec::Placement => format!("RowValue::Placement(self.{f})"),
+            Codec::Placement => format!("RowValue::Placement(&self.{f})"),
             Codec::Transitions => format!("RowValue::Transitions(&self.{f})"),
             Codec::Animations => format!("RowValue::Animations(&self.{f})"),
             Codec::CssValue { variant, .. } => format!("RowValue::{variant}(&self.{f})"),
@@ -1313,7 +1370,7 @@ fn generate(schema: &Schema, digest: u64) -> String {
     writeln!(w, "    /// Encode this patch (the rows in `self.mask`).").unwrap();
     writeln!(
         w,
-        "    pub fn encode_patch(&self, w: &mut Writer) {{ self.encode_masked(self.mask, w); }}"
+        "    pub fn encode_patch(&self, w: &mut Writer) {{ self.encode_overlaid(self.mask, self.written, self, w); }}"
     )
     .unwrap();
     writeln!(w, "}}").unwrap();
@@ -1397,19 +1454,31 @@ fn main() {
     println!("cargo:rerun-if-changed=build/codec.rs");
     println!("cargo:rerun-if-changed=build/names.rs");
     println!("cargo:rerun-if-changed=build/validate.rs");
+    println!("cargo:rerun-if-changed=build/scale.rs");
     println!("cargo:rerun-if-changed={SCHEMA_PATH}");
     println!("cargo:rerun-if-changed=build.rs");
+    for path in CODEC_PATHS {
+        println!("cargo:rerun-if-changed={path}");
+    }
     let raw = fs::read_to_string(SCHEMA_PATH).expect("read tables/schema.json");
     let schema: Schema = serde_json::from_str(&raw).expect("parse tables/schema.json");
     validate(&schema);
-    // Canonical form: serde_json's default map is ordered, so re-serializing the
-    // parsed value sorts keys and normalizes whitespace.
+    // Serde's ordered map sorts keys and normalizes whitespace when re-serialized.
     let value: serde_json::Value = serde_json::from_str(&raw).expect("parse tables/schema.json");
     // Prose keys (`_about`, `_styles`, ...) are documentation, not schema: editing a
     // comment must not rotate the digest and refuse every producer.
     let value = strip_prose(value);
     let canonical = serde_json::to_string(&value).expect("serialize canonical schema");
-    let digest = digest(&canonical);
+    let codecs = CODEC_PATHS
+        .iter()
+        .map(|path| {
+            (
+                *path,
+                fs::read_to_string(path).unwrap_or_else(|error| panic!("read {path}: {error}")),
+            )
+        })
+        .collect::<Vec<_>>();
+    let digest = digest(&canonical, &codecs);
     let code = generate(&schema, digest);
     let out = PathBuf::from(env::var("OUT_DIR").expect("OUT_DIR")).join("schema.rs");
     fs::write(&out, code).expect("write generated schema.rs");

@@ -1,0 +1,27 @@
+# The shader row's surface (SPEC 3, LLP 1009): a dylib natively, a wasm on the web, loaded on
+# demand after the first pixel. Never linked into the app's host library.
+[package]
+name = "exact-xheavy-gpu"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Extra Heavy feed: the shader row's wave + duotone surface over a photo"
+publish = false
+build = "build.rs"
+
+[lib]
+name = "exact_xheavy_gpu"
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+exact-gpu = { path = "../../../../gpu" }
+image = { version = "0.25", default-features = false, features = ["jpeg"] }
+
+# The web build's GPU module is a wasm with wasm-bindgen glue (as exact2's apps/caltrain/gpu).
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+wasm-bindgen = "0.2"
+wasm-bindgen-futures = "0.4"
+web-sys = { version = "0.3", features = ["HtmlCanvasElement"] }
+
+[build-dependencies]
+exact-gpu-reflect = { path = "../../../../gpu/reflect" }

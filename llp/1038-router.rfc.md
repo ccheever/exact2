@@ -219,14 +219,14 @@ reports one refusal (the caller journals it, 1035.001 D6).
 | verb | effect |
 |---|---|
 | `open(r, loc)` | Select the matched route's tab; replace that tab's stack with `chain(loc)`. Positions whose existing entry has the same `url` keep their `id`; the rest are fresh. Other tabs are untouched. A launch, a reload, a notification, a deep link. |
-| `push(r, loc)` | Append a fresh entry for `loc` to the selected stack — on the selected tab whatever tab the route is declared under. A post opened from Search sits on Search. |
+| `push(r, loc)` | Append a fresh entry for `loc` to the selected stack — on the selected tab whatever tab the route is declared under. A post opened from Search sits on Search. A `loc` that is already the top is unchanged: as HTML replaces the entry for a same-URL navigation, a link to the screen shown adds no visit (2026-10-02; RealWorld's Home and feed tabs added duplicates). |
 | `replace(r, loc)` | Give the top entry `loc`'s name, url and params; keep its `id`. A search query mirrored into the URL; a redirect. At depth 1, only a location matching the tab's own root route is allowed; another route leaves the value unchanged with one refusal. |
 | `back(r)` | Drop the top entry. At depth 1, unchanged. |
 | `select(r, t)` | Select tab `t`, showing its retained stack. Selecting the selected tab pops it to its root (the platform convention: `UITabBarController`, Twitter). Unknown `t`: unchanged, refused. |
 | `go(r, loc)` | Traverse: if `loc` is the top, unchanged; else if it is in the selected stack, pop to its nearest occurrence (ids kept); else if it is the top of another tab, `select` that tab; else `push`. A browser Back or Forward past one step; a pasted in-app link. |
 
 **Laws** (the corpus is these, over a fixed table):
-`stack(back(push(r, u))) = stack(r)`; `back(r) = r` when `depth(r) = 1`;
+`stack(back(push(r, u))) = stack(r)` for `u` not the top's url; `push(r, top(r).url) = r`; `back(r) = r` when `depth(r) = 1`;
 `select(select(r, t), t)` has depth 1; `open(open(r, u), u) = open(r, u)`;
 `top(replace(r, u)).id = top(r).id`; `go(r, top(r).url) = r`; ids in any
 reachable value are distinct and `next` exceeds them all; every entry's
@@ -281,6 +281,25 @@ The rejects, one fixture each in `contract/corpus/rejects.txt`:
 (`path()` names no route, or with the wrong count of parameters),
 `route-template` (a template literal passed to a verb, D3), and `route-root`
 (the table must match `/` by pattern or declare `notfound`).
+
+**Amended 2026-10-12 (LLP 1116.009 D2).** An app that declares no `notfound`
+and whose view opens on a navigation root that draws a route per stack entry
+(`each e in stack(nav)`, or a tab's `t.stack`) is compiled as if it had
+written one, and its screen. The compiler appends the `notfound` row to the
+table after the `route-root` check (which is of the table as written, so a
+missing `/` is still refused), and wraps each such `each`'s body: `when
+e.name == "notfound"` a route titled "Not Found" that says "Page not found",
+names the location and links "Go Home" to the first tab's root, `else` what the
+author wrote (`contract/syntax/src/notfound.rs`, in Contract as an author
+would write it, so the runner, the JS target and the semantics see an
+ordinary table and view). A location no route matches then keeps its URL: the
+launch, a deep link, a `go` or a `push` of a computed location open the
+not-found entry, over the first tab's root, and the app boots. Back and the
+link are the router's own. An app that writes `notfound` draws its own, as
+before. An app with no navigation root has no screen to draw it in and is
+unchanged: a launch no route matches opens `/` and journals the refusal
+(`RouterContext::launch`, router.js `launch`), a verb's refusal is a journal
+line. A detail whose id names nothing matches its route: the app says so.
 
 The plan gains a `routes` table (`name`, `pattern`, `parent: opt:routes`,
 `tab: bool`, `notfound: bool`) and the header gains `router: opt:slots`,
@@ -432,6 +451,9 @@ the current index. Fresh boot `replaceState`s index 0 with the first op.
 An in-document reboot retains the mirror if its first router op has
 `top == written[cursor].id` (the router carried); otherwise it resets to
 index 0. A DOM teardown alone never erases the session-history mirror.
+A driven development page preserves the agent launch parameters in every
+address-bar URL so a browser reload retains its carrier. They are excluded
+from the stamped router URL and from `navigate` payloads.
 
 | on a `router` op | history |
 |---|---|
@@ -447,7 +469,7 @@ the way Twitter's web app behaves.
 | on `popstate` to index `j` | delivered as |
 |---|---|
 | an expected echo | consumed |
-| `j == cursor-1` and `written[j].id` is the key of the route directly beneath the selected one | a completed pop: press the `navigationBack` control, as Escape on a sheet does (`glue.js:1486-1493`) and as a finished swipe does (1035.001 D2). If the commit selected that key, stamp the accepted entry with its id and URL; otherwise use the refusal/redirect rule below |
+| `j == cursor-1`, `written[j].id` is the key of the route directly beneath the selected one, and the selected route has a `navigationBack` control (*amended 2026-10-03*: a route with none — a screen with no Back button — goes back by the next row, as the web's Back always does) | a completed pop: press the `navigationBack` control, as Escape on a sheet does (`glue.js:1486-1493`) and as a finished swipe does (1035.001 D2). If the commit selected that key, stamp the accepted entry with its id and URL; otherwise use the refusal/redirect rule below |
 | anything else (Forward, a multi-step Back, a tab switch undone, an entry this page did not write) | the root's `navigate` handler with `written[j].url` (or `location.pathname + search`). If the commit's `router` op lands on that url, `written[j].id` takes the new top's id; otherwise use the refusal/redirect rule below |
 
 A commit with no router change is a refusal: `history.go(cursor-j)` restores
@@ -488,6 +510,32 @@ arrives before boot is the launch location instead. `ExactDevelopmentLink`
 keeps its `open?url=` form and never reaches `navigate`; `DocumentsMac`'s
 test-id seam is for files, not locations. The location is derived by
 `location_of` (§3) in the crate, so the hosts agree.
+
+**Amended 2026-10-11 (Charlie’s 2026-10-08 option A, implemented by the
+protocol lane).** An app may declare the Web App Manifest's
+`protocol_handlers: [{protocol, url}]` in `app.json`, with an absolute-path
+handler template containing one `%s` (for example `/open?u=%s`). For an
+incoming URL whose scheme matches a declared `protocol`, the host replaces
+`%s` with `encodeURIComponent` of the complete incoming URL, including its
+scheme and fragment, then canonicalizes that handler path as the location.
+Selection is case-insensitive, while the encoded URL keeps its original
+spelling. The first matching declaration wins. Cold delivery remains the
+launch location; further pre-boot URLs queue as `navigate` events after the
+first frame, in order. Warm delivery remains one `navigate` event per URL, in
+arrival order. A macOS URL array keeps its order; UIKit supplies URL contexts
+as a set, so the iOS adapter sorts a batch by URL string for a stable order.
+The app still needs a navigation root to hear the event and a
+route that accepts the handler location. An unmatched URL uses D8's existing
+`location_of`. The Apple bake registers these schemes beside
+`host.<platform>.urlSchemes`. An entry's optional `distribution_only: true`
+limits its Apple scheme registration and native template to archive or
+`--distribution` builds; it defaults to false. The build-only flag is omitted
+from the native string dictionary. The web build copies the declarations into
+`manifest.json`, where browser support and scheme policy decide whether a
+link opens the installed app. Linux's first non-flag argument retains D8's
+`location_of`: it is a CLI location, not an OS protocol-handler registration.
+The Apple binary fingerprint and compatibility identity include the declared
+handlers, since registration and templates are baked into Info.plist.
 
 ### D9 — One implementation; the value crosses the seam; the corpus runs in three places
 
@@ -572,6 +620,18 @@ the address bar must change. Values, verbs and URLs are identical on every
 platform; an app that wants different routing on one platform branches its
 own actions, and nothing here encourages it.
 
+**Amended 2026-10-11 (LLP 1116.004 D1, decided under LLP 1116's standing
+instruction).** Where the app leaves placement unsaid, a wide window's
+presentation is the platform's default: a root tablist placed as a bar (the
+tabs recipe's, a direct child of the root's column) is a sidebar, and a stack
+whose root route is a list whose rows push (they draw the disclosure) shows
+that route beside its top, as a split view does. Written placement stays the
+app's choice: a vertical or positioned tablist is its rail, a `viewport`
+branch its composition, and `navigationSplit` opts a stack out or sizes its
+column. Either way it is still one value, presented: the router never learns
+the window, and a resize changes only the projection. Built on the web
+(900 px and up); the iPad and Mac presenters are queued.
+
 ## 5. Interview, as it would read
 
 ```
@@ -649,9 +709,15 @@ Each with the trigger that would earn it back:
   cannot spell its URLs without one.
 - Router-owned scroll restoration: mounted rows keep their own scroll. A
   measured case where a remounted row must restore a position.
-- Retained *views* for unselected tabs (their entries are retained, their
+- ~~Retained *views* for unselected tabs (their entries are retained, their
   rows are not): a measured Interview complaint about a tab forgetting its
-  place. It needs one navigation owner per tab in the Apple projection.
+  place. It needs one navigation owner per tab in the Apple projection.~~
+  Built 2026-10-02 (LLP 1075.003 §3.7, James's app the consumer): a root's
+  tablist names its tabpanels with `aria-controls`, each panel holds one
+  tab's stack, and every tab's rows stay mounted. The web and AppKit hide and
+  inert the unselected panels (D6); UIKit gives each tab its own navigation
+  controller under a tab bar controller, or under the app's own container
+  through the module's `tabContainer` hook.
 - Restoring the pre-reload stack or the last session's location: a host
   could pass the last `router` op's url as the launch location under a
   manifest key, with no router change. An app that asks. Ruled no for v1

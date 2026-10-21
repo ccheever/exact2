@@ -37,6 +37,10 @@ pub struct CPiece {
     pub href: *const u8,
     /// Its length.
     pub href_len: usize,
+    /// CSS px: the head indent of the paragraph it is in (LLP 1045 D4).
+    pub indent: f32,
+    /// 1 for a list marker, hung before the indent with its end at it.
+    pub hang: u8,
 }
 
 /// An expansion kept alive for its handle: the pieces own the text the
@@ -99,6 +103,8 @@ pub fn pieces(text: *const u8, len: usize, out: *mut *const CPiece, count: *mut 
                 p.href.as_ptr()
             },
             href_len: p.href.len(),
+            indent: p.indent,
+            hang: u8::from(p.hang),
         })
         .collect();
     let handle = NEXT.with_borrow_mut(|n| {
@@ -125,11 +131,15 @@ pub fn pieces(text: *const u8, len: usize, out: *mut *const CPiece, count: *mut 
 /// How to draw `len` bytes of Markdown at `text` while editing, with the
 /// selection `sel_start..sel_end` (UTF-16; `u32::MAX` start for none), as one
 /// JSON document the editor reads: `{"p":[[start,end,kind,level,depth,quote]…],
-/// "s":[[start,end,flags,href]…],"h":[[start,end]…],"r":[[start,end,kind,text]…]}`.
+/// "s":[[start,end,flags,href]…],"h":[[start,end]…],"r":[[start,end,kind,text]…],
+/// "l":[[open,open_end,start,end]…]}`.
 /// Kinds: paragraph 0 body 1 heading 2 bullet 3 ordered 4 task 5 rule 6 fence
 /// 7 code 8 footnote 9 table 10 embed 11 image 12 video; replaced 0 bullet
-/// 1 box 2 checked box 3 rule 4 footnote. Writes the text's address and
-/// length; returns a handle to free. Zero for invalid input.
+/// 1 box 2 checked box 3 rule 4 footnote. `l` is each link's opener and its
+/// `](target)`, which the editor hides whatever the selection, as the web
+/// editor does (`exact_markdown_editor::link_destinations`, LLP 1045 D5). Writes the
+/// text's address and length; returns a handle to free. Zero for invalid
+/// input.
 pub fn style(
     text: *const u8,
     len: usize,
@@ -149,7 +159,22 @@ pub fn style(
         return 0;
     };
     let reveal = (sel_start != u32::MAX).then(|| exact_markdown::Range::new(sel_start, sel_end));
-    let json = exact_markdown::wire::style(source, reveal);
+    // One parse for both: the styling, and the link syntax in it.
+    let styled = exact_markdown::style(source, reveal);
+    let mut json = exact_markdown::wire::styled(&styled);
+    // The document is one object: its closing brace makes room for `l`.
+    json.pop();
+    json.push_str(",\"l\":[");
+    for (i, [o, oe, c, ce]) in exact_markdown_editor::link_destinations(source, &styled)
+        .into_iter()
+        .enumerate()
+    {
+        if i > 0 {
+            json.push(',');
+        }
+        json.push_str(&format!("[{o},{oe},{c},{ce}]"));
+    }
+    json.push_str("]}");
     hold_json(json, out, count)
 }
 
@@ -361,6 +386,13 @@ mod tests {
         );
         free(handle);
         free(handle);
+        // A list item's paragraph attribute crosses too (LLP 1045 D4).
+        let source = "- a";
+        let handle = pieces(source.as_ptr(), source.len(), &mut out, &mut count);
+        let flat = unsafe { std::slice::from_raw_parts(out, count) };
+        assert_eq!((flat[0].hang, flat[0].indent), (1, 40.0));
+        assert_eq!((flat[1].hang, flat[1].indent), (0, 40.0));
+        free(handle);
         assert_eq!(pieces(b"\xff".as_ptr(), 1, &mut out, &mut count), 0);
         assert_eq!(count, 0);
     }
@@ -434,7 +466,7 @@ mod tests {
         let json = std::str::from_utf8(unsafe { std::slice::from_raw_parts(out, count) }).unwrap();
         assert_eq!(
             json,
-            r#"{"p":[[0,3,1,1,0,0],[5,21,0,0,0,0]],"s":[[7,8,1,""],[12,13,16,"u"]],"h":[[0,2],[5,7],[8,10],[11,12],[13,21]],"r":[]}"#
+            r#"{"p":[[0,3,1,1,0,0],[5,21,0,0,0,0]],"s":[[7,8,1,""],[12,13,16,"u"]],"h":[[0,2],[5,7],[8,10],[11,12],[13,21]],"r":[],"l":[[11,12,13,21]]}"#
         );
         // The caret inside the bold reveals its markers as MARKER spans.
         let revealed = style(source.as_ptr(), source.len(), 7, 7, &mut out, &mut count);
@@ -443,6 +475,12 @@ mod tests {
             json.contains(r#"[5,7,64,""]"#) && json.contains(r#"[8,10,64,""]"#),
             "{json}"
         );
+        // A caret in the link's paragraph reveals its brackets, never its
+        // destination.
+        let linked = style(source.as_ptr(), source.len(), 12, 12, &mut out, &mut count);
+        let json = std::str::from_utf8(unsafe { std::slice::from_raw_parts(out, count) }).unwrap();
+        assert!(json.ends_with(r#""l":[[11,12,13,21]]}"#), "{json}");
+        free(linked);
         free(handle);
         free(revealed);
     }

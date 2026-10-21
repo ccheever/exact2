@@ -20,7 +20,8 @@ fn demand(view: u64, source: u64, output_mib: u64, scratch_mib: u64) -> Demand {
             source,
             generation: 1,
             pixels,
-            variant: 0,
+            variant: variant::SRGB8,
+            crop: Crop::default(),
         },
         metadata: Metadata {
             natural: PixelSize {
@@ -302,6 +303,32 @@ fn budget_waiter_retries_when_last_native_owner_releases_bytes() {
     worker.join().unwrap();
 }
 
+/// A source to read arrives as a wake with no decode: a worker waiting for
+/// work returns at once to read it.
+#[test]
+fn a_wake_with_no_decode_returns_a_waiting_worker() {
+    let gate = Gate::new();
+    let session = gate.session();
+    let (tx, rx) = std::sync::mpsc::channel();
+    let worker_gate = gate.clone();
+    let worker = std::thread::spawn(move || {
+        let started = std::time::Instant::now();
+        let permit = worker_gate.wait_work(std::time::Duration::from_secs(10));
+        tx.send((permit.is_none(), started.elapsed())).unwrap();
+    });
+    // Wake until the worker has returned: a wake before it waits is seen by
+    // its sequence check, one after by the condition variable.
+    let (none, waited) = loop {
+        session.wake();
+        if let Ok(result) = rx.recv_timeout(std::time::Duration::from_millis(10)) {
+            break result;
+        }
+    };
+    assert!(none);
+    assert!(waited < std::time::Duration::from_secs(5), "{waited:?}");
+    worker.join().unwrap();
+}
+
 #[test]
 fn metadata_queue_subscribers_and_retired_source_history_are_bounded() {
     let gate = Gate::new();
@@ -336,6 +363,61 @@ fn metadata_queue_subscribers_and_retired_source_history_are_bounded() {
     }
     session.trim();
     assert_eq!(total(&session), 0);
+}
+
+/// A delivered picture is cache and a failed decode its views' answer:
+/// neither holds a place in the queue, and a cancelled queued one leaves it
+/// at once. An eager page's first `PENDING_JOBS` pictures, every one kept on
+/// screen or failed, must not refuse the rest for good.
+#[test]
+fn delivered_and_failed_entries_hold_no_place_in_the_queue() {
+    let gate = Gate::new();
+    let session = gate.session();
+    let small = |view: u64| {
+        let mut d = demand(view, view, 1, 0);
+        d.key.pixels.height = 16;
+        d.cost = DecodeCost::checked(1024, 16, 0, 0).unwrap();
+        d
+    };
+    let mut leases = Vec::new();
+    for view in 1..=PENDING_JOBS as u64 {
+        let id = session.request(small(view)).unwrap();
+        let permit = gate.next_decode().unwrap();
+        if view % 2 == 0 {
+            permit
+                .complete((), ResidentBytes { output: 1, copy: 0 })
+                .unwrap();
+            leases.push(session.take_ready(id).unwrap());
+        } else {
+            permit.fail();
+            assert_eq!(
+                session.status(id),
+                Some(RequestStatus::Failed(Refusal::DecodeFailed))
+            );
+        }
+    }
+    assert_eq!(session.stats().subscribers, PENDING_JOBS);
+    assert_eq!(session.stats().pending_jobs, 0);
+    let next = session.request(small(100)).unwrap();
+    assert_eq!(session.status(next), Some(RequestStatus::Queued));
+    for view in 101..100 + PENDING_JOBS as u64 {
+        session.request(small(view)).unwrap();
+    }
+    assert_eq!(session.stats().pending_jobs, PENDING_JOBS);
+    assert_eq!(session.request(small(200)), Err(Refusal::QueueFull));
+    // A view whose decode failed held no place, so at a full queue its next
+    // source has none to take over; a queued view's replacement keeps its.
+    let mut replaced = small(1);
+    replaced.key.source = 201;
+    assert_eq!(session.request(replaced), Err(Refusal::QueueFull));
+    let mut replaced = small(101);
+    replaced.key.source = 202;
+    session.request(replaced).unwrap();
+    assert_eq!(session.stats().pending_jobs, PENDING_JOBS);
+    assert!(session.cancel(next));
+    assert_eq!(session.stats().pending_jobs, PENDING_JOBS - 1);
+    session.request(small(200)).unwrap();
+    drop(leases);
 }
 
 #[test]
@@ -839,4 +921,144 @@ fn concurrent_budget_changes_keep_decode_admission_atomic() {
     session.cancel(request);
     drop(permit);
     assert_eq!(total(&session), 0);
+}
+
+#[test]
+fn a_decode_its_view_let_go_of_before_taking_it_stays_cold_for_the_next_view() {
+    let gate = Gate::new();
+    let session = gate.session();
+    let drops = Arc::new(AtomicUsize::new(0));
+    let first = session.request(demand(1, 1, 4, 0)).unwrap();
+    complete(gate.next_decode().unwrap(), &drops);
+    assert_eq!(session.stats().delivery_cells, 1);
+    // Its row left the screen before the picture was taken.
+    assert!(session.cancel(first));
+    assert_eq!(session.stats().delivery_cells, 0);
+    assert_eq!(session.stats().cold_bytes, 4 * MIB);
+    assert_eq!(drops.load(Ordering::SeqCst), 0);
+    // Another view showing the same picture decodes nothing.
+    let again = session.request(demand(2, 1, 4, 0)).unwrap();
+    assert_eq!(session.status(again), Some(RequestStatus::Ready));
+    assert!(gate.next_decode().is_none());
+    assert_eq!(session.stats().dedup_hits, 1);
+    drop(session.take_ready(again).unwrap());
+}
+
+#[test]
+fn a_variant_names_its_bytes_per_pixel_and_an_unknown_one_is_refused() {
+    let gate = Gate::new();
+    let session = gate.session();
+    // 256 pixels wide: 1024 bytes a row at 4 bytes a pixel, 2048 at 8.
+    let base = demand(1, 1, 1, 0);
+    for v in [variant::SRGB8, variant::OWN8, variant::REDUCED8] {
+        let mut d = base;
+        d.key.variant = v;
+        d.view.view = u64::from(v);
+        assert!(session.request(d).is_ok(), "variant {v} at 4 bytes a pixel");
+    }
+    for v in [variant::DEEP, variant::HDR] {
+        let mut d = base;
+        d.key.variant = v;
+        d.view.view = u64::from(v);
+        assert_eq!(
+            session.request(d),
+            Err(Refusal::InvalidDimensions),
+            "variant {v} needs 8 bytes a pixel"
+        );
+        d.cost = DecodeCost::checked(2048, d.key.pixels.height / 2, 0, 0).unwrap();
+        d.key.pixels.height /= 2;
+        assert!(session.request(d).is_ok(), "variant {v} at 8 bytes a pixel");
+    }
+    for v in [0, 6, u32::MAX] {
+        let mut d = base;
+        d.key.variant = v;
+        d.view.view = 100 + u64::from(v % 1000);
+        assert_eq!(
+            session.request(d),
+            Err(Refusal::InvalidDimensions),
+            "unknown variant {v}"
+        );
+    }
+}
+
+#[test]
+fn the_same_pixels_in_two_variants_are_two_entries() {
+    let gate = Gate::new();
+    let session = gate.session();
+    let mut wide = demand(1, 1, 1, 0);
+    wide.key.variant = variant::OWN8;
+    let mut reduced = demand(2, 1, 1, 0);
+    reduced.key.variant = variant::REDUCED8;
+    session.request(wide).unwrap();
+    session.request(reduced).unwrap();
+    // Two keys, so two decodes: a variant never answers for another.
+    assert!(gate.next_decode().is_some());
+    assert!(gate.next_decode().is_some());
+}
+
+/// Two parts of one picture at one size (a photo in two boxes of different
+/// shape) are two entries; a view asking for a part again shares it; and no
+/// part is offered to a view that wants the picture whole (`covering`).
+#[test]
+fn a_part_answers_only_for_its_own_crop() {
+    let gate = Gate::new();
+    let session = gate.session();
+    let drops = Arc::new(AtomicUsize::new(0));
+    let full = PixelSize {
+        width: 1024,
+        height: 1024,
+    };
+    let part = |view, x| {
+        let mut d = demand(view, 1, 1, 0);
+        d.key.crop = Crop { x, y: 0, full };
+        d
+    };
+    let left = session.request(part(1, 0)).unwrap();
+    let right = session.request(part(2, 768)).unwrap();
+    let again = session.request(part(3, 0)).unwrap();
+    assert_eq!(session.stats().pending_jobs, 2, "one decode for each crop");
+    complete(gate.next_decode().unwrap(), &drops);
+    complete(gate.next_decode().unwrap(), &drops);
+    assert!(gate.next_decode().is_none());
+    let (left, right, again) = (
+        session.take_ready(left).unwrap(),
+        session.take_ready(right).unwrap(),
+        session.take_ready(again).unwrap(),
+    );
+    let pixels = |r: &RasterLease| Arc::as_ptr(r.payload::<Arc<Backing>>().unwrap());
+    assert_eq!(pixels(&left), pixels(&again));
+    assert_ne!(pixels(&left), pixels(&right));
+    let at_least = PixelSize {
+        width: 1,
+        height: 1,
+    };
+    assert_eq!(
+        session.covering(1, 1, variant::SRGB8, at_least, u64::MAX),
+        None,
+        "a part is never the whole picture"
+    );
+    let whole = session.request(demand(4, 1, 1, 0)).unwrap();
+    complete(gate.next_decode().unwrap(), &drops);
+    assert!(session.take_ready(whole).is_some());
+    assert_eq!(
+        session.covering(1, 1, variant::SRGB8, at_least, u64::MAX),
+        Some(demand(4, 1, 1, 0).key.pixels)
+    );
+}
+
+/// A source to read that arrives while a worker looks for one, after it
+/// read the wake sequence and before it waits, ends the wait at once: the
+/// worker does not sleep through it to the backstop.
+#[test]
+fn a_wake_while_the_worker_looked_ends_its_wait_at_once() {
+    let gate = Gate::new();
+    let session = gate.session();
+    let since = gate.wake_sequence();
+    session.wake();
+    let started = std::time::Instant::now();
+    assert!(gate
+        .wait_work_since(since, std::time::Duration::from_secs(10))
+        .is_none());
+    let waited = started.elapsed();
+    assert!(waited < std::time::Duration::from_secs(5), "{waited:?}");
 }

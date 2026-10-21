@@ -74,6 +74,20 @@ pub enum Outcome {
     Handled(Change),
 }
 
+/// Where [`Editor::replace`] leaves the selection: HTML's `selectionMode`
+/// of `setRangeText`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SelectionMode {
+    /// Keep it, moved with the text around the replaced range.
+    Preserve,
+    /// Select the inserted text.
+    Select,
+    /// A caret before the inserted text.
+    Start,
+    /// A caret after the inserted text.
+    End,
+}
+
 /// The toolbar facts a `select` event carries (LLP 1045 D6).
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Facts {
@@ -329,6 +343,65 @@ impl Editor {
             source: true,
             place: true,
         }
+    }
+
+    /// The app's `setSelectionRange`, in source code units. A caret in hidden
+    /// syntax moves to the visible edge the platform can draw it at
+    /// (LLP 1045 D6); a range is kept as given.
+    pub fn set_selection(&mut self, from: u32, to: u32) -> Change {
+        let (from, to) = self.clamp((from, to));
+        self.pending = [None; 4];
+        self.sticky = None;
+        self.sel = if from == to {
+            (self.snap(from), self.snap(from))
+        } else {
+            (from, to)
+        };
+        Change {
+            source: false,
+            place: true,
+        }
+    }
+
+    /// The app's `setRangeText`: `from..to` of the source becomes `text`,
+    /// as one undo step that restores the source and selection from before
+    /// it, the selection then placed by `mode` as HTML places it.
+    pub fn replace(
+        &mut self,
+        from: u32,
+        to: u32,
+        text: &[u16],
+        mode: SelectionMode,
+        now: f64,
+    ) -> Change {
+        self.now = now;
+        let (from, to) = self.clamp((from, to));
+        let text = clean(text);
+        let (old, inserted) = (self.sel, text.len() as u32);
+        let after = from + inserted;
+        let moved = |p: u32, edge: u32| {
+            if p > to {
+                p + inserted - (to - from)
+            } else if p > from {
+                edge
+            } else {
+                p
+            }
+        };
+        let sel = match mode {
+            SelectionMode::Preserve => (moved(old.0, from), moved(old.1, after)),
+            SelectionMode::Select => (from, after),
+            SelectionMode::Start => (from, from),
+            SelectionMode::End => (after, after),
+        };
+        let (result, _) = splice(&self.source, &[(from, to, text)]);
+        let change = self.commit(result, sel, false, Kind::Edit);
+        self.pending = [None; 4];
+        let (s, e) = self.sel;
+        if s == e {
+            self.sel = (self.snap(s), self.snap(s));
+        }
+        change
     }
 
     /// Select everything.
@@ -828,6 +901,13 @@ impl Editor {
     }
 
     fn replace_visible(&mut self, from: u32, to: u32, text: &[u16]) -> Change {
+        // Select All owns the whole source, including headings, destinations
+        // and collapsed fences. Replacing only visible runs leaves these
+        // hidden constructs attached to a completely new document.
+        if from == 0 && to == self.len() {
+            let caret = text.len() as u32;
+            return self.commit(text.to_vec(), (caret, caret), false, Kind::Edit);
+        }
         let parts = self.proj.visible_parts(from, to);
         let Some(&(first, _)) = parts.first() else {
             let at = self.snap(from);

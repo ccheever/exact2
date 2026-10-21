@@ -1,0 +1,8 @@
+// A plan with no field, data or module: preparing it still supplies a control
+// environment, and its hr is a hairline the display's scale resolves
+// (NativeFieldsIOSTests). Compiled by build.mjs --test.
+component Fieldless
+  view
+    column
+      box testId="fieldless" width=100 height=100
+      hr testId="rule"

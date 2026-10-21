@@ -85,6 +85,14 @@
     {"input": "/.//x/y", "expected": "//x/y"}
   ],
   "location_of": [
+    {"input": "https://example.com\\thread\\42", "expected": "/thread/42"},
+    {"input": "https:\\\\example.com\\thread", "expected": "/thread"},
+    {"input": "app:/thread/42", "expected": "//thread/42"},
+    {"input": "app:///thread/42", "expected": "//thread/42"},
+    {"input": "file:///tmp/x", "expected": "//tmp/x"},
+    {"input": "app://line\u2028break", "expected": "/line%E2%80%A8break"},
+    {"input": "/reports/q3|q4", "expected": "/reports/q3%7Cq4"},
+    {"input": "https://exa mple.com/thread/42", "expected": "/thread/42"},
     {"input": "https://interview.app/post/42?x=1#frag", "expected": "/post/42?x=1"},
     {"input": "interview://post/42", "expected": "/post/42"},
     {"input": "interview://", "expected": "/"},
@@ -1377,7 +1385,8 @@
     {"sequence": 2, "step": 4, "name": "absent", "expected": []}
   ],
   "laws": [
-    {"name": "back_push", "statement": "stack(back(push(r, u))) = stack(r)"},
+    {"name": "back_push", "statement": "stack(back(push(r, u))) = stack(r) for u not the top url"},
+    {"name": "push_top", "statement": "push(r, top(r).url) = r"},
     {"name": "back_root", "statement": "back(r) = r when depth(r) = 1"},
     {"name": "select_twice", "statement": "select(select(r, t), t) has depth 1"},
     {"name": "open_idempotent", "statement": "open(open(r, u), u) = open(r, u)"},

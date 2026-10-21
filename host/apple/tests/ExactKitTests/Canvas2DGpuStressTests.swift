@@ -3,12 +3,14 @@ import CoreGraphics
 import IOSurface
 import QuartzCore
 @testable import ExactKit
+@testable import ExactSurfaces
 
 /// The Canvas 2D GPU module under concurrency (LLP 1056 §8.5): several
 /// presenters' replay queues drive one process-wide module while the main
 /// thread applies, forgets and shows. Run under Thread Sanitizer on a
 /// simulator. Skipped without a module (`EXACT_CANVAS_GPU_DYLIB`).
 final class Canvas2DGpuStressTests: XCTestCase {
+    override class func setUp() { super.setUp(); ExactSurfaces.install() } // LLP 1047.001 D4
     private func list(_ records: [(Canvas2DOp, [Double])]) -> Data {
         var d = Data()
         func u32(_ v: UInt32) { withUnsafeBytes(of: v.littleEndian) { d.append(contentsOf: $0) } }
@@ -35,7 +37,7 @@ final class Canvas2DGpuStressTests: XCTestCase {
 
     private func payload(_ lifetime: UInt64, generation: UInt32, fresh: Bool, lists: [Data]) -> [String: Any] {
         ["lifetime": lifetime, "generation": generation, "fresh": fresh, "w": 180, "h": 120, "scale": 3.0,
-         "lists": lists, "box": [0, 0, 60, 40], "animating": true]
+         "lists": lists, "animating": true]
     }
 
     private func corner(_ surface: IOSurface) -> [UInt8] {
@@ -47,7 +49,7 @@ final class Canvas2DGpuStressTests: XCTestCase {
     }
 
     func testPresentersReplayConcurrentlyThroughOneModule() throws {
-        guard Canvas2DGpuModule.shared != nil else { throw XCTSkip("no Canvas 2D GPU module (EXACT_CANVAS_GPU_DYLIB)") }
+        guard Canvas2DGpuModule.shared != nil else { throw missing("module", "no Canvas 2D GPU module (EXACT_CANVAS_GPU_DYLIB)") }
         let presenters = 4, canvases = 8, rounds = 120
         let hosts = (0..<presenters).map { _ in Canvas2DHost() }
         let parents = (0..<presenters).map { _ in CALayer() }

@@ -1,0 +1,26 @@
+// An injected action called from a child (LLP 1089 D1).
+component App
+  state hits = 0
+  action hit(by: number)
+    hits = hits + by
+  provide
+    onHit = hit(3)
+  view
+    column
+      Deep()
+      text `${hits}` testId="hits"
+
+component Deep
+  inject
+    onHit: action
+  state mine = 0
+  action go
+    onHit()
+    mine = mine + 1
+  view
+    button "go" press=go testId="go"
+
+test "inject"
+  tap "go"
+  tap "go"
+  expect text "hits" == "6"

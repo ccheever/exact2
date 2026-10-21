@@ -46,19 +46,23 @@ fn the_app_compiles_deterministically_and_bakes_its_first_frame() {
     let b = caltrain::compile().unwrap();
     assert_eq!(a.encode(), b.encode(), "compiling twice is byte-identical");
     assert_eq!(a.kernel_schema_digest, exact_kernel::SCHEMA_DIGEST);
-    // nowMs, screen, stationId, query; material, deck, focus (LLP 1014: the
+    // seededEpoch, nowMs, screen, stationId, query; material, deck, focus (LLP 1014: the
     // sky's material, the card deck and its focus); sky (whether the app is
     // inside the aurora canvas at all — a phone's frame-rate switch);
     // hoverId, hoverOn, searchFocused, lastKey (the events beyond press and
     // change, LLP 1005 §3); deckLoaded, deckLoads, and deckMessage (the
     // iframe fixture, @ref LLP 1020 M1); and `nav`, the routes table's
-    // location (LLP 1038 D2), there for `render=build` (LLP 1048.003 D5).
-    assert_eq!(a.slots.len(), 16);
-    // Seven data-crate resources, and `delivery` — the runner's own
-    // `exactDelivery` (LLP 1030 D7), read by the update banner.
-    assert_eq!(a.resources.len(), 8);
-    // …and `activateUpdate`, the banner's `deliveryActivate`.
-    assert_eq!(a.actions.len(), 18);
+    // location (LLP 1038 D2), there for `render=build` (LLP 1048.003 D5);
+    // and the activity's delay, whether one is followed, and the mutation
+    // replies, and whether a service alert is followed (LLP 1126.001 WP9, WP14).
+    assert_eq!(a.slots.len(), 22);
+    // Seven data-crate resources, `delivery` — the runner's own
+    // `exactDelivery` (LLP 1030 D7), read by the update banner — and
+    // `viewport`, whose `pointer` says a TV, and `exactActivities`.
+    assert_eq!(a.resources.len(), 10);
+    // …and `activateUpdate`, the banner's `deliveryActivate`, and
+    // `reloadApp`, the header's Reload, and the departure and service-alert actions.
+    assert_eq!(a.actions.len(), 24);
     assert_eq!(a.timers.len(), 1);
     assert!(
         a.resources.iter().all(|r| r.initial.len == 0),
@@ -146,12 +150,30 @@ fn the_home_screen_shows_both_boards_with_live_countdowns() {
 }
 
 #[test]
+fn an_hour_away_on_the_live_clock_shows_the_time_after_one_tick() {
+    let mut r = caltrain::boot(caltrain::build().unwrap(), Kernel::with_monospace()).unwrap();
+    let epoch = r.slot("seededEpoch").and_then(Value::as_number).unwrap();
+    // A device's clock: the app was suspended for an hour.
+    r.set_live_clock(Some(Box::new(|| 3_600_000.0)));
+    let a = r.advance_timed(3_600_000.0);
+    assert!(a.error.is_none(), "{:?}", a.error);
+    assert_eq!(a.receipts.len(), 1, "one tick, not 3,600");
+    assert_eq!(
+        r.slot("nowMs").and_then(Value::as_number),
+        Some(epoch + 3_600_000.0)
+    );
+}
+
+#[test]
 fn the_home_screen_explains_when_service_has_ended() {
     let now = caltrain_data::DAY_START_MS + 24.0 * 60.0 * 60_000.0;
-    let plan = contract::compile(&caltrain::SOURCE.replace(
-        "state nowMs = 1787915400000",
-        &format!("state nowMs = {now}"),
-    ))
+    let plan = contract::compile_path_source(
+        &std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("app.contract"),
+        &caltrain::SOURCE.replace(
+            "state seededEpoch = 1787915400000",
+            &format!("state seededEpoch = {now}"),
+        ),
+    )
     .unwrap();
     let r = caltrain::boot(plan, Kernel::with_monospace()).unwrap();
     let messages = r.kernel().find_by_test_id("board-north");
@@ -249,11 +271,12 @@ fn a_reload_keeps_its_place_and_re_requests_only_what_changed() {
         Some("San Francisco")
     );
     let carried = r.carry();
-    assert_eq!(carried.slots.len(), 16);
+    assert_eq!(carried.slots.len(), 22);
     assert_eq!(carried.now_ms, 30_000.0);
 
     // The edited plan: unbaked (no compiled data) and with a visible change.
-    let edited = contract::compile(
+    let edited = contract::compile_path_source(
+        &std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("app.contract"),
         &caltrain::SOURCE.replace("text \"Caltrain\" ", "text \"Caltrain Live\" "),
     )
     .unwrap();
@@ -336,7 +359,7 @@ fn hover_focus_and_keys_reach_their_actions() {
     let search = view_of(&r, "station-search");
     assert!(r.kernel().find_by_test_id("search-hint").is_empty());
     r.dispatch(search, Event::Focus).unwrap();
-    r.dispatch(search, Event::Key("Enter".into())).unwrap();
+    r.dispatch(search, Event::key("Enter")).unwrap();
     assert_eq!(
         text_of(&r, "search-hint").as_deref(),
         Some("searching · last key Enter")
@@ -349,4 +372,71 @@ fn hover_focus_and_keys_reach_their_actions() {
         err,
         Err(exact_runner::RunnerError::NoHandler { event: "hover", .. })
     ));
+}
+
+#[test]
+fn an_explicit_activity_update_sends_the_changed_state() {
+    let mut app = caltrain::boot(caltrain::build().unwrap(), Kernel::with_monospace()).unwrap();
+    app.link_activities().unwrap();
+    // A completed start can be used before the asynchronous source snapshot arrives.
+    app.act("startTracking", vec![]).unwrap();
+    let start = app.take_requests().remove(0);
+    app.fulfill(
+        start.ticket,
+        exact_runner::Outcome::Response(exact_runner::Response {
+            status: 200,
+            headers: vec![],
+            body: br#"{"id":"train-id"}"#.to_vec(),
+        }),
+    )
+    .unwrap();
+    app.act("delayTrain", vec![]).unwrap();
+    let early = app.take_requests().remove(0);
+    let early = std::str::from_utf8(&early.request.body).unwrap();
+    assert!(early.contains("\"args\":[\"train-id\""), "{early}");
+    app.act("endTracking", vec![]).unwrap();
+    assert_eq!(app.slot("trainDelay"), Some(&Value::Number(0.0)));
+    app.take_requests();
+    app.set_activities(r#"{"activities":[{"id":"train-id","kind":"departure","state":"{}","activityState":"active","token":null}],"frequentPushesEnabled":false}"#).unwrap();
+    app.act("delayTrain", vec![]).unwrap();
+    let requests = app.take_requests();
+    assert_eq!(requests.len(), 1);
+    let payload = std::str::from_utf8(&requests[0].request.body).unwrap();
+    assert!(
+        payload.contains("\"status\":\"Delayed by 10 minutes\""),
+        "{payload}"
+    );
+    assert!(payload.contains("\"at\":1787916600000"), "{payload}");
+    assert!(payload.contains("\"train-id\""), "{payload}");
+}
+
+#[test]
+fn service_alert_controls_end_their_own_activity_after_recovery() {
+    let mut app = caltrain::boot(caltrain::build().unwrap(), Kernel::with_monospace()).unwrap();
+    app.link_activities().unwrap();
+    app.act("startAlert", vec![]).unwrap();
+    let start = app.take_requests().remove(0);
+    let payload = std::str::from_utf8(&start.request.body).unwrap();
+    assert!(payload.contains("service-alert"), "{payload}");
+    app.fulfill(
+        start.ticket,
+        exact_runner::Outcome::Response(exact_runner::Response {
+            status: 200,
+            headers: vec![],
+            body: br#"{"id":"alert-id"}"#.to_vec(),
+        }),
+    )
+    .unwrap();
+    app.act("endAlert", vec![]).unwrap();
+    let end = app.take_requests().remove(0);
+    assert!(std::str::from_utf8(&end.request.body)
+        .unwrap()
+        .contains("alert-id"));
+    assert_eq!(app.slot("alertStarted"), Some(&Value::Bool(false)));
+    app.set_activities(r#"{"activities":[{"id":"train-id","kind":"departure","state":"{}","activityState":"active","token":null},{"id":"recovered-alert","kind":"service-alert","state":"{}","activityState":"active","token":null}],"frequentPushesEnabled":false}"#).unwrap();
+    app.act("endAlert", vec![]).unwrap();
+    let end = app.take_requests().remove(0);
+    let payload = std::str::from_utf8(&end.request.body).unwrap();
+    assert!(payload.contains("recovered-alert"), "{payload}");
+    assert!(!payload.contains("train-id"), "{payload}");
 }

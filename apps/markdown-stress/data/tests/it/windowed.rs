@@ -55,6 +55,7 @@ fn feedback(runner: &mut Runner<MarkdownStress>, top: f64, width: f64) {
                 port_cross: port.width as f64,
                 port_main: port.height as f64,
                 cross: row_width as f64,
+                padding: [0.0; 2],
                 measurements,
                 focus_view: None,
                 interaction_view: None,

@@ -10,6 +10,8 @@ pub use self::collider::{Collider, ColliderBuilder};
 #[cfg(feature = "alloc")]
 pub use self::collider_components::*;
 pub use self::collider_handle::ColliderHandle;
+#[cfg(feature = "serde-serialize")]
+pub(crate) use self::collider_set::holes;
 #[cfg(feature = "alloc")]
 pub use self::collider_set::{ColliderSet, ModifiedColliders};
 #[cfg(feature = "alloc")]

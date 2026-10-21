@@ -18,7 +18,7 @@ use super::{Batch, Host, HostError};
 use exact_kernel::{motion::motion_node, NodeKey, TransformDragBinding, ViewId};
 use exact_motion::{HoldEnd, TransformHold, Value};
 use exact_runner::{DataSource, Event, Timed};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::atomic::{AtomicU64, Ordering};
 
 static NEXT_RUNTIME: AtomicU64 = AtomicU64::new(1);
@@ -48,6 +48,7 @@ struct Active {
 pub(super) struct TransformDrags {
     runtime: u64,
     owner: Option<NodeKey>,
+    reported_targets: BTreeSet<NodeKey>,
     handles: BTreeMap<ViewId, Handle>,
     // Existing Translate serial is the key, not a second pair serial/registry.
     // During independent terminal cleanup one original survivor may remain.
@@ -61,6 +62,7 @@ impl TransformDrags {
         Ok(Self {
             runtime,
             owner: None,
+            reported_targets: BTreeSet::new(),
             handles: BTreeMap::new(),
             pairs: BTreeMap::new(),
         })
@@ -221,6 +223,51 @@ pub(super) fn valid_event(event: &Event) -> bool {
 }
 
 impl<D: DataSource> Host<D> {
+    /// Before an event the host delivers itself, mid-gesture (a drag's
+    /// release, its handle's new geometry): the runner's clock moves to the
+    /// input's time `now_ms`, as [`Host::dispatch_at`] moves it, firing the
+    /// timers due by then at their own times. Idle, the runner's clock can be
+    /// seconds old, and the event's action would read that `performanceNow()` and arm
+    /// its `after`s from it. Their commits, in order, and a refusal, which
+    /// stops the clock at the refusing timer (the runner's rule): the event
+    /// then runs there, as through `dispatch_at`.
+    pub(crate) fn advance_for_input(&mut self, now_ms: f64) -> (Vec<Timed>, Option<String>) {
+        let a = self.runner.advance_timed(now_ms);
+        (a.receipts, a.error.map(|e| format!("{e:?}")))
+    }
+
+    /// The event after [`Host::advance_for_input`], its commit last, unless
+    /// the timers just fired ended its gesture (`still` false: they changed
+    /// or removed the binding the input was validated against). The commits,
+    /// the first refusal, and whether the event committed.
+    pub(crate) fn deliver_after(
+        &mut self,
+        view: ViewId,
+        event: Event,
+        mut receipts: Vec<Timed>,
+        mut error: Option<String>,
+        still: bool,
+    ) -> (Vec<Timed>, Option<String>, bool) {
+        if !still {
+            error.get_or_insert_with(|| "the gesture's binding changed before its event".into());
+            return (receipts, error, false);
+        }
+        let committed = match self.runner.dispatch(view, event) {
+            Ok(receipt) => {
+                receipts.push(Timed {
+                    at_ms: self.runner.now_ms(),
+                    receipt,
+                });
+                true
+            }
+            Err(e) => {
+                error.get_or_insert(format!("{e:?}"));
+                false
+            }
+        };
+        (receipts, error, committed)
+    }
+
     /// Consume the fixed v2 photo packet. Geometry does not prove a worker result
     /// or change Kernel layout: it is a bound browser observation. Refused stale
     /// inputs never seek their incoming clock. A stale reply may include a batch
@@ -359,19 +406,16 @@ impl<D: DataSource> Host<D> {
         });
         // All six values/time passed preflight, both old holds are live, and the
         // action executes while both still own presentation. Do not lower first.
-        let (committed, batch) = match self.runner.dispatch(view, input.event()) {
-            Ok(receipt) => (
-                true,
-                self.batch_for(
-                    &[Timed {
-                        at_ms: input.now_ms,
-                        receipt,
-                    }],
-                    None,
-                ),
-            ),
-            Err(e) => (false, self.batch_for(&[], Some(&format!("{e:?}")))),
-        };
+        let (early, early_error) = self.advance_for_input(input.now_ms);
+        let still = early.is_empty()
+            || self
+                .runner
+                .kernel()
+                .transform_drag_binding(input.binding.handle)
+                == Some(input.binding);
+        let (receipts, error, committed) =
+            self.deliver_after(view, input.event(), early, early_error, still);
+        let batch = self.batch_for(&receipts, error.as_deref());
         Ok(format!(
             "{{\"accepted\":true,\"dispatched\":true,\"committed\":{committed},\"velocity\":[{},{},{}],\"batch\":{batch}}}",
             input.values[3], input.values[4], input.values[5]
@@ -418,6 +462,9 @@ impl<D: DataSource> Host<D> {
         // clock; its receipt performs the sole dirty-frame lowering.
         self.now_ms = input.now_ms;
         let mut batch = Batch::new();
+        // Timers due by the observation fire first, so the authoring adopted
+        // below while held, and the cancellation, are what they left.
+        let (early, early_error) = self.advance_for_input(input.now_ms);
         let synced = self.springs.synchronize_transform(
             self.runner.kernel(),
             input.binding.target,
@@ -434,30 +481,31 @@ impl<D: DataSource> Host<D> {
             self.retire_transform_pair(serial, &mut batch);
         }
         if dispatch {
-            match self.runner.dispatch(view, input.event()) {
-                Ok(receipt) => Ok(accepted(self.batch_from(
-                    batch,
-                    &[Timed {
-                        at_ms: input.now_ms,
-                        receipt,
-                    }],
-                    None,
-                ))),
-                Err(error) => {
-                    Self::emit_lowered(
-                        &mut batch,
-                        self.springs.lower_current(self.runner.kernel()),
-                    );
-                    Ok(accepted(self.batch_from(
-                        batch,
-                        &[],
-                        Some(&format!("{error:?}")),
-                    )))
-                }
+            let still = early.is_empty()
+                || self
+                    .runner
+                    .kernel()
+                    .transform_drag_binding(input.binding.handle)
+                    == Some(input.binding);
+            let (receipts, error, committed) =
+                self.deliver_after(view, input.event(), early, early_error, still);
+            if !committed {
+                Self::emit_lowered(&mut batch, self.springs.lower_current(self.runner.kernel()));
             }
+            Ok(admitted(
+                self.batch_from(batch, &receipts, error.as_deref()),
+                committed,
+            ))
         } else {
             Self::emit_lowered(&mut batch, self.springs.lower_current(self.runner.kernel()));
-            Ok(accepted(self.finish(batch, None)))
+            if early.is_empty() && early_error.is_none() {
+                Ok(accepted(self.finish(batch, None)))
+            } else {
+                Ok(admitted(
+                    self.batch_from(batch, &early, early_error.as_deref()),
+                    true,
+                ))
+            }
         }
     }
 
@@ -479,19 +527,38 @@ impl<D: DataSource> Host<D> {
             .retain(|_, h| kernel.node_by_key(h.key).is_some());
         let mut first = None;
         let mut current_valid = false;
+        let mut valid = BTreeMap::new();
         for h in self.transform_drags.handles.values() {
             if !h.geometry_handler || !h.release_handler {
                 continue;
             }
             if let Some(b) = kernel.transform_drag_binding(h.key) {
+                valid.insert(
+                    b.target,
+                    kernel.node_by_key(b.target).expect("valid target").id,
+                );
                 first.get_or_insert(b.target);
                 current_valid |= self.transform_drags.owner == Some(b.target);
             }
         }
         // Keep one eligible owner across sibling handle removal; never steal a
-        // live owner for a second target. No retained history or per-frame scan.
+        // live owner for a second target.
         if !current_valid {
             self.transform_drags.owner = first;
+        }
+        // Forget a report when the target loses its last valid binding.
+        self.transform_drags
+            .reported_targets
+            .retain(|target| valid.contains_key(target));
+        if let Some(owner) = self.transform_drags.owner {
+            let owner_view = valid[&owner];
+            for (target, view) in valid {
+                if target != owner && self.transform_drags.reported_targets.insert(target) {
+                    self.log(&format!(
+                        "transformDragFor: target view #{view} passed over for owner view #{owner_view}; one owner (first valid, never stolen; LLP 1071)"
+                    ));
+                }
+            }
         }
     }
 
@@ -604,6 +671,12 @@ fn accepted(batch: String) -> String {
     format!("{{\"accepted\":true,\"batch\":{batch}}}")
 }
 
+/// A geometry reply that says whether its event committed: a timer's
+/// refusal in the batch is not the observation's (the glue admits from it).
+fn admitted(batch: String, committed: bool) -> String {
+    format!("{{\"accepted\":true,\"committed\":{committed},\"batch\":{batch}}}")
+}
+
 #[cfg(all(test, not(target_arch = "wasm32")))]
 mod tests {
     use super::*;
@@ -620,9 +693,9 @@ mod tests {
     fn repeated_pair_takeover_keeps_only_current_metadata_and_independent_end_survivor() {
         let source = r#"component App
   state calls = 0
-  action geometry(w: number, h: number, pw: number, ph: number) writes calls
+  action geometry(w: number, h: number, pw: number, ph: number)
     calls = calls + 1
-  action finish(x: number, y: number, s: number, vx: number, vy: number, vs: number) writes calls
+  action finish(x: number, y: number, s: number, vx: number, vy: number, vs: number)
     calls = calls + 1
   view
     column width=320 height=200 overflow="hidden" border-width=0 padding=0

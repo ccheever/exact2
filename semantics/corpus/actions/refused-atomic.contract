@@ -1,0 +1,30 @@
+// A refused action changes nothing at all: none of its many writes, its
+// sends, nor its commands land.
+shape Ack
+  ok: bool
+
+component App
+  state a = 1
+  state b = "b"
+  state c = true
+  state z = 0
+  mutation ack as shape Ack
+  action many
+    a = 2
+    b = "changed"
+    c = false
+    copyText("should not appear")
+    send ack = ping(a)
+    z = 1 / z
+  view
+    column
+      text `${a} ${b} ${c}` testId="r"
+      button "many" press=many testId="many"
+
+test "nothing lands"
+  tap "many"
+  expect state a == 1
+  expect state b == "b"
+  expect state c == true
+  expect state ack == none
+  expect text "r" == "1 b true"

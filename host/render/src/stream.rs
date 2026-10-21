@@ -113,7 +113,7 @@ impl<'a> Flush<'a> {
         cache: &str,
         accepts: Accepts,
         csp: &str,
-        permissions: &str,
+        page: &str,
         keep: bool,
     ) -> Flush<'a> {
         let encoding = accepts.pick();
@@ -128,11 +128,7 @@ impl<'a> Flush<'a> {
         headers.push_str("Content-Security-Policy: ");
         headers.push_str(csp);
         headers.push_str("\r\n");
-        if !permissions.is_empty() {
-            headers.push_str("Permissions-Policy: ");
-            headers.push_str(permissions);
-            headers.push_str("\r\n");
-        }
+        headers.push_str(page);
         headers.push_str("X-Content-Type-Options: nosniff\r\nReferrer-Policy: strict-origin-when-cross-origin\r\nTransfer-Encoding: chunked\r\n");
         headers.push_str(if keep {
             "Connection: keep-alive\r\n\r\n"

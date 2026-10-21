@@ -131,6 +131,10 @@ impl Display {
     fn pending(&self) -> bool {
         self.flips.pending()
     }
+    /// The vblank sequence of the last completed flip (LLP 1079 D3).
+    fn sequence(&self) -> Option<u32> {
+        self.flips.sequence
+    }
     fn fd(&self) -> i32 {
         self.card.0.as_raw_fd()
     }
@@ -296,8 +300,10 @@ pub fn copy_xrgb(frame: &Pixmap, dst: &mut [u8], pitch: usize, width: u32, heigh
     }
 }
 
-fn mtime(path: &Path) -> Option<Vec<(std::path::PathBuf, SystemTime, u64)>> {
-    fn collect(path: &Path, rows: &mut Vec<(std::path::PathBuf, SystemTime, u64)>) {
+type ReloadStamp = Vec<(std::path::PathBuf, SystemTime, u64)>;
+
+fn mtime(path: &Path) -> Option<ReloadStamp> {
+    fn collect(path: &Path, rows: &mut ReloadStamp) {
         let Ok(metadata) = std::fs::metadata(path) else {
             return;
         };
@@ -333,6 +339,7 @@ pub fn run<D: DataSource + Default>(config: &mut Config, started: Instant) -> i3
     let (pw, ph) = display.size();
     let viewport = (pw as f32 / config.scale, ph as f32 / config.scale);
     let wall = || started.elapsed().as_secs_f64() * 1000.0;
+    config.clock_started = Some(started);
     let (mut p, error) = match crate::app::boot_presenter::<D>(config, viewport) {
         Ok(v) => v,
         Err(e) => {
@@ -343,7 +350,18 @@ pub fn run<D: DataSource + Default>(config: &mut Config, started: Instant) -> i3
     if let Some(e) = error {
         eprintln!("exact: {e}");
     }
+    // The display's clock owns time (the timers RFC, D1)
+    p.set_live_clock(Some(crate::presenter::wall_since(started)));
     let mut input = Input::open();
+    // @ref LLP 1132 D10 — a touch screen alone is `pointer: coarse`, `hover: none`.
+    if input.touch_only() {
+        let mut preferences = p.host().runner().viewport().preferences;
+        preferences.pointer = exact_runner::Pointer::Coarse;
+        preferences.hover = exact_runner::Hover::None;
+        if let Some(e) = p.set_preferences(preferences) {
+            eprintln!("exact: {e}");
+        }
+    }
     let mut vnc = match config.vnc.as_deref() {
         Some(addr) => match Vnc::start(addr, pw, ph) {
             Ok(v) => Some(v),
@@ -358,7 +376,16 @@ pub fn run<D: DataSource + Default>(config: &mut Config, started: Instant) -> i3
     p.set_pointer(Some(pointer));
     let mut last_tick = 0.0f64;
     let frame_ms = 1000.0 / f64::from(display.refresh().max(1));
+    // A development display samples its flips, and writes a trace on
+    // SIGUSR1 (LLP 1079 D3, D5); a production binary does neither.
+    let measured = !exact_runner::delivery::production(&p.compat);
+    let mut frames = crate::frames::Frames::new(display.refresh());
+    if measured {
+        trace_on_signal();
+    }
     let mut plan_seen = config.dev_plan.as_deref().and_then(mtime);
+    // The dev plan's modification time and since when it has waited on requests in flight.
+    let mut held: Option<(Option<ReloadStamp>, Instant)> = None;
     // First pixel is the first frame presented (LLP 1026 D11); the update
     // check follows two seconds after it, off the boot path.
     let mut first_pixel: Option<Instant> = None;
@@ -377,11 +404,21 @@ pub fn run<D: DataSource + Default>(config: &mut Config, started: Instant) -> i3
         wall()
     );
     loop {
+        if measured {
+            // A replaced host's flip and samples are the old runner's.
+            frames.host(p.hosts);
+            if p.dirty() {
+                frames.dirty(wall());
+            }
+        }
         if p.dirty() && !display.pending() {
             let Some(frame) = p.display_frame() else {
                 eprintln!("exact: display/presenter submission ownership mismatch");
                 return 1;
             };
+            if measured {
+                frames.submitted(wall(), p.host().runner().seq(), p.hosts);
+            }
             match display.submit(frame) {
                 Ok(Some(frame)) => presented(
                     &mut p,
@@ -396,6 +433,8 @@ pub fn run<D: DataSource + Default>(config: &mut Config, started: Instant) -> i3
                     return 1;
                 }
             }
+            // What the frame moved under the resting pointer is hovered (#139).
+            p.follow_pointer();
         }
         if p.module_pending() {
             p.first_pixel();
@@ -404,15 +443,19 @@ pub fn run<D: DataSource + Default>(config: &mut Config, started: Instant) -> i3
         let mut timeout = work_timeout(
             display.pending(),
             p.needs_animation_frame(),
-            p.host().timer_due_ms(),
+            p.timer_due_ms(),
             last_tick,
             now,
             frame_ms,
         );
+        // An activation after this turn's paint left a commit to show: don't sleep.
+        if p.dirty() && !display.pending() {
+            timeout = 0;
+        }
         if config.dev_plan.is_some() || config.dev_url.is_some() {
             timeout = if timeout < 0 { 100 } else { timeout.min(100) };
         }
-        if p.module_pending() {
+        if p.delivery_pending() {
             timeout = if timeout < 0 { 50 } else { timeout.min(50) };
         }
         if let Some(due) = check_due {
@@ -439,13 +482,23 @@ pub fn run<D: DataSource + Default>(config: &mut Config, started: Instant) -> i3
         fds.push(display.fd());
         match poll(&fds, display.fd(), timeout) {
             Ok(true) => match display.ready() {
-                Ok(Some(frame)) => presented(
-                    &mut p,
-                    frame,
-                    vnc.as_ref(),
-                    &mut first_pixel,
-                    &mut check_due,
-                ),
+                Ok(Some(frame)) => {
+                    presented(
+                        &mut p,
+                        frame,
+                        vnc.as_ref(),
+                        &mut first_pixel,
+                        &mut check_due,
+                    );
+                    let paint = p.last_frame_ms().map(|(ms, _)| ms);
+                    if let Some(line) = display
+                        .sequence()
+                        .filter(|_| measured)
+                        .and_then(|s| frames.flipped(s, wall(), paint))
+                    {
+                        p.host_mut().log(line);
+                    }
+                }
                 Ok(None) => {}
                 Err(e) => {
                     eprintln!("exact: {e}");
@@ -458,6 +511,17 @@ pub fn run<D: DataSource + Default>(config: &mut Config, started: Instant) -> i3
                 return 1;
             }
         }
+        // Work this turn does (input, completions, timers, frame tasks) is
+        // wanted from when the loop woke, however long it takes.
+        let woke = measured.then(wall);
+        // SIGUSR1's, or a hatch's `diagnostics().save_trace()`.
+        let asked = TRACE.swap(false, std::sync::atomic::Ordering::Relaxed);
+        if measured && (asked || p.hatch_trace_asked()) {
+            match crate::frames::save_trace(&mut p, &frames, &crate::frames::app_name()) {
+                Ok(path) => println!("exact: trace saved to {}", path.display()),
+                Err(e) => eprintln!("exact: {e}"),
+            }
+        }
         if let Some(e) = p.pump(wall()) {
             eprintln!("exact: {e}");
         }
@@ -467,7 +531,7 @@ pub fn run<D: DataSource + Default>(config: &mut Config, started: Instant) -> i3
             check_due = None;
             p.check_update();
         }
-        let mut events = input.read();
+        let mut events = input.read(wall());
         if let Some(v) = vnc.as_mut() {
             events.extend(v.take_events());
         }
@@ -479,17 +543,25 @@ pub fn run<D: DataSource + Default>(config: &mut Config, started: Instant) -> i3
             }
         }
 
+        // The hatches' turn (LLP 1075.003.000.001 §4.1): what they asked of
+        // elements runs, and the moments this turn's commits caused.
+        p.hatch_turn();
         let now = wall();
+        let due = timer_wake_delay(p.timer_due_ms(), now, last_tick, frame_ms)
+            .is_some_and(|wait| wait <= 0.0);
+        if due || p.wants_frames() {
+            if let Some(e) = p.follow_local_offset() {
+                eprintln!("exact: {e}");
+            }
+        }
         // A frame task (LLP 1073 D5): each frame the display can take is
         // `frame` (timers, then frame tasks), never caught up.
-        if !display.pending() && p.host().wants_frames() {
+        if !display.pending() && p.wants_frames() {
             last_tick = now;
             if let Some(e) = p.animation_frame(now) {
                 eprintln!("exact: {e}");
             }
-        } else if timer_wake_delay(p.host().timer_due_ms(), now, last_tick, frame_ms)
-            .is_some_and(|wait| wait <= 0.0)
-        {
+        } else if due {
             last_tick = now;
             if let Some(e) = p.advance(now) {
                 eprintln!("exact: {e}");
@@ -500,16 +572,22 @@ pub fn run<D: DataSource + Default>(config: &mut Config, started: Instant) -> i3
         }
         p.poll_images();
         p.poll_development(D::default);
+        if let Some(woke) = woke.filter(|_| p.dirty()) {
+            frames.dirty(woke);
+        }
         if let Some(path) = &config.dev_plan {
             let m = mtime(path);
             if m.is_some() && m != plan_seen {
-                plan_seen = m;
+                plan_seen = m.clone();
                 if let Ok(bytes) = std::fs::read(path) {
                     let t = Instant::now();
                     let module = crate::delivery::Module::local(path, &config.compat);
+                    let let_go = held.as_ref().is_some_and(|(at, t)| {
+                        *at == m && t.elapsed() >= crate::host::LET_GO_AFTER
+                    });
                     match module
                         .map_err(crate::host::HostError::Asset)
-                        .and_then(|module| p.reload_module(&bytes, D::default(), module))
+                        .and_then(|module| p.reload_module(&bytes, D::default(), module, let_go))
                     {
                         Ok(e) => println!(
                             "reloaded {} in {:.1} ms{}",
@@ -520,12 +598,35 @@ pub fn run<D: DataSource + Default>(config: &mut Config, started: Instant) -> i3
                             e.map(|e| format!(" — {e}")).unwrap_or_default()
                         ),
                         Err(crate::host::HostError::PreparingModule) => plan_seen = None,
+                        // Asked again each turn; after a second it lets the requests go (LLP 1007 §6).
+                        Err(crate::host::HostError::RequestsPending) => {
+                            plan_seen = None;
+                            if held.as_ref().is_none_or(|(at, _)| *at != m) {
+                                held = Some((m.clone(), Instant::now()));
+                            }
+                        }
                         Err(e) => eprintln!("exact: reload: {e}"),
+                    }
+                    if plan_seen.is_some() {
+                        held = None;
                     }
                 }
             }
         }
     }
+}
+
+static TRACE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+extern "C" fn on_usr1(_: libc::c_int) {
+    TRACE.store(true, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// `SIGUSR1` asks for a trace (LLP 1079 D5): the loop takes the request
+/// after its `poll`, which the signal interrupts (EINTR is a quiet turn).
+fn trace_on_signal() {
+    // SAFETY: the handler only stores to an atomic, which is async-signal-safe.
+    unsafe { libc::signal(libc::SIGUSR1, on_usr1 as *const () as libc::sighandler_t) };
 }
 
 /// Wait for any of the descriptors to be readable, or `timeout` ms (-1
@@ -589,6 +690,9 @@ fn presented<D: DataSource>(
         v.publish(frame.pixels.clone());
     }
     p.display_complete(&frame);
+    // Its boxes are the ones the pointer rests on now: their hover, and
+    // their `:hover` looks (LLP 1121 D8), follow (#139).
+    p.follow_pointer();
     if first.is_none() {
         *first = Some(Instant::now());
         *check_due = Some(Instant::now() + Duration::from_secs(2));

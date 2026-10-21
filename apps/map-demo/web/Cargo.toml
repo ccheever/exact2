@@ -10,6 +10,14 @@ build = "build.rs"
 [lib]
 name = "map_demo_web"
 crate-type = ["cdylib", "rlib"]
+test = false
+bench = false
+
+[[bin]]
+name = "map-demo-dev"
+path = "src/bin/map-demo-dev.rs"
+test = false
+bench = false
 
 [dependencies]
 exact-logic = { path = "../../../logic" }

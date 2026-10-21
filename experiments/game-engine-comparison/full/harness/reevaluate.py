@@ -4,7 +4,7 @@ work=root/'trials'/engine/attempt/'game';out=work.parent/'evidence'/'evaluation-
 out.mkdir(parents=True,exist_ok=True)
 env=os.environ.copy()
 if engine=='godot':
- env['LD_LIBRARY_PATH']=str(root/'godot/runtime-libs/root/usr/lib/x86_64-linux-gnu');env['CHROMIUM']='/home/ccheever/.cache/ms-playwright/chromium_headless_shell-1234/chrome-headless-shell-linux64/chrome-headless-shell'
+ env['LD_LIBRARY_PATH']=str(root/'godot/runtime-libs/root/usr/lib/x86_64-linux-gnu');env['CHROMIUM']=os.path.expanduser('~/.cache/ms-playwright/chromium_headless_shell-1234/chrome-headless-shell-linux64/chrome-headless-shell')
 server=subprocess.Popen(['bun',str(root/'harness/serve.mjs'),str(work/'dist')],stdout=subprocess.PIPE,stderr=open(out/'server.err','w'),text=True,env={**env,'PORT':'0'},start_new_session=True)
 record={'engine':engine,'attempt':attempt,'started':time.time(),'evaluatorSha256':hashlib.sha256((root/'harness/acceptance.mjs').read_bytes()).hexdigest()}
 try:

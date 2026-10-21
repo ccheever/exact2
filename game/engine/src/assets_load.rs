@@ -30,7 +30,6 @@ impl<G: Game> Sim<G> {
         }
         if self.is_loading()
             || !failures.is_empty()
-            || self.world.assets.refusal.is_some()
             || self
                 .world
                 .assets
@@ -47,4 +46,38 @@ impl<G: Game> Sim<G> {
             Ok(())
         }
     }
+}
+
+/// A `Sim` of the calling game with its `art/` baked in memory, for its hostless
+/// tests: `let sim: Sim<MyGame> = exact_game::sim_with_art!(Options::default())?;`.
+/// It evaluates to `Sim::with_assets(args, loader)`, so it returns
+/// `Result<Sim<G>, String>` and refuses an asset the bake did not make by name.
+///
+/// The game is the nearest directory above the calling crate's
+/// `CARGO_MANIFEST_DIR` that holds `logic/src/lib.rs`, so a generated
+/// `.shells/logic` member and an authored `logic/Cargo.toml` both find it, from
+/// any working directory, with no prior bake and no environment variable. The
+/// payloads are those the GPU shell's bake writes to `assets/`, made once per call
+/// site in a test binary. The calling crate needs `exact-game-bake` as a
+/// dev-dependency; a generated member gets it when the game has `art/`.
+#[macro_export]
+macro_rules! sim_with_art {
+    ($args:expr $(,)?) => {{
+        static ART: ::std::sync::OnceLock<
+            ::std::result::Result<
+                ::std::collections::BTreeMap<::std::string::String, ::std::vec::Vec<u8>>,
+                ::std::string::String,
+            >,
+        > = ::std::sync::OnceLock::new();
+        match ART.get_or_init(|| ::exact_game_bake::game_art(env!("CARGO_MANIFEST_DIR"))) {
+            ::std::result::Result::Ok(art) => $crate::Sim::with_assets($args, |name: &str| {
+                art.get(name).cloned().ok_or_else(|| {
+                    ::std::format!(
+                        "`{name}` is not a payload of this game's art/ (a model `x.model` comes from art/x.glb or art/x.gltf)"
+                    )
+                })
+            }),
+            ::std::result::Result::Err(error) => ::std::result::Result::Err(error.clone()),
+        }
+    }};
 }

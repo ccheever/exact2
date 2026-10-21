@@ -1,0 +1,22 @@
+// Lists compare item by item; [] equals any empty list; filter that keeps
+// everything equals the original.
+shape Item
+  id: string
+  n: number
+
+component App
+  resource items = items() as shape Item[]
+  derive keepAll = items.filter(x => true) == items
+  derive dropAll = items.filter(x => false) == []
+  derive mapped = items.map(x => x.n) == items.map(x => x.n)
+  derive shifted = items.map(x => x.n + 1) == items.map(x => x.n)
+  derive emptyEq = items.isEmpty() == (items == [])
+  derive idsNe = items.map(x => x.id) != items.map(x => `${x.id}!`)
+  view
+    text `${keepAll}` testId="k"
+
+test "list equality"
+  expect state keepAll == true
+  expect state dropAll == true
+  expect state mapped == true
+  expect state emptyEq == true

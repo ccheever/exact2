@@ -1,0 +1,7 @@
+# The list mounts under the post it opened: no ask while it is covered.
+tap open
+clock +300
+# Back shows it: its footer asks for the first page, once.
+tap back
+clock +300
+clock +300

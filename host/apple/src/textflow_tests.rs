@@ -274,3 +274,33 @@ fn thai_line_break_words_are_the_only_breaks_inside_a_run() {
     );
     assert_eq!(missing, 0);
 }
+/// #128: a path breaks where Chrome's does, never after a `/` before a letter
+/// (CFStringTokenizer's and CoreText's): after a `-`, a space, and inside `--`
+/// as Chromium's Latin-1 table has it.
+#[test]
+fn line_breaks_follow_chrome_in_a_path() {
+    let text = "/Users/someone/projects/example-repository/src/a.tsx --flag=v é";
+    let mut out = vec![0u32; 6];
+    let count = line_breaks(
+        text.as_ptr(),
+        text.len(),
+        std::ptr::null(),
+        0,
+        out.as_mut_ptr(),
+        out.len(),
+    );
+    out.truncate(count);
+    let units = text.encode_utf16().count() as u32;
+    assert_eq!(out, [32, 53, 54, 55, 62, units]);
+    assert_eq!(
+        line_breaks(
+            text.as_ptr(),
+            text.len(),
+            std::ptr::null(),
+            0,
+            std::ptr::null_mut(),
+            0
+        ),
+        6
+    );
+}

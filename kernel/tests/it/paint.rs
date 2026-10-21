@@ -14,7 +14,7 @@ fn patch(rows: &[(StyleId, &str)]) -> Box<StyleProps> {
         if text.contains("@keyframes") {
             let row = crate::keyframed(text);
             match id {
-                StyleId::ExitAnimation => s.exit_animation = row,
+                StyleId::ExitAnimation => s.rare.exit_animation = row,
                 _ => s.animation = row,
             }
             s.mask.set(*id);
@@ -130,10 +130,7 @@ fn tree() -> (Kernel, exact_kernel::CommitReceipt) {
             id: 2,
             patch: patch(&[
                 (StyleId::BackgroundColor, "light-dark(#ffffff, #000000)"),
-                (StyleId::ShadowColor, "0 4px 12px #00000080"),
-                (StyleId::ShadowOffset, "0 4px 12px #00000080"),
-                (StyleId::ShadowRadius, "0 4px 12px #00000080"),
-                (StyleId::ShadowOpacity, "0 4px 12px #00000080"),
+                (StyleId::BoxShadow, "0 4px 12px #00000080"),
                 (
                     StyleId::Transition,
                     "background-color 200ms, color 1s, border-color 1s, box-shadow 320ms",
@@ -397,7 +394,8 @@ fn an_appearance_change_transitions_and_a_dropped_row_retires() {
 
 #[test]
 fn paint_transition_names_and_colour_keyframes_round_trip_the_wire() {
-    let t = Transitions::parse("border-color 1s, box-shadow 2s, tint-color 3s, color 4s").unwrap();
+    let t = Transitions::parse("border-color 1s, box-shadow 2s, -exact-tint-color 3s, color 4s")
+        .unwrap();
     assert_eq!(t.0[0].property, TransitionProperty::BorderColor);
     let a = crate::keyframed(
         "k 1s @keyframes k{from{background-color:light-dark(rgba(255,0,0,1),rgba(0,128,0,1))}to{--exact-tint:rgba(0,0,255,0.5)}}",
@@ -438,7 +436,7 @@ fn paint_transition_names_and_colour_keyframes_round_trip_the_wire() {
     assert!((from.dark[0].1.y - 128.0 / 255.0).abs() < 1e-6, "{from:?}");
 }
 
-/// An `exit-animation` that names a colour owns it while the node lives, so
+/// An `-exact-exit-animation` that names a colour owns it while the node lives, so
 /// the engine has the value its exit plays over when the node leaves (LLP
 /// 1063). A `currentcolor` side that draws is the host's to paint in the
 /// presented `color`.
@@ -483,4 +481,199 @@ fn an_exit_owns_its_colours_and_currentcolor_sides_follow_color() {
     );
     // Top draws in currentcolor; left has its own; right and bottom draw nothing.
     assert_eq!(k.current_color_sides(key), [Property::BorderTopColor]);
+}
+
+#[test]
+fn shadow_targets_preserve_wide_gamut_and_profiles_are_discrete() {
+    for (css, wide) in [
+        ("color(display-p3 1 0 0)", true),
+        ("color(rec2100-linear 4 4 4)", true),
+        ("color(--dci-p3 1 0 0)", false),
+    ] {
+        let mut k = Kernel::with_monospace();
+        k.apply(
+            0,
+            1,
+            &[
+                Op::CreateView {
+                    id: 1,
+                    node_type: NodeType::View,
+                },
+                Op::SetStyle {
+                    id: 1,
+                    patch: patch(&[
+                        (StyleId::BoxShadow, &format!("0 2px 4px {css}")),
+                        (StyleId::Transition, "box-shadow 1s linear"),
+                    ]),
+                },
+                Op::AttachRoot { id: 1 },
+            ],
+        )
+        .unwrap();
+        let node = k.node(1).unwrap();
+        let targets = exact_kernel::motion::color_targets(&node, false);
+        let color = targets
+            .iter()
+            .find(|v| v.0 == Property::ShadowColor)
+            .unwrap()
+            .1;
+        if wide {
+            let value = color.unwrap();
+            assert!(value.oklab);
+            assert!(value.linear_srgb().0[0] > 1.1, "{css}: {value:?}");
+        } else {
+            assert!(color.is_none(), "profiled shadows must flip discretely");
+        }
+    }
+}
+
+/// Under `still` (a scrub's frame, LLP 1121 D13) a colour change jumps: no
+/// transition starts, and one under way stops at the new value. Outside it
+/// the next change moves as authored.
+#[test]
+fn a_still_commit_starts_no_transition_and_stops_one_under_way() {
+    let mut k = Kernel::with_monospace();
+    let ops = [
+        Op::CreateView {
+            id: 1,
+            node_type: NodeType::View,
+        },
+        Op::SetStyle {
+            id: 1,
+            patch: patch(&[
+                (StyleId::BackgroundColor, "#ffffff"),
+                (StyleId::Transition, "background-color 1s linear"),
+            ]),
+        },
+        Op::AttachRoot { id: 1 },
+    ];
+    let receipt = k.apply(0, 1, &ops).unwrap();
+    let mut engine = Engine::new();
+    let mut paint = PaintMotion::default();
+    k.motion_sync(&receipt).apply(&mut engine).unwrap();
+    paint.adopt(&k, receipt.created.iter().copied(), &mut engine);
+    let node = motion_node(k.node(1).unwrap().key);
+    let mut at = 1;
+    let mut change = |k: &mut Kernel, paint: &mut PaintMotion, engine: &mut Engine, color| {
+        at += 1;
+        let receipt = k
+            .apply(
+                0,
+                at,
+                &[Op::SetStyle {
+                    id: 1,
+                    patch: patch(&[(StyleId::BackgroundColor, color)]),
+                }],
+            )
+            .unwrap();
+        k.motion_sync(&receipt).apply(engine).unwrap();
+        paint.sync(k, &receipt, engine);
+    };
+    // Its first change records the before-change value; the second moves.
+    change(&mut k, &mut paint, &mut engine, "#ffffff");
+    change(&mut k, &mut paint, &mut engine, "#000000");
+    engine.advance(0.5).unwrap();
+    assert!(
+        paint
+            .shown(&engine, node, Property::BackgroundColor)
+            .is_some(),
+        "moving"
+    );
+    {
+        let _still = exact_kernel::motion::still();
+        change(&mut k, &mut paint, &mut engine, "#ff0000");
+        assert_eq!(
+            paint.shown(&engine, node, Property::BackgroundColor),
+            None,
+            "stopped"
+        );
+        change(&mut k, &mut paint, &mut engine, "#00ff00");
+        assert_eq!(
+            paint.shown(&engine, node, Property::BackgroundColor),
+            None,
+            "jumped"
+        );
+    }
+    change(&mut k, &mut paint, &mut engine, "#0000ff");
+    assert_eq!(
+        engine.value(node, Property::BackgroundColor),
+        Some(rgba(0, 255, 0, 1.0)),
+        "moves again, from the value it jumped to"
+    );
+}
+
+/// Under `still` an opacity change (the engine's own rows, not paint's)
+/// jumps too: no transition starts, and one under way stops at the new
+/// value. Outside it the next change moves as authored.
+#[test]
+fn a_still_commit_jumps_an_opacity_transition() {
+    let mut k = Kernel::with_monospace();
+    let ops = [
+        Op::CreateView {
+            id: 1,
+            node_type: NodeType::View,
+        },
+        Op::SetStyle {
+            id: 1,
+            patch: {
+                let mut s = patch(&[(StyleId::Transition, "opacity 1s linear")]);
+                s.set_dynamic(StyleId::Opacity, &StyleValue::Number(1.0))
+                    .unwrap();
+                s
+            },
+        },
+        Op::AttachRoot { id: 1 },
+    ];
+    let receipt = k.apply(0, 1, &ops).unwrap();
+    let mut engine = Engine::new();
+    k.motion_sync(&receipt).apply(&mut engine).unwrap();
+    let node = motion_node(k.node(1).unwrap().key);
+    let mut at = 1;
+    let mut change = |k: &mut Kernel, engine: &mut Engine, opacity| {
+        at += 1;
+        let receipt = k
+            .apply(
+                0,
+                at,
+                &[Op::SetStyle {
+                    id: 1,
+                    patch: {
+                        let mut s = Box::new(StyleProps::default());
+                        s.set_dynamic(StyleId::Opacity, &StyleValue::Number(opacity))
+                            .unwrap();
+                        s
+                    },
+                }],
+            )
+            .unwrap();
+        k.motion_sync(&receipt).apply(engine).unwrap();
+    };
+    change(&mut k, &mut engine, 0.0);
+    engine.advance(0.5).unwrap();
+    assert_eq!(
+        engine.value(node, Property::Opacity),
+        Some(Value::scalar(0.5)),
+        "moving"
+    );
+    {
+        let _still = exact_kernel::motion::still();
+        change(&mut k, &mut engine, 0.75);
+        assert_eq!(
+            engine.value(node, Property::Opacity),
+            Some(Value::scalar(0.75)),
+            "stopped"
+        );
+        change(&mut k, &mut engine, 0.25);
+        assert_eq!(
+            engine.value(node, Property::Opacity),
+            Some(Value::scalar(0.25)),
+            "jumped"
+        );
+    }
+    change(&mut k, &mut engine, 1.0);
+    assert_eq!(
+        engine.value(node, Property::Opacity),
+        Some(Value::scalar(0.25)),
+        "moves again, from the value it jumped to"
+    );
 }

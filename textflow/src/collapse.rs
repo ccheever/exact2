@@ -2,7 +2,7 @@
 //!
 //! @ref LLP 1053 §0 G5 — native engines shape strings as given; the browser
 //! collapses first. One preparation, shared by every native host, so that
-//! `white-space: normal` and `nowrap` text reaches CoreText and cosmic-text as
+//! `white-space: normal` and `nowrap` text reaches CoreText and Parley as
 //! Chrome renders it (CSS Text 3 §4.1.1, as Chrome implements it):
 //!
 //! - tabs and carriage returns are spaces; line feeds are segment breaks;

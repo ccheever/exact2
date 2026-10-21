@@ -5,7 +5,7 @@ use exact_plan::Value;
 use exact_runner::{CollectionFeedback, DataError, DataSource, ListAxis, RowMeasurement, Runner};
 
 fn source(list: &str) -> String {
-    format!("component App\n  resource rows = rows() as shape list<number>\n  view\n    column width=390\n      {list} testId=\"strip\"\n        each x in rows key=x\n          text `${{x}}` width=100 testId=`card-${{x}}`\n")
+    format!("component App\n  resource rows = rows() as shape number[]\n  view\n    column width=390\n      {list} testId=\"strip\"\n        for x in rows key=x\n          text `${{x}}` width=100 testId=`card-${{x}}`\n")
 }
 const STRIP: &str =
     "list virtualized=true display=\"flex\" height=132 overflow-x=\"scroll\" overflow-y=\"hidden\" estimated-item-width=100";
@@ -16,6 +16,7 @@ fn a_flex_row_compiles_and_the_other_shapes_are_refused_by_name() {
         STRIP,
         "list virtualized=true display=\"flex\" flex-direction=\"row\" height=132 overflow-x=\"scroll\"",
         "list virtualized=true display=\"flex\" height=132 padding-top=8 padding-bottom=8 justify-content=\"flex-start\" flex-wrap=\"nowrap\"",
+        "list virtualized=true display=\"flex\" height=132 padding-left=16 padding-right=\"env(safe-area-inset-right)\"",
         "list virtualized=true display=\"block\" height=132 estimated-item-height=40",
     ] {
         contract::compile(&source(list)).unwrap_or_else(|e| panic!("{list}: {e}"));
@@ -62,7 +63,7 @@ fn a_flex_row_compiles_and_the_other_shapes_are_refused_by_name() {
             "lower-collection-flow",
         ),
         (
-            "list virtualized=true display=\"flex\" height=132 padding-left=8",
+            "list virtualized=true display=\"flex\" height=132 padding-left=\"5%\"",
             "lower-collection-flow",
         ),
         (
@@ -93,7 +94,7 @@ fn a_flex_row_compiles_and_the_other_shapes_are_refused_by_name() {
         let error = contract::compile(&source(list)).unwrap_err().to_string();
         assert!(error.contains(id), "{list}: {error}: expected {id}");
     }
-    let reorder = "component App\n  state n = \"\"\n  resource rows = rows() as shape list<number>\n  action drop(item: string, before: option<string>) writes n\n    n = item\n  view\n    list id=\"s\" reorderdrop=drop virtualized=true display=\"flex\" height=132\n      each x in rows key=x\n        text `${x}`\n";
+    let reorder = "component App\n  state n = \"\"\n  resource rows = rows() as shape number[]\n  action drop(item: string, before: option<string>)\n    n = item\n  view\n    list id=\"s\" reorderdrop=drop virtualized=true display=\"flex\" height=132\n      for x in rows key=x\n        text `${x}`\n";
     let error = contract::compile(reorder).unwrap_err().to_string();
     assert!(error.contains("lower-collection-reorder"), "{error}");
 }
@@ -137,6 +138,7 @@ fn report(r: &mut Runner<Rows>, offset: f64, size: impl Fn(usize) -> f64) {
         port_main: 390.0,
         port_cross: 132.0,
         cross: 132.0,
+        padding: [0.0; 2],
         measurements,
         focus_view: None,
         interaction_view: None,
@@ -154,6 +156,7 @@ fn report_bare(r: &mut Runner<Rows>, offset: f64) {
         port_main: 390.0,
         port_cross: 132.0,
         cross: 132.0,
+        padding: [0.0; 2],
         measurements: vec![],
         focus_view: None,
         interaction_view: None,

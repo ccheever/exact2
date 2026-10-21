@@ -5,7 +5,8 @@
 //! @ref LLP 1069.008 D1 (a missing purpose key refuses the bake, every one
 //! in one run) / D4 (the derived `Info.plist` keys and entitlements) / D5
 //! (`grantPurposes` in the compatibility id) / D7 (the reach table, with an
-//! "enforced by" column)
+//! "enforced by" column) / D9 (runtime exceptions, each scoped to one helper
+//! executable)
 //!
 //! The result rides beside the id in `compat.json` as `reach`, never in it:
 //! `host/apple/build.mjs` writes the plists from it, `exact release` signs
@@ -15,6 +16,7 @@
 
 use crate::compat::{canonical, compatibility_digest, Compat};
 use exact_runner::device::{device_grants, Device};
+use exact_runner::hardened::runtime_grants;
 use serde_json::{json, Map, Value};
 use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
@@ -27,12 +29,18 @@ pub(crate) fn derive(app_dir: &Path, platform: &str, compat: &mut Compat) -> Res
     let Some(ceiling) = compat.inputs["grantCeiling"].as_str().map(str::to_owned) else {
         return Ok(());
     };
-    let devices = device_grants(&ceiling).map_err(|all| {
-        all.iter()
-            .map(|e| format!("grant-device: {e}"))
-            .collect::<Vec<_>>()
-            .join("\n")
-    })?;
+    let (devices, exceptions) = match (device_grants(&ceiling), runtime_grants(&ceiling)) {
+        (Ok(devices), Ok(exceptions)) => (devices, exceptions),
+        (devices, exceptions) => {
+            let device = devices.err().unwrap_or_default().into_iter();
+            let runtime = exceptions.err().unwrap_or_default().into_iter();
+            return Err(device
+                .map(|e| format!("grant-device: {e}"))
+                .chain(runtime.map(|e| format!("grant-runtime: {e}")))
+                .collect::<Vec<_>>()
+                .join("\n"));
+        }
+    };
     let strings = if devices.is_empty() {
         None
     } else {
@@ -49,7 +57,7 @@ pub(crate) fn derive(app_dir: &Path, platform: &str, compat: &mut Compat) -> Res
         let (Some(strings), Some(base)) = (strings.as_ref(), base) else {
             let table = strings.as_ref().map_or_else(
                 || "the app has no strings/ directory".to_string(),
-                |s| format!("strings/{}.json has no \"{}\"", s.base, grant.purpose),
+                |s| format!("strings/{}.json has no \"{}\": add `\"{}\": \"…\"`, the text the person is shown when asked", s.base, grant.purpose, grant.purpose),
             );
             errors.push(format!(
                 "grant-purpose: `device.{} {}` names its purpose by strings key (LLP 1060), and {table}",
@@ -111,9 +119,19 @@ pub(crate) fn derive(app_dir: &Path, platform: &str, compat: &mut Compat) -> Res
             let device = devices.iter().find(|g| {
                 line.split_whitespace().next() == Some(&format!("device.{}", g.device.name))
             });
-            let enforced = match device {
-                Some(g) => device_enforcement(g.device, declared(line)),
-                None => family_enforcement(line).to_string(),
+            let exception = exceptions.iter().find(|g| {
+                line.split_whitespace().collect::<Vec<_>>()
+                    == [&*format!("runtime.{}", g.exception.name), g.target]
+            });
+            let enforced = match (device, exception) {
+                (Some(g), _) => device_enforcement(g.device, declared(line)),
+                (_, Some(g)) => format!(
+                    "hardened runtime (a macOS release signs {} with {}); declared by {}",
+                    g.target,
+                    g.exception.entitlement,
+                    declared(line)
+                ),
+                _ => family_enforcement(line).to_string(),
             };
             json!({
                 "grant": line,
@@ -126,33 +144,135 @@ pub(crate) fn derive(app_dir: &Path, platform: &str, compat: &mut Compat) -> Res
     // entitlements the platform's signature must carry.
     let mut usage = Map::new();
     let mut entitlements = Vec::new();
+    let mut flags: Vec<&str> = Vec::new();
+    // Android's permissions: the Canvas host on Android bakes as Linux.
+    let mut android: Vec<&str> = Vec::new();
+    let keys_of = |device: &Device| match platform {
+        "ios" => device.ios,
+        "macos" => device.macos,
+        _ => &[],
+    };
     for grant in &devices {
-        let keys = match platform {
-            "ios" => grant.device.ios,
-            "macos" => grant.device.macos,
-            _ => &[],
-        };
-        for key in keys {
+        for key in keys_of(grant.device) {
             usage.insert((*key).into(), json!(purposes[grant.purpose]));
         }
-        // iOS needs none today; push's `aps-environment` joins when LLP 1069
-        // §5 #9 lands. `auth.*`'s associated domains are `reach.auth` (below).
-        if platform == "macos" {
-            entitlements.extend(grant.device.hardened);
+        // The platform's signing entitlements: macOS's hardened-runtime ones,
+        // iOS's capability ones (LLP 1069.008.000 D2; push's `aps-environment`
+        // joins when LLP 1069 §5 #9 lands). `auth.*`'s associated domains are
+        // `reach.auth` (below).
+        match platform {
+            "macos" => entitlements.extend(grant.device.hardened),
+            "ios" => {
+                entitlements.extend(grant.device.ios_entitlements);
+                flags.extend(grant.device.ios_flags);
+            }
+            "linux" => android.extend(grant.device.android),
+            _ => {}
         }
+    }
+    // A key a granted row needs beside its own, written with that row's text
+    // when no granted row writes it (D1: one HealthKit direction still
+    // carries both keys). Only where the row writes keys at all.
+    for grant in &devices {
+        if let Some(key) = grant
+            .device
+            .companion
+            .filter(|_| !keys_of(grant.device).is_empty())
+        {
+            usage
+                .entry(key)
+                .or_insert_with(|| json!(purposes[grant.purpose]));
+        }
+    }
+    // A runtime exception (D9) is macOS's alone, signed onto the one helper
+    // it names and never joining the app's own entitlements.
+    let mut helpers: BTreeMap<&str, Vec<&str>> = BTreeMap::new();
+    for grant in exceptions.iter().filter(|_| platform == "macos") {
+        helpers
+            .entry(grant.target)
+            .or_default()
+            .push(grant.exception.entitlement);
+    }
+    for keys in helpers.values_mut() {
+        keys.sort_unstable();
     }
     entitlements.sort_unstable();
     entitlements.dedup();
+    // tvOS bakes the iOS plan; what a row not on TV derives there, the tvOS
+    // build drops (D5): every key and entitlement no TV row also needs.
+    let tv_omits = if platform == "ios" {
+        let on_tv = |key: &str| {
+            devices
+                .iter()
+                .filter(|g| g.device.tvos)
+                .any(|g| g.device.ios.contains(&key) || g.device.ios_entitlements.contains(&key))
+        };
+        let mut omit: Vec<&str> = devices
+            .iter()
+            .filter(|g| !g.device.tvos)
+            .flat_map(|g| {
+                g.device
+                    .ios
+                    .iter()
+                    .chain(g.device.ios_entitlements)
+                    .copied()
+                    .chain(g.device.companion)
+            })
+            .filter(|key| !on_tv(key))
+            .collect();
+        omit.sort_unstable();
+        omit.dedup();
+        omit
+    } else {
+        Vec::new()
+    };
+    android.sort_unstable();
+    android.dedup();
     let auth = auth(&ceiling, platform, compat)?;
     compat.reach = json!({
         "base": base,
         "locales": strings.as_ref().map(|s| s.tables.keys().cloned().collect::<Vec<_>>()),
         "rows": rows,
         "usage": usage,
+        "flags": flags,
+        "android": android,
         "entitlements": entitlements,
+        "helperEntitlements": helpers,
+        "tvOmits": tv_omits,
         "auth": auth,
     });
     Ok(())
+}
+
+/// Refuse grants that do not parse, before anything is derived from them: a
+/// host that cannot parse the set holds none of it (the runner's one parse,
+/// `exact_runner::grants`), so the build stops instead, every bad line named
+/// by its source and its number there. With `rust`, `grants` is `app.ts`'s.
+pub(crate) fn parsed(
+    app_dir: &Path,
+    grants: Option<&str>,
+    rust: Option<&str>,
+) -> Result<(), String> {
+    const RUST: &str = "the Rust source";
+    let typescript = rust.is_some() || app_dir.join("app.ts").is_file();
+    let sources = [
+        (grants, if typescript { "app.ts" } else { RUST }),
+        (rust, RUST),
+    ];
+    let errors: Vec<String> = sources
+        .iter()
+        .filter_map(|(spec, source)| Some((exact_runner::grants::parse((*spec)?).err()?, source)))
+        .flat_map(|(errors, source)| {
+            errors
+                .into_iter()
+                .map(move |e| format!("grant-parse: {source}: {e}"))
+        })
+        .collect();
+    if errors.is_empty() {
+        Ok(())
+    } else {
+        Err(errors.join("\n"))
+    }
 }
 
 /// `auth.*` through the same table (LLP 1069.006 D2; LLP 1069.008 D2's
@@ -221,6 +341,7 @@ fn family_enforcement(line: &str) -> &'static str {
         "auth.session" | "auth.callback" => {
             "the host's exact-auth: arm (Apple, web; Linux answers 501)"
         }
+        "doc.keep" => "the host's kept documents (macOS; Linux and the web keep nothing yet)",
         _ => "runtime",
     }
 }
@@ -355,6 +476,138 @@ mod tests {
             json!({"NSSpeechRecognitionUsageDescription": {"en": "Transcribes."}})
         );
         assert_eq!(ios.reach["entitlements"], json!([]));
+    }
+
+    #[test]
+    fn health_writes_both_keys_signs_on_ios_only_and_leaves_tvos_out() {
+        // LLP 1069.008.000 D1, D2, D5.
+        let dir = app(&[
+            (
+                "en",
+                r#"{"read": "Reads your runs.", "write": "Saves workouts."}"#,
+            ),
+            ("fr", r#"{"read": "Lit vos courses."}"#),
+        ]);
+        let derive_for = |grants: &str, platform: &str| {
+            let mut c = compat(grants);
+            derive(&dir.0, platform, &mut c).unwrap();
+            c.reach
+        };
+        let (share, update) = (
+            "NSHealthShareUsageDescription",
+            "NSHealthUpdateUsageDescription",
+        );
+        let read = json!({"en": "Reads your runs.", "fr": "Lit vos courses."});
+        let write = json!({"en": "Saves workouts.", "fr": "Saves workouts."});
+        // One direction: the other's key borrows its text, every locale's.
+        let ios = derive_for("device.health-read read", "ios");
+        assert_eq!(ios["usage"], json!({share: read, update: read}));
+        assert_eq!(
+            ios["entitlements"],
+            json!(["com.apple.developer.healthkit"])
+        );
+        assert_eq!(
+            ios["tvOmits"],
+            json!([
+                "NSHealthShareUsageDescription",
+                "NSHealthUpdateUsageDescription",
+                "com.apple.developer.healthkit"
+            ])
+        );
+        assert_eq!(
+            ios["rows"].as_array().unwrap().len(),
+            1,
+            "the reach table lists what was granted"
+        );
+        let ios = derive_for("device.health-write write", "ios");
+        assert_eq!(ios["usage"], json!({share: write, update: write}));
+        // Both: each key its own text.
+        let both = derive_for("device.health-read read\ndevice.health-write write", "ios");
+        assert_eq!(both["usage"], json!({share: read, update: write}));
+        // macOS: the keys, never the restricted entitlement.
+        let mac = derive_for("device.health-read read", "macos");
+        assert_eq!(mac["usage"], json!({share: read, update: read}));
+        assert_eq!(mac["entitlements"], json!([]));
+        // A row that is on TV leaves nothing to omit, beside Health or not.
+        let mixed = derive_for(
+            "device.health-read read\ndevice.speech-recognition write",
+            "ios",
+        );
+        assert!(!mixed["tvOmits"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|k| k == "NSSpeechRecognitionUsageDescription"));
+        assert_eq!(
+            derive_for("device.speech-recognition write", "ios")["tvOmits"],
+            json!([])
+        );
+    }
+
+    #[test]
+    fn local_network_writes_its_purpose_on_apple_hosts_only() {
+        let dir = app(&[
+            ("en", r#"{"lan": "Finds servers nearby."}"#),
+            ("fr", r#"{"lan": "Trouve les serveurs proches."}"#),
+        ]);
+        let text = json!({"en": "Finds servers nearby.", "fr": "Trouve les serveurs proches."});
+        for platform in ["ios", "macos"] {
+            let mut c = compat("device.local-network lan");
+            derive(&dir.0, platform, &mut c).unwrap();
+            assert_eq!(
+                c.reach["usage"],
+                json!({"NSLocalNetworkUsageDescription": text})
+            );
+            assert_eq!(c.reach["entitlements"], json!([]));
+            assert_ne!(c.id, "old", "the purpose joins the compatibility id");
+        }
+        for platform in ["web", "linux"] {
+            let mut c = compat("device.local-network lan");
+            derive(&dir.0, platform, &mut c).unwrap();
+            assert_eq!(c.reach["usage"], json!({}));
+            assert_eq!(c.reach["android"], json!([]));
+        }
+    }
+
+    #[test]
+    fn runtime_exceptions_sign_their_own_executable_on_macos_only() {
+        // LLP 1069.008 D9.
+        let grants = "runtime.allow-jit Helpers/node/bin/node\nruntime.disable-library-validation Helpers/node/bin/node\nruntime.allow-unsigned-executable-memory Helpers/tool/run\nnet.fetch https://x/";
+        let dir = tempdir::Dir::new();
+        let mut mac = compat(grants);
+        derive(&dir.0, "macos", &mut mac).unwrap();
+        assert_eq!(mac.id, "old", "no purpose, no id move");
+        assert_eq!(mac.reach["entitlements"], json!([]), "never the app's");
+        assert_eq!(
+            mac.reach["helperEntitlements"],
+            json!({
+                "Helpers/node/bin/node": [
+                    "com.apple.security.cs.allow-jit",
+                    "com.apple.security.cs.disable-library-validation"
+                ],
+                "Helpers/tool/run": ["com.apple.security.cs.allow-unsigned-executable-memory"]
+            })
+        );
+        assert!(mac.reach["rows"][0]["enforced"]
+            .as_str()
+            .unwrap()
+            .starts_with("hardened runtime (a macOS release signs Helpers/node/bin/node with com.apple.security.cs.allow-jit)"));
+        let mut ios = compat(grants);
+        derive(&dir.0, "ios", &mut ios).unwrap();
+        assert_eq!(ios.reach["entitlements"], json!([]));
+        assert_eq!(ios.reach["helperEntitlements"], json!({}));
+        let error = derive(
+            &dir.0,
+            "macos",
+            &mut compat("runtime.allow-jit MacOS/Exact\ndevice.lidar p\nruntime.allow-jit app"),
+        )
+        .unwrap_err();
+        assert_eq!(error.lines().count(), 3, "{error}");
+        assert!(error
+            .lines()
+            .skip(1)
+            .all(|l| l.starts_with("grant-runtime: ")));
+        assert!(error.contains("only helper executables are admitted"));
     }
 
     #[test]

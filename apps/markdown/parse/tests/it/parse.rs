@@ -52,8 +52,12 @@ fn document_values_share_repeated_text_without_changing_keys_or_encoding() {
         fields(&markdown_parse::value::block(usize::MAX, &doc.blocks[0]))[0].as_str(),
         Some(usize::MAX.to_string().as_str())
     );
+    // With no table in it, the reader's owned conversion is the same value.
     let encoded = markdown_parse::value::blocks(&doc).to_bytes();
-    assert_eq!(markdown_parse::value::into_blocks(doc).to_bytes(), encoded);
+    assert_eq!(
+        markdown_parse::value::into_blocks_with_tables(doc).to_bytes(),
+        encoded
+    );
 }
 
 #[test]
@@ -96,7 +100,10 @@ fn document_string_sharing_preserves_styles_links_and_indices() {
             .map(|(i, b)| markdown_parse::value::block(i, b))
             .collect(),
     );
-    assert_eq!(markdown_parse::value::into_blocks(doc), expected);
+    assert_eq!(
+        markdown_parse::value::into_blocks_with_tables(doc),
+        expected
+    );
 }
 
 #[test]
@@ -196,6 +203,69 @@ fn a_pipe_table_is_rows_of_cells_and_prose_with_pipes_is_not() {
 
     let prose = here("Run `a | b` in a shell.\n");
     assert!(prose.blocks.iter().all(|b| b.kind != Kind::TableRow));
+}
+
+/// The Markdown reader's form of a table: one block, `depth` its header's
+/// cell count, and its cells row by row, each row padded or cut to that
+/// count as GFM's tables extension says. Two tables apart stay two.
+#[test]
+fn the_readers_blocks_make_each_table_one_block_of_the_headers_columns() {
+    use exact_plan::Value;
+    fn fields(value: &Value) -> &[Value] {
+        match value {
+            Value::Record(values) | Value::List(values) => values,
+            _ => panic!("expected fields or items"),
+        }
+    }
+    let doc = here(
+        "Before.\n\n| A | B | C |\n| - | - | - |\n| 1 |\n| 2 | 3 | 4 | 5 |\n\n| x | y | z |\n| - | - | - |\n| p | q | r |\n\nAfter.\n",
+    );
+    let value = markdown_parse::value::into_blocks_with_tables(doc);
+    let blocks = fields(&value);
+    let kinds: Vec<_> = blocks
+        .iter()
+        .map(|b| fields(b)[1].as_str().unwrap())
+        .collect();
+    assert_eq!(kinds, ["paragraph", "table", "table", "paragraph"]);
+    let ids: Vec<_> = blocks
+        .iter()
+        .map(|b| fields(b)[0].as_str().unwrap())
+        .collect();
+    assert_eq!(ids, ["0", "1", "2", "3"], "an id is the block's place");
+    let text = |table: &Value| -> (f64, Vec<String>) {
+        let f = fields(table);
+        let cells = fields(&f[8])
+            .iter()
+            .map(|cell| {
+                fields(&fields(cell)[1])
+                    .iter()
+                    .map(|run| fields(run)[1].as_str().unwrap().to_owned())
+                    .collect()
+            })
+            .collect();
+        (f[2].as_number().unwrap(), cells)
+    };
+    assert_eq!(
+        text(&blocks[1]),
+        (
+            3.,
+            ["A", "B", "C", "1", "", "", "2", "3", "4"]
+                .map(String::from)
+                .to_vec()
+        )
+    );
+    assert_eq!(
+        text(&blocks[2]),
+        (
+            3.,
+            ["x", "y", "z", "p", "q", "r"].map(String::from).to_vec()
+        )
+    );
+    let cell_ids: Vec<_> = fields(&fields(&blocks[2])[8])
+        .iter()
+        .map(|cell| fields(cell)[0].as_str().unwrap())
+        .collect();
+    assert_eq!(cell_ids, ["0", "1", "2", "3", "4", "5"]);
 }
 
 #[test]

@@ -1,9 +1,8 @@
 //! The web ABI: wasm-bindgen exports the glue calls after the module's
 //! wasm is fetched on demand (LLP 1009 D2).
 
-use crate::{json, Frame, Module, Registry};
+use crate::{json, Frame, Module, Registry, SurfaceRef};
 use std::cell::RefCell;
-use std::sync::Arc;
 use wasm_bindgen::prelude::*;
 
 thread_local! {
@@ -19,6 +18,8 @@ fn with<T>(f: impl FnOnce(&mut Module) -> T) -> Option<T> {
 extern "C" {
     #[wasm_bindgen(js_namespace = ["globalThis", "exact", "gpu"], js_name = deviceLost)]
     fn device_lost();
+    #[wasm_bindgen(js_namespace = console, js_name = error)]
+    pub(crate) fn console_error(message: &str);
 }
 
 pub(crate) fn notify_loss(lost: &std::sync::Arc<std::sync::atomic::AtomicBool>) {
@@ -51,6 +52,7 @@ pub fn asset_failed(id: u32, name: &str, reason: &str) -> bool {
 /// Create the device and the module (asynchronous: WebGPU's adapter and
 /// device requests are).
 pub async fn load(registry: &'static Registry) -> Result<(), JsValue> {
+    crate::report_panics();
     let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
         backends: wgpu::Backends::BROWSER_WEBGPU,
         ..wgpu::InstanceDescriptor::new_without_display_handle()
@@ -64,8 +66,10 @@ pub async fn load(registry: &'static Registry) -> Result<(), JsValue> {
             Ok(())
         }
         Err(e) => {
-            ERROR.with(|s| *s.borrow_mut() = e.clone());
-            Err(JsValue::from_str(&e))
+            let failure = crate::recovery::RecoveryFailure::device(e);
+            let message = failure.message().to_string();
+            ERROR.with(|s| *s.borrow_mut() = message.clone());
+            Err(JsValue::from_str(&failure.json()))
         }
     }
 }
@@ -78,9 +82,11 @@ pub async fn recover(
     let mut module = MODULE
         .with(|m| m.borrow_mut().take())
         .ok_or_else(|| JsValue::from_str("GPU module not loaded"))?;
-    let result: Result<String, String> = async {
+    let result: Result<String, crate::recovery::RecoveryFailure> = async {
         if ids.len() != canvases.len() || ids.iter().any(|id| !module.instances.contains_key(id)) {
-            return Err("recovery canvas table mismatch".into());
+            return Err(crate::recovery::RecoveryFailure::other(
+                "recovery canvas table mismatch",
+            ));
         }
         let outcome = module.recover().await?;
         if !outcome.contains("\"status\":\"recovered\"") {
@@ -88,17 +94,19 @@ pub async fn recover(
         }
         // Stage the whole replacement table. Configurations remain on instances,
         // even when adapter creation, attachment, or a second loss fails.
-        let gpu = module.gpu.as_ref().ok_or("no device")?;
+        let gpu = module
+            .gpu
+            .as_ref()
+            .ok_or_else(|| crate::recovery::RecoveryFailure::other("no device"))?;
         let mut targets = Vec::new();
         for (id, canvas) in ids.iter().zip(canvases) {
-            let config = module.instances[id]
-                .config
-                .as_ref()
-                .ok_or("missing presentation configuration")?;
+            let config = module.instances[id].config.as_ref().ok_or_else(|| {
+                crate::recovery::RecoveryFailure::other("missing presentation configuration")
+            })?;
             let target = gpu
                 .instance
                 .create_surface(wgpu::SurfaceTarget::Canvas(canvas))
-                .map_err(|e| e.to_string())?;
+                .map_err(|e| crate::recovery::RecoveryFailure::other(e.to_string()))?;
             target.configure(&gpu.device, config);
             targets.push((*id, target));
         }
@@ -107,24 +115,29 @@ pub async fn recover(
             let config = inst.config.as_ref().unwrap();
             inst.surface.device_ready(gpu.device.features());
             inst.surface
-                .prepare_assets(&gpu.device, &gpu.queue, config.format);
-            inst.presentation = Some(Arc::new(target));
+                .prepare_assets(&gpu.device, &gpu.queue, crate::view_format(config));
+            inst.presentation = Some(SurfaceRef::new(target));
         }
         if module
             .device_lost
             .load(std::sync::atomic::Ordering::Acquire)
         {
-            return Err("replacement device was lost during recovery".into());
+            return Err(crate::recovery::RecoveryFailure::other(
+                "replacement device was lost during recovery",
+            ));
         }
         Ok(module.recovery_report())
     }
     .await;
     if let Err(error) = &result {
         module.lose_device();
-        module.error = format!("device recovery: {error}");
+        module.error = format!("device recovery: {}", error.message());
     }
     MODULE.with(|m| *m.borrow_mut() = Some(module));
-    result.map_err(|e| JsValue::from_str(&e))
+    Ok(match result {
+        Ok(report) => report,
+        Err(error) => error.json(),
+    })
 }
 
 /// Create a canvas's surface on a `<canvas>` element. The id, or 0.
@@ -236,6 +249,7 @@ pub fn render(id: u32, width: f32, height: f32, scale: f32, now_ms: f64) -> u32 
         seekable: false,
         period_ms: 0.0,
         shader_generation: 0,
+        headroom: 1.0,
     };
     with(|m| match m.render(id, &frame) {
         Some(true) => 1,
@@ -284,6 +298,16 @@ pub fn placement(id: u32, index: u32, out: &mut [f32]) -> u32 {
 /// Whether a canvas wants raw input.
 pub fn wants_input(id: u32) -> bool {
     with(|m| m.wants_input(id)).unwrap_or(false)
+}
+
+/// Whether a canvas draws above SDR white (LLP 1100 D12b).
+pub fn high_dynamic_range(id: u32) -> bool {
+    with(|m| m.high_dynamic_range(id)).unwrap_or(false)
+}
+
+/// The headroom an HDR canvas draws its next frames to (LLP 1100 D12b).
+pub fn headroom(id: u32, headroom: f32) {
+    with(|m| m.set_headroom(id, headroom));
 }
 
 /// Deliver a JSON device event. True on success.
@@ -353,6 +377,16 @@ pub fn unload() {
         }
     });
     crate::shaders::clear_shaders();
+}
+
+/// A canvas's raster scale ([`crate::Module::render_scale`]).
+pub fn render_scale(id: u32) -> f32 {
+    with(|m| m.render_scale(id)).unwrap_or(1.0)
+}
+
+/// Every canvas takes the told tier ([`crate::Module::retier`]).
+pub fn retier() {
+    with(|m| m.retier());
 }
 
 /// Drop a canvas's surface.
@@ -482,6 +516,18 @@ macro_rules! module {
             $crate::web::wants_input(id)
         }
 
+        /// Whether a canvas draws above SDR white (LLP 1100 D12b).
+        #[::wasm_bindgen::prelude::wasm_bindgen]
+        pub fn gpu_high_dynamic_range(id: u32) -> bool {
+            $crate::web::high_dynamic_range(id)
+        }
+
+        /// The headroom an HDR canvas draws its next frames to.
+        #[::wasm_bindgen::prelude::wasm_bindgen]
+        pub fn gpu_headroom(id: u32, headroom: f32) {
+            $crate::web::headroom(id, headroom)
+        }
+
         /// Deliver one JSON event; true on success.
         #[::wasm_bindgen::prelude::wasm_bindgen]
         pub fn gpu_input(id: u32, event_json: &str) -> bool {
@@ -555,6 +601,26 @@ macro_rules! module {
         #[::wasm_bindgen::prelude::wasm_bindgen]
         pub fn gpu_period(period_ms: f64) {
             $crate::web::period(period_ms)
+        }
+
+        /// The page's GPU tier, told before `gpu_load` (`GpuTier::code`: 0
+        /// high, 1 mid, 2 low).
+        #[::wasm_bindgen::prelude::wasm_bindgen]
+        pub fn gpu_tier(code: u32) {
+            $crate::set_tier($crate::GpuTier::from_code(code))
+        }
+
+        /// A canvas's raster relative to its device pixels: the page sizes
+        /// the canvas's backing store by it.
+        #[::wasm_bindgen::prelude::wasm_bindgen]
+        pub fn gpu_render_scale(id: u32) -> f32 {
+            $crate::web::render_scale(id)
+        }
+
+        /// Remake each canvas's renderer at the told tier, keeping its world.
+        #[::wasm_bindgen::prelude::wasm_bindgen]
+        pub fn gpu_retier() {
+            $crate::web::retier()
         }
 
         /// Whether a canvas has unrendered inputs.

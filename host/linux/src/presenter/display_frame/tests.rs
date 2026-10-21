@@ -45,24 +45,24 @@ const APP: &str = r##"component App
   state showing = true
   state ticks = 0
   mutation result as shape bool
-  action edit(value) writes draft
+  action edit(value)
     draft = value
-  action press writes count
+  action press
     count = count + 1
-  action hide writes showing
+  action hide
     showing = false
-  action show writes showing
+  action show
     showing = true
-  action tick writes ticks
+  action tick
     ticks = ticks + 1
-  action request writes result
+  action request
     send result = work()
   task timer mount
     every(250, tick)
   view
     column width=320 height=240
-      input value=draft change=edit testId="input" height=32
-      when showing
+      input value=draft input=edit testId="input" height=32
+      if showing
         box press=press testId="target" width=100 height=32 background-color="#cc3300"
       box press=hide testId="hide" height=16
       box press=show testId="show" height=16
@@ -148,7 +148,7 @@ fn boot() -> Fixture {
 }
 fn boot_app(app: &str) -> Fixture {
     let (mut p, error) = Presenter::boot_with(
-        &contract::compile(app).unwrap().encode(),
+        &crate::test_plan(app),
         Empty,
         (320., 240.),
         1.,
@@ -353,8 +353,7 @@ fn reload_during_pending_refuses_old_hits_and_old_first_pixel_even_if_ids_alias(
     let target = id(&p, "target");
     let old_key = p.host.kernel().node(target).unwrap().key;
     let hit = point(&p, target);
-    p.reload(&contract::compile(APP).unwrap().encode(), Empty)
-        .unwrap();
+    p.reload(&crate::test_plan(APP), Empty).unwrap();
     let new_target = id(&p, "target");
     assert_eq!(
         target, new_target,
@@ -456,17 +455,17 @@ const VIEWPORT_APP: &str = r##"component App
   state extent = 600
   state draft = ""
   state count = 0
-  action edit(value) writes draft
+  action edit(value)
     draft = value
-  action press writes count
+  action press
     count = count + 1
-  action shorten writes extent
+  action shorten
     extent = 100
-  action lengthen writes extent
+  action lengthen
     extent = 700
   view
     column testId="root" width="100%" height=extent background-color="#225599"
-      input testId="input" value=draft change=edit height=24
+      input testId="input" value=draft input=edit height=24
       box testId="shorten" press=shorten height=24
       box testId="lengthen" press=lengthen height=24
       box testId="target" press=press height=32 background-color="#cc3300"
@@ -611,8 +610,7 @@ fn viewport_reload_old_receipt_releases_without_installing_geometry() {
     assert!(p.resize(240., 160.).is_none());
     let b = submit(&mut p).unwrap();
     assert!(p.resize(900., 900.).is_none());
-    p.reload(&contract::compile(VIEWPORT_APP).unwrap().encode(), Empty)
-        .unwrap();
+    p.reload(&crate::test_plan(VIEWPORT_APP), Empty).unwrap();
     let before = p.page;
     assert_eq!(p.hit(10., 10.), None);
     p.wheel_at(10., 10., 0., 30.);
@@ -690,7 +688,7 @@ fn viewport_headless_resize_keeps_immediate_root_scroll_semantics() {
 const IDLE_TIMER: &str = r##"component App
   state running = false
   state ticks = 0
-  action tick writes ticks
+  action tick
     if running
       ticks = ticks + 1
   task timer mount
@@ -760,8 +758,18 @@ fn timer_demand_empty_receipts_do_not_repaint_but_explicit_clock_does() {
         "empty receipt must not repaint through the real loop gate"
     );
     assert!(!submitted && !p.dirty());
-    assert_eq!(p.clock(125.), (125., None));
-    assert!(p.dirty(), "explicit clock remains conservative");
+    let epoch = p.host.kernel().epoch();
+    for seek in [Presenter::clock, Presenter::clock_until_request] {
+        let to_ms = p.host.now() + 25.;
+        let painted = paints.get();
+        assert_eq!(seek(&mut p, to_ms), (to_ms, None));
+        assert_eq!(p.host.kernel().epoch(), epoch);
+        assert!(p.dirty(), "explicit clock remains conservative");
+        let frame = submit(&mut p).unwrap();
+        assert!(complete(&mut p, &frame));
+        assert_eq!(paints.get(), painted + 1);
+        assert!(!p.dirty());
+    }
 }
 #[test]
 fn timer_demand_changed_timer_and_final_motion_frame_remain_visible() {
@@ -798,6 +806,7 @@ fn timer_demand_pending_b_keeps_dirty_c_and_b_pixels() {
     assert_eq!(paints.get(), 2);
 }
 #[test]
+#[cfg(unix)]
 #[allow(unsafe_code)] // poll borrows this live executor FD with a zero timeout; it takes no ownership.
 fn timer_demand_nonvisual_command_wakes_existing_executor_without_paint() {
     let source = "component App\n  action tick\n    copyText(\"timer\")\n  task timer mount\n    every(250, tick)\n  view\n    text \"unchanged\"\n";
@@ -829,6 +838,19 @@ fn timer_demand_scheme_command_marks_its_visual_effect() {
     assert!(p.brush.dark && p.dirty());
 }
 #[test]
+fn timer_root_font_size_command_is_laid_out_by_the_runner() {
+    // LLP 1069.000 D3: the app's `:root { font-size }`; this host has nothing to run.
+    let source = "component App\n  action tick\n    setRootFontSize(20)\n  task timer mount\n    every(250, tick)\n  view\n    view width=\"10rem\" height=\"2rem\"\n";
+    let (mut p, _, _) = timer_primed(source);
+    assert!(p.advance(250.).is_none());
+    assert_eq!(p.host.runner().root_font_size(), 20.0);
+    assert!(p.dirty());
+    p.run_commands(Empty::default);
+    assert!(p.commands.is_empty());
+    // The host's own 16 stays beneath it, for a new runner of this launch.
+    assert_eq!(p.host.runner().host_root_font_size(), 16.0);
+}
+#[test]
 fn timer_demand_focus_retirement_and_scroll_clamp_are_independent() {
     for focus_only in [true, false] {
         let (mut p, _, _) = timer_primed(IDLE_TIMER);
@@ -848,7 +870,7 @@ fn timer_demand_focus_retirement_and_scroll_clamp_are_independent() {
 }
 #[test]
 fn timer_demand_router_change_is_consumed_even_without_view_edits() {
-    let source = "routes nav\n  home \"/\"\n    post \"/post\"\ncomponent App\n  action tick writes nav\n    nav = open(nav, \"/post\")\n  task timer mount\n    every(250, tick)\n  view\n    text \"unchanged shell\"\n";
+    let source = "routes nav\n  home \"/\"\n    post \"/post\"\ncomponent App\n  action tick\n    nav = open(nav, \"/post\")\n  task timer mount\n    every(250, tick)\n  view\n    text \"unchanged shell\"\n";
     let (mut p, _, _) = timer_primed(source);
     assert!(p.advance(250.).is_none());
     assert!(p.host.router_op().is_some());
@@ -874,7 +896,7 @@ fn timer_demand_failed_layout_recovers_and_marks_actual_geometry() {
     let (mut p, _, _) = boot_app(source);
     let fail = Rc::new(Cell::new(false));
     p.host = Host::boot(
-        &contract::compile(source).unwrap().encode(),
+        &crate::test_plan(source),
         Empty,
         Box::new(TimerMeasure { fail: fail.clone() }),
         320.,
@@ -921,9 +943,9 @@ impl DataSource for TimerRows {
 }
 #[test]
 fn timer_demand_collection_feedback_still_refines_after_empty_advance() {
-    let source = "component App\n  resource rows = timerRows() as shape list<number>\n  view\n    list virtualized=true width=320 height=180 testId=\"port\"\n      each x in rows key=x\n        text `${x}` height=24\n";
+    let source = "component App\n  resource rows = timerRows() as shape number[]\n  view\n    list virtualized=true width=320 height=180 testId=\"port\"\n      for x in rows key=x\n        text `${x}` height=24\n";
     let (mut p, error) = Presenter::boot_with(
-        &contract::compile(source).unwrap().encode(),
+        &crate::test_plan(source),
         TimerRows,
         (320., 240.),
         1.,
@@ -962,7 +984,7 @@ fn timer_demand_content_region_remains_conservative_for_same_shell() {
     let _service = crate::content_region::test_service();
     let source = "component App\n  view\n    view id=\"owner\" width=320 height=240 overflow-x=\"hidden\" overflow-y=\"hidden\"\n      scroll id=\"content\" width=320 height=240\n        text \"immutable paragraph\" testId=\"paragraph\"\n      text \"Preparing content\" id=\"pending\" position=\"absolute\"\n";
     let (mut p, error) = Presenter::boot_with_content_region(
-        &contract::compile(source).unwrap().encode(),
+        &crate::test_plan(source),
         Empty,
         (320., 240.),
         1.,
@@ -1017,9 +1039,9 @@ fn a_frame_task_fires_once_per_display_frame_not_from_a_timeout() {
         r#"component App
   state frames = 0
   state at = 0
-  action step writes frames, at
+  action step
     frames = frames + 1
-    at = now()
+    at = performanceNow()
   task ticker mount
     every(frame, step)
   view
@@ -1041,4 +1063,33 @@ fn a_frame_task_fires_once_per_display_frame_not_from_a_timeout() {
     assert!(p.animation_frame(5_000.).is_none());
     assert_eq!(slot(&p, "frames"), Some(Value::Number(2.)));
     assert_ne!(slot(&p, "at"), at);
+}
+
+const SVG_APP: &str = r##"component App
+  state count = 0
+  action press
+    count = count + 1
+  view
+    column width=320 height=240
+      button press=press testId="icon" width=48 height=48
+        svg width=48 height=48 viewBox="0 0 24 24"
+          path d="M0 0h24v24H0z" fill="#111827"
+      text `${count}` testId="count" height=20
+"##;
+
+#[test]
+fn a_press_on_an_svg_element_reaches_its_button_on_an_attached_display() {
+    let (mut p, _, _) = boot_app(SVG_APP);
+    let a = submit(&mut p).unwrap();
+    assert!(complete(&mut p, &a));
+    let icon = id(&p, "icon");
+    let (x, y) = point(&p, icon);
+    let (x, y) = (x + 20., y + 20.);
+    let hit = p.hit(x, y).unwrap();
+    assert_eq!(
+        p.host.kernel().node(hit).unwrap().node_type,
+        NodeType::SvgPath
+    );
+    assert_eq!(p.press_at(x, y, 1.), Some(icon));
+    assert_eq!(count(&p), "1");
 }

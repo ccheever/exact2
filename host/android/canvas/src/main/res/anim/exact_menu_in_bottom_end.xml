@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- A menu opening (LLP 1115.001 D10): Material's, as Compose's DropdownMenu moves it. It grows from 80% at the
+     corner by its anchor over 120 ms and fades in over 30. The window manager runs it (Surfaces.kt). -->
+<set xmlns:android="http://schemas.android.com/apk/res/android" android:shareInterpolator="false">
+    <scale
+        android:duration="120"
+        android:fromXScale="0.8"
+        android:fromYScale="0.8"
+        android:interpolator="@android:interpolator/linear_out_slow_in"
+        android:pivotX="100%"
+        android:pivotY="100%"
+        android:toXScale="1"
+        android:toYScale="1" />
+    <alpha
+        android:duration="30"
+        android:fromAlpha="0"
+        android:interpolator="@android:anim/linear_interpolator"
+        android:toAlpha="1" />
+</set>

@@ -48,7 +48,7 @@ fn a_fn_is_a_pure_expression_over_its_parameters_expanded_where_called() {
         .props
         .iter()
         .find_map(|(id, v)| match v {
-            PropValue::Str(s) if id.name() == "text" => Some(s.clone()),
+            PropValue::Str(s) if id.name() == "text" => Some(s.to_string()),
             _ => None,
         });
     assert_eq!(text.as_deref(), Some("12"));
@@ -73,7 +73,7 @@ fn scoped_actions_and_action_props_keep_their_names_when_the_roster_grows() {
     let plan = contract::compile(
         r#"component App
   state selected = ""
-  action open(value: string) writes selected
+  action open(value: string)
     selected = value
   view
     column
@@ -101,4 +101,27 @@ component Row
         r.dispatch(view, exact_runner::Event::Press).unwrap();
         assert_eq!(r.slot("selected"), Some(&Value::str(id)));
     }
+}
+
+/// LLP 1088 D4 reads an initializer's call targets as `infer` resolves
+/// them: a roster call or a file `fn` that shares a state's name is not
+/// that state, and a state named like the roster call it starts from
+/// compiles (Astra's batch 2 review). An action called there is still
+/// refused.
+#[test]
+fn an_initializer_calls_the_roster_and_fns_not_states_of_that_name() {
+    for src in [
+        "component App\n  state length = \"abc\".length\n  view\n    text `${length}`\n",
+        "fn twice(n: number): number = n * 2\ncomponent App\n  state twice = twice(2)\n  view\n    text `${twice}`\n",
+        "fn twice(n: number): number = n * 2\ncomponent App\n  state n = twice(2)\n  state twice = 1\n  view\n    text `${n} ${twice}`\n",
+    ] {
+        if let Err(e) = contract::compile(src) {
+            panic!("{src}\n{} {}", e.id, e.message);
+        }
+    }
+    let e = contract::compile(
+        "component App\n  state n = go()\n  action go\n    n = 1\n  view\n    text `${n}`\n",
+    )
+    .unwrap_err();
+    assert_eq!(e.id, "type-initializer-scope", "{}", e.message);
 }

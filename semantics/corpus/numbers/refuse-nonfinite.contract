@@ -1,0 +1,49 @@
+// A number that crosses into a slot must be finite: an action writing
+// Infinity or NaN is refused and nothing it wrote lands.
+component App
+  state x = 1
+  state label = "start"
+  state d = 0
+  action divide
+    label = "divided"
+    x = x / d
+  action nan
+    label = "nan"
+    x = d / d
+  action ok
+    label = "ok"
+    x = x + 1
+  action divideBy(n: number)
+    x = 10 / n
+  view
+    column
+      text `${x} ${label}` testId="out"
+      button "divide" press=divide testId="divide"
+      button "nan" press=nan testId="nan"
+      button "ok" press=ok testId="ok"
+      button "by0" press=divideBy(0) testId="by0"
+      button "by4" press=divideBy(4) testId="by4"
+
+test "infinity refused"
+  tap "divide"
+  expect state x == 1
+  expect state label == "start"
+  expect text "out" == "1 start"
+
+test "nan refused, then ok commits"
+  tap "nan"
+  expect state label == "start"
+  tap "ok"
+  expect state x == 2
+  expect state label == "ok"
+  tap "divide"
+  expect state x == 2
+  expect state label == "ok"
+
+test "parameterised divide"
+  tap "by0"
+  expect state x == 1
+  tap "by4"
+  expect state x == 2.5
+  tap "by0"
+  expect state x == 2.5

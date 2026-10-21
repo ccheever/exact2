@@ -1,0 +1,3 @@
+# The bound region padding swaps on each tap: the button's padding follows on every target, the region read as the safe area.
+tap flip
+tap flip

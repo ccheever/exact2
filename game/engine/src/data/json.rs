@@ -18,6 +18,20 @@ pub fn from_str<T: Data>(text: &str) -> Result<T, DataError> {
     read_into(text, &mut value)?;
     Ok(value)
 }
+/// Parse a complete tuning record; missing named fields are errors.
+pub fn from_complete_str<T: Data>(text: &str) -> Result<T, DataError> {
+    if text.len() > MAX_LOAD_BYTES {
+        return Err(DataError::new("input exceeds load size limit"));
+    }
+    let mut value = T::default();
+    let mut r = Decoder::new(text);
+    r.complete = true;
+    value
+        .read(&mut r)
+        .and_then(|()| r.finish())
+        .map_err(|e| e.at(super::type_name::<T>()))?;
+    Ok(value)
+}
 /// Read into an existing value using Data's patch/replacement rules.
 pub fn read_into<T: Data>(text: &str, value: &mut T) -> Result<(), DataError> {
     if text.len() > MAX_LOAD_BYTES {
@@ -174,6 +188,7 @@ pub struct Decoder<'a> {
     pos: usize,
     frames: Vec<ReadFrame>,
     budget: Budget,
+    complete: bool,
 }
 struct ReadFrame {
     end: u8,
@@ -188,6 +203,7 @@ impl<'a> Decoder<'a> {
             pos: 0,
             frames: vec![],
             budget: Budget::default(),
+            complete: false,
         }
     }
     /// Reject trailing input or an unfinished container.
@@ -339,6 +355,10 @@ impl<'a> Decoder<'a> {
     }
 }
 impl Reader for Decoder<'_> {
+    fn complete(&self) -> bool {
+        self.complete
+    }
+
     fn bytes(&mut self, _kind: BulkKind) -> Result<Option<&[u8]>, DataError> {
         self.ws();
         if self.peek() == Some(b'[') {

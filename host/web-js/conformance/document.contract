@@ -3,7 +3,7 @@
 // binding gives the page back its bounded inner scroller.
 component Document
   state on = true
-  action flip writes on
+  action flip
     on = not on
   view
     column testId="root" height="100%"

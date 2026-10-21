@@ -3,22 +3,67 @@ import Foundation
 
 extension NodeView {
     /// Resolve the computed tagged row after inheritance, using this node's font.
-    var usedLineHeight: CGFloat? {
+    package var usedLineHeight: CGFloat? {
         // JSON carries shortest f32 decimals; the measurement ABI carries f32
         // values. Resolve in the kernel's precision before widening for CoreText.
-        if let ratio = style["line_height"]?.number { return CGFloat(Float(ratio) * Float(number("font_size", 16))) }
+        if let ratio = style["line_height"]?.number { return CGFloat(Float(ratio) * Float(number("font_size", PageFacts.defaultRootFontSize))) }
         if let length = style["line_height"]?.string, length.hasSuffix("px"), let n = Float(length.dropLast(2)) { return CGFloat(n) }
         return nil
     }
 
     func textRun(_ value: String) -> Run {
-        Run(text: value, size: CGFloat(Float(number("font_size", 16))), weight: Int(number("font_weight", 400)),
-            family: Int(number("font_family")), italic: (style["font_style"]?.string) == "italic",
-            lineHeight: usedLineHeight, letterSpacing: CGFloat(Float(number("letter_spacing"))),
-            numeric: Int(number("font_variant_numeric")))
+        TextStyle.run(value, style: style, defaultSize: PageFacts.defaultRootFontSize)
     }
 
     var isParagraph: Bool { kind == "text" }
+
+    /// The node box this view stands in: the nearest node view above it,
+    /// past the containers and scroll views a box holds its children in.
+    var nodeSuperview: NodeView? {
+        var at = superview
+        while let v = at, !(v is NodeView) { at = v.superview }
+        return at as? NodeView
+    }
+
+    /// The lines each box above this paragraph draws through its text and
+    /// that box's colour, nearest first (CSS Text Decoration 3 §2.1: a block
+    /// container's lines reach its in-flow children's text). A box out of
+    /// flow or an atomic one (a button, a control) takes none from the boxes
+    /// above it, so the walk stops there.
+    func decoratingAncestors(dark: Bool) -> [(String, [Double]?)] {
+        var out: [(String, [Double]?)] = []
+        var box: NodeView = self
+        while !["absolute", "fixed"].contains(box.style["position_type"]?.string ?? ""),
+              box === self || !(box.actsAsButton || box.kind == "control"),
+              let parent = box.nodeSuperview {
+            if let lines = parent.style["text_decoration_line"]?.string, !lines.isEmpty, lines != "none" {
+                var colored: NodeView? = parent
+                while let c = colored, c.style["text_color"] == nil { colored = c.nodeSuperview }
+                out.append((lines, colored?.textChannels("text_color", dark: dark)))
+            }
+            box = parent
+        }
+        return out
+    }
+
+    /// After a style change: where this box's lines, or their colour,
+    /// changed, the paragraphs it holds draw again.
+    func decorationChanged(from old: NodeStyle) {
+        let lines = style["text_decoration_line"], was = old["text_decoration_line"]
+        guard lines != was || (lines != nil && old["text_color"] != style["text_color"]) else { return }
+        var stack: [PlatformView] = subviews
+        while let v = stack.popLast() {
+            if let node = v as? NodeView, node.isParagraph {
+                node.invalidateText()
+                #if os(macOS)
+                node.needsDisplay = true
+                #else
+                node.setNeedsDisplay()
+                #endif
+            }
+            stack.append(contentsOf: v.subviews)
+        }
+    }
     var paragraphOwner: NodeView { self }
 
     func paragraphLayout() -> Paragraph? {
@@ -27,7 +72,7 @@ extension NodeView {
         #endif
         // The kernel measures the CSS content box; borders and padding must
         // not become extra wrapping room when that paragraph is painted.
-        let width = contentBox().width
+        let width = paragraphBox().width
         if textLayoutValid, let cached = cachedTextLayout, cached.width == width { return cached.paragraph }
         guard let paragraph = text?.paragraph(paragraphSpec(), width: width, flow: flowShapes.map { $0.translated(CGPoint(x: -contentBox().minX, y: -contentBox().minY)) }) else { return nil }
         if paragraph.flowIncomplete { presenter?.session?.log("wrap-flow: text #\(id) is incomplete and uses ordinary layout") }
@@ -66,59 +111,110 @@ extension NodeView {
         #if os(macOS)
         textRasterPending = false
         #else
+        if let presenter, presenter.applying { presenter.changedText.insert(id) }
         presenter?.requestTextPublication()
         #endif
     }
 
+    /// CSS start/end resolve from direction, for paragraphs and native editors.
+    var textAlignmentCode: Int {
+        TextStyle.alignment(style)
+    }
     func paragraphSpec() -> Spec {
         if let spec = cachedTextSpec { return spec }
-        // Physical, as the kernel's paragraph is: CSS's initial `start` and
-        // `end` follow `direction` (LLP 1053).
-        let rtl = style["direction"]?.string == "rtl"
-        let align: Int
-        switch style["text_align"]?.string {
-        case "left": align = 0
-        case "center": align = 1
-        case "right": align = 2
-        case "justify": align = 3
-        case "end": align = rtl ? 0 : 2
-        default: align = rtl ? 2 : 0 // `start`
-        }
+        #if os(macOS)
+        // In a table's selected row that AppKit draws emphasized, a role's ink is the selected item's (TableInkMac.swift).
+        let outer = SystemColor.selectedItem
+        SystemColor.selectedItem = inEmphasizedRow
+        defer { SystemColor.selectedItem = outer }
+        #endif
         var runs: [Run] = []
         // An inline run is not in the view hierarchy — its paragraph owns it
         // and it was removed from any superview — so it has no appearance of
         // its own to read. It inherits the paragraph's, which is the one
         // actually on screen. @ref LLP 1034 D2
-        let night = drawsDark
+        let night = drawsDark, contrast = drawsHighContrast, elevated = drawsElevated
+        // The view's own tint, read once, where anything here names it (LLP 1095 D8).
+        let tint = style.values.contains(where: \.namesTint) || inlineText.contains(where: \.namesTint) ? viewTint : nil
+        let ink = textChannels("text_color", dark: night) ?? SystemColor.canvasTextChannels(dark: night, contrast: contrast)
         if props["markup"] == "markdown", let source = props["text"] {
             // Markdown source: the archive expands it into runs, the same
             // expansion the measurer used (LLP 1045 D3).
-            runs = MarkupRuns.expand(source, base: textRun(""), color: channels("text_color", dark: night))
+            // Every piece is in the node's ink, or a share of it: one kind.
+            var base = textRun("")
+            base.fixedInk = style["text_color"]?.fixesInk == true
+            runs = MarkdownLink.installed?.expand(source, base: base, color: textChannels("text_color", dark: night),
+                                                  boldText: text?.boldTextSteps(base.family) == true) ?? [textRun(source)]
+            if style["visibility"]?.string == "hidden" { for i in runs.indices { runs[i].hidden = true } }
+            // `currentcolor` in a shadow or stroke is each piece's own colour.
+            let rows = RunPaintRows(style), own = channels("text_color", dark: night) ?? SystemColor.canvasTextChannels(dark: night, contrast: contrast)
+            for i in runs.indices { (runs[i].shadow, runs[i].stroke) = rows.resolve(dark: night, contrast: contrast, elevated: elevated, tint: tint, color: runs[i].color ?? own) }
         } else if let value = props["text"] {
-            runs.append(InlineText.run(value, style: style, href: props["href"] ?? "", dark: night))
+            runs.append(InlineText.run(value, style: style, href: props["href"] ?? "", dark: night, contrast: contrast, elevated: elevated, tint: tint))
         } else {
-            runs = inlineText.filter(\.paints).map { $0.run(dark: night) }
-            // A container's background covers its descendants' fragments (CSS).
-            if inlineText.contains(where: { !$0.paints && $0.run(dark: night).background != nil }) {
-                let byId = Dictionary(inlineText.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
-                for (i, leaf) in inlineText.filter(\.paints).enumerated() where runs[i].background == nil {
+            runs = inlineText.filter(\.paints).map { $0.run(dark: night, contrast: contrast, elevated: elevated, tint: tint) }
+            let decorates = inlineText.contains(where: { !$0.paints && !$0.lightRun.decoration.isEmpty })
+            let backs = inlineText.contains(where: { !$0.paints && $0.run(dark: night, contrast: contrast, elevated: elevated, tint: tint).background != nil })
+            let byId = decorates || backs ? Dictionary(inlineText.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a }) : [:]
+            // An inline container's lines reach its descendants' text, as the
+            // paragraph's own do below, whatever the box's own visibility:
+            // a hidden run paints neither its glyphs nor their lines.
+            if decorates {
+                for (i, leaf) in inlineText.filter(\.paints).enumerated() {
                     var up = byId[leaf.parent]
-                    while let run = up, runs[i].background == nil { runs[i].background = run.run(dark: night).background; up = byId[run.parent] }
+                    while let run = up {
+                        up = byId[run.parent]
+                        guard !run.lightRun.decoration.isEmpty else { continue }
+                        let paint = run.run(dark: night, contrast: contrast, elevated: elevated, tint: tint)
+                        runs[i].propagate(paint.decoration, color: paint.color ?? ink)
+                    }
                 }
             }
+            // A container's background covers its descendants' fragments (CSS).
+            if backs {
+                // A leaf paints one background, its nearest, and a box's ends
+                // are read from the characters that paint it: a box inside
+                // another visible background, and that outer box, keep square
+                // corners, which would otherwise show the page at their seams.
+                let visible = { (c: [Double]?) in c.map { $0.count < 4 || $0[3] > 0 } ?? false }
+                var square = Set<UInt32>()
+                for (i, leaf) in inlineText.filter(\.paints).enumerated() {
+                    var nested: [UInt32] = visible(runs[i].background) ? [runs[i].backgroundBox] : []
+                    var up = byId[leaf.parent]
+                    while let run = up {
+                        up = byId[run.parent]
+                        let paint = run.run(dark: night, contrast: contrast, elevated: elevated, tint: tint)
+                        guard !paint.hidden, paint.background != nil else { continue }
+                        if runs[i].background == nil {
+                            runs[i].background = paint.background
+                            (runs[i].backgroundBox, runs[i].backgroundRadii) = (paint.backgroundBox, paint.backgroundRadii)
+                        }
+                        if visible(paint.background), !nested.contains(paint.backgroundBox) { nested.append(paint.backgroundBox) }
+                    }
+                    if nested.count > 1 { square.formUnion(nested) }
+                }
+                for i in runs.indices where square.contains(runs[i].backgroundBox) { runs[i].backgroundRadii = [] }
+            }
+            // A box's identity is paint only where a box is rounded: square
+            // backgrounds keep sharing what they share (TextPaint's keys).
+            if !runs.contains(where: { $0.background != nil && $0.backgroundRadii.contains { !$0.isZero } }) {
+                for i in runs.indices { runs[i].backgroundBox = 0; runs[i].backgroundRadii = [] }
+            }
         }
-        let whiteSpace = ["pre-wrap": 1, "nowrap": 2, "pre-line": 3, "pre": 4][style["white_space"]?.string ?? ""] ?? 0
-        // CSS collapses white space before shaping, as the measurer does in
-        // Rust with the same function (LLP 1053 G5); Markdown keeps its lines.
-        let source = whiteSpace == 1 || whiteSpace == 4 || props["markup"] == "markdown" ? SourceMap() : SourceMap.collapse(&runs, whiteSpace: whiteSpace)
-        let lineClamp = Int(number("line_clamp"))
-        // `text-overflow: ellipsis` applies to a box that clips its inline overflow.
-        let clips = (style["overflow_x"]?.string).map { $0 != "visible" } ?? false
-        var spec = Spec(runs: runs, align: align, lineClamp: lineClamp,
-                        color: channels("text_color", dark: night) ?? [0, 0, 0, 255],
-                        overflowWrap: style["overflow_wrap"]?.string == "anywhere" ? 2 : style["overflow_wrap"]?.string == "break-word" ? 1 : 0, direction: rtl ? 1 : 0, whiteSpace: whiteSpace, strut: textRun(""))
-        spec.ellipsis = lineClamp == 0 && clips && style["text_overflow"]?.string == "ellipsis"
-        spec.source = source
+        // The paragraph's own lines reach every run its children paint
+        // (CSS Text Decoration 3 §2.1); its own text's run already has them.
+        if props["text"] == nil || props["markup"] == "markdown", let lines = style["text_decoration_line"]?.string, !lines.isEmpty {
+            for i in runs.indices { runs[i].propagate(lines, color: ink) }
+        }
+        // So do the lines of the boxes it stands in, each in that box's colour.
+        for (lines, color) in decoratingAncestors(dark: night) {
+            for i in runs.indices { runs[i].propagate(lines, color: color ?? ink) }
+        }
+        var spec = TextStyle.spec(runs: runs, style: style, props: props, strut: textRun(""),
+                                  color: ink,
+                                  language: presenter?.documentLanguage ?? "")
+        // One shadow over the paragraph when its runs agree (LLP 1077 D3).
+        spec.gatherShadows()
         cachedTextSpec = spec
         return spec
     }

@@ -1,0 +1,18 @@
+// One clock advance fires a timer at most 4096 times; an advance that would
+// fire more is refused at the limit.
+component App
+  state n = 0
+  action tick
+    n = n + 1
+  task t mount
+    every(1, tick)
+  view
+    text `${n}` testId="n"
+
+test "exactly the limit"
+  clock +4096
+  expect state n == 4096
+
+test "one over the limit"
+  clock +4097
+  clock +10

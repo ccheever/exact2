@@ -3,11 +3,11 @@ component InlineChat
   state narrow = false
   state large = false
   state selected = false
-  action resize writes narrow
+  action resize
     narrow = not narrow
-  action emojiSize writes large
+  action emojiSize
     large = not large
-  action mention writes selected
+  action mention
     selected = not selected
   view
     column padding=24 gap=16

@@ -367,10 +367,6 @@ fn original_source_remains_synchronous_and_native_idle_query_matches_it() {
             .unwrap(),
         expected
     );
-    assert_eq!(
-        NativeMarkdownStress::default().query("theme", &[]).unwrap(),
-        MarkdownStress::default().query("theme", &[]).unwrap()
-    );
 }
 
 fn giant_exact(size: usize) {

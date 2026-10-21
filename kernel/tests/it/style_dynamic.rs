@@ -2,8 +2,62 @@
 //! untyped value into a row, refused typed, nothing changed on refusal.
 
 use exact_kernel::{
-    Color, ColorValue, Dimension, StyleId, StyleProps, StyleValue, StyleValueError,
+    Color, ColorValue, Dimension, RowValue, StyleId, StyleProps, StyleValue, StyleValueError,
 };
+
+#[test]
+fn borrowed_css_parses_like_owned_css_and_retains_no_source_borrow() {
+    for (id, css, valid) in [
+        (StyleId::TextColor, "#abcdef80", true),
+        (StyleId::TextColor, "light-dark(#123, #abc)", true),
+        (
+            StyleId::Animation,
+            "a-long-temporary-animation-name 1s linear",
+            true,
+        ),
+        (StyleId::Transition, "opacity 120ms ease-in", true),
+        (StyleId::Width, "1.25rem", true),
+        (StyleId::LineHeight, "2lh", true),
+        (StyleId::Translate, "12px 25%", true),
+        (StyleId::TextColor, "invalid-color", false),
+        (StyleId::Width, "1pzz", false),
+        (StyleId::LineHeight, "not-a-length", false),
+    ] {
+        let mut borrowed = StyleProps::default();
+        let mut owned = borrowed.clone();
+        let mut source = css.to_owned();
+        let result = borrowed.set_dynamic(id, &StyleValue::Text(source.as_str().into()));
+        let expected = owned.set_dynamic(id, &StyleValue::Text(css.to_owned().into()));
+        assert_eq!(result, expected, "{id:?}: {css}");
+        assert_eq!(result.is_ok(), valid, "{id:?}: {css}");
+        // The parsed value remains usable after its producer reuses the buffer.
+        source.clear();
+        source.push_str("a replacement that is not valid CSS");
+        drop(source);
+        assert_eq!(borrowed, owned, "{id:?}: {css}");
+        if result.is_err() {
+            assert_eq!(borrowed, StyleProps::default());
+        }
+    }
+}
+
+#[test]
+fn bound_column_rule_refuses_patterns_without_changing_the_solid_rule() {
+    let mut style = StyleProps::default();
+    style
+        .set_dynamic(StyleId::ColumnRuleStyle, &StyleValue::Text("solid".into()))
+        .unwrap();
+    for value in ["dotted", "dashed"] {
+        let before = style.clone();
+        assert!(
+            style
+                .set_dynamic(StyleId::ColumnRuleStyle, &StyleValue::Text(value.into()))
+                .is_err(),
+            "{value}"
+        );
+        assert_eq!(style, before, "{value} changed the column rule");
+    }
+}
 
 #[test]
 fn translate_text_is_a_narrow_css_pixel_subset_with_atomic_refusal() {
@@ -19,8 +73,27 @@ fn translate_text_is_a_narrow_css_pixel_subset_with_atomic_refusal() {
             .unwrap();
         assert_eq!(s.translate, exact_kernel::Vec2 { x, y }, "{text}");
     }
+    // A percentage of the box is the percent row's, the length row's zero
+    // (chess diary #4); both rows take their part of the one text.
+    for (text, px, pct) in [
+        ("-50% -50%", (0.0, 0.0), (-50.0, -50.0)),
+        ("12px 25%", (12.0, 0.0), (0.0, 25.0)),
+        ("1.5e1% 0", (0.0, 0.0), (15.0, 0.0)),
+    ] {
+        for row in [StyleId::Translate, StyleId::TranslatePercent] {
+            s.set_dynamic(row, &StyleValue::Text(text.into())).unwrap();
+        }
+        assert_eq!(
+            (s.translate, s.translate_percent),
+            (
+                exact_kernel::Vec2 { x: px.0, y: px.1 },
+                exact_kernel::Vec2 { x: pct.0, y: pct.1 }
+            ),
+            "{text}"
+        );
+    }
     let max = format!("{}px 0", f32::MAX as f64);
-    s.set_dynamic(StyleId::Translate, &StyleValue::Text(max))
+    s.set_dynamic(StyleId::Translate, &StyleValue::Text(max.into()))
         .unwrap();
     assert_eq!(s.translate.x, f32::MAX);
     for text in [
@@ -30,9 +103,12 @@ fn translate_text_is_a_narrow_css_pixel_subset_with_atomic_refusal() {
         "0 1",
         "none",
         "1px,2px",
-        "1px 2px 0px",
-        "10% 0",
-        "calc(1px + 2px) 0",
+        // A third length is `translate`'s z (LLP 1077 D8), a fourth nothing.
+        "1px 2px 0px 0px",
+        "1px 2px 3",
+        "10%% 0",
+        "% 0",
+        "calc(1px + 2%) 0",
         "NaNpx 0",
         "infpx 0",
         "1e39px 0",
@@ -53,12 +129,7 @@ fn translate_text_is_a_narrow_css_pixel_subset_with_atomic_refusal() {
     }
     s.set_dynamic(StyleId::Translate, &StyleValue::Vec2(5.0, -7.0))
         .unwrap();
-    s.set_dynamic(StyleId::ShadowOffset, &StyleValue::Vec2(1.0, 2.0))
-        .unwrap();
     let before = s.clone();
-    assert!(s
-        .set_dynamic(StyleId::ShadowOffset, &StyleValue::Text("1px 2px".into()))
-        .is_err());
     assert!(s
         .set_dynamic(StyleId::Translate, &StyleValue::Number(0.0))
         .is_err());
@@ -97,9 +168,16 @@ fn border_defaults_clear_and_wire_preserve_authored_width_separately_from_used_w
     assert!(style
         .set_dynamic(StyleId::BorderColorTop, &StyleValue::Auto)
         .is_err());
-    assert!(style
+    style
         .set_dynamic(StyleId::BorderStyleTop, &StyleValue::Text("dashed".into()))
-        .is_err());
+        .unwrap();
+    style
+        .set_dynamic(
+            StyleId::BorderStyleRight,
+            &StyleValue::Text("dotted".into()),
+        )
+        .unwrap();
+    assert_eq!(style.border_widths(), [8.0, 3.0, 0.0, 0.0]);
     let mut k = Kernel::with_monospace();
     k.apply_frame(&wire::encode(
         0,
@@ -149,6 +227,7 @@ fn border_defaults_clear_and_wire_preserve_authored_width_separately_from_used_w
         &[Op::ClearStyle {
             id: 1,
             mask: StyleMask::of(StyleId::BorderStyleRight),
+            written: false,
         }],
     )
     .unwrap();
@@ -176,7 +255,7 @@ fn every_dynamic_codec_fills_its_row_and_marks_the_mask() {
         .unwrap();
     s.set_dynamic(StyleId::FlexDirection, &StyleValue::Text("column".into()))
         .unwrap();
-    s.set_dynamic(StyleId::ShadowOffset, &StyleValue::Vec2(1.0, 2.0))
+    s.set_dynamic(StyleId::Translate, &StyleValue::Vec2(1.0, 2.0))
         .unwrap();
     assert_eq!(s.width, Dimension::Percent(50.0));
     assert_eq!(s.height, Dimension::Auto);
@@ -185,11 +264,11 @@ fn every_dynamic_codec_fills_its_row_and_marks_the_mask() {
     assert_eq!(s.z_index, -2);
     assert_eq!(
         s.background_color,
-        ColorValue::Fixed(Color::rgba(255, 0, 0, 128))
+        Some(ColorValue::Fixed(Color::rgba(255, 0, 0, 128)))
     );
     assert_eq!(s.text_color, ColorValue::Fixed(Color(0x1122_33ff)));
     assert_eq!(s.flex_direction, exact_kernel::FlexDirection::Column);
-    assert_eq!((s.shadow_offset.x, s.shadow_offset.y), (1.0, 2.0));
+    assert_eq!((s.translate.x, s.translate.y), (1.0, 2.0));
     for id in [
         StyleId::Width,
         StyleId::Height,
@@ -199,7 +278,7 @@ fn every_dynamic_codec_fills_its_row_and_marks_the_mask() {
         StyleId::BackgroundColor,
         StyleId::TextColor,
         StyleId::FlexDirection,
-        StyleId::ShadowOffset,
+        StyleId::Translate,
     ] {
         assert!(s.mask.has(id), "{id:?} marked");
     }
@@ -274,8 +353,8 @@ fn refusals_are_typed_and_change_nothing() {
         ),
         (
             StyleId::GridTemplateColumns,
-            StyleValue::Number(1.0),
-            StyleValueError::Unsupported {
+            StyleValue::Text("repeat(auto-fit, 1fr)".into()),
+            StyleValueError::BadGridTracks {
                 style: StyleId::GridTemplateColumns,
             },
         ),
@@ -284,6 +363,89 @@ fn refusals_are_typed_and_change_nothing() {
         assert_eq!(s.set_dynamic(id, &value), Err(expected));
     }
     assert_eq!(s, before, "a refused write changes nothing");
+}
+
+#[test]
+fn grid_css_values_reach_set_dynamic_in_every_style_value_shape() {
+    let mut style = StyleProps::default();
+    for (id, value, want) in [
+        (StyleId::GridTemplateColumns, StyleValue::Auto, "auto"),
+        (StyleId::GridTemplateRows, StyleValue::Percent(25.0), "25%"),
+        (
+            StyleId::GridTemplateColumns,
+            StyleValue::Text("100PX".into()),
+            "100px",
+        ),
+        (
+            StyleId::GridTemplateColumns,
+            StyleValue::Text("repeat(auto-fit, minmax(80px, 1fr))".into()),
+            "repeat(auto-fit, minmax(80px, 1fr))",
+        ),
+        (
+            StyleId::GridTemplateRows,
+            StyleValue::Text("fit-content(40px)".into()),
+            "fit-content(40px)",
+        ),
+        (StyleId::GridColumn, StyleValue::Number(2.0), "2"),
+        (StyleId::GridRow, StyleValue::Auto, "auto"),
+        (
+            StyleId::GridColumn,
+            StyleValue::Text("auto / span 2".into()),
+            "auto / span 2",
+        ),
+    ] {
+        style
+            .set_dynamic(id, &value)
+            .unwrap_or_else(|e| panic!("{id:?}: {e:?}"));
+        let got = match style.get(id) {
+            RowValue::Tracks(value) => value.css().to_string(),
+            RowValue::Placement(value) => value.css(),
+            value => panic!("{id:?}: unexpected {value:?}"),
+        };
+        assert_eq!(got, want, "{id:?}");
+    }
+
+    let before = style.rare.grid_template_columns.clone();
+    assert_eq!(
+        style.set_dynamic(
+            StyleId::GridTemplateColumns,
+            &StyleValue::Text("repeat(2, repeat(2, 40px))".into()),
+        ),
+        Err(StyleValueError::BadGridTracks {
+            style: StyleId::GridTemplateColumns,
+        })
+    );
+    assert_eq!(style.rare.grid_template_columns, before);
+
+    style
+        .set_dynamic(
+            StyleId::GridAutoFlow,
+            &StyleValue::Text("r\\6f w/**/dense".into()),
+        )
+        .unwrap();
+    assert_eq!(
+        style.get(StyleId::GridAutoFlow),
+        RowValue::Enum("row dense")
+    );
+    style
+        .set_dynamic(
+            StyleId::JustifyItems,
+            &StyleValue::Text("safe c\\65 nter".into()),
+        )
+        .unwrap();
+    assert_eq!(
+        style.get(StyleId::JustifyItems),
+        RowValue::Enum("safe center")
+    );
+    assert_eq!(
+        style.set_dynamic(
+            StyleId::JustifyItems,
+            &StyleValue::Text("left legacy".into()),
+        ),
+        Err(StyleValueError::UnknownEnumValue {
+            style: StyleId::JustifyItems,
+        })
+    );
 }
 
 #[test]
@@ -375,6 +537,8 @@ fn caret_auto_and_transparent_are_distinct_and_survive_the_wire() {
         StyleValue::Text("#00000000".into()),
         StyleValue::Text("#ffffff".into()),
         StyleValue::Text("light-dark(#ffffff, #112233)".into()),
+        // A system colour crosses by its index (LLP 1077 D13).
+        StyleValue::Text("-apple-system-label".into()),
     ] {
         let mut style = StyleProps::default();
         style.set_dynamic(StyleId::CaretColor, &value).unwrap();
@@ -403,6 +567,10 @@ fn caret_auto_and_transparent_are_distinct_and_survive_the_wire() {
         Err(DecodeError::BadColorValue(2))
     );
     assert!(wire::codec::Reader::new(&[1]).optional_color().is_err());
+    // A system colour past the table is refused, not guessed.
+    assert!(wire::codec::Reader::new(&[1, 2, 99])
+        .optional_color()
+        .is_err());
 }
 
 #[test]
@@ -457,12 +625,30 @@ fn clearing_a_caret_override_restores_inheritance_not_auto() {
         None,
         "explicit auto stops inheritance"
     );
-    k.apply(0, 3, &[Op::ClearStyle { id: 2, mask }]).unwrap();
+    k.apply(
+        0,
+        3,
+        &[Op::ClearStyle {
+            id: 2,
+            mask,
+            written: false,
+        }],
+    )
+    .unwrap();
     assert_eq!(
         k.node(2).unwrap().computed_style(mask).caret_color,
         Some(Color::WHITE.into())
     );
-    k.apply(0, 4, &[Op::ClearStyle { id: 1, mask }]).unwrap();
+    k.apply(
+        0,
+        4,
+        &[Op::ClearStyle {
+            id: 1,
+            mask,
+            written: false,
+        }],
+    )
+    .unwrap();
     assert_eq!(k.node(2).unwrap().computed_style(mask).caret_color, None);
 }
 
@@ -523,7 +709,8 @@ fn dimension_pixel_strings_use_css_numbers_and_refuse_invalid_values_atomically(
     for (text, expected) in [
         ("0px", 0.),
         ("12.5PX", 12.5),
-        (" -2e1px ", -20.),
+        // A math function clamps to the row's range (CSS Values 4 §9.1)
+        (" calc(-2e1px) ", 0.),
         ("0", 0.),
         ("10em", 160.),
         ("1.5rem", 24.),
@@ -535,6 +722,8 @@ fn dimension_pixel_strings_use_css_numbers_and_refuse_invalid_values_atomically(
     }
     for text in [
         "NaNpx", "infpx", "1e39px", "1.px", "12 px", "12", "10 em", "1e39em", "0px 1px",
+        // A negative literal height is invalid, as in CSS.
+        " -2e1px ",
     ] {
         let before = style.clone();
         assert!(
@@ -551,6 +740,7 @@ fn dimension_pixel_strings_use_css_numbers_and_refuse_invalid_values_atomically(
 fn every_row_writes_its_own_field_and_no_other() {
     // Linked by use (LLP 1057.003), as every host that sets the rows links it.
     exact_kernel::timeline::link();
+    exact_kernel::style::link_backdrop_filter();
     let candidates = [
         StyleValue::Number(3.0),
         StyleValue::Number(0.5),
@@ -567,6 +757,14 @@ fn every_row_writes_its_own_field_and_no_other() {
         StyleValue::Text("url(#m)".into()),
         StyleValue::Text("--t".into()),
         StyleValue::Text("0px 300px".into()),
+        StyleValue::Text("1fr".into()),
+        StyleValue::Text("2 / span 2".into()),
+        StyleValue::Text("squircle".into()),
+        StyleValue::Text("1px 2px #000".into()),
+        StyleValue::Text("y 30deg".into()),
+        StyleValue::Text("blur(12px) saturate(1.14)".into()),
+        StyleValue::Text("flip-block, flip-inline".into()),
+        StyleValue::Text("\"wght\" 650".into()),
     ];
     let mut unwritten = Vec::new();
     let base = StyleProps::default();
@@ -578,9 +776,14 @@ fn every_row_writes_its_own_field_and_no_other() {
             .map(|name| StyleValue::Text((*name).into()))
             .chain(candidates.iter().cloned());
         let mut written = None;
+        // A row whose one value is its initial one (`outline-style`'s
+        // `none`, LLP 1104 D6) is written by marking it.
+        let only_initial = names.len() == 1;
         for value in values {
             let mut s = base.clone();
-            if s.set_dynamic(id, &value).is_ok() && s.get(id) != base.get(id) {
+            if s.set_dynamic(id, &value).is_ok()
+                && (s.get(id) != base.get(id) || (only_initial && s.mask.has(id)))
+            {
                 written = Some(s);
                 break;
             }
@@ -593,15 +796,9 @@ fn every_row_writes_its_own_field_and_no_other() {
             assert_eq!(s.get(other), base.get(other), "{id:?} wrote {other:?}");
         }
     }
-    // Grid rows have no dynamic form; every other row was written.
-    assert_eq!(
-        unwritten,
-        [
-            StyleId::GridTemplateColumns,
-            StyleId::GridTemplateRows,
-            StyleId::GridColumn,
-            StyleId::GridRow
-        ]
+    assert!(
+        unwritten.is_empty(),
+        "rows without a dynamic value: {unwritten:?}"
     );
 }
 

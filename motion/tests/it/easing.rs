@@ -2,7 +2,7 @@
 //! The keyword values at 0.5 are the ones `getComputedStyle` yields for a
 //! 1s transition sampled at 500ms; a 1e-3 band covers solver precision.
 
-use exact_motion::{Easing, EasingError, LinearStop, StepPosition};
+use exact_motion::{Easing, EasingError, LinearStop, StepPosition, TimingFunction, Transitions};
 
 fn close(actual: f64, expected: f64) {
     assert!(
@@ -131,6 +131,86 @@ fn piecewise_linear_interpolates_between_stops() {
     ]);
     close(curve.progress(0.125), 0.5);
     close(curve.progress(0.5), 1.0);
+}
+
+/// `linear()` as Chrome 155 computes it for a paused animation's `translate`
+/// (which does not clamp): extrapolated before the first stop and past the
+/// last; at a shared input, the last stop there; between stops sharing an
+/// input, the first's output up to it; before a first pair that shares an
+/// input, the second's (where CSS Easing 2's draft says the first's).
+#[test]
+fn piecewise_linear_matches_chrome_at_its_edges() {
+    let cases: &[(&str, &[(f64, f64)])] = &[
+        (
+            "linear(0 25%, 1 25%, 1)",
+            &[
+                (0.0, 1.0),
+                (0.1, 1.0),
+                (0.2499, 1.0),
+                (0.25, 1.0),
+                (1.0, 1.0),
+            ],
+        ),
+        (
+            "linear(0 25%, 1 25%, 0.5 25%, 1)",
+            &[(0.1, 1.0), (0.25, 0.5), (0.5, 0.6667)],
+        ),
+        (
+            "linear(0 25%, 1 75%)",
+            &[
+                (0.0, -0.5),
+                (0.1, -0.3),
+                (0.25, 0.0),
+                (0.5, 0.5),
+                (0.9, 1.3),
+                (1.0, 1.5),
+            ],
+        ),
+        (
+            "linear(0 0% 25%, 1 50% 75%)",
+            &[
+                (0.0, 0.0),
+                (0.25, 0.0),
+                (0.375, 0.5),
+                (0.9, 1.0),
+                (1.0, 1.0),
+            ],
+        ),
+        (
+            "linear(0, 0.2 100%, 0.5 100%, 1 100%)",
+            &[(0.5, 0.1), (0.9999, 0.2), (1.0, 1.0)],
+        ),
+        (
+            "linear(1 0% 25%, 0 25% 100%)",
+            &[(0.0, 1.0), (0.2499, 1.0), (0.25, 0.0), (1.0, 0.0)],
+        ),
+        ("linear(0, 1 0%, 0)", &[(0.0, 1.0), (0.5, 0.5), (1.0, 0.0)]),
+        (
+            "linear(0.3 20%, 0.6 40%, 1)",
+            &[(0.0, 0.0), (0.1, 0.15), (0.3, 0.45)],
+        ),
+        (
+            "linear(0, 0.5 50%, 1 50%, 0.2 50%)",
+            &[(0.25, 0.25), (0.5, 0.2), (0.9, 0.2)],
+        ),
+        (
+            "linear(0, 0.25 25% 75%, 1)",
+            &[(0.5, 0.25), (0.75, 0.25), (0.875, 0.625)],
+        ),
+    ];
+    for (text, samples) in cases {
+        let parsed = Transitions::parse(&format!("opacity 1s {text}")).unwrap();
+        let TimingFunction::Easing(easing) = &parsed.0[0].timing else {
+            panic!("{text} is not an easing");
+        };
+        for &(x, chrome) in *samples {
+            let got = easing.progress(x);
+            assert!(
+                (got - chrome).abs() < 1e-3,
+                "{text} at {x}: Chrome {chrome}, got {got}"
+            );
+        }
+    }
 }
 
 #[test]

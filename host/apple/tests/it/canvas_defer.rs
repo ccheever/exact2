@@ -36,7 +36,7 @@ impl DataSource for Dots {
 
 const APP: &str = r#"component App
   state n = 2
-  action step writes n
+  action step
     n = n + 1
   view
     column

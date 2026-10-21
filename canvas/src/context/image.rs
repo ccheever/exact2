@@ -150,7 +150,17 @@ impl Images for ImageTable {
     }
 }
 
-/// `ImageData`: raw RGBA pixels, non-premultiplied, sRGB.
+/// HTML's `PredefinedColorSpace` (LLP 1100 D12a).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ColorSpace {
+    /// `"srgb"`, the default.
+    #[default]
+    Srgb,
+    /// `"display-p3"`.
+    DisplayP3,
+}
+
+/// `ImageData`: raw RGBA pixels, non-premultiplied, in `color_space`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ImageData {
     /// Pixels per row.
@@ -159,21 +169,24 @@ pub struct ImageData {
     pub height: u32,
     /// `width × height × 4` bytes.
     pub data: Vec<u8>,
+    /// The pixels' space: the canvas's for `createImageData`, else sRGB.
+    pub color_space: ColorSpace,
 }
 
 fn dimension(v: f64, which: &str) -> Result<u32, DomException> {
     if !v.is_finite() {
         return throw("TypeError", "The provided double value is non-finite.");
     }
-    let n = v.trunc().abs();
+    let whole = v.trunc();
+    if whole < i32::MIN as f64 || whole > i32::MAX as f64 {
+        return throw("TypeError", "Value is outside the 'long' value range.");
+    }
+    let n = whole.abs();
     if n == 0.0 {
         return throw(
             "IndexSizeError",
             format!("The source {which} is zero or not a number."),
         );
-    }
-    if n > u32::MAX as f64 / 4.0 {
-        return throw("RangeError", "Out of memory at ImageData creation.");
     }
     Ok(n as u32)
 }
@@ -184,10 +197,25 @@ impl ImageData {
         if sw == 0 || sh == 0 {
             return throw("IndexSizeError", "The source width or height is zero.");
         }
+        let len = (sw as usize)
+            .checked_mul(sh as usize)
+            .and_then(|pixels| pixels.checked_mul(4))
+            .filter(|len| *len <= (isize::MAX as usize).min(u32::MAX as usize))
+            .ok_or_else(|| DomException {
+                name: "IndexSizeError",
+                message: "The requested image size exceeds the supported range.".into(),
+            })?;
+        let mut data = Vec::new();
+        data.try_reserve_exact(len).map_err(|_| DomException {
+            name: "RangeError",
+            message: "Out of memory at ImageData creation.".into(),
+        })?;
+        data.resize(len, 0);
         Ok(ImageData {
             width: sw,
             height: sh,
-            data: vec![0; sw as usize * sh as usize * 4],
+            data,
+            color_space: ColorSpace::Srgb,
         })
     }
 
@@ -211,7 +239,10 @@ impl ImageData {
                 "The input data length is not a multiple of (4 * width).",
             );
         }
-        let rows = (pixels / sw as usize) as u32;
+        let rows = u32::try_from(pixels / sw as usize).map_err(|_| DomException {
+            name: "RangeError",
+            message: "Out of memory at ImageData creation.".into(),
+        })?;
         if sh.is_some_and(|h| h != rows) {
             return throw(
                 "IndexSizeError",
@@ -222,7 +253,53 @@ impl ImageData {
             width: sw,
             height: rows,
             data,
+            color_space: ColorSpace::Srgb,
         })
+    }
+
+    /// The same, with `ImageDataSettings`' `colorSpace`.
+    pub fn with_color_space(mut self, space: ColorSpace) -> ImageData {
+        self.color_space = space;
+        self
+    }
+}
+
+#[cfg(test)]
+mod size_tests {
+    use super::*;
+
+    #[test]
+    fn oversized_dimensions_return_an_exception() {
+        assert_eq!(
+            ImageData::new_with_sw(0, 1).unwrap_err().name,
+            "IndexSizeError"
+        );
+        for (width, height) in [(u32::MAX, u32::MAX), (65_536, 65_536)] {
+            let error = ImageData::new_with_sw(width, height).unwrap_err();
+            assert_eq!(error.name, "IndexSizeError");
+        }
+        let ctx = Context2d::new();
+        assert_eq!(
+            ctx.create_image_data_with_sw_and_sh(65_536.0, 65_536.0)
+                .unwrap_err()
+                .name,
+            "RangeError"
+        );
+        assert_eq!(
+            ctx.create_image_data_with_sw_and_sh(u32::MAX as f64, 1.0)
+                .unwrap_err()
+                .name,
+            "TypeError"
+        );
+        let ordinary = ImageData::new_with_sw(7, 9).unwrap();
+        assert_eq!(ordinary.data.len(), 7 * 9 * 4);
+        assert_eq!(
+            ctx.create_image_data_with_imagedata(&ordinary)
+                .unwrap()
+                .data
+                .len(),
+            7 * 9 * 4
+        );
     }
 }
 
@@ -444,7 +521,15 @@ impl Context2d {
         sw: f64,
         sh: f64,
     ) -> Result<ImageData, DomException> {
-        ImageData::new_with_sw(dimension(sw, "width")?, dimension(sh, "height")?)
+        let image = ImageData::new_with_sw(dimension(sw, "width")?, dimension(sh, "height")?)
+            .map_err(|mut error| {
+                if error.name == "IndexSizeError" {
+                    error.name = "RangeError";
+                    error.message = "Out of memory at ImageData creation.".into();
+                }
+                error
+            })?;
+        Ok(image.with_color_space(self.color_space()))
     }
 
     /// `createImageData(imagedata)`: the same size, transparent black.
@@ -452,7 +537,16 @@ impl Context2d {
         &self,
         data: &ImageData,
     ) -> Result<ImageData, DomException> {
-        ImageData::new_with_sw(data.width, data.height)
+        Ok(ImageData::new_with_sw(data.width, data.height)?.with_color_space(self.color_space()))
+    }
+
+    /// The canvas's space (LLP 1100 D12a): HTML's `getContextAttributes().colorSpace`.
+    pub fn color_space(&self) -> ColorSpace {
+        if self.g().env.p3 {
+            ColorSpace::DisplayP3
+        } else {
+            ColorSpace::Srgb
+        }
     }
 
     /// `putImageData(imagedata, dx, dy)`.
@@ -509,13 +603,34 @@ impl Context2d {
             return Ok(());
         }
         let (x0, y0, w, h) = (x as usize, y as usize, w as usize, h as usize);
+        // Pixels in another space than the canvas's are converted, as HTML's put does.
+        let convert: Option<fn(exact_color::Rgba8) -> exact_color::Rgba8> =
+            match (data.color_space, self.color_space()) {
+                (a, b) if a == b => None,
+                (ColorSpace::Srgb, _) => Some(exact_color::srgb8_to_p3),
+                (ColorSpace::DisplayP3, _) => Some(exact_color::p3_8_to_srgb),
+            };
         let mut ops = Vec::with_capacity(4 + w * h);
         ops.extend_from_slice(&[dx + x, dy + y, w as f64, h as f64]);
         for row in y0..y0 + h {
             for col in x0..x0 + w {
                 let i = (row * data.width as usize + col) * 4;
-                let p = &data.data[i..i + 4];
-                ops.push(u32::from_be_bytes([p[0], p[1], p[2], p[3]]) as f64);
+                let mut p = [
+                    data.data[i],
+                    data.data[i + 1],
+                    data.data[i + 2],
+                    data.data[i + 3],
+                ];
+                if let Some(convert) = convert {
+                    let c = convert(exact_color::Rgba8 {
+                        r: p[0],
+                        g: p[1],
+                        b: p[2],
+                        a: 1.0,
+                    });
+                    p[..3].copy_from_slice(&[c.r, c.g, c.b]);
+                }
+                ops.push(u32::from_be_bytes(p) as f64);
             }
         }
         self.g().op(Op::PutImageData, &ops);

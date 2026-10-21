@@ -18,7 +18,7 @@ impl DataSource for NoData {
 
 const SRC: &str = r##"component App
   state on = false
-  action toggle writes on
+  action toggle
     on = not on
   view
     column testId="page" background-color="light-dark(#ffffff, #000000)" transition="background-color 1s linear"
@@ -82,8 +82,10 @@ fn a_moving_colour_is_presented_over_its_row_and_handed_back() {
     );
     assert_eq!(style(&mid, still), None);
     // `none` to a shadow: geometry and colour from zero together.
-    assert!(shows(&mid, toggle, "shadow_offset", "[0,2]"), "{mid}");
-    assert!(shows(&mid, toggle, "shadow_radius", "6"), "{mid}");
+    assert!(
+        shows(&mid, toggle, "box_shadow", "[{\"o\":[0,2],\"b\":6,"),
+        "{mid}"
+    );
     let done = host.tick(1000.0);
     // Arrived: the rows show again.
     assert!(
@@ -131,10 +133,12 @@ fn the_appearance_retargets_light_dark_first_quietly_then_moving() {
 /// LLP 1062 D9: a keyframe's `light-dark()` colour is the presenter's
 /// appearance when it starts; the first report corrects boot's light guess
 /// in place, and a later flip leaves a playing animation as Chrome does.
+/// (The text's own colour is fixed: its initial `CanvasText` would cross as
+/// a reference the presenter resolves white in dark itself, LLP 1095 D8.)
 #[test]
 fn a_light_dark_keyframe_follows_the_presenter_appearance() {
     let plan = contract::compile(
-        "fn accent(): string = \"light-dark(#000000, #ffffff)\"\nkeyframes lit\n  from color=accent()\n  to color=\"light-dark(#ff0000, #0000ff)\"\ncomponent App\n  view\n    text \"lit\" testId=\"word\" animation=\"lit 1s linear both\"\n",
+        "fn accent(): string = \"light-dark(#000000, #ffffff)\"\nkeyframes lit\n  from color=accent()\n  to color=\"light-dark(#ff0000, #0000ff)\"\ncomponent App\n  view\n    text \"lit\" color=\"#000000\" testId=\"word\" animation=\"lit 1s linear both\"\n",
     )
     .unwrap();
     let (mut host, _) = Host::boot(
@@ -167,7 +171,7 @@ fn a_light_dark_keyframe_follows_the_presenter_appearance() {
 
 const INHERITING: &str = r##"component App
   state on = false
-  action toggle writes on
+  action toggle
     on = not on
   view
     column testId="box" color=(on ? "#ffffff" : "#000000") transition="color 1s linear" border-width=2 border-style="solid" border-left-color="#ff0000"
@@ -249,7 +253,7 @@ fn currentcolor_borders_and_inline_runs_follow_an_animating_color() {
 #[test]
 fn an_exit_animates_a_colour_the_node_never_transitioned() {
     let mut host = boot(
-        "keyframes leave\n  to background-color=\"#0000ff\"\ncomponent App\n  state shown = true\n  action hide writes shown\n    shown = false\n  view\n    column\n      button press=hide testId=\"hide\"\n        text \"Hide\"\n      when shown\n        column testId=\"gone\" height=40 background-color=\"#ff0000\" exit-animation=\"leave 1s linear both\"\n",
+        "keyframes leave\n  to background-color=\"#0000ff\"\ncomponent App\n  state shown = true\n  action hide\n    shown = false\n  view\n    column\n      button press=hide testId=\"hide\"\n        text \"Hide\"\n      if shown\n        column testId=\"gone\" height=40 background-color=\"#ff0000\" -exact-exit-animation=\"leave 1s linear both\"\n",
     );
     let (hide, gone) = (view(&host, "hide"), view(&host, "gone"));
     let off = host.dispatch_at(hide, Event::Press, 0.0);
@@ -300,6 +304,32 @@ fn a_view_in_its_own_appearance_resolves_by_it() {
     );
 }
 
+/// LLP 1034 §8: a subtree whose `color-scheme` turns dark moves its
+/// `light-dark()` colours under their transitions, as an appearance change
+/// does; the view's report that follows (what UIKit's override makes it say)
+/// is a confirmation, not a first report's correction, so it does not snap.
+#[test]
+fn a_color_scheme_change_moves_and_its_report_does_not_snap_it() {
+    let mut host = boot(
+        "component App\n  state dark = false\n  action flip\n    dark = not dark\n  view\n    column\n      button press=flip testId=\"flip\"\n        text \"Flip\"\n      column color-scheme=(dark ? \"dark\" : \"light\")\n        column testId=\"page\" height=10 background-color=\"light-dark(#ffffff, #000000)\" transition=\"background-color 1s linear\"\n",
+    );
+    let (flip, page) = (view(&host, "flip"), view(&host, "page"));
+    host.set_scheme(false);
+    host.tick(100.0);
+    let flipped = host.dispatch_at(flip, Event::Press, 100.0);
+    assert!(flipped.contains("\"motion\":true"), "{flipped}");
+    let report = host.set_view_scheme(page, true);
+    assert!(
+        style(&report, page).is_none() || !report.contains("[0,0,0,255]"),
+        "not snapped: {report}"
+    );
+    let mid = host.tick(600.0);
+    assert!(
+        shows(&mid, page, "background_color", "[128,128,128,255]"),
+        "halfway to dark: {mid}"
+    );
+}
+
 /// CSS: a side that stays `currentcolor` never transitions on its own — its
 /// computed value is the keyword — so it follows `color` even under a faster
 /// `border-color` transition; a side that becomes `currentcolor` from a
@@ -310,7 +340,7 @@ fn a_side_that_stays_currentcolor_follows_color_and_one_that_becomes_it_moves() 
     let mut host = boot(
         r##"component App
   state on = false
-  action toggle writes on
+  action toggle
     on = not on
   view
     column
@@ -360,7 +390,7 @@ fn an_svg_fill_moves_between_its_light_dark_pair() {
 #[test]
 fn an_exit_presents_text_color_over_the_last_style() {
     let mut host = boot(
-        "keyframes leave\n  to color=\"#0000ff\"\ncomponent App\n  state shown = true\n  action hide writes shown\n    shown = false\n  view\n    column\n      button \"Hide\" press=hide testId=\"hide\"\n      when shown\n        text \"Leaving\" testId=\"gone\" color=\"#ff0000\" exit-animation=\"leave 1s linear both\"\n",
+        "keyframes leave\n  to color=\"#0000ff\"\ncomponent App\n  state shown = true\n  action hide\n    shown = false\n  view\n    column\n      button \"Hide\" press=hide testId=\"hide\"\n      if shown\n        text \"Leaving\" testId=\"gone\" color=\"#ff0000\" -exact-exit-animation=\"leave 1s linear both\"\n",
     );
     let (hide, gone) = (view(&host, "hide"), view(&host, "gone"));
     host.dispatch_at(hide, Event::Press, 0.0);
@@ -373,7 +403,7 @@ fn cancelling_color_motion_restores_inheriting_views_and_inline_runs() {
     let source = INHERITING
         .replace(
             "  view\n",
-            "  state moving = true\n  action stop writes moving\n    moving = false\n  view\n",
+            "  state moving = true\n  action stop\n    moving = false\n  view\n",
         )
         .replace(
             "transition=\"color 1s linear\"",
@@ -419,4 +449,43 @@ fn cancelling_color_motion_restores_inheriting_views_and_inline_runs() {
         serde_json::json!([255, 255, 255, 255]),
         "{paragraph}"
     );
+}
+
+/// LLP 1116 D5: a radius that is a calculation with a percentage crosses to
+/// Swift as a handle on the kernel's evaluator, the environment's inset in
+/// it: `min(50%, calc(env(safe-area-inset-top) + 10px))` is half the basis up
+/// to 60 points, then 30.
+#[test]
+fn a_calculated_radius_carries_its_own_environment() {
+    use exact_kernel::{Env, StyleId, StyleProps, StyleValue};
+    let mut style = StyleProps::default();
+    style
+        .set_dynamic(
+            StyleId::BorderRadiusTopLeft,
+            &StyleValue::Text("min(50%, calc(env(safe-area-inset-top) + 10px))".into()),
+        )
+        .unwrap();
+    let context = |top| {
+        let (json, _) = exact_apple::style::style_json(&style, &Env::new(top, 0.0, 0.0, 0.0));
+        let value: serde_json::Value = serde_json::from_str(&json).unwrap();
+        let radius = &value["border_radius_top_left"];
+        let handle = radius["calc"].as_u64().unwrap() as u32;
+        let environment: Vec<f64> = radius["env"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|v| v.as_f64().unwrap())
+            .collect();
+        (
+            handle,
+            exact_apple::calc::Context::new(handle, &environment).unwrap(),
+        )
+    };
+    let (first_handle, first) = context(20.0);
+    assert_eq!(first.length(40.0), 20.0);
+    assert_eq!(first.length(200.0), 30.0);
+    let (other_handle, other) = context(2.0);
+    assert_eq!(first_handle, other_handle);
+    assert_eq!(other.length(200.0), 12.0);
+    assert_eq!(first.length(200.0), 30.0);
 }

@@ -20,7 +20,6 @@ fn auto_values_follow_each_rows_codec_and_vocabulary() {
             "display",
             "one of \"block\", \"flex\", \"grid\", \"none\", \"inline-block\"",
         ),
-        ("overflow", "one of \"visible\", \"hidden\", \"scroll\""),
         ("font-size", "number"),
         ("opacity", "number"),
     ] {
@@ -33,7 +32,7 @@ fn auto_values_follow_each_rows_codec_and_vocabulary() {
         );
     }
     contract::compile(&source(
-        "width=\"auto\" height=\"auto\" caret-color=\"auto\" wrap-flow=\"auto\" touch-action=\"auto\"",
+        "overflow=\"auto\" width=\"auto\" height=\"auto\" caret-color=\"auto\" wrap-flow=\"auto\" touch-action=\"auto\"",
     ))
     .unwrap();
 }
@@ -96,7 +95,7 @@ fn every_new_row_and_offsets_update_through_one_commit() {
   state wrap = "auto"
   state outline = "none"
   state margin = 0
-  action move() writes x, y, wrap, outline, margin
+  action move()
     x = 200
     y = 90
     wrap = "both"
@@ -152,7 +151,7 @@ fn every_new_row_and_offsets_update_through_one_commit() {
 #[test]
 fn exclusions_require_their_parent_to_contain_them() {
     for parent in ["", "position=\"static\""] {
-        let source = format!("component App\n  view\n    box\n      box {parent}\n        when true\n          box position=\"absolute\" wrap-flow=\"both\"\n");
+        let source = format!("component App\n  view\n    box\n      box {parent}\n        if true\n          box position=\"absolute\" wrap-flow=\"both\"\n");
         let error = contract::compile(&source).unwrap_err();
         assert!(
             error

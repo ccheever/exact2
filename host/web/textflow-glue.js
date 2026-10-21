@@ -78,6 +78,71 @@ export function fontStyle(style, mac = false, lang = '') {
     fontFeatureSettings: style.fontFeatureSettings, fontVariationSettings: style.fontVariationSettings };
 }
 
+/** CSS `text-box` on a flowed paragraph (Inline Layout 3 §4.2), whose spans
+ * the browser no longer trims: the cut off its first line's top and its last
+ * line's bottom, signed (a line box shorter than the font grows), from the
+ * root font's own edges about `baseline` in a `lineHeight` line box, as the
+ * native hosts cut it. Null when nothing is trimmed. */
+export function textBoxCut(style, font, lineHeight, context, baseline = baselineIn(font, lineHeight, context)) {
+  const trim = style.textBoxTrim || style.getPropertyValue?.('text-box-trim') || 'none';
+  if (trim === 'none') return null;
+  const words = (style.textBoxEdge || style.getPropertyValue?.('text-box-edge') || 'auto').trim().split(/\s+/);
+  const over = words[0] === 'auto' ? 'text' : words[0], under = words[1] ?? (over === 'text' ? 'text' : 'alphabetic');
+  const m = fontEdges(font, context, true);
+  const edge = over === 'cap' ? m.cap : over === 'ex' ? m.ex : m.ascent;
+  return {
+    top: trim === 'trim-start' || trim === 'trim-both' ? baseline - edge : 0,
+    bottom: trim === 'trim-end' || trim === 'trim-both' ? lineHeight - baseline - (under === 'alphabetic' ? 0 : m.descent) : 0,
+  };
+}
+
+/** Where text in `font` puts its baseline in a `lineHeight` line box: below
+ * its half-leading and its ascent. A line's is the lowest of its fonts'. */
+export function baselineIn(font, lineHeight, context) {
+  const e = fontEdges(font, context);
+  return (lineHeight - (e.ascent + e.descent)) / 2 + e.ascent;
+}
+
+/** Where a flowed fragment paints its baseline: the lowest of the root's and
+ * those of the runs it paints, its ellipsis's included. `baselines` are the
+ * root's, then each run's. */
+export function fragmentBaseline(fragment, state, baselines) {
+  let own = baselines[0];
+  for (let i = lower(state.runEnds, fragment.paint_start + 1); i < state.runs.length && state.runs[i].start < fragment.paint_end; i++) own = Math.max(own, baselines[i + 1]);
+  if (fragment.ellipsis && baselines[fragment.ellipsisRun + 1] !== undefined) own = Math.max(own, baselines[fragment.ellipsisRun + 1]);
+  return own;
+}
+
+/** A font's ascent and descent (canvas's, of the first available font)
+ * and its cap and x heights. Where CSS `text-box` is supported, the browser's
+ * own trim measures those from the font's metrics, whatever glyphs it lacks,
+ * once a trim asks (`caps`); elsewhere the ink of `H` and `x` stands in. Once
+ * per font until a font loads (`forgetTextBoxEdges`), for the 64 fonts used
+ * last. */
+const edges = new Map();
+export function forgetTextBoxEdges() { edges.clear(); }
+function fontEdges(font, context, caps = false) {
+  let e = edges.get(font.font);
+  if (e) edges.delete(font.font);
+  else {
+    context.font = font.font;
+    const m = context.measureText('H');
+    e = { ascent: m.fontBoundingBoxAscent, descent: m.fontBoundingBoxDescent, cap: m.actualBoundingBoxAscent, ex: context.measureText('x').actualBoundingBoxAscent };
+  }
+  if (caps && !e.probed && globalThis.CSS?.supports?.('text-box', 'trim-both cap alphabetic') && globalThis.document?.body) {
+    const probe = document.createElement('div');
+    probe.style.cssText = `position:absolute;visibility:hidden;white-space:pre;font:${font.font}`;
+    probe.textContent = 'H';
+    document.body.append(probe);
+    const height = over => { probe.style.textBox = `trim-both ${over} alphabetic`; return probe.getBoundingClientRect().height; };
+    e = { ...e, cap: height('cap'), ex: height('ex'), probed: true };
+    probe.remove();
+  }
+  if (edges.size >= 64) edges.delete(edges.keys().next().value);
+  edges.set(font.font, e);
+  return e;
+}
+
 // Work/storage: cache <=8192 (font,string) pairs / 1M UTF-16 units, LRU eviction.
 // A single paragraph's Prepared stays in wasm after eviction of measurement data.
 export function measurementCache(context) {
@@ -198,6 +263,8 @@ function replaceNodes(element, nodes) {
   for (const node of nodes) element.append(node); // no argument-stack bound on rich text
 }
 
+const keyForwarders = new WeakMap();
+
 function paintContent(span, fragment, state, lineHeight) {
   const children = [];
   // Binary search avoids scanning all inline runs for every fragment.
@@ -212,10 +279,41 @@ function paintContent(span, fragment, state, lineHeight) {
       clone.removeAttribute('id'); clone.removeAttribute('data-testid');
       // Original listeners remain valid by kernel view identity while detached.
       // Forward authored events only; a plain <a> keeps its native default.
-      for (const event of original.exactFlowEvents ?? []) clone.addEventListener(event, e => {
-        e.stopPropagation();
+      const events = new Set(original.exactFlowEvents ?? []);
+      keyForwarders.set(clone, events);
+      for (const event of events) clone.addEventListener(event, e => {
+        const keyboard = e.type === 'keydown' || e.type === 'keyup';
+        if (keyboard) {
+          // Only the innermost forwarding clone sends this dispatch through the authored chain.
+          if (e.composedPath().find(node => keyForwarders.get(node)?.has(e.type)) !== clone) return;
+        }
+        // A capture action can restore the originals; then the copy already reaches live ancestors.
+        if (!keyboard || original.isConnected) e.stopPropagation();
         const forwarded = new e.constructor(e.type, e);
-        if (!original.dispatchEvent(forwarded)) e.preventDefault();
+        if (keyboard) for (const method of ['stopPropagation', 'stopImmediatePropagation']) {
+          // Chrome clears cancelBubble after dispatch, so carry native stops while they happen.
+          forwarded[method] = () => { e[method](); Event.prototype[method].call(forwarded); };
+        }
+        if (keyboard) {
+          // Live ancestors already captured the source event, even if a commit restored these runs.
+          forwarded.exactFlowCapture = run.chain;
+          const cancelBubble = Object.getOwnPropertyDescriptor(Event.prototype, 'cancelBubble');
+          Object.defineProperty(forwarded, 'cancelBubble', {
+            get: () => cancelBubble.get.call(forwarded),
+            set(value) { cancelBubble.set.call(forwarded, value); if (forwarded.cancelBubble) e.stopPropagation(); },
+          });
+        }
+        forwarded.exactStopped = e.exactStopped; forwarded.$stopped = e.$stopped;
+        if (e.defaultPrevented) forwarded.preventDefault();
+        try {
+          if (!original.dispatchEvent(forwarded)) e.preventDefault();
+        } finally {
+          // A retained copy's next dispatch must capture through its own live ancestors.
+          delete forwarded.exactFlowCapture;
+        }
+        if (keyboard) {
+          e.exactStopped = forwarded.exactStopped; e.$stopped = forwarded.$stopped;
+        }
       });
       if (inner) inner.append(clone); else outer = clone;
       inner = clone;
@@ -240,7 +338,8 @@ function paintContent(span, fragment, state, lineHeight) {
   if (fragment.ellipsis) {
     const piece = document.createElement('span');
     const font = state.runs[fragment.ellipsisRun]?.font;
-    if (font) piece.style.cssText = `font:${font.font};letter-spacing:${font.spacing}px;`;
+    // `font` resets `line-height`: the ellipsis keeps the line's, as the runs do
+    if (font) piece.style.cssText = `font:${font.font};letter-spacing:${font.spacing}px;line-height:${lineHeight}px;`;
     piece.textContent = '…'; piece.exactFlowSourceStart = fragment.paint_end;
     children.push(piece);
   }
@@ -261,6 +360,34 @@ export function createTextFlow({ views, request, advance, present, agentMode, lo
   document.head.append(sheet);
   const mac = /Mac|iPhone|iPad|iPod/.test(navigator.platform);
   let contexts = [], dirty = false, fontsReady = false, disposed = false, pendingSelection = null;
+  // A batch that puts a flowed auto-height paragraph back to its text (`restore`) holds the
+  // paragraph's flowed height until the reflow writes the new one: the unflowed text is shorter, and
+  // a scroller at its end would clamp to it (WebKit kept the clamp when the fragments came back;
+  // Chrome's scroll anchoring undid it), and what follows the paragraph would jump for a frame. The
+  // hold is a rule in this glue's own sheet, `[data-flow-hold]`, at the larger of the flowed height
+  // and the paragraph's own minimum: a host's style write (the wasm host replaces `cssText`) keeps
+  // it, and an authored inline min-height is never written. No scroll offset is written either.
+  const pinned = new Set(), holds = document.createElement('style');
+  document.head.append(holds);
+  const writeHolds = () => { holds.textContent = [...pinned].map(s => `[data-flow-hold="${s.id}"]{min-height:${s.hold}px!important}`).join(''); };
+  function pin(s) {
+    // A definite paragraph keeps its height through `restore`; only an auto one collapses.
+    if (pinned.has(s) || !s.rendered || s.info?.definite || !s.el.style.height) return;
+    // The height `write` stored (layout units, under the paragraph's own box-sizing, as min-height
+    // reads it; never a transformed rect), or its own larger minimum.
+    s.hold = Math.max(parseFloat(s.el.style.height) || 0, parseFloat(getComputedStyle(s.el).minHeight) || 0);
+    s.el.dataset.flowHold = String(s.id); pinned.add(s); writeHolds();
+  }
+  function unpin(s) { delete s.el.dataset.flowHold; pinned.delete(s); writeHolds(); }
+  function unpinAll() { for (const s of pinned) unpin(s); }
+  // After a reflow that ran (`flush`'s `pending`: a calibration still owes a cycle): a paragraph that
+  // flowed again has its new height written, and one that did not (no exclusion meets it now, the
+  // paragraph budget, a refusal) is ordinary text again; both let their held heights go. One still
+  // waiting on a calibration keeps it until the frame that flows it; until fonts are ready, all do.
+  function unpinFlowed(pending) {
+    if (!fontsReady || disposed) return;
+    for (const s of pinned) if (s.rendered || !pending) unpin(s);
+  }
   const clock = createTimerScheduler({ now, advance, present, agentMode, paint: onFrame, raf, cancel, delay, clearDelay });
   const observer = new ResizeObserver(() => invalidate());
   const observed = new Set();
@@ -285,9 +412,10 @@ export function createTextFlow({ views, request, advance, present, agentMode, lo
   function refreshFonts() {
     pendingSelection ??= selectionSnapshot();
     metrics.clear();
+    forgetTextBoxEdges();
     for (const p of calibration.values()) p.element?.remove();
     calibration.clear();
-    for (const s of states.values()) { restore(s); s.needsSource = true; s.prepared = false; }
+    for (const s of states.values()) { pin(s); restore(s); s.needsSource = true; s.prepared = false; }
     invalidate();
   }
   document.fonts.ready.then(() => { if (!disposed) { fontsReady = true; refreshFonts(); } });
@@ -390,6 +518,8 @@ export function createTextFlow({ views, request, advance, present, agentMode, lo
       }
       const fonts = [font, ...s.runs.map(r => r.font)];
       const lineHeight = fonts.reduce((height, f) => Math.max(height, f.lineHeight || f.size * 1.2), 0);
+      // Each font's baseline in the line box, the root's first, then each run's
+      const baselines = fonts.map(f => baselineIn(f, lineHeight, context));
       const left = px(style.borderLeftWidth) + px(style.paddingLeft), top = px(style.borderTopWidth) + px(style.paddingTop);
       const bottom = px(style.borderBottomWidth) + px(style.paddingBottom);
       return { s, font, distance: Math.max(0, box.y - (globalThis.innerHeight || 900), -box.y - box.height), width: Math.max(0, box.width - left - px(style.borderRightWidth) - px(style.paddingRight)),
@@ -398,7 +528,8 @@ export function createTextFlow({ views, request, advance, present, agentMode, lo
         verticalInset: style.boxSizing === 'border-box' ? top + bottom : 0,
         x: box.x + left, y: box.y + top, contentOrigin: { x: left, y: top }, padX: px(style.paddingLeft), padY: px(style.paddingTop),
         lineHeight, maxLines: px(style.webkitLineClamp), overflow: style.overflowWrap, whiteSpace: style.whiteSpace,
-        align: style.textAlign, direction: style.direction, position: style.position, exclusions, transformed: box.transformed };
+        align: style.textAlign, direction: style.direction, position: style.position, exclusions, transformed: box.transformed,
+        baselines, cut: textBoxCut(style, font, lineHeight, context, Math.max(...baselines)) };
     });
   }
 
@@ -473,7 +604,7 @@ export function createTextFlow({ views, request, advance, present, agentMode, lo
     if (snapshot.skipped || snapshot.inactive || !fontsReady) return snapshot;
     try {
       const key = JSON.stringify([snapshot.width, snapshot.height, snapshot.lineHeight, snapshot.maxLines, snapshot.align,
-        snapshot.direction, snapshot.x, snapshot.y, snapshot.exclusions]);
+        snapshot.direction, snapshot.x, snapshot.y, snapshot.exclusions, snapshot.cut]);
       if (s.geometry === key && s.rendered) return { s, unchanged: true };
       // Canvas has no font-variant-numeric: tabular figures cannot be measured
       // for the walker, so such a paragraph keeps ordinary layout (LLP 1053 G4).
@@ -484,14 +615,21 @@ export function createTextFlow({ views, request, advance, present, agentMode, lo
       const facts = request(2, s.id, flowInput(snapshot, snapshot.exclusions));
       if (facts.error) throw Error(facts.error);
       if (!facts.complete && !facts.clamped) return { s, skipped: 'flow band limit reached; ordinary text retained', partial: facts };
+      // Every fragment paints its baseline at the line's, the lowest any of the paragraph's fonts puts it, as
+      // the native hosts share one baseline: a fragment of only smaller text moves down to it
+      const shared = Math.max(...snapshot.baselines);
+      const lift = f => shared - fragmentBaseline(f, s, snapshot.baselines);
+      // `text-box`: every line moves up by the top's cut, and the height loses both; no line, no cut
+      const cut = (facts.fragments.length && snapshot.cut) || { top: 0, bottom: 0 };
       const fragments = facts.fragments.map((f, index) => {
         if (facts.clamped && index + 1 === facts.fragments.length) f = clampFragment(f, snapshot);
         const spare = Math.max(0, f.available - f.width);
         const align = snapshot.align === 'start' || snapshot.align === 'justify' ? (snapshot.direction === 'rtl' ? 'right' : 'left')
           : snapshot.align === 'end' ? (snapshot.direction === 'rtl' ? 'left' : 'right') : snapshot.align;
-        return { ...f, x: f.x + (align === 'center' ? spare / 2 : align === 'right' ? spare : 0), y: f.y };
+        return { ...f, x: f.x + (align === 'center' ? spare / 2 : align === 'right' ? spare : 0), y: f.y - cut.top + lift(f) };
       });
-      return { ...snapshot, facts, fragments, key };
+      const trimmed = cut.top || cut.bottom ? { ...facts, height: Math.max(0, facts.height - cut.top - cut.bottom) } : facts;
+      return { ...snapshot, facts: trimmed, fragments, key };
     } catch (error) { return { s, skipped: String(error) }; }
     finally { if (!snapshot.retain) release(s); }
   }
@@ -611,7 +749,12 @@ export function createTextFlow({ views, request, advance, present, agentMode, lo
         moved ||= round === 0 && snapshot.s.boxes != null && snapshot.s.boxes !== boxes; snapshot.s.boxes = boxes;
       }
       const results = framePhases(snapshots, value => value, compute, write);
-      if (!results.some(r => r.heightChanged) || round >= results.filter(r => r.auto).length) break;
+      // A held paragraph that flowed again has its new height: its hold goes now, inside the loop, so
+      // the paragraphs after it are read where that height puts them (one more round when one went).
+      let released = false;
+      for (const s of pinned) if (s.rendered) { delete s.el.dataset.flowHold; pinned.delete(s); released = true; }
+      if (released) writeHolds();
+      if ((!results.some(r => r.heightChanged) && !released) || round >= results.filter(r => r.auto).length + Number(released)) break;
       for (const s of states.values()) s.box = null;
     }
     restoreSelection(selected);
@@ -630,7 +773,7 @@ export function createTextFlow({ views, request, advance, present, agentMode, lo
   }
   function onFrame() {
     // The scheduler advances first, then paints in this same frame.
-    flush();
+    unpinFlowed(flush());
     if (dirty) wake();
   }
 
@@ -641,7 +784,7 @@ export function createTextFlow({ views, request, advance, present, agentMode, lo
       for (const s of states.values()) {
         const relevant = topology || ops.some(op => ['style', 'props'].includes(op.op) &&
           (op.id === s.id || views.get(op.id)?.contains(s.el) || s.runs.some(r => r.chain.includes(views.get(op.id)))));
-        if (relevant) { pendingSelection ??= selectionSnapshot(); restore(s); s.needsSource = true; s.geometry = null; }
+        if (relevant) { pendingSelection ??= selectionSnapshot(); pin(s); restore(s); s.needsSource = true; s.geometry = null; }
       }
     },
     afterBatch(batch) {
@@ -653,14 +796,20 @@ export function createTextFlow({ views, request, advance, present, agentMode, lo
         const onlyExclusions = batch.ops.every(op => op.op === 'style' && contexts.some(c => c.exclusions.includes(op.id)));
         invalidate(!onlyExclusions);
       }
+      // A batch that put paragraphs back to their text flows them again now, in its own task, so no
+      // frame paints them unflowed; their held heights go once the reflow has written new ones.
+      if (pinned.size) unpinFlowed(flush());
     },
     async settle() {
       await document.fonts.ready; fontsReady = true;
       // Calibration needs a separate write/read cycle, never alternating nodes.
-      for (let i = 0; i < 3 && dirty; i++) { flush(); if (dirty) await new Promise(resolve => raf(resolve)); }
+      let pending = false;
+      for (let i = 0; i < 3 && dirty; i++) { pending = flush(); if (dirty) await new Promise(resolve => raf(resolve)); }
+      unpinFlowed(pending);
     },
     facts(id) { return states.get(id)?.facts ?? null; },
     reset() {
+      unpinAll();
       clock.reset();
       for (const s of states.values()) restore(s);
       request(6, 0, new Uint8Array()); shapes.clear();
@@ -670,7 +819,7 @@ export function createTextFlow({ views, request, advance, present, agentMode, lo
     dispose() {
       this.reset(); disposed = true;
       clock.dispose();
-      document.fonts.removeEventListener('loadingdone', refreshFonts); document.removeEventListener('scroll', invalidate, true); canvas.remove(); sheet.remove();
+      document.fonts.removeEventListener('loadingdone', refreshFonts); document.removeEventListener('scroll', invalidate, true); canvas.remove(); sheet.remove(); holds.remove();
     },
   };
 }

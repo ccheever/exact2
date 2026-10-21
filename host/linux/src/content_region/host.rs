@@ -22,6 +22,7 @@ impl<D: DataSource> Host<D> {
         self.content_region.as_mut()?.first_painted(painter).err()
     }
     /// File-descriptor readiness makes progress without another input event.
+    #[cfg(unix)]
     pub fn content_region_fd(&self) -> Option<std::os::unix::io::RawFd> {
         self.content_region.as_ref()?.completion_fd()
     }

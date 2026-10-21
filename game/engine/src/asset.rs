@@ -13,7 +13,9 @@ pub(crate) mod level;
 mod map;
 mod sound;
 pub use level::{Level, LevelValue};
+pub(crate) mod table;
 pub use sound::{SoundAsset, SoundData, SOUND_BYTE_BUDGET, SOUND_RATES};
+pub use table::{validate_tables, Curve, Table, TableInput, TableValue, TABLE_ASSET};
 /// Renderer-neutral pose records and rig geometry.
 pub mod pose;
 
@@ -31,6 +33,7 @@ pub struct Model {
 pub struct MeshData {
     pub positions: Vec<f32>,
     pub normals: Vec<f32>,
+    pub outline: Option<MeshOutline>,
     pub uvs: Vec<f32>,
     /// Optional linear RGBA vertex colours; empty means white.
     pub colors: Vec<f32>,
@@ -40,10 +43,38 @@ pub struct MeshData {
     pub material: u32,
     pub bounds: [f32; 6],
 }
-#[derive(Data, Clone, Debug)]
+/// Inverted hull data. Width is in world metres; reach is along each local normal.
+#[derive(Data, Default, Clone, Debug)]
+pub struct MeshOutline {
+    pub width: f32,
+    pub min_pixels: f32,
+    pub color: [f32; 3],
+    pub normals: Vec<f32>,
+    pub reach: Vec<f32>,
+}
+/// One material of a model. Its record (model record 2, [`MODEL_RECORD`]) is
+/// the derive's field-named record plus `name`, written first and only when
+/// it is not empty: an absent name is an unnamed material. So a model with
+/// no names, as every generated one has, keeps its bytes and its identity in
+/// saves. The rule is this record's: the derive drops no field by its value,
+/// since the hash does not name fields and two dropped fields would collide.
+///
+/// ```compile_fail
+/// use exact_game::*;
+/// #[derive(Data, Default)]
+/// pub struct Record {
+///     #[data(omit_default)]
+///     pub a: u32,
+/// }
+/// ```
+#[derive(Clone, Debug)]
 pub struct MaterialData {
+    /// The glTF material's name, empty when it has none. Informational only:
+    /// names may repeat, and a mesh's `material` index is what selects one.
+    pub name: String,
     pub base_color: [f32; 4],
     pub metallic: f32,
+    pub rim: f32,
     pub roughness: f32,
     pub emissive: [f32; 3],
     pub base_color_texture: Option<u32>,
@@ -62,8 +93,10 @@ pub struct MaterialData {
 impl Default for MaterialData {
     fn default() -> Self {
         Self {
+            name: String::new(),
             base_color: [1.0; 4],
             metallic: 1.0,
+            rim: 0.0,
             roughness: 1.0,
             emissive: [0.0; 3],
             base_color_texture: None,
@@ -80,6 +113,68 @@ impl Default for MaterialData {
         }
     }
 }
+/// The derive's encoding of every field but `name`, which the record rule
+/// above writes; the field list is the struct's, in its order.
+macro_rules! material_record {
+    ($($field:ident),* $(,)?) => {
+        impl Data for MaterialData {
+            const TYPE_ID: &'static str = concat!("table:", module_path!(), "::MaterialData");
+            fn write(&self, w: &mut dyn crate::Writer) {
+                w.begin_struct();
+                if !self.name.is_empty() {
+                    w.field("name");
+                    self.name.write(w);
+                }
+                $(
+                    w.field(stringify!($field));
+                    Data::write(&self.$field, w);
+                )*
+                w.end_struct();
+            }
+            fn read(&mut self, r: &mut dyn crate::Reader) -> Result<(), crate::DataError> {
+                // The record's rule, not a patch: no name read is no name.
+                self.name.clear();
+                let fields = [$(stringify!($field)),*];
+                let mut seen = [false; [$(stringify!($field)),*].len()];
+                r.begin_struct()?;
+                while let Some(field) = r.field()? {
+                    if let Some(i) = fields.iter().position(|f| *f == field) {
+                        seen[i] = true;
+                    }
+                    match field.as_str() {
+                        "name" => self.name.read(r).map_err(|e| e.at("name"))?,
+                        $(stringify!($field) => Data::read(&mut self.$field, r)
+                            .map_err(|e| e.at(stringify!($field)))?,)*
+                        _ => r.skip().map_err(|e| e.at(&field))?,
+                    }
+                }
+                // A complete record (a tuning table's) names every field but the name, as the derive requires.
+                if let Some(i) = seen.iter().position(|s| !s).filter(|_| r.complete()) {
+                    return Err(crate::DataError::new("missing field").at(fields[i]));
+                }
+                Ok(())
+            }
+        }
+    };
+}
+material_record!(
+    base_color,
+    metallic,
+    rim,
+    roughness,
+    emissive,
+    base_color_texture,
+    normal_texture,
+    metallic_roughness_texture,
+    emissive_texture,
+    occlusion_texture,
+    uv_transforms,
+    normal_scale,
+    occlusion_strength,
+    alpha_mode,
+    alpha_cutoff,
+    double_sided,
+);
 #[derive(Data, Default, Clone, Copy, Debug, PartialEq, Eq)]
 pub enum AlphaMode {
     #[default]
@@ -205,6 +300,8 @@ pub struct Node {
     pub transform: [f32; 16],
     pub mesh: Option<u32>,
     pub skin: Option<u32>,
+    /// Accepts presentation-only node offsets. Promotes the model to palettes.
+    pub posable: bool,
 }
 impl Default for Node {
     fn default() -> Self {
@@ -214,6 +311,7 @@ impl Default for Node {
             transform: glam::Mat4::IDENTITY.to_cols_array(),
             mesh: None,
             skin: None,
+            posable: false,
         }
     }
 }
@@ -254,6 +352,11 @@ pub enum Interpolation {
     CubicSpline,
 }
 impl Model {
+    /// Whether drawing needs interpolated local poses and a joint palette.
+    pub fn requires_palette(&self) -> bool {
+        !self.skins.is_empty() || !self.clips.is_empty() || self.nodes.iter().any(|n| n.posable)
+    }
+
     /// Validate all upload ranges before any renderer allocation.
     pub fn validate(&self) -> Result<(), String> {
         let fail = |s: &str| Err(format!("model: {s}"));
@@ -314,7 +417,33 @@ impl Model {
                 return fail("non-finite vertex");
             }
         }
-        for mesh in &self.meshes {
+        for (index, mesh) in self.meshes.iter().enumerate() {
+            if let Some(o) = &mesh.outline {
+                let combination = match self.materials[mesh.material as usize].alpha_mode {
+                    AlphaMode::Mask => Some("alpha-tested material (MASK)"),
+                    AlphaMode::Blend => Some("blended material (BLEND)"),
+                    AlphaMode::Opaque => None,
+                };
+                if let Some(combination) = combination {
+                    return Err(format!(
+                        "model mesh {index}: outline with {combination} is unsupported"
+                    ));
+                }
+                if o.normals.len() != mesh.positions.len()
+                    || o.reach.len() * 3 != mesh.positions.len()
+                    || o.normals.iter().any(|x| !x.is_finite())
+                    || o.normals
+                        .chunks_exact(3)
+                        .any(|n| glam::Vec3::from_slice(n).length_squared() < 1e-12)
+                    || o.reach
+                        .iter()
+                        .chain(&o.color)
+                        .chain([&o.width, &o.min_pixels])
+                        .any(|x| !x.is_finite() || *x < 0.)
+                {
+                    return fail("invalid mesh outline");
+                }
+            }
             if mesh
                 .weights
                 .chunks_exact(4)
@@ -332,6 +461,7 @@ impl Model {
                     &m.metallic,
                     &m.roughness,
                     &m.normal_scale,
+                    &m.rim,
                     &m.occlusion_strength,
                     &m.alpha_cutoff,
                 ])
@@ -361,8 +491,30 @@ impl Model {
             }
         }
         self.offsets()?;
-        if !self.skins.is_empty() && self.nodes.len() > 256 {
-            return fail("skinned models support at most 256 imported nodes");
+        if self.nodes.iter().any(|n| n.posable) {
+            let mut names = BTreeSet::new();
+            for n in &self.nodes {
+                if n.posable && !names.insert(&n.name) {
+                    return fail("duplicate posable node name");
+                }
+                let m = glam::Mat4::from_cols_array(&n.transform);
+                let axes = [
+                    m.x_axis.truncate(),
+                    m.y_axis.truncate(),
+                    m.z_axis.truncate(),
+                ];
+                let unit = axes.map(|a| a.normalize_or_zero());
+                if unit[0].dot(unit[1]).abs() > 1e-5
+                    || unit[0].dot(unit[2]).abs() > 1e-5
+                    || unit[1].dot(unit[2]).abs() > 1e-5
+                    || axes.iter().any(|a| a.length_squared() == 0.)
+                {
+                    return fail("posable model node has shear or singular scale");
+                }
+            }
+        }
+        if self.requires_palette() && self.nodes.len() > 256 {
+            return fail("animated models support at most 256 imported nodes");
         }
         for s in &self.skins {
             if s.joints.is_empty()
@@ -418,6 +570,35 @@ impl Model {
                         "model clip `{}` node {}: invalid node, arity, values or times",
                         clip.name, track.node
                     ));
+                }
+                if matches!(track.path, TrackPath::Scale) {
+                    let node = &self.nodes[track.node as usize];
+                    let (rest, _, _) = glam::Mat4::from_cols_array(&node.transform)
+                        .to_scale_rotation_translation();
+                    let signs = rest.signum().to_array();
+                    let keys: Vec<_> = track.values.chunks_exact(3 * count).collect();
+                    let same_sign = |v: &[f32]| v.iter().zip(signs).all(|(v, sign)| *v * sign > 0.);
+                    let values_safe = keys
+                        .iter()
+                        .all(|key| same_sign(&key[if count == 3 { 3 } else { 0 }..][..3]));
+                    // Hermite segments lie in the hull of their Bezier controls.
+                    // Requiring that hull to retain each rest-axis sign also
+                    // excludes tangent overshoot between otherwise safe keys.
+                    let curves_safe = count != 3
+                        || keys.windows(2).enumerate().all(|(i, k)| {
+                            let dt = f64::from(track.times[i + 1] - track.times[i]) / 3.;
+                            (0..3).all(|axis| {
+                                let a = f64::from(k[0][3 + axis]) + dt * f64::from(k[0][6 + axis]);
+                                let b = f64::from(k[1][3 + axis]) - dt * f64::from(k[1][axis]);
+                                a * f64::from(signs[axis]) > 0. && b * f64::from(signs[axis]) > 0.
+                            })
+                        });
+                    if !values_safe || !curves_safe {
+                        return Err(format!(
+                            "model clip `{}` node `{}` ({}): scale must retain each rest-axis sign, including cubic controls",
+                            clip.name, node.name, track.node
+                        ));
+                    }
                 }
                 if matches!(track.path, TrackPath::Rotation)
                     && track.values.chunks_exact(arity * count).any(|v| {
@@ -500,6 +681,7 @@ pub(crate) struct Assets {
     pub models: map::AssetMap<ModelAsset>,
     pub identities: std::collections::BTreeMap<String, u64>,
     pub levels: map::AssetMap<Arc<LevelValue>>,
+    pub tables: Option<Arc<table::TableStore>>,
     pub sounds: map::AssetMap<Arc<SoundAsset>>,
     pub states: map::AssetMap<AssetState>,
     pub declared: BTreeSet<String>,
@@ -508,8 +690,10 @@ pub(crate) struct Assets {
     pub prepared: BTreeSet<String>,
     pub redelivery: BTreeSet<String>,
     pub dependencies: map::AssetMap<Vec<String>>,
+    /// Each texture's models, `dependencies` reversed: a delivery finishes
+    /// only the models it concerns. Write both through `set_dependencies`.
+    pub dependents: map::AssetMap<Vec<String>>,
     pub retired: Vec<String>,
-    pub refusal: Option<(String, String)>,
 }
 
 // The delivery owner is installed by the first asset mutation. Primitive worlds
@@ -534,6 +718,7 @@ impl std::ops::Deref for AssetStore {
             models: map::AssetMap::EMPTY,
             identities: std::collections::BTreeMap::new(),
             levels: map::AssetMap::EMPTY,
+            tables: None,
             sounds: map::AssetMap::EMPTY,
             states: map::AssetMap::EMPTY,
             declared: BTreeSet::new(),
@@ -542,8 +727,8 @@ impl std::ops::Deref for AssetStore {
             prepared: BTreeSet::new(),
             redelivery: BTreeSet::new(),
             dependencies: map::AssetMap::EMPTY,
+            dependents: map::AssetMap::EMPTY,
             retired: Vec::new(),
-            refusal: None,
         };
         self.owner.as_ref().map_or(&EMPTY, |owner| owner.as_ref())
     }
@@ -576,19 +761,38 @@ impl From<Model> for ModelAsset {
     }
 }
 impl Assets {
+    /// A model's textures, and the reverse index with them.
+    pub fn set_dependencies(&mut self, model: &str, textures: Vec<String>) {
+        self.remove_dependencies(model);
+        for texture in &textures {
+            match self.dependents.get_mut(texture) {
+                Some(models) if !models.iter().any(|m| m == model) => models.push(model.into()),
+                Some(_) => {}
+                None => self.dependents.insert(texture.clone(), vec![model.into()]),
+            }
+        }
+        self.dependencies.insert(model.into(), textures);
+    }
+    pub fn remove_dependencies(&mut self, model: &str) {
+        let Some(textures) = self.dependencies.get(model).cloned() else {
+            return;
+        };
+        for texture in textures {
+            if let Some(models) = self.dependents.get_mut(&texture) {
+                models.retain(|m| m != model);
+                if models.is_empty() {
+                    self.dependents.remove(&texture);
+                }
+            }
+        }
+        self.dependencies.remove(model);
+    }
     pub fn ready(&self) -> bool {
         self.required
             .iter()
             .all(|n| self.states.get(n).is_none_or(|s| *s == AssetState::Loaded))
     }
-    pub fn request(&mut self, name: &str) -> bool {
-        if !self.states.contains_key(name) && self.states.len() >= 256 {
-            self.refusal = Some((
-                name.into(),
-                format!("asset `{name}`: surface limit is 256 names"),
-            ));
-            return false;
-        }
+    pub fn request(&mut self, name: &str) {
         if !self.states.contains_key(name) {
             let state = if asset_name(name) {
                 AssetState::Pending
@@ -597,7 +801,6 @@ impl Assets {
             };
             self.states.insert(name.into(), state);
         }
-        true
     }
     pub fn retire(&mut self, roots: &BTreeSet<String>) {
         let mut live = roots.clone();
@@ -616,13 +819,12 @@ impl Assets {
         for name in removed {
             self.retire_name(name);
         }
-        self.refusal = None;
     }
     pub(super) fn retire_name(&mut self, name: String) {
         self.states.remove(&name);
         if !self.declared.contains(&name) {
             self.models.remove(&name);
-            self.dependencies.remove(&name);
+            self.remove_dependencies(&name);
         }
         self.requested.remove(&name);
         self.prepared.remove(&name);
@@ -630,7 +832,7 @@ impl Assets {
         self.retired.push(name);
     }
     pub fn state_json(&self) -> String {
-        let mut rows: Vec<_> = self
+        let rows: Vec<_> = self
             .states
             .iter()
             .map(|(name, state)| {
@@ -653,13 +855,6 @@ impl Assets {
                 )
             })
             .collect();
-        if let Some((name, reason)) = &self.refusal {
-            rows.push(format!(
-                "{{\"name\":{},\"state\":\"Failed\",\"reason\":{}}}",
-                crate::values::quote(name),
-                crate::values::quote(reason)
-            ));
-        }
         format!("[{}]", rows.join(","))
     }
 }
@@ -743,12 +938,44 @@ impl crate::Mesh {
     }
 }
 
+/// The baked `.model` file's record: material names (record 2). A file is
+/// [`MODEL_MAGIC`], this number as one byte, then the model in the engine's
+/// codec ([`encode_model`]).
+pub const MODEL_RECORD: u8 = 2;
+/// The first bytes of a baked `.model` file; the next is its record.
+pub const MODEL_MAGIC: &[u8; 7] = b"EXMODEL";
+/// A model as the bake writes it: the versioned header, then the codec's bytes.
+pub fn encode_model(model: &Model) -> Vec<u8> {
+    let mut bytes = MODEL_MAGIC.to_vec();
+    bytes.push(MODEL_RECORD);
+    bytes.extend(crate::bin::to_vec(model));
+    bytes
+}
+/// Read a baked `.model` file, refusing one of another record by name.
+pub fn decode_model(bytes: &[u8]) -> Result<Model, String> {
+    let rebake = "bake art/ again (any build does, and `sim_with_art!` in a test)";
+    let Some(rest) = bytes.strip_prefix(MODEL_MAGIC) else {
+        return Err(format!(
+            "baked before model records (record 1, no material names); {rebake}"
+        ));
+    };
+    match rest.split_first() {
+        Some((&MODEL_RECORD, body)) => crate::bin::from_slice(body).map_err(|e| e.to_string()),
+        Some((record, _)) => Err(format!(
+            "baked as model record {record}; this engine reads record {MODEL_RECORD}: {rebake}"
+        )),
+        None => Err("model record missing".into()),
+    }
+}
+
 /// Validated content delivered to the name/dependency gate.
 pub enum Content {
     Model(Model),
     Texture(TextureData),
     /// JSON is typed by the game declaration when it crosses the barrier.
     Level(String),
+    /// A complete tuning transaction, validated by the game declaration.
+    Tables(String),
     /// Baked 16-bit PCM; decoded in primitive and model modules alike.
     Sound(SoundData),
 }
@@ -760,7 +987,13 @@ impl Content {
         if bytes.len() > 64 * 1024 * 1024 {
             return Err("exceeds 64 MiB".into());
         }
-        if name.ends_with(".level.json") {
+        if name == TABLE_ASSET {
+            Ok(Self::Tables(
+                std::str::from_utf8(bytes)
+                    .map_err(|e| e.to_string())?
+                    .into(),
+            ))
+        } else if name.ends_with(".level.json") {
             Ok(Self::Level(
                 std::str::from_utf8(bytes)
                     .map_err(|e| e.to_string())?
@@ -775,7 +1008,7 @@ impl Content {
             texture.validate()?;
             Ok(Self::Texture(texture))
         } else if MODELS && name.ends_with(".model") {
-            let model: Model = crate::bin::from_slice(bytes).map_err(|e| e.to_string())?;
+            let model = decode_model(bytes)?;
             model.validate()?;
             Ok(Self::Model(model))
         } else {
@@ -786,7 +1019,9 @@ impl Content {
 /// Whether a module without model support still receives deliveries: a declared
 /// JSON level or declared `.sound` assets.
 pub fn delivers_without_models<G: crate::Game>() -> bool {
-    G::LEVEL.is_some() || G::ASSETS.iter().any(|name| name.ends_with(".sound"))
+    !G::TABLES.is_empty()
+        || G::LEVEL.is_some()
+        || G::ASSETS.iter().any(|name| name.ends_with(".sound"))
 }
 impl<G: crate::Game> crate::Sim<G> {
     /// Headless model decoder. Primitive surfaces never link this adapter.

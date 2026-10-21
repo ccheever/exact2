@@ -1,0 +1,38 @@
+// Records compare field by field, whatever expression built them; the
+// shape's name is not compared.
+shape P
+  x: number
+  y: number
+
+shape Q
+  a: number
+  b: number
+
+component App
+  state p = P(x=1, y=2)
+  state q = P(x=1, y=2)
+  derive same = p == q
+  derive diff = p != q
+  derive copySame = P(p, x=1) == p
+  derive copyDiff = P(p, y=3) == p
+  derive negZero = P(x=0, y=0) == P(x=-0, y=0)
+  action setQx(v: number)
+    q = P(q, x=v)
+  view
+    column
+      text `${same} ${diff}` testId="r"
+      button "q5" press=setQx(5) testId="q5"
+      button "q1" press=setQx(1) testId="q1"
+
+test "equal records"
+  expect state same == true
+  expect state diff == false
+  expect state copySame == true
+  expect state copyDiff == false
+  expect state negZero == true
+
+test "after a change"
+  tap "q5"
+  expect text "r" == "false true"
+  tap "q1"
+  expect text "r" == "true false"

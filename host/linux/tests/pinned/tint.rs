@@ -1,5 +1,5 @@
 //! Raster template alpha, fitting and box paint held to Chrome at 1×.
-use crate::borders::{boot, held_to_chrome, view, NoData};
+use crate::borders::{boot, held_to_chrome, view};
 use exact_linux::presenter::PainterChoice;
 use std::time::Duration;
 
@@ -20,7 +20,7 @@ fn raster_tint_matches_chrome_in_both_painters() {
             if dark {
                 let id = view(&p, "dark");
                 p.tap(id).unwrap();
-                p.run_commands(NoData::default);
+                p.run_commands(<()>::default);
             }
             failures.extend(held_to_chrome(
                 &mut p,
@@ -31,4 +31,43 @@ fn raster_tint_matches_chrome_in_both_painters() {
         }
     }
     assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
+/// LLP 1095 D8: an untinted symbol is `AccentColor`, here its fallback pair
+/// (`#0088ff`, iOS 27's measured tint: LLP 1115.000 D3.2; no report on
+/// Linux), not the text colour; a tint row wins.
+#[test]
+fn an_untinted_symbol_paints_the_accent_fallback() {
+    crate::pin_font();
+    let plan = contract::compile(
+        r##"component App
+  view
+    column width=100 height=100 background-color="#ffffff" color="#000000"
+      image "symbol:play-fill" testId="plain" width=48 height=48 font-size=48
+      image "symbol:play-fill" testId="red" width=48 height=48 font-size=48 -exact-tint-color="#ff0000"
+"##,
+    )
+    .unwrap();
+    let assets = std::path::PathBuf::from(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../apps/caltrain/assets"
+    ));
+    let (mut p, error) =
+        exact_linux::Presenter::boot(&plan.encode(), (), (100.0, 100.0), 1.0, assets).unwrap();
+    assert!(error.is_none(), "{error:?}");
+    let frame = p.frame();
+    // The most strongly coloured pixel in each 48-pixel row band.
+    let ink = |top: u32| {
+        (top..top + 48)
+            .flat_map(|y| (0..48).map(move |x| (x, y)))
+            .filter_map(|(x, y)| frame.pixel(x, y))
+            .map(|c| {
+                let c = c.demultiply();
+                [c.red(), c.green(), c.blue()]
+            })
+            .min_by_key(|c| u16::from(c[0]) + u16::from(c[1]) + u16::from(c[2]))
+            .unwrap()
+    };
+    assert_eq!(ink(0), [0x00, 0x88, 0xff]);
+    assert_eq!(ink(48), [0xff, 0x00, 0x00]);
 }

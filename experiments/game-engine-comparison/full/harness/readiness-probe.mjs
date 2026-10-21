@@ -1,6 +1,7 @@
+import { homedir as browserHome } from 'node:os';
 // Diagnostic for the observed async predicate bug; not a repository check.
 import { chromium } from 'playwright';
-const browser = await chromium.launch({ executablePath: process.env.CHROMIUM || '/home/ccheever/.cache/ms-playwright/chromium-1234/chrome-linux64/chrome', headless: true });
+const browser = await chromium.launch({ executablePath: process.env.CHROMIUM || (process.env.CHROME || browserHome() + "/.cache/ms-playwright/chromium-1234/chrome-linux64/chrome"), headless: true });
 try {
   const page = await browser.newPage();
   await page.goto('about:blank');

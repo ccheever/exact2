@@ -1,0 +1,4 @@
+{
+  "greeting": "Bonjour, {$name} !",
+  "plain": "Sans paramètres"
+}

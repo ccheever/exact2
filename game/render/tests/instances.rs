@@ -56,10 +56,23 @@ fn image_with_pose(
     sun: Option<exact_game_render::Sun>,
     pose: Transform,
 ) -> Option<fixture::Pixels> {
+    image_with_draws(model, eye, tint, sun, pose, model.nodes.len() as u64)
+}
+fn image_with_draws(
+    model: &Model,
+    eye: Vec3,
+    tint: Option<Material>,
+    sun: Option<exact_game_render::Sun>,
+    pose: Transform,
+    instances: u64,
+) -> Option<fixture::Pixels> {
     let gpu = crate::test_device::device_or_skip(exact_gpu::fixture::device())?;
     let mut sim = Sim::<Test>::new(()).unwrap();
-    sim.asset("panels.model", Some(&bin::to_vec(model)))
-        .unwrap();
+    sim.asset(
+        "panels.model",
+        Some(&exact_game::asset::encode_model(model)),
+    )
+    .unwrap();
     *sim.world().get_mut::<Transform>("model").unwrap() = pose;
     if let Some(tint) = tint {
         let e = sim.world().named("model").unwrap();
@@ -102,7 +115,7 @@ fn image_with_pose(
         ..Default::default()
     };
     f.environment = exact_game_render::Environment {
-        background: Some([0.; 3]),
+        background: Some([0.; 3].into()),
         zenith: [1.; 3],
         horizon: [1.; 3],
         ground: [1.; 3],
@@ -113,10 +126,7 @@ fn image_with_pose(
         ..Default::default()
     };
     let stats = renderer.draw(&texture.create_view(&Default::default()), (256, 256), &f);
-    assert_eq!(
-        stats.instances,
-        model.nodes.len() as u64 + u64::from(sun.is_some())
-    );
+    assert_eq!(stats.instances, instances + u64::from(sun.is_some()));
     assert_eq!(
         sim.world().len(),
         2 + usize::from(sun.is_some()),
@@ -220,36 +230,59 @@ fn mirrored_single_sided_nodes_keep_their_front_face() {
     let back = image(&m, Vec3::new(0., 0., -5.), None).unwrap();
     assert_eq!(back.at(128, 128), [0, 0, 0, 255]);
 
-    let sun = exact_game_render::Sun {
-        direction: Vec3::new(1., 0., -1.),
-        illuminance: 8.,
-        ..Default::default()
-    };
-    let eye = Vec3::new(0., 0., 5.);
-    let mirrored = image_with_sun(&m, eye, None, Some(sun)).unwrap();
-    m.nodes[0].transform = glam::Mat4::IDENTITY.to_cols_array();
-    let normal = image_with_sun(&m, eye, None, Some(sun)).unwrap();
-    let unshadowed = image_with_sun(
-        &m,
-        eye,
-        None,
-        Some(exact_game_render::Sun {
-            shadows: None,
-            ..sun
-        }),
-    )
-    .unwrap();
-    let a = normal.at(210, 128);
-    let b = mirrored.at(210, 128);
-    let c = unshadowed.at(210, 128);
-    assert!(
-        c[0] > a[0] + 20,
-        "panel must cast onto the receiver: {a:?} / {c:?}"
-    );
-    assert!(
-        (0..3).all(|i| a[i].abs_diff(b[i]) <= 2),
-        "mirrored shadow must match: {a:?} / {b:?}"
-    );
+    for filter in [
+        exact_game_render::ShadowFilter::ReceiverPlane,
+        exact_game_render::ShadowFilter::PcfSoft {
+            depth_bias: 0.0004,
+            normal_bias: 0.035,
+        },
+    ] {
+        let sun = exact_game_render::Sun {
+            direction: Vec3::new(1., 0., -1.),
+            illuminance: 8.,
+            shadows: Some(exact_game_render::Shadows {
+                filter,
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        let eye = Vec3::new(0., 0., 5.);
+        m.nodes[0].transform = glam::Mat4::from_scale(Vec3::new(-1., 1., 1.)).to_cols_array();
+        let mirrored = image_with_sun(&m, eye, None, Some(sun)).unwrap();
+        m.nodes[0].transform = glam::Mat4::IDENTITY.to_cols_array();
+        let normal = image_with_sun(&m, eye, None, Some(sun)).unwrap();
+        let unshadowed = image_with_sun(
+            &m,
+            eye,
+            None,
+            Some(exact_game_render::Sun {
+                shadows: None,
+                ..sun
+            }),
+        )
+        .unwrap();
+        let a = normal.at(210, 128);
+        let b = mirrored.at(210, 128);
+        let c = unshadowed.at(210, 128);
+        assert!(
+            c[0] > a[0] + 20,
+            "panel must cast onto the receiver: {a:?} / {c:?}"
+        );
+        assert!(
+            (0..3).all(|i| a[i].abs_diff(b[i]) <= 2),
+            "mirrored shadow must match: {a:?} / {b:?}"
+        );
+        image_with_sun(
+            &m,
+            eye,
+            None,
+            Some(exact_game_render::Sun {
+                illuminance: 0.,
+                ..sun
+            }),
+        )
+        .unwrap();
+    }
 }
 
 #[test]
@@ -293,8 +326,844 @@ fn models_and_materials_share_named_textures_defaults_and_samplers() {
     };
     renderer.add_texture("shared.tex", &texture).unwrap();
     let work = renderer.asset_work();
-    assert_eq!(work, (10, 4)); // Both attachment windings are prepared on delivery.
+    assert_eq!(work, (0, 4)); // Variants compile when drawn; texture storage is shared now.
     renderer.prepare_model("b.model", &m).unwrap();
     renderer.add_texture("shared.tex", &texture).unwrap();
     assert_eq!(renderer.asset_work(), work);
+}
+
+// A blended viewmodel part behind a wall: drawn in the viewmodel layer's depth
+// range, it shows through; unmarked, the wall hides it.
+fn blended_behind_wall(marked: bool) -> Option<[u8; 4]> {
+    let gpu = crate::test_device::device_or_skip(exact_gpu::fixture::device())?;
+    let model = Model {
+        meshes: vec![panel(0)],
+        materials: vec![material([1., 0., 0., 0.8], AlphaMode::Blend)],
+        nodes: vec![Node {
+            mesh: Some(0),
+            ..Default::default()
+        }],
+        bounds: [-0.8, -0.8, 0., 0.8, 0.8, 0.],
+        ..Default::default()
+    };
+    let mut sim = Sim::<Test>::new(()).unwrap();
+    sim.asset(
+        "panels.model",
+        Some(&exact_game::asset::encode_model(&model)),
+    )
+    .unwrap();
+    let w = sim.world_mut();
+    w.spawn((
+        Transform {
+            position: Vec3::new(0., 0., 1.),
+            scale: Vec3::new(4., 4., 0.1),
+            ..Default::default()
+        },
+        Mesh::cube(1.),
+        Material::rgb(0., 0., 1.),
+    ));
+    if marked {
+        let e = w.named("model").unwrap();
+        w.insert(e, ViewModel);
+    }
+    let mut renderer = Renderer::new(&gpu.device, &gpu.queue, wgpu::TextureFormat::Rgba8Unorm);
+    renderer.prepare_model("panels.model", &model).unwrap();
+    let mut feed = Feed::default();
+    feed.feed(sim.world(), &mut renderer).unwrap();
+    let texture = gpu.device.create_texture(&wgpu::TextureDescriptor {
+        label: None,
+        size: wgpu::Extent3d {
+            width: 64,
+            height: 64,
+            depth_or_array_layers: 1,
+        },
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format: wgpu::TextureFormat::Rgba8Unorm,
+        usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
+        view_formats: &[],
+    });
+    let eye = Vec3::new(0., 0., 5.);
+    let mut f = exact_game_render::FrameInput {
+        view: view::look_at_mat4(eye, Vec3::ZERO, Vec3::Y),
+        proj: directx::orthographic(-2., 2., -2., 2., 0.1, 20.),
+        camera_position: eye,
+        sun: None,
+        ..Default::default()
+    };
+    f.environment.fog = None;
+    f.environment.bloom = None;
+    renderer.draw(&texture.create_view(&Default::default()), (64, 64), &f);
+    Some(fixture::read(&gpu, &texture).unwrap().at(32, 32))
+}
+#[test]
+fn blended_viewmodel_parts_draw_in_front_of_walls() {
+    let Some(plain) = blended_behind_wall(false) else {
+        return;
+    };
+    let marked = blended_behind_wall(true).unwrap();
+    assert!(
+        plain[2] > plain[0],
+        "the wall hides an unmarked panel: {plain:?}"
+    );
+    assert!(
+        marked[0] > marked[2],
+        "the viewmodel panel shows: {marked:?}"
+    );
+}
+
+#[test]
+fn node_materials_tint_and_light_named_nodes_of_one_instance() {
+    let Some(gpu) = crate::test_device::device_or_skip(exact_gpu::fixture::device()) else {
+        return;
+    };
+    let mut model = Model {
+        meshes: vec![panel(0), panel(0)],
+        materials: vec![material([1., 1., 1., 1.], AlphaMode::Opaque)],
+        bounds: [-1.8, -0.8, 0., 1.8, 0.8, 0.],
+        ..Default::default()
+    };
+    for (i, (name, x)) in [("uniform", -1.), ("visor", 1.)].into_iter().enumerate() {
+        model.nodes.push(Node {
+            name: name.into(),
+            mesh: Some(i as u32),
+            transform: glam::Mat4::from_translation(Vec3::new(x, 0., 0.)).to_cols_array(),
+            ..Default::default()
+        });
+    }
+    let mut sim = Sim::<Test>::new(()).unwrap();
+    sim.asset(
+        "panels.model",
+        Some(&exact_game::asset::encode_model(&model)),
+    )
+    .unwrap();
+    let e = sim.world().named("model").unwrap();
+    sim.world_mut().insert(
+        e,
+        NodeMaterials(vec![
+            NodeMaterial {
+                node: "uniform".into(),
+                color: [1., 0.1, 0.1, 1.],
+                ..Default::default()
+            },
+            NodeMaterial {
+                node: "visor".into(),
+                emissive: [0., 0., 4.],
+                ..Default::default()
+            },
+        ]),
+    );
+    let mut renderer = Renderer::new(&gpu.device, &gpu.queue, wgpu::TextureFormat::Rgba8Unorm);
+    renderer.prepare_model("panels.model", &model).unwrap();
+    let mut feed = Feed::default();
+    feed.feed(sim.world(), &mut renderer).unwrap();
+    let texture = gpu.device.create_texture(&wgpu::TextureDescriptor {
+        label: None,
+        size: wgpu::Extent3d {
+            width: 128,
+            height: 64,
+            depth_or_array_layers: 1,
+        },
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format: wgpu::TextureFormat::Rgba8Unorm,
+        usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
+        view_formats: &[],
+    });
+    let eye = Vec3::new(0., 0., 5.);
+    let mut f = exact_game_render::FrameInput {
+        view: view::look_at_mat4(eye, Vec3::ZERO, Vec3::Y),
+        proj: directx::orthographic(-2., 2., -1., 1., 0.1, 20.),
+        camera_position: eye,
+        sun: None,
+        ..Default::default()
+    };
+    f.environment.fog = None;
+    f.environment.bloom = None;
+    f.environment.background = Some([0.; 3].into());
+    let stats = renderer.draw(&texture.create_view(&Default::default()), (128, 64), &f);
+    // One merged draw: each part's look follows its vertices.
+    assert_eq!(stats.instances, 1);
+    let image = fixture::read(&gpu, &texture).unwrap();
+    let (uniform, visor) = (image.at(32, 32), image.at(96, 32));
+    assert!(
+        uniform[0] > 2 * uniform[1].max(1),
+        "uniform tinted red: {uniform:?}"
+    );
+    assert!(
+        visor[2] > 200 && visor[2] > visor[0] + 40,
+        "visor glows blue: {visor:?}"
+    );
+}
+
+#[test]
+fn static_parts_sharing_a_material_draw_once_and_look_the_same() {
+    let Some(gpu) = crate::test_device::device_or_skip(exact_gpu::fixture::device()) else {
+        return;
+    };
+    let mut model = Model {
+        meshes: vec![panel(0), panel(0), panel(0)],
+        materials: vec![material([0.9, 0.6, 0.3, 1.], AlphaMode::Opaque)],
+        bounds: [-2.4, -0.8, -0.1, 2.4, 0.8, 0.1],
+        ..Default::default()
+    };
+    // The third is mirrored (negative x scale): merging must rewind it.
+    for (i, (x, sx)) in [(-1.6, 1.), (0., 0.5), (1.6, -1.)].into_iter().enumerate() {
+        model.nodes.push(Node {
+            name: format!("part{i}"),
+            mesh: Some(i as u32),
+            transform: glam::Mat4::from_scale_rotation_translation(
+                Vec3::new(sx, 1., 1.),
+                glam::Quat::from_rotation_y(0.3),
+                Vec3::new(x, 0., 0.),
+            )
+            .to_cols_array(),
+            ..Default::default()
+        });
+    }
+    for m in &mut model.materials {
+        m.double_sided = false;
+    }
+    // The reference gives each part its own (equal) material: nothing merges.
+    let mut apart = model.clone();
+    apart.materials = vec![apart.materials[0].clone(); 3];
+    for (i, mesh) in apart.meshes.iter_mut().enumerate() {
+        mesh.material = i as u32;
+    }
+    let render = |separate: bool| {
+        let model = if separate { &apart } else { &model };
+        let mut sim = Sim::<Test>::new(()).unwrap();
+        sim.asset(
+            "panels.model",
+            Some(&exact_game::asset::encode_model(model)),
+        )
+        .unwrap();
+        let mut renderer = Renderer::new(&gpu.device, &gpu.queue, wgpu::TextureFormat::Rgba8Unorm);
+        renderer.prepare_model("panels.model", model).unwrap();
+        let mut feed = Feed::default();
+        feed.feed(sim.world(), &mut renderer).unwrap();
+        let texture = gpu.device.create_texture(&wgpu::TextureDescriptor {
+            label: None,
+            size: wgpu::Extent3d {
+                width: 160,
+                height: 64,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba8Unorm,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
+            view_formats: &[],
+        });
+        let eye = Vec3::new(0., 0., 5.);
+        let mut f = exact_game_render::FrameInput {
+            view: view::look_at_mat4(eye, Vec3::ZERO, Vec3::Y),
+            proj: directx::orthographic(-2.5, 2.5, -1., 1., 0.1, 20.),
+            camera_position: eye,
+            ..Default::default()
+        };
+        f.environment.fog = None;
+        f.environment.bloom = None;
+        f.environment.background = Some([0.; 3].into());
+        let stats = renderer.draw(&texture.create_view(&Default::default()), (160, 64), &f);
+        (stats, fixture::read(&gpu, &texture).unwrap())
+    };
+    let (merged, a) = render(false);
+    let (parts, b) = render(true);
+    assert_eq!(parts.instances, 3);
+    assert_eq!(merged.instances, 1);
+    assert!(merged.draws < parts.draws, "{merged:?} vs {parts:?}");
+    assert_eq!(merged.triangles, parts.triangles);
+    let lit = |p: &fixture::Pixels| {
+        (0..64)
+            .flat_map(|y| (0..160).map(move |x| (x, y)))
+            .filter(|&(x, y)| p.at(x, y)[0] > 20)
+            .count()
+    };
+    assert!(lit(&a) > 2000, "{}", lit(&a));
+    let mut differ = 0;
+    for y in 0..64 {
+        for x in 0..160 {
+            let (p, q) = (a.at(x, y), b.at(x, y));
+            if (0..3).any(|c| p[c].abs_diff(q[c]) > 2) {
+                differ += 1;
+            }
+        }
+    }
+    assert!(
+        differ <= 8,
+        "{differ} pixels differ between merged and per-part draws"
+    );
+}
+
+struct Swing;
+impl Game for Swing {
+    const ID: &'static str = "instances-swing";
+    const ASSETS: &'static [&'static str] = &["arm.model"];
+    type Args = ();
+    fn setup(w: &mut World, _: &()) {
+        let mut clip = Animation::play("swing").speed(0.);
+        clip.time = 0.5;
+        w.spawn_named(
+            "model",
+            (Transform::default(), Mesh::asset("arm.model"), clip),
+        );
+    }
+    fn tick(w: &mut World, _: &Input, _: &()) {
+        animation::step(w);
+    }
+}
+
+#[test]
+fn animated_rigid_parts_sharing_a_material_draw_once_and_follow_their_nodes() {
+    use exact_game::asset::{Clip, Track, TrackPath};
+    let Some(gpu) = crate::test_device::device_or_skip(exact_gpu::fixture::device()) else {
+        return;
+    };
+    // An arm: the root panel turns about Z, its child panel 1.8 m along it.
+    let mut model = Model {
+        meshes: vec![panel(0), panel(0)],
+        materials: vec![material([0.9, 0.6, 0.3, 1.], AlphaMode::Opaque)],
+        bounds: [-3., -3., 0., 3., 3., 0.],
+        ..Default::default()
+    };
+    model.nodes.push(Node {
+        name: "upper".into(),
+        mesh: Some(0),
+        transform: glam::Mat4::from_translation(Vec3::new(-0.9, 0., 0.)).to_cols_array(),
+        ..Default::default()
+    });
+    model.nodes.push(Node {
+        name: "lower".into(),
+        parent: Some(0),
+        mesh: Some(1),
+        transform: glam::Mat4::from_translation(Vec3::new(1.8, 0., 0.)).to_cols_array(),
+        ..Default::default()
+    });
+    model.clips = vec![Clip {
+        name: "swing".into(),
+        tracks: vec![Track {
+            node: 0,
+            path: TrackPath::Rotation,
+            times: vec![0., 1.],
+            values: [
+                glam::Quat::IDENTITY.to_array(),
+                glam::Quat::from_rotation_z(1.2).to_array(),
+            ]
+            .concat(),
+            ..Default::default()
+        }],
+        ..Default::default()
+    }];
+    let mut apart = model.clone();
+    apart.materials = vec![apart.materials[0].clone(); 2];
+    apart.meshes[1].material = 1;
+    let render = |separate: bool, looks: bool| {
+        let model = if separate { &apart } else { &model };
+        let mut sim = Sim::<Swing>::new(()).unwrap();
+        sim.asset("arm.model", Some(&exact_game::asset::encode_model(model)))
+            .unwrap();
+        sim.run(100.);
+        if looks {
+            let e = sim.world().named("model").unwrap();
+            let blue = NodeMaterial {
+                node: "lower".into(),
+                color: [0.1, 0.4, 1., 1.],
+                ..Default::default()
+            };
+            sim.world_mut().insert(e, NodeMaterials(vec![blue]));
+        }
+        let mut renderer = Renderer::new(&gpu.device, &gpu.queue, wgpu::TextureFormat::Rgba8Unorm);
+        renderer.prepare_model("arm.model", model).unwrap();
+        let mut feed = Feed::default();
+        feed.feed(sim.world(), &mut renderer).unwrap();
+        let texture = gpu.device.create_texture(&wgpu::TextureDescriptor {
+            label: None,
+            size: wgpu::Extent3d {
+                width: 128,
+                height: 128,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba8Unorm,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
+            view_formats: &[],
+        });
+        let eye = Vec3::new(0., 0., 5.);
+        let mut f = exact_game_render::FrameInput {
+            view: view::look_at_mat4(eye, Vec3::ZERO, Vec3::Y),
+            proj: directx::orthographic(-3., 3., -3., 3., 0.1, 20.),
+            camera_position: eye,
+            alpha: 1.,
+            ..Default::default()
+        };
+        f.environment.fog = None;
+        f.environment.bloom = None;
+        f.environment.background = Some([0.; 3].into());
+        let stats = renderer.draw(&texture.create_view(&Default::default()), (128, 128), &f);
+        (stats, fixture::read(&gpu, &texture).unwrap())
+    };
+    let (merged, a) = render(false, false);
+    let (parts, b) = render(true, false);
+    assert_eq!((merged.instances, parts.instances), (1, 2));
+    // A per-part look on the merged, animated draw.
+    let (_, looked) = render(false, true);
+    let lit = |p: &fixture::Pixels, x: u32, y: u32| p.at(x, y)[0] > 20;
+    // Turned 0.6 rad: the lower panel's centre rises above the bind pose's row.
+    let (cx, cy) = (
+        64. + (-0.9 + 1.8 * 0.6f32.cos()) / 6. * 128.,
+        64. - 1.8 * 0.6f32.sin() / 6. * 128.,
+    );
+    assert!(
+        lit(&a, cx as u32, cy as u32),
+        "the lower part follows its node"
+    );
+    assert!(
+        !lit(&a, 64 + 19, 64),
+        "nothing left at the bind pose's lower part"
+    );
+    let mut differ = 0;
+    for y in 0..128 {
+        for x in 0..128 {
+            let (p, q) = (a.at(x, y), b.at(x, y));
+            if (0..3).any(|c| p[c].abs_diff(q[c]) > 2) {
+                differ += 1;
+            }
+        }
+    }
+    assert!(
+        differ <= 8,
+        "{differ} pixels differ between merged and per-part draws"
+    );
+    let lower = looked.at(cx as u32, cy as u32);
+    assert!(lower[2] > lower[0], "the lower part is blue: {lower:?}");
+    assert_eq!(
+        looked.at(40, 64),
+        a.at(40, 64),
+        "the upper part keeps its look"
+    );
+}
+
+/// One armoured unit: material 0, the armour, authored pure red (blue and
+/// green are zero factors); material 1, the body, white.
+fn armoured() -> Model {
+    let mut model = Model {
+        meshes: vec![panel(0), panel(1)],
+        materials: vec![
+            material([0.9, 0., 0., 1.], AlphaMode::Opaque),
+            material([1., 1., 1., 1.], AlphaMode::Opaque),
+        ],
+        bounds: [-1.8, -0.8, 0., 1.8, 0.8, 0.],
+        ..Default::default()
+    };
+    for (i, (name, x)) in [("armour", -1.), ("body", 1.)].into_iter().enumerate() {
+        model.nodes.push(Node {
+            name: name.into(),
+            mesh: Some(i as u32),
+            transform: glam::Mat4::from_translation(Vec3::new(x, 0., 0.)).to_cols_array(),
+            ..Default::default()
+        });
+    }
+    model
+}
+/// `world`'s units front on, 128 × 64: the armour at (32, 32), the body at (96, 32).
+fn draw_armoured(
+    gpu: &exact_gpu::Gpu,
+    model: &Model,
+    world: &World,
+) -> (exact_game_render::Stats, fixture::Pixels) {
+    let mut renderer = Renderer::new(&gpu.device, &gpu.queue, wgpu::TextureFormat::Rgba8Unorm);
+    renderer.prepare_model("panels.model", model).unwrap();
+    let mut feed = Feed::default();
+    feed.feed(world, &mut renderer).unwrap();
+    let texture = gpu.device.create_texture(&wgpu::TextureDescriptor {
+        label: None,
+        size: wgpu::Extent3d {
+            width: 128,
+            height: 64,
+            depth_or_array_layers: 1,
+        },
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format: wgpu::TextureFormat::Rgba8Unorm,
+        usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
+        view_formats: &[],
+    });
+    let eye = Vec3::new(0., 0., 5.);
+    let mut f = exact_game_render::FrameInput {
+        view: view::look_at_mat4(eye, Vec3::ZERO, Vec3::Y),
+        proj: directx::orthographic(-2., 2., -1., 1., 0.1, 20.),
+        camera_position: eye,
+        sun: None,
+        ..Default::default()
+    };
+    f.environment.fog = None;
+    f.environment.bloom = None;
+    f.environment.background = Some([0.; 3].into());
+    let stats = renderer.draw(&texture.create_view(&Default::default()), (128, 64), &f);
+    (stats, fixture::read(gpu, &texture).unwrap())
+}
+
+#[test]
+fn material_overrides_recolour_one_material_and_keep_instances_together() {
+    let Some(gpu) = crate::test_device::device_or_skip(exact_gpu::fixture::device()) else {
+        return;
+    };
+    let model = armoured();
+    let blue = MaterialOverrides(vec![MaterialOverride {
+        material: 0,
+        color: Some([0.1, 0.3, 0.9, 1.]),
+        ..Default::default()
+    }]);
+    let render = |looks: Option<&MaterialOverrides>, second: bool| {
+        let mut sim = Sim::<Test>::new(()).unwrap();
+        sim.asset(
+            "panels.model",
+            Some(&exact_game::asset::encode_model(&model)),
+        )
+        .unwrap();
+        let e = sim.world().named("model").unwrap();
+        if let Some(looks) = looks {
+            sim.world_mut().insert(e, looks.clone());
+        }
+        if second {
+            // Another team's soldier: the same model, its own colours.
+            sim.world_mut()
+                .spawn((Transform::at(0., 0., -3.), Mesh::asset("panels.model")));
+        }
+        draw_armoured(&gpu, &model, sim.world())
+    };
+    let (one, plain) = render(None, false);
+    let (_, recoloured) = render(Some(&blue), false);
+    let (two, _) = render(Some(&blue), true);
+    let (armour, body) = (plain.at(32, 32), plain.at(96, 32));
+    assert!(armour[0] > armour[2] + 30, "authored red: {armour:?}");
+    let armour = recoloured.at(32, 32);
+    assert!(armour[2] > armour[0] + 30, "overridden blue: {armour:?}");
+    assert_eq!(
+        recoloured.at(96, 32),
+        body,
+        "the other material keeps its look"
+    );
+    // Instances with different overrides share their batches.
+    assert_eq!((two.draws, two.instances), (one.draws, 2 * one.instances));
+}
+
+/// Which side a unit fights for: simulation state, saved and hashed.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Component)]
+struct Team(u8);
+/// Team colour as LLP 1046.011 §8 rules it and `game/README.md` ("Team
+/// colours") shows it: appearance derived from the saved `Team` in `present`,
+/// one model for every team, no second model per tint.
+struct Teams;
+impl Game for Teams {
+    const ID: &'static str = "instances-teams";
+    const ASSETS: &'static [&'static str] = &["panels.model"];
+    type Args = ();
+    fn setup(w: &mut World, _: &()) {
+        w.spawn_named(
+            "model",
+            (Transform::default(), Mesh::asset("panels.model"), Team(1)),
+        );
+        w.spawn((Transform::at(0., 0., 5.), Camera::default()));
+    }
+    fn tick(_: &mut World, _: &Input, _: &()) {}
+    fn present(p: &mut Present<'_>, _: &()) {
+        // Each team's armour colour; material 0 is the armour in the unit's model.
+        const ARMOUR: [[f32; 4]; 2] = [[0.9, 0.1, 0.1, 1.], [0.1, 0.3, 0.9, 1.]];
+        let mut units = Vec::new();
+        p.for_each::<Team>(|e, team| units.push((e, team.0)));
+        for (e, team) in units {
+            p.insert(
+                e,
+                MaterialOverrides(vec![MaterialOverride {
+                    material: 0,
+                    color: Some(ARMOUR[usize::from(team)]),
+                    ..Default::default()
+                }]),
+            );
+        }
+    }
+}
+
+#[test]
+fn a_team_colour_written_from_present_recolours_only_the_armour() {
+    let Some(gpu) = crate::test_device::device_or_skip(exact_gpu::fixture::device()) else {
+        return;
+    };
+    let model = armoured();
+    // Setup ends with a present, so the unit already wears its team's colour.
+    let mut sim = Sim::<Teams>::new(()).unwrap();
+    sim.asset(
+        "panels.model",
+        Some(&exact_game::asset::encode_model(&model)),
+    )
+    .unwrap();
+    assert!(sim.world().get::<MaterialOverrides>("model").is_some());
+    let (_, pixels) = draw_armoured(&gpu, &model, sim.world());
+    // The same unit with no present: its authored look.
+    let mut plain = Sim::<Test>::new(()).unwrap();
+    plain
+        .asset(
+            "panels.model",
+            Some(&exact_game::asset::encode_model(&model)),
+        )
+        .unwrap();
+    let (_, authored) = draw_armoured(&gpu, &model, plain.world());
+    let armour = pixels.at(32, 32);
+    assert!(
+        armour[2] > armour[0] + 30,
+        "team 1's blue armour: {armour:?}"
+    );
+    assert_eq!(
+        pixels.at(96, 32),
+        authored.at(96, 32),
+        "the body keeps its authored look"
+    );
+}
+
+#[test]
+fn posable_mirror_groups_match_static_pixels_for_merged_and_lone_parts() {
+    let mut model = Model {
+        meshes: vec![panel(0), panel(1)],
+        materials: vec![material([0.9, 0.6, 0.3, 1.], AlphaMode::Opaque); 2],
+        nodes: vec![Node {
+            name: "pivot".into(),
+            ..Default::default()
+        }],
+        bounds: [-2.5, -1., -0.1, 2.5, 1., 0.1],
+        ..Default::default()
+    };
+    for (i, x) in [-1.7, 0., 1.7].into_iter().enumerate() {
+        let group = model.nodes.len() as u32;
+        model.nodes.push(Node {
+            parent: Some(0),
+            transform: glam::Mat4::from_scale_rotation_translation(
+                Vec3::new(if i == 0 { 1. } else { -1. }, 1., 1.),
+                glam::Quat::IDENTITY,
+                Vec3::new(x, 0., 0.),
+            )
+            .to_cols_array(),
+            ..Default::default()
+        });
+        model.nodes.push(Node {
+            parent: Some(group),
+            mesh: Some(if i == 2 { 1 } else { 0 }),
+            ..Default::default()
+        });
+    }
+    let Some(reference) = image_with_draws(
+        &model,
+        Vec3::new(0., 0., 6.),
+        None,
+        None,
+        Transform::default(),
+        2,
+    ) else {
+        return;
+    };
+    model.nodes[0].posable = true;
+    let posed = image_with_draws(
+        &model,
+        Vec3::new(0., 0., 6.),
+        None,
+        None,
+        Transform::default(),
+        2,
+    )
+    .unwrap();
+    assert_eq!(
+        reference, posed,
+        "rest mirrors keep the same visible faces on the palette path"
+    );
+}
+
+/// Parts of several untextured materials whose base colour is in their
+/// vertices share one draw, each keeping its metallic, roughness, rim and
+/// emission: static parts pre-transformed, animated parts on the palette.
+#[test]
+fn parts_of_several_materials_draw_once_and_look_the_same() {
+    use exact_game::asset::{Clip, Track, TrackPath};
+    let Some(gpu) = crate::test_device::device_or_skip(exact_gpu::fixture::device()) else {
+        return;
+    };
+    let finish = |metallic, roughness, rim, emissive| MaterialData {
+        metallic,
+        roughness,
+        rim,
+        emissive,
+        ..Default::default()
+    };
+    let materials = [
+        finish(0., 1., 0., [0.; 3]),
+        finish(0.9, 0.25, 0., [0.; 3]),
+        finish(0., 0.6, 0.6, [0.4, 0.1, 0.]),
+    ];
+    let colours = [
+        [0.9, 0.6, 0.3, 1.],
+        [0.3, 0.7, 0.9, 1.],
+        [0.8, 0.8, 0.8, 1.],
+    ];
+    let mesh = |material: u32, part: usize| MeshData {
+        colors: colours[part].repeat(4),
+        ..panel(material)
+    };
+    // The third part is mirrored: merging must rewind it.
+    let node = |part: usize, mesh: u32| Node {
+        name: format!("part{part}"),
+        mesh: Some(mesh),
+        transform: glam::Mat4::from_scale_rotation_translation(
+            Vec3::new(if part == 2 { -0.6 } else { 0.6 }, 0.6, 0.6),
+            glam::Quat::from_rotation_y(0.5),
+            Vec3::new(-1.4 + 1.4 * part as f32, 0., 0.),
+        )
+        .to_cols_array(),
+        ..Default::default()
+    };
+    let bounds = [-2.4, -0.6, -0.6, 2.4, 0.6, 0.6];
+    let model = Model {
+        meshes: (0..3).map(|i| mesh(i as u32, i)).collect(),
+        materials: materials.to_vec(),
+        nodes: (0..3).map(|i| node(i, i as u32)).collect(),
+        bounds,
+        ..Default::default()
+    };
+    // Each part a model of its own: nothing to merge.
+    let apart: Vec<Model> = (0..3)
+        .map(|i| Model {
+            meshes: vec![mesh(0, i)],
+            materials: vec![materials[i].clone()],
+            nodes: vec![node(i, 0)],
+            bounds,
+            ..Default::default()
+        })
+        .collect();
+    // The first part turns: the parts merge on the palette.
+    let mut animated = model.clone();
+    animated.clips = vec![Clip {
+        name: "turn".into(),
+        tracks: vec![Track {
+            node: 0,
+            path: TrackPath::Rotation,
+            times: vec![0., 1.],
+            values: [
+                glam::Quat::from_rotation_y(0.5).to_array(),
+                glam::Quat::from_rotation_y(1.1).to_array(),
+            ]
+            .concat(),
+            ..Default::default()
+        }],
+        ..Default::default()
+    }];
+    // `models` drawn in one world; `overrides` draws each unmerged.
+    let draw = |models: &[&Model], overrides: bool, look: bool| {
+        let mut w = World::new(60, 1);
+        let mut renderer = Renderer::new(&gpu.device, &gpu.queue, wgpu::TextureFormat::Rgba8Unorm);
+        for (i, model) in models.iter().enumerate() {
+            let name = format!("part{i}.model");
+            let mesh = w.generated_model(&name, (*model).clone()).unwrap();
+            renderer.prepare_model(&name, model).unwrap();
+            let e = w.spawn((Transform::default(), mesh));
+            if !model.clips.is_empty() {
+                let mut clip = Animation::play("turn").speed(0.);
+                clip.time = 0.5;
+                w.insert(e, clip);
+            }
+            if overrides {
+                w.insert(e, MaterialOverrides(Vec::new()));
+            }
+            if look {
+                let blue = NodeMaterial {
+                    node: "part1".into(),
+                    color: [0.2, 0.4, 1., 1.],
+                    ..Default::default()
+                };
+                w.insert(e, NodeMaterials(vec![blue]));
+            }
+        }
+        animation::step(&mut w);
+        w.propagate();
+        Feed::default().feed(&w, &mut renderer).unwrap();
+        let texture = gpu.device.create_texture(&wgpu::TextureDescriptor {
+            label: None,
+            size: wgpu::Extent3d {
+                width: 192,
+                height: 64,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba8Unorm,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
+            view_formats: &[],
+        });
+        let eye = Vec3::new(0.5, 1., 5.);
+        let mut f = exact_game_render::FrameInput {
+            view: view::look_at_mat4(eye, Vec3::ZERO, Vec3::Y),
+            proj: directx::perspective(0.6, 3., 0.1, 20.),
+            camera_position: eye,
+            sun: Some(exact_game_render::Sun {
+                direction: Vec3::new(-0.4, -0.5, -1.).normalize(),
+                illuminance: 2.,
+                color: Vec3::ONE,
+                shadows: None,
+            }),
+            ..Default::default()
+        };
+        f.environment.fog = None;
+        f.environment.bloom = None;
+        f.environment.background = Some([0.; 3].into());
+        f.environment.ambient = 0.4;
+        let stats = renderer.draw(&texture.create_view(&Default::default()), (192, 64), &f);
+        (stats, fixture::read(&gpu, &texture).unwrap())
+    };
+    let differing = |a: &fixture::Pixels, b: &fixture::Pixels| {
+        (0..64)
+            .flat_map(|y| (0..192).map(move |x| (x, y)))
+            .filter(|&(x, y)| (0..3).any(|c| a.at(x, y)[c].abs_diff(b.at(x, y)[c]) > 2))
+            .count()
+    };
+    let lit = |p: &fixture::Pixels| {
+        (0..64)
+            .flat_map(|y| (0..192).map(move |x| (x, y)))
+            .filter(|&(x, y)| p.at(x, y)[..3].iter().any(|&c| c > 20))
+            .count()
+    };
+    let (merged, a) = draw(&[&model], false, false);
+    let (parts, b) = draw(&apart.iter().collect::<Vec<_>>(), false, false);
+    assert_eq!((merged.instances, parts.instances), (1, 3));
+    assert!(merged.draws < parts.draws, "{merged:?} vs {parts:?}");
+    assert!(lit(&a) > 800, "{}", lit(&a));
+    let static_differ = differing(&a, &b);
+    eprintln!("static: {static_differ} pixels differ by more than 2 levels");
+    assert!(static_differ <= 8, "{static_differ}");
+    // The parts' materials show: one material for all looks otherwise.
+    let mut uniform = model.clone();
+    for mesh in &mut uniform.meshes {
+        mesh.material = 0;
+    }
+    assert!(differing(&a, &draw(&[&uniform], false, false).1) > 300);
+    // A material override draws the parts unmerged, as do models of one part.
+    let (unmerged, c) = draw(&[&model], true, false);
+    assert_eq!(unmerged.instances, 3);
+    assert!(differing(&a, &c) <= 8);
+    for look in [false, true] {
+        let (merged, a) = draw(&[&animated], false, look);
+        let (unmerged, b) = draw(&[&animated], true, look);
+        assert_eq!((merged.instances, unmerged.instances), (1, 3));
+        let animated_differ = differing(&a, &b);
+        eprintln!("animated, look {look}: {animated_differ} pixels differ by more than 2 levels");
+        assert!(animated_differ <= 8, "{animated_differ}");
+        if look {
+            let (_, plain) = draw(&[&animated], false, false);
+            assert!(differing(&a, &plain) > 100, "the look recolours its part");
+        }
+    }
 }

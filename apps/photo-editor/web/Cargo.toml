@@ -10,6 +10,14 @@ build = "build.rs"
 [lib]
 name = "photo_editor_web"
 crate-type = ["cdylib", "rlib"]
+test = false
+bench = false
+
+[[bin]]
+name = "photo-editor-dev"
+path = "src/bin/photo-editor-dev.rs"
+test = false
+bench = false
 
 [dependencies]
 exact-logic = { path = "../../../logic" }

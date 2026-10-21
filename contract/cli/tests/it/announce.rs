@@ -216,7 +216,7 @@ fn a_refused_answer_restores_the_standing_answers_topics() {
             Some(self.native.clone())
         }
     }
-    let src = "shape Line\n  text: string\ncomponent App\n  state changed = false\n  resource meter = meter(changed) as shape Line\n  action change writes changed\n    changed = true\n  view\n    text meter.text\n";
+    let src = "shape Line\n  text: string\ncomponent App\n  state changed = false\n  resource meter = meter(changed) as shape Line\n  action change\n    changed = true\n  view\n    text meter.text\n";
     for later in [false, true] {
         let native = Native::default();
         let mut r = Runner::boot(

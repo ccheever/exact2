@@ -1,16 +1,16 @@
-//! Style rows → CSS declarations.
-//!
-//! @ref `rules/RULES.md` §Scope (the web is the standard: a row's CSS name is
-//! the row's name with `-` for `_`, and its value the CSS value; the few rows
-//! that are not one CSS property each are listed here by hand)
-//! @ref LLP 1002 D2 (`transition` as CSS; a spring is the one declared
-//! deviation and is not emitted as CSS)
-//!
-//! Every set row of a node becomes one declaration, read through the
-//! kernel's generated `StyleProps::get`, so a row added to `schema.json`
-//! reaches the page with no change here unless it needs a unit or a name
-//! this table does not know — in which case it is skipped and named in
-//! [`Skipped`], never guessed.
+//! Style rows → CSS declarations (LLP 1115 §2, LLP 1002 D2).
+//! CSS names replace `_` with `-`; exceptions are mapped below. Spring timing
+//! is not emitted as CSS. Each set row is read through `StyleProps::get`, so
+//! new schema rows need no mapping unless their name or unit differs.
+//! Unsupported rows are reported in [`Skipped`].
+
+mod clears;
+pub mod control_size;
+mod decorations;
+mod fonts;
+mod selection;
+pub use decorations::decoration_styles;
+pub use fonts::{font_alias, font_family_names, runtime_font_family};
 
 use exact_kernel::style::ColorValue;
 use exact_kernel::{Color, Dimension, Display, Overflow, RowValue, StyleId, StyleProps};
@@ -18,41 +18,75 @@ use exact_motion::{Easing, Property, TimingFunction, Transition, TransitionPrope
 use exact_num::{push_text, Piece, Shortest32};
 use std::fmt::Write as _;
 
-/// Rows this host knows it does not lower (and why), so an author sees a
-/// reason instead of silence.
+/// Rows this host cannot lower, with the reason reported to the author.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Skipped {
-    /// The row.
+    /// Schema row omitted from the emitted CSS.
     pub row: StyleId,
-    /// Why.
+    /// Diagnostic shown to the app author.
     pub reason: &'static str,
 }
 
+/// A hairline for a page without a kernel: the shell's custom property at
+/// one device pixel (LLP 1115.000 D10.3).
+pub const HAIRLINE: &str = "var(--exact-hairline, 1px)";
+
 /// The `cssText` for a node's set rows, plus what was skipped.
 pub fn css_text(style: &StyleProps, font_names: &[String]) -> (String, Vec<Skipped>) {
-    let mut out = String::new();
+    css_text_in(style, font_names, false)
+}
+
+/// [`css_text`] preserving authored `rem`/`em` for [`crate::host::template`].
+/// The JS target keeps no kernel; the browser follows root and parent font changes.
+/// @ref LLP 1069.000 D3
+pub fn css_text_relative(style: &StyleProps, font_names: &[String]) -> (String, Vec<Skipped>) {
+    css_text_in(style, font_names, true)
+}
+
+fn css_text_in(
+    style: &StyleProps,
+    font_names: &[String],
+    relative: bool,
+) -> (String, Vec<Skipped>) {
+    let authored = |out: &mut String, id| {
+        use exact_kernel::style::relative::Unit;
+        let Some((unit, n)) = style.relative.get(id).filter(|_| relative) else {
+            return false;
+        };
+        match unit {
+            Unit::Rem => {
+                num_into(out, n);
+                out.push_str("rem");
+            }
+            Unit::Em => {
+                num_into(out, n);
+                out.push_str("em");
+            }
+            // @ref LLP 1115 D3 — a text style is the ramp's size at CSS's
+            // `medium`, in `rem`, so it follows the browser's root size.
+            // @ref LLP 1137 — a length ramp likewise.
+            Unit::TextStyle(_) | Unit::Ramp(_) => {
+                let medium = exact_kernel::style::relative::MEDIUM;
+                num_into(out, n * unit.basis(medium, medium, 1.0) / medium);
+                out.push_str("rem");
+            }
+            Unit::TextStyleAtMost(_) => out.push_str(&unit.capped_css(n)),
+            // @ref LLP 1115.000 D10.3 — one device pixel: the page's sheet
+            // keeps `--exact-hairline` at it, whatever the display's scale.
+            Unit::Hairline => out.push_str(HAIRLINE),
+        }
+        true
+    };
+    let mut out = String::from(exact_kernel::style::roles::scheme_color(style));
     let mut skipped = Vec::new();
-    let mut shadow: Option<(f32, f32, f32, ColorValue, f32)> = None;
-    let unset = (0.0, 0.0, 0.0, ColorValue::Fixed(Color::TRANSPARENT), 0.0);
-    // @ref LLP 1061's ruling: the row and host feedback are independent
-    // CSS numbers, multiplied through `scale` without writing `transform`.
+    // @ref LLP 1061: row scale and host feedback multiply independently.
     let press = press_composes(style);
-    for id in style.mask.iter() {
+    for id in style.mask.union(style.written).iter() {
+        if !style.mask.has(id) && clears::push(&mut out, id, press) {
+            continue;
+        }
         let value = style.get(id);
         match (id, &value) {
-            // Rows that compose into one CSS property.
-            (StyleId::ShadowOffset, RowValue::Vec2(v)) => {
-                let s = shadow.get_or_insert(unset);
-                s.0 = v.x;
-                s.1 = v.y;
-            }
-            (StyleId::ShadowRadius, RowValue::Number(n)) => {
-                shadow.get_or_insert(unset).2 = *n as f32
-            }
-            (StyleId::ShadowColor, RowValue::ColorValue(v)) => shadow.get_or_insert(unset).3 = *v,
-            (StyleId::ShadowOpacity, RowValue::Number(n)) => {
-                shadow.get_or_insert(unset).4 = *n as f32
-            }
             (StyleId::Transition, RowValue::Transitions(t)) => {
                 let (mut text, spring_skipped) = transition_css(t);
                 if press {
@@ -116,8 +150,13 @@ pub fn css_text(style: &StyleProps, font_names: &[String]) -> (String, Vec<Skipp
                     push_text!(&mut out, "--exact-drag-timeline:{};", d.css());
                 }
             }
+            // @ref LLP 1055.002 — a clock is no CSS timeline either: the
+            // animations play on the page's, and the glue sets their start
+            // (navigation.js `animationClocks`).
             (StyleId::AnimationTimeline, RowValue::AnimationTimeline(t)) => {
-                if t.0.is_some() {
+                if let Some(clock) = t.clock() {
+                    push_text!(&mut out, "--exact-animation-clock:{};", clock);
+                } else if t.0.is_some() {
                     push_text!(
                         &mut out,
                         "--exact-animation-timeline:{};animation-play-state:paused;",
@@ -149,6 +188,68 @@ pub fn css_text(style: &StyleProps, font_names: &[String]) -> (String, Vec<Skipp
                     push_text!(&mut out, "--exact-layout-transition:{};", text);
                 }
             }
+            // @ref LLP 1077 D1 — Apple's continuous curve is no CSS keyword:
+            // the web's stand-in is `superellipse(K)` over the radius scaled
+            // to the same reach (kernel `APPLE_ON_THE_WEB`, declared in LLP
+            // 1001). CSS's own keywords are the browser's.
+            (StyleId::CornerShape, RowValue::CornerShape(c)) => {
+                let (k, _) = exact_kernel::corner::APPLE_ON_THE_WEB;
+                let web = exact_kernel::corner::CornerShape(c.0.map(|corner| match corner {
+                    exact_kernel::corner::Corner::AppleContinuous => {
+                        exact_kernel::corner::Corner::Superellipse(k)
+                    }
+                    other => other,
+                }));
+                push_text!(&mut out, "corner-shape:{};", web.css());
+            }
+            (
+                StyleId::BorderRadiusTopLeft
+                | StyleId::BorderRadiusTopRight
+                | StyleId::BorderRadiusBottomRight
+                | StyleId::BorderRadiusBottomLeft,
+                RowValue::Dimension(d),
+            ) if apple_corner(style, id) => {
+                property(&mut out, id);
+                out.push_str(":calc(");
+                if !authored(&mut out, id) {
+                    dimension(&mut out, *d);
+                }
+                push_text!(
+                    &mut out,
+                    " * {});",
+                    exact_num::Shortest32(exact_kernel::corner::APPLE_ON_THE_WEB.1)
+                );
+            }
+            // @ref LLP 1077 D8 — `rotate` is the angle and its axis, and
+            // `translate` x, y and z: one declaration each.
+            (StyleId::Rotate, RowValue::Number(n)) if style.rotate_axis.0 != [0.0, 0.0, 1.0] => {
+                push_text!(&mut out, "rotate:{} ", style.rotate_axis.css());
+                num_into(&mut out, *n as f32);
+                out.push_str("deg;");
+            }
+            // A percentage is of the box's own border box, which the browser
+            // resolves (chess diary #4); an axis with both is a `calc()`.
+            (StyleId::Translate, RowValue::Vec2(v))
+                if style.translate_z != 0.0
+                    || style.translate_percent.x != 0.0
+                    || style.translate_percent.y != 0.0 =>
+            {
+                out.push_str("translate:");
+                let pct = style.translate_percent;
+                for (px, pct) in [(v.x, pct.x), (v.y, pct.y)] {
+                    translate_axis(&mut out, px, pct);
+                    out.push(' ');
+                }
+                if style.translate_z != 0.0 {
+                    num_into(&mut out, style.translate_z);
+                    out.push_str("px ");
+                }
+                out.pop();
+                out.push(';');
+            }
+            (StyleId::Perspective, RowValue::Number(n)) if *n == 0.0 => {
+                out.push_str("perspective:none;")
+            }
             (StyleId::Scale, RowValue::Number(n)) if press => {
                 out.push_str("--exact-scale:");
                 num_into(&mut out, *n as f32);
@@ -163,7 +264,9 @@ pub fn css_text(style: &StyleProps, font_names: &[String]) -> (String, Vec<Skipp
             }
             (StyleId::FontFamily, RowValue::Number(index)) => {
                 if let Some(family) = font_names.get(*index as usize) {
-                    let value = if is_generic_family(family) {
+                    let value = if family.starts_with('"') || family.contains(',') {
+                        family.clone()
+                    } else if is_generic_family(family) {
                         generic_stack(family).to_string()
                     } else {
                         css_string(family)
@@ -176,14 +279,35 @@ pub fn css_text(style: &StyleProps, font_names: &[String]) -> (String, Vec<Skipp
                     });
                 }
             }
+            // @ref LLP 1034 §8: an unset scheme follows the parent's, as
+            // Apple's trait inheritance does (CSS's `normal` would mean the
+            // page's schemes); the compiler admits only `light` and `dark`.
+            (StyleId::ColorScheme, RowValue::Enum("normal")) => {
+                out.push_str("color-scheme:inherit;")
+            }
+            (StyleId::UserSelect, RowValue::Enum(v)) => selection::push(&mut out, v),
+            (StyleId::ControlSize, RowValue::Enum(size)) => control_size::push(&mut out, size),
+            // LLP 1069.011.001 D9: browser-owned corners.
+            (StyleId::ControlCornerStyle, RowValue::Enum(corner)) => {
+                out.push_str("--exact-control-radius:");
+                out.push_str(if *corner == "capsule" {
+                    "calc(infinity * 1px)"
+                } else {
+                    "revert"
+                });
+                out.push(';');
+            }
+            (StyleId::TextBoxEdge, RowValue::Enum(edge)) => {
+                crate::text_box_css::push_edge(edge, &mut out)
+            }
             (StyleId::LineClamp, RowValue::Number(n)) => {
                 if *n > 0.0 {
                     // The legacy clamp requires an old flex box and clipping. It
                     // cannot replace a modern flex/grid/hidden box or a scroller.
                     // Keep those authored semantics; unsupported clamp is named.
                     if style.display != Display::Block
-                        || style.overflow_x == Overflow::Scroll
-                        || style.overflow_y == Overflow::Scroll
+                        || matches!(style.overflow_x, Overflow::Scroll | Overflow::Auto)
+                        || matches!(style.overflow_y, Overflow::Scroll | Overflow::Auto)
                     {
                         skipped.push(Skipped {
                             row: id,
@@ -204,19 +328,71 @@ pub fn css_text(style: &StyleProps, font_names: &[String]) -> (String, Vec<Skipp
                 "font-variant-numeric:{};",
                 exact_kernel::FontVariantNumeric::css(style.font_variant_numeric)
             ),
-            (StyleId::GridTemplateColumns, _)
-            | (StyleId::GridTemplateRows, _)
-            | (StyleId::GridColumn, _)
-            | (StyleId::GridRow, _)
-            | (StyleId::GridAutoFlow, _)
-            | (StyleId::JustifyItems, _) => skipped.push(Skipped {
-                row: id,
-                reason: "grid rows are not lowered in v1",
-            }),
+            (StyleId::GridAutoFlow, RowValue::Enum(flow)) => {
+                out.push_str("grid-auto-flow:");
+                out.push_str(flow);
+                out.push(';');
+            }
+            // @ref LLP 1069.011 D8 — buttons read the custom property; `auto` is the browser's.
+            (StyleId::AccentColor, _) if lowered(id, &value) => {
+                out.push_str("accent-color:");
+                let start = out.len();
+                declared(&mut out, id, &value);
+                // A self-reference invalidates the custom property instead of inheriting it.
+                if &out[start..] == "var(--exact-accent, AccentColor)" {
+                    out.push(';');
+                    continue;
+                }
+                out.push_str(";--exact-accent:");
+                let start = out.len();
+                declared(&mut out, id, &value);
+                let auto = &out[start..] == "auto";
+                if auto {
+                    out.truncate(start);
+                    out.push_str("AccentColor");
+                }
+                // The ink on the accent is worked out from the accent (neutral.css):
+                // as the accent itself it is the browser's keyword, no cycle.
+                if &out[start..] == "var(--exact-accent-text, AccentColorText)" {
+                    out.truncate(start);
+                    out.push_str("AccentColorText");
+                }
+                out.push(';');
+                // An authored accent, apart from the page's own in
+                // --exact-accent: what a spinner reads (LLP 1121 D9). The
+                // page's sheet takes a bound or live one from the element
+                // that writes --exact-accent itself (neutral.css).
+                if !auto {
+                    out.push_str("--exact-accent-said:");
+                    declared(&mut out, id, &value);
+                    out.push(';');
+                }
+            }
+            // @ref LLP 1077 D14 — host-owned feedback, as `-exact-press-scale`: a
+            // custom property input-glue.js reads from the pressed element's
+            // own style, and plays as `navigator.vibrate` where it exists.
+            (StyleId::PressHaptic, RowValue::Enum(kind)) => {
+                if *kind != "none" {
+                    push_text!(&mut out, "--exact-press-haptic:{};", kind);
+                }
+            }
+            // @ref LLP 1116.001 D1.4 — not CSS: the browser lays the text out,
+            // and navigation.js `fitText` scales it by the kernel's rule.
+            (StyleId::Fit, RowValue::Enum(kind)) => {
+                if *kind != "none" {
+                    push_text!(&mut out, "--exact-fit:{};", kind);
+                }
+            }
+            // Written with `rotate` and `translate` (LLP 1077 D8), never alone, and a
+            // boundary's tuple (LLP 1121 D7): nothing to write, none skipped (F30).
+            (StyleId::RotateAxis | StyleId::TranslateZ | StyleId::TranslatePercent, _) => {}
+            (StyleId::Mode, _) => {}
             _ if lowered(id, &value) => {
                 property(&mut out, id);
                 out.push(':');
-                declared(&mut out, id, &value);
+                if !authored(&mut out, id) {
+                    declared(&mut out, id, &value);
+                }
                 out.push(';');
             }
             _ => skipped.push(Skipped {
@@ -224,38 +400,6 @@ pub fn css_text(style: &StyleProps, font_names: &[String]) -> (String, Vec<Skipp
                 reason: "no CSS lowering for this row's codec",
             }),
         }
-    }
-    if let Some((x, y, radius, color, opacity)) = shadow {
-        // The opacity row folds into each colour's alpha, both halves of a
-        // `light-dark()` pair alike: the browser still resolves the pair per
-        // element (LLP 1034 D2, LLP 1064 D3).
-        let fade = |c: Color| {
-            Color::rgba(
-                c.r(),
-                c.g(),
-                c.b(),
-                (c.a() as f32 * opacity.clamp(0.0, 1.0)) as u8,
-            )
-        };
-        let color = match color {
-            ColorValue::Fixed(c) => ColorValue::Fixed(fade(c)),
-            ColorValue::LightDark(l, d) => ColorValue::LightDark(fade(l), fade(d)),
-        };
-        let visible = match color {
-            ColorValue::Fixed(c) => c.a() > 0,
-            ColorValue::LightDark(l, d) => l.a() > 0 || d.a() > 0,
-        };
-        out.push_str("box-shadow:");
-        if visible {
-            for n in [x, y, radius] {
-                num_into(&mut out, n);
-                out.push_str("px ");
-            }
-            declared(&mut out, StyleId::ShadowColor, &RowValue::ColorValue(color));
-        } else {
-            out.push_str("none");
-        }
-        out.push(';');
     }
     (out, skipped)
 }
@@ -321,7 +465,7 @@ pub(crate) fn send_keyframes(
         return;
     };
     let press = press_composes(style);
-    for a in style.animation.0.iter().chain(&style.exit_animation.0) {
+    for a in style.animation.0.iter().chain(&style.rare.exit_animation.0) {
         let name = (link.name)(a, press);
         if !sent.contains(&name) {
             batch.keyframes(&name, &(link.body)(a, press));
@@ -382,14 +526,39 @@ pub(crate) fn css_string(value: &str) -> String {
     out
 }
 
-/// One row → one declaration, by the CSS rule for its name and codec.
+/// Whether the corner a radius row sizes is `-exact-continuous` (LLP 1077 D1).
+fn apple_corner(style: &StyleProps, id: StyleId) -> bool {
+    let i = match id {
+        StyleId::BorderRadiusTopLeft => 0,
+        StyleId::BorderRadiusTopRight => 1,
+        StyleId::BorderRadiusBottomRight => 2,
+        _ => 3,
+    };
+    style.rare.corner_shape.0[i] == exact_kernel::corner::Corner::AppleContinuous
+}
+
 /// Whether a row's value is one CSS declaration here.
 fn lowered(id: StyleId, value: &RowValue<'_>) -> bool {
     match value {
         RowValue::Vec2(_) => id == StyleId::Translate,
+        // Apple's affordances: no CSS property (LLP 1077 §5).
+        RowValue::SymbolPalette(_) => false,
+        _ if matches!(
+            id,
+            StyleId::SymbolRendering
+                | StyleId::SymbolValue
+                | StyleId::SymbolEffect
+                | StyleId::ContentTransition
+                | StyleId::ScrollEdgeEffect
+                | StyleId::HoverEffect
+                | StyleId::SmartInvert
+                // The kernel holds the animations (LLP 1055 D13): no declaration.
+                | StyleId::AnimationTrigger
+        ) =>
+        {
+            false
+        }
         RowValue::Color2(_)
-        | RowValue::Tracks(_)
-        | RowValue::Placement(_)
         | RowValue::Transitions(_)
         | RowValue::Animations(_)
         | RowValue::DragTimeline(_)
@@ -402,8 +571,28 @@ fn lowered(id: StyleId, value: &RowValue<'_>) -> bool {
 
 /// The row's CSS property, appended: its name with `-` for `_`, but for the
 /// few spelled here.
+/// One `translate` axis: a length, a percentage, or `calc()` of both.
+pub(crate) fn translate_axis(out: &mut String, px: f32, pct: f32) {
+    match (px, pct) {
+        (_, 0.0) => {
+            num_into(out, px);
+            out.push_str("px");
+        }
+        (0.0, _) => {
+            num_into(out, pct);
+            out.push('%');
+        }
+        _ => {
+            out.push_str("calc(");
+            num_into(out, px);
+            out.push_str("px + ");
+            num_into(out, pct);
+            out.push_str("%)");
+        }
+    }
+}
+
 fn property(out: &mut String, id: StyleId) {
-    // Every node's every row asks: each name is spelled once per process.
     static NAMES: [std::sync::OnceLock<String>; 256] = [const { std::sync::OnceLock::new() }; 256];
     out.push_str(NAMES[id as usize].get_or_init(|| {
         let mut name = String::new();
@@ -416,9 +605,21 @@ fn spell_property(out: &mut String, id: StyleId) {
     let name = match id {
         StyleId::TextColor => return out.push_str("color"),
         StyleId::TintColor => return out.push_str("--exact-tint"),
+        // @ref LLP 1104 D3 — `::placeholder`'s colour, read by index.html.
+        StyleId::PlaceholderColor => return out.push_str("--exact-placeholder-color"),
+        // @ref LLP 1061 D7 — the pressed paint: custom properties input-glue.js
+        // reads from the pressed element's own style, as `--exact-press`.
+        StyleId::PressOpacity => return out.push_str("--exact-press-opacity"),
+        // `:active`'s opacity, lowered (LLP 1121 D8).
+        StyleId::PressOpacityTo => return out.push_str("--exact-press-opacity-to"),
+        StyleId::PressBackgroundColor => return out.push_str("--exact-press-background-color"),
+        StyleId::PressColor => return out.push_str("--exact-press-color"),
         StyleId::PositionType => return out.push_str("position"),
-        StyleId::BackdropBlur => return out.push_str("backdrop-filter"),
+        StyleId::BackdropFilter => return out.push_str("backdrop-filter"),
         StyleId::SvgMask => return out.push_str("mask"),
+        // @ref LLP 1077 D7 — the Compat Standard's prefixed names.
+        StyleId::TextStrokeWidth => return out.push_str("-webkit-text-stroke-width"),
+        StyleId::TextStrokeColor => return out.push_str("-webkit-text-stroke-color"),
         id => id.name(),
     };
     for (prefix, suffix) in [
@@ -445,9 +646,23 @@ fn dashed(out: &mut String, name: &str) {
     }
 }
 
-/// A [`lowered`] row's CSS value, appended.
 fn declared(out: &mut String, id: StyleId, value: &RowValue<'_>) {
     match value {
+        // CSS's unbounded maximum is `none`; `max-width: auto` is no value (LLP 1102 §3.11).
+        RowValue::Dimension(Dimension::Auto)
+            if matches!(id, StyleId::MaxWidth | StyleId::MaxHeight) =>
+        {
+            out.push_str("none")
+        }
+        // Only a calculation can be negative here; written as `calc()` the
+        // browser clamps it rather than dropping it (CSS Values 4 §10.12).
+        RowValue::Dimension(
+            d @ (Dimension::Points(v) | Dimension::Percent(v) | Dimension::Viewport(_, v)),
+        ) if *v < 0.0 && exact_kernel::style::calc::nonnegative_row(id) => {
+            out.push_str("calc(");
+            dimension(out, *d);
+            out.push(')');
+        }
         RowValue::Dimension(d) => dimension(out, *d),
         RowValue::Color(c) => rgba_into(out, *c),
         // The browser resolves this one (LLP 1034 D2): handed the function
@@ -462,11 +677,15 @@ fn declared(out: &mut String, id: StyleId, value: &RowValue<'_>) {
             rgba_into(out, *d);
             out.push(')');
         }
+        // @ref LLP 1095 D2 — a CSS system colour as is, an Exact role as
+        // `var(--exact-<role>, <fallback>)`, a `-exact-platform-color()` as its web colour.
+        RowValue::ColorValue(c) => exact_kernel::gradient::color_css(out, *c),
         RowValue::LineHeight(v) => out.push_str(&v.css()),
         RowValue::Enum(e) => out.push_str(e),
         RowValue::ClipPath(p) => out.push_str(&p.css()),
         RowValue::ShapeOutside(p) => out.push_str(&p.css()),
         RowValue::AspectRatio(r) => out.push_str(&r.css()),
+        RowValue::PositionTryFallbacks(r) => out.push_str(&r.css()),
         RowValue::DragTimeline(d) => out.push_str(&d.css()),
         RowValue::AnimationTimeline(t) => out.push_str(&t.css()),
         RowValue::AnimationRange(r) => out.push_str(&r.css()),
@@ -478,10 +697,18 @@ fn declared(out: &mut String, id: StyleId, value: &RowValue<'_>) {
         RowValue::PaintOrder(p) => out.push_str(&p.css()),
         RowValue::Marker(m) => out.push_str(&m.css()),
         RowValue::Filter(f) => out.push_str(&f.css()),
+        RowValue::BackdropFilter(f) => out.push_str(&f.css()),
         // The kernel's canonical CSS: explicit stops, `#rrggbbaa` colours and
         // `light-dark()` pairs the browser resolves per element (LLP 1034
         // D2); the browser mixes premultiplied, as CSS says (LLP 1066).
-        RowValue::BackgroundImage(g) => out.push_str(&g.css()),
+        RowValue::BackgroundImage(g) | RowValue::MaskImage(g) => out.push_str(&g.css()),
+        RowValue::TextShadow(s) => out.push_str(&s.css()),
+        RowValue::FontVariations(v) => out.push_str(&v.css()),
+        RowValue::BoxShadow(s) => out.push_str(&s.css()),
+        RowValue::CornerShape(c) => out.push_str(&c.css()),
+        RowValue::RotateAxis(_) | RowValue::SymbolPalette(_) => {}
+        RowValue::Tracks(tracks) => out.push_str(tracks.css()),
+        RowValue::Placement(placement) => out.push_str(&placement.css()),
         RowValue::Vec2(v) => {
             num_into(out, v.x);
             out.push_str("px ");
@@ -489,13 +716,23 @@ fn declared(out: &mut String, id: StyleId, value: &RowValue<'_>) {
             out.push_str("px");
         }
         RowValue::Number(n) => match id {
+            // @ref LLP 1093 §1 — the row's 0 is CSS's `auto`.
+            StyleId::ColumnCount if *n == 0.0 => out.push_str("auto"),
+            StyleId::ZIndex => {
+                let max = exact_kernel::paint_order::Z_MAX;
+                out.push_str(&(*n as i32).clamp(-max, max).to_string());
+            }
             StyleId::FlexGrow
             | StyleId::FlexShrink
             | StyleId::Opacity
-            | StyleId::ZIndex
+            | StyleId::PressOpacity
+            | StyleId::PressOpacityTo
+            | StyleId::Order
+            | StyleId::ColumnCount
+            | StyleId::Widows
+            | StyleId::Orphans
             | StyleId::FontWeight
             | StyleId::Scale
-            | StyleId::ShadowOpacity
             // SVG's unitless numbers (LLP 1055 D2); `r`, `cx`, `cy` are lengths.
             | StyleId::FillOpacity
             | StyleId::StrokeOpacity
@@ -508,24 +745,16 @@ fn declared(out: &mut String, id: StyleId, value: &RowValue<'_>) {
                 num_into(out, *n as f32);
                 out.push_str("deg");
             }
-            // @ref LLP 1053.000 D1 — `none` is 0, which paints nothing and
-            // makes no backdrop root, where `blur(0px)` would.
-            StyleId::BackdropBlur if *n == 0.0 => out.push_str("none"),
-            StyleId::BackdropBlur => {
-                out.push_str("blur(");
+            StyleId::FontStretch => {
                 num_into(out, *n as f32);
-                out.push_str("px)");
+                out.push('%');
             }
             _ => {
                 num_into(out, *n as f32);
                 out.push_str("px");
             }
         },
-        RowValue::Color2(_)
-        | RowValue::Tracks(_)
-        | RowValue::Placement(_)
-        | RowValue::Transitions(_)
-        | RowValue::Animations(_) => {}
+        RowValue::Color2(_) | RowValue::Transitions(_) | RowValue::Animations(_) => {}
     }
 }
 
@@ -557,6 +786,7 @@ pub fn transition_css(t: &Transitions) -> (String, bool) {
                     // sides as their shorthand.
                     TransitionProperty::All => Property::ALL
                         .into_iter()
+                        .chain([Property::D])
                         .filter(|p| !p.springs() && *p != Property::ShadowColor)
                         .map(|p| match p {
                             Property::BorderTopColor => "border-color",
@@ -592,7 +822,7 @@ fn transition_property(tr: &Transition) -> &'static str {
     tr.property.css_name()
 }
 
-/// A `layout-transition` row as the presence module reads it: duration and
+/// A `-exact-layout-transition` row as the presence module reads it: duration and
 /// delay in milliseconds, then a CSS easing (LLP 1063). A spring is
 /// `spring(stiffness, damping, mass)`: the module lowers each move itself,
 /// from its displacement and velocity in points, to the grid and rest
@@ -623,6 +853,10 @@ pub fn easing_css(e: &Easing) -> String {
 
 pub(crate) fn dimension(out: &mut String, d: Dimension) {
     match d {
+        Dimension::Viewport(unit, n) => {
+            num_into(out, n);
+            out.push_str(unit.name());
+        }
         Dimension::Auto => out.push_str("auto"),
         Dimension::Points(p) => {
             num_into(out, p);
@@ -639,9 +873,9 @@ pub(crate) fn dimension(out: &mut String, d: Dimension) {
             num_into(out, plus.abs());
             out.push_str("px)");
         }
-        // The browser resolves the inset itself (under `viewport-fit=cover`,
-        // which the glue sets from the root's prop; zero otherwise).
-        Dimension::Env(edge, plus) => {
+        // The browser resolves the inset itself (under `viewport-fit=cover`, which the glue sets
+        // from the root's prop; zero otherwise); a layout region is its safe area (LLP 1123 D10).
+        Dimension::Env(edge, plus) | Dimension::Region(_, edge, plus) => {
             let inset = if plus == 0.0 { "env(" } else { "calc(env(" };
             out.push_str(inset);
             out.push_str("safe-area-inset-");
@@ -653,6 +887,12 @@ pub(crate) fn dimension(out: &mut String, d: Dimension) {
                 out.push_str("px)");
             }
         }
+        // The browser resolves the segment itself too (LLP 1078 D6): the
+        // text is CSS-ENV-1's, untouched.
+        Dimension::Segment(var, x, y, plus) => exact_kernel::style::env::css(var, x, y, plus, out),
+        // CSS's own `min()`, `max()` and `clamp()`: the browser resolves
+        // them, the insets with the rest (LLP 1001 §2, 2026-10-07).
+        Dimension::Compare(c) => exact_kernel::style::env::browser_css(c, out),
     }
 }
 
@@ -740,6 +980,27 @@ mod flow_tests {
         assert!(css.contains("wrap-flow:both;"));
         assert!(skipped.is_empty());
     }
+
+    /// LLP 1034 §8: the browser resolves `light-dark()` by the inherited
+    /// `color-scheme`; an unset (`normal`) row follows the parent's.
+    #[test]
+    fn color_scheme_is_passed_through() {
+        for (value, want) in [
+            ("dark", "color-scheme:dark;"),
+            ("light", "color-scheme:light;"),
+            ("normal", "color-scheme:inherit;"),
+        ] {
+            let mut s = StyleProps::default();
+            s.set_dynamic(
+                StyleId::ColorScheme,
+                &exact_kernel::StyleValue::Text(value.into()),
+            )
+            .unwrap();
+            let (css, skipped) = css_text(&s, &[]);
+            assert!(css.contains(want), "{value}: {css}");
+            assert!(skipped.is_empty());
+        }
+    }
 }
 
 #[cfg(test)]
@@ -769,10 +1030,10 @@ mod writer_tests {
     fn transitions_and_linear_easings_write_what_joining_wrote() {
         for text in [
             "opacity 1s",
-            "opacity 250ms ease-in-out, all 0.5s cubic-bezier(0.4, 0, 0.2, 1) 100ms, translate spring(180, 12, 1)",
+            "opacity 250ms ease-in-out, all 0.5s cubic-bezier(0.4, 0, 0.2, 1) 100ms, translate -exact-spring(180, 12, 1)",
             "opacity 1s steps(4, jump-both), height 200ms linear 50ms",
             "opacity 1s linear(0, 0.2, 0.6 60%, 0.8, 1), translate 1s linear(0 0% 20%, 1 80% 100%)",
-            "translate spring(180, 12, 1)",
+            "translate -exact-spring(180, 12, 1)",
         ] {
             let t = Transitions::parse(text).unwrap();
             assert_eq!(transition_css(&t), transition_joined(&t), "{text}");
@@ -791,12 +1052,12 @@ mod writer_tests {
         };
         let (duration, easing) = config.easing();
         let curve = format!("{}s {} 0.1s", num(duration as f32), easing.css());
-        let t = Transitions::parse("background-color spring(180, 12, 1) 0s 100ms").unwrap();
+        let t = Transitions::parse("background-color -exact-spring(180, 12, 1) 0s 100ms").unwrap();
         assert_eq!(
             transition_css(&t),
             (format!("background-color {curve}"), false)
         );
-        let t = Transitions::parse("opacity 1s, all spring(180, 12, 1) 0s 100ms").unwrap();
+        let t = Transitions::parse("opacity 1s, all -exact-spring(180, 12, 1) 0s 100ms").unwrap();
         let (text, skipped) = transition_css(&t);
         assert!(skipped, "the compositor rows' spring is the host's");
         let names: Vec<&str> = text
@@ -804,25 +1065,9 @@ mod writer_tests {
             .map(|n| n.trim_start_matches(','))
             .collect();
         assert_eq!(
-            names,
-            [
-                "opacity 1s ease 0s,stroke-dashoffset",
-                "r",
-                "color",
-                "background-color",
-                "fill",
-                "stroke",
-                "cx",
-                "cy",
-                "x",
-                "y",
-                "rx",
-                "ry",
-                "border-color",
-                "--exact-tint",
-                "box-shadow",
-                ""
-            ]
+            names.join(" "),
+            "opacity 1s ease 0s,stroke-dashoffset r color background-color fill stroke cx cy x y \
+             rx ry border-color --exact-tint box-shadow font-weight font-stretch d "
         );
     }
 }
@@ -839,6 +1084,47 @@ mod declaration_tests {
         }
         let fonts: Vec<String> = fonts.iter().map(|f| f.to_string()).collect();
         css_text(&style, &fonts).0
+    }
+
+    /// LLP 1001 §6's balance; LLP 1104 D3's `::placeholder` colour.
+    #[test]
+    fn balance_and_the_placeholder_colour_are_written_for_the_browser() {
+        let text = |id, v: &str| css(&[(id, StyleValue::Text(v.into()))], &[]);
+        let wrap = text(StyleId::TextWrapStyle, "balance");
+        assert_eq!(wrap, "text-wrap-style:balance;");
+        let ink = text(StyleId::PlaceholderColor, "#00800080");
+        assert_eq!(ink, "--exact-placeholder-color:rgba(0,128,0,0.5019608);");
+    }
+
+    #[test]
+    fn backdrop_filters_keep_order_and_identity_in_css() {
+        exact_kernel::style::link_backdrop_filter();
+        for value in [
+            "none",
+            "blur(0px)",
+            "saturate(1)",
+            "saturate(0)",
+            "blur(12px) saturate(1.14)",
+            "saturate(1.8) blur(4px)",
+        ] {
+            assert_eq!(
+                css(
+                    &[(StyleId::BackdropFilter, StyleValue::Text(value.into()))],
+                    &[]
+                ),
+                format!("backdrop-filter:{value};")
+            );
+        }
+    }
+
+    #[test]
+    fn cursor_emits_the_css_keyword_including_explicit_auto_override() {
+        for value in ["auto", "default", "crosshair"] {
+            assert_eq!(
+                css(&[(StyleId::Cursor, StyleValue::Text(value.into()))], &[]),
+                format!("cursor:{value};")
+            );
+        }
     }
 
     /// The declarations `css_text` composes itself, as the `write!`-built
@@ -865,51 +1151,19 @@ mod declaration_tests {
                 &[],
             ),
             css(&[(StyleId::LineClamp, StyleValue::Number(3.0))], &[]),
+            // LLP 1077 D4: one row, CSS's list.
             css(
-                &[
-                    (StyleId::ShadowOffset, StyleValue::Vec2(0.0, 2.5)),
-                    (StyleId::ShadowRadius, StyleValue::Number(12.0)),
-                    (StyleId::ShadowColor, StyleValue::Text("#11223380".into())),
-                    (StyleId::ShadowOpacity, StyleValue::Number(0.35)),
-                ],
+                &[(
+                    StyleId::BoxShadow,
+                    StyleValue::Text(
+                        "0 2.5px 12px #11223359, inset 0 1px 0 2px light-dark(#00000080, #ffffff)"
+                            .into(),
+                    ),
+                )],
                 &[],
             ),
             css(
-                &[
-                    (StyleId::ShadowOffset, StyleValue::Vec2(-1.0, 1e9)),
-                    (StyleId::ShadowRadius, StyleValue::Number(0.1)),
-                    (StyleId::ShadowColor, StyleValue::Text("#000000".into())),
-                    (StyleId::ShadowOpacity, StyleValue::Number(1.0)),
-                ],
-                &[],
-            ),
-            // LLP 1064: Contract's `box-shadow`, one value to the four rows.
-            css(
-                &[
-                    (
-                        StyleId::ShadowColor,
-                        StyleValue::Text("0 1px 4px light-dark(#00000080, #ffffff)".into()),
-                    ),
-                    (
-                        StyleId::ShadowOffset,
-                        StyleValue::Text("0 1px 4px light-dark(#00000080, #ffffff)".into()),
-                    ),
-                    (
-                        StyleId::ShadowRadius,
-                        StyleValue::Text("0 1px 4px light-dark(#00000080, #ffffff)".into()),
-                    ),
-                    (
-                        StyleId::ShadowOpacity,
-                        StyleValue::Text("0 1px 4px light-dark(#00000080, #ffffff)".into()),
-                    ),
-                ],
-                &[],
-            ),
-            css(
-                &[
-                    (StyleId::ShadowColor, StyleValue::Text("none".into())),
-                    (StyleId::ShadowOpacity, StyleValue::Text("none".into())),
-                ],
+                &[(StyleId::BoxShadow, StyleValue::Text("none".into()))],
                 &[],
             ),
             css(
@@ -950,9 +1204,7 @@ mod declaration_tests {
             "font-family:ui-monospace,monospace;",
             "transition:opacity 0.25s ease-in-out 0s,all 0.5s cubic-bezier(0.4,0,0.2,1) 0.1s;",
             "display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:3;overflow:hidden;",
-            "box-shadow:0px 2.5px 12px rgba(17,34,51,0.17254902);",
-            "box-shadow:-1px 1000000000px 0.1px rgba(0,0,0,1);",
-            "box-shadow:0px 1px 4px light-dark(rgba(0,0,0,0.5019608), rgba(255,255,255,1));",
+            "box-shadow:0px 2.5px 12px 0px #11223359, inset 0px 1px 0px 2px light-dark(#00000080, #ffffffff);",
             "box-shadow:none;",
             "text-transform:uppercase;",
             "font-variant-numeric:tabular-nums;white-space:nowrap;",
@@ -968,7 +1220,9 @@ mod declaration_tests {
     /// the page as CSS.
     #[test]
     fn layout_rows_keep_their_css() {
-        let t = |s: &str| StyleValue::Text(s.into());
+        fn t(s: &str) -> StyleValue<'_> {
+            StyleValue::Text(s.into())
+        }
         for (rows, want) in [
             (
                 vec![(StyleId::AspectRatio, t("16/9"))],
@@ -1009,12 +1263,123 @@ mod declaration_tests {
         }
     }
 
+    #[test]
+    fn every_grid_row_has_css_and_none_is_skipped() {
+        fn t(s: &str) -> StyleValue<'_> {
+            StyleValue::Text(s.into())
+        }
+        for (row, value, want) in [
+            (
+                StyleId::GridTemplateColumns,
+                t("repeat(2, minmax(80px, 1fr)) 25%"),
+                "grid-template-columns:repeat(2, minmax(80px, 1fr)) 25%;",
+            ),
+            (
+                StyleId::GridTemplateRows,
+                t("40px auto min-content max-content"),
+                "grid-template-rows:40px auto min-content max-content;",
+            ),
+            (
+                StyleId::GridColumn,
+                t("-3 / span 2"),
+                "grid-column:-3 / span 2;",
+            ),
+            (StyleId::GridRow, t("2 / -1"), "grid-row:2 / -1;"),
+            (
+                StyleId::GridAutoFlow,
+                t("row dense"),
+                "grid-auto-flow:row dense;",
+            ),
+            (StyleId::JustifyItems, t("center"), "justify-items:center;"),
+        ] {
+            let mut style = StyleProps::default();
+            style.set_dynamic(row, &value).unwrap();
+            let (text, skipped) = css_text(&style, &[]);
+            assert_eq!(text, want, "{row:?}");
+            assert!(skipped.is_empty(), "{row:?}: {skipped:?}");
+        }
+    }
+
     /// LLP 1066: a gradient is one `background-image` declaration after the
     /// colour it paints over; a `light-dark()` stop is the browser's to
     /// resolve, and `none` clears.
     #[test]
+    fn a_3d_rotate_and_translate_are_one_declaration_each() {
+        fn t(s: &str) -> StyleValue<'_> {
+            StyleValue::Text(s.into())
+        }
+        let text = css(
+            &[
+                (StyleId::Rotate, t("y 30deg")),
+                (StyleId::RotateAxis, t("y 30deg")),
+                (StyleId::Translate, t("1px 2px 3px")),
+                (StyleId::TranslateZ, t("1px 2px 3px")),
+                (StyleId::Perspective, StyleValue::Number(800.0)),
+            ],
+            &[],
+        );
+        assert!(text.contains("rotate:y 30deg;"), "{text}");
+        assert!(text.contains("translate:1px 2px 3px;"), "{text}");
+        assert!(text.contains("perspective:800px;"), "{text}");
+        assert_eq!(text.matches("rotate").count(), 1, "{text}");
+        // Chess diary #4: a percentage is the browser's to resolve.
+        let text = css(
+            &[
+                (StyleId::Translate, t("-50% 4px")),
+                (StyleId::TranslatePercent, t("-50% 4px")),
+                (StyleId::TranslateZ, t("-50% 4px")),
+            ],
+            &[],
+        );
+        assert!(text.contains("translate:-50% 4px;"), "{text}");
+        assert_eq!(text.matches("translate").count(), 1, "{text}");
+    }
+
+    #[test]
+    fn text_stroke_is_the_compat_standards_two_properties() {
+        fn t(s: &str) -> StyleValue<'_> {
+            StyleValue::Text(s.into())
+        }
+        let text = css(
+            &[
+                (StyleId::TextStrokeWidth, t("2px #ff0000")),
+                (StyleId::TextStrokeColor, t("2px #ff0000")),
+            ],
+            &[],
+        );
+        assert!(text.contains("-webkit-text-stroke-width:2px;"), "{text}");
+        assert!(text.contains("-webkit-text-stroke-color:"), "{text}");
+    }
+
+    #[test]
+    fn apple_continuous_is_a_superellipse_over_a_scaled_radius() {
+        fn t(s: &str) -> StyleValue<'_> {
+            StyleValue::Text(s.into())
+        }
+        let text = css(
+            &[
+                (StyleId::BorderRadiusTopLeft, StyleValue::Number(10.0)),
+                (StyleId::BorderRadiusTopRight, StyleValue::Number(10.0)),
+                (StyleId::CornerShape, t("-exact-continuous squircle")),
+            ],
+            &[],
+        );
+        assert!(
+            text.contains("border-top-left-radius:calc(10px * 1.52);"),
+            "{text}"
+        );
+        assert!(text.contains("border-top-right-radius:10px;"), "{text}");
+        assert!(
+            text.contains("corner-shape:superellipse(1.6) squircle superellipse(1.6) squircle;"),
+            "{text}"
+        );
+    }
+
+    #[test]
     fn background_image_is_one_declaration_over_the_colour() {
-        let t = |s: &str| StyleValue::Text(s.into());
+        fn t(s: &str) -> StyleValue<'_> {
+            StyleValue::Text(s.into())
+        }
         assert_eq!(
             css(
                 &[
@@ -1033,6 +1398,16 @@ mod declaration_tests {
             css(&[(StyleId::BackgroundImage, t("none"))], &[]),
             "background-image:none;"
         );
+        // LLP 1008: the admitted snap alignments are CSS's own.
+        assert_eq!(
+            css(&[(StyleId::ScrollSnapAlign, t("end"))], &[]),
+            "scroll-snap-align:end;"
+        );
+        // LLP 1066 D7: the browser's own `fixed`, the gradient box the viewport.
+        assert_eq!(
+            css(&[(StyleId::BackgroundAttachment, t("fixed"))], &[]),
+            "background-attachment:fixed;"
+        );
     }
 
     /// The feedback's separate factor leaves the row's scale and
@@ -1040,7 +1415,9 @@ mod declaration_tests {
     #[test]
     fn a_press_scale_keeps_the_authored_scale_and_transitions() {
         let n = StyleValue::Number;
-        let t = |s: &str| StyleValue::Text(s.into());
+        fn t(s: &str) -> StyleValue<'_> {
+            StyleValue::Text(s.into())
+        }
         assert_eq!(
             css(&[(StyleId::PressScale, n(0.97))], &[]),
             "scale:calc(var(--exact-scale,1) * var(--exact-press-factor,1))!important;--exact-press:0.97;"

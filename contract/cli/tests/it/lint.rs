@@ -20,9 +20,77 @@ fn an_old_spelling_is_refused_with_the_css_name() {
     let e = contract::compile(src).unwrap_err();
     assert_eq!(e.id, "lower-unknown-attr");
     assert!(e.message.contains("`font-size`"), "{e}");
-    let src = "component A\n  state n = 0\n  action go writes n\n    n = 1\n  view\n    button press=go label=\"Go\"\n      text \"a\"\n";
+    let src = "component A\n  state n = 0\n  action go\n    n = 1\n  view\n    button press=go label=\"Go\"\n      text \"a\"\n";
     let e = contract::compile(src).unwrap_err();
     assert!(e.message.contains("`aria-label`"), "{e}");
+}
+
+/// What a React Native port writes first is refused with what to write
+/// (the euxy port, 2026-10-17: 19 of 50 compiles refused).
+#[test]
+fn a_react_native_habit_is_refused_with_what_to_write() {
+    for (line, id, needle) in [
+        (
+            "text \"a\" numberOfLines=2",
+            "lower-unknown-attr",
+            "`line-clamp`",
+        ),
+        (
+            "text \"a\" ellipsizeMode=\"tail\"",
+            "lower-unknown-attr",
+            "`text-overflow`",
+        ),
+        (
+            "image \"a.png\" resizeMode=\"cover\"",
+            "lower-unknown-attr",
+            "`object-fit`",
+        ),
+        (
+            "text \"a\" textTransform=\"uppercase\"",
+            "lower-unknown-attr",
+            "`text-transform`",
+        ),
+        (
+            "view paddingHorizontal=16",
+            "lower-unknown-attr",
+            "`padding-left` and `padding-right`",
+        ),
+        (
+            "view marginVertical=8",
+            "lower-unknown-attr",
+            "`margin-top` and `margin-bottom`",
+        ),
+        ("view shadowRadius=4", "lower-unknown-attr", "`box-shadow="),
+        ("view elevation=4", "lower-attr-tag", "`box-shadow="),
+        (
+            "text \"a\" selectable=true",
+            "lower-unknown-attr",
+            "`user-select=\"text\"`",
+        ),
+        (
+            "text \"a\" font-weight=\"bold\"",
+            "lower-attr-value",
+            "write `font-weight=700`",
+        ),
+        (
+            "text \"a\" font-weight=\"normal\"",
+            "lower-attr-value",
+            "write `font-weight=400`",
+        ),
+    ] {
+        let src = format!("component A\n  view\n    column\n      {line}\n");
+        let e = contract::compile(&src).unwrap_err();
+        assert_eq!(e.id, id, "{line}: {e}");
+        assert!(e.message.contains(needle), "{line}: {e}");
+    }
+    // A keyframe's unit needs quotes, as an element's does; and a keyframe is one line.
+    let src = "keyframes W\n  from rotate=-2deg\n  to rotate=2deg\ncomponent A\n  view\n    text \"a\" animation=\"W 1s\"\n";
+    let e = contract::compile(src).unwrap_err();
+    assert_eq!(e.id, "syntax-unquoted-length", "{e}");
+    assert!(e.message.contains("`rotate=\"-2deg\"`"), "{e}");
+    let src = "keyframes W\n  from\n    opacity=0\ncomponent A\n  view\n    text \"a\" animation=\"W 1s\"\n";
+    let e = contract::compile(src).unwrap_err();
+    assert!(e.message.contains("a keyframe is one line"), "{e}");
 }
 
 #[test]
@@ -39,9 +107,9 @@ fn a_literal_value_is_checked_against_its_row_at_compile_time() {
             "`align-items`",
         ),
         (
-            "component A\n  view\n    column background-color=\"red\"\n      text \"a\"\n",
+            "component A\n  view\n    column background-color=\"blurple\"\n      text \"a\"\n",
             "lower-attr-value",
-            "#rrggbb",
+            "a named colour",
         ),
         (
             "component A\n  view\n    column padding=\"auto\"\n      text \"a\"\n",
@@ -110,7 +178,7 @@ fn a_horizontal_scroll_can_grow_vertically_with_its_contents() {
 
 #[test]
 fn bake_refuses_a_pressable_with_zero_area() {
-    let src = "component A\n  state n = 0\n  action go writes n\n    n = 1\n  view\n    column\n      button press=go width=0 height=0 testId=\"go\"\n";
+    let src = "component A\n  state n = 0\n  action go\n    n = 1\n  view\n    column\n      button press=go width=0 height=0 testId=\"go\"\n";
     let plan = contract::compile(src).unwrap();
     let e = contract::bake(plan, NoData).unwrap_err();
     match e {
@@ -118,6 +186,59 @@ fn bake_refuses_a_pressable_with_zero_area() {
             assert_eq!(id, "bake-zero-size");
             assert!(message.contains("testId=\"go\""), "{message}");
         }
+        other => panic!("{other:?}"),
+    }
+}
+
+/// Ledger2 Rough 4: an absolutely positioned button is sized by its insets
+/// (a modal's backdrop, `inset=0`), so neither the compiler's check nor
+/// the bake's refuses it; a relatively positioned one with `inset` still has
+/// no size, and one with only `top` and `bottom` keeps its zero width.
+#[test]
+fn an_inset_sized_button_has_area() {
+    for attrs in [
+        "position=\"absolute\" inset=0",
+        "position=\"absolute\" top=0 bottom=0 left=0 right=0",
+        "position=(open ? \"absolute\" : \"sticky\") inset=0",
+    ] {
+        let src = format!("component A\n  state open = true\n  action close\n    open = false\n  view\n    column position=\"relative\" width=200 height=200\n      button press=close {attrs} background-color=\"rgba(0,0,0,0.4)\" testId=\"backdrop\"\n");
+        let plan = contract::compile(&src).unwrap_or_else(|e| panic!("{attrs}: {e}"));
+        contract::check(&plan).unwrap_or_else(|e| panic!("{attrs}: {e:?}"));
+    }
+    let e = contract::compile("component A\n  action close\n    let x = 1\n  view\n    button press=close position=\"relative\" inset=0\n")
+        .unwrap_err();
+    assert!(format!("{e}").contains("zero area"), "{e}");
+}
+
+/// The web's JS target bakes nothing; `contract::check` refuses there what
+/// every native bake would, before the page's module answers (files diary
+/// F13). Hidden controls and descendants have no pressable layout until shown.
+#[test]
+fn check_refuses_without_data_what_no_answer_could_change() {
+    let hidden = "component A\n  state n = 0\n  action go\n    n = 1\n  view\n    column\n      button \"Down\" press=go display=\"none\" aria-keyshortcuts=\"Shift+ArrowDown\" testId=\"down\"\n";
+    contract::check(&contract::compile(hidden).unwrap()).unwrap();
+    let nested = hidden
+        .replace("    column\n", "    column display=\"none\"\n")
+        .replace(" display=\"none\" aria-keyshortcuts", " aria-keyshortcuts");
+    contract::check(&contract::compile(&nested).unwrap()).unwrap();
+    contract::bake(contract::compile(&nested).unwrap(), NoData).unwrap();
+    // A label the module answers is empty until it does: not this check's
+    // to judge, nor a `scroll` that only its answered rows reach the bound
+    // of (unanswered, it is exactly as tall as its header).
+    let answered = "component A\n  resource title = title() as shape string\n  resource rows = rows() as shape string[]\n  state n = 0\n  action go\n    n = 1\n  view\n    column\n      button press=go padding=0 border-width=0 testId=\"title\"\n        text title\n      row max-height=300\n        scroll\n          column\n            text \"Header\"\n            for r in rows key=r\n              text r\n";
+    contract::check(&contract::compile(answered).unwrap()).unwrap();
+}
+
+/// Review C2: `check` excuses only a source that answers in the page. Any
+/// other refusal at boot is the bake's too, and fails the web build (here a
+/// plan for another kernel schema, refused before a frame).
+#[test]
+fn check_refuses_a_boot_the_bake_refuses() {
+    let mut plan = contract::compile("component A\n  view\n    text \"a\"\n").unwrap();
+    contract::check(&plan).unwrap();
+    plan.kernel_schema_digest ^= 1;
+    match contract::check(&plan).unwrap_err() {
+        BakeError::Runner(exact_runner::RunnerError::KernelSchemaMismatch { .. }) => {}
         other => panic!("{other:?}"),
     }
 }
@@ -162,7 +283,7 @@ fn conditional_style_checks_preserve_computation_and_match_bindings() {
   state on = false
   state n = true
   state maybe = some(20)
-  action toggle writes on
+  action toggle
     on = !on
   view
     column testId="branch" top=(on ? -10 : (match maybe { case some(n) => n, case none => 0 })) align-items=(on ? "center" : "flex-end")
@@ -189,6 +310,67 @@ fn conditional_style_checks_preserve_computation_and_match_bindings() {
 }
 
 #[test]
+fn a_platform_colour_is_a_plan_literal_never_data() {
+    // LLP 1095 D3: state may choose between the plan's literals; a string
+    // that came from an action's argument names no platform colour.
+    let source = r##"component App
+  state on = false
+  state named = "#000000"
+  action toggle
+    on = !on
+  action name(v: string)
+    named = v
+  view
+    column
+      text "a" testId="chosen" color=(on ? "-exact-platform-color(ios lintTestOnColor, #010203)" : "-exact-platform-color(ios lintTestOffColor, #040506)")
+      text "b" testId="named" color=named
+"##;
+    let mut runner = exact_runner::Runner::boot(
+        contract::compile(source).unwrap(),
+        NoData,
+        exact_kernel::Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    let color = |runner: &exact_runner::Runner<NoData>, id: &str| {
+        let kernel = runner.kernel();
+        let key = kernel.find_by_test_id(id)[0];
+        kernel.node_by_key(key).unwrap().style.text_color
+    };
+    let platform = |c: exact_kernel::style::ColorValue| {
+        let exact_kernel::style::ColorValue::Platform(id) = c else {
+            return None;
+        };
+        exact_kernel::style::roles::platform(id).and_then(|p| p.ios.clone())
+    };
+    assert_eq!(
+        platform(color(&runner, "chosen")).as_deref(),
+        Some("lintTestOffColor")
+    );
+    runner.act("toggle", vec![]).unwrap();
+    assert_eq!(
+        platform(color(&runner, "chosen")).as_deref(),
+        Some("lintTestOnColor")
+    );
+    runner
+        .act(
+            "name",
+            vec![Value::str(
+                "-exact-platform-color(ios lintTestDataColor, #070809)",
+            )],
+        )
+        .unwrap();
+    let named = color(&runner, "named");
+    assert_eq!(
+        platform(named),
+        None,
+        "data names no platform colour: {named:?}"
+    );
+    assert!(!runner.is_poisoned());
+}
+
+#[test]
 fn conditional_pixel_lengths_compile_and_update() {
     for expression in [
         r#"(on ? "0px" : "20px")"#,
@@ -198,7 +380,7 @@ fn conditional_pixel_lengths_compile_and_update() {
             r#"component App
   state on = false
   state maybe = none
-  action toggle writes on, maybe
+  action toggle
     on = !on
     maybe = some(1)
   view
@@ -227,6 +409,213 @@ fn conditional_pixel_lengths_compile_and_update() {
 }
 
 #[test]
+fn a_bound_string_on_a_number_row_is_refused_as_its_literal_is() {
+    let app = |node: &str| {
+        format!("component A\n  state size = 16\n  state label = \"2\"\n  action grow\n    size = 20\n  view\n    column\n      {node}\n")
+    };
+    // No native host reads text on these rows; a browser would apply it.
+    for (node, name) in [
+        ("text \"a\" opacity=`${size / 20}`", "opacity"),
+        ("column flex-grow=label", "flex-grow"),
+        ("text \"a\" z-index=label", "z-index"),
+        ("text \"a\" font-weight=`${size}0`", "font-weight"),
+        ("view column-count=label", "column-count"),
+        ("view column-rule-width=`${size}px`", "column-rule-width"),
+    ] {
+        let e = contract::compile(&app(node)).unwrap_err();
+        assert_eq!(e.id, "lower-attr-type", "{node}: {e}");
+        assert!(
+            e.message.contains(&format!("`{name}` takes a number")),
+            "{node}: {e}"
+        );
+    }
+    // A pixel row reads `<n>px` where it binds, as the browser does.
+    let mut runner = exact_runner::Runner::boot(
+        contract::compile(&app(
+            "text \"a\" testId=\"t\" font-size=`${size}px` letter-spacing=`${size / 16}px`",
+        ))
+        .unwrap(),
+        NoData,
+        exact_kernel::Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    for expected in [16.0, 20.0] {
+        let key = runner.kernel().find_by_test_id("t")[0];
+        let style = &runner.kernel().node_by_key(key).unwrap().style;
+        assert_eq!(
+            (style.font_size, style.letter_spacing),
+            (expected, expected / 16.0)
+        );
+        runner.act("grow", vec![]).unwrap();
+    }
+    assert!(!runner.is_poisoned());
+}
+
+#[test]
+fn number_only_style_choices_reject_computed_string_arms() {
+    let app = |node: &str| {
+        format!(
+            "component A\n  state on = true\n  state label = \"bad\"\n  state maybe = some(0.5)\n  view\n    {node}\n"
+        )
+    };
+    for node in [
+        "view opacity=(on ? 0.5 : label)",
+        "view opacity=(on ? 0.5 : (on ? label : 1))",
+        "view opacity=(match maybe { case some(x) => x, case none => (on ? label : 1) })",
+        "view opacity=(match maybe { case some(x) => x, case none => label })",
+        "view flex-grow=(on ? 1 : label)",
+        "view opacity=`${label}`",
+        "view opacity=label.toString()",
+    ] {
+        let e = contract::compile(&app(node)).unwrap_err();
+        assert_eq!(e.id, "lower-attr-type", "{node}: {e}");
+        assert!(e.message.contains("string"), "{node}: {e}");
+    }
+    contract::compile(&app("view opacity=(on ? 0.5 : 0.75)")).unwrap();
+    contract::compile(&app("view font-size=(on ? 12 : \"14px\")")).unwrap();
+}
+
+// The type checker refuses these forms itself (`type-branches`), before
+// lowering; this pins that refusal. The lowerer's own walk is tested by
+// `mixed_types_inside_computed_arms_and_match_subjects_are_found`.
+#[test]
+fn number_only_style_choices_reject_mixed_nested_expressions() {
+    let app = |node: &str| {
+        format!("component A\n  state on = true\n  state label = \"0.75\"\n  view\n    {node}\n")
+    };
+    for node in [
+        "view opacity=`${on ? label : 1}`",
+        "view opacity=(on ? label : 1).toString()",
+        "view opacity=(on ? 0.5 : `${on ? label : 1}`)",
+        "view opacity=(match (on ? some(label) : some(1)) { case some(x) => x, case none => 0 })",
+    ] {
+        let e = contract::compile(&app(node)).unwrap_err();
+        assert_eq!(e.id, "type-branches", "{node}: {e}");
+    }
+}
+
+#[test]
+fn number_only_style_choices_accept_valid_css_wide_keywords() {
+    let app = |node: &str| format!("component A\n  state on = true\n  view\n    {node}\n");
+    for node in [
+        "view opacity=(on ? 0.5 : \"unset\")",
+        "text \"w\" font-weight=(on ? 700 : \"inherit\")",
+        "view opacity=(on ? 0.5 : (on ? \"unset\" : 1))",
+        "view opacity=(on ? \"unset\" : \"unset\")",
+    ] {
+        contract::compile(&app(node)).unwrap_or_else(|e| panic!("{node}: {e}"));
+    }
+}
+
+/// The `style=` hint's suggestion is read back as a node's attributes and
+/// compiled: what it suggests must compile (the euxy port, review round 2).
+#[test]
+fn the_style_hint_suggests_only_what_compiles() {
+    let hint = |style: &str| {
+        let src = format!("component A\n  view\n    text \"a\" style={style:?}\n");
+        let e = contract::compile(&src).expect_err("`style=` is refused");
+        let message = e.to_string();
+        assert!(message.contains("has no attribute `style`"), "{message}");
+        message
+    };
+    let compiles = |node: &str| {
+        let src = format!("style Title\n  font-weight=600\n\ncomponent A\n  view\n    {node}\n");
+        contract::compile(&src).unwrap_or_else(|e| panic!("{node}: {e}"));
+    };
+    let suggested = |message: &str, lead: &str| -> String {
+        let at = message
+            .find(lead)
+            .unwrap_or_else(|| panic!("{lead:?} in {message}"))
+            + lead.len();
+        message[at..].split('`').next().unwrap().to_string()
+    };
+    for (style, attrs) in [
+        // Split at `;` outside quotes and parentheses (a string attribute
+        // keeps CSS's quotes, as a quoted family name does).
+        (
+            "font-family: \"Helvetica Neue\", Arial; color: red",
+            "font-family=\"\\\"Helvetica Neue\\\", Arial\" color=\"red\"",
+        ),
+        (
+            "aria-label: \"Save; later\"; color: red",
+            "aria-label=\"\\\"Save; later\\\"\" color=\"red\"",
+        ),
+        (
+            "aria-label: f(a; b); width: calc(100% - 16px)",
+            "aria-label=\"f(a; b)\" width=\"calc(100% - 16px)\"",
+        ),
+        // `!important` is dropped from a property written once.
+        (
+            "color: red !important; padding: 8px ! important",
+            "color=\"red\" padding=\"8px\"",
+        ),
+        (
+            "font-size: 14px; font-weight: 600; line-height: 1.4",
+            "font-size=\"14px\" font-weight=600 line-height=1.4",
+        ),
+        // A custom property is not an attribute; the others are.
+        ("--gap: 8px; padding: 8px", "padding=\"8px\""),
+        // A plain number is unquoted, as the lexer wants it.
+        (
+            "-exact-press-scale: 0.97; opacity: 0.5; flex: 1; color: red",
+            "-exact-press-scale=0.97 opacity=0.5 flex=1 color=\"red\"",
+        ),
+    ] {
+        let message = hint(style);
+        assert_eq!(
+            suggested(&message, "write the declarations as attributes, `"),
+            attrs,
+            "{style}: {message}"
+        );
+        compiles(&format!("text \"a\" {attrs}"));
+    }
+    let message = hint("Title");
+    assert_eq!(suggested(&message, "write `"), "class=Title");
+    compiles("text \"a\" class=Title");
+    // No rewrite for properties that may overlap, which CSS resolves by
+    // importance and order and attributes do not: one written twice, a
+    // shorthand beside a longhand of its own, by prefix or by family.
+    for style in [
+        "padding: 8px !important; padding: 0",
+        "padding: 8px; padding: 0",
+        "padding-left: 16px !important; padding: 0",
+        "flex-direction: column; flex: 1 !important",
+        "border-top: 1px solid red; border-top-left-radius: 8px",
+        "border-radius: 8px; border-top-left-radius: 0",
+        "font: 14px Inter; line-height: 1.4",
+        "top: 4px; inset: 0",
+        "row-gap: 4px; gap: 8px",
+    ] {
+        let message = hint(style);
+        assert!(!message.contains("write "), "{style}: {message}");
+        assert!(
+            message.contains("a look nodes share is a `style Name` block"),
+            "{style}: {message}"
+        );
+    }
+    // Nothing to suggest: a custom property alone, a name with a quote or
+    // brace, a reserved word.
+    for style in [
+        "--gap: 8px",
+        "a\"b: 1",
+        "a{b}: 1",
+        "none",
+        "if",
+        "true",
+        "8px",
+    ] {
+        let message = hint(style);
+        assert!(!message.contains("write "), "{style}: {message}");
+        assert!(
+            message.contains("a look nodes share is a `style Name` block"),
+            "{style}: {message}"
+        );
+    }
+}
+
+#[test]
 fn refusals_name_what_the_author_wrote_and_suggest_one_repair() {
     let app = |state: &str, node: &str| {
         format!("shape Todo\n  title: string\ncomponent A\n  state draft = \"\"\n{state}  view\n    column\n      {node}\n")
@@ -237,28 +626,115 @@ fn refusals_name_what_the_author_wrote_and_suggest_one_repair() {
         (app("  state drab = \"\"\n", "text drat"), "type-unknown-name", "unknown name `drat`"),
         (app("  state t = some(\"a\")\n", "buton"), "lower-unknown-tag", "unknown tag `buton`; did you mean `button`?"),
         (app("", "div"), "lower-unknown-tag", "unknown tag `div`; a flex container is `column` or `row`, and a plain box `view`"),
-        (app("", "text \"a\" color=\"bleu\""), "lower-attr-value", "`color=\"bleu\"` is not a valid `color`: a color is `#rgb`, `#rrggbb`, `#rrggbbaa`, `rgb(r, g, b)`, `rgba(r, g, b, a)`, or `transparent`"),
-        (app("", "text \"a\" font-size=\"14px\""), "lower-attr-value", "`font-size=\"14px\"` is not a valid `font-size`: expected number; write `font-size=14` (a number is pixels)"),
+        // An SVG element's own attribute on a box is refused by name, not
+        // kept as a prop no host reads; CSS `order` is a box's (feed F19).
+        (app("", "view mode=\"multiply\""), "lower-attr-tag", "`mode` is an SVG element's attribute; it does nothing on `view`"),
+        (app("", "view mask=\"url(#m)\""), "lower-attr-tag", "`mask` masks SVG elements so far; a box takes `mask-image` (a gradient)"),
+        // HTML's and CSS's own spellings (feed F1): `alt` is an image's,
+        // and `inherit` takes what the parent computed, which only an
+        // inherited row has.
+        (app("", "view alt=\"x\""), "lower-attr-tag", "`alt` belongs to `image`, not `view`; another element's accessible name is `aria-label`"),
+        (app("", "view background-color=\"inherit\""), "lower-attr-value", "`background-color=\"inherit\"`: `background-color` does not inherit, and exact2 inherits only the rows CSS inherits; write the value"),
+        (app("", "text \"a\" color=\"bleu\""), "lower-attr-value", "`color=\"bleu\"` is not a valid `color`: a color is a CSS colour: hex, `rgb()`, `hsl()`, `hwb()`, a named colour, `transparent`, or one in its own space: `color(display-p3 1 0 0)`, `oklch()`, `oklab()`, `lab()`, `lch()` (LLP 1100) — `light-dark(a, b)` of two, a role (`\"-exact-secondary-label\"`, `\"CanvasText\"`: LLP 1095, LLP 1081), or `-exact-platform-color(ios <name>Color, …, <fallback>)` written whole as a string literal"),
+        (app("", "text \"a\" color=`-exact-platform-color(ios ${draft}Color, #000)`"), "lower-platform-color-literal", "`color`: write `-exact-platform-color(…)` whole, as a string literal (a branch of `?:` or `match` may be one); it is never built from a template, a concatenation or data, so the platform colours a plan names are fixed when it compiles (LLP 1095 D3)"),
+        // `14px` on a pixel row is CSS's (LLP 1102 §3.10); a negative font size is not.
+        (app("", "text \"a\" font-size=\"-2px\""), "lower-attr-value", "`font-size=\"-2px\"` is not a valid `font-size`: expected a nonnegative length"),
         (app("", "text \"a\" width=10px"), "syntax-unquoted-length", "`width=10px` needs quotes: a value with a unit is a string, `width=\"10px\"` (a bare number is pixels)"),
         (app("", "text \"a\" className=\"x\""), "lower-unknown-attr", "`text` has no attribute `className`; `class` names a `style` declared in this file, as in `class=Card`"),
+        // The euxy port's `style=`: the word is `class=`, or the declarations are attributes.
+        (app("", "text \"a\" style=\"title\""), "lower-unknown-attr", "`text` has no attribute `style`; write `class=title`: a look nodes share is a `style Name` block in the file, named with `class=Name`, and a node's own look is its attributes"),
+        (app("", "text \"a\" style=\"padding: 8px; color: red;\""), "lower-unknown-attr", "`text` has no attribute `style`; write the declarations as attributes, `padding=\"8px\" color=\"red\"`: a node's look is its attributes, and a look nodes share is a `style Name` block in the file, named with `class=Name`"),
         (
             app("  state n = 0\n", "text n"),
             "lower-attr-type",
-            "`text` takes a string; this expression is `number`: interpolate it in a template, `${…}`, or write `toString(…)`",
+            "`text` takes a string; this expression is `number`: interpolate it in a template, `${…}`, or write `x.toString()`",
         ),
         (
-            app("", "when draft = \"x\"\n        text \"a\""),
+            app("", "if draft = \"x\"\n        text \"a\""),
             "syntax-expected-newline",
             "expected end of line, found `=`; `==` compares, and only a statement assigns",
+        ),
+        // The euxy port's `after(0, …)`: 0 would be due in the commit that armed it.
+        (
+            app("  task t mount\n    after(0, tick)\n  action tick\n    draft = \"x\"\n", "text draft"),
+            "lower-timer-interval",
+            "`after` needs a whole number of milliseconds, at least 1; given 0: write `after(1, …)`, the soonest, which runs a commit after the one that armed it, as the web's `setTimeout(f, 0)` runs after the current task",
         ),
         (
             app("", "button press={add}"),
             "syntax-expected-expression",
             "expected an expression, found `{`; Contract has no `{…}`: a handler names an action (`press=add`, `press=add(item)`) and a value is written directly (`width=10`)",
         ),
+        // The app farm's guesses (round 1): a tag, a count, a placeholder.
+        (app("", "heading \"T\""), "lower-unknown-tag", "unknown tag `heading`; a heading is `h1` (to `h6` for the level)"),
+        (app("", "table"), "lower-unknown-tag", "unknown tag `table`; a table or grid is `view display=\"grid\"` with `grid-template-columns`, or a `column` of `row`s"),
+        (app("  state xs = [1]\n", "text count(xs).toString()"), "type-refused-idiom", "write `x.length`, of text or of a list"),
+        (app("  state xs = [1]\n", "text xs.size.toString()"), "type-not-a-record", "`number[]` has no fields: write `x.length`, of text or of a list"),
+        (
+            app("  resource todos = todosOf() as shape Todo[] else []\n", "text \"a\""),
+            "syntax-placeholder-call",
+            "a resource's `else` is a call: `else empty()` is its shape's zero (`[]` for a list, `\"\"` for text), with `field=constant` overrides for a record, or `else source(values…)`",
+        ),
+        (
+            app("  resource todo = todoOf() as shape Todo else Todo(title=\"…\")\n", "text todo.title"),
+            "type-placeholder-shape",
+            "`todo`'s placeholder calls the shape `Todo`: write `else empty(field=…)`, the shape's zero with `field=constant` overrides",
+        ),
     ] {
         let e = contract::compile(&src).unwrap_err();
         assert_eq!((e.id.as_str(), e.message.as_str()), (id, message), "{src}");
+    }
+}
+
+/// A prop written with a default (the euxy port's) is told props have none,
+/// and the `option` form the refusal names compiles.
+#[test]
+fn a_prop_default_is_refused_naming_the_option_form() {
+    let app = |props: &str, read: &str, pass: &str| {
+        format!("component A\n  view\n    Toggle({pass})\ncomponent Toggle\n  props\n    {props}\n  view\n    button \"x\" disabled={read}\n")
+    };
+    let e =
+        contract::compile(&app("disabled: bool = false", "disabled", "disabled=true")).unwrap_err();
+    assert_eq!(
+        (e.id.as_str(), e.message.as_str()),
+        ("syntax-expected-newline", "a prop has no default: pass `disabled=<value>` at every use, or declare `disabled: option<bool>`, pass `disabled=none` where it is unset, and read it as `match disabled { case some(v) => v, case none => <default> }`"),
+    );
+    contract::compile(&app(
+        "disabled: option<bool>",
+        "(match disabled { case some(v) => v, case none => false })",
+        "disabled=none",
+    ))
+    .unwrap();
+    // The other form it names, `disabled=<value>` with a value, compiles too.
+    contract::compile(&app("disabled: bool", "disabled", "disabled=true")).unwrap();
+}
+
+/// `style=`'s declarations come back as attributes that compile: a quote, a
+/// backslash or another control character in a value escaped as a string
+/// literal takes it, and a run of whitespace (a newline) one space, as CSS
+/// reads it.
+#[test]
+fn style_declarations_are_suggested_as_attributes_that_compile() {
+    let app = |attrs: &str| format!("component A\n  view\n    text \"a\" {attrs}\n");
+    for (written, suggested) in [
+        (
+            r#"style="font-family: \"Times New Roman\", serif; color: red""#,
+            r#"font-family="\"Times New Roman\", serif" color="red""#,
+        ),
+        (
+            r#"style="padding: 8px\n 16px;\tmargin:\u{d}\n4px""#,
+            r#"padding="8px 16px" margin="4px""#,
+        ),
+        (r#"style="aria-label: a\u{1}b""#, r#"aria-label="a\u{1}b""#),
+    ] {
+        let e = contract::compile(&app(written)).unwrap_err();
+        let edit = e
+            .message
+            .split('`')
+            .nth(5)
+            .unwrap_or_else(|| panic!("{}", e.message));
+        assert_eq!(edit, suggested, "{written}");
+        contract::compile(&app(edit)).unwrap_or_else(|e| panic!("{edit}: {e}"));
     }
 }
 
@@ -271,7 +747,20 @@ fn the_element_lint_finds_nothing_in_any_app() {
         let Ok(src) = std::fs::read_to_string(&path) else {
             continue;
         };
-        let file = contract_syntax::parse(&src).unwrap();
+        let mut file = contract_syntax::parse(&src).unwrap();
+        // The app's design is the driver's to read (LLP 1121 D2), as `contract build` does.
+        let design = path.with_file_name("app.tamber");
+        file.design =
+            std::fs::read_to_string(&design)
+                .ok()
+                .map(|text| contract_syntax::DesignSource {
+                    path: design.display().to_string(),
+                    home: "app.tamber".into(),
+                    text,
+                    source_id: 1,
+                    bindable: false,
+                    package: None,
+                });
         let found = contract_lower::lint(&file);
         assert!(found.is_empty(), "{}: {found:?}", path.display());
         checked += 1;
@@ -301,15 +790,15 @@ const TODOS: &str = r#"shape Todo
 component App
   state draft = ""
   state count = 0
-  resource todos = items(3) as shape list<Todo>
-  action add writes count
+  resource todos = items(3) as shape Todo[]
+  action add
     count = count + 1
   view
     main padding=16 gap=8 className="x"
       input value=drat
       buton press=add
         text "Add" color="bleu"
-      each t in todos key=t.id
+      for t in todos key=t.id
         Row(todo=t, onPik=add)
 component Row
   props
@@ -379,6 +868,54 @@ fn one_run_reports_every_independent_mistake_call_sites_first() {
             .collect::<String>()
     );
     assert_eq!(compile_all("cap", &many).len(), contract::MAX_DIAGNOSTICS);
+}
+
+/// A refused member is skipped and the passes after the syntax check the
+/// rest; what they say about a refused name is left out, since it may only
+/// be that the name is missing.
+#[test]
+fn a_refused_member_does_not_hide_the_other_passes_refusals() {
+    let source = "component App\n  state n = 0\n  action pick\n    match none\n      case some(r) => n = r\n      case none => n = 0\n  action bump\n    n = n + \"x\"\n  view\n    button \"go\" press=pick color=missingName\n";
+    let found = compile_all("member", source);
+    let ids: Vec<(&str, u32)> = found
+        .iter()
+        .map(|(id, line, _)| (id.as_str(), *line))
+        .collect();
+    assert_eq!(
+        ids,
+        [
+            ("syntax-case-arrow", 5),
+            ("type-operand", 8),
+            ("type-unknown-name", 10)
+        ],
+        "{found:#?}"
+    );
+    assert!(
+        found[0].2.contains("end the line at `case some(r)`"),
+        "{}",
+        found[0].2
+    );
+    // A refused member's name is still its own: a call of it is no method's free form.
+    let named = "component App\n  state n = \"\"\n  action trim(s: string)\n    n =\n  view\n    button \"go\" press=trim(\"x\")\n";
+    let ids: Vec<String> = compile_all("named", named)
+        .into_iter()
+        .map(|(id, _, _)| id)
+        .collect();
+    assert_eq!(ids, ["syntax-expected-expression"]);
+    // A state only a refused action wrote cannot be inferred now: that is not said.
+    let written = "component App\n  state selected = none\n  action pick\n    selected = some(1) +\n  view\n    button \"go\" press=pick color=missingName\n";
+    let ids: Vec<String> = compile_all("written", written)
+        .into_iter()
+        .map(|(id, _, _)| id)
+        .collect();
+    assert_eq!(ids, ["syntax-expected-expression", "type-unknown-name"]);
+    // A refused first component would make another the app: nothing else is checked.
+    let first = "component App\n  props\n    x number\n  view\n    Card()\ncomponent Card\n  view\n    text \"a\" color=missingName\n";
+    let ids: Vec<String> = compile_all("first", first)
+        .into_iter()
+        .map(|(id, _, _)| id)
+        .collect();
+    assert_eq!(ids, ["syntax-expected"]);
 }
 
 #[test]

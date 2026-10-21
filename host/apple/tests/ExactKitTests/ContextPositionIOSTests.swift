@@ -84,7 +84,7 @@ final class ContextPositionIOSTests: XCTestCase {
             if visible {
                 XCTAssertNil(reply["error"], "\(reply)")
                 XCTAssertEqual(reply["tapped"] as? Int, 10004)
-                owner.translate = CGPoint(x: 0, y: 400)
+                owner.translatePx = CGPoint(x: 0, y: 400)
                 owner.applyTransform()
                 let moved = agent.tap(["id": NSNumber(value: 10004)])
                 XCTAssertTrue((moved["error"] as? String)?.contains("outside") == true,

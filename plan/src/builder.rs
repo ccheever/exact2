@@ -12,6 +12,20 @@ use crate::{Bytes, Code, Plan, PlanError, StrId};
 use std::collections::HashMap;
 use std::hash::{BuildHasherDefault, Hasher};
 
+/// One face of a declared family, as [`PlanBuilder::font_family`] takes it:
+/// `@font-face`'s descriptors (LLP 1019 D2).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Face<'a> {
+    /// App-relative TTF/OTF source.
+    pub source: &'a str,
+    /// CSS weights, low and high; one weight is both.
+    pub weight: [u16; 2],
+    /// Widths in tenths of a percent, low and high; `[1000, 1000]` is normal.
+    pub stretch: [u16; 2],
+    /// Italic, rather than normal.
+    pub italic: bool,
+}
+
 /// A plan under construction.
 #[derive(Debug, Default)]
 pub struct PlanBuilder {
@@ -21,6 +35,18 @@ pub struct PlanBuilder {
     /// shared. Each reference is validated on its own (`check_code`), so a
     /// shared body is indistinguishable from a copy to every reader.
     bodies: HashMap<Vec<u8>, Code, BuildHasherDefault<BodyHasher>>,
+    /// The design's values (`theme` rows' and slices'), interned at
+    /// [`finish`](Self::finish) after every other string: a value-only edit
+    /// then moves no other string's id, so the plan's structure
+    /// ([`Plan::structure`]) stays (LLP 1121 stage 4).
+    values: Vec<(ValueAt, String)>,
+}
+
+/// Where a design value interned at finish goes.
+#[derive(Debug)]
+enum ValueAt {
+    Theme(usize),
+    Slice(usize),
 }
 
 /// A multiply-rotate hash for the pools' dedup tables: code bodies this
@@ -62,6 +88,7 @@ impl PlanBuilder {
             },
             interned: HashMap::default(),
             bodies: HashMap::with_capacity_and_hasher(256, Default::default()),
+            values: Vec::new(),
         };
         // These eight distinct stack ids are part of the plan vocabulary.
         // A host may resolve several of them to one installed face; their
@@ -87,12 +114,13 @@ impl PlanBuilder {
             .strings
             .iter()
             .enumerate()
-            .map(|(i, s)| (s.clone(), StrId(i as u32)))
+            .map(|(i, s)| (s.to_owned(), StrId(i as u32)))
             .collect();
         PlanBuilder {
             plan,
             interned,
             bodies: HashMap::default(),
+            values: Vec::new(),
         }
     }
 
@@ -118,7 +146,7 @@ impl PlanBuilder {
             offset: self.plan.code.len() as u32,
             len: bytes.len() as u32,
         };
-        self.plan.code.extend_from_slice(&bytes);
+        self.plan.code.to_mut().extend_from_slice(&bytes);
         self.bodies.insert(bytes, code);
         code
     }
@@ -196,6 +224,16 @@ impl PlanBuilder {
         })
     }
 
+    /// A string restricted to these finite members. String rows with fields
+    /// carry the members as field names (each field has the primitive string type).
+    pub fn string_enum(&mut self, values: &[String]) -> TypesId {
+        let string = self.primitive(TypeKind::String);
+        let fields: Vec<_> = values.iter().map(|v| (v.as_str(), string)).collect();
+        let id = self.record("enum", &fields);
+        self.plan.types[id.0 as usize].kind = TypeKind::String;
+        id
+    }
+
     /// `Option<elem>`.
     pub fn option(&mut self, elem: TypesId) -> TypesId {
         let name = self.str("option");
@@ -247,15 +285,18 @@ impl PlanBuilder {
         TypesId(self.plan.types.len() as u32 - 1)
     }
 
-    /// A declared static font family and its faces (LLP 1019 D1–D2).
-    pub fn font_family(&mut self, name: &str, faces: &[(&str, u16, bool)]) -> FamiliesId {
+    /// A declared font family and its faces (LLP 1019 D1–D2).
+    pub fn font_family(&mut self, name: &str, faces: &[Face<'_>]) -> FamiliesId {
         let start = self.plan.faces.len() as u32;
-        for (source, weight, italic) in faces {
-            let source = self.str(source);
+        for face in faces {
+            let source = self.str(face.source);
             self.plan.faces.push(FacesRow {
                 source,
-                weight: *weight,
-                italic: *italic,
+                weight: face.weight[0],
+                weight_max: face.weight[1],
+                stretch_min: face.stretch[0],
+                stretch_max: face.stretch[1],
+                italic: face.italic,
             });
         }
         let name = self.str(name);
@@ -276,8 +317,94 @@ impl PlanBuilder {
         KeyframesId(self.plan.keyframes.len() as u32 - 1)
     }
 
-    /// An ordered font stack. v1's semantic validator accepts one member;
-    /// the range keeps the format additive for authored cascade later.
+    /// A declared sound (LLP 1096 D1): its path, its length in frames at its
+    /// own rate, its channels and its digest.
+    pub fn sound(&mut self, src: &str, frames: u32, rate: u32, channels: u8, digest: &str) {
+        let (src, digest) = (self.str(src), self.str(digest));
+        self.plan.sounds.push(SoundsRow {
+            src,
+            frames,
+            rate,
+            channels,
+            digest,
+        });
+    }
+
+    /// A `@color-profile` (LLP 1100 D3): its dashed name, ICC file and
+    /// rendering intent.
+    pub fn color_profile(&mut self, name: &str, src: &str, intent: &str) -> ProfilesId {
+        let (name, src, intent) = (self.str(name), self.str(src), self.str(intent));
+        self.plan.profiles.push(ProfilesRow { name, src, intent });
+        ProfilesId(self.plan.profiles.len() as u32 - 1)
+    }
+
+    /// One colour `theme` entry (LLP 1095 D4): its name, the role it
+    /// overrides (`""` for none) and the colour text it stands for.
+    pub fn theme_entry(&mut self, name: &str, role: &str, value: &str) -> ThemeId {
+        self.theme_token(name, role, value, 0, &[])
+    }
+
+    /// A `theme` entry of `kind` (LLP 1121 D3: 0 a colour, 1 a length, 2 a
+    /// number) that varies by the app's axes (D5): its value for every full
+    /// tuple, in tuple order; `value` is the default's.
+    pub fn theme_token(
+        &mut self,
+        name: &str,
+        role: &str,
+        value: &str,
+        kind: u8,
+        slices: &[&str],
+    ) -> ThemeId {
+        let (name, role) = (self.str(name), self.str(role));
+        // The values wait for `finish`; the empty string stands until then.
+        let pending = self.str("");
+        let start = self.plan.theme_slices.len() as u32;
+        for s in slices {
+            self.values.push((
+                ValueAt::Slice(self.plan.theme_slices.len()),
+                (*s).to_string(),
+            ));
+            self.plan
+                .theme_slices
+                .push(ThemeSlicesRow { value: pending });
+        }
+        self.values
+            .push((ValueAt::Theme(self.plan.theme.len()), value.to_string()));
+        let value = pending;
+        let slices = ThemeSlicesRange {
+            start,
+            len: slices.len() as u32,
+        };
+        self.plan.theme.push(ThemeRow {
+            name,
+            role,
+            value,
+            kind,
+            slices,
+        });
+        ThemeId(self.plan.theme.len() as u32 - 1)
+    }
+
+    /// One app axis (LLP 1121 D5): its name and values, the first the default.
+    pub fn axis(&mut self, name: &str, values: &[&str]) {
+        let (name, values) = (self.str(name), self.str(&values.join("|")));
+        self.plan.axes.push(AxesRow { name, values });
+    }
+
+    /// An icon token the plan keeps (LLP 1121 D10): its SF Symbol, the
+    /// SVG's viewBox and joined `d`, and the SVG's path, each empty for none.
+    pub fn icon(&mut self, name: &str, sf: &str, view_box: &str, path: &str, svg: &str) {
+        let row = IconsRow {
+            name: self.str(name),
+            sf: self.str(sf),
+            view_box: self.str(view_box),
+            path: self.str(path),
+            svg: self.str(svg),
+        };
+        self.plan.icons.push(row);
+    }
+
+    /// An ordered CSS font fallback list (one to 64 members).
     pub fn font_stack(&mut self, members: &[(StackMemberKind, Option<FamiliesId>)]) -> StacksId {
         let start = self.plan.stack_members.len() as u32;
         for (kind, family) in members {
@@ -303,6 +430,8 @@ impl PlanBuilder {
             ty,
             init,
             owner: None,
+            late: false,
+            persist: false,
         });
         SlotsId(self.plan.slots.len() as u32 - 1)
     }
@@ -326,6 +455,7 @@ impl PlanBuilder {
             notfound,
             render: RenderPolicy::Client,
             activate: ActivatePolicy::Inferred,
+            paint: PaintPolicy::Settled,
             pages: StrId(0),
             pages_args: Bytes { offset: 0, len: 0 },
         });
@@ -345,17 +475,20 @@ impl PlanBuilder {
         row.pages_args = args;
     }
 
-    /// A route's declared render and activation policies (LLP 1048.003 D5);
-    /// a route declares neither is `client`, activation inferred.
+    /// A route's declared render, activation and first-paint policies (LLP
+    /// 1048.003 D5, LLP 1048.005); a route declares none is `client`,
+    /// activation inferred, painted settled.
     pub fn set_route_policy(
         &mut self,
         id: RoutesId,
         render: RenderPolicy,
         activate: ActivatePolicy,
+        paint: PaintPolicy,
     ) {
         let row = &mut self.plan.routes[id.0 as usize];
         row.render = render;
         row.activate = activate;
+        row.paint = paint;
     }
 
     /// The root slot filled with the launch location. @ref LLP 1038 D2/D5.
@@ -423,6 +556,7 @@ impl PlanBuilder {
             name,
             source,
             args,
+            context: 0,
             ty,
             initial,
             initial_args,
@@ -443,6 +577,7 @@ impl PlanBuilder {
             ty,
             refreshes: MutationRefreshesRange { start: 0, len: 0 },
             then: None,
+            queue: false,
         });
         MutationsId(self.plan.mutations.len() as u32 - 1)
     }
@@ -450,6 +585,11 @@ impl PlanBuilder {
     /// The action run after each of `mutation`'s answers lands.
     pub fn set_mutation_then(&mut self, mutation: MutationsId, action: ActionsId) {
         self.plan.mutations[mutation.0 as usize].then = Some(action);
+    }
+
+    /// `mutation … queue` (LLP 1092 D1): its sends wait their turn.
+    pub fn set_mutation_queue(&mut self, mutation: MutationsId) {
+        self.plan.mutations[mutation.0 as usize].queue = true;
     }
 
     /// The resources a send to `mutation` refreshes (LLP 1054.000.000 D1),
@@ -484,6 +624,33 @@ impl PlanBuilder {
             ty,
         });
         SourcesId(self.plan.sources.len() as u32 - 1)
+    }
+
+    /// A native module's name (LLP 1133.002 D13): `source` is answered by
+    /// the module through the native slot, not by the app's data.
+    #[allow(clippy::too_many_arguments)]
+    pub fn module(
+        &mut self,
+        source: SourcesId,
+        extension: &str,
+        declared: &str,
+        send: bool,
+        live: bool,
+        request: &str,
+        sync: &str,
+        substitute: &str,
+    ) {
+        let row = ModulesRow {
+            source,
+            extension: self.str(extension),
+            declared: self.str(declared),
+            send,
+            live,
+            request: self.str(request),
+            sync: self.str(sync),
+            substitute: self.str(substitute),
+        };
+        self.plan.modules.push(row);
     }
 
     /// A run of argument expressions.
@@ -534,25 +701,62 @@ impl PlanBuilder {
     /// A timer that dispatches `action` at boot+`interval_ms`, then every
     /// `interval_ms` — or, when `once`, never again.
     pub fn timer(&mut self, interval_ms: u32, action: ActionsId, once: bool) -> TimersId {
-        self.plan.timers.push(TimersRow {
-            interval_ms,
-            action,
-            once,
-            frame: false,
-        });
-        TimersId(self.plan.timers.len() as u32 - 1)
+        self.timer_row(interval_ms, action, once, false)
     }
 
     /// A frame task (LLP 1073): dispatches `action` once per presented
     /// frame, or per virtual frame on a seek.
     pub fn frame_timer(&mut self, action: ActionsId) -> TimersId {
+        self.timer_row(0, action, false, true)
+    }
+
+    fn timer_row(
+        &mut self,
+        interval_ms: u32,
+        action: ActionsId,
+        once: bool,
+        frame: bool,
+    ) -> TimersId {
+        let always = self.constant(&Value::Bool(true));
+        let name = self.str("");
         self.plan.timers.push(TimersRow {
-            interval_ms: 0,
+            interval_ms,
             action,
-            once: false,
-            frame: true,
+            once,
+            frame,
+            name,
+            gated: false,
+            gate: always,
+            keyed: false,
+            key: always,
         });
         TimersId(self.plan.timers.len() as u32 - 1)
+    }
+
+    /// A task's name, for the agent (LLP 1092 D10).
+    pub fn set_timer_name(&mut self, timer: TimersId, name: &str) {
+        self.plan.timers[timer.0 as usize].name = self.str(name);
+    }
+
+    /// `task … when gate key=key` (LLP 1092 D7, D9): the gate and the key as
+    /// plan code; `None` keeps the task ungated or unkeyed.
+    pub fn set_timer_gate(&mut self, timer: TimersId, gate: Option<Code>, key: Option<Code>) {
+        let row = &mut self.plan.timers[timer.0 as usize];
+        if let Some(gate) = gate {
+            row.gated = true;
+            row.gate = gate;
+        }
+        if let Some(key) = key {
+            row.keyed = true;
+            row.key = key;
+        }
+    }
+
+    /// A `sequence` (LLP 1125 D2): its gate, key and `play` arguments as
+    /// plan code, and its `ended=` action.
+    pub fn sequence(&mut self, row: SequencesRow) -> SequencesId {
+        self.plan.sequences.push(row);
+        SequencesId(self.plan.sequences.len() as u32 - 1)
     }
 
     /// A region under `parent` (or an arm root when `parent` is `None`),
@@ -632,7 +836,7 @@ impl PlanBuilder {
         surface: Option<SurfacesId>,
     ) -> NodesId {
         let bstart = self.plan.bindings.len() as u32;
-        self.plan.bindings.extend_from_slice(bindings);
+        self.plan.bindings.to_mut().extend_from_slice(bindings);
         let hstart = self.plan.handlers.len() as u32;
         for (event, action, args) in handlers {
             let args = self.args(args);
@@ -642,7 +846,7 @@ impl PlanBuilder {
                 args,
             });
         }
-        self.plan.nodes.push(NodesRow {
+        self.plan.nodes.to_mut().push(NodesRow {
             node_type,
             parent,
             arm,
@@ -660,15 +864,47 @@ impl PlanBuilder {
         NodesId(self.plan.nodes.len() as u32 - 1)
     }
 
+    /// Node `id`'s host-known state looks (LLP 1121 D8): each `(state,
+    /// bindings)`, its rows after every binding so far, in node order (the
+    /// node is the last made) and state order, whatever order they came in.
+    pub fn set_looks(&mut self, id: NodesId, looks: &[(u8, Vec<BindingsRow>)]) {
+        let mut looks: Vec<_> = looks.iter().collect();
+        looks.sort_by_key(|(state, _)| *state);
+        for (state, bindings) in looks {
+            let bstart = self.plan.bindings.len() as u32;
+            self.plan.bindings.to_mut().extend_from_slice(bindings);
+            self.plan.looks.push(LooksRow {
+                node: id,
+                state: *state,
+                bindings: BindingsRange {
+                    start: bstart,
+                    len: bindings.len() as u32,
+                },
+            });
+        }
+    }
+
     /// Replace a slot's initializer (declared first, filled once every id exists).
     pub fn set_slot_init(&mut self, id: SlotsId, init: Code) {
         self.plan.slots[id.0 as usize].init = init;
     }
 
-    /// Make a slot a row slot of an `each` region: one value per keyed row,
-    /// read and written through the row's frame (LLP 1017 P4c).
-    pub fn set_slot_owner(&mut self, id: SlotsId, region: RegionsId) {
-        self.plan.slots[id.0 as usize].owner = Some(region);
+    /// Make a slot owned by an arm's instance — a `for` row, an `if` or
+    /// `match` arm: one value per instance, created with it, read and
+    /// written through its frame (LLP 1017 P4c).
+    pub fn set_slot_owner(&mut self, id: SlotsId, arm: ArmsId) {
+        self.plan.slots[id.0 as usize].owner = Some(arm);
+    }
+
+    /// Make a root slot initialized at the boot render, after boot
+    /// settlement: a child's state used outside every region.
+    pub fn set_slot_late(&mut self, id: SlotsId) {
+        self.plan.slots[id.0 as usize].late = true;
+    }
+
+    /// Mark a root slot persisted (LLP 1116 D5), or not.
+    pub fn set_slot_persist(&mut self, id: SlotsId, persist: bool) {
+        self.plan.slots[id.0 as usize].persist = persist;
     }
 
     /// Replace a derive's body.
@@ -679,6 +915,12 @@ impl PlanBuilder {
     /// Replace a resource's arguments.
     pub fn set_resource_args(&mut self, id: ResourcesId, args: ArgsRange) {
         self.plan.resources[id.0 as usize].args = args;
+    }
+
+    /// Set the trailing request-context count, after installing arguments.
+    /// @ref LLP 1027.005 D6 — zero by default; validated against `args.len`.
+    pub fn set_resource_context(&mut self, id: ResourcesId, context: u16) {
+        self.plan.resources[id.0 as usize].context = context;
     }
 
     /// A declared `else empty(…)`'s constant (LLP 1054.000.002 D3).
@@ -718,7 +960,14 @@ impl PlanBuilder {
     }
 
     /// The plan, validated.
-    pub fn finish(self) -> Result<Plan, PlanError> {
+    pub fn finish(mut self) -> Result<Plan, PlanError> {
+        for (at, text) in std::mem::take(&mut self.values) {
+            let id = self.str(&text);
+            match at {
+                ValueAt::Theme(i) => self.plan.theme[i].value = id,
+                ValueAt::Slice(i) => self.plan.theme_slices[i].value = id,
+            }
+        }
         self.plan.validate()?;
         Ok(self.plan)
     }

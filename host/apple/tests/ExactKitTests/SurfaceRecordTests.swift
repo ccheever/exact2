@@ -3,8 +3,10 @@ import AppKit
 import XCTest
 import CryptoKit
 @testable import ExactKit
+@testable import ExactSurfaces
 
 final class SurfaceRecordTests: XCTestCase {
+    override class func setUp() { super.setUp(); ExactSurfaces.install() } // LLP 1047.001 D4
     private func fixture(plan: ((Data) -> Void)? = nil) throws -> ExactSession {
         _ = NSApplication.shared
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
@@ -20,7 +22,7 @@ final class SurfaceRecordTests: XCTestCase {
         let bytes = try Data(contentsOf: dir.appendingPathComponent("app.plan"))
         plan?(bytes)
         let session = ExactApp.shared.makeSession(label: "surface-record")
-        session.canvases.attempted = [""] // No GPU is needed to exercise publication ownership.
+        session.surfaceHost.attempted = [""] // No GPU is needed to exercise publication ownership.
         let batch = session.boot(plan: bytes, size: CGSize(width: 300, height: 100))
         XCTAssertNil(batch.error)
         return session
@@ -31,7 +33,7 @@ final class SurfaceRecordTests: XCTestCase {
         defer { session.destroy() }
         let text = try XCTUnwrap(session.presenter.views.values.first { $0.kind == "text" })
         session.presenter.onCommand = { [unowned session] _, _, _ in
-            session.canvases.surfaceRecord("world", "{\"beacons\":7}")
+            session.surfaceHost.surfaceRecord("world", "{\"beacons\":7}")
             XCTAssertEqual(text.props["text"], "Count 0")
         }
         session.apply(wireBatch([
@@ -59,7 +61,7 @@ final class SurfaceRecordTests: XCTestCase {
     func testOnlyTheFirstLivePublisherCanClearTheRecord() throws {
         let session = try fixture()
         defer { session.destroy() }
-        let canvases = session.canvases
+        let canvases = session.surfaceHost
         let owner = NodeView(id: 100, kind: "canvas", presenter: session.presenter)
         let duplicate = NodeView(id: 101, kind: "canvas", presenter: session.presenter)
         canvases.surface(view: owner, name: "world", values: [])
@@ -101,7 +103,7 @@ final class SurfaceRecordTests: XCTestCase {
     func testTerminalRestoreRefusalIsOneReplyAndCanvasStateRemainsAvailable() throws {
         let session = try fixture()
         defer { session.destroy() }
-        let c = session.canvases
+        let c = session.surfaceHost
         let view = NodeView(id: 100, kind: "canvas", presenter: session.presenter)
         c.surface(view: view, name: "world", values: [])
         let entry = try XCTUnwrap(c.entries[100])
@@ -111,6 +113,23 @@ final class SurfaceRecordTests: XCTestCase {
         XCTAssertNil(c.restoreReply(["ok": true])["error"])
         XCTAssertEqual(c.worldInput.bytes, Data([1]), "refusal keeps bytes for a later capable surface")
         entry.id = 0
+    }
+    func testModuleDigestSurvivesReSigningButNotACodeChange() {
+        // A 64-bit Mach-O: __LINKEDIT, the signature command, code, and the signature at 160 (update/src/gpu.rs).
+        func signed(_ signature: String, code: UInt8) -> Data {
+            var b = [UInt8](repeating: 0, count: 160)
+            func put<T: FixedWidthInteger>(_ v: T, _ at: Int) { withUnsafeBytes(of: v.littleEndian) { b.replaceSubrange(at..<(at + MemoryLayout<T>.size), with: $0) } }
+            put(UInt32(0xfeedfacf), 0); put(UInt32(2), 16)
+            put(UInt32(0x19), 32); put(UInt32(72), 36); b.replaceSubrange(40..<50, with: Array("__LINKEDIT".utf8))
+            put(UInt64(signature.utf8.count), 64); put(UInt64(signature.utf8.count + 8), 80)
+            put(UInt32(0x1d), 104); put(UInt32(16), 108); put(UInt32(160), 112); put(UInt32(signature.utf8.count), 116)
+            b[150] = code
+            return Data(b + Array(signature.utf8))
+        }
+        let ours = GpuModule.codeDigest(signed("ad-hoc", code: 1))
+        XCTAssertEqual(ours, GpuModule.codeDigest(signed("a recipient's longer signature", code: 1)))
+        XCTAssertNotEqual(ours, GpuModule.codeDigest(signed("ad-hoc", code: 2)))
+        XCTAssertEqual(GpuModule.codeDigest(Data("not Mach-O".utf8)), SHA256.hash(data: Data("not Mach-O".utf8)).map { String(format:"%02x", $0) }.joined())
     }
     func testModuleIdentityAndDevelopmentOnlyPathOverride() throws {
         let path = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".dylib")
@@ -138,7 +157,7 @@ final class SurfaceRecordTests: XCTestCase {
         let session = try fixture()
         defer { session.destroy() }
         let view = NodeView(id:100, kind:"canvas", presenter:session.presenter)
-        let entry = Canvases.Entry(view:view, name:"world", values:[])
+        let entry = CanvasesHost.Entry(view:view, name:"world", values:[])
         entry.id = 1
         entry.rendered(1)
         XCTAssertTrue(entry.needsFrame(dirty:false))

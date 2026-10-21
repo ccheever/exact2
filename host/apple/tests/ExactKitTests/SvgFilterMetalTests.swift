@@ -10,7 +10,7 @@ import XCTest
 /// level.
 class SvgFilterMetalTests: XCTestCase {
     func testTheCSSChainMatchesCoreImage() throws {
-        guard let fm = SvgFilterMetal.shared, let queue = SvgFilterGPU.metal?.queue else { throw XCTSkip("no Metal") }
+        guard let fm = SvgFilterMetal.shared, let queue = SvgFilterGPU.metal?.queue else { throw missing("metal", "no Metal device or SVG filter library") }
         let (w, h) = (240, 180)
         let space = CGColorSpace(name: CGColorSpace.sRGB)!
         let ctx = CGContext(data: nil, width: w, height: h, bitsPerComponent: 8, bytesPerRow: w * 4, space: space,
@@ -67,7 +67,7 @@ class SvgFilterMetalTests: XCTestCase {
     /// Sanitizer too).
     func testThePrewarmRacesAFirstChain() throws {
         SvgFilterMetal.prewarm()
-        guard let fm = SvgFilterMetal.shared, let queue = SvgFilterGPU.metal?.queue else { throw XCTSkip("no Metal") }
+        guard let fm = SvgFilterMetal.shared, let queue = SvgFilterGPU.metal?.queue else { throw missing("metal", "no Metal device or SVG filter library") }
         let (w, h) = (96, 64)
         let d = MTLTextureDescriptor.texture2DDescriptor(pixelFormat: .rgba8Unorm, width: w, height: h, mipmapped: false)
         d.usage = [.shaderRead, .shaderWrite]

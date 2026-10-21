@@ -1,7 +1,7 @@
 # LLP 1013: View transitions — shared elements the web's way
 
 **Type:** RFC
-**Status:** Draft
+**Status:** Superseded by [LLP 1013.000](1013.000-shared-elements-native-first.rfc.md) (2026-10-04): identity by name kept; the snapshot executor and the action keyword replaced.
 **Systems:** Kernel (one style row), Contract (an attribute, an action keyword), Plan (a flag on actions), Runner (the flag on a commit), Web host, Apple host, Motion (the ghost's properties)
 **Author:** Claude (Fable 5) for Charlie Cheever
 **Date:** 2026-08-29

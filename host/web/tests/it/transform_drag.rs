@@ -19,27 +19,27 @@ const SOURCE: &str = r#"component App
   state bw = 0
   state shown = true
   state reference = "photo"
-  action geometry(w: number, h: number, pw: number, ph: number) writes measured, bw
+  action geometry(w: number, h: number, pw: number, ph: number)
     measured = measured + 1
     bw = w
-  action finish(px: number, py: number, s: number, vx: number, vy: number, vs: number) writes released, x, y
+  action finish(px: number, py: number, s: number, vx: number, vy: number, vs: number)
     released = released + 1
     x = px
     y = py
-  action zoomIn writes zoom
+  action zoomIn
     zoom = 2
-  action unbind writes reference
+  action unbind
     reference = "absent"
-  action remove writes shown
+  action remove
     shown = false
   view
     column
       button testId="zoom" press=zoomIn width=80 height=24
       button testId="unbind" press=unbind width=80 height=24
       button testId="remove" press=remove width=80 height=24
-      when shown
+      if shown
         column testId="clip" width=320.25 height=200.5 overflow="hidden" padding=0 border-width=0
-          column id="photo" testId="photo" width="100%" height="100%" box-sizing="border-box" padding=0 border-width=0 translate=`${x}px ${y}px` scale=zoom transition="translate spring(180, 12, 1), scale spring(180, 12, 1)"
+          column id="photo" testId="photo" width="100%" height="100%" box-sizing="border-box" padding=0 border-width=0 translate=`${x}px ${y}px` scale=zoom transition="translate -exact-spring(180, 12, 1), scale -exact-spring(180, 12, 1)"
             column testId="handle" transformDragFor=reference transformgeometry=geometry transformrelease=finish
       text `${released}/${measured}/${bw}` testId="result"
 "#;
@@ -123,7 +123,7 @@ fn boot_trapping(source: &str) -> (Host<NoData>, Packet, String) {
         .str(name);
     let guard = b.code(guard);
     let mut plan = b.finish().unwrap();
-    plan.bindings[handle].expr = guard;
+    plan.bindings.to_mut()[handle].expr = guard;
     plan.validate().unwrap();
     boot_plan(&plan.encode())
 }
@@ -361,7 +361,7 @@ fn geometry_retarget_and_new_none_declaration_arrive_while_held_before_cancellat
     let source = SOURCE
         .replace("writes measured, bw\n", "writes measured, bw, x, zoom\n")
         .replace("    bw = w\n", "    bw = w\n    if w > 400\n      x = 99\n      zoom = 2\n")
-        .replace("transition=\"translate spring(180, 12, 1), scale spring(180, 12, 1)\"", "transition=(bw > 400 ? \"none\" : \"translate spring(180, 12, 1), scale spring(180, 12, 1)\")");
+        .replace("transition=\"translate -exact-spring(180, 12, 1), scale -exact-spring(180, 12, 1)\"", "transition=(bw > 400 ? \"none\" : \"translate -exact-spring(180, 12, 1), scale -exact-spring(180, 12, 1)\")");
     let (mut host, mut p, _) = boot_source(&source);
     accepted(&p.send(&mut host));
     p.op = 11;
@@ -662,14 +662,31 @@ fn wasm_bridge_preserves_runtime_keys_sequence_and_rejects_wrong_packet_length()
 fn each_missing_handler_refuses_publication_geometry_and_pair_admission() {
     for missing in [" transformgeometry=geometry", " transformrelease=finish"] {
         let source = SOURCE.replace(missing, "");
+        let error = contract::compile(&source).unwrap_err();
+        assert_eq!(error.id, "lower-transform-drag-handlers");
+        // Authored plans are refused by the compiler. A decoded plan must
+        // still meet the host's handler-pair check at its binary boundary.
+        let mut plan = contract::compile(SOURCE).unwrap();
+        let event = if missing.contains("transformgeometry") {
+            exact_plan::EventKind::Transformgeometry
+        } else {
+            exact_plan::EventKind::Transformrelease
+        };
+        let handler = plan.handlers.iter().position(|h| h.event == event).unwrap() as u32;
+        let node = plan
+            .nodes
+            .to_mut()
+            .iter_mut()
+            .find(|n| n.handlers.iter().any(|h| h.0 == handler))
+            .unwrap();
+        assert_eq!(node.handlers.len, 2);
+        if node.handlers.start == handler {
+            node.handlers.start += 1;
+        }
+        node.handlers.len -= 1;
         exact_web::link(exact_web_capabilities::ALL);
-        let (mut host, batch) = Host::boot(
-            &contract::compile(&source).unwrap().encode(),
-            NoData,
-            Default::default(),
-            "/",
-        )
-        .unwrap();
+        let (mut host, batch) =
+            Host::boot(&plan.encode(), NoData, Default::default(), "/").unwrap();
         let publication = batch.split("\"op\":\"transform-drag\"").nth(1).unwrap();
         assert!(
             publication.contains("\"target\":null"),
@@ -810,4 +827,300 @@ fn geometry_action_failure_cannot_leave_previous_pair_alive() {
     for token in tokens {
         assert!(reply.contains(&format!("\"token\":\"{token}\"")), "{reply}");
     }
+}
+
+/// A drag's release and its handle's geometry arrive from the gesture, not
+/// through `dispatch_at`, after the page sat idle: nothing moved the runner's
+/// clock since boot. Their actions run at the input's time, so `performanceNow()` is
+/// that time and an `after` the release arms counts from it, not from the
+/// clock's last value (it fired at the very next advance: a flung photo's
+/// viewer closed the frame after the fling, Bluesky clone b09).
+const TIMED: &str = r#"component App
+  state away = false
+  state landed = 0
+  state releasedAt = -1
+  state measuredAt = -1
+  task fly when away
+    after(300, land)
+  action land
+    landed = landed + 1
+  action geometry(w: number, h: number, pw: number, ph: number)
+    measuredAt = performanceNow()
+  action finish(px: number, py: number, s: number, vx: number, vy: number, vs: number)
+    releasedAt = performanceNow()
+    away = true
+  view
+    column testId="clip" width=320.25 height=200.5 overflow="hidden" padding=0 border-width=0
+      column id="photo" testId="photo" width="100%" height="100%" box-sizing="border-box" padding=0 border-width=0 transition="translate -exact-spring(180, 12, 1), scale -exact-spring(180, 12, 1)"
+        column testId="handle" transformDragFor="photo" transformgeometry=geometry transformrelease=finish
+"#;
+
+#[test]
+fn release_and_geometry_actions_run_at_the_inputs_time_after_an_idle_clock() {
+    let (mut host, mut p, _) = boot_source(TIMED);
+    p.now = 4000.0;
+    accepted(&p.send(&mut host));
+    assert_eq!(
+        count(&host, "measuredAt"),
+        4000.0,
+        "the geometry action's performanceNow()"
+    );
+    p.op = 11;
+    p.values = [0.0, 0.0, 1.0, 0.0, 0.0, 0.0];
+    p.now = 5000.0;
+    let reply = p.send(&mut host);
+    accepted(&reply);
+    p.tokens = [
+        quoted(&reply, "translateToken"),
+        quoted(&reply, "scaleToken"),
+    ];
+    p.op = 13;
+    p.values = [0.0, 120.0, 1.0, 0.0, 0.0, 0.0];
+    p.now = 5010.0;
+    let reply = p.send(&mut host);
+    accepted(&reply);
+    assert!(reply.contains("\"committed\":true"), "{reply}");
+    assert_eq!(
+        count(&host, "releasedAt"),
+        5010.0,
+        "the release action's performanceNow()"
+    );
+    for token in p.tokens {
+        assert!(host
+            .end_hold(
+                token,
+                HoldEnd::Release {
+                    velocity: MotionValue::ZERO
+                },
+                5010.0
+            )
+            .unwrap()
+            .is_some());
+    }
+    host.advance(5100.0);
+    assert_eq!(
+        count(&host, "landed"),
+        0.0,
+        "armed at 5010, not at the clock's 4000"
+    );
+    host.advance(5309.0);
+    assert_eq!(count(&host, "landed"), 0.0);
+    host.advance(5310.0);
+    assert_eq!(
+        count(&host, "landed"),
+        1.0,
+        "due exactly 300 ms after the release"
+    );
+}
+
+/// Timers due by a gesture's own event fire before it, and what they leave
+/// is what the event meets: a timer that unbinds the photo ends the gesture
+/// (the release action does not run, the pair is released as refused), and
+/// one that drops the transition before new geometry makes the cancellation
+/// snap rather than spring.
+const RACED: &str = r#"component App
+  state reference = "photo"
+  state curve = "translate -exact-spring(180, 12, 1), scale -exact-spring(180, 12, 1)"
+  state released = 0
+  state measured = 0
+  state unbindArmed = false
+  state dropArmed = false
+  task unbindLater when unbindArmed
+    after(100, unbind)
+  task dropLater when dropArmed
+    after(100, drop)
+  action unbind
+    reference = "absent"
+  action drop
+    curve = "none"
+  action armUnbind
+    unbindArmed = true
+  action armDrop
+    dropArmed = true
+  action geometry(w: number, h: number, pw: number, ph: number)
+    measured = measured + 1
+  action finish(px: number, py: number, s: number, vx: number, vy: number, vs: number)
+    released = released + 1
+  view
+    column
+      button testId="arm-unbind" press=armUnbind width=80 height=24
+      button testId="arm-drop" press=armDrop width=80 height=24
+      column testId="clip" width=320.25 height=200.5 overflow="hidden" padding=0 border-width=0
+        column id="photo" testId="photo" width="100%" height="100%" box-sizing="border-box" padding=0 border-width=0 transition=curve
+          column testId="handle" transformDragFor=reference transformgeometry=geometry transformrelease=finish
+"#;
+
+fn raced_hold(arm: &str) -> (Host<NoData>, Packet) {
+    let (mut host, mut p, _) = boot_source(RACED);
+    accepted(&p.send(&mut host));
+    press(&mut host, arm, 1000.0);
+    p.op = 11;
+    p.values = [0.0, 0.0, 1.0, 0.0, 0.0, 0.0];
+    p.now = 1050.0;
+    let reply = p.send(&mut host);
+    accepted(&reply);
+    p.tokens = [
+        quoted(&reply, "translateToken"),
+        quoted(&reply, "scaleToken"),
+    ];
+    p.op = 12;
+    p.values = [0.0, 40.0, 1.0, 0.0, 0.0, 0.0];
+    p.now = 1060.0;
+    accepted(&p.send(&mut host));
+    (host, p)
+}
+
+#[test]
+fn a_timer_that_unbinds_the_photo_before_its_release_ends_the_gesture() {
+    let (mut host, mut p) = raced_hold("arm-unbind");
+    // The unbind is due at 1100; the release comes at 1200, with nothing
+    // having advanced the runner since the press.
+    p.op = 13;
+    p.values = [0.0, 60.0, 1.0, 0.0, 0.0, 0.0];
+    p.now = 1200.0;
+    let reply = p.send(&mut host);
+    assert!(reply.contains("\"committed\":false"), "{reply}");
+    assert!(
+        reply.contains("binding changed before its event"),
+        "{reply}"
+    );
+    assert_eq!(
+        count(&host, "released"),
+        0.0,
+        "the release action never ran"
+    );
+    assert_eq!(
+        host.runner().slot("reference"),
+        Some(&Value::str("absent")),
+        "the timer's commit is kept"
+    );
+}
+
+#[test]
+fn a_timer_that_drops_the_transition_before_new_geometry_snaps_the_cancel() {
+    let (mut host, mut p) = raced_hold("arm-drop");
+    let photo = p.identity[2];
+    p.op = 10;
+    p.values = [300.0, 200.5, 300.0, 200.5, 0.0, 0.0];
+    p.identity[4] = 2;
+    p.tokens = [0; 2];
+    p.now = 1200.0;
+    let reply = p.send(&mut host);
+    accepted(&reply);
+    assert!(reply.contains("\"committed\":true"), "{reply}");
+    assert_eq!(count(&host, "measured"), 2.0);
+    assert!(
+        !host
+            .springs()
+            .engine()
+            .is_active(photo, Property::Translate),
+        "the cancel met the timer's `transition: none` and snapped"
+    );
+}
+
+/// A timer due by the release that refuses (its action writes a number no
+/// row takes) is reported, and the release still runs and commits; and new
+/// geometry that changes nothing still commits the timers due by then.
+const REFUSING: &str = r#"component App
+  state n = 0
+  state released = 0
+  state armed = false
+  state ticked = 0
+  task bad when armed
+    after(100, explode)
+  task tick when armed
+    after(50, count)
+  action explode
+    n = 1 / 0
+  action count
+    ticked = ticked + 1
+  action arm
+    armed = true
+  action geometry(w: number, h: number, pw: number, ph: number)
+    n = n
+  action finish(px: number, py: number, s: number, vx: number, vy: number, vs: number)
+    released = released + 1
+  view
+    column
+      button testId="arm" press=arm width=80 height=24
+      column testId="clip" width=320.25 height=200.5 overflow="hidden" padding=0 border-width=0
+        column id="photo" testId="photo" width="100%" height="100%" box-sizing="border-box" padding=0 border-width=0 transition="translate -exact-spring(180, 12, 1)"
+          column testId="handle" transformDragFor="photo" transformgeometry=geometry transformrelease=finish
+"#;
+
+#[test]
+fn a_refusing_timer_is_reported_and_the_release_still_commits() {
+    let (mut host, mut p, _) = boot_source(REFUSING);
+    accepted(&p.send(&mut host));
+    press(&mut host, "arm", 1000.0);
+    // Unchanged geometry at 1060: the 50 ms timer is due and commits.
+    p.now = 1060.0;
+    p.identity[4] = 2;
+    let reply = p.send(&mut host);
+    assert!(reply.contains("\"accepted\":true"), "{reply}");
+    assert_eq!(count(&host, "ticked"), 1.0, "{reply}");
+    p.op = 11;
+    p.values = [0.0, 0.0, 1.0, 0.0, 0.0, 0.0];
+    p.now = 1070.0;
+    let reply = p.send(&mut host);
+    accepted(&reply);
+    p.tokens = [
+        quoted(&reply, "translateToken"),
+        quoted(&reply, "scaleToken"),
+    ];
+    p.op = 13;
+    p.values = [0.0, 30.0, 1.0, 0.0, 0.0, 0.0];
+    p.now = 1200.0;
+    let reply = p.send(&mut host);
+    assert!(reply.contains("\"committed\":true"), "{reply}");
+    assert!(
+        !reply.contains("\"error\":null"),
+        "the timer's refusal is reported: {reply}"
+    );
+    assert_eq!(count(&host, "released"), 1.0);
+}
+
+#[test]
+fn passed_over_transform_target_is_journaled_until_its_binding_disappears() {
+    let source = SOURCE
+        .replace("  state zoom = 1", r#"  state otherShown = true
+  state otherReference = "other-photo"
+  action toggleBinding
+    otherReference = otherReference == "" ? "other-photo" : ""
+  action toggleOther
+    otherShown = !otherShown
+  state zoom = 1"#)
+        .replace("      text `${released}", r#"      button testId="toggle-binding" press=toggleBinding width=80 height=24
+      button testId="toggle-other" press=toggleOther width=80 height=24
+      if otherShown
+        column width=320.25 height=200.5 overflow="hidden" padding=0 border-width=0
+          column id="other-photo" testId="other-photo" width="100%" height="100%" box-sizing="border-box" padding=0 border-width=0
+            column transformDragFor=otherReference transformgeometry=geometry transformrelease=finish
+            column transformDragFor=otherReference transformgeometry=geometry transformrelease=finish
+      text `${released}"#);
+    let (mut host, _, _) = boot_source(&source);
+    let message = |host: &Host<NoData>| {
+        format!(
+        "transformDragFor: target view #{} passed over for owner view #{}; one owner (first valid, never stolen; LLP 1071)",
+        id(host, "other-photo"), id(host, "photo")
+    )
+    };
+    let logs = |host: &Host<NoData>| host.agent(r#"{"op":"logs"}"#);
+    assert!(logs(&host).contains(&message(&host)), "{}", logs(&host));
+    let reports = |host: &Host<NoData>| logs(host).matches("passed over for owner").count();
+    assert_eq!(reports(&host), 1, "two handles for one skipped target");
+    host.advance(1.0);
+    assert_eq!(reports(&host), 1, "reconcile must not repeat the report");
+    press(&mut host, "toggle-binding", 2.0);
+    assert_eq!(reports(&host), 1, "an invalid binding is silent");
+    press(&mut host, "toggle-binding", 3.0);
+    assert_eq!(reports(&host), 2, "a valid binding reappeared");
+    press(&mut host, "toggle-other", 4.0);
+    assert_eq!(reports(&host), 2);
+    press(&mut host, "toggle-other", 5.0);
+    assert_eq!(reports(&host), 3, "a retired target was remounted");
+    assert!(logs(&host).contains(&message(&host)));
+    press(&mut host, "remove", 6.0);
+    host.advance(7.0);
+    assert_eq!(reports(&host), 3, "the remaining target becomes owner");
 }

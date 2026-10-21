@@ -1,0 +1,4 @@
+{
+  "app": { "id": "com.exact.nativefixture", "name": "Native Fixture" },
+  "data": ["mood"]
+}

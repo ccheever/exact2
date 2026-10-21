@@ -14,7 +14,7 @@
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { devNull, tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 
 /** The staged capabilities and their seam entries, demangled. */
@@ -46,7 +46,7 @@ export function unsplitReason() {
 /** Each stage's functions (raw names) in `named`, a wasm that keeps its name
  * section. Throws when a core function calls into a stage directly. */
 export function planStages(named, stages = STAGES) {
-  const graph = run('wasm-opt', [named, '--print-call-graph', ...FEATURES, '-o', '/dev/null']);
+  const graph = run('wasm-opt', [named, '--print-call-graph', ...FEATURES, '-o', devNull]);
   if (graph.status !== 0) throw new Error(`wasm-opt --print-call-graph failed: ${graph.stderr}`);
   const nodes = new Map(), calls = new Map(), callers = new Map();
   for (const line of graph.stdout.split('\n')) {

@@ -299,12 +299,12 @@ mod tests {
     fn final_height_action_must_not_discard_unrelated_pending_lowering() {
         let source = r#"component App
   state count = 0
-  action snap(height: number, velocity: number) writes count
+  action snap(height: number, velocity: number)
     count = count + 1
   view
     column id="sheet" height=640 box-sizing="border-box"
       column testId="handle" heightDragFor="sheet" heightrelease=snap
-      text `${count}` testId="other" transition="scale spring(180, 12, 1)"
+      text `${count}` testId="other" transition="scale -exact-spring(180, 12, 1)"
 "#;
         crate::link::link_for_tests();
         let (mut host, _) = Host::boot(

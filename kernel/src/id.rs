@@ -76,6 +76,10 @@ impl NodeFlags {
     /// geometry read answers the layout last shown (LLP 1051.000 D1), not a
     /// visibility a batch has changed since.
     pub const HIDDEN: NodeFlags = NodeFlags(1 << 7);
+    /// The node took a new parent since the last layout publication: its
+    /// whole subtree is published again (a moved subtree's descendants keep
+    /// the frames and hidden bits of where they were).
+    pub const ATTACHED: NodeFlags = NodeFlags(1 << 8);
 
     /// Whether every bit of `flag` is set.
     pub const fn has(self, flag: NodeFlags) -> bool {
@@ -164,5 +168,34 @@ impl Offer {
             AxisOffer::MaxContent | AxisOffer::MinContent => true,
         };
         finite(self.width) && finite(self.height)
+    }
+}
+
+/// A box's padding and border as its layout resolved them, each left, top,
+/// right, bottom: CSS's padding, and apart from it what a host cover added
+/// to the engine's for layout (LLP 1075.003 §3.5).
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+pub(crate) struct BoxInset {
+    pub(crate) padding: [f32; 4],
+    pub(crate) border: [f32; 4],
+    pub(crate) cover: [f32; 4],
+}
+
+impl BoxInset {
+    /// The padding and border Taffy laid the box `slot` out with.
+    pub(crate) fn of(
+        arena: &crate::arena::NodeArena,
+        slot: u32,
+        l: taffy::tree::Layout,
+    ) -> BoxInset {
+        let ltrb = |r: taffy::geometry::Rect<f32>| [r.left, r.top, r.right, r.bottom];
+        let [top, right, bottom, left] = crate::kernel::cover_padding(arena, slot);
+        let cover = [left, top, right, bottom];
+        let engine = ltrb(l.padding);
+        BoxInset {
+            padding: std::array::from_fn(|i| (engine[i] - cover[i]).max(0.0)),
+            border: ltrb(l.border),
+            cover,
+        }
     }
 }

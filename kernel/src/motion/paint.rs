@@ -20,6 +20,47 @@ pub struct PaintMotion {
     views: BTreeMap<u64, bool>,
 }
 
+/// The appearance a node's colours resolve by: its subtree's `color-scheme`
+/// (LLP 1034 §8), which is what a host's view of it is set to, else a host's
+/// report for its view (a sheet's own override, LLP 1062 D4), else the
+/// session's.
+fn appearance(kernel: &Kernel, views: &BTreeMap<u64, bool>, key: NodeKey, session: bool) -> bool {
+    kernel
+        .node_by_key(key)
+        .and_then(|n| n.color_scheme_dark())
+        .or_else(|| views.get(&motion_node(key)).copied())
+        .unwrap_or(session)
+}
+
+std::thread_local! {
+    static STILL: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// While the returned guard lives, a commit's paint changes on this thread
+/// jump to their values with no transition, as a scrub's frame shows (LLP
+/// 1121 D13: the tool drags the value; the frame is a development preview).
+/// The motion engine's observations jump too ([`exact_motion::engine::still`]):
+/// opacity, transforms, layout and heights, all through the commit.
+pub fn still() -> impl Drop {
+    struct Still(bool, #[allow(dead_code)] exact_motion::engine::Still);
+    impl Drop for Still {
+        fn drop(&mut self) {
+            STILL.with(|s| s.set(self.0));
+        }
+    }
+    Still(
+        STILL.with(|s| s.replace(true)),
+        exact_motion::engine::still(),
+    )
+}
+
+/// How a sync's changes may move ([`PaintMotion::apply`]).
+#[derive(Clone, Copy)]
+enum Snap {
+    All(bool),
+    Still(bool),
+}
+
 impl PaintMotion {
     /// Whether the node owns this paint property.
     pub fn owns(&self, node: u64, property: Property) -> bool {
@@ -38,6 +79,12 @@ impl PaintMotion {
             .unwrap_or(self.dark.unwrap_or(false))
     }
 
+    /// A host's own report for a view whose appearance differs from the
+    /// session's (LLP 1062 D4), if any.
+    pub fn view_dark(&self, key: NodeKey) -> Option<bool> {
+        self.views.get(&motion_node(key)).copied()
+    }
+
     /// Adopt a commit after its ordinary motion rows. Returned properties
     /// have retired: the host must show their style rows again.
     pub fn sync(
@@ -46,7 +93,7 @@ impl PaintMotion {
         receipt: &CommitReceipt,
         engine: &mut Engine,
     ) -> Vec<(u64, Property)> {
-        for key in &receipt.destroyed {
+        for key in receipt.destroyed.iter().chain(&receipt.renewed) {
             let node = motion_node(*key);
             self.views.remove(&node);
             self.current.remove(&node);
@@ -55,10 +102,15 @@ impl PaintMotion {
         let (views, session) = (&self.views, self.dark.unwrap_or(false));
         let sync = kernel.paint_sync(
             receipt,
-            |key| views.get(&motion_node(key)).copied().unwrap_or(session),
+            |key| appearance(kernel, views, key, session),
             &mut self.owners,
         );
-        self.apply(kernel, sync, engine, false)
+        self.apply(
+            kernel,
+            sync,
+            engine,
+            Snap::Still(STILL.with(std::cell::Cell::get)),
+        )
     }
 
     /// Adopt the tree at boot, after its ordinary motion rows.
@@ -71,10 +123,10 @@ impl PaintMotion {
         let (views, session) = (&self.views, self.dark.unwrap_or(false));
         let sync = kernel.paint_adopt(
             keys,
-            |key| views.get(&motion_node(key)).copied().unwrap_or(session),
+            |key| appearance(kernel, views, key, session),
             &mut self.owners,
         );
-        self.apply(kernel, sync, engine, false);
+        self.apply(kernel, sync, engine, Snap::Still(false));
     }
 
     fn apply(
@@ -82,8 +134,14 @@ impl PaintMotion {
         kernel: &Kernel,
         mut sync: MotionSync,
         engine: &mut Engine,
-        snap: bool,
+        snap: Snap,
     ) -> Vec<(u64, Property)> {
+        // `All`: every change jumps, an animation's too; `Still`: a
+        // transition does not start or go on, and an animation plays.
+        let (snap, still) = match snap {
+            Snap::All(on) => (on, false),
+            Snap::Still(on) => (false, on),
+        };
         // A side that stays `currentcolor` has no transition of its own:
         // its computed value is still the keyword. A change to or from an
         // explicit colour moves under its row.
@@ -97,7 +155,7 @@ impl PaintMotion {
                 .animation
                 .properties()
                 .into_iter()
-                .chain(style.exit_animation.properties())
+                .chain(style.rare.exit_animation.properties())
                 .collect();
             let pending = self
                 .pending
@@ -111,8 +169,10 @@ impl PaintMotion {
                     && was.contains(&property)
                     && !engine.is_active(node, property);
                 let changed = before.is_some_and(|i| pending[i].1 != change.value);
-                if owned || animated.contains(&property) || (changed && !snap && !follows) {
-                    if snap || follows {
+                let jumps = still && !animated.contains(&property);
+                if owned || animated.contains(&property) || (changed && !snap && !jumps && !follows)
+                {
+                    if snap || jumps || follows {
                         engine.remove_property(node, property);
                     } else if !owned {
                         if let Some(i) = before {
@@ -195,11 +255,31 @@ impl PaintMotion {
         let seek = engine.advance(now);
         debug_assert!(seek.is_ok(), "the clock never runs backwards here");
         let views = &self.views;
-        let sync = kernel.paint_resync(
-            |key| views.get(&motion_node(key)).copied().unwrap_or(dark),
-            &mut self.owners,
-        );
-        Some(self.apply(kernel, sync, engine, first))
+        let sync =
+            kernel.paint_resync(|key| appearance(kernel, views, key, dark), &mut self.owners);
+        Some(self.apply(kernel, sync, engine, Snap::All(first)))
+    }
+
+    /// The platform's colours resolve differently (a host reported new
+    /// resolutions, LLP 1095 D1): every owner re-targets under its
+    /// appearance, transitioning under its row as an appearance change does
+    /// (LLP 1095 D6). Nothing before the first appearance report. `first`:
+    /// the session's first report, which corrects what boot resolved from
+    /// the fallback (or another session's report) in place, without motion.
+    pub fn colors_changed(
+        &mut self,
+        kernel: &Kernel,
+        engine: &mut Engine,
+        now: f64,
+        first: bool,
+    ) -> Option<Vec<(u64, Property)>> {
+        let dark = self.dark?;
+        let seek = engine.advance(now);
+        debug_assert!(seek.is_ok(), "the clock never runs backwards here");
+        let views = &self.views;
+        let sync =
+            kernel.paint_resync(|key| appearance(kernel, views, key, dark), &mut self.owners);
+        Some(self.apply(kernel, sync, engine, Snap::All(first)))
     }
 
     /// Report one view's appearance. Its first differing report corrects
@@ -212,7 +292,7 @@ impl PaintMotion {
         dark: bool,
         now: f64,
     ) -> Option<Vec<(u64, Property)>> {
-        kernel.node_by_key(key)?;
+        let authored = kernel.node_by_key(key)?.color_scheme_dark().is_some();
         let node = motion_node(key);
         let own = (Some(dark) != self.dark).then_some(dark);
         let before = self.views.get(&node).copied();
@@ -224,8 +304,18 @@ impl PaintMotion {
             Some(dark) => self.views.insert(node, dark),
             None => self.views.remove(&node),
         };
-        let sync = kernel.paint_adopt([key], dark, &mut self.owners);
-        let retired = self.apply(kernel, sync, engine, first);
+        // A view whose node sets or inherits a `color-scheme` reports what
+        // the commit already resolved by (`appearance`, LLP 1034 §8): its
+        // transitions started there, and are not snapped as a first report's
+        // correction would.
+        let session = self.dark.unwrap_or(false);
+        let views = &self.views;
+        let sync = kernel.paint_adopt(
+            [key],
+            |k| appearance(kernel, views, k, session),
+            &mut self.owners,
+        );
+        let retired = self.apply(kernel, sync, engine, Snap::All(first && !authored));
         // Dropping a slot drops its dirt; playing keyframes must be marked
         // after the rows so the host presents their corrected colours.
         engine.set_node_dark(node, own, first);

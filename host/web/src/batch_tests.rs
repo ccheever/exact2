@@ -54,6 +54,7 @@ fn cases() -> Vec<(&'static str, String)> {
         canonical: None,
         robots: Some("noindex".into()),
         status: Some(404),
+        edited: false,
     };
     let bare = exact_runner::Head::default();
     let surface = exact_runner::SurfaceUpdate {
@@ -74,6 +75,7 @@ fn cases() -> Vec<(&'static str, String)> {
                     top: 5,
                     url: "/tag/\"x\"?q=1".into(),
                     removed: vec![],
+                    visits: vec![(1, "/".into()), (5, "/tag/\"x\"?q=1".into())],
                 })
             }),
         ),
@@ -84,11 +86,24 @@ fn cases() -> Vec<(&'static str, String)> {
                     top: 18_446_744_073_709_551_615,
                     url: "/".into(),
                     removed: vec![1, 22, 333],
+                    visits: vec![(18_446_744_073_709_551_615, "/".into())],
                 })
             }),
         ),
         ("collections", one(|b| b.collections("[{\"view\":1}]"))),
         ("refuse", one(|b| b.refuse(9, "no \"way\"\n"))),
+        (
+            "grants",
+            one(|b| {
+                b.grants("# reach\n\n net.fetch https://api.example \nsecret.keep app.token\nsurface.read \"sketch\"\n")
+            }),
+        ),
+        // Crew's set (the port report of 2026-09-24, F1): one bad line, and
+        // the page is handed nothing to admit.
+        (
+            "grants-unparsed",
+            one(|b| b.grants("net.fetch https://crew.test\nsecret.keep crewHost")),
+        ),
         ("textflow", one(|b| b.textflow("[]"))),
         (
             "create",
@@ -139,7 +154,7 @@ fn cases() -> Vec<(&'static str, String)> {
                     "opacity",
                     0.0,
                     16.5,
-                    &[(0.0, 0.0), (0.25, 1.0), (1e21, -0.0)],
+                    &[[0.0; 4], [0.25, 1.0, 0.0, 0.0], [1e21, -0.0, 0.0, 0.0]],
                     false,
                 )
             }),
@@ -152,7 +167,7 @@ fn cases() -> Vec<(&'static str, String)> {
                     "translate",
                     12.25,
                     300.0,
-                    &[(0.1, 0.2), (-3.5, 1e-7)],
+                    &[[0.1, 0.2, 0.0, 0.0], [-3.5, 1e-7, 0.0, 0.0]],
                     true,
                 )
             }),
@@ -169,7 +184,7 @@ fn cases() -> Vec<(&'static str, String)> {
                     9,
                     "translate",
                     (0.0, 300.0),
-                    &[(0.1, 0.2), (0.0, 0.0)],
+                    &[[0.1, 0.2, 0.0, 0.0], [0.0; 4]],
                 )
             }),
         ),
@@ -180,6 +195,23 @@ fn cases() -> Vec<(&'static str, String)> {
         (
             "request-independent",
             one(|b| b.request(&request(42, independent, false))),
+        ),
+        (
+            "request-body-from",
+            one(|b| {
+                let mut upload =
+                    Request::get("https://api.example/blob").body_from("app:/tmp/a.jpg");
+                upload.method = "POST".into();
+                b.request(&request(48, upload, false))
+            }),
+        ),
+        (
+            "request-manual-redirect",
+            one(|b| {
+                let mut authorize = Request::get("https://api.example/authorize");
+                authorize.redirect = exact_runner::Redirect::Manual;
+                b.request(&request(49, authorize, false))
+            }),
         ),
         (
             "request-continue",
@@ -257,11 +289,11 @@ fn cases() -> Vec<(&'static str, String)> {
 const GOLDEN: &[(&str, &str)] = &[
     (
         "router",
-        r#"{"ops":[{"op":"router","top":5,"url":"/tag/\"x\"?q=1","removed":[]}],"timers":false,"clock":0,"error":null}"#,
+        r#"{"ops":[{"op":"router","top":5,"url":"/tag/\"x\"?q=1","removed":[],"visits":[[1,"/"],[5,"/tag/\"x\"?q=1"]]}],"timers":false,"clock":0,"error":null}"#,
     ),
     (
         "router-removed",
-        r#"{"ops":[{"op":"router","top":18446744073709551615,"url":"/","removed":[1,22,333]}],"timers":false,"clock":0,"error":null}"#,
+        r#"{"ops":[{"op":"router","top":18446744073709551615,"url":"/","removed":[1,22,333],"visits":[[18446744073709551615,"/"]]}],"timers":false,"clock":0,"error":null}"#,
     ),
     (
         "collections",
@@ -270,6 +302,14 @@ const GOLDEN: &[(&str, &str)] = &[
     (
         "refuse",
         r#"{"ops":[{"op":"refuse","ticket":9,"message":"no \"way\"\n"}],"timers":false,"clock":0,"error":null}"#,
+    ),
+    (
+        "grants",
+        r##"{"ops":[{"op":"grants","lines":["net.fetch https://api.example","secret.keep app.token","surface.read \"sketch\""],"set":{"version":1,"entries":[[1,"# reach",null,null],[3,"net.fetch https://api.example",["fetch","https","api.example",443],null],[4,"secret.keep app.token",["secret-keep","app.token"],null],[5,"surface.read \"sketch\"",null,null]],"error":null,"seal":"3893be14039d3936"}}],"timers":false,"clock":0,"error":null}"##,
+    ),
+    (
+        "grants-unparsed",
+        r#"{"ops":[{"op":"grants","lines":[],"error":"the app's grants did not parse: line 2: `crewHost` is not a secret name ([a-z0-9._-]{1,64})","set":{"version":1,"entries":[[1,"net.fetch https://crew.test",["fetch","https","crew.test",443],null],[2,"secret.keep crewHost",null,"`crewHost` is not a secret name ([a-z0-9._-]{1,64})"]],"error":"the app's grants did not parse: line 2: `crewHost` is not a secret name ([a-z0-9._-]{1,64})","seal":"b5982a07c9ad54f7"}}],"timers":false,"clock":0,"error":null}"#,
     ),
     (
         "textflow",
@@ -346,6 +386,14 @@ const GOLDEN: &[(&str, &str)] = &[
     (
         "request-independent",
         r#"{"ops":[{"op":"request","ticket":42,"target":"feed \"home\"","scope":null,"nativeHttp":"independent","maxResponseBytes":1048576,"method":"GET","url":"https://api.example/big","headers":[],"body":"","cache":"default"}],"timers":false,"clock":0,"error":null}"#,
+    ),
+    (
+        "request-body-from",
+        r#"{"ops":[{"op":"request","ticket":48,"target":"feed \"home\"","scope":null,"method":"POST","url":"https://api.example/blob","headers":[],"bodyFrom":"app:/tmp/a.jpg","body":"","cache":"default"}],"timers":false,"clock":0,"error":null}"#,
+    ),
+    (
+        "request-manual-redirect",
+        r#"{"ops":[{"op":"request","ticket":49,"target":"feed \"home\"","scope":null,"method":"GET","url":"https://api.example/authorize","headers":[],"redirect":"manual","body":"","cache":"default"}],"timers":false,"clock":0,"error":null}"#,
     ),
     (
         "request-continue",

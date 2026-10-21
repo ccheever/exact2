@@ -36,3 +36,12 @@ fn every_side_is_its_own_css_longhand() {
         assert!(batch.contains(expected), "{expected} in {batch}");
     }
 }
+
+#[test]
+fn patterned_border_styles_reach_css_on_their_own_sides() {
+    let src = "component A\n  view\n    box border-width=\"1px 2px 4px 3px\" border-style=\"dotted dashed solid none\" border-radius=12 testId=\"pattern\"\n";
+    let plan = contract::compile(src).unwrap();
+    let (_, batch) = Host::boot(&plan.encode(), NoData, Default::default(), "/").unwrap();
+    assert!(batch.contains("border-top-style:dotted;border-right-style:dashed;border-bottom-style:solid;border-left-style:none;"), "{batch}");
+    assert!(batch.contains("border-top-width:1px;border-right-width:2px;border-bottom-width:4px;border-left-width:3px;"), "{batch}");
+}

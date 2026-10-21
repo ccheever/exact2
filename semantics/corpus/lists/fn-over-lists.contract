@@ -1,0 +1,33 @@
+// fns that take and return lists, and `[]` typed by a declared return.
+shape Item
+  id: string
+  n: number
+
+fn ids(xs: Item[]): string[] = xs.map(x => x.id)
+fn big(xs: Item[], t: number): Item[] = xs.filter(x => x.n > t)
+fn nothing(): Item[] = []
+fn csv(xs: string[]): string = xs.join(",")
+fn countIf(xs: Item[], t: number): number = big(xs, t).length
+
+component App
+  resource items = items() as shape Item[]
+  state t = 0
+  derive bigIds = csv(ids(big(items, t)))
+  derive emptyCsv = csv(ids(nothing()))
+  derive monotone = countIf(items, t) >= countIf(items, t + 5)
+  derive bounded = countIf(items, t) <= items.length
+  action up
+    t = t + 5
+  view
+    column
+      text bigIds testId="big"
+      button "up" press=up testId="up"
+
+test "fns over lists"
+  expect state emptyCsv == ""
+  expect state monotone == true
+  expect state bounded == true
+  tap "up"
+  expect state monotone == true
+  tap "up"
+  expect state bounded == true

@@ -32,6 +32,29 @@ fn surface_record_abi_distinguishes_an_invalid_empty_record_from_disposal() {
     let n = bridge.agent(n);
     assert!(String::from_utf8_lossy(bridge.output_bytes(n as usize))
         .contains("\"hud\":{\"beacons\":0}"));
+    // Past the limit the batch names the size and the limit (the page logs
+    // it) and `state` reports it; the last record stands.
+    let limit = exact_runner::surface_record::MAX_BYTES;
+    let over = format!("world\0{{\"beacons\":5,\"pad\":\"{}\"}}", "x".repeat(limit));
+    let n = bridge.input_write(over.as_bytes());
+    let n = bridge.surface_record(n);
+    let refused = String::from_utf8_lossy(bridge.output_bytes(n as usize)).into_owned();
+    assert!(
+        refused.contains(&format!("{limit}-byte (16 MiB) limit")),
+        "{}",
+        &refused[..300.min(refused.len())]
+    );
+    let n = bridge.input_write(br#"{"op":"state"}"#);
+    let n = bridge.agent(n);
+    let state = String::from_utf8_lossy(bridge.output_bytes(n as usize)).into_owned();
+    assert!(
+        state.contains("\"surfaceRefusals\":{\"world\":\"hud: record is "),
+        "{state}"
+    );
+    assert!(
+        state.contains("\"hud\":{\"beacons\":0}"),
+        "the last record stands"
+    );
 }
 
 mod exported {

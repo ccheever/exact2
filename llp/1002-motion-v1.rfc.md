@@ -8,6 +8,9 @@
 **Numeric-height trial:** Tuft / Zeno (Astra), implementing 2026-09-17; LLP 1041 §8.12.
 **Related:** LLP 1003 (the spec of what this built), LLP 1001 (kernel v1 — the rows motion targets), RFC 0492 (the exact1 motion program this supersedes as authority; research), RFC 0099 (exact1's motion substrate; research), LLP 0486 (one layout language, two engines — the pattern this applies to motion), LLP 0559 F1 (the Flutter warning this heeds), `rules/DEFERRED.md` §Motion
 
+
+> **Spelling (2026-10-06):** `spring()` is spelled `-exact-spring()` since [LLP 1081](1081-names-exact-invents.rfc.md). This document keeps the spelling it was written with, as the record.
+
 ## Summary
 
 The motion crate exact2 inherited was the one subsystem that was **ported rather
@@ -217,7 +220,9 @@ accepts only finite nonnegative `Dimension::Points` on a non-inline box under
 an attached root with no `display:none` ancestor. Unsupported, detached or
 removed input retires Height only; percentages, env and auto are never resolved
 into invented numeric targets. Replacing the registered owner retires its
-previous Height first. There is no automatic adoption of all numeric heights.
+previous Height first. Separately, the Apple host automatically adopts authored
+pixel-height transitions for either box sizing; border-box `auto` endpoints need
+`interpolate-size: allow-keywords` (LLP 1041 §8.12).
 
 **Authored handle increment (Tuft / Zeno and host owners, 2026-09-17).**
 `heightDragFor="reading-sheet"` names one strict ancestor's authored `id`.
@@ -361,9 +366,10 @@ validated sample until retirement; an ordinary layout call would clear it.
 - **`prefers-reduced-motion`.** CSS handles it in the author's stylesheet with a
   media query; here the producer does the same — emits `transition: none` (or a
   shorter row) when the host reports the preference. The engine has no opinion.
-- **General layout-affecting transitions** (`width`, insets, arbitrary heights).
-  Only the explicitly registered numeric-height trial in D7 is admitted; broader
-  ownership and layout policies remain gated on their own measured consumers.
+- **General layout-affecting transitions** (`width`, insets, other height units).
+  D7's registered owner and LLP 1041 §8.12's authored pixel-height transitions
+  and opted-in accordions are admitted; broader ownership and layout policies
+  remain gated on their own measured consumers.
 - **The producer's authoring surface** for `transition` in Contract. This RFC
   fixes the row; the compiler that emits it is the Contract lane's.
 

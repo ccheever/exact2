@@ -1,0 +1,32 @@
+// linux: layout
+// agent: scale=2
+// The hairline (LLP 1115.000 D10.3): `-exact-hairline` is one device pixel
+// of the display's scale, which is a layout input on every host. Both pages
+// and the Linux host are opened at 2x here (the line above; D14.2), where a
+// hairline is half a point: the wasm page's kernel is told the page's
+// `devicePixelRatio` and writes the pixels, the JS target writes the sheet's
+// `var(--exact-hairline)`, and the Linux host's presenter tells its kernel
+// the pixels a point it draws at. conform.mjs compares the browser's boxes
+// with the kernel's. A border on four sides, one side, a bound one that
+// leaves and comes back, a box as tall as a hairline, a row whose gap is
+// one, and an `hr` between two boxes with no margin of its own.
+// `hairline-3x.contract` is the same page at 3x.
+component Hairline
+  state edged = true
+  action flip
+    edged = not edged
+  view
+    column testId="root" width=420 box-sizing="border-box" padding=16 gap=12
+      button testId="flip" press=flip width=80 height=28
+        text "flip" line-height="18px"
+      box testId="all" height=20 border="-exact-hairline solid -exact-separator"
+      box testId="bottom" height=20 border-bottom-width="-exact-hairline" border-bottom-style="solid"
+      box testId="bound" height=20 border-top-width=(edged ? "-exact-hairline" : 0) border-top-style="solid"
+      box testId="line" height="-exact-hairline" background-color="-exact-separator"
+      row gap="-exact-hairline" testId="gapped"
+        box width=20 height=20 testId="gap-a"
+        box width=20 height=20 testId="gap-b"
+      box testId="ruled"
+        box height=20 testId="above"
+        hr testId="rule"
+        box height=20 testId="below"

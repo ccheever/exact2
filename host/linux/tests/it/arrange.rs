@@ -59,6 +59,8 @@ impl DataSource for Rows {
         Ok(Value::List(self.rows.clone()))
     }
 }
+// Each row's grip spans its row, as the points below assume: the row writes
+// its inline ends, so a cells list's inset (LLP 1138) leaves it alone.
 const APP: &str = r#"shape Row
   id: string
   color: string
@@ -67,22 +69,22 @@ component App
   state count = 0
   state draft = ""
   state disabled = false
-  resource initial = rows() as shape list<Row>
-  mutation changed as shape list<Row>
+  resource initial = rows() as shape Row[]
+  mutation changed as shape Row[]
   derive rows = match changed { case some(value) => value, case none => initial }
-  action drop(item: string, before: option<string>) writes changed, count
+  action drop(item: string, before: option<string>)
     send changed = move(item, before)
     count = count + 1
-  action disable writes disabled
+  action disable
     disabled = true
-  action edit(v: string) writes draft
+  action edit(v: string)
     draft = v
   view
     box width="100%" height="100%"
       box position="absolute" left=20 top=40 width=300 height=184
         list id="items" testId="list" width="100%" height="100%" border-width=2 padding=0 virtualized=true reorderdrop=drop
-          each x in rows key=x.id
-            box testId=`row-${x.id}` height=x.height background-color=x.color
+          for x in rows key=x.id
+            box testId=`row-${x.id}` height=x.height background-color=x.color padding-left=0 padding-right=0
               box testId=`grip-${x.id}` width="100%" height="100%" reorderFor="items" touch-action="none" disabled=disabled
       button position="absolute" top=300 testId="disable" press=disable
         text "disable"
@@ -169,7 +171,7 @@ fn physical_vertical_contact_catches_wrapper_and_keeps_typing_live() {
     assert!(p.collection_interaction().is_none());
 }
 #[test]
-fn latest_unproved_release_cannot_dispatch_previous_gap_and_late_up_is_inert() {
+fn unmeasured_release_cannot_dispatch_previous_gap_and_late_up_is_inert() {
     let mut p = boot();
     let (_, point) = recognize(&mut p);
     p.pointer_move(point.0, point.1 + 60., 20.).unwrap();
@@ -319,11 +321,14 @@ fn edge_scroll_reads_actual_offset_and_keeps_stationary_source_in_view() {
     let before = p.rect_of(id(&p, "row-0")).unwrap();
     let list = id(&p, "list");
     let old = p.scroll_of(list).1;
+    assert_eq!(old, 0., "the first edge sample establishes its clock");
     assert!(p.needs_animation_frame());
+    p.tick(20.);
+    assert_eq!(p.scroll_of(list).1, old);
     p.tick(70.);
     p.frame();
     let after = p.rect_of(id(&p, "row-0")).unwrap();
-    assert!(p.scroll_of(list).1 > old);
+    assert!((p.scroll_of(list).1 - old - 720. * 0.032).abs() < 0.001);
     assert!((after.1 - before.1).abs() < 0.01, "{before:?} {after:?}");
     assert!(p
         .host()
@@ -336,10 +341,10 @@ fn edge_scroll_reads_actual_offset_and_keeps_stationary_source_in_view() {
     assert!(!p.needs_animation_frame());
 }
 
-fn scroll_fixture(action: &str, writes: &str) -> String {
+fn scroll_fixture(action: &str) -> String {
     APP.replace(
         "  state count = 0",
-        &format!("  state scrolls = 0\n  state portWidth = 300\n  action scrolled(x: number, y: number) writes scrolls{writes}\n    scrolls = scrolls + 1\n{action}  state count = 0"),
+        &format!("  state scrolls = 0\n  state portWidth = 300\n  action scrolled(x: number, y: number)\n    scrolls = scrolls + 1\n{action}  state count = 0"),
     )
     .replace("width=300 height=184", "width=portWidth height=184")
     .replace("virtualized=true reorderdrop=drop", "virtualized=true reorderdrop=drop scroll=scrolled")
@@ -347,7 +352,7 @@ fn scroll_fixture(action: &str, writes: &str) -> String {
 
 #[test]
 fn edge_scroll_authored_counter_preserves_hold_position_and_one_terminal_drop() {
-    let mut p = boot_source(&scroll_fixture("", ""));
+    let mut p = boot_source(&scroll_fixture(""));
     let (source, point) = recognize(&mut p);
     let list = id(&p, "list");
     let port = p.rect_of(list).unwrap();
@@ -355,9 +360,14 @@ fn edge_scroll_authored_counter_preserves_hold_position_and_one_terminal_drop() 
     p.pointer_move(point.0, y, 20.).unwrap();
     let before = p.rect_of(id(&p, "row-0")).unwrap();
     let old_scroll = p.scroll_of(list).1;
+    // The first frame in the band starts the edge's clock, as the page's first
+    // animation frame does; the next scrolls.
+    p.tick(38.);
+    assert_eq!(p.scroll_of(list).1, old_scroll);
+    assert_eq!(p.host().runner().slot("scrolls"), Some(&Value::Number(0.)));
     p.tick(70.);
     assert_eq!(p.host().runner().slot("scrolls"), Some(&Value::Number(1.)));
-    assert!(p.scroll_of(list).1 > old_scroll);
+    assert!((p.scroll_of(list).1 - old_scroll - 720. * 0.032).abs() < 0.001);
     assert!(p
         .host()
         .engine()
@@ -375,17 +385,18 @@ fn edge_scroll_authored_counter_preserves_hold_position_and_one_terminal_drop() 
 
 #[test]
 fn edge_scroll_authored_deletion_and_width_reflow_still_cancel_before_drop() {
-    for (action, writes, deleted) in [
-        ("    send changed = removeFirst()\n", ", changed", true),
-        ("    portWidth = 200\n", ", portWidth", false),
+    for (action, deleted) in [
+        ("    send changed = removeFirst()\n", true),
+        ("    portWidth = 200\n", false),
     ] {
-        let mut p = boot_source(&scroll_fixture(action, writes));
+        let mut p = boot_source(&scroll_fixture(action));
         let (source, point) = recognize(&mut p);
         let list = id(&p, "list");
         let port = p.rect_of(list).unwrap();
         let y = port.1 + port.3 - 8.;
         let width_before = p.host().kernel().node(list).unwrap().frame.width;
         p.pointer_move(point.0, y, 20.).unwrap();
+        p.tick(38.);
         p.tick(70.);
         assert_eq!(p.host().runner().slot("scrolls"), Some(&Value::Number(1.)));
         assert!(!p
@@ -408,17 +419,15 @@ fn edge_scroll_authored_deletion_and_width_reflow_still_cancel_before_drop() {
 
 #[test]
 fn eager_and_disabled_grips_do_not_admit_physical_reorder() {
-    for source in [
-        APP.replace("virtualized=true", "virtualized=false"),
-        APP.replace("state disabled = false", "state disabled = true"),
-    ] {
-        let mut p = boot_source(&source);
-        let rect = p.rect_of(id(&p, "grip-0")).unwrap();
-        p.pointer_down(rect.0 + 10., rect.1 + 10., 0.).unwrap();
-        assert!(!p.pointer_move(rect.0 + 10., rect.1 + 40., 10.).unwrap());
-        assert!(!p.pointer_up(rect.0 + 10., rect.1 + 40., 20.).unwrap());
-        assert_eq!(p.host().runner().slot("count"), Some(&Value::Number(0.)));
-    }
+    // An eager list never reorders: the compiler refuses it (3f8cbb165).
+    let eager = contract::compile(&APP.replace("virtualized=true", "virtualized=false"));
+    assert_eq!(eager.unwrap_err().id, "lower-reorder-collection");
+    let mut p = boot_source(&APP.replace("state disabled = false", "state disabled = true"));
+    let rect = p.rect_of(id(&p, "grip-0")).unwrap();
+    p.pointer_down(rect.0 + 10., rect.1 + 10., 0.).unwrap();
+    assert!(!p.pointer_move(rect.0 + 10., rect.1 + 40., 10.).unwrap());
+    assert!(!p.pointer_up(rect.0 + 10., rect.1 + 40., 20.).unwrap());
+    assert_eq!(p.host().runner().slot("count"), Some(&Value::Number(0.)));
 }
 
 #[test]
@@ -435,7 +444,7 @@ fn typing_under_empty_when_arms_preserves_mapping_hold_and_exactly_one_drop() {
         .lines()
         .map(|line| format!("    {line}\n"))
         .collect::<String>();
-    let source = format!("{head}        when shown\n          when windowed\n{list}      button position=\"absolute\"{tail}");
+    let source = format!("{head}        if shown\n          if windowed\n{list}      button position=\"absolute\"{tail}");
     let mut p = boot_source(&source);
     let (wrapper, point) = recognize(&mut p);
     p.pointer_move(point.0, point.1 + 60., 20.).unwrap();
@@ -471,4 +480,125 @@ fn typing_under_empty_when_arms_preserves_mapping_hold_and_exactly_one_drop() {
     p.tick(5000.);
     p.frame();
     assert!(p.collection_interaction().is_none());
+}
+
+// Dropping across lists (LLP 1094) through the same contact path: two
+// grouped lists side by side; a row carried from one to the other drops
+// once, on the target, then its ghost lands and the session finishes.
+struct Cards(Vec<(String, String)>);
+impl DataSource for Cards {
+    fn query(&mut self, name: &str, args: &[Value]) -> Result<Value, DataError> {
+        if name == "move" {
+            let (item, col, at) = (
+                args[0].as_str().unwrap(),
+                args[1].as_str().unwrap(),
+                args[2].as_str().unwrap(),
+            );
+            let from = self.0.iter().position(|(id, _)| id == item).unwrap();
+            let card = self.0.remove(from);
+            let at = self
+                .0
+                .iter()
+                .position(|(id, _)| id == at)
+                .unwrap_or(self.0.len());
+            self.0.insert(at, (card.0, col.to_owned()));
+        }
+        if name == "columns" {
+            return Ok(Value::list(vec![Value::str("a"), Value::str("b")]));
+        }
+        Ok(Value::list(
+            self.0
+                .iter()
+                .map(|(id, col)| Value::record(vec![Value::str(id), Value::str(col)]))
+                .collect(),
+        ))
+    }
+}
+const CARDS: &str = r#"shape Card
+  id: string
+  col: string
+component App
+  state log = ""
+  resource columns = columns() as shape string[]
+  resource initial = cards() as shape Card[]
+  mutation changed as shape Card[]
+  derive cards = match changed { case some(value) => value, case none => initial }
+  action dropCard(col: string, item: string, before: option<string>)
+    log = `${item}>${col}@${match before { case some(k) => k, case none => "" }}`
+    send changed = move(item, col, match before { case some(k) => k, case none => "" })
+  view
+    row gap=20
+      for col in columns key=col
+        list id=`col-${col}` testId=`list-${col}` virtualized=true reorderGroup="cards" reorderdrop=dropCard(col) width=150 height=200
+          for card in cards.filter(k => k.col == col) key=card.id
+            box testId=`grip-${card.id}` height=40 reorderFor=`col-${col}` touch-action="none"
+              text card.id
+"#;
+#[test]
+fn a_grouped_row_crosses_to_another_list_and_its_session_finishes() {
+    let cards = ["a1", "a2", "b1"].map(|id| (id.to_owned(), id[..1].to_owned()));
+    let (mut p, error) = Presenter::boot_with(
+        &contract::compile(CARDS).unwrap().encode(),
+        Cards(cards.to_vec()),
+        (400., 500.),
+        1.,
+        PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/../../apps/caltrain")),
+        PainterChoice::Cpu,
+    )
+    .unwrap();
+    assert!(error.is_none(), "{error:?}");
+    for _ in 0..3 {
+        p.frame();
+    }
+    let at = |p: &mut Presenter<Cards>, name: &str| {
+        let k = p.host().kernel().find_by_test_id(name)[0];
+        let id = p.host().kernel().node_by_key(k).unwrap().id;
+        let r = p.rect_of(id).unwrap();
+        (r.0 + r.2 / 2., r.1 + r.3 / 2.)
+    };
+    let (a1, b1) = (at(&mut p, "grip-a1"), at(&mut p, "grip-b1"));
+    assert!(p.pointer_down(a1.0, a1.1, 0.).unwrap());
+    // Sideways past the slop: a grouped row lifts in any direction.
+    p.pointer_move(a1.0 + 12., a1.1, 10.).unwrap();
+    p.pointer_move(b1.0, b1.1 + 25., 20.).unwrap();
+    assert!(p
+        .host()
+        .runner()
+        .reorder_json()
+        .contains("\"to\":\"col-b\",\"before\":null"));
+    assert!(p.pointer_up(b1.0, b1.1 + 25., 20_000.).unwrap());
+    assert_eq!(p.host().runner().now_ms(), 20_000.);
+    assert_eq!(p.host().runner().slot("log"), Some(&Value::str("a1>b@")));
+    assert!(p.needs_animation_frame(), "the ghost springs onto the row");
+    for t in [20_050., 20_100., 20_400., 21_500.] {
+        p.tick(t);
+    }
+    assert!(!p.needs_animation_frame());
+    assert_eq!(p.host().runner().reorder_json(), "null");
+    let grip = p.host().kernel().find_by_test_id("grip-a1")[0];
+    let wrapper = p.host().kernel().node_by_key(grip).unwrap().parent.unwrap();
+    assert_eq!(
+        p.host().kernel().node(wrapper).unwrap().style.visibility,
+        exact_kernel::Visibility::Visible,
+        "the row shows once the ghost has landed"
+    );
+}
+/// A grip inside a row the cells list insets (LLP 1138: 16 at each end of a
+/// row whose author wrote none) lifts and drops from its own measured box.
+#[test]
+fn a_grip_in_an_inset_row_lifts_and_drops() {
+    let mut p = boot_source(&APP.replace(" padding-left=0 padding-right=0", ""));
+    let (row, grip) = (
+        p.rect_of(id(&p, "row-0")).unwrap(),
+        p.rect_of(id(&p, "grip-0")).unwrap(),
+    );
+    assert_eq!(
+        (grip.0 - row.0, grip.2),
+        (16., row.2 - 32.),
+        "the grip is inset"
+    );
+    let (_, point) = recognize(&mut p);
+    assert!(p.pointer_move(point.0, point.1 + 60., 20.).unwrap());
+    assert!(p.pointer_up(point.0, point.1 + 70., 30.).unwrap());
+    assert_eq!(p.host().runner().slot("count"), Some(&Value::Number(1.)));
 }

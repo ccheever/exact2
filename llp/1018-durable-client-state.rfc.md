@@ -152,6 +152,19 @@ running as the user can read `~/Library`). Flattening them would make the
 token permanently worse than native on macOS; DEFERRED's "deliberately
 worse" list is explicit, and this would not belong on it.
 
+*As built 2026-10-10 (LLP 1116 D5):* the `plain` tier's consumer is
+`state … persist`. The runner keeps each persisted state under the
+runner-owned name `exact.state.<name>` (beside `exact.kept.`, never
+granted) as JSON text, takes it at boot where it decodes to the slot's type,
+and keeps the slot's value after every commit that stands (`Store::keep`,
+no revision: no store-reading resource re-answers). The web keeps it in
+`localStorage` under that name (the wasm host's `store` op says
+`"tier":"plain"`; the JS target's `persist.js`), Apple in the app's
+`UserDefaults` domain through CoreFoundation's preferences
+(`host/apple/src/defaults.rs`; agent mode and tests in the kv store's
+`exact.state` scope), Linux in the kv file store's `exact.state` scope
+under the app's data directory.
+
 The web's single backend for both is the declared deviation: the web has no
 secret store. A word on the exposure: `localStorage` tokens are dangerous on
 the web because of third-party script; this page is `glue.js` and a wasm,
@@ -167,7 +180,14 @@ host swaps to it with no change above the seam.
 
 The data crate declares `secret.keep castle.session` beside `net.fetch
 https://api.castle.xyz` in the one `grants()` constant (1016 D6). The runner
-parses the `secret.keep` lines itself: `Store::get` outside the grant is
+parses the complete I/O grant set with the native binding's shared
+`exact-grants` grammar (2026-10-02); one invalid line grants nothing. The
+Rust-only bake validates the same set, naming the source and line, before
+hashing it. Native parsing uses `url`; wasm normalizes origins through a pure
+browser URL import, sharing the grammar without shipping another set of URL
+tables. Rust logic modules stay importless: their host validates the grants in
+the metadata reply. The JS web target parses its complete set with browser URLs and
+checks source-scoped fetch and secret access. `Store::get` outside the grant is
 `None`, `set`/`forget` outside it are `StoreError::Refused` — the same refusal
 on every host before any platform is asked, as `net.fetch` is refused in
 `glue.js` and in ibex2 alike. The host reads *exactly the granted names* into
@@ -256,6 +276,11 @@ first frame that cannot know the user.
 - **Linux** (`host/linux`). A memory store until the Linux host links ibex2
   (ibex OQ2 gates that lane); then ibex2's file store. Declared, not a gap
   anyone trips on: Weird Castle has no Linux build.
+  *As built 2026-10-07 (LLP 1027.007 D13):* outside the agent, Linux keeps
+  `secret.keep` names and kept answers in ibex2's file stores under
+  `$XDG_DATA_HOME/exact/<app id>/{secrets,kv}` (a file per secret, `0600` in
+  a `0700` directory, not encrypted); a named agent drive keeps its scratch
+  tree; Windows outside the agent stays in memory until its credential vault.
 
 ### D7 — The platform facts that become requirements
 

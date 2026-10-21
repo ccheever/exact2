@@ -28,6 +28,7 @@ pub(crate) struct RegionState {
     facts: Arc<FactSet>,
     provisional: Option<Provisional>,
     accepted: Option<Rc<RegionPublication>>,
+    pub provisional_chrome: bool,
 }
 impl RegionState {
     pub fn new(
@@ -53,6 +54,7 @@ impl RegionState {
             facts: Arc::new(FactSet::default()),
             provisional: None,
             accepted: None,
+            provisional_chrome: false,
         })
     }
     pub fn retention(&self) -> RegionRetention {
@@ -150,6 +152,17 @@ impl RegionState {
             self.invalidate()
         }
     }
+    /// Lay the region out again when its owner is `slot` or within it: a
+    /// change to `slot`'s rows' insets changes the owner's content box but
+    /// may leave its border box, the offer, as it was.
+    pub fn within(&mut self, arena: &NodeArena, slot: u32) {
+        if arena
+            .resolve(self.binding.owner)
+            .is_some_and(|o| o == slot || arena.is_ancestor(slot, o))
+        {
+            self.invalidate()
+        }
+    }
     pub fn resolve(
         &mut self,
         request: &RegionTextRequest,
@@ -226,6 +239,18 @@ impl RegionState {
         inputs: RegionInputs,
         epoch: u64,
     ) -> Result<RegionLayoutReceipt, LayoutError> {
+        self.provisional_chrome = false;
+        // Re-probe a retained guess on the host's silent settlement pass.
+        if self
+            .provisional
+            .as_ref()
+            .is_some_and(|p| p.geometry.provisional_chrome)
+            || self.accepted.as_ref().is_some_and(|p| {
+                p.geometry.provisional_chrome && self.ticket.as_ref() == Some(&p.ticket)
+            })
+        {
+            self.invalidate();
+        }
         let (root, outer) = root_offer;
         validate(arena, self.binding)?;
         if root != self.binding.owner.index && !arena.is_ancestor(root, self.binding.owner.index) {
@@ -265,7 +290,9 @@ impl RegionState {
             self.shell_catalog = Some(inputs.catalog);
         }
         // One common ordinary-shell path, including reservation saturation.
-        let shell_frames = super::tree::shell(arena, tree, measurer, root, b.owner.index, outer)?;
+        let shell_geometry = super::tree::shell(arena, tree, measurer, root, b.owner.index, outer)?;
+        self.provisional_chrome = tree.provisional_chrome();
+        let shell_frames = &shell_geometry.frames;
         let origin = shell_frames
             .iter()
             .find(|f| f.node == b.owner)
@@ -305,7 +332,10 @@ impl RegionState {
         // Split waits nonfatally when external A+B still own both tokens: no C
         // facts/request/geometry, but shell and retained selection still publish.
         let next_accepted = if admitted && !already_current && self.pending.is_none() {
-            self.advance(arena, origin, offer, inputs)?
+            // Height-free facts are SplitFacts': the default profile keeps
+            // one retained artifact per exact offer.
+            let height_free = self.profile == RegionProfile::SplitFacts && measurer.height_free();
+            self.advance(arena, origin, offer, inputs, height_free, measurer)?
         } else {
             None
         };
@@ -326,6 +356,7 @@ impl RegionState {
             )?;
             pending.constrain_owner(arena, b.owner.index, origin);
             pending.compute(arena, measurer, offer)?;
+            self.provisional_chrome |= pending.provisional_chrome();
             pending.frames(
                 arena,
                 b.owner.index,
@@ -336,10 +367,11 @@ impl RegionState {
             RegionGeometry::default()
         };
         // Both policies share exactly one projection/validation/publication barrier.
-        let frames = selected
+        let geometry = selected
             .map(|p| p.geometry.as_ref())
-            .unwrap_or(&pending_geometry)
-            .project(origin)?;
+            .unwrap_or(&pending_geometry);
+        self.provisional_chrome |= geometry.provisional_chrome;
+        let frames = geometry.project(origin)?;
         let selection = match selected {
             Some(p) => RegionSelection::Accepted(p.clone()),
             None => RegionSelection::Pending(b.pending),
@@ -351,17 +383,25 @@ impl RegionState {
             .map(|f| f.node)
             .collect();
         arena.begin_layout_publication(root);
-        publish(arena, root, &shell_frames, true, &mut changed);
+        publish(
+            arena,
+            root,
+            shell_frames,
+            &shell_geometry.facts,
+            true,
+            &mut changed,
+        );
         publish(
             arena,
             root,
             &frames,
+            &geometry.facts,
             current || selected.is_none(),
             &mut changed,
         );
         // @ref LLP 1043.000 §3 D4 — resolve only after the selected projection.
         let (flow_changed, flow_skipped) =
-            crate::flow::resolve_region(arena, root, &shell_frames, &frames);
+            crate::flow::resolve_region(arena, root, shell_frames, &frames);
         if let Some(accepted) = next_accepted {
             self.accepted = Some(accepted);
             self.clear_candidate();
@@ -374,6 +414,7 @@ impl RegionState {
                 updated,
                 flow_changed,
                 flow_skipped,
+                fragment_skipped: Vec::new(),
                 flow_passes: 0,
                 flow_comparisons: 0,
             },
@@ -388,6 +429,8 @@ impl RegionState {
         origin: Frame,
         offer: Offer,
         inputs: RegionInputs,
+        height_free: bool,
+        measurer: &mut dyn TextMeasurer,
     ) -> Result<Option<Rc<RegionPublication>>, LayoutError> {
         let b = self.binding;
         let ticket = self.ticket.as_ref().expect("admitted ticket").clone();
@@ -400,18 +443,23 @@ impl RegionState {
                 true,
             )?;
             candidate.constrain_owner(arena, b.owner.index, origin);
+            let facts = Arc::get_mut(&mut self.facts).expect("unpublished candidate facts");
+            facts.height_free = height_free;
             let mut latch = Candidate {
                 ticket: ticket.clone(),
                 profile: self.profile,
                 lease: self.lease.clone(),
                 ready: &mut self.ready,
-                facts: Arc::get_mut(&mut self.facts).expect("unpublished candidate facts"),
+                facts,
                 accepted: self.accepted.as_deref(),
                 catalog: inputs.catalog,
+                height_free,
+                measurer,
                 missing: None,
                 refused: None,
             };
             candidate.compute(arena, &mut latch, offer)?;
+            self.provisional_chrome |= candidate.provisional_chrome();
             let mut paints = Vec::new();
             if latch.missing.is_none() && latch.refused.is_none() {
                 if self.profile == RegionProfile::SplitFacts {
@@ -479,9 +527,15 @@ impl RegionState {
                 let source = self.facts.sources[fact.source as usize].clone();
                 self.pending = Some(RegionTextRequest(Arc::new(RequestData {
                     ticket,
+                    // A final owner paints at its width under a max-content
+                    // height (`paint_offers`); a height-free fact may have
+                    // been measured under another height.
                     key: TextKey {
                         stamp: source.stamp.clone(),
-                        offer: fact.offer,
+                        offer: Offer {
+                            width: fact.offer.width,
+                            height: crate::AxisOffer::MaxContent,
+                        },
                     },
                     catalog: inputs.catalog,
                     source,
@@ -511,6 +565,7 @@ impl RegionState {
     }
 }
 struct Candidate<'a> {
+    measurer: &'a mut dyn TextMeasurer,
     ticket: RegionTicket,
     profile: RegionProfile,
     lease: Option<Arc<()>>,
@@ -518,6 +573,8 @@ struct Candidate<'a> {
     facts: &'a mut FactSet,
     accepted: Option<&'a RegionPublication>,
     catalog: u64,
+    /// The installed measurer's `height_free`: facts answer every height at a width.
+    height_free: bool,
     missing: Option<RegionTextRequest>,
     refused: Option<&'static str>,
 }
@@ -531,6 +588,27 @@ impl Candidate<'_> {
     }
 }
 impl TextMeasurer for Candidate<'_> {
+    fn measure_reservation(&mut self, request: &TextMeasureRequest<'_>) -> Option<TextMetrics> {
+        // Width samples are not canonical paragraph sources or paint artifacts.
+        self.measurer.measure_reservation(request)
+    }
+    fn field_chrome(&mut self, request: &crate::FieldChromeRequest) -> crate::FieldChrome {
+        self.measurer.field_chrome(request)
+    }
+    fn field_text(
+        &mut self,
+        kind: crate::FieldKind,
+        request: &TextMeasureRequest<'_>,
+    ) -> Option<TextMetrics> {
+        self.measurer.field_text(kind, request)
+    }
+
+    fn measure_revision(&self) -> u64 {
+        self.measurer.measure_revision()
+    }
+    fn height_free(&self) -> bool {
+        self.height_free
+    }
     fn measure(&mut self, _: &TextMeasureRequest<'_>) -> TextMetrics {
         self.refused = Some("exact-offer/source budget exhausted");
         TextMetrics::default()
@@ -669,6 +747,25 @@ fn members(arena: &NodeArena, key: NodeKey) -> Result<IdSet<NodeKey>, LayoutErro
     }
     Ok(result)
 }
+/// Whether an absolutely positioned box is under `owner`: each branch walked
+/// on its own, to the region's node limit (`members`); a branch past it is
+/// taken to hold one, and nothing past it is copied.
+fn holds_absolute(arena: &NodeArena, owner: u32) -> bool {
+    arena.children(owner).iter().any(|&branch| {
+        let (mut stack, mut seen) = (vec![branch], 0);
+        while let Some(s) = stack.pop() {
+            seen += 1;
+            let children = arena.children(s);
+            if arena.style(s).position_type == crate::PositionType::Absolute
+                || seen + stack.len() + children.len() > REGION_NODES
+            {
+                return true;
+            }
+            stack.extend_from_slice(children);
+        }
+        false
+    })
+}
 fn validate(arena: &NodeArena, b: ContentRegion) -> Result<(), LayoutError> {
     let bad = || {
         LayoutError::ContentRegion(
@@ -720,7 +817,7 @@ fn validate(arena: &NodeArena, b: ContentRegion) -> Result<(), LayoutError> {
     if !attached {
         return Err(bad());
     }
-    let s = arena.style(b.owner.index);
+    let s = arena.effective_style(b.owner.index);
     let sized = |v: Dimension| {
         matches!(v,Dimension::Points(x) if x>=0.) || matches!(v,Dimension::Percent(x) if x>=0.)
     };
@@ -735,9 +832,11 @@ fn validate(arena: &NodeArena, b: ContentRegion) -> Result<(), LayoutError> {
     }
     // @ref LLP 1074 T1 — a trial lays the owner out as the top of its own tree,
     // where it contains every absolutely positioned descendant; the ordinary
-    // tree agrees only if the owner is positioned there too. (The compiler
-    // positions a clipping box, which the owner is.)
-    if s.position_type == crate::PositionType::Static {
+    // tree agrees only if the owner is positioned there too, or nothing
+    // absolute is under it. The compiler positions a clipping box only when
+    // something absolute can be under it (487f14493), so a static owner holds
+    // none; one that does is refused, at registration and at each commit.
+    if s.position_type == crate::PositionType::Static && holds_absolute(arena, b.owner.index) {
         return Err(bad());
     }
     // Deliberately narrow certificate: percentages only under a direct root.
@@ -782,7 +881,7 @@ fn flex_height_independent(arena: &NodeArena, owner: u32) -> bool {
         return false;
     }
     let root = arena.style(parent);
-    let s = arena.style(owner);
+    let s = arena.effective_style(owner);
     let definite = |d| {
         matches!(d, Dimension::Points(n) | Dimension::Percent(n)
         if n.is_finite() && n >= 0.)
@@ -816,6 +915,7 @@ fn publish(
     arena: &mut NodeArena,
     root: u32,
     frames: &[RegionFrame],
+    facts: &super::BoxFacts,
     current: bool,
     changed: &mut Vec<NodeKey>,
 ) {
@@ -823,15 +923,24 @@ fn publish(
         let Some(s) = arena.resolve(f.node) else {
             continue;
         };
-        let frame = if arena.is_inline_run(s) {
-            Frame::default()
-        } else {
-            f.frame
-        };
+        let inline = arena.is_inline_run(s);
+        let frame = if inline { Frame::default() } else { f.frame };
         let moved = !arena.frame(s).bits_eq(frame) || arena.flags(s).has(NodeFlags::CREATED);
         let hidden = arena.style(s).display == crate::Display::None;
         arena.set_frame(s, frame);
         arena.set_content(s, f.content);
+        let inset = facts.insets.get(&f.node).copied().unwrap_or_default();
+        arena.set_inset(s, (!inline).then_some(inset));
+        if let Some(&content) = facts.field_content.get(&f.node) {
+            arena.field_content.insert(s, content);
+        } else {
+            arena.field_content.remove(&s);
+        }
+        if let Some(&basis) = facts.button_bases.get(&f.node) {
+            arena.button_bases.insert(s, basis);
+        } else {
+            arena.button_bases.remove(&s);
+        }
         let flags = arena.flags_mut(s);
         if current {
             for clear in [
@@ -854,5 +963,12 @@ fn publish(
         } else {
             flags.remove(NodeFlags::GEOMETRY_CHANGED)
         }
+    }
+}
+
+impl RegionState {
+    /// Mark the colours it holds: the content's inherited style.
+    pub(crate) fn wide_colors(&self, m: &mut crate::style::wide::WideMark) {
+        crate::style::wide::Colors::colors(&self.inherited, m);
     }
 }

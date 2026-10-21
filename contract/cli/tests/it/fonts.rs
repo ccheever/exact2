@@ -1,5 +1,5 @@
-//! LLP 1019 D1–D3/§5: declared static fonts lower to plan identity, and
-//! every portable refusal happens before a host can substitute a font.
+//! LLP 1019 D1–D3/§5: declared fonts lower to plan identity, and every
+//! portable refusal happens before a host can substitute a font.
 
 use exact_kernel::{FontStyle, Kernel};
 use exact_plan::Value;
@@ -13,6 +13,16 @@ struct NoData;
 impl DataSource for NoData {
     fn query(&mut self, source: &str, _: &[Value]) -> Result<Value, DataError> {
         Err(DataError::UnknownSource(source.into()))
+    }
+}
+
+struct SelectedFont;
+impl DataSource for SelectedFont {
+    fn query(&mut self, source: &str, _: &[Value]) -> Result<Value, DataError> {
+        match source {
+            "selectedFont" => Ok(Value::str("Menlo")),
+            _ => Err(DataError::UnknownSource(source.into())),
+        }
     }
 }
 
@@ -35,6 +45,12 @@ impl AppDir {
             )
             .unwrap();
         }
+        std::fs::copy(
+            Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("../../host/apple/tests/fonts/InterVariable.ttf"),
+            dir.join("assets/InterVariable.ttf"),
+        )
+        .unwrap();
         std::fs::write(dir.join("app.contract"), source).unwrap();
         AppDir(dir)
     }
@@ -87,8 +103,76 @@ fn shorthand_declares_one_400_normal_face() {
     );
     let plan = app.compile().unwrap();
     assert_eq!(plan.faces.len(), 1);
-    assert_eq!(plan.faces[0].weight, 400);
+    assert_eq!((plan.faces[0].weight, plan.faces[0].weight_max), (400, 400));
+    assert_eq!(
+        (plan.faces[0].stretch_min, plan.faces[0].stretch_max),
+        (1000, 1000)
+    );
     assert!(!plan.faces[0].italic);
+}
+
+/// LLP 1019 D2: a variable face's range is its `@font-face` descriptor,
+/// read from the file's `wght` axis when the declaration leaves it unsaid.
+#[test]
+fn a_variable_face_declares_its_file_range_or_the_written_one() {
+    let app = AppDir::new(
+        "font \"Inter\" = \"assets/InterVariable.ttf\"\nfont \"Pinned\"\n  600 = \"assets/InterVariable.ttf\"\nfont \"Ranged\"\n  300 700 = \"assets/InterVariable.ttf\"\ncomponent App\n  view\n    text \"hello\" font-family=\"Inter\" font-weight=650 font-stretch=\"condensed\" testId=\"label\"\n",
+    );
+    let plan = app.compile().unwrap();
+    let weights: Vec<_> = plan
+        .faces
+        .iter()
+        .map(|f| (f.weight, f.weight_max))
+        .collect();
+    assert_eq!(weights, [(100, 900), (600, 600), (300, 700)]);
+    // Inter has no `wdth` axis: each face is normal width.
+    assert!(plan
+        .faces
+        .iter()
+        .all(|f| (f.stretch_min, f.stretch_max) == (1000, 1000)));
+
+    let runner = Runner::boot(
+        plan,
+        NoData,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    let kernel = runner.kernel();
+    let node = kernel
+        .node_by_key(kernel.find_by_test_id("label")[0])
+        .unwrap();
+    assert_eq!(node.style.font_weight, 650);
+    assert_eq!(node.style.font_stretch, 75.0);
+}
+
+/// LLP 1019 D9: `font-variation-settings` reaches the kernel's row as CSS
+/// writes it, and a value CSS refuses is refused at compile.
+#[test]
+fn font_variation_settings_reach_the_row_and_bad_ones_are_refused() {
+    let app = AppDir::new(
+        "font \"Inter\" = \"assets/InterVariable.ttf\"\ncomponent App\n  view\n    text \"hello\" font-family=\"Inter\" font-variation-settings=`\"wght\" 650, \"opsz\" 32` testId=\"label\"\n",
+    );
+    let plan = app.compile().unwrap();
+    let runner = Runner::boot(
+        plan,
+        NoData,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    let kernel = runner.kernel();
+    let node = kernel
+        .node_by_key(kernel.find_by_test_id("label")[0])
+        .unwrap();
+    let v = node.style.font_variation_settings;
+    assert_eq!((v.get(b"wght"), v.get(b"opsz")), (Some(650.0), Some(32.0)));
+    refusal(
+        "component App\n  view\n    text \"hello\" font-variation-settings=\"wght 650\"\n",
+        "lower-attr-value",
+    );
 }
 
 fn refusal(source: &str, id: &str) {
@@ -99,18 +183,32 @@ fn refusal(source: &str, id: &str) {
 
 #[test]
 fn family_identity_and_sources_fail_closed() {
+    // An empty family declares nothing (borders.rs); an empty member is refused.
     refusal(
-        "component App\n  view\n    text \"x\" font-family=\"Missing\"\n",
-        "lower-font-undeclared",
-    );
-    refusal(
-        "component App\n  view\n    text \"x\" font-family=\"serif, sans-serif\"\n",
+        "component App\n  view\n    text \"x\" font-family=\"serif,, sans-serif\"\n",
         "lower-font-family-list",
     );
-    refusal(
-        "component App\n  state family = \"serif\"\n  view\n    text \"x\" font-family=family\n",
-        "lower-font-family-literal",
-    );
+    // An unquoted member is a sequence of CSS identifiers, as the run-time
+    // check (exact_plan::is_css_family_name) and the browser read it.
+    for value in [
+        "Arial;",
+        "1Arial",
+        "Arial 2",
+        "Arial!",
+        "default",
+        "serif Foo",
+    ] {
+        refusal(
+            &format!("component App\n  view\n    text \"x\" font-family=\"{value}\"\n"),
+            "lower-font-family-list",
+        );
+    }
+    for value in ["Helvetica Neue", "'Arial 2'", "Foo default", "emoji Foo"] {
+        contract::compile(&format!(
+            "component App\n  view\n    text \"x\" font-family=\"{value}\"\n"
+        ))
+        .unwrap();
+    }
     refusal(
         "font \"Missing\" = \"assets/nope.ttf\"\ncomponent App\n  view\n    text \"x\"\n",
         "lower-font-unreadable",
@@ -126,6 +224,10 @@ fn family_identity_and_sources_fail_closed() {
     refusal(
         "font \"Root\" = \"DejaVuSans.ttf\"\ncomponent App\n  view\n    text \"x\"\n",
         "lower-font-path",
+    );
+    refusal(
+        "font \"Fixture Sans\" = \"assets/DejaVuSans.ttf\"\nfont \"fixture sans\" = \"assets/DejaVuSans.ttf\"\ncomponent App\n  view\n    text \"x\"\n",
+        "lower-font-duplicate",
     );
 }
 
@@ -210,28 +312,214 @@ fn a_choice_of_literal_families_resolves_each_arm_to_its_stack() {
 }
 
 #[test]
-fn a_family_choice_is_refused_unless_every_arm_is_a_known_literal() {
-    for (value, id) in [
-        // A runtime string: fonts resolve at compile time.
-        ("family", "lower-font-family-literal"),
-        ("(on ? family : \"serif\")", "lower-font-family-literal"),
-        ("`${family}`", "lower-font-family-literal"),
-        ("(on ? \"Missing\" : \"serif\")", "lower-font-undeclared"),
-        (
-            "(on ? \"serif, monospace\" : \"serif\")",
-            "lower-font-family-list",
-        ),
+fn a_state_string_can_name_an_installed_family_at_runtime() {
+    for source in [
+        "state family = \"Arial\"",
+        "resource family = selectedFont() as shape string",
     ] {
-        refusal(
-            &format!("component App\n  state on = false\n  state family = \"serif\"\n  view\n    text \"x\" font-family={value}\n"),
-            id,
-        );
+        let plan = contract::compile(&format!(
+            "component App\n  {source}\n  view\n    text \"The quick brown fox\" font-family=family testId=\"sample\"\n"
+        ))
+        .unwrap();
+        assert!(plan.nodes.iter().any(|node| node.bindings.iter().any(|id| {
+            let binding = plan.binding(id);
+            binding.kind == exact_plan::BindingKind::Style
+                && binding.id == exact_kernel::StyleId::FontFamily as u16
+        })));
     }
-    let app = AppDir::new(
-        "component App\n  state family = \"serif\"\n  view\n    text \"x\" font-family=family\n",
+}
+
+#[test]
+fn runner_interns_a_runtime_family_above_plan_stacks() {
+    let plan = contract::compile(
+        "component App\n  state family = \"Arial\"\n  action pick(name: string)\n    family = name\n  view\n    text \"Mmmm\" font-family=family testId=\"sample\"\n",
+    )
+    .unwrap();
+    let count = plan.stacks.len();
+    let mut runner = Runner::boot(
+        plan,
+        NoData,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    let family = |runner: &Runner<NoData>| {
+        let kernel = runner.kernel();
+        kernel
+            .node_by_key(kernel.find_by_test_id("sample")[0])
+            .unwrap()
+            .style
+            .font_family
+    };
+    assert_eq!(family(&runner) as usize, count);
+    assert_eq!(runner.runtime_font_stacks(), vec!["Arial".to_string()]);
+    let changed = runner
+        .act("pick", vec![Value::str("Menlo, ui-monospace")])
+        .unwrap();
+    assert!(changed.layout_invalidated);
+    assert_eq!(family(&runner) as usize, count + 1);
+    assert_eq!(
+        runner.runtime_font_stacks(),
+        ["Arial", "Menlo, ui-monospace"]
     );
-    let error = app.compile().unwrap_err();
-    assert!(error.message.contains("compile time"), "{error}");
+    runner.act("pick", vec![Value::str("Arial")]).unwrap();
+    assert_eq!(family(&runner) as usize, count);
+}
+
+#[test]
+fn invalid_runtime_family_values_leave_the_inherited_family() {
+    let plan = contract::compile(
+        "component App\n  state family = \"Menlo\"\n  action pick(name: string)\n    family = name\n  view\n    column font-family=\"serif\"\n      text \"child\" font-family=family testId=\"sample\"\n",
+    ).unwrap();
+    let mut runner = Runner::boot(
+        plan,
+        NoData,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    let family = |runner: &Runner<NoData>| {
+        let kernel = runner.kernel();
+        let node = kernel
+            .node_by_key(kernel.find_by_test_id("sample")[0])
+            .unwrap();
+        node.text_style().font_family
+    };
+    // Each is refused by the browser, or is a CSS-wide keyword that
+    // inherits: the parent's `serif` (stack 4).
+    for value in [
+        "inherit",
+        "unset",
+        "revert",
+        "revert-layer",
+        "serif,,monospace",
+        "Arial;",
+        "Arial, 1x",
+        "default",
+        "serif Foo",
+    ] {
+        runner.act("pick", vec![Value::str("Menlo")]).unwrap();
+        runner.act("pick", vec![Value::str(value)]).unwrap();
+        assert_eq!(family(&runner), 4, "{value}");
+    }
+    assert_eq!(runner.runtime_font_stacks(), ["Menlo"]);
+    // `initial` is the row's initial value, the kernel's family 0
+    // (`system-ui`), not the parent's.
+    runner.act("pick", vec![Value::str("initial")]).unwrap();
+    assert_eq!(family(&runner), 0);
+    assert_eq!(runner.runtime_font_stacks(), ["Menlo"]);
+}
+
+#[test]
+fn an_optional_runtime_family_uses_its_inner_string() {
+    let plan = contract::compile(
+        "component App\n  state family = some(\"Menlo\")\n  view\n    text \"Mmmm\" font-family=family testId=\"sample\"\n",
+    )
+    .unwrap();
+    let count = plan.stacks.len();
+    let runner = Runner::boot(
+        plan,
+        NoData,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    let kernel = runner.kernel();
+    let sample = kernel
+        .node_by_key(kernel.find_by_test_id("sample")[0])
+        .unwrap();
+    assert_eq!(sample.style.font_family as usize, count);
+}
+
+#[test]
+fn a_data_source_family_is_interned_even_when_its_name_is_absent_from_source() {
+    let plan = contract::compile(
+        "component App\n  resource family = selectedFont() as shape string\n  view\n    text \"Mmmm\" font-family=family testId=\"sample\"\n",
+    )
+    .unwrap();
+    let count = plan.stacks.len();
+    let runner = Runner::boot(
+        plan,
+        SelectedFont,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    let kernel = runner.kernel();
+    let sample = kernel
+        .node_by_key(kernel.find_by_test_id("sample")[0])
+        .unwrap();
+    assert_eq!(sample.style.font_family as usize, count);
+    assert_eq!(runner.runtime_font_stacks(), ["Menlo"]);
+}
+
+#[test]
+fn a_family_choice_validates_its_literal_arms() {
+    refusal(
+        "component App\n  state on = false\n  state family = \"serif\"\n  view\n    text \"x\" font-family=(on ? \"serif,, monospace\" : \"serif\")\n",
+        "lower-font-family-list",
+    );
+    // An empty arm declares nothing, as an empty colour does.
+    for value in [
+        "family",
+        "(on ? family : \"serif\")",
+        "`${family}`",
+        "(on ? \"\" : \"serif\")",
+    ] {
+        contract::compile(&format!(
+            "component App\n  state on = false\n  state family = \"serif\"\n  view\n    text \"x\" font-family={value}\n"
+        ))
+        .unwrap();
+    }
+}
+
+#[test]
+fn a_constant_family_template_uses_literal_stack_validation() {
+    let plan = contract::compile(
+        "component App\n  view\n    text \"x\" font-family=`Arial, ui-monospace`\n",
+    )
+    .unwrap();
+    assert!(plan.stacks.len() > 8);
+    refusal(
+        "component App\n  view\n    text \"x\" font-family=`serif,, monospace`\n",
+        "lower-font-family-list",
+    );
+    refusal(
+        "component App\n  view\n    text \"x\" font-family=`cursive`\n",
+        "lower-font-family-generic",
+    );
+    refusal(
+        &format!("{DECLARATION}component App\n  view\n    text \"x\" font-family=`Fixture Sans` font-style=\"italic\"\n"),
+        "lower-font-face",
+    );
+    refusal(
+        &format!("{DECLARATION}component App\n  state family = \"Arial\"\n  state on = false\n  view\n    text \"x\" font-family=(on ? `fixture sans` : family)\n"),
+        "lower-font-runtime-bundled",
+    );
+}
+
+#[test]
+fn a_runtime_number_is_not_a_family_list() {
+    refusal(
+        "component App\n  state family = 42\n  view\n    text \"x\" font-family=family\n",
+        "lower-attr-type",
+    );
+}
+
+#[test]
+fn a_runtime_string_does_not_substitute_an_installed_face_for_a_bundled_literal() {
+    refusal(
+        &format!("{DECLARATION}component App\n  state family = \"Arial\"\n  state on = false\n  view\n    text \"x\" font-family=(on ? \"Fixture Sans\" : family)\n"),
+        "lower-font-runtime-bundled",
+    );
+    refusal(
+        &format!("{DECLARATION}component App\n  state family = \"Arial\"\n  state on = false\n  view\n    text \"x\" font-family=(on ? \"fixture sans\" : family)\n"),
+        "lower-font-runtime-bundled",
+    );
 }
 
 #[test]
@@ -245,9 +533,52 @@ fn a_family_choice_keeps_the_declared_face_checks() {
         &format!("{DECLARATION}component App\n  state on = false\n  view\n    text \"x\" font-family=(on ? \"Fixture Sans\" : \"serif\") font-style=\"italic\"\n"),
         "lower-font-face",
     );
+    refusal(
+        &format!("{DECLARATION}component App\n  view\n    text \"x\" font-family=\"fixture sans\" font-style=\"italic\"\n"),
+        "lower-font-face",
+    );
     AppDir::new(&format!(
         "{DECLARATION}component App\n  state on = false\n  view\n    text \"x\" font-family=(on ? \"Fixture Sans\" : \"serif\") font-weight=700\n"
     ))
     .compile()
     .unwrap();
+}
+
+#[test]
+fn unsupported_css_generics_are_diagnosed_and_quoted_names_stay_local() {
+    for name in ["cursive", "fantasy", "math", "emoji", "fangsong"] {
+        let error = contract::compile(&format!(
+            "component App\n  view\n    text \"x\" font-family=\"{name}, sans-serif\"\n"
+        ))
+        .unwrap_err()
+        .to_string();
+        assert!(
+            error.contains("CSS generic family") && error.contains("no native mapping"),
+            "{error}"
+        );
+        contract::compile(&format!(
+            "component App\n  view\n    text \"x\" font-family=\"'{name}', sans-serif\"\n"
+        ))
+        .unwrap();
+    }
+}
+
+#[test]
+fn css_quoted_commas_do_not_alias_lists_and_family_matching_ignores_case() {
+    let plan = contract::compile("component App\n  view\n    column\n      text \"a\" font-family=\"'Comma, Family'\"\n      text \"b\" font-family=\"Comma, Family\"\n      text \"c\" font-family=\"Inter\"\n      text \"d\" font-family=\"inter\"\n").unwrap();
+    assert_eq!(
+        plan.families
+            .iter()
+            .filter(|f| plan.str(f.name) == "Inter")
+            .count(),
+        1
+    );
+    assert!(plan.stacks.iter().any(|s| s.members.len == 2
+        && s.members
+            .iter()
+            .all(|id| plan.stack_member(id).kind == exact_plan::StackMemberKind::Family)));
+    assert!(plan
+        .families
+        .iter()
+        .any(|f| plan.str(f.name) == "Comma, Family"));
 }

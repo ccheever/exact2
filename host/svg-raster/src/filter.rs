@@ -6,7 +6,7 @@
 //! `color-interpolation-filters` space when it is read, and the last result
 //! back to sRGB. Pixels outside a primitive's subregion are transparent.
 
-use exact_kernel::svg::filter::{CompositeOp, Filter, Input, Op, Primitive, Transfer};
+use exact_svg_filter::{CompositeOp, Filter, Input, Op, Primitive, Transfer};
 
 mod blend;
 mod light;
@@ -541,7 +541,7 @@ fn displace(img: &Img, map: &Img, kx: f32, ky: f32, xc: u8, yc: u8) -> Img {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use exact_kernel::svg::filter::{Light, Lighting};
+    use exact_svg_filter::{Light, Lighting};
 
     fn one(op: Op, linear: bool) -> Filter {
         Filter {

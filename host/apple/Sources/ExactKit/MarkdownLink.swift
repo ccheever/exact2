@@ -1,0 +1,138 @@
+// @ref LLP 1047.001 D4 — Markdown (LLP 1045) is a linked capability: its
+// implementation is the `ExactMarkdown` module, which an app's composition
+// links only when its plan has `markup="markdown"`, and installs here. The
+// core names no Markdown type; without the module, a plan that uses
+// Markdown is refused at boot (`Unlinked("markdown")`), so nothing below is
+// asked, and each forwarder answers as an app without Markdown would.
+#if canImport(UIKit)
+import UIKit
+#else
+import AppKit
+#endif
+
+/// What the core asks of the Markdown capability.
+package protocol MarkdownCapability: AnyObject {
+    /// `source` as display runs over `base` (the node's run); `color` its ink.
+    /// `boldText`: Bold Text weights `base` (LLP 1115.000 D12.3), so a
+    /// piece's own weight (bold) takes the same step.
+    func expand(_ source: String, base: Run, color: [Double]?, boldText: Bool) -> [Run]
+    /// A Markdown text area's styler.
+    func editor() -> MarkdownEditing
+    /// `source` without its Markdown syntax (Copy Plain Text).
+    func plain(_ source: String) -> String?
+    /// Apply a formatting command to `node`'s editor.
+    func format(_ node: NodeView, command: String, argument: String, selection: NSRange?) -> Bool
+    /// Ask for a link and apply it to `node`'s selection.
+    func editLink(_ node: NodeView)
+    /// Tell the app what the selection's Markdown is.
+    func publishSelection(_ node: NodeView, force: Bool)
+    /// Restyle `node`'s editor for its text and selection.
+    func restyle(_ node: NodeView)
+    /// The `formatElement` command (LLP 1045 D6).
+    func formatElement(_ presenter: Presenter, _ args: [Any])
+    #if os(iOS) || os(tvOS)
+    /// The edit menu's Markdown items for `textView`.
+    func menu(_ node: NodeView, _ textView: UITextView, range: NSRange, suggested: [UIMenuElement]) -> UIMenu?
+    #endif
+}
+
+/// A Markdown text area's styler, as the core's text areas see it.
+package protocol MarkdownEditing: AnyObject {
+    /// The editor is changing the text (an edit of its own).
+    var applying: Bool { get set }
+    /// The editor is changing attributes (a restyle).
+    var styling: Bool { get }
+    /// The selection to restore when focus returns.
+    var bookmark: NSRange? { get set }
+    /// The attributes plain typing takes.
+    var plainAttributes: [NSAttributedString.Key: Any] { get }
+    /// Remove every Markdown attribute.
+    func detach(_ storage: NSTextStorage)
+    /// Where a person's selection change from `old` to `new` lands beside a
+    /// hidden link destination (LLP 1045 D5).
+    func place(_ new: NSRange, from old: NSRange?, in storage: NSAttributedString) -> NSRange
+    /// The caret a native move or deletion should start from: the other
+    /// edge of a hidden run the caret sits at, on the side it moves to; nil
+    /// when it starts where it is.
+    func crossing(_ caret: Int, backward: Bool, in storage: NSAttributedString) -> Int?
+    /// A native replacement of `range` by `text` as the editor's rules make
+    /// it: hidden source stays, and only the visible parts change. `caret`
+    /// is the collapsed selection a deletion starts from, else nil. Nil when
+    /// the native edit is already that.
+    func rewrite(_ range: NSRange, with text: String, caret: Int?, in storage: NSAttributedString) -> MarkupRewrite?
+    /// The source a copy of `range` takes.
+    func copyRange(_ range: NSRange, in storage: NSAttributedString) -> NSRange
+}
+
+/// An edit the Markdown editor makes in place of a native one: replacements
+/// in ascending order, and the caret after them (nil: unchanged).
+package struct MarkupRewrite {
+    package var edits: [(range: NSRange, text: String)]
+    package var caret: Int?
+    package init(edits: [(range: NSRange, text: String)], caret: Int?) {
+        self.edits = edits
+        self.caret = caret
+    }
+}
+
+extension NSAttributedString.Key {
+    /// Source the Markdown editor keeps out of layout: a link's `](target)`
+    /// (LLP 1045 D5). TextKit draws it as nothing; the storage keeps it.
+    package static let markupHidden = NSAttributedString.Key("ExactMarkupHidden")
+    /// The `[` of a link whose destination is hidden: an edit around the
+    /// destination keeps it. Its value is the destination's.
+    package static let markupOpener = NSAttributedString.Key("ExactMarkupOpener")
+}
+
+extension NSAttributedString {
+    /// The text in `range` a person reads: without what the editor hides.
+    package func shownText(in range: NSRange) -> String {
+        let text = string as NSString
+        var out = ""
+        var at = range.location
+        enumerateAttribute(.markupHidden, in: range) { value, run, _ in
+            guard value != nil else { return }
+            out += text.substring(with: NSRange(location: at, length: run.location - at))
+            at = NSMaxRange(run)
+        }
+        return out + text.substring(with: NSRange(location: at, length: NSMaxRange(range) - at))
+    }
+    /// Whether any source in `range` is hidden.
+    package func hidesSource(in range: NSRange) -> Bool {
+        var found = false
+        enumerateAttribute(.markupHidden, in: range) { value, _, stop in
+            if value != nil { found = true; stop.pointee = true }
+        }
+        return found
+    }
+}
+
+/// The Markdown module, installed by the composition.
+package enum MarkdownLink {
+    package static var installed: MarkdownCapability?
+}
+
+extension NodeView {
+    @discardableResult func formatMarkup(_ command: String, argument: String = "", selection: NSRange? = nil) -> Bool {
+        MarkdownLink.installed?.format(self, command: command, argument: argument, selection: selection) ?? false
+    }
+    func editMarkupLink() { MarkdownLink.installed?.editLink(self) }
+    func publishMarkupSelection(force: Bool = false) { MarkdownLink.installed?.publishSelection(self, force: force) }
+    func restyleMarkup() {
+        MarkdownLink.installed?.restyle(self)
+        restyleDecorations()
+    }
+}
+
+#if os(iOS) || os(tvOS)
+extension NodeView {
+    /// The edit menu, with Markdown's items for a Markdown editor (UITextViewDelegate).
+    package func textView(_ textView: UITextView, editMenuForTextIn range: NSRange, suggestedActions: [UIMenuElement]) -> UIMenu? {
+        MarkdownLink.installed?.menu(self, textView, range: range, suggested: suggestedActions)
+    }
+}
+#endif
+
+extension Presenter {
+    func formatElement(_ args: [Any]) { MarkdownLink.installed?.formatElement(self, args) }
+}

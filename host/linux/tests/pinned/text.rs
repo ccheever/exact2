@@ -66,6 +66,65 @@ fn agent_layout_adds_fragment_fields_only_for_flowed_paragraphs() {
     }
 }
 
+/// CSS `text-box` (Inline Layout 3 §4) on Linux: a trimmed paragraph is cut
+/// to its font's cap height and baseline, its first baseline moving up by
+/// the top's cut, and a trim's own cache entry is never the untrimmed one's.
+#[test]
+fn text_box_trims_to_the_fonts_cap_height_and_baseline() {
+    use exact_kernel::{AxisOffer, StyleProps, TextBoxEdge, TextBoxTrim};
+    pin_font();
+    let mut engine = exact_linux::text::TextEngine::new();
+    let mut spec = exact_linux::paint::text_spec(&StyleProps::default(), "TTI");
+    let plain = engine.measure(&spec, AxisOffer::Definite(200.0));
+    spec.text_box_trim = TextBoxTrim::TrimBoth;
+    spec.text_box_edge = TextBoxEdge::CapAlphabetic;
+    let both = engine.measure(&spec, AxisOffer::Definite(200.0));
+    let (plain_base, both_base) = (plain.first_baseline.unwrap(), both.first_baseline.unwrap());
+    assert!(both.height < plain.height * 0.8, "{plain:?} → {both:?}");
+    assert!(
+        (both.height - both_base).abs() < 1e-3,
+        "the box ends at the baseline: {both:?}"
+    );
+    assert!(
+        both_base > 0.0 && both_base < plain_base,
+        "the cap height stays above it"
+    );
+    spec.text_box_trim = TextBoxTrim::TrimStart;
+    let start = engine.measure(&spec, AxisOffer::Definite(200.0));
+    assert!(
+        (start.height - (plain.height - (plain_base - both_base))).abs() < 1e-3,
+        "{start:?}"
+    );
+    spec.text_box_trim = TextBoxTrim::None;
+    assert_eq!(engine.measure(&spec, AxisOffer::Definite(200.0)), plain);
+}
+
+/// The root inline box's font sets the trim (Inline Layout 3 §4.2): text
+/// that is all a 10 pt span in a 20 pt paragraph is cut to the 20 pt cap
+/// height. DejaVu Sans's cap height is 1493 of its 2048 units.
+#[test]
+fn text_box_trims_to_the_root_inline_boxs_font() {
+    use exact_kernel::{AxisOffer, StyleProps, TextBoxEdge, TextBoxTrim};
+    pin_font();
+    let mut engine = exact_linux::text::TextEngine::new();
+    let mut spec = exact_linux::paint::text_spec(&StyleProps::default(), "TTI");
+    spec.text_box_trim = TextBoxTrim::TrimBoth;
+    spec.text_box_edge = TextBoxEdge::CapAlphabetic;
+    spec.strut.size = 20.0;
+    spec.strut.line_height = None;
+    for run in &mut spec.runs {
+        run.size = 10.0;
+        run.line_height = None;
+    }
+    let both = engine.measure(&spec, AxisOffer::Definite(200.0));
+    let cap = 20.0 * 1493.0 / 2048.0;
+    assert!(
+        (both.first_baseline.unwrap() - cap).abs() < 0.05,
+        "the 20 pt cap height, not the 10 pt span's: {both:?}"
+    );
+    assert!((both.height - cap).abs() < 0.05, "{both:?}");
+}
+
 #[test]
 fn emergency_wrapping_preserves_the_two_intrinsic_width_rules() {
     use exact_kernel::{AxisOffer, OverflowWrap, StyleProps};
@@ -203,24 +262,35 @@ fn declared_bytes_are_the_resolved_faces_and_the_painted_geometry() {
                     weight,
                     family: 8,
                     italic: false,
+                    stretch: 100.0,
+                    variations: Default::default(),
                     line_height: None,
                     letter_spacing: 0.0,
                     font_variant_numeric: 0,
+                    indent: 0.0,
+                    hang: false,
+                    mark: 0,
+                    href: String::new(),
+                    bold_text: false,
                 }],
                 align: TextAlign::Left,
                 line_clamp: 0,
                 overflow_wrap: exact_kernel::OverflowWrap::Normal,
                 white_space: exact_kernel::WhiteSpace::Normal,
+                text_wrap_style: exact_kernel::TextWrapStyle::Auto,
                 direction: exact_kernel::Direction::Ltr,
+                text_indent: 0.0,
+                text_box_trim: exact_kernel::TextBoxTrim::None,
+                text_box_edge: exact_kernel::TextBoxEdge::Auto,
             },
             None,
         );
-        let shaped = paragraph
+        let glyph = *paragraph
             .layout_runs()
             .flat_map(|run| run.glyphs.iter())
             .next()
-            .unwrap()
-            .font_id;
+            .unwrap();
+        let shaped = paragraph.lines().faces[glyph.face as usize].id();
         assert_eq!(
             shaped, expected,
             "the {weight} run shaped from its declared bytes"
@@ -411,4 +481,74 @@ fn a_drop_cap_flows_its_auto_height_paragraph_and_what_follows_moves() {
         );
     }
     assert!(heights[1] > heights[0], "{heights:?}");
+}
+
+/// LLP 1093 D8, D12: a paragraph a multi-column flow breaks is painted in
+/// each column, clipped to its fragment, with the rule between; a hit sees
+/// fragments, never the union's gap; `tap` aims inside the first fragment;
+/// `layout` prints the fragments and the columns.
+#[test]
+fn a_paragraph_across_columns_paints_hits_and_taps_its_fragments() {
+    pin_font();
+    let source = concat!(
+        "component App\n  view\n    view width=420 height=60 background-color=\"#ffffff\"\n",
+        "      view column-count=2 column-gap=20 height=40 column-fill=\"auto\" column-rule=\"4px solid #ff0000\" testId=\"flow\"\n",
+        "        text \"one\\ntwo\\nthree\" white-space=\"pre\" font-size=16 line-height=\"20px\" color=\"#000000\" testId=\"para\"\n",
+    );
+    let plan = contract::compile(source).unwrap();
+    let (mut p, error) = Presenter::boot_with(
+        &plan.encode(),
+        NoData,
+        (420.0, 60.0),
+        1.0,
+        PathBuf::new(),
+        PainterChoice::Cpu,
+    )
+    .unwrap();
+    assert!(error.is_none(), "{error:?}");
+    let kernel = p.host().kernel();
+    let id = |t: &str| kernel.node_by_key(kernel.find_by_test_id(t)[0]).unwrap().id;
+    let (para, flow) = (id("para"), id("flow"));
+    // `layout`: two fragments, two lines then one, and the columns.
+    let reply: serde_json::Value = serde_json::from_str(&p.layout_json(Some(para), false)).unwrap();
+    let frags = reply["node"]["column_fragments"]
+        .as_array()
+        .unwrap()
+        .clone();
+    assert_eq!(frags.len(), 2, "{reply}");
+    assert_eq!(
+        (frags[0]["x"].as_f64(), frags[1]["x"].as_f64()),
+        (Some(0.0), Some(220.0))
+    );
+    assert_eq!(frags[0]["lines"], serde_json::json!([0, 2]));
+    assert_eq!(frags[1]["lines"], serde_json::json!([2, 3]));
+    let reply: serde_json::Value = serde_json::from_str(&p.layout_json(Some(flow), false)).unwrap();
+    assert_eq!(
+        reply["node"]["columns"].as_array().unwrap().len(),
+        2,
+        "{reply}"
+    );
+    // Hits: inside each fragment the paragraph, in the gap and below the
+    // second fragment's one line its container.
+    assert_eq!(p.hit(10.0, 30.0), Some(para));
+    assert_eq!(p.hit(230.0, 10.0), Some(para));
+    assert_eq!(p.hit(210.0, 10.0), Some(flow));
+    assert_eq!(p.hit(230.0, 30.0), Some(flow));
+    assert!(p.tap(para).is_ok());
+    // Paint: ink for lines 1–2 in the first column and line 3 in the second,
+    // nothing below the second column's line, the rule centred in the gap.
+    let frame = p.frame();
+    let ink = |x0: u32, y0: u32, x1: u32, y1: u32| {
+        (y0..y1).any(|y| {
+            (x0..x1).any(|x| {
+                let c = frame.pixel(x, y).unwrap().demultiply();
+                c.red() < 128 && c.green() < 128 && c.blue() < 128
+            })
+        })
+    };
+    assert!(ink(0, 0, 200, 20) && ink(0, 20, 200, 40));
+    assert!(ink(220, 0, 420, 20));
+    assert!(!ink(220, 20, 420, 60) && !ink(0, 40, 200, 60));
+    let rule = frame.pixel(210, 20).unwrap().demultiply();
+    assert_eq!((rule.red(), rule.green(), rule.blue()), (255, 0, 0));
 }

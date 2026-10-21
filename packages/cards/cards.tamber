@@ -1,0 +1,85 @@
+// The design of @exact/cards (LLP 1139 D1): the tokens its components'
+// params default to. Spacing and corners are base names. A neutral colour
+// (a ground, a text, a separator) is the platform's role, so a card looks
+// native where no app sets it; the brand's are the package's own. An app
+// sets any of them by full name (the clone sets them all to its palette's
+// colours, and its spacing to its own lengths).
+tamber cards
+
+theme
+  // Colours.
+  cards.surface = -exact-background
+  cards.divider = -exact-separator
+  cards.line = -exact-separator
+  cards.line-thread = -exact-separator
+  cards.name = -exact-label
+  cards.meta = -exact-secondary-label
+  cards.badge = light-dark(#006aff, #0f73ff)
+  cards.badge-mark = #ffffff  scheme=fixed
+  cards.avatar-ground = -exact-secondary-background
+  cards.avatar-default = #0070ff  scheme=fixed
+  // A translucent ring over the picture: no role is one.
+  cards.avatar-ring = light-dark(#dce2ea99, #485b7599)
+  cards.link-ground = -exact-background
+  cards.link-frame = -exact-separator
+  cards.thumb-ground = -exact-secondary-background
+  cards.visit = #6338ff  scheme=fixed
+  cards.visit-ink = #ffffff  scheme=fixed
+  // The post card's spacing, on the base scale.
+  cards.pad-start: length = space.sm
+  cards.pad-start-thread: length = space.sm
+  cards.pad-end: length = space.md
+  cards.pad-end-thread: length = space.md
+  cards.pad-bottom: length = space.sm
+  cards.column-gap: length = space.sm
+  cards.lead: length = space.sm
+  cards.top: length = space.sm
+  cards.top-thread: length = space.md
+  cards.line-gap: length = space.xs
+  cards.context-gap: length = space.xs
+  cards.context-under: length = space.xs
+  cards.avatar-start: length = space.sm
+  cards.avatar-end: length = space.sm
+  cards.avatar-end-thread: length = space.md
+  cards.meta-gap: length = space.xs
+  cards.meta-under: length = space.xs
+  cards.nudge: length = space.xs
+  // The Attie card's.
+  cards.link-top: length = space.sm
+  cards.link-corner: length = radius.lg
+  cards.link-pad: length = space.md
+  cards.link-gap: length = space.xs
+  cards.link-row-gap: length = space.sm
+  cards.link-name-gap: length = space.xs
+  cards.visit-pad-block: length = space.sm
+  cards.visit-pad-inline: length = space.md
+  cards.visit-corner: length = radius.full
+  // The context line hangs left of the text column by this much.
+  cards.context-hang: length = -16px
+  cards.badge-hang: length = -2px
+  // The reply line's icon sits this much above its text's centre.
+  cards.reply-rise: length = -1px
+  // Sizes: the avatars, the thread line, the icons and the badge.
+  cards.avatar: length = 42px
+  cards.at-avatar: length = 32px
+  // A circle at any avatar size: oversized, so every host clamps it to a
+  // pill (radius.full would square the terminal's box, its 0 there).
+  cards.avatar-corner: length = 999px
+  cards.line-width: length = 2px
+  cards.context-icon: length = 13px
+  cards.reply-icon: length = 12px
+  cards.badge-size: length = 12px
+  cards.visit-icon: length = 20px
+  // Type: the name, handle and time; the context, reply and Attie lines;
+  // the link's title; the Attie card's name and handle.
+  cards.text-size: length = 0.9375rem
+  cards.text-line: length = 1.0625rem
+  cards.small-size: length = 0.81875rem
+  cards.small-line: length = 1.0625rem
+  cards.title-size: length = 1.05625rem
+  cards.title-line: length = 1.375rem
+  cards.at-name-line: length = 0.9375rem
+  cards.tiny-size: length = 0.70625rem
+  cards.tiny-line: length = 0.8125rem
+  // The divider, the link's frame and split, and the avatar's ring.
+  cards.hairline: length = -exact-hairline

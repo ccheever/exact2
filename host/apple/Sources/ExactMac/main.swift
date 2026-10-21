@@ -11,6 +11,8 @@ import AppKit
 import ExactKit
 import ExactComposition
 
+ProcessRelaunch.waitIfRequested()
+
 // The process's own start (exec), from the kernel: what happened before
 // `main` — dyld, the Swift runtime, the static library's initializers.
 func processStart() -> Double? {
@@ -45,6 +47,31 @@ ExactEnv.stamp("NSApplication.shared")
 // typing; its window is made key for a `type` when one comes (`AgentMac`).
 app.setActivationPolicy(agentMode ? .accessory : .regular)
 ExactEnv.stamp("setActivationPolicy")
+// EXACT_AGENT_ACTIVATE=1 (set only by scripts/measure-controls.mjs, never by
+// default): this one run is activated and its window made key, as AppKit
+// draws a control's accent only in a key window; the app in front before it
+// is put back when it quits (LLP 1121 stage 9 F2).
+let agentActivates = agentMode && ExactEnv.environment["EXACT_AGENT_ACTIVATE"] == "1"
+let frontBefore = agentActivates ? NSWorkspace.shared.frontmostApplication : nil
+/// The app in front before an activated agent run, in front again: at every
+/// exit (the agent's own `exit` at the end of its input, AppKit's quit, an
+/// interrupt), never launching or reopening one that has gone.
+func frontAgain() {
+    guard let front = frontBefore, !front.isTerminated, front.processIdentifier != ProcessInfo.processInfo.processIdentifier else { return }
+    // (Cooperative activation: this app, still in front, yields to it.)
+    if #available(macOS 14.0, *) { NSApp.yieldActivation(to: front) }
+    if !front.activate() { fputs("exact: could not put \(front.bundleIdentifier ?? "the app that was in front") back in front\n", stderr) }
+}
+nonisolated(unsafe) var interrupted: DispatchSourceSignal?
+if agentActivates {
+    atexit { frontAgain() }
+    // An interrupt (a terminal's ctrl-c reaches the whole group) quits through exit too, on the main queue (not in
+    // the signal handler, where AppKit's restore is not safe).
+    signal(SIGINT, SIG_IGN)
+    interrupted = DispatchSource.makeSignalSource(signal: SIGINT, queue: .main)
+    interrupted?.setEventHandler { exit(130) }
+    interrupted?.resume()
+}
 let appReadyMs = ExactEnv.wall()
 
 /// The one session and its view; the session's clock is the agent's under a script.
@@ -64,6 +91,13 @@ final class Adapter: ExactSessionDelegate {
             default: app.appearance = nil
             }
         case "openURL": open(args.first as? String ?? "", from: session)
+        // `window.close()` (studio diary R17): the window this session
+        // shows, without asking its `beforeunload` again.
+        case "close": windows.first { $0.session === session }?.close()
+        case "relaunch":
+            guard !delegate.relaunching, delegate.quitting?.holding != true else { return }
+            delegate.relaunching = true
+            ProcessRelaunch.requestQuit(holding: { delegate.quitting?.holding == true }) { app.terminate(nil) }
         default: FileHandle.standardError.write(Data("exact: unknown command \(name)\n".utf8))
         }
     }
@@ -78,11 +112,20 @@ final class Adapter: ExactSessionDelegate {
         guard !target.isEmpty else { return }
         // A link beside a document the person chose (LLP 1069.010 D1).
         if target.hasPrefix("doc:/") { ExactDocuments.deliver([target], to: session); return }
+        // The app's settings (LLP 1133.002 D11): macOS has no page per app, so
+        // Privacy & Security's Location Services, the one permission a module
+        // asks for today. Under the agent, journaled only.
+        if target == "app-settings:" {
+            let pane = "x-apple.systempreferences:com.apple.preference.security?Privacy_LocationServices"
+            session.log("openURL app-settings: opens \(pane)\(agentMode ? " (not under the agent)" : "")")
+            if !agentMode, let url = URL(string: pane) { NSWorkspace.shared.open(url) }
+            return
+        }
         let url = URL(string: target)
         let local = url?.isFileURL == true ? url!.standardizedFileURL.path
             : target.hasPrefix("/") ? URL(fileURLWithPath: target).standardizedFileURL.path : nil
         if let local, FileManager.default.fileExists(atPath: local) {
-            ExactDocuments.deliver([local], to: session)
+            ExactDocuments.deliver([local], to: session, keep: false)
             return
         }
         guard let url, ["http", "https", "mailto"].contains(url.scheme?.lowercased() ?? "") else {
@@ -103,7 +146,15 @@ func windowDimension(_ name: String, fallback: Double) -> CGFloat {
     let value = override ?? declared ?? fallback
     return CGFloat(value.isFinite && value > 0 && value <= 16384 ? value : fallback)
 }
-let size = NSSize(width: windowDimension("width", fallback: 420), height: windowDimension("height", fallback: 860))
+/// Undeclared, a Mac document window's size (LLP 1115 wave 1), not a
+/// phone's; a script keeps the phone-sized window its coordinates assume.
+let scripted = agentMode || smoke
+let size = NSSize(width: windowDimension("width", fallback: scripted ? 420 : 900),
+                  height: windowDimension("height", fallback: scripted ? 860 : 640))
+/// The smallest the window goes, undeclared: room for a phone-width column
+/// and a few rows, as a hand-built window has a minimum (never AppKit's 1×1).
+let minimumSize = NSSize(width: min(windowDimension("minWidth", fallback: 320), size.width),
+                         height: min(windowDimension("minHeight", fallback: 240), size.height))
 
 /// The process's physical footprint, what Activity Monitor calls its
 /// memory: what a second session costs is read as the difference.
@@ -139,7 +190,13 @@ final class DocumentWindow: NSObject, NSWindowDelegate {
     /// The document delivered here last; `nil` while the window shows the
     /// app's own start, which the next document takes rather than opening
     /// a window beside it.
-    var document: String?
+    var document: String? {
+        // The proxy icon in the title bar (LLP 1069.010 D6): the document's
+        // own file, for a path; a folder's shows the folder.
+        didSet { window.representedURL = document.flatMap { $0.hasPrefix("/") ? URL(fileURLWithPath: $0) : nil } }
+    }
+    /// The app asked to close (`close()`): its `beforeunload` is not asked again.
+    private(set) var closing = false
     /// When this window was asked for (ms on the process clock) and the
     /// process's footprint just before: a later session's time to first
     /// pixel and its memory are measured from these.
@@ -150,6 +207,9 @@ final class DocumentWindow: NSObject, NSWindowDelegate {
     init(label: String, first: Bool) {
         self.label = label
         session = exact.makeSession(delegate: adapter, label: label)
+        // Each document's window is its session's own; the process is several
+        // sessions', so none owns it (LLP 1075.003.000.001 §2.1.1).
+        session.hatchesOwnWindow = true
         if ExactEnv.agentFreezes { session.clock = 0 }
         if first, let url = launchURL {
             if ExactDevelopmentLink.claims(url) { launchDevelopmentURL = url }
@@ -159,8 +219,9 @@ final class DocumentWindow: NSObject, NSWindowDelegate {
         if first { ExactEnv.stamp("Presenter (NSScrollView)") }
         window = ExactWindow(contentRect: NSRect(origin: .zero, size: size), styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
         super.init()
-        // Present the reading surface at its final size as soon as it is ready.
-        window.animationBehavior = .none
+        // AppKit's own opening animation, and window tabs only where documents
+        // have windows of their own (LLP 1115.000 D7.9).
+        ExactDocuments.furnish(window)
         // Nothing restores this window — a session boots its plan and the frame has
         // its own autosave below — so AppKit's restoration has nothing to keep for it.
         // Left on, a scroll view invalidates restorable state as it scrolls and AppKit
@@ -173,18 +234,21 @@ final class DocumentWindow: NSObject, NSWindowDelegate {
         if first { ExactEnv.stamp("NSWindow") }
         // Until the app's `head` names it (LLP 1069.010 D6), the app's name.
         window.title = ExactEnv.appName
-        window.tabbingIdentifier = ExactEnv.appMetadata["CFBundleIdentifier"] as? String ?? ExactEnv.appName
-        if !agentMode && !smoke && !windowConfig.isEmpty {
-            let minimum = NSSize(width: windowDimension("minWidth", fallback: 1), height: windowDimension("minHeight", fallback: 1))
-            window.contentMinSize = minimum
-            window.setContentSize(NSSize(width: max(size.width, minimum.width), height: max(size.height, minimum.height)))
+        if !scripted {
+            window.contentMinSize = minimumSize
+            window.setContentSize(NSSize(width: max(size.width, minimumSize.width), height: max(size.height, minimumSize.height)))
         }
-        // Nothing is focused at launch — the web's rule (a page focuses no field on
-        // load). AppKit would otherwise make the first key view the first responder
-        // when the window becomes key, and a canvas holding an input would show a
-        // caret from its first frame (found by the readback fixture, LLP 1014).
+        // A new window puts the caret in its first key view (LLP 1115.000 D7.5),
+        // unless the author's `autofocus` says where. The session does it the turn
+        // after its first frame, when its launch autofocus runs, so no field editor
+        // stands before the first pixel (`ExactView.focusesFirstKeyView`). Until
+        // then nothing is focused, and a window whose first key view is in a canvas
+        // that takes input stays so: AppKit's own pick as the window came on screen
+        // gave such a canvas a caret in its first frame (found by the readback
+        // fixture, LLP 1014).
         window.initialFirstResponder = view
         window.autorecalculatesKeyViewLoop = false
+        view.focusesFirstKeyView = true
         window.delegate = self
         view.onViewportFit = { [weak self] in self?.coverChrome() }
         // Attaching the view can boot its embedded plan before this hook is installed.
@@ -199,6 +263,7 @@ final class DocumentWindow: NSObject, NSWindowDelegate {
     /// the insets are the view's (`ExactView.syncInsets`).
     func coverChrome() {
         let cover = view.viewportFit == "cover"
+        sidebar?.viewportFitChanged()
         if cover {
             if !window.styleMask.contains(.fullSizeContentView) { window.styleMask.insert(.fullSizeContentView) }
             window.titlebarAppearsTransparent = !view.hasWindowToolbar
@@ -206,12 +271,20 @@ final class DocumentWindow: NSObject, NSWindowDelegate {
             window.backgroundColor = session.pageBackground
             if #available(macOS 11.0, *) { window.titlebarSeparatorStyle = view.hasWindowToolbar ? .automatic : .none }
         } else {
-            if window.styleMask.contains(.fullSizeContentView) { window.styleMask.remove(.fullSizeContentView) }
+            // A sidebar runs the window's full height, under the title bar
+            // (LLP 1115.002 D3): the content is full size for it, and the
+            // page starts under the bar in its own pane.
+            if sidebar != nil, !window.styleMask.contains(.fullSizeContentView) { window.styleMask.insert(.fullSizeContentView) }
+            if sidebar == nil, window.styleMask.contains(.fullSizeContentView) { window.styleMask.remove(.fullSizeContentView) }
             window.titlebarAppearsTransparent = false
             window.titleVisibility = .visible
             if #available(macOS 11.0, *) { window.titlebarSeparatorStyle = .automatic }
         }
-        if view.hasWindowToolbar { window.toolbarStyle = .unifiedCompact }
+        // The bar a hand-built window has on this macOS, SwiftUI's own (LLP
+        // 1115.002 D2): `.unified`, about 52 points on macOS 27, which is what
+        // AppKit gives the style and not a number set here. A route's header
+        // is this bar, so it has room for a title beside its items.
+        if view.hasWindowToolbar { window.toolbarStyle = .unified }
         view.syncInsets()
     }
 
@@ -219,8 +292,64 @@ final class DocumentWindow: NSObject, NSWindowDelegate {
     /// first window's boot is `finishLaunching`'s), then the window's
     /// chrome follows the app's.
     func attach() {
-        window.contentView = view
+        view.onWindowSidebar = { [weak self] in self?.compose() }
+        compose()
+    }
+
+    /// The window's content while the app's root tab bar is its sidebar.
+    private var sidebar: ExactSidebarController?
+
+    /// The window's content: the view; or, for an app whose root tab bar is
+    /// the window's sidebar (LLP 1115.002 D3), a split view of that sidebar
+    /// and the view. Composed when the view is attached and again when the
+    /// app gains or loses such a tab bar. The window keeps its width and its
+    /// top edge, and the area under its bars its height, as when a toolbar
+    /// comes or goes. The page keeps the minimum width the window had, as
+    /// its pane's: with the sidebar's own that is the narrowest the window
+    /// goes. A script's window is the size asked for, so it has a minimum
+    /// only where the script names one.
+    private func compose() {
+        // A sidebar for the root tab bar, a pane for a list's detail (LLP
+        // 1115.002 D4), or both: one split view holds them.
+        let rail = view.wantsWindowSidebar, wanted = rail || view.wantsWindowSplit
+        if !wanted, sidebar == nil {
+            // Neither, before or now: the view is the window's content.
+            guard window.contentView !== view else { return }
+            window.contentView = view
+            view.attachWindowToolbar(to: window)
+            return
+        }
+        // The same columns as before: nothing to compose.
+        if let sidebar, wanted, sidebar.hasSidebar == rail { return }
+        let was = window.frame, under = window.contentLayoutRect.height
+        if let old = sidebar {
+            old.release()
+            sidebar = nil
+            window.contentViewController = nil
+        }
+        if wanted {
+            // Out of the window's content before the split view takes it.
+            if window.contentView === view || window.contentView == nil { window.contentView = NSView() }
+            let minimum = scripted && ExactEnv.environment["EXACT_WINDOW_MINWIDTH"] == nil ? 0 : minimumSize.width
+            // A window that shows a list beside its detail is as wide as its
+            // columns need, a script's too: Q6's "always, with a minimum
+            // window width" has no narrower form to fall back to, and a
+            // detail squeezed to what a 420-point window leaves shows nothing.
+            let split = ExactSidebarController(view: view, autosaveName: sidebarName, minimumPageWidth: minimum, sidebar: rail,
+                                               minimumDetailWidth: windowDimension("minWidth", fallback: 320))
+            sidebar = split
+            // Full-size content, then the split view: the order AppKit
+            // places a source list's first row by.
+            split.install(in: window)
+        } else {
+            window.contentView = view
+        }
+        coverChrome()
         view.attachWindowToolbar(to: window)
+        coverChrome()
+        guard !window.styleMask.contains(.fullScreen) else { return }
+        let height = window.frame.height + under - window.contentLayoutRect.height
+        window.setFrame(NSRect(x: was.minX, y: was.maxY - height, width: was.width, height: height), display: false)
     }
 
     /// Hand documents to this window's session.
@@ -234,17 +363,24 @@ final class DocumentWindow: NSObject, NSWindowDelegate {
     /// In front — never activated under a script (LLP 1012), so a running
     /// smoke never takes the focus from whoever is typing.
     func front() {
-        if agentMode { window.orderFrontRegardless() } else {
+        if agentMode && !agentActivates { window.orderFrontRegardless() } else {
             window.makeKeyAndOrderFront(nil)
             app.activate(ignoringOtherApps: true)
         }
+    }
+
+    /// The app's `close()`: the window goes, unasked.
+    func close() {
+        closing = true
+        window.close()
     }
 
     /// What the agent's `state` says of this window (LLP 1069.010).
     var observed: [String: Any] {
         var row: [String: Any] = [
             "session": label, "title": window.title, "document": document ?? NSNull(),
-            "key": window.isKeyWindow, "tabs": window.tabbedWindows?.count ?? 1,
+            "edited": window.isDocumentEdited, "representedURL": window.representedURL?.path ?? NSNull(),
+            "key": window.isKeyWindow, "visible": window.isVisible, "tabs":window.tabbedWindows?.count ?? 1,
             "footprintBefore": footprintBefore,
         ]
         // The first window's is from the process's start (what `metrics`
@@ -253,8 +389,16 @@ final class DocumentWindow: NSObject, NSWindowDelegate {
         return row
     }
 
+    /// The red button, File ▸ Close Window and ⌘W ask the app first
+    /// (`beforeunload`, studio diary R17); a window it keeps stays. The one
+    /// window of an app that keeps running is hidden instead (LLP 1069.010 D8).
+    func windowShouldClose(_ sender: NSWindow) -> Bool {
+        if !closing, ExactDocuments.hidesOnClose(window, only: windows.count == 1) { return false }
+        return closing || session.beforeUnload()
+    }
+
     func windowDidBecomeKey(_ notification: Notification) {
-        DevMenu.session = session
+        DevMenu.select(session: session)
         if !stamped, label == "main" { stamped = true; ExactEnv.stamp("windowDidBecomeKey") }
         agentReady()
     }
@@ -266,29 +410,55 @@ final class DocumentWindow: NSObject, NSWindowDelegate {
     /// its views, its label on the carrier.
     func windowWillClose(_ notification: Notification) {
         Agent.route(label, nil)
+        PageFacts.closed(window)
         // After AppKit has finished closing the window this holds.
         DispatchQueue.main.async { [self] in
             windows.removeAll { $0 === self }
-            if DevMenu.session === session { DevMenu.session = windows.last?.session }
+            if DevMenu.session === session {
+                if let next = windows.last { DevMenu.select(session: next.session) }
+                else { DevMenu.session = nil }
+            }
+            // A window closed while the quit is held, or the last window of
+            // an app that quits with it: the session stays for the quit, which
+            // asks its module for its quit work, waits for it and destroys the
+            // session after the hold (`applicationWillTerminate`).
+            if delegate.quitting?.holding == true
+                || windows.isEmpty && delegate.applicationShouldTerminateAfterLastWindowClosed(app) {
+                closedForQuit.append(self)
+                return
+            }
             session.destroy()
         }
     }
 }
 
+// EXACT_PLAN naming a local bake with its module (LLP 1116.003) is the launch
+// generation: the first boot runs it fresh, as a build that baked it would.
+let launchRefusal = ExactEnv.environment["EXACT_PLAN"].flatMap { path in
+    ExactDevelopmentPlan(path).hasModule ? ExactDevelopmentPlan(path).installInitial(on: exact) : nil
+}
 let firstWindow = DocumentWindow(label: "main", first: true)
 /// Every open window, oldest first.
 var windows = [firstWindow]
+/// Windows closed whose sessions wait for the quit (`windowWillClose`).
+var closedForQuit: [DocumentWindow] = []
 var windowCount = 1
 let session = firstWindow.session
 let view = firstWindow.view
 let window = firstWindow.window
 window.center()
-if !agentMode && !smoke && !windowConfig.isEmpty,
-   let identity = ExactEnv.appMetadata["CFBundleIdentifier"] as? String {
-    let frameName = identity + ".main"
-    window.setFrameUsingName(frameName)
-    window.setFrameAutosaveName(frameName)
-}
+/// The frame the window was left at (its autosave). AppKit keeps the content
+/// rect when `.fullSizeContentView` or a toolbar goes in, so a frame restored
+/// only before the window's chrome lost the titlebar's height at every launch
+/// (#113). It is restored before boot, so the plan boots near its size, and
+/// again once the window has its final style (`finishLaunching`), which is
+/// when the name goes on: setting it saves the current frame. Every app's
+/// is kept, declared size or not, as AppKit apps keep theirs (LLP 1115 D8).
+let frameName = scripted ? nil : (ExactEnv.appMetadata["CFBundleIdentifier"] as? String).map { $0 + ".main" }
+/// Where a sidebar's width, and whether the person hid it, are kept (LLP
+/// 1115.002 D3): AppKit's autosave, as the frame's is, and not a script's.
+let sidebarName = scripted ? nil : (ExactEnv.appMetadata["CFBundleIdentifier"] as? String).map { $0 + ".sidebar" }
+if let frameName { window.setFrameUsingName(frameName) }
 // Agent-driven apps run side by side (every session's smoke launches one):
 // centred, each would cover the last and starve its Metal layer of drawables.
 // Spread them by pid so no window is fully hidden.
@@ -360,6 +530,11 @@ func route(_ paths: [String]) {
     }
 }
 ExactDocuments.route = { route($0) }
+// A document chosen in the app's own picker is the window's, as a routed
+// one is: its proxy icon, and the next document goes to a window of its own.
+ExactDocuments.shown = { session, url in
+    windows.first { $0.session === session }?.document = url.standardizedFileURL.path
+}
 Agent.hostState = {
     ["documents": [
         "launchMode": ExactDocuments.launchMode,
@@ -367,11 +542,77 @@ Agent.hostState = {
         "recent": ExactDocuments.recent,
         "openRecentMenu": DevMenu.openRecentTitles,
         "footprint": footprint(),
-    ] as [String: Any]]
+    ] as [String: Any], "menus": DevMenu.menuBar]
 }
 
 final class Delegate: NSObject, NSApplicationDelegate {
-    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
+    func applicationWillFinishLaunching(_ notification: Notification) {
+        exact.installNotificationClicks { session in windows.first { $0.session === session }?.front() }
+    }
+    /// A one-window app quits with its window; one whose documents each
+    /// get a window (`navigate-new`, LLP 1069.010 D4) stays, as a Mac
+    /// document app does, for File ▸ New Window, Open and the Dock (LLP 1115 D8).
+    /// AppKit asks this when its last window is ordered out, so it is asked
+    /// too when an app that keeps running hides its window (LLP 1069.010 D8), and that
+    /// app ends only after its own `close()`.
+    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
+        ExactDocuments.endsWithoutWindows(hiding: windows.contains { !$0.closing })
+    }
+    /// The Dock icon clicked, or the app opened again, with no window
+    /// showing: the window an app that keeps running hid comes back as it
+    /// was (LLP 1069.010 D8); a `navigate-new` app opens a new one.
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        if !flag, ExactDocuments.keepsRunning(),
+           let hidden = windows.first(where: { !$0.window.isVisible && !$0.window.isMiniaturized }) {
+            hidden.front()
+            return false
+        }
+        guard !flag, windows.isEmpty, ExactDocuments.launchMode == "navigate-new" else { return true }
+        openWindow()
+        return false
+    }
+    /// ⌘Q asks each window's app first (`beforeunload`, studio diary R17):
+    /// the first that keeps itself open comes forward with whatever it asks
+    /// and the quit stops there; once answered, its `close()` closes it, and
+    /// the last window closing ends the app. Nothing is held while the app
+    /// asks (LLP 1069.010 D7). Once the quit is decided, each native module
+    /// starts its quit work (`ExactModule.willQuit`), and the quit is held
+    /// while that work runs or storage an answer started is still landing:
+    /// one hold, five seconds at most for all of it (LLP 1097 D10, LLP
+    /// 1069.010 Q4). AppKit's modal loop keeps the main thread running.
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        // A repeated quit joins the existing hold: it neither asks the app
+        // again, nor the modules, nor starts a fresh five-second deadline.
+        if quitting?.holding == true { return .terminateLater }
+        for w in windows where !w.closing && !w.session.beforeUnload() {
+            relaunching = false
+            w.front()
+            return .terminateCancel
+        }
+        // The open windows' sessions, and the last window's if its closing started the quit.
+        let sessions = (windows + closedForQuit).map(\.session)
+        for session in sessions { session.willQuit() }
+        let hold = StorageHold(bound: 5, pending: { sessions.contains { $0.storageOperations > 0 || $0.quitWorkPending } },
+                               begin: { _ in }, end: { NSApp.reply(toApplicationShouldTerminate: true) })
+        guard hold.hold() else { return .terminateNow }
+        quitting = hold
+        return .terminateLater
+    }
+    var quitting: StorageHold?
+    var relaunching = false
+    /// The quit is decided, however it came (⌘Q, the app menu, an Apple
+    /// Event, SIGTERM, the last window closing): every session still live goes now,
+    /// synchronously, so each native module's `destroy()` runs before the
+    /// process ends ("destroyed with the session", LLP 1067.000 D3). The
+    /// last window's session, closed, is left for this (`windowWillClose`);
+    /// `destroy()` runs once in any case. The hold, if any, has ended.
+    func applicationWillTerminate(_ notification: Notification) {
+        for session in exact.sessions { session.destroy() }
+        if relaunching {
+            do { try ProcessRelaunch.start() }
+            catch { fputs("exact: relaunch failed: \(error)\n", stderr) }
+        }
+    }
     func applicationDidFinishLaunching(_ notification: Notification) {
         ExactEnv.stamp("didFinishLaunching")
         finishLaunching()
@@ -382,18 +623,19 @@ final class Delegate: NSObject, NSApplicationDelegate {
     /// why the app comes forward; one that opens nothing leaves the window
     /// where it was.
     func application(_ application: NSApplication, open urls: [URL]) {
-        if let url = urls.first, ExactDevelopmentLink.claims(url) {
-            if !session.booted { launchDevelopmentURL = url; return }
-            ExactDevelopmentLink.open(url)
-            frontWindow()?.front()
-            return
-        }
-        // @ref LLP 1038 D8 — Launch Services delivers cold URLs before didFinishLaunching.
-        if let url = urls.first(where: { !$0.isFileURL }) {
-            if session.openURL(url) { frontWindow()?.front() }
-            return
-        }
-        let documents = ExactDocuments.paths(of: urls)
+        var files: [URL] = []
+        // @ref LLP 1038 D8 — Launch Services may batch cold or warm links.
+        IncomingURLBatch.deliver(urls, development: { url in
+            guard ExactDevelopmentLink.claims(url) else { return false }
+            if !session.booted { launchDevelopmentURL = url }
+            else { ExactDevelopmentLink.open(url); frontWindow()?.front() }
+            return true
+        }, webPage: session.isWebPageFile, document: { files.append($0) }, location: { url in
+            // The first window's session may have closed with its window.
+            let target = frontWindow() ?? openWindow()
+            if target.session.openURL(url) { target.front() }
+        })
+        let documents = ExactDocuments.paths(of: files)
         if !session.booted { launchDocuments += documents; return }
         route(documents)
     }
@@ -409,6 +651,24 @@ final class Delegate: NSObject, NSApplicationDelegate {
 
 let delegate = Delegate()
 app.delegate = delegate
+
+// A supervisor's SIGTERM follows the same cancellable quit as the menu
+// (#269). The signal handler does no AppKit work; the retained source runs
+// on the main queue. A caught signal, unlike SIG_IGN, resets to the default
+// when an executed helper starts, so the helper can still be terminated.
+signal(SIGTERM) { _ in }
+let quitSignal = DispatchSource.makeSignalSource(signal: SIGTERM, queue: .main)
+quitSignal.setEventHandler {
+    // terminateLater spins AppKit's modal loop. Leave the dispatch callback
+    // first, so the main queue can deliver storage completions in that loop.
+    RunLoop.main.perform(inModes: [.common]) {
+        // AppKit may force a repeated terminate without asking the delegate.
+        // The first request already owns the quit hold and its deadline.
+        if delegate.quitting?.holding == true { return }
+        app.terminate(nil)
+    }
+}
+quitSignal.resume()
 
 var planWatch: DispatchSourceTimer?
 var devPlanPath: String?
@@ -453,15 +713,14 @@ func finishLaunching() {
         let presented = session.viewportSize
         let size = presented.width > 0 && presented.height > 0 ? presented : window.contentLayoutRect.size
         let path = ExactEnv.environment["EXACT_PLAN"] ?? devPlanPath
-        if let path, ExactDevelopmentPlan(path).hasModule, ExactEnv.environment["EXACT_PLAN"] != nil {
-            DispatchQueue.main.async { ExactDevelopmentPlan(path).apply(to: exact) }
-        }
         if let path, !ExactDevelopmentPlan(path).hasModule, let bytes = FileManager.default.contents(atPath: path) {
             planRefusal = session.boot(plan: bytes, size: size).error
             return planRefusal
         }
-        if session.booted { return session.bootError }
-        return session.boot(size: size).error
+        // A plan with its module boots here as the launch generation; a refused one, the embedded plan.
+        planRefusal = launchRefusal
+        let error = session.booted ? session.bootError : session.boot(size: size).error
+        return planRefusal ?? error
     }()
     // Boot the selected plan before attachment can auto-boot the embedded one.
     // A session mounts once, including its one autofocus attempt.
@@ -470,6 +729,13 @@ func finishLaunching() {
     let rustMs = session.rustMs
     let applyMs = session.applyMs
     let bootMs = session.bootMs
+    // Its final style, then the frame it was left at — before a document
+    // routed below can bring the window forward.
+    firstWindow.coverChrome()
+    if let frameName {
+        window.setFrameUsingName(frameName)
+        window.setFrameAutosaveName(frameName)
+    }
     // Becoming key can synchronously announce readiness. Initialize the guard
     // before ordering the window, not afterward (two stdin readers otherwise).
     if !launchDocuments.isEmpty {
@@ -482,8 +748,16 @@ func finishLaunching() {
     // the same from here down — and a script's (`agent.mjs --open`), whose
     // driver names the whole command line. Not under the boot smoke, which
     // measures the app's own start. @ref LLP 1033 D3
+    // An HTML file named here reaches a browser's template, as one Launch
+    // Services brings does (`isWebPageFile`).
     if !smoke {
-        route(ExactDocuments.paths(in: CommandLine.arguments))
+        var files: [URL] = []
+        IncomingURLBatch.deliver(ExactDocuments.paths(in: CommandLine.arguments).map { URL(fileURLWithPath: $0) }, development: { _ in false },
+                                 webPage: session.isWebPageFile, document: { files.append($0) }, location: { url in
+            let target = frontWindow() ?? openWindow()
+            if target.session.openURL(url) { target.front() }
+        })
+        route(ExactDocuments.paths(of: files))
     }
     firstWindow.coverChrome()
     window.makeKeyAndOrderFront(nil)
@@ -494,7 +768,7 @@ func finishLaunching() {
     ExactEnv.stamp("makeKeyAndOrderFront")
     // Under a script: in front regardless, so the window is seen (a covered
     // window's canvases render nothing, LLP 1009 D4) — but never activated.
-    if agentMode { window.orderFrontRegardless() } else { app.activate(ignoringOtherApps: true) }
+    if agentMode && !agentActivates { window.orderFrontRegardless() } else { app.activate(ignoringOtherApps: true) }
     ExactEnv.stamp("activate")
 
     /// Agent mode: the driver owns the process from here — one JSON line in,

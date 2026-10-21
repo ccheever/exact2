@@ -12,19 +12,22 @@ impl<D: DataSource> Presenter<D> {
         choice: PainterChoice,
         region: crate::content_region::ContentRegionRegistration,
     ) -> Result<(Self, Option<String>), HostError> {
-        Self::boot_with_assets(
-            plan,
+        let (mut presenter, error) = Self::boot_with_assets(
+            crate::host::PlanBytes::Copied(plan),
             data,
             viewport,
             scale,
             Assets::embedded(assets),
-            choice,
+            PainterBoot::selected(choice),
             None,
             "/",
             Some(region),
-        )
+        )?;
+        presenter.measure(); // LLP 1079 D1
+        Ok((presenter, error))
     }
     /// Region completion readiness. No timer or input event is needed to resume.
+    #[cfg(unix)]
     pub fn content_region_fd(&self) -> Option<std::os::unix::io::RawFd> {
         self.host.content_region_fd()
     }
@@ -43,11 +46,31 @@ impl<D: DataSource> Presenter<D> {
         }
     }
     /// Paint a frame and publish its immutable pixels, hits and native source together.
+    /// Text-cache eviction waits for the paint's end
+    /// ([`crate::text::cache::deferring_eviction`]): a paint that misses walks
+    /// the cache once, not once per paragraph.
     pub fn frame(&mut self) -> Arc<Pixmap> {
+        // Its session's roles, whatever else lives on the thread (LLP 1121 stage 5).
+        let _roles = self.host.runner().bind_roles();
+        crate::text::cache::deferring_eviction(|| self.paint_frame())
+    }
+    fn paint_frame(&mut self) -> Arc<Pixmap> {
+        self.alert_sync();
         self.brush.placements = self.surfaces.placements(&self.host);
         self.host
             .sync_canvases(self.brush.scale as f64, true, &self.assets);
-        self.brush.canvases = self.host.canvas_snapshots();
+        let previous = std::mem::replace(&mut self.brush.canvases, self.host.canvas_snapshots());
+        self.brush.canvases.extend(self.surfaces.pixels(
+            &mut self.host,
+            self.brush.scale,
+            previous,
+            self.brush.window_canvas,
+        ));
+        // The hatches' overlays as published (LLP 1075.003.000.001 §2.2.1):
+        // read here, at the start of the paint; the walk calls no hatch.
+        self.brush.overlays = (self.hatches.overlays.iter())
+            .map(|(id, shown)| (*id, shown.pixels.clone()))
+            .collect();
         // The display carrier stages the paint's owners/boxes and publishes
         // them only on the matching flip. Headless/agent frames stay immediate.
         let deferred = self.display.submitting();
@@ -57,6 +80,13 @@ impl<D: DataSource> Presenter<D> {
         if let Some(error) = self.refine_collections() {
             self.host.log(error);
         }
+        self.refresh_looks(None); // the focus's ring (LLP 1121 D8)
+        self.restore_scroll_anchors();
+        self.arm_scroll_anchors();
+        let dirty = self.host.take_row_dirty();
+        self.brush.numerals.now = self.host.now();
+        self.brush.numerals.still = self.host.runner().viewport().preferences.reduced_motion;
+        self.brush.rows_dirty(self.host.kernel(), dirty);
         let roots = self.host.roots();
         let collection_limits = if self.host.content_region().is_some() {
             self.collection_scroll_limits()
@@ -74,6 +104,7 @@ impl<D: DataSource> Presenter<D> {
         );
         let model_scroll = deferred.then(|| self.collection_paint_scroll()).flatten();
         let menu = self.menu_paint();
+        let selection = self.focus.map(|id| self.field_selection(id));
         let host = &self.host;
         let presented = |id: ViewId| host.presented(id);
         let scene = Scene {
@@ -81,12 +112,20 @@ impl<D: DataSource> Presenter<D> {
             hidden: &|id| host.route_visibility(id).0,
             roots: &roots,
             presented: &presented,
+            paths: &|id| host.presented_path(id),
             scroll: model_scroll.as_ref().unwrap_or(&self.scroll),
-            page: self.page,
+            page: if deferred {
+                self.model_page()
+            } else {
+                self.page
+            },
             images: &self.images.bitmaps,
             focus: self.focus,
+            selection,
+            caret_upstream: self.focus.is_some_and(|id| self.field_cursor(id).upstream),
             pointer: self.pointer,
             controls: &self.controls,
+            chosen: &self.chosen,
             menu,
         };
         let region = host.content_region();
@@ -182,6 +221,11 @@ impl<D: DataSource> Presenter<D> {
             self.host.log(note);
         }
         self.boxes = boxes;
+        self.boxes_serial += 1;
+        if self.last_frame_succeeded {
+            self.ranges.shown.set(self.ranges.session());
+        }
+        self.publish_ranges();
         if self.last_frame_succeeded {
             self.host.flow_damage.clear();
         }

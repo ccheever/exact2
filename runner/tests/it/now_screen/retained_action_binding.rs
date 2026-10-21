@@ -79,8 +79,8 @@ fn fixture(field: u16, context: ActionContext) -> Runner<Schedule> {
     let mut key = Asm::new();
     key.load_item(0).field(0);
     let key = b.code(key);
-    let (region, arms) = b.region(RegionKind::Each, Some(root), None, 0, subject, key, 1);
-    b.set_slot_owner(local, region);
+    let (_, arms) = b.region(RegionKind::Each, Some(root), None, 0, subject, key, 1);
+    b.set_slot_owner(local, arms[0]);
     let mut argument = Asm::new();
     argument.load_item(0).field(field);
     let argument = b.code(argument);

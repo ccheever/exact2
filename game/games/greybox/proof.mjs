@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 import { readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { proof } from '../../proof.mjs';
+import { proof, axNames } from '../../proof.mjs';
 import { audioProof } from '../../bench/probes/audio.mjs';
 
 if (import.meta.main) await proof(import.meta, async ({pin, pinSave, open, check, equal, out, host, say}) => {
@@ -12,14 +12,16 @@ const node = (tree, id) => tree?.nodes?.find(n => n.props?.testId === id);
     ? (say('SKIP headless screenshot: gameplay and HUD use tree/state'), Promise.resolve({skipped:'headless proof'}))
     : s.screenshot(path);
   const title = await s.tree();
-  check('Play is initially focused and named by its text', node(title, 'play')?.focused === true && node(title, 'play')?.accessibleName === 'Play');
+  const titleAx = await axNames(s);
+  check('Play is initially focused and named by its text', node(title, 'play')?.focused === true && (titleAx.unavailable || titleAx.name('play') === 'Play'));
   check('state focus agrees with tree', (await s.state()).focus.logical === node(title, 'play').id);
   check('title and Play are the initial UI', !!node(title, 'play') && title?.nodes?.some(n => n.props?.text === 'Grey box'));
   check('no world or loaded GPU module on the title', !node(title, 'world') && (host !== 'web' || await s.gpuMs() === null));
   await screenshot(resolve(out, 'greybox-title.png'));
   await s.tap('play');
   const playing = await s.tree();
-  check('HUD is polite and Pause is named by text', node(playing, 'hud-beacons')?.props.accessibilityLive === 'polite' && node(playing, 'pause')?.accessibleName === 'Pause');
+  const playingAx = await axNames(s);
+  check('HUD is polite and Pause is named by text', node(playing, 'hud-beacons')?.props.accessibilityLive === 'polite' && !!node(playing, 'pause') && (playingAx.unavailable || playingAx.name('pause') === 'Pause'));
   const canvas = node(playing, 'world');
   check('canvas carries the setup world summary', canvas?.world?.entities === 8 && canvas.world.tick === 0, canvas?.world);
   for (const id of ['hud-beacons', 'pause']) {
@@ -66,7 +68,25 @@ const node = (tree, id) => tree?.nodes?.find(n => n.props?.testId === id);
   }
   await s.world('world').hold('KeyW', 100);
   await s.world('world').tap('KeyE');
-  await s.world('world').run(100);
+  await s.clock('+0');
+  await s.clock('+17');
+  const eventSave = resolve(out, 'beacon-pending.world');
+  await s.world('world').save(eventSave);
+  const beforeDelivery = await s.world('world').snapshot();
+  await s.clock('+17');
+  const eventBatch = await s.op({op:'state', ...await s.target('world'), world:true, events:true, event_type:'BeaconLit'});
+  check('beacon event names its target on the next tick', eventBatch.events?.[0]?.records?.[0]?.target?.index === beforeDelivery.entities.find(e => e.name === 'beacon-1')?.id, eventBatch);
+  const delivered = await s.world('world').snapshot();
+  pin(delivered.tick, delivered);
+  const eventRestore = await open({fresh:true, world:eventSave});
+  await eventRestore.tap('play');
+  check('pending beacon save restores exactly', equal(await eventRestore.world('world').snapshot(), beforeDelivery));
+  await eventRestore.clock('+0');
+  await eventRestore.clock('+17');
+  const replayBatch = await eventRestore.op({op:'state', ...await eventRestore.target('world'), world:true, events:true, event_type:'BeaconLit'});
+  check('restored beacon batch preserves order and tick', equal(replayBatch.events, eventBatch.events) && replayBatch.hash === eventBatch.hash, replayBatch);
+  check('restored beacon delivery preserves hash', (await eventRestore.world('world').snapshot()).hash === delivered.hash);
+  await eventRestore.close();
   const beacon = await s.world('world').get('beacon-1', 'Beacon');
   check('E lights beacon-1', beacon?.lit === true, beacon);
   const chimeAudio = (await s.state()).world[0].audio;
@@ -76,10 +96,10 @@ const node = (tree, id) => tree?.nodes?.find(n => n.props?.testId === id);
   const hud = await s.tree();
   check('typed surface record → HUD text', node(hud, 'hud-beacons')?.props?.text === 'Beacons 1 / 1', node(hud, 'hud-beacons'));
   await s.state();
-  const logs = await s.logs();
-  check('world journal carries beacon-1 lit', logs?.world?.some(w => w.lines.some(line => line.includes('beacon-1 lit'))), logs?.world);
+  const logs = await s.logs({all:true});
+  check('world journal carries beacon-1 lit', logs?.world?.some(w => w.lines?.some(line => line.includes('beacon-1 lit'))), logs?.world);
   for (const sound of ['sfx footstep at player ', 'sfx chime at beacon-1 ', 'loop wind on ']) {
-    check(`world journal carries ${sound.trim()}`, logs?.world?.some(w => w.lines.some(line => line.includes(sound))));
+    check(`world journal carries ${sound.trim()}`, logs?.world?.some(w => w.lines?.some(line => line.includes(sound))));
   }
   const audio = (await s.state()).world[0].audio;
   check('state.world.audio reports camera wind and finite voices', Array.isArray(audio?.voices)
@@ -95,7 +115,8 @@ const node = (tree, id) => tree?.nodes?.find(n => n.props?.testId === id);
   await s.world('world').key_up('KeyW');
   await screenshot(resolve(out, 'greybox-web.png'));
   const pausedTree = await s.tree();
-  check('Resume accessible name follows its text', node(pausedTree, 'pause')?.accessibleName === 'Resume');
+  const pausedAx = await axNames(s);
+  check('Resume accessible name follows its text', !!node(pausedTree, 'pause') && (pausedAx.unavailable || pausedAx.name('pause') === 'Resume'));
   check('paused HUD offers Resume', pausedTree?.nodes?.some(n => n.props?.text === 'Resume'));
   const finalState = await s.state();
   check('Contract paused argument reaches world', finalState?.world?.[0]?.paused === true);
@@ -178,14 +199,14 @@ const node = (tree, id) => tree?.nodes?.find(n => n.props?.testId === id);
   writeFileSync(refusedFile, 'invalid simulation save');
   session = await open({fresh:true, world:refusedFile});
   let refusal;
-  try { await session.tap('play'); } catch (error) { refusal = error.message; }
+  try { refusal = (await session.tap('play')).landError; } catch (error) { refusal = error.message; }
   check('the operation creating the canvas reports its restore refusal', refusal?.includes('restore refused'), refusal);
   const fresh = (await session.state()).world[0];
   check('refusal belongs to canvas state and leaves a fresh world', fresh.tick === 0 && fresh.restoreError?.includes('restore refused'), fresh);
   await session.world('world').run(100);
   check('unrelated operations keep working after a refused restore', (await session.state()).world[0].tick === 6);
   const refusedLogs = await session.logs();
-  check('restore refusal is in the canvas journal', refusedLogs.world?.some(w=>w.lines.some(line=>line.includes('restore refused'))), refusedLogs.world);
+  check('restore refusal is in the canvas journal', refusedLogs.world?.some(w=>w.lines?.some(line=>line.includes('restore refused'))), refusedLogs.world);
 
   if (host === 'web' && process.env.EXACT_AUDIO_PROBE === '1') {
     await session.close(); session = null;

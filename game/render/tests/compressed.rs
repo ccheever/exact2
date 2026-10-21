@@ -59,7 +59,10 @@ fn baked() -> BTreeMap<String, Vec<u8>> {
         .iter()
         .map(|(name, t)| (name.clone(), bin::to_vec(t)))
         .collect();
-    data.insert("crate.model".into(), bin::to_vec(&model));
+    data.insert(
+        "crate.model".into(),
+        exact_game::asset::encode_model(&model),
+    );
     data
 }
 
@@ -68,7 +71,7 @@ fn draw(
     data: &BTreeMap<String, Vec<u8>>,
     features: wgpu::Features,
 ) -> (fixture::Pixels, String, Vec<String>) {
-    let mut s = WorldSurface::<Crate, exact_game_render::ModelPresentation, true>::default();
+    let mut s = WorldSurface::<Crate, exact_game_render::ModelExecutor, true>::default();
     s.device_ready(features);
     s.bind(&[], None).unwrap();
     let mut fetched = Vec::new();
@@ -88,6 +91,7 @@ fn draw(
         period_ms: 1000. / 60.,
         children_generation: 0,
         shader_generation: 0,
+        headroom: 1.0,
     };
     let (image, _) = fixture::render(gpu, &mut s, &frame).unwrap();
     assert!(s.take_error().is_none());

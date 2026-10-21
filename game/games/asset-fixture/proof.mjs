@@ -1,14 +1,14 @@
 #!/usr/bin/env bun
 import {checkSteadyResidency} from '../../render/tests/residency.mjs';
-import { proof } from '../../proof.mjs';
+import { proof, proofSDK } from '../../proof.mjs';
 import { decodePng } from '../../../scripts/png.mjs';
-import {residencyProbe, checkResidency, checkTextureFamily} from '../../render/tests/residency.mjs';
+import {residencyProbe, checkResidency, checkTextureFamily, bakedTexture} from '../../render/tests/residency.mjs';
 import { readFileSync, mkdirSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
 if (import.meta.main) await proof(import.meta, async ({pin, pinSave, open,check,equal,out,say,host}) => {
   const web = host === 'web';
-  const residency = residencyProbe('crate.model','crate/0-srgb-straight.tex','extra.model');
+  const residency = residencyProbe('crate.model',() => bakedTexture(import.meta.dir),'extra.model');
   let gate, server, fail = false, lossDone;
   let textureRequests = 0;
   const next = () => {
@@ -30,7 +30,8 @@ if (import.meta.main) await proof(import.meta, async ({pin, pinSave, open,check,
     // The web build minifies host modules (af5dfdf4); the probes below name
     // gpu-glue's own functions and anchor on its text, so they instrument the
     // source these files were built from.
-    const hostSource = name => Bun.file(resolve(import.meta.dir, '../../../host/web', name)).text();
+    // The SDK's host sources, not the snapshot's: a proof runs from a copy of the game.
+    const hostSource = name => Bun.file(resolve(proofSDK, 'host/web', name)).text();
     if(path === '/gpu-assets.js') {
       // The delivery gate follows the asset module; the renderer probe stays
       // in gpu-glue. Neither probe changes the shipped source.
@@ -51,15 +52,12 @@ if (import.meta.main) await proof(import.meta, async ({pin, pinSave, open,check,
       // Observe the actual surface before delivery, below the agent's mandatory
       // settlement barrier. This probe exists only in this proof's HTTP response.
       const source = `let fixtureDevice; const fixtureErrors=[];
-      let fixtureFailAdapter = false, fixtureAdapterFailures = 0;
+      let fixtureFailDevice = false, fixtureDeviceFailures = 0;
       let fixtureLoseReplacement = false, replacementLosses = 0, lossDuringSecondRecovery = false;
-      const fixtureAdapter = navigator.gpu.requestAdapter.bind(navigator.gpu);
-      navigator.gpu.requestAdapter = async (...args) => {
-        if (fixtureFailAdapter) { fixtureFailAdapter = false; fixtureAdapterFailures++; return null; }
-        return fixtureAdapter(...args);
-      };
       const fixtureRequest = GPUAdapter.prototype.requestDevice;
       GPUAdapter.prototype.requestDevice = async function(...args) {
+        // A missing adapter is terminal; device creation failures retain bounded retries.
+        if (fixtureFailDevice) { fixtureFailDevice = false; fixtureDeviceFailures++; throw new Error('fixture device creation failed once'); }
         fixtureDevice = await fixtureRequest.apply(this, args); fixtureDevice.addEventListener('uncapturederror',e=>fixtureErrors.push(e.error.message));
         if (fixtureLoseReplacement) { fixtureLoseReplacement=false; replacementLosses++; lossDuringSecondRecovery=!!recoveringDevice; fixtureDevice.destroy(); await fixtureDevice.lost; }
         return fixtureDevice;
@@ -71,13 +69,13 @@ if (import.meta.main) await proof(import.meta, async ({pin, pinSave, open,check,
           await recoverDevice();
           const healthyNoCutover = exact.gpu.recovery?.status === 'healthy' && [...surfaces.values()].every((e,i)=>e.el===originalCanvases[i]);
           if (!healthyNoCutover) throw new Error('healthy recovery replaced a canvas');
-          fixtureFailAdapter = true;
+          fixtureFailDevice = true;
           fixtureDevice.destroy(); await fixtureDevice.lost;
           await new Promise(resolve=>setTimeout(resolve, 0));
-          for(const entry of surfaces.values()) render(entry, 0);
+          for(const entry of surfaces.values()) render(entry, clockFor(0));
           await recoveringDevice;
           for(let retry=0; exact.gpu.recovery?.status !== 'recovered' && retry<200; retry++) await new Promise(r=>setTimeout(r,10));
-          if(exact.gpu.recovery?.status !== 'recovered' || fixtureAdapterFailures !== 1) throw new Error('fail-once recovery did not retry successfully');
+          if(exact.gpu.recovery?.status !== 'recovered' || fixtureDeviceFailures !== 1) throw new Error('fail-once recovery did not retry successfully');
           await settled();
           fixtureLoseReplacement = true;
           fixtureDevice.destroy(); await fixtureDevice.lost;
@@ -85,7 +83,7 @@ if (import.meta.main) await proof(import.meta, async ({pin, pinSave, open,check,
           for(let retry=0; (replacementLosses!==1 || exact.gpu.recovery?.status!=='recovered') && retry<200; retry++) await new Promise(r=>setTimeout(r,10));
           if(replacementLosses!==1 || !lossDuringSecondRecovery || exact.gpu.recovery?.status!=='recovered') throw new Error('loss during second recovery did not retry');
           await settled();
-          for(const entry of surfaces.values()) render(entry, 0);
+          for(const entry of surfaces.values()) render(entry, clockFor(0));
           await fixtureDevice.queue.onSubmittedWorkDone();
           await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
           const entry = [...surfaces.values()][0];
@@ -167,14 +165,14 @@ if (import.meta.main) await proof(import.meta, async ({pin, pinSave, open,check,
     check('declared model supplies layout bounds',!!layout.entity?.bounds,layout);
     await restored.screenshot(resolve(out,`crate-${host}.png`));
     if(host==='macos' || host==='ios') say('SKIP physical Metal removal: this integrated device cannot be removed; native recovery ABI and replacement-device pixels run in the GPU tests.');
-    say(`model bytes: ${readFileSync(resolve(import.meta.dir,'assets/crate.model')).length}; texture bytes: ${readFileSync(resolve(import.meta.dir,'assets/crate/0-srgb-straight.tex')).length}`);
+    say(`model bytes: ${readFileSync(resolve(import.meta.dir,'assets/crate.model')).length}; texture bytes: ${readFileSync(resolve(import.meta.dir,'assets',bakedTexture(import.meta.dir))).length}`);
     if(host==='ios') say('SKIP browser transport gates and residency reload probe: simulator uses bundled files; asset readiness, failure, restore, GPU counters and pins still run.');
     if(host==='linux') say('Headless host: simulation restore/pins verified; GPU residency requires the web/device proof.');
     await restored.close();
     {
       const invalid = resolve(out, 'invalid.world'); writeFileSync(invalid, 'invalid deferred save');
       const g = next(), refused = await open({...options, world:invalid});
-      const opening = refused.tap('play').then(()=>null, error=>String(error));
+      const opening = refused.tap('play').then(reply=>reply.landError ?? reply.error ?? null, error=>String(error));
       if (web) {
         const [observation] = await Promise.race([Promise.all([g.probe,g.request]), opening.then(error=>{throw new Error(`restore completed before the asset delivery gate: ${error}`);})]);
         check('invalid carrier waits for declared content before validation', observation.world?.restored===false && observation.world?.loading.includes('crate.model'));
@@ -186,8 +184,8 @@ if (import.meta.main) await proof(import.meta, async ({pin, pinSave, open,check,
       check('late restore refusal stays on the fresh surface', state.restored===false && state.restoreError?.includes('restore refused'), state.restoreError);
       await refused.world('world').run(100);
       check('fresh world runs after deferred refusal', (await refused.state()).world[0].tick===6);
-      const lines = (await refused.logs()).world?.flatMap(w=>w.lines) ?? [];
-      const again = (await refused.logs()).world?.flatMap(w=>w.lines) ?? [];
+      const lines = (await refused.logs()).world?.flatMap(w=>Array.isArray(w.lines) ? w.lines : []) ?? [];
+      const again = (await refused.logs()).world?.flatMap(w=>Array.isArray(w.lines) ? w.lines : []) ?? [];
       check('late restore refusal is journalled exactly once', lines.filter(l=>l.includes('restore refused')).length===1 && !again.some(l=>l.includes('restore refused')));
       await refused.close();
     }

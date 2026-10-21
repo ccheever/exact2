@@ -2,6 +2,7 @@
 import AppKit
 import XCTest
 @testable import ExactKit
+@testable import ExactSurfaces
 
 /// LLP 1072 §8.5: canvas draws run in a turn of their own on the owner, not in
 /// the turns main waits on. A list of 2D canvas rows is scrolled down and
@@ -11,6 +12,7 @@ import XCTest
 /// asynchronous path on, so the Thread Sanitizer (`swift test
 /// --sanitize=thread`) sees the owner drawing while main applies.
 final class OwnerCanvasMacTests: XCTestCase {
+    override class func setUp() { super.setUp(); ExactSurfaces.install() } // LLP 1047.001 D4
     private var window: NSWindow?
     override func tearDown() { window?.close(); window = nil; ExactSession.asyncFills = false }
 
@@ -30,14 +32,14 @@ final class OwnerCanvasMacTests: XCTestCase {
           distance: number
         component App
           resource location = defaultLocation() as shape Location
-          resource allStations = stations(location) as shape list<Station>
+          resource allStations = stations(location) as shape Station[]
           view
             column width="100%" height="100%"
               list virtualized=true estimated-item-height=90 flex=1 min-height=0 width="100%" testId="feed"
-                each s in allStations key=s.id
+                for s in allStations key=s.id
                   column width="100%" padding=8
                     text `${s.name}, zone ${s.zone}`
-                    canvas surface=map(allStations, s.id, allStations, s.zone) width="100%" height=60 testId="map"
+                    canvas surface=allStations.map(s.id, allStations, s.zone) width="100%" height=60 testId="map"
 
         """
         try source.write(to: dir.appendingPathComponent("app.contract"), atomically: true, encoding: .utf8)
@@ -71,7 +73,7 @@ final class OwnerCanvasMacTests: XCTestCase {
         func spin(_ seconds: Double) { RunLoop.main.run(until: Date().addingTimeInterval(seconds)) }
         func canvases() -> [NodeView] { session.presenter.views.values.filter { $0.kind == "canvas2d" } }
         let deadline = Date().addingTimeInterval(5)
-        while canvases().count < 2, Date() < deadline { spin(0.02) }
+        while canvases().count < 2, Date() < deadline { RunLoop.main.run(mode: .default, before: Date().addingTimeInterval(0.02)) }
         let list = try XCTUnwrap(session.presenter.views.values.first { $0.kind == "list" })
         let clip = try XCTUnwrap(list.scroll?.contentView)
         let extent = (list.scroll?.documentView?.frame.height ?? 0) - clip.bounds.height

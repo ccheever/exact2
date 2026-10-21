@@ -15,15 +15,15 @@ fn a_tinted_raster_is_its_alpha_masking_the_tint() {
     let plan = contract::compile(
         r##"component App
   state wide = false
-  action toggle writes wide
+  action toggle
     wide = not wide
   view
     column
       button "Toggle" press=toggle testId="toggle"
-      image "assets/mark.png" testId="mark" width=80 height=40 object-fit=(wide ? "cover" : "contain") tint-color="light-dark(#000000, #ffffff)"
-      image "assets/mark.png" testId="down" object-fit="scale-down" tint-color="#ff0000" transition="tint-color 200ms linear"
+      image "assets/mark.png" testId="mark" width=80 height=40 object-fit=(wide ? "cover" : "contain") -exact-tint-color="light-dark(#000000, #ffffff)"
+      image "assets/mark.png" testId="down" object-fit="scale-down" -exact-tint-color="#ff0000" transition="-exact-tint-color 200ms linear"
       image "assets/mark.png" testId="plain" object-fit="cover"
-      image "symbol:search" testId="symbol" tint-color="#ff0000"
+      image "symbol:search" testId="symbol" -exact-tint-color="#ff0000"
 "##,
     )
     .unwrap();
@@ -120,5 +120,139 @@ fn untinted_rasters_with_box_paint_stay_bare_in_batches_and_documents() {
             assert!(!css.split(';').any(|d| d.starts_with("height:")), "{image}");
             assert!(image.contains("alt=\"Mark\""), "{image}");
         }
+    }
+}
+
+/// LLP 1116.001 D2: `AccentColor` (and `LinkText`) is the nearest authored
+/// `accent-color`, as UIKit's inherited tint: the page reads the
+/// `--exact-accent` the accent writes, else the browser's own accent. A link
+/// is the accent with none authored too (LLP 1115.000 D3.5): one blue for
+/// links, where the browser's own `LinkText` was a second.
+#[test]
+fn the_accent_colour_role_is_the_nearest_accent_color() {
+    let plan = contract::compile(
+        r##"component App
+  view
+    column testId="root" accent-color="-exact-system-teal"
+      view testId="fill" height=8 accent-color="AccentColor" background-color="AccentColor"
+      text "Link" testId="ink" color="LinkText"
+      text "Plain" testId="plain" color="CanvasText"
+"##,
+    )
+    .unwrap();
+    let (host, first) = Host::boot(
+        &plan.encode(),
+        caltrain_data::Caltrain,
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    let create = |test_id: &str| {
+        let id = view_with_test_id(&host, test_id);
+        let at = first.find(&format!("\"id\":{id},")).unwrap();
+        first[at..].split("\"op\":").next().unwrap().to_string()
+    };
+    let root = create("root");
+    assert!(
+        root.contains("--exact-accent:var(--exact-system-teal,"),
+        "{root}"
+    );
+    let fill = create("fill");
+    assert!(
+        fill.contains("accent-color:var(--exact-accent, AccentColor);")
+            && !fill.contains("--exact-accent:"),
+        "the accent role must inherit without a custom-property cycle: {fill}"
+    );
+    assert!(
+        fill.contains("background-color:var(--exact-accent, AccentColor);"),
+        "{fill}"
+    );
+    let ink = create("ink");
+    assert!(
+        ink.contains("color:var(--exact-linktext, var(--exact-accent, AccentColor));"),
+        "{ink}"
+    );
+    let plain = create("plain");
+    assert!(plain.contains("color:CanvasText;"), "{plain}");
+}
+
+/// LLP 1121 stage 9 B (D10): a symbol nobody tinted whose `color` its
+/// author wrote, on it or on the nearest ancestor that sets one, is marked
+/// (`data-symbol-color`) for the glue to draw it in that colour, in a live
+/// batch, a server document and a document written with no kernel alike.
+#[test]
+fn a_symbol_under_a_written_colour_is_marked_to_draw_in_it() {
+    let plan = contract::compile(
+        r##"component App
+  state ink = "not a colour"
+  action noop
+  view
+    column
+      column color="#ff0000"
+        image "symbol:star" testId="under"
+        image "symbol:star" testId="tinted" -exact-tint-color="#00ff00"
+        image "assets/mark.png" testId="photo"
+        column color="AccentColor"
+          image "symbol:star" testId="accent"
+      column
+        image "symbol:star" testId="bare"
+        image "symbol:star" testId="own" color="-exact-secondary-label"
+      column color="#ff0000"
+        column color="inherit"
+          image "symbol:star" testId="cleared"
+        column color=ink
+          image "symbol:star" testId="refused"
+        dialog role="alertdialog" aria-label="Alert"
+          image "symbol:star" testId="alerted"
+          button testId="ok" appearance="none" press=noop
+            image "symbol:star" testId="in-button"
+            text "OK"
+"##,
+    )
+    .unwrap();
+    let (mut host, first) = Host::boot(
+        &plan.encode(),
+        caltrain_data::Caltrain,
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    let doc = host.document().unwrap().root;
+    let tree = host.runner_mut().document_tree().unwrap();
+    let (detached, _) =
+        exact_web::document::project_tree(&tree, host.runner(), Default::default()).unwrap();
+    assert_eq!(detached.root, doc, "the kernel-free document agrees");
+    for (name, marked) in [
+        ("under", true),
+        ("tinted", true),
+        ("photo", false),
+        ("accent", true),
+        ("bare", false),
+        ("own", true),
+        // An authored clear is written, in a kernel-free document too.
+        ("cleared", true),
+        // A bound value its row refuses is unset, its declaration written.
+        ("refused", true),
+        // The neutral alert's starts set its colour and its message's
+        // (`says` stops there), as the document without a kernel does.
+        ("alerted", false),
+        ("in-button", false),
+    ] {
+        let id = view_with_test_id(&host, name);
+        let at = first.find(&format!("\"id\":{id},\"tag\":\"img\"")).unwrap();
+        let create = first[at..].split("\"op\":").next().unwrap();
+        assert_eq!(
+            create.contains("data-symbol-color"),
+            marked,
+            "{name}: {create}"
+        );
+        let at = doc.find(&format!(" data-view=\"{id}\"")).unwrap();
+        let start = doc[..at].rfind('<').unwrap();
+        let end = at + doc[at..].find('>').unwrap();
+        assert_eq!(
+            doc[start..end].contains("data-symbol-color"),
+            marked,
+            "{name}"
+        );
     }
 }

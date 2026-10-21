@@ -15,5 +15,6 @@ crate-type = ["rlib"]
 
 [dependencies]
 contract-syntax = { path = "../syntax" }
+exact-num = { path = "../../num" }
 exact-plan = { path = "../../plan" }
 exact-route = { path = "../../route" }

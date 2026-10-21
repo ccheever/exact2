@@ -28,6 +28,47 @@ fn document(src: &str) -> String {
     host(src, Says(""), "/").document().unwrap().root
 }
 
+#[test]
+fn app_file_frames_prerender_without_a_false_blank_source() {
+    let doc = document("component App\n  view\n    iframe src=\"app:/data/doc.pdf\"\n");
+    assert!(doc.contains("data-app-src=\"app:/data/doc.pdf\""), "{doc}");
+    assert!(!doc.contains("about:blank"), "{doc}");
+}
+
+#[test]
+fn raw_symbols_prerender_as_nonfetching_decorative_images() {
+    let doc = document(
+        r#"component App
+  view
+    row font-size=28
+      image "symbol:sf/airpodsmax" testId="raw"
+      image "symbol:sf/" width=40 testId="empty"
+      image "symbol:" width=40 testId="none"
+"#,
+    );
+    assert!(
+        doc.contains("data-symbol-source=\"symbol:sf/airpodsmax\""),
+        "{doc}"
+    );
+    assert!(doc.contains("data-symbol-source=\"symbol:sf/\""), "{doc}");
+    // An empty name, as an empty `sf/` one (stage 9 H).
+    assert!(doc.contains("data-symbol-source=\"symbol:\""), "{doc}");
+    assert_eq!(doc.matches("src=\"data:image/svg+xml,").count(), 3, "{doc}");
+    assert!(!doc.contains("src=\"symbol:"), "{doc}");
+    assert_eq!(doc.matches("width='28' height='28'").count(), 3, "{doc}");
+    assert_eq!(doc.matches("data-symbol-path=\"\"").count(), 3, "{doc}");
+    assert_eq!(doc.matches("alt=\"\"").count(), 3, "{doc}");
+}
+
+/// A role's natural size is the neutral look's `symbol-scale` ems, as the
+/// live renderer gives it, so the page does not move when it paints.
+#[test]
+fn a_role_prerenders_at_the_size_it_paints() {
+    let doc =
+        document("component App\n  view\n    row font-size=20\n      image \"symbol:circle\"\n");
+    assert!(doc.contains("width='24' height='24'"), "{doc}");
+}
+
 fn caltrain() -> (Host<caltrain_data::Caltrain>, String) {
     let plan = caltrain::build().unwrap();
     exact_web::link(exact_web_capabilities::ALL);
@@ -162,11 +203,61 @@ component App
 }
 
 #[test]
+fn a_data_frame_shows_only_in_an_opaque_sandbox() {
+    // `frameURL`'s rule (LLP 1020 §10): a `data:` document's origin is
+    // opaque in a sandbox without `allow-same-origin`; nowhere else does
+    // the page show one. The browser folds the sandbox's case and the
+    // scheme's, and strips what surrounds the URL.
+    let src = r#"
+component App
+  resource said = say() as shape string
+  view
+    column
+      iframe src="data:text/html,hi" sandbox="allow-scripts" testId="shown"
+      iframe src="data:text/html,hi" sandbox="" testId="empty"
+      iframe src=said sandbox="Allow-Scripts" testId="bound"
+      iframe src="data:text/html,hi" testId="bare"
+      iframe src="data:text/html,hi" sandbox="allow-scripts ALLOW-SAME-ORIGIN" testId="same"
+      iframe src="javascript:alert(1)" sandbox="allow-scripts" testId="script"
+      link href="data:text/html,hi" testId="link" width=10 height=10
+"#;
+    let doc = host(src, Says(" DA\tTA:text/html,hi"), "/")
+        .document()
+        .unwrap()
+        .root;
+    let tag = |test_id: &str| {
+        let at = doc.find(&format!("data-testid=\"{test_id}\"")).unwrap();
+        let start = doc[..at].rfind('<').unwrap();
+        doc[start..at + doc[at..].find('>').unwrap()].to_owned()
+    };
+    for shown in ["shown", "empty"] {
+        assert!(
+            tag(shown).contains(" src=\"data:text/html,hi\""),
+            "{}",
+            tag(shown)
+        );
+    }
+    assert!(
+        tag("bound").contains(" src=\" DA\tTA:text/html,hi\""),
+        "{}",
+        tag("bound")
+    );
+    for refused in ["bare", "same", "script"] {
+        assert!(
+            tag(refused).contains(" src=\"about:blank\""),
+            "{}",
+            tag(refused)
+        );
+    }
+    assert!(!tag("link").contains("href"), "{}", tag("link"));
+}
+
+#[test]
 fn properties_become_the_attributes_and_text_the_glue_gives_them() {
     let src = r#"
 component App
   state n = 0
-  action bump writes n
+  action bump
     n = n + 1
   view
     column inert=true
@@ -175,6 +266,9 @@ component App
       textarea value="\nfirst" testId="area" width=10
       view focus=bump testId="focusable" width=10 height=10
       button focus=bump testId="button" width=10 height=10
+      box tabindex=0 testId="plain-stop" width=10 height=10
+      view focus=bump tabindex=-1 testId="out-of-order" width=10 height=10
+      box testId="no-stop" width=10 height=10
       scroll scrollTop=40 testId="scroller" height=10
       canvas width=10 height=10 testId="canvas"
 "#;
@@ -196,6 +290,19 @@ component App
     assert!(doc[area..].contains(">\n\nfirst</textarea>"));
     assert!(tag("focusable").contains(" tabindex=\"0\""));
     assert!(!tag("button").contains("tabindex"));
+    // LLP 1088 D7.3: an authored `tabindex` is the attribute itself, it wins
+    // over the synthesized one, and absent is never `0`.
+    assert!(
+        tag("plain-stop").contains(" tabindex=\"0\""),
+        "{}",
+        tag("plain-stop")
+    );
+    let out = tag("out-of-order");
+    assert!(
+        out.contains(" tabindex=\"-1\"") && !out.contains("tabindex=\"0\""),
+        "{out}"
+    );
+    assert!(!tag("no-stop").contains("tabindex"), "{}", tag("no-stop"));
     // Scroll offsets are the browser's, never attributes.
     assert!(!tag("scroller").to_lowercase().contains("scrolltop"));
     let canvas = tag("canvas");
@@ -223,6 +330,21 @@ component App
     assert!(doc.contains("<span>unsafe</span>"), "{doc}");
     assert!(!doc.contains("javascript"), "{doc}");
     assert!(doc.contains("<br>"), "{doc}");
+    // A list item is a block padded by its indent, its marker hung in the
+    // gutter, as `renderMarkup` builds it (LLP 1045 D4).
+    let list = document(
+        "component App\n  view\n    text \"Top\\n\\n- one\\n  - two\" markup=\"markdown\"\n",
+    );
+    let marker =
+        "display:inline-flex;justify-content:flex-end;width:40px;white-space:pre;text-indent:0;";
+    assert!(
+        list.contains(&format!("<span style=\"display:block;padding-left:40px;text-indent:-40px;\"><span style=\"opacity:0.62;{marker}\">• </span><span>one</span><span><br></span></span>")),
+        "{list}"
+    );
+    assert!(
+        list.contains(&format!("<span style=\"display:block;padding-left:80px;text-indent:-40px;\"><span style=\"opacity:0.62;{marker}\">◦ </span><span>two</span></span>")),
+        "{list}"
+    );
 }
 
 #[test]
@@ -239,7 +361,7 @@ component App
     let button_in_button = r#"
 component App
   state n = 0
-  action bump writes n
+  action bump
     n = n + 1
   view
     button press=bump testId="outer"
@@ -253,7 +375,7 @@ component App
     assert_eq!(inner.props.str(exact_kernel::PropId::TestId), Some("inner"));
 }
 
-/// A `button` is a real `<button>`, a flex column, and holds only phrasing
+/// A `button` is a real `<button>` and holds only phrasing
 /// content (LLP 1007 §1): its containers, paragraphs and headings are
 /// `<span>`s with the same style — a block unless a row says otherwise — in
 /// the live host's batch and in the document alike.
@@ -262,18 +384,18 @@ fn a_buttons_containers_are_spans() {
     let src = r#"
 component App
   state n = 0
-  action bump writes n
+  action bump
     n = n + 1
   view
     column
       button press=bump testId="card"
         column testId="stack"
           box width=10 height=10 testId="plain"
-          text "Title" aria-level=2 testId="title"
+          text "Title" role="heading" aria-level=2 testId="title"
           text "Body" testId="body"
         image "symbol:close" width=10 height=10 testId="icon"
       column testId="outside"
-        text "Title" aria-level=2 testId="heading"
+        text "Title" role="heading" aria-level=2 testId="heading"
 "#;
     let data = Says("");
     let plan = contract::bake(contract::compile(src).unwrap(), data.clone()).unwrap();
@@ -288,13 +410,12 @@ component App
     assert!(card.starts_with("<button "), "{card}");
     // Its native role isn't restated (ARIA in HTML).
     assert!(!card.contains(" role="), "{card}");
-    for want in [
-        " type=\"button\"",
-        "display:flex;",
-        "flex-direction:column;",
-    ] {
+    // Chrome's button (LLP 1001 §1): the reset's block, with the UA sheet's
+    // centred text; the browser centres its content in its height.
+    for want in [" type=\"button\"", "text-align:center;"] {
         assert!(card.contains(want), "{want}: {card}");
     }
+    assert!(!card.contains("display:"), "{card}");
     let stack = opening("stack");
     assert!(stack.starts_with("<span "), "{stack}");
     assert!(
@@ -345,11 +466,11 @@ routes nav
   tab home "/"
     post "/post/:post"
 component App
-  action back writes nav
+  action back
     nav = back(nav)
   view
     main navigationKey=`${top(nav).id}` navigationBack="back" width="100%" height="100%"
-      each e in stack(nav) key=e.id
+      for e in stack(nav) key=e.id
         column navigationKey=`${e.id}` testId=`route-${e.name}`
           text e.name
 "#;
@@ -369,18 +490,76 @@ component App
     );
 }
 
+// @ref LLP 1075.003 §3.3, §3.7 — with tabs, each tab's panel holds its own
+// stack, built when the tab is first selected: the unselected panel is
+// hidden and inert; an app's data-* words are attributes of their own. Both are linked
+// by use, and a host without them refuses the plan by name.
+#[test]
+fn tabs_show_their_own_stacks_and_data_words_are_attributes() {
+    let src = r#"
+routes nav
+  tab home "/"
+    post "/post/:post"
+  tab second "/second"
+component App
+  action back
+    nav = back(nav)
+  view
+    main navigationKey=`${top(nav).id}` navigationBack="back" width="100%" height="100%"
+      for t in nav.tabs key=t.name
+        column role="tabpanel" id=`panel-${t.name}` testId=`panel-${t.name}`
+          for e in t.stack key=e.id
+            column navigationKey=`${e.id}` data-screen=e.name testId=`route-${e.name}`
+              text e.name
+      row role="tablist"
+        button role="tab" aria-controls="panel-home" testId="tab-home"
+          text "Home"
+        button role="tab" aria-controls="panel-second" testId="tab-second"
+          text "Second"
+"#;
+    let doc = host(src, Says(""), "/post/5").document().unwrap().root;
+    let tag = |test_id: &str| {
+        let at = doc.find(&format!("data-testid=\"{test_id}\"")).unwrap();
+        let start = doc[..at].rfind('<').unwrap();
+        doc[start..at + doc[at..].find('>').unwrap() + 1].to_owned()
+    };
+    let hidden = |t: &str| t.contains(" inert ") && t.contains("visibility:hidden;");
+    let shown = |t: &str| !t.contains("inert") && !t.contains("visibility");
+    let second = tag("panel-second");
+    assert!(hidden(&second), "{second}");
+    let home = tag("panel-home");
+    assert!(shown(&home), "{home}");
+    let root = tag("route-home");
+    assert!(hidden(&root), "{root}");
+    let post = tag("route-post");
+    assert!(shown(&post), "{post}");
+    assert!(post.contains("data-screen=\"post\""), "{post}");
+    // The other tab, never selected, is not built yet: its panel is empty.
+    assert!(!doc.contains("data-testid=\"route-second\""), "{doc}");
+
+    let plan = contract::bake(contract::compile(src).unwrap(), Says("")).unwrap();
+    exact_web::link(exact_web::Linked::CORE);
+    let refused = Host::boot(&plan.encode(), Says(""), Default::default(), "/").map(|_| ());
+    exact_web::link(exact_web_capabilities::ALL);
+    let refused = format!("{:?}", refused.unwrap_err());
+    assert!(
+        refused.contains("dataset") && refused.contains("tabs"),
+        "{refused}"
+    );
+}
+
 #[test]
 fn a_head_is_the_pages_head_never_an_element() {
     let src = r#"
 component App
   state n = 0
-  action bump writes n
+  action bump
     n = n + 1
   view
     column testId="page"
       head title=`Count ${n}` description="Counting"
       button press=bump testId="bump" width=10 height=10
-      when n > 0
+      if n > 0
         head title="Counted"
 "#;
     let plan = contract::bake(contract::compile(src).unwrap(), Says("")).unwrap();
@@ -463,4 +642,123 @@ fn the_page_scroller_is_marked_in_the_document() {
     assert!(!marked(
         "component A\n  state on = false\n  view\n    scroll document=on height=100\n      text \"a\"\n"
     ));
+}
+
+/// LLP 1053.000.000.000 D3: `glassGroup="auto"` is written as `auto`, not its
+/// reserved `-1`; a number as the number. Nothing draws it.
+#[test]
+fn an_auto_glass_group_is_written_as_auto() {
+    let doc = document(
+        "component App\n  view\n    column\n      row glassGroup=\"auto\" gap=8\n        box width=4 height=4\n      row glassGroup=12\n        box width=4 height=4\n",
+    );
+    assert!(doc.contains("glassGroup=\"auto\""), "{doc}");
+    assert!(doc.contains("glassGroup=\"12\""), "{doc}");
+    assert!(!doc.contains("glassGroup=\"-1\""), "{doc}");
+}
+
+#[test]
+fn split_facts_survive_live_updates_and_both_document_walks() {
+    let source = r#"routes nav
+  home "/"
+    item "/item/:id"
+
+component App
+  state wide = false
+  action toggle
+    wide = !wide
+  action open
+    nav = push(nav, path("item", "a"))
+  view
+    main navigationKey=`${top(nav).id}` navigationBack="back"
+      for e in stack(nav) key=e.id
+        column navigationKey=`${e.id}` position="absolute" inset=0
+          list testId="strip" virtualized=true display="flex" height=120 overflow-x="scroll" overflow-y="hidden" estimated-item-width=180
+            for n in ["a", "b"] key=n
+              text n width=180
+          list testId="rows" role=(wide ? "presentation" : "list")
+            link href="/item/a" testId="href"
+              text "A"
+            link href="/item/a" press=toggle testId="local"
+              text "Pick"
+            button "Open" press=open testId="push"
+          button "Toggle" press=toggle testId="toggle"
+"#;
+    let mut host = host(source, Says(""), "/");
+    for role in ["list", "presentation", "list"] {
+        let doc = host.document().unwrap();
+        let tree = host.runner_mut().document_tree().unwrap();
+        let (detached, _) =
+            exact_web::document::project_tree(&tree, host.runner(), Default::default()).unwrap();
+        assert_eq!(detached.root, doc.root);
+        let id = |name| {
+            let kernel = host.runner().kernel();
+            kernel
+                .node_by_key(kernel.find_by_test_id(name)[0])
+                .unwrap()
+                .id
+        };
+        let row = opening(&doc.root, id("rows").into());
+        assert!(row.contains("data-exact-list=\"\""), "{row}");
+        assert!(row.contains(&format!("role=\"{role}\"")), "{row}");
+        assert!(!row.contains("data-exact-estimated-item-width"), "{row}");
+        let strip = opening(&doc.root, id("strip").into());
+        assert!(strip.contains("data-exact-list=\"\""), "{strip}");
+        assert!(
+            strip.contains("data-exact-estimated-item-width=\"180\""),
+            "{strip}"
+        );
+        for (name, fact) in [
+            ("href", None),
+            ("local", Some("false")),
+            ("push", Some("true")),
+        ] {
+            let node = opening(&doc.root, id(name).into());
+            match fact {
+                Some(value) => assert!(
+                    node.contains(&format!("data-exact-router-press=\"{value}\"")),
+                    "{node}"
+                ),
+                None => assert!(!node.contains("data-exact-router-press"), "{node}"),
+            }
+        }
+        let batch = host.dispatch(id("toggle"), exact_runner::Event::Press);
+        let reply: serde_json::Value = serde_json::from_str(&batch).unwrap();
+        assert_eq!(
+            reply.get("error"),
+            Some(&serde_json::Value::Null),
+            "{batch}"
+        );
+        assert!(batch.contains("\"role\":"), "{batch}");
+        assert!(
+            !batch.contains("\"op\":\"create\""),
+            "retained nodes: {batch}"
+        );
+    }
+}
+
+/// LLP 1115.000 D12.2: the document the wasm runtime adopts writes a bare
+/// `font-size` style's weight where it fills one, as the live host does;
+/// the one the JavaScript runtime adopts does not, as its template does
+/// not, and a shorthand's it writes in both.
+#[test]
+fn a_bare_text_styles_weight_is_written_for_the_runtime_that_writes_it() {
+    let h = host(
+        "component App\n  view\n    column\n      text font-size=\"-exact-headline\" \"Bare\"\n      text font=\"-exact-headline\" \"Shorthand\"\n",
+        Says(""),
+        "/",
+    );
+    let style = |doc: &str, text: &str| {
+        let at = doc.find(&format!(">{text}<")).expect(text);
+        let open = doc[..at].rfind('<').unwrap();
+        doc[open..at].to_string()
+    };
+    let wasm = h.document().unwrap().root;
+    let js = exact_web::document::project_for_js(h.runner())
+        .unwrap()
+        .root;
+    assert!(style(&wasm, "Bare").contains("font-weight:600"), "{wasm}");
+    assert!(!style(&js, "Bare").contains("font-weight"), "{js}");
+    for doc in [&wasm, &js] {
+        assert!(style(doc, "Shorthand").contains("font-weight:600"), "{doc}");
+    }
 }

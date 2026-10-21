@@ -20,7 +20,7 @@ impl Game for AssetFixture {
     }
     fn setup(w: &mut World, _: &()) {
         w.insert_resource(Environment {
-            background: Some([0.15, 0.22, 0.3]),
+            background: Some(Color([0.15, 0.22, 0.3])),
             bloom: None,
             fog: None,
             ..Default::default()

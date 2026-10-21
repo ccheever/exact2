@@ -42,9 +42,9 @@ pub struct Linked {
     /// Inspection (LLP 1012): the agent API's reads. Not a plan's use: the
     /// entry links it by policy, in production too (LLP 1047 §10, Q3).
     pub inspection: bool,
-    /// Canvas 2D's wide colour forms (LLP 1056 §8.2), linked when the data
-    /// crate's source names one: registered at [`link`].
-    pub canvas_colors: Option<fn()>,
+    /// The wide colour forms (LLP 1056 §8.2), linked when the plan or the
+    /// data crate's source names one: registered at [`link`].
+    pub wide_colors: Option<fn()>,
     /// `backgroundMaterial` (LLP 1053.000 D4): a material's CSS variables
     /// appended to a node's style, and the line to log, once, for a name
     /// the table lacks.
@@ -56,6 +56,8 @@ pub struct Linked {
     pub auth: bool,
     /// `share(…)` (LLP 1069.003).
     pub share: bool,
+    /// `showNotification` and `closeNotification`.
+    pub notifications: bool,
     /// `saveFile` and the file pickers (LLP 1069.010).
     pub documents: bool,
     /// `input type="file"` and `showPicker` (LLP 1069.002): a file input's
@@ -73,10 +75,24 @@ pub struct Linked {
     pub animations: Option<AnimationsLink>,
     /// `background-image`'s gradient grammar (LLP 1066): linked at [`link`].
     pub gradients: Option<fn()>,
+    /// CSS grid's grammar, validation and serialization: linked at [`link`]
+    /// when any grid row is bound.
+    pub grid: Option<fn()>,
+    /// `env(viewport-segment-*)`'s grammar (LLP 1078 D3): linked at [`link`].
+    pub segments: Option<fn()>,
     /// `frame` and `measure` (LLP 1051.000 D4): the page's answers, through
     /// one import `geometry-glue.js` answers.
     pub geometry: exact_runner::GeometryLink,
+    /// `data-*` words (LLP 1075.003 §3.3): a `dataset` row's pairs, each
+    /// written as its own attribute.
+    pub dataset: Option<DatasetPairs>,
+    /// A navigation root's tabs (LLP 1075.003 §3.7): its routes as each
+    /// tab's stack shows them.
+    pub tabs: Option<crate::document::TabRoutes>,
 }
+
+/// A `dataset` row's `(word, value)` pairs: [`crate::document::dataset`].
+pub type DatasetPairs = fn(&str) -> Vec<(String, String)>;
 
 /// `backgroundMaterial`'s pair: a material's CSS variables appended to a
 /// style, and the line to log, once, for a name the table lacks.
@@ -90,7 +106,10 @@ pub type Materials = (fn(&mut String, &str), fn(&str) -> Option<String>);
 pub struct AnimationsLink {
     /// Link the grammars.
     pub grammars: fn(),
-    /// A node's `animation` (or `exit-animation`) list as CSS.
+    /// Resolve an `animation` list's names against the plan's `@keyframes`.
+    pub keyframes:
+        fn(&exact_runner::bridge::KeyframesTable, &mut exact_motion::Animations) -> Vec<String>,
+    /// A node's `animation` (or `-exact-exit-animation`) list as CSS.
     pub list: fn(&exact_motion::animation::Animations, bool) -> String,
     /// The name of the rule an entry plays.
     pub name: fn(&exact_motion::animation::Animation, bool) -> String,
@@ -102,6 +121,28 @@ pub struct AnimationsLink {
 pub type PickedPayload = fn(&str) -> Option<Vec<exact_runner::Picked>>;
 
 impl Linked {
+    /// The runner's device capabilities this names (LLP 1047 D3): each
+    /// linked one's entries, [`exact_runner::DeviceLinks::CORE`]'s none for
+    /// the rest.
+    pub const fn device_links<D: exact_runner::DataSource>(self) -> exact_runner::DeviceLinks<D> {
+        let all = exact_runner::DeviceLinks::<D>::ALL;
+        exact_runner::DeviceLinks {
+            auth: if self.auth { all.auth } else { None },
+            share: if self.share { all.share } else { None },
+            documents: if self.documents { all.documents } else { None },
+            picker: if self.picker.is_some() {
+                all.picker
+            } else {
+                None
+            },
+            notifications: if self.notifications {
+                all.notifications
+            } else {
+                None
+            },
+        }
+    }
+
     /// The core alone.
     pub const CORE: Linked = Linked {
         markup: None,
@@ -113,11 +154,12 @@ impl Linked {
         router: None,
         format: None,
         inspection: false,
-        canvas_colors: None,
+        wide_colors: None,
         materials: None,
         backdrop: None,
         auth: false,
         share: false,
+        notifications: false,
         documents: false,
         picker: None,
         timelines: None,
@@ -125,12 +167,26 @@ impl Linked {
         effects: None,
         animations: None,
         gradients: None,
+        grid: None,
         geometry: None,
+        segments: None,
+        dataset: None,
+        tabs: None,
     };
 
     /// The capabilities registered here.
     pub fn uses(&self) -> Uses {
-        let mut uses = Uses::NONE;
+        // A grouped list is its authored nodes on the web, and the browser
+        // does its own I/O and plays CSS's transitions (LLP 1047.001 D2); its
+        // numerals roll in the runtime's text (LLP 1077 D15), and its date
+        // and time controls are its own pickers (LLP 1115.001.000 D2):
+        // nothing to link for any of them.
+        let mut uses = Uses::NONE
+            .with(Capability::GroupedLists)
+            .with(Capability::Io)
+            .with(Capability::Transitions)
+            .with(Capability::Numerals)
+            .with(Capability::Dates);
         if self.markup.is_some() {
             uses = uses.with(Capability::Markdown);
         }
@@ -161,11 +217,15 @@ impl Linked {
         if self.share {
             uses = uses.with(Capability::Share);
         }
+        if self.notifications {
+            uses = uses.with(Capability::Notifications);
+        }
         if self.documents {
             uses = uses.with(Capability::Documents);
         }
+        // The browser's file input is the media picker too.
         if self.picker.is_some() {
-            uses = uses.with(Capability::Picker);
+            uses = uses.with(Capability::Picker).with(Capability::MediaPicker);
         }
         if self.timelines.is_some() {
             uses = uses.with(Capability::Timelines);
@@ -182,8 +242,23 @@ impl Linked {
         if self.gradients.is_some() {
             uses = uses.with(Capability::Gradients);
         }
+        if self.grid.is_some() {
+            uses = uses.with(Capability::Grid);
+        }
         if self.geometry.is_some() {
             uses = uses.with(Capability::Geometry);
+        }
+        if self.segments.is_some() {
+            uses = uses.with(Capability::Segments);
+        }
+        if self.dataset.is_some() {
+            uses = uses.with(Capability::Dataset);
+        }
+        if self.tabs.is_some() {
+            uses = uses.with(Capability::Tabs);
+        }
+        if self.auth {
+            uses = uses.with(Capability::AuthSession);
         }
         uses
     }
@@ -197,7 +272,7 @@ thread_local! {
 
 /// Register what this artifact links: its entry does before every boot.
 pub fn link(linked: Linked) {
-    if let Some(link) = linked.canvas_colors {
+    if let Some(link) = linked.wide_colors {
         link();
     }
     if let Some(link) = linked.backdrop {
@@ -216,6 +291,12 @@ pub fn link(linked: Linked) {
         (a.grammars)();
     }
     if let Some(link) = linked.gradients {
+        link();
+    }
+    if let Some(link) = linked.grid {
+        link();
+    }
+    if let Some(link) = linked.segments {
         link();
     }
     LINKED.with(|cell| cell.set(linked));
@@ -253,6 +334,11 @@ pub(crate) fn runner_links() -> exact_runner::RunnerLinks {
         canvas: linked().canvas,
         format: linked().format,
         geometry: linked().geometry,
+        // The browser's grants are I/O it does itself (LLP 1047.001).
+        grants: exact_runner::RunnerLinks::ALL.grants,
+        keyframes: linked().animations.map(|a| a.keyframes),
+        // The browser plays a font axis's CSS transition itself.
+        text_axes: None,
     }
 }
 
@@ -270,9 +356,11 @@ pub(crate) fn admit(plan: &exact_plan::Plan) -> Result<(), HostError> {
 mod tests {
     use crate::{Host, HostError};
 
-    /// Nothing registers on this test's thread, so it is the core alone.
+    /// The core alone on this test's thread, whatever an earlier test on
+    /// it linked (the test harness may reuse a thread).
     #[test]
     fn a_plan_that_uses_an_unlinked_capability_is_refused_by_name() {
+        crate::link::link(crate::link::Linked::CORE);
         let markdown =
             contract::compile("component A\n  view\n    text \"**b**\" markup=\"markdown\"\n")
                 .unwrap()
@@ -284,6 +372,30 @@ mod tests {
         );
         let plain = contract::compile("component A\n  view\n    text \"b\"\n").unwrap();
         assert!(Host::boot(&plain.encode(), (), Default::default(), "/").is_ok());
+        // A date control is the browser's own picker: the core boots it.
+        let date = contract::compile("component A\n  state d = \"\"\n  action pick(v)\n    d = v\n  view\n    input type=\"date\" value=d input=pick aria-label=\"Day\"\n").unwrap();
+        assert!(exact_runner::uses(&date).has(exact_runner::Capability::Dates));
+        assert!(Host::boot(&date.encode(), (), Default::default(), "/").is_ok());
+        // So are rolling numerals: the runtime's own text.
+        let rolls = contract::compile(
+            "component A\n  view\n    text \"1,234\" -exact-content-transition=\"numeric\"\n",
+        )
+        .unwrap();
+        assert!(exact_runner::uses(&rolls).has(exact_runner::Capability::Numerals));
+        assert!(Host::boot(&rolls.encode(), (), Default::default(), "/").is_ok());
+        // LLP 1078 D3: a segment length is linked by use; the fold's fields are the core's.
+        let segments = contract::compile(
+            "component A\n  view\n    column width=\"env(viewport-segment-width 0 0)\"\n",
+        )
+        .unwrap()
+        .encode();
+        let refused = Host::boot(&segments, (), Default::default(), "/").map(|_| ());
+        assert!(
+            matches!(&refused, Err(HostError::Unlinked(names)) if names == "segments"),
+            "{refused:?}"
+        );
+        let fields = contract::compile("shape F\n  devicePosture: string\ncomponent A\n  resource m = exactViewport() as shape F\n  view\n    text m.devicePosture\n").unwrap();
+        assert!(Host::boot(&fields.encode(), (), Default::default(), "/").is_ok());
         let drag = contract::compile(
             "component A\n  view\n    column id=\"sheet\" height=100\n      column heightDragFor=\"sheet\"\n",
         )
@@ -302,6 +414,15 @@ mod tests {
         let refused = Host::boot(&count, (), Default::default(), "/").map(|_| ());
         assert!(
             matches!(&refused, Err(HostError::Unlinked(names)) if names == "format"),
+            "{refused:?}"
+        );
+        let grid =
+            contract::compile("component A\n  view\n    box grid-template-columns=\"1fr 1fr\"\n")
+                .unwrap()
+                .encode();
+        let refused = Host::boot(&grid, (), Default::default(), "/").map(|_| ());
+        assert!(
+            matches!(&refused, Err(HostError::Unlinked(names)) if names == "grid"),
             "{refused:?}"
         );
         let time = contract::compile("component A\n  view\n    text formatTime(0, 0, \"short\")\n")

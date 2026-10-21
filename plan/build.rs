@@ -12,6 +12,7 @@ use std::fmt::Write as _;
 use std::path::Path;
 
 const SCHEMA_PATH: &str = "tables/format.json";
+const LENT_TABLES: &[&str] = &["bindings", "nodes"];
 
 #[derive(Deserialize)]
 struct Schema {
@@ -49,6 +50,13 @@ struct Opcode {
 struct StdlibEntry {
     name: String,
     params: Vec<String>,
+    /// The trailing parameters a call may omit, as the constant each
+    /// defaults to (LLP 1088 D2), in JavaScript's spelling: for a `number`
+    /// only `Number.MAX_VALUE`, an index past any end, since a plan's
+    /// number constants are finite; for a literal choice only `""`, which
+    /// no call can write (LLP 1116 D8: `formatNumber`'s currency code).
+    #[serde(default)]
+    optional: Vec<String>,
     returns: String,
 }
 
@@ -130,6 +138,201 @@ fn rust_type(c: &Codec) -> String {
     }
 }
 
+fn codec_width(codec: &Codec) -> usize {
+    match codec {
+        Codec::U8 | Codec::Bool | Codec::Enum(_) => 1,
+        Codec::U16 => 2,
+        Codec::U32 | Codec::I32 | Codec::Str | Codec::Idx(_) | Codec::Opt(_) => 4,
+        Codec::F64 | Codec::Range(_) | Codec::Code | Codec::Bytes => 8,
+    }
+}
+
+fn row_width(table: &Table) -> usize {
+    table
+        .fields
+        .iter()
+        .map(|f| codec_width(&parse_codec(&f.codec)))
+        .sum()
+}
+
+fn read_at(codec: &Codec, offset: usize) -> String {
+    let number = |ty: &str, width: usize, at: usize| {
+        let bytes = (at..at + width)
+            .map(|i| format!("bytes[{i}]"))
+            .collect::<Vec<_>>()
+            .join(", ");
+        format!("{ty}::from_le_bytes([{bytes}])")
+    };
+    let u32_at = |at| number("u32", 4, at);
+    match codec {
+        Codec::U8 => format!("bytes[{offset}]"),
+        Codec::U16 => number("u16", 2, offset),
+        Codec::U32 => u32_at(offset),
+        Codec::I32 => number("i32", 4, offset),
+        Codec::F64 => number("f64", 8, offset),
+        Codec::Bool => format!("bytes[{offset}] == 1"),
+        Codec::Str => format!("StrId({})", u32_at(offset)),
+        Codec::Enum(e) => format!("{e}::from_wire(bytes[{offset}]).unwrap_or({e}::ALL[0])"),
+        Codec::Idx(t) => format!("{}Id({})", pascal(t), u32_at(offset)),
+        Codec::Opt(t) => format!(
+            "{{ let v = {}; (v != u32::MAX).then_some({}Id(v)) }}",
+            u32_at(offset),
+            pascal(t)
+        ),
+        Codec::Range(t) => format!(
+            "{}Range {{ start: {}, len: {} }}",
+            pascal(t),
+            u32_at(offset),
+            u32_at(offset + 4)
+        ),
+        Codec::Code | Codec::Bytes => format!(
+            "{} {{ offset: {}, len: {} }}",
+            rust_type(codec),
+            u32_at(offset),
+            u32_at(offset + 4)
+        ),
+    }
+}
+
+fn rows(w: &mut String) {
+    w.push_str(
+        r#"
+mod rows {
+    pub trait Row: Copy {
+        const WIDTH: usize;
+        fn read(bytes: &[u8]) -> Self;
+    }
+
+    #[derive(Clone)]
+    enum Storage<R> {
+        Owned(Vec<R>),
+        Lent(&'static [u8]),
+    }
+
+    /// Fixed-width rows, owned or read from validated static plan bytes.
+    #[derive(Clone)]
+    pub struct Rows<R> {
+        storage: Storage<R>,
+    }
+
+    impl<R> Default for Rows<R> {
+        fn default() -> Self {
+            Self { storage: Storage::Owned(Vec::new()) }
+        }
+    }
+
+    impl<R: Row> Rows<R> {
+        // Only the validating decoder may lend bytes to a table.
+        pub(super) fn lent(bytes: &'static [u8]) -> Self {
+            Self { storage: Storage::Lent(bytes) }
+        }
+
+        /// Number of rows.
+        #[inline]
+        pub fn len(&self) -> usize {
+            match &self.storage {
+                Storage::Owned(rows) => rows.len(),
+                Storage::Lent(bytes) => bytes.len() / R::WIDTH,
+            }
+        }
+
+        /// Whether the table has no rows.
+        #[inline]
+        pub fn is_empty(&self) -> bool {
+            self.len() == 0
+        }
+
+        /// Read one row by index.
+        #[inline]
+        pub fn get(&self, i: usize) -> Option<R> {
+            match &self.storage {
+                Storage::Owned(rows) => rows.get(i).copied(),
+                Storage::Lent(bytes) => {
+                    let start = i.checked_mul(R::WIDTH)?;
+                    bytes.get(start..start.checked_add(R::WIDTH)?).map(R::read)
+                }
+            }
+        }
+
+        /// Read rows in table order.
+        #[inline]
+        pub fn iter(&self) -> RowsIter<'_, R> {
+            match &self.storage {
+                Storage::Owned(rows) => RowsIter::Owned(rows.iter()),
+                Storage::Lent(bytes) => RowsIter::Lent(bytes.chunks_exact(R::WIDTH)),
+            }
+        }
+
+        /// Copy lent rows on first mutation and return the owned vector.
+        pub fn to_mut(&mut self) -> &mut Vec<R> {
+            if matches!(self.storage, Storage::Lent(_)) {
+                self.storage = Storage::Owned(self.iter().collect());
+            }
+            match &mut self.storage {
+                Storage::Owned(rows) => rows,
+                Storage::Lent(_) => unreachable!(),
+            }
+        }
+
+        #[doc(hidden)]
+        pub fn is_lent(&self) -> bool {
+            matches!(self.storage, Storage::Lent(_))
+        }
+    }
+
+    /// [`Rows::iter`]: rows by value, a lent table's read from its bytes in turn.
+    pub enum RowsIter<'a, R> {
+        Owned(std::slice::Iter<'a, R>),
+        Lent(std::slice::ChunksExact<'a, u8>),
+    }
+
+    impl<R: Row> Iterator for RowsIter<'_, R> {
+        type Item = R;
+        #[inline]
+        fn next(&mut self) -> Option<R> {
+            match self {
+                RowsIter::Owned(rows) => rows.next().copied(),
+                RowsIter::Lent(rows) => rows.next().map(R::read),
+            }
+        }
+        #[inline]
+        fn size_hint(&self) -> (usize, Option<usize>) {
+            match self {
+                RowsIter::Owned(rows) => rows.size_hint(),
+                RowsIter::Lent(rows) => rows.size_hint(),
+            }
+        }
+    }
+
+    impl<R: Row> DoubleEndedIterator for RowsIter<'_, R> {
+        #[inline]
+        fn next_back(&mut self) -> Option<R> {
+            match self {
+                RowsIter::Owned(rows) => rows.next_back().copied(),
+                RowsIter::Lent(rows) => rows.next_back().map(R::read),
+            }
+        }
+    }
+
+    impl<R: Row> ExactSizeIterator for RowsIter<'_, R> {}
+
+    impl<R: Row + std::fmt::Debug> std::fmt::Debug for Rows<R> {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            f.debug_list().entries(self.iter()).finish()
+        }
+    }
+
+    impl<R: Row + PartialEq> PartialEq for Rows<R> {
+        fn eq(&self, other: &Self) -> bool {
+            self.len() == other.len() && self.iter().eq(other.iter())
+        }
+    }
+}
+pub use rows::{Rows, RowsIter};
+"#,
+    );
+}
+
 fn validate(schema: &Schema) {
     assert_eq!(
         schema.format_version, 5,
@@ -137,6 +340,17 @@ fn validate(schema: &Schema) {
     );
     let tables: BTreeSet<&str> = schema.tables.iter().map(|t| t.name.as_str()).collect();
     assert_eq!(tables.len(), schema.tables.len(), "format: duplicate table");
+    for name in LENT_TABLES {
+        let table = schema
+            .tables
+            .iter()
+            .find(|t| &t.name == name)
+            .expect("format: lent table exists");
+        assert!(
+            row_width(table) > 0,
+            "format: lent rows must have a nonzero width"
+        );
+    }
     for f in &schema.header {
         // @ref LLP 1038 D2 — optional table references in the header.
         if f.codec != "string" {
@@ -221,8 +435,16 @@ fn validate(schema: &Schema) {
                         && l.ends_with('"')
                         && !l[1..l.len() - 1].contains('"')
                 });
+            // A whole-number literal in a range, `0..=100` (LLP 1102 §3.2:
+            // `toFixed`'s digits), likewise written at the call.
+            let range = param
+                && t.split_once("..=").is_some_and(|(a, b)| {
+                    a.parse::<u32>()
+                        .is_ok_and(|a| b.parse::<u32>().is_ok_and(|b| a <= b))
+                });
             assert!(
                 literals
+                    || range
                     || matches!(
                         t.as_str(),
                         "number"
@@ -235,11 +457,29 @@ fn validate(schema: &Schema) {
                             | "list<Router>"
                             | "list<Entry>"
                             | "list<string>"
+                            | "list<number>"
+                            | "option<string>"
+                            | "option<number>"
                     ),
                 "format: stdlib `{}` type `{t}`",
                 f.name
             );
         }
+    }
+    for f in &schema.stdlib {
+        assert!(
+            f.optional.len() <= f.params.len()
+                && f.params[f.params.len() - f.optional.len()..]
+                    .iter()
+                    .zip(&f.optional)
+                    .all(|(p, d)| match d.as_str() {
+                        "Number.MAX_VALUE" => p == "number",
+                        "\"\"" => p.starts_with('"'),
+                        _ => false,
+                    }),
+            "format: stdlib `{}` optional defaults must be trailing: `Number.MAX_VALUE` for a number, `\"\"` for a literal choice",
+            f.name
+        );
     }
     assert!(schema.stdlib.len() <= 255, "format: stdlib exceeds u8");
 }
@@ -354,6 +594,48 @@ fn main() {
                 );
             }
             let _ = writeln!(w, "    }} }}");
+            let _ = writeln!(
+                w,
+                "    /// The fewest arguments a call may write: the trailing optional\n    /// ones are filled with [`Stdlib::defaults`] (LLP 1088 D2)."
+            );
+            let _ = writeln!(
+                w,
+                "    pub fn min_arity(self) -> usize {{ self.arity() - self.defaults().len() }}"
+            );
+            let _ = writeln!(
+                w,
+                "    /// The values the trailing optional parameters take when a call omits them."
+            );
+            let _ = writeln!(
+                w,
+                "    pub fn defaults(self) -> &'static [StdlibDefault] {{ match self {{"
+            );
+            for f in schema.stdlib.iter().filter(|f| !f.optional.is_empty()) {
+                let ds: Vec<&str> = f
+                    .optional
+                    .iter()
+                    .map(|d| match d.as_str() {
+                        "Number.MAX_VALUE" => "StdlibDefault::Number(f64::MAX)",
+                        _ => "StdlibDefault::Str(\"\")",
+                    })
+                    .collect();
+                let _ = writeln!(
+                    w,
+                    "        Stdlib::{} => &[{}],",
+                    pascal(&f.name),
+                    ds.join(", ")
+                );
+            }
+            let _ = writeln!(w, "        _ => &[],");
+            let _ = writeln!(w, "    }} }}");
+            let _ = writeln!(
+                w,
+                "    /// The defaults a call of `given` arguments leaves for the parameters it omits."
+            );
+            let _ = writeln!(
+                w,
+                "    pub fn omitted(self, given: usize) -> &'static [StdlibDefault] {{ let d = self.defaults(); &d[(given + d.len()).saturating_sub(self.arity()).min(d.len())..] }}"
+            );
             let _ = writeln!(w, "    /// Declared return type, as the table spells it.");
             let _ = writeln!(
                 w,
@@ -371,6 +653,12 @@ fn main() {
         }
         let _ = writeln!(w, "}}");
         let _ = writeln!(w);
+        if name == "Stdlib" {
+            let _ = writeln!(
+                w,
+                "/// The constant a trailing optional parameter takes when a call omits it\n/// (LLP 1088 D2): a number, or the empty string no call can write for a\n/// literal choice (LLP 1116 D8).\n#[derive(Debug, Clone, Copy, PartialEq)]\npub enum StdlibDefault {{\n    /// A number constant.\n    Number(f64),\n    /// A string constant.\n    Str(&'static str),\n}}\n"
+            );
+        }
     }
 
     // ---- opcodes ----------------------------------------------------------
@@ -436,6 +724,8 @@ fn main() {
     let _ = writeln!(w, "}}");
     let _ = writeln!(w);
 
+    rows(&mut w);
+
     // ---- ids, ranges, rows ------------------------------------------------
     for t in &schema.tables {
         let p = pascal(&t.name);
@@ -458,7 +748,12 @@ fn main() {
         let _ = writeln!(w, "    pub fn is_empty(self) -> bool {{ self.len == 0 }}");
         let _ = writeln!(w, "}}");
         let _ = writeln!(w, "/// One `{}` row.", t.name);
-        let _ = writeln!(w, "#[derive(Debug, Clone, PartialEq)]");
+        let copy = if LENT_TABLES.contains(&t.name.as_str()) {
+            ", Copy"
+        } else {
+            ""
+        };
+        let _ = writeln!(w, "#[derive(Debug, Clone{copy}, PartialEq)]");
         let _ = writeln!(w, "pub struct {p}Row {{");
         for f in &t.fields {
             let _ = writeln!(w, "    /// `{}`", f.name);
@@ -470,6 +765,21 @@ fn main() {
             );
         }
         let _ = writeln!(w, "}}");
+        if LENT_TABLES.contains(&t.name.as_str()) {
+            let width = row_width(t);
+            let _ = writeln!(
+                w,
+                "impl rows::Row for {p}Row {{ const WIDTH: usize = {width};"
+            );
+            let _ = writeln!(w, "    #[inline] fn read(bytes: &[u8]) -> Self {{ Self {{");
+            let mut offset = 0;
+            for f in &t.fields {
+                let codec = parse_codec(&f.codec);
+                let _ = writeln!(w, "        {}: {},", f.name, read_at(&codec, offset));
+                offset += codec_width(&codec);
+            }
+            let _ = writeln!(w, "    }} }} }}");
+        }
         let _ = writeln!(w);
     }
 
@@ -501,9 +811,12 @@ fn main() {
         let _ = writeln!(w, "    pub {}: {ty},", f.name);
     }
     let _ = writeln!(w, "    /// Interned strings.");
-    let _ = writeln!(w, "    pub strings: Vec<String>,");
-    let _ = writeln!(w, "    /// Bytecode pool.");
-    let _ = writeln!(w, "    pub code: Vec<u8>,");
+    let _ = writeln!(w, "    pub strings: crate::pool::Strings,");
+    let _ = writeln!(
+        w,
+        "    /// Bytecode pool: borrowed from a static plan's bytes, else owned."
+    );
+    let _ = writeln!(w, "    pub code: std::borrow::Cow<'static, [u8]>,");
     let _ = writeln!(
         w,
         "    /// Data pool (compiled values): borrowed from a static plan's bytes, else owned."
@@ -511,7 +824,17 @@ fn main() {
     let _ = writeln!(w, "    pub data: std::borrow::Cow<'static, [u8]>,");
     for t in &schema.tables {
         let _ = writeln!(w, "    /// `{}` rows.", t.name);
-        let _ = writeln!(w, "    pub {}: Vec<{}Row>,", t.name, pascal(&t.name));
+        let container = if LENT_TABLES.contains(&t.name.as_str()) {
+            "Rows"
+        } else {
+            "Vec"
+        };
+        let _ = writeln!(
+            w,
+            "    pub {}: {container}<{}Row>,",
+            t.name,
+            pascal(&t.name)
+        );
     }
     let _ = writeln!(w, "}}");
     let _ = writeln!(w);
@@ -528,11 +851,15 @@ fn main() {
         } else {
             singular.to_string()
         };
-        let _ = writeln!(
-            w,
-            "    pub fn {accessor}(&self, id: {p}Id) -> &{p}Row {{ &self.{}[id.0 as usize] }}",
-            t.name
-        );
+        if LENT_TABLES.contains(&t.name.as_str()) {
+            let _ = writeln!(w, "    #[inline] pub fn {accessor}(&self, id: {p}Id) -> {p}Row {{ self.{}.get(id.0 as usize).expect(\"validated row id\") }}", t.name);
+        } else {
+            let _ = writeln!(
+                w,
+                "    pub fn {accessor}(&self, id: {p}Id) -> &{p}Row {{ &self.{}[id.0 as usize] }}",
+                t.name
+            );
+        }
     }
     let _ = writeln!(w, "    /// One interned string.");
     let _ = writeln!(
@@ -555,7 +882,37 @@ fn main() {
             .iter()
             .filter(|fl| matches!(parse_codec(&fl.codec), Codec::Code))
         {
-            let _ = write!(w, " for r in &self.{} {{ f(r.{}); }}", t.name, fl.name);
+            let _ = write!(
+                w,
+                " for r in self.{}.iter() {{ f(r.{}); }}",
+                t.name, fl.name
+            );
+        }
+    }
+    let _ = writeln!(w, " }}");
+    // Every data range a row names: the data pool's only references (no
+    // opcode operand addresses it), so a rewrite of the pool remaps these.
+    let _ = writeln!(w, "    /// Call `f` with every data range a table row names, table by table: the data pool's only references.");
+    let _ = write!(
+        w,
+        "    pub fn each_bytes_mut(&mut self, f: &mut dyn FnMut(&mut Bytes)) {{"
+    );
+    for t in &schema.tables {
+        for fl in t
+            .fields
+            .iter()
+            .filter(|fl| matches!(parse_codec(&fl.codec), Codec::Bytes))
+        {
+            let mutable = if LENT_TABLES.contains(&t.name.as_str()) {
+                ".to_mut()"
+            } else {
+                ""
+            };
+            let _ = write!(
+                w,
+                " for r in self.{}{mutable}.iter_mut() {{ f(&mut r.{}); }}",
+                t.name, fl.name
+            );
         }
     }
     let _ = writeln!(w, " }}");
@@ -590,7 +947,7 @@ fn main() {
     );
     for t in &schema.tables {
         let _ = writeln!(w, "        w.u32(self.{}.len() as u32);", t.name);
-        let _ = writeln!(w, "        for r in &self.{} {{", t.name);
+        let _ = writeln!(w, "        for r in self.{}.iter() {{", t.name);
         for f in &t.fields {
             let stmt = match parse_codec(&f.codec) {
                 Codec::U8 => format!("w.u8(r.{});", f.name),
@@ -615,20 +972,131 @@ fn main() {
     let _ = writeln!(w, "        w.into_vec()");
     let _ = writeln!(w, "    }}");
 
+    // structure: the canonical bytes without the design's values
+    let _ = writeln!(w, "    /// The plan's structure (LLP 1121 stage 4, commit 3): its canonical bytes with the design's values left out (`theme` rows' `value`, `theme_slices`' `value`, but a profile colour's, which a host takes at boot; a role override's is a value too, LLP 1121 stage 5), so two plans that differ only in token values have equal structures (the builder interns the values after every other string, so none moves another's id). A dev loop compares them to send a value-only edit as a batch instead of a new plan.");
+    let _ = writeln!(w, "    pub fn structure(&self) -> Vec<u8> {{");
+    // Strings only the design's values name are left out of the pool; code
+    // names strings by id, so the rest stay, in place.
+    let _ = writeln!(
+        w,
+        "        let design = |r: &ThemeRow| !self.str(r.value).contains(\"(--\");"
+    );
+    let _ = writeln!(
+        w,
+        "        let mut values = vec![false; self.strings.len()];"
+    );
+    let _ = writeln!(
+        w,
+        "        for r in &self.theme {{ if design(r) {{ values[r.value.0 as usize] = true; }} }}"
+    );
+    let _ = writeln!(w, "        for r in &self.theme_slices {{ if !self.str(r.value).contains(\"(--\") {{ values[r.value.0 as usize] = true; }} }}");
+    for t in &schema.tables {
+        for f in &t.fields {
+            if !matches!(parse_codec(&f.codec), Codec::Str)
+                || (f.name == "value" && (t.name == "theme" || t.name == "theme_slices"))
+            {
+                continue;
+            }
+            let _ = writeln!(
+                w,
+                "        for r in self.{}.iter() {{ values[r.{}.0 as usize] = false; }}",
+                t.name, f.name
+            );
+        }
+    }
+    let _ = writeln!(w, "        for r in &self.theme {{ if !design(r) {{ values[r.value.0 as usize] = false; }} }}");
+    // And every string the bytecode names: code that pushes a design value's
+    // text keeps it. Code that does not walk whole keeps every string.
+    let _ = writeln!(
+        w,
+        "        let mut r = Reader::new(&self.code); let mut whole = true;"
+    );
+    let _ = writeln!(w, "        'code: while !r.is_empty() {{ let Some(op) = r.u8().ok().and_then(Opcode::from_wire) else {{ whole = false; break; }}; for operand in op.operands() {{ let ok = match operand {{ Operand::U8 | Operand::Enum(_) => r.u8().is_ok(), Operand::U16 => r.u16().is_ok(), Operand::U32 | Operand::Idx(_) => r.u32().is_ok(), Operand::F64 => r.f64().is_ok(), Operand::Str => match r.u32() {{ Ok(v) => {{ if let Some(x) = values.get_mut(v as usize) {{ *x = false; }} true }} Err(_) => false }} }}; if !ok {{ whole = false; break 'code; }} }} }}");
+    let _ = writeln!(
+        w,
+        "        if !whole {{ values.iter_mut().for_each(|v| *v = false); }}"
+    );
+    let _ = writeln!(w, "        let mut w = Writer::default();");
+    let _ = writeln!(w, "        w.bytes(MAGIC); w.u32(FORMAT_VERSION); w.u64(FORMAT_DIGEST); w.u64(self.kernel_schema_digest); w.u64(self.compiler_identity);");
+    for f in &schema.header {
+        if f.codec == "string" {
+            let _ = writeln!(w, "        w.string(&self.{});", f.name);
+        } else {
+            let _ = writeln!(
+                w,
+                "        w.u32(self.{}.map_or(u32::MAX, |v| v.0));",
+                f.name
+            );
+        }
+    }
+    let _ = writeln!(
+        w,
+        "        for (s, value) in self.strings.iter().zip(&values) {{ if !*value {{ w.string(s); }} }}"
+    );
+    let _ = writeln!(
+        w,
+        "        w.u32(self.code.len() as u32); w.bytes(&self.code);"
+    );
+    let _ = writeln!(
+        w,
+        "        w.u32(self.data.len() as u32); w.bytes(&self.data);"
+    );
+    for t in &schema.tables {
+        let _ = writeln!(w, "        w.u32(self.{}.len() as u32);", t.name);
+        let _ = writeln!(w, "        for r in self.{}.iter() {{", t.name);
+        for f in &t.fields {
+            // A token's value is the design's, a role override's too (LLP
+            // 1121 stage 5), unless it names a profile's colour.
+            if f.name == "value" && t.name == "theme" {
+                let _ = writeln!(w, "            if self.str(r.value).contains(\"(--\") {{ w.string(self.str(r.value)); }}");
+                continue;
+            }
+            if f.name == "value" && t.name == "theme_slices" {
+                let _ = writeln!(
+                    w,
+                    "            if self.str(r.value).contains(\"(--\") {{ w.string(self.str(r.value)); }}"
+                );
+                continue;
+            }
+            let stmt = match parse_codec(&f.codec) {
+                Codec::U8 => format!("w.u8(r.{});", f.name),
+                Codec::U16 => format!("w.u16(r.{});", f.name),
+                Codec::U32 => format!("w.u32(r.{});", f.name),
+                Codec::I32 => format!("w.i32(r.{});", f.name),
+                Codec::F64 => format!("w.f64(r.{});", f.name),
+                Codec::Bool => format!("w.u8(r.{} as u8);", f.name),
+                Codec::Str => format!("w.u32(r.{}.0);", f.name),
+                Codec::Enum(_) => format!("w.u8(r.{} as u8);", f.name),
+                Codec::Idx(_) => format!("w.u32(r.{}.0);", f.name),
+                Codec::Opt(_) => format!("w.u32(r.{}.map_or(u32::MAX, |v| v.0));", f.name),
+                Codec::Range(_) => format!("w.u32(r.{f}.start); w.u32(r.{f}.len);", f = f.name),
+                Codec::Code | Codec::Bytes => {
+                    format!("w.u32(r.{f}.offset); w.u32(r.{f}.len);", f = f.name)
+                }
+            };
+            let _ = writeln!(w, "            {stmt}");
+        }
+        let _ = writeln!(w, "        }}");
+    }
+    let _ = writeln!(w, "        w.into_vec()");
+    let _ = writeln!(w, "    }}");
+
     // decode
+    let _ = writeln!(w, "    /// Decode only the named snapshot entry (LLP 1126 D2); running app plans are refused.");
+    let _ = writeln!(w, "    pub fn decode_snapshot(bytes: &[u8], kind: &str) -> Result<Plan, PlanError> {{ if kind.is_empty() {{ return Err(PlanError::WrongEntry); }} Self::decode_from(bytes, None, Some(kind)) }}");
     let _ = writeln!(w, "    /// Decode and validate whole. Every index, range, code, and data reference is checked before the plan is returned; a failure names the row.");
     let _ = writeln!(
         w,
-        "    pub fn decode(bytes: &[u8]) -> Result<Plan, PlanError> {{ Self::decode_from(bytes, None) }}"
+        "    pub fn decode(bytes: &[u8]) -> Result<Plan, PlanError> {{ Self::decode_from(bytes, None, None) }}"
     );
     let _ = writeln!(w, "    /// [`Plan::decode`] of bytes that live as long as the program (a plan linked into it): the data pool, a baked app's largest part, stays in those bytes instead of a copy.");
     let _ = writeln!(
         w,
-        "    pub fn decode_static(bytes: &'static [u8]) -> Result<Plan, PlanError> {{ Self::decode_from(bytes, Some(bytes)) }}"
+        "    pub fn decode_static(bytes: &'static [u8]) -> Result<Plan, PlanError> {{ Self::decode_from(bytes, Some(bytes), None) }}"
     );
     let _ = writeln!(
         w,
-        "    fn decode_from(bytes: &[u8], lent: Option<&'static [u8]>) -> Result<Plan, PlanError> {{"
+        "    fn decode_from(bytes: &[u8], lent: Option<&'static [u8]>, snapshot: Option<&str>) -> Result<Plan, PlanError> {{"
     );
     let _ = writeln!(w, "        let mut r = Reader::new(bytes);");
     let _ = writeln!(
@@ -655,26 +1123,48 @@ fn main() {
         };
         let _ = writeln!(w, "        let {} = {expr};", f.name);
     }
-    let _ = writeln!(w, "        let n = r.count()?; let mut strings = Vec::with_capacity(n.min(crate::bytes::RESERVE)); for _ in 0..n {{ strings.push(r.string()?); }}");
+    let _ = writeln!(w, "        if snapshot_entry != snapshot.unwrap_or(\"\") {{ return Err(PlanError::WrongEntry); }}");
+    // A string is its 4-byte length and its bytes.
     let _ = writeln!(
         w,
-        "        let n = r.count()?; let code = r.bytes(n)?.to_vec();"
+        "        let strings = crate::pool::Strings::decode(&mut r, bytes, lent)?;"
     );
+    // The bytecode and data pools stay in a static plan's bytes.
     let _ = writeln!(
         w,
-        "        let n = r.count()?; let at = bytes.len() - r.remaining(); let pool = r.bytes(n)?; let data: std::borrow::Cow<'static, [u8]> = match lent {{ Some(lent) => std::borrow::Cow::Borrowed(&lent[at..at + n]), None => std::borrow::Cow::Owned(pool.to_vec()) }};"
+        "        let lend = |r: &mut Reader| -> Result<std::borrow::Cow<'static, [u8]>, PlanError> {{ let n = r.count()?; let at = bytes.len() - r.remaining(); let pool = r.bytes(n)?; Ok(match lent {{ Some(lent) => std::borrow::Cow::Borrowed(&lent[at..at + n]), None => std::borrow::Cow::Owned(pool.to_vec()) }}) }};"
     );
+    let _ = writeln!(w, "        let code = lend(&mut r)?;");
+    let _ = writeln!(w, "        let data = lend(&mut r)?;");
     // The rows read through a sticky reader: no branch per field, and the
     // first failing read's error, as an early return would give it.
     let _ = writeln!(w, "        let mut s = crate::bytes::Sticky::new(r);");
     for t in &schema.tables {
         let p = pascal(&t.name);
-        let _ = writeln!(
-            w,
-            "        let n = s.count(); let mut {} = Vec::with_capacity(n.min(crate::bytes::RESERVE)); for _ in 0..n {{ if s.failed() {{ break; }}",
-            t.name
-        );
-        let _ = writeln!(w, "            {} .push({p}Row {{", t.name);
+        // A row's encoded size, every field fixed-width: the rows the bytes
+        // left can hold bound the reservation.
+        let row = row_width(t);
+        let lent = LENT_TABLES.contains(&t.name.as_str());
+        if lent {
+            let _ = writeln!(
+                w,
+                "        let n = s.count(); let at = s.position(); let mut {} = Rows::default();",
+                t.name
+            );
+            let _ = writeln!(
+                w,
+                "        if lent.is_none() {{ {}.to_mut().reserve(s.reserve(n, {row})); }}",
+                t.name
+            );
+        } else {
+            let _ = writeln!(
+                w,
+                "        let n = s.count(); let mut {} = Vec::with_capacity(s.reserve(n, {row}));",
+                t.name
+            );
+        }
+        let _ = writeln!(w, "        for _ in 0..n {{ if s.failed() {{ break; }}");
+        let _ = writeln!(w, "            let row = {p}Row {{");
         for f in &t.fields {
             let expr = match parse_codec(&f.codec) {
                 Codec::U8 => "s.u8()".to_string(),
@@ -682,7 +1172,9 @@ fn main() {
                 Codec::U32 => "s.u32()".to_string(),
                 Codec::I32 => "s.i32()".to_string(),
                 Codec::F64 => "s.f64()".to_string(),
-                Codec::Bool => "s.u8() != 0".to_string(),
+                // 0 or 1, nothing else: a corrupted byte is not a `true`
+                // (a binding's `written` is a claim about its author).
+                Codec::Bool => format!("{{ let v = s.u8(); match v {{ 0 => false, 1 => true, _ => s.fail(PlanError::UnknownEnum {{ table: \"{}\", field: \"{}\", value: v }}, false) }} }}", t.name, f.name),
                 Codec::Str => "StrId(s.u32())".to_string(),
                 Codec::Enum(e) => format!("{{ let v = s.u8(); match {e}::from_wire(v) {{ Some(e) => e, None => s.fail(PlanError::UnknownEnum {{ table: \"{}\", field: \"{}\", value: v }}, {e}::ALL[0]) }} }}", t.name, f.name),
                 Codec::Idx(tt) => format!("{}Id(s.u32())", pascal(&tt)),
@@ -693,8 +1185,20 @@ fn main() {
             };
             let _ = writeln!(w, "                {}: {expr},", f.name);
         }
-        let _ = writeln!(w, "            }});");
+        let _ = writeln!(w, "            }};");
+        if lent {
+            let _ = writeln!(
+                w,
+                "            if lent.is_none() {{ {}.to_mut().push(row); }}",
+                t.name
+            );
+        } else {
+            let _ = writeln!(w, "            {}.push(row);", t.name);
+        }
         let _ = writeln!(w, "        }}");
+        if lent {
+            let _ = writeln!(w, "        if let Some(bytes) = lent {{ if !s.failed() {{ {} = Rows::lent(&bytes[at..s.position()]); }} }}", t.name);
+        }
     }
     let _ = writeln!(w, "        let r = s.finish()?;");
     let _ = writeln!(

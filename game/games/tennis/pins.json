@@ -1,17 +1,27 @@
 {
   "ticks": {
-    "0": "0x8c5dca88afc8d546",
-    "1420": "0xe43cabcb943cc28d"
+    "0": "0xe01436f6f27402f7",
+    "1420": "0xabf0724dcb9e3028"
   },
   "saves": {
-    "continuation": "b894031b43d73bd11741458cea6ad5a4dc07d6c4960d18367e5b5aed6e3f43d9"
+    "continuation": "a4533ed0c51b730185823c41ad629cd1a490ba3e032509552328f875569051c6"
   },
   "hosts": [
     "linux",
     "web"
   ],
-  "inputs": "616e6d12ec5ad7eb2feb05a4544907355606674186ec7227bc58729dbdd1fdf3",
+  "modes": [
+    "0",
+    "1",
+    "fresh-game"
+  ],
+  "profiles": [
+    "gpu-dev"
+  ],
+  "inputs": "be7cfdf994acc5a138757beba0065f217323c5f41cc7172ddb4ac3b40c60426f",
+  "sourceInputs": "48699d34f423e0acc8ea387d242effc2e9da7e7902c61de9b63f28836241a582",
   "game": "tennis",
-  "generated": "bun game/prove.mjs tennis --hosts linux,web",
-  "at": "dc607bbfb6bab1a757ea552a74824e4cb4c9ba47"
+  "generated": "bun game/prove.mjs tennis --repin --hosts 'linux,web'",
+  "at": "ebd4492498fce858ed4e66dc31e99dc80dda7e11",
+  "reason": "EXSIM v8 (player: u8, pads) over EXGAME v6: continuation bytes change; tick hashes unchanged"
 }

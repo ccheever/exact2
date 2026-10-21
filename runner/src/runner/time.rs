@@ -65,10 +65,14 @@ impl<D: DataSource> Runner<D> {
         }
         let previous = self.time;
         self.time = time;
-        let which = (0..self.plan.resources.len())
+        let which: Vec<usize> = (0..self.plan.resources.len())
             .filter(|i| self.plan.str(self.plan.resources[*i].source) == SOURCE)
             .collect();
-        let result = self.recommit(which, "time");
+        let result = if which.is_empty() && !self.live_times.is_empty() {
+            self.tick_live_times()
+        } else {
+            self.recommit(which, "time")
+        };
         if result.is_err() {
             self.time = previous;
         }
@@ -117,7 +121,11 @@ impl<D: DataSource> Runner<D> {
             })
             .collect();
         if which.is_empty() && written.is_none() {
-            return Ok(None);
+            return if self.live_times.is_empty() {
+                Ok(None)
+            } else {
+                self.tick_live_times()
+            };
         }
         let result = self.commit_again(which, "place");
         if result.is_err() {
@@ -144,6 +152,16 @@ impl<D: DataSource> Runner<D> {
             drop(queue);
             wake();
         })));
+    }
+
+    /// Every topic a current answer watches, once each, sorted: what a host
+    /// that announces on its own behalf (a document watch, LLP 1069.010.000
+    /// D1) must listen for after a commit.
+    pub fn watched_topics(&self) -> Vec<String> {
+        let mut topics: Vec<String> = self.watching.iter().flatten().cloned().collect();
+        topics.sort();
+        topics.dedup();
+        topics
     }
 
     /// Whether a topic was announced since the last [`Runner::apply_announced`].
@@ -173,10 +191,37 @@ impl<D: DataSource> Runner<D> {
 
     /// The device says `topic` changed (LLP 1016.002): every resource whose
     /// answer watches it is asked again, in one commit; none, no commit.
+    ///
+    /// @ref LLP 1016.002 D4 — a resource with a request in flight is not
+    /// asked now: forgetting that request would drop its reply, and a topic
+    /// that changes faster than the source answers would starve the
+    /// resource. The request is marked instead; its reply lands as any
+    /// reply does, and that commit asks the resource again, forced, once
+    /// however many announcements came meanwhile.
     pub fn changed(&mut self, topic: &str) -> Result<Option<CommitReceipt>, RunnerError> {
-        let which = (0..self.watching.len())
-            .filter(|i| self.watching[*i].iter().any(|t| t == topic))
-            .collect();
+        let mut which = Vec::new();
+        for i in 0..self.watching.len() {
+            if !self.watching[i].iter().any(|t| t == topic) {
+                continue;
+            }
+            // A stream keeps no reply to wait for, and a refused request
+            // never ran: those are asked now, as before.
+            let flight = self.pending.iter_mut().find(|p| {
+                p.target == crate::Target::Resource(i)
+                    && p.stream.is_none()
+                    && !p.refused
+                    && p.refusal.is_none()
+            });
+            match flight {
+                Some(p) if p.ask_again => {}
+                Some(p) => {
+                    p.ask_again = true;
+                    let (ticket, name) = (p.ticket, self.target_name(crate::Target::Resource(i)));
+                    self.log(super::lines::waits_for(topic, ticket, &name));
+                }
+                None => which.push(i),
+            }
+        }
         self.recommit(which, "changed")
     }
 

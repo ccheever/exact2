@@ -6,9 +6,11 @@
 // and this file is the runner's half between them: the kernel's motion seam
 // (each registered node's targets and `transition` at every commit, rt.js
 // `mo`), the holds `motion-glue.js` asks for, and the actions they end in.
+import { inertAncestor } from './navigation.js';
 import { motionController } from './motion-glue.js';
 import { transformDrags } from './transform.js';
 import { arrangeDrags } from './arrange.js';
+import { dragTarget } from './drag-target.js';
 
 export async function engine({ clock, wall, views, viewId, hooks, say, inflight }) {
   const bytes = globalThis.__files ? globalThis.__files('motion.wasm') : await fetch(new URL('motion.wasm', document.baseURI)).then(r => r.arrayBuffer());
@@ -26,9 +28,10 @@ export async function engine({ clock, wall, views, viewId, hooks, say, inflight 
       const [kind, id, p] = [f[i], f[i + 1], PROPS[f[i + 2]]];
       if (kind === 2) { out.push({ op: 'animate', id, property: p, delay: 0, duration: 0, values: [] }); i += 3; continue; }
       const k = f[i + 6], values = [];
-      for (let j = 0; j < k; j++) values.push(p === 'translate' ? [f[i + 7 + 2 * j], f[i + 8 + 2 * j]] : f[i + 7 + 2 * j]);
+      // Four numbers a frame: translate's lengths, then its percentages.
+      for (let j = 0, at = i + 7; j < k; j++, at += 4) values.push(p === 'translate' ? (f[at + 2] || f[at + 3] ? [f[at], f[at + 1], f[at + 2], f[at + 3]] : [f[at], f[at + 1]]) : f[at]);
       out.push({ op: 'animate', id, property: p, at: f[i + 3] * 1000, delay: f[i + 4] * 1000, duration: f[i + 5] * 1000, values });
-      i += 7 + 2 * k;
+      i += 7 + 4 * k;
     }
     return out;
   };
@@ -38,15 +41,18 @@ export async function engine({ clock, wall, views, viewId, hooks, say, inflight 
   const held = view => [...holds.values()].includes(view);
   const ended = serial => { const view = holds.get(serial); holds.delete(serial); if (!held(view)) authored.delete(view); };
   // `[translate, scale, rotate, opacity, transition]` as the plan binds them:
-  // translate is one or two pixel lengths (kernel `parse_translate`), rotate
-  // degrees; a value the row refuses is the row's initial one.
+  // translate is one or two lengths in px or percentages of the box (kernel
+  // `space::translate`), rotate degrees; a value the row refuses is the
+  // row's initial one.
   const num = (v, d) => { const n = typeof v === 'number' ? v : parseFloat(v); return Number.isFinite(n) ? n : d; };
   const observe = (id, [tr, scale, rotate, opacity, transition]) => {
     let n = nodes.get(id);
     if (!n) nodes.set(id, n = {});
-    const [x, y = 0] = typeof tr === 'string' ? tr.trim().split(/\s+/).map(p => num(p, 0)) : [0, 0];
+    const parts = typeof tr === 'string' ? tr.trim().split(/\s+/) : [];
+    const axis = p => p.endsWith('%') ? [0, num(p.slice(0, -1), 0)] : [num(p, 0), 0];
+    const [[x, px], [y, py]] = [axis(parts[0] ?? '0'), axis(parts[1] ?? '0')];
     if (n.transition !== transition) { n.transition = transition; if (!w.m_transitions(id, put(transition ?? '')) && transition) say(`motion: transition ${JSON.stringify(transition)} refused`); }
-    if (!w.m_observe(id, x, y, num(scale, 1), num(rotate, 0), num(opacity, 1), now() / 1000)) say(`motion: targets for #${id} refused`);
+    if (!w.m_observe(id, x, y, px, py, num(scale, 1), num(rotate, 0), num(opacity, 1), now() / 1000)) say(`motion: targets for #${id} refused`);
   };
   const ops = list => ({ ops: list, timers: false });
   const applyBatch = batch => {
@@ -126,10 +132,14 @@ export async function engine({ clock, wall, views, viewId, hooks, say, inflight 
   // first valid target, never stolen by a second).
   const handles = new Map(), heights = new Map();
   let owner = null;
-  const eligible = el => el?.isConnected && !el.closest('[inert],[disabled]') && el.getClientRects().length > 0;
+  const eligible = el => el?.isConnected && !inertAncestor(el) && !el.closest('[disabled]') && el.getClientRects().length > 0;
   function reconcileHeights() {
+    for (const b of handles.values()) {
+      const target = dragTarget(b.el, 'heightdragfor');
+      b.target = target ? viewId(target) : null;
+    }
     const valid = t => heights.has(t) && typeof heights.get(t)[0] === 'number' && eligible(views.get(t)) && getComputedStyle(views.get(t)).boxSizing === 'border-box';
-    const targets = [...handles.values()].map(b => b.target).filter(t => t != null && valid(t));
+    const targets = [...handles.values()].filter(b => eligible(b.el)).map(b => b.target).filter(t => t != null && valid(t));
     const next = owner != null && targets.includes(owner) ? owner : targets[0] ?? null;
     if (next !== owner) {
       if (owner != null && w.m_unheight(owner)) api.retire(owner, 'height');
@@ -148,8 +158,8 @@ export async function engine({ clock, wall, views, viewId, hooks, say, inflight 
     if (n.transition !== transition) { n.transition = transition; w.m_transitions(id, put(transition ?? '')); }
     w.m_height(id, h, now() / 1000);
   }
-  const api = motionController({ views, now, generation: () => 0, request, applyBatch, inert: el => !!el.closest('[inert]') });
-  const T = transformDrags({ w, views, viewId, api, lower, ops, now, authored, holds, held, eligible, inflight });
+  const api = motionController({ views, now, generation: () => 0, request, applyBatch, inert: inertAncestor });
+  const T = transformDrags({ w, views, viewId, api, lower, ops, now, authored, holds, held, eligible, inflight, say });
   const A = arrangeDrags({ w, views, viewId, api, lower, ops, now, applyBatch, authored, holds, held, hooks, After: globalThis.exact.After });
   // A list's wrappers during a preview are motion nodes too (list.js).
   hooks.observe = observe;
@@ -172,13 +182,13 @@ export async function engine({ clock, wall, views, viewId, hooks, say, inflight 
     observe,
     // After each commit's tree: lower what it changed, then retire what no
     // longer qualifies (glue.js `applyBatch`'s tail).
-    flush() { reconcileHeights(); applyBatch(ops([...T.reconcile(), ...lower()])); api.commit(); A.reconcile(); },
+    flush() { A.before(); reconcileHeights(); applyBatch(ops([...T.reconcile(), ...lower()])); api.commit(); api.followTimelines(); A.reconcile(); },
     reorderHandle(el) { A.handle(el); A.reconcile(); },
-    transformDrag(el, target, clip) { T.attach(el, target, clip); T.reconcile(); },
+    transformDrag(el) { T.attach(el); T.reconcile(); },
     height(id, v) { heights.set(id, v); observeHeight(id, v); },
-    heightDrag(el, target) {
+    heightDrag(el) {
       const id = viewId(el);
-      handles.set(id, { el, target: target ? viewId(target) : null, published: undefined });
+      handles.set(id, { el, target: null, published: undefined });
       api.attachHeightDrag(el, id, (t, g) => el.addEventListener(t, g));
       reconcileHeights();
     },

@@ -1,26 +1,21 @@
 //! LLP 1017 P6: named styles, proven on the kernel's rows after boot.
-
 use exact_kernel::{Color, Dimension, Kernel, WhiteSpace};
 use exact_plan::Value;
 use exact_runner::{DataError, DataSource, Runner};
 use std::path::Path;
-
 #[derive(Default)]
 struct NoData;
-
 impl DataSource for NoData {
     fn query(&mut self, source: &str, _: &[Value]) -> Result<Value, DataError> {
         Err(DataError::UnknownSource(source.into()))
     }
 }
-
 fn corpus(name: &str) -> String {
     let path = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../corpus")
         .join(name);
     std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("{}: {e}", path.display()))
 }
-
 #[test]
 fn a_class_applies_its_style_and_the_nodes_own_attribute_wins() {
     let plan = contract::compile(&corpus("styles.contract")).unwrap();
@@ -41,26 +36,31 @@ fn a_class_applies_its_style_and_the_nodes_own_attribute_wins() {
     let card = style_of("card");
     assert_eq!(card.padding_top, Dimension::Points(16.0));
     assert_eq!(card.padding_left, Dimension::Points(16.0));
-    assert_eq!(card.border_radius_top_left, 16.0);
+    assert_eq!(
+        card.border_radius_top_left,
+        exact_kernel::Dimension::Points(16.0)
+    );
     assert_eq!(card.row_gap, 10.0);
     assert_eq!(
         card.background_color,
-        Color::parse_hex("#ffffffd9").unwrap().into(),
+        Some(Color::parse_hex("#ffffffd9").unwrap().into()),
         "`rgba(255, 255, 255, 0.85)` is `#ffffffd9`"
     );
     let tight = style_of("tight");
     assert_eq!(tight.padding_top, Dimension::Points(4.0));
     assert_eq!(tight.padding_bottom, Dimension::Points(4.0));
-    assert_eq!(tight.border_radius_top_left, 16.0);
+    assert_eq!(
+        tight.border_radius_top_left,
+        exact_kernel::Dimension::Points(16.0)
+    );
     assert_eq!(
         tight.background_color,
-        Color::parse_hex("#000000").unwrap().into()
+        Some(Color::parse_hex("#000000").unwrap().into())
     );
     // A `calc()` of a percentage and a length is one row, not text.
     assert_eq!(style_of("calc").width, Dimension::Calc(100.0, -89.0));
     assert_eq!(tight.white_space, WhiteSpace::Nowrap);
 }
-
 #[test]
 fn a_class_chooses_between_two_styles_by_state() {
     let plan = contract::compile(&corpus("styles.contract")).unwrap();
@@ -81,7 +81,7 @@ fn a_class_chooses_between_two_styles_by_state() {
     let (chip_id, idle) = chip(&r);
     assert_eq!(
         idle.background_color,
-        Color::parse_hex("#cccccc").unwrap().into()
+        Some(Color::parse_hex("#cccccc").unwrap().into())
     );
     assert_eq!(idle.opacity, 0.5);
     // Only `Active` sets padding: the kernel's default while `Idle` is chosen.
@@ -90,7 +90,7 @@ fn a_class_chooses_between_two_styles_by_state() {
     let (_, active) = chip(&r);
     assert_eq!(
         active.background_color,
-        Color::parse_hex("#0000ff").unwrap().into()
+        Some(Color::parse_hex("#0000ff").unwrap().into())
     );
     assert_eq!(active.opacity, 1.0);
     assert_eq!(active.padding_top, Dimension::Points(12.0));
@@ -100,7 +100,6 @@ fn a_class_chooses_between_two_styles_by_state() {
     assert_eq!(again.opacity, 0.5);
     assert_eq!(again.padding_top, Dimension::Points(0.0));
 }
-
 #[test]
 fn a_style_is_refused_with_the_css_name_for_an_old_spelling() {
     let src =
@@ -109,7 +108,6 @@ fn a_style_is_refused_with_the_css_name_for_an_old_spelling() {
     assert_eq!(e.id, "lower-unknown-attr");
     assert!(e.message.contains("`border-radius`"), "{e}");
 }
-
 #[test]
 fn attribute_typos_suggest_only_unambiguous_accepted_spellings() {
     for (typo, correct, value) in [
@@ -161,18 +159,17 @@ fn attribute_typos_suggest_only_unambiguous_accepted_spellings() {
     let error = contract::compile("component App\n  view\n    view tesId=\"x\"\n").unwrap_err();
     assert!(error.message.contains("did you mean `testId`"), "{error}");
 }
-
 #[test]
 fn enum_refusals_list_accepted_values_and_each_suggestion_compiles() {
     use exact_kernel::StyleId;
     for (attr, row, invalid) in [
         ("align-items", StyleId::AlignItems, "middle"),
         ("display", StyleId::Display, "flexbox"),
-        ("overflow", StyleId::OverflowX, "clip"),
+        ("overflow", StyleId::OverflowX, "truncate"),
         ("object-fit", StyleId::ObjectFit, "stretch"),
         ("font-style", StyleId::FontStyle, "slanted"),
-        ("position", StyleId::PositionType, "sticky"),
-        ("border-style", StyleId::BorderStyleTop, "dashed"),
+        ("position", StyleId::PositionType, "fixed"),
+        ("border-style", StyleId::BorderStyleTop, "double"),
         ("align-self", StyleId::AlignSelf, "middle"),
         (
             "overscroll-behavior",
@@ -191,7 +188,14 @@ fn enum_refusals_list_accepted_values_and_each_suggestion_compiles() {
         ),
         ("scrollbar-width", StyleId::ScrollbarWidth, "wide"),
         ("scroll-behavior", StyleId::ScrollBehavior, "instant"),
+        (
+            "background-attachment",
+            StyleId::BackgroundAttachment,
+            "local",
+        ),
         ("touch-action", StyleId::TouchAction, "swipe"),
+        ("cursor", StyleId::Cursor, "hand"),
+        ("dynamic-range-limit", StyleId::DynamicRangeLimit, "high"),
     ] {
         for named_style in [false, true] {
             let source = if named_style {
@@ -203,6 +207,8 @@ fn enum_refusals_list_accepted_values_and_each_suggestion_compiles() {
             assert_eq!(error.id, "lower-attr-value");
             assert_eq!(error.span.line, if named_style { 2 } else { 3 });
             let values = error.message.split_once("expected one of ").unwrap().1;
+            // A hint may follow the list (`position="fixed"`'s).
+            let values = values.split_once("; ").map_or(values, |(list, _)| list);
             let expected = row
                 .enum_names()
                 .iter()
@@ -248,7 +254,6 @@ fn enum_refusals_list_accepted_values_and_each_suggestion_compiles() {
         "narrow authoring rule remains authoritative"
     );
 }
-
 #[test]
 fn nowrap_and_tabular_nums_reach_the_kernel_and_other_numeric_keywords_are_refused_by_name() {
     // @ref LLP 1053 §0 G4, G5
@@ -290,7 +295,20 @@ fn nowrap_and_tabular_nums_reach_the_kernel_and_other_numeric_keywords_are_refus
         "{error}"
     );
 }
-
+#[test]
+fn text_wrap_balance_shorthand_and_longhand_reach_the_kernel() {
+    let source = "component App\n  view\n    column text-wrap=\"balance\"\n      text \"Settle every thread in this section and keep the newest one open\" testId=\"balanced\"\n      text \"Plain\" text-wrap-style=\"auto\" testId=\"auto\"\n";
+    let r = boot(source);
+    let row = exact_kernel::StyleId::TextWrapStyle;
+    for (id, expected) in [("balanced", "balance"), ("auto", "auto")] {
+        let node = r
+            .kernel()
+            .node_by_key(r.kernel().find_by_test_id(id)[0])
+            .unwrap();
+        let style = node.computed_style(exact_kernel::StyleMask::INHERITED);
+        assert_eq!(style.get(row), exact_kernel::RowValue::Enum(expected));
+    }
+}
 #[test]
 fn auto_enum_literals_in_branches_keep_dimension_refusals_separate() {
     let source = "component App\n  state chosen = true\n  view\n    view testId=\"target\" align-self=(chosen ? \"auto\" : \"center\") width=\"auto\"\n";
@@ -415,7 +433,7 @@ fn direction_is_css_direction() {
 /// computed value, a `light-dark()` arm and a border side.
 #[test]
 fn transparent_is_a_colour() {
-    let src = "component A\n  state on = false\n  action flip writes on\n    on = not on\n  view\n    column\n      button testId=\"flip\" press=flip width=10 height=10\n      box testId=\"box\" background-color=\"transparent\" color=(on ? \"#ff0000\" : \"TRANSPARENT\") border-color=\"transparent currentcolor\"\n      text \"a\" testId=\"text\" background-color=\"light-dark(transparent, #000000)\"\n";
+    let src = "component A\n  state on = false\n  action flip\n    on = not on\n  view\n    column\n      button testId=\"flip\" press=flip width=10 height=10\n      box testId=\"box\" background-color=\"transparent\" color=(on ? \"#ff0000\" : \"TRANSPARENT\") border-color=\"transparent currentcolor\"\n      text \"a\" testId=\"text\" background-color=\"light-dark(transparent, #000000)\"\n";
     let plan = contract::compile(src).unwrap_or_else(|e| panic!("{e}"));
     let plan = contract::bake(plan, NoData).unwrap();
     let mut r = Runner::boot(
@@ -435,12 +453,15 @@ fn transparent_is_a_colour() {
             .clone()
     }
     let b = style(&r, "box");
-    assert_eq!(b.background_color, clear.into());
+    assert_eq!(b.background_color, Some(clear.into()));
     assert_eq!(b.text_color, clear.into());
     assert_eq!(b.border_colors(clear.into())[0], clear.into());
     assert_eq!(
         style(&r, "text").background_color,
-        exact_kernel::ColorValue::LightDark(clear, Color::parse_hex("#000000").unwrap())
+        Some(exact_kernel::ColorValue::LightDark(
+            clear,
+            Color::parse_hex("#000000").unwrap()
+        ))
     );
     let flip = {
         let k = r.kernel();
@@ -477,21 +498,17 @@ fn background_image_takes_one_gradient_and_refuses_the_rest_by_name() {
     assert_eq!(style_of(&r, "c").background_image.gradient(), None);
     for (value, says) in [
         (
-            "repeating-linear-gradient(#000, #fff 10%)",
-            "repeating-linear-gradient() is not implemented",
-        ),
-        (
-            "conic-gradient(#000, #fff)",
-            "conic gradients are not implemented",
+            "repeating-conic-gradient(#000, #fff)",
+            "repeating-conic-gradient() is not implemented",
         ),
         ("url(a.png)", "an image as a background is not implemented"),
         (
-            "linear-gradient(#000, #fff), linear-gradient(#fff, #000)",
-            "several background layers",
+            "linear-gradient(#000, #fff), linear-gradient(#000, #fff), linear-gradient(#000, #fff), linear-gradient(#000, #fff), linear-gradient(#fff, #000)",
+            "at most four background layers",
         ),
-        ("linear-gradient(red, blue)", "a stop's colour is"),
+        ("linear-gradient(red, blurple)", "a stop's colour is"),
         (
-            "linear-gradient(#000 10px, #fff)",
+            "linear-gradient(#000 10, #fff)",
             "a stop's position is a percentage",
         ),
     ] {
@@ -499,15 +516,56 @@ fn background_image_takes_one_gradient_and_refuses_the_rest_by_name() {
         assert_eq!(e.id, "lower-attr-value", "{value}: {e}");
         assert!(e.message.contains(says), "{value}: {e}");
     }
-    let e = refused("background-image=(true ? \"none\" : \"conic-gradient(#000, #fff)\")");
+    let e =
+        refused("background-image=(true ? \"none\" : \"repeating-conic-gradient(#000, #fff)\")");
     assert!(e.message.contains("conic"), "{e}");
+    // A computed value's own text (studio diary R15: a grid the web painted
+    // and the Mac dropped): the function it names is refused on every target.
+    let e = refused(
+        "background-image=`repeating-radial-gradient(#0001 0 1px, transparent 1px ${10}px)`",
+    );
+    assert_eq!(e.id, "lower-attr-value", "{e}");
+    assert!(
+        e.message
+            .contains("repeating-radial-gradient() is not implemented"),
+        "{e}"
+    );
+    let e = refused("mask-image=(true ? `url(${\"a\"}.png)` : \"none\")");
+    assert!(e.message.contains("image as a background"), "{e}");
+    let hatch = boot("component App\n  state stop = 5.657\n  view\n    view testId=\"hatch\" background-image=`repeating-linear-gradient(-45deg, transparent 0 4.243px, #e6e6e6 4.243px ${stop}px)`\n");
+    assert!(
+        style_of(&hatch, "hatch")
+            .background_image
+            .gradient()
+            .unwrap()
+            .repeating
+    );
+    let fine = boot("component App\n  state stop = 40\n  view\n    view background-image=`linear-gradient(#000, #fff ${stop}%)` testId=\"a\"\n");
+    assert!(style_of(&fine, "a").background_image.gradient().is_some());
+}
+
+#[test]
+fn backdrop_saturation_is_admitted_alone_and_beside_blur() {
+    for value in [
+        "saturate(0)",
+        "saturate(1.14)",
+        "saturate(180%)",
+        "saturate()",
+        "blur(12px) saturate(1.14)",
+        "saturate(180%) blur(4px)",
+    ] {
+        contract::compile(&format!(
+            "component App\n  view\n    box backdrop-filter=\"{value}\"\n"
+        ))
+        .unwrap_or_else(|e| panic!("{value}: {e}"));
+    }
 }
 
 #[test]
 fn pre_and_backdrop_filter_reach_the_kernel_and_the_rest_of_css_filters_is_refused_by_name() {
     // @ref LLP 1053 G5; LLP 1053.000 D1 — a dynamic value takes the same
     // grammar at run time as a literal at compile time.
-    let source = "component App\n  state blur = 8\n  view\n    main\n      box testId=\"glass\" backdrop-filter=\"blur(\" + toString(blur) + \"px)\"\n        text \"a\\tb\" testId=\"code\" white-space=\"pre\"\n      box testId=\"plain\" backdrop-filter=\"none\"\n";
+    let source = "component App\n  state blur = 8\n  state saturation = 1.14\n  view\n    main\n      box testId=\"glass\" backdrop-filter=\"blur(\" + blur.toString() + \"px) saturate(\" + saturation.toString() + \" )\"\n        text \"a\\tb\" testId=\"code\" white-space=\"pre\"\n      box testId=\"plain\" backdrop-filter=\"none\"\n";
     let plan = contract::compile(source).unwrap();
     let r = Runner::boot(
         plan,
@@ -525,10 +583,13 @@ fn pre_and_backdrop_filter_reach_the_kernel_and_the_rest_of_css_filters_is_refus
             .clone()
     };
     assert_eq!(style("code").white_space, exact_kernel::WhiteSpace::Pre);
-    assert_eq!(style("glass").backdrop_blur, 8.0);
-    assert_eq!(style("plain").backdrop_blur, 0.0);
+    assert_eq!(
+        style("glass").backdrop_filter.css(),
+        "blur(8px) saturate(1.14)"
+    );
+    assert_eq!(style("plain").backdrop_filter.css(), "none");
     for (value, named) in [
-        ("blur(20px) saturate(180%)", "`saturate()` is CSS"),
+        ("saturate(-1)", "nonnegative"),
         ("brightness(1.2)", "`brightness()` is CSS"),
         ("url(#f)", "`url()` is CSS"),
         ("blur(2em)", "a length in px"),
@@ -540,29 +601,178 @@ fn pre_and_backdrop_filter_reach_the_kernel_and_the_rest_of_css_filters_is_refus
         assert_eq!(error.id, "lower-attr-value");
         assert!(error.message.contains(named), "{error}");
     }
-    // @ref LLP 1053.000 D4 — every platform material by name; others refused.
-    for name in [
-        "ultra-thin",
-        "chrome-dark",
-        "prominent",
-        "sidebar",
-        "hud-window",
-        "glass-clear",
+}
+
+/// LLP 1053.000.000.000 D1: `glassGroup="auto"`, alone or in a choice with
+/// numbers (nested too), lowers to the reserved `-1`; every literal arm is a
+/// spacing from 0 to 10,000; any other string is refused.
+#[test]
+fn a_glass_group_may_take_its_spacing_from_its_gap() {
+    use exact_kernel::{PropId, PropValue};
+    let plan = contract::compile(
+        r#"component App
+  state wide = true
+  state inner = true
+  action flip
+    wide = not wide
+  action turn
+    inner = not inner
+  view
+    column
+      row testId="auto" glassGroup="auto" gap=8
+      row testId="choice" glassGroup=(wide ? "auto" : 12)
+      row testId="nested" glassGroup=(wide ? (inner ? 4 : "auto") : 12)
+      Group(spacing="auto")
+      button testId="flip" press=flip
+        text "flip"
+      button testId="turn" press=turn
+        text "turn"
+component Group
+  props
+    spacing: string
+  state on = true
+  derive mode = "auto"
+  view
+    column
+      row testId="forwarded" glassGroup=(on ? "auto" : spacing)
+      row testId="shared" glassGroup=(on ? mode : mode)
+"#,
+    )
+    .unwrap();
+    let plan = contract::bake(plan, NoData).unwrap();
+    let mut r = Runner::boot(
+        plan,
+        NoData,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    let spacing = |r: &Runner<NoData>, id: &str| {
+        let k = r.kernel();
+        k.node_by_key(k.find_by_test_id(id)[0])
+            .unwrap()
+            .props
+            .get(PropId::GlassGroup)
+            .cloned()
+    };
+    assert_eq!(spacing(&r, "auto"), Some(PropValue::Float(-1.0)));
+    assert_eq!(spacing(&r, "choice"), Some(PropValue::Float(-1.0)));
+    assert_eq!(spacing(&r, "nested"), Some(PropValue::Float(4.0)));
+    // A component's derive read twice is a `let` (both reviews of the build).
+    assert_eq!(spacing(&r, "shared"), Some(PropValue::Float(-1.0)));
+    // A component's string prop forwarding "auto" (astra's review).
+    assert_eq!(spacing(&r, "forwarded"), Some(PropValue::Float(-1.0)));
+    let id = |r: &Runner<NoData>, t: &str| {
+        let k = r.kernel();
+        k.node_by_key(k.find_by_test_id(t)[0]).unwrap().id
+    };
+    // The nested "auto" arm, reached.
+    let turn = id(&r, "turn");
+    r.dispatch(turn, exact_runner::Event::Press).unwrap();
+    assert_eq!(spacing(&r, "nested"), Some(PropValue::Float(-1.0)));
+    let flip = id(&r, "flip");
+    r.dispatch(flip, exact_runner::Event::Press).unwrap();
+    assert_eq!(spacing(&r, "choice"), Some(PropValue::Float(12.0)));
+    assert_eq!(spacing(&r, "nested"), Some(PropValue::Float(12.0)));
+    for (value, id, says) in [
+        ("\"wide\"", "lower-attr-value", "or `\"auto\"`"),
+        // Only the literal `"auto"` is a spacing; another string in a choice is refused.
+        ("(w ? \"wide\" : 4)", "lower-attr-value", "or `\"auto\"`"),
+        ("(w ? \"auto\" : -2)", "lower-attr-value", "from 0 to 10000"),
+        ("(w ? 20000 : 4)", "lower-attr-value", "from 0 to 10000"),
+        // A shared derive's spacing is range-checked through its `let`.
+        (
+            "(w ? (w ? -2 : 8) : (w ? -2 : 8))",
+            "lower-attr-value",
+            "from 0 to 10000",
+        ),
     ] {
-        contract::compile(&format!(
-            "component App\n  view\n    box backgroundMaterial=\"{name}\"\n"
-        ))
-        .unwrap();
+        let source =
+            format!("component App\n  state w = true\n  view\n    box glassGroup={value}\n");
+        let error = contract::compile(&source).unwrap_err();
+        assert_eq!(error.id, id, "{value}: {error:?}");
+        assert!(error.message.contains(says), "{value}: {error:?}");
     }
-    let error =
-        contract::compile("component App\n  view\n    box backgroundMaterial=\"frosted\"\n")
-            .unwrap_err();
-    assert!(
-        error
-            .message
-            .contains("`backgroundMaterial=\"frosted\"` is not a material; materials: ultra-thin,"),
-        "{error}"
-    );
+}
+
+/// LLP 1053.000.000 D1, D6: `glassGroup` is a float prop in points that
+/// makes no containing block, refused out of range and where a group cannot
+/// be: beside the element's own material, on a scroll, on a canvas.
+#[test]
+fn a_glass_group_is_a_spacing_and_refused_where_it_cannot_group() {
+    use exact_kernel::{PositionType::Static, PropId, PropValue};
+    let plan = contract::compile(
+        r#"component App
+  state gap = 8
+  view
+    column
+      row testId="group" glassGroup=12
+        box testId="lit" backgroundMaterial="glass"
+        box position="absolute"
+      row testId="bound" glassGroup=gap
+"#,
+    )
+    .unwrap();
+    let plan = contract::bake(plan, NoData).unwrap();
+    let r = Runner::boot(
+        plan,
+        NoData,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    let k = r.kernel();
+    for (id, spacing) in [("group", 12.0), ("bound", 8.0)] {
+        let node = k.node_by_key(k.find_by_test_id(id)[0]).unwrap();
+        assert_eq!(
+            node.props.get(PropId::GlassGroup),
+            Some(&PropValue::Float(spacing)),
+            "{id}"
+        );
+        // A group holding an absolute child is not its containing block.
+        assert_eq!(node.style.position_type, Static, "{id}");
+    }
+    for (source, id, says) in [
+        ("box glassGroup=-1", "lower-attr-value", "from 0 to 10000"),
+        (
+            "box glassGroup=20000",
+            "lower-attr-value",
+            "from 0 to 10000",
+        ),
+        (
+            "box glassGroup=4 backgroundMaterial=\"glass\"",
+            "lower-glass-group",
+            "put the group on the parent",
+        ),
+        (
+            "box glassGroup=4 backdrop-filter=\"blur(8px)\"",
+            "lower-glass-group",
+            "`backdrop-filter`",
+        ),
+        (
+            "box glassGroup=4 overflow=\"scroll\" height=40",
+            "lower-glass-group",
+            "inside the scroll",
+        ),
+        (
+            "scroll glassGroup=4 height=40",
+            "lower-glass-group",
+            "inside the scroll",
+        ),
+        (
+            "canvas glassGroup=4",
+            "lower-glass-group",
+            "child of the canvas",
+        ),
+    ] {
+        let error =
+            contract::compile(&format!("component App\n  view\n    {source}\n")).unwrap_err();
+        assert_eq!(error.id, id, "{source}: {error:?}");
+        assert!(error.message.contains(says), "{source}: {error:?}");
+    }
+    contract::compile("component App\n  view\n    box glassGroup=0 overflow=\"hidden\"\n").unwrap();
 }
 
 /// LLP 1074 T1: `position` is `static` unless authored, except on a box that
@@ -577,7 +787,7 @@ fn a_box_that_clips_transforms_or_animates_is_lowered_relative() {
     column testId="plain"
       box testId="clips" overflow="hidden"
       box testId="moves" translate="4px 0px"
-      box testId="presses" press-scale=0.96
+      box testId="presses" -exact-press-scale=0.96
       box testId="fades" transition="opacity 100ms"
       box testId="glass" backgroundMaterial="glass"
       box testId="dim" opacity=0.5
@@ -587,6 +797,13 @@ fn a_box_that_clips_transforms_or_animates_is_lowered_relative() {
       box testId="pinned" position="absolute" overflow="hidden"
       box testId="named" position="relative"
       box testId="open" overflow="visible"
+      box testId="clips-holding" overflow="hidden"
+        box position="absolute"
+      box testId="clips-a-component" overflow="hidden"
+        Pin()
+component Pin
+  view
+    box position="absolute"
 "#,
     )
     .unwrap();
@@ -602,10 +819,13 @@ fn a_box_that_clips_transforms_or_animates_is_lowered_relative() {
     let k = r.kernel();
     for (id, position) in [
         ("plain", Static),
-        ("clips", Relative),
-        ("moves", Relative),
-        ("presses", Relative),
-        ("fades", Relative),
+        // Nothing absolute can be under them (exp/clip-narrow).
+        ("clips", Static),
+        ("moves", Static),
+        ("presses", Static),
+        ("fades", Static),
+        ("clips-holding", Relative),
+        ("clips-a-component", Relative),
         ("glass", Relative),
         ("dim", Static),
         ("raised", Static),
@@ -635,7 +855,9 @@ fn a_box_that_clips_transforms_or_animates_is_lowered_relative() {
     .unwrap_err();
     assert_eq!(error.id, "lower-attr-value");
     assert!(
-        error.message.contains("must be `relative` or `absolute`"),
+        error
+            .message
+            .contains("must be `relative`, `absolute` or `sticky`"),
         "{error:?}"
     );
     contract::compile(
@@ -670,6 +892,83 @@ fn logical_alignment_keywords_compile_from_the_schema() {
 }
 
 #[test]
+fn css_grid_rows_compile_with_the_closed_kernel_grammar() {
+    contract::compile(
+        r#"component App
+  state alternate = false
+  view
+    box display="grid" grid-template-columns=(alternate ? "repeat(2, minmax(80px, 1fr))" : "100px 1fr 25%") grid-template-rows="40px auto" grid-auto-flow="column dense" justify-items="center"
+      box grid-column="-3 / span 2" grid-row="2 / -1"
+"#,
+    )
+    .unwrap();
+
+    for (name, value) in [
+        ("grid-template-columns", "auto"),
+        ("grid-template-rows", "25%"),
+        ("grid-column", "2"),
+        ("grid-row", "auto / span 2"),
+        ("grid-template-columns", "100PX"),
+        (
+            "grid-template-columns",
+            "repeat(auto-fit, minmax(80px, 1fr))",
+        ),
+        ("grid-template-columns", "fit-content(40px)"),
+        ("grid-auto-flow", "DENSE"),
+        ("justify-items", "SAFE CENTER"),
+        ("grid-template-columns", "[\\\\31 foo] 40px"),
+        ("grid-column", "\\\\31 foo / 2"),
+        ("grid-row", "2 /* gap */ / span 2"),
+        ("grid-template-columns", "1e2%"),
+    ] {
+        let source = format!("component App\n  view\n    box {name}=\"{value}\"\n");
+        contract::compile(&source).unwrap_or_else(|e| panic!("{name}={value}: {e}"));
+    }
+
+    contract::compile("component App\n  view\n    box grid-column=2\n").unwrap();
+
+    for (name, value, message) in [
+        (
+            "grid-template-columns",
+            "repeat(2, repeat(2, 40px))",
+            "kernel can lay out",
+        ),
+        (
+            "grid-template-rows",
+            "minmax(1fr, 20px)",
+            "kernel can lay out",
+        ),
+        ("grid-column", "0 / auto", "nonzero or named line"),
+        ("grid-row", "span 0", "nonzero or named line"),
+    ] {
+        let source = format!("component App\n  view\n    box {name}=\"{value}\"\n");
+        let error = contract::compile(&source).unwrap_err();
+        assert_eq!(error.id, "lower-attr-value", "{name}={value}: {error:?}");
+        assert!(error.message.contains(message), "{name}={value}: {error:?}");
+    }
+
+    for (name, value) in [
+        ("grid-template-columns", "subgrid [rails]"),
+        ("grid-template-columns", "10em 1fr"),
+        ("grid-column", "inherit"),
+        ("grid-column", "calc(1 + 1)"),
+        ("justify-items", "last baseline"),
+        ("justify-items", "left legacy"),
+        ("justify-items", "var(--items)"),
+        ("grid-template-columns", "repeat(10001, 1px)"),
+        ("grid-column", "10001"),
+        (
+            "grid-template-columns",
+            "minmax(auto, f\\\\69 t-content(40px))",
+        ),
+    ] {
+        let source = format!("component App\n  view\n    box {name}=\"{value}\"\n");
+        let error = contract::compile(&source).unwrap_err();
+        assert_eq!(error.id, "lower-attr-value", "{name}={value}: {error:?}");
+    }
+}
+
+#[test]
 fn host_context_transform_recipients_contain_absolute_descendants() {
     use exact_kernel::PositionType::{Relative, Static};
     let source = r#"style Panel
@@ -685,7 +984,7 @@ component App
       box class=Panel left=20 top=80 width=200 height=200
         row testId="branch" gap=10
           box contextTarget="bubble" width=100 height=40
-          when shown
+          if shown
             box testId="side" width=40 height=40
               box testId="side-absolute" position="absolute" right=0 bottom=0 width=5 height=5
         box testId="trailing" width=70 height=20
@@ -738,13 +1037,13 @@ fn repeated_context_branches_contain_descendants_in_every_instance() {
     for virtualized in ["", "virtualized=true"] {
         let source = format!(
             r#"component App
-  resource rows = rows() as shape list<string>
+  resource rows = rows() as shape string[]
   view
     column
       box id="bubble" height=10
       box position="absolute" width=200 height=200
         list height=100 {virtualized}
-          each x in rows key=x
+          for x in rows key=x
             box testId=`row-${{x}}` width=100 height=30
               box contextTarget="bubble" width=20 height=10
               box testId=`absolute-${{x}}` position="absolute" right=0 bottom=0 width=5 height=5
@@ -829,5 +1128,369 @@ fn context_source_can_scroll_in_the_authored_root() {
       box position="absolute" left=0 top=70 width=100 height=80
         box contextTarget="bubble" width=50 height=30
 "#,
+    );
+}
+
+#[test]
+fn percentage_corner_radii_survive_boot_and_dynamic_updates() {
+    let plan = contract::compile(
+        r#"
+component Corners
+  state round = false
+  action flip
+    round = not round
+  view
+    button press=flip testId="box" width=160 height=80 border-radius=(round ? "50%" : "4px")
+      view testId="static" border-radius="25%"
+"#,
+    )
+    .unwrap();
+    let mut r = Runner::boot(
+        plan,
+        NoData,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    let style = |r: &Runner<NoData>, name: &str| {
+        let k = r.kernel();
+        let n = k.node_by_key(k.find_by_test_id(name)[0]).unwrap();
+        (n.id, n.style.border_radius_top_left)
+    };
+    let (id, initial) = style(&r, "box");
+    assert_eq!(initial, Dimension::Points(4.0));
+    assert_eq!(style(&r, "static").1, Dimension::Percent(25.0));
+    r.dispatch(id, exact_runner::Event::Press).unwrap();
+    assert_eq!(style(&r, "box").1, Dimension::Percent(50.0));
+}
+
+#[test]
+fn corner_radii_refuse_negative_nonfinite_lengths_percentages_and_auto() {
+    for value in ["-1px", "-1%", "auto", "3e38in"] {
+        let source = format!("component Corners\n  view\n    view border-radius=\"{value}\"\n");
+        assert!(contract::compile(&source).is_err(), "{value}");
+    }
+}
+
+#[test]
+fn overflow_auto_is_a_scroll_container_on_either_axis() {
+    let r = boot("component App\n  view\n    column\n      box overflow=\"auto\" testId=\"both\"\n      box overflow-x=\"auto\" testId=\"x\"\n      box overflow-y=\"auto\" testId=\"y\"\n");
+    use exact_kernel::Overflow;
+    assert_eq!(style_of(&r, "both").overflow_x, Overflow::Auto);
+    assert_eq!(style_of(&r, "both").overflow_y, Overflow::Auto);
+    for name in ["both", "x", "y"] {
+        assert!(matches!(
+            style_of(&r, name).overflow_x,
+            Overflow::Auto | Overflow::Visible
+        ));
+    }
+}
+
+#[test]
+fn css_flex_shorthands_lower_in_order_to_the_longhands() {
+    for (value, grow, shrink, basis) in [
+        ("none", 0.0, 0.0, Dimension::Auto),
+        ("auto", 1.0, 1.0, Dimension::Auto),
+        ("0 1 auto", 0.0, 1.0, Dimension::Auto),
+        ("2", 2.0, 1.0, Dimension::Percent(0.0)),
+        ("2 3", 2.0, 3.0, Dimension::Percent(0.0)),
+        ("2 3 40px", 2.0, 3.0, Dimension::Points(40.0)),
+        ("25%", 1.0, 1.0, Dimension::Percent(25.0)),
+        ("40px 2 3", 2.0, 3.0, Dimension::Points(40.0)),
+        ("1 1 0", 1.0, 1.0, Dimension::Points(0.0)),
+    ] {
+        let r = boot(&format!(
+            "component App\n  view\n    column\n      box testId=\"item\" flex=\"{value}\"\n"
+        ));
+        let s = style_of(&r, "item");
+        assert_eq!(
+            (s.flex_grow, s.flex_shrink, s.flex_basis),
+            (grow, shrink, basis),
+            "{value}"
+        );
+    }
+    let r = boot("component App\n  state on = true\n  view\n    column\n      box testId=\"item\" flex=(on ? \"none\" : \"2 3 40px\") flex-shrink=4\n");
+    assert_eq!(style_of(&r, "item").flex_shrink, 4.0);
+    for value in ["-1", "1 -2 auto", "1 2 3px garbage", "1 2 3"] {
+        assert_eq!(refused(&format!("flex=\"{value}\"")).id, "lower-attr-value");
+    }
+    // A computed basis is the longhands' (Depot): the refusal says so, and
+    // the longhands take it.
+    let e = contract::compile(
+        "component App\n  state w = 200\n  view\n    row\n      view flex=`0 0 ${w}px`\n",
+    )
+    .unwrap_err();
+    assert!(
+        e.message
+            .contains("write the longhands, as in `flex-grow=1 flex-shrink=1 flex-basis=w`"),
+        "{e}"
+    );
+    let r = boot("component App\n  state w = 200\n  view\n    row\n      view flex-grow=1 flex-shrink=0 flex-basis=`${w}px` testId=\"item\"\n");
+    let s = style_of(&r, "item");
+    assert_eq!(
+        (s.flex_grow, s.flex_shrink, s.flex_basis),
+        (1.0, 0.0, Dimension::Points(200.0))
+    );
+}
+
+#[test]
+fn a_zero_minimum_scroller_can_shrink_under_a_bounded_column() {
+    for bound in ["height=200", "max-height=200", "max-height=\"100%\""] {
+        contract::compile(&format!("component App\n  view\n    column {bound}\n      scroll flex-shrink=1 min-height=0\n        box height=1000\n")).unwrap();
+    }
+    for parent in ["column", "box height=200"] {
+        let e = contract::compile(&format!(
+            "component App\n  view\n    {parent}\n      scroll flex-shrink=1 min-height=0\n"
+        ))
+        .unwrap_err();
+        assert_eq!(e.id, "lower-scroll-unbounded");
+    }
+}
+
+#[test]
+fn viewport_units_are_admitted_on_dimension_rows() {
+    for unit in exact_kernel::ViewportUnit::ALL {
+        let r = boot(&format!(
+            "component App\n  view\n    box width=\"50{}\" padding-top=\"5{}\" testId=\"item\"\n",
+            unit.name(),
+            unit.name()
+        ));
+        assert_eq!(style_of(&r, "item").width, Dimension::Viewport(unit, 50.0));
+    }
+}
+
+#[test]
+fn a_css_width_transition_names_the_engine_limit_not_a_syntax_error() {
+    let e = refused("transition=\"width 200ms ease\"");
+    assert_eq!(e.id, "lower-attr-value");
+    assert!(
+        e.message.contains("`width` is a CSS layout property"),
+        "{e}"
+    );
+    assert!(e.message.contains("layout per frame"), "{e}");
+    assert!(
+        e.message.contains("opacity") && e.message.contains("border-color"),
+        "{e}"
+    );
+    // Each layout property's refusal leads with the row that animates it
+    // (LLP 1063 D6), and every example it gives compiles; an inset's needs a
+    // positioned box, so it is not a no-op on a static one.
+    for p in "width min-width margin flex-basis gap right left top bottom".split(' ') {
+        let m = refused(&format!("transition=\"{p} 200ms ease\"")).message;
+        assert!(
+            m.find("-exact-layout-transition") < m.find("opacity"),
+            "{m}"
+        );
+        let examples: Vec<&str> = m.split('`').filter(|s| s.starts_with("box ")).collect();
+        assert_eq!(examples.len(), 1, "{m}");
+        let inset = matches!(p, "right" | "left" | "top" | "bottom");
+        assert_eq!(examples[0].contains("position=\"absolute\""), inset, "{m}");
+        let app = format!("component App\n  state small = false\n  view\n    box position=\"relative\" height=200\n      {}\n", examples[0]);
+        contract::compile(&app).unwrap_or_else(|e| panic!("{p}: {e}"));
+    }
+    assert!(!e.message.contains("not a CSS"), "{e}");
+    let malformed = refused("transition=\"opacity 20ms gibberish\"");
+    assert!(malformed.message.contains("invalid transition components"));
+    for v in [
+        "opacity 200ms ease",
+        "border-color 200ms ease",
+        "stroke-dashoffset 200ms linear",
+        "height 200ms ease",
+    ] {
+        contract::compile(&format!(
+            "component App\n  view\n    box transition=\"{v}\"\n"
+        ))
+        .unwrap();
+    }
+}
+
+#[test]
+fn cursor_keywords_are_css_and_inherit() {
+    for value in exact_kernel::StyleId::Cursor.enum_names() {
+        let r = boot(&format!(
+            "component App\n  view\n    box cursor=\"{value}\"\n      box testId=\"child\"\n"
+        ));
+        let key = r.kernel().find_by_test_id("child")[0];
+        let node = r.kernel().node_by_key(key).unwrap();
+        assert_eq!(
+            node.computed(exact_kernel::StyleId::Cursor),
+            exact_kernel::RowValue::Enum(value)
+        );
+    }
+}
+
+#[test]
+fn css_font_fallback_lists_keep_every_member_in_order() {
+    let plan = contract::compile("component App\n  view\n    text \"Fallback\" font-family=\"Inter, system-ui, sans-serif\"\n").unwrap();
+    let stack = plan.stacks.last().unwrap();
+    let members: Vec<_> = stack
+        .members
+        .iter()
+        .map(|id| plan.stack_member(id).kind)
+        .collect();
+    assert_eq!(
+        members,
+        [
+            exact_plan::StackMemberKind::Family,
+            exact_plan::StackMemberKind::SystemUi,
+            exact_plan::StackMemberKind::SansSerif
+        ]
+    );
+    let family = plan.familie(
+        plan.stack_member(stack.members.iter().next().unwrap())
+            .family
+            .unwrap(),
+    );
+    assert_eq!(plan.str(family.name), "Inter");
+    assert_eq!(family.faces.len, 0, "a local family needs no bundled asset");
+}
+
+#[test]
+fn css_border_and_decoration_shorthands_reset_and_preserve_choices() {
+    let source = r##"style Card
+  border="2px solid #123456"
+component App
+  state done = false
+  action finish
+    done = true
+  view
+    column
+      button "Finish" press=finish testId="finish"
+      text "Card" class=Card border-top="thick #abcdef" border-bottom="solid" text-decoration=(done ? "underline line-through" : "none") testId="card"
+"##;
+    let plan = contract::bake(contract::compile(source).unwrap(), NoData).unwrap();
+    let mut runner = Runner::boot(
+        plan,
+        NoData,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    let card = runner.kernel().find_by_test_id("card")[0];
+    let style = runner.kernel().node_by_key(card).unwrap().style;
+    assert_eq!(style.border_width_top, 5.0);
+    assert_eq!(style.border_style_top, exact_kernel::BorderStyle::None);
+    assert_eq!(style.border_width_right, 2.0);
+    assert_eq!(style.border_style_right, exact_kernel::BorderStyle::Solid);
+    assert_eq!(style.border_width_bottom, 3.0);
+    assert_eq!(
+        style.border_color_bottom, None,
+        "omitted color resets to currentcolor"
+    );
+    let button = runner.kernel().find_by_test_id("finish")[0];
+    runner
+        .dispatch(
+            runner.kernel().node_by_key(button).unwrap().id,
+            exact_runner::Event::Press,
+        )
+        .unwrap();
+    assert_eq!(
+        runner
+            .kernel()
+            .node_by_key(card)
+            .unwrap()
+            .style
+            .text_decoration_line,
+        exact_kernel::TextDecorationLine::UnderlineLineThrough
+    );
+}
+
+#[test]
+fn css_native_interaction_gaps_are_named_precisely() {
+    for (name, value, reason) in [
+        ("resize", "vertical", "user-controlled box geometry"),
+        ("user-select", "contain", "selection ownership"),
+        ("border", "1px double red", "native painters"),
+        ("text-decoration", "underline wavy", "native text painters"),
+    ] {
+        let source = format!("component App\n  view\n    text \"x\" {name}=\"{value}\"\n");
+        let error = contract::compile(&source).unwrap_err().to_string();
+        assert!(error.contains(reason), "{error}");
+        assert!(!error.contains("unknown attribute"), "{error}");
+    }
+    contract::compile("component App\n  view\n    textarea rows=3 maxlength=5 resize=\"none\" user-select=\"none\"\n").unwrap();
+    contract::compile("component App\n  view\n    text \"x\" user-select=\"all\"\n").unwrap();
+}
+
+#[test]
+fn css_flex_factor_order_and_intrinsic_basis_refusals_are_precise() {
+    let source = |value: &str| format!("component App\n  view\n    box flex=\"{value}\"\n");
+    assert!(
+        contract::compile(&source("0 auto 1")).is_err(),
+        "grow and shrink must be adjacent in CSS"
+    );
+    contract::compile(&source("20px 0 1")).unwrap();
+    contract::compile(&source("NONE")).unwrap();
+    for basis in ["content", "min-content", "max-content", "fit-content"] {
+        let error = contract::compile(&source(&format!("1 1 {basis}")))
+            .unwrap_err()
+            .to_string();
+        assert!(
+            error.contains("intrinsic basis sizing") && error.contains("CSS flex-basis"),
+            "{error}"
+        );
+    }
+}
+
+#[test]
+fn both_decoration_lines_are_written_as_css_in_either_order() {
+    let r = boot("component App\n  view\n    column\n      text \"a\" text-decoration-line=\"underline line-through\" testId=\"a\"\n      text \"b\" text-decoration-line=\"line-through underline\" testId=\"b\"\n");
+    for id in ["a", "b"] {
+        assert_eq!(
+            style_of(&r, id).text_decoration_line,
+            exact_kernel::TextDecorationLine::UnderlineLineThrough,
+            "{id}"
+        );
+    }
+    let e = refused("text-decoration-line=\"underline-line-through\"");
+    assert!(
+        e.message.contains("is spelled `underline line-through`"),
+        "{e}"
+    );
+    let e = refused("text-decoration=\"underline-line-through\"");
+    assert!(
+        e.message.contains("is spelled `underline line-through`"),
+        "{e}"
+    );
+}
+
+/// App farm wave 1: CSS's `background` shorthand names the longhand Contract takes.
+#[test]
+fn the_background_shorthand_names_background_color() {
+    let e = refused("background=\"#eee\" width=1 height=1");
+    assert!(
+        e.message.contains(
+            "CSS's `background` shorthand is not taken here: a colour is `background-color`"
+        ),
+        "{e}"
+    );
+}
+
+#[test]
+fn a_computed_decoration_and_a_class_take_the_css_pair_in_either_order_and_case() {
+    let mut r = boot("style Both\n  text-decoration-line=\"Line-Through Underline\"\nstyle Plain\n  opacity=1\n\ncomponent App\n  state n = 0\n  state deco = \"line-through underline\"\n  action next\n    n = n + 1\n    deco = n == 0 ? \"underline\" : \"overline\"\n  view\n    column\n      button \"Next\" press=next testId=\"next\"\n      text \"a\" text-decoration-line=deco testId=\"a\"\n      text \"b\" class=(n == 0 ? Both : Plain) testId=\"b\"\n");
+    let line = |r: &Runner<NoData>, id| style_of(r, id).text_decoration_line;
+    use exact_kernel::TextDecorationLine as L;
+    assert_eq!(line(&r, "a"), L::UnderlineLineThrough);
+    assert_eq!(line(&r, "b"), L::UnderlineLineThrough);
+    let next = r
+        .kernel()
+        .node_by_key(r.kernel().find_by_test_id("next")[0])
+        .unwrap()
+        .id;
+    r.dispatch(next, exact_runner::Event::Press).unwrap();
+    assert_eq!(line(&r, "a"), L::Underline);
+    assert_eq!(
+        line(&r, "b"),
+        L::None,
+        "the class without the row clears it"
+    );
+    r.dispatch(next, exact_runner::Event::Press).unwrap();
+    assert_eq!(
+        line(&r, "a"),
+        L::None,
+        "a value no host draws clears the row"
     );
 }

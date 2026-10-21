@@ -23,7 +23,7 @@ pub(super) fn load(
         id: id.into(),
         message,
         span: Span::default(),
-        file: Some(file.to_path_buf()),
+        file: Some(file.into()),
         related: Box::new([]),
     };
     let manifest = app_root.join("app.json");

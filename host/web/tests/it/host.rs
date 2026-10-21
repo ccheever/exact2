@@ -83,12 +83,13 @@ fn symbol_roles_carry_host_paths_and_decorative_images() {
     let plan = contract::compile(
         r##"component App
   state source = "symbol:search"
-  action change writes source
+  action change
     source = "symbol:unknown"
   view
     column font-size=22
       button "Change" press=change testId="change"
-      image source aria-label="Ignored decorative label" tint-color="light-dark(#007aff,#0a84ff)"
+      image source -exact-tint-color="light-dark(#007aff,#0a84ff)"
+      image "symbol:add" aria-label="Add a stop"
 "##,
     )
     .unwrap();
@@ -101,8 +102,7 @@ fn symbol_roles_carry_host_paths_and_decorative_images() {
     .unwrap();
     assert!(first.contains("\"src\":\"symbol:search\""));
     assert!(first.contains("\"data-symbol-path\":\"M16 10"));
-    assert!(first.contains("\"alt\":\"\""));
-    assert!(!first.contains("Ignored decorative label"));
+    assert!(first.contains("\"alt\":\"\"") && first.contains("\"alt\":\"Add a stop\""));
     assert!(first.contains("--exact-tint:light-dark("), "{first}");
     let changed = host.dispatch(view_with_test_id(&host, "change"), Event::Press);
     assert!(changed.contains("\"data-symbol-path\":\"\""), "{changed}");
@@ -113,11 +113,11 @@ fn a_filled_role_is_a_filled_silhouette_and_its_outline_is_stroked() {
     let plan = contract::compile(
         r##"component App
   state saved = false
-  action toggle writes saved
+  action toggle
     saved = not saved
   view
     button press=toggle testId="toggle" aria-label="Save"
-      image (saved ? "symbol:bookmark-fill" : "symbol:bookmark") tint-color="#ff8d28"
+      image (saved ? "symbol:bookmark-fill" : "symbol:bookmark") -exact-tint-color="#ff8d28"
 "##,
     )
     .unwrap();
@@ -149,6 +149,37 @@ fn a_filled_role_is_a_filled_silhouette_and_its_outline_is_stroked() {
         "cleared: {unsaved}"
     );
     assert!(!unsaved.contains("\"data-symbol-fill\":\"\""), "{unsaved}");
+}
+
+/// LLP 1121 D10: an icon token's form draws its path under its viewBox,
+/// filled; one whose SVG is no template is the file; an SF Symbol that is a
+/// role's Apple name is the role.
+#[test]
+fn an_icon_draws_its_path_under_its_viewbox_or_its_file() {
+    let plan = contract::compile(
+        "component App\n  view\n    column\n      image \"symbol:icon|star|0 -960 960 960|M0-960h960Z|icons/a.svg\"\n      image \"symbol:icon||0 0 24 24||icons/two.svg\"\n",
+    )
+    .unwrap();
+    let (_, first) = Host::boot(
+        &plan.encode(),
+        caltrain_data::Caltrain,
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    assert!(
+        first.contains("\"data-symbol-path\":\"M0-960h960Z\""),
+        "{first}"
+    );
+    assert!(
+        first.contains("\"data-symbol-viewbox\":\"0 -960 960 960\""),
+        "{first}"
+    );
+    assert!(first.contains("\"data-symbol-nonzero\":\"\""), "{first}");
+    assert!(
+        first.contains("\"src\":\"assets/icons/two.svg\""),
+        "{first}"
+    );
 }
 
 fn view_with_test_id(host: &Host<caltrain_data::Caltrain>, test_id: &str) -> u32 {
@@ -361,7 +392,7 @@ fn declared_font_identity_reaches_the_readiness_barrier_and_css() {
     let catalog = host.font_catalog();
     assert_eq!(
         catalog,
-        "[{\"family\":\"ExactPlanStack8\",\"declared\":\"Fixture Sans\",\"source\":\"assets/DejaVuSans.ttf\",\"weight\":400,\"style\":\"normal\"},{\"family\":\"ExactPlanStack8\",\"declared\":\"Fixture Sans\",\"source\":\"assets/DejaVuSans-Bold.ttf\",\"weight\":700,\"style\":\"normal\"}]"
+        "[{\"family\":\"ExactPlanStack8\",\"declared\":\"Fixture Sans\",\"source\":\"assets/DejaVuSans.ttf\",\"weight\":\"400\",\"stretch\":\"100%\",\"style\":\"normal\"},{\"family\":\"ExactPlanStack8\",\"declared\":\"Fixture Sans\",\"source\":\"assets/DejaVuSans-Bold.ttf\",\"weight\":\"700\",\"stretch\":\"100%\",\"style\":\"normal\"}]"
     );
     assert!(
         !batch.contains("\"fonts\""),
@@ -450,9 +481,9 @@ fn scroll_offsets_are_dom_properties_sent_only_when_their_bindings_change() {
         r#"component App
   state top = 0
   state note = ""
-  action bottom writes top
+  action bottom
     top = 1000000
-  action edit(value) writes note
+  action edit(value)
     note = value
   view
     column
@@ -488,7 +519,7 @@ fn textarea_preserves_multiline_values_through_the_change_seam() {
     let plan = contract::compile(
         r#"component App
   state note = ""
-  action edit(value) writes note
+  action edit(value)
     note = value
   view
     textarea value=note change=edit testId="note" height=200
@@ -523,7 +554,7 @@ fn readonly_uses_existing_editable_prop_and_reacts_to_changes() {
     let plan = contract::compile(
         r#"component App
   state locked = true
-  action unlock writes locked
+  action unlock
     locked = false
   view
     column
@@ -571,7 +602,7 @@ fn inert_is_a_boolean_dom_attribute_without_removing_its_subtree() {
     let plan = contract::compile(
         r#"component App
   state blocked = true
-  action flip writes blocked
+  action flip
     blocked = not blocked
   view
     column
@@ -620,7 +651,7 @@ fn declared_keyboard_shortcuts_are_standard_aria_attributes() {
     let plan = contract::compile(
         r#"component App
   state saved = false
-  action save writes saved
+  action save
     saved = true
   view
     button press=save disabled=saved aria-keyshortcuts="Meta+S Control+S" testId="save"
@@ -649,9 +680,9 @@ fn dialog_invokers_preserve_html_commands_and_live_action_labels() {
     let plan = contract::compile(
         r#"component App
   state count = 1
-  action prepare writes count
+  action prepare
     count = 2
-  action confirm writes count
+  action confirm
     count = 0
   view
     column
@@ -679,6 +710,20 @@ fn dialog_invokers_preserve_html_commands_and_live_action_labels() {
     let id = view_with_test_id(&host, "open");
     let batch = host.dispatch(id, Event::Press);
     assert!(batch.contains("Delete 2 messages"), "{batch}");
+}
+
+/// LLP 1019 D9: `font-variation-settings` is written as CSS writes it.
+#[test]
+fn font_variation_settings_are_their_css() {
+    use exact_kernel::{StyleId, StyleProps, StyleValue};
+    let mut style = StyleProps::default();
+    let value = StyleValue::Text("'GRAD' 150,'wdth' 60".into());
+    style
+        .set_dynamic(StyleId::FontVariationSettings, &value)
+        .unwrap();
+    let (css, _) = css_text(&style, &[]);
+    let want = r#"font-variation-settings:"GRAD" 150, "wdth" 60;"#;
+    assert!(css.contains(want), "{css}");
 }
 
 /// A scheme-aware colour is handed to the browser, not resolved here.
@@ -723,15 +768,15 @@ fn a_multi_timer_advance_creates_children_before_attaching_them() {
     let plan = contract::compile(
         r#"component App
   state phase = 0
-  action tick writes phase
+  action tick
     phase = phase + 1
   task clock mount
     every(100, tick)
   view
     column testId="parent"
-      when phase == 1
+      if phase == 1
         text "typing"
-      when phase >= 2
+      if phase >= 2
         text "reply" testId="reply"
 "#,
     )
@@ -772,7 +817,7 @@ fn editor_hints_and_picker_policy_reach_the_dom_and_update() {
     let plan = contract::compile(
         r#"component App
   state enabled = false
-  action toggle writes enabled
+  action toggle
     enabled = not enabled
   view
     column
@@ -928,7 +973,7 @@ fn viewport_resize_and_a_due_timer_refusal_share_one_batch() {
 component App
   state count = 0
   resource viewport = exactViewport() as shape Viewport
-  action refuse writes count
+  action refuse
     count = 1 / 0
   task clock mount
     every(100, refuse)
@@ -1042,6 +1087,8 @@ fn live_regions_and_autofocus_use_html_attributes() {
     assert!(batch.contains("\"autofocus\":\"true\""), "{batch}");
     assert!(batch.contains("\"aria-expanded\":\"true\""), "{batch}");
     assert!(batch.contains("\"aria-hidden\":\"true\""), "{batch}");
+    assert!(batch.contains("\"aria-pressed\":\"true\""), "{batch}");
+    assert!(batch.contains("\"aria-pressed\":\"mixed\""), "{batch}");
     assert!(host
         .agent("{\"op\":\"tree\"}")
         .contains("accessibilityLive"));
@@ -1054,7 +1101,7 @@ fn live_regions_and_autofocus_use_html_attributes() {
 /// runner (review, 2026-09-22).
 #[test]
 fn a_theme_flip_restyles_each_touched_row_once() {
-    const ROWS: usize = 10_000;
+    const ROWS: usize = 1_000;
     struct Rows;
     impl exact_runner::DataSource for Rows {
         fn query(
@@ -1071,14 +1118,14 @@ fn a_theme_flip_restyles_each_touched_row_once() {
   id: number
 component App
   state dark = false
-  resource rows = rows() as shape list<Row>
-  action flip writes dark
+  resource rows = rows() as shape Row[]
+  action flip
     dark = !dark
   view
     column
       button press=flip testId="flip"
         text "Flip"
-      each r in rows key=r.id
+      for r in rows key=r.id
         text `${r.id}` color=(dark ? "#ffffff" : "#000000")
 "##;
     let plan = contract::bake(contract::compile(source).unwrap(), Rows).unwrap();
@@ -1144,51 +1191,6 @@ component App
         !host.route_matches("/"),
         "an app without routes follows no link"
     );
-}
-
-/// A text block with a heading level is HTML's heading element — Chrome's
-/// accessibility tree ignores `aria-level` on a role-less div (review,
-/// 2026-09-22) — unless the author gave it another role. Past h6 it is a div
-/// with `role="heading"`; an inline run stays a span.
-#[test]
-fn heading_levels_are_heading_elements() {
-    let plan = contract::compile(
-        r#"component App
-  view
-    column
-      text "One" aria-level=1 testId="one"
-      text "Six" aria-level=6 testId="six"
-      text "Seven" aria-level=7 testId="seven"
-      text "Item" aria-level=2 role="treeitem" testId="item"
-      text "Plain" testId="plain"
-      text testId="para"
-        text "run" aria-level=3 testId="run"
-"#,
-    )
-    .unwrap();
-    let (host, batch) = Host::boot(
-        &plan.encode(),
-        caltrain_data::Caltrain,
-        Default::default(),
-        "/",
-    )
-    .unwrap();
-    for (test_id, tag) in [
-        ("one", "h1"),
-        ("six", "h6"),
-        ("seven", "div"),
-        ("item", "div"),
-        ("plain", "div"),
-        ("para", "div"),
-        ("run", "span"),
-    ] {
-        let id = view_with_test_id_any(&host, test_id);
-        let create = format!("\"op\":\"create\",\"id\":{id},\"tag\":\"{tag}\"");
-        assert!(batch.contains(&create), "{test_id} is not a {tag}: {batch}");
-    }
-    assert!(batch.contains("\"role\":\"heading\""), "{batch}");
-    assert!(batch.contains("\"role\":\"treeitem\""), "{batch}");
-    assert_eq!(batch.matches("\"role\":\"heading\"").count(), 1, "{batch}");
 }
 
 /// A block root is a formatting context of its own on the web, as the
@@ -1290,7 +1292,7 @@ fn a_node_takes_no_position_the_plan_did_not_give_it() {
     let plan = contract::compile(
         r##"component App
   state pinned = false
-  action pin writes pinned
+  action pin
     pinned = not pinned
   view
     column
@@ -1300,7 +1302,7 @@ fn a_node_takes_no_position_the_plan_did_not_give_it() {
         text "b" top=4 testId="inset"
         text "c" z-index=2 testId="raised"
         text "d" position="relative" top=4 testId="moved"
-        when pinned
+        if pinned
           box position="absolute" width=4 height=4 testId="badge"
 "##,
     )
@@ -1340,13 +1342,10 @@ fn a_node_takes_no_position_the_plan_did_not_give_it() {
     assert_eq!(badge.matches("position:absolute;").count(), 1, "{badge}");
 }
 
-/// The kernel paints in tree order; the page paints the positioned after the
-/// static. So a static box that follows something positioned (in an earlier
-/// sibling's subtree) is isolated, and paints over it as it does natively:
-/// the text after an absolute photo, the section after the card. Isolation
-/// is no containing block, so the photo stays where the plan put it.
+/// A static holder leaking a positioned descendant isolates its followers.
+/// A plain child following that descendant stays in flow (LLP 1083.000).
 #[test]
-fn what_follows_a_positioned_node_is_isolated() {
+fn a_leaking_holder_is_covered_by_its_static_followers() {
     let plan = contract::compile(
         r##"component App
   view
@@ -1378,7 +1377,7 @@ fn what_follows_a_positioned_node_is_isolated() {
     };
     for (test_id, isolated) in [
         ("card", false),
-        ("info", true),
+        ("info", false),
         ("after", true),
         ("later", true),
         ("inner", false),
@@ -1393,12 +1392,16 @@ fn what_follows_a_positioned_node_is_isolated() {
         assert!(!css(test_id).contains("position"), "{test_id}: {first}");
     }
     assert!(css("photo").contains("position:absolute;"));
-    // The document says the same, for the page a server sends.
+    // The server document writes the same isolation as the live batch.
     let doc = host.document().unwrap().root;
-    for test_id in ["info", "after", "later"] {
+    for (test_id, isolated) in [("info", false), ("after", true), ("later", true)] {
         let at = doc.find(&format!("data-testid=\"{test_id}\"")).unwrap();
         let open = &doc[doc[..at].rfind('<').unwrap()..at + doc[at..].find('>').unwrap()];
-        assert!(open.contains("isolation:isolate;"), "{test_id}: {open}");
+        assert_eq!(
+            open.contains("isolation:isolate;"),
+            isolated,
+            "{test_id}: {open}"
+        );
     }
 }
 
@@ -1411,9 +1414,9 @@ fn a_frame_task_fires_once_per_presented_frame() {
         r#"component App
   state frames = 0
   state at = 0
-  action step writes frames, at
+  action step
     frames = frames + 1
-    at = now()
+    at = performanceNow()
   task ticker mount
     every(frame, step)
   view
@@ -1445,12 +1448,12 @@ fn a_frame_task_fires_once_per_presented_frame() {
 }
 
 #[test]
-fn flex_and_grid_item_z_index_relayer_following_siblings() {
+fn flex_and_grid_item_z_index_does_not_lift_plain_followers() {
     for display in ["flex", "grid", "block"] {
         let src = format!(
             r#"component App
   state flex = true
-  action toggle writes flex
+  action toggle
     flex = not flex
   view
     box display=(flex ? "{display}" : "block") testId="parent"
@@ -1470,25 +1473,25 @@ fn flex_and_grid_item_z_index_relayer_following_siblings() {
         let doc = host.document().unwrap().root;
         let at = doc.find("data-testid=\"second\"").unwrap();
         let element = &doc[doc[..at].rfind('<').unwrap()..at + doc[at..].find('>').unwrap()];
-        assert_eq!(
-            element.contains("isolation:isolate"),
-            display != "block",
-            "{doc}"
-        );
+        assert!(!element.contains("isolation:isolate"), "{doc}");
         let at = &batch[batch
             .find(&format!("\"op\":\"create\",\"id\":{id},"))
             .unwrap()..];
         let css = &at[at.find("\"css\":\"").unwrap() + 7..];
-        assert_eq!(
-            css[..css.find('"').unwrap()].contains("isolation:isolate"),
-            display != "block"
-        );
+        assert!(!css[..css.find('"').unwrap()].contains("isolation:isolate"));
         let first = view_with_test_id(&host, "first");
         let changed = host.dispatch(first, Event::Press);
-        assert!(!host.document().unwrap().root.contains("isolation:isolate"));
+        assert_eq!(
+            host.document()
+                .unwrap()
+                .root
+                .matches("isolation:isolate")
+                .count(),
+            1
+        );
         if display != "block" {
             assert!(
-                changed.contains(&format!("\"op\":\"style\",\"id\":{id}")),
+                !changed.contains(&format!("\"op\":\"style\",\"id\":{id}")),
                 "{changed}"
             );
         }

@@ -1,0 +1,9 @@
+tamber hosts
+
+axes
+  scheme = light | dark
+  contrast = normal | more
+
+theme
+  t = #000
+    when contrast=more: #111

@@ -6,13 +6,9 @@ struct Fixture {
     weak: Vec<std::rc::Weak<Paragraph>>,
 }
 fn fixture(count: usize, widths: bool) -> Fixture {
-    let mut db = fontdb::Database::new();
-    db.load_font_source(fontdb::Source::Binary(Arc::new(
-        include_bytes!("../../../../scripts/fixtures/fonts/assets/DejaVuSans.ttf").to_vec(),
-    )));
-    db.set_sans_serif_family("DejaVu Sans");
-    let mut engine = TextEngine::with_catalog(catalog::Catalog::with_fonts(
-        FontSystem::new_with_locale_and_db("en-US".into(), db),
+    let mut engine = TextEngine::with_catalog(catalog::Catalog::from_bytes(
+        &[include_bytes!("../../../../scripts/fixtures/fonts/assets/DejaVuSans.ttf").as_slice()],
+        "DejaVu Sans",
     ));
     engine.paragraphs.trim_test_target(usize::MAX);
     let mut keys = Vec::new();
@@ -26,6 +22,8 @@ fn fixture(count: usize, widths: bool) -> Fixture {
         if widths {
             engine.measure(&s, AxisOffer::MaxContent);
             let p = engine.paragraph(&s, Some(143.25));
+            // Painted widths: their lines are kept.
+            p.lines();
             weak.push(Rc::downgrade(&p));
         }
     }
@@ -377,6 +375,9 @@ fn trim_scratch_messages_10000_32_setup_and_saturated_revisions() {
                     .collect::<Vec<_>>(),
                 sha2::Sha256::digest(pixels.concat())
             );
+            // A paint's maintenance may leave a walk for later (cache.rs
+            // `maintain`); a trim after a trim changes nothing.
+            f.engine.trim_paragraphs();
             let state = f.engine.paragraphs.trim_test_state();
             f.engine.trim_paragraphs();
             assert_eq!(state, f.engine.paragraphs.trim_test_state());

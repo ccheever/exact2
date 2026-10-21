@@ -22,6 +22,7 @@ final class TextFlowPresentationTests: XCTestCase {
         let measured = Array(text.utf8).withUnsafeBufferPointer { bytes in
             var run = ExactTextRun()
             run.text = bytes.baseAddress; run.len = bytes.count; run.font_size = 16; run.font_weight = 400
+            run.font_stretch = 100
             run.has_line_height = 1; run.line_height = 24
             return withUnsafePointer(to: &run) { pointer in
                 TextFlowShape.withCShapes([circle]) { shapes in
@@ -53,6 +54,7 @@ final class TextFlowPresentationTests: XCTestCase {
              "style": ["font_size": 16.0, "line_height": "24px", "padding_left": 10.0, "padding_top": 12.0]],
             ["op": "create", "id": 2, "kind": "text", "props": ["text": "Unchanged neighbor"]],
             ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 370.0, "h": 500.0],
+            contentOp(1, 370, 500, padding: [12, 0, 0, 10]),
             ["op": "frame", "id": 2, "x": 0.0, "y": 500.0, "w": 370.0, "h": 40.0],
             ["op": "roots", "ids": [1, 2]],
         ])
@@ -69,6 +71,23 @@ final class TextFlowPresentationTests: XCTestCase {
         apply([["op": "flow", "id": 1, "shapes": []]])
         XCTAssertTrue(try XCTUnwrap(node.paragraphLayout()).fragments.isEmpty)
         XCTAssertTrue(node.flowShapes.isEmpty)
+
+        // A content box sent alone moves the exclusion without changing the
+        // frame or flow, and invalidates only this paragraph.
+        apply([
+            ["op": "style", "id": 1, "style": ["font_size": 16.0, "line_height": "24px",
+                "padding_left": 10.0, "padding_top": ["pct": 5.0]]],
+            contentOp(1, 370, 500, padding: [20, 0, 0, 10]),
+            ["op": "flow", "id": 1, "shapes": [["kind": "Circle", "cx": 190.0, "cy": 108.0, "r": 52.0]]],
+        ])
+        let beforeContentMove = try XCTUnwrap(node.paragraphLayout())
+        apply([contentOp(1, 370, 500, padding: [10, 0, 0, 10])])
+        let moved = try XCTUnwrap(node.paragraphLayout())
+        XCTAssertFalse(moved === beforeContentMove, "the content box moved the exclusion")
+        XCTAssertTrue(neighbor.paragraphLayout() === unchanged)
+        let movedExpected = session.text.paragraph(node.paragraphSpec(), width: 360, flow: [TextFlowShape(kind: 0, x: 180, y: 98, a: 52)])
+        XCTAssertEqual(moved.fragments.map(\.end), movedExpected.fragments.map(\.end))
+        XCTAssertEqual(moved.origins, movedExpected.origins)
     }
 
     func testCollapsedSpacesAndSelectedSoftHyphenMatchPaintedAdvances() {

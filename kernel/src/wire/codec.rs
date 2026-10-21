@@ -8,8 +8,7 @@
 use crate::error::DecodeError;
 use crate::generated::{StyleId, StyleMask, STYLE_MASK_WORDS};
 use crate::style::{
-    Color, ColorValue, Dimension, Edge, GridLine, GridPlacement, GridTrack, GridTracks,
-    Transitions, Vec2, MAX_GRID_TRACKS,
+    Color, ColorValue, Dimension, Edge, GridPlacement, GridTracks, Transitions, Vec2,
 };
 use exact_motion::easing::MAX_LINEAR_STOPS;
 use exact_motion::{
@@ -23,6 +22,9 @@ pub const MAX_STRING_BYTES: u32 = 1 << 24;
 /// A `transition` row's `border-color` shorthand (LLP 1062): the code after
 /// every property's (grammar: `schema.json` `_transitions`).
 const BORDER_COLOR: u8 = Property::COUNT as u8 + 1;
+
+/// A path's `d` (LLP 1055.000 D15): its property's code, past the wire's.
+const PATH_D: u8 = Property::D as u8 + 1;
 
 /// Round `n` up to a multiple of 8.
 pub const fn align8(n: usize) -> usize {
@@ -154,8 +156,14 @@ impl<'a> Reader<'a> {
 
     /// Read a dimension: kind byte (0 auto, 1 points, 2 percent, 3–6 an
     /// `env()` length at the top/right/bottom/left safe-area inset, 7 a
-    /// `calc()` of a percent and points) then `f32` (the points added to an
-    /// inset); a `calc()` carries its percent first and a second `f32`.
+    /// `calc()` of a percent and points, 8–13 a viewport segment's
+    /// width/height/top/left/bottom/right, 14–23 a viewport length, 24 a
+    /// calculation tree) then `f32` (the points added to an inset or a
+    /// segment length); a `calc()` carries its percent first and a second
+    /// `f32`; a segment length carries its two index bytes, `x` then `y`,
+    /// after the `f32` (LLP 1078 D3); a calculation tree the other forms do
+    /// not hold carries itself after a zero `f32` (`style::calc`, LLP 1116
+    /// D5).
     pub fn dimension(
         &mut self,
         style: StyleId,
@@ -174,6 +182,31 @@ impl<'a> Reader<'a> {
             2 => Dimension::Percent(value),
             3..=6 => Dimension::Env(Edge::from_index(kind - 3).expect("3..=6 is an edge"), value),
             7 => Dimension::Calc(value, self.f32()?),
+            // Linked by use (LLP 1078 D3): unknown to an artifact whose plan names no segment.
+            8..=13 => {
+                let (x, y) = (self.u8()?, self.u8()?);
+                crate::style::env::decode(kind, value, x, y)
+                    .ok_or(DecodeError::UnknownDimensionKind(kind))?
+            }
+            14..=23 => {
+                Dimension::Viewport(crate::style::ViewportUnit::ALL[(kind - 14) as usize], value)
+            }
+            // A layout region's inset (LLP 1123 D10): its region and edge follow.
+            25 => {
+                let (region, edge) = (self.u8()?, self.u8()?);
+                match (
+                    crate::style::Region::from_index(region),
+                    Edge::from_index(edge),
+                ) {
+                    (Some(region), Some(edge)) => Dimension::Region(region, edge, value),
+                    _ => return Err(DecodeError::UnknownDimensionKind(kind)),
+                }
+            }
+            // The leading `f32` is zero; the tree follows.
+            24 if value.to_bits() == 0 => {
+                Dimension::Compare(crate::style::Comparison::decode(self, style)?)
+            }
+            24 => return Err(DecodeError::InvalidComparison),
             other => return Err(DecodeError::UnknownDimensionKind(other)),
         };
         if kind != 0 && !dim.is_finite() {
@@ -203,6 +236,25 @@ impl<'a> Reader<'a> {
         match self.u8()? {
             0 => Ok(ColorValue::Fixed(self.color()?)),
             1 => Ok(ColorValue::LightDark(self.color()?, self.color()?)),
+            // @ref LLP 1095 D1 — a role by id, a `-exact-platform-color()` as written.
+            2 => match self.u8()? {
+                i if (i as usize) < crate::generated::COLOR_ROLES.len() => Ok(ColorValue::Role(i)),
+                _ => Err(DecodeError::BadColorValue(2)),
+            },
+            3 => crate::style::roles::parse_platform(self.string()?)
+                .ok_or(DecodeError::BadColorValue(3)),
+            4 => {
+                crate::style::wide::parse_wide(self.string()?).ok_or(DecodeError::BadColorValue(4))
+            }
+            6 => crate::style::profiled::parse_profiled(self.string()?)
+                .ok_or(DecodeError::BadColorValue(6)),
+            5 => {
+                let mut c = [0i16; 3];
+                for v in &mut c {
+                    *v = self.u16()? as i16;
+                }
+                Ok(ColorValue::Moving(c, self.u8()?))
+            }
             other => Err(DecodeError::BadColorValue(other)),
         }
     }
@@ -221,48 +273,17 @@ impl<'a> Reader<'a> {
         Ok([self.color()?, self.color()?])
     }
 
-    /// Read a grid track list: count byte, then (kind byte, `f32`) per track.
+    /// Read and validate a grid template from its canonical CSS text.
     pub fn tracks(&mut self) -> Result<GridTracks, DecodeError> {
-        let tracks = self.tracks_for_style()?;
-        if tracks.0.len() > MAX_GRID_TRACKS {
-            return Err(DecodeError::TooManyTracks(tracks.0.len()));
-        }
-        Ok(tracks)
+        self.tracks_for_style()
     }
 
     /// Read the bounded wire representation before applying row-domain rules.
     pub(crate) fn tracks_for_style(&mut self) -> Result<GridTracks, DecodeError> {
-        let count = self.u8()?;
-        let mut out = Vec::with_capacity(count as usize);
-        for _ in 0..count {
-            let kind = self.u8()?;
-            let value = self.f32()?;
-            out.push(match kind {
-                0 => GridTrack::Fr(value),
-                1 => GridTrack::Points(value),
-                2 => GridTrack::Percent(value),
-                3 => GridTrack::Auto,
-                4 => GridTrack::MinContent,
-                5 => GridTrack::MaxContent,
-                other => return Err(DecodeError::UnknownTrackKind(other)),
-            });
-        }
-        Ok(GridTracks(out))
+        GridTracks::parse(self.string()?).ok_or(DecodeError::InvalidGridTrack)
     }
 
-    fn grid_line(&mut self) -> Result<GridLine, DecodeError> {
-        let kind = self.u8()?;
-        let value = self.u16()?;
-        Ok(match kind {
-            0 => GridLine::Auto,
-            1 => GridLine::Line(value as i16),
-            2 => GridLine::Span(value),
-            other => return Err(DecodeError::UnknownPlacementKind(other)),
-        })
-    }
-
-    /// Read a grid placement: start line then end line, each a kind byte and
-    /// a two-byte value (`i16` for a line, `u16` for a span).
+    /// Read and validate a grid placement from its canonical CSS text.
     pub fn placement(&mut self) -> Result<GridPlacement, DecodeError> {
         let placement = self.placement_for_style()?;
         if !placement.is_valid() {
@@ -273,10 +294,7 @@ impl<'a> Reader<'a> {
 
     /// Read the bounded wire representation before applying row-domain rules.
     pub(crate) fn placement_for_style(&mut self) -> Result<GridPlacement, DecodeError> {
-        Ok(GridPlacement {
-            start: self.grid_line()?,
-            end: self.grid_line()?,
-        })
+        GridPlacement::parse(self.string()?).ok_or(DecodeError::InvalidGridSpan)
     }
 
     /// Read a timing function (grammar: `schema.json` `_transitions`).
@@ -338,6 +356,7 @@ impl<'a> Reader<'a> {
             let property = match self.u8()? {
                 0 => TransitionProperty::All,
                 BORDER_COLOR => TransitionProperty::BorderColor,
+                PATH_D => TransitionProperty::Property(Property::D),
                 p => TransitionProperty::Property(
                     Property::from_wire(p - 1)
                         .filter(|p| *p != Property::ShadowColor)
@@ -502,6 +521,10 @@ impl Writer {
                 self.u8(0);
                 self.f32(0.0);
             }
+            Dimension::Viewport(unit, v) => {
+                self.u8(14 + unit as u8);
+                self.f32(v);
+            }
             Dimension::Points(v) => {
                 self.u8(1);
                 self.f32(v);
@@ -509,6 +532,18 @@ impl Writer {
             Dimension::Env(edge, v) => {
                 self.u8(3 + edge as u8);
                 self.f32(v);
+            }
+            Dimension::Region(region, edge, v) => {
+                self.u8(25);
+                self.f32(v);
+                self.u8(region as u8);
+                self.u8(edge as u8);
+            }
+            Dimension::Segment(var, x, y, v) => {
+                self.u8(8 + var as u8);
+                self.f32(v);
+                self.u8(x);
+                self.u8(y);
             }
             Dimension::Percent(v) => {
                 self.u8(2);
@@ -518,6 +553,11 @@ impl Writer {
                 self.u8(7);
                 self.f32(p);
                 self.f32(v);
+            }
+            Dimension::Compare(c) => {
+                self.u8(24);
+                self.f32(0.0);
+                c.encode(self);
             }
         }
     }
@@ -545,6 +585,38 @@ impl Writer {
                 self.color(light);
                 self.color(night);
             }
+            ColorValue::Role(id) => {
+                self.u8(2);
+                self.u8(id);
+            }
+            ColorValue::Platform(id) => match crate::style::roles::platform(id) {
+                Some(p) => {
+                    self.u8(3);
+                    self.string(&p.text);
+                }
+                None => self.color_value(ColorValue::Fixed(crate::style::Color::TRANSPARENT)),
+            },
+            ColorValue::Wide(id) => match crate::style::wide::wide(id) {
+                Some(w) => {
+                    self.u8(4);
+                    self.string(&w.text);
+                }
+                None => self.color_value(ColorValue::Fixed(crate::style::Color::TRANSPARENT)),
+            },
+            ColorValue::Profiled(id) => match crate::style::profiled::profiled(id) {
+                Some(p) => {
+                    self.u8(6);
+                    self.string(&p.text);
+                }
+                None => self.color_value(ColorValue::Fixed(crate::style::Color::TRANSPARENT)),
+            },
+            ColorValue::Moving(c, a) => {
+                self.u8(5);
+                for v in c {
+                    self.u16(v as u16);
+                }
+                self.u8(a);
+            }
         }
     }
 
@@ -564,20 +636,7 @@ impl Writer {
 
     /// Append a grid track list.
     pub fn tracks(&mut self, t: &GridTracks) {
-        debug_assert!(t.0.len() <= MAX_GRID_TRACKS);
-        self.u8(t.0.len() as u8);
-        for track in &t.0 {
-            let (kind, value) = match *track {
-                GridTrack::Fr(v) => (0, v),
-                GridTrack::Points(v) => (1, v),
-                GridTrack::Percent(v) => (2, v),
-                GridTrack::Auto => (3, 0.0),
-                GridTrack::MinContent => (4, 0.0),
-                GridTrack::MaxContent => (5, 0.0),
-            };
-            self.u8(kind);
-            self.f32(value);
-        }
+        self.string(t.css());
     }
 
     /// Append a timing function.
@@ -636,27 +695,9 @@ impl Writer {
         }
     }
 
-    fn grid_line(&mut self, line: GridLine) {
-        match line {
-            GridLine::Auto => {
-                self.u8(0);
-                self.i16(0);
-            }
-            GridLine::Line(n) => {
-                self.u8(1);
-                self.i16(n);
-            }
-            GridLine::Span(n) => {
-                self.u8(2);
-                self.u16(n);
-            }
-        }
-    }
-
     /// Append a grid placement.
-    pub fn placement(&mut self, p: GridPlacement) {
-        self.grid_line(p.start);
-        self.grid_line(p.end);
+    pub fn placement(&mut self, p: &GridPlacement) {
+        self.string(&p.css());
     }
 
     /// Append the style mask words.
@@ -670,6 +711,26 @@ impl Writer {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::style::{GridLine, GridTrack, GridTrackMax, GridTrackMin};
+    use crate::SCHEMA_DIGEST;
+
+    #[test]
+    fn wire_codec_bytes_and_schema_digest_move_as_one_snapshot() {
+        let tracks = GridTracks::parse("minmax(80px, 1fr)").unwrap();
+        let placement = GridPlacement::parse("auto / span 2").unwrap();
+        let mut writer = Writer::new();
+        writer.tracks(&tracks);
+        writer.placement(&placement);
+        assert_eq!(
+            writer.into_vec(),
+            b"\x11\0\0\0minmax(80px, 1fr)\x0d\0\0\0auto / span 2"
+        );
+        // build.rs hashes the production codec sources beside the canonical
+        // schema. The literal makes an accidental removal of that coupling a
+        // test failure whenever the byte snapshot above is intentionally moved.
+        // Recomputed when the schema changes; the digest test prints the value.
+        assert_eq!(SCHEMA_DIGEST, 0x08a7_4d2f_718f_f69d);
+    }
 
     #[test]
     fn scalars_round_trip() {
@@ -724,11 +785,104 @@ mod tests {
                 Ok(Dimension::Env(*edge, i as f32 * 1.5))
             );
         }
-        let mut r = Reader::new(&[8u8, 0, 0, 0, 0]);
+        let mut r = Reader::new(&[26u8, 0, 0, 0, 0]);
         assert_eq!(
             r.dimension(StyleId::Width, true),
-            Err(DecodeError::UnknownDimensionKind(8))
+            Err(DecodeError::UnknownDimensionKind(26))
         );
+    }
+
+    #[test]
+    fn comparisons_round_trip_and_a_malformed_tree_is_refused() {
+        let text = "calc(clamp(15px, env(safe-area-inset-bottom), max(60px, 10vh, 5% - env(safe-area-inset-left))) + 59px)";
+        let Some(d) = Dimension::parse_calc(text) else {
+            panic!("{text}");
+        };
+        let mut w = Writer::new();
+        w.dimension(d);
+        let bytes = w.into_vec();
+        assert_eq!(bytes[0], 24, "a comparison is kind 24");
+        let mut r = Reader::new(&bytes);
+        assert_eq!(r.dimension(StyleId::PaddingBottom, false), Ok(d));
+        assert!(r.is_empty());
+        // Truncated anywhere in the tree: refused, never a partial length.
+        for end in 5..bytes.len() {
+            assert!(
+                Reader::new(&bytes[..end])
+                    .dimension(StyleId::PaddingBottom, false)
+                    .is_err(),
+                "{end}"
+            );
+        }
+        // The leading `f32` is zero.
+        let mut prefixed = bytes.clone();
+        prefixed[1..5].copy_from_slice(&1.0f32.to_le_bytes());
+        assert_eq!(
+            Reader::new(&prefixed).dimension(StyleId::Width, true),
+            Err(DecodeError::InvalidComparison)
+        );
+        // Nodes (`style::calc::wire`): a value, `env(safe-area-inset-top)`,
+        // and a list node of its children
+        let value = |v: f64, unit: u8| {
+            let mut b = vec![0];
+            b.extend_from_slice(&v.to_le_bytes());
+            b.push(unit);
+            b
+        };
+        let px = |v: f64| value(v, 2);
+        let top = || vec![1, 0];
+        let list = |tag: u8, children: Vec<Vec<u8>>| {
+            let mut b = vec![tag, children.len() as u8];
+            children.into_iter().for_each(|c| b.extend(c));
+            b
+        };
+        let min = |children: Vec<Vec<u8>>| list(6, children);
+        let tree = |tree: Vec<u8>| {
+            let mut bytes = vec![24, 0, 0, 0, 0];
+            bytes.extend(tree);
+            Reader::new(&bytes).dimension(StyleId::Width, true)
+        };
+        assert!(
+            tree(min(vec![px(1.0), top()])).is_ok(),
+            "min(1px, env(safe-area-inset-top))"
+        );
+        // A NaN is a value inside a tree (CSS Values 4 §10.9.2)
+        assert!(tree(min(vec![px(f64::NAN), top()])).is_ok());
+        let refused = Err(DecodeError::InvalidComparison);
+        for (bytes, why) in [
+            (min(vec![top()]), "a min() of one is its argument"),
+            (min(vec![]), "an empty min()"),
+            (
+                min(vec![px(1.0), px(2.0)]),
+                "a tree that reads nothing is points",
+            ),
+            (list(2, vec![top(), px(1.0)]), "a sum out of order"),
+            (
+                list(2, vec![px(1.0), top()]),
+                "a compact form's tree travels as that form",
+            ),
+            (
+                [vec![8, 1], px(1.0), vec![0, 1], top()].concat(),
+                "clamp()'s value is not none",
+            ),
+            (list(10, vec![top()]), "an unknown node"),
+            (vec![1, 24], "an unknown env() tag"),
+        ] {
+            assert_eq!(tree(bytes), refused, "{why}");
+        }
+        // Levels and values as the parser counts them: 32 nested min() are
+        // 32 levels and 33 are past them; 32 values in one min(), not 33
+        let nested = |levels: usize| {
+            let mut deep = top();
+            for _ in 1..levels {
+                deep = min(vec![top(), deep]);
+            }
+            tree(deep)
+        };
+        assert!(nested(32).is_ok());
+        assert_eq!(nested(33), refused);
+        assert!(tree(min((0..32).map(|_| top()).collect())).is_ok());
+        assert_eq!(tree(min((0..33).map(|_| top()).collect())), refused);
     }
 
     #[test]
@@ -781,25 +935,40 @@ mod tests {
 
     #[test]
     fn tracks_and_placement_round_trip() {
-        let tracks = GridTracks(vec![
+        let tracks = GridTracks::from_tracks(vec![
             GridTrack::Fr(1.0),
             GridTrack::Points(20.0),
             GridTrack::Percent(50.0),
             GridTrack::Auto,
             GridTrack::MinContent,
             GridTrack::MaxContent,
+            GridTrack::MinMax(GridTrackMin::Points(80.0), GridTrackMax::Fr(1.0)),
         ]);
         let placement = GridPlacement {
             start: GridLine::Line(2),
-            end: GridLine::Span(40_000),
+            end: GridLine::Span(10_000),
         };
         let mut w = Writer::new();
         w.tracks(&tracks);
-        w.placement(placement);
+        w.placement(&placement);
         let bytes = w.into_vec();
         let mut r = Reader::new(&bytes);
         assert_eq!(r.tracks().unwrap(), tracks);
         assert_eq!(r.placement().unwrap(), placement);
+
+        for css in ["rail / auto", "\\31 foo / 2"] {
+            let placement = GridPlacement::parse(css).unwrap();
+            let mut w = Writer::new();
+            w.placement(&placement);
+            assert_eq!(Reader::new(&w.into_vec()).placement().unwrap(), placement);
+        }
+
+        let mut w = Writer::new();
+        w.tracks(&GridTracks::from_tracks(vec![GridTrack::Points(-1.0)]));
+        assert_eq!(
+            Reader::new(&w.into_vec()).tracks(),
+            Err(DecodeError::InvalidGridTrack)
+        );
     }
 
     #[test]
@@ -829,5 +998,23 @@ mod tests {
         w.bytes(&[0xff, 0xfe]);
         let bytes = w.into_vec();
         assert_eq!(Reader::new(&bytes).string(), Err(DecodeError::InvalidUtf8));
+    }
+}
+
+#[cfg(test)]
+mod viewport_tests {
+    use super::*;
+    #[test]
+    fn viewport_dimensions_round_trip() {
+        for unit in crate::ViewportUnit::ALL {
+            let value = Dimension::Viewport(unit, 10.0);
+            let mut writer = Writer::new();
+            writer.dimension(value);
+            let bytes = writer.into_vec();
+            assert_eq!(
+                Reader::new(&bytes).dimension(StyleId::Width, true).unwrap(),
+                value
+            );
+        }
     }
 }

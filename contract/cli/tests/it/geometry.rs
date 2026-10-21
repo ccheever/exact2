@@ -21,7 +21,7 @@ const SRC: &str = r#"component App
   state sized = 0
   state answered = false
   state missing = false
-  action read writes room, top, natural, sized, answered, missing
+  action read
     room = frame("bay").height
     top = frame("sheet").y
     natural = measure("sheet").height
@@ -98,4 +98,900 @@ fn before_the_first_layout_every_read_is_unavailable() {
     r.act("read", vec![]).unwrap();
     assert!(!flag(&r, "answered"));
     assert_eq!((num(&r, "room"), num(&r, "natural")), (0.0, 0.0));
+}
+
+#[test]
+fn a_read_sees_the_box_where_the_viewer_does_with_every_scroll_above_it_applied() {
+    // The kanban diary's F4: a drop target under the pointer, read from a
+    // scrolled column, without the app tracking `scrollTop` itself.
+    let plan = contract::compile(
+        r#"component App
+  state y = 0
+  state x = 0
+  state top = 0
+  state pane = 0
+  action read
+    y = frame("card").y
+    x = frame("card").x
+    top = measure("card").y
+    pane = frame("pane").y
+  view
+    column
+      column height=40
+      scroll id="pane" height=200
+        column height=300
+        column id="card" height=50
+      button press=read testId="read"
+        text "read"
+"#,
+    )
+    .unwrap();
+    let mut r = Runner::boot(
+        plan,
+        NoData,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    lay_out(&mut r);
+    let pane = r.kernel().find_by_id("pane")[0];
+    let pane = r.kernel().arena().local_id(pane.index);
+    r.act("read", vec![]).unwrap();
+    assert_eq!(
+        num(&r, "y"),
+        340.0,
+        "unscrolled: 40 above the pane, 300 above the card"
+    );
+    r.scrolled(Some(pane), 7.0, 120.0);
+    r.scrolled(None, 0.0, 10.0);
+    r.act("read", vec![]).unwrap();
+    assert_eq!(
+        num(&r, "y"),
+        210.0,
+        "the pane's 120 and the page's 10 are applied"
+    );
+    assert_eq!(num(&r, "x"), -7.0);
+    assert_eq!(num(&r, "top"), 210.0, "measure answers at the same origin");
+    assert_eq!(
+        num(&r, "pane"),
+        30.0,
+        "a scroller's own offset moves its content, not its box"
+    );
+}
+
+/// LLP 1051.000 D1, changed 2026-10-04: the box through every transform on
+/// it and above it, as `getBoundingClientRect` — kanban2's dragged card read
+/// where it showed, not where layout left it. A turned box answers its
+/// bounding box; a scroller inside a moved box moves with it.
+#[test]
+fn a_read_sees_the_box_through_every_transform_above_it() {
+    let plan = contract::compile(
+        r#"component App
+  state x = 0
+  state y = 0
+  state w = 0
+  state h = 0
+  state inner = 0
+  action read
+    x = frame("card").x
+    y = frame("card").y
+    w = frame("turned").width
+    h = frame("turned").height
+    inner = frame("inner").y
+  view
+    column
+      column id="lane" translate="30px 0" scale=2 width=100 height=100
+        column id="card" width=20 height=10 translate="-50% 10px"
+      column id="turned" width=100 height=100 rotate=45
+      scroll id="pane" height=50 translate="0 -25%"
+        column height=300
+        column id="inner" height=10
+      button press=read testId="read"
+        text "read"
+"#,
+    )
+    .unwrap();
+    let mut r = Runner::boot(
+        plan,
+        NoData,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    lay_out(&mut r);
+    r.act("read", vec![]).unwrap();
+    // The lane scales by 2 about its centre (50, 50) and moves 30 right:
+    // its local (0, 0) lands at (-20, -50). The card sits at (-10, 10) in
+    // it: -50% of 20 and 10px down, doubled.
+    assert_eq!((num(&r, "x"), num(&r, "y")), (-40.0, -30.0));
+    let d = 100.0 * std::f64::consts::SQRT_2;
+    assert!((num(&r, "w") - d).abs() < 1e-3, "{}", num(&r, "w"));
+    assert!((num(&r, "h") - d).abs() < 1e-3, "{}", num(&r, "h"));
+    // The pane is at 200, moved up 25% of its 50; the inner box is 300
+    // into it, less the pane's scroll.
+    let pane = r.kernel().find_by_id("pane")[0];
+    let pane = r.kernel().arena().local_id(pane.index);
+    r.scrolled(Some(pane), 0.0, 280.0);
+    r.act("read", vec![]).unwrap();
+    assert!((num(&r, "inner") - (200.0 - 12.5 + 300.0 - 280.0)).abs() < 1e-3);
+}
+
+/// The element resize event, routed by value: an action given to `resize`
+/// is the event, a string CSS's property. Natively the runner names what is
+/// due after a layout, each node once per size, from a depth on (Resize
+/// Observer 1 §3.4.1's rounds), and hands the action the content box.
+#[test]
+fn resize_given_an_action_is_the_element_resize_event_and_a_string_is_css() {
+    use exact_plan::EventKind;
+    let plan = contract::compile(
+        r#"component App
+  state seen = ""
+  state wide = false
+  action fit(w: number, h: number, r: DOMRectReadOnly)
+    seen = `${w}x${h} ${r.x},${r.y},${r.right},${r.bottom}`
+  action widen
+    wide = true
+  view
+    column
+      column id="outer" width=(wide ? 300 : 200) padding=5 resize=fit
+        column id="inner" height=20 resize=fit
+      textarea resize="none"
+      button press=widen testId="widen"
+        text "w"
+"#,
+    )
+    .unwrap();
+    let handled: Vec<_> = plan.handlers.iter().map(|h| h.event).collect();
+    assert_eq!(
+        handled.iter().filter(|e| **e == EventKind::Resize).count(),
+        2
+    );
+    let mut r = Runner::boot(
+        plan,
+        NoData,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    lay_out(&mut r);
+    let view = |r: &Runner<NoData>, id: &str| {
+        let key = r.kernel().find_by_id(id)[0];
+        r.kernel().arena().local_id(key.index)
+    };
+    let due = r.resize_due(0);
+    assert_eq!(due.len(), 2, "both, at first: {due:?}");
+    let (outer, inner) = (view(&r, "outer"), view(&r, "inner"));
+    assert_eq!(due[0].0, outer, "shallowest first");
+    assert_eq!(
+        (due[0].1.width, due[0].1.height, due[0].1.x),
+        (200.0, 20.0, 5.0)
+    );
+    // The next round starts below the shallowest delivered.
+    let deeper = r.resize_due(due[0].2 + 1);
+    assert_eq!(deeper.iter().map(|d| d.0).collect::<Vec<_>>(), [inner]);
+    for (v, rect, _) in due {
+        r.resize_delivered(v, rect);
+        r.dispatch(v, exact_runner::Event::Resize(rect)).unwrap();
+    }
+    assert!(r.resize_due(0).is_empty(), "each size once");
+    assert_eq!(
+        r.slot("seen").and_then(Value::as_str),
+        Some("200x20 0,0,200,20")
+    );
+    r.act("widen", vec![]).unwrap();
+    lay_out(&mut r);
+    let due = r.resize_due(0);
+    assert_eq!(due.len(), 2, "both widened: {due:?}");
+    assert_eq!(due[0].1.width, 300.0);
+    // A string is CSS's: refused where no host can drag, kept where it can.
+    let error =
+        contract::compile("component App\n  view\n    textarea resize=\"both\"\n").unwrap_err();
+    assert_eq!(error.id, "lower-css-resize");
+    // An action whose last parameter is not the record leaves it unbound.
+    let error = contract::compile(
+        "component App\n  action fit(w: number, h: number, r: ScrollEvent)\n    w = w\n  view\n    box resize=fit\n",
+    )
+    .unwrap_err();
+    assert!(
+        error.id.starts_with("analyze") || error.id.starts_with("type"),
+        "{error:?}"
+    );
+}
+
+/// `elementFromPoint(x, y)` (LLP 1094 D10): the `id` nearest the front-most
+/// box at a viewport point, over `frame`'s boxes, as DOM's
+/// `elementFromPoint(x, y)?.closest("[id]")?.id`.
+#[test]
+fn element_from_point_names_the_front_most_box_by_its_nearest_id() {
+    let plan = contract::compile(
+        r#"component App
+  state hit = "unset"
+  state px = 0
+  state py = 0
+  action probe(x: number, y: number)
+    hit = match elementFromPoint(x, y) { case some(id) => id, case none => "none" }
+  view
+    column
+      column id="plain" height=40
+        column height=20 width=50
+      scroll id="pane" height=60
+        column id="inside" height=200
+      column id="ghosted" height=40 pointer-events="none"
+        column id="under" height=40
+      column id="pile" height=60
+        column id="low" height=60 position="relative" z-index=2
+        column height=60 margin-top=-60 position="relative" z-index=1
+          column id="high" height=60
+      column id="shifted" height=20 width=50 translate="100px 0"
+      column id="turned" height=40 width=40 rotate=45
+      button press=probe(0, 0) testId="read"
+        text "read"
+"#,
+    )
+    .unwrap();
+    let mut r = Runner::boot(
+        plan,
+        NoData,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    lay_out(&mut r);
+    let at = |r: &mut Runner<NoData>, x: f64, y: f64| {
+        r.act("probe", vec![Value::Number(x), Value::Number(y)])
+            .unwrap();
+        r.slot("hit").and_then(Value::as_str).unwrap().to_owned()
+    };
+    // A box with no id of its own is named by its nearest ancestor's.
+    assert_eq!(at(&mut r, 10.0, 10.0), "plain");
+    assert_eq!(at(&mut r, 200.0, 30.0), "plain");
+    // Under the scroller's clip: its content shows only inside the port.
+    assert_eq!(at(&mut r, 10.0, 50.0), "inside");
+    let pane = r.kernel().find_by_id("pane")[0];
+    let pane = r.kernel().arena().local_id(pane.index);
+    r.scrolled(Some(pane), 0.0, 150.0);
+    assert_eq!(
+        at(&mut r, 10.0, 85.0),
+        "inside",
+        "scrolled 150: its last 50 show"
+    );
+    assert_eq!(at(&mut r, 10.0, 95.0), "pane", "past its end, the port");
+    // `pointer-events: none` is inherited: the point passes through both.
+    assert_eq!(at(&mut r, 10.0, 110.0), "none");
+    // The higher `z-index` in a sibling's subtree is in front, though the
+    // other sibling comes later in tree order.
+    assert_eq!(at(&mut r, 10.0, 170.0), "low");
+    // Boxes through their transforms, as `frame` reads them (LLP 1051.000
+    // D1, changed 2026-10-04): the shifted box is hit where it shows, not
+    // where layout left it.
+    assert_eq!(at(&mut r, 120.0, 210.0), "shifted");
+    assert_eq!(at(&mut r, 10.0, 210.0), "none");
+    // A turned box answers its own shape: a corner of its laid-out square
+    // is outside the diamond, a point above the square inside it.
+    assert_eq!(at(&mut r, 2.0, 222.0), "none");
+    assert_eq!(at(&mut r, 20.0, 213.0), "turned");
+    // Off every box.
+    assert_eq!(at(&mut r, 10.0, 5000.0), "none");
+}
+
+#[test]
+fn elements_from_point_reads_every_own_id_in_paint_order() {
+    let plan = contract::compile(
+        r#"component App
+  state hits = []
+  state first = ""
+  action probe
+    hits = elementsFromPoint(10, 10)
+    first = match elementFromPoint(10, 10) { case some(id) => id, case none => "" }
+  view
+    column id="back" width=100 height=100 position="relative"
+      column id="front" width=50 height=50
+      column id="overlay" position="absolute" left=0 top=0 width=40 height=40
+      column id="passed" position="absolute" left=0 top=0 width=40 height=40 pointer-events="none"
+"#,
+    )
+    .unwrap();
+    let mut r = Runner::boot(
+        plan,
+        NoData,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    lay_out(&mut r);
+    r.act("probe", vec![]).unwrap();
+    assert_eq!(
+        r.slot("hits"),
+        Some(&Value::list(vec![
+            Value::str("overlay"),
+            Value::str("front"),
+            Value::str("back")
+        ]))
+    );
+    assert_eq!(r.slot("first"), Some(&Value::str("overlay")));
+}
+
+#[test]
+fn elements_from_point_keeps_the_first_entry_when_an_idless_child_overflows() {
+    let plan = contract::compile(
+        r#"component App
+  state hits = []
+  state first = ""
+  action probe
+    hits = elementsFromPoint(110, 5)
+    first = match elementFromPoint(110, 5) { case some(id) => id, case none => "" }
+  view
+    column width=200 height=100 position="relative"
+      column id="under" position="absolute" left=100 top=0 width=50 height=50
+      column id="parent" position="relative" width=10 height=10
+        column position="absolute" left=100 top=0 width=50 height=50
+"#,
+    )
+    .unwrap();
+    let mut r = Runner::boot(
+        plan,
+        NoData,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    lay_out(&mut r);
+    r.act("probe", vec![]).unwrap();
+    assert_eq!(r.slot("first"), Some(&Value::str("parent")));
+    assert_eq!(
+        r.slot("hits"),
+        Some(&Value::list(vec![
+            Value::str("parent"),
+            Value::str("under")
+        ]))
+    );
+}
+
+#[test]
+fn elements_from_point_skips_an_idless_inspect_layer_inside_its_card() {
+    let plan = contract::compile(
+        r#"component App
+  state hits = []
+  state first = ""
+  action probe
+    hits = elementsFromPoint(10, 10)
+    first = match elementFromPoint(10, 10) { case some(id) => id, case none => "" }
+  view
+    column id="paint-surface-card" width=100 height=100 position="relative"
+      button id="paint-primary-save" width=50 height=50
+        text "Save"
+      column testId="layer" position="absolute" left=0 top=0 width=100 height=100
+"#,
+    )
+    .unwrap();
+    let mut r = Runner::boot(
+        plan,
+        NoData,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    lay_out(&mut r);
+    r.act("probe", vec![]).unwrap();
+    assert_eq!(r.slot("first"), Some(&Value::str("paint-surface-card")));
+    assert_eq!(
+        r.slot("hits"),
+        Some(&Value::list(vec![
+            Value::str("paint-primary-save"),
+            Value::str("paint-surface-card")
+        ]))
+    );
+}
+
+#[test]
+fn query_selector_all_reads_mounted_data_words_in_tree_order() {
+    let plan = contract::compile(
+        r#"component App
+  state hits = []
+  state show = true
+  action probe
+    hits = querySelectorAll("[data-paint~=\"accent\"]")
+  action hide
+    show = false
+  view
+    column
+      text "first" id="first" data-paint="accent muted"
+      text "other" id="other" data-paint="muted"
+      if show
+        text "second" id="second" data-paint="accent"
+      text "hidden" id="hidden" data-paint="accent" display="none"
+      column inert=true
+        text "inert" id="inert" data-paint="accent"
+"#,
+    )
+    .unwrap();
+    let mut r = Runner::boot(
+        plan,
+        NoData,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    r.act("probe", vec![]).unwrap();
+    assert_eq!(
+        r.slot("hits"),
+        Some(&Value::list(vec![
+            Value::str("first"),
+            Value::str("second")
+        ]))
+    );
+    lay_out(&mut r);
+    r.act("probe", vec![]).unwrap();
+    assert_eq!(
+        r.slot("hits"),
+        Some(&Value::list(vec![
+            Value::str("first"),
+            Value::str("second")
+        ]))
+    );
+    r.act("hide", vec![]).unwrap();
+    lay_out(&mut r);
+    r.act("probe", vec![]).unwrap();
+    assert_eq!(
+        r.slot("hits"),
+        Some(&Value::list(vec![Value::str("first")]))
+    );
+}
+
+#[test]
+fn query_selector_all_excludes_closed_top_layer_and_native_split_list() {
+    let plan = contract::compile(
+        r#"component App
+  state hits = []
+  state point = []
+  action probe
+    hits = querySelectorAll("[data-paint~=\"accent\"]")
+    point = elementsFromPoint(10, 10)
+  view
+    main navigationBack="back" navigationKey="detail" width=100 height=100
+      column navigationKey="list" navigationSplit=320 position="absolute" width=100 height=100
+        button id="save" data-paint="accent" width=100 height=100
+          text "Save"
+      column navigationKey="detail" position="absolute" width=100 height=100
+        button id="detail" data-paint="accent" width=100 height=100
+          text "Detail"
+      column id="menu" popover="auto"
+        button id="closed-menu-item" data-paint="accent"
+          text "Closed"
+      dialog id="closed-dialog"
+        button id="closed-dialog-item" data-paint="accent"
+          text "Closed"
+"#,
+    )
+    .unwrap();
+    let mut r = Runner::boot(
+        plan,
+        NoData,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    r.set_viewport(1000.0, 800.0).unwrap();
+    let root = r.kernel().roots()[0];
+    r.kernel_mut()
+        .compute_layout(root, Offer::definite(1000.0, 800.0))
+        .unwrap();
+    r.act("probe", vec![]).unwrap();
+    assert_eq!(
+        r.slot("hits"),
+        Some(&Value::list(vec![Value::str("detail")]))
+    );
+    assert_eq!(
+        r.slot("point"),
+        Some(&Value::list(vec![Value::str("detail")]))
+    );
+    let menu = r.kernel().find_by_id("menu")[0];
+    let dialog = r.kernel().find_by_id("closed-dialog")[0];
+    let open = [menu, dialog].map(|key| r.kernel().arena().local_id(key.index));
+    r.top_layer(&open);
+    r.act("probe", vec![]).unwrap();
+    assert_eq!(
+        r.slot("hits"),
+        Some(&Value::list(vec![Value::str("closed-dialog-item")]))
+    );
+}
+
+#[test]
+fn elements_from_point_skips_inert_subtrees() {
+    let plan = contract::compile(
+        r#"component App
+  state hits = []
+  action probe
+    hits = elementsFromPoint(10, 10)
+  view
+    column width=100 height=100 position="relative"
+      button id="behind" width=50 height=50
+        text "Behind"
+      column inert=true position="absolute" left=0 top=0 width=50 height=50
+        button id="inert-child" width=50 height=50
+          text "Inert"
+"#,
+    )
+    .unwrap();
+    let mut r = Runner::boot(
+        plan,
+        NoData,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    lay_out(&mut r);
+    r.act("probe", vec![]).unwrap();
+    assert_eq!(
+        r.slot("hits"),
+        Some(&Value::list(vec![Value::str("behind")]))
+    );
+}
+
+#[test]
+fn open_top_layer_escapes_its_authored_clip() {
+    let plan = contract::compile(
+        r#"component App
+  state hits = []
+  action probe
+    hits = elementsFromPoint(80, 10)
+  view
+    column width=200 height=100 position="relative"
+      column width=20 height=20 overflow="hidden"
+        dialog id="dialog" position="absolute" left=70 top=0 width=50 height=50
+          button id="dialog-button" width=50 height=50
+            text "Open"
+"#,
+    )
+    .unwrap();
+    let mut r = Runner::boot(
+        plan,
+        NoData,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    lay_out(&mut r);
+    let key = r.kernel().find_by_id("dialog")[0];
+    r.top_layer(&[r.kernel().arena().local_id(key.index)]);
+    r.act("probe", vec![]).unwrap();
+    assert_eq!(
+        r.slot("hits"),
+        Some(&Value::list(vec![
+            Value::str("dialog-button"),
+            Value::str("dialog")
+        ]))
+    );
+}
+
+#[test]
+fn top_layer_uses_presented_frames_and_stack_order() {
+    let plan = contract::compile(
+        r#"component App
+  state hits = []
+  state left = 0
+  action probe
+    hits = elementsFromPoint(125, 15)
+    left = frame("front").x
+  view
+    column width=200 height=100 position="relative"
+      column width=20 height=20 overflow="hidden"
+        dialog id="back" width=50 height=50
+        dialog id="front" width=50 height=50
+"#,
+    )
+    .unwrap();
+    let mut r = Runner::boot(
+        plan,
+        NoData,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    lay_out(&mut r);
+    let view = |id| {
+        let key = r.kernel().find_by_id(id)[0];
+        r.kernel().arena().local_id(key.index)
+    };
+    let back = view("back");
+    let front = view("front");
+    r.top_layer_frames(
+        &[
+            (back, [120.0, 10.0, 50.0, 50.0], None),
+            (front, [120.0, 10.0, 50.0, 50.0], None),
+        ],
+        None,
+    );
+    r.act("probe", vec![]).unwrap();
+    assert_eq!(
+        r.slot("hits"),
+        Some(&Value::list(vec![Value::str("front")]))
+    );
+    assert_eq!(r.slot("left"), Some(&Value::Number(120.0)));
+}
+
+#[test]
+fn structural_reads_skip_a_covered_stack_route() {
+    let plan = contract::compile(
+        r#"component App
+  state matches = []
+  state hits = []
+  action probe
+    matches = querySelectorAll("[data-paint~=\"accent\"]")
+    hits = elementsFromPoint(10, 10)
+  view
+    main navigationBack="back" navigationKey="detail" width=100 height=100
+      column navigationKey="list" position="absolute" width=100 height=100
+        button id="list-save" data-paint="accent" width=100 height=100
+          text "List"
+      column navigationKey="detail" position="absolute" width=100 height=100
+        button id="detail-save" data-paint="accent" width=100 height=100
+          text "Detail"
+"#,
+    )
+    .unwrap();
+    let mut r = Runner::boot(
+        plan,
+        NoData,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    lay_out(&mut r);
+    r.act("probe", vec![]).unwrap();
+    assert_eq!(
+        r.slot("matches"),
+        Some(&Value::list(vec![Value::str("detail-save")]))
+    );
+    assert_eq!(
+        r.slot("hits"),
+        Some(&Value::list(vec![Value::str("detail-save")]))
+    );
+}
+
+/// b6 review B2: `contentRect`'s `x` and `y` are the padding's left and
+/// top, as ResizeObserver reports them; the border is outside the padding
+/// box the rect is placed in. A percentage padding is of the containing
+/// block's width.
+#[test]
+fn a_resize_rect_is_placed_by_padding_not_border() {
+    let plan = contract::compile(
+        r#"component App
+  state seen = ""
+  action fit(w: number, h: number, r: DOMRectReadOnly)
+    seen = `${w}`
+  view
+    column width=200
+      column id="framed" width=100 height=40 padding=8 border-width=4 border-style="solid" resize=fit
+      column id="ratio" width=100 height=40 padding-left="10%" resize=fit
+"#,
+    )
+    .unwrap();
+    let mut r = Runner::boot(
+        plan,
+        NoData,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    lay_out(&mut r);
+    let due = r.resize_due(0);
+    let rect = |id: &str| {
+        let key = r.kernel().find_by_id(id)[0];
+        let view = r.kernel().arena().local_id(key.index);
+        due.iter().find(|d| d.0 == view).expect(id).1
+    };
+    // `width=100` is the content box's (`box-sizing: content-box`).
+    let framed = rect("framed");
+    assert_eq!(
+        (framed.x, framed.y, framed.width, framed.height),
+        (8.0, 8.0, 100.0, 40.0)
+    );
+    let ratio = rect("ratio");
+    assert_eq!(
+        (ratio.x, ratio.width),
+        (20.0, 100.0),
+        "10% of the column's 200"
+    );
+}
+
+/// LLP 1093 D11: a box that straddles columns is sized as Chrome's
+/// `ResizeObserver` sizes it, one column wide and as tall as its fragments
+/// end to end (measured in Chrome 154: 200×136 here), not as its union
+/// frame, which is three columns wide and one column tall.
+#[test]
+fn a_resize_rect_of_a_box_across_columns_is_its_stitched_size() {
+    let plan = contract::compile(
+        r#"component App
+  state seen = ""
+  action fit(w: number, h: number)
+    seen = `${w}`
+  view
+    view width=200 height=60 column-width=200 column-gap=20 column-fill="auto" resize=fit
+      view id="body" padding-top=4 padding-bottom=6 resize=fit
+        view height=20
+        view height=20
+        view height=20
+        view height=20
+        view height=20
+        view height=20
+"#,
+    )
+    .unwrap();
+    let mut r = Runner::boot(
+        plan,
+        NoData,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    lay_out(&mut r);
+    let due = r.resize_due(0);
+    let key = r.kernel().find_by_id("body")[0];
+    assert_eq!(r.kernel().fragments(key).map(<[_]>::len), Some(3));
+    let view = r.kernel().arena().local_id(key.index);
+    let body = due.iter().find(|d| d.0 == view).expect("body").1;
+    assert_eq!(
+        (body.x, body.y, body.width, body.height),
+        (0.0, 4.0, 200.0, 136.0)
+    );
+    let flow = due.iter().find(|d| d.0 != view).expect("flow").1;
+    assert_eq!(
+        (flow.width, flow.height),
+        (200.0, 60.0),
+        "the container keeps its box"
+    );
+}
+
+/// A column child's percentage padding is of the column width (CSS
+/// Multi-column §3.4), which layout already resolved. A container 400 wide
+/// with two columns and no gap has columns 200 wide: `padding: 10%` is 20
+/// on each side, and the content box is 160 wide. The same percentage of
+/// the container's content box would be 40, and the content box 120.
+#[test]
+fn a_column_childs_percentage_padding_is_of_the_column() {
+    let plan = contract::compile(
+        r#"component App
+  state seen = ""
+  action fit(w: number, h: number, r: DOMRectReadOnly)
+    seen = `${w}`
+  view
+    view width=400 height=80 column-count=2 column-gap=0
+      view id="child" padding="10%" resize=fit
+        view height=20
+"#,
+    )
+    .unwrap();
+    let mut r = Runner::boot(
+        plan,
+        NoData,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    lay_out(&mut r);
+    let due = r.resize_due(0);
+    let key = r.kernel().find_by_id("child")[0];
+    let view = r.kernel().arena().local_id(key.index);
+    let child = due.iter().find(|d| d.0 == view).expect("child").1;
+    assert_eq!(
+        (child.x, child.y, child.width, child.height),
+        (20.0, 20.0, 160.0, 20.0),
+        "10% of the 200-wide column"
+    );
+}
+
+#[test]
+fn intersect_compiles_and_dispatches_its_entry_after_authored_arguments() {
+    contract::compile("component App\n  state calls = 0\n  action seen\n    calls = calls + 1\n  view\n    box intersect=seen intersect-margin=\"20px 5%\"\n").unwrap();
+    let plan = contract::compile(
+        r#"component App
+  state seen = "none"
+  action observe(label: string, e: IntersectionObserverEntry)
+    seen = `${label}:${e.isIntersecting}:${e.intersectionRatio}`
+  view
+    box id="row" intersect=observe("row") intersect-margin="20px 5%"
+"#,
+    )
+    .unwrap();
+    assert_eq!(plan.handlers[0].event, exact_plan::EventKind::Intersect);
+    let mut r = Runner::boot(
+        plan,
+        NoData,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    let key = r.kernel().find_by_id("row")[0];
+    let view = r.kernel().arena().local_id(key.index);
+    for (payload, expected) in [
+        ("0,0", "row:false:0"),
+        ("1,0.25", "row:true:0.25"),
+        ("1,0", "row:true:0"),
+        ("1,1", "row:true:1"),
+    ] {
+        r.dispatch(
+            view,
+            exact_runner::Event::of_host_kind(45, payload).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(r.slot("seen").and_then(Value::as_str), Some(expected));
+    }
+    for bad in [
+        "true,1", "1,-1", "1,1.1", "1,NaN", "1,inf", "1,0,0", "0,0.5",
+    ] {
+        assert!(exact_runner::Event::of_host_kind(45, bad).is_err(), "{bad}");
+    }
+    for margin in ["0px", "-20px 5%", ".5px 1px 2% 3px", "1e2px"] {
+        contract::compile(&format!(
+            "component App\n  view\n    box intersect-margin={margin:?}\n"
+        ))
+        .unwrap();
+    }
+    for margin in ["", "0", "10em", "auto", "NaNpx", "1px 2px 3px 4px 5px"] {
+        let error = contract::compile(&format!(
+            "component App\n  view\n    box intersect-margin={margin:?}\n"
+        ))
+        .unwrap_err();
+        assert_eq!(error.id, "lower-intersect-margin", "{margin}: {error:?}");
+    }
+    let error = contract::compile(
+        "component App\n  state margin = \"10px\"\n  view\n    box intersect-margin=margin\n",
+    )
+    .unwrap_err();
+    assert_eq!(error.id, "lower-intersect-margin");
+    let error = contract::compile("component App\n  action seen(e: ScrollEvent)\n    let x = e.scrollTop\n  view\n    box intersect=seen\n").unwrap_err();
+    assert!(
+        error.id.starts_with("type") || error.id.starts_with("analyze"),
+        "{error:?}"
+    );
+}
+
+/// The euxy port read `measure("root").height` to size its sheets and got 0:
+/// `measure` is the border box at `height: auto` with every other style
+/// kept, and a bare root whose children are all absolutely positioned (its
+/// routes) has no content in flow, no padding and no `min-height`. With
+/// padding it is the padding; `frame` is the laid-out box. A mount task's timer, fired after the
+/// host's first layout as on a native host, reads both.
+#[test]
+fn measure_is_the_border_box_at_auto_height_and_frame_the_laid_out_box() {
+    let read = |root: &str| {
+        let src = format!("component App\n  state natural = -1\n  state drawn = -1\n  state answered = false\n  task boot mount\n    after(1, read)\n  action read\n    natural = measure(\"root\").height\n    drawn = frame(\"root\").height\n    answered = not measure(\"root\").unavailable\n  view\n    main id=\"root\" height=\"100%\"{root}\n      column position=\"absolute\" inset=0\n        text \"route\"\n");
+        let mut r = Runner::boot(
+            contract::compile(&src).unwrap(),
+            NoData,
+            Kernel::with_monospace(),
+            Default::default(),
+            "/",
+        )
+        .unwrap();
+        lay_out(&mut r);
+        r.advance(1.0).unwrap();
+        assert!(flag(&r, "answered"), "{root}");
+        (num(&r, "natural"), num(&r, "drawn"))
+    };
+    assert_eq!(read(""), (0.0, 800.0));
+    assert_eq!(read(" padding=16"), (32.0, 832.0), "its padding counts");
+    assert_eq!(
+        read(" min-height=100"),
+        (100.0, 800.0),
+        "its min-height holds"
+    );
 }

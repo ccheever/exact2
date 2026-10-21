@@ -32,7 +32,7 @@ fn css(v: Value) -> [f64; 4] {
 #[test]
 fn the_shorthand_names_every_paint_property_and_box_shadow_names_both_halves() {
     let t = Transitions::parse(
-        "background-color 200ms cubic-bezier(.32,.72,0,1), color 120ms ease, border-color 1s, box-shadow 320ms linear, tint-color 90ms",
+        "background-color 200ms cubic-bezier(.32,.72,0,1), color 120ms ease, border-color 1s, box-shadow 320ms linear, -exact-tint-color 90ms",
     )
     .unwrap();
     let governs = |p: Property| t.matching(p).map(|d| d.duration);
@@ -61,7 +61,8 @@ fn the_shorthand_names_every_paint_property_and_box_shadow_names_both_halves() {
 /// interrupts as CSS does, from where it is, and every host agrees.
 #[test]
 fn a_spring_on_paint_plays_its_curve_from_rest() {
-    let t = Transitions::parse("background-color 200ms linear, all spring(180, 12, 1)").unwrap();
+    let t =
+        Transitions::parse("background-color 200ms linear, all -exact-spring(180, 12, 1)").unwrap();
     let spring = t.matching(Property::BackgroundColor).unwrap();
     assert!(matches!(spring.timing, TimingFunction::Spring(_)));
     let config = exact_motion::SpringConfig {
@@ -330,4 +331,28 @@ fn box_shadow_keyframes_round_trip_and_play() {
     night.advance(1.0).unwrap();
     let shade = css(night.sampled_value(NODE, Property::ShadowColor).unwrap());
     assert_eq!(shade, [255.0, 255.0, 255.0, 0.5]);
+}
+
+/// LLP 1100 D2.
+#[test]
+fn a_modern_colour_moves_in_oklab() {
+    use exact_motion::Value;
+    let red = Value::rgba8(255, 0, 0, 255);
+    let blue = Value::rgba8(0, 0, 255, 255);
+    let ok_blue = blue.to_oklab();
+    assert!(ok_blue.oklab);
+    let [r, g, b, a] = ok_blue.straight();
+    assert!((r - 0.0).abs() < 1e-6 && (g - 0.0).abs() < 1e-6 && (b - 1.0).abs() < 1e-6 && a == 1.0);
+    let legacy = red.lerp(blue, 0.5).straight();
+    let modern = red.lerp(ok_blue, 0.5);
+    assert!(modern.oklab, "a modern endpoint takes the pair into Oklab");
+    let modern = modern.straight();
+    assert!((legacy[0] - 0.5).abs() < 1e-9 && (legacy[2] - 0.5).abs() < 1e-9);
+    let lum = |c: [f64; 4]| c[0] + c[1] + c[2];
+    assert!(lum(modern) > lum(legacy), "{modern:?} vs {legacy:?}");
+    // A modern colour outside sRGB keeps its value until it is read.
+    let p3_red = Value::oklab(0.6486, 0.2716, 0.1325, 1.0);
+    let (lin, _) = p3_red.linear_srgb();
+    assert!(lin[0] > 1.0, "outside sRGB, unclipped: {lin:?}");
+    assert_eq!(p3_red.to_rgba8()[0], 255, "an 8-bit reader gets the clip");
 }

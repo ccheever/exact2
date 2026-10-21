@@ -1,10 +1,11 @@
+import { homedir as browserHome } from 'node:os';
 import { chromium } from "/tmp/exact-full-games-20260917/babylon/node_modules/playwright/index.mjs";
 import { mkdirSync, writeFileSync } from "node:fs";
 
 const output = "/tmp/babylon-ui-evidence";
 mkdirSync(output, { recursive: true });
 const browser = await chromium.launch({
-  executablePath: "/home/ccheever/.cache/ms-playwright/chromium-1234/chrome-linux64/chrome",
+  executablePath: (process.env.CHROME || browserHome() + "/.cache/ms-playwright/chromium-1234/chrome-linux64/chrome"),
   headless: true,
   args: ["--no-sandbox", "--enable-unsafe-swiftshader"]
 });

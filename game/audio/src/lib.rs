@@ -10,11 +10,19 @@ use exact_game::{
     math, Quat, Vec3, World,
 };
 use std::{collections::BTreeMap, sync::Arc};
-#[cfg(any(target_os = "macos", target_os = "ios", test))]
+#[cfg(any(
+    target_os = "macos",
+    target_os = "ios",
+    target_os = "tvos",
+    windows,
+    test
+))]
 #[allow(unsafe_code)]
-mod apple;
-#[cfg(any(target_os = "macos", target_os = "ios"))]
-pub use apple::AppleOutput;
+mod native;
+#[cfg(any(target_os = "macos", target_os = "ios", target_os = "tvos"))]
+pub use native::AppleOutput;
+#[cfg(windows)]
+pub use native::WindowsOutput;
 #[cfg(target_arch = "wasm32")]
 mod web;
 #[cfg(target_arch = "wasm32")]
@@ -99,6 +107,10 @@ pub trait Output {
     }
     fn ready(&self) -> bool {
         true
+    }
+    /// A fatal asynchronous device error. The owner disposes and retries the output.
+    fn failure(&self) -> Option<String> {
+        None
     }
     fn flush(&mut self) {}
     fn retain_pcm(&mut self, _pcm: &[Pcm]) {}
@@ -218,11 +230,16 @@ impl Listener {
         Some(Self { position, rotation })
     }
 }
-/// Inverse distance beyond 1m, smoothstep fade from 1m to 40m, equal-power pan.
-pub fn spatial_gains(listener: Listener, point: Vec3, gain: f32) -> (f32, f32) {
+/// Configurable Web Audio distance attenuation with equal-power pan.
+pub fn spatial_gains(
+    listener: Listener,
+    point: Vec3,
+    gain: f32,
+    spatial: audio::Spatial,
+) -> (f32, f32) {
     let delta = point - listener.position;
     let distance = delta.length();
-    if distance >= 40.0 {
+    if !distance.is_finite() {
         return (0.0, 0.0);
     }
     let local = listener.rotation.conjugate() * delta;
@@ -231,7 +248,7 @@ pub fn spatial_gains(listener: Listener, point: Vec3, gain: f32) -> (f32, f32) {
     } else {
         0.0
     };
-    let level = gain / distance.max(1.0) * (1.0 - math::smoothstep(1.0, 40.0, distance));
+    let level = gain * spatial.attenuation(distance);
     (
         level * math::sqrt((1.0 - pan) * 0.5),
         level * math::sqrt((1.0 + pan) * 0.5),
@@ -324,7 +341,17 @@ impl<O: Output> Player<O> {
         let master = world
             .try_resource::<audio::Audio>()
             .map_or(1.0, |a| audio::gain(a.master));
-        let gains = |at: &At, position: Option<Vec3>, gain: f32, pan: f32| {
+        let gains = |at: &At,
+                     position: Option<Vec3>,
+                     gain: f32,
+                     pan: f32,
+                     spatial: Option<audio::Spatial>| {
+            let spatial = spatial
+                .or_else(|| match at {
+                    At::Entity(e) => world.get::<audio::Spatial>(*e).map(|s| *s),
+                    _ => None,
+                })
+                .unwrap_or_default();
             let gain = audio::gain(gain) * master;
             let point = match at {
                 At::Ui => Some(None),
@@ -337,7 +364,9 @@ impl<O: Output> Player<O> {
             };
             let (l, r) = match point {
                 Some(None) => (gain, gain),
-                Some(Some(p)) => listener.map_or((0.0, 0.0), |l| spatial_gains(l, p, gain)),
+                Some(Some(p)) => {
+                    listener.map_or((0.0, 0.0), |l| spatial_gains(l, p, gain, spatial))
+                }
                 None => (0.0, 0.0),
             };
             // Balance after spatialization: 0 leaves both channels unchanged.
@@ -368,6 +397,7 @@ impl<O: Output> Player<O> {
                             v.position,
                             v.gain * authored(&v.definition) * v.fade_at(tick),
                             v.pan,
+                            v.spatial,
                         ),
                         began: v.began,
                         looping: v.looping(),
@@ -402,6 +432,7 @@ impl<O: Output> Player<O> {
                                 None,
                                 source.gain * authored(definition),
                                 0.0,
+                                None,
                             ),
                             began: 0,
                             looping: true,

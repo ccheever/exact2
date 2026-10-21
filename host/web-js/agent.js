@@ -3,20 +3,30 @@
 // `scripts/agent.mjs web` asks. Input and screenshots stay the carrier's own
 // (CDP). Loaded only under `?agent`; never part of an app's boot bytes.
 import names, { types } from './names.js';
-import { R, eq, pieces, pageHistory } from './rt.js';
-import { environment, navigation, guestOutline, guestTap, guestType } from './navigation.js';
+import { pieces, pageHistory, Head, navigateRoot, Tasks, journal, unopened } from './rt.js';
+import * as perf from './perf.js';
+import { observe } from './check.js';
+import { faultOp, faultsJson, setFaultLog } from '../web/faults.js';
+import { inertAncestor, displayMode, environment, navigation, unselected, foldEnv, preferFold, typedControl, typeControl, animationClocks, pageReporter } from './navigation.js';
+import { guestOutline, guestTap, guestType, viewBox, reveal, selectAll, scrollRange } from './input-glue.js';
 // A runtime value as the runner's typed JSON: records by field name.
 const typed = (v, t) => v == null || typeof t === 'string' ? v : Array.isArray(t) ? (t[0] === '?' ? typed(v, t[1]) : v.map(x => typed(x, t[1]))) : Object.fromEntries(Object.keys(t).map((k, i) => [k, typed(v[i], t[k])]));
-const PROPS = [['aria-live', 'accessibilityLive'], ['role', 'accessibilityRole'], ['aria-description', 'accessibilityHint'], ['aria-keyshortcuts', 'accessibilityKeyShortcuts'], ['aria-orientation', 'accessibilityOrientation'], ['aria-level', 'accessibilityHeadingLevel', 1], ['aria-posinset', 'accessibilityPosInSet', 1], ['aria-setsize', 'accessibilitySetSize', 1], ['placeholder', 'placeholder'], ['viewportFit', 'viewportFit'], ['interactiveWidget', 'interactiveWidget']];
-const TYPES = { TEMPLATE: 'Head', BUTTON: 'Pressable', INPUT: 'TextInput', TEXTAREA: 'TextInput', VIDEO: 'Video', IMG: 'Image', IFRAME: 'WebView', A: 'Pressable' };
+const PROPS = [['aria-live', 'accessibilityLive'], ['role', 'accessibilityRole'], ['data-alertpart', 'alertPart'], ['aria-controls', 'accessibilityControls'], ['id', 'id'], ['aria-description', 'accessibilityHint'], ['aria-keyshortcuts', 'accessibilityKeyShortcuts'], ['aria-orientation', 'accessibilityOrientation'], ['aria-pressed', 'accessibilityPressed'], ['aria-level', 'accessibilityHeadingLevel', 1], ['aria-posinset', 'accessibilityPosInSet', 1], ['aria-setsize', 'accessibilitySetSize', 1], ['aria-valuenow', 'accessibilityValueNow'], ['aria-valuemin', 'accessibilityValueMin'], ['aria-valuemax', 'accessibilityValueMax'], ['aria-valuetext', 'accessibilityValueText'], ['placeholder', 'placeholder'], ['autocomplete', 'autocomplete'], ['viewportFit', 'viewportFit'], ['interactiveWidget', 'interactiveWidget'], ['data-hatch', 'hatch'], ['data-nativeviewmodulename', 'nativeViewModuleName'], ['data-nativeviewprops', 'nativeViewProps']];
+const TYPES = { TEMPLATE: 'Head', BUTTON: 'Pressable', INPUT: 'TextInput', TEXTAREA: 'TextInput', VIDEO: 'Video', AUDIO: 'Video', IMG: 'Image', IFRAME: 'WebView', A: 'Pressable' };
+/** The view an operation names: its id, else the first node with that testId on an active screen, a covered
+ * screen's or an unselected tab's copy only when no active one carries it, as the runner's `target`. */
+const targetOf = (nodes, t) => { const named = nodes.filter(n => n.props.testId === t); return nodes.find(n => n.id === t) ?? named.find(n => !n.inactive) ?? named[0]; };
 export function install(exact) {
   const views = exact.views, id = exact.viewId;
+  let page;
+  const ownPage = () => page ??= (f => ({ prefer: p => { f.prefer(p); return f.read(); }, read: () => f.read() }))(pageReporter(true));
+  setFaultLog(line => journal.push(`t=${exact.clock.now} ${line}`)); // the runner's journal line for an injected failure (LLP 1103 D2)
   // A Markdown text's pieces are its content, not views.
   // A view leaving with its exit animation (presence-glue.js) is no view: the runner destroyed it.
   // A paragraph text flows around shapes is its fragments on the page; the
   // tree is its own text and runs (flow.js keeps them).
   const flowed = el => el.$flow && el.querySelector(':scope > [data-flow-fragment]');
-  const kids = el => el.getAttribute('markup') === 'markdown' ? [] : flowed(el) ? el.$flow.kids : [...el.children].filter(c => !c.hasAttribute('data-surface') && !c.hasAttribute('data-exiting'));
+  const kids = el => el.getAttribute('markup') === 'markdown' ? [] : flowed(el) ? el.$flow.kids : [...el.children].filter(c => !c.hasAttribute('data-surface') && !c.hasAttribute('data-exiting') && (el.getAttribute('data-hatch') == null || c.$exactTree));
   // A text's inline runs are text nodes too (the runner's tree; element.rs
   // marks only the paragraph `data-exact-text`).
   // (A flowed paragraph's runs are held off the page: runs too.)
@@ -24,41 +34,83 @@ export function install(exact) {
   // An SVG element's node type, by element.rs's tags (a nested `svg` is a viewport).
   const SVG = { svg: 'Svg', g: 'SvgGroup', path: 'SvgPath', polyline: 'SvgPolyline', polygon: 'SvgPolygon', circle: 'SvgCircle', line: 'SvgLine', rect: 'SvgRect', ellipse: 'SvgEllipse', defs: 'SvgDefs', linearGradient: 'SvgLinearGradient', radialGradient: 'SvgRadialGradient', stop: 'SvgStop', use: 'SvgUse', symbol: 'SvgSymbol', clipPath: 'SvgClipPath', text: 'SvgText', tspan: 'SvgTSpan', marker: 'SvgMarker', mask: 'SvgMask', pattern: 'SvgPattern', foreignObject: 'SvgForeignObject', filter: 'SvgFilter' };
   const svg = el => el.localName === 'svg' && el.parentElement?.namespaceURI === el.namespaceURI ? 'SvgViewport' : SVG[el.localName] ?? (el.localName.startsWith('fe') ? 'SvgFe' : 'View');
-  const type = el => el.exactNative ? 'NativeView' : el.namespaceURI === 'http://www.w3.org/2000/svg' ? svg(el) : el.exactMarkup ? 'TextInput' : el.localName === 'select' || el.localName === 'input' && /^(file|checkbox|range|date|time|datetime-local)$/.test(el.type) ? 'Control' : el.localName === 'option' || el.hasAttribute('data-exact-text') || run(el) ? 'Text' : el.querySelector(':scope > canvas[data-surface]') ? 'Canvas' : el.dataset.scroll ? (el.getAttribute('role') === 'list' ? 'List' : 'ScrollView') : TYPES[el.tagName] ?? 'View';
+  const type = el => el.exactNative ? 'NativeView' : el.namespaceURI === 'http://www.w3.org/2000/svg' ? svg(el) : el.exactMarkup ? 'TextInput' : el.localName === 'select' || el.localName === 'button' && el.hasAttribute('data-button-style') || el.localName === 'input' && /^(file|checkbox|radio|range|date|time|datetime-local)$/.test(el.type) || el.hasAttribute('data-exact-progress') || el.localName === 'progress' ? 'Control' : el.localName === 'option' || el.hasAttribute('data-exact-text') || run(el) ? 'Text' : el.querySelector(':scope > canvas[data-surface]') ? 'Canvas' : el.dataset.scroll ? (el.getAttribute('role') === 'list' ? 'List' : 'ScrollView') : TYPES[el.tagName] ?? 'View';
   const record = (el, depth) => {
     const props = {};
     if (el.dataset.testid) props.testId = el.dataset.testid;
+    if (el.tagName === 'IMG') props.imageSource = el.dataset.symbolSource ?? el.dataset.appSrc ?? el.getAttribute('src') ?? '';
     if (el.hasAttribute('aria-label')) props.accessibilityLabel = el.getAttribute('aria-label');
     else if (el.tagName === 'IMG' && el.getAttribute('alt')) props.accessibilityLabel = el.getAttribute('alt');
     // A paragraph of runs has no text of its own: its runs carry it.
     if (/^(Text|SvgText|SvgTSpan)$/.test(type(el)) && (el.$source != null || !kids(el).length)) props.text = el.$source ?? (flowed(el) ? el.$flow.text : el.textContent);
-    if ('value' in el && el.tagName !== 'BUTTON' && el.type !== 'checkbox') props.value = el.value;
-    // The runner's props that element.rs writes as attributes, by its names.
-    for (const [attr, prop, num] of PROPS) if (el.hasAttribute(attr)) props[prop] = num ? Number(el.getAttribute(attr)) : el.getAttribute(attr);
+    // A formatted live time's text is the node before its hidden fallback children (live-time.js), as the runner's tree has it.
+    else if (el.localName === 'time' && el.hasAttribute('data-time-shown')) props.text = el.firstChild?.nodeType === Node.TEXT_NODE ? el.firstChild.data : '';
+    // An option's, a checkbox's and a radio's value is its authored `value` (the DOM's falls back to its label, or `on`), as the runner's tree gives it.
+    // A determinate progress's `value` and `max` as written (LLP 1116 D8): the DOM's `value` is a number.
+    if (el.tagName === 'PROGRESS') { for (const k of ['value', 'max']) if (el.hasAttribute(k)) props[k] = el.getAttribute(k); }
+    else if ('value' in el && el.tagName !== 'BUTTON' && (!(el.tagName === 'OPTION' || el.type === 'checkbox' || el.type === 'radio') || el.hasAttribute('value'))) props.value = el.value;
+    // A password field's value is never agent output (#134): a fixed mark, whatever its length, and its `type` as the runner's tree gives it.
+    if (el.tagName === 'INPUT' && el.type === 'password') { props.type = 'password'; if (props.value) props.value = '•••'; }
+    // A checkbox's or radio's model value, as the runner's tree gives its `checked` row.
+    if (el.$checked !== undefined) props.checked = el.$checked;
+    // The runner's props that element.rs writes as attributes, by its names. A sheet's `role="dialog"` and `aria-modal`
+    // are the host's presentation of a modal route, not props (input-glue.js marks them; LLP 1115.000 D4.5).
+    const sheet = el.hasAttribute('data-exact-dialog');
+    for (const [attr, prop, num] of PROPS) if (el.hasAttribute(attr) && !(sheet && attr === 'role')) props[prop] = num ? Number(el.getAttribute(attr)) : el.getAttribute(attr);
+    // The intent `tree --ax` reads (LLP 1080.002 D7), as the runner names it.
+    if (el.hasAttribute('inert')) props.inert = true;
+    // A disabled control, as the runner's tree gives its `disabled` prop (LLP 1116.010 D3: `expect disabled`, and a press refused the same on every host).
+    // `aria-disabled` is its own prop, as the runner gives it: it reads as disabled, but a press still dispatches.
+    if (el.matches(':disabled, [disabled]')) props.disabled = true; // a box's own `disabled`, which `:disabled` does not match
+    if (el.getAttribute('aria-disabled') === 'true') props.accessibilityDisabled = true;
+    if (el.getAttribute('aria-hidden') === 'true') props.accessibilityElementsHidden = true;
+    if (el.getAttribute('aria-modal') === 'true' && !sheet) props.accessibilityModal = true;
+    if (el.getAttribute('aria-busy') === 'true') props.accessibilityBusy = true;
     if (el.hasAttribute('autofocus')) props.autofocus = true; else if (el.dataset.autofocus === 'false') props.autofocus = false;
     const n = { id: id(el), type: type(el), depth, props };
     if (el.dataset.exactOn) n.handlers = el.dataset.exactOn.split(' ');
     if (document.activeElement === el) n.focused = true;
-    // As glue.js's `tree` adds them: a pressable's accessible name, and an
-    // iframe's url, load state and same-origin guest outline (LLP 1020 D4).
-    if (el.matches('button, a, [role=button]')) n.accessibleName = el.getAttribute('aria-label') ?? el.textContent.trim();
+    // As glue.js's `tree` adds them: an iframe's url, load state and
+    // same-origin guest outline (LLP 1020 D4).
+    // A module view's status (LLP 1024 D8.3): what native-glue.js keeps on
+    // the element, as glue.js's `tree` reports it.
+    if (el.exactNative) n.module = el.exactNative.status();
     if (el instanceof HTMLIFrameElement) {
       n.url = el.getAttribute('src') ?? '';
-      n.loading = loaded.get(el) !== el.getAttribute('src');
+      n.loading = el.exactAppFrame?.failed ? false : el.exactAppFrame && !el.exactAppFrame.url ? true : loaded.get(el) !== el.getAttribute('src');
       const guest = guestOutline(el);
       if (guest !== null) n.guest = guest;
     }
     return n;
   };
+  // `inactive` (the runner's tree): under a route or tab its navigation root has not selected (shop F16);
+  // `unopened`: a tab panel whose tab has never been selected, empty until it is (LLP 1075.003 §3.7).
   const all = () => {
-    const out = [];
-    const walk = (el, d) => { const n = record(el, d); out.push(n); n.children = kids(el).map(c => walk(c, d + 1).id); return n; };
-    kids(document.getElementById('exact-root')).forEach(el => walk(el, 0));
+    const out = [], root = document.getElementById('exact-root'), off = new Set([...root.querySelectorAll('[navigationBack]')].flatMap(nav => unselected(nav)));
+    const walk = (el, d, dead) => { const n = record(el, d); out.push(n); if ((dead ||= off.has(el))) n.inactive = true; if (unopened(el)) n.unopened = true; n.children = kids(el).map(c => walk(c, d + 1, dead).id); return n; };
+    kids(root).forEach(el => walk(el, 0, false));
     return out;
   };
   // The runner's tags (LLP 1035.002 D3): a commit is an epoch; a JS page
   // has one incarnation (a plan swap is a new page).
   const tags = () => ({ clock: exact.clock.now, epoch: exact.clock.epoch, incarnation: 1 });
+  // `tap <node>/<part>` (LLP 1075.003.000.001 §3.5): the aim (which changes nothing) and the landing; the driver delivers
+  // a real pointer event at the aimed point between them. The token binds the part's element: one replaced since is stale.
+  let PartAim = null, PartAims = 0;
+  const partTap = req => {
+    const node = views.get(req.id), el = node && exact.hatchRegions?.part(node, String(req.part));
+    if (!el) return { error: `part ${req.part}: view ${req.id} has no live part of that id` };
+    const b = el.getBoundingClientRect(), x = b.x + b.width / 2, y = b.y + b.height / 2, under = document.elementFromPoint(x, y), on = t => !!t && (t === el || el.contains(t));
+    if (req.aim) {
+      if (!on(under)) return { error: `part ${req.part}: ${under ? `covered by ${under.localName}${under.id ? '#' + under.id : ''}` : 'nothing is hit at its middle'}` };
+      const aim = PartAim = { token: `${req.id}/${req.part}/${++PartAims}`, el, hit: null }, nb = node.getBoundingClientRect();
+      document.addEventListener('pointerdown', ev => { if (PartAim === aim) aim.hit = ev.target; }, { capture: true, once: true });
+      return { aimed: { at: [Math.round((x - nb.x) * 100) / 100, Math.round((y - nb.y) * 100) / 100], token: aim.token }, ...tags() };
+    }
+    if (!PartAim || PartAim.token !== req.landed || PartAim.el !== el) return { error: `part ${req.part}: it changed between the aim and the delivery (a stale token)` };
+    const hit = PartAim.hit;
+    return { tapped: req.id, part: String(req.part), delivery: 'platform', landed: on(hit) ? 'part' : 'elsewhere', ...(on(hit) ? {} : { hit: hit ? { class: hit.localName } : null }), ...tags() };
+  };
   // An iframe's latest src load (glue.js `iframeLoading`): loading until the
   // load event of the src it has now.
   const loaded = new WeakMap();
@@ -71,14 +123,14 @@ export function install(exact) {
   // (`dynamic` when a binding wrote it), an inherited one comes from the
   // nearest view that declares it, else `initial`; values are the browser's
   // computed ones, under the runner's row names.
-  const INHERITED = { text_color: 'color', font_family: 'font-family', font_size: 'font-size', font_weight: 'font-weight', font_style: 'font-style', line_height: 'line-height', letter_spacing: 'letter-spacing', font_variant_numeric: 'font-variant-numeric', direction: 'direction', white_space: 'white-space', overflow_wrap: 'overflow-wrap', text_align: 'text-align' };
+  const INHERITED = { text_color: 'color', font_family: 'font-family', font_size: 'font-size', font_weight: 'font-weight', font_style: 'font-style', line_height: 'line-height', letter_spacing: 'letter-spacing', font_variant_numeric: 'font-variant-numeric', direction: 'direction', white_space: 'white-space', overflow_wrap: 'overflow-wrap', text_align: 'text-align', text_indent: 'text-indent', hyphens: 'hyphens', widows: 'widows', orphans: 'orphans' };
   const rowOf = prop => Object.keys(INHERITED).find(k => INHERITED[k] === prop) ?? prop.replace(/^-+/, '').replace(/-/g, '_');
   // A class's rule may be nested: the build wraps them all in
   // `#exact-root#exact-root { & .cN { … } }` for specificity (emit.rs).
   const declared = el => {
-    const out = new Set(el.style), classes = new Set([...el.classList].map(c => '.' + c));
+    const out = new Map([...el.style].map(p => [p, el.style.getPropertyValue(p)])), classes = new Set([...el.classList].map(c => '.' + c));
     const walk = rules => { for (const r of rules) {
-      if (r.style && classes.has(r.selectorText?.replace(/^&\s+/, ''))) for (const p of r.style) out.add(p);
+      if (r.style && classes.has(r.selectorText?.replace(/^&\s+/, ''))) for (const p of r.style) if (!out.has(p)) out.set(p, r.style.getPropertyValue(p));
       if (r.cssRules) walk(r.cssRules);
     } };
     for (const sheet of document.styleSheets) { let rules; try { rules = sheet.cssRules; } catch { continue; } walk(rules); }
@@ -89,14 +141,15 @@ export function install(exact) {
     const el = views.get(nid);
     if (!el || !el.isConnected) return { error: `stale node #${nid} (incarnation 1)` };
     const own = declared(el), cs = getComputedStyle(el), style = {};
-    for (const p of own) if (!p.startsWith('--')) style[rowOf(p)] = { value: cs.getPropertyValue(p), source: el.$css?.[p] !== undefined ? 'dynamic' : 'authored' };
+    // A row naming a token that varies by an app axis says which (modes.js, LLP 1121 D7).
+    for (const [p, text] of own) if (!p.startsWith('--')) { const token = exact.modes?.token(el, p, text); style[rowOf(p)] = { value: cs.getPropertyValue(p), ...(token ? { token } : {}), source: el.$css?.[p] !== undefined ? 'dynamic' : 'authored' }; }
     for (const [row, prop] of Object.entries(INHERITED)) {
       if (own.has(prop)) continue;
       let from = null;
       for (let a = el.parentElement; a && a.id !== 'exact-root'; a = a.parentElement) if (a.style.getPropertyValue(prop) || declared(a).has(prop)) { from = id(a); break; }
       style[row] = { value: cs.getPropertyValue(prop), ...(from != null ? { source: 'inherited', from } : { source: 'initial' }) };
     }
-    const r = el.getBoundingClientRect(), rect = b => ({ x: r2(b.x), y: r2(b.y), w: r2(b.width), h: r2(b.height) });
+    const r = viewBox(el), rect = b => ({ x: r2(b.x), y: r2(b.y), w: r2(b.width), h: r2(b.height) });
     const scroll = [], clip = [];
     let clipped = r.width === 0 || r.height === 0, parent = null;
     for (let a = el.parentElement; a && a.id !== 'exact-root'; a = a.parentElement) {
@@ -104,25 +157,33 @@ export function install(exact) {
       if (aid == null) continue;
       parent ??= aid;
       const ac = getComputedStyle(a);
-      if (a.dataset.scroll === 'true') scroll.unshift({ id: aid, sx: r2(a.scrollLeft), sy: r2(a.scrollTop) });
+      if (a.dataset.scroll === 'true') scroll.unshift({ id: aid, sx: r2(a.scrollLeft), sy: r2(a.scrollTop), ...scrollRange(a) });
       for (const kind of (ac.overflowX !== 'visible' || ac.overflowY !== 'visible' ? ['overflow'] : []).concat(ac.clipPath !== 'none' ? ['clip-path'] : [])) {
         clip.unshift({ id: aid, kind });
         const c = a.getBoundingClientRect();
         if (r.right <= c.left || r.left >= c.right || r.bottom <= c.top || r.top >= c.bottom) clipped = true;
       }
     }
-    if (scrollX || scrollY) scroll.unshift({ viewport: true, sx: r2(scrollX), sy: r2(scrollY) });
+    const page = scrollRange(document.scrollingElement ?? document.documentElement);
+    if (scrollX || scrollY || page.rx || page.ry) scroll.unshift({ viewport: true, sx: r2(scrollX), sy: r2(scrollY), ...page });
     const n = record(el, 0);
     return {
       ...tags(), id: nid, type: n.type, parent, props: n.props, style,
       // A development build names the element's plan node (emit.rs `data-site`).
       ...(el.dataset?.site != null ? { site: Number(el.dataset.site) } : {}),
       space: { viewport: rect(r), local: { w: r2(el.clientWidth), h: r2(el.clientHeight) }, capture: { scale: devicePixelRatio } },
+      // A box a multi-column flow fragments: one rect per column (LLP 1093 D12).
+      ...(el.getClientRects().length > 1 ? { column_fragments: [...el.getClientRects()].map(rect) } : {}),
       scroll, clip,
-      visible: { hidden: el.checkVisibility ? !el.checkVisibility({ visibilityProperty: true }) : false, inert: !!el.closest('[inert]'), inViewport: r.right > 0 && r.bottom > 0 && r.left < innerWidth && r.top < innerHeight, clipped },
-      native: { element: el.localName },
+      visible: { hidden: el.checkVisibility ? !el.checkVisibility({ visibilityProperty: true }) : false, inert: !!inertAncestor(el), inViewport: r.right > 0 && r.bottom > 0 && r.left < innerWidth && r.top < innerHeight, clipped },
+      native: { element: el.localName, ...(el.hasAttribute('data-symbol-source') ? { symbol: {
+        source: el.dataset.symbolSource, name: el.dataset.symbolSource.slice(el.dataset.symbolSource.startsWith('symbol:sf/') ? 10 : 7), found: !!el.dataset.symbolPath || el.hasAttribute('data-symbol-file'),
+        ...(!el.dataset.symbolPath && !el.hasAttribute('data-symbol-file') ? { reason: el.dataset.symbolSource === 'symbol:sf/' || el.dataset.symbolSource === 'symbol:' ? 'empty' : el.dataset.symbolSource.startsWith('symbol:sf/') ? 'platform' : 'role' } : {}),
+      } } : {}) },
       browser: Object.fromEntries(Object.entries(INHERITED).map(([row, prop]) => [row, cs.getPropertyValue(prop)])),
       observed: { clock: exact.clock.now, wall: Date.now() },
+      // What is held on it (LLP 1122 D8): its state and the rows it shows.
+      ...((h) => { if (h?.held && h.held.node == null && h.held.el) h.held.node = id(h.held.el); return h ?? {}; })(exact.heldOf?.(el)),
     };
   };
   // presence-glue.js `observation`, by this runtime's view ids (its elements carry no `data-view`).
@@ -136,21 +197,38 @@ export function install(exact) {
   // to where the last one ends, as the wasm host's does.
   // (navigation.js's `animationClock`, restated; the build gives this module
   // its own copy of navigation.js, so it could now be imported.)
-  const starts = new WeakMap(), held = new WeakSet();
+  // A synced animation starts on its clock's boundary (LLP 1055.002).
+  const starts = new WeakMap(), held = new WeakSet(), clocks = animationClocks(document);
+  // A scroll-driven animation follows its scroll, not a clock.
+  const timed = () => document.getAnimations().filter(a => !a.timeline || a.timeline instanceof DocumentTimeline);
   const anim = {
-    register(t) { for (const a of document.getAnimations()) if (!starts.has(a)) { starts.set(a, t); if (a.playState === 'paused') held.add(a); } },
-    seek(to) {
-      for (const a of document.getAnimations()) {
+    // One the page held before this module came (`exact.early`, the build's main.js: a spinner of the first render)
+    // began at the clock it was held at, and is the clock's, not paused by its author.
+    register(t) { clocks.commit(); for (const a of timed()) if (!starts.has(a)) { const early = exact.early?.get(a); starts.set(a, clocks.start(a, early ?? t) ?? early ?? t); if (a.playState === 'paused' && early === undefined) held.add(a); } },
+    seek(to, sync = true) {
+      for (const a of timed()) {
         const timing = a.effect?.getComputedTiming();
         if (!timing || held.has(a)) continue;
         const t = to - (starts.get(a) ?? exact.clock.now);
         if (t >= timing.endTime && timing.endTime !== Infinity) a.finish(); else { a.pause(); a.currentTime = t; }
       }
-      exact.synced?.();
+      if (sync) exact.synced?.();
+    },
+    // A picture shows a transition where it ends (LLP 1116.003 D8): each one under way is held a hair before its end
+    // (still running, so no event fires) for a screenshot or a check; the next request's seek puts it back on the clock.
+    hold() {
+      let n = 0;
+      for (const a of timed()) {
+        const t = a.effect?.getComputedTiming();
+        if (!t || held.has(a) || !(t.activeDuration > 0) || t.activeDuration === Infinity) continue;
+        const at = a.currentTime ?? 0, end = t.delay + t.activeDuration;
+        if (at >= t.delay && at < end - 0.5) { a.currentTime = end - 0.5; n++; }
+      }
+      return n;
     },
     settle() {
       let to = Math.max(exact.clock.now, exact.settleAt?.() ?? 0);
-      for (const a of document.getAnimations()) {
+      for (const a of timed()) {
         const timing = a.effect?.getComputedTiming();
         if (timing && timing.endTime !== Infinity && !held.has(a)) to = Math.max(to, (starts.get(a) ?? exact.clock.now) + timing.endTime);
       }
@@ -165,91 +243,183 @@ export function install(exact) {
     if (!images && document.querySelector('#exact-root img[src*=".gif" i], #exact-root img[src*=".webp" i]')) images = import('./image-glue.js').then(() => exact.holdImages({ root: document.getElementById('exact-root'), now: () => exact.clock.now }));
     images?.then(h => h.seek());
   };
-  const seek = () => { anim.register(exact.clock.now); anim.seek(exact.clock.now); holdImages(); };
-  exact.After.push(seek);
+  const seek = (sync = true) => { anim.register(exact.clock.now); anim.seek(exact.clock.now, sync); holdImages(); };
+  // motion.js owns post-commit reconciliation. The agent registers a
+  // commit's new animations here, and reconciles only when its clock moves.
+  exact.After.push(() => seek(false));
+  // What the page held before this module came (main.js's `holdEarly`) is this clock's from here.
+  { const i = exact.After.indexOf(exact.holdEarly); if (i >= 0) { exact.After.splice(i, 1); seek(false); } }
   // Held device requests (LLP 1069.007 D3): `openAuthSession`'s (auth.js).
-  const holds = () => [...exact.auth?.holds() ?? [], ...exact.files?.holds() ?? []];
-  // After a clock move, `exactTime` is answered again where its answer
-  // changed: the offset at the new virtual instant, which a DST change
-  // moves (LLP 1069.007 D2), as the wasm host's `exact_set_time` after `clock`.
-  const retime = () => {
-    const time = exact.data.reserved?.exactTime;
-    const stale = time ? exact.resources.filter(r => r.source === 'exactTime' && !eq(r.value, time('exactTime', [], r.name))) : [];
-    if (stale.length) exact.commit(() => { for (const r of stale) R(r); }, 'time');
+  const holds = () => [...exact.auth?.holds() ?? [], ...exact.files?.holds() ?? [], ...exact.extensions?.holds?.() ?? []];
+  const settleGpu = async () => await exact.gpu?.settled?.() ?? [];
+  const gpuPendingReply = (req, pending) => {
+    const names = pending.map(item => item.name ?? 'GPU work');
+    return req.op === 'clock' ? { ...tags(), settled: false, reason: 'gpu', pending: names }
+      : { error: `GPU is not settled: ${names.join(', ')}`, pending: names };
   };
   exact.agentSettled = async (req) => {
     await pieces();
-    seek();
+    const beforeGpu = await settleGpu();
+    if (beforeGpu.length) return gpuPendingReply(req, beforeGpu);
+    // A read presents this clock without standing in for a commit hook.
+    seek(false);
     // `tap @t <choice>` / `type @t <value>` answer a held request (D4).
-    if ((req.op === 'tap' || req.op === 'type') && req.ticket != null) return (await exact.files?.answer(req)) ?? (exact.auth ? exact.auth.answer(req) : { error: `not pending: @${req.ticket}` });
+    if ((req.op === 'tap' || req.op === 'type') && req.ticket != null) return (await exact.files?.answer(req)) ?? exact.extensions?.answer?.(req) ?? (exact.auth ? exact.auth.answer(req) : { error: `not pending: @${req.ticket}` });
     switch (req.op) {
       case 'tree': {
         let nodes = all(), roots = nodes.filter(n => n.depth === 0).map(n => n.id);
         if (req.target != null) {
-          const hit = nodes.find(n => n.id === req.target || n.props.testId === req.target);
+          const hit = targetOf(nodes, req.target);
           if (!hit) return { error: `no view matches ${req.target}` };
           nodes = req.shallow ? [hit] : nodes.filter(n => n === hit || views.get(hit.id).contains(views.get(n.id)));
           roots = [hit.id];
         }
-        return { nodes, roots, ...tags() };
+        // A hatch's regions and parts, under their node (LLP 1075.003.000.001 §3.4, §3.5; hatches.js).
+        if (exact.hatchRegions) nodes = nodes.map(n => { const o = exact.hatchRegions.of(views.get(n.id)); return o ? { ...n, ...o } : n; });
+        if (req.plan) for (const n of nodes) { const site = views.get(n.id)?.dataset?.site; if (site != null) n.site = Number(site); }
+        return { nodes, roots, ...tags(), ...(req.plan && exact.plan ? { planDigest: exact.plan } : {}) };
       }
       case 'layout': {
+        // `picture`: the boxes where a screenshot shows them, a transition under way held at its end (`compare`).
+        if (req.picture) { seek(false); anim.hold(); }
         // Every view, a zero box too (an empty text, a closed popover), as
         // the wasm host's layout reports them.
         // The viewport, its safe-area environment and a port's scroll offsets, as glue.js's reply.
         const r2 = x => Math.round(x * 100) / 100;
         const nodes = all().map(n => {
-          const el = views.get(n.id), b = el.getBoundingClientRect();
+          const el = views.get(n.id), b = viewBox(el);
           // An iframe says whether its centre hits it (glue.js).
           const hit = el instanceof HTMLIFrameElement ? { hit: document.elementFromPoint(b.left + b.width / 2, b.top + b.height / 2) === el } : {};
-          return { id: n.id, x: b.x, y: b.y, w: b.width, h: b.height, ...hit, ...(el.dataset.scroll === 'true' ? { sx: r2(el.scrollLeft), sy: r2(el.scrollTop) } : {}) };
+          return { id: n.id, x: b.x, y: b.y, w: b.width, h: b.height, ...hit, ...(el.dataset.scroll === 'true' ? { sx: r2(el.scrollLeft), sy: r2(el.scrollTop), ...scrollRange(el) } : {}) };
         });
         const reply = { viewport: { w: innerWidth, h: innerHeight }, env: environment(), nodes, ...tags() };
-        if (req.id != null) { const node = nodeDetail(req.id); if (node.error) return node; reply.node = node; }
+        if (req.id != null) { const node = nodeDetail(req.id); if (node.error) return node; if (req.plan && exact.plan) node.planDigest = exact.plan; reply.node = node; }
+        if (req.agree) return { viewport: reply.viewport, agreement: { unavailable: 'no independent model: the page is the tree' }, ...tags() }; else if (req.native && reply.node) { delete reply.nodes; reply.node.native = { ...reply.node.native, subviews: { unavailable: 'the DOM is the tree; layout <target> names the element' } }; } // @ref LLP 1080.001 D1, D2
         return reply;
       }
-      case 'focus': { const el = views.get(req.id); if (!el) return { error: `no view ${req.id}` }; el.focus(); if (req.select !== false) el.select?.(); return {}; }
+      case 'focus': { const el = views.get(req.id); if (!el) return { error: `no view ${req.id}` }; el.focus(); if (req.select !== false) await selectAll(el); return {}; }
       case 'tap':
+        if (req.part != null) return partTap(req);
+        // A held state (LLP 1122 D8, `holdState`): the input glue's, as the real one (it loads after paint).
+        if (req.holdState !== undefined) {
+          if (!exact.hold) await import('./rt.js').then(rt => rt.pressFeedback?.()).catch(() => {});
+          for (let i = 0; i < 40 && !exact.hold; i++) await new Promise(ok => setTimeout(ok, 50));
+          if (!exact.hold) return { error: 'the input glue is not loaded' };
+          const r = exact.hold(views.get(req.id), req.holdState);
+          return r.error ? { error: r.error, ...(r.malformed ? { malformed: true } : {}) } : { tapped: req.id, holdState: r.held, delivery: 'recognized' };
+        }
         // A virtualized list's row brought into view by key (LLP 1070.000 §5; list.js).
         if (req.into) {
+          for (const a of [req.into.block === undefined ? 'start' : req.into.block, req.into.inline === undefined ? 'nearest' : req.into.inline]) if (!['start', 'center', 'end', 'nearest'].includes(a)) return { error: `no alignment ${typeof a === 'string' ? a : JSON.stringify(a)}: start, center, end or nearest`, malformed: true };
           if (!exact.lists) return { error: `view ${req.id} is not a mounted virtualized list` };
-          try { exact.lists.into(req.id, String(req.into.key ?? ''), req.into.block, req.into.inline); } catch (e) { return { error: e.message }; }
+          try { exact.lists.into(req.id, String(req.into.key ?? ''), req.into.block, req.into.inline); } catch (e) { return { error: e.message, ...(e.malformed === true ? { malformed: true } : {}) }; }
           return { tapped: req.id, into: req.into };
         }
+        // The agent's `back` from a route (LLP 1116.006 D4; the driver took an open dialog's first): the browser's Back.
+        if (req.back) return (pageHistory() ?? navigation).back(document.getElementById('exact-root'));
         // The browser's own traversal (LLP 1038 D11); popstate reaches the app.
         if (req.history) { history.go(req.history); await new Promise(r => setTimeout(r, 300)); return { history: req.history, delivery: 'platform' }; }
         {
           const el = views.get(req.id);
-          if (el && (el.closest('[inert]') || ['hidden', 'collapse'].includes(getComputedStyle(el).visibility))) return { handled: true, error: `view ${req.id} is hidden or inert` };
+          if (el && (inertAncestor(el) || ['hidden', 'collapse'].includes(getComputedStyle(el).visibility))) return { handled: true, error: `view ${req.id} is hidden or inert` };
           // A tap addressed to an iframe enters its guest (glue.js, LLP 1020 D4).
           return el instanceof HTMLIFrameElement ? guestTap(el, req) : {};
         }
-      case 'type': { const el = views.get(req.id); return el instanceof HTMLIFrameElement ? guestType(el, req) : {}; }
-      case 'logs': { const from = req.since ?? 0; return { lines: exact.journal.slice(from), from, next: exact.journal.length }; }
+      // A control's value is set, not typed (LLP 1069.001 D9; navigation.js), as the web host's glue.js sets it.
+      // A location typed into the navigation root is its `navigate` (LLP 1038 D11), as glue.js delivers it.
+      case 'type': { const el = views.get(req.id); if (el?.hasAttribute('navigationBack') && req.key == null) return navigateRoot(req.text ?? '') ? { typed: req.id, delivery: 'recognized', handled: true } : { handled: true, error: 'the navigation root has no `navigate` handler' }; return typedControl(el) && req.key == null ? typeControl(el, req) : el instanceof HTMLIFrameElement ? guestType(el, req) : {}; }
+      case 'reveal': return { ...reveal(views.get(req.id), req.id, inertAncestor), ...tags() }; // before a tap or a type
+      case 'logs': { const j = exact.journal, from = Math.max(req.since ?? 0, j.start); return { lines: j.slice(from - j.start), from, next: j.start + j.length }; }
+      // `perf <target>` (LLP 1079 D2): the plan sites under a view, with their work (perf.js).
+      case 'perf': {
+        if (req.frames) return { virtual: true }; // the agent's clock presents no frame (LLP 1079 D4)
+        // `perf hatches` (LLP 1075.003.000.001 §3.3): the hatches' calls, timed, and what their code counted (hatches.js).
+        if (req.hatches) return exact.hatchPerf ? exact.hatchPerf.reply(tags()) : { ...tags(), seq: exact.clock.epoch, plan: exact.plan ?? null, measuring: exact.plan != null, hatches: {}, calls: [], tickets: 0, counters: {}, timings: {}, rejected: 0, abandoned: 0, limited: 0 };
+        let el = document.getElementById('exact-root');
+        // The view `tree` names (review b5-c 1).
+        if (req.target != null) { const hit = targetOf(all(), req.target); if (!hit) return { error: `no view matches ${req.target}` }; el = views.get(hit.id); }
+        return perf.reply(el, tags());
+      }
       case 'clock': {
+        exact.hatchActs?.command(); // a command's hatch caps start at nothing (LLP 1075.003.000.001 §2.4)
+        // The end of an input (LLP 1012 §2): the `then`s of the answers it
+        // settled land, the clock unmoved and no timer fired (Runner::land_then).
+        if (req.land) {
+          // The clock is unmoved, so nothing reconciles here: each landed commit registered its animations (exact.After).
+          const stopped = exact.advance(exact.clock.now, false, undefined, false);
+          if (typeof stopped === 'string') { seek(false); return { error: `clock: ${stopped}`, clock: exact.clock.now }; }
+          seek(false);
+          return { clock: exact.clock.now };
+        }
+        // `clock data`: the app's data lands — a Rust module's activation (a resource `waiting`, rt.js) and every
+        // request in flight, each answer's `then` landed — at the clock as it stands, no timer fired. A test's
+        // first step waits for it (habits, pomodoro, kanban: storage opened after the first step).
+        if (req.data) {
+          const end = performance.now() + 20000, busy = () => exact.inflight.n > holds().length, activating = () => exact.resources.some(r => r.waiting);
+          for (let round = 0; round < 16; round++) {
+            while ((busy() || activating()) && performance.now() < end) await new Promise(r => setTimeout(r, 5));
+            if (activating() || busy()) return { clock: exact.clock.now, settled: false, reason: activating() ? 'data' : 'requests' };
+            const stopped = exact.advance(exact.clock.now, false, undefined, false);
+            seek(false);
+            if (typeof stopped === 'string') return { error: `clock: ${stopped}`, clock: exact.clock.now };
+            // A `then` that sent asks again; what it sends lands in the next round.
+            // A `then` that read a baked resource whose source is not ready leaves it waiting, in no flight (review b5-c 2).
+            if (!busy() && !activating()) return { clock: exact.clock.now, settled: true };
+          }
+          return { clock: exact.clock.now, settled: false, reason: activating() ? 'data' : 'requests' };
+        }
         if (req.settle) {
           // Settled: no request in flight and no commit pending, within 20 s.
           // Virtualized lists report until a round sends nothing, reading
           // layout now (collection-glue.js `settle`, as glue.js's clock does).
           const end = performance.now() + 20000;
+          // A hatch whose acts keep causing acts never settles (LLP 1075.003.000.001 §2.5): 16 drains of its queue, then say so.
+          const drained = exact.hatchActs?.drains() ?? 0, looping = () => exact.hatchActs && exact.hatchActs.drains() - drained > 16 && exact.hatchActs.queued() > 0;
+          // Rounds that ran out with a list's reader's scroll event in the last
+          // (fired in its scroll wait or its frame) found no quiet round.
+          let quiet = false, lastRound = exact.lists?.scrollsFired?.() ?? 0;
           for (let round = 0; round < 16; round++) {
+            lastRound = exact.lists?.scrollsFired?.() ?? 0;
             // A held request is in flight until the agent answers it: never waited on.
-            do await new Promise(r => setTimeout(r, 30)); while (exact.inflight.n > holds().length && performance.now() < end);
+            do await new Promise(r => setTimeout(r, 30)); while (exact.inflight.n > holds().length && performance.now() < end && !looping());
+            if (looping()) return { clock: exact.clock.now, settled: false, reason: 'hatches' };
             // Declared faces loading (the stylesheet's, LLP 1019) are the page's too.
             await document.fonts?.ready;
             // Text around shapes lays out in the frames after a commit (flow.js).
             await exact.flowSettle?.();
             if (exact.lists) exact.lists.settle();
+            // A list's offset this moved owes a `scroll` event the browser fires
+            // at a rendering step; its reader's handler runs then (collection-glue
+            // `owedScrolls`): wait those frames, then go round again for what it did.
+            const scrolls = await exact.lists?.fireOwedScrolls();
+            if (scrolls?.fired || scrolls?.owed) continue;
             if (exact.inflight.n > holds().length) continue;
-            // Animations (and springs, `settleAt`) that end later move the clock there.
-            const to = anim.settle();
-            if (!(to > exact.clock.now)) break;
-            exact.advance(to); seek();
+            // Animations (and springs, `settleAt`) that end later move the clock there; an
+            // armed `then` runs now, and what it starts is settled in the next round.
+            // What is in flight lands before the next timer or `then` fires, as in a
+            // jump (below; glue.js's clock, the Linux agent's): the advance stops
+            // after each commit that sends and waits for its reply, within this
+            // round, so a run of sends never spends the rounds. Past the deadline,
+            // or 4096 stops, the rest is one advance.
+            const at = exact.clock.now, epoch = exact.clock.epoch, to = anim.settle();
+            for (let stops = 0; ; stops++) {
+              const before = exact.inflight.n, held = stops < 4096 && performance.now() < end;
+              const stopped = exact.advance(to, false, held ? () => exact.inflight.n > before : undefined);
+              if (typeof stopped === 'string') { seek(); return { error: `clock: ${stopped}`, clock: exact.clock.now }; }
+              if (!stopped) break;
+              while (exact.inflight.n > holds().length && performance.now() < end) await new Promise(r => setTimeout(r, 1));
+            }
+            if (!(to > at) && exact.clock.epoch === epoch) { quiet = true; break; }
+            seek();
             await new Promise(r => requestAnimationFrame(() => r()));
           }
-          retime();
+          const gpuPending = await settleGpu();
+          if (gpuPending.length) return gpuPendingReply(req, gpuPending);
           const waiting = holds();
           if (waiting.length) return { clock: exact.clock.now, settled: false, reason: 'device', tickets: waiting.map(h => h.ticket) };
+          // A list still owing a scroll event its reader hasn't had, or one whose
+          // handler ran in the last round with no quiet round after, is not settled.
+          if (exact.lists?.owedScrolls?.() || (!quiet && (exact.lists?.scrollsFired?.() ?? 0) !== lastRound)) return { clock: exact.clock.now, settled: false, reason: 'scroll-event' };
           return { clock: exact.clock.now, settled: !exact.inflight.n };
         }
         // A jump that crosses timers stops after each timer whose commit
@@ -257,24 +427,65 @@ export function install(exact) {
         // host's does (Runner::advance_until_request): the runner keeps one
         // request per target, so the next tick's send would drop it.
         // A jump that fires timers which send nothing is one advance (one
-        // journal line), as the runner's is.
+        // journal line), as the runner's is. What was in flight before the
+        // jump lands before a timer fires too, as the wasm and native hosts'
+        // jumps wait for it (calendar F10: a store's reply is on real time).
+        // An armed `then` or a queue's `next` is due as a timer is (LLP 1092 D6).
+        const due = () => exact.clock.timers.some(t => t.due <= req.to) || exact.mutations?.some(m => m.due <= req.to || m.next <= req.to);
+        // A view transition on its way is ready first, so its animations
+        // start at this clock, not the one the jump reaches (LLP 1013.000 D9).
+        await exact.viewTransition?.();
         for (const end = performance.now() + 20000; ;) {
-          const before = exact.inflight.n;
-          if (!exact.advance(req.to, false, () => exact.inflight.n > before)) break;
+          while (due() && exact.inflight.n > holds().length && performance.now() < end) await new Promise(r => setTimeout(r, 1));
+          const before = exact.inflight.n, stopped = exact.advance(req.to, false, () => exact.inflight.n > before);
+          // A refusal stops the jump at its time: the runner's error (a timer's, a `then`'s).
+          if (typeof stopped === 'string') { seek(); return { error: `clock: ${stopped}`, clock: exact.clock.now }; }
+          if (!stopped) break;
           // A reply is usually a task or two away: poll at the browser's
           // shortest timer, not a frame's worth (a 300 ms timer's minute
           // is 200 of these).
           while (exact.inflight.n > holds().length && performance.now() < end) await new Promise(r => setTimeout(r, 1));
         }
-        retime(); seek();
+        seek();
         await new Promise(r => requestAnimationFrame(() => r()));
-        return { clock: exact.clock.now };
+        const gpuPending = await settleGpu();
+        if (gpuPending.length) return gpuPendingReply(req, gpuPending);
+        // Requests still in flight on real time, which a jump does not wait for (`clock settle` does): the driver says so.
+        const inflight = exact.inflight.n - holds().length, b = exact.data?.background?.(), background = b ? b.queued + b.inFlight : 0;
+        // The module's storage still to land beside it (LLP 1097 D9).
+        return { clock: exact.clock.now, ...(inflight > 0 ? { inflight } : {}), ...(background > 0 ? { background } : {}) };
       }
       case 'tags': return tags();
+      // `screenshot` and `check` (LLP 1116.003 D8): transitions under way shown where they end, for this picture only.
+      // An animation begun since the last commit (a spinner's turn, LLP 1069.001) is put on the clock first: a
+      // picture is the clock's, never the browser's (two of one clock are the same bytes).
+      case 'picture': seek(false); return { moving: anim.hold(), ...tags() };
+      case 'check': {
+        // `all()` names every view (ids are given as the tree reads them) and marks the ones an unselected route holds.
+        seek(false);
+        const moving = anim.hold(), off = new Set(all().filter(n => n.inactive).map(n => views.get(n.id)));
+        return { ...observe(views, el => off.has(el)), moving, ...tags() };
+      }
+      // @ref LLP 1080.002 D4 — the ids `tree` gives, where CDP's DOM snapshot reads them, and the document's nonce.
+      case 'axStamp': {
+        all(); for (const [i, el] of views) if (el.isConnected && el.getAttribute('data-agent-view') !== String(i)) el.setAttribute('data-agent-view', i);
+        // A hatch's parts, stamped on their bound elements: `tree --ax` joins a part by ownership (LLP 1075.003.000.001 §3.5).
+        const parts = [], bound = new Set();
+        if (exact.hatchRegions) for (const [i, el] of views) for (const p of exact.hatchRegions.of(el)?.parts ?? []) {
+          const at = exact.hatchRegions.part(el, p.id), name = `${i}/${p.id}`;
+          if (!at) continue;
+          if (at.getAttribute('data-agent-part') !== name) at.setAttribute('data-agent-part', name);
+          bound.add(at); parts.push({ node: i, id: p.id });
+        }
+        for (const el of document.querySelectorAll('[data-agent-part]')) if (!bound.has(el)) el.removeAttribute('data-agent-part');
+        return { ...tags(), nonce: performance.timeOrigin, ...(parts.length ? { parts } : {}) };
+      }
       case 'state': {
         const [slots, derives, resources] = names.map((list, k) => Object.fromEntries(list.map((n, i) => [n, typed(exact.state[k][i](), types[k][i])])));
         // What is in flight: the network's by resource, then held device requests.
-        const pending = [...exact.resources.filter(r => r.ticket).map(r => ({ name: r.name, ticket: r.ticket.id })), ...holds()];
+        // A stream is pending until its first message, then listed in `streams` (LLP 1016.000 D5).
+        const pending = [...exact.resources.filter(r => r.ticket && !r.ticket.messages).map(r => ({ name: r.name, ticket: r.ticket.id })), ...holds()];
+        const streams = exact.resources.filter(r => r.ticket?.ctl).map(r => ({ name: r.name, ticket: r.ticket.id, messages: r.ticket.messages, coalesced: r.ticket.coalesced, ...(r.ticket.ctl.grant ? { grant: r.ticket.ctl.grant } : {}), ...(r.ticket.ctl.socket ? { readyState: r.ticket.ctl.socket.readyState, bufferedAmount: r.ticket.ctl.socket.bufferedAmount, sent: r.ticket.ctl.socket.sent } : {}) }));
         // The painted surface of views with presence rows, exit ghosts included (glue.js `st.presence`).
         // Focus, the keyboard's overlap and the document's language, as glue.js's `state` adds them.
         const active = document.activeElement && document.activeElement !== document.body ? document.activeElement : null, activeId = active ? id(active) : null;
@@ -282,11 +493,34 @@ export function install(exact) {
         const focus = { logical: activeId, editor: active && (active.localName === 'input' || active.localName === 'textarea' || active.exactMarkup) ? activeId : null, responder: active?.localName ?? null, pending: null };
         const language = { lang: document.documentElement.lang || 'en', dir: document.documentElement.dir || 'ltr' };
         const keyboard = { visible: overlap > 0, overlap: Math.round(overlap * 100) / 100, policy: document.querySelector('[interactiveWidget]')?.getAttribute('interactiveWidget') ?? 'resizes-visual', interactive: false };
-        const media = [...document.querySelectorAll('#exact-root video')].map(el => ({ id: id(el), state: { currentTime: el.currentTime, duration: Number.isFinite(el.duration) ? el.duration : null, paused: el.paused, muted: el.muted, volume: el.volume, playbackRate: el.playbackRate, readyState: el.readyState, videoWidth: el.videoWidth, videoHeight: el.videoHeight, src: el.currentSrc, error: el.error ? { code: el.error.code, message: el.error.message } : null, renderer: 'HTMLVideoElement' } }));
-        return { slots, derives, resources, pending, focus, language, keyboard, navigation: (pageHistory() ?? navigation).observation(document.getElementById('exact-root')), media, window: { title: document.title }, ...(exact.canvas2dState ? { canvas: exact.canvas2dState() } : {}), ...(exact.lists ? { scrollIntoView: exact.lists.intoView() } : {}), ...(exact.presenceLive ? { presence: presence() } : {}), ...tags() };
+        const media = [...document.querySelectorAll('#exact-root video, #exact-root audio')].map(el => ({ id: id(el), state: { currentTime: el.currentTime, duration: Number.isFinite(el.duration) ? el.duration : null, paused: el.paused, muted: el.muted, volume: el.volume, playbackRate: el.playbackRate, readyState: el.readyState, videoWidth: el.videoWidth, videoHeight: el.videoHeight, src: el.currentSrc, error: el.error ? { code: el.error.code, message: el.error.message } : null, renderer: el.constructor.name } }));
+        // The active head's fields, `null` where none is set, as the runner's `state.head` (agent.rs).
+        const head = { ...Object.fromEntries(['title', 'description', 'image', 'canonical', 'robots', 'status'].map(k => [k, Head['head' + k[0].toUpperCase() + k.slice(1)] ?? null])), edited: Head.headEdited === 'true' };
+        // The drive's app storage (trivia F7): none unless it names a scratch store, as storage-environment.js's `storageKey`.
+        const store = new URL(performance.getEntriesByType?.('navigation')[0]?.name ?? location.href).searchParams.get('storage');
+        const storage = store == null ? { available: false, code: 'agent', message: 'storage is unavailable in agent mode unless the drive names a scratch store (--storage <name>)' } : { available: true, store };
+        // Each queue's waiting sends (LLP 1092 D10), as the runner's `state.queued`.
+        const queued = Object.fromEntries((exact.mutations ?? []).filter(m => m.wait?.length).map(m => [m.name, m.wait.length]));
+        // Each task's next due time, `null` while idle or spent (LLP 1092 D10), as the runner's `state.tasks`.
+        const tasks = Object.fromEntries(Tasks.map(t => [t.name, exact.clock.timers.includes(t) ? t.due : null]));
+        // The module's storage (LLP 1097 D8), as the runner's `state.background`.
+        const background = exact.data?.background?.();
+        const faults = faultsJson();
+        // Why each failed resource failed, as the runner's `state.failed` (app farm round 1).
+        const failed = Object.fromEntries(exact.resources.filter(r => r.failed).map(r => [r.name, r.error ?? 'it failed']));
+        const mutationFailures = Object.fromEntries(exact.mutations.flatMap(m => { const failure = m.e(); return failure ? [[m.name, {code: failure[0], message: failure[1]}]] : []; }));
+        // The writes shown over resources until they end or are answered (overlay.js), as the runner's `state.writes`.
+        const writes = exact.writes?.() ?? [];
+        return { slots, derives, resources, ...(Object.keys(mutationFailures).length ? {mutationFailures} : {}), mutationRequests: exact.mutations.reduce((n,m)=>n+m.requests,0), device: { displayMode: displayMode(), navigationType: ownPage().read()['navigation-type'], gpuTier: (exact.page ?? ownPage()).read()['gpu-tier'] }, ...(writes.length ? { writes } : {}), ...(Object.keys(failed).length ? { failed } : {}), pending, streams, watches: exact.watchState?.() ?? [], ...(faults.length ? { faults } : {}), ...(background ? { background } : {}), tasks, queued, notifications: exact.notices ?? [], ...(exact.sounds ? { sounds: exact.sounds.state(req.sounds === 'all') } : {}), ...(exact.transport?.declared() ? { transport: exact.transport.state() } : {}), ...(exact.midi ? { midi: exact.midi.state(req.midi === 'all') } : {}), ...(exact.extensions ? { extensions: exact.extensions.state() } : {}), wakelock: exact.wakelock?.() ?? { held: false, by: [] }, head, focus, language, storage, keyboard, navigation: (pageHistory() ?? navigation).observation(document.getElementById('exact-root')), media, mediaSession: exact.mediaSession?.state(id) ?? { owner: null, claimants: [], actions: [], playbackState: 'none', published: 'none' }, window: { title: document.title }, ...(exact.canvas2dState ? { canvas: exact.canvas2dState() } : {}), ...(exact.surfaceRefusals ? { surfaceRefusals: exact.surfaceRefusals() } : {}), reorder: exact.reorderState?.() ?? null, ...(exact.lists ? { scrollIntoView: exact.lists.intoView() } : {}), ...(exact.presenceLive ? { presence: presence() } : {}), ...(exact.hatchState ? { hatches: exact.hatchState() } : {}), ...tags() };
       }
-      // The page group (LLP 1069.000 D6), where the plan reads `exactPage` (facts.js).
-      case 'prefer': try { return { page: exact.page ? exact.page.prefer(req.page ?? {}) : {} }; } catch (e) { return { error: e.message }; }
+      // The page group (LLP 1069.000 D6), where the plan reads `exactPage` (facts.js); else the drive's facts
+      // held here, so `root-font-size` still sets the root element's size `rem` follows (D3), as glue.js does.
+      // The fold group (LLP 1078 D7) likewise: through facts.js where the plan reads the fold's fields (it re-answers them), else the
+      // substitute lands here for `layout.env`; without a fold group the fold stays as it is.
+      // The driver's fetch faults (LLP 1103 D3), a form of `prefer`: the page's table, as glue.js answers it.
+      // A new root font size is a resize to the page's fitted texts (navigation.js `refitTexts`, the entry's copy, not this one's).
+      case 'midi': return exact.midi ? exact.midi.tap(req) : { error: 'tap midi: this plan hears no MIDI (no midimessage handler)' }; // @ref LLP 1125 §4
+      case 'prefer': { if (req.faults) return faultOp(req.faults); if (req.extension || req.permission) return exact.extensions ? exact.extensions.prefer(req) : { error: 'prefer: this app reads no module' }; if (req.midi) return exact.midi ? exact.midi.prefer(req.midi) : { error: 'prefer midi: this plan keeps no MIDI queue' }; const pins = Object.entries(req.mode ?? {}), why = req.mode && (exact.modes ? exact.modes.check(pins) : pins.length > 0 && `${pins.map(([a, v]) => `\`${a}=${v}\``).join(" ")} names an axis or value the app's design lacks, or an axis twice`); if (why) return { error: `prefer mode: ${why}` }; try { const facts = (exact.page ?? ownPage()).prefer(req.page ?? {}); if (req.page?.['root-font-size'] !== undefined) dispatchEvent(new Event('resize')); const fold = !req.fold ? foldEnv() : exact.fold ? exact.fold.prefer(req.fold) : preferFold(Object.keys(req.fold).length ? req.fold : null); if (req.mode) exact.modes?.set(pins); return { page: facts, fold, ...(req.mode ? { mode: exact.modes?.read() ?? {} } : {}) }; } catch (e) { return { error: e.message, ...(e.malformed === true ? { malformed: true } : {}) }; } } // @ref LLP 1121 D13 — the mode group: checked before any fact is set, set after the rest
       default: return { error: `${req.op} is not carried by the JS target` };
     }
   };

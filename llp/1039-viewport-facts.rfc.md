@@ -161,6 +161,72 @@ brings the design and its fixture.
   LLP 1035.001 D10 changes: selection stays the authored props, activation
   the synchronous `press`.
 
+### D7 — Display mode is the window's current presentation
+
+Charlie's 2026-10-08 ruling in
+[`20261009-titlebar-env-display-mode`](../issues/20261009-titlebar-env-display-mode.md)
+admits `displayMode: string` on `exactViewport()`. Implementer: Codex,
+2026-10-13. It reads the current
+[`display-mode` media feature](https://www.w3.org/TR/appmanifest/#display-modes),
+not the manifest's requested mode. The web reads `matchMedia` at boot and
+re-answers on its change events on both targets. Values are `browser`,
+`standalone`, `fullscreen`, `minimal-ui`, `window-controls-overlay`,
+`picture-in-picture` and `tabbed`, when the browser reports them.
+
+On macOS, the session's own window's `.fullScreen` style mask selects
+`fullscreen`; otherwise it is `standalone`. Mounting in a window and its
+`didEnterFullScreen`/`didExitFullScreen` notifications re-answer the fact.
+An unrelated window's notification changes nothing. iOS, Linux and hosts
+without a reading use `standalone`, as does the bake. A navigation route
+presented fullscreen does not change the window's display mode.
+
+The runner and native media wire carry the fact in bits 11–13: 0 standalone,
+1 browser, 2 fullscreen, 3 minimal-ui, 4 window-controls-overlay,
+5 picture-in-picture, 6 tabbed. The remaining value reads standalone.
+The web facts word reserves bits 8–25 for the fold and page look. It
+carries gamut in 26–27, HDR in 28 and display mode in 29–31; the wasm
+bridge unpacks these into the runner’s media bits.
+`state.device.displayMode` reports it even without an app reader.
+`prefer display-mode <value>` uses a session-local substitute on Apple.
+Chrome and the Playwright carrier refuse unsupported emulation by name:
+Chrome accepts the CDP request but does not change this media feature.
+Linux currently reports its default and
+refuses a substitute. No new agent operation or plan format is added.
+
+This is the display-mode slice; D8 is the title-bar area.
+
+### D8 — The title-bar area is AppKit's, beside the traffic lights
+
+Charlie's 2026-10-18 ruling in the same issue admits Window Controls Overlay's
+[`env(titlebar-area-x|y|width|height)`](https://wicg.github.io/window-controls-overlay/)
+and no manifest field. Implementer: Claude, 2026-10-18. The values are lengths
+in the kernel's environment (LLP 1001 §2), not a fact on `exactViewport()`:
+the spec's "available area of the title bar", which excludes the area under
+the window's controls.
+
+The AppKit host reports them for a page under `viewport-fit=cover`, whose
+window's content underlaps the title bar (LLP 1008 §9): the band of the
+title bar's own view where it covers the session's view, from the left of
+the band past the traffic lights and the margin AppKit keeps before the
+first of them, which is where macOS 26's horizontally corner-adapted safe
+area begins. A 900-point window on macOS 27 reports `78 0 822×32`. In full
+screen, and in a window with a toolbar (the one LLP 1115.002 D2 gives an
+app with routes), the title bar holds no page, and all four are zero. The host tells the
+kernel on every geometry pass, on entering and leaving full screen, and when
+the toolbar comes or goes. Nothing moves the traffic lights or sets the
+title bar's height: D2's toolbar is the platform's 52-point title row.
+
+Everywhere else they are undefined, as in a browser tab: a Mac window that
+does not cover its title bar, iOS, Linux, Windows, Android and the terminal.
+`env(titlebar-area-height, 0px)` takes its fallback, and a length without
+one is invalid at computed-value time, so its row takes its initial value
+(CSS Environment Variables 1 §3). The web targets write the names for the
+browser, which resolves them: Chrome defines them only in an installed app
+with `display_override: ["window-controls-overlay"]`. `state.device` and
+the viewport facts are unchanged; agent `layout` shows the Mac's area. Tests:
+`kernel/tests/it/titlebar.rs`, `exact-apple`'s calculation snapshot, and
+`TitleBarAreaMacTests`.
+
 ## 4. Interview, as it would read
 
 The navigation root stays `main` and the routes stay its direct children

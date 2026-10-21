@@ -35,6 +35,105 @@ final class TextPaintIOSTests: XCTestCase {
         return count
     }
 
+    func testHiddenTextKeepsItsGeometryAndVisibleInlineDescendantsPaint() throws {
+        let session = ExactApp.shared.makeSession(label: "hidden-text")
+        defer { session.destroy() }
+        let p = session.presenter
+        p.apply(wireBatch([
+            ["op": "create", "id": 1, "kind": "text", "props": ["text": "Hidden 👋"], "style": ["font_size": 24]],
+            ["op": "roots", "ids": [1]],
+            ["op": "frame", "id": 1, "x": 0, "y": 0, "w": 300, "h": 60],
+        ]))
+        let node = try XCTUnwrap(p.views[1])
+        let height = try XCTUnwrap(node.paragraphLayout()).height
+        XCTAssertGreaterThan(inkPixels(node), 0)
+        p.apply(wireBatch([["op": "style", "id": 1, "style": ["font_size": 24, "visibility": "hidden"]]]))
+        XCTAssertEqual(try XCTUnwrap(node.paragraphLayout()).height, height)
+        XCTAssertEqual(inkPixels(node), 0, "glyphs and colored emoji are hidden")
+        XCTAssertFalse(node.isHidden, "the containing view cannot hide explicitly visible descendants")
+        var hidden = InlineStyle(), shown = InlineStyle()
+        try hidden.set("visibility", .string("hidden"))
+        try hidden.set("background_color", .array([0, 255, 0, 255]))
+        try shown.set("visibility", .string("visible"))
+        node.props = [:]
+        node.inlineText = [
+            InlineText(id: 10, parent: 1, props: [:], style: hidden, handlers: [], paints: false),
+            InlineText(id: 2, parent: 10, props: ["text": "Hidden"], style: hidden, handlers: [], paints: true),
+            InlineText(id: 3, parent: 10, props: ["text": "Visible"], style: shown, handlers: [], paints: true),
+        ]
+        node.invalidateText()
+        XCTAssertGreaterThan(inkPixels(node), 0, "an explicitly visible inline descendant still paints")
+        XCTAssertEqual(node.paragraphSpec().runs.map(\.hidden), [true, false])
+        XCTAssertNil(node.paragraphSpec().runs.last?.background, "a hidden inline parent paints no background behind its visible child")
+    }
+
+    /// LLP 1116.001 D1.4: a fitted paragraph is drawn at the scale the kernel's
+    /// layout chose (`fitScale`): its runs' sizes, line heights and letter
+    /// spacing and its strut, in the kernel's f32 arithmetic; and back at its
+    /// size when the prop goes.
+    func testAFittedParagraphIsDrawnAtTheKernelsScale() throws {
+        let session = ExactApp.shared.makeSession(label: "fit-text")
+        defer { session.destroy() }
+        let p = session.presenter
+        p.apply(wireBatch([
+            ["op": "create", "id": 1, "kind": "text", "props": ["text": "00:48.12", "fitScale": "0.38223"],
+             "style": ["font_size": 238.5, "letter_spacing": 2.0, "line_height": "300px", "white_space": "nowrap", "font_variant_numeric": 1]],
+            ["op": "roots", "ids": [1]],
+            ["op": "frame", "id": 1, "x": 16, "y": 0, "w": 370, "h": 115],
+        ]))
+        let node = try XCTUnwrap(p.views[1])
+        let scale = Float(0.38223)
+        let run = try XCTUnwrap(node.paragraphSpec().runs.first)
+        XCTAssertEqual(run.size, CGFloat(Float(238.5) * scale))
+        XCTAssertEqual(run.letterSpacing, CGFloat(Float(2) * scale))
+        XCTAssertEqual(run.lineHeight, CGFloat(Float(300) * scale))
+        XCTAssertEqual(node.paragraphSpec().strut?.size, CGFloat(Float(238.5) * scale))
+        let width = { CGFloat(CTLineGetTypographicBounds(try XCTUnwrap(node.paragraphLayout()?.lines.first), nil, nil, nil)) }
+        let fitted = try width()
+        p.apply(wireBatch([["op": "props", "id": 1, "set": [String: String](), "clear": ["fitScale"]]]))
+        XCTAssertEqual(node.paragraphSpec().runs.first?.size, 238.5, "at its size again")
+        XCTAssertEqual(fitted, try width() * CGFloat(scale), accuracy: 1, "the line drawn at the scale's width")
+    }
+
+    /// The raster fallback for `-exact-content-transition: numeric` rolls the ink
+    /// and its HDR shadow together: a rising number from above, a falling one below.
+    func testAnHDRTextShadowRollsWithItsNumerals() throws {
+        let session = ExactApp.shared.makeSession(label: "numeric-hdr-shadow")
+        defer { session.destroy() }
+        let p = session.presenter
+        window = UIWindow(frame: CGRect(x: 0, y: 0, width: 400, height: 400))
+        p.viewport.frame = window.bounds
+        window.addSubview(p.viewport)
+        window.makeKeyAndVisible()
+        let hdr: [String: Any] = ["cs": [["s": "srgb-linear", "v": [4.0, 4.0, 4.0, 1.0]]], "c": [255.0, 255.0, 255.0, 255.0]]
+        p.apply(wireBatch([
+            ["op": "create", "id": 1, "kind": "text", "props": ["text": "41"],
+             "style": ["font_size": 24.0, "content_transition": "numeric", "text_shadow": ["o": [3.0, 3.0], "b": 0.0, "c": hdr]]],
+            ["op": "roots", "ids": [1]],
+            ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 300.0, "h": 60.0],
+        ]))
+        let node = try XCTUnwrap(p.views[1])
+        p.paintVisibleText()
+        let ink = try XCTUnwrap(node.textRasterLayer), cast = try XCTUnwrap(ink.textCast)
+        // Core Animation keeps a layer's transition under its own key.
+        XCTAssertNil(ink.animation(forKey: kCATransition), "first pixels do not roll")
+        XCTAssertNil(cast.animation(forKey: kCATransition))
+        for (text, direction): (String, CATransitionSubtype) in [("42", .fromTop), ("41", .fromBottom)] {
+            p.apply(wireBatch([["op": "props", "id": 1, "set": ["text": text]]]))
+            _ = p.refreshVisibleText()
+            p.paintVisibleText()
+            p.textRasters.settleVisible([node])
+            XCTAssertTrue(node.textRasterReady, "the new text's pixels are up")
+            try XCTSkipIf(UIAccessibility.isReduceMotionEnabled, "Reduce Motion: nothing rolls")
+            let inkRoll = try XCTUnwrap(ink.animation(forKey: kCATransition) as? CATransition)
+            XCTAssertTrue(node.textRasterLayer?.textCast === cast)
+            let roll = try XCTUnwrap(cast.animation(forKey: kCATransition) as? CATransition, "the shadow's layer rolls too")
+            XCTAssertEqual(inkRoll.subtype, direction)
+            XCTAssertEqual(roll.subtype, inkRoll.subtype)
+            XCTAssertEqual(roll.duration, inkRoll.duration)
+        }
+    }
+
     /// A clamped paragraph (`line-clamp`) rasters like any other (its last
     /// line made again from its geometry, `LineGeometry.clamped`): built in
     /// the lead it asks a worker, and it has pixels when it scrolls in.

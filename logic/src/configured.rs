@@ -11,6 +11,20 @@ macro_rules! configured {
             }
         }
         impl $crate::exact_runner::DataSource for $name {
+            fn prepare_snapshot(
+                &mut self,
+                module: Option<$crate::exact_runner::SnapshotModule<'_>>,
+                deadline: std::time::Instant,
+            ) -> Result<(), $crate::exact_runner::DataError> {
+                $crate::exact_runner::DataSource::prepare_snapshot(&mut self.0, module, deadline)
+            }
+            fn take_storage_changed(&mut self) -> bool {
+                $crate::exact_runner::DataSource::take_storage_changed(&mut self.0)
+            }
+            fn set_document_owner(&mut self, owner: u64) {
+                $crate::exact_runner::DataSource::set_document_owner(&mut self.0, owner)
+            }
+
             fn app_id(&self) -> &str {
                 $crate::exact_runner::DataSource::app_id(&self.0)
             }
@@ -38,6 +52,9 @@ macro_rules! configured {
             }
             fn preload(&self) -> Result<bool, $crate::exact_runner::DataError> {
                 $crate::exact_runner::DataSource::preload(&self.0)
+            }
+            fn when_preloaded(&self, wake: Box<dyn FnOnce() + Send>) {
+                $crate::exact_runner::DataSource::when_preloaded(&self.0, wake)
             }
             fn configure_storage(
                 &mut self,
@@ -67,8 +84,22 @@ macro_rules! configured {
             fn native(&self) -> Option<$crate::exact_runner::Native> {
                 $crate::exact_runner::DataSource::native(&self.0)
             }
-            fn forgotten(&mut self, in_flight: &[$crate::exact_runner::InFlight<'_>]) {
-                $crate::exact_runner::DataSource::forgotten(&mut self.0, in_flight)
+            fn overlay(
+                &mut self,
+                source: &str,
+                args: &[$crate::exact_runner::Value],
+                answer: &$crate::exact_runner::Value,
+                writes: &[$crate::exact_runner::Write<'_>],
+            ) -> Result<Option<$crate::exact_runner::Overlaid>, $crate::exact_runner::DataError>
+            {
+                $crate::exact_runner::DataSource::overlay(&mut self.0, source, args, answer, writes)
+            }
+            fn forgotten(
+                &mut self,
+                store: &$crate::exact_runner::Store,
+                in_flight: &[$crate::exact_runner::InFlight<'_>],
+            ) {
+                $crate::exact_runner::DataSource::forgotten(&mut self.0, store, in_flight)
             }
             fn dispatch(
                 &mut self,
@@ -85,6 +116,26 @@ macro_rules! configured {
             }
             fn discard(&mut self, token: u64) {
                 $crate::exact_runner::DataSource::discard(&mut self.0, token)
+            }
+            fn background(
+                &mut self,
+                store: &$crate::exact_runner::Store,
+            ) -> Option<$crate::exact_runner::Request> {
+                $crate::exact_runner::DataSource::background(&mut self.0, store)
+            }
+            fn background_landed(
+                &mut self,
+                store: &$crate::exact_runner::Store,
+                outcome: $crate::exact_runner::Outcome,
+            ) -> Result<Option<$crate::exact_runner::Request>, $crate::exact_runner::DataError>
+            {
+                $crate::exact_runner::DataSource::background_landed(&mut self.0, store, outcome)
+            }
+            fn background_state(&self) -> Option<$crate::exact_runner::BackgroundState> {
+                $crate::exact_runner::DataSource::background_state(&self.0)
+            }
+            fn take_logs(&mut self) -> Vec<String> {
+                $crate::exact_runner::DataSource::take_logs(&mut self.0)
             }
             fn bind(&mut self, plan: &$crate::exact_plan::Plan) {
                 $crate::exact_runner::DataSource::bind(&mut self.0, plan)

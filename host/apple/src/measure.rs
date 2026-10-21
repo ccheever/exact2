@@ -15,7 +15,7 @@ use exact_kernel::{
 };
 
 mod identified;
-use exact_plan::{Plan, StackMemberKind};
+use exact_plan::Plan;
 use std::ffi::c_void;
 
 /// Offer value meaning "as wide/tall as the content wants".
@@ -47,14 +47,22 @@ pub struct CRun {
     pub letter_spacing: f32,
     /// CSS `font-variant-numeric` bits: 1 is `tabular-nums` (LLP 1053 G4).
     pub font_variant_numeric: u8,
-    /// A U+FFFC run reserves an atomic box instead of glyphs.
+    /// Atomic inline margin-box metrics.
     pub has_inline_box: u8,
-    /// Margin-box advance, height and alphabetic baseline.
+    /// Margin-box advance.
     pub inline_width: f32,
     /// Margin-box height.
     pub inline_height: f32,
-    /// Baseline from the margin-box top.
+    /// Alphabetic baseline from the top.
     pub inline_baseline: f32,
+    /// CSS `font-stretch`, percent of normal width (LLP 1019 D8).
+    pub font_stretch: f32,
+    /// CSS `font-variation-settings` (LLP 1019 D9): how many axes are set.
+    pub variation_count: u8,
+    /// Their tags, big-endian (`'wght'` is `0x77676874`).
+    pub variation_tags: [u32; 8],
+    /// Their values, in each axis's units.
+    pub variation_values: [f32; 8],
 }
 
 /// One request, as the callback sees it.
@@ -77,7 +85,11 @@ pub struct CRequest {
     pub strut: CRun,
     /// Width offer in points, or [`MAX_CONTENT`] / [`MIN_CONTENT`].
     pub width: f32,
-    /// Height offer in points, or [`MAX_CONTENT`] / [`MIN_CONTENT`].
+    /// Height offer in points, or [`MAX_CONTENT`] / [`MIN_CONTENT`]. Advisory:
+    /// a paragraph's metrics depend only on its width offer (CSS wraps by
+    /// width; `line_clamp` counts lines), and the kernel reuses a width's
+    /// answer across heights (`TextMeasurer::height_free`), so a callback must
+    /// not answer differently by height. ExactKit's never reads it.
     pub height: f32,
     /// 0 start, 1 center, 2 end, 3 justify.
     pub align: u8,
@@ -96,8 +108,25 @@ pub struct CRequest {
     pub exclusion_count: usize,
     /// 1 when the one run is Markdown source the host expands (LLP 1045 D3).
     pub markup: u8,
-    /// Optional output, one point per input run; NaN means not painted.
-    /// This geometry request returns the last line's baseline in CMetrics.
+    /// CSS `text-indent`, points.
+    pub text_indent: f32,
+    /// CSS `hyphens`: 0 manual (the initial value, so a zeroed request
+    /// is CSS's), 1 none, 2 auto.
+    pub hyphens: u8,
+    /// The document's language (UTF-8, not NUL-terminated), whose
+    /// hyphenation points `auto` takes; empty is unknown.
+    pub lang: *const u8,
+    /// Its length in bytes.
+    pub lang_len: usize,
+    /// CSS `text-box-trim`: 0 none, 1 trim-start, 2 trim-end, 3 trim-both.
+    pub text_box_trim: u8,
+    /// `text-box-edge`'s over edge: 0 text, 1 cap, 2 ex.
+    pub text_box_over: u8,
+    /// `text-box-edge`'s under edge: 0 text, 1 alphabetic.
+    pub text_box_under: u8,
+    /// CSS `text-wrap-style`: 0 auto, 1 balance (LLP 1001 §6).
+    pub text_wrap_style: u8,
+    /// Optional shaper output, one position per input run; NaN for hidden runs.
     pub inline_positions: *mut CInlinePosition,
 }
 
@@ -126,6 +155,24 @@ pub struct CMetrics {
 /// The callback's type.
 pub type MeasureFn = extern "C" fn(ctx: *mut c_void, request: *const CRequest) -> CMetrics;
 
+/// @ref LLP 1093 D6 — each line box's bottom, in content coordinates, of the
+/// paragraph `request` answers: writes `min(count, cap)` and returns `count`.
+pub type LinesFn =
+    extern "C" fn(ctx: *mut c_void, request: *const CRequest, out: *mut f32, cap: usize) -> usize;
+
+/// A system symbol's natural size (an Apple symbol name, UTF-8, at a point
+/// size and CSS weight): writes width and height and answers 1, or 0 when it
+/// cannot say. Called on the runtime's thread with the context
+/// `exact_set_measure` was given.
+pub type SymbolFn = extern "C" fn(
+    ctx: *mut c_void,
+    name: *const u8,
+    len: usize,
+    font_size: f32,
+    font_weight: u16,
+    out: *mut f32,
+) -> u8;
+
 /// One declared face in the synchronous boot catalog callback. The UTF-8
 /// strings live for the duration of the callback and are not NUL-terminated.
 #[repr(C)]
@@ -141,8 +188,15 @@ pub struct CFontFace {
     pub source_len: usize,
     /// Plan stack id.
     pub stack: u16,
-    /// CSS weight.
+    /// CSS weight, or the low end of a variable face's range; with an empty
+    /// source, 0 names a local family and 1 a generic.
     pub weight: u16,
+    /// The weight range's high end; `weight` for one weight.
+    pub weight_max: u16,
+    /// Widths in tenths of a percent, low and high; 1000 is normal.
+    pub stretch_min: u16,
+    /// The width range's high end.
+    pub stretch_max: u16,
     /// 1 for italic.
     pub italic: u8,
 }
@@ -164,28 +218,88 @@ pub type FontsFn = extern "C" fn(ctx: *mut c_void, catalog: *const CFontCatalog)
 
 /// Project the validated plan's tables across the host-only font seam. This
 /// is deliberately separate from `exact_out()`, whose payload remains ops.
-pub fn install_fonts(plan: &Plan, callback: FontsFn, ctx: *mut c_void) {
+pub fn install_fonts(plan: &Plan, runtime: &[String], callback: FontsFn, ctx: *mut c_void) {
     let mut faces = Vec::new();
     for (stack_index, stack) in plan.stacks.iter().enumerate() {
-        let member = plan.stack_member(stack.members.iter().next().expect("validated stack"));
-        if member.kind != StackMemberKind::Family {
+        if stack_index < 8 {
             continue;
         }
-        let family = plan.familie(member.family.expect("validated family member"));
-        let name = plan.str(family.name);
-        for face_id in family.faces.iter() {
-            let face = plan.face(face_id);
-            let source = plan.str(face.source);
-            faces.push(CFontFace {
-                family: name.as_ptr(),
-                family_len: name.len(),
-                source: source.as_ptr(),
-                source_len: source.len(),
-                stack: stack_index as u16,
-                weight: face.weight,
-                italic: u8::from(face.italic),
-            });
+        for member_id in stack.members.iter() {
+            let member = plan.stack_member(member_id);
+            let (name, family) = if let Some(id) = member.family {
+                (plan.str(plan.familie(id).name), Some(plan.familie(id)))
+            } else {
+                (member.kind.name(), None)
+            };
+            if family.is_none_or(|f| f.faces.len == 0) {
+                faces.push(CFontFace {
+                    family: name.as_ptr(),
+                    family_len: name.len(),
+                    source: "".as_ptr(),
+                    source_len: 0,
+                    stack: stack_index as u16,
+                    weight: u16::from(family.is_none()),
+                    weight_max: u16::from(family.is_none()),
+                    stretch_min: 1000,
+                    stretch_max: 1000,
+                    italic: 0,
+                });
+            }
+            if let Some(family) = family {
+                for face_id in family.faces.iter() {
+                    let face = plan.face(face_id);
+                    let source = plan.str(face.source);
+                    faces.push(CFontFace {
+                        family: name.as_ptr(),
+                        family_len: name.len(),
+                        source: source.as_ptr(),
+                        source_len: source.len(),
+                        stack: stack_index as u16,
+                        weight: face.weight,
+                        weight_max: face.weight_max,
+                        stretch_min: face.stretch_min,
+                        stretch_max: face.stretch_max,
+                        italic: u8::from(face.italic),
+                    });
+                }
+            }
         }
+    }
+    let runtime_members: Vec<_> = runtime
+        .iter()
+        .enumerate()
+        .flat_map(|(i, list)| {
+            exact_runner::bridge::runtime_family_members(list)
+                .into_iter()
+                .map(move |member| (member, (plan.stacks.len() + i) as u16))
+        })
+        .collect();
+    for (member, stack) in &runtime_members {
+        let name = &member.name;
+        let generic = !member.quoted
+            && matches!(
+                name.to_ascii_lowercase().as_str(),
+                "system-ui"
+                    | "ui-sans-serif"
+                    | "sans-serif"
+                    | "ui-serif"
+                    | "serif"
+                    | "ui-monospace"
+                    | "monospace"
+                    | "ui-rounded"
+            );
+        faces.push(CFontFace {
+            family: name.as_ptr(),
+            family_len: name.len(),
+            source: "".as_ptr(),
+            source_len: 0,
+            stack: *stack,
+            weight: u16::from(generic),
+            weight_max: u16::from(generic),
+            stretch_min: 1000,
+            stretch_max: 1000,
+            italic: 0,
+        });
     }
     let catalog = CFontCatalog {
         faces: faces.as_ptr(),
@@ -197,19 +311,40 @@ pub fn install_fonts(plan: &Plan, callback: FontsFn, ctx: *mut c_void) {
 /// A kernel measurer backed by the app's callback.
 pub struct CallbackMeasurer {
     f: MeasureFn,
+    time_format: Option<crate::time::TimeFormatFn>,
+    field_chrome: Option<crate::control_text::FieldChromeFn>,
+    button_measure: Option<crate::control_text::ButtonMeasureFn>,
+    measure_revision: Option<std::rc::Rc<std::cell::Cell<u64>>>,
+    lines: Option<LinesFn>,
+    symbol: Option<SymbolFn>,
+    /// Each symbol's answer by its Apple name, point size and weight, under
+    /// the measuring traits of `symbols_revision`
+    symbols: std::collections::HashMap<(String, u32, u16), Option<(f32, f32)>>,
+    symbols_revision: u64,
     ctx: *mut c_void,
     memo: identified::Memo,
+    /// The document language (`TextMeasurer::set_language`), for `hyphens: auto`.
+    language: String,
 }
 
 impl CallbackMeasurer {
     /// Wrap `f` with its context for one installed metric catalog.
     /// Construct a new measurer when that catalog changes; Apple boot and
     /// candidate preparation already do so before invoking the font hook.
-    pub fn new(f: MeasureFn, ctx: *mut c_void) -> CallbackMeasurer {
+    pub fn new(f: MeasureFn, ctx: *mut c_void, lines: Option<LinesFn>) -> CallbackMeasurer {
         CallbackMeasurer {
             f,
+            time_format: None,
+            field_chrome: None,
+            button_measure: None,
+            measure_revision: None,
+            lines,
+            symbol: None,
+            symbols: Default::default(),
+            symbols_revision: 0,
             ctx,
             memo: identified::Memo::default(),
+            language: String::new(),
         }
     }
 }
@@ -238,16 +373,78 @@ fn c_run(text: &str, style: exact_kernel::TextStyle) -> CRun {
         inline_width: 0.0,
         inline_height: 0.0,
         inline_baseline: 0.0,
+        font_stretch: style.font_stretch,
+        variation_count: style.font_variations.axes().len() as u8,
+        variation_tags: std::array::from_fn(|i| {
+            style.font_variations.axes().get(i).map_or(0, |a| a.0)
+        }),
+        variation_values: std::array::from_fn(|i| {
+            style.font_variations.axes().get(i).map_or(0.0, |a| a.1)
+        }),
     }
 }
 
 impl CallbackMeasurer {
+    /// Install the platform date formatter beside text measurement.
+    pub fn with_time_format(mut self, f: Option<crate::time::TimeFormatFn>) -> Self {
+        self.time_format = f;
+        self
+    }
+
+    /// Install the optional UIKit chrome callback with the text engine's context.
+    pub fn with_field_chrome(
+        mut self,
+        callback: Option<crate::control_text::FieldChromeFn>,
+    ) -> Self {
+        self.field_chrome = callback;
+        self
+    }
+
+    /// Measure system symbols with `f` (`TextMeasurer::symbol_size`).
+    pub fn with_symbol(mut self, f: Option<SymbolFn>) -> Self {
+        self.symbol = f;
+        self
+    }
+
+    /// Install native button measurement beside field chrome.
+    pub fn with_button_measure(
+        mut self,
+        callback: Option<crate::control_text::ButtonMeasureFn>,
+    ) -> Self {
+        self.button_measure = callback;
+        self
+    }
+
+    /// The runtime bumps this when measuring traits change, even if fonts do not.
+    pub(crate) fn with_measure_revision(
+        mut self,
+        revision: std::rc::Rc<std::cell::Cell<u64>>,
+    ) -> Self {
+        self.measure_revision = Some(revision);
+        self
+    }
+
     fn foreign_measure(
         &mut self,
         request: &TextMeasureRequest<'_>,
         stamp: Option<&ParagraphStamp>,
         positions: *mut CInlinePosition,
     ) -> CMetrics {
+        let f = self.f;
+        self.foreign(request, stamp, |ctx, c| {
+            let mut c = *c;
+            c.inline_positions = positions;
+            f(ctx, &c)
+        })
+    }
+
+    // The request as the C seam carries it, alive for `call`.
+    fn foreign<R>(
+        &self,
+        request: &TextMeasureRequest<'_>,
+        stamp: Option<&ParagraphStamp>,
+        call: impl FnOnce(*mut c_void, &CRequest) -> R,
+    ) -> R {
         // CSS collapsing before CoreText, as the browser does (LLP 1053 G5);
         // Markdown source keeps its own lines. The strings live for the call.
         let collapsed = (request.paragraph.markup == exact_kernel::Markup::None)
@@ -311,11 +508,23 @@ impl CallbackMeasurer {
             exclusions: shapes.flat.as_ptr(),
             exclusion_count: shapes.flat.len(),
             markup: u8::from(request.paragraph.markup == exact_kernel::Markup::Markdown),
-            inline_positions: positions,
+            inline_positions: std::ptr::null_mut(),
+            text_indent: request.paragraph.text_indent,
+            hyphens: match request.paragraph.hyphens {
+                exact_kernel::Hyphens::Manual => 0,
+                exact_kernel::Hyphens::None => 1,
+                exact_kernel::Hyphens::Auto => 2,
+            },
+            lang: self.language.as_ptr(),
+            lang_len: self.language.len(),
+            text_box_trim: request.paragraph.text_box_trim as u8,
+            text_box_over: request.paragraph.text_box_edge.over() as u8,
+            text_box_under: request.paragraph.text_box_edge.under() as u8,
+            text_wrap_style: request.paragraph.text_wrap_style as u8,
         };
         // The one foreign call: the app's function, with the structs above
         // alive for its duration and read-only.
-        (self.f)(self.ctx, &c)
+        call(self.ctx, &c)
     }
 }
 
@@ -374,8 +583,110 @@ impl TextMeasurer for CallbackMeasurer {
             .collect()
     }
 
+    fn format_time(&mut self, r: &exact_kernel::time::TimeRequest<'_>) -> Option<String> {
+        match self.time_format {
+            Some(f) => crate::time::format(f, self.ctx, r),
+            None => exact_kernel::time::english(r),
+        }
+    }
+    fn measure_revision(&self) -> u64 {
+        self.measure_revision
+            .as_ref()
+            .map_or(0, |revision| revision.get())
+    }
+
+    fn field_chrome(
+        &mut self,
+        request: &exact_kernel::FieldChromeRequest,
+    ) -> exact_kernel::FieldChrome {
+        self.field_chrome
+            .map_or_else(exact_kernel::FieldChrome::default, |f| {
+                crate::control_text::chrome(f, self.ctx, request)
+            })
+    }
+
+    fn button_measure(
+        &mut self,
+        request: &exact_kernel::ButtonMeasureRequest,
+    ) -> Option<exact_kernel::ButtonMeasure> {
+        self.button_measure
+            .map(|f| crate::control_text::button_measure(f, self.ctx, request))
+    }
+
+    fn symbol_size(&mut self, request: &exact_kernel::SymbolRequest<'_>) -> Option<(f32, f32)> {
+        let f = self.symbol?;
+        let revision = self.measure_revision();
+        if revision != self.symbols_revision {
+            self.symbols_revision = revision;
+            self.symbols.clear();
+        }
+        let name = exact_kernel::apple_symbol_name(request.role);
+        let key = (
+            name.to_string(),
+            request.font_size.to_bits(),
+            request.font_weight,
+        );
+        if let Some(known) = self.symbols.get(&key) {
+            return *known;
+        }
+        let mut out = [0f32; 2];
+        let answered = f(
+            self.ctx,
+            name.as_ptr(),
+            name.len(),
+            request.font_size,
+            request.font_weight,
+            out.as_mut_ptr(),
+        );
+        let size = (answered == 1).then_some((out[0], out[1]));
+        self.symbols.insert(key, size);
+        size
+    }
+
+    fn set_language(&mut self, language: &str) {
+        // `hyphens: auto` breaks by the language's points: answers by the old
+        // one are another paragraph's.
+        if self.language != language {
+            self.language = language.to_owned();
+            self.memo = identified::Memo::default();
+        }
+    }
+
     fn measure(&mut self, request: &TextMeasureRequest<'_>) -> TextMetrics {
         sanitize(self.foreign_measure(request, None, std::ptr::null_mut()))
+    }
+
+    /// The callback answers by width alone (`CRequest::height`), as the
+    /// Linux and terminal hosts do: a SplitFacts region keeps one fact per
+    /// width, not one per height offer at it (2658f6531).
+    fn height_free(&self) -> bool {
+        true
+    }
+
+    /// @ref LLP 1093 D6 — the paragraph's line boxes, from the app's hook.
+    fn lines(
+        &mut self,
+        stamp: &ParagraphStamp,
+        request: &TextMeasureRequest<'_>,
+        bottoms: &mut Vec<f32>,
+    ) {
+        let Some(lines) = self.lines else {
+            return;
+        };
+        let mut out = vec![0.0f32; 64];
+        let count = self.foreign(request, Some(stamp), |ctx, c| {
+            let count = lines(ctx, c, out.as_mut_ptr(), out.len());
+            if count > out.len() {
+                out.resize(count, 0.0);
+                lines(ctx, c, out.as_mut_ptr(), out.len())
+            } else {
+                count
+            }
+        });
+        out.truncate(count.min(out.len()));
+        if out.iter().all(|b| b.is_finite()) {
+            bottoms.extend(out);
+        }
     }
 
     fn measure_identified(
@@ -429,6 +740,22 @@ mod tests {
         let ratio = c_run("", exact_kernel::TextStyle::from_style(&style));
         assert_eq!(ratio.has_line_height, 1);
         assert_eq!(ratio.line_height, 30.0);
+    }
+
+    extern "C" fn fixed(_: *mut c_void, _: *const CRequest) -> CMetrics {
+        CMetrics {
+            width: 10.0,
+            height: 20.0,
+            baseline: 15.0,
+        }
+    }
+
+    /// ExactKit's measure answers by width (CRequest::height is advisory),
+    /// so the kernel may reuse a width's answer across heights.
+    #[test]
+    fn the_callback_measurer_is_height_free() {
+        let m = CallbackMeasurer::new(fixed, std::ptr::null_mut(), None);
+        assert!(m.height_free());
     }
 }
 

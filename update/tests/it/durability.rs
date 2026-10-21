@@ -11,6 +11,10 @@ use exact_update::Check;
 /// damaged, and the client carries on updating rather than freezing as it
 /// does for a newer binary's (numeric) codec.
 #[test]
+#[cfg_attr(
+    windows,
+    ignore = "Windows durable store is not qualified (LLP 1026 D11a)"
+)]
 fn a_record_without_an_integer_codec_is_damaged_not_foreign() {
     for codec in ["\"2\"", "null", "\"newer\"", "2.5", "-1", "{}"] {
         let temp = Temp::new("codec-damaged");
@@ -39,6 +43,10 @@ fn a_record_without_an_integer_codec_is_damaged_not_foreign() {
 /// or a file where another needs a directory, is refused before anything is
 /// downloaded, and so is a name a filesystem may normalize.
 #[test]
+#[cfg_attr(
+    windows,
+    ignore = "Windows durable store is not qualified (LLP 1026 D11a)"
+)]
 fn colliding_or_unportable_asset_names_are_refused_before_download() {
     let refused: [(&[&str], &str); 7] = [
         (&["Logo.png", "logo.png"], "differ only by case"),
@@ -69,9 +77,24 @@ fn colliding_or_unportable_asset_names_are_refused_before_download() {
     for names in [
         &["a/b.png", "a/c.png", "A-b_c.1.png"][..],
         &["deck/index.html", "deck/index.html.map"],
+        &["photo@2x.png", "photo@3x.png", "icons/home@2x.png"],
     ] {
         exact_update::check_asset_names(names.iter().copied()).unwrap();
     }
+    // Every refused name in one answer, one per line, so a build names them all.
+    let all = exact_update::check_asset_names([
+        "two words.png",
+        "Logo.png",
+        "logo.png",
+        "ok.png",
+        "caf\u{e9}.png",
+    ])
+    .unwrap_err();
+    let lines: Vec<&str> = all.lines().collect();
+    assert_eq!(lines.len(), 3, "{all}");
+    assert!(lines[0].contains("two words.png is not portable"), "{all}");
+    assert!(lines[1].contains("differ only by case"), "{all}");
+    assert!(lines[2].contains("caf\u{e9}.png is not portable"), "{all}");
 }
 
 /// A selected entry corrupted on disk is refused at launch, and entry zero
@@ -79,6 +102,10 @@ fn colliding_or_unportable_asset_names_are_refused_before_download() {
 /// stage again, or the client is stranded on entry zero until a later seq
 /// exists. Another bundle at that seq is still equivocation.
 #[test]
+#[cfg_attr(
+    windows,
+    ignore = "Windows durable store is not qualified (LLP 1026 D11a)"
+)]
 fn a_corrupted_selection_is_restaged_from_the_head_it_accepted() {
     let temp = Temp::new("restage");
     let bundle = Bundle::new(4, b"plan four").asset("mark.png", b"a mark");
@@ -114,6 +141,10 @@ fn a_corrupted_selection_is_restaged_from_the_head_it_accepted() {
 /// the origin, was accepted again. The floor now comes back from the signed
 /// entries on disk, and is written back.
 #[test]
+#[cfg_attr(
+    windows,
+    ignore = "Windows durable store is not qualified (LLP 1026 D11a)"
+)]
 fn a_crash_truncated_record_keeps_the_rollback_floor() {
     let temp = Temp::new("truncated");
     let four = Bundle::new(4, b"plan four");
@@ -141,6 +172,83 @@ fn a_crash_truncated_record_keeps_the_rollback_floor() {
         assert_eq!(written["stream"]["seq"], 6);
         assert!(Origin::of(&six).check(&mut store).is_ok());
     }
+}
+
+#[test]
+#[cfg_attr(
+    windows,
+    ignore = "Windows durable store is not qualified (LLP 1026 D11a)"
+)]
+fn oversized_local_plan_falls_back_without_losing_the_floor() {
+    let temp = Temp::new("oversized-plan");
+    let six = Bundle::new(6, b"plan six");
+    let mut store = open(&temp);
+    let Check::Staged { entry, .. } = Origin::of(&six).check(&mut store).unwrap() else {
+        panic!("stage");
+    };
+    drop(store);
+    std::fs::File::create(temp.path().join("entries").join(&entry).join("app.plan"))
+        .unwrap()
+        .set_len(4 * 1024 * 1024)
+        .unwrap();
+    let mut store = open(&temp);
+    let refusal = store.prepare_selected().unwrap_err();
+    assert!(
+        refusal.reason.contains("before reading"),
+        "{}",
+        refusal.reason
+    );
+    assert_eq!(store.select().entry, None);
+    let lower = Origin::of(&Bundle::new(4, b"plan four"))
+        .check(&mut store)
+        .unwrap_err();
+    assert!(lower.contains("below the accepted seq 6"), "{lower}");
+}
+
+#[test]
+#[cfg_attr(
+    windows,
+    ignore = "Windows durable store is not qualified (LLP 1026 D11a)"
+)]
+fn oversized_record_and_envelope_recover_with_bounded_reads() {
+    let temp = Temp::new("oversized-metadata");
+    let six = Bundle::new(6, b"plan six");
+    let mut store = open(&temp);
+    let Check::Staged { entry, .. } = Origin::of(&six).check(&mut store).unwrap() else {
+        panic!("stage");
+    };
+    drop(store);
+    std::fs::File::create(temp.path().join("record.json"))
+        .unwrap()
+        .set_len(4 * 1024 * 1024)
+        .unwrap();
+    let mut store = open(&temp);
+    assert_eq!(store.select().entry, None);
+    let lower = Origin::of(&Bundle::new(4, b"plan four"))
+        .check(&mut store)
+        .unwrap_err();
+    assert!(lower.contains("below the accepted seq 6"), "{lower}");
+    assert!(matches!(
+        Origin::of(&six).check(&mut store),
+        Ok(Check::Staged { .. })
+    ));
+    drop(store);
+    std::fs::File::create(temp.path().join("entries").join(&entry).join("exact.json"))
+        .unwrap()
+        .set_len(4 * 1024 * 1024)
+        .unwrap();
+    let mut store = open(&temp);
+    let refusal = store.prepare_selected().unwrap_err();
+    assert!(
+        refusal.reason.contains("before reading"),
+        "{}",
+        refusal.reason
+    );
+    assert_eq!(store.select().entry, None);
+    let lower = Origin::of(&Bundle::new(4, b"plan four"))
+        .check(&mut store)
+        .unwrap_err();
+    assert!(lower.contains("below the accepted seq 6"), "{lower}");
 }
 
 /// Bytes the store directory holds, each file counted once however many

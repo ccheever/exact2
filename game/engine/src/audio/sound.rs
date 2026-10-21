@@ -296,6 +296,10 @@ impl Data for Voice {
             w.field("pan");
             self.pan.write(w);
         }
+        if self.spatial.is_some() {
+            w.field("spatial");
+            self.spatial.write(w);
+        }
         if self.fade.is_some() {
             w.field("fade");
             self.fade.write(w);
@@ -319,6 +323,7 @@ impl Data for Voice {
                 "offset" => self.offset.read(r),
                 "pan" => self.pan.read(r),
                 "fade" => self.fade.read(r),
+                "spatial" => self.spatial.read(r),
                 _ => r.skip(),
             }
             .map_err(|e| e.at(at))?;

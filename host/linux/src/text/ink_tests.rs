@@ -8,23 +8,23 @@ use tiny_skia::{Color, FillRule, PathBuilder, Rect};
 pub(super) mod messages_envelope_model;
 
 fn engine() -> TextEngine {
-    let engine = TextEngine::new();
-    engine
-        .catalog
-        .borrow_mut()
-        .fonts
-        .db_mut()
-        .load_fonts_dir(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/../../scripts/fixtures/fonts/assets"
-        ));
-    engine
-        .catalog
-        .borrow_mut()
-        .fonts
-        .db_mut()
-        .set_sans_serif_family("DejaVu Sans");
-    engine
+    TextEngine::from_font_files(
+        &[
+            Path::new(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../../scripts/fixtures/fonts/assets"
+            )),
+            Path::new(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/tests/fonts/NotoColorEmoji-subset.ttf"
+            )),
+            Path::new(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/tests/fonts/NotoSansCJKsc-subset.otf"
+            )),
+        ],
+        "DejaVu Sans",
+    )
 }
 
 fn spec(text: &str) -> Spec {
@@ -73,23 +73,26 @@ fn full(
     target.fill(Color::WHITE);
     let glyph_ts = view.transform.pre_scale(1.0 / view.scale, 1.0 / view.scale);
     let mut catalog = paragraph.source.catalog.borrow_mut();
+    let slots = ink::slots(&mut catalog, paragraph.lines());
     for (g, baseline, ink) in paragraph.paint_glyphs(palette) {
         if ink.color[3] == 0 {
             continue;
         }
-        let phys = g.physical(
+        let (key, x, y) = ink::physical(
+            g,
+            slots[g.face as usize],
             (
                 view.origin.0 * view.scale,
                 (view.origin.1 + baseline) * view.scale,
             ),
             view.scale,
         );
-        let Some(glyph) = catalog.glyph(phys.cache_key, ink.color) else {
+        let Some(glyph) = catalog.glyph(key, ink.color) else {
             continue;
         };
         target.draw_pixmap(
-            phys.x + glyph.left,
-            phys.y - glyph.top,
+            x + glyph.left,
+            y - glyph.top,
             glyph.pixmap.as_ref(),
             &PixmapPaint::default(),
             glyph_ts,
@@ -111,7 +114,7 @@ fn compare(
     actual.fill(Color::WHITE);
     engine.ink_visits = 0;
     engine.ink_nodes = 0;
-    engine.paint(
+    let rows = engine.paint_clipped(
         &mut actual,
         paragraph,
         palette,
@@ -119,7 +122,16 @@ fn compare(
         view.scale,
         view.transform,
         mask,
+        (0., 0., 320., 128.),
     );
+    for (y, row) in actual.data().chunks_exact(320 * 4).enumerate() {
+        if !rows.contains(&(y as u32)) {
+            assert!(
+                row.iter().all(|&v| v == 255),
+                "ink escaped rows {rows:?} at {y}"
+            );
+        }
+    }
     assert_eq!(
         actual.data(),
         expected.data(),
@@ -277,6 +289,17 @@ fn fallback_cjk_combining_and_emoji_match_full_paint() {
     let mut engine = engine();
     let s = spec(&"Latin e\u{301} 中日 🦀 🌈\n".repeat(80));
     let p = engine.layout(&s, Some(230.0));
+    let mut cjk = 0;
+    for run in p.layout_runs() {
+        for glyph in run.glyphs {
+            let cluster = &run.text[glyph.start as usize..glyph.end as usize];
+            assert_ne!(glyph.glyph_id, 0, "missing glyph for {cluster:?}");
+            if cluster == "中" || cluster == "日" {
+                cjk += 1;
+            }
+        }
+    }
+    assert_eq!(cjk, 160, "both CJK characters shape on every hard line");
     for y in [0.0, -100.375, -p.height + 80.0] {
         compare(&mut engine, &p, &palette(), View::at(y, 1.25), None);
     }
@@ -303,27 +326,19 @@ fn scale_changes_replace_one_index_and_do_not_retain_history() {
 
 #[test]
 fn physical_cpu_placement_uses_all_x_bins_and_only_zero_y_bin() {
-    use cosmic_text::SubpixelBin;
     let mut engine = engine();
     let p = engine.layout(&spec("f"), Some(100.0));
-    let mut g = p.layout_runs().next().unwrap().glyphs[0].clone();
+    let mut g = p.layout_runs().next().unwrap().glyphs[0];
     g.x = 0.0;
-    g.x_offset = 0.0;
-    g.y = 0.375;
-    g.y_offset = 0.013;
+    g.y = 0.375 - 0.013 * g.font_size;
     let mut x_bins = std::collections::HashSet::new();
     for scale in [0.75, 1.0, 1.25, 2.0] {
         for i in -32..32 {
             let offset = (i as f32 / 16.0, i as f32 / 13.0);
-            let physical = g.physical(offset, scale);
-            x_bins.insert(physical.cache_key.x_bin);
-            assert_eq!(physical.cache_key.y_bin, SubpixelBin::Zero);
-            assert_eq!(
-                physical.y,
-                (g.y - g.y_offset * g.font_size)
-                    .mul_add(scale, offset.1)
-                    .trunc() as i32
-            );
+            let (key, _, y) = ink::physical(&g, 0, offset, scale);
+            x_bins.insert(key.x_bin);
+            assert_eq!(key.y_bin, 0);
+            assert_eq!(y, g.y.mul_add(scale, offset.1).trunc() as i32);
         }
     }
     assert_eq!(x_bins.len(), 4);
@@ -336,12 +351,10 @@ fn actual_color_bitmap_placement_matches_full_paint() {
     s.runs[0].size = 28.0;
     let p = engine.layout(&s, Some(230.0));
     let color = p.paint_glyphs(&palette()).any(|(g, _, _)| {
-        let mut borrow = p.source.catalog.borrow_mut();
-        let catalog = &mut *borrow;
-        catalog
-            .swash
-            .get_image_uncached(&mut catalog.fonts, g.physical((0.0, 0.0), 1.25).cache_key)
-            .is_some_and(|image| image.content == SwashContent::Color)
+        let mut catalog = p.source.catalog.borrow_mut();
+        let slots = ink::slots(&mut catalog, p.lines());
+        let (key, _, _) = ink::physical(g, slots[g.face as usize], (0.0, 0.0), 1.25);
+        catalog.renders_color_bitmap(key)
     });
     assert!(color, "fixture must exercise an actual Swash color bitmap");
     for y in [-0.625, -119.375, -p.height + 70.25] {
@@ -375,11 +388,13 @@ fn raster_nested_scroll_clip_bounds_work_and_pop_restores_parent() {
     let p = engine.layout(&spec(&"nested scrollport line\n".repeat(160)), Some(230.0));
     let parent = Shape {
         rect: (10.125, 7.25, 275.5, 110.5),
-        radii: [5.5; 4],
+        radii: [(5.5, 5.5); 4],
+        corners: None,
     };
     let child = Shape {
         rect: (18.375, 49.25, 210.5, 9.25),
-        radii: [2.5; 4],
+        radii: [(2.5, 2.5); 4],
+        corners: None,
     };
     let ts = Transform::from_rotate(2.0);
     let view = View::at(-377.625, 1.0);
@@ -486,7 +501,8 @@ mod clip_masks {
     fn root() -> Shape {
         Shape {
             rect: (10.125, 7.25, 275.5, 110.5),
-            radii: [5.5, 4.25, 3.5, 2.75],
+            radii: [5.5, 4.25, 3.5, 2.75].map(|r| (r, r)),
+            corners: None,
         }
     }
 
@@ -592,11 +608,14 @@ mod clip_masks {
         let mut moved = base;
         moved.rect.0 += 0.125;
         let mut rounded = base;
-        rounded.radii[3] += 0.25;
+        rounded.radii[3].0 += 0.25;
+        let mut vertical = base;
+        vertical.radii[3].1 += 0.25;
         let cases = [
             ((320.0, 128.0), 1.0, base, Transform::identity()),
             ((320.0, 128.0), 1.0, moved, Transform::identity()),
             ((320.0, 128.0), 1.0, rounded, Transform::identity()),
+            ((320.0, 128.0), 1.0, vertical, Transform::identity()),
             (
                 (320.0, 128.0),
                 1.0,

@@ -1,0 +1,17 @@
+# tpx.py buckets rules for every thread that is not main (both apps): label<TAB>substrings; first match wins.
+owner: Rust runtime (report, layout, commit)	exact_collection_feedback|exact_tick|exact_advance|exact_pump|exact_dispatch|exact_intrinsics|exact_boot|exact_apple4host|exact_runner|exact_kernel|taffy
+owner: text measure (CoreText on the owner)	TextEngine.measure|measureText|TextEngine.paragraph|CTTypesetter
+owner: batch decode / prepared values	BatchReader|Batch.decode|Prepared
+map: tile decode (GEO vector tiles)	GEOVectorTile|geo::codec|gcl::tmesh|GEOTileLoader|_GEOTileLoaderImplementation
+map: tile meshes, roads, labels (VectorKit)	md::|gdc::|gss::|ggl::|geo::|karo::|VectorKit
+text: raster workers	TextRasterJob|RegionTextExecutor|TextLinePaint|CTLineDraw
+image: decode / animated frames	RasterLoader|RasterWorkers|CGImageSource|ImageIO|AnimatedRaster|CGAnimateImage|png_|jpeg|AppleJPEG|WebP
+canvas 2D replay / vello / wgpu	Canvas2D|vello|wgpu|exact_gpu|exact_canvas|naga
+video: CoreMedia / VideoToolbox	coremedia|CMSampleBuffer|VTDecompression|Fig|AVPlayer|videotoolbox
+web: WebKit	WebKit|WebCore|JavaScriptCore|WTF::
+lottie	Lottie
+SwiftUI: async render / display list	AsyncRenderer|DisplayList|RenderBox|RB::|ViewGraph|AG::Graph|SwiftUI
+Metal: command submit / drawables	MTLCommand|IOGPUMetal|CAMetalLayer|IOGPUCommandQueue|AGXMetal|AGX
+Core Animation (render, image queue, display link)	CA::|CAImageQueue|CVDisplayLink|CARenderServer
+malloc / free / memory	_xzm_|malloc|madvise|mach_vm|vm_deallocate|bzero|_platform_mem
+dispatch / kernel wait (idle-ish)	__workq_kernreturn|mach_msg2_trap|kevent|__psynch|semaphore_wait

@@ -19,19 +19,20 @@
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, OnceLock};
 
 use exact_plan::Value;
 use exact_runner::{Answer, DataError, DataSource, FailureKind, Outcome, Request, Response, Store};
 use markdown_parse::{parse, Document, Kind};
 
 mod index;
+mod page;
 mod refs;
 
 /// Read a corpus directory: every document, in number order. The reader
 /// calls this on the host's worker; a test calls it directly.
 pub use index::read as read_index;
-pub use index::Entry;
+pub use index::{CorpusText, Entry};
 
 /// A corpus that was read, or the reason it was not.
 type Corpus = Result<Vec<Entry>, String>;
@@ -39,21 +40,33 @@ type Corpus = Result<Vec<Entry>, String>;
 /// The LLP reader's data source.
 #[derive(Default)]
 pub struct Llp {
-    /// The corpus, by the root it was read from.
-    corpus: HashMap<String, Vec<Entry>>,
+    /// One read per root, shared by all resources waiting for that corpus.
+    /// The page and index can both request it before either worker finishes.
+    corpus: HashMap<String, Arc<OnceLock<Corpus>>>,
     /// The document open now, parsed: what a refusal falls back to.
     open: Option<(PathBuf, Document)>,
-    /// Roots the worker has finished, by the root that was asked for.
-    done: Arc<Mutex<HashMap<String, Corpus>>>,
+    /// Query-independent `page` values for the document open now.
+    page_cache: Option<page::Cache>,
     /// Roots handed out as continuation tokens and not yet taken.
     inflight: HashMap<u64, String>,
     next: u64,
+    /// The path the reader was started on (`start()`), when a host gives one.
+    start: String,
 }
 
 impl Llp {
     /// A new source with nothing read.
     pub fn new() -> Llp {
         Llp::default()
+    }
+
+    /// A source whose `start()` answers `path`: the corpus or document a
+    /// command line named (the terminal reader's argument).
+    pub fn starting_at(path: &str) -> Llp {
+        Llp {
+            start: path.to_string(),
+            ..Llp::default()
+        }
     }
 
     /// The directory a path belongs to: itself when it is one, its folder
@@ -79,12 +92,17 @@ impl Llp {
         if path.is_file() {
             return Some(path);
         }
-        let entries = self.corpus.get(&Self::root_of(asked))?;
+        let entries = self.entries(&Self::root_of(asked));
         entries.first().map(|e| e.path.clone())
     }
 
     fn entries(&self, root: &str) -> &[Entry] {
-        self.corpus.get(root).map(Vec::as_slice).unwrap_or(&[])
+        self.corpus
+            .get(root)
+            .and_then(|c| c.get())
+            .and_then(|c| c.as_ref().ok())
+            .map(Vec::as_slice)
+            .unwrap_or(&[])
     }
 }
 
@@ -103,10 +121,10 @@ fn index_value(
     open: Option<&Path>,
 ) -> Value {
     let query = query.trim().to_lowercase();
-    let mut shown: Vec<&Entry> = entries
+    let mut shown: Vec<(&Entry, usize)> = entries
         .iter()
-        .filter(|e| e.matches(&query))
         .filter(|e| overlay.is_empty() || e.overlay == overlay)
+        .filter_map(|e| e.search(&query).map(|hits| (e, hits)))
         .collect();
     if newest {
         // Reversed whole, so a sub-document still follows its parent: the
@@ -130,7 +148,7 @@ fn index_value(
             shown
                 .iter()
                 .enumerate()
-                .map(|(i, e)| {
+                .map(|(i, (e, hits))| {
                     Value::record(vec![
                         Value::str(&i.to_string()),
                         Value::str(&e.number),
@@ -141,7 +159,7 @@ fn index_value(
                         Value::Number(e.depth as f64),
                         Value::str(&e.overlay),
                         Value::Bool(open == Some(e.path.as_path())),
-                        Value::Number(e.hits(&query) as f64),
+                        Value::Number(*hits as f64),
                     ])
                 })
                 .collect(),
@@ -235,11 +253,15 @@ impl DataSource for Llp {
         // The bake has no corpus to read: the first frame is an empty index
         // and the welcome document, and the real one arrives after it.
         match source {
-            "theme" => Ok(markdown_parse::theme::value()),
+            "start" => Ok(Value::record(vec![Value::str(&self.start)])),
             "index" => Ok(index_value("", &[], "", "", false, None)),
             "document" => {
                 let doc = parse(WELCOME, &|t: &str| t.to_string());
                 Ok(document_value(Path::new("LLP"), &doc, None, -1, ""))
+            }
+            "page" => {
+                let doc = parse(WELCOME, &|t: &str| t.to_string());
+                Ok(page::value(Path::new("LLP"), &doc, &Self::nowhere(), ""))
             }
             other => Err(DataError::UnknownSource(other.to_string())),
         }
@@ -251,11 +273,8 @@ impl DataSource for Llp {
         source: &str,
         args: &[Value],
     ) -> Result<Answer, DataError> {
-        // The palette is one constant: every token is a `light-dark()` pair
-        // and the host resolves it, so this takes no appearance and is never
-        // re-asked when the scheme changes (LLP 1034 D1/D3).
-        if source == "theme" {
-            return Ok(Answer::Now(markdown_parse::theme::value()));
+        if source == "start" {
+            return self.query(source, args).map(Answer::Now);
         }
         let asked = match args.first().and_then(Value::as_str) {
             Some(s) => s.to_string(),
@@ -268,15 +287,12 @@ impl DataSource for Llp {
         // Whatever is asked for, the corpus comes first: the index is the
         // sidebar, the search, *and* the cross-reference table, so nothing
         // here can be answered without it.
-        if !self.corpus.contains_key(&root) {
-            if let Some(result) = self.done.lock().ok().and_then(|mut d| d.remove(&root)) {
-                match result {
-                    Ok(entries) => {
-                        self.corpus.insert(root.clone(), entries);
-                    }
-                    Err(message) => return Ok(Answer::Now(self.refuse(source, &message))),
-                }
-            } else {
+        self.corpus.entry(root.clone()).or_default();
+        let corpus = &self.corpus[&root];
+        match corpus.get() {
+            Some(Err(message)) => return Ok(Answer::Now(self.refuse(source, message))),
+            Some(Ok(_)) => {}
+            None => {
                 self.next += 1;
                 self.inflight.insert(self.next, root);
                 return Ok(Answer::Later(Request::continuation(self.next)));
@@ -287,12 +303,11 @@ impl DataSource for Llp {
 
     fn continuation(&mut self, token: u64) -> Option<Box<dyn FnOnce() -> Outcome + Send>> {
         let root = self.inflight.remove(&token)?;
-        let done = Arc::clone(&self.done);
+        let corpus = Arc::clone(self.corpus.get(&root)?);
         Some(Box::new(move || {
-            let result = index::read(Path::new(&root));
-            if let Ok(mut map) = done.lock() {
-                map.insert(root, result);
-            }
+            // Waiting happens on the workers, never in `answer` on the UI
+            // thread. Every waiter observes the same snapshot or refusal.
+            corpus.get_or_init(|| index::read(Path::new(&root)));
             Outcome::Response(Response {
                 status: 200,
                 headers: Vec::new(),
@@ -314,12 +329,10 @@ impl DataSource for Llp {
                 .and_then(Value::as_str)
                 .unwrap_or_default()
                 .to_string();
-            if self
-                .done
-                .lock()
-                .ok()
-                .map(|d| !d.contains_key(&Self::root_of(&asked)))
-                == Some(true)
+            if !self
+                .corpus
+                .get(&Self::root_of(&asked))
+                .is_some_and(|c| c.get().is_some())
             {
                 let message = match kind {
                     FailureKind::Unsupported => {
@@ -369,7 +382,10 @@ impl Llp {
                 };
                 if self.open.as_ref().map(|(p, _)| p != &path).unwrap_or(true) {
                     match self.read(&path, &root) {
-                        Ok(doc) => self.open = Some((path.clone(), doc)),
+                        Ok(doc) => {
+                            self.open = Some((path.clone(), doc));
+                            self.page_cache = None;
+                        }
                         Err(message) => {
                             return match &self.open {
                                 Some((open, doc)) => {
@@ -385,7 +401,66 @@ impl Llp {
                 let entry = self.entry(&root, open);
                 document_value(open, doc, entry, showing, "")
             }
+            "page" => {
+                let find = args
+                    .get(1)
+                    .and_then(Value::as_str)
+                    .unwrap_or_default()
+                    .to_string();
+                let message = match self.document_of(asked) {
+                    None => format!("{asked} holds no Markdown documents"),
+                    Some(path) if self.open.as_ref().map(|(p, _)| p != &path).unwrap_or(true) => {
+                        match self.read(&path, &root) {
+                            Ok(doc) => {
+                                self.open = Some((path, doc));
+                                self.page_cache = None;
+                                String::new()
+                            }
+                            Err(message) => message,
+                        }
+                    }
+                    Some(_) => String::new(),
+                };
+                let Some((open, doc)) = &self.open else {
+                    let empty = Document::default();
+                    return page::value(Path::new(""), &empty, &Self::nowhere(), &message);
+                };
+                let mut page_cache = self.page_cache.take();
+                let entries = self.entries(&root);
+                let at = entries.iter().position(|e| &e.path == open);
+                let neighbour = |i: Option<usize>| {
+                    i.and_then(|i| entries.get(i))
+                        .map(|e| e.path.to_string_lossy().into_owned())
+                        .unwrap_or_default()
+                };
+                let local = |href: &str| {
+                    let e = entries.iter().find(|e| e.path == Path::new(href))?;
+                    Some(e.title.clone())
+                };
+                let place = page::Place {
+                    entry: at.map(|i| &entries[i]),
+                    prev: neighbour(at.and_then(|i| i.checked_sub(1))),
+                    next: neighbour(at.map(|i| i + 1)),
+                    find: &find,
+                    local: &local,
+                };
+                let answer =
+                    page::value_reusing(open, &root, doc, &place, &message, &mut page_cache);
+                self.page_cache = page_cache;
+                answer
+            }
             other => nothing_open(&format!("no source {other}")),
+        }
+    }
+
+    /// A page with no corpus around it: the welcome, a refusal.
+    fn nowhere() -> page::Place<'static> {
+        page::Place {
+            entry: None,
+            prev: String::new(),
+            next: String::new(),
+            find: "",
+            local: &|_| None,
         }
     }
 
@@ -420,9 +495,15 @@ impl Llp {
         Ok(doc)
     }
 
-    fn refuse(&mut self, source: &str, message: &str) -> Value {
+    fn refuse(&self, source: &str, message: &str) -> Value {
         match source {
             "index" => index_value("", &[], "", "", false, None),
+            "page" => page::value(
+                Path::new(""),
+                &Document::default(),
+                &Self::nowhere(),
+                message,
+            ),
             _ => nothing_open(message),
         }
     }

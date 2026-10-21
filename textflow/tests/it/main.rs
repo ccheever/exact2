@@ -2,6 +2,7 @@
 //! `tests/benchmark.rs` stays its own binary: it installs a counting global
 //! allocator that other tests would contaminate.
 
+mod balance;
 mod bands;
 mod corpus;
 mod flow;

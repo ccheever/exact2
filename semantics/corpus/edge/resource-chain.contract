@@ -1,0 +1,24 @@
+// Settlement across derives and resources: a resource reads a derive that
+// reads another resource.
+shape Page
+  next: string
+  size: number
+
+component App
+  state start = "a"
+  resource first = page(start) as shape Page
+  derive cursor = `${first.next}/${start}`
+  resource second = page(cursor) as shape Page
+  derive total = first.size + second.size
+  action restart(v: string)
+    start = v
+  view
+    column
+      text cursor testId="cursor"
+      text `${total}` testId="total"
+      input value=start change=restart testId="start"
+
+test "chain settles"
+  type "start" "b"
+  type "start" "a"
+  type "start" ""

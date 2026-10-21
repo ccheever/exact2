@@ -15,6 +15,9 @@
 import ExactKit
 import ExactComposition
 import UIKit
+#if !os(tvOS)
+import UserNotifications
+#endif
 
 setvbuf(stdout, nil, _IOLBF, 0)
 let exact = ExactComposition.app
@@ -202,6 +205,9 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
         a = exact.makeSession(delegate: delegate, label: "a")
         b = exact.makeSession(delegate: delegate, label: "b")
+        #if !os(tvOS)
+        exact.installNotificationClicks()
+        #endif
         if ExactEnv.agentFreezes { a.clock = 0; b.clock = 0 }
         sessions = [("a", a), ("b", b)]
         return true
@@ -219,7 +225,10 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
     var window: UIWindow?
     func scene(_ scene: UIScene, willConnectTo session: UISceneSession, options connectionOptions: UIScene.ConnectionOptions) {
         guard let ws = scene as? UIWindowScene else { return }
-        let w = UIWindow(windowScene: ws)
+        #if !os(tvOS)
+        if let response = connectionOptions.notificationResponse { exact.openNotification(response) }
+        #endif
+        let w = ExactWindow(windowScene: ws)
         let rootController = RootController()
         root = rootController
         w.rootViewController = rootController
@@ -239,6 +248,12 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
     func sceneDidBecomeActive(_ scene: UIScene) {
         for (_, session) in sessions { session.becameActive() }
     }
+    /// Leaving with a session's storage still landing: a background task
+    /// holds the app until it lands (LLP 1097 D10).
+    func sceneDidEnterBackground(_ scene: UIScene) {
+        storageHold = StorageHold.backgroundTask { sessions.contains { $0.1.storageOperations > 0 } }
+    }
+    var storageHold: StorageHold?
 }
 
 UIApplicationMain(CommandLine.argc, CommandLine.unsafeArgv, nil, NSStringFromClass(AppDelegate.self))

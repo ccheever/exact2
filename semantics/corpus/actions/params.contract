@@ -1,0 +1,47 @@
+// Action parameters come from the handler's curried arguments, evaluated
+// against the state where the element stands.
+component App
+  state base = 10
+  state got = ""
+  state total = 0
+  action two(a: number, b: string)
+    got = `${a}:${b}`
+  action add(k: number)
+    total = total + k
+  action flag(on: bool, label: string)
+    got = on ? label : "off"
+  action bump
+    base = base + 1
+  view
+    column
+      text got testId="got"
+      text `${total}` testId="total"
+      button "two" press=two(base * 2, `b${base}`) testId="two"
+      button "add" press=add(base) testId="add"
+      button "addneg" press=add(-base) testId="addneg"
+      button "on" press=flag(base > 10, "big") testId="flag"
+      button "bump" press=bump testId="bump"
+
+test "curried args"
+  tap "two"
+  expect text "got" == "20:b10"
+  tap "bump"
+  tap "two"
+  expect text "got" == "22:b11"
+
+test "args track state"
+  tap "add"
+  tap "add"
+  expect state total == 20
+  tap "bump"
+  tap "add"
+  expect state total == 31
+  tap "addneg"
+  expect state total == 20
+
+test "bool arg"
+  tap "flag"
+  expect state got == "off"
+  tap "bump"
+  tap "flag"
+  expect state got == "big"

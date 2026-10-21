@@ -94,6 +94,24 @@ pub fn backdrop_blur(pixels: &mut [u8], w: usize, h: usize, sigma: f32) {
     }
 }
 
+/// CSS `saturate()` (Filter Effects 1 §9.6) in encoded sRGB. The matrix is
+/// linear, so it can act directly on premultiplied RGB; clamp to alpha after
+/// each operation, leaving alpha unchanged. Amounts above one remain allowed.
+pub fn backdrop_saturate(pixels: &mut [u8], amount: f32) {
+    if !amount.is_finite() || amount < 0.0 || amount == 1.0 {
+        return;
+    }
+    for px in pixels.chunks_exact_mut(4) {
+        let gray = 0.213 * px[0] as f64 + 0.715 * px[1] as f64 + 0.072 * px[2] as f64;
+        let alpha = px[3] as f64;
+        for channel in &mut px[..3] {
+            *channel = (gray + amount as f64 * (*channel as f64 - gray))
+                .clamp(0.0, alpha)
+                .round() as u8;
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -118,6 +136,19 @@ mod tests {
         assert!((250..=260).contains(&(at(w / 2 - 1) as u32 + at(w / 2) as u32)));
         assert!(at(w / 2 - 3) > 0 && at(w / 2 + 2) < 255);
         assert!(px.chunks_exact(4).all(|p| p[3] == 255));
+    }
+
+    #[test]
+    fn backdrop_saturation_preserves_alpha_and_clamps_each_result() {
+        let original = [255, 0, 0, 255, 0, 128, 0, 128, 40, 80, 120, 255];
+        let mut px = original;
+        backdrop_saturate(&mut px, 0.0);
+        assert_eq!(px, [54, 54, 54, 255, 92, 92, 92, 128, 74, 74, 74, 255]);
+        let mut px = original;
+        backdrop_saturate(&mut px, 1.0);
+        assert_eq!(px, original);
+        backdrop_saturate(&mut px, 2.0);
+        assert_eq!(px, [255, 0, 0, 255, 0, 128, 0, 128, 6, 86, 166, 255]);
     }
 
     #[test]

@@ -134,7 +134,7 @@ pub fn equivalent(a: &Value, b: &Value) -> bool {
         return true;
     }
     match (a, b) {
-        (a, b) if a.is_str() && b.is_str() => a.as_str() == b.as_str(),
+        (a, b) if a.is_str() && b.is_str() => a == b,
         (Value::List(a), Value::List(b)) | (Value::Record(a), Value::Record(b)) => {
             a.len() == b.len() && a.iter().zip(b.iter()).all(|(a, b)| equivalent(a, b))
         }
@@ -176,29 +176,11 @@ pub fn equivalent_all(a: &[Value], b: &[Value]) -> bool {
 
 /// The language's structural equality; `None` when the kinds differ before
 /// the first difference.
+///
+/// The machine's ([`crate::machine::equal`]): the one the VM's `Eq` and `Ne`
+/// run, proved against the semantics' `Value.equal`.
 pub fn equal(a: &Value, b: &Value) -> Option<bool> {
-    Some(match (a, b) {
-        (Value::Number(a), Value::Number(b)) => a == b,
-        (Value::Bool(a), Value::Bool(b)) => a == b,
-        (a, b) if a.is_str() && b.is_str() => Value::same_str(a, b) || a.as_str() == b.as_str(),
-        (Value::Unit, Value::Unit) => true,
-        (Value::Option(None), Value::Option(None)) => true,
-        (Value::Option(Some(_)), Value::Option(None))
-        | (Value::Option(None), Value::Option(Some(_))) => false,
-        (Value::Option(Some(a)), Value::Option(Some(b))) => equal(a, b)?,
-        (Value::List(a), Value::List(b)) | (Value::Record(a), Value::Record(b)) => {
-            if a.len() != b.len() {
-                return Some(false);
-            }
-            for (x, y) in a.iter().zip(b.iter()) {
-                if !equal(x, y)? {
-                    return Some(false);
-                }
-            }
-            true
-        }
-        _ => return None,
-    })
+    crate::machine::equal(a, b)
 }
 
 #[cfg(test)]
@@ -232,6 +214,41 @@ mod tests {
         // Inline text has no allocation: equal bytes are the same object.
         assert!(same(&Value::str("shared"), &Value::str("shared")));
         assert!(!same(&Value::str("shared"), &Value::str("shares")));
+    }
+
+    #[test]
+    fn text_comparisons_keep_byte_equality_at_the_inline_boundary() {
+        let texts = [
+            "",
+            "\0",
+            "a",
+            "a\0",
+            "a\0b",
+            "é",
+            "e\u{301}",
+            "漢字",
+            "👍🏽",
+            "12345678901234",
+            "12345678901235",
+            "123456789012345",
+            "123456789012346",
+            "ééééééé",
+            "éééééééx",
+        ];
+        for a in texts {
+            for b in texts {
+                let (av, bv) = (Value::str(a), Value::str(b));
+                assert_eq!(equal(&av, &bv), Some(a == b));
+                assert_eq!(equivalent(&av, &bv), a == b);
+                assert_eq!(
+                    changed_fields(
+                        &Some(Value::record(vec![av])),
+                        &Some(Value::record(vec![bv]))
+                    ),
+                    u64::from(a != b)
+                );
+            }
+        }
     }
 
     #[test]

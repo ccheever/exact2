@@ -1,0 +1,524 @@
+// LLP 1116.016 D3. Operators, printing and rounding: each expected value is what the same TypeScript evaluates to under Bun, except where a comment names LLP 1116.016 D1's row.
+component App
+  derive c0 = 7 % -3
+  derive c1 = -7 % 3
+  derive c2 = -7 % -3
+  derive c3 = 5.5 % 2
+  derive c4 = -0 % 5
+  derive c5 = 0 % -5
+  derive c6 = -4 % 2
+  derive c7 = `${7 % 0}`
+  derive c8 = 0.1 + 0.2
+  derive c9 = `${1e308 * 10}`
+  derive c10 = `${-1e308 * 10}`
+  derive c11 = -0 + 0
+  derive c12 = -0 - 0
+  derive c13 = 0 * -1
+  derive c14 = `${1 / -0}`
+  derive c15 = `${0 / 0}`
+  derive c16 = 9007199254740993
+  derive c17 = 9007199254740992 + 1
+  derive c18 = 2 - 3 - 4
+  derive c19 = 2 * 3 + 4 * 5
+  derive c20 = -(2 + 3)
+  derive c21 = --3
+  derive c22 = 5e-324 / 2
+  derive c23 = 0.1 * 3
+  derive c24 = 1 - 0.9
+  derive c37 = "a" < "b"
+  derive c38 = "B" < "a"
+  derive c39 = "é" < "z"
+  derive c40 = "😀" < "�"
+  derive c41 = "10" < "9"
+  derive c42 = "" < "a"
+  derive c43 = 0 == -0
+  derive c44 = 0 / 0 == 0 / 0
+  derive c45 = 0 / 0 != 0 / 0
+  derive c46 = 0 / 0 < 1
+  derive c47 = 0 / 0 >= 1
+  derive c48 = -0 < 0
+  derive c49 = 1 / 0 > 1e308
+  derive c50 = [1, 2] == [1, 2]
+  derive c51 = [1, 2] != [2, 1]
+  derive c52 = "a" == "a"
+  derive c53 = true == true
+  derive c54 = 1 < 2 == true
+  derive c55 = 3 > 2 && 2 > 1
+  derive c56 = true && false
+  derive c57 = true || false
+  derive c58 = !true
+  derive c59 = not true
+  derive c60 = !!false
+  derive c61 = true || 1 / 0 > 0
+  derive c62 = false && 1 / 0 > 0
+  derive c63 = true and false
+  derive c64 = false or true
+  derive c65 = 1 < 2 ? "y" : "n"
+  derive c66 = true ? 1 : 0 / 0
+  derive c67 = `${1e21}`
+  derive c68 = `${0.1 + 0.2}`
+  derive c69 = `${-0}`
+  derive c70 = `${1 / 3}`
+  derive c71 = `${123e-20}`
+  derive c72 = `${true}`
+  derive c73 = `${100}`
+  derive c74 = `${1.5e300 * 1e10}`
+  derive c75 = `${0.000001}`
+  derive c76 = `${1e-7}`
+  derive c77 = `${-1e-7}`
+  derive c79 = `${9007199254740993}`
+  derive c80 = `${123456789.12345678}`
+  derive c81 = `${5e-324}`
+  derive c82 = `${1.7976931348623157e308}`
+  derive c83 = `a${"b"}c`
+  derive c85 = `${0 / 0}`
+  derive c86 = (255).toString()
+  derive c87 = (-0).toString()
+  derive c88 = (1e21).toString()
+  derive c89 = (0.000001).toString()
+  derive c90 = (1e-7).toString()
+  derive c91 = (1 / 0).toString()
+  derive c92 = (0 / 0).toString()
+  derive c93 = true.toString()
+  derive c94 = (0.1 + 0.2).toString()
+  derive c95 = (1.005).toFixed(2)
+  derive c96 = (2.5).toFixed(0)
+  derive c97 = (-2.5).toFixed(0)
+  derive c98 = (0.5).toFixed(0)
+  derive c99 = (1.45).toFixed(1)
+  derive c100 = (1e21).toFixed(2)
+  derive c101 = (-0).toFixed(2)
+  derive c102 = (-0.0001).toFixed(2)
+  derive c103 = (123.456).toFixed(10)
+  derive c104 = (1 / 0).toFixed(2)
+  derive c105 = (0 / 0).toFixed(2)
+  derive c106 = (1.23e-10).toFixed(2)
+  derive c107 = (5e-7).toFixed(6)
+  derive c108 = (999.995).toFixed(2)
+  derive c109 = (12345678901234567890).toFixed(1)
+  derive c110 = round(2.5)
+  derive c111 = round(-2.5)
+  derive c112 = round(-0.4)
+  derive c113 = round(0.49999999999999994)
+  derive c114 = round(-0)
+  derive c115 = `${round(1e300)}`
+  derive c116 = floor(-0)
+  derive c117 = floor(-0.5)
+  derive c118 = ceil(-0.5)
+  derive c119 = ceil(0.0000001)
+  derive c120 = floor(1 / 0) > 0
+  derive c121 = max(0, -0)
+  derive c122 = min(0, -0)
+  derive c123 = max(-0, 0)
+  derive c124 = min(-0, 0)
+  derive c125 = `${max(1, 0 / 0)}`
+  derive c126 = `${min(0 / 0, 1)}`
+  derive c127 = max(3, 7)
+  derive c128 = min(3, 7)
+  derive c129 = `${max(1 / 0, 5)}`
+  derive c130 = "abc".slice(-2)
+  derive c131 = "abc".slice(1, -1)
+  derive c132 = "abc".slice(2, 1)
+  derive c133 = "abc".slice(-10)
+  derive c134 = "abc".slice(1.5)
+  derive c135 = "abc".slice(0, 1.9)
+  derive c136 = "abc".slice(0 / 0)
+  view
+    text "audit"
+
+test "7 % -3"
+  expect state c0 == 1
+
+test "-7 % 3"
+  expect state c1 == -1
+
+test "-7 % -3"
+  expect state c2 == -1
+
+test "5.5 % 2"
+  expect state c3 == 1.5
+
+test "-0 % 5"
+  expect state c4 == -0
+
+test "0 % -5"
+  expect state c5 == 0
+
+test "-4 % 2"
+  expect state c6 == -0
+
+test "7 % 0"
+  expect state c7 == "NaN"
+
+test "0.1 + 0.2"
+  expect state c8 == 0.30000000000000004
+
+test "1e308 * 10"
+  expect state c9 == "Infinity"
+
+test "-1e308 * 10"
+  expect state c10 == "-Infinity"
+
+test "-0 + 0"
+  expect state c11 == 0
+
+test "-0 - 0"
+  expect state c12 == -0
+
+test "0 * -1"
+  expect state c13 == -0
+
+test "1 / -0"
+  expect state c14 == "-Infinity"
+
+test "0 / 0"
+  expect state c15 == "NaN"
+
+test "9007199254740993"
+  expect state c16 == 9007199254740992
+
+test "9007199254740992 + 1"
+  expect state c17 == 9007199254740992
+
+test "2 - 3 - 4"
+  expect state c18 == -5
+
+test "2 * 3 + 4 * 5"
+  expect state c19 == 26
+
+test "-(2 + 3)"
+  expect state c20 == -5
+
+test "--3"
+  // TypeScript: - -3
+  expect state c21 == 3
+
+test "5e-324 / 2"
+  expect state c22 == 0
+
+test "0.1 * 3"
+  expect state c23 == 0.30000000000000004
+
+test "1 - 0.9"
+  expect state c24 == 0.09999999999999998
+
+test "'a' < 'b'"
+  expect state c37 == true
+
+test "'B' < 'a'"
+  expect state c38 == true
+
+test "'é' < 'z'"
+  expect state c39 == false
+
+test "'😀' < '�'"
+  expect state c40 == true
+
+test "'10' < '9'"
+  expect state c41 == true
+
+test "'' < 'a'"
+  expect state c42 == true
+
+test "0 == -0"
+  expect state c43 == true
+
+test "0 / 0 == 0 / 0"
+  expect state c44 == false
+
+test "0 / 0 != 0 / 0"
+  expect state c45 == true
+
+test "0 / 0 < 1"
+  expect state c46 == false
+
+test "0 / 0 >= 1"
+  expect state c47 == false
+
+test "-0 < 0"
+  expect state c48 == false
+
+test "1 / 0 > 1e308"
+  expect state c49 == true
+
+test "[1, 2] == [1, 2]"
+  // TypeScript: JSON.stringify([1, 2]) == JSON.stringify([1, 2])
+  expect state c50 == true
+
+test "[1, 2] != [2, 1]"
+  // TypeScript: true
+  expect state c51 == true
+
+test "'a' == 'a'"
+  expect state c52 == true
+
+test "true == true"
+  expect state c53 == true
+
+test "1 < 2 == true"
+  expect state c54 == true
+
+test "3 > 2 && 2 > 1"
+  expect state c55 == true
+
+test "true && false"
+  expect state c56 == false
+
+test "true || false"
+  expect state c57 == true
+
+test "!true"
+  expect state c58 == false
+
+test "not true"
+  // TypeScript: !true
+  expect state c59 == false
+
+test "!!false"
+  expect state c60 == false
+
+test "true || 1 / 0 > 0"
+  expect state c61 == true
+
+test "false && 1 / 0 > 0"
+  expect state c62 == false
+
+test "true and false"
+  // TypeScript: true && false
+  expect state c63 == false
+
+test "false or true"
+  // TypeScript: false || true
+  expect state c64 == true
+
+test "1 < 2 ? 'y' : 'n'"
+  expect state c65 == "y"
+
+test "true ? 1 : 0 / 0"
+  expect state c66 == 1
+
+test "`${1e21}`"
+  expect state c67 == "1e+21"
+
+test "`${0.1 + 0.2}`"
+  expect state c68 == "0.30000000000000004"
+
+test "`${-0}`"
+  expect state c69 == "0"
+
+test "`${1 / 3}`"
+  expect state c70 == "0.3333333333333333"
+
+test "`${123e-20}`"
+  expect state c71 == "1.23e-18"
+
+test "`${true}`"
+  expect state c72 == "true"
+
+test "`${100}`"
+  expect state c73 == "100"
+
+test "`${1.5e300 * 1e10}`"
+  expect state c74 == "Infinity"
+
+test "`${0.000001}`"
+  expect state c75 == "0.000001"
+
+test "`${1e-7}`"
+  expect state c76 == "1e-7"
+
+test "`${-1e-7}`"
+  expect state c77 == "-1e-7"
+
+test "`${9007199254740993}`"
+  expect state c79 == "9007199254740992"
+
+test "`${123456789.12345678}`"
+  expect state c80 == "123456789.12345678"
+
+test "`${5e-324}`"
+  expect state c81 == "5e-324"
+
+test "`${1.7976931348623157e308}`"
+  expect state c82 == "1.7976931348623157e+308"
+
+test "`a${'b'}c`"
+  expect state c83 == "abc"
+
+test "`${0 / 0}`"
+  expect state c85 == "NaN"
+
+test "(255).toString()"
+  expect state c86 == "255"
+
+test "(-0).toString()"
+  expect state c87 == "0"
+
+test "(1e21).toString()"
+  expect state c88 == "1e+21"
+
+test "(0.000001).toString()"
+  expect state c89 == "0.000001"
+
+test "(1e-7).toString()"
+  expect state c90 == "1e-7"
+
+test "(1 / 0).toString()"
+  expect state c91 == "Infinity"
+
+test "(0 / 0).toString()"
+  expect state c92 == "NaN"
+
+test "true.toString()"
+  expect state c93 == "true"
+
+test "(0.1 + 0.2).toString()"
+  expect state c94 == "0.30000000000000004"
+
+test "(1.005).toFixed(2)"
+  expect state c95 == "1.00"
+
+test "(2.5).toFixed(0)"
+  expect state c96 == "3"
+
+test "(-2.5).toFixed(0)"
+  expect state c97 == "-3"
+
+test "(0.5).toFixed(0)"
+  expect state c98 == "1"
+
+test "(1.45).toFixed(1)"
+  expect state c99 == "1.4"
+
+test "(1e21).toFixed(2)"
+  expect state c100 == "1e+21"
+
+test "(-0).toFixed(2)"
+  expect state c101 == "0.00"
+
+test "(-0.0001).toFixed(2)"
+  expect state c102 == "-0.00"
+
+test "(123.456).toFixed(10)"
+  expect state c103 == "123.4560000000"
+
+test "(1 / 0).toFixed(2)"
+  // D1 row: a formatting function prints "" for a non-finite number (LLP 1054.000.003 D7); TypeScript's is "Infinity".
+  expect state c104 == ""
+
+test "(0 / 0).toFixed(2)"
+  // D1 row: a formatting function prints "" for a non-finite number (LLP 1054.000.003 D7); TypeScript's is "NaN".
+  expect state c105 == ""
+
+test "(1.23e-10).toFixed(2)"
+  expect state c106 == "0.00"
+
+test "(5e-7).toFixed(6)"
+  expect state c107 == "0.000000"
+
+test "(999.995).toFixed(2)"
+  expect state c108 == "1000.00"
+
+test "(12345678901234567890).toFixed(1)"
+  expect state c109 == "12345678901234567168.0"
+
+test "round(2.5)"
+  // TypeScript: Math.round(2.5)
+  expect state c110 == 3
+
+test "round(-2.5)"
+  // TypeScript: Math.round(-2.5)
+  expect state c111 == -2
+
+test "round(-0.4)"
+  // TypeScript: Math.round(-0.4)
+  expect state c112 == -0
+
+test "round(0.49999999999999994)"
+  // TypeScript: Math.round(0.49999999999999994)
+  expect state c113 == 0
+
+test "round(-0)"
+  // TypeScript: Math.round(-0)
+  expect state c114 == -0
+
+test "round(1e300)"
+  // TypeScript: Math.round(1e300)
+  expect state c115 == "1e+300"
+
+test "floor(-0)"
+  // TypeScript: Math.floor(-0)
+  expect state c116 == -0
+
+test "floor(-0.5)"
+  // TypeScript: Math.floor(-0.5)
+  expect state c117 == -1
+
+test "ceil(-0.5)"
+  // TypeScript: Math.ceil(-0.5)
+  expect state c118 == -0
+
+test "ceil(0.0000001)"
+  // TypeScript: Math.ceil(0.0000001)
+  expect state c119 == 1
+
+test "floor(1 / 0) > 0"
+  // TypeScript: Math.floor(1 / 0) > 0
+  expect state c120 == true
+
+test "max(0, -0)"
+  // TypeScript: Math.max(0, -0)
+  expect state c121 == 0
+
+test "min(0, -0)"
+  // TypeScript: Math.min(0, -0)
+  expect state c122 == -0
+
+test "max(-0, 0)"
+  // TypeScript: Math.max(-0, 0)
+  expect state c123 == 0
+
+test "min(-0, 0)"
+  // TypeScript: Math.min(-0, 0)
+  expect state c124 == -0
+
+test "`${max(1, 0 / 0)}`"
+  // TypeScript: `${Math.max(1, 0 / 0)}`
+  expect state c125 == "NaN"
+
+test "`${min(0 / 0, 1)}`"
+  // TypeScript: `${Math.min(0 / 0, 1)}`
+  expect state c126 == "NaN"
+
+test "max(3, 7)"
+  // TypeScript: Math.max(3, 7)
+  expect state c127 == 7
+
+test "min(3, 7)"
+  // TypeScript: Math.min(3, 7)
+  expect state c128 == 3
+
+test "`${max(1 / 0, 5)}`"
+  // TypeScript: `${Math.max(1 / 0, 5)}`
+  expect state c129 == "Infinity"
+
+test "'abc'.slice(-2)"
+  expect state c130 == "bc"
+
+test "'abc'.slice(1, -1)"
+  expect state c131 == "b"
+
+test "'abc'.slice(2, 1)"
+  expect state c132 == ""
+
+test "'abc'.slice(-10)"
+  expect state c133 == "abc"
+
+test "'abc'.slice(1.5)"
+  expect state c134 == "bc"
+
+test "'abc'.slice(0, 1.9)"
+  expect state c135 == "a"
+
+test "'abc'.slice(0 / 0)"
+  expect state c136 == "abc"

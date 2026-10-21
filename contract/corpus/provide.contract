@@ -1,14 +1,40 @@
-// Accept fixture: `provide name = expr` and `inject name: type` (LLP 1017
-// P4a) — a value flows down to every component that asks for it, without a
-// prop at each use; the innermost `provide` wins; the compiler fills it.
+// Accept fixture: a component's `provide` section and `inject name: type`
+// (LLP 1017 P4a, LLP 1035.005.000 D9) — a value flows down to every component
+// used in the providing component's view, without a prop at each use; a bare
+// name provides the value of that name; the nearest providing component wins,
+// a slot's fill keeps its caller's; the compiler fills it.
 component App
-  state ink = "#112233"
+  state accent = "#112233"
+  provide
+    accent
   view
     column testId="root"
-      provide accent = ink
-        Label(text="outer")
-        provide accent = "#ff0000"
-          Label(text="inner")
+      Label(text="outer")
+      Wrap()
+      Inner()
+
+// Provides nothing: its use reads App's.
+component Wrap
+  view
+    Label(text="through")
+
+component Inner
+  provide
+    accent = "#ff0000"
+  view
+    column
+      Label(text="inner")
+      Frame()
+        Label(text="fill")
+
+component Frame
+  slot
+  provide
+    accent = "#00ff00"
+  view
+    column
+      Label(text="framed")
+      children
 
 component Label
   props

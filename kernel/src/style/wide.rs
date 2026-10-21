@@ -1,0 +1,180 @@
+//! Colours in their own spaces (LLP 1100 D2), alone or as a half of
+//! `light-dark()`, interned as `ColorValue::Wide(id)`.
+
+use super::{Color, ColorValue};
+use exact_color::{Space, Wide};
+use std::sync::Arc;
+
+/// One colour, or a `light-dark()` pair with at least one wide half.
+#[derive(Debug, PartialEq)]
+pub struct WideValue {
+    /// The colour, or the light half.
+    pub light: Wide,
+    /// The dark half of a `light-dark()` pair.
+    pub dark: Option<Wide>,
+    /// CSS's serialisation.
+    pub text: Box<str>,
+    /// Whether each authored half uses modern syntax (CSS interpolation).
+    pub modern: [bool; 2],
+}
+
+impl WideValue {
+    /// The half an appearance uses.
+    pub fn half(&self, dark: bool) -> Wide {
+        match (dark, self.dark) {
+            (true, Some(d)) => d,
+            _ => self.light,
+        }
+    }
+
+    /// The 8-bit sRGB clip.
+    pub fn fallback(&self) -> ColorValue {
+        let clip = |w: Wide| {
+            let c = w.srgb8();
+            Color::rgba(c.r, c.g, c.b, (c.a * 255.0).round() as u8)
+        };
+        match self.dark {
+            Some(d) => ColorValue::LightDark(clip(self.light), clip(d)),
+            None => ColorValue::Fixed(clip(self.light)),
+        }
+    }
+}
+
+/// What this host can show, when not every colour (LLP 1100 D1): others
+/// are refused as invalid.
+static AVAILABLE: std::sync::OnceLock<fn(&Wide) -> bool> = std::sync::OnceLock::new();
+
+/// Set once at boot by a host that shows only some colours.
+pub fn set_available(shows: fn(&Wide) -> bool) {
+    let _ = AVAILABLE.set(shows);
+}
+
+/// Whether this host shows only some colours; then it shows no profile's
+/// colour either (LLP 1100 D10).
+pub fn limited() -> bool {
+    AVAILABLE.get().is_some()
+}
+
+/// Bounds colours a data source writes at run time.
+const WIDE_CAP: usize = 4096;
+
+/// An interned wide colour by id; `None` for an id whose slot was swept
+/// and reused (a stale id).
+pub fn wide(id: u16) -> Option<Arc<WideValue>> {
+    let found = table().ok()?.get(id);
+    if found.is_none() {
+        stale(id);
+    }
+    found
+}
+
+/// Where a reader finds a wide colour by id: the table ([`wide`]), or
+/// values captured with what holds the ids ([`Values::get`]).
+pub type Lookup<'a> = &'a dyn Fn(u16) -> Option<Arc<WideValue>>;
+
+/// The wide colours some ids named when captured, by value: what a host
+/// keeps beside paint it retains with ids in it (a gradient, whose ramp
+/// needs each stop's exact colour), so it holds no slot (LLP 1121 stage 4).
+/// After a sweep the ids mean nothing to the table; the paint reads its own
+/// stops through [`get`](Self::get) and nothing else.
+#[derive(Debug, Clone, Default)]
+pub struct Values(Box<[(u16, Arc<WideValue>)]>);
+
+impl Values {
+    /// The values of each wide colour among `colors`, as the table holds
+    /// them now.
+    pub fn of(colors: impl IntoIterator<Item = ColorValue>) -> Values {
+        let mut out: Vec<(u16, Arc<WideValue>)> = Vec::new();
+        for c in colors {
+            if let ColorValue::Wide(id) = c {
+                if !out.iter().any(|(i, _)| *i == id) {
+                    if let Some(v) = wide(id) {
+                        out.push((id, v));
+                    }
+                }
+            }
+        }
+        Values(out.into())
+    }
+
+    /// The value `id` named when captured.
+    pub fn get(&self, id: u16) -> Option<Arc<WideValue>> {
+        self.0
+            .iter()
+            .find(|(i, _)| *i == id)
+            .map(|(_, v)| v.clone())
+    }
+}
+
+/// One CSS colour as a half; legacy sRGB as `color(srgb …)`.
+fn half(text: &str) -> Option<Wide> {
+    match exact_color::parse(text)? {
+        exact_color::Parsed::Wide(w) => Some(w),
+        exact_color::Parsed::Legacy(c) => Some(Wide {
+            space: Space::Srgb,
+            c: [c.r, c.g, c.b].map(|v| f64::from(v) / 255.0),
+            alpha: c.a,
+        }),
+        exact_color::Parsed::Current => None,
+    }
+}
+
+/// A modern colour, or a `light-dark()` with a modern half, interned.
+pub fn parse_wide(text: &str) -> Option<ColorValue> {
+    let text = text.trim();
+    let (light, dark, canonical, modern) = if let Some(inner) = text
+        .strip_prefix("light-dark(")
+        .and_then(|t| t.strip_suffix(')'))
+    {
+        let comma = super::top_level_comma(inner)?;
+        let (a, b) = (inner[..comma].trim(), inner[comma + 1..].trim());
+        let modern = |t: &str| matches!(exact_color::parse(t), Some(exact_color::Parsed::Wide(_)));
+        if !modern(a) && !modern(b) {
+            return None;
+        }
+        let (l, d) = (half(a)?, half(b)?);
+        let css = |w: Wide, t: &str| {
+            if modern(t) {
+                w.css()
+            } else {
+                let c = w.srgb8();
+                format!(
+                    "#{:02x}{:02x}{:02x}{:02x}",
+                    c.r,
+                    c.g,
+                    c.b,
+                    (c.a * 255.0).round() as u8
+                )
+            }
+        };
+        let canonical = format!("light-dark({}, {})", css(l, a), css(d, b));
+        (l, Some(d), canonical, [modern(a), modern(b)])
+    } else {
+        match exact_color::parse(text)? {
+            exact_color::Parsed::Wide(w) => (w, None, w.css(), [true; 2]),
+            _ => return None,
+        }
+    };
+    if let Some(shows) = AVAILABLE.get() {
+        if !shows(&light) || dark.is_some_and(|d| !shows(&d)) {
+            return None;
+        }
+    }
+    let value = WideValue {
+        light,
+        dark,
+        text: canonical.into(),
+        modern,
+    };
+    let mut table = table().ok()?;
+    let interned = table.intern(value);
+    drop(table);
+    interned.map(ColorValue::Wide)
+}
+
+pub use marks::{coloured, Colors, Settle};
+pub use reclaim::{refusals, used, Batch, Holder, Keep, WideMark, GRACE, SPAN};
+use reclaim::{stale, table};
+
+mod marks;
+mod reclaim;

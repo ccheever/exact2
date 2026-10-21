@@ -19,10 +19,10 @@ fn style(id: u32, rows: &[(StyleId, StyleValue)]) -> Op {
         patch: Box::new(patch),
     }
 }
-fn n(v: f64) -> StyleValue {
+fn n(v: f64) -> StyleValue<'static> {
     StyleValue::Number(v)
 }
-fn t(v: &str) -> StyleValue {
+fn t(v: &str) -> StyleValue<'_> {
     StyleValue::Text(v.into())
 }
 fn fixture() -> Kernel {

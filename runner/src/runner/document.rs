@@ -8,10 +8,13 @@ impl<D: DataSource> Runner<D> {
     /// (`exact_kernel::Kernel::detached`). A tree the fold doesn't cover, or
     /// one a kernel would have refused, is the error: render it with a
     /// kernel instead.
-    pub fn document_tree(&self) -> Result<DocTree, DocTreeError> {
-        self.tree
+    pub fn document_tree(&mut self) -> Result<DocTree, DocTreeError> {
+        let mut doc = self
+            .tree
             .as_ref()
             .ok_or(DocTreeError::Unsupported("a runner with no tree"))?
-            .document(&self.plan, &self.sites)
+            .document(&self.plan, &self.sites, self.fonts.clone())?;
+        self.fold_live_times(&mut doc);
+        Ok(doc)
     }
 }
