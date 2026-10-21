@@ -152,12 +152,17 @@ describe('routes (driver.ts connectOverRoutes, supervisor.ts checkBetterRoutes)'
 });
 
 describe('outdated hosts (outdatedHostUpdate.ts)', () => {
-  test('pairs a self-updating older host switched off, then updates it over a bare socket and switches it back on', async () => {
+  // registry.ts setCompatibility (#15052): incompatibility pauses the connection and keeps the switch.
+  test('pairs a self-updating older host switched on, pauses it as unsupported, then updates it over a bare socket and reconnects', async () => {
     const old = new FakeServer(A, 'env-old', { orchestrationProtocolVersion: 1, serverVersion: '0.0.40', capabilities: { serverSelfUpdate: 'respawn', serverSelfUpdateProgress: true } });
     const drive = new Drive(old);
     const paired = await drive.op({ op: 'fleetOutdatedPair', fleet: `${A}\n`, credential: 'code-1', scope: 's' });
     expect(value(paired)).toMatchObject({ environmentId: 'env-old', serverUpdateRequired: true });
-    expect((value(await drive.op({ op: 'environments' })).saved as Obj[])[0]).toMatchObject({ environmentId: 'env-old', enabled: false });
+    expect((value(await drive.op({ op: 'environments' })).saved as Obj[])[0]).toMatchObject({ environmentId: 'env-old', enabled: true });
+    // The background session the fleet opens stops as unsupported, and stays stopped.
+    await drive.op({ op: 'connect', fleet: `${A}\nenv-old`, origin: A, credential: '' });
+    await drive.advance(10_000);
+    expect(value(await drive.op({ op: 'status', fleet: `${A}\nenv-old` }))).toMatchObject({ state: 'error', failureKind: 'Protocol' });
     old.methods['server.updateServerWithProgress'] = (_method, _payload, id, server) => {
       server.chunk(id, [{ type: 'progress', stage: 'installing' }, { type: 'complete', result: { targetVersion: '0.0.46', method: 'respawn' } }]);
       server.exit(id, { _tag: 'Success', value: {} });
@@ -175,8 +180,31 @@ describe('outdated hosts (outdatedHostUpdate.ts)', () => {
     await drive.advance(1_500);
     expect(value(await drive.op({ op: 'fleetOutdatedJobs', fleet: '\n' })).jobs).toMatchObject({ [key]: { status: 'done', resultVersion: '0.0.46', fromVersion: '0.0.40' } });
     expect((value(await drive.op({ op: 'environments' })).saved as Obj[])[0]).toMatchObject({ enabled: true });
+    // The block is cleared: the stopped session connects again on its own.
+    await drive.advance(2_000);
+    expect(value(await drive.op({ op: 'status', fleet: key })).state).toBe('connected');
     await drive.op({ op: 'fleetOutdatedAck', fleet: key });
     expect(value(await drive.op({ op: 'fleetOutdatedJobs', fleet: '\n' })).jobs).toEqual({});
+  });
+
+  // outdatedHostUpdate.ts (#18563): a host updated by hand needs no update, and a bare socket would be refused.
+  test('Update on a host that is already compatible switches it back on without opening a socket', async () => {
+    const old = new FakeServer(A, 'env-old', { orchestrationProtocolVersion: 1, serverVersion: '0.0.40', capabilities: { serverSelfUpdate: 'respawn' } });
+    const drive = new Drive(old);
+    await drive.op({ op: 'fleetOutdatedPair', fleet: `${A}\n`, credential: 'code-1' });
+    const key = `${A}\nenv-old`;
+    await drive.op({ op: 'connect', fleet: key, origin: A, credential: '' });
+    await drive.advance(2_000);
+    expect(value(await drive.op({ op: 'status', fleet: key })).failureKind).toBe('Protocol');
+    old.descriptor.orchestrationProtocolVersion = 2; old.descriptor.serverVersion = '0.0.47';
+    const sockets = old.sockets.length;
+    expect(value(await drive.op({ op: 'fleetOutdatedUpdate', fleet: key, targetVersion: '0.0.46' }))).toMatchObject({ started: true });
+    await drive.settle();
+    expect(value(await drive.op({ op: 'fleetOutdatedJobs', fleet: '\n' })).jobs).toMatchObject({ [key]: { status: 'done', resultVersion: '0.0.47' } });
+    expect(old.rpcs.some(rpc => rpc.method.startsWith('server.updateServer'))).toBe(false);
+    await drive.advance(2_000);
+    expect(value(await drive.op({ op: 'status', fleet: key })).state).toBe('connected');
+    expect(old.sockets.length).toBe(sockets + 1); // the session's own socket, not an update socket
   });
 
   test('a host that does not come back in time fails the job', async () => {

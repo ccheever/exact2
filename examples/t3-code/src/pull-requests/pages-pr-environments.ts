@@ -44,7 +44,8 @@ export function prEnvironments(client: T3Client, source: EnvironmentFleet = flee
     if (!entry.environmentId || entry.environmentId === client.environmentId || list.some(item => item.id === entry.environmentId)) continue;
     const facts = sharing.get(entry.environmentId);
     list.push({ id: entry.environmentId, label: str(obj(entry.config.environment).label, 'Environment'), machine: machineOf(entry.config), focused: false,
-      local: entry.primary === true || (facts?.local ?? false), enabled: facts?.enabled ?? true, connected: ready(entry), permission: permissionOf(facts?.permission),
+      // An unsupported server keeps its switch but routes nothing until it is compatible (pullRequestRouting.ts routingAllowed).
+      local: entry.primary === true || (facts?.local ?? false), enabled: (facts?.enabled ?? true) && entry.phase !== 'unsupported', connected: ready(entry), permission: permissionOf(facts?.permission),
       config: entry.config, projects: entry.shell.projects, threads: entry.shell.threads, key: entry.key });
   }
   return list;
