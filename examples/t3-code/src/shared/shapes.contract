@@ -143,6 +143,8 @@ shape Message
   failed: bool
   live: bool
   startedMs: number
+  // A settled subagent group's fixed elapsed time ("1m 05s").
+  elapsed: string
   detail: string
   status: string
   groupId: string
@@ -391,6 +393,10 @@ shape Snapshot
   composer: ComposerView
   // The AlertStack wrapper's clip to its banners (laid-out-widths.ts alertClip).
   alertClip: string
+  // The draft hero's one-line heading's natural width, 0 before it is laid out (laid-out-widths.ts heroInlineWidth).
+  heroInlineWidth: number
+  // The window's draft is sending its launch: the new-thread shortcut opens a fresh one beside it (draft-launch.ts).
+  draftLaunching: bool
   snapshotDrafts: SnapshotDraft[]
   snapshotOwner: string
   // ChatGptWelcomeCoordinator's next "Your ChatGPT plan is connected" (chatgpt-plan.ts).
@@ -444,9 +450,11 @@ shape Snapshot
   planModeEnabled: bool
   composerResting: bool
   transcriptAway: bool
-  // composer-overlay.ts: the transcript's end reservation under the composer overlay, and the Scroll to end pill's rise.
+  // composer-overlay.ts: the transcript's end reservation under the composer overlay, the Scroll to end pill's rise,
+  // and the composer height the column keeps (the terminal drawer's cap, the empty timeline's centring).
   transcriptTail: number
   scrollLift: number
+  composerReserved: number
   // composer-attachments.ts: the draft's attached videos on the shelf, and the one being previewed (0 or 1).
   composerVideos: ComposerVideo[]
   composerVideoPreview: ComposerVideoPreview[]

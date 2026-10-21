@@ -13,7 +13,7 @@ import { obj, str } from '../../src/client/domain';
 import { describe, expect, test } from 'bun:test';
 import type { T3Client } from '../../src/client/client';
 import type { Obj } from '../../src/client/domain';
-import type { Native } from '../../src/client/protocol';
+import { ClientError, type Native } from '../../src/client/protocol';
 import { toasts } from '../../src/shell/toast';
 import { prCommand, pullRequestDetail } from '../../src/pull-requests/pages-pr-detail';
 import { prState } from '../../src/details/pr-row-actions';
@@ -404,12 +404,24 @@ describe('the panel hands the pull request over (startAsk, startHandoff)', () =>
     expect(prState(client).handoff).toBe('');
     expect((await open(client)).handoffs.pending).toBe('');
   });
+  // checkoutFailureDescription: a Git command's detail and reason, else the hint.
+  test("a checkout Git refuses says the command's detail and reason; an empty failure says the hint", async () => {
+    const git = fakeClient(defaults(base(), { 'git.preparePullRequestThread': () => { throw new ClientError('', 'GitCommandError', false, { detail: 'fatal: a branch named pr-7 already exists', reason: 'branch-exists' }); } }));
+    await open(git.client);
+    await press(git.client, 'page|checkout:worktree');
+    expect(handoffToasts(git.client).at(-1)).toMatchObject({ kind: 'error', title: 'Could not prepare the pull request checkout', description: 'fatal: a branch named pr-7 already exists (branch-exists)' });
+    const empty = fakeClient(defaults(base(), { 'git.preparePullRequestThread': () => { throw new Error(''); } }));
+    await open(empty.client);
+    await press(empty.client, 'page|checkout:worktree');
+    expect(handoffToasts(empty.client).at(-1)).toMatchObject({ description: 'Check that the branch still exists and is not checked out elsewhere, then try again.' });
+  });
   test('a stale worktree is said in place of the success; a thread that moved is said too', async () => {
     const stale = fakeClient(defaults(base(), { 'git.preparePullRequestThread': () => ({ branch: 'feature/changelog', worktreePath: '/w', isOnPullRequestHead: false }) }));
     await open(stale.client);
     expect(await prCommand(stale.client, native, 'handoff', selected, 'page|checkout:worktree')).toBe('pr-handoff-next');
     await prCommand(stale.client, native, 'handoff-run', '', '');
-    expect(handoffToasts(stale.client).at(-1)).toMatchObject({ kind: 'warning', title: 'Checked out, but not on the latest commits' });
+    expect(handoffToasts(stale.client).at(-1)).toMatchObject({ kind: 'warning', title: 'Checked out, but not confirmed on the latest commit',
+      description: "This checkout could not be confirmed at the pull request's latest commit, so its code may differ. Local commits or uncommitted work keep a checkout where it is." });
     const moved = fakeClient(defaults(base(), { 'git.preparePullRequestThread': () => ({ branch: '', worktreePath: null, isOnPullRequestHead: true }) }));
     await open(moved.client);
     await prCommand(moved.client, native, 'handoff', selected, 'page|findings');
@@ -448,7 +460,7 @@ describe('the panel hands the pull request over (startAsk, startHandoff)', () =>
     const { client } = fakeClient(defaults(base({ mergeability: 'conflicting' })));
     const view = await open(client);
     expect(view.summary.checks.map(check => check.fix)).toEqual(['', 'finding:check:ci/test:https://ci/2']);
-    expect([...view.summary.newest].map(card => card.fix).sort()).toEqual(['finding:comment:rv1', 'finding:thread:rt1']);
+    expect([...view.summary.newest].map(item => item.card.fix).sort()).toEqual(['finding:comment:rv1', 'finding:thread:rt1']);
     expect(view.handoffs).toEqual({ pending: '', canCheckout: true, threadOwn: false });
     await press(client, 'page|conflicts');
     expect(client.local.drafts['env:new:p1']).toBe(resolveConflictsPrompt({ number: 7, url: URL7, headBranch: 'feature/changelog', baseBranch: 'main' }));
