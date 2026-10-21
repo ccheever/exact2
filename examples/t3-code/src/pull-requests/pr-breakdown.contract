@@ -22,8 +22,9 @@ fn breakdownDel(diff: string): string = diff == "blue-orange" ? "light-dark(#f54
 
 // PullRequestChangeBreakdownStat: the +/- (the slot) with a hover that splits it into its kinds and the Total.
 // The first pointer or focus intent asks for the split (`request(breakdown.ref)`) unless it was asked for
-// already. The bubble is TooltipPopup's card below the stat (side bottom, centred, its 600 ms delay):
-// "Loading breakdown" while the read is out, nothing when the host has no split.
+// already. The bubble is TooltipPopup's card below the stat (side bottom, its 600 ms delay): "Loading breakdown"
+// while the read is out, nothing when the host has no split. Every such stat ends its row at the list's right edge,
+// so the bubble ends where the stat ends, where Base UI's collision shift puts a centred one.
 component PrBreakdownStat
   props
     breakdown: PrBreakdown
@@ -48,11 +49,11 @@ component PrBreakdownStat
     box position="relative" hover=setOver focusin=focusEntered focusout=focusLeft flex-shrink=0 display="flex" flex-direction="row" align-items="baseline" testId=statId
       children
       if breakdown.rows.length > 0
-        row position="absolute" top=offset left="-10rem" right="-10rem" justify-content="center" pointer-events="none" z-index=140
+        row position="absolute" top=offset left="-20rem" right=0 justify-content="flex-end" pointer-events="none" z-index=140
           column padding-left="0.5rem" padding-right="0.5rem" padding-top="0.25rem" padding-bottom="0.25rem" box-sizing="border-box" border-radius="0.5rem" border-style="solid" border-width=1 border-color="light-dark(#e4e4e7, #ffffff0f)" background-color="light-dark(#ffffff, #111111)" box-shadow="0 4px 6px -1px #0000000d, 0 2px 4px -2px #0000000d" opacity=(over or focused ? 1 : 0) transition=(over or focused ? "opacity 150ms ease 600ms" : "opacity 0ms") role="tooltip" aria-hidden=(not (over or focused)) testId=(over or focused ? `${statId}-tooltip` : `${statId}-tooltip-hidden`)
             PrBreakdownGrid(rows=breakdown.rows, total=breakdown.total, diff=diff, ink="light-dark(#27272a, #f5f5f5)")
       else if breakdown.loading
-        TipBubble(label="Loading breakdown", side="bottom", align="center", offset=offset, inset=0, shown=(over or focused))
+        TipBubble(label="Loading breakdown", side="bottom", align="end", offset=offset, inset=0, shown=(over or focused))
 
 // The same stat where its box clips (the detail panel's header folds): the window's hover layer draws the bubble
 // (hover-layer.contract kind "breakdown"), from the detail view's own `breakdown`, so a read that lands while the
