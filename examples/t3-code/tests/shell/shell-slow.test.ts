@@ -8,6 +8,7 @@ import { traceRpc, statusTicket, settleTraces, settleLiveTraces } from '../../sr
 import { T3Client } from '../../src/client/client';
 import { shellView } from '../../src/shell/shell';
 import type { Obj } from '../../src/client/domain';
+import { fleet } from '../../src/connections/settings-b-fleet';
 
 function fakeClient(extra: Obj = {}): T3Client {
   return { threadId: '', projectId: '', ready: true, environmentId: 'env-a', generation: 4, connection: 'connected', shell: { threads: [], projects: [] },
@@ -103,11 +104,42 @@ describe('a request held past its threshold', () => {
   });
 });
 
+describe('the warning rows (connection/platform.ts layerRpcRequestObserver)', () => {
+  test("name the environment by its label, not its id", () => {
+    const client = fakeClient({ config: { environment: { label: 'leftbook', capabilities: {} } } });
+    slowRequests(client, T0);
+    trackRpc(client, request('git.status'), T0);
+    slowRequests(client, T0 + 15_000);
+    expect(slowToasts(client)[0]!.details!.map(detail => detail.title)).toEqual(['git.status · leftbook']);
+  });
+
+  test("a saved environment's own label wins over the server's (EnvironmentConnectionTarget.label)", () => {
+    fleet.saved = [{ origin: 'http://127.0.0.1:4001', environmentId: 'env-a', label: 'Studio', enabled: true }];
+    try {
+      const client = Object.assign(new T3Client(), { environmentId: 'env-a', generation: 4, connection: 'connected', config: { environment: { label: 'leftbook' } } });
+      expect(client.environmentLabel).toBe('Studio');
+      slowRequests(client, T0);
+      trackRpc(client, request('git.status'), T0);
+      slowRequests(client, T0 + 15_000);
+      expect(slowToasts(client)[0]!.details!.map(detail => detail.title)).toEqual(['git.status · Studio']);
+    } finally { fleet.saved = []; }
+  });
+
+  test('a VCS status refresh is not slow at 15 s, and a heartbeat report is never tracked', () => {
+    const client = fakeClient();
+    slowRequests(client, T0);
+    trackRpc(client, request('vcs.refreshStatus'), T0);
+    trackRpc(client, request('server.reportClientActivity'), T0);
+    slowRequests(client, T0 + 30_000);
+    expect(slowToasts(client)).toHaveLength(0);
+  });
+});
+
 describe('a request the transport has failed', () => {
   test('ends when the transport has timed it out, even though the answer that sent it never hears the failure', () => {
     const client = fakeClient();
     slowRequests(client, T0);
-    trackRpc(client, request('vcs.refreshStatus'), T0); // its answer was let go: no acknowledgement will come
+    trackRpc(client, request('git.status'), T0); // its answer was let go: no acknowledgement will come
     slowRequests(client, T0 + 15_000);
     expect(slowToasts(client)).toHaveLength(1);
     slowRequests(client, T0 + TRANSPORT_REQUEST_DEADLINE_MS - 1);
