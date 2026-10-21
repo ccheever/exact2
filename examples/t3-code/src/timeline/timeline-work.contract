@@ -7,6 +7,7 @@ use MediaActions from "../media/media-actions.contract"
 // the live shimmer that sweeps a 72pt highlight across it, and the
 // V2ItemInspector panel an entry discloses.
 use Activity from "../shared/shapes.contract"
+use Message from "../shared/shapes.contract"
 use InspectorResult from "../shared/shapes.contract"
 use DriverMark from "../providers/provider-icons-kit.contract"
 use CodeHighlight from "./markdown.contract"
@@ -616,6 +617,44 @@ component SubagentRowContent
     text (agent.startedMs > 0 ? elapsedLabel(max(0, floor((now - agent.startedMs) / 1000))) : agent.output) flex-shrink=0 font-size="0.75rem" line-height="1rem" font-variant-numeric="tabular-nums" color="light-dark(#71717b, #818181)" testId=`subagent-elapsed-${agent.id}`
     if agent.targetId != ""
       Icon(name="right", size=14, color="light-dark(#71717b99, #81818199)")
+
+// V2SubagentGroup: several subagents fold under one row. Up to three avatars overlap
+// (-space-x-1.5, each ringed in the canvas colour) with a "+N" disc after them that sits
+// on top of the stack; then the count, a status summary ("2 working · 1 done"), the
+// group's time and a chevron. A settled, closed group recedes to 55% until hovered.
+// Opened, the members are the subagent rows in a faint card.
+component SubagentGroup
+  props
+    message: Message
+    command: action
+    local: action
+    now: number
+  state over = false
+  action hovered(value: bool)
+    over = value
+  view
+    column width="100%" min-width=0
+      button hover=hovered press=local("group", message.groupId, "") aria-label=message.title aria-description=message.detail aria-expanded=message.expanded testId=`subagent-group-${message.id}` width="100%" min-width=0 padding-left=0 padding-right=0 padding-top="0.5rem" padding-bottom="0.5rem" box-sizing="border-box" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" gap="0.75rem" opacity=(message.expanded or message.live or over ? 1 : 0.55) transition="opacity 150ms ease"
+        row flex-shrink=0 align-items="center" aria-hidden=true
+          for agent, index in message.activities.slice(0, 3) key=agent.id
+            box position="relative" width="1.5rem" height="1.5rem" flex-shrink=0 margin-left=(index == 0 ? "0px" : "-0.375rem") border-radius="0.75rem" border-width=1 border-style="solid" border-color="light-dark(#e4e4e7b3, #ffffff12)" background-color="light-dark(#f4f4f5, #1c1c1c)" box-shadow="0 0 0 2px light-dark(#fcfcfc, #0a0a0a)" box-sizing="border-box" align-items="center" justify-content="center"
+              if agent.detail != ""
+                DriverMark(driver=agent.detail, size=14, initials=agent.initials, icon=agent.driverIcon)
+              else
+                TimelineIcon(name="bot", size=14, color="light-dark(#71717b, #818181)")
+          if message.activities.length > 3
+            box position="relative" width="1.5rem" height="1.5rem" flex-shrink=0 margin-left="-0.375rem" border-radius="0.75rem" background-color="light-dark(#f4f4f5, #1c1c1c)" box-shadow="0 0 0 2px light-dark(#fcfcfc, #0a0a0a)" align-items="center" justify-content="center" testId=`subagent-group-more-${message.id}`
+              text `+${message.activities.length - 3}` font-size="0.625rem" font-weight=500 line-height="0.875rem" color="light-dark(#71717b, #818181)"
+        column flex=1 min-width=0
+          text message.title font-size="0.75rem" font-weight=600 line-height="1rem" text-align="left" color=(message.expanded or message.live ? "light-dark(#27272a, #f5f5f5)" : "light-dark(#71717b, #818181)")
+          text message.detail line-clamp=1 font-size="0.625rem" line-height="0.875rem" text-align="left" color=(message.live ? "light-dark(#1b4ed8, #346bf1)" : message.failed ? "light-dark(#fb2c36, #fb414a)" : "light-dark(#71717b, #818181)")
+        text (message.startedMs > 0 ? elapsedLabel(max(0, floor((now - message.startedMs) / 1000))) : message.elapsed) flex-shrink=0 font-size="0.75rem" line-height="1rem" font-variant-numeric="tabular-nums" color="light-dark(#71717b, #818181)"
+        box flex-shrink=0 display="flex" rotate=(message.expanded ? 180 : 0)
+          Icon(name="chevron", size=14, color="light-dark(#71717b, #818181)")
+      if message.expanded
+        column width="100%" margin-top="0.25rem" margin-bottom="0.25rem" padding="0.25rem" box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#e4e4e799, #ffffff09)" background-color="light-dark(#fafafa4d, #ffffff04)"
+          for agent in message.activities key=`${agent.id}\t${agent.label}\t${agent.body}\t${agent.result}`
+            SubagentRow(agent=agent, command=command, now=now)
 
 // MessageCopyButton: the copy glyph becomes a primary check while the anchored
 // "Copied!" toast shows; a failure says so in the same place.

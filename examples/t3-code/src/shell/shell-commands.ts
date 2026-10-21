@@ -194,6 +194,9 @@ export function shellFailure(client: T3Client, op: string, message: string): boo
   if (!message) return false;
   const title = FAILURE_TITLES[op] ?? GIT_FAILURE_TITLES[op];
   if (title) { pushToast(client, { kind: 'error', title, description: message, stacked: true }); return true; }
+  // UsageLimitRecoveryBanner: a failed change toasts, as inline error text would widen the banner's actions.
+  const limitTitle = op === 'cc:limit-resume' ? 'Could not change auto-resume' : op === 'cc:limit-snooze' ? 'Could not snooze thread' : '';
+  if (limitTitle) { pushToast(client, { kind: 'error', title: limitTitle, description: message }); return true; }
   if (op === 'send' && client.connection !== 'connected') {
     pushToast(client, { kind: 'warning', title: 'Not connected: message not sent', description: 'Reconnecting to the environment. Try again once it is connected.', stacked: true });
     return true;

@@ -405,7 +405,9 @@ function present(row: Row, context: PresentContext): Message {
     case 'checkpoint': return { ...base, kind: 'checkpoint', title: 'Changes', checkpointId: str(row.entry.item.checkpointId), runId: str(row.entry.item.runId),
       sourceThreadId: str(row.entry.row.sourceThreadId), files: arr(row.entry.item.files).map(file => ({ path: str(file.path), additions: num(file.additions), deletions: num(file.deletions) })) };
     case 'event': if (row.entry.item.type === 'secret_request') return { ...base, kind: 'secret', secret: secretCard(context.client, row.entry.item, row.entry.row.visibility) };
-      return { ...base, ...eventRow(row.entry.item, row.subagents, row.entry.row, { agents: context.subagents, providers: context.providers, runs: arr(context.client.projection.runs), threads: context.threads }) };
+      return { ...base, ...eventRow(row.entry.item, row.subagents, row.entry.row, { agents: context.subagents, providers: context.providers, runs: arr(context.client.projection.runs), threads: context.threads }),
+        // A group of subagents opens and closes as a work group does (the `group` toggle, kept per thread).
+        groupId: `subagent-group:${row.id}`, expanded: view.open.has(scoped(context.client, 'group', `subagent-group:${row.id}`)) };
 
     case 'meta': return { ...base, kind: 'meta', body: str(row.entry.item.text), runId: str(row.entry.item.runId), completed: true, canFork: forkable(context.client, row.entry.row, row.entry.item),
       actionsId: row.entry.id, copied: view.copies.get(row.entry.id)?.nonce ?? 0, copyFailed: view.copies.get(row.entry.id)?.ok === false };
@@ -485,7 +487,7 @@ export function timelineMessages(client: T3Client, transcript: Message[], now: n
       activities: retryableActivities(client, (message.activities ?? []).map(activity => ({ ...blankActivity({ ...activity, timestamp: messageTime(activity.timestamp, now, format) }), timeTip: timestampTooltip(activity.timestamp, format) }))),
       first: false, attached: false, hoverKey: message.id, actionsId: '', actionsFork: false, actionsTime: '', expanded: message.kind === 'checkpoint' ? tree.all : message.expanded === true, last: false,
       icon: message.icon ?? '', tone: message.tone ?? '', failed: message.failed === true, live: message.live === true,
-      startedMs: message.startedMs ?? 0, detail: message.detail ?? '', status: message.status ?? '', groupId: message.groupId ?? '',
+      startedMs: message.startedMs ?? 0, elapsed: message.elapsed ?? '', detail: message.detail ?? '', status: message.status ?? '', groupId: message.groupId ?? '',
       continues: message.continues === true, revert: message.revert ?? -1, intent: message.intent ?? '', intentTip: message.intentTip ?? '',
       attribution: message.attribution ?? '', targetId: message.kind === 'checkpoint' ? files[0]?.path ?? '' : message.targetId ?? '', actionLabel: message.actionLabel ?? '',
       copied: message.copied ?? 0, copyFailed: message.copyFailed === true, meta: message.meta !== false,

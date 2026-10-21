@@ -21,7 +21,11 @@ import { obj, type Obj } from '../client/domain';
 import { transcriptFacts } from '../timeline/transcript-facts';
 
 export type OverlayHold = { owner: string; inset: number; applied: number; content: string; pulls: number };
-export type ComposerOverlay = { transcriptTail: number; scrollLift: number };
+/**
+ * `composerReserved`: the composer's height the chat column keeps for it (ChatView composerReservedHeight), held through
+ * a resting card as the reservation is. The terminal drawer's height cap and the empty timeline's centring read it.
+ */
+export type ComposerOverlay = { transcriptTail: number; scrollLift: number; composerReserved: number };
 
 /** Before the first measurement: an empty expanded composer (118pt card, 20pt foot) and its strip. */
 export const UNMEASURED_INSET = 170;
@@ -59,7 +63,7 @@ export function composerOverlay(hold: OverlayHold, input: { owner: string; frame
   hold.content = content; hold.pulls = pulls;
   if (!overlay.length || overlay[3]! <= 0) {
     const tail = (hold.applied >= 0 ? hold.applied : UNMEASURED_INSET) + TAIL_GAP;
-    return { transcriptTail: tail, scrollLift: (hold.applied >= 0 ? hold.applied : UNMEASURED_INSET) + LIFT_GAP };
+    return { transcriptTail: tail, scrollLift: (hold.applied >= 0 ? hold.applied : UNMEASURED_INSET) + LIFT_GAP, composerReserved: hold.inset || UNMEASURED_INSET };
   }
   const [, top, , height] = overlay as [number, number, number, number];
   const measured = Math.ceil(height);
@@ -71,7 +75,7 @@ export function composerOverlay(hold: OverlayHold, input: { owner: string; frame
   // the stash's shoulder tab beside an empty dock (it is off to the side of the centred pill).
   const bottom = top + height;
   const clearTop = dock.length && dock[3]! > 0.5 ? top : shoulder.length ? shoulder[1]! + shoulder[3]! : top;
-  return { transcriptTail: hold.applied + TAIL_GAP, scrollLift: Math.ceil(bottom - clearTop) + LIFT_GAP };
+  return { transcriptTail: hold.applied + TAIL_GAP, scrollLift: Math.ceil(bottom - clearTop) + LIFT_GAP, composerReserved: hold.inset };
 }
 
 const holds = new WeakMap<object, OverlayHold>();

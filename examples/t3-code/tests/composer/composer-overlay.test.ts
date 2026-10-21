@@ -33,6 +33,14 @@ describe('composer overlay reservation (resolveComposerTimelineInset, TimelineLi
     composerOverlay(hold, input({ frames: frames(290, 238) }));
     expect(composerOverlay(hold, input({ frames: frames(290, 238), pulls: 1 })).transcriptTail).toBe(302);
   });
+  test('the reserved composer height follows the overlay and holds while the card rests', () => {
+    const hold = newOverlayHold();
+    expect(composerOverlay(hold, input({ frames: {} })).composerReserved).toBe(UNMEASURED_INSET);
+    expect(composerOverlay(hold, input({ frames: frames(290, 238), atEnd: false })).composerReserved).toBe(290);
+    // A resting card (48pt row) keeps the expanded height, so the terminal drawer's cap does not move.
+    expect(composerOverlay(hold, input({ frames: frames(96, 48) })).composerReserved).toBe(290);
+    expect(composerOverlay(hold, input({ frames: frames(170) })).composerReserved).toBe(170);
+  });
   test('a shorter composer releases the reservation at once', () => {
     const hold = newOverlayHold();
     composerOverlay(hold, input({ frames: frames(290, 238) }));
@@ -65,7 +73,7 @@ describe('composer overlay reservation (resolveComposerTimelineInset, TimelineLi
   test('the snapshot reads the transcript\'s viewport only for its own thread', () => {
     const client = { origin: 'o', projectId: 'p', threadId: 't', presentation: { frames: frames(170) } as Obj };
     noteTranscriptFacts(client, [0, '', '', '', 'o:p:t', false, true, 0]);
-    expect(composerOverlaySnapshot(client, [{ id: 'a', body: 'x' }])).toEqual({ transcriptTail: 182, scrollLift: 182 });
+    expect(composerOverlaySnapshot(client, [{ id: 'a', body: 'x' }])).toEqual({ transcriptTail: 182, scrollLift: 182, composerReserved: 170 });
     client.presentation = { ...client.presentation, frames: frames(250, 198) };
     expect(composerOverlaySnapshot(client, [{ id: 'a', body: 'x' }]).transcriptTail).toBe(182);
     noteTranscriptFacts(client, [0, '', '', '', 'o:p:t', false, false, 0]);

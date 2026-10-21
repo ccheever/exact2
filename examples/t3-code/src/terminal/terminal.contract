@@ -74,6 +74,8 @@ component TerminalDrawer
     look: Look
     dark: bool
     viewportHeight: number
+    // The composer height the chat column keeps (composer-overlay.ts composerReserved).
+    composerHeight: number
     reduced: bool
     closePending: bool
     command: action // the root command(op, id, value, n)
@@ -83,7 +85,10 @@ component TerminalDrawer
   state dragging = false
   state dragStart = 0
   state hovered = ""
-  derive maxHeight = max(180, floor(viewportHeight * 0.75))
+  // resolveTerminalDrawerMaxHeight: 75% of the window, and no more than the chat column (the window's height) leaves
+  // under its 52pt header and the composer, which overlays the timeline, so flex layout cannot reserve it; without
+  // this cap a tall drawer pushes the composer into the header.
+  derive maxHeight = min(max(180, floor(viewportHeight * 0.75)), max(0, viewportHeight - 52 - composerHeight))
   derive height = min(max(floor((dragKey == view.threadKey and dragHeight > 0 ? dragHeight : view.height) + 0.5), 180), maxHeight)
   derive motion = look.panelMs > 0 and not reduced and not dragging
   action hover(id: string, over: bool)
@@ -97,7 +102,7 @@ component TerminalDrawer
     dragKey = view.threadKey
     dragHeight = min(max(current - dy, 180), maxHeight)
   // handleResizePointerEnd → syncHeight: the store keeps the clamped height (saved per thread). A drag
-  // that ends where it started keeps the stored preference, which may be taller than the window-capped
+  // that ends where it started keeps the stored preference, which may be taller than the capped
   // height the drag started from.
   action release(vx: number, vy: number)
     let committed = height
