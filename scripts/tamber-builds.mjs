@@ -9,7 +9,7 @@
 //   `{nonce, kind: "register", id, host, capabilities, plan, design, page?}`; `id`
 //   is the build's own, stable across its reconnects (a tab's, a process's),
 //   so its pins are replayed when it registers again. `page: "gallery"`
-//   (tamber/1.15) is the variant gallery's page (host/web/dev-gallery.mjs),
+//   (tamber/1.15) is the variant gallery's page (host/web-js/dev-gallery.mjs),
 //   absent for the app's own: the page's own claim, a label that grants and
 //   withholds nothing, listed on the build as it said it. A report whose nonce
 //   is no open stream's is refused: the dev loop takes other POSTs with no

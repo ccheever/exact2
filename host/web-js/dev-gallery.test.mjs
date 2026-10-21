@@ -10,7 +10,7 @@
 import { afterEach, expect, test } from 'bun:test';
 import { spawnOwned, stopAll } from '../../scripts/test-children.mjs';
 import { spawnSync } from 'node:child_process';
-import { cpSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { createServer, request } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
@@ -24,6 +24,9 @@ function copy(id) {
   const dir = resolve(ROOT, 'target', `dev-gallery-test-${process.pid}`, 'app');
   rmSync(dir, { recursive: true, force: true });
   for (const f of ['app.contract', 'app.tamber']) cpSync(resolve(ROOT, 'apps/library-gate', f), join(dir, f), { recursive: true });
+  // An asset of the app's: the gallery's are the app's.
+  mkdirSync(join(dir, 'assets'), { recursive: true });
+  writeFileSync(join(dir, 'assets', 'note.txt'), 'the app\'s asset\n');
   const manifest = JSON.parse(readFileSync(resolve(ROOT, 'apps/library-gate/app.json'), 'utf8'));
   manifest.app.id = id; manifest.id = id;
   writeFileSync(join(dir, 'app.json'), JSON.stringify(manifest, null, 2));
@@ -43,7 +46,7 @@ async function devLoop(dir, env = {}) {
     dev.stdout.on('data', (d) => { out = (out + d).slice(-20000); if (out.includes('plan ready') && out.includes(`127.0.0.1:${port}/`)) ok(); });
     dev.on('exit', (code) => fail(new Error(`the dev loop exited ${code}: ${out}`)));
   });
-  return { base: `http://127.0.0.1:${port}`, port, said: () => out, stop: async () => { await dev.stop(30_000); rmSync(dist, { recursive: true, force: true }); } };
+  return { base: `http://127.0.0.1:${port}`, port, dev, said: () => out, stop: async () => { await dev.stop(30_000); rmSync(dist, { recursive: true, force: true }); } };
 }
 
 /** An SSE stream's frames, as they come; `close` ends it. */
@@ -93,6 +96,7 @@ test('the gallery: made only once a page asks through the gate, its own build, s
     expect(page).not.toContain("'navigate']");
     const script = /src="\.\/([^"]+\.js)"/.exec(page)?.[1];
     expect((await fetch(`${loop.base}/__dev/gallery/${script}`)).status).toBe(200);
+    expect(await (await fetch(`${loop.base}/__dev/gallery/assets/note.txt`)).text()).toBe("the app's asset\n");
     // Its registration, listed as it said it.
     const reg = await fetch(`${loop.base}/__dev/report`, { method: 'POST', body: JSON.stringify({ nonce, kind: 'register', id: 'web-js-gallery-test', host: 'web-js', capabilities: ['pin', 'inspect', 'hold'], plan: null, page: 'gallery' }) });
     expect(reg.status).toBeLessThan(300);
@@ -117,9 +121,47 @@ test('the gallery: made only once a page asks through the gate, its own build, s
   } finally {
     await loop.stop();
   }
-  // Nothing of the gallery's left running.
-  const left = spawnSync('pgrep', ['-f', join(cache, 'live')], { encoding: 'utf8' }).stdout.trim();
-  expect(left).toBe('');
+  rmSync(resolve(dir, '..'), { recursive: true, force: true });
+  rmSync(cache, { recursive: true, force: true });
+}, 900_000);
+
+/** The gallery's processes running now (its generator or its build), by pid. */
+const galleryProcesses = (cache) => spawnSync('ps', ['-axo', 'pid=,command='], { encoding: 'utf8' }).stdout.split('\n')
+  .filter((l) => l.includes(cache) && !l.includes('ps -axo')).map((l) => Number(l.trim().split(/\s+/)[0])).filter(Boolean);
+const alive = (pid) => { try { process.kill(pid, 0); return true; } catch { return false; } };
+
+test("a gallery that can't be made says so on its stream only, and is made once it can be; the loop interrupted mid-build leaves none of its processes", async () => {
+  const id = `com.exact.dev-gallery-fail-${process.pid}`;
+  const dir = copy(id);
+  const cache = galleryCache({ dir, id }, ROOT);
+  rmSync(cache, { recursive: true, force: true });
+  // Its source's directory a file: `contract gallery` refuses.
+  mkdirSync(cache, { recursive: true });
+  writeFileSync(join(cache, 'source'), 'not a directory\n');
+  const loop = await devLoop(dir);
+  try {
+    const app = frames(`${loop.base}/__dev/page`);
+    const gallery = frames(`${loop.base}/__dev/gallery/stream`);
+    await until(() => gallery.got.some((f) => f.error));
+    expect(app.got.filter((f) => f.error)).toEqual([]);
+    expect(await (await fetch(`${loop.base}/__dev/gallery/`)).text()).not.toContain('Building the gallery');
+    // Fixed: the next page asks again, and it is made.
+    rmSync(join(cache, 'source'), { force: true });
+    await fetch(`${loop.base}/__dev/gallery/`);
+    await until(() => gallery.got.some((f) => f.reload >= 1));
+    gallery.close(); app.close();
+    // A build under way (an edit makes it again), and the loop alone interrupted: its stop takes the gallery's with it.
+    const again = frames(`${loop.base}/__dev/gallery/stream`);
+    writeFileSync(join(dir, 'app.contract'), readFileSync(join(dir, 'app.contract'), 'utf8') + '\n');
+    let seen = [];
+    await until(() => (seen = galleryProcesses(cache)).length > 0, 120_000);
+    loop.dev.kill('SIGINT');
+    await new Promise((ok) => (loop.dev.exitCode !== null ? ok() : loop.dev.once('exit', ok)));
+    again.close();
+    expect(seen.filter(alive)).toEqual([]);
+  } finally {
+    await loop.stop();
+  }
   rmSync(resolve(dir, '..'), { recursive: true, force: true });
   rmSync(cache, { recursive: true, force: true });
 }, 900_000);

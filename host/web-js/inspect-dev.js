@@ -23,7 +23,8 @@ const inspecting = { on: false, banner: null, outline: null, shield: null, cover
 async function inspectTable() {
   const plan = globalThis.exact?.plan ?? null;
   if (table && tableFor === plan) return table;
-  const got = await fetch("/dev-inspect.json", { cache: "no-store" });
+  // Beside the page (its `<base>`): the app's at the root, the variant gallery's under its path.
+  const got = await fetch("dev-inspect.json", { cache: "no-store" });
   if (!got.ok) throw new Error(`this build has no inspect table (${got.status})`);
   const fetched = await got.json();
   // The table of the plan this page runs: a rebuild may have replaced it
