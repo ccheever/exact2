@@ -895,7 +895,8 @@ until it has, and the driver asks again.
 - **Draws**: each draw in pass order (occluders, sun shadow cascades, local shadow
   layers, the depth prepass, forward, translucent, post) with its batch (a
   primitive shape, a model and material, a particle look or a sprite's texture),
-  winding (camera-facing for quads), pipeline variant (for a quad, the pipeline
+  winding (camera-facing for sprites and particles, counter-clockwise for blended
+  primitive triangles), pipeline variant (for a quad, the pipeline
   bound at its draw), instances submitted and kept
   after culling (from the camera's, cascades' and local shadow layers' indirect
   arguments), a particle draw's counted fragments, whether it covered a sample and
@@ -1165,8 +1166,9 @@ keep texels on whole device pixels; fractional display scales can give uneven
 physical widths with nearest sampling.
 
 Primitives with `Material.color[3]` in the half-open range `(0.0..1.0)` join this same sorted quad arena: each
-triangle is one instance (the quad's second triangle is degenerate), compatible
-with untextured straight-alpha particles. One halo and a hundred share one draw;
+triangle is one instance (the quad's second triangle is degenerate), drawn with
+the untextured straight-alpha particle shader but in batches of its own, so the
+look oracle never counts a mesh as particles. One halo and a hundred share one draw;
 triangles still cost derivation, upload and sorting. Their look is flat
 hemisphere/directional diffuse light plus emission and fog; PBR, local-light
 shadows and procedural grids stay on opaque primitives. They depth-test without
