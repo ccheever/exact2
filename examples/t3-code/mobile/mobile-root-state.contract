@@ -4,7 +4,7 @@ use NewTaskFlowResult from "./new-task-flow.contract"
 // Pure presentation transitions. App retains requests, guards and route commits.
 use ArchiveChromeEvent from "./archive-chrome.contract"
 use AttachmentDocumentAction from "./attachment-document.contract"
-use HomeActionResult, MediaCompletion, PairingFields, AppLink, Camera, SettingsScopeEvent, SettingsSelection, Change, AutomationChange, AutomationCreditConfirmation from "./app-shapes.contract"
+use HomeActionResult, MediaCompletion, AppLink, Camera, SettingsScopeEvent, SettingsSelection, Change, AutomationChange, AutomationCreditConfirmation from "./app-shapes.contract"
 use WorkspaceEntry from "./mobile-workspace.contract"
 use homeAutomationPath from "./home-routes.contract"
 
@@ -27,9 +27,9 @@ fn followedLocation(reply: option<AppLink>, route: string): string = match reply
   case some(result) => not result.ignore and result.requestRoute == route ? result.location : "",
   case none => ""
 }
-fn pairingUiScan(previous: PairingUi, reply: option<PairingFields>): PairingUi = match reply {
-  case some(result) => PairingUi(previous, host=result.host, code=result.code, scannerOpen=false),
-  case none => PairingUi(previous, scannerOpen=false)
+fn pairingUiPreparedReply(previous: PairingUi, reply: option<PairingPrepared>, visit: string): PairingUi = match reply {
+  case some(result) => pairingUiPrepared(previous, result, visit),
+  case none => previous
 }
 shape SettingsVisitOwner
   visitToken: string
@@ -200,6 +200,37 @@ shape PairingUi
   submitted: bool
   scannerOpen: bool
   cameraStatus: string
+  prefillUrl: string
+  prefillHost: string
+  prefillCode: string
+  prefillGeneration: number
+  editRevision: number
+
+shape PairingPrepared
+  url: string
+  host: string
+  code: string
+  generation: number
+  visit: string
+  editRevision: number
+  scanned: bool
+fn pairingUiInitial(): PairingUi = PairingUi(host="", code="", formError="", expanded="", submitted=false, scannerOpen=false, cameraStatus="undetermined", prefillUrl="", prefillHost="", prefillCode="", prefillGeneration=0, editRevision=0)
+fn pairingUiVisit(previous: PairingUi): PairingUi = PairingUi(previous, host=previous.prefillHost, code=previous.prefillCode, formError="", editRevision=previous.editRevision + 1)
+fn pairingUiPreparing(previous: PairingUi): PairingUi = PairingUi(previous, prefillGeneration=previous.prefillGeneration + 1)
+fn pairingUiPreparedApplies(previous: PairingUi, result: PairingPrepared, visit: string): bool = result.visit == visit and result.editRevision == previous.editRevision and (result.scanned or result.url != previous.prefillUrl)
+fn pairingUiPrepared(previous: PairingUi, result: PairingPrepared, visit: string): PairingUi = (
+  result.generation != previous.prefillGeneration ? previous : PairingUi(previous,
+    prefillUrl=result.url, prefillHost=result.host, prefillCode=result.code,
+    host=(pairingUiPreparedApplies(previous, result, visit) ? result.host : previous.host),
+    code=(pairingUiPreparedApplies(previous, result, visit) ? result.code : previous.code),
+    scannerOpen=(result.scanned and result.visit == visit ? false : previous.scannerOpen))
+)
+fn pairingUiResolved(previous: PairingUi, result: Change, operation: string): PairingUi = PairingUi(previous,
+  formError=result.message, expanded=(operation == "save" and result.message == "" ? "" : previous.expanded),
+  host=(previous.submitted and result.message == "" ? "" : previous.host), code=(previous.submitted and result.message == "" ? "" : previous.code), submitted=false,
+  prefillUrl=(previous.submitted and result.message == "" ? "" : previous.prefillUrl),
+  prefillHost=(previous.submitted and result.message == "" ? "" : previous.prefillHost), prefillCode=(previous.submitted and result.message == "" ? "" : previous.prefillCode),
+  prefillGeneration=previous.prefillGeneration + (previous.submitted and result.message == "" ? 1 : 0))
 
 shape PairingReplyPlan
   next: PairingUi
@@ -207,7 +238,7 @@ shape PairingReplyPlan
   message: string
 fn pairingReplyPlan(previous: PairingUi, reply: option<Change>, operation: string): PairingReplyPlan = match reply {
   case some(result) => PairingReplyPlan(
-    next=PairingUi(previous, formError=result.message, expanded=(operation == "save" and result.message == "" ? "" : previous.expanded), host=(previous.submitted and result.message == "" ? "" : previous.host), code=(previous.submitted and result.message == "" ? "" : previous.code), submitted=false),
+    next=pairingUiResolved(previous, result, operation),
     succeeded=previous.submitted and result.message == "",
     message=(operation == "thread-action" or operation == "attachments" ? result.message : "")
   ),
