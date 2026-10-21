@@ -87,6 +87,7 @@ mod locals;
 mod markdown_editing;
 mod media;
 mod media_session;
+mod menu_rows;
 mod menus;
 mod midi;
 mod migrate;

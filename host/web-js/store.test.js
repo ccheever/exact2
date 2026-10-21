@@ -5,6 +5,7 @@ import { test, expect, mock } from "bun:test";
 mock.module("./navigation.js", () => import("../web/navigation.js"));
 mock.module("./prompt-glue.js", () => ({}));
 mock.module("./alert-message.js", () => ({}));
+mock.module("./menu-rows.js", () => ({}));
 mock.module("./names.js", () => ({ sourceTypes: {} }));
 const { Store } = await import("./rt.js");
 
