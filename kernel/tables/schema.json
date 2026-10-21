@@ -4931,7 +4931,7 @@
       "adjust"
     ]
   ],
-  "_symbols": "[role, Apple system symbol name, browser SVG path in a 24-unit box]. The path is stroked; a filled state is its own role, `<role>-fill` for Apple's `<name>.fill`, whose path is a filled silhouette (even-odd, so a cutout is a subpath). Two roles may share an Apple glyph when Material draws their meanings apart (`reorder`, `menu`); the Apple name then answers to the earlier row. Portable roles only; symbol:sf/<name> passes an opaque name directly to Apple (LLP 1035.004.000), without a table entry. The sf namespace is reserved.",
+  "_symbols": "[role, Apple system symbol name, browser SVG path in a 24-unit box]. The path keeps to about the box's 20-unit live area, which the web draws an em across, as an SF Symbol's glyph is (the neutral look's `symbol-scale`). The path is stroked; a filled state is its own role, `<role>-fill` for Apple's `<name>.fill`, whose path is a filled silhouette (even-odd, so a cutout is a subpath). Two roles may share an Apple glyph when Material draws their meanings apart (`reorder`, `menu`); the Apple name then answers to the earlier row. Portable roles only; symbol:sf/<name> passes an opaque name directly to Apple (LLP 1035.004.000), without a table entry. The sf namespace is reserved.",
   "_symbolAliases": "[alias, role]. Other spellings a `symbol:` source answers to, beside the role itself and Apple's name for it (dots, dashes and underscores are one: `chevron.right`, `chevron-right`, `chevron_right`): Material's names and the common guesses that mean this role and no other. An alias keeps the distinctions the roles make (filled or outlined, enclosed or bare): a name for a symbol no role draws is no alias and is refused. Never a role, never another spelling's key; `sf/` stays reserved. The lowering rewrites a source to its role, so the plan and every host see the role, and warns (`lower-symbol-alias`) once per use (LLP 1116.007 D3.1).",
   "_materials": "[name, iOS UIBlurEffect.Style (or glass / glassClear: UIGlassEffect), macOS NSVisualEffectView.Material (or glass / glassClear: NSGlassEffectView), web and Linux blur px, web saturate %, light tint, dark tint]. @ref LLP 1053.000 D4: `backgroundMaterial`'s whole vocabulary, one row per platform material, kebab-case one-to-one. A `~` marks a platform without that material: it draws the one named instead and logs so once. The web and Linux columns are stated approximations of Apple's look, not parity. Hosts never admit a platform name directly.",
   "_buttonStyles": "[name, iOS 26+ UIButton.Configuration factory, the factory before iOS 26, macOS NSButton look (borderless, push, push-accent: the accent as bezelColor, glass: NSBezelStyleGlass on macOS 26 else push, glass-accent), web and Linux look (ua: the browser's own button, text, soft, fill, glass, glass-fill)]. @ref LLP 1069.011 D2: `buttonStyle`'s whole vocabulary, kebab-case one-to-one with Apple's names. A `~` marks a platform drawing a stand-in, silently; the agent reports the requested and the drawn style. Hosts never admit a platform name directly.",
@@ -5902,6 +5902,8 @@
     ["button-padding-block", "length", "0.4375em"],
     ["button-padding-inline", "length", "1em"],
     ["button-padding-inline-symbol", "length", "0.5em"],
+    ["symbol-scale", "number", 1.2],
+    ["button-symbol-scale", "number", 1.5],
     ["button-tint-alpha", "number", 0.12],
     ["button-hover-tinted", "number", 0.08],
     ["button-hover-filled", "number", 0.12],

@@ -149,8 +149,8 @@ function refresh() {
         if (own.getPropertyValue("--exact-symbol-weight-authored").trim() !== "1") el.style.fontWeight = font.fontWeight;
       }
     }
-    const cs = getComputedStyle(el), size = parseFloat(cs.fontSize), weight = Number(cs.fontWeight);
-    const path = el.getAttribute("data-symbol-path"), filled = el.hasAttribute("data-symbol-fill"), box = el.getAttribute("data-symbol-viewbox") || "0 0 24 24", key = `${path}:${filled}:${size}:${weight}:${box}:${el.hasAttribute("data-symbol-nonzero")}`;
+    const cs = getComputedStyle(el), point = parseFloat(cs.fontSize) * (parseFloat(cs.getPropertyValue("--exact-symbol-scale")) || 1), weight = Number(cs.fontWeight);
+    const path = el.getAttribute("data-symbol-path"), filled = el.hasAttribute("data-symbol-fill"), box = el.getAttribute("data-symbol-viewbox") || "0 0 24 24", key = `${path}:${filled}:${point}:${weight}:${box}:${el.hasAttribute("data-symbol-nonzero")}`;
     // As the web host says it (glue.js `refreshSymbols`), once every role is here.
     const source = el.getAttribute("data-symbol-source");
     if (!path && All === true && !source?.startsWith("symbol:sf/") && source !== "symbol:" && el.symbolRefusal !== source) {
@@ -158,7 +158,7 @@ function refresh() {
     }
     if (el.symbolKey !== key) {
       el.symbolKey = key;
-      const point = size, stroke = 1.1 + (Math.max(100, Math.min(900, weight)) - 100) / 400;
+      const stroke = 1.1 + (Math.max(100, Math.min(900, weight)) - 100) / 400;
       const paint = filled ? `fill="black" fill-rule="${el.hasAttribute("data-symbol-nonzero") ? "nonzero" : "evenodd"}"` : `fill="none" stroke="black" stroke-width="${stroke}" stroke-linecap="round" stroke-linejoin="round"`;
       el.symbolMask = `url("data:image/svg+xml,${encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" width="${point}" height="${point}" viewBox="${box}">${path.split(";").map(d => `<path d="${d}" ${paint}/>`).join("")}</svg>`)}")`;
       el.symbolPlaceholder = `data:image/svg+xml,${encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" width="${point}" height="${point}"/>`)}`;
@@ -166,8 +166,8 @@ function refresh() {
     if (el.getAttribute("src") !== el.symbolPlaceholder) el.src = el.symbolPlaceholder;
     el.style.setProperty("--exact-symbol-mask", el.symbolMask);
     const px = parseFloat(cs.paddingLeft) + parseFloat(cs.paddingRight), py = parseFloat(cs.paddingTop) + parseFloat(cs.paddingBottom);
-    const fits = size <= el.clientWidth - px && size <= el.clientHeight - py;
+    const fits = point <= el.clientWidth - px && point <= el.clientHeight - py;
     // `fill`, CSS's initial `object-fit`, keeps a symbol's aspect, as on the Apple hosts (LLP 1011 §4).
-    el.style.setProperty("--exact-symbol-fit", cs.objectFit === "none" || (cs.objectFit === "scale-down" && fits) ? `${size}px ${size}px` : cs.objectFit === "scale-down" || cs.objectFit === "fill" ? "contain" : cs.objectFit);
+    el.style.setProperty("--exact-symbol-fit", cs.objectFit === "none" || (cs.objectFit === "scale-down" && fits) ? `${point}px ${point}px` : cs.objectFit === "scale-down" || cs.objectFit === "fill" ? "contain" : cs.objectFit);
   }
 }

@@ -35,7 +35,7 @@ globalThis.document = {
   head: { append() {} }, createElement: () => ({}), styleSheets: [],
   querySelectorAll: (sel) => (sel.includes('data-symbol-path') ? el.hasAttribute('data-symbol-path') : sel.includes('data-app-src') ? el.hasAttribute('data-app-src') : el.hasAttribute('data-symbol-source')) ? [el] : [],
 };
-globalThis.getComputedStyle = () => ({ fontSize: '17px', fontWeight: '400', objectFit: 'contain', paddingLeft: '0', paddingRight: '0', paddingTop: '0', paddingBottom: '0' });
+globalThis.getComputedStyle = () => ({ fontSize: '17px', fontWeight: '400', objectFit: 'contain', paddingLeft: '0', paddingRight: '0', paddingTop: '0', paddingBottom: '0', getPropertyValue: () => '' });
 globalThis.exact = { appURL: async (path) => `blob:test/${path}` };
 
 test('an image that leaves a symbol for an app:/ file keeps the file', async () => {
@@ -76,7 +76,7 @@ test('a symbol keeps its aspect under object-fit: fill', async () => {
   const was = globalThis.getComputedStyle, query = document.querySelectorAll;
   try {
     for (const [fit, size] of [['fill', 'contain'], ['cover', 'cover'], ['none', '17px 17px']]) {
-      globalThis.getComputedStyle = () => ({ fontSize: '17px', fontWeight: '400', objectFit: fit, paddingLeft: '0', paddingRight: '0', paddingTop: '0', paddingBottom: '0' });
+      globalThis.getComputedStyle = () => ({ fontSize: '17px', fontWeight: '400', objectFit: fit, paddingLeft: '0', paddingRight: '0', paddingTop: '0', paddingBottom: '0', getPropertyValue: () => '' });
       const wide = new Img();
       document.querySelectorAll = (sel) => sel.includes('data-symbol-path') && wide.hasAttribute('data-symbol-path') ? [wide] : [];
       expect(PropHooks.src(wide, 'symbol:chevron')).toBe(true);

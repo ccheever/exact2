@@ -203,7 +203,7 @@
   #exact-root button[data-button-style] > [data-exact-text] { grid-area: title; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: inherit; display: var(--exact-button-title-display, block) !important; -webkit-box-orient: vertical; -webkit-line-clamp: var(--exact-button-clamp, none); }
   #exact-root button[data-button-style] > [data-exact-text] ~ [data-exact-text] { grid-area: subtitle; font-size: .8em; color: color-mix(in srgb, currentColor 70%, transparent); }
   /* An image stacked over its title is centred on it, as the Linux host paints it. */
-  #exact-root button[data-button-style] > img { grid-area: image; justify-self: center; --exact-tint: currentColor; --exact-symbol-size-authored: 0; --exact-symbol-weight-authored: 0; width: 1em; height: 1em; }
+  #exact-root button[data-button-style] > img { grid-area: image; justify-self: center; --exact-tint: currentColor; --exact-symbol-size-authored: 0; --exact-symbol-weight-authored: 0; width: calc(var(--exact-symbol-scale, 1) * 1em); height: calc(var(--exact-symbol-scale, 1) * 1em); }
   /* LLP 1116.003 D4: a native button taller than its face (a round button's
      80 by 80) centres the face, as UIKit and a browser's own button do; the
      grid's empty subtitle row no longer takes half the height. */

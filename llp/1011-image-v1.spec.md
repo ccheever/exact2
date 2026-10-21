@@ -5,8 +5,8 @@
 **Systems:** Kernel (measured leaves, intrinsic size, aspect ratio; Taffy patch 5), Contract (`image` tag), Web host, Apple host (C ABI: `exact_intrinsic`), Build (assets)
 **Author:** Claude (Fable 5) for Charlie Cheever
 **Date:** 2026-08-29
-**Revised:** 2026-10-06 (`load`/`error` on the web, macOS and iOS; the remote fetch policy, as built — #121); 2026-09-26 (raster-image `tint-color` on Apple and web); 2026-09-11 (scaled-image scrollable extent and replaced grid sizing; LLP 1035.004 symbol sources, native leaves, tint, units and verification; earlier r2 image decisions retained)
-**Implementer:** Claude (Fable 5), image landing 2026-08-29; Codex, symbol integration 2026-09-10 and replaced-content extent 2026-09-11
+**Revised:** 2026-10-20 (on the web, a symbol for an SF Symbol is SF's size, §3); 2026-10-06 (`load`/`error` on the web, macOS and iOS; the remote fetch policy, as built — #121); 2026-09-26 (raster-image `tint-color` on Apple and web); 2026-09-11 (scaled-image scrollable extent and replaced grid sizing; LLP 1035.004 symbol sources, native leaves, tint, units and verification; earlier r2 image decisions retained)
+**Implementer:** Claude (Fable 5), image landing 2026-08-29; Codex, symbol integration 2026-09-10 and replaced-content extent 2026-09-11; Claude (Opus 5.5), the web's symbol size 2026-10-20
 **Related:** LLP 1001 §1 (the `Image` replaced-element rule and its declared block-flow deviation), §6 (measured leaves), LLP 1007 (the web host: `<img>`), LLP 1008 §5 (the Apple presenter: loading, `object-fit`), LLP 1010 (the sibling spec whose shape this follows), `vendor/taffy/EXACT-PATCHES.md` patch 5, `rules/RULES.md` §The web is the standard
 
 
@@ -42,7 +42,8 @@ tests are the authority.
   platform image's point size. **Configured symbols** (LLP 1035.004) instead
   report the native symbol's point size at its computed font size and weight;
   they are generated glyphs, not density-unaware bitmap assets. The browser's
-  generic SVG fallback has a square intrinsic size equal to `font-size`.
+  generic SVG fallback is a square: `font-size` on a side, times the neutral
+  look's scale for a symbol drawn for an SF Symbol (§3).
 - **`Kernel::set_intrinsic_size(view, Option<(w, h)>)`** sets it. It
   refuses an unknown view (`LayoutError::UnknownView`), a node that is not
   an `Image` (`NotAnImage`), and a size that is not finite and positive on
@@ -175,6 +176,36 @@ For `symbol:` sources, the host supplies the schema's generic SVG path and
 for the glyph. Computed font size/weight update the SVG; `tint-color` supplies
 the mask's colour. The mask follows the content box and `object-fit`; under `fill`, CSS's initial value, it is sized `contain`, keeping the symbol's aspect as the Apple hosts do (§4; amended 2026-10-16, Grok's review). These
 paths express the roles without copying Apple's artwork.
+
+**Size (2026-10-20).** A symbol drawn for an SF Symbol (a role, or an icon with
+an `sf` source) is SF's size at its font size. A role's path keeps to about the
+20-unit live area of its 24-unit box, as Material's icons do, and an SF Symbol's
+glyph fills its point size: a circle is 1em across, in a 1.18em image (AppKit's
+`NSImage(systemSymbolName:)`, medium scale). So the box is 1.2em, the image's
+size on iOS too: the neutral look's `symbol-scale`, written as
+`--exact-symbol-scale`, which the glue reads for the image's natural size. A
+page built ahead of time gives the symbol's transparent source that size too
+(`document.rs`), so nothing moves when the glue paints. On a button's face a
+`UIButton.Configuration` draws the symbol at the large scale, about 1.27 times
+the medium-scale symbol at its title's point size, at every control size, and
+the button is no taller for it (on an iOS 27 simulator a small button's
+15-point title has a 19-point circle, and a medium button is 34.33 points tall
+with its title alone, a circle or a `lock.fill`). There the box is 1.5em
+(`button-symbol-scale`). Beside a title the button lays it out at that width,
+as UIKit lays out its image's, so the title keeps its distance from the ink,
+and the box overhangs its 1em place above and below by half its growth, so the
+button is no taller. A circle's ink then reaches about .125em past that place
+(a lock's, which is taller, .15em), so a titled button's written height, which
+has no padding, keeps .125em.
+A symbol alone overhangs on every side, so its button keeps its size and does
+not clip it, as UIButton does not clip its image, though the symbol takes no
+hits, which stay in the button's own box, as `UIView.hitTest(_:with:)` keeps to
+its bounds. A native button's symbol takes no `width` or `height`
+(`lower-button-style-attr`). A tab's, a radio's and a menu or chooser row's
+keeps the box the look gives it, as iOS draws those outside a button's face: a
+tab bar's or a segmented control's image (at body size) and a menu item's. An
+icon of the app's own, with no `sf`, draws its viewBox at
+1em, as the Apple hosts draw its path (`FaceSymbol.pathImage`).
 
 **Tinted rasters (2026-09-26).** `host_css` (`host/web/src/element.rs`) gives
 an `<img>` whose source is not `symbol:` and whose `tint_color` is set the

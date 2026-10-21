@@ -698,11 +698,16 @@ impl<S: Source> Walk<'_, '_, S> {
                 // Browser-owned state the glue keeps in JavaScript.
                 "scrollFollowEnd" | "scrollTop" | "scrollLeft" | "autofocus" => {}
                 // A sized, transparent source supplies the natural box before
-                // JavaScript. The live renderer adds the portable role's mask.
+                // JavaScript, as the live renderer sizes it (`symbol-scale`
+                // ems for a symbol drawn for an SF Symbol, neutral.css). The
+                // live renderer adds the portable role's mask.
                 "src" if element == "img" && value.starts_with("symbol:") => {
+                    let drawn = props.get("data-symbol-path").is_some_and(|d| !d.is_empty())
+                        && !value.starts_with("symbol:icon||");
+                    let size = f64::from(font) * if drawn { symbol_scale() } else { 1.0 };
                     attrs.push((
                         name.clone(),
-                        Some(format!("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='{font}' height='{font}'/%3E")),
+                        Some(format!("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='{size}' height='{size}'/%3E")),
                     ));
                 }
                 // `el.textContent = value` while it has no element children:
@@ -1078,6 +1083,16 @@ const SURFACE: &str = "<canvas data-surface=\"\" style=\"position:absolute;inset
 /// [`SURFACE`]'s style.
 const SURFACE_STYLE: &str =
     "position:absolute;inset:0;width:100%;height:100%;display:block;z-index:-1";
+
+/// The neutral look's `symbol-scale`: the browser always shows that look.
+fn symbol_scale() -> f64 {
+    use exact_kernel::generated::{metric, METRICS};
+    use exact_kernel::style::metrics::{value, Column};
+    match value(&METRICS[metric::SYMBOL_SCALE], Column::Neutral) {
+        exact_kernel::MetricValue::Number(n) => n,
+        _ => 1.0,
+    }
+}
 
 /// Append `text` escaped for HTML text (`attribute` false) or a
 /// double-quoted attribute value. A carriage return is a reference (the
