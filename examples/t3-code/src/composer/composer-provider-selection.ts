@@ -238,10 +238,18 @@ export function carryNewThreadModelSelection(client: SelectionSource & { modelOp
  * it sends (deriveEffectiveComposerModelState) and the no-provider chrome. `fanout` is
  * multipleModelSelections !== null.
  */
+/** ChatView's providerInstanceEntries: sorted entries with the settings' and the project's enabled flags. */
+function instanceEntries(client: SelectionSource): ProviderEntry[] {
+  const settings = obj(client.config.settings);
+  return applyProviderInstanceSettings(providerEntries(arr(client.config.providers)), settings).map(entry => ({ ...entry, enabled: projectProviderEnabled(settings, client.projectId ?? '', entry.instanceId, entry.enabled) }));
+}
+/** An instance the next send can run on: listed, enabled and not unavailable (ChatView pendingHandoffSelectionUsable). */
+export function instanceUsable(client: SelectionSource, instanceId: string): boolean {
+  return instanceEntries(client).some(entry => entry.instanceId === instanceId && entry.enabled && entry.isAvailable);
+}
 export function composerSelection(client: SelectionSource, fanout = false) {
   const providers = arr(client.config.providers), settings = obj(client.config.settings), local = client.local ?? {};
-  // ChatView's providerInstanceEntries: sorted entries with the settings' enabled flags.
-  const entries = applyProviderInstanceSettings(providerEntries(providers), settings).map(entry => ({ ...entry, enabled: projectProviderEnabled(settings, client.projectId ?? '', entry.instanceId, entry.enabled) }));
+  const entries = instanceEntries(client);
   const projection = client.threadId ? obj(client.projection) : {};
   const thread = obj(projection.thread), threadSelection = obj(thread.modelSelection);
   // deriveThreadRuntime is null until the thread has a run or a provider thread.

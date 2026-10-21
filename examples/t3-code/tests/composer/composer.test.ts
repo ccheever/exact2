@@ -18,14 +18,14 @@ describe('composer placeholder and phase', () => {
     const base = { connected: true, approval: false, question: false, choiceOnly: false, projectRequired: false, providerUnavailable: false, phase: 'ready' };
     expect(composerPlaceholder(base)).toBe('Ask anything, @tag files/folders, $use skills, or / for commands');
     expect(composerPlaceholder({ ...base, phase: 'disconnected' })).toBe('Ask for changes, send follow-ups, or attach images');
-    expect(composerPlaceholder({ ...base, approval: true })).toBe('Resolve this approval request to continue');
+    expect(composerPlaceholder({ ...base, approval: true })).toBe('Send a message to decline and redirect the agent');
     expect(composerPlaceholder({ ...base, question: true, choiceOnly: true })).toBe('Choose an option above');
     expect(composerPlaceholder({ ...base, question: true })).toBe('Type your own answer, or leave this blank to use the selected option');
     expect(composerPlaceholder({ ...base, projectRequired: true })).toBe('Choose a project above to start a thread');
     expect(composerPlaceholder({ ...base, providerUnavailable: true })).toBe('Enable a provider in Settings to send a message');
     expect(composerPlaceholder({ ...base, connected: false })).toBe('Connect to your T3 server to send a message');
     // A pending request keeps its own prompt while the server is unreachable.
-    expect(composerPlaceholder({ ...base, connected: false, approval: true })).toBe('Resolve this approval request to continue');
+    expect(composerPlaceholder({ ...base, connected: false, approval: true })).toBe('Send a message to decline and redirect the agent');
     expect(composerPlaceholder({ ...base, connected: false, question: true, choiceOnly: true })).toBe('Choose an option above');
     expect(composerPlaceholder({ ...base, planReady: true })).toBe('Add feedback to refine the plan, or leave this blank to implement it');
   });

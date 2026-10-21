@@ -9,7 +9,9 @@
 // own transport for its generation, under the keys `keep:<thread id>`. Opening a kept thread, in the
 // focused environment or by focusing a background one, starts from the kept detail at once
 // (`keptThread`, `handoffKeptThread`) and resumes its stream after it, so nothing replays. The
-// primary's lifecycle stream (local-lifecycle.ts) rides the same fleet pass.
+// primary's lifecycle stream (local-lifecycle.ts) rides the same fleet pass. A view may also pin a
+// thread that is not running (`pinKeptThreads`): Lineage's provider-native coordinator, which the
+// reference's useThreadProjection subscribes while the details show one of its members.
 import { arr, obj, str, num, applyThread, threadSnapshot, type Obj, type Shell, type ThreadState } from './domain';
 import { threadPullRequestKeysEqual } from '../pull-requests/pages-pr-links-logic';
 import type { Native } from './protocol';
@@ -64,11 +66,11 @@ export function runningThreadKeepAlive(input: {
 }
 
 // ── One environment's streams ─────────────────────────────────────────────
-type Owner = { generation: number; kept: KeptThreads; subscriptions: Map<string, string>; details: Map<string, KeptDetail> };
+type Owner = { generation: number; kept: KeptThreads; subscriptions: Map<string, string>; details: Map<string, KeptDetail>; pinned: string[] };
 const owners = new WeakMap<object, Owner>();
 function ownerOf(owner: object, generation: number): Owner {
   let value = owners.get(owner);
-  if (!value || value.generation !== generation) owners.set(owner, value = { generation, kept: new Map(), subscriptions: new Map(), details: new Map() });
+  if (!value || value.generation !== generation) owners.set(owner, value = { generation, kept: new Map(), subscriptions: new Map(), details: new Map(), pinned: [] });
   return value;
 }
 
@@ -106,7 +108,7 @@ async function pass(owner: Owner, environmentId: string, shell: Shell, open: str
   const next = runningThreadKeepAlive({ environmentIds: [environmentId], threads: () => threads, detail: (_environment, threadId) => owner.details.get(threadId), previous: owner.kept });
   const changed = next !== owner.kept;
   owner.kept = next;
-  const wanted = [...(next.get(environmentId) ?? [])].filter(id => id !== open).slice(0, KEEP_LIMIT);
+  const wanted = [...new Set([...owner.pinned, ...(next.get(environmentId) ?? [])])].filter(id => id !== open).slice(0, KEEP_LIMIT);
   for (const threadId of [...owner.subscriptions.keys()]) {
     if (wanted.includes(threadId)) continue;
     owner.subscriptions.delete(threadId); owner.details.delete(threadId);
@@ -144,6 +146,17 @@ export async function keepAlivePrepare(client: Focused, native: Native | null | 
   const call = (request: Obj) => client.restAccess(native).call(request);
   await watchLifecycle(client, call); await watchAccess(client, call);
   await pass(ownerOf(client, client.generation), client.environmentId, client.shell, client.threadId, call);
+}
+
+/**
+ * The threads a view wants live although they need not be running (the focused environment's; [] releases them).
+ * True when the set changed: the caller runs `keepAlivePrepare` to subscribe or release at once.
+ */
+export function pinKeptThreads(client: { generation: number }, threadIds: string[]): boolean {
+  const owner = ownerOf(client, client.generation);
+  if (owner.pinned.length === threadIds.length && owner.pinned.every((id, index) => id === threadIds[index])) return false;
+  owner.pinned = [...threadIds];
+  return true;
 }
 
 /** The kept detail of a thread in the focused environment, to open it without a refetch (null: none live). */

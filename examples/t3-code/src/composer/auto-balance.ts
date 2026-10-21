@@ -21,6 +21,7 @@
 //   lands on the old key meanwhile follows it, and the composer keeps its owner
 //   (auto-balance-owner.ts), so the field keeps its text, caret and focus. A send waits
 //   for a move in flight.
+import { attachedThreads, readsEveryThread } from './composer-thread-machines';
 import type { T3Client } from '../client/client';
 import { arr, obj, str, type Obj } from '../client/domain';
 import { bridgeReply, providerAvailable, type Native } from '../client/protocol';
@@ -122,6 +123,8 @@ export type AutoBalanceState = {
   label: string;
   /** The load the root task sends ('' when nothing needs asking). */
   fetch: string;
+  /** No machine of the logical project holds every attached thread. */
+  threadsUnreadable: boolean;
 };
 
 /**
@@ -136,7 +139,7 @@ export function autoBalanceState(client: T3Client, now = composerNow(client), so
   return held ? { ...state, fetch: held } : state;
 }
 function currentState(client: T3Client, now: number, source: EnvironmentFleet): AutoBalanceState {
-  const none: AutoBalanceState = { offered: false, automatic: false, needs: false, pending: false, failed: false, chosen: '', choice: null, candidates: [], logical: [], label: '', fetch: '' };
+  const none: AutoBalanceState = { offered: false, automatic: false, needs: false, pending: false, failed: false, chosen: '', choice: null, candidates: [], logical: [], label: '', fetch: '', threadsUnreadable: false };
   if (client.threadId || !client.projectId || !client.ready) return none;
   const logical = machines(client, source);
   const project = client.shell.projects.find(entry => entry.id === client.projectId);
@@ -152,7 +155,9 @@ function currentState(client: T3Client, now: number, source: EnvironmentFleet): 
   const provider = arr(client.config.providers).find(entry => entry.instanceId === client.providerId);
   // selectedProvider: the chosen instance's driver, else the requested kind (resolveComposerProviderSelection falls back to Codex).
   const driver = str(provider?.driver) || 'codex';
-  const candidates = !needs ? [] : logical.filter(machine => machine.connected && weight(machine.id) > 0
+  // Only a machine that holds every attached thread can read them.
+  const threads = attachedThreads(client, client.draft, source);
+  const candidates = !needs ? [] : logical.filter(machine => machine.connected && weight(machine.id) > 0 && readsEveryThread(threads, machine.id)
     && arr(machine.config.providers).some(entry => (!client.providerId || entry.instanceId === client.providerId) && str(entry.driver) === driver && providerAvailable(entry)))
     .map(machine => machine.id);
   const samples = candidates.map(id => {
@@ -166,7 +171,8 @@ function currentState(client: T3Client, now: number, source: EnvironmentFleet): 
   const label = !automatic ? '' : draft.choice ? 'Auto balance' : pending ? 'Checking machines…' : failed ? 'Auto balance unavailable' : 'Auto balance';
   // Only mounted for unresolved automatic drafts, so idle clients do not poll hosts.
   const fetch = needs && candidates.length ? `${client.draftKey}|${candidates.join(',')}|${serial}` : '';
-  return { offered, automatic, needs, pending, failed, chosen: draft.choice, choice, candidates, logical, label, fetch };
+  const threadsUnreadable = threads.length > 0 && !logical.some(machine => readsEveryThread(threads, machine.id));
+  return { offered, automatic, needs, pending, failed, chosen: draft.choice, choice, candidates, logical, label, fetch, threadsUnreadable };
 }
 
 // ── The load (useLoadBalancedEnvironment's queries) ───────────────────────
@@ -302,7 +308,8 @@ export async function autoBalanceSend(client: T3Client, native: Native, send: ()
   if (state.needs) {
     pushToast(client, { kind: 'warning', title: state.pending ? 'Checking machine resources' : 'Choose a machine to continue',
       description: state.pending ? 'Resource checks are still running. You can choose a machine in the composer.'
-        : 'No eligible machine has available resources. Choose a machine in the composer to override.' });
+        : state.threadsUnreadable ? 'No machine can read every attached thread. Choose a machine in the composer or remove the threads.'
+          : 'No eligible machine has available resources. Choose a machine in the composer to override.' });
     return;
   }
   void native;

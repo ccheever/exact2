@@ -106,6 +106,10 @@ shape FilesView
   error: string
   query: string
   truncated: bool
+  // A search matched nothing (the tree hides) and, settled, says so; the loading line is a screen reader's while rows show.
+  noMatches: bool
+  emptySearch: bool
+  loadingQuiet: bool
   rows: FilesTreeRow[]
   hasDirectories: bool
   allExpanded: bool

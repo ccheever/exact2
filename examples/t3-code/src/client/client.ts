@@ -11,7 +11,7 @@ import { trackRpc } from '../shell/shell-slow';
 import { configEventSideEffects } from './protocol-config';
 import { traceRpc, statusTicket, settleTraces } from './protocol-reader';
 import { compatibilityProblem } from './protocol-outdated';
-import { type ComposerControlsPrefs, emptyComposerControls, decodeComposerControls, applySticky, applyStaged } from '../composer/composer-controls';
+import { type ComposerControlsPrefs, emptyComposerControls, decodeComposerControls, applySticky, applyStaged, reconcileStagedModels } from '../composer/composer-controls';
 import { adoptStash } from '../composer/composer-editor-stash';
 import { adoptComposerFiles } from '../composer/composer-editor-files';
 import { sidebarOpened, sidebarRefreshed } from '../sidebar/sidebar-commands';
@@ -128,7 +128,12 @@ export class T3Client {
   diffText = '';
   diffTitle = 'Changes';
   diffState = new DiffState();
-  answers: Record<string, RequestDraft> = {};
+  /**
+   * Question answer drafts by environment and thread (usePendingThreadRequests' module stores): an answer typed on a
+   * thread survives opening another thread or a new draft, until its request is no longer pending (requests.ts).
+   */
+  answerDrafts: Record<string, Record<string, RequestDraft>> = {};
+  get answers(): Record<string, RequestDraft> { return this.answerDrafts[`${this.environmentId}\u0000${this.threadId}`] ??= {}; }
   local = preferences();
   busy = false;
   private loaded = false;
@@ -308,7 +313,8 @@ export class T3Client {
     delete this.local.selections[environmentId];
     this.origin = DEFAULT_ORIGIN; this.environmentId = ''; this.projectId = ''; this.threadId = '';
     this.shell = initialShell(); this.shellLoaded = false; this.thread = null;
-    this.config = {}; this.providerId = ''; this.modelId = ''; this.answers = {};
+    this.config = {}; this.providerId = ''; this.modelId = '';
+    for (const key of Object.keys(this.answerDrafts)) if (key.startsWith(`${environmentId}\u0000`)) delete this.answerDrafts[key];
     this.diffOpen = false; this.diffText = ''; this.threadEpoch++;
   }
 
@@ -338,7 +344,7 @@ export class T3Client {
       this.threadId = selection?.threadId || '';
       this.homeMove = null; // the window went elsewhere before the landing's move (settleHome clears it before its own)
       this.shell = initialShell(); this.shellLoaded = false; this.thread = null;
-      this.config = {}; this.providerId = ''; this.modelId = ''; this.answers = {};
+      this.config = {}; this.providerId = ''; this.modelId = '';
       this.diffOpen = false; this.diffText = ''; this.threadEpoch++; adoptHandoff(this); // keep-alive.ts: a kept thread opened from a background environment shows at once
     }
     if (replaced) {
@@ -503,6 +509,7 @@ export class T3Client {
     this.runtimeMode = str(thread.runtimeMode, 'approval-required');
     this.interactionMode = str(thread.interactionMode, 'default');
     this.projectId = str(thread.projectId, this.projectId);
+    reconcileStagedModels(this);
     applyStaged(this);
   }
 
@@ -592,6 +599,8 @@ export class T3Client {
               delete this.subscriptions.thread; this.threadLive = true; this.chooseDefaults();
             }
             this.ensureSelection();
+            // A staged model the thread now runs gives the composer back to the thread's selection.
+            if (reconcileStagedModels(this) && this.threadId && this.thread) this.updateSelectionFromThread();
           } else if (key === 'thread' && this.thread && this.threadSubscription === this.threadId) {
             // A cancelled subscription can have retained inbox entries. Identity checks
             // reject them before their sequence or completion marker can touch this thread.
@@ -783,7 +792,7 @@ export class T3Client {
   async openFreshDraft(native: Native): Promise<void> {
     this.threadId = ''; this.thread = null; this.threadSubscription = ''; this.threadEpoch++;
     delete this.subscriptions.thread;
-    this.threadLive = true; this.diffOpen = false; this.answers = {}; this.chooseDefaults();
+    this.threadLive = true; this.diffOpen = false; this.chooseDefaults();
     if (this.connection === 'connected') await this.call(native, { op: 'unsubscribe', key: 'thread' });
   }
   configuredProviders() {
@@ -840,7 +849,7 @@ export class T3Client {
       if (await this.openUnlisted(native, id) !== 'missing') return;
       await this.openDraft(native, this.projectId); this.threadId = this.absentThreadId = id; return; // a missing thread shows NoActiveThreadState
     }
-    this.threadId = id; this.thread = keptThread(this, id); this.diffOpen = false; this.answers = {}; // keep-alive.ts: a running thread's kept detail
+    this.threadId = id; this.thread = keptThread(this, id); this.diffOpen = false; // keep-alive.ts: a running thread's kept detail
     const diffHeld = holdThreadDiff(this); // panel-surfaces.ts: the thread's Diff shows again
     this.ensureSelection(); await this.openThread(native, id, this.thread !== null);
     await reopenThreadDiff(this, native, diffHeld);
@@ -860,7 +869,7 @@ export class T3Client {
     const thread = obj(detail?.projection.thread);
     if (!detail || str(thread.id) !== id || thread.deletedAt || thread.archivedAt) return 'missing';
     this.projectId = str(thread.projectId, this.projectId);
-    this.threadId = id; this.absentThreadId = ''; this.thread = detail; this.diffOpen = false; this.answers = {};
+    this.threadId = id; this.absentThreadId = ''; this.thread = detail; this.diffOpen = false;
     await this.openThread(native, id, true);
     this.ensureSelection();
     sidebarOpened(this, native);
@@ -871,7 +880,7 @@ export class T3Client {
     if (projectId && this.shell.projects.some(project => project.id === projectId)) this.projectId = projectId;
     this.threadId = ''; this.thread = null; this.threadSubscription = ''; this.threadEpoch++;
     delete this.subscriptions.thread;
-    this.threadLive = true; this.diffOpen = false; this.answers = {}; this.chooseDefaults();
+    this.threadLive = true; this.diffOpen = false; this.chooseDefaults();
     if (this.connection === 'connected') await this.call(native, { op: 'unsubscribe', key: 'thread' });
   }
   // Generation-guarded server access for settings-rest-commands.ts / settings-rest-data.ts.

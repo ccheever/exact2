@@ -191,7 +191,10 @@ The app has no desktop self-update feed, so its own download/restart step is abs
   measured reservation at its end (`composer-overlay.ts`); with Chat width Wide or Full
   the context strip's workspace control is the desktop Select. PNG, JPEG and HEIC images over
   2000 pixels on their long edge are scaled to that edge before upload; PNGs already within it keep their bytes.
-- Requests: approvals, single/multiple-choice and free-text questions.
+- Requests: approvals, single/multiple-choice and free-text questions. While an approval is pending the
+  composer stays usable: Send declines the approvals it shows, then steers the turn with the message
+  (`declineForRedirect` in `client-ops-composer.ts`); a draft edited meanwhile stays unsent. A typed answer
+  stays with its thread until the question resolves.
 - Version control in the workspace card (`src/details/git*`): the branch picker (search, create
   a ref with Enter, check out, "Start from origin"), the git actions quick action and
   menu, the commit dialog (file selection, message, "Commit on new branch"), the
@@ -209,9 +212,12 @@ The app has no desktop self-update feed, so its own download/restart step is abs
 - Right side: the workspace card (docked beside the chat from 984 pt, a header popover
   below), Changes (branch) and Uncommitted diffs plus per-turn diffs, lineage with
   merge-back, the surface chooser and a tab bar per thread (`src/panel/`): Files
-  (the workspace tree with search and expand-all, file previews with breadcrumbs,
+  (the workspace tree with search and expand-all, which leaves ignored folders such as `node_modules`
+  to open by hand, file previews with breadcrumbs,
   rendered Markdown/CSV and an editor that writes back with `projects.writeFile`; opened
-  from Go to file, content search and file chips; its explorer and rendered/source
+  from Go to file, content search and file chips: a chip written from the workspace root as a bare name, or
+  with a subfolder project's own folders repeated, opens the file the workspace search finds, and a `~/` link
+  opens as a host file the server expands, `workspace-file-lookup.ts`; its explorer and rendered/source
   choices persist; an `.html` file opens rendered in the sandboxed WebKit body (its sibling stylesheets, scripts and
   images load through the signed asset URL's token directory, and the page may load stylesheets, scripts,
   images, fonts and fetches from other hosts as the reference's sandboxed frame does (https, and `http` to an IP
