@@ -38,7 +38,8 @@ const read = (cmd, args, opts = {}) => { useXcode(); return spawnSync(cmd, args,
  *  Nothing of the display is read unless the app said it was in front (`r.front`: active, its scene in front, its
  *  window key), and nothing is taken unless `probe`, the app asked again after the reads, answers that it still is, at
  *  the same epoch, incarnation and clock. The display is read three times, the last `gap` ms after the second, so a
- *  caret's blink cannot fall in all three. The whole display is taken when the three agree below the status bar,
+ *  caret's blink cannot fall in all three (`displayReads`). The whole display is taken when the three agree between
+ *  the status bar and the home indicator (SpringBoard's, in the bottom safe area, which changes its shade on its own),
  *  UIKit's motion had settled (no `r.moving`), and at the points the app named (`r.opaque`: drawn by the app itself,
  *  no glass, keyboard or status bar there) the display shows what the app drew, so no notification banner or other
  *  overlay lies over it. Otherwise, as for a capture the agent marked (`r.unshown`, struck-through header nodes) or
@@ -68,24 +69,24 @@ export async function withDisplay(r, path, udid, appTop = 0, { own = false, prob
   let why = own ? 'asked for the app\'s own drawing' : r.unshown?.length > 0 ? 'header nodes are struck through in it'
     : r.moving ? 'UIKit\'s motion had not settled' : null;
   if (why && !(bar > 0) && !keyboard) return keep(why);
-  const dir = mkdtempSync(resolve(tmpdir(), 'exact-kb-'));
+  const reads = displayReads(udid, gap);
   try {
-    const capture = (name) => {
-      const shot = resolve(dir, name);
-      const taken = read('xcrun', ['simctl', 'io', udid, 'screenshot', '--type=png', shot], { timeout: 20000 });
-      if (taken.status !== 0 || !existsSync(shot)) throw new Error(`simctl io screenshot: ${(taken.stderr || '').trim().split('\n').pop() || 'failed'}`);
-      return decodePng(readFileSync(shot));
-    };
-    const display = capture('display.png'), app = decodePng(readFileSync(path));
+    const [display, again, last] = await Promise.all(reads.reads), app = decodePng(readFileSync(path));
     if (app.width !== display.width || app.height !== display.height) return keep(`the display is ${display.width}x${display.height}, the capture ${app.width}x${app.height}`);
-    const again = capture('again.png');
-    await new Promise((done) => setTimeout(done, gap));
-    const last = capture('last.png');
     const after = probe ? await probe() : { front: 'the app was not asked again' };
     const gone = front(after.front) ?? (['epoch', 'incarnation', 'clock'].some((k) => after[k] !== r[k]) ? 'the app changed while the display was read' : null);
     if (gone) return keep(gone);
     const row = (points) => Math.max(0, Math.min(app.height, Math.round(points * scale))) * app.width * 4;
-    const agree = (from, to) => [again, last].every((d) => Buffer.compare(display.data.subarray(from, to), d.data.subarray(from, to)) === 0);
+    // In the bottom safe area, the home indicator's columns (`INDICATOR` points either side of the middle) are left out,
+    // unless the keyboard is up there: then they are the keyboard's band, all of which has to agree.
+    const stride = app.width * 4, safe = keyboard || r.keyboard?.visible ? display.data.length : row(app.height / scale - (r.safeArea?.bottom ?? 0));
+    const [left, right] = [-1, 1].map((side) => Math.max(0, Math.min(app.width, Math.round((app.width / scale / 2 + side * INDICATOR) * scale))) * 4);
+    const same = (d, from, to) => from >= to || Buffer.compare(display.data.subarray(from, to), d.data.subarray(from, to)) === 0;
+    const agree = (from, to = display.data.length) => [again, last].every((d) => {
+      if (!same(d, from, Math.min(to, safe))) return false;
+      for (let at = Math.max(from, safe); at < to; at += stride) if (!same(d, at, at + left) || !same(d, at + right, at + stride)) return false;
+      return true;
+    });
     const from = row(bar > 0 ? 0 : appTop);
     if (!why && !agree(row(bar > 0 ? bar : appTop))) why = 'the display changed while it was read';
     if (!why) why = covered(opaque, app, display, scale);
@@ -105,7 +106,52 @@ export async function withDisplay(r, path, udid, appTop = 0, { own = false, prob
     if (why && !own) say(approximate(why));
     return r;
   } catch (e) { return keep(String(e.message ?? e).split('\n')[0]); }
-  finally { rmSync(dir, { recursive: true, force: true }); }
+  finally { reads.cancel(); }
+}
+
+/** Half the width, in points, of the bottom safe area's middle that the home indicator (134 points wide on an iPhone)
+ *  is drawn in, with room for its edge. */
+const INDICATOR = 80;
+
+/** The simulator's display read three times for `withDisplay`, started now: the second 150 ms after the first, not
+ *  after it ends (each `simctl io` read is ~0.4 s, most of it the tool's own start), and the third `gap` ms after both
+ *  have ended, so it is that far from either whenever their pictures were taken. `reads` are their pictures, decoded;
+ *  `cancel()` stops what is still reading and removes the files. */
+function displayReads(udid, gap = 400) {
+  useXcode();
+  const dir = mkdtempSync(resolve(tmpdir(), 'exact-display-')), children = new Set(), timers = new Set();
+  let cancelled = false;
+  const later = (ms, fn) => { const timer = setTimeout(() => { timers.delete(timer); fn(); }, ms); timers.add(timer); };
+  const read = (name) => new Promise((done, fail) => {
+    if (cancelled) return fail(new Error('the display reads were cancelled'));
+    const shot = resolve(dir, name);
+    let said = '';
+    const child = spawn('xcrun', ['simctl', 'io', udid, 'screenshot', '--type=png', shot], { stdio: ['ignore', 'ignore', 'pipe'] });
+    children.add(child);
+    const bound = setTimeout(() => child.kill('SIGKILL'), 20000);
+    child.stderr.on('data', (d) => { said += d; });
+    child.on('error', (e) => { clearTimeout(bound); children.delete(child); fail(e); });
+    child.on('close', (status) => {
+      clearTimeout(bound); children.delete(child);
+      try {
+        if (status !== 0 || !existsSync(shot)) throw new Error(`simctl io screenshot: ${said.trim().split('\n').pop() || 'failed'}`);
+        done(decodePng(readFileSync(shot)));
+      } catch (e) { fail(e); }
+    });
+  });
+  const first = read('display.png'), second = new Promise((done) => later(150, done)).then(() => read('again.png'));
+  const third = Promise.allSettled([first, second]).then(() => new Promise((done) => later(gap, done))).then(() => read('last.png'));
+  const reads = [first, second, third];
+  for (const r of reads) r.catch(() => {}); // what a cancelled or failed drive leaves unread fails quietly
+  return {
+    reads,
+    cancel() {
+      cancelled = true;
+      for (const t of timers) clearTimeout(t);
+      for (const child of children) child.kill('SIGKILL');
+      rmSync(dir, { recursive: true, force: true });
+    },
+  };
 }
 
 /** What a drive passes from its own environment to an app that `simctl launch` (which forwards only `SIMCTL_CHILD_`

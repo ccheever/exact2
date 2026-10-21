@@ -39,13 +39,16 @@ test('a refused phone token cannot admit a command carrier; the right token stil
 
 const solid = (width, height, rgba) => encodePng({ width, height, data: Uint8Array.from({ length: width * height * 4 }, (_, i) => rgba[i % 4]) });
 
-// `displays`: one picture every read gets, or one per read in turn; `reads(dir)` counts the reads.
+// `displays`: one picture every read gets, or one per read in turn (the reads overlap: each is known by the file it
+// writes, `withDisplay`'s first, second and third); `reads(dir)` counts the reads, and `times(dir)` says when each
+// started and ended. SLOW names a read that takes 0.3 s.
 async function withFakeSimctl(displays, body) {
   const dir = mkdtempSync(resolve(tmpdir(), 'devices-test-'));
   const env = { PATH: process.env.PATH, DEVELOPER_DIR: process.env.DEVELOPER_DIR };
   try {
     [displays].flat().forEach((display, i) => writeFileSync(resolve(dir, `display-${i}.png`), display));
-    writeFileSync(resolve(dir, 'xcrun'), `#!/bin/sh\nfor last; do :; done\nn=$(cat '${dir}/n' 2>/dev/null || echo 0)\nf='${dir}/display-'$n'.png'\n[ -f "$f" ] || f='${dir}/display-0.png'\ncp "$f" "$last"\necho $((n + 1)) > '${dir}/n'\n`);
+    const now = `$(perl -MTime::HiRes=time -e 'printf "%d", time*1000')`;
+    writeFileSync(resolve(dir, 'xcrun'), `#!/bin/sh\nfor last; do :; done\nname=$(basename "$last")\necho "start $name ${now}" >> '${dir}/n'\ncase "$name" in again.png) n=1 ;; last.png) n=2 ;; *) n=0 ;; esac\n[ "$name" = "$SLOW" ] && sleep 0.3\nf='${dir}/display-'$n'.png'\n[ -f "$f" ] || f='${dir}/display-0.png'\ncp "$f" "$last"\necho "end $name ${now}" >> '${dir}/n'\n`);
     chmodSync(resolve(dir, 'xcrun'), 0o755);
     process.env.PATH = `${dir}:${env.PATH}`;
     process.env.DEVELOPER_DIR ??= '/Applications/Xcode.app/Contents/Developer';
@@ -56,7 +59,9 @@ async function withFakeSimctl(displays, body) {
     rmSync(dir, { recursive: true, force: true });
   }
 }
-const reads = (dir) => { try { return Number(readFileSync(resolve(dir, 'n'), 'utf8')); } catch { return 0; } };
+const log = (dir) => { try { return readFileSync(resolve(dir, 'n'), 'utf8').split('\n').filter(Boolean).map((l) => l.split(' ')); } catch { return []; } };
+const reads = (dir) => log(dir).filter(([at]) => at === 'end').length;
+const times = (dir) => Object.fromEntries(log(dir).map(([at, name, ms]) => [`${at} ${name}`, Number(ms)]));
 
 test('a simulator is chosen without booting it, and is the drive\'s own only when this call booted it', () => {
   // A fake `xcrun simctl`: one shut-down iPhone; `boot` succeeds, or fails as when another process booted it first.
@@ -249,7 +254,7 @@ const paint = (bands) => encodePng({ width: 8, height: 16, data: Uint8Array.from
 const APP = paint([]), DISPLAY = paint([[0, 2, GREEN], [12, 16, BLUE]]);
 const rows = (path) => { const png = decodePng(readFileSync(path)); return (y) => [...png.data.subarray(y * png.width * 4, y * png.width * 4 + 4)]; };
 // The app's answer: in front at epoch 3, a plain point at (2, 2) points (pixel 4, 4); the probe after the reads says
-// the same unless told otherwise. `fast` skips the gap before the third read.
+// the same unless told otherwise; `gap: 0` starts the third read as soon as the first two have ended.
 const front = { front: true, epoch: 3, incarnation: 1, clock: 1500, scale: 2, opaque: [[2, 2]] };
 const still = (more = {}) => ({ gap: 0, probe: async () => ({ ...front, ...more }) });
 const keyboard = { visible: true, top: 4, windowTop: 4 };
@@ -322,6 +327,39 @@ test('a display that moves by the third read leaves the app\'s picture, and a ke
     expect([r.pixels, r.pixelsWhy, r.keyboard.captured]).toEqual(['app', 'the display changed while it was read', true]);
     expect(reads(dir)).toBe(3);
   });
+});
+
+// The third read is never taken while the first two may still be taking theirs, however long they take.
+test('the third read starts once the first two have ended', async () => {
+  const saved = process.env.SLOW;
+  try {
+    for (const slow of ['display.png', 'again.png']) {
+      process.env.SLOW = slow;
+      await withFakeSimctl(DISPLAY, async (dir) => {
+        await shoot(dir, { ...front }, 1, still());
+        const t = times(dir);
+        expect(t['start last.png']).toBeGreaterThanOrEqual(Math.max(t['end display.png'], t['end again.png']));
+      });
+    }
+  } finally { if (saved === undefined) delete process.env.SLOW; else process.env.SLOW = saved; }
+});
+
+// The home indicator changes its shade on its own; anything else in the bottom safe area is the app's, and is held to
+// the reads' agreement. 200x16 pixels at scale 1: the indicator's columns are 20 to 180.
+test('a display that moves only where the home indicator is drawn is taken, and anywhere else in its rows is not', async () => {
+  const wide = (bands) => encodePng({ width: 200, height: 16, data: Uint8Array.from({ length: 200 * 16 * 4 }, (_, i) => {
+    const x = (i / 4) % 200, y = Math.floor(i / 800), band = bands.find(([from, to, x0, x1]) => y >= from && y < to && x >= x0 && x < x1);
+    return (band ? band[4] : RED)[i % 4];
+  }) });
+  const shown = wide([[0, 2, 0, 200, GREEN]]), at = { ...front, scale: 1, safeArea: { top: 2, bottom: 2 } };
+  for (const [x, taken] of [[100, true], [5, false], [190, false]]) {
+    await withFakeSimctl([shown, shown, wide([[0, 2, 0, 200, GREEN], [15, 16, x, x + 1, GREY]])], async (dir) => {
+      const shot = resolve(dir, 'app.png');
+      writeFileSync(shot, wide([]));
+      const r = await withDisplay({ ...at }, shot, 'UDID', 2, still());
+      expect([x, r.pixels]).toEqual([x, taken ? 'display' : 'app']);
+    });
+  }
 });
 
 test('a keyboard band that moves between the reads is not taken', async () => {
