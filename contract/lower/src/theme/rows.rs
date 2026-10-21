@@ -344,9 +344,9 @@ fn style_row(a: &Attr) -> bool {
 /// Each literal `v` writes as written, into `out`: a string or number, or
 /// each arm of a `?:` or `match`, when every arm is one; never a `let`
 /// (the build judges its bound literal through the binding, as the row:
-/// QUEUE's) nor a name a derive binds (checked where it is bound). Whether `v` is so written: a choice
-/// with a computed arm is the build's (a number row's computed arm reads
-/// every number token).
+/// QUEUE's) nor a name a derive binds (checked where it is bound). Whether
+/// `v` is so written: a choice with a computed arm is not, and is judged
+/// whole as a computed row ([`kept`]).
 fn written<'e>(v: &'e Expr, out: &mut Vec<&'e Expr>) -> bool {
     match v {
         Expr::Str(..) | Expr::Number(..) => {
