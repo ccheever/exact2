@@ -64,8 +64,10 @@ extension GroupedListView {
     /// The row's first shown child when it is the sheet's leading symbol: a
     /// `symbol:` image no accessory names, in the sheet's slot, so an image
     /// its author sized or fitted otherwise, or one a column row holds, is
-    /// left as laid out, as is one whose fit or size its author wrote at
-    /// all (`wrote`: the sheet's rows are the compiler's).
+    /// left as laid out, as is one whose fit its author wrote at all
+    /// (`wrote`: the sheet's rows are the compiler's). The host is sent no
+    /// authorship for a width or height, so an author's box exactly the
+    /// sheet's slot is drawn as the sheet's.
     private func leadingSymbol(of row: NodeView) -> NodeView? {
         // At an accessibility size the fixed slot (24 by 20, the sheet's at
         // every size) is too small for the list's scale: today's drawing
