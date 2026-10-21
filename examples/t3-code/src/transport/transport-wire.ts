@@ -162,6 +162,12 @@ const SECRET_REQUEST_FAILURE_MESSAGES: Record<string, string> = {
 const GIT_FAILURE_REASONS = ['authentication_failed', 'branch_already_exists', 'branch_checked_out_in_worktree', 'host_key_unverified', 'not_a_repository',
   'path_already_exists', 'ref_not_found', 'remote_unreachable', 'tag_would_be_clobbered'];
 
+/** AssetWorkspaceAssetNotFoundError's resource and, from a server that sends it, the host path it checked. */
+function assetNotFoundContext(value: Record<string, unknown>): Record<string, string> {
+  const resource = isObject(value.resource) ? value.resource : {};
+  return Object.fromEntries(Object.entries({ resourceTag: text(resource._tag), resourcePath: text(resource.path), checkedPath: text(value.checkedPath) }).filter(([, field]) => field));
+}
+
 function typed(value: unknown): TransportFailure {
   if (!isObject(value)) return failure(value);
   const tag = text(value._tag) || text(value.name) || 'RPC';
@@ -177,10 +183,16 @@ function typed(value: unknown): TransportFailure {
   // PullRequestOperationError's and PullRequestUnavailableError's messages are getters, not wire fields.
   if (!message && tag === 'PullRequestOperationError' && field('detail')) message = `Pull request operation ${field('operation')} failed: ${field('detail')}`;
   if (!message && tag === 'PullRequestUnavailableError') message = pullRequestUnavailable(field('reason'), field('provider'));
+  // AssetWorkspaceAssetNotFoundError's message is a getter too (contracts assets.ts).
+  if (!message && tag === 'AssetWorkspaceAssetNotFoundError') {
+    const kind = isObject(value.resource) ? text(value.resource._tag) : '';
+    message = kind === 'media-file' ? 'Media file was not found.' : kind === 'tool-output-image' ? 'Tool output image was not found.' : 'Workspace asset was not found.';
+  }
   if (!message && field('detail')) message = field('detail');
   if (!message && 'cause' in value) message = failure(value.cause).message;
   if (!message || message === 'The server request failed.') message = `The server refused the request (${tag}).`;
-  const context = tag === 'ProjectReadFileError' ? Object.fromEntries(CONTEXT_FIELDS.filter(key => text(value[key])).map(key => [key, text(value[key])])) : {};
+  const context = tag === 'ProjectReadFileError' ? Object.fromEntries(CONTEXT_FIELDS.filter(key => text(value[key])).map(key => [key, text(value[key])]))
+    : tag === 'AssetWorkspaceAssetNotFoundError' ? assetNotFoundContext(value) : {};
   return new TransportFailure(tag, message, false, field('reason'), field('detail'), context);
 }
 

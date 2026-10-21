@@ -824,7 +824,7 @@ component InlineFileChip
   view
     row height="1.421875rem" flex-shrink=0 align-items="center" padding-left=1 padding-right=1
       CodeTip(label=chip.tip, side="top", offset=21)
-        button press=local("surface-file", chip.tip, "") contextmenu=local("surface-files-link-menu", chip.tip, "") aria-label=chip.tip padding=0 border-width=0 background-color="#00000000" testId=`inline-file-${run.id}` title=""
+        button press=local("surface-file-link", chip.tip, chip.target) contextmenu=local("surface-files-link-menu", chip.tip, chip.target) aria-label=chip.tip padding=0 border-width=0 background-color="#00000000" testId=`inline-file-${run.id}` title=""
           FileChipFace(run=run, label=chip.label, icon=chip.icon)
 
 component ResolvedChip
@@ -840,8 +840,9 @@ component ResolvedChip
     row height="1.421875rem" flex-shrink=0 align-items="center" padding-left=1 padding-right=1 position="relative"
       if chip.kind == "link"
         CodeTip(label=chip.tip, side="top", offset=21)
-          // A file link opens in the Files surface (rightPanelStore.openFile).
-          button press=local("surface-file", chip.tip, "") contextmenu=local("surface-files-link-menu", chip.tip, "") aria-label=chip.tip padding=0 border-width=0 background-color="#00000000" testId=`chip-open-${run.id}` title=""
+          // A file link opens in the Files surface (rightPanelStore.openFile), at the file a bare name or a repeated
+          // project prefix means (`chip.target`, ChatMarkdown openFileInPanel).
+          button press=local("surface-file-link", chip.tip, chip.target) contextmenu=local("surface-files-link-menu", chip.tip, chip.target) aria-label=chip.tip padding=0 border-width=0 background-color="#00000000" testId=`chip-open-${run.id}` title=""
             FileChipFace(run=run, label=run.text, icon=chip.icon)
       if chip.kind == "mention"
         Tip(label=chip.tip, side="top", align="center", offset=21)
