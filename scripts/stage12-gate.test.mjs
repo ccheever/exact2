@@ -6,7 +6,7 @@ import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { allowOf, beforeDrift, durationMs, slotCheckTimes, conformFailures, conformRead, conformReport, conformSame, renderedIds, renderedLibrary, viewportTop, BASELINE_TAG, comparePixels, expected, lines, releaseIdentity, parse, pixelDiff, RESTYLE, SCREENS, screenOps, WEB_NOISE } from './stage12-gate.mjs';
+import { allowOf, beforeDrift, flakyOf, durationMs, slotCheckTimes, conformFailures, conformRead, conformReport, conformSame, renderedIds, renderedLibrary, viewportTop, BASELINE_TAG, comparePixels, expected, lines, releaseIdentity, parse, pixelDiff, RESTYLE, SCREENS, screenOps, WEB_NOISE } from './stage12-gate.mjs';
 
 test('the command line', () => {
   expect(parse(['baseline', '--copy', '/c'])).toBe('baseline needs --copy and --out');
@@ -199,4 +199,27 @@ test('the slot check\'s times, from rt1\'s tests\' lines, in milliseconds', () =
   const out = 'x\ncheck_slots on the clone\'s design (146 tokens): one touched name 250ns, every chain 30.1µs (median of 5, warm)\ncheck_slots, the clone\'s design (146 tokens) with @exact/cards and @exact/actions (1 chains, 0 names): one touched name 291ns, every chain 1.2ms (median of 5, warm)';
   const t = slotCheckTimes(out);
   expect(t.map(x => [x.real, +x.one.toPrecision(6), +x.all.toPrecision(6)])).toEqual([[false, 0.00025, 0.0301], [true, 0.000291, 1.2]]);
+});
+
+test('a boot flake in conform: rerun alone three times, at most two, never twice running, and QUEUE\'d (theme2 03:25)', () => {
+  const work = mkdtempSync(join(tmpdir(), 's12e-flaky-'));
+  const base = { failures: ['synthetic-tabs | contract-build | x'] };
+  const added = ['synthetic-startend | boot | state slots.atEnd: wasm true js false'];
+  const queue = '- the `startend` fixture fails now and then';
+  // Passes alone three times and is QUEUE'd: FLAKY, nothing failing.
+  let r = flakyOf(added, base, work, () => true, queue);
+  expect([r.flaky, r.failing]).toEqual([['synthetic-startend'], []]);
+  expect(r.said[0]).toContain('FLAKY synthetic-startend');
+  // The next run (its record says so), FLAKY again: a failure to chase.
+  writeFileSync(join(work, 'flaky-last.json'), JSON.stringify({ targets: r.flaky }));
+  r = flakyOf(added, base, work, () => true, queue);
+  expect([r.flaky, r.failing]).toEqual([[], added]);
+  // A rerun that fails is a failure; so is a target the base fails, or no QUEUE line.
+  const fresh = () => mkdtempSync(join(tmpdir(), 's12e-flaky-'));
+  expect(flakyOf(added, base, fresh(), (t, n) => n < 2, queue).failing).toEqual(added);
+  expect(flakyOf(['synthetic-tabs | boot | y'], base, fresh(), () => true, '`tabs`').failing).toEqual(['synthetic-tabs | boot | y']);
+  expect(flakyOf(added, base, fresh(), () => true, 'nothing').failing).toEqual(added);
+  // More than two: all fail.
+  const three = ['a', 'b', 'c'].map(t => `synthetic-${t} | boot | z`);
+  expect(flakyOf(three, base, fresh(), () => true, '`a` `b` `c`').failing.length).toBe(3);
 });
