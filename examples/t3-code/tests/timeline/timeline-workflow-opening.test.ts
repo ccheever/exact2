@@ -5,7 +5,7 @@ import type { T3Client } from '../../src/client/client';
 import type { Obj } from '../../src/client/domain';
 import type { Native } from '../../src/client/protocol';
 import { transcriptRows } from '../../src/timeline/timeline-presentation';
-import { isWorkflowScriptMessage, resolveWorkflowOpening, scriptMarkdown, syncWorkflowOpening, workflowOpeningHeadline, workflowOpeningParentThreadId,
+import { findLine, isWorkflowScriptMessage, resolveWorkflowOpening, workflowOpeningMessage, scriptMarkdown, syncWorkflowOpening, workflowOpeningHeadline, workflowOpeningParentThreadId,
   workflowOpeningRows } from '../../src/timeline/timeline-workflow-opening';
 
 const SCRIPT = '// probe\nexport const meta = { name: "probe-wf" };\nconst GROUPS = [];';
@@ -92,5 +92,19 @@ describe('the opening in the timeline', () => {
     // The parent's shell has not moved: no second fetch.
     await syncWorkflowOpening(client, { available: true } as unknown as Native, 10_000);
     expect(requests).toHaveLength(1);
+  });
+});
+
+describe('thread find in the opening', () => {
+  test("marks the query's matches in a line, case-insensitively, and leaves a line without one whole", () => {
+    expect(findLine('title', 'Probe the Probe', 'probe').parts).toEqual([{ id: '0', text: 'Probe', find: 1 }, { id: '1', text: ' the ', find: 0 }, { id: '2', text: 'Probe', find: 1 }]);
+    expect(findLine('detail', 'Nothing here', 'probe').parts).toEqual([{ id: '0', text: 'Nothing here', find: 0 }]);
+    expect(findLine('detail', '', '').parts).toEqual([{ id: '0', text: '', find: 0 }]);
+  });
+  test('the title, the description and each phase title are find lines', () => {
+    const opening = resolveWorkflowOpening(projection(brief(SCRIPT, true)), [coordinator({ name: 'probe-wf', phases: [{ index: 1, title: 'Alpha probe' }], agents: [member()] })])!;
+    const message = workflowOpeningMessage(opening, { agents: [], providers: [] }, 'probe');
+    expect(message.findLines.map(line => [line.id, line.parts.filter(part => part.find === 1).map(part => part.text)])).toEqual([
+      ['title', ['probe']], ['detail', []], ['phase:1', ['probe']]]);
   });
 });

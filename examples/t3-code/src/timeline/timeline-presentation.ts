@@ -4,7 +4,7 @@ import { terminalOutputPlainText } from './terminal-output';
 import { toolImages } from './tool-images';
 import { secretCard } from './secret-card';
 import { focusDiffFind } from '../diff/diff-find';
-import { threadFindAction, threadFindExpanded } from './thread-find-runtime';
+import { threadFindAction, threadFindExpanded, threadFindView } from './thread-find-runtime';
 // Message presentation adapted from T3 Code 9c161462c9 (MIT; see LICENSE-T3):
 // apps/web/src/components/chat/MessagesTimeline.tsx and packages/client-runtime/src/userMessage.ts.
 import { copyPromptLink, promptLinkFor } from '../prompt-links/copy-prompt-link';
@@ -484,7 +484,7 @@ function present(row: Row, context: PresentContext): Message {
           diagrams: messageDiagrams(text, item.streaming === true || row.inProgress) };
       }
       if (context.workflow && context.workflow.messageId === str(item.messageId)) {
-        const opening = workflowOpeningMessage(context.workflow, { agents: [], providers: context.providers, threads: context.threads });
+        const opening = workflowOpeningMessage(context.workflow, { agents: [], providers: context.providers, threads: context.threads }, threadFindView(context.client).highlight);
         return { ...common, ...opening, code: messageCodeBlocks(opening.body) };
       }
       const intent = str(item.inputIntent), sender = userMessagePresentation(item);
@@ -558,7 +558,7 @@ export function timelineMessages(client: T3Client, transcript: Message[], now: n
       attribution: message.attribution ?? '', targetId: message.kind === 'checkpoint' ? files[0]?.path ?? '' : message.targetId ?? '', actionLabel: message.actionLabel ?? '',
       copied: message.copied ?? 0, copyFailed: message.copyFailed === true, meta: message.meta !== false,
       collapsible: message.collapsible === true, code: message.code ?? [], diagrams: message.diagrams ?? [], inlineDocuments: message.inlineDocuments ?? [], setup: message.setup ?? [], fileCount: message.kind === 'checkpoint' ? files.length : 0,
-      secret: message.secret ?? [], images: message.images ?? [], attachFiles: message.attachFiles ?? [], md: { ...md, chips: message.chips ?? [], threadGlyphs: markdownThreadGlyphs(client, str(message.body), message.chips ?? []), runCommands: client.projectId ? runnableShellCommands(str(message.body), message.streaming === true) : [] } };
+      secret: message.secret ?? [], findLines: message.findLines ?? [], images: message.images ?? [], attachFiles: message.attachFiles ?? [], md: { ...md, chips: message.chips ?? [], threadGlyphs: markdownThreadGlyphs(client, str(message.body), message.chips ?? []), runCommands: client.projectId ? runnableShellCommands(str(message.body), message.streaming === true) : [] } };
   });
   timelineView(client).lastRows = { threadId: client.threadId, rows: rows.map(row => ({ id: row.id, kind: row.kind, body: row.body })) };
   rows.forEach((row, index) => {

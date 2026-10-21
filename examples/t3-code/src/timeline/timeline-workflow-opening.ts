@@ -13,6 +13,7 @@ import { composerNow } from '../composer/composer-controls';
 import { projectedWorkflowAgents, terminalWorkflowAgent, workflowGroups, type WorkflowAgent, type WorkflowGroup } from '../details/lineage-workflows';
 import { shouldCollapseUserMessage } from './message-chips';
 import { subagent, type SubagentContext } from './timeline-events';
+import { literalFindRanges } from './thread-find';
 
 // Workflow scripts open with their `meta` export, after any leading comments.
 const WORKFLOW_SCRIPT_START = /^\s*(?:(?:\/\/[^\n]*|\/\*[\s\S]*?\*\/)\s*)*export\s+const\s+meta\b/;
@@ -95,11 +96,25 @@ export function workflowOpeningRows(opening: WorkflowOpening, context: SubagentC
   return rows;
 }
 
-/** The opening's timeline row in place of the script's user message. */
-export function workflowOpeningMessage(opening: WorkflowOpening, context: SubagentContext) {
-  const headline = workflowOpeningHeadline(opening), body = scriptMarkdown(opening.script);
+/** A line in highlight parts: each match of the thread find's query marked (FindParts `find` 1). */
+export function findLine(id: string, text: string, query: string) {
+  const ranges = literalFindRanges(text, query), cuts = [...new Set([0, text.length, ...ranges.flatMap(range => [range.start, range.end])])].sort((a, b) => a - b);
+  const parts = cuts.slice(1).map((end, index) => ({ start: cuts[index]!, end })).filter(part => part.end > part.start)
+    .map((part, index) => ({ id: String(index), text: text.slice(part.start, part.end), find: ranges.some(range => part.start >= range.start && part.end <= range.end) ? 1 : 0 }));
+  return { id, parts: parts.length ? parts : [{ id: '0', text, find: 0 }] };
+}
+
+/**
+ * The opening's timeline row in place of the script's user message. Its title, description and phase titles are thread
+ * find text (`data-thread-find-text` upstream): `findLines` marks the query's matches in them. The script's own matches are
+ * the Markdown's, as any message's.
+ */
+export function workflowOpeningMessage(opening: WorkflowOpening, context: SubagentContext, query = '') {
+  const headline = workflowOpeningHeadline(opening), body = scriptMarkdown(opening.script), activities = workflowOpeningRows(opening, context);
   return { kind: 'workflow', title: headline.title, detail: headline.description ?? '', actionLabel: headline.agents ?? '', body,
-    collapsible: shouldCollapseUserMessage(opening.script), activities: workflowOpeningRows(opening, context) };
+    collapsible: shouldCollapseUserMessage(opening.script), activities,
+    findLines: [findLine('title', headline.title, query), findLine('detail', headline.description ?? '', query),
+      ...activities.filter(row => row.tone === 'phase').map(row => findLine(row.id, row.label, query))] };
 }
 
 // ── The parent's subagent rows ─────────────────────────────────────────────

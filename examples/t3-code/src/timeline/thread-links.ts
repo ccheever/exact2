@@ -32,6 +32,8 @@ export function relabelThreadLinks(markdown: string, threads: Obj[]): string {
 export interface ThreadLinkTarget {
   /** What select-thread opens: the thread's id here, or its qualified id in another connected environment. */
   id: string; threadId: string; thread: Obj; project: Obj | undefined; remote: boolean;
+  /** The environment the thread lives in. */
+  environmentId: string;
 }
 /**
  * MarkdownThreadLink's thread (resolveThreadLinkRef): the written id, then its percent-decoded form, in this
@@ -41,14 +43,14 @@ export function resolveThreadLink(client: T3Client, written: string, source: Env
   const decoded = percentDecodedThreadLinkId(written), ids = decoded === null ? [written] : [written, decoded];
   for (const id of ids) {
     const thread = client.shell.threads.find(candidate => candidate.id === id);
-    if (thread) return { id, threadId: id, thread, project: client.shell.projects.find(project => project.id === thread.projectId), remote: false };
+    if (thread) return { id, threadId: id, thread, project: client.shell.projects.find(project => project.id === thread.projectId), remote: false, environmentId: client.environmentId };
   }
   const entries = [...source.entries.values()].filter(entry => entry.phase === 'connected' && entry.synchronized === entry.generation && entry.environmentId !== client.environmentId);
   for (const id of ids) {
     const matches = entries.flatMap(entry => entry.shell.threads.filter(thread => str(thread.id) === id).map(thread => ({ entry, thread })));
     if (matches.length > 1) return null;
     const match = matches[0];
-    if (match) return { id: fleetThreadId(match.entry.environmentId, id), threadId: id, thread: match.thread, remote: true,
+    if (match) return { id: fleetThreadId(match.entry.environmentId, id), threadId: id, thread: match.thread, remote: true, environmentId: match.entry.environmentId,
       project: match.entry.shell.projects.find(project => project.id === match.thread.projectId) };
   }
   return null;

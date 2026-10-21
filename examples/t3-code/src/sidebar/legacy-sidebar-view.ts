@@ -299,7 +299,8 @@ export function legacySidebarSnapshot(client: T3Client, now: number, helpers: Pi
     const status = resolveProjectStatusIndicator(threads.map(thread => statusOf(client, thread)));
     const hidden = pillFields(resolveProjectStatusIndicator(view.hidden.map(thread => statusOf(client, thread))));
     const representative = group.members.find(member => member.onPrimary) ?? group.members[0]!;
-    const glyph = projectGlyph(client, representative.project, helpers.projectIdentity);
+    // A background member (`fleet:<environment>:<id>`) draws with its own server's favicon.
+    const glyph = projectGlyph(client, representative.project, helpers.projectIdentity, /^fleet:([^:]+):/.exec(representative.id)?.[1] ?? '');
     const shown = pillFields(view.expanded ? null : status);
     return {
       key: group.key, name: group.name, countLabel: group.members.length > 1 ? `${group.members.length} projects` : '', glyph, expanded: view.expanded,

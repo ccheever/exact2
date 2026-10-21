@@ -280,7 +280,11 @@ function row(client: T3Client, thread: Obj, section: SidebarSection, now: number
   const scratch = str(thread.branch) ? null : scratchMachine(client, thread, extra.spans);
   const searchPr = extra.searching ? searchPullRequest(client, thread, client.query) : null;
   const draftKey = `${client.environmentId}:${id}`;
-  const glyph = project ? projectGlyph(client, project, helpers.projectIdentity) : projectGlyph(client, { title: projectTitle }, helpers.projectIdentity);
+  // A background environment's row draws its own server's project (its favicon is that server's).
+  const ref = parseFleetThreadId(id), background = ref && ref.environmentId !== client.environmentId
+    ? [...fleet.entries.values()].find(entry => entry.environmentId === ref.environmentId)?.shell.projects.find(candidate => `fleet:${ref.environmentId}:${str(candidate.id)}` === thread.projectId) : undefined;
+  const glyph = background ? projectGlyph(client, background, helpers.projectIdentity, ref!.environmentId)
+    : project ? projectGlyph(client, project, helpers.projectIdentity) : projectGlyph(client, { title: projectTitle }, helpers.projectIdentity);
   return {
     id, title: str(thread.title, 'Untitled thread'), projectName, ...helpers.projectIdentity(projectTitle), ...grayIdentity(helpers.projectIdentity(projectTitle).projectInk),
     providerDriver: str(instance?.driver), ...helpers.providerBadge(instance, providers), providerName: str(instance?.displayName), providerIcon: providerIconUrl(instance, obj(environment.settings)),

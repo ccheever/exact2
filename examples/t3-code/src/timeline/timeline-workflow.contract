@@ -1,4 +1,4 @@
-use ThreadFindView from "./thread-find.contract"
+use ThreadFindView, FindParts from "./thread-find.contract"
 use ChatDocument, EnvBlocks from "./markdown.contract"
 use Message from "../shared/shapes.contract"
 use TimelineIcon from "./timeline-icons-kit.contract"
@@ -33,9 +33,13 @@ component WorkflowOpening
           TimelineIcon(name="workflow", size=14, color="light-dark(#71717b, #818181)")
         column flex=1 min-width=0 gap="0.125rem"
           text "Workflow started" font-size="0.6875rem" font-weight=500 line-height="1rem" color="light-dark(#71717b, #818181)"
-          text message.title role="heading" aria-level=3 min-width=0 line-clamp=1 font-size="0.875rem" font-weight=500 line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)"
+          text role="heading" aria-level=3 min-width=0 line-clamp=1 font-size="0.875rem" font-weight=500 line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)" testId=`workflow-title-${message.id}`
+            for line in message.findLines.filter((entry) => entry.id == "title") key=line.id
+              FindParts(parts=line.parts)
           if message.detail != ""
-            text message.detail font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)"
+            text font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)"
+              for line in message.findLines.filter((entry) => entry.id == "detail") key=line.id
+                FindParts(parts=line.parts)
         if message.actionLabel != ""
           text message.actionLabel aria-live="polite" flex-shrink=0 font-size="0.6875rem" line-height="1rem" font-variant-numeric="tabular-nums" color="light-dark(#71717b, #818181)" testId=`workflow-agents-${message.id}`
       if message.activities.length > 0
@@ -44,7 +48,9 @@ component WorkflowOpening
             if agent.tone == "phase"
               // A phase's heading: its title and settled/total (text-2xs, px-2 pb-0.5).
               row margin-top=(agent.detail == "first" ? "0px" : "0.75rem") padding-left="0.5rem" padding-right="0.5rem" padding-bottom="0.125rem" box-sizing="border-box" gap="0.5rem" align-items="baseline" role="heading" aria-level=4 aria-label=`${agent.label} phase`
-                text agent.label min-width=0 line-clamp=1 font-size="0.6875rem" font-weight=500 line-height="1rem" color="light-dark(#71717b, #818181)"
+                text min-width=0 line-clamp=1 font-size="0.6875rem" font-weight=500 line-height="1rem" color="light-dark(#71717b, #818181)"
+                  for line in message.findLines.filter((entry) => entry.id == agent.id) key=line.id
+                    FindParts(parts=line.parts)
                 text agent.result flex-shrink=0 font-size="0.6875rem" line-height="1rem" font-variant-numeric="tabular-nums" color="light-dark(#71717b, #818181)"
             else if agent.tone == "gap"
               box height="0.75rem"

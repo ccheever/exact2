@@ -8,6 +8,7 @@ use MermaidDiagram from "../timeline/markdown.contract"
 use MarkdownEnv from "../timeline/markdown.contract"
 use WorktreeSetupView from "../timeline/timeline-worktree-shapes.contract"
 use MinimapItem from "../timeline/timeline-minimap.contract"
+use FindLine from "../timeline/thread-find.contract"
 use MessageImage from "../timeline/timeline-attachments.contract"
 use MessageFile from "../timeline/timeline-attachments.contract"
 use ComposerView from "../composer/composer-shapes.contract"
@@ -173,6 +174,8 @@ shape Message
   // Code font/size, word wrap and the message's chips (message-chips.ts).
   md: MarkdownEnv
   secret: SecretCardView[]
+  // A workflow opening's title, description and phase titles with the thread find's matches marked.
+  findLines: FindLine[]
 shape Provider
   id: string
   name: string
