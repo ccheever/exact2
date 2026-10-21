@@ -198,8 +198,8 @@ pub fn binding(plan: &Plan, kind: NodeType, b: &BindingsRow) -> Option<(String, 
         StyleId::Isolation => return flag(ISOLATION | STACK, "v===\"isolate\""),
         // Set where the kernel takes the value (rows.rs, GitHub #809).
         StyleId::LayoutTransition => {
-            let table = crate::style::layout_transitions(plan, plan.code(b.expr));
-            let table = serde_json::to_string(&table.keys().collect::<Vec<_>>()).unwrap();
+            let values = crate::style::layout_transitions(plan, plan.code(b.expr));
+            let table = serde_json::to_string(&values.held.keys().collect::<Vec<_>>()).unwrap();
             return flag(LAYOUT | POLICY, &format!("typeof v===\"string\"&&{table}.includes(v)"));
         }
         StyleId::ExitAnimation => return flag(POLICY, "v!=null"),

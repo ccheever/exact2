@@ -3,9 +3,10 @@
 use exact_kernel::{NodeType, StyleId};
 use exact_plan::BindingKind;
 
-/// Values a binding can push: curves, a spring, `none` and a transition of
-/// no layout (lowering refuses a literal the kernel would).
-const VALUES: [&str; 7] = [
+/// Values a binding can push: curves, a spring, `none`, a transition of no
+/// layout, and ones that clear the row (lowering refuses a literal the kernel
+/// would).
+const VALUES: [&str; 8] = [
     "none",
     "260ms ease",
     "320ms cubic-bezier(.32,.72,0,1)",
@@ -13,11 +14,26 @@ const VALUES: [&str; 7] = [
     "opacity 1s",
     "1s 200ms linear",
     "",
+    "unset",
 ];
 /// Values a binding computes, not as its code names them: unset, with a
 /// journal line, whether the kernel refuses one (`bogus`) or takes it (the
-/// second, QUEUE.md).
-const COMPUTED: [&str; 2] = ["bogus", "260ms  ease"];
+/// second, QUEUE.md); and ones that clear the row, as the runner clears them,
+/// with none.
+const COMPUTED: [&str; 4] = ["bogus", "260ms  ease", "  ", " UNSET"];
+
+/// Whether the runner holds the row for `v`: not cleared before parsing
+/// (`bridge::unsets`), and parsed.
+fn runner_holds(v: &str) -> bool {
+    let mut p = exact_kernel::StyleProps::default();
+    !exact_runner::bridge::unsets(StyleId::LayoutTransition as u16, &exact_plan::Value::str(v))
+        && p.set_dynamic(
+            StyleId::LayoutTransition,
+            &exact_kernel::StyleValue::Text(v.into()),
+        )
+        .is_ok()
+        && p.mask.has(StyleId::LayoutTransition)
+}
 
 fn plan() -> exact_plan::Plan {
     let mut chain = String::from("\"none\"");
@@ -64,23 +80,26 @@ fn node_row(plan: &exact_plan::Plan) -> (NodeType, exact_plan::BindingsRow) {
 fn a_bound_layout_transition_compiles_and_is_followed() {
     let js = crate::emit::emit(&plan(), false, false).unwrap().js;
     assert!(js.contains("\"--exact-layout-transition\""), "{js}");
-    assert!(js.contains(";lt(e0);"), "{js}");
+    assert!(
+        js.contains(r#";lt(e0,["-exact-spring(300, 24, 1)","1s 200ms linear","260ms ease","320ms cubic-bezier(.32,.72,0,1)"],()=>"#),
+        "{js}"
+    );
 }
 
 #[test]
 fn each_named_value_writes_what_the_kernel_writes_and_a_computed_one_is_unset() {
     let plan = plan();
-    let table = crate::style::layout_transitions(&plan, plan.code(row(&plan).expr));
+    let values = crate::style::layout_transitions(&plan, plan.code(row(&plan).expr));
     let mut expected = Vec::new();
     for v in VALUES {
-        let kernel = crate::style::layout_transition(v);
-        assert_eq!(table.get(v), kernel.as_ref(), "{v:?}");
-        expected.push(serde_json::json!(kernel.flatten()));
+        let css = runner_holds(v).then(|| crate::style::layout_transition(v).unwrap());
+        assert_eq!(values.held.get(v), css.as_ref(), "{v:?}");
+        expected.push(serde_json::json!(css.flatten()));
     }
-    assert_eq!(table["260ms ease"].as_deref(), Some("260 0 ease"));
-    assert_eq!(table["none"], None);
-    assert_eq!(table.len(), VALUES.len());
-    let map = crate::style::layout_transition_map(&table, "7", "say");
+    assert_eq!(values.held["260ms ease"].as_deref(), Some("260 0 ease"));
+    assert_eq!(values.held["none"], None);
+    assert_eq!(values.unsets, ["", "unset"]);
+    let map = crate::style::layout_transition_map(&values, "7", "say");
     let inputs: Vec<serde_json::Value> = VALUES
         .iter()
         .map(|v| serde_json::json!(v))
@@ -97,7 +116,8 @@ fn each_named_value_writes_what_the_kernel_writes_and_a_computed_one_is_unset() 
     ));
     assert_eq!(got["out"], serde_json::Value::Array(expected));
     assert_eq!(crate::style::layout_transition("bogus"), None);
-    assert!(crate::style::layout_transition("260ms  ease").is_some());
+    assert!(runner_holds("260ms  ease"));
+    assert!(!runner_holds("  ") && !runner_holds(" UNSET"));
     let why = "; unset (the JS target writes only the values the code names)";
     assert_eq!(
         got["journal"],
@@ -111,24 +131,16 @@ fn each_named_value_writes_what_the_kernel_writes_and_a_computed_one_is_unset() 
 
 /// Paint's layout bit (`own_from`'s `holds_layout_transition`, flag 256,
 /// with the policy bit 4) is set where the kernel's mask holds the row: a
-/// value it names, `none` included; never a computed one, which it unsets.
+/// value it names, `none` included; never a blank or `unset`, which clear it,
+/// nor a computed one, which this target unsets.
 #[test]
 fn the_paint_flag_is_set_where_the_kernel_holds_the_row() {
     let plan = plan();
     let (kind, b) = node_row(&plan);
     let (_, test) = crate::paint::binding(&plan, kind, &b).expect("a paint flag");
-    let mut expected = Vec::new();
-    for v in VALUES {
-        let mut p = exact_kernel::StyleProps::default();
-        let held = p
-            .set_dynamic(
-                StyleId::LayoutTransition,
-                &exact_kernel::StyleValue::Text(v.into()),
-            )
-            .is_ok()
-            && p.mask.has(StyleId::LayoutTransition);
-        expected.push(if held { 260 } else { 0 });
-    }
+    let mut expected: Vec<u32> = VALUES
+        .map(|v| if runner_holds(v) { 260 } else { 0 })
+        .to_vec();
     expected.extend(COMPUTED.map(|_| 0));
     expected.extend([0, 0]);
     let got = bun(&format!(
