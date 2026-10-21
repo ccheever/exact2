@@ -114,13 +114,14 @@ struct Around<'a> {
 }
 
 /// Where a node sits in a grouped list: among its sections, in a section's
-/// body, or neither.
+/// body, inside a swipe written there by hand, or neither.
 #[derive(Clone, Copy, Default, PartialEq)]
 enum Grouped {
     #[default]
     No,
     Sections,
     Row,
+    Swipe,
 }
 
 /// Whether `list` with `attrs` (its class's rows with its own) is a
@@ -298,8 +299,8 @@ impl Said {
                     // `grouped::row`: a grouped list's section's body, not
                     // its header or footer): never kept. Elsewhere the
                     // marker goes and the look is judged (`swipe_rows::stray`).
-                    let yields = grouped == Grouped::Row
-                        && !matches!(tag.as_str(), "header" | "footer")
+                    let yields = (grouped == Grouped::Swipe
+                        || grouped == Grouped::Row && !matches!(tag.as_str(), "header" | "footer"))
                         && a.iter().any(|a| a.name == crate::row_look::ROW_LOOK);
                     // An `audio`'s `display` is lowering's to write
                     // (`media::audio_rows`, from its class's rows with its
@@ -372,8 +373,15 @@ impl Said {
                     let left = left || (parent == Some("section") && crate::grouped::folds(node));
                     // A grouped list's sections, and a section's body there
                     // (`grouped::style`, `grouped::sections`).
+                    // A swipe written by hand in a section's body (a `scroll`
+                    // naming its `swipeContent`): the row it names, at any
+                    // depth, yields as the row would (`swipe_rows::grouped`).
                     let grouped = match grouped {
                         Grouped::Sections if tag == "section" => Grouped::Row,
+                        Grouped::Row if a.iter().any(|a| a.name == "swipeContent") => {
+                            Grouped::Swipe
+                        }
+                        Grouped::Swipe => Grouped::Swipe,
                         _ if tag == "list" && grouped_list(file, tag, a) => Grouped::Sections,
                         _ => Grouped::No,
                     };

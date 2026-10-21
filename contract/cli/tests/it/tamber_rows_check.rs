@@ -1099,3 +1099,31 @@ fn a_marked_box_in_a_plain_section_keeps_its_look() {
         &design.replace("gap = 8px", "gap = #444444"),
     );
 }
+
+/// A swipe written by hand in a grouped list's section (a `scroll` naming
+/// its row as `swipeContent`): the row it names yields its look as a
+/// section's row does, so a write breaking it is accepted, as the build
+/// accepts it (Grok's re-check of af82d07cbf).
+#[test]
+fn a_hand_written_swipes_row_yields_its_look() {
+    let dir = reading("rows-row-look-swipe");
+    let design = "tamber t\n\ntheme\n  ink = #111111\n  gap = 8px\n";
+    std::fs::write(dir.join("app.tamber"), design).unwrap();
+    std::fs::write(
+        dir.join("app.contract"),
+        "use Card from \"@acme/reading\"\ncomponent App\n  state z = 0\n  action noop\n    z = 1\n  view\n    column\n      list appearance=\"auto\" height=300\n        section\n          scroll swipeContent=\"row-1\" swipeTrailing=\"del-1\" overflow-x=\"scroll\" overflow-y=\"hidden\" height=50 display=\"flex\" flex-direction=\"row\"\n            row id=\"row-1\" width=\"100%\" flex-shrink=0 -exact-row-look=\"platform\" padding-left=\"gap\"\n              text \"x\"\n            button id=\"del-1\" width=40 press=noop\n              text \"d\"\n      Card()\n",
+    )
+    .unwrap();
+    contract::compile_path(&dir.join("app.contract")).unwrap();
+    let mut s = Serve::start(&dir, &[]);
+    s.ask(json!({"method": "propose", "ops": [{"op": "set-token", "name": "ink", "value": "#444444"}]}));
+    let w = transaction(
+        &mut s,
+        &dir,
+        json!({"op": "set-token", "name": "gap", "value": "#444444"}),
+    );
+    assert!(w.get("ok").is_some(), "{w}");
+    drop(s);
+    contract::compile_path(&dir.join("app.contract")).unwrap();
+    let _ = std::fs::remove_dir_all(&dir);
+}
