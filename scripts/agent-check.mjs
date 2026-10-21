@@ -165,8 +165,11 @@ export function judge(obs, png, { host = 'web' } = {}) {
   // any width at all. Glyphs a pixel or two into a neighbour's read as one word ("GoingMaybe", event-rsvp at the largest
   // text size, round 21), and two texts set flush on purpose ("$" then "12") only touch.
   const texts = items.filter((it) => it.text && !it.control && !it.squeezed);
+  // A text drawn on the opaque fill of the view laid over another's middle (a bar over its list's row) hides that
+  // one there: they do not run together (the host's `beneath`, `on` and `solid`).
+  const hides = (top, below) => below.beneath != null && top.on === below.beneath && top.solid;
   for (const [k, a] of texts.entries()) for (const b of texts.slice(k + 1)) {
-    if (holds(a, b) || holds(b, a)) continue;
+    if (holds(a, b) || holds(b, a) || hides(a, b) || hides(b, a)) continue;
     const da = drawn(a), db = drawn(b);
     if (da.w <= 0 || da.h <= 0 || db.w <= 0 || db.h <= 0) continue;
     const i = inter(da, db);

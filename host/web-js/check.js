@@ -84,9 +84,11 @@ export function observe(views, inactive = () => false) {
       if (e === top) break;
       if (!e.contains(el) && !el.contains(e) && paints(e)) return null;
     }
+    // `solid`: the nearest fill under it is a view's own and opaque (it hides what lies beneath that view).
+    const solid = by != null && layers[0][3] >= 0.999;
     let bg = layers.pop().slice(0, 3);
     while (layers.length) bg = mix(layers.pop(), bg);
-    return { bg: bg.map((v) => Math.round(v)), by, accent };
+    return { bg: bg.map((v) => Math.round(v)), by, accent, solid };
   };
   const mix = (fg, bg) => [0, 1, 2].map((i) => fg[i] * fg[3] + bg[i] * (1 - fg[3]));
   // The part of box `b` (el's) that is presented: each ancestor that clips or scrolls its overflow cuts it at its padding
@@ -242,7 +244,7 @@ export function observe(views, inactive = () => false) {
         }
       }
       const under = backing(el, ink);
-      if (under) { item.bg = under.bg; item.on = under.by === item.id ? 'own' : under.by ?? 'page'; if (under.accent) item.onAccentFill = true; }
+      if (under) { item.bg = under.bg; item.on = under.by === item.id ? 'own' : under.by ?? 'page'; if (under.accent) item.onAccentFill = true; if (under.solid) item.solid = true; }
       // An ancestor that clips (never one that scrolls: a person scrolls to it) cutting part of the text away.
       // One that hides it all is a collapsed disclosure, on purpose.
       for (let e = el.parentElement; e && e.id !== 'exact-root'; e = e.parentElement) {
@@ -269,6 +271,9 @@ export function observe(views, inactive = () => false) {
       else {
         const cx = Math.min(Math.max(b.left + b.width / 2, 1), W - 1), hit = document.elementFromPoint(cx, my);
         if (hit && hit !== el && !el.contains(hit) && !hit.contains(el)) {
+          // What is drawn over its middle at rest (the subtree beside it the hit is in), scrolled clear or not.
+          let c = hit; while (c.parentElement && !c.parentElement.contains(el)) c = c.parentElement;
+          item.beneath = viewOf(c);
           if (!reach(el, hit, false, my)) item.cover = { by: viewOf(hit), name: hit.localName, kind: modal && !modal.contains(hit) ? 'sheet' : 'node' };
         }
       }
