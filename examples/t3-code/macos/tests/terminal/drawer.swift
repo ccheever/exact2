@@ -417,6 +417,22 @@ final class TerminalDrawerTests: XCTestCase {
         XCTAssertEqual(T3TerminalSessions.attachPayload(session).keys.sorted(), ["terminalId", "threadId"], "terminal.observe takes no resume")
     }
 
+    func testALostStreamResumesAndAFailedOrServerEndedOneStartsOver() {
+        let session = T3TerminalSession(key: "k", environment: "env-a", threadId: "thread-1", terminalId: "term-1")
+        session.cwd = "/repo"
+        session.replied = true
+        sessions.streamEnded(session, failure: nil, lost: true)
+        XCTAssertEqual(T3TerminalSessions.attachPayload(session)["resume"] as? Bool, true, "a lost socket keeps the subscription")
+        XCTAssertFalse(session.failed)
+        sessions.streamEnded(session, failure: T3Failure(kind: "TerminalError", message: "bad cwd"), lost: false)
+        XCTAssertNil(T3TerminalSessions.attachPayload(session)["resume"], "a failure ends the subscription")
+        XCTAssertEqual([session.status, session.error ?? ""], ["error", "bad cwd"])
+        session.failed = false; session.replied = true
+        sessions.streamEnded(session, failure: nil, lost: false)
+        XCTAssertNil(T3TerminalSessions.attachPayload(session)["resume"], "the server's end closes it")
+        XCTAssertTrue(session.failed)
+    }
+
     func testASessionViewShowsTheBufferWritesErrorsAndReportsTheExitOnce() throws {
         try XCTSkipUnless(T3TerminalAssets.fileURL("terminal-host.js") != nil, "run terminal-host/build.mjs first")
         let view = mount()

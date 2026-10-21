@@ -2,7 +2,7 @@
 // commands.ts interruptThreadTurn): a server advertising capabilities.threadStop gets `thread.stop`, which resolves
 // the run itself; an older server still gets `run.interrupt` on the run the projection shows.
 import { describe, expect, test } from 'bun:test';
-import type { T3Client } from '../../src/client/client';
+import { T3Client } from '../../src/client/client';
 import { composerWrites } from '../../src/client/client-ops-composer';
 import type { OpOut } from '../../src/client/client-ops';
 import type { Obj } from '../../src/client/domain';
@@ -66,5 +66,23 @@ describe('Stop', () => {
     await shellCommand(client, native, files, 'stop-subagent', 'kid', '');
     expect(requests).toEqual([]);
     expect(dispatched).toEqual([{ type: 'thread.stop', commandId: 'cmd-1', threadId: 'kid' }]);
+  });
+});
+
+describe('an uncertain thread.stop', () => {
+  // T3Client.reconcilePending on a stand-in client: what counts as the stop having reached the server.
+  function reconciles(runs: Obj[], shellThread: Obj): boolean {
+    const pending = { method: 'orchestration.dispatchCommand', threadId: 'thread', payload: { type: 'thread.stop', commandId: 'c', threadId: 'thread' } };
+    let finished = false;
+    const client = { pending, threadId: 'thread', threadLive: true, projection: { runs }, shell: { projects: [], threads: [{ id: 'thread', ...shellThread }] }, finishPending: () => { finished = true; } };
+    return T3Client.prototype.reconcilePending.call(client as never) && finished;
+  }
+  test('is done once no run is active and no background work is left', () => {
+    expect(reconciles([{ id: 'r', status: 'completed' }], {})).toBe(true);
+    expect(reconciles([{ id: 'r', status: 'running' }], {})).toBe(false);
+  });
+  test('with background work still pending it is retried, unless the server marked the stop', () => {
+    expect(reconciles([{ id: 'r', status: 'completed' }], { pendingBackgroundTasks: [{ id: 't', kind: 'subagent' }] })).toBe(false);
+    expect(reconciles([{ id: 'r', status: 'completed' }], { pendingBackgroundTasks: [{ id: 't', kind: 'subagent' }], latestRunStopRequested: true })).toBe(true);
   });
 });

@@ -184,19 +184,7 @@ final class T3TerminalSessions {
         }, ended: { [weak self, weak session] failure, lost in
             DispatchQueue.main.async {
                 guard let self, let session, self.sessions[key] === session, session.output.generation == generation else { return }
-                session.streamId = nil; session.attaching = false; session.streamLink = nil
-                if failure != nil || !lost { session.replied = false }
-                if let failure {
-                    // useAttachedTerminalSession: an attach error shows as the session's error.
-                    session.failed = true
-                    session.status = "error"; session.error = failure.message; session.version += 1
-                    self.changed(key)
-                } else if lost {
-                    // The next socket attaches again (connectionChanged).
-                } else {
-                    // The server ended the stream (the session closed).
-                    session.failed = true
-                }
+                self.streamEnded(session, failure: failure, lost: lost)
             }
         }, opened: { [weak self, weak session] id, failure in
             DispatchQueue.main.async {
@@ -212,6 +200,21 @@ final class T3TerminalSessions {
                 }
             }
         })
+    }
+
+    /// A session's stream ended: a lost socket keeps the subscription (the next attach resumes); a failure or the
+    /// server's end closes it, and the terminal is not attached again until the drawer shows it again.
+    func streamEnded(_ session: T3TerminalSession, failure: T3Failure?, lost: Bool) {
+        session.streamId = nil; session.attaching = false; session.streamLink = nil
+        if failure != nil || !lost { session.replied = false }
+        if let failure {
+            // useAttachedTerminalSession: an attach error shows as the session's error.
+            session.failed = true
+            session.status = "error"; session.error = failure.message; session.version += 1
+            changed(session.key)
+        } else if !lost {
+            session.failed = true
+        }
     }
 
     /// `terminal.attach`'s input, or `terminal.observe`'s for a read-only session. A resubscription after the server

@@ -472,6 +472,7 @@ final class T3LocalBackend: @unchecked Sendable {
                 guard let self else { return config }
                 // `t3 update` and a starting background service remove a runtime no process runs once it is
                 // an hour old (pinnedRuntime.ts `prunePinnedRuntimes`), so a stopped server's may be gone.
+                // The unpack runs here, synchronously on the supervisor's queue, before the spawn; it takes seconds.
                 if let bundled, !T3LocalRuntime.installed(T3LocalRuntime.paths(home: home, version: version), version: version) {
                     switch bundled.ensure() {
                     case .ready: self.log("unpacked runtime \(version) again into \(versionDir.path)")
