@@ -46,7 +46,8 @@ describe('change request references', () => {
     expect(resolveLinkInput('#42', [github], 'p1', 'multiple')).toEqual({ link: { host: 'github.com', repository: 'acme/widgets', number: 42, url: 'https://github.com/acme/widgets/pull/42' } });
     expect(resolveLinkInput('https://github.com/other/repo/pull/7', [github], 'p1', 'multiple')).toMatchObject({ link: { repository: 'other/repo', number: 7 } });
     expect(resolveLinkInput('https://github.com/other/repo/pull/7', [github], 'p1', 'single')).toEqual({ error: 'No project in this environment can read github.com/other/repo.' });
-    expect(resolveLinkInput('#42', [{ id: 'p1' }], 'p1', 'multiple')).toEqual({ error: 'Paste a full URL to link a pull request from another repository.' });
+    // names the missing repository when resolving a bare number (pullRequestLinkInput.test.ts)
+    for (const reference of ['12', '#12']) expect(resolveLinkInput(reference, [{ id: 'p1' }], 'p1', 'multiple')).toEqual({ error: 'Paste the full pull request URL; this thread has no repository to resolve the number against.' });
     expect(resolveLinkInput('nope', [github], 'p1', 'multiple')).toBeNull();
     expect(threadPullRequestKey({ host: 'codeberg.org', repository: 'O/R', number: 4, authority: 'codeberg.org:8443' })).toEqual({ host: 'codeberg.org:8443', repository: 'o/r', number: 4 });
   });

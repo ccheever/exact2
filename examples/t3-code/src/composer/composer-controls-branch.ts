@@ -1,6 +1,6 @@
 // The workspace / branch context strip under the draft composer,
-// adapted from T3 Code (MIT); see LICENSE-T3. Sources at 9c161462c9:
-// components/BranchToolbar.tsx, BranchToolbarEnvModeSelector.tsx,
+// adapted from T3 Code (MIT); see LICENSE-T3. Sources at 9c161462c9 (the two selectors'
+// tooltip shortcuts at 74541bab17): components/BranchToolbar.tsx, BranchToolbarEnvModeSelector.tsx,
 // BranchToolbarBranchSelector.tsx, BranchPicker.tsx, BranchToolbar.logic.ts
 // (shouldShowComposerContextStrip, resolveBranchTriggerLabel) and
 // packages/client-runtime/src/operations/commands.ts (launch workspaceStrategy).
@@ -15,12 +15,13 @@ import { REF_PAGE, firstPage, morePages, refScrollEnds, refsStatus, scrollEnds }
 import { NO_STRIP_PR, stripPr } from './strip-pr-badge'; // the strip's pull request badge
 import { checkoutItems, type CheckoutItem } from './pr-checkout'; // the picker's checkout item
 import { NO_RUN_ON, stripRunOn } from '../details/git-env'; // MobileRunContextSelector's "Run on"
-import { gitlessStrip } from './context-strip'; // the non-Git strip (BranchToolbar.logic.ts)
+import { gitlessStrip, noteStripLayout } from './context-strip'; // the non-Git strip (BranchToolbar.logic.ts) and the labels' measurement
 import { autoBalanceState } from './auto-balance'; // the Run on menu's "Auto balance"
 import { letGo } from '../client/let-go';
 import { draftFiles } from './composer-editor-files';
 import { newThreadEnvMode, refreshNewThreadContext } from './new-thread-context';
 import { peekVcsStatus, restartVcsStatus, vcsStreamFollows } from '../details/shell-vcs'; // the workspace status the card's stream holds
+import { commandShortcut } from '../shell/shell'; // the workspace and host tooltips' shortcuts
 
 export type DraftContext = { envMode: string; branch: string; worktreePath: string };
 // `switched`: the ref a switch checked out, kept while the stream still reports the status it had then.
@@ -201,12 +202,16 @@ export function refBadge(ref: Obj, cwd: string): string {
 /** The resource behind the strip, and the auto-balance load the root's `balanceLoad` task sends (auto-balance.ts). */
 export async function composerBranches(client: T3Client, native: Native | null | undefined, open: boolean, query: string, card = false) {
   if (native?.available && client.ready && !client.threadId) await refreshNewThreadContext(client, native);
-  return { ...await stripView(client, native, open, query, card), balanceFetch: card ? '' : autoBalanceState(client).fetch };
+  const view = await stripView(client, native, open, query, card);
+  if (!card) noteStripLayout(client, view);
+  return { ...view, balanceFetch: card ? '' : autoBalanceState(client).fetch };
 }
 /** shouldShowComposerContextStrip with Git controls. */
 async function stripView(client: T3Client, native: Native | null | undefined, open: boolean, query: string, card: boolean) {
   const hidden = { show: false, envMode: 'local', forceWorktree: false, envLabel: 'Current checkout', envIcon: 'folder', envLocked: false, previous: false, previousBranch: '',
-    branchLabel: '', branch: '', loading: false, refs: [] as Array<{ name: string; badge: string; selected: boolean; index: number }>, status: '', creatable: '', enterOp: '', enterValue: '', checkout: [] as CheckoutItem[], ...NO_RUN_ON, ...NO_STRIP_PR, gitless: false };
+    branchLabel: '', branch: '', loading: false, refs: [] as Array<{ name: string; badge: string; selected: boolean; index: number }>, status: '', creatable: '', enterOp: '', enterValue: '', checkout: [] as CheckoutItem[], ...NO_RUN_ON, ...NO_STRIP_PR, gitless: false,
+    // BranchToolbarEnvModeSelector and BranchToolbarEnvironmentSelector add these to their tooltips (shortcutLabelForCommand).
+    keyWorkspace: commandShortcut(client.config, 'composer.workspace'), keyHost: commandShortcut(client.config, 'composer.host') };
   if (!native?.available || client.connection !== 'connected' || !client.ready || !client.projectId) return hidden;
   const persist = (client.local as { clientSettings?: Obj }).clientSettings?.persistComposerContextStrip === true;
   if (client.threadId && !persist && !card) return hidden; // the workspace card's branch row (git-branch.ts) shows on threads too
@@ -243,7 +248,8 @@ async function stripView(client: T3Client, native: Native | null | undefined, op
     creatable, enterOp: checkout.length ? 'chatlocal:git-pr-open' : first ? 'cc:branch' : creatable ? 'cc:branch-create' : '', enterValue: checkout[0]?.reference ?? (first || creatable), checkout, ...stripRunOn(client, !!worktreePath),
     // BranchPicker's originControl: a draft choosing its new worktree's base (git-branch.ts).
     ...stripPr(client, { cwd, threadBranch, branch, status: entry.status ?? null }), // ThreadPullRequestBadgeControl before the branch trigger
-    originShown: envMode === 'worktree' && !worktreePath && !locked, originOn: envMode === 'worktree' && !worktreePath && !locked && (forceWorktree || startFromOrigin(client)), gitless: false };
+    originShown: envMode === 'worktree' && !worktreePath && !locked, originOn: envMode === 'worktree' && !worktreePath && !locked && (forceWorktree || startFromOrigin(client)), gitless: false,
+    keyWorkspace: hidden.keyWorkspace, keyHost: hidden.keyHost };
 }
 
 /** composer.workspace / composer.branch / composer.previousWorktree: live while the strip shows its controls (cached repository state). */
