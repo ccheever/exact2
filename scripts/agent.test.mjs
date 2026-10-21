@@ -458,6 +458,27 @@ test('a native named store is kept unless the drive resets it, under its lock; a
   } finally { [console.log, console.error] = quiet; }
 });
 
+// The euxy port's `tap play` missed on a mode an earlier drive persisted, and the miss read like a broken view.
+test('a miss on a drive that kept its store says so, and how to start empty', async () => {
+  const quiet = console.error;
+  console.error = () => {};
+  try {
+    const sessions = [];
+    const injected = { driveServer: async () => null, exclusiveNativeStore: async (key, launch) => launch(), resolveDevice: () => 'a device',
+      open: async () => { const s = { state: async () => ({}), close: async () => {} }; sessions.push(s); return s; } };
+    for (const [flags, kept] of [[[], 'default'], [['--storage', 's1'], 's1'], [['--reset-storage'], undefined], [['screenshot a.png compare ref.png'], undefined]]) {
+      await main(['ios', ...flags, 'state'], injected).catch((e) => (/compare/.test(e.message) ? 0 : Promise.reject(e)));
+      assert.equal(sessions.at(-1).keptStore, kept, flags.join(' '));
+    }
+  } finally { console.error = quiet; }
+  const carrier = { host: 'web', browser: 'chrome', hostLines: [], launchFacts: launchFacts({}), reset() {},
+    async ask(req) { return req.op === 'tree' ? { nodes: [{ id: 1, type: 'View', props: { testId: 'stop' }, children: [] }] } : { epoch: 0, clock: 0 }; } };
+  const s = await open({ reuse: carrier });
+  await assert.rejects(s.find('play'), (e) => !/kept the store/.test(e.message));
+  s.keptStore = 'default';
+  await assert.rejects(s.find('play'), /; this drive kept the store `default` from earlier drives, so the screen can show what they saved \(a `persist` state\): --reset-storage starts it empty$/);
+});
+
 test('storage advice preserves canvas journal entries through the host seam', async () => {
   const { driveNotes } = await import('./agent-test.mjs');
   for (const probe of [s => s.landed({ tapped: true }), s => driveNotes(s, { host: 'linux' })('tap')]) {

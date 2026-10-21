@@ -973,7 +973,7 @@ export async function open({onProcess, host = 'web', browser, plan, world, size,
       const nodes = t?.nodes ?? (await s.op({op:'tree'})).nodes;
       const matches = byId ? nodes.filter((n) => n.id === Number(target)) : nodes.filter((n) => n.props.testId === target);
       const node = matches.find((n) => !n.inactive) ?? matches[0] ?? (byId || !named ? undefined : nodeNamed(nodes, String(target)) ?? undefined);
-      if (!node && required) throw new Error(`no view matches ${target} by testId, label or text${targetsIn(nodes)}${unopenedHint(nodes)}; tree lists live targets, and a virtualized list's row outside its window comes in by key: \`tap <list> into <key>\` (feed F10)${await s.inFlight()}`);
+      if (!node && required) throw new Error(`no view matches ${target} by testId, label or text${targetsIn(nodes)}${unopenedHint(nodes)}; tree lists live targets, and a virtualized list's row outside its window comes in by key: \`tap <list> into <key>\` (feed F10)${await s.inFlight()}${s.keptStore ? `; this drive kept the store \`${s.keptStore}\` from earlier drives, so the screen can show what they saved (a \`persist\` state): --reset-storage starts it empty` : ''}`);
       return node;
     },
     /** For a miss: the requests still in flight, whose answers may bring the view (authoring bench: a drive's first op ran before a stored list loaded). */
@@ -1400,9 +1400,9 @@ export async function main(argv, injected = {}) {
   // The device is resolved first, and the drive launches that one, so a default and its name are one lock.
   const locking = host !== 'web' && flags.storage !== undefined, appId = locking ? resolveApp(flags.app).id : null;
   const device = locking ? (injected.resolveDevice ?? resolveDevice)(host, flags, appId) : null; if (locking && !named && !fresh) noteDefaultStore({ host, device, appId, dir: resolveApp(flags.app).dir });
-  const s = locking
-    ? await (injected.exclusiveNativeStore ?? exclusiveNativeStore)({ host: host === 'mac' ? 'macos' : host, device, appId, storage: flags.storage }, launch)
-    : await launch();
+  // A miss names a kept store (`find`): the euxy port's `tap play` missed on a mode an earlier drive persisted.
+  const s = Object.assign(locking ? await (injected.exclusiveNativeStore ?? exclusiveNativeStore)({ host: host === 'mac' ? 'macos' : host, device, appId, storage: flags.storage }, launch)
+    : await launch(), locking && !fresh ? { keptStore: flags.storage } : {});
   let at = 0;
   // One op line; `perf … during "<op>" …` drives its own through here.
   const step = async (line) => { if (flags.widget || flags.activity) return widgetStep(s, flags.widget ?? flags.activity, line, flags.activity ? 'activity' : 'widget');
