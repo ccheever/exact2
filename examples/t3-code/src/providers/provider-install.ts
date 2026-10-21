@@ -35,7 +35,8 @@ export function providerRuntime(provider: Obj, entry: ProviderSetupEntry, enviro
   const remove = confirmDialogCopy(`Remove the downloaded Antigravity runtime from ${environmentLabel}? Google sign-in and thread history are kept.`);
   return {
     key: str(provider.instanceId), statusMessage,
-    progressValue: phase === 'downloading' && total !== null && total > 0 ? downloaded : 0, progressMax: phase === 'downloading' && total !== null && total > 0 ? total : 0,
+    // The wire does not cap downloaded bytes at the advertised total; the bar does.
+    progressValue: phase === 'downloading' && total !== null && total > 0 ? Math.min(downloaded, total) : 0, progressMax: phase === 'downloading' && total !== null && total > 0 ? total : 0,
     message: !installActive && message && message !== statusMessage ? message : '',
     customNote: usesCustomBinary, unavailableNote: !installed && !canInstall,
     token: `${phase}:${str(installation?.operationId)}`,

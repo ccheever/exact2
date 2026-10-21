@@ -10,6 +10,8 @@ use PvIconButton from "../settings/providers-kit.contract"
 use PvMicro from "../settings/providers-kit.contract"
 use PvIcon from "./provider-icons.contract"
 use CnTooltip from "../settings/settings-b-kit.contract"
+use providerAccentInk from "../shared/accent-ink.contract"
+use hoverTipAtFrame from "../shell/hover-layer.contract"
 use Tip from "../shell/shell-tip.contract"
 use ProviderAccentPicker from "./settings-b-accent.contract"
 use DriverMark from "./provider-icons-kit.contract"
@@ -218,7 +220,7 @@ component ProvidersPanel
                           DriverMark(driver=row.driver, size=16, initials=row.badge, icon=row.icon)
                           if row.accent != ""
                             box position="absolute" right="-0.125rem" bottom="-0.125rem" min-width="0.75rem" height="0.75rem" padding-left="0.125rem" padding-right="0.125rem" box-sizing="border-box" border-radius="624.9375rem" background-color=row.accent display="flex" align-items="center" justify-content="center"
-                              text row.badge font-size="0.4375rem" font-weight=600 line-height=1 color="#ffffff"
+                              text row.badge font-size="0.4375rem" font-weight=600 line-height=1 color=providerAccentInk(row.accent)
                         column flex=1 min-width=0 align-items="flex-start"
                           row width="100%" min-width=0 gap="0.5rem" align-items="center"
                             text row.name font-size="0.875rem" line-height="1.25rem" font-weight=500 color="light-dark(#27272a, #f5f5f5)" white-space="nowrap" overflow="hidden" text-overflow="ellipsis" min-width=0 flex-shrink=1
@@ -236,7 +238,7 @@ component ProvidersPanel
                           button press=op("provider-enabled", row.id, "", "inherit", true) aria-label=`Reset ${row.name} to environment setting` disabled=(busy or not page.enableWritable) testId=`provider-inherit-${row.id}` class=PvIconButton width="1.25rem" height="1.25rem" title="Use environment setting"
                             PvIcon(name="undo", size=12, color="light-dark(#71717b, #818181)")
                         button press=op("provider-enabled", row.id, "", (row.enabled ? "false" : "true"), true) role="switch" aria-checked=row.enabled aria-label=`Enable ${row.name}` disabled=(busy or not page.enableWritable) testId=`provider-enable-${row.id}` width="1.875rem" height="1.125rem" padding="0.125rem" border-width=0 border-radius="624.9375rem" box-sizing="border-box" display="flex" flex-direction="row" align-items="center" justify-content=(row.enabled ? "flex-end" : "flex-start") flex-shrink=0 background-color=(row.enabled ? "light-dark(#1b4ed8, #346bf1)" : "light-dark(#d4d4d8, #ffffff14)") title=""
-                          box width="0.875rem" height="0.875rem" border-radius="624.9375rem" background-color="light-dark(#fcfcfc, #0a0a0a)"
+                          box width="0.875rem" height="0.875rem" border-radius="624.9375rem" background-color=(row.enabled ? "light-dark(#fcfcfc, #0a0a0a)" : "light-dark(#fcfcfc, #818181)")
                   // The list's last row opens the same wizard.
                   if page.writable
                     AddProviderRow(divided=(page.rows.length > 0), busy=busy, open=ui("open", "add"))
@@ -256,7 +258,7 @@ component ProvidersPanel
             if page.macos
               PvRow(title="Cursor account usage", description="Read your existing Cursor CLI login from macOS Keychain to show account history and monthly limits. macOS may ask you to allow access.", status="", policy="", wide=(width - 34 >= 512), divided=false)
                 button press=op("provider-cursor-usage", "", "", (page.cursorUsage ? "false" : "true"), true) role="switch" aria-checked=page.cursorUsage aria-label="Cursor account usage" disabled=(busy or not page.settingsWritable) testId="cursor-account-usage" width="1.875rem" height="1.125rem" padding="0.125rem" border-width=0 border-radius="624.9375rem" box-sizing="border-box" display="flex" flex-direction="row" align-items="center" justify-content=(page.cursorUsage ? "flex-end" : "flex-start") background-color=(page.cursorUsage ? "light-dark(#1b4ed8, #346bf1)" : "light-dark(#d4d4d8, #ffffff14)") title=""
-                  box width="0.875rem" height="0.875rem" border-radius="624.9375rem" background-color="light-dark(#fcfcfc, #0a0a0a)"
+                  box width="0.875rem" height="0.875rem" border-radius="624.9375rem" background-color=(page.cursorUsage ? "light-dark(#fcfcfc, #0a0a0a)" : "light-dark(#fcfcfc, #818181)")
             if page.hubs.length == 0
               PvRow(title="No hubs configured.", description="", status="", policy="", wide=(width - 34 >= 512), divided=page.macos)
             for hub in page.hubs key=hub.id
@@ -576,6 +578,9 @@ component ProviderModels
 // One ProviderModelsSection row: star, name/slug/custom, capabilities, the
 // move arrows (not for hidden rows), custom edit/remove, and the picker switch.
 component ProviderModelLine
+  inject
+    rem: number
+    hoverTipAt: action
   props
     settingsWritable: bool
     model: ProviderModelRow
@@ -587,6 +592,10 @@ component ProviderModelLine
   state over = false
   action hover(which: string, inside: bool)
     tip = inside ? which : (tip == which ? "" : tip)
+  // The name's tooltip (TooltipPopup side="top" align="start") is the window's hover layer's, so the list's scroll area
+  // does not cut it, a hidden row's opacity does not fade it, and it opens after Base UI's delay.
+  action nameTip(inside: bool)
+    hoverTipAt(hoverTipAtFrame(`provider-model-name-tip-${model.slug}`, "model-name", model.name, (model.showSlug ? [model.slug] : []), "top", "start", frame(`provider-model-name-${instanceId}-${model.slug}`), 2.5 * rem, `provider-model-name-tip-${model.slug}`), "trigger", inside)
   action hoverRow(inside: bool)
     over = inside
   view
@@ -597,11 +606,13 @@ component ProviderModelLine
         if tip == "star"
           CnTooltip(tip=(model.favorite ? "Remove from favorites" : "Add to favorites"), tipId=`provider-model-star-tip-${model.slug}`, above=24)
       row flex=1 min-width=0 gap="0.5rem" align-items="baseline"
-        text model.name font-size="0.75rem" line-height="1rem" color=(model.hidden ? "light-dark(#71717b, #818181)" : "light-dark(#27272ae6, #f5f5f5e6)") line-clamp=1 min-width=0
-        if model.showSlug
-          text model.slug font-family="ui-monospace" font-size="0.6875rem" line-height="1rem" color="light-dark(#71717bb3, #828282b3)" line-clamp=1 min-width=0
+        // The name keeps its width and the slug truncates first; the tooltip (hover or focus) shows both whole.
+        row id=`provider-model-name-${instanceId}-${model.slug}` min-width=0 overflow="hidden" gap="0.5rem" align-items="baseline" tabindex=0 hover=nameTip focus=nameTip(true) blur=nameTip(false) testId=`provider-model-name-${model.slug}`
+          text model.name font-size="0.75rem" line-height="1rem" color=(model.hidden ? "light-dark(#71717b, #818181)" : "light-dark(#27272ae6, #f5f5f5e6)") line-clamp=1 max-width="100%" flex-shrink=0
+          if model.showSlug
+            text model.slug font-family="ui-monospace" font-size="0.6875rem" line-height="1rem" color="light-dark(#71717bb3, #828282b3)" line-clamp=1 min-width=0
         if model.custom
-          text "custom" font-size="0.6875rem" line-height="1rem" color="light-dark(#71717bb3, #828282b3)"
+          text "custom" flex-shrink=0 font-size="0.6875rem" line-height="1rem" color="light-dark(#71717bb3, #828282b3)"
       text model.capabilities font-size="0.6875rem" line-height="1rem" color="light-dark(#71717bb3, #828282b3)"
       row gap="0.125rem" align-items="center" justify-content="flex-end" flex-shrink=0 min-width="5.5rem"
         if model.moves
@@ -628,7 +639,7 @@ component ProviderModelLine
               CnTooltip(tip="Remove custom model", tipId=`provider-model-remove-tip-${model.slug}`, above=24)
       box position="relative" hover=hover("switch")
         button press=op("provider-model-hide", instanceId, model.slug, (model.hidden ? "false" : "true"), true) role="switch" aria-checked=(not model.hidden) aria-label=`Show ${model.name} in the model picker` disabled=(busy or not settingsWritable or model.custom) testId=`provider-model-visible-${model.slug}` width="1.625rem" height="1rem" padding="0.125rem" border-width=0 border-radius="624.9375rem" box-sizing="border-box" display="flex" flex-direction="row" align-items="center" justify-content=(model.hidden ? "flex-start" : "flex-end") flex-shrink=0 opacity=(model.custom ? 0.64 : 1) background-color=(model.hidden ? "light-dark(#d4d4d8, #ffffff14)" : "light-dark(#1b4ed8, #346bf1)") title=""
-          box width="0.75rem" height="0.75rem" border-radius="624.9375rem" background-color="light-dark(#fcfcfc, #0a0a0a)"
+          box width="0.75rem" height="0.75rem" border-radius="624.9375rem" background-color=((not model.hidden) ? "light-dark(#fcfcfc, #0a0a0a)" : "light-dark(#fcfcfc, #818181)")
         if tip == "switch"
           CnTooltip(tip=model.pickerTip, tipId=`provider-model-switch-tip-${model.slug}`, above=20)
 

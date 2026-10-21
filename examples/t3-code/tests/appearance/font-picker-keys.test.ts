@@ -55,6 +55,18 @@ describe('the font picker\'s search', () => {
     expect(calls).toEqual(['hide font-picker-interface', 'focus setting-interface-family', 'choose Georgia']);
   });
 
+  test('filtering lights, walks and picks matches that sat further down the full list (FontFamilyPicker.test.tsx)', () => {
+    // Rows are keyed by family, not by index, so a match that moves up the filtered list stays the one lit and picked.
+    const names = ['Arial', 'Courier New', 'Fira Code', 'Georgia', 'Helvetica', 'JetBrains Mono', 'Menlo', 'Times New Roman'];
+    const { lit, act, calls } = harness(names.map(name => ({ id: name.toLowerCase().replace(/ /g, '-'), label: name, value: name, detail: name, selected: false })));
+    act('search', 'co');
+    expect(lit()).toBe('courier-new');
+    act('searchKey', 'ArrowDown');
+    expect(lit()).toBe('fira-code');
+    act('pick');
+    expect(calls.at(-1)).toBe('choose Fira Code');
+  });
+
   test('the pointer lights the row under it', () => {
     const { lit, act } = harness();
     act('hoverRow', 'avenir', true);

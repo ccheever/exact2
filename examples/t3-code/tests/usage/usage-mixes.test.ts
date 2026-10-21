@@ -3,10 +3,11 @@
 import { expect, test } from 'bun:test';
 import { mergeUsage, presentUsage, emptyUsage, makeWindow } from '../../src/usage/pages-usage';
 import { costTypeSegments, shareBar, pageShares, modelRows, modelDetail, cacheHitRate, costPerMillionTokens, dialogPlotWidth } from '../../src/usage/pages-usage-detail';
-import { tableChanges, settingsPatch, aliasCell, priceCell, usagePricesLocal, presentPrices, applyPatch, parseUsagePriceForm, usagePriceForm, type Draft, type Target } from '../../src/usage/pages-usage-prices';
+import { tableChanges, settingsPatch, aliasCell, priceCell, usagePricesLocal, presentPrices, applyPatch, parseUsagePriceForm, usagePriceForm, isUsagePriceEdit, type Draft, type Target } from '../../src/usage/pages-usage-prices';
 import { formatUsd } from '../../src/usage/pages-usage';
 import type { Obj } from '../../src/client/domain';
 import type { T3Client } from '../../src/client/client';
+import { contractFns } from '../support/contract-fn-fixture';
 
 const totals = (input: number, cached: number, write: number, output: number) => ({ uncachedInputTokens: input, cachedInputTokens: cached, cacheCreationTokens: write, outputTokens: output, reasoningTokens: 0 });
 const bucket = (over: Obj): Obj => ({ day: '2026-10-01', provider: 'codex', model: 'gpt-6-astra', totals: totals(100, 900, 0, 50), costUsd: 2, cacheSavingsUsd: 1, costSource: 'modelPriced', records: 4, unpricedRecords: 0, sessions: 1, ...over });
@@ -125,6 +126,7 @@ test('the dialog keeps typed text: seeds hold while an input is on screen, and S
   expect(view.rows[1]!.error).toBe('Input is required on Mac.');
   usagePricesLocal(c, 'edit', 'new:initial:inputCostPerMillionTokens', '2');
   usagePricesLocal(c, 'edit', 'new:initial:outputCostPerMillionTokens', '8');
+  usagePricesLocal(c, 'edit', 'new:initial:outputCostPerMillionTokens', '8x'); // not a number: the draft keeps 8
   view = presentPrices(c);
   expect([view.rows[1]!.error, view.saveDisabled]).toEqual(['', false]);
   // Typing changed nothing an input shows, so nothing on screen is rewritten under the caret.
@@ -190,3 +192,18 @@ test('Set price closes the model dialog and opens Model prices with a row for th
 // take their colour from the appearance the window draws (light-dark(), as New task's X does), not from the scheme fact
 // alone: where the two disagree a fact-picked #f5f5f5 drew them white on the light dialog. Each glyph stays mounted
 // while its light-dark() paint follows the appearance.
+
+// usagePriceForm.test.ts "lets price cells take only numbers while typing": the TypeScript rule the draft keeps
+// and the Contract one the field's beforeinput applies agree on every case.
+const { usagePriceEdit } = contractFns('pages-usage-prices.contract', [], { range: (n: number) => [...Array(n).keys()] });
+test.each([['TypeScript', isUsagePriceEdit], ['Contract', usagePriceEdit as (previous: string, next: string) => boolean]] as const)('%s: price cells take only numbers while typing', (_name, edit) => {
+  for (const price of ['0.075', '.5', '15', '1e-7', ' 2.5 '])
+    for (let end = 1; end <= price.length; end++) expect(edit(price.slice(0, end - 1), price.slice(0, end))).toBe(true);
+  for (const next of ['a', '3a', '$3', '-1', '1.2.3', 'e', '1,000']) expect(edit('', next)).toBe(false);
+  // Deleting part of a price is never blocked; replacing it with a non-number is.
+  expect(edit('1e-7', 'e-7')).toBe(true);
+  expect(edit('1e-7', '1-7')).toBe(true);
+  expect(edit('1e-7', 'a7')).toBe(false);
+  expect(edit('2.5', 'x')).toBe(false);
+  expect(edit('123456', '1.2.3')).toBe(false);
+});
