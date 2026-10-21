@@ -1,4 +1,5 @@
-// The app's storage (Exact's `storage.fs`) in memory, for the attachment staging tests (not a test file). It refuses
+// The app's storage (Exact's `storage.fs`) in memory, for the attachment staging tests (not a test file): `released`
+// names the staged copies removed. It refuses
 // what the host refuses: copyFile and compressImage from a `doc:` path. compressImage "encodes" a 4×3 PNG, or fails
 // `undecodable` for bytes that start with "X" (no image).
 import type { Obj } from '../../src/client/domain';
@@ -12,12 +13,23 @@ export function png(width: number, height: number, extra = 0): Uint8Array {
   view.setUint32(16, width); view.setUint32(20, height);
   return bytes;
 }
+/** A JPEG's SOI and SOF0 at `width`×`height`. */
+export function jpeg(width: number, height: number): Uint8Array {
+  return new Uint8Array([0xff, 0xd8, 0xff, 0xc0, 0, 17, 8, height >> 8, height & 255, width >> 8, width & 255, 3, 1, 0x22, 0, 2, 0x11, 1, 3, 0x11, 1, 0xff, 0xd9]);
+}
+/** A GIF's header at `width`×`height`, then `extra` bytes. */
+export function gif(width: number, height: number, extra = 0): Uint8Array {
+  const bytes = new Uint8Array(13 + extra);
+  bytes.set([...'GIF89a'].map(char => char.charCodeAt(0)));
+  bytes.set([width & 255, width >> 8, height & 255, height >> 8], 6);
+  return bytes;
+}
 export const text = (value: string) => new TextEncoder().encode(value);
 
 const failure = (code: string) => Object.assign(new Error(code), { code });
 
 export function memoryFiles(entries: Record<string, Uint8Array | 'folder'> = {}) {
-  const store = new Map<string, Uint8Array>(), folders = new Set<string>(), compressed: Obj[] = [];
+  const store = new Map<string, Uint8Array>(), folders = new Set<string>(), compressed: Obj[] = [], removed: string[] = [];
   for (const [path, value] of Object.entries(entries)) if (value === 'folder') folders.add(path); else store.set(path, value);
   const read = (path: string) => { const bytes = store.get(path); if (!bytes) throw failure('ENOENT'); return bytes; };
   const fs = {
@@ -25,7 +37,8 @@ export function memoryFiles(entries: Record<string, Uint8Array | 'folder'> = {})
     async writeFile(path: string, bytes: Uint8Array) { store.set(path, new Uint8Array(bytes)); },
     async atomicWriteFile(path: string, bytes: Uint8Array) { store.set(path, new Uint8Array(bytes)); },
     async mkdir(path: string) { folders.add(path); },
-    async rm(path: string) { if (!store.delete(path) && !folders.delete(path)) throw failure('ENOENT'); },
+    async rm(path: string) { if (!store.delete(path) && !folders.delete(path)) throw failure('ENOENT'); removed.push(path); },
+    async readdir(path: string) { return [...store.keys()].filter(key => key.startsWith(`${path}/`) && !key.slice(path.length + 1).includes('/')).map(key => key.slice(path.length + 1)); },
     async stat(path: string) {
       if (folders.has(path)) return { size: 0, isFile: false, isDirectory: true, modifiedMs: 0 };
       return { size: read(path).byteLength, isFile: true, isDirectory: false, modifiedMs: 0 };
@@ -41,5 +54,7 @@ export function memoryFiles(entries: Record<string, Uint8Array | 'folder'> = {})
     },
   };
   adoptAppFiles({ fs });
-  return { fs, store, folders, compressed };
+  /** The staged copies (composer-files/<id>) removed, by id. */
+  const released = () => removed.filter(path => /^app:\/data\/composer-files\/[0-9a-f-]{36}$/.test(path)).map(path => path.slice(path.lastIndexOf('/') + 1));
+  return { fs, store, folders, compressed, removed, released };
 }

@@ -145,17 +145,25 @@ component ChatColumn
   provide
     tipEpoch
     tipArm
-  // ChatView's makeWorkspaceFileDropHandlers (workspaceFileDrop.ts): a drag of files over the column, its header too,
+  // ChatView's makeWorkspaceFileDropHandlers (workspaceFileDrop.ts) on the area under the header: a drag of files there
   // shows the drop overlay; a drop hides it and adds the files to the composer (addDroppedFiles, addDroppedFolders). A
-  // drag over the prompt is the column's, so the field inserts no path text (exact2 #845).
+  // drag over the prompt is the column's, so the field inserts no path text (exact2 #845). The column holds the header,
+  // whose box hears its own drag: over it the overlay hides and a drop there adds nothing, as the reference's header
+  // takes none.
   state fileDrag = false
+  state overHeader = false
   action fileDragEntered
     fileDrag = true
   action fileDragLeft
     fileDrag = false
+    overHeader = false
+  action headerDragged(over: bool)
+    overHeader = over
   action filesDropped(e: DragEvent)
     fileDrag = false
-    attachFiles("drop", e.files, [], false, "")
+    overHeader = false
+    if not overHeader
+      attachFiles("drop", e.files, [], false, "")
   // ChatComposer's hidden file input for Attach files (AttachButton's press opens its picker).
   action filesPicked(files: Picked[])
     attachFiles("pick", [], files, false, "")
@@ -283,7 +291,9 @@ component ChatColumn
   view
     column flex=1 min-width=0 min-height=0 height="100%" position="relative" z-index=1 inert=pageCover pointerdown=chatLocal("find-focus", "", "") dragenter=fileDragEntered dragleave=fileDragLeft drop=filesDropped hatch="t3-frame" data-frame="chat"
       input type="file" id="composer-attach-input" multiple=true display="none" change=filesPicked
-      ChatHeader(data=data, shell=shell, rightOpen=((rightPanel or data.diffOpen) and not narrowDiff), detailsOpen=(detailsOpen or (details.inline and canvas.cardShown)), menuOpen=titleMenuOpen, renaming=renaming, renameText=renameText, panel=panelUi, details=detailsAct, title=titleUi, command=command)
+      // z-index 20 here as on the header inside: z-index orders siblings only (LLP 1001), and the header's menus overhang the transcript.
+      box width="100%" flex-shrink=0 position="relative" z-index=20 dragenter=headerDragged(true) dragleave=headerDragged(false)
+        ChatHeader(data=data, shell=shell, rightOpen=((rightPanel or data.diffOpen) and not narrowDiff), detailsOpen=(detailsOpen or (details.inline and canvas.cardShown)), menuOpen=titleMenuOpen, renaming=renaming, renameText=renameText, panel=panelUi, details=detailsAct, title=titleUi, command=command)
       if threadFind.open
         box position="absolute" top=64 right=12 width=min(280, max(0, conversationWidth - 24)) z-index=39
           for focus in [threadFind.focus] key=focus
@@ -369,7 +379,7 @@ component ChatColumn
         ThreadDetailsInline(details=details, density=canvas.density, maxHeight=max(0, (canvas.ready ? canvas.cardHeight : viewport.height - 76) - (threadFind.open ? 48 : 0)), act=detailsAct, local=chatLocal, still=viewport.prefersReducedMotion, busy=commandPending, stopping=lineageStopping)
       // data-chat-workspace-drop-overlay: inset 8pt in the area under the 52pt header, over the transcript and the composer
       // (z-40), border-2 border-dashed border-primary/60 bg-primary/[0.035], its pill bg-background/95 with border-primary/25.
-      if fileDrag
+      if fileDrag and not overHeader
         column position="absolute" top=60 left=8 right=8 bottom=8 z-index=40 pointer-events="none" border-radius="1rem" border-width=2 border-style="dashed" border-color="light-dark(#1b4ed899, #346bf199)" background-color="light-dark(#1b4ed809, #346bf109)" align-items="center" justify-content="center" box-sizing="border-box" testId="chat-drop-overlay"
           row role="status" gap="0.5rem" align-items="center" padding-top="0.625rem" padding-bottom="0.625rem" padding-left="1rem" padding-right="1rem" border-radius="9999px" border-width=1 border-style="solid" border-color="light-dark(#1b4ed840, #346bf140)" background-color="light-dark(#fcfcfcf2, #0a0a0af2)" box-shadow="0 10px 15px -3px #0000001a, 0 4px 6px -4px #0000001a"
             svg width="1rem" height="1rem" viewBox="0 0 24 24" color="light-dark(#1b4ed8, #346bf1)" fill="none" stroke="currentColor" stroke-width=2 stroke-linecap="round" stroke-linejoin="round" flex-shrink=0 aria-hidden=true

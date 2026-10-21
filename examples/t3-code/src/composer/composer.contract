@@ -50,11 +50,10 @@ component CmpIcon
         path d="M11.525 2.295a.53.53 0 0 1 .95 0l2.31 4.679a2.123 2.123 0 0 0 1.595 1.16l5.166.756a.53.53 0 0 1 .294.904l-3.736 3.638a2.123 2.123 0 0 0-.611 1.878l.882 5.14a.53.53 0 0 1-.771.56l-4.618-2.428a2.122 2.122 0 0 0-1.973 0L6.396 21.01a.53.53 0 0 1-.77-.56l.881-5.139a2.122 2.122 0 0 0-.611-1.879L2.16 9.795a.53.53 0 0 1 .294-.906l5.165-.755a2.122 2.122 0 0 0 1.597-1.16z" fill=(name == "star-filled" ? "currentColor" : "none")
 
 // shouldHandleComposerAttachmentPaste (composerAttachmentFiles.ts) over a paste's `doc:` handles, which carry only
-// their names: an image of any type attaches, as does a paste with no text. A Finder copy carries the files' names as
-// its text, so a paste whose every line names one of its files attaches them rather than pasting the names.
+// their names: an image of any type attaches; other files attach only when the paste has no text, so a copy that
+// carries text beside a file (a Finder copy carries the file's name) pastes the text.
 fn composerPasteImage(path: string): bool = ["png", "jpg", "jpeg", "gif", "webp", "heic", "heif", "tif", "tiff", "bmp", "svg", "ico", "avif", "jxl"].includes(path.toLowerCase().split(".").slice(-1).join(""))
-fn composerPasteNamed(files: string[], text: string): bool = text.replaceAll("\u{d}", "\n").split("\n").map((line) => line.trim()).filter((line) => line != "" and not files.map((path) => path.slice(5).slice(path.slice(5).indexOf("/") + 1)).includes(line)).length == 0
-fn composerPasteTakesFiles(files: string[], text: string): bool = files.length > 0 and (files.filter((path) => composerPasteImage(path)).length > 0 or text == "" or composerPasteNamed(files, text))
+fn composerPasteTakesFiles(files: string[], text: string): bool = files.length > 0 and (files.filter((path) => composerPasteImage(path)).length > 0 or text == "")
 
 component ComposerCard
   inject
@@ -104,21 +103,23 @@ component ComposerCard
   action richBeforeInput(e: InputEvent)
     composerBeforeInput(e)
   action richKey(k: string, e: KeyboardEvent)
+    pasteAsText = false
     composerKeyEvent(k, e)
   action richKeyReleased(k: string, e: KeyboardEvent)
     composerKeyReleased(k, e)
   action richWrite(value: string, e: InputEvent)
     write(value, e)
-  // onComposerPaste: the paste's files attach (preventDefault keeps their names out of the prompt). Paste as Text
-  // (⇧⌘V, Edit › Paste as Text) presses the hidden `paste-as-text` key just before its paste (T3ComposerEditor.swift
-  // pasteAsText), as the reference's keydown arms consumePasteAsTextShortcut: its images get no inline chip.
+  // onComposerPaste: with a thread open, the paste's files attach (preventDefault keeps their names out of the
+  // prompt). Paste as Text (⇧⌘V, Edit › Paste as Text) presses the hidden `paste-as-text` key just before its paste
+  // (T3ComposerEditor.swift pasteAsText), as the reference's keydown arms consumePasteAsTextShortcut: its images get
+  // no inline chip. The next paste or key press disarms it, as the reference's deadline does.
   state pasteAsText = false
   action pasteAsTextArm
     pasteAsText = true
   action pasted(e: ClipboardEvent)
     let asText = pasteAsText
     pasteAsText = false
-    if composerPasteTakesFiles(e.files, e.text)
+    if data.projectId != "" and composerPasteTakesFiles(e.files, e.text)
       preventDefault()
       attachFiles("paste", e.files, [], asText, "")
   view

@@ -2,7 +2,8 @@ import AppKit
 import XCTest
 
 // Compile with T3ComposerAttach.swift and T3ImageFit.swift: what the module adds to a staged copy that TypeScript wrote
-// (composer-attach-stage.ts): a video's or audio file's typed link, a video's first frame, and their removal.
+// (composer-attach-stage.ts): a video's or audio file's typed link and a video's first frame. TypeScript removes them
+// (composer-staged-copies.ts).
 final class ComposerAttachTests: XCTestCase {
     private var root: URL!
 
@@ -21,7 +22,7 @@ final class ComposerAttachTests: XCTestCase {
     }
 
     // A staged video's tile shows its first frame (a PNG beside the image drafts) and its preview plays a typed link
-    // to the staged copy; removing the file takes both.
+    // to the staged copy.
     func testVideoGetsItsFirstFrameAndTypedLink() throws {
         let app = ProcessInfo.processInfo.environment["T3_APP_DIR"] ?? FileManager.default.currentDirectoryPath + "/examples/t3-code"
         let movie = URL(fileURLWithPath: app).appendingPathComponent("../../../apps/video-player/assets/motion.mp4").standardizedFileURL
@@ -37,10 +38,7 @@ final class ComposerAttachTests: XCTestCase {
         XCTAssertLessThanOrEqual(max(rep.pixelsWide, rep.pixelsHigh), 512)
         let link = root.appendingPathComponent("composer-files/\(id).mp4")
         XCTAssertTrue(FileManager.default.fileExists(atPath: link.path))
-        XCTAssertEqual(perform(attach, ["op": "composerAttachRemove", "id": id, "generation": 2])["ok"] as? Bool, true)
-        XCTAssertFalse(FileManager.default.fileExists(atPath: link.path))
-        XCTAssertFalse(FileManager.default.fileExists(atPath: poster.path))
-        XCTAssertFalse(FileManager.default.fileExists(atPath: root.appendingPathComponent("composer-files/\(id)").path))
+        XCTAssertEqual(attach.stagedFile(id)?.lastPathComponent, id, "a chip's preview reads the staged copy")
     }
 
     func testAudioGetsItsTypedLinkAndNoFrame() throws {

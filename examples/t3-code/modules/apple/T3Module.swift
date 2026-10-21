@@ -16,7 +16,7 @@ final class T3Module: ExactModule {
     let promptPreview = T3ComposerPreview()
     let intent: T3ComposerIntent // Send gestures and ⌘ state (T3ComposerIntent.swift).
     private let frames: T3ComposerFrames // Popover anchors in window space (T3ComposerFrames.swift).
-    let attach: T3ComposerAttach // Attached files' staged copies: their bytes at send, their removal, a video's first frame (T3ComposerAttach.swift).
+    let attach: T3ComposerAttach // A staged video's first frame and typed link (T3ComposerAttach.swift).
     private let media: T3MediaPreview // Attachment PDF and HTML bodies (T3MediaPreview.swift).
     private let mediaFocus = T3MediaFocus() // A press elsewhere takes the focus off a media node (T3MediaActions.swift).
     let devices: T3DeviceStreams // Device screens, input and screenshots (T3DeviceStream.swift).

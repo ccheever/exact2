@@ -3,15 +3,12 @@ import AppKit
 import AVFoundation
 import UniformTypeIdentifiers
 
-/// The staged copies of attached files. TypeScript stages a drop's, a paste's and Attach files' files
-/// (composer-attach-stage.ts): an image as a PNG draft beside SnapShot's, any other file within the server's limit in
-/// composer-files/. This answers what Exact's storage cannot: a video's first frame (AVFoundation) and the typed link a
-/// video or audio file plays from (`composerAttachMedia`); and, for the send's native upload (`uploadAttachment`), a
-/// staged copy's bytes as base64, read once (`composerAttachRead`), and its removal with its link and poster
-/// (`composerAttachRemove`).
+/// What Exact's storage cannot do for a staged copy of an attached file. TypeScript stages a drop's, a paste's and
+/// Attach files' files (composer-attach-stage.ts): an image as a draft beside SnapShot's, any other file within the
+/// server's limit in composer-files/, and reads and removes them (composer-staged-copies.ts). This makes a video's first
+/// frame (AVFoundation) and the typed link a video or audio file plays from (`composerAttachMedia`), and names a
+/// staged copy for a chip's preview (`stagedFile`).
 final class T3ComposerAttach {
-    /// PROVIDER_SEND_TURN_MAX_FILE_BYTES: no server limit stages more.
-    static let maxFileBytes = 50 * 1024 * 1024
     private let drafts: URL
     private let staged: URL
 
@@ -77,42 +74,16 @@ final class T3ComposerAttach {
         return url
     }
 
-    /// `composerAttachMedia`, `composerAttachRead` and `composerAttachRemove`.
+    /// `composerAttachMedia`.
     func perform(_ request: [String: Any], reply: @escaping ([String: Any]) -> Void) {
         let generation = request["generation"] as? Int ?? 0
         let fail = { (message: String) in reply(["ok": false, "generation": generation, "error": ["kind": "Attach", "message": message]]) }
-        switch request["op"] as? String {
-        case "composerAttachMedia":
-            guard let url = stagedURL(request), FileManager.default.fileExists(atPath: url.path) else { return fail("That attached file is unavailable.") }
-            let ext = request["ext"] as? String ?? "", video = request["video"] as? Bool ?? false
-            DispatchQueue.global(qos: .userInitiated).async {
-                let value = self.media(url, ext: ext, video: video)
-                DispatchQueue.main.async { reply(["ok": true, "generation": generation, "value": value]) }
-            }
-        case "composerAttachRead":
-            guard let url = stagedURL(request) else { return fail("That attached file is unavailable.") }
-            DispatchQueue.global(qos: .userInitiated).async {
-                let data = try? Data(contentsOf: url)
-                let value: [String: Any]
-                if let data, data.count > 0, data.count <= Self.maxFileBytes {
-                    value = ["ok": true, "generation": generation, "value": ["base64": data.base64EncodedString(), "sizeBytes": data.count]]
-                } else {
-                    value = ["ok": false, "generation": generation, "error": ["kind": "Attach", "message": "The attached file was not saved."]]
-                }
-                DispatchQueue.main.async { reply(value) }
-            }
-        case "composerAttachRemove":
-            if let url = stagedURL(request) {
-                try? FileManager.default.removeItem(at: url)
-                // A video's typed link and first frame go with it.
-                let id = url.lastPathComponent
-                for link in (try? FileManager.default.contentsOfDirectory(at: staged, includingPropertiesForKeys: nil)) ?? [] where link.lastPathComponent.hasPrefix("\(id).") {
-                    try? FileManager.default.removeItem(at: link)
-                }
-                try? FileManager.default.removeItem(at: drafts.appendingPathComponent("\(id).png"))
-            }
-            reply(["ok": true, "generation": generation, "value": ["removed": true]])
-        default: fail("Unknown attach operation.")
+        guard request["op"] as? String == "composerAttachMedia" else { return fail("Unknown attach operation.") }
+        guard let url = stagedURL(request), FileManager.default.fileExists(atPath: url.path) else { return fail("That attached file is unavailable.") }
+        let ext = request["ext"] as? String ?? "", video = request["video"] as? Bool ?? false
+        DispatchQueue.global(qos: .userInitiated).async {
+            let value = self.media(url, ext: ext, video: video)
+            DispatchQueue.main.async { reply(["ok": true, "generation": generation, "value": value]) }
         }
     }
 }

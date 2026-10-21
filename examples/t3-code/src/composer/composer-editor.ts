@@ -1,4 +1,5 @@
 import { composerInput } from './requests';
+import { removeStaged } from './composer-staged-copies';
 import { noteComposerFilePaths, refreshFileMetadata } from '../shared/file-metadata';
 // The shared field's source/selection feeds command menus and guarded edits.
 // Native sync supplies file-paste and notice channels; Contract draws the menus.
@@ -248,7 +249,7 @@ async function editorView(client: T3Client, native: Native | null | undefined, n
   const promptLimit = entry.limitArmed ? limit : '';
   const overLimit = limit !== '';
   const literal = composerInput(client)?.active?.initialAnswer !== undefined;
-  const draft = composerInput(client)?.custom ?? client.draft, key = client.draftKey, files = draftFiles(client.local);
+  const draft = composerInput(client)?.custom ?? client.draft, files = draftFiles(client.local);
   const fieldOwner = composerFieldOwner(client), snapshotOwner = client.snapshotOwner;
   const observed = composerFieldCurrent(client, fieldOwner);
   const mentioned = composerSourceSession(client);
@@ -268,7 +269,7 @@ async function editorView(client: T3Client, native: Native | null | undefined, n
     // A dropped attached file's staged copy goes with it (composer-editor-attach.ts).
     const current = composerFieldCurrent(client, composerFieldOwner(client));
     for (const dropped of pruneFiles(client.local, client.local.drafts, current?.value === '' ? '' : client.draftKey, files)) {
-      if (dropped.source === 'attached' && dropped.status === 'staged') await bridgeReply(native, { op: 'composerAttachRemove', id: dropped.id }).catch(() => undefined);
+      if (dropped.source === 'attached' && dropped.status === 'staged') await removeStaged(dropped.id);
     }
   }
   const owner = composerFieldOwner(client), field = composerFieldCurrent(client, owner), session = composerSourceSession(client);

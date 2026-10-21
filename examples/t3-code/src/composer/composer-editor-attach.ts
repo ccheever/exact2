@@ -4,8 +4,9 @@ import { requestComposerField } from './composer-field-request';
 // picked file is copied into the device's staged files (composer-attach-stage.ts) and
 // its inline file chip goes in at the caret (insertAttachmentReferences); the send
 // uploads it and binds it like a folded paste (composer-editor-files.ts).
+import { removeStaged } from './composer-staged-copies';
 import type { T3Client } from '../client/client';
-import { bridgeReply, type Native } from '../client/protocol';
+import type { Native } from '../client/protocol';
 import { obj, str, type Obj } from '../client/domain';
 import { contextId, contextLabel, contextLink, contextReferences, stripContextReferences } from './composer-editor-menu';
 import { MAX_FILE_BYTES, draftFiles, fileChipLink, fileStagingLimit, formatAttachmentSize, holdDraftFiles, referencedFiles, setDraftFiles, type DraftFile } from './composer-editor-files';
@@ -103,6 +104,6 @@ export function reservedAttachments(client: T3Client): number {
 }
 
 /** A staged copy no draft will reference (a pick past the attachment limit). */
-export async function releaseStagedFile(native: Native, file: Obj): Promise<void> {
-  if (file.kind === 'file' && str(file.id)) await bridgeReply(native, { op: 'composerAttachRemove', id: str(file.id) }).catch(() => undefined);
+export async function releaseStagedFile(_native: Native, file: Obj): Promise<void> {
+  if (file.kind === 'file' && str(file.id)) await removeStaged(str(file.id));
 }

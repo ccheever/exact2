@@ -69,6 +69,8 @@ const localPath = 'app:/data/t3-code.json';
 type Selection = { projectId: string; threadId: string };
 export type Pending = { method: string; payload: Obj; description: string; threadId: string; text: string; uncertain: boolean };
 const uncertainError = (pending: Pending) => `${pending.description} may have reached T3. Check the synchronized thread, then retry only if needed.`;
+/** The types a draft image is kept in: a capture's PNG, an attached image's own (composer-attach-stage.ts). */
+const DRAFT_IMAGE_TYPES = ['image/png', 'image/jpeg', 'image/gif', 'image/webp'];
 type Preferences = { selections: Record<string, Selection>; drafts: Record<string, string>; snapshotDrafts: Record<string, Obj[]>; snapshotReleases: string[]; sidebarWidth: number; sidebarOpen: boolean; pending: Record<string, Pending>; favoriteModels: string[]; groupingMode: string; lastGroupingMode?: string; clientSettings: ClientPrefs; customThemes: CustomTheme[]; groupingOverrides: Record<string, string>; composerControls: ComposerControlsPrefs; deviceSettings: { composerCollapseOnScroll: boolean; planModeEnabled: boolean; timestampFormat: string; appearanceMode: string; sendShortcut: string; snapShotShortcut: string; snapShotEnabled: boolean; snapShotIncludeAccessibility: boolean; snapShotPlaySound: boolean; snapShotSound: string; snapShotFlash: boolean; snapShotAnimations: boolean } };
 const preferences = (): Preferences => ({ selections: {}, drafts: {}, snapshotDrafts: {}, snapshotReleases: [], sidebarWidth: 256, sidebarOpen: true, pending: {}, favoriteModels: [], groupingMode: 'repository', clientSettings: decodeClientPrefs({}), customThemes: [], groupingOverrides: {}, composerControls: emptyComposerControls(), deviceSettings: { composerCollapseOnScroll: true, planModeEnabled: false, timestampFormat: 'locale', appearanceMode: 'system', sendShortcut: 'enter', snapShotShortcut: 'shift+shift', snapShotEnabled: false, snapShotIncludeAccessibility: true, snapShotPlaySound: true, snapShotSound: 'soft-pop', snapShotFlash: true, snapShotAnimations: true } });
 const scopeStrings = (value: unknown): string[] => Array.isArray(value) ? value.filter((entry): entry is string => typeof entry === 'string') : [];
@@ -254,7 +256,7 @@ export class T3Client {
       }
       next.snapshotReleases = scopeStrings(saved.snapshotReleases).filter(id => /^[a-f0-9-]{36}$/i.test(id));
       for (const [key, value] of Object.entries(obj(saved.snapshotDrafts))) {
-        next.snapshotDrafts[key] = arr(value).filter(image => /^[a-f0-9-]{36}$/i.test(str(image.id)) && image.mimeType === 'image/png' && num(image.sizeBytes) > 0 && num(image.sizeBytes) <= 10 * 1024 * 1024).slice(0, 100);
+        next.snapshotDrafts[key] = arr(value).filter(image => /^[a-f0-9-]{36}$/i.test(str(image.id)) && DRAFT_IMAGE_TYPES.includes(str(image.mimeType)) && num(image.sizeBytes) > 0 && num(image.sizeBytes) <= 10 * 1024 * 1024).slice(0, 100);
       }
       // DesktopWindow loads '/' on every launch; _chat.index opens the most recently active
       // project's draft. Selections are session state, while saved draft content still survives.
@@ -890,8 +892,10 @@ export class T3Client {
       if (!current()) throw new ClientError('The draft changed before upload.');
       let attachmentId = str(image.uploadId);
       if (!attachmentId) {
+        // A capture's PNG may still be over the edge; an attached image was fitted as it was staged (composer-attach-stage.ts).
+        const png = str(image.mimeType, 'image/png') === 'image/png';
         const bytes = await this.call(native, { op: 'snapshotDraftRead', id: image.id,
-          imageMaxEdge: image.downscalable === false ? 0 : IMAGE_ATTACHMENT_MAX_EDGE });
+          imageMaxEdge: image.downscalable === false || !png ? 0 : IMAGE_ATTACHMENT_MAX_EDGE });
         if (!current()) throw new ClientError('The draft changed before upload.');
         if (num(bytes.sizeBytes) > 0) image.sizeBytes = num(bytes.sizeBytes);
         const upload = await this.request(native, 'attachments.createUploadUrl', { type: 'image', name: image.name, mimeType: image.mimeType, sizeBytes: image.sizeBytes });
@@ -899,7 +903,7 @@ export class T3Client {
         if (!attachmentId || !str(upload.relativeUrl).startsWith('/api/attachments/upload/')) throw new ClientError('The server returned an invalid attachment upload.');
         try {
           if (!current()) throw new ClientError('The draft changed before upload.');
-          await this.call(native, { op: 'uploadAttachment', path: upload.relativeUrl, base64: bytes.base64 });
+          await this.call(native, { op: 'uploadAttachment', path: upload.relativeUrl, base64: bytes.base64, ...(png ? {} : { contentType: str(image.mimeType) }) });
           if (!current()) throw new ClientError('The draft changed during upload.');
           image.uploadId = attachmentId;
           await this.persist(storage);

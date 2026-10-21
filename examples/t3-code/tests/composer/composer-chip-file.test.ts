@@ -1,6 +1,8 @@
 // A composer file chip's press against T3 Code 1e2ecbd975 (MIT, LICENSE-T3): composerContextPresentation.tsx
 // FileContextChip (`openFile`), ChatComposer.tsx's `previewFileId` Dialog and files/AttachmentFilePreview.tsx with
 // origin "Draft", onRemove and onClose, over the draft's own bytes.
+import { memoryFiles, text } from '../support/app-files-fixture';
+import { STAGED } from '../../src/composer/composer-staged-copies';
 import { afterEach, describe, expect, test } from 'bun:test';
 import type { T3Client } from '../../src/client/client';
 import type { Obj } from '../../src/client/domain';
@@ -97,12 +99,13 @@ describe('a file chip\'s press opens AttachmentFilePreview over the draft\'s byt
   });
 
   test('Remove from draft removes the chip and its staged copy, and closes', async () => {
-    const { calls, native, client } = harness([file({})]);
+    const { native, client } = harness([file({})]);
+    const { released } = memoryFiles({ [`${STAGED}/${ID}`]: text('notes') });
     await performChipAct(client, native, { act: 'file', context: `file_${ID}` });
     await composerFileLocal(client, native, 'surface-linked-att-remove', ID);
     expect(client.local.drafts['env:t1']).toBe('see now');
     expect(client.local.composerFiles).toEqual([]);
-    expect(calls.some(call => call.op === 'composerAttachRemove' && call.id === ID)).toBe(true);
+    expect(released()).toEqual([ID.toLowerCase()]);
     expect((await composerFileView(client, native, 1)).open).toBe(false);
   });
 

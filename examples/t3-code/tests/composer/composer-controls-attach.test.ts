@@ -3,7 +3,8 @@ import { describe, expect, test } from 'bun:test';
 import { obj } from '../../src/client/domain';
 import { snapshot } from '../../src/client/presentation';
 import { observeComposer, acceptComposerEdit } from '../support/composer-field-fixture';
-import { connected } from '../support/composer-controls-fixture';
+import { connected, opened } from '../support/composer-controls-fixture';
+import { toasts } from '../../src/shell/toast';
 import { memoryFiles, png, text } from '../support/app-files-fixture';
 import { STAGED } from '../../src/composer/composer-attach-stage';
 
@@ -38,5 +39,14 @@ describe('attach files', () => {
     expect(client.error).toBe("'scan.tiff' is not a supported image type. Attach GIF, HEIC, HEIF, JPEG, PNG, or WebP images.");
     await command('cclocal:attach-files', 'pick', picks([]));
     expect(client.snapshotDrafts.length).toBe(1);
+  });
+  test('a pending question that takes no attachments refuses them (addComposerAttachments)', async () => {
+    const { client, command } = await opened();
+    client.projection.runtimeRequests = [{ id: 'q', kind: 'user_input', status: 'pending', responseCapability: { type: 'live' } }];
+    client.projection.turnItems = [{ id: 'q-item', type: 'user_input_request', requestId: 'q', questions: [{ id: 'one', question: 'Pick one', allowCustomAnswer: false, options: [{ label: 'A' }] }] }];
+    const { store } = memoryFiles({ 'app:/tmp/picked/1/notes.txt': text('notes') });
+    await command('cclocal:attach-files', 'pick', picks([{ path: 'app:/tmp/picked/1/notes.txt', name: 'notes.txt', type: 'text/plain', size: 5 }]));
+    expect(toasts(client).map(toast => toast.title)).toEqual(['This question cannot accept attachments.']);
+    expect([...store.keys()].filter(path => path.startsWith(`${STAGED}/`))).toEqual([]);
   });
 });

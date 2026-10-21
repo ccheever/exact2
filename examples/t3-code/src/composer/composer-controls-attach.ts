@@ -15,7 +15,8 @@ import { pushToast } from '../shell/toast';
 import { acceptAttachedFile, attachStagingLimit, imagesGetChips, insertFileChips, releaseStagedFile, reservedAttachments } from './composer-editor-attach';
 import { holdDraftFiles, type DraftFile } from './composer-editor-files';
 import { rememberVideoFrame } from './composer-attachments';
-import { handleSource, stageAttachment, type AttachSource } from './composer-attach-stage';
+import { handleSource, stageAttachment, statSource, type AttachSource } from './composer-attach-stage';
+import { requestPresentation } from './requests';
 import { composerFieldOwner } from './auto-balance-owner';
 
 export const MAX_ATTACHMENTS = 100; // PROVIDER_SEND_TURN_MAX_ATTACHMENTS
@@ -44,6 +45,12 @@ const pickedSource = (file: Obj): AttachSource => ({ path: str(file.path), name:
 export async function attachIncoming(client: T3Client, native: Native, origin: string, incoming: IncomingFiles): Promise<string> {
   const sources = [...incoming.files.map(handleSource), ...incoming.picked.map(pickedSource)];
   if (!sources.length) return '';
+  // A pending question takes attachments only with a custom answer the server lets carry them.
+  const question = requestPresentation(client).questions[0];
+  if (question && (obj(obj(client.config.environment).capabilities).questionAttachments !== true || !question.customAllowed || question.responding)) {
+    pushToast(client, { kind: 'error', title: 'This question cannot accept attachments.' });
+    return '';
+  }
   const imageChips = imagesGetChips(client) && !(origin === 'paste' && incoming.asText);
   const staged = await stageFiles(client, native, sources);
   // A pasted or picked folder is the reference's empty File.
@@ -58,11 +65,26 @@ export async function attachIncoming(client: T3Client, native: Native, origin: s
   return origin === 'paste' ? '' : 'focus:composer';
 }
 
-/** Each file staged as addAttachedFiles takes it, at most MAX_ATTACHMENTS; a draft that changes meanwhile lets them go. */
+/**
+ * Each file staged as addAttachedFiles takes it; a draft that changes meanwhile lets them go. The draft's free slots
+ * (countReservedAttachments) are counted before each file is prepared: one past them is `over-limit`, never staged.
+ * A folder is `folder`.
+ */
 export async function stageFiles(client: T3Client, native: Native, sources: AttachSource[]): Promise<Obj[]> {
   if (!client.projectId) throw new ClientError('Choose a project first.');
   const key = client.draftKey, limit = attachStagingLimit(client), staged: Obj[] = [];
-  for (const source of sources.slice(0, MAX_ATTACHMENTS)) staged.push(await stageAttachment(native, source, limit));
+  let room = MAX_ATTACHMENTS - reservedAttachments(client);
+  for (const source of sources) {
+    const stat = await statSource(source);
+    if (!stat) staged.push({ kind: 'unreadable', name: source.name, sizeBytes: 0 });
+    else if (stat.folder) staged.push({ kind: 'folder', name: source.name, path: source.path });
+    else if (room <= 0) staged.push({ kind: 'over-limit', name: source.name });
+    else {
+      const file = await stageAttachment(native, source, stat.size, limit);
+      if (file.kind === 'image' || str(file.id)) room -= 1;
+      staged.push(file);
+    }
+  }
   return key === client.draftKey ? staged : (await releaseStaged(client, native, staged), []);
 }
 
@@ -92,7 +114,7 @@ export async function addAttachedFiles(client: T3Client, native: Native, files: 
     for (const file of files) {
       if (!current()) { await releaseStaged(client, native, [file]); continue; }
       const name = str(file.name, 'file');
-      if (reserved >= MAX_ATTACHMENTS) {
+      if (reserved >= MAX_ATTACHMENTS || file.kind === 'over-limit') {
         await releaseStaged(client, native, [file]); // staged bytes nothing will reference
         error = `You can attach up to ${MAX_ATTACHMENTS} files per message.`; continue;
       }
@@ -100,9 +122,14 @@ export async function addAttachedFiles(client: T3Client, native: Native, files: 
       if (file.kind === 'unreadable') { error = `'${name}' is empty or could not be read.`; continue; }
       if (file.kind === 'image-unreadable') { error = `'${name}' could not be read as an image.`; continue; }
       if (file.kind === 'image-too-large') { error = `'${name}' is too large to attach, even after compression.`; continue; }
-      if (file.kind === 'file') { const staged = acceptAttachedFile(client, file); if (staged.file) { chips.push(staged.file); reserved += 1; rememberVideoFrame(client, file); } else error = staged.error; continue; }
+      if (file.kind === 'file') {
+        const staged = acceptAttachedFile(client, file);
+        if (staged.file) { chips.push(staged.file); reserved += 1; rememberVideoFrame(client, file); }
+        else { error = staged.error; await releaseStaged(client, native, [file]); }
+        continue;
+      }
       if (file.kind !== 'image' || !/^[a-f0-9-]{36}$/i.test(str(file.id))) { error = `'${name}' can't be attached here: this app attaches images only.`; continue; }
-      accepted.push({ id: str(file.id), name, mimeType: 'image/png', sizeBytes: num(file.sizeBytes),
+      accepted.push({ id: str(file.id), name, mimeType: str(file.mimeType, 'image/png'), sizeBytes: num(file.sizeBytes),
         ...(file.downscalable === false ? { downscalable: false } : {}) });
       reserved += 1;
     }

@@ -1,7 +1,7 @@
-// Files dropped on a legacy sidebar row (T3 Code 9c161462c9; MIT, see LICENSE-T3): LegacySidebar.tsx
-// SidebarThreadRow's makeWorkspaceFileDropHandlers and handleThreadFileDrop, sidebarPendingFileDropStore.ts,
-// ChatView.tsx's consumePendingFileDrop effect and ChatComposer addDroppedFiles. The row's `drop` (legacy-sidebar.contract
-// LegacyThread, which rings the row between `dragenter` and `dragleave`) queues the dropped files under the row's thread
+// Files dropped on a sidebar row (T3 Code 9c161462c9; MIT, see LICENSE-T3): SidebarThreadRow's
+// makeWorkspaceFileDropHandlers and handleThreadFileDrop (Sidebar.tsx, LegacySidebar.tsx), sidebarPendingFileDropStore.ts,
+// ChatView.tsx's consumePendingFileDrop effect and ChatComposer addDroppedFiles. The row's `drop` (sidebar-row.contract ThreadRow,
+// legacy-sidebar.contract LegacyThread; each rings the row between `dragenter` and `dragleave`) queues the dropped files under the row's thread
 // key; a row that is not the open thread's then opens its thread (the open thread's own row only queues). A drop of
 // folders alone queues and opens nothing (the row's addFolders does nothing). Once that thread is the open one, each
 // refresh takes its queued files (oldest first) and adds them as the composer's Attach does: images to the shelf, other
@@ -12,10 +12,9 @@
 import type { T3Client } from '../client/client';
 import type { Native } from '../client/protocol';
 import { letGo } from '../client/let-go';
-import { appFiles } from '../media/save-file';
 import { addAttachedFiles, releaseStaged, stageFiles, type IncomingFiles } from '../composer/composer-controls-attach';
-import { handleSource } from '../composer/composer-attach-stage';
-import { fleetThreadId } from '../connections/settings-b-fleet';
+import { handleSource, statSource } from '../composer/composer-attach-stage';
+import { fleetThreadId, parseFleetThreadId } from '../connections/settings-b-fleet';
 
 /** Rows keep their environment-qualified drop key when that environment becomes focused. */
 export function openThreadDropKeys(client: T3Client): string[] {
@@ -29,16 +28,18 @@ const queueOf = (client: T3Client) => { let queue = queues.get(client); if (!que
 export const rowDropKeys = (client: T3Client): string[] => queueOf(client).map(entry => entry.key);
 
 /**
- * queuePendingFileDrop for a row's drop (`target`: "<1 when the row is the open thread's>\t<thread id>\t<drop key>").
- * The answer "open:<thread id>" opens a row that is not the open thread's (app.contract filesAddedDone).
+ * queuePendingFileDrop for a row's drop, a legacy row's or a default sidebar row's (`target`: "<1 when the row is the
+ * open thread's>\t<thread id>\t<drop key>"; with no key, the thread id's on the focused environment, as a legacy row's
+ * is). The answer "open:<thread id>" opens a row that is not the open thread's (app.contract filesAddedDone).
  */
 export async function queueRowDrop(client: T3Client, target: string, incoming: IncomingFiles): Promise<string> {
-  const [open = '', threadId = '', key = ''] = target.split('\t');
+  const [open = '', threadId = '', given = ''] = target.split('\t');
+  const key = given || (threadId ? (parseFleetThreadId(threadId) ? threadId : fleetThreadId(client.environmentId, threadId)) : '');
   if (!key || !incoming.files.length) return '';
   const files: string[] = [];
   for (const path of incoming.files) {
-    const stat = await (appFiles().fs as unknown as { stat(path: string): Promise<{ isDirectory: boolean }> }).stat(path).catch(() => null);
-    if (stat && !stat.isDirectory) files.push(path); // splitDroppedItems: the files of a drop, without its folders
+    const stat = await statSource(handleSource(path));
+    if (stat && !stat.folder) files.push(path); // splitDroppedItems: the files of a drop, without its folders
   }
   if (!files.length) return '';
   queueOf(client).push({ key, files });

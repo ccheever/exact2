@@ -1,11 +1,13 @@
 // One attachment's staging, adapted from T3 Code 9c161462c9 (MIT; see LICENSE-T3): chat/composerAttachmentFiles.ts
 // (classifyComposerAttachmentFile, inferImageMimeTypeFromName), lib/imageCompression.ts (prepareImageForAttachment,
-// MAX_COMPRESSIBLE_SOURCE_BYTES) and packages/contracts chatAttachment.ts (PROVIDER_SEND_TURN_MAX_IMAGE_BYTES). A file
-// arrives as a `doc:` handle (a drop or a paste) or as a picked `app:/tmp/picked/` copy (Attach files). An image becomes
-// a PNG draft beside SnapShot's, which the shelf shows and the send uploads (client.ts uploadSnapshots): a PNG within
-// the edge and the byte limit keeps its bytes, any other image is encoded by `compressImage` as a PNG, which keeps its
-// alpha. A plain file within the server's limit is copied to `composer-files/<id>` for its chip; a video's or audio
-// file's typed link, and a video's first frame, are the module's (`composerAttachMedia`, T3ComposerAttach.swift).
+// compressImageToByteLimit, MAX_COMPRESSIBLE_SOURCE_BYTES) and packages/contracts chatAttachment.ts
+// (PROVIDER_SEND_TURN_MAX_IMAGE_BYTES). A file arrives as a `doc:` handle (a drop or a paste) or as a picked
+// `app:/tmp/picked/` copy (Attach files). An image becomes a draft beside SnapShot's, which the shelf shows and the send
+// uploads (client.ts uploadSnapshots): a PNG, JPEG, GIF or WebP within its limits keeps its bytes and type; a PNG or
+// JPEG over 2000 px is fitted in its own type; one over 10 MB, and a HEIC, is encoded by `compressImage`, as a PNG
+// when it can hold transparency and else as a JPEG (the reference's WebP has no encoder here). A plain file within the
+// server's limit is copied to `composer-files/<id>` for its chip; a video's or audio file's typed link, and a video's
+// first frame, are the module's (`composerAttachMedia`, T3ComposerAttach.swift).
 import { bridgeReply, type Native } from '../client/protocol';
 import type { Obj } from '../client/domain';
 import { appFiles } from '../media/save-file';
@@ -13,6 +15,8 @@ import { uuid } from '../transport/transport-wire';
 import { MAX_FILE_BYTES } from './composer-editor-files';
 import { videoMimeType } from './composer-video';
 import { IMAGE_ATTACHMENT_MAX_EDGE } from './image-attachment-size';
+import { DRAFTS, STAGED } from './composer-staged-copies';
+import { imageHeader } from './composer-image-header';
 
 /** One file to attach: its path, its name, and the MIME type its source recorded ("" when none did). */
 export type AttachSource = { path: string; name: string; type: string };
@@ -21,8 +25,7 @@ export const PROVIDER_SEND_TURN_MAX_IMAGE_BYTES = 10 * 1024 * 1024;
 export const MAX_COMPRESSIBLE_SOURCE_BYTES = 50 * 1024 * 1024;
 /** compressImage's largest `maxDimension`: a GIF or WebP keeps its size (the reference fits only PNG and JPEG). */
 const UNFITTED_EDGE = 8192;
-export const DRAFTS = 'app:/data/snapshots/drafts';
-export const STAGED = 'app:/data/composer-files';
+export { DRAFTS, STAGED } from './composer-staged-copies';
 const SCRATCH = 'app:/tmp/composer-stage';
 
 /** The app's storage operations staging uses (storage.d.ts). */
@@ -33,7 +36,7 @@ interface StageFiles {
   rm(path: string): Promise<unknown>;
   stat(path: string): Promise<{ size: number; isFile: boolean; isDirectory: boolean }>;
   copyFile(from: string, to: string): Promise<unknown>;
-  compressImage(from: string, to: string, options: { maxDimension: number; maxBytes: number; type: 'image/png' }): Promise<{ size: number }>;
+  compressImage(from: string, to: string, options: { maxDimension: number; maxBytes: number; type: 'image/png' | 'image/jpeg' }): Promise<{ size: number }>;
 }
 const files = (): StageFiles => (appFiles() as unknown as { fs: StageFiles }).fs;
 
@@ -86,14 +89,6 @@ export function handleSource(path: string): AttachSource {
   return { path, name, type: mimeTypeOfName(name) };
 }
 
-/** The pixel size in a PNG's IHDR, or null for bytes that are not a PNG. */
-export function pngSize(bytes: Uint8Array): { width: number; height: number } | null {
-  const signature = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
-  if (bytes.length < 24 || signature.some((byte, index) => bytes[index] !== byte)) return null;
-  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
-  return { width: view.getUint32(16), height: view.getUint32(20) };
-}
-
 async function mkdir(fs: StageFiles, path: string): Promise<void> { try { await fs.mkdir(path, { recursive: true }); } catch { /* it exists */ } }
 
 /** `from` copied to `to`: an app file in place, a document by its bytes (`doc:` paths refuse copyFile). */
@@ -105,39 +100,43 @@ async function copy(fs: StageFiles, from: string, to: string): Promise<void> {
 /** A name without path separators, for the scratch copy compressImage reads. */
 const scratchName = (name: string) => name.replace(/[/:\\]/g, '-').slice(0, 200) || 'image';
 
+/** fileNameForMimeType: the name with the extension of the type it was encoded as. */
+const renamed = (name: string, type: string) => `${name.replace(/\.[^.]*$/, '') || 'image'}.${type === 'image/png' ? 'png' : 'jpg'}`;
+
 /**
- * prepareImageForAttachment into a PNG draft: `{kind: "image", id, name, sizeBytes}` (`downscalable: false` for a GIF
- * or WebP, which the upload leaves at its size too), else `image-unreadable` or `image-too-large`.
+ * prepareImageForAttachment into a draft: `{kind: "image", id, name, mimeType, sizeBytes}` (`downscalable: false` for
+ * a GIF or WebP, which the upload leaves as it is), else `image-unreadable` or `image-too-large`. The draft is
+ * `drafts/<id>.png` whatever its type: its readers decode by content (T3SnapShot.swift).
  */
 async function stageImage(fs: StageFiles, source: AttachSource, size: number): Promise<Obj> {
-  const name = source.name, base = name.replace(/\.[^.]*$/, '') || 'image';
+  const name = source.name;
   if (size > MAX_COMPRESSIBLE_SOURCE_BYTES) return { kind: 'image-too-large', name, sizeBytes: size };
-  const type = isHeic(name, source.type) ? 'image/heic' : generic(source.type) ? IMAGE_MIME_BY_EXTENSION[extension(name)] ?? '' : source.type.toLowerCase();
-  const downscalable = type !== 'image/gif' && type !== 'image/webp';
   const id = uuid(), out = `${DRAFTS}/${id}.png`;
   let from = source.path, scratch = '';
   try {
     await mkdir(fs, DRAFTS);
-    let bytes: Uint8Array | null = null;
+    const bytes = new Uint8Array(await fs.readFile(from));
+    const header = imageHeader(bytes);
+    const fits = header?.type === 'image/png' || header?.type === 'image/jpeg';
+    const over = !!header && fits && Math.max(header.width, header.height) > IMAGE_ATTACHMENT_MAX_EDGE;
+    if (header && !over && bytes.byteLength <= PROVIDER_SEND_TURN_MAX_IMAGE_BYTES) {
+      await fs.writeFile(out, bytes);
+      return { kind: 'image', id, name, mimeType: header.type, sizeBytes: bytes.byteLength, ...(fits ? {} : { downscalable: false }) };
+    }
+    // fitImageToMaxEdge keeps a PNG or JPEG in its own type; a HEIC converts to JPEG; another over the byte limit is
+    // re-encoded, keeping transparency as PNG. compressImage reads app files only.
+    const type = !header ? (isHeic(name, source.type) ? 'image/jpeg' : 'image/png')
+      : header.type === 'image/jpeg' ? 'image/jpeg' : (header.type === 'image/png' && over) || header.alpha ? 'image/png' : 'image/jpeg';
     if (!from.startsWith('app:/')) {
-      // compressImage reads app files only.
-      bytes = new Uint8Array(await fs.readFile(from));
       scratch = `${SCRATCH}/${id}`;
       await mkdir(fs, scratch);
       from = `${scratch}/${scratchName(name)}`;
       await fs.writeFile(from, bytes);
-    } else if (type === 'image/png') bytes = new Uint8Array(await fs.readFile(from));
-    const png = bytes && pngSize(bytes);
-    let written: number;
-    if (bytes && png && Math.max(png.width, png.height) <= IMAGE_ATTACHMENT_MAX_EDGE && bytes.byteLength <= PROVIDER_SEND_TURN_MAX_IMAGE_BYTES) {
-      await fs.writeFile(out, bytes);
-      written = bytes.byteLength;
-    } else {
-      const encoded = await fs.compressImage(from, out, { maxDimension: downscalable ? IMAGE_ATTACHMENT_MAX_EDGE : UNFITTED_EDGE, maxBytes: PROVIDER_SEND_TURN_MAX_IMAGE_BYTES, type: 'image/png' });
-      written = encoded.size;
     }
-    return { kind: 'image', id, name: `${base}.png`, sizeBytes: written, ...(downscalable ? {} : { downscalable: false }) };
+    const encoded = await fs.compressImage(from, out, { maxDimension: !header || fits ? IMAGE_ATTACHMENT_MAX_EDGE : UNFITTED_EDGE, maxBytes: PROVIDER_SEND_TURN_MAX_IMAGE_BYTES, type });
+    return { kind: 'image', id, name: header?.type === type ? name : renamed(name, type), mimeType: type, sizeBytes: encoded.size };
   } catch (error) {
+    await fs.rm(out).catch(() => undefined);
     const code = String((error as { code?: unknown } | null)?.code ?? '');
     return { kind: code === 'unfit' || code === 'too-large' ? 'image-too-large' : 'image-unreadable', name, sizeBytes: size };
   } finally {
@@ -165,19 +164,17 @@ async function stageFile(fs: StageFiles, native: Native, source: AttachSource, s
   return file;
 }
 
+/** What a source is before staging: a folder, a file of its size, or unreadable. */
+export async function statSource(source: AttachSource): Promise<{ folder: boolean; size: number } | null> {
+  try { const stat = await files().stat(source.path); return { folder: stat.isDirectory, size: stat.size }; } catch { return null; }
+}
+
 /**
- * One file as addAttachedFiles takes it (`kind` image, file, unsupported-image, image-unreadable, image-too-large,
- * unreadable or folder). `fileLimit`: the server's file staging limit (attachStagingLimit).
+ * One file of `size` bytes as addAttachedFiles takes it (`kind` image, file, unsupported-image, image-unreadable,
+ * image-too-large or unreadable). `fileLimit`: the server's file staging limit (attachStagingLimit).
  */
-export async function stageAttachment(native: Native, source: AttachSource, fileLimit: number): Promise<Obj> {
-  const fs = files();
-  let size: number;
-  try {
-    const stat = await fs.stat(source.path);
-    if (stat.isDirectory) return { kind: 'folder', name: source.name, path: source.path };
-    size = stat.size;
-  } catch { return { kind: 'unreadable', name: source.name, sizeBytes: 0 }; }
+export async function stageAttachment(native: Native, source: AttachSource, size: number, fileLimit: number): Promise<Obj> {
   const kind = classifyAttachment(source.name, source.type);
   if (kind === 'unsupported-image') return { kind, name: source.name, sizeBytes: size };
-  return kind === 'image' ? stageImage(fs, source, size) : stageFile(fs, native, source, size, fileLimit);
+  return kind === 'image' ? stageImage(files(), source, size) : stageFile(files(), native, source, size, fileLimit);
 }

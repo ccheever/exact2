@@ -21,12 +21,11 @@ const fns = contractFns('composer.contract');
 const takes = fns.composerPasteTakesFiles as (files: string[], text: string) => boolean;
 
 describe('a paste into the composer (onComposerPaste)', () => {
-  test('an image of any type, or files with no text, attach; a Finder copy\'s names do too; text with a file stays text', () => {
+  test('an image of any type, or files with no text, attach; text beside a plain file stays text, a Finder copy\'s names too', () => {
     expect(takes(['doc:/1/image.png'], '')).toBe(true);
     expect(takes(['doc:/1/scan.TIFF'], 'some caption')).toBe(true);
     expect(takes(['doc:/1/notes.txt'], '')).toBe(true);
-    expect(takes(['doc:/1/notes.txt'], 'notes.txt')).toBe(true);
-    expect(takes(['doc:/1/a.txt', 'doc:/2/b c.md'], 'a.txt\rb c.md')).toBe(true);
+    expect(takes(['doc:/1/notes.txt'], 'notes.txt')).toBe(false);
     expect(takes(['doc:/1/notes.txt'], 'hello world')).toBe(false);
     expect(takes([], '')).toBe(false);
   });
@@ -34,7 +33,7 @@ describe('a paste into the composer (onComposerPaste)', () => {
   test('a paste of files is prevented and attached, Paste as Text armed by its key; a text paste is the field\'s', () => {
     const card = contractComponent('composer.contract', 'ComposerCard'), state = card.state();
     const calls: unknown[][] = [];
-    const scope = { ...fns, preventDefault: () => calls.push(['preventDefault']), attachFiles: (...args: unknown[]) => calls.push(['attachFiles', ...args]) };
+    const scope = { ...fns, data: { projectId: 'p1' }, composerKeyEvent: () => {}, preventDefault: () => calls.push(['preventDefault']), attachFiles: (...args: unknown[]) => calls.push(['attachFiles', ...args]) };
     card.call('pasted', state, scope, [{ files: [], text: 'hello' }]);
     expect(calls).toEqual([]);
     card.call('pasted', state, scope, [{ files: ['doc:/1/image.png'], text: '' }]);
@@ -42,15 +41,27 @@ describe('a paste into the composer (onComposerPaste)', () => {
     card.call('pasteAsTextArm', state, scope, []);
     card.call('pasted', state, scope, [{ files: ['doc:/1/image.png'], text: '' }]);
     expect(calls.at(-1)).toEqual(['attachFiles', 'paste', ['doc:/1/image.png'], [], true, '']);
-    // Each paste consumes the arming, as consumePasteAsTextShortcut does.
+    // Each paste consumes the arming, as consumePasteAsTextShortcut does, and so does a key press.
     expect(state.pasteAsText).toBe(false);
+    card.call('pasteAsTextArm', state, scope, []);
+    card.call('richKey', state, scope, ['a', {}]);
+    card.call('pasted', state, scope, [{ files: ['doc:/1/image.png'], text: '' }]);
+    expect(calls.at(-1)).toEqual(['attachFiles', 'paste', ['doc:/1/image.png'], [], false, '']);
+    // With no thread open (no project), a paste is the field's.
+    const before = calls.length;
+    card.call('pasted', state, { ...scope, data: { projectId: '' } }, [{ files: ['doc:/1/image.png'], text: '' }]);
+    expect(calls.length).toBe(before);
   });
 });
+
+/** The overlay's `if` in ChatColumn's view, read over the column's state (its other derives need the whole snapshot). */
+const overlayLine = readFileSync(appPath('app-main.contract'), 'utf8').split('\n').map(line => line.trim()).find(line => line.startsWith('if fileDrag'))!;
+const overlay = (state: Env) => value(overlayLine.slice(3), state) as boolean;
 
 describe('a drop on the chat column (makeWorkspaceFileDropHandlers)', () => {
   test('the overlay shows from dragenter until dragleave or the drop, which attaches the files', () => {
     // Only the drop's slot: the column's others hold shapes this fixture does not construct.
-    const column = contractComponent('app-main.contract', 'ChatColumn'), state: Env = { fileDrag: false };
+    const column = contractComponent('app-main.contract', 'ChatColumn'), state: Env = { fileDrag: false, overHeader: false };
     const calls: unknown[][] = [];
     const scope = { attachFiles: (...args: unknown[]) => calls.push(args) };
     column.call('fileDragEntered', state, scope, []);
@@ -60,6 +71,15 @@ describe('a drop on the chat column (makeWorkspaceFileDropHandlers)', () => {
     column.call('fileDragEntered', state, scope, []);
     column.call('filesDropped', state, scope, [{ files: ['doc:/1/notes.txt', 'doc:/2/src'] }]);
     expect(state.fileDrag).toBe(false);
+    // Over the header the overlay hides and a drop there attaches nothing (the reference's target is under the header).
+    column.call('fileDragEntered', state, scope, []);
+    column.call('headerDragged', state, scope, [true]);
+    expect(overlay(state)).toBe(false);
+    column.call('headerDragged', state, scope, [false]);
+    expect(overlay(state)).toBe(true);
+    column.call('headerDragged', state, scope, [true]);
+    column.call('filesDropped', state, scope, [{ files: ['doc:/9/ignored.txt'] }]);
+    expect([state.fileDrag, state.overHeader]).toEqual([false, false]);
     column.call('filesPicked', state, scope, [[{ path: 'app:/tmp/picked/1/a.txt', name: 'a.txt', type: 'text/plain', size: 1 }]]);
     expect(calls).toEqual([['drop', ['doc:/1/notes.txt', 'doc:/2/src'], [], false, ''], ['pick', [], [{ path: 'app:/tmp/picked/1/a.txt', name: 'a.txt', type: 'text/plain', size: 1 }], false, '']]);
   });
@@ -75,5 +95,22 @@ describe('a drop on a legacy row (handleThreadFileDrop)', () => {
     row.call('filesDropped', state, scope, [{ files: ['doc:/1/notes.txt'] }]);
     expect(state.fileDrag).toBe(false);
     expect(calls).toEqual([['row', ['doc:/1/notes.txt'], [], false, '0\tthread-2\tfleet:local:thread-2']]);
+  });
+});
+
+describe('a drop on a default sidebar row (Sidebar.tsx SidebarThreadRow)', () => {
+  test('a drag rings the row; a drop names the row and whether it is open; a draft row takes none', () => {
+    const row = contractComponent('sidebar-row.contract', 'ThreadRow'), state: Env = { fileDrag: false };
+    const calls: unknown[][] = [];
+    const scope = { t: { id: 't-2', draft: false }, isOpen: true, attachFiles: (...args: unknown[]) => calls.push(args) };
+    row.call('fileDragged', state, scope, [true]);
+    expect(state.fileDrag).toBe(true);
+    row.call('filesDropped', state, scope, [{ files: ['doc:/1/notes.txt'] }]);
+    expect(state.fileDrag).toBe(false);
+    expect(calls).toEqual([['row', ['doc:/1/notes.txt'], [], false, '1\tt-2\t']]);
+    const draft = { ...scope, t: { id: 'd-1', draft: true } };
+    row.call('fileDragged', state, draft, [true]);
+    row.call('filesDropped', state, draft, [{ files: ['doc:/1/notes.txt'] }]);
+    expect([state.fileDrag, calls.length]).toEqual([false, 1]);
   });
 });

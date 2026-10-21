@@ -821,14 +821,14 @@ describe('row drop ownership during an environment handoff', () => {
   });
   test('navigation while the files are staged releases them instead of attaching to the new draft', async () => {
     const { client, native, ops } = rig();
-    const { fs } = memoryFiles({ 'doc:/1/notes.txt': text('notes') });
+    const { fs, released } = memoryFiles({ 'doc:/1/notes.txt': text('notes') });
     await dropOn(client, 'fleet:local:thread-1', ['doc:/1/notes.txt'], 'thread-1', true);
     const stat = fs.stat;
     fs.stat = async (path: string) => { client.threadId = 'thread-2'; return stat(path); };
     expect(await takeRowDrops(client, native)).toBe(false);
     expect(draftFiles(client.local)).toEqual([]);
     expect(opsOf(ops, 'editorInsert')).toEqual([]);
-    expect(opsOf(ops, 'composerAttachRemove')).toHaveLength(1);
+    expect(released()).toHaveLength(1);
   });
   test('a drop abandoned for another thread cannot attach on a later visit to it', async () => {
     const { client, native } = rig();
