@@ -292,6 +292,8 @@ package final class Runtime {
             return read(exact_prepare_module(rt, token, plan.count, module.receipt.count, module.bytecode.count, Float(width), Float(height), letGo ? 1 : 0))
         }
     }
+    /// Activates the data source without committing (`exact_prepare_data`); run it on the owner.
+    package func prepareData() { on { exact_prepare_data(rt) } }
     package func dataReady() -> Batch { on { read(exact_data_ready(rt)) } }
     package func storeChanged(retryOnly: Bool = false) -> Batch { on { read(exact_store_changed(rt, retryOnly ? 1 : 0)) } }
     package func discardPlan() { on { exact_discard_plan(rt) } }

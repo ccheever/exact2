@@ -624,6 +624,17 @@ impl<D: DataSource> Bridge<D> {
         }
     }
 
+    /// The presenter has painted this session: evaluate the deferred logic
+    /// without committing it (`Host::prepare_data`); `data_ready` commits.
+    pub fn prepare_data(&mut self) {
+        if self.host.is_none() {
+            return;
+        }
+        self.painted = true;
+        self.adopt_app_module();
+        self.host.as_mut().expect("checked").prepare_data();
+    }
+
     /// The presenter has painted this session; deferred logic can now load.
     pub fn data_ready(&mut self) -> u32 {
         if self.host.is_none() {

@@ -357,12 +357,15 @@ public final class ExactSession {
     /// Bumped by every reboot; a callback from an older generation is dropped.
     public private(set) var generation = 0
     let storeRefresh = SessionStoreRefresh()
-    private var activatedGeneration: Int?
+    var activatedGeneration: Int?
     /// The generation whose deferred data has activated (or failed to): the
     /// agent's `clock data` waits for it before a test's first step.
-    private var dataGeneration: Int?
+    var dataGeneration: Int?
     var dataActivated: Bool { dataGeneration == generation }
-    private var pendingActivation: (generation: Int, token: UInt64)? // retried on the session's wake
+    var pendingActivation: (generation: Int, token: UInt64)? // retried on the session's wake
+    /// The generation whose data source `prepareData` activated on the owner, and whether it still runs there.
+    var preparedGeneration: Int?, dataPreparing = false
+    var nativesOpened: Int? // the generation whose native views may attach (LLP 1024 D3)
     private var updateToken: UInt64 = 0, receipt: DrawReceipt?
     package let core: SessionCore
     package var runtime: Runtime { core.runtime }
@@ -388,7 +391,7 @@ public final class ExactSession {
     /// The voice table's output (LLP 1096 D8); settable for tests.
     lazy var sound = SoundOutput(self)
     lazy var midi = MIDIOutput(self)
-    private var activityOutput: ActivityOutput?
+    var activityOutput: ActivityOutput?
     package let frames: Frames
     /// A development session's presented frames (LLP 1079 D3); a production bake has none.
     var sampler: FrameSampler?
@@ -1229,41 +1232,6 @@ public final class ExactSession {
         if let receipt, receipt.generation == generation, receipt.token == updateToken { return receipt }
         let made = DrawReceipt(self, generation: generation, token: updateToken); receipt = made
         return made
-    }
-
-    func firstDrawn(generation drawnGeneration: Int, token: UInt64) {
-        guard state != .destroyed, generation == drawnGeneration else { return }
-        if firstDrawMs == nil { firstDrawMs = ExactEnv.wall() }
-        app.sharedStore.firstPixel()
-        guard activatedGeneration != drawnGeneration else { return }
-        activatedGeneration = drawnGeneration
-        DispatchQueue.main.async { [weak self] in
-            guard let self, state != .destroyed, generation == drawnGeneration else { return }
-            // Prepare before any source calls the module (LLP 1067.000 D8).
-            natives.prepareAppModule(); presenter.releaseLaunchAutofocus() // the next turn, never waiting on a loading source
-            restoreKeptDocuments() // before any answer reads a kept document (LLP 1069.010.000 D4)
-            let batch = runtime.dataReady()
-            if batch.pending {
-                pendingActivation = (drawnGeneration, token) // the generation stays activated: only the source's wake retries
-                return
-            }
-            appFileRoots = AppFiles.learn(runtime) // the roots storage configured
-            apply(batch)
-            dataGeneration = drawnGeneration
-            activityOutput?.drain()
-            storeRefresh.activated = { [weak self] in
-                guard let self, state != .destroyed, generation == drawnGeneration else { return }
-                presenter.collections.dataReady(); app.firstPixel(token)
-            }
-            storeRefresh.record(batch)
-            retryStoreActivation()
-            canvases.loadIfNeeded()
-            natives.activateAfterCommit { [weak self] in self.map { $0.state != .destroyed && $0.generation == drawnGeneration } ?? false } // @ref LLP 1024 D3
-            drainSurfaceWork()
-            frames.run(frames.motion || canvases.wantsFrames)
-            frames.run(frames.motion || frames.timerSoon || canvases.wantsFrames)
-            Owner.shared.releaseIdleStack() // after the data's batch: the deepest the boot goes
-        }
     }
 
     /// Drawn once per launch; the same across a dev reload's new runner.

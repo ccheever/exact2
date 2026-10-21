@@ -684,6 +684,13 @@ screen, 2026-10-16.)
   which the port dropped as noise. Fix: keep the wrapper (`view`), or drop the
   `align-self`.
 
+**Shape data in the source, not at the top of `app.ts`.** A React Native app often
+maps its whole catalog when the bundle loads. In `app.ts` that top level runs after
+first pixel, and every answer waits for it: Brooks' `catalog.products.map(product)`
+over a 2 MB JSON catalog took 314 ms in Hermes on an iPhone 17 Pro Max, where Bun
+takes 60 ms. Shape what a source answers in that source, or once on its first call.
+The journal names a top level slower than 50 ms.
+
 ## Actions
 
 - **A send reads a derive from before the action's writes.** An action's writes

@@ -414,6 +414,10 @@ uint32_t exact_commit_plan(ExactRuntime rt);
  * Requests in flight refuse it (`"requests":true`) unless let_go, nonzero
  * only for a dev generation past its settle window (LLP 1007 §6). */
 uint32_t exact_prepare_module(ExactRuntime rt, uint64_t token, size_t plan, size_t receipt, size_t module, float width, float height, uint32_t let_go);
+/* After first pixel: activate the data source (evaluate a TypeScript module)
+ * without committing, so a presenter can run it off its own thread before
+ * exact_data_ready. Optional; a no-op once activated. */
+void exact_prepare_data(ExactRuntime rt);
 /* Call after first pixel, never as a prerequisite to painting the baked frame. */
 uint32_t exact_data_ready(ExactRuntime rt);
 /* A peer committed to the shared store. Does not activate before first pixel. */
