@@ -14,11 +14,13 @@ import WebKit
 ///   load-failed page words it as the reference does; WebKit's own code stays the code.
 /// - Refresh is `reload()` also while loading ("Stop" in the reference only names the button: its
 ///   `PreviewManager.refresh` reloads); a reload during the first load asks for the pending URL again.
-/// - Permissions (BrowserSession.ts ALLOWED_PREVIEW_PERMISSIONS: clipboard-read, clipboard-sanitized-write,
-///   notifications, geolocation; the rest denied). WebKit asks the delegate only for the camera and the
-///   microphone, which are denied. Clipboard writes need a user gesture and clipboard reads show WebKit's own
-///   paste confirmation; WKWebView has no Notification API and asks no delegate for geolocation (this app
-///   declares no location use), so those two are unavailable, a declared difference (exact2 #100).
+/// - Permissions (BrowserSession.ts ALLOWED_PREVIEW_PERMISSIONS at 74541bab17: clipboard-read,
+///   clipboard-sanitized-write, geolocation; the rest denied, notifications included, so a page cannot post a
+///   notification branded as the app). WebKit asks the delegate only for the camera and the microphone, which are
+///   denied. Clipboard writes need a user gesture and clipboard reads show WebKit's own paste confirmation. A page has
+///   the Notification API, but no public delegate grants its permission, so `requestPermission()` answers "denied"
+///   and nothing is posted (measured on macOS 26). WebKit asks no delegate for geolocation either (this app declares
+///   no location use), so geolocation is unavailable, a declared difference (exact2 #100).
 /// - Pop-ups (`createWebViewWith`): a scripted window (`window.open` with window features) to an http(s) URL
 ///   opens a real window that keeps its opener (OAuth sign-ins post back to it), whose own pop-ups are refused;
 ///   a `target=_blank` link opens another tab of the thread, a blank window is denied, and a custom scheme asks

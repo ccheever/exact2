@@ -452,7 +452,8 @@ extension T3BrowserSessions {
                 guard let image, let png = T3BrowserArtifacts.png(image) else {
                     // CAPTURE_PAGE_RETRY_ATTEMPTS 3, 120 ms apart.
                     if attempts < 3 { return DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(120)) { attempt() } }
-                    return refuse("Screenshot", error?.localizedDescription ?? "The page could not be captured.")
+                    // `CapturePage`: the data module words it as the reference's capture-page failure (captureErrors.ts).
+                    return refuse("CapturePage", error?.localizedDescription ?? "The page could not be captured.")
                 }
                 let now = Date(), id = "browser-screenshot-\(T3BrowserArtifacts.slug(url))-\(T3BrowserArtifacts.millis36(now))-\(UUID().uuidString.lowercased().prefix(8))"
                 let folder = self.artifactDirectory, target = folder.appendingPathComponent("\(id).png")

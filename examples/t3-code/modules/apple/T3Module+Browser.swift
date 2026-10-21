@@ -34,6 +34,8 @@ extension T3Module: T3BrowserSessionOwner {
         browserSessions.created = { [weak browserAutomation] session in browserAutomation?.prepare(session) }
         browserSessions.ended = { [weak browserAutomation] id in browserAutomation?.forget(id) }
         browserAutomation.changed = { [weak browserSessions] in browserSessions?.publish() }
+        browserSessions.windowZoom = { [weak menus] in menus?.zoomFactor ?? 1 }
+        menus.zoomed = { [weak browserSessions] in browserSessions?.publish() }
         let reply = { (done: @escaping ([String: Any]) -> Void) -> T3Link.Done in
             { failure, value in done(failure.map { ["ok": false, "error": $0.json] } ?? ["ok": true, "value": value ?? NSNull()]) }
         }

@@ -261,7 +261,7 @@ describe('BrowserStage page size (clone)', () => {
       bvClamp: await contractFn(file, 'bvClamp', ['v'], math), bvLockedWidth: await contractFn(file, 'bvLockedWidth', ['w', 'ratio'], math),
       bvLockedHeight: await contractFn(file, 'bvLockedHeight', ['h', 'ratio'], math) };
     const stage = contractComponent(file, 'BrowserStage');
-    const view = { viewportMode: 'preset', zoomFactor: 1.25, viewportWidth: 390, viewportHeight: 844, aspectLocked: false, viewportKey: 'preset:390:844:iphone-12-pro', viewportSerial: 0 };
+    const view = { viewportMode: 'preset', zoomFactor: 1.25, windowZoom: 1, server: false, viewportWidth: 390, viewportHeight: 844, aspectLocked: false, viewportKey: 'preset:390:844:iphone-12-pro', viewportSerial: 0 };
     const derived = (state: Record<string, unknown>, v: Record<string, unknown>, pw = 620, ph = 560) => stage.derives(state, { ...fns, view: v, pw, ph, urlFocused: false });
     const at125 = derived(stage.state(), view);
     expect(at125.pageSize).toBe('390x844');
@@ -270,7 +270,11 @@ describe('BrowserStage page size (clone)', () => {
     const dragging = { ...stage.state(), dragDir: 'east', dragX: 37, dragY: 0 };
     expect(derived(dragging, view).pageSize).toBe(`${derived(dragging, view).liveW}x844`);
     expect(derived(stage.state(), { ...view, viewportMode: 'fill' }).pageSize).toBe('');
+    // The window zoomed to 125% (resolveBrowserLayoutZoomFactor): the box is laid out at the page's zoom over it, so it
+    // keeps its size on screen; a server tab's stream keeps its own zoom.
+    expect(derived(stage.state(), { ...view, windowZoom: 1.25 })).toMatchObject({ z: 1, pageSize: '390x844' });
+    expect(derived(stage.state(), { ...view, windowZoom: 1.25, server: true }).z).toBe(1.25);
     const page = (await Bun.file(appPath(file)).text()).split('\n').find(line => line.trim().startsWith('t3-browser '))!;
-    expect(page).toContain('fit-scale=`${scale}` page-size=pageSize');
+    expect(page).toContain('fit-scale=`${scale}` page-size=pageSize window-zoom=`${view.windowZoom}`');
   });
 });
