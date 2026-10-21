@@ -1,5 +1,5 @@
 // LLP 1139 §5 E's fixture app (scripts/stage12-gate.mjs drives it): every
-// exported component of @exact/cards and @exact/actions, once per value of
+// exported component of @exact/cards, @exact/actions and @exact/lists, once per value of
 // each variant prop as the compiler marks them (D5: a bool or enum a class
 // condition or a style row's ?: or match reads), one varied at a time (the
 // others at their first value; a bool's first is false), and a component
@@ -14,14 +14,18 @@
 // `if`, `for` or `match` in this view: every cell renders.
 use PostCard, AtCard from "@exact/cards"
 use ActionRow, PostButton from "@exact/actions"
+use ListRow, SwitchRow from "@exact/lists"
 
 component App
   state glyph = "A"
   state pressed = 0
+  state switched = false
   action toggle
     glyph = (glyph == "A" ? "B" : "A")
   action press
     pressed = pressed + 1
+  action flip(on: bool)
+    switched = on
   view
     scroll testId="root" flex=1 background-color="gate.ground"
       column gap=12 padding-bottom=40
@@ -65,3 +69,15 @@ component App
           PostButton(id="sample-pb-reply", label="Post", reply=true, disabled=false, press=press)
           PostButton(id="sample-pb-disabled", label="Post", reply=false, disabled=true, press=press)
         AtCard(id="at-base", href="https://fixture.attie.site/garden", title="A garden plan", description="Beds, paths and what grows where.", thumb="", atName="Eli Brandt", atHandle="@eli.fixture.invalid", atAvatar="")
+        // The lists' rows sit in a grouped list's section, as the platform's
+        // list cells do (LLP 1084): each accessory and a destructive row are
+        // samples (structure and an attribute, no recipe).
+        list appearance="auto" listStyle="inset-grouped" testId="gate-lists" flex-shrink=0
+          section
+            ListRow(id="lr-base", symbol="settings", title="Settings", value="", accessory="chevron", selected=false, destructive=false, press=press)
+            ListRow(id="sample-lr-value", symbol="mail", title="Email", value="ada@fixture.invalid", accessory="value", selected=false, destructive=false, press=press)
+            ListRow(id="sample-lr-check", symbol="", title="System", value="", accessory="check", selected=true, destructive=false, press=press)
+            ListRow(id="sample-lr-check-off", symbol="", title="Light", value="", accessory="check", selected=false, destructive=false, press=press)
+            ListRow(id="sample-lr-none", symbol="info", title="Help", value="", accessory="none", selected=false, destructive=false, press=press)
+            ListRow(id="sample-lr-destructive", symbol="sign-out", title="Sign out", value="", accessory="none", selected=false, destructive=true, press=press)
+            SwitchRow(id="sr-base", symbol="moon", title="Dark mode", checked=switched, set=flip)
