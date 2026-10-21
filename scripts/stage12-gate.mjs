@@ -898,9 +898,10 @@ export function noRegressions(opts) {
   const mine = finished ? conformReport(join(work, 'conform', 'report.json'), ROOT) : null;
   const base = opts.conformBase ? conformReport(opts.conformBase, run('git', ['rev-parse', '--show-toplevel'], { cwd: dirname(resolve(opts.conformBase)) }).out.trim()) : null;
   const added = mine && base ? mine.failures.filter(f => !base.failures.includes(f)) : null;
-  const flakes = added?.length ? flakyOf(added, base, work) : { flaky: [], failing: added ?? [], said: [] };
-  // This run's flakes, which the next run reads (none clears the record).
-  if (mine && base) writeFileSync(join(work, 'flaky-last.json'), JSON.stringify({ at: new Date().toISOString(), head: run('git', ['rev-parse', 'HEAD']).out.trim(), targets: flakes.flaky }));
+  const flakes = added?.length ? flakyOf(added, base, work) : { flaky: [], seen: [], failing: added ?? [], said: [] };
+  // Every target this run saw fail that its base doesn't (FLAKY or not),
+  // which the next run reads; a finished run with none clears the record.
+  if (finished) writeFileSync(join(work, 'flaky-last.json'), JSON.stringify({ at: new Date().toISOString(), head: run('git', ['rev-parse', 'HEAD']).out.trim(), targets: flakes.seen ?? [] }));
   const clean = conform.ok || !!(mine && base && mine.targets > 0 && base.targets > 0 && !flakes.failing.length);
   const evidence = [`conform --synthetic --strict --linux: ${summary}`, ...failed.map(l => `  ${l}`),
     ...(conform.ok ? [] : !base ? ['  its failures are compared with the same run on the branch\'s base (--conform-base <its report.json>), which wasn\'t given'] : !mine ? ['  its report.json was not read'] : [`  against the base's run (${opts.conformBase}, ${base.failures.length} failures over ${base.targets} targets): ${added.length ? `${added.length} the branch adds` : 'every failure the base\'s own'}`, ...flakes.failing.map(f => `    NEW ${f}`), ...mine.failures.filter(f => !added.includes(f)).map(f => `    both: ${f}`), ...flakes.said]),
@@ -914,8 +915,8 @@ export function noRegressions(opts) {
 /** theme2's 03:25 ruling: a target the base doesn't fail that fails in the
  * full run is rerun alone three times; all three passing lists it FLAKY
  * (not passed), its failure kept, and it needs a QUEUE line naming it. At
- * most 2 in a run; the same target FLAKY in the gate's run before (the
- * record noRegressions keeps in `work`) is a failure to chase; a rerun that fails is a failure,
+ * most 2 in a run; a target the gate's run before also saw failing (the
+ * record noRegressions keeps in `work`, FLAKY or not) is a failure to chase; a rerun that fails is a failure,
  * with no further retries. A new failure in a target the base fails too is
  * no flake. Returns the flaky targets, the failures that stay, and what to
  * say. */
@@ -932,13 +933,17 @@ export function flakyOf(added, base, work, rerun = conformAlone, queue = readFil
     else if (last.includes(t)) why = 'FLAKY in the gate\'s run before too: a flake to chase (theme2 03:25 (2))';
     else {
       for (let n = 1; n <= 3 && !why; n++) if (!rerun(t, n)) why = `rerun alone ${n} of 3 failed (theme2 03:25 (3))`;
-      if (!why && !queue.includes(`\`${short}\``)) why = `passed alone 3 of 3, but QUEUE names no \`${short}\``;
+      // A QUEUE entry of its own: "Conformance's `<name>` fixture fails now
+      // and then", with the evidence.
+      if (!why && !queue.split('\n').some(l => l.startsWith(`- **Conformance's \`${short}\` fixture fails now and then`))) why = `passed alone 3 of 3, but QUEUE has no entry "Conformance's \`${short}\` fixture fails now and then"`;
     }
     if (why) { failing.push(...lines); said.push(`    ${t}: ${why}`); } else flaky.push({ target: t, lines });
   }
   if (flaky.length > 2) { failing.push(...flaky.flatMap(f => f.lines)); said.push(`    ${flaky.length} FLAKY targets: more than 2 (theme2 03:25 (1))`); flaky.length = 0; }
   said.unshift(...flaky.flatMap(f => [`  FLAKY ${f.target}: failed in the full run, passed alone 3 of 3 (theme2 03:25; QUEUE'd); its failure:`, ...f.lines.map(l => `    ${l}`)]));
-  return { flaky: flaky.map(f => f.target), failing, said };
+  // Every target seen failing here that the base doesn't, whatever became of it.
+  const seen = [...new Set(added.map(target))].filter(t => !baseTargets.has(t));
+  return { flaky: flaky.map(f => f.target), seen, failing, said };
 }
 
 /** One target's conform run alone (its dists from the full run): true when

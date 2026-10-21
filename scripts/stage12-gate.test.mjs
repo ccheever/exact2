@@ -205,21 +205,25 @@ test('a boot flake in conform: rerun alone three times, at most two, never twice
   const work = mkdtempSync(join(tmpdir(), 's12e-flaky-'));
   const base = { failures: ['synthetic-tabs | contract-build | x'] };
   const added = ['synthetic-startend | boot | state slots.atEnd: wasm true js false'];
-  const queue = '- the `startend` fixture fails now and then';
+  const queue = "- **Conformance's `startend` fixture fails now and then on the JS target under load** (…)";
   // Passes alone three times and is QUEUE'd: FLAKY, nothing failing.
   let r = flakyOf(added, base, work, () => true, queue);
   expect([r.flaky, r.failing]).toEqual([['synthetic-startend'], []]);
   expect(r.said[0]).toContain('FLAKY synthetic-startend');
   // The next run (its record says so), FLAKY again: a failure to chase.
-  writeFileSync(join(work, 'flaky-last.json'), JSON.stringify({ targets: r.flaky }));
+  expect(r.seen).toEqual(['synthetic-startend']);
+  writeFileSync(join(work, 'flaky-last.json'), JSON.stringify({ targets: r.seen }));
   r = flakyOf(added, base, work, () => true, queue);
   expect([r.flaky, r.failing]).toEqual([[], added]);
   // A rerun that fails is a failure; so is a target the base fails, or no QUEUE line.
   const fresh = () => mkdtempSync(join(tmpdir(), 's12e-flaky-'));
   expect(flakyOf(added, base, fresh(), (t, n) => n < 2, queue).failing).toEqual(added);
-  expect(flakyOf(['synthetic-tabs | boot | y'], base, fresh(), () => true, '`tabs`').failing).toEqual(['synthetic-tabs | boot | y']);
-  expect(flakyOf(added, base, fresh(), () => true, 'nothing').failing).toEqual(added);
+  expect(flakyOf(['synthetic-tabs | boot | y'], base, fresh(), () => true, "- **Conformance's `tabs` fixture fails now and then").failing).toEqual(['synthetic-tabs | boot | y']);
+  // A QUEUE line merely mentioning the name is no entry for it.
+  expect(flakyOf(added, base, fresh(), () => true, 'see `startend` above').failing).toEqual(added);
   // More than two: all fail.
   const three = ['a', 'b', 'c'].map(t => `synthetic-${t} | boot | z`);
-  expect(flakyOf(three, base, fresh(), () => true, '`a` `b` `c`').failing.length).toBe(3);
+  const q3 = ['a', 'b', 'c'].map(t => `- **Conformance's \`${t}\` fixture fails now and then`).join('\n');
+  const r3 = flakyOf(three, base, fresh(), () => true, q3);
+  expect([r3.failing.length, r3.seen.length]).toEqual([3, 3]);
 });
