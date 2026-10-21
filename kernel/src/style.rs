@@ -17,6 +17,7 @@ mod backdrop;
 pub use backdrop::{link as link_backdrop_filter, BackdropFilter, BackdropOp};
 mod border;
 pub(crate) mod effects;
+mod engine;
 pub use crate::gradient::link as link_gradients;
 pub use effects::link as link_effects;
 mod grid;
@@ -1371,12 +1372,7 @@ impl StyleProps {
         };
 
         s.grid_auto_flow = grid_auto_flow(self.grid_auto_flow);
-        s.grid_template_columns = self.rare.grid_template_columns.taffy_components();
-        s.grid_template_column_names = self.rare.grid_template_columns.line_names();
-        s.grid_template_rows = self.rare.grid_template_rows.taffy_components();
-        s.grid_template_row_names = self.rare.grid_template_rows.line_names();
-        s.grid_column = self.rare.grid_column.taffy();
-        s.grid_row = self.rare.grid_row.taffy();
+        s.rare = engine::rare(self);
         s
     }
 }
@@ -1444,7 +1440,9 @@ pub fn taffy_style(arena: &NodeArena, slot: u32) -> taffy::style::Style {
         Direction::Rtl => taffy::style::Direction::Rtl,
     };
     s.justify_items = justify_items(arena.style(slot).justify_items, direction);
-    s.multicol = crate::fragment::taffy_multicol(arena, slot);
+    if let Some(multicol) = crate::fragment::taffy_multicol(arena, slot) {
+        s.rare.multicol = Some(multicol);
+    }
     // A root with `width: auto` fills what it is offered, as a `<div>` fills
     // the body: CSS's block rule, which Taffy does not apply to a root.
     // Height stays auto — as tall as its content, the page a viewport scrolls.
