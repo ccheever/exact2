@@ -8,7 +8,8 @@ import type { Native, Files } from '../../src/client/protocol';
 import { noteNow, composerNow, resolveDispatchMode, withDispatchMode, submissionIntent, resolvePlanSubmission, proposedPlanTitle, decodeComposerControls, latestProposedPlan, resumeState } from '../../src/composer/composer-controls';
 import { applyOptionChoice, providerLock, wokeAt } from '../../src/composer/composer-controls-commands';
 import { footerLayout, textWidth, traitsDisplay, presentBackgroundWork, tasksProgress } from '../../src/composer/composer-controls-view';
-import { traitsMenu } from '../../src/composer/composer-presentation';
+import { traitsMenu, withNoticeDetails } from '../../src/composer/composer-presentation';
+import { probeKey } from '../../src/composer/composer-menus';
 import { antigravitySendBlockReason } from '../../src/composer/composer-provider-selection';
 import { threadStatusLine } from '../../src/timeline/thread-status-line';
 import { toasts } from '../../src/shell/toast';
@@ -274,9 +275,51 @@ describe('docked banners, activity and the provider control', () => {
     expect(view).toMatchObject({ activity: 'tasks', tasksTotal: 3, tasksDone: 1, tasksCurrent: 'Write' });
     expect(view.tasks.map(step => [step.text, step.status, step.duration])).toEqual([['Read', 'completed', '1.2s'], ['Write', 'inProgress', 'now'], ['Test', 'pending', '']]);
     expect(view.notices.every(notice => !notice.front)).toBe(true);
+    expect(view).toMatchObject({ activityFront: true, activityLast: false });
     expect(presentBackgroundWork([{ kind: 'subagent' }, { kind: 'command' }, { kind: 'command' }])!.title).toBe('Waiting on 1 subagent and 2 commands');
     client.thread!.projection.runs = [];
     expect(tasksProgress(client).tasksTotal).toBe(0);
+  });
+  test('an urgent or warning notice stays attached ahead of the activity strip, which waits in the stack', async () => {
+    const { client } = await opened();
+    running(client);
+    client.thread!.projection.plans = [{ id: 'todo', kind: 'todo_list', runId: 'r1', steps: [{ text: 'Write', status: 'running' }] }];
+    Object.assign(client.shell.threads[0]!, { status: 'failed', lastErrorClass: 'usage_limit', usageLimitResetAt: new Date(Date.now() + 3_600_000).toISOString(), latestRunId: 'r9', updatedAt: new Date().toISOString() });
+    const view = snapshot(client, Date.now()).composer;
+    expect(view).toMatchObject({ activity: 'tasks', activityFront: false, activityLast: true });
+    expect(view.notices.map(notice => [notice.title, notice.front, notice.activityBefore])).toEqual([['Usage limit reached', true, false]]);
+    // An activity-tier notice ranks after the strip: the strip floats just before it.
+    Object.assign(client.shell.threads[0]!, { goal: { objective: 'Ship it', status: 'active', tokensUsed: 0 } });
+    const withGoal = snapshot(client, Date.now()).composer;
+    expect(withGoal.notices.map(notice => [notice.id.split(':')[0], notice.front, notice.activityBefore])).toEqual([['usage-limit-recovery', true, false], ['goal', false, true]]);
+    expect(withGoal.activityLast).toBe(false);
+  });
+  test('a notice offers its details only while its description is clipped', () => {
+    const text = 'Server update failed: The package could not be verified.';
+    const base = { id: 'n', description: text, segments: [], redact: '', machines: [], details: false };
+    const client = { presentation: { anchors: { [probeKey(text, 12, 400)]: [0, 300] } as Record<string, unknown> } } as unknown as T3Client;
+    const details = (laidOut: number) => { client.presentation.anchors = { ...client.presentation.anchors as object, 'nd:n': [40, laidOut] }; return withNoticeDetails(client, [base] as never[], 16)[0]!.details; };
+    expect(details(320)).toBe(false);
+    expect(details(290)).toBe(true);
+    // The button takes 28pt from the text; that room counts while it shows, so the button stays while the text
+    // would still be clipped without it, and goes once it would fit.
+    expect(details(262)).toBe(true);
+    expect(details(273)).toBe(false);
+    // Not laid out yet: no button.
+    client.presentation.anchors = {};
+    expect(withNoticeDetails(client, [base] as never[], 16)[0]!.details).toBe(false);
+    // A roster measures its links (medium), plain items and commas: 120 + 4 + 90 = 214 natural.
+    const roster = { ...base, id: 'r', description: 'Review, npm test', segments: [{ key: '0', label: 'Review', threadId: 'c', aria: '', last: false }, { key: '1', label: 'npm test', threadId: '', aria: '', last: true }] };
+    client.presentation.anchors = { [probeKey('Review', 12, 500)]: [0, 120], [probeKey(', ', 12, 400)]: [0, 4], [probeKey('npm test', 12, 400)]: [0, 90], 'nd:r': [40, 200] };
+    expect(withNoticeDetails(client, [roster] as never[], 16)[0]!.details).toBe(true);
+    client.presentation.anchors = { ...client.presentation.anchors as object, 'nd:r': [40, 220] };
+    expect(withNoticeDetails(client, [roster] as never[], 16)[0]!.details).toBe(false);
+  });
+  test('a lone subagent link reads Show, several name each subagent', () => {
+    expect(presentBackgroundWork([{ kind: 'subagent', description: 'Review', childThreadId: 'c1' }])!.segments)
+      .toEqual([{ key: '0:Review', label: 'Show', threadId: 'c1', aria: 'Show subagent Review', last: true }]);
+    expect(presentBackgroundWork([{ kind: 'subagent', description: 'Review', childThreadId: 'c1' }, { kind: 'subagent', description: 'Lint', childThreadId: 'c2' }])!.segments
+      .map(segment => [segment.label, segment.aria])).toEqual([['Review', 'Open subagent Review'], ['Lint', 'Open subagent Lint']]);
   });
   test('the provider control replaces the picker when nothing is available', async () => {
     const { client, command } = await opened();
@@ -368,6 +411,11 @@ describe('workspace and branch strip', () => {
     await command('send', '', 'On feature');
     expect(native.committed.at(-1)).toMatchObject({ method: 'orchestration.launchThread', workspaceStrategy: { type: 'root', branch: 'feature' } });
   });
+  test('the workspace and host tooltips name their shortcuts', async () => {
+    const { client, native } = await connected();
+    client.config.keybindings = [{ command: 'composer.workspace', shortcut: { key: 'x', modKey: true, shiftKey: true } }, { command: 'composer.host', shortcut: { key: 'h', modKey: true, shiftKey: true } }];
+    expect(await composerBranches(client, native, false, '')).toMatchObject({ keyWorkspace: '⇧⌘X', keyHost: '⇧⌘H' });
+  });
   test('New worktree launches from its base ref; a started thread hides the strip unless it persists', async () => {
     const { client, native, command } = await connected();
     await command('cclocal:env-mode', '', 'worktree');
@@ -419,6 +467,11 @@ describe('usage limits', () => {
     expect(native.committed.at(-1)).toMatchObject({ type: 'thread.metadata.update', limitRecovery: { runId: 'r9', resetAt: reset, autoResume: true } });
     Object.assign(client.shell.threads[0]!, { limitRecovery: { runId: 'r9', resetAt: reset, autoResume: true } });
     expect(snapshot(client, Date.now()).composer.notices[0]!.actionLabel).toBe('Cancel auto-resume');
+    // A failure toasts instead of writing into the banner or the transcript.
+    client.shell.threads[0]!.usageLimitResetAt = new Date(Date.now() - 60_000).toISOString();
+    await command('cc:limit-snooze');
+    expect(client.error).toBe('');
+    expect(toasts(client).at(-1)).toMatchObject({ kind: 'error', title: 'Could not snooze thread', description: 'The reset time has passed. Retry the thread manually.' });
   });
 });
 
