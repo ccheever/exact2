@@ -282,7 +282,7 @@ struct BadgeFace: Equatable {
     /// otherwise a bar item's 36.
     init?(box: NodeView, authored: Bool = false) {
         guard box.style["display"]?.string != "none" else { return nil }
-        let direct = box.kind == "image" && box.faceSymbol == nil &&
+        let direct = box.kind == "image" && box.faceSymbol == nil && !box.cssVisibilityHidden &&
             (box.imageSource ?? box.props["imageSource"]).map { !$0.hasPrefix("symbol:") } == true
         guard direct || box.channels("background_color") != nil else { return nil }
         var text = "", symbol: String?, ink: NodeView?, pictured: NodeView? = direct ? box : nil
@@ -290,7 +290,7 @@ struct BadgeFace: Equatable {
             for case let child as NodeView in node.container.subviews {
                 guard child.style["display"]?.string != "none" else { continue }
                 if child.kind == "image", let name = child.faceSymbol { symbol = symbol ?? name; ink = ink ?? child }
-                else if child.kind == "image", let source = child.imageSource ?? child.props["imageSource"], !source.hasPrefix("symbol:") { pictured = pictured ?? child }
+                else if child.kind == "image", !child.cssVisibilityHidden, let source = child.imageSource ?? child.props["imageSource"], !source.hasPrefix("symbol:") { pictured = pictured ?? child }
                 else if child.isParagraph, text.isEmpty { text = child.accessibleText; ink = ink ?? child }
                 else { walk(child) }
             }

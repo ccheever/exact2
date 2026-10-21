@@ -411,6 +411,9 @@ final class NavigationBarIOSTests: XCTestCase {
         p.apply(wireBatch([["op": "style", "id": picture, "style": ["display": "none"]]]))
         XCTAssertNil(route.navigationItem.rightBarButtonItems?.first?.image, "an authored display:none photo must not appear in the native item")
         p.apply(wireBatch([["op": "style", "id": picture, "style": ["display": "block"]]]))
+        p.apply(wireBatch([["op": "style", "id": picture, "style": ["visibility": "hidden"]]]))
+        XCTAssertNil(route.navigationItem.rightBarButtonItems?.first?.image, "an authored visibility:hidden photo must not appear in the native item")
+        p.apply(wireBatch([["op": "style", "id": picture, "style": ["visibility": "visible"]]]))
         XCTAssertTrue(foreground, "the native photo is on screen even though its authored header is hidden")
         XCTAssertGreaterThanOrEqual(requested, UInt32(ceil(32 * image.traitCollection.displayScale)), "decode for the native face, not a zero-sized hidden node")
         if #available(iOS 26.0, *) {
