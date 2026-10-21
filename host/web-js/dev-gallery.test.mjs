@@ -15,6 +15,7 @@ import { createServer, request } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { galleryCache } from './dev-gallery.mjs';
+import { FRAME_ANCESTORS } from '../../scripts/tamber-server.mjs';
 
 const ROOT = resolve(new URL('../..', import.meta.url).pathname);
 afterEach(() => stopAll());
@@ -92,7 +93,7 @@ test('the gallery: made only once a page asks through the gate, its own build, s
     const page = await (await fetch(`${loop.base}/__dev/gallery/`)).text();
     expect(page).toContain('<base href="/__dev/gallery/">');
     // Framed only by the design tool's origin and its own, as every page of the loop (frame-ancestors).
-    expect((await fetch(`${loop.base}/__dev/gallery/`)).headers.get('content-security-policy')).toMatch(/^frame-ancestors 'self' http:\/\/127\.0\.0\.1:\d+/);
+    expect((await fetch(`${loop.base}/__dev/gallery/`)).headers.get('content-security-policy')).toBe(FRAME_ANCESTORS);
     expect(page).toContain("new EventSource('/__dev/gallery/stream')");
     expect(page).toContain("page:'gallery'");
     expect(page).not.toContain("'navigate']");

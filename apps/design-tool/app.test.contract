@@ -2310,4 +2310,7 @@ test "a gallery cell selected: its literal rows read only, the gallery's reason 
   expect tree missing "selrow-param-opacity"
   expect tree missing "selrow-detach-opacity"
   expect tree missing "selrow-state-opacity"
+  expect tree missing "selrow-tokenize-opacity"
+  expect tree missing "selrow-tokenize-background-color"
+  expect tree missing "selrow-detach-background-color"
   request POST "/__stub/restart" {} as ada
