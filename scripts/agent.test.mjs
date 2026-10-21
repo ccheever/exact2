@@ -676,7 +676,10 @@ test('compare on a capture: nodes where the window has them, its safe area not s
     const shot = { screenshot: resolve(dir, 'shot.png'), w: 120, h: 200, scale: 2, window: true, statusBar: false, safeArea: { top: 10, bottom: 12 }, note: 'the status bar is not in the capture (simctl io screenshot: failed)' };
     const r = await compareOp(ios({ viewport: { x: 0, y: 0, w: 60, h: 200 }, window: { x: 678, y: 0, w: 60, h: 200 } }), resolve(dir, 'ref.png'), async () => ({ ...shot }));
     assert.match(r.text, /under card \[10,40 60×30\]/);
-    assert.doesNotMatch(r.text, /draws at/);
+    assert.doesNotMatch(r.text, /draws at|painted by the agent/);
+    // A menu the agent painted is said on the score's line, which a reader filtering for `compare` keeps (euxy port).
+    const painted = await compareOp(ios({ viewport: { x: 0, y: 0, w: 60, h: 200 }, window: { x: 678, y: 0, w: 60, h: 200 } }), resolve(dir, 'ref.png'), async () => ({ ...shot, paintedNote: 'the agent painted it' }));
+    assert.match(painted.text.split('\n')[0], /^compare .* matches \(.*\), with the open menu or popover painted by the agent, not UIKit's \(--touch platform shows UIKit's\); diff /);
     // A floating sheet the platform draws scaled is said, in compare's report and in `layout`'s.
     const floating = { ...ios({ viewport: { x: 0, y: 0, w: 60, h: 200 }, window: { x: 678, y: 0, w: 60, h: 200 } }) };
     const plain = floating.layout;

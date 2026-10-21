@@ -320,11 +320,13 @@ export function boxDiffs(A, B, result, nodes) {
 const hintText = ({ axis, d }, unit) => `its content sits ${Math.abs(d)} ${unit} ${axis === 'y' ? (d > 0 ? 'lower' : 'higher') : (d > 0 ? 'right' : 'left')} in the reference`;
 
 /** The text `compare` prints: a head line, a few lines a region, a line a measured box. */
-export function report(result, nodes, { reference, diff, close = null, unit = 'pt', boxes = [] }) {
+export function report(result, nodes, { reference, diff, close = null, unit = 'pt', boxes = [], painted = false }) {
   const pct = (v) => `${(Math.floor(v * 1000) / 10).toFixed(1)}%`, out = [];
   const left = [result.top ? `the top ${result.top} (status bar)` : '', result.bottom ? `the bottom ${result.bottom} (home indicator)` : ''].filter(Boolean).join(' and ');
   const n = result.regions.length, near = close && n ? `; up close, ${close} (${n === 1 ? 'region 1' : `a row a region, 1 to ${n}`})` : '';
-  out.push(`compare ${reference}: ${pct(result.match)} matches (${result.w}×${result.h} ${unit}${left ? `; ${left} not scored` : ''}); diff ${diff} (${PANELS.join(' | ')})${near}`);
+  // A menu the agent painted moves the score and reads as the app's bug: said with the score, the line a reader keeps.
+  const menu = painted ? ', with the open menu or popover painted by the agent, not UIKit\'s (--touch platform shows UIKit\'s)' : '';
+  out.push(`compare ${reference}: ${pct(result.match)} matches (${result.w}×${result.h} ${unit}${left ? `; ${left} not scored` : ''})${menu}; diff ${diff} (${PANELS.join(' | ')})${near}`);
   result.regions.forEach((r, i) => {
     const names = under(nodes, r.screen), { screen: sc, reference: rc } = r.colours;
     const colour = (c) => (c.ink ? `${c.ink} on ${c.fill}` : c.edges ? `${c.fill}, its edge's anti-aliasing ${c.blend} beside it` : c.fill ?? 'nothing');
@@ -507,10 +509,8 @@ export async function compareOp(s, referencePath, take) {
   writeFileSync(diff, encodePng(diffImage(A, B, result)));
   const close = near ? diff.replace(/\.diff\.png$/, '.regions.png') : null;
   if (near) writeFileSync(close, encodePng(near));
-  let text = report(result, nodes, { reference: referencePath, diff, close, unit: s.host === 'web' ? 'px' : 'pt', boxes: boxDiffs(A, B, result, nodes) });
+  let text = report(result, nodes, { reference: referencePath, diff, close, unit: s.host === 'web' ? 'px' : 'pt', boxes: boxDiffs(A, B, result, nodes), painted: typeof shot.paintedNote === 'string' });
   if (notes.length) text += '\n' + notes.map((n) => `  capture: ${n}`).join('\n');
-  // A menu the agent painted moves the score and reads as the app's bug: said before the score.
-  if (typeof shot.paintedNote === 'string') text = `NOTE: ${shot.paintedNote}\n${text}`;
   // A floating sheet's content is drawn scaled by the platform, the reference's too: a box measured smaller is that.
   for (const line of scaledLines(layout)) text += `\n  note: ${line}`;
   const { mask, ...kept } = result;

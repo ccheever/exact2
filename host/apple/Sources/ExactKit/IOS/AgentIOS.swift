@@ -1352,7 +1352,7 @@ extension Agent {
         let painted = presenter.menus.presented.filter { $0.window != nil && !$0.isHidden }
         if !painted.isEmpty, ExactEnv.agentPaints {
             r["painted"] = painted.map { n -> [String: Any] in ["id": Int(n.id), "testId": n.props["testId"] ?? NSNull()] }
-            r["paintedNote"] = "the agent, not the app, painted the open popover in this picture, in the page (LLP 1021 D4): the app shows a menu as UIKit's menu at its button (a context menu's with its preview). To see the real one, drive with --touch platform: a screenshot with the menu up is then the window's, the menu in it"
+            r["paintedNote"] = "the agent, not the app, painted the open popover in this picture, in the page (LLP 1021 D4); the app shows it as UIKit's (a menu at its button), which a screenshot shows under --touch platform"
         }
         let bars = presenter.navigation.paintedForBars()
         if !bars.isEmpty {
