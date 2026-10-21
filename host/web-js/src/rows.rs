@@ -519,6 +519,14 @@ impl Em<'_> {
                 "transition",
                 Some(pressed_transition_map()),
             ),
+            // GitHub #809: what the kernel writes for each value the code
+            // can push (style.rs `layout_transitions`); presence follows it
+            // (rt.js `lt`). Another value is refused as the kernel refuses one.
+            StyleId::LayoutTransition => {
+                let table = style::layout_transitions(plan, plan.code(b.expr));
+                let (say, view) = (self.uses.rt("say"), self.uses.rt("viewId"));
+                one("--exact-layout-transition", Some(style::layout_transition_map(&table, &format!("{view}({e})"), &say)))
+            }
             _ => style::style_writes(b.id, timeline)
                 .map_err(|x| format!("node {i}: {x}"))?
                 .into_iter()
@@ -639,6 +647,9 @@ impl Em<'_> {
                 map => map,
             };
             let value = match map {
+                // The kernel refuses a blank layout transition, as the map
+                // does (style.rs `layout_transitions`).
+                Some(m) if id == StyleId::LayoutTransition => format!("()=>({m})(({f})())"),
                 // An empty string declares nothing before the map reads it.
                 Some(m) => format!("()=>({m})({}(({f})()))", self.uses.rt("blank")),
                 None => f.to_string(),
@@ -651,6 +662,10 @@ impl Em<'_> {
                     let _ = write!(self.out, "{s}({e},\"{name}\",\"{unit}\",{value});");
                 }
             }
+        }
+        if id == StyleId::LayoutTransition {
+            let lt = self.uses.rt("lt");
+            let _ = write!(self.out, "{lt}({e});");
         }
         Ok(())
     }

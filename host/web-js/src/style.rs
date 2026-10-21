@@ -70,6 +70,54 @@ pub fn can_be(plan: &Plan, code: &[u8], used: &dyn Fn(&str) -> bool) -> bool {
     })
 }
 
+/// A bound `-exact-layout-transition`'s values (GitHub #809): each string its
+/// code pushes, with the declaration the kernel's own CSS writes for it
+/// (css.rs `layout_transition_css`), `None` where it writes none (`none`, or
+/// no transition covering layout). A string the kernel refuses is left out.
+/// The JS target has no transition grammar of its own: a value its code
+/// computes, not one of these, is unset (`layout_transition_map`).
+pub fn layout_transitions(
+    plan: &Plan,
+    code: &[u8],
+) -> std::collections::BTreeMap<String, Option<String>> {
+    instructions(code)
+        .filter_map(|i| i.ok().filter(|i| i.op == Opcode::Str))
+        .map(|i| plan.str(exact_plan::StrId(i.args[0] as u32)))
+        .filter_map(|v| Some((v.to_string(), layout_transition(v)?)))
+        .collect()
+}
+
+/// The map of a bound `-exact-layout-transition` over its `table`: the
+/// kernel's declaration for each value the code names. Another (one it
+/// computed) is unset with a journal line for the view `view` names, in the
+/// runner's words for an invalid value (`instance.rs` `invalid`) but saying
+/// why: the kernel may take it, and this target can't tell (QUEUE.md).
+pub fn layout_transition_map(
+    table: &std::collections::BTreeMap<String, Option<String>>,
+    view: &str,
+    say: &str,
+) -> String {
+    let table = serde_json::to_string(table).unwrap();
+    format!("v=>{{if(v==null)return null;const T={table};if(typeof v===\"string\"&&Object.hasOwn(T,v))return T[v];{say}(`view ${{{view}}}: invalid layout-transition value ${{JSON.stringify(v)}}; unset (the JS target writes only the values the code names)`);return null}}")
+}
+
+/// The kernel's `--exact-layout-transition` for one bound value: `None` where
+/// it refuses the value, `Some(None)` where it declares nothing.
+pub fn layout_transition(v: &str) -> Option<Option<String>> {
+    let mut p = exact_kernel::StyleProps::default();
+    p.set_dynamic(
+        StyleId::LayoutTransition,
+        &exact_kernel::StyleValue::Text(v.into()),
+    )
+    .ok()?;
+    let (text, _) = exact_web::css::css_text(&p, &[]);
+    Some(
+        text.split(';')
+            .find_map(|d| d.strip_prefix("--exact-layout-transition:"))
+            .map(str::to_string),
+    )
+}
+
 /// Props whose presence decides the element's tag: a dynamic one is given a
 /// sample value when the tag is computed (the live host fixes the tag from
 /// the value at creation; the JS target from its presence). A `progress`'s

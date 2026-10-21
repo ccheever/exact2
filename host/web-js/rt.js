@@ -204,7 +204,7 @@ export function commit(f, what = "commit") {
   unpark();
   const tail = () => { // the tree update; inside a view transition when it may hand on a shared element's name (LLP 1013.000 D7)
     for (const f of Before) f();
-    Pres?.before({ ops: [] }, Views); // presence measures what it tracks before the tree changes (LLP 1063)
+    Pres?.before({ ops: bound() }, Views); // presence measures what it tracks, and what may gain the row, before the tree changes (LLP 1063)
     try { flush(); openTabs(); } catch (e) { Poisoned = true; Why = why("updating the tree", String(e)); say(`poisoned: ${e.pc != null ? `Instance(${e.message})` : e.message}`); console.error(e); Sched?.forget(); return false; } // a trap as the runner's InstanceError (LLP 1090 D6)
     settled(true); if (!ok) return Sched?.scan(false), false;
     clock.epoch++; Store.persist();
@@ -957,15 +957,11 @@ export const onClipboard = (e, kind, f, l) => { if (kind === "paste") OnHooks.pa
 export const onToggle = (e, kind, f, l) => l(kind, ev => f([ev.oldState, ev.newState]));
 export const onSelectionChange = (e, kind, f, l) => { return sourceField(e) ? l(kind, () => f(inputRecord(e, e.value, false))) : onSelection(e, (text, a, b, rects) => f([text, a, b, rects])); };
 // ---------------------------------------------------------------- presence (LLP 1063)
-// `-exact-exit-animation` and `-exact-layout-transition`: the web host's own
-// presence-glue.js, fetched after the first painted frame by a plan with
-// either row (its node calls `pr`), plays both. Each commit it measures the
-// views that declare a layout transition before the tree changes and plays
-// back each that moved after; a region's removed root that declares an exit
-// stays, out of flow at its last box, until its animations end, where it
-// was: `clear` passes over it.
-// Until the piece is here, rows jump and leave at once, as the wasm host's
-// do when it is unavailable.
+// `-exact-exit-animation` and `-exact-layout-transition`: the web host's own presence-glue.js, fetched after the first
+// painted frame by a plan with either row (its node calls `pr`; a bound layout transition's, `lt`), plays both. Each commit it
+// measures the views that declare a layout transition, or may gain one (a bound one's, as the wasm host's style op), before the
+// tree changes and plays back each that moved after; a region's removed root that declares an exit stays, out of flow at its
+// last box, until its animations end, where it was: `clear` passes over it. Until the piece is here, rows jump and leave at once.
 let Pres = null, Presence = null, Present = null, Leave = null, Sh = null; // Sh: shared.js, loaded with presence-glue.js, runs the commits that hand on a shared element's name in a view transition (LLP 1013.000 D7)
 /** The after-paint pieces on their way (the agent waits for them before an
  * operation, as glue.js's `agentSettled` waits for `pieces.pending()`). */
@@ -973,7 +969,9 @@ export const pieces = () => Promise.all([Motion, Inputs, Presence, Flow, Native,
 /** A view leaves with the exit animation `css` names (a virtualized list's
  * row wrapper, list.js): whether it stays, leaving, for presence-glue.js to remove. */
 export function exitView(el, css) { if (!Pres || !css) return false; Pres.exit(el, css); return exiting(el); }
-const Created = [];
+const Created = [], Bound = new Set();
+export function lt(e) { Bound.add(e); onEnd(() => Bound.delete(e)); pr(e); } // GitHub #809: restyled for presence each commit
+const bound = () => [...Bound].filter(e => e.isConnected).map(e => ({ op: "style", id: viewId(e), css: "--exact-layout-transition" }));
 export function pr(e) {
   Created.push(e);
   if (Presence || typeof requestAnimationFrame !== "function" || globalThis.__exactRender) return;
@@ -985,7 +983,7 @@ export function pr(e) {
       Created.length = 0;
       // After a commit's tree: which views declare the row now (the created
       // ones), and every tracked one that moved plays back from where it was.
-      Present = () => Pres.after({ ops: Created.splice(0).filter(e => e.isConnected).map(e => ({ op: "create", id: viewId(e) })) }, Views);
+      Present = () => Pres.after({ ops: [...Created.splice(0).filter(e => e.isConnected).map(e => ({ op: "create", id: viewId(e) })), ...bound()] }, Views);
       // A removed region node that declares an exit leaves with it (the
       // kernel's `exit`: a destroyed root whose parent stays).
       Leave = n => {
