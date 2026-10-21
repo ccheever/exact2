@@ -212,9 +212,12 @@ The app has no desktop self-update feed, so its own download/restart step is abs
 - Right side: the workspace card (docked beside the chat from 984 pt, a header popover
   below), Changes (branch) and Uncommitted diffs plus per-turn diffs, lineage with
   merge-back, the surface chooser and a tab bar per thread (`src/panel/`): Files
-  (the workspace tree with search and expand-all, file previews with breadcrumbs,
+  (the workspace tree with search and expand-all, which leaves ignored folders such as `node_modules`
+  to open by hand, file previews with breadcrumbs,
   rendered Markdown/CSV and an editor that writes back with `projects.writeFile`; opened
-  from Go to file, content search and file chips; its explorer and rendered/source
+  from Go to file, content search and file chips: a chip written from the workspace root as a bare name, or
+  with a subfolder project's own folders repeated, opens the file the workspace search finds, and a `~/` link
+  opens as a host file the server expands, `workspace-file-lookup.ts`; its explorer and rendered/source
   choices persist; an `.html` file opens rendered in the sandboxed WebKit body (its sibling stylesheets, scripts and
   images load through the signed asset URL's token directory, and the page may load stylesheets, scripts,
   images, fonts and fetches from other hosts as the reference's sandboxed frame does (https, and `http` to an IP
@@ -565,8 +568,6 @@ Differences that belong to the app:
 - An image inside a link's text has no tooltip and no keyboard menu key.
 - In the composer, a review comment's popover shows its comment and diff as plain text (the
   reference renders Markdown and a highlighted diff); a sent pull request chip has no hover card.
-- Proactive panels is a setting with no effect: no surface opens on its own when a pull request is
-  linked or a turn's diff lands (the reference's `useProactivePanels`).
 
 Some checks need a person: physical modifier chords, right-click menus, real pointer drags
 and hovers, macOS notification and screen-capture grants, provider installs and logins, and

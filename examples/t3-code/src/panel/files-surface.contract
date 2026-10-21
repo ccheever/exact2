@@ -483,13 +483,21 @@ component FilesExplorer
           text `${files.error} Click to retry.` text-align="left" font-size="0.75rem" line-height="1.21875rem" color="light-dark(#e40014, #ff6467)"
       if files.truncated
         text "More matches available. Refine your search." padding-left="0.75rem" padding-right="0.75rem" padding-top="0.25rem" padding-bottom="0.25rem" font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)"
-      // A folder expanding shows its row's spinner, not this line, which would shift the tree.
+      // A folder expanding shows its row's spinner, not this line, which would shift the tree; while rows are
+      // shown the line is a screen reader's only (Tailwind's sr-only: 1px, clipped, out of flow).
       if files.searching or not files.ready
-        text "Loading files…" role="status" padding-left="0.75rem" padding-right="0.75rem" padding-top="0.25rem" padding-bottom="0.25rem" font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)"
-      scroll flex=1 min-height=0 width="100%" role="tree" aria-label=`${files.project} files` testId="files-tree"
-        column width="100%" padding-left="1rem" padding-right="1rem" box-sizing="border-box"
-          for row in files.rows key=row.id
-            FilesTreeRowView(row=row, still=still, local=local, menu=rowMenu)
+        if files.loadingQuiet
+          text "Loading files…" role="status" position="absolute" width=1 height=1 overflow="hidden" opacity=0 pointer-events="none"
+        else
+          text "Loading files…" role="status" padding-left="0.75rem" padding-right="0.75rem" padding-top="0.25rem" padding-bottom="0.25rem" font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)"
+      if files.noMatches
+        if files.emptySearch
+          text "No matching files." role="status" padding-left="0.75rem" padding-right="0.75rem" padding-top="1rem" padding-bottom="1rem" font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)" testId="files-no-matches"
+      else
+        scroll flex=1 min-height=0 width="100%" role="tree" aria-label=`${files.project} files` testId="files-tree"
+          column width="100%" padding-left="1rem" padding-right="1rem" box-sizing="border-box"
+            for row in files.rows key=row.id
+              FilesTreeRowView(row=row, still=still, local=local, menu=rowMenu)
 
 // FileBrowserPanel showEntryContextMenu (FileBrowserPanel.tsx; ElectronMenu.ts showContextMenu) as the tree's one context
 // popover: Open, the server-worded reveal and the "Open with" submenu of detected editors when the environment offers

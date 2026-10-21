@@ -146,6 +146,11 @@ export function diffAnswered(client: T3Client): boolean { return client.diffStat
 export const NOT_GIT_REPO = 'Turn diffs are unavailable because this project is not a git repository.';
 /** DiffPanel's !isGitRepo: the thread's workspace streams a status that is not a repository (unknown counts as one). */
 export const diffNotGit = (client: T3Client): boolean => !!client.threadId && !!client.projection && peekVcsStatus(client, workspace(client))?.isRepo === false;
+/** gitStatusQuery.data?.isRepo: whether the thread's workspace is a repository, undefined until its status streams. */
+export function gitRepoState(client: T3Client): boolean | undefined {
+  const isRepo = peekVcsStatus(client, workspace(client))?.isRepo;
+  return typeof isRepo === 'boolean' ? isRepo : undefined;
+}
 /** The request for the current selection, or an explanation when there is nothing to ask. */
 export function diffRequest(client: T3Client): { method: string; payload: Obj; scope: string; source: string } {
   const selection = currentSelection(client), state = client.diffState;

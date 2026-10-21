@@ -1,7 +1,7 @@
 import { captureClosedView, rememberClosedView, reopenClosedView, rememberPagePullRequest } from './closed-views';
 import { can } from '../connections/command-permissions';
 import { parseScopedThreadKey } from '../terminal/terminal-ui-state';
-import { addTerminalSurface, focusPanelTerminal, terminalPanelLocal, terminalPanelView, panelTerminalLabel, terminalSurfaceCloseCopy, installTerminalPanelCleanup, type PanelTerminal } from '../terminal/terminal-panel';
+import { addTerminalSurface, focusPanelTerminal, isTerminalChoice, terminalPanelLocal, terminalPanelView, panelTerminalLabel, terminalSurfaceCloseCopy, installTerminalPanelCleanup, type PanelTerminal } from '../terminal/terminal-panel';
 import { activeRef, terminalAvailable, terminalDrawerView, emptyTerminalDrawerView, type TerminalDrawerView } from '../terminal/terminal-drawer-view';
 // The right panel's tabbed surfaces (MIT reference 9c161462c9, see LICENSE-T3:
 // apps/web/src/rightPanelStore.ts, components/RightPanelTabs.tsx, ChatView.tsx
@@ -33,6 +33,7 @@ import { openThreadPullRequest, linkedLocal, linkedCommand, linkedTab, linkedVie
 import { emptyAttachment, type AttachmentView, type AttachmentMeta } from './attachment-surface';
 import { crumbsHidden } from './files-crumbs-mount'; // The Files preview unmounted
 import { restoreRightPanel } from './saved-panel'; // The panel as the last launch left it
+import { applyProactivePanels } from './proactive-panels'; // Settings › General › Proactive panels
 import { isDetailTab, restoredEffects } from './saved-surfaces'; // With its Diff and device
 import { deviceTargetOf, deviceThreadId, miniStoreOf, restoreDeviceTarget, type DeviceTarget } from '../device/device-session';
 import { ensureDraftThreadId } from '../composer/draft-thread-id';
@@ -44,6 +45,7 @@ import { automationRecordingView, serveRecordingRequests, type AutomationRecordi
 import { browserMiniPlayerSource } from '../device/previewMiniPlayerStore';
 import { addBrowserSurface, browserLocal, browserMiniSessions, browserSurfaceId, moveBrowserTab, browserPrepare, browserTab, browserView, emptyBrowserView, installBrowserCleanup, selectBrowserTab, type BrowserView } from '../browser/browser-surface';
 import { browserTabAudio, browserTabMute } from '../browser/browser-automation-tabs'; // Mute / Unmute and the audible indicator
+import { claimWorkspaceBasenameLookup, findWorkspaceFileMatch, needsWorkspaceBasenameLookup, stripRepeatedWorkspacePrefix } from '../timeline/workspace-file-lookup'; // a chat link's file
 
 export type SurfaceKind = 'terminal' | 'diff' | 'files' | 'file' | 'pull-requests' | 'device' | 'pull-request' | 'attachment' | 'browser';
 export type Surface = { id: string; kind: SurfaceKind; path: string; line: number; reveal: number;
@@ -52,7 +54,9 @@ export type Surface = { id: string; kind: SurfaceKind; path: string; line: numbe
   /** A pull request surface's detail tab as the reader left it (rightPanelStore `detailTab`); summary when unset. */
   detailTab?: string;
   attachment?: AttachmentMeta; device?: DeviceTarget; title?: string; terminal?: PanelTerminal; browser?: { tabId: string; threadKey: string } };
-export type PanelState = { surfaces: Surface[]; active: string; visible: boolean; userRevision: number; maximized?: boolean };
+export type PanelState = { surfaces: Surface[]; active: string; visible: boolean; userRevision: number; maximized?: boolean;
+  /** The turn whose diff was last offered proactively, kept across relaunches (rightPanelStore `proactiveDiffTurnId`). */
+  proactiveDiffTurnId?: string };
 export type PanelTab = { id: string; kind: string; title: string; icon: string; tone: string; fileToken: string; active: boolean; pending: boolean; renaming: boolean; renameValue: string; closeTitle: string; closeBody: string; closeTarget: string; menu: TabMenuRow[]; favicon: string; faviconFallback: string; audio: string };
 export type PanelView = {
   /** The thread (or draft) this panel belongs to (panelKey), and whether it is open on the launcher alone (rightPanelStore
@@ -254,6 +258,19 @@ export async function openFileSurface(client: T3Client, native: Native, requeste
   else await ensureTree(client, native);
 }
 
+/**
+ * ChatMarkdown openFileInPanel: a chat file link (`target`, resolved) opens in the Files surface; one written from the
+ * workspace root as a bare name or with the project's own folders repeated (`lookupPath`) opens the workspace file it
+ * means once the search finds it, else as written. The newest click wins over a lookup still in flight.
+ */
+export async function openFileLink(client: T3Client, native: Native, target: string, lookupPath: string): Promise<void> {
+  const { cwd } = workspaceOf(client), { path, line } = workspacePath(target, cwd);
+  const latest = claimWorkspaceBasenameLookup();
+  if (!lookupPath || !cwd || (!needsWorkspaceBasenameLookup(path) && stripRepeatedWorkspacePrefix(path, cwd) === null)) return openFileSurface(client, native, path, line);
+  const match = await findWorkspaceFileMatch(client, native, lookupPath, cwd);
+  if (latest() && workspaceOf(client).cwd === cwd) await openFileSurface(client, native, match ?? path, line);
+}
+
 /** `shelllocal:surface-*`: tab and panel state, the explorer and every read. */
 export async function surfaceLocal(client: T3Client, native: Native, op: string, id: string, value: string): Promise<string> {
   // The agent's recording requests (app.contract automationRecording; id = the send) are not the person's use of the
@@ -269,14 +286,25 @@ export async function surfaceLocal(client: T3Client, native: Native, op: string,
   if (targetKey === panelKey(client)) syncDiff(client, state);
   if (op === 'maximize') { state.maximized = !state.maximized; return ''; }
   if (op === 'move') { moveSurface(state, id, Number(value)); return ''; }
-  // setPullRequestDetailTab: the tab a pull request surface shows, kept with the surface.
-  // The revision moves so the panels' save (syncRightPanels) writes the choice now, before a quick quit.
-  if (op === 'pr-tab') { const surface = state.surfaces.find(entry => entry.id === id && entry.kind === 'pull-request'); if (surface && isDetailTab(value) && surface.detailTab !== value) { surface.detailTab = value; state.userRevision++; } return ''; }
-  state.userRevision++;
+  // setPullRequestDetailTab: the tab a pull request surface shows, kept with the surface (an automatic update upstream;
+  // the panels' save compares what it writes, so the surface carries the choice).
+  if (op === 'pr-tab') { const surface = state.surfaces.find(entry => entry.id === id && entry.kind === 'pull-request'); if (surface && isDetailTab(value)) surface.detailTab = value; return ''; }
+  // rightPanelStore's userAction: the panel ops always count as the person's choice; an op inside a surface (a Files
+  // search, browser navigation, a pull request list filter) counts only when it changed the tabs, the active one or
+  // whether the panel shows. A proactive opening respects the choice (proactive-panels.ts).
+  const direct = PANEL_CHOICES.has(op) || (op.startsWith('terminal-') && isTerminalChoice(op.slice(9))), before = panelShape(state);
+  if (direct) state.userRevision++;
+  try { return await surfaceOp(client, native, state, targetKey, op, id, value); }
+  finally { if (!direct && panelShape(state) !== before) state.userRevision++; }
+}
+const PANEL_CHOICES = new Set(['open', 'file', 'activate', 'close', 'close-others', 'close-to-right', 'close-all', 'close-confirmed', 'hide', 'show']);
+const panelShape = (state: PanelState): string => JSON.stringify([state.surfaces.map(surface => [surface.id, surface.title ?? '']), state.active, state.visible]);
+async function surfaceOp(client: T3Client, native: Native, state: PanelState, targetKey: string, op: string, id: string, value: string): Promise<string> {
   installTerminalPanelCleanup(client, native, state, parseScopedThreadKey(targetKey)); installBrowserCleanup(client, native);
   if (op.startsWith('terminal-')) return terminalPanelLocal(client, native, op.slice(9), id, value);
   if (op === 'open') return openSurface(client, native, id || value);
   if (op === 'file') { await openFileSurface(client, native, id, Number(value) || 0, value === 'tree'); return ''; }
+  if (op === 'file-link') { await openFileLink(client, native, id, value); return ''; }
   if (op === 'toggle-mute') return browserLocal(client, native, state, 'toggle-mute', id.replace(/^browser:/, ''), '');
   if (op.startsWith('rename')) { editTabName(state, op, id, value); return ''; }
   if (op === 'copy-path') { const surface = state.surfaces.find(entry => entry.id === id); if (surface) await copyTabPath(client, native, surface); return ''; }
@@ -389,13 +417,20 @@ function tabOf(client: T3Client, surface: Surface, active: string, pending: Read
 }
 
 /** The panel's projection for ShellView: tabs, the active surface's body and the device wizard. */
-export async function panelView(client: T3Client, native: Native | null | undefined, now: number, sheet = false): Promise<PanelView> {
+export async function panelView(client: T3Client, native: Native | null | undefined, now: number, sheet = false, chatShown = true): Promise<PanelView> {
   const state = panelState(client), store = surfaceStore(client);
   await threadDevices(client, native, sheet); // A thread's device session floats (ChatView autoShowFloatingPreview)
   if (restoreRightPanel(client, panelKey(client), state)) { // The device it showed and its open Diff
     const effects = restoredEffects(state.surfaces, state.active, state.visible);
     if (effects.device) restoreDeviceTarget(client, panelKey(client), effects.device);
     if (effects.diff && native?.available) await showDiff(client, native);
+  }
+  // After the restore, so a turn's diff offered before the last relaunch is not offered again.
+  if (client.preferencesLoaded && client.ready) {
+    syncDiff(client, state);
+    const opened = applyProactivePanels(client, panelKey(client), state, sheet, chatShown);
+    if (opened === 'diff') { selectScope(client, 'branch'); if (native?.available) await showDiff(client, native, true); else client.diffOpen = true; }
+    else if (opened) client.diffOpen = false;
   }
   const deviceSurface = state.surfaces.find(entry => entry.id === state.active && entry.kind === 'device');
   if (deviceSurface) selectDeviceTarget(client, panelKey(client), deviceSurface.device);

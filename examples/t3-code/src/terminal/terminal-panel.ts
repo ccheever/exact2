@@ -103,6 +103,9 @@ export function installTerminalPanelCleanup(client: T3Client, native: Native, st
     }
   } });
 }
+/** The terminal ops that are rightPanelStore userActions (openTerminal, splitTerminal, activateTerminal, closeTerminal);
+ *  focus reports, links and selection actions are not. */
+export const isTerminalChoice = (op: string): boolean => ['new', 'split', 'split-vertical', 'close', 'activate'].includes(op);
 export async function terminalPanelLocal(client: T3Client, native: Native, op: string, id: string, value: string): Promise<string> {
   if (['new', 'split', 'split-vertical', 'close'].includes(op)) requirePermission(client.scopes, 'terminal:operate');
   const ref = activeRef(client), state = panelState(client);
@@ -191,7 +194,7 @@ export async function terminalPanelOps(this: T3Client, op: string, id: string, v
       op = command.op; id = command.id; value = '';
     }
   }
-  panelState(this).userRevision++;
+  if (isTerminalChoice(op.slice('terminalpanellocal:'.length))) panelState(this).userRevision++;
   const state = panelState(this), wasOpen = state.visible;
   await terminalPanelLocal(this, native, op.slice('terminalpanellocal:'.length), id, value);
   if (wasOpen && !state.surfaces.length && state === panelState(this)) out.message = 'terminal:focus-composer';

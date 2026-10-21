@@ -39,6 +39,7 @@ import { contextReferences } from '../composer/composer-editor-menu';
 import { MAX_ATTACHMENTS } from '../composer/composer-editor-files';
 import { reservedAttachments } from '../composer/composer-editor-attach';
 import type { PanelState } from '../panel/panel-surfaces';
+import { previewPdfAssetUrl } from './browser-url';
 
 // ── The annotation theme (annotationTheme.ts readPreviewAnnotationTheme; Manager.ts DEFAULT_ANNOTATION_THEME) ──────
 /** The app's tokens for the overlay, in sRGB hex (the recording compositor parses no oklch()). */
@@ -461,12 +462,12 @@ async function insertAnnotationChip(client: T3Client, native: Native, origin: An
 
 // ── The floating player's browser source (ThreadPreviewMiniPlayer BrowserMiniPlayer) ─────────────
 export type BrowserMiniView = {
-  show: boolean; key: string; sourceKey: string; tabId: string; runtimeId: string; server: boolean; streamUrl: string; url: string; profileId: string; environment: string;
+  show: boolean; key: string; sourceKey: string; tabId: string; runtimeId: string; server: boolean; streamUrl: string; pdfUrl: string; url: string; profileId: string; environment: string;
   hasWebContents: boolean; recording: boolean; separateWindow: boolean; width: number; height: number;
   /** The main window's zoom, which the module undoes for the page it shows (T3BrowserView.swift `window-zoom`). */
   windowZoom: number;
 };
-export const emptyBrowserMini = (): BrowserMiniView => ({ show: false, key: '', sourceKey: '', tabId: '', runtimeId: '', server: false, streamUrl: '', url: '', profileId: 'default', environment: '',
+export const emptyBrowserMini = (): BrowserMiniView => ({ show: false, key: '', sourceKey: '', tabId: '', runtimeId: '', server: false, streamUrl: '', pdfUrl: '', url: '', profileId: 'default', environment: '',
   hasWebContents: false, recording: false, separateWindow: false, width: 1280, height: 800, windowZoom: 1 });
 
 /** The page's last laid-out size (resolveFittedBrowserViewport with the fill viewport): its box, else 1280×800. */
@@ -486,7 +487,8 @@ export function browserMiniView(client: T3Client, sessions: (ref: ScopedThreadRe
   const key = previewMiniPlayerSourceKey(browserMiniPlayerSource(tabId));
   if (session.server) { const frame = serverStreamFrame(client, runtimeId); if (frame.width > 0 && frame.height > 0) { size.width = frame.width; size.height = frame.height; } }
   captureHost(client).miniSize = { key, ...size };
-  return { show: true, key, sourceKey: key, tabId, runtimeId, server: session.server === true, streamUrl: session.server ? serverStreamUrl(client, runtimeId) : '', url: str(tab.url) || session.url, profileId: session.profileId, environment: ref.environmentId,
+  return { show: true, key, sourceKey: key, tabId, runtimeId, server: session.server === true, streamUrl: session.server ? serverStreamUrl(client, runtimeId) : '',
+    pdfUrl: session.server ? previewPdfAssetUrl(session.url, ref.environmentId === client.environmentId ? client.origin : null) ?? '' : '', url: str(tab.url) || session.url, profileId: session.profileId, environment: ref.environmentId,
     hasWebContents: session.server === true || Object.keys(tab).length > 0, recording: recordingOf(client, ref, tabId, runtimeId), separateWindow: tab.pip === true, ...size,
     windowZoom: readWindowZoom(client.presentation) };
 }
