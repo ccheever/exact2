@@ -50,6 +50,7 @@ use StripPrTipCard from "../composer/strip-pr-badge.contract"
 use PaFreshnessCard from "../pull-requests/pages-pr-actions.contract"
 use WorkflowMemberCard from "../details/lineage-workflows.contract"
 use PrLinkPreviewCard from "../pull-requests/pages-pr-links.contract"
+use PrBreakdownCard from "../pull-requests/pr-breakdown.contract"
 use ChipPopover, ChipPopoverLayer, ChipPopoverEscape from "../composer/composer-chip-popover.contract" // a skill chip's details
 use CitationCommentLayer from "../timeline/citation-comment.contract" // a citation chip's comment
 use CiteAction, CiteOffer, citeLineFrame, citeLineShown, citeRestored from "../timeline/diff-cite.contract" // Cite over the timeline
@@ -1029,6 +1030,8 @@ component T3Window
             else if hoverTip.kind == "pr-badge"
               // Held to the larger room the layer can flip into, less its 4 pt offset.
               StripPrTipCard(tips=branches.prTips, maxHeight=(max(hoverTip.y - 61, viewport.height - hoverTip.y - hoverTip.height - 9) - 4), testId=hoverTip.testId, command=command)
+            else if hoverTip.kind == "breakdown"
+              PrBreakdownCard(breakdown=prDetail.breakdown, diff=prDetail.diffScheme, testId=hoverTip.testId)
             else if hoverTip.kind == "workflow-member"
               WorkflowMemberCard(tip=hoverTip)
             else if hoverTip.kind == "scopes"

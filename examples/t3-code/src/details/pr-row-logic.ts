@@ -1,4 +1,4 @@
-// Adapted from T3 Code 9c161462c9 (MIT); see LICENSE-T3.
+// Adapted from T3 Code 9c161462c9 (MIT); see LICENSE-T3. The card's change breakdown follows 74541bab17.
 // The pure half of the details card's pull request row (MIT
 // reference, see LICENSE-T3, upstream f90b77d809):
 // - components/pullRequest/pullRequestDetail.logic.ts: allowedPullRequestMergeMethods,
@@ -14,6 +14,7 @@
 //   pullRequestActionMenuHasGroup, isStackedPullRequestBase, resolveBaseFreshness,
 //   pullRequestActionNeedsHostRefresh;
 // - chat/ThreadDetailsPrRow.tsx: the row's tooltip card and trailing action.
+import { emptyBreakdown, type BreakdownLine, type PrBreakdown } from '../pull-requests/pr-change-breakdown';
 import { arr, num, obj, str, type Obj } from '../client/domain';
 
 export type MergeMethod = 'merge' | 'squash' | 'rebase';
@@ -310,6 +311,8 @@ export function trailingAction(action: string, input: { handoff: string; actionP
 const STATE_LABEL: Record<string, string> = { open: 'Open', draft: 'Draft', closed: 'Closed', merged: 'Merged' };
 // 12pt advances of the system font (regular; the title is medium, about 3.5% wider).
 const W12 = [3.38, 3.73, 5.73, 7.56, 7.56, 11.1, 8.54, 3.56, 4.58, 4.58, 5.66, 7.56, 3.56, 5.66, 3.56, 3.66, 7.56, 5.57, 7.24, 7.52, 7.72, 7.42, 7.64, 6.83, 7.66, 7.64, 3.56, 3.56, 7.56, 7.56, 7.56, 6.15, 11.02, 8.09, 7.89, 8.59, 8.72, 7.15, 6.87, 8.96, 8.91, 3.21, 6.46, 7.9, 6.81, 10.49, 8.91, 9.26, 7.62, 9.26, 7.84, 7.65, 7.61, 8.85, 8.09, 11.61, 8.14, 7.86, 7.94, 4.58, 3.66, 4.58, 7.56, 7, 6, 6.62, 7.37, 6.71, 7.37, 6.86, 4.34, 7.31, 7.06, 2.96, 2.96, 6.52, 3.04, 10.44, 7, 7.09, 7.32, 7.31, 4.57, 6.28, 4.36, 7, 6.5, 9.29, 6.29, 6.52, 6.47, 4.58, 3.11, 4.58, 7.56];
+/** A 12pt ui-monospace advance. */
+const MONO12 = 7.22;
 export function width12(text: string, medium = false): number {
   let width = 0;
   for (const char of text) { const code = char.charCodeAt(0); width += code >= 32 && code < 127 ? W12[code - 32]! : 7; }
@@ -317,17 +320,19 @@ export function width12(text: string, medium = false): number {
 }
 export type PrCard = {
   show: boolean; title: string; number: string; stateKey: string; stateLabel: string; branches: string;
-  checksShown: boolean; checksStatus: string; checksText: string; conflictText: string; files: string; additions: string; deletions: string; flipped: boolean;
+  checksShown: boolean; checksStatus: string; checksText: string; conflictText: string; files: string; additions: string; deletions: string;
+  /** PullRequestChangeBreakdownRows under the diff size, read once the card was first pointed at. */
+  breakdown: PrBreakdown; flipped: boolean;
   /** Where the details card would clip it: the card's 8pt insets bound it instead (see prCard). */
   clamped: boolean; maxWidth: number;
 };
-export const emptyCard = (): PrCard => ({ show: false, title: '', number: '', stateKey: '', stateLabel: '', branches: '', checksShown: false, checksStatus: '', checksText: '', conflictText: '', files: '', additions: '', deletions: '', flipped: false, clamped: false, maxWidth: 320 });
+export const emptyCard = (): PrCard => ({ show: false, title: '', number: '', stateKey: '', stateLabel: '', branches: '', checksShown: false, checksStatus: '', checksText: '', conflictText: '', files: '', additions: '', deletions: '', breakdown: emptyBreakdown(), flipped: false, clamped: false, maxWidth: 320 });
 /**
  * The card's content, and whether it lands end-aligned: Base UI keeps it start-aligned with the
  * row (side top, 4pt off) unless it would cross the window's 5pt collision edge, where it aligns
  * its end with the row's link half instead. `room` is the window width from the row's left edge.
  */
-export function prCard(detail: Obj, lifecycleKey: string, room: number, row: { width: number; linkRight: number } = { width: 262, linkRight: 262 }): PrCard {
+export function prCard(detail: Obj, lifecycleKey: string, room: number, row: { width: number; linkRight: number } = { width: 262, linkRight: 262 }, breakdown: PrBreakdown = emptyBreakdown()): PrCard {
   const checks = arr(detail.checks), state = str(detail.state, 'open');
   const rollup = checksState(checks);
   const changed = num(detail.changedFiles), additions = num(detail.additions), deletions = num(detail.deletions);
@@ -339,11 +344,14 @@ export function prCard(detail: Obj, lifecycleKey: string, room: number, row: { w
     conflictText: detail.isDraft === true && conflicting ? `Merge conflicts with ${str(detail.baseBranch)}` : '',
     files: `${changed.toLocaleString('en-US')} ${changed === 1 ? 'file' : 'files'}`,
     additions: additions === 0 && deletions === 0 ? '' : `+${additions.toLocaleString('en-US')}`, deletions: additions === 0 && deletions === 0 ? '' : `-${deletions.toLocaleString('en-US')}`,
-    flipped: false, clamped: false, maxWidth: 320,
+    breakdown: additions === 0 && deletions === 0 ? emptyBreakdown() : breakdown, flipped: false, clamped: false, maxWidth: 320,
   };
   const diff = card.additions ? 4 + width12(card.additions) + 4 + width12(card.deletions) : 0;
   const rows = [card.stateLabel, card.branches, card.checksShown ? card.checksText : '', card.conflictText, ''].map((text, index) => (text || index === 4 ? 2 + (index === 2 ? 14 : 12) + 8 + width12(text) : 0));
   rows[4] = 2 + 12 + 8 + width12(card.files) + diff;
+  // The split's grid (pl-0.5, then pl-5): the label column, then the counts in 12pt mono, 16pt apart.
+  const lines = card.breakdown.rows, widest = (pick: (line: BreakdownLine) => number) => Math.max(0, ...lines.map(pick));
+  if (lines.length) rows.push(2 + 20 + widest(line => width12(line.label)) + 16 + widest(line => line.additions.length * MONO12) + 16 + widest(line => line.deletions.length * MONO12));
   const content = Math.max(width12(card.title, true) + 6 + width12(card.number), ...rows);
   const width = Math.min(320, 26 + content);
   card.flipped = width > room - 5;

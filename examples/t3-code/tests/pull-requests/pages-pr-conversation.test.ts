@@ -261,7 +261,8 @@ describe('the panel reads (PullRequestDetailPanel queries)', () => {
     expect(calls).toEqual(['pullRequests.detail', 'pullRequests.activity']);
     setTimeout(() => slowActivity.release(conversation()), 2000);
     const loaded = await answer;
-    expect([loaded.phase, loaded.activityPending, loaded.summary.activeCount, loaded.timeline.comments, wakes()]).toEqual(['content', false, 16, '22', 2]);
+    // The content shows with the +/- split's first read owed (PullRequestChangeBreakdownStat `eager`): one more wake for it.
+    expect([loaded.phase, loaded.activityPending, loaded.summary.activeCount, loaded.timeline.comments, wakes()]).toEqual(['content', false, 16, '22', 3]);
   }, 10_000);
 
   test('a failed activity read says "Could not load pull request activity" with Retry, and Retry reads it once more', async () => {
@@ -290,14 +291,15 @@ describe('the panel reads (PullRequestDetailPanel queries)', () => {
     // The server's current epoch arrives while the first read is out: that read answers it.
     prRefreshEvent(client, { key: PR_REFRESH_KEY, subscriptionId: subscription, value: 5 });
     await settle();
-    expect(calls).toEqual(['pullRequests.detail', 'pullRequests.activity']);
+    // The +/- split is read with them (PullRequestChangeBreakdownStat `eager`) and again on each announced change.
+    expect(calls).toEqual(['pullRequests.detail', 'pullRequests.activity', 'pullRequests.changeBreakdown']);
     title = 'Add input validation (renamed)';
     prRefreshEvent(client, { key: PR_REFRESH_KEY, subscriptionId: subscription, value: 5 }); // the same value again is no change
     await settle();
-    expect(calls).toHaveLength(2);
+    expect(calls).toHaveLength(3);
     prRefreshEvent(client, { key: PR_REFRESH_KEY, subscriptionId: subscription, value: 6 }); // another client's pullRequests.invalidate
     const refreshed = await settle();
-    expect(calls.slice(2)).toEqual(['pullRequests.detail', 'pullRequests.activity']);
+    expect(calls.slice(3)).toEqual(['pullRequests.detail', 'pullRequests.activity', 'pullRequests.changeBreakdown']);
     expect(refreshed.title).toBe('Add input validation (renamed)');
     expect(pullRequestRefreshStats(client)).toMatchObject({ subscribed: true, subscribes: 1, epoch: 2 });
     // Closing the panel lets the stream go.

@@ -22,7 +22,8 @@ import { fileIconToken } from '../shared/timeline-files';
 import { visiblePullRequests } from './shell-pr';
 import { filesView, filesHidden, filesLocal, ensureFile, ensureTree, reconcileFiles, emptyFiles, pendingPaths, type FilesView } from './files-surface';
 import { flushQuickInvalidations } from '../pull-requests/pages-pr-quick';
-import { prsView, prsLocal, prsCommand, emptyPrs, type PrsView } from './linked-prs';
+import { prsView, prsLocal, prsCommand, emptyPrs, readLinkedBreakdowns, type PrsView } from './linked-prs';
+import { requestChangeBreakdown } from '../pull-requests/pr-change-breakdown';
 import { deviceView, deviceLocal, deviceCommand, deviceReady, watchDevice, emptyDevice, deviceHidden, deviceStateOf, type DeviceView } from '../device/device-surface';
 // Opening a device, its workspace and the floating player (device-session.ts).
 import { deviceSessionView, deviceMini, deviceSessionLocal, deviceSessionCommand, emptyMini, deviceTab, floatMiniDevice, type DeviceMini } from '../device/device-session';
@@ -263,6 +264,7 @@ export async function surfaceLocal(client: T3Client, native: Native, op: string,
   // panel: they run before its state, its userRevision and its cleanups (review of 2026-10-12: an agent's request before
   // the panel was restored made restoreRightPanel skip the saved one).
   if (op === 'remember-pr') { rememberPagePullRequest(client, id); return ''; }
+  if (op === 'pr-breakdown') return requestChangeBreakdown(client, value); // a linked row's or the details card's +/- hovered
   if (op === 'browser-automation-recording') { await serveRecordingRequests(client, native, Number(id) || 0); return ''; }
   const targetSplit = op === 'close-confirmed' ? id.lastIndexOf('|') : -1;
   const targetKey = targetSplit >= 0 ? id.slice(0, targetSplit) : panelKey(client);
@@ -431,6 +433,7 @@ export async function panelView(client: T3Client, native: Native | null | undefi
   if (!deviceShown) deviceHidden(client); // DevicePanel lists the devices each time it shows (device-surface.ts deviceView)
   const device = live && (deviceSetup || deviceShown) ? await deviceView(client, live, deviceShown, deviceSetup) : emptyDevice();
   if (live && open && active.kind === 'device' && !deviceSetup) device.session = await deviceSessionView(client, live, deviceStateOf(client) ?? {}, device.loaded, panelKey(client));
+  if (open && active.kind === 'pull-requests') await readLinkedBreakdowns(client, native, now);
   const prs = open && active.kind === 'pull-requests' ? prsView(client, now) : emptyPrs();
   if (live && open && active.kind === 'pull-requests') await flushQuickInvalidations(client, live);
   const linked = await linkedViews(client, live, active, open, now);

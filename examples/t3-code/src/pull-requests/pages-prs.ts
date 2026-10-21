@@ -23,6 +23,7 @@ import { isScratchProject, scratchRoot } from '../pages/pages-home';
 import { projectScopes } from '../sidebar/sidebar-view'; // the project filter's order
 import { prEnvironments, readsPullRequests, type PrEnvironment } from './pages-pr-environments'; // the Server filter
 import { pullRequestHost } from '../palette/palette-linkpr';
+import { emptyBreakdown, presentChangeBreakdown, readChangeBreakdowns } from './pr-change-breakdown';
 
 export const SORTS = [
   { value: 'ready', label: 'Merge readiness' }, { value: 'blocked', label: 'Blocked on me' }, { value: 'updated', label: 'Recently updated' },
@@ -236,7 +237,7 @@ export function presentRow(entry: Obj, now: number, selected: string) {
     key: entryKey(entry), ref, number: num(entry.number), title: str(entry.title), state: stateKey(entry), stateLabel: STATE_LABELS[stateKey(entry)] ?? 'Open',
     conflict: conflictLabel(entry), checks: str(entry.checksState), checksLabel: entry.checksState ? `Checks: ${CHECKS_LABELS[str(entry.checksState)] ?? ''}` : '',
     review: str(entry.reviewDecision), reviewLabel: REVIEW_LABELS[str(entry.reviewDecision)] ?? '', additions: measured(entry) ? `+${count(num(entry.additions))}` : '',
-    deletions: measured(entry) ? `-${count(num(entry.deletions))}` : '', author: author.login, avatar: author.avatar, initial: author.initial,
+    deletions: measured(entry) ? `-${count(num(entry.deletions))}` : '', breakdown: emptyBreakdown(), author: author.login, avatar: author.avatar, initial: author.initial,
     repository: str(entry.repository), age: relativeLabel(entry.updatedAt, now), selected: ref === selected,
     labels: arr(entry.labels).slice(0, 3).map(label => labelChip(str(label.name), labelColor(label.color))),
     firstLabel: arr(entry.labels).slice(0, 1).map(label => labelChip(str(label.name), labelColor(label.color))),
@@ -470,6 +471,14 @@ export async function pullRequestsPage(client: T3Client, native: Native | null |
   // The rows' quick actions with their pending state, and the open popovers.
   const byKey = new Map(arr(answered?.entries).map(entry => [entryKey(entry), entry]));
   for (const group of presented.groups) group.rows = group.rows.map(row => { const entry = byKey.get(row.key); return entry ? { ...row, ...quickRow(client, entry) } : row; });
+  // Each row's +/- split, read once the row was hovered (PullRequestChangeBreakdownStat in PullRequestRow).
+  // A searched row's counts come from listStats, as presentList folds them in.
+  const breakdownOf = (entry: Obj) => {
+    const stat = measured(entry) ? null : cached.stats.get(entryKey(entry)), counted = stat ?? entry;
+    return { reference: entry, environmentId: str(entry.environmentId), additions: num(counted.additions), deletions: num(counted.deletions) };
+  };
+  await readChangeBreakdowns(client, native, presented.groups.flatMap(group => group.rows.flatMap(row => { const entry = byKey.get(row.key); return entry ? [breakdownOf(entry)] : []; })), input.now, { wakes: ['t3.pr'] });
+  for (const group of presented.groups) for (const row of group.rows) { const entry = byKey.get(row.key); if (entry) row.breakdown = presentChangeBreakdown(client, breakdownOf(entry)); }
   native.watch?.('t3.pr');
   await flushQuickInvalidations(client, native);
   Object.assign(presented, await quickPopovers(client, native, arr(answered?.entries), input.now).then(({ checks, stack }) => ({ checksPopover: checks, stackPopover: stack })));

@@ -14,8 +14,8 @@
 //   blur settles to over the card (#fff, #121212): backdrop blur here sees only
 //   its parent, so a translucent popup would show the rows under it.
 // - PrCard: the row's tooltip with the host's detail: title and number, then
-//   the state, base ← head, the checks while open, a draft's conflict and the
-//   diff size; 4pt above the row, start-aligned unless it would cross the window
+//   the state, base ← head, the checks while open, a draft's conflict, the
+//   diff size and its split by file kind (74541bab17); 4pt above the row, start-aligned unless it would cross the window
 //   (`flipped`: its end meets the link half's end). The reference portals it; here
 //   the details card clips it, so a flipped card wider than the room left of the
 //   link half's end is held inside the card's 8pt insets (`clamped`).
@@ -29,6 +29,7 @@ use ShellDetails from "../shell/shell-shapes.contract"
 use PgIcon from "../shared/pages-icons.contract"
 use prdTone from "../pull-requests/pages-pr-detail.contract"
 use Tip from "../shell/shell-tip.contract"
+use PrBreakdownGrid from "../pull-requests/pr-breakdown.contract"
 use FocusGuard from "../shared/dialog-trap.contract"
 use DialogOpenFocus from "../shared/dialog-trap.contract"
 use DialogFinalFocus from "../shared/dialog-trap.contract"
@@ -152,6 +153,10 @@ component PrCardView
               if card.additions != ""
                 text card.additions font-size="0.75rem" line-height="1rem" font-variant-numeric="tabular-nums" color="light-dark(#009966, #00d492)"
                 text card.deletions font-size="0.75rem" line-height="1rem" font-variant-numeric="tabular-nums" color=prRowDestructive()
+          // PullRequestChangeBreakdownRows: the split inline (pl-5, foreground/75), with no Total.
+          if card.breakdown.rows.length > 0
+            box padding-left="1.25rem" display="flex"
+              PrBreakdownGrid(rows=card.breakdown.rows, total=card.breakdown.total, diff="", ink=prRowSoft())
 
 // The action at the second line's end (part "meta", tone primary or destructive): Resolve and Fix (with the
 // hand-off arrow), Ready, Merge.

@@ -9,6 +9,7 @@ import { usagePricesLocal, usagePricesSave } from '../usage/pages-usage-prices';
 import { setOpenModel } from '../usage/pages-usage-detail';
 import { prLocal } from '../pull-requests/pages-prs';
 import { prQuickLocal } from '../pull-requests/pages-pr-quick';
+import { requestChangeBreakdown } from '../pull-requests/pr-change-breakdown';
 import { prCommand, noteCopy } from '../pull-requests/pages-pr-detail';
 import { pushToast } from '../shell/toast';
 import { welcomeLocal } from './pages-welcome';
@@ -44,6 +45,7 @@ export async function pagesLocal(client: T3Client, native: Native | null | undef
     return prCommand(client, native, op.slice(7), id, value, _storage);
   }
   if (op.startsWith('pr-quick-')) return prQuickLocal(client, op.slice(9), value); // a row's popovers
+  if (op === 'pr-breakdown') return requestChangeBreakdown(client, value); // a row's +/- hovered
   if (op.startsWith('pr-')) return prLocal(client, op.slice(3), value);
   if (op === 'copy') {
     if (!native?.available) throw new ClientError('Open on macOS to copy.');

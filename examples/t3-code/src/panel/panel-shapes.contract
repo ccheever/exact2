@@ -1,4 +1,5 @@
 use PrSpeedAction from "../pull-requests/pages-pr-quick.contract"
+use PrBreakdown from "../pull-requests/pr-breakdown.contract"
 use TerminalDrawerView from "../terminal/terminal.contract"
 // The right panel's tabbed surfaces (panel-surfaces.ts):
 // the tab strip, the Files surface (tree and preview), the Linked pull requests
@@ -202,6 +203,7 @@ shape LinkedPrRow
   reviewLabel: string
   additions: string
   deletions: string
+  breakdown: PrBreakdown
   author: string
   avatar: string
   initial: string

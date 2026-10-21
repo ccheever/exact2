@@ -84,10 +84,12 @@ with the token `gh auth token` gives it, so the seed starts it again behind the 
 stand-in (`github-api-standin.mjs`, port `T3_FIXTURE_GITHUB_PORT`, default 16592, and the next
 port): a proxy that tunnels `api.github.com` to its own HTTPS server, whose certificate a CA made
 under `<root>/github-api` signs (the server trusts it by `NODE_EXTRA_CA_CERTS`), and refuses every
-other host. It answers the head lookup, the lookup by number and the summary
+other host. It answers the head lookup, the lookup by number, the summary, the Pull Requests page's
+listing (the search, a repository's list and the counts read after them)
 (`api-calls.log` there lists each request), and the detail panel (`github-api-detail.mjs`): the
 detail with four checks (passed, skipped, running, and a status without a link), an issue comment
-and a review, a review thread on `README.md` line 3 with a reply, the files viewed, and a patch
+and a review, a review thread on `README.md` line 3 with a reply, the files viewed, each file's line
+counts (the change breakdown: code, and docs for the Markdown), and a patch
 long enough to scroll (`GET pulls/7` as a diff). Comment and Close (and Reopen) change what the
 next read answers until the stand-in stops; Merge, reactions, edits and the rest are not answered.
 The
