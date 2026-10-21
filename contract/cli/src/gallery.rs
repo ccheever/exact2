@@ -554,6 +554,8 @@ fn exported(
 /// gallery; and its design by a path from `out`.
 fn gallery_manifest(app: &crate::Manifest, design: Option<&Path>, out: &Path) -> String {
     let mut json = serde_json::json!({
+        // A web manifest's own name too (app.schema.json asks for one), as the app's builders read it.
+        "name": format!("{} gallery", app.name),
         "app": { "id": app.id, "name": format!("{} gallery", app.name) },
     });
     if let Some(design) = design {

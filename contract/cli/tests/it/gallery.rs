@@ -135,6 +135,7 @@ fn the_gallery_places_each_cell_refuses_one_the_compiler_wont_take_and_leaves_th
     assert_eq!(manifest["tamber"], "../../../app.tamber");
     // The app's own id: the gallery's plan runs in the app's build (its wasm checks the id).
     assert_eq!(manifest["app"]["id"], "com.acme.fx");
+    assert_eq!(manifest["name"], "Fx gallery");
     let after = (
         plan(&dir),
         contract::tamber_params::params_of(&dir.join("app.contract")).files,
