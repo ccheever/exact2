@@ -36,6 +36,14 @@ impl<D: DataSource + Default> CanvasHost<D> {
         self.force = true;
     }
 
+    /// A remote's key by its web names (LLP 1115.001.003 D3): the D-pad's
+    /// arrows and Select, down and up. They take the Linux display's
+    /// named-key path ([`crate::presenter::Presenter::hardware_key`]).
+    pub fn named_key(&mut self, code: &str, key: &str, down: bool, repeat: bool) {
+        self.p.hardware_key(code, key, down, repeat);
+        self.force = true;
+    }
+
     /// System Back, in the presenter's order (LLP 1115.001 D6). Whether the
     /// app took it; when it did not, it has nowhere to go back to and the
     /// activity goes.

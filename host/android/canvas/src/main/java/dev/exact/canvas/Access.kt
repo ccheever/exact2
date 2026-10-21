@@ -357,7 +357,7 @@ internal class Access(private val host: View) {
      * in points; and the view it is, which is exact2's to join.
      */
     fun ax(out: org.json.JSONArray, limit: Int): Int {
-        val density = host.resources.displayMetrics.density
+        val density = Device.scale(host.context)
         var more = 0
         fun walk(ids: List<Int>, parent: Int?) {
             for (id in ids) {

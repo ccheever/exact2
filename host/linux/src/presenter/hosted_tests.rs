@@ -238,6 +238,7 @@ fn a_hosted_field_is_measured_by_the_shell_during_layout() {
         bold_text: false,
         high_contrast: false,
         touch: true,
+        tv: false,
         touch_slop: 8.0,
         dates: String::new(),
     };

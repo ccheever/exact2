@@ -20,7 +20,7 @@ object Native {
      * with them, and again on the host's thread whenever one changes. */
     @JvmStatic external fun configure(
         night: Boolean, fontScale: Float, locale: String, rtl: Boolean, hour24: Boolean, noAnimations: Boolean,
-        boldText: Boolean, highContrast: Boolean, touch: Boolean, touchSlop: Float, dates: String,
+        boldText: Boolean, highContrast: Boolean, touch: Boolean, tv: Boolean, touchSlop: Float, dates: String,
     )
     /** The device's colours ([Palette], LLP 1115.001 D4): Material 3's colour roles as the reader resolved them for
      * this device, twelve under the light scheme and then the same twelve under the dark one, ARGB. Before [start],
@@ -165,6 +165,8 @@ object Native {
     /** A gamepad's state for the canvas a key would reach (LLP 1127.003 D2): [values] its 17 standard buttons, then
      * its 4 axes; [connected] false when it went away. */
     @JvmStatic external fun pad(index: Int, connected: Boolean, values: FloatArray)
+    /** A remote's key, down or up, by the web's `code` and `key` (LLP 1115.001.003 D3): a D-pad arrow, or Select. */
+    @JvmStatic external fun namedKey(code: String, key: String, down: Boolean, repeat: Boolean)
     /** System Back (LLP 1115.001 D6): whether the app took it. From its navigation root's selected route it goes to
      * the Back control the root names, else to the root's `navigate` handler, else it is the runner's own `back`;
      * false when there is nowhere to go back to, and the activity finishes. The reader takes Back only while the

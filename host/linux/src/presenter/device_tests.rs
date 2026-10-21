@@ -31,6 +31,7 @@ fn phone() -> Device {
         bold_text: false,
         high_contrast: false,
         touch: true,
+        tv: false,
         touch_slop: 8.0,
         dates: String::new(),
     }

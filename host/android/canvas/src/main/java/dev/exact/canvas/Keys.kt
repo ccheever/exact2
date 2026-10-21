@@ -47,8 +47,10 @@ class Keys(private val view: ExactView) {
         }
     }
 
-    /** A key down: a character, Enter or Backspace typed at the focused field. Whether it was taken. */
+    /** A key down: a remote's D-pad key ([remote]), or a character, Enter or Backspace typed at the focused field.
+     * Whether it was taken. */
     fun down(e: KeyEvent): Boolean {
+        remote(e.keyCode)?.let { (code, key) -> Exact.namedKey(code, key, true, e.repeatCount > 0); return true }
         when (e.keyCode) {
             KeyEvent.KEYCODE_DEL -> Exact.key(0, true)
             KeyEvent.KEYCODE_ENTER, KeyEvent.KEYCODE_NUMPAD_ENTER -> Exact.key('\n'.code, false)
@@ -60,6 +62,24 @@ class Keys(private val view: ExactView) {
             }
         }
         return true
+    }
+
+    /** A key up: a remote's D-pad key's release ([remote]). Whether it was taken. */
+    fun up(e: KeyEvent): Boolean {
+        val (code, key) = remote(e.keyCode) ?: return false
+        Exact.namedKey(code, key, false, false)
+        return true
+    }
+
+    /** A remote's key by the web's `code` and `key` (LLP 1115.001.003 D3): the D-pad's arrows, and Select, which a
+     * `key` handler hears as Enter, as Chrome on Android sends DPAD_CENTER; null for any other key. */
+    private fun remote(keyCode: Int): Pair<String, String>? = when (keyCode) {
+        KeyEvent.KEYCODE_DPAD_UP -> "ArrowUp" to "ArrowUp"
+        KeyEvent.KEYCODE_DPAD_DOWN -> "ArrowDown" to "ArrowDown"
+        KeyEvent.KEYCODE_DPAD_LEFT -> "ArrowLeft" to "ArrowLeft"
+        KeyEvent.KEYCODE_DPAD_RIGHT -> "ArrowRight" to "ArrowRight"
+        KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_BUTTON_SELECT -> "Select" to "Enter"
+        else -> null
     }
 
     /** Text the IME committed as one event (dummy mode, more than one character). */

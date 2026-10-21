@@ -85,6 +85,7 @@ mod images;
 mod links;
 mod palette;
 pub mod preferences;
+pub(crate) mod remote;
 mod requests;
 mod retained_action;
 mod reveal;
