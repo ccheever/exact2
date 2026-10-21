@@ -7,7 +7,7 @@ import { obj, type Obj } from '../../src/client/domain';
 import { ClientError, reply, type Native } from '../../src/client/protocol';
 import { failure } from '../../src/transport/transport-wire';
 import { toasts } from '../../src/shell/toast';
-import { filesLocal, filesState, filesView, markdownFileMenu, mediaUnavailableDescription } from '../../src/panel/files-surface';
+import { editFile, filesLocal, filesState, filesView, markdownFileMenu, mediaUnavailableDescription } from '../../src/panel/files-surface';
 import { crumbs } from '../../src/panel/files-surface';
 import { fileBreadcrumbs, isHostPath, isListableHostFolder } from '../../src/panel/files-path';
 import { openFileLink, panelState, type Surface } from '../../src/panel/panel-surfaces';
@@ -40,7 +40,7 @@ function fixture(answer: Answer = () => ({}), options: { root?: string; remote?:
       const method = String(request.method), payload = obj(request.payload);
       requests.push({ method, payload });
       try { return { ok: true, generation: 0, value: answer(method, payload) ?? {} }; }
-      catch (error) { return { ok: false, generation: 0, error: { kind: error instanceof ClientError ? error.kind : 'rpc', message: (error as Error).message } }; }
+      catch (error) { return { ok: false, generation: 0, error: { kind: error instanceof ClientError ? error.kind : 'rpc', message: (error as Error).message, ...(error instanceof ClientError ? { context: error.context } : {}) } }; }
     }
     if (request.op === 'sshHosts') return { ok: true, generation: 0, value: { targets: options.remote ? { [origin]: { alias: 'devbox', username: 'dev' } } : {} } };
     if (request.op === 'remoteEditorsProbe') return { ok: true, generation: 0, value: { editors: ['vscode'] } };
@@ -76,6 +76,45 @@ describe('home-relative host paths', () => {
     expect(view.crumbs.map(crumb => crumb.label)).toEqual(['~', '.claude', 'CLAUDE.md']);
     expect(requests.filter(request => request.method === 'projects.readFile').map(request => request.payload.relativePath)).toEqual(['~/.claude/CLAUDE.md']);
     expect(requests.filter(request => request.method === 'projects.listEntries').map(request => request.payload.directoryPath)).toEqual(['']);
+  });
+});
+
+describe('home-relative host files are read-only', () => {
+  test('a ~/ file neither enters editing nor writes', async () => {
+    const { client, native, requests } = fixture((method) => method === 'projects.readFile' ? { contents: 'x', byteLength: 1 } : method === 'projects.listEntries' ? { entries: [] } : {});
+    const tabs = panelState(client), home = file('~/.claude/CLAUDE.md');
+    tabs.surfaces = [home]; tabs.active = home.id; tabs.visible = true;
+    await filesView(client, native, home);
+    await filesLocal(client, native, 'begin-edit', home.path, '');
+    expect(filesState(client).editing).toBe('');
+    await editFile(client, native, '~/x', 'changed');
+    await filesLocal(client, native, 'edit', home.path, 'changed');
+    expect(requests.some(request => request.method === 'projects.writeFile')).toBe(false);
+  });
+});
+
+describe('a failed refresh', () => {
+  test('keeps the last good read, so Open in still opens a file, until the path turns out to be a folder', async () => {
+    let fail: '' | 'operation_failed' | 'path_not_file' = '';
+    const { client, native, calls, requests } = fixture((method) => {
+      if (method === 'projects.listEntries') return { entries: [] };
+      if (method !== 'projects.readFile') return {};
+      if (fail) throw new ClientError('read failed', 'ProjectReadFileError', false, { context: { failure: fail } });
+      return { contents: 'kept', byteLength: 4 };
+    }, { remote: true });
+    const tabs = panelState(client), readme = file('README.md');
+    tabs.surfaces = [readme]; tabs.active = readme.id; tabs.visible = true;
+    await filesView(client, native, readme);
+    fail = 'operation_failed';
+    await filesLocal(client, native, 'refresh', '', '');
+    expect(requests.filter(request => request.method === 'projects.readFile')).toHaveLength(2);
+    const view = await filesView(client, native, readme);
+    expect(view).toMatchObject({ preview: 'code', text: 'kept', previewError: '' });
+    await filesLocal(client, native, 'open-editor', view.absolutePath, 'vscode');
+    expect(calls.filter(call => call.op === 'remoteEditorsOpen').at(-1)?.url).toBe('vscode://vscode-remote/ssh-remote+dev%40devbox/work/repo/README.md:1:1');
+    fail = 'path_not_file';
+    await filesLocal(client, native, 'refresh', '', '');
+    expect(filesState(client).reads.get('README.md')).toMatchObject({ notFile: true, contents: '' });
   });
 });
 

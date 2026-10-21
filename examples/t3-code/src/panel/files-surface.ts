@@ -177,6 +177,10 @@ async function readFile(client: T3Client, native: Native, path: string): Promise
     // projectFilesQueryState: the decoded ProjectReadFileError (its failure, and the path it tried), else the message.
     const context = error instanceof ClientError ? error.context : {}, text = filePreviewReadErrorMessage(context, message(error));
     const notFile = context.failure ? context.failure === 'path_not_file' : /not a file|path_not_file|is a directory/i.test(text);
+    // A failed refresh keeps the contents last read (useProjectFileQuery's retained value), so the preview and its
+    // Open in (`isFile`) stay as they were; only "not a file" replaces them.
+    const previous = state.reads.get(path);
+    if (!notFile && previous && !previous.error) return;
     state.reads.set(path, { contents: '', byteLength: 0, truncated: false, error: text, notFile, attempted: context.resolvedPath || context.operationPath || '', errorCwd: context.cwd || cwd, binary: context.failure === 'binary_file' });
   } finally { loadEnd(state, `read:${path}`); }
 }
