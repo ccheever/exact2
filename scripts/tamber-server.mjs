@@ -104,7 +104,7 @@ import { packageDesigns } from './tamber-package-designs.mjs';
 import { serveTool } from './tamber-tool-files.mjs';
 export { serveTool, serveToolFiles } from './tamber-tool-files.mjs';
 import { allows, needs, pairing, PAIR_TTL_MS, parseDuration, refusal } from './tamber-pairing.mjs';
-import { readBody, parseRequest as parse, tooDeep, viaDoor } from './tamber-request.mjs';
+import { earlyAnswer, readBody, parseRequest as parse, tooDeep, viaDoor } from './tamber-request.mjs';
 
 const ROOT = resolve(new URL('..', import.meta.url).pathname);
 // The server's own line limit, less room for the id this adds and an import's `recognised` digests (64, stage 10b).
@@ -532,8 +532,9 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
     // A remote door's request is read whole first: its connection deadline
     // (tamber-remote.mjs) clears only once the body has ended.
     const early = access.remote ? body(req, res) : null;
-    // Over the limit, answered at once: not behind a server still starting, past refuseBody's 5 s.
-    if (early && (await Promise.race([early, ready.then(() => '')])) === null) { if (!res.destroyed) json(res, 413, { error: { message: 'a request is at most 1 MiB' } }); return true; }
+    // Over the limit, answered at once (not behind a server still starting, past refuseBody's 5 s); a client gone, nothing.
+    const first = early && await earlyAnswer(early, ready);
+    if (first === 'over' || first === 'gone') { if (first === 'over' && !res.destroyed) json(res, 413, { error: { message: 'a request is at most 1 MiB' } }); return true; }
     await ready;
     // The client left while the server started.
     if (res.destroyed || res.writableEnded) return true;

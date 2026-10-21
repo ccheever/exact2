@@ -2,12 +2,12 @@
 // proxy (scripts/tamber-server.mjs `forward`) answer first and close the connection after (tamber-request.mjs
 // `refuseBody`, the canvas gateway's too), where they once cut it and wrote the answer to nobody (QUEUE "`tamber tool
 // --via`'s proxy drops a 413 before it is sent").
-import { afterAll, beforeAll, expect, test } from 'bun:test';
+import { afterAll, beforeAll, expect, jest, test } from 'bun:test';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { createServer, request } from 'node:http';
 import { connect } from 'node:net';
 import { EventEmitter } from 'node:events';
-import { refuseBody } from './tamber-request.mjs';
+import { earlyAnswer, refuseBody } from './tamber-request.mjs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { developmentGate } from './install-page.mjs';
@@ -122,33 +122,50 @@ test("--via's proxy answers a body over 1 MiB 413 and sends nothing on; a body w
   }
 }, 60_000);
 
-test("refuseBody lets a request go after 5 s when its answer never finishes, and leaves no timer behind a closed socket", async () => {
+test("refuseBody lets a request go after 5 s when its answer never finishes, and leaves no timer behind a closed socket or an ended request", () => {
   const party = () => {
-    const socket = new EventEmitter(), req = Object.assign(new EventEmitter(), { socket, destroyed: 0, paused: 0, pause() { this.paused++; }, resume() {}, destroy() { this.destroyed++; } });
+    const socket = new EventEmitter(), req = Object.assign(new EventEmitter(), { socket, destroyed: 0, paused: 0, resumed: 0, pause() { this.paused++; }, resume() { this.resumed++; }, destroy() { this.destroyed++; } });
     const res = Object.assign(new EventEmitter(), { headers: {}, setHeader(k, v) { this.headers[k] = v; } });
     return { socket, req, res };
   };
-  // An answer that never goes out: let go at 5 s, paused until then.
-  const stuck = party();
-  let answered = 0;
-  refuseBody(stuck.req, stuck.res, () => answered++);
-  expect({ answered, paused: stuck.req.paused, connection: stuck.res.headers.connection }).toEqual({ answered: 1, paused: 1, connection: 'close' });
-  await Bun.sleep(4500);
-  expect(stuck.req.destroyed).toBe(0);
-  await Bun.sleep(1000);
-  expect(stuck.req.destroyed).toBe(1);
-  // Its socket closed first: the timer goes with it.
-  const gone = party();
-  refuseBody(gone.req, gone.res);
-  gone.socket.emit('close');
-  await Bun.sleep(5500);
-  expect(gone.req.destroyed).toBe(0);
-  // Answered: the rest read and dropped, and let go when it ends.
-  const done = party();
-  refuseBody(done.req, done.res);
-  done.res.emit('finish');
-  expect(done.req.destroyed).toBe(0);
-  done.req.emit('data', Buffer.alloc(10));
-  done.req.emit('end');
-  expect(done.req.destroyed).toBe(1);
-}, 30_000);
+  jest.useFakeTimers();
+  try {
+    // An answer that never goes out: paused, then let go at 5 s and not before.
+    const stuck = party();
+    let answered = 0;
+    refuseBody(stuck.req, stuck.res, () => answered++);
+    expect({ answered, paused: stuck.req.paused, resumed: stuck.req.resumed, connection: stuck.res.headers.connection }).toEqual({ answered: 1, paused: 1, resumed: 0, connection: 'close' });
+    jest.advanceTimersByTime(4999);
+    expect(stuck.req.destroyed).toBe(0);
+    jest.advanceTimersByTime(2);
+    expect(stuck.req.destroyed).toBe(1);
+    // Its socket closed first: the timer goes with it.
+    const gone = party();
+    refuseBody(gone.req, gone.res);
+    gone.socket.emit('close');
+    jest.advanceTimersByTime(6000);
+    expect(gone.req.destroyed).toBe(0);
+    // Answered: resumed, the rest read and dropped, let go when it ends, and the timer gone with it.
+    const done = party();
+    refuseBody(done.req, done.res);
+    done.res.emit('finish');
+    expect({ resumed: done.req.resumed, destroyed: done.req.destroyed }).toEqual({ resumed: 1, destroyed: 0 });
+    done.req.emit('data', Buffer.alloc(10));
+    done.req.emit('end');
+    expect(done.req.destroyed).toBe(1);
+    jest.advanceTimersByTime(6000);
+    expect(done.req.destroyed).toBe(1);
+  } finally { jest.useRealTimers(); }
+});
+
+test("a remote door's body read while the server starts: over the limit refused before it is ready, a client gone answered nothing, a body or a ready server goes on", async () => {
+  const never = new Promise(() => {});
+  expect(await earlyAnswer(Promise.resolve(null), never)).toBe('over');
+  expect(await earlyAnswer(Promise.resolve(undefined), never)).toBe('gone');
+  expect(await earlyAnswer(Promise.resolve(''), never)).toBe('go'); // an empty body is a body
+  expect(await earlyAnswer(never, Promise.resolve())).toBe('go'); // ready first: the body is read after
+  // Ready and refused both settled: the refusal (already fulfilled) is said.
+  const rejected = Promise.reject(new Error('no compiler'));
+  rejected.catch(() => {});
+  expect(await earlyAnswer(Promise.resolve(null), rejected)).toBe('over');
+});

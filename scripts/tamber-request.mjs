@@ -41,6 +41,15 @@ export const readBody = (req, limit, res = null, raw = false) => new Promise(don
   req.on('close', () => finish(undefined));
 });
 
+/** A remote door's body, read while the server may still be starting (`ready`):
+ * 'over' (refuse it now: refuseBody's 5 s would otherwise run out behind a
+ * slow start), 'gone' (the client left: answer nothing, hold nothing), or
+ * 'go' (the body, or the server ready first). */
+export const earlyAnswer = async (early, ready) => {
+  const first = await Promise.race([early, ready.then(() => '')]);
+  return first === null ? 'over' : first === undefined ? 'gone' : 'go';
+};
+
 /** Whether `v` nests deeper than `max` arrays or objects (iterative, so a
  * deep value can't exhaust the stack here; stage 10 A2). */
 export const tooDeep = (v, max = 64) => {
