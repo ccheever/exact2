@@ -21,6 +21,9 @@ struct Cull {
     // x nonzero: the camera's occlusion pyramid is this frame's (`occluded`);
     // y nonzero: a draw's first instance is its region (INDIRECT_FIRST_INSTANCE)
     options: vec4<u32>,
+    // Six more planes per cascade, each containing the light direction, round
+    // what the camera reads from it (shadows.rs `outline`); pass-all if unused
+    outlines: array<vec4<f32>, 18>,
 }
 @group(0) @binding(6) var<uniform> cull: Cull;
 @group(0) @binding(7) var<storage, read> setup: array<u32>;
@@ -218,6 +221,12 @@ fn visible(view: u32, sphere: vec4<f32>) -> bool {
     for (var i = 0u; i < 6u; i++) {
         let plane = cull.planes[view * 6u + i];
         if dot(plane.xyz, sphere.xyz) + plane.w < -r { return false; }
+    }
+    if view > 0u {
+        for (var i = 0u; i < 6u; i++) {
+            let plane = cull.outlines[(view - 1u) * 6u + i];
+            if dot(plane.xyz, sphere.xyz) + plane.w < -r { return false; }
+        }
     }
     return true;
 }
