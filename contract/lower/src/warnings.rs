@@ -67,10 +67,10 @@ pub(crate) struct TextStyle {
 pub(crate) fn with_text_styles(checked: &Checked<'_>, lowered: &TextStyles) -> Vec<LowerError> {
     let root = &checked.expanded.root;
     let mut out = Vec::new();
-    // Each node, whether a navigation root (the outermost element with a
-    // `navigationKey`) encloses it, and the id that root's `navigationBack`
-    // names, when it is a literal: an element with a `navigationKey` inside
-    // a root is a route.
+    // Each node, whether a navigation root (the outermost element with a `navigationKey`)
+    // encloses it, and the id that root's `navigationBack` names, when it is a literal:
+    // an element with a `navigationKey` inside a root is a route.
+    crate::menu_rows::notes(&root.view, &mut out);
     let mut stack: Vec<(&Node, bool, Option<&str>)> =
         root.view.iter().rev().map(|n| (n, false, None)).collect();
     let (mut seen, mut platform) = (BTreeSet::new(), Vec::new());

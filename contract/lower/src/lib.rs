@@ -50,6 +50,7 @@ mod keyframes;
 mod lint;
 mod live_time;
 mod media;
+mod menu_rows;
 mod menus;
 mod metrics;
 pub mod motion;

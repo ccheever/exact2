@@ -295,7 +295,10 @@ final class MenuHost: NSObject {
         if name == "hidePopover" || name == "togglePopover" && open { close(pop) }
         else if !open { show(pop, from: source) }
     }
-    func show(_ pop: NodeView, from source: NodeView?, run: UInt32? = nil, contextMenu: Bool = false, bubbled: Bool = false) {
+    func show(_ pop: NodeView, from row: NodeView?, run: UInt32? = nil, contextMenu: Bool = false, bubbled: Bool = false) {
+        // A row of an open menu opens a popover that is no menu as the menu's own invoker would (LLP 1021's menu rule).
+        let holding = pop.props["accessibilityRole"] == "menu" ? nil : entries.last { e in e.popover.props["accessibilityRole"] == "menu" && row.map { contains(e.popover, $0) } == true }
+        let source = holding.map { $0.source } ?? row
         let bubbled = bubbled && source.map { presenter?.dialogs.isBehindModal($0) == true } == true
         guard let presenter, !isOpen(pop), live(pop), source.map(live) ?? true, pop.props["popover"] != nil,
               connected(pop), source.map(connected) ?? true, !pop.inert,
@@ -669,11 +672,13 @@ final class MenuHost: NSObject {
     /// menu-shaped one (D3) it shows or toggles (`Invocation`),
     /// not a confirmation, and not already on `path` (the popovers from the
     /// presented one down to `row`'s): a row that names one of those is an
-    /// item, as one opening any other popover is.
+    /// item, as one opening any other popover is. It is a menu
+    /// (`role="menu"`): any other popover a row opens opens beside the
+    /// menu's invoker (LLP 1021's menu rule, `show`).
     func submenu(of row: NodeView, path: [NodeView]) -> NodeView? {
         guard let invocation = popoverInvocation(row), invocation.opens else { return nil }
         let sub = invocation.target
-        guard !isConfirmation(sub), !path.contains(where: { $0 === sub }), isMenuShaped(sub) else { return nil }
+        guard !isConfirmation(sub), !path.contains(where: { $0 === sub }), isMenuShaped(sub), sub.props["accessibilityRole"] == "menu" else { return nil }
         return sub
     }
     /// `pop`'s button menu, opened from `source` (nil for a context menu,
