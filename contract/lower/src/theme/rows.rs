@@ -137,30 +137,35 @@ fn grouped(attrs: Vec<Said>) -> Vec<Row> {
     let mut out: Vec<Row> = Vec::new();
     let mut at: std::collections::HashMap<(String, bool, String, usize), usize> =
         Default::default();
-    // Each distinct node's fonts, by its place here (few: most nodes set
-    // none, and an expanded app repeats the rest).
-    let mut seen: Vec<Option<Fonts>> = vec![None];
+    // Each distinct node's fonts, by what lowering reads of them (an
+    // expanded app repeats most).
+    let mut seen: std::collections::HashMap<String, usize> = Default::default();
     for Said {
         attr: a,
         fonts,
         computed,
     } in attrs
     {
-        let node = match seen.iter().position(|f| *f == fonts) {
-            Some(i) => i,
-            None => {
-                seen.push(fonts.clone());
-                seen.len() - 1
+        let node = match &fonts {
+            None => 0,
+            Some(f) => {
+                let next = seen.len() + 1;
+                *seen
+                    .entry(format!("{:?} {}", f.attrs, f.children))
+                    .or_insert(next)
             }
         };
-        // A computed row is judged whole, as the build judges it: refused
-        // where the build's refusal is said. Alike, one value and one type.
-        if let Some(ty) = computed {
+        // A computed row is judged whole, as the build judges it, and so is
+        // a `font` or `font-family` row, whose tokens `tokens_named` judges
+        // together (one longhand set, one axis rule): refused where the
+        // build's refusal is said. Alike, one value and one type.
+        if computed.is_some() || matches!(a.name.as_str(), "font" | "font-family") {
             let place = Place {
                 row: a.span,
                 at: a.span,
                 literal: a.value.span(),
             };
+            let ty = computed.as_ref().map_or(String::new(), |t| t.to_string());
             let k = (a.name.clone(), false, format!("c{:?} {ty}", a.value), node);
             match at.get(&k) {
                 Some(&i) => out[i].places.push(place),
@@ -170,7 +175,7 @@ fn grouped(attrs: Vec<Said>) -> Vec<Row> {
                         attr: a,
                         places: vec![place],
                         fonts,
-                        computed: Some(ty),
+                        computed,
                     });
                 }
             }
@@ -420,7 +425,9 @@ pub fn check(
     let failed_before: std::collections::HashSet<Span> = theirs
         .iter()
         .zip(&was)
-        .filter(|(_, w)| w.is_err())
+        // Failing, or not judged here (a `font` naming no type token, the
+        // build's to judge another way): not known to have passed.
+        .filter(|(_, w)| !matches!(w, Ok(true)))
         .flat_map(|(r, _)| r.places.iter().map(|p| p.row))
         .collect();
     // Each place the row is written whose authored row passed, refused
@@ -488,14 +495,15 @@ impl Sink for Quiet {
 /// Each of `rows` judged as the compiler judges it, `design` bound as the
 /// compiler binds it (`folded`, its fold, when the caller has it); `None`
 /// when the design doesn't fold (no row is the write's then: the build
-/// says the design).
+/// says the design). `Ok(true)` a row that passes, `Ok(false)` one not
+/// judged here ([`judge`]).
 fn judged(
     design: &tamber::Design,
     folded: Option<&tamber::Folding>,
     rows: &[&Row],
     exprs: &[(String, bool)],
     params: &[crate::params::ParamToken],
-) -> Option<Vec<Result<(), LowerError>>> {
+) -> Option<Vec<Result<bool, LowerError>>> {
     let mut design = design.clone();
     let origin = Origin::Inline(Vec::new());
     let profiled = profiles(&mut Quiet, &mut design, &origin);
@@ -538,12 +546,12 @@ fn judged(
 /// a literal family's, left to the build); any other by
 /// `values::check_style_value`, with the node's fonts as
 /// `fonts::font_use` reads them, and a computed row's type as the walk
-/// knew it.
+/// knew it. `Ok(false)` when it isn't judged here.
 fn judge(
     r: &Row,
     scope: &contract_types::Scope,
     shapes: &contract_types::Shapes,
-) -> Result<(), LowerError> {
+) -> Result<bool, LowerError> {
     let (a, fonts) = (&r.attr, r.fonts.as_ref());
     let uses = fonts
         .and_then(|f| crate::fonts::font_use(&f.declared, &f.attrs).ok())
@@ -555,7 +563,7 @@ fn judge(
     };
     if let (Some((kind, uses)), Some(f)) = (kind, fonts) {
         return crate::type_tokens::tokens_named(a, kind, uses, &f.declared, f.children)
-            .map(|_| ());
+            .map(|named| named.is_some());
     }
     let rows = crate::tags::rows(a);
     let mut leaves = Vec::new();
@@ -568,7 +576,7 @@ fn judge(
         (None, true) => contract_types::Ty::Number,
         (None, false) => contract_types::Ty::String,
     };
-    crate::values::check_style_value(a, &rows, &ty, &uses, scope, shapes)
+    crate::values::check_style_value(a, &rows, &ty, &uses, scope, shapes).map(|()| true)
 }
 
 /// The tables [`bind`] and the params set, as they were before a check,
@@ -646,5 +654,42 @@ mod tests {
         );
         assert_eq!(super::super::ROLES.with(|r| r.borrow().len()), 1);
         assert_eq!(crate::scale::declared(), vec!["kept".to_string()]);
+    }
+
+    /// A `font` row naming no type token isn't judged here, so it never
+    /// counts as having passed (Astra's D1 round 1): `font="choice"` with
+    /// `choice = 1` (a shorthand the build refuses another way), whose
+    /// token a write makes a family, is not the write's to refuse.
+    #[test]
+    fn a_font_row_not_judged_here_never_passed() {
+        let parse = |t: &str| tamber::parse(t).unwrap();
+        let before = "tamber t\n\ntheme\n  choice = 1\n";
+        let after = parse("tamber t\n\ntheme\n  choice: family = Georgia\n");
+        let folded = tamber::check_design(after.clone(), &super::super::vocab()).unwrap();
+        let row = Row {
+            attr: Attr {
+                name: "font".into(),
+                value: Expr::Str("choice".into(), Span::default()),
+                span: Span::default(),
+                written: true,
+            },
+            places: vec![Place::plain(Span::default())],
+            fonts: Some(Fonts {
+                attrs: Vec::new(),
+                children: false,
+                declared: Default::default(),
+            }),
+            computed: None,
+        };
+        let broken = check(
+            &[row],
+            &["choice"],
+            &after,
+            &folded,
+            || Some(parse(before)),
+            &[],
+            &[],
+        );
+        assert!(broken.is_empty(), "{broken:?}");
     }
 }

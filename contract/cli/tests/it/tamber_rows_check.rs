@@ -605,3 +605,21 @@ fn a_computed_row_the_build_accepts_is_accepted() {
     contract::compile_path(&dir.join("app.contract")).unwrap();
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// A `font` choice is judged whole, as `tokens_named` judges it (Astra's
+/// D1 round 1): a write making one arm's token write other longhands than
+/// the other's is refused (`tamber-type-longhands`), though each arm alone
+/// passes.
+#[test]
+fn a_font_choice_is_judged_whole() {
+    let design =
+        "tamber t\n\ntheme\n  ink = #111111\n  one = 400 1rem Georgia\n  two = 400 1rem Georgia\n";
+    let contract = "use Card from \"@acme/reading\"\ncomponent App\n  state on = false\n  view\n    column\n      text \"x\" font=(on ? \"one\" : \"two\")\n      Card()\n";
+    same_words(
+        &reading("rows-font-choice"),
+        design,
+        contract,
+        json!({"op": "set-token", "name": "one", "value": "italic 400 1rem Georgia"}),
+        &design.replace("one = 400", "one = italic 400"),
+    );
+}
