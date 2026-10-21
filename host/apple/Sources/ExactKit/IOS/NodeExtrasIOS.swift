@@ -133,6 +133,7 @@ final class NodeExtras {
     var symbolFound = false
     var symbolKey: String?
     var symbolRefusal: String?
+    var listSymbol = false
     var focusRing: CAShapeLayer?
     var scrollEventQueued: Bool = false
     var lastScrollEvent: (offset: CGPoint, topInset: CGFloat) = (.zero, 0)
@@ -325,6 +326,9 @@ extension NodeView {
     var symbolFound: Bool { get { extras?.symbolFound ?? false } set { if newValue || extras != nil { more.symbolFound = newValue } } }
     var symbolKey: String? { get { extras?.symbolKey } set { if newValue != nil || extras != nil { more.symbolKey = newValue } } }
     var symbolRefusal: String? { get { extras?.symbolRefusal } set { if newValue != nil || extras != nil { more.symbolRefusal = newValue } } }
+    /// A grouped list's custom row's leading symbol, drawn as UIKit's list
+    /// draws a cell's image (`GroupedCustomRowsIOS.swift`).
+    package var listSymbol: Bool { get { extras?.listSymbol ?? false } set { guard newValue != listSymbol else { return }; more.listSymbol = newValue; symbolKey = nil; updateSymbol() } }
     var focusRing: CAShapeLayer? { get { extras?.focusRing } set { if newValue != nil || extras != nil { more.focusRing = newValue } } }
     var scrollEventQueued: Bool { get { extras?.scrollEventQueued ?? false } set { if newValue || extras != nil { more.scrollEventQueued = newValue } } }
     var lastScrollEvent: (offset: CGPoint, topInset: CGFloat) { get { extras?.lastScrollEvent ?? (.zero, 0) } set { if newValue.offset != .zero || newValue.topInset != 0 || extras != nil { more.lastScrollEvent = newValue } } }

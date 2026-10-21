@@ -603,6 +603,7 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
                 }
                 if owned(path.item) { separator.bottomSeparatorVisibility = .hidden }
                 if owned(path.item - 1) { separator.topSeparatorVisibility = .hidden }
+                if path.item < rows.count, rows[path.item].custom, let x = self?.separatorLeading(rows[path.item].view) { separator.bottomSeparatorInsets.leading = x }
                 return separator
             }
             #endif
@@ -1231,6 +1232,7 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
             carriedOrder.append(id)
         }
         guard let place = carried[id] else { return }
+        markLeadingSymbol(row)
         // At its layout x on the cell's grid, at the size it is drawn at
         // home. Its children keep their places in it: carried and put back
         // in every batch, a row placed afresh in the cell would place them

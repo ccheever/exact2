@@ -594,8 +594,8 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
     func layoutSymbol() {
         guard let leaf = symbolView else { return }
         let content = contentBox()
-        leaf.frame = content; leaf.clipsToBounds = true
-        switch style["object_fit"]?.string ?? "fill" {
+        leaf.frame = content; leaf.clipsToBounds = !listSymbol // a list cell's image is its own size, centred, as UIKit's
+        switch listSymbol ? "none" : style["object_fit"]?.string ?? "fill" {
         case "cover": leaf.contentMode = .scaleAspectFill
         case "none": leaf.contentMode = .center
         case "scale-down":
