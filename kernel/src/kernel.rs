@@ -256,9 +256,9 @@ impl<'a> NodeRef<'a> {
         self.arena.inline_boxes.get(&self.slot).copied()
     }
 
-    /// The canonical ordered runs used to measure this paragraph. Inline
-    /// descendants have no independent boxes; painting uses the owner's
-    /// content width and these same inherited metric styles.
+    /// The canonical ordered text and atomic box runs used to measure this
+    /// paragraph. Styled text shares the owner's content width; atomic boxes
+    /// retain their own geometry.
     pub fn text_runs(&self) -> Vec<TextRun<'a>> {
         let mut runs = Vec::new();
         self.arena.text_runs(self.slot, &mut runs);

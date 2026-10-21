@@ -219,6 +219,7 @@ typedef struct ExactMeasureRequest {
     uint8_t text_box_over;  /* text-box-edge over: 0 text, 1 cap, 2 ex */
     uint8_t text_box_under; /* text-box-edge under: 0 text, 1 alphabetic */
     uint8_t text_wrap_style; /* CSS text-wrap-style: 0 auto, 1 balance (LLP 1001 §6) */
+    /* Optional geometry output; a non-null pointer requests the last-line baseline. */
     ExactInlinePosition *inline_positions;
 } ExactMeasureRequest;
 

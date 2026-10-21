@@ -127,6 +127,7 @@ pub struct CRequest {
     /// CSS `text-wrap-style`: 0 auto, 1 balance (LLP 1001 §6).
     pub text_wrap_style: u8,
     /// Optional shaper output, one position per input run; NaN for hidden runs.
+    /// When set, CMetrics returns the last line's baseline.
     pub inline_positions: *mut CInlinePosition,
 }
 

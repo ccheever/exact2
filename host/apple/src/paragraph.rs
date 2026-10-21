@@ -402,7 +402,7 @@ impl<D: DataSource> Host<D> {
             return;
         }
         // A select's options are its menu's, not views (LLP 1069.001 D2).
-        if node_type == NodeType::Control {
+        if node_type == NodeType::Control || self.option_part(id) {
             batch.controls = true;
             return;
         }
