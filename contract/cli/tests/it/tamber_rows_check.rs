@@ -393,6 +393,7 @@ fn a_worst_case_write_is_checked_within_the_budget() {
             )],
             fonts: None,
             computed: None,
+            within: None,
         })
         .collect();
     let vocab = contract_lower::tamber_vocab();
@@ -929,6 +930,64 @@ fn a_file_whose_build_fails_leaves_its_rows_to_the_build() {
         json!({"op": "set-token", "name": "pos", "value": "#123456"}),
     );
     assert!(w.get("ok").is_some(), "{w}");
+    drop(s);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// An `audio` without controls shows nothing: lowering replaces its
+/// `display` (`media::audio_rows`), so the authored one is never judged,
+/// and a write breaking it is accepted, as the build accepts it (Astra's
+/// round of 700c41d3d0).
+#[test]
+fn an_audios_display_is_the_builds() {
+    let dir = reading("rows-audio");
+    let design = "tamber t\n\ntheme\n  ink = #111111\n";
+    std::fs::write(dir.join("app.tamber"), design).unwrap();
+    std::fs::write(
+        dir.join("app.contract"),
+        "use Card from \"@acme/reading\"\ncomponent App\n  state on = false\n  state pick = \"block\"\n  view\n    column\n      audio \"https://example.com/a.mp3\" display=(on ? \"block\" : pick)\n      Card()\n",
+    )
+    .unwrap();
+    contract::compile_path(&dir.join("app.contract")).unwrap();
+    let mut s = Serve::start(&dir, &[]);
+    s.ask(json!({"method": "propose", "ops": [{"op": "set-token", "name": "ink", "value": "#444444"}]}));
+    let w = transaction(
+        &mut s,
+        &dir,
+        json!({"op": "add-token", "name": "block", "value": "4px"}),
+    );
+    assert!(w.get("ok").is_some(), "{w}");
+    drop(s);
+    contract::compile_path(&dir.join("app.contract")).unwrap();
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A write that leaves an element's `font-family` one lowering can't read
+/// (a family token removed, its name now a literal list it refuses) stops
+/// that element and everything inside it before any row: a row inside it
+/// the same write breaks is the build's (Astra's round of 700c41d3d0).
+#[test]
+fn a_family_lowering_cant_read_leaves_the_rows_inside_it() {
+    let dir = reading("rows-family-list");
+    let design =
+        "tamber t\n\ntheme\n  ink = #111111\n  family.text: family = system-ui\n  pos = 8px\n";
+    std::fs::write(dir.join("app.tamber"), design).unwrap();
+    std::fs::write(
+        dir.join("app.contract"),
+        "use Card from \"@acme/reading\"\ncomponent App\n  view\n    column\n      svg width=20 height=20 font-family=\"family.text\"\n        rect x=\"pos\" width=10 height=10\n      Card()\n",
+    )
+    .unwrap();
+    contract::compile_path(&dir.join("app.contract")).unwrap();
+    let mut s = Serve::start(&dir, &[]);
+    s.ask(json!({"method": "propose", "ops": [{"op": "set-token", "name": "ink", "value": "#444444"}]}));
+    let w = s
+        .ask(json!({"method": "transaction", "client": "one", "files": {"app.tamber": super::tamber_serve::digest(&dir.join("app.tamber"))}, "ops": [{"op": "remove-token", "name": "family.text"}, {"op": "set-token", "name": "pos", "value": "#444444"}]}))
+        .0;
+    let refused: Vec<&Value> = w["error"]["diagnostics"]
+        .as_array()
+        .map(|d| d.iter().filter(|d| d["file"] == "app.contract").collect())
+        .unwrap_or_default();
+    assert!(refused.is_empty(), "{w}");
     drop(s);
     let _ = std::fs::remove_dir_all(&dir);
 }

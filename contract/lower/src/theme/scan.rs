@@ -99,6 +99,30 @@ pub(crate) struct Said {
     pub rows: Vec<super::rows::Said>,
 }
 
+/// What a node of the walk sits in: whether an `svg` encloses it, its
+/// parent's tag, whether a `for` or `match` binds a name around it, whether
+/// its rows are left to the build, and the `font-family`s of it and the
+/// elements around it (`rows::Row::within`).
+#[derive(Clone, Default)]
+struct Around<'a> {
+    svg: bool,
+    parent: Option<&'a str>,
+    local: bool,
+    left: bool,
+    within: Option<std::sync::Arc<Vec<super::rows::Fonts>>>,
+}
+
+/// Whether `attrs`' class gives the element a `font-family`.
+fn has_class_family(file: &File, attrs: &[Attr]) -> bool {
+    let style = |name: &str| {
+        file.styles
+            .iter()
+            .rfind(|s| s.name == name)
+            .map(|s| s.attrs.as_slice())
+    };
+    matches!(crate::class::rows(attrs, &style), Ok(Some((_, rows))) if rows.iter().any(|a| a.name == "font-family"))
+}
+
 /// Whether lowering's `check_svg` passes the element `tag` with `attrs`
 /// under `parent` (as `nodes.rs` gives it: its class's rows, then its own,
 /// lengths coerced; `coerced`, its own so); an unknown class, or any
@@ -201,12 +225,16 @@ impl Said {
         // (`grouped::folds`) holds one text lowering builds anew, at its
         // first arm's place: the chain's rows are left to the build
         // (`left`).
-        let mut stack: Vec<(&Node, bool, Option<&str>, bool, bool)> = root
-            .view
-            .iter()
-            .map(|n| (n, false, None, false, false))
-            .collect();
-        while let Some((node, svg, parent, local, left)) = stack.pop() {
+        let mut stack: Vec<(&Node, Around)> =
+            root.view.iter().map(|n| (n, Around::default())).collect();
+        while let Some((node, around)) = stack.pop() {
+            let Around {
+                svg,
+                parent,
+                local,
+                left,
+                within,
+            } = around.clone();
             match node {
                 Node::Element {
                     tag,
@@ -235,9 +263,35 @@ impl Said {
                     // A look a marked row yields to a grouped list's is
                     // dropped there (`row_look::yielded`): never kept.
                     let yields = a.iter().any(|a| a.name == crate::row_look::ROW_LOOK);
+                    // An `audio`'s rows as lowering gives them
+                    // (`media::audio_rows`: a `display` it replaces).
+                    let audio = crate::media::audio_rows(tag, own, *span);
+                    let own = match &audio {
+                        Ok(Some(rows)) => rows.as_slice(),
+                        _ => own,
+                    };
                     let left = left
                         || boxed.is_err()
+                        || audio.is_err()
                         || !prepared(file, tag, in_svg, parent, a, own, *span);
+                    // Its `font-family` and those around it: one lowering
+                    // can't read (`fonts::font_use`) stops the element there,
+                    // under the design a write leaves too (`rows::judge`).
+                    let within = match a.iter().any(|a| a.name == "font-family")
+                        || has_class_family(file, a)
+                    {
+                        false => within,
+                        true => {
+                            match super::rows::Fonts::of(file, a, !children.is_empty(), declared) {
+                                Some(f) => {
+                                    let mut all = within.as_deref().cloned().unwrap_or_default();
+                                    all.push(f);
+                                    Some(std::sync::Arc::new(all))
+                                }
+                                None => within,
+                            }
+                        }
+                    };
                     // An element's own rows, which the build checks where it
                     // lowers the element (a style's are checked where a node
                     // applies it, and may be overridden there).
@@ -275,29 +329,37 @@ impl Said {
                             attr: r.clone(),
                             fonts,
                             computed,
+                            within: within.clone(),
                         });
                     }
                     let inside = svg || tag == "svg";
                     let left = left || (parent == Some("section") && crate::grouped::folds(node));
-                    stack.extend(
-                        children
-                            .iter()
-                            .map(|c| (c, inside, Some(tag.as_str()), local, left)),
-                    );
+                    let inner = Around {
+                        svg: inside,
+                        parent: Some(tag.as_str()),
+                        local,
+                        left,
+                        within,
+                    };
+                    stack.extend(children.iter().map(|c| (c, inner.clone())));
                 }
                 Node::When {
                     then, otherwise, ..
-                } => stack.extend(
-                    then.iter()
-                        .chain(otherwise)
-                        .map(|c| (c, svg, parent, local, left)),
-                ),
+                } => stack.extend(then.iter().chain(otherwise).map(|c| (c, around.clone()))),
                 Node::Each { body, .. } => {
-                    stack.extend(body.iter().map(|c| (c, svg, parent, true, left)))
+                    let bound = Around {
+                        local: true,
+                        ..around.clone()
+                    };
+                    stack.extend(body.iter().map(|c| (c, bound.clone())))
                 }
                 Node::Match { some, none, .. } => {
-                    stack.extend(some.1.iter().map(|c| (c, svg, parent, true, left)));
-                    stack.extend(none.iter().map(|c| (c, svg, parent, local, left)));
+                    let bound = Around {
+                        local: true,
+                        ..around.clone()
+                    };
+                    stack.extend(some.1.iter().map(|c| (c, bound.clone())));
+                    stack.extend(none.iter().map(|c| (c, around.clone())));
                 }
                 // An uninlined `use` is lowering's refusal, its children
                 // never lowered.

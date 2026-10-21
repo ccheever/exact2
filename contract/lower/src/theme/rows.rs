@@ -57,6 +57,10 @@ pub struct Row {
     /// A computed row's type as lowering types it, and the scope and
     /// shapes it is judged in; `None` for a literal row.
     pub computed: Option<(contract_types::Ty, Typing)>,
+    /// The `font-family` of its element and of each element around it, as
+    /// lowering reads them before any row (`fonts::font_use`): one it can't
+    /// read under a design leaves the row to the build there.
+    pub within: Option<Arc<Vec<Fonts>>>,
 }
 
 /// The root's scope and the file's shapes, in which lowering judges a
@@ -204,15 +208,22 @@ fn grouped(attrs: Vec<Said>) -> Vec<Row> {
         attr: a,
         fonts,
         computed,
+        within,
     } in attrs
     {
-        let node = match &fonts {
-            None => 0,
-            Some(f) => {
+        let node = match (&fonts, &within) {
+            (None, None) => 0,
+            _ => {
                 let next = seen.len() + 1;
-                *seen
-                    .entry(format!("{:?} {}", f.attrs, f.children))
-                    .or_insert(next)
+                let around: Vec<&Vec<Attr>> = within
+                    .iter()
+                    .flat_map(|w| w.iter().map(|f| &f.attrs))
+                    .collect();
+                let key = match &fonts {
+                    Some(f) => format!("{:?} {} {around:?}", f.attrs, f.children),
+                    None => format!("- {around:?}"),
+                };
+                *seen.entry(key).or_insert(next)
             }
         };
         // A computed row is judged whole, as the build judges it, and so is
@@ -242,6 +253,7 @@ fn grouped(attrs: Vec<Said>) -> Vec<Row> {
                         places: vec![place],
                         fonts,
                         computed,
+                        within,
                     });
                 }
             }
@@ -278,6 +290,7 @@ fn grouped(attrs: Vec<Said>) -> Vec<Row> {
                         places: vec![place],
                         fonts: fonts.clone(),
                         computed: None,
+                        within: within.clone(),
                     });
                 }
             }
@@ -399,6 +412,7 @@ pub(crate) struct Said {
     pub attr: Attr,
     pub fonts: Option<Fonts>,
     pub computed: Option<(contract_types::Ty, Typing)>,
+    pub within: Option<Arc<Vec<Fonts>>>,
 }
 
 /// Leave `rows` for [`rows`] (the design server's build reads it).
@@ -647,6 +661,12 @@ fn judge(
     shapes: &contract_types::Shapes,
 ) -> Result<bool, LowerError> {
     let (a, fonts) = (&r.attr, r.fonts.as_ref());
+    // A `font-family` lowering can't read stops its element before any
+    // row, and every element inside it.
+    let unread = |f: &Fonts| crate::fonts::font_use(&f.declared.fonts, &f.attrs).is_err();
+    if r.within.iter().flat_map(|w| w.iter()).any(unread) {
+        return Ok(false);
+    }
     // A family list lowering refuses stops the element before any font
     // check (`nodes.rs`'s `font_use(expanded)?`): not judged here.
     let uses = match fonts.map(|f| crate::fonts::font_use(&f.declared.fonts, &f.attrs)) {
@@ -743,6 +763,7 @@ mod tests {
             places: vec![Place::plain(Span::default())],
             fonts: None,
             computed: None,
+            within: None,
         };
         let broken = check(&[row], &["gap"], &design, &folded, || None, &[], &[]);
         assert!(broken.is_empty());
@@ -797,6 +818,7 @@ mod tests {
                 declared,
             }),
             computed: None,
+            within: None,
         };
         let rows = [row];
         let check = || {
@@ -876,6 +898,7 @@ mod tests {
                 declared: Default::default(),
             }),
             computed: None,
+            within: None,
         };
         let broken = check(
             &[row],
