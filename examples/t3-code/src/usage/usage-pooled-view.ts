@@ -1,6 +1,7 @@
-// The pooled Limits view as data for usage-pooled.contract, T3 Code 9c161462c9 (MIT, see
+// The pooled Limits view as data for usage-pooled.contract, T3 Code 74541bab17 (MIT, see
 // LICENSE-T3): apps/web/src/components/usage/UsageLimitsPooled.tsx (UsageLimitsPooled, PoolSection,
-// PoolWindowCard, PoolBar, PoolSegment, LegendRow, SegmentPopover, RedeemableSegmentPopup,
+// PoolWindowCard, PoolBar, PoolSegment, SegmentTriggers, LegendRow, SegmentPopover, RedeemableSegment,
+// ActiveSegmentPopover's check that its segment is still drawn,
 // AccountAvatar, AccountName, AccountChip, LimitNotices), UsageLimits.tsx (UsageLimitsSection's
 // provider filter) and UsagePage.tsx (CursorEnableLimits, CursorEnableRow). Changes: Contract has no container query, so the bar's `@2xl/pool` width
 // (42rem) is worked out here from the page's layout (`poolBarWidth`); the popover's side is the one the reference lands on after its
@@ -9,7 +10,7 @@
 import { arr, str, type Obj } from '../client/domain';
 import { driverMeta } from '../providers/providers-meta';
 import { resolveOfficialAcpRegistryIconUrl } from '../providers/acp-icons';
-import { PACE_LABEL, barColor, formatResetsIn, remainingPercent } from './usage-limits';
+import { PACE_LABEL, barColor, formatResetsIn, paceRemainingPercent, remainingPercent } from './usage-limits';
 import { REDEEM_IDLE, resetCreditsSummary } from './reset-credits';
 import { redactedValue } from '../shared/redacted-text';
 import { formatUpcomingTimestamp } from '../shared/timestamp-format';
@@ -49,9 +50,20 @@ function accountName(account: LimitAccount) {
     chipBg: `oklch(0.85 0.08 ${hue})`, chipFg: `oklch(0.35 0.1 ${hue})` };
 }
 
+/**
+ * What ActiveSegmentPopover checks to keep a popover open: the same account's same window, redeemable or
+ * not. Hashed, since an account key can hold an address.
+ */
+function segmentIdentity(account: LimitAccount, window: import('../client/domain').Obj): string {
+  const text = `${account.key}\n${str(window.kind)}:${str(window.id)}\n${account.redeem ? 1 : 0}`;
+  let hash = 0;
+  for (let index = 0; index < text.length; index += 1) hash = (hash * 31 + text.charCodeAt(index)) | 0;
+  return (hash >>> 0).toString(36);
+}
+
 export type PooledSegment = ReturnType<typeof segmentView>;
-function segmentView(state: UsageState, id: string, account: LimitAccount, window: import('../client/domain').Obj, reset: { restoresPercent: number } | undefined, column: number, count: number, now: number, format: string, side: string) {
-  const remaining = remainingPercent(window), resetsIn = formatResetsIn(window, now);
+function segmentView(state: UsageState, id: string, account: LimitAccount, window: import('../client/domain').Obj, reset: { restoresPercent: number } | undefined, refillPercent: number, column: number, count: number, now: number, format: string, side: string) {
+  const remaining = remainingPercent(window), resetsIn = formatResetsIn(window, now), timeLeft = paceRemainingPercent(window, now);
   const credits = Number(account.limits.resetCredits && (account.limits.resetCredits as { availableCount?: number }).availableCount) || 0;
   const label = account.displayName ?? (account.email ? accountInitials(account.email) : account.driver);
   const named = accountName(account), email = redactedValue(account.email ?? '');
@@ -60,13 +72,16 @@ function segmentView(state: UsageState, id: string, account: LimitAccount, windo
   const resetCredits = account.limits.resetCredits as import('../client/domain').Obj | undefined;
   const avatar = account.redeem ? 'instance' : account.email ? 'chip' : '';
   return {
-    id, column, side, remaining, credits, ...named, showName: count > 1,
+    id, identity: segmentIdentity(account, window), column, side, remaining, credits, ...named, showName: count > 1,
+    // The even-pace tick's place along the segment; -1 without a clock.
+    timeLeft: timeLeft ?? -1,
     // PopoverPopup align center, shifted inside the page at the bar's ends (Base UI's collision shift).
     align: count > 1 && column === 1 ? 'start' : count > 1 && column === count ? 'end' : 'center',
-    label: `${label}: ${remaining}% left${resetsIn ? `, ${resetsIn}` : ''}${credits ? `, ${credits} reset ${credits === 1 ? 'credit' : 'credits'} banked` : ''}`,
+    label: `${label}: ${remaining}% left${resetsIn ? `, ${resetsIn}` : ''}${timeLeft === null ? '' : `, ${timeLeft}% of the window left`}${credits ? `, ${credits} reset ${credits === 1 ? 'credit' : 'credits'} banked` : ''}`,
     resets: resetsIn ? resetsIn.replace('resets in ', '↻ ') : '',
     creditsAria: credits ? `${credits} reset ${credits === 1 ? 'credit' : 'credits'} banked` : '',
-    hatch: remaining < 100 && !!reset,
+    // The spent share a reset makes usable again, hatched from the right.
+    hatch: remaining < 100 && !!reset && refillPercent > 0 ? Math.min(100 - remaining, refillPercent) : 0,
     // SegmentPopover
     title: account.displayName ?? driverLabel(account.driver), avatar, driver: account.driver,
     badge: account.redeem && account.displayName ? instanceInitials(account.displayName) : '', accent: accent(account.accentColor),
@@ -75,6 +90,7 @@ function segmentView(state: UsageState, id: string, account: LimitAccount, windo
     left: `${remaining}%`,
     resetsAt: typeof window.resetsAt === 'string' && window.resetsAt
       ? `${formatUpcomingTimestamp(window.resetsAt, format, now)}${resetsIn ? ` · ${resetsIn.replace('resets in ', 'in ')}` : ''}` : '',
+    evenPace: timeLeft === null ? '' : `${timeLeft}% left by now`,
     restores: reset && reset.restoresPercent > 0 ? `+${reset.restoresPercent}% of pool` : '',
     // RedeemableSegmentPopup: the credits row only with a redeem target and credits on show.
     redeemable: !!account.redeem && credits > 0, creditsText: account.redeem && credits > 0 && resetCredits ? resetCreditsSummary(resetCredits, now, true) : '',
@@ -119,7 +135,7 @@ export function pooledView(state: UsageState, statuses: EnvironmentUsageStatus[]
         if (!member.window) return [];
         const id = `${poolIndex}-${windowIndex}-${position}`;
         state.segments.set(id, { account: member.account, redeemKey: redeemKeyOf(member.account, member.window), name: accountName(member.account).name });
-        return [segmentView(state, id, member.account, member.window, restores.get(member.account.key), position + 1, window.columns.length, now, layout.format, 'top')];
+        return [segmentView(state, id, member.account, member.window, restores.get(member.account.key), member.refillPercent, position + 1, window.columns.length, now, layout.format, 'top')];
       });
       return {
         key: `${window.kind}:${window.id}`, prefix: `${poolIndex}-${windowIndex}-`, label: details?.label ?? window.label, description: details?.description ?? '',
@@ -128,8 +144,8 @@ export function pooledView(state: UsageState, statuses: EnvironmentUsageStatus[]
         count: window.columns.length, segments,
         // The popover closed before the confirm, so each outcome needs a home outside it: under the bar.
         // Explicit rows after the strip (and, narrow, after its legend), as the grid places them.
-        statuses: segments.filter(segment => segment.status !== '').map((segment, index) => ({ key: segment.id, row: (wide ? 2 : window.columns.length + 2) + index,
-          name: segment.name, chip: segment.chip, chipBg: segment.chipBg, chipFg: segment.chipFg, text: segment.status })),
+        statuses: segments.filter(segment => segment.busy || segment.status !== '').map((segment, index) => ({ key: segment.id, row: (wide ? 2 : window.columns.length + 2) + index,
+          name: segment.name, chip: segment.chip, chipBg: segment.chipBg, chipFg: segment.chipFg, text: segment.busy ? 'Using reset credit…' : segment.status })),
       };
     });
     // An ACP agent's pool draws its registry icon (a live provider's iconUrl).
@@ -141,7 +157,10 @@ export function pooledView(state: UsageState, statuses: EnvironmentUsageStatus[]
   return {
     wide,
     empty: pools.length === 0 && notices.length === 0 && cursorEnvironments.length === 0 && links.length === 0,
-    pools: views, cursorAfter: cursorEnvironments.length > 0 && cursorPromptAt === pools.length,
+    pools: views,
+    // Each drawn segment as `id=identity`: the page closes a popover whose segment is no longer drawn.
+    drawn: views.flatMap(pool => pool.windows.flatMap(window => window.segments.map(segment => `${segment.id}=${segment.identity}`))),
+    cursorAfter: cursorEnvironments.length > 0 && cursorPromptAt === pools.length,
     cursor: cursorEnvironments.map(environment => ({ key: environment.environmentId, label: environment.label,
       button: cursorEnvironments.length > 1 ? `Enable on ${environment.label}` : 'Enable', busy: state.cursorPending.has(environment.environmentId) })),
     links: links.map(link => ({ key: link.url, label: link.label, chatgpt: link.url === CHATGPT_USAGE_URL,
@@ -153,7 +172,7 @@ export function pooledView(state: UsageState, statuses: EnvironmentUsageStatus[]
 export type PooledView = ReturnType<typeof pooledView>;
 
 type SideWindow = { count: number; refill: string; description: string; statuses: unknown[];
-  segments: { side: string; email: string; plan: string; whereLabel: string; resetsAt: string; restores: string; redeemable: boolean }[] };
+  segments: { side: string; email: string; plan: string; whereLabel: string; resetsAt: string; evenPace: string; restores: string; redeemable: boolean }[] };
 /**
  * The side each popover takes, as Base UI's collision flip would on an unscrolled page: a bar whose top
  * lies nearer the scroll area's top than the popover is tall opens below it, every other above. The
@@ -174,7 +193,7 @@ export function popoverSides(pools: { cursorBefore: boolean; windows: SideWindow
       const row = layout.md ? Math.max(figures, bar) : figures + 12 + bar;
       const barTop = y + 17 + (layout.md ? (row - bar) / 2 : figures + 12);
       for (const segment of window.segments) {
-        const people = (segment.plan ? 1 : 0) + (segment.whereLabel ? 1 : 0), times = 1 + (segment.resetsAt ? 1 : 0) + (segment.restores ? 1 : 0);
+        const people = (segment.plan ? 1 : 0) + (segment.whereLabel ? 1 : 0), times = 1 + (segment.resetsAt ? 1 : 0) + (segment.evenPace ? 1 : 0) + (segment.restores ? 1 : 0);
         const popover = 32 + 20 + (segment.email ? 18 : 0) + (people ? 10 + 11 + people * 20 - 4 : 0) + 10 + 11 + times * 20 - 4 + (segment.redeemable ? 10 + 11 + 24 : 0) + 6;
         segment.side = barTop < popover ? 'bottom' : 'top';
       }
@@ -183,7 +202,7 @@ export function popoverSides(pools: { cursorBefore: boolean; windows: SideWindow
   });
 }
 export function emptyPooled(): PooledView {
-  return { wide: false, empty: false, pools: [], cursorAfter: false, cursor: [], links: [], notices: [], confirm: '' };
+  return { wide: false, empty: false, pools: [], drawn: [], cursorAfter: false, cursor: [], links: [], notices: [], confirm: '' };
 }
 
 /** CursorEnableRow in the cost view's provider list: after Codex and Claude, one per environment that could enable it. */

@@ -1,5 +1,5 @@
 // The Usage page: server.getUsageSummary merged and presented
-// as the reference UsagePage does. Sources: T3 Code 9c161462c9 (MIT, see LICENSE-T3)
+// as the reference UsagePage does. Sources: T3 Code 74541bab17 (MIT, see LICENSE-T3)
 // apps/web/src/components/usage/{UsagePage,UsageProviderChart,usageProviders,
 // usageShortcuts,usagePagePreferences,UsageLimits,UsageLimitsPooled}.tsx,
 // apps/web/src/state/usage.ts (withoutProviders, the last answered usage useUsage keeps on
@@ -15,6 +15,8 @@ import { contractVersionOf, environmentStatuses, forgetSummaries, isSelected, ph
 import { updatingProvidersLabel, usageEnvironmentProgress, usageLoadingState } from './usage-progress';
 import { cursorRows, emptyPooled, poolBarWidth, pooledView } from './usage-pooled-view';
 import { usesChatGptSharing } from '../providers/chatgpt-plan';
+import { PROVIDER_ORDER, PROVIDERS, type ProviderKind } from './usage-providers';
+import { resolveHour12 } from '../shared/timestamp-format';
 
 export const USAGE_CONTRACT_VERSION = 6;
 const MERGE_COMPATIBLE_SINCE = 4;
@@ -58,17 +60,20 @@ export function formatDayShort(day: string): string {
   if (!year || !month || !date) return day;
   return `${MONTHS[month - 1] ?? ''} ${date}`;
 }
-/** `3 PM` for an hourly bucket start, in this Mac's zone. */
-export function formatHourShort(hourStart: string): string {
+/**
+ * An hourly bucket start in this Mac's zone: `3 PM`, or with a 24-hour clock `15:00`. Rolling buckets
+ * can start between whole hours, but their labels always name the hour.
+ */
+export function formatHourShort(hourStart: string, hour12 = true): string {
   const at = new Date(hourStart);
   if (Number.isNaN(at.getTime())) return hourStart;
   const hour = at.getHours();
-  return `${hour % 12 === 0 ? 12 : hour % 12} ${hour < 12 ? 'AM' : 'PM'}`;
+  return hour12 ? `${hour % 12 === 0 ? 12 : hour % 12} ${hour < 12 ? 'AM' : 'PM'}` : `${String(hour).padStart(2, '0')}:00`;
 }
-export function formatDateTimeShort(instant: string): string {
+export function formatDateTimeShort(instant: string, hour12 = true): string {
   const at = new Date(instant);
   if (Number.isNaN(at.getTime())) return instant;
-  return `${MONTHS[at.getMonth()]} ${at.getDate()}, ${formatHourShort(instant)}`;
+  return `${MONTHS[at.getMonth()]} ${at.getDate()}, ${formatHourShort(instant, hour12)}`;
 }
 export function enumerateDays(sinceDay: string, untilDay: string): string[] {
   const days: string[] = [];
@@ -105,18 +110,7 @@ export function makeWindow(days: number, now: number, zone = timeZone()): UsageW
 
 // ── Merge (usageMerge.ts) ───────────────────────────────────────────────────
 
-export type ProviderKind = 'codex' | 'claude' | 'grok' | 'cursor' | 'opencode' | 'antigravity' | 'pi';
-export const PROVIDER_ORDER: ProviderKind[] = ['codex', 'claude', 'grok', 'cursor', 'opencode', 'antigravity', 'pi'];
-// usageProviders.ts: label, series colour (light, dark) and the driver whose mark it shows.
-export const PROVIDERS: Record<ProviderKind, { label: string; color: [string, string]; driver: string }> = {
-  codex: { label: 'Codex', color: ['#27272a', '#f5f5f5'], driver: 'codex' },
-  claude: { label: 'Claude Code', color: ['#d97757', '#d97757'], driver: 'claudeAgent' },
-  grok: { label: 'Grok Build', color: ['#636365', '#b3b3b3'], driver: 'grok' },
-  cursor: { label: 'Cursor', color: ['#8b8b8b', '#8b8b8b'], driver: 'cursor' },
-  opencode: { label: 'OpenCode', color: ['#5b9bbd', '#5b9bbd'], driver: 'opencode' },
-  pi: { label: 'Pi', color: ['#4d9f8a', '#4d9f8a'], driver: 'pi' },
-  antigravity: { label: 'Antigravity', color: ['#8c7bd1', '#8c7bd1'], driver: 'antigravity' },
-};
+export { PROVIDER_ORDER, PROVIDERS, type ProviderKind } from './usage-providers';
 type Band = { costUsd: number; totalTokens: number };
 export type Period = { key: string; day: string; costUsd: number; totalTokens: number; byProvider: Map<string, Band> };
 export type TokenTotals = { uncachedInputTokens: number; cachedInputTokens: number; cacheCreationTokens: number; outputTokens: number };
@@ -279,7 +273,7 @@ export const emptyChart = (): Chart => ({ ticks: [], series: [], start: '', midd
  * `loading` mutes those providers' series.
  */
 export function buildChart(merged: Merged, periods: string[], resolution: 'day' | 'hour', metric: string, width: number,
-  providers: ProviderKind[] = providersWithUsage(merged), loading: ReadonlySet<string> = new Set()): Chart {
+  providers: ProviderKind[] = providersWithUsage(merged), loading: ReadonlySet<string> = new Set(), hour12 = true): Chart {
   const byPeriod = new Map((resolution === 'hour' ? merged.hourly : merged.daily).map(period => [period.key, period]));
   const active = providers;
   const value = (period: string, provider: string) => { const band = byPeriod.get(period)?.byProvider.get(provider); return band ? (metric === 'tokens' ? band.totalTokens : band.costUsd) : 0; };
@@ -295,7 +289,7 @@ export function buildChart(merged: Merged, periods: string[], resolution: 'day' 
     const [light, dark] = PROVIDERS[provider].color;
     return { key: provider, total, line, area: line ? `${line} L${width.toFixed(2)},${PLOT_HEIGHT} L0,${PLOT_HEIGHT} Z` : '', light, dark, loading: loading.has(provider) };
   }).sort((a, b) => b.total - a.total).map(({ total: _total, ...rest }) => rest);
-  const label = (period: string | undefined) => period === undefined ? '' : resolution === 'hour' ? formatHourShort(period) : formatDayShort(period);
+  const label = (period: string | undefined) => period === undefined ? '' : resolution === 'hour' ? formatHourShort(period, hour12) : formatDayShort(period);
   return { ticks: ticks.map(tick => ({ key: String(tick), label: !labeled ? '' : tick === 0 ? '0' : format(tick), top: toY(tick) })), series,
     start: label(periods[0]), middle: label(periods[Math.floor(periods.length / 2)]), end: label(periods[periods.length - 1]), labeled };
 }
@@ -449,7 +443,9 @@ async function usageView(client: T3Client, native: Native | null | undefined, _s
   // A selected environment shares a ChatGPT plan (UsagePage.tsx showChatGptSharing), unless Codex is filtered out.
   page.chatgptShared = !hidden.has('codex') && selected.some(status => arr(state.envs.find(env => env.id === status.environmentId)?.config?.providers).some(usesChatGptSharing));
   const merged = shown.merged;
-  presentUsage(page, merged, shown.window, { sources: environments.flatMap(environment => arr(environment.summary.sources)) }, loading);
+  // The hourly labels follow the Time format setting (resolveHour12).
+  const hour12 = resolveHour12(client.local.deviceSettings.timestampFormat);
+  presentUsage(page, merged, shown.window, { sources: environments.flatMap(environment => arr(environment.summary.sources)) }, loading, hour12);
   page.coverage = [...selected.filter(status => status.error !== null).map(status => ({ key: `f:${status.environmentId}`, text: `${status.label} could not report usage.` })), ...page.coverage];
   // CursorEnableRow: after Codex and Claude Code in the provider list, unless Cursor is filtered out.
   const cursor = hidden.has('cursor') ? [] : cursorRows(statuses, state);
@@ -460,7 +456,7 @@ async function usageView(client: T3Client, native: Native | null | undefined, _s
   }
   // UsageModelDialog for the row the person opened, while it is still in the window.
   const open = merged.models.find(model => modelKey(model) === openModel(client));
-  if (open) page.detail = modelDetail(open, shown.environments, windowPeriods(shown.window), shown.window.resolution, metric, input.viewport ?? 1280);
+  if (open) page.detail = modelDetail(open, shown.environments, windowPeriods(shown.window), shown.window.resolution, metric, input.viewport ?? 1280, hour12);
   else if (openModel(client)) setOpenModel(client, '');
   return page;
 }
@@ -493,11 +489,11 @@ export type UsageView = ReturnType<typeof emptyUsage>;
  * Everything UsagePage renders for a loaded summary. A provider still refreshing keeps its row, its line
  * and its column before its usage lands; `loading` names the figures to mute.
  */
-export function presentUsage(page: UsageView, merged: Merged, window: UsageWindow, summary: Obj, loading: UsageLoading = NOTHING_LOADING): UsageView {
+export function presentUsage(page: UsageView, merged: Merged, window: UsageWindow, summary: Obj, loading: UsageLoading = NOTHING_LOADING, hour12 = true): UsageView {
   const hourly = window.resolution === 'hour';
   const periods = windowPeriods(window);
   const tokens = page.metric === 'tokens';
-  page.windowLabel = hourly && window.sinceTime && window.untilTime ? `${formatDateTimeShort(window.sinceTime)} to ${formatDateTimeShort(window.untilTime)}` : `${formatDayShort(window.sinceDay)} to ${formatDayShort(window.untilDay)}`;
+  page.windowLabel = hourly && window.sinceTime && window.untilTime ? `${formatDateTimeShort(window.sinceTime, hour12)} to ${formatDateTimeShort(window.untilTime, hour12)}` : `${formatDayShort(window.sinceDay)} to ${formatDayShort(window.untilDay)}`;
   page.total = tokens ? formatTokens(merged.totalTokens) : formatUsd(merged.costUsd);
   page.sessions = `${formatCount(merged.sessions)} sessions`;
   page.unpriced = !tokens && merged.unpricedShare > 0 ? `API estimate excludes ${formatPercent(merged.unpricedShare)} unpriced records.` : '';
@@ -523,7 +519,7 @@ export function presentUsage(page: UsageView, merged: Merged, window: UsageWindo
       loading: isLoading(provider), awaiting, enable: '', enableLabel: '', busy: false };
   });
   page.chartTitle = `${hourly ? 'Hourly' : 'Daily'} ${tokens ? 'processed tokens' : 'cost'}`;
-  page.chart = buildChart(merged, periods, hourly ? 'hour' : 'day', page.metric, page.plotWidth, active, new Set(active.filter(isLoading)));
+  page.chart = buildChart(merged, periods, hourly ? 'hour' : 'day', page.metric, page.plotWidth, active, new Set(active.filter(isLoading)), hour12);
   page.totals = [
     { key: 'processed', label: 'Processed tokens', value: formatTokens(merged.totalTokens) },
     { key: 'cached', label: 'Cached input', value: formatTokens(merged.cachedInputTokens) },
@@ -536,7 +532,7 @@ export function presentUsage(page: UsageView, merged: Merged, window: UsageWindo
   page.shares = pageShares(merged, page.metric);
   page.periodLabel = hourly ? 'Hour' : 'Day';
   page.columns = active.map(provider => ({ key: provider, label: PROVIDERS[provider].label }));
-  page.periods = [...(hourly ? merged.hourly : merged.daily)].reverse().map(period => ({ key: period.key, label: hourly ? formatHourShort(period.key) : formatDayShort(period.key),
+  page.periods = [...(hourly ? merged.hourly : merged.daily)].reverse().map(period => ({ key: period.key, label: hourly ? formatHourShort(period.key, hour12) : formatDayShort(period.key),
     cells: active.map(provider => ({ key: provider, text: formatUsd(period.byProvider.get(provider)?.costUsd ?? 0), loading: isLoading(provider) })),
     total: formatUsd(period.costUsd), tokens: formatTokens(period.totalTokens) }));
   return page;

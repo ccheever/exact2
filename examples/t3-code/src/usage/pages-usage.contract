@@ -151,6 +151,10 @@ fn usageTitle(keys: UsageKey[], id: string, label: string): string = match first
 fn usageDim(loading: bool): number = loading ? 0.4 : 1
 fn usageFade(loading: bool): string = loading ? "opacity 150ms cubic-bezier(0.4, 0, 0.2, 1) 150ms" : "opacity 150ms cubic-bezier(0.4, 0, 0.2, 1)"
 
+// Whether a trigger kept at opening (`id=identity`, "" for one that is not a segment) is still drawn.
+fn usageDrawn(drawn: string[], entry: string): bool = entry == "" or drawn.includes(entry)
+fn usageDrawnOf(drawn: string[], id: string): string = drawn.filter((entry) => entry.startsWith(`${id}=`)).join("")
+
 // Whether a viewport point lies in a box `frame()` read (a missing box is 0 by 0 and holds none).
 fn usageHit(g: Geometry, x: number, y: number): bool = x >= g.x and x < g.x + g.width and y >= g.y and y < g.y + g.height
 
@@ -190,6 +194,9 @@ component UsagePage
   // grace), else the pressed one, which holds until a press outside it (`pinnedAt` is `outside` when it was pinned);
   // at its trigger's rect in the content (x, y, w, h), taken when it opens. A press outside the page closes the
   // hover-opened one too (`hoverAt`: `outside` at the last enter), as Base UI's outside press does however it opened.
+  // A popover whose segment is no longer drawn (ActiveSegmentPopover) closes at once, with no fade: each opening
+  // keeps its segment's `id=identity` (`pinnedDrawn`, `hoverDrawn`, `lastDrawn`; "" for a trigger that is not a
+  // segment), and a kept entry missing from `page.pooled.drawn` closes it.
   state pinned = ""
   state pinnedAt = 0
   state hoverAt = 0
@@ -200,8 +207,11 @@ component UsagePage
   state popW = 0
   state popH = 0
   state popPlace = ""
-  derive held = pinnedAt == outside ? pinned : ""
-  derive hovered = hoverShown and hoverTip.kind == "usage" and hoverAt == outside ? hoverTip.key : ""
+  state pinnedDrawn = ""
+  state hoverDrawn = ""
+  state lastDrawn = ""
+  derive held = pinnedAt == outside and usageDrawn(page.pooled.drawn, pinnedDrawn) ? pinned : ""
+  derive hovered = hoverShown and hoverTip.kind == "usage" and hoverAt == outside and usageDrawn(page.pooled.drawn, hoverDrawn) ? hoverTip.key : ""
   derive shown = hovered != "" ? hovered : held
   // `trigger` "seg" or "legend": Base UI anchors the popup to the trigger that opened it; above a legend row when it
   // fits (side top), else below it.
@@ -209,6 +219,7 @@ component UsagePage
     let box = frame(`usage-${trigger}-${id}`)
     let content = frame("usage-content")
     last = id
+    lastDrawn = usageDrawnOf(page.pooled.drawn, id)
     popX = box.x - content.x
     popY = box.y - content.y
     popW = box.width
@@ -218,6 +229,7 @@ component UsagePage
     if inside
       place(id, "seg")
       hoverAt = outside
+      hoverDrawn = usageDrawnOf(page.pooled.drawn, id)
     hoverTipAt(HoverTip(key=id, kind="usage", text="", lines=[], side="top", align="center", x=0, y=0, width=0, height=0, estimate=0, testId=`usage-seg-pop-${id}`), "trigger", inside)
   action enterPop(id: string, inside: bool)
     hoverAt = inside ? outside : hoverAt
@@ -237,6 +249,7 @@ component UsagePage
       hoverTipAt(noHoverTip(), "", true)
     pinned = held == id ? "" : id
     pinnedAt = outside
+    pinnedDrawn = usageDrawnOf(page.pooled.drawn, id)
   // Light dismiss (Base UI Popover's useDismiss, outsidePressEvent "intentional" for a mouse): a primary
   // press that starts outside the pinned popover's card and both its triggers (the segment, the legend
   // row), and does not end in the card, closes it as the press ends, before that press's own action; a
@@ -311,7 +324,7 @@ component UsagePage
           else
             if page.metric == "limits"
               UsagePooled(view=page.pooled, scheme=scheme, md=md, reduced=reduced, shown=shown, pinned=held, enterSeg=enterSeg, pin=pin, pinLegend=pinLegend, op=op)
-              UsagePopups(view=page.pooled, shown=shown, last=last, pinned=held, scheme=scheme, reduced=reduced, x=popX, y=popY, w=popW, h=popH, place=popPlace, enterPop=enterPop, enterMail=enterMail, redeem=redeem)
+              UsagePopups(view=page.pooled, shown=shown, last=(usageDrawn(page.pooled.drawn, lastDrawn) ? last : ""), pinned=held, scheme=scheme, reduced=reduced, x=popX, y=popY, w=popW, h=popH, place=popPlace, enterPop=enterPop, enterMail=enterMail, redeem=redeem)
             else
               if page.total == ""
                 UsageSkeleton(lg=lg, md=md)
@@ -786,14 +799,15 @@ component ModelTable
         box grid-row=model.row grid-column="1 / -1" border-bottom-width=1 border-bottom-style="solid" border-color="light-dark(#e4e4e780, #ffffff08)" background-color=(hovered == model.key ? "light-dark(#fafafa80, #ffffff04)" : "#00000000")
         text model.rank grid-row=model.row grid-column=1 align-self="center" padding-right="0.75rem" font-size="0.75rem" line-height="1rem" font-variant-numeric="tabular-nums" color="light-dark(#71717b, #818181)" white-space="nowrap"
         column grid-row=model.row grid-column=2 min-width=0 padding-top="0.625rem" padding-bottom="0.6875rem"
-          row align-items="center" gap="0.5rem" min-width=0
+          // A model with no bar keeps the row's height around its name (py-1).
+          row align-items="center" gap="0.5rem" min-width=0 padding-top=(model.bar > 0 ? 0 : "0.25rem") padding-bottom=(model.bar > 0 ? 0 : "0.25rem")
             if model.driver == "codex"
               ProviderMark(driver="codex", size=14, color="light-dark(#27272a, #f5f5f5)")
             else
               DriverMark(driver=model.driver, size=14, initials="", icon="")
             text model.model font-size="0.875rem" line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)" min-width=0
-          box margin-top="0.375rem" height=2 width="100%" max-width="12rem" aria-hidden=true opacity=usageDim(model.loading) transition=usageFade(model.loading)
-            if model.bar > 0
+          if model.bar > 0
+            box margin-top="0.375rem" height=2 width="100%" max-width="12rem" aria-hidden=true opacity=usageDim(model.loading) transition=usageFade(model.loading)
               box height=2 width=`${model.bar}%` min-width="0.5rem" border-radius="624.9375rem" background-color=(scheme == "dark" ? model.dark : model.light)
         text model.cost grid-row=model.row grid-column=3 align-self="center" padding-left="1.5rem" text-align="right" white-space="nowrap" font-size="0.875rem" line-height="1.25rem" font-variant-numeric="tabular-nums" color=(model.unpriced ? "light-dark(#71717b, #818181)" : "light-dark(#27272a, #f5f5f5)") opacity=usageDim(model.loading) transition=usageFade(model.loading)
         if sm
@@ -801,37 +815,35 @@ component ModelTable
         text model.tokens grid-row=model.row grid-column=(sm ? 5 : 4) align-self="center" padding-left="1.5rem" text-align="right" white-space="nowrap" font-size="0.875rem" line-height="1.25rem" font-variant-numeric="tabular-nums" color="light-dark(#71717b, #818181)" opacity=usageDim(model.loading) transition=usageFade(model.loading)
         button id=`usage-model-${model.key}` press=op("usage-model-open", "", model.key) hover=hover(model.key) grid-row=model.row grid-column="1 / -1" aria-label=model.model testId=`usage-model-${model.key}` padding=0 border-width=0 background-color="#00000000" title=""
 
+// Breakdown → Day / Hour (UsagePage, 805ff51e58): a table whose columns are never narrower than their
+// figures (whitespace-nowrap), the period column 40% when there is room; a narrow page scrolls it
+// sideways (a focusable region). Laid out as a grid so the columns line up across rows; each cell
+// draws its row's rule and hover fill (bg-muted/50).
 component PeriodTable
   props
     page: UsageView
-  derive share = `${60 / (page.columns.length + 2)}%`
+  state hovered = ""
+  action hover(rowKey: string, over: bool)
+    hovered = over ? rowKey : (hovered == rowKey ? "" : hovered)
   view
-    column width="100%" role="table" testId="usage-period-table"
-      row width="100%" height="2rem" border-bottom-width=1 border-bottom-style="solid" border-color="light-dark(#e4e4e7, #ffffff0f)" align-items="center" role="row"
-        text page.periodLabel width="40%" font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)" role="columnheader"
+    scroll width="100%" overflow-x="scroll" overflow-y="hidden" role="region" aria-label="Usage breakdown by time" tabindex=0 testId="usage-period-scroll"
+      box width="100%" display="grid" grid-template-columns=`minmax(max-content, 40%) repeat(${page.columns.length + 2}, minmax(max-content, 1fr))` role="table" testId="usage-period-table"
+        text page.periodLabel padding-top="0.5rem" padding-bottom="0.5625rem" white-space="nowrap" font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)" border-bottom-width=1 border-bottom-style="solid" border-color="light-dark(#e4e4e7, #ffffff0f)" role="columnheader"
         for column in page.columns key=column.key
-          text column.label width=share text-align="right" font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)" role="columnheader" line-clamp=1
-        text "Total" width=share text-align="right" font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)" role="columnheader"
-        text "Tokens" width=share text-align="right" font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)" role="columnheader"
-      if page.periods.length == 0
-        text "No activity in this window." width="100%" padding-top="1.5rem" padding-bottom="1.5rem" text-align="center" font-size="0.875rem" line-height="1.25rem" color="light-dark(#71717b, #818181)"
-      for period in page.periods key=period.key
-        TableRow()
-          text period.label width="40%" font-size="0.875rem" line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)"
+          text column.label padding-top="0.5rem" padding-bottom="0.5625rem" padding-left="1rem" text-align="right" white-space="nowrap" font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)" border-bottom-width=1 border-bottom-style="solid" border-color="light-dark(#e4e4e7, #ffffff0f)" role="columnheader"
+        text "Total" padding-top="0.5rem" padding-bottom="0.5625rem" padding-left="1rem" text-align="right" white-space="nowrap" font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)" border-bottom-width=1 border-bottom-style="solid" border-color="light-dark(#e4e4e7, #ffffff0f)" role="columnheader"
+        text "Tokens" padding-top="0.5rem" padding-bottom="0.5625rem" padding-left="1rem" text-align="right" white-space="nowrap" font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)" border-bottom-width=1 border-bottom-style="solid" border-color="light-dark(#e4e4e7, #ffffff0f)" role="columnheader"
+        if page.periods.length == 0
+          text "No activity in this window." grid-column="1 / -1" padding-top="1.5rem" padding-bottom="1.5rem" text-align="center" font-size="0.875rem" line-height="1.25rem" color="light-dark(#71717b, #818181)"
+        for period in page.periods key=period.key
+          text period.label hover=hover(period.key) padding-top="0.5rem" padding-bottom="0.5625rem" white-space="nowrap" font-size="0.875rem" line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)" border-bottom-width=1 border-bottom-style="solid" border-color="light-dark(#e3e3e780, #ffffff08)" background-color=(hovered == period.key ? "light-dark(#fafafa80, #ffffff04)" : "#00000000")
           for cell in period.cells key=cell.key
-            text cell.text width=share text-align="right" font-size="0.875rem" line-height="1.25rem" font-variant-numeric="tabular-nums" color="light-dark(#71717b, #818181)" opacity=usageDim(cell.loading) transition=usageFade(cell.loading)
-          text period.total width=share text-align="right" font-size="0.875rem" line-height="1.25rem" font-variant-numeric="tabular-nums" color="light-dark(#27272a, #f5f5f5)" opacity=usageDim(page.loading) transition=usageFade(page.loading)
-          text period.tokens width=share text-align="right" font-size="0.875rem" line-height="1.25rem" font-variant-numeric="tabular-nums" color="light-dark(#71717b, #818181)" opacity=usageDim(page.loading) transition=usageFade(page.loading)
-
-// A body row: 8pt cell padding, a half-strength rule, hover:bg-muted/50.
-component TableRow
-  slot
-  state over = false
-  action hover(value: bool)
-    over = value
-  view
-    row hover=hover width="100%" height="2.3125rem" box-sizing="border-box" border-bottom-width=1 border-bottom-style="solid" border-color="light-dark(#e3e3e780, #ffffff08)" background-color=(over ? "light-dark(#fafafa80, #ffffff04)" : "#00000000") align-items="center" role="row"
-      children
+            box hover=hover(period.key) padding-top="0.5rem" padding-bottom="0.5625rem" padding-left="1rem" border-bottom-width=1 border-bottom-style="solid" border-color="light-dark(#e3e3e780, #ffffff08)" background-color=(hovered == period.key ? "light-dark(#fafafa80, #ffffff04)" : "#00000000")
+              text cell.text text-align="right" white-space="nowrap" font-size="0.875rem" line-height="1.25rem" font-variant-numeric="tabular-nums" color="light-dark(#71717b, #818181)" opacity=usageDim(cell.loading) transition=usageFade(cell.loading)
+          box hover=hover(period.key) padding-top="0.5rem" padding-bottom="0.5625rem" padding-left="1rem" border-bottom-width=1 border-bottom-style="solid" border-color="light-dark(#e3e3e780, #ffffff08)" background-color=(hovered == period.key ? "light-dark(#fafafa80, #ffffff04)" : "#00000000")
+            text period.total text-align="right" white-space="nowrap" font-size="0.875rem" line-height="1.25rem" font-variant-numeric="tabular-nums" color="light-dark(#27272a, #f5f5f5)" opacity=usageDim(page.loading) transition=usageFade(page.loading)
+          box hover=hover(period.key) padding-top="0.5rem" padding-bottom="0.5625rem" padding-left="1rem" border-bottom-width=1 border-bottom-style="solid" border-color="light-dark(#e3e3e780, #ffffff08)" background-color=(hovered == period.key ? "light-dark(#fafafa80, #ffffff04)" : "#00000000")
+            text period.tokens text-align="right" white-space="nowrap" font-size="0.875rem" line-height="1.25rem" font-variant-numeric="tabular-nums" color="light-dark(#71717b, #818181)" opacity=usageDim(page.loading) transition=usageFade(page.loading)
 
 // UsageSkeleton: the loaded page's shape while the first summary arrives
 // (Skeleton: bg-muted-foreground/15, rounded-sm; pills and the card toggle).

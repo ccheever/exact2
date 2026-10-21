@@ -15,8 +15,8 @@ import { pushToast } from '../shell/toast';
 import type { T3Client } from '../client/client';
 import { composerNow } from './composer-controls';
 import { RUNTIME_LOCALE, formatUpcomingTimestamp } from '../shared/timestamp-format';
-import { PACE_LABEL, barColor, collectProviderUsageLimits, elapsedShare, formatResetsIn, hasProviderUsageLimits, isUsageLimitsCommand, limitsNotice,
-  paceOf, remainingPercent, type ResetCreditInput, type UsageLimitsAccount, type UsageLimitsReport } from '../usage/usage-limits';
+import { PACE_LABEL, barColor, collectProviderUsageLimits, formatResetsIn, hasProviderUsageLimits, isUsageLimitsCommand, limitsNotice,
+  paceOf, paceRemainingPercent, remainingPercent, type ResetCreditInput, type UsageLimitsAccount, type UsageLimitsReport } from '../usage/usage-limits';
 import { REDEEM_IDLE, redeemStep, resetCreditsShown, resetCreditsSummary, type RedeemEvent, type RedeemState } from '../usage/reset-credits';
 import { redactedValue } from '../shared/redacted-text';
 import { startDetached, type DetachedReply } from './composer-replies';
@@ -51,9 +51,7 @@ function accountSummary(account: UsageLimitsAccount) {
 }
 /** WindowBar and its LimitWindows row: what remains, the even-spending mark, pace and countdown. */
 function windowView(window: Obj, now: number, format: string) {
-  const label = str(window.label), remaining = remainingPercent(window), elapsed = elapsedShare(window, now);
-  // The fill is quota left, so the even-spending mark is the time left.
-  const timeLeft = elapsed === null ? -1 : Math.round((1 - elapsed) * 100);
+  const label = str(window.label), remaining = remainingPercent(window), timeLeft = paceRemainingPercent(window, now) ?? -1;
   const resetsIn = formatResetsIn(window, now) ?? '', pace = paceOf(window, now);
   const resetsAt = str(window.resetsAt) ? formatUpcomingTimestamp(str(window.resetsAt), format, now) : '';
   return { id: str(window.id, label), label, remaining, timeLeft, pace: pace ?? '', paceLabel: pace ? PACE_LABEL[pace] : '', resetsIn,

@@ -2,8 +2,8 @@ use CnTooltip from "../settings/settings-b-kit.contract"
 use TipBubble from "../shell/shell-tip.contract"
 use DialogOpenFocus from "../shared/dialog-trap.contract"
 
-// The provider limits as bars, T3 Code 1e2ecbd975 (MIT, see LICENSE-T3):
-// apps/web/src/components/usage/UsageLimits.tsx (PaceIcon, WindowBar, LimitWindows compact,
+// The provider limits as bars, T3 Code 74541bab17 (MIT, see LICENSE-T3):
+// apps/web/src/components/usage/UsageLimits.tsx (PaceIcon, usePaceMark, WindowBar, LimitWindows compact,
 // ResetCredits, ResetCreditDialog) and chat/ComposerUsageLimits.tsx (AccountSummary,
 // UsageLimitsBannerBody). The figures, pace and wording come from composer-controls-usage.ts
 // (usage-limits.ts, reset-credits.ts); the Usage page's pooled view reuses PaceIcon and the
@@ -65,9 +65,14 @@ component PaceIcon
           path d="m22 17-8.5-8.5-5 5L2 7"
       TipBubble(label=label, side="top", align="center", offset=18, inset=0, shown=over)
 
+// The even-pace tick's centre along a bar `width` wide, clamped 3 px inside its ends (usePaceMark).
+fn barPaceAt(width: number, timeLeft: number): number = min(max(3, width * timeLeft / 100), width - 3)
+
 // WindowBar: a full-width bar from the window's start to its reset. The fill is the share of
-// quota left; the hairline is how much of the window's time is left, which is where even
-// spending would have put the fill. It takes the focus (tabIndex 0) and names its figures.
+// quota left; the tick is how much of the window's time is left, which is where even spending
+// would have put the fill. The tick sits in a 6 px gap cut through both layers, which are drawn
+// twice, each copy clipped to one side of it (the reference's clip-path slot); below 6 px of bar
+// there is no room for either. It takes the focus (tabIndex 0) and names its figures.
 component WindowBar
   props
     slot: string
@@ -76,19 +81,27 @@ component WindowBar
     dark: string
   state over = false
   state focused = false
+  state width = 0
   action hover(inside: bool)
     over = inside
   action focusChanged(inside: bool)
     focused = inside
+  action sized(w: number, h: number)
+    width = w
   derive shown = over or focused
+  derive mark = window.timeLeft >= 0 and width >= 6
+  derive at = barPaceAt(width, window.timeLeft)
   view
     // focus-visible:ring-2 ring-ring ring-offset-2 ring-offset-background; the tooltip opens on focus as on hover.
-    box position="relative" height="1.5rem" min-width=0 border-radius="9999px" tabindex=0 role="img" aria-label=window.summary hover=hover focus=focusChanged(true) blur=focusChanged(false) cursor="default" box-shadow=(focused ? "0 0 0 2px light-dark(#ffffff, #121212), 0 0 0 4px light-dark(#1b4ed8, #346bf1)" : "none") testId=`usage-bar-${slot}-${window.id}`
-      box position="absolute" left=0 right=0 top="0.375rem" bottom="0.375rem" border-radius="9999px" background-color="light-dark(#fafafa, #ffffff08)"
-      if window.remaining > 0
-        box position="absolute" left=0 top="0.375rem" bottom="0.375rem" width=`${window.remaining}%` border-radius="9999px" background-color=`light-dark(${light}, ${dark})` testId=`usage-bar-fill-${slot}-${window.id}`
-      if window.timeLeft >= 0
-        box position="absolute" top="0.125rem" bottom="0.125rem" left=`${window.timeLeft}%` width=1 margin-left="-0.5px" background-color="light-dark(#27272a99, #f5f5f599)" aria-hidden=true testId=`usage-bar-line-${slot}-${window.id}`
+    box position="relative" height="1.5rem" min-width=0 border-radius="9999px" tabindex=0 role="img" aria-label=window.summary hover=hover focus=focusChanged(true) blur=focusChanged(false) resize=sized cursor="default" box-shadow=(focused ? "0 0 0 2px light-dark(#ffffff, #121212), 0 0 0 4px light-dark(#1b4ed8, #346bf1)" : "none") testId=`usage-bar-${slot}-${window.id}`
+      if mark
+        box position="absolute" left=0 top=0 bottom=0 width=max(0, at - 3) overflow="hidden" aria-hidden=true
+          WindowBarLayers(slot=slot, window=window, light=light, dark=dark, left=0, width=width, part="")
+        box position="absolute" left=(at + 3) top=0 bottom=0 right=0 overflow="hidden" aria-hidden=true
+          WindowBarLayers(slot=slot, window=window, light=light, dark=dark, left=0 - at - 3, width=width, part="-after")
+        box position="absolute" top="0.25rem" bottom="0.25rem" left=at width=2 margin-left=-1 border-radius="9999px" background-color="light-dark(#27272a, #f5f5f5)" aria-hidden=true testId=`usage-bar-line-${slot}-${window.id}`
+      else
+        WindowBarLayers(slot=slot, window=window, light=light, dark=dark, left=0, width=width, part="")
       row position="absolute" bottom="1.75rem" left="-10rem" right="-10rem" justify-content="center" pointer-events="none" z-index=140
         column padding-left="0.5rem" padding-right="0.5rem" padding-top="0.25rem" padding-bottom="0.25rem" gap="0.125rem" box-sizing="border-box" border-radius="0.5rem" border-style="solid" border-width=1 border-color="light-dark(#e4e4e7, #ffffff0f)" background-color="light-dark(#ffffff, #111111)" box-shadow="0 4px 6px -1px #0000000d, 0 2px 4px -2px #0000000d" opacity=(shown ? 1 : 0) transition=(shown ? "opacity 150ms ease 600ms" : "opacity 0ms") role="tooltip" aria-hidden=(not shown) testId=`usage-bar-tip-${slot}-${window.id}`
           text window.tipFigures font-size="0.75rem" line-height="1.03125rem" white-space="nowrap" color="light-dark(#27272a, #f5f5f5)"
@@ -96,6 +109,23 @@ component WindowBar
             text "The line is where even spending would be." font-size="0.75rem" line-height="1.03125rem" white-space="nowrap" color="light-dark(#71717b, #818181)"
           if window.tipResets != ""
             text window.tipResets font-size="0.75rem" line-height="1.03125rem" white-space="nowrap" color="light-dark(#71717b, #818181)"
+
+// The bar's track and fill, `width` wide from `left` in its clip (0 width before the bar has been
+// measured: the full bar). `part` is the testIds' suffix: "-after" for the copy right of the gap.
+component WindowBarLayers
+  props
+    slot: string
+    window: UsageWindow
+    light: string
+    dark: string
+    left: number
+    width: number
+    part: string
+  view
+    box position="absolute" left=left top=0 bottom=0 width=(width > 0 ? `${width}px` : "100%")
+      box position="absolute" left=0 right=0 top="0.375rem" bottom="0.375rem" border-radius="9999px" background-color="light-dark(#fafafa, #ffffff08)"
+      if window.remaining > 0
+        box position="absolute" left=0 top="0.375rem" bottom="0.375rem" width=`${window.remaining}%` border-radius="9999px" background-color=`light-dark(${light}, ${dark})` testId=`usage-bar-fill-${slot}-${window.id}${part}`
 
 // LimitWindows compact: per window, the label and what is left, the bar, then pace and countdown
 // (grid-cols-[minmax(0,9rem)_minmax(3rem,1fr)_auto] gap-x-3 gap-y-0.5).

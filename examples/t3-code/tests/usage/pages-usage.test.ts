@@ -1,5 +1,5 @@
 import { expect, test } from 'bun:test';
-import { formatUsd, formatTokens, formatPercent, formatCount, formatDayShort, makeWindow, enumerateDays, enumerateHourStarts, mergeUsage, niceScale,
+import { formatUsd, formatTokens, formatPercent, formatCount, formatDayShort, formatHourShort, formatDateTimeShort, makeWindow, enumerateDays, enumerateHourStarts, mergeUsage, niceScale,
   curvePath, buildChart, presentUsage, emptyUsage, usageKeys, shortcutGlyphs, plotWidth, usagePrefs, saveUsagePrefs, isModelCostUnknown } from '../../src/usage/pages-usage';
 import { keybindingDefaults } from '../../src/settings/keybinding-settings';
 import { collectLimitAccounts, collectLimitPools } from '../../src/usage/usage-limits-pools';
@@ -7,6 +7,7 @@ import { formatResetsIn } from '../../src/usage/usage-limits';
 import { adoptPagesPrefs, pagesPrefs } from '../../src/pages/pages-prefs';
 import type { Obj } from '../../src/client/domain';
 import { appPath } from '../support/app-files';
+import { resolveHour12 } from '../../src/shared/timestamp-format';
 
 test('usage figures format as usageFormat.ts does', () => {
   expect([formatUsd(13644.97), formatUsd(0.2), formatUsd(1234567.891)]).toEqual(['$13,644.97', '$0.20', '$1,234,567.89']);
@@ -43,6 +44,19 @@ test('windows are calendar days ending today, or an exact rolling 24 hours', () 
   expect(day.resolution).toBe('hour');
   expect(Date.parse(day.untilTime!) - Date.parse(day.sinceTime!)).toBe(24 * 3_600_000);
   expect(enumerateHourStarts(day.sinceTime!, day.untilTime!)).toHaveLength(24);
+});
+
+// usageFormat.ts formatHourShort / formatDateTimeShort at 74541bab17 (6cfd82fe1f): hourly labels follow the Time format setting.
+test('hourly labels follow the Time format setting', () => {
+  const at = (hour: number, minute = 0) => new Date(2026, 9, 4, hour, minute).toISOString();
+  expect([formatHourShort(at(15)), formatHourShort(at(0)), formatHourShort(at(12))]).toEqual(['3 PM', '12 AM', '12 PM']);
+  expect([formatHourShort(at(15), false), formatHourShort(at(3, 30), false), formatHourShort(at(0), false)]).toEqual(['15:00', '03:00', '00:00']);
+  expect(formatDateTimeShort(at(15, 31), false)).toBe('Oct 4, 15:00');
+  expect([resolveHour12('12-hour'), resolveHour12('24-hour')]).toEqual([true, false]);
+  const hourly = makeWindow(1, new Date(2026, 9, 4, 15, 30).getTime());
+  const page = presentUsage(emptyUsage('cost', 1, 'time', 600), mergeUsage([]), hourly, {}, undefined, false);
+  expect(page.windowLabel).toBe('Oct 3, 15:00 to Oct 4, 15:00');
+  expect([page.chart.start, page.chart.end]).toEqual(['15:00', '14:00']);
 });
 
 const bucket = (over: Obj): Obj => ({ day: '2026-10-01', provider: 'codex', model: 'gpt-6-astra', totals: { uncachedInputTokens: 100, cachedInputTokens: 900, cacheCreationTokens: 0, outputTokens: 50, reasoningTokens: 10 },

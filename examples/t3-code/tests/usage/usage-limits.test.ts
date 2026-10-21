@@ -1,13 +1,13 @@
 // Ported from T3 Code 1e2ecbd975 packages/shared/src/usageLimits.test.ts (MIT, see LICENSE-T3):
-// "pace" (:58; 9c161462c9's reset boundary cases), "limitsNotice" (:83), "providersWithLimits" (:101), "/usage-limits"
-// (:863-1072, six cases, and 9c161462c9's two-workspace credit case), "remainingPercent" (:1112) and "isUsageLimitsCommand" (:1121), with
-// their original names. Changes: ids are plain strings (no ProviderInstanceId.make), and
+// "pace" (:58; 9c161462c9's reset boundary cases, 74541bab17's even-pace share), "limitsNotice" (:83), "providersWithLimits" (:101),
+// "/usage-limits" (:863-1072, six cases, 9c161462c9's two-workspace credit case and 74541bab17's two native duplicate cases),
+// "remainingPercent" (:1112) and "isUsageLimitsCommand" (:1121), with their original names. Changes: ids are plain strings (no ProviderInstanceId.make), and
 // vite-plus/test is bun:test.
 import { describe, expect, it } from 'bun:test';
 import type { Obj } from '../../src/client/domain';
 import {
-  collectProviderUsageLimits, elapsedShare, formatResetsIn, isUsageLimitsCommand, limitsNotice, paceOf, providersWithLimits,
-  remainingPercent, withUsageLimitsCommands,
+  barColor, collectProviderUsageLimits, elapsedShare, formatResetsIn, isUsageLimitsCommand, limitsNotice, paceOf, paceRemainingPercent,
+  providersWithLimits, remainingPercent, withUsageLimitsCommands,
 } from '../../src/usage/usage-limits';
 
 const now = Date.parse('2026-09-03T12:00:00.000Z');
@@ -55,6 +55,7 @@ describe('pace', () => {
 
   it('places the clock three fifths through a five-hour window with two hours left', () => {
     expect(elapsedShare(window, now)).toBeCloseTo(0.6);
+    expect(paceRemainingPercent(window, now)).toBe(40);
     expect(paceOf(window, now)).toBe('under');
     expect(paceOf({ ...window, usedPercent: 62 }, now)).toBe('on');
     expect(paceOf({ ...window, usedPercent: 80 }, now)).toBe('ahead');
@@ -63,6 +64,7 @@ describe('pace', () => {
   it('has no pace without a reset or a duration', () => {
     expect(paceOf({ ...window, resetsAt: undefined }, now)).toBeNull();
     expect(paceOf({ ...window, windowDurationMins: undefined }, now)).toBeNull();
+    expect(paceRemainingPercent({ ...window, windowDurationMins: undefined }, now)).toBeNull();
     expect(formatResetsIn({ ...window, resetsAt: undefined }, now)).toBeNull();
   });
 
@@ -154,7 +156,7 @@ describe('/usage-limits', () => {
     expect((report?.accounts[0]?.limits.resetCredits as Obj | undefined)?.availableCount).toBe(3);
   });
 
-  it('keeps accounts and custom instances separate, filtering by driver', () => {
+  it('keeps unidentified custom instances separate, filtering by driver', () => {
     const report = collectProviderUsageLimits(String(selected.instanceId), [
       selected,
       provider({ instanceId: 'codex-work', displayName: 'Work', usageLimits: { ...limits, resetCredits: { availableCount: 2 } } }),
@@ -166,6 +168,37 @@ describe('/usage-limits', () => {
     expect(report?.accounts[1]).toMatchObject({ displayName: 'Work', limits: { resetCredits: { availableCount: 2 } } });
     expect(report?.accounts[2]).toMatchObject({ label: 'Accounts · oss', sourceLabel: 'CLI Proxy', plan: 'Codex OSS' });
     expect(report?.notices).toEqual([]);
+  });
+
+  it('keeps the freshest usable native duplicate and the freshest native credits in either order', () => {
+    const failed = provider({ auth: selected.auth, usageLimits: { ...limits, checkedAt: '2026-09-03T11:40:00.000Z', unavailable: { reason: 'probeFailed' } } });
+    const credited = provider({ instanceId: 'codex-credit', auth: selected.auth,
+      usageLimits: { checkedAt: '2026-09-03T11:20:00.000Z', windows: [{ ...window, usedPercent: 50 }], resetCredits: { availableCount: 2 } } });
+    const staleCredit = provider({ ...credited, instanceId: 'codex-stale-credit', usageLimits: { ...limits, resetCredits: { availableCount: 3 } } });
+    const freshest = provider({ instanceId: 'codex-fresh', auth: selected.auth,
+      usageLimits: { checkedAt: '2026-09-03T11:30:00.000Z', windows: [{ ...window, usedPercent: 55 }] } });
+    const duplicates = [failed, staleCredit, credited, freshest];
+    for (const providers of [duplicates, duplicates.toReversed()]) {
+      const report = collectProviderUsageLimits(String(failed.instanceId), providers, sources, now);
+      expect(report?.accounts.map(account => account.id)).toEqual(['codex-fresh', 'hub:oss']);
+      expect(report?.accounts[0]).toMatchObject({
+        limits: { checkedAt: '2026-09-03T11:30:00.000Z', windows: [{ usedPercent: 55 }], resetCredits: { availableCount: 2 } },
+        resetCreditInput: { instanceId: 'codex-credit' },
+      });
+      expect(report?.accounts[0]?.limits.unavailable).toBeUndefined();
+    }
+  });
+
+  it('merges native workspace duplicates only while the workspace evidence is unambiguous', () => {
+    const known = provider({ ...selected, instanceId: 'workspace-a', auth: { ...(selected.auth as Obj), workspaceId: 'ws-a' } });
+    const fresh = provider({ ...known, instanceId: 'workspace-a-fresh', usageLimits: { ...limits, checkedAt: '2026-09-03T11:30:00.000Z' } });
+    const natives = [known, fresh, selected];
+    expect(collectProviderUsageLimits(String(selected.instanceId), natives, [], now)?.accounts.map(account => account.id)).toEqual(['workspace-a-fresh']);
+    const unreadable = provider({ instanceId: 'workspace-b', auth: { ...(selected.auth as Obj), workspaceId: 'ws-b' } });
+    expect(collectProviderUsageLimits(String(selected.instanceId), [...natives, unreadable], [], now)?.accounts.map(account => account.id))
+      .toEqual(['workspace-a-fresh', 'codex']);
+    expect(collectProviderUsageLimits(String(selected.instanceId), [...natives, { ...unreadable, usageLimits: limits }], [], now)?.accounts.map(account => account.id))
+      .toEqual(['workspace-a-fresh', 'codex', 'workspace-b']);
   });
 
   it('supports a source-only provider and keeps duplicates when the native probe failed', () => {
@@ -220,5 +253,15 @@ describe('isUsageLimitsCommand', () => {
     expect(isUsageLimitsCommand('/usage-limits explain')).toBe(false);
     expect(isUsageLimitsCommand('Explain /usage-limits')).toBe(false);
     expect(isUsageLimitsCommand('/usage')).toBe(false);
+  });
+});
+
+describe('barColor (UsageLimits.tsx, no reference test)', () => {
+  it("uses each provider's chart colour, and the foreground for a driver the chart does not draw", () => {
+    expect(barColor('grok')).toEqual(['#636365', '#b3b3b3']);
+    expect(barColor('cursor')).toEqual(['#8b8b8b', '#8b8b8b']);
+    expect(barColor('pi')).toEqual(['#4d9f8a', '#4d9f8a']);
+    expect(barColor('claudeAgent')).toEqual(['#d97757', '#d97757']);
+    expect(barColor('acpRegistry')).toEqual(['#27272a', '#f5f5f5']);
   });
 });

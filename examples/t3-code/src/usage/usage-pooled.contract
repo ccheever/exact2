@@ -6,9 +6,9 @@ use PgIcon from "../shared/pages-icons.contract"
 use LucideTriangleAlert from "../settings/settings-icons.contract"
 use CnTooltip from "../settings/settings-b-kit.contract"
 
-// The Usage page's pooled Limits view, T3 Code 1e2ecbd975 (MIT, see LICENSE-T3):
+// The Usage page's pooled Limits view, T3 Code 74541bab17 (MIT, see LICENSE-T3):
 // apps/web/src/components/usage/UsageLimitsPooled.tsx (UsageLimitsPooled, PoolSection,
-// PoolWindowCard, PoolBar, PoolSegment, LegendRow, SegmentPopover, RedeemableSegmentPopup,
+// PoolWindowCard, PoolBar, PoolSegment, SegmentTriggers, LegendRow, SegmentPopover, RedeemableSegment,
 // AccountAvatar, AccountName, AccountChip, LimitNotices) and UsagePage.tsx (CursorEnableLimits).
 // The figures and words come from usage-pooled-view.ts. A segment's popover opens on hover (its
 // 300 ms delay is the fade's) and stays while the pointer is on it or its email, opens and pins on
@@ -19,7 +19,10 @@ use CnTooltip from "../settings/settings-b-kit.contract"
 // One account's share of one pooled window (segmentView).
 shape PooledSegment
   id: string
+  // The account and window it shows (usage-pooled-view.ts segmentIdentity): a popover whose segment is gone closes.
+  identity: string
   column: number
+  timeLeft: number
   side: string
   align: string
   remaining: number
@@ -32,7 +35,7 @@ shape PooledSegment
   label: string
   resets: string
   creditsAria: string
-  hatch: bool
+  hatch: number
   title: string
   avatar: string
   driver: string
@@ -45,6 +48,7 @@ shape PooledSegment
   where: string
   left: string
   resetsAt: string
+  evenPace: string
   restores: string
   redeemable: bool
   creditsText: string
@@ -98,6 +102,7 @@ shape PooledView
   wide: bool
   empty: bool
   pools: PooledPool[]
+  drawn: string[]
   cursorAfter: bool
   cursor: PooledCursor[]
   links: PooledLink[]
@@ -237,11 +242,17 @@ component TicketGlyph
       path d="M13 17v2"
       path d="M13 11v2"
 
+// The even-pace tick's centre along a bar `width` wide, clamped 3 px inside its ends (usePaceMark).
+fn paceAt(width: number, timeLeft: number): number = min(max(3, width * timeLeft / 100), width - 3)
+
 // PoolSegment: the share of this account's quota still open (35% of the provider colour), the
-// spent share hatched when a reset will restore it; wide it carries the name, the share and a plate
-// with the countdown and banked credits, narrow its 1-based position. Its popover hangs off it. The
-// keyboard ring is the host's (exact2 #179, fixed by main #189): a ring drawn from a `focus` handler
-// restyled the button at mouse-down and the macOS host dropped that click's press.
+// spent share a reset makes usable again hatched; wide it carries the name, the share and a plate
+// with the countdown and banked credits (none when the window has neither), narrow its 1-based
+// position. Its popover hangs off it. With a clock and 6 px of room, a tick in a 6 px gap marks
+// where even spending would have left the fill: the layers are drawn twice, each copy clipped to
+// one side of the gap (the reference's clip-path slot). The keyboard ring is the host's (exact2
+// #179, fixed by main #189): a ring drawn from a `focus` handler restyled the button at mouse-down
+// and the macOS host dropped that click's press.
 component PoolSegment
   props
     seg: PooledSegment
@@ -254,28 +265,56 @@ component PoolSegment
     pinned: bool
     enterSeg: action
     pin: action
+  state width = 0
+  action sized(w: number, h: number)
+    width = w
+  derive mark = seg.timeLeft >= 0 and width >= 6
+  derive at = paceAt(width, seg.timeLeft)
   view
     box grid-row=1 grid-column=seg.column position="relative" min-width=0 z-index=(open ? 1 : 0)
-      button id=`usage-seg-${seg.id}` press=pin(seg.id) hover=enterSeg(seg.id) aria-label=seg.label aria-expanded=open aria-haspopup="dialog" testId=`usage-seg-${seg.id}` width="100%" height=(wide ? "2rem" : "1.25rem") min-width=0 padding=0 border-width=0 border-radius="0.375rem" overflow="hidden" position="relative" cursor="pointer" display="block" background-color="light-dark(#f4f4f5, #ffffff0a)" box-shadow=(open ? "0 0 0 1px light-dark(#e4e4e7, #ffffff1a)" : "none") title=""
-        box position="absolute" left=0 top=0 bottom=0 width=`${seg.remaining}%` border-radius="0.375rem" opacity=0.35 background-color=`light-dark(${light}, ${dark})` aria-hidden=true testId=`usage-seg-fill-${seg.id}`
-        if seg.hatch
-          box position="absolute" right=0 top=0 bottom=0 width=`${100 - seg.remaining}%` opacity=0.2 background-image=`repeating-linear-gradient(135deg, light-dark(${light}, ${dark}) 0 1px, transparent 1px 5px)` aria-hidden=true testId=`usage-seg-hatch-${seg.id}`
+      button id=`usage-seg-${seg.id}` press=pin(seg.id) hover=enterSeg(seg.id) resize=sized aria-label=seg.label aria-expanded=open aria-haspopup="dialog" testId=`usage-seg-${seg.id}` width="100%" height=(wide ? "2rem" : "1.25rem") min-width=0 padding=0 border-width=0 border-radius="0.375rem" overflow="hidden" position="relative" cursor="pointer" display="block" background-color="#00000000" box-shadow=(open ? "0 0 0 1px light-dark(#e4e4e7, #ffffff1a)" : "none") title=""
+        if mark
+          box position="absolute" left=0 top=0 bottom=0 width=max(0, at - 3) overflow="hidden" aria-hidden=true
+            SegmentLayers(seg=seg, light=light, dark=dark, left=0, width=width, part="")
+          box position="absolute" left=(at + 3) top=0 bottom=0 right=0 overflow="hidden" aria-hidden=true
+            SegmentLayers(seg=seg, light=light, dark=dark, left=0 - at - 3, width=width, part="-after")
+          box position="absolute" top="0.125rem" bottom="0.125rem" left=at width=2 margin-left=-1 border-radius="9999px" background-color="light-dark(#27272a, #f5f5f5)" aria-hidden=true testId=`usage-seg-pace-${seg.id}`
+        else
+          SegmentLayers(seg=seg, light=light, dark=dark, left=0, width=width, part="")
         if wide
-          row position="relative" height="100%" min-width=0 align-items="center" gap="0.375rem" padding-left="0.5rem" padding-right="0.5rem" box-sizing="border-box" aria-hidden=true
+          row position="relative" height="100%" min-width=0 align-items="center" gap="0.375rem" padding-left="0.5rem" padding-right="0.5rem" box-sizing="border-box" overflow="hidden" aria-hidden=true
             if seg.showName
               AccountName(name=seg.name, chip=seg.chip, chipBg=seg.chipBg, chipFg=seg.chipFg, size="0.75rem")
             text `${seg.remaining}%` flex-shrink=0 font-size="0.75rem" line-height="1rem" font-weight=600 font-variant-numeric="tabular-nums" color="light-dark(#27272a, #f5f5f5)"
-            row margin-left="auto" flex-shrink=0 align-items="center" gap="0.375rem" border-radius="0.25rem" padding-left="0.375rem" padding-right="0.375rem" padding-top="0.125rem" padding-bottom="0.125rem" background-color="light-dark(#fcfcfcd9, #0a0a0ad9)" color="light-dark(#27272a, #f5f5f5)"
-              text seg.resets font-size="0.6875rem" line-height="1rem" font-variant-numeric="tabular-nums" white-space="nowrap"
-              if seg.credits > 0
-                if seg.resets != ""
-                  text "·" font-size="0.6875rem" line-height="1rem" color="light-dark(#71717b, #818181)"
-                row align-items="center" gap="0.125rem"
-                  TicketGlyph()
-                  text `${seg.credits}` font-size="0.6875rem" line-height="1rem" font-weight=600 font-variant-numeric="tabular-nums"
+            if seg.resets != "" or seg.credits > 0
+              row margin-left="auto" min-width=0 overflow="hidden" align-items="center" gap="0.375rem" border-radius="0.25rem" padding-left="0.375rem" padding-right="0.375rem" padding-top="0.125rem" padding-bottom="0.125rem" white-space="nowrap" background-color="light-dark(#fcfcfcd9, #0a0a0ad9)" color="light-dark(#27272a, #f5f5f5)" testId=`usage-seg-plate-${seg.id}`
+                text seg.resets font-size="0.6875rem" line-height="1rem" font-variant-numeric="tabular-nums" white-space="nowrap"
+                if seg.credits > 0
+                  if seg.resets != ""
+                    text "·" font-size="0.6875rem" line-height="1rem" color="light-dark(#71717b, #818181)"
+                  row align-items="center" gap="0.125rem"
+                    TicketGlyph()
+                    text `${seg.credits}` font-size="0.6875rem" line-height="1rem" font-weight=600 font-variant-numeric="tabular-nums"
         else
           row position="absolute" left=0 top=0 right=0 bottom=0 align-items="center" justify-content="center" aria-hidden=true
             text `${seg.column}` font-size="0.625rem" line-height=1 font-weight=600 font-variant-numeric="tabular-nums" color="light-dark(#27272acc, #f5f5f5cc)"
+
+// The segment's track, its open share and its hatched refill, `width` wide from `left` in its clip
+// (0 width before the segment has been measured: the full segment).
+component SegmentLayers
+  props
+    seg: PooledSegment
+    light: string
+    dark: string
+    left: number
+    width: number
+    // The testIds' suffix: "" for the copy left of the gap (or the only one), "-after" for the copy right of it.
+    part: string
+  view
+    box position="absolute" left=left top=0 bottom=0 width=(width > 0 ? `${width}px` : "100%") border-radius="0.375rem" overflow="hidden" background-color="light-dark(#f4f4f5, #ffffff0a)" aria-hidden=true
+      box position="absolute" left=0 top=0 bottom=0 width=`${seg.remaining}%` border-radius="0.375rem" opacity=0.35 background-color=`light-dark(${light}, ${dark})` testId=`usage-seg-fill-${seg.id}${part}`
+      if seg.hatch > 0
+        box position="absolute" right=0 top=0 bottom=0 width=`${seg.hatch}%` opacity=0.2 background-image=`repeating-linear-gradient(135deg, light-dark(${light}, ${dark}) 0 1px, transparent 1px 5px)` testId=`usage-seg-hatch-${seg.id}${part}`
 
 // SegmentPopover (PopoverPopup side="top", sideOffset 6, w-72): who the account is, its plan and
 // where it is signed in, what is left and when it resets, and the banked credits with "Use reset".
@@ -326,6 +365,8 @@ component SegmentPopup
             PopRow(label="Left", value=seg.left)
             if seg.resetsAt != ""
               PopRow(label="Resets", value=seg.resetsAt)
+            if seg.evenPace != ""
+              PopRow(label="Even pace", value=seg.evenPace)
             if seg.restores != ""
               PopRow(label="Restores", value=seg.restores)
           if seg.redeemable
