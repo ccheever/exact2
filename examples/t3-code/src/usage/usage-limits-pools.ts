@@ -1,8 +1,8 @@
-// The pooled subscription limits across environments, T3 Code 9c161462c9 (MIT, see LICENSE-T3):
+// The pooled subscription limits across environments, T3 Code 74541bab17 (MIT, see LICENSE-T3):
 // packages/shared/src/usageLimits.ts (CURSOR_USAGE_WINDOWS,
 // cursorUsageWindowDetails, collectExternalUsageLinks, LimitAccount, collectLimitAccounts,
 // collectLimitNotices, LimitPoolMember, LimitPoolWindow, LimitPool, displayLimitWindows,
-// collectLimitPools) and apps/web/src/components/usage/UsageLimitsPooled.tsx (accountInitials,
+// collectLimitPools, poolMember) and apps/web/src/components/usage/UsageLimitsPooled.tsx (accountInitials,
 // accountHue). Changes: snapshots are the server's JSON as the clone keeps it (`Obj`), read with
 // `str`/`num`/`arr`; `presentations` keeps the reference's shape (an ordered map of environment id
 // to `{ entry: { target: { label } }, serverConfig }`) so its tests port unchanged; the account keys
@@ -190,7 +190,8 @@ export function collectLimitNotices(presentations: LimitPresentations): readonly
   return notices;
 }
 
-export interface LimitPoolMember { readonly account: LimitAccount; readonly window: Obj }
+/** `refillPercent`: the share of the member's quota its reset makes usable again. */
+export interface LimitPoolMember { readonly account: LimitAccount; readonly window: Obj; readonly refillPercent: number }
 
 /**
  * One window id across every account that reports it: the pooled share left, pace against the
@@ -202,11 +203,11 @@ export interface LimitPoolWindow {
   readonly label: string;
   readonly members: readonly LimitPoolMember[];
   /** Fixed account positions across rows; a null window leaves a gap. */
-  readonly columns: ReadonlyArray<{ readonly account: LimitAccount; readonly window: Obj | null }>;
+  readonly columns: ReadonlyArray<LimitPoolMember | { readonly account: LimitAccount; readonly window: null }>;
   readonly remainingPercent: number;
   readonly usedPercent: number;
   readonly pace: LimitPace | null;
-  /** `restoresPercent`: points of the pool the reset restores, the member's used share over the member count. */
+  /** `restoresPercent`: points of the pool the reset restores, the member's refill share over the member count. */
   readonly resets: ReadonlyArray<{ readonly member: LimitPoolMember; readonly at: number; readonly restoresPercent: number }>;
 }
 
@@ -260,7 +261,7 @@ export function collectLimitPools(accounts: readonly LimitAccount[], now: number
     const orderWindow = members.flatMap(account => arr(account.limits.windows)).sort((left, right) => kindRank(left.kind) - kindRank(right.kind))[0];
     const orderReset = (account: LimitAccount) => {
       const window = arr(account.limits.windows).find(candidate => orderWindow && poolKey(driver, candidate) === poolKey(driver, orderWindow));
-      return (window ? resetMillis(window) : null) ?? Number.POSITIVE_INFINITY;
+      return (window ? resetMillis(poolMember(account, window, now).window) : null) ?? Number.POSITIVE_INFINITY;
     };
     const sorted = [...members].sort((left, right) => orderReset(left) - orderReset(right)
       || accountSortName(left).localeCompare(accountSortName(right)) || left.key.localeCompare(right.key));
@@ -280,15 +281,40 @@ function poolKey(driver: string, window: Obj): string {
   return driver === 'codex' ? str(window.kind) : `${str(window.kind)}:${str(window.id)}`;
 }
 
+/**
+ * A session window while the account's weekly quota is spent: nothing in it is usable, so it counts
+ * as empty, and it refills only when both clocks allow. A stale or missing clock cannot say when the
+ * blocked quota becomes usable, so it predicts no refill.
+ */
+function poolMember(account: LimitAccount, reported: Obj, now: number): LimitPoolMember {
+  const spentWeekly = reported.kind === 'session'
+    ? arr(account.limits.windows).find(window => num(window.usedPercent) >= 100
+      && (account.driver === 'claudeAgent' ? window.id === 'seven_day' : account.driver === 'codex' && window.kind === 'weekly'))
+    : undefined;
+  if (!spentWeekly) return { account, window: reported, refillPercent: num(reported.usedPercent) };
+  const weeklyReset = resetMillis(spentWeekly), sessionReset = resetMillis(reported);
+  const cutoff = Math.max(now, Date.parse(str(account.limits.checkedAt)));
+  let resetsAt: Obj[string] | undefined;
+  let refillPercent = 0;
+  if (weeklyReset !== null && sessionReset !== null && weeklyReset > cutoff && sessionReset > cutoff) {
+    if (sessionReset <= weeklyReset) { resetsAt = spentWeekly.resetsAt; refillPercent = 100; }
+    else if (num(reported.usedPercent) >= 100) { resetsAt = reported.resetsAt; refillPercent = 100; }
+    else { resetsAt = spentWeekly.resetsAt; refillPercent = 100 - Math.max(0, Math.min(100, num(reported.usedPercent))); }
+  }
+  // Suppression is not session spending, so it has no session pace clock.
+  return { account, window: { ...reported, usedPercent: 100, resetsAt, windowDurationMins: undefined }, refillPercent };
+}
+
 function poolWindows(accounts: readonly LimitAccount[], now: number): readonly LimitPoolWindow[] {
   const byKey = new Map<string, LimitPoolMember[]>();
   for (const account of accounts) {
-    for (const window of arr(account.limits.windows)) {
+    for (const reported of arr(account.limits.windows)) {
+      const member = poolMember(account, reported, now), { window } = member;
       const pooled = poolKey(account.driver, window);
       // An account with two windows of one kind keeps the second apart.
-      const key = byKey.get(pooled)?.some(member => member.account === account) ? `${str(window.kind)}:${str(window.id)}` : pooled;
+      const key = byKey.get(pooled)?.some(other => other.account === account) ? `${str(window.kind)}:${str(window.id)}` : pooled;
       const list = byKey.get(key);
-      if (list) list.push({ account, window }); else byKey.set(key, [{ account, window }]);
+      if (list) list.push(member); else byKey.set(key, [member]);
     }
   }
   const pools = [...byKey].map(([key, members]): LimitPoolWindow => {
@@ -308,7 +334,7 @@ function poolWindows(accounts: readonly LimitAccount[], now: number): readonly L
     const meanElapsed = timed.length > 0 ? timed.reduce((sum, entry) => sum + entry.elapsed, 0) / timed.length : null;
     const resets = members.flatMap(member => {
       const at = resetMillis(member.window);
-      return at === null ? [] : [{ member, at, restoresPercent: Math.round(num(member.window.usedPercent) / members.length) }];
+      return at === null ? [] : [{ member, at, restoresPercent: Math.round(member.refillPercent / members.length) }];
     }).sort((left, right) => left.at - right.at);
     return {
       id, kind: str(first.kind), label: str(first.label), members,

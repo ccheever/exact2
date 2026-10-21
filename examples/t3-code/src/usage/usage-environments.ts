@@ -77,6 +77,13 @@ export type UsageState = {
   asked: { redeemKey: string; target: NonNullable<LimitAccount['redeem']> } | null;
   /** The segments last drawn: each one's account, redeem key and name, by its (positional) id. */
   segments: Map<string, { account: LimitAccount; redeemKey: string; name: string }>;
+  /**
+   * Each segment identity's appearances (usage-pooled-view.ts drawnEntries): one more each time it is
+   * drawn again after a draw without it, so a popover kept for its earlier appearance stays closed.
+   */
+  appearances: Map<string, number>;
+  /** The identities the last pooled draw drew. */
+  drawnIdentities: Set<string>;
   cursorPending: Set<string>;
   /** The external usage pages last drawn: the only addresses `open` may hand to the system. */
   links: string[];
@@ -85,7 +92,7 @@ const states = new WeakMap<object, UsageState>();
 export function usageState(client: object): UsageState {
   let state = states.get(client);
   if (!state) states.set(client, state = { selected: null, envs: [], clock: 0, open: false, metric: '', windowDays: 0, window: null, refreshSeen: null,
-    summaries: new Map(), outbox: [], listeners: new Map(), refreshing: false, limitsNow: 0, autoKey: '', redeems: new Map(), confirm: '', asked: null, segments: new Map(), cursorPending: new Set(), links: [] });
+    summaries: new Map(), outbox: [], listeners: new Map(), refreshing: false, limitsNow: 0, autoKey: '', redeems: new Map(), confirm: '', asked: null, segments: new Map(), appearances: new Map(), drawnIdentities: new Set(), cursorPending: new Set(), links: [] });
   return state;
 }
 /** Tests and a closed page start over. */

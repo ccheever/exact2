@@ -116,7 +116,7 @@ export function dialogPlotWidth(viewportWidth: number): number {
  * the same merge narrowed to this model's buckets. Unpriced cost is unknown,
  * not zero, so its trend shows tokens.
  */
-export function modelDetail(model: ModelTotals, environment: { id: string; label: string; summary: Obj } | { id: string; label: string; summary: Obj }[], periods: string[], resolution: 'day' | 'hour', metric: string, viewportWidth: number): ModelDetailView {
+export function modelDetail(model: ModelTotals, environment: { id: string; label: string; summary: Obj } | { id: string; label: string; summary: Obj }[], periods: string[], resolution: 'day' | 'hour', metric: string, viewportWidth: number, hour12 = true): ModelDetailView {
   // The selected environments that answered (mergeAnsweredUsage with the model's buckets).
   const usage = mergeUsage((Array.isArray(environment) ? environment : [environment]).map(entry => ({ ...entry,
     summary: { ...entry.summary, buckets: arr(entry.summary.buckets).filter(bucket => bucket.provider === model.provider && bucket.model === model.model) } })));
@@ -134,7 +134,7 @@ export function modelDetail(model: ModelTotals, environment: { id: string; label
     open: true, key: modelKey(model), model: model.model, driver: meta?.driver ?? model.provider,
     description: `${meta?.label ?? model.provider}${unknown ? '' : ` · ${formatPercent(model.costShare)} of cost`}`,
     stats, chartTitle: `${resolution === 'hour' ? 'Hourly' : 'Daily'} ${chartMetric === 'tokens' ? 'processed tokens' : 'cost'}`,
-    chart: buildChart(usage, periods, resolution, chartMetric, width), plotWidth: width,
+    chart: buildChart(usage, periods, resolution, chartMetric, width, undefined, undefined, hour12), plotWidth: width,
     shares: present([
       unknown ? null : shareBar('Cost by type', costTypeSegments(usage.categoryCost), formatUsd),
       shareBar('Tokens by type', tokenTypeSegments(model.tokens), formatTokens),
