@@ -288,6 +288,7 @@ export function time() { if (!clock.agent && !Timing && start) clock.now = Math.
 function tick() { if (Now.v !== clock.now) { Now.v = clock.now; for (const o of Now.obs) stale(o, DIRTY); } }
 // A release build never enters agent mode (LLP 1069.007 D2): its build writes this false, as the wasm host's files are gated.
 const AGENT_ADMITTED = true;
+/** Whether the agent drives this page (or a render does): the clock is then the driver's. */ export const agentMode = () => !!globalThis.__exactRender || (AGENT_ADMITTED && new URLSearchParams(location.search).has("agent"));
 /** A timer: `every(ms, action, once)`, due from mount; `i` its plan order, which breaks ties (schedule.js inserts by it). */
 let Order = 0; export const order = () => Order++, Tasks = []; // every task, for the agent's `state.tasks`
 export function every(ms, action, once, name) {
@@ -1390,7 +1391,7 @@ export function mount(f) {
     if (!(t.closest?.("input, textarea, select") || t.isContentEditable) && t.closest?.('[retainFocus="true"]')) ev.preventDefault();
   });
   // Under the agent, and in a render, the clock is the driver's: no timer runs by itself.
-  clock.agent = !!globalThis.__exactRender || (AGENT_ADMITTED && new URLSearchParams(location.search).has("agent"));
+  clock.agent = agentMode();
   Store.load();
   let built = false;
   Adopt = !!(checkpoint().kept && root.firstElementChild);
