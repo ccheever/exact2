@@ -114,6 +114,10 @@ export async function settingsCore(client: T3Client, native: Native | null | und
     environmentChoices: singleEnvironmentRoute(route) ? scope.environmentChoices.filter(choice => choice.id) : scope.environmentChoices, environmentIcon: scope.environmentIcon, projectChoices: scope.projectChoices,
     environmentKeyed: [keyedLabel(scope.environmentLabel)], projectKeyed: [keyedLabel(scope.projectLabel)],
     representative: String(scope.members[0]?.id ?? ''), scopeKey: `${machine}|${projectKey}|${checkout}`,
+    // ProjectsSettings: an environment or checkout the project is not on offers "Show all environments" (selectEnvironmentAxis
+    // to All, which keeps the project and drops the checkout) instead of a dead end.
+    showAllEnvironments: route === 'projects' && scope.kind === 'unavailable' && (machine !== '' || checkout !== ''), allEnvironmentsProject: projectKey,
+    allEnvironmentsMember: String(scope.groups.find(group => group.projectKey === projectKey)?.memberProjects[0]?.id ?? ''),
     // A setup link inside Settings opens Providers on this environment (ProjectDefaultsSettings.tsx:60-62, 168-173; SettingsPanels.tsx:3260-3266); '' offers none.
     scopeEnvironment: scope.kind === 'unavailable' ? '' : scopeRepresentative(scope)?.environmentId ?? '',
     sections, cliSections: cli ? [{ id: 'about', title: 'About', collapsible: false, toggle: false, rows: [cli] }] : [], projectModel, restoreCount: labels.length, restoreText: labels.length ? `This will reset: ${labels.join(', ')}.` : '',

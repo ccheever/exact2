@@ -23,6 +23,25 @@ final class BrowserNavigationTests: XCTestCase {
     }
     override func tearDown() { sessions.sync([]); window.orderOut(nil) }
 
+    /// `window-zoom` (useBrowserLayoutZoomFactor, 74541bab17): a filled page is laid out at its box times the main window's
+    /// zoom, so the window's zoom does not magnify it; a fixed viewport's bounds come from its `page-size` alone.
+    func testAFilledPageUndoesTheWindowZoomAndAFixedViewportIgnoresIt() {
+        let host = T3BrowserView.Host(frame: .zero)
+        host.windowZoom = 1.25
+        host.setFrameSize(NSSize(width: 400, height: 300))
+        XCTAssertEqual(host.bounds.size, NSSize(width: 500, height: 375))
+        host.windowZoom = 1
+        XCTAssertEqual(host.bounds.size, NSSize(width: 400, height: 300))
+        host.windowZoom = 1.25
+        host.pageSize = NSSize(width: 375, height: 667)
+        // AppKit reads the bounds back through the frame's scale, a rounding error away from what was set.
+        XCTAssertEqual(host.bounds.width, 375, accuracy: 0.001, "a fixed viewport's bounds are its CSS size at the page's zoom")
+        XCTAssertEqual(host.bounds.height, 667, accuracy: 0.001)
+        host.windowZoom = 2
+        XCTAssertEqual(host.bounds.width, 375, accuracy: 0.001)
+        XCTAssertEqual(host.bounds.height, 667, accuracy: 0.001)
+    }
+
     private func spin(until condition: () -> Bool, timeout: TimeInterval = 10) {
         let end = Date().addingTimeInterval(timeout)
         while !condition() && Date() < end { RunLoop.main.run(until: Date().addingTimeInterval(0.02)) }

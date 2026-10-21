@@ -27,7 +27,7 @@ use GitLayers from "../details/git.contract"
 use PrRowLayers from "../details/pr-row.contract"
 use PublishDialog from "../details/git-publish.contract"
 use CommandPalette from "../palette/palette.contract"
-use PaletteView from "../palette/palette.contract"
+use PaletteView, PaletteFinalFocus from "../palette/palette.contract"
 use VideoPreviewDialog from "../composer/composer-video.contract"
 use ComposerImageDialog from "../composer/composer-chip-image.contract"
 use ComposerFileDialog from "../composer/composer-chip-file.contract"
@@ -161,6 +161,7 @@ component WindowOverlays
     paletteHover: action
     paletteClose: action
     paletteFlag: action
+    paletteRestore: bool
     details: ShellDetails
     // The header's thread details popover over a right panel sheet (a narrow window), above the sheet; elsewhere the
     // chat column draws it, under the floating player (app-main.contract ChatColumn).
@@ -192,6 +193,7 @@ component WindowOverlays
   view
     if modelsOpen
       ModelPicker(data=data, session=popoverSession, catalog=catalog, viewport=viewport, query=modelQuery, left=composerLeft, bottom=(data.composer.toolbarTop > 0 ? viewport.height - data.composer.toolbarTop - (resting ? 4 : 2) + 4 : (resting ? 75 : 71) * rem / 16), busy=commandPending, closePicker=closeModels, select=selectModel, search=searchModels, chooseRail=selectProvider, command=command, openSetup=openProviderSettings, anchor=modelTarget)
+    PaletteFinalFocus(open=paletteOpen, owner=palette.testId, restore=paletteRestore)
     if paletteOpen
       CommandPalette(view=palette, query=paletteQuery, highlight=paletteHighlight, scroll=paletteScroll, busy=paletteBusy, viewport=viewport, scheme=scheme, edit=paletteEdit, onKey=paletteKey, run=paletteRun, hover=paletteHover, close=paletteClose, back=paletteKey("Back"), flag=paletteFlag)
     if detailsSheet

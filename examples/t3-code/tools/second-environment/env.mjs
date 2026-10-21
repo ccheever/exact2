@@ -53,6 +53,13 @@ export const FINISH_WELCOME = ["tap welcome-continue", "clock settle", "tap welc
 /** The driver echoes a typed value; a pairing token never reaches the terminal or a log. */
 export const redact = (text) => text.replace(/#token=[^\s"'\\]+/g, "#token=<redacted>");
 
+/**
+ * The driver's flags from a drive's options: --size (1280x840 unless given), --storage, --epoch (the date
+ * at the driver's clock zero; `now` puts a seeded hub's resets at their real distance) and --json.
+ */
+export const driverFlags = (options) => ["--size", flag(options, "--size") ?? "1280x840", "--storage", flag(options, "--storage") ?? "t3-fixtures",
+  ...(flag(options, "--epoch") ? ["--epoch", flag(options, "--epoch")] : []), ...(options.includes("--json") ? ["--json"] : [])];
+
 /** Runs one agent drive with fresh pairings; returns the driver's exit status. */
 export function drive(argv) {
   const split = argv.indexOf("--");
@@ -69,11 +76,10 @@ export function drive(argv) {
   if (local) Object.assign(env, { T3_LOCAL_HOME: localHome(paths), T3_LOCAL_PORT: String(checkPort(Number(process.env.T3_FIXTURE_LOCAL_PORT ?? LOCAL_PORT))),
     CODEX_HOME: join(paths.local, "codex"), CLAUDE_CONFIG_DIR: join(paths.local, "claude"), ...offlineEnv() });
   else { delete env.T3_LOCAL_HOME; delete env.T3_LOCAL_PORT; }
-  const driverFlags = ["--size", flag(options, "--size") ?? "1280x840", "--storage", flag(options, "--storage") ?? "t3-fixtures", ...(options.includes("--json") ? ["--json"] : [])];
   // The tokens go to the driver's argv only: a drive prints each op's reply, never the op.
   const pairing = pair.length || local ? [`clock +${local ? welcomeWait(join(paths.local, "t3home")) : 5000} real`, ...pair.flatMap((name, index) => pairOps(pairingUrl(paths, name, "Fixture drive"), index, local)),
     ...(options.includes("--keep-welcome") ? [] : FINISH_WELCOME)] : [];
-  const result = spawnSync(process.execPath, [join(checkout, "scripts/agent.mjs"), "macos", ...driverFlags, ...pairing, ...ops], { env, stdio: ["ignore", "pipe", "pipe"], encoding: "utf8", maxBuffer: 64 << 20 });
+  const result = spawnSync(process.execPath, [join(checkout, "scripts/agent.mjs"), "macos", ...driverFlags(options), ...pairing, ...ops], { env, stdio: ["ignore", "pipe", "pipe"], encoding: "utf8", maxBuffer: 64 << 20 });
   process.stdout.write(redact(result.stdout ?? ""));
   process.stderr.write(redact(result.stderr ?? ""));
   return result.status ?? 1;

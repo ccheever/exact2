@@ -1,11 +1,15 @@
 // Copied from T3 Code 1e2ecbd975 (MIT reference, see LICENSE-T3: apps/web/src/terminal/ghostty/surface.test.ts),
 // with 9c161462c9's tests of the history keys, Select all, the resize on release and the selection
-// autoscroll at the window edge.
+// autoscroll at the window edge, and 74541bab17's of Kitty key releases, the single paste and a
+// wrapped quoted link.
 // Changes from the reference:
+// - split for the 1,500-line cap: the key helper and browser harness are surfaceHarness.ts, and
+//   74541bab17's synchronized output tests are surfaceSynchronized.test.ts.
 // - `vite-plus/test` is `bun:test`; the `vi.mock` of the two `?url` WASM imports is
 //   `src/test-assets.ts`, which points the runtime at the vendored files.
 import { afterEach, describe, expect, it, vi } from "bun:test";
 import "../../src/test-assets";
+import { createHarness, disposeHarnessSurfaces, key } from "./surfaceHarness";
 
 import { GhosttyTerminalCore, type GhosttyCell, type GhosttyRow } from "./core";
 import {
@@ -36,215 +40,11 @@ import {
   terminalWheelArrowData,
   terminalWheelDeltaRows,
   GhosttyTerminalSurface,
-  type GhosttyTerminalSurfaceOptions,
 } from "./surface";
 
 
 describe("GhosttyTerminalSurface visibility", () => {
-  const surfaces = new Set<GhosttyTerminalSurface>();
-
-  function key(
-    surface: GhosttyTerminalSurface,
-    key: string,
-    code: string,
-    modifiers: Partial<
-      Pick<
-        KeyboardEvent,
-        | "altKey"
-        | "ctrlKey"
-        | "metaKey"
-        | "shiftKey"
-        | "isComposing"
-        | "keyCode"
-        | "getModifierState"
-      >
-    > = {},
-    type = "keydown",
-  ) {
-    const event = Object.assign(new Event(type, { cancelable: true }), {
-      key,
-      code,
-      altKey: false,
-      ctrlKey: false,
-      metaKey: false,
-      shiftKey: false,
-      isComposing: false,
-      keyCode: 0,
-      getModifierState: () => false,
-      ...modifiers,
-    });
-    surface.input.dispatchEvent(event);
-    return event;
-  }
-
-  // Keep the real surface, renderer, and WASM core. Only browser layout and
-  // scheduling are replaced so tests can count work while the terminal is hidden.
-  function createHarness() {
-    vi.useFakeTimers();
-    const frames = new Map<number, FrameRequestCallback>();
-    const resizeCallbacks = new Set<() => void>();
-    const paint = vi.fn((_operation: string, _args: ReadonlyArray<unknown>) => {});
-    let frameId = 0;
-    const requestFrame = vi.fn((callback: FrameRequestCallback) => {
-      frames.set(++frameId, callback);
-      return frameId;
-    });
-
-    class TerminalTestElement extends EventTarget {
-      style: Record<string, string> = {};
-      parentElement: TerminalTestElement | null = null;
-      clientWidth = 168;
-      clientHeight = 104;
-      width = 300;
-      height = 150;
-      value = "";
-      private readonly captures = new Set<number>();
-
-      setAttribute() {}
-      append(...children: TerminalTestElement[]) {
-        for (const child of children) child.parentElement = this;
-      }
-      replaceChildren(...children: TerminalTestElement[]) {
-        this.append(...children);
-      }
-      remove() {
-        this.parentElement = null;
-      }
-      getContext() {
-        return context;
-      }
-      focus() {
-        this.dispatchEvent(new Event("focus"));
-      }
-      setPointerCapture(pointerId: number) {
-        this.captures.add(pointerId);
-      }
-      hasPointerCapture(pointerId: number) {
-        return this.captures.has(pointerId);
-      }
-      releasePointerCapture(pointerId: number) {
-        this.captures.delete(pointerId);
-      }
-      getBoundingClientRect() {
-        return { left: 0, top: 0, right: 168, bottom: 104, width: 168, height: 104 };
-      }
-    }
-
-    const canvas = new TerminalTestElement();
-    const mount = new TerminalTestElement();
-    const context = {
-      canvas,
-      beginPath() {},
-      clip() {},
-      rect() {},
-      resetTransform() {},
-      restore() {},
-      save() {},
-      setTransform() {},
-      fillRect: (...args: number[]) => paint("fillRect", args),
-      strokeRect: (...args: number[]) => paint("strokeRect", args),
-      fillText: (...args: [string, number, number, number?]) => paint("fillText", args),
-      measureText: (text: string) => ({
-        width: text.length * 8,
-        actualBoundingBoxAscent: 9,
-        actualBoundingBoxDescent: 3,
-      }),
-    };
-    vi.stubGlobal("document", {
-      createElement: (tag: string) => (tag === "canvas" ? canvas : new TerminalTestElement()),
-      fonts: Object.assign(new EventTarget(), { load: async () => [], add() {} }),
-    });
-    vi.stubGlobal(
-      "window",
-      Object.assign(new EventTarget(), {
-        devicePixelRatio: 1,
-        innerHeight: 104,
-        requestAnimationFrame: requestFrame,
-        cancelAnimationFrame: (id: number) => frames.delete(id),
-        setTimeout,
-        clearTimeout,
-        setInterval,
-        clearInterval,
-        matchMedia: () => Object.assign(new EventTarget(), { matches: false }),
-      }),
-    );
-    vi.stubGlobal(
-      "ResizeObserver",
-      class {
-        constructor(private readonly callback: () => void) {
-          resizeCallbacks.add(callback);
-        }
-        observe() {}
-        disconnect() {
-          resizeCallbacks.delete(this.callback);
-        }
-      },
-    );
-    const snapshot = vi.spyOn(GhosttyTerminalCore.prototype, "snapshot");
-    const onData = vi.fn<(data: string) => void>();
-
-    return {
-      mount,
-      frames,
-      paint,
-      requestFrame,
-      snapshot,
-      onData,
-      get renderedSnapshot() {
-        const result = snapshot.mock.results.at(-1);
-        if (result?.type !== "return") throw new Error("No terminal snapshot was rendered");
-        return result.value;
-      },
-      flushFrame() {
-        const queued = [...frames.values()];
-        frames.clear();
-        for (const callback of queued) callback(0);
-      },
-      resize() {
-        for (const callback of resizeCallbacks) callback();
-      },
-      pointer(type: string, clientX: number, buttons: number, shiftKey = false, button = 0, clientY = 5) {
-        canvas.dispatchEvent(
-          Object.assign(new Event(type, { cancelable: true }), {
-            clientX,
-            clientY,
-            pointerId: 1,
-            button,
-            buttons,
-            shiftKey,
-          }),
-        );
-      },
-      async create(options: Partial<GhosttyTerminalSurfaceOptions> = {}) {
-        const surface = await GhosttyTerminalSurface.create(mount as unknown as HTMLElement, {
-          theme: {
-            foreground: { r: 255, g: 255, b: 255 },
-            background: { r: 0, g: 0, b: 0 },
-            cursor: { r: 255, g: 255, b: 255 },
-          },
-          onData,
-          onResize() {},
-          onSelectionChange() {},
-          beforeKey: () => false,
-          onLinkActivate() {},
-          ...options,
-          get visible() {
-            return options.visible ?? true;
-          },
-        });
-        surfaces.add(surface);
-        return surface;
-      },
-    };
-  }
-
-  afterEach(() => {
-    for (const surface of surfaces) surface.dispose();
-    surfaces.clear();
-    vi.useRealTimers();
-    vi.unstubAllGlobals();
-    vi.restoreAllMocks();
-  });
+  afterEach(disposeHarnessSurfaces);
 
   it.each([
     { platform: "Linux x86_64", primary: { ctrlKey: true } },
@@ -394,6 +194,50 @@ describe("GhosttyTerminalSurface visibility", () => {
     key(surface, "PageUp", "PageUp", {}, "keyup");
     expect(harness.onData).toHaveBeenCalledTimes(2);
     expect(harness.onData.mock.calls[1]?.[0]).toContain(":3");
+  });
+
+  it("reports Kitty releases only for presses encoded by this surface", async () => {
+    const harness = createHarness();
+    const surface = await harness.create({ beforeKey: () => true });
+    surface.write("\x1b[>11u");
+
+    key(surface, "a", "KeyA");
+    key(surface, "a", "KeyA", {}, "keyup");
+    key(surface, "Control", "ControlLeft", { ctrlKey: true });
+    // App capture stops Ctrl+D before it reaches the terminal input.
+    key(surface, "d", "KeyD", { ctrlKey: true }, "keydown", window);
+    key(surface, "d", "KeyD", { ctrlKey: true }, "keyup");
+    key(surface, "Control", "ControlLeft", {}, "keyup");
+
+    expect(harness.onData.mock.calls.map(([data]) => data)).toEqual([
+      "\x1b[97u",
+      "\x1b[97;1:3u",
+      "\x1b[57442;5u",
+      "\x1b[57442;1:3u",
+    ]);
+  });
+
+  it("keeps a held Kitty press through focus changes and an app-consumed repeat", async () => {
+    const harness = createHarness();
+    let consumeRepeat = false;
+    const surface = await harness.create({ beforeKey: () => !consumeRepeat });
+    surface.write("\x1b[>11u");
+
+    key(surface, "a", "KeyA");
+    key(surface, "a", "KeyA", { repeat: true });
+    surface.input.dispatchEvent(new Event("blur"));
+    window.dispatchEvent(new Event("blur"));
+    window.dispatchEvent(new Event("focus"));
+    surface.input.dispatchEvent(new Event("focus"));
+    consumeRepeat = true;
+    key(surface, "a", "KeyA", { repeat: true });
+    key(surface, "a", "KeyA", {}, "keyup");
+
+    expect(harness.onData.mock.calls.map(([data]) => data)).toEqual([
+      "\x1b[97u",
+      "\x1b[97;1:2u",
+      "\x1b[97;1:3u",
+    ]);
   });
 
   it("honors host interception, IME candidates, and AltGr before local shortcuts", async () => {
@@ -565,6 +409,55 @@ describe("GhosttyTerminalSurface visibility", () => {
     harness.pointer("pointerdown", 5, 4, false, 1);
     expect(readText).not.toHaveBeenCalled();
   });
+
+  function paste(surface: GhosttyTerminalSurface, text: string) {
+    surface.input.dispatchEvent(
+      Object.assign(new Event("paste", { cancelable: true }), {
+        clipboardData: { getData: () => text },
+      }),
+    );
+  }
+
+  it.each(["native", "clipboard"])("pastes once when %s arrives first", async (first) => {
+    const harness = createHarness();
+    const read = Promise.resolve("echo hi");
+    vi.stubGlobal("navigator", {
+      platform: "MacIntel",
+      clipboard: { readText: () => read },
+    });
+    const surface = await harness.create({ beforeKey: () => true });
+
+    key(surface, "v", "KeyV", { metaKey: true });
+    if (first === "native") paste(surface, "echo hi");
+    await read;
+    if (first === "clipboard") paste(surface, "echo hi");
+
+    expect(harness.onData.mock.calls).toEqual([["echo hi"]]);
+  });
+
+  it.each(["V keyup", "blur", "Meta keyup without V keyup"])(
+    "accepts a later identical menu paste after %s",
+    async (end) => {
+      const harness = createHarness();
+      const read = Promise.resolve("echo hi");
+      vi.stubGlobal("navigator", {
+        platform: "MacIntel",
+        clipboard: { readText: () => read },
+      });
+      const surface = await harness.create({ beforeKey: () => true });
+
+      key(surface, "v", "KeyV", { metaKey: true });
+      await read;
+      expect(harness.onData.mock.calls).toEqual([["echo hi"]]);
+      if (end === "blur") surface.input.dispatchEvent(new Event("blur"));
+      else if (end === "V keyup") key(surface, "v", "KeyV", { metaKey: true }, "keyup");
+      // macOS can omit V keyup while Command is held.
+      else key(surface, "Meta", "MetaLeft", {}, "keyup");
+      paste(surface, "echo hi");
+
+      expect(harness.onData.mock.calls).toEqual([["echo hi"], ["echo hi"]]);
+    },
+  );
 
   it("starts a selection when dragging from a link", async () => {
     const harness = createHarness();
@@ -796,6 +689,25 @@ describe("shouldBlinkTerminalCursor", () => {
 });
 
 describe("terminalLinkAtPositionWithRange", () => {
+  it("activates a wrapped quoted Windows path from its spaces and position suffix", () => {
+    const row = (text: string, isWrapContinuation: boolean): GhosttyRow => ({
+      cells: Array.from(text, (character) => cell(character)),
+      text,
+      isWrapContinuation,
+      wrapsToNext: false,
+    });
+    const first = String.raw`"C:\Users\Jane `;
+    const second = String.raw`Doe\index.ts":12:7`;
+    const rows = [row(first, false), row(second, true)];
+    const expected = {
+      text: String.raw`C:\Users\Jane Doe\index.ts:12:7`,
+      range: { start: { x: 1, y: 0 }, end: { x: second.length - 1, y: 1 } },
+    };
+    expect(terminalLinkAtPositionWithRange(rows, 0, first.length - 1)).toEqual(expected);
+    expect(terminalLinkAtPositionWithRange(rows, 1, second.length - 1)).toEqual(expected);
+    expect(terminalLinkAtPositionWithRange(rows, 0, 0)).toBeNull();
+  });
+
   it("maps terminal cells to UTF-16 offsets after a wide emoji", () => {
     const cells = [
       cell("🙂"),

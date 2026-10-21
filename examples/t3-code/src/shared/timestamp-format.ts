@@ -1,7 +1,7 @@
-// Timestamps in the Mac's locale. Reference apps/web/src/timestampFormat.ts
-// (1e2ecbd975; MIT, see LICENSE-T3): resolveTimestampLocale, resolveWeekStartsOn and the cached
-// wall-clock formatters. The desktop host reports the system locale (Electron's
-// app.getSystemLocale() with `_` → `-`; here the native module's `systemLocale`, T3Locale.swift,
+// Timestamps in the Mac's locale. Reference apps/web/src/timestampFormat.ts (1e2ecbd975,
+// resolveHour12 at 74541bab17; MIT, see LICENSE-T3): resolveTimestampLocale, resolveWeekStartsOn,
+// resolveHour12 and the cached wall-clock formatters. The desktop host reports the system locale
+// (Electron's app.getSystemLocale() with `_` → `-`; here the native module's `systemLocale`, T3Locale.swift,
 // read with the status presentation). The packaged Electron app's runtime default locale is en-US
 // (it ships only that Chromium locale), while the macOS data runtime's default follows the Mac's
 // region (en-KR on a Korean Mac; exact2 docs/reference.md: pass the locale explicitly), so a call
@@ -74,6 +74,12 @@ export function timestampFormatter(format: string, includeSeconds = false): Intl
   const options: Intl.DateTimeFormatOptions = { hour: 'numeric', minute: '2-digit', ...(includeSeconds ? { second: '2-digit' } : {}) };
   if (format !== 'locale') options.hour12 = format === '12-hour';
   return formatter(`${format}:${includeSeconds ? 's' : 'm'}`, options);
+}
+/** resolveHour12: whether the Time format setting shows a 12-hour clock ("locale" asks the locale). */
+export function resolveHour12(format: string): boolean {
+  if (format === '12-hour' || format === '24-hour') return format === '12-hour';
+  const resolved = timestampFormatter(format).resolvedOptions().hour12;
+  return typeof resolved === 'boolean' ? resolved : /[AP]M/i.test(timestampFormatter(format).format(new Date(2026, 0, 1, 15)));
 }
 /** numericDateFormatter / numericDateWithYearFormatter. */
 export function numericDateFormatter(withYear: boolean): Intl.DateTimeFormat {

@@ -1,4 +1,4 @@
-// Adapted from T3 Code 9c161462c9 (MIT); see LICENSE-T3.
+// Adapted from T3 Code 74541bab17 (MIT); see LICENSE-T3.
 // The command palette (⌘K): reference CommandPalette.tsx, CommandPalette.logic.ts,
 // CommandPaletteResults.tsx and ThreadCommandSubtitle.tsx. One view model for every
 // page the overlay can show; Contract (palette.contract) owns the open state, the
@@ -24,7 +24,8 @@ export type PalettePart = { id: string; text: string; hit: boolean; cls: string 
 export type PaletteRow = {
   key: string; index: number; header: string; headerGap: boolean; kind: string; op: string; arg: string; arg2: string;
   icon: string; prefix: string; title: string; bold: string; description: string; shortcut: string; timestamp: string; trailing: string;
-  /** The chord that runs this row from the field (thread.jump.N on a project pick, aria grammar: `Meta+1`); '' for none. */
+  /** The chords that run this row from the field, space-separated (thread.jump.N on a project pick, a new-thread
+   *  row's chat.newLocal or chat.newWithoutProject; aria grammar: `Meta+1`); '' for none. */
   jump: string;
   publishHost: string; publishHostLabel: string; publishHosts: { value: string; label: string; selected: boolean }[];
   terminalCount: number; prNumber: string; prIcon: string; prState: string; prLabel: string;
@@ -130,6 +131,13 @@ export function shortcutText(shortcut: Obj): string {
 }
 /** The context the palette resolves its shortcuts in (CommandPalette.tsx: `modelPickerOpen: false`). */
 const PALETTE_CONTEXT: DispatchContext = { composerFocus: false, editableFocus: false, turnRunning: false, modelPickerOpen: false, draftThreadRoute: false, modalOpen: false, settingsOpen: false, diffOpen: false };
+/** The context the palette's field resolves a pressed chord in (CommandPalette.tsx handleKeyDown: an editable focus). */
+const FIELD_CONTEXT: DispatchContext = { ...PALETTE_CONTEXT, editableFocus: true };
+/** The chords that resolve to `command` in the palette's field, space-separated (PaletteRow `jump`); '' for none. */
+export function fieldChords(client: T3Client, command: string): string {
+  const winners = chordWinners(arr(client.config.keybindings), FIELD_CONTEXT);
+  return [...winners].filter(([, winner]) => winner === command).map(([chord]) => chord).join(' ');
+}
 /** findEffectiveShortcutForCommand: the last binding of the command that still wins its chord here. */
 export function commandShortcut(client: T3Client, command: string): string {
   const bindings = arr(client.config.keybindings);
@@ -231,11 +239,11 @@ export function rootActions(client: T3Client): Item[] {
   const current = projects.find(project => project.id === client.projectId) ?? projects[0];
   const thread = client.threadId ? client.shell.threads.find(candidate => candidate.id === client.threadId) : undefined;
   if (projects.length) {
-    if (current) action('new-thread', ['new thread', 'chat', 'create', 'draft'], { op: 'new-thread', arg: str(current.id), icon: 'square-pen', prefix: 'New thread in ', bold: str(current.title), title: `New thread in ${str(current.title)}`, shortcut: commandShortcut(client, 'chat.newLocal') });
+    if (current) action('new-thread', ['new thread', 'chat', 'create', 'draft'], { op: 'new-thread', arg: str(current.id), icon: 'square-pen', prefix: 'New thread in ', bold: str(current.title), title: `New thread in ${str(current.title)}`, shortcut: commandShortcut(client, 'chat.newLocal'), jump: fieldChords(client, 'chat.newLocal') });
     action('new-thread-in', ['new thread', 'project', 'pick', 'choose', 'select'], { kind: 'submenu', op: 'page', arg: 'new-thread-in', icon: 'square-pen', title: 'New thread in...' });
   }
   if (str(client.config.scratchWorkspaceRoot)) action('new-thread-without-project', ['new thread', 'no project', 'without project', 'none', 'chat'],
-    { op: 'flow', arg: 'scratch', icon: 'message-square-dashed', title: 'New thread without a project', shortcut: commandShortcut(client, 'chat.newWithoutProject') });
+    { op: 'flow', arg: 'scratch', icon: 'message-square-dashed', title: 'New thread without a project', shortcut: commandShortcut(client, 'chat.newWithoutProject'), jump: fieldChords(client, 'chat.newWithoutProject') });
   if (composerPromptLink(client, false)) {
     action('copy-prompt-link', ['copy', 'share', 'prompt', 'link'], { op: 'flow', arg: 'copy-prompt-link', icon: 'link', title: 'Copy prompt link' });
     if (promptLinkRepositoryOf(projects.find(project => project.id === client.projectId))) action('copy-prompt-link-with-context', ['copy', 'share', 'prompt', 'link', 'repository', 'model'], { op: 'flow', arg: 'copy-prompt-link', arg2: 'context', icon: 'link', title: 'Copy prompt link with repo and model' });
@@ -282,7 +290,7 @@ export function newThreadInItems(client: T3Client): Item[] {
   if (!root) return items;
   const at = picked[0] !== undefined && isScratchProject(picked[0], root) ? 0 : 1;
   items.splice(at, 0, { terms: ['No project', 'no project', 'without project', 'none'],
-    row: row({ key: 'new-thread-in:no-project', op: 'flow', arg: 'scratch', icon: 'message-square-dashed', title: 'No project', shortcut: commandShortcut(client, 'chat.newWithoutProject') }) });
+    row: row({ key: 'new-thread-in:no-project', op: 'flow', arg: 'scratch', icon: 'message-square-dashed', title: 'No project', shortcut: commandShortcut(client, 'chat.newWithoutProject'), jump: fieldChords(client, 'chat.newWithoutProject') }) });
   return items;
 }
 /**
@@ -291,16 +299,14 @@ export function newThreadInItems(client: T3Client): Item[] {
  * it runs the row that has it, if one does. These are those chords, in the palette's context.
  */
 export function threadJumpChords(client: T3Client): string[] {
-  const winners = chordWinners(arr(client.config.keybindings), PALETTE_CONTEXT);
+  const winners = chordWinners(arr(client.config.keybindings), FIELD_CONTEXT);
   return [...winners].filter(([, command]) => /^thread\.jump\.[1-9]$/.test(command)).map(([chord]) => chord);
 }
 /** enumerateCommandPaletteItems: the Nth row (N ≤ 9) takes thread.jump.N's label and chord. */
 export function enumerateJumps(client: T3Client, items: Item[]): Item[] {
-  const winners = chordWinners(arr(client.config.keybindings), PALETTE_CONTEXT);
   return items.map((item, index) => {
     const command = index < 9 ? `thread.jump.${index + 1}` : '';
-    const chord = command ? [...winners].find(([, winner]) => winner === command)?.[0] ?? '' : '';
-    return { ...item, row: { ...item.row, shortcut: command ? commandShortcut(client, command) : '', jump: chord } };
+    return { ...item, row: { ...item.row, shortcut: command ? commandShortcut(client, command) : '', jump: command ? fieldChords(client, command) : '' } };
   });
 }
 function themeItems(client: T3Client, scheme: string): Item[] {

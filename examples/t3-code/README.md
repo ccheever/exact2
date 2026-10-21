@@ -209,9 +209,12 @@ The app has no desktop self-update feed, so its own download/restart step is abs
 - Right side: the workspace card (docked beside the chat from 984 pt, a header popover
   below), Changes (branch) and Uncommitted diffs plus per-turn diffs, lineage with
   merge-back, the surface chooser and a tab bar per thread (`src/panel/`): Files
-  (the workspace tree with search and expand-all, file previews with breadcrumbs,
+  (the workspace tree with search and expand-all, which leaves ignored folders such as `node_modules`
+  to open by hand, file previews with breadcrumbs,
   rendered Markdown/CSV and an editor that writes back with `projects.writeFile`; opened
-  from Go to file, content search and file chips; its explorer and rendered/source
+  from Go to file, content search and file chips: a chip written from the workspace root as a bare name, or
+  with a subfolder project's own folders repeated, opens the file the workspace search finds, and a `~/` link
+  opens as a host file the server expands, `workspace-file-lookup.ts`; its explorer and rendered/source
   choices persist; an `.html` file opens rendered in the sandboxed WebKit body (its sibling stylesheets, scripts and
   images load through the signed asset URL's token directory, and the page may load stylesheets, scripts,
   images, fonts and fetches from other hosts as the reference's sandboxed frame does (https, and `http` to an IP
@@ -285,8 +288,8 @@ The app has no desktop self-update feed, so its own download/restart step is abs
   the shell at once, as T3 Code's window listener does.
 - Browser surface: a right-panel Browser tab on a `WKWebView` in the module
   (`T3BrowserSession*.swift`, `browser-*.ts`; T3 Code embeds Chromium, which exact2 does not
-  offer, #100): tabs and the chrome row, history and local servers, zoom, appearance, the
-  device toolbar, Annotate, screenshots, recording, downloads, a separate window and the
+  offer, #100): tabs and the chrome row, history and local servers, the address bar's search
+  engine, zoom, appearance, the device toolbar, Annotate, screenshots, recording, downloads, a separate window and the
   floating player, profiles and cookie import, and an agent's `previewAutomation` requests.
 - Command palette (threads, projects, actions, files, content search, New thread in…,
   Link pull request), toasts, the Nightly mobile-app notice, macOS notifications (after
@@ -357,8 +360,9 @@ first, persists the setting and then relaunches the app through Contract's `rela
 reference does, and the Version row. Under it (`connections-network.ts`) are Network access ("Reachable at <url>" and its endpoints; the server
 binds 0.0.0.0 while it is on, loopback otherwise, and refuses when no LAN or Tailscale IPv4
 exists), Tailscale HTTPS (the server runs `tailscale serve` on the chosen port; the app reads
-`tailscale status --json` only while network access or Serve is on, cached 60 s,
-`T3LocalNetwork.swift`), and the Authorized clients fold: pairing links with their permissions,
+`tailscale status --json` only while network access or Serve is on, cached 60 s per set of
+Tailscale IPv4 addresses, `T3LocalNetwork.swift`; an address in 100.64.0.0/10 is a Tailscale IP
+only on Tailscale's adapter or when that status lists it), and the Authorized clients fold: pairing links with their permissions,
 expiry, Share (endpoint choice, link, code, QR; HTTPS endpoints pair through the hosted app,
 `pairing-urls.ts`) and Revoke, and the paired clients live from `subscribeAuthAccess`
 (`auth-access.ts`). A change that needs a relaunch is persisted before Contract calls `relaunch()`;
@@ -541,7 +545,7 @@ Differences that belong to the app:
   different `--seed` each launch, or the server takes a repeated command id for the command it
   already ran and does nothing.
 - The Browser surface is WebKit, not Chromium (#100 was closed as not planned). Pages get no
-  Notification API or geolocation.
+  geolocation. A page's notification permission request is denied, as in the reference.
 - The host opens the first window before the embedded server is ready (#117 was closed as not
   planned), so the window shows the connecting state first.
 - The launch's landing (`home-landing.ts`) waits for a background environment while it connects, but
@@ -561,8 +565,6 @@ Differences that belong to the app:
 - An image inside a link's text has no tooltip and no keyboard menu key.
 - In the composer, a review comment's popover shows its comment and diff as plain text (the
   reference renders Markdown and a highlighted diff); a sent pull request chip has no hover card.
-- Proactive panels is a setting with no effect: no surface opens on its own when a pull request is
-  linked or a turn's diff lands (the reference's `useProactivePanels`).
 
 Some checks need a person: physical modifier chords, right-click menus, real pointer drags
 and hovers, macOS notification and screen-capture grants, provider installs and logins, and

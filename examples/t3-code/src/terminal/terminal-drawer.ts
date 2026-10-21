@@ -3,11 +3,13 @@
 //   `maxDrawerHeight`, `clampDrawerHeight`, `writeTerminalOutputUpdate`, `shouldHandleTerminalExit`,
 //   `runtimeEnvSignature`.
 // - apps/web/src/components/ChatView.logic.ts: `MAX_HIDDEN_MOUNTED_TERMINAL_THREADS`,
-//   `reconcileMountedTerminalThreadIds`.
+//   `reconcileMountedTerminalThreadIds`; `resolveTerminalWorktreePath` at 74541bab17.
+// - apps/web/src/lib/projectScriptTerminal.ts (74541bab17): `findReusableProjectScriptTerminal`.
 // - apps/web/src/components/ChatView.tsx: `terminalIdListsEqual`, `serverTerminalIdsStrictSubsetOfClient`
 //   (private there).
 // - apps/web/src/appearanceFonts.ts: `resolveTerminalFontPreference`, `resolveTerminalFontSizePreference`.
-// - packages/shared/src/projectScripts.ts: `projectScriptCwd`, `projectScriptRuntimeEnv`.
+// - packages/shared/src/projectScripts.ts: `projectScriptCwd`, `projectScriptRuntimeEnv`;
+//   `projectScriptTerminalInput` at 74541bab17.
 // Changes from the reference:
 // - `maxDrawerHeight` and `clampDrawerHeight` take the window height (the reference reads
 //   `window.innerHeight`); without one they answer as the reference does with no window (the default).
@@ -189,4 +191,43 @@ export function projectScriptRuntimeEnv(
     return { ...env, ...input.extraEnv };
   }
   return env;
+}
+
+/**
+ * Leading spaces omit scripts from Bash history with ignorespace/ignoreboth,
+ * zsh with HIST_IGNORE_SPACE, and fish. Only the first line is prefixed, so later
+ * entries from multiline input may still enter history. PowerShell/PSReadLine history is not suppressed.
+ */
+export function projectScriptTerminalInput(command: string): string {
+  return ` ${command}\r`;
+}
+
+// Null identifies the project checkout when a launch or session is known.
+export function resolveTerminalWorktreePath(input: {
+  launchContext: { readonly worktreePath: string | null } | null;
+  summary: { readonly worktreePath: string | null } | null;
+  threadWorktreePath: string | null;
+}): string | null {
+  if (input.launchContext !== null) return input.launchContext.worktreePath;
+  if (input.summary !== null) return input.summary.worktreePath;
+  return input.threadWorktreePath;
+}
+
+/**
+ * Project actions reuse only an idle drawer terminal (the active one first). Right-panel ids
+ * are excluded even when drawer state lists them: reusing one renders a single PTY in both
+ * surfaces, and closing the drawer copy kills the panel shell.
+ */
+export function findReusableProjectScriptTerminal(input: {
+  readonly drawerTerminalIds: ReadonlyArray<string>;
+  readonly activeTerminalId: string;
+  readonly panelTerminalIds: ReadonlySet<string>;
+  readonly runningTerminalIds: ReadonlyArray<string>;
+}): string | null {
+  const idleDrawerTerminalIds = input.drawerTerminalIds.filter(
+    (terminalId) =>
+      !input.panelTerminalIds.has(terminalId) && !input.runningTerminalIds.includes(terminalId),
+  );
+  if (idleDrawerTerminalIds.includes(input.activeTerminalId)) return input.activeTerminalId;
+  return idleDrawerTerminalIds[0] ?? null;
 }

@@ -74,7 +74,7 @@ describe('the markup', () => {
   const fills: Record<string, string> = {
     'usage-bars.contract:${window.remaining}': 'UsageLimits.tsx WindowBar: inside role="img" named with the summary',
     'usage-pooled.contract:${seg.remaining}': 'UsageLimitsPooled.tsx: aria-hidden, in the segment button named with its figures',
-    'usage-pooled.contract:${100 - seg.remaining}': 'UsageLimitsPooled.tsx: the hatch, aria-hidden',
+    'usage-pooled.contract:${seg.hatch}': 'UsageLimitsPooled.tsx: the hatch, aria-hidden',
     'pages-usage.contract:${model.bar}': 'UsagePage.tsx model breakdown: aria-hidden',
     'settings-a-telemetry.contract:${head.width}': 'a table column width, not a bar',
     'settings-a-telemetry.contract:${part.width}': 'a table column width, not a bar',

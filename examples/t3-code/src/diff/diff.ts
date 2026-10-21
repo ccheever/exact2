@@ -1,6 +1,6 @@
 import { DiffFind, markDiffRows, findGap } from './diff-find';
 // Changes panel state and projection, adapted from T3 Code (MIT); see LICENSE-T3.
-// Sources: apps/web/src/components/DiffPanel.tsx, diffPanelStore.ts, components/diffs/*
+// Sources (74541bab17): apps/web/src/components/DiffPanel.tsx, diffPanelStore.ts, components/diffs/*
 // and the served @pierre/diffs rendering (stacked/split rows, bars). DiffPanel.tsx passes
 // `lineDiffType: "none"`, but the served panel still marks changed words with Pierre's default
 // "word-alt" (measured on the 9c161462c9 oracle), so a replaced line pair carries its marks.
@@ -9,7 +9,7 @@ import { DiffFind, markDiffRows, findGap } from './diff-find';
 // diffs and hidden lines (diff-lazy.ts) and line comments (diff-comments.ts) are
 // projected here; their commands are diff-review.ts.
 import { arr, obj, str, num, type Obj } from '../client/domain';
-import { diffFileTreeEntries, diffTreeRows, collectDirectoryPaths, allDirectoriesExpanded } from './diff-tree';
+import { diffFileTreeEntries, diffTreeRows, collectDirectoryPaths, allDirectoriesExpanded, ancestorDirectories } from './diff-tree';
 import { diffSource, lazyPatches, settledFileCount, fileState, changeType, type DiffSource, type LazyPatches, type FileContents, type Expansion } from './diff-lazy';
 import { diffReviewLines, type ReviewLine, type SelectedLineRange } from './diff-comments';
 import { AUTOMATIC_BASE_REF, baseRefView, emptyBaseRefPicker, normalizeBaseRef, type BaseRefPicker } from './diff-base-ref';
@@ -23,8 +23,9 @@ import { wordAltMarks } from '../appearance/settings-font-previews'; // Pierre's
 import type { Token } from '../highlight/timeline-highlight';
 import { utilityPlacement, type LineDrag } from './diff-line-drag';
 
-/** `baseRef`: the Changes scope's comparison target, null for Automatic (diffPanelStore's branch selection). */
-export type DiffSelection = { kind: 'unstaged' | 'branch' | 'turn'; runId: string; filePath: string; baseRef: string | null };
+/** `baseRef`: the Changes scope's comparison target, null for Automatic (diffPanelStore's branch selection). `reveal`: a turn's
+ * revealRequestId, which each open of a turn diff bumps so its named file is revealed again. */
+export type DiffSelection = { kind: 'unstaged' | 'branch' | 'turn'; runId: string; filePath: string; baseRef: string | null; reveal?: number };
 /** View preferences mirror the reference defaults: stacked, wrapped, whitespace ignored, tree hidden, files collapsed. */
 export class DiffState {
   find = new DiffFind();
@@ -41,6 +42,9 @@ export class DiffState {
   /** The tree's closed folders by scope (trailing slash), and the file it shows selected. */
   treeCollapsed: Record<string, string[]> = {};
   treeSelected = '';
+  /** The named file of a turn diff last revealed (its scope, path and reveal request), and the reveal the list scrolls to. */
+  revealed = '';
+  reveal = 0;
   /** The git source that answered (diff-lazy.ts), its per-file patches when it was too large, contents and opened hidden lines. */
   source: DiffSource | null = null;
   lazy: LazyPatches | null = null;
@@ -92,17 +96,21 @@ export function currentSelection(client: T3Client): DiffSelection {
   return turns.some(turn => turn.runId === saved.runId) || !turns.length ? saved : { ...saved, runId: turns[0]!.runId };
 }
 function select(client: T3Client, next: DiffSelection): void { client.diffState.selections[threadKey(client)] = next; }
-/** Opening from a checkpoint selects that turn and names the file. The reference
- * (onOpenTurnDiff(runId, path)) leaves its files collapsed: 'Expand <file>' stays aria-expanded=false. */
+/** diffPanelStore selectTurn: a named file (blank is none) and the next reveal request. */
+function selectTurnFile(client: T3Client, runId: string, filePath: string): void {
+  const previous = client.diffState.selections[threadKey(client)];
+  select(client, { kind: 'turn', runId, filePath: filePath.trim(), baseRef: null, reveal: previous?.kind === 'turn' ? (previous.reveal ?? 0) + 1 : 1 });
+}
+/** Opening from a checkpoint selects that turn and names the file, which the panel then expands and scrolls to (diffSnapshot). */
 export function selectCheckpoint(client: T3Client, ordinal: number, filePath = ''): void {
   const turn = turnSummaries(client.projection).find(entry => entry.count === ordinal);
   if (!turn) throw new ClientError('No completed checkpoint is available for this thread.');
-  select(client, { kind: 'turn', runId: turn.runId, filePath, baseRef: null });
+  selectTurnFile(client, turn.runId, filePath);
 }
 /** onOpenTurnDiff(runId, filePath): a file change's Open diff in the work-log inspector. */
 export function selectTurn(client: T3Client, runId: string, filePath = ''): void {
   if (!runId) throw new ClientError('That turn is no longer available.');
-  select(client, { kind: 'turn', runId, filePath, baseRef: null });
+  selectTurnFile(client, runId, filePath);
 }
 /** selectGitScope: Changes takes back the thread's comparison target; leaving Changes keeps it for later. */
 export function selectScope(client: T3Client, value: string): void {
@@ -128,10 +136,21 @@ function workspace(client: T3Client): string {
   const project = client.shell.projects.find(entry => entry.id === client.projectId);
   return str(thread.worktreePath) || str(obj(thread.workspace).path) || str(project?.workspaceRoot);
 }
-function scopeKey(selection: DiffSelection): string { return selection.kind === 'turn' ? `turn:${selection.runId}` : selection.kind; }
+/**
+ * DiffPanel's collapseScopeKey: the thread and its review section. Folded files, opened lines and drafts are kept by it
+ * for the session (diffPanelStore useDiffPanelSessionStore), so they survive switching right-panel tabs or threads.
+ */
+function scopeKey(client: T3Client, selection: DiffSelection): string { return `${threadKey(client)}:${selection.kind === 'turn' ? `turn:${selection.runId}` : selection.kind}`; }
+/** The current selection has an answer (the query's data): a refresh then keeps it on show instead of the loading state. */
+export function diffAnswered(client: T3Client): boolean { return client.diffState.scopeKey === scopeKey(client, currentSelection(client)); }
 export const NOT_GIT_REPO = 'Turn diffs are unavailable because this project is not a git repository.';
 /** DiffPanel's !isGitRepo: the thread's workspace streams a status that is not a repository (unknown counts as one). */
 export const diffNotGit = (client: T3Client): boolean => !!client.threadId && !!client.projection && peekVcsStatus(client, workspace(client))?.isRepo === false;
+/** gitStatusQuery.data?.isRepo: whether the thread's workspace is a repository, undefined until its status streams. */
+export function gitRepoState(client: T3Client): boolean | undefined {
+  const isRepo = peekVcsStatus(client, workspace(client))?.isRepo;
+  return typeof isRepo === 'boolean' ? isRepo : undefined;
+}
 /** The request for the current selection, or an explanation when there is nothing to ask. */
 export function diffRequest(client: T3Client): { method: string; payload: Obj; scope: string; source: string } {
   const selection = currentSelection(client), state = client.diffState;
@@ -141,18 +160,20 @@ export function diffRequest(client: T3Client): { method: string; payload: Obj; s
   if (selection.kind === 'turn') {
     const turn = turnSummaries(client.projection).find(entry => entry.runId === selection.runId);
     if (!turn) throw new ClientError('No completed turns yet.');
-    return { method: 'orchestration.getTurnDiff', scope: scopeKey(selection), source: '',
+    return { method: 'orchestration.getTurnDiff', scope: scopeKey(client, selection), source: '',
       payload: { threadId: client.threadId, fromTurnCount: Math.max(0, turn.count - 1), toTurnCount: turn.count, ignoreWhitespace: state.ignoreWhitespace } };
   }
   const cwd = workspace(client);
   if (!cwd) throw new ClientError('Choose a project with a workspace to inspect its changes.');
-  return { method: 'review.getDiffPreview', scope: scopeKey(selection), source: selection.kind === 'unstaged' ? 'working-tree' : 'branch-range',
+  return { method: 'review.getDiffPreview', scope: scopeKey(client, selection), source: selection.kind === 'unstaged' ? 'working-tree' : 'branch-range',
     payload: { cwd, ...(selection.kind === 'branch' && selection.baseRef ? { baseRef: selection.baseRef } : {}), ignoreWhitespace: state.ignoreWhitespace } };
 }
 /** Adopts the server's answer for the scope that asked for it. */
 export function adoptDiff(client: T3Client, request: { scope: string; source: string }, result: Obj): string {
   const state = client.diffState;
   state.scopeKey = request.scope;
+  // Opened file contents are read again for a scope that shows later; only the shown scope's are kept.
+  for (const key of Object.keys(state.contents)) if (!key.includes(`::${request.scope}::`)) delete state.contents[key];
   if (!request.source) { state.truncated = false; state.source = null; state.lazy = null; return str(result.diff); }
   const source = arr(result.sources).find(entry => entry.kind === request.source);
   state.truncated = source?.truncated === true;
@@ -338,6 +359,7 @@ export function diffSnapshot(client: T3Client, now: number) {
     const file = files.find(file => file.path === findMatch.path), gap = file && findMatch.context ? findGap(file, findMatch.line) : null;
     if (gap) { const key = `${scope}::${findMatch.path}::${gap.gap}`, previous = state.expansions[key]; state.expansions[key] = { fromStart: Math.max(previous?.fromStart ?? 0, gap.through), fromEnd: previous?.fromEnd ?? 0 }; }
   }
+  revealNamedFile(client, selection, files);
   const gitSource = selection.kind !== 'turn' && state.source !== null;
   const turn = turns.find(entry => entry.runId === selection.runId);
   const scopeLabel = selection.kind === 'unstaged' ? 'Uncommitted' : selection.kind === 'branch' ? 'Changes'
@@ -452,6 +474,7 @@ export function diffSnapshot(client: T3Client, now: number) {
   const branchSource = selection.kind === 'branch' && !notGit && state.source?.kind === 'branch-range' ? state.source : null;
   const picker = baseRefView(state.baseRefs, branchSource?.cwd ?? '', branchSource?.headRef ?? null, selection.kind === 'branch' ? selection.baseRef : null);
   const marked = markDiffRows(items, state.find);
+  const pending = client.diffLoading && !diffAnswered(client);
   return {
     diffCompare: !!branchSource?.baseRef, diffHead: branchSource?.headRef || 'HEAD', diffBase: branchSource?.baseRef ?? '',
     diffBaseRefs: picker.rows, diffBaseAutomatic: picker.automatic, diffBaseEmpty: picker.empty,
@@ -461,7 +484,9 @@ export function diffSnapshot(client: T3Client, now: number) {
     diffCanRefresh: selection.kind !== 'turn' && !notGit, diffLayout: state.layout, diffWrap: state.wrap, diffIgnoreWhitespace: state.ignoreWhitespace, diffTree: state.tree,
     // The size banner shows only for a truncated preview the panel cannot read file by file (older servers).
     // A project outside git reads as the centred empty state, as DiffPanel's !isGitRepo branch, not as an error.
-    diffTruncated: (state.truncated && !lazy) || rows > (state.find.open ? 100_000 : ROW_LIMIT), diffEmpty: notGit || (!client.diffLoading && (!client.diffError || client.diffError === NOT_GIT_REPO) && files.length === 0),
+    diffTruncated: (state.truncated && !lazy) || rows > (state.find.open ? 100_000 : ROW_LIMIT), diffEmpty: notGit || (!pending && (!client.diffError || client.diffError === NOT_GIT_REPO) && files.length === 0),
+    // isLoadingSelectedPatch: loading with no answer for this selection yet; a refresh keeps the answer (or its empty state) on show.
+    diffPending: pending,
     diffEmptyLabel: notGit ? NOT_GIT_REPO : client.diffText.trim() || lazy ? 'No patch available for this selection.' : 'No net changes in this selection.',
     diffAdditions: additions, diffDeletions: deletions, diffAdditionsText: `+${compactCount(additions)}`, diffDeletionsText: `-${compactCount(deletions)}`,
     diffAllCollapsed: files.every(file => (state.expanded[`${scope}::${file.path}`] ?? state.defaultExpanded) !== true),
@@ -470,8 +495,25 @@ export function diffSnapshot(client: T3Client, now: number) {
     diffTreeRows: diffTreeRows(entries, closed, state.treeSelected), diffTreeLabel: `${section.title} files`,
     diffTreeFolders: collectDirectoryPaths(entries.map(entry => entry.path)).length > 0, diffTreeAllOpen: allDirectoriesExpanded(entries.map(entry => entry.path), closed),
     diffItems: marked.items, diffFind: state.find.view(marked.target), diffCommentOpen: draft !== null,
+    diffReveal: state.reveal, diffRevealTarget: selection.kind === 'turn' && selection.filePath ? `file:${selection.filePath}` : '',
     diffLoadingLabel: selection.kind === 'turn' ? 'Loading checkpoint diff...' : selection.kind === 'unstaged' ? 'Loading uncommitted changes...' : 'Loading changes...',
   };
+}
+/**
+ * DiffPanel revealDiffFile for the turn diff's named file (onOpenTurnDiff(runId, filePath)): once the answer lists it,
+ * the file unfolds, the tree selects it with its folders open, and the list scrolls to it, once per reveal request.
+ */
+function revealNamedFile(client: T3Client, selection: DiffSelection, files: readonly DiffFileModel[]): void {
+  const state = client.diffState;
+  if (selection.kind !== 'turn' || !selection.filePath) { state.revealed = ''; return; }
+  const key = JSON.stringify([state.scopeKey, selection.filePath, selection.reveal ?? 0]);
+  if (state.revealed === key || !diffAnswered(client) || !files.some(file => file.path === selection.filePath)) return;
+  state.revealed = key;
+  state.expanded[`${state.scopeKey}::${selection.filePath}`] = true;
+  state.treeSelected = selection.filePath;
+  const open = new Set(ancestorDirectories(selection.filePath));
+  state.treeCollapsed[state.scopeKey] = (state.treeCollapsed[state.scopeKey] ?? []).filter(path => !open.has(path));
+  state.reveal++;
 }
 /** A file header's counts (see DiffItemView). */
 export function headerStat(file: { additions: number; deletions: number }, aligned: boolean): { statAligned: boolean; addText: string; delText: string } {
