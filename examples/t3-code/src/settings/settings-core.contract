@@ -357,7 +357,8 @@ component SettingsNav
             for item in nav.items key=item.id
               if nav.searching
                 button press=pick(item.route, item.target, item.scope, item.id) hover=hover(item.id) role="option" aria-selected=(item.id == hovered or (hovered == "" and item.active)) class=SettingsGhost justify-content="flex-start" align-items="flex-start" width="100%" min-height="3.25rem" padding="0.5rem" gap="0.5rem" border-radius="0.625rem" background-color=((item.id == hovered or (hovered == "" and item.active)) ? pal.rowActive : "#00000000") testId=`settings-${item.id}` id=`settings-${item.id}` data-paint=`${((item.id == hovered or (hovered == "" and item.active)) ? "sidebarRowSelected" : "")}` data-pick=(((item.id == hovered or (hovered == "" and item.active)) ? "sidebarRowSelected" : "") != "" ? ((item.id == hovered or (hovered == "" and item.active)) ? "sidebarRowSelected" : "") : "")
-                  box padding-top="0.125rem"
+                  // SettingsSectionIcon (size-3.5 h-5): centred on the title's line.
+                  box height="1.25rem" flex-shrink=0 display="flex" align-items="center"
                     CorePaintIcon(ownId=`paint-icon-SettingsNav-4-${route}-${item.id}`, paint=((item.id == hovered or (hovered == "" and item.active)) ? "sidebar" : "mutedForeground"), name=item.icon, size=14, color=((item.id == hovered or (hovered == "" and item.active)) ? pal.sidebarText : pal.sidebarIcon))
                   column flex=1 min-width=0 gap=0 align-items="flex-start"
                     text item.title font-size="0.875rem" font-weight=500 line-height="1.25rem" color=pal.sidebarText line-clamp=1 id=`paint-SettingsNav-9-${route}-${item.id}` data-paint="sidebar" data-pick="sidebar"

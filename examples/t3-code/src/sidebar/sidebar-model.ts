@@ -73,6 +73,8 @@ export function sidebarStatus(thread: Obj): SidebarStatus {
   if (pendingApproval(thread) || subagent === 'approval') return 'approval';
   if (pendingInput(thread) || subagent === 'user_input') return 'input';
   const runtime = shellRuntime(thread);
+  // A turn blocked on another thread (t3_thread_wait) is waiting, not working.
+  if (runtime?.status === 'running' && thread.blockedOnThreadWait === true) return 'waiting';
   if (runtime && ['preparing', 'queued', 'starting', 'running', 'waiting'].includes(runtime.status)) return 'working';
   if (runtime?.status === 'idle') return 'waiting';
   if (runtime?.status === 'failed') return runtime.lastErrorClass === 'usage_limit' ? 'limited' : 'failed';

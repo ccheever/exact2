@@ -138,6 +138,27 @@ describe("the agent", () => {
     expect(notes.find(note => note.params?.update?.sessionUpdate === "tool_call")!.params.update.rawInput).toEqual({ threadId: "thread-9" });
   });
 
+  test("'Wait on the thread <id>' holds a t3_thread_wait call; 'Link the thread <id>' links it; 'Fail the turn' fails with a JSON error", async () => {
+    const home = join(root, "home-wait");
+    const { executable } = install(home, { methods: "none" });
+    const prompt = (sessionId: string, text: string) => ({ method: "session/prompt", params: { sessionId, prompt: [{ type: "text", text: `<user_request>\n${text}\n</user_request>` }] } });
+    const sessionId = (await talk(executable, [{ method: "session/new", params: { cwd: root, mcpServers: [] } }])).get(1)!.result.sessionId;
+    // One turn at a time: the stand-in answers concurrent requests as they finish.
+    const turn = async (text: string) => {
+      const notes: { method: string; params: any }[] = [];
+      const reply = (await talk(executable, [{ method: "session/load", params: { sessionId, cwd: root, mcpServers: [] } }, prompt(sessionId, text)], notes)).get(2)!;
+      const updates = notes.map(note => note.params?.update).filter(Boolean).filter(update => update.sessionUpdate !== "available_commands_update" && update.sessionUpdate !== "usage_update");
+      return { reply, updates, kinds: updates.map(update => [update.sessionUpdate, update.title ?? update.status ?? update.content?.text ?? ""]) };
+    };
+    const wait = await turn("Wait on the thread thread-7 for 0s");
+    expect(wait.kinds).toEqual([["tool_call", "t3_thread_wait"], ["tool_call_update", "completed"], ["agent_message_chunk", "Stand-in reply: the other thread finished"]]);
+    expect(wait.updates[0].rawInput).toEqual({ threadId: "thread-7" });
+    expect((await turn("Link the thread thread-7")).kinds).toEqual([["agent_message_chunk", "Stand-in reply: the plan continues in [the other thread](t3-thread://v1/thread-7)."]]);
+    const failed = await turn("Fail the turn");
+    expect(failed.reply.error.code).toBe(-32603);
+    expect(JSON.parse(failed.reply.error.message).error.message).toBe("The stand-in could not finish this turn.");
+  });
+
   test("a prompt needs the sign-in an agent mode asks for", async () => {
     const { executable } = install(join(root, "home-h"));
     const replies = await talk(executable, [{ method: "session/prompt", params: { sessionId: "s1", prompt: [{ type: "text", text: "hi" }] } }]);

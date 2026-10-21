@@ -32,3 +32,12 @@ test('preview skills have their own presentation and no context actions', () => 
   expect(faces[1]?.interactive).toBe(false);
   expect(faces[2]?.available).toBe(false);
 });
+
+test('a thread chip leads with its project icon, MessagesSquare without a known project (ThreadContextChip, #22621)', () => {
+  const client = new T3Client(), value = '[Plan](t3-context://v1/thread/thread_t1) [Loose](t3-context://v1/thread/thread_t2)';
+  client.shell.projects = [{ id: 'p1', title: 'Clone', projectIcon: { kind: 'emoji', emoji: '🧪' } }];
+  client.shell.threads = [{ id: 't1', title: 'Plan', projectId: 'p1' }, { id: 't2', title: 'Loose', projectId: 'gone' }];
+  const faces = composerChipFaces(client, value, composerChips(value));
+  expect(faces[0]).toMatchObject({ kind: 'thread', icon: 'messages-square', glyph: { kind: 'emoji', emoji: '🧪' } });
+  expect(faces[1]).toMatchObject({ kind: 'thread', icon: 'messages-square', glyph: { kind: '' } });
+});

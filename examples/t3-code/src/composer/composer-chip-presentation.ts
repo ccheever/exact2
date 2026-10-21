@@ -4,11 +4,18 @@ import { skillChipLabels, skillDisplayName } from './composer-editor-menu';
 import { workspaceValues } from './composer-workspace-snapshots';
 import { workspaceFileIcon } from '../shared/file-metadata';
 import type { ComposerChip } from './composer-source-chips';
+import { threadContextRecords } from './composer-editor';
+import { projectGlyph, type ProjectGlyph } from '../sidebar/sidebar-glyph';
+import { projectIdentity } from '../client/presentation';
+import { str } from '../client/domain';
 
 export type ComposerChipFace = {
   kind: string; label: string; suffix: string; icon: string; fileToken: string;
   imageId: string; available: boolean; interactive: boolean; comment: boolean; tip: string;
+  /** A thread chip's project icon (ThreadContextChip, T3 Code 74541bab17); kind '' when its project is unknown. */
+  glyph: ProjectGlyph;
 };
+const NO_GLYPH: ProjectGlyph = { kind: '', d: '', emoji: '', src: '', text: '', ink: '', surface: '', gray: '', graySurface: '' };
 const icons: Readonly<Record<string, string>> = {
   mention: 'at-sign', skill: 'sparkles', citation: 'quote', thread: 'messages-square',
   terminal: 'square-terminal', 'review-comment': 'message-circle', 'preview-annotation': 'mouse-pointer-2',
@@ -21,6 +28,12 @@ const icons: Readonly<Record<string, string>> = {
 export function composerChipFaces(client: T3Client, value: string, chips: readonly ComposerChip[], preview = false): ComposerChipFace[] {
   const contexts = preview ? {} : chipContexts(client, value);
   const skills = preview ? {} : skillChipLabels(workspaceValues(selectedProvider(client), workspaceCwd(client), 'skills'));
+  const threadIds = new Map(preview ? [] : threadContextRecords(client, value).map(record => [str(record.contextId), str(record.threadId)]));
+  const glyphOf = (contextId: string): ProjectGlyph => {
+    const thread = client.shell.threads.find(entry => entry.id === threadIds.get(contextId));
+    const project = thread ? client.shell.projects.find(entry => entry.id === thread.projectId) : undefined;
+    return project ? projectGlyph(client, project, projectIdentity) : NO_GLYPH;
+  };
   return chips.map(chip => {
     let kind: string = chip.kind, label = chip.label, suffix = '', imageId = '', tip = '', available = true;
     if (chip.kind === 'skill') label = skills[chip.name] ?? skillDisplayName({ name: chip.name });
@@ -39,6 +52,6 @@ export function composerChipFaces(client: T3Client, value: string, chips: readon
     const icon = !available ? 'circle-dashed' : fileToken === 'folder' ? 'folder' : icons[kind] ?? 'circle-dashed';
     const interactive = available && (chip.kind === 'skill' || !preview && icons[kind] !== undefined), comment = !preview && chip.kind === 'citation';
     return { kind: !available && kind === 'terminal' ? 'invalid' : kind, label, suffix, icon, fileToken: fileToken === 'folder' ? '' : fileToken,
-      imageId, available, interactive, comment, tip };
+      imageId, available, interactive, comment, tip, glyph: chip.kind === 'context' && kind === 'thread' && available ? glyphOf(chip.contextId) : NO_GLYPH };
   });
 }

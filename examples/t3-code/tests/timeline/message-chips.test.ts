@@ -164,3 +164,33 @@ describe('formatProviderSkillDisplayName', () => {
     ]);
   });
 });
+
+// MarkdownThreadLink → ThreadContextChip at 74541bab17 (#22621, #21505).
+describe('thread links are thread chips', () => {
+  const { resolveThreadLink } = require('../../src/timeline/thread-links') as typeof import('../../src/timeline/thread-links');
+  const { EnvironmentFleet } = require('../../src/connections/settings-b-fleet') as typeof import('../../src/connections/settings-b-fleet');
+  const { markdownThreadGlyphs } = require('../../src/timeline/markdown-thread-glyphs') as typeof import('../../src/timeline/markdown-thread-glyphs');
+  const entry = (environmentId: string, threads: object[], projects: object[] = []) => ({ key: environmentId, origin: `http://${environmentId}`, environmentId, phase: 'connected' as const,
+    message: '', traceId: '', generation: 1, synchronized: 1, lastEvent: 0, subscriptions: {}, config: {}, shell: { projects, threads } as never, scopes: [], error: '', requested: false });
+  const local = { environmentId: 'env-a', shell: { threads: [{ id: 'thread-1', title: '  Live title ', projectId: 'p1' }, { id: 'a b', title: 'Spaced', projectId: 'p1' }],
+    projects: [{ id: 'p1', title: 'Clone', projectIcon: { kind: 'emoji', emoji: '🧪' } }] } } as unknown as T3Client;
+  test('a link to a thread here reads its live title and opens it; an unknown one stays the label with "Thread no longer available"', () => {
+    const chips = messageChips(item('See [Old label](t3-thread://v1/thread-1), [Gone](t3-thread://v1/missing) and [x](t3-thread://v1/a%20b)'), '', [], 'm', {}, local);
+    expect(chips.map(chip => [chip.kind, chip.label, chip.tip, chip.target, chip.detail])).toEqual([
+      ['thread', 'Live title', 'Open thread', 'thread-1', 'link'], ['thread', 'Gone', 'Thread no longer available', 'missing', 'link'], ['thread', 'Spaced', 'Open thread', 'a b', 'link']]);
+  });
+  test('a thread only another connected environment holds opens there; two environments sharing the id resolve to none', () => {
+    const source = new EnvironmentFleet();
+    source.entries.set('b', entry('env-b', [{ id: 'remote-1', title: 'Remote', projectId: 'pb' }], [{ id: 'pb', title: 'Remote project' }]));
+    expect(resolveThreadLink(local, 'remote-1', source)).toMatchObject({ id: 'fleet:env-b:remote-1', remote: true, project: { id: 'pb' } });
+    expect(resolveThreadLink(local, 'thread-1', source)).toMatchObject({ id: 'thread-1', remote: false });
+    source.entries.set('c', entry('env-c', [{ id: 'remote-1', title: 'Twin' }]));
+    expect(resolveThreadLink(local, 'remote-1', source)).toBeNull();
+  });
+  test('a thread chip leads with its project icon, a link\'s or a sent thread context\'s', () => {
+    const context = { id: 'chip-0', href: 't3-context://v1/thread/thread_t', kind: 'thread', label: 'Live title', size: '', tip: 'Open thread', detail: '', icon: '', target: 'thread-1', owner: 'm' };
+    const glyphs = markdownThreadGlyphs(local, 'See [x](t3-thread://v1/thread-1) and [y](t3-thread://v1/missing)', [context]);
+    expect(glyphs.map(glyph => [glyph.href, glyph.title, glyph.glyph.kind, glyph.glyph.emoji])).toEqual([
+      ['t3-thread://v1/thread-1', 'Clone', 'emoji', '🧪'], ['t3-context://v1/thread/thread_t', 'Clone', 'emoji', '🧪']]);
+  });
+});

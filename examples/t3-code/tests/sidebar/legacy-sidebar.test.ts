@@ -114,6 +114,21 @@ describe('Sidebar.logic.test.ts cases', () => {
     expect(resolveThreadStatusPill(thread('t', { ...completed, interactionMode: 'default' }), at(4))).toBeNull();
   });
   const pill = (label: StatusPill['label']): StatusPill => ({ label, color: label, dot: label, pulse: label === 'Working' });
+  test('resolveThreadStatusPill: a turn blocked on another thread is Waiting, without a pulse, until the wait ends (#21500)', () => {
+    expect(resolveThreadStatusPill(thread('t', { ...running, blockedOnThreadWait: true }), undefined)).toMatchObject({ label: 'Waiting', pulse: false });
+    expect(resolveThreadStatusPill(thread('t', { ...running, blockedOnThreadWait: false }), undefined)).toMatchObject({ label: 'Working', pulse: true });
+    // A request still outranks the wait.
+    expect(resolveThreadStatusPill(thread('t', { ...running, blockedOnThreadWait: true, pendingRuntimeRequest: { kind: 'user_input' } }), undefined)).toMatchObject({ label: 'Awaiting Input' });
+  });
+  test('resolveThreadStatusPill: a failed run not seen since it ended is Failed, never-visited counting (#20996)', () => {
+    const failed: Obj = { latestRunId: 'turn-1', activeRunId: null, status: 'failed', latestRunCompletedAt: at(3), interactionMode: 'default' };
+    expect(resolveThreadStatusPill(thread('t', failed), undefined)).toMatchObject({ label: 'Failed', color: 'light-dark(#e7000b, #ffa2a2e6)', dot: 'light-dark(#fb2c36, #ffa2a2e6)', pulse: false });
+    expect(resolveThreadStatusPill(thread('t', failed), at(2))).toMatchObject({ label: 'Failed' });
+    expect(resolveThreadStatusPill(thread('t', failed), at(4))).toBeNull();
+    expect(resolveProjectStatusIndicator([pill('Working'), pill('Failed'), pill('Waiting')])).toMatchObject({ label: 'Failed' });
+    expect(resolveProjectStatusIndicator([pill('Awaiting Input'), pill('Failed')])).toMatchObject({ label: 'Awaiting Input' });
+  });
+
   test('resolveProjectStatusIndicator: null without a status; the highest priority wins', () => {
     expect(resolveProjectStatusIndicator([null, null])).toBeNull();
     expect(resolveProjectStatusIndicator([pill('Completed'), pill('Pending Approval'), pill('Working')])).toMatchObject({ label: 'Pending Approval' });
