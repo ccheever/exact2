@@ -124,6 +124,7 @@ test('the neutral sheet\'s lengths and ratios are the metric table\'s neutral co
     'button-hover-filled': `:hover { background-color: var(--exact-accent, AccentColor); background-image: linear-gradient(color-mix(in srgb, currentColor ${percent('button-hover-filled')}, transparent) 0 0); }`,
     'button-pressed-tinted': `[data-button-style="bordered-tinted"])[data-pressed] { background-image: linear-gradient(color-mix(in srgb, currentColor ${percent('button-pressed-tinted')}, transparent) 0 0); }`,
     'button-pressed-filled': `[data-button-style="bordered-prominent"])[data-pressed] { background-image: linear-gradient(color-mix(in srgb, currentColor ${percent('button-pressed-filled')}, transparent) 0 0); }`,
+    'button-pressed-plain': `[style*="--exact-press-color:"])::after { opacity: ${alpha('button-pressed-plain')}; }`,
     'bar-hover-alpha': `{ opacity: var(--exact-hover-dim, ${alpha('bar-hover-alpha')}); }`,
     'select-line-height-coarse': `select:not([multiple]) { line-height: ${value.get('select-line-height-coarse')}; }`,
     'switch-thumb': `radial-gradient(circle closest-side, currentColor ${percent('switch-thumb')},`,
@@ -166,6 +167,7 @@ const fixture = `
     <button type="button" data-native data-button-style="bordered" id="bordered" style="display:grid"><span data-exact-text>Button</span></button>
     <button type="button" data-native data-button-style="filled" id="filled" style="display:grid"><span data-exact-text>Button</span></button>
     <button type="button" data-native data-button-style="gray" id="gray" style="display:grid"><span data-exact-text>Button</span></button>
+    <button type="button" data-native data-button-style="plain" id="plain" style="display:grid"><span data-exact-text>Manage</span></button><button type="button" data-native data-button-style="borderless" id="borderless" style="display:grid"><span data-exact-text>Manage</span></button><button type="button" data-native data-button-style="plain" id="plain-paint" style="display:grid;--exact-press-opacity-to:.5"><span data-exact-text>Manage</span></button><button type="button" data-native data-button-style="plain" id="plain-scale" style="display:grid;--exact-press:.9"><span data-exact-text>Manage</span></button><button type="button" data-native data-button-style="plain" disabled id="plain-off" style="display:grid"><span data-exact-text>Manage</span></button>
     <button type="button" data-native data-button-style="bordered" data-destructive="true" id="destructive" style="display:grid"><span data-exact-text>Delete</span></button>
     <button type="button" data-native data-button-style="filled" disabled id="disabled" style="display:grid"><span data-exact-text>Button</span></button>
     <div style="accent-color:rgb(255, 221, 0);--exact-accent:rgb(255, 221, 0)"><button type="button" data-native data-button-style="filled" id="authored" style="display:grid"><span data-exact-text>Button</span></button></div>
@@ -315,6 +317,27 @@ for (const engine of ['chromium', 'firefox', 'webkit']) test(`${engine}: the neu
       await page.mouse.move(1, 1);
       // A press with no hover (a finger) dims and comes back at once, as the shell's press does.
       expect([at('bar press'), await press('bar-plain')]).toEqual([at('bar press'), ['0.65', 0, '1', 0]]);
+
+      // A plain or borderless button draws no box: no wash, hovered or held. Its face fades while held, as UIKit's does,
+      // and the button itself, and so its focus ring, keeps its opacity. An authored press (a paint, a scale) replaces
+      // the fade, a disabled button takes none, and a menu's or a chooser's row keeps its own look. In a sheet's bar a
+      // button that is only a symbol shows its name instead (LLP 1116.020 D2), which fades.
+      await page.evaluate(() => {
+        document.getElementById('item').insertAdjacentHTML('afterend', '<button type="button" data-native data-button-style="plain" id="item-plain" style="display:grid"><span data-exact-text>Plain</span></button>');
+        document.getElementById('said').insertAdjacentHTML('beforeend', '<div data-exact-chooser id="choices"><button type="button" data-native data-button-style="plain" data-exact-on="press" id="choice-plain" style="display:grid"><span data-exact-text>Plain</span></button></div>');
+        document.querySelector('#sheet > header').insertAdjacentHTML('beforeend', '<button type="button" data-native data-button-style="plain" aria-label="Cancel" id="sheet-cancel"><img data-symbol-source="symbol:sf/xmark" alt=""></button>');
+      });
+      // A button's wash, its opacity and its face's (its first child's, or the name its `::after` draws), at rest and held.
+      const plain = (id, pseudo) => page.evaluate(([id, pseudo]) => { const b = document.getElementById(id), seen = []; for (const on of [false, true]) { b.toggleAttribute('data-pressed', on); seen.push([css(id, 'backgroundImage'), css(id, 'opacity'), getComputedStyle(pseudo ? b : b.firstElementChild, pseudo).opacity]); } b.removeAttribute('data-pressed'); return seen; }, [id, pseudo]);
+      for (const id of ['plain', 'borderless']) {
+        expect([at(id), await plain(id)]).toEqual([at(id), [['none', '1', '1'], ['none', '1', '0.75']]]);
+        await page.hover(`#${id}`);
+        expect([at(`${id} hover`), (await plain(id))[0]]).toEqual([at(`${id} hover`), ['none', '1', '1']]);
+      }
+      await page.mouse.move(1, 1);
+      for (const id of ['plain-paint', 'plain-scale', 'plain-off', 'item-plain', 'choice-plain']) expect([at(id), (await plain(id))[1][2]]).toEqual([at(id), '1']);
+      expect([at('sheet symbol'), (await plain('sheet-cancel', '::after')).map((face) => face[2])]).toEqual([at('sheet symbol'), ['1', '0.75']]);
+      await page.evaluate(() => { for (const id of ['item-plain', 'choices', 'sheet-cancel']) document.getElementById(id).remove(); });
 
       // A list's rows (LLP 1115.000 D16): under each row but the last one line in the separator's role, inside the
       // row's box (a row keeps its height); none beside a row whose author wrote its own top or bottom edge; a

@@ -225,7 +225,8 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
   // browser eases a separate factor, multiplied into CSS `scale`, so
   // authored transforms, transitions and keyframes keep their values. A
   // native button is pressed by the same rule with or without a row or a
-  // handler of its own, as a UIButton highlights (the shell dims its face).
+  // handler of its own, as a UIButton highlights (neutral.css draws the
+  // highlight: a wash, or a plain button's fading face).
   const feedback = new WeakMap();
   // @ref LLP 1061 D7 — the author's pressed paint, shown by the same rule
   // and on the same ease as the scale. The shell's important rules
