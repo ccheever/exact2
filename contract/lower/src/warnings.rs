@@ -31,6 +31,7 @@ mod root_replace;
 mod rows;
 mod screens;
 mod scroll_bound;
+mod sounds;
 mod states;
 mod svg;
 mod title;
@@ -160,6 +161,7 @@ pub(crate) fn with_text_styles(checked: &Checked<'_>, lowered: &TextStyles) -> V
     // @ref LLP 1121 D8 — a node's own state part it never meets.
     states::dead(&root.view, &mut out);
     performance_now(root, &checked.file.fns, &mut out);
+    sounds::undeclared(checked, &mut out);
     // @ref LLP 1027.005 D6 — an identifying argument of the launch's own.
     launch::launch_identity(root, &checked.file.fns, &mut out);
     width::width_padding(&root.view, &checked.file.styles, &mut out);

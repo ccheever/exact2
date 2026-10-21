@@ -572,6 +572,20 @@ test('a drive with no store says its storage was refused after the first op that
   } finally { console.error = quiet; }
 });
 
+test('a drive whose app played an undeclared sound says so once, with the line to declare it', async () => {
+  const { driveNotes } = await import('./agent-test.mjs');
+  const said = [], quiet = console.error;
+  const lines = ['t=0 sequence groove: track 1 step 1 dropped: "assets/audio/808/kick.wav" is not a declared sound',
+    't=0 sound dropped: "assets/audio/808/snare.wav" is not a declared sound'];
+  const s = { launchFacts: {}, op: async ({ since }) => ({ lines: lines.slice(since ?? 0), next: lines.length }), state: async () => ({}) };
+  console.error = (line) => said.push(line);
+  try {
+    const notes = driveNotes(s, { host: 'ios', storage: 's1' });
+    await notes('tap'); await notes('end'); await notes('end');
+    assert.deepEqual(said, ['note: the app played "assets/audio/808/kick.wav", which no `sound` line declares, so the runner dropped it and nothing sounded (`logs` names each drop); declare every file a played path can name at the top level: `sound "assets/audio/808/kick.wav"`']);
+  } finally { console.error = quiet; }
+});
+
 test('a screenshot with a system sheet held says it is not drawn, and where the real one is', async () => {
   const { driveNotes } = await import('./agent-test.mjs');
   const said = [], quiet = console.error;
