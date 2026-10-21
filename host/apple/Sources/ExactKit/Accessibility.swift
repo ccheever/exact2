@@ -238,8 +238,8 @@ extension NodeView {
         #else
         // UIKit has no property for `aria-required`, `aria-invalid`, `aria-haspopup` or `aria-current`.
         let target: UIView = field ?? presenter?.controls.controls[id] ?? textArea as UIView? ?? self
-        if disabled || ariaUnavailable { target.accessibilityTraits.insert(.notEnabled) }
-        else { target.accessibilityTraits.remove(.notEnabled) }
+        // Only on change: a set is kept in UIKit's associated object table.
+        if target.accessibilityTraits.contains(.notEnabled) != (disabled || ariaUnavailable) { target.accessibilityTraits.formSymmetricDifference(.notEnabled) }
         if target.accessibilityHint != description { target.accessibilityHint = description }
         #endif
     }
@@ -472,7 +472,7 @@ extension UIView {
     /// A toggle button as UIKit has one: the `toggleButton` trait, and the
     /// value VoiceOver reads as its state ("1" on, "0" off, "2" mixed).
     func setAccessibilityToggle(_ pressed: String?) {
-        if pressed != nil { accessibilityTraits.insert(.toggleButton) } else { accessibilityTraits.remove(.toggleButton) }
+        if accessibilityTraits.contains(.toggleButton) != (pressed != nil) { accessibilityTraits.formSymmetricDifference(.toggleButton) }
         accessibilityValue = pressed.map { $0 == "mixed" ? "2" : $0 == "true" ? "1" : "0" }
     }
     /// A checkable role as UIKit reads one (LLP 1115.000 D13.3): a checkbox
