@@ -42,6 +42,14 @@ describe('server-owned setup and compaction', () => {
     client.projection.visibleTurnItems = [...arr(client.projection.visibleTurnItems), { item: { type: 'compaction', runId, status: 'completed' } }];
     expect(isCompacting(client)).toBe(false);
   });
+  test('an automatic compaction running in the active run queues follow-ups too; a failed /compact settles it (#15631)', async () => {
+    const { client } = await opened(); running(client);
+    const runId = arr(client.projection.runs)[0]!.id;
+    client.projection.visibleTurnItems = [{ item: { type: 'user_message', text: 'go on', attachments: [], runId } }, { item: { type: 'compaction', runId, status: 'running' } }];
+    expect(isCompacting(client)).toBe(true);
+    client.projection.visibleTurnItems = [{ item: { type: 'user_message', text: '/compact', attachments: [], runId } }, { item: { type: 'compaction', runId, status: 'failed' } }];
+    expect(isCompacting(client)).toBe(false);
+  });
   test('a named monitor shows its descriptive label once', () => {
     expect(presentBackgroundWork([{ kind: 'monitor', description: 'Waiting for checks' }])?.title).toBe('Waiting for checks');
     expect(presentBackgroundWork([{ kind: 'subagent', description: 'Review' }])?.title).toBe('Waiting on subagent Review');

@@ -1,5 +1,6 @@
 import { fileMetadataNeeded, refreshFileMetadata } from '../shared/file-metadata';
-// The timeline's native work before each snapshot: the worktree setup stream (timeline-worktree.ts).
+// The timeline's native work before each snapshot: the worktree setup stream (timeline-worktree.ts), command output and a
+// workflow thread's parent detail.
 import { refreshNextOpenTurnItemDetail, turnItemDetailsNeeded } from './timeline-item-fetch';
 import { syncToolActivityIcons, toolActivityIconsNeeded } from './timeline-tool-icons';
 import type { T3Client } from '../client/client';
@@ -7,10 +8,12 @@ import type { Native } from '../client/protocol';
 import { syncWorktreeSetup } from './timeline-worktree';
 import { syncCommandOutputs } from './command-output';
 import { refreshSecretAnswer, secretAnswersNeeded } from './secret-answers';
+import { syncWorkflowOpening } from './timeline-workflow-opening';
 
 export async function prepareTimeline(client: T3Client, native: Native | null | undefined): Promise<void> {
   await syncWorktreeSetup(client, native);
   await syncCommandOutputs(client, native);
+  await syncWorkflowOpening(client, native); // a workflow thread's opening reads its parent's coordinator row
 }
 
 /** Snapshot exposes readiness; a distinct root mutation owns every pending native call. */

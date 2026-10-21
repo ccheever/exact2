@@ -17,6 +17,11 @@
 //                                   thinks ("**Checking the other thread**"), then holds a running
 //                                   `t3_thread_read` tool call on that thread id for n seconds (0 by
 //                                   default), so the live row shows the latest thought over a running tool
+//   "Wait on the thread <id> [for <n>s]"
+//                                   holds a running `t3_thread_wait` tool call on that thread id for n seconds,
+//                                   so the server reports the turn blocked on another thread (Waiting)
+//   "Link the thread <id>"          replies with a `t3-thread://v1/<id>` link to it (a thread chip)
+//   "Fail the turn"                 fails the turn with a provider's JSON error, whose message is a sentence
 // After `session/new` and `session/load` it advertises one skill, `$frontend-design`
 // (`available_commands_update`; T3 lists a `$` command as a skill), so the composer's `$` menu can
 // insert a skill chip.
@@ -121,6 +126,18 @@ if (process.argv.includes("--fixture-login")) {
         await Bun.sleep(Number(seconds ?? 0) * 1000);
         update(sessionId, { sessionUpdate: "tool_call_update", toolCallId: toolCall.toolCallId, status: "completed", rawOutput: { threadId } });
         text = "Stand-in reply: read the other thread";
+      } else if (/^wait on the thread\s+\S+/i.test(first)) {
+        const [, threadId, seconds] = /^wait on the thread\s+(\S+)(?:\s+for\s+(\d+)s)?/i.exec(first) ?? [];
+        const toolCall = { toolCallId: `wait-${Date.now()}`, title: "t3_thread_wait", kind: "other", rawInput: { threadId } };
+        update(sessionId, { sessionUpdate: "tool_call", ...toolCall, status: "in_progress" });
+        await Bun.sleep(Number(seconds ?? 0) * 1000);
+        update(sessionId, { sessionUpdate: "tool_call_update", toolCallId: toolCall.toolCallId, status: "completed", rawOutput: { threadId } });
+        text = "Stand-in reply: the other thread finished";
+      } else if (/^link the thread\s+\S+/i.test(first)) {
+        const [, threadId] = /^link the thread\s+(\S+)/i.exec(first) ?? [];
+        text = `Stand-in reply: the plan continues in [the other thread](t3-thread://v1/${threadId}).`;
+      } else if (/^fail the turn/i.test(first)) {
+        throw { code: -32603, message: JSON.stringify({ error: { message: "The stand-in could not finish this turn.", code: "fixture_failure", status: 500 } }) };
       } else if (cwd && /^edit the notes/i.test(first)) {
         const paths = editNotes(cwd);
         update(sessionId, { sessionUpdate: "tool_call", toolCallId: `edit-${Date.now()}`, title: "Edit README.md and write the notes", kind: "edit", status: "completed", locations: paths.map((path) => ({ path })) });

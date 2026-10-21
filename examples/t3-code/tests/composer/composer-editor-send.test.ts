@@ -52,7 +52,7 @@ describe('submission text (ChatView onSend, 9c161462c9)', () => {
       expect(sentMessage(native.committed.at(-1))).toMatchObject({ text: 'Keep  this' });
       expect(sentMessage(native.committed.at(-1)).context).toBeUndefined();
     });
-    test(`sends the attachment-only prompt for ${route} without replacing its image title`, async () => {
+    test(`sends the attachment-only prompt for ${route} titled "Attached image" (#19822)`, async () => {
       const { client, native, command } = await setup();
       const key = client.draftKey;
       client.local.snapshotDrafts[key] = [{ id: 'image-local', uploadId: 'image-upload', name: 'screen.png', mimeType: 'image/png', sizeBytes: 64 }];
@@ -61,7 +61,7 @@ describe('submission text (ChatView onSend, 9c161462c9)', () => {
       expect(client.error).toBe('');
       expect(sentMessage(sent)).toMatchObject({ text: ATTACHMENT_ONLY_PROMPT, attachments: [{ id: 'image-upload', type: 'image', name: 'screen.png' }],
         context: { version: 1, records: [{ kind: 'image', contextId: 'image_image-local', attachmentId: 'image-upload', name: 'screen.png', sizeBytes: 64 }] } });
-      expect(existing ? sent?.titleSeed : sent?.title).toBe('Image: screen.png');
+      expect(existing ? sent?.titleSeed : sent?.title).toBe('Attached image');
       expect(client.local.snapshotDrafts[key]).toEqual([]);
       expect(client.draft).toBe('');
     });
@@ -151,10 +151,10 @@ describe('send gestures through the server keybindings', () => {
     client.config.keybindings = DEFAULT_SEND_RULES;
     expect(snapshot(client).composer.sendChords).toBe('Meta+Enter Meta+Alt+Enter');
   });
-  test('a new thread is titled from its prose, not its chips', async () => {
+  test('a new thread is titled from its prose with each chip read as its label (#19822)', async () => {
     const { native, command } = await connected();
     await command('send', '', 'Look at [notes.md](t3-context://v1/file/file_x) please');
-    expect(native.committed.at(-1)).toMatchObject({ method: 'orchestration.launchThread', title: 'Look at  please' });
+    expect(native.committed.at(-1)).toMatchObject({ method: 'orchestration.launchThread', title: 'Look at notes.md please' });
   });
 });
 
