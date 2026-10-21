@@ -203,11 +203,11 @@ fn two_axes_combined_themes_last_wins_aliases_kinds_by_use_and_what_is_reported(
         ("label", "no Tamber kind: a string or a boolean"),
         ("flag", "no Tamber kind: a string or a boolean"),
         ("odd", "a Pencil `type` the importer does not name (`gradient`)"),
-        ("stray", "its theme names `size=big`, which `themes` does not declare"),
+        ("stray", "its theme names `size=big`, which `themes` does not declare, so it never holds"),
         // (no value in some contexts: Pencil gives none on a phone, so no token can hold it)
-        ("tablet-only", "not set in light, device=phone, and no value of it is invented"),
+        ("--tablet-only", "not set in light, device=phone, and no value of it is invented"),
         // (an entry a later one overrides wherever it would hold: Pencil's last-wins)
-        ("edge", "declared again by a later layer, which wins"),
+        ("--edge", "declared again by a later layer, which wins"),
         ("imports.kit", "an imported `.pen`: not followed (a client's upload has no directory to find it in); import that file on its own"),
     ] {
         assert!(reported.contains(&(name, why)), "{name}: {reported:?}");
@@ -253,4 +253,101 @@ fn a_file_of_another_version_or_too_deep_or_past_the_budget_is_refused() {
     let why = refused(&wide, 5_000 + wide.len() as u64);
     assert!(why.contains("expands past what one import may do"), "{why}");
     assert!(pen::import_within("x.pen", &wide, "pen", &design, &vocab(), IMPORT).is_ok());
+}
+
+#[test]
+fn round_1_themes_names_aliases_kinds_and_the_count() {
+    let text = fixture("edges.pen");
+    let import = import("edges.pen", &text);
+    let f = folded(&import);
+    let why = |name: &str| -> Vec<String> {
+        import
+            .unmapped
+            .iter()
+            .filter(|u| u.name == name)
+            .map(|u| u.why.clone())
+            .collect()
+    };
+    // The first scheme-like axis written is the scheme; the other a proposed axis.
+    assert_eq!(
+        f.design
+            .axes
+            .iter()
+            .map(|a| a.name.value.as_str())
+            .collect::<Vec<_>>(),
+        ["amode"]
+    );
+    // An entry naming an undeclared value (or one in another case) never holds: the good pair stands.
+    assert_eq!(
+        sides(&f.value("pen.surface", 0).unwrap().css()),
+        (hex("#ffffff"), hex("#000000"))
+    );
+    assert_eq!(why("surface").len(), 2, "{:?}", import.unmapped);
+    assert!(why("surface")
+        .iter()
+        .all(|w| w.ends_with("which `themes` does not declare, so it never holds")));
+    // `--x` and `x` are two variables whose token names collide, said; `a` and `a.b` are two tokens.
+    assert_eq!(
+        why("x").len() + why("--x").len(),
+        1,
+        "{:?}",
+        import.unmapped
+    );
+    assert!(f.value("pen.a", 0).is_some() && f.value("pen.a.b", 0).is_some());
+    // An alias chain resolves; one to a string, or to nothing, is reported.
+    assert_eq!(hex(&f.value("pen.chain", 0).unwrap().css()), hex("#333333"));
+    assert_eq!(why("cross"), ["an alias to `word`, a string, from a color"]);
+    assert_eq!(
+        why("missing"),
+        ["an alias to `nowhere`, which `variables` does not declare"]
+    );
+    // A number and the number it aliases are one kind: read as a gap and as a line height, both numbers.
+    assert_eq!(f.value("pen.base", 0).unwrap().css(), "8");
+    assert_eq!(f.value("pen.ratio", 0).unwrap().css(), "8");
+    assert!(import.notes.iter().any(|n| n.starts_with("`ratio` is a number: Pencil reads it (with the numbers it aliases or that alias it) as a pixel length (gap) and as lineHeight")), "{:?}", import.notes);
+    // A side of a stroke's thickness is pixels; a gradient's size is a fraction.
+    assert_eq!(f.value("pen.edge", 0).unwrap().css(), "2px");
+    assert_eq!(f.value("pen.spread", 0).unwrap().css(), "0.5");
+    assert!(
+        import
+            .notes
+            .contains(&"`spread` is a number: Pencil reads it as size.width".to_string()),
+        "{:?}",
+        import.notes
+    );
+    // A value of no entries, or an entry of no shape, is reported, the file read all the same.
+    assert_eq!(why("none"), ["its `value` is an empty list"]);
+    assert_eq!(why("broken"), ["an entry is no `{value, theme?}`"]);
+    assert_eq!(
+        import.counted.source,
+        import.counted.mapped + import.counted.reported
+    );
+    assert!(import.notes.contains(
+        &"the file's frames and components are not imported (its variables and themes are)"
+            .to_string()
+    ));
+}
+
+#[test]
+fn round_1_more_contexts_than_a_design_takes_and_a_name_that_multiplies_are_refused_by_the_real_bounds(
+) {
+    let design = parse(EMPTY).unwrap();
+    let five = r#"["a","b","c","d","e"]"#;
+    let wide = format!(
+        r##"{{"version":"2.21","themes":{{"p":{five},"q":{five},"r":{five}}},"variables":{{"v":{{"type":"color","value":"#000000"}}}}}}"##
+    );
+    let why = pen::import_with("x.pen", &wide, "pen", &design, &vocab()).unwrap_err()[0]
+        .message
+        .clone();
+    assert!(why.contains("tuples"), "{why}");
+    // A long name over many entries: refused by the real budget before its copies are made.
+    let name = "n".repeat(64 * 1024);
+    let entries = vec![r##"{"value":"#000000"}"##; 16_384].join(",");
+    let big = format!(
+        r#"{{"version":"2.21","variables":{{"{name}":{{"type":"color","value":[{entries}]}}}}}}"#
+    );
+    let why = pen::import_with("x.pen", &big, "pen", &design, &vocab()).unwrap_err()[0]
+        .message
+        .clone();
+    assert!(why.contains("expands past what one import may do"), "{why}");
 }
