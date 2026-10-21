@@ -124,6 +124,10 @@ public final class LiveModel {
         let timer = Timer(timeInterval: delay, repeats: false) { [weak self] _ in
             MainActor.assumeIsolated { self?.run("timer") { try $0.session.advance(at: $0.now()) } }
         }
+        // A tenth of the delay, at most 100 ms, lets the system group this wake with
+        // others (Apple's Energy Efficiency Guide: at least 10%); the live clock
+        // runs what is due by the time it fires.
+        timer.tolerance = min(delay * 0.1, 0.1)
         RunLoop.main.add(timer, forMode: .common)
         self.timer = timer
     }
