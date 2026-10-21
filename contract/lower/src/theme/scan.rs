@@ -99,6 +99,52 @@ pub(crate) struct Said {
     pub rows: Vec<super::rows::Said>,
 }
 
+/// Whether lowering's `check_svg` passes the element `tag` with `attrs`
+/// under `parent` (as `nodes.rs` gives it: its class's rows, then its own,
+/// lengths coerced; `coerced`, its own so); an unknown class, or any
+/// animation, is no.
+fn prepared(
+    file: &File,
+    tag: &str,
+    in_svg: bool,
+    parent: Option<&str>,
+    attrs: &[Attr],
+    coerced: &[Attr],
+    span: Span,
+) -> bool {
+    let style = |name: &str| {
+        file.styles
+            .iter()
+            .rfind(|s| s.name == name)
+            .map(|s| s.attrs.as_slice())
+    };
+    let Ok(class) = crate::class::rows(attrs, &style) else {
+        return false;
+    };
+    let joined: Vec<Attr>;
+    let rejoined;
+    let expanded = match class {
+        Some((_, rows)) => {
+            joined = rows
+                .into_iter()
+                .chain(attrs.iter().filter(|a| a.name != "class").cloned())
+                .collect();
+            rejoined = crate::svg::coerce_lengths(tag, in_svg, &joined);
+            rejoined.as_deref().unwrap_or(&joined)
+        }
+        None => coerced,
+    };
+    let refused = |a: &Attr| match a.name.as_str() {
+        "animation" | "-exact-exit-animation" => Err(crate::LowerError {
+            id: "",
+            message: String::new(),
+            span: a.span,
+        }),
+        _ => Ok(()),
+    };
+    crate::svg::check_svg_with(tag, in_svg, parent, expanded, span, &refused).is_ok()
+}
+
 impl Said {
     /// What `file`'s styles, `root`'s view and the `fn`s, states, derives and
     /// actions they read say of `design`'s tokens.
@@ -155,11 +201,19 @@ impl Said {
                     tag,
                     attrs: a,
                     children,
+                    span,
                     ..
                 } => {
                     attrs(a);
-                    let coerced =
-                        crate::svg::coerce_lengths(tag, crate::svg::in_svg(svg, parent), a);
+                    let in_svg = crate::svg::in_svg(svg, parent);
+                    let coerced = crate::svg::coerce_lengths(tag, in_svg, a);
+                    // An element lowering refuses before its rows (its SVG
+                    // content model and attribute placement, its class's rows
+                    // with its own, `svg::check_svg_with`; an animation's
+                    // names, the keyframes', taken as refused) is the build's,
+                    // with everything inside it.
+                    let own = coerced.as_deref().unwrap_or(a);
+                    let left = left || !prepared(file, tag, in_svg, parent, a, own, *span);
                     // An element's own rows, which the build checks where it
                     // lowers the element (a style's are checked where a node
                     // applies it, and may be overridden there).
@@ -171,7 +225,6 @@ impl Said {
                     let mut fonts = None;
                     // A module tag's row lowering refuses is never judged
                     // (`native::refused`, before any check of it).
-                    let own = coerced.as_deref().unwrap_or(a);
                     for r in own
                         .iter()
                         .filter(|r| !left && crate::native::refused(tag, r).is_none())

@@ -161,8 +161,12 @@ impl Lowerer<'_> {
                     .unwrap_or_default();
                 if face.weight.is_none() {
                     if let Ok(m) = std::fs::metadata(&canonical) {
-                        self.font_files
-                            .push((canonical.clone(), m.len(), m.modified().ok()));
+                        self.font_files.push((
+                            full.clone(),
+                            canonical.clone(),
+                            m.len(),
+                            m.modified().ok(),
+                        ));
                     }
                 }
                 let weight = face.weight.unwrap_or_else(|| {

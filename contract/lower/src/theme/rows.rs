@@ -100,18 +100,27 @@ pub struct Declared {
     files: Vec<FontFile>,
 }
 
-/// A font file a build read, as `std::fs::metadata` said it then.
-pub(crate) type FontFile = (std::path::PathBuf, u64, Option<std::time::SystemTime>);
+/// A font file a build read: its path as the app names it, the file that
+/// path resolved to (a link followed), and that file's length and time.
+pub(crate) type FontFile = (
+    std::path::PathBuf,
+    std::path::PathBuf,
+    u64,
+    Option<std::time::SystemTime>,
+);
 
 impl Declared {
     pub(crate) fn new(fonts: BTreeMap<String, DeclaredFont>, files: Vec<FontFile>) -> Declared {
         Declared { fonts, files }
     }
 
-    /// Whether a file the build read has changed since.
+    /// Whether a file the build read has changed since, or its path now
+    /// resolves to another (a link retargeted: Astra's D1 round 3).
     fn stale(&self) -> bool {
-        self.files.iter().any(|(path, len, time)| {
-            std::fs::metadata(path).map_or(true, |m| m.len() != *len || m.modified().ok() != *time)
+        self.files.iter().any(|(path, resolved, len, time)| {
+            path.canonicalize().ok().as_ref() != Some(resolved)
+                || std::fs::metadata(resolved)
+                    .map_or(true, |m| m.len() != *len || m.modified().ok() != *time)
         })
     }
 }
@@ -738,7 +747,12 @@ mod tests {
         )];
         let declared = Arc::new(Declared::new(
             fonts.into_iter().collect(),
-            vec![(file.clone(), m.len(), m.modified().ok())],
+            vec![(
+                file.clone(),
+                file.canonicalize().unwrap(),
+                m.len(),
+                m.modified().ok(),
+            )],
         ));
         let parse = |t: &str| tamber::parse(t).unwrap();
         let before = "tamber t\n\ntheme\n  body = 400 1rem \"F\"\n";
@@ -777,6 +791,40 @@ mod tests {
         std::fs::write(&file, b"variable now").unwrap();
         assert!(check().is_empty());
         let _ = std::fs::remove_file(&file);
+    }
+
+    /// A font path the app names that a link resolves: retargeted to another
+    /// file, the old one untouched, the font rows are the build's too
+    /// (Astra's D1 round 3).
+    #[cfg(unix)]
+    #[test]
+    fn a_retargeted_font_link_leaves_font_rows_to_the_build() {
+        let dir = std::env::temp_dir().join(format!("exact-rows-link-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let (old, new, link) = (
+            dir.join("static.ttf"),
+            dir.join("variable.ttf"),
+            dir.join("face.ttf"),
+        );
+        std::fs::write(&old, b"static").unwrap();
+        std::fs::write(&new, b"variable").unwrap();
+        std::os::unix::fs::symlink(&old, &link).unwrap();
+        let m = std::fs::metadata(&old).unwrap();
+        let declared = Declared::new(
+            Default::default(),
+            vec![(
+                link.clone(),
+                link.canonicalize().unwrap(),
+                m.len(),
+                m.modified().ok(),
+            )],
+        );
+        assert!(!declared.stale());
+        std::fs::remove_file(&link).unwrap();
+        std::os::unix::fs::symlink(&new, &link).unwrap();
+        assert!(declared.stale());
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     /// A `font` row naming no type token isn't judged here, so it never

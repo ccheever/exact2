@@ -818,3 +818,30 @@ fn a_folded_labels_arms_are_the_builds() {
     drop(s);
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// An svg element lowering refuses before its rows (`padding` on a `rect`)
+/// is the build's, its rows with it: a write breaking its `x` is not
+/// refused here in other words than the build's (Astra's D3 round 1).
+#[test]
+fn an_element_lowering_refuses_first_is_the_builds() {
+    let dir = reading("rows-svg-refused");
+    let design = "tamber t\n\ntheme\n  ink = #111111\n  pos = 8px\n";
+    std::fs::write(dir.join("app.tamber"), design).unwrap();
+    std::fs::write(
+        dir.join("app.contract"),
+        "use Card from \"@acme/reading\"\ncomponent App\n  view\n    column\n      svg width=10 height=10 viewBox=\"0 0 10 10\"\n        rect padding=1 x=\"pos\" width=10 height=10\n      Card()\n",
+    )
+    .unwrap();
+    let built = contract::compile_path(&dir.join("app.contract")).unwrap_err();
+    assert_eq!(built.id, "lower-svg-attr");
+    let mut s = Serve::start(&dir, &[]);
+    s.ask(json!({"method": "propose", "ops": [{"op": "set-token", "name": "ink", "value": "#444444"}]}));
+    let w = transaction(
+        &mut s,
+        &dir,
+        json!({"op": "set-token", "name": "pos", "value": "#123456"}),
+    );
+    assert!(w.get("ok").is_some(), "{w}");
+    drop(s);
+    let _ = std::fs::remove_dir_all(&dir);
+}
