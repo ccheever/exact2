@@ -11,6 +11,7 @@ use ImportView from "../appearance/settings-appearance-editor-shapes.contract"
 use KillConfirm from "./settings-a-telemetry.contract"
 use HostEditorView from "../device/settings-a-hosts.contract"
 use HostCheckGroup from "../device/settings-a-hosts.contract"
+use EasEditorView from "../device/settings-eas-hosts.contract"
 use Wordmark from "../shared/icons.contract"
 use ProviderInstanceMark from "../shared/icons-kit.contract"
 use SidebarUpdatePill from "../sidebar/sidebar-icons-kit.contract"
@@ -262,6 +263,7 @@ shape SettingsCore
   killConfirm: KillConfirm
   hostEditor: HostEditorView
   hostChecks: HostCheckGroup[]
+  easEditor: EasEditorView
   saOpen: bool
   editor: EditorView
   themeImport: ImportView

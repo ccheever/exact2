@@ -57,6 +57,7 @@ const GUARDED: Record<string, string> = {
   'settings-a-collections.contract "theme-remove-collection"': 'theme-remove-collection',
   'settings-a-dialogs.contract dialogId': 'sa-dialog',
   'settings-a-hosts.contract "device-host-dialog"': 'device-host',
+  'settings-eas-hosts.contract "eas-host-dialog"': 'eas-host',
   'settings-appearance-import.contract "add-theme-dialog"': 'add-theme',
   'settings-b-actions.contract "project-action-dialog"': 'project-action',
   'settings-b-actions.contract "action-delete-dialog"': 'action-delete',
@@ -430,6 +431,7 @@ describe('every modal dialog takes the focus as it opens (Base UI\'s initialFocu
   const AUTOFOCUSED: Record<string, string> = {
     'providers-wizard.contract "usage-hub-dialog"': '"usage-hub-url"', // settings/AddUsageLimitSourceDialog.tsx: Hub URL autoFocus
     'settings-a-hosts.contract "device-host-dialog"': '(busy ? "device-host-options" : "device-host-name")', // settings/DeviceHostEditor.tsx
+    'settings-eas-hosts.contract "eas-host-dialog"': '"eas-host-name"', // settings/EasDeviceHostsSettings.tsx: the Name input autoFocus
     'settings-appearance-import.contract "add-theme-dialog"': '"add-theme-query"', // settings/ThemeSearchSection.tsx
     'connections-network-dialogs.contract "create-pairing-dialog"': '"pairing-label"', // settings/ConnectionsSettings.tsx: Client label autoFocus
   };
@@ -519,6 +521,7 @@ describe('every modal dialog gives focus back through a surviving observer or it
     'settings-a-collections.contract "theme-remove-collection"': ['app-settings.contract', ['theme-remove-collection']],
     'settings-a-dialogs.contract dialogId': ['app-settings.contract', ['background-activity-dialog']],
     'settings-a-hosts.contract "device-host-dialog"': ['app-settings.contract', ['device-host-dialog']],
+    'settings-eas-hosts.contract "eas-host-dialog"': ['app-settings.contract', ['eas-host-dialog']],
     'settings-appearance-import.contract "add-theme-dialog"': ['app-settings.contract', ['add-theme-dialog']],
     'settings-b-actions.contract "project-action-dialog"': ['app-settings.contract', ['project-action-dialog']],
     'settings-b-actions.contract "action-delete-dialog"': ['settings-b-actions.contract', ['action-delete-dialog']],
