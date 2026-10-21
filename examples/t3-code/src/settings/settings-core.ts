@@ -33,6 +33,7 @@ import { persistScopedSettingsPatch, planProjectOverridesClear, planScopedSettin
 import { postScopedNotice, scopeEnvironments, scopeMemberFiles, scopeProjectGroups, scopedWriter, type ScopeEnvironment } from './settings-scope-sources';
 import { fleet, type EnvironmentFleet } from '../connections/settings-b-fleet';
 import { changedBrowserSettingLabels, restoreBrowserTabDefaults } from '../browser/browser-defaults'; // Restore defaults' browser rows
+import { BROWSER_CUSTOM_SEARCH_URL_MAX_LENGTH, BROWSER_SEARCH_ENGINES } from '../browser/browser-url';
 
 export type CoreOption = { id: string; value: string; label: string; detail: string; icon: string; selected: boolean; disabled: boolean };
 export type CoreRow = {
@@ -79,10 +80,13 @@ export const CLIENT_DEFAULTS = {
   // Whether a pull request link opens T3 Code's pull request view (pullRequestLinksOpenInApp, default on); off, it opens as
   // any other link does.
   pullRequestLinksOpenInApp: true,
+  // The address bar's search engine (contracts settings.ts BrowserSearchEngine, default DuckDuckGo) and the custom
+  // search URL, a `%s` template kept when the engine is switched away from Custom so switching back restores it.
+  browserSearchEngine: 'duckduckgo', browserCustomSearchUrl: '',
 } as const;
 export type ClientPrefs = { -readonly [K in keyof typeof CLIENT_DEFAULTS]: (typeof CLIENT_DEFAULTS)[K] extends number ? number : (typeof CLIENT_DEFAULTS)[K] extends boolean ? boolean : string };
 const CHOICES: Record<string, readonly string[]> = {
-  browserLinkTarget: ['system', 'app'],
+  browserLinkTarget: ['system', 'app'], browserSearchEngine: BROWSER_SEARCH_ENGINES,
   notificationMode: ['off', 'notifications', 'sound', 'notifications-and-sound'], diffColorScheme: ['red-green', 'blue-orange'],
   chatWidth: ['comfortable', 'wide', 'full'], diffLayout: ['stacked', 'split'], environmentIdentificationMode: ['artwork', 'pill', 'none'],
   followUpBehavior: ['queue', 'steer'], confirmQuit: ['direct', 'hold', 'double-click'], sidebarProjectSortOrder: ['updated_at', 'created_at', 'manual'],
@@ -106,6 +110,7 @@ export function clientValue(key: string, raw: unknown): string | number | boolea
     return Number.isInteger(value) && value >= min && value <= max && (value - min) % step === 0 ? value : undefined;
   }
   if (typeof raw !== 'string') return undefined;
+  if (key === 'browserCustomSearchUrl') return raw.length <= BROWSER_CUSTOM_SEARCH_URL_MAX_LENGTH ? raw : undefined;
   if (key.startsWith('fontFamily')) return FONT_FAMILY.test(raw) ? raw.trim() : undefined;
   // Built-in or saved custom theme ids; a removed custom id falls back to T3 Code when painted.
   if (key === 'theme' || key === 'themeLight' || key === 'themeDark') return /^[a-z0-9](?:[a-z0-9-]{0,46}[a-z0-9])?$/.test(raw) ? raw : undefined;

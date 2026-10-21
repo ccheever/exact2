@@ -1,5 +1,6 @@
 // The previewAutomation hosts, one per connected environment (MIT reference, see LICENSE-T3,
-// T3 Code 9c161462c9: apps/web/src/components/preview/PreviewAutomationHosts.tsx, usePreviewSession.ts,
+// T3 Code 9c161462c9: apps/web/src/components/preview/PreviewAutomationHosts.tsx, usePreviewSession.ts (74541bab17 for
+// `useDesktopHostedPreviewSessions`),
 // previewAutomationRequestConsumer.ts; packages/contracts/src/rpc.ts `previewAutomation.connect`, `.respond`,
 // `.focusHost`, `subscribePreviewEvents`).
 //
@@ -140,11 +141,13 @@ function streamEvent(client: T3Client, owner: object, environmentId: string, gen
   applyPreviewEvent(client, { environmentId, threadId: event.threadId }, event);
 }
 
-/** usePreviewSession's event handling: an event of another server process asks for the list again. Events
- *  count for threads this client keeps preview state for (and the shown one), as the reference's per-thread sync. */
+/** usePreviewSession's event handling: an event of another server process asks for the list again. Events count for
+ *  threads this client keeps preview state for and the shown one, and any event but `closed` makes its thread one of
+ *  them (useDesktopHostedPreviewSessions, 74541bab17): an agent's tab in a background thread gets its web view
+ *  (`liveSessions`) without that thread's chat being open. */
 export function applyPreviewEvent(client: T3Client, ref: ScopedThreadRef, event: PreviewEvent): boolean {
   const store = browserHost(client).store, state = store.read(ref), active = activeRef(client);
-  const known = state !== EMPTY_THREAD_PREVIEW_STATE || (active && scopedThreadKey(active) === scopedThreadKey(ref));
+  const known = state !== EMPTY_THREAD_PREVIEW_STATE || (active && scopedThreadKey(active) === scopedThreadKey(ref)) || event.type !== 'closed';
   if (!known) return false;
   if (state.serverEpoch !== null && state.serverEpoch !== event.serverEpoch) { browserHost(client).listed.delete(scopedThreadKey(ref)); client.revision++; return false; }
   const changed = store.applyServerEvent(ref, event);

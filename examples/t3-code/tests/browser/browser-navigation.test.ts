@@ -141,6 +141,23 @@ describe('handleToggleDeviceToolbar and BrowserDeviceToolbar', () => {
   });
 });
 
+// useBrowserLayoutZoomFactor (74541bab17, f3161f3929): a desktop tab's layout divides its zoom by the main window's, so
+// the window's zoom changes neither the viewport a toggle opens at nor what a drag or key asks for.
+describe('useBrowserLayoutZoomFactor', () => {
+  it('lays a desktop tab out at its zoom over the window\'s', async () => {
+    const s = setup({ zoom: 1.5 });
+    (s.client.presentation as Obj).browserWindowZoom = 1.25;
+    expect(browserView(s.client, s.surface, Date.now())).toMatchObject({ zoomFactor: 1.5, zoomLabel: '150%', windowZoom: 1.25 });
+    await local(s, 'device-toolbar', '600|700');
+    expect(resizes(s)).toEqual([{ _tag: 'freeform', width: 483, height: 548 }]);
+    const t = setup({ viewport: { _tag: 'freeform', width: 800, height: 600 }, zoom: 1.5 });
+    (t.client.presentation as Obj).browserWindowZoom = 1.25;
+    await local(t, 'viewport-key', 'east|ArrowRight|false');
+    expect(resizes(t)).toEqual([{ _tag: 'freeform', width: 810, height: 600 }]);
+    expect(browserView(setup().client, setup().surface, Date.now()).windowZoom).toBe(1);
+  });
+});
+
 describe('useBrowserViewportResize', () => {
   it('commits a rail drag from where the press began, and an arrow key by 10 (50 with Shift)', async () => {
     const s = setup({ viewport: { _tag: 'freeform', width: 800, height: 600 } });

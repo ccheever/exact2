@@ -489,10 +489,23 @@ describe('the host on the client', () => {
     expect(readPreviewEvent({ ...opened, revision: 0 })).toBeNull();
     previewStreamEvent(client, entry(opened, '3-1', PREVIEW_EVENTS_KEY));
     expect(Object.keys(browserHost(client).store.read(ref).sessions)).toEqual(['tab-3']);
-    previewStreamEvent(client, entry({ ...opened, threadId: 'thread-elsewhere', revision: 3, snapshot: { ...loaded('tab-4'), threadId: 'thread-elsewhere' } }, '3-1', PREVIEW_EVENTS_KEY));
-    expect(browserHost(client).store.read({ environmentId: 'env-1', threadId: 'thread-elsewhere' })).toBe(EMPTY_THREAD_PREVIEW_STATE);
+    // A close for a thread the client never saw stays unknown.
+    previewStreamEvent(client, entry({ type: 'closed', threadId: 'thread-gone', tabId: 'tab-9', createdAt: '2026-10-09T00:00:00Z', serverEpoch: 'epoch-1', revision: 3 }, '3-1', PREVIEW_EVENTS_KEY));
+    expect(browserHost(client).store.read({ environmentId: 'env-1', threadId: 'thread-gone' })).toBe(EMPTY_THREAD_PREVIEW_STATE);
     previewStreamEvent(client, entry({ type: 'closed', threadId: 'thread-1', tabId: 'tab-3', createdAt: '2026-10-09T00:00:01Z', serverEpoch: 'epoch-1', revision: 4 }, '3-1', PREVIEW_EVENTS_KEY));
     expect(browserHost(client).store.read(ref).sessions).toEqual({});
+  });
+  // previewSessionSync.browser.test.ts (74541bab17) "discovers and closes a server tab in a background thread without
+  // mounting its chat": the tab gets a web view (liveSessions), and its close takes it away.
+  it('discovers and closes a server tab in a background thread without mounting its chat', () => {
+    const { client } = fakeClient(), elsewhere = { environmentId: 'env-1', threadId: 'thread-elsewhere' };
+    const snapshot = { ...loaded('agent-tab'), threadId: 'thread-elsewhere' };
+    previewStreamEvent(client, entry({ type: 'opened', threadId: 'thread-elsewhere', tabId: 'agent-tab', createdAt: '2026-10-09T00:00:00Z', serverEpoch: 'epoch-1', revision: 3, snapshot }, '3-1', PREVIEW_EVENTS_KEY));
+    expect(browserHost(client).store.read(elsewhere)).toMatchObject({ sessions: { 'agent-tab': snapshot }, activeTabId: 'agent-tab', serverEpoch: 'epoch-1' });
+    expect(liveSessions(client).map(session => session.id)).toEqual([previewRuntimeTabId(elsewhere, 'epoch-1', 'agent-tab')]);
+    previewStreamEvent(client, entry({ type: 'closed', threadId: 'thread-elsewhere', tabId: 'agent-tab', createdAt: '2026-10-09T00:00:01Z', serverEpoch: 'epoch-1', revision: 4 }, '3-1', PREVIEW_EVENTS_KEY));
+    expect(browserHost(client).store.read(elsewhere)).toMatchObject({ sessions: {}, activeTabId: null });
+    expect(liveSessions(client)).toEqual([]);
   });
   it('reports focus and live tabs once per change', async () => {
     const runtime = previewRuntimeTabId(ref, 'epoch-1', 'tab-1');

@@ -2,7 +2,7 @@
 // its own content world (`.defaultClient`, T3BrowserAnnotate.swift): it sees the page's DOM, not its JS, and its
 // message handler cannot be called by the page. MIT reference, see LICENSE-T3, T3 Code 1e2ecbd975:
 // apps/desktop/src/preview/PickPreload.ts (startAnnotation and its helpers), AnnotationKeyboard.ts
-// (resolveAnnotationSubmission); the stylesheet is AnnotationStyles.generated.ts (Annotation.css compiled by
+// (resolveAnnotationSubmission); T3 Code 74541bab17: PickPreload.ts `unionRects`, AnnotationIds.ts; the stylesheet is AnnotationStyles.generated.ts (Annotation.css compiled by
 // Tailwind CSS v4.3.3, MIT), one rule per line. Not ported: PickPreload's recording cursor and human-input
 // listeners (browser-recording.js has the recording side) and the mouse back/forward buttons. Electron's
 // react-grab `getElementContext` reads React from the page's own world; here this world fills the DOM facts
@@ -38,23 +38,32 @@
     return rect.width >= 3 && rect.height >= 3;
   }
 
-  /** The targets' union grown by `padding` and clamped to the viewport (PickPreload unionRects). */
-  function unionRects(rects, padding, viewport) {
+  /** The targets' union grown by `padding` (PickPreload unionRects). The module clips it to the captured viewport;
+   *  clipping here would lose the bounds of targets scrolled out of view. */
+  function unionRects(rects, padding) {
     if (padding === undefined) padding = 20;
     if (rects.length === 0) return null;
     const left = Math.min(...rects.map((rect) => rect.x));
     const top = Math.min(...rects.map((rect) => rect.y));
     const right = Math.max(...rects.map((rect) => rect.x + rect.width));
     const bottom = Math.max(...rects.map((rect) => rect.y + rect.height));
-    const x = Math.max(0, left - padding);
-    const y = Math.max(0, top - padding);
-    const maxWidth = Math.max(1, viewport.width - x);
-    const maxHeight = Math.max(1, viewport.height - y);
     return {
-      x,
-      y,
-      width: Math.min(maxWidth, right - left + padding * 2),
-      height: Math.min(maxHeight, bottom - top + padding * 2),
+      x: left - padding,
+      y: top - padding,
+      width: right - left + padding * 2,
+      height: bottom - top + padding * 2,
+    };
+  }
+
+  /** AnnotationIds.ts createAnnotationIdSource: ids for annotations and their targets, unique per page load. The composer
+   *  keeps annotations by id across reloads and this script starts again on every load, so a bare counter would reissue
+   *  ids a draft already holds. `getRandomValues`, not `randomUUID`: plain-http pages are not secure contexts. */
+  function createAnnotationIdSource(randomValues) {
+    const pageLoad = Array.from(randomValues(new Uint32Array(2)), (part) => part.toString(36)).join("");
+    let sequence = 0;
+    return (prefix) => {
+      sequence += 1;
+      return `${prefix}_${pageLoad}_${sequence.toString(36)}`;
     };
   }
 
@@ -105,6 +114,7 @@
     normalizeRect,
     isUsableRect,
     unionRects,
+    createAnnotationIdSource,
     pathFromPoints,
     strokeBounds,
     describeRawElement,
@@ -307,7 +317,6 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
   };
 
   let activeSession = null;
-  let idSequence = 0;
   let annotationTheme = DEFAULT_THEME;
 
   function post(message) {
@@ -352,13 +361,9 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
     for (const [name, value] of Object.entries(variables)) host.style.setProperty(name, value);
   }
 
-  const nextId = (prefix) => {
-    idSequence += 1;
-    return `${prefix}_${idSequence.toString(36)}`;
-  };
+  const nextId = createAnnotationIdSource((values) => crypto.getRandomValues(values));
 
   const rectFromDomRect = (rect) => ({ x: rect.left, y: rect.top, width: rect.width, height: rect.height });
-  const viewport = () => ({ width: window.innerWidth, height: window.innerHeight });
 
   function isAnnotationNode(element) {
     return element instanceof Element && element.closest(`[${OVERLAY_ATTRIBUTE}]`) !== null;
@@ -1028,7 +1033,6 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
           ...strokes.map((stroke) => stroke.bounds),
         ],
         0,
-        viewport(),
       );
 
     const positionCompactEditor = () => {
@@ -1380,7 +1384,6 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
             ...submittedStrokes.map((stroke) => stroke.bounds),
           ],
           20,
-          viewport(),
         );
         post({ type: "picked", annotation, rect: screenshotRect, submission });
       } catch (_) {
