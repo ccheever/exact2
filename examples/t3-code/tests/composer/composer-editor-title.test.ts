@@ -2,22 +2,25 @@ import { describe, expect, test } from 'bun:test';
 import { launchTitle } from '../../src/composer/composer-editor-title';
 
 const quote = '[Assistant quote](t3-citation://v1/env/thread/msg?text=Hello%20there&start=0&end=11&prefix=&suffix=)';
-describe('new-thread title seed (ChatView onSend)', () => {
-  test('context chips are left out of the title', () => {
-    expect(launchTitle('fixture complete see [notes.md](t3-context://v1/file/file_6ec02855-c221-4fba-8e6e-691c4815d544) ')).toBe('fixture complete see');
+describe('new-thread title seed (ChatView onSend, deriveThreadTitleSeed)', () => {
+  test('a context chip reads as its label; an image chip is left out (#19822)', () => {
+    expect(launchTitle('fixture complete see [notes.md](t3-context://v1/file/file_6ec02855-c221-4fba-8e6e-691c4815d544) ')).toBe('fixture complete see notes.md');
     expect(launchTitle('![shot.png](t3-context://v1/image/image_a) explain')).toBe('explain');
+    expect(launchTitle('fix\n\n  this   now')).toBe('fix this now');
   });
   test('an assistant quote reads as its text', () => {
     expect(launchTitle(`about ${quote}`)).toBe('about Hello there');
   });
-  test('with no prose the first image, then the first file, names it', () => {
-    expect(launchTitle('[notes.md](t3-context://v1/file/file_x)', 'photo.png', 'notes.md')).toBe('Image: photo.png');
-    expect(launchTitle('[notes.md](t3-context://v1/file/file_x)', '', 'notes.md')).toBe('File: notes.md');
+  test('image chips alone read "Attached image" or "Attached images", by distinct image', () => {
+    expect(launchTitle('![shot.png](t3-context://v1/image/image_a)')).toBe('Attached image');
+    expect(launchTitle('![a.png](t3-context://v1/image/image_a) ![a.png](t3-context://v1/image/image_a)')).toBe('Attached image');
+    expect(launchTitle('![a.png](t3-context://v1/image/image_a) ![b.png](t3-context://v1/image/image_b)')).toBe('Attached images');
+  });
+  test('with no prose, image attachments, then the first attachment, name it', () => {
+    expect(launchTitle('', [{ type: 'image', name: 'photo.png' }])).toBe('Attached image');
+    expect(launchTitle('', [{ type: 'image', name: 'a.png' }, { type: 'image', name: 'b.png' }])).toBe('Attached images');
+    expect(launchTitle('', [{ type: 'file', name: 'notes.md' }])).toBe('File: notes.md');
     expect(launchTitle('  ')).toBe('New thread');
-    // Then a terminal context, a review comment ("Review: …") and a preview annotation, in that order.
-    expect(launchTitle('[Terminal 1 lines 2-4](t3-context://v1/terminal/terminal_a) [App.tsx:3](t3-context://v1/review-comment/review-comment_b)')).toBe('Terminal 1 lines 2-4');
-    expect(launchTitle('[Tighten](t3-context://v1/preview-annotation/preview-annotation_c) [App.tsx:3](t3-context://v1/review-comment/review-comment_b)')).toBe('Review: App.tsx:3');
-    expect(launchTitle('[Tighten](t3-context://v1/preview-annotation/preview-annotation_c)')).toBe('Tighten');
   });
   test('truncate keeps 50 characters', () => {
     expect(launchTitle('x'.repeat(60))).toBe(`${'x'.repeat(50)}...`);

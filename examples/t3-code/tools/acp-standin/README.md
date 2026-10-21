@@ -16,7 +16,11 @@ server turns into an approval on a thread in the runtime mode "approval-required
 "full-access" it allows it itself), and writes `notes/approved.md` only if allowed. "Read the thread <id> for <n>s" thinks first (a
 reasoning item headed "Checking the other thread"), then holds a running `t3_thread_read` tool call
 on that thread id for n seconds before it replies, so a drive sees the live row carry the latest
-thought over a running tool, and the settled row name that thread by its title. Each new or
+thought over a running tool, and the settled row name that thread by its title. "Wait on the
+thread <id> for <n>s" holds a running `t3_thread_wait` tool call on that id for n seconds, so the
+server reports the turn blocked on another thread (the sidebar's Waiting); "Link the thread <id>"
+replies with a `t3-thread://v1/<id>` link (a thread chip); "Fail the turn" fails the turn with a
+provider's JSON error whose message is a sentence (the thread error banner's message). Each new or
 loaded session advertises one skill, `$frontend-design` (`available_commands_update`, which T3
 lists under `$` as a skill), so a stand-in thread's composer can hold a skill chip. It
 advertises `loadSession`, and `session/load` brings a session back with no history (it keeps

@@ -18,15 +18,24 @@ const definitions = [
   { key: 'enableAgentBrowserAccess', route: 'integrations', label: 'Agent browser access', description: 'Allow providers to use browser tools. Your own browser access is unaffected.', choices: [['false', 'Off'], ['true', 'On']] },
   { key: 'enableAgentDeviceAccess', route: 'integrations', label: 'Agent device access', description: 'Allow providers to drive simulators and emulators when the device hub is enabled.', choices: [['false', 'Off'], ['true', 'On']] },
   { key: 'defaultThreadEnvMode', route: 'general', label: 'Default workspace', description: 'Workspace for new threads. Existing threads keep their workspace.', choices: [['"local"', 'Local'], ['"worktree"', 'Worktree']] },
-  { key: 'newWorktreesStartFromOrigin', route: 'general', label: 'Start new worktrees from origin', description: 'Base new worktrees on the remote branch.', choices: [['false', 'Off'], ['true', 'On']] },
+  { key: 'newWorktreesStartFromOrigin', route: 'general', label: 'Start new worktrees from remote', description: 'Base new worktrees on the remote branch.', choices: [['false', 'Off'], ['true', 'On']] },
   { key: 'worktreeSubmodules', route: 'general', label: 'Worktree submodules', description: 'Initialize submodules in new worktrees.', choices: [['"recursive"', 'Recursive'], ['"top-level"', 'Top level'], ['"none"', 'None']] },
   { key: 'responseStreamingMode', route: 'general', label: 'Response streaming', description: 'Stream assistant responses by turn or paragraph.', choices: [['"turn"', 'Turn'], ['"paragraph"', 'Paragraph']] },
   { key: 'continueThreadsAfterServerUpdate', route: 'general', label: 'Continue threads after server update', description: 'Resume eligible active threads after an environment update.', choices: [['false', 'Off'], ['true', 'On']] },
 ];
+/**
+ * A writing style as settings hold it (T3 Code 74541bab17, MIT, see LICENSE-T3: contracts settings.ts
+ * SourceControlWritingStyleSetting): older settings files keep it as the instructions string, which reads as custom
+ * instructions (or the repository's conventions when empty). Writes always send the struct.
+ */
+export function writingStyleOf(value: Json | undefined): Obj {
+  if (typeof value === 'string') { const text = value.trim(); return { mode: text ? 'custom' : 'repo_conventions', customInstructions: text, followChangeRequestTemplates: true }; }
+  return obj(value);
+}
 export function scopedSearchControls(settings: Obj, projectId: string, capabilities: Obj) {
   if (projectId && capabilities.projectSettingsOverrides !== true) return [];
   const override = obj(obj(settings.projectSettingsOverrides)[projectId]);
-  const effective: Obj = { ...settings, ...override, sourceControlWritingStyle: { ...obj(settings.sourceControlWritingStyle), ...obj(override.sourceControlWritingStyle) } };
+  const effective: Obj = { ...settings, ...override, sourceControlWritingStyle: { ...writingStyleOf(settings.sourceControlWritingStyle), ...writingStyleOf(override.sourceControlWritingStyle) } };
   return definitions.filter(item => (!item.when || item.when === (item.key.startsWith('sourceControl') ? `writing-${obj(effective.sourceControlWritingStyle).mode}` : effective.branchNamingMode))).map(item => [item.route, item.text ? `scoped-input-${item.key}` : `scoped-${item.key}-0`, item.label, item.description] as [string, string, string, string]);
 }
 export function scopedSettingPatch(settings: Obj, projectId: string, key: string, value: Json | undefined, inherit: boolean): Obj {
@@ -38,7 +47,7 @@ export function scopedSettingPatch(settings: Obj, projectId: string, key: string
   const [root, field] = key.split('.');
   const current = projectId ? { ...obj(obj(settings.projectSettingsOverrides)[projectId]) } : { ...settings };
   if (inherit) delete current[root];
-  else if (field) current[root] = { ...obj(settings[root]), ...obj(current[root]), [field]: typeof value === 'string' ? value.trim() : value };
+  else if (field) current[root] = { ...writingStyleOf(settings[root]), ...writingStyleOf(current[root]), [field]: typeof value === 'string' ? value.trim() : value };
   else current[root] = typeof value === 'string' ? value.trim() : value;
   return projectId ? { projectSettingsOverrides: { [projectId]: Object.keys(current).length ? current : null } } : { [root]: current[root] };
 }
@@ -52,7 +61,7 @@ export async function scopedControls(client: T3Client, native: Native | null | u
     if (projectId && capabilities.projectSettingsOverrides !== true) throw new Error('Update the selected environment to configure project overrides.');
     const settings = await client.readSettings(native, 'server.getSettings');
     const override = obj(obj(settings.projectSettingsOverrides)[projectId]);
-    const effective: Obj = { ...settings, ...override, sourceControlWritingStyle: { ...obj(settings.sourceControlWritingStyle), ...obj(override.sourceControlWritingStyle) } };
+    const effective: Obj = { ...settings, ...override, sourceControlWritingStyle: { ...writingStyleOf(settings.sourceControlWritingStyle), ...writingStyleOf(override.sourceControlWritingStyle) } };
     const rows = definitions.filter(item => item.route === route && (!item.when || item.when === (item.key.startsWith('sourceControl') ? `writing-${obj(effective.sourceControlWritingStyle).mode}` : effective.branchNamingMode))).map(item => {
       const [root, field] = item.key.split('.');
       const value = field ? obj(effective[root])[field] : effective[root];

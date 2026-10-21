@@ -4,12 +4,12 @@ import { terminalOutputPlainText } from './terminal-output';
 import { toolImages } from './tool-images';
 import { secretCard } from './secret-card';
 import { focusDiffFind } from '../diff/diff-find';
-import { threadFindAction, threadFindExpanded } from './thread-find-runtime';
+import { threadFindAction, threadFindExpanded, threadFindView } from './thread-find-runtime';
 // Message presentation adapted from T3 Code 9c161462c9 (MIT; see LICENSE-T3):
 // apps/web/src/components/chat/MessagesTimeline.tsx and packages/client-runtime/src/userMessage.ts.
 import { copyPromptLink, promptLinkFor } from '../prompt-links/copy-prompt-link';
 import { notePreviewHover } from '../pull-requests/pages-pr-links';
-import { relabelThreadLinks } from './thread-links';
+import { openThreadLinkTarget, relabelThreadLinks } from './thread-links';
 import { renderCodexInlineDirectivesAsMarkdown } from '../highlight/codex-directives.js';
 import { markdownThreadGlyphs } from './markdown-thread-glyphs';
 import { shellCommand } from '../highlight/shell-command';
@@ -22,7 +22,7 @@ import { turnItemHasDetail, turnItemNeedsDetailFetch } from './timeline-item-det
 import { arr, num, obj, str, type Activity, type Message, type Obj } from '../client/domain';
 import { ClientError, activeRun, type Files, type Native } from '../client/protocol';
 import type { T3Client } from '../client/client';
-import { deriveRows, type Row } from './timeline-rows';
+import { availableRevertTurnCounts, deriveRows, findRevertCheckpoint, rowKey, turnFoldRunIds, type Row, type RowInput } from './timeline-rows';
 import { displayFailed, entryDisplayLabel, entryIcon, inspectorDetail, isToolLike, liveThoughtLine, thoughtText, threadReadLabel, workspaceRelativePath, type WorkEntry } from './timeline-worklog';
 import { eventRow } from './timeline-events';
 import { messageCodeBlocks } from '../highlight/timeline-highlight';
@@ -40,6 +40,8 @@ import { openFileSurface, surfaceLocal } from '../panel/panel-surfaces';
 import { mediaLocal } from '../media/media-views'; // the media menu, a video's error and Retry
 import { closeTableMenu, tableMenuAction } from './table-menu'; // the table Copy popup
 import { noteRefScrollEnd } from '../composer/ref-paging';
+import { isCompacting } from '../composer/composer-controls';
+import { workflowOpening, workflowOpeningMessage, type WorkflowOpening } from './timeline-workflow-opening';
 import { preparationFailureRunId, retryableActivities } from './workspace-retry'; // Retry a failed workspace preparation
 import { numericDateFormatter, timestampFormatter } from '../shared/timestamp-format'; // the host's locale
 import { letGo } from '../client/let-go';
@@ -156,10 +158,11 @@ export async function chatLocal(client: T3Client, native: Native, op: string, id
     view.citing++;
     try {
       return await revealCitation(client, native, id, value, () => view.lastRows.threadId === client.threadId ? view.lastRows.rows : [],
-        key => { view.citeJump = { threadId: client.threadId, key, nonce: view.citeJump.nonce + 1 }; });
+        key => { view.citeJump = { threadId: client.threadId, key, nonce: view.citeJump.nonce + 1 }; }, messageId => openCitedFold(client, messageId));
     } finally { view.citing--; }
   }
   if (op === 'chip-pr') { if (!id) throw new ClientError('That pull request is no longer available.'); await openPullRequest(client, native, id); return ''; } // a sent pull request chip (pr-chip-open.ts)
+  if (op === 'chip-thread' && value === 'link') { await openThreadLinkTarget(client, native, id); return 'focus:composer'; } // a thread link's chip (message-chips.ts)
   if (op === 'chip-thread') {
     if (!id || !client.shell.threads.some(thread => thread.id === id)) throw new ClientError('Thread no longer available');
     await client.openSelected(native, id);
@@ -228,34 +231,59 @@ async function answerRevert(client: T3Client, native: Native, view: ViewState, c
   if (pending.threadId !== client.threadId) throw new ClientError('That thread is no longer selected.');
   if (activeRun(client.projection)) throw new ClientError('Interrupt the current turn before reverting checkpoints.');
   if (!storage) throw new ClientError('Edit from here is unavailable.');
-  const checkpoints = arr(client.projection.checkpoints);
-  const checkpoint = [...checkpoints].reverse().find(candidate => pending.turnCount === 0
-    ? candidate.ordinalWithinScope === 0 && (candidate.appRunOrdinal === null || candidate.appRunOrdinal === undefined) : candidate.appRunOrdinal === pending.turnCount);
-  if (!checkpoint || checkpoint.status !== 'ready') throw new ClientError(`Checkpoint for run ordinal ${pending.turnCount} is unavailable.`);
+  const checkpoint = findRevertCheckpoint(arr(client.projection.checkpoints), pending.turnCount);
+  if (!checkpoint) throw new ClientError(`Checkpoint for run ordinal ${pending.turnCount} is unavailable.`);
   const row = arr(client.projection.visibleTurnItems).find(row => JSON.stringify([row.sourceThreadId, row.sourceItemId]) === pending.messageId);
   if (!row) throw new ClientError('The message to rewind is no longer available.');
-  const text = str(obj(row.item).text), messageRunId = str(obj(row.item).runId), threadId = client.threadId;
+  const text = str(obj(row.item).text), threadId = client.threadId;
+  // waitForRevertedMessage: what shows the rewind landed is read before it is asked for.
+  const witness = rollbackWitness(client.projection, pending.turnCount);
   const access = client.restAccess(native);
   const [commandId] = await access.ids(1);
   await access.dispatch(storage, { type: 'checkpoint.rollback', commandId, threadId, scopeId: str(checkpoint.scopeId),
     checkpointId: str(checkpoint.id), restoreFiles: choice === 'files' }, 'Edit from here');
-  // waitForRevertedMessage: the prompt returns only once the run is rolled back;
-  // the thread's rollbackFailure for this command becomes the thread error.
-  await settleRollback(client, native, storage, threadId, String(commandId), messageRunId, pending.turnCount);
+  // The prompt returns only once the rewind landed; the thread's rollbackFailure for this command becomes the thread error.
+  await settleRollback(client, native, storage, threadId, String(commandId), witness, pending.turnCount);
   const current = client.local.drafts[client.draftKey] ?? '';
   const restored = text.trim() ? text : '';
   if (restored) client.local.drafts[client.draftKey] = current ? `${current}\n\n${restored}` : restored;
   return choice === 'files' ? 'Reverted files and conversation' : 'Reverted conversation';
 }
 
+export interface RollbackWitness { runId: string; providerThreadId: string; providerInstanceId: string; providerThreadIds: Set<string>; threadId: string }
+/**
+ * ChatView waitForRevertedMessage (T3 Code 74541bab17): a rewind commits the whole settled suffix at once, and paging can
+ * omit the message's own run, so the latest settled run after the target stands witness. With none the thread changed.
+ */
+export function rollbackWitness(projection: Obj, turnCount: number): RollbackWitness {
+  const thread = obj(projection.thread), providerThreads = arr(projection.providerThreads);
+  let witness: Obj | undefined;
+  for (const run of arr(projection.runs)) {
+    if (Number(run.ordinal) <= turnCount || !['completed', 'interrupted', 'failed', 'cancelled'].includes(str(run.status))) continue;
+    if (!witness || Number(run.ordinal) > Number(witness.ordinal)) witness = run;
+  }
+  if (!witness) throw new ClientError('The thread has changed. Select a message to rewind again.');
+  const providerThreadId = str(thread.activeProviderThreadId);
+  return { runId: str(witness.id), providerThreadId, providerInstanceId: str(providerThreads.find(entry => entry.id === providerThreadId)?.providerInstanceId),
+    providerThreadIds: new Set(providerThreads.map(entry => str(entry.id))), threadId: str(thread.id) };
+}
+/** The rewind landed: the provider thread's last run is the target (a fresh root session for a rewind to the start), and the witness rolled back. */
+export function rollbackLanded(projection: Obj, witness: RollbackWitness, turnCount: number): boolean {
+  return arr(projection.providerThreads).some(entry => (entry.id === witness.providerThreadId
+    // Claude resets to a fresh root session when rewinding to the thread start.
+    || turnCount === 0 && entry.ownerNodeId == null && entry.appThreadId === witness.threadId && entry.providerInstanceId === witness.providerInstanceId
+      && !witness.providerThreadIds.has(str(entry.id)))
+    && (entry.lastRunOrdinal ?? null) === (turnCount === 0 ? null : turnCount))
+    && arr(projection.runs).some(run => run.id === witness.runId && run.status === 'rolled_back');
+}
 /** Polls the projection for the rollback's outcome, pulling events every third pause, two minutes at most. */
-export async function settleRollback(client: T3Client, native: Native, storage: Files, threadId: string, commandId: string, runId: string, turnCount: number): Promise<void> {
+export async function settleRollback(client: T3Client, native: Native, storage: Files, threadId: string, commandId: string, witness: RollbackWitness, turnCount: number): Promise<void> {
   for (let attempt = 0; attempt < 600; attempt++) {
     if (attempt % 3 === 2) await client.refresh(native, storage);
     if (client.threadId !== threadId) throw new ClientError('That thread is no longer selected.');
     const failure = obj(obj(client.projection.thread).rollbackFailure);
     if (str(failure.requestId) === commandId) throw new ClientError(str(failure.message, 'Failed to revert thread state.'));
-    if (arr(client.projection.runs).some(run => run.id === runId && Number(run.ordinal) > turnCount && run.status === 'rolled_back')) return;
+    if (rollbackLanded(client.projection, witness, turnCount)) return;
     await client.restAccess(native).call({ op: 'timelineSleep', ms: 200 });
   }
   throw new ClientError('Timed out waiting for the thread to rewind.');
@@ -316,21 +344,46 @@ function activity(entry: WorkEntry, root: string, client: T3Client, label?: stri
     answer: entry.questionAnswer && hasQuestionAnswer(entry.questionAnswer) ? questionAnswerPreview(entry.questionAnswer) : '' };
 }
 
-/** T3's timeline rows for the selected thread (MessagesTimeline.logic deriveMessagesTimelineRows). */
-export function transcriptRows(client: T3Client): Message[] {
+/** The selected thread's row input (deriveRows, turnFoldRunIds). */
+function rowInput(client: T3Client, setup = threadWorktreeSetup(client)): RowInput {
   const projection = client.projection, view = timelineView(client), root = workspaceRoot(client);
   const runs = arr(projection.runs), running = activeRun(projection), runless = runlessWorkStartedAt(projection);
-  const setup = threadWorktreeSetup(client);
   const open = (kind: string) => new Set([...view.open].filter(key => key.startsWith(`${client.threadId}\u0000${kind}\u0000`)).map(key => key.split('\u0000')[2]!));
   const provider = arr(client.config.providers).find(provider => provider.instanceId === obj(obj(projection.thread).modelSelection).instanceId);
-  const rows = deriveRows({ rows: client.thread ? arr(projection.visibleTurnItems) : [], runs, attempts: arr(projection.attempts), nodes: arr(projection.nodes),
+  return { rows: client.thread ? arr(projection.visibleTurnItems) : [], runs, attempts: arr(projection.attempts), nodes: arr(projection.nodes),
     checkpoints: arr(projection.checkpoints), isWorking: !!running || runless !== '', runningRunId: str(running?.id), latestRun: runs[runs.length - 1] ?? null,
     // orchestrationV2RunWorkStartedAt: a wake run keeps the start of the work it continues.
     activeStartedAt: running ? str(running.workStartedAt ?? running.startedAt ?? running.requestedAt) : runless, runlessWorkActive: runless !== '', worktreeSetup: setup.snapshot,
-    expandedRuns: threadFindExpanded(client) ? new Set(runs.map(run => str(run.id))) : open('fold'), expandedAttempts: threadFindExpanded(client) ? new Set(arr(projection.attempts).map(attempt => str(attempt.id))) : open('attempt'), expandedGroups: open('group'), root, rollback: provider?.supportsConversationRollback !== false });
+    expandedRuns: threadFindExpanded(client) ? new Set(runs.map(run => str(run.id))) : open('fold'), expandedAttempts: threadFindExpanded(client) ? new Set(arr(projection.attempts).map(attempt => str(attempt.id))) : open('attempt'), expandedGroups: open('group'), root, rollback: provider?.supportsConversationRollback !== false,
+    threadStartCheckpointReady: !client.thread?.hasMore && findRevertCheckpoint(arr(projection.checkpoints), 0) !== undefined,
+    availableRevertTurnCounts: availableRevertTurnCounts(projection) };
+}
+
+/** T3's timeline rows for the selected thread (MessagesTimeline.logic deriveMessagesTimelineRows). */
+export function transcriptRows(client: T3Client): Message[] {
+  const projection = client.projection, view = timelineView(client), root = workspaceRoot(client);
+  const setup = threadWorktreeSetup(client);
+  const rows = deriveRows(rowInput(client, setup));
   const context: PresentContext = { client, root, view, subagents: arr(projection.subagents), providers: arr(client.config.providers), format: client.local.deviceSettings.timestampFormat,
-    preparing: setup.preparing, detailsOpen: worktreeDetailsOpen(client), threads: client.shell.threads };
+    preparing: setup.preparing, compacting: isCompacting(client) && !rows.some(row => row.kind === 'compaction' && row.active), detailsOpen: worktreeDetailsOpen(client), threads: client.shell.threads,
+    workflow: workflowOpening(client) };
   return rows.map(row => present(row, context));
+}
+
+/**
+ * useAssistantCitationTarget's onExpandTurn: opens the turn fold that hides the cited assistant answer, by the
+ * fold's own key (an imported or runless turn's is not its answer's run id). True when it opened one.
+ */
+export function openCitedFold(client: T3Client, messageId: string): boolean {
+  const bare = (id: string) => id.replace(/^(?:turn-item|message):/, '');
+  const wanted = bare(messageId);
+  const row = arr(client.projection.visibleTurnItems).find(row => obj(row.item).type === 'assistant_message' && bare(str(row.sourceItemId)) === wanted);
+  const runId = row && wanted ? turnFoldRunIds(rowInput(client)).get(rowKey(row)) : undefined;
+  if (!runId) return false;
+  const view = timelineView(client), key = scoped(client, 'fold', runId);
+  if (view.open.has(key)) return false;
+  view.open.add(key);
+  return true;
 }
 
 /**
@@ -343,7 +396,9 @@ function forkable(client: T3Client, row: Obj, item: Obj): boolean {
   return assistantCanFork(projection ?? {}, item);
 }
 
-interface PresentContext { client: T3Client; root: string; view: ViewState; subagents: Obj[]; providers: Obj[]; format: string; preparing: boolean; detailsOpen: boolean; threads: Obj[] }
+interface PresentContext { client: T3Client; root: string; view: ViewState; subagents: Obj[]; providers: Obj[]; format: string; preparing: boolean; compacting: boolean; detailsOpen: boolean; threads: Obj[];
+  /** A workflow coordinator's opening, drawn in place of its script's message (timeline-workflow-opening.ts). */
+  workflow: WorkflowOpening | null }
 /** A changing one-line label keyed by its text, so the row redraws it instead of reusing the old string. */
 const keyedLabel = (row: Row, label: string): Activity => ({ id: `${row.id}\u0000${label}`, label, body: '', icon: '', output: '', result: '', failed: false, timestamp: '' });
 const entryCode = (entries: WorkEntry[], client: T3Client): InspectorCode[] => entries.flatMap(entry => {
@@ -361,9 +416,11 @@ function present(row: Row, context: PresentContext): Message {
   switch (row.kind) {
     case 'fold': return { ...base, kind: 'work', title: row.label, runId: row.runId, groupId: row.runId, expanded: row.expanded };
     // While a worktree is prepared the header reads "Setting up worktree…" and the activity row keeps its height empty.
-    case 'working': return { ...base, kind: 'working', title: context.preparing ? 'Setting up worktree…' : 'Working for', live: context.preparing, startedMs: Date.parse(row.createdAt) || 0 };
+    // A compaction with no row of its own yet reads "Compacting…" (WorkingTimelineRow's CompactingLabel).
+    case 'working': return { ...base, kind: 'working', title: context.preparing ? 'Setting up worktree…' : context.compacting ? 'Compacting…' : 'Working for',
+      live: context.preparing || context.compacting, icon: !context.preparing && context.compacting ? 'minimize' : '', startedMs: Date.parse(row.createdAt) || 0 };
     case 'setup': return { ...base, kind: 'worktree-setup', title: 'Worktree setup', setup: [setupView(row.snapshot, row.embedded, context.detailsOpen)] };
-    case 'thinking': return { ...base, kind: 'thinking', title: context.preparing ? '' : 'Thinking', icon: 'brain', live: true, continues: row.continues === true,
+    case 'thinking': return { ...base, kind: 'thinking', title: context.preparing || context.compacting ? '' : 'Thinking', icon: 'brain', live: true, continues: row.continues === true,
       groupId: row.groupId ?? '', expanded: row.expanded === true };
     case 'live': {
       // The latest thought's first sentence sits above the status line (the open group lists it already);
@@ -389,7 +446,8 @@ function present(row: Row, context: PresentContext): Message {
       return { ...base, kind: 'entry', activities, continues: row.continues === true, runId: row.entries[0]?.runId ?? '', code: entryCode(row.entries, context.client) };
     }
     case 'attempt': return { ...base, kind: 'attempt', title: 'Superseded attempt', detail: 'Cut off by a steer', expanded: row.expanded, groupId: row.attemptId, runId: row.runId };
-    case 'compaction': return { ...base, kind: 'compaction', title: row.label, live: row.active, icon: 'minimize', activities: [keyedLabel(row, row.label)] };
+    case 'compaction': return { ...base, kind: 'compaction', title: row.label, live: row.active, icon: 'minimize',
+      activities: [{ ...keyedLabel(row, row.label), ...(row.tokenCounts ? { detail: row.tokenCounts.before, result: row.tokenCounts.after } : {}) }] };
     case 'document': {
       const entry = row.entry, ref = entry.document;
       const key = inlineDocumentKey(context.client, str(entry.row.sourceThreadId), str(entry.item.id), ref);
@@ -405,7 +463,13 @@ function present(row: Row, context: PresentContext): Message {
     case 'checkpoint': return { ...base, kind: 'checkpoint', title: 'Changes', checkpointId: str(row.entry.item.checkpointId), runId: str(row.entry.item.runId),
       sourceThreadId: str(row.entry.row.sourceThreadId), files: arr(row.entry.item.files).map(file => ({ path: str(file.path), additions: num(file.additions), deletions: num(file.deletions) })) };
     case 'event': if (row.entry.item.type === 'secret_request') return { ...base, kind: 'secret', secret: secretCard(context.client, row.entry.item, row.entry.row.visibility) };
-      return { ...base, ...eventRow(row.entry.item, row.subagents, row.entry.row, { agents: context.subagents, providers: context.providers, runs: arr(context.client.projection.runs), threads: context.threads }) };
+    {
+      const event = eventRow(row.entry.item, row.subagents, row.entry.row, { agents: context.subagents, providers: context.providers, runs: arr(context.client.projection.runs), threads: context.threads });
+      if (event.kind !== 'subagents') return { ...base, ...event };
+      // A group of subagents opens and closes as a work group does (the `group` toggle, kept per thread).
+      const groupId = `subagent-group:${row.id}`;
+      return { ...base, ...event, groupId, expanded: view.open.has(scoped(context.client, 'group', groupId)) };
+    }
 
     case 'meta': return { ...base, kind: 'meta', body: str(row.entry.item.text), runId: str(row.entry.item.runId), completed: true, canFork: forkable(context.client, row.entry.row, row.entry.item),
       actionsId: row.entry.id, copied: view.copies.get(row.entry.id)?.nonce ?? 0, copyFailed: view.copies.get(row.entry.id)?.ok === false };
@@ -419,14 +483,18 @@ function present(row: Row, context: PresentContext): Message {
           meta: row.meta, streaming: item.streaming === true || row.inProgress, code: messageCodeBlocks(text),
           diagrams: messageDiagrams(text, item.streaming === true || row.inProgress) };
       }
+      if (context.workflow && context.workflow.messageId === str(item.messageId)) {
+        const opening = workflowOpeningMessage(context.workflow, { agents: [], providers: context.providers, threads: context.threads }, threadFindView(context.client).highlight);
+        return { ...common, ...opening, code: messageCodeBlocks(opening.body) };
+      }
       const intent = str(item.inputIntent), sender = userMessagePresentation(item);
       const text = relabelThreadLinks(renderCodexInlineDirectivesAsMarkdown(sender.text), context.threads), chips = messageChips({ ...item, text }, context.root, context.threads, row.id, {}, context.client), attached = messageAttachments(item), chipped = chippedAttachmentIds(chips);
       // A file with a chip in the prose needs no standalone row (images always show).
       return { ...common, kind: 'user', title: 'You', body: text, revert: row.revert, images: attached.images, attachFiles: attached.attachFiles.filter(file => !chipped.has(file.id)), chips, code: messageCodeBlocks(text), diagrams: messageDiagrams(text, false),
         collapsible: shouldCollapseUserMessage(text),
-        intent: intent === 'queued_turn' ? 'From queue' : intent === 'steer' || intent === 'promoted_queued_to_steer' ? 'Steer' : '',
-        intentTip: intent === 'queued_turn' ? 'Queued while the agent was busy' : intent === 'promoted_queued_to_steer'
-          ? 'Originally queued, then promoted to steer the active turn' : intent === 'steer' ? 'Steered the active turn' : '',
+        // A queued message that was sent reads as any other; only a steer keeps its marker.
+        intent: intent === 'steer' || intent === 'promoted_queued_to_steer' ? 'Steer' : '',
+        intentTip: intent === 'promoted_queued_to_steer' ? 'Originally queued, then promoted to steer the active turn' : intent === 'steer' ? 'Steered the active turn' : '',
         attribution: sender.attribution, targetId: str(item.senderThreadId), detail: sender.scheduledTaskId,
         status: ['completed', 'pending', 'waiting'].includes(str(item.status)) ? '' : str(item.status) };
     }
@@ -485,12 +553,12 @@ export function timelineMessages(client: T3Client, transcript: Message[], now: n
       activities: retryableActivities(client, (message.activities ?? []).map(activity => ({ ...blankActivity({ ...activity, timestamp: messageTime(activity.timestamp, now, format) }), timeTip: timestampTooltip(activity.timestamp, format) }))),
       first: false, attached: false, hoverKey: message.id, actionsId: '', actionsFork: false, actionsTime: '', expanded: message.kind === 'checkpoint' ? tree.all : message.expanded === true, last: false,
       icon: message.icon ?? '', tone: message.tone ?? '', failed: message.failed === true, live: message.live === true,
-      startedMs: message.startedMs ?? 0, detail: message.detail ?? '', status: message.status ?? '', groupId: message.groupId ?? '',
+      startedMs: message.startedMs ?? 0, elapsed: message.elapsed ?? '', detail: message.detail ?? '', status: message.status ?? '', groupId: message.groupId ?? '',
       continues: message.continues === true, revert: message.revert ?? -1, intent: message.intent ?? '', intentTip: message.intentTip ?? '',
       attribution: message.attribution ?? '', targetId: message.kind === 'checkpoint' ? files[0]?.path ?? '' : message.targetId ?? '', actionLabel: message.actionLabel ?? '',
       copied: message.copied ?? 0, copyFailed: message.copyFailed === true, meta: message.meta !== false,
       collapsible: message.collapsible === true, code: message.code ?? [], diagrams: message.diagrams ?? [], inlineDocuments: message.inlineDocuments ?? [], setup: message.setup ?? [], fileCount: message.kind === 'checkpoint' ? files.length : 0,
-      secret: message.secret ?? [], images: message.images ?? [], attachFiles: message.attachFiles ?? [], md: { ...md, chips: message.chips ?? [], threadGlyphs: markdownThreadGlyphs(client, str(message.body)), runCommands: client.projectId ? runnableShellCommands(str(message.body), message.streaming === true) : [] } };
+      secret: message.secret ?? [], findLines: message.findLines ?? [], images: message.images ?? [], attachFiles: message.attachFiles ?? [], md: { ...md, chips: message.chips ?? [], threadGlyphs: markdownThreadGlyphs(client, str(message.body), message.chips ?? []), runCommands: client.projectId ? runnableShellCommands(str(message.body), message.streaming === true) : [] } };
   });
   timelineView(client).lastRows = { threadId: client.threadId, rows: rows.map(row => ({ id: row.id, kind: row.kind, body: row.body })) };
   rows.forEach((row, index) => {

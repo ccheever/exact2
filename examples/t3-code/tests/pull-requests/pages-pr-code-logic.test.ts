@@ -241,6 +241,25 @@ describe('resolveDiffReviewPosition (reviewCommentContext.ts)', () => {
     expect(resolveDiffReviewPosition(target!, 4, 'additions')).toEqual({ kind: 'context', oldLine: 4, newLine: 4, side: 'right' });
     expect(resolveDiffReviewPosition(target!, 40, 'additions')).toBeNull();
   });
+  // reviewCommentContext.test.ts at 74541bab17, the hydrated file being the clone's loaded contents.
+  test("anchors review comments only on lines inside the host's hunks", () => {
+    const oldLines = Array.from({ length: 30 }, (_, index) => `line ${index + 1}\n`);
+    const newLines = [...oldLines.slice(0, 6), ...Array.from({ length: 10 }, (_, index) => `new ${index + 1}\n`), ...oldLines.slice(6)].map(line => (line === 'line 25\n' ? 'line twenty-five\n' : line));
+    const patch = ['diff --git a/src/app.ts b/src/app.ts', '--- a/src/app.ts', '+++ b/src/app.ts', '@@ -4,6 +4,16 @@', ' line 4', ' line 5', ' line 6', ...Array.from({ length: 10 }, (_, index) => `+new ${index + 1}`),
+      ' line 7', ' line 8', ' line 9', '@@ -22,7 +32,7 @@', ' line 22', ' line 23', ' line 24', '-line 25', '+line twenty-five', ' line 26', ' line 27', ' line 28'].join('\n');
+    const result = renderablePatch(`${patch}\n`, false), file = result?.kind === 'files' ? result.files[0]! : null;
+    expect(resolveDiffReviewPosition(file!, 25, 'additions')).toBeNull();
+    expect(resolveDiffReviewPosition(file!, 23, 'additions')).toBeNull();
+    expect(resolveDiffReviewPosition(file!, 15, 'deletions')).toBeNull();
+    const contents = { oldContents: oldLines.join(''), newContents: newLines.join('') };
+    for (const [line, side] of [[1, 'additions'], [25, 'additions'], [39, 'additions'], [1, 'deletions'], [15, 'deletions'], [29, 'deletions']] as const) {
+      expect(resolveDiffReviewPosition(file!, line, side, contents)).toBeNull();
+    }
+    expect(resolveDiffReviewPosition(file!, 33, 'additions', contents)).toEqual({ kind: 'context', oldLine: 23, newLine: 33, side: 'right' });
+    expect(resolveDiffReviewPosition(file!, 23, 'deletions', contents)).toEqual({ kind: 'context', oldLine: 23, newLine: 33, side: 'left' });
+    expect(resolveDiffReviewPosition(file!, 7, 'additions', contents)).toEqual({ kind: 'added', newLine: 7 });
+    expect(resolveDiffReviewPosition(file!, 25, 'deletions', contents)).toEqual({ kind: 'deleted', oldLine: 25 });
+  });
   test('each position is pinned under its own line and side', () => {
     expect(reviewPositionAnchor({ kind: 'added', newLine: 5 })).toEqual({ line: 5, side: 'right' });
     expect(reviewPositionAnchor({ kind: 'deleted', oldLine: 5 })).toEqual({ line: 5, side: 'left' });

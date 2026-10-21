@@ -1,0 +1,59 @@
+// The Code tab when its first slice fails, measured against T3 Code 74541bab17 (MIT, see LICENSE-T3)
+// components/pullRequest/PullRequestDiffUnavailableState.tsx over ui/empty.tsx size "compact": the
+// warning glyph in its tinted circle, the title and the description pullRequestDiffError.ts words
+// (pages-pr-code-logic.ts describePullRequestDiffError), Try again and "Open on <host>", and the
+// host's own words behind "Technical details". The toolbar stays above it (PrdCode).
+use PgIcon from "../shared/pages-icons.contract"
+
+fn pduMuted(): string = "light-dark(#71717b, #818181)"
+fn pduInk(): string = "light-dark(#27272a, #f5f5f5)"
+
+component PrdDiffUnavailable
+  inject
+    linkOpen: action
+  props
+    error: string
+    title: string
+    description: string
+    providerName: string
+    url: string
+    retry: action
+  state detailsOpen = false
+  state overRetry = false
+  state overOpen = false
+  state overDetails = false
+  action toggleDetails
+    detailsOpen = not detailsOpen
+  action hoverRetry(value: bool)
+    overRetry = value
+  action hoverOpen(value: bool)
+    overOpen = value
+  action hoverDetails(value: bool)
+    overDetails = value
+  view
+    // Empty size="compact" className="min-h-full": min-h-64, gap-4, md:p-10, centred.
+    column flex=1 width="100%" min-height="16rem" padding="2.5rem" box-sizing="border-box" align-items="center" justify-content="center" gap="1rem" text-align="center" text-wrap="balance" role="status" testId="pull-request-code-unavailable"
+      box width="2.75rem" height="2.75rem" flex-shrink=0 border-radius="624.9375rem" background-color="light-dark(#fe9a0014, #fe9a0029)" display="flex" align-items="center" justify-content="center"
+        PgIcon(name="triangle-alert", size=20, color="#fe9a00")
+      column max-width="24rem" align-items="center"
+        text title font-size="1.0625rem" line-height="1.5rem" font-weight=600 text-align="center" color=pduInk() testId="pull-request-code-unavailable-title"
+        text description margin-top="0.25rem" font-size="0.8125rem" line-height="1.125rem" text-align="center" color=pduMuted() testId="pull-request-code-unavailable-text"
+      row flex-wrap="wrap" justify-content="center" gap="0.5rem"
+        // Button size="sm" (default): Try again with the refresh glyph.
+        button press=retry hover=hoverRetry testId="pull-request-code-retry" height="1.75rem" padding-left="0.4375rem" padding-right="0.5625rem" box-sizing="border-box" gap="0.25rem" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#1b4ed8, #346bf1)" background-color=(overRetry ? "light-dark(#1b4ed8e6, #346bf1e6)" : "light-dark(#1b4ed8, #346bf1)") box-shadow="inset 0 1px 0 #ffffff29" display="flex" flex-direction="row" align-items="center" flex-shrink=0
+          PgIcon(name="refresh-cw", size=14, color="#ffffff")
+          text "Try again" font-size="0.875rem" line-height="1.25rem" font-weight=500 white-space="nowrap" color="#ffffff"
+        // Button size="sm" variant="outline" rendered as the pull request's link.
+        if url != ""
+          link href=url press=linkOpen("button", url) hover=hoverOpen cursor="pointer" text-decoration-line="none" testId="pull-request-code-open-host" height="1.75rem" padding-left="0.4375rem" padding-right="0.5625rem" box-sizing="border-box" gap="0.25rem" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#d4d4d8, #ffffff14)" background-color=(overOpen ? "light-dark(#f4f4f580, #ffffff0d)" : "light-dark(#ffffff, #ffffff07)") box-shadow="0 1px 2px #0000000d" display="flex" flex-direction="row" align-items="center" flex-shrink=0
+            PgIcon(name="external-link", size=14, color=pduMuted())
+            text `Open on ${providerName}` font-size="0.875rem" line-height="1.25rem" font-weight=500 white-space="nowrap" color=pduInk()
+      // <details>: "Technical details" opens the host's words in a bordered, scrolling block.
+      column width="100%" max-width="32rem" align-items="center"
+        button press=toggleDetails hover=hoverDetails aria-expanded=detailsOpen testId="pull-request-code-technical" padding=0 border-width=0 border-radius="0.25rem" background-color="#00000000" display="flex" flex-direction="row" align-items="center" gap="0.25rem" title=""
+          box width="0.75rem" height="0.75rem" rotate=(detailsOpen ? 90 : 0) display="flex" aria-hidden=true
+            PgIcon(name="chevron-right", size=12, color=(overDetails ? pduInk() : pduMuted()))
+          text "Technical details" font-size="0.75rem" line-height="1rem" color=(overDetails ? pduInk() : pduMuted())
+        if detailsOpen
+          scroll width="100%" max-height="10rem" margin-top="0.75rem" padding="0.75rem" box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#e4e4e7, #ffffff14)" background-color="light-dark(#f4f4f566, #ffffff0a)" testId="pull-request-code-technical-text"
+            text error width="100%" text-align="left" white-space="pre-wrap" overflow-wrap="anywhere" font-family="ui-monospace" font-size="0.75rem" line-height="1rem" color=pduMuted() user-select="text"

@@ -89,6 +89,18 @@ test('a repository link stages its provider/model while preserving an unfinished
   expectNotSent(native);
 });
 
+test('a repository link opened from a thread lands in the project\'s new-thread draft, not that thread', async () => {
+  const { client, native, disk, open, command } = await setup();
+  await command('select-thread', 't1');
+  await client.refresh(native, disk.files);
+  expect(client.threadId).toBe('t1');
+  await open('t3code://new?prompt=Linked+work&repo=me/repo');
+  expect(client).toMatchObject({ projectId: 'p1', threadId: '' });
+  expect(client.local.drafts['env1:new:p1']).toBe('Linked work');
+  expect(client.local.drafts['env1:t1'] ?? '').toBe('');
+  expectNotSent(native);
+});
+
 test('a missing repository requires a clone or No project choice and unavailable providers explain the fallback', async () => {
   const { client, native, open, command } = await setup();
   await open('t3code://new?prompt=Read+me&repo=missing/repo&provider=cursor');
@@ -231,6 +243,23 @@ test('a web link opens a thread without a project with its Browser panel maximiz
   expect(native.calls.filter(call => call.method === 'projects.ensureScratch')).toHaveLength(1);
   expect(previewOpens(native).at(-1)).toMatchObject({ threadId, url: 'http://localhost:5173/' });
   expect(promptLinkView(client).show).toBe(false);
+  expectNotSent(native);
+});
+
+// DesktopWebLinkCoordinator: a pull request link a connected project reads opens the pull request view.
+test('a pull request link for a connected project opens the Pull Requests page on it; other links open the browser', async () => {
+  const { client, native, open } = await setup();
+  obj(arr(native.shell.projects)[0]).repositoryIdentity = { provider: 'github', canonicalKey: 'github.com/me/repo', owner: 'me', name: 'repo', displayName: 'me/repo' };
+  await client.refresh(native, storage().files);
+  client.config = { ...client.config, environment: { ...obj(client.config.environment), capabilities: { ...obj(obj(client.config.environment).capabilities), pullRequests: true } } };
+  const opened = await open('https://github.com/me/repo/pull/7');
+  expect(opened.message.startsWith('sidebar:pr-page:')).toBe(true);
+  expect(JSON.parse(opened.message.slice('sidebar:pr-page:'.length))).toMatchObject({ repository: 'me/repo', number: 7 });
+  expect(previewOpens(native)).toHaveLength(0);
+  // A repository no project reads, and the setting off, go to the browser panel.
+  expect((await open('https://github.com/someone/else/pull/3')).message).toBe('sidebar:new-thread');
+  (client.local as { clientSettings?: Obj }).clientSettings = { pullRequestLinksOpenInApp: false };
+  expect((await open('https://github.com/me/repo/pull/7')).message.startsWith('sidebar:pr-page:')).toBe(false);
   expectNotSent(native);
 });
 

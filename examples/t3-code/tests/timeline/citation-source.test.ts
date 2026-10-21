@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import { citationJump, citedRow, revealCitation } from '../../src/timeline/citation-source';
 import { T3Client } from '../../src/client/client';
-import { chatLocal, timelineSnapshot, timelineView } from '../../src/timeline/timeline-presentation';
+import { chatLocal, openCitedFold, timelineSnapshot, timelineView, transcriptRows } from '../../src/timeline/timeline-presentation';
 import type { Native } from '../../src/client/protocol';
 
 const rows = [
@@ -71,5 +71,46 @@ describe('a quote that no longer reads in its answer', () => {
     expect(quoteChanged(rows('fixture turn 7'), 0, 'message:provider:codex:native-item:a7')).toBe(false);
     expect(quoteChanged(rows('History fixture turn 6 complete.'), 0, 'message:provider:codex:native-item:a7')).toBe(true);
     expect(quoteChanged(rows('anything'), 0, 'message:provider:codex:native-item:zz')).toBe(false);
+  });
+});
+
+// useAssistantCitationTarget at T3 Code 74541bab17 (#18423): a cited answer a turn fold hides opens that fold, by the
+// fold's own key; an imported turn has no run id and folds under `runless:<prompt>`.
+describe('a cited answer inside a folded turn', () => {
+  const at = (seconds: number) => new Date(Date.parse('2026-10-03T00:00:00.000Z') + seconds * 1000).toISOString();
+  function folded(runId: string | null) {
+    const item = (id: string, type: string, seconds: number, extra: Record<string, unknown>) =>
+      ({ id, threadId: 't1', runId, nodeId: null, ordinal: seconds, status: 'completed', startedAt: at(seconds), updatedAt: at(seconds), type, ...extra });
+    const items = [
+      item('prompt', 'user_message', 0, { text: 'Investigate the issue.', messageId: 'm-prompt', inputIntent: 'turn_start', attachments: [], createdBy: 'user' }),
+      item('source', 'assistant_message', 2, { text: 'The imported response contains this cited detail.', messageId: 'm-source', streaming: false }),
+      item('answer', 'assistant_message', 9, { text: 'Investigation complete.', messageId: 'm-answer', streaming: false }),
+    ];
+    const projection = { thread: { id: 't1', projectId: 'p1' }, runs: runId ? [{ id: runId, status: 'completed', startedAt: at(0), completedAt: at(10) }] : [],
+      attempts: [], nodes: [], checkpoints: [], visibleTurnItems: items.map((value, position) => ({ position, visibility: 'local', sourceThreadId: 't1', sourceItemId: value.id, item: value })) };
+    const thread = { projection };
+    const value = { threadId: 't1', projectId: 'p1', shell: { projects: [{ id: 'p1', workspaceRoot: '/work' }], threads: [{ id: 't1' }] },
+      config: { providers: [] }, local: { deviceSettings: { timestampFormat: '24-hour' } }, thread, projection,
+      restAccess: () => ({ call: async () => ({}) }) } as unknown as T3Client;
+    return value;
+  }
+  const drawn = (value: T3Client) => transcriptRows(value).map(row => ({ id: row.id, kind: row.kind, body: String(row.body ?? '') }));
+  test.each([['imported runless', null], ['standard', 'citation-run']] as const)('a %s turn opens, then its answer is placed', async (_label, runId) => {
+    const value = folded(runId);
+    expect(drawn(value).map(row => row.kind)).toEqual(['user', 'work', 'assistant']);
+    expect(citedRow(drawn(value), 'message:source')).toBe(-1);
+    const wakes: string[] = [];
+    timelineView(value).lastRows = { threadId: 't1', rows: drawn(value) };
+    // The window's data source reads the rows again when woken.
+    const native = { available: true, watch() {}, async later(request: Record<string, unknown>) {
+      if (request.op === 'wake') { wakes.push(String(request.topic)); timelineView(value).lastRows = { threadId: 't1', rows: drawn(value) }; }
+      return { ok: true, generation: request.generation, value: {} };
+    } } as unknown as Native;
+    await chatLocal(value, native, 'chip-citation', 't1', 'message:source');
+    expect(wakes).toEqual(['t3.notify']);
+    expect(timelineSnapshot(value).citeJump.key).toBe('["t1","source"]');
+    expect(drawn(value).map(row => row.kind)).toEqual(['user', 'work', 'assistant', 'assistant']);
+    expect(openCitedFold(value, 'message:source')).toBe(false); // already open
+    expect(openCitedFold(value, 'message:prompt')).toBe(false); // not an assistant answer
   });
 });

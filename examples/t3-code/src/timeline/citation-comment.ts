@@ -12,7 +12,7 @@ import { composerFieldOwner } from '../composer/auto-balance-owner';
 import { composerFieldCurrent } from '../composer/composer-field-bridge';
 import { composerChipCurrent, composerCitationNoEdit, composerCitationPrepare } from '../composer/composer-chip-bridge';
 import { composerChipStore } from '../composer/composer-chip-store';
-import { insertCitation } from '../composer/composer-source-chips';
+import { composerCitationHref, insertCitation } from '../composer/composer-source-chips';
 import type { ComposerEdit } from '../composer/composer-markdown-edit';
 import type { ComposerCitationEffect } from '../composer/composer-citation-receipts';
 import type { ComposerFieldSnapshot } from '../composer/composer-field-commands';
@@ -20,11 +20,9 @@ import { bridgeReply, ClientError, type Native } from '../client/protocol';
 import { ASSISTANT_CITATION_MAX_COMMENT_LENGTH, parseAssistantCitationHref, serializeAssistantCitation, withAssistantCitationComment, type AssistantCitation } from './diff-citations';
 import type { ChipPopover } from '../composer/composer-chip-popover';
 
-const LINK = /^\[Assistant quote\]\((t3-citation:\/\/v1\/[^\s)]+)\)$/;
-
 /** The citation a composer chip's source link holds, or null. */
 export function citationOfLink(link: string) {
-  const href = LINK.exec(link)?.[1];
+  const href = composerCitationHref(link);
   return href ? parseAssistantCitationHref(href) : null;
 }
 

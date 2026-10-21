@@ -9,6 +9,7 @@ import { arr, obj, str, type Obj } from '../client/domain';
 import { visiblePullRequests } from '../panel/shell-pr';
 import { ClientError, activeRun, launchPayload, type Files, type Native } from '../client/protocol';
 import { pushToast } from '../shell/toast';
+import { wokeAt as sidebarWokeAt } from '../sidebar/sidebar-model';
 import { beginQueuedEdit, cancelQueuedEdit, queuedDrop, queueState, removeQueuedEditAttachment } from './composer-controls-queue';
 import { branchMenu, dismissBranchMismatch, restoreThreadBranch, selectBranch, setEnvMode } from './composer-controls-branch';
 import { attachIncoming, type IncomingFiles } from './composer-controls-attach';
@@ -77,17 +78,9 @@ export function lockedProviderReason(client: T3Client, providerId: string): stri
 // ── Woke acknowledgment ────────────────────────────────────────────────────
 
 const prefs = (client: T3Client): ComposerControlsPrefs => client.local.composerControls;
-/** threadWokeAt for an unsnoozed timer wake or an early raised hand (threadSettled.ts). */
+/** threadWokeAt for an unsnoozed timer wake or an early raised hand, as the sidebar computes it (threadSettled.ts). */
 export function wokeAt(shell: Obj, now: number): string {
-  const until = Date.parse(str(shell.snoozedUntil));
-  if (!str(shell.snoozedUntil) || !Number.isFinite(until)) return '';
-  const run = obj(shell.latestRun), snoozedAt = Date.parse(str(shell.snoozedAt));
-  const failed = ['error', 'failed'].includes(str(obj(shell.runtime ?? shell.session).status))
-    && (!Number.isFinite(snoozedAt) || Date.parse(str(obj(shell.runtime ?? shell.session).updatedAt)) > snoozedAt);
-  const completedAfter = Number.isFinite(snoozedAt) && run.status === 'completed' && Date.parse(str(run.completedAt)) > snoozedAt;
-  const raised = !!shell.pendingRuntimeRequest || shell.hasPendingApprovals === true || shell.hasPendingUserInput === true || failed || completedAfter;
-  if (raised) return completedAfter ? str(run.completedAt) : str(obj(shell.runtime ?? shell.session).updatedAt) || str(shell.snoozedAt);
-  return until <= now ? str(shell.snoozedUntil) : '';
+  return sidebarWokeAt(shell, now) ?? '';
 }
 /**
  * useAcknowledgeThreadWoke: a visit at the wake time clears Woke. Servers with
@@ -207,9 +200,15 @@ export async function composerCommand(client: T3Client, native: Native, storage:
   if (op === 'branch-restore' || op === 'branch-restore-confirmed') return restoreThreadBranch(client, native, storage, op === 'branch-restore-confirmed');
   if (op === 'branch' || op === 'branch-create') return selectBranch(client, native, storage, value, op === 'branch-create');
   if (op === 'stop-background') {
-    // interruptThreadTurn: the active run, else the latest one while background work is pending; with
-    // neither, a PR watch can still hold the thread (one that never ran too).
+    // interruptThreadTurn: `thread.stop` when the server advertises threadStop; otherwise the active run, else the
+    // latest one while background work is pending; with neither, a PR watch can still hold the thread (one that never
+    // ran too).
     const projection = requireThread(client), threadId = client.threadId;
+    if (client.threadStopOffered) {
+      const [commandId] = await access.ids(1);
+      await access.dispatch(storage, { type: 'thread.stop', commandId, threadId }, 'Stop background work');
+      return '';
+    }
     const pending = arr(client.shell?.threads.find(thread => thread.id === threadId)?.pendingBackgroundTasks).length > 0;
     const run = activeRun(projection) ?? (pending ? arr(projection.runs).at(-1) : undefined);
     if (!run) {

@@ -6,7 +6,7 @@ import type { T3Client } from '../../src/client/client';
 import type { Message, Obj } from '../../src/client/domain';
 import { chatLocal, timelineMessages, transcriptRows } from '../../src/timeline/timeline-presentation';
 import { entryIcon, projectedWorkEntry } from '../../src/timeline/timeline-worklog';
-import { subagent } from '../../src/timeline/timeline-events';
+import { subagent, subagentGroupTiming, summarizeSubagentStatuses } from '../../src/timeline/timeline-events';
 import {
   assistantCanFork, canForkProjectedAssistantItem, decodeNotificationSource, externalWebLinkHref, formatElapsedSeconds,
   groupToolPresentation, inspectorExtras, subagentElapsedMs,
@@ -204,6 +204,26 @@ describe('the subagent card', () => {
     // The parent's record of the subagent wins over the item, as SubagentTimelineLink reads it.
     expect(subagent(settled, { agents: [{ id: 'node-sub-1', status: 'running', startedAt: at(0), completedAt: null }], providers: [] })).toMatchObject({ startedMs: base, output: '' });
   });
+  test('several subagents fold under one row: count, status summary, the group\'s time, and the group toggle', async () => {
+    // In a running turn, so its work does not fold away.
+    const agent = (id: string, seconds: number, extra: Obj) => item(id, 'subagent', seconds, { runId: 'r1', subagentId: id, driver: 'codex', providerInstanceId: 'codex', childThreadId: `c-${id}`, title: id, ...extra });
+    const turn = { runs: [{ id: 'r1', status: 'running', startedAt: at(0) }] };
+    const value = client([user('u', 0), agent('s1', 1, { completedAt: at(20) }), agent('s2', 2, { completedAt: at(65) }), agent('s3', 3, { status: 'failed', completedAt: at(30) }), agent('s4', 4, { status: 'cancelled', completedAt: at(40) })], turn);
+    const group = rows(value).find(row => row.kind === 'subagents')!;
+    expect(group).toMatchObject({ title: '4 subagents', detail: '2 done · 1 failed · 1 stopped', live: false, failed: true, startedMs: 0, elapsed: '1m 04s', expanded: false });
+    expect(group.activities!.map(activity => activity.label)).toEqual(['s1', 's2', 's3', 's4']);
+    await chatLocal(value, native, 'group', group.groupId!, '');
+    expect(rows(value).find(row => row.kind === 'subagents')).toMatchObject({ expanded: true });
+    // A working member keeps the group live, ticking from the earliest start.
+    const live = rows(client([user('u', 0), agent('s1', 1, { status: 'running', completedAt: null }), agent('s2', 2, { completedAt: at(9) })], turn)).find(row => row.kind === 'subagents')!;
+    expect(live).toMatchObject({ detail: '1 working · 1 done', live: true, startedMs: base + 1_000, elapsed: '' });
+  });
+  test('summarizeSubagentStatuses and subagentGroupTiming', () => {
+    expect(summarizeSubagentStatuses(['idle', 'cancelled', 'failed', 'completed', 'waiting', 'pending'])).toBe('2 working · 1 done · 1 failed · 1 stopped · 1 idle');
+    expect(subagentGroupTiming([{ status: 'completed', startedAt: at(2), completedAt: at(9) }, { status: 'failed', startedAt: at(1), completedAt: at(5) }]))
+      .toEqual({ status: 'completed', startedAt: at(1), completedAt: at(9) });
+    expect(subagentGroupTiming([{ status: 'completed', startedAt: at(2), completedAt: null }, { status: 'completed', startedAt: at(1), completedAt: at(5) }]).completedAt).toBeNull();
+  });
   test('a live subagent keeps the timeline clock ticking', () => {
     const value = client([item('x', 'subagent', 6, { subagentId: 's', driver: 'codex', providerInstanceId: 'codex', status: 'running', childThreadId: null, result: null })]);
     expect(rows(value).find(row => row.kind === 'subagent')!.activities![0]).toMatchObject({ startedMs: base + 6_000 });
@@ -247,5 +267,23 @@ describe('the timeline clock and the work rows in Contract', () => {
     expect([0, 999, 1_000, 59_999, 65_000, 3_720_000].map(after => row(running, base + 6_000 + after))).toEqual(['0s', '0s', '1s', '59s', '1m 05s', '1h 02m']);
     expect(row(running, base)).toBe('0s'); // a clock behind the start reads 0s, as AgentElapsed's max(0, …)
     expect(row({ startedMs: 0, output: '1m 05s' }, base + 999_999)).toBe('1m 05s'); // settled: fixed
+  });
+});
+
+// #18831: Enter or Space on a control inside an expanded tool row must not also toggle the row. Upstream the row's
+// onKeyDown heard keys bubbling from its children; here the row is a `button` with only a `press`, and a press goes to
+// the nearest node that takes one and no node above it (docs/contract-grammar.md, "`press` is DOM's `click` stopped at
+// its handler"), so a nested button's activation is its own.
+describe('keys inside an expanded tool row (#18831)', () => {
+  test('the row toggle hears no keys of its own; the nested Open subagent and Open diff buttons press themselves', async () => {
+    const lines = (await source('timeline-work.contract')).split('\n');
+    const at = lines.findIndex(line => line.includes('testId=`work-detail-${entry.id}`'));
+    expect(at).toBeGreaterThan(0);
+    expect(lines[at]).toContain('button press=command("chatlocal:item-detail"');
+    expect(lines[at]).not.toMatch(/\skey(capture)?=/);
+    const indent = lines[at]!.search(/\S/);
+    const block = lines.slice(at + 1, at + 1 + lines.slice(at + 1).findIndex(line => line.trim() && line.search(/\S/) <= indent));
+    expect(block.some(line => /button press=command\("open-related-thread", entry\.targetId/.test(line))).toBe(true);
+    expect(lines.some(line => /button press=command\("turn-diff", entry\.diffPath, entry\.diffRunId, 0\)/.test(line))).toBe(true);
   });
 });

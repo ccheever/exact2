@@ -115,8 +115,8 @@ export async function scopeMemberFiles(client: Writer, native: Native | null | u
     const environment = environments.find(candidate => candidate.environmentId === member.environmentId);
     if (!environment || environment.connection.phase !== 'connected') return;
     try {
-      const result = await environmentRequest(client, native, environment, 'projects.readFile', { cwd: member.workspaceRoot, relativePath: 't3.json' }, false, source);
-      files.set(member.physicalProjectKey, result.truncated === true ? null : parse(str(result.contents)));
+      const result = await environmentRequest(client, native, environment, 'projects.readFile', { cwd: member.workspaceRoot, relativePath: 't3.json', allowMissing: true }, false, source);
+      files.set(member.physicalProjectKey, result.exists === false || result.truncated === true ? null : parse(str(result.contents)));
     } catch { files.set(member.physicalProjectKey, null); }
   }));
   return files;

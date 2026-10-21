@@ -103,8 +103,49 @@ final class LocalShellEnvironmentTests: XCTestCase {
         XCTAssertEqual(env["PATH"], "/usr/bin")
     }
 
+    /// packages/shared/src/shell.test.ts at 74541bab17 (the Nushell cases, over a fixture: no Nu here).
+    func test_captures_Nushell_PATH_and_multiline_values_without_external_tools() {
+        var env = ["SHELL": "/opt/homebrew/bin/nushell", "PATH": "/usr/bin"]
+        var commands: [String] = []
+        T3LocalShellEnvironment.install(into: &env) { command, args, _ in
+            commands.append(command)
+            XCTAssertEqual(args.first, "-ilc")
+            XCTAssertTrue(args[1].hasPrefix("print '__T3CODE_ENV_PATH_START__'; print (if $env.PATH? == null { '' } else if "), "Nu syntax, not printf")
+            XCTAssertFalse(args[1].contains("printenv"))
+            return "startup noise\n" + envOutput(["PATH": "/Users/me/nu tools/bin:/Users/me/extra-tools/bin", "__MISE_DIFF": "  first\nsecond  "])
+        }
+        XCTAssertEqual(commands, ["/opt/homebrew/bin/nushell"])
+        XCTAssertEqual(env["PATH"], "/Users/me/nu tools/bin:/Users/me/extra-tools/bin:/usr/bin")
+        XCTAssertEqual(env["__MISE_DIFF"], "  first\nsecond  ")
+    }
+
+    func testNushellPATHUsesItsConversionOrExpandsAListPATH() {
+        let command = T3LocalShellEnvironment.captureCommand("/Users/me/.cargo/bin/NU", ["PATH", "SSH_AUTH_SOCK"])
+        XCTAssertEqual(command, "print '__T3CODE_ENV_PATH_START__'; print (if $env.PATH? == null { '' } else if $env.ENV_CONVERSIONS?.PATH?.to_string? != null { "
+            + "$env.PATH | do $env.ENV_CONVERSIONS.PATH.to_string $env.PATH } else { if ($env.PATH? | describe | str starts-with 'list') { "
+            + "$env.PATH | each {|p| if ($p | str starts-with '~') { $p | path expand --no-symlink } else { $p } } | str join (char esep) } "
+            + "else { $env.PATH? | default '' } }); print '__T3CODE_ENV_PATH_END__'; "
+            + "print '__T3CODE_ENV_SSH_AUTH_SOCK_START__'; print (if $env.SSH_AUTH_SOCK? == null { '' } else if $env.ENV_CONVERSIONS?.SSH_AUTH_SOCK?.to_string? != null { "
+            + "$env.SSH_AUTH_SOCK | do $env.ENV_CONVERSIONS.SSH_AUTH_SOCK.to_string $env.SSH_AUTH_SOCK } else { $env.SSH_AUTH_SOCK? | default '' }); "
+            + "print '__T3CODE_ENV_SSH_AUTH_SOCK_END__'")
+        XCTAssertTrue(T3LocalShellEnvironment.captureCommand("/bin/zsh", ["PATH"]).hasPrefix("printf "))
+    }
+
+    /// The probe runs in a session of its own (no controlling terminal for job control to stop it on), reads
+    /// /dev/null and discards stderr.
+    func testTheProbeRunsDetachedWithStdinAndStderrIgnored() {
+        let output = T3LocalShellEnvironment.runCommand("/bin/sh", ["-c", "echo noise >&2; cat; echo pid=$$; ps -o pgid=,tty= -p $$"], 5)
+        let lines = output.split(separator: "\n").map { $0.trimmingCharacters(in: .whitespaces) }
+        XCTAssertEqual(lines.count, 2, output)
+        guard lines.count == 2, let pid = lines[0].split(separator: "=").last else { return }
+        let fields = lines[1].split(separator: " ", omittingEmptySubsequences: true)
+        XCTAssertEqual(fields.first.map(String.init), String(pid), "its own process group (a new session)")
+        XCTAssertEqual(fields.last, "??", "no controlling terminal")
+        XCTAssertFalse(output.contains("noise"))
+    }
+
     func testTheRealLoginShellIsAskedWithTheReferenceMarkers() {
-        let command = T3LocalShellEnvironment.captureCommand(["PATH"])
+        let command = T3LocalShellEnvironment.captureCommand("/bin/zsh", ["PATH"])
         XCTAssertEqual(command, "printf '%s\\n' '__T3CODE_ENV_PATH_START__'; printenv PATH || true; printf '%s\\n' '__T3CODE_ENV_PATH_END__'")
         let output = T3LocalShellEnvironment.runCommand("/bin/zsh", ["-ilc", command], 5)
         XCTAssertNotNil(T3LocalShellEnvironment.extract(output, ["PATH"])["PATH"], "zsh -ilc answers within 5 s")

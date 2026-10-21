@@ -10,6 +10,7 @@ import { createThemeEditorStore, sessionThemes, toggleThemeEditorForTheme, type 
 import { STORAGE_FAILED, themeSavedNotice } from '../../src/appearance/theme-editor-notices';
 import { editDraft, editorView, syncDraft, themeEditorCommand } from '../../src/appearance/settings-appearance-editor';
 import { toasts } from '../../src/shell/toast';
+import { contractComponent } from '../support/contract-action-fixture';
 
 const store = createThemeEditorStore();
 afterEach(() => { store.closeThemeEditor(); });
@@ -106,5 +107,19 @@ describe('theme editor session and save notices (D16)', () => {
     expect(themeSavedNotice(saved, { created: false }, { theme: 't3-code', themeLight: 't3-code', themeDark: 't3-code' }, () => true))
       .toEqual({ kind: 'success', title: 'Dusk saved', description: 'Your changes are saved.' });
     expect(themeSavedNotice(saved, { created: true }, { theme: 't3-code', themeLight: 't3-code', themeDark: 't3-code' }, () => false)).toEqual(STORAGE_FAILED);
+  });
+});
+
+// ThemeEditorPanel's reveal at T3 Code 74541bab17 (#16014): smooth, and at once under Reduce Motion.
+describe('the theme editor reveals a role', () => {
+  test('gliding, or jumping when reduced motion is preferred', () => {
+    const root = contractComponent('app.contract', 'T3Code');
+    const reveal = (prefersReducedMotion: boolean) => {
+      const calls: unknown[][] = [];
+      root.call('themeRevealed', { themeReveal: 'accent' }, { viewport: { prefersReducedMotion }, scrollIntoView: (...args: unknown[]) => calls.push(args) }, []);
+      return calls;
+    };
+    expect(reveal(false)).toEqual([['theme-editor-row-accent', { block: 'nearest', behavior: 'smooth' }]]);
+    expect(reveal(true)).toEqual([['theme-editor-row-accent', { block: 'nearest', behavior: 'instant' }]]);
   });
 });

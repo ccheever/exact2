@@ -54,12 +54,17 @@ export function formatTokens(value: number): string {
   return new Intl.NumberFormat('en-US').format(Math.round(value));
 }
 
+/** contextCompactionTokenCounts (74541bab17): a finished compaction's before and after, which its divider draws around an arrow. */
+export function contextCompactionTokenCounts(item: Obj): { before: string; after: string } | null {
+  if (item.status === 'running' || typeof item.beforeTokenCount !== 'number' || typeof item.afterTokenCount !== 'number') return null;
+  return { before: formatTokens(item.beforeTokenCount), after: formatTokens(item.afterTokenCount) };
+}
 export function contextCompactionLabel(item: Obj): string {
-  if (item.status === 'running') return 'Compacting context';
-  if (typeof item.beforeTokenCount === 'number' && typeof item.afterTokenCount === 'number') {
-    return `Context compacted ${formatTokens(item.beforeTokenCount)} → ${formatTokens(item.afterTokenCount)} tokens`;
-  }
-  return 'Context compacted';
+  if (item.status === 'failed') return 'Context compaction failed';
+  if (item.status === 'cancelled' || item.status === 'interrupted') return 'Context compaction stopped';
+  if (['pending', 'running', 'waiting'].includes(str(item.status))) return 'Compacting context'; // isOrchestrationV2WorkActive
+  const tokens = contextCompactionTokenCounts(item);
+  return tokens ? `Context compacted ${tokens.before} → ${tokens.after} tokens` : 'Context compacted';
 }
 
 /** session-logic providerErrorPresentation. */

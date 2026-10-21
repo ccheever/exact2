@@ -119,6 +119,8 @@ component PrdFixButton
   action hover(value: bool)
     over = value
   view
-    button press=act("handoff", `${surface}|${finding}`) hover=hover disabled=(pending != "") testId=testId height="1.5rem" padding-left="0.4375rem" padding-right="0.4375rem" box-sizing="border-box" gap="0.25rem" border-radius="0.5rem" border-width=1 border-style="solid" border-color="#00000000" background-color=(over and pending == "" ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") opacity=(pending != "" ? 0.64 : 1) display="flex" flex-direction="row" align-items="center" flex-shrink=0
-      PgIcon(name="hammer", size=12, color=phInk())
+    // The label, not the hammer's bottom edge, gives the button its baseline (a comment header aligns on it).
+    button press=act("handoff", `${surface}|${finding}`) hover=hover disabled=(pending != "") testId=testId height="1.5rem" padding-left="0.4375rem" padding-right="0.4375rem" box-sizing="border-box" gap="0.25rem" border-radius="0.5rem" border-width=1 border-style="solid" border-color="#00000000" background-color=(over and pending == "" ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") opacity=(pending != "" ? 0.64 : 1) display="flex" flex-direction="row" align-items="baseline" flex-shrink=0
+      box align-self="center" display="flex"
+        PgIcon(name="hammer", size=12, color=phInk())
       text (pending == finding ? "Preparing..." : label) font-size="0.75rem" line-height="1rem" font-weight=500 white-space="nowrap" color=phInk()
