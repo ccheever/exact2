@@ -8,22 +8,23 @@
  *
  *   bun scripts/memory-backend-test.mjs apps/harmony/app
  *
- * The app's directory holds `app.json` and `app.ts`; its backend's (with
- * `snapback/schema.q` and `snapback4` in its package.json) is the one above.
- * It installs the backend's packages and builds the Snapback device's wasm
- * when they are missing, then:
- *   - starts the server binary itself (`--port 0 --memory --no-watch`), reads
- *     the URL it prints, and requires that origin's `/dev/status` to be this
- *     process (`pid`) and a temporary store before anything else reaches it;
+ * The app's directory holds `app.json`, `app.ts` and `app.test.contract`; its
+ * backend's (with `snapback/schema.q` and `snapback4` in its package.json) is
+ * the one above. It installs the backend's packages and builds the Snapback
+ * device's wasm when they are missing, then:
+ *   - starts the server binary itself (`--port 0 --memory --no-watch`, under
+ *     this process's supervision, so it ends with it), reads the URL it
+ *     prints, and requires that origin's `/dev/status` to be this child
+ *     (`pid`) and a temporary store before anything else reaches it;
  *   - builds the web app into a directory of its own with
  *     `EXACT_BACKEND_ORIGIN` naming the server (which overrides `app.ts` and
  *     `.exact/backend-origin` alike), and requires the build's loopback
  *     `net.fetch` grants to be that origin alone;
- *   - runs `exact.mjs test web` with the same environment, whose build (the
- *     same inputs, so the same grants: a second when nothing changed) is the
- *     one checked, and whose `fresh` resets only those grants;
- *   - stops the test run and the server however it ends (a signal included),
- *     killing what has not exited after a grace period, and removes the build.
+ *   - runs the tests with the driver on that very build (`scripts/agent.mjs`,
+ *     which builds nothing), so `fresh` resets only those grants;
+ *   - stops every child however it ends (a signal included: no step starts
+ *     after one), killing what has not exited after a grace period, and
+ *     removes the build.
  * It takes no other arguments: one that chose another backend or build would
  * undo all of this.
  */
@@ -51,7 +52,7 @@ const step = (what, cmd, args, opts) => {
   if (r.status !== 0) throw new Error(`${what}: ${cmd} ${args.join(' ')} exited ${r.status ?? r.error?.message}`);
 };
 
-const alive = (child) => child && child.exitCode === null && child.signalCode === null;
+const alive = (child) => child?.pid !== undefined && child.exitCode === null && child.signalCode === null;
 
 /** `child` stopped: SIGTERM, then SIGKILL if it has not exited within the grace period. */
 async function stop(child) {
@@ -74,40 +75,65 @@ export async function main(argv) {
   step('build the Snapback device', process.execPath, [resolve(ROOT, 'snapback4/web/build.mjs'), 'assets/snapback4.wasm'], { cwd: app });
   // The binary itself, not the npm wrapper: `/dev/status`'s `pid` is then this child's.
   const { resolveBinary } = await import(pathToFileURL(resolve(backend, 'node_modules/snapback4/dist/bin-path.js')).href);
-  const children = { server: null, tests: null };
+
+  // Every child, the one cleanup, and whether a signal asked for it: no step starts after one.
+  const children = [];
+  let cancelled = false, cleaning = null;
   const work = resolve(ROOT, 'target', 'memory-backend-test');
   mkdirSync(work, { recursive: true });
   const dir = mkdtempSync(resolve(work, `${argv[0].replaceAll('/', '_')}-`)), dist = resolve(dir, 'web-dist');
-  const end = async (code) => { await stop(children.tests); await stop(children.server); rmSync(dir, { recursive: true, force: true }); process.exit(code); };
-  process.once('SIGINT', () => end(130));
-  process.once('SIGTERM', () => end(143));
-  try {
-    const server = children.server = spawn(resolveBinary(), ['dev', '--port', '0', '--memory', '--no-watch'],
-      { cwd: backend, stdio: ['ignore', 'pipe', 'inherit'] });
-    // Readiness is the first stdout line, the listening URL.
-    const url = await new Promise((ok, fail) => {
-      const timer = setTimeout(() => fail(new Error('snapback4 dev --memory printed no URL in 60 s')), 60_000);
-      createInterface({ input: server.stdout }).once('line', (line) => { clearTimeout(timer); ok(line.trim()); });
-      server.once('exit', (code) => { clearTimeout(timer); fail(new Error(`snapback4 dev --memory exited ${code} before it printed its URL`)); });
+  const cleanup = () => cleaning ??= (async () => {
+    for (const child of [...children].reverse()) await stop(child);
+    rmSync(dir, { recursive: true, force: true });
+  })();
+  const onSignal = (code) => () => { cancelled = true; cleanup().then(() => process.exit(code)); };
+  process.once('SIGINT', onSignal(130));
+  process.once('SIGTERM', onSignal(143));
+  const check = () => { if (cancelled) throw new Error('stopped by a signal'); };
+  /** `cmd` started and tracked: its exit code, or its spawn error thrown. */
+  const run = (cmd, args, opts) => {
+    check();
+    const child = spawn(cmd, args, opts);
+    children.push(child);
+    const done = new Promise((ok, fail) => {
+      child.once('error', fail);
+      child.once('exit', (code) => ok(code ?? 1));
     });
+    return { child, done };
+  };
+
+  try {
+    const { child: server, done: serverDone } = run(resolveBinary(), ['dev', '--port', '0', '--memory', '--no-watch'],
+      { cwd: backend, stdio: ['ignore', 'pipe', 'inherit'], env: { ...process.env, SNAPBACK4_SUPERVISOR_PID: String(process.pid) } });
+    // Readiness is the first stdout line, the listening URL.
+    const lines = createInterface({ input: server.stdout });
+    let timer;
+    const url = await Promise.race([
+      new Promise((ok) => lines.once('line', (line) => ok(line.trim()))),
+      serverDone.then((code) => { throw new Error(`snapback4 dev --memory exited ${code} before it printed its URL`); }),
+      new Promise((_, fail) => { timer = setTimeout(() => fail(new Error('snapback4 dev --memory printed no URL in 60 s')), 60_000); }),
+    ]).finally(() => { clearTimeout(timer); lines.close(); });
     server.stdout.resume();
+    check();
     const origin = new URL(url).origin;
     if (!/^http:\/\/127\.0\.0\.1:\d+$/.test(origin)) throw new Error(`snapback4 dev printed ${url}, not a loopback origin`);
     const up = await status(origin);
+    check();
     // Ours, and only a temporary store is ours to empty.
     if (up?.pid !== server.pid) throw new Error(`${origin}/dev/status names pid ${up?.pid}, not the server this run started (${server.pid})`);
     if (up.temporary !== true) throw new Error(`the server at ${origin} is no temporary store (temporary: ${up.temporary}): refusing to run tests that empty it`);
     console.error(`memory-backend-test: ${origin}, a temporary store (pid ${up.pid})`);
     const env = { ...process.env, EXACT_BACKEND_ORIGIN: origin, EXACT_WEB_DIST: dist, EXACT_APP_DIR: app };
-    step('build the web app against it', process.execPath, ['host/web/build.mjs', resolveApp(app).crate('web')], { cwd: ROOT, env });
+    const built = await run(process.execPath, ['host/web/build.mjs', resolveApp(app).crate('web')], { cwd: ROOT, stdio: 'inherit', env }).done;
+    check();
+    if (built !== 0) throw new Error(`the web build against ${origin} exited ${built}`);
     const grants = loopbackOrigins(dist);
     if (grants.length !== 1 || grants[0] !== origin) throw new Error(`the build's loopback grants are ${grants.join(', ') || 'none'}, not ${origin} alone: refusing to run tests whose fresh resets them`);
-    const tests = children.tests = spawn(process.execPath, ['exact.mjs', 'test', 'web'], { cwd: app, stdio: 'inherit', env });
-    return await new Promise((ok) => tests.once('exit', (c) => ok(c ?? 1)));
+    // The driver on the build just checked: it builds nothing.
+    return await run(process.execPath, ['scripts/agent.mjs', 'web', '--app', app, '--test', resolve(app, 'app.test.contract')],
+      { cwd: ROOT, stdio: 'inherit', env }).done;
   } finally {
-    await stop(children.tests);
-    await stop(children.server);
-    rmSync(dir, { recursive: true, force: true });
+    await cleanup();
   }
 }
 
