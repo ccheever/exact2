@@ -47,7 +47,7 @@ test("a stream over [::1] ends when its client leaves, as over 127.0.0.1; an upg
     // A stream's first frame, then the client leaves (`stay`: it stays).
     const stream = (host, stay = false) => new Promise((ok, fail) => {
       const r = request({ host, port, path: '/', headers: { host: `localhost:${port}` } }, (res) => res.once('data', () => { if (!stay) r.destroy(); ok(); }));
-      r.on('error', (e) => { if (!r.destroyed) fail(e); });
+      r.on('error', fail); // (after the client's own destroy, the promise has settled)
       r.end();
     });
     const until = async (pass) => { for (let i = 0; i < 100 && !pass(); i++) await new Promise((ok) => setTimeout(ok, 20)); };
