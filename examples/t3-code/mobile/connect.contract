@@ -1,6 +1,8 @@
 // @ref examples/t3-code/mobile/docs/1130.002-design-system-parity.spec.md#typography-and-font-assets
 // Presentation adapted from T3 Code 365aa87982, ConnectionsNewRouteScreen,
 // ConnectionFormField and ConnectionSheetButton. Root owns requests and navigation.
+use SettingsTextRole from "./settings.contract"
+
 shape ConnectionColors
   groupedCard: string
   input: string
@@ -47,6 +49,8 @@ component Connect
         kind="url",
         change=changeHost,
         colors=colors,
+        labelRole=SettingsTextRole(size=12, line=16),
+        bodyRole=SettingsTextRole(size=16, line=23),
         fieldId="pairing-host"
       )
       ConnectionField(
@@ -56,6 +60,8 @@ component Connect
         kind="text",
         change=changeCode,
         colors=colors,
+        labelRole=SettingsTextRole(size=12, line=16),
+        bodyRole=SettingsTextRole(size=16, line=23),
         fieldId="pairing-code"
       )
       if error.length > 0
@@ -105,12 +111,14 @@ component ConnectionField
     change: action
     colors: ConnectionColors
     fieldId: string
+    labelRole: SettingsTextRole
+    bodyRole: SettingsTextRole
   view
     column gap=5.25
       text label text-transform="uppercase"
         font-family="DM Sans"
-        font-size=12
-        line-height="16px"
+        font-size=labelRole.size
+        line-height=`${labelRole.line}px`
         font-weight=700
         letter-spacing=0.8
         color=colors.muted
@@ -136,6 +144,6 @@ component ConnectionField
         background-color=colors.input
         color=colors.foreground
         font-family="DM Sans"
-        font-size=16
-        line-height="23px"
+        font-size=bodyRole.size
+        line-height=`${bodyRole.line}px`
         box-sizing="border-box"

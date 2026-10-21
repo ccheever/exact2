@@ -594,7 +594,9 @@ component MobileRouteContent
               reconnect=reconnect,
               remove=remove,
               save=save,
-              colors=look.colors
+              colors=look.colors,
+              roles=settingsData.root.roles,
+              displayScale=layout.displayScale
             )
             GitHubRoutingSettings(
               items=data.routing,
@@ -607,6 +609,6 @@ component MobileRouteContent
           if routeName == "environmentDetail"
             match first(data.environments.filter(item => item.id == detail.key))
               case some(connection)
-                EnvironmentDetail(data=detail, connection=connection, colors=look.colors, dark=appearance.scheme == "dark", pending=detailChangedPending, toggleConnection=toggle, setEnabled=setEnabled, reconnect=reconnect, remove=remove, save=save, action=detailAction)
+                EnvironmentDetail(data=detail, connection=connection, colors=look.colors, roles=settingsData.root.roles, displayScale=layout.displayScale, dark=appearance.scheme == "dark", pending=detailChangedPending, toggleConnection=toggle, setEnabled=setEnabled, reconnect=reconnect, remove=remove, save=save, action=detailAction)
               case none
-                text "This environment is no longer saved on this device." color=look.colors.muted padding=17.5
+                text "This environment is no longer saved on this device." font-size=settingsData.root.roles.body.size line-height=`${settingsData.root.roles.body.line}px` color=look.colors.muted padding=17.5

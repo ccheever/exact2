@@ -60,7 +60,6 @@ export function environmentDetailProjection(source: Source | null, session: Obj 
     updateConfirmation: `Install T3 Code ${checked ? state.targetVersion ?? '' : ''}. ${capability === 'desktop-managed' ? 'The desktop app will close and relaunch.' : 'The server will restart and reconnect.'} Running threads may be interrupted.`,
     targetVersion: checked ? state.targetVersion ?? '' : '', showUpdate: checked && state.targetVersion !== null && supportsUpdate,
     manualUpdate: supportsUpdate ? '' : capability === 'desktop-managed' ? 'Update the desktop app on this machine.' : 'Update and restart T3 Code on this machine.',
-    routesHeight: (source?.routes ?? []).reduce((height, route) => height + (connectionRouteAddress(route) ? 71.75 : 51), 0),
     routes: (source?.routes ?? []).map((route, index, routes) => ({ id: route.id, label: connectionRouteLabel(route),
       address: connectionRouteAddress(route) ?? '', icon: routeIcons[connectionRouteKind(route)] ?? 'globe',
       active: connected && route.id === source?.activeRouteId, removable: routes.length > 1 && !isLearned(route),
