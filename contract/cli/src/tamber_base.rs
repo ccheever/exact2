@@ -249,32 +249,32 @@ fn bases_of(folding: &exact_tamber::Folding, name: &str) -> Vec<String> {
 /// under `scheme=dark` is a colour's alone, `tamber-under-kind`), so the
 /// sides are alike.
 fn bases_by_tuple(folding: &exact_tamber::Folding, name: &str) -> Vec<Value> {
-    let index: std::collections::HashMap<&str, &exact_tamber::Checked> = folding
-        .tokens
-        .iter()
-        .map(|t| (t.name.as_str(), t))
-        .collect();
+    let tokens = &folding.tokens;
+    let start = tokens.iter().position(|t| t.name == name);
     let reach = |tuple: usize| {
         let mut out: Vec<String> = Vec::new();
-        let mut seen: std::collections::HashSet<&str> = Default::default();
-        let mut stack = vec![name];
-        while let Some(n) = stack.pop() {
-            if !seen.insert(n) {
+        let mut seen = vec![false; tokens.len()];
+        let mut stack: Vec<usize> = start.into_iter().collect();
+        while let Some(i) = stack.pop() {
+            if std::mem::replace(&mut seen[i], true) {
                 continue;
             }
-            let Some((names, bases)) = index.get(n).and_then(|t| t.by_tuple.get(tuple)) else {
+            let by = &tokens[i].by_tuple;
+            let Some((named, bases)) = by.at.get(tuple).and_then(|&r| by.reads.get(r as usize))
+            else {
                 continue;
             };
-            for b in bases
+            let set = named
                 .iter()
-                .chain(names.iter().filter(|m| scale::is_base(m)))
-            {
+                .map(|&j| &tokens[j as usize].name)
+                .filter(|m| scale::is_base(m));
+            for b in bases.iter().chain(set) {
                 if !out.contains(b) {
                     out.push(b.clone());
                 }
             }
             // (named tokens next, in the order written)
-            stack.extend(names.iter().rev().map(String::as_str));
+            stack.extend(named.iter().rev().map(|&j| j as usize));
         }
         out
     };
@@ -559,7 +559,8 @@ impl Server {
     /// A token's chain: its default and `when` values, the dials it depends
     /// on, and the tokens those values name, as the checker resolved them.
     pub(super) fn explain(&self, request: &Value) -> Result<Value, Value> {
-        let (snap, folding, name) = self.lookup(request)?;
+        // Each token's per-tuple names recorded, for `bases_by_tuple`.
+        let (snap, folding, name) = exact_tamber::traced(|| self.lookup(request))?;
         // An icon, an icon param's too (D10, *1.12*).
         let app = self.app_params();
         // The design asked about (`file`), whose lines set the app's values.

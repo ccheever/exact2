@@ -173,6 +173,16 @@ fn base_names_are_rows_read_from_the_kernel_with_the_apps_override() {
         ]),
         "{pad}"
     );
+    // gap.wide's default, space.md, is no tuple's (each has its `when`):
+    // in `bases`, in no tuple (Astra's D4 round 2).
+    assert_eq!(
+        wide["ok"]["bases_by_tuple"],
+        json!([
+            {"modes": {"density": "roomy"}, "light": [], "dark": []},
+            {"modes": {"density": "tight"}, "light": [], "dark": []},
+        ]),
+        "{wide}"
+    );
     // A token reaching no base has neither field.
     assert!(face["ok"]["bases_by_tuple"].is_null(), "{face}");
     // An overridden base that names another base says so too.
@@ -483,6 +493,14 @@ theme
   body.q: type = space.lg 'space.md'
   mixed = 4px
     when density=tight: calc(space.xs * 2)
+  first = second
+  second = space.md
+    when density=tight: space.sm
+  hidden = other
+    when density=roomy: dep
+    when density=tight: 4px
+  dep = space.lg
+  other = space.xl
 ";
     let dir = app("base-by-tuple", design);
     let mut s = Serve::start(&dir, &[]);
@@ -501,6 +519,14 @@ theme
     assert_eq!(by(&mut s, "body.q"), both(&["space.lg"], &["space.lg"]));
     // Each tuple its own line.
     assert_eq!(by(&mut s, "mixed"), both(&[], &["space.xs"]));
+    // A token first folded inside another's value is recorded as its own
+    // (`second`, declared after `first`, which names it); one first folded
+    // in a line no tuple selects (`other`, the default of `hidden`)
+    // too, and that line gives `hidden` nothing (Astra's D4 round 2).
+    assert_eq!(by(&mut s, "first"), both(&["space.md"], &["space.sm"]));
+    assert_eq!(by(&mut s, "second"), both(&["space.md"], &["space.sm"]));
+    assert_eq!(by(&mut s, "hidden"), both(&["space.lg"], &[]));
+    assert_eq!(by(&mut s, "other"), both(&["space.xl"], &["space.xl"]));
     drop(s);
     let _ = std::fs::remove_dir_all(&dir);
 }

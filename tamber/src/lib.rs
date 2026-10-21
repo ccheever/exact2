@@ -36,7 +36,7 @@ mod shadow;
 mod syntax;
 mod typeface;
 
-pub use check::{Checked, MAX_TUPLES};
+pub use check::{traced, ByTuple, Checked, MAX_TUPLES};
 pub use component::{Component, Param};
 pub use edit::{apply, apply_all, apply_all_with, undo, Edited, Op, WhenLine};
 pub use fmt::format;
