@@ -315,16 +315,54 @@ export function renderedLibrary(map) {
   }).filter(id => id.startsWith('@')))];
 }
 
-/** Conform on the clone holds when both sides ran and the adoption fails
- * nothing the baseline doesn't (LLP 1139 §5's "conform on the clone clean",
- * held as stage 9's gate held a conform red: identical on the base). */
-export const conformSame = c => !!(c.before && c.after) && c.after.failures.every(f => c.before.failures.includes(f));
+/** Conform on the clone (theme2 22:49, 03:25 and 06:52): the adoption
+ * fails nothing beyond the baseline's. The baseline is before's failures
+ * seen in two full runs (one run's own boot flake no baseline). A side
+ * with more than 2 failures beyond it is rerun once in full, and that run
+ * stands. Then at most 2 remain, each a FLAKY candidate: the clone is one
+ * target, so "alone" is its whole run, three times, none showing a failure
+ * beyond the baseline. Each needs its id in QUEUE, and none may have been
+ * seen in the gate's run before (`work`'s record). Anything else fails. */
+export function cloneConform(copies, runOf, work, queue = readFileSync(join(ROOT, 'QUEUE.md'), 'utf8')) {
+  const said = [], runs = { before: [], after: [] };
+  const go = side => { const r = runOf(copies[side], side); if (r) runs[side].push(r); return r; };
+  const b1 = go('before');
+  const b2 = b1?.failures.length ? go('before') : b1;
+  if (!b1 || !b2) return { ok: false, runs, flaky: [], said: ['conform on the clone: before did not run'] };
+  const baseline = b1.failures.filter(f => b2.failures.includes(f));
+  const beyond = r => r.failures.filter(f => !baseline.includes(f));
+  let a = go('after');
+  if (!a) return { ok: false, runs, flaky: [], said: ['conform on the clone: after did not run'] };
+  if (beyond(a).length > 2) {
+    said.push(`after: ${beyond(a).length} failures beyond the baseline, more than 2: rerun once in full (theme2 06:52)`);
+    a = go('after');
+    if (!a) return { ok: false, runs, flaky: [], said: [...said, 'conform on the clone: the full rerun did not run'] };
+  }
+  const added = beyond(a);
+  const last = (() => { try { return JSON.parse(readFileSync(join(work, 'flaky-last-clone.json'), 'utf8')).failures ?? []; } catch { return []; } })();
+  let why = null;
+  if (added.length > 2) why = `${added.length} failures beyond the baseline after a full rerun: more than 2 (theme2 06:52)`;
+  else if (added.some(f => last.includes(f))) why = 'beyond the baseline in the gate\'s run before too: a flake to chase (theme2 03:25 (2))';
+  else if (added.length) {
+    for (let n = 1; n <= 3 && !why; n++) { const r = go('after'); if (!r || beyond(r).length) why = `rerun ${n} of 3 ${r ? 'failed again' : 'did not run'} (theme2 03:25 (3))`; }
+    const id = f => f.replace(/^FAIL \S+ /, '');
+    if (!why && added.some(f => !queue.includes(id(f)))) why = 'passed 3 of 3, but QUEUE does not name each failure';
+  }
+  writeFileSync(join(work, 'flaky-last-clone.json'), JSON.stringify({ at: new Date().toISOString(), failures: added }));
+  if (why) said.push(`  ${why}`);
+  const flaky = why ? [] : added;
+  if (flaky.length) said.push('  FLAKY: beyond the baseline in the full run, absent from 3 of 3 reruns (theme2 03:25, 06:52; QUEUE\'d):', ...flaky.map(f => `    ${f}`));
+  return { ok: !why, before: { ...b2, failures: baseline }, after: a, runs, flaky, failing: why ? added : [], said };
+}
+
+export const conformSame = c => !!c.ok;
 const conformEvidence = c => {
-  if (!c.before || !c.after) return [`conform on the clone: did not run (${['before', 'after'].filter(s => !c[s]).join(', ')})`];
-  const added = c.after.failures.filter(f => !c.before.failures.includes(f));
+  if (!c.before || !c.after) return c.said;
+  const line = (side, r, n) => `  ${side} run ${n}: ${r.summary.split(';')[0]} over ${r.compared} steps`;
   // Both lists whole, each failure by its line (theme2 22:49 (2)).
-  return [`conform on the clone (host/web-js/conform.mjs --strict --linux, wasm against JS; theme2 22:49: no failure beyond the baseline's): after ${c.after.summary.split(';')[0]} over ${c.after.compared} steps, before ${c.before.summary.split(';')[0]} over ${c.before.compared}; ${added.length ? `${added.length} only after has` : 'after\'s a subset of before\'s'}`,
-    ...added.map(f => `  NEW ${f}`), ...c.before.failures.map(f => `  before: ${f}`), ...c.after.failures.map(f => `  after: ${f}`)];
+  return [`conform on the clone (host/web-js/conform.mjs --strict --linux, wasm against JS; theme2 22:49, 03:25, 06:52): ${c.ok ? (c.flaky.length ? `after's beyond the baseline only ${c.flaky.length} FLAKY` : 'after\'s a subset of the baseline') : 'FAILS'}`,
+    ...c.runs.before.map((r, i) => line('before', r, i + 1)), ...c.runs.after.map((r, i) => line('after', r, i + 1)), ...c.said,
+    ...(c.failing ?? []).map(f => `  NEW ${f}`), ...c.before.failures.map(f => `  baseline: ${f}`), ...c.after.failures.map(f => `  after: ${f}`)];
 };
 
 /** The SDK a copy builds with: its exact.mjs's EXACT2 (the environment's,
@@ -399,7 +437,7 @@ export function consumerPixels(opts) {
   // Conform on the clone (the JS target's harness: the app's wasm build
   // against its JS build, step by step), on each side: the adoption adds no
   // failure the baseline doesn't have.
-  const conform = Object.fromEntries([['before', opts.before], ['after', opts.copy]].map(([side, copy]) => [side, conformOf(copy, side)]));
+  const conform = cloneConform({ before: opts.before, after: opts.copy }, conformOf, join(ROOT, 'target', 'stage12-gate'));
   const shots = {};
   for (const [side, copy] of [['before', opts.before], ['after', opts.copy]]) {
     const said = buildSide(copy, side);

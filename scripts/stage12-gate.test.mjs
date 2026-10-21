@@ -6,7 +6,7 @@ import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { allowOf, beforeDrift, flakyOf, durationMs, slotCheckTimes, conformFailures, conformRead, conformReport, conformSame, renderedIds, renderedLibrary, viewportTop, BASELINE_TAG, comparePixels, expected, lines, releaseIdentity, parse, pixelDiff, RESTYLE, SCREENS, screenOps, WEB_NOISE } from './stage12-gate.mjs';
+import { allowOf, beforeDrift, cloneConform, flakyOf, durationMs, slotCheckTimes, conformFailures, conformRead, conformReport, conformSame, renderedIds, renderedLibrary, viewportTop, BASELINE_TAG, comparePixels, expected, lines, releaseIdentity, parse, pixelDiff, RESTYLE, SCREENS, screenOps, WEB_NOISE } from './stage12-gate.mjs';
 
 test('the command line', () => {
   expect(parse(['baseline', '--copy', '/c'])).toBe('baseline needs --copy and --out');
@@ -156,13 +156,29 @@ test('what a screen renders: the testIds only the packages write, from its whole
   expect(renderedIds('no layout')).toBe(null);
 });
 
-test('conform on the clone: the adoption fails nothing the baseline does not', () => {
+test('conform on the clone: nothing beyond the baseline, flakes bounded (theme2 22:49, 03:25, 06:52)', () => {
   const out = 'x\nFAIL app tap a: layout b.w: wasm 1 js 2 (delta 1 px, tolerance 0.5 px)\nFAIL app clock +1: screenshot: 1.50% of pixels differ (clock-1-side-by-side.png)\n2 failures across 1 targets; r.md';
   expect(conformFailures(out)).toEqual(['FAIL app tap a: layout b.w: wasm 1 js 2 (delta 1 px, tolerance 0.5 px)', 'FAIL app clock +1: screenshot: 1.50% of pixels differ']);
-  const before = { failures: conformFailures(out) };
-  expect(conformSame({ before, after: { failures: before.failures.slice(1) } })).toBe(true);
-  expect(conformSame({ before, after: { failures: [...before.failures, 'FAIL app new'] } })).toBe(false);
-  expect(conformSame({ before: null, after: { failures: [] } })).toBe(false);
+  const run = (...fails) => ({ summary: `${fails.length} failures across 1 targets`, compared: 3, failures: fails });
+  const scripted = seq => { const q = { before: [...seq.before], after: [...seq.after] }; return (copy, side) => q[side].shift() ?? null; };
+  const work = () => mkdtempSync(join(tmpdir(), 's12e-clone-'));
+  const copies = { before: 'b', after: 'a' };
+  // A subset: holds.
+  expect(cloneConform(copies, scripted({ before: [run('FAIL x 1'), run('FAIL x 1')], after: [run('FAIL x 1')] }), work(), '').ok).toBe(true);
+  // A before flake is no baseline: only what both before runs show.
+  expect(cloneConform(copies, scripted({ before: [run('FAIL x 1', 'FAIL x 2'), run('FAIL x 1')], after: [run('FAIL x 2')] }), work(), '').ok).toBe(false);
+  // Three beyond: one full rerun; clean, it stands.
+  expect(cloneConform(copies, scripted({ before: [run()], after: [run('FAIL x 1', 'FAIL x 2', 'FAIL x 3'), run()] }), work(), '').ok).toBe(true);
+  // Three beyond twice: fails.
+  expect(cloneConform(copies, scripted({ before: [run()], after: [run('FAIL x 1', 'FAIL x 2', 'FAIL x 3'), run('FAIL x 1', 'FAIL x 2', 'FAIL x 3')] }), work(), '').ok).toBe(false);
+  // One beyond, clean 3 of 3 and QUEUE'd: FLAKY; not QUEUE'd, or a rerun failing again: fails.
+  const w = work();
+  const one = cloneConform(copies, scripted({ before: [run()], after: [run('FAIL x boot: tabs'), run(), run(), run()] }), w, 'boot: tabs');
+  expect([one.ok, one.flaky]).toEqual([true, ['FAIL x boot: tabs']]);
+  // The next run beyond the baseline with it again: a flake to chase.
+  expect(cloneConform(copies, scripted({ before: [run()], after: [run('FAIL x boot: tabs'), run(), run(), run()] }), w, 'boot: tabs').ok).toBe(false);
+  expect(cloneConform(copies, scripted({ before: [run()], after: [run('FAIL x boot: tabs'), run(), run(), run()] }), work(), '').ok).toBe(false);
+  expect(cloneConform(copies, scripted({ before: [run()], after: [run('FAIL x boot: tabs'), run(), run('FAIL x boot: tabs'), run()] }), work(), 'boot: tabs').ok).toBe(false);
 });
 
 test('a conform run counts only when it finished, compared steps and printed every failure it counts', () => {
