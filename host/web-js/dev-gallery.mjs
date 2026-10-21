@@ -85,8 +85,8 @@ export function galleryLoop({ app, root, appDist, channel = () => null, client, 
     if (busy) { again = true; return; }
     busy = true;
     const mine = run;
-    // The design it builds on: one kept since is news, this one isn't.
-    design = designNow();
+    // The design it builds on: one kept since is news, this one isn't. A failure before is taken up by this run.
+    design = designNow(); failed = null;
     try {
       const own = fresh(contractBin, `${contractBin}.d`);
       let made = own ? await step(contractBin, ['gallery', app.dir, '-o', source], { env }) : { code: 2 };
@@ -105,7 +105,8 @@ export function galleryLoop({ app, root, appDist, channel = () => null, client, 
       // The JS target's build, rendering no pages, into its own stage: nothing of the app's build is shared.
       rmSync(stage, { recursive: true, force: true });
       const started = Date.now(), webCompiler = compiler();
-      const out = await step(process.execPath, [resolve(root, 'host/web-js/build.mjs'), live, '--out', stage, '--render', 'none', '--dev'], { env: webCompiler ? { ...env, EXACT_WEB_COMPILER: webCompiler } : env });
+      // (With no fresh compiler of the loop's, the builder's Cargo works in the gallery's own target, never the app's.)
+      const out = await step(process.execPath, [resolve(root, 'host/web-js/build.mjs'), live, '--out', stage, '--render', 'none', '--dev'], { env: webCompiler ? { ...env, EXACT_WEB_COMPILER: webCompiler } : { ...env, CARGO_TARGET_DIR: resolve(cache, 'cargo') } });
       if (mine !== run) return;
       if (out.code !== 0) { rmSync(stage, { recursive: true, force: true }); return fail(out.output.split('\n').filter((l) => l.trim() && !/^\s*(Compiling|Finished|Running|warning)/.test(l)).slice(-20).join('\n') || `the gallery's build exited ${out.code}`); }
       replaceBuild(stage, dist);
@@ -204,6 +205,7 @@ export function galleryLoop({ app, root, appDist, channel = () => null, client, 
       if (rest === '/checkpoint') { res.writeHead(403, { 'cache-control': 'no-store' }); res.end(); return true; }
       // Its inspect table, of its own plan.
       if (rest === '/dev-inspect.json' && req.method === 'GET') {
+        quiet(); // (its table's process stopped with the rest when no page of it is open a while)
         let digest = null;
         try { digest = createHash('sha256').update(readFileSync(resolve(dist, 'app.plan'))).digest('hex'); } catch { /* no build */ }
         const bytes = digest && await inspectTable(digest);

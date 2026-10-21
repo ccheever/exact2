@@ -144,7 +144,11 @@ test("a gallery that can't be made says so on its stream only, and is made once 
     const gallery = frames(`${loop.base}/__dev/gallery/stream`);
     await until(() => gallery.got.some((f) => f.error));
     expect(app.got.filter((f) => f.error)).toEqual([]);
-    expect(await (await fetch(`${loop.base}/__dev/gallery/`)).text()).not.toContain('Building the gallery');
+    // A page asking again tries again (and fails again, said again, still on its stream only).
+    const errors = gallery.got.filter((f) => f.error).length;
+    await fetch(`${loop.base}/__dev/gallery/`);
+    await until(() => gallery.got.filter((f) => f.error).length > errors);
+    expect(app.got.filter((f) => f.error)).toEqual([]);
     // Fixed: the next page asks again, and it is made.
     rmSync(join(cache, 'source'), { force: true });
     await fetch(`${loop.base}/__dev/gallery/`);
@@ -213,4 +217,23 @@ test('every process the gallery starts, a child of its generator or its builder 
     rmSync(loop.cache, { recursive: true, force: true });
     rmSync(s.dir, { recursive: true, force: true });
   }
+}, 120_000);
+
+test("an inspect table asked with no page of the gallery open is a process of the gallery's, stopped with it after the quiet period", async () => {
+  const { galleryLoop } = await import('./dev-gallery.mjs');
+  const s = standIns('generate');
+  const pids = join(s.dir, 'table-pids');
+  writeFileSync(pids, '');
+  writeFileSync(join(s.dir, 'table'), `#!/bin/sh\nsleep 30 & echo $! >> ${pids}; echo $$ >> ${pids}; sleep 30\n`, { mode: 0o755 });
+  const loop = galleryLoop({ app: { dir: join(s.dir, 'app'), id: 'life-table' }, root: join(s.dir, 'root'), appDist: join(s.dir, 'dist'), env: { ...process.env, CARGO_TARGET_DIR: join(s.dir, 'target') }, client: () => '', log: () => {}, idleMs: 200, tableTool: () => ({ cmd: join(s.dir, 'table'), pre: [] }) });
+  rmSync(loop.cache, { recursive: true, force: true });
+  mkdirSync(join(loop.cache, 'dist'), { recursive: true });
+  writeFileSync(join(loop.cache, 'dist', 'app.plan'), 'a plan');
+  void loop.handle({ method: 'GET', headers: {}, on() {} }, fakeRes(), new URL('http://x/__dev/gallery/dev-inspect.json'));
+  const started = () => readFileSync(pids, 'utf8').split('\n').filter(Boolean).map(Number);
+  await until(() => started().length >= 2, 30_000);
+  expect(started().every(alive)).toBe(true);
+  await until(() => !started().some(alive), 10_000);
+  rmSync(loop.cache, { recursive: true, force: true });
+  rmSync(s.dir, { recursive: true, force: true });
 }, 120_000);
