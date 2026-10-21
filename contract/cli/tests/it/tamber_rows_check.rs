@@ -991,3 +991,19 @@ fn a_family_lowering_cant_read_leaves_the_rows_inside_it() {
     drop(s);
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// A marked box that is no grouped list's section row keeps its look, which
+/// the build judges first, in source order: the write is refused at it, as
+/// the build refuses it (Grok's round of 700c41d3d0).
+#[test]
+fn a_marked_box_outside_a_section_keeps_its_look() {
+    let design = "tamber t\n\ntheme\n  ink = #111111\n  gap = 8px\n";
+    let contract = "use Card from \"@acme/reading\"\ncomponent App\n  view\n    column\n      column -exact-row-look=\"platform\" padding-left=\"gap\" margin-left=\"gap\"\n      Card()\n";
+    same_words(
+        &reading("rows-row-look-stray"),
+        design,
+        contract,
+        json!({"op": "set-token", "name": "gap", "value": "#444444"}),
+        &design.replace("gap = 8px", "gap = #444444"),
+    );
+}

@@ -124,7 +124,7 @@ impl Server {
                     json!({"conflict": true, "message": "the app's components or its packages' designs changed since the scrub opened: open it again", "files": files_json(&base.snap), "stale": []}),
                 );
             }
-            self.write_checks(&texts, &planned)?;
+            self.write_checks(&texts, &planned, &base.key)?;
         }
         let mut out = json!({
             "files": files_json(&base.snap),
@@ -159,6 +159,7 @@ impl Server {
         planned: &exact_tamber::Planned,
         app: &contract::tamber_params::AppParams,
         folded: &exact_tamber::Folding,
+        retention: &str,
     ) -> Result<(), Value> {
         let Some((key, rows, paths)) = &self.rows else {
             return Ok(());
@@ -177,7 +178,7 @@ impl Server {
         // before its rows, say) is refused in the build's own words, and
         // no row's refusal could be them: the rows are the build's (stage
         // 13 D, the reviews' rounds 2 and 3).
-        if self.checker.seen_failed(&self.last_key) {
+        if self.checker.seen_failed(retention) {
             return Ok(());
         }
         let Some((_, after, _)) = planned.files.iter().find(|(p, _, _)| *p == self.design) else {
@@ -254,10 +255,13 @@ impl Server {
         Err(json!({"message": "refused", "diagnostics": diagnostics}))
     }
 
+    /// `key`: the retention key of the texts checked (a scrub's, as it was
+    /// opened), whose whole build's verdict the rows read.
     pub(super) fn write_checks(
         &self,
         texts: &[(String, String)],
         planned: &exact_tamber::Planned,
+        key: &str,
     ) -> Result<(), Value> {
         // A role that varied before this write is the file's own,
         // already refused by the build; only what the write makes vary.
@@ -397,7 +401,7 @@ impl Server {
         }
         // The literal rows the write reaches, judged as the build judges them.
         if let Some((_, after)) = &folded {
-            self.rows_check(texts, planned, &app, after)?;
+            self.rows_check(texts, planned, &app, after, key)?;
         }
         if !app.tokens.is_empty() {
             let set: Vec<(String, String)> = planned

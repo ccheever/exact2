@@ -260,9 +260,14 @@ impl Said {
                         Ok(Some(rows)) => rows.as_slice(),
                         _ => own,
                     };
-                    // A look a marked row yields to a grouped list's is
-                    // dropped there (`row_look::yielded`): never kept.
-                    let yields = a.iter().any(|a| a.name == crate::row_look::ROW_LOOK);
+                    // A look a marked section row yields to a grouped list's
+                    // is dropped there (`row_look::yielded`, from
+                    // `grouped::row`: a section's body, not its header or
+                    // footer): never kept. Elsewhere the marker goes and the
+                    // look is judged (`swipe_rows::stray`).
+                    let yields = parent == Some("section")
+                        && !matches!(tag.as_str(), "header" | "footer")
+                        && a.iter().any(|a| a.name == crate::row_look::ROW_LOOK);
                     // An `audio`'s rows as lowering gives them
                     // (`media::audio_rows`: a `display` it replaces).
                     let audio = crate::media::audio_rows(tag, own, *span);

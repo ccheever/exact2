@@ -1157,7 +1157,7 @@ impl Server {
         // override that varies by an app axis (LLP 1121 D5, the compiler's
         // `tamber-role-axis`). An undo restores what was, and is not judged.
         if !undo {
-            self.write_checks(&texts, &planned)?;
+            self.write_checks(&texts, &planned, &self.last_key)?;
         }
         let mut out = json!({
             "files": files_json(snap),
