@@ -21,19 +21,29 @@ public final class LiveModel {
     /// Called after each turn with its label (`press`, `timer`, `reply`, …): the host's measurements.
     @ObservationIgnored public var onTurn: ((String) -> Void)?
     @ObservationIgnored private var timer: Timer?
-    @ObservationIgnored private var active = true
+    @ObservationIgnored private var active: Bool
     @ObservationIgnored private let log = Logger(subsystem: "dev.exact.watch", category: "live")
 
-    /// `session` is a live one (`HeadlessSession(…, live: true)`), on the clock `now()` reads.
-    public init(session: HeadlessSession) throws {
-        self.session = session
+    /// `session` is a live one (`HeadlessSession(…, live: true)`), on the clock `now()` reads;
+    /// `active` is the scene's phase at birth: no timer runs until it is active.
+    public init(session: HeadlessSession, active: Bool) throws {
+        self.session = session; self.active = active
         snapshot = try session.snapshot()
-        session.onWake { [weak self] in self?.run("reply") { try $0.session.refresh(at: $0.now()) } }
+        session.onWake { [weak self] in self?.run("reply") { try $0.session.pump(at: $0.now()) } }
         schedule()
     }
 
     /// The runner clock (`HeadlessSession.liveNow()`).
     public func now() -> Double { HeadlessSession.liveNow() }
+
+    /// After the first frame, the data the boot deferred is asked for, as iOS
+    /// does after its first pixel; its replies arrive through the wake.
+    public func firstFrame() {
+        guard !shown else { return }
+        shown = true
+        run("data") { try $0.session.refresh(at: $0.now()) }
+    }
+    @ObservationIgnored private var shown = false
 
     public func press(_ node: UInt32) {
         run("press") { try $0.session.press(node, at: $0.now()) }
@@ -46,9 +56,16 @@ public final class LiveModel {
         run("input") { try $0.session.fieldEvent(node, kind: 54, payload: FieldWire.replacement(text), at: $0.now()) }
     }
 
-    /// The platform's Back from the route keyed `key` (`HeadlessSession.back`).
-    public func back(root: UInt32, route key: String) {
-        run("back") { model in try model.session.back(root: root, route: key, at: model.now()) ?? model.snapshot }
+    /// The platform's Back from each route in `keys`, the top first, as a pop of
+    /// several levels takes them (`HeadlessSession.back`); a refusal stops it, and
+    /// the snapshot republished puts the stack back where the runner is.
+    public func back(root: UInt32, routes keys: [String]) {
+        run("back") { model in
+            for key in keys {
+                guard try model.session.back(root: root, route: key, at: model.now()) != nil else { break }
+            }
+            return try model.session.snapshot()
+        }
     }
 
     public func scrolled(_ node: UInt32, to offset: CGPoint) {
@@ -63,6 +80,7 @@ public final class LiveModel {
     /// Timers stop while the app is not active (a lowered wrist, Always On); the clock
     /// catches up once when it is again.
     public func setActive(_ active: Bool) {
+        guard active != self.active else { return }
         self.active = active
         log.notice("active \(active, privacy: .public) at \(self.now(), format: .fixed(precision: 0)) ms")
         print("exact-watch active \(active) at \(Int(now())) ms")
@@ -90,9 +108,12 @@ public final class LiveModel {
         guard active, let due = session.timerDue else { return }
         let delay = max(0, due - now()) / 1000
         print("exact-watch deadline \(Int(due)) in \(Int(delay * 1000)) ms")
-        timer = Timer.scheduledTimer(withTimeInterval: delay, repeats: false) { [weak self] _ in
+        // In the common modes, so a deadline fires while the Crown scrolls a list.
+        let timer = Timer(timeInterval: delay, repeats: false) { [weak self] _ in
             MainActor.assumeIsolated { self?.run("timer") { try $0.session.advance(at: $0.now()) } }
         }
+        RunLoop.main.add(timer, forMode: .common)
+        self.timer = timer
     }
 }
 
@@ -113,7 +134,7 @@ public struct LiveView: View {
         let environment = SnapshotEnvironment(family: .systemLarge, entryName: "app", rootFontSize: rootFontSize, entryDate: .now)
         let input = LiveInput(press: { model.press($0) }, scrolled: { model.scrolled($0, to: $1) },
                               title: { model.session.controlTitle($0) }, edited: { model.edit($0, text: $1) },
-                              back: { model.back(root: $0, route: $1) })
+                              back: { model.back(root: $0, routes: $1) })
         return FrameLayout(frames: roots.map(\.frame), size: snapshot.size) {
             ForEach(roots, id: \.id) { LiveNodeView(node: $0, tree: snapshot, environment: environment, input: input) }
         }
@@ -129,8 +150,8 @@ struct LiveInput {
     var scrolled: (UInt32, CGPoint) -> Void
     var title: (UInt32) -> String?
     var edited: (UInt32, String) -> Void
-    /// The platform's Back from a navigation root's active route: (root, route key).
-    var back: (UInt32, String) -> Void
+    /// The platform's Back from a navigation root's routes, the top first: (root, route keys).
+    var back: (UInt32, [String]) -> Void
 }
 
 /// One live node: the snapshot driver's box and leaves, which a widget's
@@ -208,7 +229,12 @@ private struct LiveNavigation: View {
         let routes = routes, active = root.props["navigationKey"] ?? ""
         let top = routes.firstIndex { $0.props["navigationKey"] == active } ?? 0
         let pushed = top > 0 ? routes[1...top].compactMap { $0.props["navigationKey"] } : []
-        let path = Binding(get: { pushed }, set: { next in if next.count < pushed.count { input.back(root.id, active) } })
+        // A pop goes to the session after SwiftUI's update, never inside it.
+        let path = Binding(get: { pushed }, set: { next in
+            guard next.count < pushed.count else { return }
+            let popped = Array(pushed[next.count...].reversed())
+            DispatchQueue.main.async { input.back(root.id, popped) }
+        })
         NavigationStack(path: path) {
             page(routes.first)
                 .navigationDestination(for: String.self) { key in page(routes.first { $0.props["navigationKey"] == key }) }

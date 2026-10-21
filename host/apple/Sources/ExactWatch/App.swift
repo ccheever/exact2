@@ -146,6 +146,7 @@ private struct LiveRoot: View {
                         .onAppear {
                             LaunchPhases.mark("first frame")
                             LaunchPhases.report()
+                            model.firstFrame()
                         }
                 } else if let failure {
                     ScrollView { Text(failure).font(.footnote) }
@@ -158,7 +159,7 @@ private struct LiveRoot: View {
                 if let model { model.resize(to: size) } else { boot(size: size) }
             }
         }
-        .onChange(of: phase) { _, phase in model?.setActive(phase == .active) }
+        .onChange(of: phase, initial: true) { _, phase in model?.setActive(phase == .active) }
         .onChange(of: dimmed) { _, dimmed in print("exact-watch luminance reduced \(dimmed)") }
     }
 
@@ -179,7 +180,7 @@ private struct LiveRoot: View {
             }
             if try session.snapshot().size != size { try session.resize(to: size) }
             LaunchPhases.mark("sized")
-            let live = try LiveModel(session: session)
+            let live = try LiveModel(session: session, active: phase == .active)
             LaunchPhases.mark("first batch")
             live.onCommand = { command in
                 print("exact-watch command \(command.name) \(command.args)")

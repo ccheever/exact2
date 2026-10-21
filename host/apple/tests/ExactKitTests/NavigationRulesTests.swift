@@ -214,7 +214,7 @@ final class NavigationRulesTests: XCTestCase {
             C(id: 3, html: "close", press: true, disabled: false),
         ]
         let resolve = { (target: String?) -> UInt32? in
-            NavigationRules.backControl(named: target, among: controls, id: \.id, htmlID: \.html, pressable: \.press, disabled: \.disabled, inActiveRoute: \.active)?.id
+            NavigationBack.control(named: target, among: controls, id: \.id, htmlID: \.html, pressable: \.press, disabled: \.disabled, inActiveRoute: \.active)?.id
         }
         XCTAssertEqual(resolve("back"), 12)
         XCTAssertEqual(resolve("close"), 3)
@@ -222,16 +222,16 @@ final class NavigationRulesTests: XCTestCase {
         XCTAssertNil(resolve(nil))
         // All disabled: nothing may begin.
         let disabled = [C(id: 1, html: "back", press: true, disabled: true)]
-        XCTAssertNil(NavigationRules.backControl(named: "back", among: disabled, id: \.id, htmlID: \.html, pressable: \.press, disabled: \.disabled, inActiveRoute: \.active))
+        XCTAssertNil(NavigationBack.control(named: "back", among: disabled, id: \.id, htmlID: \.html, pressable: \.press, disabled: \.disabled, inActiveRoute: \.active))
         let inactive = controls.filter { !$0.active }
-        XCTAssertNil(NavigationRules.backControl(named: "back", among: inactive, id: \.id, htmlID: \.html, pressable: \.press, disabled: \.disabled, inActiveRoute: \.active))
+        XCTAssertNil(NavigationBack.control(named: "back", among: inactive, id: \.id, htmlID: \.html, pressable: \.press, disabled: \.disabled, inActiveRoute: \.active))
         // A control in no route (a header the screens share) serves the active route that has none of its own;
         // one in another route never does, and the route's own comes first.
         struct S { let id: UInt32; let html: String?; let press: Bool; let disabled: Bool; let active: Bool; let routed: Bool }
         let shared = [S(id: 2, html: "back", press: true, disabled: false, active: false, routed: false),
                       S(id: 5, html: "back", press: true, disabled: false, active: false, routed: true)]
         let resolveShared = { (controls: [S]) -> UInt32? in
-            NavigationRules.backControl(named: "back", among: controls, id: \.id, htmlID: \.html, pressable: \.press, disabled: \.disabled, inActiveRoute: \.active, inAnyRoute: \.routed)?.id
+            NavigationBack.control(named: "back", among: controls, id: \.id, htmlID: \.html, pressable: \.press, disabled: \.disabled, inActiveRoute: \.active, inAnyRoute: \.routed)?.id
         }
         XCTAssertEqual(resolveShared(shared), 2)
         XCTAssertNil(resolveShared(shared.filter { $0.id == 5 }), "another route's control is that route's")
@@ -243,16 +243,16 @@ final class NavigationRulesTests: XCTestCase {
     /// declared one does not; else, given a visit beneath, the root's
     /// `navigate` with its location, or the runner's own back.
     func testBackIsAlwaysThereUnlessTheAuthorSaysOtherwise() {
-        typealias B = NavigationRules.Back
+        typealias B = NavigationBack.Way
         var asked = 0
         let beneath = { () -> String? in asked += 1; return "/" }
-        XCTAssertEqual(NavigationRules.back(control: 7, declared: true, hearsNavigate: true, beneath: beneath), B.press(7))
-        XCTAssertNil(NavigationRules.back(control: nil, declared: true, hearsNavigate: true, beneath: beneath), "a disabled control refuses")
+        XCTAssertEqual(NavigationBack.way(control: 7, declared: true, hearsNavigate: true, beneath: beneath), B.press(7))
+        XCTAssertNil(NavigationBack.way(control: nil, declared: true, hearsNavigate: true, beneath: beneath), "a disabled control refuses")
         XCTAssertEqual(asked, 0, "the runner is asked only when there is no control")
-        XCTAssertEqual(NavigationRules.back(control: nil, declared: false, hearsNavigate: true, beneath: beneath), B.navigate("/"))
-        XCTAssertEqual(NavigationRules.back(control: nil, declared: false, hearsNavigate: false, beneath: beneath), B.pop, "no navigate handler: the runner's own back")
-        XCTAssertNil(NavigationRules.back(control: nil, declared: true, hearsNavigate: false, beneath: beneath), "a disabled control still refuses")
-        XCTAssertNil(NavigationRules.back(control: nil, declared: false, hearsNavigate: true, beneath: { nil }), "a stack's root")
+        XCTAssertEqual(NavigationBack.way(control: nil, declared: false, hearsNavigate: true, beneath: beneath), B.navigate("/"))
+        XCTAssertEqual(NavigationBack.way(control: nil, declared: false, hearsNavigate: false, beneath: beneath), B.pop, "no navigate handler: the runner's own back")
+        XCTAssertNil(NavigationBack.way(control: nil, declared: true, hearsNavigate: false, beneath: beneath), "a disabled control still refuses")
+        XCTAssertNil(NavigationBack.way(control: nil, declared: false, hearsNavigate: true, beneath: { nil }), "a stack's root")
     }
 
     /// LLP 1115.000 D5.2, D5.3: a route's bar is its own. Its header when

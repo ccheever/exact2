@@ -151,7 +151,12 @@ public final class HeadlessSession {
         core = SessionCore(runtime: runtime, text: text)
         core.measure(with: text)
         runtime.setProfileResolver(assets)
-        if live { runtime.setLiveClock { HeadlessSession.liveNow() } }
+        if live {
+            runtime.setLiveClock { HeadlessSession.liveNow() }
+            // The boot starts the executor with the wake installed now; `onWake` only
+            // names the closure it calls.
+            runtime.setWake(HeadlessWakes.call, ctx: UnsafeMutableRawPointer(bitPattern: wakeKey))
+        }
         _ = try turn {
             try facts.prime(runtime)
             if let entry {
@@ -213,6 +218,7 @@ public final class HeadlessSession {
 
     public func close() {
         Owner.shared.sync {
+            HeadlessWakes.callbacks[wakeKey] = nil
             core.runtime.destroy()
             core.text.install(nil)
             // Snapshots hold a weak shaper; after close they shape on demand
@@ -253,7 +259,13 @@ public final class HeadlessSession {
     @discardableResult
     public func refresh(at now: Double = 0) throws -> Snapshot {
         _ = try turn { core.runtime.dataReady() }
-        return try turn { core.runtime.pump(now: now) }
+        return try pump(at: now)
+    }
+
+    /// Drain ready replies and lay out their store changes: a live host's answer to its wake.
+    @discardableResult
+    public func pump(at now: Double) throws -> Snapshot {
+        try turn { core.runtime.pump(now: now) }
     }
 
     /// Run a node's press action and lay out the resulting store changes.
@@ -297,26 +309,40 @@ public final class HeadlessSession {
         try turn { core.runtime.fieldEvent(node, kind, payload, now: now) }
     }
 
-    /// The platform's Back from the route keyed `key` under the navigation root `root`
-    /// (LLP 1115 D5; iOS's `NavigationRules.back`): press the live control the root's
-    /// `navigationBack` names, else deliver the location beneath to the root's `navigate`,
-    /// else the runner's own back of the router. Nil when there is nothing to go back to.
+    /// The platform's Back from the route keyed `key` under the navigation root `root`,
+    /// by iOS's rule (`NavigationBack`, LLP 1115 D5): the control the root's
+    /// `navigationBack` names, in that route or in no route; else, when the route
+    /// declares none, the location beneath to the root's `navigate`, else the
+    /// runner's own back of the router. Nil when Back is refused.
     @discardableResult
     public func back(root: UInt32, route key: String, at now: Double) throws -> Snapshot? {
-        let named = Owner.shared.sync { nodes[root]?.props["navigationBack"] }
-        let control = Owner.shared.sync {
-            nodes.values.filter { node in
-                named != nil && node.props["id"] == named && node.handlers.contains("press") && node.props["disabled"] != "true"
-            }.map(\.id).min()
+        switch Owner.shared.sync({ way(root: root, route: key) }) {
+        case .press(let control)?: return try press(control, at: now)
+        case .navigate(let location)?: return try turn { core.runtime.navigate(root, location, now: now) }
+        case .pop?:
+            guard let batch = core.runtime.hostBack(key, now: now) else { return nil }
+            return try turn { batch }
+        case nil: return nil
         }
-        if let control { return try press(control, at: now) }
-        if named.map({ name in Owner.shared.sync { nodes.values.contains { $0.props["id"] == name } } }) == true { return nil }
-        guard let location = core.runtime.locationBeneath(key), !location.isEmpty else { return nil }
-        if Owner.shared.sync({ nodes[root]?.handlers.contains("navigate") }) == true {
-            return try turn { core.runtime.navigate(root, location, now: now) }
-        }
-        guard let batch = core.runtime.hostBack(key, now: now) else { return nil }
-        return try turn { batch }
+    }
+
+    private func way(root: UInt32, route key: String) -> NavigationBack.Way? {
+        guard let container = nodes[root] else { return nil }
+        let routes = container.children.filter { nodes[$0]?.props["navigationKey"] != nil }
+        guard let route = routes.first(where: { nodes[$0]?.props["navigationKey"] == key }) else { return nil }
+        let name = container.props["navigationBack"]
+        let named = name.map { name in nodes.values.filter { $0.props["id"] == name } } ?? []
+        let control = NavigationBack.control(named: name, among: named, id: \.id, htmlID: { $0.props["id"] },
+            pressable: { $0.handlers.contains("press") }, disabled: { $0.props["disabled"] == "true" },
+            inActiveRoute: { holds(route, $0.id) }, inAnyRoute: { node in routes.contains { holds($0, node.id) } })
+        return NavigationBack.way(control: control?.id, declared: named.contains { holds(route, $0.id) },
+                                  hearsNavigate: container.handlers.contains("navigate"),
+                                  beneath: { core.runtime.locationBeneath(key) })
+    }
+
+    /// Whether `node` is `ancestor` or in its subtree.
+    private func holds(_ ancestor: UInt32, _ node: UInt32) -> Bool {
+        ancestor == node || (nodes[ancestor]?.children.contains { holds($0, node) } ?? false)
     }
 
     /// A native control's title (`exact_press_face`, LLP 1069.011.000 D1): a
@@ -340,15 +366,13 @@ public final class HeadlessSession {
     }
     #endif
 
-    /// Calls `wake` on the main queue when a request's reply is ready; the host
-    /// then calls `refresh(at:)`. One wake per session; nil removes it.
+    /// A live session calls `wake` on the main queue when a request's reply is
+    /// ready; the host then calls `refresh(at:)`. One wake per session; nil removes it.
     public func onWake(_ wake: (() -> Void)?) {
-        let key = UInt(bitPattern: Unmanaged.passUnretained(self).toOpaque())
-        Owner.shared.sync {
-            HeadlessWakes.callbacks[key] = wake
-            core.runtime.setWake(wake == nil ? nil : HeadlessWakes.call, ctx: UnsafeMutableRawPointer(bitPattern: key))
-        }
+        Owner.shared.sync { HeadlessWakes.callbacks[wakeKey] = wake }
     }
+
+    private var wakeKey: UInt { UInt(bitPattern: Unmanaged.passUnretained(self).toOpaque()) }
 
     package func agentFacts() -> [String: Any] {
         let bytes = Data(core.runtime.agent("{\"op\":\"tags\"}").utf8)

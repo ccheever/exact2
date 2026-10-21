@@ -61,58 +61,6 @@ enum NavigationRules {
         !modalActive && shownKey != rootKey && (sourceKey == rootKey || sourceReplaced)
     }
 
-    /// D1: the Back control is resolved at use, never captured at a
-    /// gesture's start: the lowest view id among live controls whose HTML
-    /// `id` is the container's `navigationBack`, that handle `press`, and are
-    /// owned by the active route, else by no route at all (a header the
-    /// routes share, where an app keeps one Back for every screen); a
-    /// control in another route is that route's. A disabled one resolves to
-    /// nothing. `nil` when no such control is live — and then no gesture may
-    /// begin and no dismissal may complete.
-    static func backControl<Control>(
-        named target: String?,
-        among controls: [Control],
-        id: (Control) -> UInt32,
-        htmlID: (Control) -> String?,
-        pressable: (Control) -> Bool,
-        disabled: (Control) -> Bool,
-        inActiveRoute: (Control) -> Bool,
-        inAnyRoute: (Control) -> Bool = { _ in true }
-    ) -> Control? {
-        guard let target else { return nil }
-        let named = controls.filter { htmlID($0) == target && pressable($0) }
-        let own = named.filter(inActiveRoute)
-        let candidates = own.isEmpty ? named.filter { !inAnyRoute($0) } : own
-        return candidates.filter { !disabled($0) }.min { id($0) < id($1) }
-    }
-
-    /// How the platform's Back (its button, edge swipe, sheet swipe-down)
-    /// goes from the selected route.
-    enum Back: Equatable {
-        /// Press the authored Back control, this view.
-        case press(UInt32)
-        /// Deliver this location to the navigation root's `navigate`.
-        case navigate(String)
-        /// The runner's own `back` of the router (no `navigate` handler).
-        case pop
-    }
-
-    /// LLP 1115 D5, Back is always there: a route that declares a Back
-    /// control (a live element in it whose `id` is the root's
-    /// `navigationBack`) goes back by pressing it, and is refused while it
-    /// does not resolve (disabled, or no `press`) — the author's say, as
-    /// D1 has it. A route that declares none still goes back, as a
-    /// hand-built UIKit screen does and as the web's history Back does
-    /// (LLP 1038 D11, amended 2026-10-03): the root's `navigate` with the
-    /// location of the visit beneath, or with no `navigate` handler the
-    /// runner's own `back` of the router, the same on the web. With no
-    /// visit beneath there is nothing to go back to, and it is refused.
-    static func back(control: UInt32?, declared: Bool, hearsNavigate: Bool, beneath: () -> String?) -> Back? {
-        if let control { return .press(control) }
-        guard !declared, let location = beneath(), !location.isEmpty else { return nil }
-        return hearsNavigate ? .navigate(location) : .pop
-    }
-
     /// What a route shows of the platform's navigation bar.
     enum Bar: Equatable {
         /// The route's `header`, projected: its heading the title, its
