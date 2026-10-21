@@ -440,6 +440,9 @@ fn assets(root: &Path, out: &Path) -> Result<(), String> {
     let made = std::os::unix::fs::symlink(&theirs, &link);
     #[cfg(windows)]
     let made = std::os::windows::fs::symlink_dir(&theirs, &link);
+    // (A target with neither, the compiler built for wasm: no links, and no gallery written there.)
+    #[cfg(not(any(unix, windows)))]
+    let made: std::io::Result<()> = Err(std::io::Error::other("no links on this platform"));
     made.map_err(|e| format!("{}: {e}", link.display()))
 }
 
