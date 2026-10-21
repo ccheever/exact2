@@ -564,7 +564,8 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
   // Back, to the control whose press pushed the route that left (the row, the link, the button that opened a sheet),
   // else as on a push. A focus the commit set is left alone: an `autofocus` field, a `focus()` command, anything
   // now inside the route, or anywhere that is neither the pressed control nor where the focus was as the press began
-  // (so a route that arrives with no press never takes the focus from where a person put it). Another
+  // (so a route that arrives with no press never takes the focus from where a person put it), but for one still in a
+  // leaving element (`[data-exiting]`: a sheet sliding away or a presence view leaving), which is no one's. Another
   // tab's stack is no arrival (the focus stays on its tab), nor is the first sight of a page. Nothing scrolls, and the
   // ring is the browser's own `:focus-visible`: none after a pointer's press, one after a key's (`focusVisible` says
   // which, where the engine takes it). The stack is read from the attributes navigation.js projects from.
@@ -593,21 +594,21 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
   };
   const arrive = () => {
     const nav = root.querySelector("[navigationBack]"), key = nav?.getAttribute("navigationKey");
-    for (const route of nav?.querySelectorAll("[navigationPresentation], [data-exact-dialog]") ?? []) dialog(route);
+    for (const route of nav?.querySelectorAll(":is([navigationPresentation], [data-exact-dialog]):not([data-exiting])") ?? []) dialog(route); // a sheet sliding away is no route (navigation.js `sheetLeaves`)
     const top = key == null ? null : [...nav.querySelectorAll("[navigationKey]")].find(r => r.getAttribute("navigationKey") === key && r.parentElement.closest("[navigationKey]") === nav);
     if (!top) return;
-    const routes = [...top.parentElement.children].filter(r => r.hasAttribute("navigationKey")), stack = routes.slice(0, routes.indexOf(top) + 1);
+    const routes = [...top.parentElement.children].filter(r => r.hasAttribute("navigationKey") && !r.hasAttribute("data-exiting")), stack = routes.slice(0, routes.indexOf(top) + 1);
     const was = shown, active = document.activeElement, by = pressed && performance.now() - pressed.at < 2000 ? pressed : null;
     shown = stack;
     if (!was || was[0] !== stack[0] || was.at(-1) === top) return;
     const back = was.includes(top);
     if (!back) origins.set(top, was.length === stack.length ? origins.get(was.at(-1)) : by?.el); // a replace keeps where its route came from
     pressed = null;
-    if (active && active !== document.body && (top.contains(active) || ![by?.el, by?.focus].includes(active))) return;
+    if (active && active !== document.body && !active.closest("[data-exiting]") && (top.contains(active) || ![by?.el, by?.focus].includes(active))) return; // a focus a leaving element still holds (in a frame or a shadow root, where its blur does not reach) is no one's
     const origin = back ? origins.get(was[was.indexOf(top) + 1]) : null;
     const to = lands(origin) ? origin : titleOf(top) ?? top;
     if (!to.hasAttribute("tabindex") && to.tabIndex < 0) { to.tabIndex = -1; to.addEventListener("blur", () => to.removeAttribute("tabindex"), { once: true }); }
-    to.focus({ preventScroll: true, ...(by ? { focusVisible: by.key } : {}) });
+    const focus = () => to.focus({ preventScroll: true, ...(by ? { focusVisible: by.key } : {}) }); focus(); if (document.activeElement?.closest("[data-exiting]")) focus(); // from a frame in a shadow root Firefox lands the focus on the second call
   };
   return {
     arrive, // once the piece is made (the stack as it stands), then after each commit's tree, its focus commands and its `autofocus`

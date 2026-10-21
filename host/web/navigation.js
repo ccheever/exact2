@@ -3,11 +3,11 @@ const AGENT_ADMITTED = true; // false in a production bake: host/web/build.mjs r
 let last = null, refused = new WeakMap();
 // The tabpanels each root last hid or showed (one it stops naming shows again); the keys of the stack it last showed.
 let managed = new WeakMap(), shown = new WeakMap(), placed = new WeakMap();
-let written = [], gone = new Set(), cursor = 0, first = null, originIndex = null;
-let echo = null, pop = null, draining = false;
+let written = [], gone = new Set(), cursor = 0, first = null, originIndex = null, echo = null, pop = null, draining = false;
 const queue = [], waiters = new Set();
 let root, navigate, log, hostBack, hostGo, routeMatches = () => false;
-const routesIn = node => [...node.children].filter(r => r.hasAttribute("navigationKey")); const setInert = (el, on) => { if (el.inert !== on) el.inert = on; }; // a projection writes only what changed
+const routesIn = node => [...node.children].filter(r => r.hasAttribute("navigationKey") && !r.hasAttribute("data-exiting")); const setInert = (el, on) => { if (el.inert !== on) el.inert = on; }; export const liveById = (id, root = document) => { const el = document.getElementById(id), live = n => !n.closest("[data-exiting]"); return !el ? null : live(el) && root.contains(el) ? el : [...root.querySelectorAll("[id]")].find(n => n.id === id && live(n)) ?? null; }; // a command by id means the live element: one leaving keeps its ids for its own references
+const leavingSheets = new Set(), shownRoutes = new WeakMap(); export function sheetLeaves(el) { if (typeof matchMedia !== "function" || typeof HTMLTextAreaElement !== "function" || el.nodeType !== 1 || el.getAttribute("navigationPresentation") !== "modal" || el.hasAttribute("data-exiting") || !el.isConnected || el.querySelector("audio, video, dialog[open], :popover-open") || ("createValueRange" in HTMLTextAreaElement.prototype && el.querySelector("textarea[data-decorations]")) || getComputedStyle(el).position !== "fixed" || matchMedia("(prefers-reduced-motion: reduce)").matches) return false; if (el.contains(document.activeElement)) document.activeElement.blur(); el.setAttribute("navigationKey", ""); el.setAttribute("data-exiting", ""); el.setAttribute("aria-hidden", "true"); el.inert = true; const now = getComputedStyle(el), from = now.translate === "none" ? "0 0" : now.translate, shadow = now.boxShadow; Object.assign(el.style, { transition: "none", pointerEvents: "none" }); const slide = el.animate([{ translate: from, boxShadow: shadow }, { translate: "0 100vh", boxShadow: shadow.replace(/rgba?\([^)]*\)|color\([^)]*\)|#[\da-f]+\b/gi, "transparent") }], { duration: 400, easing: "cubic-bezier(.32, .72, 0, 1)" }), done = () => { leavingSheets.delete(slide); el.remove(); }; leavingSheets.add(slide); slide.finished.then(done, done); return true; } // @ref LLP 1115.000 D4.8 — a sheet the look draws (fixed to the window) slides back down as it closes, as it slid up (neutral.css), unless the person asks for less motion. A runtime asks this before it removes a modal route (glue.js's `destroy`; rt.js's `clear`, `each` and presence's `Leave`); a sheet that leaves stays whole until it is off the window, from where it stands, out of input, accessibility and the routes as presence-glue.js's leaving views are (LLP 1063), the focus leaving it as a removed one's would (input-glue.js's `arrive` takes one a blur does not reach). One holding media or a field whose decorations the browser paints closes at once, as its runtime empties those with the commit, and so does one holding an open dialog or popover, which the top layer would leave frozen on the window; a native view slides, showing what its module left in it. It keeps its ids for what it draws, though a command by id passes over it (`liveById`), and its stack's projection ends it on showing a sheet that was not beneath it, which may share them (compared as elements: a replace keeps its key).
 // @ref LLP 1075.003 §3.7 — tabs name their kept panels with aria-controls; each panel holds a route stack.
 // Attribute and parent walks also work in the server renderer's DOM, which has no selector engine.
 const tabsOf = nav => {
@@ -391,9 +391,9 @@ export const navigation = {
       for (const [stack, routes] of stacks.entries()) {
         // The selected stack shows the route the root names; another keeps its top laid out.
         const selected = stack === at ? routes.findIndex(route => route.getAttribute("navigationKey") === key) : routes.length - 1;
-        if (stack === at) shown.set(nav, routes.slice(0, selected + 1).map(route => route.getAttribute("navigationKey")));
+        if (stack === at) { const before = shownRoutes.get(nav) ?? [], showing = routes.slice(0, selected + 1); shownRoutes.set(nav, showing); shown.set(nav, showing.map(route => route.getAttribute("navigationKey"))); if (sheet(routes[selected]) && !before.includes(routes[selected])) for (const slide of leavingSheets) if (slide.effect.target.parentElement === routes[selected].parentElement) { slide.finish(); slide.effect.target.remove(); } }
         const found = splitOf(routes), split = found.width, live = split && !sheet(routes[selected]);
-        const modal = routes[selected]?.getAttribute("navigationPresentation") === "modal";
+        const modal = routes[selected]?.getAttribute("navigationPresentation") === "modal", beneath = routes.findLastIndex((r, i) => i < selected && r.getAttribute("navigationPresentation") !== "modal");
         detailRows(routes, found);
         if (stack === at && list) setInert(list, sheet(routes[selected]) || !!list.authoredInert); // a sheet is modal: the root's tab bar is inert beneath it, as the route it covers is (LLP 1115.000 D4.5)
         // A split's detail shown is the top, or the route a sheet covers; its row is the one whose press pushed it, or pushed a route beneath it in its column.
@@ -401,7 +401,7 @@ export const navigation = {
         for (const [index, route] of routes.entries()) {
           const active = index === selected || (live && index === 0);
           if (!active && route.contains(document.activeElement)) document.activeElement.blur();
-          const covered = modal && (index === selected - 1 || (split > 0 && index === 0));
+          const covered = modal && ((index >= beneath && index < selected) || (split > 0 && index === 0)); // a sheet shows what it sits over: the page (in the strip above a narrow sheet) and any sheets between, which only the top one dims
           route.style.visibility = active || covered ? "" : "hidden";
           route.toggleAttribute("data-exact-covered", covered);
           setInert(route, !active || !!route.authoredInert);
@@ -806,7 +806,7 @@ export function focusController({ready, elements, inert, removed = el => !el.isC
 export function runFocusCommands(commands, { root, ready, inertAncestor, log }) {
   for (const { name, args } of commands) {
     if (name === "scrollIntoView") { // `Element.scrollIntoView()` by the element's id, after the batch's layout (minesweeper F3)
-      const el = [...root.querySelectorAll("[id]")].find(node => node.id === args?.[0]);
+      const el = liveById(args?.[0], root);
       if (el) el.scrollIntoView({ block: args[1] ?? "start", inline: args[2] ?? "nearest", behavior: args[3] ?? "auto" }); else log(`scrollIntoView "${args?.[0]}" refused: no live node with that id`);
       continue;
     }
@@ -816,11 +816,11 @@ export function runFocusCommands(commands, { root, ready, inertAncestor, log }) 
       continue;
     }
     if (name === "removeAllRanges") { getSelection()?.removeAllRanges(); continue; }
-    if (name === "setSelectionRange") { setFieldSelection([...root.querySelectorAll("[id]")].find(node => node.id === args?.[0]), args, log); continue; }
-    if (name === "setRangeText") { setFieldRangeText([...root.querySelectorAll("[id]")].find(node => node.id === args?.[0]), args, log); continue; }
+    if (name === "setSelectionRange") { setFieldSelection(liveById(args?.[0], root), args, log); continue; }
+    if (name === "setRangeText") { setFieldRangeText(liveById(args?.[0], root), args, log); continue; }
     const selectText = name === "selectText";
     if (args?.length !== 1 || typeof args[0] !== "string" || !ready) continue;
-    const el = [...root.querySelectorAll("[id]")].find(node => node.id === args[0]);
+    const el = liveById(args[0], root);
     const reason = !el ? "no live node with that id" : !el.isConnected ? "not mounted" : el.matches(":disabled,[disabled]") ? "disabled"
       : inertAncestor(el) ? "inert ancestor" : !el.getClientRects().length ? "zero size"
       : getComputedStyle(el).visibility !== "visible" ? "hidden ancestor" : null;
@@ -1482,7 +1482,7 @@ export function onSelection(e, report) {
 }
 // HTML's methods and source, shared by both web targets (LLP 1021 §4).
 export function popoverCommand(method, id, source, say) {
-  const pop = document.getElementById(id), anchor = source == null ? null : document.getElementById(source);
+  const pop = liveById(id), anchor = source == null ? null : liveById(source);
   if (!pop?.hasAttribute("popover")) return say(`${method} "${id}" refused: no popover has that id`);
   if (source != null && !anchor) return say(`${method} "${id}" refused: no source has id "${source}"`);
   try { pop[method](method === "hidePopover" || !anchor ? undefined : { source: anchor }); }

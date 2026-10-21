@@ -2,7 +2,7 @@
 // wasm web host runs it (host/web/glue.js, navigation.js), so a command the
 // compiler admits (contract/types/src/checks.rs `HOST_COMMANDS`) is one this
 // runtime carries (files diary F5: `selectText` was refused here).
-import { popoverCommand, setFieldSelection, setFieldRangeText, appRootFontSize } from "./navigation.js";
+import { popoverCommand, setFieldSelection, setFieldRangeText, appRootFontSize, liveById } from "./navigation.js";
 import "./prompt-glue.js"; // a prompt's Return (host/web/prompt-glue.js)
 import "./alert-message.js"; // a grouped alert's message box (host/web/alert-message.js)
 // A development page may hold a fact over the app's own (LLP 1122 T7, theme2's F2 ruling: a copy the design tool pins):
@@ -12,12 +12,12 @@ export const commands = say => ({
   // The field's own method, by its id (x2apps codeedit #2); commands run
   // once the commit's tree is in place, so a value set beside it is there.
   removeAllRanges: () => getSelection()?.removeAllRanges(),
-  setSelectionRange: (...args) => setFieldSelection(document.getElementById(args[0]), args, say),
-  setRangeText: (...args) => setFieldRangeText(document.getElementById(args[0]), args, say),
+  setSelectionRange: (...args) => setFieldSelection(liveById(args[0]), args, say),
+  setRangeText: (...args) => setFieldRangeText(liveById(args[0]), args, say),
   // Focus, then the field's whole text selected, as `select()` does
   // (navigation.js `runFocusCommands`).
   selectText: id => {
-    const e = document.getElementById(id);
+    const e = liveById(id);
     if (typeof e?.select !== "function") return say(`selectText "${id}" refused: ${e ? "not a text editor" : "no live node with that id"}`);
     e.focus();
     if (document.activeElement === e) e.select();
@@ -36,7 +36,7 @@ export const commands = say => ({
   // order, held until the GPU glue loads and drains `pendingPosts`
   // (gpu-glue.js); 64 a surface, as every host bounds them.
   postMessage: (text, name, kind) => {
-    const live = [...document.querySelectorAll('#exact-root *')].filter(e => !e.hasAttribute('data-exiting'));
+    const live = [...document.querySelectorAll('#exact-root *')].filter(e => !e.closest('[data-exiting]'));
     if (kind === "iframe") { const captured = live.filter(e => e.localName === 'iframe' && e.id === name).map(e => [e, e.exactFrameChannel]); import('./frame-messages.js').then(m => m.postFrameMessage(text, name, null, say, captured)); return; }
     if (live.some(e => e.localName === 'iframe' && e.id === name)) return say(`postMessage: canvas name collides with an iframe id "${name}"`);
     const x = globalThis.exact ??= {}, at = x.now?.() ?? performance.now();
@@ -75,13 +75,13 @@ export const commands = say => ({
   load: id => media(say, id, "load"),
 });
 function media(say, id, name, seconds) {
-  const e = document.getElementById(id);
+  const e = liveById(id);
   if (!e?.$media) return say(`${name} "${id}" refused: ${e ? "not a video or audio" : "no live node with that id"}`);
   e.$media.command(name, seconds);
 }
 
 function modal(id, say, method) {
-  const e = document.getElementById(id);
+  const e = liveById(id);
   if (e instanceof HTMLDialogElement) { if (method === "close") e.close(); else if (!e.open) e.showModal(); else say(`showModal "${id}" ignored: dialog is already open`); return; }
   if (e?.popover != null && e.getAttribute("role") === "alertdialog") { if (method === "close") e.hidePopover(); else if (!e.matches(":popover-open")) e.showPopover(); return; }
   if (method === "showModal") say(`showModal "${id}" refused: no dialog or alertdialog popover has that id`);

@@ -81,7 +81,9 @@ async function inChrome(test, html = page) {
   try {
     const { sessionId } = await suite.page();
     const call = (method, params) => cdp.send(method, params, sessionId);
-    await call('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-color-scheme', value: 'light' }] }); // the light look these checks expect, in whatever appearance this machine has
+    // The light look these checks expect, in whatever appearance this machine has; no motion, as the helpers remove a
+    // route by hand and do not pass over a sheet that is still sliding away (neutral-look.test.mjs holds the motion).
+    await call('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-color-scheme', value: 'light' }, { name: 'prefers-reduced-motion', value: 'reduce' }] });
     const evaluate = async (expression) => {
       const reply = await call('Runtime.evaluate', { expression, returnByValue: true, awaitPromise: true });
       if (reply.exceptionDetails) throw new Error(reply.exceptionDetails.exception?.description ?? reply.exceptionDetails.text);

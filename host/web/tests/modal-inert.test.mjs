@@ -32,7 +32,7 @@ const html = `<style>dialog { max-height: 240px; overflow: auto; }</style>
   import * as nav from '/navigation.js';
   import { reveal } from '/input-glue.js';
   import '/document-glue.js';
-  const { inertAncestor, modalLayers, contextAt, editMenu } = nav;
+  const { inertAncestor, modalLayers, contextAt, editMenu, liveById } = nav;
   const root = document.getElementById('exact-root');
   const views = new Map([...root.querySelectorAll('[id]')].map(el => [el.id, el]));
   const wasm = {}, inputReady = true, tagged = reply => reply, syncMedia = () => {}, syncMarkup = () => {};
