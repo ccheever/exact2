@@ -1104,7 +1104,8 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
     }
     func applyMaterialRadius() {
         guard let materialView else { return }
-        let radius = BorderPaint.clip(materialView.layer, in: bounds, radii: cornerSizes(in: bounds))
+        let authored = BorderPaint.clip(materialView.layer, in: bounds, radii: cornerSizes(in: bounds))
+        let radius = authored == 0 ? defaultSurfaceRadius ?? 0 : authored // a default surface's own corner
         if #available(iOS 26.0, tvOS 26.0, *) {
             materialView.cornerConfiguration = .corners(radius: .fixed(Double(radius)))
         } else {

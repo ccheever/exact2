@@ -57,6 +57,7 @@ mod native;
 mod nodes;
 mod overflow;
 pub mod params;
+mod popover_surface;
 mod routes;
 mod row_look;
 mod scale;

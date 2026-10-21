@@ -144,10 +144,34 @@ extension NodeView {
         style["backdrop_filter"]?.array?.compactMap(BackdropOperation.init) ?? []
     }
 
-    /// The material this node asks for: the host-policy prop, else a backdrop.
+    /// The material this node asks for: the host-policy prop, else a
+    /// backdrop, else a popover's default surface (UIKit's popover glass).
     var materialRequest: String? {
         if let material = props["backgroundMaterial"] { return material }
-        return backdropOperations.isEmpty ? nil : "backdrop"
+        if !backdropOperations.isEmpty { return "backdrop" }
+        return defaultSurfaceRadius == nil ? nil : "glass"
+    }
+
+    /// The corner of a popover's default surface (LLP 1021; theme2
+    /// 2026-10-21 19:55): the compiler marks a popover whose author wrote no
+    /// surface (`defaultSurface`), and the host sends the corner only where
+    /// this platform's metrics give one (`popover-radius`: iOS's). A menu is
+    /// the platform's own. Nil: no default surface here.
+    var defaultSurfaceRadius: CGFloat? {
+        guard props["defaultSurface"] == "true", props["accessibilityRole"] != "menu",
+              let radius = props["defaultSurfaceRadius"].flatMap(Double.init) else { return nil }
+        return CGFloat(radius)
+    }
+
+    /// That surface's shadow, black at the metrics' alpha, offset down and
+    /// blurred as they say (`defaultSurfaceShadow`: "y blur alpha"); in the
+    /// light appearance only, as UIKit's popover casts it (none in dark,
+    /// measured over a coloured page).
+    var defaultSurfaceShadow: BoxShadowSpec? {
+        guard defaultSurfaceRadius != nil, !drawsDark, let parts = props["defaultSurfaceShadow"]?.split(separator: " ").compactMap({ Double($0) }),
+              parts.count == 3 else { return nil }
+        return BoxShadowSpec(color: CGColor(gray: 0, alpha: parts[2]), offset: CGSize(width: 0, height: parts[0]),
+                             blur: parts[1], spread: 0, inset: false)
     }
 }
 

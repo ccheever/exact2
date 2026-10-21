@@ -540,6 +540,13 @@ impl<D: DataSource> Host<D> {
         if let Some(line) = super::layout::separator::json(self.runner.kernel(), node.id) {
             props.insert(super::layout::separator::PROP, line);
         }
+        if node.props.bool(PropId::DefaultSurface) == Some(true) {
+            if let Some((radius, shadow)) = default_surface(exact_kernel::style::metrics::column())
+            {
+                props.insert("defaultSurfaceRadius", radius);
+                props.insert("defaultSurfaceShadow", shadow);
+            }
+        }
         if !self.hatches.off.is_empty() {
             if let Some(word) = props.get(PropId::Hatch.name()) {
                 if self.hatches.off.contains(word) {
@@ -550,6 +557,19 @@ impl<D: DataSource> Host<D> {
         }
         props
     }
+}
+
+/// A popover's default surface (`defaultSurface`) as `column` says: its
+/// corner (`popover-radius`) and its shadow's offset down, CSS blur and
+/// black's alpha (`popover-shadow-`), none where the platform draws its own.
+fn default_surface(column: exact_kernel::style::metrics::Column) -> Option<(String, String)> {
+    use exact_kernel::generated::metric;
+    use exact_kernel::style::metrics::{length_in, number_in};
+    let radius = length_in(metric::POPOVER_RADIUS, column, 0.0, 0.0)?;
+    let y = length_in(metric::POPOVER_SHADOW_Y, column, 0.0, 0.0)?;
+    let blur = length_in(metric::POPOVER_SHADOW_BLUR, column, 0.0, 0.0)?;
+    let alpha = number_in(metric::POPOVER_SHADOW_ALPHA, column)?;
+    Some((radius.to_string(), format!("{y} {blur} {alpha}")))
 }
 
 /// Props by their own names, including derived text advances.
@@ -634,3 +654,7 @@ impl StyleTexts {
         shared
     }
 }
+
+#[cfg(test)]
+#[path = "popover_surface_tests.rs"]
+mod popover_surface_tests;
