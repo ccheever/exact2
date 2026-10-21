@@ -22,7 +22,7 @@ import { turnItemHasDetail, turnItemNeedsDetailFetch } from './timeline-item-det
 import { arr, num, obj, str, type Activity, type Message, type Obj } from '../client/domain';
 import { ClientError, activeRun, type Files, type Native } from '../client/protocol';
 import type { T3Client } from '../client/client';
-import { availableRevertTurnCounts, deriveRows, findRevertCheckpoint, rowKey, turnFoldRunIds, type Row, type RowInput } from './timeline-rows';
+import { availableRevertTurnCounts, deriveRows, findRevertCheckpoint, rowKey, runTurnEnded, turnFoldRunIds, type Row, type RowInput } from './timeline-rows';
 import { displayFailed, entryDisplayLabel, entryIcon, inspectorDetail, isToolLike, liveThoughtLine, thoughtText, threadReadLabel, workspaceRelativePath, type WorkEntry } from './timeline-worklog';
 import { eventRow } from './timeline-events';
 import { messageCodeBlocks } from '../highlight/timeline-highlight';
@@ -352,6 +352,7 @@ function rowInput(client: T3Client, setup = threadWorktreeSetup(client)): RowInp
   const provider = arr(client.config.providers).find(provider => provider.instanceId === obj(obj(projection.thread).modelSelection).instanceId);
   return { rows: client.thread ? arr(projection.visibleTurnItems) : [], runs, attempts: arr(projection.attempts), nodes: arr(projection.nodes),
     checkpoints: arr(projection.checkpoints), isWorking: !!running || runless !== '', runningRunId: str(running?.id), latestRun: runs[runs.length - 1] ?? null,
+    latestRunTurnEnded: runTurnEnded(projection, runs[runs.length - 1]),
     // orchestrationV2RunWorkStartedAt: a wake run keeps the start of the work it continues.
     activeStartedAt: running ? str(running.workStartedAt ?? running.startedAt ?? running.requestedAt) : runless, runlessWorkActive: runless !== '', worktreeSetup: setup.snapshot,
     expandedRuns: threadFindExpanded(client) ? new Set(runs.map(run => str(run.id))) : open('fold'), expandedAttempts: threadFindExpanded(client) ? new Set(arr(projection.attempts).map(attempt => str(attempt.id))) : open('attempt'), expandedGroups: open('group'), root, rollback: provider?.supportsConversationRollback !== false,

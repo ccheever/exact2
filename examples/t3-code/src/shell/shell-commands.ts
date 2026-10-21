@@ -91,37 +91,51 @@ export async function shellCommand(client: T3Client, native: Native, storage: Fi
 }
 
 /**
- * ThreadRelationshipsPanel stopSubagent → interruptThreadTurn({ threadId: child }): `thread.stop` on the child when the
- * server advertises threadStop; otherwise the child thread's active run, else the latest run while it still owns
- * background work, is interrupted with its queue held. A failure is the toast
- * "Could not stop subagent".
+ * ThreadRelationshipsPanel stopSubagent → interruptThreadTurn({ threadId: owner, subagentId }) over the owner's fresh
+ * projection. A provider-native task stops by `subagent.stop` alone. An app-owned task with a child thread first
+ * gets the parent's `subagent.stop`, whose failure is ignored, and then its child thread is stopped: `thread.stop`
+ * when the server advertises threadStop; otherwise the child's active run, else its latest run while it still owns
+ * background work, is interrupted with its queue held. A failure is the toast "Could not stop subagent".
  */
 async function stopSubagent(client: T3Client, native: Native, storage: Files, childThreadId: string): Promise<void> {
   try {
     if (client.writable === false) return;
     const access = client.restAccess(native);
-    const nativeAgent = arr(client.projection?.subagents).find(agent => agent.childThreadId === childThreadId && agent.origin === 'provider_native');
-    if (nativeAgent) {
-      const owner = str(nativeAgent.threadId) || client.threadId;
-      const projection = obj(await access.request('orchestration.getThreadProjection', { threadId: owner }));
-      const agent = arr(projection.subagents).find(candidate => candidate.id === nativeAgent.id);
-      if (!canStopNativeSubagent(agent)) return;
+    const listed = arr(client.projection?.subagents).find(agent => agent.childThreadId === childThreadId);
+    if (!listed) return;
+    const owner = str(listed.threadId) || client.threadId;
+    const fresh = obj(await access.request('orchestration.getThreadProjection', { threadId: owner }));
+    const agent = arr(fresh.subagents).find(candidate => candidate.id === listed.id);
+    if (agent?.origin !== 'app_owned' || !str(agent.childThreadId)) {
+      if (agent?.runId == null || (agent.origin === 'provider_native' && !canStopNativeSubagent(agent))) return;
       const [commandId] = await access.ids(1);
-      await access.dispatch(storage, { type: 'subagent.stop', commandId, threadId: owner, runId: str(agent!.runId), subagentId: str(agent!.id) }, 'Stop subagent');
+      await access.dispatch(storage, { type: 'subagent.stop', commandId, threadId: owner, runId: str(agent.runId), subagentId: str(agent.id) }, 'Stop subagent');
       return;
     }
+    // The parent ends the task even when its child lost track of it (#19002). Older
+    // servers reject this for app-owned tasks, so the child stop below still runs.
+    if (agent.runId != null) {
+      try {
+        const [commandId] = await access.ids(1);
+        await access.dispatch(storage, { type: 'subagent.stop', commandId, threadId: owner, runId: str(agent.runId), subagentId: str(agent.id) }, 'Stop subagent');
+      } catch (error) {
+        if (letGo(error)) throw error;
+        if (client.error === messageOf(error)) client.error = '';
+      }
+    }
+    const child = str(agent.childThreadId);
     if (client.threadStopOffered) {
       const [commandId] = await access.ids(1);
-      await access.dispatch(storage, { type: 'thread.stop', commandId, threadId: childThreadId }, 'Stop subagent');
+      await access.dispatch(storage, { type: 'thread.stop', commandId, threadId: child }, 'Stop subagent');
       return;
     }
-    const projection = childThreadId === client.threadId ? client.projection : obj(await access.request('orchestration.getThreadProjection', { threadId: childThreadId }));
+    const projection = child === client.threadId ? client.projection : obj(await access.request('orchestration.getThreadProjection', { threadId: child }));
     const runs = arr(obj(projection).runs);
-    const background = arr(client.shell.threads.find(thread => thread.id === childThreadId)?.pendingBackgroundTasks).length > 0;
+    const background = arr(client.shell.threads.find(thread => thread.id === child)?.pendingBackgroundTasks).length > 0;
     const run = activeRun(obj(projection)) ?? (background ? runs[runs.length - 1] : undefined);
     if (!run) return;
     const [commandId] = await access.ids(1);
-    await access.dispatch(storage, { type: 'run.interrupt', commandId, threadId: childThreadId, runId: str(run.id), holdQueue: true }, 'Stop subagent');
+    await access.dispatch(storage, { type: 'run.interrupt', commandId, threadId: child, runId: str(run.id), holdQueue: true }, 'Stop subagent');
   } catch (error) {
     if (letGo(error)) throw error;
     if (client.error === messageOf(error)) client.error = ''; // the toast stands in for the transcript banner

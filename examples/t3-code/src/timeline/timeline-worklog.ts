@@ -33,12 +33,14 @@ export interface WorkEntry {
 export type GroupAction = 'read' | 'edit' | 'command' | 'thread-create' | 'code-search' | 'search' | 'other' | 'update'
   | 'link-pr' | 'unlink-pr' | 'list-prs' | 'watch-pr' | 'unwatch-pr' | 'browser' | 'device';
 
+/** orchestrationTiming.ts formatDuration (74541bab17). */
 export function formatDuration(ms: number): string {
   if (!Number.isFinite(ms) || ms < 0) return '0ms';
   if (ms < 1_000) return `${Math.max(1, Math.round(ms))}ms`;
   if (ms < 10_000) { const tenths = Math.round(ms / 100) / 10; return tenths >= 10 ? '10s' : `${tenths.toFixed(1)}s`; }
-  if (ms < 60_000) return `${Math.round(ms / 1_000)}s`;
   const total = Math.round(ms / 1_000), parts: string[] = [];
+  // Choose the unit after rounding so 59.5 seconds never renders as "60s".
+  if (total < 60) return `${total}s`;
   if (Math.floor(total / 3_600)) parts.push(`${Math.floor(total / 3_600)}h`);
   if (Math.floor(total % 3_600 / 60)) parts.push(`${Math.floor(total % 3_600 / 60)}m`);
   if (total % 60) parts.push(`${total % 60}s`);

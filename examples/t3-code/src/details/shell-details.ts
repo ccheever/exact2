@@ -7,6 +7,7 @@ import type { T3Client } from '../client/client';
 import { arr, obj, str, num, type Obj } from '../client/domain';
 import type { Native } from '../client/protocol';
 import { lineageView } from './shell-lineage';
+import { nativeParentStatus } from './lineage-parent';
 import { inlineOpen, shellPrefs } from '../shell/shell-prefs';
 import { refreshVcsOnFocus, watchVcsStatus } from './shell-vcs';
 import { canOverrideServerEnv, draftContext, previousWorktree, serverEnvMode, stripWorkspace } from '../composer/composer-controls-branch';
@@ -162,6 +163,6 @@ export async function shellDetails(client: T3Client, native: Native | null | und
     prRows: await prRowsView(client, native, { status, threadId, now, projectId: str(project?.id), rightGap, inline: inline && !open }),
     automations: await threadAutomations(client, native, thread ? threadId : '', now), // thread-automations.ts: ThreadAutomationsPanel
     ...(thread ? lineageView(client.shell.threads, client.threadId === threadId ? client.projection : null, threadId, arr(client.config.providers), now,
-      workflows, phasesOpen, phasesClosed, client.writable) : noLineage),
+      workflows, phasesOpen, phasesClosed, client.writable, await nativeParentStatus(client, native, threadId, now)) : noLineage),
   };
 }

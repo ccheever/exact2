@@ -199,6 +199,14 @@ describe('live runs', () => {
     expect(kinds(failed)).toEqual(['user', 'working', 'thinking']);
   });
 
+  test('a run whose provider turn ended stops thinking while the server settles it (#21366)', () => {
+    const settling = (status: string) => client([user('u', 0, 'go')], { runs: [{ id: 'r1', status: 'running', startedAt: at(0), completedAt: null, activeAttemptId: 'a1' }],
+      providerTurns: [{ id: 't0', runAttemptId: 'a1', ordinal: 1, status: 'completed' }, { id: 't1', runAttemptId: 'a1', ordinal: 2, status }] });
+    expect(kinds(rows(settling('failed')))).toEqual(['user', 'working']);
+    expect(kinds(rows(settling('completed')))).toEqual(['user', 'working']);
+    expect(kinds(rows(settling('running')))).toEqual(['user', 'working', 'thinking']);
+  });
+
   test('a streaming thought is the live row: its plain-text line above, Thinking as the status', () => {
     const result = rows(live([user('u', 0, 'go'), item('t', 'reasoning', 1, { status: 'running', text: '**Reading** the files', streaming: true })]));
     expect(result[2]).toMatchObject({ kind: 'live', title: 'Thinking', detail: 'Reading the files', icon: 'brain' });
@@ -337,6 +345,8 @@ describe('work-log presentation', () => {
   });
   test('durations and thought headings match T3', () => {
     expect([formatDuration(912), formatDuration(9_960), formatDuration(42_000), formatDuration(162_000)]).toEqual(['912ms', '10s', '42s', '2m 42s']);
+    // The unit is chosen after rounding (#20299).
+    expect([formatDuration(59_400), formatDuration(59_500), formatDuration(3_599_500)]).toEqual(['59s', '1m', '1h']);
     expect(thoughtText('**Bold** and `code` [link](http://x)')).toBe('Bold and code link');
   });
   test('reasoning prose never reads as a failed tool (#21146)', () => {
