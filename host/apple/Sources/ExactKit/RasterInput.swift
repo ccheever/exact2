@@ -42,6 +42,7 @@ final class RasterInput: @unchecked Sendable {
     }
     private static let launchSource = Bundle.main.object(forInfoDictionaryKey: "ExactLaunchImageSource") as? String
     private static let launchDigest = Bundle.main.object(forInfoDictionaryKey: "ExactLaunchImageSHA256") as? String
+    private static let launchImage = (Bundle.main.object(forInfoDictionaryKey: "UILaunchScreen") as? [String: Any])?["UIImageName"] as? String
     deinit { if temporary { try? FileManager.default.removeItem(at: url) } }
     /// CommonCrypto's, not CryptoKit's: launching an app that touches no
     /// other CryptoKit then dirties none of its pages (40 KB in euxy on iOS).
@@ -79,7 +80,7 @@ final class RasterInput: @unchecked Sendable {
         guard values.isRegularFile == true, let count = values.fileSize,
               count > 0, count <= RasterMetadata.encodedLimit else { throw RasterFailure.encodedLimit }
         return RasterInput(url: url, encodedBytes: count, temporary: false,
-                           catalog: name == launchSource && launchDigest != nil ? "ExactLaunchImage" : nil)
+                           catalog: name == launchSource && launchDigest != nil ? launchImage : nil)
     }
     /// A `data:` URL's bytes: base64 after `;base64`, else percent-decoded;
     /// whitespace and percent escapes in base64 forgiven, as browsers do.

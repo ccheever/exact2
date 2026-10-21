@@ -12,6 +12,12 @@
 #if os(iOS) || os(tvOS)
 import UIKit
 
+/// The launch screen's colour, by the name `UILaunchScreen` gives it, which
+/// host/apple/assets.mjs makes from the colour itself; nil where the build
+/// declares none.
+public let launchScreenColor = ((Bundle.main.object(forInfoDictionaryKey: "UILaunchScreen") as? [String: Any])?["UIColorName"] as? String)
+    .flatMap { UIColor(named: $0) }
+
 public final class ExactView: UIView {
     public let session: ExactSession
     private var fitPending = false
@@ -73,7 +79,7 @@ public final class ExactView: UIView {
         super.init(frame: .zero)
         // The launch screen's colour (the manifest's `launch`) until the first
         // frame names the canvas; unset, the platform's (LLP 1115 D2).
-        backgroundColor = UIColor(named: "ExactLaunch") ?? .platformBackground(in: nil)
+        backgroundColor = launchScreenColor ?? .platformBackground(in: nil)
         canvas = backgroundColor
         addSubview(session.presenter.viewport)
         #if !os(tvOS)

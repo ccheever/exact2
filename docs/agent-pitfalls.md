@@ -324,6 +324,13 @@ This list holds what the [agent guide](contract-for-agents.md)'s rules don't mak
 
 ## Native presentation and navigation (iOS)
 
+- **A cold launch flashes the wrong colour, and no screenshot shows it.** The launch
+  screen is `host.ios.launchImage` centred on `background_color` (`background_color_dark`
+  in dark mode); unset, the platform's background (the grouped grey under a first route
+  that scrolls a grouped list). It is gone before a screenshot can be taken: record one
+  (`xcrun simctl io <udid> recordVideo launch.mp4`, then `simctl launch`) and read its
+  frames (the euxy port's white launch, 2026-10-21).
+
 - **Edge-swipe back does nothing.** Cause: the pop gesture presses the control named
   by the root's `navigationBack`, and a route that declares one that is disabled
   refuses it (the log says "back gesture refused" and why). A route with no such
