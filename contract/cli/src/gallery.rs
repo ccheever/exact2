@@ -354,28 +354,42 @@ fn destination(out: &Path, root: &Path) -> Result<PathBuf, String> {
 }
 
 /// Whether git ignores each of the gallery's files under `out` (`None`:
-/// git couldn't say): `check-ignore --non-matching --verbose` lists every
-/// path, a matching one with its pattern, an unmatched one (or a tracked
-/// one, which no rule ignores) with none.
+/// git couldn't say): `check-ignore --non-matching --verbose --stdin -z` lists every
+/// path, a matching one with its rule, an unmatched one (or a tracked one,
+/// which no rule ignores) with none.
 fn all_ignored(repository: &Path, out: &Path) -> Option<bool> {
-    let listed = std::process::Command::new("git")
+    use std::io::Write as _;
+    let mut git = std::process::Command::new("git")
         .arg("-C")
         .arg(repository)
-        .args(["check-ignore", "--non-matching", "--verbose"])
-        .args(["app.contract", "app.json", "assets"].map(|n| out.join(n)))
+        .args([
+            "check-ignore",
+            "--non-matching",
+            "--verbose",
+            "--stdin",
+            "-z",
+        ])
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::null())
-        .output()
+        .spawn()
         .ok()?;
-    let text = String::from_utf8(listed.stdout).ok()?;
-    let lines: Vec<&str> = text.lines().collect();
-    // A matching path's line names its source file and pattern; a negation (`!`) is no ignore.
+    let mut paths = Vec::new();
+    for name in ["app.contract", "app.json", "assets"] {
+        paths.extend_from_slice(out.join(name).as_os_str().as_encoded_bytes());
+        paths.push(0);
+    }
+    git.stdin.take()?.write_all(&paths).ok()?;
+    let listed = git.wait_with_output().ok()?;
+    // `-z`: each path's record is four NUL-ended fields, its rule's source, line and pattern (all empty when none
+    // matched) and the path, so no field's own `:` or tab is misread. A negation (`!`) is no ignore.
+    let fields: Vec<&[u8]> = listed.stdout.split(|b| *b == 0).collect();
+    let records: Vec<&[&[u8]]> = fields.chunks_exact(4).collect();
     Some(
-        lines.len() == 3
-            && lines.iter().all(|l| {
-                l.split('\t').next().is_some_and(|m| {
-                    !m.starts_with("::") && !m.split(':').nth(2).unwrap_or("").starts_with('!')
-                })
-            }),
+        records.len() == 3
+            && records
+                .iter()
+                .all(|r| !r[0].is_empty() && !r[2].starts_with(b"!")),
     )
 }
 
