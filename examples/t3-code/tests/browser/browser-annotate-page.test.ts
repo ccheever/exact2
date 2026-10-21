@@ -11,7 +11,8 @@ const page = require('../../assets/browser-annotate.js') as {
   resolveAnnotationSubmission: (event: KeyEvent) => 'attach' | 'send' | null;
   normalizeRect: (startX: number, startY: number, endX: number, endY: number) => Rect;
   isUsableRect: (rect: Rect) => boolean;
-  unionRects: (rects: Rect[], padding: number, viewport: { width: number; height: number }) => Rect | null;
+  unionRects: (rects: Rect[], padding: number) => Rect | null;
+  createAnnotationIdSource: (randomValues: (values: Uint32Array) => Uint32Array) => (prefix: string) => string;
   pathFromPoints: (points: Point[]) => string;
   strokeBounds: (points: Point[], width: number) => Rect;
   describeRawElement: (element: { tagName: string; id: string; className: unknown }) => string;
@@ -48,13 +49,28 @@ describe('annotation geometry (clone)', () => {
     expect(page.isUsableRect({ x: 0, y: 0, width: 2, height: 30 })).toBe(false);
   });
 
-  it('unions the targets with padding, clamped to the viewport (clone)', () => {
-    const viewport = { width: 800, height: 600 };
-    expect(page.unionRects([], 20, viewport)).toBeNull();
-    expect(page.unionRects([{ x: 40, y: 60, width: 120, height: 40 }], 20, viewport)).toEqual({ x: 20, y: 40, width: 160, height: 80 });
-    expect(page.unionRects([{ x: 5, y: 5, width: 10, height: 10 }, { x: 700, y: 550, width: 90, height: 40 }], 20, viewport))
-      .toEqual({ x: 0, y: 0, width: 800, height: 600 });
-    expect(page.unionRects([{ x: 10, y: 10, width: 10, height: 10 }], 0, viewport)).toEqual({ x: 10, y: 10, width: 10, height: 10 });
+  // PickPreload unionRects (74541bab17): unclipped, so the module can tell a pick out of view from one in it.
+  it('unions the targets with padding and keeps bounds outside the viewport (clone)', () => {
+    expect(page.unionRects([], 20)).toBeNull();
+    expect(page.unionRects([{ x: 40, y: 60, width: 120, height: 40 }], 20)).toEqual({ x: 20, y: 40, width: 160, height: 80 });
+    expect(page.unionRects([{ x: 5, y: 5, width: 10, height: 10 }, { x: 700, y: 550, width: 90, height: 40 }], 20)).toEqual({ x: -15, y: -15, width: 825, height: 625 });
+    expect(page.unionRects([{ x: 10, y: -300, width: 10, height: 10 }], 0)).toEqual({ x: 10, y: -300, width: 10, height: 10 });
+  });
+
+  // AnnotationIds.test.ts (74541bab17), its 2 tests under their own names; the page's source is `crypto.getRandomValues`.
+  const random = (values: Uint32Array) => crypto.getRandomValues(values);
+  it('gives annotations picked on separate page loads distinct ids', () => {
+    const firstLoad = page.createAnnotationIdSource(random);
+    firstLoad('element');
+    const firstAnnotation = firstLoad('annotation');
+    const secondLoad = page.createAnnotationIdSource(random);
+    secondLoad('element');
+    expect(secondLoad('annotation')).not.toBe(firstAnnotation);
+  });
+  it('never repeats an id within one page load', () => {
+    const nextId = page.createAnnotationIdSource(random);
+    const ids = Array.from({ length: 1_000 }, () => nextId('annotation'));
+    expect(new Set(ids).size).toBe(ids.length);
   });
 
   it('draws strokes as smoothed paths with padded bounds (clone)', () => {

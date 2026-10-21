@@ -3,7 +3,7 @@
 // BrowserViewportSetting selectViewport / commitDimension / rotateViewport and the other rows' writes and resets).
 import { describe, expect, it } from 'bun:test';
 import {
-  adoptBrowserPrefs, applyBrowserDefault, browserDefaultsView, browserOpenDefaults, changedBrowserSettingLabels, decodeViewport, resolveBrowserOpenDefaults, viewportSelect,
+  addressBarSearchTemplate, adoptBrowserPrefs, applyBrowserDefault, browserDefaultsView, browserOpenDefaults, changedBrowserSettingLabels, decodeViewport, resolveBrowserOpenDefaults, viewportSelect,
 } from '../../src/browser/browser-defaults';
 import { BrowserSettingsReadError } from '../../src/browser/browser-profiles';
 import type { Obj } from '../../src/client/domain';
@@ -110,7 +110,31 @@ describe('the zoom, appearance, recording and auto-show rows', () => {
   });
 });
 
-// SettingsPanels.logic.test.ts getChangedBrowserSettingLabels (3, under their own names); Settings › General's Restore
+// BrowserSearchEngineSetting: the engine, Custom's URL kept while another engine is chosen, and the reset clearing both.
+describe('the search engine row', () => {
+  it('chooses an engine, keeps the custom URL, warns while it is unusable and resets both', () => {
+    const client = owner();
+    expect(browserDefaultsView(client)).toMatchObject({ searchEngineLabel: 'DuckDuckGo', searchEngineReset: false, searchEngineCustom: false });
+    expect(browserDefaultsView(client).searchEngineOptions.map(option => option.label)).toEqual(['DuckDuckGo', 'Google', 'Bing', 'Brave Search', 'Kagi', 'Ecosia', 'Custom']);
+    expect(applyBrowserDefault(client, 'search-engine', 'yahoo')).toBe(false);
+    expect(applyBrowserDefault(client, 'search-engine', 'custom')).toBe(true);
+    expect(browserDefaultsView(client)).toMatchObject({ searchEngineLabel: 'Custom', searchEngineReset: true, searchEngineCustom: true,
+      customSearchUrlStatus: 'Enter an http or https URL containing %s. Searches use DuckDuckGo until then.' });
+    expect(addressBarSearchTemplate(client)).toBe('https://duckduckgo.com/?q=%s');
+    expect(applyBrowserDefault(client, 'custom-search-url', '  https://search.example/?q=%s ')).toBe(true);
+    expect(browserDefaultsView(client)).toMatchObject({ customSearchUrl: 'https://search.example/?q=%s', customSearchUrlStatus: '' });
+    expect(addressBarSearchTemplate(client)).toBe('https://search.example/?q=%s');
+    applyBrowserDefault(client, 'search-engine', 'kagi');
+    expect(browserDefaultsView(client)).toMatchObject({ searchEngineLabel: 'Kagi', searchEngineCustom: false, customSearchUrl: 'https://search.example/?q=%s' });
+    expect(addressBarSearchTemplate(client)).toBe('https://kagi.com/search?q=%s');
+    expect(applyBrowserDefault(client, 'custom-search-url', `https://search.example/?q=%s&pad=${'x'.repeat(2048)}`)).toBe(false);
+    expect(applyBrowserDefault(client, 'reset', 'search-engine')).toBe(true);
+    expect((client.local as { clientSettings: Obj }).clientSettings).toMatchObject({ browserSearchEngine: 'duckduckgo', browserCustomSearchUrl: '' });
+    expect(decodeClientPrefs({ browserSearchEngine: 'altavista', browserCustomSearchUrl: 7 })).toMatchObject({ browserSearchEngine: 'duckduckgo', browserCustomSearchUrl: '' });
+  });
+});
+
+// SettingsPanels.logic.test.ts getChangedBrowserSettingLabels (4, under their own names); Settings › General's Restore
 // defaults over them is settings-core.test.ts's.
 describe('getChangedBrowserSettingLabels', () => {
   it('reports nothing for the defaults', () => {
@@ -119,6 +143,9 @@ describe('getChangedBrowserSettingLabels', () => {
   });
   it('treats a structurally equal viewport as unchanged', () => {
     expect(changedBrowserSettingLabels(owner({ browserDefaultViewport: { ...{ _tag: 'fill' } } }))).toEqual([]);
+  });
+  it('counts a retained custom search URL so restore clears it', () => {
+    expect(changedBrowserSettingLabels(owner({ clientSettings: decodeClientPrefs({ browserCustomSearchUrl: 'https://search.example/?q=%s' }) }))).toEqual(['Search engine']);
   });
   it('labels each browser default that differs', () => {
     const client = owner({ browserDefaultViewport: { _tag: 'freeform', width: 900, height: 600 }, browserDefaultZoomFactor: 1.5, browserDefaultAppearance: 'dark',

@@ -419,12 +419,33 @@ component RightPanels
     prCopy: action
     confirm: action
     closePending: bool
+  // PreviewPanelShell: a panel that closes with the keyboard focus in it hands the focus to the header's Toggle right
+  // panel, where the panel's own toggle was, so the keyboard is not left on nothing. A focus that left for another
+  // element clears `focused`; one that left for nowhere (the window going inactive, the panel's removal) keeps it.
+  state focused = false
+  state shown = false
+  action entered(e: FocusEvent)
+    focused = true
+  action left(e: FocusEvent)
+    match e.relatedTarget
+      case some(other)
+        focused = false
+      case none
+  action laidOut(width: number, height: number)
+    if width >= 2
+      shown = true
+    else if shown
+      if focused
+        focus("toggle-right-panel")
+      shown = false
+      focused = false
   view
+    box aria-hidden=true resize=laidOut position="absolute" left=0 top=0 width=((data.diffOpen or rightPanel) and not narrowDiff ? 2 : 1) height=1 opacity=0 pointer-events="none"
     if data.diffOpen and not narrowDiff
-      box width=(rightMaximized ? viewport.width - (data.sidebarOpen ? sidebarWidth : 0) : diffWidth) height="100%" flex-shrink=0
+      box width=(rightMaximized ? viewport.width - (data.sidebarOpen ? sidebarWidth : 0) : diffWidth) height="100%" flex-shrink=0 focusin=entered focusout=left
         DiffPanel(data=data, shell=shell, command=command, close=panelUi("close", ""), ui=panelUi, maximized=rightMaximized, resize=resizeDiff, finishResize=finishDiffResize, scheme=scheme, sheet=false, detailsOpen=detailsOpen, details=detailsAct, local=chatLocal)
     if rightPanel and not data.diffOpen and not narrowDiff
-      box width=(rightMaximized ? viewport.width - (data.sidebarOpen ? sidebarWidth : 0) : diffWidth) height="100%" flex-shrink=0
+      box width=(rightMaximized ? viewport.width - (data.sidebarOpen ? sidebarWidth : 0) : diffWidth) height="100%" flex-shrink=0 focusin=entered focusout=left
         SurfacePanel(shell=shell, sheet=false, maximized=rightMaximized, detailsOpen=detailsOpen, still=viewport.prefersReducedMotion, ui=panelUi, details=detailsAct, local=chatLocal, command=command, paletteShow=paletteShow, scheme=scheme, prDetail=prDetail, prDocuments=prDocuments, filesDocuments=filesDocuments, prTab=prTab, prSetTab=prSetTab, prReload=prReload, prAct=prAct, prCopy=prCopy, look=data.look, confirm=confirm, closePending=closePending, width=(rightMaximized ? viewport.width - (data.sidebarOpen ? sidebarWidth : 0) : diffWidth))
 
 // The utility pages (Usage, Pull Requests) and the no-environment/no-projects landing over the main view.

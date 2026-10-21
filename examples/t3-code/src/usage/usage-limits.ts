@@ -1,13 +1,14 @@
-// Selection and pace maths for the provider limits, T3 Code 9c161462c9 (MIT, see LICENSE-T3):
+// Selection and pace maths for the provider limits, T3 Code 74541bab17 (MIT, see LICENSE-T3):
 // packages/shared/src/usageLimits.ts (providersWithLimits, accountKey, accountKeyResolver, limitsNotice,
-// remainingPercent, elapsedShare, paceOf, formatDuration, formatResetsIn, USAGE_LIMITS_COMMAND,
+// remainingPercent, elapsedShare, paceRemainingPercent, paceOf, formatDuration, formatResetsIn, USAGE_LIMITS_COMMAND,
 // isUsageLimitsCommand, hasProviderUsageLimits, withUsageLimitsCommands,
 // collectProviderUsageLimits) and apps/web/src/components/usage/UsageLimits.tsx (barColor, PACE).
 // Changes: the snapshots are the server's JSON as the clone keeps it (`Obj`), so fields are read
 // with `str`/`num`/`arr`; `createdAt` is `toISOString()` of `now` (DateTime.formatIso); barColor
-// returns the light and dark colours the Usage page's chart uses (pages-usage.ts PROVIDERS),
+// returns the light and dark colours the Usage page's chart uses (usage-providers.ts PROVIDERS),
 // since Contract has no CSS variables. The functions and their rules are otherwise the reference's.
 import { arr, num, obj, str, type Obj } from '../client/domain';
+import { PROVIDERS } from './usage-providers';
 
 const MINUTE = 60_000;
 const HOUR = 60 * MINUTE;
@@ -99,6 +100,12 @@ export function elapsedShare(window: Obj, now: number): number | null {
   return Math.max(0, Math.min(1, (length - (resetsAt - now)) / length));
 }
 
+/** Bars show quota remaining, so even pace tracks time remaining: 0..100, or null without a clock. */
+export function paceRemainingPercent(window: Obj, now: number): number | null {
+  const elapsed = elapsedShare(window, now);
+  return elapsed === null ? null : Math.round((1 - elapsed) * 100);
+}
+
 /**
  * Usage against the clock. Spending evenly leaves the same share of quota as there is time left
  * in the window; within five points of that counts as on pace, further ahead means the window
@@ -141,12 +148,9 @@ export function formatResetsIn(window: Obj, now: number): string | null {
   return `resets in ${formatDuration(resetsAt - now)}`;
 }
 
-/** UsageLimits.tsx barColor: the series colour the cost chart uses for this driver, as [light, dark]. */
+/** UsageLimits.tsx barColor: the series colour the cost chart uses for this driver, as [light, dark]; the foreground for any other. */
 export function barColor(driver: string): [string, string] {
-  if (driver === 'codex') return ['#27272a', '#f5f5f5'];
-  if (driver === 'antigravity') return ['#8c7bd1', '#8c7bd1'];
-  if (driver === 'claudeAgent') return ['#d97757', '#d97757'];
-  return ['#27272a', '#f5f5f5'];
+  return Object.values(PROVIDERS).find(entry => entry.driver === driver)?.color ?? ['#27272a', '#f5f5f5'];
 }
 
 /** Limit commands are served by T3 from the same snapshots as Usage → Limits. */
@@ -187,18 +191,36 @@ export function withUsageLimitsCommands(providers: readonly Obj[], sources: read
 export function collectProviderUsageLimits(instanceId: string, providers: readonly Obj[], sources: readonly Obj[], now: number): UsageLimitsReport | null {
   const selected = providers.find(provider => provider.instanceId === instanceId);
   if (!selected || !hasProviderUsageLimits(selected.driver, providers, sources)) return null;
-  const native = providersWithLimits(providers).filter(provider => provider.driver === selected.driver);
   const resolveKey = accountKeyResolver([...providers.filter(provider => provider.enabled === true).map(nativeReport),
     ...sources.flatMap(source => arr(source.accounts)).map(accountReport)]);
-  const nativeAccounts = new Set(native.flatMap(provider => {
-    const limits = obj(provider.usageLimits);
+  // One row per native account: a usable read beats a failed one, then the freshest wins; the
+  // freshest credits come along whichever instance read them.
+  type NativeSnapshot = { provider: Obj; limits: Obj };
+  const nativeByAccount = new Map<string, { usage: NativeSnapshot; credits: NativeSnapshot | null }>();
+  for (const provider of providersWithLimits(providers)) {
+    if (provider.driver !== selected.driver) continue;
+    const snapshot = { provider, limits: obj(provider.usageLimits) };
+    const key = resolveKey(nativeReport(provider)) ?? `instance:${str(provider.instanceId)}`;
+    const previous = nativeByAccount.get(key);
+    const previousUsable = previous ? limitsNotice(previous.usage.limits) === null : false;
+    const usable = limitsNotice(snapshot.limits) === null;
+    const providerWins = !previous || (usable && !previousUsable)
+      || (usable === previousUsable && Date.parse(str(snapshot.limits.checkedAt)) > Date.parse(str(previous.usage.limits.checkedAt)));
+    const previousCredit = previous?.credits;
+    const credits = snapshot.limits.resetCredits
+      && (!previousCredit || Date.parse(str(snapshot.limits.checkedAt)) > Date.parse(str(previousCredit.limits.checkedAt)))
+      ? snapshot : previousCredit ?? null;
+    nativeByAccount.set(key, { usage: providerWins ? snapshot : previous.usage, credits });
+  }
+  const native = [...nativeByAccount.values()];
+  const nativeAccountKeys = new Set(native.flatMap(({ usage: { provider, limits } }) => {
     const key = resolveKey(nativeReport(provider));
     return key && arr(limits.windows).length && !limits.unavailable ? [key] : [];
   }));
   const accounts: UsageLimitsAccount[] = [];
   const notices: string[] = [];
-  for (const provider of native) {
-    const limits = obj(provider.usageLimits), auth = obj(provider.auth);
+  for (const { usage: { provider, limits }, credits } of native) {
+    const auth = obj(provider.auth);
     const key = resolveKey(nativeReport(provider));
     const hubCredits = sources
       .flatMap(source => arr(source.accounts).map(account => ({ source, account })))
@@ -214,7 +236,8 @@ export function collectProviderUsageLimits(instanceId: string, providers: readon
     // when the hub snapshot is stale.
     const hubLimits = obj(hubCredits?.account.usageLimits);
     const hubCreditId = str(obj(hubLimits.resetCredits).nextCreditId);
-    const showHubCredits = hubCredits && (!limits.resetCredits || Date.parse(str(hubLimits.checkedAt)) > Date.parse(str(limits.checkedAt)));
+    const showHubCredits = hubCredits && (!credits || Date.parse(str(hubLimits.checkedAt)) > Date.parse(str(credits.limits.checkedAt)));
+    const shownCredits = showHubCredits ? hubLimits.resetCredits : credits?.limits.resetCredits;
     const displayName = typeof provider.displayName === 'string' ? provider.displayName : undefined;
     accounts.push({
       id: str(provider.instanceId), driver: str(provider.driver),
@@ -223,11 +246,11 @@ export function collectProviderUsageLimits(instanceId: string, providers: readon
       instanceId: str(provider.instanceId),
       resetCreditInput: hubCreditId && hubCredits
         ? { sourceId: str(hubCredits.source.id), accountId: str(hubCredits.account.id), creditId: hubCreditId }
-        : { instanceId: str(provider.instanceId) },
+        : { instanceId: str(credits?.provider.instanceId ?? provider.instanceId) },
       ...(displayName ? { displayName } : {}),
       ...(str(provider.accentColor) ? { accentColor: str(provider.accentColor) } : {}),
       ...(str(auth.email) ? { email: str(auth.email) } : {}),
-      limits: showHubCredits ? { ...limits, resetCredits: hubLimits.resetCredits } : limits,
+      limits: shownCredits ? { ...limits, resetCredits: shownCredits } : limits,
     });
   }
   for (const source of sources) {
@@ -235,7 +258,7 @@ export function collectProviderUsageLimits(instanceId: string, providers: readon
     for (const account of matching) {
       const limits = obj(account.usageLimits);
       const key = resolveKey(accountReport(account));
-      if (key && nativeAccounts.has(key)) continue;
+      if (key && nativeAccountKeys.has(key)) continue;
       const creditId = str(obj(limits.resetCredits).nextCreditId);
       accounts.push({
         id: `${str(source.id)}:${str(account.id)}`, driver: str(account.driver),

@@ -52,7 +52,7 @@ function fakeModule(handlers: Record<string, (request: Call) => Obj | Promise<Ob
     const handler = handlers[key] ?? handlers[call.op];
     if (!handler) return { ok: true, generation: 0, value: {} };
     try { return { ok: true, generation: 0, value: await handler(call) }; }
-    catch (error) { return { ok: false, generation: 0, error: { kind: 'Fake', message: (error as Error).message } }; }
+    catch (error) { return { ok: false, generation: 0, error: { kind: (error as { kind?: string }).kind ?? 'Fake', message: (error as Error).message } }; }
   } };
   return { native, calls, ops: () => calls.map(call => (call.action ? `${call.op}:${call.action}` : call.op)) };
 }
@@ -249,11 +249,22 @@ describe('handleCapture', () => {
     expect([view?.actionLabel, view?.actionDone]).toEqual(['Copy image', false]);
   });
 
+  // captureErrors.ts normalizeCaptureFailure (74541bab17): the toast says what to check, not the host's error.
   it('reports a failed capture and a failed copy in the reference\'s words', async () => {
     const client = fakeClient();
-    const module = fakeModule({ browserScreenshot: () => { throw new Error('The page could not be captured.'); }, browserArtifact: () => { throw new Error('Preview artifact path is outside /x'); } });
+    const refusal = (kind: string) => () => { throw Object.assign(new Error('The page could not be captured.'), { kind }); };
+    let screenshot = refusal('Screenshot');
+    const module = fakeModule({ browserScreenshot: () => screenshot(), browserArtifact: () => { throw new Error('Preview artifact path is outside /x'); } });
     await captureLocal(client, module.native, browserPanel(), 'capture', target, '');
-    expect(toasts(client).map(toast => [toast.title, toast.description])).toEqual([['Unable to capture screenshot', 'The page could not be captured.']]);
+    screenshot = refusal('CapturePage');
+    await captureLocal(client, module.native, browserPanel(), 'capture', target, '');
+    screenshot = refusal('NotFound');
+    await captureLocal(client, module.native, browserPanel(), 'capture', target, '');
+    expect(toasts(client).map(toast => [toast.title, toast.description])).toEqual([
+      ['Unable to capture screenshot', 'Preview capture failed during screenshot. Check the preview host and target tab before retrying.'],
+      ['Unable to capture screenshot', 'Preview capture failed during capture-page. Check the preview host and target tab before retrying.'],
+      ['Unable to capture screenshot', 'The preview renderer is unavailable. Reopen the preview tab before retrying.'],
+    ]);
     await artifactLocal(client, module.native, 'copy-path', '/x/browser-recording-1.mp4', '');
     expect(toasts(client).at(-1)?.title).toBe('Unable to copy recording path');
   });
@@ -312,7 +323,8 @@ describe('handleCapture', () => {
     const client = fakeClient();
     const module = fakeModule({ timelineSleep, 'browserRecord:arm': () => { throw new Error('The page could not be captured.'); } });
     await captureLocal(client, module.native, browserPanel(), 'capture', target, 'record');
-    expect(toasts(client).at(-1)).toMatchObject({ kind: 'error', title: 'Unable to start recording' });
+    expect(toasts(client).at(-1)).toMatchObject({ kind: 'error', title: 'Unable to start recording',
+      description: 'Preview capture failed during recording-start. Check the preview host and target tab before retrying.' });
     const decorated = fakeClient();
     Object.assign(decorated.local.clientSettings as Obj, { browserRecordingShowKeyPresses: true });
     const ok = fakeModule({ timelineSleep, 'browserRecord:capture': () => ({ width: 800, height: 600, frameRate: 30 }), 'browserRecord:decorate': () => ({ active: true }), 'browserRecord:begin': () => ({ mimeType: 'video/mp4;codecs=avc1' }) });

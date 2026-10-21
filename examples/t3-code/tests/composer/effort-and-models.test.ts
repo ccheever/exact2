@@ -128,7 +128,7 @@ test('Meta Enter creates while a row owns Enter, with busy and repeat guards', (
   const calls: unknown[][] = [];
   const scope = { view: { accessoryKey: '⌘ Enter', accessoryEnabled: true, accessoryOp: 'flow', accessoryArg: 'new-project', accessoryArg2: 'App', rows: [], jumpKeys: [] }, busy: false,
     preventDefault: () => calls.push(['prevent']), stopPropagation: () => calls.push(['stop']), run: (...args: unknown[]) => calls.push(args) };
-  const event = { metaKey: true, ctrlKey: false, altKey: false, shiftKey: false, repeat: false };
+  const event = { key: 'Enter', code: 'Enter', metaKey: true, ctrlKey: false, altKey: false, shiftKey: false, repeat: false };
   owner.call('inputKey', owner.state(), scope, ['Enter', event]);
   expect(calls).toEqual([['prevent'], ['stop'], ['flow', 'new-project', 'App']]);
   calls.length = 0;
