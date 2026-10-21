@@ -88,6 +88,26 @@ test('the picker seeds from the current override and searches image files', asyn
   expect((await iconPicker(client, native, 'project-icon', '', '!!', '', '/w/actions', 'x')).monogramValid).toBe(false);
 });
 
+test('the image picker previews only the files whose rows have been on screen (ProjectFaviconThumbnail)', async () => {
+  const projects = [{ id: 'p1', title: 'icons', workspaceRoot: '/w/icons' }];
+  const paths = Array.from({ length: 40 }, (_, index) => `icons/icon-${index}.svg`);
+  const { client, rpcs } = fakeClient(projects, {
+    'projects.searchEntries': () => ({ entries: paths.map(path => ({ path, kind: 'file' })) }),
+    'assets.createUrl': payload => { const path = String((payload.resource as Obj).path); if (path.endsWith('-1.svg')) throw new Error('unreadable'); return { relativeUrl: `/api/assets/${path}?sig=1` }; },
+  });
+  const minted = () => rpcs.filter(([method]) => method === 'assets.createUrl').map(([, payload]) => payload.resource);
+  const first = await iconPicker(client, native, 'project-favicon', '', '', '', '/w/icons', 'icons');
+  expect(first.files.every(file => file.src === '')).toBe(true);
+  expect(minted()).toEqual([]);
+  const seen = await iconPicker(client, native, 'project-favicon', '', '', '', '/w/icons', 'icons', 0, 'icons/icon-0.svg\nicons/icon-1.svg');
+  expect(seen.files.slice(0, 3).map(file => file.src)).toEqual(['http://127.0.0.1:14809/api/assets/icons/icon-0.svg?sig=1', '', '']);
+  expect(minted()).toEqual([{ _tag: 'draft-workspace-file', cwd: '/w/icons', path: 'icons/icon-0.svg' }, { _tag: 'draft-workspace-file', cwd: '/w/icons', path: 'icons/icon-1.svg' }]);
+  // Scrolling to the end asks for the last file only; the others are remembered, a failure as no preview.
+  await iconPicker(client, native, 'project-favicon', '', '', '', '/w/icons', 'icons', 0, 'icons/icon-0.svg\nicons/icon-1.svg\nicons/icon-39.svg');
+  expect(minted().length).toBe(3);
+  expect(minted().at(-1)).toEqual({ _tag: 'draft-workspace-file', cwd: '/w/icons', path: 'icons/icon-39.svg' });
+});
+
 test('saving fans the icon out to every member and validates first', async () => {
   const projects = [{ id: 'p1', title: 'a', workspaceRoot: '/w/a' }, { id: 'p2', title: 'a', workspaceRoot: '/w/b' }];
   const { client, writes } = fakeClient(projects, {});

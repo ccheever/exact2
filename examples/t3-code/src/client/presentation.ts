@@ -83,13 +83,15 @@ export function projectIdentity(name: string) {
   return { projectMark: mark, projectInk: `light-dark(${light}, ${dark})`,
     projectSurface: `light-dark(${light}24, ${dark}24)` };
 }
-// Provider account marks follow the source instance-display helper, including
-// disabled sibling instances: their configured identities still disambiguate.
+// Provider account marks follow the source instance-display helper (providerInstanceDisplay.ts
+// shouldShowInstanceBadge, 74541bab17).
 export function providerBadge(provider: Obj | undefined, providers: Obj[]) {
   const accent = str(provider?.accentColor).trim();
   const color = /^#[0-9a-fA-F]{6}$/.test(accent) ? accent : '';
   const driver = str(provider?.driver);
+  // A disabled sibling does not badge an enabled instance; historical threads still tell disabled accounts apart.
   const siblings = providers.filter(candidate=>candidate.driver === driver
+    && !(provider?.enabled === true && candidate.enabled !== true)
     && (driver !== 'acpRegistry' || candidate.acpRegistryAgentId === provider?.acpRegistryAgentId));
   if (!provider || !color && siblings.length <= 1) return {providerBadge:'',providerBadgeColor:''};
   const words = str(provider.displayName, str(provider.instanceId)).replace(/[_-]+/g,' ').split(/\s+/u).filter(Boolean);
