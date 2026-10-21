@@ -46,25 +46,47 @@ async function built() {
   return dir;
 }
 
-// `slow`: a file whose name matches is served that much later (a loaded machine's slow module).
-function serve(dir, slow = null) {
-  return Bun.serve({ port: 0, hostname: '127.0.0.1', async fetch(req) {
+// `gated`: a file whose name matches is served once `open()` is called (a loaded machine's slow module).
+function serve(dir, gated = null) {
+  let open;
+  const opened = new Promise((r) => { open = r; });
+  const server = Bun.serve({ port: 0, hostname: '127.0.0.1', async fetch(req) {
     let path = new URL(req.url).pathname;
     if (path.endsWith('/')) path += 'index.html';
     const file = Bun.file(resolve(dir, 'dist', '.' + path));
     if (!(await file.exists())) return new Response('', { status: 404 });
-    if (slow && slow.name.test(path)) await Bun.sleep(slow.ms);
+    if (gated && gated.test(path)) await opened;
     return new Response(file, { headers: { 'content-type': TYPES[extname(path)] ?? 'application/octet-stream', 'cache-control': 'no-store' } });
   } });
+  return Object.assign(server, { open });
 }
 
-// Each ResizeObserver report held back 400 ms, as a loaded machine delays it.
-const slowReports = () => {
-  const Real = globalThis.ResizeObserver;
+// Each ResizeObserver report held until the page says `__reports()` (a loaded machine's late report); the box with
+// no layout (`unseen`) never reported at all, so only its own release lets a settle go.
+const heldReports = () => {
+  const Real = globalThis.ResizeObserver, held = [];
+  let open = false;
+  globalThis.__reports = () => { open = true; for (const f of held.splice(0)) f(); };
   globalThis.ResizeObserver = class extends Real {
-    constructor(callback) { super((entries, observer) => setTimeout(() => callback(entries, observer), 400)); }
+    constructor(callback) {
+      super((entries, observer) => {
+        const shown = entries.filter((x) => x.target.dataset.testid !== 'unseen');
+        if (!shown.length) return;
+        const deliver = () => callback(shown, observer);
+        if (open) deliver(); else held.push(deliver);
+      });
+    }
   };
 };
+
+// The settle, with `release` run 300 ms after it began (in the page: no driver's gap), and the state as it answered.
+const settleThen = (page, release) => page.evaluate(async (release) => {
+  const began = performance.now(), settling = globalThis.exact.agentSettled({ op: 'clock', settle: true });
+  setTimeout(() => { if (release) globalThis[release](); }, 300);
+  const settled = await settling;
+  const state = await globalThis.exact.agentSettled({ op: 'state' });
+  return { settled, slots: state.slots, ms: performance.now() - began };
+}, release);
 
 test("an agent's settle waits for a view's first size, however late its report comes, and that size waits for the page's geometry; an element with no box holds nothing", async () => {
   if (webCompiler().cmd === 'cargo') throw new Error('build the compiler first: cargo build -p exact-web-js');
@@ -72,32 +94,32 @@ test("an agent's settle waits for a view's first size, however late its report c
   let browser, server;
   try {
     browser = await suiteBrowser();
+    // Reports held until 300 ms into the settle: it waits for them (on main it answered first, widths []).
     server = serve(dir);
     const page = await browser.newPage();
-    await page.addInitScript(slowReports);
+    await page.addInitScript(heldReports);
     await page.goto(`${server.url.href}?agent=1`);
     await page.waitForFunction(() => typeof globalThis.exact?.agentSettled === 'function');
-    const started = Date.now();
-    const settled = await page.evaluate(() => globalThis.exact.agentSettled({ op: 'clock', settle: true }));
-    expect(settled).toMatchObject({ settled: true });
-    const state = await page.evaluate(() => globalThis.exact.agentSettled({ op: 'state' }));
-    // The tabs' first size landed before the settle answered: each tab measured, none zero.
-    expect(state.slots.widths.length).toBe(2);
-    expect(state.slots.widths.every((w) => w > 10)).toBe(true);
-    // The element with no box held nothing back (Chrome reports its 0×0 too; one with no report waits for none).
-    expect(state.slots.hidden).toBeLessThanOrEqual(1);
-    expect(Date.now() - started).toBeLessThan(10_000);
-    // The page's geometry slow to load (frames answer unavailable until it has): the first size waits for it, so
-    // the tabs are measured, not read as nothing (the clone's `-12`).
+    const held = await settleThen(page, '__reports');
+    expect(held.settled).toMatchObject({ settled: true });
+    expect(held.slots.widths.length).toBe(2);
+    expect(held.slots.widths.every((w) => w > 10)).toBe(true);
+    // The box with no layout, never reported, held nothing: the settle answered long before the 2 s bound.
+    expect(held.slots.hidden).toBe(0);
+    expect(held.ms).toBeLessThan(1500);
+    await page.close();
     server.stop(true);
-    server = serve(dir, { name: /geometry-glue/, ms: 800 });
+    // The page's geometry served only 300 ms into the settle (frames answer unavailable until it loads): the first
+    // size waits for it, so the tabs are measured, not read as nothing (the clone's `-12`).
+    server = serve(dir, /geometry-glue/);
     const late = await (await browser.newContext()).newPage();
+    await late.exposeFunction('__geometry', () => server.open());
     await late.goto(`${server.url.href}?agent=1`);
     await late.waitForFunction(() => typeof globalThis.exact?.agentSettled === 'function');
-    expect(await late.evaluate(() => globalThis.exact.agentSettled({ op: 'clock', settle: true }))).toMatchObject({ settled: true });
-    const after = await late.evaluate(() => globalThis.exact.agentSettled({ op: 'state' }));
-    expect(after.slots.widths.length).toBe(2);
-    expect(after.slots.widths.every((w) => w > 10)).toBe(true);
+    const slow = await settleThen(late, '__geometry');
+    expect(slow.settled).toMatchObject({ settled: true });
+    expect(slow.slots.widths.length).toBe(2);
+    expect(slow.slots.widths.every((w) => w > 10)).toBe(true);
   } finally {
     await browser?.close();
     server?.stop(true);

@@ -11,15 +11,17 @@ const FIRST_MS = 2000;
 export function onResize(e, f) {
   if (typeof ResizeObserver !== "function" || globalThis.__exactRender) return;
   inflight.n++;
-  let first = true;
-  const landed = () => { if (first) { first = false; inflight.n--; } };
+  let first = true, bound = null;
+  const landed = () => { if (first) { first = false; clearTimeout(bound); inflight.n--; } };
+  // (A view destroyed meanwhile reports nothing: let go with it.)
+  onEnd(landed);
   // (After the page's geometry, where it reads any: an action a first size runs reads frames, which answer
   // unavailable until it has loaded. Both load after first paint; neither is waited on before it.)
   (Resizes ??= new Promise(r => requestAnimationFrame(() => r())).then(() => Promise.all([import("./resize-glue.js"), geoLoading()?.catch(() => {})])).then(([m]) => m))
     .then(m => {
-      m.observeResize(e, r => { if (e.isConnected) f(r.width, r.height, [r.x, r.y, r.width, r.height, r.top, r.right, r.bottom, r.left]); landed(); });
+      m.observeResize(e, r => { try { if (e.isConnected) f(r.width, r.height, [r.x, r.y, r.width, r.height, r.top, r.right, r.bottom, r.left]); } finally { landed(); } });
       if (!e.isConnected || !e.getClientRects().length) landed();
-      else setTimeout(landed, FIRST_MS);
+      else if (first) bound = setTimeout(landed, FIRST_MS);
     })
     .catch(err => { say(`resize: ${err.message}`); landed(); });
 }
