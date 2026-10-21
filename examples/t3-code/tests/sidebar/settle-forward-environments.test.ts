@@ -73,14 +73,15 @@ describe('settling the open thread', () => {
 describe('a thread the shell does not hold', () => {
   const bounded = (backend: Backend, id: string) => backend.calls.filter(call => str(call.path) === `/api/orchestration/threads/${id}/bounded`).length;
 
-  test('shows the empty state through later refreshes without asking for its detail, and opens once the shell holds it', async () => {
+  test('asks for its detail once, shows the empty state through later refreshes without asking again, and opens once the shell holds it', async () => {
     const client = new Client(), backend = new Backend(), disk = storage();
     await client.refresh(backend, disk.files);
     await client.command('select-thread', 'gone', '', 0, backend, disk.files);
     expect(client.threadId).toBe('gone');
+    expect(bounded(backend, 'gone')).toBe(1); // resolveThreadRouteRenderState: an unlisted thread's own detail decides
     await client.refresh(backend, disk.files);
     await client.refresh(backend, disk.files);
-    expect(bounded(backend, 'gone')).toBe(0);
+    expect(bounded(backend, 'gone')).toBe(1);
     expect(client.error).toBe('');
     expect(client.thread).toBeNull();
     // The thread arrives (a reconnect reads the shell again): its detail is read and it opens.
@@ -88,7 +89,7 @@ describe('a thread the shell does not hold', () => {
     backend.details.gone = { ...backend.details.t2, projection: { ...obj(backend.details.t2!.projection), thread: { ...obj(obj(backend.details.t2!.projection).thread), id: 'gone' } } };
     client.shellLoaded = false; backend.generation++;
     await client.refresh(backend, disk.files);
-    expect(bounded(backend, 'gone')).toBe(1);
+    expect(bounded(backend, 'gone')).toBe(2);
     expect(client.threadId).toBe('gone');
     expect(client.thread).not.toBeNull();
   });
