@@ -892,7 +892,8 @@ async function suite({ open: openSession, check: record }, reset) {
   // the web does, so the routes end above the panel's bottom. Flat, and partially folded side by side and, the device
   // turned, one above the other, the Fold screen's panes sit on the segments where the routes end; folded like a
   // laptop, the note sheet keeps to the lower segment above the tablist and rides on the keyboard once it is up, as the
-  // rotate leg checks under UIKit's bars. Its taps are the agent's: a finger misses this chrome's tabs (QUEUE).
+  // rotate leg checks under UIKit's bars. Its taps are the agent's: the agent refuses a real touch on the tablist this
+  // chrome shows in place of UIKit's tab bar (LLP 1080.000 D7, stage 3).
   if (leg('web')) {
     const s = await open({ host: 'ios', app: 'duo-lab', plan: plans['duo-lab-tall'], chrome: 'agent', touch: 'agent' });
     try {
