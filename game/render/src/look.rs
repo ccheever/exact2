@@ -424,12 +424,14 @@ pub(crate) fn draws_json(
                 draw,
                 count,
                 variant,
+                triangles,
                 ..
             } => {
                 let label = facts.quad_labels.get(draw).map_or("quads", String::as_str);
+                let winding = if triangles { "ccw" } else { "camera-facing" };
                 let _ = write!(
                     out,
-                    ",\"draw\":{},\"winding\":\"camera-facing\",\"submitted\":{count},\"variant\":{variant}",
+                    ",\"draw\":{},\"winding\":\"{winding}\",\"submitted\":{count},\"variant\":{variant}",
                     quote(label)
                 );
                 if let Some(k) = facts.counted.iter().position(|&c| c == draw) {

@@ -756,7 +756,11 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
             // Blended viewmodel parts keep the viewmodel layer's depth range.
             let viewmodel = matches!(draw.kind, crate::quads::Kind::Model(index, _)
                 if self.batches[index].viewmodel)
-                || matches!(draw.kind, crate::quads::Kind::Particle(_, _, _, true));
+                || matches!(
+                    draw.kind,
+                    crate::quads::Kind::Particle(_, _, _, true)
+                        | crate::quads::Kind::Primitive(true)
+                );
             if viewmodel != layer {
                 self.scene_viewport(pass, size, viewmodel);
                 layer = viewmodel;

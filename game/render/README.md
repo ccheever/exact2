@@ -855,7 +855,9 @@ until it has, and the driver asks again.
   Tells see brightness and coverage, not colour or composition: a grey meadow, a
   model facing backwards and an overflowing panel take a look at the picture.
 - **Particle coverage** (`quad_coverage.rs`): counted by the particle draws
-  themselves. While armed, each particle draw uses the probe variant of its own
+  themselves. Blended primitive triangles share the dot shader, but have their own
+  batches and are never counted or judged as particles. While armed, each
+  particle draw uses the probe variant of its own
   pipeline (`shaders/count.wgsl`, `soft_count.wgsl`): the same vertex path, dot
   shape, texture alpha and soft fade, blended into the frame as ever. A fragment
   counts when its contribution is above zero (alpha, times the brightest channel
