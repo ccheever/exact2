@@ -250,7 +250,7 @@ component PrdBody
   action textLocal(op: string, id: string, value: string)
     if op == "pr-link-open"
       act("link-open", value)
-    else if op == "surface-file"
+    else if op == "surface-file" or op == "surface-file-link"
       act("file-open", `${surface}\n${id}`)
     else if op == "surface-files-link-menu"
       act("file-menu", `${surface}\n${id}`)

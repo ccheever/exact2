@@ -8,6 +8,7 @@ import { workspaceFileIcon } from '../shared/file-metadata';
 // to its parsed run by `href` (markdown.contract ChipView).
 import { isWindowsAbsolutePath } from '../media/media-reference';
 import { inlineCodeFilePathCandidate } from './inline-code-files';
+import { workspaceLookupPath } from './workspace-file-lookup';
 import { arr, obj, str, type Obj } from '../client/domain';
 import { fileIconToken } from '../shared/timeline-files';
 import type { T3Client } from '../client/client';
@@ -165,7 +166,8 @@ export function messageChips(item: Obj, root: string, threads: Obj[], owner = ''
     if (!link.image && link.href.startsWith('t3-thread://v1/')) { const chip = threadLinkChip(link.href, link.label, threads, client); if (chip) add(chip); continue; }
     // Exactly the destinations markdown.rs draws as file chips.
     if (link.image || !markdownLinkHref(link.href).startsWith('t3-file:')) continue;
-    add({ href: `t3-file:${link.href}`, kind: 'link', label: link.label, size: '', tip: fileLinkTarget(link.href, root), detail: '', icon: fileIconToken(link.href), target: '' });
+    // A link chip's `target` is what the link wrote from the workspace root, which the workspace search can resolve.
+    add({ href: `t3-file:${link.href}`, kind: 'link', label: link.label, size: '', tip: fileLinkTarget(link.href, root), detail: '', icon: fileIconToken(link.href), target: workspaceLookupPath(link.href, root, media.cwd || root) });
   }
   if (root) for (const match of text.matchAll(/(`+)([^`]+)\1/g)) {
     const code = match[2]!.trim(), candidate = inlineCodeFilePathCandidate(code);
@@ -175,7 +177,7 @@ export function messageChips(item: Obj, root: string, threads: Obj[], owner = ''
       && (root === cwd || root.startsWith(`${cwd.replace(/\/+$/, '')}/`));
     const target = fileLinkTarget(candidate, fromRoot ? cwd : root), position = /:(\d+)(?::\d+)?$/.exec(candidate);
     const path = candidate.replace(/:\d+(?::\d+)?$/, ''), name = path.replaceAll('\\', '/').split('/').pop() || path;
-    add({ href: `t3-inline-code:${code}`, kind: 'link', label: `${name}${position ? ` · L${position[1]}` : ''}`, size: '', tip: target, detail: '', icon: fileIconToken(path), target: '' });
+    add({ href: `t3-inline-code:${code}`, kind: 'link', label: `${name}${position ? ` · L${position[1]}` : ''}`, size: '', tip: target, detail: '', icon: fileIconToken(path), target: workspaceLookupPath(candidate, fromRoot ? cwd : root, cwd) });
   }
   // An image's chip (kind "media") is matched by href and kind, so a link to the same file keeps its own.
   for (const chip of markdownMediaChips(text, root, media)) chips.push({ id: `chip-${chips.length}`, ...chip, owner });

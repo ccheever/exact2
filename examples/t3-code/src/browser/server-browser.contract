@@ -1,4 +1,4 @@
-// ServerBrowserSurface.tsx, T3 Code 9c161462c9 (MIT, LICENSE-T3).
+// ServerBrowserSurface.tsx, T3 Code 9c161462c9 (MIT, LICENSE-T3; its PDF overlay at 74541bab17).
 // Page pixels use Exact's ordinary image leaf. Inputs keep page CSS coordinates.
 shape ServerBrowserFrame
   decoding: bool
@@ -36,6 +36,8 @@ component ServerBrowserPage
   props
     runtimeId: string
     url: string
+    // The environment's PDF the tab shows, drawn here over the server's placeholder page (ServerBrowserSurface `pdfUrl`).
+    pdfUrl: string
     pageWidth: number
     pageHeight: number
     followSize: bool
@@ -79,12 +81,12 @@ component ServerBrowserPage
   action control(kind: string)
     streamControl(runtimeId, kind)
   action mouse(phase: string, e: PointerEvent)
-    if frame.controlled
+    if frame.controlled and pdfUrl == ""
       if phase == "down"
         focus(`server-browser-keys-${runtimeId}`)
       streamMouse(runtimeId, e, phase, pageWidth, pageHeight)
   action wheel(e: WheelEvent)
-    if frame.controlled
+    if frame.controlled and pdfUrl == ""
       preventDefault()
       streamWheel(runtimeId, e, "", pageWidth, pageHeight)
   action key(phase: string, k: string, e: KeyboardEvent)
@@ -111,7 +113,11 @@ component ServerBrowserPage
     box width="100%" height="100%" position="relative" overflow="hidden" background-color="light-dark(#f4f4f5, #171717)" testId="server-browser-surface" resize=measured
       if frame.image != ""
         image frame.image load=painted error=broken width="100%" height="100%" object-fit="contain" aria-label="Server browser page" testId="server-browser-image" pointerdown=mouse("down") pointermove=mouse("move") pointerup=mouse("up") wheel=wheel
-      if frame.pointerSequence >= 0 and not frame.controlled
+      // A PDF renders in this client and cannot appear in the server's stream: the module's PDFView (T3MediaPreview.swift)
+      // covers it, and the agent's cursor and page input stand down.
+      if pdfUrl != ""
+        box hatch="t3-media" data-media-url=pdfUrl data-media-kind="pdf" data-media-name="PDF document" position="absolute" left=0 top=0 right=0 bottom=0 background-color="#ffffff" aria-label="PDF document" testId="server-browser-pdf"
+      if frame.pointerSequence >= 0 and not frame.controlled and pdfUrl == ""
         svg position="absolute" left=pointerLeft top=pointerTop width=18 height=24 viewBox="0 0 18 24" fill="#3b82f6" stroke="#ffffff" stroke-width=1.5 aria-hidden=true pointer-events="none" testId="server-browser-agent-pointer"
           path d="M1 1v18l4-5 4 8 4-2-4-8h8Z"
       textarea id=`server-browser-keys-${runtimeId}` value=typed input=input key=key("down") keyup=key("up") aria-label="Type in browser page" tabindex=-1 width=1 height=1 position="absolute" left=0 bottom=0 opacity=0 autocorrect="off" spellcheck="false" data-editable="yes"
