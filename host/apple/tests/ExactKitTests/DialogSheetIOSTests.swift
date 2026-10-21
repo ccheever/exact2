@@ -266,6 +266,36 @@ final class DialogSheetIOSTests: XCTestCase {
         XCTAssertTrue(read().contains(7))
     }
 
+    func testGrowingSheetKeepsItsContentCenteredDuringTheDetentAnimation() throws {
+        let (p, controller, scene) = page()
+        guard scene else { throw missing("scene", "a detent animation needs a presented sheet") }
+        let animations = UIView.areAnimationsEnabled
+        UIView.setAnimationsEnabled(true)
+        defer { UIView.setAnimationsEnabled(animations) }
+        p.dialogCommand("showModal", "form")
+        let sheet = try sheet(controller), dialog = try XCTUnwrap(p.views[2])
+        settle { !p.menus.inTransition }
+        CATransaction.flush()
+        let center = dialog.convert(dialog.bounds, to: sheet.view).midX
+        let height = sheet.view.bounds.height + 60
+        var centers: [CGFloat] = []
+        // Frame ops retain the dialog's position in its authored parent, even
+        // after its subtree has moved into the native sheet.
+        p.apply(wireBatch([["op": "frame", "id": 2, "x": 10.0, "y": 300.0, "w": 300.0, "h": 240.0]]))
+        CATransaction.flush()
+        settle {
+            if let content = dialog.layer.presentation(), let surface = sheet.view.layer.presentation() {
+                centers.append(content.convert(CGPoint(x: content.bounds.midX, y: content.bounds.midY), to: surface).x)
+            }
+            let shown = sheet.view.layer.presentation()?.bounds.height ?? sheet.view.bounds.height
+            return abs(shown - height) < 0.5 && (dialog.layer.animationKeys()?.isEmpty ?? true)
+        }
+        XCTAssertGreaterThan(centers.count, 1, "sample the animation, not only its settled frame")
+        for x in centers {
+            XCTAssertEqual(x, center, accuracy: 0.5, "a height change must not move the sheet's content sideways")
+        }
+    }
+
     /// A sheet with side insets (a phone in landscape, the iPhone Duo's
     /// status column) shows its dialog between them and scrolls nothing
     /// sideways: UIKit adds the insets around the content (`.always`), so the
