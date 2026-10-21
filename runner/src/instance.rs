@@ -1,7 +1,6 @@
 //! The instance tree, and the ops that keep the kernel equal to it.
 //!
-//! @ref LLP 0485 §8.2 (keyed instance management, never reconciliation of
-//! trees; research)
+//! @ref LLP 0485 §8.2 (keyed instance management, never reconciliation of trees; research)
 //!
 //! The plan's nodes and regions are *sites*. An instance realizes a site as a
 //! kernel view, an active `if`/`match` arm, or a `for` row per key. Updates
@@ -141,8 +140,9 @@ pub struct NodeInst {
     pub view: ViewId,
     /// Last emitted value per binding, in binding order.
     last: Box<[Option<Value>]>,
-    /// Last published surface inputs (a canvas node).
-    last_surface: Option<Box<[Value]>>,
+    /// Last published surface inputs (a canvas node), by a thin pointer: `Child` fits 128 bytes.
+    #[allow(clippy::box_collection)]
+    last_surface: Option<Box<Vec<Value>>>,
     /// Ordered children: static nodes and regions interleaved by `order`.
     children: Vec<Child>,
     /// Last emitted child list.
@@ -1183,7 +1183,7 @@ impl NodeInst {
             for a in s.args.iter() {
                 values.push(u.eval(plan.surface_arg(a).expr, frames)?);
             }
-            if self.last_surface.as_deref() != Some(&values[..]) {
+            if self.last_surface.as_deref() != Some(&values) {
                 u.surfaces.push(SurfaceUpdate {
                     view: self.view,
                     name: plan.str(s.name).to_string(),
@@ -1197,7 +1197,7 @@ impl NodeInst {
                         .collect(),
                     values: values.clone(),
                 });
-                self.last_surface = Some(values.into_boxed_slice());
+                self.last_surface = Some(Box::new(values));
             }
         }
         Ok(())
