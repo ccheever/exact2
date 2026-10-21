@@ -334,7 +334,7 @@ function wroteMine(ok: { write?: number; diff?: string }, redoneBy = '') {
 // gap, a new run), then the build events. Each with the revision of the
 // last pin frame it was sent (`pinRevision`, whoever sent it), and the last
 // command it could not apply, kept while that pin is its pin.
-type BuildState = { inspectRefused?: string | null; id: string; host: string; page: string; status: any; plan: string | null; planDigest: string | null; design: string | null; pin: any; pinRevision: number; unsupported: { what: string; detail: string | null } | null; holding: Holding; navRefusals?: number };
+type BuildState = { inspectRefused?: string | null; refusalSeq?: number; id: string; host: string; page: string; status: any; plan: string | null; planDigest: string | null; design: string | null; pin: any; pinRevision: number; unsupported: { what: string; detail: string | null } | null; holding: Holding; navRefusals?: number };
 let buildsNow = new Map<string, BuildState>();
 // The latest selection (the server's join, LLP 1122 D5) with what it was
 // made under; a stale one stays stale until a fresh selection (a reload back
@@ -381,6 +381,8 @@ const buildRows = () => [...buildsNow.values()].map(b => {
     unsupported: b.unsupported ? `${b.unsupported.what}${b.unsupported.detail ? `: ${b.unsupported.detail}` : ''}` : '',
   };
 });
+/** A build's refusal said or let go by an event, counted: a failed re-send puts back only what nothing has moved since. */
+const refuse = (b: BuildState | undefined, r: string | null) => { if (b) { b.inspectRefused = r; b.refusalSeq = (b.refusalSeq ?? 0) + 1; } };
 /** The builds whose page refused inspect mode, as the Inspector says them (at most three, then a count): each as the
  * Builds list names it (the Inspector names a grid copy by its tile, which it reads as it draws). */
 const refusalRows = () => {
@@ -391,13 +393,20 @@ const refusalRows = () => {
     refusedMore: Math.max(0, refused.length - 3),
   };
 };
+// A listing's word on a refusal: a build first seen takes the one the server still records; one registered again (its
+// status reset, and no refusal of inspect recorded) has none; any other keeps the tool's. Counted only when it moves.
+const refusalOf = (b: any, was?: BuildState) => {
+  const r = !was ? (b.unsupported?.what === 'inspect' ? String(b.unsupported.detail ?? '') : null)
+    : b.status == null && (was.status != null || b.unsupported?.what !== 'inspect') ? null : was.inspectRefused ?? null;
+  return { inspectRefused: r, refusalSeq: (was?.refusalSeq ?? 0) + (r === (was?.inspectRefused ?? null) ? 0 : 1) };
+};
 const buildOf = (b: any, was?: BuildState): BuildState => {
   // Its hold's last word as the listing moves it, and none asked of a hold gone.
   const id = String(b.id), holding = holdingOf(b, was?.holding), note = holdNote(holding, was?.holding, holdNotes.get(id) ?? '');
   if (note) holdNotes.set(id, note); else holdNotes.delete(id);
   // Another hold, none, or a new frame of the same one (its report forgotten at the server): asked afresh.
   if (!sameHold(holding.hold, was?.holding.hold) || (holding.hold && was?.holding.held && !holding.held)) { forgetHeld(id); asked.delete(id); }
-  return { id, host: String(b.host ?? was?.host ?? ''), page: b.page === 'gallery' ? 'gallery' : '', status: b.status ?? null, plan: b.plan ?? null, planDigest: 'planDigest' in b ? (typeof b.planDigest === 'string' ? b.planDigest : null) : was?.planDigest ?? null, design: b.design ?? null, pin: b.pin ?? null, pinRevision: Number(b.pinRevision ?? 0), unsupported: b.unsupported ?? null, holding, navRefusals: was?.navRefusals, inspectRefused: !was ? (b.unsupported?.what === 'inspect' ? String(b.unsupported.detail ?? '') : null) : b.status == null && was.status != null ? null : was.inspectRefused ?? null };
+  return { id, host: String(b.host ?? was?.host ?? ''), page: b.page === 'gallery' ? 'gallery' : '', status: b.status ?? null, plan: b.plan ?? null, planDigest: 'planDigest' in b ? (typeof b.planDigest === 'string' ? b.planDigest : null) : was?.planDigest ?? null, design: b.design ?? null, pin: b.pin ?? null, pinRevision: Number(b.pinRevision ?? 0), unsupported: b.unsupported ?? null, holding, navRefusals: was?.navRefusals, ...refusalOf(b, was) };
 };
 /** The server's list, whole: a build it no longer lists is gone. */
 const takeBuilds = (list: any[], client = '') => {
@@ -407,7 +416,7 @@ const takeBuilds = (list: any[], client = '') => {
 // This tool's inspect mode on a build, as its record says (tamber/1.6).
 // (Owning it says nothing of whether its page inspects: the server names its owner on sending, refused or not. Once
 // another tool or none owns it, a refusal of this tool's is no longer this tool's to say.)
-const owned = (b: any, client: string) => { if (client && b && 'inspector' in b) { if (b.inspector === client) inspectOn.add(String(b.id)); else { inspectOn.delete(String(b.id)); const s = buildsNow.get(String(b.id)); if (s) s.inspectRefused = null; } } };
+const owned = (b: any, client: string) => { if (client && b && 'inspector' in b) { if (b.inspector === client) inspectOn.add(String(b.id)); else { inspectOn.delete(String(b.id)); const s = buildsNow.get(String(b.id)); if (s?.inspectRefused != null) refuse(s, null); } } };
 // The app's design file, as hello names it: what "" reads.
 let designFile = '';
 let lastFiles: Record<string, string> = {};
@@ -1115,7 +1124,7 @@ const sources: Sources = {
         if (b && e.what === 'navigate') b.navRefusals = (b.navRefusals ?? 0) + 1;
         if (e.what === 'hold') holdNotes.set(String(e.build), `This build cannot hold that state${e.detail ? `: ${e.detail}` : ''}.`);
         // A refused inspect, said in the Inspector until the build inspects after all, is asked again, or goes.
-        if (b && e.what === 'inspect') b.inspectRefused = String(e.detail ?? '');
+        if (b && e.what === 'inspect' && inspectOn.has(String(e.build))) refuse(b, String(e.detail ?? ''));
         if (e.what === 'inspect' && selectionNow && String(selectionNow.e.build) === String(e.build)) selectionNow.stale ||= `its page could not inspect it${e.detail ? ` (${e.detail})` : ''}`;
       }
       // A selection joined to source, with what it was made under.
@@ -1123,7 +1132,7 @@ const sources: Sources = {
       // from before the hold moved (or unasked) is asked for again.
       else if (e.event === 'selection') {
         const b = buildsNow.get(String(e.build)), held = e.held && asked.get(String(e.build)) === JSON.stringify(b?.holding.hold ?? null);
-        if (b) b.inspectRefused = null;
+        if (b?.inspectRefused != null) refuse(b, null);
         selectionNow = { e: held || !e.held ? e : { ...e, held: undefined }, at: buildKey(b), axes: JSON.stringify(designAxes), scheme: schemeOf(e, b), stale: '', files: i < lastWrite ? '' : digestKey(filesAt), visit: visitOf(e) };
       }
       // Inspect mode's owners as they move (tamber/1.6): this client's on or
@@ -1131,7 +1140,8 @@ const sources: Sources = {
       // selection is (an off taken by no one, `to: null`) ends it, whoever
       // had it; this client's own loss ends it too.
       else if (e.event === 'inspect' && Array.isArray(e.builds)) {
-        for (const id of e.builds.map(String)) { if (e.client === client && e.on) inspectOn.add(id); else if (e.client === client || e.on) inspectOn.delete(id); }
+        // (Its loss, by its own page or another tool, lets go of a refusal said there.)
+        for (const id of e.builds.map(String)) { if (e.client === client && e.on) inspectOn.add(id); else if (e.client === client || e.on) { inspectOn.delete(id); const b = buildsNow.get(id); if (b?.inspectRefused != null) refuse(b, null); } }
         if (!e.on && (e.client === client || !e.to) && selectionNow && e.builds.map(String).includes(String(selectionNow.e.build))) selectionNow.stale ||= 'inspect mode was turned off there';
       }
       // A page that left inspect mode itself (the server says so only for
@@ -1429,11 +1439,11 @@ const sources: Sources = {
   },
   sendInspect: async ([client, on]) => {
     // Inspect mode on every build that can (LLP 1122 D4), or off; asked again, the refusals said before go.
-    const refused = new Map([...buildsNow].map(([id, b]) => [id, b.inspectRefused]));
+    const refused = new Map([...buildsNow].map(([id, b]) => [id, { r: b.inspectRefused ?? null, at: b.refusalSeq ?? 0 }]));
     for (const b of buildsNow.values()) b.inspectRefused = null;
     const { error, reply } = await call('/__tamber', { method: 'inspect', client, on });
     // Not asked after all: what was refused stays said.
-    if (error) { for (const [id, r] of refused) { const b = buildsNow.get(id); if (b && b.inspectRefused == null) b.inspectRefused = r ?? null; } return { ok: false, error, note: '' }; }
+    if (error) { for (const [id, { r, at }] of refused) { const b = buildsNow.get(id); if (b && (b.refusalSeq ?? 0) === at) b.inspectRefused = r; } return { ok: false, error, note: '' }; }
     const ok = reply.ok as { builds: string[]; unsupported: string[] };
     // The toggle follows the server's records and `inspect` events, not this
     // answer, which a newer event (another client taking over) may follow.

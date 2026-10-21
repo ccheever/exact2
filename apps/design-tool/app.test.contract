@@ -2421,6 +2421,28 @@ test "a refused inspect is said in the inspector, three at most, and goes when i
   clock data
   expect tree missing "inspect-refused-web-4"
   expect tree has "inspect-refused-web-2"
+  // web-2's page leaves inspect mode itself (the server says so in an inspect event alone): its line goes.
+  request POST "/__stub/event" {"event": "inspect", "client": "design-tool:Ada", "on": false, "builds": ["web-2"], "to": null} as ada
+  clock +1
+  clock data
+  expect tree missing "inspect-refused-web-2"
+  // A build that refused before its first status, registered again: no refusal recorded, so none said. (The list
+  // carries each build's inspector as the stub's records have it.)
+  request POST "/__stub/event" {"event": "builds", "builds": [{"id": "web-1", "host": "web", "capabilities": ["pin", "inspect"], "status": {"scheme": "light", "contrast": "no-preference", "mode": {}, "rootFontSize": 16, "revision": 0}, "pin": null, "pinRevision": 0, "inspector": "design-tool:Ada"}, {"id": "web-2", "host": "web", "capabilities": ["pin", "inspect"], "status": {"scheme": "light", "contrast": "no-preference", "mode": {}, "rootFontSize": 16, "revision": 0}, "pin": null, "pinRevision": 0}, {"id": "web-3", "host": "web", "capabilities": ["pin", "inspect"], "status": {"scheme": "light", "contrast": "no-preference", "mode": {}, "rootFontSize": 16, "revision": 0}, "pin": null, "pinRevision": 0, "inspector": "design-tool:Ada"}, {"id": "web-4", "host": "web", "capabilities": ["pin", "inspect"], "status": {"scheme": "light", "contrast": "no-preference", "mode": {}, "rootFontSize": 16, "revision": 0}, "pin": null, "pinRevision": 0, "inspector": "design-tool:Grace"}, {"id": "web-5", "host": "web", "capabilities": ["pin", "inspect"], "status": null, "pin": null, "pinRevision": 0, "inspector": "design-tool:Ada"}]} as ada
+  request POST "/__stub/event" {"event": "inspect", "client": "design-tool:Ada", "on": true, "builds": ["web-5"]} as ada
+  request POST "/__stub/event" {"event": "unsupported", "build": "web-5", "what": "inspect", "detail": "Failed to fetch"} as ada
+  clock +1
+  clock data
+  expect tree has "inspect-refused-web-5"
+  request POST "/__stub/event" {"event": "build-status", "build": {"id": "web-5", "host": "web", "capabilities": ["pin", "inspect"], "status": null, "pin": null, "pinRevision": 0, "unsupported": null}} as ada
+  clock +1
+  clock data
+  expect tree missing "inspect-refused-web-5"
+  // A refusal from a build this tool does not inspect is not this tool's to say.
+  request POST "/__stub/event" {"event": "unsupported", "build": "web-2", "what": "inspect", "detail": "Failed to fetch"} as ada
+  clock +1
+  clock data
+  expect tree missing "inspect-refused-web-2"
   // Off, nothing is said; asked again (the stub accepts), the refusals said before go.
   tap "inspect-toggle"
   clock data

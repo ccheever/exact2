@@ -1698,7 +1698,7 @@ component DesignTool
               if inspected.inspecting
                 for r in changes.refusals key=r.id
                   // A copy in the grid by its tile's label, as the grid shows it now.
-                  if gridAt.tiles.filter(t => t.build == r.id).length > 0
+                  if canvasView != "one" and gridAt.tiles.filter(t => t.build == r.id).length > 0
                     text `The ${gridAt.tiles.filter(t => t.build == r.id).map(t => t.label).join(", ")} copy (${r.host})${r.tail}` color="-exact-system-orange" font="-exact-footnote" testId=`inspect-refused-${r.id}`
                   else
                     text `${r.name}${r.tail}` color="-exact-system-orange" font="-exact-footnote" testId=`inspect-refused-${r.id}`
