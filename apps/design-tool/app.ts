@@ -7,7 +7,7 @@
 // body whole, so it cannot follow the server-sent stream. A failure is
 // words in the answer, never a throw.
 import type { Answer, Result, Sources } from './app.contract.d.ts';
-import { buildKey, placeOf, schemeOf, selectionView, staleness, type Selected } from './inspector';
+import { buildKey, placeOf, schemeOf, selectionView, staleness, visitOf, type Selected } from './inspector';
 // The panel's controls and the grid's cells by kind.
 import { cellText, colourLiteral, panelOf, sides } from './dials';
 import { componentsOf, levelsOf } from './components';
@@ -1109,7 +1109,7 @@ const sources: Sources = {
       // from before the hold moved (or unasked) is asked for again.
       else if (e.event === 'selection') {
         const b = buildsNow.get(String(e.build)), held = e.held && asked.get(String(e.build)) === JSON.stringify(b?.holding.hold ?? null);
-        selectionNow = { e: held || !e.held ? e : { ...e, held: undefined }, at: buildKey(b), axes: JSON.stringify(designAxes), scheme: schemeOf(e, b), stale: '', files: i < lastWrite ? '' : digestKey(filesAt) };
+        selectionNow = { e: held || !e.held ? e : { ...e, held: undefined }, at: buildKey(b), axes: JSON.stringify(designAxes), scheme: schemeOf(e, b), stale: '', files: i < lastWrite ? '' : digestKey(filesAt), visit: visitOf(e) };
       }
       // Inspect mode's owners as they move (tamber/1.6): this client's on or
       // off, or another's taking a build over. Inspect mode ending where the

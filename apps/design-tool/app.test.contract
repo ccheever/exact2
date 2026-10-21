@@ -2359,12 +2359,16 @@ test "the inspector folds the rows nothing sets behind one control, opened per s
   request POST "/__stub/event" {"event": "selection", "build": "web-1", "node": 8, "site": 3, "instance": [], "tuple": {"dark-style": "dim", "density": "regular"}, "trimmed": false, "readOnly": null, "source": {"file": "/stub/card.contract", "line": 4, "col": 7, "end_col": 11, "component": "Card", "chain": []}, "rows": [{"name": "text_color", "value": "#000000ff", "source": "authored", "origin": "own", "editable": {"rung": null, "reason": "a literal"}}, {"name": "stroke_linecap", "value": "butt", "source": "initial", "origin": null, "editable": {"rung": null, "reason": "its initial value: nothing sets it"}}, {"name": "padding", "value": "0px", "source": "initial", "origin": null, "editable": {"rung": "style", "style": "Panel", "row": "padding", "file": "styles.contract", "text": "0px"}}, {"name": "marker_end", "value": "none", "source": "initial", "origin": null, "editable": {"rung": null, "reason": "its initial value: nothing sets it"}}]} as ada
   clock +1
   clock data
-  clock +1
   expect tree missing "selrow-stroke-linecap"
   request POST "/__stub/event" {"event": "selection", "build": "web-1", "node": 7, "site": 3, "instance": [], "tuple": {"dark-style": "dim", "density": "regular"}, "trimmed": false, "readOnly": null, "source": {"file": "/stub/card.contract", "line": 4, "col": 7, "end_col": 11, "component": "Card", "chain": []}, "rows": [{"name": "text_color", "value": "#000000ff", "source": "authored", "origin": "own", "editable": {"rung": null, "reason": "a literal"}}, {"name": "stroke_linecap", "value": "butt", "source": "initial", "origin": null, "editable": {"rung": null, "reason": "its initial value: nothing sets it"}}, {"name": "padding", "value": "0px", "source": "initial", "origin": null, "editable": {"rung": "style", "style": "Panel", "row": "padding", "file": "styles.contract", "text": "0px"}}, {"name": "marker_end", "value": "none", "source": "initial", "origin": null, "editable": {"rung": null, "reason": "its initial value: nothing sets it"}}]} as ada
   clock +1
   clock data
-  clock +1
   // (The padding row, still being edited, stays out of the count.)
   expect text "selrow-initial" == "2 more rows nothing sets (initial values)"
   expect tree missing "selrow-stroke-linecap"
+  // A refresh of the same view (its report again) keeps them shown.
+  tap "selrow-initial"
+  request POST "/__stub/event" {"event": "selection", "build": "web-1", "node": 7, "site": 3, "instance": [], "tuple": {"dark-style": "dim", "density": "regular"}, "trimmed": false, "readOnly": null, "source": {"file": "/stub/card.contract", "line": 4, "col": 7, "end_col": 11, "component": "Card", "chain": []}, "rows": [{"name": "text_color", "value": "#000000ff", "source": "authored", "origin": "own", "editable": {"rung": null, "reason": "a literal"}}, {"name": "stroke_linecap", "value": "butt", "source": "initial", "origin": null, "editable": {"rung": null, "reason": "its initial value: nothing sets it"}}, {"name": "padding", "value": "0px", "source": "initial", "origin": null, "editable": {"rung": "style", "style": "Panel", "row": "padding", "file": "styles.contract", "text": "0px"}}, {"name": "marker_end", "value": "none", "source": "initial", "origin": null, "editable": {"rung": null, "reason": "its initial value: nothing sets it"}}]} as ada
+  clock +1
+  clock data
+  expect tree has "selrow-stroke-linecap"
