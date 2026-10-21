@@ -11,8 +11,18 @@ extension NodeView {
     /// role (LLP 1069.011.000 D1).
     var isButton: Bool { kind == "button" || isNativeButton }
     /// Its face, as the kernel reads it (LLP 1069.011.000 D1); nil when the
-    /// presenter cannot read one.
+    /// presenter cannot read one. UIKit's presenter keeps a native button's
+    /// until a batch changes it (`ControlHost.face`); a custom button's face
+    /// is read from its child views, whose ops do not name the button, so
+    /// it is read each time.
+    #if os(macOS)
     var face: ButtonFace? { presenter?.buttonFace?(id) }
+    #else
+    var face: ButtonFace? {
+        guard let presenter, presenter.buttonFace != nil else { return nil }
+        return isNativeButton ? presenter.controls.face(id) : presenter.buttonFace?(id)
+    }
+    #endif
 
     var accessibleText: String {
         if let text = props["text"] { return text }

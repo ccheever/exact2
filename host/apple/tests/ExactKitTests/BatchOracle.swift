@@ -266,6 +266,15 @@ func wireBatch(_ ops: [[String: Any]]) -> Batch {
     return batch
 }
 
+/// A batch with no ops that says a control's viewless contents changed, as
+/// the runner sends when a native button's text or symbol changes: the
+/// presenter reads its buttons' faces again (`ControlsHost.face`).
+func facesBatch() -> Batch {
+    let batch = Batch.decode(Data(#"{"ops":[],"controls":true}"#.utf8))
+    precondition(batch.error == nil && batch.controls)
+    return batch
+}
+
 /// The `fieldContent` op layout sends a `width` by `height` box with
 /// `padding` and `border` (top, right, bottom, left): its content box and the
 /// padding it resolved, which the presenter places content and insets by.

@@ -817,13 +817,13 @@ package final class Presenter {
                 flushPendingFocus(); elementScrolls.flush()
             }
         }
-        var beganGeometry = false
-        var touchedIDs: [UInt32] = []
+        var beganGeometry = false, touchedIDs: [UInt32] = []
         let rowsOnly = onlyListRows(batch)
+        if batch.controls { controls.facesChanged() }
         for op in batch.ops {
             let kind = op.op
             switch kind {
-            case .create, .props, .style, .children, .paragraph, .flow, .frame: touchedIDs.append(op.id)
+            case .create, .props, .style, .children, .paragraph, .flow, .frame: touchedIDs.append(op.id); controls.faceChanged(op.id)
             default: break
             }
             if kind == .create || kind == .frame || kind == .content { moved = true }
@@ -1013,7 +1013,7 @@ package final class Presenter {
         playPauseKey.sync()
         #endif
         segments.sync()
-        controls.sync(contents: batch.controls, touched: touchedIDs)
+        controls.sync(contents: false)
         #if os(tvOS)
         // A remembered node's replacement owns focus only after its native
         // control exists, so retarget guides in this same batch after sync.

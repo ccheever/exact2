@@ -140,8 +140,10 @@ final class BarFaceIOSTests: XCTestCase {
         XCTAssertEqual(TextEngine.controlWeight(done), 600, "the author's weight")
         XCTAssertNil(items[2].titleTextAttributes(for: .normal), "nothing written: UIKit's title")
         clock.rows.title = ["font_size": .number(13)]
+        p.apply(facesBatch())
         XCTAssertNotEqual(HeaderShape.Item(buttons[0]).source, shape[0].source, "a new size makes the item again")
         heavy.rows.title = ["font_weight": .number(650)]
+        p.apply(facesBatch())
         XCTAssertNotEqual(HeaderShape.Item(buttons[1]).source, shape[1].source, "and so does a new weight in the same face")
     }
 
