@@ -915,7 +915,7 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
 
     /// How Back goes from the selected route, resolved at use as its
     /// control is (`NavigationRules.back`, LLP 1115 D5).
-    private var back: NavigationRules.Back? {
+    var back: NavigationRules.Back? {
         guard let root = container, let route = selectedRoute else { return nil }
         return NavigationRules.back(control: backControl?.id, declared: declaresBack(route), hearsNavigate: root.handlers.contains("navigate"),
                                     beneath: { [presenter] in route.props["navigationKey"].flatMap { presenter.session?.runtime.locationBeneath($0) } })

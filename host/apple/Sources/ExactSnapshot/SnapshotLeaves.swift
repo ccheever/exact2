@@ -211,7 +211,7 @@ struct SnapshotProgressView: View {
         #if os(iOS) || os(watchOS)
         Gauge(value: value, in: 0...total) { EmptyView() }
             .gaugeStyle(.accessoryCircularCapacity)
-            .tint(SnapshotStyle.color(SnapshotStyle(node).color("accent_color") ?? SnapshotStyle(node).color("text_color"), dark: scheme == .dark))
+            .tint(SnapshotColor.color(SnapshotStyle(node).color("accent_color") ?? SnapshotStyle(node).color("text_color"), dark: scheme == .dark))
         #else
         ProgressView(value: value, total: total).progressViewStyle(.circular)
         #endif
