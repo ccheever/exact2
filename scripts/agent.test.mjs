@@ -288,6 +288,28 @@ test('compare: the regions up close, a row each, cut from both pictures at their
   assert.match(report(result, [], { reference: 'r', diff: 'd', close: 'c' }).split('\n')[0], new RegExp(`; up close, c \\(a row a region, 1 to ${n}\\)$`));
 });
 
+test('compare: the two pictures side by side at half size, each region outlined on both', async () => {
+  const { grid, compareGrids, sideImage, report } = await import('./agent-compare.mjs');
+  // A 3x screen with a box the reference lacks, at 60,20 40×10 pt.
+  const ref = picture(120, 200, [], 3), screen = picture(120, 200, [[60, 20, 40, 10]], 3);
+  const A = grid(ref, 120, 200), B = grid(screen, 120, 200), result = compareGrids(A, B);
+  const side = sideImage(A, B, result), band = side.height - 100;
+  // Two panels of 60×100 px, 4 apart, under the labels' band.
+  assert.equal(side.width, 2 * 60 + 4);
+  const at = (x, y) => Array.from(side.data.subarray(((y + band) * side.width + x) * 4, ((y + band) * side.width + x) * 4 + 3));
+  // The box, at 30,10 20×5 px: black on the screen's panel, white on the reference's; outlined in amber on both.
+  assert.deepEqual([at(35, 12), at(64 + 35, 12)], [[255, 255, 255], [20, 20, 20]]);
+  for (const ox of [0, 64]) assert.deepEqual([at(ox + 29, 12), at(ox + 50, 12), at(ox + 35, 9), at(ox + 35, 15)], Array(4).fill([240, 170, 0]));
+  // An odd width (393 pt on an iPhone 16) halves to a scale other than ½: the outline stays outside the ink at the
+  // right edge, where a 2:1 map would draw over its last column.
+  const odd = compareGrids(grid(picture(121, 201, []), 121, 201), grid(picture(121, 201, [[100, 21, 20, 10]]), 121, 201));
+  const oddSide = sideImage(grid(picture(121, 201, []), 121, 201), grid(picture(121, 201, [[100, 21, 20, 10]]), 121, 201), odd);
+  const oddAt = (x, y) => Array.from(oddSide.data.subarray(((y + oddSide.height - 101) * oddSide.width + x) * 4, ((y + oddSide.height - 101) * oddSide.width + x) * 4 + 3));
+  // Its last pixel holds half a point of ink and half of white: grey, not amber.
+  assert.deepEqual(oddAt(65 + 60, 13), [138, 138, 138]);
+  assert.match(report(result, [], { reference: 'r', diff: 'd', side: 's' }).split('\n')[0], /; diff d \(reference \| screen \| differences\); side by side at half size, s \(reference \| screen, the regions outlined\)$/);
+});
+
 test('compare: an edge\'s anti-aliasing is no colour of the picture it is in', async () => {
   // The reference's box has a soft left edge (three grey columns), the screen's a hard one 7 pt further left: the
   // reference's differing cells are white and that edge's greys, which are no ink of its own (euxy port: "#bbb").
