@@ -40,6 +40,7 @@ mod posts;
 pub mod records;
 pub mod routes;
 mod selection;
+mod shadows;
 mod tasks;
 pub use bounds::MAX_TYPE_DEPTH;
 pub use payload::handler_arity_message;
@@ -287,6 +288,9 @@ pub struct Shapes {
     /// Action name → the first component that declares it: a statement
     /// naming one out of its scope is told where it is (LLP 1089 D10).
     pub actions: BTreeMap<String, String>,
+    /// An action or `fn` named like a standard function → what it is and
+    /// where it is declared (`shadows`).
+    pub shadows: BTreeMap<(String, String), (&'static str, Span)>,
     /// Shape name → how deep its values can nest (LLP 1090 D2), once every
     /// shape's fields are known.
     pub depths: BTreeMap<String, u32>,
@@ -843,7 +847,8 @@ fn infer_unbounded(e: &Expr, scope: &Scope, shapes: &Shapes) -> Result<Ty, TypeE
                 if args.len() != params.len() {
                     return err(
                         "type-arity",
-                        checks::call_arity(name, args.len(), params),
+                        checks::call_arity(name, args.len(), params)
+                            + &shadows::note(name, None, shapes),
                         *span,
                     );
                 }
@@ -853,8 +858,9 @@ fn infer_unbounded(e: &Expr, scope: &Scope, shapes: &Shapes) -> Result<Ty, TypeE
                         return err(
                             "type-argument",
                             format!(
-                                "{} expects `{want}`, given `{t}`",
-                                contract_syntax::idioms::argument(name, i)
+                                "{} expects `{want}`, given `{t}`{}",
+                                contract_syntax::idioms::argument(name, i),
+                                shadows::note(name, None, shapes)
                             ),
                             arg.span(),
                         );
@@ -1138,6 +1144,7 @@ pub fn check_declarations(file: &File) -> Result<Shapes, TypeError> {
                 .or_insert_with(|| c.name.clone());
         }
     }
+    shadows::declare(file, &mut shapes);
     shapes.sounds = file.sounds.iter().map(|s| s.source.clone()).collect();
     routes::declare(file, &mut shapes)?;
     selection::declare(&mut shapes);
