@@ -370,9 +370,10 @@ final class SegmentHost: NSObject, UIGestureRecognizerDelegate, UITabBarDelegate
             // The padding and border around the content box layout sent
             if owner.style["box_sizing"]?.string == "border-box" { size.height += owner.layoutBounds.height - owner.contentBox().height }
         } else {
-            guard owner.bounds.width > 0 else { return }
+            let width = owner.contentBox().width
+            guard width > 0 else { return }
             // A tab bar lays its items out in any width: none is its narrowest.
-            size = CGSize(width: 1, height: control.sizeThatFits(CGSize(width: owner.bounds.width, height: 0)).height)
+            size = CGSize(width: 1, height: control.sizeThatFits(CGSize(width: width, height: 0)).height)
         }
         guard size.width.isFinite, size.height.isFinite, size.height > 0 else { return }
         guard sizes[owner.id] != size else { return }
@@ -412,7 +413,13 @@ final class SegmentHost: NSObject, UIGestureRecognizerDelegate, UITabBarDelegate
             return value
         }()
         if bar.superview !== owner { owner.addSubview(bar) }
-        if bar.frame != owner.bounds { bar.frame = owner.bounds }
+        // Across the content box, its edges on the pixel grid, the box's whole
+        // height: a tablist padded at a side keeps its tabs inside the padding,
+        // as the web lays them out.
+        let box = owner.contentBox(), origin = owner.grid?.origin ?? .zero, scale = presenter.gridScale(under: origin)
+        let left = PixelGrid.length(box.minX, from: origin, vertical: false, scale: scale), right = PixelGrid.length(box.maxX, from: origin, vertical: false, scale: scale)
+        let frame = CGRect(x: left, y: owner.bounds.minY, width: right - left, height: owner.bounds.height)
+        if bar.frame != frame { bar.frame = frame }
         assign(bar, \.isUserInteractionEnabled, available(owner))
         assign(bar, \.accessibilityLabel, owner.props["accessibilityLabel"])
         let current = bar.items ?? []

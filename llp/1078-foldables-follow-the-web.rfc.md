@@ -56,7 +56,7 @@ Occlusion regions (the camera, the status strip) stay what they already are, the
 
 ### D6 — The web feeds it from the browser
 
-`host/web/navigation.js` reads `navigator.devicePosture.type` (and listens to its `change`) and `window.viewport.segments` (re-read on `resize`), and `glue.js` calls `exact_segments` beside `exact_resize`. The `env(viewport-segment-*)` text lowers to CSS unchanged (`host/web/src/css.rs` already passes `env()` through; the browser resolves it, as it resolves `safe-area-inset-*`). Where the browser lacks the APIs (every browser but Chromium today): `continuous`, 1 × 1, which is also what Chromium reports on a flat display. The parity oracle is the web, so the kernel's resolution in D3 must agree with Chromium on a two-segment viewport; the conformance run's `prefer segments` form (D7) is how that is checked without a foldable.
+`host/web/navigation.js` reads `navigator.devicePosture.type` (and listens to its `change`) and `window.viewport.segments` (re-read on `resize`), and `glue.js` calls `exact_segments` beside `exact_resize`. The `env(viewport-segment-*)` text lowers to CSS unchanged (`host/web/src/css.rs` already passes `env()` through; the browser resolves it, as it resolves `safe-area-inset-*`). Where the browser lacks the APIs (every browser but Chromium today): `continuous`, 1 × 1, which is also what Chromium reports on a flat display. Safari on the iPhone Duo is one of them (the iOS 27.1 simulator, 2026-10-20): a web build there lays out as one screen across the hinge, so only the native build keeps its controls off the band. The parity oracle is the web, so the kernel's resolution in D3 must agree with Chromium on a two-segment viewport; the conformance run's `prefer segments` form (D7) is how that is checked without a foldable.
 
 ### D7 — The agent sees and sets it
 
@@ -412,10 +412,12 @@ document's names exactly; the integrator checks them against the core lane.
   its facts the window's, the panes on the segments, in a window shorter than the panel
   (which sits at the panel's bottom, its lower segment the panel's) and in the whole panel,
   nothing on the band. A web leg (2026-10-20) drives duo-lab under the agent's default
-  chrome, flat and partially folded both ways: the Fold screen's panes and the note sheet
-  end where the routes do, above the tablist, the sheet on the lower segment until it
-  rides on the keyboard. Its taps are the agent's: under that chrome a real touch on the
-  tablist, which stands in for UIKit's tab bar, is refused (LLP 1080.000 D7).
+  chrome, flat and partially folded both ways: the Fold screen's panes end where the
+  routes do, above the tablist, whose tabs keep to the trailing segment on a book fold
+  (the drawn bar read where UIKit's accessibility runtime is on), and the note screen,
+  which hides the tablist, keeps its sheet on the lower segment until it rides on the
+  keyboard. Its taps are the agent's: under that chrome a real touch on the tablist,
+  which stands in for UIKit's tab bar, is refused (LLP 1080.000 D7).
   When the open pose does not report the recorded 951×669 inner panel, the panel sizes
   and the segments are checked against what the device reports (see below); the panes
   are checked against the two rects `layout.env` reports, whichever axis the device
