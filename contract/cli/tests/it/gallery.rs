@@ -717,3 +717,94 @@ fn a_symbols_prop_gets_a_role_and_a_handlers_action_its_payloads_parameters() {
     }
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+const BOUNDARIES: &str = r#"component Stem
+  props
+    star: string
+    gear: string
+  view
+    row
+      image `symbol:${star}-fill`
+      image `symbol:${gear}`
+
+component Shadowed
+  props
+    symbol: string
+  view
+    column
+      text symbol
+      for symbol in ["add"] key = symbol
+        image `symbol:${symbol}`
+
+component Twice
+  props
+    on: bool
+    set: action
+  view
+    input type="checkbox" switch checked=on change=set aria-label="Twice"
+
+component Odd
+  props
+    pick: action
+  view
+    button press=pick("x")
+      text "Pick"
+"#;
+
+const APP_BOUNDARIES: &str = r#"use Stem, Shadowed, Toggle, Twice, Odd from "@acme/lib"
+
+component App
+  state on = false
+  action flip(v: bool)
+    on = v
+  action pick(v: string)
+  view
+    column
+      Stem(star="star", gear="gear")
+      Shadowed(symbol="s")
+      Toggle(title="t", on=on, set=flip)
+      Twice(on=on, set=flip)
+      Odd(pick=pick)
+"#;
+
+/// A stem (`symbol:${star}-fill`) keeps the prop's own name and a prop that
+/// is a role's alias gets that role; a `for` that binds the prop's name
+/// hides it; two components of one signature share one inert action; an
+/// action the view calls with arguments of its own stays `noop`, for the
+/// compiler to refuse. (One given to handlers that pass different payloads
+/// is the library's own error, `analyze-action-arity`.)
+#[test]
+fn a_stem_a_shadow_a_shared_signature_and_an_action_the_view_calls_otherwise() {
+    let dir = fixture("boundaries");
+    let lib = dir.join("node_modules/@acme/lib");
+    std::fs::write(
+        lib.join("index.contract"),
+        format!("{HANDLED}\n{BOUNDARIES}"),
+    )
+    .unwrap();
+    std::fs::write(dir.join("app.contract"), APP_BOUNDARIES).unwrap();
+    let out = dir.join("node_modules/.cache/exact-gallery");
+    let g = contract::gallery::generate(&dir.join("app.contract"), &out).expect("the gallery");
+    let refused: Vec<&str> = g
+        .cells
+        .iter()
+        .filter(|c| c.refused.is_some())
+        .map(|c| c.component.as_str())
+        .collect();
+    assert_eq!(
+        refused,
+        vec!["Odd"],
+        "only the cell whose action the view calls with arguments"
+    );
+    let text = std::fs::read_to_string(&g.source).unwrap();
+    for line in [
+        r#"Stem(star="star", gear="settings")"#,
+        r#"Shadowed(symbol="symbol")"#,
+        r#"Twice(on=false, set=noop_bool)"#,
+        "`Odd.pick` requires 1",
+    ] {
+        assert!(text.contains(line), "{line:?} in {text}");
+    }
+    assert_eq!(text.matches("  action noop_bool(").count(), 1, "{text}");
+    let _ = std::fs::remove_dir_all(&dir);
+}
