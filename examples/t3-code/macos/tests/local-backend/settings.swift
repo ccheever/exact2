@@ -120,7 +120,24 @@ final class LocalDesktopSettingsTests: XCTestCase {
         expected.serverExposureMode = "network-accessible"; expected.tailscaleServeEnabled = true; expected.tailscaleServePort = 8443
         XCTAssertEqual(store(home).0.settings, expected)
         // A string keeps a `//` or a `,}` inside it.
-        XCTAssertEqual(T3DesktopSettings.stripLenient(#"{"wslDistro":"a//b,}", /* c */ }"#), #"{"wslDistro":"a//b,}"  }"#)
+        XCTAssertEqual(T3DesktopSettings.stripLenient(#"{"wslDistro":"a//b,}", /* c */ }"#), #"{"wslDistro":"a//b,}"   }"#)
+    }
+
+    /// packages/shared/src/schemaJson.test.ts at 74541bab17 (`decodeLenientJson`), over the same lenient parse.
+    func testReadsJSONCBlockCommentsContainingURLs() {
+        let home = scratch("home")
+        write("""
+        {
+          /* See "https://example.com/config" // still in the block */
+          "serverExposureMode": /* https://t3.codes/schema */ "network-accessible",
+        }
+        """, T3DesktopSettings.path(home: home))
+        XCTAssertEqual(store(home).0.settings.serverExposureMode, "network-accessible")
+        func parse(_ raw: String) -> Any? {
+            try? JSONSerialization.jsonObject(with: Data(T3DesktopSettings.stripLenient(raw).utf8), options: [.fragmentsAllowed])
+        }
+        XCTAssertNil(parse("[1/* https://example.com */2]"), "a comment keeps adjacent tokens apart")
+        XCTAssertEqual(parse(#""1/* https://example.com */2""#) as? String, "1/* https://example.com */2")
     }
 
     func testRejectsWindowBoundsThatDoNotSatisfyTheDomainSchema() {

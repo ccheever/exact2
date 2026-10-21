@@ -163,8 +163,10 @@ async function readFile(client: T3Client, native: Native, path: string): Promise
   if (!state.reads.has(path)) noteFirstRead(state, path); // an uncached read settles the crumbs short
   loadBegin(state, `read:${path}`);
   try {
-    const result = await client.restAccess(native).request('projects.readFile', { cwd, relativePath: path });
+    // A missing t3.json is not a failed read (getProjectFileQueryAtom's allowMissing); it reads as absent.
+    const result = await client.restAccess(native).request('projects.readFile', { cwd, relativePath: path, ...(path === 't3.json' ? { allowMissing: true } : {}) });
     if (filesState(client) !== state) return;
+    if (result.exists === false) { state.reads.set(path, { contents: '', byteLength: 0, truncated: false, error: `'${path}' does not exist.`, notFile: false, attempted: '', errorCwd: '' }); return; }
     state.reads.set(path, { contents: str(result.contents), byteLength: num(result.byteLength), truncated: result.truncated === true, error: '', notFile: false, attempted: '', errorCwd: '' });
   } catch (error) {
     if (filesState(client) !== state || letGo(error)) return;

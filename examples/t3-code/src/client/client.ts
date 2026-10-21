@@ -155,6 +155,8 @@ export class T3Client {
     return this.ready && this.scopes.includes('orchestration:operate')
       && obj(obj(this.config.environment).capabilities).serverResolvedCommandContext === true;
   }
+  /** The server takes `thread.stop` and resolves the run itself (capabilities.threadStop, commands.ts interruptThreadTurn). */
+  get threadStopOffered(): boolean { return obj(obj(this.config.environment).capabilities).threadStop === true; }
   get pending(): Pending | undefined { return this.local.pending[this.environmentId]; }
   get draftKey(): string { return `${this.environmentId}:${this.threadId || `new:${this.projectId}`}`; }
   get snapshotDrafts(): Obj[] { return this.local.snapshotDrafts[this.draftKey] || []; }
@@ -619,6 +621,7 @@ export class T3Client {
       if (payload.type === 'message.dispatch') completed = arr(this.projection.messages).some(value => value.id === payload.messageId);
       else if (payload.type === 'runtime-request.respond' || payload.type === 'thread.user-input.dismiss') completed = arr(this.projection.runtimeRequests).some(value => value.id === payload.requestId && value.status !== 'pending');
       else if (payload.type === 'run.interrupt') completed = arr(this.projection.runs).some(value => value.id === payload.runId && !['preparing', 'starting', 'running', 'waiting'].includes(str(value.status)));
+      else if (payload.type === 'thread.stop') completed = !arr(this.projection.runs).some(value => ['preparing', 'starting', 'running', 'waiting'].includes(str(value.status)));
       else if (payload.type === 'thread.model-selection.set') completed = JSON.stringify(obj(obj(this.projection.thread).modelSelection)) === JSON.stringify(payload.modelSelection);
       else if (payload.type === 'thread.runtime-mode.set') completed = obj(this.projection.thread).runtimeMode === payload.runtimeMode;
       else if (payload.type === 'thread.interaction-mode.set') completed = obj(this.projection.thread).interactionMode === payload.interactionMode;

@@ -91,8 +91,9 @@ export async function shellCommand(client: T3Client, native: Native, storage: Fi
 }
 
 /**
- * ThreadRelationshipsPanel stopSubagent → interruptThreadTurn({ threadId: child }): the child thread's active run, else
- * the latest run while it still owns background work, is interrupted with its queue held. A failure is the toast
+ * ThreadRelationshipsPanel stopSubagent → interruptThreadTurn({ threadId: child }): `thread.stop` on the child when the
+ * server advertises threadStop; otherwise the child thread's active run, else the latest run while it still owns
+ * background work, is interrupted with its queue held. A failure is the toast
  * "Could not stop subagent".
  */
 async function stopSubagent(client: T3Client, native: Native, storage: Files, childThreadId: string): Promise<void> {
@@ -107,6 +108,11 @@ async function stopSubagent(client: T3Client, native: Native, storage: Files, ch
       if (!canStopNativeSubagent(agent)) return;
       const [commandId] = await access.ids(1);
       await access.dispatch(storage, { type: 'subagent.stop', commandId, threadId: owner, runId: str(agent!.runId), subagentId: str(agent!.id) }, 'Stop subagent');
+      return;
+    }
+    if (client.threadStopOffered) {
+      const [commandId] = await access.ids(1);
+      await access.dispatch(storage, { type: 'thread.stop', commandId, threadId: childThreadId }, 'Stop subagent');
       return;
     }
     const projection = childThreadId === client.threadId ? client.projection : obj(await access.request('orchestration.getThreadProjection', { threadId: childThreadId }));
