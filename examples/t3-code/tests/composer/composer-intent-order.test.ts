@@ -323,28 +323,45 @@ describe('actual root composer intent ordering', () => {
 // Delete beside one removes it whole, the caret never rests inside it and typing never edits it.
 describe('a composer reference is one unit', () => {
   const cite = '[Assistant quote](t3-citation://v1/e/t/m?text=the&start=0&end=3&prefix=&suffix=)';
-  const draft = `see ${cite} now`, start = 4, end = 4 + cite.length;
-  const key = (k: string, held: Partial<Record<'altKey' | 'metaKey', boolean>> = {}) =>
+  const draft = `see ${cite} now`, start = 4, end = 4 + cite.length, shownEnd = start + '[Assistant quote'.length;
+  const key = (k: string, held: Partial<Record<'altKey' | 'metaKey' | 'shiftKey' | 'ctrlKey', boolean>> = {}) =>
     [k, {shiftKey: false, metaKey: false, ctrlKey: false, altKey: false, repeat: false, ...held}, false];
   const settle = (f: ReturnType<typeof fixture>) => {f.call('composerIntentPump'); f.reply(); f.accept(); f.call('composerIntentConfirmed');};
-  test('Backspace after it, Delete before it, either inside it, ⌥ held or not, removes its whole source in one range edit', () => {
-    for (const [k, caret, alt] of [['Backspace', end, false], ['Backspace', end, true], ['Delete', start, false], ['Backspace', 10, false], ['Delete', 10, false]] as const) {
+  const input = (f: ReturnType<typeof fixture>, inputType: string, at: number, data: string | null = null) =>
+    f.call('composerBeforeInput', [{value: f.state.draft, selectionStart: at, selectionEnd: at, isComposing: false, cancelable: true, inputType, data}], {richComposer: {...f.projection, blocks: []}});
+  test('Backspace after it, Delete before it, either inside it, removes its whole source in one range edit', () => {
+    for (const [k, caret] of [['Backspace', end], ['Delete', start], ['Backspace', 10], ['Delete', 10]] as const) {
       const f = fixture(draft, caret);
-      f.call('composerGrammarKey', key(k, {altKey: alt}));
+      f.call('composerGrammarKey', key(k));
       expect(f.suppressed).toBe(1);
       settle(f);
       expect(f.commands).toEqual([['composer', '', start, end, 'preserve']]);
       expect([f.state.draft, f.state.composerSelectionStart, f.state.composerIntentQueue]).toEqual(['see  now', start, []]);
     }
   });
+  test('Option-Backspace takes the reference and the spaces between, as word deletion takes an atom', () => {
+    const f = fixture(draft.replace(' now', '  now'), end + 1);
+    f.call('composerGrammarKey', key('Backspace', {altKey: true}));
+    expect(f.suppressed).toBe(1);
+    settle(f);
+    expect(f.commands).toEqual([['composer', '', start, end + 1, 'preserve']]);
+  });
   test('keys that do not reach it, and ⌘⌫, stay the field\'s own', () => {
-    for (const [k, caret, held] of [['Backspace', start, {}], ['Delete', end, {}], ['Backspace', end + 1, {}], ['Backspace', end, {metaKey: true}]] as const) {
+    for (const [k, caret, held] of [['Backspace', start, {}], ['Delete', end, {}], ['Backspace', end + 1, {}], ['Backspace', end, {metaKey: true}], ['Backspace', end + 4, {altKey: true}]] as const) {
       const f = fixture(draft, caret);
       f.call('composerGrammarKey', key(k, held));
       expect([f.suppressed, f.requests.length]).toEqual([0, 0]);
     }
   });
-  test('cite, Backspace twice, type: the second Backspace removes the citation, so the text never enters its label', () => {
+  test('a second Backspace pressed before the first removal lands deletes a character, not nothing', () => {
+    const f = fixture(draft, end);
+    f.call('composerGrammarKey', key('Backspace'));
+    f.call('composerGrammarKey', key('Backspace'));
+    expect(f.suppressed).toBe(2);
+    settle(f); settle(f);
+    expect([f.state.draft, f.state.composerSelectionStart, f.state.composerIntentNotice, f.state.composerIntentQueue]).toEqual(['see now', 3, '', []]);
+  });
+  test('cite, Backspace twice, type: the citation goes whole, so the text never enters its label', () => {
     const f = fixture(`${cite} `, cite.length + 1);
     f.call('composerGrammarKey', key('Backspace'));
     expect(f.suppressed).toBe(0);
@@ -354,30 +371,56 @@ describe('a composer reference is one unit', () => {
     settle(f);
     expect([f.state.draft, f.state.composerSelectionStart]).toEqual(['', 0]);
   });
-  test('text typed inside it goes after it', () => {
-    const f = fixture(draft, 10);
-    f.call('composerBeforeInput', [{value: draft, selectionStart: 10, selectionEnd: 10, isComposing: false, cancelable: true, inputType: 'insertText', data: 'x'}]);
-    expect(f.suppressed).toBe(1);
-    settle(f);
-    expect(f.commands).toEqual([['composer', 'x', end, end, 'preserve']]);
-    expect([f.state.draft, f.state.composerSelectionStart]).toEqual([`see ${cite}x now`, end + 1]);
-    const outside = fixture(draft, end); outside.projection = {...outside.projection, blocks: []} as typeof outside.projection;
-    outside.call('composerBeforeInput', [{value: draft, selectionStart: end, selectionEnd: end, isComposing: false, cancelable: true, inputType: 'insertText', data: 'x'}]);
+  test('⌃H, ⌃D and word deletion at it remove it whole through beforeinput', () => {
+    for (const [inputType, caret, removed] of [['deleteContentBackward', end, [start, end]], ['deleteContentForward', start, [start, end]], ['deleteWordBackward', end + 1, [start, end + 1]], ['deleteWordForward', start - 1, [start - 1, end]]] as const) {
+      const f = fixture(draft, caret);
+      input(f, inputType, caret);
+      expect(f.suppressed).toBe(1);
+      settle(f);
+      expect(f.commands).toEqual([['composer', '', removed[0], removed[1], 'preserve']]);
+    }
+    const away = fixture(draft, end + 3);
+    input(away, 'deleteWordBackward', end + 3);
+    expect(away.suppressed).toBe(0);
+  });
+  test('text typed or dropped inside it goes after it', () => {
+    for (const inputType of ['insertText', 'insertFromDrop']) {
+      const f = fixture(draft, 10);
+      input(f, inputType, 10, 'x');
+      expect(f.suppressed).toBe(1);
+      settle(f);
+      expect(f.commands).toEqual([['composer', 'x', end, end, 'preserve']]);
+      expect([f.state.draft, f.state.composerSelectionStart]).toEqual([`see ${cite}x now`, end + 1]);
+    }
+    const outside = fixture(draft, end);
+    input(outside, 'insertText', end, 'x');
     expect(outside.suppressed).toBe(0);
   });
-  test('a caret put inside it goes to the nearer edge; one moved from an edge crosses it', () => {
+  test('a caret inside it goes to the nearer edge of its shown label; a range takes it whole', () => {
     const moved = (from: number, to: number, toEnd = to) => {
       const f = fixture(draft, from);
       f.move(to, toEnd);
       return f.selections.map(args => args.slice(1, 3));
     };
     expect(moved(0, start + 2)).toEqual([[start, start]]);
-    expect(moved(0, end - 2)).toEqual([[end, end]]);
-    expect(moved(end, end - 1)).toEqual([[start, start]]);
-    expect(moved(start, start + 1)).toEqual([[end, end]]);
-    expect(moved(0, 1, start + 2)).toEqual([[1, start]]);
+    expect(moved(0, shownEnd - 2)).toEqual([[end, end]]);
+    expect(moved(end, end - 2)).toEqual([[end, end]]);
+    expect(moved(start, start + 1)).toEqual([[start, start]]);
+    expect(moved(0, 1, start + 2)).toEqual([[1, end]]);
     expect(moved(end, start + 2, end)).toEqual([[start, end]]);
     expect(moved(0, end)).toEqual([]);
     expect(moved(0, 2)).toEqual([]);
+  });
+  test('an unmodified ← or → at its edge steps over it; ⇧, ⌥ and ↑/↓ stay the field\'s own', () => {
+    const step = (k: string, caret: number, held = {}) => {
+      const f = fixture(draft, caret);
+      f.call('composerGrammarKey', key(k, held));
+      return [f.suppressed, f.selections.map(args => args.slice(1, 3))];
+    };
+    expect(step('ArrowLeft', end)).toEqual([1, [[start, start]]]);
+    expect(step('ArrowRight', start)).toEqual([1, [[end, end]]]);
+    for (const [k, caret, held] of [['ArrowLeft', end, {shiftKey: true}], ['ArrowLeft', end, {altKey: true}], ['ArrowRight', end, {}], ['ArrowLeft', start, {}], ['ArrowUp', end, {}]] as const) {
+      expect(step(k, caret, held)).toEqual([0, []]);
+    }
   });
 });

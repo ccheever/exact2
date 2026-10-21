@@ -3,7 +3,8 @@ import { codeAt, composerLines, composerMarkdown, emptyFenceAt, parseOpeningFenc
 import { composerBlockInputRule } from './composer-input-rules';
 import { applyComposerEdit, composerCodeInput, composerMarkdownKey, type ComposerEdit, type ComposerKey, type ComposerKeyResult } from './composer-markdown-edit';
 import type { ComposerRange } from './composer-markdown';
-import { composerChipDeletion, composerChips, composerChipsInBlocks, outsideComposerChips, reconcileComposerChips, type ComposerChip } from './composer-source-chips';
+import { composerCharacterDeletion, composerChipDeletion, composerChipWordDeletion, composerChips, composerChipsInBlocks, composerWordDeletion, outsideComposerChips, reconcileComposerChips, type ComposerChip } from './composer-source-chips';
+import type { ComposerBlock } from './composer-markdown';
 
 type FenceOrigins = Map<number, string>;
 type SourceOrigins = { chips: readonly ComposerChip[]; blocks: readonly ComposerBlockOrigin[]; fences: ReadonlyMap<number, string> };
@@ -90,8 +91,8 @@ export class ComposerSourceSession {
   input(owner: string, value: string, selection: ComposerRange, text: string, paste = false): ComposerSessionResult {
     if (!this.matches(owner, value)) return { kind: 'stale' };
     const blocks = composerMarkdown(value, { styling: this.mode === 'rich', blockOrigins: this.currentBlocks }).blocks;
-    // Text typed or pasted inside a reference goes after it.
-    selection = outsideComposerChips(selection, this.sourceChips(value));
+    // Text typed, pasted or dropped inside a reference goes after it.
+    selection = outsideComposerChips(selection, this.sourceChips(value, blocks));
     const code = codeAt(blocks, selection) ?? emptyFenceAt(blocks, selection);
     const outcome = composerCodeInput(value, selection, text, blocks);
     if (outcome.kind === 'edit') {
@@ -105,19 +106,26 @@ export class ComposerSourceSession {
 
   key(owner: string, value: string, selection: ComposerRange, key: ComposerKey): ComposerSessionResult {
     if (!this.matches(owner, value)) return { kind: 'stale' };
-    const deletion = key.name === 'Backspace' || key.name === 'Delete' ? composerChipDeletion(selection, this.sourceChips(value), key.name === 'Backspace') : null;
-    if (deletion) {
-      const next = applyComposerEdit(value, deletion);
-      this.pending = { value: next, origins: this.after(deletion), blocks: this.blocksAfter(deletion, next, true) };
-      return { kind: 'edit', edit: deletion };
+    const parsed = composerMarkdown(value, { styling: this.mode === 'rich', blockOrigins: this.currentBlocks }).blocks;
+    // Backspace and Delete (`Word…`: with Option) reach here at a reference. One that was
+    // admitted at a reference and waited while an earlier edit removed it deletes as the field
+    // would have, so a queued second press is never lost.
+    const deletes = /^(Word)?(Backspace|Delete)$/.exec(key.name);
+    if (deletes) {
+      const word = deletes[1] !== undefined, backward = deletes[2] === 'Backspace', chips = this.sourceChips(value, parsed);
+      const chip = word ? composerChipWordDeletion(value, selection, chips, backward) : composerChipDeletion(selection, chips, backward);
+      if (chip) return this.deleted(value, chip);
+      if (word) return this.deleted(value, composerWordDeletion(value, selection, backward));
+      if (this.mode !== 'rich') return this.deleted(value, composerCharacterDeletion(value, selection, backward));
     }
     if (this.mode !== 'rich') {
       if (key.name !== 'Enter') return { kind: 'default' };
       if (key.command || !key.shift) return { kind: 'send' };
       return this.input(owner, value, selection, '\n');
     }
-    const blocks = composerMarkdown(value, { blockOrigins: this.currentBlocks }).blocks, code = codeAt(blocks, selection) ?? emptyFenceAt(blocks, selection);
+    const blocks = parsed, code = codeAt(blocks, selection) ?? emptyFenceAt(blocks, selection);
     const outcome = composerMarkdownKey(value, selection, key, code ? this.origins.get(code.start) : undefined, this.currentBlocks);
+    if (outcome.kind === 'default' && deletes) return this.deleted(value, composerCharacterDeletion(value, selection, deletes[2] === 'Backspace'));
     if (outcome.kind === 'edit') {
       const next = applyComposerEdit(value, outcome.edit), origins = this.after(outcome.edit);
       if (code && composerMarkdown(next).blocks.some(block => block.kind === 'code' && block.start === code.start)) {
@@ -135,9 +143,16 @@ export class ComposerSourceSession {
   }
 
   /** The references the projection draws: none in code or a rule. */
-  private sourceChips(value: string): ComposerChip[] {
-    if (this.mode === 'literal') return [];
-    return composerChipsInBlocks(value, composerMarkdown(value, { styling: this.mode === 'rich', blockOrigins: this.currentBlocks }).blocks, this.currentChips);
+  private sourceChips(value: string, blocks: readonly ComposerBlock[]): ComposerChip[] {
+    return this.mode === 'literal' ? [] : composerChipsInBlocks(value, blocks, this.currentChips);
+  }
+
+  /** A deletion as one guarded edit; `handled` when there is nothing to delete. */
+  private deleted(value: string, edit: ComposerEdit | null): ComposerSessionResult {
+    if (!edit) return { kind: 'handled' };
+    const next = applyComposerEdit(value, edit);
+    this.pending = { value: next, origins: this.after(edit), blocks: this.blocksAfter(edit, next, true) };
+    return { kind: 'edit', edit };
   }
 
   private after(edit: ComposerEdit): FenceOrigins {

@@ -1,8 +1,10 @@
 import { describe, expect, test } from 'bun:test';
-import { cancelFreshCitation, composerChipDeletion, composerChips, composerChipsInBlocks, composerTrigger, insertCitation, moveFreshCitation, outsideComposerChips, reconcileComposerChips } from '../../src/composer/composer-source-chips';
+import { cancelFreshCitation, composerCharacterDeletion, composerChipDeletion, composerChipWordDeletion, composerChips, composerWordDeletion, composerChipsInBlocks, composerTrigger, insertCitation, moveFreshCitation, outsideComposerChips, reconcileComposerChips } from '../../src/composer/composer-source-chips';
 import { ComposerSourceSession } from '../../src/composer/composer-source-session';
 import { citationsToPlainText, expandCitations } from '../../src/composer/composer-editor-menu';
 import { citationOfLink } from '../../src/timeline/citation-comment';
+import { stashSnippet } from '../../src/composer/composer-editor-stash';
+import { messageChips, shouldCollapseUserMessage } from '../../src/timeline/message-chips';
 import { applyComposerEdit } from '../../src/composer/composer-markdown-edit';
 import { composerMarkdown } from '../../src/composer/composer-markdown';
 
@@ -128,6 +130,30 @@ describe('a composer reference is one unit (the reference\'s atom chips)', () =>
       expect(expandCitations(`a ${source}`)).toStartWith('a [assistant-quote-1]');
     }
     expect(composerChips(`[Assistant quote](https://example.com) `)).toEqual([]);
+    expect(messageChips({ text: `a [x](${href})` }, '', []).map(chip => [chip.kind, chip.label])).toEqual([['citation', 'the quote']]);
+    expect(shouldCollapseUserMessage(`[x](${href})`)).toBe(false);
+  });
+  test('an unclosed [ before a citation stays text everywhere a citation is read', () => {
+    const prompt = `use arr[i for ${citation} please`, at = prompt.indexOf('[Assistant');
+    expect(composerChips(prompt)).toMatchObject([{ kind: 'citation', start: at, end: at + citation.length }]);
+    expect(expandCitations(prompt)).toStartWith('use arr[i for [assistant-quote-1] please');
+    expect(citationsToPlainText(prompt)).toBe('use arr[i for the quote please');
+    expect(stashSnippet(prompt)).toBe('use arr[i for the quote please');
+    expect(citationOfLink(`[i ${citation}`)).toBeNull();
+    const edit = composerChipDeletion({ start: at + citation.length, end: at + citation.length }, composerChips(prompt), true);
+    expect(edit && applyComposerEdit(prompt, edit)).toBe('use arr[i for  please');
+    expect(messageChips({ text: prompt }, '', []).map(chip => chip.kind)).toEqual(['citation']);
+  });
+  test('word deletion takes a reference and the spaces before it; with none, a word or a character', () => {
+    const value = `a ${citation}  b`, chips = composerChips(value), end = 2 + citation.length;
+    expect(composerChipWordDeletion(value, { start: end + 2, end: end + 2 }, chips, true)).toMatchObject({ start: 2, end: end + 2 });
+    expect(composerChipWordDeletion(value, { start: 1, end: 1 }, chips, false)).toMatchObject({ start: 1, end });
+    expect(composerChipWordDeletion(value, { start: value.length, end: value.length }, chips, true)).toBeNull();
+    expect(composerWordDeletion('foo bar ', { start: 8, end: 8 }, true)).toMatchObject({ start: 4, end: 8 });
+    expect(composerWordDeletion('foo bar', { start: 0, end: 0 }, false)).toMatchObject({ start: 0, end: 3 });
+    expect(composerCharacterDeletion('a👍🏽', { start: 5, end: 5 }, true)).toMatchObject({ start: 1, end: 5 });
+    expect(composerCharacterDeletion('ab', { start: 0, end: 0 }, true)).toBeNull();
+    expect(composerCharacterDeletion('abc', { start: 1, end: 2 }, false)).toMatchObject({ start: 1, end: 2 });
   });
   test('Backspace and Delete remove a whole reference at its edge or inside it; a range is widened over the ones it cuts', () => {
     const value = `a ${citation} [x.ts](src/x.ts) b`, chips = composerChips(value);
@@ -157,6 +183,8 @@ describe('a composer reference is one unit (the reference\'s atom chips)', () =>
     expect(session.chips).toEqual([]);
     session.observe('one', value, 'historyUndo');
     expect(session.chips).toMatchObject([{ kind: 'citation', start: 4, end: 4 + citation.length }]);
+    const queued = session.key('one', value, { start: 4, end: 4 }, { name: 'Backspace', shift: false, command: false });
+    expect(queued.kind === 'edit' && queued.edit).toMatchObject({ start: 3, end: 4, text: '' });
     const typed = session.input('one', value, { start: 9, end: 9 }, 'x');
     expect(typed.kind === 'edit' && typed.edit).toMatchObject({ start: 4 + citation.length, end: 4 + citation.length, text: 'x' });
   });

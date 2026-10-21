@@ -2,6 +2,7 @@
 // composerMenuItems): which rows a trigger offers and in what order. Pure, so
 // the ranking, labels and empty states are tested without the native editor.
 import { arr, obj, str, type Obj } from '../client/domain';
+import { COMPOSER_CITATION } from './composer-source-chips';
 
 export type EditorTrigger = { kind: string; query: string; start: number; end: number };
 
@@ -282,8 +283,7 @@ export function promptLengthMessage(prompt: string): string {
   if (excess <= 0) return '';
   return `Prompt is ${excess.toLocaleString('en-US')} ${excess === 1 ? 'character' : 'characters'} over the ${PROMPT_LIMIT.toLocaleString('en-US')}-character limit. Shorten or split it before sending.`;
 }
-// A citation with any label, as the composer reads one (composer-source-chips.ts COMPOSER_CITATION).
-const CITATION = /\[[^\]\n]{0,512}\]\((t3-citation:\/\/v1\/[^\s)]+)\)/g;
+const CITATION = COMPOSER_CITATION;
 function parseCitation(href: string): Obj | null {
   try {
     const url = new URL(href);

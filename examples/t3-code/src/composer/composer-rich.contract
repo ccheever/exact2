@@ -28,13 +28,20 @@ shape ComposerSourceChip
   face: ComposerChipFace
 
 // The reference's chips are atoms (ComposerPromptEditorTiptap: atom, contentEditable={false}); here
-// they are source text, so the selection keeps out of them. A selection end strictly inside a
-// reference goes to its nearer edge, or across it when it moved from one of its edges (an arrow key).
-fn composerChipEdge(chips: ComposerSourceChip[], at: number, from: number): number = at + sum(chips.filter((c) => at > c.start and at < c.end).map((c) => (from == c.end ? c.start : from == c.start ? c.end : at - c.start <= c.end - at ? c.start : c.end) - at))
+// they are source text, so the selection keeps out of them. A caret inside a reference goes to the
+// nearer edge of what shows of it (a link's `[` and label: the editor hides `](…)`, LLP 1045 D5);
+// a range's ends go outward, so a selection takes a reference whole.
+fn composerChipShownEnd(c: ComposerSourceChip): number = c.source.indexOf("](") >= 0 ? c.start + c.source.indexOf("](") : c.end
+fn composerChipEdge(chips: ComposerSourceChip[], at: number, side: number): number = at + sum(chips.filter((c) => at > c.start and at < c.end).map((c) => (side < 0 ? c.start : side > 0 ? c.end : at - c.start <= composerChipShownEnd(c) - at ? c.start : c.end) - at))
 // Whether either end of a selection falls strictly inside a reference.
 fn composerChipInside(chips: ComposerSourceChip[], start: number, end: number): bool = chips.filter((c) => (start > c.start and start < c.end) or (end > c.start and end < c.end)).length > 0
 // Whether Backspace (`back`) or Delete removes a reference whole: at its edge or inside it (composer-source-chips.ts composerChipDeletion).
 fn composerChipDeletes(chips: ComposerSourceChip[], start: number, end: number, back: bool): bool = composerChipInside(chips, start, end) or (start == end and chips.filter((c) => back ? start == c.end : start == c.start).length > 0)
+// Whether word deletion reaches a reference: beside the caret or past spaces (composerChipWordDeletion).
+fn composerChipWordDeletes(chips: ComposerSourceChip[], text: string, start: number, end: number, back: bool): bool = composerChipDeletes(chips, start, end, back) or (start == end and chips.filter((c) => back ? c.end <= start and text.slice(c.end, start).trim() == "" and not text.slice(c.end, start).includes("\n") : c.start >= start and text.slice(start, c.start).trim() == "" and not text.slice(start, c.start).includes("\n")).length > 0)
+// The reference an unmodified Left (`back`) or Right steps over from its edge, as ComposerPromptEditorTiptap's
+// handleKeyDown moves past an adjacent chip: the caret's place after the step, or -1.
+fn composerChipStep(chips: ComposerSourceChip[], at: number, back: bool): number = sum(chips.filter((c) => back ? at == c.end : at == c.start).map((c) => (back ? c.start : c.end) + 1)) - 1
 
 shape ComposerChipFace
   kind: string
