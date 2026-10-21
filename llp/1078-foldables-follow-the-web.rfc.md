@@ -414,8 +414,8 @@ document's names exactly; the integrator checks them against the core lane.
   nothing on the band. A web leg (2026-10-20) drives duo-lab under the agent's default
   chrome, flat and partially folded both ways: the Fold screen's panes and the note sheet
   end where the routes do, above the tablist, the sheet on the lower segment until it
-  rides on the keyboard. Its taps are the agent's: under that chrome a finger misses the
-  tabs on iOS (QUEUE).
+  rides on the keyboard. Its taps are the agent's: under that chrome a real touch on the
+  tablist, which stands in for UIKit's tab bar, is refused (LLP 1080.000 D7).
   When the open pose does not report the recorded 951×669 inner panel, the panel sizes
   and the segments are checked against what the device reports (see below); the panes
   are checked against the two rects `layout.env` reports, whichever axis the device
