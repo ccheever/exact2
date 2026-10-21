@@ -3,7 +3,7 @@ import { effectiveWorktreeRules, arr, obj, str, num, applyShell, initialShell, t
 import type { Native } from '../client/protocol';
 import { projectIdentity } from '../client/presentation';
 import { liveEnvironments, watchStorageReports, watchDatabaseStorage } from '../client/live-streams';
-import { databaseNotice, cleanupHasRules, cleanupPermitted } from './storage-maintenance';
+import { cleanupEntries, cleanupHasRules, cleanupPermitted, databaseCompactionNotices, formatBytes, type CleanupEntry, type DatabaseNotice } from './storage-maintenance';
 import { shellPrefs } from '../shell/shell-prefs';
 import { resolveScope, serverContext, scopeTarget } from './settings-core';
 import { environmentClient, groupOfMember } from './projects-fleet';
@@ -118,7 +118,7 @@ export async function archivedSettings(client: T3Client, native: Native | null |
   } catch (error) { return { ...empty, error: errorMessage(error) }; }
 }
 
-const bytes = (value: unknown) => { const n = num(value); return n < 1024 ? `${n} B` : n < 1048576 ? `${(n / 1024).toFixed(1)} KB` : `${(n / 1048576).toFixed(1)} MB`; };
+const bytes = (value: unknown) => formatBytes(num(value));
 const duration = (value: unknown) => num(value) < 1000 ? `${Math.round(num(value))} ms` : `${(num(value) / 1000).toFixed(2)} s`;
 const row = (id: string, label: string, value: string, detail = '', copy = '') => ({ id, label, value, detail, copy });
 
@@ -164,8 +164,8 @@ export function lastRunSummary(entries: readonly { label: string; counts: string
 }
 export async function storageSettings(client: T3Client, native: Native | null | undefined, environmentId: string, projectId: string, active: boolean, machine: string | undefined = undefined, projectKey = '', checkout = '', now = 0) {
   const modeLabels: Record<string, string> = { inherit: 'Inherit', off: 'Off', custom: 'Custom' };
-  const empty = { writeScope: `${machine ?? environmentId}|${projectKey}|${checkout}`, cleanupAvailable: false, cleanupDisabled: true, cleanupDescription: '', databaseNotices: [] as ReturnType<typeof databaseNotice>[], directory: '', directoryMixed: false, directorySupported: false, keepSupported: false, keepValue: '', keepDescription: '', keepOptions: [] as { value: string; label: string; selected: boolean }[],
-    available: false, project: projectId !== '', error: '', notice: '', mode: 'inherit', modeLabel: 'Inherit', modeDescription: '', scope: `${environmentId}:${projectId}`, modes: [] as { value: string; label: string; selected: boolean }[], worktrees: [] as StorageRuleView[], artifacts: [] as StorageRuleView[], cleanupSummary: '', cleanupReports: [] as { id: string; label: string; counts: string; description: string; entries: { id: string; path: string; detail: string; failed: boolean }[]; omitted: string }[] };
+  const empty = { writeScope: `${machine ?? environmentId}|${projectKey}|${checkout}`, cleanupAvailable: false, cleanupDisabled: true, cleanupDescription: '', databaseNotices: [] as DatabaseNotice[], directory: '', directoryMixed: false, directorySupported: false, keepSupported: false, keepValue: '', keepDescription: '', keepOptions: [] as { value: string; label: string; selected: boolean }[],
+    available: false, project: projectId !== '', error: '', notice: '', mode: 'inherit', modeLabel: 'Inherit', modeDescription: '', scope: `${environmentId}:${projectId}`, modes: [] as { value: string; label: string; selected: boolean }[], worktrees: [] as StorageRuleView[], artifacts: [] as StorageRuleView[], cleanupSummary: '', cleanupReports: [] as { id: string; label: string; counts: string; entries: CleanupEntry[]; omitted: string; empty: string }[] };
 
 
   if (!active) return empty;
@@ -199,13 +199,13 @@ export async function storageSettings(client: T3Client, native: Native | null | 
       const report = environment.cleanup.value?.[0];
       if (!report) return [];
       const counts = obj(report.counts), selected = scope.environments.find(selected => selected.environmentId === environment.environmentId);
-      return [{ id: environment.environmentId, label: selected ? settingsScopeEnvironmentLabel(selected, scope.environments) : environment.label,
-        counts: `${num(counts.removed)} removed, ${num(counts.kept)} kept${num(counts.failed) > 0 ? `, ${num(counts.failed)} failed` : ''}`,
-        description: `Last run ${relativeTimeLabel(str(report.finishedAt), now)}. ${bytes(report.bytesFreed)} recovered.`,
-        entries: arr(report.entries).map((entry, index) => ({ id: String(index), path: entry.kind === 'worktree' ? (entry.threadId == null ? str(entry.path) : str(entry.path).replace(/\\/g, '/').split('/').pop() || str(entry.threadTitle)) : entry.kind === 'logs' ? 'Rotated logs' : 'Browser artifacts', detail: `${str(entry.outcome)} · ${str(entry.reason)}${entry.threadTitle ? ` · ${entry.threadTitle}` : ''}${typeof entry.bytes === 'number' ? ` · ${bytes(entry.bytes)}` : ''}${typeof entry.files === 'number' ? ` · ${entry.files} files` : ''}`, failed: entry.outcome === 'failed' })), omitted: num(report.omittedCount) > 0 ? `${num(report.omittedCount)} more results omitted.` : '' }];
+      const label = selected ? settingsScopeEnvironmentLabel(selected, scope.environments) : environment.label;
+      return [{ id: environment.environmentId, label, counts: `${num(counts.removed)} removed, ${num(counts.kept)} kept${num(counts.failed) > 0 ? `, ${num(counts.failed)} failed` : ''}`,
+        ...cleanupEntries(report, label) }];
     });
     const showRules = !project || mode === 'custom';
-    const databaseNotices = project ? [] : selected.map(environment => databaseNotice(environment.database.value?.[0], environment.environmentId, environment.label, shellPrefs(client).databaseStorageDismissals)).filter(notice => notice.show);
+    const databaseNotices = project ? [] : databaseCompactionNotices(selected.filter(environment => obj(obj(environment.config.environment).capabilities).databaseStorage === true)
+      .map(environment => ({ environmentId: environment.environmentId, label: environment.label, status: environment.database.value?.[0] })), shellPrefs(client).databaseStorageDismissals);
     const writable = environments.filter(environment => cleanupPermitted(client, environment));
     const hasRules = environments.some(environment => cleanupHasRules(obj(environment.config.settings)));
     const directoryMixed = context.targets.some(target => str(target.settings.worktreesDirectory) !== str(settings.worktreesDirectory));

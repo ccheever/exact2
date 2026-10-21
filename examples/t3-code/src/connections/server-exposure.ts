@@ -1,15 +1,15 @@
 // Network access for the embedded server, after T3
-// Code (MIT, see LICENSE-T3; reference 1e2ecbd975): apps/desktop/src/backend/DesktopServerExposure.ts.
-// Local-only binds 127.0.0.1; network access binds 0.0.0.0 and advertises the first usable LAN IPv4
-// (or an explicit host). A network request with neither a LAN nor a Tailscale IPv4 is unavailable:
+// Code (MIT, see LICENSE-T3; reference 74541bab17): apps/desktop/src/backend/DesktopServerExposure.ts.
+// Local-only binds 127.0.0.1; network access binds 0.0.0.0 and advertises a usable LAN IPv4, preferring
+// one off a host-only bridge or tunnel (or an explicit host). A network request with neither a LAN nor a Tailscale IPv4 is unavailable:
 // `setMode` refuses it, and at launch it falls back to local-only without losing the preference.
 // The settings are desktop-settings.json's `serverExposureMode`, `tailscaleServeEnabled` and
 // `tailscaleServePort` (the original app's file; the native side reads and writes it,
-// T3DesktopSettings.swift). Facts come from the native module (interfaces, the MagicDNS name, the
+// T3DesktopSettings.swift). Facts come from the native module (interfaces, the `tailscale status`, the
 // HTTPS probe); connections-network.ts returns the relaunch decision to Contract.
 import { createAdvertisedEndpoint, type AdvertisedEndpoint, type AdvertisedEndpointProvider, type CreateAdvertisedEndpointInput } from './advertised-endpoint';
 import { letGo } from '../client/let-go';
-import { DEFAULT_TAILSCALE_SERVE_PORT, isTailscaleIpv4Address, resolveTailscaleAdvertisedEndpoints, type NetworkInterfaces } from './tailscale';
+import { DEFAULT_TAILSCALE_SERVE_PORT, isTailscaleIpv4Address, resolveTailscaleAdvertisedEndpoints, type NetworkInterfaces, type TailscaleStatus } from './tailscale';
 
 export type DesktopServerExposureMode = 'local-only' | 'network-accessible';
 export interface DesktopServerExposureState {
@@ -30,20 +30,25 @@ const DESKTOP_MANUAL_ENDPOINT_PROVIDER: AdvertisedEndpointProvider = { id: 'manu
 
 const normalizeOptionalHost = (value: string | undefined): string | undefined => { const normalized = value?.trim(); return normalized && normalized.length > 0 ? normalized : undefined; };
 const isUsableLanIpv4Address = (address: string): boolean => !address.startsWith('127.') && !address.startsWith('169.254.') && !isTailscaleIpv4Address(address);
+/**
+ * Bridges, tunnels and VM adapters whose private address other devices on the LAN usually cannot reach: macOS's
+ * Thunderbolt Bridge (`bridge0`, which can keep a manual address while nothing is plugged in) and Internet Sharing
+ * bridges, VPN tunnels, and container or VM networks. Their addresses are advertised only when no other interface has
+ * one. Host bridges such as `br0`, Proxmox's `vmbr0` and Hyper-V's `vEthernet` often carry the LAN address, so they
+ * are not listed.
+ */
+const HOST_ONLY_INTERFACE = /^(bridge\d|utun|ipsec|ppp|tun|tap|wg|docker|br-|veth|virbr|vmnet|vboxnet|VirtualBox|VMware)/;
 const isHttpsEndpointUrl = (value: string): boolean => { try { return new URL(value).protocol === 'https:'; } catch { return false; } };
 
-/** resolveLanAdvertisedHost: an explicit host wins, else the first non-internal IPv4 that is not loopback, link-local or Tailscale. */
+/** resolveLanAdvertisedHost: an explicit host wins, else a non-internal IPv4 that is not loopback, link-local or Tailscale, off a host-only interface when one exists. */
 export function resolveLanAdvertisedHost(networkInterfaces: NetworkInterfaces, explicitHost: string | undefined): string | null {
   const normalizedExplicitHost = normalizeOptionalHost(explicitHost);
   if (normalizedExplicitHost) return normalizedExplicitHost;
-  for (const interfaceAddresses of Object.values(networkInterfaces)) {
-    if (!interfaceAddresses) continue;
-    for (const address of interfaceAddresses) {
-      if (address.internal || address.family !== 'IPv4' || !isUsableLanIpv4Address(address.address)) continue;
-      return address.address;
-    }
-  }
-  return null;
+  const lanAddresses = Object.entries(networkInterfaces).flatMap(([name, addresses]) => (addresses ?? [])
+    .filter(address => !address.internal && address.family === 'IPv4' && isUsableLanIpv4Address(address.address))
+    .map(address => ({ name, address: address.address })));
+  const preferred = lanAddresses.find(({ name }) => !HOST_ONLY_INTERFACE.test(name)) ?? lanAddresses[0];
+  return preferred?.address ?? null;
 }
 
 export function resolveDesktopServerExposure(input: { mode: DesktopServerExposureMode; port: number; networkInterfaces: NetworkInterfaces; advertisedHostOverride?: string }): ResolvedDesktopServerExposure {
@@ -165,8 +170,8 @@ export interface DesktopServerExposureDeps {
   settings: ExposureSettingsStore;
   /** DesktopNetworkInterfaces.read. */
   readNetworkInterfaces: () => Promise<NetworkInterfaces>;
-  /** The cached `tailscale status` MagicDNS name (null when none or the CLI failed). */
-  readMagicDnsName: () => Promise<string | null>;
+  /** The cached `tailscale status`, keyed by the interfaces' Tailscale IPv4 addresses (null when the CLI failed). */
+  readStatus: () => Promise<TailscaleStatus | null>;
   /** probeTailscaleHttpsEndpoint. */
   probe: (baseUrl: string) => Promise<boolean>;
   /** DesktopConfig: T3CODE_DESKTOP_LAN_HOST and T3CODE_DESKTOP_HTTPS_ENDPOINTS. */
@@ -221,7 +226,7 @@ export class DesktopServerExposure {
     const coreEndpoints = resolveDesktopCoreAdvertisedEndpoints({ port: state.port, exposure: toResolvedExposure(state), customHttpsEndpointUrls: this.deps.config?.desktopHttpsEndpointUrls ?? [] });
     if (state.mode !== 'network-accessible' && !state.tailscaleServeEnabled) return coreEndpoints;
     const tailscaleEndpoints = await resolveTailscaleAdvertisedEndpoints({ port: state.port, serveEnabled: state.tailscaleServeEnabled, servePort: state.tailscaleServePort,
-      networkInterfaces, readMagicDnsName: this.deps.readMagicDnsName, probe: this.deps.probe });
+      networkInterfaces, readStatus: this.deps.readStatus, probe: this.deps.probe });
     return [...coreEndpoints, ...tailscaleEndpoints];
   }
 }
