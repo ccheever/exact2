@@ -1082,6 +1082,8 @@ const TOPICS = {
   'dark mode': 'Recipe: theme: colours, light and dark, icons',
   font: 'Recipe: app.json, assets and modules', image: 'Recipe: app.json, assets and modules',
   deploy: 'Recipe: porting an app, a release build, splitting the work',
+  accessibility: 'Native views: accessibility', strings: 'Recipe: app.json, assets and modules',
+  list: 'Recipe: list rows: search, swipe, filter and long-press', midi: 'MIDI: `exactMIDI`, `sendMIDI`, `midimessage`',
 };
 
 const STOP = new Set(['a', 'an', 'and', 'by', 'for', 'in', 'it', 'its', 'of', 'on', 'or', 'the', 'to', 'you']);
