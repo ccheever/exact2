@@ -5,6 +5,7 @@
 // file beside the drafts. SnapShot images stay with their draft (the stash
 // carries prompt text and context links only).
 import { arr, obj, str, type Obj } from '../client/domain';
+import { COMPOSER_CITATION } from './composer-source-chips';
 
 export const MAX_STASH_ENTRIES = 20;
 export type StashEntry = { id: string; createdAt: string; prompt: string; environmentId: string };
@@ -21,7 +22,7 @@ export function adoptStash(next: object, saved: Obj): void {
     .slice(0, MAX_STASH_ENTRIES).map(entry => ({ id: str(entry.id), createdAt: str(entry.createdAt), prompt: str(entry.prompt), environmentId: str(entry.environmentId) })));
 }
 
-const CITATION = /\[Assistant quote\]\((t3-citation:\/\/v1\/[^\s)]+)\)/g;
+const CITATION = COMPOSER_CITATION;
 /** stashEntrySnippet: one line, citations as their quote, 90 characters. */
 export function stashSnippet(prompt: string): string {
   const plain = prompt.replace(CITATION, (source, href: string) => {
