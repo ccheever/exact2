@@ -9,6 +9,9 @@ test('bundle identity and actual manifest decode without any server or storage o
  calls.length=0;await mobileInformationPrepare('settingsAbout',native());const data=mobileInformationSnapshot();
  expect(data.version).toBe('2.3.4');expect(data.build).toBe('42');expect(data.licensesReady).toBe(true);expect(data.licenses.length).toBe(manifest.entries.length);
  expect(data.licenses.find(row=>row.name==='@pierre/diffs')).toMatchObject({accessibilityLabel:'@pierre/diffs, Apache-2.0',metadata:'1.5.2 · Apache-2.0'});
+ const theme=data.licenses.find(row=>row.name==='@pierre/theme')!;expect(theme).toMatchObject({accessibilityLabel:'@pierre/theme, apache-2.0',metadata:'2.0.0 · apache-2.0'});
+ expect(mobileInformationSnapshot('',theme.id).detail).toMatchObject({sourceURL:'https://github.com/pierrecomputer/pierre/tree/main/packages/theme'});
+ expect(mobileInformationSnapshot('',theme.id).detail.notice).toContain('NOTICE.md\n\nThis theme was built on top of');
  expect(data.licenses.find(row=>row.name==='DM Sans')).toMatchObject({accessibilityLabel:'DM Sans, OFL-1.1',metadata:'OFL-1.1'});
  expect(calls.map(call=>obj(call).op)).toEqual(['mobileInformation']);expect(data.coverage).toContain('have not been verified');
 });
