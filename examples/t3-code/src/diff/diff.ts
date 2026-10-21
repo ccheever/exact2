@@ -167,6 +167,8 @@ export function diffRequest(client: T3Client): { method: string; payload: Obj; s
 export function adoptDiff(client: T3Client, request: { scope: string; source: string }, result: Obj): string {
   const state = client.diffState;
   state.scopeKey = request.scope;
+  // Opened file contents are read again for a scope that shows later; only the shown scope's are kept.
+  for (const key of Object.keys(state.contents)) if (!key.includes(`::${request.scope}::`)) delete state.contents[key];
   if (!request.source) { state.truncated = false; state.source = null; state.lazy = null; return str(result.diff); }
   const source = arr(result.sources).find(entry => entry.kind === request.source);
   state.truncated = source?.truncated === true;

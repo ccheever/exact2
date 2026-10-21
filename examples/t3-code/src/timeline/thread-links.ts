@@ -3,6 +3,7 @@ import { str, type Obj } from '../client/domain';
 import { obj, threadSnapshot } from '../client/domain';
 import type { T3Client } from '../client/client';
 import type { Native } from '../client/protocol';
+import { holdThreadDiff, reopenThreadDiff } from '../panel/panel-surfaces';
 
 const PREFIX = 't3-thread://v1/';
 const validId = (id: string) => id.trim().length > 0;
@@ -34,8 +35,10 @@ export async function openThreadLink(client: T3Client, native: Native, id: strin
   const snapshot = threadSnapshot(await client.restAccess(native).http(`/api/orchestration/threads/${encodeURIComponent(id)}/bounded`));
   client.projectId = str(obj(snapshot.projection.thread).projectId, client.projectId);
   client.threadId = id; client.absentThreadId = ''; client.thread = snapshot; client.diffOpen = false; client.answers = {};
+  const diffHeld = holdThreadDiff(client);
   await client.openThread(native, id, true);
   client.ensureSelection();
+  await reopenThreadDiff(client, native, diffHeld);
 }
 /** Question answers have no context-record field: project each thread chip to its actual id. */
 export function projectPendingUserInputAnswer(answer: string | string[], records: Obj[]): string | string[] {

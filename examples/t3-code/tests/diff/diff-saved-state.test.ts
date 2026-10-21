@@ -125,9 +125,47 @@ describe('the Diff keeps its review across right-panel tabs', () => {
   });
 });
 
+describe('returning to a thread', () => {
+  test('a thread whose Diff was showing shows it again, on Changes; a thread without one stays closed', async () => {
+    const { client, command, panel } = harness();
+    client.shell.threads = [{ id: 't1', projectId: 'p1', title: 'One' }, { id: 't2', projectId: 'p1', title: 'Two' }] as Obj[];
+    const native: Native = { available: true, watch() {}, async later(input) {
+      const request = obj(input);
+      if (request.method === 'review.getDiffPreview') return { ok: true, generation: 1, value: { cwd: '/repo', sources: [{ kind: 'branch-range', diff: branchPatch, truncated: false }] } };
+      return { ok: true, generation: 1, value: {} };
+    } };
+    // The thread's detail and stream are not under test: each thread shows the same projection.
+    const projection = client.thread;
+    client.openThread = async () => { client.thread = projection; };
+    await panel('open', 'diff');
+    await command('diff-scope', '', 'unstaged');
+    await client.openSelected(native, 't2');
+    expect(client.diffOpen).toBe(false);
+    expect(panelState(client).visible).toBe(false);
+    await client.openSelected(native, 't1');
+    expect(panelState(client)).toMatchObject({ active: 'diff', visible: true });
+    expect(snapshot(client)).toMatchObject({ diffOpen: true, diffScopeLabel: 'Changes', diffPending: false });
+    expect(snapshot(client).diffFiles.map((file: Obj) => file.path)).toEqual(['a.ts', 'b.ts']);
+  });
+
+  test('a reply for a scope chosen away from meanwhile does not replace the newer one', async () => {
+    const { client, command, panel, hold, finish } = harness();
+    await panel('open', 'diff');
+    await panel('open', 'files');
+    hold();
+    const reopening = panel('activate', 'diff');
+    await Promise.resolve(); await Promise.resolve(); await Promise.resolve();
+    await command('diff-scope', '', 'turn:r1');
+    finish();
+    await reopening;
+    expect(snapshot(client)).toMatchObject({ diffScopeLabel: 'Latest turn' });
+    expect(snapshot(client).diffFiles.map((file: Obj) => file.path)).toEqual(['a.ts', 'src/c.ts']);
+  });
+});
+
 describe('a turn diff opened on a file reveals it', () => {
   test('the file opens, the tree selects it with its folders open, and each open asks the list to scroll again', async () => {
-    const { client, command } = harness();
+    const { client, command, panel } = harness();
     await command('diff-view', 'tree');
     await command('turn-diff', 'src/c.ts', 'r1');
     let view = snapshot(client);
@@ -142,9 +180,15 @@ describe('a turn diff opened on a file reveals it', () => {
     view = snapshot(client);
     expect(expanded(client)).toEqual(['src/c.ts']);
     expect(view.diffReveal).toBe(2);
+    // Back from another tab the Diff reveals its named file again, as the reference's remounted panel does.
+    await command('diff-view', 'file', 'src/c.ts');
+    await panel('open', 'files');
+    await panel('activate', 'diff');
+    expect(expanded(client)).toEqual(['src/c.ts']);
+    expect(snapshot(client).diffReveal).toBe(3);
     // The checkpoint's Open diff names no file: nothing is revealed.
     await command('checkpoint-diff', '', '', 1);
-    expect(snapshot(client)).toMatchObject({ diffReveal: 2, diffRevealTarget: '' });
+    expect(snapshot(client)).toMatchObject({ diffReveal: 3, diffRevealTarget: '' });
   });
 });
 
