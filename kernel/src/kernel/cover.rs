@@ -95,10 +95,14 @@ impl Kernel {
         // A box replaced or given back also leaves the chain or joins it.
         // So does a box that comes to be covered, or stops: the walk stops
         // at it (`scroller_insets_bottom`).
+        // And one inset at its top alone, where the walk stops too.
         let edges = |c: Option<HostCover>| matches!(c, Some(HostCover::Edges(_)));
-        let chain = (bottom(before) != bottom(cover)
-            || whole(before) != whole(cover)
-            || edges(before) != edges(cover))
+        let inset = |c: Option<HostCover>| matches!(c, Some(HostCover::Inset(_)));
+        let chain = (self.layout.is_some()
+            && (bottom(before) != bottom(cover)
+                || inset(before) != inset(cover)
+                || whole(before) != whole(cover)
+                || edges(before) != edges(cover)))
         .then(|| covering(&self.arena, slot))
         .flatten();
         let parent = (whole(before) != whole(cover))
@@ -115,15 +119,16 @@ impl Kernel {
         };
         // And an absolutely positioned child is placed past the edges the
         // cover names (`apply`), so its engine style is derived again.
-        let edges = |c: Option<HostCover>| matches!(c, Some(HostCover::Edges(_)));
-        let positioned: Vec<u32> = if edges(before) || edges(cover) {
-            let arena = &self.arena;
-            (arena.children(slot).iter().copied())
-                .filter(|&c| arena.style(c).position_type == crate::PositionType::Absolute)
-                .collect()
+        // A replaced first child's inset is part of its parent's top cover
+        // (`header_inset`), which the parent's absolute children start past.
+        let mut positioned = if edges(before) || edges(cover) {
+            positioned_children(&self.arena, slot)
         } else {
             Vec::new()
         };
+        if let Some(p) = parent {
+            positioned.extend(positioned_children(&self.arena, p));
+        }
         for slot in std::iter::once(slot)
             .chain(parent)
             .chain(chain)
@@ -345,9 +350,14 @@ pub(crate) fn style_changed(
         chain_changed(arena, layout, slot);
     }
     if arena.cover(slot) == Some(HostCover::Whole) {
-        if let Some((p, node)) = arena.parent(slot).and_then(|p| Some((p, arena.taffy(p)?))) {
-            layout.restyle(arena, p, node);
-            layout.mark_dirty(node);
+        if let Some(p) = arena.parent(slot) {
+            // And its absolute children, placed past that cover.
+            for s in std::iter::once(p).chain(positioned_children(arena, p)) {
+                if let Some(node) = arena.taffy(s) {
+                    layout.restyle(arena, s, node);
+                    layout.mark_dirty(node);
+                }
+            }
         }
     }
 }
@@ -356,10 +366,22 @@ pub(crate) fn style_changed(
 /// `display`, `position` or `overflow-y`): the covered box above it is
 /// derived again (`scroller_insets_bottom`).
 pub(crate) fn chain_changed(arena: &NodeArena, layout: &mut dyn LayoutMirror, slot: u32) {
+    if layout.tree_ref().is_none() {
+        return;
+    }
     if let Some((above, node)) = covering(arena, slot).and_then(|a| Some((a, arena.taffy(a)?))) {
         layout.restyle(arena, above, node);
         layout.mark_dirty(node);
     }
+}
+
+/// The absolutely positioned children of `slot`, which `apply` places past
+/// its cover: derived again whenever the cover's points change (a cover
+/// cleared included, so the caller says when).
+pub(crate) fn positioned_children(arena: &NodeArena, slot: u32) -> Vec<u32> {
+    (arena.children(slot).iter().copied())
+        .filter(|&c| arena.style(c).position_type == crate::PositionType::Absolute)
+        .collect()
 }
 
 /// The points a cover adds to the box's padding as layout pads it (`apply`):

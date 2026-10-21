@@ -826,3 +826,94 @@ fn a_footer_attached_late_a_clipping_box_and_the_reported_padding() {
     assert_eq!(frame(&mut kernel, 4).3, 844.0 - 83.0 - 16.0 - 52.0);
     assert_eq!(kernel.cover_bottom(key), 83.0);
 }
+
+/// Round 3 (Astra, Grok): an absolute child at `top: 0` of a route whose top
+/// cover holds its replaced header's inset (`header_inset`) follows that
+/// inset as the header is replaced, its padding changes, and the inset does.
+#[test]
+fn an_absolute_child_follows_the_inset_its_routes_replaced_header_hands_the_bar() {
+    let mut kernel = header_padded();
+    let badge = [
+        Op::CreateView {
+            id: 5,
+            node_type: NodeType::View,
+        },
+        Op::SetStyle {
+            id: 5,
+            patch: Box::new(style(&[
+                (StyleId::PositionType, StyleValue::Text("absolute".into())),
+                (StyleId::Top, StyleValue::Number(0.0)),
+                (StyleId::Left, StyleValue::Number(0.0)),
+                (StyleId::Width, StyleValue::Number(10.0)),
+                (StyleId::Height, StyleValue::Number(10.0)),
+            ])),
+        },
+        Op::SetChildren {
+            id: 2,
+            children: vec![3, 4, 5],
+        },
+    ];
+    kernel.apply(1, 3, &badge).unwrap();
+    kernel
+        .set_host_cover(2, Some(HostCover::Edges([44.0, 0.0, 0.0, 0.0])))
+        .unwrap();
+    assert_eq!(frame(&mut kernel, 5).1, 44.0, "the bar's 44");
+    kernel.set_host_cover(3, Some(HostCover::Whole)).unwrap();
+    assert_eq!(
+        frame(&mut kernel, 5).1,
+        106.0,
+        "and the status bar's 62 the header handed it"
+    );
+    let padding = |kernel: &mut Kernel, batch, value| {
+        let op = Op::SetStyle {
+            id: 3,
+            patch: Box::new(style(&[(StyleId::PaddingTop, value)])),
+        };
+        kernel.apply(1, batch, &[op]).unwrap();
+    };
+    padding(&mut kernel, 4, StyleValue::Number(0.0));
+    assert_eq!(frame(&mut kernel, 5).1, 44.0, "nothing handed over");
+    padding(
+        &mut kernel,
+        5,
+        StyleValue::Text("env(safe-area-inset-top)".into()),
+    );
+    assert_eq!(frame(&mut kernel, 5).1, 106.0);
+    kernel.set_env(Env::new(20.0, 0.0, 0.0, 0.0)).unwrap();
+    assert_eq!(frame(&mut kernel, 5).1, 64.0, "a rotation's new inset");
+    kernel.set_host_cover(3, None).unwrap();
+    assert_eq!(frame(&mut kernel, 5).1, 44.0, "the header given back");
+    // The route's cover cleared (a keyboard ending it above the bars).
+    kernel.set_host_cover(2, None).unwrap();
+    assert_eq!(frame(&mut kernel, 5).1, 0.0, "placed as written");
+}
+
+/// Round 3 (Astra): an inset at its top alone on a box down the chain stops
+/// the walk there; said or cleared, in either order with the scroller's,
+/// the route is derived again.
+#[test]
+fn a_top_only_inset_down_the_chain_said_or_cleared_re_derives_the_route() {
+    for scroller_first in [true, false] {
+        let mut kernel = nested();
+        let top = Some(HostCover::Inset([20.0, 0.0]));
+        let edge = Some(HostCover::Inset([0.0, 83.0]));
+        if scroller_first {
+            kernel.set_host_cover(6, edge).unwrap();
+            kernel.set_host_cover(4, top).unwrap();
+        } else {
+            kernel.set_host_cover(4, top).unwrap();
+            kernel.set_host_cover(6, edge).unwrap();
+        }
+        assert_eq!(
+            frame(&mut kernel, 4).3,
+            709.0,
+            "the walk stops at the column: {scroller_first}"
+        );
+        kernel.set_host_cover(4, None).unwrap();
+        assert_eq!(
+            frame(&mut kernel, 4).3,
+            792.0,
+            "and reaches the scroller: {scroller_first}"
+        );
+    }
+}
