@@ -901,7 +901,10 @@ export function noRegressions(opts) {
   const flakes = added?.length ? flakyOf(added, base, work) : { flaky: [], seen: [], failing: added ?? [], said: [] };
   // Every target this run saw fail that its base doesn't (FLAKY or not),
   // which the next run reads; a finished run with none clears the record.
-  if (finished) writeFileSync(join(work, 'flaky-last.json'), JSON.stringify({ at: new Date().toISOString(), head: run('git', ['rev-parse', 'HEAD']).out.trim(), targets: flakes.seen ?? [] }));
+  // With no base to tell them apart, every failing target counts as seen;
+  // a run whose report didn't read leaves the record as it was.
+  const seen = !mine ? null : base ? flakes.seen : [...new Set(mine.failures.map(f => f.split(' | ')[0]))];
+  if (finished && seen) writeFileSync(join(work, 'flaky-last.json'), JSON.stringify({ at: new Date().toISOString(), head: run('git', ['rev-parse', 'HEAD']).out.trim(), targets: seen }));
   const clean = conform.ok || !!(mine && base && mine.targets > 0 && base.targets > 0 && !flakes.failing.length);
   const evidence = [`conform --synthetic --strict --linux: ${summary}`, ...failed.map(l => `  ${l}`),
     ...(conform.ok ? [] : !base ? ['  its failures are compared with the same run on the branch\'s base (--conform-base <its report.json>), which wasn\'t given'] : !mine ? ['  its report.json was not read'] : [`  against the base's run (${opts.conformBase}, ${base.failures.length} failures over ${base.targets} targets): ${added.length ? `${added.length} the branch adds` : 'every failure the base\'s own'}`, ...flakes.failing.map(f => `    NEW ${f}`), ...mine.failures.filter(f => !added.includes(f)).map(f => `    both: ${f}`), ...flakes.said]),
