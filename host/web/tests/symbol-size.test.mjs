@@ -1,7 +1,8 @@
 // LLP 1011 §3: a symbol drawn for an SF Symbol (a role, or an icon with an
 // `sf` source) is the size UIKit draws that symbol at the same font size, and
 // on a button's face at UIKit's large symbol scale without making the button
-// larger; a tab's symbol keeps the tab bar's and the sidebar's box; an icon of
+// taller beside a title, UIKit's image padding from it (LLP 1069.011.001 D3);
+// a tab's symbol keeps the tab bar's and the sidebar's box; an icon of
 // the app's own draws its viewBox at 1em, as the Apple hosts draw its path; and
 // a page built ahead of time does not move when the symbols are painted. Each
 // runtime's symbol painter (glue.js `refreshSymbols`, symbols.js `refresh`)
@@ -36,16 +37,19 @@ const role = (id, name, css = '') => `<img id="${id}" data-symbol-source="symbol
 const own = (id, name, css = '') => icon(id, '', roles[name], '0 0 24 24', css);
 const title = (text, css = 'font-size:17px') => `<span data-exact-text style="${css}">${text}</span>`;
 const button = (id, inner, css = '', attributes = '') => `<button id="${id}" type="button" data-native data-button-style="bordered" style="display:grid;${css}" ${attributes}>${inner}</button>`;
-const stacked = '--exact-button-leading-areas:&quot;image&quot; &quot;space&quot; &quot;title&quot;;--exact-button-columns:auto';
+// A column, as the host writes one (button_css.rs `rows`).
+const stacked = '--exact-button-leading-areas:&quot;image&quot; &quot;space&quot; &quot;title&quot;;--exact-button-trailing-areas:&quot;title&quot; &quot;space&quot; &quot;image&quot;;--exact-button-columns:minmax(var(--exact-button-title-min,min-content),auto);--exact-button-space:var(--exact-button-row-space);--exact-button-space-width:0px;--exact-button-space-height:var(--exact-button-row-gap,1em);--exact-button-stacked:1;';
 const tab = (id, image) => `<button id="${id}" type="button" role="tab" aria-controls="p-${id}" aria-selected="false" data-native data-button-style="bordered" style="display:grid;flex:1">${image}${title('Home', '')}</button>`;
 // Each button twice: with a symbol for an SF Symbol, and with an icon of the app's own in its place.
 const twins = (id, make) => make(id, role) + make(`${id}-own`, own);
 const content = `<div style="font-size:17px;display:flex;flex-direction:column;align-items:flex-start;gap:16px;padding:16px">
   ${button('lock-button', icon('lock', 'lock.fill') + title('Lock', 'font-size:13px;font-weight:600'))}${button('own-button', icon('own', '') + title('Lock', 'font-size:13px;font-weight:600'))}
   ${twins('titled', (id, image) => button(id, image(`${id}-i`, 'share') + title('Share')))}
-  ${twins('alone', (id, image) => button(id, image(`${id}-i`, 'add')))}
+  ${twins('alone', (id, image) => button(id, image(`${id}-i`, 'add')))}${button('alone-column', role('alone-column-i', 'add'), stacked)}
   ${twins('stacked', (id, image) => button(id, image(`${id}-i`, 'share') + title('Share'), stacked))}
-  ${button('small-button', role('small', 'circle') + title('Defrost', ''), 'font-size:14px')}
+  ${button('small-button', role('small', 'circle') + title('Defrost', ''), 'font-size:14px')}${button('lock-row', role('lock-row-i', 'lock') + title('Lock'))}
+  ${button('tile', icon('tile-i', 'lock.fill') + title('Lock', ''), `font-size:15px;${stacked}`)}${button('tile-under', title('Lock', '') + icon('tile-under-i', 'lock.fill'), `font-size:15px;${stacked}`)}
+  ${button('tile-tight', icon('tile-tight-i', 'lock.fill') + title('Lock', ''), `font-size:15px;height:auto;${stacked}`, 'data-exact-said="height"')}
   ${role('back', 'back', 'font-size:17px;font-weight:600')}${role('book', 'book', 'font-size:20px')}${role('circle', 'circle', 'font-size:20px')}
   ${role('sized', 'circle', 'width:24px;height:24px')}
   ${button('loose', role('loose-i', 'circle') + title('Settings'))}${button('loose-alone', role('loose-alone-i', 'circle'))}
@@ -66,7 +70,7 @@ const RUNTIMES = {
   'host/web-js/symbols.js': ['const All = true, journal = [], clock = { now: 0 }, appSource = () => {};', ['inked', 'refresh'], 'refresh();'],
 };
 
-for (const engine of ['chromium', 'firefox', 'webkit']) for (const [file, [stand, names, run]] of Object.entries(RUNTIMES)) test(`${engine}: a symbol for an SF Symbol is SF's size and a button keeps its size (${file})`, async () => {
+for (const engine of ['chromium', 'firefox', 'webkit']) for (const [file, [stand, names, run]] of Object.entries(RUNTIMES)) test(`${engine}: a symbol for an SF Symbol is SF's size, UIKit's image padding from its title (${file})`, async () => {
   const source = readFileSync(resolve(ROOT, file), 'utf8');
   const style = source.match(/'(@property --exact-tint[^']*)'/)[1];
   const html = withLook(readFileSync(resolve(ROOT, 'host/web/index.html'), 'utf8'))
@@ -127,13 +131,14 @@ for (const engine of ['chromium', 'firefox', 'webkit']) for (const [file, [stand
       drawn.push([id, ...web, web.every((value, i) => near(value, sf[i]))]);
     }
     expect(drawn).toEqual(drawn.map((row) => [...row.slice(0, -1), true]));
-    // A button is as tall as it is with an icon of the app's own in the symbol's place, and as wide where the symbol
-    // is alone or over a title at least as wide as it; beside a title it is wider by the symbol's growth, .5em, as UIKit
-    // lays out its image's width. A tab's symbol and title sit where the icon's do.
+    // A button is as tall as it is with an icon of the app's own in the symbol's place, but over a title, where the
+    // symbol overhangs only toward the title, by .125em, .375em taller; it is as wide where the symbol is alone or over
+    // a title at least as wide as it, and beside a title wider by the symbol's growth, .5em, as UIKit lays out its
+    // image's width. A tab's symbol and title sit where the icon's do.
     const offset = async (id, from) => { const [x, y, w, h] = await box(id), [x0, y0] = await box(from); return [round(x - x0), round(y - y0), w, h]; };
     const layout = async (lockButton, suffix) => [
-      (await box(lockButton))[3], (await box(`titled${suffix}`))[3],
-      ...(await Promise.all(['alone', 'stacked', 'bar', 'side'].map(async (id) => (await box(id + suffix)).slice(2)))),
+      (await box(lockButton))[3], (await box(`titled${suffix}`))[3], (await box(`stacked${suffix}`))[2],
+      ...(await Promise.all(['alone', 'bar', 'side'].map(async (id) => (await box(id + suffix)).slice(2)))),
       ...(await Promise.all(['bar', 'side'].flatMap((id) => [offset(`${id}${suffix}-i`, id + suffix), offset(`${id}${suffix} > span`, id + suffix)]))),
     ];
     expect(await layout('lock-button', '')).toEqual(await layout('own-button', '-own'));
@@ -142,27 +147,39 @@ for (const engine of ['chromium', 'firefox', 'webkit']) for (const [file, [stand
     const twin = async (id) => [(await box(id)).slice(2), (await box(`${id}-i`)).slice(2), await offset(`${id} > span`, id)];
     expect(await twin('radio')).toEqual(await twin('segment'));
     expect(await Promise.all(['segment-i', 'menu-row-i', 'chooser-row-i'].map(async (id) => (await box(id)).slice(2)))).toEqual([[17, 17], [17, 17], [17, 17]]);
+    // Nor does a segment take a button face's image padding: its space is a space.
+    expect(await page.evaluate(() => getComputedStyle(document.getElementById('segment'), '::before').width)).not.toBe('8px');
     const wider = async (id, own) => round((await box(id))[2] - (await box(own))[2]);
-    expect([await wider('lock-button', 'own-button'), await wider('titled', 'titled-own')]).toEqual([10, 8.5]);
-    // Beside a title the symbol's ink is no nearer the title than the icon's.
-    const gap = async (id) => page.evaluate(async (png) => {
+    const taller = async (id, own) => round((await box(id))[3] - (await box(own))[3]);
+    const stackedTaller = await taller('stacked', 'stacked-own');
+    expect([await wider('lock-button', 'own-button'), await wider('titled', 'titled-own'), stackedTaller, Math.abs(stackedTaller - .375 * 17) <= .05]).toEqual([10, 8.5, stackedTaller, true]);
+    // The px from the symbol's ink to its title's, across (a row) or down (a column).
+    const apart = async (id, column) => page.evaluate(async ([png, column]) => {
       const image = new Image();
       image.src = `data:image/png;base64,${png}`;
       await image.decode();
       const canvas = Object.assign(document.createElement('canvas'), { width: image.width, height: image.height }), context = canvas.getContext('2d');
       context.drawImage(image, 0, 0);
-      const { data } = context.getImageData(0, 0, image.width, image.height);
-      const column = (x, test) => { for (let y = 0; y < image.height; y++) { const at = (y * image.width + x) * 4; if (test(data[at], data[at + 1], data[at + 2])) return true; } return false; };
-      let right = -1;
-      for (let x = 0; x < image.width; x++) if (column(x, (r, g, b) => r - Math.max(g, b) > 127)) right = x;
-      let title = right + 1;
-      while (title < image.width && !column(title, (r, g, b) => Math.max(r, g, b) < 128)) title++;
-      return (title - right - 1) / 2;
-    }, (await page.locator(`#${id}`).screenshot()).toString('base64'));
-    const [symbolGap, iconGap] = [await gap('titled'), await gap('titled-own')];
-    expect([symbolGap, symbolGap >= iconGap]).toEqual([symbolGap, true]);
+      const { data } = context.getImageData(0, 0, image.width, image.height), [n, m] = column ? [image.height, image.width] : [image.width, image.height];
+      const line = (a, test) => { for (let b = 0; b < m; b++) { const at = (column ? a * image.width + b : b * image.width + a) * 4; if (test(data[at], data[at + 1], data[at + 2])) return true; } return false; };
+      let end = -1;
+      for (let a = 0; a < n; a++) if (line(a, (r, g, b) => r - Math.max(g, b) > 127)) end = a;
+      let title = end + 1;
+      while (title < n && !line(title, (r, g, b) => Math.max(r, g, b) < 128)) title++;
+      return (title - end - 1) / 2;
+    }, [(await page.locator(`#${id}`).screenshot()).toString('base64'), column]);
+    // Beside a title the symbol's ink is no nearer the title than the icon's. A symbol and its title are UIKit's image
+    // padding apart, 8 px, with the box's margin around the ink and the title's line above its letters: a circle beside
+    // a 14 px title, a lock beside a 17 px one, and a 20 px lock over a 15 px one (on iOS 11, 12 and 10 points).
+    const gaps = [await apart('titled', false), await apart('titled-own', false), await apart('small-button', false), await apart('lock-row', false), await apart('tile', true)];
+    const [symbolGap, iconGap, ...inked] = gaps;
+    expect([gaps, symbolGap >= iconGap, inked.map((g, i) => g >= [9.5, 12, 10.5][i] && g <= [12, 14.5, 13][i])]).toEqual([gaps, true, [true, true, true]]);
+    // Over or under its title the symbol overhangs toward the title alone.
+    const margins = (id) => page.evaluate((id) => { const s = getComputedStyle(document.getElementById(id)); return [s.marginTop, s.marginBottom]; }, id);
+    expect([await margins('tile-i'), await margins('tile-under-i')]).toEqual([['0px', '-2.5px'], ['-2.5px', '0px']]);
+    // A symbol alone keeps its button square, in a column too.
     const [, , width, height] = await box('alone');
-    expect(width).toBe(height);
+    expect([width, (await box('alone-column')).slice(2)]).toEqual([height, [width, height]]);
     expect((await box('sized')).slice(2)).toEqual([24, 24]);
     // Nothing clips the ink past its place, to within a pixel of antialiasing: not a written width with no padding,
     // at its start in either direction, nor a written size smaller than the symbol.
@@ -182,7 +199,8 @@ for (const engine of ['chromium', 'firefox', 'webkit']) for (const [file, [stand
     // a label keeps its symbol's room.
     // (Firefox lays out in sixtieths of a px.)
     const edges = (id) => page.evaluate((id) => { const s = getComputedStyle(document.getElementById(id)); return [s.overflow, ...[s.paddingTop, s.paddingBottom].map((p) => Math.round(parseFloat(p) * 10) / 10)]; }, id);
-    expect([await edges('word'), await edges('titled-word')]).toEqual([['clip', 0, 0], ['clip', 2.1, 2.1]]);
+    // A stacked button's written height keeps no room, as its symbol stays within its place.
+    expect([await edges('word'), await edges('titled-word'), await edges('tile-tight')]).toEqual([['clip', 0, 0], ['clip', 2.1, 2.1], ['clip', 0, 0]]);
     // The app's own icon: its viewBox at 20 px, so its ink is 640 by 840 of 960 units of that.
     const [ownWidth, ownHeight, inkWidth, inkHeight] = await measure('own');
     expect([ownWidth, ownHeight, Math.round(inkWidth), Math.round(inkHeight)]).toEqual([20, 20, 13, 18]);

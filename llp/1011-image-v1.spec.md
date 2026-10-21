@@ -5,7 +5,7 @@
 **Systems:** Kernel (measured leaves, intrinsic size, aspect ratio; Taffy patch 5), Contract (`image` tag), Web host, Apple host (C ABI: `exact_intrinsic`), Build (assets)
 **Author:** Claude (Fable 5) for Charlie Cheever
 **Date:** 2026-08-29
-**Revised:** 2026-10-20 (on the web, a symbol for an SF Symbol is SF's size, §3); 2026-10-06 (`load`/`error` on the web, macOS and iOS; the remote fetch policy, as built — #121); 2026-09-26 (raster-image `tint-color` on Apple and web); 2026-09-11 (scaled-image scrollable extent and replaced grid sizing; LLP 1035.004 symbol sources, native leaves, tint, units and verification; earlier r2 image decisions retained)
+**Revised:** 2026-10-21 (on the web, a symbol over or under its button's title overhangs only toward it, the image padding from it, and a written height there keeps no padding, §3); 2026-10-20 (on the web, a symbol for an SF Symbol is SF's size, §3); 2026-10-06 (`load`/`error` on the web, macOS and iOS; the remote fetch policy, as built — #121); 2026-09-26 (raster-image `tint-color` on Apple and web); 2026-09-11 (scaled-image scrollable extent and replaced grid sizing; LLP 1035.004 symbol sources, native leaves, tint, units and verification; earlier r2 image decisions retained)
 **Implementer:** Claude (Fable 5), image landing 2026-08-29; Codex, symbol integration 2026-09-10 and replaced-content extent 2026-09-11; Claude (Opus 5.5), the web's symbol size 2026-10-20
 **Related:** LLP 1001 §1 (the `Image` replaced-element rule and its declared block-flow deviation), §6 (measured leaves), LLP 1007 (the web host: `<img>`), LLP 1008 §5 (the Apple presenter: loading, `object-fit`), LLP 1010 (the sibling spec whose shape this follows), `vendor/taffy/EXACT-PATCHES.md` patch 5, `rules/RULES.md` §The web is the standard
 
@@ -196,7 +196,11 @@ as UIKit lays out its image's, so the title keeps its distance from the ink,
 and the box overhangs its 1em place above and below by half its growth, so the
 button is no taller. A circle's ink then reaches about .125em past that place
 (a lock's, which is taller, .15em), so a titled button's written height, which
-has no padding, keeps .125em.
+has no padding, keeps .125em. Over or under a title (a column writes
+`--exact-button-stacked: 1`, `button_css.rs`) the box overhangs only toward the
+title, by .125em, the margin a role's live area leaves, so a role's ink is the
+image padding, 8 px, from the title's line (LLP 1069.011.001 D3), and a
+written height keeps no padding.
 A symbol alone overhangs on every side, so its button keeps its size and does
 not clip it, as UIButton does not clip its image, though the symbol takes no
 hits, which stay in the button's own box, as `UIView.hitTest(_:with:)` keeps to

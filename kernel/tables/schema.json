@@ -5904,6 +5904,7 @@
     ["button-padding-inline-symbol", "length", "0.5em"],
     ["symbol-scale", "number", 1.2],
     ["button-symbol-scale", "number", 1.5],
+    ["button-image-gap", "length", 8],
     ["button-tint-alpha", "number", 0.12],
     ["button-hover-tinted", "number", 0.08],
     ["button-hover-filled", "number", 0.12],

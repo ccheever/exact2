@@ -64,21 +64,30 @@
      circle is 1em across, in a 1.18em image), so its box is 1.2em, as the image is on iOS. On a button's face UIKit
      draws the symbol at its large scale, about a quarter larger again, at every control size: there the box is 1.5em.
      Beside a title the button lays it out at that width, as UIKit lays out its image's, but no taller: the box
-     overhangs its 1em place above and below by half its growth. A symbol alone overhangs on every side, so its button
-     stays square. A tab's, a radio's and a menu or chooser row's symbol keeps the box the look gives it, as iOS draws
-     those outside a button's face: a tab bar's or a segment's image (at body size, SegmentsIOS.swift) and a menu
-     item's (MenuRowsIOS.swift). An icon of the app's own draws its viewBox at 1em, as the Apple hosts draw its path.
-     The symbol glue reads the scale for the image's natural size, and a page built ahead of time sizes the image's
-     source by it (document.rs). */
+     overhangs its 1em place above and below by half its growth. Over or under a title (a column writes
+     `--exact-button-stacked: 1`, button_css.rs) it overhangs only toward the title, by a quarter of its growth, the
+     margin a role's live area leaves, so a role's ink is the image padding from the title's line. A symbol alone
+     overhangs on every side, so its button stays square. A tab's, a radio's and a menu or chooser row's symbol keeps
+     the box the look gives it, as iOS draws those outside a button's face: a tab bar's or a segment's image (at body
+     size, SegmentsIOS.swift) and a menu item's (MenuRowsIOS.swift). An icon of the app's own draws its viewBox at
+     1em, as the Apple hosts draw its path. The symbol glue reads the scale for the image's natural size, and a page
+     built ahead of time sizes the image's source by it (document.rs). */
   :where(#exact-root img[data-symbol-path]:not([data-symbol-path=""], [data-symbol-source^="symbol:icon||"], button[data-button-style] > *)) { --exact-symbol-scale: 1.2; }
   :where(#exact-root button[data-button-style]:not([role="tab"], [role="radio"], :is([role="menu"], [data-exact-chooser]) *) > img[data-symbol-path]:not([data-symbol-path=""], [data-symbol-source^="symbol:icon||"])) { --exact-symbol-scale: 1.5; margin: calc((1 - var(--exact-symbol-scale)) * .5em); }
-  :where(#exact-root button[data-button-style]:not([role="tab"], [role="radio"], :is([role="menu"], [data-exact-chooser]) *) > img[data-symbol-path]:not([data-symbol-path=""], [data-symbol-source^="symbol:icon||"]):not(:only-child)) { margin-inline: 0; }
+  :where(#exact-root button[data-button-style]:not([role="tab"], [role="radio"], :is([role="menu"], [data-exact-chooser]) *) > img[data-symbol-path]:not([data-symbol-path=""], [data-symbol-source^="symbol:icon||"]):not(:only-child)) { --exact-symbol-away: calc((1 - var(--exact-symbol-scale)) * .5em * (1 - var(--exact-button-stacked, 0))); --exact-symbol-toward: calc((1 - var(--exact-symbol-scale)) * .5em * (1 - var(--exact-button-stacked, 0) / 2)); margin-inline: 0; margin-block: var(--exact-symbol-away) var(--exact-symbol-toward); }
+  :where(#exact-root button[data-button-style]:not([role="tab"], [role="radio"], :is([role="menu"], [data-exact-chooser]) *) > [data-exact-text] ~ img[data-symbol-path]:not([data-symbol-path=""], [data-symbol-source^="symbol:icon||"])) { margin-block: var(--exact-symbol-toward) var(--exact-symbol-away); }
+  /* A button's image and its title are UIKit's image padding apart (`UIButton.Configuration.imagePadding`, which the
+     iOS host sets to the system spacing for the title's font: 8 points for 13- to 17-point titles at the default text
+     size, measured on iOS 27), beside each other or one over the other, unless the author wrote a gap. A tab, a radio
+     and a menu or chooser row keep their own spacing: iOS draws them outside a button. */
+  #exact-root button[data-button-style]:not([role="tab"], [role="radio"], :is([role="menu"], [data-exact-chooser]) *):has(> img) { --exact-button-column-gap: 8px; --exact-button-row-gap: 8px; }
   /* A circle's ink beside a title reaches about .125em above and below its place (a lock's .15em), and a button clips
-     what overflows it (the shell's `overflow: clip`), so a written height, which has no padding, keeps .125em. Where
-     that height is its content's and the line height under about 1.1, the clip cuts about .03em off either end of a
-     lock. A symbol alone is not clipped, as UIButton does not clip its image, but takes no hits, which stay in the
-     button's own box, as UIView's do. A sheet bar's word, which takes a symbol's place, is not a symbol. */
-  #exact-root button[data-button-style]:not([role="tab"], [role="radio"], :is([role="menu"], [data-exact-chooser]) *, [navigationPresentation="modal"] > header button[aria-label]:not(:has(> :not(img[data-symbol-source]))))[data-exact-said~="height"]:has(> img[data-symbol-path]:not([data-symbol-path=""], [data-symbol-source^="symbol:icon||"]):not(:only-child)) { padding-block: .125em; }
+     what overflows it (the shell's `overflow: clip`), so a written height, which has no padding, keeps .125em, but
+     not over or under a title, where the symbol overhangs only toward it. Where that height is its content's and the
+     line height under about 1.1, the clip cuts about .03em off either end of a lock. A symbol alone is not clipped,
+     as UIButton does not clip its image, but takes no hits, which stay in the button's own box, as UIView's do. A
+     sheet bar's word, which takes a symbol's place, is not a symbol. */
+  #exact-root button[data-button-style]:not([role="tab"], [role="radio"], :is([role="menu"], [data-exact-chooser]) *, [navigationPresentation="modal"] > header button[aria-label]:not(:has(> :not(img[data-symbol-source]))))[data-exact-said~="height"]:has(> img[data-symbol-path]:not([data-symbol-path=""], [data-symbol-source^="symbol:icon||"]):not(:only-child)) { padding-block: calc(.125em * (1 - var(--exact-button-stacked, 0))); }
   #exact-root button[data-button-style]:not([role="tab"], [role="radio"], :is([role="menu"], [data-exact-chooser]) *, [navigationPresentation="modal"] > header button[aria-label]:not(:has(> :not(img[data-symbol-source])))):has(> img[data-symbol-path]:not([data-symbol-path=""], [data-symbol-source^="symbol:icon||"]):only-child) { overflow: visible; }
   #exact-root button[data-button-style]:not([role="tab"], [role="radio"], :is([role="menu"], [data-exact-chooser]) *, [navigationPresentation="modal"] > header button[aria-label]:not(:has(> :not(img[data-symbol-source])))) > img[data-symbol-path]:not([data-symbol-path=""], [data-symbol-source^="symbol:icon||"]):only-child { pointer-events: none; }
   #exact-root button:is([data-button-style="bordered"], [data-button-style="gray"]) { background-color: transparent; color: var(--exact-label); }

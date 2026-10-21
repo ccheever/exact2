@@ -997,6 +997,7 @@ pub fn style_writes(id: u16, timeline: bool) -> Result<Vec<Write>, String> {
             with("--exact-button-space-height", "v=>v==null?v:v.startsWith('column')?'var(--exact-button-row-gap,1em)':'0px'"),
             with("--exact-button-columns", "v=>v==null?v:v.startsWith('column')?'minmax(var(--exact-button-title-min,min-content),auto)':'auto auto minmax(var(--exact-button-title-min,min-content),auto)'"),
             with("--exact-button-space", "v=>v==null?v:v.startsWith('column')?'var(--exact-button-row-space)':'var(--exact-button-column-space)'"),
+            with("--exact-button-stacked", "v=>v==null?v:v.startsWith('column')?'1':null"),
         ],
         // @ref LLP 1116 D1 — a native button's title truncates only when the
         // author keeps it to one line (exact_web's button_css.rs `rows`).
