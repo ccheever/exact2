@@ -264,10 +264,14 @@ The app has no desktop self-update feed, so its own download/restart step is abs
   Map to), welcome wizard. The palette's "New thread without a project" and the new-thread
   heading's No project open the machine's folder for threads without a project the same
   way (`scratch-project.ts`, 845ddd9354).
-- Pull request detail: besides the Summary and Timeline, the Code tab (`pages-pr-code*`: the
-  change or one commit's change a slice at a time, Viewed ticks, line comments into the review
-  being written, the host's conversations on their lines), hand-offs and quick actions
-  (`pages-pr-handoffs*`, `pages-pr-quick*`) and the thread links (`pages-pr-links*`).
+- Pull request detail: besides the Summary and Timeline (a review thread's replies under its
+  finding, a page of conversations at a time), the Code tab (`pages-pr-code*`: the change or one
+  commit's change a slice at a time, read again with the loaded slices kept when the server
+  announces a change; Viewed ticks, line comments into the review being written, or to the agent
+  where the reader may not comment; the host's conversations on their lines; what a failed diff
+  read means, with Try again), hand-offs and quick actions (`pages-pr-handoffs*`,
+  `pages-pr-quick*`) and the thread links (`pages-pr-links*`). A thread's pull request surface
+  keeps the tab it was left on.
 - Terminal: the thread terminal drawer below the chat column (`terminal.contract`,
   `terminal-drawer*.ts`; T3 Code's ThreadTerminalDrawer in its drawer mode): sessions on the
   server, split and close, the drawer's state kept per thread. The terminal is T3 Code's own
@@ -553,6 +557,13 @@ Differences that belong to the app:
 - An image inside a link's text has no tooltip and no keyboard menu key.
 - In the composer, a review comment's popover shows its comment and diff as plain text (the
   reference renders Markdown and a highlighted diff); a sent pull request chip has no hover card.
+- The pull request checks popover lines its status labels up in a column as wide as the widest
+  label's estimated 12 pt width (`pr-row-logic.ts` `checksList`), where the reference's CSS grid
+  measures them: a label the estimate undercounts by a point pushes its own Details over by that much.
+- The composer's pull request badge tooltip is a hover tip, not a popup to point into: a long list
+  is cut to the window's height above the badge, where the reference's scrolls.
+- Proactive panels is a setting with no effect: no surface opens on its own when a pull request is
+  linked or a turn's diff lands (the reference's `useProactivePanels`).
 
 Some checks need a person: physical modifier chords, right-click menus, real pointer drags
 and hovers, macOS notification and screen-capture grants, provider installs and logins, and
@@ -987,7 +998,7 @@ README) give This machine plus two lane environments, a machines list, and an AC
 --turns` threads on the stand-in with a completed turn, a turn that edits files (a turn diff), an
 approval waiting and a context meter, and its `$frontend-design` skill; the seed itself an empty
 project and a project action; `seed second --pull-request` a thread whose branch has an open pull
-request, with a patch and a review thread, from a `gh` stand-in; and `machines.mjs up --older` a
+request, with checks, comments, a review thread and a patch, from `gh` and GitHub API stand-ins; and `machines.mjs up --older` a
 server older than the client that streams a scripted self-update.
 
 **Framework issues opened by this app:** open on main is

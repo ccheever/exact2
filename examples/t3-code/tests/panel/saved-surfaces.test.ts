@@ -30,6 +30,18 @@ describe('Right panels keep every surface across launches', () => {
     expect(keepRestored({ id: 'device', kind: 'device', path: '', line: 0 })).toEqual({ id: 'device', kind: 'device', path: '', line: 0 });
   });
 
+  test('a pull request surface keeps its detail tab across launches', () => {
+    const kept = savedPanel({ visible: true, active: prSurfaceId(pr), surfaces: [{ id: prSurfaceId(pr), kind: 'pull-request' as const, path: '', line: 0, reveal: 0, pr, detailTab: 'timeline' }] });
+    expect(kept?.surfaces[0]).toMatchObject({ kind: 'pull-request', detailTab: 'timeline' });
+    expect(keepRestored({ id: prSurfaceId(pr), kind: 'pull-request', path: '', line: 0, pr, detailTab: 'other' })).not.toHaveProperty('detailTab');
+    const owner = { local: {} as Record<string, unknown>, preferencesLoaded: true, ready: true }, next = {};
+    adoptRightPanels(next, { rightPanels: { 'env:t1': kept } });
+    owner.local = next;
+    const state = { surfaces: [], active: '', visible: false, userRevision: 0 } as Parameters<typeof restoreRightPanel>[2];
+    expect(restoreRightPanel(owner, 'env:t1', state)).toBe(true);
+    expect(state.surfaces[0]).toMatchObject({ kind: 'pull-request', detailTab: 'timeline' });
+  });
+
   test('malformed entries are dropped as the migration drops them', () => {
     expect(prTargetOf({ projectId: 'p', repository: 'a/b', number: 0 })).toBeNull();
     expect(prTargetOf({ projectId: 'p', repository: 'a/b', number: 1.5 })).toBeNull();

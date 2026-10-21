@@ -14,6 +14,8 @@ use PrPicker from "./pages-pr-meta.contract"
 use PrReactionChoice from "./pages-pr-meta.contract"
 use PrdSegment from "./pages-pr-edit.contract"
 use PrdSmallButton from "./pages-pr-edit.contract"
+use PrActionsView from "./pages-pr-actions.contract"
+use PrdConfirmEscape from "./pages-pr-actions.contract"
 use DialogOpenFocus from "../shared/dialog-trap.contract"
 
 shape PrWrites
@@ -55,6 +57,8 @@ component PrdComposer
   props
     reviewRequest: number
     writes: PrWrites
+    // The armed confirmation, which Close with comment shares with the header (useInlineActionConfirm).
+    actions: PrActionsView
     selected: string
     scope: string
     act: action
@@ -107,6 +111,16 @@ component PrdComposer
   action post(kind: string)
     if comment.trim() != "" and not locked
       act(kind == "comment" ? "post-comment" : `comment-${kind}`, comment)
+  // Close with comment asks first: the first press arms it ("Confirm close?"), a second press on it
+  // closes; the arming lapses as for the header's (app.contract prConfirmLapse, the window's outside press).
+  action confirmClose
+    if actions.armedControl == "comment" and actions.armedAction == "close"
+      post("close")
+    else if comment.trim() != "" and not locked
+      local("pr-ui-arm", selected, "comment|close")
+  action closeBlur
+    if actions.armedControl == "comment"
+      local("pr-ui-disarm", selected, "comment|close")
   action commentKeys(k: string, e: KeyboardEvent)
     if k == "Enter" and (e.metaKey or e.ctrlKey) and not e.shiftKey and not e.altKey
       preventDefault()
@@ -155,6 +169,7 @@ component PrdComposer
                       for choice in writes.verdicts key=choice
                         option prcVerdictLabel(choice) value=choice
                   PrdSmallButton(label=(writes.reviewPending ? "Submitting..." : "Submit review"), icon="", tone="primary", disabled=(writes.reviewPending or chosen == "" or not prcCanSubmit(chosen, summary, writes.pendingCount, writes.summaryRequired)), press=submitReview, testId="pull-request-review-submit")
+            PrdConfirmEscape(actions=actions, ref=selected, local=local, layer="comment")
             if writes.canComment
               column width="100%" gap="0.5rem" display=(shownMode == "comment" ? "flex" : "none") testId="pull-request-comment-form"
                 // Locked while posting: the box is cleared on success, which would throw away words typed meanwhile.
@@ -164,7 +179,7 @@ component PrdComposer
                     color=prcMuted()
                 row width="100%" flex-wrap="wrap" justify-content="flex-end" gap="0.5rem"
                   if writes.followUp == "close"
-                    PrdSmallButton(label=(writes.submitting == "close" ? "Closing..." : "Close with comment"), icon="git-pull-request-closed", tone="destructive", disabled=(comment.trim() == "" or locked), press=post("close"), testId="pull-request-comment-close")
+                    PrdCloseWithComment(label=(writes.submitting == "close" ? "Closing..." : actions.armedControl == "comment" and actions.armedAction == "close" ? "Confirm close?" : "Close with comment"), disabled=(comment.trim() == "" or locked), press=confirmClose, blur=closeBlur)
                   if writes.followUp == "reopen"
                     PrdSmallButton(label=(writes.submitting == "reopen" ? "Reopening..." : "Reopen with comment"), icon="git-pull-request-arrow", tone="outline", disabled=(comment.trim() == "" or locked), press=post("reopen"), testId="pull-request-comment-reopen")
                   PrdSendButton(label=(writes.submitting == "comment" ? "Posting..." : "Comment"), disabled=(comment.trim() == "" or locked), press=post("comment"))
@@ -219,3 +234,21 @@ component PrdSendButton
     button press=press hover=hover disabled=disabled testId="pull-request-comment-submit" height="1.5rem" padding-left="0.4375rem" padding-right="0.4375rem" box-sizing="border-box" gap="0.25rem" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#d4d4d8, #ffffff14)" background-color=(over and not disabled ? "light-dark(#f4f4f5, #ffffff0d)" : "light-dark(#ffffff, #ffffff07)") box-shadow="0 1px 2px #0000000d" opacity=(disabled ? 0.64 : 1) display="flex" flex-direction="row" align-items="center"
       PrmIcon(name="send", size=14, color=prcMuted())
       text label font-size="0.75rem" line-height="1rem" font-weight=500 white-space="nowrap" color=prcInk()
+
+// Button size="xs" variant="destructive-outline": Close with comment. The longest label holds the width, so the
+// confirming press lands on the button (the reference's invisible "Close with comment" under the shown label).
+component PrdCloseWithComment
+  props
+    label: string
+    disabled: bool
+    press: action
+    blur: action
+  state over = false
+  action hover(value: bool)
+    over = value
+  view
+    button id="pull-request-comment-close" press=press blur=blur hover=hover disabled=disabled testId="pull-request-comment-close" height="1.5rem" padding-left="0.4375rem" padding-right="0.4375rem" box-sizing="border-box" gap="0.25rem" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#d4d4d8, #ffffff14)" background-color=(over and not disabled ? "light-dark(#f4f4f5, #ffffff0d)" : "light-dark(#ffffff, #ffffff07)") box-shadow="0 1px 2px #0000000d" opacity=(disabled ? 0.64 : 1) display="flex" flex-direction="row" align-items="center" justify-content="center" flex-shrink=0
+      PgIcon(name="git-pull-request-closed", size=14, color="light-dark(#e40014, #ff6467)")
+      column align-items="flex-start" flex-shrink=0
+        text "Close with comment" font-size="0.75rem" line-height=0 height=0 font-weight=500 white-space="nowrap" visibility="hidden" aria-hidden=true
+        text label font-size="0.75rem" line-height="1rem" font-weight=500 white-space="nowrap" color="light-dark(#e40014, #ff6467)"

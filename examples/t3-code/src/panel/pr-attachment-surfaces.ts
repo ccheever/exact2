@@ -12,8 +12,9 @@ import { openLink as openLinkByTarget } from '../browser/browser-links';
 import { attachmentLocal, attachmentToken, attachmentView, emptyAttachment, requireAttachment, type AttachmentMeta, type AttachmentView } from './attachment-surface';
 
 export type LinkedSurface = Surface;
-export type PrSurfaceView = { selected: string; number: number; label: string };
-export const emptyPrSurface = (): PrSurfaceView => ({ selected: '', number: 0, label: '' });
+/** `surface`: the surface's id; `tab`: the detail tab it was left on, which the panel shows when the surface or its thread changes. */
+export type PrSurfaceView = { selected: string; number: number; label: string; surface: string; tab: string };
+export const emptyPrSurface = (): PrSurfaceView => ({ selected: '', number: 0, label: '', surface: '', tab: 'summary' });
 
 function upsert(state: PanelState, surface: LinkedSurface): void {
   const index = state.surfaces.findIndex(entry => entry.id === surface.id);
@@ -86,7 +87,7 @@ export async function linkedPrefetch(client: T3Client, native: Native | null, su
 }
 /** The active surface's body data: the pull request's selection for the window's `prDetail`, or the attachment preview. */
 export async function linkedViews(client: T3Client, native: Native | null | undefined, active: LinkedSurface | null, open: boolean, now: number): Promise<{ pr: PrSurfaceView; attachment: AttachmentView }> {
-  const pr = open && active?.kind === 'pull-request' && active.pr ? { selected: selectionOf(active.pr), number: active.pr.number, label: `#${active.pr.number}` } : emptyPrSurface();
+  const pr = open && active?.kind === 'pull-request' && active.pr ? { selected: selectionOf(active.pr), number: active.pr.number, label: `#${active.pr.number}`, surface: active.id, tab: active.detailTab ?? 'summary' } : emptyPrSurface();
   const attachment = open && active?.kind === 'attachment' && active.attachment ? await attachmentView(client, native, active.attachment, now) : emptyAttachment();
   return { pr, attachment };
 }

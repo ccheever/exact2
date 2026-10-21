@@ -268,7 +268,7 @@ component PrdActionsMenu
         // item's glyph, gap and insets.
         PrMenuBox(scheme=scheme, width=380, label="More pull request actions")
           KeyMenu(menuId="pr-more-keys", items=rows, keyed=0, gap="0px", modal=true)
-            PrdConfirmEscape(actions=actions, ref=ref, local=local, inMenu=true)
+            PrdConfirmEscape(actions=actions, ref=ref, local=local, layer="menu")
             // PullRequestThreadLinks display="menu-item" (no thread to link to: the picker).
             if links.menuShown
               PaMenuItem(keysId="pr-more-keys", icon=links.menuIcon, label=links.menuLabel, shortcut="", disabled=links.pending, destructive=false, press=act("links", links.menuPicker ? "picker" : "toggle"), testId="pr-more-link")
@@ -532,15 +532,17 @@ component PrActionLayers
       PrStackDialog(stack=actions.stack, ref=ref, dark=dark, act=act, local=local)
 
 // While a confirmation is armed, Escape lets it go (useInlineActionConfirm's capturing keydown) instead of
-// leaving the page or closing the thread's panel.
+// leaving the page, closing the thread's panel or closing the layer it is armed in. `layer`: "menu" (the
+// More menu), "comment" (the composer's popover) or "panel" (the header and the Summary bar).
 component PrdConfirmEscape
   props
     actions: PrActionsView
     ref: string
     local: action
-    inMenu: bool
+    layer: string
+  derive armedLayer = actions.armedControl == "menu" ? "menu" : actions.armedControl == "comment" ? "comment" : "panel"
   view
-    if actions.armedAction != "" and (actions.armedControl == "menu") == inMenu
+    if actions.armedAction != "" and armedLayer == layer
       box position="absolute" left=0 top=0 width=0 height=0 overflow="hidden"
         button press=local("pr-ui-disarm", ref, "") aria-keyshortcuts="Escape" aria-label="Cancel confirmation" tabindex=-1 testId="pull-request-confirm-escape" width=1 height=1 overflow="hidden" padding=0 border-width=0 background-color="#00000000"
           text "Cancel" font-size=1

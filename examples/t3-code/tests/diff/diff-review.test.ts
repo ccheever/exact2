@@ -15,7 +15,7 @@ const stats = Array.from({ length: 10 }, (_, index) => ({ path: index < 6 ? `src
 const smallPatch = 'diff --git a/a.ts b/a.ts\n--- a/a.ts\n+++ b/a.ts\n@@ -3,2 +3,3 @@\n three\n+inserted\n four\n@@ -9,1 +10,1 @@\n-nine\n+NINE\n';
 const contents = { oldContents: 'one\ntwo\nthree\nfour\nfive\nsix\nseven\neight\nnine\nten\n', newContents: 'one\ntwo\nthree\ninserted\nfour\nfive\nsix\nseven\neight\nNINE\nten\n' };
 
-function harness(large: boolean) {
+function harness(large: boolean, preview = { patch: smallPatch, path: 'a.ts' }) {
   const calls: Obj[] = [];
   const failOnce = new Set(['src/ui/f2.ts']);
   const native: Native = { available: true, watch() {}, async later(input) {
@@ -29,7 +29,7 @@ function harness(large: boolean) {
       }
       return { ok: true, generation: 1, value: { cwd: '/repo', sources: [{ kind: 'working-tree', diff: '', truncated: false, diffHash: 'w' },
         large ? { kind: 'branch-range', diff: '', truncated: true, diffHash: 'h1', baseRef: 'main', headRef: 'feat', files: stats }
-          : { kind: 'branch-range', diff: smallPatch, truncated: false, diffHash: 'h2', baseRef: 'main', headRef: 'feat', files: [{ path: 'a.ts', previousPath: null, additions: 2, deletions: 1 }] }] } };
+          : { kind: 'branch-range', diff: preview.patch, truncated: false, diffHash: `h2:${preview.path}`, baseRef: 'main', headRef: 'feat', files: [{ path: preview.path, previousPath: null, additions: 2, deletions: 1 }] }] } };
     }
     if (request.op === 'request' && request.method === 'review.getDiffFileContents') return { ok: true, generation: 1, value: contents };
     if (request.op === 'editorInsert') return { ok: true, generation: 1, value: { applied: true } };
@@ -124,6 +124,24 @@ describe('diff review engine', () => {
     await command('diffreview', 'delete', id);
     expect(calls.filter(call => call.op === 'editorEdit').at(-1)).toMatchObject({ all: true, text: 'Please look ' });
     expect(snapshot(client).diffItems.some(item => item.kind === 'note')).toBe(false);
+  });
+});
+
+describe('orphaned drafts (AnnotatableCodeView)', () => {
+  test('a draft whose file a refresh dropped is released, and the gutter opens a new one', async () => {
+    const preview = { patch: smallPatch, path: 'a.ts' };
+    const { client, command } = harness(false, preview);
+    await command('diff'); await command('diffreview', 'reveal', 'a.ts');
+    await command('diffreview', 'comment:additions', 'a.ts', 4);
+    expect(snapshot(client).diffCommentOpen).toBe(true);
+    preview.patch = smallPatch.replaceAll('a.ts', 'b.ts'); preview.path = 'b.ts';
+    await command('diff-refresh');
+    let view = snapshot(client);
+    expect([view.diffCommentOpen, client.diffState.draft]).toEqual([false, null]);
+    await command('diffreview', 'reveal', 'b.ts');
+    await command('diffreview', 'comment:additions', 'b.ts', 4);
+    view = snapshot(client);
+    expect([view.diffCommentOpen, view.diffItems.find(item => item.kind === 'draft')?.path]).toEqual([true, 'b.ts']);
   });
 });
 

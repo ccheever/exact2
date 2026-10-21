@@ -322,6 +322,11 @@ export function diffSnapshot(client: T3Client, now: number) {
   const state = client.diffState, selection = currentSelection(client), turns = turnSummaries(client.projection);
   // Outside git nothing is listed, not even files a fetch before the status arrived returned.
   const notGit = diffNotGit(client), files = notGit ? [] : diffFiles(client), lazy = state.lazy, scope = state.scopeKey, section = reviewSection(client);
+  // AnnotatableCodeView: a draft whose file is no longer listed (another scope, or a refresh that dropped
+  // the file; a lazy file still loading is listed) is released, so it stops holding the gutter.
+  if (state.draft && !client.diffLoading && (state.draft.scope !== scope || !files.some(file => file.path === state.draft!.path))) {
+    state.draft = null; state.selection = null; noteDraftFocus(client, false);
+  }
   state.find.reset(scope);
   state.find.search(files.map(file => ({ path: file.path, lines: reviewLinesOf(state, file) })));
   const findMatch = state.find.active;

@@ -552,7 +552,7 @@ component T3Window
   state keybindingField = ""
   action holdKeybindingField(id: string, on: bool)
     keybindingField = on ? id : (keybindingField == id ? "" : keybindingField)
-  derive prConfirmTarget = prDetail.actions.armedControl == "primary" ? "pull-request-primary" : prDetail.actions.armedControl == "approve" ? "pull-request-approve-workflows" : prDetail.actions.armedAction == "merge" ? "pr-more-merge-now" : `pr-more-${prDetail.actions.armedAction}`
+  derive prConfirmTarget = prDetail.actions.armedControl == "primary" ? "pull-request-primary" : prDetail.actions.armedControl == "approve" ? "pull-request-approve-workflows" : prDetail.actions.armedControl == "comment" ? "pull-request-comment-close" : prDetail.actions.armedAction == "merge" ? "pr-more-merge-now" : `pr-more-${prDetail.actions.armedAction}`
   action outsidePressDown(e: PointerEvent)
     outsideDown = e.buttons == 1
     // useInlineActionConfirm also disarms on a press outside the armed control, including non-focusable text.
