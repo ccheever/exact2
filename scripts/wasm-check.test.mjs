@@ -12,8 +12,11 @@ const TARGET = mkdtempSync(join(tmpdir(), 'wasm-check-')); // a cold target dire
 const FOUND = { crates: ['contract', 'exact-kernel', 'exact-web'], bins: [['exact-textflow', 'textflow-web']], dirs: ['contract/cli/', 'kernel/', 'host/web/', 'textflow/'], target: TARGET };
 
 test('the crates checked are the libraries the web apps link for wasm32, the apps and vendored crates aside', () => {
-  const { crates, bins } = wasmCrates(ROOT);
+  const { crates, bins, roots } = wasmCrates(ROOT);
   expect(bins).toEqual([['exact-textflow', 'textflow-web']]);
+  // An app beside its Snapback backend is a root as every app (Harmony's layout).
+  expect(roots).toContain('apps/caltrain/web');
+  expect(roots).toContain('apps/harmony/app/web');
   // contract: G2's cfg(unix)-only name (5540abbfc0) broke it there; exact-web: the host every web app links
   for (const c of ['contract', 'exact-web', 'exact-runner', 'exact-kernel', 'exact-markdown-editor', 'exact-web-js-motion']) expect(crates).toContain(c);
   expect(crates.some((c) => c.endsWith('-web') && c !== 'exact-web' && c !== 'exact-js-web')).toBe(false);

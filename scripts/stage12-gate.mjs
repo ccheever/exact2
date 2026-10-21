@@ -911,11 +911,9 @@ export function releaseRuns(from = '92f1cae184') {
 }
 
 /** What release identity must compare: every app now in apps/ (library-gate
- * aside: its own), one beside its Snapback backend (`apps/<app>/app/`,
- * Harmony's) included, and the corpus release-groups.py builds. */
+ * aside: its own) and the corpus release-groups.py builds. */
 export function releaseSources() {
-  const apps = run('git', ['ls-files', 'apps/*/app.contract', 'apps/*/app/app.contract']).out.trim().split('\n')
-    .filter(f => (f.split('/').length === 3 || /^apps\/[^/]+\/app\/app\.contract$/.test(f)) && f !== 'apps/library-gate/app.contract');
+  const apps = run('git', ['ls-files', 'apps/*/app.contract']).out.trim().split('\n').filter(f => f.split('/').length === 3 && f !== 'apps/library-gate/app.contract');
   return [...apps, 'host/web-js/conformance/press.contract', 'host/web-js/conformance/press-paint.contract', 'contract/corpus/motion-feel.contract'];
 }
 
