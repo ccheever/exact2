@@ -63,11 +63,9 @@ describe('diff panel', () => {
     expect(snapshot(client).diffItems.map(item => item.kind)).toEqual(['file', 'file', 'file']);
     await command('checkpoint-diff', 'fixture-result.md', '', 1);
     expect(requests(calls).at(-1)).toMatchObject({ method: 'orchestration.getTurnDiff', payload: { threadId: 't1', fromTurnCount: 0, toTurnCount: 1, ignoreWhitespace: true } });
-    const view = snapshot(client);
-    expect(view).toMatchObject({ diffScopeLabel: 'Turn 1', diffLatestSelected: false, diffCanRefresh: false, diffAllCollapsed: true });
-    expect(view.diffItems.map(item => item.kind)).toEqual(['file']);
-    await command('diff-view', 'file', 'fixture-result.md');
+    // The named file opens (revealDiffFile), and the list is asked to scroll to it.
     const opened = snapshot(client);
+    expect(opened).toMatchObject({ diffScopeLabel: 'Turn 1', diffLatestSelected: false, diffCanRefresh: false, diffAllCollapsed: false, diffReveal: 1, diffRevealTarget: 'file:fixture-result.md' });
     expect(opened.diffItems.map(item => [item.kind, item.tone, item.number])).toEqual([['file', '', ''], ['line', 'context', '1'], ['line', 'context', '2'], ['line', 'deletion', '3'], ['line', 'addition', '3'], ['pad', '', '']]);
     // The served panel marks changed words with Pierre's "word-alt" despite DiffPanel's `lineDiffType: "none"` (9c161462c9 oracle).
     expect(opened.diffItems[3]!.segments.map((segment: Obj) => segment.mark)).toEqual([false, true, false]);
@@ -80,7 +78,7 @@ describe('diff panel', () => {
     await command('turn-diff', 'fixture-result.md', 'r1', 0);
     expect(requests(calls).at(-1)).toMatchObject({ method: 'orchestration.getTurnDiff', payload: { threadId: 't1', fromTurnCount: 0, toTurnCount: 1 } });
     expect(snapshot(client)).toMatchObject({ diffOpen: true, diffScope: 'turn:r1', diffScopeLabel: 'Turn 1', diffLatestSelected: false, diffError: '' });
-    expect(client.diffState.selections['env:t1']).toEqual({ kind: 'turn', runId: 'r1', filePath: 'fixture-result.md', baseRef: null });
+    expect(client.diffState.selections['env:t1']).toEqual({ kind: 'turn', runId: 'r1', filePath: 'fixture-result.md', baseRef: null, reveal: 1 });
     // A change with no run asks for nothing and says so in the panel.
     const count = requests(calls).length;
     await command('turn-diff', 'fixture-result.md', '', 0);

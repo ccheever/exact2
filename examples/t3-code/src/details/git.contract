@@ -394,7 +394,7 @@ component GitCommitDialog
                   scroll height="11rem" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#0000000d, #ffffff0d)" background-color="light-dark(#ffffff, #ffffff06)"
                     column gap="0.25rem" padding="0.1875rem" box-sizing="border-box"
                       for file in git.files key=file.path
-                        GitCommitFile(file=file, editing=git.editing, scheme=scheme, local=local)
+                        GitCommitFile(file=file, editing=git.editing, openable=git.filesOpenable, scheme=scheme, local=local)
                   row justify-content="flex-end"
                     text `+${git.selectedInsertions}` font-family="ui-monospace" font-size="0.875rem" line-height="1.25rem" color=gitAdd(scheme)
                     text "/" font-family="ui-monospace" font-size="0.875rem" line-height="1.25rem" color="light-dark(#71717b, #818181)"
@@ -414,6 +414,7 @@ component GitCommitFile
   props
     file: GitFile
     editing: bool
+    openable: bool
     scheme: string
     local: action
   state over = false
@@ -423,7 +424,7 @@ component GitCommitFile
     row width="100%" min-height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.25rem" padding-bottom="0.25rem" box-sizing="border-box" gap="0.5rem" align-items="center" border-radius="0.375rem" hover=hover background-color=(over ? "light-dark(#f4f4f580, #ffffff05)" : "#00000000")
       if editing
         DialogCheckbox(checked=(not file.excluded), mixed=false, press=local("git-file", file.path, ""), label=`Include ${file.path}`, elementId="", testId=`git-commit-file-${file.path}`)
-      button press=local("git-open-file", file.path, "") testId=`git-commit-open-${file.path}` flex=1 min-width=0 padding=0 gap="0.75rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="space-between"
+      button press=local("git-open-file", file.path, "") disabled=(not openable) cursor=(openable ? "pointer" : "default") testId=`git-commit-open-${file.path}` flex=1 min-width=0 padding=0 gap="0.75rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="space-between"
         text file.path flex=1 min-width=0 white-space="nowrap" overflow="hidden" text-overflow="ellipsis" text-align="left" font-family="ui-monospace" font-size="0.875rem" line-height="1.25rem" color=(file.excluded ? "light-dark(#71717b, #818181)" : "light-dark(#27272a, #f5f5f5)")
         if file.excluded
           text "Excluded" flex-shrink=0 font-family="ui-monospace" font-size="0.875rem" line-height="1.25rem" color="light-dark(#71717b, #818181)"
