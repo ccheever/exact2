@@ -1,4 +1,4 @@
-//! Per-column shadow values on the wire (LLP 1121 stage 12, `tamber/1.15`,
+//! Per-column shadow values on the wire (LLP 1121 stage 12, `tamber/1.16`,
 //! theme2's 20:50 ruling): a shadow token's value over unset base names
 //! gains D1's `columns` (`{value}`, the whole shadow's text as that column's
 //! host reads it) on `explain`'s value, each `when` line and each of

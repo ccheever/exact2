@@ -1,7 +1,7 @@
 # The Tamber protocol, `tamber/1`
 
 The reference for the design server's wire (LLP 1121 D13), versioned with it. This page
-describes **`tamber/1.15`**, the version `hello` reports. The design and the reasons are in LLP 1121
+describes **`tamber/1.16`**, the version `hello` reports. The design and the reasons are in LLP 1121
 D13 and LLP 1122 D2, D9 and D10; what was built and how it differs from them is in each RFC's §10.
 The recipe is `docs/recipes/tamber.md`. Each change to the wire changes this page in the same
 commit.
@@ -11,7 +11,7 @@ on macOS and Linux.
 
 ## Versions
 
-- `hello` reports the protocol (`"tamber/1.15"`) and the IR's format number (`format`).
+- `hello` reports the protocol (`"tamber/1.16"`) and the IR's format number (`format`).
 - **A minor version** adds requests or fields. A client ignores fields it doesn't know.
 - **No request carries a client's version.** A client checks `hello`'s `protocol` itself and stops
   on a major version it doesn't speak.
@@ -119,8 +119,7 @@ on macOS and Linux.
   values for a length over unset base names (stage 12 D1); a shadow token's lengths as expressions over
   length tokens and base names, those over unset base names kept as written: in `resolve`'s shadows such a length is null among `lengths`, and
   `length_texts` (only then) gives every length's text, with the base names they read in `bases`
-  (stage 12 B3); a shadow token's per-column values over unset base names (`columns`, D1's form but
-  for the terminal's; each shadow's `columns` with its `value` and `lengths`); a param's levels (stage 12 B2-levels):
+  (stage 12 B3); a param's levels (stage 12 B2-levels):
   `explain`'s and `resolve`'s `levels`, each of `resolve`'s tuples' winning `level` and `name` per
   side (`{light, dark}`: a correction within the window, which first gave one of each), and
   `describe`'s param rows' `reaches`; `describe`'s library components' `parts`, `variants` and
@@ -137,6 +136,9 @@ on macOS and Linux.
   with `states: [{state, source, editable}]`, each folded part's place and its own edit; the
   development-only source map lists each Contract source's `home`, from which a param's full name
   is built.
+- `tamber/1.16` (after stage 12 closed) adds a shadow token's per-column values over unset base names:
+  `columns` on `explain`'s value, each `when` line and each of `resolve`'s tuples (D1's form, but for the
+  terminal's), and each of `resolve`'s shadows' `columns` with its `value` and `lengths`.
 
 ## Where it runs
 
@@ -611,7 +613,7 @@ tuple:
   layout rounds a space to whole cells on the axis it spaces); a column it doesn't fold in is left
   out. An app-set base name folds into its own value, so one whose fold reaches no unset base name
   is one value and has none (`space.md = space.sm` still reaches `space.sm`, and has them).
-  A shadow token (*1.15*) with a length over unset base names gets the same `columns` in the
+  A shadow token (*1.16*) with a length over unset base names gets the same `columns` in the
   same places, minus the terminal's (the terminal draws no shadow: a stated exception to "left
   out only where it doesn't fold"), each `value` the whole shadow's text as that column's host
   reads it (the kernel's `fold_lengths`, `"0px 16px 16px #000000ff"`, a colour kept whole), and

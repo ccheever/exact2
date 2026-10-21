@@ -5699,7 +5699,7 @@ codec and the wire don't move: the theme row's value is the shadow's text, its l
   row's CSS); kernel `is_length_item`; `an_unkinded_shadow_of_functions_asks_for_its_kind` (functions over base
   names, and over numbers).
 
-**Follow-up: per-column shadow values** (`tamber/1.15`; QUEUE's B3 entry beside D1's, the lead's 20:40Z task;
+**Follow-up: per-column shadow values** (`tamber/1.16`'s first change, stage 12 having closed: hello bumps; QUEUE's B3 entry beside D1's, the lead's 20:40Z task;
 theme2's 20:50 ruling on `~/x2theme/x2p4-s12-shadowcols-plan.md`). A shadow token's value with a length over unset
 base names gets D1's `columns` in D1's places: `explain`'s value, each `when` line (as the first tuple choosing it
 folds it) and each of `resolve`'s tuples, `{ios, mac, neutral, material: {value}}`, each `value` the whole shadow's

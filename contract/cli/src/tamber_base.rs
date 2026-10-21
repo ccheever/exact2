@@ -75,7 +75,7 @@ fn shadow_text(text: &str, column: exact_kernel::style::metrics::Column) -> Opti
 }
 
 /// A shadow token's value over unset base names in each column but the
-/// terminal's, D1's form (*1.15*, stage 12): `{value}`, the whole shadow's
+/// terminal's, D1's form (*1.16*): `{value}`, the whole shadow's
 /// text as that column's host reads it ([`shadow_text`]); a column it
 /// doesn't fold in is left out. None for a shadow with no length over an
 /// unset base (px only, or over a base the app sets, folded to px).
@@ -100,7 +100,7 @@ fn shadow_columns_of(s: &exact_tamber::Shadows) -> Option<Value> {
 }
 
 /// One shadow of a token's, over unset base names, in each column but the
-/// terminal's (*1.15*, stage 12): `{value, lengths}`, its own text as that
+/// terminal's (*1.16*): `{value, lengths}`, its own text as that
 /// column's host reads it and each of its lengths' px there, a number in
 /// `lengths`' order (the kernel's fold of each, as `fold_lengths` folds
 /// it; a zero never negative). None for one with no such length.
@@ -450,7 +450,7 @@ impl Server {
                                     let texts: Vec<String> = one.lengths.iter().map(ShadowLength::css).collect();
                                     out["length_texts"] = json!(texts);
                                 }
-                                // Its own text and numbers by column (*1.15*).
+                                // Its own text and numbers by column (*1.16*).
                                 if let Some(columns) = one_shadow_columns(s.text, one) {
                                     out["columns"] = columns;
                                 }
@@ -458,7 +458,7 @@ impl Server {
                             })
                             .collect();
                         let mut out = json!({"modes": modes, "value": v.css(), "kind": if s.text { "text-shadow" } else { "box-shadow" }, "shadows": shadows});
-                        // Each host's text, by column but the terminal's (*1.15*).
+                        // Each host's text, by column but the terminal's (*1.16*).
                         if let Some(columns) = shadow_columns_of(s) {
                             out["columns"] = columns;
                         }
@@ -553,7 +553,7 @@ impl Server {
             .zip(&folding.design.tokens)
             .find(|(t, _)| t.name == name)
             .ok_or_else(|| no_token(&folding, &name))?;
-        // Each line's value over base names in each column (*1.15*), as the
+        // Each line's value over base names in each column (*1.15*; a shadow's *1.16*), as the
         // first tuple that line chooses folds it (a line no tuple chooses,
         // none): a length's, and a shadow's but for the terminal.
         let axes = &folding.design.axes;
