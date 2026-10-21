@@ -200,7 +200,11 @@ impl Lowerer<'_> {
         let uses = font_use(&self.declared_fonts, attrs)?;
         debug_assert!(uses
             .iter()
-            .all(|u| self.font_stacks.values().any(|s| *s == u.font.stack)));
+            .all(|u| self
+                .declared_fonts
+                .iter()
+                .any(|(name, f)| f.stack == u.font.stack
+                    && self.font_stacks.get(name) == Some(&f.stack))));
         Ok(uses)
     }
 

@@ -553,9 +553,13 @@ fn judge(
     shapes: &contract_types::Shapes,
 ) -> Result<bool, LowerError> {
     let (a, fonts) = (&r.attr, r.fonts.as_ref());
-    let uses = fonts
-        .and_then(|f| crate::fonts::font_use(&f.declared, &f.attrs).ok())
-        .unwrap_or_default();
+    // A family list lowering refuses stops the element before any font
+    // check (`nodes.rs`'s `font_use(expanded)?`): not judged here.
+    let uses = match fonts.map(|f| crate::fonts::font_use(&f.declared, &f.attrs)) {
+        Some(Err(_)) => return Ok(false),
+        Some(Ok(uses)) => uses,
+        None => Vec::new(),
+    };
     let kind = match a.name.as_str() {
         "font" => Some((tamber::Kind::Type, &uses[..])),
         "font-family" => Some((tamber::Kind::Family, &[][..])),

@@ -623,3 +623,53 @@ fn a_font_choice_is_judged_whole() {
         &design.replace("one = 400", "one = italic 400"),
     );
 }
+
+/// A write that makes a type token vary by an app axis, written on a node
+/// with children, is refused as the build refuses it
+/// (`tamber-inherited-axis`); on a text with none it is accepted (Grok's
+/// D1 round 1).
+#[test]
+fn a_type_token_made_to_vary_on_a_container_is_refused() {
+    let design = "tamber t\n\naxes\n  density = regular | roomy\n\ntheme\n  ink = #111111\n  vary = 400 1rem Georgia\n    when density=roomy: 400 1.25rem Georgia\n  body = 400 1rem Georgia\n";
+    let contract = "use Card from \"@acme/reading\"\ncomponent App\n  view\n    column font=\"body\"\n      text \"x\"\n      Card()\n";
+    same_words(
+        &reading("rows-font-axis"),
+        design,
+        contract,
+        json!({"op": "set-token", "name": "body", "value": "vary"}),
+        &design.replace("body = 400 1rem Georgia", "body = vary"),
+    );
+    let dir = reading("rows-font-axis-ok");
+    std::fs::write(dir.join("app.tamber"), design).unwrap();
+    std::fs::write(
+        dir.join("app.contract"),
+        "use Card from \"@acme/reading\"\ncomponent App\n  view\n    column\n      text \"x\" font=\"body\"\n      Card()\n",
+    )
+    .unwrap();
+    let mut s = Serve::start(&dir, &[]);
+    s.ask(json!({"method": "propose", "ops": [{"op": "set-token", "name": "ink", "value": "#444444"}]}));
+    let w = transaction(
+        &mut s,
+        &dir,
+        json!({"op": "set-token", "name": "body", "value": "vary"}),
+    );
+    assert!(w.get("ok").is_some(), "{w}");
+    drop(s);
+    contract::compile_path(&dir.join("app.contract")).unwrap();
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// `font-style="italic"` beside a family token, which a write makes a
+/// family with no italic face: refused in the build's words.
+#[test]
+fn a_family_write_breaking_an_italic_beside_it_is_refused() {
+    let design = "tamber t\n\ntheme\n  ink = #111111\n  family.text = \"Both\"\n";
+    let contract = format!("{FONTS}font \"Both\"\n  400 = \"assets/DejaVuSans.ttf\"\n  400 italic = \"assets/DejaVuSans-Bold.ttf\"\ncomponent App\n  view\n    column\n      text \"x\" font-family=\"family.text\" font-style=\"italic\"\n      Card()\n");
+    same_words(
+        &with_fonts("rows-font-italic"),
+        design,
+        &contract,
+        json!({"op": "set-token", "name": "family.text", "value": "\"Fixture Sans\""}),
+        &design.replace("\"Both\"", "\"Fixture Sans\""),
+    );
+}
