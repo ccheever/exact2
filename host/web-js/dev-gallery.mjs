@@ -17,6 +17,7 @@ import { createHash } from 'node:crypto';
 import { existsSync, lstatSync, mkdirSync, readFileSync, readlinkSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { buildTreeFile, replaceBuild, sendStaticBody, webContentType } from '../web/serve.mjs';
+import { fresh } from './module.mjs';
 
 /** The gallery's build cache: under the app's nearest `node_modules` (which
  * package resolution reaches, and git and describe's files don't), else the
@@ -38,40 +39,43 @@ const MAPS = 4;
 /** The gallery for one loop. `client(n)` is the dev client script for a
  * page of build `n` (the loop's own, with the gallery's stream, design and
  * page); `channel()` the build channel; `appDist` the app's dist (the
- * gallery's assets are the app's, served from there); `inspectTable(plan)`
- * a plan's inspect table, as the loop makes the app's; `compiler()` the
- * loop's fresh JS-target compiler, if any. Answers its routes (`handle`),
- * hears that the app published (`appChanged`, `designKept`), keeps its
- * maps (`map`), and stops (`stop`). */
-export function galleryLoop({ app, root, appDist, channel = () => null, client, inspectTable = async () => null, compiler = () => null, env = process.env, log = console.log, idleMs = 60_000 }) {
+ * gallery's assets are the app's, served from there); `tableTool()` the
+ * command that makes a plan's inspect table, as the loop makes the app's
+ * (`{cmd, pre}`); `compiler()` the loop's fresh JS-target compiler, if any;
+ * `design()` the app's committed design digest. Answers its routes
+ * (`handle`), hears that the app published (`appChanged`, `designKept`, each
+ * called after the app's own publication), keeps its maps (`map`), and stops
+ * (`stop`), every process it started with it. */
+export function galleryLoop({ app, root, appDist, channel = () => null, client, tableTool = () => null, compiler = () => null, design: designNow = () => null, env = process.env, log = console.log, idleMs = 60_000 }) {
   const cache = galleryCache(app, root);
   const source = resolve(cache, 'source'), live = resolve(cache, 'live'), stage = resolve(cache, 'stage'), dist = resolve(cache, 'dist');
-  const clients = new Set(), maps = new Map();
+  const clients = new Set(), maps = new Map(), tables = new Map(), procs = new Set();
   // `seq` only grows (a page that reconnects compares against it); `active` while a page has asked since the last
   // idle stop; `run` counts stops, so what a stopped run finishes says nothing.
-  let seq = 0, built = false, active = false, failed = null, child = null, busy = false, again = false, idle = null, run = 0, design = null;
+  let seq = 0, built = false, active = false, failed = null, busy = false, again = false, idle = null, run = 0, design = null;
 
   const push = (frame) => { for (const res of clients) res.write(json(frame)); };
   const fail = (error) => { failed = error; log(`gallery: ${String(error).split('\n')[0]}`); push({ error: String(error) }); };
 
-  // The contract compiler as built (the design server's `cargo run` keeps it fresh), not another `cargo run` on the
-  // target's lock; Cargo only when it isn't there or doesn't know `gallery` yet.
-  const contractBin = resolve(env.CARGO_TARGET_DIR ?? resolve(root, 'target'), 'debug/contract');
+  // The contract compiler as built, while it is fresh by its dep-info (the design server's `cargo run` keeps it so),
+  // never another `cargo run` on the app's target and its lock: else Cargo builds it in a target of the gallery's own.
+  const target = env.CARGO_TARGET_DIR ?? resolve(root, 'target'), contractBin = resolve(target, 'debug/contract');
 
-  /** `cmd args`, its output; ended when its whole process group is gone (the builder's own children outlive it a
-   * moment), killed after 5 s more. */
+  /** `cmd args`, its output, in a process group of its own, which the gallery owns (`procs`) until the whole
+   * group is gone (the builder's own children, its `git`, outlive it a moment), killed after 5 s more. */
   function step(cmd, args, options) {
     return new Promise((done) => {
-      const c = child = spawn(cmd, args, { cwd: root, stdio: ['ignore', 'pipe', 'pipe'], detached: true, ...options });
+      const c = spawn(cmd, args, { cwd: root, stdio: ['ignore', 'pipe', 'pipe'], detached: true, ...options });
+      procs.add(c);
       let output = '';
-      c.stdout.on('data', (d) => { output += d; });
-      c.stderr.on('data', (d) => { output += d; });
+      c.stdout?.on('data', (d) => { output += d; });
+      c.stderr?.on('data', (d) => { output += d; });
       const gone = (code, until = Date.now() + 5000) => {
-        try { process.kill(-c.pid, 0); } catch (e) { if (e.code === 'ESRCH') { if (child === c) child = null; return done({ code, output }); } }
+        try { process.kill(-c.pid, 0); } catch (e) { if (e.code === 'ESRCH') { procs.delete(c); return done({ code, output }); } }
         if (Date.now() > until) { try { process.kill(-c.pid, 'SIGKILL'); } catch { /* gone */ } }
         setTimeout(() => gone(code, until), 20);
       };
-      c.on('error', (e) => { if (child === c) child = null; done({ code: -1, output: String(e) }); });
+      c.on('error', (e) => { procs.delete(c); done({ code: -1, output: String(e) }); });
       c.on('exit', (code) => gone(code));
     });
   }
@@ -81,10 +85,13 @@ export function galleryLoop({ app, root, appDist, channel = () => null, client, 
     if (busy) { again = true; return; }
     busy = true;
     const mine = run;
+    // The design it builds on: one kept since is news, this one isn't.
+    design = designNow();
     try {
-      let made = existsSync(contractBin) ? await step(contractBin, ['gallery', app.dir, '-o', source], { env }) : { code: 2 };
+      const own = fresh(contractBin, `${contractBin}.d`);
+      let made = own ? await step(contractBin, ['gallery', app.dir, '-o', source], { env }) : { code: 2 };
       if (mine !== run) return;
-      if (made.code === 2) made = await step('cargo', ['run', '-q', '-p', 'contract', '--', 'gallery', app.dir, '-o', source], { env });
+      if (made.code === 2) made = await step('cargo', ['run', '-q', '-p', 'contract', '--', 'gallery', app.dir, '-o', source], { env: { ...env, CARGO_TARGET_DIR: resolve(cache, 'cargo') } });
       if (mine !== run) return;
       if (made.code !== 0) return fail(made.output.trim() || `contract gallery exited ${made.code}`);
       mkdirSync(live, { recursive: true });
@@ -97,8 +104,8 @@ export function galleryLoop({ app, root, appDist, channel = () => null, client, 
       log(made.output.trim().split('\n').pop());
       // The JS target's build, rendering no pages, into its own stage: nothing of the app's build is shared.
       rmSync(stage, { recursive: true, force: true });
-      const started = Date.now(), fresh = compiler();
-      const out = await step(process.execPath, [resolve(root, 'host/web-js/build.mjs'), live, '--out', stage, '--render', 'none', '--dev'], { env: fresh ? { ...env, EXACT_WEB_COMPILER: fresh } : env });
+      const started = Date.now(), webCompiler = compiler();
+      const out = await step(process.execPath, [resolve(root, 'host/web-js/build.mjs'), live, '--out', stage, '--render', 'none', '--dev'], { env: webCompiler ? { ...env, EXACT_WEB_COMPILER: webCompiler } : env });
       if (mine !== run) return;
       if (out.code !== 0) { rmSync(stage, { recursive: true, force: true }); return fail(out.output.split('\n').filter((l) => l.trim() && !/^\s*(Compiling|Finished|Running|warning)/.test(l)).slice(-20).join('\n') || `the gallery's build exited ${out.code}`); }
       replaceBuild(stage, dist);
@@ -132,24 +139,44 @@ export function galleryLoop({ app, root, appDist, channel = () => null, client, 
     idle = setTimeout(() => { if (!clients.size) { log('gallery: no page for a while; it stopped'); active = false; stop(); } }, idleMs);
   }
 
-  /** Asked for by a page: made, if it has no build or was stopped since, or failed; its quiet period begun again. */
+  /** Asked for by a page: made, if it has no build or was stopped since, or failed; its quiet period begun again.
+   * A page joining the build under way (its first page's stream) adds none. */
   function ensure() {
     const wasActive = active;
     active = true;
-    if (!built || !wasActive || failed) { if (busy) again = true; else refresh(); }
+    if (busy) { if (!wasActive || failed) again = true; } else if (!built || !wasActive || failed) refresh();
     quiet();
   }
 
   /** Its build stopped; started again by the next page. */
   function stop() {
-    clearTimeout(idle); idle = null; run += 1; again = false;
-    const c = child;
-    if (!c || c.exitCode !== null || c.signalCode !== null) return Promise.resolve();
-    const gone = new Promise((ok) => { c.once('exit', ok); setTimeout(ok, 5000); });
-    try { process.kill(-c.pid, 'SIGKILL'); } catch { try { c.kill('SIGKILL'); } catch { /* gone */ } }
-    return gone;
+    clearTimeout(idle); idle = null; run += 1; again = false; tables.clear();
+    return Promise.all([...procs].map((c) => {
+      const gone = new Promise((ok) => { if (c.exitCode !== null || c.signalCode !== null) ok(); c.once('exit', ok); setTimeout(ok, 5000); });
+      try { process.kill(-c.pid, 'SIGKILL'); } catch { try { c.kill('SIGKILL'); } catch { /* gone */ } }
+      return gone;
+    }));
   }
-  process.once('exit', () => { if (child) { try { process.kill(-child.pid, 'SIGKILL'); } catch { /* gone */ } } });
+  process.once('exit', () => { for (const c of procs) { try { process.kill(-c.pid, 'SIGKILL'); } catch { /* gone */ } } });
+
+  /** Its plan's inspect table (the loop's own command, a process of the gallery's), the last two. */
+  function inspectTable(digest) {
+    if (!tables.has(digest)) {
+      const tool = tableTool(), out = resolve(cache, `inspect-${digest}.json`);
+      tables.set(digest, (async () => {
+        if (!tool) return null;
+        const made = await step(tool.cmd, [...tool.pre, 'inspect-table', resolve(dist, 'app.plan'), out], {});
+        tool.done?.();
+        let bytes = null;
+        try { bytes = made.code === 0 ? readFileSync(out) : null; if (bytes && JSON.parse(bytes).plan !== digest) bytes = null; } catch { bytes = null; }
+        rmSync(out, { force: true });
+        if (!bytes) tables.delete(digest);
+        return bytes;
+      })());
+      for (const old of [...tables.keys()].slice(0, Math.max(0, tables.size - 2))) tables.delete(old);
+    }
+    return tables.get(digest);
+  }
 
   /** The stream: the build channel's (its commands, its nonce), the gallery's reloads and errors. */
   function stream(req, res) {
@@ -179,7 +206,7 @@ export function galleryLoop({ app, root, appDist, channel = () => null, client, 
       if (rest === '/dev-inspect.json' && req.method === 'GET') {
         let digest = null;
         try { digest = createHash('sha256').update(readFileSync(resolve(dist, 'app.plan'))).digest('hex'); } catch { /* no build */ }
-        const bytes = digest && await inspectTable(digest, dist);
+        const bytes = digest && await inspectTable(digest);
         if (!bytes) { res.writeHead(503, { 'cache-control': 'no-store' }); res.end(); return true; }
         res.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store' });
         res.end(bytes);
@@ -204,7 +231,8 @@ export function galleryLoop({ app, root, appDist, channel = () => null, client, 
       if (found.route.endsWith('.html')) {
         // Its files are under the gallery's path (a page with no `<base>` given one); its dev client the gallery's.
         body = readFileSync(found.path).toString();
-        body = body.includes('<base href="/">') ? body.replace('<base href="/">', '<base href="/__dev/gallery/">') : body.replace(/<head[^>]*>/, (h) => `${h}<base href="/__dev/gallery/">`);
+        const base = '<base href="/__dev/gallery/">';
+        body = body.includes('<base href="/">') ? body.replace('<base href="/">', base) : /<head[^>]*>/.test(body) ? body.replace(/<head[^>]*>/, (h) => `${h}${base}`) : body.replace(/^(<!doctype[^>]*>)?/i, (d) => `${d}${base}`);
         body += client(seq);
       }
       send(req, res, found, body);

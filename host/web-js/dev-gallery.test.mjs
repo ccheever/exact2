@@ -165,3 +165,52 @@ test("a gallery that can't be made says so on its stream only, and is made once 
   rmSync(resolve(dir, '..'), { recursive: true, force: true });
   rmSync(cache, { recursive: true, force: true });
 }, 900_000);
+
+test("the gallery is told of a kept design only after the app's own publication: each call deferred past the batch", () => {
+  const s = readFileSync(resolve(ROOT, 'host/web-js/dev.mjs'), 'utf8');
+  const calls = s.split('\n').filter((l) => l.includes('gallery.designKept('));
+  expect(calls.length).toBe(3);
+  for (const l of calls) expect(l).toContain('setImmediate(() => gallery.designKept(');
+  // A reload's: after the push.
+  expect(s).toContain('push({ reload: seq, revision: logicRevision }); gallery.appChanged();');
+});
+
+/** A stand-in root and target: a `contract` that writes the gallery's source (or waits, holding a child of its
+ * own), and a builder that waits holding one; each records its pid and its child's. */
+function standIns(stall) {
+  const dir = mkdtempSync(join(tmpdir(), 'exact-gallery-life-'));
+  const pids = join(dir, 'pids');
+  writeFileSync(pids, '');
+  const hold = `sleep 30 & echo $! >> ${pids}; echo $$ >> ${pids};`;
+  mkdirSync(join(dir, 'target/debug'), { recursive: true });
+  writeFileSync(join(dir, 'src.rs'), '');
+  writeFileSync(join(dir, 'target/debug/contract'), `#!/bin/sh\n${stall === 'generate' ? `${hold} sleep 30` : 'mkdir -p "$4"; echo "// Generated" > "$4/app.contract"; echo "{}" > "$4/app.json"; echo made'}\n`, { mode: 0o755 });
+  writeFileSync(join(dir, 'target/debug/contract.d'), `${join(dir, 'target/debug/contract')}: ${join(dir, 'src.rs')}\n`);
+  mkdirSync(join(dir, 'root/host/web-js'), { recursive: true });
+  writeFileSync(join(dir, 'root/host/web-js/build.mjs'), `const { spawn } = require('node:child_process'); const fs = require('node:fs'); const c = spawn('sleep', ['30']); fs.appendFileSync(${JSON.stringify(pids)}, c.pid + '\\n' + process.pid + '\\n'); setTimeout(() => {}, 30000);\n`);
+  mkdirSync(join(dir, 'app'), { recursive: true });
+  return { dir, pids: () => readFileSync(pids, 'utf8').split('\n').filter(Boolean).map(Number) };
+}
+const fakeRes = () => ({ writeHead() {}, write() {}, end() {} });
+const fakeReq = () => { const handlers = {}; return { method: 'GET', headers: {}, on: (e, f) => { handlers[e] = f; }, close: () => handlers.close?.() }; };
+
+test('every process the gallery starts, a child of its generator or its builder included, stops with it: at stop, at either stage, and when its last page has been gone a while', async () => {
+  const { galleryLoop } = await import('./dev-gallery.mjs');
+  for (const stage of ['generate', 'build']) {
+    const s = standIns(stage);
+    const loop = galleryLoop({ app: { dir: join(s.dir, 'app'), id: `life-${stage}` }, root: join(s.dir, 'root'), appDist: join(s.dir, 'dist'), env: { ...process.env, CARGO_TARGET_DIR: join(s.dir, 'target') }, client: () => '', log: () => {}, idleMs: 200 });
+    rmSync(loop.cache, { recursive: true, force: true });
+    const req = fakeReq();
+    await loop.handle(req, fakeRes(), new URL('http://x/__dev/gallery/stream'));
+    await until(() => s.pids().length >= 2, 30_000);
+    const started = s.pids();
+    expect(started.every(alive)).toBe(true);
+    if (stage === 'generate') await loop.stop();
+    // Its last page gone: after the quiet period, its processes stopped with it.
+    else { req.close(); await until(() => !started.some(alive), 10_000); }
+    await until(() => !started.some(alive), 10_000);
+    expect(started.filter(alive)).toEqual([]);
+    rmSync(loop.cache, { recursive: true, force: true });
+    rmSync(s.dir, { recursive: true, force: true });
+  }
+}, 120_000);

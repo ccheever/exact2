@@ -369,12 +369,12 @@ export async function devJs({ app, dist, port, host, origins, gate, lan, allowHo
   // makes it), kept by the plan's digest, the 4 last; it names that plan,
   // and one made while dist moved on is not served.
   const tables = new Map();
-  const inspectTable = (digest, from = dist) => { // (the gallery's dist too: its own plan's table)
+  const inspectTable = (digest) => {
     if (!tables.has(digest)) {
       tables.set(digest, new Promise((done) => {
         const out = resolve(app.target, `inspect-${digest}.json`);
         const compiler = toolFresh() ? { cmd: tool.path, pre: [], done() {} } : webCompiler();
-        const child = spawn(compiler.cmd, [...compiler.pre, 'inspect-table', resolve(from, 'app.plan'), out], { cwd: root, stdio: ['ignore', 'ignore', 'pipe'] });
+        const child = spawn(compiler.cmd, [...compiler.pre, 'inspect-table', resolve(dist, 'app.plan'), out], { cwd: root, stdio: ['ignore', 'ignore', 'pipe'] });
         let err = '';
         child.stderr.on('data', (d) => { err += d; });
         child.on('exit', (code) => {
@@ -442,6 +442,11 @@ export async function devJs({ app, dist, port, host, origins, gate, lan, allowHo
   const backendOf = () => { try { return readFileSync(resolve(app.dir, '.exact/backend-origin'), 'utf8'); } catch { return null; } };
   let backendSeen = backendOf();
   const pending = new Map(); // seq -> the save it answers
+  // The variant gallery (dev-gallery.mjs), started by its first page: told of each publication after it is out.
+  const gallery = galleryLoop({ app, root, appDist: dist, channel: () => tamber?.channel, design: () => design?.digest ?? null, idleMs: Number(process.env.EXACT_DEV_GALLERY_IDLE_MS) || undefined,
+    tableTool: () => (toolFresh() ? { cmd: tool.path, pre: [], done() {} } : webCompiler()),
+    compiler: () => { const copy = resolve(app.target, `web-js-dev-compiler-${app.name.replace(/[^\w.-]/g, '_')}`); return freshCompiler(copy) ? copy : null; },
+    client: (n) => client(n, null, { base: '/__dev/gallery', stream: '/__dev/gallery/stream', page: 'gallery' }) });
   const rebuild = async () => {
     // A burst a build already took (its timer still armed) is no edit.
     if (!edited.size) return;
@@ -491,7 +496,7 @@ export async function devJs({ app, dist, port, host, origins, gate, lan, allowHo
         served = { digest: design.digest ?? null, source: designFrom = createHash('sha256').update(text).digest('hex') };
         const keep = scrubbed && released ? releasedMark() : undefined;
         const committed = { kind: 'tamber-snapshot', structure: design.shape, base: null, design: design.digest, tokens: design.tokens, scrub: keep };
-        if (scrubbed) aside = committed; else { snapshot = committed; gallery.designKept(design.digest); } // (the gallery: a kept design, never a scrub's)
+        if (scrubbed) aside = committed; else { snapshot = committed; const kept = design.digest; setImmediate(() => gallery.designKept(kept)); } // (the gallery: a kept design, never a scrub's, once the batch below is out)
         const tokens = design.tokens.filter((tk, i) => !same(tk, from.tokens[i]));
         if (tokens.length && !scrubbed) {
           console.log(`edit → batch ready ${Date.now() - at} ms (design read in ${Date.now() - t} ms, no build) · ${tokens.length} token${tokens.length === 1 ? '' : 's'} to ${clients.size} page${clients.size === 1 ? '' : 's'}, no reload`);
@@ -567,7 +572,7 @@ export async function devJs({ app, dist, port, host, origins, gate, lan, allowHo
       // its end restores. A released scrub's build goes from it, and ends it.
       const keep = scrubbed && released ? releasedMark() : undefined;
       const committed = { kind: 'tamber-snapshot', structure: design.shape, base: null, design: design.digest, tokens: design.tokens, scrub: keep };
-      if (scrubbed) aside = committed; else { snapshot = committed; gallery.designKept(design.digest); }
+      if (scrubbed) aside = committed; else { snapshot = committed; const kept = design.digest; setImmediate(() => gallery.designKept(kept)); }
       // A batch sent before this build: it checked out, and stands.
       if (fast && !tokens.length) console.log(`edit → checked in ${Date.now() - t} ms · the batch stands`);
       if (tokens.length && !scrubbed) {
@@ -719,9 +724,6 @@ let due=false;const moved=()=>{if(due||!ch.nonce)return;due=true;setTimeout(()=>
 const nav=m=>{liveQ=liveQ.then(async()=>{await ready();const mine=()=>m.stream===ch.nonce;if(!mine())return;const x=globalThis.exact,u=new URL(m.location,location.origin),to=u.pathname+u.search,no=d=>{if(mine())rep({kind:'unsupported',what:'navigate',detail:String(d).slice(0,1024),revision:m.seq})};if(u.origin!==location.origin||u.pathname.startsWith('//'))return no("the location is no path on this page's origin");const there=()=>history.state?.url===to||location.pathname+location.search===to,before=history.state?.url;try{if(!there()){const why=typeof x?.goTo==='function'?x.goTo(to):'this page has no router';if(why)return no(why)}for(let i=0;i<100&&!there()&&history.state?.url===before;i++)await new Promise(ok=>setTimeout(ok,10));if(mine()&&there()&&u.hash!==location.hash)history.replaceState(history.state,'',location.origin+location.pathname+location.search+u.hash)}catch(e){return no(String(e))}moved()}).catch(e=>console.error('exact dev:',e))};
 const pin=m=>{liveQ=liveQ.then(async()=>{await ready();const r=document.documentElement.style,p=m.pin,x=globalThis.exact,was=x.held;let rm=0;x.held=cp&&p?Object.fromEntries([['scheme',!!p.scheme],['rootFontSize',!!p.rootFontSize],...Object.keys(p.mode??{}).map(a=>['mode:'+a,true])]):null;ch.before??={fontSize:r.fontSize,hostFont:r.getPropertyValue('--exact-host-font-size'),mode:x?.modes?.read?.()??{}};const sh=document.getElementById('exact-dev-pin')??document.head.appendChild(Object.assign(document.createElement('style'),{id:'exact-dev-pin'}));sh.textContent=p?.scheme?':root{color-scheme:'+p.scheme+(cp?'!important':'')+'}':'';if((x.systemScheme??null)!==(p?.scheme??null)){x.systemScheme=p?.scheme??null;dispatchEvent(new Event('resize'))}r.removeProperty('font-size');if(cp&&p?.rootFontSize)r.setProperty('font-size',p.rootFontSize+'px','important');else r.fontSize=p?.rootFontSize?p.rootFontSize+'px':ch.before.fontSize;if(p?.rootFontSize)r.setProperty('--exact-host-font-size',r.fontSize);else if(ch.before.hostFont)r.setProperty('--exact-host-font-size',ch.before.hostFont);else r.removeProperty('--exact-host-font-size');const last=ch.pin?.mode??{},back=Object.fromEntries(Object.entries(ch.before.mode??{}).filter(([a])=>a in last&&!(a in(p?.mode??{}))&&!(cp&&x.asked?.['mode:'+a]))),mode=Object.entries(p?(cp?{...back,...(p.mode??{})}:{...ch.before.mode,...(p.mode??{})}):back);if(mode.length&&x?.modes?.set){const why=x.modes.set(mode);if(why){rm=1;rep({kind:'unsupported',what:'pin.mode',detail:why,revision:m.revision});if(!cp)x.modes.set(Object.entries(ch.before.mode));if(x.held){for(const k of Object.keys(x.held))if(k.startsWith('mode:'))delete x.held[k];for(const [k,on]of Object.entries(was??{}))if(on&&k.startsWith('mode:'))x.held[k]=true}}dispatchEvent(new Event('resize'))}if(p?.contrast)rep({kind:'unsupported',what:'pin.contrast',detail:"a web page cannot pin the browser's contrast",revision:m.revision});for(const [f,on]of Object.entries(was??{}))if(on&&!x.held?.[f])x.asked?.[f]?.apply();if(!p)ch.before=null;ch.pin=p?(cp&&rm?{...p,mode:last}:p):null;ch.revision=m.revision;status()}).catch(e=>console.error('exact dev:',e))};
 es.onmessage=e=>{const m=JSON.parse(e.data);if(m.kind==='tamber-batch'||m.kind==='tamber-snapshot'){live(m);return}if(m.kind==='pin'){pin(m);return}if(m.kind==='navigate'){m.stream=ch.nonce;nav(m);return}if(m.kind==='inspect'||m.kind==='outline'||m.kind==='hold'){m.stream=ch.nonce;inspector.then(i=>i.frame(m)).catch(e=>rep({kind:'unsupported',what:m.kind,detail:String(e)}));return}if(m.nonce&&m.nonce!==ch.nonce){const n=ch.nonce=m.nonce;ch.registered=ready().then(async()=>{const id=await bid,ok=(await post(n,{kind:'register',id,host:'web-js',capabilities:${page ? `['pin','inspect','hold'],page:'${page}'` : "['pin','inspect','hold','navigate']"},plan:null,planDigest:globalThis.exact?.plan??null,design:globalThis.exact?.designDigest??null})).ok;if(ok&&window!==parent)parent.postMessage({type:'exact-build',id},'*');return ok}).catch(()=>false);status()}if(m.error!==undefined)show(m.error);if(m.reload>seq&&!reloading){reloading=true;if(!globalThis.exact){location.reload();return}ready().then(async()=>{const checkpoint=capture(m.revision!==logicRevision),id=crypto.getRandomValues(new Uint32Array(4)).join('-');console.info('exact dev reload: checkpoint',m.reload);const saved=await fetch('${base}/checkpoint?id='+id+'&seq='+m.reload+'&revision='+encodeURIComponent(m.revision??''),{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(checkpoint)});if(saved.status===403){console.info('exact dev reload: no checkpoint at this scope; a fresh load');location.reload();return}if(!saved.ok)throw new Error('checkpoint handoff answered '+saved.status);const next=new URL(location.href);next.searchParams.set('__exactDev',id);if(admission)for(const [k,v]of admission)if(!next.searchParams.has(k))next.searchParams.set(k,v);location.replace(next.href)}).catch(e=>{reloading=false;console.error('exact dev reload: current page retained; checkpoint handoff failed',e)})}}})()</script>`;
-  const gallery = galleryLoop({ app, root, appDist: dist, channel: () => tamber?.channel, inspectTable, idleMs: Number(process.env.EXACT_DEV_GALLERY_IDLE_MS) || undefined,
-    compiler: () => { const copy = resolve(app.target, `web-js-dev-compiler-${app.name.replace(/[^\w.-]/g, '_')}`); return freshCompiler(copy) ? copy : null; },
-    client: (n) => client(n, null, { base: '/__dev/gallery', stream: '/__dev/gallery/stream', page: 'gallery' }) }); // the variant gallery, started by its first page
   const checkpoints = new Map();
   /** A scrub's design: the compiler's, with its text in place of the design file's; written nowhere. */
   const scrubDesign = designOf;
@@ -839,7 +841,7 @@ es.onmessage=e=>{const m=JSON.parse(e.data);if(m.kind==='tamber-batch'||m.kind==
     scrubbed = null;
     // The committed design's snapshot (a page fetching it applies nothing new).
     snapshot = { ...(aside ?? { kind: 'tamber-snapshot', structure: design.shape, base: null, design: design.digest, tokens: design.tokens }), scrub: frame };
-    aside = null; gallery.designKept(design.digest); // an edit kept meanwhile reaches the gallery now
+    aside = null; const kept = design.digest; setImmediate(() => gallery.designKept(kept)); // an edit kept meanwhile reaches the gallery, after the restore's batch
     const tokens = design.tokens.filter((t, i) => !same(t, from.tokens[i]));
     if (!tokens.length) return;
     const batch = framed({ kind: 'tamber-batch', structure: design.shape, base: from.digest, design: design.digest, tokens, scrub: frame });
