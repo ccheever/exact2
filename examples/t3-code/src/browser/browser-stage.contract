@@ -125,7 +125,7 @@ component BrowserStage
         BrowserDeviceToolbar(view=view, width=pw, liveW=liveW, liveH=liveH, local=local)
       if view.server
         box position="absolute" left=vx top=vy width=vw height=vh
-          ServerBrowserPage(runtimeId=view.runtimeId, url=view.streamUrl, pageWidth=vw, pageHeight=vh, followSize=(not fixed), mini=false)
+          ServerBrowserPage(runtimeId=view.runtimeId, url=view.streamUrl, pdfUrl=view.pdfUrl, pageWidth=vw, pageHeight=vh, followSize=(not fixed), mini=false)
       else
         t3-browser tab=view.runtimeId url=view.url profile=view.profileId environment=view.environment fit-scale=`${scale}` page-size=pageSize window-zoom=`${view.windowZoom}` keys=view.keys chrome-focus=(urlFocused ? "true" : "false") key=pageKey aria-label="Browser page" testId="browser-page" position="absolute" left=vx top=vy width=vw height=vh box-shadow=(fixed ? "0 0 0 1px light-dark(#e4e4e7b3, #ffffff1a), 0 1px 2px #0000000d" : "none")
       if fixed
