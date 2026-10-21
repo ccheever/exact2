@@ -75,7 +75,7 @@ component SettingsProviderAccounts
                         button press=action("reveal", account.key, emailToken) min-height=44 padding=0 text-align="left" aria-label=account.emailAction
                           text account.email font-size=roles.footnote.size line-height=`${roles.footnote.line}px` color=colors.muted
                     if account.deviceCode.length > 0
-                      text account.deviceCode user-select="text" font-size=roles.body.size line-height=`${roles.body.line}px` color=colors.foreground
+                      text account.deviceCode user-select="text" font-size=14 color=colors.foreground
                     if account.output.length > 0
                       scroll max-height=224
                         text account.output user-select="text" font-family="Menlo" font-size=roles.footnote.size line-height=`${roles.footnote.line}px` color=colors.foreground
@@ -85,7 +85,7 @@ component SettingsProviderAccounts
                       if item.inline
                         SettingsProviderAction(item=item, account=account, colors=colors, roles=roles, danger=danger, action=action, signOut=signOut)
                     if account.error.length > 0
-                      text account.error role="alert" font-size=roles.body.size line-height=`${roles.body.line}px` color=danger
+                      text account.error role="alert" font-size=14 color=danger
                   for item in account.actions key=`${item.op}:${item.value}`
                     if not item.inline
                       SettingsProviderAction(item=item, account=account, colors=colors, roles=roles, danger=danger, action=action, signOut=signOut)
