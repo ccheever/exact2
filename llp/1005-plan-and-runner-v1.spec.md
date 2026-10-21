@@ -733,19 +733,30 @@ held modifiers stay `keyup` plus `exactPage().hasFocus` (2026-10-11, above).
 A cut, copy or paste with nothing focused goes to the root's handler too, as
 the DOM's goes to `<body>`.
 
-- **Web** (`rt.js` `atBody`, `glue.js` `attach`): a `window` listener takes
-  each keydown, keyup and clipboard event whose target is outside
-  `#exact-root` (`<body>`, the document) to the first root's handlers, its
-  capture before its `key`; the shortcuts' capture listener at the document
-  runs before it.
+- **Web** (`rt.js` `atBody`, `glue.js` `attach`): a listener on `<html>`
+  takes each keydown, keyup and clipboard event whose target is outside
+  `#exact-root` to the first root's handlers as it bubbles, its capture
+  before its `key`: after the shortcuts' capture listener at the document,
+  and before the document's defaults, so the root's `preventDefault()` keeps
+  a sheet's Escape (`navigation.js`) and a list's ⌘A (`list-selection.js`),
+  as on macOS and Linux.
 - **macOS** (`KeyEvents.swift` `keyPath`): a key at a window that is its own
   first responder, or whose first responder is the session's view or
   viewport, starts at the root; Edit's Cut, Copy, Paste and Paste and Match
   Style reach `RootEdits`, which follows the window in its responder chain
-  and enables the item while the root hears it.
+  and enables the item while the root hears it, for the session that owns
+  the window's keys (`ExactView.ownsShortcutFocus`). Two limits: a window
+  controller an embedder attaches after the session's view joined the
+  window takes the controller's place after the window and drops
+  `RootEdits` (keys are unaffected), and a sheet's own window (a dialog)
+  with nothing focused hears no cut, copy or paste.
 - **iOS** (`ExactView`, the first responder while nothing else is, again
   once the focused node unmounts): a hardware key's presses, and the edit
-  actions, at the root; the agent's key with nothing focused likewise.
+  actions, at the root; the agent's key with nothing focused likewise. A
+  key already down when the focused node unmounts brings its keyup to the
+  responder UIKit pressed it at, not to the root. No test drives
+  `pressesBegan` (UIKit makes no `UIPress` with a key for one);
+  `FieldClipboardIOSTests` holds the root's edit actions and its key path.
 - **Linux and Windows** (`key_event`, `hardware_key`): the root is the key's
   target with no focus; Tab then moves to the first stop unless prevented.
 - **Terminal** (`keys.rs`): the root's `key` handler hears the key before its
@@ -754,7 +765,7 @@ the DOM's goes to `<body>`.
 
 Tests: `KeyUpMacTests` (at launch and after the focused field unmounts),
 `FieldClipboardMacTests` (the root's paste), `FieldClipboardIOSTests` (the
-root's edit actions and key), Linux's
+root's edit actions and key path), Linux's
 `with_nothing_focused_the_root_hears_keys`, the terminal's
 `with_nothing_focused_the_root_hears_keys`, and the `body-keys` conformance
 plan (Chrome, JS against wasm, and the Linux host).

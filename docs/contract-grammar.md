@@ -1601,7 +1601,7 @@ the focus at a node or inside it are heard by the nearest node with the
 handler, itself or an ancestor — so a node with one takes the focus, as a
 `key` node does. With nothing focused they go to the first root, as the
 DOM's go to `<body>` (web, macOS and iOS; the Edit menu's item is enabled
-while the root has the handler). On the web and macOS Paste and Match Style
+while the root has the handler; a Mac sheet's own window holds none). On the web and macOS Paste and Match Style
 (⌥⇧⌘V on the Mac) is a `paste` too, as Chrome's is: an app that treats it
 apart tells by the key before it, as a page does. In a field whose node or
 an ancestor hears `paste`, Paste is enabled on the Mac while the clipboard
@@ -1876,8 +1876,9 @@ macOS, iOS and iPadOS with a hardware keyboard, Linux):
   whose target is `<body>`, and a `preventDefault()` there cancels the key's
   default (Tab's move to the first stop; the terminal's scroll). The root
   takes no focus by it: no `focus` event, no ring, no Tab stop. So on the
-  web, macOS, iOS, Linux, Windows and the terminal (whose root hears `key`
-  alone); Android hands keys only to a focused field.
+  web, macOS, iOS, Linux and Windows. The terminal's root hears `key` alone,
+  and first, as its focused node's handler does: before the shortcuts and a
+  dialog's Escape. Android hands keys only to a focused field.
   On the Mac a click on a `button`, or on a box that is only pressable, leaves
   the focus where it is, as a click on an AppKit button does: a field beside
   it keeps its caret, and its pending `change` is committed before the `press`

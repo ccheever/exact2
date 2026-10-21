@@ -112,11 +112,12 @@ final class FieldClipboardIOSTests: XCTestCase {
         XCTAssertEqual(keys, ["9001 a"])
     }
 
-    /// What UIKit does with the paste variants (LLP 1069.010, iOS row): a
-    /// text view's Paste for image data alone, and whether its Paste and
-    /// Match Style reaches its `paste(_:)`. The pasteboard is this test's
-    /// own, so reading it asks nothing.
-    func testMeasureUIKitPasteVariants() throws {
+    /// UIKit's answer for the paste variants, which iOS keeps for now (LLP
+    /// 1069.010; QUEUE.md): a text view's Paste and Paste and Match Style are
+    /// disabled for image data alone, and Paste and Match Style with text
+    /// does not reach its `paste(_:)`, so no `paste` fires. The pasteboard is
+    /// this test's own, so reading it asks nothing.
+    func testUIKitPasteVariantsAreItsOwn() throws {
         let p = presenter()
         let editor = try XCTUnwrap(p.views[2]?.textArea)
         XCTAssertTrue(editor.becomeFirstResponder())
@@ -128,8 +129,11 @@ final class FieldClipboardIOSTests: XCTestCase {
         UIPasteboard.general.string = "plain"
         let matchText = editor.canPerformAction(#selector(UIResponderStandardEditActions.pasteAndMatchStyle(_:)), withSender: nil)
         editor.pasteAndMatchStyle(nil)
-        print("MEASURE uikit: paste enabled, image only: \(paste); match style enabled, image only: \(match); match style enabled, text: \(matchText); match style heard: \(heard)")
         UIPasteboard.general.items = []
+        XCTAssertFalse(paste, "Paste, image data alone")
+        XCTAssertFalse(match, "Paste and Match Style, image data alone")
+        XCTAssertTrue(matchText, "Paste and Match Style, text")
+        XCTAssertEqual(heard, [], "Paste and Match Style fires no paste")
     }
 }
 #endif

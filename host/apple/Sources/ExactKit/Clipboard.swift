@@ -169,6 +169,8 @@ final class RootEdits: NSResponder, NSMenuItemValidation {
     func hearer(_ action: Selector?) -> (event: Selector, root: NodeView)? {
         guard let action, let event = Self.events[action], let presenter, let root = presenter.keyRoot,
               let window = root.window, presenter.windowHoldsFocus(window), root.clipboardHearer(event)?.node === root else { return nil }
+        // Of several sessions in one window, the one whose keys these are (`ExactView.ownsShortcutFocus`).
+        if let view = presenter.session?.view, !view.ownsShortcutFocus() { return nil }
         return (event, root)
     }
     /// Delivers `action` at the root: whether it heard it.

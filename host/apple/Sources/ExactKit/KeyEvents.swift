@@ -282,10 +282,11 @@ extension Presenter {
     /// `compositionend` comes before the press's `click`). AppKit leaves it
     /// marked through a click on a button, so a press that sends and clears
     /// the field left the input method a syllable the app no longer had. A
-    /// press inside the editor is the input method's own.
+    /// press inside the field's node (its text, padding or scroller) is the
+    /// input method's own or the field's.
     func commitCompositionBefore(_ press: NSEvent) {
         guard let window = press.window, let editor = window.firstResponder as? NSTextView, editor.hasMarkedText(),
-              let node = keyTarget(editor), !editor.visibleRect.contains(editor.convert(press.locationInWindow, from: nil)) else { return }
+              let node = keyTarget(editor), !node.bounds.contains(node.convert(press.locationInWindow, from: nil)) else { return }
         node.commitComposition(in: editor)
     }
     /// A keydown that was a ⌘ chord ending a composition (`endComposition`).
