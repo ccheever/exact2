@@ -779,3 +779,15 @@ test('round 1: a held state on a library node gives its rows and its source the 
     expect([out.held.library, out.held.rows[0].library, out.held.rows[0].source?.library, out.rows?.[0]?.library]).toEqual([undefined, undefined, undefined, undefined]);
   }
 });
+
+test("a node of the variant gallery's generated source (the JS dev loop's build cache) offers no template, style or state write, whatever the server's own files; its tokens and params are the app's (variant gallery G4)", () => {
+  const app = '/repo/apps/x', read = () => ['component Gallery', '  view', '    column gap=4 opacity=1', ''];
+  const why = "the variant gallery's generated source: read-only (its tokens and params are the app's)";
+  for (const file of ['/repo/node_modules/.cache/exact-gallery/com.x/live/app.contract', '/repo/apps/x/node_modules/.cache/exact-gallery/com.x/live/app.contract', '/repo/target/dev-gallery/com.x/live/app.contract']) {
+    const at = { file, line: 3, col: 18, end_col: 27 };
+    const map = { sources: [{ file, sha256: 'a'.repeat(64) }] };
+    expect(rowRung({ name: 'opacity' }, { origin: 'own', at, attr: 'opacity' }, map, app, 1, read)).toEqual({ rung: null, reason: why });
+    expect(rowRung({ name: 'opacity' }, { origin: 'class:Cell', at, attr: 'opacity' }, map, app, 1, read)).toEqual({ rung: null, reason: why });
+    expect(stateRung({ name: 'opacity' }, { state: 'hover', origin: 'class:Cell', at }, app, read)).toEqual({ rung: null, reason: why });
+  }
+});

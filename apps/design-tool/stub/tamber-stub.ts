@@ -93,6 +93,8 @@ let held: Record<string, unknown>[] = [], holds = 0;
 // gives that name, and posts that id to the page framing it. A copy of a
 // name in `noNavigate` can't navigate. Each navigate is kept, in order.
 let copyDelays: Record<string, number> = {}, noNavigate: string[] = [], refuseLater: string[] = [];
+// Copies whose pages are the variant gallery's (`page: 'gallery'`, no `navigate`), as a test asks.
+let galleryCopies: string[] = [];
 // Stage 12 D3's describe of library components (LLP 1139 D5), as a test turns it on (`/__stub/library`): per
 // identity, its `parts` and `variants`, on describe's component entry (added when the app has none by that name).
 let LIBRARY: Record<string, { name: string; parts: unknown[]; variants: unknown[] }> = {};
@@ -107,7 +109,7 @@ const COPY_PAGE = `<!doctype html><title>copy</title><p id="at"></p><script>(asy
   document.getElementById('at').textContent = id ?? 'no copy';
 })();</script>`;
 /** A copy's build as the server would list it: its facts its pin's (a page reports what it paints). */
-const copyBuild = (id: string, name: string, location = '/') => ({ id, host: 'web', capabilities: ['pin', 'inspect', 'hold', ...(noNavigate.includes(name) ? [] : ['navigate'])], plan: 'g1', planDigest: 'c'.repeat(64), design: 'd1',
+const copyBuild = (id: string, name: string, location = '/') => ({ id, host: 'web', ...(galleryCopies.includes(name) ? { page: 'gallery' } : {}), capabilities: ['pin', 'inspect', 'hold', ...(noNavigate.includes(name) || galleryCopies.includes(name) ? [] : ['navigate'])], plan: 'g1', planDigest: 'c'.repeat(64), design: 'd1',
   status: { scheme: 'light', contrast: 'no-preference', mode: {}, rootFontSize: 16, revision: 0, location }, pin: null, pinRevision: 0, hold: null, held: null, unsupported: null });
 const copyFacts = (b: any, pin: any) => ({ ...b.status, scheme: pin?.scheme ?? 'light', mode: pin?.mode ?? {}, rootFontSize: pin?.rootFontSize ?? 16 });
 // What a page reports held when a refresh asks it again (`/__stub/held-answer`).
@@ -481,6 +483,7 @@ Bun.serve({ hostname, port: Number(port), routes: {
       PAGE = `http://127.0.0.1:${copies.port}`;
       copyDelays = body.delays ?? {};
       noNavigate = body.noNavigate ?? [];
+      galleryCopies = body.gallery ?? [];
       refuseLater = body.refuseLater ?? [];
       return send({ ok: true });
     },

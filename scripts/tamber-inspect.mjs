@@ -220,6 +220,7 @@ export function stateRung(row, b, app, read = readFileSync, own = null) {
   if (!b?.state || !b.at?.file) return null;
   if (!/^class:[A-Za-z_][\w-]*$/.test(b.origin ?? '')) return null;
   const rel = app && b.at.file.startsWith(`${app}/`) ? b.at.file.slice(app.length + 1) : null;
+  if (galleryFile(b.at.file)) return { rung: null, reason: GALLERY };
   if (!rel || b.at.file.includes('/node_modules/') || (own && !own.has(rel))) return { rung: null, reason: `a package's style (${b.origin.slice(6)}): read-only here` };
   let lines;
   try { lines = String(read(b.at.file)).split('\n'); } catch { return null; }
@@ -244,6 +245,11 @@ const styleAbove = (lines, line) => {
   }
   return null;
 };
+
+// The variant gallery's generated source (`contract gallery`, the JS dev loop's build cache: under a node_modules's
+// .cache/exact-gallery or the repo's target/dev-gallery), which no operation writes: its tokens and params are the app's.
+const galleryFile = (file) => /\/(?:node_modules\/\.cache\/exact-gallery|target\/dev-gallery)\//.test(file ?? '');
+const GALLERY = "the variant gallery's generated source: read-only (its tokens and params are the app's)";
 
 // A file of the app's own Contract sources, relative to the app (`own`, the
 // server's list, when given), or null for a package's.
@@ -273,6 +279,7 @@ export function rowRung(row, b, map, app, instances = 1, read = readFileSync, ow
   // A layout row (D14, the map's `layout`): the author's, as `set-row` says; a token or param it reads is offered.
   if (b.layout) return { rung: null, layout: true, reason: `\`${b.attr}\` is a layout row: layout is the author's (LLP 1122 D14); edit it in the source, or at a param's or token's rung where it reads one` };
   const rel = ownFile(b.at.file, app, own);
+  if (galleryFile(b.at.file)) return { rung: null, reason: GALLERY };
   if (!rel) return { rung: null, reason: style ? `a package's style (${style}): read-only here` : 'a package\'s component: read-only here' };
   let lines;
   try { lines = String(read(b.at.file)).split('\n'); } catch { return null; }

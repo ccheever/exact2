@@ -2210,3 +2210,71 @@ test "a library component's variant props listed in its panel entry, each with i
   // A component with neither (the app's own Card has params, no variants): no variants block.
   expect tree missing "variants-Card"
   request POST "/__stub/restart" {} as ada
+
+test "the variant gallery: a toggle beside a local canvas frames the dev loop's /__dev/gallery/ in its place, and says it follows each kept edit, not each scrub frame; none for a page that isn't a loopback origin, nor in States (variant gallery G4)"
+  request POST "/__stub/page" {"page": "http://127.0.0.1:8765"} as ada
+  type "name" "Ada"
+  tap "save-name"
+  clock data
+  reload
+  clock data
+  expect tree has "canvas-frame"
+  expect state galleryOn == false
+  expect state galleryFrame == "http://localhost:8765/__dev/gallery/"
+  expect tree missing "gallery-note"
+  tap "canvas-gallery"
+  expect state galleryOn == true
+  expect tree has "canvas-frame"
+  expect text "gallery-note" == "The variant gallery: each library component the app uses, once per variant value, on the app's design. It follows each kept edit, not each scrub frame. It runs on the JS dev loop; another loop says so in the frame."
+  // States: the copies hold the selection's own view, the app's.
+  type "canvas-view" "states"
+  expect tree missing "canvas-gallery"
+  expect tree missing "gallery-note"
+  type "canvas-view" "one"
+  // A page on another origin is no page: no canvas, so no gallery.
+  request POST "/__stub/page" {"page": "http://example.com:8765"} as ada
+  reload
+  clock data
+  expect tree missing "canvas-frame"
+  expect tree missing "canvas-gallery"
+  expect state galleryFrame == ""
+  request POST "/__stub/page" {"page": null} as ada
+
+test "a gallery copy in the grid: listed as the gallery's, never sent where a moved copy leads, nor reloaded there; one moved leads no other (variant gallery G4)"
+  request POST "/__stub/restart" {} as ada
+  request POST "/__stub/copies" {"gallery": ["exact-copy-2"]} as ada
+  type "name" "Ada"
+  tap "save-name"
+  clock data
+  type "canvas-view" "grid"
+  clock data
+  clock +1000 real
+  clock data
+  clock +1000 real
+  clock data
+  clock +1000 real
+  clock data
+  clock +1000 real
+  clock data
+  expect text "build-name-copy-2" == "web · copy-2 · the gallery"
+  expect text "build-name-copy-1" == "web · copy-1"
+  // An app copy moved: the app copies follow; the gallery's stays on its own page.
+  request POST "/__stub/move" {"build": "copy-1", "location": "/post/3"} as ada
+  clock +1000 real
+  clock data
+  clock +1000 real
+  clock data
+  clock +1000 real
+  clock data
+  expect text "grid-note-exact-copy-3" == "dark · dark-style=dim · 16px · /post/3"
+  expect text "grid-note-exact-copy-2" == "dark · dark-style=black · 16px · /"
+  // The gallery's copy moved: no copy follows it.
+  request POST "/__stub/move" {"build": "copy-2", "location": "/x"} as ada
+  clock +1000 real
+  clock data
+  clock +1000 real
+  clock data
+  expect text "grid-note-exact-copy-1" == "light · 16px · /post/3"
+  expect text "grid-note-exact-copy-3" == "dark · dark-style=dim · 16px · /post/3"
+  type "canvas-view" "one"
+  request POST "/__stub/restart" {} as ada

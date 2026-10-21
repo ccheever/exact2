@@ -184,6 +184,8 @@ shape Imported
 shape Build
   id: string
   host: string
+  // The variant gallery's page (`page: 'gallery'`, tamber/1.15): a label only.
+  gallery: bool
   // Its status has come (none since it registered or reloaded, else).
   reported: bool
   scheme: string
@@ -806,12 +808,15 @@ component DesignTool
   // leads the others. The copies frame the dev loop's page (paired: the
   // gateway's, once entered), and are read each second while shown.
   state canvasView = "one"
+  // The variant gallery (the JS dev loop's /__dev/gallery/) in the canvas and the grid, in place of the app.
+  state galleryOn = false
   state gridAxis = ""
   state gridLarge = 22 persist
   state gridCap = 6 persist
   state gridMirror = true
   state gridPoll = 0
-  derive gridPage = hello.local ? hello.frame : (canvasAt.frame != "" and canvasAt.frame.indexOf("#g=") < 0 ? canvasAt.frame : "")
+  derive galleryFrame = hello.local and hello.frame != "" ? `${hello.frame}/__dev/gallery/` : ""
+  derive gridPage = hello.local ? (galleryOn and canvasView == "grid" ? galleryFrame : hello.frame) : (canvasAt.frame != "" and canvasAt.frame.indexOf("#g=") < 0 ? canvasAt.frame : "")
   resource gridAt = loadGrid(client, canvasView, gridAxis, gridLarge, gridCap, gridPage, gridMirror, canWrite, hello.epoch, hello.local, gridPoll, changes.answer) as shape Grid else empty(ok=true)
   // The design file shown ("": the app's own), a group's "more" opened,
   // and the two tokens whose contrast is shown.
@@ -982,6 +987,8 @@ component DesignTool
     canvasTick = canvasTick + 1
   action pollGrid
     gridPoll = gridPoll + 1
+  action toggleGallery(checked: bool)
+    galleryOn = checked
   action chooseCanvasView(v: string)
     canvasView = v
   action chooseGridAxis(v: string)
@@ -1585,6 +1592,13 @@ component DesignTool
                 if hello.page != ""
                   link href=hello.page target="_blank" testId="canvas-open"
                     text "Open in a tab"
+                // (The gallery is the local dev loop's: a paired canvas's gateway serves the app's pages only.)
+                if hello.local and hello.page != "" and canvasView != "states"
+                  row gap=4 align-items="center"
+                    input type="checkbox" checked=galleryOn change=toggleGallery aria-label="Variant gallery" testId="canvas-gallery"
+                    text "Gallery"
+              if galleryOn and hello.local and hello.page != "" and canvasView != "states"
+                text "The variant gallery: each library component the app uses, once per variant value, on the app's design. It follows each kept edit, not each scrub frame. It runs on the JS dev loop; another loop says so in the frame." color="-exact-secondary-label" font="-exact-footnote" testId="gallery-note"
               if not hello.local
                 // (A grant spent, or an entry slower than its 30 s: a new one.)
                 if canvasAt.frame != ""
@@ -1603,7 +1617,7 @@ component DesignTool
                         text "Try Again"
               else if hello.page != ""
                 if canvasView == "one"
-                  iframe src=hello.frame width=(canvasSize == "phone" ? 390 : canvasSize == "tablet" ? 820 : 1280) height=(canvasSize == "phone" ? 844 : canvasSize == "tablet" ? 1180 : 800) border="1px solid -exact-separator" border-radius=12 flex-shrink=0 sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-modals allow-downloads" testId="canvas-frame"
+                  iframe src=(galleryOn ? galleryFrame : hello.frame) width=(canvasSize == "phone" ? 390 : canvasSize == "tablet" ? 820 : 1280) height=(canvasSize == "phone" ? 844 : canvasSize == "tablet" ? 1180 : 800) border="1px solid -exact-separator" border-radius=12 flex-shrink=0 sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-modals allow-downloads" testId="canvas-frame"
               else
                 column gap=4 padding=16 border-radius=12 background-color="-exact-secondary-background" testId="no-app"
                   text "No app running" role="heading" aria-level=3
@@ -1777,7 +1791,7 @@ component DesignTool
               for b in changes.builds key=b.id
                 column gap=2 padding=8 border-radius=8 background-color="-exact-secondary-background" testId=`build-${b.id}`
                   row gap=8 align-items="center"
-                    text `${b.host} · ${b.id}` font="-exact-footnote" flex=1
+                    text `${b.host} · ${b.id}${b.gallery ? " · the gallery" : ""}` font="-exact-footnote" flex=1 testId=`build-name-${b.id}`
                     if b.pin != ""
                       text (b.caughtUp ? `pinned: ${b.pin}` : `pinning: ${b.pin}`) font="-exact-caption1" color=(b.caughtUp ? "-exact-secondary-label" : "-exact-system-orange") testId=`build-pin-${b.id}`
                     else if b.behind
