@@ -515,8 +515,9 @@ A `client` given in a hello is not a write's attribution (see `transaction`).
     `{value, source}`: `value` a CSS length (`16px`), `full` (radius.full, the pill) or the
     terminal's `<n>cell` (`0` for none); `source` where it comes from, `{kind: "metric", ref}` (a
     metrics row), `{kind: "measured", id}` or `{kind: "guideline", cite}` (an entry in
-    docs/scale-measured.md), `{kind: "full"}` or `{kind: "terminal"}` (`stretch`, a metric borrowed
-    for another role, is reserved: emitted once the table carries it). Every cell is the kernel's
+    docs/scale-measured.md), `{kind: "stretch", ref, why}` (a metrics row borrowed for a role it
+    doesn't name, where theme2 ruled it, with why in a line: the Mac's `space.xl`; the table carries
+    it since stage 13 D5), `{kind: "full"}` or `{kind: "terminal"}`. Every cell is the kernel's
     table's (`style::scale`), never a copy;
   - `override` is the line of the design file the request names (the app's, by default) that sets
     the name, `{file, line, col, text}`, or null. When it is set, the name is the app's token: its

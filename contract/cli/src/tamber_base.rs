@@ -169,6 +169,9 @@ fn branch_of(t: &exact_tamber::Token, axes: &[exact_tamber::Axis], tuple: usize)
 fn source(s: ScaleSource) -> Value {
     match s {
         ScaleSource::Metric(m) => json!({"kind": "metric", "ref": m}),
+        ScaleSource::Stretch { metric, why } => {
+            json!({"kind": "stretch", "ref": metric, "why": why})
+        }
         ScaleSource::Measured(id) => json!({"kind": "measured", "id": id}),
         ScaleSource::Guideline(id) => json!({"kind": "guideline", "cite": id}),
         ScaleSource::Full => json!({"kind": "full"}),

@@ -36,6 +36,9 @@ theme
 fn source(s: scale::ScaleSource) -> Value {
     match s {
         scale::ScaleSource::Metric(m) => json!({"kind": "metric", "ref": m}),
+        scale::ScaleSource::Stretch { metric, why } => {
+            json!({"kind": "stretch", "ref": metric, "why": why})
+        }
         scale::ScaleSource::Measured(id) => json!({"kind": "measured", "id": id}),
         scale::ScaleSource::Guideline(id) => json!({"kind": "guideline", "cite": id}),
         scale::ScaleSource::Full => json!({"kind": "full"}),
@@ -85,6 +88,15 @@ fn base_names_are_rows_read_from_the_kernel_with_the_apps_override() {
             );
         }
     }
+    // The Mac's space.xl is a stretch, its metric and why on the wire as
+    // the tool reads them (stage 13 D5).
+    let xl = base.iter().find(|r| r["name"] == "space.xl").unwrap();
+    assert_eq!(xl["columns"]["mac"]["source"]["kind"], "stretch");
+    assert_eq!(xl["columns"]["mac"]["source"]["ref"], "grouped-label-inset");
+    assert!(xl["columns"]["mac"]["source"]["why"]
+        .as_str()
+        .is_some_and(|w| !w.is_empty()));
+    assert_eq!(xl["columns"]["mac"]["value"], "30px");
     let md = base.iter().find(|r| r["name"] == "space.md").unwrap();
     assert_eq!(md["kind"], "length");
     assert_eq!(md["override"], Value::Null);

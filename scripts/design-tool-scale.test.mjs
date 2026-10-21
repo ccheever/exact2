@@ -16,7 +16,7 @@ import { drive, proxied, ROOT, toolTurns } from './design-tool-harness.mjs';
 toolTurns();
 
 // As the tool says a column's source (apps/design-tool/base.ts `fromOf`).
-const from = s => s.kind === 'metric' ? s.ref : s.kind === 'measured' ? `measured: ${s.id}` : s.kind === 'guideline' ? s.cite : s.kind === 'full' ? 'the pill' : s.kind === 'terminal' ? 'cells' : '';
+const from = s => s.kind === 'metric' ? s.ref : s.kind === 'measured' ? `measured: ${s.id}` : s.kind === 'guideline' ? s.cite : s.kind === 'stretch' ? `${s.ref}${s.why ? `, ${s.why}` : ''}` : s.kind === 'full' ? 'the pill' : s.kind === 'terminal' ? 'cells' : '';
 const LABELS = { ios: 'iOS', mac: 'Mac', neutral: 'neutral', material: 'Android', terminal: 'terminal' };
 
 test('stage 11 on a real server: the base scale read-only with each shipped platform and its source, an override, a package\'s tokens; Set for this app and Back to the base each one line, and Back\'s undo gives the bytes back', async () => {
@@ -82,8 +82,12 @@ test('stage 11 on a real server: the base scale read-only with each shipped plat
     expect(order(first, 'space.md')).toEqual(shipped);
     expect(order(expanded, 'space.md')).toEqual([...shipped, ...rest]);
     for (const column of [...shipped, ...rest]) expect(text(expanded, `token-base-space.md-${column}`)).toBe(cell('space.md', column));
-    // Every source kind the server emits, as the tool words it: metric, measured, guideline, the pill, cells.
+    // Every source kind the server emits, as the tool words it: metric, measured, guideline, a stretch, the pill, cells.
     for (const column of [...shipped, ...rest]) expect(text(expanded, `token-base-radius.md-${column}`)).toBe(cell('radius.md', column));
+    // The Mac's space.xl, the one stretch (stage 13 D5): marked, with its metric and why.
+    expect(row('space.xl').columns.mac.source.kind).toBe('stretch');
+    expect(text(expanded, 'token-base-space.xl-mac')).toBe(cell('space.xl', 'mac'));
+    expect(text(expanded, 'token-base-space.xl-mac')).toContain('(a stretch) · grouped-label-inset, ');
     expect(text(first, `token-base-radius.full-${shipped[0]}`)).toBe(cell('radius.full', shipped[0]));
     expect(new Set(Object.values(row('radius.md').columns).map(c => c.source.kind)).size).toBeGreaterThan(1);
     // The app's override of radius.md, and the package's tokens under their package, as the server names it.
