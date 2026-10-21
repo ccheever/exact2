@@ -34,6 +34,8 @@ shape PrRowExtra
   checksTitle: string
   checksSummary: string
   checksList: PrCheck[]
+  checksLabels: string[]
+  checksDetails: bool
   collapsible: bool
   expanded: bool
   card: PrCard

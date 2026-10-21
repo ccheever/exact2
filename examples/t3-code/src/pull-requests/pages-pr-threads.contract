@@ -220,14 +220,16 @@ component PrdPendingCard
             path d="M10 11v6M14 11v6M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"
       text body margin-top="0.5rem" white-space="pre-wrap" font-size="0.875rem" line-height="1.421875rem" color=ptInk()
 
-// DiffCommentAnnotation kind="draft" with submitLabel "Add to review" and the secondary "Add to agent":
-// Escape cancels, ⌘/Ctrl+Enter adds a non-empty comment to the review.
+// DiffCommentAnnotation kind="draft" with submitLabel "Add to review" and the secondary "Add to agent", or, where
+// the reader may not comment on the host, "Add to agent" alone: Escape cancels, ⌘/Ctrl+Enter submits a
+// non-empty comment.
 component PrdCodeDraft
   props
     rangeLabel: string
     text: string
     // Under the selected lines the row takes the selection's colour (diff-rows.contract diffSel).
     selected: bool
+    reviewable: bool
     edit: action
     cancel: action
     add: action
@@ -247,7 +249,10 @@ component PrdCodeDraft
       cancel()
     else if k == "Enter" and (e.metaKey or e.ctrlKey) and text.trim() != ""
       preventDefault()
-      add()
+      if reviewable
+        add()
+      else
+        agent()
   view
     column width="100%" padding-left="0.75rem" padding-right="0.75rem" padding-top="0.5rem" padding-bottom="0.5rem" box-sizing="border-box" background-color=(selected ? "light-dark(#eff7fd, #0f151a)" : "light-dark(#fcfcfc, #0a0a0a)") testId="pull-request-comment-draft"
       DialogOpenFocus(target="pr-code-draft-text")
@@ -257,5 +262,8 @@ component PrdCodeDraft
       row margin-top="0.375rem" align-items="center" gap="0.25rem"
         text "⌘/Ctrl Enter to send" flex=1 font-size="0.625rem" line-height="0.875rem" color="light-dark(#71717ab3, #818181b3)"
         PrdSmallButton(label="Cancel", icon="", tone="ghost", disabled=false, press=cancel, testId="pull-request-comment-cancel")
-        PrdSmallButton(label="Add to agent", icon="", tone="outline", disabled=(text.trim() == ""), press=agent, testId="pull-request-comment-agent")
-        PrdSmallButton(label="Add to review", icon="", tone="primary", disabled=(text.trim() == ""), press=add, testId="pull-request-comment-add")
+        if reviewable
+          PrdSmallButton(label="Add to agent", icon="", tone="outline", disabled=(text.trim() == ""), press=agent, testId="pull-request-comment-agent")
+          PrdSmallButton(label="Add to review", icon="", tone="primary", disabled=(text.trim() == ""), press=add, testId="pull-request-comment-add")
+        else
+          PrdSmallButton(label="Add to agent", icon="", tone="primary", disabled=(text.trim() == ""), press=agent, testId="pull-request-comment-agent")

@@ -13,6 +13,7 @@ import { createServer as createHttpsServer } from "node:https";
 import { connect } from "node:net";
 import { join } from "node:path";
 import { PULL_REQUEST } from "./gh-standin.mjs";
+import { DETAIL_OPERATIONS, detailRest } from "./github-api-detail.mjs";
 
 export const API_HOST = "api.github.com";
 
@@ -35,6 +36,7 @@ const OPERATIONS = {
   PullRequestsByHead: (v) => ({ repository: ours(v) ? { pullRequests: { nodes: v.head === pr.headRefName ? [node()] : [] } } : null }),
   PullRequestByNumber: (v) => ({ repository: ours(v) ? { pullRequest: Number(v.number) === pr.number ? node() : null } : null }),
   PullRequestSummary: (v) => ({ repository: ours(v) ? { pullRequest: Number(v.number) === pr.number ? summary() : null } : null }),
+  ...DETAIL_OPERATIONS,
 };
 const REST = { "/user": () => ({ id: 1, login: pr.author }) };
 
@@ -52,8 +54,8 @@ function batched(query, variables, operation) {
 /** An operation's name: `query Name(…)` or `mutation Name(…)`. */
 export const operationOf = (query) => /^\s*(?:query|mutation)\s+(\w+)/.exec(query)?.[1] ?? "";
 
-/** The HTTP answer to one API request: { status, type, body, name }. */
-export function respond(method, path, body) {
+/** The HTTP answer to one API request: { status, type, body, name }. `accept` is the request's Accept header. */
+export function respond(method, path, body, accept = "") {
   const json = (status, value, name = "") => ({ status, type: "application/json", body: JSON.stringify(value), name });
   const { pathname } = new URL(path, `https://${API_HOST}`);
   if (method === "POST" && pathname === "/graphql") {
@@ -62,6 +64,8 @@ export function respond(method, path, body) {
     // GraphQL reports a failure in a 200 answer's `errors`.
     return data ? json(200, { data }, name) : json(200, { errors: [{ type: "NOT_SUPPORTED", message: `the lane's GitHub stand-in does not answer ${name || "this query"}` }] }, name || query.slice(0, 160));
   }
+  const patch = detailRest(method, pathname, accept);
+  if (patch !== null) return { status: 200, type: "text/plain; charset=utf-8", body: patch, name: "diff" };
   const rest = method === "GET" ? REST[pathname] : undefined;
   return rest ? json(200, rest()) : json(404, { message: "Not Found" });
 }
@@ -73,7 +77,7 @@ if (import.meta.main) {
     let body = "";
     request.on("data", (chunk) => { body += chunk; });
     request.on("end", () => {
-      const answered = respond(request.method ?? "GET", request.url ?? "/", body);
+      const answered = respond(request.method ?? "GET", request.url ?? "/", body, String(request.headers.accept ?? ""));
       note(`${answered.status}\t${request.method} ${request.url}${answered.name ? ` ${answered.name}` : ""}`);
       response.writeHead(answered.status, { "content-type": answered.type });
       response.end(answered.body);

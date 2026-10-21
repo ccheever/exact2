@@ -278,7 +278,7 @@ describe('title, description and comment edits', () => {
     const comments = [...(activity().comments as Obj[]), { id: 'PRR_1', kind: 'review', author: { login: 'primary' }, body: 'Overall fine.', createdAt: '2026-10-07T02:00:00Z', url: null, path: null, reviewState: 'COMMENTED', reactions: [] }];
     const run = lane({ 'pullRequests.detail': () => detail(), 'pullRequests.activity': () => activity({ comments }), 'pullRequests.updateComment': () => { if (refuse) throw new Error('nope'); return {}; } });
     const view = await run.view();
-    const card = (id: string) => view.summary.oldest.find(entry => entry.id === id)!;
+    const card = (id: string) => view.summary.oldest.find(entry => entry.card.id === id)!.card;
     expect([card('IC_1').canEdit, card('IC_2').canEdit, card('PRR_1').canEdit]).toEqual([true, false, false]);
     expect(await run.act('edit-comment', 'IC_1|issue-comment|Thanks for this. Edited.')).toBe('');
     expect(run.sent('pullRequests.updateComment')).toEqual([{ ...reference, commentId: 'IC_1', kind: 'issue-comment', body: 'Thanks for this. Edited.' }]);
@@ -288,14 +288,14 @@ describe('title, description and comment edits', () => {
     await run.act('edit-comment', 'IC_1|issue-comment|Again.');
     expect(toasts(run.client).at(-1)).toMatchObject({ kind: 'error', title: 'Could not save the comment' });
     const after = await run.view();
-    expect(after.summary.oldest.find(entry => entry.id === 'IC_1')!.savedSerial).toBe(1);
+    expect(after.summary.oldest.find(entry => entry.card.id === 'IC_1')!.card.savedSerial).toBe(1);
   });
   test('refreshes pull request activity after a comment is updated', async () => {
     let body = 'Thanks for this.';
     const run = lane({ 'pullRequests.detail': () => detail(), 'pullRequests.activity': () => activity({ comments: [{ ...(activity().comments as Obj[])[0], body }] }), 'pullRequests.updateComment': (payload) => { body = String(payload.body); return {}; } });
-    expect((await run.view()).summary.oldest[0]!.raw).toBe('Thanks for this.');
+    expect((await run.view()).summary.oldest[0]!.card.raw).toBe('Thanks for this.');
     await run.act('edit-comment', 'IC_1|issue-comment|updated');
-    expect((await run.view()).summary.oldest[0]!.raw).toBe('updated');
+    expect((await run.view()).summary.oldest[0]!.card.raw).toBe('updated');
     expect(run.sent('pullRequests.activity').length).toBe(2);
   });
   test('a description preview is one more document, keyed by its editor', async () => {
@@ -313,17 +313,17 @@ describe('reactions (PullRequestReactionBar)', () => {
     let release: () => void = () => {};
     const run = lane({ 'pullRequests.detail': () => detail(), 'pullRequests.activity': () => activity({ comments: [{ ...(activity().comments as Obj[])[0], reactions: reactions() }] }),
       'pullRequests.setReaction': () => new Promise(resolve => { release = () => { reacted = true; resolve({}); }; }) });
-    const first = (await run.view()).summary.oldest[0]!;
+    const first = (await run.view()).summary.oldest[0]!.card;
     expect(first.reactions.map(pill => [pill.emoji, pill.count, pill.pressed, pill.label])).toEqual([['👍', 1, false, 'thumbs up, 1'], ['❤️', 1, false, 'heart, 1']]);
     expect(first.reactions[1]!.tooltip).toBe('second reacted with heart emoji');
     const press = run.act('react', 'IC_1|heart|true');
     await Bun.sleep(5);
-    const optimistic = (await run.view()).summary.oldest[0]!;
+    const optimistic = (await run.view()).summary.oldest[0]!.card;
     expect([optimistic.reactions[1]!.count, optimistic.reactions[1]!.pressed, optimistic.reactions[1]!.tooltip, optimistic.reacted]).toEqual([2, true, 'You and second reacted with heart emoji', ['heart']]);
     release();
     expect(await press).toBe('');
     expect(run.sent('pullRequests.setReaction')).toEqual([{ ...reference, subjectId: 'IC_1', content: 'heart', reacted: true }]);
-    const landed = (await run.view()).summary.oldest[0]!;
+    const landed = (await run.view()).summary.oldest[0]!.card;
     expect([landed.reactions[1]!.count, landed.reactions[1]!.pressed]).toEqual([2, true]);
   });
   test('a refused press is rolled back and says so', async () => {
@@ -331,13 +331,13 @@ describe('reactions (PullRequestReactionBar)', () => {
     await run.view();
     expect(await run.act('react', 'IC_1|eyes|true')).toBe('HTTP 403');
     expect(toasts(run.client).at(-1)).toMatchObject({ kind: 'error', title: 'The reaction could not be saved' });
-    const card = (await run.view()).summary.oldest[0]!;
+    const card = (await run.view()).summary.oldest[0]!.card;
     expect(card.reactions.map(pill => pill.content)).toEqual(['thumbs-up', 'heart']);
   });
   test('read-only pills where the host takes no reactions, on the timeline too', async () => {
     const run = lane({ 'pullRequests.detail': () => detail({ capabilities: { ...CAPABILITIES, reactions: false } }), 'pullRequests.activity': () => activity() });
     const view = await run.view();
-    expect([view.summary.oldest[0]!.canReact, view.summary.oldest[0]!.reactions.length]).toEqual([false, 2]);
+    expect([view.summary.oldest[0]!.card.canReact, view.summary.oldest[0]!.card.reactions.length]).toEqual([false, 2]);
     const cards = view.timeline.oldest.flatMap(row => row.cards);
     expect(cards.find(card => card.id === 'IC_1')).toMatchObject({ canReact: false, canEdit: true });
   });

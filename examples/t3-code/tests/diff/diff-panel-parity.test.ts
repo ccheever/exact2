@@ -340,9 +340,13 @@ describe('⌘↩ in a line comment draft', () => {
     await command('diff-refresh');
     expect(snapshot(client).diffFiles.map(file => file.path)).toEqual(['README.md']);
     expect(chords()).toContain('Meta+Enter');
-    // The file back, then collapsed: no card is drawn, so ⌘↩ is Send's again.
+    // The file back: the draft was released with its file (AnnotatableCodeView), so ⌘↩ stays Send's.
     serve(smallPatch);
     await command('diff-refresh');
+    expect([snapshot(client).diffCommentOpen, chords()]).toEqual([false, expect.stringContaining('Meta+Enter')]);
+    // A new draft, its file then collapsed: no card is drawn, so ⌘↩ is Send's again.
+    await command('diffreview', 'comment:additions', 'src/app.ts', 7);
+    await command('diffreview', 'focus');
     expect(chords()).toBe('');
     await command('diff-view', 'file', 'src/app.ts');
     expect(chords()).toContain('Meta+Enter');

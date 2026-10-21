@@ -99,7 +99,7 @@ export function closeUsageLimits(client: T3Client): void { panels.delete(client)
 
 export type UsageAccountView = ReturnType<typeof accountViews>[number];
 export type UsageNotice = { id: string; variant: string; icon: string; title: string; description: string; action: string; actionLabel: string;
-  action2: string; action2Label: string; dismiss: string; dismissLabel: string; priority: number; lines: string[]; actionReason: string; dismissId: string; segments: Array<{ key: string; label: string; threadId: string; last: boolean }>;
+  action2: string; action2Label: string; dismiss: string; dismissLabel: string; priority: number; lines: string[]; actionReason: string; dismissId: string; segments: Array<{ key: string; label: string; threadId: string; aria: string; last: boolean }>;
   redact?: string; redactMask?: string; redactAfter?: string; usage?: UsageAccountView[] };
 export function usageNotices(client: T3Client, now: number): UsageNotice[] {
   const notices: UsageNotice[] = [];
