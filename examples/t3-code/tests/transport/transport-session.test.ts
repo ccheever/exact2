@@ -262,7 +262,8 @@ describe('liveness and the reconnect ladder (supervisor.ts)', () => {
     void drive.bridge.later({ op: 'request', method: 'git.status', payload: {}, ...(generation === undefined ? {} : { generation }) }).then(reply => { failed = reply as Obj; });
     await drive.advance(14_000);
     expect(value(await drive.op({ op: 'status' })).state).toBe('connected');
-    await drive.advance(1_500);
+    // The last Pong counts from the tick after it; the Ping due 20 s after it finds the silence (the ladder waits 1 s or more).
+    await drive.advance(6_500);
     const status = value(await drive.op({ op: 'status' }));
     expect(status.state).toBe('reconnecting');
     // A session came up, so losing it is not a failed connection: the reconnect names no failure.
@@ -290,6 +291,24 @@ describe('liveness and the reconnect ladder (supervisor.ts)', () => {
     await drive.advance(60_000, 60_000);
     expect(drive.socketAt(0)!.sent.filter(frame => frame._tag === 'Ping').length).toBe(pings + 1);
     await drive.advance(2_000);
+    expect(value(await drive.op({ op: 'status' })).state).toBe('connected');
+  });
+
+  test('a frame counts from the tick that sees it, so held ticks do not shorten the 15 s of silence', async () => {
+    const { drive, server } = await paired();
+    server.methods.sub = () => undefined;
+    await drive.op({ op: 'subscribe', key: 'k', method: 'sub', payload: {} });
+    const id = String(server.rpcs.at(-1)!.id);
+    await drive.advance(2_000);
+    // The window's timers are held for 13 s while the socket keeps delivering frames.
+    for (let second = 0; second < 13; second += 1) {
+      drive.now += 1_000;
+      server.chunk(id, [{ second }]);
+      await drive.turn();
+    }
+    // The host goes quiet just as the ticks resume: 7 s of silence is not 15.
+    server.respond = () => [];
+    await drive.advance(7_000, 1_000);
     expect(value(await drive.op({ op: 'status' })).state).toBe('connected');
   });
 

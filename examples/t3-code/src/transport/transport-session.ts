@@ -98,8 +98,13 @@ export class Session {
   private outboxBytes = 0;
   private probing: { id: string; deadline: number; waiters: Done[] } | null = null;
   private probeUnanswered = false;
-  /** When the server last sent a frame, and whether a Ping has gone unanswered since (the pinger's `lastSeen`, `awaitingResponse`). */
+  /**
+   * When the server last sent a frame, and whether a Ping has gone unanswered since (the pinger's `lastSeen`,
+   * `awaitingResponse`). A frame only sets `heard`: the clock a mapper sees is the last tick's, which is stale while
+   * ticks are held, so the next tick stamps `lastPong` with its own time.
+   */
   private lastPong = 0;
+  private heard = false;
   private awaitingPong = false;
   private nextPing = 0;
   /** The attempt whose connect flow is running, in whichever answer runs it; -1 when none is. */
@@ -466,7 +471,7 @@ export class Session {
       try {
         const data = typeof event.data === 'string' ? event.data : new TextDecoder().decode(event.data as ArrayBuffer);
         const frames = decode(data);
-        if (frames.length) { this.lastPong = this.hooks.now(); this.awaitingPong = false; }
+        if (frames.length) { this.heard = true; this.awaitingPong = false; }
         for (const frame of frames) { if (this.generation !== epoch) return; this.consume(frame, epoch, handle); }
       } catch (error) { this.connectionFailed(this.failure(error), epoch); }
       if (handle) this.flush(handle);
@@ -502,7 +507,7 @@ export class Session {
         this.routes.schedule(now);
       }
     } catch { /* the catalog keeps what it had */ }
-    this.lastPong = now; this.awaitingPong = false; this.nextPing = now + PING_INTERVAL_MS;
+    this.lastPong = now; this.heard = false; this.awaitingPong = false; this.nextPing = now + PING_INTERVAL_MS;
     this.flush(handle);
   }
 
@@ -668,6 +673,7 @@ export class Session {
   tick(now: number): void {
     if (!this.alive) return;
     if (this.state === 'connected') {
+      if (this.heard) { this.lastPong = now; this.heard = false; }
       for (const [id, call] of [...this.pending]) {
         if (call.deadline > now) continue;
         this.pending.delete(id);
@@ -891,7 +897,7 @@ export class Session {
       const current = this.probing;
       if (!current || current.id !== id || this.generation !== epoch) return;
       if (reply.ok) {
-        this.probing = null; this.probeUnanswered = false; this.lastPong = this.hooks.now();
+        this.probing = null; this.probeUnanswered = false; this.heard = true; this.awaitingPong = false;
         for (const waiting of current.waiters) this.deliver(waiting, this.ok(this.status()));
       } else this.connectionFailed(new TransportFailure('Network', reply.error.message || 'The connection health check failed.'), epoch);
     }, joiners: [], deadline: deadline + 60_000, trace: null, joinedTraces: [] });

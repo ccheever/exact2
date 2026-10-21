@@ -168,6 +168,8 @@ export class T3Client {
       && obj(obj(this.config.environment).capabilities).serverResolvedCommandContext === true;
   }
   /** The server takes `thread.stop` and resolves the run itself (capabilities.threadStop, commands.ts interruptThreadTurn). */
+  /** The connection's label (EnvironmentConnectionTarget.label): the catalog's, else the server's own, else its id. */
+  get environmentLabel(): string { return fleet.catalogLabel(this.environmentId) || str(obj(this.config.environment).label) || this.environmentId; }
   get threadStopOffered(): boolean { return obj(obj(this.config.environment).capabilities).threadStop === true; }
   get pending(): Pending | undefined { return this.local.pending[this.environmentId]; }
   get draftKey(): string { return `${this.environmentId}:${this.threadId || `new:${this.projectId}`}`; }

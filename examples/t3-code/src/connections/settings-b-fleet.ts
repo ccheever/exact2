@@ -144,11 +144,16 @@ export class EnvironmentFleet {
     usageFleetSynced(this.revision); // usage-replies.ts: a background change redraws the open Usage page
   }
 
+  /** An environment's catalog label (EnvironmentConnectionTarget.label): its saved entry's, else the primary's; '' when neither has one. */
+  catalogLabel(environmentId: string): string {
+    const local = primaryEntry();
+    return str(this.saved.find(entry => str(entry.environmentId) === environmentId)?.label)
+      || (local && str(local.environmentId) === environmentId ? str(local.label) : '');
+  }
+
   /** Every environment's server config with its catalog label, the focused connection's first (host-freeze.ts). */
   freezeSources(client: Pick<T3Client, 'environmentId' | 'config'>): FreezeSource[] {
-    const local = primaryEntry();
-    const label = (environmentId: string) => str(this.saved.find(entry => str(entry.environmentId) === environmentId)?.label)
-      || (local && str(local.environmentId) === environmentId ? str(local.label) : '');
+    const label = (environmentId: string) => this.catalogLabel(environmentId);
     const sources: FreezeSource[] = [];
     if (client.environmentId && Object.keys(client.config).length) sources.push({ environmentId: client.environmentId, label: label(client.environmentId), config: client.config });
     for (const entry of this.entries.values()) {

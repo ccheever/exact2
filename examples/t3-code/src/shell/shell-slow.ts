@@ -151,7 +151,8 @@ export function trackRpc(client: T3Client, request: unknown, now?: number): RpcA
   if (value.op !== 'request' || !method || !shouldTrackRpcAck(method)) return Object.assign(() => undefined, { requestId: '' });
   const state = slowState(client);
   const requestId = `${client.environmentId}:${nextId++}`;
-  const label = str(obj(client.config.environment).label) || client.environmentId;
+  // requestGuarded's environmentLabel: the connection's label (client.ts), the server's own in a client without a catalog.
+  const label = client.environmentLabel ?? (str(obj(client.config.environment).label) || client.environmentId);
   const entry: Entry = { requestId, method, tag: `${method} · ${label}`, environmentId: client.environmentId, generation: client.generation, anchor: state.lastNow || null, startedAt: null };
   state.entries.set(requestId, entry);
   while (state.entries.size > MAX_TRACKED_RPC_ACK_REQUESTS) end(state, state.entries.keys().next().value!);
