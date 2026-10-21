@@ -58,7 +58,7 @@
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import { allows as pairingAllows, limiter as pairingLimiter } from './tamber-pairing.mjs';
 import { openRemote } from './tamber-remote.mjs';
-import { viaDoor } from './tamber-request.mjs';
+import { refuseBody, viaDoor } from './tamber-request.mjs';
 
 export const CANVAS_COOKIE = '__Host-exact-canvas';
 export const GRANT_MS = 30_000;
@@ -386,7 +386,6 @@ export function canvasGateway({ loop = null, pairing, origin = null, toolOrigin 
   const notFound = (res, close = false) => { res.writeHead(404, { 'content-type': 'application/json', 'cache-control': 'no-store', ...(close ? { connection: 'close' } : {}) }); res.end('{"message":"Not found."}'); };
   const json = (res, status, body, headers = {}) => { res.writeHead(status, { 'content-type': 'application/json', 'cache-control': 'no-store', ...headers }); res.end(JSON.stringify(body)); };
   /** Answered, then the connection closed: a body not read to its end. */
-  const refuseBody = (req, res, answer) => { res.on('finish', () => req.destroy?.()); res.setHeader('connection', 'close'); answer(); };
 
   function mint(token) {
     if (closed) return { status: 503, error: { message: 'the canvas gateway is closed' } };

@@ -110,7 +110,7 @@ const ROOT = resolve(new URL('..', import.meta.url).pathname);
 // The server's own line limit, less room for the id this adds and an import's `recognised` digests (64, stage 10b).
 const LINE_LIMIT = 1 << 20;
 const BODY_LIMIT = LINE_LIMIT - 64 - 64 * 72;
-const body = req => readBody(req, BODY_LIMIT);
+const body = (req, res) => readBody(req, BODY_LIMIT, res); // over it, answered before the connection closes
 const ANSWER_MS = 120_000, POLL_MS = 25_000, KEPT = 256, HOLD_MS = 15 * 60_000, HELD = 64;
 // A paired client's name (scripts/tamber-pairing.mjs): no local client takes one.
 const REMOTE = 'remote:';
@@ -531,11 +531,11 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
     if (url.pathname !== '/__tamber' && !allows(scope, stream)) { const r = refusal(url.pathname.slice('/__tamber/'.length), scope, stream); json(res, r.status, { error: r.error }); return true; }
     // A remote door's request is read whole first: its connection deadline
     // (tamber-remote.mjs) clears only once the body has ended.
-    const early = access.remote ? body(req) : null;
+    const early = access.remote ? body(req, res) : null;
     await ready;
     // The client left while the server started.
     if (res.destroyed || res.writableEnded) return true;
-    const text = await (early ?? body(req));
+    const text = await (early ?? body(req, res));
     if (text == null) { json(res, 413, { error: { message: 'a request is at most 1 MiB' } }); return true; }
     const request = parse(text);
     // Nested past 64 levels: refused before anything of it is kept, since a
@@ -652,7 +652,7 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
     // Limited before its body is read or parsed: a flood costs no parsing.
     const limited = pairs.admit(peer);
     if (limited) { res.setHeader('retry-after', String(limited.retry)); json(res, 429, { error: limited.error }); return; }
-    const request = parse((await body(req)) ?? '');
+    const request = parse((await body(req, res)) ?? '');
     if (!request) { json(res, 400, { error: { message: 'pairing is `{"code": "…", "name"?: "…"}`' } }); return; }
     const reply = pairs.pair(request, peer, { admitted: true });
     if (!reply.ok) {
@@ -1412,7 +1412,7 @@ async function listenOn(port, listening) {
 /** `--via`: the tool's files from here, every other `/__tamber` request to
  * the dev loop at `target` as it came (the token only to a local request,
  * which the loop judges again by this request from loopback). */
-async function forward(req, res, url, access, target) {
+export async function forward(req, res, url, access, target) {
   if (url.pathname === '/__tamber/tool' || url.pathname.startsWith('/__tamber/tool/')) { serveTool(req, res, url, access); return true; }
   if (url.pathname !== '/__tamber' && !url.pathname.startsWith('/__tamber/')) return false;
   if (!access.local) { notFound(res); return true; }
@@ -1421,15 +1421,10 @@ async function forward(req, res, url, access, target) {
   const gone = new AbortController();
   res.on('close', () => gone.abort());
   try {
-    // A body within the server's own limit, read here before it is sent on.
-    const chunks = [];
-    let size = 0;
-    for await (const chunk of req) {
-      size += chunk.length;
-      if (size > BODY_LIMIT) { json(res, 413, { error: { message: 'a request is at most 1 MiB' } }); req.destroy?.(); return true; }
-      chunks.push(chunk);
-    }
-    const answer = await fetch(`${target}${url.pathname}`, { method: req.method, headers, redirect: 'error', signal: gone.signal, ...(req.method === 'GET' || req.method === 'HEAD' ? {} : { body: Buffer.concat(chunks) }) });
+    // A body within the server's own limit, read here (its bytes) before it is sent on; over it, answered 413 first.
+    const bytes = req.method === 'GET' || req.method === 'HEAD' ? null : await readBody(req, BODY_LIMIT, res, true);
+    if (bytes === null && req.method !== 'GET' && req.method !== 'HEAD') { if (!res.destroyed) json(res, 413, { error: { message: 'a request is at most 1 MiB' } }); return true; }
+    const answer = await fetch(`${target}${url.pathname}`, { method: req.method, headers, redirect: 'error', signal: gone.signal, ...(bytes ? { body: bytes } : {}) });
     res.writeHead(answer.status, { 'content-type': answer.headers.get('content-type') ?? 'application/json', 'cache-control': 'no-store' });
     for await (const chunk of answer.body ?? []) {
       if (!res.write(chunk)) await new Promise(ok => {
