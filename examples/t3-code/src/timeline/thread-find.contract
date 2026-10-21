@@ -17,6 +17,10 @@ shape FindPart
   id: string
   text: string
   find: number
+// A line drawn outside the Markdown (a workflow opening's title, description, a phase title) in highlight parts.
+shape FindLine
+  id: string
+  parts: FindPart[]
 fn findPaint(mark: number): string = mark >= 2 ? "light-dark(#f59e0b, #f59e0b)" : mark == 1 ? "light-dark(#fbbf2466, #fbbf2459)" : "#00000000"
 component FindParts
   props

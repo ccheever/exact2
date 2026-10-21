@@ -2,18 +2,24 @@
 // apps/web/src/components/ThreadTerminalDrawer.test.ts ("handles an exit that lands while the terminal
 // surface is still loading"), apps/web/src/components/ChatView.logic.test.ts (reconcileMountedTerminalThreadIds),
 // apps/web/src/appearanceFonts.test.ts (resolveTerminalFontPreference, resolveTerminalFontSizePreference),
-// apps/web/src/projectScripts.test.ts (the three runtime env / cwd cases).
-// Changes from the reference: `vite-plus/test` is `bun:test`. The drawer height clamp tests are new
+// apps/web/src/projectScripts.test.ts (the three runtime env / cwd cases); at 74541bab17,
+// apps/web/src/lib/projectScriptTerminal.test.ts (findReusableProjectScriptTerminal) and
+// ChatView.logic.test.ts (resolveTerminalWorktreePath).
+// Changes from the reference: `vite-plus/test` is `bun:test`; the `$name` table titles are `%s` rows.
+// projectScriptTerminalInput's test is new (the reference's covers it through the server's script runner). The drawer height clamp tests are new
 // (the reference exports neither function); they pin the 280 default, 180 floor and 75% ceiling.
 import { describe, expect, it } from "bun:test";
 
 import {
   clampDrawerHeight,
+  findReusableProjectScriptTerminal,
   MAX_HIDDEN_MOUNTED_TERMINAL_THREADS,
   maxDrawerHeight,
   projectScriptCwd,
   projectScriptRuntimeEnv,
+  projectScriptTerminalInput,
   reconcileMountedTerminalThreadIds,
+  resolveTerminalWorktreePath,
   resolveTerminalFontPreference,
   resolveTerminalFontSizePreference,
   serverTerminalIdsStrictSubsetOfClient,
@@ -188,5 +194,80 @@ describe("projectScripts", () => {
         worktreePath: null,
       }),
     ).toBe("/repo");
+  });
+});
+
+describe("projectScriptTerminalInput", () => {
+  it("prefixes a space so the shell leaves the script out of its history", () => {
+    expect(projectScriptTerminalInput("bun dev")).toBe(" bun dev\r");
+  });
+});
+
+describe("findReusableProjectScriptTerminal", () => {
+  it.each(
+    [
+      {
+        name: "never reuses a right-panel terminal, even when stale in drawer state",
+        drawerTerminalIds: ["term-1"],
+        activeTerminalId: "term-1",
+        panelTerminalIds: ["term-1"],
+        runningTerminalIds: [],
+        expected: null,
+      },
+      {
+        name: "reuses the active idle drawer terminal",
+        drawerTerminalIds: ["term-1", "term-2"],
+        activeTerminalId: "term-2",
+        panelTerminalIds: [],
+        runningTerminalIds: [],
+        expected: "term-2",
+      },
+      {
+        name: "falls back to another idle drawer terminal when the active one is busy",
+        drawerTerminalIds: ["term-1", "term-2"],
+        activeTerminalId: "term-1",
+        panelTerminalIds: [],
+        runningTerminalIds: ["term-1"],
+        expected: "term-2",
+      },
+      {
+        name: "finds nothing when every drawer terminal is busy",
+        drawerTerminalIds: ["term-1"],
+        activeTerminalId: "term-1",
+        panelTerminalIds: [],
+        runningTerminalIds: ["term-1"],
+        expected: null,
+      },
+    ].map((row) => [row.name, row] as const),
+  )("%s", (_name, { panelTerminalIds, expected, name: _, ...input }) => {
+    expect(
+      findReusableProjectScriptTerminal({ ...input, panelTerminalIds: new Set(panelTerminalIds) }),
+    ).toBe(expected);
+  });
+});
+
+describe("resolveTerminalWorktreePath", () => {
+  it("uses the terminal's checkout identity until neither launch nor session is known", () => {
+    const threadWorktreePath = "/repo/.worktrees/feature";
+
+    expect(
+      resolveTerminalWorktreePath({
+        launchContext: { worktreePath: null },
+        summary: { worktreePath: "/repo/.worktrees/other" },
+        threadWorktreePath,
+      }),
+    ).toBeNull();
+
+    expect(
+      resolveTerminalWorktreePath({
+        launchContext: null,
+        summary: { worktreePath: null },
+        threadWorktreePath,
+      }),
+    ).toBeNull();
+
+    expect(
+      resolveTerminalWorktreePath({ launchContext: null, summary: null, threadWorktreePath }),
+    ).toBe(threadWorktreePath);
   });
 });

@@ -1,5 +1,5 @@
 // SshPasswordPromptDialog (MIT reference, see LICENSE-T3: apps/web/src/components/desktop/
-// SshPasswordPromptDialog.tsx, ui/dialog.tsx, at 1e2ecbd975): one queued request at a time,
+// SshPasswordPromptDialog.tsx at 74541bab17, ui/dialog.tsx at 1e2ecbd975): one queued request at a time,
 // over every page. Title, the target in a code span, the request's prompt with its m:ss
 // countdown (destructive "Expired"), the password field, the keys hint (the error text
 // replaces it), Cancel (Dismiss once expired) and Continue. Enter submits; Escape and an
@@ -44,16 +44,16 @@ component SshPasswordPrompt
         // The backdrop: an outside press or Escape cancels (Dialog onOpenChange(false)).
         button press=answer(prompt.expired ? "dismiss" : "cancel") disabled=responding aria-label="Cancel SSH password prompt" testId="ssh-password-backdrop" tabindex=-1 position="absolute" left=0 top=0 right=0 bottom=0 padding=0 border-width=0 background-color="#00000052" title=""
         column position="absolute" left=0 top=0 right=0 bottom=0 align-items="center" justify-content="center" padding="1rem" box-sizing="border-box" inert=false
-          column width="100%" max-width="28rem" box-sizing="border-box" border-radius="1rem" border-style="solid" border-width=1 border-color="light-dark(#27272a1a, #ffffff14)" background-color="light-dark(#ffffff, #171717)" box-shadow="0 24px 64px -24px #000000a6" overflow="hidden" role="dialog" aria-modal=dialogSeated.includes("ssh-password-dialog") aria-label="SSH Password Required" testId="ssh-password-dialog" id="ssh-password-dialog" tabindex=-1 data-dialog-focus="open" focusin=dialogEntered("ssh-password-dialog") key=dialogFallback("ssh-password-dialog", dialogTargets)
+          column width="100%" max-width="28rem" box-sizing="border-box" border-radius="1rem" border-style="solid" border-width=1 border-color="light-dark(#27272a1a, #ffffff14)" background-color="light-dark(#ffffff, #171717)" box-shadow="0 24px 64px -24px #000000a6" overflow="hidden" role="dialog" aria-modal=dialogSeated.includes("ssh-password-dialog") aria-label="SSH verification required" testId="ssh-password-dialog" id="ssh-password-dialog" tabindex=-1 data-dialog-focus="open" focusin=dialogEntered("ssh-password-dialog") key=dialogFallback("ssh-password-dialog", dialogTargets)
             // The focus trap (dialog-trap.contract): the password field, Cancel, then Continue while it is enabled (no X).
             FocusGuard(guardId="ssh-password-guard-start", targets=dialogTargets, popup="ssh-password-dialog")
             DialogOpenFocus(target="ssh-password-field")
             column padding="1.5rem" padding-bottom="0.25rem" gap="0.5rem"
-              text "SSH Password Required" font-size="1.25rem" line-height="1.25rem" font-weight=600 color="light-dark(#27272a, #f5f5f5)" role="heading" aria-level=2 testId="ssh-password-title"
+              text "SSH verification required" font-size="1.25rem" line-height="1.25rem" font-weight=600 color="light-dark(#27272a, #f5f5f5)" role="heading" aria-level=2 testId="ssh-password-title"
               text font-size="0.875rem" line-height="1.25rem" color="light-dark(#71717b, #818181)" testId="ssh-password-description"
-                text "T3 needs your SSH password to connect to "
+                text "Enter the password or verification code required by "
                 text prompt.target font-family="ui-monospace" font-size="0.8125rem" color="light-dark(#27272a, #f5f5f5)"
-                text ". The password is passed to the local SSH process for this connection attempt and is not saved by T3 Code."
+                text ". T3 Code passes your response to the local SSH process and keeps it in memory to reuse for this host. T3 Code does not write it to disk."
             column padding-left="1.5rem" padding-right="1.5rem" padding-top="1rem" padding-bottom="1.5rem" gap="0.75rem"
               column gap="0.5rem"
                 row gap="0.75rem" align-items="center" justify-content="space-between"

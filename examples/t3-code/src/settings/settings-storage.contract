@@ -1,13 +1,13 @@
-// Settings → Storage (T3 Code 9c161462c9 StorageSettings.tsx): Worktrees and Artifacts
-// and logs at an environment scope; the project's cleanup mode and, when it is
-// Custom, its own worktree rules at a project scope.
+// Settings → Storage (T3 Code 74541bab17 StorageSettings.tsx and DatabaseStorageNotice.tsx): the
+// Database notice, Worktrees and Artifacts and logs at an environment scope; the project's cleanup
+// mode and, when it is Custom, its own worktree rules at a project scope.
 use SettingsSection from "./settings-kit.contract"
 use SettingsRow from "./settings-kit.contract"
 use SettingsSwitch from "./settings-kit.contract"
 use SettingsSelect from "./settings-kit.contract"
 use SettingsNotice from "./settings-kit.contract"
 use SelectOption from "./settings-kit.contract"
-use LucideChevronRight from "./settings-icons.contract"
+use CnFolded from "./settings-b-kit.contract"
 use LucideMinus from "./settings-icons.contract"
 use LucidePlus from "./settings-icons.contract"
 
@@ -22,24 +22,33 @@ shape StorageRuleView
   first: bool
   decrease: string
   increase: string
+shape CleanupDetail
+  key: string
+  label: string
+  value: string
+  code: bool
 shape CleanupEntry
   id: string
-  path: string
-  detail: string
+  name: string
+  reason: string
   failed: bool
+  details: CleanupDetail[]
+  size: string
+  // The fold's first line takes its divider from the header (the reference's [&>*+*]:border-t).
+  first: bool
 shape CleanupReport
   id: string
   label: string
   counts: string
-  description: string
   entries: CleanupEntry[]
   omitted: string
+  omittedFirst: bool
+  empty: string
+  emptyFirst: bool
 shape DatabaseNotice
-  show: bool
-  title: string
-  description: string
-  command: string
   environmentId: string
+  title: string
+  command: string
 shape StoragePage
   available: bool
   writeScope: string
@@ -82,6 +91,12 @@ component StoragePanel
         SettingsNotice(message=data.notice, warning=false)
       if error != ""
         text error font-size="0.75rem" line-height="1.125rem" color="light-dark(#dc2626, #f87171)" role="alert" testId="storage-error" padding-left="1rem"
+      // DatabaseStorageNotice: one section for every machine that has freed space to reclaim.
+      if data.databaseNotices.length > 0
+        SettingsSection(title="Database", sectionId="storage-database")
+          SettingsRow(title="Reclaim freed database space", description="Old history is cleaned up automatically, but these databases still hold the freed space. Run the command on each machine to return it to disk; it pauses and restarts the background service. Quit the desktop app first if it hosts the environment.", first=true, rowId="storage-database-reclaim")
+          for notice in data.databaseNotices key=notice.environmentId
+            DatabaseRow(notice=notice, busy=busy, rest=rest)
       if data.available
         SettingsSection(title="Worktrees", sectionId="storage-worktrees")
           if data.directorySupported
@@ -108,20 +123,11 @@ component StoragePanel
           SettingsRow(title="Delete now", description=data.cleanupDescription, first=true, rowId="storage-cleanup-run-row")
             button press=rest("storage-run", `scope=${encodeURIComponent(data.writeScope)}`) disabled=(busy or data.cleanupDisabled) testId="storage-cleanup-run"
               text (busy ? "Deleting…" : "Delete now")
-      for notice in data.databaseNotices key=notice.environmentId
-        column width="100%" padding="1rem" gap="0.75rem" box-sizing="border-box" border-radius="0.875rem" border-width=1 border-style="solid" border-color="light-dark(#e4e4e8, #ffffff14)" testId=`storage-database-${notice.environmentId}`
-          text notice.title font-weight=500 font-size="0.875rem"
-          text notice.description font-size="0.75rem" line-height="1.125rem"
-          input value=notice.command readonly=true aria-label="Database compact command" width="100%" font-size="0.75rem" testId="storage-database-command" autocorrect="off" id="field-storage-database-command" data-editable="yes"
-          text "You can also run t3 doctor to inspect database storage." font-size="0.75rem"
-          row gap="0.75rem"
-            button press=rest("storage-copy-database", `environment=${encodeURIComponent(notice.environmentId)}&command=${encodeURIComponent(notice.command)}`) disabled=busy testId="storage-copy-database"
-              text "Copy command"
-            button press=rest("storage-dismiss-database", `environment=${encodeURIComponent(notice.environmentId)}`) disabled=busy testId="storage-dismiss-database"
-              text "Dismiss"
       if data.cleanupReports.length > 0
         CleanupLastRun(summary=data.cleanupSummary, reports=data.cleanupReports)
 
+// FoldedSettingsSection id="storage-cleanup-last-run" (headerPlacement inside): Last run and its summary in the
+// trigger; each machine's results below it.
 component CleanupLastRun
   props
     summary: string
@@ -130,26 +136,52 @@ component CleanupLastRun
   action toggle
     open = not open
   view
-    column width="100%" border-radius="0.875rem" border-width=1 border-style="solid" border-color="light-dark(#e4e4e899, #ffffff09)" background-color="light-dark(#ffffff66, #11111166)" testId="storage-cleanup-last-run"
-      button press=toggle aria-expanded=open width="100%" box-sizing="border-box" padding="1rem" gap="0.75rem" display="flex" align-items="center" background-color="#00000000" border-width=0
-        LucideChevronRight(size=14, color="light-dark(#71717b, #818181)")
-        text "Last run" font-size="0.875rem" line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)"
-        text summary title=summary flex=1 min-width=0 line-clamp=1 text-align="right" font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)" font-variant-numeric="tabular-nums"
-      if open
-        for report in reports key=report.id
-          column width="100%" padding="1rem" gap="0.5rem" box-sizing="border-box" border-top-width=1 border-top-style="solid" border-color="light-dark(#e3e3e780, #ffffff08)"
-            if reports.length > 1
-              text report.label font-size="0.875rem" line-height="1.25rem" font-weight=500 color="light-dark(#27272a, #f5f5f5)"
-            text report.counts font-size="0.75rem" line-height="1rem" font-variant-numeric="tabular-nums" color="light-dark(#71717b, #818181)"
-            text report.description font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)"
-            if report.entries.length == 0
-              text "Nothing needed cleanup." font-size="0.75rem"
-            for entry in report.entries key=entry.id
-              column width="100%" gap="0.125rem"
-                text entry.path title=entry.path max-width="100%" line-clamp=1 font-size="0.75rem" line-height="1rem" color="light-dark(#27272a, #f5f5f5)"
-                text entry.detail font-size="0.75rem" line-height="1rem" color=(entry.failed ? "light-dark(#dc2626, #f87171)" : "light-dark(#71717b, #818181)")
-            if report.omitted != ""
-              text report.omitted font-size="0.75rem"
+    CnFolded(title="Last run", summary=summary, open=open, sectionId="storage-cleanup-last-run", toggle=toggle, hasSwitch=false, switchOn=false, switchLabel="", flip=toggle, busy=false)
+      for report in reports key=report.id
+        for entry in report.entries key=entry.id
+          CleanupResultRow(entry=entry)
+        if report.omitted != ""
+          text report.omitted font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)" padding-top="0.625rem" padding-bottom="0.625rem" padding-left="1rem" padding-right="1rem" border-top-width=(report.omittedFirst ? 0 : 1) border-top-style="solid" border-color="light-dark(#e3e3e780, #ffffff08)"
+        if report.empty != ""
+          text report.empty font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)" padding-top="0.625rem" padding-bottom="0.625rem" padding-left="1rem" padding-right="1rem" border-top-width=(report.emptyFirst ? 0 : 1) border-top-style="solid" border-color="light-dark(#e3e3e780, #ffffff08)"
+
+// CleanupResults' row: the folder, then the reason over a Machine / Project / Folder / Thread list, and what it freed.
+component CleanupResultRow
+  props
+    entry: CleanupEntry
+  view
+    row width="100%" box-sizing="border-box" padding-top="0.75rem" padding-bottom="0.75rem" padding-left="1rem" padding-right="1rem" gap="2rem" align-items="center" border-top-width=(entry.first ? 0 : 1) border-top-style="solid" border-color="light-dark(#e3e3e780, #ffffff08)" testId=`storage-cleanup-entry-${entry.id}`
+      column flex=1 min-width=0 gap="0.25rem"
+        text entry.name font-size="0.875rem" font-weight=500 line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)" overflow-wrap="anywhere" user-select="text" role="heading" aria-level=3
+        column max-width="36rem" gap="0.5rem"
+          text entry.reason font-size="0.75rem" line-height="1.125rem" overflow-wrap="anywhere" user-select="text" color=(entry.failed ? "light-dark(#dc2626, #f87171)" : "light-dark(#70707acc, #818181cc)")
+          box display="grid" grid-template-columns="auto minmax(0, 1fr)" column-gap="0.75rem" row-gap="0.25rem" padding-left="0.75rem" border-left-width=1 border-left-style="solid" border-color="light-dark(#e4e4e899, #ffffff09)"
+            for detail in entry.details key=detail.key
+              text detail.label font-size="0.75rem" line-height="1.125rem" color="light-dark(#70707acc, #818181cc)"
+              if detail.code
+                text detail.value font-size="0.75rem" line-height="1.125rem" font-family="ui-monospace" overflow-wrap="anywhere" user-select="text" color="light-dark(#27272acc, #f5f5f5cc)"
+              else
+                text detail.value font-size="0.75rem" line-height="1.125rem" overflow-wrap="anywhere" user-select="text" color="light-dark(#27272acc, #f5f5f5cc)"
+      if entry.size != ""
+        row flex-shrink=0 min-width="10rem" align-items="center" justify-content="flex-end"
+          text entry.size font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)"
+
+// DatabaseStorageNotice's machine row: the command to run there, Copy command and Dismiss (Button size="xs").
+component DatabaseRow
+  props
+    notice: DatabaseNotice
+    busy: bool
+    rest: action
+  view
+    row width="100%" box-sizing="border-box" padding-top="0.75rem" padding-bottom="0.75rem" padding-left="1rem" padding-right="1rem" gap="2rem" align-items="center" border-top-width=1 border-top-style="solid" border-color="light-dark(#e3e3e780, #ffffff08)" testId=`storage-database-${notice.environmentId}`
+      column flex=1 min-width=0 gap="0.25rem"
+        text notice.title font-size="0.875rem" font-weight=500 line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)" role="heading" aria-level=3
+        text notice.command max-width="36rem" font-size="0.75rem" line-height="1.125rem" font-family="ui-monospace" overflow-wrap="anywhere" user-select="text" color="light-dark(#70707acc, #818181cc)" testId="storage-database-command"
+      row flex-shrink=0 min-width="10rem" gap="0.375rem" align-items="center" justify-content="flex-end" flex-wrap="wrap"
+        button press=rest("storage-copy-database", `environment=${encodeURIComponent(notice.environmentId)}&command=${encodeURIComponent(notice.command)}`) disabled=busy testId="storage-copy-database" display="flex" align-items="center" box-sizing="border-box" height="1.5rem" padding-left="0.4375rem" padding-right="0.4375rem" border-radius="0.5rem" border-style="solid" border-width=1 border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#ffffff, #ffffff07)" box-shadow="0 1px 2px #0000000d" opacity=(busy ? 0.64 : 1)
+          text "Copy command" font-size="0.75rem" font-weight=500 line-height="1rem" color="light-dark(#27272a, #f5f5f5)"
+        button press=rest("storage-dismiss-database", `environment=${encodeURIComponent(notice.environmentId)}`) disabled=busy testId="storage-dismiss-database" display="flex" align-items="center" box-sizing="border-box" height="1.5rem" padding-left="0.4375rem" padding-right="0.4375rem" border-radius="0.5rem" border-width=0 background-color="#00000000" opacity=(busy ? 0.64 : 1)
+          text "Dismiss" font-size="0.75rem" font-weight=500 line-height="1rem" color="light-dark(#27272a, #f5f5f5)"
 
 // A switch, or RetentionControl: [−][N days][+] when on, "Off" when off.
 component StorageControl

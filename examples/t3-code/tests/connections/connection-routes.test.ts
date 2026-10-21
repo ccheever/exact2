@@ -5,7 +5,7 @@ import { describe, expect, it } from 'bun:test';
 import {
   connectionRouteId, connectionRouteKind, connectionRouteLabel, credentialConnectionId, entryWithRoutes, gitHubRoutingConnectionKey,
   insertRoute, mergeLearnedRoutes, registerRoute, removedWithRelay, reorderRoutes, routesAfterRemoving, savedRoutes, sendsTokenInClear,
-  singleRouteKey, storedRoute, upsertRoute, usableRoutes, connectionRouteAddress, type ConnectionRoute, type RouteEntry,
+  singleRouteKey, storedRoute, upsertRoute, usableRoutes, connectionRouteAddress, hasSavedBearerRoute, type ConnectionRoute, type RouteEntry,
 } from '../../src/connections/connection-routes';
 
 const ENVIRONMENT_ID = 'environment-1';
@@ -237,3 +237,12 @@ describe('EnvironmentRegistry routes', () => {
   });
 });
 const ids = (routes: ConnectionRoute[] | null) => routes?.map(route => route.id) ?? null;
+
+describe('hasSavedBearerRoute (74541bab17 routes.ts)', () => {
+  it('counts a paired direct route, never a learned route, an SSH tunnel or T3 Connect alone', () => {
+    expect(hasSavedBearerRoute({ routes: [LAN] })).toBe(true);
+    expect(hasSavedBearerRoute({ routes: [RELAY, { ...TAILNET, learned: true }] })).toBe(false);
+    expect(hasSavedBearerRoute({ routes: [{ id: 'ssh:box', origin: 'http://127.0.0.1:41234', kind: 'ssh' }] })).toBe(false);
+    expect(hasSavedBearerRoute({ routes: [RELAY, TAILNET] })).toBe(true);
+  });
+});

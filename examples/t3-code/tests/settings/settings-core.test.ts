@@ -326,6 +326,15 @@ describe('writes through the command', () => {
     expect(project.projectModel.map(row => [row.id, row.kind, row.description, row.label, row.label2, row.status, row.divider]))
       .toEqual([['default-model', 'model', 'Model for new threads in this project.', 'GPT-5.6-Luna', 'Medium', 'Automatic', false]]);
     expect(project.scopeKey).toBe('|repo|');
+    // acf7043b72: an environment or checkout the project is not on offers "Show all environments", which keeps the project.
+    const stale = async (machine: string, projectKey: string, checkout: string, route = 'projects') => {
+      const core = await settingsCore(as(client), native, machine, projectKey, checkout, '', route, '', true);
+      return [core.kind, core.message, core.showAllEnvironments, core.allEnvironmentsProject, core.allEnvironmentsMember];
+    };
+    expect(await stale('env9', 'repo', '')).toEqual(['unavailable', 'This environment is no longer available.', true, 'repo', 'p1']);
+    expect(await stale('', 'repo', 'gone')).toEqual(['unavailable', 'This checkout is no longer available in the selected project and environment.', true, 'repo', 'p1']);
+    expect((await stale('', 'gone', ''))[2]).toBe(false);
+    expect((await stale('env9', 'repo', '', 'general'))[2]).toBe(false);
     expect((await settingsCore(as(client), native, '', '', '', '', 'projects', '', true)).projectModel).toEqual([]);
     expect((await settingsCore(as(client), native, '', 'repo', '', '', 'general', '', true)).projectModel).toEqual([]);
     // TraitsPicker's trigger names every trait (buildTraitsTriggerDisplay), as the composer's does: "Medium · 1M".

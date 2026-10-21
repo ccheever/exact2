@@ -169,7 +169,7 @@ describe('the inspector’s search results and file changes', () => {
   test('Open diff selects the change’s run and file, as onOpenTurnDiff does', () => {
     const value = { environmentId: 'e', threadId: 't1', diffState: { selections: {} as Obj } } as unknown as T3Client;
     selectTurn(value, 'r1', 'src/a.ts');
-    expect((value.diffState as unknown as { selections: Obj }).selections['e:t1']).toEqual({ kind: 'turn', runId: 'r1', filePath: 'src/a.ts', baseRef: null });
+    expect((value.diffState as unknown as { selections: Obj }).selections['e:t1']).toEqual({ kind: 'turn', runId: 'r1', filePath: 'src/a.ts', baseRef: null, reveal: 1 });
     expect(() => selectTurn(value, '', 'src/a.ts')).toThrow('That turn is no longer available.');
   });
   test('expanded rows carry the parts instead of a plain output block', async () => {
@@ -267,5 +267,23 @@ describe('the timeline clock and the work rows in Contract', () => {
     expect([0, 999, 1_000, 59_999, 65_000, 3_720_000].map(after => row(running, base + 6_000 + after))).toEqual(['0s', '0s', '1s', '59s', '1m 05s', '1h 02m']);
     expect(row(running, base)).toBe('0s'); // a clock behind the start reads 0s, as AgentElapsed's max(0, …)
     expect(row({ startedMs: 0, output: '1m 05s' }, base + 999_999)).toBe('1m 05s'); // settled: fixed
+  });
+});
+
+// #18831: Enter or Space on a control inside an expanded tool row must not also toggle the row. Upstream the row's
+// onKeyDown heard keys bubbling from its children; here the row is a `button` with only a `press`, and a press goes to
+// the nearest node that takes one and no node above it (docs/contract-grammar.md, "`press` is DOM's `click` stopped at
+// its handler"), so a nested button's activation is its own.
+describe('keys inside an expanded tool row (#18831)', () => {
+  test('the row toggle hears no keys of its own; the nested Open subagent and Open diff buttons press themselves', async () => {
+    const lines = (await source('timeline-work.contract')).split('\n');
+    const at = lines.findIndex(line => line.includes('testId=`work-detail-${entry.id}`'));
+    expect(at).toBeGreaterThan(0);
+    expect(lines[at]).toContain('button press=command("chatlocal:item-detail"');
+    expect(lines[at]).not.toMatch(/\skey(capture)?=/);
+    const indent = lines[at]!.search(/\S/);
+    const block = lines.slice(at + 1, at + 1 + lines.slice(at + 1).findIndex(line => line.trim() && line.search(/\S/) <= indent));
+    expect(block.some(line => /button press=command\("open-related-thread", entry\.targetId/.test(line))).toBe(true);
+    expect(lines.some(line => /button press=command\("turn-diff", entry\.diffPath, entry\.diffRunId, 0\)/.test(line))).toBe(true);
   });
 });

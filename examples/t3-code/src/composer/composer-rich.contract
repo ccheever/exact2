@@ -1,3 +1,5 @@
+use ProjectGlyph from "../sidebar/sidebar-shapes.contract"
+
 shape ComposerCodeHeader
   start: number
   end: number
@@ -57,6 +59,8 @@ shape ComposerChipFace
   interactive: bool
   comment: bool
   tip: string
+  // A thread chip's project icon (ThreadContextChip's ProjectFavicon); kind "" with no known project.
+  glyph: ProjectGlyph
 
 shape ComposerSourceBlock
   kind: string

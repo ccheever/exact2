@@ -143,7 +143,8 @@ component PrCardView
             row gap="0.5rem" align-items="flex-start"
               box margin-top="0.125rem" display="flex" flex-shrink=0
                 PgIcon(name="triangle-alert", size=12, color=prRowDestructive())
-              text card.conflictText flex=1 min-width=0 font-size="0.75rem" line-height="1.25rem" color=prRowDestructive()
+              // text-xs's own leading, so the mt-0.5 icon sits on its first line.
+              text card.conflictText flex=1 min-width=0 font-size="0.75rem" line-height="1rem" color=prRowDestructive()
           row gap="0.5rem" height="1rem" align-items="center"
             PgIcon(name="file-diff", size=12, color=prRowMuted())
             row gap="0.25rem" align-items="baseline" min-width=0

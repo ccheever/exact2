@@ -1,6 +1,6 @@
 // Settings → Connections → Add Environment → SSH, after the
 // desktop app's DesktopSshEnvironment and @t3tools/ssh: hosts come from
-// ~/.ssh/config (Host aliases, Include globs) and known_hosts; an alias resolves
+// ~/.ssh/config (Host aliases and their HostName, Include globs) and known_hosts; an alias resolves
 // through `ssh -G`; connecting reuses the remote T3 server (or starts `t3 serve`
 // there), forwards a loopback port with `ssh -N -L`, issues a pairing token with
 // `t3 auth pairing create --json`, and the environment then pairs like any other.
@@ -133,53 +133,160 @@ final class T3Ssh: @unchecked Sendable {
     private func promptForPassword(_ target: Target, attempt: Int) throws -> String {
         let hostSpec = Self.hostSpec(target)
         let destination = target.alias.isEmpty ? target.hostname : target.alias
-        let outcome = prompts.request(destination: destination, username: target.username, prompt: "Enter the SSH password for \(hostSpec).", attempt: attempt)
+        let outcome = prompts.request(destination: destination, username: target.username, prompt: "Enter the SSH password or verification code for \(hostSpec).", attempt: attempt)
         if case .password(let password) = outcome { return password }
         throw T3Failure(kind: "Ssh", message: T3SshPrompts.message(outcome, destination: destination))
     }
 
-    // MARK: Discovery (@t3tools/ssh config.ts discoverSshHosts)
+    // MARK: Discovery (@t3tools/ssh config.ts discoverSshHosts, at 74541bab17)
 
+    /// Every concrete `Host` alias with the `HostName` OpenSSH would use for it (the alias when that is uncertain),
+    /// then the known_hosts names that are neither an alias nor a configured hostname, sorted by alias.
     func discover() -> [[String: Any]] {
         guard let home = discoveryHome else { return [] }
         let ssh = (home as NSString).appendingPathComponent(".ssh")
-        var visited = Set<String>()
-        let aliases = Self.configAliases((ssh as NSString).appendingPathComponent("config"), home: home, visited: &visited)
+        let config = Self.readConfig((ssh as NSString).appendingPathComponent("config"), home: home)
         let known = Self.knownHosts((try? String(contentsOfFile: (ssh as NSString).appendingPathComponent("known_hosts"), encoding: .utf8)) ?? "")
-        var seen = Set<String>(), hosts: [[String: Any]] = []
-        for (alias, source) in aliases.map({ ($0, "ssh-config") }) + known.map({ ($0, "known-hosts") }) where !seen.contains(alias) {
-            seen.insert(alias)
-            var host: [String: Any] = ["alias": alias, "hostname": alias, "source": source]
-            host["username"] = NSNull(); host["port"] = NSNull()
-            hosts.append(host)
+        var discovered: [String: [String: Any]] = [:], configured = Set<String>()
+        for alias in config.aliases {
+            let hostname = Self.resolveConfiguredHostname(alias, config.rules)
+            if let hostname { configured.insert(hostname.lowercased()) }
+            discovered[alias] = ["alias": alias, "hostname": hostname ?? alias, "username": NSNull(), "port": NSNull(), "source": "ssh-config"]
         }
-        return hosts
+        for hostname in known where discovered[hostname] == nil && !configured.contains(hostname.lowercased()) {
+            discovered[hostname] = ["alias": hostname, "hostname": hostname, "username": NSNull(), "port": NSNull(), "source": "known-hosts"]
+        }
+        // `left.alias.localeCompare(right.alias)`.
+        return discovered.keys.sorted { $0.localizedCompare($1) == .orderedAscending }.map { discovered[$0]! }
     }
 
     static func hasPattern(_ value: String) -> Bool { value.contains("*") || value.contains("?") || value.hasPrefix("!") }
 
+    /// parseSshConfigLine, after OpenSSH readconf: the keyword may be followed by one optional "=", then the
+    /// arguments split like misc.c argv_split() with quotes, the escapes \\ \" \' and an unquoted "\ ", and "#"
+    /// starting a comment only at the start of a token. `args` is nil for an unterminated quote, which leaves
+    /// hostname resolution uncertain.
+    static func parseConfigLine(_ line: String) -> (directive: String, args: [String]?)? {
+        let characters = Array(line)
+        var index = 0
+        while index < characters.count, characters[index].isWhitespace { index += 1 }
+        var keyword = ""
+        while index < characters.count, !characters[index].isWhitespace, characters[index] != "=" { keyword.append(characters[index]); index += 1 }
+        if keyword.isEmpty { return nil }
+        while index < characters.count, characters[index].isWhitespace { index += 1 }
+        if index < characters.count, characters[index] == "=" { index += 1 }
+        while index < characters.count, characters[index].isWhitespace { index += 1 }
+        var args: [String] = [], token: String?, quote: Character?
+        while index < characters.count {
+            let char = characters[index], next: Character? = index + 1 < characters.count ? characters[index + 1] : nil
+            if char == "\\", let next, next == "\"" || next == "'" || next == "\\" || (quote == nil && next == " ") {
+                token = (token ?? "") + String(next); index += 1
+            } else if let open = quote {
+                if char == open { quote = nil } else { token = (token ?? "") + String(char) }
+            } else if char == "\"" || char == "'" {
+                quote = char; token = token ?? ""
+            } else if char.isWhitespace {
+                if let finished = token { args.append(finished); token = nil }
+            } else if char == "#" && token == nil {
+                break
+            } else {
+                token = (token ?? "") + String(char)
+            }
+            index += 1
+        }
+        if quote != nil { return (keyword.lowercased(), nil) }
+        if let token { args.append(token) }
+        return (keyword.lowercased(), args)
+    }
+
+    /// A `Host` line's patterns, or nil after a `Match` (its condition is not evaluated here).
+    typealias HostCondition = [String]?
+    struct HostNameRule { let conditions: [HostCondition]; let hostname: String? }
+
+    static func globMatches(_ pattern: String, _ value: String) -> Bool {
+        let escaped = NSRegularExpression.escapedPattern(for: pattern).replacingOccurrences(of: "\\*", with: ".*").replacingOccurrences(of: "\\?", with: ".")
+        guard let matcher = try? NSRegularExpression(pattern: "^\(escaped)$") else { return false }
+        return matcher.firstMatch(in: value, range: NSRange(value.startIndex..., in: value)) != nil
+    }
+
+    static func matchesHostPatterns(_ alias: String, _ patterns: [String]) -> Bool {
+        var matched = false
+        for pattern in patterns {
+            let negated = pattern.hasPrefix("!"), hostPattern = negated ? String(pattern.dropFirst()) : pattern
+            let matches = hostPattern == "*" || (hasPattern(hostPattern) ? globMatches(hostPattern, alias) : hostPattern == alias)
+            if !matches { continue }
+            if negated { return false }
+            matched = true
+        }
+        return matched
+    }
+
+    /// resolveConfiguredHostname: SSH takes the first applicable value, so an uncertain earlier one blocks later fallbacks.
+    static func resolveConfiguredHostname(_ alias: String, _ rules: [HostNameRule]) -> String? {
+        for rule in rules {
+            if rule.conditions.contains(where: { condition in condition.map { !matchesHostPatterns(alias, $0) } ?? false }) { continue }
+            guard !rule.conditions.contains(where: { $0 == nil }), let hostname = rule.hostname else { return nil }
+            if hostname.range(of: "%(?!h)", options: .regularExpression) != nil || hostname.contains("$") { return nil }
+            return hostname.replacingOccurrences(of: "%h", with: alias)
+        }
+        return nil
+    }
+
+    /// collectSshConfigAliasesFromFile over the whole Include tree.
+    static func readConfig(_ path: String, home: String) -> (aliases: Set<String>, rules: [HostNameRule]) {
+        var visited = Set<String>(), aliases = Set<String>(), rules: [HostNameRule] = []
+        collectConfig(path, home: home, visited: &visited, aliases: &aliases, rules: &rules, inherited: [])
+        return (aliases, rules)
+    }
+
+    /// The config's concrete `Host` aliases, sorted (the tests' view of discovery's first half).
     static func configAliases(_ path: String, home: String, visited: inout Set<String>) -> [String] {
+        var aliases = Set<String>(), rules: [HostNameRule] = []
+        collectConfig(path, home: home, visited: &visited, aliases: &aliases, rules: &rules, inherited: [])
+        return aliases.sorted()
+    }
+
+    private static func collectConfig(_ path: String, home: String, visited: inout Set<String>, aliases: inout Set<String>, rules: inout [HostNameRule], inherited: [HostCondition]) {
         let resolved = (path as NSString).standardizingPath
-        guard !visited.contains(resolved), let raw = try? String(contentsOfFile: resolved, encoding: .utf8) else { return [] }
+        if visited.contains(resolved) {
+            // Read each file once, but never reuse its rules under a different Include context.
+            rules.append(HostNameRule(conditions: inherited, hostname: nil))
+            return
+        }
+        guard let raw = try? String(contentsOfFile: resolved, encoding: .utf8) else { return }
         visited.insert(resolved)
-        var aliases = Set<String>()
+        var condition: HostCondition = ["*"]
         for line in raw.components(separatedBy: .newlines) {
-            let stripped = (line.firstIndex(of: "#").map { String(line[..<$0]) } ?? line).trimmingCharacters(in: .whitespaces)
-            if stripped.isEmpty { continue }
-            let parts = stripped.replacingOccurrences(of: "=", with: " ").split(whereSeparator: { $0 == " " || $0 == "\t" }).map(String.init)
-            guard let directive = parts.first?.lowercased() else { continue }
-            if directive == "include" {
-                for pattern in parts.dropFirst() {
-                    let expanded = pattern.hasPrefix("~") ? home + pattern.dropFirst() : pattern
+            guard let parsed = parseConfigLine(line) else { continue }
+            let (directive, args) = parsed
+            let conditions = inherited + [condition]
+            switch directive {
+            case "host":
+                condition = args
+                for alias in args ?? [] where !alias.isEmpty && !hasPattern(alias) { aliases.insert(alias) }
+            case "match":
+                condition = nil
+            case "hostname":
+                rules.append(HostNameRule(conditions: conditions, hostname: args?.count == 1 ? args![0] : nil))
+            case "include":
+                guard let args else { rules.append(HostNameRule(conditions: conditions, hostname: nil)); continue }
+                for pattern in args {
+                    let expanded = pattern == "~" || pattern.hasPrefix("~/") ? home + pattern.dropFirst() : pattern
                     let absolute = expanded.hasPrefix("/") ? expanded : ((home as NSString).appendingPathComponent(".ssh") as NSString).appendingPathComponent(expanded)
-                    for included in expandGlob(absolute) { aliases.formUnion(configAliases(included, home: home, visited: &visited)) }
+                    // Tokens, environment variables, character classes, `~user` and globbed directories are not expanded here.
+                    if pattern.range(of: "%|\\$\\{|\\[", options: .regularExpression) != nil || (pattern.hasPrefix("~") && expanded == pattern)
+                        || hasPattern((absolute as NSString).deletingLastPathComponent) {
+                        rules.append(HostNameRule(conditions: conditions, hostname: nil))
+                        continue
+                    }
+                    for included in expandGlob(absolute) {
+                        collectConfig(included, home: home, visited: &visited, aliases: &aliases, rules: &rules, inherited: conditions)
+                    }
                 }
+            default:
                 continue
             }
-            guard directive == "host" else { continue }
-            for alias in parts.dropFirst() where !alias.isEmpty && !hasPattern(alias) { aliases.insert(alias) }
         }
-        return aliases.sorted()
     }
 
     static func expandGlob(_ pattern: String) -> [String] {
