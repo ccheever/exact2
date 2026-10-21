@@ -402,8 +402,18 @@ fn fix_uses(input: &str) -> ExitCode {
                     println!("  {line}");
                 }
             }
-            if written.is_empty() && refused.is_empty() {
+            // A file no `use` reaches is no part of this program, so its
+            // names were not checked (euxy FRICTION 1): say which.
+            let unreached = contract::unreached(std::path::Path::new(input));
+            let names: Vec<String> = unreached
+                .iter()
+                .filter_map(|p| Some(p.file_name()?.to_string_lossy().into_owned()))
+                .collect();
+            if written.is_empty() && refused.is_empty() && names.is_empty() {
                 println!("{input}: every file names what it uses");
+            } else if refused.is_empty() && !names.is_empty() {
+                let are = if names.len() == 1 { "is" } else { "are" };
+                println!("{input}: every file it reaches names what it uses; {} beside it {are} not reached from it (another entry, or a file it uses nothing from)", names.join(", "));
             }
             for e in &refused {
                 eprintln!("{e}");

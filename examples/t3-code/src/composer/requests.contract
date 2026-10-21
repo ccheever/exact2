@@ -254,7 +254,7 @@ component ApprovalComposer
   view
     column width="100%" border-radius="1.375rem" border-style="solid" border-width=1 border-color="light-dark(#00000014, #ffffff0d)" background-color="light-dark(#fefefe, #101010)" box-shadow="0 12px 28px -18px light-dark(#00000066, #00000000), inset 0 1px 0 0 light-dark(#00000000, #ffffff08)" box-sizing="border-box" padding="1rem" testId="composer-surface" position="relative"
       box width="100%" height="2rem" position="relative"
-        textarea value="" readonly=true aria-label="Message" testId="composer-readonly" width="100%" height="2rem" font-size="0.875rem" line-height="1.421875rem" padding=0 border-width=0 box-sizing="border-box" background-color="#00000000" color="light-dark(#27272a, #f5f5f5)" autocorrect="off" spellcheck="false"
+        textarea value="" readonly=true aria-label="Message" testId="composer-readonly" width="100%" height="2rem" font-size="0.875rem" line-height="1.421875rem" padding=0 border-width=0 box-sizing="border-box" background-color="#00000000" color="light-dark(#27272a, #f5f5f5)" autocorrect="off" spellcheck="false" id="field-composer-readonly" data-editable="yes"
         text placeholder position="absolute" left=0 top=0.5 right=0 font-size="0.875rem" line-height="1.421875rem" line-clamp=1 color="light-dark(#71717abf, #818181bf)" aria-hidden=true testId="composer-placeholder"
 
 // Stop, Previous and Submit/Next replace the composer's send cluster while a
@@ -280,7 +280,7 @@ component QuestionActions
         // Attach files sits outside the pending actions (gap-2), which space their own buttons 6pt apart.
         if data.composer.attach
           box display="flex" margin-right="0.125rem" flex-shrink=0
-            AttachButton(disabled=(busy or q.responding), press=command("cclocal:attach", "", "", 0))
+            AttachButton(disabled=(busy or q.responding))
         if data.canStop
           button press=command("stop", "", "", 0) disabled=busy testId="stop" aria-label="Stop generation" width="1.75rem" height="1.75rem" padding=0 border-radius="0.875rem" border-width=0 background-color="light-dark(#fb2c36e6, #fc414ae6)" box-shadow="0 1px 2px 0 #fb2c363d, inset 0 1px 0 0 #ffffff29" display="flex" flex-direction="row" align-items="center" justify-content="center" flex-shrink=0 title=""
             svg width="0.75rem" height="0.75rem" viewBox="0 0 12 12" fill="#ffffff" aria-hidden=true

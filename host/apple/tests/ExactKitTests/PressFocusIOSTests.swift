@@ -373,7 +373,9 @@ final class PressFocusIOSTests: XCTestCase {
 
     func testAForwardedPressResolvesBeforeFocusMovesItsOwner() throws {
         let p = scrollingPress(), text = try XCTUnwrap(p.views[5]), button = try XCTUnwrap(p.views[2])
-        p.apply(wireBatch(node(6, "input", w: 300, h: 34) + [["op": "children", "id": 1, "ids": [6, 2]]]))
+        // A button that takes the focus, so the field resigns and the owner moves.
+        p.apply(wireBatch(node(6, "input", w: 300, h: 34) + [["op": "children", "id": 1, "ids": [6, 2]],
+            ["op": "props", "id": 2, "set": ["tabIndex": "0"]]]))
         let field = try XCTUnwrap(p.views[6]?.field)
         XCTAssertTrue(field.becomeFirstResponder())
         observers.append(NotificationCenter.default.addObserver(forName: UITextField.textDidEndEditingNotification, object: field, queue: nil) { _ in button.frame.origin.y += 150 })
@@ -383,7 +385,7 @@ final class PressFocusIOSTests: XCTestCase {
         text.touchesEnded([touch], with: nil)
         XCTAssertFalse(button.pressInside(touch))
         XCTAssertEqual(pressed, [2])
-        XCTAssertFalse(button.isFirstResponder, "a plain button takes no focus from a touch")
+        XCTAssertTrue(button.isFirstResponder, "a button that asks for focus takes it")
         XCTAssertFalse(field.isFirstResponder)
     }
 
@@ -452,6 +454,8 @@ final class PressFocusIOSTests: XCTestCase {
     /// lowering under `resizes-content` does; the touch still presses it.
     func testAPressSurvivesTheButtonMovingAsItTakesTheFocus() throws {
         let p = composer()
+        // A button that takes the focus, so the field resigns.
+        p.apply(wireBatch([["op": "props", "id": 3, "set": ["tabIndex": "0"]]]))
         var pressed: [UInt32] = []
         p.onPress = { pressed.append($0) }
         let field = try XCTUnwrap(p.views[2]?.field), button = try XCTUnwrap(p.views[3])
@@ -468,10 +472,32 @@ final class PressFocusIOSTests: XCTestCase {
         button.touchesEnded([touch], with: nil)
         XCTAssertTrue(moved, "the field resigned as the button was pressed, moving the button")
         XCTAssertFalse(button.pressInside(touch), "the finger is outside the button where it now stands")
-        XCTAssertFalse(button.isFirstResponder, "a button takes no focus from a touch, as UIKit's")
+        XCTAssertTrue(button.isFirstResponder, "a button that asks for focus takes it")
         XCTAssertFalse(field.isFirstResponder)
         XCTAssertEqual(pressed, [3], "the press is resolved where the finger went down and came up, before the focus moved")
         XCTAssertFalse(button.pressed)
+    }
+
+    /// A plain button keeps the keyboard and its field, as a `UIButton` does:
+    /// what was typed is committed (`change`) and the field is not blurred.
+    func testAPlainButtonKeepsTheKeyboardAndCommitsTheEdit() throws {
+        let p = composer()
+        try XCTUnwrap(p.views[2]).handlers = ["change", "blur"]
+        var pressed: [UInt32] = [], changed: [String] = [], blurred: [UInt32] = []
+        p.onPress = { pressed.append($0) }
+        p.onChange = { changed.append($1) }
+        p.onBlur = { blurred.append($0) }
+        let field = try XCTUnwrap(p.views[2]?.field), button = try XCTUnwrap(p.views[3])
+        XCTAssertTrue(field.becomeFirstResponder())
+        field.text = "Hi"
+        p.typed(2, "Hi", input: false)
+        let touch = PointTouch(button.convert(CGPoint(x: button.bounds.midX, y: button.bounds.midY), to: nil), on: button)
+        button.touchesBegan([touch], with: nil)
+        button.touchesEnded([touch], with: nil)
+        XCTAssertEqual(pressed, [3])
+        XCTAssertTrue(field.isFirstResponder, "the keyboard stays")
+        XCTAssertEqual(changed, ["Hi"], "what was typed is committed")
+        XCTAssertEqual(blurred, [], "the field is not blurred")
     }
 
     /// The contrast: a finger that is outside when it lifts, with no focus
@@ -512,6 +538,25 @@ final class PressFocusIOSTests: XCTestCase {
         let area = try XCTUnwrap(p.views[3]?.textArea)
         XCTAssertTrue(area.isFirstResponder, "the sheet's textarea takes its autofocus")
         XCTAssertFalse(fab.isFirstResponder)
+    }
+
+    /// A button's press that mounts a field with `autofocus` (a sheet's
+    /// composer) while another field keeps the keyboard: the new field takes
+    /// the focus, as it would from the button.
+    func testAButtonPressMountingAnAutofocusTakesTheKeptFieldsFocus() throws {
+        let p = composer()
+        let field = try XCTUnwrap(p.views[2]?.field), button = try XCTUnwrap(p.views[3])
+        XCTAssertTrue(field.becomeFirstResponder())
+        let sheet = wireBatch(node(4, "textarea", ["autofocus": "true"], y: 260, w: 300, h: 120)
+                              + [["op": "children", "id": 1, "ids": [2, 3, 4]]])
+        p.onPress = { _ in
+            p.apply(sheet)
+            p.syncAccessibility()
+        }
+        tap(button)
+        p.syncAccessibility()
+        XCTAssertTrue(try XCTUnwrap(p.views[4]?.textArea).isFirstResponder, "the mounted field takes its autofocus")
+        XCTAssertFalse(field.isFirstResponder)
     }
 
     /// A field its autofocus focused, then taken out of the window in the
@@ -891,7 +936,8 @@ final class PressFocusIOSTests: XCTestCase {
     /// press where the finger went down and came up too, before the field
     /// resigns and the button moves.
     func testAPressThroughAChildSurvivesTheButtonMoving() throws {
-        let p = presenter(node(1, "view", w: 400, h: 400) + node(2, "input", w: 300, h: 34) + node(3, "button", handlers: ["press"], y: 200)
+        // A button that takes the focus, so the field resigns.
+        let p = presenter(node(1, "view", w: 400, h: 400) + node(2, "input", w: 300, h: 34) + node(3, "button", ["tabIndex": "0"], handlers: ["press"], y: 200)
                           + node(4, "view", ["testId": "label"], w: 60, h: 30) + [["op": "children", "id": 1, "ids": [2, 3]], ["op": "children", "id": 3, "ids": [4]], ["op": "roots", "ids": [1]]])
         var pressed: [UInt32] = []
         p.onPress = { pressed.append($0) }

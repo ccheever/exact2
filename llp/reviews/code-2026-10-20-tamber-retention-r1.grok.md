@@ -1,0 +1,30 @@
+# Code review: LLP 1121 stage 12 B1 follow-up, the retention build: stop at retention, reuse types and expansion, round 1 of 3, 2026-10-20 (grok)
+
+- **Family:** xAI. Grok 4.7 via the grok CLI, xhigh, `--max-turns 400 --no-plan --no-subagents --deny Edit --deny Write`, a throwaway worktree at `71541de4e8`.
+- **Method:** one brief (sha256 `dec4703c351116def0c9c79c45643aea881ca8aee59d086d229f77c623bbe17b`), blind to the other reviewer; the commit as amended after the previous pass; 3 rounds (a cache in the compiler path; theme2's 11:32 and 12:15 rulings), then narrow checks of the last fixes. The author (Claude) is not a reviewer.
+- **Transcription:** the final message, unedited but for the worktree path prefix.
+- **Verdict:** request changes (1 SHOULD-FIX, 4 NIT).
+- **Disposition:** the SHOULD-FIX is the next commit's, by theme2's 12:15 ruling (option (4)); the nits taken in the next amend (the commit message's "Round 1").
+
+## SHOULD-FIX
+
+**A post-design refusal that leaves the plan's shape unchanged is answered `live`, so the dev loop never compiles it.** `tamber_serve.rs:429-431` caches whenever `retention` is `Some`, and `tamber_serve.rs:1092-1094` then uses `planned.class`. `shape` (`tamber/src/session.rs:401-406`, compared at `260-268`) records kind, role, fixed, varies, accent, and values that are a type, a family, or contain `(--`. An ordinary number or colour is absent. `write_checks` (`tamber_scrub.rs:130-199`) covers role-axis, package fold, and param range only.
+
+`measure_row` (`theme.rs:1372-1396`, called only from `values.rs:319`) runs after the stop (`lower/src/lib.rs:455-456`). Retarget `scale = one` to `scale = neg` with `one = 1`, `neg = -1`, and `-exact-press-scale="scale"`: the key misses (the reference changed), the kind stays number, the design still folds, and candidates stay empty (a bare name is not a synthetic expression). Class is `live`. A whole compile refuses `tamber-kind` because a press scale must be positive (`style_names.rs:327-330`). The same hole is any row codec reached through that `check` (press opacity outside 0..=1, and the others the comment at `theme.rs:1372-1374` names). `params::reached` (`params/rewrite.rs:441-444`) returns no `tamber-param-scope` under the flag, and `retention_build` discards the compile `Result`, so that refusal no longer forces `rebuild` on a later design-only edit either.
+
+The comment at `tamber_serve.rs:405-406` says a failure after the design is the write's own checks. The Q2 test (`tamber_retention_reuse.rs:223-260`) locks only a kind change (`gap` `8px` → `#444444`), which `shape` already rebuilds, and it never compares that server's answers with a fresh one. A fresh server of this commit agrees with the cache on the `Retention` value, the candidates, and the class; both hide this refusal. Kind changes, a design that does not fold, a contract write, and a stop before `declare_theme` still rebuild.
+
+## NIT
+
+- **Flag has no unwind guard** (`retained.rs:87-89`). `retention_only(true)` and `PROGRAM.keep = true` sit between the set and the clear with no `Drop`. The serve loop (`tamber_serve.rs:103-116`) does not catch a panic, so today the process exits and the flag cannot reach another request. A caller that catches on this thread (the later full compile in `uses` shares it) would keep stopping at retention and could install reused types into a real compile.
+- **Equality tests never take the production branch** (`lib.rs:984-989`). `primed_as_fresh` sets `EXACT_TAMBER_RETENTION_VERIFY` (`tamber_retention_reuse.rs:47`), so both answers are fresh checks. Reuse is evidenced by the log line plus `verify`'s `Debug`/`PartialEq` (`retained.rs:150`). `Types` has no `PartialEq` (function pointer, `Arc<Mutex<LengthReads>>`); a locked mutex debug-formats as `<locked>` and would count as stale, and under the env var the fresh value is what gets used.
+- **The package-contract test does not isolate the file gate** (`tamber_retention_reuse.rs:207-208`). `sources_key` already changes, so the offer is dropped before `cleared` runs. Nothing edits `strings/*.json` (compared by the gate, absent from `sources_key`). Nothing covers a motion token used only as a component argument: `motion.rs:324-329` reads those args and does not write them back, so that alias move reuses. Nothing covers a no-design app or a failure before `declare_theme` staying uncached.
+- **`QUEUE.md:15` still says to recompute the affected chains.** This commit stops lowering and reuses types. The queue entry was not updated.
+
+## What checks out
+
+`RETENTION` and `CANDIDATES` are written once, at `theme.rs:341-355`, and the flag returns at `356-358`. The fold, the profile filter, the plan-token loop, and the `MOTION`/`MEASURES` fills are after that write and do not store those thread-locals again, so an early stop publishes the same pair as a full `declare_theme`. `lower_all` lowers once. A font or sound error, or no design and no params, leaves retention `None` on both paths. `retention_build` `take`s both thread-locals first, so a failed build cannot return an older pair. `retention().is_some()` is the right reached bit: this compile always returns `Err` (`lower/src/lib.rs:455-456`).
+
+Nothing before lowering reads the flag. `params::reached` only returns diagnostics and does not change the retention inputs. Types and expansion do not read `file.design` or `package_designs`. What the loader copies out of the design into the tree (motion duration and easing literals) stays on the `File` `cleared` compares (`retained.rs:62-67`), together with strings and `mapped`. `kept` is stored under the pre-load `sources_key`; a mismatch misses or fails the gate. The success path clears the flag and `take`s `PROGRAM` before `uses` compiles for real. Under the verify env var, a mismatch logs `built stale` and the answer uses the fresh check.
+
+The bench was not re-run. The commit's 561 ms and 555 ms alias-move figures sit where a reused build should: load plus `declare_theme`, without the 0.55–0.69 s types pass. The ~227 ms value edit matches a synthetic-key hit, which never calls `retention_build`.

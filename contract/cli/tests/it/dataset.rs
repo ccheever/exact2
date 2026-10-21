@@ -353,3 +353,46 @@ fn a_painting_hosts_entry_includes_the_apps_hatches_with_its_platforms_typed_key
     );
     assert!(!windows.contains("Dot"), "{windows}");
 }
+
+/// A game's compiler reads `.shells/app.json`, which the bake resolves from its
+/// `app.json`; edited since, the refusal says the copy is stale and how to
+/// regenerate it (LLP 1139.004 D2). The record is the authored file's content.
+#[test]
+fn a_word_added_to_a_game_app_json_after_its_shells_names_the_stale_copy() {
+    use sha2::{Digest, Sha256};
+    let app = App::new("stale", "", r#"column data-pointer-lock="on""#);
+    let generated = app.0.join(".shells");
+    std::fs::create_dir_all(&generated).unwrap();
+    std::fs::copy(app.0.join("app.json"), generated.join("app.json")).unwrap();
+    let record = |app: &App| {
+        let digest = Sha256::digest(std::fs::read(app.0.join("app.json")).unwrap());
+        std::fs::write(generated.join("app-source.sha256"), format!("{digest:x}\n")).unwrap();
+    };
+    record(&app);
+    let current = app.compile().unwrap_err();
+    assert!(
+        current[0].message.contains("declares no data-* words")
+            && !current[0].message.contains("stale"),
+        "{current:?}"
+    );
+    let authored = std::fs::read_to_string(app.0.join("app.json")).unwrap();
+    std::fs::write(
+        app.0.join("app.json"),
+        authored.replacen('{', r#"{"data":["pointer-lock"],"#, 1),
+    )
+    .unwrap();
+    let stale = app.compile().unwrap_err();
+    assert_eq!(stale[0].id, "bake-undeclared-data", "{stale:?}");
+    assert!(
+        stale[0].message.contains(".shells/app.json is stale")
+            && stale[0]
+                .message
+                .contains("`bun exact.mjs shells` regenerates it"),
+        "{}",
+        stale[0].message
+    );
+    // Regenerated (the bake copies the resolved file and records its source), it builds.
+    std::fs::copy(app.0.join("app.json"), generated.join("app.json")).unwrap();
+    record(&app);
+    app.compile().unwrap_or_else(|e| panic!("{e:?}"));
+}

@@ -256,7 +256,7 @@ final class NativeButtonsIOSTests: XCTestCase {
         try button(p, 3).sendActions(for: .primaryActionTriggered)
         XCTAssertTrue(field.isFirstResponder, "a retainFocus ancestor keeps the editor")
         try button(p, 2).sendActions(for: .primaryActionTriggered)
-        XCTAssertFalse(field.isFirstResponder, "otherwise the press ends the editing")
+        XCTAssertTrue(field.isFirstResponder, "and without one too: a button keeps the keyboard, as UIKit's does")
         XCTAssertFalse(try XCTUnwrap(p.views[2]).isFirstResponder, "and the button takes no focus, as UIKit's does not")
     }
 

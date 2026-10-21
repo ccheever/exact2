@@ -177,3 +177,35 @@ fn reaching_midi_without_its_grant_warns_at_the_call() {
         "{warnings:?}"
     );
 }
+
+struct NoData;
+impl exact_runner::DataSource for NoData {
+    fn query(
+        &mut self,
+        source: &str,
+        _: &[exact_plan::Value],
+    ) -> Result<exact_plan::Value, exact_runner::DataError> {
+        Err(exact_runner::DataError::UnknownSource(source.into()))
+    }
+}
+
+/// `exactMIDI().sent` lists what went out, each its `output`, `data` and
+/// `timeStamp`; a message shape declaring another field is refused at the
+/// bake, naming them.
+#[test]
+fn sent_messages_answer_their_own_fields_only() {
+    let src = |extra: &str| {
+        format!("shape Message\n  output: string\n  data: number[]\n  timeStamp: number\n{extra}shape M\n  state: string\n  sent: Message[]\ncomponent A\n  resource m = exactMIDI() as shape M\n  view\n    text `${{m.sent.length}}`\n")
+    };
+    contract::bake(contract::compile(&src("")).unwrap(), NoData).unwrap();
+    match contract::bake(
+        contract::compile(&src("  velocity: number\n")).unwrap(),
+        NoData,
+    ) {
+        Err(contract::BakeError::Lint { id, message, .. }) => {
+            assert_eq!(id, "bake-midi-field");
+            assert!(message.contains("`velocity`, which a sent message does not answer; it answers output, data, timeStamp"), "{message}");
+        }
+        other => panic!("{other:?}"),
+    }
+}

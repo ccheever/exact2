@@ -7,7 +7,8 @@ use exact_plan::Value;
 
 /// Reserved resource source, answered before the app data seam.
 pub const SOURCE: &str = "exactViewport";
-/// Fields an app may declare, filled by name.
+/// Fields an app may declare, filled by name. `gpuTier` is the page facts'
+/// (`crate::Page::gpu_tier`), which the runner answers beside these.
 pub const FIELDS: &[&str] = &[
     "width",
     "height",
@@ -23,6 +24,7 @@ pub const FIELDS: &[&str] = &[
     "verticalViewportSegments",
     "pointer",
     "hover",
+    "gpuTier",
 ];
 
 /// The host's layout viewport, before the first settlement.

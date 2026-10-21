@@ -364,7 +364,7 @@
     },
     "protocol_handlers": {
       "type": "array",
-      "description": "The Web App Manifest's protocol handlers. A native host registers each protocol and delivers its complete incoming URL through the existing navigation root at the path template's %s. The template is an absolute app path with exactly one %s; use a query parameter such as /open?u=%s.",
+      "description": "The Web App Manifest's protocol handlers. A native host registers each protocol and delivers its complete incoming URL through the existing navigation root at the path template's %s. The template is an absolute app path with exactly one %s; use a query parameter such as /open?u=%s. `http` and `https` come as a pair with one template: on macOS they make the app a web browser the person can choose in System Settings, and an HTML file opened from Finder arrives at the same template as its file: URL. iOS and the web register neither.",
       "items": {
         "type": "object",
         "required": ["protocol", "url"],
@@ -534,6 +534,7 @@
             },
             "urlSchemes": {
               "type": "array",
+              "description": "Further URL schemes the bundle registers. Not http or https: those are protocol_handlers' pair.",
               "items": {
                 "type": "string"
               }
@@ -581,6 +582,10 @@
               "enum": ["speed", "size"],
               "description": "What a production build optimizes the Rust archive and ExactKit for (LLP 1047.001 D9): \"speed\" (opt-level 3, Swift -O) or \"size\" (opt-level z, Swift -Osize -internalize-at-link; on 2026-10-06 a one-text app's 9.8 MB was 6.2). Absent: speed for an app, size for an embed (`build.mjs --embed`). `build.mjs --optimize` overrides it."
             },
+            "oneTimeCodeAutofill": {
+              "enum": ["marked"],
+              "description": "\"marked\": macOS offers verification codes from Messages and Mail only in fields marked `autocomplete=\"one-time-code\"` (`NSAutoFillRequiresTextContentTypeForOneTimeCodeOnMac`). Absent: the platform's default; macOS 26 offers them in any text field."
+            },
             "designRequiresCompatibility": {
               "type": "boolean",
               "description": "Draw AppKit in its design before macOS 26 (no Liquid Glass bezels or control metrics), as Apple's UIDesignRequiresCompatibility key did; macOS 27 ignores that key, so the link records the macOS 15 SDK, the last before the new design, and every AppKit behaviour keyed on a later SDK is off. App Store Connect requires uploads to be built with a recent SDK and reads the recorded one. Absent or false: the SDK the app is built with."
@@ -608,6 +613,7 @@
             },
             "urlSchemes": {
               "type": "array",
+              "description": "Further URL schemes the bundle registers. Not http or https: those are protocol_handlers' pair.",
               "items": {
                 "type": "string"
               }

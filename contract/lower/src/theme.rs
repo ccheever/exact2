@@ -11,8 +11,13 @@
 //! outside its views (a data or a native module) every token, or its
 //! design's `exports`.
 
+mod bind;
 pub(crate) mod packages;
-mod scan;
+use bind::Lowering;
+pub(crate) use bind::{bind, fold, profiles, Refusals, Sink};
+pub(crate) mod retained;
+pub mod rows;
+pub(crate) mod scan;
 mod scheme;
 pub(crate) use scheme::one_scheme_tokens;
 
@@ -73,7 +78,7 @@ fn kernel_kind(kind: tamber::Kind) -> Option<exact_kernel::style::theme::Kind> {
 
 /// A role's id, as a row writes it (`-exact-label`, `CanvasText`) or as a
 /// theme key may (LLP 1095 D4's bare `secondary-label`).
-fn role_named(name: &str) -> Option<(u8, String)> {
+pub(crate) fn role_named(name: &str) -> Option<(u8, String)> {
     let id = roles::role(name).or_else(|| {
         (!name.starts_with('-'))
             .then(|| roles::role(&format!("-exact-{name}")))
@@ -193,7 +198,7 @@ fn same_name(a: &str, b: &str) -> bool {
 }
 
 /// Where a design's token was written, for its refusals.
-enum Origin {
+pub(crate) enum Origin {
     /// The design file: its source id.
     File(u32),
     /// An inline `theme`: each entry's span.
@@ -205,7 +210,7 @@ const SYNTHETIC: u32 = 1 << 30;
 
 /// A `color(--profile …)` entry (LLP 1100 D3), the plan's to resolve: kept
 /// out of the crate's fold, as are the entries naming it whole.
-struct Profiled {
+pub(crate) struct Profiled {
     name: String,
     value: String,
 }
@@ -227,6 +232,7 @@ impl Lowerer<'_> {
         crate::control_roles::note_accent(None);
         AXES.with(|axes| axes.borrow_mut().clear());
         CANDIDATES.with(|c| c.borrow_mut().clear());
+        rows::note(Vec::new());
         MEASURES.with(|m| m.borrow_mut().clear());
         crate::scale::declare(Vec::new());
         RETENTION.with(|r| *r.borrow_mut() = None);
@@ -295,28 +301,33 @@ impl Lowerer<'_> {
                 }
             }
         }
-        for (line, col, e) in crate::params::entry_errors(&design, &kinded, &identities) {
-            let span = self.token_span(&origin, line, col);
-            self.push(LowerError { span, ..e });
-        }
-        for (line, col, e) in crate::params::written_ranges(&design, &kinded, &identities, &vocab())
-        {
+        // A library's names are its API (LLP 1139 D8), then the entries' and
+        // the written ranges', in that order.
+        let (d, k, i) = (&design, &kinded, &identities);
+        let mut lines = crate::anatomy::param_lines(d, k, i, file);
+        lines.extend(crate::params::entry_errors(d, k, i));
+        lines.extend(crate::params::written_ranges(d, k, i, &vocab()));
+        for (line, col, e) in lines {
             let span = self.token_span(&origin, line, col);
             self.push(LowerError { span, ..e });
         }
         crate::params::add_to(&mut design, &kinded, &identities);
         let mut said = Said::of(file, root, &design);
+        // The rows a design server's write check reads again (`rows`).
+        rows::note(std::mem::take(&mut said.rows));
         // D7's retention, left for the design server before the design is
         // folded, as it does not depend on the fold.
         let mut words = std::mem::take(&mut said.words);
         // A component that isn't Contract reads its params outside the views:
         // its declaration keeps each (D15), with every token its default
         // reads, through any chain.
+        // A package design's components too (stage 12 B1).
         let designed = file
             .design
-            .as_ref()
-            .map(|d| crate::params::design_tokens(d).0);
-        let mut kept: Vec<String> = designed.into_iter().flatten().map(|p| p.token).collect();
+            .iter()
+            .chain(&file.package_designs)
+            .flat_map(|d| crate::params::design_tokens(d).0);
+        let mut kept: Vec<String> = designed.map(|p| p.token).collect();
         let mut roots = std::collections::BTreeSet::new();
         while let Some(name) = kept.pop() {
             if !roots.insert(name.clone()) {
@@ -350,7 +361,10 @@ impl Lowerer<'_> {
                 .map(|s| (s.expr.clone(), s.strict))
                 .collect();
         });
-        let profiled = self.profiles(&mut design, &origin);
+        if retained::stops_at_retention() {
+            return exact_kernel::style::theme::declarations([]);
+        }
+        let profiled = profiles(self, &mut design, &origin);
         // An expression over a profile's colour is not the build's to fold.
         said.synthetic.retain(|s| {
             let named = scan::words(&s.expr).any(|w| profiled.iter().any(|p| same_name(&p.name, w)));
@@ -365,52 +379,17 @@ impl Lowerer<'_> {
         });
         // A synthetic token from a literal no colour row is known to read
         // (a `fn`'s, a state's) is dropped when it does not fold.
-        let folding = loop {
-            let mut checked = design.clone();
-            for (i, s) in said.synthetic.iter().enumerate() {
-                let at = |value: String| tamber::At {
-                    value,
-                    line: SYNTHETIC + i as u32,
-                    col: 1,
-                };
-                checked.tokens.push(tamber::Token {
-                    name: at(format!("~{i}")),
-                    kind: None,
-                    value: at(s.expr.clone()),
-                    whens: Vec::new(),
-                    meta: Vec::new(),
-                });
-            }
-            match tamber::check_design(checked, &vocab()) {
-                Ok(f) => break f,
-                Err(all) => {
-                    let loose = |d: &tamber::Diagnostic| {
-                        d.line >= SYNTHETIC && !said.synthetic[(d.line - SYNTHETIC) as usize].strict
-                    };
-                    // A strict synthetic token the fold refused is said and
-                    // dropped too, so the design and the expressions that
-                    // folded stay bound; a refusal in the design binds none.
-                    if all.iter().all(|d| d.line >= SYNTHETIC) {
-                        for d in all.iter().filter(|d| !loose(d)) {
-                            self.design_refusal(d, &origin, &said);
-                        }
-                        let dropped: Vec<usize> =
-                            all.iter().map(|d| (d.line - SYNTHETIC) as usize).collect();
-                        let mut i = 0;
-                        said.synthetic.retain(|_| {
-                            i += 1;
-                            !dropped.contains(&(i - 1))
-                        });
-                        continue;
-                    }
-                    for d in all.iter().filter(|d| !loose(d)) {
-                        self.design_refusal(d, &origin, &said);
-                    }
-                    // Its icons' uses say no more than the design's refusal.
-                    crate::icons::mark_refused(design.icons.iter().map(|t| t.name.value.clone()));
-                    return exact_kernel::style::theme::declarations([]);
-                }
-            }
+        let mut refused: Vec<(tamber::Diagnostic, Vec<scan::Synthetic>)> = Vec::new();
+        let folding = fold(&design, &mut said.synthetic, &mut |d, synthetic| {
+            refused.push((d.clone(), synthetic.to_vec()))
+        });
+        for (d, synthetic) in &refused {
+            self.design_refusal(d, &origin, synthetic);
+        }
+        let Some(folding) = folding else {
+            // Its icons' uses say no more than the design's refusal.
+            crate::icons::mark_refused(design.icons.iter().map(|t| t.name.value.clone()));
+            return exact_kernel::style::theme::declarations([]);
         };
         if self.package_references(&folding, file) {
             return exact_kernel::style::theme::declarations([]);
@@ -437,185 +416,15 @@ impl Lowerer<'_> {
             &exported,
         );
         self.errors.extend(refused);
-        let mut entries = Vec::new();
-        for (i, t) in folding.tokens.iter().enumerate() {
-            let Some(value) = t.values.first() else {
-                continue;
-            };
-            let synthetic = t
-                .name
-                .strip_prefix('~')
-                .and_then(|n| n.parse::<usize>().ok());
-            // A token's name as written (LLP 1095 D4's bare `secondary-label`).
-            let name = match synthetic {
-                Some(n) => said.synthetic[n].expr.clone(),
-                None => folding.design.tokens[i].name.value.clone(),
-            };
-            let role = synthetic.is_none().then(|| role_named(&name)).flatten();
-            let at = &folding.design.tokens[i].name;
-            if synthetic.is_none()
-                && value.color().is_some_and(|v| {
-                    !self.admitted(&name, role.as_ref(), v, (at.line, at.col), &origin)
-                })
-            {
-                continue;
-            }
-            // A profile's colour, carried as written, is the default's.
-            let profile = profiled
-                .iter()
-                .find(|p| synthetic.is_none() && p.name == name);
-            let mut slices: Vec<String> = t.values.iter().map(|v| v.css()).collect();
-            // Every tuple the default stands in, which no `when` replaced.
-            if let Some(p) = profile {
-                let stand_in = slices[0].clone();
-                for s in slices.iter_mut().filter(|s| **s == stand_in) {
-                    *s = p.value.clone();
-                }
-            }
-            let value = slices[0].clone();
-            if slices.iter().all(|s| *s == value) {
-                slices.clear();
-            }
-            // A role crosses to the hosts once, for the surfaces they draw
-            // (LLP 1095 D4's reach): it has one value, whatever the modes.
-            if role.is_some() && !slices.is_empty() {
-                self.push(LowerError {
-                    id: "tamber-role-axis",
-                    message: format!("`{name}` overrides a role and varies by an app axis: a role has one value, which the hosts' own surfaces read; vary a token the rows name instead (LLP 1121 D5)"),
-                    span: self.token_span(&origin, at.line, at.col),
-                });
-                continue;
-            }
-            // An expression over base names every host can fold (stage 12 B2).
-            if t.kind == tamber::Kind::Length {
-                let unfolded = std::iter::once(&value)
-                    .chain(&slices)
-                    .find_map(|v| crate::scale::unfolded(v).map(|c| (v.clone(), c)));
-                if let Some((v, column)) = unfolded {
-                    let span = self.token_span(&origin, at.line, at.col);
-                    // A ranged param's own check said it already, at its line.
-                    let said = self
-                        .errors
-                        .iter()
-                        .any(|e| e.span == span && e.message.contains("doesn't fold to a length"));
-                    if !said {
-                        self.push(LowerError {
-                            id: "tamber-kind",
-                            message: format!(
-                                "`{name}` is `{v}`, which doesn't fold to a length on {column}: {}",
-                                crate::scale::UNFOLDED
-                            ),
-                            span,
-                        });
-                    }
-                    continue;
-                }
-            }
-            if let Some((_, row)) = &role {
-                let span = self.token_span(&origin, at.line, at.col);
-                let role = row.strip_prefix("-exact-").unwrap_or(row).to_string();
-                ROLES.with(|r| r.borrow_mut().push((role, span)));
-            }
-            entries.push(ThemeEntry {
-                name,
-                role: role.map(|(_, row)| row),
-                value,
-                slices,
-                kind: t.kind,
-            });
-        }
+        let synthetic: Vec<String> = said.synthetic.iter().map(|x| x.expr.clone()).collect();
+        let mut sink = Lowering {
+            l: self,
+            synthetic: &said.synthetic,
+            retention: &retention,
+        };
+        let (entries, scope) = bind(&mut sink, &folding, &synthetic, &profiled, &origin);
         self.theme = entries;
-        // A motion token is written into its rows here (D3): by name.
-        MOTION.with(|m| {
-            *m.borrow_mut() = self
-                .theme
-                .iter()
-                .filter(|e| matches!(e.kind, tamber::Kind::Duration | tamber::Kind::Easing))
-                .map(|e| (e.name.clone(), e.value.clone()))
-                .collect()
-        });
-        crate::scale::declare(folding.tokens.iter().map(|t| t.name.clone()).collect());
-        MEASURES.with(|m| {
-            *m.borrow_mut() = self
-                .theme
-                .iter()
-                .filter(|e| e.kind != tamber::Kind::Color && kind_code(e.kind).is_some())
-                .map(|e| {
-                    let mut values = vec![e.value.clone()];
-                    for v in &e.slices {
-                        if !values.contains(v) {
-                            values.push(v.clone());
-                        }
-                    }
-                    (e.name.clone(), e.kind, values)
-                })
-                .collect()
-        });
-        // The app's axes, which a pin and `setMode` name (D5).
-        for axis in &folding.design.axes {
-            let values: Vec<&str> = axis.values.iter().map(String::as_str).collect();
-            self.b.axis(&axis.name.value, &values);
-        }
-        AXES.with(|axes| {
-            *axes.borrow_mut() = folding
-                .design
-                .axes
-                .iter()
-                .map(|a| (a.name.value.clone(), a.values.clone()))
-                .collect()
-        });
-        // D7's retention: what the view may name, every role override, and
-        // in an app that can name a token outside its views (generated
-        // bindings, D12) every token, or those its `exports` block lists;
-        // and each synthetic token its rows write. The design server's
-        // `propose` asks the same `Retention` (LLP 1121 stage 5).
-        for e in &self.theme {
-            let Some(code) = kind_code(e.kind) else {
-                continue;
-            };
-            let synthetic = said.synthetic.iter().any(|s| s.expr == e.name);
-            if synthetic || retention.keeps(&folding.design, &e.name, e.role.as_deref(), e.kind) {
-                let slices: Vec<&str> = e.slices.iter().map(String::as_str).collect();
-                self.b.theme_token(
-                    &e.name,
-                    e.role.as_deref().unwrap_or(""),
-                    &e.value,
-                    code,
-                    &slices,
-                );
-            }
-        }
-        // A type or family token's family is a stack the plan declares, as
-        // a literal `font-family`'s is, and a bound table holds its id
-        // (stage 6 C).
-        let kernel_values = self.theme_stacks();
-        exact_kernel::style::theme::bind(&exact_kernel::style::theme::kinded(
-            self.theme
-                .iter()
-                .zip(&kernel_values)
-                .flat_map(|(e, kernel_value)| {
-                    let tint = e
-                        .role
-                        .as_deref()
-                        .and_then(roles::role)
-                        .is_some_and(roles::tint);
-                    let kind = kernel_kind(e.kind);
-                    kind.filter(|_| !tint)
-                        .map(|kind| {
-                            (
-                                e.name.as_str(),
-                                kernel_value.as_str(),
-                                false,
-                                kind,
-                                !e.slices.is_empty(),
-                            )
-                        })
-                        .into_iter()
-                        .chain(e.role.as_deref().filter(|_| !tint).and_then(|r| {
-                            Some((r, kernel_value.as_str(), true, kind?, !e.slices.is_empty()))
-                        }))
-                }),
-        ))
+        scope
     }
 
     /// The app's own design: `app.tamber` parsed, or the inline `theme`
@@ -634,7 +443,7 @@ impl Lowerer<'_> {
                 Ok(design) => Some((design, origin)),
                 Err(all) => {
                     for e in all {
-                        self.design_refusal(&e, &origin, &Said::default());
+                        self.design_refusal(&e, &origin, &[]);
                     }
                     None
                 }
@@ -644,115 +453,6 @@ impl Lowerer<'_> {
         let design = inline_design(theme);
         let spans = theme.entries.iter().map(|e| e.span).collect();
         Some((design, Origin::Inline(spans)))
-    }
-
-    /// Takes the profile colours (LLP 1100 D3) out of the crate's fold: an
-    /// entry that is one, and an entry naming such an entry whole, are
-    /// declared to it as `transparent` (so their names are still checked)
-    /// and carried as written. Another use of one's name is refused, as the
-    /// crate cannot fold it.
-    fn profiles(&mut self, design: &mut tamber::Design, origin: &Origin) -> Vec<Profiled> {
-        let same = same_name;
-        let mut out: Vec<Profiled> = Vec::new();
-        loop {
-            // A profile's colour is the default app tuple's, which is all the
-            // plan carries until it carries the axes (stage 2, commit 3).
-            let found = design.tokens.iter().position(|t| {
-                let text = t.value.value.trim();
-                !out.iter().any(|p| same(&p.name, &t.name.value))
-                    && (text.to_ascii_lowercase().starts_with("color(--") && parses(text)
-                        || t.whens.is_empty() && out.iter().any(|p| same(&p.name, text)))
-            });
-            let Some(i) = found else { break };
-            // A `when` that holds at the default modes would be the default's.
-            let axes = &design.axes;
-            let defaults = |w: &tamber::When| {
-                w.conds.iter().all(|(a, v)| {
-                    axes.iter()
-                        .any(|x| x.name.value == *a && x.values.first() == Some(v))
-                })
-            };
-            if let Some(w) = design.tokens[i].whens.iter().find(|w| defaults(w)) {
-                let span = self.token_span(origin, w.line, w.col);
-                self.push(LowerError {
-                    id: "lower-theme-value",
-                    message: format!("`{}`: this `when` holds at the default modes, where the token is a profile's colour (`color(--…)`): the plan carries the default modes' value, which a profile's colour must be", design.tokens[i].name.value),
-                    span,
-                });
-            }
-            let t = &mut design.tokens[i];
-            let text = t.value.value.trim().to_string();
-            let value = match out.iter().find(|p| same(&p.name, &text)) {
-                Some(p) => p.value.clone(),
-                None => text,
-            };
-            out.push(Profiled {
-                name: t.name.value.clone(),
-                value,
-            });
-            t.value.value = "transparent".into();
-        }
-        for t in &design.tokens {
-            // A profile token's default is taken; its `when` values are read.
-            let profile = out.iter().any(|p| p.name == t.name.value);
-            let values = std::iter::once(&t.value)
-                .filter(|_| !profile)
-                .chain(t.whens.iter().map(|w| &w.value));
-            let names = |v: &tamber::At<String>| {
-                scan::words(&v.value).any(|w| out.iter().any(|p| same(&p.name, w)))
-            };
-            if values.into_iter().any(names) {
-                let span = self.token_span(origin, t.name.line, t.name.col);
-                self.push(LowerError {
-                    id: "lower-theme-value",
-                    message: format!("`{}`: a profile's colour (`color(--…)`) is named whole by another token, not inside an expression or under `when`", t.name.value),
-                    span,
-                });
-            }
-        }
-        out
-    }
-
-    /// The refusals a design's token earns beyond the crate's: a name that
-    /// shadows a value's words, and the tint rule (LLP 1095 D1).
-    fn admitted(
-        &mut self,
-        name: &str,
-        role: Option<&(u8, String)>,
-        value: &tamber::Folded,
-        (line, col): (u32, u32),
-        origin: &Origin,
-    ) -> bool {
-        let span = self.token_span(origin, line, col);
-        let refuse = |id: &'static str, message: String| LowerError { id, message, span };
-        let error = match role {
-            None if RESERVED.contains(&name.to_ascii_lowercase().as_str()) => Some(refuse(
-                "lower-theme-name",
-                format!("`{name}` is a CSS keyword; name the token otherwise"),
-            )),
-            // The tint is the app's: `AccentColor` sets it; a role drawn in
-            // it follows (LLP 1095 D1, an authored accent over the design).
-            Some((id, _)) if roles::tint(*id) && *id != roles::accent() => Some(refuse(
-                "lower-theme-tint",
-                format!("`{name}` is drawn in the app's tint: a theme sets the tint with `AccentColor`"),
-            )),
-            Some((id, _)) if *id == roles::accent() => match value {
-                tamber::Folded::Host(tamber::Host::Role(row))
-                    if roles::role(row).is_some_and(roles::tint) =>
-                {
-                    Some(refuse("lower-theme-tint", format!("`{name}=\"{row}\"` names a role drawn in the tint itself: the tint is a colour, a platform colour or another role")))
-                }
-                _ => None,
-            },
-            _ => None,
-        };
-        match error {
-            Some(e) => {
-                self.push(e);
-                false
-            }
-            None => true,
-        }
     }
 
     /// Where a design's token line is: its entry's span, or its place in
@@ -785,7 +485,12 @@ impl Lowerer<'_> {
 
     /// The crate's refusal, where it was written: an inline entry, a
     /// synthetic token's row, or the design file's line.
-    fn design_refusal(&mut self, d: &tamber::Diagnostic, origin: &Origin, said: &Said) {
+    fn design_refusal(
+        &mut self,
+        d: &tamber::Diagnostic,
+        origin: &Origin,
+        synthetic: &[scan::Synthetic],
+    ) {
         let param = (crate::params::LINE..SYNTHETIC).contains(&d.line).then(|| {
             PARAMS.with(|p| {
                 p.borrow()
@@ -799,7 +504,7 @@ impl Lowerer<'_> {
                 format!("param `{}`: {}", p.full, d.message),
             )
         } else if d.line >= SYNTHETIC {
-            let s = &said.synthetic[(d.line - SYNTHETIC) as usize];
+            let s = &synthetic[(d.line - SYNTHETIC) as usize];
             (s.span, format!("`{}`: {}", s.expr, d.message))
         } else {
             (
@@ -1186,7 +891,7 @@ pub(crate) fn measure_values(text: &str) -> Option<(tamber::Kind, Vec<String>)> 
 
 /// The design's length or number token `text` names: its kind and its
 /// distinct values over the app's tuples, as the plan carries them.
-fn measure_written(text: &str) -> Option<(tamber::Kind, Vec<String>)> {
+pub(crate) fn measure_written(text: &str) -> Option<(tamber::Kind, Vec<String>)> {
     MEASURES.with(|m| {
         m.borrow()
             .iter()

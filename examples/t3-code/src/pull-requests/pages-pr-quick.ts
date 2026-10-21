@@ -8,9 +8,8 @@ import { sourceControlHostActions } from '../shared/source-control-hosts';
 // PullRequestStackPopover,PullRequestStackLayers,PullRequestRow}.tsx, usePullRequestActions.ts
 // (usePullRequestActionRunner's toasts), routes/_chat.pull-requests.tsx (speedMode, onSpeedAction).
 //
-// Speed mode is the native flags monitor's (T3Sidebar.swift `sidebarSpeedMode`: Shift alone, not while
-// a text field or the composer has the focus, cleared when the app resigns), which wakes this page's
-// resource (`t3.pr`) when it changes. A quick action runs as the panel's actions do (`pageslocal:pr-act-quick`,
+// Speed mode, Shift held alone, is the window's (app.contract `prSpeedMode`), which shows the quick actions
+// without asking this page again. A quick action runs as the panel's actions do (`pageslocal:pr-act-quick`,
 // one command at a time), and a row's popovers read only once opened (`pageslocal:pr-quick-*`).
 import { startDetached, type DetachedReply } from '../composer/composer-replies';
 import { startFleetDetached } from '../usage/usage-replies';
@@ -36,14 +35,13 @@ type QuickState = {
   checks: string; showAll: boolean;
   /** The row whose stack popover is open, and what each row's stack read said. */
   stack: string; stacks: Map<string, StackRead>;
-  speedMode: boolean;
   /** Popover reads shown as loading once before they are asked, so the loading line draws first. */
   shown: Set<string>;
 };
 const states = new WeakMap<object, QuickState>();
 function quickState(client: object): QuickState {
   let state = states.get(client);
-  if (!state) { state = { pending: new Set(), checks: '', showAll: false, stack: '', stacks: new Map(), speedMode: false, shown: new Set() }; states.set(client, state); }
+  if (!state) { state = { pending: new Set(), checks: '', showAll: false, stack: '', stacks: new Map(), shown: new Set() }; states.set(client, state); }
   return state;
 }
 const entryKey = (entry: Obj) => `${str(entry.environmentId)}:${str(entry.host)}:${str(entry.repository)}#${num(entry.number)}`;
@@ -137,7 +135,8 @@ export async function runQuickAction(client: T3Client, native: Native, value: st
 }
 
 const acceptedQuickWrites = new WeakMap<object, { origin: string; payload: Obj }[]>();
-async function flushQuickInvalidations(client: T3Client, native: Native): Promise<void> {
+/** The routed invalidations of accepted quick writes, run before the page or the panel answers. */
+export async function flushQuickInvalidations(client: T3Client, native: Native): Promise<void> {
   const pending = acceptedQuickWrites.get(client);
   while (pending?.length) {
     const write = pending[0]!;
@@ -212,16 +211,6 @@ export async function queueCloseBatch(client: T3Client, native: Native, refs: st
     if (completed === entries.length) pushToast(client, { kind: failures.length ? 'error' : 'success', title: failures.length ? `Closed ${closed} of ${entries.length} pull requests` : `Closed ${closed} pull request${closed === 1 ? '' : 's'}`, ...(failures.length ? { description: failures.slice(0, 3).join('\n') } : {}) });
   });
   return '';
-}
-
-// ── Speed mode ──────────────────────────────────────────────────────────────
-
-/** The native monitor's speed mode (Shift alone), read on every answer of the page; false without a module. */
-export async function readSpeedMode(client: T3Client, native: Native): Promise<boolean> {
-  await flushQuickInvalidations(client, native);
-  try { quickState(client).speedMode = obj(await client.restAccess(native).call({ op: 'sidebarSpeedMode' })).speedMode === true; }
-  catch (error) { if (letGo(error)) throw error; quickState(client).speedMode = false; }
-  return quickState(client).speedMode;
 }
 
 // ── Popovers ────────────────────────────────────────────────────────────────

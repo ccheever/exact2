@@ -837,3 +837,154 @@ fn a_contract_only_write_is_refused_when_the_servers_state_is_a_packages() {
     assert!(refused.to_string().contains("read-only"), "{refused}");
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// tamber/1.15: a site's file is the app's name for it,
+/// `node_modules/@acme/reading/index.contract`, as `explain` gives it, never
+/// the machine's absolute path, which a remote client must not see: no
+/// answer holds the app's directory, as given or canonical.
+#[test]
+fn no_answer_names_the_machines_directories() {
+    let dir = app("pkg-paths", "tamber t\n\ntheme\n  brand = reading.card\n");
+    with_reading(&dir, "tamber reading\n\ntheme\n  reading.card = #112233\n");
+    let at = dir.join("node_modules/@acme/reading");
+    std::fs::write(at.join("index.contract"), "component ReadingCard\n  params\n    inset: length = \"4px\"\n  view\n    column background-color=\"reading.card\" padding=\"param.inset\"\n      text \"x\"\n").unwrap();
+    let file = dir.join("app.tamber");
+    let mut s = Serve::start(&dir, &[]);
+    let mut answers = Vec::new();
+    for request in [
+        json!({"method": "hello", "client": "one"}),
+        json!({"method": "describe"}),
+        json!({"method": "uses", "token": "ReadingCard.inset"}),
+        json!({"method": "uses", "token": "reading.card"}),
+        json!({"method": "uses", "token": "brand"}),
+        json!({"method": "explain", "token": "ReadingCard.inset"}),
+        json!({"method": "explain", "token": "reading.card"}),
+        json!({"method": "resolve", "token": "ReadingCard.inset"}),
+        json!({"method": "propose", "ops": [{"op": "set-param", "name": "ReadingCard.inset", "value": "8px"}]}),
+        json!({"method": "transaction", "client": "one", "files": {"app.tamber": super::tamber_serve::digest(&file)}, "ops": [{"op": "set-token", "name": "brand", "value": "#445566"}]}),
+    ] {
+        let (answer, events) = s.ask(request.clone());
+        assert!(answer.get("ok").is_some(), "{request}: {answer}");
+        answers.push((request, answer, events));
+    }
+    // `uses` on the package component's param: its sites in the package's
+    // file, named from the app's directory.
+    let sites = answers[2].1["ok"]["sites"].as_array().unwrap();
+    assert!(!sites.is_empty(), "{}", answers[2].1);
+    for site in sites {
+        assert_eq!(
+            site["file"], "node_modules/@acme/reading/index.contract",
+            "{site}"
+        );
+    }
+    let brand = answers[4].1["ok"]["sites"].as_array().unwrap();
+    assert!(
+        brand.iter().all(|x| x["file"] == "app.contract"),
+        "{}",
+        answers[4].1
+    );
+    let canonical = dir.canonicalize().unwrap();
+    for (request, answer, events) in &answers {
+        let text = format!("{answer} {events:?}");
+        for d in [&dir, &canonical] {
+            assert!(!text.contains(&*d.to_string_lossy()), "{request}: {text}");
+        }
+    }
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Round 1 of the path fix: only path metadata is named from the app's
+/// directory; what an author wrote, a path to the app's own directory in it
+/// too, comes back byte for byte (a proposal's diff, describe's metadata,
+/// a scrub's fold), to a local client as to any.
+#[test]
+fn authored_text_holding_the_apps_path_is_kept() {
+    let dir = app("authored-path", "tamber t\n\ntheme\n  ink = #111111\n");
+    let canonical = dir.canonicalize().unwrap();
+    let written = format!("{}/assets/icon.svg", canonical.display());
+    let file = dir.join("app.tamber");
+    std::fs::write(
+        &file,
+        format!("tamber t\n\ntheme\n  ink = #111111  help=\"{written}\"\n"),
+    )
+    .unwrap();
+    let mut s = Serve::start(&dir, &[]);
+    let op = json!([{"op": "set-token", "name": "ink", "value": "#222222"}]);
+    let (proposed, _) = s.ask(json!({"method": "propose", "ops": op}));
+    let diff = proposed["ok"]["diff"]
+        .as_str()
+        .unwrap_or_else(|| panic!("{proposed}"));
+    assert!(
+        diff.contains(&format!("+  ink = #222222  help=\"{written}\"")),
+        "{diff}"
+    );
+    let (described, _) = s.ask(json!({"method": "describe"}));
+    assert_eq!(
+        described["ok"]["meta"]["tokens"]["ink"],
+        json!([["help", written]]),
+        "{}",
+        described["ok"]["meta"]
+    );
+    let digest = super::tamber_serve::digest(&file);
+    let (folded, _) = s.ask(
+        json!({"method": "scrub-fold", "open": true, "files": {"app.tamber": digest}, "ops": op}),
+    );
+    assert_eq!(
+        folded["ok"]["values"][0]["css"],
+        json!(["#222222ff"]),
+        "{folded}"
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Round 2 of the path fix (Astra 2 and 3): a package linked from outside
+/// the app. A motion token its view writes keeps its sites (`motion_sites`
+/// keeps the loader's paths through the join; the reply names them), and
+/// `explain` reads a param's default as written from where the file is.
+#[test]
+fn a_package_linked_from_outside_keeps_its_motion_sites_and_its_defaults() {
+    let dir = app(
+        "pkg-linked-outside",
+        "tamber t\n\ntheme\n  duration.fade: duration = 200ms\n",
+    );
+    let outside =
+        std::env::temp_dir().join(format!("exact2-linked-outside-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&outside);
+    std::fs::create_dir_all(&outside).unwrap();
+    std::fs::write(
+        outside.join("package.json"),
+        r#"{"name":"@acme/linked","version":"1.0.0","exports":{".":"./index.contract"}}"#,
+    )
+    .unwrap();
+    std::fs::write(outside.join("index.contract"), "component LinkedCard\n  params\n    inset: length = \"4px\"\n  view\n    column padding=\"param.inset\" transition=\"opacity duration.fade\"\n      text \"x\"\n").unwrap();
+    std::fs::create_dir_all(dir.join("node_modules/@acme")).unwrap();
+    std::os::unix::fs::symlink(&outside, dir.join("node_modules/@acme/linked")).unwrap();
+    std::fs::write(dir.join("app.contract"), "use LinkedCard from \"@acme/linked\"\ncomponent App\n  view\n    column\n      LinkedCard()\n").unwrap();
+    let mut s = Serve::start(&dir, &[]);
+    let (uses, _) = s.ask(json!({"method": "uses", "token": "duration.fade"}));
+    let sites = uses["ok"]["sites"]
+        .as_array()
+        .unwrap_or_else(|| panic!("{uses}"));
+    assert!(!sites.is_empty(), "{uses}");
+    for site in sites {
+        assert!(!site["site"].is_null(), "an instance found: {site}");
+        let file = site["file"].as_str().unwrap();
+        assert!(
+            file == "@acme/linked/index.contract"
+                || file == "node_modules/@acme/linked/index.contract",
+            "{site}"
+        );
+    }
+    let (explained, _) = s.ask(json!({"method": "explain", "token": "LinkedCard.inset"}));
+    assert_eq!(
+        explained["ok"]["param"]["default"], "\"4px\"",
+        "{explained}"
+    );
+    let text = format!("{uses} {explained}");
+    for d in [outside.clone(), outside.canonicalize().unwrap()] {
+        assert!(!text.contains(&*d.to_string_lossy()), "{text}");
+    }
+    drop(s);
+    let _ = std::fs::remove_dir_all(&dir);
+    let _ = std::fs::remove_dir_all(&outside);
+}

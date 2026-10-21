@@ -946,12 +946,12 @@ export const onPointer = (e, kind, f, l) => { return pointer(e, kind, kind === "
 export const onContextmenu = (e, kind, f, l) => { return l(kind, ev => { if (editMenu(ev.target)) return; ev.preventDefault(); ev.stopPropagation(); f(record(e, ev)); }); };
 // DOM's own, bubbling to every ancestor's handler; one that calls `preventDefault()` keeps the scroll (a pinch is a Control-held wheel) from happening (studio diary R3).
 export const onWheel = (e, kind, f, l) => { return e.addEventListener("wheel", ev => { if (ev.$stopped || e.matches(":disabled") || inertAncestor(e)) return; const outer = KeyEvent; KeyEvent = ev; try { f([...record(e, ev).slice(0, 2), ev.deltaX, ev.deltaY, ev.deltaMode, ev.shiftKey, ev.ctrlKey, ev.altKey, ev.metaKey]); } finally { KeyEvent = outer; } }, { passive: false }); };
-// Files dropped from outside, each a `doc:` handle (files.js, documents-glue.js; studio diary R19).
-export const onFileDrop = (e, kind, f, l) => { return OnHooks.drop?.(e, f); };
+// Files dropped from outside, each a `doc:` handle, and a file drag's enter and leave (files.js, documents-glue.js; studio diary R19).
+export const onFileDrop = (e, kind, f, l) => { return OnHooks.drop?.(e, f); }; export const onFileDrag = (e, kind, f, l) => { return OnHooks.drag?.(e, kind, f); };
 // Normal blur commits before focusout chooses its DOM path. Flush callbacks run before post-flush focus commands or autofocus; retired owners never dispatch teardown blur.
 export const onFocus = (e, kind, f, l) => { const own = Owner, run = () => e.isConnected && !own?.gone && f(); return l(kind, () => Flushing ? FocusQueue.push(run) : run()); };
-// the nearest handler hears the ClipboardEvent record; the default (a field's own paste) proceeds unless it calls preventDefault() (#125)
-export const onClipboard = (e, kind, f, l) => { return l(kind, ev => { ev.stopPropagation(); const outer = KeyEvent; KeyEvent = ev; try { f([ev.clipboardData?.getData("text/plain") ?? ""]); } finally { KeyEvent = outer; } }); };
+// the nearest handler hears the ClipboardEvent record, a paste's files minted `doc:` handles (files.js); the default (a field's own paste) proceeds unless it calls preventDefault() (#125)
+export const onClipboard = (e, kind, f, l) => { if (kind === "paste") OnHooks.pasteWarm?.(); return l(kind, ev => { ev.stopPropagation(); const outer = KeyEvent; KeyEvent = ev; try { f([ev.clipboardData?.getData("text/plain") ?? "", kind === "paste" ? OnHooks.pasted?.(ev) ?? [] : []]); } finally { KeyEvent = outer; } }); };
 export const onToggle = (e, kind, f, l) => l(kind, ev => f([ev.oldState, ev.newState]));
 export const onSelectionChange = (e, kind, f, l) => { return sourceField(e) ? l(kind, () => f(inputRecord(e, e.value, false))) : onSelection(e, (text, a, b, rects) => f([text, a, b, rects])); };
 // ---------------------------------------------------------------- presence (LLP 1063)
@@ -967,7 +967,7 @@ export const onSelectionChange = (e, kind, f, l) => { return sourceField(e) ? l(
 let Pres = null, Presence = null, Present = null, Leave = null, Sh = null; // Sh: shared.js, loaded with presence-glue.js, runs the commits that hand on a shared element's name in a view transition (LLP 1013.000 D7)
 /** The after-paint pieces on their way (the agent waits for them before an
  * operation, as glue.js's `agentSettled` waits for `pieces.pending()`). */
-export const pieces = () => Promise.all([Motion, Inputs, Presence, Flow, Native, Media?.mediaPiece()].filter(Boolean)).then(() => {}, () => {});
+export const pieces = () => Promise.all([Motion, Inputs, Presence, Flow, Native, Media?.mediaPiece(), OnHooks.loading].filter(Boolean)).then(() => {}, () => {});
 /** A view leaves with the exit animation `css` names (a virtualized list's
  * row wrapper, list.js): whether it stays, leaving, for presence-glue.js to remove. */
 export function exitView(el, css) { if (!Pres || !css) return false; Pres.exit(el, css); return exiting(el); }

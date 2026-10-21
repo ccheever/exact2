@@ -1,29 +1,18 @@
 // The sidebar's native pieces (MIT reference, see LICENSE-T3): the legacy
 // sidebar's New thread choice of project members as the desktop shell shows it
-// (ElectronMenu.ts showContextMenu: a native menu at the pointer), thread-jump hints
-// while ⌘ alone is held for 200 ms (THREAD_JUMP_HINT_SHOW_DELAY_MS), and the Pull
-// Requests page's speed mode while ⇧ alone is held and no text is being edited
-// (the route's useShortcutModifierState(true) — its window listeners are this
-// monitor here). A row press's ⌘/⇧ is its own MouseEvent's (sidebar-row.contract
-// `openPress`). Every other row menu is a Contract context popover, which the host
-// presents as an NSMenu (exact2 #223, #314).
+// (ElectronMenu.ts showContextMenu: a native menu at the pointer), and the repaint a
+// timed sidebar change asks for. Every other row menu is a Contract context popover,
+// which the host presents as an NSMenu (exact2 #223, #314).
 // The members' menu stays here: LegacySidebar's handleCreateThreadClick shows it at
 // the click (event.clientX, clientY) from a left press, where a Contract button's
 // menu is a pull-down below the button and a press's MouseEvent carries no position.
-// The held-key state stays native: Exact hears a key only at a focused node
-// (KeyEvents.swift keyTarget: none for the window itself or a module's web
-// view), and a Contract key event names no editable focus; the reference's
-// window listeners hear every key.
+// Held modifiers (thread-jump hints, the Pull Requests page's speed mode) are the
+// window's Contract key events (app.contract modifierKey).
 import AppKit
 
 final class T3Sidebar: NSObject {
     private let changed: (String) -> Void
     private let agent: Bool
-    private var monitor: Any?
-    private var pending: DispatchWorkItem?
-    private(set) var jumpHints = false
-    /// ⇧ alone, not while a field or the composer edits text (shortcut-modifier-state.ts speedMode).
-    private(set) var speedMode = false
     private(set) var picked: String?
 
     init(agent: Bool, changed: @escaping (String) -> Void) {
@@ -32,66 +21,10 @@ final class T3Sidebar: NSObject {
         super.init()
     }
 
-    var status: [String: Any] { ["sidebarJumpHints": jumpHints, "prSpeedMode": speedMode] }
-
-    /// Exactly ⌘ (caps lock, fn and the numeric pad never count): shown after
-    /// the delay, hidden at once on release or when ⇧, ⌥ or ⌃ joins.
-    static func jumpModifiers(_ flags: NSEvent.ModifierFlags) -> Bool {
-        flags.intersection([.command, .shift, .option, .control]) == [.command]
-    }
-
-    /// Exactly ⇧ (caps lock, fn and the numeric pad never count), as the route's speedMode.
-    static func speedModifiers(_ flags: NSEvent.ModifierFlags) -> Bool {
-        flags.intersection([.command, .shift, .option, .control]) == [.shift]
-    }
-    /// isEditableFocused: the field editor of a text field, or an editable text view (the composer).
-    static func editing(_ responder: NSResponder?) -> Bool {
-        (responder as? NSTextView)?.isEditable == true
-    }
-
-    func install() {
-        guard monitor == nil else { return }
-        monitor = NSEvent.addLocalMonitorForEvents(matching: [.flagsChanged, .keyDown]) { [weak self] event in
-            self?.flags(event.type == .keyDown ? [] : event.modifierFlags)
-            // A key's own flags only clear: Shift typed with a letter keeps speed mode while it is held.
-            self?.speed(event.modifierFlags, editing: Self.editing(event.window?.firstResponder ?? NSApp.keyWindow?.firstResponder))
-            return event
-        }
-        NotificationCenter.default.addObserver(self, selector: #selector(resign), name: NSApplication.didResignActiveNotification, object: nil)
-    }
-    @objc private func resign() { flags([]); speed([], editing: false) }
-    /// The page's quick actions show and hide with this; its resource (`t3.pr`) reads it again.
-    func speed(_ flags: NSEvent.ModifierFlags, editing: Bool) {
-        let next = Self.speedModifiers(flags) && !editing
-        guard next != speedMode else { return }
-        speedMode = next
-        changed("t3.status")
-        changed("t3.pr")
-    }
-    func flags(_ flags: NSEvent.ModifierFlags) {
-        if Self.jumpModifiers(flags) {
-            guard pending == nil, !jumpHints else { return }
-            let work = DispatchWorkItem { [weak self] in
-                guard let self else { return }
-                self.pending = nil
-                guard Self.jumpModifiers(NSEvent.modifierFlags), !self.jumpHints else { return }
-                self.jumpHints = true
-                self.changed("t3.status")
-            }
-            pending = work
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.2, execute: work)
-        } else {
-            pending?.cancel(); pending = nil
-            if jumpHints { jumpHints = false; changed("t3.status") }
-        }
-    }
-
     func perform(_ request: [String: Any], reply: @escaping ([String: Any]) -> Void) {
         let generation = request["generation"] as? Int ?? 0
         func answer(_ value: [String: Any]) { reply(["ok": true, "generation": generation, "value": value]) }
         switch request["op"] as? String {
-        case "sidebarSpeedMode":
-            answer(["speedMode": speedMode])
         case "sidebarNotify":
             let delay = (request["delay"] as? Double ?? 0) / 1000
             DispatchQueue.main.asyncAfter(deadline: .now() + max(0, delay)) { [weak self] in self?.changed("t3.status") }
@@ -154,11 +87,4 @@ final class T3Sidebar: NSObject {
         return menu
     }
     @objc func pick(_ sender: NSMenuItem) { picked = sender.representedObject as? String }
-
-    func destroy() {
-        if let monitor { NSEvent.removeMonitor(monitor) }
-        monitor = nil
-        pending?.cancel(); pending = nil
-        NotificationCenter.default.removeObserver(self)
-    }
 }

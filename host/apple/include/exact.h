@@ -32,7 +32,7 @@
 #include <stdint.h>
 
 /* The ABI's version: part of the compatibility id (LLP 1030 D3a). */
-#define EXACT_ABI_VERSION 15
+#define EXACT_ABI_VERSION 16
 
 #ifdef __cplusplus
 extern "C" {
@@ -218,8 +218,9 @@ typedef struct ExactMarkupPiece {
 /* Writes the pieces and their count, valid until exact_markup_free(handle). Zero on invalid UTF-8. */
 uint64_t exact_markup_pieces(const uint8_t *utf8, size_t len, const ExactMarkupPiece **out, size_t *count);
 /* Styling for an editor, as JSON (see host/apple/src/markup.rs `style`): paragraphs, spans, hidden
- * ranges and replacements over the source in UTF-16 units; the selection reveals markers it touches
- * (sel_start UINT32_MAX for none). Valid until exact_markup_free(handle). */
+ * ranges, replacements and link destinations over the source in UTF-16 units; the selection reveals
+ * markers it touches, never a link destination (sel_start UINT32_MAX for none). Valid until
+ * exact_markup_free(handle). */
 uint64_t exact_markup_style(const uint8_t *utf8, size_t len, uint32_t sel_start, uint32_t sel_end, const uint8_t **out, size_t *count);
 /* UTF-16 replacement JSON: {replacements:[[start,end,text],...],selection:[start,end]}.
  * Invalid commands return {error:...}; the original source is unchanged. */
@@ -487,8 +488,10 @@ const uint8_t *exact_field_decorations(const uint8_t *input, size_t len, size_t 
  * Structural reads use their actual presentation. `modal` is the index of
  * the first view of the frontmost modal presentation, or UINT32_MAX while
  * none is open: it and the views after it are live, and the views before it
- * and the page are inert behind it. */
-void exact_top_layer(ExactRuntime rt, const uint32_t *views, const double *rects, uint32_t count, uint32_t modal);
+ * and the page are inert behind it. `clips` is null or four viewport
+ * x/y/width/height doubles per id; NaN at x means no clip for that entry.
+ * A clip bounds hits and visibility without changing the frame's mapping. */
+void exact_top_layer(ExactRuntime rt, const uint32_t *views, const double *rects, const double *clips, uint32_t count, uint32_t modal);
 /* Versioned LE collection feedback in exact_in; returns the ordinary batch. */
 uint32_t exact_collection_feedback(ExactRuntime rt, size_t len, double now_ms);
 /* The agent's tap <list> into <key> (LLP 1070.000): "key\nblock\ninline" in
@@ -763,7 +766,9 @@ uint32_t exact_intrinsics(ExactRuntime rt, size_t len);
 /* What native containers cover of boxes (LLP 1075.003 §3.5) under one
  * layout: LE records of (uint32 view, uint32 kind — 0 clears, 1 edges,
  * 2 whole — float top, right, bottom, left). Edges add to the box's
- * padding; a whole box is laid out as display: none. */
+ * padding; a whole box is laid out as display: none. Kind 10 is a cells
+ * list's rows' cell margin (LLP 1138: float left, right, then two unused),
+ * 11 clears it. */
 uint32_t exact_host_covers(ExactRuntime rt, size_t len);
 /* A select's options (LLP 1069.001 D5), JSON in the output buffer, not a
  * batch: {"options":[{"value","label","disabled"}],"chosen":index|null}. */

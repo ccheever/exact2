@@ -53,6 +53,21 @@ impl Module {
         }
     }
 
+    /// The canvas's raster relative to its device pixels: the surface's
+    /// `render_scale` when finite in (0, 1], else 1. A host sizing the
+    /// drawable itself (a web canvas's backing store) multiplies by it.
+    pub fn render_scale(&self, id: u32) -> f32 {
+        let scale = self
+            .instances
+            .get(&id)
+            .map_or(1.0, |inst| inst.surface.render_scale());
+        if scale.is_finite() && scale > 0.0 && scale <= 1.0 {
+            scale
+        } else {
+            1.0
+        }
+    }
+
     /// Record one frame for a canvas at the given size into the open frame;
     /// returns whether the surface wants another. None with no error means no
     /// device/target. Nothing happens before the first bind. Nothing reaches
@@ -61,17 +76,12 @@ impl Module {
         self.check_device();
         // A canvas renders once per frame: a second render submits the first.
         self.settle(id);
+        let scale = self.render_scale(id);
         let Some(inst) = self.instances.get_mut(&id) else {
             return self.fail("no such canvas");
         };
-        let scale = inst.surface.render_scale();
         let frame = &Frame {
-            scale: frame.scale
-                * if scale.is_finite() && scale > 0.0 && scale <= 1.0 {
-                    scale
-                } else {
-                    1.0
-                },
+            scale: frame.scale * scale,
             ..*frame
         };
         let (w, h) = frame.pixels();

@@ -2,8 +2,9 @@
 // menu's copy:, cut: and paste:, or a hardware keyboard's on iPadOS — reach
 // the focused node as `copy`, `cut` and `paste`, the nearest node with a
 // handler (itself or an ancestor) hearing them, as on the web. A paste
-// carries the pasteboard's plain text; a copy or cut none, its action
-// writing the pasteboard (`copyText`). With no handler a cut or paste is
+// carries the pasteboard's plain text and its files (`clipboardData.files`,
+// PastedFiles.swift); a copy or cut none, its action writing the pasteboard
+// (`copyText`). With no handler a cut or paste is
 // not this node's, so the responder chain goes on; a copy is the text
 // selection's, as before.
 // A text field's or text area's own editing (its field editor, NSTextView,
@@ -44,13 +45,14 @@ extension NodeView {
 
     /// The `copy`, `cut` or `paste` this field's or text area's editor is
     /// about to perform, heard by the nearest handler (the node or an
-    /// ancestor), the paste with the pasteboard's text or `text` in its
-    /// place. True when an action called `preventDefault()`: the editor
-    /// skips its own cut, copy or paste, as the DOM's default is cancelled.
-    func fieldClipboard(_ action: Selector, text: String? = nil) -> Bool {
+    /// ancestor), the paste with the pasteboard's text and files or `text`
+    /// and `board`'s in their place. True when an action called
+    /// `preventDefault()`: the editor skips its own cut, copy or paste, as
+    /// the DOM's default is cancelled.
+    func fieldClipboard(_ action: Selector, text: String? = nil, board: Pasteboard? = nil) -> Bool {
         guard let presenter, let (kind, node) = clipboardHearer(action) else { return false }
         presenter.defaultPrevented = false
-        presenter.clipboard(node.id, kind, kind == 34 ? text ?? Self.pasteboardText ?? "" : "")
+        if kind == 34 { node.sendPaste(text: text, board: board ?? (text == nil ? Self.generalPasteboard : nil)) } else { presenter.clipboard(node.id, kind, "") }
         let prevented = presenter.defaultPrevented
         presenter.defaultPrevented = false
         return prevented
@@ -73,22 +75,21 @@ extension NodeView {
         }
     }
 
-    static var pasteboardText: String? {
-        #if os(macOS)
-        NSPasteboard.general.string(forType: .string)
-        #elseif os(tvOS)
+    static var generalPasteboard: Pasteboard? {
+        #if os(tvOS)
         nil // tvOS has no pasteboard.
         #else
-        UIPasteboard.general.string
+        .general
         #endif
     }
 
-    /// Deliver `action` with the pasteboard's text (a paste's), or `text`
-    /// in its place (the agent's `type <id> paste <text>`): whether a node heard it.
+    /// Deliver `action` with the pasteboard's text and files (a paste's), or
+    /// `text` and `board`'s in their place (the agent's `type <id> paste …`):
+    /// whether a node heard it.
     @discardableResult
-    func clipboard(_ action: Selector, text: String? = nil) -> Bool {
+    func clipboard(_ action: Selector, text: String? = nil, board: Pasteboard? = nil) -> Bool {
         guard let (kind, node) = clipboardTarget(action) else { return false }
-        presenter?.clipboard(node.id, kind, kind == 34 ? text ?? Self.pasteboardText ?? "" : "")
+        if kind == 34 { node.sendPaste(text: text, board: board ?? (text == nil ? Self.generalPasteboard : nil)) } else { presenter?.clipboard(node.id, kind, "") }
         return true
     }
 
@@ -148,7 +149,7 @@ extension Agent {
     /// `type <id> copy|cut|paste [text]` (spreadsheet F6): the event ⌘C, ⌘X
     /// or ⌘V delivers with the focus at `v` — a paste carrying `text` as
     /// the pasteboard's, which the driver leaves alone.
-    func clipboardType(_ v: NodeView, _ edit: String, _ text: String?) -> [String: Any] {
+    func clipboardType(_ v: NodeView, _ edit: String, _ text: String?, board: Pasteboard? = nil) -> [String: Any] {
         let actions = ["copy": #selector(NodeView.copy(_:)), "cut": #selector(NodeView.cut(_:)), "paste": #selector(NodeView.paste(_:))]
         guard let action = actions[edit] else { return ["error": "type: \(edit) is not copy, cut or paste"] }
         let editing = v.field != nil || v.textArea != nil
@@ -185,12 +186,12 @@ extension Agent {
             // An unprevented paste inserts the driver's text, without the
             // pasteboard; a copy or cut is the event alone, as the web
             // driver's (agent-keys.mjs `deliverClipboard`).
-            if !v.fieldClipboard(action, text: text ?? ""), edit == "paste" {
+            if !v.fieldClipboard(action, text: text ?? "", board: board), edit == "paste" {
                 v.presenter?.fieldSelections.withIntent(v, "insertFromPaste") { v.insertAtFieldSelection(text ?? "") }
             }
             return ["typed": Int(v.id), "clipboard": edit, "delivery": "recognized", "value": v.fieldText]
         }
-        v.clipboard(action, text: text ?? "")
+        v.clipboard(action, text: text ?? "", board: board)
         return ["typed": Int(v.id), "clipboard": edit, "delivery": "recognized"]
     }
 

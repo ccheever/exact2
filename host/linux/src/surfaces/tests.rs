@@ -153,6 +153,10 @@ pub(super) fn fixture() -> (PathBuf, Value) {
 #include <stdio.h>
 #include <string.h>
 void gpu_load_headless(void) {}
+static uint32_t tier_code = 2, retiers;
+uint32_t gpu_tier(uint32_t code) { if (code < 3) tier_code = code; return tier_code; }
+void gpu_retier(void) { retiers++; }
+uint32_t test_retiers(void) { return retiers; }
 static uint32_t lifecycle_count, lifecycle_codes[32], lifecycle_ids[32];
 void gpu_lifecycle(uint32_t id, uint32_t code) {
   if (lifecycle_count < 32) { lifecycle_ids[lifecycle_count] = id; lifecycle_codes[lifecycle_count++] = code; }
@@ -662,4 +666,42 @@ fn a_module_is_absent_only_without_an_identity_or_a_file() {
         "an unknown directory is no absence"
     );
     let _ = std::fs::remove_file(here);
+}
+
+/// LLP 1139.003 D2: the module's tier (here its own choice, low) is the
+/// page's `gpuTier`; `prefer gpu-tier` tells every module and remakes its
+/// renderers, and the page follows the module's answer.
+#[test]
+fn the_page_fact_follows_the_modules_gpu_tier() {
+    let (path, compat) = fixture();
+    let plan = contract::compile("component App\n  view\n    text \"test\"\n").unwrap();
+    let (mut p, _) = Presenter::boot(
+        &plan.encode(),
+        (),
+        (100., 100.),
+        1.,
+        path.parent().unwrap().into(),
+    )
+    .unwrap();
+    let abi = Abi::open_path(&path, &compat, "").unwrap();
+    // SAFETY: the C fixture's own observer.
+    let retiers = unsafe {
+        *abi.library
+            .get::<unsafe extern "C" fn() -> u32>(b"test_retiers")
+            .unwrap()
+    };
+    p.surfaces.abis.insert(String::new(), abi);
+    assert_eq!(
+        p.host.runner().page().gpu_tier(),
+        "high",
+        "before the module speaks"
+    );
+    p.sync_surfaces();
+    assert_eq!(p.host.runner().page().gpu_tier(), "low");
+    p.retier_surfaces(1);
+    assert_eq!(unsafe { retiers() }, 1);
+    p.sync_surfaces();
+    assert_eq!(p.host.runner().page().gpu_tier(), "mid");
+    drop(p);
+    std::fs::remove_dir_all(path.parent().unwrap()).unwrap();
 }

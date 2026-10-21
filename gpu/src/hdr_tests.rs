@@ -21,6 +21,9 @@ impl Surface for Probe {
     fn render_scale(&self) -> f32 {
         self.3
     }
+    fn retier(&mut self) -> bool {
+        true
+    }
     fn high_dynamic_range(&self) -> bool {
         self.1
     }
@@ -230,4 +233,37 @@ fn an_hdr_surface_gets_an_extended_target_and_its_hosts_headroom() {
     }
     drop(m);
     drop(layers);
+}
+
+/// LLP 1139.003 D2: a canvas that released its renderer for a new tier is
+/// dirty, so the agent's settle draws the new rung without moving the clock.
+#[test]
+fn a_retiered_canvas_is_drawn_again_without_the_clock() {
+    let Some(gpu) = fixture::device_or_skip(fixture::device()) else {
+        return;
+    };
+    let mut m = Module::new(&REGISTRY);
+    m.set_gpu(gpu);
+    m.set_seekable(true);
+    // SAFETY: a new CAMetalLayer, kept past the module.
+    let layer: objc2::rc::Retained<objc2::runtime::AnyObject> =
+        unsafe { objc2::msg_send![objc2::class!(CAMetalLayer), new] };
+    let ptr = objc2::rc::Retained::as_ptr(&layer) as *mut std::ffi::c_void;
+    // SAFETY: the layer outlives the module.
+    let target = unsafe {
+        m.gpu()
+            .unwrap()
+            .instance
+            .create_surface_unsafe(wgpu::SurfaceTargetUnsafe::CoreAnimationLayer(ptr))
+    }
+    .unwrap();
+    let id = m.create("srgb", target, 8, 8).unwrap();
+    assert!(m.bind(id, &[], None));
+    assert_eq!(m.render(id, &frame()), Some(false));
+    assert!(m.flush());
+    assert!(!m.dirty(id), "drawn, nothing new");
+    m.retier();
+    assert!(m.dirty(id), "the new rung waits for no clock");
+    drop(m);
+    drop(layer);
 }

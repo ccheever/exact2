@@ -54,7 +54,7 @@ test('a newly generated game builds, reports empty pins and captures without edi
     // An empty baseline is UNVERIFIED. All-mode first-pin agreement
     // is covered by prove's tests; it need not rebuild seven bakes in this fixture.
     await run('bun', [resolve(app, 'proof.mjs')], undefined, 3);
-    assert.match(readFileSync(resolve(app, 'artifacts/linux/proof.txt'), 'utf8'), /UNVERIFIED: no pins — run bun game\/prove.mjs/);
+    assert.match(readFileSync(resolve(app, 'artifacts/linux/proof.txt'), 'utf8'), /UNVERIFIED: no baseline yet .*run bun game\/prove.mjs/);
     await run('bun', [resolve(app, 'proof.mjs'), 'web', '--screenshot-only'], undefined, 3);
     assert.match(readFileSync(resolve(app, 'artifacts/web/proof.txt'), 'utf8'), new RegExp(`PROOF UNVERIFIED ${name} web: 0 failures`));
     const capture = JSON.parse(readFileSync(resolve(app, 'artifacts/web/replies.json'), 'utf8'));
@@ -654,6 +654,29 @@ test('E10 compact authored manifest survives two bakes byte for byte', async () 
 });
 
 
+test('an app.json edited after its shells: the compiler says the copy is stale, and the bake the builds run consumes the edit (LLP 1139.004 D2)', async () => {
+  const {gameDefaults,gameShells}=await import('./app/shells.mjs');
+  const root=resolve(import.meta.dir,'..'), built=spawnSync('cargo',['build','-q','-p','contract','--bin','contract'],{cwd:root,encoding:'utf8'});
+  assert.equal(built.status,0,built.stderr);
+  const parent=realpathSync(mkdtempSync(resolve(tmpdir(),'stale-shells-'))), app=resolve(parent,'my-game');
+  const build=()=>spawnSync(resolve(root,'target/debug/contract'),['build',resolve(app,'app.contract'),'-o',resolve(parent,'app.plan')],{encoding:'utf8'});
+  try {
+    createGame(app);
+    gameShells(app,gameDefaults(app).game,import.meta.dir);
+    const view=resolve(app,'app.contract');
+    writeFileSync(view,readFileSync(view,'utf8').replace('testId="play"','testId="play" data-pointer-lock="on"'));
+    const manifest=resolve(app,'app.json'), authored=existsSync(manifest)?JSON.parse(readFileSync(manifest,'utf8')):{};
+    writeFileSync(manifest,JSON.stringify({...authored,data:['pointer-lock']},null,2)+'\n');
+    const stale=build();
+    assert.notEqual(stale.status,0);
+    assert.match(stale.stderr,/`data-pointer-lock` is not declared[^]*\.shells\/app\.json is stale[^]*`bun exact\.mjs shells` regenerates it/);
+    gameShells(app,gameDefaults(app).game,import.meta.dir);
+    const fresh=build();
+    assert.equal(fresh.status,0,fresh.stderr);
+  } finally {rmSync(parent,{recursive:true,force:true});}
+}, 300000);
+
+
 test('D6 host shells discover arguments without an engine build dependency', () => {
   const parent=realpathSync(mkdtempSync(resolve(tmpdir(),'d6-shells-'))), app=resolve(parent,'my-game');
   try {
@@ -757,8 +780,8 @@ test('copies of the same game own distinct intermediate build directories', asyn
 test('a game whose type would shadow an engine export or a template item is refused', async () => {
   const {createGame,takenTypes}=await import('./new.mjs');
   const taken=takenTypes();
-  for (const type of ['World','Camera','Transform','Beacon','Options']) assert.ok(taken.has(type),type);
-  for (const name of ['world','camera','beacon']) assert.throws(()=>createGame(resolve(tmpdir(),`zz-${process.pid}`,name)),/would collide/);
+  for (const type of ['World','Camera','Transform','Beacon','Options','Spawner','Collectable','Character']) assert.ok(taken.has(type),type);
+  for (const name of ['world','camera','beacon','spawner','collectable']) assert.throws(()=>createGame(resolve(tmpdir(),`zz-${process.pid}`,name)),/would collide/);
   assert.ok(!taken.has('Garden'));
 });
 
