@@ -151,11 +151,11 @@ export function prsView(client: T3Client, now: number): PrsView {
 const linkBreakdown = (projectId: string, link: Obj): BreakdownTarget => ({ reference: { projectId, host: str(link.host), repository: str(link.repository), number: num(link.number) },
   additions: num(snapshotOf(link)?.additions), deletions: num(snapshotOf(link)?.deletions) });
 /** The rows' splits the reader asked for by hovering their +/- (the panel's resource, before it presents them). */
-export async function readLinkedBreakdowns(client: T3Client, native: Native | null | undefined, now: number): Promise<void> {
+export async function readLinkedBreakdowns(client: T3Client, native: Native | null | undefined): Promise<void> {
   const projectId = str(thread(client)?.projectId);
   if (!projectId) return;
   const links = sharedPullRequestLinks(client, arr(thread(client)?.pullRequests), projectId);
-  await readChangeBreakdowns(client, native, visiblePullRequests(links).map(link => linkBreakdown(projectId, link)), now);
+  await readChangeBreakdowns(client, native, visiblePullRequests(links).map(link => linkBreakdown(projectId, link)));
 }
 export const emptyPrs = (): PrsView => ({ supported: false, rows: [], footer: '', canWatch: false });
 

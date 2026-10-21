@@ -40,7 +40,7 @@ import {
   shouldRefreshPullRequestActivity, writePullRequestDetailSnapshot, type PullRequestDetailSnapshotRef,
 } from './pages-pr-logic';
 import { holdPullRequestRefreshes, liveRefreshAsked, liveRefreshDue, noteViewRefreshed, pullRequestRefreshEpoch, snapshotStorage, viewRefreshedAt } from './pages-pr-refresh';
-import { emptyBreakdown, presentChangeBreakdown, readChangeBreakdowns, type BreakdownTarget } from './pr-change-breakdown';
+import { breakdownKey, emptyBreakdown, presentChangeBreakdown, readChangeBreakdowns, releaseChangeBreakdowns, type BreakdownTarget } from './pr-change-breakdown';
 import { commentFilter, conversationBodies, emptySummary, presentSummary, toggleCommentFilter, type CommentFilter, type RemarkWrites } from './pages-pr-summary';
 import { emptyTimeline, presentTimeline } from './pages-pr-timeline';
 import { canEditPullRequestChangeRequest } from './pages-pr-writes-logic';
@@ -163,7 +163,7 @@ export async function pullRequestDetail(client: T3Client, native: Native | null 
   const selection = parseSelection(input.selected);
   const live = !!native?.available && client.ready;
   if (!selection) {
-    shown.delete(client); guideReader(client).shownKey = '';
+    shown.delete(client); guideReader(client).shownKey = ''; releaseChangeBreakdowns(client, 'detail');
     if (live) await holdPullRequestRefreshes(client, native!, 'detail', false);
     return view;
   }
@@ -210,7 +210,9 @@ export async function pullRequestDetail(client: T3Client, native: Native | null 
   // fill the native executor's ordered lane, host/apple/src/executor_core.rs COUNTS).
   if (display) await readPanelStack(client, native!, panel.key, display, panel.reference);
   // The +/- split, read at once for a view of one pull request (PullRequestChangeBreakdownStat `eager`).
-  if (display && await readChangeBreakdowns(client, native!, [breakdownTarget(panel, selection, display)], input.now, { eager: true, wakes: [] }) === 'wake')
+  // Opening the view (or another pull request in it) is the request; it ends when the view closes or moves on.
+  if (display) releaseChangeBreakdowns(client, 'detail', new Set([breakdownKey(client, breakdownTarget(panel, selection, display))]));
+  if (display && await readChangeBreakdowns(client, native!, [breakdownTarget(panel, selection, display)], { eager: 'detail', wakes: [] }) === 'wake')
     return wake(client, native!, present(view, panel, selection, listEntry, input.now, client), panel);
   // The Code tab's reads once it was opened (the ticks, the slice owed, the contents asked for).
   if (display && await readCode({ client, native: native!, reference: writeReference(selection), environmentId: selection.environmentId ?? '', detail: display, activity: panel.activity, tab: input.tab ?? '', refresh: input.refresh, epoch: pullRequestRefreshEpoch(client) }) === 'wake') {

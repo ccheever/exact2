@@ -14,7 +14,7 @@
 //   pullRequestActionMenuHasGroup, isStackedPullRequestBase, resolveBaseFreshness,
 //   pullRequestActionNeedsHostRefresh;
 // - chat/ThreadDetailsPrRow.tsx: the row's tooltip card and trailing action.
-import { emptyBreakdown, type BreakdownLine, type PrBreakdown } from '../pull-requests/pr-change-breakdown';
+import { MONO12, emptyBreakdown, type BreakdownLine, type PrBreakdown } from '../pull-requests/pr-change-breakdown';
 import { arr, num, obj, str, type Obj } from '../client/domain';
 
 export type MergeMethod = 'merge' | 'squash' | 'rebase';
@@ -311,8 +311,6 @@ export function trailingAction(action: string, input: { handoff: string; actionP
 const STATE_LABEL: Record<string, string> = { open: 'Open', draft: 'Draft', closed: 'Closed', merged: 'Merged' };
 // 12pt advances of the system font (regular; the title is medium, about 3.5% wider).
 const W12 = [3.38, 3.73, 5.73, 7.56, 7.56, 11.1, 8.54, 3.56, 4.58, 4.58, 5.66, 7.56, 3.56, 5.66, 3.56, 3.66, 7.56, 5.57, 7.24, 7.52, 7.72, 7.42, 7.64, 6.83, 7.66, 7.64, 3.56, 3.56, 7.56, 7.56, 7.56, 6.15, 11.02, 8.09, 7.89, 8.59, 8.72, 7.15, 6.87, 8.96, 8.91, 3.21, 6.46, 7.9, 6.81, 10.49, 8.91, 9.26, 7.62, 9.26, 7.84, 7.65, 7.61, 8.85, 8.09, 11.61, 8.14, 7.86, 7.94, 4.58, 3.66, 4.58, 7.56, 7, 6, 6.62, 7.37, 6.71, 7.37, 6.86, 4.34, 7.31, 7.06, 2.96, 2.96, 6.52, 3.04, 10.44, 7, 7.09, 7.32, 7.31, 4.57, 6.28, 4.36, 7, 6.5, 9.29, 6.29, 6.52, 6.47, 4.58, 3.11, 4.58, 7.56];
-/** A 12pt ui-monospace advance. */
-const MONO12 = 7.22;
 export function width12(text: string, medium = false): number {
   let width = 0;
   for (const char of text) { const code = char.charCodeAt(0); width += code >= 32 && code < 127 ? W12[code - 32]! : 7; }

@@ -1031,7 +1031,9 @@ component T3Window
               // Held to the larger room the layer can flip into, less its 4 pt offset.
               StripPrTipCard(tips=branches.prTips, maxHeight=(max(hoverTip.y - 61, viewport.height - hoverTip.y - hoverTip.height - 9) - 4), testId=hoverTip.testId, command=command)
             else if hoverTip.kind == "breakdown"
-              PrBreakdownCard(breakdown=prDetail.breakdown, diff=prDetail.diffScheme, testId=hoverTip.testId)
+              // The split under the pointer, from the view that holds it: the detail, a Pull Requests row or a linked row.
+              for split in [prDetail.breakdown].concat(prList.groups.map((group) => group.rows.map((row) => row.breakdown)).flat()).concat(shell.panel.prs.rows.map((row) => row.breakdown)).filter((entry) => entry.ref == hoverTip.text).slice(0, 1) key=split.ref
+                PrBreakdownCard(breakdown=split, diff=prDetail.diffScheme, testId=hoverTip.testId)
             else if hoverTip.kind == "workflow-member"
               WorkflowMemberCard(tip=hoverTip)
             else if hoverTip.kind == "scopes"

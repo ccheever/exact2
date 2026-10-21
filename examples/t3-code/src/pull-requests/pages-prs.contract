@@ -808,8 +808,7 @@ component PrRowButton
               box position="absolute" left=0 top=0
                 PgGlyph(name="triangle-alert", size=12, color="light-dark(#e40014, #fb414a)", weight=2.5)
         column flex=1 min-width=0
-          // Over the second line, so the +/- bubble paints on top of it.
-          row height="1.25rem" min-width=0 align-items="center" gap="0.375rem" position="relative" z-index=1
+          row height="1.25rem" min-width=0 align-items="center" gap="0.375rem"
             // PullRequestRow: the number carries the link; its right-click is pullRequestLinkContextMenu (Copy link, Open on <host>).
             box press=select(row.ref) contextmenu=linkMenuFor(row.linkMenu, row.linkOpenLabel) contextPopover="pr-link-menu" pointer-events="auto" flex-shrink=0 testId=`pr-number-${row.number}`
               text `#${row.number}` font-family="ui-monospace" font-size="0.75rem" line-height="1rem" font-variant-numeric="tabular-nums" color="light-dark(#71717b, #818181)"
@@ -828,7 +827,7 @@ component PrRowButton
             // through to the row's button, so the stat takes it back to hear its hover and passes a press on as the row's.
             if row.additions != ""
               box press=select(row.ref) pointer-events="auto" cursor="pointer" flex-shrink=0 display="flex"
-                PrBreakdownStat(breakdown=row.breakdown, diff=diff, offset=20, statId=`pr-breakdown-${row.number}`, request=control("breakdown"))
+                PrBreakdownStat(breakdown=row.breakdown, tipId=`pr-breakdown-${row.number}`, request=control("breakdown"))
                   row flex-shrink=0 align-items="baseline" gap="0.25rem"
                     text row.additions font-family="ui-monospace" font-size="0.6875rem" line-height="1rem" font-variant-numeric="tabular-nums" color=(diff == "blue-orange" ? "light-dark(#155dfc, #51a2ff)" : "light-dark(#009966, #00d492)")
                     text row.deletions font-family="ui-monospace" font-size="0.6875rem" line-height="1rem" font-variant-numeric="tabular-nums" color=(diff == "blue-orange" ? "light-dark(#f54900, #ff8904)" : "light-dark(#fb2c36, #fb414a)")

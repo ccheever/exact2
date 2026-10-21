@@ -6,7 +6,8 @@ import type { T3Client } from '../../src/client/client';
 import type { Obj } from '../../src/client/domain';
 import type { Native } from '../../src/client/protocol';
 import { pullRequestsPage } from '../../src/pull-requests/pages-prs';
-import { breakdownLines, presentChangeBreakdown, readChangeBreakdowns, requestChangeBreakdown } from '../../src/pull-requests/pr-change-breakdown';
+import { breakdownLines, presentChangeBreakdown, readChangeBreakdowns, releaseChangeBreakdowns, requestChangeBreakdown } from '../../src/pull-requests/pr-change-breakdown';
+import { prRefreshEvent } from '../../src/pull-requests/pages-pr-refresh';
 import { decodeChangeBreakdown } from '../../src/client/domain';
 import { prCard } from '../../src/details/pr-row-logic';
 
@@ -72,7 +73,7 @@ describe('a list row (PullRequestRow)', () => {
     let row = await firstRow(client);
     expect(row.breakdown).toMatchObject({ requested: false, loading: false, rows: [] });
     expect(calls.some(call => call.method === 'pullRequests.changeBreakdown')).toBe(false);
-    requestChangeBreakdown(client, row.breakdown.ref); // pageslocal:pr-breakdown
+    requestChangeBreakdown(client, row.breakdown.ref, 'list'); // pageslocal:pr-breakdown
     const before = wakes;
     row = await firstRow(client);
     expect(row.breakdown).toMatchObject({ requested: true, loading: true, rows: [] });
@@ -82,6 +83,8 @@ describe('a list row (PullRequestRow)', () => {
     expect(row.breakdown.loading).toBe(false);
     expect(row.breakdown.rows.map(line => [line.label, line.additions, line.deletions])).toEqual([['Code', '+80', '-0'], ['Docs', '+123', '-1']]);
     expect(row.breakdown.total).toEqual([{ key: 'total', label: 'Total', additions: '+203', deletions: '-1', row: 4 }]);
+    // The hover layer's estimate: three 16pt lines and the rule inside TooltipPopup's insets.
+    expect([row.breakdown.width > 100, row.breakdown.height]).toEqual([true, 75]);
   });
   test('a searched row, whose counts come from listStats, asks for its split too', async () => {
     const { additions: _a, deletions: _d, ...searched } = entry(9);
@@ -99,9 +102,9 @@ describe('a list row (PullRequestRow)', () => {
 describe('the read', () => {
   test('a view of one pull request reads at once (eager): loading first, then the split', async () => {
     const { client, calls } = fakeClient({ 'pullRequests.changeBreakdown': () => SPLIT });
-    expect(await readChangeBreakdowns(client, native, [target()], NOW, { eager: true })).toBe('wake');
+    expect(await readChangeBreakdowns(client, native, [target()], { eager: 'detail' })).toBe('wake');
     expect(presentChangeBreakdown(client, target(), { eager: true })).toMatchObject({ loading: true, rows: [] });
-    expect(await readChangeBreakdowns(client, native, [target()], NOW, { eager: true })).toBe('done');
+    expect(await readChangeBreakdowns(client, native, [target()], { eager: 'detail' })).toBe('done');
     expect(calls).toHaveLength(1);
     expect(presentChangeBreakdown(client, target(), { eager: true }).rows).toHaveLength(2);
     // The details card's inline split carries no Total.
@@ -110,20 +113,42 @@ describe('the read', () => {
   test('a host with no per-file counts (null), or a server without the read, leaves the +/- alone', async () => {
     for (const reply of [() => null, () => { throw new Error('Unknown method pullRequests.changeBreakdown'); }]) {
       const { client } = fakeClient({ 'pullRequests.changeBreakdown': reply });
-      await readChangeBreakdowns(client, native, [target()], NOW, { eager: true });
-      await readChangeBreakdowns(client, native, [target()], NOW, { eager: true });
+      await readChangeBreakdowns(client, native, [target()], { eager: 'detail' });
+      await readChangeBreakdowns(client, native, [target()], { eager: 'detail' });
       expect(presentChangeBreakdown(client, target(), { eager: true })).toMatchObject({ loading: false, rows: [], total: [] });
     }
   });
-  test('a split is read again after 60 s (the query staleTime), and not before', async () => {
+  test('updates a minute apart with nothing announced read once; an announcement, other totals or a new request read again', async () => {
     const { client, calls } = fakeClient({ 'pullRequests.changeBreakdown': () => SPLIT });
-    await readChangeBreakdowns(client, native, [target()], NOW, { eager: true });
-    await readChangeBreakdowns(client, native, [target()], NOW, { eager: true });
-    await readChangeBreakdowns(client, native, [target()], NOW + 59_000, { eager: true });
+    const reads = () => calls.filter(call => call.method === 'pullRequests.changeBreakdown').length;
+    for (let tick = 0; tick < 3; tick++) await readChangeBreakdowns(client, native, [target()], { eager: 'detail' }); // the minute ticks
+    expect(reads()).toBe(1);
+    // pullRequests.subscribeRefreshes: a change announced; the split is read again, keeping the one shown meanwhile.
+    prRefreshEvent(client, { key: 'pull-request-refreshes', subscriptionId: '1-1', value: 3 });
+    expect(await readChangeBreakdowns(client, native, [target()], { eager: 'detail' })).toBe('done');
+    expect(reads()).toBe(2);
+    await readChangeBreakdowns(client, native, [target()], { eager: 'detail' });
+    expect(reads()).toBe(2);
+    // A surface with no announcement (a linked row's snapshot): the totals beside the split moved.
+    await readChangeBreakdowns(client, native, [target({ additions: 210 })], { eager: 'detail' });
+    expect(reads()).toBe(3);
+    // The view closed and opened again: a new request reads once.
+    releaseChangeBreakdowns(client, 'detail');
+    await readChangeBreakdowns(client, native, [target({ additions: 210 })], { eager: 'detail' });
+    await readChangeBreakdowns(client, native, [target({ additions: 210 })], { eager: 'detail' });
+    expect(reads()).toBe(4);
+  });
+  test('a closed surface asks for nothing more: its hovered rows stop reading', async () => {
+    const { client, calls } = fakeClient({ 'pullRequests.changeBreakdown': () => SPLIT });
+    const key = presentChangeBreakdown(client, target()).ref;
+    requestChangeBreakdown(client, key, 'linked');
+    await readChangeBreakdowns(client, native, [target()]);
+    await readChangeBreakdowns(client, native, [target()]);
+    releaseChangeBreakdowns(client, 'linked');
+    prRefreshEvent(client, { key: 'pull-request-refreshes', subscriptionId: '1-1', value: 4 });
+    await readChangeBreakdowns(client, native, [target()]);
     expect(calls).toHaveLength(1);
-    // A refresh keeps the split it has while it reads (no loading line).
-    expect(await readChangeBreakdowns(client, native, [target()], NOW + 60_000, { eager: true })).toBe('done');
-    expect(calls).toHaveLength(2);
+    expect(presentChangeBreakdown(client, target()).requested).toBe(false);
   });
 });
 
@@ -131,8 +156,8 @@ describe('the details card (ThreadDetailsPrRow, PullRequestChangeBreakdownRows)'
   const detail = { title: 'Keep the notes in one place', number: 7, state: 'open', baseBranch: 'main', headBranch: 'feature/notes', changedFiles: 3, additions: 203, deletions: 1, checks: [] };
   test('lists the split under the diff size, with no Total, and widens to hold it', async () => {
     const { client } = fakeClient({ 'pullRequests.changeBreakdown': () => ({ ...SPLIT, generated: lines(12000, 3400) }) });
-    await readChangeBreakdowns(client, native, [target()], NOW, { eager: true });
-    await readChangeBreakdowns(client, native, [target()], NOW, { eager: true });
+    await readChangeBreakdowns(client, native, [target()], { eager: 'detail' });
+    await readChangeBreakdowns(client, native, [target()], { eager: 'detail' });
     const split = presentChangeBreakdown(client, target(), { eager: true, total: false });
     const bare = prCard(detail, 'open', 900), card = prCard(detail, 'open', 900, undefined, split);
     expect(card.breakdown.rows.map(line => line.label)).toEqual(['Code', 'Generated', 'Docs']);

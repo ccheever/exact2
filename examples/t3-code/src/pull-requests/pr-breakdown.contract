@@ -1,7 +1,6 @@
 // A pull request's +/- split by file kind, drawn from pr-change-breakdown.ts. T3 Code 74541bab17 (MIT, see
 // LICENSE-T3): apps/web/src/components/pullRequest/PullRequestChangeBreakdownStat.tsx.
-use TipBubble from "../shell/shell-tip.contract"
-use hoverTipAtFrame from "../shell/hover-layer.contract"
+use hoverTipAtFrame, hoverTipWide from "../shell/hover-layer.contract"
 
 shape PrBreakdownLine
   key: string
@@ -15,60 +14,33 @@ shape PrBreakdown
   loading: bool
   rows: PrBreakdownLine[]
   total: PrBreakdownLine[]
+  width: number
+  height: number
 
 // Appearance → Diff colors (PullRequestDiffStat's text-diff-addition-foreground / text-diff-deletion).
 fn breakdownAdd(diff: string): string = diff == "blue-orange" ? "light-dark(#155dfc, #51a2ff)" : "light-dark(#009966, #00d492)"
 fn breakdownDel(diff: string): string = diff == "blue-orange" ? "light-dark(#f54900, #ff8904)" : "light-dark(#fb2c36, #fb414a)"
 
 // PullRequestChangeBreakdownStat: the +/- (the slot) with a hover that splits it into its kinds and the Total.
-// The first pointer or focus intent asks for the split (`request(breakdown.ref)`) unless it was asked for
-// already. The bubble is TooltipPopup's card below the stat (side bottom, its 600 ms delay): "Loading breakdown"
-// while the read is out, nothing when the host has no split. Every such stat ends its row at the list's right edge,
-// so the bubble ends where the stat ends, where Base UI's collision shift puts a centred one.
+// The first pointer intent asks for the split (`request(breakdown.ref)`) unless it was asked for already (a view
+// of one pull request reads its split when it opens). The bubble is TooltipPopup's card below the stat, centred,
+// after its 600 ms delay: the window's hover layer (hover-layer.contract kind "breakdown") draws it from the view
+// that owns `breakdown.ref`, so a read that lands while it shows fills it in, and keeps it inside the window,
+// flipping above the stat where it does not fit below (the last list row, the folding detail header). Its size is
+// the estimate the read gave (`width`, `height`), or a three-line grid's before the first read.
 component PrBreakdownStat
-  props
-    breakdown: PrBreakdown
-    diff: string
-    offset: number
-    statId: string
-    request: action
-  slot
-  state over = false
-  state focused = false
-  action setOver(value: bool)
-    over = value
-    if value and not breakdown.requested
-      request(breakdown.ref)
-  action focusEntered(e: FocusEvent)
-    focused = true
-    if not breakdown.requested
-      request(breakdown.ref)
-  action focusLeft(e: FocusEvent)
-    focused = false
-  view
-    box position="relative" hover=setOver focusin=focusEntered focusout=focusLeft flex-shrink=0 display="flex" flex-direction="row" align-items="baseline" testId=statId
-      children
-      if breakdown.rows.length > 0
-        row position="absolute" top=offset left="-20rem" right=0 justify-content="flex-end" pointer-events="none" z-index=140
-          column padding-left="0.5rem" padding-right="0.5rem" padding-top="0.25rem" padding-bottom="0.25rem" box-sizing="border-box" border-radius="0.5rem" border-style="solid" border-width=1 border-color="light-dark(#e4e4e7, #ffffff0f)" background-color="light-dark(#ffffff, #111111)" box-shadow="0 4px 6px -1px #0000000d, 0 2px 4px -2px #0000000d" opacity=(over or focused ? 1 : 0) transition=(over or focused ? "opacity 150ms ease 600ms" : "opacity 0ms") role="tooltip" aria-hidden=(not (over or focused)) testId=(over or focused ? `${statId}-tooltip` : `${statId}-tooltip-hidden`)
-            PrBreakdownGrid(rows=breakdown.rows, total=breakdown.total, diff=diff, ink="light-dark(#27272a, #f5f5f5)")
-      else if breakdown.loading
-        TipBubble(label="Loading breakdown", side="bottom", align="end", offset=offset, inset=0, shown=(over or focused))
-
-// The same stat where its box clips (the detail panel's header folds): the window's hover layer draws the bubble
-// (hover-layer.contract kind "breakdown"), from the detail view's own `breakdown`, so a read that lands while the
-// bubble shows fills it in. A view of one pull request reads its split at once, so it never asks. The stat ends its
-// header row, so the bubble ends where it ends; Base UI centres it and shifts it inside the window's edge.
-component PrBreakdownLayerStat
   inject
     rem: number
     hoverTipAt: action
   props
     breakdown: PrBreakdown
     tipId: string
+    request: action
   slot
   action hover(inside: bool)
-    hoverTipAt(hoverTipAtFrame(tipId, "breakdown", "", [], "bottom", "end", frame(tipId), (breakdown.rows.length + breakdown.total.length * 1.25) * 1.25 * rem + 0.75 * rem, "pr-breakdown-tooltip"), "trigger", inside)
+    if inside and not breakdown.requested
+      request(breakdown.ref)
+    hoverTipAt(hoverTipWide(hoverTipAtFrame(tipId, "breakdown", breakdown.ref, [], "bottom", "center", frame(tipId), (breakdown.height > 0 ? breakdown.height : 102), `${tipId}-tooltip`), (breakdown.width > 0 ? breakdown.width : 150)), "trigger", inside)
   view
     box id=tipId testId=tipId position="relative" hover=hover flex-shrink=0 display="flex" flex-direction="row" align-items="baseline"
       children

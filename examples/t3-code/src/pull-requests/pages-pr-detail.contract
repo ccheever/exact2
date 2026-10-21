@@ -29,7 +29,7 @@ use PrdHeaderActions from "./pages-pr-actions.contract"
 use PrdBaseBranch from "./pages-pr-actions.contract"
 use PrdApproveWorkflows from "./pages-pr-actions.contract"
 use PrBreakdown from "./pr-breakdown.contract"
-use PrBreakdownLayerStat from "./pr-breakdown.contract"
+use PrBreakdownStat from "./pr-breakdown.contract"
 use PrdConfirmEscape from "./pages-pr-actions.contract"
 use PrWrites from "./pages-pr-compose.contract"
 use PrdComposer from "./pages-pr-compose.contract"
@@ -505,7 +505,7 @@ component PrdHeader
               PgIcon(name="file-diff", size=12, color="light-dark(#71717b, #818181)")
               text detail.filesCount font-size="0.6875rem" line-height="1rem" font-variant-numeric="tabular-nums" color="light-dark(#71717b, #818181)" white-space="nowrap"
             if detail.additions != ""
-              PrBreakdownLayerStat(breakdown=detail.breakdown, tipId="pull-request-breakdown-condensed")
+              PrBreakdownStat(breakdown=detail.breakdown, tipId="pull-request-breakdown-condensed", request=local("pr-breakdown", ""))
                 row align-items="baseline" gap="0.25rem" flex-shrink=0
                   text detail.additions font-family="ui-monospace" font-size="0.6875rem" line-height="1rem" color=(detail.diffScheme == "blue-orange" ? "light-dark(#155dfc, #51a2ff)" : "light-dark(#009966, #00d492)")
                   text detail.deletions font-family="ui-monospace" font-size="0.6875rem" line-height="1rem" color=(detail.diffScheme == "blue-orange" ? "light-dark(#f54900, #ff8904)" : "light-dark(#fb2c36, #fb414a)")
@@ -532,7 +532,7 @@ component PrdHeader
                 PgIcon(name="file-diff", size=14, color="light-dark(#71717b, #818181)")
                 text detail.files font-size="0.75rem" line-height="1rem" font-variant-numeric="tabular-nums" color="light-dark(#71717b, #818181)" white-space="nowrap"
               if detail.additions != ""
-                PrBreakdownLayerStat(breakdown=detail.breakdown, tipId="pull-request-breakdown")
+                PrBreakdownStat(breakdown=detail.breakdown, tipId="pull-request-breakdown", request=local("pr-breakdown", ""))
                   row align-items="baseline" gap="0.25rem"
                     text detail.additions font-family="ui-monospace" font-size="0.75rem" line-height="1rem" color=(detail.diffScheme == "blue-orange" ? "light-dark(#155dfc, #51a2ff)" : "light-dark(#009966, #00d492)")
                     text detail.deletions font-family="ui-monospace" font-size="0.75rem" line-height="1rem" color=(detail.diffScheme == "blue-orange" ? "light-dark(#f54900, #ff8904)" : "light-dark(#fb2c36, #fb414a)")

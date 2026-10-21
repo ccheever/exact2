@@ -78,7 +78,7 @@ component DetailsPrRowView
     hovered = over ? id : (hovered == id ? "" : hovered)
     // The card's split is read when the card is first pointed at (PullRequestChangeBreakdownRows reads on mount).
     if over and id == "row" and not row.extra.card.breakdown.requested
-      local("surface-pr-breakdown", "", row.extra.card.breakdown.ref)
+      local("surface-pr-breakdown", "card", row.extra.card.breakdown.ref)
   action open(e: MouseEvent)
     local("surface-linked-pr-open", (e.metaKey or e.ctrlKey) ? "held" : row.target, row.url)
   // onAuxClick: the middle button opens it in the browser when it goes down and comes up on the row.

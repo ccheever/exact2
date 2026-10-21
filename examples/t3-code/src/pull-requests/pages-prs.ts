@@ -23,7 +23,7 @@ import { isScratchProject, scratchRoot } from '../pages/pages-home';
 import { projectScopes } from '../sidebar/sidebar-view'; // the project filter's order
 import { prEnvironments, readsPullRequests, type PrEnvironment } from './pages-pr-environments'; // the Server filter
 import { pullRequestHost } from '../palette/palette-linkpr';
-import { emptyBreakdown, presentChangeBreakdown, readChangeBreakdowns } from './pr-change-breakdown';
+import { emptyBreakdown, presentChangeBreakdown, readChangeBreakdowns, releaseChangeBreakdowns } from './pr-change-breakdown';
 
 export const SORTS = [
   { value: 'ready', label: 'Merge readiness' }, { value: 'blocked', label: 'Blocked on me' }, { value: 'updated', label: 'Recently updated' },
@@ -415,7 +415,7 @@ export async function pullRequestsPage(client: T3Client, native: Native | null |
     view.hosts = carried.view.hosts.map(host => ({ ...host, selected: host.value === prefs.host }));
   }
   view.hostLabel = view.hosts.find(host => host.selected)?.label ?? 'All';
-  if (!input.open) listLiveAsk(client, input);
+  if (!input.open) { listLiveAsk(client, input); releaseChangeBreakdowns(client, 'list'); } // a row's hover ends with the page
   if (!input.open && native?.available && client.ready) await holdPullRequestRefreshes(client, native, 'list', false);
   if (input.open && native?.available && !client.ready && client.environmentId && carried?.environmentId === client.environmentId) return carried.view;
   if (!input.open || !native?.available || !client.ready) { view.loading = input.open && client.ready; return view; }
@@ -477,7 +477,7 @@ export async function pullRequestsPage(client: T3Client, native: Native | null |
     const stat = measured(entry) ? null : cached.stats.get(entryKey(entry)), counted = stat ?? entry;
     return { reference: entry, environmentId: str(entry.environmentId), additions: num(counted.additions), deletions: num(counted.deletions) };
   };
-  await readChangeBreakdowns(client, native, presented.groups.flatMap(group => group.rows.flatMap(row => { const entry = byKey.get(row.key); return entry ? [breakdownOf(entry)] : []; })), input.now, { wakes: ['t3.pr'] });
+  await readChangeBreakdowns(client, native, presented.groups.flatMap(group => group.rows.flatMap(row => { const entry = byKey.get(row.key); return entry ? [breakdownOf(entry)] : []; })), { wakes: ['t3.pr'] });
   for (const group of presented.groups) for (const row of group.rows) { const entry = byKey.get(row.key); if (entry) row.breakdown = presentChangeBreakdown(client, breakdownOf(entry)); }
   native.watch?.('t3.pr');
   await flushQuickInvalidations(client, native);
