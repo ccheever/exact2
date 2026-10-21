@@ -681,7 +681,8 @@ try {
     performance.getEntriesByType=type=>type==='navigation'?[{name:location.origin+'/?agent=1'}]:navigationEntries.call(performance,type);
     try {
       storage=await prepare(await payload(fixtures.storage,storageIdentity),storageIdentity);
-      if(!(await storageCall('bake')).includes('unavailable in agent mode'))throw new Error('agent mode disk access');
+      // A drive that names no scratch store reads an empty one, never the app's disk (08f21295d1).
+      if(!/^Unavailable:ENOENT:.*names no scratch store/.test(await storageCall('bake')))throw new Error('agent mode disk access');
       storage.dispose();
     } finally {performance.getEntriesByType=navigationEntries;}
     const abandonedSource=`let invocation=0;globalThis.exact={abi:1,appId:'dev.exact.storage-test',grants:${JSON.stringify(storageIdentity.grants)},answer(source,args,store,storage){
@@ -915,7 +916,8 @@ try {
     train.dispose();
     return {ecdsa:globalThis.ecdsaResult,guards:forms.length,caltrain:fixtures.oracle.length,store:true,isolated:true,refusals:true,async:true,storage:true,sqliteReload:{coldMs,warmMs}};
   };
-  const result=await call('Runtime.evaluate',{expression:`(${probe.toString()})(${JSON.stringify(fixtures)})`,returnByValue:true,awaitPromise:true});
+  // Its busy-storage steps each wait out a lock's 10 s bound (storage-fs.js `lockPaths`, since 837ecf4360): past CDP's 15 s.
+  const result=await cdp.send('Runtime.evaluate',{expression:`(${probe.toString()})(${JSON.stringify(fixtures)})`,returnByValue:true,awaitPromise:true},sessionId,240000);
   assert.equal(result.exceptionDetails,undefined,JSON.stringify(result.exceptionDetails));
   console.log(JSON.stringify(result.result.value.sqliteReload));delete result.result.value.sqliteReload;
   console.log('ECDSA_RESULT '+JSON.stringify(result.result.value.ecdsa));delete result.result.value.ecdsa;

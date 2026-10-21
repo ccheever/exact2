@@ -4,6 +4,8 @@
 const AGENT_ADMITTED = true; // false in a production bake: host/web/build.mjs rewrites this line (LLP 1069.007 D2)
 export const directories = Object.freeze({ data: 'app:/data', cache: 'app:/cache', temporary: 'app:/tmp' });
 export const now = Date.now.bind(Date);
+// The host's timers, which the prelude then takes from the module (a lock's bound, storage-fs.js).
+export const hostTimeout = globalThis.setTimeout.bind(globalThis), hostClearTimeout = globalThis.clearTimeout.bind(globalThis);
 // The URL the page was opened at, which names a drive and its scratch store:
 // an app's router rewrites `location` as it navigates (the drive's `?agent&…`
 // goes with it), the document's navigation entry keeps it. A page that opens

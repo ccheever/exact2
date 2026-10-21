@@ -4,7 +4,7 @@
 // Modification times come from the platform's clock, captured when this
 // module evaluates: a realm that later refuses ambient time to app code (the
 // module Worker, LLP 1027.002 D2) still stamps files with the real one.
-import { agentStorageRefusal, directories as roots, now, storageKey } from './storage-environment.js';
+import { agentStorageRefusal, directories as roots, hostClearTimeout, hostTimeout, now, storageKey } from './storage-environment.js';
 import { coversPath } from './grant-admission.js';
 const rootPaths = Object.values(roots);
 // Calls from one host module retain invocation order. Web Locks queue
@@ -72,7 +72,7 @@ export async function lockPaths(appId, paths, timeout = 10000) {
   }
   const held = [];
   const abort = new AbortController();
-  const timer = setTimeout(() => abort.abort(), timeout);
+  const timer = hostTimeout(() => abort.abort(), timeout);
   async function release() {
     for (const lock of held) lock.release();
     await Promise.all(held.map(lock => lock.done));
@@ -99,7 +99,7 @@ export async function lockPaths(appId, paths, timeout = 10000) {
   } catch (error) {
     await release();
     throw error;
-  } finally { clearTimeout(timer); }
+  } finally { hostClearTimeout(timer); }
 }
 function requireBelowRoot(path) {
   if (rootPaths.includes(path)) throw failure('operation needs a path below the app root');
