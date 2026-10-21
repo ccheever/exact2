@@ -1,8 +1,9 @@
 // Settings → Connections › This machine: Network access, its endpoints, Tailscale HTTPS and the
 // Authorized clients section, after T3 Code (MIT,
-// see LICENSE-T3; reference 1e2ecbd975) ConnectionsSettings.tsx (renderNetworkAccessRow,
+// see LICENSE-T3; reference 74541bab17) ConnectionsSettings.tsx (renderNetworkAccessRow,
 // renderEndpointRows, renderTailscaleRow, AuthorizedClientsHeaderAction, PairingClientsList,
-// PairingLinkListRow, ConnectedClientListRow, the four dialogs) and state/desktopNetworkAccess.ts.
+// PairingLinkListRow, ConnectedClientListRow, the four dialogs), ConnectionsSettings.logic.ts and
+// state/desktopNetworkAccess.ts.
 //  - The exposure state and endpoints are server-exposure.ts over the native facts
 //    (`localNetworkFacts`: interfaces, the cached `tailscale status`, the HTTPS probe). The native
 //    side answers at once from its caches and refreshes in the background, announcing `t3.local`;
@@ -186,7 +187,7 @@ export function networkProjection(input: NetworkInput): NetworkView {
     }),
     tailscale: tailscale !== null, tailscaleOn: tailscale?.status === 'available',
     tailscaleDescription: tailscale ? (tailscale.status === 'available' ? tailscale.httpBaseUrl : 'Use Tailscale Serve to expose this backend through a MagicDNS HTTPS URL.')
-      : 'Start Tailscale to set up HTTPS access through MagicDNS.',
+      : missingTailscaleEndpointDescription(state),
     tailscaleUrl: tailscale?.httpBaseUrl ?? '', tailscaleHost, servePort: state?.tailscaleServePort ?? 443,
     clientsVisible: true, summary: summarizeAuthorizedClients(sessions, links),
     accessError: networkUi.accessError || input.access.error, accessLoading: !input.access.loaded,
@@ -208,6 +209,16 @@ function revealView(reveal: typeof networkUi.reveal, endpoints: readonly Adverti
       : 'Clipboard copy is unavailable here. Open or manually copy this full pairing URL on the device you want to connect.')
       : 'Clipboard copy is unavailable here. Manually copy this code into another client.',
     value: reveal.value, rows: url ? 4 : 3, qr: url && !loopback, cells: url && !loopback ? qrCells(reveal.value, 132, 2, 'M') : [] };
+}
+
+/**
+ * missingTailscaleEndpointDescription (ConnectionsSettings.logic.ts): the Tailscale probe is skipped until Network
+ * access or Tailscale Serve is on, so a missing endpoint then means "not checked", not "not running".
+ */
+export function missingTailscaleEndpointDescription(state: Pick<DesktopServerExposureState, 'mode' | 'tailscaleServeEnabled'> | null): string {
+  return state && state.mode !== 'network-accessible' && !state.tailscaleServeEnabled
+    ? 'Turn on Network access to detect Tailscale.'
+    : 'Start Tailscale to set up HTTPS access through MagicDNS.';
 }
 
 // ── The live state behind it ────────────────────────────────────────────
@@ -248,7 +259,13 @@ const makeExposure = () => new DesktopServerExposure({
     },
   },
   readNetworkInterfaces: async () => decodeInterfaces((await facts(false)).interfaces),
-  readMagicDnsName: async () => { const tailscale = obj((await facts(true)).tailscale); if (tailscale.read !== true) ctx.pending = true; return str(tailscale.magicDnsName) || null; },
+  readStatus: async () => {
+    const tailscale = obj((await facts(true)).tailscale);
+    if (tailscale.read !== true) ctx.pending = true;
+    // A failed read is cached as no name and no addresses, which filters as the reference's null status does.
+    return { magicDnsName: str(tailscale.magicDnsName) || null,
+      tailnetIpv4Addresses: (Array.isArray(tailscale.tailnetIpv4Addresses) ? tailscale.tailnetIpv4Addresses : []).filter((address): address is string => typeof address === 'string') };
+  },
   probe: async (url: string) => { const probe = obj((await facts(true, url)).probe); if (probe.read !== true || str(probe.url) !== url) { ctx.pending = true; return false; } return probe.reachable === true; },
   config: { get desktopLanHostOverride() { return ctx.env.lanHost || undefined; }, get desktopHttpsEndpointUrls() { return ctx.env.httpsEndpoints; } },
 });

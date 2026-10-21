@@ -23,9 +23,9 @@ test('creates askpass env for cached password prompts', () => {
 });
 
 test('the dialog shows the target, the prompt and a m:ss countdown that turns into Expired', () => {
-  const request = { requestId: 'r1', destination: 'devbox', username: 'me', prompt: 'Enter the SSH password for me@devbox.', expiresAt: 1_000_000 + 180_000, expired: false, error: '' };
+  const request = { requestId: 'r1', destination: 'devbox', username: 'me', prompt: 'Enter the SSH password or verification code for me@devbox.', expiresAt: 1_000_000 + 180_000, expired: false, error: '' };
   const open = promptView(request, 1_000_000);
-  expect(open).toMatchObject({ open: true, target: 'me@devbox', prompt: 'Enter the SSH password for me@devbox.', remaining: '3:00', expired: false, hint: KEYS_HINT, error: '' });
+  expect(open).toMatchObject({ open: true, target: 'me@devbox', prompt: 'Enter the SSH password or verification code for me@devbox.', remaining: '3:00', expired: false, hint: KEYS_HINT, error: '' });
   expect(promptView(request, 1_000_000 + 179_001).remaining).toBe('0:01');
   expect(promptView(request, 1_000_000 + 180_000)).toMatchObject({ remaining: 'Expired', expired: true, error: EXPIRED_MESSAGE, hint: EXPIRED_MESSAGE });
   // The module's own expiry wins over the window's clock.
@@ -43,7 +43,7 @@ test('the source watches the queue and the answer never carries a password', asy
   const calls: Obj[] = [], watched: string[] = [];
   const native: Native = { available: true, watch: topic => { watched.push(topic); }, later: async input => {
     const request = obj(input); calls.push(request);
-    if (request.op === 'sshPromptState') return { ok: true, generation: 0, value: { request: { requestId: 'r1', destination: 'devbox', username: null, prompt: 'Enter the SSH password for devbox.', expiresAt: 61_000, expired: false, error: '' }, queued: 1 } };
+    if (request.op === 'sshPromptState') return { ok: true, generation: 0, value: { request: { requestId: 'r1', destination: 'devbox', username: null, prompt: 'Enter the SSH password or verification code for devbox.', expiresAt: 61_000, expired: false, error: '' }, queued: 1 } };
     if (request.requestId === 'gone') return { ok: false, generation: 0, error: { kind: 'Prompt', message: 'SSH password prompt expired. Try connecting again.', uncertain: false } };
     return { ok: true, generation: 0, value: { resolved: true } };
   } };
