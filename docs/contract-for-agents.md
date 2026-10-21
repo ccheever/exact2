@@ -2102,9 +2102,12 @@ main navigationKey=`${top(nav).id}` navigationBack="back" navigate=follow displa
   `buttonStyle="glass"` on a header button gives that item a capsule of its own
   (`sharesBackground = false`).
 - A header button is its bar item: a symbol is its image and a text its title, in
-  the bar's type, the platform's. A face that says more keeps what it says: a status
-  dot (a childless filled box) beside its label, or a label in a `font-family`,
-  `font-size` or `font-weight` of yours, is drawn as written, in its colours, as the
+  the bar's type, the platform's. A `font-size` or `font-weight` on a native button or
+  its text sets that title's font, as on a button in the page, and its glass fits the
+  words (`buttonStyle="glass" font-size=12` is a small "● Clock" chip). A face that
+  says more keeps what it says: a status dot (a childless filled box) beside its
+  label, or a label in a `font-family` of yours (which makes the button a custom
+  one), is drawn as written, in its colours, as the
   item's image inside the bar's capsule (a "● Clock" chip in 12-point monospace).
   A filled box holding a text or symbol (an avatar, a badge) is drawn without the
   capsule. Leave the font unsaid for an ordinary Edit or Done.

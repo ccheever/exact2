@@ -64,6 +64,11 @@ struct HeaderShape: Equatable {
         /// (UIKit's tint, the platform default) for a colour the button
         /// only inherits or the compiler implied.
         let tint: [[Double]]?
+        /// A native button's title font where its face's rows give a size or
+        /// a weight (LLP 1069.011.001 D4), as its in-page control draws it:
+        /// the item's title in it, so its glass fits those words. Nil is
+        /// UIKit's bar title font.
+        let font: UIFont?
         /// A readout's face (`role="status"`, LLP 1075.003 §9.15): an item
         /// no one presses, whose custom view shows the face as written and
         /// follows it in place (BarReadoutIOS.swift).
@@ -75,6 +80,16 @@ struct HeaderShape: Equatable {
         /// on each side, which UIKit does not publish: 12 pt on iOS 26 and 27
         /// (measured), so its glass is 16 pt wider than the words each side.
         static let titleInset: CGFloat = 12
+        /// The font UIKit draws a plain bar item's title in, which it does
+        /// not publish: the system font at 17 pt, medium in the 26 design and
+        /// bold under Bold Text (both measured on iOS 27,
+        /// `testTheUnsaidTitleFontIsUIKits`); regular before it, semibold
+        /// under Bold Text. A row its author left unsaid keeps this one's
+        /// size or weight; the kernel has stepped the weights it sends.
+        static func titleFont(bold: Bool) -> UIFont {
+            if #available(iOS 26.0, *), LinkedDesign.liquidGlass { return .systemFont(ofSize: 17, weight: bold ? .bold : .medium) }
+            return .systemFont(ofSize: 17, weight: bold ? .semibold : .regular)
+        }
         init(_ button: NodeView, readout isReadout: Bool = false) {
             var symbol: String?, text = "", ink: (NodeView, String)?
             func walk(_ node: NodeView) {
@@ -125,6 +140,14 @@ struct HeaderShape: Equatable {
             accessibilityDisabled = button.ariaUnavailable
             prominent = ["filled", "bordered-prominent", "prominent-glass", "prominent-clear-glass"].contains(face?.style ?? "")
             ownGlass = ["glass", "clear-glass"].contains(face?.style ?? "")
+            #if os(tvOS)
+            // tvOS's bar title font is not measured: its own stays.
+            font = nil
+            #else
+            let rows = face?.rows.title ?? [:]
+            font = rows["font_size"] != nil || rows["font_weight"] != nil
+                ? ButtonConfigurationIOS.font(Self.titleFont(bold: button.traitCollection.legibilityWeight == .bold), rows: rows) : nil
+            #endif
             // The platform's tint unless the author said otherwise (LLP
             // 1115.000 D2): a tint written on the symbol, else a `color`
             // written on the button, a platform colour as much as a literal.
@@ -149,7 +172,7 @@ struct HeaderShape: Equatable {
         /// view follows it in place (`showReadouts`).
         var source: String {
             if readout != nil { return "readout:\(toolbarGroup.map(String.init) ?? ""):\(id):\(testId ?? "")" }
-            return "\(toolbarGroup.map(String.init) ?? ""):\(id):\(title):\(symbol ?? ""):\(label ?? ""):\(disabled):\(accessibilityDisabled):\(prominent):\(ownGlass):\(badge?.source ?? ""):\(chip?.source ?? ""):\(menu):\(menuTitle):\(tint ?? []):\(testId ?? "")"
+            return "\(toolbarGroup.map(String.init) ?? ""):\(id):\(title):\(symbol ?? ""):\(label ?? ""):\(disabled):\(accessibilityDisabled):\(prominent):\(ownGlass):\(badge?.source ?? ""):\(chip?.source ?? ""):\(menu):\(menuTitle):\(tint ?? []):\(font.map { "\($0.fontName) \($0.pointSize) \(TextEngine.controlWeight($0))" } ?? ""):\(testId ?? "")"
         }
     }
     let header: NodeView
@@ -1241,6 +1264,11 @@ extension NavigationHost {
         // tint is its fill, which `color` is not.
         if let tint = i.tint, !i.prominent, i.badge == nil, i.chip == nil {
             item.tintColor = UIColor { TextEngine.color(tint[$0.userInterfaceStyle == .dark ? 1 : 0]) }
+        }
+        if let font = i.font, image == nil {
+            for state: UIControl.State in [.normal, .highlighted, .disabled, .selected, .focused] {
+                item.setTitleTextAttributes([.font: font], for: state)
+            }
         }
         if #available(iOS 26.0, tvOS 26.0, *) {
             if i.prominent { item.style = .prominent }
