@@ -15,7 +15,7 @@ Snapback development personas, each with its own device partition.
 
 ```sh
 bun install                              # snapback4@0.4.33, in apps/harmony
-bunx snapback4 dev --port 4400           # the backend, in apps/harmony
+bunx snapback4 dev --memory --port 4400  # the backend, in apps/harmony (in memory: `seed` refuses one that keeps its data)
 cd app && bun exact.mjs seed             # demo data: six people, eight channels, three days of chat
 bun exact.mjs web                        # http://127.0.0.1:<port>, rebuilt on save
 bun exact.mjs mac --run                  # the Mac app
@@ -29,14 +29,15 @@ starts `snapback4 dev --memory` on a free port, builds the web app against it
 reaches (`fresh`), so never run `bun exact.mjs test web` against a server whose
 data matters. The async lane runs them this way.
 
-`bun exact.mjs seed` empties the dev server and loads `seed.json`, which
+`bun exact.mjs seed` empties a temporary dev server (below) and loads `seed.json`, which
 `seed.mjs` writes with times relative to now. The tests load the same file
 before each test (`fresh "../seed.json"`).
 
-`seed` refuses a server that already holds data: seeding erases everyone's
-messages, channels and profiles there, and a dev server can be one people use
-(on the machine that serves the demo, 4400 is). Pass `--force` (or `--reset`)
-only for a server of your own whose data you mean to lose.
+`seed` empties only a temporary (`--memory`) server unasked. A server that
+keeps its data may hold what people wrote (on the machine that serves the demo,
+4400's does), and seeding erases everyone's messages, channels and profiles
+there, so it is refused, nothing erased, unless `--force` (or `--reset`) says
+to: pass it only for a server of your own whose data you mean to lose.
 
 The layout is the one `exact new --snapback` makes (LLP 1086): the backend in
 this directory, the app in `app/` below it, so the app's crates are

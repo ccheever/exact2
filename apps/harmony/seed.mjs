@@ -210,41 +210,56 @@ for (const k of Object.keys(people)) {
   }
 }
 
-// `--json <file>`: where the rows go (seed.json beside this file by default).
-const arg = (name) => { const i = process.argv.indexOf(name); const v = process.argv[i + 1]; return i >= 0 && v && !v.startsWith('--') ? v : null; };
-const out = arg('--json') ?? fileURLToPath(new URL('./seed.json', import.meta.url));
+// Arguments, all known or refused: `--json <file>` (where the rows go: seed.json
+// beside this file by default), `--post [origin]` (empty that dev server and seed
+// it; an origin may come anywhere, so `bun exact.mjs seed --force <origin>`,
+// which arrives as `--post --force <origin>`, means that origin), and `--force`
+// or `--reset`. More than one origin, or anything else, is refused.
+let json = null, post = false, force = false;
+const origins = [];
+for (let i = 2; i < process.argv.length; i++) {
+  const a = process.argv[i];
+  if (a === '--json' && process.argv[i + 1] && !process.argv[i + 1].startsWith('--')) json = process.argv[++i];
+  else if (a === '--post') post = true;
+  else if (a === '--force' || a === '--reset') force = true;
+  else if (/^https?:\/\//.test(a)) origins.push(a);
+  else { console.error(`seed: no argument ${a} (it takes --post [origin], --force or --reset, and --json <file>)`); process.exit(2); }
+}
+if (origins.length > 1) { console.error(`seed: one origin, not ${origins.join(' and ')}`); process.exit(2); }
+if (origins.length && !post) { console.error(`seed: an origin (${origins[0]}) is for --post`); process.exit(2); }
+
+const out = json ?? fileURLToPath(new URL('./seed.json', import.meta.url));
 writeFileSync(out, JSON.stringify(rows, null, 1) + '\n');
 console.log(`${rows.length} rows → ${out}`);
 
-/** Whether the server at `origin` holds any data: a profile anyone can read, or a room in any persona's inbox. */
-async function holdsData(origin) {
-  const ask = async (op, persona) => {
-    const r = await fetch(`${origin}/q/${op}`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-snapback-persona': persona }, body: '{"args":{}}' });
-    if (!r.ok) throw new Error(`${origin}/q/${op}: ${r.status} ${await r.text()}`);
-    const body = await r.json();
-    if (body.denied) throw new Error(`${origin}/q/${op}: ${body.denied.message}`);
-    return body.data ?? [];
-  };
-  const status = await (await fetch(`${origin}/dev/status`)).json();
-  const personas = status.personas ?? Object.keys(people);
-  if ((await ask('people', personas[0])).length) return true;
-  for (const persona of personas) if ((await ask('inbox', persona)).length) return true;
-  return false;
+/** The dev server's `/dev/status`, or a refusal that nothing was erased. */
+async function devStatus(origin) {
+  let r;
+  try { r = await fetch(`${origin}/dev/status`, { signal: AbortSignal.timeout(5000) }); }
+  catch (e) { throw new Error(`nothing answered at ${origin} (${e.cause?.code ?? e.message})`); }
+  if (!r.ok) throw new Error(`${origin}/dev/status answered ${r.status}`);
+  const status = await r.json().catch(() => null);
+  if (typeof status?.storeId !== 'string') throw new Error(`${origin} is no snapback4 dev server (no storeId in /dev/status)`);
+  return status;
 }
 
-// `--post [origin]`: empty the running dev server and seed it with these rows. A server
-// that already holds data is refused unless `--force` (or `--reset`) says to erase it:
-// a dev server can be one people use, and this empties it for everyone.
-const flag = process.argv.indexOf('--post');
-if (flag >= 0) {
-  const origin = arg('--post') ?? 'http://127.0.0.1:4400';
-  const force = process.argv.includes('--force') || process.argv.includes('--reset');
-  let held;
-  try { held = await holdsData(origin); } catch (e) { console.error(`seed: cannot tell whether ${origin} holds data (${e.message}); nothing was erased`); process.exit(1); }
-  if (held && !force) {
-    console.error(`seed: the server at ${origin} already holds data. Seeding it would ERASE EVERYONE'S MESSAGES, channels and profiles there, for every person using it. Nothing was erased. If this is a server of your own whose data you mean to lose, run it again with --force.`);
+// `--post`: empty the dev server and seed it with these rows. Only a temporary
+// (in-memory) store is seeded unasked: a server that keeps its data, as the demo's
+// does, holds what people wrote, and seeding erases all of it. What it holds can't
+// be read whole from outside (a query shows only what a persona may see), so a
+// store that keeps its data is refused unless `--force` (or `--reset`) says to erase it.
+if (post) {
+  const origin = new URL(origins[0] ?? 'http://127.0.0.1:4400').origin;
+  let before;
+  try { before = await devStatus(origin); } catch (e) { console.error(`seed: ${e.message}; nothing was erased`); process.exit(1); }
+  if (before.temporary !== true && !force) {
+    console.error(`seed: the server at ${origin} keeps its data (it is no temporary store), so it may hold what people wrote. Seeding it would ERASE EVERYONE'S MESSAGES, channels and profiles there, for every person using it. Nothing was erased. If this is a server of your own whose data you mean to lose, run it again with --force.`);
     process.exit(1);
   }
+  // The same server still (its store and process), as it was asked.
+  let now;
+  try { now = await devStatus(origin); } catch (e) { console.error(`seed: ${e.message}; nothing was erased`); process.exit(1); }
+  if (now.storeId !== before.storeId || now.pid !== before.pid) { console.error(`seed: the server at ${origin} changed while it was asked (store ${before.storeId} → ${now.storeId}); nothing was erased`); process.exit(1); }
   const res = await fetch(`${origin}/dev/reset`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(rows) });
   const body = await res.text();
   if (!res.ok) { console.error(`${origin}/dev/reset: ${res.status} ${body}`); process.exit(1); }
