@@ -738,15 +738,19 @@ uint32_t exact_titlebar_area(ExactRuntime rt, const float *rect, uint32_t count)
 /* @ref LLP 1075.003 §9.11: the window's own size (points), whatever is
  * presented in it — what every viewport unit (vw, vh, vmin, vmax and kin) resolves against
  * everywhere, root and every sheet, never a sheet's viewport (exact_segments
- * sends the window's segments too). A nonpositive size clears it. */
+ * sends the window's segment grid too, its tops and lefts; a keyboard ends the
+ * segments with the viewport, LLP 1078). A nonpositive size clears it. */
 uint32_t exact_screen(ExactRuntime rt, float width, float height);
 /* What changed of the view at once, from the input buffer's first len bytes,
  * little-endian 32-bit words: a mask of what is given (1 the window's size,
- * 2 the safe-area insets, 4 the layout regions, 8 the viewport), the
- * window's width and height (nonpositive clears it), the insets top, right,
- * bottom, left, the viewport's width and height, the regions' count (20 or
- * 0) and their insets: exact_screen, exact_insets, exact_regions and
- * exact_resize in one batch under one layout. */
+ * 2 the safe-area insets, 4 the layout regions, 8 the viewport, 16 the
+ * segments' rects), the window's width and height (nonpositive clears it),
+ * the insets top, right, bottom, left, the viewport's width and height, the
+ * regions' count (20 or 0) and their insets, then, with 16, the rects' count
+ * and each rect's x y w h, on the grid exact_segments set: exact_screen,
+ * exact_insets, exact_regions, exact_resize and a keyboard's segment extents
+ * in one batch under one layout. Rects off the grid, or not finite, are
+ * refused and change nothing. */
 uint32_t exact_view(ExactRuntime rt, size_t len);
 /* @ref LLP 1078 D4: the device's posture (0 continuous, 1 folded) and the
  * viewport segments a fold makes — cols × rows rects, row-major, each

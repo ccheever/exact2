@@ -406,7 +406,8 @@ public final class ExactView: UIView {
         }
         var size = frame.size // the page's area, whatever the viewport's frame
         // LLP 1075.003 §9.11: the window, the document's frame before the
-        // keyboard trims it, which the viewport units and segments read
+        // keyboard trims it, which the viewport units and the segments' count,
+        // tops and lefts read
         let screenFrame = whole ? bounds : bounds.inset(by: safe)
         var screen: CGSize? = screenFrame.size
         // The agent's explicit viewport size is shared with web/macOS/Linux.
@@ -442,8 +443,10 @@ public final class ExactView: UIView {
         // posture is folded while any is active or the hinge says it is
         // partially open. Below 27.1 there are none.
         let bent = hingeStatus == 2
-        // The window's, not a sheet's (LLP 1075.003 §9.11).
+        // The window's, not a sheet's (LLP 1075.003 §9.11), its segments
+        // ending where the keyboard ends the viewport.
         let fold = Self.fold(of: self, viewport: screenFrame, size: screen ?? size, hingeBent: bent)
+        let segments = fold.fold.ending(at: size)
         if fold.hasFold { presenter.hasFold = true }
         // The regions can trail the hinge's update by a frame (the handler
         // runs before UIKit flips `isActive`), so a reading that disagrees
@@ -461,7 +464,7 @@ public final class ExactView: UIView {
             if case .failed = session.state { return }
             lastSize = size
             lastInsets = insets
-            lastFold = fold.fold
+            lastFold = segments
             session.boot(size: size)
             // The first batch made the roots: one that covers the screen is
             // framed to it now, before anything is drawn. A refused boot made
@@ -488,7 +491,15 @@ public final class ExactView: UIView {
         }
         let resized = size != lastSize
         if resized { lastSize = size; change.size = size }
-        session.view(change)
+        // Rects that change on the same grid (a keyboard ending the
+        // segments, a resize) are told with the viewport, in its one layout;
+        // a new posture or grid goes through `segments`. The kernel refuses
+        // only rects off its grid, which this one, `lastFold`'s, never is.
+        var keyed: ViewportFold?
+        if segments != lastFold, (segments.posture, segments.cols, segments.rows) == (lastFold.posture, lastFold.cols, lastFold.rows) {
+            keyed = segments; lastFold = segments
+        }
+        session.view(change, fold: keyed)
         if change.insets != nil || resized { session.natives.scopesChanged() }
         if resized {
             // The keys came or went: the tab bar stays under them, and the
@@ -500,9 +511,9 @@ public final class ExactView: UIView {
             presenter.owners.publish()
             if presenter.keyboardInset > 0 { presenter.revealEditorAsTheKeysMove() }
         }
-        if fold.fold != lastFold {
-            lastFold = fold.fold
-            session.segments(fold.fold)
+        if segments != lastFold {
+            lastFold = segments
+            session.segments(segments)
         }
         paintUnderKeys()
     }
