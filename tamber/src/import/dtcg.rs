@@ -61,16 +61,6 @@ enum Scope {
     All(Vec<Scope>),
 }
 
-impl Scope {
-    /// It and the scopes it holds (an `All`'s), each once, flat.
-    fn flat(&self) -> Vec<&Scope> {
-        match self {
-            Scope::All(all) => all.iter().flat_map(Scope::flat).collect(),
-            s => vec![s],
-        }
-    }
-}
-
 /// One token as a source declares it.
 #[derive(Debug, Clone)]
 struct Def {
@@ -103,6 +93,8 @@ struct Read {
     /// theme group's, a collection's modes by name, a modifier's default
     /// first): the first value the default.
     dims: Vec<(String, Vec<String>)>,
+    /// Names are flat (Pencil's): `a` and `a.b` are two tokens, no group.
+    flat: bool,
 }
 
 impl Read {
@@ -1201,7 +1193,11 @@ fn planned(
             // the other's tokens go (a token replaces a group, a group a
             // token).
             // (each path against its own dotted ancestors, not every other path)
-            let paths: BTreeMap<&str, usize> = w.clone();
+            let paths: BTreeMap<&str, usize> = if read.flat {
+                BTreeMap::new()
+            } else {
+                w.clone()
+            };
             for (q, j) in &paths {
                 for (at, _) in q.match_indices('.') {
                     match paths.get(&q[..at]) {

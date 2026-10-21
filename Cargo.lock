@@ -1743,6 +1743,7 @@ dependencies = [
  "exact-motion",
  "exact-num",
  "libc",
+ "serde",
  "serde_json",
 ]
 

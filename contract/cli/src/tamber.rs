@@ -14,7 +14,7 @@ const USAGE: &str = "usage:
   contract tamber fmt <app dir | app.contract | file.tamber> [--check]
   contract tamber serve --stdio <app dir>   (the design's one writer, tamber/1 over JSON lines)
   contract tamber gen ts|rust <app dir | app.contract | file.tamber> [-o <dir>]   (bindings, in the app's .exact/tamber/)
-  contract tamber import shadcn|tailwind <stylesheet> | dtcg <file or dir> | astryx <resolved json> [--app <app dir>] [--prefix <prefix>]   (a proposal, as JSON)
+  contract tamber import shadcn|tailwind <stylesheet> | dtcg <file or dir> | pen <file.pen> | astryx <resolved json> [--app <app dir>] [--prefix <prefix>]   (a proposal, as JSON)
   contract tamber import-plan <design file>   (one import planned alone: {request, design} on stdin, {ok} or {error} out; the wire's)
   contract tamber export dtcg <app dir | app.contract | file.tamber> [-o <file>]   (DTCG 2025.10; its baseline kept in .exact/)
   (a flag may come before the path or after it)";
