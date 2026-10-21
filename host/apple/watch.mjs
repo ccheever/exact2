@@ -35,8 +35,9 @@ export async function buildWatch(app, args, { runApple, appleArtifacts, appleBui
     const watch = { ...app, id: `${app.id}.watchkitapp` };
     const bundle = resolve(parent.bundle, 'Watch', `${executableName(app)}.app`);
     rmSync(resolve(parent.bundle, 'Watch'), { recursive: true, force: true });
-    if (!entries.length) {
-      console.log(`host/apple: no Rust accessory entries; watch bundle omitted${args.includes('--run') ? '; --run skipped' : ''}`);
+    const live = !!app.manifest.watch;
+    if (!entries.length && !live) {
+      console.log(`host/apple: no watch entry and no Rust accessory entries; watch bundle omitted${args.includes('--run') ? '; --run skipped' : ''}`);
       return;
     }
     const production = args.includes('--release') || process.env.EXACT_UPDATE_TRUST === 'production';
@@ -66,13 +67,15 @@ export async function buildWatch(app, args, { runApple, appleArtifacts, appleBui
     cpSync(shared.framework, resolve(bundle, 'Frameworks/ExactCore.framework'), { recursive: true });
     mkdirSync(resolve(bundle, 'plans'), { recursive: true });
     for (const entry of entries) copyFileSync(resolve(output, `plans/${entry.kind}.plan`), resolve(bundle, `plans/${entry.kind}.plan`));
+    if (live) copyFileSync(resolve(output, 'plans/watch.plan'), resolve(bundle, 'plans/watch.plan'));
     for (const name of ['assets', 'deck']) if (existsSync(resolve(app.dir, name))) cpSync(resolve(app.dir, name), resolve(bundle, name), { recursive: true });
     const appInfo = JSON.parse(runApple('plutil', ['-convert', 'json', '-o', '-', resolve(parent.bundle, 'Info.plist')]).stdout);
     const info = { CFBundleIdentifier: watch.id, CFBundleName: app.displayName, CFBundleDisplayName: app.displayName, CFBundleExecutable: 'ExactWatch', CFBundlePackageType: 'APPL',
       CFBundleVersion: appInfo.CFBundleVersion, CFBundleShortVersionString: appInfo.CFBundleShortVersionString, CFBundleSupportedPlatforms: ['WatchSimulator'], MinimumOSVersion: '10.0', UIDeviceFamily: [4],
       WKApplication: true, WKCompanionAppBundleIdentifier: app.id, WKRunsIndependentlyOfCompanionApp: true,
       ExactAppGroup: group, ExactAppIdentifier: app.id, ExactWidgetTypeScript: false, ExactWidgetGeneration: createHash('sha256').update(JSON.stringify([baked.compat.id, baked.graph.artifacts])).digest('hex'),
-      ExactWatchEntries: entries.map(({ kind, families, title }) => ({ kind, families, title: title ?? kind })) };
+      ExactWatchEntries: entries.map(({ kind, families, title }) => ({ kind, families, title: title ?? kind })),
+      ...(live ? { ExactWatchPlan: 'plans/watch.plan' } : {}) };
     writeFileSync(resolve(bundle, 'Info.plist'), plistFile(info));
     const executableArgs = [...swiftArgs, '-Xlinker', '-rpath', '-Xlinker', '@executable_path/Frameworks',
       '-Xlinker', '-sectcreate', '-Xlinker', '__TEXT', '-Xlinker', '__entitlements', '-Xlinker', entitlementPath];
@@ -80,7 +83,7 @@ export async function buildWatch(app, args, { runApple, appleArtifacts, appleBui
     runApple('swift', [...executableArgs, '--product', 'ExactWatch'], options);
     const bin = runApple('swift', [...executableArgs, '--show-bin-path'], options).stdout.trim();
     copyFileSync(resolve(bin, 'ExactWatch'), resolve(bundle, 'ExactWatch'));
-    packageWidgets({ app: watch, bundle, shared, directory, sdk, triple, device: false, entitlements, sign, runApple, production, platform: 'watchos', entries });
+    if (entries.length) packageWidgets({ app: watch, bundle, shared, directory, sdk, triple, device: false, entitlements, sign, runApple, production, platform: 'watchos', entries });
     sign(resolve(bundle, 'Frameworks/ExactCore.framework'));
     sign(bundle);
     sign(parent.bundle);

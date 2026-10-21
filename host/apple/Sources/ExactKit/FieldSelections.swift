@@ -10,6 +10,7 @@
 // its source, so the same selection is its source selection (LLP 1045 D6);
 // only its `select` is its own (`MarkupEditor`, kind 21).
 import Foundation
+import ExactCore
 #if canImport(AppKit)
 import AppKit
 #else
@@ -35,7 +36,7 @@ struct FieldSelection: Equatable {
     func same(_ other: FieldSelection?) -> Bool { other.map { $0.start == start && $0.end == end } ?? false }
 
     /// ABI kinds 40 to 42's payload: `start,end,direction,` then the value verbatim.
-    func payload(_ value: String) -> String { "\(start),\(end),\(direction),\(value)" }
+    func payload(_ value: String) -> String { FieldWire.selection(start: start, end: end, direction: direction, value: value) }
 
     /// `setSelectionRange(start, end, direction)` on a value `length` UTF-16
     /// units long, as HTML converts and clamps it (`FieldSelection::clamped`):

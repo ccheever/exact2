@@ -2,7 +2,7 @@
 
 use super::{check, referenced_styles, refusal, visit_nodes};
 use crate::{
-    manifest::{Activity, Widget},
+    manifest::{Activity, WatchEntry, Widget, WATCH_KIND},
     CompileError, Manifest,
 };
 use contract_syntax::{Attr, Binding, Expr, File, Node, Span, TypeExpr};
@@ -29,6 +29,8 @@ pub enum Declaration {
     Widget(Widget),
     /// An activity updated by its app or backend.
     Activity(Activity),
+    /// The app's watch entry: a live plan, not a snapshot (LLP 1126.002 D4).
+    Watch(WatchEntry),
 }
 
 pub(super) struct RenderEntry<'a> {
@@ -51,7 +53,10 @@ pub fn compile_entries(
     let activities = manifest
         .live_activities()
         .map_err(|m| refusal("snapshot-manifest", m, Span::default()))?;
-    if widgets.is_empty() && activities.is_empty() {
+    let watch = manifest
+        .watch()
+        .map_err(|m| refusal("watch-manifest", m, Span::default()))?;
+    if widgets.is_empty() && activities.is_empty() && watch.is_none() {
         return Ok(BTreeMap::new());
     }
     let app = app
@@ -93,6 +98,21 @@ pub fn compile_entries(
             Err(all) => errors.extend(all.into_iter().map(|e| sources.resolve(e))),
         }
     }
+    if let Some(watch) = watch {
+        match crate::compile_watch(app, &watch) {
+            Ok(mut plan) => {
+                plan.app_id.clone_from(&manifest.id);
+                entries.insert(
+                    WATCH_KIND.to_owned(),
+                    Entry {
+                        declaration: Declaration::Watch(watch),
+                        plan,
+                    },
+                );
+            }
+            Err(all) => errors.extend(all),
+        }
+    }
     if errors.is_empty() {
         Ok(entries)
     } else {
@@ -114,7 +134,7 @@ pub fn write_entries(entries: &BTreeMap<String, Entry>, out: &Path) -> Result<()
                 Declaration::Widget(w) => Some(
                     serde_json::json!({"kind":w.kind, "families":w.families, "watchFamilies":w.watch_families, "requiresSecrets":w.requires_secrets, "preview":w.preview}),
                 ),
-                Declaration::Activity(_) => None,
+                Declaration::Activity(_) | Declaration::Watch(_) => None,
             })
             .collect();
         if !registry.is_empty() {

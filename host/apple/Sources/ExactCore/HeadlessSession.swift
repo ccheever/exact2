@@ -1,6 +1,7 @@
 // @ref LLP 1126 D8 — the existing runtime and text engine, without a presenter.
 import Foundation
 import CoreText
+import CExact
 
 /// A session that produces laid-out values and creates no platform views.
 /// Calls are serialized on Exact's owner thread; Core Text objects stay there.
@@ -71,6 +72,10 @@ public final class HeadlessSession {
         public fileprivate(set) var props: [String: String]
         public fileprivate(set) var style: NodeStyle
         public fileprivate(set) var children: [UInt32] = []
+        /// The events the node handles (`press`, `scroll`, …), from its `create`.
+        public fileprivate(set) var handlers: Set<String> = []
+        /// A scroller's content size (a `content` op), in points.
+        public fileprivate(set) var scrollContent: CGSize?
         /// Computed on first access for this node version, then shared by snapshots.
         public var lines: [Line] { textLines?.value.lines ?? [] }
         public var runs: [Run] { textLines?.value.runs ?? [] }
@@ -109,6 +114,23 @@ public final class HeadlessSession {
     private var roots: [UInt32] = []
     private var size: CGSize
     private var language = ""
+    /// The runner's next timer deadline after the last turn, in its clock's
+    /// milliseconds; nil when no timer is due. A live host calls `advance(at:)` then.
+    public private(set) var timerDue: Double?
+    /// A command a turn sent to the host (`haptic("success")`, …).
+    public struct Command {
+        public let name: String
+        public let args: [Any]
+    }
+    private var commands: [Command] = []
+
+    /// The commands the turns since the last call sent, in order.
+    public func takeCommands() -> [Command] {
+        Owner.shared.sync {
+            defer { commands.removeAll() }
+            return commands
+        }
+    }
 
     /// Boots the supplied plan, or the linked app's baked plan when nil.
     public convenience init(plan: Data? = nil, entry: String? = nil, props: Data? = nil, size: CGSize, facts: SessionFacts, assets: AssetResolver) throws {
@@ -240,6 +262,82 @@ public final class HeadlessSession {
     package func advance(to now: Double) throws -> Snapshot {
         try turn { core.runtime.advance(now: now) }
     }
+    /// Run the timers due by `now` (the runner clock, ms) and lay out what they changed.
+    @discardableResult
+    public func advance(at now: Double) throws -> Snapshot {
+        try turn { core.runtime.advance(now: now) }
+    }
+
+    /// The safe area around the viewport (`env(safe-area-inset-*)`), in points.
+    @discardableResult
+    public func insets(top: CGFloat, right: CGFloat, bottom: CGFloat, left: CGFloat) throws -> Snapshot {
+        try turn { core.runtime.insets(top: top, right: right, bottom: bottom, left: left) }
+    }
+
+    /// A scroller's offset, which the runner reads for its `scroll` handlers and `scrollTop`.
+    public func scrolled(_ node: UInt32, left: Double, top: Double) {
+        core.runtime.scrolled(node, left: left, top: top)
+    }
+
+    /// A field's text, as a live host's text input reports it (`ExactKit` FieldInput's wire).
+    @discardableResult
+    public func fieldEvent(_ node: UInt32, kind: UInt32, payload: String, at now: Double) throws -> Snapshot {
+        try turn { core.runtime.fieldEvent(node, kind, payload, now: now) }
+    }
+
+    /// The platform's Back from the route keyed `key` under the navigation root `root`
+    /// (LLP 1115 D5; iOS's `NavigationRules.back`): press the live control the root's
+    /// `navigationBack` names, else deliver the location beneath to the root's `navigate`,
+    /// else the runner's own back of the router. Nil when there is nothing to go back to.
+    @discardableResult
+    public func back(root: UInt32, route key: String, at now: Double) throws -> Snapshot? {
+        let named = Owner.shared.sync { nodes[root]?.props["navigationBack"] }
+        let control = Owner.shared.sync {
+            nodes.values.filter { node in
+                named != nil && node.props["id"] == named && node.handlers.contains("press") && node.props["disabled"] != "true"
+            }.map(\.id).min()
+        }
+        if let control { return try press(control, at: now) }
+        if named.map({ name in Owner.shared.sync { nodes.values.contains { $0.props["id"] == name } } }) == true { return nil }
+        guard let location = core.runtime.locationBeneath(key), !location.isEmpty else { return nil }
+        if Owner.shared.sync({ nodes[root]?.handlers.contains("navigate") }) == true {
+            return try turn { core.runtime.navigate(root, location, now: now) }
+        }
+        guard let batch = core.runtime.hostBack(key, now: now) else { return nil }
+        return try turn { batch }
+    }
+
+    /// A native control's title (`exact_press_face`, LLP 1069.011.000 D1): a
+    /// `button` the kernel made a platform control has no text child.
+    public func controlTitle(_ node: UInt32) -> String? {
+        let runtime = core.runtime
+        let face = runtime.on(busy: Data()) { () -> Data in
+            guard !runtime.destroyed else { return Data() }
+            let length = exact_press_face(runtime.rt, node)
+            return Data(bytes: exact_out(runtime.rt), count: Int(length))
+        }
+        let object = (try? JSONSerialization.jsonObject(with: face)) as? [String: Any]
+        return object?["title"] as? String ?? object?["label"] as? String
+    }
+
+    #if EXACT_INSPECT
+    /// An agent request answered by the runner (LLP 1012): `tree`, `state`, `logs`, `tags`.
+    /// A development build's only: the widget extension links this session too.
+    public func agent(_ request: String) -> String {
+        Owner.shared.sync { core.runtime.agent(request) }
+    }
+    #endif
+
+    /// Calls `wake` on the main queue when a request's reply is ready; the host
+    /// then calls `refresh(at:)`. One wake per session; nil removes it.
+    public func onWake(_ wake: (() -> Void)?) {
+        let key = UInt(bitPattern: Unmanaged.passUnretained(self).toOpaque())
+        Owner.shared.sync {
+            HeadlessWakes.callbacks[key] = wake
+            core.runtime.setWake(wake == nil ? nil : HeadlessWakes.call, ctx: UnsafeMutableRawPointer(bitPattern: key))
+        }
+    }
+
     package func agentFacts() -> [String: Any] {
         let bytes = Data(core.runtime.agent("{\"op\":\"tags\"}").utf8)
         return (try? JSONSerialization.jsonObject(with: bytes) as? [String: Any]) ?? [:]
@@ -252,6 +350,7 @@ public final class HeadlessSession {
                 core.text.refusedMarkdown = nil
                 let batch = try body()
                 if let error = batch.error { throw Failure(description: error) }
+                if !batch.busy { timerDue = batch.timerDueMs }
                 if let size { self.size = size }
                 try apply(batch)
                 return try snapshotOnOwner()
@@ -263,7 +362,10 @@ public final class HeadlessSession {
         var changed = Set<UInt32>()
         for op in batch.ops {
             switch op.op {
-            case .create: nodes[op.id] = Node(id: op.id, kind: op.kind, props: op.props, style: op.style)
+            case .create:
+                nodes[op.id] = Node(id: op.id, kind: op.kind, props: op.props, style: op.style)
+                nodes[op.id]?.handlers = op.handlers
+            case .content: nodes[op.id]?.scrollContent = CGSize(width: op.w, height: op.h)
             case .props:
                 for key in op.clear { nodes[op.id]?.props[key] = nil }
                 for (key, value) in op.props { nodes[op.id]?.props[key] = value }
@@ -291,6 +393,12 @@ public final class HeadlessSession {
             case .language:
                 language = op.payload["lang"] as? String ?? ""
                 changed.formUnion(nodes.keys)
+            // An effect for the host (`haptic`, `copyText`, …); a live host runs it after the turn.
+            case .command:
+                if let name = op.payload["name"] as? String, !["preventDefault", "stopPropagation"].contains(name) {
+                    commands.append(Command(name: name, args: op.payload["args"] as? [Any] ?? []))
+                }
+                continue
             default: continue
             }
             changed.insert(op.id)
@@ -321,6 +429,19 @@ public final class HeadlessSession {
     private func snapshotOnOwner() throws -> Snapshot {
         guard !core.runtime.destroyed else { throw Failure(description: "headless session is closed") }
         return Snapshot(size: size, roots: roots, nodes: nodes)
+    }
+}
+
+/// The wakes of live headless sessions, by session. The runner calls the C
+/// function on its executor's thread; the callback runs on the main queue.
+private enum HeadlessWakes {
+    nonisolated(unsafe) static var callbacks: [UInt: () -> Void] = [:]
+    static let call: ExactWakeFn = { ctx in
+        let key = UInt(bitPattern: ctx)
+        DispatchQueue.main.async {
+            let wake = Owner.shared.sync { callbacks[key] }
+            wake?()
+        }
     }
 }
 

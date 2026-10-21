@@ -276,6 +276,7 @@ mod tests {
         let app = Path::new(env!("CARGO_MANIFEST_DIR")).join("../apps/caltrain");
         let mut manifest = Manifest::read(&app).unwrap();
         manifest.json.as_object_mut().unwrap().remove("widgets");
+        manifest.json.as_object_mut().unwrap().remove("watch");
         let entries = contract::snapshot::compile_entries(&app, &manifest).unwrap();
         assert_eq!(entries.len(), 2);
         let (assets, plans) = emit(&out, false, &entries).unwrap();

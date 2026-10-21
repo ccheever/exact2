@@ -88,7 +88,7 @@ enum SnapshotData {
 }
 
 @available(iOS 17.0, macOS 14.0, watchOS 10.0, visionOS 26.0, *)
-private struct Clip: ViewModifier {
+struct Clip: ViewModifier {
     let outline: RoundedOutline?
     func body(content: Content) -> some View {
         if let outline { content.clipShape(outline) } else { content }
@@ -96,7 +96,7 @@ private struct Clip: ViewModifier {
 }
 
 @available(iOS 17.0, macOS 14.0, watchOS 10.0, visionOS 26.0, *)
-private struct PathClip: ViewModifier {
+struct PathClip: ViewModifier {
     let path: ClipPathRow?
     func body(content: Content) -> some View {
         if let path { content.clipShape(path, style: path.fillStyle) } else { content }
@@ -133,7 +133,7 @@ private struct Linked: ViewModifier {
 /// Accessibility carries over from the node (D5): its label, hint and
 /// value, a heading with its level, a paragraph as one element, a
 /// decorative image hidden, `aria-hidden` hiding the subtree.
-private struct Semantics: ViewModifier {
+struct Semantics: ViewModifier {
     let node: HeadlessSession.Node
 
     func body(content: Content) -> some View {
