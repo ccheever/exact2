@@ -20,13 +20,17 @@ public final class LiveModel {
     /// Runs each command a turn sent (`haptic`, …), in order, after the turn.
     @ObservationIgnored public var onCommand: ((HeadlessSession.Command) -> Void)?
     @ObservationIgnored private var timer: Timer?
-    @ObservationIgnored private var active: Bool
+    @ObservationIgnored private var phase: ScenePhase
     @ObservationIgnored private let log = Logger(subsystem: "dev.exact.watch", category: "live")
 
+    /// While the scene is inactive (a lowered wrist, Always On), timers run at most
+    /// this often: `TimelineView`'s minutes cadence (LLP 1126.002 D6, proposed).
+    public static let inactiveInterval: TimeInterval = 60
+
     /// `session` is a live one (`HeadlessSession(…, live: true)`), on the clock `now()` reads;
-    /// `active` is the scene's phase at birth: no timer runs until it is active.
-    public init(session: HeadlessSession, active: Bool) throws {
-        self.session = session; self.active = active
+    /// `phase` is the scene's at birth, which paces the first timer.
+    public init(session: HeadlessSession, phase: ScenePhase) throws {
+        self.session = session; self.phase = phase
         snapshot = try session.snapshot()
         session.onWake { [weak self] in self?.run("reply") { try $0.session.pump(at: $0.now()) } }
         schedule()
@@ -92,13 +96,15 @@ public final class LiveModel {
         run("text size") { try $0.session.setRootFontSize(px) }
     }
 
-    /// Timers stop while the app is not active (a lowered wrist, Always On); the clock
-    /// catches up once when it is again.
-    public func setActive(_ active: Bool) {
-        guard active != self.active else { return }
-        self.active = active
-        log.notice("active \(active, privacy: .public) at \(self.now(), format: .fixed(precision: 0)) ms")
-        if active { run("resume") { try $0.session.advance(at: $0.now()) } } else { timer?.invalidate(); timer = nil }
+    /// Active, timers run when due; inactive (a lowered wrist, Always On), at most once
+    /// a minute (`inactiveInterval`); in the background, not at all. On return to active
+    /// the clock catches up once, so the screen is current when the wrist rises.
+    public func setPhase(_ phase: ScenePhase) {
+        guard phase != self.phase else { return }
+        let rises = phase == .active
+        self.phase = phase
+        log.notice("phase \(String(describing: phase), privacy: .public) at \(self.now(), format: .fixed(precision: 0)) ms")
+        if rises { run("resume") { try $0.session.advance(at: $0.now()) } } else { schedule() }
     }
 
     private func run(_ label: StaticString, _ turn: (LiveModel) throws -> HeadlessSession.Snapshot) {
@@ -117,17 +123,18 @@ public final class LiveModel {
 
     private func schedule() {
         timer?.invalidate(); timer = nil
-        guard active, let due = session.timerDue else { return }
-        let delay = max(0, due - now()) / 1000
+        guard phase != .background, let due = session.timerDue else { return }
+        let active = phase == .active
+        let delay = max(due - now(), active ? 0 : Self.inactiveInterval * 1000) / 1000
         log.debug("deadline \(due, format: .fixed(precision: 0)) in \(delay * 1000, format: .fixed(precision: 0)) ms")
         // In the common modes, so a deadline fires while the Crown scrolls a list.
         let timer = Timer(timeInterval: delay, repeats: false) { [weak self] _ in
             MainActor.assumeIsolated { self?.run("timer") { try $0.session.advance(at: $0.now()) } }
         }
-        // A tenth of the delay, at most 100 ms, lets the system group this wake with
-        // others (Apple's Energy Efficiency Guide: at least 10%); the live clock
-        // runs what is due by the time it fires.
-        timer.tolerance = min(delay * 0.1, 0.1)
+        // A tenth of the delay lets the system group this wake with others (Apple's
+        // Energy Efficiency Guide: at least 10%), at most 100 ms on an active screen;
+        // the live clock runs what is due by the time it fires.
+        timer.tolerance = min(delay * 0.1, active ? 0.1 : 6)
         RunLoop.main.add(timer, forMode: .common)
         self.timer = timer
     }

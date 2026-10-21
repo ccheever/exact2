@@ -175,7 +175,7 @@ private struct LiveRoot: View {
                 if let model { model.resize(to: size) } else { boot(size: size) }
             }
         }
-        .onChange(of: phase, initial: true) { _, phase in model?.setActive(phase == .active) }
+        .onChange(of: phase, initial: true) { _, phase in model?.setPhase(phase) }
         .onChange(of: textSize) { _, size in model?.setRootFontSize(SnapshotDriver.rootFontSize(for: size)) }
         .onChange(of: dimmed) { _, dimmed in log.debug("luminance reduced \(dimmed, privacy: .public)") }
     }
@@ -210,7 +210,7 @@ private struct LiveRoot: View {
         do {
             if try session.snapshot().size != size { try session.resize(to: size) }
             LaunchPhases.mark("sized")
-            let live = try LiveModel(session: session, active: phase == .active)
+            let live = try LiveModel(session: session, phase: phase)
             LaunchPhases.mark("first batch")
             live.onCommand = { command in
                 switch command.name {
