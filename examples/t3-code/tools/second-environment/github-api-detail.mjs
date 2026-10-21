@@ -2,7 +2,8 @@
 // core detail with its checks, its activity and review threads, the files viewed, the node ids a write first
 // resolves, Comment, Close and Reopen, and the patch (GET pulls/<n> as application/vnd.github.diff). The shapes are
 // the selections of the pinned server's queries (reference packages/source-control-github/src/server/
-// pullRequestReads.graphql, pullRequestReviews.graphql, pullRequestMutations.graphql). A comment and a close change
+// pullRequestReads.graphql, pullRequestReviews.graphql, pullRequestMutations.graphql; extra fields an older
+// runtime does not ask for are harmless). A comment and a close change
 // what the next read answers, for this process's life; nothing reaches GitHub.
 import { PULL_REQUEST } from "./gh-standin.mjs";
 
@@ -39,8 +40,8 @@ export const DETAIL_PATCH = [
 const state = () => (live.closedAt ? "CLOSED" : "OPEN");
 const commit = { oid: "a".repeat(40), messageHeadline: "Move the notes into notes/", committedDate: "2026-10-02T08:30:00Z" };
 
-const core = (v) => ({ repository: ours(v) ? { mergeCommitAllowed: true, squashMergeAllowed: true, rebaseMergeAllowed: true, viewerPermission: "WRITE", pullRequest: {
-  number: pr.number, title: pr.title, url, body: pr.body, state: state(), isDraft: false, mergeable: "MERGEABLE", reviewDecision: null, additions: 203, deletions: 1, changedFiles: 3,
+const core = (v) => ({ repository: ours(v) ? { mergeCommitAllowed: true, squashMergeAllowed: true, rebaseMergeAllowed: true, autoMergeAllowed: true, viewerPermission: "WRITE", pullRequest: {
+  number: pr.number, title: pr.title, url, body: pr.body, state: state(), isDraft: false, mergeable: "MERGEABLE", mergeStateStatus: "CLEAN", reviewDecision: null, additions: 203, deletions: 1, changedFiles: 3,
   createdAt: pr.createdAt, updatedAt: live.closedAt ?? pr.updatedAt, mergedAt: null, closedAt: live.closedAt, headRefName: pr.headRefName, baseRefName: pr.baseRefName, headRefOid: commit.oid,
   isCrossRepository: false, headRepositoryOwner: { __typename: "User", login: pr.owner }, headRepository: { nameWithOwner: `${pr.owner}/${pr.name}`, viewerPermission: "WRITE" }, headRef: { id: "REF_1" },
   author: actor(pr.author, "Lane Fixture"), autoMergeRequest: null, viewerCanUpdate: true, viewerDidAuthor: false, viewerCanUpdateBranch: false, baseRef: { compare: { behindBy: 0 } },
@@ -82,11 +83,13 @@ export const DETAIL_OPERATIONS = {
   PullRequestActivity: activity,
   ReviewThreads: reviewThreads,
   ReviewDismissals: (v) => ({ repository: ours(v) ? { pullRequest: { timelineItems: page([]) } } : null }),
-  ViewerPermissions: (v) => ({ repository: ours(v) ? { mergeCommitAllowed: true, squashMergeAllowed: true, rebaseMergeAllowed: true, viewerPermission: "WRITE", pullRequest: { viewerCanUpdate: true, viewerDidAuthor: false, headRepository: { viewerPermission: "WRITE" } } } : null }),
+  ViewerPermissions: (v) => ({ repository: ours(v) ? { mergeCommitAllowed: true, squashMergeAllowed: true, rebaseMergeAllowed: true, autoMergeAllowed: true, viewerPermission: "WRITE", pullRequest: { viewerCanUpdate: true, viewerDidAuthor: false, headRepository: { viewerPermission: "WRITE" } } } : null }),
   PullRequestFilesViewed: (v) => ({ repository: ours(v) ? { pullRequest: { files: page(["README.md", "notes/plan.md", "notes/outline.ts"].map((path) => ({ path, viewerViewedState: "UNVIEWED" }))) } } : null }),
   PullRequestNodeId: (v) => ({ repository: ours(v) ? { pullRequest: { id: "PR_7" } } : null }),
   PullRequestSubject: (v) => ({ repository: ours(v) ? { pullRequest: { id: "PR_7" } } : null, node: v.subjectId === "PR_7" ? { __typename: "PullRequest", id: "PR_7" } : null }),
   ActorAvatars: () => ({ nodes: [] }),
+  RoutingIdentityViewer: () => ({ viewer: { databaseId: 1, login: pr.author } }),
+  PullRequestFileStats: (v) => ({ repository: ours(v) ? { pullRequest: { files: page([["README.md", 3, 1], ["notes/plan.md", 120, 0], ["notes/outline.ts", 80, 0]].map(([path, additions, deletions]) => ({ path, additions, deletions }))) } } : null }),
   AddComment: (v) => {
     if (v.subjectId !== "PR_7") return null;
     const n = live.comments.length + 2;
