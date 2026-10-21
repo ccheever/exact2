@@ -5,6 +5,7 @@ import { LUCIDE_PATHS } from '../../src/settings/settings-b-lucide';
 import type { Obj } from '../../src/client/domain';
 import type { Native, Files } from '../../src/client/protocol';
 import type { T3Client } from '../../src/client/client';
+import { contractComponent } from '../support/contract-action-fixture';
 
 test('the icon grid is the popular set, else every Lucide name containing the query (60 at most)', () => {
   expect(filterIconNames('')).toEqual(POPULAR_ICONS);
@@ -136,4 +137,21 @@ test('the settings row shows the override, else the server favicon, else the aut
   const lucide = [{ id: 'p3', title: 'r', workspaceRoot: '/w/r', projectIcon: { kind: 'lucide', name: 'rocket', color: 'rose' } }];
   fields = await iconFields(fakeClient(lucide, {}).client, native, 'r', lucide);
   expect([fields.iconKind, fields.iconD === LUCIDE_PATHS.rocket, fields.iconInk, fields.faviconSrc]).toEqual(['lucide', true, 'light-dark(#ec003f, #ff637e)', '']);
+});
+
+// ProjectFaviconThumbnail: the file-type icon until the preview loads, the image hidden until then, dropped on error.
+test('a preview replaces the file-type icon only once it has loaded, and a failed one leaves the icon', () => {
+  const thumb = contractComponent('settings-b-icons.contract', 'ProjectFaviconThumbnail');
+  const run = (src: string) => {
+    const state = thumb.state();
+    const act = (name: string, ...args: unknown[]) => thumb.call(name, state, { src, token: 'svg', testId: 't' }, args);
+    return { state, act };
+  };
+  const ok = run('http://127.0.0.1:1/a.svg');
+  expect([ok.state.loaded, ok.state.failed]).toEqual(['', '']);
+  ok.act('didLoad');
+  expect(ok.state.loaded).toBe('http://127.0.0.1:1/a.svg');
+  const bad = run('http://127.0.0.1:1/b.svg');
+  bad.act('didFail', 'decode');
+  expect([bad.state.loaded, bad.state.failed]).toEqual(['', 'http://127.0.0.1:1/b.svg']);
 });

@@ -5,6 +5,8 @@ import { providerSummary, providerStatusKey, versionAdvisory, checkedLabel, vali
 import { obj, arr, str, type Obj } from '../../src/client/domain';
 import type { Native } from '../../src/client/protocol';
 import { appPath } from '../support/app-files';
+import { contractComponent } from '../support/contract-action-fixture';
+import { contractFns } from '../support/contract-fn-fixture';
 
 const legacy = () => ({
   codex: { enabled: false, binaryPath: 'codex', homePath: '', shadowHomePath: '', launchArgs: '', customModels: [] },
@@ -370,4 +372,20 @@ test('new settings use instance mutations for enablement and reset without the r
   expect(writes(server).every(call => obj(obj(call.payload).patch).providers === undefined)).toBe(true);
   await runProviderOp(server, native, 'provider-reset', 'codex', '');
   expect(obj(server.settings.providerInstances).codex).toBeUndefined();
+});
+
+// ProviderModelsSection's name tooltip goes to the window's hover layer (kind "model-name": 600 ms, name over the mono slug).
+test('a model name hands its tooltip to the hover layer, with the slug when it differs', () => {
+  const line = contractComponent('providers.contract', 'ProviderModelLine');
+  const { hoverTipAtFrame } = contractFns('hover-layer.contract', ['HoverTip']);
+  const tips: unknown[][] = [];
+  const scope = { rem: 16, instanceId: 'codex', model: { slug: 'gpt-6-astra', name: 'GPT-6 Astra', showSlug: true }, hoverTipAtFrame,
+    frame: (id: string) => ({ id, x: 40, y: 200, width: 120, height: 16 }), hoverTipAt: (...args: unknown[]) => { tips.push(args); } };
+  const state = line.state();
+  line.call('nameTip', state, scope, [true]);
+  line.call('nameTip', state, scope, [false]);
+  expect(tips.map(([tip, part, inside]) => [obj(tip).kind, obj(tip).text, obj(tip).lines, obj(tip).side, obj(tip).align, obj(tip).x, part, inside])).toEqual([
+    ['model-name', 'GPT-6 Astra', ['gpt-6-astra'], 'top', 'start', 40, 'trigger', true], ['model-name', 'GPT-6 Astra', ['gpt-6-astra'], 'top', 'start', 40, 'trigger', false]]);
+  const { hoverOpenDelay } = contractFns('hover-layer.contract', ['HoverTip']);
+  expect(hoverOpenDelay('model-name')).toBe(600);
 });

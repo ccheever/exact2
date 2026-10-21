@@ -11,6 +11,7 @@ use PvMicro from "../settings/providers-kit.contract"
 use PvIcon from "./provider-icons.contract"
 use CnTooltip from "../settings/settings-b-kit.contract"
 use providerAccentInk from "../shared/accent-ink.contract"
+use hoverTipAtFrame from "../shell/hover-layer.contract"
 use Tip from "../shell/shell-tip.contract"
 use ProviderAccentPicker from "./settings-b-accent.contract"
 use DriverMark from "./provider-icons-kit.contract"
@@ -577,6 +578,9 @@ component ProviderModels
 // One ProviderModelsSection row: star, name/slug/custom, capabilities, the
 // move arrows (not for hidden rows), custom edit/remove, and the picker switch.
 component ProviderModelLine
+  inject
+    rem: number
+    hoverTipAt: action
   props
     settingsWritable: bool
     model: ProviderModelRow
@@ -588,6 +592,10 @@ component ProviderModelLine
   state over = false
   action hover(which: string, inside: bool)
     tip = inside ? which : (tip == which ? "" : tip)
+  // The name's tooltip (TooltipPopup side="top" align="start") is the window's hover layer's, so the list's scroll area
+  // does not cut it, a hidden row's opacity does not fade it, and it opens after Base UI's delay.
+  action nameTip(inside: bool)
+    hoverTipAt(hoverTipAtFrame(`provider-model-name-tip-${model.slug}`, "model-name", model.name, (model.showSlug ? [model.slug] : []), "top", "start", frame(`provider-model-name-${instanceId}-${model.slug}`), 2.5 * rem, `provider-model-name-tip-${model.slug}`), "trigger", inside)
   action hoverRow(inside: bool)
     over = inside
   view
@@ -597,18 +605,12 @@ component ProviderModelLine
           PvIcon(name=(model.favorite ? "star-filled" : "star"), size=12, color=(model.favorite ? "#fe9a00" : "light-dark(#71717b, #818181)"))
         if tip == "star"
           CnTooltip(tip=(model.favorite ? "Remove from favorites" : "Add to favorites"), tipId=`provider-model-star-tip-${model.slug}`, above=24)
-      row position="relative" flex=1 min-width=0 gap="0.5rem" align-items="baseline"
-        // The name keeps its width and the slug truncates first; a tooltip (hover or focus) shows both whole.
-        row min-width=0 overflow="hidden" gap="0.5rem" align-items="baseline" tabindex=0 hover=hover("name") focus=hover("name", true) blur=hover("name", false) testId=`provider-model-name-${model.slug}`
+      row flex=1 min-width=0 gap="0.5rem" align-items="baseline"
+        // The name keeps its width and the slug truncates first; the tooltip (hover or focus) shows both whole.
+        row id=`provider-model-name-${instanceId}-${model.slug}` min-width=0 overflow="hidden" gap="0.5rem" align-items="baseline" tabindex=0 hover=nameTip focus=nameTip(true) blur=nameTip(false) testId=`provider-model-name-${model.slug}`
           text model.name font-size="0.75rem" line-height="1rem" color=(model.hidden ? "light-dark(#71717b, #818181)" : "light-dark(#27272ae6, #f5f5f5e6)") line-clamp=1 max-width="100%" flex-shrink=0
           if model.showSlug
             text model.slug font-family="ui-monospace" font-size="0.6875rem" line-height="1rem" color="light-dark(#71717bb3, #828282b3)" line-clamp=1 min-width=0
-        // TooltipPopup side="top" align="start".
-        if tip == "name"
-          column position="absolute" left=0 bottom="1.5rem" z-index=60 max-width="20rem" padding-top="0.25rem" padding-bottom="0.25rem" padding-left="0.5rem" padding-right="0.5rem" box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#2727291a, #ffffff1a)" background-color="light-dark(#ffffff, #171717)" box-shadow="0 4px 6px -1px #0000000d, 0 2px 4px -2px #0000000d" role="tooltip" testId=`provider-model-name-tip-${model.slug}`
-            text model.name font-size="0.75rem" line-height="1rem" overflow-wrap="anywhere" color="light-dark(#27272a, #f5f5f5)"
-            if model.showSlug
-              text model.slug font-family="ui-monospace" font-size="0.6875rem" line-height="1rem" overflow-wrap="anywhere" color="light-dark(#71717b, #818181)"
         if model.custom
           text "custom" flex-shrink=0 font-size="0.6875rem" line-height="1rem" color="light-dark(#71717bb3, #828282b3)"
       text model.capabilities font-size="0.6875rem" line-height="1rem" color="light-dark(#71717bb3, #828282b3)"
