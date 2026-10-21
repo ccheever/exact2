@@ -96,7 +96,8 @@ fn spelled(ty: &str) -> String {
 /// Whether `c`'s own view names a symbol by the string prop `prop`: an
 /// image source that is `symbol:` and the prop, nothing after it, which
 /// the compiler reads as a role (`symbol:sf/…` takes any name, and a
-/// stem, `symbol:${name}-fill`, keeps the prop's own name).
+/// stem, `symbol:${name}-fill`, or a prefix, `symbol:${set}${name}`, keeps
+/// the prop's own name).
 pub(super) fn names_symbol(c: &Component, prop: &str) -> bool {
     let mut names = false;
     each(&c.view, &[], &mut |node, bound| {

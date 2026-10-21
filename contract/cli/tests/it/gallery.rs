@@ -749,9 +749,16 @@ component Odd
   view
     button press=pick("x")
       text "Pick"
+
+component Forward
+  props
+    on: bool
+    set: action
+  view
+    Toggle(title="f", on=on, set=set)
 "#;
 
-const APP_BOUNDARIES: &str = r#"use Stem, Shadowed, Toggle, Twice, Odd from "@acme/lib"
+const APP_BOUNDARIES: &str = r#"use Stem, Shadowed, Toggle, Twice, Odd, Forward from "@acme/lib"
 
 component App
   state on = false
@@ -765,14 +772,15 @@ component App
       Toggle(title="t", on=on, set=flip)
       Twice(on=on, set=flip)
       Odd(pick=pick)
+      Forward(on=on, set=flip)
 "#;
 
 /// A stem (`symbol:${chevron}-left`, an alias of `back`) keeps the prop's
 /// own name, which names no role alone, and a prop that
 /// is a role's alias gets that role; a `for` that binds the prop's name
 /// hides it; two components of one signature share one inert action; an
-/// action the view calls with arguments of its own stays `noop`, for the
-/// compiler to refuse. (One given to handlers that pass different payloads
+/// action the view calls with arguments of its own, or passes on to another
+/// component, stays `noop`, for the compiler to refuse. (One given to handlers that pass different payloads
 /// stays `noop` too, which `press` and `navigate` both take.)
 #[test]
 fn a_stem_a_shadow_a_shared_signature_and_an_action_the_view_calls_otherwise() {
@@ -794,8 +802,8 @@ fn a_stem_a_shadow_a_shared_signature_and_an_action_the_view_calls_otherwise() {
         .collect();
     assert_eq!(
         refused,
-        vec!["Odd"],
-        "only the cell whose action the view calls with arguments"
+        vec!["Odd", "Forward"],
+        "only the cells whose action the view calls with arguments or passes on"
     );
     let text = std::fs::read_to_string(&g.source).unwrap();
     for line in [
@@ -803,6 +811,7 @@ fn a_stem_a_shadow_a_shared_signature_and_an_action_the_view_calls_otherwise() {
         r#"Shadowed(symbol="symbol")"#,
         r#"Twice(on=false, set=noop_bool)"#,
         "`Odd.pick` requires 1",
+        "binding to `noop`",
     ] {
         assert!(text.contains(line), "{line:?} in {text}");
     }
