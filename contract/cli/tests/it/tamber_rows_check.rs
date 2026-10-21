@@ -707,3 +707,50 @@ fn an_svg_elements_row_is_judged() {
         &design.replace("pos = 8px", "pos = #123456"),
     );
 }
+
+/// A write removing the last number token, or making it a colour, leaves a
+/// computed string in a number row with none to name: refused as the build
+/// refuses it (Astra's D2 round 1), though the write touches no number
+/// token of the design after it.
+#[test]
+fn a_write_taking_the_last_number_token_is_judged() {
+    let design = "tamber t\n\ntheme\n  ink = #111111\n  one = 1\n";
+    let contract = "use Card from \"@acme/reading\"\ncomponent App\n  state pick = \"2\"\n  view\n    column\n      button \"Go\" -exact-press-scale=pick\n      Card()\n";
+    same_words(
+        &reading("rows-computed-removed"),
+        design,
+        contract,
+        json!({"op": "remove-token", "name": "one"}),
+        &design.replace("  one = 1\n", ""),
+    );
+    same_words(
+        &reading("rows-computed-retyped"),
+        design,
+        contract,
+        json!({"op": "set-token", "name": "one", "value": "#123456"}),
+        &design.replace("one = 1", "one = #123456"),
+    );
+}
+
+/// A computed row whose form doesn't say its type (a call) is the build's:
+/// a user `fn` returning a number, under `font-weight` beside a family
+/// token, isn't judged with the builtin of its name (Astra's D2 round 1).
+#[test]
+fn a_computed_call_is_the_builds() {
+    let dir = reading("rows-computed-call");
+    let design = "tamber t\n\ntheme\n  ink = #111111\n  one = 1\n";
+    std::fs::write(dir.join("app.tamber"), design).unwrap();
+    std::fs::write(
+        dir.join("app.contract"),
+        "use Card from \"@acme/reading\"\nfn toString(x: number): number = x\ncomponent App\n  view\n    column\n      text \"a\" font-family=\"one\" font-weight=toString(400)\n      Card()\n",
+    )
+    .unwrap();
+    contract::compile_path(&dir.join("app.contract")).unwrap();
+    let mut s = Serve::start(&dir, &[]);
+    s.ask(json!({"method": "propose", "ops": [{"op": "set-token", "name": "ink", "value": "#444444"}]}));
+    let w = transaction(&mut s, &dir, json!({"op": "remove-token", "name": "one"}));
+    assert!(w.get("ok").is_some(), "{w}");
+    drop(s);
+    contract::compile_path(&dir.join("app.contract")).unwrap();
+    let _ = std::fs::remove_dir_all(&dir);
+}

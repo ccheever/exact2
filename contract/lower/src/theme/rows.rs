@@ -2,7 +2,7 @@
 //! D3 and D7; QUEUE's "the server's write check doesn't see a Contract
 //! row's kind", theme2's 14:19 ruling). The retention build's walk
 //! (`scan::Said::of`) keeps each style row whose value is literal
-//! ([`literal_row`]), and the design server keeps that map beside the
+//! ([`kept`]), and the design server keeps that map beside the
 //! retention. On a write, [`check`] runs the compiler's own check of a row
 //! (`values::check_style_value`) on just the rows that name a token the
 //! write touches, through any chain of references, with the design bound
@@ -54,9 +54,28 @@ pub struct Row {
     pub places: Vec<Place>,
     /// A font row's node's fonts, as lowering judges the row with them.
     pub fonts: Option<Fonts>,
-    /// A computed row's type, as lowering types it where that is known for
-    /// certain (a string), else `Ty::Unknown`; `None` for a literal row.
-    pub computed: Option<contract_types::Ty>,
+    /// A computed row's type as lowering types it, and the scope and
+    /// shapes it is judged in; `None` for a literal row.
+    pub computed: Option<(contract_types::Ty, Typing)>,
+}
+
+/// The root's scope and the file's shapes, in which lowering judges a
+/// computed row of a node no `for` or `match` binds a name around
+/// (`values::check_style_value` types its computed arms in them): one for
+/// every row of a build.
+#[derive(Debug, Clone)]
+pub struct Typing(Arc<(contract_types::Scope, contract_types::Shapes)>);
+
+impl Typing {
+    pub(crate) fn new(scope: contract_types::Scope, shapes: contract_types::Shapes) -> Typing {
+        Typing(Arc::new((scope, shapes)))
+    }
+}
+
+impl PartialEq for Typing {
+    fn eq(&self, other: &Typing) -> bool {
+        Arc::ptr_eq(&self.0, &other.0)
+    }
 }
 
 /// What lowering judges a node's font row with: the node's `font-family`
@@ -141,6 +160,8 @@ fn grouped(attrs: Vec<Said>) -> Vec<Row> {
     let mut out: Vec<Row> = Vec::new();
     let mut at: std::collections::HashMap<(String, bool, String, usize), usize> =
         Default::default();
+    let mut whole: std::collections::HashMap<(String, Span, usize), Vec<usize>> =
+        Default::default();
     // Each distinct node's fonts, by what lowering reads of them (an
     // expanded app repeats most).
     let mut seen: std::collections::HashMap<String, usize> = Default::default();
@@ -169,12 +190,18 @@ fn grouped(attrs: Vec<Said>) -> Vec<Row> {
                 at: a.span,
                 literal: a.value.span(),
             };
-            let ty = computed.as_ref().map_or(String::new(), |t| t.to_string());
-            let k = (a.name.clone(), false, format!("c{:?} {ty}", a.value), node);
-            match at.get(&k) {
-                Some(&i) => out[i].places.push(place),
+            // Found by where its value is written, then compared whole (an
+            // expansion writes one row many times over, alike).
+            let k = (a.name.clone(), a.value.span(), node);
+            let alike = whole.entry(k).or_default();
+            let same = |r: &Row| {
+                r.attr.value == a.value
+                    && r.computed.as_ref().map(|(t, _)| t) == computed.as_ref().map(|(t, _)| t)
+            };
+            match alike.iter().copied().find(|&i| same(&out[i])) {
+                Some(i) => out[i].places.push(place),
                 None => {
-                    at.insert(k, out.len());
+                    alike.push(out.len());
                     out.push(Row {
                         attr: a,
                         places: vec![place],
@@ -224,26 +251,24 @@ fn grouped(attrs: Vec<Said>) -> Vec<Row> {
     out
 }
 
-/// Whether `a` is an element's style row [`check`] judges as the build
-/// does: rows, a literal value (strings or numbers, or a `?:` or `match`
-/// whose arms all are; never a `let`); not a shorthand (the build projects
-/// it into longhands first) but `font`, whose type tokens are judged whole
+/// Whether the retention walk keeps `a`, an element's style row [`check`]
+/// judges as the build does, and how. `Some(false)`: a literal value
+/// (strings or numbers, or a `?:` or `match` whose arms all are).
+/// `Some(true)`: a computed one (a name, a template with holes, or a choice
+/// with such an arm beside literal ones), judged whole where its type and
+/// scope are known ([`typed`]): its literal arms, and, in a number row,
+/// every number token a string may name, or its string arms where the
+/// design has none (stage 13 D2). Never through a `let`, which the build
+/// judges through the binding; not a shorthand (the build projects it into
+/// longhands first) but `font`, whose type tokens are judged whole
 /// ([`font_row`]); not a transition's or an animation's, whose motion
 /// tokens the loader writes in before this map is read.
-pub(crate) fn literal_row(a: &Attr) -> bool {
+pub(crate) fn kept(a: &Attr) -> Option<bool> {
     let mut leaves = Vec::new();
-    style_row(a) && written(&a.value, &mut leaves)
-}
-
-/// Whether `a` is an element's style row whose value is computed (a name,
-/// a template with holes, or a choice with such an arm beside literal
-/// ones; never through a `let`, which the build judges through the
-/// binding), which [`check`] judges whole as the build does: its literal
-/// arms, and, in a number row whose value is a string for certain, every
-/// number token it may name (stage 13 D2).
-pub(crate) fn computed_row(a: &Attr) -> bool {
-    let mut leaves = Vec::new();
-    style_row(a) && !written(&a.value, &mut leaves) && !bound(&a.value)
+    match written(&a.value, &mut leaves) {
+        true => style_row(a).then_some(false),
+        false => (!bound(&a.value) && style_row(a)).then_some(true),
+    }
 }
 
 /// `v`'s type as lowering's `expr::compile` gives it, for the values it
@@ -273,7 +298,7 @@ fn bound(v: &Expr) -> bool {
     }
 }
 
-/// [`literal_row`] and [`computed_row`]'s rows, whatever the value.
+/// [`kept`]'s rows, whatever the value.
 fn style_row(a: &Attr) -> bool {
     let n = a.name.as_str();
     if n.contains("transition")
@@ -313,7 +338,7 @@ fn written<'e>(v: &'e Expr, out: &mut Vec<&'e Expr>) -> bool {
 pub(crate) struct Said {
     pub attr: Attr,
     pub fonts: Option<Fonts>,
-    pub computed: Option<contract_types::Ty>,
+    pub computed: Option<(contract_types::Ty, Typing)>,
 }
 
 /// Leave `rows` for [`rows`] (the design server's build reads it).
@@ -370,18 +395,12 @@ pub fn check(
         }
     }
     let reaches = |w: &str| hit.contains(w);
-    // A computed string in a number row may name any number token
-    // (`theme::measure_row`): it is reached by a write reaching one.
-    let numbers = folded
-        .tokens
-        .iter()
-        .any(|t| t.kind == tamber::Kind::Number && hit.contains(t.name.as_str()));
     // A row's own literals, and its node's `font-family`'s (a write to a
     // family token reaches `font-weight=700` beside it).
     let reached: Vec<&Row> = rows
         .iter()
         .filter(|r| {
-            if numbers && reads_numbers(r) {
+            if reads_numbers(r) {
                 return true;
             }
             let mut leaves = Vec::new();
@@ -466,10 +485,13 @@ pub fn check(
     out
 }
 
-/// Whether `r` is a computed string in a row every number token suits,
-/// which `theme::measure_row` judges against each of them.
+/// Whether `r` is a computed row in a row every number token suits, which
+/// lowering judges against the design's number tokens, whichever a write
+/// touches: a string against each (`theme::measure_row`), its string arms
+/// where there is none (`values::style_value`'s `number_tokens`). Every
+/// write reaches it, one removing or retyping the last number token too.
 fn reads_numbers(r: &Row) -> bool {
-    r.computed.as_ref().is_some_and(|t| t.is_string())
+    r.computed.is_some()
         && crate::tags::rows(&r.attr).iter().all(|id| {
             exact_kernel::style::theme::admits(exact_kernel::style::theme::Kind::Number, *id)
         })
@@ -576,13 +598,13 @@ fn judge(
     let rows = crate::tags::rows(a);
     let mut leaves = Vec::new();
     super::leaves(&a.value, &mut Vec::new(), &mut leaves);
-    let ty = match (
+    let (ty, scope, shapes) = match (
         &r.computed,
         leaves.iter().all(|e| matches!(e, Expr::Number(..))),
     ) {
-        (Some(ty), _) => ty.clone(),
-        (None, true) => contract_types::Ty::Number,
-        (None, false) => contract_types::Ty::String,
+        (Some((ty, typing)), _) => (ty.clone(), &typing.0 .0, &typing.0 .1),
+        (None, true) => (contract_types::Ty::Number, scope, shapes),
+        (None, false) => (contract_types::Ty::String, scope, shapes),
     };
     crate::values::check_style_value(a, &rows, &ty, &uses, scope, shapes).map(|()| true)
 }

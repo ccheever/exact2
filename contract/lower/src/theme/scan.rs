@@ -103,12 +103,14 @@ impl Said {
     /// What `file`'s styles, `root`'s view and the `fn`s, states, derives and
     /// actions they read say of `design`'s tokens.
     /// `declared`: the app's fonts, which a font row is judged with;
-    /// `scope`: the root's, which types a computed row as lowering does.
+    /// `typing`: the root's scope and the file's shapes, which type and
+    /// judge a computed row as lowering does.
     pub(crate) fn of(
         file: &File,
         root: &Component,
         design: &Design,
         declared: &BTreeMap<String, crate::DeclaredFont>,
+        typing: &super::rows::Typing,
         scope: &contract_types::Scope,
     ) -> Said {
         let mut literals: Vec<(String, Span, bool)> = Vec::new();
@@ -157,20 +159,18 @@ impl Said {
                     // applies it, and may be overridden there).
                     // A font row with its node's fonts, or not at all when
                     // they aren't known (an unknown class, the build's). A
-                    // computed row with its type, a string only when the
-                    // root's scope types it so with no local name around.
+                    // computed row with its type and the root's typing, or
+                    // not at all when a local name is around (its scope is
+                    // the region's) or its form doesn't say its type.
                     let mut fonts = None;
                     for r in coerced.as_deref().unwrap_or(a) {
-                        let computed = match super::rows::literal_row(r) {
-                            true => None,
-                            false if super::rows::computed_row(r) => Some(
-                                (!local)
-                                    .then(|| super::rows::typed(&r.value, scope))
-                                    .flatten()
-                                    .filter(contract_types::Ty::is_string)
-                                    .unwrap_or(contract_types::Ty::Unknown),
-                            ),
-                            false => continue,
+                        let computed = match super::rows::kept(r) {
+                            Some(false) => None,
+                            Some(true) if !local => match super::rows::typed(&r.value, scope) {
+                                Some(ty) => Some((ty, typing.clone())),
+                                None => continue,
+                            },
+                            _ => continue,
                         };
                         let fonts = match super::rows::font_row(&r.name) {
                             false => None,
