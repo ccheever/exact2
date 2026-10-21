@@ -42,6 +42,44 @@ fn action_checks_reuse_declarations_and_observe_prior_writes() {
     );
 }
 
+#[test]
+fn call_refinement_reuses_unchanged_declarations() {
+    for (spelling, ty) in [
+        ("number", Ty::Number),
+        (
+            "enum<\"left\", \"right\">",
+            Ty::Enum(vec!["left".into(), "right".into()]),
+        ),
+    ] {
+        let mut source =
+            format!("component App\n  action helper(n: {spelling})\n    let value = n\n");
+        for i in 0..32 {
+            source.push_str(&format!(
+                "  action caller{i}(n: {spelling})\n    helper(n)\n"
+            ));
+        }
+        source.push_str("  view\n    text \"ok\"\n");
+        let parsed = contract_syntax::parse(&source).unwrap();
+        let (file, errors) = contract_syntax::inline::calls::expand_file(&parsed);
+        assert!(errors.is_empty(), "{errors:?}");
+        let c = &file.components[0];
+        let mut ct = ComponentTypes {
+            name: c.name.clone(),
+            actions: vec![vec![ty]; c.actions.len()],
+            ..ComponentTypes::default()
+        };
+        let before = ct.actions.clone();
+        SCOPE_BUILDS.with(|count| count.set(0));
+        crate::calls::refine(c, &mut ct, &Types::default());
+        assert_eq!(ct.actions, before);
+        let builds = SCOPE_BUILDS.with(|count| count.get());
+        assert!(
+            builds <= 1,
+            "{builds} declaration scopes for 32 callers with unchanged {spelling} types"
+        );
+    }
+}
+
 /// Check one component, recording each refusal in `sink` and carrying on
 /// with `?` wherever a type could not be found, so one run reports every
 /// independent mistake (a consequence of an earlier one mentions `?`, and
