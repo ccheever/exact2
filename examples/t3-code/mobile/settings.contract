@@ -113,7 +113,7 @@ component SettingsChoices
           SettingsSectionLabel(title=data.title, colors=colors, roles=roles)
           column border-radius=24 corner-shape="-exact-continuous" overflow="hidden" background-color=colors.grouped role="radiogroup"
             for option in data.options key=option.value
-              button press=change(data.key, option.value) disabled=(not data.ready) role="radio" aria-checked=option.selected padding=0 testId=`settings-${data.key}-${option.value}`
+              button press=change(data.key, option.value) disabled=(not data.ready) role="radio" aria-checked=option.selected padding=0 -exact-press-opacity=0.7 testId=`settings-${data.key}-${option.value}`
                 row gap=14 padding=14 align-items="center" border-top-width=(option.separated ? 1 : 0) border-top-style="solid" border-top-color=colors.borderSubtle opacity=(data.ready ? 1 : 0.45)
                   column flex=1 min-width=0 gap=3.5
                     text option.label font-size=roles.headline.size line-height=`${roles.headline.line}px` color=colors.foreground text-align="left"
