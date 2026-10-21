@@ -124,7 +124,7 @@ describe('one Run on and Workspace keyboard order', () => {
     let workspaceItems = await items(base);
     const calls: unknown[][] = [];
     let focused = 'composer-menu';
-    const scope = async () => ({ which: 'workspace', session: 7, workspaceItems, kmTarget, kmReturn,
+    const scope = async () => ({ which: 'workspace', session: 7, workspaceItems, kmTarget, kmReturn, branches: base,
       workspaceCurrent: await derive('workspaceCurrent', { ...state, session: 7 }),
       focus: (id: string) => { calls.push(['focus', id]); focused = id; },
       preventDefault: () => calls.push(['prevent']), stopPropagation: () => calls.push(['stop']) });
@@ -171,9 +171,15 @@ describe('one Run on and Workspace keyboard order', () => {
   test('disabled and absent rows cannot be hovered or keyed, and branch focus still reaches its dialog owner', async () => {
     const { contractComponent } = await import('../support/contract-action-fixture');
     const component = contractComponent('composer-controls.contract', 'ComposerMenus'), state = component.state(), calls: unknown[][] = [];
-    component.call('workspaceHover', state, { workspaceItems: await items({ ...base, forceWorktree: true }), workspaceCurrent: '',
+    component.call('workspaceHover', state, { workspaceItems: await items({ ...base, forceWorktree: true }), workspaceCurrent: '', branches: base,
       focus: (id: string) => calls.push(['focus', id]) }, ['workspace-local', true]);
     expect(calls).toEqual([]);
+    // A sibling row taking the pointer closes "Add to another machine"'s submenu (74541bab17).
+    const adding = { ...base, envOptions: [primary], envAdd: [remote] };
+    component.call('workspaceHover', state, { workspaceItems: await items(adding), workspaceCurrent: '', branches: adding,
+      focus: (id: string) => calls.push(['focus', id]), hidePopover: (id: string) => calls.push(['hide', id]) }, ['workspace-local', true]);
+    expect(calls).toEqual([['hide', 'run-on-add-menu'], ['focus', 'workspace-local']]);
+    calls.length = 0;
     const event = { target: 'branch-search' };
     component.call('menuEntered', state, { which: 'branch', dialogMenuEntered: (...args: unknown[]) => calls.push(args) }, [event]);
     expect(calls).toEqual([['composer-menu', 'branch-selector', event]]);

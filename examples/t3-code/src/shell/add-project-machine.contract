@@ -196,7 +196,7 @@ component AddMachineTargetSelect
         CnMachineIcon(kind=dialog.targetMachine, size=14, color="light-dark(#27272a, #f5f5f5)")
         text dialog.targetLabel font-size="0.875rem" line-height="1.25rem" flex=1 min-width=0 line-clamp=1 text-align="left" color="light-dark(#27272a, #f5f5f5)"
         ShellIcon(name="chevron-down", size=14, color="light-dark(#71717b, #818181)")
-      CnMenu(menuId="add-machine-target-menu", invoker="add-machine-target", label="Machine to add the project to", width=200, area="bottom span-right", items=items, keyed=0)
+      CnMenu(menuId="add-machine-target-menu", invoker="add-machine-target", label="Machine to add the project to", width=dialog.targetMenuWidth, area="bottom span-right", items=items, keyed=0)
         for target in dialog.targets key=target.id
           CnMenuItem(keysId="add-machine-target-menu-keys", label=target.label, menuId="add-machine-target-menu", itemId=`add-machine-target-${target.id}`, destructive=false, disabled=false, radio=false, highlighted=target.selected, note="", icon=target.machine, submenu="", choose=pick(target.id))
 

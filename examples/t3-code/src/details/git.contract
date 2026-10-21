@@ -481,7 +481,7 @@ component RunOnRow
             for option in details.git.envOptions key=option.id
               RunOnOptionRow(option=option, act=act)
             if details.git.envAdd.length > 0
-              AddMachineOption(menu="details-environment-menu", targets=details.git.envAdd, act=act)
+              AddMachineOption(menu="details-environment-menu", targets=details.git.envAdd, width=details.git.envAddMenuWidth, act=act)
     else
       row position="relative" width="100%" height="2rem" padding-left="0.6875rem" padding-right="0.6875rem" box-sizing="border-box" gap="0.625rem" align-items="center" border-radius="0.625rem" hover=hover testId="details-environment"
         CnMachineIcon(kind=details.envKind, size=16, color="light-dark(#71717b, #818181)")
@@ -493,12 +493,14 @@ component AddMachineOption
   props
     menu: string
     targets: RunOnOption[]
+    // The submenu's width from its measured machine labels (git-env.ts environmentView envAddMenuWidth).
+    width: number
     act: action
   action addTo(id: string)
     hidePopover(menu)
     act("shelllocal:add-machine-open", "", id)
   view
-    AddMachineSubmenu(rowId=`${menu}-add-machine`, targets=targets, width=200, choose=addTo)
+    AddMachineSubmenu(rowId=`${menu}-add-machine`, targets=targets, width=width, choose=addTo)
 
 component RunOnOptionRow
   props
@@ -507,6 +509,9 @@ component RunOnOptionRow
   state over = false
   action hover(value: bool)
     over = value
+    // A sibling row takes the pointer: "Add to another machine"'s submenu closes.
+    if value
+      hidePopover("details-environment-menu-add-machine-menu")
   view
     button press=act("environment-run-on", "", option.id) popovertarget="details-environment-menu" popovertargetaction="hide" hover=hover role="option" aria-selected=option.selected testId=`details-environment-${option.id}` width="100%" min-height="1.8125rem" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.25rem" padding-bottom="0.25rem" box-sizing="border-box" gap="0.375rem" border-width=0 border-radius="0.375rem" background-color=(over or option.selected ? "light-dark(#27272a14, #f5f5f514)" : "#00000000") display="flex" flex-direction="row" align-items="center"
       CnMachineIcon(kind=option.machine, size=12, color="light-dark(#71717b, #818181)")

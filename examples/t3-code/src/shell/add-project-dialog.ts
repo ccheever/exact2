@@ -12,6 +12,7 @@ import { fleet, focusFleetProject, type EnvironmentFleet } from '../connections/
 import { focusedOnPrimary } from '../connections/local-primary';
 import { machineKind } from '../connections/connections';
 import { environmentIndicator } from '../details/shell-details';
+import { addMenuWidth } from '../details/git-env';
 import { cloneDestination, cloneDirectoryName, initialBrowseQuery } from '../palette/palette-add';
 import { formatBytes } from '../settings/storage-maintenance';
 import { draftSelection, moveDraftSelection } from '../composer/auto-balance';
@@ -64,7 +65,7 @@ export function splitForMiddleTruncate(value: string, tail?: number): { head: st
 const middle = (value: string) => { const split = splitForMiddleTruncate(value); return split ?? { head: value, tail: '' }; };
 
 export const CLOSED_ADD_MACHINE = { open: false, key: '', description: '', sourceLabel: '', sourceMachine: 'server', sourcePath: '', sourceHead: '', sourceTail: '', fileSummary: '',
-  targets: [] as { id: string; label: string; machine: string; selected: boolean }[], targetLabel: '', targetMachine: 'server', targetShown: false,
+  targets: [] as { id: string; label: string; machine: string; selected: boolean }[], targetMenuWidth: 160, targetLabel: '', targetMachine: 'server', targetShown: false,
   destination: '', destinationHead: '', destinationTail: '', protocolShown: false, protocol: '', remoteUrl: '', folderLabel: '', canListFiles: false, countLabel: '', allLabel: '',
   files: [] as { path: string; size: string; checked: boolean; disabled: boolean }[], filesNote: '', filesError: false, truncatedNote: '', error: '', submitLabel: '', canSubmit: false, submitting: false };
 
@@ -106,6 +107,7 @@ export function addMachineView(client: T3Client, source: EnvironmentFleet = flee
     sourceLabel: sourceLabel.envLabel || 'This machine', sourceMachine: sourceLabel.envKind, sourcePath: workspaceRoot, sourceHead: middle(workspaceRoot).head, sourceTail: middle(workspaceRoot).tail,
     fileSummary: count === 0 ? 'no files' : `+ ${count} ${count === 1 ? 'file' : 'files'}`,
     targets: view.targets.map(target => ({ id: target.environmentId, label: target.label, machine: target.machine, selected: target.environmentId === view.target?.environmentId })),
+    targetMenuWidth: addMenuWidth(client, view.targets),
     targetLabel: view.target?.label ?? 'No machine available', targetMachine: view.target?.machine ?? 'server', targetShown: view.target !== null,
     destination: view.destinationPath, destinationHead: middle(view.destinationPath).head, destinationTail: middle(view.destinationPath).tail,
     protocolShown: !!view.sshUrl && !!view.httpsUrl, protocol: state.protocol ?? '', remoteUrl: view.remoteUrl,

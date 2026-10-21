@@ -681,6 +681,9 @@ component ComposerMenus
       if name == "End"
         focus(`composer-menu-item-${count - 1}`)
   action workspaceHover(id: string, over: bool)
+    // Another row takes the pointer from "Add to another machine": its submenu closes, as Base UI's does.
+    if over and id != "run-on-add" and branches.envAdd.length > 0
+      hidePopover("run-on-add-menu")
     if over and workspaceItems.map((item) => item.id).includes(id)
       focus(id)
     else if not over and workspaceCurrent == id

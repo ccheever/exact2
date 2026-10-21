@@ -232,6 +232,27 @@ describe('adding the project (addProjectToMachine)', () => {
     expect(projectFileCopy(client, 'studio', 'new-0')).toBeNull();
   });
 
+  test('a pass while the copy is writing starts nothing; the copy ends once', async () => {
+    primaryAt('http://127.0.0.1:16960', 'env');
+    const { client, native, calls } = harness();
+    const studio = await machine('studio', 'Studio');
+    await addMachineLocal(client, native, 'open', '', 'studio');
+    await submitAddMachine(client, native);
+    fleet.entries.set(studio.key, studio);
+    clones(studio, 2, [{ projectId: 'new-0', phase: 'done' }]);
+    let release!: () => void;
+    const gate = new Promise<void>(resolve => { release = resolve; });
+    const slow = { ...native, later: async (input: unknown) => { if (obj(input).method === 'projects.writeFile') await gate; return native.later(input); } } as Native;
+    const first = fileCopyPass(client, slow);
+    await new Promise(resolve => setTimeout(resolve, 0));
+    const second = fileCopyPass(client, slow); // the shell's next pass, with the first write in flight
+    expect(projectFileCopy(client, 'studio', 'new-0')).toMatchObject({ phase: 'copying', writing: true });
+    release();
+    await Promise.all([first, second]);
+    expect(calls.filter(call => call.method === 'projects.writeFile').map(call => obj(call.payload.payload).relativePath)).toEqual(['app/.env', 'app/apps/web/.env.local']);
+    expect(projectFileCopy(client, 'studio', 'new-0')).toBeNull();
+  });
+
   test('a copy that fails shows its banner until dismissed; a clone that goes away drops its copy', async () => {
     primaryAt('http://127.0.0.1:16960', 'env');
     const { client, native } = harness({ writeFails: 'app/.env' });

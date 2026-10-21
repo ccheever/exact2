@@ -28,6 +28,8 @@ shape AddMachine
   fileSummary: string
   // The machine Select when there is more than one.
   targets: AddMachineTarget[]
+  // The picker's popup at its measured labels' width.
+  targetMenuWidth: number
   targetLabel: string
   targetMachine: string
   targetShown: bool

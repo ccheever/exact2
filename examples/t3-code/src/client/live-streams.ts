@@ -138,9 +138,9 @@ export function liveEnvironments(client: T3Client, native: Native | null | undef
   return out;
 }
 /**
- * One background environment. Its request closures are made here, in a call of their own: the app's Hermes bytecode
- * shares one `const` binding across a loop's iterations, so closures made in the loop above would all address its
- * last entry (issues/add-project-machine-hermes-loop-bindings.md).
+ * One background environment. Its request closures are made here, in a call of their own: the app's Hermes bytecode is
+ * compiled without ES6 block scoping, so a `for (const entry …)` loop has one binding for all its iterations and
+ * closures made in the loop above would all address its last entry.
  */
 function fleetEnvironment(entry: FleetEntry, saved: Obj | undefined, native: Native | null | undefined): LiveEnvironment {
   return { environmentId: entry.environmentId, label: environmentLabel(entry.config, str(saved?.label, entry.environmentId)), focused: false,

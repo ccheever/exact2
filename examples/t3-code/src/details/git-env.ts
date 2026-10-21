@@ -67,6 +67,9 @@ export function environmentOptions(client: T3Client, source: EnvironmentFleet = 
   return options.sort((left, right) => left.primary !== right.primary ? (left.primary ? -1 : 1) : left.label.localeCompare(right.label));
 }
 
+/** The submenu of machines at its measured width: CnMenuItem's 16pt icon and 8pt gap beside each label. */
+export const addMenuWidth = (client: T3Client, add: { label: string }[]) => add.length ? runOnMenuWidth(client.presentation ?? {}, add.map(option => option.label), []) + 10 : 160;
+
 /** The machines the project can be added to, as Run on rows ("Add to another machine"). */
 export function addTargetOptions(client: T3Client, source: EnvironmentFleet = fleet): EnvironmentOption[] {
   return addProjectTargets(client, source).map(target => ({ id: target.environmentId, label: target.label, machine: target.machine, primary: false, projectId: '', selected: false }));
@@ -81,7 +84,8 @@ export function environmentView(client: T3Client) {
   // envLocked: a started thread (messages or a runtime) keeps its machine; the Select needs onEnvironmentChange (a draft).
   const pick = !client.threadId && options.length > 1;
   const add = threadEnvLocked(client) ? [] : addTargetOptions(client);
-  return { envPick: pick || add.length > 0, envOptions: pick ? withAutoOption(client, options) : add.length ? options : [], envCount: Math.max(1, options.length), envAdd: add };
+  return { envPick: pick || add.length > 0, envOptions: pick ? withAutoOption(client, options) : add.length ? options : [], envCount: Math.max(1, options.length), envAdd: add,
+    envAddMenuWidth: addMenuWidth(client, add) };
 }
 
 /**
@@ -155,5 +159,5 @@ export function stripRunOn(client: T3Client, worktree = false): typeof NO_RUN_ON
   // The menu's width from its measured labels (composer-menus.ts); the window caps it in the view.
   return { ...NO_RUN_ON, envShow: true, envMachine: focused.machine, envMachineLabel: focused.label, envOptions: listed, envAdd: add,
     envMenuWidth: runOnMenuWidth(client.presentation, (listed.length ? listed : options).map(option => option.label), workspaceLabels(worktree), 0, add.length > 0),
-    envAddMenuWidth: runOnMenuWidth(client.presentation, add.map(option => option.label), []) + 10 }; // CnMenuItem's 16pt icon, 8pt gap
+    envAddMenuWidth: addMenuWidth(client, add) };
 }
