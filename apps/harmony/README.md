@@ -33,6 +33,11 @@ data matters. The async lane runs them this way.
 `seed.mjs` writes with times relative to now. The tests load the same file
 before each test (`fresh "../seed.json"`).
 
+`seed` refuses a server that already holds data: seeding erases everyone's
+messages, channels and profiles there, and a dev server can be one people use
+(on the machine that serves the demo, 4400 is). Pass `--force` (or `--reset`)
+only for a server of your own whose data you mean to lose.
+
 The layout is the one `exact new --snapback` makes (LLP 1086): the backend in
 this directory, the app in `app/` below it, so the app's crates are
 `app-web`, `app-apple` and `app-linux` in the root workspace.

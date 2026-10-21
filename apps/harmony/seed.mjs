@@ -210,14 +210,41 @@ for (const k of Object.keys(people)) {
   }
 }
 
-const out = fileURLToPath(new URL('./seed.json', import.meta.url));
+// `--json <file>`: where the rows go (seed.json beside this file by default).
+const arg = (name) => { const i = process.argv.indexOf(name); const v = process.argv[i + 1]; return i >= 0 && v && !v.startsWith('--') ? v : null; };
+const out = arg('--json') ?? fileURLToPath(new URL('./seed.json', import.meta.url));
 writeFileSync(out, JSON.stringify(rows, null, 1) + '\n');
 console.log(`${rows.length} rows → ${out}`);
 
-// `--post [origin]`: empty the running dev server and seed it with these rows.
+/** Whether the server at `origin` holds any data: a profile anyone can read, or a room in any persona's inbox. */
+async function holdsData(origin) {
+  const ask = async (op, persona) => {
+    const r = await fetch(`${origin}/q/${op}`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-snapback-persona': persona }, body: '{"args":{}}' });
+    if (!r.ok) throw new Error(`${origin}/q/${op}: ${r.status} ${await r.text()}`);
+    const body = await r.json();
+    if (body.denied) throw new Error(`${origin}/q/${op}: ${body.denied.message}`);
+    return body.data ?? [];
+  };
+  const status = await (await fetch(`${origin}/dev/status`)).json();
+  const personas = status.personas ?? Object.keys(people);
+  if ((await ask('people', personas[0])).length) return true;
+  for (const persona of personas) if ((await ask('inbox', persona)).length) return true;
+  return false;
+}
+
+// `--post [origin]`: empty the running dev server and seed it with these rows. A server
+// that already holds data is refused unless `--force` (or `--reset`) says to erase it:
+// a dev server can be one people use, and this empties it for everyone.
 const flag = process.argv.indexOf('--post');
 if (flag >= 0) {
-  const origin = process.argv[flag + 1] ?? 'http://127.0.0.1:4400';
+  const origin = arg('--post') ?? 'http://127.0.0.1:4400';
+  const force = process.argv.includes('--force') || process.argv.includes('--reset');
+  let held;
+  try { held = await holdsData(origin); } catch (e) { console.error(`seed: cannot tell whether ${origin} holds data (${e.message}); nothing was erased`); process.exit(1); }
+  if (held && !force) {
+    console.error(`seed: the server at ${origin} already holds data. Seeding it would ERASE EVERYONE'S MESSAGES, channels and profiles there, for every person using it. Nothing was erased. If this is a server of your own whose data you mean to lose, run it again with --force.`);
+    process.exit(1);
+  }
   const res = await fetch(`${origin}/dev/reset`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(rows) });
   const body = await res.text();
   if (!res.ok) { console.error(`${origin}/dev/reset: ${res.status} ${body}`); process.exit(1); }
