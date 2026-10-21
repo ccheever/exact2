@@ -9,8 +9,8 @@
 import { obj, str } from '../client/domain';
 import { manualServerUpdateCommand, type ServerInstallation } from './server-installation';
 
-/** This client's T3 Code release: the Nightly it mirrors (d0918f1659, 0.1.1-nightly.20261018.3302). */
-export const CLIENT_VERSION = '0.1.1-nightly.20261018.3302';
+/** This client's T3 Code release: the Nightly it mirrors (e64766c56a, 0.1.2-nightly.20261021.3457). */
+export const CLIENT_VERSION = '0.1.2-nightly.20261021.3457';
 
 export { manualServerUpdateCommand };
 export type { ServerInstallation };

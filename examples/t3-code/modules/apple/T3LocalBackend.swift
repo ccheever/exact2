@@ -429,10 +429,13 @@ final class T3LocalBackend: @unchecked Sendable {
             return (error.message, true)
         }
         let versionDir: URL, version: String
+        let bundled: T3LocalRuntime?
         if let runtimeDir {
+            bundled = nil
             versionDir = runtimeDir; version = (T3LocalRuntime.versionOutput(runtimeDir.appendingPathComponent("t3")) ?? "").replacingOccurrences(of: "t3 v", with: "")
         } else {
             let runtime = T3LocalRuntime(home: home, bundleDir: resources()?.appendingPathComponent("t3-runtime", isDirectory: true))
+            bundled = runtime
             var lastPublished = -1.0
             runtime.progress = { [weak self] phase, fraction in
                 guard fraction - lastPublished >= 0.02 || fraction == 0 || fraction == 1 else { return }
@@ -467,6 +470,15 @@ final class T3LocalBackend: @unchecked Sendable {
             log: T3LocalFileOutputLog(logDirectory: logDirectory, runId: runId),
             spec: T3LocalBackendSpec(configResolve: { [weak self] in
                 guard let self else { return config }
+                // `t3 update` and a starting background service remove a runtime no process runs once it is
+                // an hour old (pinnedRuntime.ts `prunePinnedRuntimes`), so a stopped server's may be gone.
+                // The unpack runs here, synchronously on the supervisor's queue, before the spawn; it takes seconds.
+                if let bundled, !T3LocalRuntime.installed(T3LocalRuntime.paths(home: home, version: version), version: version) {
+                    switch bundled.ensure() {
+                    case .ready: self.log("unpacked runtime \(version) again into \(versionDir.path)")
+                    case let .missing(reason), let .failed(reason): throw T3Failure(kind: "Runtime", message: reason)
+                    }
+                }
                 self.lock.lock(); let exposure = self.exposure; self.lock.unlock()
                 return Self.startConfig(versionDir: versionDir, port: port, home: home, token: self.currentBootstrapToken, env: serverEnv, cwd: NSHomeDirectory(), exposure: exposure, secret: self.bootstrapSecret)
             }))

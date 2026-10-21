@@ -8,7 +8,7 @@
 // settings-b-fleet.ts). A subscription lasts for its connection's generation; a failed
 // stream keeps its last list and error until the next pass subscribes again.
 import type { T3Client } from './client';
-import { arr, obj, str, type Obj, type Shell } from './domain';
+import { arr, decodeDeviceState, obj, str, type Obj, type Shell } from './domain';
 import { bridgeReply, ClientError, type Native } from './protocol';
 import { subscriptionSerial } from '../details/shell-vcs';
 import { EnvironmentFleet, fleet, type FleetEntry } from '../connections/settings-b-fleet';
@@ -50,7 +50,7 @@ function apply(stream: Stream, key: string, entry: Obj): void {
   if (item._retryDue || item._streamEnded) { stream.id = ''; stream.tried = false; return; }
   if (item._transportError) { stream.error = str(obj(item._transportError).message, 'The live stream ended.'); return; }
   const list = (key === STORAGE_REPORT_KEY || key === DATABASE_STORAGE_KEY || key === DEVICE_HOSTS_KEY) ? raw === null ? [] : [item] : key === PROJECT_CLONES_KEY ? (Array.isArray(raw) ? raw : null) : (Array.isArray(item.tasks) ? item.tasks : null);
-  if (list) { stream.value = list.map(obj); stream.error = ''; }
+  if (list) { stream.value = list.map(value => key === DEVICE_HOSTS_KEY ? decodeDeviceState(obj(value)) : obj(value)); stream.error = ''; }
 }
 
 /** client.ts drain: `scheduled-tasks` and `project-clones` entries of the focused connection. */

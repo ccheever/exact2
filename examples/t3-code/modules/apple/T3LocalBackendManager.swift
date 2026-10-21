@@ -1,5 +1,5 @@
 // The embedded server's supervisor: a port of T3 Code's
-// desktop backend instance (MIT, see LICENSE-T3; reference 9c161462c9:
+// desktop backend instance (MIT, see LICENSE-T3; reference 74541bab17:
 // apps/desktop/src/backend/DesktopBackendManager.ts `makeBackendInstance`, `runBackendProcess`,
 // `calculateRestartDelay`; app/DesktopApp.ts `stopAllPoolInstances`).
 //
@@ -82,8 +82,19 @@ struct T3LocalStartConfig: Equatable {
 struct T3LocalExit: Equatable {
     var code: Int32?
     var signal: Int32?
-    /// `BackendProcessExit.reason`.
-    var reason: String { code.map { "code=\($0)" } ?? "signal=\(signal ?? 0)" }
+    /// `BackendProcessExit.reason`: `code=<n>`, or `killed by SIG<NAME>` for a signal exit.
+    var reason: String {
+        if let code { return "code=\(code)" }
+        return Self.signalName(signal ?? 0).map { "killed by \($0)" } ?? "signal=\(signal ?? 0)"
+    }
+    /// `SIGKILL` for 9, and so on (`sys_signame` holds the names lowercased, without "SIG").
+    static func signalName(_ signal: Int32) -> String? {
+        withUnsafeBytes(of: sys_signame) { raw in
+            let names = raw.bindMemory(to: UnsafePointer<CChar>?.self)
+            guard signal > 0, Int(signal) < names.count, let name = names[Int(signal)] else { return nil }
+            return "SIG" + String(cString: name).uppercased()
+        }
+    }
 }
 
 struct T3LocalChildEvents {
