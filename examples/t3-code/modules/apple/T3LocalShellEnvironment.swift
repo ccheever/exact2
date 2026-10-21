@@ -1,13 +1,16 @@
 // The embedded server's environment, after T3 Code's desktop
-// app (MIT, see LICENSE-T3; reference 9c161462c9: apps/desktop/src/shell/DesktopShellEnvironment.ts
-// `installPosixEnvironment`, and backend/DesktopBackendConfiguration.ts `DESKTOP_BACKEND_ENV_NAMES`).
+// app (MIT, see LICENSE-T3; reference 74541bab17: apps/desktop/src/shell/DesktopShellEnvironment.ts
+// `installPosixEnvironment`, backend/DesktopBackendConfiguration.ts `DESKTOP_BACKEND_ENV_NAMES`, and
+// packages/shared/src/shell.ts `buildEnvironmentCaptureCommand`, `readEnvironmentFromLoginShell`).
 //
 // An app opened from Finder inherits launchd's short PATH, so the server would not find the
 // provider CLIs. The login shell is asked once (`$SHELL -ilc`, 5 s; then /bin/zsh), launchctl's
 // PATH only when no shell answered (2 s), and the values are merged into the environment the
-// server starts with. Difference: the reference installs them into its own process (every child
-// inherits them); this module applies them to the server's environment only. The reference also
-// reads T3CODE_TELEMETRY_ENABLED from the shell; here telemetry is always off (spec), so it is not read.
+// server starts with. Differences: the reference installs them into its own process (every child
+// inherits them); this module applies them to the server's environment only. The probe runs in a new
+// session with stderr discarded, as the shared reader's does; the desktop's stays in the app's session.
+// The reference also reads T3CODE_TELEMETRY_ENABLED from the shell; here telemetry is always off (spec),
+// so it is not read.
 import Foundation
 
 enum T3LocalShellEnvironment {
@@ -30,8 +33,21 @@ enum T3LocalShellEnvironment {
     static func startMarker(_ name: String) -> String { "__T3CODE_ENV_\(name)_START__" }
     static func endMarker(_ name: String) -> String { "__T3CODE_ENV_\(name)_END__" }
 
-    static func captureCommand(_ names: [String]) -> String {
-        names.map { "printf '%s\\n' '\(startMarker($0))'; printenv \($0) || true; printf '%s\\n' '\(endMarker($0))'" }.joined(separator: "; ")
+    /// `buildEnvironmentCaptureCommand`: `printenv` in POSIX syntax, or Nu syntax for a shell whose
+    /// executable name starts with "nu".
+    static func captureCommand(_ shell: String, _ names: [String]) -> String {
+        let nushell = (shell as NSString).lastPathComponent.lowercased().hasPrefix("nu")
+        return names.map { name in
+            guard nushell else { return "printf '%s\\n' '\(startMarker(name))'; printenv \(name) || true; printf '%s\\n' '\(endMarker(name))'" }
+            // Without a configured conversion, Nu expands home paths only in a list PATH.
+            let defaultValue = name == "PATH"
+                ? "if ($env.PATH? | describe | str starts-with 'list') { $env.PATH | each {|p| if ($p | str starts-with '~') { "
+                    + "$p | path expand --no-symlink } else { $p } } | str join (char esep) } else { $env.PATH? | default '' }"
+                : "$env.\(name)? | default ''"
+            let value = "if $env.\(name)? == null { '' } else if $env.ENV_CONVERSIONS?.\(name)?.to_string? != null { "
+                + "$env.\(name) | do $env.ENV_CONVERSIONS.\(name).to_string $env.\(name) } else { \(defaultValue) }"
+            return "print '\(startMarker(name))'; print (\(value)); print '\(endMarker(name))'"
+        }.joined(separator: "; ")
     }
 
     static func extract(_ output: String, _ names: [String]) -> [String: String] {
@@ -77,7 +93,7 @@ enum T3LocalShellEnvironment {
     static func install(into env: inout [String: String], run: Runner) {
         var shell: [String: String] = [:]
         for candidate in loginShellCandidates(env) {
-            shell.merge(extract(run(candidate, ["-ilc", captureCommand(loginShellNames)], loginShellTimeout), loginShellNames)) { $1 }
+            shell.merge(extract(run(candidate, ["-ilc", captureCommand(candidate, loginShellNames)], loginShellTimeout), loginShellNames)) { $1 }
             if shell["PATH"] != nil { break }
         }
         let launchctlPath = shell["PATH"] == nil ? trimmed(run("/bin/launchctl", ["getenv", "PATH"], launchctlTimeout)) : nil
@@ -113,28 +129,57 @@ enum T3LocalShellEnvironment {
         return env
     }
 
-    /// The production runner: stdin closed, stdout read, SIGTERM at the timeout (then SIGKILL after 1 s).
+    /// The production runner (`readEnvironmentFromLoginShell`'s `detached: true, stdio: ["ignore", "pipe",
+    /// "ignore"]`): a new session, so job control in an interactive shell finds no controlling terminal to
+    /// stop it on; stdin from /dev/null, stdout read, stderr discarded; SIGTERM at the timeout (then SIGKILL
+    /// after 1 s). "" on failure.
     static func runCommand(_ command: String, _ args: [String], _ timeout: TimeInterval) -> String {
-        let process = Process(), output = Pipe()
-        process.executableURL = URL(fileURLWithPath: command)
-        process.arguments = args
-        process.standardInput = FileHandle.nullDevice
-        process.standardOutput = output
-        process.standardError = FileHandle.nullDevice
-        let done = DispatchSemaphore(value: 0)
-        process.terminationHandler = { _ in done.signal() }
-        do { try process.run() } catch { return "" }
-        var data = Data()
+        var fds: [Int32] = [-1, -1]
+        guard pipe(&fds) == 0 else { return "" }
+        var actions: posix_spawn_file_actions_t?
+        posix_spawn_file_actions_init(&actions)
+        defer { posix_spawn_file_actions_destroy(&actions) }
+        posix_spawn_file_actions_addopen(&actions, 0, "/dev/null", O_RDONLY, 0)
+        posix_spawn_file_actions_adddup2(&actions, fds[1], 1)
+        posix_spawn_file_actions_addopen(&actions, 2, "/dev/null", O_WRONLY, 0)
+        var attributes: posix_spawnattr_t?
+        posix_spawnattr_init(&attributes)
+        defer { posix_spawnattr_destroy(&attributes) }
+        // CLOEXEC_DEFAULT: the child gets only the three descriptors above.
+        posix_spawnattr_setflags(&attributes, Int16(POSIX_SPAWN_SETSID | POSIX_SPAWN_CLOEXEC_DEFAULT | POSIX_SPAWN_SETSIGDEF | POSIX_SPAWN_SETSIGMASK))
+        var signals = sigset_t()
+        sigfillset(&signals); posix_spawnattr_setsigdefault(&attributes, &signals)
+        sigemptyset(&signals); posix_spawnattr_setsigmask(&attributes, &signals)
+        let argv = ([command] + args).map { strdup($0) } + [nil]
+        defer { argv.forEach { free($0) } }
+        var pid: pid_t = 0
+        let spawned = posix_spawn(&pid, command, &actions, &attributes, argv, environ)
+        close(fds[1])
+        guard spawned == 0 else { close(fds[0]); return "" }
         let reader = DispatchQueue(label: "com.exact.t3code.local.shell-env")
-        let read = DispatchSemaphore(value: 0)
-        reader.async { data = output.fileHandleForReading.readDataToEndOfFile(); read.signal() }
+        let drained = DispatchSemaphore(value: 0), done = DispatchSemaphore(value: 0)
+        var data = Data()
+        reader.async {
+            var buffer = [UInt8](repeating: 0, count: 16_384)
+            while true {
+                let count = read(fds[0], &buffer, buffer.count)
+                if count > 0 { data.append(buffer, count: count) } else if count == 0 || errno != EINTR { break }
+            }
+            close(fds[0]); drained.signal()
+        }
+        DispatchQueue.global().async {
+            var status: Int32 = 0
+            while waitpid(pid, &status, 0) == -1 && errno == EINTR {}
+            done.signal()
+        }
         if done.wait(timeout: .now() + timeout) == .timedOut {
-            process.terminate()
-            if done.wait(timeout: .now() + 1) == .timedOut { kill(process.processIdentifier, SIGKILL); done.wait() }
-            _ = read.wait(timeout: .now() + 1)
+            kill(pid, SIGTERM)
+            if done.wait(timeout: .now() + 1) == .timedOut { kill(pid, SIGKILL); done.wait() }
+            _ = drained.wait(timeout: .now() + 1)
             return ""
         }
-        _ = read.wait(timeout: .now() + 1)
+        // A descendant that keeps stdout open leaves the output unread.
+        guard drained.wait(timeout: .now() + 1) == .success else { return "" }
         return String(decoding: data, as: UTF8.self)
     }
 }

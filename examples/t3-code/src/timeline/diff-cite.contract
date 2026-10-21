@@ -1,4 +1,4 @@
-// Cite, adapted from T3 Code 9c161462c9 AssistantSelectionToolbar.tsx and lib/selectionActions.ts (MIT; see LICENSE-T3):
+// Cite, adapted from T3 Code 74541bab17 AssistantSelectionToolbar.tsx and lib/selectionActions.ts (MIT; see LICENSE-T3):
 // a floating glass button with the quote glyph at a selection in an answer, "Cite" with aria-label "Cite selection in
 // composer", or disabled "Shorten selection" ("Selection is too long to cite") past 8,000 UTF-16 units. The reference portals
 // it to the body (`fixed z-50`), so the window draws it here (app-window.contract), above the timeline's rows (cite-selection-
@@ -78,6 +78,18 @@ fn citeOfferFor(source: string, parts: CitePart[], stream: string, x: number, y:
 // The window frame Cite sends, "x,y,width,height" (the comment opens under it, align end): the selection's last line, its
 // text measured again at the press (the timeline may have moved); the text's own frame when the host reported no line.
 fn citeLineFrame(offer: CiteOffer, box: Geometry): string = box.unavailable ? "" : (offer.lw < 0 ? `${box.x},${box.y},${box.width},${box.height}` : `${box.x + offer.lx},${box.y + offer.ly},${offer.lw},${offer.lh}`)
+
+// The selection's last line in the window, from the end text's frame `box`, measured again after a scroll.
+fn citeLineLeft(offer: CiteOffer, box: Geometry): number = offer.lw < 0 ? box.x : box.x + offer.lx
+fn citeLineTop(offer: CiteOffer, box: Geometry): number = offer.lw < 0 ? box.y : box.y + offer.ly
+fn citeLineWidth(offer: CiteOffer, box: Geometry): number = offer.lw < 0 ? box.width : offer.lw
+fn citeLineHeight(offer: CiteOffer, box: Geometry): number = offer.lw < 0 ? box.height : offer.lh
+
+// isSelectionRectVisible against the timeline's box: the end text still drawn and its last line inside the box.
+fn citeLineShown(offer: CiteOffer, box: Geometry, bounds: Geometry): bool = not box.unavailable and (bounds.unavailable or (citeLineLeft(offer, box) < bounds.x + bounds.width and citeLineLeft(offer, box) + citeLineWidth(offer, box) > bounds.x and citeLineTop(offer, box) < bounds.y + bounds.height and citeLineTop(offer, box) + citeLineHeight(offer, box) > bounds.y))
+
+// The offer with Cite at the last line's right and bottom + 4 again (no pointer after a scroll), held in the timeline's box.
+fn citeRestored(offer: CiteOffer, box: Geometry, bounds: Geometry): CiteOffer = CiteOffer(source=offer.source, ranges=offer.ranges, stream=offer.stream, size=offer.size, x=citeAxis(citeLineLeft(offer, box) + citeLineWidth(offer, box), bounds.x, bounds.width, bounds.unavailable), y=citeAxis(citeLineTop(offer, box) + citeLineHeight(offer, box) + 4, bounds.y, bounds.height, bounds.unavailable), end=offer.end, lx=offer.lx, ly=offer.ly, lw=offer.lw, lh=offer.lh)
 
 // The button's size (button xs glass: 28 pt tall; "Cite" or "Shorten selection" at 12 pt with the glyph) for the layout
 // effect's hold: 8 pt inside the window on each side.

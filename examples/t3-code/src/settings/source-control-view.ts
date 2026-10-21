@@ -9,6 +9,7 @@ import { can } from '../connections/command-permissions';
 // 1e2ecbd975 (5318d054a5): Integrations › Devices adds the Simulator support row (device-support.ts).
 import { redactedValue } from '../shared/redacted-text'; // RedactedAccount
 import { arr, obj, str, num, type Json, type Obj } from '../client/domain';
+import { writingStyleOf } from './scoped-settings';
 import type { T3Client } from '../client/client';
 import { providerAvailable, type Native } from '../client/protocol';
 import { deviceTool } from '../device/settings-a-integrations';
@@ -68,7 +69,7 @@ export function inheritance(settings: Obj, projectId: string, key: string, envir
 
 function effective(settings: Obj, projectId: string): Obj {
   const override = obj(obj(settings.projectSettingsOverrides)[projectId]);
-  return { ...settings, ...override, sourceControlWritingStyle: { ...obj(DEFAULTS.sourceControlWritingStyle), ...obj(settings.sourceControlWritingStyle), ...obj(override.sourceControlWritingStyle) } };
+  return { ...settings, ...override, sourceControlWritingStyle: { ...obj(DEFAULTS.sourceControlWritingStyle), ...writingStyleOf(settings.sourceControlWritingStyle), ...writingStyleOf(override.sourceControlWritingStyle) } };
 }
 
 function row(settings: Obj, projectId: string, environmentLabel: string, key: string, partial: Partial<ScopedRow>): ScopedRow {

@@ -77,6 +77,7 @@ shape Thread
   scratchLabel: string
   // A search result's matching pull request: its number, lifecycle state ('' unknown) and accessible label.
   searchPr: string
+  searchPrIcon: string
   searchPrState: string
   searchPrLabel: string
   title: string
@@ -98,7 +99,8 @@ shape Thread
   badgeState: string
   section: string
   status: string
-  selected: bool
+  selected: bool // the open thread's row, or its ancestor's while a subagent is open
+  routeThread: bool // the open thread itself (a drop on it attaches without opening)
   searchFirst: bool
   matchLabel: string
   matchUser: bool
