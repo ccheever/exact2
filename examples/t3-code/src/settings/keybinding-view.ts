@@ -1,5 +1,5 @@
 // Settings → Keybindings view model: rows, pills, labels, sources, conflicts and
-// area groups from KeybindingsSettings.logic.ts (T3 9c161462c9), and the When builder of
+// area groups from KeybindingsSettings.logic.ts (T3 74541bab17), and the When builder of
 // KeybindingsSettings.tsx as precomputed next expressions, so every builder
 // control only replaces the draft expression with a string computed here.
 import { arr, obj, str, type Obj } from '../client/domain';
@@ -210,13 +210,18 @@ export function rowId(command: string, key: string, when: string): string {
 }
 export function buildRows(bindings: Obj[], query: string): KeybindingRowView[] {
   const defaults = keybindingDefaults.map(binding => ({ command: binding.command, key: binding.key, when: binding.when || '' }));
-  const base = bindings.map(binding => {
+  // buildKeybindingRows: one row per command, shortcut and condition, the last binding of a resolved duplicate, so a
+  // row's id holds while other bindings are saved, added or removed (its draft stays with it).
+  const byId = new Map<string, { id: string; command: string; key: string; when: string; source: string; defaultKey: string; defaultWhen: string }>();
+  for (const binding of bindings) {
     const command = str(binding.command), key = shortcutInput(obj(binding.shortcut)), when = whenExpression(binding.whenAst);
     const exact = defaults.some(entry => entry.command === command && entry.key === key && entry.when === when);
     const fallback = defaults.find(entry => entry.command === command && entry.key === key && entry.when === when) || defaults.find(entry => entry.command === command && entry.when === when) || defaults.find(entry => entry.command === command);
     const source = command.startsWith('script.') ? 'Project' : exact ? 'Default' : 'Custom';
-    return { id: rowId(command, key, when), command, key, when, source, defaultKey: fallback ? fallback.key : '', defaultWhen: fallback ? fallback.when : '' };
-  });
+    const id = rowId(command, key, when);
+    byId.set(id, { id, command, key, when, source, defaultKey: fallback ? fallback.key : '', defaultWhen: fallback ? fallback.when : '' });
+  }
+  const base = [...byId.values()];
   const rows = base.map(row => ({ ...row, condition: row.when, label: commandLabel(row.command), whenLabel: row.when || 'Always', pills: pillParts(row.key).map((text, index) => ({ id: `${index}`, text })), aria: shortcutLabel(row.key),
     canReset: row.source === 'Custom' && row.defaultKey !== '', canRemove: row.source !== 'Default', conflict: conflictText(conflictLabels(base, row)), first: false }));
   rows.sort((left, right) => compareCommands(left.command, right.command, command => command) || left.key.localeCompare(right.key));
