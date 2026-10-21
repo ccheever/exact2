@@ -1,5 +1,5 @@
-// T3 Code 9c161462c9 (MIT, LICENSE-T3), ComposerPromptEditorTiptap saveCitationDraft and
-// ChatComposer saveCitationDraftToPrompt: retain a comment when a request replaces its editor.
+// T3 Code 74541bab17 (MIT, LICENSE-T3), ComposerPromptEditorTiptap saveCitationDraft and
+// ChatComposer saveCitationDraftToPrompt: retain a comment when a question replaces its editor.
 import type { T3Client } from '../client/client';
 import { str, type Obj } from '../client/domain';
 import { requestPresentation } from '../composer/requests';
@@ -37,7 +37,7 @@ export function clearCitationDraft(client: T3Client, seq: number): void {
 /** Save only into the exact prompt that held the citation, without overwriting a newer edit or another thread. */
 export function preserveCitationDraft(client: T3Client): boolean {
   const draft = drafts.get(client);
-  if (!draft || draft.comment === null || draft.key !== client.draftKey || requestPresentation(client).requestMode === '') return false;
+  if (!draft || draft.comment === null || draft.key !== client.draftKey || requestPresentation(client).requestMode !== 'question') return false;
   if (client.draft !== draft.value) { drafts.delete(client); return false; }
   const citation = citationOfLink(draft.link);
   if (!citation) return false;

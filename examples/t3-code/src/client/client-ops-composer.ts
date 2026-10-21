@@ -3,8 +3,8 @@ import { terminalOpen } from '../terminal/terminal-drawer-view'; // the real ter
 // The composer's client.command() ops (client-ops.ts): the draft and favorite
 // models, Send (a new thread's launch, a follow-up, a fan-out), the model,
 // option and mode pickers, Stop, approvals and the provider's questions, and
-// Retry of a submission T3 may already have taken. Send's submission text
-// follows T3 Code 9c161462c9 ChatView.tsx onSend (MIT; see LICENSE-T3).
+// Retry of a submission T3 may already have taken. Send's submission text and
+// its redirect past pending approvals follow T3 Code 74541bab17 ChatView.tsx onSend (MIT; see LICENSE-T3).
 import { projectCloneBlock } from '../shell/project-clones-live';
 import type { T3Client } from './client';
 import type { OpOut } from './client-ops';
@@ -32,8 +32,10 @@ import { composerChipFinishCurrent, takeComposerChipFinish } from '../composer/c
 import { pressGesture, sendIntent } from '../composer/composer-editor-intent';
 import { launchTitle } from '../composer/composer-editor-title';
 import { promptLengthMessage } from '../composer/composer-editor-menu';
-import { composerFileAttachments } from '../composer/composer-editor-files';
-import { activeInput, pendingRequests, composerInput, composerRequests, setCustomAnswer, chooseOption, advanceQuestion, previousQuestion, dismissPayload, approvalPayload } from '../composer/requests';
+import { composerFileAttachments, draftFiles } from '../composer/composer-editor-files';
+import { activeInput, pendingRequests, composerInput, composerRequests, setCustomAnswer, chooseOption, advanceQuestion, previousQuestion, dismissPayload, approvalPayload, declinePendingApprovals } from '../composer/requests';
+import { pushToast } from '../shell/toast';
+import { machineLabel, unreadableThreads } from '../composer/composer-thread-machines';
 import { releaseHeldRequests } from '../composer/composer-typing-guard';
 import { threadPhase } from '../composer/composer-presentation';
 import { refreshNewThreadContext } from '../composer/new-thread-context';
@@ -92,10 +94,11 @@ export async function composerWrites(this: T3Client, op: string, id: string, val
     }
     if (['send', 'submit-answers', 'advance-question', 'pick-option'].includes(op) && pendingThreadImports(this)) throw new ClientError('Still bringing attached context into this message. Send again once its chip resolves.');
     // A request held while the user typed (composer-typing-guard.ts) leaves the composer theirs: this send goes to the
-    // thread, and sending releases the request.
-    if (op === 'send' && composerRequests(this).approvals.length) throw new ClientError('Resolve this approval request to continue.');
-    else if (op === 'send' && composerInput(this) && (annotation !== null || annotationSendMarked(this))) resultMessage = annotationAttachedToDraft(this); // onSend: a direct annotation never answers a question
-    else if (op === 'send' && composerInput(this)) await submitAnswers.call(this, native, storage, '', value);
+    // thread, and sending releases the request. A shown approval leaves it theirs too: the send declines it and
+    // redirects the agent (declineForRedirect).
+    const answering = op === 'send' && !!composerInput(this);
+    if (answering && (annotation !== null || annotationSendMarked(this))) resultMessage = annotationAttachedToDraft(this); // onSend: a direct annotation never answers a question
+    else if (answering) await submitAnswers.call(this, native, storage, '', value);
     else if (op === 'send') { try { await autoBalanceSend(this, native, async () => {
       if (citation && !composerChipFinishCurrent(this, citation)) return;
       if (annotation) { if (!annotationDispatchCurrent(this, annotation)) return; markAnnotationSend(this); }
@@ -128,11 +131,21 @@ async function send(this: T3Client, native: Native, storage: Files, value: strin
   const assertOwner = () => {
     if (selection.generation !== this.generation || selection.environmentId !== this.environmentId || selection.origin !== this.origin || selection.projectId !== this.projectId || selection.threadId !== this.threadId || selection.providerId !== this.providerId || selection.modelId !== this.modelId || selection.options !== JSON.stringify(this.modelOptions) || selection.runtimeMode !== this.runtimeMode || selection.interactionMode !== this.interactionMode) throw new ClientError('The draft or model changed before sending. Your original draft is preserved.');
   };
+  // What Send was pressed on: the approvals the composer showed, the follow-up behavior they make "steer", and the draft.
+  const shownApprovals = composerRequests(this).approvals.map(approval => approval.requestId), followUp = followUpBehavior(this);
+  const promptAtSend = this.local.drafts[this.draftKey] ?? '';
   // The Compact chip as the composer showed it when Send was pressed (read before the send's own writes make it busy).
   const compactOffered = !!selection.threadId && resumeCompactionTokens(this, composerNow(this), contextSnapshot(this.projection)) !== null;
   // "/usage-limits" is answered locally from the provider snapshots; the agent never sees it.
   if (isUsageLimitsCommand(value || this.draft) && !this.snapshotDrafts.length && usageLimitsOffered(this)) { if (openUsageLimits(this, composerNow(this))) this.local.drafts[this.draftKey] = ''; return; }
   if (feedbackInFlight(this)) return; // feedbackUploadsInFlightRef: this thread's /feedback upload runs (composer-feedback.ts); onSend checks /usage-limits first
+  // threadContextsOutsideEnvironment: a draft moved to another machine cannot send a thread only its old machine reads.
+  const unreadable = unreadableThreads(this, value || this.draft)[0];
+  if (unreadable) {
+    pushToast(this, { kind: 'warning', stacked: true, title: 'Attached thread is on another machine',
+      description: `This machine's agent can't read "${unreadable.title}". Remove it, or switch back to ${machineLabel(unreadable.environmentId)} to send.` });
+    return;
+  }
   if (queuedEdit(this)) return saveQueuedEdit(this, native, storage, value, () => this.uploadSnapshots(native, storage)); // new SnapShot images upload
   const feedback = feedbackCommandFor(this, value || this.draft); // Codex /feedback uploads the thread instead of sending a turn
   if (feedback) return sendFeedback(this, native, value || this.draft, feedback);
@@ -153,7 +166,9 @@ async function send(this: T3Client, native: Native, storage: Files, value: strin
   await refreshNewThreadContext(this, native);
   assertOwner();
   if (projectCloneBlock(this)) throw new ClientError(`${projectCloneBlock(this)}. Send once the repository is cloned.`); // project-clones-live.ts
-  if (!submission || submission.interactionMode === 'plan') this.local.drafts[this.draftKey] = text;
+  // An edit typed while the context refreshed is the newer draft; it is not overwritten.
+  if ((!submission || submission.interactionMode === 'plan') && (this.local.drafts[this.draftKey] ?? '') === promptAtSend) this.local.drafts[this.draftKey] = text;
+  const draftKey = this.draftKey, attachmentsAtSend = attachmentIds(this, draftKey);
   // A pointer press names its own modifiers (`pointer:meta+alt`, app.contract `send`); any other press reads the Return
   // gesture the module recorded (T3ComposerIntent: a key press, or none once a click has retired it).
   const gesture = pressGesture(pressed) ?? await this.call(native, { op: 'composerSendIntent' }).catch(() => ({}));
@@ -176,6 +191,8 @@ async function send(this: T3Client, native: Native, storage: Files, value: strin
   const title = launchTitle(text, attachments); // onSend's titleSeed
   const [commandId, messageId, freshThreadId] = await this.ids(native, 3), launchKey = this.draftKey, threadId = selection.threadId ? freshThreadId : launchThreadId(this, launchKey, freshThreadId); // a draft launches as its own id
   assertOwner();
+  if (selection.threadId && !(await declineForRedirect.call(this, native, storage, { shownApprovals, draftKey, prompts: [promptAtSend, value, text], attachmentsAtSend, owner: selection }))) return;
+  assertOwner();
   if (selection.threadId) {
     const key = this.draftKey, staged = stagedFor(this);
     for (const command of nextTurnCommands(obj(this.projection.thread), staged, submission?.interactionMode ?? '')) {
@@ -194,7 +211,7 @@ async function send(this: T3Client, native: Native, storage: Files, value: strin
       // A stale Claude session compacts before this message, so the turn does not re-read the old history (the Compact chip,
       // composer-controls-resume.ts). The message queues behind the /compact run, since steering into it is rejected.
       const compactFirst = compactOffered && !keepsFullHistory(this, selection.threadId) && text.trim().toLowerCase() !== '/compact';
-      const mode = compactFirst || setupQueue ? 'queue' : submission || annotationSend ? 'auto' : resolveDispatchMode(running, followUpBehavior(this), intent === 'alternate', !isCompacting(this));
+      const mode = compactFirst || setupQueue ? 'queue' : submission || annotationSend ? 'auto' : resolveDispatchMode(running, followUp, intent === 'alternate', !isCompacting(this));
       const turnSelection = dispatchSelection(this, sendProviderId, sendModelId, JSON.parse(selection.options));
       if (compactFirst) {
         const [compactCommandId, compactMessageId] = await this.ids(native, 2);
@@ -228,6 +245,43 @@ async function send(this: T3Client, native: Native, storage: Files, value: strin
     this.threadId = str(result.threadId, threadId);
     await this.openThread(native, this.threadId);
   }
+}
+/** The draft's images and attached files, in order (draftChangedSinceSend compares both). */
+const attachmentIds = (client: T3Client, key: string) => [...(client.local.snapshotDrafts[key] ?? []).map(image => str(image.id)),
+  ...draftFiles(client.local).filter(file => file.draftKey === key).map(file => str(file.id))].join('\n');
+const LEFT = Symbol('left the thread');
+/**
+ * ChatView onSend's redirect: a message sent while approvals are pending declines the approvals the composer showed,
+ * here, after everything else accepted the send, so a local command or a refused draft leaves them alone. A draft
+ * edited since Send, an approval already being answered, or one that arrived during the decline keeps the draft unsent
+ * with a toast; a refused decline fails the send with its error, the draft kept. Leaving the thread meanwhile ends the
+ * send silently: the approvals shown then are another thread's.
+ */
+async function declineForRedirect(this: T3Client, native: Native, storage: Files, sent: { shownApprovals: string[]; draftKey: string; prompts: string[];
+  attachmentsAtSend: string; owner: { generation: number; environmentId: string; origin: string; threadId: string } }): Promise<boolean> {
+  const left = () => sent.owner.generation !== this.generation || sent.owner.environmentId !== this.environmentId || sent.owner.origin !== this.origin || sent.owner.threadId !== this.threadId;
+  if (left()) return false;
+  const approvals = pendingRequests(this.projection).approvals.filter(approval => sent.shownApprovals.includes(approval.requestId));
+  if (!approvals.length) return true;
+  const changed = () => !sent.prompts.includes(this.local.drafts[sent.draftKey] ?? '') || attachmentIds(this, sent.draftKey) !== sent.attachmentsAtSend;
+  const pendingBefore = pendingRequests(this.projection).approvals.map(approval => approval.requestId);
+  const answering = this.pending?.payload.type === 'runtime-request.respond' ? str(this.pending.payload.requestId) : '';
+  const responding = approvals.some(approval => approval.requestId === answering), changedBefore = changed();
+  const declined = !changedBefore && !responding;
+  const stay = () => { if (left()) throw LEFT; };
+  try {
+    if (declined) await declinePendingApprovals(approvals, requestId => (stay(), dispatchRequest.call(this, native, storage,
+      { type: 'runtime-request.respond', threadId: sent.owner.threadId, requestId, decision: 'decline' }, 'Decline approval', stay)));
+  } catch (error) { if (error === LEFT) return false; throw error; }
+  if (left()) return false;
+  const draftChanged = changedBefore || changed();
+  // An approval that arrived during the decline would block the redirect; the draft stays so the next send declines it too.
+  const arrived = pendingRequests(this.projection).approvals.some(approval => !pendingBefore.includes(approval.requestId));
+  if (declined && !draftChanged && !arrived) return true;
+  pushToast(this, { kind: 'info', description: "Send again when it's ready.",
+    title: draftChanged ? declined ? "Approval declined. Your message changed, so it wasn't sent." : "Your message changed, so it wasn't sent."
+      : responding ? "An approval is already being answered, so your message wasn't sent." : "Another approval arrived, so your message wasn't sent." });
+  return false;
 }
 async function changeModel(this: T3Client, native: Native, storage: Files, op: string, id: string, instance = '', shift = false, toggled = false): Promise<void> {
   const providerId = op === 'provider' ? id : instance || this.providerId;

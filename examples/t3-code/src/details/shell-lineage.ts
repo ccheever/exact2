@@ -2,12 +2,14 @@
 // packages/client-runtime/src/state/threadRelationships.ts, threadWorkflows.ts
 // resolveLatestMergeBackRun, apps/web/src/components/chat/
 // ThreadRelationshipsControl.tsx, ThreadRelationshipIcon.tsx, AgentElapsed.tsx;
-// upstream 9c161462c9): the open thread's immediate relationships (fork parent,
+// upstream 74541bab17): the open thread's immediate relationships (fork parent,
 // forks, subagents, context transfers) from the thread shells and its own
 // projection. A settled subagent whose child thread has a live run shows that
-// run; the heading counts what is running. A row ends in one item: an agent's
-// compact elapsed time, else its status; a running T3-owned subagent trades it
-// for Stop on hover.
+// run, while a subagent still at work (a supervisor waiting on its worker) keeps
+// its own status; a provider-native parent shows its root turn's status
+// (lineage-parent.ts); the heading counts what is running. A row ends in one
+// item: an agent's compact elapsed time, else its status; a running T3-owned
+// subagent trades it for Stop on hover.
 import type { T3Client } from '../client/client';
 import { arr, obj, str, type Obj } from '../client/domain';
 import { subagentTitle } from '../timeline/timeline-events';
@@ -26,10 +28,12 @@ export type LineageRow = {
 
 const SETTLED_AGENT = new Set(['completed', 'failed', 'error', 'cancelled', 'interrupted', 'idle']);
 const LIVE_WORK = new Set(['pending', 'running', 'waiting']);
+/** isOrchestrationV2WorkActive. */
+const workActive = (status: unknown) => LIVE_WORK.has(str(status));
 export const LINEAGE_INITIAL_COUNT = 6;
 export const LINEAGE_PAGE_COUNT = 12;
 
-const parentOf = (thread: Obj) => obj(thread.forkedFrom).type === 'run' ? str(obj(thread.forkedFrom).threadId) : str(obj(thread.lineage).parentThreadId);
+export const parentOf = (thread: Obj) => obj(thread.forkedFrom).type === 'run' ? str(obj(thread.forkedFrom).threadId) : str(obj(thread.lineage).parentThreadId);
 const statusOf = (thread: Obj | null | undefined) => thread ? (str(thread.activityRunStatus) || str(thread.status) || null) : null;
 
 /** deriveThreadRelationshipGraph: shells first (most authoritative), then the open thread's projection. */
@@ -53,9 +57,10 @@ export function relationshipGraph(threads: Obj[], projection: Obj | null): Graph
       const child = str(agent.childThreadId);
       if (!owner || !child) continue;
       // The row describes the child conversation, including queued follow-ups and their outcomes;
-      // a child without an app run still uses its task.
+      // a child without an app run, or a task still at work, uses the task.
       const shell = byId.get(child);
-      add({ source: owner, target: child, kind: 'subagent', status: str(shell?.activityRunStatus) || (shell?.latestRunId != null ? str(shell.status) : str(agent.status)) || null });
+      add({ source: owner, target: child, kind: 'subagent',
+        status: str(shell?.activityRunStatus) || (shell?.latestRunId != null && !workActive(agent.status) ? str(shell.status) : str(agent.status)) || null });
     }
     for (const transfer of arr(projection.contextTransfers)) {
       const source = str(transfer.sourceThreadId), target = str(transfer.targetThreadId);
@@ -152,10 +157,11 @@ export function formatCompactElapsed(totalSeconds: number): string {
 /**
  * currentSubagent: the row's timer and hover card follow the child's current work, including a
  * queued follow-up whose provider turn has not started; the task's output stays with its own run.
+ * A task still at work is current as it is.
  */
 export function currentSubagent(agent: Obj | undefined, child: Obj | null | undefined): Obj | undefined {
-  const live = str(child?.activityRunStatus) || (child?.status === 'queued' ? 'queued' : '');
-  if (!agent || !child) return agent;
+  if (!agent || !child || workActive(agent.status)) return agent;
+  const live = str(child.activityRunStatus) || (child.status === 'queued' ? 'queued' : '');
   const requestedAt = Date.parse(str(child.latestRunRequestedAt));
   const newerRun = Number.isFinite(requestedAt) && requestedAt > Date.parse(str(agent.completedAt ?? agent.startedAt ?? agent.updatedAt));
   if (!live && !newerRun) return agent;
@@ -179,9 +185,13 @@ export const canStopSubagent = (agent: Obj | undefined) => !!agent && agent.orig
 
 const createdAt = (node: Node | undefined) => { const at = Date.parse(str(node?.thread?.createdAt)); return Number.isFinite(at) ? at : null; };
 
-/** The Lineage section: heading, ordered and grouped rows, and the hidden "Previous agents" count. */
+/**
+ * The Lineage section: heading, ordered and grouped rows, and the hidden "Previous agents" count.
+ * `nativeParent`: the open thread's provider-native parent and its root turn's status (lineage-parent.ts).
+ */
 export function lineageView(threads: Obj[], projection: Obj | null, threadId: string, providers: Obj[], now: number,
-  expanded: string[] = [], phasesOpen: string[] = [], phasesClosed: string[] = [], writable = true) {
+  expanded: string[] = [], phasesOpen: string[] = [], phasesClosed: string[] = [], writable = true,
+  nativeParent: { threadId: string; status: string } | null = null) {
   const graph = relationshipGraph(threads, projection);
   const mergeTarget = mergeTargetOf(projection);
   const agents = new Map(arr(projection?.subagents).filter(agent => str(agent.childThreadId)).map(agent => [str(agent.childThreadId), agent]));
@@ -205,7 +215,9 @@ export function lineageView(threads: Obj[], projection: Obj | null, threadId: st
   const rows: LineageRow[] = ordered.map(({ threadId: id, edge }) => {
     const node = graph.nodes.get(id), thread = node?.thread ?? null;
     const subagent = edge.kind === 'subagent', parent = isParentRelationship(edge, threadId);
-    const status = rowStatus(graph, { threadId: id, edge });
+    // A native coordinator has no app run of its own: its row reads its root turn, unless a follow-up run is live.
+    const status = (parent && id === nativeParent?.threadId ? str(thread?.activityRunStatus) || nativeParent.status : '')
+      || rowStatus(graph, { threadId: id, edge });
     const raw = subagent && !parent ? agents.get(id) : undefined;
     const workflow = raw ? workflows.get(str(raw.id)) : undefined;
     const agent = workflow ? raw : currentSubagent(raw, thread);

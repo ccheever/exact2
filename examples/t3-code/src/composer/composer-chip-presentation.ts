@@ -5,6 +5,7 @@ import { workspaceValues } from './composer-workspace-snapshots';
 import { workspaceFileIcon } from '../shared/file-metadata';
 import type { ComposerChip } from './composer-source-chips';
 import { threadContextRecords } from './composer-editor';
+import { UNREADABLE_THREAD_TIP, unreadableThreads } from './composer-thread-machines';
 import { projectGlyph, type ProjectGlyph } from '../sidebar/sidebar-glyph';
 import { projectIdentity } from '../client/presentation';
 import { str } from '../client/domain';
@@ -29,6 +30,8 @@ export function composerChipFaces(client: T3Client, value: string, chips: readon
   const contexts = preview ? {} : chipContexts(client, value);
   const skills = preview ? {} : skillChipLabels(workspaceValues(selectedProvider(client), workspaceCwd(client), 'skills'));
   const threadIds = new Map(preview ? [] : threadContextRecords(client, value).map(record => [str(record.contextId), str(record.threadId)]));
+  // ComposerThreadContextChip: a thread on another machine draws invalid; this machine's agent cannot read it.
+  const unreadable = new Set(preview ? [] : unreadableThreads(client, value).map(thread => thread.contextId));
   const glyphOf = (contextId: string): ProjectGlyph => {
     const thread = client.shell.threads.find(entry => entry.id === threadIds.get(contextId));
     const project = thread ? client.shell.projects.find(entry => entry.id === thread.projectId) : undefined;
@@ -47,9 +50,10 @@ export function composerChipFaces(client: T3Client, value: string, chips: readon
       if (kind === 'terminal' && !fields.slice(2).join('\t')) available = false;
       if (kind === 'image') imageId = fields[2] ?? '';
       if (!available) tip = kind === 'terminal' ? 'This terminal excerpt has expired.' : `Unavailable context, ${label}`;
+      if (!available && chip.contextKind === 'thread' && unreadable.has(chip.contextId)) { kind = 'invalid'; available = true; tip = UNREADABLE_THREAD_TIP; }
     }
     const fileToken = chip.kind === 'mention' && !preview ? workspaceFileIcon(client, chip.path) : '';
-    const icon = !available ? 'circle-dashed' : fileToken === 'folder' ? 'folder' : icons[kind] ?? 'circle-dashed';
+    const icon = !available ? 'circle-dashed' : fileToken === 'folder' ? 'folder' : kind === 'invalid' ? icons.thread! : icons[kind] ?? 'circle-dashed';
     const interactive = available && (chip.kind === 'skill' || !preview && icons[kind] !== undefined), comment = !preview && chip.kind === 'citation';
     return { kind: !available && kind === 'terminal' ? 'invalid' : kind, label, suffix, icon, fileToken: fileToken === 'folder' ? '' : fileToken,
       imageId, available, interactive, comment, tip, glyph: chip.kind === 'context' && kind === 'thread' && available ? glyphOf(chip.contextId) : NO_GLYPH };

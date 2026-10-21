@@ -11,7 +11,7 @@ import { trackRpc } from '../shell/shell-slow';
 import { configEventSideEffects } from './protocol-config';
 import { traceRpc, statusTicket, settleTraces } from './protocol-reader';
 import { compatibilityProblem } from './protocol-outdated';
-import { type ComposerControlsPrefs, emptyComposerControls, decodeComposerControls, applySticky, applyStaged } from '../composer/composer-controls';
+import { type ComposerControlsPrefs, emptyComposerControls, decodeComposerControls, applySticky, applyStaged, reconcileStagedModels } from '../composer/composer-controls';
 import { adoptStash } from '../composer/composer-editor-stash';
 import { adoptComposerFiles } from '../composer/composer-editor-files';
 import { sidebarOpened, sidebarRefreshed } from '../sidebar/sidebar-commands';
@@ -25,6 +25,7 @@ import { READ_OPS, WRITE_OPS, runOps, type OpOut, type ProvidersRoute } from './
 import { groupingModes, message, projectPath } from './client-shared';
 import { letGo } from './let-go';
 import { fleet } from '../connections/settings-b-fleet';
+import { announceHostFreezes } from '../connections/host-freeze';
 import { sessionHasLegacyPermissions, sessionPermissions } from '../connections/remote-scopes';
 import { routedPullRequestRequest } from '../pull-requests/pages-pr-environments';
 import { threadPullRequestKeysEqual } from '../pull-requests/pages-pr-links-logic';
@@ -128,7 +129,12 @@ export class T3Client {
   diffText = '';
   diffTitle = 'Changes';
   diffState = new DiffState();
-  answers: Record<string, RequestDraft> = {};
+  /**
+   * Question answer drafts by environment and thread (usePendingThreadRequests' module stores): an answer typed on a
+   * thread survives opening another thread or a new draft, until its request is no longer pending (requests.ts).
+   */
+  answerDrafts: Record<string, Record<string, RequestDraft>> = {};
+  get answers(): Record<string, RequestDraft> { return this.answerDrafts[`${this.environmentId}\u0000${this.threadId}`] ??= {}; }
   local = preferences();
   busy = false;
   private loaded = false;
@@ -162,6 +168,8 @@ export class T3Client {
       && obj(obj(this.config.environment).capabilities).serverResolvedCommandContext === true;
   }
   /** The server takes `thread.stop` and resolves the run itself (capabilities.threadStop, commands.ts interruptThreadTurn). */
+  /** The connection's label (EnvironmentConnectionTarget.label): the catalog's, else the server's own, else its id. */
+  get environmentLabel(): string { return fleet.catalogLabel(this.environmentId) || str(obj(this.config.environment).label) || this.environmentId; }
   get threadStopOffered(): boolean { return obj(obj(this.config.environment).capabilities).threadStop === true; }
   get pending(): Pending | undefined { return this.local.pending[this.environmentId]; }
   get draftKey(): string { return `${this.environmentId}:${this.threadId || `new:${this.projectId}`}`; }
@@ -308,7 +316,8 @@ export class T3Client {
     delete this.local.selections[environmentId];
     this.origin = DEFAULT_ORIGIN; this.environmentId = ''; this.projectId = ''; this.threadId = '';
     this.shell = initialShell(); this.shellLoaded = false; this.thread = null;
-    this.config = {}; this.providerId = ''; this.modelId = ''; this.answers = {};
+    this.config = {}; this.providerId = ''; this.modelId = '';
+    for (const key of Object.keys(this.answerDrafts)) if (key.startsWith(`${environmentId}\u0000`)) delete this.answerDrafts[key];
     this.diffOpen = false; this.diffText = ''; this.threadEpoch++;
   }
 
@@ -338,7 +347,7 @@ export class T3Client {
       this.threadId = selection?.threadId || '';
       this.homeMove = null; // the window went elsewhere before the landing's move (settleHome clears it before its own)
       this.shell = initialShell(); this.shellLoaded = false; this.thread = null;
-      this.config = {}; this.providerId = ''; this.modelId = ''; this.answers = {};
+      this.config = {}; this.providerId = ''; this.modelId = '';
       this.diffOpen = false; this.diffText = ''; this.threadEpoch++; adoptHandoff(this); // keep-alive.ts: a kept thread opened from a background environment shows at once
     }
     if (replaced) {
@@ -405,7 +414,9 @@ export class T3Client {
     } catch (error) {
       if (epoch < this.refreshEpoch) return;
       this.available = true;
-      if (!(error instanceof ClientError && ['stale', 'superseded'].includes(error.kind))) this.error = message(error);
+      // A read whose session went away is asked again once the status moves on, so it shows no failure (runtime.ts
+      // pendingOnceSessionReplaced): the connection's own state says it is reconnecting.
+      if (!(error instanceof ClientError && (['stale', 'superseded'].includes(error.kind) || error.unavailable))) this.error = message(error);
     }
   }
 
@@ -427,6 +438,7 @@ export class T3Client {
     if (incompatible) throw new ClientError(incompatible.message, 'protocol');
     if (str(environment.environmentId) !== this.environmentId) throw new ClientError('This address now belongs to a different T3 environment. Pair again.', 'identity');
     this.config = config; this.configLive = true;
+    announceHostFreezes(this, fleet.freezeSources(this)); // host-freeze.ts: a reconnect after a freeze says why
     const configSub = await this.call(native, { op: 'subscribe', key: 'config', method: 'subscribeServerConfig', payload: { environmentThemes: true, usageLimitSources: true, usageLimitsCommand: true } }, generation);
     this.subscriptions.config = str(configSub.id);
     if (!this.shellLoaded) {
@@ -503,6 +515,7 @@ export class T3Client {
     this.runtimeMode = str(thread.runtimeMode, 'approval-required');
     this.interactionMode = str(thread.interactionMode, 'default');
     this.projectId = str(thread.projectId, this.projectId);
+    reconcileStagedModels(this);
     applyStaged(this);
   }
 
@@ -592,6 +605,8 @@ export class T3Client {
               delete this.subscriptions.thread; this.threadLive = true; this.chooseDefaults();
             }
             this.ensureSelection();
+            // A staged model the thread now runs gives the composer back to the thread's selection.
+            if (reconcileStagedModels(this) && this.threadId && this.thread) this.updateSelectionFromThread();
           } else if (key === 'thread' && this.thread && this.threadSubscription === this.threadId) {
             // A cancelled subscription can have retained inbox entries. Identity checks
             // reject them before their sequence or completion marker can touch this thread.
@@ -783,7 +798,7 @@ export class T3Client {
   async openFreshDraft(native: Native): Promise<void> {
     this.threadId = ''; this.thread = null; this.threadSubscription = ''; this.threadEpoch++;
     delete this.subscriptions.thread;
-    this.threadLive = true; this.diffOpen = false; this.answers = {}; this.chooseDefaults();
+    this.threadLive = true; this.diffOpen = false; this.chooseDefaults();
     if (this.connection === 'connected') await this.call(native, { op: 'unsubscribe', key: 'thread' });
   }
   configuredProviders() {
@@ -840,7 +855,7 @@ export class T3Client {
       if (await this.openUnlisted(native, id) !== 'missing') return;
       await this.openDraft(native, this.projectId); this.threadId = this.absentThreadId = id; return; // a missing thread shows NoActiveThreadState
     }
-    this.threadId = id; this.thread = keptThread(this, id); this.diffOpen = false; this.answers = {}; // keep-alive.ts: a running thread's kept detail
+    this.threadId = id; this.thread = keptThread(this, id); this.diffOpen = false; // keep-alive.ts: a running thread's kept detail
     const diffHeld = holdThreadDiff(this); // panel-surfaces.ts: the thread's Diff shows again
     this.ensureSelection(); await this.openThread(native, id, this.thread !== null);
     await reopenThreadDiff(this, native, diffHeld);
@@ -860,7 +875,7 @@ export class T3Client {
     const thread = obj(detail?.projection.thread);
     if (!detail || str(thread.id) !== id || thread.deletedAt || thread.archivedAt) return 'missing';
     this.projectId = str(thread.projectId, this.projectId);
-    this.threadId = id; this.absentThreadId = ''; this.thread = detail; this.diffOpen = false; this.answers = {};
+    this.threadId = id; this.absentThreadId = ''; this.thread = detail; this.diffOpen = false;
     await this.openThread(native, id, true);
     this.ensureSelection();
     sidebarOpened(this, native);
@@ -871,7 +886,7 @@ export class T3Client {
     if (projectId && this.shell.projects.some(project => project.id === projectId)) this.projectId = projectId;
     this.threadId = ''; this.thread = null; this.threadSubscription = ''; this.threadEpoch++;
     delete this.subscriptions.thread;
-    this.threadLive = true; this.diffOpen = false; this.answers = {}; this.chooseDefaults();
+    this.threadLive = true; this.diffOpen = false; this.chooseDefaults();
     if (this.connection === 'connected') await this.call(native, { op: 'unsubscribe', key: 'thread' });
   }
   // Generation-guarded server access for settings-rest-commands.ts / settings-rest-data.ts.

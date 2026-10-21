@@ -5,7 +5,9 @@ import type { T3Client } from '../../src/client/client';
 import type { Files, Native } from '../../src/client/protocol';
 import { composerCommand } from '../../src/composer/composer-controls-commands';
 import { snapshot } from '../../src/client/presentation';
-import { formatDuration, formatSubagentStatus, subagentBar } from '../../src/composer/composer-controls-subagent';
+import { formatSubagentStatus, selectionEffort, subagentBar } from '../../src/composer/composer-controls-subagent';
+import { subagentTraits } from '../../src/sidebar/subagent-card';
+import { formatDuration } from '../../src/timeline/timeline-worklog';
 import { opened } from '../support/composer-controls-fixture';
 
 describe('provider subagent bar', () => {
@@ -31,6 +33,31 @@ describe('provider subagent bar', () => {
     expect(view).toMatchObject({ subagent: true, notices: [], queued: [], activity: '' });
     Object.assign(thread, { creationSource: 'web' });
     expect(subagentBar(client, 0).subagent).toBe(false);
+  });
+});
+
+describe('subagent effort (T3 Code 74541bab17)', () => {
+  const effort = { id: 'effort', label: 'Effort', type: 'select', currentValue: 'medium',
+    options: [{ id: 'medium', label: 'Medium' }, { id: 'high', label: 'High', isDefault: true }, { id: 'xhigh', label: 'Extra High' }] };
+  const models = [{ slug: 'claude-opus-5', capabilities: { optionDescriptors: [effort] } }];
+  const selection = (options: Obj[] = [], extra: Obj = {}) => ({ instanceId: 'claudeAgent', model: 'claude-opus-5', options, ...extra });
+
+  test('the bar names a stated effort, else the matching report, and never guesses a catalog default (#15710)', () => {
+    expect(selectionEffort(selection([{ id: 'effort', value: 'xhigh' }]), models)).toBe('Extra High');
+    const reported = selection([{ id: 'effort', value: 'xhigh' }]);
+    expect(selectionEffort(selection(), models, reported)).toBe('Extra High');
+    expect(selectionEffort(selection([{ id: 'effort', value: 'medium' }]), models, reported)).toBe('Medium');
+    expect(selectionEffort(selection([{ id: 'effort', value: 'retired-effort' }]), models, reported)).toBe('');
+    expect(selectionEffort(selection(), models)).toBe('');
+    expect(selectionEffort(selection(), models, { ...reported, model: 'claude-opus-5-5' })).toBe('');
+    expect(selectionEffort(selection(), models, { ...reported, instanceId: 'claudeAgent-other' })).toBe('');
+  });
+
+  test('Cursor\'s reasoning_effort is an effort for the bar and the hover card (#17419)', () => {
+    const cursor = [{ slug: 'gpt-6', capabilities: { optionDescriptors: [{ ...effort, id: 'reasoning_effort' }] } }];
+    const chosen = { instanceId: 'cursor', model: 'gpt-6', options: [{ id: 'reasoning_effort', value: 'high' }] };
+    expect(selectionEffort(chosen, cursor)).toBe('High');
+    expect(subagentTraits({ model: 'gpt-6', provider: { driver: 'cursor', models: cursor }, providerInstanceId: 'cursor', modelSelection: chosen }).effort).toBe('high');
   });
 });
 
