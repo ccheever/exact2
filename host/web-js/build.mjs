@@ -435,6 +435,11 @@ writeFileSync(resolve(gen, 'main.js'), [
   // callback that a font wait lets run before the first render, where `mount` sets it: set it now.
   "if (fonts) clock.agent = agentMode();",
   "const go = f => fonts ? fonts.then(f) : f();",
+  // Under the agent, an animation the first renders start (an indeterminate progress's turn) is held at the clock it
+  // began at after each commit, before a frame shows it, until agent.js, which loads after the first render, takes it
+  // (its `register`): never left on the browser's clock, nor turned on the compositor first (LLP 1069.001: a spinner
+  // follows the agent's clock), as the wasm host holds each commit's at once.
+  "if (agentMode()) { const early = (globalThis.exact ??= {}).early = new WeakMap(); After.push(globalThis.exact.holdEarly = () => { for (const a of document.getAnimations()) if (!early.has(a) && a.playState === 'running' && (!a.timeline || a.timeline instanceof DocumentTimeline)) { early.set(a, clock.now); a.pause(); a.currentTime = 0; } }); }",
   ...(rust ? [
     // Rust data: loaded after first pixel, asked synchronously once ready;
     // a plan with a resource that has no compiled value waits for it.

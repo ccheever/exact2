@@ -1099,7 +1099,7 @@ function agent(request) {
 function agentNow(request) { const r = agentReply(request), decorate = globalThis.exact.gpu?.decorate; return decorate ? decorate(request, r) : r; }
 function agentReply(request) {
   try {
-    if (!wasm) return { error: "not booted" };
+    if (!wasm) return { error: "not booted" }; if (agentMode && (request.op === "picture" || request.op === "check" || (request.op === "layout" && request.picture))) { register(agentClock); followOnSeek = false; try { seek(agentClock); } finally { followOnSeek = true; } } // a picture is the clock's (LLP 1116.003 D8): an animation begun since the last commit (a spinner, LLP 1069.001) is put on it first
     if (request.op === "type" && request.message !== undefined) { const gpu = globalThis.exact.gpu, name = request.id !== undefined ? gpu?.surfaceOf(request.id) : request.surface ?? gpu?.liveSurface(), refused = typeof name === "string" && postSurface(name, String(request.message), now()); return typeof name !== "string" ? { error: name?.error ?? (request.id !== undefined ? `view ${request.id} has no world` : "post: no world is live; name its surface (post <surface> <text>) to hold the message until one is") } : refused ? { error: `post refused: ${refused}` } : tagged({ posted: name, delivery: "posted", ...(gpu?.waiting(name) ?? true ? { held: true } : {}) }); } // the driver's `post` (LLP 1139.004 D1)
     if (request.entity !== undefined || request.world === true || request.contact !== undefined) return globalThis.exact.gpu?.handle(request, ask, tagged) ?? { error: `view ${request.id} has no world` };
     if ((request.op === "tap" || request.op === "type") && request.ticket !== undefined) { // a held device request, by ticket (LLP 1069.007 D4)
