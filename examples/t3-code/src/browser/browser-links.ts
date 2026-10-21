@@ -10,7 +10,7 @@
 // (`preview.open`); an in-app open that fails falls back to the system browser (`remoteEditorsOpen`, the clone's
 // shell.openExternal); a project script's `previewUrl` always opens in the app.
 import type { T3Client } from '../client/client';
-import { openThreadLink, parseThreadLinkHref, percentDecodedThreadLinkId } from '../timeline/thread-links';
+import { openThreadLinkTarget, parseThreadLinkHref, resolveThreadLink } from '../timeline/thread-links';
 import { arr, num, obj, str } from '../client/domain';
 import { bridgeReply, ClientError, type Native } from '../client/protocol';
 import { letGo } from '../client/let-go';
@@ -160,8 +160,7 @@ export async function openLinkFromUi(client: T3Client, native: Native, pressed: 
   if (!url) return '';
   const written = parseThreadLinkHref(url);
   if (kind === 'link' && written) {
-    const id = client.shell.threads.find(thread => thread.id === written)?.id ?? client.shell.threads.find(thread => thread.id === percentDecodedThreadLinkId(written))?.id ?? written;
-    await openThreadLink(client, native, str(id));
+    await openThreadLinkTarget(client, native, resolveThreadLink(client, written)?.id ?? written);
     return 'focus:composer';
   }
   if (kind === 'link' && url.startsWith('#')) return openFragmentLink();

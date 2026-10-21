@@ -227,6 +227,18 @@ describe('A thread with no pull request link draws its branch\'s', () => {
     expect(legacyRow(client, 'fleet:env-gh:studio')).toMatchObject({ prTooltip: 'PR #113 - Open: Document the release steps' });
   });
 
+  test("a background environment's rows draw its projects with that server's favicon (#22621)", async () => {
+    const { client } = laneRig([]);
+    const entry = { key: 'gh', origin: 'http://127.0.0.1:16523', environmentId: 'env-gh', phase: 'connected', message: '', traceId: '', generation: 3, synchronized: 3, lastEvent: 0,
+      subscriptions: {}, config: { environment: { label: 'GitHub lane' }, settings: {} },
+      shell: { projects: [{ id: LANE_PROJECT, title: 'playground', workspaceRoot: '/lane/repos/playground' }], threads: [studio()], sequence: 1 }, scopes: [], error: '', requested: false } as unknown as FleetEntry;
+    fleet.entries.set('gh', entry);
+    const { syncProjectFavicons } = require('../../src/sidebar/sidebar-glyph') as typeof import('../../src/sidebar/sidebar-glyph');
+    await syncProjectFavicons({ environmentId: 'env-gh', generation: 3 }, entry.origin, entry.shell.projects, async () => ({ relativeUrl: '/assets/gh-favicon.png' }));
+    expect(defaultRow(client, 'fleet:env-gh:studio').glyph).toMatchObject({ kind: 'image', src: 'http://127.0.0.1:16523/assets/gh-favicon.png' });
+    expect(legacySidebarSnapshot(client, NOW, identity).projects.find(project => project.name === 'playground' && project.glyph.kind === 'image')?.glyph.src).toBe('http://127.0.0.1:16523/assets/gh-favicon.png');
+  });
+
   test('concurrent summaries stay with their rows and duplicate references share one pending read', async () => {
     const other = studio({ id: 'other', branchPullRequest: { projectId: LANE_PROJECT, repository: 'octocat/playground', number: 132,
       url: 'https://github.com/octocat/playground/pull/132' } });

@@ -26,6 +26,7 @@ export interface Activity { replArguments?: ReturnType<typeof import('../timelin
 export interface Message { secret?: ReturnType<typeof import('../timeline/secret-card').secretCard>; id: string; kind: string; title: string; body: string; checkpointId?: string; runId?: string; sourceThreadId?: string; completed?: boolean; createdAt?: string; activities?: Activity[]; files?: { path: string; additions: number; deletions: number }[]; folded?: Message[]; expanded?: boolean;
   icon?: string; tone?: string; failed?: boolean; live?: boolean; startedMs?: number; elapsed?: string; detail?: string; status?: string; groupId?: string; continues?: boolean;
   revert?: number; intent?: string; intentTip?: string; attribution?: string; targetId?: string; actionLabel?: string; copied?: number; copyFailed?: boolean;
+  findLines?: { id: string; parts: { id: string; text: string; find: number }[] }[];
   meta?: boolean; streaming?: boolean; actionsId?: string; collapsible?: boolean;
   /** An answer the reference offers Fork from this response on. */
   canFork?: boolean;

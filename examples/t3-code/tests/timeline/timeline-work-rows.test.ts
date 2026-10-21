@@ -269,3 +269,21 @@ describe('the timeline clock and the work rows in Contract', () => {
     expect(row({ startedMs: 0, output: '1m 05s' }, base + 999_999)).toBe('1m 05s'); // settled: fixed
   });
 });
+
+// #18831: Enter or Space on a control inside an expanded tool row must not also toggle the row. Upstream the row's
+// onKeyDown heard keys bubbling from its children; here the row is a `button` with only a `press`, and a press goes to
+// the nearest node that takes one and no node above it (docs/contract-grammar.md, "`press` is DOM's `click` stopped at
+// its handler"), so a nested button's activation is its own.
+describe('keys inside an expanded tool row (#18831)', () => {
+  test('the row toggle hears no keys of its own; the nested Open subagent and Open diff buttons press themselves', async () => {
+    const lines = (await source('timeline-work.contract')).split('\n');
+    const at = lines.findIndex(line => line.includes('testId=`work-detail-${entry.id}`'));
+    expect(at).toBeGreaterThan(0);
+    expect(lines[at]).toContain('button press=command("chatlocal:item-detail"');
+    expect(lines[at]).not.toMatch(/\skey(capture)?=/);
+    const indent = lines[at]!.search(/\S/);
+    const block = lines.slice(at + 1, at + 1 + lines.slice(at + 1).findIndex(line => line.trim() && line.search(/\S/) <= indent));
+    expect(block.some(line => /button press=command\("open-related-thread", entry\.targetId/.test(line))).toBe(true);
+    expect(lines.some(line => /button press=command\("turn-diff", entry\.diffPath, entry\.diffRunId, 0\)/.test(line))).toBe(true);
+  });
+});
