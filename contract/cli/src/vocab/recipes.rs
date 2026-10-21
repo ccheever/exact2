@@ -82,11 +82,24 @@ pub const PATTERNS: &[(&str, &str)] = &[
     pattern!("tabs"),
 ];
 
+/// Grammar words a recipe is the answer to, which builders looked up by the
+/// word (`sequence` for the sequencer, `keyframes` for motion; euxy port 19).
+const ALIASES: &[(&str, &str)] = &[
+    ("sequence", "sequencer"),
+    ("keyframes", "motion"),
+    ("@keyframes", "motion"),
+];
+
 /// The recipe a name looks up, as a builder may write it (`grouped-form`,
-/// `grouped-form.md`, its path): its name and its whole text.
+/// `grouped-form.md`, its path, a word in [`ALIASES`]): its name and its
+/// whole text.
 pub fn recipe(name: &str) -> Option<(&'static str, &'static str)> {
     let base = name.rsplit('/').next().unwrap_or(name);
     let stem = base.strip_suffix(".md").unwrap_or(base);
+    let stem = ALIASES
+        .iter()
+        .find(|(a, _)| *a == stem)
+        .map_or(stem, |(_, r)| r);
     RECIPES.iter().copied().find(|(n, _)| *n == stem)
 }
 

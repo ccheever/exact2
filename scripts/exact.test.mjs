@@ -822,6 +822,8 @@ test('docs prints the section on its words first, matching whole words', () => {
     [['storage'], 'docs/recipes/files-and-grants.md', /storage/],
     [['share'], 'docs/contract-grammar.md', /`share`/],
     [['MIDI'], 'docs/contract-grammar.md', /exactMIDI/],
+    // A table of contents names every section's words and is no section's answer.
+    [['sound', 'midi', 'and', 'media'], 'docs/contract-for-agents.md', /^### Sound, MIDI and media/],
     // A CSS name's words together are the phrase, though its pieces alone are not the words.
     [['text', 'overflow'], 'docs/agent-pitfalls.md', /text-overflow/],
     [['background', 'color'], 'docs/recipes/theme.md', /background-color/],

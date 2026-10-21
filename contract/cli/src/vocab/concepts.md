@@ -147,7 +147,7 @@ component App
 More: docs/recipes/persisted-setting.md
 
 ## screen: a second screen, a list and its detail, and Back
-names: navigate, navigation, navigationBack, back, detail, route, routes, router, list-detail, master-detail, deep-link, deep link, protocol_handlers, openURL, url-scheme, react-router, back button, back-button, back title, large title, large-title, largeTitle, prefersLargeTitles, navigation bar, navigation-bar, navbar, UINavigationBar, phase, stage
+names: navigate, navigation, navigationBack, back, detail, route, routes, router, list-detail, master-detail, deep-link, deep link, protocol_handlers, openURL, url-scheme, react-router, back button, back-button, back title, backButtonDisplayMode, headerBackTitle, backButtonTitle, backBarButtonItem, navigationBackTitle, large title, large-title, largeTitle, prefersLargeTitles, navigation bar, navigation-bar, navbar, UINavigationBar, phase, stage
 
 A second screen is a route. `routes` gives each screen a path, the root draws `stack(nav)`, a
 row `push`es its detail and `back` returns. That gives the web its Back (the browser's Back
@@ -1201,3 +1201,79 @@ component App
   `exactPage().canSharePictures` holds. An `app:/` file needs the `fs.read` grant
   (`contract vocab files-and-grants`).
 - More: docs/contract-grammar.md (host commands), LLP 1125 D12.
+
+## use: an app in several `.contract` files
+names: import, imports, export, exports, require, include, multiple files, several files, split
+
+A file's names are its own declarations and those its `use` lines list: `use A, B as C from
+"./file.contract"`. Any component, shape, `fn`, style, keyframes or timeline can be named;
+there is no `export`, and nothing comes along unnamed: a name `parts.contract` itself uses is
+this file's only once its own `use` line names it. `app.contract` stays the root, its first
+component the app. A name another file declares is unknown here until a `use` line names it;
+`bun exact.mjs contract fmt --uses app.contract` writes every file's missing `use` lines.
+
+```text
+// parts.contract
+component Tag
+  props
+    label: string
+  view
+    text label padding="2px 8px"
+
+// app.contract
+use Tag from "./parts.contract"
+
+component App
+  view
+    Tag(label="New")
+```
+
+More: docs/contract-grammar.md (`use`, its paths and packages)
+
+## svg: a vector drawing (an icon, a chart, a QR code)
+names: Svg, vector, react-native-svg, expo-svg, SvgXml, Path, Circle, Rect, drawing
+
+An `svg` is SVG's, children and attributes by SVG's names: `viewBox`, `path d=…`, `rect`,
+`circle`, `line`, `polyline`, `polygon`, `g transform=…`, `fill`, `stroke`, `stroke-width`,
+`stroke-linecap`. Any attribute may be computed (a path's `d` from a `fn`, a `fill` from
+state or a theme token), `if` and `for` work among its children, and keyframes animate its
+geometry.
+
+```contract
+component App
+  state on = false
+  action flip
+    on = not on
+  view
+    button press=flip aria-label=(on ? "Pause" : "Play") testId="play"
+      svg width=24 height=24 viewBox="0 0 24 24"
+        if on
+          rect x=6 y=5 width=4 height=14 rx=1 fill="currentColor"
+          rect x=14 y=5 width=4 height=14 rx=1 fill="currentColor"
+        else
+          path d="M8 5v14l11-7z" fill="currentColor"
+```
+
+- An icon the platform has is `image "symbol:<role>"`, drawn from each host's own set; a one-colour
+  SVG file is an `app.tamber` icon (docs/recipes/symbols.md), and an `.svg` asset is an
+  `image` source too.
+- A `foreignObject` draws on the web only; on every host, place a box over the `svg`.
+
+More: apps/svg-gallery/app.contract (each element and attribute, drawn alike on every host but `foreignObject`)
+
+## safe-area: the notch, the status bar and the home indicator
+names: env, env(), safe-area-inset, safe-area-inset-top, safe-area-inset-bottom, safe-area-inset-left, safe-area-inset-right, SafeAreaView, useSafeAreaInsets, react-native-safe-area-context, safeAreaInsets, notch, home indicator, home-indicator
+
+Inside a route, leave it unsaid: the host keeps the route's content clear of the status bar
+and its bars (UIKit's inset on the route's scroller, else the route's padding), and a
+scroller's end clear of the home indicator, as a hand-built screen is. `env()` is CSS's, in
+any length (`padding-bottom="calc(env(safe-area-inset-bottom) + 16px)"`). On a native host
+under the default `viewport-fit="auto"` it is 0, so `env()` padding inside a route adds
+nothing; under the root's `viewport-fit="cover"` it is the device's insets, and a route's
+content goes under the bar unless its column pads `env(safe-area-inset-top)`. On the web it is
+the browser's. `env(-exact-layout-margins-inset-left)` is UIKit's layout margin.
+
+- A scroller's last row sits its `padding-bottom` above UIKit's inset: subtract the inset
+  from the original's gap rather than adding `env(safe-area-inset-bottom)`.
+
+More: docs/agent-pitfalls.md ("Native presentation and navigation (iOS)"), docs/contract-grammar.md (length strings)
