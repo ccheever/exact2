@@ -15,6 +15,7 @@ use Viewport from "../shared/shapes.contract"
 use ChatHeader from "../timeline/chat.contract"
 use AlertStack from "../timeline/chat.contract"
 use EmptyThread from "../pages/pages-hero.contract"
+use HeroWidthProbe from "../pages/pages-hero.contract"
 use PagesLanding from "../pages/pages-hero.contract"
 use PagesHome from "../pages/pages-hero.contract"
 use UsagePage from "../usage/pages-usage.contract"
@@ -293,6 +294,7 @@ component ChatColumn
   view
     column flex=1 min-width=0 min-height=0 height="100%" position="relative" z-index=1 inert=pageCover pointerdown=chatLocal("find-focus", "", "") dragenter=fileDragEntered dragleave=fileDragLeft drop=filesDropped hatch="t3-frame" data-frame="chat"
       input type="file" id="composer-attach-input" multiple=true display="none" change=filesPicked
+      HeroWidthProbe(name=home.projectName)
       // z-index 20 here as on the header inside: z-index orders siblings only (LLP 1001), and the header's menus overhang the transcript.
       box width="100%" flex-shrink=0 position="relative" z-index=20 dragenter=headerDragged(true) dragleave=headerDragged(false)
         ChatHeader(data=data, shell=shell, rightOpen=((rightPanel or data.diffOpen) and not narrowDiff), detailsOpen=(detailsOpen or (details.inline and canvas.cardShown)), menuOpen=titleMenuOpen, renaming=renaming, renameText=renameText, panel=panelUi, details=detailsAct, title=titleUi, command=command)
@@ -301,8 +303,10 @@ component ChatColumn
           for focus in [threadFind.focus] key=focus
             ThreadFindBar(find=threadFind, local=chatLocal)
       if hero
+        // The hero's lane is the chat width setting's (46rem, 72rem or full), at most 64rem, inside EmptyThread's 1.25rem
+        // gutters; its project heading sits on one line on an lg window when the probe fits it, and until the probe is laid out.
         column flex=1 min-height=0 width="100%" padding-right=laneInset box-sizing="border-box"
-          EmptyThread(data=data, home=home, scheme=scheme, shoulder=(editor.stash.count > 0 and data.requestMode != "approval"), busy=commandPending, command=command, addProject=paletteShow("command", "add-project"))
+          EmptyThread(data=data, home=home, scheme=scheme, shoulder=(editor.stash.count > 0 and data.requestMode != "approval"), busy=commandPending, inline=(viewport.width >= 1024 and data.heroInlineWidth <= min(min(data.look.chatMax, 64 * rem), conversationWidth - laneInset - 2.5 * rem)), cap=min(data.look.chatMax, 64 * rem), command=command, addProject=paletteShow("command", "add-project"))
       if data.messages.length == 0 and data.threadId != ""
         // MessagesTimeline's empty state (no rows, not working): centred in the lane above the composer, which overlays the
         // timeline (emptyPlaceholderInset: the composer's reserved height, held while it rests); while the thread's detail
