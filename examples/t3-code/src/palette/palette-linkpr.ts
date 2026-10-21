@@ -1,4 +1,5 @@
 // The palette's "Link pull request to thread": T3 Code 9c161462c9 reference pullRequest/LinkPullRequestDialog.tsx
+// (client-runtime/pullRequestLinkInput.ts at 74541bab17)
 // over shared/changeRequestUrl.ts (parseChangeRequestUrl, changeRequestUrlFor),
 // web/pullRequestReference.ts, web/lib/openPullRequestLink.ts (project matching),
 // hooks/usePullRequestLinking.ts and client-runtime/threadPullRequestCompatibility.ts.
@@ -162,7 +163,7 @@ export function resolveLinkInput(reference: string, projects: Project[], project
   const project = projects.find(candidate => candidate.id === projectId);
   const identity = project ? identityOf(project) : null;
   const repository = identity ? displayRepository(identity) : null;
-  if (!identity || repository === null) return { error: 'Paste a full URL to link a pull request from another repository.' };
+  if (!identity || repository === null) return { error: 'Paste the full pull request URL; this thread has no repository to resolve the number against.' };
   const kind = str(identity.provider), host = pullRequestHost(identity, kind);
   const webUrl = kind === 'forgejo' && str(identity.webUrl) ? `${str(identity.webUrl).replace(/\/+$/, '')}/pulls/${number}` : changeRequestUrlFor(kind, host, repository, number, remoteOf(identity));
   const web = webUrl === null ? null : parseChangeRequestUrl(webUrl);

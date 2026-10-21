@@ -209,7 +209,7 @@ export async function pullRequestDetail(client: T3Client, native: Native | null 
   // fill the native executor's ordered lane, host/apple/src/executor_core.rs COUNTS).
   if (display) await readPanelStack(client, native!, panel.key, display, panel.reference);
   // The Code tab's reads once it was opened (the ticks, the slice owed, the contents asked for).
-  if (display && await readCode({ client, native: native!, reference: writeReference(selection), environmentId: selection.environmentId ?? '', detail: display, activity: panel.activity, tab: input.tab ?? '', refresh: input.refresh }) === 'wake') {
+  if (display && await readCode({ client, native: native!, reference: writeReference(selection), environmentId: selection.environmentId ?? '', detail: display, activity: panel.activity, tab: input.tab ?? '', refresh: input.refresh, epoch: pullRequestRefreshEpoch(client) }) === 'wake') {
     return wake(client, native!, present(view, panel, selection, listEntry, input.now, client), panel);
   }
   if (display && await readGuide({ client, native: native!, reference: { ...writeReference(selection), environmentId: selection.environmentId }, detail: display, now: input.now, tab: input.tab ?? '', refresh: input.refresh, visible: input.guideActive ?? input.visible }) === 'wake')
@@ -288,7 +288,7 @@ function present(view: PrDetailView, panel: Panel | null, selection: PrSelection
   const remark = (comment: Obj): RemarkWrites => ({ ...commentEditing(client, reference, display, comment), ...reactionPills(client, reference, str(comment.id), comment.reactions) });
   presentDetail(view, display, panel!.activity, now, { activityPending, activityError: panel!.activity ? '' : panel!.activityError, listEntry, remark, filter: commentFilter(client) });
   view.writes = presentWrites(client, reference, display);
-  const code = presentCode({ client, reference, detail: display, activity: panel!.activity, now });
+  const code = presentCode({ client, reference, detail: display, activity: panel!.activity, now, allowAsk: canAskAgent(client) });
   view.codeTab = code.view;
   const guideReference = { ...reference, environmentId: selection.environmentId };
   const guide = presentGuide(client, guideReference, display), guideDiff = presentGuideDiff({ client, reference: guideReference, detail: display, now }, guideEntry(client, guideReference));
@@ -489,7 +489,7 @@ export async function prCommand(client: T3Client, native: Native, op: string, se
       answer = await prGuideTaskHandoff(client, native, ctx.detail, surface, task, elsewhere);
     }
     if (answer === 'sidebar:new-thread') {
-      openPullRequestIn(panelState(client), { projectId: selection.projectId, host: selection.host, repository: selection.repository, number: selection.number, url: str(ctx.detail.url), environmentId: entry.environmentId });
+      openPullRequestIn(panelState(client), { projectId: selection.projectId, host: selection.host, repository: selection.repository, number: selection.number, url: str(ctx.detail.url), environmentId: entry.environmentId }, 'guide');
       return 'pr-guide:asked';
     }
     return answer;
@@ -550,8 +550,10 @@ export function prCodeLocalFor(client: T3Client, native: Native, op: string, sel
   const selection = parseSelection(selected);
   if (!selection) return Promise.resolve('');
   const panel = panelsOf(client).get(JSON.stringify([client.environmentId, selectionRef(selection)]));
-  return prCodeLocal({ client, native, reference: writeReference(selection), detail: panel?.detail ?? panel?.cached ?? null }, op, value);
+  return prCodeLocal({ client, native, reference: writeReference(selection), detail: panel?.detail ?? panel?.cached ?? null, allowAsk: canAskAgent(client) }, op, value);
 }
+/** "Add to agent" over selected lines needs no host permission, only a client that may operate threads (the guide's rule, pages-pr-guide-diff.ts). */
+const canAskAgent = (client: T3Client) => client.ready && (client.scopes ?? []).includes('orchestration:operate');
 
 /** Guide navigation and excerpt selection share the Code review store, with independent diff scope. */
 export async function prGuideLocalFor(client: T3Client, native: Native, op: string, selected: string, value: string): Promise<string> {
