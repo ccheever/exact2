@@ -1,4 +1,4 @@
-// The Files breadcrumbs' paths (MIT reference, see LICENSE-T3: T3 Code 9c161462c9
+// The Files breadcrumbs' paths (MIT reference, see LICENSE-T3: T3 Code 74541bab17
 // components/files/filePath.ts and packages/shared/src/path.ts): the crumbs of a workspace or host
 // path, the trail the crumbs keep after the browser walks up a folder, and host paths inside a
 // host folder the browser lists.
@@ -8,12 +8,14 @@ export type FileBreadcrumb = { label: string; path: string; kind: 'project' | 'd
 const isWindowsDrivePath = (value: string) => /^[a-zA-Z]:([/\\]|$)/.test(value);
 export const isWindowsAbsolutePath = (value: string) => value.startsWith('\\\\') || isWindowsDrivePath(value);
 export const isAbsolutePath = (value: string) => value.startsWith('/') || isWindowsAbsolutePath(value);
+/** isHostPath: a host path outside the workspace; the server expands a home-relative one (`~/`). */
+export const isHostPath = (value: string) => isAbsolutePath(value) || value.startsWith('~/');
 
 export function fileBreadcrumbs(projectName: string, relativePath: string): FileBreadcrumb[] {
-  const hostPath = isAbsolutePath(relativePath);
+  const hostPath = isHostPath(relativePath);
   const separator = isWindowsAbsolutePath(relativePath) ? '\\' : '/';
   const parts = relativePath.split(/[\\/]/).filter(Boolean);
-  const root = relativePath.startsWith('\\\\') ? '\\\\' : hostPath && separator === '/' ? '/' : '';
+  const root = relativePath.startsWith('\\\\') ? '\\\\' : relativePath.startsWith('/') ? '/' : '';
   return [
     ...(hostPath ? [] : [{ label: projectName, path: '', kind: 'project' as const }]),
     ...parts.map((part, index) => {
@@ -31,7 +33,7 @@ export function breadcrumbPathOf(relativePath: string): string {
 
 /** Whether a host folder crumb names a directory the server can list. A UNC server (`\\server`) is not one; its shares are. */
 export function isListableHostFolder(path: string): boolean {
-  return isAbsolutePath(path) && !/^\\\\[^\\/]+$/.test(path);
+  return isHostPath(path) && !/^\\\\[^\\/]+$/.test(path);
 }
 
 /** Index of `path`'s crumb among `trail`'s crumbs; -1 when the trail does not pass through it. */

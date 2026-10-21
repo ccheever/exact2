@@ -16,6 +16,7 @@
 // named with the media's file name and opening in the last folder used (Downloads at first); the
 // "Download started" toast shows once the panel is up, as the anchor click returns at once.
 import type { T3Client } from '../client/client';
+import { formatFilePathForClipboard } from '../timeline/workspace-file-lookup';
 import { arr, obj, str, type Obj } from '../client/domain';
 import type { Native } from '../client/protocol';
 import { dismissToast, pushToast, updateToast } from '../shell/toast';
@@ -174,7 +175,8 @@ export async function showMediaMenu(client: T3Client, native: Native, sourceText
       : action === 'copy-relative-path' && reference?.kind === 'file' ? reference.relativePath
         : action === 'copy-url' && reference?.kind === 'url' ? reference.url : undefined;
     if (text !== undefined) {
-      await nativeValue(client, native, { op: 'mediaCopyText', text });
+      // A file path in its host's separators (formatFilePathForClipboard, T3 Code 74541bab17).
+      await nativeValue(client, native, { op: 'mediaCopyText', text: reference?.kind === 'file' ? formatFilePathForClipboard(text, reference.path) : text });
       pushToast(client, { kind: 'success', title: action === 'copy-url' ? 'URL copied' : 'Path copied' });
     } else if (action === 'open-file') {
       if (source.openFile && hooks.openFile) await hooks.openFile(source.openFile);
