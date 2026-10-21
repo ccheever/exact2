@@ -119,7 +119,7 @@ describe('Settings › Scheduled tasks', () => {
       const view = await scheduledPage(fake.client, native, 'env', '', 'task', '', true, NOW, '', '', '', taskBase);
       return { view, group: view.branches[0]!, reads: fake.calls.filter(call => call.method === 'vcs.listRefs').map(call => call.payload) };
     };
-    // Past the first 100: found by the lookup, a local branch (the trigger reads "From origin/main").
+    // Past the first 100: found by the lookup, a local branch (the trigger reads "From main (remote)").
     let { view, group, reads } = await open(page(others, [{ name: 'main-old', isRemote: false }, local]));
     expect(reads).toEqual([{ cwd: '/repo', limit: 100 }, { cwd: '/repo', query: 'main', limit: 10 }]);
     expect([group.refs.length, group.selected]).toEqual([100, [{ value: 'main', label: 'main', search: 'main', badge: '', remote: false }]]);

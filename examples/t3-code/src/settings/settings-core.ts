@@ -501,7 +501,7 @@ export function generalSections(client: T3Client, context: ServerContext): CoreS
         options: [...Object.entries(BACKGROUND).map(([id, [label]]) => option(id, label, id === profile)), option('advanced', envScope ? 'Advanced' : 'Advanced (one environment)', profile === 'advanced', { disabled: !envScope })] }),
   ];
   const projects: CoreRow[] = [
-    serverRow(context, 'newWorktreesStartFromOrigin', 'start-from-origin', 'Start from origin', 'Creates the worktree from the latest matching branch on origin instead of your local branch.', 'switch', { resetLabel: 'new worktrees start from origin' }),
+    serverRow(context, 'newWorktreesStartFromOrigin', 'start-from-origin', 'Start from remote', 'Uses the latest commit of the base branch’s tracked remote branch, even if its name differs. Otherwise uses the same-named branch on origin. Uses your local branch if that remote branch is missing.', 'switch', { resetLabel: 'new worktrees start from remote' }),
     serverRow(context, 'addProjectBaseDirectory', 'add-project-starts-in', 'Add project starts in', 'Leave empty to use "~/" when the Add Project browser opens.', 'text',
       { value: str(value('addProjectBaseDirectory').value), placeholder: '~/', width: 288, resetLabel: 'add project base directory' }),
   ];
@@ -672,7 +672,7 @@ const SERVER_LABELS: Record<string, string> = {
   autoResumeLimitedThreads: 'Auto-resume limited threads', snoozeLimitedThreads: 'Snooze limited threads', sidebarAutoSettleOnMerge: 'Auto-settle merged threads',
   sidebarAutoSettleKeepPullRequests: 'Keep threads with a PR', sidebarAutoSettleAfterDays: 'Auto-settle inactive threads', responseStreamingMode: 'Response streaming', enableProviderUpdateChecks: 'Provider update checks',
   continueThreadsAfterServerUpdate: 'Continue threads after restarts', backgroundActivity: 'Background activity', defaultThreadEnvMode: 'New thread mode',
-  newWorktreesStartFromOrigin: 'New worktrees start from origin', addProjectBaseDirectory: 'Add project base directory', textGenerationModelSelection: 'Text generation model',
+  newWorktreesStartFromOrigin: 'New worktrees start from remote', addProjectBaseDirectory: 'Add project base directory', textGenerationModelSelection: 'Text generation model',
 };
 /** useSettingsRestore lists and re-grants Agent browser access after the browser rows (SettingsPanels.tsx: "the confirmation dialog
  *  lists it by name, so a user restoring defaults is told the agent regains access"). An environment setting, written like the rest. */
@@ -705,7 +705,7 @@ const RESTORE_ROWS: readonly (readonly [string, 'device' | 'server' | 'browser',
   ['Follow-up behavior', 'device', ['followUpBehavior']], ['Context window indicator', 'device', ['contextWindowMeterEnabled']],
   ['Response streaming', 'server', ['responseStreamingMode']], ['Provider update checks', 'server', ['enableProviderUpdateChecks']],
   ['Continue threads after restarts', 'server', ['continueThreadsAfterServerUpdate']], ['Background activity', 'server', ['backgroundActivity']],
-  ['New thread mode', 'server', ['defaultThreadEnvMode']], ['New worktrees start from origin', 'server', ['newWorktreesStartFromOrigin']],
+  ['New thread mode', 'server', ['defaultThreadEnvMode']], ['New worktrees start from remote', 'server', ['newWorktreesStartFromOrigin']],
   ['Add project base directory', 'server', ['addProjectBaseDirectory']], ['Unpin confirmation', 'device', ['confirmThreadUnpin']],
   ['Archive confirmation', 'device', ['confirmThreadArchive']], ['Delete confirmation', 'device', ['confirmThreadDelete']], ['Quit shortcut', 'device', ['confirmQuit']],
   ['Text generation model', 'server', ['textGenerationModelSelection']], ['', 'browser', []], ['Agent browser access', 'server', ['enableAgentBrowserAccess']],

@@ -1,12 +1,23 @@
 // The index landing across environments: _chat.index.tsx IndexDraftLanding over
-// sortScopedProjectsForSidebar and allEnvironmentShellsBootstrappedAtom (T3 Code 1e2ecbd975).
-import { describe, expect, test } from 'bun:test';
+// sortScopedProjectsForSidebar and allEnvironmentShellsBootstrappedAtom (T3 Code 74541bab17).
+import { beforeEach, describe, expect, test } from 'bun:test';
 import { T3Client } from '../../src/client/client';
 import type { Obj, Shell } from '../../src/client/domain';
 import { EnvironmentFleet, fleet, type FleetEntry, type FleetPhase } from '../../src/connections/settings-b-fleet';
 import { Backend, storage } from '../support/client-fixture';
 import { welcomeLocal } from '../../src/pages/pages-welcome';
-import { backgroundShellsBootstrapped, homeTarget, homeWaiting, landHome, openHome, scopedProjectsByActivity, settleHome } from '../../src/pages/home-landing';
+import { backgroundShellsBootstrapped, homeTarget, homeWaiting, landHome, localShellPending, openHome, scopedProjectsByActivity, settleHome, settleHomeElsewhere } from '../../src/pages/home-landing';
+import { LocalPrimary, primary } from '../../src/connections/local-primary';
+import { unknownLocalBackend, type LocalBackendState } from '../../src/connections/local-backend';
+
+// No local backend unless a test makes one (another file may leave the shared primary ready).
+beforeEach(() => { primary.update(unknownLocalBackend(), true); });
+/** This machine's backend in `state`, its descriptor answered as `environmentId` ('' before it answered). */
+const localBackend = (state: LocalBackendState, environmentId = 'local', setting = true) => {
+  const local = new LocalPrimary();
+  local.update({ ...unknownLocalBackend(), state, httpBaseUrl: 'http://127.0.0.1:16580/', wsBaseUrl: 'ws://127.0.0.1:16580/', environmentId, bearerReady: state === 'ready' }, setting);
+  return local;
+};
 
 const shell = (projects: Obj[], threads: Obj[] = []): Shell => ({ projects, threads, sequence: 1 });
 const entry = (environmentId: string, value: Shell, phase: FleetPhase = 'connected', synchronized = 1, requested = true): FleetEntry => ({
@@ -58,12 +69,21 @@ describe('allEnvironmentShellsBootstrappedAtom', () => {
 
 describe('the launch landing', () => {
   const landing = () => ({ environmentId: 'local', shell: focusedShell, threadId: '', homePending: true, homeMove: null as { environmentId: string; projectId: string } | null });
-  test('waits while a background environment connects, then picks across every environment', () => {
-    const client = landing(), connecting = entry('remote', remoteShell, 'connecting');
+  test('picks the focused project while another environment is still loading', () => {
+    const client = landing();
+    expect(landHome(client, () => 'fallback', fleetOf(entry('remote', remoteShell, 'connecting')))).toBe('b');
+    expect(client).toMatchObject({ homePending: false, homeMove: null });
+    expect(homeWaiting({ ...client, projectId: 'b' })).toBe(false);
+    // Connected without its snapshot yet: its shell is not in, so it is not waited for either.
+    const synchronizing = landing();
+    expect(landHome(synchronizing, () => 'fallback', fleetOf(entry('remote', remoteShell, 'connected', 0)))).toBe('b');
+  });
+  test('an empty workspace waits for every environment, then picks across them', () => {
+    const client = { ...landing(), shell: shell([]) }, connecting = entry('remote', remoteShell, 'connecting');
     expect(landHome(client, () => 'fallback', fleetOf(connecting))).toBe('');
     expect(client.homePending).toBe(true);
     expect(homeWaiting({ ...client, projectId: '' })).toBe(true);
-    // The remote project is the most recent: the focused project stays empty and the move is kept for the refresh.
+    // The remote project is the only one: the focused project stays empty and the move is kept for the refresh.
     expect(landHome(client, () => 'fallback', fleetOf(entry('remote', remoteShell)))).toBe('');
     expect(client).toMatchObject({ homePending: false, homeMove: { environmentId: 'remote', projectId: 'r' } });
     expect(homeWaiting({ ...client, projectId: '' })).toBe(true);
@@ -72,6 +92,18 @@ describe('the launch landing', () => {
     // After the landing, a project that went away falls back to the focused environment's own rule.
     client.homeMove = null;
     expect(landHome(client, () => 'fallback', fleetOf(entry('remote', remoteShell)))).toBe('fallback');
+  });
+  test('with no project anywhere, the landing ends once every environment is in', () => {
+    const client = { ...landing(), shell: shell([]) };
+    expect(landHome(client, () => 'fallback', fleetOf(entry('remote', shell([]), 'connecting')))).toBe('');
+    expect(client.homePending).toBe(true);
+    expect(landHome(client, () => 'fallback', fleetOf(entry('remote', shell([]))))).toBe('');
+    expect(client).toMatchObject({ homePending: false, homeMove: null });
+  });
+  test('a more recent project in a background environment that is in still leads', () => {
+    const client = landing();
+    expect(landHome(client, () => 'fallback', fleetOf(entry('remote', remoteShell), entry('slow', remoteShell, 'connecting')))).toBe('');
+    expect(client).toMatchObject({ homePending: false, homeMove: { environmentId: 'remote', projectId: 'r' } });
   });
   test('a focused pick lands at once; a thread already open ends the landing', () => {
     const client = landing();
@@ -103,6 +135,42 @@ describe('the launch landing', () => {
     expect(calls.map(call => call.op)).toEqual(['fleetStop', 'connect']);
     expect(client.local.selections.remote).toEqual({ projectId: 'r', threadId: '' });
     expect(client).toMatchObject({ environmentId: 'remote', projectId: 'r', threadId: '', homeMove: null });
+  });
+  test('a focused environment still loading does not hold the landing: a background project that is in leads', async () => {
+    const client = new T3Client(), calls: Obj[] = [];
+    client.environmentId = 'local'; client.connection = 'connecting'; client.generation = 3;
+    expect(await settleHomeElsewhere(client, nativeLog(calls), fleetOf(entry('remote', remoteShell, 'connecting')))).toBe(false);
+    expect(client).toMatchObject({ homePending: true, homeMove: null });
+    expect(await settleHomeElsewhere(client, nativeLog(calls), fleetOf(entry('remote', remoteShell)))).toBe(true);
+    expect(calls.map(call => call.op)).toEqual(['fleetStop', 'connect']);
+    expect(client).toMatchObject({ environmentId: 'remote', projectId: 'r', homePending: false, homeMove: null });
+    // A choice already made, or a landing already done, keeps the window where it is.
+    const chosen = new T3Client();
+    chosen.environmentId = 'local'; chosen.projectId = 'a';
+    expect(await settleHomeElsewhere(chosen, nativeLog([]), fleetOf(entry('remote', remoteShell)))).toBe(false);
+  });
+  test('waits for This machine while the Local switch is on and it is still coming; never for a slow remote', async () => {
+    // Focused on a remote whose project is in: the local backend still starting keeps the landing waiting.
+    const remoteFocus = { ...landing(), environmentId: 'remote-a' };
+    expect(landHome(remoteFocus, () => 'fallback', fleetOf(), localBackend('starting', ''))).toBe('');
+    expect(remoteFocus.homePending).toBe(true);
+    expect(landHome(remoteFocus, () => 'fallback', fleetOf(entry('local', shell([]), 'connecting')), localBackend('ready'))).toBe('');
+    // Its shell in: the landing picks.
+    expect(landHome(remoteFocus, () => 'fallback', fleetOf(entry('local', shell([]))), localBackend('ready'))).toBe('b');
+    // Switched off, refused, failed or stopped: nothing to wait for.
+    for (const local of [localBackend('starting', 'local', false), localBackend('refused'), localBackend('failed'), localBackend('stopped')]) {
+      expect(localShellPending({ environmentId: 'remote-a' }, fleetOf(), local)).toBe(false);
+    }
+    // A local connection that failed is not waited for; the focused local one waits until it is ready.
+    expect(localShellPending({ environmentId: 'remote-a' }, fleetOf(entry('local', shell([]), 'error')), localBackend('ready'))).toBe(false);
+    expect(localShellPending({ environmentId: 'local', ready: false }, fleetOf(), localBackend('ready'))).toBe(true);
+    expect(localShellPending({ environmentId: 'local', ready: true }, fleetOf(), localBackend('ready'))).toBe(false);
+    // The focused local environment still connecting: no jump to a remote project that is in.
+    const client = new T3Client(), calls: Obj[] = [];
+    client.environmentId = 'local'; client.connection = 'connecting';
+    expect(await settleHomeElsewhere(client, nativeLog(calls), fleetOf(entry('remote', remoteShell)), localBackend('ready'))).toBe(false);
+    expect(calls).toEqual([]);
+    expect(client.homePending).toBe(true);
   });
   test('a choice made before the move keeps it', async () => {
     const client = new T3Client(), calls: Obj[] = [];
