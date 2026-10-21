@@ -114,8 +114,8 @@ the thread reads it again. The menu needs real input (below); the row's answer t
 be driven by sending it through the server's API while the app runs.
 
 What an agent drive cannot do here: choose an item of a native context menu (under the agent it
-answers dismissed: nothing is chosen and its items are not logged), or drop a file on a sidebar row (the row takes drops
-through a native hatch, not a Contract `drop`). Those rows need real input.
+answers dismissed: nothing is chosen and its items are not logged). That row needs real input. A
+file drop on a sidebar row is the row's Contract `drop`: `tap thread-<id> drop <path…>`.
 
 ## Real input (a normal launch)
 

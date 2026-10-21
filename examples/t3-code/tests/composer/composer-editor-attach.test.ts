@@ -1,4 +1,6 @@
 import { describe, expect, test } from 'bun:test';
+import { STAGED } from '../../src/composer/composer-staged-copies';
+import { memoryFiles, text } from '../support/app-files-fixture';
 import { obj, type Obj } from '../../src/client/domain';
 import type { Native } from '../../src/client/protocol';
 import type { T3Client } from '../../src/client/client';
@@ -10,7 +12,6 @@ function harness(capabilities: Obj = { attachmentUploads: true, fileAttachments:
   const calls: Obj[] = [];
   const native: Native = { available: true, watch() {}, async later(input) {
     const request = obj(input) as Obj; calls.push(request);
-    if (request.op === 'composerAttachRead') return { ok: true, generation: 1, value: { base64: 'aGVsbG8=', sizeBytes: 5 } };
     return { ok: true, generation: 1, value: request.op === 'editorInsert' ? { applied } : {} };
   } };
   const rpcs: Obj[] = [];
@@ -38,6 +39,7 @@ describe('Attach files: plain files (addComposerAttachments)', () => {
   });
   test('an accepted file is a chip at the caret that uploads under its own type and binds to the send', async () => {
     const { client, native, calls, rpcs } = harness();
+    const { released } = memoryFiles({ [`${STAGED}/${uuid(1)}`]: text('hello') });
     const staged = acceptAttachedFile(client, { kind: 'file', id: uuid(1), name: 'notes.md', mimeType: 'text/markdown', sizeBytes: 5 });
     expect(staged.error).toBe('');
     await insertFileChips(client, native, [staged.file!]);
@@ -48,9 +50,8 @@ describe('Attach files: plain files (addComposerAttachments)', () => {
     expect(fileChipContexts(client, prompt)).toEqual({ [`file/file_${uuid(1)}`]: 'file\t1 KB' });
     const attachments = await composerFileAttachments(client, native, prompt);
     expect(rpcs).toEqual([{ method: 'attachments.createUploadUrl', payload: { type: 'file', name: 'notes.md', mimeType: 'text/markdown', sizeBytes: 5 } }]);
-    expect(calls.find(call => call.op === 'composerAttachRead')).toMatchObject({ id: uuid(1) });
     expect(calls.find(call => call.op === 'uploadAttachment')).toMatchObject({ path: '/api/attachments/upload/y', base64: 'aGVsbG8=', contentType: 'text/markdown' });
-    expect(calls.find(call => call.op === 'composerAttachRemove')).toMatchObject({ id: uuid(1) });
+    expect(released()).toEqual([uuid(1)]);
     expect(attachments).toEqual([{ type: 'file', id: 'att-7', name: 'notes.md', mimeType: 'text/markdown', sizeBytes: 5 }]);
     expect(composerFileRecords(client, prompt)).toMatchObject([{ kind: 'file', contextId: `file_${uuid(1)}`, attachmentId: 'att-7', name: 'notes.md' }]);
   });
@@ -81,11 +82,8 @@ describe('Attach files: plain files (addComposerAttachments)', () => {
     expect(draftFiles(next).map(file => [file.name, file.status])).toEqual([['d.pdf', 'staged']]);
   });
   test('a lost staged copy refuses the send with the reattach message', async () => {
-    const { client, calls } = harness();
-    const native: Native = { available: true, watch() {}, async later(input) {
-      const request = obj(input) as Obj; calls.push(request);
-      return request.op === 'composerAttachRead' ? { ok: false, generation: 1, error: { kind: 'Attach', message: 'The attached file was not saved.' } } : { ok: true, generation: 1, value: {} };
-    } };
+    const { client, native } = harness();
+    memoryFiles(); // no staged copy
     const file = acceptAttachedFile(client, { kind: 'file', id: uuid(5), name: 'e.csv', sizeBytes: 3 }).file!;
     await expect(composerFileAttachments(client, native, `[e.csv](t3-context://v1/file/${file.contextId}) `)).rejects.toThrow('e.csv was not saved with this draft. Attach it again to send it.');
   });

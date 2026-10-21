@@ -6,6 +6,7 @@ import { requestComposerField } from './composer-field-request';
 // images upload) and binds it as a `file` attachment plus its
 // FileContextRecord. The upload's id persists with the device's drafts; the
 // staged bytes live in memory until then.
+import { readStaged, removeStaged } from './composer-staged-copies';
 import type { T3Client } from '../client/client';
 import { bridgeReply, ClientError, type Native } from '../client/protocol';
 import { arr, obj, str, type Obj } from '../client/domain';
@@ -258,15 +259,14 @@ async function upload(client: T3Client, native: Native, file: DraftFile, base64:
   file.attachmentId = attachmentId;
   file.status = 'ready';
   // An attached file's staged copy has done its job once the server holds the bytes.
-  if (file.source === 'attached') await nativeCall(native, { op: 'composerAttachRemove', id: file.id }).catch(() => undefined);
+  if (file.source === 'attached') await removeStaged(file.id);
   assertOwner?.();
 }
 
 /** The staged bytes of a draft file, or null when they were lost (a folded paste across a restart, a staged copy removed). */
 async function stagedBytes(client: T3Client, native: Native, file: DraftFile): Promise<string | null> {
   if (file.source === 'attached') {
-    const read = await nativeCall(native, { op: 'composerAttachRead', id: file.id }).catch(() => null);
-    return read && str(read.base64) ? str(read.base64) : null;
+    return readStaged(file.id);
   }
   const text = mapFor(texts, client).get(file.id);
   return text === undefined ? null : base64Utf8(text);

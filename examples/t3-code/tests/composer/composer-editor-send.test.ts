@@ -1,6 +1,8 @@
 // Lane composer-editor: the send gestures of 5c0429b (⌥⌘↩ sends and opens a new
 // thread) and 263097a (⌘↩ starts a draft in the background), end to end
 // through the client: the native gesture, the server's keybindings, the writes.
+import { STAGED } from '../../src/composer/composer-staged-copies';
+import { memoryFiles, text } from '../support/app-files-fixture';
 import { describe, expect, test } from 'bun:test';
 import { connected, opened, running } from '../support/composer-controls-fixture';
 import { snapshot } from '../../src/client/presentation';
@@ -73,13 +75,12 @@ describe('submission text (ChatView onSend, 9c161462c9)', () => {
     test.each([{ label: 'file only', withImage: false }, { label: 'file and image', withImage: true }])(`uploads and binds attachments for ${route}: $label`, async ({ withImage }) => {
       const { client, native, command } = await setup();
       const file = acceptAttachedFile(client, { kind: 'file', id: '00000000-0000-4000-8000-000000000001', name: 'notes.txt', mimeType: 'text/plain', sizeBytes: 5 }).file!;
-      const later = native.later.bind(native), uploaded: unknown[] = [], released: unknown[] = [];
+      const later = native.later.bind(native), uploaded: unknown[] = [];
+      const { released } = memoryFiles({ [`${STAGED}/${file.id}`]: text('hello') });
       native.later = async input => {
         const request = obj(input);
-        if (request.op === 'composerAttachRead') return native.ok({ base64: 'aGVsbG8=', sizeBytes: 5 });
         if (request.op === 'request' && request.method === 'attachments.createUploadUrl') return native.ok({ attachmentId: 'file-upload', relativeUrl: '/api/attachments/upload/file-upload' });
         if (request.op === 'uploadAttachment') { uploaded.push(request); return native.ok({}); }
-        if (request.op === 'composerAttachRemove') { released.push(request); return native.ok({}); }
         return later(input);
       };
       if (withImage) client.local.snapshotDrafts[client.draftKey] = [{ id: 'image-local', uploadId: 'image-upload', name: 'screen.png', mimeType: 'image/png', sizeBytes: 64 }];
@@ -94,7 +95,7 @@ describe('submission text (ChatView onSend, 9c161462c9)', () => {
       expect(sent.attachments).toEqual([...(withImage ? [expect.objectContaining({ id: 'image-upload', type: 'image' })] : []),
         { type: 'file', id: 'file-upload', name: 'notes.txt', mimeType: 'text/plain', sizeBytes: 5 }]);
       expect(uploaded).toMatchObject([{ base64: 'aGVsbG8=', contentType: 'text/plain', path: '/api/attachments/upload/file-upload' }]);
-      expect(released).toMatchObject([{ id: file.id }]);
+      expect(released()).toEqual([file.id]);
       expect(client.draft).toBe('');
     });
   }

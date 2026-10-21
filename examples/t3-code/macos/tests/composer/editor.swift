@@ -84,7 +84,7 @@ final class EditorFixture {
     func tick() { RunLoop.current.run(mode: .default, before: Date(timeIntervalSinceNow: 0.005)) }
 
     /// Through the event queue, so the key is NSApp.currentEvent while the text view handles it, as a typed key is;
-    /// then another event is current, as by the next drop or paste (droppedFolders and isPaste read it).
+    /// then another event is current, as by the next paste (isPaste reads it).
     func send(_ characters: String, _ code: UInt16, _ flags: NSEvent.ModifierFlags = [], ignoringModifiers: String? = nil) {
         let event = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: flags, timestamp: 0, windowNumber: window.windowNumber,
             context: nil, characters: characters, charactersIgnoringModifiers: ignoringModifiers ?? characters, isARepeat: false, keyCode: code)!
@@ -221,14 +221,14 @@ final class ComposerEditorTests: XCTestCase {
     func testStalePolicyAndOwnerReplacementCannotReuseFoldFacts() {
         let fixture = EditorFixture(), adapter = fixture.composer.editor
         adapter.pasteDetector = { _ in true }
-        fixture.sync(["foldLimit": 100_000, "localEnvironment": true])
+        fixture.sync(["foldLimit": 100_000])
         let large = String(repeating: "x", count: 40_000), range = NSRange(location: 0, length: 0)
         XCTAssertFalse(adapter.shouldChange(fixture.editor, range: range, text: large))
         let oldID = adapter.folds.first?["id"] as? Int ?? 0
         fixture.replaceOwner()
         XCTAssertTrue(adapter.folds.isEmpty)
-        fixture.sync(["foldLimit": 100_000, "localEnvironment": true]) // old pair
-        XCTAssertEqual(adapter.foldLimit, 0); XCTAssertFalse(adapter.localEnvironment)
+        fixture.sync(["foldLimit": 100_000]) // old pair
+        XCTAssertEqual(adapter.foldLimit, 0)
         _ = adapter.sync(["snapshotOwner": "owner-b", "fieldOwner": "field-b", "foldLimit": 100_000])
         XCTAssertFalse(adapter.shouldChange(fixture.editor, range: range, text: large))
         let nextID = adapter.folds.first?["id"] as? Int ?? 0
@@ -250,60 +250,25 @@ final class ComposerEditorTests: XCTestCase {
         XCTAssertEqual(fixture.editor.string, "abc")
     }
 
-    func testFolderDropAndFoldShareBoundedMonotonicAcknowledgedFacts() throws {
+    func testFoldsAreBoundedMonotonicAcknowledgedFacts() throws {
         let fixture = EditorFixture(), adapter = fixture.composer.editor
-        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("t3-drop-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: folder) }
-        let drag = NSPasteboard(name: NSPasteboard.Name("t3-drop-\(UUID().uuidString)"))
-        defer { drag.releaseGlobally() }
-        drag.writeObjects([folder as NSURL]); adapter.dragPasteboard = { drag }
-        fixture.type("A😀Z"); fixture.sync(["foldLimit": 100_000, "localEnvironment": true])
-        let range = NSRange(location: 1, length: 2)
-        XCTAssertFalse(adapter.shouldChange(fixture.editor, range: range, text: folder.path))
-        let drop = try XCTUnwrap(adapter.drops.first), firstID = try XCTUnwrap(drop["id"] as? Int)
-        XCTAssertEqual(drop["value"] as? String, "A😀Z"); XCTAssertEqual(drop["expect"] as? String, "😀")
-        XCTAssertEqual(drop["paths"] as? [String], [folder.path])
-        XCTAssertEqual(drop["snapshotOwner"] as? String, "owner-a"); XCTAssertEqual(drop["fieldOwner"] as? String, "field-a")
-        XCTAssertEqual(fixture.editor.string, "A😀Z", "folder source is never inserted by Swift")
         adapter.pasteDetector = { _ in true }
-        let large = String(repeating: "x", count: 40_000)
-        for _ in 0..<3 { XCTAssertFalse(adapter.shouldChange(fixture.editor, range: range, text: large)) }
-        XCTAssertEqual(adapter.folds.count + adapter.drops.count, 4)
-        let ids = [firstID] + adapter.folds.compactMap { $0["id"] as? Int }
-        XCTAssertEqual(ids, Array(firstID...firstID + 3))
-        XCTAssertFalse(adapter.shouldChange(fixture.editor, range: range, text: folder.path))
-        XCTAssertEqual(adapter.folds.count + adapter.drops.count, 4)
-        XCTAssertEqual((fixture.sync()["notices"] as? [[String: String]])?.first?["title"], "Too many pending pastes or drops")
+        fixture.type("A😀Z"); fixture.sync(["foldLimit": 100_000])
+        let range = NSRange(location: 1, length: 2), large = String(repeating: "x", count: 40_000)
+        for _ in 0..<4 { XCTAssertFalse(adapter.shouldChange(fixture.editor, range: range, text: large)) }
+        let fold = try XCTUnwrap(adapter.folds.first), firstID = try XCTUnwrap(fold["id"] as? Int)
+        XCTAssertEqual(fold["value"] as? String, "A😀Z"); XCTAssertEqual(fold["expect"] as? String, "😀")
+        XCTAssertEqual(fold["snapshotOwner"] as? String, "owner-a"); XCTAssertEqual(fold["fieldOwner"] as? String, "field-a")
+        XCTAssertEqual(adapter.folds.compactMap { $0["id"] as? Int }, Array(firstID...firstID + 3))
+        XCTAssertFalse(adapter.shouldChange(fixture.editor, range: range, text: large))
+        XCTAssertEqual(adapter.folds.count, 4)
+        XCTAssertEqual((fixture.sync()["notices"] as? [[String: String]])?.first?["title"], "Too many pending pastes")
         adapter.forgetFold(firstID)
-        XCTAssertTrue(adapter.drops.isEmpty)
         XCTAssertEqual(adapter.folds.count, 3)
-        fixture.sync(["localEnvironment": false])
-        XCTAssertFalse(adapter.shouldChange(fixture.editor, range: range, text: folder.path))
-        XCTAssertEqual((fixture.sync()["notices"] as? [[String: String]])?.first?["title"], "Folders can't be dropped into remote environments")
+        XCTAssertEqual(fixture.editor.string, "A😀Z", "a fold's source is never inserted by Swift")
     }
 
-    func testTooManyFoldersRefusesTheEntireDrop() throws {
-        let fixture = EditorFixture(), adapter = fixture.composer.editor
-        let root = FileManager.default.temporaryDirectory.appendingPathComponent("t3-folders-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: root) }
-        let folders = try (0..<101).map { index -> URL in
-            let folder = root.appendingPathComponent(String(index))
-            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-            return folder
-        }
-        let drag = NSPasteboard(name: NSPasteboard.Name("t3-drop-\(UUID().uuidString)"))
-        defer { drag.releaseGlobally() }
-        drag.writeObjects(folders as [NSURL]); adapter.dragPasteboard = { drag }
-        fixture.sync(["localEnvironment": true])
-        XCTAssertFalse(adapter.shouldChange(fixture.editor, range: NSRange(location: 0, length: 0), text: folders.map(\.path).joined(separator: "\n")))
-        XCTAssertTrue(adapter.drops.isEmpty)
-        XCTAssertEqual(fixture.editor.string, "")
-        XCTAssertEqual((fixture.sync()["notices"] as? [[String: String]])?.first?["title"], "Too many folders")
-    }
-
-    func testCompositionPassesToTheSharedDelegateWithoutFolderOrFoldClaims() {
+    func testCompositionPassesToTheSharedDelegateWithoutFoldClaims() {
         let fixture = EditorFixture(), adapter = fixture.composer.editor
         adapter.pasteDetector = { _ in true }; fixture.sync(["foldLimit": 100_000])
         fixture.editor.setMarkedText("한", selectedRange: NSRange(location: 1, length: 0), replacementRange: NSRange(location: NSNotFound, length: 0))

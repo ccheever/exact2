@@ -4,9 +4,11 @@ A macOS client for [T3 Code](https://github.com/pingdotgg/t3code) servers, writt
 Contract draws the interface; TypeScript owns the client state, the projections and the server
 connections (HTTP, WebSocket RPC, the saved environments and their credentials). Exact's
 Markdown editor owns composer text, selection, styling and undo; TypeScript supplies the
-source's block and reference projection and guarded edit intents. An app-local Swift module (`modules/apple/`)
-adapts OS clipboard and drop facts, focus and modifier events, terminal and browser web views,
-menus, notifications and window chrome. Provider execution, workspaces, Git and conversation
+source's block and reference projection and guarded edit intents. A drop, a paste and Attach files
+are Contract's `drop`, `paste` and file input, their files staged in TypeScript
+(`composer-attach-stage.ts`). An app-local Swift module (`modules/apple/`) adapts focus and
+modifier events, Paste as Text, large pastes, terminal and browser web views, menus,
+notifications and window chrome. Provider execution, workspaces, Git and conversation
 history stay on the T3 server.
 The app carries the official T3 server release (the CLI archive of the release built from the
 reference pin, unmodified; `server-runtime/runtime-pin.json`) and runs it as its own local
@@ -469,8 +471,6 @@ the app sees, or where main has nothing to move it onto (each is a framework cap
   light appearance; CSS `filter` applies only to SVG elements, and an SVG `image` is not built.
 - `T3ImageAccent.swift` and `T3ComposerImageChip.swift`: an image's average colour needs its
   pixels, and readback is refused. The latter supplies raw image facts only.
-- `T3RowDrop.swift`: a legacy row takes any file and rings while a drag is over it; `drop` takes only
-  `file_handlers` types and has no `dragenter` or `dragleave`.
 - `RightPanelTabsInput.swift`: the device tab's rename field keeps Escape and ⌘ chords to itself;
   an `aria-keyshortcuts` button hears its chord before a field's `key` handler.
 - `T3RemoteEditors.swift` (probing installed editors needs a process and file checks; `openURL`
@@ -481,8 +481,20 @@ the app sees, or where main has nothing to move it onto (each is a framework cap
   Files editor's caret under the press that mounted it), and the data module's sleep
   (`timelineSleep`: data modules have no timers).
 - Composer OS adapters (`T3ComposerAttach`, `T3ComposerIntent`, `T3ComposerQueueKey` and
-  `T3ComposerEditor`) retain clipboard/file staging, folder extraction, modifier and focus
-  routing, and video first-frame facts. The composer is Exact's Markdown editor (`textarea
+  `T3ComposerEditor`) retain large-paste folding, Paste as Text, modifier and focus routing, and a
+  video's first frame and typed link. A drop on the chat column or a sidebar row, a paste's files
+  and Attach files are Contract's `dragenter`, `dragleave`, `drop`, `paste`
+  (`ClipboardEvent.files`) and `input type="file"`; TypeScript stages each file
+  (`composer-attach-stage.ts`), reads it at send and removes it (`composer-staged-copies.ts`).
+  An image within its limits keeps its bytes and type; one over them is encoded by
+  `compressImage`. What stays native, and why: Paste as Text, because AppKit's
+  `pasteAsPlainText:` fires no `paste` and `ClipboardEvent` has no Paste as Text flag (the module
+  presses a hidden key the Contract hears, then pastes); ⌘V with only image data on the
+  pasteboard, because AppKit disables a plain text view's Paste for it (the module sends the
+  text view's paste, whose `paste` carries `image.png`); large-paste folding, which reads the
+  text view's edit before it lands (moving it to the Contract `paste` is open); and the first
+  frame (AVFoundation) and the typed link a video or audio file plays from. The composer is
+  Exact's Markdown editor (`textarea
   markup="markdown"`, LLP 1045): it styles lists, tasks, quotes, headings, rules and fenced code
   as they are typed, owns ⌘B/⌘I (`format`), and keeps native undo. The app reads the source
   selection from its `beforeinput`, `input` and `selectionchange`, and edits it only with
@@ -587,6 +599,20 @@ above.
 - Edit › Paste is enabled after a click on blank ground, and choosing it only forgets the held
   keys: the window root takes that focus and hears `paste`. Elsewhere AppKit disables Paste when
   nothing can take it. The reference's Paste is always enabled.
+- A folder dropped on the chat column is not mentioned in the prompt. The reference inserts its
+  absolute path as an `@` mention (ChatComposer.tsx `addDroppedFolders`); a dropped folder reaches
+  the clone as a `doc:` handle with no path (LLP 1069.010 D1), so the clone shows the reference's
+  own refusal for a folder whose path it cannot get: 'Couldn't get the path of "src"', "Type the
+  folder path with @ instead." Files dropped with it attach.
+- An image over 10 MB is re-encoded as a PNG when it can hold transparency and else as a JPEG; the
+  reference prefers WebP, which `compressImage` does not write. An image within its limits keeps its
+  bytes and type, and a PNG or JPEG over 2000 px is fitted in its own type, as the reference's are.
+- A dropped or pasted file's MIME type comes from its extension, by the names macOS gives
+  (`composer-attach-stage.ts`), where Chromium's `File.type` reads its own table first; a
+  picked file's is the picker's.
+- Edit › Paste stays disabled with only image data on the pasteboard (a screenshot copied to the
+  clipboard): AppKit enables a plain text view's Paste only for the types it reads. ⌘V pastes
+  it: the module sends the text view's paste, whose `paste` carries `image.png`.
 
 **Not failures:**
 
