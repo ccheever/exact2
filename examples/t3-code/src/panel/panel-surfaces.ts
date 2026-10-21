@@ -33,6 +33,7 @@ import { openThreadPullRequest, linkedLocal, linkedCommand, linkedTab, linkedVie
 import { emptyAttachment, type AttachmentView, type AttachmentMeta } from './attachment-surface';
 import { crumbsHidden } from './files-crumbs-mount'; // The Files preview unmounted
 import { restoreRightPanel } from './saved-panel'; // The panel as the last launch left it
+import { applyProactivePanels } from './proactive-panels'; // Settings › General › Proactive panels
 import { isDetailTab, restoredEffects } from './saved-surfaces'; // With its Diff and device
 import { deviceTargetOf, deviceThreadId, miniStoreOf, restoreDeviceTarget, type DeviceTarget } from '../device/device-session';
 import { ensureDraftThreadId } from '../composer/draft-thread-id';
@@ -52,7 +53,9 @@ export type Surface = { id: string; kind: SurfaceKind; path: string; line: numbe
   /** A pull request surface's detail tab as the reader left it (rightPanelStore `detailTab`); summary when unset. */
   detailTab?: string;
   attachment?: AttachmentMeta; device?: DeviceTarget; title?: string; terminal?: PanelTerminal; browser?: { tabId: string; threadKey: string } };
-export type PanelState = { surfaces: Surface[]; active: string; visible: boolean; userRevision: number; maximized?: boolean };
+export type PanelState = { surfaces: Surface[]; active: string; visible: boolean; userRevision: number; maximized?: boolean;
+  /** The turn whose diff was last offered proactively, kept across relaunches (rightPanelStore `proactiveDiffTurnId`). */
+  proactiveDiffTurnId?: string };
 export type PanelTab = { id: string; kind: string; title: string; icon: string; tone: string; fileToken: string; active: boolean; pending: boolean; renaming: boolean; renameValue: string; closeTitle: string; closeBody: string; closeTarget: string; menu: TabMenuRow[]; favicon: string; faviconFallback: string; audio: string };
 export type PanelView = {
   /** The thread (or draft) this panel belongs to (panelKey), and whether it is open on the launcher alone (rightPanelStore
@@ -396,6 +399,13 @@ export async function panelView(client: T3Client, native: Native | null | undefi
     const effects = restoredEffects(state.surfaces, state.active, state.visible);
     if (effects.device) restoreDeviceTarget(client, panelKey(client), effects.device);
     if (effects.diff && native?.available) await showDiff(client, native);
+  }
+  // After the restore, so a turn's diff offered before the last relaunch is not offered again.
+  if (client.preferencesLoaded && client.ready) {
+    syncDiff(client, state);
+    const opened = applyProactivePanels(client, panelKey(client), state, sheet);
+    if (opened === 'diff') { selectScope(client, 'branch'); if (native?.available) await showDiff(client, native, true); else client.diffOpen = true; }
+    else if (opened) client.diffOpen = false;
   }
   const deviceSurface = state.surfaces.find(entry => entry.id === state.active && entry.kind === 'device');
   if (deviceSurface) selectDeviceTarget(client, panelKey(client), deviceSurface.device);

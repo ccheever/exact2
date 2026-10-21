@@ -10,6 +10,9 @@
 //   "Edit the notes"                edits README.md and writes notes/plan.md and notes/outline.ts (code,
 //                                   for a file preview with a gutter) before the turn ends, so
 //                                   the turn's checkpoint (a Git snapshot) has a diff; one `edit` tool call
+//   "Write <n> notes [after <s>s]"  waits s seconds (0 by default), then writes n new files under notes/batch-<time>/,
+//                                   so each such turn's checkpoint has n files of three lines (Proactive panels opens
+//                                   the diff from 3 files); one `edit` tool call
 //   "Ask before editing the notes"  asks first (`session/request_permission`, an `edit` tool call), so a
 //                                   thread in the runtime mode "approval-required" waits on an approval;
 //                                   allowed, it writes notes/approved.md
@@ -138,6 +141,14 @@ if (process.argv.includes("--fixture-login")) {
         text = `Stand-in reply: the plan continues in [the other thread](t3-thread://v1/${threadId}).`;
       } else if (/^fail the turn/i.test(first)) {
         throw { code: -32603, message: JSON.stringify({ error: { message: "The stand-in could not finish this turn.", code: "fixture_failure", status: 500 } }) };
+      } else if (cwd && /^write \d+ notes?\b/i.test(first)) {
+        const [, count, seconds] = /^write (\d+) notes?(?:\s+after\s+(\d+)s)?/i.exec(first) ?? [];
+        await Bun.sleep(Number(seconds ?? 0) * 1000);
+        const batch = join(cwd, `notes/batch-${Date.now()}`), paths = [];
+        mkdirSync(batch, { recursive: true });
+        for (let index = 1; index <= Math.min(Number(count), 20); index++) { const path = join(batch, `note-${index}.md`); writeFileSync(path, `# Note ${index}\n\nWritten by the ACP stand-in.\n`); paths.push(path); }
+        update(sessionId, { sessionUpdate: "tool_call", toolCallId: `write-${Date.now()}`, title: `Write ${paths.length} notes`, kind: "edit", status: "completed", locations: paths.map((path) => ({ path })) });
+        text = `Stand-in reply: wrote ${paths.length} notes`;
       } else if (cwd && /^edit the notes/i.test(first)) {
         const paths = editNotes(cwd);
         update(sessionId, { sessionUpdate: "tool_call", toolCallId: `edit-${Date.now()}`, title: "Edit README.md and write the notes", kind: "edit", status: "completed", locations: paths.map((path) => ({ path })) });
