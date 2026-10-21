@@ -7,7 +7,7 @@ import type { T3Client } from '../client/client';
 import { arr, obj, str, num, type Obj } from '../client/domain';
 import type { Native } from '../client/protocol';
 import { lineageView } from './shell-lineage';
-import { nativeParentStatus } from './lineage-parent';
+import { nativeParentStatus, releaseNativeParent } from './lineage-parent';
 import { inlineOpen, shellPrefs } from '../shell/shell-prefs';
 import { refreshVcsOnFocus, watchVcsStatus } from './shell-vcs';
 import { canOverrideServerEnv, draftContext, previousWorktree, serverEnvMode, stripWorkspace } from '../composer/composer-controls-branch';
@@ -108,6 +108,7 @@ export async function shellDetails(client: T3Client, native: Native | null | und
   if (!(inline || open) || !native?.available || !client.ready || !client.projectId) {
     // While the card is closed the stream follows the strip's workspace, or ends when the strip is hidden.
     if (native?.available && client.ready) { await watchVcsStatus(client, native, stripWorkspace(client), now); await refreshVcsOnFocus(client, native, '', focused); }
+    await releaseNativeParent(client, native); // lineage-parent.ts: the closed card no longer watches a native coordinator
     return empty;
   }
   const thread = client.shell.threads.find(entry => entry.id === threadId);
@@ -141,6 +142,8 @@ export async function shellDetails(client: T3Client, native: Native | null | und
     runtimeLabel: str(environment.label), savedLabel: '', machine: machineKind(client.config) });
   const balance = autoBalanceState(client); // the Run on row reads "Auto balance" (a scale) while the draft is automatic
   if (balance.automatic) Object.assign(env, { envLabel: balance.label, envKind: 'scale' });
+  // lineage-parent.ts: a native coordinator's stream while its member is shown (a draft or another thread releases it).
+  const nativeParent = await nativeParentStatus(client, native, threadId);
   return {
     versionClient: '', versionServer: '', versionLabel: '',
     ready: true, inline, error, folderName: creating ? 'New worktree' : cwd.replace(/\/+$/, '').split('/').pop() ?? '',
@@ -163,6 +166,6 @@ export async function shellDetails(client: T3Client, native: Native | null | und
     prRows: await prRowsView(client, native, { status, threadId, now, projectId: str(project?.id), rightGap, inline: inline && !open }),
     automations: await threadAutomations(client, native, thread ? threadId : '', now), // thread-automations.ts: ThreadAutomationsPanel
     ...(thread ? lineageView(client.shell.threads, client.threadId === threadId ? client.projection : null, threadId, arr(client.config.providers), now,
-      workflows, phasesOpen, phasesClosed, client.writable, await nativeParentStatus(client, native, threadId, now)) : noLineage),
+      workflows, phasesOpen, phasesClosed, client.writable, nativeParent) : noLineage),
   };
 }

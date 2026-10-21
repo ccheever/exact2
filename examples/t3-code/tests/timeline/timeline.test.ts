@@ -205,6 +205,10 @@ describe('live runs', () => {
     expect(kinds(rows(settling('failed')))).toEqual(['user', 'working']);
     expect(kinds(rows(settling('completed')))).toEqual(['user', 'working']);
     expect(kinds(rows(settling('running')))).toEqual(['user', 'working', 'thinking']);
+    // The run is latestUnheldRun's: a held queued follow-up after it does not hide the ended turn.
+    const held = client([user('u', 0, 'go')], { runs: [{ id: 'r1', ordinal: 1, status: 'running', startedAt: at(0), completedAt: null, activeAttemptId: 'a1' },
+      { id: 'r2', ordinal: 2, status: 'queued', queueHeld: true }], providerTurns: [{ id: 't1', runAttemptId: 'a1', ordinal: 1, status: 'failed' }] });
+    expect(kinds(rows(held))).toEqual(['user', 'working']);
   });
 
   test('a streaming thought is the live row: its plain-text line above, Thinking as the status', () => {

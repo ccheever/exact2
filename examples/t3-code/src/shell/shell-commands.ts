@@ -19,6 +19,7 @@ import { openInEditorHere } from '../connections/remote-open'; // remote Open (O
 import { letGo } from '../client/let-go';
 import { markUnread } from '../sidebar/sidebar-commands';
 import { canStopNativeSubagent, canStopWorkflow } from '../details/lineage-workflows';
+import { visiblePullRequests } from '../panel/shell-pr';
 import { replaceLinkedPrompt } from '../prompt-links/linked-prompt';
 import { openHome } from '../pages/home-landing';
 
@@ -95,7 +96,8 @@ export async function shellCommand(client: T3Client, native: Native, storage: Fi
  * projection. A provider-native task stops by `subagent.stop` alone. An app-owned task with a child thread first
  * gets the parent's `subagent.stop`, whose failure is ignored, and then its child thread is stopped: `thread.stop`
  * when the server advertises threadStop; otherwise the child's active run, else its latest run while it still owns
- * background work, is interrupted with its queue held. A failure is the toast "Could not stop subagent".
+ * background work, is interrupted with its queue held, and with neither its pull request watches are turned off. A
+ * failure is the toast "Could not stop subagent".
  */
 async function stopSubagent(client: T3Client, native: Native, storage: Files, childThreadId: string): Promise<void> {
   try {
@@ -133,7 +135,14 @@ async function stopSubagent(client: T3Client, native: Native, storage: Files, ch
     const runs = arr(obj(projection).runs);
     const background = arr(client.shell.threads.find(thread => thread.id === child)?.pendingBackgroundTasks).length > 0;
     const run = activeRun(obj(projection)) ?? (background ? runs[runs.length - 1] : undefined);
-    if (!run) return;
+    if (!run) {
+      for (const link of visiblePullRequests(obj(obj(projection).thread).pullRequests)) {
+        if (link.watch === undefined) continue;
+        const [commandId] = await access.ids(1);
+        await access.dispatch(storage, { type: 'thread.pull-request.watch', commandId, threadId: child, host: link.host, repository: link.repository, number: link.number, watching: false }, 'Stop pull request watch');
+      }
+      return;
+    }
     const [commandId] = await access.ids(1);
     await access.dispatch(storage, { type: 'run.interrupt', commandId, threadId: child, runId: str(run.id), holdQueue: true }, 'Stop subagent');
   } catch (error) {

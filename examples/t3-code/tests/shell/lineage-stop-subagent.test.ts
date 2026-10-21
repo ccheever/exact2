@@ -76,6 +76,14 @@ describe('Stop subagent', () => {
     expect(idle.dispatched).toEqual([parentStop]);
   });
 
+  test('with no run to interrupt, the child\'s pull request watches are turned off (a dismissed or unwatched link is left)', async () => {
+    const link = (number: number, extra: Obj = {}) => ({ host: 'github.com', repository: 'o/r', number, watch: { since: 'x' }, ...extra });
+    const { client, dispatched } = fixture({ runs: [{ id: 'r1', status: 'completed' }], thread: { pullRequests: [link(1), link(2, { watch: undefined }), link(3, { source: 'stack-dismissed' })] } });
+    await shellCommand(client, native, files, 'stop-subagent', 'kid', '');
+    expect(dispatched).toEqual([parentStop,
+      { type: 'thread.pull-request.watch', commandId: 'cmd-2', threadId: 'kid', host: 'github.com', repository: 'o/r', number: 1, watching: false }]);
+  });
+
   test('a refusal of the child stop is the toast, without a description or the transcript banner', async () => {
     const { client } = fixture({ runs: [{ id: 'r2', status: 'running' }] }, { refuse: 'all' });
     expect(await shellCommand(client, native, files, 'stop-subagent', 'kid', '')).toBe('');

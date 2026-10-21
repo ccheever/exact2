@@ -1,8 +1,11 @@
 // Lineage statuses at T3 Code 74541bab17 (MIT, see LICENSE-T3): a supervisor waiting on its worker
-// stays running (#18603), and a member's provider-native coordinator shows its root turn (#18149).
+// stays running (#18603), and a member's provider-native coordinator shows its root turn from its
+// thread stream, subscribed while the member is shown (#18149).
 import { describe, expect, test } from 'bun:test';
 import { currentSubagent, lineageView } from '../../src/details/shell-lineage';
-import { nativeParentStatus } from '../../src/details/lineage-parent';
+import { nativeParentStatus, releaseNativeParent } from '../../src/details/lineage-parent';
+import { keepAliveEvent, KEEP_PREFIX } from '../../src/client/keep-alive';
+import { initialShell } from '../../src/client/domain';
 import type { T3Client } from '../../src/client/client';
 import type { Obj } from '../../src/client/domain';
 import type { Native } from '../../src/client/protocol';
@@ -32,7 +35,7 @@ describe('a supervisor waiting on its worker', () => {
 });
 
 describe('a member of a native coordinator', () => {
-  const coordinator = shell('coordinator', { title: 'Workflow coordinator', creationSource: 'provider', updatedAt: at(1),
+  const coordinator = shell('coordinator', { title: 'Workflow coordinator', creationSource: 'provider',
     lineage: { parentThreadId: 'parent', relationshipToParent: 'subagent' } });
   const member = shell('member', { title: 'Reviewer', creationSource: 'provider', lineage: { parentThreadId: 'coordinator', relationshipToParent: 'subagent' } });
   const memberProjection = { thread: member, runs: [], contextTransfers: [], subagents: [] };
@@ -46,36 +49,57 @@ describe('a member of a native coordinator', () => {
     expect(parentRow([{ ...coordinator, activityRunStatus: 'running' }, member], 'completed')).toMatchObject({ status: 'Running' });
   });
 
-  function client(nodes: Obj[], threads: Obj[] = [coordinator, member]) {
-    const requests: Obj[] = [];
-    const value = { environmentId: 'env', threadId: 'member', projection: memberProjection, shell: { threads },
-      restAccess: () => ({ read: async (method: string, payload: Obj) => { requests.push({ method, ...payload });
-        return { thread: coordinator, nodes: value.nodes }; } }), nodes };
-    return { client: value as unknown as T3Client & { nodes: Obj[]; shell: { threads: Obj[] } }, requests };
-  }
-  const native = { available: true } as unknown as Native;
-  const rootTurn = (status: string) => ({ kind: 'root_turn', runId: null, status, startedAt: at(1), completedAt: status === 'running' ? null : at(2) });
+  const ARRAYS = ['runs', 'attempts', 'nodes', 'subagents', 'providerSessions', 'providerThreads', 'providerTurns', 'runtimeRequests', 'messages', 'plans', 'turnItems',
+    'checkpointScopes', 'checkpoints', 'contextHandoffs', 'contextTransfers', 'visibleTurnItems'];
+  const rootTurn = (status: string) => ({ id: 'root', kind: 'root_turn', runId: null, status, startedAt: at(1), completedAt: status === 'running' ? null : at(2) });
+  const coordinatorProjection = (status: string) => ({ ...Object.fromEntries(ARRAYS.map(name => [name, []])), thread: coordinator, nodes: [rootTurn(status)], updatedAt: at(3) });
+  const native = { available: true, watch() {}, later: async () => ({}) } as unknown as Native;
 
-  test('the coordinator\'s projection is read once per shell change, and again every 5 s while its turn is live', async () => {
-    const { client: c, requests } = client([rootTurn('running')]);
-    expect(await nativeParentStatus(c, native, 'member', 0)).toEqual({ threadId: 'coordinator', status: 'running' });
-    expect(await nativeParentStatus(c, native, 'member', 4_000)).toEqual({ threadId: 'coordinator', status: 'running' });
-    expect(requests).toEqual([{ method: 'orchestration.getThreadProjection', threadId: 'coordinator' }]);
-    c.nodes = [rootTurn('completed')];
-    expect((await nativeParentStatus(c, native, 'member', 5_000))?.status).toBe('completed');
-    expect((await nativeParentStatus(c, native, 'member', 60_000))?.status).toBe('completed');
-    expect(requests).toHaveLength(2);
-    c.nodes = [rootTurn('failed')];
-    c.shell.threads = [{ ...coordinator, updatedAt: at(5) }, member];
-    expect((await nativeParentStatus(c, native, 'member', 61_000))?.status).toBe('failed');
-    expect(requests).toHaveLength(3);
+  /** A focused client on a transport double: the bounded snapshot over HTTP, subscription ids, and every request. */
+  function client(threads: Obj[] = [coordinator, member], status = 'running') {
+    const calls: Obj[] = [];
+    const call = async (request: Obj) => {
+      calls.push(request);
+      if (request.op === 'http') return { snapshotSequence: 7, projection: coordinatorProjection(status), hasMoreHistory: false };
+      return request.op === 'subscribe' ? { id: `9-${calls.length}` } : {};
+    };
+    const value = { environmentId: 'env', origin: 'https://box.example.com', generation: 9, ready: true, threadId: 'member', thread: null, projection: memberProjection,
+      shell: { ...initialShell(), threads }, restAccess: () => ({ call }) };
+    return { client: value as unknown as T3Client & { shell: { threads: Obj[] }; threadId: string }, calls };
+  }
+  const keepCalls = (calls: Obj[]) => calls.filter(request => String(request.key).startsWith(KEEP_PREFIX)).map(request => [request.op, request.key]);
+
+  test('the coordinator\'s thread stream is subscribed while its member is shown, and its root turn moves the row', async () => {
+    const { client: c, calls } = client();
+    expect(await nativeParentStatus(c, native, 'member')).toEqual({ threadId: 'coordinator', status: 'running' });
+    expect(calls.find(request => request.op === 'subscribe')).toMatchObject({ key: `${KEEP_PREFIX}coordinator`, method: 'orchestration.subscribeThread',
+      payload: { threadId: 'coordinator', afterSequence: 7, acceptBoundedSnapshot: true } });
+    // A second read subscribes nothing new; the stream's next snapshot carries the settled turn.
+    expect(await nativeParentStatus(c, native, 'member')).toEqual({ threadId: 'coordinator', status: 'running' });
+    expect(keepCalls(calls)).toEqual([['subscribe', `${KEEP_PREFIX}coordinator`]]);
+    const id = `9-${calls.findIndex(request => request.op === 'subscribe') + 1}`;
+    keepAliveEvent(c, { key: `${KEEP_PREFIX}coordinator`, generation: 9, subscriptionId: id,
+      value: { kind: 'snapshot', snapshotSequence: 8, projection: coordinatorProjection('completed'), hasMoreHistory: false } });
+    expect((await nativeParentStatus(c, native, 'member'))?.status).toBe('completed');
+  });
+
+  test('closing the details, or showing another thread, releases the stream', async () => {
+    const closed = client();
+    await nativeParentStatus(closed.client, native, 'member');
+    await releaseNativeParent(closed.client, native);
+    expect(keepCalls(closed.calls)).toEqual([['subscribe', `${KEEP_PREFIX}coordinator`], ['unsubscribe', `${KEEP_PREFIX}coordinator`]]);
+    await releaseNativeParent(closed.client, native);
+    expect(keepCalls(closed.calls)).toHaveLength(2);
+    const moved = client([coordinator, member, shell('other')]);
+    await nativeParentStatus(moved.client, native, 'member');
+    expect(await nativeParentStatus(moved.client, native, 'other')).toBeNull();
+    expect(keepCalls(moved.calls)).toEqual([['subscribe', `${KEEP_PREFIX}coordinator`], ['unsubscribe', `${KEEP_PREFIX}coordinator`]]);
   });
 
   test('only a provider-native parent counts', async () => {
-    const appParent = { ...coordinator, creationSource: 'mcp' };
-    const { client: c, requests } = client([rootTurn('running')], [appParent, member]);
-    expect(await nativeParentStatus(c, native, 'member', 0)).toBeNull();
-    expect(await nativeParentStatus(c, native, 'coordinator', 0)).toBeNull();
-    expect(requests).toEqual([]);
+    const { client: c, calls } = client([{ ...coordinator, creationSource: 'mcp' }, member]);
+    expect(await nativeParentStatus(c, native, 'member')).toBeNull();
+    expect(await nativeParentStatus(c, native, 'coordinator')).toBeNull();
+    expect(keepCalls(calls)).toEqual([]);
   });
 });

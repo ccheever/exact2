@@ -18,10 +18,12 @@ function latest(runs: Obj[], keep: (run: Obj) => boolean): Obj | null {
   return best;
 }
 
+/** latestUnheldRun (orchestrationV2ThreadError.ts): the newest run that is not a held queued one. */
+export const latestUnheldRun = (projection: Obj): Obj | null => latest(arr(projection.runs), run => !(run.status === 'queued' && run.queueHeld === true));
+
 /** deriveThreadActivityRun without the usage-limit presentation: the live run, else the latest unheld one. */
 export function activityRun(projection: Obj): Obj | null {
-  const runs = arr(projection.runs);
-  return latest(runs, run => ACTIVITY.has(str(run.status))) ?? latest(runs, run => !(run.status === 'queued' && run.queueHeld === true));
+  return latest(arr(projection.runs), run => ACTIVITY.has(str(run.status))) ?? latestUnheldRun(projection);
 }
 
 /** resolveVisibleWorktreeSetup's turnStarted. */
