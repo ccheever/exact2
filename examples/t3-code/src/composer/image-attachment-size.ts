@@ -1,7 +1,7 @@
 // The attachment image size limit, adapted from T3 Code 9c161462c9 (MIT; see LICENSE-T3):
-// packages/client-runtime/src/imageAttachmentSize.ts. Draft images are decoded and encoded
-// natively, so the requests that stage them (Attach files, a paste, a sidebar row drop, a SnapShot
-// capture) carry this edge and T3ImageFit.swift scales a PNG, JPEG or HEIC source over it.
+// packages/client-runtime/src/imageAttachmentSize.ts. An attached image is fitted to this edge as it is
+// staged (composer-attach-stage.ts, by compressImage); a SnapShot capture is fitted natively as it is saved
+// and read for upload (T3ImageFit.swift).
 
 /**
  * Longest edge, in pixels, a PNG or JPEG attachment keeps. Anthropic rejects an image over
