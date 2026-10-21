@@ -106,11 +106,6 @@ pub fn generate(app_contract: &Path, out: &Path) -> Result<Gallery, String> {
     assets(&root, &out)?;
     // An app with no design file of its own: the gallery has none either, the packages' still folded.
     let design = crate::design_path(&root.join("app.contract"));
-    std::fs::write(
-        out.join("app.json"),
-        gallery_manifest(&manifest, design.as_deref(), &out),
-    )
-    .map_err(|e| format!("{}: {e}", out.display()))?;
     let mut cells: Vec<Cell> = placed
         .iter()
         .flat_map(|p| {
@@ -161,7 +156,13 @@ pub fn generate(app_contract: &Path, out: &Path) -> Result<Gallery, String> {
             "\ncomponent Gallery\n  view\n    column\n".to_owned(),
         ))
         .collect();
-    reaches(&path, &probe, &out, &packages)?;
+    reaches(&path, &probe, &out, &packages, &placed)?;
+    // Written once the gallery is known to reach the app's packages: a refusal before leaves nothing to clear.
+    std::fs::write(
+        out.join("app.json"),
+        gallery_manifest(&manifest, design.as_deref(), &out),
+    )
+    .map_err(|e| format!("{}: {e}", out.display()))?;
     for _ in 0..=cells.len() + 1 {
         let s = source(&placed, &file, &shapes, &compiler, &cells, None);
         write(&s.text)?;
@@ -281,28 +282,55 @@ fn describe(e: &CompileError) -> String {
 /// files don't hold), and never over an `app.contract` this didn't write.
 fn destination(out: &Path, root: &Path) -> Result<PathBuf, String> {
     let root = root.canonicalize().unwrap_or_else(|_| root.to_path_buf());
-    std::fs::create_dir_all(out).map_err(|e| format!("{}: {e}", out.display()))?;
-    let canon = out
-        .canonicalize()
-        .map_err(|e| format!("{}: {e}", out.display()))?;
+    // Checked as it will be, before anything is made there.
+    let canon = to_be(out).map_err(|e| format!("{}: {e}", out.display()))?;
     if root.starts_with(&canon) {
         return Err(format!(
             "{}: the app's own directory, or one holding it: the gallery goes to a build cache",
             out.display()
         ));
     }
-    let cache = canon
-        .components()
-        .any(|c| matches!(c, Part::Normal(n) if n == "node_modules" || n == "target"));
+    // Within its repository (else within the app, else anywhere), under a node_modules or target there: an
+    // ancestor of the checkout so named says nothing.
+    let repository = canon.ancestors().find(|d| d.join(".git").exists());
+    let scope = repository
+        .or_else(|| canon.starts_with(&root).then_some(root.as_path()))
+        .unwrap_or(Path::new("/"));
+    let cache = canon.strip_prefix(scope).is_ok_and(|inside| {
+        inside
+            .components()
+            .any(|c| matches!(c, Part::Normal(n) if n == "node_modules" || n == "target"))
+    });
     if !cache {
         return Err(format!(
             "{}: the gallery goes under a node_modules or target directory (a build cache), never among sources",
             out.display()
         ));
     }
-    // Ours, or nothing: a link (one back to the app's own files) or a file this didn't write is never written over.
-    let ours =
-        std::fs::read_to_string(canon.join("app.contract")).is_ok_and(|t| t.starts_with(HEADER));
+    // And git ignores what it writes there, where git can say.
+    if let Some(repository) = repository {
+        let ignored = std::process::Command::new("git")
+            .arg("-C")
+            .arg(repository)
+            .args(["check-ignore", "-q", "--no-index"])
+            .arg(canon.join("app.contract"))
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status();
+        if matches!(ignored, Ok(status) if !status.success()) {
+            return Err(format!(
+                "{}: git doesn't ignore it: the gallery goes to an ignored build cache",
+                out.display()
+            ));
+        }
+    }
+    std::fs::create_dir_all(&canon).map_err(|e| format!("{}: {e}", out.display()))?;
+    // Ours, or nothing: a link (one back to the app's own files) or a file this didn't write is never written
+    // over. A gallery's manifest alone is ours too (a run refused before its source).
+    let ours = std::fs::read_to_string(canon.join("app.contract")).map_or_else(
+        |_| std::fs::read_to_string(canon.join("app.json")).is_ok_and(|t| lone_manifest(&t)),
+        |t| t.starts_with(HEADER),
+    );
     for name in ["app.contract", "app.json"] {
         let at = canon.join(name);
         let Ok(meta) = std::fs::symlink_metadata(&at) else {
@@ -316,6 +344,47 @@ fn destination(out: &Path, root: &Path) -> Result<PathBuf, String> {
         }
     }
     Ok(canon)
+}
+
+/// `path` canonical as it will be once made: its nearest existing ancestor
+/// canonical, the rest as written (no `..` past it).
+fn to_be(path: &Path) -> std::io::Result<PathBuf> {
+    let absolute = if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        std::env::current_dir()?.join(path)
+    };
+    let mut rest = Vec::new();
+    let mut at = absolute.as_path();
+    while !at.exists() {
+        match (at.file_name(), at.parent()) {
+            (Some(name), Some(parent)) => {
+                rest.push(name.to_owned());
+                at = parent;
+            }
+            _ => break,
+        }
+    }
+    if rest.iter().any(|n| n == "..") {
+        return Err(std::io::Error::other("a `..` past what exists"));
+    }
+    let mut canon = at.canonicalize()?;
+    canon.extend(rest.iter().rev());
+    Ok(canon)
+}
+
+/// Whether `text` is a manifest a gallery writes: its name, the app's
+/// identity, its design, and nothing else.
+fn lone_manifest(text: &str) -> bool {
+    let Ok(serde_json::Value::Object(json)) = serde_json::from_str(text) else {
+        return false;
+    };
+    json.keys()
+        .all(|k| matches!(k.as_str(), "name" | "app" | "tamber"))
+        && json
+            .get("name")
+            .and_then(|n| n.as_str())
+            .is_some_and(|n| n.ends_with(" gallery"))
 }
 
 /// The gallery's `assets` is the app's (a link), so its design reads the
@@ -357,8 +426,14 @@ fn roots(sources: &crate::sources::Sources) -> BTreeSet<PathBuf> {
 /// Whether the gallery at `path` loads, each package it reads at one of
 /// the app's own roots: a cache another install shadows, or none reaches,
 /// is refused rather than showing another version.
-fn reaches(path: &Path, text: &str, out: &Path, app: &BTreeSet<PathBuf>) -> Result<(), String> {
-    let (_, sources) = crate::sources::load(path, text, out).map_err(|e| {
+fn reaches(
+    path: &Path,
+    text: &str,
+    out: &Path,
+    app: &BTreeSet<PathBuf>,
+    placed: &[Placed],
+) -> Result<(), String> {
+    let (file, sources) = crate::sources::load(path, text, out).map_err(|e| {
         format!(
             "{}: the gallery can't reach the app's packages from here ({})",
             out.display(),
@@ -371,6 +446,35 @@ fn reaches(path: &Path, text: &str, out: &Path, app: &BTreeSet<PathBuf>) -> Resu
                 "{}: the gallery reaches a package at {}, which the app doesn't read: put it where the app's node_modules is reached",
                 out.display(),
                 root.display()
+            ));
+        }
+    }
+    // Each `use` the declaration the app's reaches: the probe's line `n` brings the `n`th placed component.
+    let brought: Vec<&Placed> = placed
+        .iter()
+        .filter(|p| !p.specifier.starts_with('.'))
+        .collect();
+    for import in sources
+        .imports
+        .iter()
+        .filter(|i| i.kind == Kind::Component && i.span.source_id == 0)
+    {
+        let Some(p) = brought.get(import.span.line.saturating_sub(1) as usize) else {
+            continue;
+        };
+        let reached = file
+            .components
+            .iter()
+            .find(|c| c.name == import.name)
+            .and_then(|c| c.params.identity.as_deref());
+        if reached != Some(p.identity.as_str()) {
+            return Err(format!(
+                "{}: `{}` from {} reaches {} here, the app's {}: put the gallery where the app's packages are reached",
+                out.display(),
+                p.export,
+                p.specifier,
+                reached.unwrap_or("nothing"),
+                p.identity
             ));
         }
     }
@@ -528,23 +632,69 @@ fn exported(
     } else {
         crate::resolve::package_subpath(&json, &sub)?
     };
-    let target = root.join(entry.trim_start_matches("./"));
     let real = |p: &Path| p.canonicalize().unwrap_or_else(|_| p.to_path_buf());
-    let (target, declaring) = (real(&target), real(declaring));
-    if target == declaring {
+    let package = Package {
+        name: &name,
+        root: &root,
+        json: &json,
+    };
+    exported_by(
+        &real(&root.join(entry.trim_start_matches("./"))),
+        &real(declaring),
+        declared,
+        &package,
+        0,
+    )
+}
+
+/// A package a shape's re-exports may name by itself (`"@acme/lib/card"`).
+struct Package<'a> {
+    name: &'a str,
+    root: &'a Path,
+    json: &'a serde_json::Value,
+}
+
+impl Package<'_> {
+    /// The file a `use` in the package reaches, written from file `at`: a
+    /// relative path, or the package's own name with or without a subpath.
+    fn reached(&self, at: &Path, specifier: &str) -> Option<PathBuf> {
+        let file = if specifier.starts_with('.') {
+            at.parent()?.join(specifier)
+        } else if specifier == self.name {
+            self.root.join(crate::resolve::package_entry(self.json))
+        } else {
+            let sub = specifier.strip_prefix(self.name)?.strip_prefix('/')?;
+            self.root
+                .join(crate::resolve::package_subpath(self.json, sub)?.trim_start_matches("./"))
+        };
+        Some(file.canonicalize().unwrap_or(file))
+    }
+}
+
+/// The name file `at` gives the shape `declared` of file `declaring`,
+/// through each re-export on the way (`use Info as PublicInfo`, by a
+/// relative path or the package's own name), at most 8 files deep.
+fn exported_by(
+    at: &Path,
+    declaring: &Path,
+    declared: &str,
+    package: &Package,
+    depth: usize,
+) -> Option<String> {
+    if at == declaring {
         return Some(declared.to_owned());
     }
-    let reached = parse(&target, 0)?;
-    reached.uses.iter().find_map(|u| {
-        let from = real(&target.parent()?.join(&u.path));
-        (from == declaring)
-            .then(|| {
-                u.names
-                    .iter()
-                    .find(|n| n.name == declared)
-                    .map(|n| n.local().to_owned())
-            })
-            .flatten()
+    if depth >= 8 {
+        return None;
+    }
+    let file = parse(at, 0)?;
+    file.uses.iter().find_map(|u| {
+        let next = package.reached(at, &u.path)?;
+        let inner = exported_by(&next, declaring, declared, package, depth + 1)?;
+        u.names
+            .iter()
+            .find(|n| n.name == inner)
+            .map(|n| n.local().to_owned())
     })
 }
 
@@ -593,8 +743,9 @@ struct Source {
 }
 
 /// The gallery's source: every cell, or only cell `only` (to learn whether
-/// a refusal the full source can't place is that cell's). A component or
-/// shape no shown cell places is not brought.
+/// a refusal the full source can't place is that cell's). Every placed
+/// component is brought (a package's design comes with its uses), and the
+/// shapes its shown cells build.
 fn source(
     placed: &[Placed],
     file: &File,
@@ -616,14 +767,8 @@ fn source(
         "// cell (its variants' first values, then each other value alone), every other prop a\n",
     );
     s.push_str("// placeholder. Not the app's source: regenerated on every build, never edited.\n");
-    for p in placed {
-        if !shown
-            .iter()
-            .filter(|i| live(i))
-            .any(|&i| cells[i].identity == p.identity)
-        {
-            continue;
-        }
+    // Every placed component brought, a refused one's too: its package's design is what the app's may name.
+    for p in placed.iter().filter(|p| !p.specifier.starts_with('.')) {
         if p.local == p.export {
             let _ = writeln!(s, "use {} from {}", p.local, literal(&p.specifier));
         } else {

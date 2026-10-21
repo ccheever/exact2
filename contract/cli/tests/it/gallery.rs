@@ -473,3 +473,121 @@ fn an_app_inside_its_library_package_is_the_apps_own_and_a_compiler_record_has_a
     );
     let _ = std::fs::remove_dir_all(&root);
 }
+
+fn git_init(dir: &Path) {
+    let status = std::process::Command::new("git")
+        .args(["init", "-q"])
+        .arg(dir)
+        .status()
+        .unwrap();
+    assert!(status.success());
+}
+
+#[test]
+fn a_checkout_under_a_target_directory_and_a_cache_git_does_not_ignore_are_refused() {
+    let base = std::env::temp_dir().join(format!("exact2-gallery-git-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&base);
+    // A repository whose checkout sits under a directory named `target`: its app's `src` is still sources.
+    let repo = base.join("target/repo");
+    std::fs::create_dir_all(&repo).unwrap();
+    git_init(&repo);
+    write(&repo, &[(".gitignore", "node_modules/\n")]);
+    let app = fixture("git-app");
+    let at = repo.join("apps/x");
+    std::fs::create_dir_all(at.parent().unwrap()).unwrap();
+    std::fs::rename(&app, &at).unwrap();
+    let e =
+        contract::gallery::generate(&at.join("app.contract"), &at.join("src/gallery")).unwrap_err();
+    assert!(e.contains("never among sources"), "{e}");
+    // Refused before anything is made there.
+    assert!(!at.join("src").exists());
+    // A `target` git doesn't ignore here (only node_modules/ is): refused; the ignored node_modules cache is fine.
+    let e =
+        contract::gallery::generate(&at.join("app.contract"), &repo.join("target/g")).unwrap_err();
+    assert!(e.contains("git doesn't ignore it"), "{e}");
+    contract::gallery::generate(&at.join("app.contract"), &at.join("node_modules/.cache/g"))
+        .expect("the gallery");
+    let _ = std::fs::remove_dir_all(&base);
+}
+
+#[test]
+fn a_refused_cell_keeps_its_packages_design_a_chain_of_re_exports_names_the_shape_and_a_lone_manifest_is_retried(
+) {
+    let dir = fixture("chain");
+    let lib = dir.join("node_modules/@acme/lib");
+    // `Info` reaches the entry through a barrel, renamed; `Align` fails its placeholder and is the app's only use.
+    write(
+        &lib,
+        &[
+            ("card.contract", CARD),
+            ("barrel.contract", "use Card, Info from \"./card.contract\"\n"),
+            ("index.contract", "use Card, Info as PublicInfo from \"./barrel.contract\"\n\ncomponent Align\n  props\n    align: string\n  parts\n    face: paint\n  view\n    text \"a\" part=\"face\" text-align=align\n"),
+        ],
+    );
+    std::fs::write(dir.join("app.contract"), "use Align from \"@acme/lib\"\n\ncomponent App\n  view\n    column\n      Align(align=\"left\")\n").unwrap();
+    // The app's design names the package's token: the package's design must come with the gallery.
+    std::fs::write(
+        dir.join("app.tamber"),
+        "tamber app\n\ntheme\n  app.pad = lib.pad\n",
+    )
+    .unwrap();
+    let out = dir.join("node_modules/.cache/exact-gallery");
+    // A manifest a gallery run left alone (refused before its source): taken as ours.
+    write(
+        &out,
+        &[(
+            "app.json",
+            r#"{"name": "Fx gallery", "app": {"id": "com.acme.fx", "name": "Fx gallery"}, "tamber": "../../../app.tamber"}"#,
+        )],
+    );
+    // Its only cell refused, the package still brought: the gallery compiles with the app's design.
+    let g = contract::gallery::generate(&dir.join("app.contract"), &out).expect("the gallery");
+    let shown: Vec<(&str, bool)> = g
+        .cells
+        .iter()
+        .map(|c| (c.component.as_str(), c.refused.is_some()))
+        .collect();
+    assert_eq!(shown, vec![("Align", true)]);
+    assert!(std::fs::read_to_string(&g.source)
+        .unwrap()
+        .contains("use Align from \"@acme/lib\""));
+    // With `Card` used too, its shape by the name the entry gives it through the barrel.
+    std::fs::write(dir.join("app.contract"), "use Align, Card from \"@acme/lib\"\n\ncomponent App\n  view\n    column\n      Align(align=\"left\")\n").unwrap();
+    let g = contract::gallery::generate(&dir.join("app.contract"), &out).expect("the gallery");
+    let shown: Vec<(&str, bool)> = g
+        .cells
+        .iter()
+        .map(|c| (c.component.as_str(), c.refused.is_some()))
+        .collect();
+    assert_eq!(
+        shown,
+        vec![
+            ("Align", true),
+            ("Card", false),
+            ("Card", false),
+            ("Card", false)
+        ]
+    );
+    let text = std::fs::read_to_string(&g.source).unwrap();
+    assert!(text.contains("use PublicInfo from \"@acme/lib\""), "{text}");
+    // The entry re-exporting by the package's own name and a subpath: followed the same.
+    write(
+        &lib,
+        &[
+            ("package.json", &package("@acme/lib", r#"{".":"./index.contract","./card":"./card.contract"}"#)),
+            ("index.contract", "use Card, Info as Shown from \"@acme/lib/card\"\n\ncomponent Align\n  props\n    align: string\n  parts\n    face: paint\n  view\n    text \"a\" part=\"face\" text-align=align\n"),
+        ],
+    );
+    let g = contract::gallery::generate(&dir.join("app.contract"), &out).expect("the gallery");
+    assert!(
+        g.cells
+            .iter()
+            .filter(|c| c.component == "Card")
+            .all(|c| c.refused.is_none()),
+        "{:?}",
+        g.cells
+    );
+    let text = std::fs::read_to_string(&g.source).unwrap();
+    assert!(text.contains("use Shown from \"@acme/lib\""), "{text}");
+    let _ = std::fs::remove_dir_all(&dir);
+}
