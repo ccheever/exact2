@@ -1,7 +1,7 @@
 import { repositoryGroupingKey } from '../sidebar/project-groups';
 // "Run on", adapted from T3 Code (MIT; see LICENSE-T3):
 // components/BranchToolbarEnvironmentSelector.tsx (the panel Select and its static
-// label), ChatView.tsx logicalProjectEnvironments / onEnvironmentChange, and
+// label; its "Add to another machine" at 74541bab17), ChatView.tsx logicalProjectEnvironments / onEnvironmentChange, and
 // packages/client-runtime/src/state/projectGrouping.ts (deriveLogicalProjectKey).
 // A draft can run on any connected environment that holds the same logical
 // project (its repository identity, or its path on one machine). The focused
@@ -21,6 +21,8 @@ import { pushToast } from '../shell/toast';
 import { AUTO_ENVIRONMENT, autoBalanceState, autoIndicator, chooseAutoEnvironment, draftSelection, moveDraftSelection, setDraftSelection, withAutoOption,
   type BalanceSelection } from '../composer/auto-balance';
 import { letGo } from '../client/let-go';
+import { addProjectTargets } from '../shell/add-project-machine'; // "Add to another machine" (useAddProjectTargets)
+import { threadEnvLocked } from '../composer/composer-controls-branch'; // a started thread keeps its machine
 
 const normalize = (value: unknown) => str(value).trim().replace(/\\/g, '/').replace(/\/+$/, '');
 /** deriveLogicalProjectKey for one grouping mode. */
@@ -65,12 +67,21 @@ export function environmentOptions(client: T3Client, source: EnvironmentFleet = 
   return options.sort((left, right) => left.primary !== right.primary ? (left.primary ? -1 : 1) : left.label.localeCompare(right.label));
 }
 
-/** The environment row: a picker for an unstarted draft with somewhere else to run, else the static label. */
+/** The machines the project can be added to, as Run on rows ("Add to another machine"). */
+export function addTargetOptions(client: T3Client, source: EnvironmentFleet = fleet): EnvironmentOption[] {
+  return addProjectTargets(client, source).map(target => ({ id: target.environmentId, label: target.label, machine: target.machine, primary: false, projectId: '', selected: false }));
+}
+
+/**
+ * The environment row: a picker for an unstarted draft with somewhere else to run, else the static label. A project
+ * that can be added to another machine still gets the menu (its "Run on" rows then hold only the current machine).
+ */
 export function environmentView(client: T3Client) {
   const options = environmentOptions(client);
   // envLocked: a started thread (messages or a runtime) keeps its machine; the Select needs onEnvironmentChange (a draft).
   const pick = !client.threadId && options.length > 1;
-  return { envPick: pick, envOptions: pick ? withAutoOption(client, options) : [], envCount: Math.max(1, options.length) };
+  const add = threadEnvLocked(client) ? [] : addTargetOptions(client);
+  return { envPick: pick || add.length > 0, envOptions: pick ? withAutoOption(client, options) : add.length ? options : [], envCount: Math.max(1, options.length), envAdd: add };
 }
 
 /**
@@ -80,6 +91,8 @@ export function environmentView(client: T3Client) {
  */
 export async function runOnEnvironment(client: T3Client, native: Native, environmentId: string, source: EnvironmentFleet = fleet,
   selection: BalanceSelection = { selection: 'manual', choice: '' }): Promise<{ status: Obj | null; generation: number }> {
+  // A thread's own machine (the only row while the menu is there to add the project elsewhere) changes nothing.
+  if (client.threadId && environmentId === client.environmentId) return { status: null, generation: -1 };
   if (client.threadId) throw new ClientError('A started thread keeps its environment.');
   // "Auto balance" asks every machine again; picking a machine is a manual choice that clears it.
   if (environmentId === AUTO_ENVIRONMENT) { chooseAutoEnvironment(client, source); return { status: null, generation: -1 }; }
@@ -130,14 +143,17 @@ export async function runOnEnvironment(client: T3Client, native: Native, environ
  * there is a machine to pick (or the only one is remote), and its menu leads with
  * the "Run on" group. The menu sizes to its longest label, as the reference's does.
  */
-export const NO_RUN_ON = { envShow: false, envMachine: 'server', envMachineLabel: '', envOptions: [] as EnvironmentOption[], envMenuWidth: 160, originShown: false, originOn: false };
+export const NO_RUN_ON = { envShow: false, envMachine: 'server', envMachineLabel: '', envOptions: [] as EnvironmentOption[], envAdd: [] as EnvironmentOption[], envMenuWidth: 160, envAddMenuWidth: 160, originShown: false, originOn: false };
 export function stripRunOn(client: T3Client, worktree = false): typeof NO_RUN_ON {
   const options = environmentOptions(client), shown = options.find(option => option.selected);
   const pick = !client.threadId && options.length > 1;
-  if (!shown || !(pick || !shown.primary)) return NO_RUN_ON;
+  // A project on one machine still gets the picker when it can be added to another (BranchToolbar hasMultipleEnvironments).
+  const add = shown ? addTargetOptions(client) : [];
+  if (!shown || !(pick || add.length || !shown.primary)) return NO_RUN_ON;
   // "Auto balance" leads the group, and names the trigger while the draft is automatic.
-  const balance = autoBalanceState(client), listed = pick ? withAutoOption(client, options, balance) : [], focused = autoIndicator(client, shown, balance);
+  const balance = autoBalanceState(client), listed = pick ? withAutoOption(client, options, balance) : add.length ? options : [], focused = autoIndicator(client, shown, balance);
   // The menu's width from its measured labels (composer-menus.ts); the window caps it in the view.
-  return { ...NO_RUN_ON, envShow: true, envMachine: focused.machine, envMachineLabel: focused.label, envOptions: listed,
-    envMenuWidth: runOnMenuWidth(client.presentation, (listed.length ? listed : options).map(option => option.label), workspaceLabels(worktree)) };
+  return { ...NO_RUN_ON, envShow: true, envMachine: focused.machine, envMachineLabel: focused.label, envOptions: listed, envAdd: add,
+    envMenuWidth: runOnMenuWidth(client.presentation, (listed.length ? listed : options).map(option => option.label), workspaceLabels(worktree), 0, add.length > 0),
+    envAddMenuWidth: runOnMenuWidth(client.presentation, add.map(option => option.label), []) };
 }

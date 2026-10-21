@@ -15,7 +15,7 @@
 import type { T3Client } from '../client/client';
 import { obj } from '../client/domain';
 import { probeKey } from './composer-menus';
-import { environmentOptions, NO_RUN_ON } from '../details/git-env';
+import { addTargetOptions, environmentOptions, NO_RUN_ON } from '../details/git-env';
 import { runOnMenuWidth } from './composer-menus';
 import { autoIndicator, withAutoOption } from './auto-balance';
 import { fleet, type EnvironmentFleet } from '../connections/settings-b-fleet';
@@ -57,15 +57,17 @@ type Strip = { show: boolean; gitless: boolean; envLocked: boolean } & typeof NO
 export function gitlessStrip<T extends Strip>(client: T3Client, hidden: T, persist: boolean, source: EnvironmentFleet = fleet): T {
   const options = environmentOptions(client, source), active = options.find(option => option.selected) ?? null;
   const draft = !client.threadId;
-  const showEnvironmentIndicator = shouldShowEnvironmentIndicator({ activeEnvironment: active && { isPrimary: active.primary }, canPickEnvironment: options.length > 1 });
+  // A project that can be added to another machine still gets the picker (BranchToolbar hasMultipleEnvironments).
+  const add = active && draft ? addTargetOptions(client, source) : [];
+  const showEnvironmentIndicator = shouldShowEnvironmentIndicator({ activeEnvironment: active && { isPrimary: active.primary }, canPickEnvironment: options.length > 1 || add.length > 0 });
   const show = shouldShowComposerContextStrip({ isDraftHeroState: draft, persistInActiveThreads: persist, hasActiveProject: !!client.projectId,
     isGitRepo: false, showEnvironmentIndicator, hostsRestingComposerControls: false });
   if (!show || !active) return hidden;
   // The Select's popup holds only the "Run on" group, so it sizes to the machine labels alone.
-  const envMenuWidth = runOnMenuWidth(client.presentation, options.map(option => option.label), []);
+  const envMenuWidth = runOnMenuWidth(client.presentation, options.map(option => option.label), [], 0, add.length > 0);
   const shown = autoIndicator(client, active); // "Auto balance" leads the group while it is offered
   return { ...hidden, ...NO_RUN_ON, envShow: true, envMachine: shown.machine, envMachineLabel: shown.label,
-    envOptions: draft ? withAutoOption(client, options) : [], envMenuWidth, envLocked: !draft, show: true, gitless: true };
+    envOptions: draft ? withAutoOption(client, options) : [], envAdd: add, envMenuWidth, envLocked: !draft, show: true, gitless: true };
 }
 
 const CONTEXT_STRIP_COMPACT_EXPAND_HYSTERESIS_PX = 16;

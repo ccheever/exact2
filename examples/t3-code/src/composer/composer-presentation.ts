@@ -288,7 +288,7 @@ export function composerSnapshot(client: T3Client, now = 0) {
     // TooltipPopup: 12pt text inset 8pt plus its 1pt border, for the window-edge shift.
     sendTipWidth: Math.ceil(measured(client.presentation, action.sendTooltip, 12, 400) + 18),
     // Menu widths from measured texts (composer-menus.ts); Run on's labels join the probes.
-    ...composerMenus(client.presentation, view, environmentView(client).envOptions.map(option => option.label),
+    ...composerMenus(client.presentation, view, runOnLabels(environmentView(client)),
       [probe(action.sendTooltip, 12, 400), ...notices.filter(measurable).flatMap(notice => descriptionTexts(notice).map(([text, weight]) => probe(text, 12, weight))), ...stripLabelTexts(client).map(text => probe(text, 12, 400)), ...notices.map(notice => probe(notice.title, 12, 500))]),
     stripCompact: stripLabelsCompact(client, rootFontSize),
     syncStatus: bar.subagent ? '' : sync, activity: bar.subagent ? '' : activity, activityFront: !bar.subagent && activityFront, activityLast: !bar.subagent && activityLast, notices, resetConfirm: bar.subagent ? '' : usageConfirm(client), implementX: anchors.implement.x, implementWidth: anchors.implement.width }, rootFontSize);
@@ -308,4 +308,9 @@ export function noticeTitleDetails(presentation: Obj, notice: { id: string; titl
   const scale = rootFontSize / 16, described = !!(notice.description || notice.redact || notice.segments.length);
   const after = (described ? 4 : 0) + (notice.details ? 28 : 0);
   return probed[1] * scale > content[1] - after * scale + 0.5;
+}
+
+/** The Run on rows the menus measure, the machines "Add to another machine" lists among them. */
+function runOnLabels(view: { envOptions: { label: string }[]; envAdd: { label: string }[] }): string[] {
+  return [...view.envOptions, ...view.envAdd].map(option => option.label);
 }

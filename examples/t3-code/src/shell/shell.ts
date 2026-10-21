@@ -33,6 +33,7 @@ import { gitTicking } from '../details/git-actions'; // a running action's clock
 import { refsPageWanted } from '../composer/ref-loading'; // a ref list's next page
 import { effectiveShortcut } from './shortcut-labels'; // header shortcut labels
 import { checkoutView } from '../composer/pr-checkout';
+import { addMachineView } from './add-project-dialog';
 import { cloneToasts } from './project-clones-live';
 import { activationOpen } from './desktop-activation'; // a `t3 app` request opens like a clicked notification
 
@@ -304,6 +305,7 @@ export async function shellView(client: T3Client, native: Native | null | undefi
     surfaces: surfaces(client), titleMenu: menu.filter(entry => entry.submenu === ''), titleSubmenu: menu.filter(entry => entry.submenu !== ''),
     panel: await panelSaved(client, storage, await panelView(client, native, now, sheet)), // `sheet`: a window ≤ 980
     prCheckout: checkoutView(client),
+    addMachine: addMachineView(client), // Add to another machine (add-project-dialog.ts)
     composerFile: await composerFileView(client, native, now), // a composer file chip's preview (composer-chip-file.ts)
     notifications: `${state.status.authorization}${state.status.agent ? ' (agent)' : ''}${state.status.active ? '' : ' (window inactive)'}`,
     highlightPending: highlightPending(), // after the panel's code texts asked for their tokens

@@ -88,7 +88,7 @@ describe('one Run on and Workspace keyboard order', () => {
   const source = Bun.file(appPath('composer-controls.contract')).text();
   const item = (id: string, label: string) => ({ id, label });
   const primary = item('primary', 'This Mac'), remote = item('remote', 'Studio'), auto = item('auto', 'Auto balance');
-  const base = { envOptions: [primary, remote], gitless: false, forceWorktree: false, previous: true, envIcon: 'folder' };
+  const base = { envOptions: [primary, remote], envAdd: [] as { id: string; label: string }[], gitless: false, forceWorktree: false, previous: true, envIcon: 'folder' };
   const derive = async (name: string, scope: Record<string, unknown>) => {
     const { value } = await import('../support/contract-action-fixture');
     const expression = new RegExp(`^  derive ${name} = (.+)$`, 'm').exec(await source)?.[1];
@@ -107,6 +107,9 @@ describe('one Run on and Workspace keyboard order', () => {
     expect(await items({ ...base, envOptions: [auto, primary, remote], gitless: true })).toEqual([
       item('run-on-auto', 'Auto balance'), item('run-on-primary', 'This Mac'), item('run-on-remote', 'Studio')]);
     expect(await items({ ...base, envOptions: [], gitless: true })).toEqual([]);
+    // "Add to another machine" follows the Run on rows (74541bab17).
+    expect(await items({ ...base, envOptions: [primary], envAdd: [remote], previous: false })).toEqual([item('run-on-primary', 'This Mac'),
+      item('run-on-add', 'Add to another machine'), item('workspace-local', 'Current checkout'), item('workspace-worktree', 'New worktree')]);
   });
 
   test('arrows wrap both ends, Home/End and typeahead follow hover, and a new session forgets the old row', async () => {

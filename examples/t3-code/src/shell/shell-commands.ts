@@ -21,6 +21,7 @@ import { markUnread } from '../sidebar/sidebar-commands';
 import { canStopNativeSubagent, canStopWorkflow } from '../details/lineage-workflows';
 import { replaceLinkedPrompt } from '../prompt-links/linked-prompt';
 import { openHome } from '../pages/home-landing';
+import { addMachineLocal } from './add-project-dialog';
 
 function threadOf(client: T3Client, threadId: string) {
   const thread = client.shell.threads.find(candidate => candidate.id === threadId);
@@ -156,6 +157,7 @@ export async function shellLocal(client: T3Client, native: Native, op: string, i
   // ThreadDetailsControl in the inline presentation: toggles this thread's docked card (remembered).
   if (op === 'details-inline') { toggleInline(client, detailsKey(client)); return ''; }
   if (op.startsWith('surface-')) return surfaceLocal(client, native, op.slice(8), id, value); // panel-surfaces.ts
+  if (op.startsWith('add-machine-')) return addMachineLocal(client, native, op.slice(12), id, value); // Add to another machine (add-project-dialog.ts)
   const thread = client.shell.threads.find(candidate => candidate.id === id);
   if (op === 'copy-path') {
     const project = client.shell.projects.find(candidate => candidate.id === (thread?.projectId ?? client.projectId));
