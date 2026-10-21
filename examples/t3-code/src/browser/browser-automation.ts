@@ -77,6 +77,8 @@ type Host = {
   queue: Pending[]; suppressed: Map<string, Set<string>>; focusKey: string;
   /** A fleet transport's entries, kept by the fleet's drain until the next shell answer serves them. */
   inbox: Obj[];
+  /** Threads a preview event made known, whose earlier tabs the next prepare lists (useDesktopHostedPreviewSessions). */
+  unlisted: ScopedThreadRef[];
 };
 const hosts = new WeakMap<object, Host>();
 /** The tabs the module opened that this client adopted (by connection and request), and the window's focus. */
@@ -88,14 +90,14 @@ const stream = (previous?: Stream): Stream => ({ id: '', floor: previous?.maxSee
 export function automationHost(owner: object, generation = (owner as { generation?: number }).generation ?? 0): Host {
   let host = hosts.get(owner);
   if (!host) {
-    host = { clientId: '', generation, automation: stream(), events: stream(), consumer: new PreviewAutomationRequestConsumer(), queue: [], suppressed: new Map(), focusKey: '', inbox: [] };
+    host = { clientId: '', generation, automation: stream(), events: stream(), consumer: new PreviewAutomationRequestConsumer(), queue: [], suppressed: new Map(), focusKey: '', inbox: [], unlisted: [] };
     hosts.set(owner, host);
   }
   if (host.generation !== generation) {
     // A new connection: new subscriptions (serials only grow, so the high-water marks carry over); the queued
     // requests of the old one can no longer be answered there.
     host.generation = generation; host.automation = stream(host.automation); host.events = stream(host.events);
-    host.consumer = new PreviewAutomationRequestConsumer(); host.queue = []; host.focusKey = ''; host.inbox = [];
+    host.consumer = new PreviewAutomationRequestConsumer(); host.queue = []; host.focusKey = ''; host.inbox = []; host.unlisted = [];
   }
   return host;
 }
@@ -138,17 +140,20 @@ function streamEvent(client: T3Client, owner: object, environmentId: string, gen
   }
   const value = current(host.events, entry), event = value ? readPreviewEvent(value) : null;
   if (!event || !environmentId) return;
-  applyPreviewEvent(client, { environmentId, threadId: event.threadId }, event);
+  const ref = { environmentId, threadId: event.threadId };
+  applyPreviewEvent(client, ref, event, () => host.unlisted.push(ref));
 }
 
 /** usePreviewSession's event handling: an event of another server process asks for the list again. Events count for
  *  threads this client keeps preview state for and the shown one, and any event but `closed` makes its thread one of
  *  them (useDesktopHostedPreviewSessions, 74541bab17): an agent's tab in a background thread gets its web view
  *  (`liveSessions`) without that thread's chat being open. */
-export function applyPreviewEvent(client: T3Client, ref: ScopedThreadRef, event: PreviewEvent): boolean {
+export function applyPreviewEvent(client: T3Client, ref: ScopedThreadRef, event: PreviewEvent, discovered?: () => void): boolean {
   const store = browserHost(client).store, state = store.read(ref), active = activeRef(client);
-  const known = state !== EMPTY_THREAD_PREVIEW_STATE || (active && scopedThreadKey(active) === scopedThreadKey(ref)) || event.type !== 'closed';
-  if (!known) return false;
+  const seen = state !== EMPTY_THREAD_PREVIEW_STATE || (active && scopedThreadKey(active) === scopedThreadKey(ref));
+  if (!seen && event.type === 'closed') return false;
+  // A thread this event makes known is listed too, so its tabs from before the event get their web views.
+  if (!seen) discovered?.();
   if (state.serverEpoch !== null && state.serverEpoch !== event.serverEpoch) { browserHost(client).listed.delete(scopedThreadKey(ref)); client.revision++; return false; }
   const changed = store.applyServerEvent(ref, event);
   if (changed) client.revision++;
@@ -246,6 +251,10 @@ export async function automationPrepare(client: T3Client, native: Native): Promi
       }
       if (!host.clientId) continue;
       await subscribe(link, host.events, PREVIEW_EVENTS_KEY, 'subscribePreviewEvents', {});
+      for (const ref of host.unlisted.splice(0)) {
+        // A let-go answer leaves the thread for the next prepare; a failed list keeps what the events gave it.
+        try { await listOn(client, native, link, ref); } catch (error) { if (letGo(error)) { host.unlisted.push(ref); throw error; } }
+      }
       if (link.serverBrowser) continue;
       await subscribe(link, host.automation, PREVIEW_AUTOMATION_KEY, 'previewAutomation.connect',
         { clientId: host.clientId, environmentId: link.environmentId, supportedOperations: [...PREVIEW_AUTOMATION_OPERATIONS] });

@@ -507,6 +507,19 @@ describe('the host on the client', () => {
     expect(browserHost(client).store.read(elsewhere)).toMatchObject({ sessions: {}, activeTabId: null });
     expect(liveSessions(client)).toEqual([]);
   });
+  // The thread's sync lists it (usePreviewSession), so its tabs from before the event get web views too.
+  it('lists a background thread the first event made known, once, at the next prepare', async () => {
+    const earlier = { ...loaded('earlier-tab'), threadId: 'thread-elsewhere' }, agent = { ...loaded('agent-tab'), threadId: 'thread-elsewhere' };
+    const { client, rpcs } = await subscribed({ list: payload => payload.threadId === 'thread-elsewhere' ? { sessions: [earlier, agent], serverEpoch: 'epoch-1', revision: 3 } : { sessions: [], serverEpoch: 'epoch-1', revision: 1 } });
+    const elsewhere = { environmentId: 'env-1', threadId: 'thread-elsewhere' };
+    previewStreamEvent(client, entry({ type: 'opened', threadId: 'thread-elsewhere', tabId: 'agent-tab', createdAt: '2026-10-09T00:00:00Z', serverEpoch: 'epoch-1', revision: 3, snapshot: agent }, '3-1', PREVIEW_EVENTS_KEY));
+    previewStreamEvent(client, entry({ type: 'navigated', threadId: 'thread-elsewhere', tabId: 'agent-tab', createdAt: '2026-10-09T00:00:01Z', serverEpoch: 'epoch-1', revision: 3, snapshot: agent }, '3-1', PREVIEW_EVENTS_KEY));
+    await automationPrepare(client, module);
+    await automationPrepare(client, module);
+    expect(rpcs.filter(call => call.method === 'preview.list' && call.payload.threadId === 'thread-elsewhere')).toHaveLength(1);
+    expect(Object.keys(browserHost(client).store.read(elsewhere).sessions).sort()).toEqual(['agent-tab', 'earlier-tab']);
+    expect(liveSessions(client).map(session => session.id).sort()).toEqual([previewRuntimeTabId(elsewhere, 'epoch-1', 'agent-tab'), previewRuntimeTabId(elsewhere, 'epoch-1', 'earlier-tab')].sort());
+  });
   it('reports focus and live tabs once per change', async () => {
     const runtime = previewRuntimeTabId(ref, 'epoch-1', 'tab-1');
     const { client, rpcs } = await subscribed({ presentation: { browserTabs: { [runtime]: { kind: 'Success', attached: true } } } });
