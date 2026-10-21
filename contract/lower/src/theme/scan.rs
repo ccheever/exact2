@@ -149,6 +149,23 @@ fn grouped_list(file: &File, tag: &str, attrs: &[Attr]) -> bool {
     matches!(crate::grouped::style(tag, &expanded), Ok(Some(_)))
 }
 
+/// The address of `node` and of every node inside it, into `out`.
+fn addresses(node: &Node, out: &mut std::collections::HashSet<usize>) {
+    out.insert(node as *const Node as usize);
+    let inner: Vec<&Node> = match node {
+        Node::Element { children, .. } | Node::Use { children, .. } => children.iter().collect(),
+        Node::When {
+            then, otherwise, ..
+        } => then.iter().chain(otherwise).collect(),
+        Node::Each { body, .. } => body.iter().collect(),
+        Node::Match { some, none, .. } => some.1.iter().chain(none).collect(),
+        Node::Children { .. } => Vec::new(),
+    };
+    for n in inner {
+        addresses(n, out);
+    }
+}
+
 /// Whether `attrs`' class gives the element a `font-family`.
 fn has_class_family(file: &File, attrs: &[Attr]) -> bool {
     let style = |name: &str| {
@@ -317,11 +334,16 @@ impl Said {
                             let around = yielding.as_deref().cloned().unwrap_or_default();
                             let styled = std::cell::RefCell::new(around);
                             // (A row put in its own swipe, `delete=`, is given
-                            // rebuilt: it is this node.)
+                            // rebuilt, outside this tree: it is this node.)
+                            let mut tree = std::collections::HashSet::new();
+                            addresses(node, &mut tree);
                             crate::swipe_rows::grouped(node, &|n, _| {
-                                let rebuilt = n.span() == *span && !std::ptr::eq(n, node);
-                                let at = if rebuilt { node } else { n };
-                                styled.borrow_mut().push(at as *const Node as usize);
+                                let at = n as *const Node as usize;
+                                let at = match tree.contains(&at) {
+                                    true => at,
+                                    false => node as *const Node as usize,
+                                };
+                                styled.borrow_mut().push(at);
                                 n.clone()
                             });
                             Some(std::sync::Arc::new(styled.into_inner()))

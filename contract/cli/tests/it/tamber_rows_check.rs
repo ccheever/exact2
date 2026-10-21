@@ -1188,3 +1188,31 @@ fn a_deletable_rows_look_yields() {
     contract::compile_path(&dir.join("app.contract")).unwrap();
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// Two nested uses of one swipe component share their root's span: the
+/// outer swipe naming the inner as its content yields the inner's look, so
+/// a write breaking it is accepted, as the build accepts it (Astra's
+/// re-check of df08adcb4a).
+#[test]
+fn a_nested_swipe_components_content_yields_its_look() {
+    let dir = reading("rows-row-look-nested-swipe");
+    let design = "tamber t\n\ntheme\n  ink = #111111\n  gap = 8px\n";
+    std::fs::write(dir.join("app.tamber"), design).unwrap();
+    std::fs::write(
+        dir.join("app.contract"),
+        "use Card from \"@acme/reading\"\ncomponent App\n  view\n    column\n      list appearance=\"auto\" height=300\n        section\n          Swipe(name=\"a\", inner=\"b\", pad=\"0px\")\n            Swipe(name=\"b\", inner=\"c\", pad=\"gap\")\n              row id=\"c\"\n                text \"x\"\n      Card()\ncomponent Swipe\n  props\n    name: string\n    inner: string\n    pad: string\n  slot\n  view\n    scroll id=name swipeContent=inner -exact-row-look=\"platform\" padding-right=pad overflow-x=\"scroll\" overflow-y=\"hidden\" height=50 display=\"flex\" flex-direction=\"row\"\n      children\n",
+    )
+    .unwrap();
+    contract::compile_path(&dir.join("app.contract")).unwrap();
+    let mut s = Serve::start(&dir, &[]);
+    s.ask(json!({"method": "propose", "ops": [{"op": "set-token", "name": "ink", "value": "#444444"}]}));
+    let w = transaction(
+        &mut s,
+        &dir,
+        json!({"op": "set-token", "name": "gap", "value": "#444444"}),
+    );
+    assert!(w.get("ok").is_some(), "{w}");
+    drop(s);
+    contract::compile_path(&dir.join("app.contract")).unwrap();
+    let _ = std::fs::remove_dir_all(&dir);
+}
