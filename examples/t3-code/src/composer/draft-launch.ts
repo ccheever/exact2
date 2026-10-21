@@ -7,9 +7,11 @@
 //
 // Here a draft's launch is the window's pending `orchestration.launchThread` write, and the project's
 // new-thread composer is its one draft. When a new-thread flow leaves the draft while that write is in
-// flight, the launch is detached: the composer loses the sent text and images (kept on the pending
-// write), and the draft's reserved thread id is let go. The write's reply, which reaches the send's
-// superseded command, is settled here (client.ts `write`) instead of being lost.
+// flight, the launch is detached: it moves from the window's one pending write to `local.launches`, so
+// the fresh draft can send; the composer loses the sent text and images (kept on the launch), and the
+// draft's reserved thread id is let go. The write's reply, which reaches the send's superseded command,
+// is settled here (client.ts `write`); a reply let go meanwhile leaves the outcome to the shell, as a
+// relaunch does (client.ts `reconcilePending`).
 import type { T3Client, Pending } from '../client/client';
 import { arr, obj, str, type Obj } from '../client/domain';
 import { pushToast } from '../shell/toast';
@@ -21,6 +23,9 @@ const LEAVING = ['new-thread', 'select-project', 'select-thread'];
 
 /** The new-thread composer a launch was sent from. */
 export const launchKey = (environmentId: string, pending: Pending): string => `${environmentId}:new:${str(pending.payload.projectId)}`;
+
+/** A detached launch's key in `local.launches`: its environment and the thread it launches. */
+export const launchId = (environmentId: string, pending: Pending): string => `${environmentId}\n${str(pending.payload.threadId)}`;
 
 /** A launch from a draft (not an unstarted server thread's first message, which keeps its own composer). */
 export function isDraftLaunch(pending: Pending | undefined): pending is Pending {
@@ -48,6 +53,9 @@ export function detachDraftLaunch(client: T3Client, op: string): boolean {
   if (pending.detached.images.length) client.local.snapshotDrafts[key] = images.filter(image => !sent.has(str(image.uploadId)));
   if (pending.text && client.local.drafts[key] === pending.text) delete client.local.drafts[key];
   forgetDraftThreadId(client, key);
+  // Out of the window's one pending write: the fresh draft can send, and no other write can replace this one.
+  (client.local.launches ??= {})[launchId(client.environmentId, pending)] = pending;
+  delete client.local.pending[client.environmentId];
   return true;
 }
 

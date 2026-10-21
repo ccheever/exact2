@@ -11,6 +11,7 @@ import type { Native } from '../client/protocol';
 import type { T3Client } from '../client/client';
 import { threadActivity } from './pages-home';
 import { fleet, focusFleetProject, type EnvironmentFleet } from '../connections/settings-b-fleet';
+import { primary, type LocalPrimary } from '../connections/local-primary';
 
 export type HomeTarget = { environmentId: string; projectId: string };
 type Focused = Pick<T3Client, 'environmentId' | 'shell'>;
@@ -56,18 +57,37 @@ export function backgroundShellsBootstrapped(client: Pick<T3Client, 'environment
 }
 
 /**
+ * DesktopWindow.ts waitingForBackend / createMainIfBackendReady: with the Local environment switch on, the reference
+ * creates its window only once the local backend is ready, so This machine's shell is always in the first pick. Here the
+ * window is up before that, so the landing waits while the local environment (focused or in the background) is still
+ * coming; a slow remote environment is not waited for. A local backend that will not come (switched off, refused,
+ * failed, stopped) or a local connection that failed is not waited for either.
+ */
+const COMING = ['installing', 'starting', 'restarting', 'ready'];
+export function localShellPending(client: Pick<T3Client, 'environmentId'> & Partial<Pick<T3Client, 'ready'>>, source: EnvironmentFleet = fleet, local: LocalPrimary = primary): boolean {
+  if (local.unavailable || !COMING.includes(local.status.state)) return false; // 'stopped': none is starting
+  const id = local.target?.environmentId;
+  if (!id) return true; // its descriptor has not answered yet
+  if (id === client.environmentId) return client.ready !== true;
+  const entry = [...source.entries.values()].find(candidate => candidate.environmentId === id);
+  if (!entry) return true;
+  return entry.phase === 'connected' ? entry.synchronized !== entry.generation : ['connecting', 'available'].includes(entry.phase);
+}
+
+/**
  * The focused project the landing picks, or '' while it waits or when the pick is another
  * environment's (kept in `homeMove` until settleHome focuses it). It picks among the shells that
  * are in, without waiting for the rest; with no project in any of them it waits until every
  * environment's shell is in. After the launch's landing, a project that went away falls back to
  * the focused environment's most recent one.
  */
-export function landHome(client: Landing, fallback: () => string, source: EnvironmentFleet = fleet): string {
+export function landHome(client: Landing, fallback: () => string, source: EnvironmentFleet = fleet, local: LocalPrimary = primary): string {
   // The shell events drained after the synchronize that picked (its completion marker) come before settleHome:
   // falling back here would land the focused environment's project and drop the move.
   if (client.homeMove) return '';
   if (!client.homePending) return fallback();
   if (client.threadId) { client.homePending = false; return fallback(); }
+  if (localShellPending(client, source, local)) return '';
   const target = homeTarget(client, source);
   if (!target) {
     if (backgroundShellsBootstrapped(client, source)) client.homePending = false;
@@ -88,9 +108,9 @@ export function homeWaiting(client: Pick<T3Client, 'threadId' | 'projectId'> & P
  * Each refresh: the launch's landing picks across the environments whose shells are in; a pick
  * in a background environment focuses it on that project's draft.
  */
-export async function settleHome(client: T3Client, native: Native, source: EnvironmentFleet = fleet): Promise<boolean> {
+export async function settleHome(client: T3Client, native: Native, source: EnvironmentFleet = fleet, local: LocalPrimary = primary): Promise<boolean> {
   if (client.homePending && client.ready && !client.projectId) {
-    const projectId = landHome(client, () => '', source);
+    const projectId = landHome(client, () => '', source, local);
     if (projectId) { client.projectId = projectId; client.chooseDefaults(); return true; }
   }
   const move = client.homeMove;
@@ -105,14 +125,15 @@ export async function settleHome(client: T3Client, native: Native, source: Envir
 /**
  * Each refresh while the focused environment is not connected (still loading, or failed): its shell cannot hold the
  * pick, so the launch's landing picks among the background environments whose shells are in and focuses that one.
+ * A focused remote environment is not waited for; the local one is (localShellPending).
  */
-export async function settleHomeElsewhere(client: T3Client, native: Native, source: EnvironmentFleet = fleet): Promise<boolean> {
-  if (!client.homePending || client.homeMove || client.threadId || client.projectId) return false;
+export async function settleHomeElsewhere(client: T3Client, native: Native, source: EnvironmentFleet = fleet, local: LocalPrimary = primary): Promise<boolean> {
+  if (!client.homePending || client.homeMove || client.threadId || client.projectId || localShellPending(client, source, local)) return false;
   const target = homeTarget(client, source, { projects: [], threads: [], sequence: 0 });
   if (!target) return false;
   client.homePending = false;
   client.homeMove = target;
-  return settleHome(client, native, source);
+  return settleHome(client, native, source, local);
 }
 
 /**

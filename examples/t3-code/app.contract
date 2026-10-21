@@ -2229,6 +2229,8 @@ component T3Code
   // The new-thread shortcut while the draft's launch (its worktree setup among it) is in flight: a fresh draft in the
   // same project, beside the launch (ChatView onSend markPromotedDraftThreadByRef).
   action draftBeside
+    // The fresh draft may send while the launch's own send is still answering.
+    commandPending = false
     draftOwner = "__unset__"
     send draftLeft = command("new-thread", "", "", 0)
     jumpRequest = jumpRequest + 1

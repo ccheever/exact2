@@ -38,11 +38,10 @@ export function alertClip(presentation: Obj): string {
 }
 
 /**
- * DraftHeroProjectHeading's fit check: whether "What should we build in <project>?" on one line (its hidden
- * probe, pages-hero.contract `hero-inline`) fits the heading's width (`hero-heading`). The probe is laid out
- * apart from the heading, so the heading's own layout cannot make the check oscillate. False until both are laid out.
+ * DraftHeroProjectHeading's fit check reads the natural width of "What should we build in <project>?" on one line,
+ * from its hidden probe (app-main.contract `hero-inline`). The probe stays mounted with the chat column, so a new
+ * draft's heading has its width at once; 0 before the probe has been laid out.
  */
-export function heroInline(presentation: Obj): boolean {
-  const inline = anchorFrame(presentation, 'hero-inline'), heading = anchorFrame(presentation, 'hero-heading');
-  return !!inline && !!heading && inline[1] <= heading[1];
+export function heroInlineWidth(presentation: Obj): number {
+  return anchorFrame(presentation, 'hero-inline')?.[1] ?? 0;
 }

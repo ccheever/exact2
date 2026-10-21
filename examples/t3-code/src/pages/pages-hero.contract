@@ -52,16 +52,18 @@ component EmptyThread
     scheme: string
     shoulder: bool
     busy: bool
-    // The window is lg (1024pt or wider): only then may the project heading sit on one line.
-    wide: bool
+    // DraftHeroProjectHeading's fit: the window is lg (1024pt or wider) and the one-line heading fits its width.
+    inline: bool
+    // max-w-(--chat-content-max-width) within max-w-5xl: the chat width setting's lane (46rem, 72rem or full), at most 64rem.
+    cap: number
     command: action
     addProject: action
   view
     column flex=1 min-height=0 width="100%" justify-content="flex-end" align-items="center" padding-left="1.25rem" padding-right="1.25rem" box-sizing="border-box" testId="empty-thread"
       if data.connected and data.threadId == "" and home.landing == ""
-        column width="100%" max-width="64rem" padding-bottom=(shoulder ? "0px" : "0.25rem") margin-bottom=(shoulder ? "-0.75rem" : "0px") box-sizing="border-box" align-items="center" flex-shrink=0
+        column width="100%" max-width=cap padding-bottom=(shoulder ? "0px" : "0.25rem") margin-bottom=(shoulder ? "-0.75rem" : "0px") box-sizing="border-box" align-items="center" flex-shrink=0
           if home.headline == "build"
-            ProjectHeading(home=home, scheme=scheme, inline=(wide and data.heroInline), command=command, addProject=addProject)
+            ProjectHeading(home=home, scheme=scheme, inline=inline, command=command, addProject=addProject)
           else
             row width="100%" max-width="46rem" justify-content="center" flex-wrap="wrap" align-items="baseline" role="heading" aria-level=1 aria-label=(home.headline == "work" ? "What should we work on?" : home.headline == "start" ? `${home.projectName} to start` : "Add a project to start") testId="draft-hero-heading"
               if home.headline == "work"
@@ -80,8 +82,19 @@ component EmptyThread
                 ScratchLink(busy=busy, command=command)
 
 // DraftHeroProjectHeading: "What should we build in <project>?" on one line when the window is lg and that line
-// fits; otherwise "What should we build?" over the project picker at text-base. The hidden probe lays the one-line
-// heading out at its natural width, apart from the heading itself (laid-out-widths.ts heroInline).
+// fits; otherwise "What should we build?" over the project picker at text-base. HeroWidthProbe lays the one-line
+// heading out at its natural width, apart from the heading, so the heading's own layout cannot make the check oscillate.
+component HeroWidthProbe
+  props
+    name: string
+  view
+    box position="absolute" left=0 top=0 height=0 overflow="hidden" opacity=0 pointer-events="none" aria-hidden=true display="flex" flex-direction="row"
+      row hatch="t3-anchor" data-anchor="hero-inline" flex-shrink=0 gap="0.5rem" align-items="baseline"
+        text "What should we build in" font-size="1.875rem" line-height="2.25rem" letter-spacing=-0.75 white-space="nowrap" flex-shrink=0
+        row flex-shrink=0 align-items="baseline"
+          text name font-size="1.875rem" line-height="2.25rem" letter-spacing=-0.75 font-weight=500 white-space="nowrap" flex-shrink=0
+          text "?" font-size="1.875rem" line-height="2.25rem" letter-spacing=-0.75 white-space="nowrap" flex-shrink=0
+
 component ProjectHeading
   props
     home: PagesHome
@@ -90,13 +103,7 @@ component ProjectHeading
     command: action
     addProject: action
   view
-    column width="100%" position="relative" align-items="center" gap="0.5rem" role="heading" aria-level=1 aria-label=`What should we build in ${home.projectName}?` testId="draft-hero-heading" hatch="t3-anchor" data-anchor="hero-heading"
-      box position="absolute" left=0 top=0 height=0 overflow="hidden" opacity=0 pointer-events="none" aria-hidden=true display="flex" flex-direction="row"
-        row hatch="t3-anchor" data-anchor="hero-inline" flex-shrink=0 gap="0.5rem" align-items="baseline"
-          text "What should we build in" font-size="1.875rem" line-height="2.25rem" letter-spacing=-0.75 white-space="nowrap" flex-shrink=0
-          row flex-shrink=0 align-items="baseline"
-            text home.projectName font-size="1.875rem" line-height="2.25rem" letter-spacing=-0.75 font-weight=500 white-space="nowrap" flex-shrink=0
-            text "?" font-size="1.875rem" line-height="2.25rem" letter-spacing=-0.75 white-space="nowrap" flex-shrink=0
+    column width="100%" position="relative" align-items="center" gap="0.5rem" role="heading" aria-level=1 aria-label=`What should we build in ${home.projectName}?` testId="draft-hero-heading"
       if inline
         row width="100%" justify-content="center" align-items="baseline" gap="0.5rem"
           text "What should we build in" font-size="1.875rem" line-height="2.25rem" letter-spacing=-0.75 white-space="nowrap" flex-shrink=0 color="light-dark(#27272a, #f5f5f5)"

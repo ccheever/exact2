@@ -62,7 +62,7 @@ import { adoptTerminalPrefs } from '../terminal/terminal-ui-state';
 import { obj, str, num, arr, initialShell, applyShell, threadSnapshot, applyThread, mergeHistory,
   readyCheckpoint, type Obj, type Shell, type ThreadState } from './domain';
 import { ClientError, bridgeReply, reply, providerAvailable, applyConfig, type BridgeReply, type Native, type Files } from './protocol';
-import { detachDraftLaunch, restoreDetachedLaunch } from '../composer/draft-launch';
+import { detachDraftLaunch, isDraftLaunch, launchId, restoreDetachedLaunch } from '../composer/draft-launch';
 import { clampInterfaceFontSize } from '../appearance/appearance-fonts';
 import { windowAppearanceMode } from '../appearance/settings-appearance-look'; // the window draws in the resolved mode
 
@@ -74,8 +74,8 @@ export type Pending = { method: string; payload: Obj; description: string; threa
 const uncertainError = (pending: Pending) => `${pending.description} may have reached T3. Check the synchronized thread, then retry only if needed.`;
 /** The types a draft image is kept in: a capture's PNG, an attached image's own (composer-attach-stage.ts). */
 const DRAFT_IMAGE_TYPES = ['image/png', 'image/jpeg', 'image/gif', 'image/webp'];
-type Preferences = { selections: Record<string, Selection>; drafts: Record<string, string>; snapshotDrafts: Record<string, Obj[]>; snapshotReleases: string[]; sidebarWidth: number; sidebarOpen: boolean; pending: Record<string, Pending>; favoriteModels: string[]; groupingMode: string; lastGroupingMode?: string; clientSettings: ClientPrefs; customThemes: CustomTheme[]; groupingOverrides: Record<string, string>; composerControls: ComposerControlsPrefs; deviceSettings: { composerCollapseOnScroll: boolean; planModeEnabled: boolean; timestampFormat: string; appearanceMode: string; sendShortcut: string; snapShotShortcut: string; snapShotEnabled: boolean; snapShotIncludeAccessibility: boolean; snapShotPlaySound: boolean; snapShotSound: string; snapShotFlash: boolean; snapShotAnimations: boolean } };
-const preferences = (): Preferences => ({ selections: {}, drafts: {}, snapshotDrafts: {}, snapshotReleases: [], sidebarWidth: 256, sidebarOpen: true, pending: {}, favoriteModels: [], groupingMode: 'repository', clientSettings: decodeClientPrefs({}), customThemes: [], groupingOverrides: {}, composerControls: emptyComposerControls(), deviceSettings: { composerCollapseOnScroll: true, planModeEnabled: false, timestampFormat: 'locale', appearanceMode: 'system', sendShortcut: 'enter', snapShotShortcut: 'shift+shift', snapShotEnabled: false, snapShotIncludeAccessibility: true, snapShotPlaySound: true, snapShotSound: 'soft-pop', snapShotFlash: true, snapShotAnimations: true } });
+type Preferences = { selections: Record<string, Selection>; drafts: Record<string, string>; snapshotDrafts: Record<string, Obj[]>; snapshotReleases: string[]; sidebarWidth: number; sidebarOpen: boolean; pending: Record<string, Pending>; launches: Record<string, Pending>; favoriteModels: string[]; groupingMode: string; lastGroupingMode?: string; clientSettings: ClientPrefs; customThemes: CustomTheme[]; groupingOverrides: Record<string, string>; composerControls: ComposerControlsPrefs; deviceSettings: { composerCollapseOnScroll: boolean; planModeEnabled: boolean; timestampFormat: string; appearanceMode: string; sendShortcut: string; snapShotShortcut: string; snapShotEnabled: boolean; snapShotIncludeAccessibility: boolean; snapShotPlaySound: boolean; snapShotSound: string; snapShotFlash: boolean; snapShotAnimations: boolean } };
+const preferences = (): Preferences => ({ selections: {}, drafts: {}, snapshotDrafts: {}, snapshotReleases: [], sidebarWidth: 256, sidebarOpen: true, pending: {}, launches: {}, favoriteModels: [], groupingMode: 'repository', clientSettings: decodeClientPrefs({}), customThemes: [], groupingOverrides: {}, composerControls: emptyComposerControls(), deviceSettings: { composerCollapseOnScroll: true, planModeEnabled: false, timestampFormat: 'locale', appearanceMode: 'system', sendShortcut: 'enter', snapShotShortcut: 'shift+shift', snapShotEnabled: false, snapShotIncludeAccessibility: true, snapShotPlaySound: true, snapShotSound: 'soft-pop', snapShotFlash: true, snapShotAnimations: true } });
 const scopeStrings = (value: unknown): string[] => Array.isArray(value) ? value.filter((entry): entry is string => typeof entry === 'string') : [];
 
 const DEFAULT_ORIGIN = 'http://127.0.0.1:3773'; // T3's default server address (README)
@@ -271,6 +271,15 @@ export class T3Client {
         if (str(entry.method) && str(obj(entry.payload).commandId)) next.pending[key] = {
           method: str(entry.method), payload: obj(entry.payload), description: str(entry.description),
           threadId: str(entry.threadId), text: str(entry.text), uncertain: true,
+        };
+      }
+      // Detached draft launches (draft-launch.ts): their outcome comes back with the shell.
+      for (const [key, value] of Object.entries(obj(saved.launches))) {
+        const entry = obj(value);
+        if (str(entry.method) === 'orchestration.launchThread' && str(obj(entry.payload).threadId)) next.launches[key] = {
+          method: str(entry.method), payload: obj(entry.payload), description: str(entry.description),
+          threadId: str(entry.threadId), text: str(entry.text), uncertain: true,
+          detached: { images: arr(obj(entry.detached).images).filter(image => /^[a-f0-9-]{36}$/i.test(str(image.id))) },
         };
       }
       this.local = next;
@@ -612,8 +621,13 @@ export class T3Client {
     if (this.pending) throw new ClientError('Resolve the previous operation before sending another.');
   }
   reconcilePending(): boolean {
+    // A detached draft launch is done once its thread is in this environment's shell (draft-launch.ts).
+    let launched = false;
+    for (const [key, launch] of Object.entries(this.local?.launches ?? {})) {
+      if (key === launchId(this.environmentId, launch) && this.shell.threads.some(thread => thread.id === launch.payload.threadId)) { this.finishPending(launch); launched = true; }
+    }
     const pending = this.pending;
-    if (!pending) return false;
+    if (!pending) return launched;
     const payload = pending.payload;
     let completed = false;
     if (pending.method === 'orchestration.launchThread' && payload.reuseExistingThread === true) {
@@ -639,19 +653,24 @@ export class T3Client {
       else if (payload.type === 'thread.runtime-mode.set') completed = obj(this.projection.thread).runtimeMode === payload.runtimeMode;
       else if (payload.type === 'thread.interaction-mode.set') completed = obj(this.projection.thread).interactionMode === payload.interactionMode;
     }
-    if (!completed) return false;
+    if (!completed) return launched;
     this.finishPending(pending);
     return true;
   }
   private finishPending(pending: Pending, environmentId = this.environmentId): void {
     // The outcome is known (acknowledged or reconciled), so "may have reached T3" is answered.
     if (this.error === uncertainError(pending)) this.error = '';
+    // A detached draft launch gave its composer up when it was detached; the sent images are released now.
+    if (pending.detached) {
+      for (const image of pending.detached.images) this.local.snapshotReleases.push(str(image.id));
+      delete this.local.launches?.[launchId(environmentId, pending)];
+      return;
+    }
     // A launch from a draft owns the project's new-thread composer; an unstarted server thread's first message
     // (launchThread with reuseExistingThread) owns that thread's composer, its text and its images alike.
     const key = pending.method === 'orchestration.launchThread' && pending.payload.reuseExistingThread !== true
       ? `${environmentId}:new:${str(pending.payload.projectId)}` : `${environmentId}:${pending.threadId}`;
     if (pending.text && this.local.drafts[key] === pending.text) delete this.local.drafts[key];
-    for (const image of pending.detached?.images ?? []) this.local.snapshotReleases.push(str(image.id));
     const sent = arr(pending.method === 'orchestration.launchThread' ? obj(pending.payload.initialMessage).attachments : pending.payload.attachments);
     if (sent.length) this.local.snapshotDrafts[key] = (this.local.snapshotDrafts[key] || []).filter(image => {
       if (!sent.some(attachment => attachment.id === image.uploadId)) return true;
@@ -669,6 +688,8 @@ export class T3Client {
       if (letGo(error)) throw error; // let-go.ts: nothing was sent, and it is not a failure
       throw new ClientError('Could not save this operation locally. Your draft is still available.');
     }
+    // The window reads its snapshot again now, so the new-thread shortcut knows the draft is launching (draftLaunching).
+    if (isDraftLaunch(pending)) await this.raw(native, { op: 'snapshotNews' }).catch(error => { if (letGo(error)) throw error; });
     try {
       beforeRequest?.();
       const result = await this.request(native, pending.method, pending.payload, generation, true);
@@ -679,7 +700,7 @@ export class T3Client {
     } catch (error) {
       if (error instanceof ClientError && error.kind === 'superseded') {
         const answer = (error as { reply?: unknown }).reply;
-        if (pending.detached && answer !== undefined && this.local.pending[environmentId] === pending) await this.settleDetached(pending, environmentId, answer, storage);
+        if (pending.detached && answer !== undefined && this.local.launches?.[launchId(environmentId, pending)] === pending) await this.settleDetached(pending, environmentId, answer, storage);
         throw error;
       }
       if (error instanceof ClientError && error.uncertain) {
@@ -693,13 +714,13 @@ export class T3Client {
       throw error;
     }
   }
-  /** A detached draft launch's reply: done, or failed and restored to its draft; an uncertain one stays for Retry. */
+  /** A detached draft launch's reply: done, or failed and restored to its draft; an uncertain one waits for the shell. */
   private async settleDetached(pending: Pending, environmentId: string, answer: unknown, storage: Files): Promise<void> {
     let settled: BridgeReply;
     try { settled = reply(answer); } catch { return; }
     if (settled.ok) this.finishPending(pending, environmentId);
-    else if (settled.error!.uncertain) { pending.uncertain = true; this.error = uncertainError(pending); }
-    else { delete this.local.pending[environmentId]; restoreDetachedLaunch(this, environmentId, pending, settled.error!.message); }
+    else if (settled.error!.uncertain) pending.uncertain = true;
+    else { delete this.local.launches?.[launchId(environmentId, pending)]; restoreDetachedLaunch(this, environmentId, pending, settled.error!.message); }
     this.changed();
     await this.save(storage);
   }

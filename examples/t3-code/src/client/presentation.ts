@@ -35,7 +35,7 @@ import { composerVideoSnapshot } from '../composer/composer-attachments';
 import { saveSnapshot } from '../media/save-file';
 import { transcriptFacts } from '../timeline/transcript-facts';
 import { composerImagePreview } from '../composer/composer-chip-details';
-import { alertClip, heroInline } from '../shared/laid-out-widths';
+import { alertClip, heroInlineWidth } from '../shared/laid-out-widths';
 import { isScratch } from '../composer/scratch-machine';
 import { draftLaunching } from '../composer/draft-launch';
 import { tableMenuSnapshot } from '../timeline/table-menu';
@@ -136,7 +136,7 @@ export function snapshot(client: T3Client, now = 0, displayMode = '') {
       : client.connection === 'reconnecting' ? 'Reconnecting…' : client.connection === 'connecting' ? 'Connecting…'
         : client.statusMessage || 'Disconnected';
   return {
-    revision: client.revision, telemetry: client.telemetryRevision, alertClip: alertClip(client.presentation), heroInline: heroInline(client.presentation), draftLaunching: draftLaunching(client), ...providerBanner(provider), available: client.available, connected: client.connection === 'connected',
+    revision: client.revision, telemetry: client.telemetryRevision, alertClip: alertClip(client.presentation), heroInlineWidth: heroInlineWidth(client.presentation), draftLaunching: draftLaunching(client), ...providerBanner(provider), available: client.available, connected: client.connection === 'connected',
     connecting: ['connecting', 'reconnecting'].includes(client.connection), syncComplete: client.ready,
     status: connectionMessage, serverUrl: client.origin, composerOwner: composerOwner(client), // a moved draft keeps its owner
     uncertain: pending?.uncertain === true,

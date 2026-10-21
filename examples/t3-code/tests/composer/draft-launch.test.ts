@@ -9,28 +9,31 @@ import { draftLaunching } from '../../src/composer/draft-launch';
 import { draftThreadId } from '../../src/composer/draft-thread-id';
 import { contractComponent, type Env } from '../support/contract-action-fixture';
 
-/** Holds the launch's reply until `release`, as a worktree setup does; `answer` replaces the reply. */
+/** Holds the first launch's reply until `release`, as a worktree setup does; `answer` replaces that reply. */
 async function launching(answer?: (reply: unknown) => unknown) {
   const context = await connected();
   let release: () => void = () => {};
   const gate = new Promise<void>(resolve => { release = resolve; });
   const later = context.native.later.bind(context.native);
+  let launches = 0;
+  const ops: string[] = [];
   context.native.later = async (input: unknown) => {
     const request = obj(input);
-    if (request.op === 'request' && request.method === 'orchestration.launchThread') {
+    ops.push(String(request.op));
+    if (request.op === 'request' && request.method === 'orchestration.launchThread' && ++launches === 1) {
       await gate;
       const reply = await later(input);
       return answer ? answer(reply) : reply;
     }
     return later(input);
   };
-  return { ...context, release: () => release() };
+  return { ...context, ops, release: () => release() };
 }
 const settle = () => new Promise(resolve => setTimeout(resolve, 10));
 
 describe('the new-thread shortcut while a sent draft starts its thread', () => {
   test('opens a fresh draft; the launch finishes beside it and does not take the window', async () => {
-    const { client, native, disk, release } = await launching();
+    const { client, native, disk, ops, release } = await launching();
     client.local.composerControls.draftThreads = { 'env1:new:p1': 'reserved-thread' };
     const sending = client.command('send', '', 'Set up the worktree', 0, native, disk);
     await settle();
@@ -41,11 +44,14 @@ describe('the new-thread shortcut while a sent draft starts its thread', () => {
     // The composer is the project's fresh draft: none of the sent text, a new thread id next time, not uncertain.
     expect(client).toMatchObject({ threadId: '', projectId: 'p1', draft: '' });
     expect(draftThreadId(client, 'env1:new:p1')).toBe('');
-    expect(client.pending?.uncertain).toBe(false);
+    // The launch left the window's pending write for its own map: nothing blocks the fresh draft.
+    expect(client.pending).toBeUndefined();
+    expect(Object.values(client.local.launches)).toHaveLength(1);
     expect(draftLaunching(client)).toBe(false);
+    expect(ops).toContain('snapshotNews');
     release();
     expect((await sending).message).toBe('');
-    expect(client.pending).toBeUndefined();
+    expect(client.local.launches).toEqual({});
     expect(client).toMatchObject({ threadId: '', error: '' });
     expect(native.committed.filter(command => command.method === 'orchestration.launchThread')).toHaveLength(1);
   });
@@ -61,6 +67,33 @@ describe('the new-thread shortcut while a sent draft starts its thread', () => {
     expect(client.error).toBe('');
     expect(client.draft).toBe('Typed meanwhile\n\nSet up the worktree');
     expect(toasts(client).at(-1)).toMatchObject({ kind: 'error', title: 'Could not start thread', description: 'Worktree setup failed.', action: { label: 'Open draft', op: 'new-thread' } });
+  });
+  test('the fresh draft sends meanwhile; the first launch\'s failure still restores its draft and toasts', async () => {
+    const { client, native, disk, release } = await launching(reply => ({ ...(reply as Obj), ok: false, error: { kind: 'server', message: 'Worktree setup failed.' } }));
+    const sending = client.command('send', '', 'Set up the worktree', 0, native, disk);
+    await settle();
+    await client.command('new-thread', '', '', 0, native, disk);
+    const second = await client.command('send', '', 'Another thread', 0, native, disk);
+    expect(second.message).toBe('');
+    expect(native.committed.filter(command => command.method === 'orchestration.launchThread')).toHaveLength(1); // the held one is not in yet
+    release();
+    await sending;
+    expect(client.local.launches).toEqual({});
+    expect(client.local.drafts['env1:new:p1']).toBe('Set up the worktree');
+    expect(toasts(client).at(-1)).toMatchObject({ title: 'Could not start thread', description: 'Worktree setup failed.' });
+  });
+  test('a launch whose reply was let go settles once its thread is in the shell, and releases its images', async () => {
+    const { client, native, disk } = await launching();
+    const sending = client.command('send', '', 'Set up the worktree', 0, native, disk);
+    await settle();
+    await client.command('new-thread', '', '', 0, native, disk);
+    const [launch] = Object.values(client.local.launches);
+    launch!.detached = { images: [{ id: '0f0e0d0c-0b0a-4908-8706-050403020100' }] };
+    client.shell.threads.push({ id: launch!.payload.threadId, projectId: 'p1', title: 'Set up the worktree' });
+    expect(client.reconcilePending()).toBe(true);
+    expect(client.local.launches).toEqual({});
+    expect(client.local.snapshotReleases).toContain('0f0e0d0c-0b0a-4908-8706-050403020100');
+    void sending;
   });
   test('any other command while the launch is in flight still leaves it uncertain', async () => {
     const { client, native, disk, release } = await launching();
@@ -85,6 +118,6 @@ describe('app.contract: the shortcut while the launch is in flight', () => {
     expect(calls).toEqual([]);
     root.call('newThread', state, { ...scope, commandPending: true, data: { projectId: 'p1', draftLaunching: true } }, []);
     expect(calls).toEqual(['command:new-thread,,,0', 'focus:composer']);
-    expect(state).toMatchObject({ commandPending: true, draftOwner: '__unset__', jumpRequest: 1, utilityPage: '' });
+    expect(state).toMatchObject({ commandPending: false, draftOwner: '__unset__', jumpRequest: 1, utilityPage: '' });
   });
 });
