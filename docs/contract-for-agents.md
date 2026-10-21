@@ -1610,9 +1610,11 @@ A sound effect is a declared WAV that an action plays ([LLP
 1096](../llp/1096-sounds-an-app-can-schedule.rfc.md)): `sound "assets/…wav"` at the
 top level (16-bit or float PCM, one or two channels, at most 10 s; the compiler
 reads it), then `playSound(src, at=, gain=, group=, playbackRate=, pan=)` from any
-action. Every call is a new voice, so a retrigger is another call. `at=` is the runner's
-clock (`performanceNow()`'s milliseconds; the past means now), `gain=` a linear 0–1,
-and a `group=` is monophonic by start time: a voice ends where the next one in its
+action. A path built at run time (`` `assets/kits/${kit}/kick.wav` ``) plays only the
+files a `sound` line declares, so declare each one it can name. Every call is a new
+voice, so a retrigger is another call. `at=` is the runner's clock
+(`performanceNow()`'s milliseconds; the past means now), `gain=` a linear 0–1, and a
+`group=` is monophonic by start time: a voice ends where the next one in its
 group starts, as a drum machine's choke does. `playbackRate=` (0.25–4, Web Audio's
 name) moves pitch and length together, as tape does: at 2 a voice is an octave up and
 lasts half as long. `pan=` places it from −1 (left) to 1 (right) by Web Audio's
@@ -1634,8 +1636,9 @@ component Ding
 To keep time (a metronome, a drum machine, an interval timer, a rhythm game), declare
 what should play with a `sequence` and let the runner play it ([LLP
 1125](../llp/1125-a-transport-midi-and-the-small-pieces.rfc.md) D2–D5); do not
-start hits from a timer. It has a task's gate, and one `play(tracks, bpm=…)`. A
-track loops at its own `beats`, `loops` times or forever (0), so tracks of
+start hits from a timer ([a step sequencer](recipes/sequencer.md): lanes of their own
+lengths, a kit, pause and resume, MIDI). It has a task's gate, and one `play(tracks,
+bpm=…)`. A track loops at its own `beats`, `loops` times or forever (0), so tracks of
 different lengths run against each other; a step is at a `beat` (a sixteenth is
 `0.25`) and plays a sample, a haptic, or both. The runner issues the steps into
 the voice table a second ahead on its own clock, so no action runs per step and a

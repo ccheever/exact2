@@ -106,7 +106,7 @@ bun exact.mjs contract vocab timers dates-and-days task        # a timer, a day'
 |a shared server (Snapback): wiring, tests, sign-in|`snapback`, `snapback-tests`, `snapback-auth`|
 |ports, Bun, Chrome and its stores|`ports-and-browsers`|
 |porting an app, a release build, helpers sharing a port|`porting-and-release`|
-|a metronome, drum machine, sequencer or MIDI app: sound, MIDI, a transport (built in; write no native audio module)|["Sound, MIDI and media"](contract-for-agents.md#sound-midi-and-media); `apps/metronome`|
+|a metronome, drum machine, sequencer or MIDI app: sound, MIDI, a transport (built in; write no native audio module)|`sequencer`; ["Sound, MIDI and media"](contract-for-agents.md#sound-midi-and-media); `apps/metronome`|
 |transitions, keyframes, exit and layout animation|`motion`|
 |brand colours, light and dark, icon tokens|`theme`, `tamber`|
 |a module in Swift that `app.ts` asks; launch arguments|`native-module`|
