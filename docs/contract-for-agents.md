@@ -1811,6 +1811,11 @@ Test it with no device: `prefer midi.outputs "OP-XY"` then `tap "connect"`, and
 1000` a second of its clock at 125 bpm; `state midi` lists the
 queue ([Metronome](../apps/metronome/app.contract) is whole).
 
+A video is HTML's `video`, not a native view ([LLP 1042](../llp/1042-video.spec.md)):
+`video "assets/intro.mp4" poster="assets/intro.jpg" autoplay=true muted=true loop=true
+playsinline=true object-fit="cover"` is a looping hero, which Apple draws with an
+`AVPlayerLayer`. Give it a `poster` (a still of its first frame): AVPlayer takes 50 ms
+to a second to draw its first frame after launch, and the poster shows until it has.
 `audio` stays HTML's player for long media
 (a song, a podcast: `video`'s props and events with no picture, LLP 1042 §8).
 

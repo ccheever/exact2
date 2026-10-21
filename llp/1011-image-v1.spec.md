@@ -316,7 +316,18 @@ bitmap stays shared and unchanged; no tinted asset enters the image cache.
   `RasterMetadata.encodedLimit` (64 MiB) from `Content-Length` and again as
   it streams; the request times out at 15 s and the whole load at 30 s. The
   body spools to a temporary file read once for its header (256 KiB) and
-  once to decode. Responses are cached on disk only (`URLCache`, 64 MiB,
+  once to decode. A download runs on URLSession's queue, never on a raster
+  worker (2026-10-21): the process keeps one session for each cache policy,
+  so images share connections (HTTP/2 streams on one) and download at once,
+  up to the 64 sources a session may have waiting for a header; a worker
+  reads the header once the body is spooled, and decodes go on meanwhile.
+  A session per download, waited out on the two workers, fetched two
+  images at a time, each over a new connection: 18 product photos from
+  Brooks' CDN (`AkamaiGHost`, HTTP/2) filled a 3-column grid on an iPhone
+  16 Pro Max in a median 1.53 s (1.30–2.30) after a cold launch with no
+  cached responses; now before the launch animation ends (0.63 s, all five
+  runs), as UIKit with `URLSession.shared` and SwiftUI's `AsyncImage` do;
+  Expo's `expo-image` took 0.85 s (filmed, `~/bench/imagebench`). Responses are cached on disk only (`URLCache`, 64 MiB,
   `Caches/exact-raster-http`, the HTTP cache headers' policy); decoded
   pixels are the session's raster budget. An SVG, remote or under `assets/`,
   is drawn as a picture at the box's size (LLP 1011.001; the same on Linux);
