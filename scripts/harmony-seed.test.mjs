@@ -99,15 +99,15 @@ test('an argument seed does not take, two origins, or an origin without --post i
   }
 });
 
-/** A stand-in answering `/dev/status` with each of `statuses` in turn and a head of 0, counting seeds and resets. */
+/** A stand-in answering `/dev/status` with each of `statuses` in turn and a head of 0, keeping the instance each seed and reset names. */
 function standIn(statuses) {
-  const seen = { seeds: 0, resets: [] };
+  const seen = { seeds: [], resets: [] };
   let n = 0;
   const s = Bun.serve({ port: 0, hostname: '127.0.0.1', fetch(req) {
     const path = new URL(req.url).pathname;
     if (path === '/dev/status') return Response.json(statuses[Math.min(n++, statuses.length - 1)]);
     if (path === '/changes') return Response.json({ seq: 0, store_id: 's1' });
-    if (path === '/seed') { seen.seeds++; return Response.json({ seeded: 1 }); }
+    if (path === '/seed') { seen.seeds.push(req.headers.get('x-snapback-dev-instance')); return Response.json({ seeded: 1 }); }
     if (path === '/dev/reset') { seen.resets.push(req.headers.get('x-snapback-dev-instance')); return Response.json({ reset: true }); }
     return new Response('', { status: 404 });
   } });
@@ -126,24 +126,24 @@ async function seedAsync(...args) {
 afterEach(() => { for (const s of stands.splice(0)) s.stop(true); });
 const ok = { storeId: 's1', instance: 'i1', pid: 4242, personas: ['ada'], temporary: true };
 
-test('unasked, a store nothing was written to is seeded by /seed, which erases nothing, so a write after its head was read stays', async () => {
+test('unasked, a store nothing was written to is seeded by /seed (an upsert), never reset, naming the instance asked', async () => {
   const unasked = standIn([ok]);
   expect((await seedAsync('--post', unasked.origin)).status).toBe(0);
-  expect(unasked.seen).toEqual({ seeds: 1, resets: [] });
+  expect(unasked.seen).toEqual({ seeds: ['i1'], resets: [] });
 }, 60_000);
 
 test('a malformed status, or a server replaced between its two readings, is never reset; the reset names the instance asked', async () => {
   for (const bad of [{ storeId: '', temporary: true }, { ...ok, instance: '' }, { ...ok, pid: undefined }, { ...ok, personas: [] }]) {
     const { origin, seen } = standIn([bad]);
     expect((await seedAsync('--post', '--force', origin)).status).toBe(1);
-    expect(seen).toEqual({ seeds: 0, resets: [] });
+    expect(seen).toEqual({ seeds: [], resets: [] });
   }
   const replaced = standIn([ok, { ...ok, instance: 'i2' }]);
   const r = await seedAsync('--post', '--force', replaced.origin);
   expect(r.status).toBe(1);
   expect(r.stderr).toContain('changed while it was asked');
-  expect(replaced.seen).toEqual({ seeds: 0, resets: [] });
+  expect(replaced.seen).toEqual({ seeds: [], resets: [] });
   const same = standIn([ok]);
   expect((await seedAsync('--post', '--force', same.origin)).status).toBe(0);
-  expect(same.seen).toEqual({ seeds: 0, resets: ['i1'] });
+  expect(same.seen).toEqual({ seeds: [], resets: ['i1'] });
 }, 60_000);

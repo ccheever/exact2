@@ -257,11 +257,14 @@ async function head(origin, status) {
 // `--post`: seed the dev server with these rows. Unasked only where nothing was
 // ever written (the store's head is 0; a reset is itself a commit, so a store
 // seeded before counts as written to), and then by `/seed`, an upsert that erases
-// nothing, so a write landing after the head was read stays. What a store holds
-// can't be read whole from outside (a query shows only what a persona may see),
-// so any other store, in memory or not, may hold what people wrote and is refused
-// unless `--force` (or `--reset`) says to empty it first (`/dev/reset`). That reset
-// names the dev instance it asked, so a server started in its place refuses it (409).
+// nothing, so a write landing after the head was read stays. (Not one to a row
+// this seed writes, which it updates: only if another seed of this server landed
+// in those milliseconds and someone edited what it wrote; no request can make
+// the head check and the seed one step.) What a store holds can't be read whole
+// from outside (a query shows only what a persona may see), so any other store,
+// in memory or not, may hold what people wrote and is refused unless `--force`
+// (or `--reset`) says to empty it first (`/dev/reset`). Both name the dev
+// instance they asked, so a server started in its place refuses them (409).
 if (post) {
   const origin = new URL(origins[0] ?? 'http://127.0.0.1:4400').origin;
   const fail = (m) => { console.error(`seed: ${m}; nothing was erased`); process.exit(1); };
@@ -272,7 +275,7 @@ if (post) {
     process.exit(1);
   }
   let res;
-  if (!force) res = await fetch(`${origin}/seed`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(rows) });
+  if (!force) res = await fetch(`${origin}/seed`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-snapback-dev-instance': before.instance }, body: JSON.stringify(rows) });
   else {
     // The same server still (its instance, store and process), as it was asked.
     try { now = await devStatus(origin); } catch (e) { fail(e.message); }
