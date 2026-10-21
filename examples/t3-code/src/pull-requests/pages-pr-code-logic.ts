@@ -259,14 +259,18 @@ export function orderDiffFiles<T extends { name: string; additionLines: readonly
 
 export type PullRequestReviewPosition = { kind: 'added'; newLine: number } | { kind: 'deleted'; oldLine: number } | { kind: 'context'; oldLine: number; newLine: number; side: PrDiffSide };
 /** resolveDiffReviewPosition: the host's coordinates of the line a selection ends on, or null where there is no such row. */
-export function resolveDiffReviewPosition(file: { hunks: Hunk[] }, lineNumber: number, side: SelectionSide | undefined, contents?: ReviewContents | null): PullRequestReviewPosition | null {
+export function resolveDiffReviewPosition(file: { hunks: PrHunk[] }, lineNumber: number, side: SelectionSide | undefined, contents?: ReviewContents | null): PullRequestReviewPosition | null {
   const lines = diffReviewLines(file, contents);
   const index = findDiffReviewLineIndex(lines, lineNumber, side);
   const line = index < 0 ? undefined : lines[index];
   if (line === undefined) return null;
+  // An explicit selection must not resolve to a same-numbered line on the other side.
+  if ((side === 'additions' && line.newLineNumber !== lineNumber) || (side === 'deletions' && line.oldLineNumber !== lineNumber)) return null;
   if (line.change === 'add') return line.newLineNumber === null ? null : { kind: 'added', newLine: line.newLineNumber };
   if (line.change === 'delete') return line.oldLineNumber === null ? null : { kind: 'deleted', oldLine: line.oldLineNumber };
-  return line.oldLineNumber === null || line.newLineNumber === null ? null : { kind: 'context', oldLine: line.oldLineNumber, newLine: line.newLineNumber, side: side === 'deletions' ? 'left' : 'right' };
+  // An expanded file also shows the gaps between hunks, and GitHub rejects a whole review over one comment anchored there.
+  return line.oldLineNumber === null || line.newLineNumber === null || !isLineInFileDiff(file, 'right', line.newLineNumber)
+    ? null : { kind: 'context', oldLine: line.oldLineNumber, newLine: line.newLineNumber, side: side === 'deletions' ? 'left' : 'right' };
 }
 /** getReviewPositionAnchor: the line and side a position is pinned under. */
 export function reviewPositionAnchor(position: PullRequestReviewPosition): { line: number; side: PrDiffSide } {
@@ -310,4 +314,16 @@ export function fnv1a32(text: string): string {
   let hash = 0x811c9dc5;
   for (let index = 0; index < text.length; index++) { hash ^= text.charCodeAt(index); hash = Math.imul(hash, 0x01000193) >>> 0; }
   return hash.toString(36);
+}
+
+/**
+ * describePullRequestDiffError (T3 Code 74541bab17 pullRequestDiffError.ts): diff failures arrive wrapped by the
+ * transport, so the reason is recognised inside them.
+ */
+export function describePullRequestDiffError(error: string, providerName: string): { title: string; description: string } {
+  if (/\brate limit\b|\brate[-_]limited\b|\btoo many requests\b/i.test(error)) {
+    return { title: `${providerName} rate limit reached`,
+      description: `${providerName} is temporarily limiting requests, so this diff couldn't be loaded. Try again after the limit resets, or view the changes on ${providerName}.` };
+  }
+  return { title: "Couldn't load the changes", description: `The environment couldn't load this pull request's diff. Try again, or view the changes on ${providerName}.` };
 }

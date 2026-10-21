@@ -4,7 +4,7 @@
 import { arr, obj, str, type Obj } from '../client/domain';
 import { requestPresentation } from './requests';
 import type { T3Client } from '../client/client';
-import { footerLayout, traitsDisplay, primaryAction, composerNotices, syncStatus, tasksProgress, providerControl, contextMeter, compactChip } from './composer-controls-view';
+import { footerLayout, traitsDisplay, primaryAction, composerNotices, noticeRank, syncStatus, tasksProgress, providerControl, contextMeter, compactChip } from './composer-controls-view';
 import { planFollowUp, noteNow } from './composer-controls';
 import { queuedView } from './composer-controls-queue';
 import { subagentBar } from './composer-controls-subagent';
@@ -18,14 +18,15 @@ import { fileDraftHoldsCommandEnter } from '../panel/files-surface'; // the File
 import { activeRef, terminalOpen } from '../terminal/terminal-drawer-view'; // ChatComposer passes the real terminalOpen
 import { annotatingInThread, sendChordsWhileAnnotating } from '../browser/browser-annotation'; // ⌘↩ in Annotate
 import { measuredLabels } from './composer-measure';
-import { atRootFontSize, composerMenus, effortMenuWidth, measured, probe, traitsMenuHeight } from './composer-menus';
+import { atRootFontSize, composerMenus, effortMenuWidth, measured, probe, probeKey, traitsMenuHeight } from './composer-menus';
 import { clampInterfaceFontSize } from '../appearance/appearance-fonts';
 import { environmentView } from '../details/git-env';
 import { ULTRATHINK_LOCKED_MESSAGE, ultrathinkTraits, withImplicitFastModeDefault } from './composer-provider-state';
 import { ultrathinkFrame } from './composer-ultrathink';
 import { overflowMenu } from './composer-overflow';
 import { usageConfirm } from './composer-controls-usage'; // the reset credit confirm
-import type { FooterSteps } from './composer-controls-view';
+import { stripLabelsCompact, stripLabelTexts } from './context-strip'; // the context strip's labels or icons
+import type { ComposerNotice, FooterSteps } from './composer-controls-view';
 
 /** runtimeModeConfig.ts: label, description and lucide icon per mode. */
 export const runtimeModes = [
@@ -217,6 +218,34 @@ export function frameTops(presentation: Obj) {
   return { toolbarTop: top('toolbar'), toolbarRight: (Number(toolbar[0]) || 0) + (Number(toolbar[2]) || 0), stripTop: top('strip'), stripLeft: Number(strip[0]) || 0, stripRight: (Number(strip[0]) || 0) + (Number(strip[2]) || 0) };
 }
 
+/**
+ * NoticeDescription (ComposerBannerStack.tsx): a description, plain or a roster of segments, offers its details while
+ * its natural width (its probes) exceeds the width it was laid out at (its `nd:` anchor). While the button shows, its
+ * 24pt and the 4pt gap before it count as room, so it cannot keep itself shown once the text would fit.
+ */
+const detailsShown = new WeakMap<T3Client, Set<string>>();
+const measurable = (notice: ComposerNotice) => (!!notice.description || notice.segments.length > 0) && !notice.redact && !notice.machines.length;
+/** The texts a description lays out, each at its size and weight: a roster's links are medium, its commas regular. */
+function descriptionTexts(notice: ComposerNotice): Array<[string, number]> {
+  if (!notice.segments.length) return [[notice.description, 400]];
+  return notice.segments.flatMap(segment => [[segment.label, segment.threadId ? 500 : 400] as [string, number], ...(segment.last ? [] : [[', ', 400] as [string, number]])]);
+}
+export function withNoticeDetails<T extends ComposerNotice>(client: T3Client, notices: T[], rootFontSize: number): T[] {
+  const anchors = obj(client.presentation.anchors), shown = detailsShown.get(client), next = new Set<string>();
+  const width = (name: string) => { const value = anchors[name]; return Array.isArray(value) ? Number(value[1]) : NaN; };
+  const out = notices.map(notice => {
+    if (!measurable(notice)) return notice;
+    const laidOut = width(`nd:${notice.id}`), parts = descriptionTexts(notice).map(([text, weight]) => width(probeKey(text, 12, weight)));
+    if (!(laidOut >= 0) || !parts.every(part => part > 0)) return notice;
+    const natural = parts.reduce((sum, part) => sum + part, 0) * rootFontSize / 16;
+    const details = natural > laidOut + (shown?.has(notice.id) ? 28 * rootFontSize / 16 : 0) + 0.5;
+    if (details) next.add(notice.id);
+    return { ...notice, details };
+  });
+  detailsShown.set(client, next);
+  return out;
+}
+
 /** The snapshot's `composer` row: request state comes from the requests projection. */
 export function composerSnapshot(client: T3Client, now = 0) {
   noteNow(client, now);
@@ -226,9 +255,15 @@ export function composerSnapshot(client: T3Client, now = 0) {
   const view = composerView(client, { approval: requests.approvals.length > 0, question: !!question,
     choiceOnly: !!question && !question.customAllowed, planReady: !!planFollowUp(client) && !question, terminalOpen: terminalOpen(client) });
   const tasks = tasksProgress(client), sync = syncStatus(client), anchors = anchorsFrom(client.presentation);
-  // The activity row (sync, else the running turn's tasks unless a request blocks the drawer) leads the stack.
+  // The activity row (sync, else the running turn's tasks unless a request blocks the drawer) is the stack's
+  // first activity item (ChatComposer bannerStackItems): urgent, warning and error notices go before it.
   const activity = sync ? 'sync' : tasks.tasksTotal > 0 && !requests.approvals.length && !question ? 'tasks' : '';
-  const notices = composerNotices(client, now).map((notice, index) => ({ ...notice, front: !activity && index === 0 }));
+  const ranked = composerNotices(client, now), after = ranked.findIndex(notice => noticeRank(notice) > 0);
+  const activityAt = !activity ? -1 : after < 0 ? ranked.length : after, activityFront = activityAt === 0;
+  // `activityBefore`: the stacked activity strip floats just before this notice; `activityLast`: after every notice.
+  const rootFontSize = clampInterfaceFontSize((client.local as { clientSettings?: { fontSizeInterface?: unknown } }).clientSettings?.fontSizeInterface);
+  const notices = withNoticeDetails(client, ranked, rootFontSize).map((notice, index) => ({ ...notice, front: !activityFront && index === 0, activityBefore: !activityFront && index === activityAt }));
+  const activityLast = !!activity && !activityFront && activityAt === ranked.length;
   const queue = queuedView(client), action = primaryAction(client, phase);
   if (queue.queueEditing) Object.assign(action, { sendLabel: 'Update queued message', sendIcon: 'check', sendTooltip: 'Update queued message', sendRunning: true });
   // A send that compacts first says so (ComposerPrimaryActions submitLabel, submitTooltip).
@@ -243,7 +278,6 @@ export function composerSnapshot(client: T3Client, now = 0) {
   const fan = fanoutView(client), shortcut = chordGlyphs(commandChords(client.config, 'modelPicker.toggle', 'Meta+Shift+M', false, { terminalOpen: terminalOpen(client) }).split(' ')[0] ?? '');
   if (fan.fanout) view.modelTip = shortcut ? `${fan.fanoutAria} · ${shortcut}` : fan.fanoutAria;
   if (bar.subagent) { notices.length = 0; queue.queued = []; }
-  const rootFontSize = clampInterfaceFontSize((client.local as { clientSettings?: { fontSizeInterface?: unknown } }).clientSettings?.fontSizeInterface);
   return atRootFontSize({ ...view, ...action, ...compact, ...fan, attach: !bar.subagent && !requests.approvals.length && attachOffered(client, question), ...providerControl(client), ...tasks, ...queue, ...bar, ...contextMeter(client, str(model?.name, modelId)), meterX: anchors.meter.x, meterWidth: anchors.meter.width, actionsX: anchors.actions.x, ...frameTops(client.presentation),
     // composer-editor-intent.ts. A focused Diff (or Files preview) comment draft keeps ⌘↩ (DiffCommentAnnotation's isCommentSubmitShortcut): the
     // reference's send chords answer only with the composer focused, and an `aria-keyshortcuts` button hears its chord before
@@ -252,6 +286,8 @@ export function composerSnapshot(client: T3Client, now = 0) {
     // TooltipPopup: 12pt text inset 8pt plus its 1pt border, for the window-edge shift.
     sendTipWidth: Math.ceil(measured(client.presentation, action.sendTooltip, 12, 400) + 18),
     // Menu widths from measured texts (composer-menus.ts); Run on's labels join the probes.
-    ...composerMenus(client.presentation, view, environmentView(client).envOptions.map(option => option.label), [probe(action.sendTooltip, 12, 400)]),
-    syncStatus: bar.subagent ? '' : sync, activity: bar.subagent ? '' : activity, notices, resetConfirm: bar.subagent ? '' : usageConfirm(client), implementX: anchors.implement.x, implementWidth: anchors.implement.width }, rootFontSize);
+    ...composerMenus(client.presentation, view, environmentView(client).envOptions.map(option => option.label),
+      [probe(action.sendTooltip, 12, 400), ...notices.filter(measurable).flatMap(notice => descriptionTexts(notice).map(([text, weight]) => probe(text, 12, weight))), ...stripLabelTexts(client).map(text => probe(text, 12, 400))]),
+    stripCompact: stripLabelsCompact(client, rootFontSize),
+    syncStatus: bar.subagent ? '' : sync, activity: bar.subagent ? '' : activity, activityFront: !bar.subagent && activityFront, activityLast: !bar.subagent && activityLast, notices, resetConfirm: bar.subagent ? '' : usageConfirm(client), implementX: anchors.implement.x, implementWidth: anchors.implement.width }, rootFontSize);
 }

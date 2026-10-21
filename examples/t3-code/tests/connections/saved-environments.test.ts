@@ -16,6 +16,7 @@ import { obj, type Obj } from '../../src/client/domain';
 import { ClientError, type Native } from '../../src/client/protocol';
 import type { T3Client } from '../../src/client/client';
 import { checkoutConfirm, checkoutItems, checkoutLocal, checkoutView, checkoutState } from '../../src/composer/pr-checkout';
+import { toasts } from '../../src/shell/toast';
 
 // The data runtime has no clock (sidebar-state.ts `clock`); these tests stand in for a host clock that reads Date.now.
 beforeEach(() => setRuntimeClock(() => Date.now()));
@@ -100,7 +101,7 @@ describe('a stored 1970 onboarding time is repaired', () => {
 // ── The branch picker's pull request checkout (PullRequestThreadDialog) ──────
 
 type Call = { method: string; payload: Obj; write?: boolean };
-function checkoutClient(threadId = '') {
+function checkoutClient(threadId = '', onHead = true) {
   const calls: Call[] = [];
   const pull = (n: number) => ({ number: n, title: n === 101 ? 'Fix sidebar overflow on narrow windows' : 'Add retry to the sync client', url: `https://github.com/t3-fixture/pr-demo/pull/${n}`,
     baseBranch: 'main', headBranch: n === 101 ? 'feature/conflict' : 'feature/failing-checks', state: n === 104 ? 'merged' : 'open' });
@@ -114,7 +115,7 @@ function checkoutClient(threadId = '') {
     }
     if (method === 'git.preparePullRequestThread') {
       if (payload.mode === 'local') throw new Error('fake gh: pr checkout is not available in this fixture (writes are refused)');
-      return { pullRequest: pull(101), branch: 'feature/conflict', worktreePath: '/home/worktrees/pr-demo/pr-101', isOnPullRequestHead: true };
+      return { pullRequest: pull(101), branch: 'feature/conflict', worktreePath: '/home/worktrees/pr-demo/pr-101', isOnPullRequestHead: onHead };
     }
     throw new Error(`no reply for ${method}`);
   };
@@ -179,6 +180,16 @@ describe('PullRequestThreadDialog', () => {
     expect(client.local.composerControls.draftThreads).toEqual({ 'env:new:p1': 'draft-thread-1' });
     expect(client.local.composerControls.contexts).toEqual({ 'env:new:p1': { envMode: 'worktree', branch: 'feature/conflict', worktreePath: '/home/worktrees/pr-demo/pr-101' } });
     expect(checkoutView(client).open).toBe(false);
+  });
+  // A checkout that local work kept off the pull request's head says so as the dialog closes.
+  test('a checkout not confirmed on the pull request head warns; one on it says nothing', async () => {
+    for (const onHead of [true, false]) {
+      const { client } = checkoutClient('', onHead);
+      await checkoutLocal(client, nativeStub, 'open', '101');
+      await checkoutConfirm(client, nativeStub, 'worktree');
+      expect(checkoutView(client).open).toBe(false);
+      expect(toasts(client).map(toast => [toast.kind, toast.title])).toEqual(onHead ? [] : [['warning', 'Checked out, but not confirmed on the latest commit']]);
+    }
   });
   test('Local passes no thread id; a failure stays in the dialog', async () => {
     const { client, calls } = checkoutClient();

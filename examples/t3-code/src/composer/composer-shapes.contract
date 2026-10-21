@@ -30,6 +30,8 @@ shape NoticeSegment
   key: string
   label: string
   threadId: string
+  // The link's accessible name ("Open subagent …", or "Show subagent …" for a lone one).
+  aria: string
   last: bool
 shape ComposerNotice
   id: string
@@ -43,6 +45,7 @@ shape ComposerNotice
   dismissLabel: string
   priority: number
   front: bool
+  activityBefore: bool
   action2: string
   action2Label: string
   lines: string[]
@@ -51,13 +54,12 @@ shape ComposerNotice
   actionId: string
   dismissId: string
   segments: NoticeSegment[]
-  // The title's and actions' tooltips, a red icon, a "·" before the description, the title's live role.
+  // The title's and actions' tooltips, a red icon; `details`: the description is clipped (NoticeDescription).
   tip: string
   actionTip: string
   action2Tip: string
   iconTone: string
-  sep: bool
-  liveRole: string
+  details: bool
   // The multi-machine update banner's popover rows, and its title's accessible name.
   machines: NoticeMachine[]
   menuLabel: string
@@ -144,6 +146,9 @@ shape ComposerBranches
   prUrl: string
   prTarget: string
   prTips: StripPrTip[]
+  // The workspace (composer.workspace) and host (composer.host) shortcuts their tooltips name.
+  keyWorkspace: string
+  keyHost: string
 // One provider mark of a multi-model draft's trigger (composer-controls-fanout.ts).
 shape FanoutMark
   key: string
@@ -186,6 +191,11 @@ shape ComposerView
   tasks: ComposerTask[]
   syncStatus: string
   activity: string
+  // The context strip shows its controls' icons without their labels (useLabelsOverflow, context-strip.ts).
+  stripCompact: bool
+  // The activity strip is the attached front item, or floats in the stack (before a notice's `activityBefore`, or last).
+  activityFront: bool
+  activityLast: bool
   notices: ComposerNotice[]
   // The account whose reset credit confirm is open ('' when none).
   resetConfirm: string

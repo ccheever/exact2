@@ -2,22 +2,22 @@
 // reference, see LICENSE-T3, upstream 9c161462c9: chat/ThreadDetailsPrRow.tsx,
 // pullRequest/PullRequestChecksPopover.tsx): the title takes the whole first
 // line; the second carries the number, the checks (rollup glyph, then
-// "running/total" while runs are in flight or "N failed") with the popover they
+// "completed/total" while runs are in flight or "N failed") with the popover they
 // open, and the one action ranked by what unblocks the merge next. The tooltip
 // card answers what opening the panel would.
 import type { T3Client } from '../client/client';
 import { arr, num, str, type Obj } from '../client/domain';
 import { isActing, normalRef, prState } from './pr-row-actions';
-import { CHECKS_HEADLINE, allowedMergeMethods, checksList, checksRollup, emptyCard, prCard, rowAction, selectedMergeMethod, summarizeChecks, trailingAction, width12, type CheckRow, type PrCard } from './pr-row-logic';
+import { CHECKS_HEADLINE, allowedMergeMethods, checksCount, checksList, checksRollup, emptyCard, prCard, rowAction, selectedMergeMethod, summarizeChecks, trailingAction, width12, type CheckRow, type PrCard } from './pr-row-logic';
 
 export type RowExtra = {
   destructive: boolean; suffix: boolean;
   /** The checks popover's transparent tail: the window's width right of the checks trigger. */
   tail: number; popId: string; method: string;
-  checksTitle: string; checksSummary: string; checksList: CheckRow[]; collapsible: boolean; expanded: boolean;
+  checksTitle: string; checksSummary: string; checksList: CheckRow[]; checksLabels: string[]; checksDetails: boolean; collapsible: boolean; expanded: boolean;
   card: PrCard;
 };
-export const emptyExtra = (): RowExtra => ({ destructive: false, suffix: false, tail: 0, popId: '', method: '', checksTitle: '', checksSummary: '', checksList: [], collapsible: false, expanded: false, card: emptyCard() });
+export const emptyExtra = (): RowExtra => ({ destructive: false, suffix: false, tail: 0, popId: '', method: '', checksTitle: '', checksSummary: '', checksList: [], checksLabels: [], checksDetails: false, collapsible: false, expanded: false, card: emptyCard() });
 
 /**
  * The details card's rows are 262pt wide inline (the 280pt card 12pt from the canvas edge, 1pt
@@ -47,10 +47,8 @@ export function checksTail(rightOfTrigger: number, count: string): number {
 export function rowExtra(client: T3Client, detail: Obj, reference: Obj, input: { key: string; lifecycleKey: string; rightGap: number; inline: boolean }) {
   const state = prState(client), checks = arr(detail.checks), rollup = checksRollup(checks);
   const conflicting = detail.state === 'open' && detail.mergeability === 'conflicting';
-  const running = checks.filter(check => check.status === 'pending').length;
-  const failed = checks.filter(check => check.status === 'failure' || check.status === 'cancelled').length;
   // Counts beat the rollup's own wording where they are known.
-  const count = running > 0 ? `${running}/${checks.length}` : failed > 0 ? `${failed} failed` : '';
+  const count = checksCount(checks);
   const method = selectedMergeMethod(allowedMergeMethods(detail), 'merge');
   const action = rowAction(detail), acting = isActing(client, reference);
   const trailing = trailingAction(action, { handoff: state.handoff, actionPending: acting, method });
@@ -61,7 +59,7 @@ export function rowExtra(client: T3Client, detail: Obj, reference: Obj, input: {
   const extra: RowExtra = {
     destructive: trailing?.destructive ?? false, suffix: trailing?.suffix ?? false,
     tail: checksTail(rowRight + rowWidth - checksTriggerLeft(num(detail.number)) - checksTrigger(count), count), popId: `pr-checks-${num(detail.number)}`, method,
-    checksTitle: CHECKS_HEADLINE[rollup] ?? '', checksSummary: summary, checksList: list.rows, collapsible: list.collapsible, expanded: state.showAll.has(input.key),
+    checksTitle: CHECKS_HEADLINE[rollup] ?? '', checksSummary: summary, checksList: list.rows, checksLabels: list.labels, checksDetails: list.details, collapsible: list.collapsible, expanded: state.showAll.has(input.key),
     // The title's line is the whole row wide.
     card: prCard(detail, input.lifecycleKey, rowWidth + rowRight, { width: rowWidth, linkRight: rowWidth }),
   };

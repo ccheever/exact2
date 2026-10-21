@@ -94,15 +94,27 @@ export const checkStatusLabel = (check: Obj) => (isWorkflowApproval(check) ? 'Aw
 export const CHECKS_HEADLINE: Record<string, string> = { passing: 'All checks have passed', failing: 'Some checks were not successful', pending: "Some checks haven't completed yet" };
 
 export type CheckRow = { key: string; name: string; status: string; label: string; url: string; description: string };
-/** ChecksBody: attention, then running, then (behind "Show all" when the first two exist) completed. */
-export function checksList(checks: Obj[], showAll: boolean): { rows: CheckRow[]; collapsible: boolean } {
+/**
+ * ChecksBody: attention, then running, then (behind "Show all" when the first two exist) completed.
+ * Its rows share one grid: the status labels end-aligned in a column as wide as the widest (`labels`,
+ * each shown label once, which every row's label cell holds at no height), and a Details column
+ * wherever one shown row links its run (`details`).
+ */
+export function checksList(checks: Obj[], showAll: boolean): { rows: CheckRow[]; collapsible: boolean; labels: string[]; details: boolean } {
   const attention = checks.filter(check => ['failure', 'cancelled', 'action-required'].includes(str(check.status)));
   const running = checks.filter(check => check.status === 'pending');
   const completed = checks.filter(check => ['success', 'skipped', 'neutral'].includes(str(check.status)));
   const collapsible = attention.length + running.length > 0 && completed.length > 0;
   const visible = [...attention, ...running, ...(showAll || !collapsible ? completed : [])];
-  return { collapsible, rows: visible.map((check, index) => ({ key: `${index}:${str(check.name)}`, name: str(check.name), status: str(check.status, 'neutral'),
-    label: checkStatusLabel(check), url: str(check.url), description: str(check.description) || str(check.name) })) };
+  const rows = visible.map((check, index) => ({ key: `${index}:${str(check.name)}`, name: str(check.name), status: str(check.status, 'neutral'),
+    label: checkStatusLabel(check), url: str(check.url), description: str(check.description) || str(check.name) }));
+  return { collapsible, rows, labels: [...new Set(rows.map(row => row.label))], details: rows.some(row => row.url !== '') };
+}
+/** The trigger's count (PullRequestChecksPopover variant "count"): completed of all while any are incomplete, else the failures. */
+export function checksCount(checks: Obj[]): string {
+  const incomplete = checks.filter(check => check.status === 'pending' || check.status === 'action-required').length;
+  const failing = checks.filter(failed).length;
+  return incomplete > 0 ? `${checks.length - incomplete}/${checks.length}` : failing > 0 ? `${failing} failed` : '';
 }
 
 // ── Hand-off prompts (untrusted pull request text is bounded and marked) ──
@@ -251,6 +263,20 @@ export function readableFailure(failure: unknown, hint: string): string {
   if (detail.length === 0 || TOOL_NOISE.some(pattern => pattern.test(detail))) return hint;
   return detail.length <= FAILURE_DETAIL_MAX_LENGTH ? detail : `${detail.slice(0, FAILURE_DETAIL_MAX_LENGTH - 1)}…`;
 }
+/**
+ * checkoutFailureDescription: a Git command's own detail and reason (GitCommandError, whose message
+ * the wire does not carry), else the failure's message, else the hint. An interrupted request has nothing to say.
+ */
+export function checkoutFailureDescription(failure: unknown): string {
+  const typed = failure && typeof failure === 'object' ? failure as { kind?: unknown; detail?: unknown; reason?: unknown } : null;
+  const description = typed?.kind === 'Interrupt' ? undefined
+    : typed?.kind === 'GitCommandError' && typeof typed.detail === 'string' && typed.detail ? (typeof typed.reason === 'string' && typed.reason ? `${typed.detail} (${typed.reason})` : typed.detail)
+      : failure;
+  return readableFailure(description, 'Check that the branch still exists and is not checked out elsewhere, then try again.');
+}
+/** OFF_HEAD_PULL_REQUEST_CHECKOUT_TOAST (pullRequestCheckoutToast.ts): a checkout not confirmed at the pull request's head. */
+export const OFF_HEAD_CHECKOUT_TOAST = { kind: 'warning' as const, title: 'Checked out, but not confirmed on the latest commit',
+  description: "This checkout could not be confirmed at the pull request's latest commit, so its code may differ. Local commits or uncommitted work keep a checkout where it is." };
 /**
  * PullRequestActionInput: the reference (an absent host is the project's own) plus the action, the
  * merge method a merge or an armed auto-merge uses, the update method, and a native stack's scope.
