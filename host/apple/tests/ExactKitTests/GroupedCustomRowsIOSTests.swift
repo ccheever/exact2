@@ -76,8 +76,8 @@ final class GroupedCustomRowsIOSTests: GroupedListFixture {
         XCTAssertEqual(line.minX - frame.minX, 16, accuracy: 0.5, "the line where the content now starts")
     }
 
-    /// Right to left the line starts at the content's leading edge, the
-    /// right one, and a row the model drops takes its mark with it.
+    /// Right to left the line is UIKit's own (the row's views are not
+    /// mirrored), and a row the model drops takes its mark with it.
     func testRightToLeftTheLineIsTheKernelsAndADroppedRowTakesItsMark() throws {
         var dropped = false
         let p = presenter { dropped ? GroupedListModel(style: "inset-grouped", sections: [.init(view: 2, header: nil, footer: nil, rows: [
@@ -100,7 +100,8 @@ final class GroupedCustomRowsIOSTests: GroupedListFixture {
         func lines(_ v: UIView) -> [UIView] { (String(describing: type(of: v)).contains("Separator") ? [v] : []) + v.subviews.flatMap(lines) }
         let frame = custom.convert(custom.bounds, to: l.collection)
         let line = try XCTUnwrap(lines(l.collection).map { $0.convert($0.bounds, to: l.collection) }.first { abs($0.maxY - frame.maxY) < 1.5 })
-        XCTAssertEqual(frame.maxX - line.maxX, 16, accuracy: 0.5, "from the content's right edge, 16 in")
+        XCTAssertNil(try list(p).lineStart(21), "no line of ours right to left")
+        XCTAssertEqual(frame.maxX - line.maxX, 16, accuracy: 0.5, "UIKit's own: its margin")
         XCTAssertTrue(image.listSymbol)
         dropped = true
         p.apply(wireBatch([["op": "props", "id": 21, "set": ["testId": "dropped"]]]))
