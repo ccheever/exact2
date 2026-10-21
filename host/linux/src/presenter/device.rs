@@ -25,6 +25,9 @@ pub struct Device {
     pub high_contrast: bool,
     /// The screen is touched with a finger, which cannot hover.
     pub touch: bool,
+    /// The device is a television, driven by a remote's D-pad (LLP
+    /// 1115.001.003 D2): no pointer at all.
+    pub tv: bool,
     /// How far a finger moves before its contact is a drag and no longer a
     /// tap, in points (Android's scaled touch slop); 0 where the shell
     /// knows none, which keeps the shared one.
@@ -49,8 +52,9 @@ impl<D: DataSource> Presenter<D> {
     ///   table and its dates;
     /// - "remove animations" is `prefers-reduced-motion`, high contrast is
     ///   `prefers-contrast: more`;
-    /// - a touch screen is `pointer: coarse` and `hover: none`, and its
-    ///   touch slop is how far a contact moves before it is a drag;
+    /// - a television is `pointer: none` and `hover: none`; a touch screen
+    ///   is `pointer: coarse` and `hover: none`, and its touch slop is how
+    ///   far a contact moves before it is a drag;
     /// - how the device writes dates is how a date control shows its value;
     /// - bold text (Android's font weight adjustment) is Bold Text, which
     ///   weights the system font (LLP 1115.000 D12.3).
@@ -77,9 +81,10 @@ impl<D: DataSource> Presenter<D> {
             false => exact_runner::Contrast::NoPreference,
         };
         preferences.bold_text = device.bold_text;
-        (preferences.pointer, preferences.hover) = match device.touch {
-            true => (exact_runner::Pointer::Coarse, exact_runner::Hover::None),
-            false => (exact_runner::Pointer::Fine, exact_runner::Hover::Hover),
+        (preferences.pointer, preferences.hover) = match (device.tv, device.touch) {
+            (true, _) => (exact_runner::Pointer::None, exact_runner::Hover::None),
+            (false, true) => (exact_runner::Pointer::Coarse, exact_runner::Hover::None),
+            (false, false) => (exact_runner::Pointer::Fine, exact_runner::Hover::Hover),
         };
         // The device's locale, and no regional format apart from it: the
         // shell reports none yet (`Locale.Category.FORMAT`), so
