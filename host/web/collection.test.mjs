@@ -1486,3 +1486,11 @@ test('Chrome: no inline-axis anchoring, a block-axis control anchors; a re-inser
     await ${frames(2)}; return {inline,block,reinserted:strip.scrollLeft}; })()`);
   expect(result).toEqual({ inline: 1000, block: 1300, reinserted: 0 });
 });
+test('a list offset the controller moves owes its scroll event until the browser fires it, and the agent\'s settle waits for it', async () => {
+  // A correction's offset (a landing at the end, as scroll-start="end" makes one), then nothing owed.
+  const r = await evaluate(`(async () => { const f=fixture({own:true}); f.controller.commit([f.snapshot()]); f.flush(); await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
+    const idle=f.controller.owedScrolls(); f.controller.commit([f.snapshot('2',{correction:{scrollSequence:'0',offset:200}})]);
+    const owed=f.controller.owedScrolls(), moved=f.port.scrollTop>0, fired=await f.controller.fireOwedScrolls(), after=f.controller.owedScrolls();
+    return {idle,owed,moved,fired,after,none:await f.controller.fireOwedScrolls()}; })()`);
+  expect(r).toEqual({ idle: 0, owed: 1, moved: true, fired: true, after: 0, none: false });
+});

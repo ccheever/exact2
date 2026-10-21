@@ -380,6 +380,10 @@ export function install(exact) {
             // Text around shapes lays out in the frames after a commit (flow.js).
             await exact.flowSettle?.();
             if (exact.lists) exact.lists.settle();
+            // A list's offset this moved owes a `scroll` event the browser fires
+            // at a rendering step; its reader's handler runs then (collection-glue
+            // `owedScrolls`): wait those frames, then go round again for what it did.
+            if (await exact.lists?.fireOwedScrolls()) continue;
             if (exact.inflight.n > holds().length) continue;
             // Animations (and springs, `settleAt`) that end later move the clock there; an
             // armed `then` runs now, and what it starts is settled in the next round.
