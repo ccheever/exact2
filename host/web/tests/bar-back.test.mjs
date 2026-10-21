@@ -181,6 +181,9 @@ const SOURCE = `routes nav
     kept "/kept"
 
 component App
+  state added = 0
+  action add
+    added = added + 1
   action open
     nav = push(nav, path("detail"))
   action openFull
@@ -215,6 +218,8 @@ component App
           else if e.name == "kept"
             header display="flex" align-items="center" appearance="none"
               text "Updates" role="heading" aria-level=1
+              button press=add testId="add" aria-label="Add"
+                image "symbol:add" font-size=13
             button id="back" press=back testId="back" aria-label="Back" width=44 height=44
               image "symbol:back" font-size=17 width=20 height=20
           else if e.name == "pressing"
@@ -228,6 +233,8 @@ component App
                 button id="back" press=back testId="back" aria-label="Back" width=44 height=44
                   image "symbol:back" font-size=17 width=20 height=20
                 text "Updates" role="heading" aria-level=1
+                button press=add testId="add" aria-label="Add"
+                  image "symbol:add" font-size=13
             else
               header display="flex" align-items="center"
                 if e.name != "home"
@@ -249,6 +256,9 @@ component App
                         text "Updates" role="heading" aria-level=1
                     else
                       text (e.name == "home" ? "Home" : "Updates") role="heading" aria-level=1
+                if e.name != "home"
+                  button press=add testId="add" aria-label="Add"
+                    image "symbol:add" font-size=13
           if e.name == "commanded"
             dialog id="sheet"
               text "Sheet"
@@ -298,6 +308,11 @@ for (const [runtime, webDist] of Object.entries({ wasm: process.env.EXACT_WEB_DI
           // The routes, the bar's Back's words (null for none) and name, and whether the control shows.
           const shown = () => s.carrier.evaluate(`(() => { const routes = [...document.querySelectorAll('main > [navigationkey]')], back = routes.at(-1).querySelector(':scope > header').shadowRoot?.querySelector('button'), drawn = !!back && !back.hidden; return [routes.length, drawn ? back.lastChild.textContent : null, drawn ? back.getAttribute('aria-label') : null, document.querySelector('[data-testid=back]')?.getClientRects().length > 0]; })()`);
           expect([browser, await shown()]).toEqual([browser, [2, '', 'Back', false]]);
+          // The glue marks the bar (LLP 1115.000 D4.15), whose symbol is the bar's size, 22/17 of the 16 px body in its
+          // 1.2em box, over the 13 px written on it; a header iOS makes no bar of keeps the written size.
+          const barOf = () => s.carrier.evaluate(`(() => { const route = [...document.querySelectorAll('main > [navigationkey]')].at(-1), box = route.querySelector('[data-testid=add] img').getBoundingClientRect(); return [route.querySelector(':scope > header').hasAttribute('data-exact-bar'), Math.round(box.width * 10) / 10]; })()`);
+          const [marked, width] = await barOf();
+          expect([browser, marked, Math.abs(width - 16 * 22 / 17 * 1.2) <= 0.06]).toEqual([browser, true, true]);
           await s.tap('back');
           await s.clock('settle');
           expect([browser, (await shown())[0]]).toEqual([browser, 1]);
@@ -311,6 +326,9 @@ for (const [runtime, webDist] of Object.entries({ wasm: process.env.EXACT_WEB_DI
             await s.tap(route);
             await s.clock('settle');
             expect([browser, route, await shown()]).toEqual([browser, route, expected]);
+            // A header iOS makes no bar of keeps the sizes written on its symbols (LLP 1115.000 D4.15): the Back
+            // control's 20 px box, and Add's 13 px in a native button face's 1.5em box.
+            if (expected === none) expect([browser, route, await s.carrier.evaluate(`(r => [r.width, r.height])(document.querySelector('[data-testid=back] img').getBoundingClientRect())`), await barOf()]).toEqual([browser, route, [20, 20], [false, 13 * 1.5]]);
             await s.tap('back');
             await s.clock('settle');
             expect([browser, route, (await shown())[0]]).toEqual([browser, route, 1]);
