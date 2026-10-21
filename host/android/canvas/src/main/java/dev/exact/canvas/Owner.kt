@@ -484,6 +484,12 @@ internal object Exact {
         if (o != null) { o.input(); if (o.answer(KEY_WAIT_MS) { Native.pad(index, connected, values) }) answered() } else Native.pad(index, connected, values)
     }
 
+    fun namedKey(code: String, key: String, down: Boolean, repeat: Boolean) {
+        val o = owner
+        if (o != null) { o.input(); if (o.answer(KEY_WAIT_MS) { Native.namedKey(code, key, down, repeat) }) answered() }
+        else Native.namedKey(code, key, down, repeat)
+    }
+
     /** How long a press or release waits for exact2's answer before the frame goes without it: what is left of a
      * 120 Hz frame after input (a longer wait holds the frame; 16 ms cost 9-15 janky frames per daily scenario). */
     const val WAIT_MS = 5L

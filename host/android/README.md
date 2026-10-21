@@ -1103,6 +1103,38 @@ in the one APK every release installs; at run time a newer release pays the `SDK
 Not tried: Android 11 (no device), and a TypeScript data module: the Android Hermes bundle is built at the NDK's API
 30 (LLP 1107 §4.1), and whether its archives link and load at API 29 is unknown.
 
+## Android TV (LLP 1115.001.003)
+
+The phone's APK also runs on an Android TV, and its manifest puts the app in the TV launcher with a plain banner
+(`app/src/main/res/drawable/banner.xml`). Build it as for a phone, then install it on a TV emulator:
+
+```sh
+bun scripts/agent-android.mjs build caltrain --apk
+adb -s <serial> install -r host/android/app/build/caltrain/outputs/apk/release/app-release.apk
+adb -s <serial> shell am start -a android.intent.action.MAIN -c android.intent.category.LEANBACK_LAUNCHER \
+  -n com.exact.caltrain/dev.exact.app.MainActivity
+```
+
+On a TV:
+
+- **Device facts.** The reader tells the host that the device is a TV (`Device.tv`, from the UI mode's type), and
+  the app reads `pointer: none` and `hover: none`, as on tvOS. The page is 1080 CSS pixels tall, as Apple TV's is
+  1080 points (`Device.scale`): a 1080p TV draws one pixel per CSS pixel, not Android's two per dp. Its safe area
+  is 5% in from each edge, Android TV's overscan margin (`presenter/window.rs`, `tv_margin`). A TV image has no dynamic colour, so the colour
+  roles are Material's baseline scheme (`Palette.read`).
+- **D-pad.** The arrows reach `key` handlers as `ArrowUp`, `ArrowDown`, `ArrowLeft` and `ArrowRight`
+  (`Keys.remote`, `Native.namedKey`). Their default action moves the focus by Android's `FocusFinder` rules
+  (`host/linux/src/presenter/remote.rs`).
+- **Select.** DPAD_CENTER is heard as `Enter`. It presses the focus, toggles a checkbox or switch, and checks a
+  radio.
+- **Back.** Back keeps the phone's order. With no route to go back from, it presses the shown button with
+  `aria-keyshortcuts="Escape"`, as tvOS's Menu does.
+
+A drive with `--reader` restarts the app, and its `type … key ArrowDown` reaches the presenter, not Android's input.
+To test the real keys, send them with `adb shell input keyevent KEYCODE_DPAD_DOWN` while the drive waits on real time
+(`"clock +15000 real"`). `focusGuide`, the media keys, text entry with the TV's keyboard and a banner per app are not
+built.
+
 ## Still the benchmark's
 
 The cut was the smallest one. Left in the reader:

@@ -175,7 +175,7 @@ impl<D: DataSource> Presenter<D> {
     /// is enabled by, so that Back with nowhere to go leaves the app with
     /// the system's own animation (D6).
     pub fn back_goes(&self) -> bool {
-        self.top_open() || self.back().is_some()
+        self.top_open() || self.back().is_some() || self.remote_back_shows()
     }
 
     /// The agent's `back` (LLP 1116.006 D4): system Back, as a desktop's
@@ -201,7 +201,8 @@ impl<D: DataSource> Presenter<D> {
             return true;
         }
         let Some(back) = self.back() else {
-            return false;
+            // A TV's remote has no Escape key: its Back is one (LLP 1115.001.003 D3).
+            return self.remote() && self.shortcut("Escape", false, now_ms);
         };
         let error = match back {
             Back::Press(control) => {
