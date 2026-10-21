@@ -626,6 +626,7 @@ private final class VideoArm: NSObject, NowPlayingPlayer {
             applyDynamicRange()
             container.insertSubview(native.view, belowSubview: poster)
             displayObservations = [native.observe(\.isReadyForDisplay, options: [.new]) { [weak self] _, _ in self?.displayReadinessChanged() }]
+            showPoster() // the controller has no frame yet
             inline?.playerLayer.player = nil
             inline?.removeFromSuperview()
             inline = nil

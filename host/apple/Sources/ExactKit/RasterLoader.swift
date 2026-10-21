@@ -221,13 +221,15 @@ private final class RasterBackend: @unchecked Sendable {
         return true
     }
     /// A remote source's body arrived: a worker reads its header next. One
-    /// let go of meanwhile is asked for again from the start.
+    /// let go of meanwhile is asked for again from the start, and the room
+    /// it held at the metadata cap may admit a waiting image.
     private func downloaded(_ source: RasterSource, _ cancellation: RasterCancellation, _ result: Result<RasterInput, Error>) {
         lock.lock()
         if cancellation.isCancelled { source.cancellation = RasterCancellation() } else { source.fetched = result }
         source.inspecting = false
         lock.unlock()
         exact_raster_session_control(id, 5)
+        wake()
     }
     func decode(_ work: ExactRasterWork) {
         let charge = NativeRasterCharge(work.charge)

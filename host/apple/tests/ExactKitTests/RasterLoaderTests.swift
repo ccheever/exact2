@@ -589,13 +589,17 @@ final class RasterLoaderTests: XCTestCase {
             }
             try png(root, "local.png", width: 120, height: 60, identity: 90)
             other.load(local, source: "local.png", resolver: resolver)
-            // No main-runloop progress: cancelled HTTP must free the workers
-            // so another session can inspect local metadata independently.
+            // No main-runloop progress: the hanging downloads hold no worker,
+            // so another session inspects local metadata independently.
             let hang = Date(timeIntervalSinceNow: 300)
             while (other.diagnostics["metadataReads"] as? Int ?? 0) == 0 && Date() < hang { Thread.sleep(forTimeInterval: 0.005) }
             XCTAssertEqual(other.diagnostics["metadataReads"] as? Int, 1)
             settle { local.raster != nil }
             XCTAssertEqual(server.accepted, 2) // server still never replied
+            // The downloads are cancelled, not left waiting on the server.
+            let closing = Date(timeIntervalSinceNow: 10)
+            while server.closed < 2 && Date() < closing { RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.01)) }
+            XCTAssertEqual(server.closed, 2, operation)
         }
     }
     /// Remote images download at once, as a page's do, and none holds a
@@ -731,13 +735,16 @@ private final class RasterAdmissionFlood: @unchecked Sendable {
 }
 
 /// Loopback-only fixture. It accepts two HTTP connections and sends no bytes;
-/// the native source cancellation, not a server response, must unblock workers.
+/// the native source cancellation, not a server response, must end them
+/// (`closed` counts the connections the client closed).
 private final class HangingRasterHTTP: @unchecked Sendable {
     private let listener: Int32
     private let lock = NSLock()
     private var clients: [Int32] = []
+    private var ended = 0
     let port: UInt16
     var accepted: Int { lock.lock(); defer { lock.unlock() }; return clients.count }
+    var closed: Int { lock.lock(); defer { lock.unlock() }; return ended }
     init() throws {
         let fd = socket(AF_INET, SOCK_STREAM, 0)
         listener = fd
@@ -753,7 +760,13 @@ private final class HangingRasterHTTP: @unchecked Sendable {
         DispatchQueue.global().async { [self] in
             for _ in 0..<2 {
                 let client = accept(listener, nil, nil)
-                if client >= 0 { lock.lock(); clients.append(client); lock.unlock() }
+                guard client >= 0 else { continue }
+                lock.lock(); clients.append(client); lock.unlock()
+                Thread.detachNewThread { [self] in
+                    var buffer = [UInt8](repeating: 0, count: 4096)
+                    while recv(client, &buffer, buffer.count, 0) > 0 {}
+                    lock.lock(); ended += 1; lock.unlock()
+                }
             }
         }
     }

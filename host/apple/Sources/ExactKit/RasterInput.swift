@@ -316,7 +316,8 @@ private final class RasterDownloads: NSObject, URLSessionDataDelegate, @unchecke
     static let shared = RasterDownloads()
     private let lock = NSLock()
     private var sessions: [UInt: URLSession] = [:]
-    private var downloads: [Int: RasterDownload] = [:]
+    /// By task, not `taskIdentifier`, which is unique only within one session.
+    private var downloads: [ObjectIdentifier: RasterDownload] = [:]
     /// Callbacks for every download run one at a time, so each download's
     /// state is touched by one thread.
     private let queue: OperationQueue = { let queue = OperationQueue(); queue.maxConcurrentOperationCount = 1; return queue }()
@@ -325,12 +326,12 @@ private final class RasterDownloads: NSObject, URLSessionDataDelegate, @unchecke
         let session = sessions[policy.rawValue] ?? URLSession(configuration: Self.configuration(policy), delegate: self, delegateQueue: queue)
         sessions[policy.rawValue] = session
         let task = session.dataTask(with: url)
-        downloads[task.taskIdentifier] = download
+        downloads[ObjectIdentifier(task)] = download
         return task
     }
     private func download(_ task: URLSessionTask, finished: Bool = false) -> RasterDownload? {
         lock.lock(); defer { lock.unlock() }
-        return finished ? downloads.removeValue(forKey: task.taskIdentifier) : downloads[task.taskIdentifier]
+        return finished ? downloads.removeValue(forKey: ObjectIdentifier(task)) : downloads[ObjectIdentifier(task)]
     }
     private static func configuration(_ policy: URLRequest.CachePolicy) -> URLSessionConfiguration {
         let configuration = URLSessionConfiguration.default
