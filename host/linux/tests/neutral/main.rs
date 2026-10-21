@@ -60,6 +60,10 @@ const APP: &str = r##"component App
         input type="checkbox" testId="dark-check"
         input type="checkbox" role="switch" testId="dark-switch"
         input type="checkbox" role="switch" checked=true testId="dark-switch-on"
+      button appearance="auto" -exact-control-size="mini" testId="mini"
+        text "Go"
+      button appearance="auto" -exact-control-size="small" testId="small"
+        text "Go"
 "##;
 
 // neutral.css styles every direct route header, including one whose two
@@ -237,6 +241,15 @@ fn a_host_with_no_toolkit_under_it_draws_the_webs_neutral_look() {
     assert_eq!(size(&mut p, "large-check"), (25.0, 25.0));
     // A field has no floor: its line, its padding and its edge.
     assert_eq!(size(&mut p, "large-field").1, 25.0 + 2.0 * 8.75 + 2.0);
+    // A mini or small button is titled as the page titles it at a 16 px root,
+    // in the subheadline's 14 px: its line, its padding and its edge.
+    for name in ["mini", "small"] {
+        assert_eq!(
+            size(&mut p, name).1,
+            14.0 * 1.25 + 2.0 * 14.0 * 0.4375 + 2.0,
+            "{name}"
+        );
+    }
 
     // The colours are the role table's neutral column. The page's ground is
     // white; a line that marks a control's edge is the label's ink at 45%.

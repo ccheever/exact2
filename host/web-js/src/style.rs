@@ -917,6 +917,22 @@ static CORNER_MAP: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {
     )
 });
 
+/// A bound control size's two properties, as css.rs writes a literal one's
+/// (`css/control_size.rs`): each size's value, then any other value's.
+static CONTROL_SIZE_MAPS: std::sync::LazyLock<[String; 2]> = std::sync::LazyLock::new(|| {
+    use exact_web::css::control_size::{font_size, touch_floor};
+    let map = |value: fn(&str) -> Option<String>| {
+        let js = |size| value(size).map_or("null".into(), |v| format!("{v:?}"));
+        let sizes = StyleId::ControlSize.enum_names();
+        let pairs: Vec<_> = sizes.iter().map(|s| format!("{s}:{}", js(s))).collect();
+        format!("v=>v==null?v:({{{}}})[v]??{}", pairs.join(","), js(""))
+    };
+    [
+        map(|s| Some(font_size(s))),
+        map(|s| touch_floor(s).map(Into::into)),
+    ]
+});
+
 static TINT_MAP: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {
     let mut initial = String::new();
     exact_kernel::gradient::color_css(
@@ -957,7 +973,10 @@ pub fn style_writes(id: u16, timeline: bool) -> Result<Vec<Write>, String> {
             unit: "px".into(),
             map: Some(TEXT_STYLE_MAP.as_str()),
         }],
-        StyleId::ControlSize => vec![with("--exact-control-font-size", "v=>v==null?v:({mini:'x-small',small:'small',medium:'medium',large:'large',unset:'medium'})[v]??'medium'")],
+        StyleId::ControlSize => vec![
+            with("--exact-control-font-size", &CONTROL_SIZE_MAPS[0]),
+            with("--exact-touch-floor", &CONTROL_SIZE_MAPS[1]),
+        ],
         StyleId::TintColor => vec![with("--exact-tint", &TINT_MAP)],
         StyleId::PlaceholderColor => vec![with("--exact-placeholder-color", "v=>v==null?v:/^\\s*(unset)?\\s*$/i.test(v)?'initial':v")],
         StyleId::ControlCornerStyle => vec![with("--exact-control-radius", "v=>v==null?v:v==='capsule'?'calc(infinity * 1px)':'revert'")],

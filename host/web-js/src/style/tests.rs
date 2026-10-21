@@ -296,6 +296,36 @@ fn a_bound_text_style_is_its_rem() {
     );
 }
 
+/// LLP 1069.011.001 D8: a bound control size writes what css.rs writes for
+/// the literal one, and a clear (`null`) writes nothing.
+#[test]
+fn a_bound_control_size_writes_the_literal_declarations() {
+    let writes = style_writes(StyleId::ControlSize as u16, false).unwrap();
+    let values = ["mini", "small", "medium", "large", "null"];
+    let mapped: Vec<_> = writes
+        .iter()
+        .map(|w| {
+            run(
+                &format!("v=>({})(v==='null'?null:v)", w.map.unwrap()),
+                &values,
+            )
+        })
+        .collect();
+    for (i, value) in values.into_iter().enumerate() {
+        let bound: String = writes
+            .iter()
+            .zip(&mapped)
+            .filter_map(|(w, out)| out[i].as_str().map(|v| format!("{}:{v};", w.name)))
+            .collect();
+        let mut style = exact_kernel::StyleProps::default();
+        if value != "null" {
+            let size = exact_kernel::StyleValue::Text(value.into());
+            style.set_dynamic(StyleId::ControlSize, &size).unwrap();
+        }
+        assert_eq!(bound, exact_web::css::css_text(&style, &[]).0, "{value}");
+    }
+}
+
 #[test]
 fn a_computed_transition_is_checked_as_an_authors() {
     // LLP 1081 D5: the new tint becomes the property the browser
