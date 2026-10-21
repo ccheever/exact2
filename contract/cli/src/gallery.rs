@@ -76,6 +76,8 @@ struct Placed<'a> {
     export: String,
     specifier: String,
     identity: String,
+    /// The file declaring it, canonical.
+    declaring: PathBuf,
     component: &'a Component,
     variants: Vec<(String, Vec<String>)>,
 }
@@ -156,13 +158,19 @@ pub fn generate(app_contract: &Path, out: &Path) -> Result<Gallery, String> {
             "\ncomponent Gallery\n  view\n    column\n".to_owned(),
         ))
         .collect();
-    reaches(&path, &probe, &out, &packages, &placed)?;
-    // Written once the gallery is known to reach the app's packages: a refusal before leaves nothing to clear.
+    // The manifest as it is now (the probe reads it: an older one may name a design since moved); one the
+    // probe refuses, with no gallery source beside it, is taken away again, leaving nothing to clear.
     std::fs::write(
         out.join("app.json"),
         gallery_manifest(&manifest, design.as_deref(), &out),
     )
     .map_err(|e| format!("{}: {e}", out.display()))?;
+    if let Err(e) = reaches(&path, &probe, &out, &packages, &placed) {
+        if !path.exists() {
+            let _ = std::fs::remove_file(out.join("app.json"));
+        }
+        return Err(e);
+    }
     for _ in 0..=cells.len() + 1 {
         let s = source(&placed, &file, &shapes, &compiler, &cells, None);
         write(&s.text)?;
@@ -307,30 +315,29 @@ fn destination(out: &Path, root: &Path) -> Result<PathBuf, String> {
             out.display()
         ));
     }
-    // And git ignores what it writes there, where git can say.
+    // And git ignores every path it writes there.
     if let Some(repository) = repository {
-        let ignored = std::process::Command::new("git")
-            .arg("-C")
-            .arg(repository)
-            .args(["check-ignore", "-q", "--no-index"])
-            .arg(canon.join("app.contract"))
-            .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null())
-            .status();
-        if matches!(ignored, Ok(status) if !status.success()) {
-            return Err(format!(
-                "{}: git doesn't ignore it: the gallery goes to an ignored build cache",
-                out.display()
-            ));
+        match all_ignored(repository, &canon) {
+            Some(true) => {}
+            Some(false) => {
+                return Err(format!(
+                    "{}: git doesn't ignore what the gallery writes there: the gallery goes to an ignored build cache",
+                    out.display()
+                ))
+            }
+            None => {
+                return Err(format!(
+                    "{}: git couldn't say whether it ignores the gallery's files",
+                    out.display()
+                ))
+            }
         }
     }
     std::fs::create_dir_all(&canon).map_err(|e| format!("{}: {e}", out.display()))?;
     // Ours, or nothing: a link (one back to the app's own files) or a file this didn't write is never written
-    // over. A gallery's manifest alone is ours too (a run refused before its source).
-    let ours = std::fs::read_to_string(canon.join("app.contract")).map_or_else(
-        |_| std::fs::read_to_string(canon.join("app.json")).is_ok_and(|t| lone_manifest(&t)),
-        |t| t.starts_with(HEADER),
-    );
+    // over, a manifest alone included (a run this refused leaves none).
+    let ours =
+        std::fs::read_to_string(canon.join("app.contract")).is_ok_and(|t| t.starts_with(HEADER));
     for name in ["app.contract", "app.json"] {
         let at = canon.join(name);
         let Ok(meta) = std::fs::symlink_metadata(&at) else {
@@ -344,6 +351,32 @@ fn destination(out: &Path, root: &Path) -> Result<PathBuf, String> {
         }
     }
     Ok(canon)
+}
+
+/// Whether git ignores each of the gallery's files under `out` (`None`:
+/// git couldn't say): `check-ignore --non-matching --verbose` lists every
+/// path, a matching one with its pattern, an unmatched one (or a tracked
+/// one, which no rule ignores) with none.
+fn all_ignored(repository: &Path, out: &Path) -> Option<bool> {
+    let listed = std::process::Command::new("git")
+        .arg("-C")
+        .arg(repository)
+        .args(["check-ignore", "--non-matching", "--verbose"])
+        .args(["app.contract", "app.json", "assets"].map(|n| out.join(n)))
+        .stderr(std::process::Stdio::null())
+        .output()
+        .ok()?;
+    let text = String::from_utf8(listed.stdout).ok()?;
+    let lines: Vec<&str> = text.lines().collect();
+    // A matching path's line names its source file and pattern; a negation (`!`) is no ignore.
+    Some(
+        lines.len() == 3
+            && lines.iter().all(|l| {
+                l.split('\t').next().is_some_and(|m| {
+                    !m.starts_with("::") && !m.split(':').nth(2).unwrap_or("").starts_with('!')
+                })
+            }),
+    )
 }
 
 /// `path` canonical as it will be once made: its nearest existing ancestor
@@ -371,20 +404,6 @@ fn to_be(path: &Path) -> std::io::Result<PathBuf> {
     let mut canon = at.canonicalize()?;
     canon.extend(rest.iter().rev());
     Ok(canon)
-}
-
-/// Whether `text` is a manifest a gallery writes: its name, the app's
-/// identity, its design, and nothing else.
-fn lone_manifest(text: &str) -> bool {
-    let Ok(serde_json::Value::Object(json)) = serde_json::from_str(text) else {
-        return false;
-    };
-    json.keys()
-        .all(|k| matches!(k.as_str(), "name" | "app" | "tamber"))
-        && json
-            .get("name")
-            .and_then(|n| n.as_str())
-            .is_some_and(|n| n.ends_with(" gallery"))
 }
 
 /// The gallery's `assets` is the app's (a link), so its design reads the
@@ -462,12 +481,14 @@ fn reaches(
         let Some(p) = brought.get(import.span.line.saturating_sub(1) as usize) else {
             continue;
         };
-        let reached = file
-            .components
-            .iter()
-            .find(|c| c.name == import.name)
-            .and_then(|c| c.params.identity.as_deref());
-        if reached != Some(p.identity.as_str()) {
+        let component = file.components.iter().find(|c| c.name == import.name);
+        let reached = component.and_then(|c| c.params.identity.as_deref());
+        // And from the same file, not another install's copy that names it alike.
+        let same = component.is_some_and(|c| {
+            let at = sources.path(c.span).to_path_buf();
+            at.canonicalize().unwrap_or(at) == p.declaring
+        });
+        if reached != Some(p.identity.as_str()) || !same {
             return Err(format!(
                 "{}: `{}` from {} reaches {} here, the app's {}: put the gallery where the app's packages are reached",
                 out.display(),
@@ -552,6 +573,10 @@ fn placed<'a>(
             export: n.name.clone(),
             specifier: u.path.clone(),
             identity,
+            declaring: {
+                let at = sources.path(c.span).to_path_buf();
+                at.canonicalize().unwrap_or(at)
+            },
             component: c,
             variants: contract_lower::anatomy::described(c, file).variants,
         });
@@ -645,6 +670,8 @@ fn exported(
         &package,
         0,
     )
+    .into_iter()
+    .next()
 }
 
 /// A package a shape's re-exports may name by itself (`"@acme/lib/card"`).
@@ -655,47 +682,68 @@ struct Package<'a> {
 }
 
 impl Package<'_> {
+    /// The names it goes by: the one the app's `use` reached it by, and its
+    /// own (`package.json`'s, which its own files `use`).
+    fn names(&self) -> impl Iterator<Item = &str> {
+        std::iter::once(self.name).chain(self.json["name"].as_str())
+    }
+
     /// The file a `use` in the package reaches, written from file `at`: a
     /// relative path, or the package's own name with or without a subpath.
     fn reached(&self, at: &Path, specifier: &str) -> Option<PathBuf> {
         let file = if specifier.starts_with('.') {
             at.parent()?.join(specifier)
-        } else if specifier == self.name {
+        } else if self.names().any(|n| n == specifier) {
             self.root.join(crate::resolve::package_entry(self.json))
         } else {
-            let sub = specifier.strip_prefix(self.name)?.strip_prefix('/')?;
-            self.root
-                .join(crate::resolve::package_subpath(self.json, sub)?.trim_start_matches("./"))
+            let sub = self
+                .names()
+                .find_map(|n| specifier.strip_prefix(n)?.strip_prefix('/'))?;
+            // As the loader: a package with `exports` offers what it lists, one without its files by path.
+            let mapped = match crate::resolve::package_subpath(self.json, sub) {
+                Some(entry) => entry,
+                None if self.json["exports"].is_null() => format!("./{sub}"),
+                None => return None,
+            };
+            self.root.join(mapped.trim_start_matches("./"))
         };
         Some(file.canonicalize().unwrap_or(file))
     }
 }
 
-/// The name file `at` gives the shape `declared` of file `declaring`,
+/// The names file `at` gives the shape `declared` of file `declaring`,
 /// through each re-export on the way (`use Info as PublicInfo`, by a
-/// relative path or the package's own name), at most 8 files deep.
+/// relative path or the package's own name; every alias a file gives it),
+/// at most 8 files deep.
 fn exported_by(
     at: &Path,
     declaring: &Path,
     declared: &str,
     package: &Package,
     depth: usize,
-) -> Option<String> {
+) -> Vec<String> {
     if at == declaring {
-        return Some(declared.to_owned());
+        return vec![declared.to_owned()];
     }
     if depth >= 8 {
-        return None;
+        return Vec::new();
     }
-    let file = parse(at, 0)?;
-    file.uses.iter().find_map(|u| {
-        let next = package.reached(at, &u.path)?;
-        let inner = exported_by(&next, declaring, declared, package, depth + 1)?;
-        u.names
-            .iter()
-            .find(|n| n.name == inner)
-            .map(|n| n.local().to_owned())
-    })
+    let Some(file) = parse(at, 0) else {
+        return Vec::new();
+    };
+    let mut names = Vec::new();
+    for u in &file.uses {
+        let Some(next) = package.reached(at, &u.path) else {
+            continue;
+        };
+        let inner = exported_by(&next, declaring, declared, package, depth + 1);
+        for n in u.names.iter().filter(|n| inner.contains(&n.name)) {
+            if !names.iter().any(|m| m == n.local()) {
+                names.push(n.local().to_owned());
+            }
+        }
+    }
+    names
 }
 
 /// The gallery's `app.json`: the app's own identity (as [`crate::Manifest`]

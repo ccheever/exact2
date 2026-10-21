@@ -504,15 +504,17 @@ fn a_checkout_under_a_target_directory_and_a_cache_git_does_not_ignore_are_refus
     // A `target` git doesn't ignore here (only node_modules/ is): refused; the ignored node_modules cache is fine.
     let e =
         contract::gallery::generate(&at.join("app.contract"), &repo.join("target/g")).unwrap_err();
-    assert!(e.contains("git doesn't ignore it"), "{e}");
+    assert!(
+        e.contains("git doesn't ignore what the gallery writes"),
+        "{e}"
+    );
     contract::gallery::generate(&at.join("app.contract"), &at.join("node_modules/.cache/g"))
         .expect("the gallery");
     let _ = std::fs::remove_dir_all(&base);
 }
 
 #[test]
-fn a_refused_cell_keeps_its_packages_design_a_chain_of_re_exports_names_the_shape_and_a_lone_manifest_is_retried(
-) {
+fn a_refused_cell_keeps_its_packages_design_and_a_chain_of_re_exports_names_the_shape() {
     let dir = fixture("chain");
     let lib = dir.join("node_modules/@acme/lib");
     // `Info` reaches the entry through a barrel, renamed; `Align` fails its placeholder and is the app's only use.
@@ -520,8 +522,9 @@ fn a_refused_cell_keeps_its_packages_design_a_chain_of_re_exports_names_the_shap
         &lib,
         &[
             ("card.contract", CARD),
-            ("barrel.contract", "use Card, Info from \"./card.contract\"\n"),
-            ("index.contract", "use Card, Info as PublicInfo from \"./barrel.contract\"\n\ncomponent Align\n  props\n    align: string\n  parts\n    face: paint\n  view\n    text \"a\" part=\"face\" text-align=align\n"),
+            // Two names for one shape in the barrel; the entry takes the second.
+            ("barrel.contract", "use Card, Info as Internal, Info as PublicInfo from \"./card.contract\"\n"),
+            ("index.contract", "use Card, PublicInfo from \"./barrel.contract\"\n\ncomponent Align\n  props\n    align: string\n  parts\n    face: paint\n  view\n    text \"a\" part=\"face\" text-align=align\n"),
         ],
     );
     std::fs::write(dir.join("app.contract"), "use Align from \"@acme/lib\"\n\ncomponent App\n  view\n    column\n      Align(align=\"left\")\n").unwrap();
@@ -532,14 +535,6 @@ fn a_refused_cell_keeps_its_packages_design_a_chain_of_re_exports_names_the_shap
     )
     .unwrap();
     let out = dir.join("node_modules/.cache/exact-gallery");
-    // A manifest a gallery run left alone (refused before its source): taken as ours.
-    write(
-        &out,
-        &[(
-            "app.json",
-            r#"{"name": "Fx gallery", "app": {"id": "com.acme.fx", "name": "Fx gallery"}, "tamber": "../../../app.tamber"}"#,
-        )],
-    );
     // Its only cell refused, the package still brought: the gallery compiles with the app's design.
     let g = contract::gallery::generate(&dir.join("app.contract"), &out).expect("the gallery");
     let shown: Vec<(&str, bool)> = g
@@ -589,5 +584,59 @@ fn a_refused_cell_keeps_its_packages_design_a_chain_of_re_exports_names_the_shap
     );
     let text = std::fs::read_to_string(&g.source).unwrap();
     assert!(text.contains("use Shown from \"@acme/lib\""), "{text}");
+    // And a package with no `exports`, its file by path, as the loader reaches it.
+    write(
+        &lib,
+        &[
+            ("package.json", r#"{"name":"@acme/lib","version":"1.0.0","private":true}"#),
+            ("index.contract", "use Card, Info as ByPath from \"@acme/lib/card.contract\"\n\ncomponent Align\n  props\n    align: string\n  parts\n    face: paint\n  view\n    text \"a\" part=\"face\" text-align=align\n"),
+        ],
+    );
+    let g = contract::gallery::generate(&dir.join("app.contract"), &out).expect("the gallery");
+    assert!(
+        g.cells
+            .iter()
+            .filter(|c| c.component == "Card")
+            .all(|c| c.refused.is_none()),
+        "{:?}",
+        g.cells
+    );
+    let text = std::fs::read_to_string(&g.source).unwrap();
+    assert!(text.contains("use ByPath from \"@acme/lib\""), "{text}");
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn a_refused_probe_leaves_no_manifest_so_the_next_run_proceeds_and_git_must_ignore_every_file() {
+    let dir = fixture("retry");
+    let app = dir.join("app.contract");
+    // A cache no node_modules reaches: refused, and nothing of the gallery's left there.
+    let other = std::env::temp_dir().join(format!("exact2-gallery-other-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&other);
+    let out = other.join("target/g");
+    let e = contract::gallery::generate(&app, &out).unwrap_err();
+    assert!(e.contains("can't reach the app's packages"), "{e}");
+    assert!(!out.join("app.json").exists());
+    // Reached now (its own node_modules links the app's): the same destination proceeds.
+    std::os::unix::fs::symlink(dir.join("node_modules"), other.join("node_modules")).unwrap();
+    contract::gallery::generate(&app, &out).expect("the gallery");
+    // A foreign manifest alone is never written over.
+    let lone = dir.join("target/lone2");
+    write(&lone, &[("app.json", r#"{"name": "Photo gallery"}"#)]);
+    let e = contract::gallery::generate(&app, &lone).unwrap_err();
+    assert!(e.contains("not a gallery this wrote"), "{e}");
+    // In a repository ignoring only the source, the manifest would show: refused.
+    let repo = other.join("repo");
+    std::fs::create_dir_all(&repo).unwrap();
+    git_init(&repo);
+    let at = repo.join("x");
+    std::fs::rename(&dir, &at).unwrap();
+    write(&repo, &[(".gitignore", "x/target/g/app.contract\n")]);
+    let e =
+        contract::gallery::generate(&at.join("app.contract"), &at.join("target/g")).unwrap_err();
+    assert!(
+        e.contains("git doesn't ignore what the gallery writes"),
+        "{e}"
+    );
+    let _ = std::fs::remove_dir_all(&other);
 }
