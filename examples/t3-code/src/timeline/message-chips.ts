@@ -13,7 +13,8 @@ import { fileIconToken } from '../shared/timeline-files';
 import type { T3Client } from '../client/client';
 import { decodeClientPrefs, type ClientPrefs } from '../settings/settings-core';
 import { fontStack } from '../appearance/settings-appearance';
-import { assistantCitationLabel, collectAssistantCitations, parseAssistantCitationHref } from './diff-citations';
+import { assistantCitationLabel, parseAssistantCitationHref } from './diff-citations';
+import { COMPOSER_CITATION } from '../composer/composer-source-chips';
 import { markdownLinkHref, markdownMediaChips, noteMarkdownDocument, type MediaScope } from '../media/media-views'; // a message's images and their actions
 import type { ThreadLinkGlyph } from './markdown-thread-glyphs';
 
@@ -134,9 +135,11 @@ const MARKDOWN_LINK = /!?\[([^\]\n]*)\]\((?:<[^>\n]*>|[^\s)]*)\)/g;
 export function shouldCollapseUserMessage(text: string): boolean {
   const linkLabels = (segment: string) => segment.replace(MARKDOWN_LINK, '$1');
   let visible = '', cursor = 0;
-  for (const match of collectAssistantCitations(text)) {
-    visible += linkLabels(text.slice(cursor, match.start)) + assistantCitationLabel(match.citation);
-    cursor = match.end;
+  for (const match of text.matchAll(COMPOSER_CITATION)) {
+    const citation = parseAssistantCitationHref(match[1]!);
+    if (!citation) continue;
+    visible += linkLabels(text.slice(cursor, match.index)) + assistantCitationLabel(citation);
+    cursor = match.index + match[0].length;
   }
   visible += linkLabels(text.slice(cursor));
   return visible.trim().length > 0 && (visible.length > 600 || visible.split('\n').length > 8);
@@ -154,7 +157,8 @@ export function messageChips(item: Obj, root: string, threads: Obj[], owner = ''
     const record = records.get(match[5]!);
     add(contextChip(href, kind, label, record && str(record.kind) === kind ? record : undefined, attachments, threads));
   }
-  if (text.includes('](t3-citation:')) for (const match of collectAssistantCitations(text)) add(citationChip(match.source.slice('[Assistant quote]('.length, -1)));
+  // A citation by its destination, whatever its label reads, as the composer sends it (COMPOSER_CITATION).
+  if (text.includes('](t3-citation:')) for (const match of text.matchAll(COMPOSER_CITATION)) if (parseAssistantCitationHref(match[1]!)) add(citationChip(match[1]!));
   if (text.includes('](')) for (const link of markdownLinks(text)) {
     // Exactly the destinations markdown.rs draws as file chips.
     if (link.image || !markdownLinkHref(link.href).startsWith('t3-file:')) continue;
@@ -181,7 +185,7 @@ export function messageChips(item: Obj, root: string, threads: Obj[], owner = ''
 
 /** AssistantCitationChip (T3 Code 9c161462c9): the label is the quote (or its comment) cut at 64 characters; its popover
  * shows the quote (`tip`) and the comment (`size`), and "Go to source" opens the cited thread (`target`) at the answer
- * (`detail`). Each `[Assistant quote](t3-citation://…)` is read with the reference's parseAssistantCitationHref (diff-citations.ts). */
+ * (`detail`). Each citation link's destination is read with the reference's parseAssistantCitationHref (diff-citations.ts). */
 function citationChip(href: string): Omit<ChipView, 'id' | 'owner'> {
   const citation = parseAssistantCitationHref(href);
   return { href, kind: 'citation', label: citation ? assistantCitationLabel(citation) : '', size: citation?.comment ?? '', tip: citation?.text ?? '',

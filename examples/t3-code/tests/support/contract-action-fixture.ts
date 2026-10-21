@@ -252,3 +252,15 @@ export function contractComponent(file: string, name: string) {
     derives,
   };
 }
+
+/** `file`'s top-level `fn` lines as functions of their parameters (each sees the ones before it and `scope`). */
+export function contractFns(file: string, scope: Env = {}): Env {
+  const fns: Env = {};
+  for (const line of readFileSync(appPath(file), 'utf8').split('\n')) {
+    const m = /^fn (\w+)\(([^)]*)\): \w+(?:\[\])? = (.+)$/.exec(line);
+    if (!m) continue;
+    const params = [...m[2]!.matchAll(/(\w+):/g)].map(p => p[1]!);
+    fns[m[1]!] = (...args: unknown[]) => value(m[3]!, { ...scope, ...fns, ...Object.fromEntries(params.map((p, i) => [p, args[i]])) });
+  }
+  return fns;
+}
