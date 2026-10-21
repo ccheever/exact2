@@ -692,7 +692,7 @@ const USAGE = `exact — run an Exact app from the command line (macOS)
   exact tamber op <url> <request JSON>|subscribe  its scripted client
   exact tamber pair <url> --scope read|propose|write [--name <n>]  a pairing code for a remote client
   exact tamber tool [<app>] [--via <dev url>]  the design tool, at http://127.0.0.1:7740/__tamber/tool/
-  exact tamber import shadcn|tailwind|dtcg|astryx <source> <url> --app <app>  a theme as held proposals
+  exact tamber import shadcn|tailwind|dtcg|pen|astryx <source> <url> --app <app>  a theme as held proposals
                                (astryx: bun scripts/astryx-tokens.mjs resolves its pinned package first)
   exact tamber export dtcg <app> [-o <file>]  the design as DTCG 2025.10; its baseline in .exact/
 
