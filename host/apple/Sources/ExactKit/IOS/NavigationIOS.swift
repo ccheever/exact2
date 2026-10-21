@@ -62,6 +62,7 @@ final class RouteController: UIViewController {
     }
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
+        host?.presenter.session?.rasters.displayChanged()
         appeared?()
     }
     required init?(coder: NSCoder) { nil }

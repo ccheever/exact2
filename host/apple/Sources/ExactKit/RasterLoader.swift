@@ -559,6 +559,9 @@ final class RasterLoader {
     /// lands, so an empty side counts as one point.
     private static func mayShow(_ view: NodeView) -> Bool {
         guard view.window != nil else { return false }
+        #if os(iOS) || os(tvOS)
+        if view.presenter?.navigation.headerPhotoSize(view) != nil { return true }
+        #endif
         let probe = CGRect(origin: view.bounds.origin, size: CGSize(width: max(1, view.bounds.width), height: max(1, view.bounds.height)))
         var root: MediaPlatformView = view
         while let parent = root.superview {
@@ -603,13 +606,20 @@ final class RasterLoader {
         return view.traitCollection.displayScale
         #endif
     }
+    private static func displaySize(_ view: NodeView) -> CGSize {
+        #if os(iOS) || os(tvOS)
+        if let size = view.presenter?.navigation.headerPhotoSize(view) { return size }
+        #endif
+        return view.bounds.size
+    }
     /// For an SVG under `object-fit: fill` (CSS's initial value), the box's
     /// pixel size, which is the concrete object size the picture is drawn at
     /// (LLP 1011.001 D1); nil for a bitmap or another fit.
     private static func svgAspect(_ view: NodeView, _ metadata: RasterMetadata) -> (Int, Int)? {
-        guard metadata.svg, (view.style["object_fit"]?.string ?? "fill") == "fill", view.bounds.width > 0, view.bounds.height > 0 else { return nil }
+        let box = displaySize(view)
+        guard metadata.svg, (view.style["object_fit"]?.string ?? "fill") == "fill", box.width > 0, box.height > 0 else { return nil }
         let scale = displayScale(view)
-        return (max(1, Int((view.bounds.width * scale).rounded())), max(1, Int((view.bounds.height * scale).rounded())))
+        return (max(1, Int((box.width * scale).rounded())), max(1, Int((box.height * scale).rounded())))
     }
     /// The decoded image's longest side: enough device pixels for the box
     /// at its object-fit (`cover` and `fill` scale the image until both axes
@@ -621,7 +631,7 @@ final class RasterLoader {
         #else
         let scale = view.traitCollection.displayScale
         #endif
-        let box = view.bounds.size
+        let box = Self.displaySize(view)
         var longest = max(box.width, box.height)
         if let natural = metadata?.naturalSize, natural.width > 0, natural.height > 0, box.width > 0, box.height > 0 {
             let x = box.width / natural.width, y = box.height / natural.height

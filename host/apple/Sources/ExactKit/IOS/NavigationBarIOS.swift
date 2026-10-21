@@ -262,6 +262,9 @@ struct BadgeFace: Equatable {
     let light: [[Double]], dark: [[Double]]
     let corners: [CGSize]
     let photo: CGImage?
+    let photoID: UInt32?
+    let photoSize: CGSize
+    let photoFit: String
     let photoKey: String
     var glass = false
     init?(_ button: NodeView) {
@@ -289,6 +292,9 @@ struct BadgeFace: Equatable {
         walk(box)
         guard !text.isEmpty || symbol != nil || pictured != nil else { return nil }
         photo = pictured?.raster?.image.image
+        photoID = pictured?.id
+        photoSize = pictured?.raster?.image.naturalSize ?? .zero
+        photoFit = pictured?.style["object_fit"]?.string ?? "fill"
         photoKey = pictured.map { "\($0.imageSource ?? $0.props["imageSource"] ?? "")|\($0.raster.map { ObjectIdentifier($0.image).hashValue } ?? 0)" } ?? ""
         let key = symbol == nil ? "text_color" : "tint_color"
         func colours(_ dark: Bool) -> [[Double]] {
@@ -307,7 +313,7 @@ struct BadgeFace: Equatable {
     // every batch builds each route's source.
     var source: String {
         let rgba = { (c: [[Double]]) in c.map { $0.map { String($0) }.joined(separator: ",") }.joined(separator: ";") }
-        return "\(text)|\(symbol ?? "")|\(rgba(light))|\(rgba(dark))|\(corners.map { "\($0.width)x\($0.height)" }.joined(separator: ","))|\(size)|\(photoKey)|\(glass)"
+        return "\(text)|\(symbol ?? "")|\(rgba(light))|\(rgba(dark))|\(corners.map { "\($0.width)x\($0.height)" }.joined(separator: ","))|\(size)|\(photoKey)|\(photoFit)|\(glass)"
     }
 
     var image: UIImage {
@@ -324,9 +330,8 @@ struct BadgeFace: Equatable {
             outline.fill()
             let ink = TextEngine.color(c[1])
             if let photo {
-                let w = CGFloat(photo.width), h = CGFloat(photo.height), scale = max(rect.width / w, rect.height / h)
                 outline.addClip()
-                UIImage(cgImage: photo).draw(in: CGRect(x: (rect.width - w * scale) / 2, y: (rect.height - h * scale) / 2, width: w * scale, height: h * scale))
+                UIImage(cgImage: photo).draw(in: RasterGeometry.rect(natural: photoSize, content: rect, fit: photoFit))
             } else if let symbol, let glyph = FaceSymbol.image(symbol, points: size * 0.42, configuration: UIImage.SymbolConfiguration(pointSize: size * 0.42))?.withTintColor(ink, renderingMode: .alwaysOriginal) {
                 glyph.draw(at: CGPoint(x: (rect.width - glyph.size.width) / 2, y: (rect.height - glyph.size.height) / 2))
             } else {
@@ -601,6 +606,26 @@ extension NavigationHost {
         !ExactEnv.authoredChrome && stacks[ObjectIdentifier(nav)]?.showsBar == true
     }
 
+    /// A projected photo is visible at its native face's size even though
+    /// the authored header is hidden and has no layout box.
+    func headerPhotoSize(_ image: NodeView) -> CGSize? {
+        for nav in allNavigations {
+            guard barShows(nav), !nav.isNavigationBarHidden, nav.navigationBar.window != nil,
+                  let c = nav.topViewController as? RouteController,
+                  c.lifted.map({ image.isDescendant(of: $0) }) == true || c.barNodes.contains(where: { image.isDescendant(of: $0) }) else { continue }
+            var ancestor: UIView? = nav.navigationBar
+            while let view = ancestor, !view.isHidden, view.alpha > 0 { ancestor = view.superview }
+            guard ancestor == nil,
+                  let shape = HeaderShape.bar(of: c.node, back: container?.props["navigationBack"], backIsUIKits: c.pushed) else { continue }
+            let faces = (shape.leading + shape.trailing).compactMap(\.badge)
+                + [HeaderShape.presented(shape.group, segments: shape.segments)?.avatar].compactMap { $0 }
+            if let face = faces.first(where: { $0.photoID == image.id }) {
+                return CGSize(width: face.size, height: face.size)
+            }
+        }
+        return nil
+    }
+
     /// The agent's tap on an authored control a native bar stands for, under
     /// `--chrome platform`: a tab the tab bar shows, or a control in the
     /// header a shown bar replaces (its items, its back button). Pressed as
@@ -796,6 +821,7 @@ extension NavigationHost {
         if let nav, nav.transitionCoordinator == nil, let top = nav.topViewController as? RouteController, routes.contains(top) {
             showBar(nav, animated: nav.view.window != nil)
         }
+        presenter.session?.rasters.displayChanged()
     }
 
     /// The header a bar stands for takes no room from the turn it is lifted,
