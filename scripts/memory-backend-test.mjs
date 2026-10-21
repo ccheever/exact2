@@ -54,21 +54,32 @@ const step = (what, cmd, args, opts) => {
 
 const alive = (child) => child?.pid !== undefined && child.exitCode === null && child.signalCode === null;
 
-/** `pid`'s descendants, deepest first (a build's own builder, the driver's browser). */
-function descendants(pid) {
-  const r = spawnSync('ps', ['-A', '-o', 'pid=,ppid='], { encoding: 'utf8' });
-  const kids = new Map();
+/** Every process now: its parent and its start time, which, with its pid, names it (a pid is reused). */
+function processes() {
+  const r = spawnSync('ps', ['-A', '-o', 'pid=,ppid=,lstart='], { encoding: 'utf8' });
+  const all = new Map();
   for (const line of (r.stdout ?? '').split('\n')) {
-    const [p, pp] = line.trim().split(/\s+/).map(Number);
-    if (p && pp) kids.set(pp, [...(kids.get(pp) ?? []), p]);
+    const m = /^\s*(\d+)\s+(\d+)\s+(.+?)\s*$/.exec(line);
+    if (m) all.set(Number(m[1]), { ppid: Number(m[2]), start: m[3] });
   }
+  return all;
+}
+
+/** `pid`'s descendants now, deepest first (a build's own builder, the driver's browser), each `{pid, start}`. */
+function descendants(pid, all = processes()) {
+  const kids = new Map();
+  for (const [p, { ppid }] of all) kids.set(ppid, [...(kids.get(ppid) ?? []), p]);
   const out = [];
-  const walk = (p) => { for (const k of kids.get(p) ?? []) { walk(k); out.push(k); } };
+  const walk = (p) => { for (const k of kids.get(p) ?? []) { walk(k); out.push({ pid: k, start: all.get(k).start }); } };
   walk(pid);
   return out;
 }
 
-const signal = (pids, sig) => { for (const p of pids) try { process.kill(p, sig); } catch { /* gone */ } };
+/** `sig` to each of `procs` that is still the same process (its pid and start time), never one that reused a pid. */
+function signal(procs, sig) {
+  const all = processes();
+  for (const { pid, start } of procs) if (all.get(pid)?.start === start) try { process.kill(pid, sig); } catch { /* gone */ }
+}
 
 /** `child` and everything it started stopped: SIGTERM, then SIGKILL to what remains after the grace period. */
 async function stop(child) {
@@ -80,8 +91,9 @@ async function stop(child) {
   const timer = setTimeout(() => { signal(tree, 'SIGKILL'); if (alive(child)) child.kill('SIGKILL'); }, GRACE_MS);
   await exited;
   clearTimeout(timer);
-  // What outlived its parent's exit, and what it started since.
-  const left = [...new Set([...tree, ...tree.flatMap(descendants)])].filter((p) => { try { process.kill(p, 0); return true; } catch { return false; } });
+  // What outlived its parent's exit, and what those started since: only processes still the ones seen.
+  const all = processes(), same = tree.filter(({ pid, start }) => all.get(pid)?.start === start);
+  const left = [...same, ...same.flatMap(({ pid }) => descendants(pid, all))];
   if (left.length) { signal(left, 'SIGTERM'); await new Promise((ok) => setTimeout(ok, 1000)); signal(left, 'SIGKILL'); }
 }
 
