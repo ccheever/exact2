@@ -146,6 +146,7 @@ final class MenuHost {
         }
         var lifting: [Lifted] = []
         for v in presenter.carrying("popover") + presenter.carrying("tag:dialog").filter({ $0.props["popover"] == nil }) {
+            if v.props["defaultSurface"] == "true" { v.updateMaterial() } // a context menu's naming it may have come or gone
             // The agent's painted presentation: in the top layer while open,
             // hidden while closed, as on the web and macOS, so a closed
             // popover covers nothing (`agentTap`).
