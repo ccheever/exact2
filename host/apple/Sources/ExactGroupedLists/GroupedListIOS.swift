@@ -605,7 +605,7 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
                 }
                 if owned(path.item) { separator.bottomSeparatorVisibility = .hidden }
                 if owned(path.item - 1) { separator.topSeparatorVisibility = .hidden }
-                if path.item + 1 < rows.count, rows[path.item].custom, let x = self?.customLooks[rows[path.item].view]?.line { separator.bottomSeparatorInsets.leading = x }
+                if path.item + 1 < rows.count, rows[path.item].custom, let x = self?.lineStart(rows[path.item].view) { separator.bottomSeparatorInsets.leading = x }
                 return separator
             }
             #endif
@@ -667,6 +667,7 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
         carriesCustomRows = rows.values.contains(where: \.custom)
         #if !os(tvOS)
         switches = switches.filter { rows[$0.key]?.accessory == "toggle" }
+        for id in Array(customLooks.keys) where rows[id]?.custom != true { forgetLook(id) }
         #endif
         var snapshot = NSDiffableDataSourceSnapshot<UInt32, UInt32>()
         var seen = Set<UInt32>()
@@ -1328,7 +1329,7 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
         let height = cell.height
         carry(id, into: cell)
         interact(cell, id)
-        if cell.height != height { host.presenter.requestProjectionSync() }
+        if cell.height != height || resized { host.presenter.requestProjectionSync() } // a line that moved too
     }
 
     func collectionView(_ view: UICollectionView, shouldHighlightItemAt path: IndexPath) -> Bool {
