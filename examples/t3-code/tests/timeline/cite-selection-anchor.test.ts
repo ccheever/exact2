@@ -1,5 +1,5 @@
 // Cite's place, its Tab, and where the comment opens after it, against
-// T3 Code 1e2ecbd975 (MIT, see LICENSE-T3): components/chat/AssistantSelectionToolbar.tsx (the capture-phase Tab, Escape,
+// T3 Code 1e2ecbd975 and 74541bab17 (MIT, see LICENSE-T3): components/chat/AssistantSelectionToolbar.tsx (the capture-phase Tab, Escape,
 // `removeAllRanges()` after `onCite`, the position from `rects.item(rects.length - 1)` and the toolbar's 8 pt hold),
 // lib/selectionActions.ts (`resolveSelectionActionPosition`, the release point of `observeSelectionActions`) and
 // AssistantCitationChip.tsx (`popupAnchor`: the range's last client rect, `side="bottom" align="end"`). The reference's
@@ -239,7 +239,7 @@ describe('the window draws Cite and sends it (app-window.contract)', () => {
   const shows = (state: Env, scope: Env) => value(source('app-window.contract').match(/^  derive citeShows = (.+)$/m)![1]!, { ...scope, ...state });
   const scope = () => ({ data: { threadId: 't' }, viewport: { width: 1280, height: 840 }, citeDismissals: 0,
     citeWaitDone: 0, pageCover: false, settingsOpen: false, modal: false });
-  const state = (): Env => ({ citeOffer: {}, citeFor: '', citeThread: '', citeViewport: '', citeWaits: 0, citeDismissedAt: 0, keybindingField: '' });
+  const state = (): Env => ({ citeOffer: {}, citeFor: '', citeParked: '', citeThread: '', citeViewport: '', citeWaits: 0, citeDismissedAt: 0, keybindingField: '' });
 
   test.each(['Escape', 'clear', 'key', 'outside'])('%s during the double-click delay cancels the future offer', (dismiss) => {
     const w = state(), props = scope(), a = answer();
@@ -291,7 +291,7 @@ describe('the window draws Cite and sends it (app-window.contract)', () => {
   });
 
   test('an offer shows on its thread; a withdrawal by another answer, or none, leaves it; the scroll hides it', () => {
-    const state: Env = { citeOffer: {}, citeFor: '', citeThread: '', citeViewport: '', citeDismissedAt: 0 };
+    const state: Env = { citeOffer: {}, citeFor: '', citeParked: '', citeThread: '', citeViewport: '', citeDismissedAt: 0 };
     window.call('citeOfferSet', state, { data: { threadId: 't' }, viewport: { width: 1280, height: 840 }, citeDismissals: 0 }, [offer]);
     expect(state).toMatchObject({ citeOffer: offer, citeFor: '["t","a"]', citeThread: 't', citeViewport: '1280x840' });
     window.call('citeWithdraw', state, {}, ['["t","b"]']);
@@ -308,8 +308,42 @@ describe('the window draws Cite and sends it (app-window.contract)', () => {
     expect(scrolled).toEqual([[0, 120]]);
   });
 
+  // observeSelectionActions' restoreAfterScroll and the toolbar's visibility check (T3 Code 74541bab17, #15818).
+  test('a scroll parks Cite; when the timeline stops it returns at the last line measured again, if that line is still shown', () => {
+    const w: Env = { citeOffer: {}, citeFor: '', citeParked: '', citeThread: '', citeViewport: '', citeDismissedAt: 0, outsideDown: false, keybindingField: '' };
+    const props = { data: { threadId: 't' }, viewport: { width: 1280, height: 840 }, citeDismissals: 0 };
+    const settle = (text: ReturnType<typeof geometry> | { unavailable: true }) =>
+      window.call('citeSettled', w, { ...cite, ...std, frame: (id: string) => id === 'transcript' ? transcript : text }, []);
+    window.call('citeOfferSet', w, props, [offer]);
+    window.call('citeScrolled', w, {}, [0, 120]);
+    expect([w.citeFor, w.citeParked]).toEqual(['', '["t","a"]']);
+    // The answer moved 200 pt up: Cite at the last line's right and bottom + 4 there.
+    settle(geometry(280, 151.42, 672, 45.5));
+    expect(w).toMatchObject({ citeFor: '["t","a"]', citeParked: '', citeOffer: { ...offer, x: 280 + 221.2, y: 151.42 + 23.83 + 21 + 4 } });
+    // Scrolled until the last line left the timeline's top, or its row was let go: it stays hidden.
+    window.call('citeScrolled', w, {}, [0, 900]);
+    settle(geometry(280, 0, 672, 45.5));
+    expect([w.citeFor, w.citeParked]).toEqual(['', '']);
+    window.call('citeOfferSet', w, props, [offer]);
+    window.call('citeScrolled', w, {}, [0, 900]);
+    settle({ unavailable: true });
+    expect(w.citeFor).toBe('');
+    // A press during the scroll, or a withdrawal, forgets it; a scrollend with nothing parked shows nothing.
+    window.call('citeOfferSet', w, props, [offer]);
+    window.call('citeScrolled', w, {}, [0, 120]);
+    window.call('outsidePressDown', w, { prDetail: { actions: { armedAction: '' } }, chipShown: false, detailsOpen: false, frame: () => geometry(0, 0, 0, 0) }, [{ buttons: 1, clientX: 300, clientY: 300 }]);
+    settle(geometry(280, 151.42, 672, 45.5));
+    expect(w.citeFor).toBe('');
+    window.call('citeOfferSet', w, props, [offer]);
+    window.call('citeScrolled', w, {}, [0, 120]);
+    window.call('citeWithdraw', w, {}, ['["t","a"]']);
+    settle(geometry(280, 151.42, 672, 45.5));
+    expect(w.citeFor).toBe('');
+    expect(source('app-main.contract')).toContain('scroll=transcriptScrolled scrollend=citeSettled');
+  });
+
   test('Cite waits for the root\'s 500 ms after a double-click and hides once the window loses the focus (observeSelectionActions)', () => {
-    const state: Env = { citeOffer: {}, citeFor: '', citeThread: '', citeViewport: '', citeWaits: 0, citeDismissedAt: 0 };
+    const state: Env = { citeOffer: {}, citeFor: '', citeParked: '', citeThread: '', citeViewport: '', citeWaits: 0, citeDismissedAt: 0 };
     const asked: number[] = [];
     window.call('citeHold', state, { citeWaitAsk: (n: number) => asked.push(n) }, []);
     window.call('citeHold', state, { citeWaitAsk: (n: number) => asked.push(n) }, []);
@@ -334,7 +368,7 @@ describe('the window draws Cite and sends it (app-window.contract)', () => {
 
   test('a press anywhere but on Cite hides it (observeSelectionActions\' pointerdown); one on Cite keeps it for its press', () => {
     const at = (x: number, y: number) => {
-      const state: Env = { outsideDown: false, citeFor: '["t","a"]', keybindingField: '' };
+      const state: Env = { outsideDown: false, citeFor: '["t","a"]', citeParked: '', keybindingField: '' };
       window.call('outsidePressDown', state, { prDetail: { actions: { armedAction: '' } }, chipShown: false, detailsOpen: false, frame: (id: string) => id === 'cite-action' ? geometry(501, 385, 65.3, 28) : geometry(0, 0, 0, 0) },
         [{ buttons: 1, clientX: x, clientY: y }]);
       return state;
@@ -346,7 +380,7 @@ describe('the window draws Cite and sends it (app-window.contract)', () => {
 
   test('the press sends the parts with the last line measured again, then clears the selection (removeAllRanges after onCite)', () => {
     const calls: unknown[][] = [];
-    const state: Env = { citeOffer: offer, citeFor: '["t","a"]', citeThread: 't' };
+    const state: Env = { citeOffer: offer, citeFor: '["t","a"]', citeParked: '', citeThread: 't' };
     window.call('citePress', state, { ...cite, frame: () => geometry(280, 351.42, 672, 45.5), command: (...args: unknown[]) => calls.push(['command', ...args]),
       removeAllRanges: () => calls.push(['removeAllRanges']) }, []);
     expect(calls).toEqual([['command', 'diffreview', 'cite:["t","a"]', `12-152|280,${351.42 + 23.83},221.2,21|Cite check.\nA closing …`, 0], ['removeAllRanges']]);

@@ -4,7 +4,11 @@
 // and opens a glass preview of the message and the turn's final answer.
 // Pressing jumps to the turn; chevrons step to the previous and next turn.
 // The rail centres on the timeline viewport, which runs from under the 52pt
-// header to the window's bottom edge (the composer floats over it). Which turns
+// header to the window's bottom edge (the composer floats over it) or to the
+// terminal drawer's top. The drawer covers what of the rail and its preview runs
+// past its top (ThreadTerminalDrawer's z-45 over the minimap's z-40): the chat
+// column paints over the drawer for its popovers, so the minimap clips its own
+// vertical overflow there instead. Which turns
 // are on screen is ChatColumn's (`intersect=` on each user turn),
 // and a jump is its keyed `scrollIntoView`: both app-main.contract.
 use Icon from "../shared/icons.contract"
@@ -55,7 +59,7 @@ component TimelineMinimap
   derive focusIndex = active >= 0 ? active : (previewHover ? shown : -1)
   view
     if count >= 2
-      column wheel=wheel position="absolute" top=0 left=0 width="4.5rem" height=(windowHeight - 52) pointer-events="none" justify-content="center" padding-left="0.75rem" box-sizing="border-box" opacity=(persistent or open ? 1 : 0) testId="timeline-minimap"
+      column wheel=wheel position="absolute" top=0 bottom=0 left=0 width="4.5rem" overflow-x="visible" overflow-y="clip" pointer-events="none" justify-content="center" padding-left="0.75rem" box-sizing="border-box" opacity=(persistent or open ? 1 : 0) testId="timeline-minimap"
         column position="relative" width=(open ? 22 * rem : hitWidth) height=railHeight pointer-events=(hitWidth > 0 ? "auto" : "none")
           MinimapStep(label="Previous turn", icon="chevron-up", target=(current > 0 ? current - 1 : -1), interactive=(hitWidth >= 14), top=(0 - 1.375 * rem), jump=jump)
           box position="absolute" left="0.75rem" top=0 width=1 height=railHeight background-color="light-dark(#e4e4e726, #ffffff03)"

@@ -1081,8 +1081,12 @@ component T3Code
     themeReveal = role
   task themeInspectRevealed when themeReveal != "" and settingsCore.editor.open and settingsCore.editor.filter == "" and (settingsCore.editor.advanced or themeReveal == "canvas" or themeReveal == "accent") key=themeReveal
     after(1, themeRevealed)
+  // ThemeEditorPanel's reveal glides, and jumps under Reduce Motion.
   action themeRevealed
-    scrollIntoView(`theme-editor-row-${themeReveal}`, block="nearest", behavior="smooth")
+    if viewport.prefersReducedMotion
+      scrollIntoView(`theme-editor-row-${themeReveal}`, block="nearest", behavior="instant")
+    else
+      scrollIntoView(`theme-editor-row-${themeReveal}`, block="nearest", behavior="smooth")
     themeReveal = ""
   state themeUsage = []
   task themeUsageRefresh when settingsCore.editor.open key=settingsCore.editor.session

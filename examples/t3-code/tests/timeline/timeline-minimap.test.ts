@@ -1,4 +1,4 @@
-// The timeline minimap (timelineMinimapItems.ts, MessagesTimeline.tsx; T3 Code 1e2ecbd975, MIT, see LICENSE-T3).
+// The timeline minimap (timelineMinimapItems.ts, MessagesTimeline.tsx; T3 Code 74541bab17, MIT, see LICENSE-T3).
 // Which turns are on screen and the jump are ChatColumn's (app-main.contract):
 // its actions and derives run with Contract's action semantics (contract-action-fixture.ts), its functions from
 // timeline-minimap.contract (contract-fn-fixture.ts).
@@ -19,7 +19,25 @@ const source = (file: string) => readFileSync(appPath(file), 'utf8');
 describe('timeline minimap', () => {
   test('one strip per user message, previewing the turn\'s final answer, with its row in the drawn rows', () => {
     expect(minimapItems(rows).map(item => [item.id, item.index, item.label, item.excerpt, item.row])).toEqual([
-      ['u1', 0, 'First question with two lines', '**Final** answer here', 0], ['u2', 1, 'User message', '', 4], ['u3', 2, 'Third', 'Done.', 5]]);
+      ['u1', 0, 'First question with two lines', 'Final answer here', 0], ['u2', 1, 'User message', '', 4], ['u3', 2, 'Third', 'Done.', 5]]);
+  });
+  // timelineMinimapItems.test.ts at 74541bab17 (#15715).
+  test('the answer\'s Markdown previews as plain text; the user\'s text stays literal', () => {
+    const userText = 'Explain **operators** and [x] in [the docs](https://example.com/docs)';
+    const assistantText = [
+      '## Operators', 'Use **either** option from [the docs](https://example.com/docs).', '',
+      '| Operator | Meaning |', '| --- | :---: |', '| `a \\| b` | either |', '',
+      '- [x] Match `**/*.ts` files', '', '[x] deployment complete', '', '> Note: ~~old~~ new  ', '> Next line', '',
+      '```sh', '# install deps', '- **not bold**', 'const snake_case = a * b;', '```', '', 'foo<br>bar', '', '<div>Critical <em>answer</em></div>',
+    ].join('\n');
+    const [item] = minimapItems([{ id: 'u', kind: 'user', body: userText }, { id: 'a', kind: 'assistant', body: assistantText }]);
+    expect([item!.label, item!.excerpt]).toEqual([userText,
+      'Operators Use either option from the docs. Operator Meaning a | b either Match **/*.ts files [x] deployment complete Note: old new Next line # install deps - **not bold** const snake_case = a * b; foo bar Critical answer']);
+  });
+  test('only the first 1,500 units of a long answer are read', () => {
+    const [item] = minimapItems([{ id: 'u', kind: 'user', body: 'q' }, { id: 'a', kind: 'assistant', body: `${'word '.repeat(400)}**tail**` }]);
+    expect(item!.excerpt.length).toBeLessThan(1_500);
+    expect(item!.excerpt).not.toContain('tail');
   });
 });
 
@@ -131,6 +149,25 @@ describe('The turns on screen come from the user turns\' intersect reports', () 
     expect(other.shown).toEqual([]);
     other.seen('u3', hit(true));
     expect([other.state.turnsSeen, other.state.turnsOwner]).toEqual([['u3'], 'http://b:p:t1']);
+  });
+});
+
+// MessagesTimeline.logic.test.ts at 74541bab17 (#16191): only rows on screen are lit, and the current strip is the first
+// visible user message, else the turn whose response is being read.
+describe('the lit strips and the current one follow the rows on screen', () => {
+  const drawn = Array.from({ length: 50 }, (_, row) => row % 10 === 0 ? { id: `u${row}`, kind: 'user', body: `turn ${row}` } : { id: `a${row}`, kind: 'assistant', body: 'reply' });
+  function reading(start: number, end: number) {
+    const t = transcript(drawn);
+    t.first(drawn[start]!.id);
+    for (let row = start; row <= end; row++) if (drawn[row]!.kind === 'user') t.seen(drawn[row]!.id, hit(true));
+    return [t.shown, t.current];
+  }
+  test('a user message on screen is current; a response alone is its turn\'s', () => {
+    expect(reading(19, 31)).toEqual([['u20', 'u30'], 2]);
+    expect(reading(21, 29)).toEqual([[], 2]);
+    expect(reading(41, 45)).toEqual([[], 4]);
+    expect(reading(0, 0)).toEqual([['u0'], 0]);
+    expect(transcript(drawn).current).toBe(-1); // no report yet: no current strip
   });
 });
 
