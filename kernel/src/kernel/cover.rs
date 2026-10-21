@@ -47,6 +47,18 @@ pub enum HostCover {
 }
 
 impl Kernel {
+    /// The bottom padding `key`'s cover adds to its layout as it is applied
+    /// (`apply`): a bar's clearance, or none where the scroller at the box's
+    /// bottom edge takes it as its platform inset.
+    pub fn cover_bottom(&self, key: crate::NodeKey) -> f32 {
+        match self.arena.cover(key.index) {
+            Some(HostCover::Edges(_)) if !scroller_insets_bottom(&self.arena, key.index) => {
+                added_padding(&self.arena, key.index)[2]
+            }
+            _ => 0.0,
+        }
+    }
+
     /// Set or clear (`None`) what a host container covers of `view`.
     /// Nonfinite or negative edges are refused.
     pub fn set_host_cover(
@@ -82,14 +94,13 @@ impl Kernel {
         // box it ends pads there (`scroller_insets_bottom`), however deep.
         let whole = |c: Option<HostCover>| c == Some(HostCover::Whole);
         let bottom = |c: Option<HostCover>| matches!(c, Some(HostCover::Inset([_, b])) if b > 0.0);
-        let parent = if bottom(before) != bottom(cover) {
-            covering(&self.arena, slot)
-        } else {
-            whole(before)
-                .ne(&whole(cover))
-                .then(|| self.arena.parent(slot))
-                .flatten()
-        };
+        // A box replaced or given back also leaves the chain or joins it.
+        let chain = (bottom(before) != bottom(cover) || whole(before) != whole(cover))
+            .then(|| covering(&self.arena, slot))
+            .flatten();
+        let parent = (whole(before) != whole(cover))
+            .then(|| self.arena.parent(slot))
+            .flatten();
         // And a block under it is hidden or shown with it (`block::apply`).
         let blocks: Vec<u32> = if whole(before) != whole(cover) {
             let arena = &self.arena;
@@ -112,6 +123,7 @@ impl Kernel {
         };
         for slot in std::iter::once(slot)
             .chain(parent)
+            .chain(chain)
             .chain(blocks)
             .chain(positioned)
         {
@@ -272,8 +284,12 @@ fn scroller_insets_bottom(arena: &NodeArena, slot: u32) -> bool {
         let Some(&last) = arena.children(at).iter().rev().find(flowing) else {
             return false;
         };
-        if let Some(HostCover::Inset([_, bottom])) = arena.cover(last) {
-            return bottom > 0.0;
+        match arena.cover(last) {
+            Some(HostCover::Inset([_, bottom])) => return bottom > 0.0,
+            // Another covered box decides its own bottom: what is inset
+            // below it is its scroller, not this box's.
+            Some(HostCover::Edges(_)) => return false,
+            _ => {}
         }
         if scrolls(arena, last) {
             return false;
@@ -296,16 +312,54 @@ fn scrolls(arena: &NodeArena, slot: u32) -> bool {
 }
 
 /// The nearest box above `slot` a container's bars cover (`Edges`), whose
-/// bottom padding a scroller at its edge decides (`scroller_insets_bottom`).
+/// bottom padding a scroller at its edge decides (`scroller_insets_bottom`):
+/// none when a scroller lies between, where that search stops.
 fn covering(arena: &NodeArena, slot: u32) -> Option<u32> {
     let mut at = arena.parent(slot);
     while let Some(p) = at {
         if matches!(arena.cover(p), Some(HostCover::Edges(_))) {
             return Some(p);
         }
+        if scrolls(arena, p) {
+            return None;
+        }
         at = arena.parent(p);
     }
     None
+}
+
+/// `slot`'s style changed (`txn::style_changed`, a layout row): a replaced
+/// header's padding is part of its route's top cover, and its `display`,
+/// `position` or `overflow-y` its place on the bottom edge's chain.
+pub(crate) fn style_changed(
+    arena: &NodeArena,
+    layout: &mut dyn LayoutMirror,
+    slot: u32,
+    mask: &crate::StyleMask,
+) {
+    use crate::StyleId::{Display, OverflowY, PositionType};
+    if [Display, PositionType, OverflowY]
+        .iter()
+        .any(|&id| mask.has(id))
+    {
+        chain_changed(arena, layout, slot);
+    }
+    if arena.cover(slot) == Some(HostCover::Whole) {
+        if let Some((p, node)) = arena.parent(slot).and_then(|p| Some((p, arena.taffy(p)?))) {
+            layout.restyle(arena, p, node);
+            layout.mark_dirty(node);
+        }
+    }
+}
+
+/// `slot`'s place on the bottom edge's chain may have changed (its
+/// `display`, `position` or `overflow-y`): the covered box above it is
+/// derived again (`scroller_insets_bottom`).
+pub(crate) fn chain_changed(arena: &NodeArena, layout: &mut dyn LayoutMirror, slot: u32) {
+    if let Some((above, node)) = covering(arena, slot).and_then(|a| Some((a, arena.taffy(a)?))) {
+        layout.restyle(arena, above, node);
+        layout.mark_dirty(node);
+    }
 }
 
 /// The points a cover adds to the box's padding for layout (`apply`), top,
@@ -356,22 +410,11 @@ pub(crate) fn children_changed(
         layout.mark_dirty(node);
     }
     // And the scroller at the covered box's bottom edge may be another
-    // (`scroller_insets_bottom`), however deep the change, unless it is
-    // inside a scroller, where that search stops.
-    let mut inside = scrolls(arena, slot);
-    let mut at = arena.parent(slot);
-    while let (false, Some(p)) = (inside, at) {
-        if matches!(arena.cover(p), Some(HostCover::Edges(_))) {
-            break;
-        }
-        inside = scrolls(arena, p);
-        at = arena.parent(p);
-    }
-    if let (false, Some(above)) = (inside, at) {
-        if let Some(node) = arena.taffy(above) {
-            layout.restyle(arena, above, node);
-            layout.mark_dirty(node);
-        }
+    // (`scroller_insets_bottom`), however deep the change, unless the box
+    // is that covered box itself (above) or a scroller, where the search
+    // stops.
+    if !matches!(arena.cover(slot), Some(HostCover::Edges(_))) && !scrolls(arena, slot) {
+        chain_changed(arena, layout, slot);
     }
     crate::rows::children_changed(arena, layout, slot, touched);
 }

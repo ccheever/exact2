@@ -116,4 +116,60 @@ fn an_inset_three_boxes_down_restyles_its_route_and_nothing_above() {
         844.0 - 34.0,
         "the route pads nothing; the sheet still does"
     );
+    // The sheet derived again for a change of its own: the route's scroller
+    // is the route's, not the sheet's (Astra's and Grok's round 1).
+    k.apply(
+        1,
+        2,
+        &[style(2, &[(StyleId::PaddingLeft, StyleValue::Number(1.0))])],
+    )
+    .unwrap();
+    k.compute_layout(1, Offer::definite(390.0, 844.0)).unwrap();
+    let f = k.node(6).unwrap().frame;
+    assert_eq!(f.y + f.height, 844.0 - 34.0, "the sheet keeps its padding");
+}
+
+/// The same with the covers said the other way round: the inset first, then
+/// the route's and the sheet's bars.
+#[test]
+fn the_covers_in_any_order_leave_the_sheet_its_padding() {
+    let mut k = Kernel::with_monospace();
+    let mut ops = vec![];
+    for id in 1..=6 {
+        ops.push(Op::CreateView {
+            id,
+            node_type: NodeType::View,
+        });
+        ops.push(style(
+            id,
+            &[
+                (StyleId::Display, StyleValue::Text("flex".into())),
+                (StyleId::FlexDirection, StyleValue::Text("column".into())),
+                (StyleId::FlexGrow, StyleValue::Number(1.0)),
+                (StyleId::MinHeight, StyleValue::Number(0.0)),
+            ],
+        ));
+    }
+    ops.push(style(1, &[(StyleId::Height, StyleValue::Number(844.0))]));
+    ops.push(style(
+        6,
+        &[(StyleId::OverflowY, StyleValue::Text("scroll".into()))],
+    ));
+    for (parent, child) in [(1, 2), (2, 3), (3, 4), (4, 5), (5, 6)] {
+        ops.push(Op::SetChildren {
+            id: parent,
+            children: vec![child],
+        });
+    }
+    ops.push(Op::AttachRoot { id: 1 });
+    k.apply(0, 1, &ops).unwrap();
+    k.set_host_cover(6, Some(HostCover::Inset([0.0, 83.0])))
+        .unwrap();
+    k.set_host_cover(3, Some(HostCover::Edges([0.0, 0.0, 83.0, 0.0])))
+        .unwrap();
+    k.set_host_cover(2, Some(HostCover::Edges([0.0, 0.0, 34.0, 0.0])))
+        .unwrap();
+    k.compute_layout(1, Offer::definite(390.0, 844.0)).unwrap();
+    let f = k.node(6).unwrap().frame;
+    assert_eq!(f.y + f.height, 844.0 - 34.0);
 }

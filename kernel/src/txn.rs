@@ -1386,13 +1386,8 @@ fn style_changed(
         {
             sync_children(arena, layout, slot);
         }
-        // A replaced header's padding is part of its route's top cover.
-        if arena.cover(slot) == Some(crate::kernel::HostCover::Whole) {
-            if let Some((p, node)) = arena.parent(slot).and_then(|p| Some((p, arena.taffy(p)?))) {
-                layout.restyle(arena, p, node);
-                layout.mark_dirty(node);
-            }
-        }
+        // What a cover takes of the box's parent or covered box (`cover::style_changed`).
+        crate::kernel::cover_style_changed(arena, layout, slot, &mask);
         receipt.layout_invalidated = true;
     }
     if mask.intersects(StyleMask::TEXT) {

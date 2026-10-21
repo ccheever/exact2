@@ -505,10 +505,9 @@ impl<D: DataSource> Host<D> {
                 continue;
             };
             let key = node.key;
-            let cover = match kernel.arena().cover(key.index) {
-                Some(exact_kernel::HostCover::Edges([_, _, bottom, _])) => bottom,
-                _ => 0.0,
-            };
+            // The cover's bottom as layout pads it: none where the route's
+            // bottom-edge scroller takes it as UIKit's inset.
+            let cover = kernel.cover_bottom(key);
             let (pl, pt, pr, pb) = kernel.layout_padding(key).unwrap_or_default();
             let (bl, bt, br, bb) = kernel.resolved_border(key).unwrap_or_default();
             let sig = [node.frame.width, pl, pt, pr, pb, bl, bt, br, bb, cover];

@@ -179,10 +179,11 @@ final class KeyboardFormIOSTests: XCTestCase {
     }
 
     /// The pinned tab at rest: its scroll is the route's bottom-edge
-    /// scroller, two boxes down, which reaches under the tab bar for UIKit
-    /// to inset, and its absolutely positioned bar (`bottom=0`) rests on the
-    /// tab bar rather than under it. Both hold after a keyboard comes and
-    /// goes, which once left the scroll padded above the bars for good.
+    /// scroller, which reaches under the tab bar for UIKit to inset, and its
+    /// absolutely positioned bar (`bottom=0`) rests on the tab bar rather
+    /// than under it. Both hold after a keyboard comes and goes with the
+    /// field still focused, which once left the scroll padded above the bars
+    /// for good, and the room taken for the field goes with the keyboard.
     func testABarPinnedOverTheEdgeScrollerRestsOnTheTabBar() throws {
         let session = try fixture()
         let p = session.presenter
@@ -192,6 +193,7 @@ final class KeyboardFormIOSTests: XCTestCase {
         let bar = try node("pinned-bar"), memo = try node("pinned-memo")
         let scroll = try XCTUnwrap(p.navigation.shownScroll(try node("pinned-scroll")))
         let window = try XCTUnwrap(self.window)
+        let base = scroll.contentInset.bottom
         func atRest(_ when: String, file: StaticString = #filePath, line: UInt = #line) {
             XCTAssertEqual(box(bar).maxY, box(tabs.tabBar).minY, accuracy: 0.5, "the pinned bar rests on the tab bar \(when)", file: file, line: line)
             XCTAssertEqual(box(scroll).maxY, window.bounds.maxY, accuracy: 0.5, "the scroll reaches under the tab bar \(when)", file: file, line: line)
@@ -201,10 +203,11 @@ final class KeyboardFormIOSTests: XCTestCase {
         memo.textFieldDidBeginEditing(try XCTUnwrap(memo.field))
         p.applyKeyboard(top: keys, duration: 0, curve: 0)
         spin(0.3)
-        memo.field?.resignFirstResponder()
+        XCTAssertGreaterThan(scroll.contentInset.bottom, base, "room for the field at the end, above the pinned bar")
         p.applyKeyboard(top: nil, duration: 0, curve: 0)
         spin(0.5)
         atRest("after the keyboard")
+        XCTAssertEqual(scroll.contentInset.bottom, base, accuracy: 0.5, "the room goes with the keyboard, the field still focused")
     }
 
     func testTheCaretOfAGrowingTextAreaStaysAboveTheKeyboard() throws {

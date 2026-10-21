@@ -42,6 +42,7 @@ pub use cover::HostCover;
 pub(crate) use cover::{
     added_padding as cover_padding, apply as apply_cover,
     children_changed as cover_children_changed, published_extent,
+    style_changed as cover_style_changed,
 };
 pub use sticky::StickyConstraint;
 

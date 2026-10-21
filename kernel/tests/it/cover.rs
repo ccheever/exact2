@@ -683,3 +683,54 @@ fn a_marked_scroller_off_the_chain_leaves_the_route_its_padding() {
         .unwrap();
     assert_eq!(frame(&mut kernel, 4), (0.0, 52.0, 390.0, 709.0));
 }
+
+/// Astra's and Grok's round-1 finding: a box's `position` or `display` moves
+/// it onto the chain or off it with the scroller's inset unchanged, and the
+/// route is derived again.
+#[test]
+fn a_box_moved_onto_the_chain_or_off_it_re_derives_the_route() {
+    let mut kernel = nested();
+    kernel
+        .set_host_cover(6, Some(HostCover::Inset([0.0, 83.0])))
+        .unwrap();
+    assert_eq!(frame(&mut kernel, 4).3, 792.0);
+    // The footer taken into the flow ends the route: it pads above the bar.
+    let flow = |kernel: &mut Kernel, batch: u64, position: &str| {
+        kernel
+            .apply(
+                1,
+                batch,
+                &[Op::SetStyle {
+                    id: 7,
+                    patch: Box::new(style(&[(
+                        StyleId::PositionType,
+                        StyleValue::Text(position.into()),
+                    )])),
+                }],
+            )
+            .unwrap();
+    };
+    flow(&mut kernel, 2, "relative");
+    assert_eq!(
+        frame(&mut kernel, 4).3,
+        669.0,
+        "the footer in the flow, the route padded"
+    );
+    flow(&mut kernel, 3, "absolute");
+    assert_eq!(frame(&mut kernel, 4).3, 792.0);
+    // The scroller hidden, its inset still said: the chain ends at the header.
+    kernel
+        .apply(
+            1,
+            4,
+            &[Op::SetStyle {
+                id: 6,
+                patch: Box::new(style(&[(
+                    StyleId::Display,
+                    StyleValue::Text("none".into()),
+                )])),
+            }],
+        )
+        .unwrap();
+    assert_eq!(frame(&mut kernel, 4).3, 709.0, "the route padded again");
+}
