@@ -530,3 +530,21 @@ theme
     drop(s);
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// Why `bases_by_tuple`'s light and dark are always alike (theme2's 19:47
+/// and 20:31): a base name is a length's, and a length (or a token over a
+/// base, a shadow or a type) can't vary by an axis `under scheme=dark`,
+/// which the checker refuses (`tamber-under-kind`), so no tuple's dark side
+/// reads another line than its light one.
+#[test]
+fn a_lengths_when_under_scheme_dark_is_refused() {
+    let vocab = contract_lower::tamber_vocab();
+    for value in ["12px", "space.lg", "calc(space.md * 2)"] {
+        let src = format!("tamber t\n\naxes\n  dark-style = dim | black  under scheme=dark\n\ntheme\n  gap: length = 8px\n    when dark-style=black: {value}\n");
+        let refused = exact_tamber::check(&src, &vocab).err().unwrap_or_default();
+        assert!(
+            refused.iter().any(|d| d.id == "tamber-under-kind"),
+            "{value}: {refused:?}"
+        );
+    }
+}
