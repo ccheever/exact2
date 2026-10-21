@@ -562,8 +562,6 @@ Differences that belong to the app:
 - An image inside a link's text has no tooltip and no keyboard menu key.
 - In the composer, a review comment's popover shows its comment and diff as plain text (the
   reference renders Markdown and a highlighted diff); a sent pull request chip has no hover card.
-- Proactive panels is a setting with no effect: no surface opens on its own when a pull request is
-  linked or a turn's diff lands (the reference's `useProactivePanels`).
 
 Some checks need a person: physical modifier chords, right-click menus, real pointer drags
 and hovers, macOS notification and screen-capture grants, provider installs and logins, and

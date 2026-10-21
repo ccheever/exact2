@@ -268,7 +268,7 @@ async function panelSaved<T>(client: T3Client, storage: Files, view: T): Promise
  * `page` is the window's `exactPage()` focus and visibility (exact2 #219).
  */
 export async function shellView(client: T3Client, native: Native | null | undefined, storage: Files, now: number, dismissed: string, paused: boolean, sheet = false,
-  page: { focused: boolean; visible: boolean } = { focused: true, visible: true }) {
+  page: { focused: boolean; visible: boolean } = { focused: true, visible: true }, chatShown = true) {
   const highlightPending = highlightPendingSince();
   // A closed toast's onClose may change saved preferences (shell-prefs.ts): write them now.
   if (applyDismissals(client, dismissed)) await client.savePreferences(storage);
@@ -302,7 +302,7 @@ export async function shellView(client: T3Client, native: Native | null | undefi
     keyNewThreadLocal: commandShortcut(client.config, 'chat.newLocal'), keySidebar: commandShortcut(client.config, 'sidebar.toggle'),
     serverThread: !!thread, projectPath: str(thread?.worktreePath) || str(project?.workspaceRoot),
     surfaces: surfaces(client), titleMenu: menu.filter(entry => entry.submenu === ''), titleSubmenu: menu.filter(entry => entry.submenu !== ''),
-    panel: await panelSaved(client, storage, await panelView(client, native, now, sheet)), // `sheet`: a window ≤ 980
+    panel: await panelSaved(client, storage, await panelView(client, native, now, sheet, chatShown)), // `sheet`: a window ≤ 980
     prCheckout: checkoutView(client),
     composerFile: await composerFileView(client, native, now), // a composer file chip's preview (composer-chip-file.ts)
     notifications: `${state.status.authorization}${state.status.agent ? ' (agent)' : ''}${state.status.active ? '' : ' (window inactive)'}`,
