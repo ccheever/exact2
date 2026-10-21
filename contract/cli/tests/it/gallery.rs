@@ -720,11 +720,11 @@ fn a_symbols_prop_gets_a_role_and_a_handlers_action_its_payloads_parameters() {
 
 const BOUNDARIES: &str = r#"component Stem
   props
-    star: string
+    chevron: string
     gear: string
   view
     row
-      image `symbol:${star}-fill`
+      image `symbol:${chevron}-left`
       image `symbol:${gear}`
 
 component Shadowed
@@ -760,19 +760,20 @@ component App
   action pick(v: string)
   view
     column
-      Stem(star="star", gear="gear")
+      Stem(chevron="chevron", gear="gear")
       Shadowed(symbol="s")
       Toggle(title="t", on=on, set=flip)
       Twice(on=on, set=flip)
       Odd(pick=pick)
 "#;
 
-/// A stem (`symbol:${star}-fill`) keeps the prop's own name and a prop that
+/// A stem (`symbol:${chevron}-left`, an alias of `back`) keeps the prop's
+/// own name, which names no role alone, and a prop that
 /// is a role's alias gets that role; a `for` that binds the prop's name
 /// hides it; two components of one signature share one inert action; an
 /// action the view calls with arguments of its own stays `noop`, for the
 /// compiler to refuse. (One given to handlers that pass different payloads
-/// is the library's own error, `analyze-action-arity`.)
+/// stays `noop` too, which `press` and `navigate` both take.)
 #[test]
 fn a_stem_a_shadow_a_shared_signature_and_an_action_the_view_calls_otherwise() {
     let dir = fixture("boundaries");
@@ -798,7 +799,7 @@ fn a_stem_a_shadow_a_shared_signature_and_an_action_the_view_calls_otherwise() {
     );
     let text = std::fs::read_to_string(&g.source).unwrap();
     for line in [
-        r#"Stem(star="star", gear="settings")"#,
+        r#"Stem(chevron="chevron", gear="settings")"#,
         r#"Shadowed(symbol="symbol")"#,
         r#"Twice(on=false, set=noop_bool)"#,
         "`Odd.pick` requires 1",
