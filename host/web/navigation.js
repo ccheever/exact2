@@ -543,7 +543,8 @@ export function afterPaintPieces(load, o) {
   } };
 }
 // @ref LLP 1063 — -exact-exit-animation and -exact-layout-transition play in
-// `presence-glue.js`, fetched when a batch first carries either row. A batch
+// `presence-glue.js`, fetched when a batch first carries either row, or after first paint where the plan names
+// either (`preload`: a bound layout transition may declare nothing at boot); the agent waits for it (`pending`). A batch
 // with an exit that arrives before the module does waits for it, and every
 // batch after it waits behind it, so no exit is lost and order holds; the
 // caller hands them back through `apply`. `live` is the module, once loaded.
@@ -556,6 +557,8 @@ export function presenceLoader(load, root, apply, log) {
     .catch(error => { unavailable = true; loading = null; log(`presence module: unavailable; motion skipped: ${error}`); release(); });
   return {
     get live() { return live; },
+    preload: start,
+    pending: () => live || unavailable ? null : loading,
     resize(batch) { return { ...batch, presenceSnap: true }; },
     hold(batch) {
       if (live || unavailable) return false;

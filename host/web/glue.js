@@ -1191,7 +1191,7 @@ function agentReply(request) {
 // @ref LLP 1043.000 §3 D7/D8 — reads keep the last settled facts (LLP 1012).
 // Await flow only when requested; ordinary agent calls retain their return types.
 async function agentSettled(request) {
-  const pieceLoad = pieces.pending(); if (pieceLoad) await pieceLoad; if (markupModule) await markupModule; if (decorationsModule) await decorationsModule; if (liveTimeModule) await liveTimeModule;
+  const pieceLoad = pieces.pending(); if (pieceLoad) await pieceLoad; const presenceLoad = presence.pending(); if (presenceLoad) await presenceLoad; if (markupModule) await markupModule; if (decorationsModule) await decorationsModule; if (liveTimeModule) await liveTimeModule;
   if (flowLoading) await flowLoading;
   if (textflow) await textflow.settle();
   return agent(request);
@@ -1229,7 +1229,7 @@ async function clock(request) {
   let world = {};
   const reply = (settled, requests) => ({ clock: agentClock, ...(settled === undefined ? {} : { settled }), ...world.reply, ...(settled === false && world.pending ? { reason: "world" } : settled === false && requests ? { reason: "requests" } : {}) });
   for (let rounds = 0; ; rounds++) {
-    if (settle && !(await waitForInflight(deadline) && await mediaAttached(deadline))) return reply(false, true); const pieceLoad = pieces.pending(); if (pieceLoad) await pieceLoad; if (settle) collections.settle(); // rows a list shows are built at this clock, before it moves (as the JS agent does): their animations start here
+    if (settle && !(await waitForInflight(deadline) && await mediaAttached(deadline))) return reply(false, true); const pieceLoad = pieces.pending(); if (pieceLoad) await pieceLoad; const presenceLoad = presence.pending(); if (presenceLoad) await presenceLoad; if (settle) collections.settle(); // rows a list shows are built at this clock, before it moves (as the JS agent does): their animations start here
     if (gpuInPlay()) { const pending = await settleGpu(); if (pending.length) return gpuPendingReply(request, pending); }
     const to = settle ? Math.max(settleCandidate(), world.settleAt ?? agentClock) : request.to;
     if (!(to >= agentClock)) return { error: `the clock cannot go backwards (${agentClock} → ${to})` };
@@ -1321,7 +1321,7 @@ async function bootNow(bytes, assets = devAssets, current = () => true, module =
     len = wasm.exact_boot(innerWidth, innerHeight, launch.length, preferences() | foldBits());
   }
   const batch = JSON.parse(readOut(len));
-  if (batch.error) throw new Error(batch.error);
+  if (batch.error) throw new Error(batch.error); if (wasm.exact_presence?.()) presence.preload(); // after first paint, where the plan names a presence row (navigation.js)
   frameSampler?.reset(); // a new runner numbers its transactions afresh (LLP 1079 D3)
   if (module) { activeModule?.realm?.dispose(); activeModule = module; setInputReady(true); if (left.length) { const writes = left.filter(p => p.write).map(p => p.write); log(`module replacement let go of ${left.length} request${left.length === 1 ? '' : 's'} still in flight after ${REPLACE_SETTLE_MS} ms${writes.length ? `; aborted writes the server may or may not have seen: ${writes.join(', ')}` : ''}`); } }
   navigation.reset(batch.ops.find(op => op.op === "router"));
