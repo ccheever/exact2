@@ -1,11 +1,11 @@
 // Model names and provider-reported option values,
 // adapted from T3 Code (MIT); see LICENSE-T3. Sources:
 // packages/shared/src/model.ts (resolveSelectableModel, formatModelSlugName,
-// normalizeModelSlug, getProviderOptionCurrentValue/Label),
+// normalizeModelSlug, getProviderOptionCurrentValue/Label/StatedValue),
 // packages/contracts/src/model.ts (MODEL_SLUG_ALIASES_BY_PROVIDER),
 // apps/web/src/components/chat/providerIconUtils.ts (getTriggerDisplayModelName),
 // packages/client-runtime/src/state/threadExecution.ts
-// (deriveReportedModelSelection), and, at 9c161462c9, TraitsPicker.tsx
+// (deriveReportedModelSelection, REASONING_EFFORT_OPTION_IDS at 74541bab17), and, at 9c161462c9, TraitsPicker.tsx
 // (buildTraitsTriggerDisplay) and TraitsSpeed.tsx (getTraitsSpeedDisplay).
 import { arr, obj, str, type Obj } from '../client/domain';
 
@@ -85,6 +85,11 @@ function reportedValue(id: string, selection: Selection | null, reported: Select
   return raw(reported.options, id);
 }
 
+/** getProviderOptionStatedValue: the user's choice, else the provider's matching report; never a catalog default. */
+export function statedValue(id: string, selection: Selection | null, reported: Selection | null): unknown {
+  return raw(selection?.options ?? [], id) ?? reportedValue(id, selection, reported);
+}
+
 /** getProviderOptionCurrentValue over a descriptor whose current value already folds in the stored choice. */
 export function optionValue(descriptor: Obj, current: unknown, selection: Selection | null, reported: Selection | null): unknown {
   const id = str(descriptor.id), value = reportedValue(id, selection, reported);
@@ -112,8 +117,11 @@ export function chordGlyphs(chord: string): string {
   return `${has('Control') ? '⌃' : ''}${has('Alt') ? '⌥' : ''}${has('Shift') ? '⇧' : ''}${has('Meta') ? '⌘' : ''}${names[key] ?? (key.length === 1 ? key.toUpperCase() : key)}`;
 }
 
+/** threadExecution.ts REASONING_EFFORT_OPTION_IDS: the option ids that carry a reasoning effort (Cursor's is `reasoning_effort`). */
+export const REASONING_EFFORT_OPTION_IDS: readonly string[] = ['reasoningEffort', 'effort', 'reasoning', 'variant', 'reasoning_effort'];
+
 /** TraitsPicker's reasoning selects: the first one listed pairs with the speed label and is the one effort keys step. */
-export const REASONING_SELECT_DESCRIPTOR_IDS: ReadonlySet<string> = new Set(['reasoningEffort', 'reasoning', 'effort', 'variant', 'thinking']);
+export const REASONING_SELECT_DESCRIPTOR_IDS: ReadonlySet<string> = new Set([...REASONING_EFFORT_OPTION_IDS, 'thinking']);
 
 /**
  * buildTraitsTriggerDisplay: "Fast" or "Ultrafast" follows the first reasoning
