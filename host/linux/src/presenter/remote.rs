@@ -150,10 +150,16 @@ impl<D: DataSource> Presenter<D> {
     }
 
     /// A remote's key at the focused node `id`, after its `key` handlers
-    /// left the default (D3): Select presses, an arrow moves the focus.
-    /// A text field keeps both, as its caret and Enter. Whether it was the
-    /// remote's.
-    pub(super) fn remote_key(&mut self, id: ViewId, name: &str, code: &str, now_ms: f64) -> bool {
+    /// left the default (D3): Select presses, once for a held press, as a
+    /// held Enter presses a button once; an arrow moves the focus, its
+    /// repeats too. A text field keeps both, as its caret and Enter.
+    /// Whether it was the remote's.
+    pub(super) fn remote_key(
+        &mut self,
+        id: ViewId,
+        (name, code, repeat): (&str, &str, bool),
+        now_ms: f64,
+    ) -> bool {
         if !self.remote()
             || self
                 .host
@@ -164,7 +170,9 @@ impl<D: DataSource> Presenter<D> {
             return false;
         }
         if code == "Select" {
-            self.remote_select(id, now_ms);
+            if !repeat {
+                self.remote_select(id, now_ms);
+            }
             return true;
         }
         let Some(d) = Direction::of(name) else {
@@ -174,9 +182,16 @@ impl<D: DataSource> Presenter<D> {
         true
     }
 
-    /// Select at `id`: a radio is checked, a checkbox or switch toggled,
-    /// anything else pressed.
+    /// Select at `id`: a bar's target is chosen, a radio is checked, a
+    /// checkbox or switch toggled, anything else pressed.
     fn remote_select(&mut self, id: ViewId, now_ms: f64) {
+        if let Some(Err(e)) = self.bar_tap(id) {
+            self.host.log(e);
+            return;
+        }
+        if self.bar_node(id) {
+            return;
+        }
         if self.is_radio(id) {
             self.check_radio(id, now_ms);
             return;
@@ -216,11 +231,17 @@ impl<D: DataSource> Presenter<D> {
         })
     }
 
-    /// The focus moves to the next Tab stop in `d` (D4), and that stop is
+    /// The focus moves to the nearest stop in `d` (D4), and that stop is
     /// scrolled into view; from no focus, to the first Tab stop. With none
-    /// in `d`, the focus stays.
+    /// in `d`, the focus stays. The stops are the page's Tab stops, every
+    /// enabled radio of a group among them, so the remote reaches each
+    /// option (Select checks one), and the targets of the shell's bars.
     pub(crate) fn move_focus_toward(&mut self, d: Direction, now_ms: f64) {
-        let from = self.focus.and_then(|f| self.box_of(f)).map(|b| b.rect);
+        let bars = self.bar_stops();
+        let from = self.focus.and_then(|f| {
+            (self.box_of(f).map(|b| b.rect))
+                .or_else(|| bars.iter().find(|(id, _)| *id == f).map(|(_, r)| *r))
+        });
         let Some(from) = from else {
             if let Some(e) = self.move_focus(false, now_ms) {
                 eprintln!("exact: {e}");
@@ -231,11 +252,15 @@ impl<D: DataSource> Presenter<D> {
             return;
         };
         let boxed = self.shown_boxes();
-        let stops: Vec<(ViewId, Rect4)> = self
-            .boxes
-            .iter()
-            .filter(|b| Some(b.id) != self.focus && self.tabbable(b.id, &boxed))
-            .map(|b| (b.id, b.rect))
+        let page = (self.boxes.iter())
+            .filter(|b| Some(b.id) != self.focus && self.focus_stop(b.id, &boxed))
+            .map(|b| (b.id, b.rect));
+        let stops: Vec<(ViewId, Rect4)> = page
+            .chain(
+                bars.iter()
+                    .copied()
+                    .filter(|(id, _)| Some(*id) != self.focus),
+            )
             .collect();
         let Some(next) = nearest(d, from, stops) else {
             return;
@@ -243,7 +268,10 @@ impl<D: DataSource> Presenter<D> {
         if let Some(e) = self.set_focus(Some(next), now_ms) {
             eprintln!("exact: {e}");
         }
-        self.keep_in_view(next, reveal::Cause::FocusMove);
+        // A bar's target is in view in its bar.
+        if !bars.iter().any(|(id, _)| *id == next) {
+            self.keep_in_view(next, reveal::Cause::FocusMove);
+        }
     }
 }
 
