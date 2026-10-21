@@ -14,8 +14,13 @@ function page(chords) {
   const buttons = chords.map(chord => ({ isConnected: true, disabled: false, getClientRects: () => [{}],
     getAttribute: () => chord, click() { clicks.push(chord); } }));
   const context = {
-    document: { addEventListener(kind, fn, capture) { if (kind === 'keydown' && capture) listeners.push(fn); }, activeElement: { closest: () => null } },
+    document: { addEventListener(kind, fn, capture) { if (kind === 'keydown' && capture) listeners.push(fn); }, activeElement: { closest: () => null },
+      getElementById: id => (id === 'exact-snap' ? {} : null), styleSheets: [] },
     getComputedStyle: () => ({ visibility: 'visible' }),
+    // What the input glue reads as it starts that no chord here touches: its sheets' observers, hover, looks.
+    MutationObserver: class { observe() {} disconnect() {} takeRecords() { return []; } },
+    queueMicrotask, Element: class {}, matchMedia: () => ({ matches: false, addEventListener() {} }),
+    addEventListener() {}, removeEventListener() {},
     root: { querySelectorAll: s => (s.includes('aria-modal') ? [] : buttons), addEventListener() {}, contains: () => true },
   };
   runInNewContext(`${source}\ncreateInputHandlers({ root, views: new Map(), retiredViews: new WeakSet(), ready: () => true, inertAncestor: () => false, dispatch() {} });`, context);
