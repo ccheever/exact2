@@ -92,7 +92,7 @@ const imageSizes = new Map<string, { width: number; height: number }>();
 export type ComposerImagePreview = { open: boolean; id: string; name: string; position: string; many: boolean; width: number; height: number };
 export function composerImagePreview(client: T3Client): ComposerImagePreview[] {
   const open = images.get(client);
-  if (!open || open.key !== client.draftKey) return [];
+  if (!open || open.key !== client.attachmentKey) return [];
   const list = client.snapshotDrafts, index = list.findIndex(image => str(image.id) === open.id);
   if (index < 0) return [];
   const size = imageSizes.get(open.id) ?? { width: 0, height: 0 };
@@ -145,7 +145,7 @@ export async function performChipAct(client: T3Client, native: Native, press: Ob
     const id = context.startsWith('image_') ? context.slice('image_'.length) : '';
     if (!client.snapshotDrafts.some(image => str(image.id) === id)) throw new ClientError('That image is no longer attached.');
     await measureDraftImages(client, native);
-    images.set(client, { key: client.draftKey, id });
+    images.set(client, { key: client.attachmentKey, id });
     return '';
   }
   if (act === 'file') { openComposerFile(client, context); return ''; }

@@ -96,7 +96,7 @@ stand-in answers the calls the reference server makes for these (`GitHubCli.ts`,
 the stand-in), logs each to `envs/<name>/gh-calls.log` and refuses every other one.
 
 `drive` runs `scripts/agent.mjs macos` on the newest bundle (`EXACT_MAC_BIN` overrides) at
-1280x840 (`--size`, `--storage` and `--epoch` pass through to the driver). In a fresh store the app opens its welcome wizard: the drive pairs each `--pair`
+1280x840 (`--size`, `--storage`, `--epoch` and `--seed` pass through to the driver; a drive against a server an earlier drive used needs a new `--seed`, since two launches with one seed mint the same command ids). In a fresh store the app opens its welcome wizard: the drive pairs each `--pair`
 environment there (a fresh single-use token each; the driver's echo of it is redacted), then
 finishes the wizard with "Do not import projects", and runs your ops. `--local` also starts
 "This machine" on the fixture's local home and port, with that home's provider directories and
