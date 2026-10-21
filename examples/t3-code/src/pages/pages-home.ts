@@ -138,7 +138,7 @@ export async function pagesHome(client: T3Client, native: Native | null | undefi
   const projectName = scratchDraft ? 'No project' : (project && cachedDisplayNames(client).get(client.projectId)) || str(project?.title, 'Choose a project');
   return {
     // /welcome renders NoProjectsHero beneath the wizard.
-    // IndexDraftLanding renders nothing until every environment's shell is in and it has picked (home-landing.ts).
+    // IndexDraftLanding renders nothing until it has picked, or, with no project anywhere, until every environment's shell is in (home-landing.ts).
     landing: firstRunPending ? 'no-projects' : connected && client.ready && homeWaiting(client) ? 'offline' : landingKind({ connected, ready: client.ready, savedEnvironments: saved, connecting: ['connecting', 'reconnecting'].includes(client.connection) || (local && !connected),
       projects: client.shell.projects.length, projectId: client.projectId, threadId: client.threadId,
       missingThread: !client.thread && !client.shell.threads.some(thread => thread.id === client.threadId) }),

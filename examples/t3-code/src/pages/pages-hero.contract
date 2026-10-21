@@ -1,4 +1,4 @@
-// Adapted from T3 Code 9c161462c9 (MIT); see LICENSE-T3.
+// Adapted from T3 Code 74541bab17 (MIT); see LICENSE-T3.
 // The empty main view, measured against the served reference
 // at 1280×840: DraftHeroHeadline's sentence and its project menu, and the
 // index landings (NoProjectsHero, DraftStartError and the hosted
@@ -52,30 +52,68 @@ component EmptyThread
     scheme: string
     shoulder: bool
     busy: bool
+    // DraftHeroProjectHeading's fit: the window is lg (1024pt or wider) and the one-line heading fits its width.
+    inline: bool
+    // max-w-(--chat-content-max-width) within max-w-5xl: the chat width setting's lane (46rem, 72rem or full), at most 64rem.
+    cap: number
     command: action
     addProject: action
   view
     column flex=1 min-height=0 width="100%" justify-content="flex-end" align-items="center" padding-left="1.25rem" padding-right="1.25rem" box-sizing="border-box" testId="empty-thread"
       if data.connected and data.threadId == "" and home.landing == ""
-        column width="100%" max-width="64rem" padding-bottom=(shoulder ? "0px" : "0.25rem") margin-bottom=(shoulder ? "-0.75rem" : "0px") box-sizing="border-box" align-items="center" flex-shrink=0
-          row width="100%" max-width="46rem" justify-content="center" flex-wrap="wrap" align-items="baseline" role="heading" aria-level=1 aria-label=(home.headline == "work" ? "What should we work on?" : home.headline == "build" ? `What should we build in ${home.projectName}?` : home.headline == "start" ? `${home.projectName} to start` : "Add a project to start") testId="draft-hero-heading"
-            if home.headline == "work"
-              text "What should we work on?" font-size="1.875rem" line-height="2.25rem" letter-spacing=-0.75 color="light-dark(#27272a, #f5f5f5)"
-            if home.headline == "build"
-              text "What should we build in " font-size="1.875rem" line-height="2.25rem" letter-spacing=-0.75 white-space="pre" color="light-dark(#27272a, #f5f5f5)"
-              HeroPicker(home=home, scheme=scheme, small=false, command=command, addProject=addProject)
-              text "?" font-size="1.875rem" line-height="2.25rem" letter-spacing=-0.75 color="light-dark(#27272a, #f5f5f5)"
-            if home.headline == "start"
-              HeroPicker(home=home, scheme=scheme, small=false, command=command, addProject=addProject)
-              text " to start" font-size="1.875rem" line-height="2.25rem" letter-spacing=-0.75 white-space="pre" color="light-dark(#27272a, #f5f5f5)"
-            if home.headline == "add"
-              text "Add a project to start" font-size="1.875rem" line-height="2.25rem" letter-spacing=-0.75 color="light-dark(#27272a, #f5f5f5)"
+        column width="100%" max-width=cap padding-bottom=(shoulder ? "0px" : "0.25rem") margin-bottom=(shoulder ? "-0.75rem" : "0px") box-sizing="border-box" align-items="center" flex-shrink=0
+          if home.headline == "build"
+            ProjectHeading(home=home, scheme=scheme, inline=inline, command=command, addProject=addProject)
+          else
+            row width="100%" max-width="46rem" justify-content="center" flex-wrap="wrap" align-items="baseline" role="heading" aria-level=1 aria-label=(home.headline == "work" ? "What should we work on?" : home.headline == "start" ? `${home.projectName} to start` : "Add a project to start") testId="draft-hero-heading"
+              if home.headline == "work"
+                text "What should we work on?" font-size="1.875rem" line-height="2.25rem" letter-spacing=-0.75 color="light-dark(#27272a, #f5f5f5)"
+              if home.headline == "start"
+                HeroPicker(home=home, scheme=scheme, size=30, command=command, addProject=addProject)
+                text " to start" font-size="1.875rem" line-height="2.25rem" letter-spacing=-0.75 white-space="pre" color="light-dark(#27272a, #f5f5f5)"
+              if home.headline == "add"
+                text "Add a project to start" font-size="1.875rem" line-height="2.25rem" letter-spacing=-0.75 color="light-dark(#27272a, #f5f5f5)"
           if home.noProjectItem
-            row height="1.5rem" margin-top="0.5rem" align-items="center" justify-content="center"
+            // w-full justify-center: "No project" keeps its whole label.
+            row width="100%" height="1.5rem" margin-top="0.5rem" align-items="center" justify-content="center"
               if home.scratchDraft
-                HeroPicker(home=home, scheme=scheme, small=true, command=command, addProject=addProject)
+                HeroPicker(home=home, scheme=scheme, size=14, command=command, addProject=addProject)
               if home.scratchLine
                 ScratchLink(busy=busy, command=command)
+
+// DraftHeroProjectHeading: "What should we build in <project>?" on one line when the window is lg and that line
+// fits; otherwise "What should we build?" over the project picker at text-base. HeroWidthProbe lays the one-line
+// heading out at its natural width, apart from the heading, so the heading's own layout cannot make the check oscillate.
+component HeroWidthProbe
+  props
+    name: string
+  view
+    box position="absolute" left=0 top=0 height=0 overflow="hidden" opacity=0 pointer-events="none" aria-hidden=true display="flex" flex-direction="row"
+      row hatch="t3-anchor" data-anchor="hero-inline" flex-shrink=0 gap="0.5rem" align-items="baseline"
+        text "What should we build in" font-size="1.875rem" line-height="2.25rem" letter-spacing=-0.75 white-space="nowrap" flex-shrink=0
+        row flex-shrink=0 align-items="baseline"
+          text name font-size="1.875rem" line-height="2.25rem" letter-spacing=-0.75 font-weight=500 white-space="nowrap" flex-shrink=0
+          text "?" font-size="1.875rem" line-height="2.25rem" letter-spacing=-0.75 white-space="nowrap" flex-shrink=0
+
+component ProjectHeading
+  props
+    home: PagesHome
+    scheme: string
+    inline: bool
+    command: action
+    addProject: action
+  view
+    column width="100%" position="relative" align-items="center" gap="0.5rem" role="heading" aria-level=1 aria-label=`What should we build in ${home.projectName}?` testId="draft-hero-heading"
+      if inline
+        row width="100%" justify-content="center" align-items="baseline" gap="0.5rem"
+          text "What should we build in" font-size="1.875rem" line-height="2.25rem" letter-spacing=-0.75 white-space="nowrap" flex-shrink=0 color="light-dark(#27272a, #f5f5f5)"
+          row min-width=0 max-width="100%" align-items="baseline"
+            HeroPicker(home=home, scheme=scheme, size=30, command=command, addProject=addProject)
+            text "?" font-size="1.875rem" line-height="2.25rem" letter-spacing=-0.75 flex-shrink=0 color="light-dark(#27272a, #f5f5f5)"
+      else
+        text "What should we build?" font-size="1.875rem" line-height="2.25rem" letter-spacing=-0.75 text-align="center" max-width="100%" color="light-dark(#27272a, #f5f5f5)"
+        row min-width=0 max-width="100%" justify-content="center"
+          HeroPicker(home=home, scheme=scheme, size=16, command=command, addProject=addProject)
 
 // "or start without a project": an InlineButton (tone muted, text-sm medium).
 component ScratchLink
@@ -100,9 +138,12 @@ component HeroPicker
   props
     home: PagesHome
     scheme: string
-    small: bool
+    // The heading's 30 (text-3xl), the stacked project line's 16 (text-base), the No project line's 14 (text-sm).
+    size: number
     command: action
     addProject: action
+  derive small = size < 30
+  derive lineHeight = size == 30 ? 36 : (size == 16 ? 24 : 20)
   state over = false
   state query = ""
   // The row the keys or the pointer lit since the last edit ("-" for none); "" leaves it to the query.
@@ -139,11 +180,12 @@ component HeroPicker
   action hoverRow(id: string, on: bool)
     cursor = on ? id : (highlight == id ? "-" : highlight)
   view
-    column position="relative" flex-shrink=1 min-width=0 max-width="16rem"
-      button id="empty-choose-project" popovertarget="hero-project-menu" hover=hover role="combobox" testId="empty-choose-project" padding=0 border-width=0 background-color="#00000000" display="flex" flex-direction="column" align-items="flex-start" max-width="16rem" position="relative"
+    // min-w-0 max-w-full: a long name ends in an ellipsis at the heading's width, on one line (DraftProjectName singleLine).
+    column position="relative" flex-shrink=1 min-width=0 max-width="100%"
+      button id="empty-choose-project" popovertarget="hero-project-menu" hover=hover role="combobox" testId="empty-choose-project" padding=0 border-width=0 background-color="#00000000" display="flex" flex-direction="column" align-items="flex-start" min-width=0 max-width="100%" position="relative"
         for name in home.projectNames key=name.id
-          text name.id font-size=(small ? "0.875rem" : "1.875rem") line-height=(small ? "1.25rem" : "2.25rem") letter-spacing=(small ? "0px" : "-0.75px") font-weight=500 color="light-dark(#27272a, #f5f5f5)" line-clamp=1 max-width="16rem"
-        box position="absolute" left=0 right=0 top=(small ? "1.125rem" : "2.0625rem") height=(small ? "1px" : "2px") overflow="hidden"
+          text name.id font-size=size line-height=`${lineHeight}px` letter-spacing=(small ? "0px" : "-0.75px") font-weight=500 color="light-dark(#27272a, #f5f5f5)" white-space="nowrap" overflow="hidden" text-overflow="ellipsis" text-align="left" max-width="100%"
+        box position="absolute" left=0 right=0 top=(size == 30 ? "2.0625rem" : (size == 16 ? "1.3125rem" : "1.125rem")) height=(small ? "1px" : "2px") overflow="hidden"
           svg width="125rem" height=(small ? "1px" : "2px") viewBox=(small ? "0 0 2000 1" : "0 0 2000 2") aria-hidden=true
             path d=(small ? "M0 .5H2000" : "M0 1H2000") stroke=(scheme == "dark" ? (over ? "#f5f5f5" : "#f5f5f54d") : (over ? "#27272a" : "#27272a4d")) stroke-width=(small ? 1 : 2) stroke-dasharray=(over ? "none" : (small ? "1 1" : "2 2"))
       // Centred 4 pt below the project name, above it when the bottom does not fit. Escape closes it (light dismiss).
@@ -165,7 +207,8 @@ component HeroPicker
               for project in matches key=project.id
                 button id=`hero-project-${project.id}` press=pickRow(project.id) hover=hoverRow(project.id) role="option" aria-selected=project.selected aria-label=project.name testId=`hero-project-${project.id}` width="100%" min-height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.25rem" padding-bottom="0.25rem" box-sizing="border-box" gap="0.5rem" border-radius="0.375rem" border-width=0 background-color=(highlight == project.id ? "light-dark(#f4f4f5, #ffffff0a)" : project.selected ? "light-dark(#27272a14, #f5f5f514)" : "#00000000") display="flex" flex-direction="row" align-items="center"
                   ProjectMark(label=project.mark, muted=false, ink=project.ink, surface=project.surface, size=16)
-                  text project.name flex=1 font-size="0.875rem" line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)" line-clamp=1 white-space="nowrap" min-width=0 text-align="left"
+                  // DraftProjectName: up to two lines, broken anywhere.
+                  text project.name flex=1 font-size="0.875rem" line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)" line-clamp=2 overflow-wrap="anywhere" min-width=0 text-align="left"
               if needle == ""
                 button id="hero-add-project" press=pickRow("add-project") hover=hoverRow("add-project") role="option" aria-selected=false aria-label="Add project" testId="hero-add-project" width="100%" min-height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.25rem" padding-bottom="0.25rem" box-sizing="border-box" gap="0.5rem" border-radius="0.375rem" border-width=0 background-color=(highlight == "add-project" ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") display="flex" flex-direction="row" align-items="center"
                   PgIcon(name="folder-plus", size=16, color="light-dark(#71717b, #818181)")
