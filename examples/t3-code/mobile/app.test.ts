@@ -153,17 +153,22 @@ describe('mobile pairing source', () => {
     expect(result.exitCode).toBe(0);
     expect(local.subarray(prefix.length)).toEqual(Buffer.from(result.stdout));
   });
-  test('uses the shared hosted-link parser', () => {
-    expect(answer('pairingFields', ['https://t3.codes/pair?host=https%3A%2F%2Fserver.example#token=fixture']))
-      .toEqual({ source: 'https://t3.codes/pair?host=https%3A%2F%2Fserver.example#token=fixture', host: 'https://server.example', code: 'fixture' });
+  test('dispatches retained prefill parsing for scans and submits with their captured owners', () => {
+    const url = 'https://t3.codes/pair?host=https%3A%2F%2Fserver.example#token=fixture';
+    expect(answer('pairingPrefill', ['scan', url, '', 7, 'scan-visit', 3]))
+      .toEqual({ url, host: 'https://server.example', code: 'fixture', generation: 7, visit: 'scan-visit', editRevision: 3, scanned: true });
+    expect(answer('pairingPrefill', ['submit', '127.0.0.1:1', ' test-local-only ', 8, 'submit-visit', 4]))
+      .toEqual({ url: 'http://127.0.0.1:1/#token=test-local-only', host: 'http://127.0.0.1:1', code: 'test-local-only', generation: 8, visit: 'submit-visit', editRevision: 4, scanned: false });
   });
-  test('keeps rejected space-host input intact without prefilling a code', () => {
+  test('keeps rejected scan input as displayed text without prefilling a code', () => {
     const source = '  https://not a url/pair#token=fixture  ';
-    expect(answer('pairingFields', [source]))
-      .toEqual({ source, host: source.trim(), code: '' });
+    expect(answer('pairingPrefill', ['scan', source, '', 9, 'invalid-scan-visit', 5]))
+      .toEqual({ url: source.trim(), host: source.trim(), code: '', generation: 9, visit: 'invalid-scan-visit', editRevision: 5, scanned: true });
   });
-  test('answers empty input at bake and rejects unknown sources', () => {
-    expect(answer('pairingFields', [''])).toEqual({ source: '', host: '', code: '' });
+  test('answers empty scan input and rejects obsolete or unknown sources', () => {
+    expect(answer('pairingPrefill', ['scan', '', '', 0, '', 0]))
+      .toEqual({ url: '', host: '', code: '', generation: 0, visit: '', editRevision: 0, scanned: true });
+    expect(() => answer('pairingFields', [])).toThrow('Unknown mobile source: pairingFields');
     expect(() => answer('missing', [])).toThrow('Unknown mobile source');
   });
 });
