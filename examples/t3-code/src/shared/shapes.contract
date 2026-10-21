@@ -113,6 +113,9 @@ shape Activity
   linkPrefix: string
   linkTitle: string
   linkThreadId: string
+  // A handoff endpoint's instance badge (shouldShowInstanceBadge): its initials and accent ("" for none).
+  badge: string
+  badgeColor: string
 shape Message
   id: string
   kind: string

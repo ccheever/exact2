@@ -1,4 +1,4 @@
-// Port of the reference's apps/web/src/rpc/requestLatencyState.test.ts (T3 Code 1e2ecbd975), original
+// Port of the reference's apps/web/src/rpc/requestLatencyState.test.ts (T3 Code 74541bab17), original
 // test names. exact2-required changes: no fake timers; the state is a value and every call takes `now`
 // (`vi.advanceTimersByTime(n)` becomes `getSlowRpcAckRequests(state, start + n)`); `trackRpcRequestSent`
 // takes `now` before the optional tag.
@@ -18,6 +18,8 @@ import {
 const WS_METHODS = {
   previewAutomationConnect: 'previewAutomation.connect',
   serverGetUsageSummary: 'server.getUsageSummary',
+  serverReportClientActivity: 'server.reportClientActivity',
+  vcsRefreshStatus: 'vcs.refreshStatus',
   serverUpdateProvider: 'server.updateProvider',
   serverRefreshProviders: 'server.refreshProviders',
   serverUpdateServer: 'server.updateServer',
@@ -64,8 +66,8 @@ describe('requestLatencyState', () => {
     expect(getSlowRpcAckRequests(state, start + SLOW_RPC_ACK_THRESHOLD_MS * 2)).toEqual([]);
   });
 
-  test('ignores usage summary requests', () => {
-    trackRpcRequestSent(state, '1', WS_METHODS.serverGetUsageSummary, start);
+  test.each([WS_METHODS.serverGetUsageSummary, WS_METHODS.serverReportClientActivity])('ignores background request %s', method => {
+    trackRpcRequestSent(state, '1', method, start);
     expect(getSlowRpcAckRequests(state, start + SLOW_RPC_ACK_THRESHOLD_MS * 2)).toEqual([]);
   });
 
@@ -79,12 +81,12 @@ describe('requestLatencyState', () => {
     expect(getSlowRpcAckRequests(state, start + SLOW_RPC_ACK_THRESHOLD_MS * 2)).toEqual([]);
   });
 
-  test('gives provider updates a longer threshold before warning', () => {
-    trackRpcRequestSent(state, '1', WS_METHODS.serverUpdateProvider, start, 'server.updateProvider · env-1');
+  test.each([WS_METHODS.serverUpdateProvider, WS_METHODS.vcsRefreshStatus])('gives %s a longer threshold before warning', method => {
+    trackRpcRequestSent(state, '1', method, start, `${method} · env-1`);
     expect(getSlowRpcAckRequests(state, start + LONG_RUNNING_RPC_ACK_THRESHOLD_MS - 1)).toEqual([]);
 
     expect(getSlowRpcAckRequests(state, start + LONG_RUNNING_RPC_ACK_THRESHOLD_MS)).toMatchObject([
-      { requestId: '1', tag: 'server.updateProvider · env-1', thresholdMs: LONG_RUNNING_RPC_ACK_THRESHOLD_MS },
+      { requestId: '1', tag: `${method} · env-1`, thresholdMs: LONG_RUNNING_RPC_ACK_THRESHOLD_MS },
     ]);
   });
 

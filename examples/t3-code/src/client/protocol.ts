@@ -5,7 +5,7 @@ export interface BridgeReply {
   ok: boolean;
   generation: number;
   value?: unknown;
-  error?: { kind: string; message: string; uncertain: boolean; reason?: string; detail?: string; context?: Record<string, string> };
+  error?: { kind: string; message: string; uncertain: boolean; reason?: string; detail?: string; context?: Record<string, string>; unavailable?: boolean };
 }
 export interface Native {
   available: boolean;
@@ -25,9 +25,11 @@ export class ClientError extends Error {
   readonly detail: string;
   /** Its context fields (ProjectReadFileError.failure, .resolvedPath); empty otherwise. */
   readonly context: Record<string, string>;
-  constructor(message: string, readonly kind = 'client', readonly uncertain = false, typed: { reason?: string; detail?: string; context?: Record<string, string> } = {}) {
+  /** The request found no live session, or lost it before the reply (the transport's `unavailable`). */
+  readonly unavailable: boolean;
+  constructor(message: string, readonly kind = 'client', readonly uncertain = false, typed: { reason?: string; detail?: string; context?: Record<string, string>; unavailable?: boolean } = {}) {
     super(message);
-    this.reason = typed.reason ?? ''; this.detail = typed.detail ?? ''; this.context = typed.context ?? {};
+    this.reason = typed.reason ?? ''; this.detail = typed.detail ?? ''; this.context = typed.context ?? {}; this.unavailable = typed.unavailable === true;
   }
 }
 export function reply(value: unknown): BridgeReply {
@@ -43,6 +45,7 @@ export function reply(value: unknown): BridgeReply {
       uncertain: error.uncertain === true,
       ...(str(error.reason) ? { reason: str(error.reason) } : {}), ...(str(error.detail) ? { detail: str(error.detail) } : {}),
       ...(Object.keys(obj(error.context)).length ? { context: Object.fromEntries(Object.entries(obj(error.context)).filter(([, value]) => typeof value === 'string')) as Record<string, string> } : {}),
+      ...(error.unavailable === true ? { unavailable: true } : {}),
     } }),
   };
 }

@@ -35,11 +35,20 @@ test('a parent request takes precedence and an auth refresh never raises attenti
   expect(composerNotices(client, 0).some(notice => notice.id.startsWith('child-input:'))).toBe(false);
 });
 
+/** A thread whose provider session hands context to another provider instead of locking the composer to its own. */
+function handsOff(projection: Obj): void {
+  Object.assign(projection.thread as Obj, { activeProviderThreadId: 'pt' });
+  projection.providerThreads = [{ id: 'pt', appThreadId: 't1', providerSessionId: 'ps' }];
+  projection.providerSessions = [{ id: 'ps', capabilities: { sessions: { supportsProviderSwitchingViaHandoff: true } } }];
+}
+
 test('a model change previews a required context handoff without modifying history', async () => {
   const { client } = await opened();
-  client.config.providers = [{ instanceId: 'codex', driver: 'codex', models: [{ slug: 'model-a', name: 'Model A' }], continuation: { groupKey: 'a' } },
-    { instanceId: 'other', driver: 'codex', models: [{ slug: 'model-b', name: 'Model B' }], continuation: { groupKey: 'b' } }];
+  const ready = { enabled: true, installed: true, status: 'ready', auth: { status: 'authenticated' } };
+  client.config.providers = [{ instanceId: 'codex', driver: 'codex', ...ready, models: [{ slug: 'model-a', name: 'Model A' }], continuation: { groupKey: 'a' } },
+    { instanceId: 'other', driver: 'codex', ...ready, models: [{ slug: 'model-b', name: 'Model B' }], continuation: { groupKey: 'b' } }];
   client.thread!.projection.runs = [{ id: 'r', startedAt: '2026-10-03T00:00:00Z', status: 'completed', modelSelection: { instanceId: 'codex', model: 'model-a' } }];
+  handsOff(client.thread!.projection);
   const selection = { instanceId: 'other', model: 'model-b' };
   expect(pendingHandoff(client.projection, selection, client.config.providers as Obj[])).toMatchObject({ from: { instanceId: 'codex' }, to: selection });
   client.providerId = 'other'; client.modelId = 'model-b';
@@ -47,6 +56,23 @@ test('a model change previews a required context handoff without modifying histo
     activities: [{ label: 'Model A', detail: 'codex' }, { label: 'Model B', detail: 'codex' }] });
   expect(client.projection.contextHandoffs).toEqual([]);
   expect(pendingHandoff(client.projection, { instanceId: 'codex', model: 'model-b' }, client.config.providers as Obj[])).toBeNull();
+});
+
+test('no pending handoff for a provider the next send would skip (a9af48a3d2); accounts show their badge (27b0dbb30e)', async () => {
+  const { client } = await opened();
+  const ready = { enabled: true, installed: true, status: 'ready', auth: { status: 'authenticated' } };
+  client.config.providers = [{ instanceId: 'codex', driver: 'codex', displayName: 'Personal', ...ready, models: [{ slug: 'model-a', name: 'Model A' }], continuation: { groupKey: 'a' } },
+    { instanceId: 'codex-work', driver: 'codex', displayName: 'Work', accentColor: '#2563eb', ...ready, models: [{ slug: 'model-b', name: 'Model B' }], continuation: { groupKey: 'b' } }];
+  client.thread!.projection.runs = [{ id: 'r', startedAt: '2026-10-03T00:00:00Z', status: 'completed', modelSelection: { instanceId: 'codex', model: 'model-a' } }];
+  handsOff(client.thread!.projection);
+  client.providerId = 'codex-work'; client.modelId = 'model-b';
+  expect(threadFooterRows(client, 0)[0]).toMatchObject({ title: 'Context handoff pending',
+    activities: [{ label: 'Model A', badge: 'PE', badgeColor: '' }, { label: 'Model B', badge: 'WO', badgeColor: '#2563eb' }] });
+  (client.config.providers as Obj[])[1]!.enabled = false;
+  expect(threadFooterRows(client, 0).some(row => row.kind === 'handoff')).toBe(false);
+  (client.config.providers as Obj[])[1]!.enabled = true;
+  (client.config.providers as Obj[])[1]!.availability = 'unavailable';
+  expect(threadFooterRows(client, 0).some(row => row.kind === 'handoff')).toBe(false);
 });
 
 test('the context meter takes the newest usage report regardless of provider turn order and rounds across a million', () => {

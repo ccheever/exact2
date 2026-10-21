@@ -29,6 +29,7 @@ import { fleetPortsEvent, fleetPortsPass } from '../sidebar/legacy-sidebar-ports
 import { sessionHasLegacyPermissions, sessionPermissions } from './remote-scopes';
 import { accessFleetPass } from './auth-access';
 import { syncProjectFavicons } from '../sidebar/sidebar-glyph';
+import { announceHostFreezes, type FreezeSource } from './host-freeze';
 
 export type FleetPhase = 'available' | 'connecting' | 'reconnecting' | 'connected' | 'error' | 'unsupported';
 export interface FleetEntry {
@@ -139,7 +140,26 @@ export class EnvironmentFleet {
       const entry = [...this.entries.values()].find(candidate => candidate.environmentId === environmentId);
       return entry?.phase === 'connected' ? str(obj(entry.config.environment).serverVersion) || null : null;
     }).catch(() => {});
+    if (client) announceHostFreezes(client, this.freezeSources(client)); // host-freeze.ts: a host that dropped because it froze says so
     usageFleetSynced(this.revision); // usage-replies.ts: a background change redraws the open Usage page
+  }
+
+  /** An environment's catalog label (EnvironmentConnectionTarget.label): its saved entry's, else the primary's; '' when neither has one. */
+  catalogLabel(environmentId: string): string {
+    const local = primaryEntry();
+    return str(this.saved.find(entry => str(entry.environmentId) === environmentId)?.label)
+      || (local && str(local.environmentId) === environmentId ? str(local.label) : '');
+  }
+
+  /** Every environment's server config with its catalog label, the focused connection's first (host-freeze.ts). */
+  freezeSources(client: Pick<T3Client, 'environmentId' | 'config'>): FreezeSource[] {
+    const label = (environmentId: string) => this.catalogLabel(environmentId);
+    const sources: FreezeSource[] = [];
+    if (client.environmentId && Object.keys(client.config).length) sources.push({ environmentId: client.environmentId, label: label(client.environmentId), config: client.config });
+    for (const entry of this.entries.values()) {
+      if (entry.environmentId && entry.environmentId !== client.environmentId && Object.keys(entry.config).length) sources.push({ environmentId: entry.environmentId, label: label(entry.environmentId), config: entry.config });
+    }
+    return sources;
   }
 
   private async syncOne(native: Native, entry: FleetEntry, epoch: number): Promise<void> {
