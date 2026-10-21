@@ -92,8 +92,8 @@ component WatchBoard
         text "No more trains" font-size="0.8125em" color="#aaaaaa"
       else
         for d in board key=d.id
-          // A countdown the platform draws from its instant, so it stays right while
-          // the runner is frozen in Always On (LLP 1126.002 D6).
+          // A countdown the platform draws from its instant, so it stays right between
+          // the runner's turns, in Always On too (LLP 1126.002 D6).
           row gap=6 align-items="baseline" testId=`watch-dep-${d.id}`
             time datetime=(d.at + offset) format="countdown" font-size="1.25em" font-weight=700 color="#ffffff" testId=`watch-countdown-${d.id}`
             text formatTime(d.at, 0, "short") font-size="0.75em" color="#aaaaaa"

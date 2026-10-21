@@ -356,7 +356,7 @@ public final class HeadlessSession {
         ancestor == node || (nodes[ancestor]?.children.contains { holds($0, node) } ?? false)
     }
 
-    /// On the owner thread, after a turn applied the node.
+    /// A control's face title (else its label), read on the owner thread after a turn applied it.
     private func pressFaceTitle(_ node: UInt32) -> String? {
         let length = exact_press_face(core.runtime.rt, node)
         let face = Data(bytes: exact_out(core.runtime.rt), count: Int(length))
@@ -373,7 +373,7 @@ public final class HeadlessSession {
     #endif
 
     /// A live session calls `wake` on the main queue when a request's reply is
-    /// ready; the host then calls `refresh(at:)`. One wake per session; nil removes it.
+    /// ready; the host then calls `pump(at:)`. One wake per session; nil removes it.
     public func onWake(_ wake: (() -> Void)?) {
         Owner.shared.sync { HeadlessWakes.callbacks[wakeKey] = wake }
     }

@@ -170,7 +170,7 @@ public struct LiveView: View {
 }
 
 /// What a live session takes from the view: a press on a node with a `press`
-/// handler, a scroller's offset, a field's text; and a native control's title.
+/// handler, a scroller's offset, a field's text, the platform's Back and a link.
 @available(iOS 17.0, macOS 14.0, watchOS 10.0, visionOS 26.0, *)
 struct LiveInput {
     var press: (UInt32) -> Void
