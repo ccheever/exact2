@@ -352,6 +352,12 @@ macro_rules! host {
             }, |n| n)
         }
 
+        /// First pixel has been presented; evaluate deferred app logic, uncommitted.
+        #[no_mangle]
+        pub extern "C" fn exact_prepare_data(rt: u32) {
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.prepare_data(), |_| ())
+        }
+
         /// First pixel has been presented; activate deferred app logic.
         #[no_mangle]
         pub extern "C" fn exact_data_ready(rt: u32) -> u32 {

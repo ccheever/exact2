@@ -231,6 +231,8 @@ pub struct Host<D: DataSource> {
     /// or grants that do not parse).
     secrets: Option<Box<dyn crate::store::KeptStore>>,
     data_activated: bool,
+    /// The source's activation, run ahead of `activate_data` by `prepare_data`.
+    source_prepared: Option<Result<(), String>>,
     store_refresh_pending: bool,
     store_activation_pending: bool,
     store_retry_names: Vec<String>,
@@ -550,6 +552,7 @@ impl<D: DataSource> Host<D> {
             viewport: (viewport.width as f32, viewport.height as f32),
             now_ms: 0.0,
             data_activated: false,
+            source_prepared: None,
             store_refresh_pending: false,
             store_activation_pending: false,
             store_retry_names: Vec::new(),
@@ -733,12 +736,6 @@ impl<D: DataSource> Host<D> {
         // 1069.002 D4, D7); the last launch's picks go.
         crate::picker::set_roots(data.clone(), cache.clone(), temporary.clone());
         source.configure_storage(data, cache, temporary)
-    }
-
-    /// The common post-pixel activation order for committed sources.
-    pub(crate) fn activate_source(source: &mut D) -> Result<(), exact_runner::DataError> {
-        Self::configure_storage(source)?;
-        source.activate()
     }
 
     /// The work behind a continuation, dispatched on this thread after the
