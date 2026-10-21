@@ -42,9 +42,12 @@ import { terminalCloseConfirmMessage } from './terminal-close';
 import { surfaceStore } from '../panel/panel-surfaces';
 import {
   clampDrawerHeight,
+  findReusableProjectScriptTerminal,
   projectScriptCwd,
   projectScriptRuntimeEnv,
+  projectScriptTerminalInput,
   reconcileMountedTerminalThreadIds,
+  resolveTerminalWorktreePath,
   serverTerminalIdsStrictSubsetOfClient,
   terminalIdListsEqual,
 } from './terminal-drawer';
@@ -66,7 +69,7 @@ export type TerminalDrawerView = {
   toggleLabel: string; sessionKey: string; mounted: number; metadata: string; failure: string;
 };
 
-type MetadataState = { generation: number; id: string; floor: number; maxSeen: number; metadata: TerminalSummary[] | null;
+type MetadataState = { generation: number; environmentId: string; id: string; floor: number; maxSeen: number; metadata: TerminalSummary[] | null;
   error: string; refused: boolean; attemptAt: number };
 type DrawerState = { mounted: string[]; retained: string; focusRequest: number; viewportHeight: number; failure: string; metadata: MetadataState };
 const states = new WeakMap<T3Client, DrawerState>();
@@ -74,7 +77,7 @@ function drawerState(client: T3Client): DrawerState {
   let state = states.get(client);
   if (!state) {
     state = { mounted: [], retained: '', focusRequest: 0, viewportHeight: 0, failure: '',
-      metadata: { generation: -1, id: '', floor: 0, maxSeen: 0, metadata: null, error: '', refused: false, attemptAt: -Infinity } };
+      metadata: { generation: -1, environmentId: '', id: '', floor: 0, maxSeen: 0, metadata: null, error: '', refused: false, attemptAt: -Infinity } };
     states.set(client, state);
   }
   return state;
@@ -92,12 +95,25 @@ function projectOf(client: T3Client, thread: Obj | undefined): Obj | undefined {
   return client.shell.projects.find(project => project.id === projectId);
 }
 /** The launch location: the thread's worktree, else the project root, and the project script env. */
-export function launchFor(client: T3Client, threadId: string): { cwd: string; worktreePath: string | null; env: Record<string, string> } | null {
+/**
+ * Where a terminal launches: a known session keeps its own cwd and checkout (PersistentThreadTerminals.tsx
+ * resolveTerminalWorktreePath, so a checkout terminal never moves onto the thread's worktree); any other
+ * terminal takes the thread's.
+ */
+export function launchFor(client: T3Client, threadId: string, summary: TerminalSummary | null = null): { cwd: string; worktreePath: string | null; env: Record<string, string> } | null {
   const thread = threadOf(client, threadId), project = projectOf(client, thread);
   const root = str(project?.workspaceRoot);
   if (!project || !root) return null;
-  const worktreePath = str(thread?.worktreePath) || (!client.threadId ? str(client.local.composerControls?.contexts?.[client.draftKey]?.worktreePath) : '') || null;
-  return { cwd: projectScriptCwd({ project: { cwd: root }, worktreePath }), worktreePath, env: projectScriptRuntimeEnv({ project: { cwd: root }, worktreePath }) };
+  const threadWorktreePath = str(thread?.worktreePath) || (!client.threadId ? str(client.local.composerControls?.contexts?.[client.draftKey]?.worktreePath) : '') || null;
+  const worktreePath = resolveTerminalWorktreePath({ launchContext: null, summary, threadWorktreePath });
+  return { cwd: summary?.cwd ?? projectScriptCwd({ project: { cwd: root }, worktreePath }), worktreePath, env: projectScriptRuntimeEnv({ project: { cwd: root }, worktreePath }) };
+}
+
+/** A pane's `cwd`, `worktree` and `env` props: `launchFor` with the pane's known session. */
+export function paneLaunchProps(client: T3Client, ref: ScopedThreadRef, terminalId: string): { cwd: string; worktree: string; env: string } {
+  const summary = knownSessions(client, ref).find(session => session.target.terminalId === terminalId)?.state.summary ?? null;
+  const launch = launchFor(client, ref.threadId, summary);
+  return { cwd: launch?.cwd ?? '', worktree: launch?.worktreePath ?? '', env: JSON.stringify(launch?.env ?? {}) };
 }
 
 /** PanelLayoutControls `terminalAvailable` (an active project), for a server thread. */
@@ -201,7 +217,12 @@ export function terminalRows(add: DispatchAdd, client: T3Client): void {
 
 async function watchMetadata(client: T3Client, native: Native, now: number): Promise<void> {
   const state = drawerState(client).metadata;
-  if (state.generation !== client.generation) Object.assign(state, { generation: client.generation, id: '', metadata: null, error: '', refused: false, attemptAt: -Infinity });
+  // A new connection to the same environment keeps the known sessions until its first snapshot
+  // (client-runtime state/terminal.ts drops the scan seed), so panes keep their own checkouts meanwhile.
+  if (state.generation !== client.generation) {
+    if (state.environmentId !== client.environmentId) Object.assign(state, { environmentId: client.environmentId, metadata: null });
+    Object.assign(state, { generation: client.generation, id: '', error: '', refused: false, attemptAt: -Infinity });
+  }
   if (client.connection !== 'connected' || !can(client, 'terminal:read') || state.id || state.refused || now - state.attemptAt < METADATA_RETRY_MS) return;
   state.attemptAt = now; state.floor = state.maxSeen;
   try {
@@ -308,7 +329,8 @@ export async function terminalDrawerView(client: T3Client, native: Native | null
   const threadKey = ref ? scopedThreadKey(ref) : '';
   const labelFor = (id: string) => resolveTerminalSessionLabel(id, ref ? knownSessions(client, ref).find(session => session.target.terminalId === id)?.state.summary : null);
   const panes = layout.visible.map(id => ({ terminalId: id, label: labelFor(id), sessionKey: ref ? sessionKey(ref, id) : '', active: id === terminalId,
-    focusRequest: can(client, 'terminal:operate') && ui.terminalOpen && id === terminalId ? drawer.focusRequest : 0, target: `${threadKey}|${id}` }));
+    focusRequest: can(client, 'terminal:operate') && ui.terminalOpen && id === terminalId ? drawer.focusRequest : 0, target: `${threadKey}|${id}`,
+    ...(ref ? paneLaunchProps(client, ref, id) : { cwd: '', worktree: '', env: '{}' }) }));
   const tabs = terminalTabs(ui.terminalGroups, terminalId, layout.showHeaders, threadKey, labelFor, ui.terminalOpen ? keyClose : '');
   return {
     available: terminalAvailable(client), readOnly: !can(client, 'terminal:operate'), open: !!launch && ui.terminalOpen, threadKey: ref ? scopedThreadKey(ref) : '', environmentId: ref?.environmentId ?? '', threadId: ref?.threadId ?? '',
@@ -359,21 +381,30 @@ export async function closeTerminalSession(client: T3Client, native: Native, ref
   }
 }
 
-/** ChatView.runProjectScriptInTerminal: use the active idle shell, otherwise start a new group. */
-export async function runTerminalCommand(client: T3Client, native: Native, storage: Files, command: string, scriptName = ''): Promise<void> {
+/**
+ * ChatView.runProjectScript: reuse an idle drawer terminal (the active one first, never a right-panel one),
+ * otherwise start a new group. A project script's command stays out of shell history; a chat code block's
+ * (`shellHistory: 'preserve'`, runShellCommand) is typed as is.
+ */
+export async function runTerminalCommand(client: T3Client, native: Native, storage: Files, command: string, scriptName = '', shellHistory: 'preserve' | 'suppress' = 'suppress'): Promise<void> {
   requirePermission(client.scopes, 'terminal:operate');
   void storage;
   const ref = await ensureTerminalRef(client, native), launch = ref ? launchFor(client, ref.threadId) : null;
   if (!ref || !launch) throw new ClientError('A project is required to run a terminal command.');
   const store = terminalUiStore(client), state = selectThreadTerminalUiState(store.getState().terminalUiStateByThreadKey, ref);
-  const active = state.activeTerminalId;
-  const busy = knownSessions(client, ref).find(session => session.target.terminalId === active)?.state.summary?.hasRunningSubprocess === true;
-  const terminalId = active && state.terminalIds.includes(active) && !busy ? active : nextTerminalId(allocatableIds(client, ref));
+  const known = knownSessions(client, ref);
+  // Server sessions cover drawer terminals this client has not opened yet, such as a worktree setup shell.
+  const reusable = drawerState(client).metadata.metadata === null || !can(client, 'terminal:read') ? null : findReusableProjectScriptTerminal({
+    drawerTerminalIds: [...new Set([...state.terminalIds, ...known.map(session => session.target.terminalId)])],
+    activeTerminalId: state.activeTerminalId, panelTerminalIds: new Set(terminalPanelIds(client, ref)),
+    runningTerminalIds: [...selectRunningSubprocessTerminalIds(known)] });
+  const terminalId = reusable ?? nextTerminalId(allocatableIds(client, ref));
   await client.request(native, 'terminal.open', { threadId: ref.threadId, terminalId, cwd: launch.cwd,
-    ...(launch.worktreePath ? { worktreePath: launch.worktreePath } : {}), env: launch.env, ...(terminalId !== active ? { cols: 120, rows: 30 } : {}) });
+    ...(launch.worktreePath ? { worktreePath: launch.worktreePath } : {}), env: launch.env, ...(reusable === null ? { cols: 120, rows: 30 } : {}) });
   store.getState().ensureTerminal(ref, terminalId, { open: true });
   drawerState(client).focusRequest++;
-  try { await client.request(native, 'terminal.write', { threadId: ref.threadId, terminalId, data: `${command}\r` }); }
+  const data = shellHistory === 'preserve' ? `${command}\r` : projectScriptTerminalInput(command);
+  try { await client.request(native, 'terminal.write', { threadId: ref.threadId, terminalId, data }); }
   catch (error) { if (letGo(error)) throw error; throw new ClientError(error instanceof Error ? error.message : scriptName ? `Failed to run script "${scriptName}".` : 'Failed to run command.'); }
 }
 
@@ -418,7 +449,7 @@ export async function terminalOps(this: T3Client, op: string, id: string, value:
     }
   }
   if (action === 'run-script') { await runProjectTerminalScript(this, native, storage, id); return true; }
-  if (action === 'run-command') { await runTerminalCommand(this, native, storage, value.trim()); return true; }
+  if (action === 'run-command') { await runTerminalCommand(this, native, storage, value.trim(), '', 'preserve'); return true; }
   if (action === 'toggle') {
     const ref = await ensureTerminalRef(this, native);
     if (!ref) return true;

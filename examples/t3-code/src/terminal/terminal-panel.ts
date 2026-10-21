@@ -8,7 +8,7 @@ import type { Files, Native } from '../client/protocol';
 import { obj, str } from '../client/domain';
 import { panelState, surfaceStore, type PanelState, type Surface } from '../panel/panel-surfaces';
 import { closeSurface, registerSurfaceClose } from '../panel/right-panel-tabs';
-import { activeRef, ensureTerminalRef, launchFor, knownSessions, allocatableIds, openTerminal, closeTerminalSession, handleTerminalMessage, terminalKeybindings, terminalShortcut, terminalCommandAction, terminalOps, revealTerminal, type TerminalDrawerView } from './terminal-drawer-view';
+import { activeRef, ensureTerminalRef, launchFor, paneLaunchProps, knownSessions, allocatableIds, openTerminal, closeTerminalSession, handleTerminalMessage, terminalKeybindings, terminalShortcut, terminalCommandAction, terminalOps, revealTerminal, type TerminalDrawerView } from './terminal-drawer-view';
 import { nextTerminalId, resolveTerminalSessionLabel } from './terminal-labels';
 import { terminalCloseConfirmMessage } from './terminal-close';
 import { parseScopedThreadKey, scopedThreadKey, terminalUiStore, type ScopedThreadRef } from './terminal-ui-state';
@@ -162,7 +162,7 @@ export function terminalPanelView(client: T3Client, base: TerminalDrawerView, su
   const threadKey = scopedThreadKey(ref), terminalId = terminal.activeTerminalId, label = panelTerminalLabel(client, terminalId);
   const [closeTitle, closeBody] = terminalCloseConfirmMessage([label]);
   const panes = terminal.terminalIds.map(id => ({ terminalId: id, label: panelTerminalLabel(client, id), sessionKey: JSON.stringify([ref.environmentId, ref.threadId, id]),
-    active: id === terminalId, focusRequest: id === terminalId ? focus.get(client) ?? 0 : 0, target: `${threadKey}|${id}` }));
+    active: id === terminalId, focusRequest: id === terminalId ? focus.get(client) ?? 0 : 0, target: `${threadKey}|${id}`, ...paneLaunchProps(client, ref, id) }));
   // RightPanelTerminalSurface: the surface is the drawer component's one group, so 2+ panes show the tab list.
   const groups = [{ id: surface.id, terminalIds: terminal.terminalIds, splitDirection: terminal.splitDirection }];
   const layout = terminalLayout(terminal.terminalIds, groups, terminalId, surface.id);

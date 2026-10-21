@@ -2,7 +2,7 @@
   "description": "Binaries and license texts copied byte for byte from T3 Code. verify-vendor.mjs checks every entry; no build step reads the reference or rebuilds the WASM.",
   "reference": {
     "repository": "https://github.com/pingdotgg/t3code",
-    "commit": "1e2ecbd9758830669684b494d4398f626b0576e0"
+    "commit": "74541bab17270c35f4418d4e543d85628632ed8f"
   },
   "ghostty": {
     "repository": "https://github.com/ghostty-org/ghostty",
