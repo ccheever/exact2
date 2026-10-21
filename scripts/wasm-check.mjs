@@ -64,43 +64,67 @@ export function wasmCrates(root) {
   return { crates, bins, dirs, target: meta.target_directory };
 }
 
-/** Whether `target` holds this check's output already (Cargo's fingerprints for wasm32's debug profile). */
-const warm = (target) => {
-  const prints = resolve(target, TARGET, 'debug', '.fingerprint');
-  return existsSync(prints) && readdirSync(prints).some((d) => d.startsWith('exact-web-'));
+/** Whether `build` (Cargo's build directory: the target directory, unless `CARGO_BUILD_BUILD_DIR` names another)
+ * holds this check's output already: exact-web's own fingerprint for wasm32's debug profile. */
+export const warm = (build) => {
+  const prints = resolve(build, TARGET, 'debug', '.fingerprint');
+  return existsSync(prints) && readdirSync(prints).some((d) => /^exact-web-[0-9a-f]{16}$/.test(d));
 };
 
 /** `{ problems: [{ code, message, detail }], counted }`, as caps.mjs reports them. */
-export function wasmCheck(root, { env = process.env, changed, hot, dry = false } = {}) {
+export function wasmCheck(root, { env = process.env, changed, hot, dry = false, found: given } = {}) {
   if (env.EXACT_CAPS_WASM === '0') return { problems: [], counted: 'wasm32: skipped (EXACT_CAPS_WASM=0)' };
   const problem = (message, detail) => ({ problems: [{ code: 'wasm:check', message, detail }], counted: 'wasm32: not checked' });
   let found;
   try {
-    found = wasmCrates(root);
+    found = given ?? wasmCrates(root);
+    found.build = env.CARGO_BUILD_BUILD_DIR ? resolve(root, env.CARGO_BUILD_BUILD_DIR) : found.target; // (a config file's build-dir is unstable Cargo's)
     assertOwnTarget(found.target, root);
+    if (found.build !== found.target) assertOwnTarget(found.build, root);
     if (changed === undefined) changed = changedSince(root);
   } catch (e) { return problem(`the crates the web apps link could not be listed, so none was checked for wasm32: ${e.message}`); }
   const rust = changed?.map((f) => f.replaceAll('\\', '/'))
     .filter((f) => RUST.test(f) || found.dirs.some((d) => f.startsWith(d)) && !/(^|\/)tests\/|\.test\.[cm]?[jt]s$/.test(f));
-  hot ??= warm(found.target);
+  hot ??= warm(found.build);
   if (!hot && rust && !rust.length) return { problems: [], counted: 'wasm32: no Rust changed since origin/main and no earlier check in this target directory, not checked' };
   const why = hot ? 'Cargo decides what changed' : rust ? `Rust or a crate's files changed since origin/main: ${rust.length}` : 'no origin/main to compare';
   if (dry) return { problems: [], counted: `wasm32: would check (${why})` }; // a test's: when it runs, not the compile
-  const results = [];
-  try {
-    results.push(run(root, 'cargo', ['check', '--offline', '--locked', '--target', TARGET, '--lib', '--keep-going', '--message-format', 'short', ...found.crates.flatMap((c) => ['-p', c])], { ok: [0, 101] }));
-    for (const [pkg, bin] of found.bins) results.push(run(root, 'cargo', ['check', '--offline', '--locked', '--target', TARGET, '-p', pkg, '--bin', bin, '--message-format', 'short'], { ok: [0, 101] }));
-  } catch (e) { return problem(`cargo check --target ${TARGET} could not run, so nothing was checked: ${e.message}`); }
+  const checks = [['--lib', '--keep-going', ...found.crates.flatMap((c) => ['-p', c])], ...found.bins.map(([pkg, bin]) => ['-p', pkg, '--bin', bin])];
+  const results = checks.map((args) => {
+    try { return { args, ...run(root, 'cargo', ['check', '--offline', '--locked', '--target', TARGET, '--message-format', 'short', ...args], { ok: [0, 101] }) }; } catch (e) { return { args, thrown: e.message }; }
+  });
+  return report(results, found, why);
+}
+
+/** caps' report of the checks' `results` (`{ args, status, stderr }`, or `{ args, thrown }` for one that could not
+ * run): every diagnostic, a build script's failure with its cause, and a rerun for each check that failed. */
+export function report(results, found, why) {
   const count = `${found.crates.length} crates and ${found.bins.length} binary the web apps link`;
-  if (results.every((r) => r.status === 0)) return { problems: [], counted: `wasm32: ${count} checked for ${TARGET} (${why}), 0 errors` };
-  const stderr = results.map((r) => r.stderr ?? '').join('\n').split('\n');
-  // Each diagnostic, at its file or not (`error: …` from Cargo or a build script), but not Cargo's per-crate summary
-  const errors = [...new Set(stderr.filter((l) => /(^|: )error(\[E\d+\])?:/.test(l) && !/^error: (could not compile|aborting|build failed)/.test(l)))];
-  const failed = [...new Set(stderr.map((l) => /could not compile `([^`]+)`/.exec(l)?.[1]).filter(Boolean))];
+  if (results.every((r) => r.status === 0 && !r.thrown)) return { problems: [], counted: `wasm32: ${count} checked for ${TARGET} (${why}), 0 errors` };
+  const errors = [], reruns = [], failed = new Set();
+  for (const r of results) {
+    if (r.thrown) { errors.push(`could not run: ${r.thrown}`); reruns.push(r.args); continue; }
+    if (r.status === 0) continue;
+    const lines = (r.stderr ?? '').split('\n'), mine = [];
+    for (let i = 0; i < lines.length; i++) {
+      const l = lines[i];
+      if (/^error: (could not compile|aborting|build failed)/.test(l)) { const c = /`([^`]+)`/.exec(l)?.[1]; if (c) failed.add(c); continue; }
+      if (!/(^|: )error(\[E\d+\])?:/.test(l)) continue;
+      // A diagnostic at its file is one line (`--message-format short`); Cargo's own (a build script's failure) is
+      // its block, the cause beneath it, up to the next diagnostic
+      let block = l;
+      if (/^error:/.test(l)) { for (let j = i + 1; j < lines.length && j < i + 40 && !/^(error|warning)(\[|:)/.test(lines[j]); j++) if (lines[j].trim()) block += `\n      ${lines[j].trim()}`; }
+      const built = /^error: failed to run custom build command for `(\S+)/.exec(l)?.[1]; if (built) failed.add(built);
+      mine.push(block);
+    }
+    if (!mine.length) mine.push(`exited ${r.status} with no diagnostic: ${lines.filter(Boolean).slice(-4).join(' / ')}`);
+    errors.push(...mine.filter((e) => !errors.includes(e)));
+    reruns.push(r.args[0] === '--lib' && failed.size ? ['--lib', ...[...failed].flatMap((c) => ['-p', c])] : r.args.filter((a) => a !== '--keep-going'));
+  }
   const cfg = errors.some((l) => /error\[E0(425|433|412|432)\]/.test(l)) ? ' A name only a cfg(unix) or cfg(windows) arm gives needs an arm for neither.' : '';
   return {
-    problems: [{ code: 'wasm:check', message: `cargo check --target ${TARGET} failed for the crates the web apps link: ${errors.length} error${errors.length === 1 ? '' : 's'}${failed.length ? ` in ${failed.join(', ')}` : ''}.${cfg}`,
-      detail: `${(errors.length ? errors : stderr.filter(Boolean).slice(-6)).join('\n    ')}\n    Rerun: cargo check --target ${TARGET} --lib${(failed.length ? failed : found.crates).map((c) => ` -p ${c}`).join('')}` }],
+    problems: [{ code: 'wasm:check', message: `cargo check --target ${TARGET} failed for the crates the web apps link: ${errors.length} error${errors.length === 1 ? '' : 's'}${failed.size ? ` in ${[...failed].join(', ')}` : ''}.${cfg}`,
+      detail: `${errors.join('\n    ')}\n    Rerun: ${reruns.map((a) => `cargo check --target ${TARGET} ${a.join(' ')}`).join('; ')}` }],
     counted: `wasm32: ${count} checked (${why}), ${errors.length} error${errors.length === 1 ? '' : 's'}`,
   };
 }
