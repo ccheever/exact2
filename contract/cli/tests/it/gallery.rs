@@ -640,3 +640,80 @@ fn a_refused_probe_leaves_no_manifest_so_the_next_run_proceeds_and_git_must_igno
     );
     let _ = std::fs::remove_dir_all(&other);
 }
+
+const HANDLED: &str = r#"component Row
+  props
+    symbol: string
+    title: string
+    press: action
+  view
+    button press=press
+      image `symbol:${symbol}`
+      text title
+
+component Toggle
+  props
+    title: string
+    on: bool
+    set: action
+  view
+    row
+      text title
+      input type="checkbox" switch checked=on change=set aria-label=title
+
+component Field
+  props
+    text: string
+    edit: action
+  view
+    input value=text input=edit aria-label="Field"
+"#;
+
+const APP_HANDLED: &str = r#"use Row, Toggle, Field from "@acme/lib"
+
+component App
+  state on = false
+  state typed = ""
+  action go
+  action flip(v: bool)
+    on = v
+  action type(v: string)
+    typed = v
+  view
+    column
+      Row(symbol="settings", title="t", press=go)
+      Toggle(title="t", on=on, set=flip)
+      Field(text=typed, edit=type)
+"#;
+
+/// A string prop the view names a symbol by gets a role (its own name names
+/// none), and an action prop a handler calls with its payload gets an inert
+/// action of that signature, one per signature (stage 13 C: @exact/lists'
+/// ListRow and SwitchRow).
+#[test]
+fn a_symbols_prop_gets_a_role_and_a_handlers_action_its_payloads_parameters() {
+    let dir = fixture("handled");
+    let lib = dir.join("node_modules/@acme/lib");
+    std::fs::write(lib.join("index.contract"), HANDLED).unwrap();
+    std::fs::write(dir.join("app.contract"), APP_HANDLED).unwrap();
+    let out = dir.join("node_modules/.cache/exact-gallery");
+    let g = contract::gallery::generate(&dir.join("app.contract"), &out).expect("the gallery");
+    let refused: Vec<(&str, &str)> = g
+        .cells
+        .iter()
+        .filter_map(|c| Some((c.component.as_str(), c.refused.as_deref()?)))
+        .collect();
+    assert_eq!(refused, vec![], "every cell placed");
+    let text = std::fs::read_to_string(&g.source).unwrap();
+    for line in [
+        "  action noop\n",
+        "  action noop_bool(checked: bool)\n",
+        "  action noop_string(value: string)\n",
+        r#"Row(symbol="back", title="title", press=noop)"#,
+        r#"Toggle(title="title", on=false, set=noop_bool)"#,
+        r#"Field(text="text", edit=noop_string)"#,
+    ] {
+        assert!(text.contains(line), "{line:?} in {text}");
+    }
+    let _ = std::fs::remove_dir_all(&dir);
+}

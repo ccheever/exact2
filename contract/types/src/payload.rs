@@ -47,6 +47,17 @@ fn payload(event: &str, control: Option<&str>) -> Vec<(&'static str, &'static st
     }
 }
 
+/// What `event` appends on an element whose payload control is `control`
+/// ([`contract_syntax::payload_control`]), as `(name, type)`, before the
+/// event's record: the parameters an action given to it declares (the
+/// variant gallery's inert one, LLP 1139 §9 Q2).
+pub fn handler_parameters(event: &str, control: Option<&str>) -> Vec<(&'static str, &'static str)> {
+    payload(event, control)
+        .into_iter()
+        .map(|(name, ty, _)| (name, ty))
+        .collect()
+}
+
 /// An argument as written, when it is short enough to quote.
 fn written(e: &Expr) -> Option<String> {
     Some(match e {
