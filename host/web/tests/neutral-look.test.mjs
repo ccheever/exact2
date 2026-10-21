@@ -70,6 +70,7 @@ test('the neutral sheet\'s lengths and ratios are the metric table\'s neutral co
     'segmented-padding': ['padding'], 'segment-padding-block': ['padding'], 'segment-padding-inline': ['padding'], 'segment-height-coarse': ['min-height'],
     'segment-shadow-y': ['box-shadow'], 'segment-shadow-blur': ['box-shadow'],
     'tabbar-height': ['min-height'], 'tabbar-padding-block': ['padding'], 'tabbar-padding-inline': ['padding'], 'tabbar-font': ['font-size'],
+    'button-image-gap': ['--exact-button-column-gap', '--exact-button-row-gap'],
     'tabbar-symbol': ['width', 'height'], 'tabbar-gap': ['--exact-button-space-height'],
     'sidebar-row-height': ['min-height'], 'sidebar-symbol': ['width', 'height'], 'sidebar-gap': ['--exact-button-space-width'],
     'back-padding-start': ['padding'], 'back-padding-end': ['padding'],
@@ -95,6 +96,8 @@ test('the neutral sheet\'s lengths and ratios are the metric table\'s neutral co
     'box-shadow': ['64px'], // a hovered row's wash reaches the card's edge, past any inset a row has
     'font-size': ['1em'], // an alert's message is the body size
     'margin-block': [`${largeTitle / 16}rem`], // a bar's level-1 title takes the large title's line
+    'margin': ['.5em'], '--exact-symbol-away': ['.5em'], '--exact-symbol-toward': ['.5em'], // a button's symbol overhangs its 1em place by half its growth
+    'padding-block': ['.125em'], // a written height keeps room for a titled button's symbol's ink past its place
   };
   const lengths = (text) => [...text.matchAll(/(?<![\w.#])(\d*\.?\d+)(px|rem|em)\b/g)].map((m) => m[0]).filter((token) => parseFloat(token) !== 0);
   const declarations = (css) => [...css.replace(/\/\*[\s\S]*?\*\//g, '').replace(/url\("[^"]*"\)/g, '').matchAll(/\{([^{}]*)\}/g)]
@@ -136,6 +139,8 @@ test('the neutral sheet\'s lengths and ratios are the metric table\'s neutral co
     'raised-shadow-alpha': `--exact-raised: 0 0 0 1px var(--exact-separator), 0 4px 12px rgb(0 0 0 / ${alpha('raised-shadow-alpha')});`,
     'modal-shadow-alpha': `--exact-modal: 0 0 0 1px var(--exact-separator), 0 16px 48px rgb(0 0 0 / ${alpha('modal-shadow-alpha')});`,
     'scrim-alpha': `--exact-scrim: rgb(0 0 0 / ${alpha('scrim-alpha')});`,
+    'symbol-scale': `{ --exact-symbol-scale: ${value.get('symbol-scale')}; }`,
+    'button-symbol-scale': `{ --exact-symbol-scale: ${value.get('button-symbol-scale')}; margin: calc(`,
   };
   for (const [name, spelled] of Object.entries(RATIO)) expect([name, neutral.includes(spelled)]).toEqual([name, true]);
   // The one ratio the table does not hold: iOS's large-title line height, about 41 pt for 34 pt, which a bar's

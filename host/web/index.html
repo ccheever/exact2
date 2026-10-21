@@ -184,7 +184,9 @@
   input[type="checkbox"], input[type="radio"] { box-sizing: border-box; }
   /* LLP 1104 D4: native buttons inherit the page's typography. Face fields
      use grid areas so a subtitle remains under its title beside a symbol.
-     The empty gap is a real space glyph, D3's declared web approximation.
+     Between image and title is a space, as wide or tall as the gap the
+     author or the look gives it; with neither, a space glyph (neutral.css;
+     LLP 1069.011.001 D3).
      Every style has 8 px corners (a `capsule` corner style still rounds
      fully) and weight 500; neutral.css supplies its size and padding. The title column
      keeps its min-content floor, so a narrow row overflows rather than
@@ -193,7 +195,7 @@
      truncates. `overflow: clip` clips without making the box a scroll
      container, whose automatic minimum size would be 0. */
   #exact-root button[data-button-style] { appearance: auto; box-sizing: border-box; cursor: default; white-space: normal; text-align: center; letter-spacing: inherit; word-spacing: normal; text-transform: none; text-shadow: none; font-variant: normal; font-size: var(--exact-control-font-size, inherit); font-weight: 500; border-radius: var(--exact-control-radius, 8px); align-items: center; justify-content: var(--exact-button-align, center); gap: 0; row-gap: 0 !important; column-gap: 0 !important; grid-template-areas: "title" "subtitle"; grid-template-columns: minmax(var(--exact-button-title-min, min-content), auto); overflow: clip; -webkit-user-select: none; user-select: none;
-    --exact-control-font-size: initial; --exact-touch-floor: initial; --exact-control-radius: initial; --exact-button-align: initial; --exact-button-clamp: initial; --exact-button-title-display: initial; --exact-button-title-min: initial; --exact-button-row-gap: initial; --exact-button-column-gap: initial; --exact-button-row-space: " "; --exact-button-column-space: " "; --exact-button-space: var(--exact-button-column-space); --exact-button-leading-areas: initial; --exact-button-leading-subtitle-areas: initial; --exact-button-trailing-areas: initial; --exact-button-trailing-subtitle-areas: initial; --exact-button-columns: initial; --exact-button-space-width: initial; --exact-button-space-height: initial; }
+    --exact-control-font-size: initial; --exact-touch-floor: initial; --exact-control-radius: initial; --exact-button-align: initial; --exact-button-clamp: initial; --exact-button-title-display: initial; --exact-button-title-min: initial; --exact-button-row-gap: initial; --exact-button-column-gap: initial; --exact-button-row-space: " "; --exact-button-column-space: " "; --exact-button-space: var(--exact-button-column-space); --exact-button-leading-areas: initial; --exact-button-leading-subtitle-areas: initial; --exact-button-trailing-areas: initial; --exact-button-trailing-subtitle-areas: initial; --exact-button-columns: initial; --exact-button-space-width: initial; --exact-button-space-height: initial; --exact-button-stacked: initial; }
   #exact-root button[data-button-style]:has(> img) { grid-template-areas: var(--exact-button-leading-areas, "image space title"); grid-template-columns: var(--exact-button-columns, auto auto minmax(var(--exact-button-title-min, min-content), auto)); }
   #exact-root button[data-button-style]:has(> [data-exact-text] ~ img) { grid-template-areas: var(--exact-button-trailing-areas, "title space image"); }
   #exact-root button[data-button-style]:has(> img):has(> [data-exact-text] ~ [data-exact-text]) { grid-template-areas: var(--exact-button-leading-subtitle-areas, "image space title" "image space subtitle"); }
@@ -203,7 +205,7 @@
   #exact-root button[data-button-style] > [data-exact-text] { grid-area: title; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: inherit; display: var(--exact-button-title-display, block) !important; -webkit-box-orient: vertical; -webkit-line-clamp: var(--exact-button-clamp, none); }
   #exact-root button[data-button-style] > [data-exact-text] ~ [data-exact-text] { grid-area: subtitle; font-size: .8em; color: color-mix(in srgb, currentColor 70%, transparent); }
   /* An image stacked over its title is centred on it, as the Linux host paints it. */
-  #exact-root button[data-button-style] > img { grid-area: image; justify-self: center; --exact-tint: currentColor; --exact-symbol-size-authored: 0; --exact-symbol-weight-authored: 0; width: 1em; height: 1em; }
+  #exact-root button[data-button-style] > img { grid-area: image; justify-self: center; --exact-tint: currentColor; --exact-symbol-size-authored: 0; --exact-symbol-weight-authored: 0; width: calc(var(--exact-symbol-scale, 1) * 1em); height: calc(var(--exact-symbol-scale, 1) * 1em); }
   /* LLP 1116.003 D4: a native button taller than its face (a round button's
      80 by 80) centres the face, as UIKit and a browser's own button do; the
      grid's empty subtitle row no longer takes half the height. */

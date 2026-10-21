@@ -639,7 +639,7 @@ for (const concern of ['defaults', 'nowrap', 'clamp', 'floor', 'disabled accent'
 // Linux host paints it; the face keeps the button's alignment.
 browserCheck('native button stacked image', async () => {
   // A column's areas and spacing, as `rows` in host/web/src/button_css.rs writes them for `flex-direction: column`.
-  const column = `--exact-button-leading-areas:'image' 'space' 'title';--exact-button-columns:minmax(var(--exact-button-title-min,min-content),auto);--exact-button-space:var(--exact-button-row-space);--exact-button-space-width:0px;--exact-button-space-height:var(--exact-button-row-gap,1em);`;
+  const column = `--exact-button-leading-areas:'image' 'space' 'title';--exact-button-columns:minmax(var(--exact-button-title-min,min-content),auto);--exact-button-space:var(--exact-button-row-space);--exact-button-space-width:0px;--exact-button-space-height:var(--exact-button-row-gap,1em);--exact-button-stacked:1;`;
   const button = (id, style = '') => `<button id="${id}" data-native data-button-style="filled" style="display:grid;width:160px;font-size:20px;${column}${style}"><img alt=""><span data-exact-text>Unlock now</span></button>`;
   const html = SHIPPED.replace('<div id="exact-root"></div>', `<div id="exact-root">${button('centre')}${button('start', 'text-align:start;--exact-button-align:start;')}</div>`).replace('<script type="module" src="./glue.js"></script>', '');
   await withDocument('/', async tab => {

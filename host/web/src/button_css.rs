@@ -37,7 +37,7 @@ pub(super) fn rows(
             FlexDirection::Column | FlexDirection::ColumnReverse
         );
         out.push_str(if column {
-            "--exact-button-leading-subtitle-areas:\"image\" \"space\" \"title\" \"subtitle\";--exact-button-trailing-subtitle-areas:\"title\" \"subtitle\" \"space\" \"image\";--exact-button-space-width:0px;--exact-button-space-height:var(--exact-button-row-gap,1em);--exact-button-columns:minmax(var(--exact-button-title-min,min-content),auto);--exact-button-space:var(--exact-button-row-space);"
+            "--exact-button-leading-subtitle-areas:\"image\" \"space\" \"title\" \"subtitle\";--exact-button-trailing-subtitle-areas:\"title\" \"subtitle\" \"space\" \"image\";--exact-button-space-width:0px;--exact-button-space-height:var(--exact-button-row-gap,1em);--exact-button-columns:minmax(var(--exact-button-title-min,min-content),auto);--exact-button-space:var(--exact-button-row-space);--exact-button-stacked:1;"
         } else {
             "--exact-button-leading-subtitle-areas:\"image space title\" \"image space subtitle\";--exact-button-trailing-subtitle-areas:\"title space image\" \"subtitle space image\";--exact-button-space-width:var(--exact-button-column-gap,auto);--exact-button-space-height:0px;--exact-button-columns:auto auto minmax(var(--exact-button-title-min,min-content),auto);--exact-button-space:var(--exact-button-column-space);"
         });
@@ -141,6 +141,8 @@ mod tests {
             css.contains("--exact-button-space-height:var(--exact-button-row-gap,1em);"),
             "{css}"
         );
+        // A column says so, for its symbol's overhang (neutral.css).
+        assert!(css.contains("--exact-button-stacked:1;"), "{css}");
         style
             .set_dynamic(StyleId::RowGap, &StyleValue::Number(0.0))
             .unwrap();
