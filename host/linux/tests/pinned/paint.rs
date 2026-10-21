@@ -132,21 +132,19 @@ fn backgrounds_land_in_their_boxes_with_their_radii() {
         );
         let button = rect(&mut p, "change-station");
         let (cx, cy) = (button.0 + button.2 / 2.0, button.1 + button.3 / 2.0);
-        // Inside the button but off its text: the top-left corner's inset.
-        assert_eq!(
-            px(&frame, button.0 + 10.0, button.1 + 3.0),
-            (238, 238, 238),
-            "#eeeeee at {cx},{cy} ({choice:?})"
-        );
+        // Inside the button but off its text: the top-left corner's inset,
+        // the button's fill (`-exact-fill`), not the panel it sits on.
+        let fill = px(&frame, button.0 + 10.0, button.1 + 3.0);
+        let panel = px(&frame, button.0 - 1.5, button.1 - 1.5);
+        assert_ne!(fill, panel, "the fill at {cx},{cy} ({choice:?})");
         // Radius 8: the corner pixel is whatever lies outside the button —
-        // the panel it sits on — never the button's own colour.
+        // the panel — never the button's own colour.
         let corner = px(&frame, button.0 + 0.5, button.1 + 0.5);
         assert_eq!(
-            corner,
-            px(&frame, button.0 - 1.5, button.1 - 1.5),
+            corner, panel,
             "radius 8: the corner pixel is outside ({choice:?})"
         );
-        assert_ne!(corner, (238, 238, 238), "the corner is not the button");
+        assert_ne!(corner, fill, "the corner is not the button");
         let mut p = compiled(CARD, 1.0, choice);
         let frame = p.frame();
         let card = rect(&mut p, "card");

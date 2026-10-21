@@ -15,7 +15,9 @@
 //! the first row's centre is 16 points and `0.625em` from the top and the
 //! last as far from the bottom, and the train interpolates between the same
 //! centres; the line and the train scale with `em`. `nowMs`
-//! ticks once a second, so the map draws on `args` alone.
+//! ticks once a second, so the map draws on `args` alone. The bitmap is
+//! transparent: the card under it is the canvas node's `background-color`,
+//! a role, so it follows the scheme as the names over it do.
 
 use exact_runner::exact_canvas::{Context2d, DrawError, Frame};
 use exact_runner::Value;
@@ -63,8 +65,6 @@ pub fn draw(args: &[Value], ctx: &Context2d, frame: &Frame) -> Result<bool, Draw
     let k = em / 16.0;
     let (w, h) = (frame.width, frame.height);
     ctx.clear_rect(0.0, 0.0, w, h);
-    ctx.set_fill_style_str("#f7f7f7");
-    ctx.fill_rect(0.0, 0.0, w, h);
     let n = stations.len();
     if n == 0 {
         return Ok(false);
@@ -112,7 +112,7 @@ mod tests {
     }
 
     #[test]
-    fn the_map_draws_background_line_and_train() {
+    fn the_map_draws_the_line_and_the_train_and_no_background() {
         let station = |id: &str| {
             Value::record(vec![
                 Value::str(id),
@@ -148,8 +148,6 @@ mod tests {
             names,
             [
                 "ClearRect",
-                "FillColor",
-                "FillRect",
                 "FillColor",
                 "FillRect",
                 "FillColor",
