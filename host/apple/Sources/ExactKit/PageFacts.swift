@@ -349,7 +349,9 @@ extension ExactSession {
         // Out of the foreground, a press hands nothing on (PressHandoffIOS).
         if view?.window?.windowScene?.activationState != .foregroundActive { presenter.supersedePress() }
         #endif
-        apply(runtime.setPage(PageFacts.bits(pageWindow, page: view?.window, readsOnLine: runtime.readsOnLine())))
+        let reads = runtime.readsOnLine()
+        readsOnLineKnown = (generation, reads)
+        apply(runtime.setPage(PageFacts.bits(pageWindow, page: view?.window, readsOnLine: reads)))
         apply(runtime.setRootFontSize(PageFacts.rootFontSize))
         tellDisplayScale()
     }

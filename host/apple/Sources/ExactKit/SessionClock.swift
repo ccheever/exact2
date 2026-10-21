@@ -45,7 +45,7 @@ extension ExactSession {
     /// a batch (the batch, then the advance); those advance as before.
     func advanceIfDue() {
         guard !advancingDue, !applying, !landing, !holdingReports, state != .destroyed, clock == nil, !ExactEnv.agentMode,
-              !frames.tasks, !(fillInFlight || tickInFlight || canvasInFlight), let due = timerDue, due <= now() else { return }
+              !frames.tasks, !ownerInFlight, let due = timerDue, due <= now() else { return }
         advancingDue = true
         defer { advancingDue = false }
         followOffset()

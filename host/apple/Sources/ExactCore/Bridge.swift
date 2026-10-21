@@ -422,6 +422,16 @@ package final class Runtime {
     }
     /// A frame's tick on the owner, not waited for (LLP 1072 §7.1); `frame`
     /// is the display frame it is for (LLP 1003.001 D5).
+    /// `calls`, in order, on the owner and not waited for: each batch goes to
+    /// `done` there (LLP 1027.007 P1).
+    package func later(_ calls: [(Runtime) -> Batch], done: @escaping (Batch) -> Void) {
+        Owner.shared.post { [self] in
+            for call in calls {
+                guard !destroyed else { return }
+                done(call(self))
+            }
+        }
+    }
     package func tickAsync(now: Double, frame: Double? = nil, done: @escaping (Batch) -> Void) {
         Owner.shared.post { [self] in
             guard !destroyed else { return }
