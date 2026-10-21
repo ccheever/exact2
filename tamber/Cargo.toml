@@ -20,6 +20,8 @@ exact-num = { path = "../num" }
 exact-motion = { path = "../motion" }
 # The DTCG importer reads JSON (LLP 1121 D14).
 serde_json = "1.0"
+# A `.pen` file's axes and variables in the order written (stage 13 B).
+serde = "1.0"
 
 [dev-dependencies]
 exact-kernel = { path = "../kernel" }

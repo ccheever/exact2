@@ -135,7 +135,7 @@ pub fn run(args: &[String]) -> ExitCode {
         Some(i) => i,
         None => {
             eprintln!(
-                "contract tamber import: no importer `{kind}` (shadcn, tailwind, dtcg, astryx)"
+                "contract tamber import: no importer `{kind}` (shadcn, tailwind, dtcg, pen, astryx)"
             );
             return ExitCode::from(2);
         }

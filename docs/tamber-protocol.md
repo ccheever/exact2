@@ -1097,20 +1097,27 @@ list is unchanged: it keeps its own.
 - **`kind`** is `shadcn`, `tailwind`, `dtcg` or `pen` (*1.17*). `prefix` is the token prefix, by
   default `shadcn`, `tw`, `dtcg` or `pen`, at most 128 characters (*1.17*).
 - **`pen`** (*1.17*, stage 13 B) is a Pencil `.pen` file (version 2.x), read into DTCG's layers:
-  - **Axes.** Its `themes` are its axes, each one's first value the default. An axis of two
-    values, `dark` and `light` or `default` in any case, is the scheme; any other is a proposed axis.
+  - **Axes.** Its `themes` are its axes, in the order written, each one's first value the default.
+    The first axis of two values, `dark` and `light` or `default` in any case, is the scheme, whose
+    default is the host's whichever value Pencil lists first; any other is a proposed axis. More than
+    16 axes, or 64 values of one, refuse the import, as do more contexts than a design takes.
   - **Values.** Each entry of a variable's `value` (a scalar is one) is a layer active where its
     `theme` holds, every axis it names at once. Later entries win, as Pencil's "the last whose
-    theme is satisfied" does. `"$name"` is an alias.
-  - **Kinds.** A `color` is a colour. A `number` is a length (px) when every node reading it
-    reads it as a pixel property (`cornerRadius`, `gap`, `padding`, `fontSize`, `letterSpacing`,
-    `strokeWidth`, `width`, `height`), else a number (`lineHeight` is a multiplier); each number's
-    `notes` line names the properties that decided it. A `string` every node reads as `fontFamily`
-    is a family.
-  - **Reported.** Any other string, a boolean, an unknown `type`, an entry whose `theme` names an
-    axis or value `themes` doesn't declare, and each of `imports` (another `.pen`: a client's upload
-    has no directory to find it in) are in `unmapped`. A leading `--` (the shadcn kit's spelling) is
-    no part of a name.
+    theme is satisfied" does. An entry whose `theme` names an axis or value `themes` doesn't declare
+    (names match as written, case and all) never holds, and is reported. `"$name"` is an alias, of a
+    variable of its own `type`; one to another type, or to none, is reported.
+  - **Names** are flat, as Pencil's are: `a` and `a.b` are two tokens. A token's name drops what an
+    identifier can't hold (a leading `--`), so `--x` and `x` collide, and the second is reported.
+  - **Kinds.** A `color` is a colour. A `number` is a length (px) when every node reading it, or
+    any number it aliases or that aliases it, reads it as a pixel property (`cornerRadius`, `gap`,
+    `padding`, `fontSize`, `letterSpacing`, `strokeWidth`, `thickness`, `width`, `height`, or a side
+    or corner of one), else a number (`lineHeight` is a multiplier, a gradient's `size` and `center`
+    fractions of the box); each number's `notes` line names the properties that decided it. A
+    `string` every node reads as `fontFamily` is a family. A note says the file's frames and
+    components are not imported.
+  - **Reported.** Any other string, a boolean, an unknown `type`, a variable whose `value` holds no
+    entry or one of no shape, and each of `imports` (another `.pen`: a client's upload has no
+    directory to find it in) are in `unmapped`.
   - **Re-import.** There is no `.pen` export, so a re-import has no `baseline`. Its `pins` are still
     marked against the design as it is (a literal over a line that followed another). Its budget,
     process and size limit are every import's.

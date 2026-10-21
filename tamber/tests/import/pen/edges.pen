@@ -1,0 +1,32 @@
+{
+  "version": "2.21",
+  "themes": { "zmode": ["light", "dark"], "amode": ["default", "dark"] },
+  "variables": {
+    "surface": { "type": "color", "value": [
+      { "value": "#ffffff" },
+      { "value": "#000000", "theme": { "zmode": "dark" } },
+      { "value": "#ff00ff", "theme": { "zmode": "dim" } },
+      { "value": "#00ffff", "theme": { "zmode": "Dark" } }
+    ] },
+    "--x": { "type": "color", "value": "#111111" },
+    "x": { "type": "color", "value": "#222222" },
+    "a": { "type": "color", "value": "#333333" },
+    "a.b": { "type": "color", "value": "#444444" },
+    "chain": { "type": "color", "value": "$link" },
+    "link": { "type": "color", "value": "$a" },
+    "cross": { "type": "color", "value": "$word" },
+    "word": { "type": "string", "value": "#ff0000" },
+    "missing": { "type": "color", "value": "$nowhere" },
+    "base": { "type": "number", "value": 8 },
+    "ratio": { "type": "number", "value": "$base" },
+    "edge": { "type": "number", "value": 2 },
+    "spread": { "type": "number", "value": 0.5 },
+    "none": { "type": "color", "value": [] },
+    "broken": { "type": "color", "value": [ 3 ] }
+  },
+  "children": [
+    { "type": "frame", "gap": "$base", "stroke": { "thickness": { "top": "$edge" }, "fill": "$surface" },
+      "fill": { "type": "gradient", "size": { "width": "$spread" } },
+      "children": [ { "type": "text", "lineHeight": "$ratio", "fill": "$chain" } ] }
+  ]
+}

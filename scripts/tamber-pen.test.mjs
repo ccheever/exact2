@@ -78,7 +78,7 @@ test('a .pen file imports through the wire: the axes and tokens proposed, the no
   expect(review.importer).toBe('pen');
   expect(review.counted).toEqual({ source: 6, mapped: 5, reported: 1 });
   expect(review.unmapped.map(u => [u.name, u.why])).toEqual([['flag', 'no Tamber kind: a string or a boolean']]);
-  expect(review.notes).toEqual(['`gap` is a length (px): Pencil reads it as gap']);
+  expect(review.notes).toEqual(["the file's frames and components are not imported (its variables and themes are)", '`gap` is a length (px): Pencil reads it as gap']);
   // `pen.primary` followed the dial; the file's literal over it is a pin, marked with what it followed.
   expect(review.pins).toEqual([{ token: 'pen.primary', when: [], follows: ['accent'], items: expect.any(Array) }]);
   const held = (await post({ after: 0, wait: false }, local, '/__tamber/events')).proposals.find(p => p.proposal === got.ok.proposal);
@@ -95,3 +95,12 @@ test('a .pen of another version is refused with its reason', async () => {
   expect(got.status).not.toBe(200);
   expect(JSON.stringify(got.error)).toContain('a `.pen` of version 1.0: this importer reads 2.x');
 }, 60_000);
+
+test('round 1: a .pen that multiplies (a long name over many entries) is refused by the import\'s real budget in its own process', async () => {
+  const token = await paired('propose');
+  const entries = Array(16_384).fill({ value: '#000000' });
+  const source = JSON.stringify({ version: '2.21', variables: { ['n'.repeat(64 * 1024)]: { type: 'color', value: entries } } });
+  const got = await post({ method: 'import', client: 'pencil', kind: 'pen', name: 'big.pen', source }, token);
+  expect(got.status).not.toBe(200);
+  expect(JSON.stringify(got.error)).toContain('expands past what one import may do');
+}, 120_000);
