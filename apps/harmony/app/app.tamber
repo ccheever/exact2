@@ -1,0 +1,19 @@
+// Harmony's own colours: six avatar hues (a person's colour follows them
+// everywhere), the ink on them, and the wash behind a message that mentions
+// you. Everything else is the platform's.
+tamber harmony
+
+theme
+  hue.rose = light-dark(#c74461, #ff7a95)
+  hue.sky = light-dark(#2b72ce, #6fb1ff)
+  hue.moss = light-dark(#238359, #5ed39b)
+  hue.amber = light-dark(#ad6218, #ffad5c)
+  hue.violet = light-dark(#7a4fd6, #b48cff)
+  hue.teal = light-dark(#187f8c, #5fd4e3)
+  ink.light = light-dark(#ffffff, #15151a)
+  mention.wash = light-dark(#fff3cf, #3a2f12)
+  mention.edge = light-dark(#f0b429, #f5c54a)
+
+icons
+  icon.emoji = icon(sf "face.smiling", svg "icons/smile.svg")
+  icon.add-reaction = icon(sf "face.smiling.inverse", svg "icons/add-reaction.svg")
