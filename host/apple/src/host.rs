@@ -185,9 +185,11 @@ pub struct Host<D: DataSource> {
     dirty_paragraphs: BTreeSet<ViewId>,
     pending_layout: IdSet<NodeKey>,
     layout_withheld: bool,
-    /// Committing a presented frame's timers and frame tasks
-    /// ([`Host::frame`]), where nothing but their commits moves the tree.
-    in_frame: bool,
+    /// A layout failed or a commit's did not run: `inert_layout` lays out.
+    layout_owed: bool,
+    /// Committing an advance's or a presented frame's timers, answers and
+    /// frame tasks ([`Host::advanced`]), where only their commits move the tree.
+    in_advance: bool,
     /// Routes whose `navigationDetent` names `fit-content` (LLP 1075.003
     /// §9.11), each with its width, resolved padding, border and bottom cover when last measured.
     fit_routes: Vec<(ViewId, Option<[f32; 10]>)>,
@@ -509,7 +511,8 @@ impl<D: DataSource> Host<D> {
             dirty_paragraphs: BTreeSet::new(),
             pending_layout: IdSet::default(),
             layout_withheld: false,
-            in_frame: false,
+            layout_owed: false,
+            in_advance: false,
             fit_routes: Vec::new(),
             stickies: IdMap::default(),
             fragments: IdMap::default(),
@@ -1004,10 +1007,7 @@ impl<D: DataSource> Host<D> {
         // The frame source started: frame tasks are its, not the timers' (LLP 1073 D4).
         self.runner.present_frames(true);
         let a = self.runner.frame(now_ms);
-        self.in_frame = true;
-        let out = self.advanced(a);
-        self.in_frame = false;
-        out
+        self.advanced(a)
     }
 
     fn advanced(&mut self, a: exact_runner::Advanced) -> String {
@@ -1018,7 +1018,10 @@ impl<D: DataSource> Host<D> {
         }
         self.runner.canvas_frame();
         let error = a.error.map(|e| format!("{e:?}"));
-        self.commit(&a.receipts, error)
+        self.in_advance = true;
+        let out = self.commit(&a.receipts, error);
+        self.in_advance = false;
+        out
     }
 
     /// An image loaded: its intrinsic size, in points (`None` when it failed
@@ -1363,17 +1366,17 @@ impl<D: DataSource> Host<D> {
         }
         let seek = self.engine.advance(self.engine_time(self.now_ms));
         debug_assert!(seek.is_ok(), "the clock never runs backwards here");
-        // A frame whose commits changed no node (a frame task that only
-        // moved state nothing shows) lays out as a timer with no commit
-        // does: sixty commits a second each cost a whole layout and paint
-        // order walk otherwise. A withheld layout still runs to settle.
-        let inert = self.in_frame
-            && !self.layout_withheld
-            && receipts.iter().all(|t| unchanged(&t.receipt));
+        // An advance whose commits changed no node (a frame task that only
+        // moved state nothing shows; a `sent` reader answered at each MIDI
+        // message's time, LLP 1125 D6, with nothing on screen reading it)
+        // lays out only what such a commit can move (`inert_layout`): each
+        // would cost a whole layout and paint order walk otherwise.
+        let inert = self.in_advance && receipts.iter().all(|t| unchanged(&t.receipt));
         let layout_error = if height_target_error.is_some() {
+            self.layout_owed = true;
             height_target_error
         } else if inert {
-            self.height_layout_if_needed(&mut batch).err()
+            self.inert_layout(&mut batch, !receipts.is_empty()).err()
         } else {
             self.layout(&mut batch).err()
         };

@@ -1,5 +1,8 @@
 //! Layout receipts survive silent list settling until the presenter sees them.
 use super::*;
+#[cfg(test)]
+#[path = "advance_tests.rs"]
+mod advance_tests;
 #[path = "closed.rs"]
 pub(super) mod closed;
 #[path = "separator.rs"]
@@ -86,8 +89,15 @@ impl<D: DataSource> Host<D> {
         }
     }
     /// Lay every root out under the viewport and emit the parent-relative
-    /// frames and scroll content sizes that changed.
+    /// frames and scroll content sizes that changed. One that fails is
+    /// owed (`layout_owed`) until one succeeds.
     pub(super) fn layout(&mut self, batch: &mut Batch) -> Result<(), String> {
+        let laid = self.layout_pass(batch);
+        self.layout_owed = laid.is_err();
+        laid
+    }
+
+    fn layout_pass(&mut self, batch: &mut Batch) -> Result<(), String> {
         if let Some((callback, ctx, installed)) = self.font_hook.as_mut() {
             if self.runner.runtime_font_count() != *installed {
                 let runtime = self.runner.runtime_font_stacks();
@@ -414,8 +424,45 @@ impl<D: DataSource> Host<D> {
         }
         self.layout_withheld = false;
         self.emit_ranks(batch);
-        // Layout/receipt work may change the live window. Motion-only ticks and
-        // stale feedback never traverse the tree to collect this metadata.
+        self.emit_collections(batch)
+    }
+
+    /// An advance whose commits changed no node ([`Host::commit_tree`]): no
+    /// layout unless a held height moved, but what layout keeps besides
+    /// boxes still follows the commits. A commit can change a list's data
+    /// without a node (an item's field no mounted row shows, an item past
+    /// the window): its metadata, which the presenter checks scroll and
+    /// measurement feedback against, is published, and its generation is
+    /// what the next layout judges row moves from (`judge_list_moves`, as
+    /// layout would have; its boxes queue nothing here). A whole layout
+    /// runs instead while one is owed (the last failed or did not run) or
+    /// withheld, while boxes wait in `pending_layout`, for fonts installed
+    /// since the last, and in a native content region, whose lists' next
+    /// snapshot only layout prepares (`native_prepare_candidate`).
+    pub(super) fn inert_layout(
+        &mut self,
+        batch: &mut Batch,
+        committed: bool,
+    ) -> Result<(), String> {
+        let fonts = self
+            .font_hook
+            .as_ref()
+            .is_some_and(|(_, _, installed)| self.runner.runtime_font_count() != *installed);
+        let owed = self.layout_owed || self.layout_withheld || !self.pending_layout.is_empty();
+        if owed || fonts || (committed && self.native_mode()) {
+            return self.layout(batch);
+        }
+        if !self.height_layout_if_needed(batch)? && committed {
+            self.judge_list_moves();
+            self.emit_collections(batch)?;
+        }
+        Ok(())
+    }
+
+    /// The lists' metadata, when it moved. Layout and receipt work may change
+    /// the live window; motion-only ticks and stale feedback never traverse
+    /// the tree to collect it.
+    fn emit_collections(&mut self, batch: &mut Batch) -> Result<(), String> {
         let collections = if self.native_mode() {
             self.native_collections_json()?
         } else {
