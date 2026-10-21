@@ -139,15 +139,40 @@ function historyURL(path) {
 const stamp = (index, op) => ({ exact: index, id: op.top, url: op.url });
 /** A route's Back control, the selected route's unless named (1035.001 D1: the `id` the root's `navigationBack` names), pressable or not: the route's own, else one in no route at all (a header the routes share), as iOS resolves it (NavigationRules.backControl); another route's is that route's. */
 const backControl = (nav, route = selectedRoute(nav), name = nav.getAttribute("navigationBack")) => route && name !== null ? route.querySelector(`[id="${CSS.escape(name)}"]`) ?? [...nav.ownerDocument.querySelectorAll(`[id="${CSS.escape(name)}"]`)].find(control => [null, nav].includes(control.closest("[navigationKey]"))) ?? null : undefined;
-// @ref LLP 1116.000 D4 — a pushed route's app bar draws Back, as iOS draws UIKit's system Back button
-// (NavigationBarIOS.swift `prepareRoutes`): a route above its stack's root (a tab's root has none), not
-// itself a sheet (whose Cancel is its Back), whose `header` does not already hold the root's
-// `navigationBack` control, and none when that control is disabled. The button is the header's shadow
-// root's, before its slot, so the header's children stay the renderer's. Its words are the control's when
-// one is named elsewhere in the route (a symbol alone: the chevron alone), else the route beneath's title
-// while it is short, else "Back" where the page is in English (`<html lang>`, LLP 1115.000 D4.14): the bar has that word in no other language, so there it is the chevron alone, named for assistive technology by the title beneath, and an app gives it words by naming a Back control.
-const BACK = `<style>button{all:unset;display:inline-flex;align-items:center;gap:2px;flex:none;vertical-align:middle;margin-inline:-6px 6px;padding:4px 8px 4px 4px;border-radius:8px;color:var(--exact-accent,AccentColor);cursor:pointer;white-space:nowrap;-webkit-user-select:none;user-select:none}button[hidden],span[hidden]{display:none}button:focus-visible{outline:2px solid var(--exact-accent,AccentColor);outline-offset:1px}button:active>*{opacity:var(--exact-back-press,.5)}@media (hover:hover){button:hover{background-color:light-dark(#7676801f,#7676803d)}}svg{width:.75em;height:1.25em;fill:none;stroke:currentColor;stroke-width:2.2;stroke-linecap:round;stroke-linejoin:round}button:dir(rtl) svg{scale:-1 1}</style><button part="back" type="button"><svg viewBox="6 3 11 18" aria-hidden="true"><path d="M15 5 8 12l7 7"/></svg><span></span></button><slot></slot>`;
+// @ref LLP 1116.000 D4 — a pushed route's bar draws Back as iOS draws UIKit's (NavigationBarIOS.swift `projectBack`),
+// with no Back control too: not on a stack's root, a sheet (whose Cancel is its Back) or a route with no bar, nor for a
+// disabled control. A control that is an item of the bar iOS makes of its header is pressed through it and not shown
+// (index.html). The button is the header's shadow root's, before its slot, so the header's children stay the
+// renderer's.
+const BACK = `<style>button{all:unset;display:inline-flex;align-items:center;gap:2px;flex:none;vertical-align:middle;margin-inline:-6px 6px;padding:4px 8px 4px 4px;border-radius:8px;color:var(--exact-accent,AccentColor);cursor:pointer;white-space:nowrap;-webkit-user-select:none;user-select:none}button[hidden],span[hidden]{display:none}button:focus-visible{outline:2px solid var(--exact-accent,AccentColor);outline-offset:1px}button:active>*{opacity:var(--exact-back-press,.5)}@media (hover:hover){button:hover{background-color:light-dark(#7676801f,#7676803d)}}svg{width:.75em;height:1.25em;fill:none;stroke:currentColor;stroke-width:2.13;stroke-linecap:round;stroke-linejoin:round}button:dir(rtl) svg{scale:-1 1}</style><button part="back" type="button"><svg viewBox="6 3 11 18" aria-hidden="true"><path d="M15.35 5 8 12l7.35 7"/></svg><span></span></button><slot></slot>`;
 const headerOf = route => [...(route?.children ?? [])].find(child => child.localName === "header");
+const authored = '[data-exact-said~="appearance"]'; // a header whose author wrote `appearance: none` (element.rs)
+// The items of the bar iOS makes of `header`, or null where it makes none: kernel/src/bars.rs `header_bar`, ported to
+// the elements both runtimes write alike, since the JS target keeps no kernel to ask. `walk` is `Walk::walk`: a bar's
+// header holds one heading, and an item is a pressable it reaches that is not the title's.
+function barItems(route, header) {
+  if (route.getAttribute("data-navigationbar") === "none" || route.firstElementChild !== header || header.matches(authored)) return null;
+  const heading = "[data-exact-text][role=heading]", press = '[data-exact-on~="press"]', layer = el => el.matches("[popover], dialog");
+  const holds = el => [...el.children].some(child => !layer(child) && (child.matches(heading) || holds(child)));
+  let headings = 0, tap = null;
+  const items = [], walk = node => {
+    for (const child of node.children) {
+      if (layer(child) || child.matches("[role=tablist]")) continue;
+      if (child.matches(heading)) headings++;
+      else if (child.matches(press) || opensPopover(child)) { if (!tap && child.matches(press) && holds(child)) walk(tap = child); else items.push(child); } // the first to hold a heading is the title, tapped
+      else if (!child.matches("[role=status]") || holds(child)) walk(child); // a readout's face is no item
+    }
+  };
+  walk(header);
+  return headings === 1 && getComputedStyle(header).display !== "none" ? items : null;
+}
+// Whether a button shows or toggles a popover, a header's menu (kernel/src/invocation.rs `opens_popover`).
+function opensPopover(el) {
+  if (el.localName !== "button") return false;
+  const commanded = document.getElementById(el.getAttribute("commandfor") || "");
+  if (commanded) return commanded.hasAttribute("popover") && /^(show|toggle)-popover$/i.test(el.getAttribute("command") ?? "");
+  return !!document.getElementById(el.getAttribute("popovertarget") || "")?.hasAttribute("popover") && !/^hide$/i.test(el.getAttribute("popovertargetaction") ?? "");
+}
 // @ref LLP 1115.000 D4.1 — a route is a page, so the title follows it: `document.title` is the authored `head`'s title
 // (`said`: each target's head writer passes it, null for none), else the selected route's header's heading (what iOS
 // puts in the bar), else the app's name. Read again after every projection.
@@ -161,25 +186,30 @@ export function pageTitle(said = saidTitle) {
 function appBarBack(nav, routes, index, split = false) {
   const route = routes[index], header = headerOf(route);
   if (!header) return;
+  // In a split, a detail its list's row pushed has none: the list beside it is its way back (LLP 1116.004 D1). Nor has a
+  // route whose shown header's author wrote `appearance: none`, which keeps the bar they drew (HeaderRule.swift
+  // `keepsAuthoredHeader`).
+  const pushed = index > 0 && !sheet(route) && route.getAttribute("data-navigationbar") !== "none" && !(split && (index === 1 || rowOf.has(route)))
+    && !(route.firstElementChild === header && header.matches(authored) && getComputedStyle(header).display !== "none");
+  // A control in a header iOS makes no bar of is that header's way back, with no Back beside it.
+  const control = pushed ? backControl(nav, route) : null, inHeader = !!control && header.contains(control);
+  const items = inHeader ? barItems(route, header) : null, held = !!items?.includes(control), drawn = pushed && (!inHeader || !!items);
   let button = header.shadowRoot?.querySelector('button[part="back"]');
-  // In a split, a detail its list's row pushed has none: the list beside it is its way back (LLP 1116.004 D1).
-  const pushed = index > 0 && !sheet(route) && !(split && (index === 1 || rowOf.has(route))), control = pushed ? backControl(nav, route) : null;
-  // Until the page is interactive the glue disables every control itself (`aria-busy`): not the author's.
-  if (!pushed || header.contains(control) || (control?.matches(":disabled") && !nav.closest('[aria-busy="true"]'))) {
-    if (button) button.hidden = true;
-    return;
-  }
-  if (!button) {
-    if (header.shadowRoot || !header.attachShadow) return; // a shadow root of someone else's
+  if (drawn && !button && !header.shadowRoot && header.attachShadow) { // not a shadow root of someone else's
     header.attachShadow({ mode: "open" }).innerHTML = BACK;
     button = header.shadowRoot.querySelector("button");
     button.addEventListener("click", event => { event.stopPropagation(); appBack(header.parentElement); });
   }
-  const title = control ? control.textContent.trim() : titleOf(routes[index - 1]), english = /^en\b/i.test(document.documentElement.lang || "en");
-  const label = control || (title && title.length <= 14) ? title : english ? "Back" : "", name = control ? control.getAttribute("aria-label") || label || "Back" : !english ? title || "Back" : label === "Back" ? label : `Back to ${label}`;
-  button.hidden = false; button.lastChild.hidden = !label;
+  for (const el of [...route.querySelectorAll("[data-exact-bar-back]"), control]) el?.toggleAttribute("data-exact-bar-back", el === control && held && !!button);
+  // Until the page is interactive the glue disables every control itself (`aria-busy`): not the author's.
+  if (button) button.hidden = !drawn || (control?.matches(":disabled") && !nav.closest('[aria-busy="true"]'));
+  if (!button || button.hidden) return;
+  const words = control ? control.textContent.trim() : titleOf(routes[index - 1]), english = /^en\b/i.test(document.documentElement.lang || "en");
+  const label = words.length <= 14 && (words || control) ? words : english ? "Back" : "", name = control ? control.getAttribute("aria-label") || words || "Back" : !english ? words || "Back" : label === "Back" ? label : `Back to ${label}`;
+  button.lastChild.hidden = !label;
   if (button.lastChild.textContent !== label) button.lastChild.textContent = label;
   if (button.getAttribute("aria-label") !== name) button.setAttribute("aria-label", name);
+  if (held && control.hasAttribute("aria-keyshortcuts")) button.setAttribute("aria-keyshortcuts", control.getAttribute("aria-keyshortcuts")); else button.removeAttribute("aria-keyshortcuts");
 }
 /** The app bar's Back on `route`, pressed: the browser's Back from its route (`popped`), applied at once: the route's control
  * pressed, else the root's `navigate` with the location beneath, else the runner's own `back` (LLP 1115 D5). The
@@ -194,13 +224,14 @@ function appBack(route) {
   if (!known || navigate(entry.url) === false) hostBack?.(id);
 }
 const closedNone = route => ["modal", "fullscreen"].includes(route?.getAttribute("navigationPresentation")) && route.getAttribute("closedby") === "none";
-/** Press the Back control; else why it was not pressed. */
+/** Press the Back control: shown, the bar's or in a closed menu, as UIKit's Back presses it wherever it is
+ * (PresenterIOS.swift `press`); else why it was not pressed. */
 function pressBack(nav) {
   const route = selectedRoute(nav), control = backControl(nav);
   if (!route) return "no route is selected";
   if (closedNone(route)) return `route ${route.getAttribute("navigationKey")} is closedby="none"`;
   if (!control) return `route ${route.getAttribute("navigationKey")} has no id="${nav.getAttribute("navigationBack")}" control`;
-  if (control.matches(":disabled") || inertAncestor(control) || !control.getClientRects().length || getComputedStyle(control).visibility !== "visible")
+  if (control.matches(":disabled") || inertAncestor(control) || !(control.getClientRects().length || control.hasAttribute("data-exact-bar-back") || control.closest("[popover]:not(:popover-open)")) || getComputedStyle(control).visibility !== "visible")
     return `its id="${control.id}" control is disabled, inert or not shown`;
   control.click();
 }
@@ -1171,42 +1202,6 @@ export function controlEvent(el, kind, on, dispatch) {
     dispatch(sourceField(el) ? 54 : 23, sourceField(el) ? inputPayload(el, e) : value); settleValue(el, true);
   });
 }
-// D9: `type <id> <value>` sets a control's value as the platform would on a choice or a release: HTML's `input`, then
-// `change`. A select takes one of its enabled options by value, else by its one label (Playwright's `selectOption`, the
-// diaries' kanban F17 and shop F10); a checkbox takes `true` or `false` and is clicked when that differs, as a person
-// would.
-export function typeControl(el, request) {
-  let text = String(request.text ?? "");
-  const id = request.id;
-  if (el.disabled || inertAncestor(el)) return { handled: true, error: `view ${id} is disabled or inert` };
-  // A read-only field takes no value a person could enter. HTML's `readonly` applies to a textarea and the
-  // text-like and date/time inputs only; a checkbox, range, color or select ignores it.
-  if (el.readOnly && (el instanceof HTMLTextAreaElement || /^(text|search|url|tel|email|password|date|month|week|time|datetime-local|number)$/.test(el.type))) return { handled: true, error: `view ${id} is read-only` };
-  if (el.type === "checkbox") {
-    if (text !== "true" && text !== "false") return { handled: true, error: `checkbox ${id} takes true or false, not ${JSON.stringify(text)}` };
-    if (el.checked !== (text === "true")) el.click();
-    return { typed: id, checked: el.checked, delivery: "recognized", handled: true };
-  }
-  // A radio is checked by choosing it, and unchecked only by checking another (x2apps survey #2).
-  if (el.type === "radio") {
-    if (text !== "true") return { handled: true, error: text === "false" ? `radio ${id} is unchecked by checking another of its group` : `radio ${id} takes true, not ${JSON.stringify(text)}` };
-    if (!el.checked) el.click();
-    return { typed: id, checked: el.checked, delivery: "recognized", handled: true };
-  }
-  if (el instanceof HTMLSelectElement) {
-    const enabled = [...el.options].filter((o) => !o.disabled), labelled = enabled.filter((o) => o.label.trim() === text.trim());
-    if (!enabled.some((o) => o.value === text) && labelled.length === 1) text = labelled[0].value;
-    else if (!enabled.some((o) => o.value === text))
-      return { handled: true, error: `select ${id} has no enabled option ${JSON.stringify(text)}${labelled.length > 1 ? " (that label is on more than one option: choose by value)" : ""} (options: ${enabled.map((o) => `${JSON.stringify(o.value)} ${JSON.stringify(o.label)}`).join(", ")})` };
-  }
-  if (el.type === "range" && !(text.trim() !== "" && Number.isFinite(Number(text)))) return { handled: true, error: `${JSON.stringify(text)} is not a number` };
-  el.value = text;
-  if (el.value !== text && el instanceof HTMLInputElement && el.type !== "range") return settleValue(el), { handled: true, error: `${JSON.stringify(text)} is not a value an input type=${el.type} takes; it sanitized to ${JSON.stringify(el.value)}` };
-  el.dispatchEvent(new Event("input", { bubbles: true }));
-  el.dispatchEvent(new Event("change", { bubbles: true }));
-  return { typed: id, value: el.value, delivery: "recognized", handled: true };
-}
-
 // WHATWG URL normalization for the wasm grant parser, using the browser's
 // existing tables. This is pure parsing: it grants no host I/O to the app.
 export function grantOrigins(memory) {

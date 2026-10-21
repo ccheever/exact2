@@ -1,8 +1,8 @@
 // LLP 1116.000 D4 in a real browser: a default build's stylesheet and the
 // navigation glue's projection (navigation.js, which both web targets run)
 // over nodes as the hosts write them. A pushed route's app bar draws Back,
-// in the bar's own ink (a route above its stack's root, not a sheet, whose header
-// does not hold the root's `navigationBack` control), and a block `link` of
+// in the bar's own ink (a route above its stack's root, not a sheet), for the
+// root's `navigationBack` control, which a header holding it does not show, and a block `link` of
 // text is in the accent with the pointing hand while an authored colour, a
 // row inside it, a `role` or a `buttonStyle` keeps the author's look. The
 // browser's Back with no `navigate` handler is the platform's own whatever the
@@ -52,7 +52,7 @@ const page = withLook(readFileSync(resolve(WEB, 'index.html'), 'utf8')).match(/<
     <div role="tabpanel" id="p2">
       <div navigationKey="10" id="t1"><header><h1>Favorites of everyone</h1></header></div>
       <div navigationKey="11" id="t2"><header><h2>Favorite</h2></header></div>
-      <div navigationKey="12" id="t3"><header><button id="back">Mine</button><h2>Own</h2></header></div>
+      <div navigationKey="12" id="t3"><header><button id="back" data-exact-on="press">Mine</button><h2 role="heading" data-exact-text>Own</h2></header></div>
     </div>
     <div role="tablist"><button role="tab" aria-controls="p1">People</button><button role="tab" aria-controls="p2">Favorites</button></div>
   </main>
@@ -98,14 +98,15 @@ async function inChrome(test, html = page) {
 }
 
 check('a pushed route draws Back at its app bar\'s leading edge, and goes back as the browser\'s Back does', () => inChrome(async (evaluate, call) => {
-  // Pushed routes only: neither stack's root nor the sheet; none where the header holds the control. The words are
-  // the route beneath's title, "Back" for a long one, or the control's when it is elsewhere in the route.
-  expect(await evaluate('backs()')).toEqual(['r2:People|Back to People', 'r3:Done|Done', 't2:Back|Back']);
+  // Pushed routes only: neither stack's root nor the sheet. The words are the route beneath's title, "Back" for a long
+  // one, or the control's, which a header holding it does not show.
+  expect(await evaluate('backs()')).toEqual(['r2:People|Back to People', 'r3:Done|Done', 't2:Back|Back', 't3:Mine|Mine']);
+  expect(await evaluate(`['r3', 't3'].map(id => document.querySelector('#' + id + ' #back').getClientRects().length)`)).toEqual([1, 0]);
   // A disabled control is no way back, as iOS hides its Back button; enabled again, it is.
-  expect(await evaluate(`document.querySelector('#r3 #back').disabled = true; select('2'); backs()`)).toEqual(['r2:People|Back to People', 't2:Back|Back']);
-  expect(await evaluate(`document.querySelector('#r3 #back').disabled = false; select('2'); backs().length`)).toBe(3);
+  expect(await evaluate(`document.querySelector('#r3 #back').disabled = true; select('2'); backs()`)).toEqual(['r2:People|Back to People', 't2:Back|Back', 't3:Mine|Mine']);
+  expect(await evaluate(`document.querySelector('#r3 #back').disabled = false; select('2'); backs().length`)).toBe(4);
   // Until the page is interactive the wasm glue disables every control (`aria-busy`), which is not the author's.
-  expect(await evaluate(`const busy = document.getElementById('exact-root'); busy.setAttribute('aria-busy', 'true'); document.querySelector('#r3 #back').disabled = true; select('2'); const n = backs().length; busy.removeAttribute('aria-busy'); document.querySelector('#r3 #back').disabled = false; n`)).toBe(3);
+  expect(await evaluate(`const busy = document.getElementById('exact-root'); busy.setAttribute('aria-busy', 'true'); document.querySelector('#r3 #back').disabled = true; select('2'); const n = backs().length; busy.removeAttribute('aria-busy'); document.querySelector('#r3 #back').disabled = false; n`)).toBe(4);
   // The renderer's children stay its own: the button is the header's shadow root's, before its slot, at the leading edge.
   expect(await evaluate(`[document.querySelector('#r2 > header').children.length, document.querySelector('#r2 > header').shadowRoot.querySelector('button').getBoundingClientRect().right <= document.getElementById('title2').getBoundingClientRect().left]`)).toEqual([1, true]);
   // It is one of the bar's buttons, so in the bar's ink, the label's (LLP 1116 D1's look drew it in the accent, as UIKit does).
@@ -125,6 +126,8 @@ check('a pushed route draws Back at its app bar\'s leading edge, and goes back a
     .toEqual(['navigate /', 'navigate /', 'host back 2']);
   // A control elsewhere in the route is what Back presses; only the shown route's Back acts.
   expect(await evaluate(`select('3'); press('r3'); press('r2'); calls.splice(0)`)).toEqual(['pressed r3']);
+  // So is one the header holds and does not show.
+  expect(await evaluate(`select('12'); press('t3'); calls.splice(0)`)).toEqual(['pressed t3']);
 }), 60000);
 
 check('Escape closes a sheet as its Cancel does; with no Cancel the root names, as the app bar\'s Back does', () => inChrome(async (evaluate, call) => {
@@ -284,11 +287,11 @@ check('a closed sheet or a popped screen leaves the route beneath it live when t
 
 check('the bar says its own word, "Back", only on a page in English; elsewhere the chevron alone, named by the title beneath', () => inChrome(async (evaluate) => {
   // LLP 1115.000 D4.14. No `lang` reads as English, as every app here is until it says otherwise.
-  const english = ['r2:People|Back to People', 'r3:Done|Done', 't2:Back|Back'];
+  const english = ['r2:People|Back to People', 'r3:Done|Done', 't2:Back|Back', 't3:Mine|Mine'];
   expect(await evaluate('backs()')).toEqual(english);
   // In another language the app's own words stay (a short title beneath, the Back control's) and are the name; the
   // bar's word is not said, so a long title beneath leaves the chevron alone, named by that title.
-  expect(await evaluate(`document.documentElement.lang = 'de'; select('2'); backs()`)).toEqual(['r2:People|People', 'r3:Done|Done', 't2:|Favorites of everyone']);
+  expect(await evaluate(`document.documentElement.lang = 'de'; select('2'); backs()`)).toEqual(['r2:People|People', 'r3:Done|Done', 't2:|Favorites of everyone', 't3:Mine|Mine']);
   expect(await evaluate(`(b => [b.lastChild.hidden, b.hidden])(document.querySelector('#t2 > header').shadowRoot.querySelector('button'))`)).toEqual([true, false]);
   for (const lang of ['en-GB', 'EN', '']) expect([lang, await evaluate(`document.documentElement.lang = ${JSON.stringify(lang)}; select('2'); backs()`)]).toEqual([lang, english]);
 }), 60000);
