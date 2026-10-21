@@ -149,17 +149,18 @@ const headerOf = route => [...(route?.children ?? [])].find(child => child.local
 const authored = '[data-exact-said~="appearance"]'; // a header whose author wrote `appearance: none` (element.rs)
 // The items of the bar iOS makes of a shown `header`, or null where it makes none: kernel/src/bars.rs `header_bar`,
 // ported to the elements both runtimes write alike, since the JS target keeps no kernel to ask. `walk` is `Walk::walk`:
-// a bar's header holds one heading, and an item is a pressable it reaches that is not the title's.
+// a bar's header holds one heading, and an item is a pressable it reaches, not the title's, or a disabled button.
 function barItems(route, header) {
   if (route.getAttribute("data-navigationbar") === "none" || route.firstElementChild !== header || header.matches(authored)) return null;
   const heading = "[data-exact-text][role=heading]", press = '[data-exact-on~="press"]', layer = el => el.matches("[popover], dialog");
   const holds = el => [...el.children].some(child => !layer(child) && (child.matches(heading) || holds(child)));
+  const disabled = el => el.matches("button[disabled]") && !el.hasAttribute("role") && root?.getAttribute("aria-busy") !== "true"; // `fact::DISABLED`, dimmed whether or not it presses; a `button` element carries no `role` unless it has another one (element.rs); until input is ready, the glue disables every control itself (glue.js)
   let headings = 0, tap = null;
   const items = [], walk = node => {
     for (const child of node.children) {
       if (layer(child) || child.matches('[role=tablist], input[type="search"]')) continue; // a layer, the bar's segments or its search field: no item
       if (child.matches(heading)) headings++;
-      else if (child.matches(press) || opensPopover(child)) { if (!tap && child.matches(press) && holds(child)) walk(tap = child); else items.push(child); } // the first to hold a heading is the title, tapped
+      else if (child.matches(press) || opensPopover(child) || (disabled(child) && !holds(child))) { if (!tap && child.matches(press) && holds(child)) walk(tap = child); else items.push(child); } // the first to hold a heading is the title, tapped
       else if (!child.matches("[role=status]") || holds(child)) walk(child); // a readout's face is no item
     }
   };

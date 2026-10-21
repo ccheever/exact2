@@ -54,7 +54,7 @@ const content = `<style>#exact-root#exact-root { & .sized { width: 44px; height:
   ${stack('foreign', symbol())}${stack('moved', symbol())}${stack('route-accent', symbol(), 'header', 'style="--exact-accent: rgb(204, 0, 0)"')}
   ${stack('app-accent', symbol()).replace('style="display:block"', 'style="display:block; --exact-accent: rgb(0, 0, 204)"')}
   <div>${stack('nested-accent', symbol()).replace('style="display:block"', 'style="display:block; --exact-accent: rgb(0, 128, 0)"')}</div><span id="accent-probe" style="color: var(--exact-accent, AccentColor)"></span>
-  ${stack('disabled', symbol('disabled'))}
+  ${stack('disabled', symbol('disabled'))}${stack('dimmed', symbol('disabled').replace(' data-exact-on="press"', ''))}${stack('dimmed-link', symbol('disabled role="link"').replace(' data-exact-on="press"', ''))}
   ${stack('content', symbol(), 'content')}
   ${stack('sheet', symbol(), 'header', 'navigationPresentation="modal"')}
   <main navigationKey="1" navigationBack="back" style="display:block"><div navigationKey="1" id="root"><header>${symbol()}${heading('Settings')}</header></div></main>`;
@@ -83,8 +83,10 @@ for (const engine of ['chromium', 'firefox', 'webkit']) test(`${engine}: a pushe
     // is one with no heading text, two, or a row whose role is `heading`; a heading in the title's pressable counts,
     // wrapped in a button that shows a dialog too, and one in another pressable (an item's) or a popover does not; the
     // header's own `press` is not read. Its items are the pressables its walk reaches, not the title's nor a search
-    // field. A control in a closed dialog or hidden in the content is not shown, and the Back is drawn for it, as it is
-    // for one in a header not shown or in a dialog of a header iOS makes no bar of; one the author made inert has none.
+    // field, and a disabled button, pressed or not (`fact::DISABLED`): a disabled control that presses nothing is not
+    // shown, unless its role is not a button's (a link's). A control in a closed dialog or hidden in the content is not
+    // shown, and the Back is drawn for it, as it is for one in a header not shown or in a dialog of a header iOS makes no
+    // bar of; one the author made inert has none.
     await page.evaluate(() => document.getElementById('back-menu').showPopover());
     const bars = (ids) => page.evaluate((ids) => ids.map((id) => {
       const route = document.getElementById(id), back = route.querySelector(':scope > header').shadowRoot?.querySelector('button[part="back"]');
@@ -101,10 +103,11 @@ for (const engine of ['chromium', 'firefox', 'webkit']) test(`${engine}: a pushe
     // The Back presses a control wherever it is, as UIKit's Back does: in a closed menu or dialog, or hidden in the content.
     expect(await page.evaluate(() => ['in-menu', 'in-dialog', 'hidden-content', 'two-dialog'].flatMap((id) => (document.querySelector(`#${id} > header`).shadowRoot.querySelector('button[part="back"]').click(), pressed.splice(0)))))
       .toEqual(['back-menu', 'back-dialog', 'hidden-content', 'two-dialog']);
-    expect(await bars(['symbol', 'inline', 'titled', 'long', 'keys', 'disabled', 'content', 'bare', 'bare-content', 'headless', 'two', 'row', 'titled-tap', 'authored', 'pressing', 'commanded', 'popover-first', 'foreign', 'sheet', 'root'])).toEqual([
+    expect(await bars(['symbol', 'inline', 'titled', 'long', 'keys', 'disabled', 'dimmed', 'dimmed-link', 'content', 'bare', 'bare-content', 'headless', 'two', 'row', 'titled-tap', 'authored', 'pressing', 'commanded', 'popover-first', 'foreign', 'sheet', 'root'])).toEqual([
       ['symbol', true, '', 'Back', null, false], ['inline', true, '', 'Back', null, false], ['titled', true, 'Done', 'Done', null, false],
       ['long', true, 'Back', 'All my conversations', null, false], ['keys', true, '', 'Back', 'Meta+[', false],
-      ['disabled', false, null, null, null, false], ['content', true, '', 'Back', null, true],
+      ['disabled', false, null, null, null, false], ['dimmed', false, null, null, null, false],
+      ['dimmed-link', false, null, null, null, true], ['content', true, '', 'Back', null, true],
       ['bare', false, null, null, null, true], ['bare-content', false, null, null, null, true], ['headless', false, null, null, null, true],
       ['two', false, null, null, null, true], ['row', false, null, null, null, true], ['titled-tap', true, '', 'Back', null, false],
       ['authored', false, null, null, null, true], ['pressing', true, '', 'Back', null, false], ['commanded', true, '', 'Back', null, false],
@@ -113,6 +116,13 @@ for (const engine of ['chromium', 'firefox', 'webkit']) test(`${engine}: a pushe
     // A control the header no longer holds is shown again.
     await page.evaluate(() => { const route = document.getElementById('moved'); route.append(route.querySelector('#back')); project(); });
     expect(await bars(['moved'])).toEqual([['moved', true, '', 'Back', null, true]]);
+    // Until input is ready the wasm glue disables every control itself (`aria-busy`, glue.js): a control it disabled is
+    // no item, so it stays shown, beside the bar's Back.
+    const busy = (on) => page.evaluate((on) => { document.getElementById('exact-root').setAttribute('aria-busy', String(on)); project(); }, on);
+    await busy(true);
+    expect(await bars(['dimmed'])).toEqual([['dimmed', true, '', 'Back', null, true]]);
+    await busy(false);
+    expect(await bars(['dimmed'])).toEqual([['dimmed', false, null, null, null, false]]);
     // The bar's Back takes the focus the control cannot; a press of it, by pointer or key, presses the control. (The
     // sheet, which covers the page, goes first.)
     await page.evaluate(() => document.getElementById('sheet').parentElement.remove());
