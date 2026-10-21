@@ -258,7 +258,7 @@ function fixture(agentMode = true) {
     ready: Promise.resolve(), moduleReady: Promise.resolve(), inputReady: true, logicInfo: null, activeModule: null,
     page: null, // a built document's boot (LLP 1048.000 D6); these pages have none
     loadStage: () => Promise.resolve(), stageLoaded: () => true, // every stage linked (LLP 1047.000 §9)
-    preferences: () => '{}', localAssetURL: source => source, pageFacts: {} /* `globalThis.exact` exposes it (LLP 1139.003 D2) */,
+    preferences: () => '{}', localAssetURL: source => source, pageFacts: {} /* `globalThis.exact` exposes it (LLP 1139.003 D2) */, sizes: new Set(), mediaAttached: (deadline, set = context.mediaAttaching) => Promise.all(set).then(() => true) /* glue.js's, unbounded */,
     launchLocation: () => launchLocation(context), // the launch path less the drive's facts (feed F16)
   });
   vm.runInContext(`let toldOffset = null; const folded = () => false; /* no folded text here (LLP 1007.001) */ const viewBox = ${viewBox}; const layoutBoxes = ${layoutBoxes}; const scrollRange = ${scrollRange};\n` + ['let gpuLoading', 'const POST_BOUND', 'let frameSampler', 'const followOffset', 'const shownValue'].map(head => source.match(new RegExp(`^${head} = .*$`, 'm'))[0]).join('\n') + '\n' + ['nodeDetail', 'agentInputReady', 'agent', 'agentNow', 'agentReply', 'settleGpu', 'gpuPendingReply', 'agentSettled', 'tagged', 'clock', 'startClock', 'mutate', 'boot', 'bootNow'].map(declaration).join('\n') + '\n' + publicObject, context);
