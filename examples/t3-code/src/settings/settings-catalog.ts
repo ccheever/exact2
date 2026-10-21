@@ -1,4 +1,4 @@
-// Reference settingsSearch.ts SETTINGS_SEARCH_ITEMS (9c161462c9), one row per item:
+// Reference settingsSearch.ts SETTINGS_SEARCH_ITEMS (74541bab17), one row per item:
 // [id, title, route, targetId, searchTerms, scope, availability flags]. Keybinding command items are
 // derived from the connected server's keybindings at search time (settings-search.ts). The host
 // credential rows are SOURCE_CONTROL_HOST_SEARCH_ITEMS expanded (GitCafe, then Bitbucket: the
@@ -35,6 +35,7 @@ export const CATALOG: readonly (readonly [string, string, string, string, string
   ["auto-resume-limited-threads", "Auto-resume limited threads", "general", "", "usage quota rate limit reset recover continue", "", ""],
   ["working-shelf", "Working section (beta)", "general", "", "hide fold running monitoring threads inbox sidebar shelf", "", ""],
   ["auto-settle-inactive-threads", "Auto-settle inactive threads", "general", "", "sidebar inactivity days no activity automatically", "project-defaults", "autoSettle"],
+  ["compact-idle-threads", "Compact idle Claude threads (beta)", "general", "", "context compaction idle cache tokens usage summary beta experimental", "environment-defaults", ""],
   ["auto-settle-merged-threads", "Auto-settle merged threads", "general", "", "pull request merge closed automatically sidebar", "project-defaults", "autoSettle"],
   ["days-before-auto-settle", "Days of inactivity before auto-settle", "general", "auto-settle-inactive-threads", "thread timeout activity sidebar", "project-defaults", "autoSettle"],
   ["thread-notifications", "Thread notifications", "general", "", "notification sound alert completion input approval desktop", "", ""],

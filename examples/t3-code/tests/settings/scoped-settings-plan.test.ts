@@ -249,3 +249,31 @@ describe('partial object patches at project scope', () => {
     expect(plan.serverWrites[0]?.patch).toEqual({ projectSettingsOverrides: { [id]: { sourceControlWritingStyle: { mode: 'custom', customInstructions: 'Be terse.', followChangeRequestTemplates: false } } } });
   });
 });
+
+describe('model selection patches at project scope', () => {
+  const saved = { instanceId: 'codex', model: 'gpt-5.6', options: [{ id: 'reasoningEffort', value: 'high' }] };
+  const customized = environment('Server', { settings: { projectSettingsOverrides: { [projectId]: {
+    defaultModelSelection: saved, sourceControlWriterModelSelection: saved, reviewGuideModelSelection: saved, textGenerationModelSelection: saved } } } });
+
+  it('replaces old options when changing model selections', () => {
+    const plan = planScopedSettingsPatch(checkout, [customized], {
+      defaultModelSelection: { instanceId: 'claudeAgent', model: 'claude-opus-4-8' },
+      sourceControlWriterModelSelection: { instanceId: 'codex', model: 'gpt-5.6-mini' },
+      reviewGuideModelSelection: { instanceId: 'codex', model: 'gpt-5.6-mini' },
+      textGenerationModelSelection: { instanceId: 'claudeAgent', model: 'claude-sonnet-4-6' },
+    });
+    expect((plan.serverWrites[0]?.patch.projectSettingsOverrides as Obj)?.[projectId]).toEqual({
+      defaultModelSelection: { instanceId: 'claudeAgent', model: 'claude-opus-4-8' },
+      sourceControlWriterModelSelection: { instanceId: 'codex', model: 'gpt-5.6-mini' },
+      reviewGuideModelSelection: { instanceId: 'codex', model: 'gpt-5.6-mini' },
+      textGenerationModelSelection: { instanceId: 'claudeAgent', model: 'claude-sonnet-4-6' },
+    });
+  });
+
+  it('completes partial text-generation selections without retaining old options', () => {
+    const override = (patch: Obj) => ((planScopedSettingsPatch(checkout, [customized], patch).serverWrites[0]?.patch.projectSettingsOverrides as Obj)?.[projectId] as Obj)?.textGenerationModelSelection;
+    expect(override({ textGenerationModelSelection: { model: 'gpt-5.6-mini' } })).toEqual({ instanceId: 'codex', model: 'gpt-5.6-mini' });
+    const options = [{ id: 'reasoningEffort', value: 'low' }];
+    expect(override({ textGenerationModelSelection: { options } })).toEqual({ ...saved, options });
+  });
+});
