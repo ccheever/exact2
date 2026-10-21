@@ -1,21 +1,23 @@
 // scripts/design-tool-harness.mjs's port: these runs' own (EXACT_TOOL_PORT, else this checkout's), even when a file
 // run before in the same process loaded the port module with none, as tamber-server.test.mjs does (7740): the
-// harness then waited for a tool line on 7740 that its child printed on its own port.
+// harness then waited for a tool line on 7740 that its child printed on its own port. In a process of its own, so
+// neither this file's environment nor its cached modules reach another's.
 import { expect, test } from 'bun:test';
+import { spawnSync } from 'node:child_process';
 import { resolve } from 'node:path';
 import { checkoutPort } from './port-lock.mjs';
 
-test("the harness's tool origin is these runs' port, whatever port the port module was first loaded with", async () => {
-  const said = process.env.EXACT_TOOL_PORT;
-  delete process.env.EXACT_TOOL_PORT;
-  try {
-    const first = await import('./tamber-tool-port.mjs');
-    const harness = await import('./design-tool-harness.mjs');
-    const port = said ?? String(checkoutPort(resolve(import.meta.dir, '..')));
-    expect(String(harness.TOOL_PORT)).toBe(port);
-    expect(harness.TOOL_ORIGIN).toBe(`http://127.0.0.1:${port}`);
-    expect(harness.TOOL_DIST).toEndWith(port === '7740' ? 'target/design-tool-web' : `target/design-tool-web-${port}`);
-    // The module loaded first keeps the port it read (what the harness no longer trusts blindly).
-    if (said === undefined) expect(first.TOOL_PORT).toBe(7740);
-  } finally { if (said === undefined) delete process.env.EXACT_TOOL_PORT; else process.env.EXACT_TOOL_PORT = said; }
-});
+const ROOT = resolve(import.meta.dir, '..');
+
+test("the harness's tool origin is these runs' port, whatever port the port module was first loaded with", () => {
+  const env = { ...process.env };
+  delete env.EXACT_TOOL_PORT;
+  const script = `
+    const first = await import(${JSON.stringify(resolve(ROOT, 'scripts/tamber-tool-port.mjs'))});
+    const harness = await import(${JSON.stringify(resolve(ROOT, 'scripts/design-tool-harness.mjs'))});
+    console.log(JSON.stringify({ first: first.TOOL_PORT, port: harness.TOOL_PORT, origin: harness.TOOL_ORIGIN, dist: harness.TOOL_DIST, env: process.env.EXACT_TOOL_PORT }));`;
+  const run = spawnSync(process.execPath, ['-e', script], { cwd: ROOT, env, encoding: 'utf8' });
+  expect(run.status, run.stderr).toBe(0);
+  const got = JSON.parse(run.stdout.trim().split('\n').at(-1)), port = checkoutPort(ROOT);
+  expect(got).toEqual({ first: 7740, port, origin: `http://127.0.0.1:${port}`, dist: resolve(ROOT, `target/design-tool-web-${port}`), env: String(port) });
+}, 60_000);
