@@ -19,7 +19,7 @@ import { ensureDraftThreadId, withHandoffThread } from '../composer/draft-thread
 import { contextReferences } from '../composer/composer-editor-menu';
 import { rememberReviewCommentRecord } from '../composer/composer-editor';
 import { appendInlineContextReference, chipLink, chipRecord, handoffReviewComments, setReviewCommentLinks, stripPullRequestHandoffReferences, type HandoffComment } from '../pull-requests/pages-pr-handoffs-logic';
-import { ACTION_FAILURE, ACTION_HINT, ACTION_SUCCESS, actionPayload, fixChecksPrompt, handoffPrompt, preparePayload, readableFailure, resolveConflictsPrompt, type MergeMethod } from './pr-row-logic';
+import { ACTION_FAILURE, ACTION_HINT, ACTION_SUCCESS, OFF_HEAD_CHECKOUT_TOAST, actionPayload, checkoutFailureDescription, fixChecksPrompt, handoffPrompt, preparePayload, readableFailure, resolveConflictsPrompt, type MergeMethod } from './pr-row-logic';
 import { letGo } from '../client/let-go';
 
 type Entry = { at: number; checksAt: number; detail: Obj | null; error: string; reading: boolean };
@@ -261,9 +261,8 @@ export async function finishCheckoutHandoff(client: T3Client, native: Native): P
     try { prepared = obj(await client.rpc(native, 'git.preparePullRequestThread', withHandoffThread(preparePayload(detail, mode), threadId), true)); }
     catch (error) {
       if (letGo(error)) { dismissToast(client, loading); throw error; } // let-go.ts: no failure toast
-      // The server says what to do about it — that the branch is already checked out, say.
-      const description = error instanceof Error ? error.message : '';
-      pushToast(client, { kind: 'error', title: 'Could not prepare the pull request checkout', ...(description ? { description } : {}), key: TOAST_KEY });
+      // The server says what to do about it (that the branch is already checked out, say), else the hint.
+      pushToast(client, { kind: 'error', title: 'Could not prepare the pull request checkout', description: checkoutFailureDescription(error), key: TOAST_KEY });
       return '';
     }
     const branch = str(prepared.branch), worktreePath = str(prepared.worktreePath);
@@ -275,8 +274,7 @@ export async function finishCheckoutHandoff(client: T3Client, native: Native): P
     // newThread(projectRef, { branch, worktreePath, envMode }): the same draft, now on the checkout; a local one runs where the repository is.
     (client.local.composerControls.contexts ??= {})[draftKey] = { envMode: worktreePath ? 'worktree' : 'local', branch, worktreePath };
     const stale = prepared.isOnPullRequestHead === false;
-    const staleToast = { kind: 'warning' as const, title: 'Checked out, but not on the latest commits', key: TOAST_KEY,
-      description: "The checkout could not be moved onto the pull request's latest commits, so the code there is older than the pull request. Uncommitted work or local commits keep it where it is." };
+    const staleToast = { ...OFF_HEAD_CHECKOUT_TOAST, key: TOAST_KEY };
     if (!task) {
       pushToast(client, stale ? staleToast : { kind: 'success', title: mode === 'local' ? 'Checked out here' : 'Checked out', key: TOAST_KEY,
         description: mode === 'local' ? "This repository is on the pull request's branch, with a thread open on it." : 'The pull request is in its own worktree, with a thread open on it.' });

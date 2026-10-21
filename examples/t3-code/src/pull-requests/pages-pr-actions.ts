@@ -1,8 +1,8 @@
 // The pull request panel's host actions: the header's
 // primary control (Merge with its method, Ready for review, "Auto-merge (method)", Resolve conflicts,
 // the armed badge, the Merged/Closed badge), the More menu's action group (Merge now, Enable/Disable
-// auto-merge, the merge-method radios, Convert to draft, Close, Reopen, Revert changes), the five
-// confirmations in place, the out-of-date base branch's popover (Update branch / Update with rebase),
+// auto-merge, the merge-method radios, Convert to draft, Close, Reopen, Revert changes), the
+// confirmations in place (Close with comment's too), the out-of-date base branch's popover (Update branch / Update with rebase),
 // "Approve workflows to run", one runner for all ten actions with the reference's toasts and
 // failure hints, and the overrides the panel writes onto the Pull Requests list as an action goes.
 // Sources: T3 Code 9c161462c9 (MIT, see LICENSE-T3) apps/web/src/components/pullRequest/PullRequestDetailPanel.tsx
@@ -80,9 +80,9 @@ export function settlePullRequestOverrides<Entry extends Obj>(overrides: Readonl
 
 export type ConfirmAction = 'merge' | 'close' | 'enable-auto-merge' | 'revert' | 'approve-workflows';
 const CONFIRMS: readonly ConfirmAction[] = ['merge', 'close', 'enable-auto-merge', 'revert', 'approve-workflows'];
-/** The control a confirmation is armed on: the header's primary button, a More menu row, the Summary bar's approval. */
-export type ConfirmControl = 'primary' | 'menu' | 'approve';
-const CONTROLS: readonly ConfirmControl[] = ['primary', 'menu', 'approve'];
+/** The control a confirmation is armed on: the header's primary button, a More menu row, the Summary bar's approval, the comment form's Close with comment. */
+export type ConfirmControl = 'primary' | 'menu' | 'approve' | 'comment';
+const CONTROLS: readonly ConfirmControl[] = ['primary', 'menu', 'approve', 'comment'];
 type State = {
   /** pendingAction: which action is in flight; every control is disabled while any runs. */
   pending: { key: string; action: string } | null;

@@ -17,7 +17,7 @@ import { draftContext } from '../composer/composer-controls-branch';
 import { branchState } from './git-branch';
 import {
   defaultBranchCopy, formatElapsed, menuItems, menuNotes, menuReason, progressPresentation, providerMark, publishPathValid,
-  quickAction, quickActionIcon, requiresDefaultBranchConfirmation, sortedPublishProviders, terminology, workingFiles,
+  quickAction, quickActionIcon, requiresDefaultBranchConfirmation, sortedPublishProviders, terminology, workingFiles, workingTreeRoot,
 } from './git-logic';
 import { letGo } from '../client/let-go';
 
@@ -240,9 +240,12 @@ export async function gitLocal(client: T3Client, native: Native, op: string, id:
   if (op === 'file') { if (state.excluded.has(id)) state.excluded.delete(id); else state.excluded.add(id); return ''; }
   if (op === 'files-all') { const files = workingFiles(state.status); state.excluded = state.excluded.size === 0 ? new Set(files.map(file => file.path)) : new Set(); return ''; }
   if (op === 'open-file') {
-    if (!state.cwd) { pushToast(client, { kind: 'error', title: 'Editor opening is unavailable.' }); return ''; }
+    // Changed-file paths are repository-relative: they resolve against the worktree root of the same status snapshot,
+    // not the project cwd (GitActionsControl openChangedFileInEditor).
+    const root = workingTreeRoot(state.status);
+    if (!root) { pushToast(client, { kind: 'error', title: 'Editor opening is unavailable.' }); return ''; }
     // useOpenInPreferredEditor: the card's chosen editor (shell-details.ts hands it over).
-    try { await client.restAccess(native).request('shell.openInEditor', { cwd: `${state.cwd.replace(/\/+$/, '')}/${id}`, editor: state.editor || 'file-manager' }); }
+    try { await client.restAccess(native).request('shell.openInEditor', { cwd: `${root.replace(/\/+$/, '')}/${id}`, editor: state.editor || 'file-manager' }); }
     catch (error) { failure(client, 'Unable to open file', error); }
     return '';
   }
@@ -325,6 +328,7 @@ export function gitCardView(client: T3Client, status: Obj | null, error: string,
     dialog: state.dialog, dialogFrom: state.opener === 'menu' ? 'details-git-menu' : 'details-git-action', sourceMark: providerMark(status),
     commitBranch: str(status?.refName) || '(detached HEAD)', commitDefault: status?.isDefaultRef === true, editing: state.editing,
     files: files.map(file => ({ ...file, excluded: state.excluded.has(file.path) })), fileCount: files.length, selectedCount: selected.length,
+    filesOpenable: can(client, 'orchestration:operate') && workingTreeRoot(status) !== '',
     allSelected: state.excluded.size === 0, noneSelected: selected.length === 0, someSelected: state.excluded.size > 0 && selected.length > 0,
     selectedInsertions: selected.reduce((sum, file) => sum + file.insertions, 0), selectedDeletions: selected.reduce((sum, file) => sum + file.deletions, 0),
     confirmTitle: copy.title, confirmDescription: copy.description, confirmContinue: copy.continueLabel,

@@ -123,9 +123,21 @@ describe('subagent notifications (dab26f5)', () => {
   const child = { id: 'sa', childThreadId: 'child', title: 'Subagent: /root/review_docs', status: 'running', progress: 'Reading files', result: null, startedAt: at(0) };
   test('a known subagent’s notification is its card, frozen at the reported outcome', () => {
     const note = item('n', 'notification', 4, { summary: 'Subagent finished', outcome: 'completed', source: { kind: 'subagent', childThreadId: 'child' } });
-    const result = rows(client([user('u', 0, 'go'), note], { subagents: [{ ...child, result: 'All docs reviewed' }] }));
+    const result = rows(client([user('u', 0, 'go'), note], { subagents: [{ ...child, status: 'completed', completedAt: at(3), result: 'All docs reviewed' }] }));
     const card = result.find(row => row.kind === 'subagent')!;
     expect(card.activities![0]).toMatchObject({ label: 'Review Docs', result: 'Finished', body: 'All docs reviewed', tone: 'success', status: 'event', targetId: 'child', output: '00:00' });
+  });
+  test('a subagent resumed since its notification shows its live status, not the outcome reported then (#18099)', () => {
+    const note = item('n', 'notification', 4, { summary: 'Subagent failed', outcome: 'failed', source: { kind: 'subagent', childThreadId: 'child' } });
+    // Still running (a late notification), or settled again after a run that started past the notification.
+    for (const agent of [child, { ...child, status: 'completed', startedAt: at(6), completedAt: at(8), result: 'Done again' }]) {
+      const card = rows(client([user('u', 0, 'go'), note], { subagents: [agent] })).find(row => row.kind === 'subagent')!.activities![0]!;
+      expect(card).toMatchObject({ status: agent.status, failed: false, targetId: 'child' });
+      expect(card.result).not.toBe('Failed');
+    }
+    // Settled before the notification arrived: the reported outcome stands.
+    const settled = { ...child, status: 'failed', startedAt: at(1), completedAt: at(3), result: 'Boom' };
+    expect(rows(client([user('u', 0, 'go'), note], { subagents: [settled] })).find(row => row.kind === 'subagent')!.activities![0]).toMatchObject({ status: 'event', result: 'Failed', failed: true });
   });
   test('an update has no status dot; an unknown child falls back to the work row', () => {
     const update = item('n', 'notification', 4, { summary: 'Progress', outcome: 'updated', source: { kind: 'subagent', childThreadId: 'child' } });
@@ -160,6 +172,22 @@ describe('answered questions', () => {
     const row = result.find(candidate => candidate.activities?.some(activity => activity.id === key('q')))!;
     expect(row.activities!.find(activity => activity.id === key('q'))).toMatchObject({ label: 'Which scope should this fixture use?', answer: 'Workspace', body: '' });
     expect(row.code!.find(entry => entry.id === key('q'))).toMatchObject({ icon: 'QA', tokens: [{ text: 'Which scope should this fixture use?', cls: 'q' }, { text: 'Workspace', cls: 'a' }].map((token, index) => ({ id: String(index), ...token })) });
+  });
+});
+
+describe('answered questions stay visible (#21086)', () => {
+  const questionAnswer = { requestId: 'q', answers: { scope: { answers: ['Workspace'] } }, attachmentsByQuestionId: {}, questionTextById: { scope: 'Which scope?' } };
+  const question = (seconds: number) => item('q', 'user_input_request', seconds, { questions: [{ id: 'scope', question: 'Which scope?' }], questionAnswer });
+  test('a settled turn folds its work but not the answered question', () => {
+    const result = rows(client([user('u', 0, 'go'), command('ls', 1, 'ls'), question(2), command('cat', 3, 'cat a'), answer('a', 4, 'ok')]));
+    expect(result.map(row => row.kind)).toEqual(['user', 'work', 'entry', 'assistant']);
+    expect(result[2]!.activities![0]).toMatchObject({ id: key('q'), label: 'Which scope?', answer: 'Workspace' });
+  });
+  test('in a running turn it keeps its own row, out of the live work around it', () => {
+    const result = rows(live([user('u', 0, 'go'), command('ls', 1, 'ls'), question(2), command('cat', 3, 'cat a', { status: 'running' })]));
+    const entry = result.find(row => row.activities?.some(activity => activity.id === key('q')))!;
+    expect(entry.kind).toBe('entry');
+    expect(entry.activities).toHaveLength(1);
   });
 });
 

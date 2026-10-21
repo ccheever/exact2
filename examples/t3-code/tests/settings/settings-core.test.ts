@@ -125,7 +125,7 @@ describe('general rows', () => {
       'Snooze limited threads', 'Working section (beta)', 'Auto-settle merged threads', 'Auto-settle inactive threads', 'Days of inactivity before auto-settle', 'Thread notifications',
       'In-app notifications', 'Time format', 'Response streaming', 'Hide whitespace changes', 'Default diff file state', 'Diff layout', 'Proactive panels', 'Show skills in slash menu',
       'Rich text composer', 'Collapse composer on scroll', 'Send shortcut', 'Follow-up behavior', 'Provider update checks', 'Continue threads after restarts', 'Background activity',
-      'Start from origin', 'Add project starts in', 'Unpin confirmation', 'Archive confirmation', 'Delete confirmation', 'Quit shortcut', 'Text generation model', 'Version', 'Update track', 'Mobile app', 'Diagnostics',
+      'Start from remote', 'Add project starts in', 'Unpin confirmation', 'Archive confirmation', 'Delete confirmation', 'Quit shortcut', 'Text generation model', 'Version', 'Update track', 'Mobile app', 'Diagnostics',
       'Open source licenses', 'Plan mode (legacy)', 'Context window indicator (legacy)', 'Sidebar (legacy)']);
     const row = (id: string) => sections.flatMap(section => section.rows).find(entry => entry.id === id)!;
     expect([row('default-model').label, row('default-model').label2, row('default-model').status]).toEqual(['GPT-5.6-Luna', 'Medium', 'Automatic']);
@@ -326,6 +326,15 @@ describe('writes through the command', () => {
     expect(project.projectModel.map(row => [row.id, row.kind, row.description, row.label, row.label2, row.status, row.divider]))
       .toEqual([['default-model', 'model', 'Model for new threads in this project.', 'GPT-5.6-Luna', 'Medium', 'Automatic', false]]);
     expect(project.scopeKey).toBe('|repo|');
+    // acf7043b72: an environment or checkout the project is not on offers "Show all environments", which keeps the project.
+    const stale = async (machine: string, projectKey: string, checkout: string, route = 'projects') => {
+      const core = await settingsCore(as(client), native, machine, projectKey, checkout, '', route, '', true);
+      return [core.kind, core.message, core.showAllEnvironments, core.allEnvironmentsProject, core.allEnvironmentsMember];
+    };
+    expect(await stale('env9', 'repo', '')).toEqual(['unavailable', 'This environment is no longer available.', true, 'repo', 'p1']);
+    expect(await stale('', 'repo', 'gone')).toEqual(['unavailable', 'This checkout is no longer available in the selected project and environment.', true, 'repo', 'p1']);
+    expect((await stale('', 'gone', ''))[2]).toBe(false);
+    expect((await stale('env9', 'repo', '', 'general'))[2]).toBe(false);
     expect((await settingsCore(as(client), native, '', '', '', '', 'projects', '', true)).projectModel).toEqual([]);
     expect((await settingsCore(as(client), native, '', 'repo', '', '', 'general', '', true)).projectModel).toEqual([]);
     // TraitsPicker's trigger names every trait (buildTraitsTriggerDisplay), as the composer's does: "Medium · 1M".
@@ -368,7 +377,7 @@ describe('navigation and search', () => {
     expect(titles('credits')).toEqual(['Remove agent credits when merging / Source Control']);
     expect(titles('clients')).toEqual(['This machine / Connections']);
     expect(titles('worktree')).toEqual(['Worktree cleanup / Storage', 'Worktree location / Storage', 'Worktree branch naming / Source Control', 'Keep worktrees with local changes / Storage',
-      'New threads / General', 'Submodules / General', 'Start from origin / General', 'Actions / Project']);
+      'New threads / General', 'Submodules / General', 'Start from remote / General', 'Actions / Project']);
     expect(titles('theme')).toEqual(['Themes / Appearance']);
     expect(titles('model')).toEqual(['Default model / General', 'Text generation model / General', 'Source control writer model / Source Control', 'Review guide model / Source Control',
       'Project defaults and overrides / General', 'Providers / Providers', 'Health check interval / Providers']);

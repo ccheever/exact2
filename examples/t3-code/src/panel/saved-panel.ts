@@ -87,7 +87,7 @@ export function restoreRightPanel(owner: Holder & { preferencesLoaded: boolean; 
     id: entry.id, kind: entry.kind, path: entry.path, line: entry.line, reveal: 0,
     ...('folderTrail' in entry && entry.folderTrail !== undefined ? { folderTrail: entry.folderTrail } : {}),
     ...('terminal' in entry ? { terminal: entry.terminal } : {}),
-    ...('title' in entry ? { title: entry.title } : {}), ...('pr' in entry ? { pr: entry.pr } : {}), ...('attachment' in entry ? { attachment: entry.attachment } : {}), ...('device' in entry && entry.device ? { device: entry.device } : {}),
+    ...('title' in entry ? { title: entry.title } : {}), ...('pr' in entry ? { pr: entry.pr } : {}), ...('detailTab' in entry && entry.detailTab ? { detailTab: entry.detailTab } : {}), ...('attachment' in entry ? { attachment: entry.attachment } : {}), ...('device' in entry && entry.device ? { device: entry.device } : {}),
   }));
   if (saved.maximized === true) state.maximized = true; else delete state.maximized;
   state.active = saved.active;

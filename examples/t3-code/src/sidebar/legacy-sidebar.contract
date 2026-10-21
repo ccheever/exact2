@@ -338,7 +338,7 @@ component LegacyProject
                 if pointed
                   LegacyIcon(name="chevron-right", size=14, color="light-dark(#71717b, #818181)")
                 else
-                  box width="0.5625rem" height="0.5625rem" border-radius="0.3125rem" background-color=p.statusDot animation=(p.statusPulse ? "lsStatusPulse 2s infinite" : "none")
+                  box width="0.5625rem" height="0.5625rem" border-radius="0.3125rem" background-color=p.statusDot animation=(p.statusPulse and not reduced ? "lsStatusPulse 2s infinite" : "none")
           if p.expanded or p.statusLabel == ""
             box margin-left="-0.125rem" flex-shrink=0 rotate=(p.expanded ? "90deg" : "0deg") transition="rotate 150ms ease"
               LegacyIcon(name="chevron-right", size=14, color="light-dark(#71717bb3, #818181b3)")
@@ -367,7 +367,7 @@ component LegacyProject
             button cursor="pointer" press=local("legacy-more", p.key, "") testId=`legacy-show-more-${p.key}` height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" box-sizing="border-box" gap="0.5rem" border-radius="0.5rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center"
               if p.hiddenLabel != ""
                 box width="0.875rem" height="0.875rem" display="flex" align-items="center" justify-content="center" flex-shrink=0 role="img" aria-label=p.hiddenLabel
-                  box width="0.5625rem" height="0.5625rem" border-radius="0.3125rem" background-color=p.hiddenDot animation=(p.hiddenPulse ? "lsStatusPulse 2s infinite" : "none")
+                  box width="0.5625rem" height="0.5625rem" border-radius="0.3125rem" background-color=p.hiddenDot animation=(p.hiddenPulse and not reduced ? "lsStatusPulse 2s infinite" : "none")
               text "Show more" font-size="0.75rem" line-height="1rem" color="light-dark(#27272a, #f3f3f3)"
           if p.showLess
             button cursor="pointer" press=local("legacy-less", p.key, "") testId=`legacy-show-less-${p.key}` height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" box-sizing="border-box" border-radius="0.5rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center"
@@ -513,7 +513,7 @@ component LegacyThread
                     PgIcon(name=t.prIcon, size=12, color=lsPrTone(t.prState))
             if t.statusLabel != ""
               row gap="0.25rem" align-items="center" flex-shrink=0 role="img" aria-label=t.statusLabel testId=`thread-status-${t.id}`
-                box width="0.375rem" height="0.375rem" border-radius="0.1875rem" background-color=t.statusDot animation=(t.statusPulse ? "lsStatusPulse 2s infinite" : "none")
+                box width="0.375rem" height="0.375rem" border-radius="0.1875rem" background-color=t.statusDot animation=(t.statusPulse and not reduced ? "lsStatusPulse 2s infinite" : "none")
                 text t.statusLabel font-size="0.625rem" line-height="0.875rem" color=t.statusColor white-space="nowrap"
             // The title's own tooltip (its full text), as the reference's TooltipTrigger around the title span.
             LegacyTitleTip(label=t.title, tipId=`legacy-tip-title-${t.id}`, relay=innerHover)

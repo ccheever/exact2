@@ -1,4 +1,4 @@
-import { expect, test } from 'bun:test';
+import { describe, expect, test } from 'bun:test';
 import { childThreadInputs, childThreadInputsTitle, noteSubagentRequests, pendingSubagentRequestsByThread } from '../../src/sidebar/subagent-requests';
 import { canSnooze, raisedHand, sidebarStatus } from '../../src/sidebar/sidebar-model';
 import { composerNotices, contextSnapshot, formatTokens } from '../../src/composer/composer-controls-view';
@@ -53,4 +53,29 @@ test('the context meter takes the newest usage report regardless of provider tur
   expect(contextSnapshot({ providerTurns: [{ tokenUsage: { usedTokens: 120_000, updatedAt: '2026-10-03T12:00:00Z', promptCacheTtlMs: 300_000 } },
     { tokenUsage: { usedTokens: 1, updatedAt: '2026-10-03T11:00:00Z' } }] })).toMatchObject({ used: 120_000, promptCacheTtlMs: 300_000 });
   expect([999_499, 999_500, 1_000_000].map(formatTokens)).toEqual(['999k', '1m', '1m']);
+});
+
+// contextWindow.ts at 74541bab17: a run fork keeps its source's usage (#22075); live usage carries the configured threshold (#18332).
+describe('context meter usage', () => {
+  const sourceUsage = { usedTokens: 513_000, maxTokens: 1_000_000, promptCacheTtlMs: 300_000, updatedAt: '2026-10-19T12:00:00.000Z' };
+  const transfer = { id: 'x', type: 'fork', sourceThreadId: 'parent', targetThreadId: 't1', sourcePoint: { threadId: 'parent', runId: 'fork-point' },
+    sourceProviderInstanceId: 'claude', sourceTokenUsage: sourceUsage, status: 'pending', resolution: null };
+  const fork = (extra: Obj = {}): Obj => ({ thread: { id: 't1', forkedFrom: { type: 'run', threadId: 'parent', runId: 'fork-point' }, modelSelection: { instanceId: 'claude' }, activeProviderThreadId: 'pt' },
+    providerTurns: [], providerThreads: [], contextTransfers: [transfer], visibleTurnItems: [], ...extra });
+  test('a run fork shows its fork point\'s usage and cache expiry until it reports its own', () => {
+    expect(contextSnapshot(fork())).toMatchObject({ used: 513_000, max: 1_000_000, promptCacheTtlMs: 300_000, updatedAt: sourceUsage.updatedAt });
+    expect(contextSnapshot(fork({ contextTransfers: [{ ...transfer, status: 'consumed', resolution: { strategy: 'native_fork' } }] }))).toMatchObject({ used: 513_000 });
+    expect(contextSnapshot(fork({ providerTurns: [{ tokenUsage: { usedTokens: 42_000, updatedAt: '2026-10-19T12:10:00.000Z' } }] }))).toMatchObject({ used: 42_000 });
+    // The target provider thread's own report wins over inherited usage, even at zero.
+    expect(contextSnapshot(fork({ providerThreads: [{ id: 'pt', contextUsage: { usedTokens: 0, maxTokens: 200_000 }, updatedAt: '2026-10-19T12:10:00.000Z' }] }))).toMatchObject({ used: 0, max: 200_000 });
+  });
+  test('a portable handoff, another provider or a different fork point inherits nothing', () => {
+    for (const changed of [{ status: 'consumed', resolution: { strategy: 'portable_handoff' } }, { sourceProviderInstanceId: 'codex' }, { sourcePoint: { threadId: 'parent', runId: 'other' } }]) {
+      expect(contextSnapshot(fork({ contextTransfers: [{ ...transfer, ...changed }] }))).toBeNull();
+    }
+  });
+  test('live usage carries the configured auto-compact threshold', () => {
+    expect(contextSnapshot({ providerTurns: [{ tokenUsage: { usedTokens: 1, updatedAt: 'x', autoCompactThreshold: 150_000 } }] })).toMatchObject({ threshold: 150_000 });
+    expect(contextSnapshot({ providerTurns: [{ tokenUsage: { usedTokens: 1, updatedAt: 'x' } }] })).toMatchObject({ threshold: null });
+  });
 });

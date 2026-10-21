@@ -100,6 +100,9 @@ component CcIcon
         path d="M5 5a2 2 0 0 1 3.008-1.728l11.997 6.998a2 2 0 0 1 .003 3.458l-12 7A2 2 0 0 1 5 19z" fill="currentColor"
       if name == "check"
         path d="M20 6 9 17l-5-5"
+      if name == "info"
+        circle cx=12 cy=12 r=10
+        path d="M12 16v-4M12 8h.01"
       if name == "circle-alert"
         circle cx=12 cy=12 r=10
         path d="M12 8v4M12 16h.01"
@@ -581,7 +584,7 @@ component ComposerMenus
     branches: ComposerBranches
     branchQuery: string
     searchBranches: action
-    // chatLocal, for the Start from origin switch (it keeps the picker open).
+    // chatLocal, for the Start from remote switch (it keeps the picker open).
     local: action
   // Child state outlives the menu (it is the root's slots), so each opening
   // is a session: focus and hover from an earlier one never highlight a row.
@@ -756,10 +759,10 @@ component ComposerMenus
                     text (branches.loading ? "Loading refs..." : "No refs found.") font-size="0.875rem" line-height="1.25rem" padding="0.5rem" text-align="center" color="light-dark(#71717a, #818181)"
               // BranchPicker's originControl while choosing a new worktree's base.
               if branches.originShown
-                button press=local("git-origin", "", "") role="switch" aria-checked=branches.originOn aria-label="Start worktree from origin" testId="branch-origin" width="100%" padding-left="0.75rem" padding-right="0.75rem" padding-top="0.5rem" padding-bottom="0.5rem" box-sizing="border-box" gap="0.75rem" border-width=0 border-top-width=1 border-style="solid" border-color="light-dark(#e4e4e799, #ffffff0a)" background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="space-between"
+                button press=local("git-origin", "", "") role="switch" aria-checked=branches.originOn aria-label="Start worktree from remote" testId="branch-origin" width="100%" padding-left="0.75rem" padding-right="0.75rem" padding-top="0.5rem" padding-bottom="0.5rem" box-sizing="border-box" gap="0.75rem" border-width=0 border-top-width=1 border-style="solid" border-color="light-dark(#e4e4e799, #ffffff0a)" background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="space-between"
                   row min-width=0 gap="0.375rem" align-items="center"
                     ExtraGlyph(name="refresh-cw", size=12, color="light-dark(#71717a, #818181)")
-                    text "Start from origin" font-size="0.75rem" font-weight=500 line-height="1rem" color="light-dark(#71717a, #818181)" white-space="nowrap"
+                    text "Start from remote" font-size="0.75rem" font-weight=500 line-height="1rem" color="light-dark(#71717a, #818181)" white-space="nowrap"
                   row width="1.625rem" height="1rem" padding="0.125rem" box-sizing="border-box" border-radius="0.5rem" flex-shrink=0 align-items="center" justify-content=(branches.originOn ? "flex-end" : "flex-start") background-color=(branches.originOn ? "light-dark(#1b4ed8, #346bf1)" : "light-dark(#d4d4d8, #ffffff14)") aria-hidden=true
                     box width="0.75rem" height="0.75rem" border-radius="0.375rem" background-color="light-dark(#ffffff, #0a0a0a)" box-shadow="0 1px 2px #0000000d"
               if branches.status != ""
@@ -1067,7 +1070,7 @@ component NoticeRow
       row width="100%" column-gap="0.25rem" align-items="center" flex-wrap=(notice.priority == 0 ? "nowrap" : "wrap") testId=`notice-row-${notice.id}`
         row width="1.5rem" height="1.5rem" align-items="center" justify-content="center" flex-shrink=0 align-self="flex-start"
           if notice.icon == "dot"
-            box width="0.375rem" height="0.375rem" border-radius="0.1875rem" background-color="light-dark(#27272a, #f5f5f5)" animation="ccPulse 2s ease-in-out infinite"
+            box width="0.375rem" height="0.375rem" border-radius="0.1875rem" background-color="light-dark(#27272a, #f5f5f5)" animation=(still ? "none" : "ccPulse 2s ease-in-out infinite")
           else
             if notice.icon == "dot-static"
               box width="0.375rem" height="0.375rem" border-radius="0.1875rem" background-color="light-dark(#27272a, #f5f5f5)"
@@ -1078,7 +1081,8 @@ component NoticeRow
                   CcIcon(name="loader", size=12, color="light-dark(#71717b, #818181)", weight=2)
               else
                 CcIcon(name=notice.icon, size=12, color=(notice.iconTone == "error" ? "light-dark(#e7000b, #ff6467)" : "light-dark(#71717b, #818181)"), weight=2)
-        row flex-grow=1 flex-shrink=1 min-width=0 max-width=`calc(100% - ${1.75 * rem}px)` gap="0.25rem" align-items="center" testId=`notice-content-${notice.id}`
+        // Hooked so the app can tell when the title is cut off (`titleDetails`, composer-presentation.ts).
+        row flex-grow=1 flex-shrink=1 min-width=0 max-width=`calc(100% - ${1.75 * rem}px)` gap="0.25rem" align-items="center" testId=`notice-content-${notice.id}` hatch="t3-anchor" data-anchor=`notice-content:${notice.id}`
           if notice.machines.length > 0
             // The multi-machine banner's title opens its machine list (auto-balance.contract).
             NoticeMachines(notice=notice, busy=busy, command=command)
@@ -1090,6 +1094,9 @@ component NoticeRow
                 TipBubble(label=notice.tip, side="top", align="start", offset=28, inset=0, shown=(over == "title"))
             else
               text notice.title font-size="0.75rem" font-weight=500 line-height="1.5rem" color="light-dark(#27272a, #f5f5f5)" min-width=0 line-clamp=1 testId=`notice-title-${notice.id}`
+              // NoticeText: a cut-off title (a long Running command) shows in full from its own details button.
+              if notice.titleDetails
+                NoticeDetails(id=`${notice.id}-title`, label="Show title details", text=notice.title, segments=[], busy=busy, command=command)
           if notice.segments.length > 0
             // The background-work roster: a subagent with its own thread is an InlineButton (tone muted).
             row width=0 flex-grow=1 min-width=0 align-items="center" overflow="hidden" hatch="t3-anchor" data-anchor=`nd:${notice.id}` testId=`notice-segments-${notice.id}`

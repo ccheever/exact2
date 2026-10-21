@@ -26,7 +26,7 @@ import { notificationPermission, notificationPermissionMessage } from '../shell/
 import { type QrMark } from './settings-mobile-beta';
 import { CLIENT_VERSION } from '../connections/connections';
 import { primaryEnvironmentId } from '../connections/local-primary';
-import { ALL_ENVIRONMENTS_VALUE, environmentAxisValue, resolveSettingsScope, scopeSearch, settingsScopeEnvironmentAddress, settingsScopeEnvironmentLabel, settingsScopeEnvironmentLabels,
+import { ALL_ENVIRONMENTS_VALUE, environmentAxisValue, projectScopeMenuGroups, resolveSettingsScope, scopeSearch, settingsScopeEnvironmentAddress, settingsScopeEnvironmentLabel, settingsScopeEnvironmentLabels,
   settingsScopeProjectMachines, type ResolvedSettingsScope, type ScopeGroup } from './settings-scope';
 import { persistScopedSettingsPatch, planProjectOverridesClear, planScopedSettingsClear, planScopedSettingsPatch, resolveScopedSettingsTargets, scopedPlanNotice, scopedSettingsSource,
   selectScopedSettingsEnvironments, type ScopedSettingsEnvironment, type ScopedSettingsPlan, type ScopedSettingsTarget } from './scoped-settings-plan';
@@ -200,14 +200,17 @@ export function resolveScope(client: T3Client, machine: string, projectKey: stri
   const group = groups.find(candidate => candidate.projectKey === projectKey);
   const { environments: selected, connectedEnvironments } = selectScopedSettingsEnvironments(resolved, environments, primaryEnvironmentId());
   // EnvironmentScopeMenu and ProjectScopeMenu's options: the line under a name is the address (an environment) or the
-  // checkout path, and the machines when another project has the same name.
+  // checkout path, and the machines when another project has the same name. A chosen project lists only the environments
+  // it has a checkout on (an unknown one lists them all, so it stays recoverable); a chosen environment lists only its projects.
+  const memberEnvironmentIds = group ? new Set(group.memberProjects.map(member => member.environmentId)) : null;
+  const environmentOptions = memberEnvironmentIds ? environments.filter(environment => memberEnvironmentIds.has(environment.environmentId)) : environments;
   const environmentChoices: ScopeChoice[] = [{ id: '', label: 'All environments', secondary: '', mark: '', ink: '', surface: '', member: '', selected: axis === ALL_ENVIRONMENTS_VALUE, offline: false },
-    ...environments.map(environment => {
+    ...environmentOptions.map(environment => {
       const { primary, secondary } = settingsScopeEnvironmentLabels(environment, environments);
       return { id: environment.environmentId, label: primary, secondary: environments.length <= 1 ? '' : secondary || settingsScopeEnvironmentAddress(environment), mark: environment.kind,
         ink: '', surface: '', member: '', selected: environment.environmentId === axis, offline: environment.connection.phase !== 'connected' };
     })];
-  const projects = groups.map(candidate => ({ group: candidate, machines: settingsScopeProjectMachines(candidate, environments, true).join(', ') }));
+  const projects = projectScopeMenuGroups(groups, search).map(candidate => ({ group: candidate, machines: settingsScopeProjectMachines(candidate, environments, true).join(', ') }));
   const projectChoices: ScopeChoice[] = [{ id: '', label: 'All projects', secondary: '', mark: '', ink: '', surface: '', member: '', selected: projectKey === '', offline: false },
     ...projects.map(({ group: candidate, machines }) => {
       const sameName = projects.filter(other => other.group.projectKey !== candidate.projectKey && other.group.displayName === candidate.displayName);
@@ -506,7 +509,7 @@ export function generalSections(client: T3Client, context: ServerContext): CoreS
         options: [...Object.entries(BACKGROUND).map(([id, [label]]) => option(id, label, id === profile)), option('advanced', envScope ? 'Advanced' : 'Advanced (one environment)', profile === 'advanced', { disabled: !envScope })] }),
   ];
   const projects: CoreRow[] = [
-    serverRow(context, 'newWorktreesStartFromOrigin', 'start-from-origin', 'Start from origin', 'Creates the worktree from the latest matching branch on origin instead of your local branch.', 'switch', { resetLabel: 'new worktrees start from origin' }),
+    serverRow(context, 'newWorktreesStartFromOrigin', 'start-from-origin', 'Start from remote', 'Uses the latest commit of the base branch’s tracked remote branch, even if its name differs. Otherwise uses the same-named branch on origin. Uses your local branch if that remote branch is missing.', 'switch', { resetLabel: 'new worktrees start from remote' }),
     serverRow(context, 'addProjectBaseDirectory', 'add-project-starts-in', 'Add project starts in', 'Leave empty to use "~/" when the Add Project browser opens.', 'text',
       { value: str(value('addProjectBaseDirectory').value), placeholder: '~/', width: 288, resetLabel: 'add project base directory' }),
   ];
@@ -677,7 +680,7 @@ const SERVER_LABELS: Record<string, string> = {
   autoResumeLimitedThreads: 'Auto-resume limited threads', snoozeLimitedThreads: 'Snooze limited threads', sidebarAutoSettleOnMerge: 'Auto-settle merged threads',
   sidebarAutoSettleKeepPullRequests: 'Keep threads with a PR', sidebarAutoSettleAfterDays: 'Auto-settle inactive threads', responseStreamingMode: 'Response streaming', enableProviderUpdateChecks: 'Provider update checks',
   continueThreadsAfterServerUpdate: 'Continue threads after restarts', backgroundActivity: 'Background activity', defaultThreadEnvMode: 'New thread mode',
-  newWorktreesStartFromOrigin: 'New worktrees start from origin', addProjectBaseDirectory: 'Add project base directory', textGenerationModelSelection: 'Text generation model',
+  newWorktreesStartFromOrigin: 'New worktrees start from remote', addProjectBaseDirectory: 'Add project base directory', textGenerationModelSelection: 'Text generation model',
 };
 /** useSettingsRestore lists and re-grants Agent browser access after the browser rows (SettingsPanels.tsx: "the confirmation dialog
  *  lists it by name, so a user restoring defaults is told the agent regains access"). An environment setting, written like the rest. */
@@ -710,7 +713,7 @@ const RESTORE_ROWS: readonly (readonly [string, 'device' | 'server' | 'browser',
   ['Follow-up behavior', 'device', ['followUpBehavior']], ['Context window indicator', 'device', ['contextWindowMeterEnabled']],
   ['Response streaming', 'server', ['responseStreamingMode']], ['Provider update checks', 'server', ['enableProviderUpdateChecks']],
   ['Continue threads after restarts', 'server', ['continueThreadsAfterServerUpdate']], ['Background activity', 'server', ['backgroundActivity']],
-  ['New thread mode', 'server', ['defaultThreadEnvMode']], ['New worktrees start from origin', 'server', ['newWorktreesStartFromOrigin']],
+  ['New thread mode', 'server', ['defaultThreadEnvMode']], ['New worktrees start from remote', 'server', ['newWorktreesStartFromOrigin']],
   ['Add project base directory', 'server', ['addProjectBaseDirectory']], ['Unpin confirmation', 'device', ['confirmThreadUnpin']],
   ['Archive confirmation', 'device', ['confirmThreadArchive']], ['Delete confirmation', 'device', ['confirmThreadDelete']], ['Quit shortcut', 'device', ['confirmQuit']],
   ['Text generation model', 'server', ['textGenerationModelSelection']], ['', 'browser', []], ['Agent browser access', 'server', ['enableAgentBrowserAccess']],

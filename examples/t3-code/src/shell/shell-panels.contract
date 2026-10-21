@@ -68,7 +68,8 @@ component SurfacePanel
   action filesSearchFocus(on: bool)
     filesSearchAt = on ? shell.panel.active : (filesSearchAt == shell.panel.active ? "" : filesSearchAt)
   view
-    column height="100%" width="100%" min-width=0 position="relative" box-sizing="border-box" background-color=(sheet ? "light-dark(#ffffff, #0a0a0a)" : "light-dark(#fcfcfc, #0a0a0a)") border-left-style="solid" border-left-width=1 border-color="light-dark(#e4e4e7, #ffffff0f)" box-shadow=(sheet ? "0 10px 15px -3px #0000000d, 0 4px 6px -4px #0000000d" : "none") role=(sheet ? "dialog" : "region") aria-label="Right panel" testId="right-panel"
+    // Maximized, the left edge meets the sidebar's own border or the window edge, so the panel draws none (PreviewPanelShell).
+    column height="100%" width="100%" min-width=0 position="relative" box-sizing="border-box" background-color=(sheet ? "light-dark(#ffffff, #0a0a0a)" : "light-dark(#fcfcfc, #0a0a0a)") border-left-style="solid" border-left-width=(maximized ? 0 : 1) border-color="light-dark(#e4e4e7, #ffffff0f)" box-shadow=(sheet ? "0 10px 15px -3px #0000000d, 0 4px 6px -4px #0000000d" : "none") role=(sheet ? "dialog" : "region") aria-label="Right panel" testId="right-panel"
       // An open surface draws the tab bar and its body (panel.contract); otherwise the launcher.
       if shell.panel.open
         PanelHeader(panel=shell.panel, surfaces=shell.surfaces, sheet=sheet, maximized=maximized, detailsOpen=detailsOpen, keyThreadPanel=shell.keyThreadPanel, keyRightPanel=shell.keyRightPanel, terminalAvailable=shell.terminalAvailable, terminalOpen=shell.terminalOpen, keyTerminal=shell.keyTerminal, still=still, ui=ui, details=details, local=local, scheme=scheme, searchFocused=(filesSearchAt != "" and filesSearchAt == shell.panel.active and shell.panel.files.showExplorer))

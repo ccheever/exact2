@@ -14,6 +14,32 @@ import { obj, str, messages } from './domain';
 import { ClientError, type Native, type Files } from './protocol';
 import { dismissPromptLink } from '../prompt-links/prompt-link-handler';
 import { carryNewThreadModelSelection } from '../composer/composer-provider-selection';
+import { pushToast } from '../shell/toast';
+
+const RELATED_THREAD_SHELL_WAIT_MS = 1_000;
+/**
+ * ChatView onOpenRelatedThread (T3 Code 74541bab17): a thread the timeline links to (a subagent, a created thread, a fork's
+ * source). A just-launched child can reach the timeline before its shell syncs, so a live environment waits up to a second
+ * for it; a thread the live shell still lacks, or a deleted one, stays a toast and the current thread stays open.
+ */
+async function openRelatedThread(client: T3Client, native: Native, storage: Files, id: string): Promise<boolean> {
+  const live = () => client.connection === 'connected' && client.shellLive;
+  const shell = () => client.shell.threads.find(thread => thread.id === id);
+  if (live() && !shell()) {
+    const threadId = client.threadId;
+    for (let waited = 0; waited < RELATED_THREAD_SHELL_WAIT_MS && !shell(); waited += 200) {
+      await client.restAccess(native).call({ op: 'timelineSleep', ms: 200 }).catch(() => undefined);
+      await client.refresh(native, storage);
+    }
+    if (client.threadId !== threadId) return false;
+  }
+  const found = shell();
+  if (found ? found.deletedAt != null : live()) {
+    pushToast(client, { kind: 'info', title: 'This thread is no longer available' });
+    return false;
+  }
+  return true;
+}
 
 /** Selection: a project, a new thread or a hero's carry, a thread, older history; Copy message; dismissing the thread error. */
 export async function threadOps(this: T3Client, op: string, id: string, value: string, n: number, native: Native, storage: Files, out: OpOut): Promise<boolean> {
@@ -55,6 +81,12 @@ export async function threadOps(this: T3Client, op: string, id: string, value: s
       if (modelSelection) Object.assign(this, modelSelection);
       if (this.connection === 'connected') await this.call(native, { op: 'unsubscribe', key: 'thread' });
       if (carry) heroLand(this, carry);
+    } else if (op === 'open-related-thread') {
+      if (await openRelatedThread(this, native, storage, id)) {
+        const opened: OpOut = { message: '', id, value };
+        await threadOps.call(this, 'select-thread', id, value, n, native, storage, opened);
+        resultMessage = opened.message;
+      }
     } else if (op === 'select-thread') {
       this.homePending = false; this.homeMove = null;
       // A notification names its thread with its environment (shell-notify.ts): the focused one's opens here.
@@ -68,8 +100,8 @@ export async function threadOps(this: T3Client, op: string, id: string, value: s
         else await this.openSelected(native, id);
       } catch (error) { await clearRowDrops(this, native, [dropKey]); throw error; } // handleThreadFileDrop: a drop whose thread did not open is let go
       // ChatView focuses the composer on every thread change (activeThread.id, a frame later), unless the terminal drawer is
-      // open; a thread the shell does not hold shows the empty state, with no thread and no composer.
-      const opened = this.threadId && `${this.environmentId}\n${this.threadId}` !== before && this.shell.threads.some(thread => thread.id === this.threadId);
+      // open; a missing thread (absent from the shell, and its detail did not load) shows the empty state, with no composer.
+      const opened = this.threadId && `${this.environmentId}\n${this.threadId}` !== before && (this.shell.threads.some(thread => thread.id === this.threadId) || !!this.thread);
       const target = parseFleetThreadId(id) ?? (opened ? { environmentId: this.environmentId, threadId: this.threadId } : null);
       if (target && composerTakesFocus(this, target)) resultMessage = 'focus:composer';
     } else if (op === 'history') await this.history(native);

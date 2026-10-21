@@ -3,7 +3,7 @@ import XCTest
 
 // The native facts behind Network access and Tailscale HTTPS
 // (T3LocalNetwork.swift) and the restart with a new envelope (T3LocalBackend.restart, the Local environment switch's stopgap).
-// The first tests keep the reference's names (MIT, see LICENSE-T3; reference 1e2ecbd975:
+// The first tests keep the reference's names (MIT, see LICENSE-T3; reference 74541bab17:
 // apps/desktop/src/backend/DesktopNetworkInterfaces.test.ts and packages/tailscale/src/tailscale.test.ts,
 // the process half); `tailscale serve` runs inside the server, so its tests stay there.
 private final class AccessServer: URLProtocol, @unchecked Sendable {
@@ -175,6 +175,36 @@ final class LocalNetworkTests: XCTestCase {
         XCTAssertTrue(until(2) { spawns == 2 })
         network.invalidate()
         XCTAssertEqual((network.facts(tailscale: true, probe: "", refresh: false)["tailscale"] as? [String: Any])?["read"] as? Bool, false, "a restart reads afresh")
+    }
+
+    // DesktopServerExposure.test.ts "refreshes Tailscale status when addresses change and caches unchanged addresses":
+    // the cache is keyed by the interfaces' Tailscale IPv4 addresses, so a new address reads afresh within the minute
+    // and never answers with the old tailnet's name.
+    func test_refreshes_tailscale_status_when_addresses_change_and_caches_unchanged_addresses() {
+        let network = T3LocalNetwork()
+        let lan = ["en0": [T3NetworkAddress(address: "192.168.1.20", family: "IPv4", isInternal: false)]]
+        var interfaces = lan, statusJson = "{}", spawns = 0, announced = 0
+        network.interfaces = { interfaces }
+        network.environment = { [:] }
+        network.now = { Date(timeIntervalSince1970: 1_000) }
+        network.runner = { _, _, done in spawns += 1; done(.success(.init(code: 0, stdout: Data(statusJson.utf8), stderr: Data()))) }
+        network.changed = { announced += 1 }
+        let tailscale = { network.facts(tailscale: true, probe: "", refresh: false)["tailscale"] as? [String: Any] ?? [:] }
+        _ = tailscale()
+        XCTAssertTrue(until(2) { tailscale()["read"] as? Bool == true })
+        XCTAssertEqual(spawns, 1)
+        for (address, dnsName) in [("100.90.1.2", "desktop.tail.ts.net"), ("100.90.1.3", "desktop.other-tail.ts.net")] {
+            interfaces = lan.merging(["vpn0": [T3NetworkAddress(address: address, family: "IPv4", isInternal: false)]]) { $1 }
+            statusJson = #"{"Self":{"DNSName":"\#(dnsName).","TailscaleIPs":["\#(address)"]}}"#
+            let previous = spawns, before = announced
+            let changed = tailscale()
+            XCTAssertEqual(changed["read"] as? Bool, false, "the old address set's status is not this one's")
+            XCTAssertTrue(changed["magicDnsName"] is NSNull)
+            XCTAssertTrue(until(2) { announced > before })
+            XCTAssertEqual(tailscale()["magicDnsName"] as? String, dnsName)
+            XCTAssertEqual(tailscale()["tailnetIpv4Addresses"] as? [String], [address])
+            XCTAssertEqual(spawns, previous + 1, "unchanged addresses answer from the cache")
+        }
     }
 
     func testTheHttpsProbeIsADeadlineForTheWholeRequest() {

@@ -5,6 +5,7 @@ import { chatLocal, timelineMessages, transcriptRows } from '../../src/timeline/
 import { commandDisplayText, commandProgramName, displayFailed, formatDuration, liveThoughtLine, projectedWorkEntry, summarizeToolGroup, summaryIcon, summaryKind, thoughtText } from '../../src/timeline/timeline-worklog';
 import type { Files, Native } from '../../src/client/protocol';
 import { appPath } from '../support/app-files';
+import { availableRevertTurnCounts, revertTurnCounts, type Entry } from '../../src/timeline/timeline-rows';
 
 const base = Date.parse('2026-10-03T00:00:00.000Z');
 const at = (seconds: number) => new Date(base + seconds * 1000).toISOString();
@@ -235,9 +236,27 @@ describe('live runs', () => {
     expect(rows(settled).find(row => row.kind === 'entry')?.activities?.[0]).toMatchObject({ label: 'Read a T3 thread', linkThreadId: '' });
   });
 
-  test('compaction becomes a divider labelled with its token counts', () => {
+  test('compaction becomes a divider labelled with its token counts, drawn around a real arrow (#20326)', () => {
     const result = rows(client([user('u', 0, 'go'), item('c', 'compaction', 1, { beforeTokenCount: 12_400, afterTokenCount: 3_100 }), answer('a', 2, 'ok')]));
-    expect(result.find(row => row.kind === 'compaction')).toMatchObject({ title: 'Context compacted 12.4K → 3.10K tokens' });
+    const divider = result.find(row => row.kind === 'compaction')!;
+    expect(divider).toMatchObject({ title: 'Context compacted 12.4K → 3.10K tokens' });
+    expect(divider.activities![0]).toMatchObject({ detail: '12.4K', result: '3.10K' });
+  });
+  test('a failed or stopped compaction says so (#15631)', () => {
+    for (const [status, title] of [['failed', 'Context compaction failed'], ['cancelled', 'Context compaction stopped'], ['interrupted', 'Context compaction stopped']]) {
+      const divider = rows(client([user('u', 0, 'go'), item('c', 'compaction', 1, { status }), answer('a', 2, 'ok')])).find(row => row.kind === 'compaction')!;
+      expect(divider).toMatchObject({ title });
+      expect(divider.activities![0]!.detail ?? '').toBe('');
+    }
+  });
+  test('a /compact the server has not drawn a compaction for yet reads "Compacting…" in the working row', () => {
+    const running = { runs: [{ id: 'r1', status: 'running', startedAt: at(0), completedAt: null }] };
+    const pending = rows(client([user('u', 0, '/compact')], running));
+    expect(pending.find(row => row.kind === 'working')).toMatchObject({ title: 'Compacting…', live: true, icon: 'minimize' });
+    // Once the compaction row runs, it carries the activity and the working row reads as usual.
+    const drawn = rows(client([user('u', 0, '/compact'), item('c', 'compaction', 1, { status: 'running' })], running));
+    expect(drawn.find(row => row.kind === 'working')).toMatchObject({ title: 'Working for', live: false });
+    expect(drawn.find(row => row.kind === 'compaction')).toMatchObject({ title: 'Compacting context', live: true });
   });
 });
 
@@ -252,13 +271,18 @@ describe('events and messages', () => {
     expect(result.find(row => row.kind === 'entry')!.activities![0]).toMatchObject({ label: 'Provider error', tone: 'provider-error', detail: 'Intentional fixture failure.' });
   });
 
-  test('user rows carry attribution, queued intent and Edit from here for ready checkpoints', () => {
+  test('user rows carry attribution, no queued marker and Edit from here to the run before them', () => {
     const value = client([user('u', 0, 'one'), answer('a', 1, 'done'),
       user('q', 2, 'two', { runId: 'r2', inputIntent: 'queued_turn', createdBy: 'agent', senderThreadId: 'other' })],
-      { checkpoints: [{ id: 'cp1', runId: 'r1', status: 'ready', appRunOrdinal: 1 }] });
+      { thread: { id: 't1', projectId: 'p1', activeProviderThreadId: 'pt1', modelSelection: { instanceId: 'codex' } },
+        providerThreads: [{ id: 'pt1', providerSessionId: 's1', providerInstanceId: 'codex' }],
+        runs: [{ id: 'r1', ordinal: 1, status: 'completed', activeAttemptId: 'a1', startedAt: at(0), completedAt: at(10) }],
+        attempts: [{ id: 'a1', providerTurnId: 'turn1' }], providerTurns: [{ id: 'turn1', providerThreadId: 'pt1', runAttemptId: 'a1', ordinal: 1 }],
+        checkpoints: [{ id: 'cp0', status: 'ready', ordinalWithinScope: 0, appRunOrdinal: null }, { id: 'cp1', runId: 'r1', status: 'ready', appRunOrdinal: 1 }] });
     const result = rows(value);
     expect(result[0]).toMatchObject({ kind: 'user', revert: 0 });
-    expect(result[2]).toMatchObject({ intent: 'From queue', intentTip: 'Queued while the agent was busy', attribution: 'agent', targetId: 'other', revert: -1 });
+    // A queued message that was sent carries no "From queue" marker (#21474).
+    expect(result[2]).toMatchObject({ intent: '', intentTip: '', attribution: 'agent', targetId: 'other', revert: 1 });
   });
 
   test('a restart continuation reads "Sent by T3 Code"; a legacy scheduled prompt loses its prefix (#17723)', () => {
@@ -328,21 +352,66 @@ describe('work-log presentation', () => {
   });
 });
 
+describe('Edit from here after a rewind (#18982)', () => {
+  const message = (id: string, runId: string, visibility = 'local', inputIntent = 'turn_start'): Entry =>
+    ({ kind: 'message', id, createdAt: '', role: 'user', row: { visibility }, item: { messageId: id, runId, inputIntent } });
+  const ready = (runId: string, appRunOrdinal: number) => ({ runId, appRunOrdinal, status: 'ready' });
+  test('each turn rewinds to the run before it, the first to the thread start once its checkpoint is loaded', () => {
+    // Run ordinals keep increasing after a rewind: r5 follows r1 here, so it rewinds to r1's checkpoint.
+    const entries = [message('m1', 'r1'), message('m5', 'r5'), message('m6', 'r6')];
+    const checkpoints = [ready('r1', 1), ready('r5', 5)];
+    expect([...revertTurnCounts(entries, checkpoints, { threadStartCheckpointReady: true })]).toEqual([['m1', 0], ['m5', 1], ['m6', 5]]);
+    expect([...revertTurnCounts(entries, checkpoints)]).toEqual([['m5', 1], ['m6', 5]]);
+  });
+  test('inherited history, the unsettled run and turns the provider cannot rewind to offer no Edit from here', () => {
+    const entries = [message('m0', 'r0', 'inherited'), message('m1', 'r1'), message('m2', 'r2')];
+    const checkpoints = [ready('r1', 1)];
+    expect([...revertTurnCounts(entries, checkpoints, { threadStartCheckpointReady: true, unsettledRunId: 'r2' })]).toEqual([['m1', 0]]);
+    expect([...revertTurnCounts(entries, checkpoints, { threadStartCheckpointReady: true, availableRevertTurnCounts: new Set([1]) })]).toEqual([['m2', 1]]);
+  });
+  test('the provider conversation can rewind to the start and to each run whose latest provider turn ran on the active provider thread', () => {
+    const projection = { thread: { activeProviderThreadId: 'pt', modelSelection: { instanceId: 'claude' } },
+      providerThreads: [{ id: 'pt', providerSessionId: 's', providerInstanceId: 'claude' }],
+      runs: [{ ordinal: 1, activeAttemptId: 'a1' }, { ordinal: 2, activeAttemptId: 'a2' }, { ordinal: 3, activeAttemptId: null }],
+      attempts: [{ id: 'a1' }, { id: 'a2', providerTurnId: 'old' }],
+      providerTurns: [{ id: 't1', runAttemptId: 'a1', ordinal: 1, providerThreadId: 'pt' }, { id: 'old', runAttemptId: null, ordinal: 2, providerThreadId: 'other' }] };
+    expect([...availableRevertTurnCounts(projection)]).toEqual([0, 1]);
+    expect([...availableRevertTurnCounts({ ...projection, thread: { ...projection.thread, modelSelection: { instanceId: 'codex' } } })]).toEqual([]);
+  });
+});
+
 describe('Edit from here waits for the rollback', () => {
-  const { settleRollback } = require('../../src/timeline/timeline-presentation') as typeof import('../../src/timeline/timeline-presentation');
+  const { settleRollback, rollbackWitness } = require('../../src/timeline/timeline-presentation') as typeof import('../../src/timeline/timeline-presentation');
   function rollbackClient(states: Obj[]) {
     let tick = 0;
     const client = { threadId: 't1', get projection() { return states[Math.min(tick, states.length - 1)]; },
       refresh: async () => {}, restAccess: () => ({ call: async () => { tick++; return {}; } }) };
     return client as unknown as T3Client;
   }
-  test('resolves once the message run is rolled back', async () => {
-    const client = rollbackClient([{ thread: {}, runs: [{ id: 'r2', ordinal: 2, status: 'completed' }] }, { thread: {}, runs: [{ id: 'r2', ordinal: 2, status: 'rolled_back' }] }]);
-    await settleRollback(client, {} as Native, {} as Files, 't1', 'c1', 'r2', 1);
+  const thread = { id: 't1', activeProviderThreadId: 'pt1' };
+  const before = { thread, providerThreads: [{ id: 'pt1', providerInstanceId: 'codex', lastRunOrdinal: 2 }], runs: [{ id: 'r1', ordinal: 1, status: 'completed' }, { id: 'r2', ordinal: 2, status: 'completed' }] };
+  test('resolves once the provider thread is back at the target and the latest settled run after it rolled back (#18982)', async () => {
+    const witness = rollbackWitness(before, 1);
+    expect(witness.runId).toBe('r2');
+    const client = rollbackClient([before,
+      { ...before, runs: [before.runs[0], { id: 'r2', ordinal: 2, status: 'rolled_back' }] },
+      { ...before, providerThreads: [{ id: 'pt1', providerInstanceId: 'codex', lastRunOrdinal: 1 }], runs: [before.runs[0], { id: 'r2', ordinal: 2, status: 'rolled_back' }] }]);
+    await settleRollback(client, {} as Native, {} as Files, 't1', 'c1', witness, 1);
+    expect(client.projection.providerThreads).toEqual([{ id: 'pt1', providerInstanceId: 'codex', lastRunOrdinal: 1 }]);
+  });
+  test('a rewind to the start lands on a fresh root provider session', async () => {
+    const witness = rollbackWitness(before, 0);
+    const client = rollbackClient([{ ...before, providerThreads: [...before.providerThreads, { id: 'pt2', providerInstanceId: 'codex', ownerNodeId: null, appThreadId: 't1', lastRunOrdinal: null }],
+      runs: before.runs.map(run => ({ ...run, status: 'rolled_back' })) }]);
+    await settleRollback(client, {} as Native, {} as Files, 't1', 'c1', witness, 0);
+  });
+  test('with no settled run after the target the thread has changed', () => {
+    expect(() => rollbackWitness({ thread, providerThreads: [], runs: [{ id: 'r1', ordinal: 1, status: 'completed' }] }, 1)).toThrow('The thread has changed. Select a message to rewind again.');
   });
   test("rejects with the thread's rollback failure for this command", async () => {
-    const client = rollbackClient([{ thread: {}, runs: [] }, { thread: { rollbackFailure: { requestId: 'c1', message: 'The provider could not roll back this conversation.' } }, runs: [] }]);
-    await expect(settleRollback(client, {} as Native, {} as Files, 't1', 'c1', 'r2', 1)).rejects.toThrow('could not roll back');
+    const witness = rollbackWitness(before, 1);
+    const client = rollbackClient([before, { ...before, thread: { ...thread, rollbackFailure: { requestId: 'c1', message: 'The provider could not roll back this conversation.' } } }]);
+    await expect(settleRollback(client, {} as Native, {} as Files, 't1', 'c1', witness, 1)).rejects.toThrow('could not roll back');
   });
 });
 

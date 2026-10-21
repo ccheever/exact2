@@ -1,6 +1,6 @@
 // Add Environment → SSH (ConnectionsSettings.tsx renderSshFields,
 // parseManualDesktopSshTarget, handleSelectSshHostSuggestion, connectSavedBackendSshTarget;
-// state/desktopSshHosts.ts filterDiscoveredSshHosts; EnvironmentRow.tsx
+// state/desktopSshHosts.ts filterDiscoveredSshHosts, at 74541bab17; EnvironmentRow.tsx
 // formatDesktopSshTarget). Discovery, `ssh -G` and the tunnel are T3Ssh.swift.
 import { arr, obj, str, type Obj } from '../client/domain';
 import { ClientError, bridgeReply, type Native } from '../client/protocol';
@@ -45,14 +45,14 @@ export function parseManualSshTarget(input: { host: string; username: string; po
   return { alias: hostname, hostname, username, port };
 }
 
-/** filterDiscoveredSshHosts: alias prefix matches, then substring matches. */
-export function filterSshHosts<T extends { alias: string }>(hosts: T[], query: string): T[] {
+/** filterDiscoveredSshHosts: alias prefix matches, then alias or hostname substring matches. */
+export function filterSshHosts<T extends { alias: string; hostname: string }>(hosts: T[], query: string): T[] {
   const normalized = query.trim().toLowerCase();
   if (!normalized) return hosts;
   const prefix: T[] = [], substring: T[] = [];
   for (const host of hosts) {
     const alias = host.alias.toLowerCase();
-    if (alias.startsWith(normalized)) prefix.push(host); else if (alias.includes(normalized)) substring.push(host);
+    if (alias.startsWith(normalized)) prefix.push(host); else if (alias.includes(normalized) || host.hostname.toLowerCase().includes(normalized)) substring.push(host);
   }
   return [...prefix, ...substring];
 }
@@ -101,7 +101,8 @@ export async function sshHostsView(client: T3Client, native: Native | null | und
   if (!discoveryOpen) { discovery = null; discoveryOpen = true; }
   const found = await discover(native);
   const saved = new Set(Object.values(found.targets).flatMap(target => [target.alias, formatSshTarget(target)]));
-  const unsaved = found.hosts.filter(host => !saved.has(host.alias) && !saved.has(formatSshTarget(host)));
+  // A configured alias stays offered when only its resolved address is saved: it may name another user or port.
+  const unsaved = found.hosts.filter(host => !saved.has(host.alias) && (host.source === 'ssh-config' || !saved.has(formatSshTarget(host))));
   const filtered = filterSshHosts(unsaved, query);
   return { ...empty, error: found.error, hasContent: unsaved.length > 0,
     hosts: filtered.slice(0, 200).map((host, index) => ({ index, alias: host.alias, address: formatSshTarget(host) === host.alias ? '' : formatSshTarget(host),

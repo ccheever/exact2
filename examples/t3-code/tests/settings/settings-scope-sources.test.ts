@@ -216,6 +216,13 @@ describe('the primary represents a scope that includes it', () => {
     fleet.entries.set(C, remote);
     const choices = resolveScope(client as unknown as T3Client, '', '', '').projectChoices;
     expect(choices.map(choice => [choice.label, choice.mark])).toEqual([['All projects', ''], ['agent-edits', 'AE'], ['background-only', 'BO'], ['t3-fixture/shared-notes', 'SN']]);
+    // 74541bab17: a chosen project lists only the environments it has a checkout on, an unknown project every environment
+    // (so it stays recoverable), and a chosen environment lists only its projects.
+    const environmentIds = (projectKey: string) => resolveScope(client as unknown as T3Client, '', projectKey, '').environmentChoices.map(choice => choice.id);
+    expect(environmentIds('github.com/t3-fixture/shared-notes')).toEqual(['', 'env-a', 'env-c']);
+    expect(environmentIds('env-a:/w/agent-edits')).toEqual(['', 'env-a']);
+    expect(environmentIds('removed-project')).toEqual(environmentIds(''));
+    expect(resolveScope(client as unknown as T3Client, 'env-c', '', '').projectChoices.map(choice => choice.label)).toEqual(['All projects', 't3-fixture/shared-notes']);
   });
 });
 

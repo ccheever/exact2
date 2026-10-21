@@ -55,7 +55,7 @@ export const CATALOG: readonly (readonly [string, string, string, string, string
   ["background-activity", "Background activity", "general", "", "balanced performance battery saver advanced git fetch provider health refresh host power monitor idle policy", "environment-defaults", ""],
   ["new-threads", "New threads", "general", "", "default workspace mode draft local worktree", "project-defaults", ""],
   ["worktree-submodules", "Submodules", "general", "", "git submodule init recursive top-level none worktree t3.json", "project-defaults", ""],
-  ["start-from-origin", "Start from origin", "general", "", "new worktrees latest matching remote branch local", "project-defaults", ""],
+  ["start-from-origin", "Start from remote", "general", "", "new worktrees start remote origin latest fetched branch local", "project-defaults", ""],
   ["add-project-starts-in", "Add project starts in", "general", "", "base directory folder browser path home", "environment-defaults", ""],
   ["unpin-confirmation", "Unpin confirmation", "general", "", "ask before thread pinned section", "", ""],
   ["archive-confirmation", "Archive confirmation", "general", "", "ask before thread second click inline action", "", ""],

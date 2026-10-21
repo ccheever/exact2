@@ -52,7 +52,6 @@ async function diff(this: T3Client, native: Native, op: string, id: string, valu
   try {
     const result = await this.request(native, request.method, request.payload)
     if (epoch === this.threadEpoch && threadId === this.threadId && this.diffOpen && JSON.stringify(diffRequest(this)) === asked) {
-      // A named file stays collapsed, as in the reference (onOpenTurnDiff leaves 'Expand <file>' false).
       this.diffText = adoptDiff(this, request, result);
       await loadDiffFiles(this, native); // diff-review.ts: a large preview's first four files
     }

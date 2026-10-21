@@ -120,7 +120,8 @@ component DiffFileHeader
   action setHover(over: bool)
     hovering = over
   view
-    row width="100%" min-height="2rem" padding-top="0.375rem" padding-bottom="0.375rem" padding-left="0.5rem" padding-right="0.75rem" box-sizing="border-box" align-items="center" gap="0.5rem" hover=setHover position="relative" background-color="light-dark(#fcfcfc, #0a0a0a)" testId=`diff-file-${item.path}`
+    // A fixed 32pt header with its controls centred, the height Pierre's virtualizer assumes for a collapsed file.
+    row width="100%" height="2rem" padding-left="0.5rem" padding-right="0.75rem" box-sizing="border-box" align-items="center" gap="0.5rem" hover=setHover position="relative" background-color="light-dark(#fcfcfc, #0a0a0a)" testId=`diff-file-${item.path}`
       if hovering
         box position="absolute" left=0 top=0 bottom=0 width="0.1875rem" background-color="light-dark(#0a0a0a3d, #fafafa3d)"
       // A header whose patch has not arrived keeps the collapsed geometry, its chevron off (DiffPanel renderHeaderPrefix).
