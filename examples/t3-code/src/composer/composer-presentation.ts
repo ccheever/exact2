@@ -72,10 +72,10 @@ export function threadPhase(projection: Obj): string {
   return 'ready';
 }
 
-/** ChatComposer.tsx placeholder chain (the served 0.0.46 build). */
+/** ChatComposer.tsx placeholder chain (74541bab17). */
 export function composerPlaceholder(input: { connected: boolean; approval: boolean; question: boolean; choiceOnly: boolean;
   projectRequired: boolean; providerUnavailable: boolean; phase: string; planReady?: boolean }): string {
-  if (input.approval) return 'Resolve this approval request to continue';
+  if (input.approval) return 'Send a message to decline and redirect the agent';
   if (input.question) return input.choiceOnly ? 'Choose an option above' : 'Type your own answer, or leave this blank to use the selected option';
   if (input.planReady) return 'Add feedback to refine the plan, or leave this blank to implement it';
   if (!input.connected) return 'Connect to your T3 server to send a message';
@@ -280,7 +280,7 @@ export function composerSnapshot(client: T3Client, now = 0) {
   const fan = fanoutView(client), shortcut = chordGlyphs(commandChords(client.config, 'modelPicker.toggle', 'Meta+Shift+M', false, { terminalOpen: terminalOpen(client) }).split(' ')[0] ?? '');
   if (fan.fanout) view.modelTip = shortcut ? `${fan.fanoutAria} · ${shortcut}` : fan.fanoutAria;
   if (bar.subagent) { notices.length = 0; queue.queued = []; }
-  return atRootFontSize({ ...view, ...action, ...compact, ...fan, attach: !bar.subagent && !requests.approvals.length && attachOffered(client, question), ...providerControl(client), ...tasks, ...queue, ...bar, ...contextMeter(client, str(model?.name, modelId)), meterX: anchors.meter.x, meterWidth: anchors.meter.width, actionsX: anchors.actions.x, ...frameTops(client.presentation),
+  return atRootFontSize({ ...view, ...action, ...compact, ...fan, attach: !bar.subagent && attachOffered(client, question), ...providerControl(client), ...tasks, ...queue, ...bar, ...contextMeter(client, str(model?.name, modelId)), meterX: anchors.meter.x, meterWidth: anchors.meter.width, actionsX: anchors.actions.x, ...frameTops(client.presentation),
     // composer-editor-intent.ts. A focused Diff (or Files preview) comment draft keeps ⌘↩ (DiffCommentAnnotation's isCommentSubmitShortcut): the
     // reference's send chords answer only with the composer focused, and an `aria-keyshortcuts` button hears its chord before
     // any `key` handler, so the button declares none then. Annotate's editor keeps ⌘↩ the same way (browser-annotation.ts).
