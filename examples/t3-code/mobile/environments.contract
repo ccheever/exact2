@@ -2,6 +2,7 @@
 // T3 Code 365aa87982: LocalEnvironmentList, ConnectionEnvironmentRow,
 // ConnectionStatusDot and EnvironmentMachineSymbol. Root supplies live state.
 use ConnectionColors, ConnectionField from "./connect.contract"
+use SettingsTextRoles, settingsRootTextBoxHeight from "./settings.contract"
 
 shape EnvironmentRow
   environmentId: string
@@ -35,6 +36,8 @@ component Environments
     remove: action
     save: action
     colors: ConnectionColors
+    roles: SettingsTextRoles
+    displayScale: number
   view
     column border-radius=24
       background-color=colors.groupedCard
@@ -78,7 +81,9 @@ component Environments
             reconnect=reconnect,
             remove=remove,
             save=save,
-            colors=colors
+            colors=colors,
+            roles=roles,
+            displayScale=displayScale
           )
 
 component EnvironmentItem
@@ -92,6 +97,8 @@ component EnvironmentItem
     remove: action
     save: action
     colors: ConnectionColors
+    roles: SettingsTextRoles
+    displayScale: number
   state editedLabel = environment.label
   state editedUrl = environment.url
   derive enabled = environment.enabled and not environment.unsupported
@@ -136,8 +143,9 @@ component EnvironmentItem
                 width=14
                 height=14
                 flex-shrink=0
-              text environment.label font-size=16
-                line-height="22px"
+              text environment.label font-size=roles.body.size
+                line-height=1.375
+                min-height=settingsRootTextBoxHeight(roles.body.size * 1.375, displayScale)
                 font-weight=700
                 color=colors.foreground
                 min-width=0
@@ -145,14 +153,14 @@ component EnvironmentItem
                 line-clamp=1
                 text-overflow="ellipsis"
             if not environment.relayManaged and environment.url.trim().length > 0
-              text environment.url font-size=13
-                line-height="17px"
+              text environment.url font-size=roles.label.size
+                line-height=`${roles.label.line}px`
                 color=colors.muted
                 line-clamp=1
                 text-overflow="ellipsis"
             if environment.status.length > 0
-              text environment.status font-size=13
-                line-height="17px"
+              text environment.status font-size=roles.label.size
+                line-height=`${roles.label.line}px`
                 color=(environment.hasError ? colors.dangerForeground : colors.muted)
                 line-clamp=(expanded ? 0 : 1)
                 text-overflow="ellipsis"
@@ -176,8 +184,8 @@ component EnvironmentItem
       if expanded
         column gap=10.5 padding-left=14 padding-right=14 padding-bottom=14
           if environment.relayManaged
-            text "Managed by T3 Connect. Tunnel details update automatically." font-size=14
-              line-height="19px"
+            text "Managed by T3 Connect. Tunnel details update automatically." font-size=roles.footnote.size
+              line-height=`${roles.footnote.line}px`
               color=colors.muted
           else
             ConnectionField(
@@ -187,6 +195,8 @@ component EnvironmentItem
               kind="text",
               change=editLabel,
               colors=colors,
+              labelRole=roles.caption,
+              bodyRole=roles.body,
               fieldId=`environment-label-${environment.id}`
             )
             ConnectionField(
@@ -196,6 +206,8 @@ component EnvironmentItem
               kind="url",
               change=editUrl,
               colors=colors,
+              labelRole=roles.caption,
+              bodyRole=roles.body,
               fieldId=`environment-url-${environment.id}`
             )
           row justify-content="flex-end" gap=7
@@ -215,8 +227,8 @@ component EnvironmentItem
                 row align-items="center" justify-content="center" gap=5.25
                   image "symbol:checkmark" width=13 height=13 -exact-tint-color=colors.primaryForeground
                   text "Save" text-transform="uppercase"
-                    font-size=13
-                    line-height="17px"
+                    font-size=roles.label.size
+                    line-height=`${roles.label.line}px`
                     font-weight=700
                     letter-spacing=0.8
                     color=colors.primaryForeground
