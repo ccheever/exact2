@@ -756,6 +756,7 @@ pub fn import_with(
         counted,
         dials: Vec::new(),
         pins: Vec::new(),
+        notes: Vec::new(),
     })
 }
 
