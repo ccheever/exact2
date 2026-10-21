@@ -623,6 +623,7 @@ export function collectionController({ root, views, report, settled=()=>{}, agen
       for (const s of states.values()) if (s.owesScroll) n++;
       return n;
     },
+    scrollsFired: () => scrollsFired,
     // Waits, up to `frames` frames, while scrolls are owed: `fired`, any
     // event delivered meanwhile (its handler's work wants a round), and what
     // is still `owed` when the frames ran out (not settled).

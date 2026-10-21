@@ -499,9 +499,9 @@ async function drive(t, report, fail, dir, ws, js) {
     // media session action, LLP 1098 D10) — each compared after both settle.
     const script = resolve(here, 'conformance', `${t.urls ? t.app : t.name.replace(/^synthetic-/, '')}.steps`);
     // A page whose settle still owes a list's reader a scroll event is compared too soon: that fails the step.
-    const settle = async () => { const replies = await pair(() => W.clock('settle'), () => J.clock('settle')); for (const [side, r] of [['wasm', replies[0]], ['js', replies[1]]]) if (r?.reason === 'scroll-event') fail(driveAt, `${side}: clock settle still owes a list's reader a scroll event`); await onLinux('settle', L => L.clock('settle')); };
+    const settle = async step => { const replies = await pair(() => W.clock('settle'), () => J.clock('settle')); for (const [side, r] of [[reference, replies[0]], [other, replies[1]]]) if (r?.reason === 'scroll-event') fail(step, `${side}: clock settle was not settled: a list's reader's scroll event still owed or still running`); await onLinux('settle', L => L.clock('settle')); };
     driveAt = 'boot settle';
-    await settle();
+    await settle('boot');
     // Each step's bound refusals, on every target (the journals read from here on).
     const bounds = async step => {
       const [{ bounds: rw, sounds: sw }, { bounds: rj, sounds: sj }] = await pair(() => journal(W), () => journal(J));
@@ -549,7 +549,7 @@ async function drive(t, report, fail, dir, ws, js) {
       // it fails the step and ends the comparison.
       await onLinux(line, L => !LINUX_OPS.includes(op) ? (refused === null ? Promise.reject(new Error(`\`${op}\` is the page's pointer or history delivery, not the runner's`)) : undefined)
         : run(L).then(() => { answered('linux'); if (refused !== null) throw new Error('took a step marked refused'); }, e => { if (e.malformed === true) { fail(line, e.message); throw e; } if (refused === null) throw e; }));
-      await settle();
+      await settle(line);
       await bounds(line);
       tree = await compare(line);
     }
@@ -564,7 +564,7 @@ async function drive(t, report, fail, dir, ws, js) {
       try { await J.tap(id); } catch (e) { fail(`tap ${id}`, `${other}: ${e.message.split('\n')[0]}`); diverged = true; break; }
       await onLinux(`tap ${id}`, L => L.tap(id));
       // What the press sent lands on both first (a fetch races the compare otherwise).
-      await settle();
+      await settle(`tap ${id}`);
       await bounds(`tap ${id}`);
       tree = await compare(`tap ${id}`);
     }
