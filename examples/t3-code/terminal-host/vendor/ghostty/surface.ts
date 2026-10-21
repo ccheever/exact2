@@ -1,7 +1,9 @@
 // Copied from T3 Code 1e2ecbd975 (MIT reference, see LICENSE-T3: apps/web/src/terminal/ghostty/surface.ts),
 // with 9c161462c9's history keys (Shift+PageUp/PageDown, Cmd+Shift+Home/End), `selectAll`, the PTY
-// resize on a pointer release and the selection autoscroll at the window edge. 9c161462c9's touch
-// scrolling, link gating (`canActivateLink`, `resendSize`) and shared resize observer are not here.
+// resize on a pointer release and the selection autoscroll at the window edge, and 74541bab17's
+// synchronized output, Kitty releases for encoded presses only and the single paste per shortcut.
+// 9c161462c9's touch scrolling, link gating (`canActivateLink`, `resendSize`) and shared resize observer
+// are not here.
 // This part holds `GhosttyTerminalSurface`: its creation, public API and DOM event handlers.
 // Changes from the reference:
 // - `isMacPlatform` comes from `src/shims/utils.ts` (lib/utils.ts imports contracts, effect and tailwind-merge).
@@ -198,7 +200,12 @@ export class GhosttyTerminalSurface extends GhosttyTerminalSurfaceBase {
 
   write(data: string): void {
     if (this.disposed) return;
-    this.core.write(data);
+    this.core.write(
+      data,
+      this.synchronizedRenderTimer === null
+        ? undefined
+        : () => this.cancelSynchronizedRenderTimer(),
+    );
     this.synchronizeMouseTrackingState();
     // Restart the blink cycle from the visible phase so the cursor never sits
     // invisible through a stream of output or a burst of typing echo.
@@ -209,6 +216,7 @@ export class GhosttyTerminalSurface extends GhosttyTerminalSurfaceBase {
 
   resetAndWrite(data: string): void {
     if (this.disposed) return;
+    this.cancelSynchronizedRenderTimer();
     this.lastMouseMotionData = "";
     this.core.resetAndWrite(data);
     this.synchronizeMouseTrackingState();
@@ -311,15 +319,18 @@ export class GhosttyTerminalSurface extends GhosttyTerminalSurfaceBase {
     if (
       this.canvas.width !== pixelWidth ||
       this.canvas.height !== pixelHeight ||
-      !this.canvasConfigured
+      !this.canvasConfigured ||
+      this.canvasDevicePixelRatio !== ratio
     ) {
-      this.canvas.width = pixelWidth;
-      this.canvas.height = pixelHeight;
-      this.context.setTransform(ratio, 0, 0, ratio, 0, 0);
-      this.canvasConfigured = true;
+      // A backing-size change clears the canvas. Apply it with the gated paint
+      // so a DPR change cannot erase a frame while synchronized output is open.
+      this.pendingCanvasConfiguration = { width: pixelWidth, height: pixelHeight, ratio };
       this.forceFullRender = true;
       this.scrollbarDirty = true;
       shouldRender = true;
+    } else {
+      // A resize can return to the painted size before its queued frame runs.
+      this.pendingCanvasConfiguration = null;
     }
     const grid = terminalGridSize(width, height, this.metrics, CONTENT_PADDING);
     this.mountHeight = height;
@@ -527,18 +538,12 @@ export class GhosttyTerminalSurface extends GhosttyTerminalSurfaceBase {
   }
 
   private readonly onKeyDown = (event: KeyboardEvent) => {
-    // Presses handled outside the terminal must also swallow their release:
-    // beforeKey runs side effects (keybindings, navigation sends), so it cannot
-    // be consulted again on keyup, and Kitty report-event-types sessions would
-    // otherwise receive a release for a press the shell never saw.
-    if (isTerminalAltGraphText(event) || !this.options.beforeKey(event)) {
-      this.suppressedKeyCodes.add(event.code);
-      return;
-    }
+    // A consumed repeat still owes the original encoded press a release.
+    if (!event.repeat) this.encodedKeyCodes.delete(event.code);
+    if (isTerminalAltGraphText(event) || !this.options.beforeKey(event)) return;
     // IME candidates belong to the textarea, even if the key also resembles
     // a local shortcut. Safari signals the initial composition with code 229.
     if (isTerminalCompositionKey(event, this.composing)) {
-      this.suppressedKeyCodes.add(event.code);
       return;
     }
     const mac = isMacPlatform(navigator.platform);
@@ -551,7 +556,6 @@ export class GhosttyTerminalSurface extends GhosttyTerminalSurfaceBase {
     if (selectAllShortcut) {
       event.preventDefault();
       event.stopPropagation();
-      this.suppressedKeyCodes.add(event.code);
       this.selectAll();
       return;
     }
@@ -573,7 +577,6 @@ export class GhosttyTerminalSurface extends GhosttyTerminalSurfaceBase {
       if (state !== null) {
         event.preventDefault();
         event.stopPropagation();
-        this.suppressedKeyCodes.add(event.code);
         const delta =
           event.key === "Home"
             ? -state.offset
@@ -636,24 +639,23 @@ export class GhosttyTerminalSurface extends GhosttyTerminalSurfaceBase {
           });
         }
       }
-      this.suppressedKeyCodes.add(event.code);
       return;
     }
     if (isTerminalPasteShortcut(event)) {
-      this.suppressedKeyCodes.add(event.code);
+      const gesture = { code: event.code, readText: "" };
+      this.pasteShortcutGesture = gesture;
       const clipboard = navigator.clipboard;
       if (typeof clipboard?.readText === "function") {
-        // Race the async clipboard read against the browser's own paste event:
-        // the native event (dispatched synchronously with the default action)
-        // always claims the token first when it fires, and the read covers
-        // browsers whose paste shortcut produces no paste event. Not preventing
-        // the default keeps the native path alive when the read is denied.
+        // Keep native paste available if the read is denied. The token drops
+        // a late read; the gesture drops a native duplicate when the read wins.
         const token = ++this.pasteShortcutToken;
         void clipboard.readText().then(
           (text) => {
             if (this.disposed || this.pasteShortcutToken !== token) return;
             this.pasteShortcutToken += 1;
-            if (text.length > 0) this.options.onData(this.core.encodePaste(text));
+            if (text.length === 0) return;
+            if (this.pasteShortcutGesture === gesture) gesture.readText = text;
+            this.options.onData(this.core.encodePaste(text));
           },
           () => {
             // Clipboard read denied; the native paste event remains the path.
@@ -665,14 +667,23 @@ export class GhosttyTerminalSurface extends GhosttyTerminalSurfaceBase {
     this.clearPrimedCopy();
     const data = this.core.encodeKey(event);
     if (data.length === 0) return;
-    this.suppressedKeyCodes.delete(event.code);
+    this.encodedKeyCodes.add(event.code);
     event.preventDefault();
     event.stopPropagation();
     this.options.onData(data);
   };
 
   private readonly onKeyUp = (event: KeyboardEvent) => {
-    if (this.suppressedKeyCodes.delete(event.code)) return;
+    // macOS can omit V keyup while Command is held.
+    if (
+      event.code === this.pasteShortcutGesture?.code ||
+      event.key === "Meta" ||
+      event.key === "Control" ||
+      event.key === "Shift"
+    ) {
+      this.pasteShortcutGesture = null;
+    }
+    if (!this.encodedKeyCodes.delete(event.code)) return;
     if (isTerminalCompositionKey(event, this.composing)) {
       return;
     }
@@ -685,6 +696,17 @@ export class GhosttyTerminalSurface extends GhosttyTerminalSurfaceBase {
     this.options.onData(data);
   };
 
+  // A release elsewhere must not leave a press for a later app shortcut to inherit.
+  private readonly onWindowKeyUp = (event: KeyboardEvent) => {
+    if (event.composedPath().includes(this.input)) return;
+    this.encodedKeyCodes.delete(event.code);
+  };
+
+  // A fresh press proves a release was missed; repeats can span a focus round trip.
+  private readonly onWindowKeyDown = (event: KeyboardEvent) => {
+    if (!event.repeat) this.encodedKeyCodes.delete(event.code);
+  };
+
   private readonly onFocus = () => {
     this.focused = true;
     this.cursorOn = true;
@@ -693,11 +715,8 @@ export class GhosttyTerminalSurface extends GhosttyTerminalSurfaceBase {
 
   private readonly onBlur = () => {
     this.focused = false;
+    this.pasteShortcutGesture = null;
     this.refreshHoveredLink();
-    // Suppressions survive blur deliberately: a shortcut that moves focus (for
-    // example terminal-toggle) must still swallow its own keyup if focus comes
-    // back before release. Stale entries are harmless — an encoding keydown
-    // always removes its code first.
     // The steady unfocused hollow cursor must not inherit an off blink phase.
     this.cursorOn = true;
     this.requestRender();
@@ -752,6 +771,11 @@ export class GhosttyTerminalSurface extends GhosttyTerminalSurfaceBase {
     event.preventDefault();
     const data = event.clipboardData?.getData("text/plain") ?? "";
     if (data.length === 0) return;
+    if (data === this.pasteShortcutGesture?.readText) {
+      // The shortcut's clipboard read already sent this paste.
+      this.pasteShortcutGesture = null;
+      return;
+    }
     // The native paste won the race with actual text; a pending clipboard read
     // must not double. An empty native paste leaves the read as the only path.
     this.pasteShortcutToken += 1;
@@ -1069,6 +1093,9 @@ export class GhosttyTerminalSurface extends GhosttyTerminalSurfaceBase {
   private installEvents(): void {
     this.input.addEventListener("keydown", this.onKeyDown);
     this.input.addEventListener("keyup", this.onKeyUp);
+    // App shortcuts stop propagation at window, so observe the same capture target.
+    window.addEventListener("keyup", this.onWindowKeyUp, { capture: true });
+    window.addEventListener("keydown", this.onWindowKeyDown, { capture: true });
     this.input.addEventListener("focus", this.onFocus);
     this.input.addEventListener("blur", this.onBlur);
     this.input.addEventListener("input", this.onInput);
@@ -1097,6 +1124,8 @@ export class GhosttyTerminalSurface extends GhosttyTerminalSurfaceBase {
   private removeEvents(): void {
     this.input.removeEventListener("keydown", this.onKeyDown);
     this.input.removeEventListener("keyup", this.onKeyUp);
+    window.removeEventListener("keyup", this.onWindowKeyUp, { capture: true });
+    window.removeEventListener("keydown", this.onWindowKeyDown, { capture: true });
     this.input.removeEventListener("focus", this.onFocus);
     this.input.removeEventListener("blur", this.onBlur);
     this.input.removeEventListener("input", this.onInput);
