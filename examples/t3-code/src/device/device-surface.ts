@@ -4,7 +4,7 @@
 // the "Set up devices" wizard (device.configure / device.list) and the panel's
 // simulator list. Opening a device stream is not part of this client.
 import type { T3Client } from '../client/client';
-import { arr, obj, str, type Obj } from '../client/domain';
+import { arr, decodeDeviceState, obj, str, type Obj } from '../client/domain';
 import { ClientError, type Native } from '../client/protocol';
 import { subscriptionSerial } from '../details/shell-vcs';
 import { emptyDeviceSession, type DeviceSessionView } from './device-session'; // opening a device and its workspace
@@ -46,7 +46,7 @@ export function deviceStateEvent(client: T3Client, entry: Obj): void {
   value.id = id;
   const item = obj(entry.value);
   if (item._retryDue || item._streamEnded || item._transportError) return;
-  if (Array.isArray(item.hosts)) value.state = item;
+  if (Array.isArray(item.hosts)) value.state = decodeDeviceState(item);
 }
 /** useDeviceState: one stream per connection while the device surface or its wizard is in use. */
 export async function watchDevice(client: T3Client, native: Native): Promise<void> {
@@ -197,7 +197,7 @@ async function probeDevices(client: T3Client, native: Native): Promise<void> {
   const current = store(client);
   try {
     const result = await client.restAccess(native).request('device.list', {}, true);
-    if (Array.isArray(result.hosts) && stores.get(client) === current) current.state = result;
+    if (Array.isArray(result.hosts) && stores.get(client) === current) current.state = decodeDeviceState(result);
   } catch { /* The state stream carries the next snapshot. */ }
 }
 export async function deviceCommand(client: T3Client, native: Native, op: string, _id: string, value: string): Promise<string> {
@@ -206,7 +206,7 @@ export async function deviceCommand(client: T3Client, native: Native, op: string
   current.pending = op === 'list' ? 'check' : op;
   try {
     const result = op === 'list' ? await access.request('device.list', {}, true) : await access.request('device.configure', configureInput(op, value), true);
-    if (Array.isArray(result.hosts)) current.state = result;
+    if (Array.isArray(result.hosts)) current.state = decodeDeviceState(result);
     if (op === 'complete') current.step = 0;
   } catch { /* useAtomCommand reports failures to the console only; the wizard keeps its state. */ }
   finally { current.pending = ''; }

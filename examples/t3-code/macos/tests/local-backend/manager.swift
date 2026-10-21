@@ -1,7 +1,7 @@
 import Foundation
 import XCTest
 
-// Ported from T3 Code (MIT, see LICENSE-T3), reference 9c161462c9:
+// Ported from T3 Code (MIT, see LICENSE-T3), reference 9c161462c9 (the SIGKILL exit case: 74541bab17):
 // apps/desktop/src/backend/DesktopBackendManager.test.ts and DesktopBackendConfiguration.test.ts.
 // Change from the reference: the tests were bun/vitest over Effect; the logic is native here
 // (T3LocalBackendManager.swift), so they are XCTest cases with the original names, and Effect's
@@ -268,8 +268,14 @@ final class LocalBackendManagerTests: XCTestCase {
         timeline = []
         t.run { t.spawner.children[6].finish(T3LocalExit(signal: 9)) }
         XCTAssertEqual(timeline.map { $0.next }, [500], "After ready the next delay is 0.5 s, not 16 s")
-        XCTAssertEqual(t.manager.lastExit, "signal=9")
-        XCTAssertEqual(t.log.failures.last, "pid=123 signal=9")
+        XCTAssertEqual(t.manager.lastExit, "killed by SIGKILL")
+        XCTAssertEqual(t.log.failures.last, "pid=123 killed by SIGKILL")
+    }
+
+    func test_reports_a_SIGKILL_exit_without_an_exit_code() {
+        XCTAssertEqual(T3LocalExit(signal: SIGKILL).reason, "killed by SIGKILL")
+        XCTAssertEqual(T3LocalExit(signal: SIGTERM).reason, "killed by SIGTERM")
+        XCTAssertEqual(T3LocalExit(code: 0).reason, "code=0")
     }
 
     func testCalculateRestartDelay() {
