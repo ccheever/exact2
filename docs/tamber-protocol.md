@@ -123,7 +123,8 @@ on macOS and Linux.
   `explain`'s and `resolve`'s `levels`, each of `resolve`'s tuples' winning `level` and `name` per
   side (`{light, dark}`: a correction within the window, which first gave one of each), and
   `describe`'s param rows' `reaches`; `describe`'s library components' `parts`, `variants` and
-  `library` (stage 12 D3; a param's winning level per tuple is `resolve`'s, B2-levels); a relay session's `spki` with its
+  `library` (stage 12 D3; a param's winning level per tuple is `resolve`'s, B2-levels); a build's `page`, `"gallery"` for the
+  variant gallery's page in its registration and on the build in `builds` (LLP 1139 D5, the design tool's G3); a relay session's `spki` with its
   certificate got by ACME (stage 10c R2); and names this machine's files in no answer:
   every `file` field and file name in an answer or event is app-relative, or `<package>/<path inside it>`
   for a package's file (a package linked from outside the app included), never absolute, `hello`'s `app`
@@ -1294,6 +1295,11 @@ The tool drives no input into an app; a command changes only what `prefer` would
   `web-js`, `ios` (tvOS too), `macos`, `linux`, or `android` for the Android reader, *1.9*). `planDigest`
   (*1.9*) is the SHA-256 of the plan the build runs, the digest its source map names; the server
   joins and outlines that build from that plan's map.
+  - `page` (*1.15*): `"gallery"` for the variant gallery's page (the JS dev loop's `/__dev/gallery/`,
+    development only; the wasm loop answers it 404 with why: its stream `/__dev/gallery/stream` carries
+    its own reloads and errors, never the app's, nor the app's its), absent for the app's own page. Listed on the build in `builds` and
+    `hello` as it was said. It is the page's own claim, used only to group and label builds: it
+    grants nothing and changes nothing a build may receive (a gallery page offers no `navigate`).
   - `id` is the build's own, stable across its reconnects (a tab's, kept across its reloads but
     not shared with a duplicated tab; a process's), so its pin is replayed when it registers
     again. Every registration is told the pin the server holds for it, or none.

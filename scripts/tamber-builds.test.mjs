@@ -753,3 +753,19 @@ test('navigate (*1.14*, LLP 1122 T7) routes one build to a location on its own o
   channel.navigate('tool', 'linux-1', '/a'); channel.navigate('tool', 'linux-1', '/b');
   expect(read().filter(f => f.kind === 'navigate').map(f => f.location)).toEqual(['/b']);
 });
+
+test("a gallery page's registration says `page: 'gallery'`, listed on its build as it said it; any other page is refused, and the app's own lists none", () => {
+  const events = [];
+  const channel = buildChannel({ send: e => events.push(e), log: () => {} });
+  const app = stream(channel), gallery = stream(channel), odd = stream(channel);
+  expect(register(channel, app.nonce, 'web-1').status).toBe(200);
+  expect(report(channel, { nonce: gallery.nonce, kind: 'register', id: 'web-js-2', host: 'web-js', capabilities: ['pin', 'inspect', 'hold'], page: 'gallery' }).status).toBe(200);
+  // Only "gallery", or no page at all.
+  for (const page of ['app', '', 1, null, { gallery: true }]) expect(report(channel, { nonce: odd.nonce, kind: 'register', id: 'web-3', host: 'web', capabilities: ['pin'], page }).status).toBe(400);
+  const listed = channel.list();
+  expect(listed.find(b => b.id === 'web-1')).not.toHaveProperty('page');
+  expect(listed.find(b => b.id === 'web-js-2').page).toBe('gallery');
+  expect(events.at(-1).builds.find(b => b.id === 'web-js-2').page).toBe('gallery');
+  // A label only: a pin goes to it as to any build.
+  expect(channel.pin('c1', 'web-js-2', { scheme: 'dark' }).builds).toEqual(['web-js-2']);
+});

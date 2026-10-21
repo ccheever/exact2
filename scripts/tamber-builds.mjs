@@ -6,9 +6,12 @@
 //   which holds no stream, `GET /__dev/hello` and then acknowledged polls of
 //   `GET /__dev/commands`) is given a nonce in its hello, while fewer than
 //   256 streams are open: past that a stream has none and a hello is 503. The build answers with one `POST /__dev/report`
-//   `{nonce, kind: "register", id, host, capabilities, plan, design}`; `id`
+//   `{nonce, kind: "register", id, host, capabilities, plan, design, page?}`; `id`
 //   is the build's own, stable across its reconnects (a tab's, a process's),
-//   so its pins are replayed when it registers again. A report whose nonce
+//   so its pins are replayed when it registers again. `page: "gallery"`
+//   (tamber/1.15) is the variant gallery's page (host/web/dev-gallery.mjs),
+//   absent for the app's own: the page's own claim, a label that grants and
+//   withholds nothing, listed on the build as it said it. A report whose nonce
 //   is no open stream's is refused: the dev loop takes other POSTs with no
 //   token.
 // - **Reports up**, each with its nonce: `status` (on connect and on any
@@ -124,6 +127,7 @@ function reportRefused(r) {
   if (r.kind === 'register') {
     if (!text(r.id, 64) || !ID.test(r.id)) return '`id` is the build\'s own, 1–64 of [A-Za-z0-9_.:-]';
     if (!text(r.host, 32) || !r.host || !Array.isArray(r.capabilities) || r.capabilities.length > 32 || !r.capabilities.every(c => text(c, 64))) return 'a registration names its `host` and its `capabilities` (strings)';
+    if (!(r.page === undefined || r.page === 'gallery')) return '`page` is "gallery" (the variant gallery\'s page), or absent for the app\'s own';
   }
   if (!maybe(r.plan, v => text(v, 1024)) || !maybe(r.design, v => text(v, 1024))) return '`plan` and `design` are strings, or null';
   if (!maybe(r.planDigest, v => typeof v === 'string' && /^[0-9a-f]{64}$/.test(v))) return '`planDigest` is a SHA-256 in hex, or null';
@@ -180,7 +184,7 @@ export function buildChannel({ send = () => {}, log = () => {}, selected = null,
     for (const [k] of open.slice(0, Math.max(0, open.length - POLLED + room))) close(k);
   };
   const close = (k) => { const s = streams.get(k); streams.delete(k); s?.unwait?.(); if (s?.build) announce(); };
-  const shown = b => ({ id: b.id, host: b.host, capabilities: b.capabilities, inspector: inspectors.get(b.id) ?? null, plan: b.plan, planDigest: b.planDigest ?? null, design: b.design, status: b.status ?? null, pin: pins.get(b.id)?.pin ?? null, pinRevision: sent.get(b.id) ?? 0, hold: holds.get(b.id)?.hold ?? null, held: b.held ?? null, unsupported: b.unsupported ? { what: b.unsupported.what, detail: b.unsupported.detail } : null });
+  const shown = b => ({ id: b.id, host: b.host, ...(b.page ? { page: b.page } : {}), capabilities: b.capabilities, inspector: inspectors.get(b.id) ?? null, plan: b.plan, planDigest: b.planDigest ?? null, design: b.design, status: b.status ?? null, pin: pins.get(b.id)?.pin ?? null, pinRevision: sent.get(b.id) ?? 0, hold: holds.get(b.id)?.hold ?? null, held: b.held ?? null, unsupported: b.unsupported ? { what: b.unsupported.what, detail: b.unsupported.detail } : null });
   // A build is connected while the stream it registered on still names it.
   const connected = b => streams.get(b.nonce)?.build === b.id;
   const listed = () => [...builds.values()].filter(connected).map(shown);
@@ -387,7 +391,7 @@ export function buildChannel({ send = () => {}, log = () => {}, selected = null,
         if (s.build && s.build !== r.id && builds.get(s.build)?.nonce === r.nonce) { builds.delete(s.build); untell(s.build); pins.delete(s.build); sent.delete(s.build); inspectors.delete(s.build); inspectSeq.delete(s.build); outliners.delete(s.build); holds.delete(s.build); holdSent.delete(s.build); navigated.delete(s.build); }
         s.build = r.id;
         builds.delete(r.id); untell(r.id);
-        builds.set(r.id, { id: r.id, host: r.host, capabilities: r.capabilities, plan: r.plan ?? null, planDigest: r.planDigest ?? null, design: r.design ?? null, status: null, nonce: r.nonce });
+        builds.set(r.id, { id: r.id, host: r.host, ...(r.page ? { page: r.page } : {}), capabilities: r.capabilities, plan: r.plan ?? null, planDigest: r.planDigest ?? null, design: r.design ?? null, status: null, nonce: r.nonce });
         // The oldest builds with no open stream forgotten, over the cap.
         for (const [id, b] of builds) { if (builds.size <= BUILDS) break; if (!connected(b)) { builds.delete(id); untell(id); pins.delete(id); sent.delete(id); inspectors.delete(id); inspectSeq.delete(id); outliners.delete(id); holds.delete(id); holdSent.delete(id); navigated.delete(id); } }
         log(`build registered: ${r.id} (${r.host})`);
