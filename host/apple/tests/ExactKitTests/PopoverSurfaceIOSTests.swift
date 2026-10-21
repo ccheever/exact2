@@ -18,9 +18,11 @@ final class Adapt: NSObject, UIPopoverPresentationControllerDelegate {
 final class PopoverSurfaceIOSTests: XCTestCase {
     var window: UIWindow?
 
-    /// A red page and a popover with `props` on it at `box`, shown; the
-    /// popover's node and the window drawn at 3x.
-    func paint(_ props: [String: String], dark: Bool, at box: CGRect = CGRect(x: 40, y: 200, width: 304, height: 80)) throws -> (NodeView, UIImage) {
+    /// A page of `page` and a popover with `props` and `style` on it at
+    /// `box`, shown, holding a green child that fills it when `filled`; the
+    /// presenter, the popover's node and the window drawn at 3x.
+    func paint(_ props: [String: String], dark: Bool, at box: CGRect = CGRect(x: 40, y: 200, width: 304, height: 80),
+               page: [Int] = [255, 0, 0], style: [String: Any] = [:], filled: Bool = false) throws -> (Presenter, NodeView, UIImage) {
         let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
         let p = Presenter(), window = UIWindow(windowScene: scene)
         self.window = window
@@ -29,22 +31,31 @@ final class PopoverSurfaceIOSTests: XCTestCase {
         p.viewport.frame = window.bounds
         window.addSubview(p.viewport)
         window.makeKeyAndVisible()
-        p.apply(wireBatch([
-            ["op": "create", "id": 1, "kind": "view", "props": [String: String](), "style": ["background_color": [255, 0, 0, 255]]],
-            ["op": "create", "id": 2, "kind": "view", "props": props.merging(["popover": "auto", "id": "p"]) { a, _ in a }, "style": [String: Any]()],
+        var ops: [[String: Any]] = [
+            ["op": "create", "id": 1, "kind": "view", "props": [String: String](), "style": ["background_color": page + [255]]],
+            ["op": "create", "id": 2, "kind": "view", "props": props.merging(["popover": "auto", "id": "p"]) { a, _ in a }, "style": style],
             ["op": "children", "id": 1, "ids": [2]], ["op": "roots", "ids": [1]],
             ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 402.0, "h": 874.0],
             ["op": "frame", "id": 2, "x": Double(box.minX), "y": Double(box.minY), "w": Double(box.width), "h": Double(box.height)],
-        ]))
+        ]
+        if filled {
+            ops += [["op": "create", "id": 3, "kind": "view", "props": [String: String](), "style": ["background_color": [0, 255, 0, 255]]],
+                    ["op": "children", "id": 2, "ids": [3]],
+                    ["op": "frame", "id": 3, "x": 0.0, "y": 0.0, "w": Double(box.width), "h": Double(box.height)]]
+        }
+        p.apply(wireBatch(ops))
         let node = try XCTUnwrap(p.views[2])
         node.isHidden = false // as open: the painted popover's layer shows it
+        return (p, node, shot(window))
+    }
+
+    func shot(_ window: UIWindow) -> UIImage {
         RunLoop.main.run(until: Date().addingTimeInterval(0.5))
         let format = UIGraphicsImageRendererFormat()
         format.scale = 3
-        let image = UIGraphicsImageRenderer(bounds: window.bounds, format: format).image { _ in
+        return UIGraphicsImageRenderer(bounds: window.bounds, format: format).image { _ in
             window.drawHierarchy(in: window.bounds, afterScreenUpdates: true)
         }
-        return (node, image)
     }
 
     private var decoded: [ObjectIdentifier: (width: Int, bytes: [UInt8])] = [:]
@@ -119,7 +130,7 @@ final class PopoverSurfaceIOSTests: XCTestCase {
         for dark in [false, true] {
             let scheme = dark ? "dark" : "light"
             let (box, theirs) = try uikitPopover(dark: dark)
-            let (node, ours) = try paint(["defaultSurface": "true", "defaultSurfaceRadius": "30", "defaultSurfaceShadow": "8 24 0.015"], dark: dark, at: box)
+            let (_, node, ours) = try paint(["defaultSurface": "true", "defaultSurfaceRadius": "30", "defaultSurfaceShadow": "8 24 0.015"], dark: dark, at: box)
             let glass = try XCTUnwrap(node.materialView, scheme)
             XCTAssertTrue(glass.effect is UIGlassEffect, "UIKit's popover glass")
             // Its shape is UIKit's popover's, row by row round the corner,
@@ -135,14 +146,45 @@ final class PopoverSurfaceIOSTests: XCTestCase {
         }
     }
 
-    func testAPopoverItsAuthorSurfacedAndAMenuDrawNone() throws {
+    /// Its children are clipped to its corner, scrolled or not; its faint
+    /// shadow is the light appearance's, and goes when the same node turns
+    /// dark.
+    func testItsChildrenTakeItsCornerAndItsShadowIsTheLightAppearances() throws {
         guard UIApplication.shared.connectedScenes.first is UIWindowScene else { throw missing("scene", "glass draws in a scene's window") }
-        let (surfaced, _) = try paint([:], dark: false)
+        guard #available(iOS 26.0, *) else { throw XCTSkip("UIKit's popover is glass from iOS 26") }
+        let marked = ["defaultSurface": "true", "defaultSurfaceRadius": "30", "defaultSurfaceShadow": "8 24 0.015"]
+        for scrolls in [false, true] {
+            let (_, _, image) = try paint(marked, dark: false, style: scrolls ? ["overflow_y": "scroll"] : [:], filled: true)
+            XCTAssertEqual(pixel(image, CGPoint(x: 41, y: 201))[1], 0, "its corner clips its child, no green there (scrolls: \(scrolls))")
+            XCTAssertEqual(pixel(image, CGPoint(x: 192, y: 240))[1], 255, "the child inside")
+        }
+        let (p, node, light) = try paint(marked, dark: false, page: [255, 255, 255])
+        let below = CGPoint(x: 192, y: 284)
+        XCTAssertLessThan(pixel(light, below)[0], 255, "a faint shadow below it in light")
+        XCTAssertFalse(node.boxShadows.isEmpty)
+        window?.overrideUserInterfaceStyle = .dark
+        p.apply(wireBatch([["op": "props", "id": 2, "set": ["testId": "dark"]]]))
+        RunLoop.main.run(until: Date().addingTimeInterval(0.3))
+        XCTAssertTrue(node.boxShadows.isEmpty, "none in dark")
+    }
+
+    func testAPopoverItsAuthorSurfacedAMenuAndAnInlineNodeDrawNone() throws {
+        guard UIApplication.shared.connectedScenes.first is UIWindowScene else { throw missing("scene", "glass draws in a scene's window") }
+        let (_, surfaced, _) = try paint([:], dark: false, style: ["background_color": [255, 255, 255, 255]])
         XCTAssertNil(surfaced.materialView, "no mark: its author wrote a surface")
-        let (menu, _) = try paint(["defaultSurface": "true", "defaultSurfaceRadius": "30", "accessibilityRole": "menu"], dark: false)
+        let (_, menu, _) = try paint(["defaultSurface": "true", "defaultSurfaceRadius": "30", "accessibilityRole": "menu"], dark: false)
         XCTAssertNil(menu.materialView, "a menu is the platform's")
-        let (mac, _) = try paint(["defaultSurface": "true"], dark: false)
+        let (_, mac, _) = try paint(["defaultSurface": "true"], dark: false)
         XCTAssertNil(mac.materialView, "no corner sent: a platform that draws its own")
+        // A popover that stops being one (`popover` bound) is an inline node again.
+        let (p, inline, _) = try paint(["defaultSurface": "true", "defaultSurfaceRadius": "30"], dark: false)
+        XCTAssertNotNil(inline.materialView)
+        p.apply(wireBatch([["op": "props", "id": 2, "set": [String: String](), "clear": ["popover"]]]))
+        XCTAssertNil(inline.materialView, "no popover, no surface")
+        // An authored corner, even 0, is the author's.
+        let (_, square, _) = try paint(["defaultSurface": "true", "defaultSurfaceRadius": "30"], dark: false, style: ["border_radius": 0.0])
+        XCTAssertNotNil(square.materialView)
+        XCTAssertTrue(square.writesCorner, "its author's 0")
     }
 }
 #endif

@@ -221,7 +221,7 @@ extension NodeView {
         var sizes = BorderPaint.reduced(BorderPaint.radii(style, in: bounds), in: bounds)
         // A default surface's corner where its author wrote none, its shadow cast from it.
         var outline = outline
-        if let r = defaultSurfaceRadius, sizes.allSatisfy({ $0 == .zero }) {
+        if let r = defaultSurfaceRadius, !writesCorner {
             sizes = BorderPaint.reduced(Array(repeating: CGSize(width: r, height: r), count: 4), in: bounds)
             outline = BorderPaint.roundedRect(bounds, sizes, shape: CornerShape(nil))
         }

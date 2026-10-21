@@ -1,6 +1,6 @@
 //! A popover's default surface (LLP 1021; theme2 2026-10-21 18:45, 19:55):
 //! the compiler marks a `popover` whose author wrote no background, border,
-//! shadow or material, on it or its class (`defaultSurface`), for a host
+//! shadow or material, on it or its class, in any state (`defaultSurface`), for a host
 //! that paints the popover to draw the platform's surface under it.
 
 use exact_kernel::{Kernel, PropId};
@@ -13,7 +13,7 @@ impl DataSource for NoData {
     }
 }
 
-const APP: &str = r#"style Card
+const APP: &str = r##"style Card
   border-width=1
   border-style="solid"
 
@@ -34,12 +34,16 @@ component App
         text "Shadowed"
       column id="glass" popover="auto" backgroundMaterial="glass" testId="glass"
         text "Glass"
+      column id="hovered" popover="auto" testId="hovered"
+        :hover
+          background-color = "#dddddd"
+        text "Hovered"
       column id="menu" popover="auto" role="menu" testId="menu"
         button testId="item"
           text "Item"
       column testId="plain"
         text "No popover"
-"#;
+"##;
 
 #[test]
 fn a_popover_whose_author_wrote_no_surface_is_marked_for_the_platforms() {
@@ -64,7 +68,7 @@ fn a_popover_whose_author_wrote_no_surface_is_marked_for_the_platforms() {
     assert!(marked("bare"), "no surface: the platform's");
     assert!(marked("round"), "a corner draws no surface");
     for t in [
-        "filled", "classed", "shadowed", "glass", "menu", "plain", "open",
+        "filled", "classed", "shadowed", "glass", "hovered", "menu", "plain", "open",
     ] {
         assert!(!marked(t), "{t}");
     }
