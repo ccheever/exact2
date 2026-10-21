@@ -64,7 +64,8 @@ component ArchivedPanel
             for thread in group.threads key=thread.id
               ArchivedRow(thread=thread, busy=(busy or not data.available), menu=(menu == thread.scope), raw=raw, open=open, showMenu=showMenu(thread.scope), close=close, menuFor=menuFor)
 
-// The row's Unarchive button is named by its text, "Unarchive", as the reference's Button (no aria-label).
+// The row's Unarchive button is named by its text, "Unarchive", as the reference's Button (no aria-label); it is
+// Button size="sm" (ArchivedThreadsPanel.tsx at 74541bab17): 28pt tall, 14pt text, the icon 4pt from its label (gap-1.5 less the icon's -mx-0.5).
 component ArchivedRow
   props
     thread: ArchiveThreadView
@@ -78,9 +79,9 @@ component ArchivedRow
   view
     column width="100%" position="relative" contextmenu=menuFor(thread.scope) contextPopover="archive-menu" testId=`archived-row-${thread.id}`
       SettingsRow(title=thread.title, description=thread.description, first=thread.first, rowId=`archived-${thread.id}`)
-        button press=raw("unarchive-thread", thread.scope, "") disabled=busy testId=`unarchive-${thread.id}` display="flex" flex-direction="row" align-items="center" gap="0.125rem" box-sizing="border-box" height="1.5rem" padding-left="0.3125rem" padding-right="0.4375rem" border-radius="0.5rem" border-style="solid" border-width=1 border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#ffffff, #ffffff07)" box-shadow="0 1px 2px #0000000d" flex-shrink=0 opacity=(busy ? 0.64 : 1)
+        button press=raw("unarchive-thread", thread.scope, "") disabled=busy testId=`unarchive-${thread.id}` display="flex" flex-direction="row" align-items="center" gap="0.25rem" box-sizing="border-box" height="1.75rem" padding-left="0.4375rem" padding-right="0.5625rem" border-radius="0.5rem" border-style="solid" border-width=1 border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#ffffff, #ffffff07)" box-shadow="0 1px 2px #0000000d" flex-shrink=0 opacity=(busy ? 0.64 : 1)
           LucideArchiveX(size=14, color="light-dark(#71717b, #818181)")
-          text "Unarchive" font-size="0.75rem" font-weight=500 line-height="1rem" color="light-dark(#27272a, #f5f5f5)"
+          text "Unarchive" font-size="0.875rem" font-weight=500 line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)"
 
 // ArchivedThreadsPanel's row menu (api.contextMenu.show, ElectronMenu.ts showContextMenu: Unarchive, then Delete after a
 // separator with the trash glyph), as the panel's one context popover (#292; it was

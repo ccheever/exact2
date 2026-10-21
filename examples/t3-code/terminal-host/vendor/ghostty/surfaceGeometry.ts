@@ -3,7 +3,8 @@
 // arithmetic. The reference keeps all of surface.ts in one file.
 // Changes from the reference:
 // - split out of surface.ts for the 1,500-line cap.
-// - `CONTENT_PADDING` and `CURSOR_BLINK_INTERVAL_MS` are exported for the surface class.
+// - `CONTENT_PADDING`, `CURSOR_BLINK_INTERVAL_MS` and 74541bab17's `SYNCHRONIZED_OUTPUT_RENDER_TIMEOUT_MS`
+//   are exported for the surface class.
 import type { GhosttyScrollbar } from "./core";
 import type { GhosttyCellMetrics } from "./renderer";
 
@@ -11,6 +12,8 @@ export const CONTENT_PADDING = 4;
 const MIN_SCROLLBAR_THUMB_HEIGHT = 18;
 /** Half a blink cycle: the visible and hidden phases are equally long. */
 export const CURSOR_BLINK_INTERVAL_MS = 500;
+/** End an unterminated synchronized update instead of freezing the last frame. */
+export const SYNCHRONIZED_OUTPUT_RENDER_TIMEOUT_MS = 500;
 
 /**
  * Whether the cursor should keep toggling. An unfocused surface draws a steady

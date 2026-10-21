@@ -1,6 +1,10 @@
 // Copied from T3 Code 1e2ecbd975 (MIT reference, see LICENSE-T3: apps/web/src/terminal-links.test.ts).
 // Changes from the reference:
 // - `vite-plus/test` is `bun:test`.
+// - 74541bab17's quoted path and Unicode relative path cases, without the backslash-separated
+//   relative paths the clone does not take (terminal-links.ts): "finds Windows path %s", the
+//   `src\my folder\index.ts` position case and "resolves a quoted terminal link against a Windows
+//   environment".
 import { describe, expect, it } from "bun:test";
 
 import {
@@ -20,6 +24,49 @@ function createBufferLine(text: string, isWrapped = false): TerminalBufferLineLi
 }
 
 describe("extractTerminalLinks", () => {
+  it.each(['"', "'", "`"])("finds paths containing spaces enclosed in %s", (quote) => {
+    const text = String.raw`C:\Users\Jane Doe\project\index.ts:12:7`;
+    expect(extractTerminalLinks(`see ${quote}${text}${quote}.`)).toEqual([
+      { kind: "path", text, start: 5, end: 5 + text.length },
+    ]);
+  });
+
+  it.each([
+    "./my folder/index.ts",
+    "/home/Jane Doe/index.ts",
+    "/home/Jane Doe/file)",
+    String.raw`\\server\my share\index.ts`,
+  ])("keeps positions outside quotes on %s", (path) => {
+    expect(extractTerminalLinks(`"${path}":12:7: error`)).toEqual([
+      { kind: "path", text: `${path}:12:7`, start: 1, end: path.length + 7 },
+    ]);
+  });
+
+  it("does not treat quoted prose as a path", () => {
+    expect(extractTerminalLinks('error: "something went wrong"')).toEqual([]);
+    expect(extractTerminalLinks('error: "something went wrong."')).toEqual([]);
+  });
+
+  it.each([
+    ['"my file.ts":12:7', "my file.ts:12:7", 17],
+    ["'my file.ts:12:7'", "my file.ts:12:7", 16],
+    ["`my file.ts`", "my file.ts", 11],
+    ['"mój plik.ts":12', "mój plik.ts:12", 16],
+  ])("finds a quoted basename in %s", (line, text, end) => {
+    expect(extractTerminalLinks(line)).toEqual([{ kind: "path", text, start: 1, end }]);
+  });
+
+  it("keeps quoted paths and URLs separate without duplicate partial paths", () => {
+    const path = String.raw`C:\Jane Doe\index.ts:12`;
+    const url = "https://example.com/docs";
+    const line = `"${path}" ${url} src/index.ts`;
+    expect(extractTerminalLinks(line)).toEqual([
+      { kind: "path", text: path, start: 1, end: 1 + path.length },
+      { kind: "url", text: url, start: path.length + 3, end: path.length + 3 + url.length },
+      { kind: "path", text: "src/index.ts", start: line.length - 12, end: line.length },
+    ]);
+  });
+
   // 74541bab17 (#15838): a logged request route is not an editor link.
   it.each([
     " GET /api/trpc/post.list,user.me?batch=1&input=%7B%220%22%3A%7B%22json%22%3Anull%7D%7D 200 in 35ms",
@@ -106,6 +153,15 @@ describe("extractTerminalLinks", () => {
       },
     ]);
   });
+
+  it.each(["src/żółć.ts:12:7", "żółć/main.ts:12", "src/cafe\u0301.ts:12", "src/𐐀.ts:12"])(
+    "keeps the complete Unicode relative path %s",
+    (text) => {
+      expect(extractTerminalLinks(`see ${text} for details`)).toEqual([
+        { kind: "path", text, start: 4, end: 4 + text.length },
+      ]);
+    },
+  );
 
   it("finds Windows absolute paths with forward slashes", () => {
     const line = "see C:/Users/someone/project/src/file.ts:42 for details";

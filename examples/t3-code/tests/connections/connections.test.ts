@@ -122,8 +122,13 @@ test('failure tone, trace ID and unsupported clients follow the row rules', () =
   expect(failing.environments.map(row => row.environmentId)).toEqual(['env-a', 'env-b']); // the connected focus is listed too
   expect(failing.environments[1]).toMatchObject({ errorTone: true, traceId: 'trace-9', subtitle: 'https://remote.example.com/ · Connection failed: Session expired.', tooltip: 'Connection failed. Reason: Session expired.' });
   const unsupported = connectionsProjection(host(), saved, new Map([[key, entry(key, { phase: 'unsupported', message: 'This app requires T3 orchestration protocol 2.' })]]));
-  expect(unsupported.environments[1]).toMatchObject({ unsupported: true, enabled: false, switchTip: 'Client not supported', errorTone: false,
+  // A saved direct (bearer) route keeps the switch: switching on retries after a server update (registry.ts setEnabled).
+  expect(unsupported.environments[1]).toMatchObject({ unsupported: true, blocked: false, enabled: false, switchTip: 'Switch on', errorTone: false,
     tooltip: 'This app requires T3 orchestration protocol 2.', subtitle: 'https://remote.example.com/ · Client not supported' });
+  // An SSH-only environment has no saved bearer route, so its switch stays disabled.
+  const sshSaved = [{ ...saved[0], routes: [{ id: 'ssh:me@box', origin: 'https://remote.example.com', kind: 'ssh', ssh: { alias: 'box', hostname: 'box', username: 'me', port: null } }] }];
+  const sshOnly = connectionsProjection(host(), sshSaved, new Map([[key, entry(key, { phase: 'unsupported', message: 'This app requires T3 orchestration protocol 2.' })]]));
+  expect(sshOnly.environments[1]).toMatchObject({ unsupported: true, blocked: true, switchTip: 'Client not supported' });
   const focused = connectionsProjection(host('error', { origin: 'https://remote.example.com', environmentId: 'env-b', statusMessage: 'The server returned HTTP 401.' }), saved, new Map(), '{}', { traceId: 'trace-f' });
   expect(focused.environments[0]).toMatchObject({ active: true, errorTone: true, traceId: 'trace-f', subtitle: 'https://remote.example.com/ · Connection failed: The server returned HTTP 401.' });
 });

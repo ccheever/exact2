@@ -539,8 +539,8 @@ describe('every modal dialog gives focus back through a surviving observer or it
   const own: Record<string, [string, string]> = {
     'browser-profiles.contract "browser-profile-remove-dialog"': ['app.contract', 'focus(`browser-profile-options-${removalAt}`)'],
     'browser-profiles.contract `browser-import-step-${wizard.step}`': ['app.contract', 'focus("browser-profiles-add")'],
-    'palette.contract view.testId': ['app.contract', 'focus(palettePage == "pr-link-thread" ? "pull-request-more"'],
-    'palette.contract "pull-request-thread-picker"': ['app.contract', 'focus(palettePage == "pr-link-thread" ? "pull-request-more"'],
+    'palette.contract view.testId': ['app.contract', 'focus("pull-request-more")'],
+    'palette.contract "pull-request-thread-picker"': ['app.contract', 'focus("pull-request-more")'],
     'ssh-prompt.contract "ssh-password-dialog"': ['app.contract', 'focus("ssh-connect")'],
     'codex-setup.contract "codex-picker"': ['codex-setup.contract', 'focus(`codex-account-${picker.instanceId}`)'],
     'connections-network-dialogs.contract "network-access-dialog"': ['connections-network-dialogs.contract', 'focus("network-access-switch")'],

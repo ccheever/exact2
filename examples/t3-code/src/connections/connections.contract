@@ -52,6 +52,7 @@ shape SavedEnvironment
   enabled: bool
   dimmed: bool
   unsupported: bool
+  blocked: bool
   switchTip: string
   active: bool
   traceId: string
@@ -377,7 +378,7 @@ component EnvironmentRow
               if tip == "update"
                 CnTooltip(tip=environment.update, tipId=`environment-update-tip-${environment.environmentId}`, above=28)
           box position="relative" hover=hover("switch")
-            button press=op("environment-enabled", environment.key, (environment.enabled ? "off" : "on")) role="switch" aria-checked=environment.enabled aria-label=`${environment.enabled ? "Switch off" : "Switch on"} ${environment.label}` disabled=(busy or environment.unsupported) testId=(environment.active ? "disconnect" : `environment-switch-${environment.environmentId}`) width="1.625rem" height="1rem" padding="0.125rem" border-width=0 border-radius="624.9375rem" box-sizing="border-box" display="flex" flex-direction="row" align-items="center" justify-content=(environment.enabled ? "flex-end" : "flex-start") opacity=(environment.unsupported ? 0.64 : 1) background-color=(environment.enabled ? "light-dark(#1b4ed8, #346bf1)" : "light-dark(#d4d4d8, #ffffff14)") title=""
+            button press=op("environment-enabled", environment.key, (environment.enabled ? "off" : "on")) role="switch" aria-checked=environment.enabled aria-label=`${environment.enabled ? "Switch off" : "Switch on"} ${environment.label}` disabled=(busy or environment.blocked) testId=(environment.active ? "disconnect" : `environment-switch-${environment.environmentId}`) width="1.625rem" height="1rem" padding="0.125rem" border-width=0 border-radius="624.9375rem" box-sizing="border-box" display="flex" flex-direction="row" align-items="center" justify-content=(environment.enabled ? "flex-end" : "flex-start") opacity=(environment.blocked ? 0.64 : 1) background-color=(environment.enabled ? "light-dark(#1b4ed8, #346bf1)" : "light-dark(#d4d4d8, #ffffff14)") title=""
               box width="0.75rem" height="0.75rem" border-radius="624.9375rem" background-color="light-dark(#fcfcfc, #0a0a0a)"
             if tip == "switch"
               CnTooltip(tip=environment.switchTip, tipId=`environment-switch-tip-${environment.environmentId}`, above=20)

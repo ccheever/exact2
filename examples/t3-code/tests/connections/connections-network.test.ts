@@ -1,10 +1,10 @@
 // Network access in Settings › Connections: the This machine rows, the Authorized clients fold
-// and their commands, against ConnectionsSettings.tsx (MIT, see LICENSE-T3; reference 1e2ecbd975):
+// and their commands, against ConnectionsSettings.tsx (MIT, see LICENSE-T3; reference 74541bab17):
 // every state the rows draw (loading, local-only, reachable, Tailscale, empty, error), the pairing and
 // client rows, the dialogs' serials (closing on success, or on any outcome for network access), the
 // persisted relaunch request, and the copy / reveal path.
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
-import { formatElapsedDurationLabel, formatExpiresInLabel, networkPage, networkProjection, networkUi, resetNetwork, runNetworkOp, NETWORK_OPS, type NetworkInput } from '../../src/connections/connections-network';
+import { formatElapsedDurationLabel, formatExpiresInLabel, missingTailscaleEndpointDescription, networkPage, networkProjection, networkUi, resetNetwork, runNetworkOp, NETWORK_OPS, type NetworkInput } from '../../src/connections/connections-network';
 import { CONNECTION_OPS, connectionsPage, connectionsProjection } from '../../src/connections/connections';
 import { access, AUTH_ACCESS_KEY, createdCredentials, EMPTY_AUTH_ACCESS_SNAPSHOT, type AuthClientSession, type AuthPairingLink } from '../../src/connections/auth-access';
 import { environmentKey, fleet } from '../../src/connections/settings-b-fleet';
@@ -49,7 +49,8 @@ describe('This machine › Network access and Tailscale HTTPS rows', () => {
   it('is limited to this machine while local-only: no endpoints, but Authorized clients stays (canReadAccess || canWriteAccess)', () => {
     const view = networkProjection(input({ state: { ...networkOn, mode: 'local-only', endpointUrl: null, advertisedHost: null }, endpoints: [loopback] }));
     expect([view.networkOn, view.fallback, view.summaryUrl, view.endpoints, view.clientsVisible]).toEqual([false, 'Limited to this machine.', '', [], true]);
-    expect(view.tailscaleDescription).toBe('Start Tailscale to set up HTTPS access through MagicDNS.');
+    // The probe is skipped while local-only without Serve, so a missing endpoint means "not checked".
+    expect(view.tailscaleDescription).toBe('Turn on Network access to detect Tailscale.');
     expect(view.tailscale).toBe(false);
     const own = networkProjection(input({ state: { ...networkOn, mode: 'local-only', endpointUrl: null, advertisedHost: null }, endpoints: [loopback],
       access: { loaded: true, error: '', pairingLinks: [], clientSessions: [session('desktop', { current: true })] } }));
@@ -85,6 +86,19 @@ describe('This machine › Network access and Tailscale HTTPS rows', () => {
     networkUi.exposureError = 'No reachable network address is available for desktop network access on port 16101.';
     expect(networkProjection(input()).error).toBe(networkUi.exposureError);
     expect(networkProjection(input({ loadError: 'Failed to read desktop network interfaces on darwin.' })).error).toBe(networkUi.exposureError);
+  });
+});
+
+describe('missingTailscaleEndpointDescription', () => {
+  it('explains that detection waits for Network access when the probe was skipped', () => {
+    expect(missingTailscaleEndpointDescription({ mode: 'local-only', tailscaleServeEnabled: false })).toBe('Turn on Network access to detect Tailscale.');
+  });
+  it('asks to start Tailscale when it was probed and not found', () => {
+    for (const state of [{ mode: 'network-accessible', tailscaleServeEnabled: false }, { mode: 'local-only', tailscaleServeEnabled: true }] as const) {
+      expect(missingTailscaleEndpointDescription(state)).toBe('Start Tailscale to set up HTTPS access through MagicDNS.');
+    }
+    // Before the first read the reference's state is null.
+    expect(missingTailscaleEndpointDescription(null)).toBe('Start Tailscale to set up HTTPS access through MagicDNS.');
   });
 });
 

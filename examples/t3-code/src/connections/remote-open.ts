@@ -1,12 +1,13 @@
 // Remote open-in-editor (MIT reference, see LICENSE-T3: apps/web/src/remoteOpen.ts,
 // components/chat/OpenInPicker.tsx and OpenInPicker.logic.ts, ChatMarkdown.tsx
 // canUseMarkdownFileShellActions, apps/desktop/src/electron/ElectronShell.ts
-// parseSafeExternalUrl, at 1e2ecbd975; the remote editor links at 9c161462c9). When this client
+// parseSafeExternalUrl, at 1e2ecbd975; the remote editor links and their usernames at 74541bab17). When this client
 // is not on the environment's machine, "Open" hands the OS a `vscode://vscode-remote/ssh-remote+…`
 // deep link (Zed's and JetBrains' own shapes too; the local editor connects over SSH) instead of
 // running an editor on the environment's host.
 // Host precedence: the SSH alias of a saved SSH environment beats the server's advertised
-// `remoteOpenTargets` (tailnet name first, then mDNS). The editors offered are the
+// `remoteOpenTargets` (tailnet name first, then mDNS). The link carries the login username: the SSH target's,
+// else one written in the alias (`user@host`), else the one the server advertises with its host. The editors offered are the
 // remote-capable ones this Mac has (T3RemoteEditors.swift probes them), else VS Code.
 //
 // The primary is the embedded server on this Mac (local-primary.ts), and an SSH environment is a
@@ -21,7 +22,8 @@ import { savedRoutes } from './connection-routes';
 import { sshTargets } from './settings-b-ssh';
 import type { T3Client } from '../client/client';
 
-export type RemoteOpenHost = { kind: 'ssh-alias' | 'tailscale' | 'mdns'; host: string };
+export type RemoteOpenHost = { kind: 'ssh-alias' | 'tailscale' | 'mdns'; host: string; username?: string };
+export type SshOpenTarget = { alias: string; username: string | null };
 export type RemoteOpenState = { mode: 'local-exec' } | { mode: 'remote-links'; host: RemoteOpenHost } | { mode: 'remote-unavailable' };
 export type RemoteOpenMode = RemoteOpenState['mode'];
 /** ConnectionTarget's tags, as far as the clone has them (no relay, no WSL). */
@@ -36,7 +38,7 @@ function hostnameOf(url: string): string | null {
 const loopbackHost = (hostname: string) => /^(localhost|127(?:\.\d{1,3}){3}|\[::1\]|::1)$/i.test(hostname);
 
 /** resolveRemoteOpenState. */
-export function resolveRemoteOpenState(input: { target: RemoteTarget | null; sshAlias: string | null; remoteOpenTargets: { kind: string; host: string }[] | undefined; isDesktopRenderer: boolean }): RemoteOpenState {
+export function resolveRemoteOpenState(input: { target: RemoteTarget | null; sshTarget: SshOpenTarget | null; remoteOpenTargets: { kind: string; host: string; username?: string }[] | undefined; isDesktopRenderer: boolean }): RemoteOpenState {
   const { target } = input;
   // No catalog entry: keep the exec behavior rather than guessing.
   if (target === null) return LOCAL_EXEC;
@@ -48,9 +50,14 @@ export function resolveRemoteOpenState(input: { target: RemoteTarget | null; ssh
   } else if (target.kind === 'desktop-local') {
     return LOCAL_EXEC;
   }
-  if (input.sshAlias !== null && input.sshAlias.length > 0) return { mode: 'remote-links', host: { kind: 'ssh-alias', host: input.sshAlias } };
+  if (input.sshTarget !== null && input.sshTarget.alias.length > 0) {
+    // A bare alias leaves the user to the editor's SSH config; a username from either place is kept, the target's first.
+    const { alias } = input.sshTarget, at = alias.lastIndexOf('@');
+    const username = input.sshTarget.username?.trim() || (at === -1 ? null : alias.slice(0, at));
+    return { mode: 'remote-links', host: { kind: 'ssh-alias', host: at === -1 ? alias : alias.slice(at + 1), ...(username ? { username } : {}) } };
+  }
   const advertised = input.remoteOpenTargets?.[0];
-  if (advertised !== undefined) return { mode: 'remote-links', host: { kind: advertised.kind === 'mdns' ? 'mdns' : 'tailscale', host: advertised.host } };
+  if (advertised !== undefined) return { mode: 'remote-links', host: { kind: advertised.kind === 'mdns' ? 'mdns' : 'tailscale', host: advertised.host, ...(advertised.username ? { username: advertised.username } : {}) } };
   return REMOTE_UNAVAILABLE;
 }
 
@@ -69,8 +76,8 @@ export function canUseMarkdownFileShellActions(environmentId: string | null, rem
 // ── Safe external URLs (ElectronShell.ts parseSafeExternalUrl; Swift's T3RemoteEditors.safeExternalUrl is the gate) ──
 const SAFE_WEB_PROTOCOLS = new Set(['http:', 'https:']);
 const REMOTE_EDITOR_PROTOCOLS = new Set(REMOTE_CAPABLE_EDITOR_IDS.flatMap(id => { const scheme = remoteSchemeForEditor(id); return scheme ? [`${scheme}:`] : []; }));
-// Zed's host sits in the first path segment, so it needs its own userinfo ban.
-const ZED_SSH_PATHNAME = /^\/[^/@:]+\/.*$/;
+// Zed embeds [user@]host in the path; reject passwords and ports there.
+const ZED_SSH_PATHNAME = /^\/(?:[^/@:]+@)?[^/@:]+\/.*$/;
 function isRemoteEditorUrl(url: URL): boolean {
   return REMOTE_EDITOR_PROTOCOLS.has(url.protocol) && url.username.length === 0 && url.password.length === 0
     && (url.protocol === 'zed:' ? url.host === 'ssh' && ZED_SSH_PATHNAME.test(url.pathname)
@@ -119,33 +126,35 @@ async function markRemoteHintSeen(native: Native): Promise<void> {
 }
 
 // ── The focused environment's target ──
-let aliases: { loaded: boolean; values: Record<string, string> } = { loaded: false, values: {} };
-/** The saved SSH environments' aliases by loopback origin; read again after an SSH environment is added. */
-export async function loadSshAliases(native: Native | null | undefined, fresh = false): Promise<Record<string, string>> {
+let aliases: { loaded: boolean; values: Record<string, SshOpenTarget> } = { loaded: false, values: {} };
+/** The saved SSH environments' aliases and usernames by loopback origin; read again after an SSH environment is added. */
+export async function loadSshAliases(native: Native | null | undefined, fresh = false): Promise<Record<string, SshOpenTarget>> {
   if (aliases.loaded && !fresh) return aliases.values;
   const targets = await sshTargets(native);
-  const saved = Object.fromEntries(Object.entries(targets).map(([origin, target]) => [trimOrigin(origin), target.alias]));
+  const saved = Object.fromEntries(Object.entries(targets).map(([origin, target]) => [trimOrigin(origin), { alias: target.alias, username: target.username }]));
   aliases = { loaded: true, values: { ...saved, ...(!fresh ? aliases.values : {}) } };
   return aliases.values;
 }
-export function rememberSshAlias(origin: string, alias: string): void {
+export function rememberSshAlias(origin: string, alias: string, username: string | null = null): void {
   // Adding one tunnel does not mean the previously saved tunnels have been loaded.
-  aliases.values[trimOrigin(origin)] = alias;
+  aliases.values[trimOrigin(origin)] = { alias, username };
 }
 
-export type RemoteOpen = { state: RemoteOpenState; resolved: boolean; primary: boolean; label: string };
+/** `connectionLabel` is the connection's own name (ConnectionTarget.label): the saved environment's, else the server's. */
+export type RemoteOpen = { state: RemoteOpenState; resolved: boolean; primary: boolean; label: string; connectionLabel: string };
 /** useRemoteOpenResolution for the focused environment, from what is known now (sync: the keyboard dispatch reads it). */
 export function remoteOpenFor(client: T3Client): RemoteOpen {
   const origin = trimOrigin(str(client.origin));
   const saved = fleet.saved.find(entry => str(entry.environmentId) === client.environmentId);
   const sshRoute = saved ? savedRoutes(saved).find(route => route.kind === 'ssh') : undefined;
-  const alias = sshRoute?.ssh?.alias || (sshRoute ? aliases.values[trimOrigin(sshRoute.origin)] : null) || aliases.values[origin] || null;
-  const target: RemoteTarget | null = !client.environmentId || !origin ? null : alias ? { kind: 'ssh' } : focusedOnPrimary(client) ? { kind: 'primary', httpBaseUrl: origin } : { kind: 'bearer' };
+  const sshTarget: SshOpenTarget | null = sshRoute?.ssh?.alias ? { alias: sshRoute.ssh.alias, username: sshRoute.ssh.username }
+    : (sshRoute ? aliases.values[trimOrigin(sshRoute.origin)] : undefined) || aliases.values[origin] || null;
+  const target: RemoteTarget | null = !client.environmentId || !origin ? null : sshTarget?.alias ? { kind: 'ssh' } : focusedOnPrimary(client) ? { kind: 'primary', httpBaseUrl: origin } : { kind: 'bearer' };
   const advertised = Array.isArray(obj(client.config).remoteOpenTargets)
-    ? arr(obj(client.config).remoteOpenTargets).map(entry => ({ kind: str(entry.kind), host: str(entry.host).trim() })).filter(entry => entry.host) : undefined;
-  const state = resolveRemoteOpenState({ target, sshAlias: alias, remoteOpenTargets: advertised, isDesktopRenderer: true });
+    ? arr(obj(client.config).remoteOpenTargets).map(entry => ({ kind: str(entry.kind), host: str(entry.host).trim(), username: str(entry.username).trim() })).filter(entry => entry.host) : undefined;
+  const state = resolveRemoteOpenState({ target, sshTarget, remoteOpenTargets: advertised, isDesktopRenderer: true });
   const label = str(obj(obj(client.config).environment).label).trim() || 'this machine';
-  return { state, resolved: aliases.loaded && target !== null, primary: target?.kind === 'primary', label };
+  return { state, resolved: aliases.loaded && target !== null, primary: target?.kind === 'primary', label, connectionLabel: str(saved?.label).trim() || label };
 }
 
 /** The editors Open offers here: the server's PATH probe on this machine, else this Mac's remote-capable ones. */
@@ -179,24 +188,25 @@ export function openFavoriteEnabled(client: T3Client, projectName: string): bool
 }
 
 /**
- * OpenInPicker openInEditor: on this machine the server runs the editor (shell.openInEditor); remotely the
- * deep link goes to the OS, and only an accepted link counts as the first remote open; with no SSH route
- * nothing opens. Returns whether the editor became the preferred one.
+ * OpenInPicker openInEditor: on this machine the server runs the editor (shell.openInEditor; `reveal` selects a
+ * file in the file manager instead of opening it); remotely the deep link goes to the OS (`isFile` opens a file, not
+ * a folder), and only an accepted link counts as the first remote open; with no SSH route nothing opens. Returns
+ * whether the editor became the preferred one.
  */
-export async function openInEditorHere(client: T3Client, native: Native, cwd: string, editor: string): Promise<boolean> {
+export async function openInEditorHere(client: T3Client, native: Native, cwd: string, editor: string, options: { isFile?: boolean; reveal?: boolean } = {}): Promise<boolean> {
   if (!cwd || !editor) return false;
   await loadSshAliases(native);
   const remote = remoteOpenFor(client);
   if (remote.state.mode === 'remote-unavailable') return false;
   if (remote.state.mode === 'remote-links') {
-    const url = buildRemoteOpenUrl({ editor, host: remote.state.host.host, absolutePath: cwd });
+    const url = buildRemoteOpenUrl({ editor, ...remote.state.host, absolutePath: cwd, isFile: options.isFile === true });
     if (url === undefined) return false;
     const reply = await bridgeReply(native, { op: 'remoteEditorsOpen', url }).catch(() => null);
     if (!reply?.ok || obj(reply.value).opened !== true) return false;
     await markRemoteHintSeen(native);
     return true;
   }
-  await client.restAccess(native).request('shell.openInEditor', { cwd, editor });
+  await client.restAccess(native).request('shell.openInEditor', { cwd, editor, ...(options.reveal && editor === 'file-manager' ? { reveal: true } : {}) });
   return true;
 }
 

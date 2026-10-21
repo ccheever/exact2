@@ -49,6 +49,9 @@ shape TerminalPaneView
   active: bool
   focusRequest: number
   target: string
+  cwd: string // the pane's launch location: a known session's own, else the thread's
+  worktree: string
+  env: string
 shape TerminalTabView
   id: string
   label: string
@@ -160,7 +163,7 @@ component TerminalContent
           for pane in view.panes key=pane.sessionKey
             // ThreadTerminalDrawer.tsx:1511-1530: no pane header; a pane activates when it takes focus (focus-in).
             column flex=1 min-width=0 min-height=0 border-width=0 border-right-width=(view.direction == "row" and view.panes.length > 1 ? 1 : 0) border-bottom-width=(view.direction == "column" and view.panes.length > 1 ? 1 : 0) border-style="solid" border-color=(pane.active ? "light-dark(#e4e4e7, #ffffff1a)" : "light-dark(#e4e4e7b3, #ffffff12)") testId=`terminal-pane-${pane.terminalId}`
-              t3-terminal read-only=view.readOnly terminal=pane.terminalId environment=view.environmentId thread=view.threadId cwd=view.cwd worktree=view.worktree env=view.env active=view.open terminal-surface=view.surface focus-request=pane.focusRequest keybindings=view.keybindings close-pending=closePending can-add-to-chat=true terminal-label=pane.label scheme=(dark ? "dark" : "light") terminal-theme=(dark ? look.terminalDark : look.terminalLight) terminal-font=look.terminalFont terminal-font-size=look.terminalSize message=message(pane.target) focus=focused(pane.target, true) blur=focused(pane.target, false) aria-label=pane.label testId=(pane.active and view.surface == "drawer" ? "terminal-view" : `terminal-view-${pane.terminalId}`) flex=1 min-width=0 min-height=0
+              t3-terminal read-only=view.readOnly terminal=pane.terminalId environment=view.environmentId thread=view.threadId cwd=pane.cwd worktree=pane.worktree env=pane.env active=view.open terminal-surface=view.surface focus-request=pane.focusRequest keybindings=view.keybindings close-pending=closePending can-add-to-chat=true terminal-label=pane.label scheme=(dark ? "dark" : "light") terminal-theme=(dark ? look.terminalDark : look.terminalLight) terminal-font=look.terminalFont terminal-font-size=look.terminalSize message=message(pane.target) focus=focused(pane.target, true) blur=focused(pane.target, false) aria-label=pane.label testId=(pane.active and view.surface == "drawer" ? "terminal-view" : `terminal-view-${pane.terminalId}`) flex=1 min-width=0 min-height=0
         if not view.showTabs
           box position="absolute" right="0.5rem" top="0.5rem" z-index=20
             TerminalToolbar(view=view, command=command, confirm=confirm, strip=false)

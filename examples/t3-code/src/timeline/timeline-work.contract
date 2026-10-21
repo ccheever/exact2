@@ -306,6 +306,8 @@ component WorkEntry
     urls: AttachmentUrl[]
     // (id, extra): what this row adds over a compact row while open (WorkEntries' expandedContentHeight).
     sized: action
+    // Appearance → Diff colors (look.diff): the file change's counts are text-diff-addition / text-diff-deletion.
+    diffScheme: string
   derive expanded = entry.detailOpen
   state hovering = false
   action mediaLocal(op: string, id: string, value: string)
@@ -362,8 +364,8 @@ component WorkEntry
                 text entry.changePath min-width=0 font-family="ui-monospace" font-size=codeSize line-height=1.625 overflow-wrap="anywhere" color="light-dark(#71717b, #818181)"
                 if entry.stats
                   row gap="0.25rem" align-items="center" aria-label=`${entry.additions} additions, ${entry.deletions} deletions`
-                    text `+${entry.additions}` font-size="0.75rem" line-height="1rem" color="#00bc7d"
-                    text `-${entry.deletions}` font-size="0.75rem" line-height="1rem" color="light-dark(#fb2c36, #fb414a)"
+                    text `+${entry.additions}` font-size="0.75rem" line-height="1rem" color=(diffScheme == "blue-orange" ? "light-dark(#155dfc, #51a2ff)" : "#00bc7d")
+                    text `-${entry.deletions}` font-size="0.75rem" line-height="1rem" color=(diffScheme == "blue-orange" ? "light-dark(#f54900, #ff8904)" : "light-dark(#fb2c36, #fb414a)")
                 if entry.diffRunId != ""
                   button press=command("turn-diff", entry.diffPath, entry.diffRunId, 0) testId=`work-open-diff-${entry.id}` aria-label="Open diff" height="1.5rem" padding-left="0.4375rem" padding-right="0.4375rem" box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#ffffff, #ffffff07)" box-shadow="0 1px 2px #0000000d" display="flex" flex-direction="row" align-items="center" flex-shrink=0
                     text "Open diff" font-size="0.75rem" line-height="1rem" font-weight=500 white-space="nowrap" color="light-dark(#27272a, #f5f5f5)"

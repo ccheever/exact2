@@ -79,7 +79,7 @@ final class SshAuthTests: XCTestCase {
         XCTAssertEqual(try attempt(ssh, target), "ok")
         while dialog.isExecuting { Thread.sleep(forTimeInterval: 0.01) }
         XCTAssertEqual(requests.count, 2, "two prompts")
-        XCTAssertEqual(requests.first?["prompt"] as? String, "Enter the SSH password for me@box.")
+        XCTAssertEqual(requests.first?["prompt"] as? String, "Enter the SSH password or verification code for me@box.")
         XCTAssertEqual(requests.first?["destination"] as? String, "box"); XCTAssertEqual(requests.first?["username"] as? String, "me")
         XCTAssertEqual(requests.map { $0["attempt"] as? Int ?? 0 }, [1, 2])
         XCTAssertEqual(log(), ["batch refused box", "password refused box", "password accepted box"])
@@ -232,12 +232,14 @@ final class SshAuthTests: XCTestCase {
         XCTAssertEqual(T3RemoteEditors.safeExternalUrl("vscode://vscode-remote/ssh-remote+example.com/home/user/project"), "vscode://vscode-remote/ssh-remote+example.com/home/user/project")
         XCTAssertEqual(T3RemoteEditors.safeExternalUrl("zed://ssh/example.com/home/user/project"), "zed://ssh/example.com/home/user/project")
         XCTAssertEqual(T3RemoteEditors.safeExternalUrl("zed://ssh/example.com/"), "zed://ssh/example.com/")
+        XCTAssertEqual(T3RemoteEditors.safeExternalUrl("zed://ssh/admin-user@example.com/home/user/project"), "zed://ssh/admin-user@example.com/home/user/project")
+        XCTAssertEqual(T3RemoteEditors.safeExternalUrl("vscode://vscode-remote/ssh-remote+admin-user%40example.com/home/user/project:1:1"), "vscode://vscode-remote/ssh-remote+admin-user%40example.com/home/user/project:1:1")
         let jetbrains = "jetbrains://gateway/ssh/environment?h=example.com&launchIde=true&ideHint=PY&projectHint=%2Fhome%2Fuser%2Fproject"
         XCTAssertEqual(T3RemoteEditors.safeExternalUrl(jetbrains), jetbrains)
         for refused in ["jetbrains://gateway/ssh/environment?launchIde=true", "jetbrains://gateway/ssh/environment?h=", "jetbrains://idea/navigate/reference?project=x",
                         "jetbrains://user@gateway/ssh/environment?h=example.com", "jetbrains://gateway/com.example.provider/connect?h=x",
                         "zed://extension/attacker", "vscode://ssh/example.com/home/user/project", "vscode://user@vscode-remote/ssh-remote+example.com/home/user/project",
-                        "vscode://:secret@vscode-remote/ssh-remote+example.com/home/user/project", "zed://ssh/user@example.com/home/user/project", "file:///etc/passwd",
+                        "vscode://:secret@vscode-remote/ssh-remote+example.com/home/user/project", "zed://ssh/user:secret@example.com/home/user/project", "zed://ssh/user@example.com:22/home/user/project", "file:///etc/passwd",
                         "vscode://ms-python.python/some-command?argument=attacker", "vscode://vscode-remote/ssh-remote+"] {
             XCTAssertNil(T3RemoteEditors.safeExternalUrl(refused), refused)
         }

@@ -1,7 +1,8 @@
 // Tailscale for "This machine", after T3 Code (MIT,
-// see LICENSE-T3; reference 1e2ecbd975): packages/tailscale/src/tailscale.ts (the pure parts) and
+// see LICENSE-T3; reference 74541bab17): packages/tailscale/src/tailscale.ts (the pure parts) and
 // apps/desktop/src/backend/tailscaleEndpointProvider.ts. The native module runs `tailscale status
-// --json` (1.5 s limit, cached 60 s; T3LocalNetwork.swift) and probes the HTTPS endpoint; this file
+// --json` (1.5 s limit, cached 60 s per set of Tailscale IPv4 addresses; T3LocalNetwork.swift) and
+// probes the HTTPS endpoint; this file
 // turns those facts into advertised endpoints. `tailscale serve` itself runs inside the embedded
 // server (apps/server/src/server.ts), never in the app.
 import { createAdvertisedEndpoint, type AdvertisedEndpoint, type AdvertisedEndpointProvider } from './advertised-endpoint';
@@ -68,13 +69,19 @@ export type NetworkInterfaces = Readonly<Record<string, readonly NetworkInterfac
 
 const TAILSCALE_ENDPOINT_PROVIDER: AdvertisedEndpointProvider = { id: 'tailscale', label: 'Tailscale', kind: 'private-network', isAddon: true };
 
-function resolveTailscaleIpAdvertisedEndpoints(input: { port: number; networkInterfaces: NetworkInterfaces }): AdvertisedEndpoint[] {
+function resolveTailscaleIpAdvertisedEndpoints(input: { port: number; networkInterfaces: NetworkInterfaces; status: TailscaleStatus | null }): AdvertisedEndpoint[] {
   const seen = new Set<string>();
   const endpoints: AdvertisedEndpoint[] = [];
-  for (const interfaceAddresses of Object.values(input.networkInterfaces)) {
+  for (const [interfaceName, interfaceAddresses] of Object.entries(input.networkInterfaces)) {
     if (!interfaceAddresses) continue;
+    // CGNAT space is shared with other VPNs. The adapter's own identity also works when the CLI is missing or its
+    // cached status predates a connection (macOS names Tailscale's adapter utunN, so there it is the IPv6 prefix).
+    const isTailscaleInterface = /^tailscale(?:\d+|ipv[46])?$/iu.test(interfaceName)
+      || interfaceAddresses.some(address => !address.internal && address.family === 'IPv6' && /^fd7a:115c:a1e0:/iu.test(address.address));
     for (const address of interfaceAddresses) {
-      if (address.internal || address.family !== 'IPv4' || !isTailscaleIpv4Address(address.address) || seen.has(address.address)) continue;
+      if (address.internal || address.family !== 'IPv4' || !isTailscaleIpv4Address(address.address)) continue;
+      if (!isTailscaleInterface && !input.status?.tailnetIpv4Addresses.includes(address.address)) continue;
+      if (seen.has(address.address)) continue;
       seen.add(address.address);
       endpoints.push(createAdvertisedEndpoint({
         provider: TAILSCALE_ENDPOINT_PROVIDER, source: 'desktop-addon', id: `tailscale-ip:http://${address.address}:${input.port}`, label: 'Tailscale IP',
@@ -100,17 +107,18 @@ async function resolveTailscaleMagicDnsAdvertisedEndpoint(input: { dnsName: stri
 }
 
 /**
- * resolveTailscaleAdvertisedEndpoints: the Tailscale IPs from the interfaces, then the MagicDNS
- * HTTPS endpoint (available only when Serve is on and the probe answers). The MagicDNS name comes
- * from `statusJson` when given (null: none), else from `readMagicDnsName` (the native status read).
+ * resolveTailscaleAdvertisedEndpoints: the Tailscale IPs from the interfaces (an address in CGNAT space counts only on
+ * Tailscale's adapter or when the status lists it), then the MagicDNS HTTPS endpoint (available only when Serve is on
+ * and the probe answers). The status comes from `statusJson` when given (null: none), else from `readStatus` (the
+ * native status read).
  */
 export async function resolveTailscaleAdvertisedEndpoints(input: { port: number; serveEnabled?: boolean; servePort?: number; networkInterfaces: NetworkInterfaces;
-  statusJson?: string | null; readMagicDnsName?: () => Promise<string | null>; probe?: (baseUrl: string) => Promise<boolean> }): Promise<AdvertisedEndpoint[]> {
-  const ipEndpoints = resolveTailscaleIpAdvertisedEndpoints(input);
-  const dnsName = input.statusJson === undefined
-    ? await (input.readMagicDnsName ?? (async () => null))().catch(() => null)
-    : input.statusJson ? (() => { try { return parseTailscaleMagicDnsName(input.statusJson); } catch { return null; } })() : null;
-  const magicDnsEndpoint = await resolveTailscaleMagicDnsAdvertisedEndpoint({ dnsName, serveEnabled: input.serveEnabled === true,
+  statusJson?: string | null; readStatus?: () => Promise<TailscaleStatus | null>; probe?: (baseUrl: string) => Promise<boolean> }): Promise<AdvertisedEndpoint[]> {
+  const status = input.statusJson === undefined
+    ? await (input.readStatus ?? (async () => null))().catch(() => null)
+    : input.statusJson ? (() => { try { return parseTailscaleStatus(input.statusJson); } catch { return null; } })() : null;
+  const ipEndpoints = resolveTailscaleIpAdvertisedEndpoints({ ...input, status });
+  const magicDnsEndpoint = await resolveTailscaleMagicDnsAdvertisedEndpoint({ dnsName: status?.magicDnsName ?? null, serveEnabled: input.serveEnabled === true,
     ...(input.servePort === undefined ? {} : { servePort: input.servePort }), ...(input.probe === undefined ? {} : { probe: input.probe }) });
   return magicDnsEndpoint ? [...ipEndpoints, magicDnsEndpoint] : ipEndpoints;
 }
