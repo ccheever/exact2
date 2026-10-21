@@ -970,10 +970,10 @@ export const pieces = () => Promise.all([Motion, Inputs, Presence, Flow, Native,
  * row wrapper, list.js): whether it stays, leaving, for presence-glue.js to remove. */
 export function exitView(el, css) { if (!Pres || !css) return false; Pres.exit(el, css); return exiting(el); }
 const Created = [], Bound = new Map(), LT = "--exact-layout-transition";
-export function lt(e, declaring, f) { Bound.set(e, () => { try { return declaring.includes(untracked(f)); } catch { return false; } }); onEnd(() => { Bound.delete(e); const i = Ids.get(e); if (Views.get(i) === e) Views.delete(i); }); pr(e); } // a bound layout transition (GitHub #809): whether its binding names a value that declares it
-// Their style ops as wasm's batch carries them: before the tree update a view gaining the row, after each whose declaration changed.
+export function lt(e, declaring, f) { Bound.set(e, () => { const d = node(null), [l, o] = [Listener, Owner]; Listener = Owner = d; try { return declaring.includes(f()); } catch { return false; } finally { Listener = l; Owner = o; drop(d); } }); onEnd(() => Bound.delete(e)); pr(e); } // a bound layout transition (GitHub #809): whether its binding names a value that declares it, read as its effect reads (the committed clock)
+// As wasm's ops: before the tree update a view gaining the row; after, each whose declaration changed (a create: not a restyle, as paint.js keeps a ghost parent's isolation).
 const gains = () => { const ops = []; for (const [e, will] of Bound) { e.$lt = !!e.style.getPropertyValue(LT); if (!e.$lt && e.isConnected && will()) ops.push({ op: "style", id: viewId(e), css: LT }); } return ops; };
-const restyled = () => { const ops = []; for (const e of Bound.keys()) { const now = !!e.style.getPropertyValue(LT); if (e.isConnected && e.$lt !== now) ops.push({ op: "style", id: viewId(e), css: e.style.cssText }); e.$lt = now; } return ops; };
+const restyled = () => { const ops = []; for (const e of Bound.keys()) { const now = !!e.style.getPropertyValue(LT); if (e.isConnected && e.$lt !== now) ops.push({ op: "create", id: viewId(e) }); e.$lt = now; } return ops; };
 export function pr(e) {
   Created.push(e);
   if (Presence || typeof requestAnimationFrame !== "function" || globalThis.__exactRender) return;

@@ -52,10 +52,10 @@ test('a bound layout transition slides while it holds a curve, jumps at none, an
     const page = await (await browser.newContext({ viewport: { width: 400, height: 700 } })).newPage();
     await page.goto(server.url.href);
     await page.waitForFunction(() => globalThis.exact?.presenceLive);
-    // The ops presence hears, as wasm's batch would carry them: a style op only for a view gaining or losing the row.
+    // The ops presence hears, as wasm's batch would carry them: one only for a view gaining (before) or losing or gaining (after) the row.
     await page.evaluate(() => {
       const p = globalThis.exact.presenceLive, heard = globalThis.heard = [];
-      for (const k of ['before', 'after']) { const f = p[k].bind(p); p[k] = (batch, views) => { heard.push([k, (batch.ops ?? []).filter((op) => op.op === 'style').length]); return f(batch, views); }; }
+      for (const k of ['before', 'after']) { const f = p[k].bind(p); p[k] = (batch, views) => { heard.push([k, (batch.ops ?? []).length]); return f(batch, views); }; }
     });
     const heard = () => page.evaluate(() => globalThis.heard.splice(0));
     // Each press: the row's declaration, then where it shows now against where it lands, and whether it plays.
