@@ -120,6 +120,8 @@ check("the wasm host: an agent's settle waits for a view's first size, however l
     await page.goto(`${server.url.href}?agent=1`);
     await booted(page);
     const held = await page.evaluate(async () => {
+      // Caltrain's own startup loads (its images' hold, which a clock awaits first) done before the 300 ms begin.
+      await globalThis.exact.agentSettled({ op: 'clock', settle: true });
       const bytes = await fetch('/__plan').then((r) => r.arrayBuffer()), loading = globalThis.exact.reload(new Uint8Array(bytes), true);
       await globalThis.__observed;
       await loading;
