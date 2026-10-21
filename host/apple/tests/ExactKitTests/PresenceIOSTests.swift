@@ -118,6 +118,23 @@ final class PresenceIOSTests: XCTestCase {
         p.reset()
     }
 
+    /// A tablist padded at a side keeps its bar inside the padding, the
+    /// bar's edges on the device's pixel grid (LLP 1059 D2): duo-lab's tabs
+    /// on a book fold's trailing segment, from 495.5 points.
+    func testTabBarSpansAPaddedTablistsContentBoxOnThePixelGrid() throws {
+        let p = tabBarFixture()
+        defer { p.reset() }
+        p.apply(wireBatch([["op": "frame", "id": 10, "x": 0.0, "y": 0.0, "w": 951.0, "h": 83.0],
+                           ["op": "fieldContent", "id": 10, "rect": [495.5, 0.0, 455.5, 83.0], "padding": [0.0, 0.0, 0.0, 495.5]]]))
+        let owner = try XCTUnwrap(p.views[10])
+        let bar = try XCTUnwrap(owner.subviews.first { $0 is UITabBar })
+        XCTAssertEqual(bar.frame.minX, PixelGrid.round(495.5, scale: p.gridScale), accuracy: 0.0001, "the left edge on the grid, inside the padding")
+        XCTAssertEqual(bar.frame.maxX, owner.bounds.maxX, accuracy: 0.0001)
+        XCTAssertEqual(bar.frame.height, owner.bounds.height)
+        p.apply(wireBatch([["op": "fieldContent", "id": 10]]))
+        XCTAssertEqual(bar.frame, owner.bounds, "unpadded, the bar fills the box again")
+    }
+
     /// Measured again when what sizes it changes: a segment's title, the
     /// text size, a hatch's background image; not otherwise.
     func testASegmentedTablistIsMeasuredAgainWhenWhatSizesItChanges() throws {

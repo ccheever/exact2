@@ -38,6 +38,13 @@ const ROOT = resolve(new URL('..', import.meta.url).pathname);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const byTestId = (t, id) => t.nodes.find((n) => n.props.testId === id);
 const box = (l, id) => l.nodes.find((n) => n.testId === id);
+/** The frame of the native view of class `cls` in session `s`'s accessibility tree (a bar UIKit draws), or undefined;
+ * an incomplete tree throws, so a bar missing from it is never taken for absent. */
+const axFrame = async (s, cls) => {
+  const ax = (await s.op({ op: 'tree', ax: true })).ax;
+  if (ax?.coverage?.complete !== true) throw new Error(`the accessibility tree is incomplete: ${JSON.stringify(ax?.coverage ?? ax)}`);
+  return ax.elements.find((e) => e.native?.class === cls)?.frame;
+};
 const near = (a, b, eps = 0.01) => typeof a === 'number' && Math.abs(a - b) < eps;
 // A box at a segment's edge, which lies on a half point (455.5, 495.5): iOS draws every box on the device's pixel
 // grid, so the edge lands on the nearest third of a point at 3x.
@@ -319,14 +326,26 @@ async function suite({ open: openSession, check: record }, reset) {
     where = `${name}-reopened`;
     await pose(s, 180); // closed to open in a live session, checked
   };
-  /** Where duo-lab's routes end in layout `l` of session `s`, its chrome checked: under UIKit's bars the authored tablist
-   * has no box and the routes end at the viewport's bottom; under the agent's own chrome (the web leg) the tablist is
-   * laid out below them, as the web does, ending at the viewport's bottom, and they end at its top. */
-  const routesEnd = (s, l, tag) => {
-    const bar = box(l, 'tab-bar'), laid = bar?.w > 0 && bar?.h > 0;
-    if (s.chrome !== 'agent') {
-      check(!laid, `${tag}: under UIKit's bars the authored tablist has no box: ${JSON.stringify(bar)}`);
+  /** Where duo-lab's routes end in layout `l` of session `s`, its chrome checked. The note screen hides the tablist on
+   * either chrome (UIKit's tab bar leaves the accessibility tree), so there they end at the viewport's bottom; iOS's
+   * layout lists only views in the window, so its sheet is listed only while it shows. Under UIKit's bars the authored
+   * tablist has no box. Beside UIKit's tab bar along the bottom a tab's route ends below the bar's top by the home
+   * indicator's inset (34 points on the whole panel), which the panes' padding takes; beside its rail, at the viewport's
+   * bottom. Under the agent's own chrome (the web leg) the tablist is laid out below the routes, as the web does,
+   * ending at the viewport's bottom, and they end at its top. */
+  const routesEnd = async (s, l, tag) => {
+    const bar = box(l, 'tab-bar'), laid = bar?.w > 0 && bar?.h > 0, uikit = s.chrome !== 'agent';
+    if (box(l, 'note-sheet')) {
+      check(!laid && (!uikit || !(await axFrame(s, 'UITabBar'))), `${tag}: the note screen hides the tablist: ${JSON.stringify(bar)}`);
       return l.viewport.h;
+    }
+    if (uikit) {
+      check(!laid, `${tag}: under UIKit's bars the authored tablist has no box: ${JSON.stringify(bar)}`);
+      const f = await axFrame(s, 'UITabBar');
+      if (!check(f, `${tag}: UIKit's tab bar is in the accessibility tree`)) return l.viewport.h;
+      if (f.h > f.w) return l.viewport.h; // a rail at the side
+      check(near(f.x, 0) && near(f.w, l.viewport.w) && near(f.y + f.h, l.viewport.h), `${tag}: UIKit's tab bar runs along the viewport's bottom: ${JSON.stringify(f)} in ${JSON.stringify(l.viewport)}`);
+      return f.y + l.env['safe-area-inset-bottom'];
     }
     check(laid && onGrid(bar.y + bar.h, l.viewport.h), `${tag}: the agent's chrome lays the tablist out at the viewport's bottom: ${JSON.stringify(bar)} in ${JSON.stringify(l.viewport)}`);
     return laid ? bar.y : l.viewport.h;
@@ -363,7 +382,7 @@ async function suite({ open: openSession, check: record }, reset) {
     check(l.env['device-posture'] === (two ? 'folded' : 'continuous'), `${tag}: layout.env reports posture ${l.env['device-posture']}`);
     // The panes sit exactly on the two rects, cut where the routes end (`routesEnd`), whichever axis the device splits
     // (across: each pane the routes' height; down: each the viewport's width, the lower one ending with the routes).
-    const list = box(l, 'pane-list'), detail = box(l, 'pane-detail'), end = routesEnd(s, l, tag);
+    const list = box(l, 'pane-list'), detail = box(l, 'pane-detail'), end = await routesEnd(s, l, tag);
     const on = (pane, r, full) => pane && (full ? near(pane.x, r[0]) && near(pane.w, l.viewport.w) && onGrid(pane.y, r[1]) && onGrid(pane.h, Math.min(r[1] + r[3], end) - r[1]) : onGrid(pane.x, r[0]) && onGrid(pane.w, r[2]) && near(pane.y, r[1]) && near(pane.h, end - r[1]));
     if (segs?.length === 2 && (h === 2 || v === 2)) check(on(list, segs[0], v === 2) && on(detail, segs[1], v === 2), `${tag}: the panes sit on the segments ${JSON.stringify(segs)} (${h}×${v}) above ${end}: list ${JSON.stringify(list)} detail ${JSON.stringify(detail)}`);
     else check(list && detail && near(list.w, l.viewport.w) && near(detail.w, l.viewport.w) && detail.y >= list.y + list.h - 0.01 && onGrid(detail.y + detail.h, end), `${tag}: one pane, the list above the detail, ending with the routes at ${end}: list ${JSON.stringify(list)} detail ${JSON.stringify(detail)}`);
@@ -372,9 +391,9 @@ async function suite({ open: openSession, check: record }, reset) {
   /** At a fold, layout `l` has two segments, and no control of the screen shown lies on the band between them, the
    * hinge: a button, a field, a sheet's drag handle (`heightDragFor`). Scrolling content may cross it (Apple's
    * adaptive-layout talk, developer.apple.com/videos/play/tech-talks/111463), so a control inside a scroller is exempt.
-   * So is the authored tablist, which UIKit's tab bar stands for: a rail at the inner panel's right edge upright, a bar
-   * at its bottom turned, under the keyboard while it is up. The agent's own chrome lays it out across the panel's
-   * bottom instead, over the band on a book fold (QUEUE). */
+   * The authored tablist's tabs count: under UIKit's bars they have no box (UIKit's tab bar is a rail at the inner
+   * panel's right edge upright, a bar at its bottom turned), and under the agent's own chrome they keep to the trailing
+   * segment on a book fold. */
   const offBand = async (s, l, tag) => {
     const segs = l.env['viewport-segments'];
     if (!check(segs?.length === 2, `${tag}: two segments to check the band against, not ${JSON.stringify(segs)}`)) return;
@@ -382,7 +401,7 @@ async function suite({ open: openSession, check: record }, reset) {
     const band = near(a[1], b[1]) ? [a[0] + a[2], a[1], b[0] - a[0] - a[2], a[3]] : [a[0], a[1] + a[3], a[2], b[1] - a[1] - a[3]];
     const nodes = new Map((await s.tree()).nodes.map((n) => [n.id, n]));
     const exempt = (n) => {
-      for (let p = nodes.get(n.parent); p; p = nodes.get(p.parent)) if (['ScrollView', 'List'].includes(p.type) || p.props.accessibilityRole === 'tablist') return true;
+      for (let p = nodes.get(n.parent); p; p = nodes.get(p.parent)) if (['ScrollView', 'List'].includes(p.type)) return true;
       return false;
     };
     const control = (n) => ['Pressable', 'Control', 'TextInput'].includes(n.type) || n.props.heightDragFor != null || (n.handlers ?? []).some((h) => ['press', 'input', 'change'].includes(h));
@@ -393,10 +412,10 @@ async function suite({ open: openSession, check: record }, reset) {
     check(on.length === 0, `${tag}: no control on the band ${JSON.stringify(band)}: ${JSON.stringify(on.map((m) => ({ id: m.testId ?? m.id, x: m.x, y: m.y, w: m.w, h: m.h })))}`);
   };
   /** With the keyboard up where one is expected (layout `l`), the note sheet rides on it: it ends with the routes in the
-   * shortened viewport, below the note's header, with its Dismiss button above that end. */
+   * shortened viewport, below the note's header, with its Dismiss button and its textarea above that end. */
   const onKeyboard = async (s, l, tag) => {
-    const sheet = box(l, 'note-sheet'), back = box(l, 'note-back'), dismiss = box(l, 'note-dismiss'), end = routesEnd(s, l, tag), kb = l.env['keyboard-inset-height'];
-    check(sheet && back && dismiss && near(sheet.y + sheet.h, end) && sheet.y >= back.y + back.h && dismiss.y + dismiss.h <= end && (!(await expected(s, kb)) || kb > 0), `${tag}: the sheet sits on the keyboard-shortened viewport, ending with the routes at ${end}, below the note's header, Dismiss above that end: ${JSON.stringify(sheet)} in ${JSON.stringify(l.viewport)} kb ${kb}, Back ${JSON.stringify(back)}, Dismiss ${JSON.stringify(dismiss)}`);
+    const sheet = box(l, 'note-sheet'), back = box(l, 'note-back'), dismiss = box(l, 'note-dismiss'), area = box(l, 'note-textarea'), end = await routesEnd(s, l, tag), kb = l.env['keyboard-inset-height'];
+    check(sheet && back && dismiss && area && near(sheet.y + sheet.h, end) && sheet.y >= back.y + back.h && dismiss.y + dismiss.h <= end && area.y + area.h <= end + 0.01 && (!(await expected(s, kb)) || kb > 0), `${tag}: the sheet sits on the keyboard-shortened viewport, ending with the routes at ${end}, below the note's header, Dismiss and the textarea above that end: ${JSON.stringify(sheet)} in ${JSON.stringify(l.viewport)} kb ${kb}, Back ${JSON.stringify(back)}, Dismiss ${JSON.stringify(dismiss)}, textarea ${JSON.stringify(area)}`);
   };
   // The insets fixture serves its leg and the keyboard probe, which the legs that type need
   const probe = leg('insets') || leg('keyboard-bar') || leg('lab') || leg('rotate') || leg('web');
@@ -722,7 +741,7 @@ async function suite({ open: openSession, check: record }, reset) {
     await offBand(s, await s.layout(), `${tag} combos`);
     await s.tap('open-note'); await settle(s);
     let l = await s.layout();
-    const lower = l.env['viewport-segments'][1], sheet = box(l, 'note-sheet'), end = routesEnd(s, l, tag);
+    const lower = l.env['viewport-segments'][1], sheet = box(l, 'note-sheet'), end = await routesEnd(s, l, tag);
     check(sheet && onGrid(sheet.y, lower[1]) && near(sheet.y + sheet.h, end), `${tag}: the note sheet stops at the lower segment's top ${lower[1]} and ends with the routes at ${end}: ${JSON.stringify(sheet)}`);
     await offBand(s, l, `${tag} note`);
     const title = `laptop ${tag}`;
@@ -890,8 +909,9 @@ async function suite({ open: openSession, check: record }, reset) {
 
   // 7. The web's layout: duo-lab under the agent's own chrome, which lays the authored tablist out below the routes as
   // the web does, so the routes end above the panel's bottom. Flat, and partially folded side by side and, the device
-  // turned, one above the other, the Fold screen's panes sit on the segments where the routes end; folded like a
-  // laptop, the note sheet keeps to the lower segment above the tablist and rides on the keyboard once it is up, as the
+  // turned, one above the other, the Fold screen's panes sit on the segments where the routes end, and on a book fold
+  // the tabs keep to the trailing segment; folded like a laptop, the note screen, which hides the tablist, keeps its
+  // sheet to the lower segment, and the sheet rides on the keyboard once it is up with its textarea above it, as the
   // rotate leg checks under UIKit's bars. Its taps are the agent's: the agent refuses a real touch on the tablist this
   // chrome shows in place of UIKit's tab bar (LLP 1080.000 D7, stage 3).
   if (leg('web')) {
@@ -907,6 +927,9 @@ async function suite({ open: openSession, check: record }, reset) {
       let l = await s.layout();
       await foldScreen(s, l, where, 130, chosen);
       await offBand(s, l, where);
+      // The drawn bar, read where UIKit's accessibility runtime is on (an earlier leg's touch runner turns it on).
+      const drawn = await axFrame(s, 'ExactTabBar').catch((e) => (console.log(`  ${where}: the drawn tab bar is not checked: ${e.message.slice(0, 120)}`), null)), trailing = l.env['viewport-segments'][1];
+      if (drawn !== null) check(drawn && drawn.x >= trailing[0] - 0.01 && drawn.x + drawn.w <= trailing[0] + trailing[2] + 0.01, `${where}: the tab bar keeps to the trailing segment ${JSON.stringify(trailing)}: ${JSON.stringify(drawn)}`);
       where = 'web-130-landscape-right';
       await orient('landscape-right', s);
       for (let i = 0; i < 50 && l.env['vertical-viewport-segments'] !== 2; i++) { await sleep(100); l = await s.layout(); }
