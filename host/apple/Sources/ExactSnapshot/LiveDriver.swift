@@ -20,21 +20,20 @@ public final class LiveModel {
     @ObservationIgnored public var onCommand: ((HeadlessSession.Command) -> Void)?
     /// Called after each turn with its label (`press`, `timer`, `reply`, …): the host's measurements.
     @ObservationIgnored public var onTurn: ((String) -> Void)?
-    @ObservationIgnored private let zero: TimeInterval
     @ObservationIgnored private var timer: Timer?
     @ObservationIgnored private var active = true
     @ObservationIgnored private let log = Logger(subsystem: "dev.exact.watch", category: "live")
 
-    /// `zero` is the `liveUptime()` at which the session's facts said clock 0.
-    public init(session: HeadlessSession, zero: TimeInterval) throws {
-        self.session = session; self.zero = zero
+    /// `session` is a live one (`HeadlessSession(…, live: true)`), on the clock `now()` reads.
+    public init(session: HeadlessSession) throws {
+        self.session = session
         snapshot = try session.snapshot()
         session.onWake { [weak self] in self?.run("reply") { try $0.session.refresh(at: $0.now()) } }
         schedule()
     }
 
-    /// The runner clock: milliseconds since the session's clock 0.
-    public func now() -> Double { (liveUptime() - zero) * 1000 }
+    /// The runner clock (`HeadlessSession.liveNow()`).
+    public func now() -> Double { HeadlessSession.liveNow() }
 
     public func press(_ node: UInt32) {
         run("press") { try $0.session.press(node, at: $0.now()) }

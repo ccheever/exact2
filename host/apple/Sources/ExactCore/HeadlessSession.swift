@@ -132,14 +132,17 @@ public final class HeadlessSession {
         }
     }
 
-    /// Boots the supplied plan, or the linked app's baked plan when nil.
-    public convenience init(plan: Data? = nil, entry: String? = nil, props: Data? = nil, size: CGSize, facts: SessionFacts, assets: AssetResolver) throws {
-        try self.init(plan: plan, entry: entry, props: props, size: size, facts: facts, assets: assets, presentation: nil)
+    /// Boots the supplied plan, or the linked app's baked plan when nil. A `live` session
+    /// is a running app's (LLP 1126.002 D3): its runner reads `liveNow()`, so a repeating
+    /// timer that missed beats fires once; a render keeps the seek clock its caller moves.
+    public convenience init(plan: Data? = nil, entry: String? = nil, props: Data? = nil, size: CGSize, facts: SessionFacts, assets: AssetResolver,
+                            live: Bool = false) throws {
+        try self.init(plan: plan, entry: entry, props: props, size: size, facts: facts, assets: assets, presentation: nil, live: live)
     }
 
     /// A package composition may install Markdown expansion without a presenter.
     package init(plan: Data? = nil, entry: String? = nil, props: Data? = nil, size: CGSize, facts: SessionFacts, assets: AssetResolver,
-                 presentation: TextPresentation?) throws {
+                 presentation: TextPresentation?, live: Bool = false) throws {
         self.size = size; rootFontSize = facts.rootFontSize
         let runtime = Runtime(hooks: .headless)
         let text = TextEngine(assets: { assets.url($0) }, read: { assets.bytes($0) }, bundled: { assets.bundledURL($0) },
@@ -148,6 +151,7 @@ public final class HeadlessSession {
         core = SessionCore(runtime: runtime, text: text)
         core.measure(with: text)
         runtime.setProfileResolver(assets)
+        if live { runtime.setLiveClock { HeadlessSession.liveNow() } }
         _ = try turn {
             try facts.prime(runtime)
             if let entry {
@@ -161,11 +165,19 @@ public final class HeadlessSession {
     }
 
     public convenience init(plan: Data? = nil, entry: String? = nil, props: Data? = nil, size: CGSize, facts: SessionFacts,
-                            assetRoot: URL = Bundle.main.bundleURL) throws {
-        try self.init(plan: plan, entry: entry, props: props, size: size, facts: facts, assets: AssetResolver(root: assetRoot))
+                            assetRoot: URL = Bundle.main.bundleURL, live: Bool = false) throws {
+        try self.init(plan: plan, entry: entry, props: props, size: size, facts: facts, assets: AssetResolver(root: assetRoot), live: live)
     }
 
     public static let defaultRootFontSize = SessionFacts.defaultRootFontSize
+
+    /// A live session's runner clock: milliseconds on the process's monotonic clock
+    /// since its first read. A live host passes it to `advance(at:)` and as its facts' `clock`.
+    public static func liveNow() -> Double {
+        let zero = liveZero
+        return (ProcessInfo.processInfo.systemUptime - zero) * 1000
+    }
+    private static let liveZero = ProcessInfo.processInfo.systemUptime
 
     /// A display-free convenience; a host with destination facts should supply them explicitly.
     public convenience init(plan: Data? = nil, entry: String? = nil, props: Data? = nil, size: CGSize, rootFontSize: CGFloat? = nil,

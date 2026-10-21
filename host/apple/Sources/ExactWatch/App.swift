@@ -99,7 +99,7 @@ final class EarlyBoot: @unchecked Sendable {
             throw HeadlessSession.Failure(description: "this app declares no watch entry (app.json `watch`)")
         }
         let plan = try Data(contentsOf: Bundle.main.bundleURL.appendingPathComponent(name))
-        return try HeadlessSession(plan: plan, size: size, facts: facts, assetRoot: Bundle.main.bundleURL)
+        return try HeadlessSession(plan: plan, size: size, facts: facts, assetRoot: Bundle.main.bundleURL, live: true)
     }
 
     static func start() {
@@ -110,7 +110,7 @@ final class EarlyBoot: @unchecked Sendable {
             let start = liveUptime()
             // The watch draws dark; the reader's text size arrives with the first layout, which resizes.
             let facts = SessionFacts(displayScale: scale, preferences: [.dark],
-                                     rootFontSize: Double(SnapshotDriver.rootFontSize(for: .large)), date: Date(), clock: 0)
+                                     rootFontSize: Double(SnapshotDriver.rootFontSize(for: .large)), date: Date(), clock: HeadlessSession.liveNow())
             shared.result = Result { (try session(size: size, facts: facts), start) }
             LaunchPhases.mark("booted")
             shared.done.signal()
@@ -173,13 +173,13 @@ private struct LiveRoot: View {
                 LaunchPhases.mark("session")
                 start = liveUptime()
                 let facts = SessionFacts(displayScale: scale, preferences: scheme == .dark ? [.dark] : [],
-                                         rootFontSize: Double(SnapshotDriver.rootFontSize(for: textSize)), date: Date(), clock: 0)
+                                         rootFontSize: Double(SnapshotDriver.rootFontSize(for: textSize)), date: Date(), clock: HeadlessSession.liveNow())
                 session = try EarlyBoot.session(size: size, facts: facts)
                 LaunchPhases.mark("booted")
             }
             if try session.snapshot().size != size { try session.resize(to: size) }
             LaunchPhases.mark("sized")
-            let live = try LiveModel(session: session, zero: start)
+            let live = try LiveModel(session: session)
             LaunchPhases.mark("first batch")
             live.onCommand = { command in
                 print("exact-watch command \(command.name) \(command.args)")
