@@ -1060,6 +1060,8 @@ impl std::fmt::Debug for Kernel {
 #[cfg(test)]
 mod block_tests;
 #[cfg(test)]
+mod cover_tests;
+#[cfg(test)]
 mod presented_height_tests;
 
 #[cfg(test)]

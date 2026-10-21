@@ -178,6 +178,35 @@ final class KeyboardFormIOSTests: XCTestCase {
         XCTAssertLessThanOrEqual(scroll.contentOffset.y, high + 0.5, "and the offset is within the content again")
     }
 
+    /// The pinned tab at rest: its scroll is the route's bottom-edge
+    /// scroller, two boxes down, which reaches under the tab bar for UIKit
+    /// to inset, and its absolutely positioned bar (`bottom=0`) rests on the
+    /// tab bar rather than under it. Both hold after a keyboard comes and
+    /// goes, which once left the scroll padded above the bars for good.
+    func testABarPinnedOverTheEdgeScrollerRestsOnTheTabBar() throws {
+        let session = try fixture()
+        let p = session.presenter
+        _ = Agent(session: session).tap(["id": Int(try node("tab-pinned").id)])
+        spin(0.5)
+        let tabs = try XCTUnwrap(p.navigation.tabController)
+        let bar = try node("pinned-bar"), memo = try node("pinned-memo")
+        let scroll = try XCTUnwrap(p.navigation.shownScroll(try node("pinned-scroll")))
+        let window = try XCTUnwrap(self.window)
+        func atRest(_ when: String, file: StaticString = #filePath, line: UInt = #line) {
+            XCTAssertEqual(box(bar).maxY, box(tabs.tabBar).minY, accuracy: 0.5, "the pinned bar rests on the tab bar \(when)", file: file, line: line)
+            XCTAssertEqual(box(scroll).maxY, window.bounds.maxY, accuracy: 0.5, "the scroll reaches under the tab bar \(when)", file: file, line: line)
+            XCTAssertEqual(scroll.adjustedContentInset.bottom, window.bounds.maxY - box(tabs.tabBar).minY, accuracy: 0.5, "UIKit insets it by the tab bar \(when)", file: file, line: line)
+        }
+        atRest("at first")
+        memo.textFieldDidBeginEditing(try XCTUnwrap(memo.field))
+        p.applyKeyboard(top: keys, duration: 0, curve: 0)
+        spin(0.3)
+        memo.field?.resignFirstResponder()
+        p.applyKeyboard(top: nil, duration: 0, curve: 0)
+        spin(0.5)
+        atRest("after the keyboard")
+    }
+
     func testTheCaretOfAGrowingTextAreaStaysAboveTheKeyboard() throws {
         let session = try fixture("EXACT_CARET_REVEAL_PLAN")
         let p = session.presenter

@@ -78,13 +78,18 @@ impl Kernel {
         }
         // A box replaced or given back changes what its parent's top cover
         // takes from it (`header_inset`), and a scroller the platform
-        // insets at the bottom edge, or stops insetting, what its parent
-        // pads there (`scroller_insets_bottom`).
+        // insets at the bottom edge, or stops insetting, what the covered
+        // box it ends pads there (`scroller_insets_bottom`), however deep.
         let whole = |c: Option<HostCover>| c == Some(HostCover::Whole);
-        let inset = |c: Option<HostCover>| matches!(c, Some(HostCover::Inset(_)));
-        let parent = (whole(before) != whole(cover) || inset(before) != inset(cover))
-            .then(|| self.arena.parent(slot))
-            .flatten();
+        let bottom = |c: Option<HostCover>| matches!(c, Some(HostCover::Inset([_, b])) if b > 0.0);
+        let parent = if bottom(before) != bottom(cover) {
+            covering(&self.arena, slot)
+        } else {
+            whole(before)
+                .ne(&whole(cover))
+                .then(|| self.arena.parent(slot))
+                .flatten()
+        };
         // And a block under it is hidden or shown with it (`block::apply`).
         let blocks: Vec<u32> = if whole(before) != whole(cover) {
             let arena = &self.arena;
@@ -248,12 +253,59 @@ pub(crate) fn apply(arena: &NodeArena, slot: u32, s: &mut taffy::style::Style) {
     }
 }
 
-/// Whether a child of `slot` is a scroller the platform insets at its
-/// bottom edge (`Inset`), the bar's own clearance for the box's bottom.
+/// Whether the scroller at `slot`'s bottom edge is one the platform insets
+/// there (`Inset`), the bar's own clearance for the box's bottom. It is
+/// found as the host finds it: the last in-flow child, or that child's last,
+/// down to the first scroller (a sheet component's root column holding its
+/// header and then its scroll). A marked scroller off that chain counts for
+/// nothing: the box keeps its padding (an inset twice at worst, never the
+/// scroller lifted above the bar for good).
 fn scroller_insets_bottom(arena: &NodeArena, slot: u32) -> bool {
-    arena.children(slot).iter().any(
-        |&child| matches!(arena.cover(child), Some(HostCover::Inset([_, bottom])) if bottom > 0.0),
-    )
+    let mut at = slot;
+    loop {
+        let flowing = |&&c: &&u32| {
+            let s = arena.style(c);
+            s.display != crate::Display::None
+                && s.position_type != crate::PositionType::Absolute
+                && arena.cover(c) != Some(HostCover::Whole)
+        };
+        let Some(&last) = arena.children(at).iter().rev().find(flowing) else {
+            return false;
+        };
+        if let Some(HostCover::Inset([_, bottom])) = arena.cover(last) {
+            return bottom > 0.0;
+        }
+        if scrolls(arena, last) {
+            return false;
+        }
+        at = last;
+    }
+}
+
+/// Whether `slot` scrolls vertically, as its engine style says (`style.rs`).
+fn scrolls(arena: &NodeArena, slot: u32) -> bool {
+    let s = arena.style(slot);
+    if s.mask.has(crate::StyleId::OverflowY) {
+        matches!(
+            s.overflow_y,
+            crate::Overflow::Auto | crate::Overflow::Scroll
+        )
+    } else {
+        arena.node_type(slot).scrolls_by_default()
+    }
+}
+
+/// The nearest box above `slot` a container's bars cover (`Edges`), whose
+/// bottom padding a scroller at its edge decides (`scroller_insets_bottom`).
+fn covering(arena: &NodeArena, slot: u32) -> Option<u32> {
+    let mut at = arena.parent(slot);
+    while let Some(p) = at {
+        if matches!(arena.cover(p), Some(HostCover::Edges(_))) {
+            return Some(p);
+        }
+        at = arena.parent(p);
+    }
+    None
 }
 
 /// The points a cover adds to the box's padding for layout (`apply`), top,
@@ -302,6 +354,24 @@ pub(crate) fn children_changed(
     if let (Some(HostCover::Edges(_)), Some(node)) = (arena.cover(slot), arena.taffy(slot)) {
         layout.restyle(arena, slot, node);
         layout.mark_dirty(node);
+    }
+    // And the scroller at the covered box's bottom edge may be another
+    // (`scroller_insets_bottom`), however deep the change, unless it is
+    // inside a scroller, where that search stops.
+    let mut inside = scrolls(arena, slot);
+    let mut at = arena.parent(slot);
+    while let (false, Some(p)) = (inside, at) {
+        if matches!(arena.cover(p), Some(HostCover::Edges(_))) {
+            break;
+        }
+        inside = scrolls(arena, p);
+        at = arena.parent(p);
+    }
+    if let (false, Some(above)) = (inside, at) {
+        if let Some(node) = arena.taffy(above) {
+            layout.restyle(arena, above, node);
+            layout.mark_dirty(node);
+        }
     }
     crate::rows::children_changed(arena, layout, slot, touched);
 }

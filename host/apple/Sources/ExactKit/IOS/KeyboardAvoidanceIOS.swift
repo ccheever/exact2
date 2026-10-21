@@ -154,8 +154,10 @@ extension Presenter {
         if r.maxX > visible.maxX { o.x += r.maxX - visible.maxX } else if r.minX < visible.minX { o.x -= visible.minX - r.minX }
         // A field at the end of the content, under a bar pinned over it, has no
         // offset that shows it above the bar: the scroller takes room below
-        // its content for as long as the keyboard is up (`PinnedRoom`).
-        if covered > 0 {
+        // its content for as long as the keyboard is up (`PinnedRoom`), and
+        // none once it is down (a field still focused as it goes, revealed
+        // again after the room was given back, would keep that room at rest).
+        if covered > 0, keyboardTop != nil {
             let high = sv.contentSize.height + sv.adjustedContentInset.bottom - sv.bounds.height
             if o.y > high + 0.5 { pinnedRoom.grow(sv, by: o.y - high) }
         }

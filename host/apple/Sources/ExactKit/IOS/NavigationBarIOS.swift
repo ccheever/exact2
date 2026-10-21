@@ -1091,7 +1091,9 @@ extension NavigationHost {
     /// lets it run to the screen's bottom edge, under the home indicator and
     /// a tab bar, and UIKit insets its content there
     /// (`adjustedContentInset.bottom`), as a hand-built table view's is. The
-    /// route keeps no bottom cover for it (`reportCovers`). A footer under
+    /// route keeps its bottom cover, which the kernel pads nothing of while
+    /// UIKit insets the scroller (`reportCovers`, `scroller_insets_bottom`),
+    /// so an absolutely positioned footer still rests on the bars. A footer under
     /// the scroller keeps the cover; so does a page under `viewport-fit=cover`,
     /// whose own `env()` insets would be added to UIKit's, and a transparent
     /// bar's scroller, which UIKit insets nothing (`collapse`).

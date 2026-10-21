@@ -59,7 +59,7 @@ extension NavigationHost {
             let whole = presented || (wantsWholeView && !covered)
             let shows = nav.map(barShows) ?? !ExactEnv.authoredChrome
             guard shows || whole || covered else { continue }
-            let edges: HostCover.Edges
+            let edges: HostCover.Edges?
             // A collapsing title's scroller goes under the bar, which insets it;
             // its expanded inset is where CSS scrollTop 0 rests.
             // While the bar is not as the route wants it (mid-transition to or
@@ -88,6 +88,17 @@ extension NavigationHost {
                     if node.scrollCollapsed == 0 || inset < node.scrollCollapsed { node.scrollCollapsed = inset }
                 }
             }
+            if settled, c.viewIfLoaded?.window != nil {
+                let safe = c.view.safeAreaInsets
+                // Only what the route reaches of the bottom bars is covered:
+                // none once the keyboard ends it above them (`ownerFrame`).
+                let reached = c.node.convert(c.node.bounds, to: c.view).maxY - (c.view.bounds.height - safe.bottom)
+                edges = Self.routeEdges(safe: safe, document: presenter.insets, presented: presented, whole: whole, covered: covered,
+                                        collapses: c.collapseScroll != nil, reached: reached)
+                c.bottomClearance = edges?.bottom ?? 0
+            } else if case .edges(let e)? = covers[c.node.id] {
+                edges = e
+            } else { edges = nil }
             // A scroller UIKit insets lays its content out between those
             // insets (LLP 1116.000 D1.2): content that fills its height rests
             // under the bar and above the home indicator, and scrolling
@@ -97,30 +108,19 @@ extension NavigationHost {
             // starts under it (`collapse`), so no `.inset` is reported there.
             for node in [c.collapseScroll, c.edgeScroll].compactMap({ $0 }) where node.scrollView != nil && !(node === c.collapseScroll && Self.transparentBar(c.node)) {
                 if settled, c.viewIfLoaded?.window != nil, let safe = node.scrollView?.safeAreaInsets {
+                    // The bottom edge's scroller takes the route's bottom
+                    // clearance, which the route then pads nothing of
+                    // (`scroller_insets_bottom`) and still moves an
+                    // absolutely positioned footer past. Its own safe area
+                    // holds none while that padding ends it above the bars:
+                    // read alone, it would leave it there for good.
+                    let reach = node === c.edgeScroll ? c.bottomClearance : 0
                     // A band's part of the safe area is a UI inset over control bars, not layout (LLP 1131 D2).
-                    let top = max(0, max(safe.top, node === c.collapseScroll ? node.scrollOrigin : 0) - node.pageBand.top), bottom = max(0, safe.bottom - node.pageBand.bottom)
+                    let top = max(0, max(safe.top, node === c.collapseScroll ? node.scrollOrigin : 0) - node.pageBand.top), bottom = max(0, max(safe.bottom, reach) - node.pageBand.bottom)
                     if top > 0 || bottom > 0 { wanted[node.id] = .inset(top: top, bottom: bottom) }
                 } else if case .inset? = covers[node.id] { wanted[node.id] = covers[node.id] }
             }
-            if settled, c.viewIfLoaded?.window != nil {
-                let safe = c.view.safeAreaInsets
-                // Only what the route reaches of the bottom bars is covered:
-                // none once the keyboard ends it above them (`ownerFrame`).
-                let reached = c.node.convert(c.node.bounds, to: c.view).maxY - (c.view.bounds.height - safe.bottom)
-                let clear = Self.routeEdges(safe: safe, document: presenter.insets, presented: presented, whole: whole, covered: covered,
-                                            collapses: c.collapseScroll != nil, reached: reached)
-                // A scroller at the bottom edge takes the bottom's clearance
-                // itself (`reachBottom`), and the route keeps none there: UIKit
-                // insets it only while it reaches under the bars, which the
-                // cover's padding would end it above for good (a scroller made
-                // in its place, a keyboard come and gone; the kernel's
-                // `scroller_insets_bottom` reads only an `.inset` child, which
-                // the scroller's own safe area then no longer gives).
-                c.bottomClearance = clear.bottom
-                edges = c.edgeScroll == nil ? clear : .init(top: clear.top, right: clear.right, bottom: 0, left: clear.left)
-            } else if case .edges(let e)? = covers[c.node.id] {
-                edges = e
-            } else { continue }
+            guard let edges else { continue }
             if edges != .init(top: 0, right: 0, bottom: 0, left: 0) { wanted[c.node.id] = .edges(edges) }
         }
         // The tablist whose place the tab bar takes takes no room.
