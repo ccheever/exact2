@@ -31,6 +31,7 @@ shape BrowserPanel
   runtimeId: string
   server: bool
   streamUrl: string
+  pdfUrl: string
   environment: string
   profileId: string
   profileName: string
@@ -91,6 +92,7 @@ shape BrowserMini
   runtimeId: string
   server: bool
   streamUrl: string
+  pdfUrl: string
   url: string
   profileId: string
   environment: string

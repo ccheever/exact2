@@ -44,6 +44,7 @@ import { automationRecordingView, serveRecordingRequests, type AutomationRecordi
 import { browserMiniPlayerSource } from '../device/previewMiniPlayerStore';
 import { addBrowserSurface, browserLocal, browserMiniSessions, browserSurfaceId, moveBrowserTab, browserPrepare, browserTab, browserView, emptyBrowserView, installBrowserCleanup, selectBrowserTab, type BrowserView } from '../browser/browser-surface';
 import { browserTabAudio, browserTabMute } from '../browser/browser-automation-tabs'; // Mute / Unmute and the audible indicator
+import { claimWorkspaceBasenameLookup, findWorkspaceFileMatch, needsWorkspaceBasenameLookup, stripRepeatedWorkspacePrefix } from '../timeline/workspace-file-lookup'; // a chat link's file
 
 export type SurfaceKind = 'terminal' | 'diff' | 'files' | 'file' | 'pull-requests' | 'device' | 'pull-request' | 'attachment' | 'browser';
 export type Surface = { id: string; kind: SurfaceKind; path: string; line: number; reveal: number;
@@ -254,6 +255,19 @@ export async function openFileSurface(client: T3Client, native: Native, requeste
   else await ensureTree(client, native);
 }
 
+/**
+ * ChatMarkdown openFileInPanel: a chat file link (`target`, resolved) opens in the Files surface; one written from the
+ * workspace root as a bare name or with the project's own folders repeated (`lookupPath`) opens the workspace file it
+ * means once the search finds it, else as written. The newest click wins over a lookup still in flight.
+ */
+export async function openFileLink(client: T3Client, native: Native, target: string, lookupPath: string): Promise<void> {
+  const { cwd } = workspaceOf(client), { path, line } = workspacePath(target, cwd);
+  const latest = claimWorkspaceBasenameLookup();
+  if (!lookupPath || !cwd || (!needsWorkspaceBasenameLookup(path) && stripRepeatedWorkspacePrefix(path, cwd) === null)) return openFileSurface(client, native, path, line);
+  const match = await findWorkspaceFileMatch(client, native, lookupPath, cwd);
+  if (latest() && workspaceOf(client).cwd === cwd) await openFileSurface(client, native, match ?? path, line);
+}
+
 /** `shelllocal:surface-*`: tab and panel state, the explorer and every read. */
 export async function surfaceLocal(client: T3Client, native: Native, op: string, id: string, value: string): Promise<string> {
   // The agent's recording requests (app.contract automationRecording; id = the send) are not the person's use of the
@@ -277,6 +291,7 @@ export async function surfaceLocal(client: T3Client, native: Native, op: string,
   if (op.startsWith('terminal-')) return terminalPanelLocal(client, native, op.slice(9), id, value);
   if (op === 'open') return openSurface(client, native, id || value);
   if (op === 'file') { await openFileSurface(client, native, id, Number(value) || 0, value === 'tree'); return ''; }
+  if (op === 'file-link') { await openFileLink(client, native, id, value); return ''; }
   if (op === 'toggle-mute') return browserLocal(client, native, state, 'toggle-mute', id.replace(/^browser:/, ''), '');
   if (op.startsWith('rename')) { editTabName(state, op, id, value); return ''; }
   if (op === 'copy-path') { const surface = state.surfaces.find(entry => entry.id === id); if (surface) await copyTabPath(client, native, surface); return ''; }

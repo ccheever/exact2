@@ -132,7 +132,7 @@ export async function runSshOp(native: Native, op: string, id: string, value: st
     const origin = str(bootstrap.origin), credential = str(bootstrap.credential);
     if (!origin || !credential) throw new ClientError('SSH pairing did not return a credential.');
     discovery = null;
-    rememberSshAlias(origin, target.alias); // remote Open reads the alias of an SSH environment (remote-open.ts)
+    rememberSshAlias(origin, target.alias, target.username); // remote Open reads the SSH target of an SSH environment (remote-open.ts)
     let result: Result = { status: null, generation: -1 };
     // "Add a route to <label>" over SSH joins that machine's routes, or is refused before the code is spent.
     const expected = str(fields.expectedEnvironmentId);

@@ -1,11 +1,11 @@
 // Remote open-in-editor on this Mac (MIT reference, see LICENSE-T3:
 // apps/desktop/src/ipc/methods/window.ts probeRemoteEditors, packages/shared/src/editor.ts
 // resolveEditorCommand (macOS branch), apps/desktop/src/electron/ElectronShell.ts
-// parseSafeExternalUrl / openExternal, apps/web/src/remoteOpen.ts useRemoteOpenHint, at
+// parseSafeExternalUrl / openExternal (74541bab17), apps/web/src/remoteOpen.ts useRemoteOpenHint, at
 // 9c161462c9). The probe lists the remote-capable editors whose command resolves on the
 // login shell's PATH, inside an app bundle in ~/Applications or /Applications (a JetBrains
 // Toolbox bundle carries its version, `IntelliJ IDEA 2026.1.4.app`), or among Toolbox's
-// scripts; only an http(s) URL or a remote editor deep link with no user info reaches
+// scripts; only an http(s) URL or a remote editor deep link with no URL user info reaches
 // NSWorkspace. Agent runs never open anything: the URL is recorded (T3_REMOTE_OPEN_LOG names a
 // file to append it to), and T3_EDITOR_PATH / T3_EDITOR_APP_ROOTS / T3_EDITOR_HOME replace the
 // PATH, the app folders and the home whose Toolbox scripts are read (none without it).
@@ -154,15 +154,15 @@ enum T3RemoteEditors {
     }
 
     /// parseSafeExternalUrl: http(s), or `<scheme>://vscode-remote/ssh-remote+<host>…` /
-    /// `zed://ssh/<host>/…` / `jetbrains://gateway/ssh/environment?h=<host>…` with no user info;
-    /// anything else is refused.
+    /// `zed://ssh/[<user>@]<host>/…` / `jetbrains://gateway/ssh/environment?h=<host>…` with no URL user info
+    /// (Zed's user sits in the path, where a password or port is refused); anything else is refused.
     static func safeExternalUrl(_ raw: Any?) -> String? {
         guard let raw = raw as? String, let components = URLComponents(string: raw), let scheme = components.scheme?.lowercased() else { return nil }
         if scheme == "http" || scheme == "https" { return (components.host ?? "").isEmpty ? nil : components.url?.absoluteString }
         guard remoteSchemes.values.contains(scheme), (components.user ?? "").isEmpty, (components.password ?? "").isEmpty else { return nil }
         let host = components.percentEncodedHost ?? "", path = components.percentEncodedPath
         if scheme == "zed" {
-            guard host == "ssh", path.range(of: #"^/[^/@:]+/.*$"#, options: .regularExpression) != nil else { return nil }
+            guard host == "ssh", path.range(of: #"^/(?:[^/@:]+@)?[^/@:]+/.*$"#, options: .regularExpression) != nil else { return nil }
         } else if scheme == "jetbrains" {
             guard host == "gateway", path == "/ssh/environment", !(components.queryItems?.first(where: { $0.name == "h" })?.value ?? "").isEmpty else { return nil }
         } else {

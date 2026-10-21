@@ -7,6 +7,24 @@
 // error is the reference's Effect TaggedError as a plain Error: the same fields and message, and
 // never the raw URL (it can carry credentials or tokens).
 
+import { isLocalLoopbackHost } from '../connections/host-classification';
+
+/**
+ * previewPdfAssetUrl (packages/shared/src/preview.ts, T3 Code 74541bab17): a server browser tab on one of the
+ * environment's signed PDF assets shows the PDF from this client, since the server's headless browser cannot render
+ * it (the server commits a placeholder page at the URL). A browser on the host's loopback address reaches the asset
+ * through this client's own route to the environment (`httpBaseUrl`); null for anything else.
+ */
+export function previewPdfAssetUrl(rawUrl: string, httpBaseUrl: string | null): string | null {
+  if (!httpBaseUrl) return null;
+  try {
+    const url = new URL(rawUrl), baseUrl = new URL(httpBaseUrl);
+    if ((url.protocol !== 'http:' && url.protocol !== 'https:') || !url.pathname.startsWith('/api/assets/') || !/\.pdf$/i.test(url.pathname)) return null;
+    if (url.origin !== baseUrl.origin && !isLocalLoopbackHost(url.hostname) && url.hostname !== '0.0.0.0') return url.href;
+    return new URL(`${url.pathname}${url.search}${url.hash}`, baseUrl).href;
+  } catch { return null; }
+}
+
 const LOOPBACK_HOSTS: ReadonlySet<string> = new Set(['localhost', '127.0.0.1', '0.0.0.0', '::1']);
 const LOOPBACK_PREFIX_PATTERN = /^(?:localhost|127\.0\.0\.1|0\.0\.0\.0|\[::1?\])(?::|\/|$)/i;
 
