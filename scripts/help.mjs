@@ -58,7 +58,7 @@ const APPLE = ['--watchos', '--watch-sim <udid>', '--ios', '--tvos', '--device',
 const appleRest = (documented) => APPLE.filter((spec) => !documented.some(([row]) => specs(row).some((d) => name(d) === name(spec))));
 const OPTIMIZE = ['--optimize speed|size', 'the Rust archive\'s (default speed, or app.json host.ios|macos.optimize)'];
 const PREBUILD = ['--prebuild', 'start the build apart from this shell and return; its log: .exact/<ios|macos>-build.log'];
-const RELEASE = ['--release', 'the build that ships, as EXACT_UPDATE_TRUST=production (set, agent drives it); a first is minutes: --prebuild --release early; an iOS agent drive installs over it, saying how to put it back'];
+const RELEASE = ['--release', 'the build that ships, as EXACT_UPDATE_TRUST=production (set, agent drives it); a first is minutes: --prebuild --release early, then --release waits for it and takes seconds; an iOS agent drive installs over it, saying how to put it back'];
 
 export const HELP = {
   backend: {
@@ -230,7 +230,7 @@ and agent ios run it first themselves when the build is missing or older than it
 an edit to only app.contract or what app.ts imports runs its new plan on the existing build
 instead, in about a second.
 Ports    none. Runs to completion (--run too); --prebuild returns at once, the build going on
-         apart from this shell (its pid printed; test and agent wait for it).`,
+         apart from this shell (its pid printed; test, agent and ios without it wait for it).`,
     example: 'bun exact.mjs ios --run',
   },
   mac: {

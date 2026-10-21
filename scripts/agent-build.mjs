@@ -292,8 +292,9 @@ export async function reportPrebuild(app, args, say = line => console.error(line
 }
 
 /** A build of this app already running (one started in the background) ends
- * before the check, so the drive neither races it nor is refused as busy. */
-async function waitForBuild(app, say) {
+ * before the check, so a drive or a foreground build neither races it nor is
+ * refused as busy. */
+export async function waitForBuild(app, say = line => console.error(line)) {
   const lock = appleArtifacts(app).lock;
   for (let told = false; ; await new Promise(r => setTimeout(r, 250))) {
     let held; try { held = readFileSync(lock, 'utf8'); } catch { return; }
@@ -358,7 +359,7 @@ export async function prebuild(app, args, { timeout = 30_000, say = line => cons
   // A second would truncate the first's log and record, and fail as busy anyway: refused while
   // a build holds the claim, or a prebuild's shell is alive before its build claims it.
   const record = prebuildRecord(app, host), built = args.filter(arg => arg !== '--prebuild'), id = `${process.pid}-${Date.now()}`;
-  const busy = () => (say(`an Apple build of ${app.name} is already running, so none was started; test and agent wait for it`), 1);
+  const busy = () => (say(`an Apple build of ${app.name} is already running, so none was started; test, agent and this command without --prebuild wait for it`), 1);
   const before = readRecord(record);
   if (claimed(app) || (before && !Number.isInteger(before.exit) && alive(before.pid))) return busy();
   // The record is this prebuild's from here: of two starting together, one links it.
@@ -386,7 +387,7 @@ export async function prebuild(app, args, { timeout = 30_000, say = line => cons
     say(ended ? `the ${what} build failed (exit ${ended}); its log: ${shown(log)}` : `built for ${what}; its log: ${shown(log)}`);
     return ended;
   }
-  say(`building for ${what} in the background (pid ${child.pid}, apart from this shell); its log: ${shown(log)}. test and agent wait for it.`);
+  say(`building for ${what} in the background (pid ${child.pid}, apart from this shell); its log: ${shown(log)}. test, agent and this command without --prebuild wait for it.`);
   return 0;
 }
 

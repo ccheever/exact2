@@ -644,16 +644,20 @@ async function main(args, lockHeld = false) {
   }
   const app = quietFor(resolveApp(args.find((a, i) => !a.startsWith('--') && !['--sim', '--phone', '--url', '--archive', '--optimize', '--link', '--watch-sim'].includes(args[i - 1]))), root);
   if (args.includes('--watchos')) return (await import('./watch.mjs')).buildWatch(app, args, { runApple, appleArtifacts, appleBuildLock, receipt, buildParent: args => main(args, true) });
-  // A background build's failure, said by the next build (scripts/agent-build.mjs `reportPrebuild`).
+  // A build of this app already running (a --prebuild's) is waited for, as test and agent wait for it, and a background
+  // build's failure is said by the next build (scripts/agent-build.mjs `waitForBuild`, `reportPrebuild`).
+  const running = !lockHeld && !args.includes('--prebuild') && existsSync(appleArtifacts(app).lock);
   const prebuilt = existsSync(resolve(app.dir, '.exact', `${tv ? 'tvos' : ios ? 'ios' : 'macos'}-prebuild.json`));
-  const agentBuild = prebuilt || args.includes('--prebuild') ? await import('../../scripts/agent-build.mjs') : null;
+  const agentBuild = running || prebuilt || args.includes('--prebuild') ? await import('../../scripts/agent-build.mjs') : null;
+  if (running) await agentBuild.waitForBuild(app);
   if (prebuilt) await agentBuild.reportPrebuild(app, args);
   if (args.includes('--prebuild')) { process.exitCode = await agentBuild.prebuild(app, args); return; } // LLP 1116.003 D1.2
   const gallery = process.env.EXACT_UPDATE_TRUST !== 'production' && !tv && (args.includes('--widget-gallery') || process.env.EXACT_WIDGET_GALLERY === '1');
   // An entry of either kind (a widget, a Live Activity) is the extension, the shared framework, the App Group and
   // the Keychain group (LLP 1126.001 WP13); tvOS has none of them.
   let widgets = !tv && (ios ? hasEntries(app) : platformWidgetEntries(app, 'macos').length > 0);
-  const release = lockHeld ? () => {} : appleBuildLock(app);
+  // Another build may take the claim first after that wait: this one waits again rather than refusing as busy.
+  const release = lockHeld ? () => {} : awaitBuildOutput(app, appleArtifacts(app).lock, () => console.error(`waiting for the Apple build of ${app.name} already running`));
   const cleanup = [], beside = []; // what to remove, and the steps started beside the build, when it ends
   try {
   const crate = app.crate(ios ? 'ios' : 'macos');
