@@ -897,7 +897,7 @@ export function noRegressions(opts) {
   const added = mine && base ? mine.failures.filter(f => !base.failures.includes(f)) : null;
   const clean = conform.ok || !!(mine && base && mine.targets > 0 && base.targets > 0 && !added.length);
   const evidence = [`conform --synthetic --strict --linux: ${summary}`, ...failed.map(l => `  ${l}`),
-    ...(conform.ok ? [] : !base ? ['  its failures are compared with the same run on the branch\'s base (--conform-base <its report.json>), which wasn\'t given'] : !mine ? ['  its report.json was not read'] : [`  against the base's run (${opts.conformBase}, ${base.failures.length} failures over ${base.targets} targets): ${added.length ? `${added.length} the branch adds` : 'every failure the base\'s own'}`, ...added.map(f => `    NEW ${f}`), ...mine.failures.map(f => `    both: ${f}`)]),
+    ...(conform.ok ? [] : !base ? ['  its failures are compared with the same run on the branch\'s base (--conform-base <its report.json>), which wasn\'t given'] : !mine ? ['  its report.json was not read'] : [`  against the base's run (${opts.conformBase}, ${base.failures.length} failures over ${base.targets} targets): ${added.length ? `${added.length} the branch adds` : 'every failure the base\'s own'}`, ...added.map(f => `    NEW ${f}`), ...mine.failures.filter(f => !added.includes(f)).map(f => `    both: ${f}`)]),
     `@exact/reading's users: ${readers.join(', ') || 'none'} (in release identity)`];
   const release = releaseIdentity(opts.release);
   evidence.push(...release.evidence);
