@@ -207,9 +207,15 @@ export async function composerCommand(client: T3Client, native: Native, storage:
   if (op === 'branch-restore' || op === 'branch-restore-confirmed') return restoreThreadBranch(client, native, storage, op === 'branch-restore-confirmed');
   if (op === 'branch' || op === 'branch-create') return selectBranch(client, native, storage, value, op === 'branch-create');
   if (op === 'stop-background') {
-    // interruptThreadTurn: the active run, else the latest one while background work is pending; with
-    // neither, a PR watch can still hold the thread (one that never ran too).
+    // interruptThreadTurn: `thread.stop` when the server advertises threadStop; otherwise the active run, else the
+    // latest one while background work is pending; with neither, a PR watch can still hold the thread (one that never
+    // ran too).
     const projection = requireThread(client), threadId = client.threadId;
+    if (client.threadStopOffered) {
+      const [commandId] = await access.ids(1);
+      await access.dispatch(storage, { type: 'thread.stop', commandId, threadId }, 'Stop background work');
+      return '';
+    }
     const pending = arr(client.shell?.threads.find(thread => thread.id === threadId)?.pendingBackgroundTasks).length > 0;
     const run = activeRun(projection) ?? (pending ? arr(projection.runs).at(-1) : undefined);
     if (!run) {

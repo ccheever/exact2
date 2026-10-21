@@ -49,7 +49,7 @@ export function projectedWorkflowAgents(subagents: Obj[]): WorkflowAgent[] {
         ? coordinator.status : agent.state === 'queued' ? 'pending' : str(agent.state);
       const failed = status === 'failed', startedAt = epoch(agent.startedAt);
       const completedAt = TERMINAL.has(status)
-        ? typeof agent.startedAt === 'number' && typeof agent.durationMs === 'number' ? epoch(agent.startedAt + agent.durationMs) : coordinator.completedAt
+        ? epoch(agent.completedAt) ?? (typeof agent.startedAt === 'number' && typeof agent.durationMs === 'number' ? epoch(agent.startedAt + agent.durationMs) : coordinator.completedAt)
         : null;
       return {
         ...coordinator, id: `${coordinator.id}:agent:${agent.index}`, kind: 'workflow_agent', title: str(agent.label), model: optionalText(agent.model), status,

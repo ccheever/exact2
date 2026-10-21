@@ -41,3 +41,5 @@
 /target/
 /src/highlight/codex-directives.js
 /src/highlight/codex-directives.d.ts
+/src/timeline/minimap-text.js
+/src/timeline/minimap-text.d.ts

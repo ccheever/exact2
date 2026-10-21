@@ -63,8 +63,9 @@ component ChatColumn
     // The transcript's viewport for the composer (app.contract restScrolled, restGesture).
     restScrolled: action
     restGesture: action
-    // The timeline's scroll hides the window's Cite (observeSelectionActions' scroll).
+    // The timeline's scroll hides the window's Cite (observeSelectionActions' scroll); its end brings it back.
     citeScrolled: action
+    citeSettled: action
     // Files dropped here or picked with Attach files (app.contract attachFiles, composer-controls-attach.ts).
     attachFiles: action
   props
@@ -313,7 +314,7 @@ component ChatColumn
         // The history control is the list's first row; the top 24pt fades under the header (topbar-scroll-fade).
         column flex=1 min-height=0 width="100%" position="relative"
           // appearance="none": the reference draws these rows as divs, not a platform table (LLP 1115.002 D5's opt-out).
-          list appearance="none" virtualized=true scrollFollowEnd=(not foldHold and not threadFind.open) reachend=releaseFold scroll=transcriptScrolled wheel=transcriptWheel keycapture=transcriptKeys scrollTop=listTop id="transcript" testId="transcript" flex=1 min-height=0 width="100%" padding-right=laneInset box-sizing="border-box" overflow-x="hidden"
+          list appearance="none" virtualized=true scrollFollowEnd=(not foldHold and not threadFind.open) reachend=releaseFold scroll=transcriptScrolled scrollend=citeSettled wheel=transcriptWheel keycapture=transcriptKeys scrollTop=listTop id="transcript" testId="transcript" flex=1 min-height=0 width="100%" padding-right=laneInset box-sizing="border-box" overflow-x="hidden"
             for message in data.messages key=message.id
               TimelineRow(message=message, hovered=(rowHover == message.hoverKey), part=(rowHover == message.hoverKey ? partHover : ""), hoverPart=hoverPart, command=command, local=chatLocal, documents=markdown.documents, lane=data.look.chatMax, bubble=data.look.message, ink=(data.look.themed ? data.look.text : "light-dark(#27272a, #f5f5f5)"), now=timelineNow, hasMore=data.hasMore, historyLoading=data.historyLoading, historyError=data.historyError, busy=commandPending, earlier=earlier, attachments=attachmentUrls.items, diffScheme=data.look.diff, tail=data.transcriptTail, lead=(((data.providerBannerKey != "" and data.providerBannerKey != dismissedProviderBanner) or data.error != "" ? 16 : 24) * rem / 16), scheme=scheme, seen=turnSeen)
           if not ((data.providerBannerKey != "" and data.providerBannerKey != dismissedProviderBanner) or data.error != "")

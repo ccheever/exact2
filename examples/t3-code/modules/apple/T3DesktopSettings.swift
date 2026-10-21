@@ -1,5 +1,5 @@
 // The desktop settings file, `<T3 home>/userdata/desktop-settings.json` (as the
-// original app), after T3 Code (MIT, see LICENSE-T3; reference 1e2ecbd975):
+// original app), after T3 Code (MIT, see LICENSE-T3; reference 74541bab17):
 // apps/desktop/src/settings/DesktopAppSettings.ts (the document schema, `normalizeDesktopSettingsDocument`,
 // `toDesktopSettingsDocument`, `readSettings`, `writeSettings`), packages/shared/src/schemaJson.ts
 // (`fromLenientJson`: comments and trailing commas stripped before parsing), packages/shared/src/symlink.ts
@@ -41,7 +41,7 @@ struct T3DesktopSettings: Equatable {
 
     /// The desktop app this client mirrors (version-skew.ts `CLIENT_VERSION`): its version picks the
     /// default update channel (`resolveDefaultDesktopSettings`).
-    static let appVersion = "0.1.1-nightly.20261018.3302"
+    static let appVersion = "0.1.2-nightly.20261021.3457"
     static let fileName = "desktop-settings.json"
     /// The keys the clone kept in `t3-code.json` before it used the desktop settings file.
     static let legacyKeys = ["localEnvironmentEnabled", "serverExposureMode", "tailscaleServeEnabled", "tailscaleServePort"]
@@ -147,14 +147,13 @@ struct T3DesktopSettings: Equatable {
         return T3WindowBounds(x: x, y: y, width: width, height: height)
     }
 
-    /// The lenient parse's three passes: `//` comments, `/* */` comments, then trailing commas before `}`
-    /// or `]`; each pass keeps double-quoted strings intact.
+    /// The lenient parse's two passes: comments, then trailing commas before `}` or `]`; each pass keeps
+    /// double-quoted strings intact. Both comment forms are matched together, so a `//` inside a block
+    /// comment (a URL) stays in the block; a comment becomes a space, which keeps adjacent tokens apart.
     static func stripLenient(_ input: String) -> String {
         let string = #"("(?:[^"\\]|\\.)*")"#
-        var text = replace(input, pattern: string + #"|//[^\n]*"#) { _ in "" }
-        text = replace(text, pattern: string + #"|/\*[\s\S]*?\*/"#) { _ in "" }
-        text = replace(text, pattern: string + #"|,(\s*[}\]])"#) { $0 }
-        return text
+        let text = replace(input, pattern: string + #"|//[^\n]*|/\*[\s\S]*?\*/"#) { _ in " " }
+        return replace(text, pattern: string + #"|,(\s*[}\]])"#) { $0 }
     }
     /// A global replace where a match of group 1 (a string literal) stays, and any other match becomes
     /// `other(group 2)` (group 2 empty when it did not take part).
