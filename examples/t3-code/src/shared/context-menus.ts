@@ -150,14 +150,16 @@ export function pullRequestLinkContextMenuItems(openLabel: string): MenuItem[] {
 /**
  * ChatMarkdown's file-link menu: "Preview media" for media in a thread, the open item whenever
  * shell actions are allowed (named for the preferred editor), the reveal item with the server's
- * wording, then the two copies. "Open in integrated browser" is the Browser surface's (#100).
+ * wording, then the copies; the relative path only for a file inside the thread's workspace
+ * (MarkdownFileLink.logic.ts markdownFileCopyMenuItems, T3 Code 74541bab17). "Open in integrated
+ * browser" is the Browser surface's (#100).
  */
-export function markdownFileMenuItems(input: { canPreviewMedia: boolean; canOpen: boolean; preferredEditor: string | null; revealLabel: string | undefined }): MenuItem[] {
+export function markdownFileMenuItems(input: { canPreviewMedia: boolean; canOpen: boolean; preferredEditor: string | null; revealLabel: string | undefined; canCopyRelative?: boolean }): MenuItem[] {
   return [
     ...(input.canPreviewMedia ? [{ id: 'preview-media', label: 'Preview media' }] : []),
     ...(input.canOpen ? [{ id: 'open', label: openInEditorMenuLabel(input.preferredEditor) }] : []),
     ...(input.canOpen && input.revealLabel ? [{ id: 'reveal', label: input.revealLabel }] : []),
-    { id: 'copy-relative', label: 'Copy relative path' }, { id: 'copy-full', label: 'Copy full path' },
+    ...(input.canCopyRelative !== false ? [{ id: 'copy-relative', label: 'Copy relative path' }] : []), { id: 'copy-full', label: 'Copy full path' },
   ];
 }
 /** All ids a menu can return, a submenu's children included (a child is what gets picked). */

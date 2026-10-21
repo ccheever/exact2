@@ -15,8 +15,8 @@ const panel = (): PanelState => ({ surfaces: [surface('a'), surface('b'), surfac
 const android = { hostId: 'nucbox', deviceId: 'emulator-5580', name: 'Pixel', platform: 'android' };
 const ios = { hostId: 'macmini', deviceId: 'ios-1', name: 'iPhone', platform: 'ios' };
 const native: Native = { available: true, watch() {}, later: async () => ({}) };
-function client(call: (request: Record<string, unknown>) => Promise<unknown> = async () => ({})): T3Client {
-  return { local: {}, draftKey: 'env:t1', diffOpen: false, restAccess: () => ({ call }) } as unknown as T3Client;
+function client(call: (request: Record<string, unknown>) => Promise<unknown> = async () => ({}), workspaceRoot = '/repo'): T3Client {
+  return { local: {}, draftKey: 'env:t1', diffOpen: false, projectId: 'p1', shell: { projects: [{ id: 'p1', workspaceRoot }], threads: [] }, restAccess: () => ({ call }) } as unknown as T3Client;
 }
 describe('rightPanelStore', () => {
   test('closing the active surface activates a neighboring surface', () => { const state = panel(); closeSurface(state, 'b'); expect(state.active).toBe('c'); closeSurface(state, 'c'); expect(state.active).toBe('a'); });
@@ -87,6 +87,7 @@ describe('close hooks and integration', () => {
 });
 describe('Copy path', () => {
   test('copies relative path and reports success', async () => { const requests: unknown[] = [], c = client(async request => { requests.push(request); return { copied: true }; }); await copyTabPath(c, native, surface('src/app.ts')); expect(requests).toEqual([{ op: 'copyText', text: 'src/app.ts' }]); expect(toasts(c)[0]).toMatchObject({ title: 'Path copied', description: 'src/app.ts' }); });
+  test('a path on a Windows host is copied with its separators', async () => { const requests: unknown[] = [], c = client(async request => { requests.push(request); return { copied: true }; }, 'C:/repo'); await copyTabPath(c, native, surface('src/app.ts')); expect(requests).toEqual([{ op: 'copyText', text: 'src\\app.ts' }]); expect(toasts(c)[0]).toMatchObject({ description: 'src\\app.ts' }); });
   test('reports clipboard failures and unavailable API', async () => { for (const failure of [new Error('Denied'), null]) { const c = client(async () => { throw failure; }); await copyTabPath(c, native, surface('a')); expect(toasts(c)[0]).toMatchObject({ title: 'Failed to copy path', description: failure?.message ?? 'Clipboard API unavailable.' }); } });
 });
 describe('tab context popover (panel-tab-menu)', () => {

@@ -17,7 +17,14 @@ fn recorderLetter(key: string): bool = key.length == 1 and "abcdefghijklmnopqrst
 fn recorderPunct(code: string): string = code == "Backquote" ? "`" : (code == "Backslash" ? "\\" : (code == "BracketLeft" ? "[" : (code == "BracketRight" ? "]" : (code == "Comma" ? "," : (code == "Equal" ? "=" : (code == "Minus" ? "-" : (code == "Period" ? "." : (code == "Quote" ? "'" : (code == "Semicolon" ? ";" : (code == "Slash" ? "/" : ((code.startsWith("Digit") and code.length == 6) ? code.slice(5) : "")))))))))))
 fn recorderKey(key: string, code: string): string = recorderLetter(key.toLowerCase()) ? key.toLowerCase() : (recorderPunct(code) != "" ? recorderPunct(code) : ((code.startsWith("Key") and code.length == 4) ? code.slice(3).toLowerCase() : key.toLowerCase()))
 fn recorderToken(key: string): string = ["", "meta", "control", "ctrl", "shift", "alt", "option"].includes(key) ? "" : (key == " " ? "space" : (key == "escape" ? "esc" : (key.length == 1 ? key : ((key.startsWith("f") and key.length <= 3 and "0123456789".includes(key.slice(1, 2))) ? key : (["arrowup", "arrowdown", "arrowleft", "arrowright", "enter", "tab", "backspace", "delete", "home", "end", "pageup", "pagedown"].includes(key) ? key : "")))))
-fn recorderBinding(key: string, code: string, meta: bool, ctrl: bool, alt: bool, shift: bool): string = recorderToken(recorderKey(key, code)) == "" ? "" : [(meta ? "mod" : ""), (ctrl ? "ctrl" : ""), (alt ? "alt" : ""), (shift ? "shift" : ""), recorderToken(recorderKey(key, code))].filter((part) => part != "").join("+")
+// Settings › Keybindings records the character the layout types (recordedLayoutShortcutKey): with Option, or for a key
+// that types no single character, the key above; a US shifted glyph at its US position is its unshifted key (Shift+2's
+// "@" is "2"), and any other character is itself (AZERTY's Shift+& types "1"; German Shift+7 types "/"; Korean 2-Set's "ㅠ").
+fn usShiftedIndex(key: string): number = key.length == 1 ? "!@#$%^&*()~_+{}|:\"<>?".indexOf(key) : -1
+fn usUnshifted(key: string): string = usShiftedIndex(key) < 0 ? "" : "1234567890`-=[]\\;',./".slice(usShiftedIndex(key), usShiftedIndex(key) + 1)
+fn recorderLayoutKey(key: string, code: string, alt: bool, shift: bool): string = (alt or key.toLowerCase().length != 1) ? recorderKey(key, code) : ((shift and usUnshifted(key.toLowerCase()) == recorderKey(key, code)) ? recorderKey(key, code) : key.toLowerCase())
+fn recorderChordKey(key: string, code: string, alt: bool, shift: bool, layout: bool): string = recorderToken(layout ? recorderLayoutKey(key, code, alt, shift) : recorderKey(key, code))
+fn recorderBinding(key: string, code: string, meta: bool, ctrl: bool, alt: bool, shift: bool, layout: bool): string = recorderChordKey(key, code, alt, shift, layout) == "" ? "" : [(meta ? "mod" : ""), (ctrl ? "ctrl" : ""), (alt ? "alt" : ""), (shift ? "shift" : ""), recorderChordKey(key, code, alt, shift, layout)].filter((part) => part != "").join("+")
 
 component KeyRecorder
   props
@@ -31,6 +38,7 @@ component KeyRecorder
     autofocus: bool
     label: string
     testId: string // also its `id`, which an opener that keeps the focus moves it to
+    layout: bool // the layout's character (Settings › Keybindings), else the key's position (the action editor)
     capture: action // the binding, or "escape"
     cancel: action // the focus left the field
   // Tab is recorded like any key while recording (its default, the focus moving on, is cancelled with the rest).
@@ -40,8 +48,8 @@ component KeyRecorder
       stopPropagation()
       if k == "Escape"
         capture("escape")
-      else if recorderBinding(k, e.code, e.metaKey, e.ctrlKey, e.altKey, e.shiftKey) != ""
-        capture(recorderBinding(k, e.code, e.metaKey, e.ctrlKey, e.altKey, e.shiftKey))
+      else if recorderBinding(k, e.code, e.metaKey, e.ctrlKey, e.altKey, e.shiftKey, layout) != ""
+        capture(recorderBinding(k, e.code, e.metaKey, e.ctrlKey, e.altKey, e.shiftKey, layout))
   // The reference's element: an editable `Input` named "Keybinding for <command>" whose placeholder is the prompt,
   // so assistive technology meets a text field with that name as the focus lands in it. It stays editable, as the
   // reference's does: AppKit serves a non-editable field as static text, not a text field. Typing writes nothing,

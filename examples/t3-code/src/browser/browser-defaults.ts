@@ -1,17 +1,19 @@
 // The client
 // settings a new Browser tab opens with and Settings › Integrations › Browser's rows for them (MIT reference, see
-// LICENSE-T3, T3 Code 9c161462c9: packages/contracts/src/settings.ts `browserDefault*`, `browserRecording*`,
-// `browserAutoShowFloatingPreview`; apps/web/src/browser/browserDefaults.ts; apps/web/src/components/settings/
-// IntegrationsSettings.tsx BrowserViewportSetting, BrowserZoomSetting, BrowserAppearanceSetting,
-// BrowserRecordingFrameRateSetting, BrowserRecordingInputSettings, BrowserAutoShowFloatingPreviewSetting,
-// PullRequestLinksOpenInAppSetting; T3 Code 9c161462c9).
+// LICENSE-T3, T3 Code 74541bab17: packages/contracts/src/settings.ts `browserDefault*`, `browserRecording*`,
+// `browserAutoShowFloatingPreview`, `browserSearchEngine`, `browserCustomSearchUrl`; apps/web/src/browser/browserDefaults.ts;
+// apps/web/src/components/settings/IntegrationsSettings.tsx BrowserViewportSetting, BrowserZoomSetting,
+// BrowserAppearanceSetting, BrowserRecordingFrameRateSetting, BrowserRecordingInputSettings,
+// BrowserAutoShowFloatingPreviewSetting, BrowserSearchEngineSetting, PullRequestLinksOpenInAppSetting;
+// SettingsPanels.logic.ts getChangedBrowserSettingLabels).
 //
 // They are client-local, as the reference's are (its Chromium guest is desktop-local). The viewport, zoom and appearance
 // are kept beside the profiles in the preference file (t3-code.json); a new tab is born at them (`preview.open`, and
 // `browserSet`). The recording rows and Auto-show write the client settings browser-capture.ts reads
 // (settings-core.ts `CLIENT_DEFAULTS`: browserRecordingFrameRate, browserRecordingShowKeyPresses,
-// browserRecordingShowMousePresses, browserAutoShowFloatingPreview), and "Open pull requests in T3 Code" the client setting
-// pr-surface.ts reads (pullRequestLinksOpenInApp). "Open links in" is browser-links.ts's row (`browserLinkTarget`).
+// browserRecordingShowMousePresses, browserAutoShowFloatingPreview), "Search engine" the two the address bar reads
+// (browser-surface.ts `addressBarSearchTemplate`), and "Open pull requests in T3 Code" the client setting pr-surface.ts reads
+// (pullRequestLinksOpenInApp). "Open links in" is browser-links.ts's row (`browserLinkTarget`).
 import { obj, type Obj } from '../client/domain';
 import { applyDeviceSetting, decodeClientPrefs, type ClientPrefs } from '../settings/settings-core';
 import type { PreviewViewportSetting } from './browser-state';
@@ -20,6 +22,7 @@ import {
   PREVIEW_VIEWPORT_PRESETS, PREVIEW_ZOOM_LEVELS, isValidViewport, zoomLabel, type PreviewAppearancePreference,
 } from './browser-viewport';
 import { adoptBrowserProfilePrefs, browserDefaults, resolveBrowserDefaults, type BrowserDefaults } from './browser-profiles';
+import { BROWSER_CUSTOM_SEARCH_URL_MAX_LENGTH, BROWSER_SEARCH_ENGINES, DEFAULT_BROWSER_SEARCH_ENGINE, isValidSearchUrlTemplate, resolveSearchUrlTemplate, type BrowserSearchEngine } from './browser-url';
 
 export const BROWSER_RECORDING_FRAME_RATES = [30, 60] as const;
 export const DEFAULT_BROWSER_RECORDING_FRAME_RATE = 30;
@@ -106,12 +109,14 @@ export function changedBrowserSettingLabels(owner: Holder): string[] {
     ...(client.browserRecordingShowKeyPresses ? ['Recording key presses'] : []),
     ...(client.browserRecordingShowMousePresses ? ['Recording mouse presses'] : []),
     ...(client.browserLinkTarget !== 'system' ? ['Open links in'] : []),
+    ...(searchPrefs(owner).browserSearchEngine !== DEFAULT_BROWSER_SEARCH_ENGINE || searchPrefs(owner).browserCustomSearchUrl !== '' ? ['Search engine'] : []),
     ...(client.browserAutoShowFloatingPreview !== DEFAULT_BROWSER_AUTO_SHOW_FLOATING_PREVIEW ? ['Floating preview'] : []),
     ...(client.pullRequestLinksOpenInApp !== DEFAULT_PULL_REQUEST_LINKS_OPEN_IN_APP ? ['Open pull requests in T3 Code'] : []),
   ];
 }
 /** restoreDefaults' browser keys kept at the preference root (viewport, zoom, appearance); the recording rows, "Open links
- *  in", Auto-show and "Open pull requests in T3 Code" are client settings, which restoreDeviceDefaults resets with the rest. */
+ *  in", Auto-show, "Search engine" and "Open pull requests in T3 Code" are client settings, which restoreDeviceDefaults
+ *  resets with the rest. */
 export function restoreBrowserTabDefaults(owner: Holder): void {
   Object.assign(owner.local, defaultsOf());
 }
@@ -155,10 +160,14 @@ export function applyBrowserDefault(owner: Holder, key: string, value: string): 
     case 'mouse-presses': return write(owner, 'browserRecordingShowMousePresses', value === 'true' ? 'true' : 'false');
     case 'auto-show': return write(owner, 'browserAutoShowFloatingPreview', value === 'true' ? 'true' : 'false');
     case 'pull-request-links': return write(owner, 'pullRequestLinksOpenInApp', value === 'true' ? 'true' : 'false');
+    case 'search-engine': return (BROWSER_SEARCH_ENGINES as readonly string[]).includes(value) && write(owner, 'browserSearchEngine', value);
+    // DraftInput's commit: the trimmed text, whether or not it is a usable template (the row says when it is not).
+    case 'custom-search-url': return value.trim().length <= BROWSER_CUSTOM_SEARCH_URL_MAX_LENGTH && write(owner, 'browserCustomSearchUrl', value.trim());
     case 'reset':
       if (value === 'frame-rate') return write(owner, 'browserRecordingFrameRate', String(DEFAULT_BROWSER_RECORDING_FRAME_RATE));
       if (value === 'auto-show') return write(owner, 'browserAutoShowFloatingPreview', String(DEFAULT_BROWSER_AUTO_SHOW_FLOATING_PREVIEW));
       if (value === 'pull-request-links') return write(owner, 'pullRequestLinksOpenInApp', String(DEFAULT_PULL_REQUEST_LINKS_OPEN_IN_APP));
+      if (value === 'search-engine') return write(owner, 'browserSearchEngine', DEFAULT_BROWSER_SEARCH_ENGINE) && write(owner, 'browserCustomSearchUrl', '');
       if (value === 'viewport' || value === 'zoom' || value === 'appearance') {
         const field = ({ viewport: 'browserDefaultViewport', zoom: 'browserDefaultZoomFactor', appearance: 'browserDefaultAppearance' } as const)[value];
         (prefs as Record<string, unknown>)[field] = defaultsOf()[field];
@@ -178,7 +187,19 @@ export type BrowserDefaultsView = {
   zoomLabel: string; zoomReset: boolean; zoomOptions: DefaultsOption[]; appearanceLabel: string; appearanceReset: boolean; appearanceOptions: DefaultsOption[];
   frameRateLabel: string; frameRateReset: boolean; frameRateOptions: DefaultsOption[]; keyPresses: boolean; mousePresses: boolean; autoShow: boolean; autoShowReset: boolean;
   pullRequestLinksInApp: boolean;
+  searchEngineLabel: string; searchEngineReset: boolean; searchEngineOptions: DefaultsOption[]; searchEngineCustom: boolean; customSearchUrl: string; customSearchUrlStatus: string;
 };
+/** BrowserSearchEngineSetting SEARCH_ENGINE_LABELS. */
+export const SEARCH_ENGINE_LABELS: Readonly<Record<BrowserSearchEngine, string>> = {
+  duckduckgo: 'DuckDuckGo', google: 'Google', bing: 'Bing', brave: 'Brave Search', kagi: 'Kagi', ecosia: 'Ecosia', custom: 'Custom',
+};
+/** The two search settings, each at its default when the saved record lacks it. */
+function searchPrefs(owner: Holder): { browserSearchEngine: BrowserSearchEngine; browserCustomSearchUrl: string } {
+  const client = clientPrefs(owner), engine = BROWSER_SEARCH_ENGINES.find(candidate => candidate === client.browserSearchEngine);
+  return { browserSearchEngine: engine ?? DEFAULT_BROWSER_SEARCH_ENGINE, browserCustomSearchUrl: typeof client.browserCustomSearchUrl === 'string' ? client.browserCustomSearchUrl : '' };
+}
+/** PreviewView handleSubmitUrl: the template the address bar searches with (`resolveSearchUrlTemplate(getClientSettings())`). */
+export const addressBarSearchTemplate = (owner: Holder): string => resolveSearchUrlTemplate(searchPrefs(owner));
 const APPEARANCE_LABELS: Record<PreviewAppearancePreference, string> = { system: 'System', light: 'Light', dark: 'Dark' };
 /** viewportSelectValue / viewportSelectLabel: a preset's id while it is one, else Responsive. */
 export function viewportSelect(viewport: PreviewViewportSetting): { value: string; label: string } {
@@ -187,7 +208,7 @@ export function viewportSelect(viewport: PreviewViewportSetting): { value: strin
   return preset ? { value: preset.id, label: preset.label } : { value: 'responsive', label: 'Responsive' };
 }
 export function browserDefaultsView(owner: Holder): BrowserDefaultsView {
-  const prefs = browserTabDefaultsPrefs(owner), client = clientPrefs(owner), viewport = prefs.browserDefaultViewport, select = viewportSelect(viewport), fixed = sized(viewport);
+  const prefs = browserTabDefaultsPrefs(owner), client = clientPrefs(owner), search = searchPrefs(owner), viewport = prefs.browserDefaultViewport, select = viewportSelect(viewport), fixed = sized(viewport);
   const width = fixed?.width ?? RESPONSIVE_SEED_SIZE.width, height = fixed?.height ?? RESPONSIVE_SEED_SIZE.height;
   return {
     viewportValue: select.value, viewportLabel: select.label, viewportSized: !!fixed, viewportWidth: width, viewportHeight: height,
@@ -203,5 +224,10 @@ export function browserDefaultsView(owner: Holder): BrowserDefaultsView {
     keyPresses: client.browserRecordingShowKeyPresses, mousePresses: client.browserRecordingShowMousePresses,
     autoShow: client.browserAutoShowFloatingPreview, autoShowReset: client.browserAutoShowFloatingPreview !== DEFAULT_BROWSER_AUTO_SHOW_FLOATING_PREVIEW,
     pullRequestLinksInApp: client.pullRequestLinksOpenInApp,
+    searchEngineLabel: SEARCH_ENGINE_LABELS[search.browserSearchEngine],
+    searchEngineReset: search.browserSearchEngine !== DEFAULT_BROWSER_SEARCH_ENGINE || search.browserCustomSearchUrl !== '',
+    searchEngineOptions: BROWSER_SEARCH_ENGINES.map(engine => ({ value: engine, label: SEARCH_ENGINE_LABELS[engine], selected: engine === search.browserSearchEngine })),
+    searchEngineCustom: search.browserSearchEngine === 'custom', customSearchUrl: search.browserCustomSearchUrl,
+    customSearchUrlStatus: isValidSearchUrlTemplate(search.browserCustomSearchUrl) ? '' : 'Enter an http or https URL containing %s. Searches use DuckDuckGo until then.',
   };
 }

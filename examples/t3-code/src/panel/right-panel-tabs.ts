@@ -7,6 +7,8 @@ import type { Native } from '../client/protocol';
 import { obj } from '../client/domain';
 import { pushToast } from '../shell/toast';
 import { letGo } from '../client/let-go';
+import { workspaceOf } from './panel-surfaces';
+import { formatFilePathForClipboard, resolveWorkspaceFilePath } from '../timeline/workspace-file-lookup';
 export type TabAction = 'rename' | 'copy-path' | 'toggle-mute' | 'close' | 'close-others' | 'close-to-right' | 'close-all';
 export type TabMenuItem = { id: TabAction; label: string; disabled?: boolean };
 /** A tab's menu row as the tab strip's `contextPopover` shows it (PanelTab.menu): every flag spelled out. */
@@ -133,8 +135,10 @@ export async function copyTabPath(client: T3Client, native: Native, surface: Sur
   if (surface.kind !== 'file' || surface.attachment) return;
   try {
     if (!native.available) throw new Error('Clipboard API unavailable.');
-    const result = obj(await client.restAccess(native).call({ op: 'copyText', text: surface.path }));
+    // copyRightPanelFilePath: in the separators of the host the workspace is on.
+    const text = formatFilePathForClipboard(surface.path, resolveWorkspaceFilePath(surface.path, workspaceOf(client).cwd));
+    const result = obj(await client.restAccess(native).call({ op: 'copyText', text }));
     if (result.copied === false) throw new Error('Clipboard API unavailable.');
-    pushToast(client, { kind: 'success', title: 'Path copied', description: surface.path });
+    pushToast(client, { kind: 'success', title: 'Path copied', description: text });
   } catch (error) { if (letGo(error)) throw error; pushToast(client, { kind: 'error', title: 'Failed to copy path', description: error instanceof Error && error.message ? error.message : 'Clipboard API unavailable.' }); }
 }

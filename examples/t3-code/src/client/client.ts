@@ -38,6 +38,7 @@ import { mostRecentProjectId } from '../pages/pages-home';
 import { landHome, settleHome, settleHomeElsewhere, type HomeTarget } from '../pages/home-landing';
 import { adoptPagesPrefs } from '../pages/pages-prefs';
 import { adoptClosedViews } from '../panel/closed-views';
+import { holdThreadDiff, reopenThreadDiff } from '../panel/panel-surfaces';
 import { adoptShellPrefs } from '../shell/shell-prefs';
 import { adoptFilesPrefs } from '../panel/files-prefs';
 import { adoptSidebarWidth } from '../sidebar/sidebar-width';
@@ -147,6 +148,8 @@ export class T3Client {
   /** The refresh adopting captures, or -1. A newer read takes over one Exact let go mid-flight. */
   private snapshotAdopting = -1;
   private snapshotNotices = new Map<string, boolean>();
+  /** SnapShotCoordinator reportOnce: the failures each capture has already shown (a missing project, a failed delivery). */
+  private snapshotReported = new Map<string, Set<'missing-project' | 'delivery'>>();
   /** Streams the transport scheduled to resubscribe on this session (`_retryDue`), and their failure text. */
   private streamRetryDue = new Set<string>();
   private streamError = '';
@@ -324,7 +327,8 @@ export class T3Client {
     // A ref list scrolled toward its end asks its source again for the next page (ref-paging.ts).
     const scrolled = JSON.stringify(obj(value.presentation).scrollEnds ?? {}) !== JSON.stringify(this.presentation.scrollEnds ?? {});
     // A Browser tab's page state (T3BrowserSessions.swift) redraws its tab and chrome row.
-    const browsed = JSON.stringify(obj(value.presentation).browserTabs ?? {}) !== JSON.stringify(this.presentation.browserTabs ?? {});
+    const browsed = JSON.stringify(obj(value.presentation).browserTabs ?? {}) !== JSON.stringify(this.presentation.browserTabs ?? {})
+      || obj(value.presentation).browserWindowZoom !== this.presentation.browserWindowZoom; // the window's zoom lays the tabs out again
     this.presentation = obj(value.presentation);
     if (scrolled || browsed) this.changed();
     if (moved) {
@@ -837,7 +841,9 @@ export class T3Client {
       await this.openDraft(native, this.projectId); this.threadId = this.absentThreadId = id; return; // a missing thread shows NoActiveThreadState
     }
     this.threadId = id; this.thread = keptThread(this, id); this.diffOpen = false; this.answers = {}; // keep-alive.ts: a running thread's kept detail
+    const diffHeld = holdThreadDiff(this); // panel-surfaces.ts: the thread's Diff shows again
     this.ensureSelection(); await this.openThread(native, id, this.thread !== null);
+    await reopenThreadDiff(this, native, diffHeld);
     sidebarOpened(this, native);
   }
   /**
@@ -883,10 +889,19 @@ export class T3Client {
     if (this.snapshotAdopting === adopting) return;
     this.snapshotAdopting = adopting;
     const generation = this.generation, environment = this.environmentId, origin = this.origin, local = this.local;
-    // A reconnect or preference reset is not a lost destination: stop and leave captures pending.
-    const connected = () => generation === this.generation && environment === this.environmentId && origin === this.origin && local === this.local && this.ready;
+    // A reconnect, a preference reset or SnapShots turned off is not a lost destination: stop and leave captures pending.
+    const connected = () => generation === this.generation && environment === this.environmentId && origin === this.origin && local === this.local && this.ready
+      && local.deviceSettings.snapShotEnabled;
     const dismiss = (id: string, owner: string) => this.call(native, { op: 'snapshotDismiss', id, owner }).catch(() => undefined);
-    const report = (id: string, text: string, stranded = false) => { if (!this.snapshotNotices.has(id)) this.error = text; this.snapshotNotices.set(id, stranded); };
+    // Each failure shows once per capture, and none while SnapShots are off.
+    const report = (id: string, failure: 'missing-project' | 'delivery', text: string, stranded = false) => {
+      this.snapshotNotices.set(id, stranded);
+      if (!local.deviceSettings.snapShotEnabled) return;
+      const reported = this.snapshotReported.get(id) ?? new Set();
+      if (reported.has(failure)) return;
+      reported.add(failure); this.snapshotReported.set(id, reported);
+      this.error = text;
+    };
     try {
       const state = await this.snapshotState(native, true);
       if (!connected()) return;
@@ -896,7 +911,7 @@ export class T3Client {
         const id = str(item.id), owner = str(item.owner), identity = snapshotIdentity(owner, origin, environment);
         // A pinned destination that vanished stays pending, as in the reference, without refetching.
         if (!identity || this.snapshotNotices.get(id) === true) continue;
-        if (!identity[2] && !this.shell.projects.length && this.shellLoaded) { await dismiss(id, owner); report(id, snapshotNoProjectMessage); continue; }
+        if (!identity[2] && !this.shell.projects.length && this.shellLoaded) { await dismiss(id, owner); report(id, 'missing-project', snapshotNoProjectMessage); continue; }
         const catalog = await this.http(native, '/api/orchestration/shell');
         if (!connected()) return;
         const threadId = identity[3], active = arr(catalog.threads).find(thread => thread.id === threadId);
@@ -909,7 +924,7 @@ export class T3Client {
           // Undo only this capture against the CURRENT array, commit, then release owned bytes.
           if (withoutSnapshot(local.snapshotDrafts, key, id)) await this.persist(storage);
           if (saved) { local.snapshotReleases.push(id); await this.flushSnapshotReleases(native, storage); }
-          await dismiss(id, owner); report(id, snapshotNoProjectMessage, Boolean(identity[2]));
+          await dismiss(id, owner); report(id, 'missing-project', snapshotNoProjectMessage, Boolean(identity[2]));
         };
         if (!snapshotDestinationExists(catalog, projectId, threadId)) { await strand(false); continue; }
         try {
@@ -938,10 +953,10 @@ export class T3Client {
             await this.snapshotState(native, true).catch(() => undefined);
           }
           await this.call(native, { op: 'snapshotAcknowledge', id, owner, focus: key === this.draftKey, focusOwner: JSON.stringify([origin, environment, projectId, threadId]) });
-          this.snapshotNotices.delete(id);
+          this.snapshotNotices.delete(id); this.snapshotReported.delete(id);
         } catch (error) {
           if (error instanceof ClientError && ['stale', 'superseded'].includes(error.kind)) throw error;
-          await dismiss(id, owner); report(id, snapshotFailureMessage(id, message(error)));
+          await dismiss(id, owner); report(id, 'delivery', snapshotFailureMessage(id, message(error)));
         }
       }
     } finally { if (this.snapshotAdopting === adopting) this.snapshotAdopting = -1; }
