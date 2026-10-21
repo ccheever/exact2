@@ -148,7 +148,10 @@ pub fn needed(plan: &Plan, parts: &[Option<exact_web::host::template::Parts>]) -
         (bits & ROOT == 0
             && (bits & (POSITION | STACK | POLICY | CONTROL | WRAP) != 0
                 || p.props.contains_key("data-exact-zi")))
-            || plan.nodes[i]
+            || plan
+                .nodes
+                .get(i)
+                .unwrap()
                 .bindings
                 .iter()
                 .map(|b| plan.binding(b))
@@ -156,8 +159,8 @@ pub fn needed(plan: &Plan, parts: &[Option<exact_web::host::template::Parts>]) -
                     crate::style::literal(plan, plan.code(b.expr)).is_none()
                         && binding(
                             plan,
-                            NodeType::from_wire(plan.nodes[i].node_type).unwrap(),
-                            b,
+                            NodeType::from_wire(plan.nodes.get(i).unwrap().node_type).unwrap(),
+                            &b,
                         )
                         .is_some()
                 })

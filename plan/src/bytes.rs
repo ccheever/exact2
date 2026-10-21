@@ -158,6 +158,11 @@ impl<'a> Sticky<'a> {
         read(&mut self.r).unwrap_or_else(|error| self.fail(error, T::default()))
     }
 
+    /// [`Reader::position`].
+    pub fn position(&self) -> usize {
+        self.r.position()
+    }
+
     /// [`Reader::reserve`].
     pub fn reserve(&self, n: usize, each: usize) -> usize {
         self.r.reserve(n, each)

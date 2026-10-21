@@ -335,20 +335,19 @@ pub fn sites(
     let mut out = Vec::new();
     // Each node's rows, then each `:hover` and `:focus-visible` look's, read
     // at the node (LLP 1121 D8).
-    let range = |r: &exact_plan::BindingsRange| r.start as usize..(r.start + r.len) as usize;
     let rows = (plan.nodes.iter().enumerate())
-        .map(|(i, node)| (i, range(&node.bindings), None))
+        .map(|(i, node)| (i, node.bindings, None))
         .chain(plan.looks.iter().map(|l| {
             let state = if l.state == 1 {
                 "hover"
             } else {
                 "focus-visible"
             };
-            (l.node.0 as usize, range(&l.bindings), Some(state))
+            (l.node.0 as usize, l.bindings, Some(state))
         }));
     for (i, range, look) in rows {
         let site = &map["nodes"][i];
-        for b in &plan.bindings[range] {
+        for b in range.iter().map(|id| plan.binding(id)) {
             if b.kind != BindingKind::Style {
                 continue;
             }
@@ -480,8 +479,6 @@ pub fn motion_sites(
     let src = std::fs::read_to_string(app).map_err(|e| format!("{}: {e}", app.display()))?;
     let root = crate::app_root(app).map_err(first)?;
     let (_, sources) = crate::sources::load(app, &src, &root).map_err(first)?;
-    let dir = app.parent().unwrap_or(app);
-    let canonical = dir.canonicalize().unwrap_or_else(|_| dir.to_path_buf());
     let mut out = Vec::new();
     for site in &sources.motion {
         let via = if site.tokens.iter().any(|t| t == token) {
@@ -492,13 +489,10 @@ pub fn motion_sites(
                 None => continue,
             }
         };
-        let path = sources.path(site.span);
-        let shown = path
-            .strip_prefix(dir)
-            .or_else(|_| path.strip_prefix(&canonical))
-            .unwrap_or(path)
-            .display()
-            .to_string();
+        // The loader's path, which `motion_instances` joins against the
+        // elements' (round 2, Astra 2): the finished reply names it
+        // (`relative_files`), never this list.
+        let shown = sources.path(site.span).to_string_lossy().into_owned();
         let mut v = json!({
             "site": Value::Null,
             "row": match site.component {
@@ -551,11 +545,96 @@ fn elements(
         {
             return Err(format!(
                 "{} changed while it was read: ask again",
-                path.display()
+                shown(path, app.parent().unwrap_or(app))
             ));
         }
     }
     Ok((file, sources))
+}
+
+/// `path` as an answer names it, never with this machine's directories
+/// (the rule `scripts/tamber-paths.mjs` keeps for the JS server too):
+/// - inside the app's directory `dir` (as given or canonical: a temporary
+///   directory may be reached through a link), from it
+///   (`node_modules/@acme/reading/index.contract`);
+/// - else inside a package (the nearest directory above the file whose
+///   `package.json` has a name), as D15 names a package's file
+///   (`sources::home`): `<name>/<path inside it>` (`@acme/linked/index.contract`
+///   for a package linked from outside the app);
+/// - else `<outside>/<its name>`.
+///
+/// A relative path is the app's already and is kept.
+pub fn shown(path: &std::path::Path, dir: &std::path::Path) -> String {
+    let slashed = |p: &std::path::Path| p.to_string_lossy().replace('\\', "/");
+    if path.is_relative() {
+        return slashed(path);
+    }
+    let canonical = dir.canonicalize().unwrap_or_else(|_| dir.to_path_buf());
+    // Real through its nearest existing ancestor, the missing rest kept (a
+    // package's `dist/theme.tamber` where there is no `dist/`).
+    let real = {
+        let mut at = path;
+        let mut rest = Vec::new();
+        while !at.exists() {
+            match (at.parent(), at.file_name()) {
+                (Some(up), Some(name)) => {
+                    rest.push(name.to_owned());
+                    at = up;
+                }
+                _ => break,
+            }
+        }
+        let mut real = at.canonicalize().unwrap_or_else(|_| at.to_path_buf());
+        real.extend(rest.iter().rev());
+        real
+    };
+    for (p, d) in [
+        (path, dir),
+        (path, canonical.as_path()),
+        (real.as_path(), canonical.as_path()),
+    ] {
+        if let Ok(rest) = p.strip_prefix(d) {
+            return slashed(rest);
+        }
+    }
+    for root in real.ancestors().skip(1) {
+        let named = std::fs::read_to_string(root.join("package.json"))
+            .ok()
+            .and_then(|t| serde_json::from_str::<Value>(&t).ok())
+            .and_then(|m| m["name"].as_str().map(str::to_string));
+        if let (Some(name), Ok(rest)) = (named, real.strip_prefix(root)) {
+            return format!("{name}/{}", slashed(rest));
+        }
+    }
+    format!(
+        "<outside>/{}",
+        real.file_name()
+            .map_or_else(String::new, |n| n.to_string_lossy().into_owned())
+    )
+}
+
+/// Every `file` in an answer's `sites` (any depth) as [`shown`] names it
+/// (tamber/1.15: an absolute path leaked the machine's directories).
+pub fn relative_files(sites: &mut [Value], dir: &std::path::Path) {
+    sites.iter_mut().for_each(|v| relative(v, dir));
+}
+
+/// [`relative_files`] of one value.
+fn relative(v: &mut Value, dir: &std::path::Path) {
+    match v {
+        Value::Object(o) => {
+            for (k, x) in o.iter_mut() {
+                match (k.as_str(), &*x) {
+                    ("file", Value::String(f)) => {
+                        *x = Value::from(shown(std::path::Path::new(f), dir))
+                    }
+                    _ => relative(x, dir),
+                }
+            }
+        }
+        Value::Array(a) => a.iter_mut().for_each(|x| relative(x, dir)),
+        _ => {}
+    }
 }
 
 /// Each element of `nodes` (recursively), with `f`.

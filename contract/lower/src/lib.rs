@@ -19,6 +19,9 @@
 #![forbid(unsafe_code)]
 #![deny(missing_docs)]
 
+mod alert_parts;
+pub mod anatomy;
+mod box_transform;
 mod buttons;
 mod cells;
 mod class;
@@ -55,6 +58,7 @@ mod nodes;
 mod overflow;
 pub mod params;
 mod routes;
+mod row_look;
 mod scale;
 mod shorthands;
 mod sites;
@@ -138,6 +142,8 @@ pub fn package_unband(message: &str) -> String {
     theme::packages::unband(message)
 }
 /// What a design is checked against (LLP 1121 D2): the schema's roles.
+pub use theme::retained::retention_only;
+pub use theme::rows;
 pub use theme::{retention, synthetic_candidates};
 pub use warnings::{warnings, MAX_WARNINGS};
 
@@ -217,6 +223,9 @@ pub(crate) struct Lowerer<'a> {
     pub font_stacks: BTreeMap<String, StacksId>,
     /// Declared families, for the literal weight/style synthesis diagnostic.
     declared_fonts: BTreeMap<String, DeclaredFont>,
+    /// Each font file whose faces' weights `declare_fonts` read from it, as
+    /// it was then (the design server's write check, `theme::rows`).
+    font_files: Vec<theme::rows::FontFile>,
     /// How many `fn` bodies are being expanded right now (a guard; the type
     /// pass already refuses a cycle).
     pub fn_depth: u32,
@@ -231,6 +240,19 @@ pub(crate) struct Lowerer<'a> {
     texts_used: std::collections::BTreeSet<String>,
     /// The surface the plan is for: a terminal entry's block link is not tinted.
     profile: Profile,
+    /// Each native button named as a part with the `control` group (LLP
+    /// 1139 D6), by its node's span: one lowering draws as a bare box is
+    /// refused where it is lowered, in its instance's context.
+    pub(crate) control_parts: Vec<anatomy::ControlPart>,
+    /// Each library `button` with a control's role, refused where it is drawn
+    /// as a bare box (LLP 1139 D6).
+    pub(crate) library_buttons: Vec<LowerError>,
+    /// Each node named as a part, by its span, with the part's name: the
+    /// source map's (LLP 1139 D5).
+    pub(crate) part_names: Vec<(Span, String)>,
+    /// Each element of an exported library component's own view, by its
+    /// span, with the component's identity: the source map's (LLP 1139 D5).
+    pub(crate) library_nodes: Vec<(Span, String)>,
     /// How many `svg` elements enclose the node being lowered: `text`
     /// inside one is SVG text, outside a box (LLP 1055.000 D11).
     pub(crate) svg_depth: u32,
@@ -253,7 +275,7 @@ pub(crate) struct Lowerer<'a> {
     host_transforms: std::collections::BTreeSet<(Span, u32)>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 struct DeclaredFont {
     stack: StacksId,
     /// Each face's heaviest weight (a variable face's range reaches it) and
@@ -390,11 +412,16 @@ fn lower_with_sites(
         arm_scopes: BTreeMap::new(),
         font_stacks: BTreeMap::new(),
         declared_fonts: BTreeMap::new(),
+        font_files: Vec::new(),
         fixed: BTreeMap::new(),
         errors: Vec::new(),
         locale: None,
         texts_used: Default::default(),
         profile,
+        control_parts: Vec::new(),
+        library_buttons: Vec::new(),
+        part_names: Vec::new(),
+        library_nodes: Vec::new(),
     };
     // A refusal that stops lowering is said after those collected before it
     // (a refused token, then a statement no plan can hold), never in their
@@ -450,6 +477,10 @@ fn lower_body(
         names_tokens_outside_views(file, root_types),
         asset_root,
     );
+    // The design server's build: what it reads is known (`retention_only`).
+    if theme::retained::stops_at_retention() {
+        return Err(Vec::new());
+    }
     l.declare_decorations(file)?;
     // Styles: rows only, literal only (the parser holds the second), by name.
     for s in &file.styles {
@@ -498,6 +529,8 @@ fn lower_body(
             });
         }
     }
+    // Each component's parts and the rows its classes bring them (LLP 1139 D2).
+    l.check_anatomy(file);
     let refused = l.declare_keyframes(file);
     l.errors.extend(refused);
     // Shapes first, in declaration order, so type ids are stable.

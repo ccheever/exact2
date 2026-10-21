@@ -83,6 +83,54 @@ test('distribution-only handlers stay out of both Apple registration keys in loc
   assert.doesNotMatch(infoPlist(app, true, { distribution: { ExactBuildKind: 'release' } }), /packaged/);
 });
 
+test('http and https come as a pair: a Mac web browser, refused on iOS and dropped from the web manifest (LLP 1030 D2)', async () => {
+  const { macInfoPlist, infoPlist } = await import('../host/apple/build.mjs');
+  const { readManifest, webAppManifest } = await import('./app.mjs');
+  const flat = (plist) => plist.replace(/\s+/g, '');
+  const pair = (extra = {}) => [{ protocol: 'https', url: '/open?u=%s', ...extra }, { protocol: 'http', url: '/open?u=%s', ...extra }];
+  const dir = mkdtempSync(resolve(tmpdir(), 'manifest-web-'));
+  const save = (protocol_handlers) => writeFileSync(resolve(dir, 'app.json'), JSON.stringify({ name: 'Links', app: { id: 'dev.exact.links', name: 'Links' }, protocol_handlers }));
+  try {
+    save([...pair(), { protocol: 'links', url: '/open?u=%s' }]);
+    assert.equal(readManifest(dir, 'links').protocol_handlers.length, 3);
+    for (const bad of [[pair()[0]], [pair()[0], { protocol: 'HTTP', url: '/other?u=%s' }], [pair()[0], { ...pair()[1], distribution_only: true }]]) {
+      save(bad);
+      assert.throws(() => readManifest(dir, 'links'), /http and https come together/);
+    }
+    for (const platform of ['ios', 'macos']) {
+      writeFileSync(resolve(dir, 'app.json'), JSON.stringify({ name: 'Links', app: { id: 'dev.exact.links', name: 'Links' }, host: { [platform]: { urlSchemes: ['links', 'HTTPS'] } } }));
+      assert.throws(() => readManifest(dir, 'links'), new RegExp(`host\\.${platform}\\.urlSchemes: HTTPS is the web's own scheme; declare http and https together in protocol_handlers`));
+    }
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+
+  const app = { id: 'dev.exact.links', displayName: 'Links', manifest: { protocol_handlers: [...pair(), { protocol: 'links', url: '/l?u=%s' }], host: { macos: { urlSchemes: ['other'] } } } };
+  const mac = flat(macInfoPlist(app));
+  assert.match(mac, /<key>CFBundleURLTypes<\/key><array><dict><key>CFBundleURLName<\/key><string>dev.exact.links<\/string><key>CFBundleURLSchemes<\/key><array><string>other<\/string><string>links<\/string><\/array><\/dict><dict><key>CFBundleURLName<\/key><string>WebsiteURL<\/string><key>CFBundleTypeRole<\/key><string>Viewer<\/string><key>CFBundleURLSchemes<\/key><array><string>https<\/string><string>http<\/string><\/array><\/dict><\/array>/);
+  assert.match(mac, /<key>CFBundleDocumentTypes<\/key><array><dict><key>CFBundleTypeName<\/key><string>Webpage<\/string><key>CFBundleTypeRole<\/key><string>Viewer<\/string><key>LSHandlerRank<\/key><string>Alternate<\/string><key>LSItemContentTypes<\/key><array><string>public.html<\/string><string>public.xhtml<\/string><\/array><key>ExactWebPage<\/key><true\/><\/dict><\/array>/);
+  assert.match(mac, /<key>protocol<\/key><string>https<\/string><key>url<\/key><string>\/open\?u=%s<\/string>/);
+  // Beside the app's own documents, after them.
+  const documents = flat(macInfoPlist({ ...app, manifest: { ...app.manifest, file_handlers: [{ action: '/', accept: { 'text/markdown': ['.md'] } }] } }));
+  assert.match(documents, /net.daringfireball.markdown<\/string><\/array>.*<string>Webpage<\/string>/);
+  // iOS registers neither, nor their template; the app's own scheme stays.
+  const ios = infoPlist(app);
+  assert.doesNotMatch(ios, /<string>https?<\/string>|Web site URL|Web page/);
+  assert.match(ios, /<string>links<\/string>/);
+  // The iOS and tvOS builds say so, but only when the pair would have been registered.
+  const { webRefusal } = await import('../host/apple/documents.mjs');
+  assert.match(webRefusal(app, false, false), /^host\/apple: protocol_handlers http and https: iOS registers neither/);
+  assert.match(webRefusal(app, false, true), /tvOS registers neither/);
+  assert.equal(webRefusal({ ...app, manifest: { protocol_handlers: [{ protocol: 'links', url: '/l?u=%s' }] } }, true, false), null);
+  // A distribution-only pair: a local Mac build is no browser, and a local iOS build refuses nothing.
+  const packaged = { ...app, manifest: { protocol_handlers: pair({ distribution_only: true }) } };
+  assert.doesNotMatch(macInfoPlist(packaged), /https|Web page|CFBundleDocumentTypes/);
+  assert.match(macInfoPlist(packaged, { distributed: true }), /Web page/);
+  assert.equal(webRefusal(packaged, false, false), null);
+  assert.match(webRefusal(packaged, true, false), /iOS registers neither/);
+  // The web registers neither (HTML's safelist): the pair goes, the rest stays.
+  assert.deepEqual(webAppManifest(app.manifest, 'Links').protocol_handlers, [{ protocol: 'links', url: '/l?u=%s' }]);
+  assert.equal(webAppManifest({ protocol_handlers: pair() }, 'Links').protocol_handlers, undefined);
+});
+
 test('an iOS app lists the schemes canOpenURL may ask about, and a malformed or 51st one is refused', async () => {
   const { infoPlist } = await import('../host/apple/build.mjs');
   const { readManifest } = await import('./app.mjs');
@@ -225,5 +273,21 @@ test('requiresSecrets scopes the account placeholder to its widget entry', async
     write(true); assert.equal(readManifest(dir, 'account').widgets[0].requiresSecrets, true);
     assert.equal(readManifest(dir, 'account').widgets[1].requiresSecrets, undefined);
     write('yes'); assert.throws(() => readManifest(dir, 'account'), /requiresSecrets/);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('host.ios.appClip is an object of an id and a name, and an unknown key or a malformed id is refused', async () => {
+  const { readManifest } = await import('./app.mjs');
+  const dir = mkdtempSync(resolve(tmpdir(), 'manifest-clip-'));
+  try {
+    const save = (appClip) => writeFileSync(resolve(dir, 'app.json'), JSON.stringify({ name: 'Shop', app: { id: 'dev.exact.shop', name: 'Shop' }, host: { ios: { appClip } } }));
+    save({});
+    assert.deepEqual(readManifest(dir, 'shop').host.ios.appClip, {});
+    save({ id: 'dev.exact.shop.clip', name: 'Shop Clip' });
+    assert.deepEqual(readManifest(dir, 'shop').host.ios.appClip, { id: 'dev.exact.shop.clip', name: 'Shop Clip' });
+    for (const [appClip, says] of [[{ domains: ['shop.example'] }, /appClip\.domains: not a known key/], [{ id: 'clip' }, /appClip\.id: "clip" does not match/], [true, /appClip/]]) {
+      save(appClip);
+      assert.throws(() => readManifest(dir, 'shop'), says);
+    }
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });

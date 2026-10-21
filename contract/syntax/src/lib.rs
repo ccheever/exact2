@@ -18,6 +18,7 @@
 #![forbid(unsafe_code)]
 #![deny(missing_docs)]
 
+pub mod anatomy;
 pub mod ast;
 mod clock;
 mod colours;

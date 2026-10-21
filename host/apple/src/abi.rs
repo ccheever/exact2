@@ -604,9 +604,14 @@ impl<D: DataSource> Bridge<D> {
     }
 
     /// The app module announced `topic` (LLP 1016.002): the live source's
-    /// watching answers are asked again.
+    /// watching answers are asked again. An `app:/` topic is a file the
+    /// module wrote (`ExactModuleContext.wrote`): the commit reports a
+    /// storage change too, so a widget reloads as after a TypeScript write.
     pub fn app_changed(&mut self, topic: &str) {
-        if let Some(host) = &self.host {
+        if let Some(host) = &mut self.host {
+            if topic.starts_with("app:/") {
+                host.runner_mut().data().note_storage_changed();
+            }
             host.native_slot().changed(topic);
         }
     }
@@ -617,6 +622,17 @@ impl<D: DataSource> Bridge<D> {
             slot.host(self.app_module.clone());
             slot.host_call(self.app_call.clone());
         }
+    }
+
+    /// The presenter has painted this session: evaluate the deferred logic
+    /// without committing it (`Host::prepare_data`); `data_ready` commits.
+    pub fn prepare_data(&mut self) {
+        if self.host.is_none() {
+            return;
+        }
+        self.painted = true;
+        self.adopt_app_module();
+        self.host.as_mut().expect("checked").prepare_data();
     }
 
     /// The presenter has painted this session; deferred logic can now load.
@@ -1008,8 +1024,9 @@ impl<D: DataSource> Bridge<D> {
             // beforeunload, wheel and drop, and a text field's `input`,
             // `change` and `select` with its selection (x2apps codeedit #2),
             // replacement input (48), a key's down (6), up (43) and capture (44) with its code and repeat
-            // toggle (50), focusin (46) and focusout (47) with their targets, and scrollend (51) (`Event::of_host_kind`).
-            6 | 10 | 13 | 19 | 20 | 21 | 28..=38 | 40..=44 | 46..=48 | 50..=54 => {
+            // toggle (50), focusin (46) and focusout (47) with their targets, scrollend (51),
+            // a file drag's dragenter (55) and dragleave (56), and a paste with files (57) (`Event::of_host_kind`).
+            6 | 10 | 13 | 19 | 20 | 21 | 28..=38 | 40..=44 | 46..=48 | 50..=57 => {
                 match Event::of_host_kind(kind, &payload) {
                     Ok(event) => event,
                     Err(error) => return self.refuse(error),

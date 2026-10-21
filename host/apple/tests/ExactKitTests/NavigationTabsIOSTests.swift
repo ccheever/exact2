@@ -51,9 +51,9 @@ final class NavigationTabsIOSTests: XCTestCase {
     /// default window is iPhone 17's size at the screen's top left, which on
     /// a larger phone (iPhone Air, 18 Pro Max) ends above the indicator, and
     /// UIKit gives it no bottom inset.
-    private func fixture(_ label: String, module: Bool = false, wholeScreen: Bool = false) throws -> ExactSession {
+    private func fixture(_ label: String, module: Bool = false, wholeScreen: Bool = false, plan key: String = "EXACT_FIXTURE_PLAN") throws -> ExactSession {
         let env = ProcessInfo.processInfo.environment
-        let plan = try Data(contentsOf: URL(fileURLWithPath: try XCTUnwrap(env["EXACT_FIXTURE_PLAN"], "build.mjs --test --ios compiles the fixture's plan")))
+        let plan = try Data(contentsOf: URL(fileURLWithPath: try XCTUnwrap(env[key], "build.mjs --test --ios compiles \(key)")))
         let session = ExactApp.shared.makeSession(label: label)
         sessions.append(session)
         let view = ExactView(session: session)
@@ -513,6 +513,30 @@ final class NavigationTabsIOSTests: XCTestCase {
         until("Home popped to its root") { home.viewControllers.count == 1 && home.transitionCoordinator == nil }
     }
 
+    /// A native button tab's face is the runner's (`Runtime.buttonFace`), a
+    /// synchronous read on the owner thread. A batch that changes nothing a
+    /// tab shows reads no tab's face; one that changes a tab's text still
+    /// retitles its item.
+    func testATabsFaceIsReadAgainOnlyAfterABatchThatCanChangeIt() throws {
+        let session = try fixture("tab-faces", plan: "EXACT_HELD_TAB_PLAN")
+        let navigation = session.presenter.navigation
+        let tabs = try XCTUnwrap(navigation.tabController)
+        let tabNodes = try ["tab-plain", "tab-titled"].map { try node(session, $0) }
+        XCTAssertTrue(tabNodes.allSatisfy(\.isNativeButton), "the held-tab fixture's tabs are native buttons")
+        XCTAssertEqual(tabs.viewControllers?.map { $0.tabBarItem.title }, ["Plain", "Titled"])
+        var reads: [UInt32: Int] = [:]
+        let read = try XCTUnwrap(session.presenter.buttonFace)
+        session.presenter.buttonFace = { reads[$0, default: 0] += 1; return read($0) }
+        let syncs = navigation.syncCalls
+        session.presenter.press(try node(session, "bump").id)
+        until("the bump shows") { (try? node(session, "bumps"))?.accessibleText == "Bumped 1" }
+        until("and is projected") { navigation.syncCalls > syncs }
+        XCTAssertEqual(tabNodes.map { reads[$0.id] ?? 0 }, [0, 0], "no tab's face is read for a text no tab shows")
+        session.presenter.press(try node(session, "rename").id)
+        until("the item's title follows its tab's text") { tabs.viewControllers?[1].tabBarItem.title == "Renamed" }
+        XCTAssertEqual(tabs.viewControllers?[0].tabBarItem.title, "Plain")
+    }
+
     /// A tab selected while a push animates: the pushing stack stops being
     /// the one navigation follows, so its `didShow` is not navigation's, and
     /// the push must still end for later navigation to apply.
@@ -735,8 +759,7 @@ final class NavigationTabsIOSTests: XCTestCase {
         let nav = try XCTUnwrap(tabs.viewControllers?[1] as? UINavigationController)
         // UIKit shows no large title where it places a vertical bar: the iPhone Duo upright or closed
         // holds a 28-point title in a fixed 58-point bar
-        var large = true
-        if #available(iOS 27.1, *) { large = nav.traitCollection.verticalBarEdge == .unspecified }
+        let large = !nav.traitCollection.placesVerticalBar
         let list = try node(session, "list-second"), sv = try XCTUnwrap(list.scroll)
         let css = { sv.contentOffset.y + sv.adjustedContentInset.top }
         let expanded = nav.navigationBar.frame.height

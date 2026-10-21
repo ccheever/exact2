@@ -4,16 +4,24 @@
     "90": "0x70f5499729b09c87"
   },
   "saves": {
-    "continuation": "0ceff23d1359fa61a197c7f3aba64fdc28bc15dbd1b6b932860074b10afcb79c"
+    "continuation": "3d0e35f7b879346d0b13f85359b54b61a1bcf36071df3d97de672530f5207217"
   },
   "hosts": [
     "linux",
     "web"
   ],
-  "inputs": "004fd44e91cb66b159fbb1850521dfaf2224b6cc587761437497d3a881ceae7d",
-  "sourceInputs": "4f1595b6a0b013500801b866d64d92a6ae08e7ef97d2f5e53b2d2cbd06b66359",
+  "modes": [
+    "0",
+    "1",
+    "fresh-game"
+  ],
+  "profiles": [
+    "gpu-dev"
+  ],
+  "inputs": "d11560d2119c0b08ea07c31bdbf23eabd7423a9bbdb8bc8ecd198d05de4404c4",
+  "sourceInputs": "adfcdddd307d953a726efef23f4973eb51bc1fb9001473bfd6809d214f1951d4",
   "game": "audio-fixture",
   "generated": "bun game/prove.mjs audio-fixture --repin --hosts 'linux,web'",
-  "at": "2b29c566511d4497d0a93017eda4ee60bda3ac74",
-  "reason": "EXGAME v6 (tableInputs after main's v5): continuation bytes change by the version byte; tick hashes unchanged"
+  "at": "61d7d251b21cf54739592befb8aa4d3e033349d4",
+  "reason": "EXSIM v8 (player: u8, pads) over EXGAME v6: continuation bytes change; tick hashes unchanged"
 }

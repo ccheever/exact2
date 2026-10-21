@@ -23,6 +23,7 @@ pub fn paint_row(a: &contract_syntax::Attr) -> bool {
 }
 mod declaration;
 pub mod functions;
+pub mod gallery;
 mod grants;
 /// The Lean backend: a program as a term of `semantics/` (LLP-free; see
 /// `semantics/README.md`).
@@ -36,6 +37,8 @@ mod modules;
 pub mod native;
 pub mod picker;
 mod resolve;
+mod retained;
+pub use retained::{retention_build, Kept, Retained};
 mod rust;
 mod sources;
 mod strings;
@@ -44,8 +47,9 @@ mod symbols;
 mod tests_json;
 pub use tests_json::tests_json;
 pub mod snapshot;
-/// `uses` (LLP 1121 stage 4, commit 6): where the app reads a token.
+pub mod tamber_levels;
 pub mod tamber_params;
+/// `uses` (LLP 1121 stage 4, commit 6): where the app reads a token.
 pub mod tamber_uses;
 pub mod terminal;
 mod typescript;
@@ -432,6 +436,14 @@ pub fn source_graph(path: &Path) -> SourceGraph {
     }
 }
 
+/// The `.contract` files beside the root at `path` (not tests) that no
+/// `use` from it reaches: another entry, or a file nothing uses yet.
+pub fn unreached(path: &Path) -> Vec<PathBuf> {
+    let graph = source_graph(path);
+    let root = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
+    sources::unreached(&root, |p| graph.sources.iter().any(|s| s.path == p))
+}
+
 /// A file [`fix_uses`] wrote, and the `use` lines it wrote there.
 pub type WrittenUses = (PathBuf, Vec<String>);
 
@@ -464,10 +476,15 @@ pub fn fix_uses(path: &Path) -> Result<(Vec<WrittenUses>, Vec<CompileError>), Ve
         let mut wrote = false;
         let mut refused = Vec::new();
         for fix in fixes {
-            if !fix.unresolved.is_empty() || fix.lines.is_empty() {
+            // Never a file outside the app, whatever path reached it.
+            let inside = fix
+                .path
+                .canonicalize()
+                .is_ok_and(|p| p.starts_with(&app_root));
+            if !fix.unresolved.is_empty() || fix.lines.is_empty() || !inside {
                 refused.push(fix.error.clone());
             }
-            if fix.lines.is_empty() {
+            if fix.lines.is_empty() || !inside {
                 continue;
             }
             let before =
@@ -707,6 +724,27 @@ pub fn web_only(warning: &CompileError) -> bool {
     contract_lower::warning_rank::web_only(&warning.id, &warning.message)
 }
 
+/// [`web_only`] for a warning as it is said (`file:line:col warning [id] message`).
+pub fn web_only_said(said: &str) -> bool {
+    said.split_once(" warning [")
+        .and_then(|(_, rest)| rest.split_once("] "))
+        .is_some_and(|(id, message)| contract_lower::warning_rank::web_only(id, message))
+}
+
+/// The one line a build's text says for its [`web_only`] warnings, the
+/// first as said and their number, at the first's place: the euxy port's
+/// 21 of them buried the warnings above them. `contract build --json`
+/// lists each.
+pub fn web_only_line(first: &str, count: usize) -> String {
+    let at = first.split_once(" warning [").map_or("", |(at, _)| at);
+    let one = count == 1;
+    format!(
+        "{at} warning [lower-symbol-platform] {count} SF Symbol use{} draw{} blank on the web, here first: an icon token or a role draws on every host (`contract build --json` says each, and how)",
+        if one { "" } else { "s" },
+        if one { "s" } else { "" },
+    )
+}
+
 pub(crate) fn app_root(path: &Path) -> Result<PathBuf, Vec<CompileError>> {
     let source_root = path
         .parent()
@@ -810,6 +848,7 @@ fn compile_loaded(
         all.truncate(MAX_DIAGNOSTICS);
         all
     };
+    retained::keep_paths(sources.paths());
     let strings = strings::load(&app_root, path).map_err(joined)?;
     let mut own = match warned {
         Some(_) => grants::check(&file, &app_root, strings.as_deref()),
@@ -975,8 +1014,33 @@ fn compile_file_warned(
         all
     };
     contract_analyze::check_routes_root(file, true).map_err(CompileError::from)?;
-    let checked = contract_types::check_all(file, mapped, contract_lower::tags::style, strings)
-        .map_err(|all| with_lint(each(all, hint)))?;
+    // The design server's retention build reuses the last types and
+    // expansion when the program is what they were checked from
+    // (`retained`); any other build checks them.
+    let held = strings.clone();
+    let checked = match retained::reuse(file, &held, mapped) {
+        Some((types, expanded)) if !retained::verifying() => contract_types::Checked {
+            file,
+            types,
+            expanded,
+        },
+        reused => {
+            let fresh =
+                contract_types::check_all(file, mapped, contract_lower::tags::style, strings)
+                    .map_err(|all| {
+                        // Reused types where checking again refuses: stale.
+                        if reused.is_some() {
+                            retained::refused_fresh();
+                        }
+                        with_lint(each(all, hint))
+                    })?;
+            if let Some((types, expanded)) = &reused {
+                retained::verify((&fresh.types, &fresh.expanded), (types, expanded));
+            }
+            fresh
+        }
+    };
+    retained::keep(file, &held, mapped, &checked.types, &checked.expanded);
     let analysis = contract_analyze::check_all(&checked);
     let mut lower_warnings = Vec::new();
     let result = match analysis {

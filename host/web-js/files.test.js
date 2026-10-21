@@ -2,7 +2,7 @@ import { test, expect, mock } from 'bun:test';
 
 mock.module('./rt.js', () => ({
   journal: [], clock: { now: 0, agent: true }, nextTicket: () => 1,
-  inflight: { n: 0 }, Hosts: {}, OnHooks: {}, viewId: () => 1, Views: new Map(), data: {},
+  inflight: { n: 0 }, Hosts: {}, OnHooks: {}, viewId: () => 1, Views: new Map(), data: {}, painted: () => Promise.resolve(),
 }));
 mock.module('./pointer.js', () => ({ record: () => {} }));
 const { inertAncestor } = await import('../web/navigation.js');

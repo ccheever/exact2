@@ -1,0 +1,22 @@
+# Code review: contract gallery, the variant gallery's G2, round 3 of 3 (grok)
+
+- **Family:** xAI. Grok via its CLI, reasoning effort xhigh, Edit and Write denied, a throwaway worktree.
+- **Method:** one brief (sha256 `0d873f2943a93a8c0c5964c9f743639f20b75f4cb5b27636135e685e53e22131`), shared by both reviewers, each blind to the other's review; HEAD `22e71c0235`. The author (Claude) is not a reviewer.
+- **Transcription:** the final message, unedited (from its findings; its narration before them left out).
+- **Verdict:** nothing blocks (2 SHOULD-FIX, 1 NIT).
+- **Disposition:**
+  All taken post-round, in the commit named in the sign-off request (with a narrow verification round, since BLOCKERs were fixed):
+  - Astra 1 (an ancestor named target): the destination is judged within its git repository (else within the app). A node_modules or target must be below that root, and git must ignore what the gallery writes there (`git check-ignore`). Tested: a checkout under /tmp/.../target refuses the app's src; a target git doesn't ignore is refused.
+  - Astra 2 (a refused cell dropped its package's design): every placed component is brought, refused or not (an unused use compiles), so its package's design stays. Tested: an app whose only library use is a refused cell, and whose design names the package's token.
+  - Astra 3, Grok 2 (re-export chains): a shape's exported name is followed through each re-export, by a relative path or the package's own name and subpath, at most 8 files deep. Tested: a barrel, and `@acme/lib/card`.
+  - Astra 4 (root membership isn't identity): each probe `use` must reach the declaration the app's does (by identity), or the destination is refused. Not given a fixture: it needs two installs aliased across roots.
+  - Astra 5, Grok 1 (a lone manifest after a failed probe): app.json is written only after the probe passes, and a manifest a gallery writes is taken as ours. Tested.
+  - Grok 3 (made then refused): the destination is checked as it will be, before any directory is made. Tested: the app's src is not created.
+
+1. **SHOULD-FIX — [gallery.rs:109](contract/cli/src/gallery.rs:109): a failed package check leaves a cache the next run will not touch.** `app.json` is written before `reaches` at [gallery.rs:164](contract/cli/src/gallery.rs:164), and before `app.contract` exists. `ours` is true only when `app.contract` starts with the gallery header ([gallery.rs:304](contract/cli/src/gallery.rs:304)), so the leftover manifest makes the following `generate` to that same `-o` stop with "not a gallery this wrote" at [gallery.rs:312](contract/cli/src/gallery.rs:312). The assets link from [gallery.rs:106](contract/cli/src/gallery.rs:106) is left beside it. The destination test hits this failure at [tests/it/gallery.rs:293](contract/cli/tests/it/gallery.rs:293) and deletes the directory without a second call. A run that already wrote `app.contract` can be repeated; the first failure cannot. Write the manifest after the probe succeeds, or remove it when the probe fails.
+
+2. **SHOULD-FIX — [gallery.rs:538](contract/cli/src/gallery.rs:538): a shape export is resolved one relative hop, then the declaration name is used.** The entry file's `use` path is joined onto the entry's parent and compared with the declaring file. A two-hop chain (`index.contract` uses `PublicInfo` from `./api.contract`, which uses `Info as PublicInfo` from `./card.contract`) joins to `api.contract` and misses. A package-self subpath (`use Info as PublicInfo from "@acme/lib/card"`) joins as a relative path under the entry directory and misses the same way. `exported` then returns nothing, and [gallery.rs:485](contract/cli/src/gallery.rs:485) keeps the declaration spelling, so the gallery emits `use Info from "<package>"` and refuses every cell that builds that shape. The loader already follows both shapes of chain in `Package::declared` at [library.rs:135](contract/cli/src/sources/library.rs:135). The one-hop relative case from round 2 stays fixed and tested.
+
+3. **NIT — [gallery.rs:284](contract/cli/src/gallery.rs:284): the cache check creates the directory it then refuses.** `create_dir_all` runs before the `node_modules` / `target` test, so `-o <app>/src` leaves an empty directory in the app tree. Git does not track it, and no gallery source is written. The destination test asserts the error text and does not assert that `src` is absent.
+
+Nothing blocks.

@@ -17,7 +17,7 @@ import { Recorder, Path2D } from '__RECORDER__';
 import { named } from './ts-data.js';
 globalThis.Path2D = browserPath2D;
 
-const CAUSES = ['mount', 'args', 'size', 'frame', 'image', 'font'];
+const CAUSES = ['mount', 'args', 'size', 'frame', 'image', 'font', 'style'];
 const recorders = new Map(); // canvas lifetime -> { generation, rec }
 
 export const drawer = {

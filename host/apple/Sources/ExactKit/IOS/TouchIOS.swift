@@ -13,15 +13,17 @@ import UIKit
 /// logs the touches it dispatched.
 public final class ExactWindow: UIWindow {
     public override func sendEvent(_ event: UIEvent) {
-        // Read before UIKit delivers the event: which lifts lost the view their touch began on (`TouchLog.viewGone`)
+        // Read before UIKit delivers the event: which lifts lost the view their touch began on (`TouchLog.viewGone`),
+        // and when the window had the event, on the mach clock of `UITouch.timestamp`
         let gone = ExactEnv.agentMode && event.type == .touches ? TouchLog.viewGone(event) : []
+        let dispatched = ExactEnv.agentMode ? CACurrentMediaTime() : 0
         // Inspect mode takes every touch and press (InspectIOS.swift), and
         // knows the touches down when it begins. (It reached this window,
         // so the agent's touch log still has it.)
         #if EXACT_INSPECT && os(iOS)
         InspectHost.see(event)
         if Inspect.on || InspectHost.owning, InspectHost.take(event, in: self) {
-            if ExactEnv.agentMode, event.type == .touches { TouchLog.record(event, in: self, gone: gone) }
+            if ExactEnv.agentMode, event.type == .touches { TouchLog.record(event, in: self, gone: gone, dispatched: dispatched) }
             return
         }
         #endif
@@ -35,7 +37,7 @@ public final class ExactWindow: UIWindow {
             HeldState.input(at: touch.view) // a contact on a held node, or in it, lets its hold go (HeldState.swift)
         }
         super.sendEvent(event)
-        if ExactEnv.agentMode, event.type == .touches { TouchLog.record(event, in: self, gone: gone) }
+        if ExactEnv.agentMode, event.type == .touches { TouchLog.record(event, in: self, gone: gone, dispatched: dispatched) }
     }
 }
 
@@ -88,7 +90,7 @@ enum TouchLog {
         return nextTouch
     }
 
-    static func record(_ event: UIEvent, in window: UIWindow, gone: Set<UITouch>) {
+    static func record(_ event: UIEvent, in window: UIWindow, gone: Set<UITouch>, dispatched: TimeInterval) {
         for touch in event.allTouches ?? [] {
             let phase: String
             switch touch.phase {
@@ -108,6 +110,9 @@ enum TouchLog {
             // one on the window) has no view: where the window's hit test put it.
             for (key, value) in landing(touch.view ?? window.hitTest(p, with: nil)) { entry[key] = value }
             if gone.contains(touch) { entry["viewGone"] = true }
+            // When the window had a touch down. One it had only after the finger lifted comes with its lift, which a
+            // list cell's `UISwitch` takes as no tap
+            if phase == "began" { entry["dispatched"] = dispatched }
             entries.append(entry)
             if entries.count > capacity { entries.removeFirst(); dropped += 1 }
         }
@@ -279,7 +284,7 @@ extension Agent {
             guard case .success(let (bar, frame)) = item else { return ["error": "tap #\(v.id): its bar item is not placed in the navigation bar; `clock settle` first waits out a push or sheet still moving"] }
             target = bar; region = frame; barred = true
         }
-        // A tab UIKit's tab bar shows: its item there.
+        // A tab a tab bar shows, UIKit's or the one its tablist is drawn as: its item there.
         if target === v, let item = tabItem(v) {
             switch item {
             case .failure(let refusal): return ["error": "tap #\(v.id): \(refusal.why)"]

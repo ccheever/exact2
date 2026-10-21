@@ -365,6 +365,61 @@ fn metadata_queue_subscribers_and_retired_source_history_are_bounded() {
     assert_eq!(total(&session), 0);
 }
 
+/// A delivered picture is cache and a failed decode its views' answer:
+/// neither holds a place in the queue, and a cancelled queued one leaves it
+/// at once. An eager page's first `PENDING_JOBS` pictures, every one kept on
+/// screen or failed, must not refuse the rest for good.
+#[test]
+fn delivered_and_failed_entries_hold_no_place_in_the_queue() {
+    let gate = Gate::new();
+    let session = gate.session();
+    let small = |view: u64| {
+        let mut d = demand(view, view, 1, 0);
+        d.key.pixels.height = 16;
+        d.cost = DecodeCost::checked(1024, 16, 0, 0).unwrap();
+        d
+    };
+    let mut leases = Vec::new();
+    for view in 1..=PENDING_JOBS as u64 {
+        let id = session.request(small(view)).unwrap();
+        let permit = gate.next_decode().unwrap();
+        if view % 2 == 0 {
+            permit
+                .complete((), ResidentBytes { output: 1, copy: 0 })
+                .unwrap();
+            leases.push(session.take_ready(id).unwrap());
+        } else {
+            permit.fail();
+            assert_eq!(
+                session.status(id),
+                Some(RequestStatus::Failed(Refusal::DecodeFailed))
+            );
+        }
+    }
+    assert_eq!(session.stats().subscribers, PENDING_JOBS);
+    assert_eq!(session.stats().pending_jobs, 0);
+    let next = session.request(small(100)).unwrap();
+    assert_eq!(session.status(next), Some(RequestStatus::Queued));
+    for view in 101..100 + PENDING_JOBS as u64 {
+        session.request(small(view)).unwrap();
+    }
+    assert_eq!(session.stats().pending_jobs, PENDING_JOBS);
+    assert_eq!(session.request(small(200)), Err(Refusal::QueueFull));
+    // A view whose decode failed held no place, so at a full queue its next
+    // source has none to take over; a queued view's replacement keeps its.
+    let mut replaced = small(1);
+    replaced.key.source = 201;
+    assert_eq!(session.request(replaced), Err(Refusal::QueueFull));
+    let mut replaced = small(101);
+    replaced.key.source = 202;
+    session.request(replaced).unwrap();
+    assert_eq!(session.stats().pending_jobs, PENDING_JOBS);
+    assert!(session.cancel(next));
+    assert_eq!(session.stats().pending_jobs, PENDING_JOBS - 1);
+    session.request(small(200)).unwrap();
+    drop(leases);
+}
+
 #[test]
 fn invalid_metadata_and_peak_overflow_leave_old_demand_untouched() {
     let gate = Gate::new();

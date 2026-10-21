@@ -312,3 +312,30 @@ fn aria_range_values_are_carried_as_htmls_numbers() {
         [some("42.5"), some("0"), some("100"), some("42.5 of 100")]
     );
 }
+
+/// euxy's Note row, a `button` holding its Listen pill (FRICTION 11): the
+/// inner button is named (`lower-nested-button`), once, through an `if`;
+/// two buttons side by side are not. A press is the inner one's alone.
+#[test]
+fn a_button_in_a_button_is_named_and_presses_alone() {
+    let app = |view: &str| {
+        let view: String = view.lines().map(|l| format!("      {l}\n")).collect();
+        format!("component App\n  state rows = 0\n  state listens = 0\n  action row\n    rows = rows + 1\n  action listen\n    listens = listens + 1\n  view\n    column\n{view}")
+    };
+    let nested = app("button press=row testId=\"row\"\n  text \"Note\"\n  if rows >= 0\n    button press=listen testId=\"listen\"\n      text \"Listen\"");
+    assert_eq!(
+        crate::warnings::warned(&nested),
+        [("lower-nested-button".to_string(), 13)]
+    );
+    let (_, warnings) = contract::compile_warned(&nested);
+    assert!(warnings[0].message.contains("side by side"), "{warnings:?}");
+    let beside = app("row\n  button press=row flex=1\n    text \"Note\"\n  button press=listen\n    text \"Listen\"");
+    assert_eq!(crate::warnings::warned(&beside), []);
+    let mut r = boot(&nested);
+    let listen = view_of(&r, "listen");
+    r.dispatch(listen, Event::Press).unwrap();
+    assert_eq!(
+        (r.slot("rows"), r.slot("listens")),
+        (Some(&Value::Number(0.0)), Some(&Value::Number(1.0)))
+    );
+}

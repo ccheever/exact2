@@ -8,6 +8,7 @@ use crate::ast::*;
 use crate::lexer::{escape, template_expr_end, LexError, Lexer, Token, TokenKind};
 use crate::Span;
 
+mod anatomy;
 mod color_profile;
 mod component;
 mod decls;

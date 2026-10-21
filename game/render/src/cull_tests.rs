@@ -345,9 +345,12 @@ fn culling_changes_no_pixels_with_animated_skins_models_and_sockets() {
         material.alpha_mode = asset::AlphaMode::Blend;
         material.base_color[3] = 0.5;
     }
-    surface.asset("fox.model", Ok(&bin::to_vec(&fox)));
-    surface.asset("box.model", Ok(&bin::to_vec(&crate_box)));
-    surface.asset("glass.model", Ok(&bin::to_vec(&glass)));
+    surface.asset("fox.model", Ok(&exact_game::asset::encode_model(&fox)));
+    surface.asset(
+        "box.model",
+        Ok(&exact_game::asset::encode_model(&crate_box)),
+    );
+    surface.asset("glass.model", Ok(&exact_game::asset::encode_model(&glass)));
     let format = exact_gpu::wgpu::TextureFormat::Rgba8Unorm;
     surface.prepare_assets(&gpu.device, &gpu.queue, format);
     for texture in surface.assets().requests {

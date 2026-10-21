@@ -59,7 +59,9 @@ function descendants(path) {
 // A database owns its file exclusively and pins each ancestor with a shared
 // lock. Unrelated files remain usable; replacing an open database or moving its
 // parent fails instead of silently discarding SQLite's later commit.
-export async function lockPaths(appId, paths, timeout = 10000) {
+// `timers`: the realm's own; a module Worker's are taken before its prelude takes the module's (module-worker.js).
+const ownTimers = { set: (f, ms) => setTimeout(f, ms), clear: id => clearTimeout(id) };
+export async function lockPaths(appId, paths, timeout = 10000, timers = ownTimers) {
   if (!globalThis.navigator?.locks) throw failure('Web Locks are unavailable');
   const requested = new Map();
   for (let path of paths) {
@@ -72,7 +74,7 @@ export async function lockPaths(appId, paths, timeout = 10000) {
   }
   const held = [];
   const abort = new AbortController();
-  const timer = setTimeout(() => abort.abort(), timeout);
+  const timer = timers.set(() => abort.abort(), timeout);
   async function release() {
     for (const lock of held) lock.release();
     await Promise.all(held.map(lock => lock.done));
@@ -99,7 +101,7 @@ export async function lockPaths(appId, paths, timeout = 10000) {
   } catch (error) {
     await release();
     throw error;
-  } finally { clearTimeout(timer); }
+  } finally { timers.clear(timer); }
 }
 function requireBelowRoot(path) {
   if (rootPaths.includes(path)) throw failure('operation needs a path below the app root');
@@ -342,13 +344,13 @@ export function createFileStore(appId) {
 }
 
 /** Public capability. Every operation is admitted before opening IndexedDB. */
-export function createFileSystem(appId, grants) {
+export function createFileSystem(appId, grants, timers = ownTimers) {
   const store = createFileStore(appId);
   const fs = { directories: roots, dispose() { store.close(); } };
   function mutate(paths, operation) {
     const previous = mutationTails.get(appId) || Promise.resolve();
     const result = previous.then(async () => {
-      const release = await lockPaths(appId, paths);
+      const release = await lockPaths(appId, paths, undefined, timers);
       try { return await operation(); }
       finally { await release(); }
     });
@@ -378,24 +380,24 @@ export function createFileSystem(appId, grants) {
       return mutate(method === 'rename' ? [from, to] : [to], () => store[method](from, to));
     };
   }
-  // `compressImage(from, to, {maxDimension, maxBytes})` (LLP 1069.002 A1):
+  // `compressImage(from, to, {maxDimension, maxBytes, type})` (LLP 1069.002 A1):
   // both grants are checked and the options too before anything is read;
   // the codec runs outside the mutation lock, and only the write takes it.
   fs.compressImage = async (from, to, options) => {
     if (typeof from !== 'string' || typeof to !== 'string' || !from.startsWith('app:/') || !to.startsWith('app:/'))
       throw failure('compressImage: needs app:/ paths', 'failed');
     const image = await import('./storage-image.js');
-    const { maxDimension, maxBytes } = image.limits(options);
+    const { maxDimension, maxBytes, type } = image.limits(options);
     from = authorize(grants, 'fs.read', from);
     to = authorize(grants, 'fs.write', to);
     requireBelowRoot(to);
     // An entry is one IndexedDB record, read whole by any operation (`stat`
     // too); its size is checked before it becomes a Blob or is decoded.
     const { blob } = await store.blob(from, undefined, image.MAX_BYTES);
-    const out = await image.compress(blob, maxDimension, maxBytes);
+    const out = await image.compress(blob, maxDimension, maxBytes, undefined, type);
     const size = out.bytes.byteLength;
     await mutate([to], () => store.atomicWriteOwnedFile(to, out.bytes));
-    return { path: to, type: 'image/jpeg', size, width: out.width, height: out.height };
+    return { path: to, type, size, width: out.width, height: out.height };
   };
   return Object.freeze(fs);
 }

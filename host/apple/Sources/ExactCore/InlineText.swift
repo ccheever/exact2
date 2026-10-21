@@ -18,6 +18,9 @@ package struct InlineText {
 
     package let handlers: Set<String>
     package let paints: Bool
+    /// CSS `user-select: all` on the run: a selection that takes part of its
+    /// text takes all of it (`TextSelection.atom`).
+    package let selectsAll: Bool
     /// Its computed `visibility: hidden`: its text is no target
     /// (`inlineTarget`), though it hears a visible run's click inside it.
     package var hidden: Bool { lightRun.hidden }
@@ -37,6 +40,7 @@ package struct InlineText {
         fixedInk = style.fixedInk
         paint = style.paint
         hasSchemeColor = style.paired || style.paint.paired
+        selectsAll = style.selectsAll
         self.handlers = handlers; self.paints = paints
     }
 
@@ -87,5 +91,7 @@ package struct InlineStyle {
     /// `text-shadow` and `-webkit-text-stroke`, computed for the run (LLP 1077).
     package var paint = RunPaintRows()
     package var paired = false
+    /// `user-select: all` (`InlineText.selectsAll`).
+    package var selectsAll = false
 }
 

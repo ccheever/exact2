@@ -712,6 +712,20 @@ fn dialog_invokers_preserve_html_commands_and_live_action_labels() {
     assert!(batch.contains("Delete 2 messages"), "{batch}");
 }
 
+/// LLP 1019 D9: `font-variation-settings` is written as CSS writes it.
+#[test]
+fn font_variation_settings_are_their_css() {
+    use exact_kernel::{StyleId, StyleProps, StyleValue};
+    let mut style = StyleProps::default();
+    let value = StyleValue::Text("'GRAD' 150,'wdth' 60".into());
+    style
+        .set_dynamic(StyleId::FontVariationSettings, &value)
+        .unwrap();
+    let (css, _) = css_text(&style, &[]);
+    let want = r#"font-variation-settings:"GRAD" 150, "wdth" 60;"#;
+    assert!(css.contains(want), "{css}");
+}
+
 /// A scheme-aware colour is handed to the browser, not resolved here.
 ///
 /// This is the whole reason the kernel keeps `light-dark()` as a pair rather

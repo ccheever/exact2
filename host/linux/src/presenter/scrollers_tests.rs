@@ -312,8 +312,9 @@ fn the_fixtures_list_its_strip_and_its_nested_scroller_are_told() {
     let under = p.scrollers_at(x, y);
     let chain: Vec<_> = under.chain.iter().map(|s| (s.id, s.axes)).collect();
     assert_eq!(chain, [(strip, (true, false)), (rows, (false, true))]);
-    // 20 cards of 140 and 19 gaps of 8, in a list 368 wide.
-    assert_eq!(under.chain[0].max.0, 20. * 140. + 19. * 8. - 368.);
+    // 20 cards of 140 and 19 gaps of 8, in a list 368 wide whose row is
+    // inset 16 at each end (a cells list's row, LLP 1138): 336.
+    assert_eq!(under.chain[0].max.0, 20. * 140. + 19. * 8. - 336.);
     // The nested scroller hands off to the list.
     let (x, y) = middle(&mut p, nested);
     let under = p.scrollers_at(x, y);

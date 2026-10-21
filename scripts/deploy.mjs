@@ -1,4 +1,5 @@
 #!/usr/bin/env bun
+import { requireReleasePins } from '../game/inputs.mjs';
 // `exact deploy` — the publisher (LLP 1030.000 D3 the verb, D4 the policies,
 // D5 one library in its own process, D7 where things live; LLP 1030 D3 the
 // classifier and D3a the compatibility id; LLP 1026 D11 the signed head).
@@ -65,7 +66,6 @@ const PLATFORMS = ['web', 'ios', 'macos', 'linux'];
 const STREAM_PLATFORMS = ['ios', 'macos', 'linux'];
 const USAGE = 'usage: bun scripts/deploy.mjs <app> [--origin <dir|url>] [--channel <name>] [--only bundle|origin] [--platform <web|ios|macos|linux>]... [--snapshot <sha>] [--dirty] [--release <id>] [--keys <dir>] [--json] [--yes]\n       bun scripts/deploy.mjs keygen <id> [--keys <dir>] [--json]';
 // ------------------------------------------------------------------ arguments
-
 function parseArgs(argv) {
   const opts = { platform: [], _: [] };
   const valued = new Set(['--origin', '--channel', '--only', '--platform', '--snapshot', '--release', '--keys']);
@@ -89,9 +89,7 @@ function parseArgs(argv) {
   opts.keys = resolve(opts.keys ?? process.env.EXACT_SIGNING_KEY_DIR ?? resolve(homedir(), '.config/exact/keys'));
   return opts;
 }
-
 // -------------------------------------------------------------- the snapshot
-
 const snapshotCaptures = new WeakMap();
 const inside = (root, path) => {
   const rel = relative(root, path);
@@ -105,7 +103,6 @@ function canonicalPath(path) {
     return parent === absolute ? absolute : resolve(canonicalPath(parent), basename(absolute));
   }
 }
-
 /** Only actual build outputs are absent from a source snapshot. These are
  * explicit root paths, not recursive basename patterns: `assets/dist/a.png`
  * and `fixtures/target/input.rs` remain inputs when the app carries them. */
@@ -693,6 +690,7 @@ function buildFor(app, platform, sourceRoot, run) {
     if (sdk.status !== 0) refuse(`the ${apple} SDK is unavailable: ${sdk.stderr}`);
     env.SDKROOT = sdk.stdout.trim();
     env[apple === 'ios' ? 'IPHONEOS_DEPLOYMENT_TARGET' : 'MACOSX_DEPLOYMENT_TARGET'] = apple === 'ios' ? '17.0' : '14.0';
+    env.EXACT_APPLE_LINK = 'plan'; // a compatibility input: link as the production archive does (host/apple/link.mjs)
   }
   return buildBake(app, platform, target, {env, analysis:true});
 }
@@ -777,35 +775,35 @@ function fileCard(object, name) {
 }
 
 /** exact-update's `safe_name`: a relative path whose segments use only the
- * POSIX portable filename characters, so no filesystem can fold or normalize
- * two names into one file. */
+ * POSIX portable filename characters and `@` (`photo@2x.png`), so no
+ * filesystem can fold or normalize two names into one file. */
 function safeAssetName(name) {
   if (typeof name !== 'string' || !name) throw new Error('an asset has no nonempty name');
   for (const part of name.split('/')) {
     if (!part || part === '.' || part === '..') throw new Error(`the asset name ${name} is not a relative path`);
-    if (!/^[A-Za-z0-9._-]+$/.test(part)) throw new Error(`the asset name ${name} is not portable: segments use A-Z, a-z, 0-9, '.', '_' and '-'`);
+    if (!/^[A-Za-z0-9._@-]+$/.test(part)) throw new Error(`the asset name ${name} is not portable: segments use A-Z, a-z, 0-9, '.', '_', '-' and '@'`);
   }
 }
 
 /** exact-update's `check_asset_names`: a roster stages as distinct files on a
  * case-insensitive filesystem (APFS's default), so no two names differ only
  * by case and none is a file where another needs a directory. The bake and
- * every client refuse the same rosters. */
+ * every client refuse the same rosters, and name every refused name at once. */
 export function portableAssetNames(names) {
-  const files = new Map(), directories = new Map();
+  const files = new Map(), directories = new Map(), problems = [];
   for (const name of names) {
-    safeAssetName(name);
-    const folded = name.toLowerCase(); // ASCII after safeAssetName
-    const other = files.get(folded);
-    if (other !== undefined) throw new Error(other === name ? `the envelope names the asset ${name} twice` : `the assets ${other} and ${name} differ only by case, one file on a case-insensitive filesystem`);
-    if (directories.has(folded)) throw new Error(`the asset ${name} is a file where ${directories.get(folded)} needs a directory`);
+    try { safeAssetName(name); } catch (error) { problems.push(error.message); continue; }
+    const folded = name.toLowerCase(), other = files.get(folded); // ASCII after safeAssetName
+    if (other !== undefined) { problems.push(other === name ? `the envelope names the asset ${name} twice` : `the assets ${other} and ${name} differ only by case, one file on a case-insensitive filesystem`); continue; }
+    if (directories.has(folded)) { problems.push(`the asset ${name} is a file where ${directories.get(folded)} needs a directory`); continue; }
     for (let end = folded.indexOf('/'); end !== -1; end = folded.indexOf('/', end + 1)) {
       const directory = folded.slice(0, end);
-      if (files.has(directory)) throw new Error(`the asset ${files.get(directory)} is a file where ${name} needs a directory`);
+      if (files.has(directory)) problems.push(`the asset ${files.get(directory)} is a file where ${name} needs a directory`);
       if (!directories.has(directory)) directories.set(directory, name);
     }
     files.set(folded, name);
   }
+  if (problems.length) throw new Error(problems.join('\n'));
 }
 
 /** Parse and authenticate one origin head by the same pre-download rules as
@@ -1306,6 +1304,7 @@ async function deployCaptured(opts, capsule) {
   if (capsule.app.external) process.env.EXACT_APP_DIR = canonicalPath(capsule.app.dir);
   else delete process.env.EXACT_APP_DIR;
   const app = resolveApp(opts._[0]);
+  requireReleasePins(app);
   if (canonicalPath(app.dir) !== canonicalPath(capsule.app.dir)
     || canonicalPath(app.workspace) !== canonicalPath(capsule.app.workspace)) {
     refuse('the captured app resolver does not select the app and workspace frozen by the launcher');
@@ -1417,6 +1416,7 @@ async function deployCaptured(opts, capsule) {
  * What is captured, and how it is frozen, is unchanged. */
 async function deploy(opts) {
   const locatedApp = resolveApp(opts._[0]);
+  requireReleasePins(locatedApp);
   const target = process.env.CARGO_TARGET_DIR ? canonicalPath(process.env.CARGO_TARGET_DIR) : null;
   if (!target || [locatedApp.dir, ROOT].some((dir) => inside(repoTop(dir), target))) return launch(locatedApp, opts);
   const cache = resolve(target, 'deploy');

@@ -160,7 +160,7 @@ pub fn static_tree(
                 },
                 (BindingKind::Prop, None) => {
                     let prop = PropId::from_wire(row.id).ok_or("unknown prop")?;
-                    if decides_tag(plan, node, prop) {
+                    if decides_tag(plan, &node, prop) {
                         ops.push(Op::SetProp {
                             id: view(i),
                             prop,
@@ -180,7 +180,7 @@ pub fn static_tree(
                 // With what the binding says of the row (the author wrote it, or the compiler
                 // implied it: LLP 1115.000 D2), which the page's marks read (`data-exact-said`).
                 (BindingKind::Style, Some(v)) => {
-                    bridge::set_binding_style(&mut patch, row, &v, plan)
+                    bridge::set_binding_style(&mut patch, &row, &v, plan)
                         .map_err(|e| format!("node {i}: {e:?}"))?;
                     styled = true;
                 }
@@ -211,7 +211,7 @@ pub fn static_tree(
                     }
                     continue;
                 }
-                bridge::set_binding_style(&mut patch, row, &v, plan)
+                bridge::set_binding_style(&mut patch, &row, &v, plan)
                     .map_err(|e| format!("node {i}: {e:?}"))?;
             }
             looks.push((look.state, patch));
@@ -254,7 +254,9 @@ pub fn project(
     // height may come to be the parent's).
     let repeated = each_rows(plan, sites);
     let bound = |i: usize, only_text: bool| {
-        plan.nodes[i]
+        plan.nodes
+            .get(i)
+            .unwrap()
             .bindings
             .iter()
             .map(|b| plan.binding(b))
@@ -275,12 +277,12 @@ pub fn project(
     };
     let may_fold: Vec<bool> = (0..plan.nodes.len())
         .map(|i| {
-            plan.nodes[i].handlers.len == 0
+            plan.nodes.get(i).unwrap().handlers.len == 0
                 && !repeated.contains(&i)
                 && !bound(i, true)
                 && parents[i].is_some_and(|p| {
-                    let button =
-                        NodeType::from_wire(plan.nodes[p].node_type) == Some(NodeType::Pressable);
+                    let button = NodeType::from_wire(plan.nodes.get(p).unwrap().node_type)
+                        == Some(NodeType::Pressable);
                     !bound(p, false) && !(button && parents[p].is_none_or(|g| bound(g, false)))
                 })
         })
@@ -305,7 +307,7 @@ pub fn project(
             let row = plan.binding(b);
             if row.kind == BindingKind::Prop && literal(plan, plan.code(row.expr)).is_none() {
                 if let Some(prop) =
-                    PropId::from_wire(row.id).filter(|p| decides_tag(plan, node, *p))
+                    PropId::from_wire(row.id).filter(|p| decides_tag(plan, &node, *p))
                 {
                     if let Ok(name) = prop_name(NodeType::from_wire(node.node_type).unwrap(), prop)
                     {
@@ -393,7 +395,14 @@ fn symbol_color(
     i: usize,
 ) -> Option<(Vec<(usize, Ink)>, bool)> {
     let view = |i: usize| -> ViewId { i as u32 + 1 };
-    let rows = |i: usize| plan.nodes[i].bindings.iter().map(|b| plan.binding(b));
+    let rows = |i: usize| {
+        plan.nodes
+            .get(i)
+            .unwrap()
+            .bindings
+            .iter()
+            .map(|b| plan.binding(b))
+    };
     let bound = |i: usize, kind: BindingKind, id: u16| {
         rows(i).find(|b| b.kind == kind && b.id == id && literal(plan, plan.code(b.expr)).is_none())
     };
@@ -917,6 +926,22 @@ static CORNER_MAP: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {
     )
 });
 
+/// A bound control size's two properties, as css.rs writes a literal one's
+/// (`css/control_size.rs`): each size's value, then any other value's.
+static CONTROL_SIZE_MAPS: std::sync::LazyLock<[String; 2]> = std::sync::LazyLock::new(|| {
+    use exact_web::css::control_size::{font_size, touch_floor};
+    let map = |value: fn(&str) -> Option<String>| {
+        let js = |size| value(size).map_or("null".into(), |v| format!("{v:?}"));
+        let sizes = StyleId::ControlSize.enum_names();
+        let pairs: Vec<_> = sizes.iter().map(|s| format!("{s}:{}", js(s))).collect();
+        format!("v=>v==null?v:({{{}}})[v]??{}", pairs.join(","), js(""))
+    };
+    [
+        map(|s| Some(font_size(s))),
+        map(|s| touch_floor(s).map(Into::into)),
+    ]
+});
+
 static TINT_MAP: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {
     let mut initial = String::new();
     exact_kernel::gradient::color_css(
@@ -957,7 +982,10 @@ pub fn style_writes(id: u16, timeline: bool) -> Result<Vec<Write>, String> {
             unit: "px".into(),
             map: Some(TEXT_STYLE_MAP.as_str()),
         }],
-        StyleId::ControlSize => vec![with("--exact-control-font-size", "v=>v==null?v:({mini:'x-small',small:'small',medium:'medium',large:'large',unset:'medium'})[v]??'medium'")],
+        StyleId::ControlSize => vec![
+            with("--exact-control-font-size", &CONTROL_SIZE_MAPS[0]),
+            with("--exact-touch-floor", &CONTROL_SIZE_MAPS[1]),
+        ],
         StyleId::TintColor => vec![with("--exact-tint", &TINT_MAP)],
         StyleId::PlaceholderColor => vec![with("--exact-placeholder-color", "v=>v==null?v:/^\\s*(unset)?\\s*$/i.test(v)?'initial':v")],
         StyleId::ControlCornerStyle => vec![with("--exact-control-radius", "v=>v==null?v:v==='capsule'?'calc(infinity * 1px)':'revert'")],
@@ -978,6 +1006,7 @@ pub fn style_writes(id: u16, timeline: bool) -> Result<Vec<Write>, String> {
             with("--exact-button-space-height", "v=>v==null?v:v.startsWith('column')?'var(--exact-button-row-gap,1em)':'0px'"),
             with("--exact-button-columns", "v=>v==null?v:v.startsWith('column')?'minmax(var(--exact-button-title-min,min-content),auto)':'auto auto minmax(var(--exact-button-title-min,min-content),auto)'"),
             with("--exact-button-space", "v=>v==null?v:v.startsWith('column')?'var(--exact-button-row-space)':'var(--exact-button-column-space)'"),
+            with("--exact-button-stacked", "v=>v==null?v:v.startsWith('column')?'1':null"),
         ],
         // @ref LLP 1116 D1 — a native button's title truncates only when the
         // author keeps it to one line (exact_web's button_css.rs `rows`).
@@ -1156,6 +1185,7 @@ pub fn style_row(id: u16) -> Result<(String, String), String> {
             | StyleCodec::BackdropFilter
             | StyleCodec::BoxShadow
             | StyleCodec::TextShadow
+            | StyleCodec::FontVariations
             | StyleCodec::CornerShape
     ) {
         return Ok((css_property(row), String::new()));

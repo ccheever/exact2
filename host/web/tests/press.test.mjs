@@ -43,10 +43,12 @@ const page = sheet + `
 // LLP 1115.000 D6, nodes as both web targets write them: pressables that
 // declare no feedback (a box, one that hears `hover`, a custom button, a
 // link, a card holding a button and a field), those whose press is the
-// author's (a scale, `pointerdown`, an `opacity` of its own), a native
-// button, a game's action, a disabled custom button, rows of a list (plain,
-// virtualized, grouped, and a button inside a grouped row), an item of a
-// sideways virtualized list, and a scrim over the window, shown on demand.
+// author's (a scale, `pointerdown`, an `opacity` of its own), native
+// buttons (filled, on a translucent accent too, plain, glass, tinted, and one
+// with a pressed paint), a game's action, a disabled custom button, rows of a
+// list (plain, virtualized, grouped, and a button inside a grouped row), an
+// item of a sideways virtualized list, and a scrim over the window, shown on
+// demand.
 const unsaid = sheet + `
 <style>#exact-root > *, #exact-root [role] * { min-height: 24px; } #away { height: 60px; }</style>
 <div id="exact-root" style="padding:20px;width:300px">
@@ -59,6 +61,11 @@ const unsaid = sheet + `
   <div id="drawn" data-exact-on="press pointerdown pointerup">draws its own</div>
   <div id="faded" data-exact-on="press" style="opacity:0.4">faded</div>
   <button id="native" type="button" data-button-style="filled" data-native="" data-exact-on="press"><span>native</span></button>
+  <button id="text" type="button" data-button-style="plain" data-native="" data-exact-on="press"><span id="text-face">text</span></button>
+  <button id="translucent" type="button" data-button-style="filled" data-native="" style="--exact-accent:var(--exact-quaternary-fill)"><span id="translucent-face">translucent</span></button>
+  <button id="glass" type="button" data-button-style="glass" data-native="" data-exact-on="press"><span id="glass-face">glass</span></button>
+  <button id="tinted" type="button" data-button-style="tinted" data-native=""><span>tinted</span></button>
+  <button id="painting" type="button" data-button-style="filled" data-native="" style="--exact-press-opacity:0.5"><span id="painting-face">paints its own</span></button>
   <button id="action" type="button" data-action="jump">action</button>
   <button id="off" type="button" disabled data-exact-on="press">off</button>
   <button id="ownoff" type="button" disabled data-exact-on="press" data-disabledstyled="true">its own disabled look</button>
@@ -204,32 +211,31 @@ check('only the innermost pressable shows the press, and only while inside', asy
     expect(await pressed()).toBe('');
     await mouse('mouseReleased', await centre('off'));
     expect(await vibrations()).toBe('12');
-    // A native button highlights with no row or handler of its own: the
-    // look's wash of its ink over its face (LLP 1116 D1's dimmed the title
-    // instead, as a UIButton does), nothing scales, its card is not pressed.
-    // The unsaid dim is not laid over it.
+    // A native button highlights with no row or handler of its own, as a
+    // UIButton does: its face fades over a lighter fill (neutral.css), nothing
+    // scales, its card is not pressed. The unsaid dim is not laid over it.
     const face = () => evaluate(`getComputedStyle(document.getElementById('title')).opacity`);
-    const wash = () => evaluate(`getComputedStyle(document.getElementById('native')).backgroundImage !== 'none'`);
-    expect(await wash()).toBe(false);
+    const fill = () => evaluate(`getComputedStyle(document.getElementById('native')).backgroundColor`);
+    const rest = await fill();
     await mouse('mousePressed', await centre('native'));
     expect(await pressed()).toBe('native');
-    expect([await wash(), await face()]).toEqual([true, '1']);
+    expect([await fill() !== rest, await face()]).toEqual([true, '0.75']);
     expect(await opacity('native')).toBe('1');
     expect(await scale('native')).toBe(1);
     expect(await scale('card')).toBe(1);
     await mouse('mouseReleased', await centre('native'));
     expect(await pressed()).toBe('');
-    await call('Input.dispatchMouseEvent', { type: 'mouseMoved', x: 1, y: 1 }); // off it: a pointer left over it is its hover, a wash too
-    expect([await wash(), await face()]).toEqual([false, '1']);
+    await call('Input.dispatchMouseEvent', { type: 'mouseMoved', x: 1, y: 1 }); // off it: a pointer left over it is its hover
+    expect([await fill(), await face()]).toEqual([rest, '1']);
     // The keyboard shows the same state (LLP 1115.000 D4.14): Space holds a
     // native button's highlight, and a button's `-exact-press-scale`, until
     // its keyup.
     const space = (type) => call('Input.dispatchKeyEvent', { type, key: ' ', code: 'Space', windowsVirtualKeyCode: 32, ...(type === 'keyDown' ? { text: ' ' } : {}) });
     await evaluate(`document.getElementById('native').focus()`);
     await space('keyDown');
-    expect([await pressed(), await wash(), await opacity('native')]).toEqual(['native', true, '1']);
+    expect([await pressed(), await face(), await opacity('native')]).toEqual(['native', '0.75', '1']);
     await space('keyUp');
-    expect([await pressed(), await wash()]).toEqual(['', false]);
+    expect([await pressed(), await face()]).toEqual(['', '1']);
     await evaluate(`document.getElementById('button').focus()`);
     await space('keyDown');
     expect([await pressed(), await scale('button'), await scale('card')]).toEqual(['button', 0.5, 1]);
@@ -343,6 +349,24 @@ check('a pressable that declares no feedback dims while pressed; a row, a native
     expect(await held('faded', 'faded')).toBe('0.4');
     // A native control keeps its own feedback, a game's action is held, and a disabled custom button takes no press.
     expect(await held('native', 'native')).toBe('1');
+    // A plain button, a filled one on a translucent accent and a glass one show UIKit's highlight (neutral.css): the
+    // button, and so its focus ring, keeps its opacity, and its face fades. A pressed paint the author wrote adds to
+    // it, as on iOS, where UIKit highlights a native button whatever press is written (NativeButtonsIOS.swift).
+    for (const id of ['text', 'translucent', 'glass']) expect([id, await held(id, id, `${id}-face`), await shown(`${id}-face`)]).toEqual([id, '1,0.75', '1']);
+    await mouse('mousePressed', await centre('painting'));
+    await evaluate(`document.getAnimations().forEach(a => a.finish())`);
+    expect(await shown('painting', 'painting-face')).toBe('0.5,0.75');
+    await mouse('mouseMoved', await centre('away'));
+    await mouse('mouseReleased', await centre('away'));
+    // A tinted button held under the pointer shows its pressed wash, not its hover's, as it does under a finger (below).
+    const tinted = await centre('tinted'), wash = () => evaluate(`getComputedStyle(document.getElementById('tinted')).backgroundImage`);
+    await call('Input.dispatchMouseEvent', { type: 'mouseMoved', x: tinted[0], y: tinted[1], button: 'none', buttons: 0 });
+    const hovered = await wash();
+    await mouse('mousePressed', tinted);
+    const pressedWash = await wash();
+    await mouse('mouseMoved', await centre('away'));
+    await mouse('mouseReleased', await centre('away'));
+    expect(pressedWash).not.toBe(hovered);
     expect(await held('action', 'action')).toBe('1');
     expect(await held('off', 'off')).toBe('0.5');
 
@@ -402,7 +426,8 @@ check('a pressable that declares no feedback dims while pressed; a row, a native
     expect([await shown('box'), await marked('box', 'data-pressed')]).toEqual(['1', false]);
     expect(await keyed('box', 'Enter', 'box')).toBe('1');
     expect(await keyed('row', 'Space', 'row')).toBe('1'); // a row from the keyboard is still its cell
-    expect(await evaluate('clicks.join()')).toBe('custom,box,box,row');
+    expect(await keyed('text', 'Space', 'text', 'text-face')).toBe('1,0.75');
+    expect(await evaluate('clicks.join()')).toBe('custom,box,box,row,text');
     // Another key's release leaves the mark; it goes when the focus leaves with Space still down.
     await evaluate(`document.getElementById('box').focus()`);
     await key('keyDown', 'Space');
@@ -421,6 +446,15 @@ check('a pressable that declares no feedback dims while pressed; a row, a native
     expect([await shown('inner', 'outer'), await marked('inner', 'data-pressed')]).toEqual(['0.65,1', true]);
     await finger('touchEnd');
     expect(await marked('inner', 'data-pressed')).toBe(false);
+    for (const id of ['text', 'translucent', 'glass']) {
+      await finger('touchStart', await centre(id));
+      const down = await shown(id, `${id}-face`);
+      await finger('touchEnd');
+      expect([id, down, await shown(id, `${id}-face`)]).toEqual([id, '1,0.75', '1,1']);
+    }
+    await finger('touchStart', await centre('tinted'));
+    expect(await wash()).toBe(pressedWash);
+    await finger('touchEnd');
     // The window losing focus lets it go, and so does a gesture claiming the contact (motion-glue's swipe): a later
     // move inside the box does not press it again.
     await finger('touchStart', await centre('inner'));

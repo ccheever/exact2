@@ -4,7 +4,11 @@ use crate::{Command, Range};
 
 /// Serialize styling. A selection reveals every marker in its touched paragraphs.
 pub fn style(source: &str, reveal: Option<Range>) -> String {
-    let styled = crate::style(source, reveal);
+    styled(&crate::style(source, reveal))
+}
+
+/// Serialize styling already made, for a host that reads it for more.
+pub fn styled(styled: &crate::Styled) -> String {
     let mut json = String::from("{\"p\":[");
     for (n, p) in styled.paragraphs.iter().enumerate() {
         use crate::ParagraphKind as K;

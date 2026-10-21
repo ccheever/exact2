@@ -812,38 +812,23 @@ impl World {
         &self,
         origin: impl Target,
         radius: f32,
-    ) -> impl Iterator<Item = (Entity, crate::Transform)> + '_ {
-        self.near_in::<C>(origin, radius, false, Location::caller())
+    ) -> Near<impl Iterator<Item = (Entity, crate::Affine3A, f32)> + '_> {
+        Near {
+            rows: self.within::<C>(origin, radius, false, Location::caller()),
+        }
     }
     /// Like near, ignoring Y. Rows contain the entity handle and its pose;
     /// both C and Transform remain free to borrow mutably inside the loop.
+    /// `.limit(n)` keeps the `n` nearest, still in entity order.
     #[track_caller]
     pub fn near_xz<C: Component>(
         &self,
         origin: impl Target,
         radius: f32,
-    ) -> impl Iterator<Item = (Entity, crate::Transform)> + '_ {
-        self.near_in::<C>(origin, radius, true, Location::caller())
-    }
-    fn near_in<C: Component>(
-        &self,
-        origin: impl Target,
-        radius: f32,
-        planar: bool,
-        at: At,
-    ) -> impl Iterator<Item = (Entity, crate::Transform)> + '_ {
-        self.within::<C>(origin, radius, planar, at)
-            .map(|(entity, pose, _)| {
-                let (scale, rotation, position) = pose.to_scale_rotation_translation();
-                (
-                    entity,
-                    crate::Transform {
-                        position,
-                        rotation,
-                        scale,
-                    },
-                )
-            })
+    ) -> Near<impl Iterator<Item = (Entity, crate::Affine3A, f32)> + '_> {
+        Near {
+            rows: self.within::<C>(origin, radius, true, Location::caller()),
+        }
     }
     fn within<C: Component>(
         &self,
@@ -1321,7 +1306,9 @@ impl World {
 mod tests;
 
 mod inspect;
+mod near;
 pub(crate) use inspect::ObservationState;
+pub use near::Near;
 
 mod presentation;
 

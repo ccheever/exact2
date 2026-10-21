@@ -165,8 +165,8 @@ extension BatchReader {
         var style = InlineStyle(), height: BatchValue?
         try object { r, key in
             switch key {
-            case "font_size", "font_weight", "font_family", "font_style", "font_stretch", "letter_spacing", "text_color", "text_decoration_line", "background_color", "font_variant_numeric",
-                 "text_shadow", "text_stroke_width", "text_stroke_color", "visibility",
+            case "font_size", "font_weight", "font_family", "font_style", "font_stretch", "font_variation_settings", "letter_spacing", "text_color", "text_decoration_line", "background_color", "font_variant_numeric",
+                 "text_shadow", "text_stroke_width", "text_stroke_color", "visibility", "user_select",
                  "border_radius_top_left", "border_radius_top_right", "border_radius_bottom_right", "border_radius_bottom_left":
                 try style.set(key, r.value(), colorChannels: r.colorChannels)
             case "line_height": height = try r.value()
@@ -269,9 +269,11 @@ extension InlineStyle {
             if key == "font_weight" { run.weight = Int(n) } else { run.family = Int(n) }
         case "font_style": run.italic = try BatchFields.string(value) == "italic"
         case "font_stretch": run.stretch = CGFloat(Float(try BatchFields.number(value)))
+        case "font_variation_settings": run.variations = FontAxis.of(value)
         case "letter_spacing": run.letterSpacing = CGFloat(Float(try BatchFields.number(value)))
         case "font_variant_numeric": run.numeric = Int(try BatchFields.number(value)) & 0xff
         case "visibility": run.hidden = try BatchFields.string(value) == "hidden"
+        case "user_select": selectsAll = try BatchFields.string(value) == "all"
         case "text_decoration_line": run.decoration = try BatchFields.string(value)
         case "text_color" where value.isWideColor, "background_color" where value.isWideColor:
             // @ref LLP 1100 D2

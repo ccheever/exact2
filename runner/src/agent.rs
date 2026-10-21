@@ -691,19 +691,18 @@ fn state_with<D: DataSource>(runner: &Runner<D>, request: &str) -> String {
         num(runner.now_ms())
     );
     let mut first = true;
-    for row in plan.slots.iter() {
+    for (i, row) in plan.slots.iter().enumerate() {
         if row.owner.is_some() {
             // A row slot has a value per row, not one here (LLP 1017 P4c).
             continue;
         }
-        let name = plan.str(row.name);
         if !first {
             s.push(',');
         }
         first = false;
-        quote(name, &mut s);
+        quote(plan.str(row.name), &mut s);
         s.push(':');
-        match runner.slot(name) {
+        match runner.slot_at(i) {
             Some(v) => typed_json(plan, row.ty, v, &mut s),
             None => s.push_str("null"),
         }
@@ -761,6 +760,8 @@ fn state_with<D: DataSource>(runner: &Runner<D>, request: &str) -> String {
         ",\"persisted\":{},\"restores\":{}",
         page.persisted, page.restores
     );
+    s.push_str(",\"gpuTier\":");
+    quote(page.gpu_tier(), &mut s);
     s.push('}');
     // The driver's fetch faults (LLP 1103 D3), when any are armed or spent.
     if !runner.faults().is_empty() {
@@ -775,7 +776,7 @@ fn state_with<D: DataSource>(runner: &Runner<D>, request: &str) -> String {
         }
         quote(name, &mut s);
         s.push(':');
-        match runner.derive(name) {
+        match runner.derive_at(i) {
             Some(v) => typed_json(plan, row.ty, v, &mut s),
             None => s.push_str("null"),
         }
@@ -788,7 +789,7 @@ fn state_with<D: DataSource>(runner: &Runner<D>, request: &str) -> String {
         }
         quote(name, &mut s);
         s.push(':');
-        match runner.shown_resource(name) {
+        match runner.shown_resource_at(i) {
             Some(v) => typed_json(plan, row.ty, v, &mut s),
             None => s.push_str("null"),
         }

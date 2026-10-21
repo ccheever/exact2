@@ -157,7 +157,7 @@ extension Presenter {
     /// index of the front modal dialog's, alert's or route's, a
     /// presentation the runner keeps live with what is above it, and the
     /// rest inert (LLP 1123 D2).
-    package var openTopLayer: (frames: [(UInt32, CGRect)], modal: Int?) {
+    package var openTopLayer: (frames: [TopLayerFrame], modal: Int?) {
         let sheets = dialogs.presented, popovers = menus.presented
         func depth(_ view: NodeView) -> Int {
             if view.window !== viewport.window {
@@ -178,19 +178,19 @@ extension Presenter {
             return clip.convertAcross(CGRect(origin: .zero, size: size), from: container)
         }
         let ordered = (popovers + sheets).sorted { depth($0) < depth($1) }
-        let painted: [(UInt32, CGRect)] = ordered.map {
+        let painted: [TopLayerFrame] = ordered.map {
             let rect = shown($0)
             return ($0.id, CGRect(x: rect.minX - clip.bounds.minX,
                                   y: rect.minY - clip.bounds.minY,
-                                  width: rect.width, height: rect.height))
+                                  width: rect.width, height: rect.height), nil)
         }
         let modal = ordered.lastIndex { $0 === dialogs.active || dialogs.presentsRoute($0) }
         if let alert = alerts.presented, let node = alert.node {
-            return (painted + [(node.id, CGRect.zero)], alert.popover ? modal : painted.count)
+            return (painted + [(node.id, CGRect.zero, nil)], alert.popover ? modal : painted.count)
         }
         return (painted, modal)
     }
-    package var openTopLayerFrames: [(UInt32, CGRect)] { openTopLayer.frames }
+    package var openTopLayerFrames: [(UInt32, CGRect)] { openTopLayer.frames.map { ($0.0, $0.1) } }
 }
 
 extension DialogHost {

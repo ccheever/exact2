@@ -157,7 +157,7 @@ fn restore_format_refusal_is_not_double_wrapped() {
     let error = s.restore(b"old-format").unwrap_err().to_string();
     assert_eq!(error.matches("restore refused").count(), 1, "{error}");
     assert!(
-        error.contains("expected EXSIM v7") && error.contains("no cross-version migration"),
+        error.contains("expected EXSIM v8") && error.contains("no cross-version migration"),
         "{error}"
     );
     assert!(!error.contains("named additions"), "{error}");
@@ -228,4 +228,37 @@ fn screen_bounds_clip_near_without_changing_saved_state() {
     s.world_mut().teleport(entity, Transform::at(0., 0., 0.));
     let rect = s.layout("box").unwrap().screen;
     assert!((rect.w - 200.).abs() < 0.0001 && (rect.h - 200.).abs() < 0.0001);
+}
+
+#[test]
+fn reported_paranoid_mode_and_completed_samples_follow_the_executor() {
+    let mut expected = None;
+    for (mode, name) in [
+        (Paranoid::Off, "0"),
+        (Paranoid::Save, "1"),
+        (Paranoid::FreshGame, "fresh-game"),
+    ] {
+        let mut sim = Sim::<Scene>::new(()).unwrap().paranoid(mode);
+        let before = sim.agent(r#"{"op":"state"}"#);
+        assert!(before.contains(&format!(
+            r#""paranoid":{{"mode":"{name}","checked":0,"skipped":0,"owed":false}}"#
+        )));
+        sim.run(100.0);
+        let state = sim.agent(r#"{"op":"state"}"#);
+        assert!(state.contains(&format!(
+            r#""paranoid":{{"mode":"{name}","checked":{},"skipped":0,"owed":false}}"#,
+            if mode == Paranoid::Off { 0 } else { 1 }
+        )));
+        let bytes = sim.save().unwrap();
+        if let Some(expected) = &expected {
+            assert_eq!(&bytes, expected);
+        } else {
+            expected = Some(bytes.clone());
+        }
+        sim.restore(&bytes).unwrap();
+        assert_eq!(
+            sim.agent(r#"{"op":"state"}"#).split("\"paranoid\":").nth(1),
+            state.split("\"paranoid\":").nth(1)
+        );
+    }
 }

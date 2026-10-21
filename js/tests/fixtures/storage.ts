@@ -288,6 +288,19 @@ async function work(_source:string, args:unknown[], store:Store, storage:Storage
     }
     return {text: out.join("\n")};
   }
+  // `type: "image/png"` (LLP 1069.002 A1.11): the record and the file's
+  // first 26 bytes (its IHDR's colour type last), then a type it refuses.
+  if (op === "compress-png") {
+    const data = storage.fs.directories.data, out: string[] = [];
+    try {
+      const r = await storage.fs.compressImage(data + "/in.png", data + "/out.png", { maxDimension: Number(value), maxBytes: 100_000, type: "image/png" });
+      const back = new Uint8Array(await storage.fs.readFile(r.path));
+      out.push([r.path, r.type, r.size, r.width, r.height, Array.from(back.subarray(0, 26)).join(",")].join(" "));
+    } catch (e:any) { out.push(e.name + " " + e.code + " " + e.message); }
+    try { await storage.fs.compressImage(data + "/in.png", data + "/x.webp", { maxDimension: 8, maxBytes: 100, type: "image/webp" as any }); out.push("ok"); }
+    catch (e:any) { out.push(e.name + " " + e.code + " " + e.message); }
+    return {text: out.join("\n")};
+  }
   // A compression the wait gives up on, then a write to the same path: the
   // write is what remains (LLP 1069.002 A1.5).
   if (op === "compress-abandoned") {

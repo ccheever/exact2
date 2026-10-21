@@ -41,6 +41,20 @@ pub(super) struct Look<const ASSETS: bool> {
     /// This build answers look requests (`crate::development_build`).
     development: bool,
 }
+impl<const ASSETS: bool> Look<ASSETS> {
+    /// A new rung: the stashed look renderer (made at the old one's samples)
+    /// and a readback in flight are dropped, to be made again at the new one.
+    pub(super) fn retiered(&mut self) {
+        self.stash = None;
+        self.stash_format = None;
+        self.pending = None;
+    }
+    /// The stashed look renderer's scene samples.
+    #[cfg(test)]
+    pub(super) fn stashed_samples(&self) -> Option<u32> {
+        self.stash.as_ref().map(|b| b.0.pipelines.samples)
+    }
+}
 impl<const ASSETS: bool> Default for Look<ASSETS> {
     fn default() -> Self {
         Self {
@@ -391,7 +405,7 @@ impl<G: Game, P: Executor, const ASSETS: bool, H: crate::Hooks> WorldSurface<G, 
                     device,
                     queue,
                     format,
-                    G::SAMPLES,
+                    crate::quality::samples(self.rung, G::SAMPLES),
                     G::DEPTH_PREPASS,
                 )
                 .with_matte_models(G::MATTE_MODELS),
@@ -427,14 +441,23 @@ impl<G: Game, P: Executor, const ASSETS: bool, H: crate::Hooks> WorldSurface<G, 
             shader_generation: 0,
             headroom: 1.,
         });
+        // A look frame is the world's picture: its rung's samples, clamps and
+        // scale, as the live frame has them (LLP 1139.003 D3).
+        let game = G::render_scale(sim.args());
+        let factor = self
+            .rung
+            .map_or(crate::quality::unresolved_scale(game), |rung| {
+                rung.scale(game)
+            });
         let frame = Frame {
             width: points.0,
             height: points.1,
-            scale: if scale.is_finite() && scale > 0. {
-                scale
-            } else {
-                1.
-            },
+            scale: factor
+                * if scale.is_finite() && scale > 0. {
+                    scale
+                } else {
+                    1.
+                },
             seekable: true,
             ..held
         };
@@ -451,6 +474,11 @@ impl<G: Game, P: Executor, const ASSETS: bool, H: crate::Hooks> WorldSurface<G, 
         };
         let mut input = feed.frame_pixels(sim.world(), sim.alpha(), points);
         input.headroom = frame.headroom;
+        if let Some(rung) = self.rung {
+            let authored = sim.world().try_resource::<exact_game::Shadows>().is_some();
+            rung.clamp(&mut input, authored);
+            renderer.set_water_effects(rung.water_effects());
+        }
         if let Some(bounds) = bounds.filter(|_| view != View::Camera) {
             view.apply(&mut input, glam::Vec2::new(points.0, points.1), bounds);
         }

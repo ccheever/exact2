@@ -67,6 +67,9 @@ export async function fixture(options = {}) {
   const source = readFileSync(process.env.E2B_GPU_SOURCE || new URL('../gpu-glue.js', import.meta.url), 'utf8')
     .replace('import { assetDelivery } from "./gpu-assets.js";', '')
     .replace('import { inertAncestor } from "./navigation.js";', '')
+    .replace('import { padPoller } from "./gpu-pads.js";', '') // the pads are tested in gpu-pads.test.mjs, or passed as options.padPoller
+    .replace('import { chooseTier, TIERS } from "./gpu-tier.js";', 'const TIERS = ["high", "mid", "low"], chooseTier = async () => "high";')
+    .replace('import { showRefusal } from "./gpu-refusal.js";', 'const showRefusal = () => {};')
     .replaceAll('import.meta.url', '"http://fixture/"')
     .replace('import { pacer } from "./pace.js";', 'const pacer = () => Object.assign(now => now, {period_ms: 1000 / 120});') // the frame clock is tested in pace.test.mjs
     .replace('await import(`./gpu.js?g=${version}`)', 'await candidate(version)')
@@ -103,9 +106,9 @@ export async function fixture(options = {}) {
     }
   }
   await new (Object.getPrototypeOf(async function() {}).constructor)(
-    'inertAncestor', 'assetDelivery', 'globalThis', 'candidate', 'document', 'Element', 'devicePixelRatio', 'MutationObserver', 'ResizeObserver', 'requestAnimationFrame', 'cancelAnimationFrame', 'location', 'console', 'window', 'performance', 'setTimeout',
+    'padPoller', 'inertAncestor', 'assetDelivery', 'globalThis', 'candidate', 'document', 'Element', 'devicePixelRatio', 'MutationObserver', 'ResizeObserver', 'requestAnimationFrame', 'cancelAnimationFrame', 'location', 'console', 'window', 'performance', 'setTimeout',
     source + `;exact.finishRestore = (view) => { const e = surfaces.get(view); e.pendingRestore = {bytes:new Uint8Array([7])}; finishRestore(e, gpu); };`
-  )(inertAncestor, settings => assetDelivery({...settings, ...options.delivery}), { exact }, async version => version ? nextGpu : gpu, document, Element, 3, class { constructor(fn) { observers.push(fn); } observe() {} disconnect() {} },
+  )(options.padPoller ?? (() => {}), inertAncestor, settings => assetDelivery({...settings, ...options.delivery}), { exact }, async version => version ? nextGpu : gpu, document, Element, 3, class { constructor(fn) { observers.push(fn); } observe() {} disconnect() {} },
     class { observe() {} disconnect() {} }, fn => { if (fn.name === "frame") frame = fn; return 1; }, () => {}, { search: '' }, { error: (...args) => diagnostics.push(args.join(' ')), info() {} }, window,
     options.performance ?? globalThis.performance, options.setTimeout ?? globalThis.setTimeout);
   function create(id, name = 'world') {

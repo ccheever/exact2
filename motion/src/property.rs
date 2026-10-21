@@ -23,6 +23,11 @@
 //! into the alpha, so a shadow from `none` is CSS's transparent, zero-length
 //! padding.
 //!
+//! `font-weight` and `font-stretch` are numbers (CSS Fonts 4: a weight, a
+//! percentage). They change glyph advances, so the runner moves them, a
+//! style commit each presented frame, and layout follows as for any commit;
+//! no host's engine is given their targets (LLP 1019 §13 D10).
+//!
 //! `layout` is not a CSS property: it is a node's laid-out box in its parent
 //! (origin and size), which a `-exact-layout-transition` row animates (LLP 1063).
 //! It is never authored in `transition` or `@keyframes`, so it is outside
@@ -87,15 +92,19 @@ pub enum Property {
     /// `box-shadow`'s colour, its opacity folded into the alpha. Named only
     /// by `box-shadow`, never on its own.
     ShadowColor = 23,
+    /// CSS `font-weight`, a number (LLP 1019 §13 D10).
+    FontWeight = 24,
+    /// CSS `font-stretch`, a percentage of normal width.
+    FontStretch = 25,
     /// The laid-out box in the parent, in points: origin (`x`, `y`) and size
     /// (`z` wide, `w` high) (LLP 1063). Its target is layout's answer,
     /// observed by a host after layout; only a node's `-exact-layout-transition` row
     /// moves it, never `transition`.
-    Layout = 24,
+    Layout = 26,
     /// SVG 2 `d`, a path's data (LLP 1055.000 D15). Its slot's value is a
     /// running transition's progress from one path to the next; the paths
     /// are [`crate::path::PathValue`]s the engine keeps beside it.
-    D = 25,
+    D = 27,
 }
 
 impl Property {
@@ -103,15 +112,15 @@ impl Property {
     /// [`Property::Layout`] and [`Property::D`] included.
     pub(crate) fn from_slot(slot: u32) -> Property {
         match slot {
-            24 => Property::Layout,
-            25 => Property::D,
+            26 => Property::Layout,
+            27 => Property::D,
             slot => Property::ALL[slot as usize],
         }
     }
 
     /// Every authorable property, in wire order ([`Property::Layout`] is
     /// the host's, not an author's, and never on the wire).
-    pub const ALL: [Property; 24] = [
+    pub const ALL: [Property; 26] = [
         Property::Translate,
         Property::Scale,
         Property::Rotate,
@@ -136,10 +145,12 @@ impl Property {
         Property::TintColor,
         Property::BoxShadow,
         Property::ShadowColor,
+        Property::FontWeight,
+        Property::FontStretch,
     ];
 
     /// How many properties there are on the wire.
-    pub const COUNT: usize = 24;
+    pub const COUNT: usize = 26;
 
     /// How many properties the engine has slots for: the wire's, then
     /// [`Property::Layout`] and [`Property::D`].
@@ -191,6 +202,8 @@ impl Property {
             Property::TintColor => "-exact-tint-color",
             Property::BoxShadow => "box-shadow",
             Property::ShadowColor => "box-shadow-color",
+            Property::FontWeight => "font-weight",
+            Property::FontStretch => "font-stretch",
             Property::Layout => "layout",
             Property::D => "d",
         }

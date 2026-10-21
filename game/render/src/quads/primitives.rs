@@ -1,4 +1,4 @@
-use super::{feed_with_pose, Kind, Order, Quad, NO_LOOK};
+use super::{feed_with_pose, Kind, Order, Quad};
 use crate::{
     shapes,
     world::{dimensions, Shape},
@@ -170,7 +170,7 @@ impl Primitives {
                     0.,
                 ));
                 order.push(Order {
-                    kind: Kind::Particle(false, NO_LOOK, false, p.viewmodel),
+                    kind: Kind::Primitive(p.viewmodel),
                     viewmodel: p.viewmodel,
                     depth: -f.view.transform_point3((a + b + c) / 3.).z,
                     layer: 0,

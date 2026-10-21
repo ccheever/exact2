@@ -93,7 +93,7 @@ impl Reader<'_> {
                 direction,
                 fill,
                 paused,
-                keyframes: Keyframes(keyframes),
+                keyframes: Keyframes(keyframes.into()),
             });
         }
         let animations = Animations(out);
@@ -119,7 +119,7 @@ impl Writer {
             self.u8(entry.fill as u8);
             self.u8(entry.paused as u8);
             self.u8(entry.keyframes.0.len() as u8);
-            for frame in &entry.keyframes.0 {
+            for frame in entry.keyframes.0.iter() {
                 self.f32(frame.offset as f32);
                 match &frame.easing {
                     None => self.u8(0),

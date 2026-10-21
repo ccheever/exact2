@@ -2,7 +2,7 @@
 
 **Type:** RFC
 **Status:** Accepted. Charlie Cheever approved implementing it on 2026-09-26, which ratifies §6 Q1 (one app-scoped module artifact with an inner tag → factory table). D8 landed 2026-09-27; §9 is what was built.
-**Amended:** 2026-10-15: first-frame tags (D3), at Charlie Cheever’s request (the euxy port, whose native boot splash started 70–120 ms after the first frame). 2026-10-01: intrinsic content-size reporting (D4, §9), implemented by GPT-6 Astra at Charlie Cheever’s request; Apple ABI major 3. Earlier, 2026-09-27 by LLP 1067.000 — the table is `major` 2: the module entries at offsets 72–88, and `create` receives the session's module instance; an app declares one `ExactModule` whose `views` is the roster.
+**Amended:** 2026-10-21: D3's Apple gate opens after the turn that follows first pixel, not after the data source activates, which held a video view 380 ms behind a TypeScript module's evaluation (the Brooks port). 2026-10-15: first-frame tags (D3), at Charlie Cheever’s request (the euxy port, whose native boot splash started 70–120 ms after the first frame). 2026-10-01: intrinsic content-size reporting (D4, §9), implemented by GPT-6 Astra at Charlie Cheever’s request; Apple ABI major 3. Earlier, 2026-09-27 by LLP 1067.000 — the table is `major` 2: the module entries at offsets 72–88, and `create` receives the session's module instance; an app declares one `ExactModule` whose `views` is the roster.
 **Systems:** Kernel (`NativeView` already in the schema — no new node type), Contract (hyphenated tags; leftover attrs as one literal JSON aggregate), Apple host (one NativeView arm; one app module artifact behind `dlopen`), Web host (the real custom-element tag; one injected sibling module), Linux host (unavailable in v1), Agent API (the eight operations; no ninth), GPU / iframe (stay first-party HTML tags)
 **Author:** Grok 4.6 for Charlie Cheever. r2 folded by Claude Fable from the three-model panel of 2026-08-31 (§8); the fold is an edit for Charlie to accept, not an approval.
 **Date:** 2026-08-31 (r1 and r2)
@@ -251,10 +251,11 @@ defines the custom elements for the roster’s tags.
 module node in the first frame arrives while the first batch is applying —
 loading there is code before first pixel. Creates during the initial batch
 make the empty box and queue; loading starts at the established post-paint
-gate (Apple: the main-queue turn after activation's Core Animation commit,
-so activation's frame, and input already queued when activation returns,
-come before any module view; web: the injected script from the frame after
-the paint stamp). A node created after the gate opens attaches immediately.
+gate (Apple: the main-queue turn after the Core Animation commit of the
+turn that follows first pixel, so that frame, and input already queued by
+then, come before any module view; the data source's activation, which runs
+on the owner thread meanwhile, is not waited for; web: the injected script
+from the frame after the paint stamp). A node created after the gate opens attaches immediately.
 “First use” is this paragraph, not a phrase.
 
 **First-frame tags (2026-10-15, Apple).** A factory may say `firstFrame`
@@ -731,8 +732,19 @@ and puts it in the iOS bundle’s `Frameworks`, where the embedded-dylib loop
 signs it (so the simulator run traverses `codesign`). It reads the
 artifact’s roster from its table (`bun:ffi`; for an iOS build, the same
 sources run as a Mac Catalyst executable, else as an iOS simulator one under
-`simctl spawn` on a booted simulator (with none booted, the build boots one
-and shuts it down, about 7 s), else as a macOS slice); `host/web/build.mjs`
+`simctl spawn` on the simulator `--sim` or `EXACT_SIM` names, else a booted one
+(with none booted, the build boots one and shuts it down, about 7 s), else as a
+macOS slice). A roster read is kept beside the probe's cached build, whose key
+is the arm cache's: the probe's arguments (the route's SDK and target among
+them), its sources' text, the compiler, the link flags and each library's and
+archive header's path, size and mtime. A build whose probe is unchanged reads
+it there and runs no probe. The roster is the module's table as written, not
+a runtime's answer: a `views` that varies with the OS it runs on (an
+`#available` around a tag or its `firstFrame`) is unsupported, as it already
+was, since the roster the build reads on a Mac or a simulator is the one every
+device's Info.plist carries (the simulator route: 8.6–9.0 s a build against
+2.2–3.9 s, `apps/native-fixture` with an iOS-only dependency, 2026-10-20);
+`host/web/build.mjs`
 reads the web module’s `roster` export. A roster tag the artifact lacks fails
 a production build, named, and warns in development; so does a roster no
 route can read, naming each route's cause.

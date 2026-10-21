@@ -37,7 +37,9 @@ pub use edit::{edit, Command, Edit};
 pub use pieces::{pieces, Piece, Role};
 pub use segment::{embed, excerpt, plain, segments, video, Embed, Provider, Segment};
 pub use selection::{selection, Selection};
-pub use style::{style, Footnote, Paragraph, ParagraphKind, Replaced, Replacement, Span, Styled};
+pub use style::{
+    style, Footnote, LinkSyntax, Paragraph, ParagraphKind, Replaced, Replacement, Span, Styled,
+};
 
 /// Bold.
 pub const BOLD: u8 = 1;

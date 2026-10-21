@@ -19,7 +19,7 @@ export const activityEntries = app => app.manifest.live_activities ?? [];
 /** Whether the app has an entry of either kind: what the extension, the shared framework, the App Group and the
  * Keychain group are gated on (LLP 1126.001 WP13). */
 export const hasEntries = app => platformWidgetEntries(app).length > 0 || activityEntries(app).length > 0;
-export const widgetGroup = app => `group.${app.widgetAppId ?? app.id}`;
+export const widgetGroup = app => `group.${app.widgetAppId ?? app.clipParent ?? app.id}`;
 export const widgetId = app => `${app.id}.widgets`;
 
 // LLP 1126.001 WP16: the Mac container is authorized by the signing team,

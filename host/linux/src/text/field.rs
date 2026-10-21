@@ -19,6 +19,10 @@ struct Span {
     // Logical start and end positions; RTL spans run from right to left.
     left: f32,
     right: f32,
+    // Its font's content area (ascent over descent at the baseline), the
+    // box a DOM range gives its text.
+    top: f32,
+    height: f32,
 }
 
 #[derive(Debug)]
@@ -28,6 +32,8 @@ struct Line {
     top: f32,
     height: f32,
     empty_x: f32,
+    /// The strut font's content area, for a line with no text.
+    text: (f32, f32),
     spans: Vec<Span>,
 }
 
@@ -101,6 +107,10 @@ impl Geometry {
                 after_cr = c == '\r';
             }
         }
+        let data = &paragraph.source.data;
+        let (ascent, descent) = data.strut_font;
+        // A content area at baseline `y`: the font's ascent over it.
+        let area = |y: f32, (ascent, descent): (f32, f32)| (y - ascent, ascent + descent);
         let mut lines = Vec::new();
         for run in paragraph.layout_runs() {
             let base = hard_starts[run.line_i];
@@ -114,6 +124,12 @@ impl Geometry {
                         right = right.max(next.x + next.w);
                         glyphs.next();
                     }
+                    let (top, height) = data
+                        .run_metrics
+                        .get(g.run())
+                        .map_or(area(run.line_y, (ascent, descent)), |m| {
+                            area(run.line_y, (m.0, m.1))
+                        });
                     let cluster = &run.text[g.range()];
                     let mut boundaries: Vec<_> =
                         cluster.grapheme_indices(true).map(|(i, _)| i).collect();
@@ -133,6 +149,8 @@ impl Geometry {
                             end: offset(base + g.start as usize + pair[1]),
                             left: x(i),
                             right: x(i + 1),
+                            top,
+                            height,
                         });
                     }
                 }
@@ -146,6 +164,7 @@ impl Geometry {
                 top: run.line_top,
                 height: run.line_height,
                 empty_x: if lines.is_empty() { first_x } else { empty_x },
+                text: area(run.line_y, (ascent, descent)),
                 spans,
             });
             if value.is_empty() {
@@ -163,6 +182,7 @@ impl Geometry {
                 top,
                 height,
                 empty_x,
+                text: area(top + data.strut.0, (ascent, descent)),
                 spans: Vec::new(),
             });
         }
@@ -250,6 +270,65 @@ impl Geometry {
             offset: if end { line.end } else { line.start },
             upstream: end,
         }
+    }
+
+    /// `rangeFrame`'s boxes (LLP 1114.007), field-local, as Chrome's
+    /// `Range.getClientRects()` gives them for a textarea: each a text box,
+    /// its glyphs across and its font's content area down. Collapsed, the
+    /// caret's at width 0, upstream at a wrap (the line it ends); wider,
+    /// each span's the range overlaps, then a zero-width one at the end of a
+    /// line whose break it holds, which a bound skips unless it is alone.
+    /// `None` past the text.
+    pub(crate) fn range(&self, start: u32, end: u32) -> Option<Vec<Rect>> {
+        if start > end || end > self.len {
+            return None;
+        }
+        let at = |line: &Line, span: Option<&Span>| span.map_or(line.text, |s| (s.top, s.height));
+        if start == end {
+            let cursor = Cursor {
+                offset: start,
+                upstream: self.wrap_boundary(start),
+            };
+            let line = self.lines.get(self.line_index(cursor))?;
+            // The run the offset closes and the one it opens meet there,
+            // or (where two directions meet) stand apart: Chrome takes the
+            // first in visual order, left to right, whatever the line's
+            // direction (measured: `abc אבג` at 4 is the space's end, and
+            // under `direction: rtl` `אבג abc` at 4 is `abc`'s left edge).
+            let before = line.spans.iter().find(|s| s.end == start);
+            let after = line.spans.iter().find(|s| start < s.end);
+            let leftmost = |s: &Span| s.left.min(s.right);
+            let (x, span) = match (before, after) {
+                (Some(b), Some(a)) if leftmost(a) < leftmost(b) => (a.left, Some(a)),
+                (Some(s), _) => (s.right, Some(s)),
+                (None, Some(s)) => (s.left, Some(s)),
+                (None, None) => line
+                    .spans
+                    .last()
+                    .map_or((line.empty_x, None), |s| (s.right, Some(s))),
+            };
+            let (top, height) = at(line, span);
+            return Some(vec![(x, top, 0., height)]);
+        }
+        let mut rects = Vec::new();
+        for (index, line) in self.lines.iter().enumerate() {
+            for s in line.spans.iter().filter(|s| s.start < end && s.end > start) {
+                let (left, right) = (s.left.min(s.right), s.left.max(s.right));
+                rects.push((left, s.top, right - left, s.height));
+            }
+            // The break's characters (a CR LF is two) lie between the lines.
+            let broken = self
+                .lines
+                .get(index + 1)
+                .is_some_and(|next| next.start > line.end && start < next.start);
+            if broken && end > line.end {
+                let last = line.spans.last();
+                let x = last.map_or(line.empty_x, |s| s.right);
+                let (top, height) = at(line, last);
+                rects.push((x, top, 0., height));
+            }
+        }
+        Some(rects)
     }
 
     pub(crate) fn highlight(&self, start: u32, end: u32) -> Vec<Rect> {

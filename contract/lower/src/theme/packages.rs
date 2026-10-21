@@ -415,6 +415,49 @@ impl crate::Lowerer<'_> {
             // None of the app's lines; the packages' by band.
             None => (None, Origin::Inline(Vec::new())),
         };
+        // A name under a library package's namespace that the package
+        // doesn't define (LLP 1139 D8): its names are its API. An app design
+        // line setting one, and a Contract row naming one.
+        for source in file.package_designs.iter().filter(|s| {
+            s.package
+                .as_ref()
+                .is_some_and(|p| file.library_packages.contains(p))
+        }) {
+            let package = source.package.as_deref().unwrap_or_default();
+            let ns = namespace(package);
+            let declared: Vec<String> = tamber::parse(&source.text)
+                .map(|d| d.tokens.into_iter().map(|t| t.name.value).collect())
+                .unwrap_or_default();
+            // The nine base names are no package's (`space.md` under a
+            // package `space` is the app's base override).
+            let unknown = |name: &str| {
+                name.starts_with(&format!("{ns}."))
+                    && !declared.iter().any(|d| d == name)
+                    && !exact_kernel::style::scale::is_base(name)
+            };
+            let message = |name: &str| {
+                format!("`{name}` is under the library package `{package}`'s namespace, which defines no `{name}`: a library's names are its API, so a renamed or removed one fails the build (LLP 1139 D8)")
+            };
+            if let Some(app) = &app {
+                for t in app.tokens.iter().filter(|t| unknown(&t.name.value)) {
+                    let span = self.token_span(&origin, t.name.line, t.name.col);
+                    self.push(LowerError {
+                        id: "tamber-package-unknown",
+                        message: message(&t.name.value),
+                        span,
+                    });
+                }
+            }
+            for (name, span) in crate::anatomy::library::rows_naming(file, ns) {
+                if unknown(&name) {
+                    self.push(LowerError {
+                        id: "tamber-package-unknown",
+                        message: message(&name),
+                        span,
+                    });
+                }
+            }
+        }
         let (merged, refused) = merge(app, &file.package_designs);
         for e in refused {
             self.push(e);

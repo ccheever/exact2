@@ -26,7 +26,7 @@ impl Game for Pad {
     }
 }
 let control = |name: &str, phase, x, y| InputEvent::Control {
-    name: name.into(), id: 1, phase, x, y, at_ms: 0. };
+    name: name.into(), id: 1, phase, x, y, at_ms: 0., player: 0 };
 let mut sim = Sim::<Pad>::new(()).unwrap();
 sim.input(control("move", PointerPhase::Down, 48., 48.));
 sim.input(control("move", PointerPhase::Move, 108., 48.));
@@ -58,6 +58,9 @@ component Game
           text "Jump"
 ```
 
+- The starter puts them in its HUD's bottom group, a strip along the bottom edge in
+  portrait (`game/new/app.contract`); its panel's Touch controls button is the
+  player's override.
 - An iPad with a trackpad or mouse attached answers `fine`, and the buttons hide;
   the pointer changes while the game runs.
 - Drive both on a desktop carrier: `bun scripts/agent.mjs web "prefer pointer coarse" tree`

@@ -67,7 +67,10 @@ function init(message) {
   for (const name of ['XMLHttpRequest', 'WebSocket', 'EventSource']) {
     Object.defineProperty(self, name, { value: function () { throw new Error(`${name} is unavailable in data sources`); }, configurable: false });
   }
-  storage = createStorage(self, admitted, () => context.owner, message.storage);
+  // The worker's timers, before the prelude takes them from this global: a storage lock's bound (storage-fs.js),
+  // held in this closure and never the module's.
+  const timers = { set: self.setTimeout.bind(self), clear: self.clearTimeout.bind(self) };
+  storage = createStorage(self, admitted, () => context.owner, message.storage, timers);
   // A cell belongs to the answer that accepted the call, though its operation
   // may be issued in another answer's turn (one queued behind it), as in the
   // page realm.

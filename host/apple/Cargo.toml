@@ -22,10 +22,14 @@ exact-textflow = { path = "../../textflow" }
 exact-color = { path = "../../color" }
 exact-kernel = { path = "../../kernel" }
 exact-markdown = { path = "../../markdown" }
+# Which link destinations the Markdown editor hides (LLP 1045 D5): the web
+# editor's rules, called only from `markup_exports!`.
+exact-markdown-editor = { path = "../../markdown/editor" }
 exact-motion = { path = "../../motion" }
 exact-plan = { path = "../../plan" }
 exact-route = { path = "../../route" }
 exact-raster = { path = "../raster" }
+exact-svg-file = { path = "../svg-file" }
 exact-runner = { path = "../../runner" }
 # The executor for a request that leaves the process (LLP 1016 D2): ibex2's
 # standard library for a Rust consumer (ibex LLP 0068) — no engine, no

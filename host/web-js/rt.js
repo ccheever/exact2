@@ -1,5 +1,5 @@
 export { liveTime } from "./live-time.js";
-import { commitGuestOrigin, guestMessageAuthorized, inertAncestor, renderMarkup, reportPlace, onSelection, textField, sourceField, editMenu, settleRadios, installFits, contextAt } from "./navigation.js"; export { animationClocks, launchLocation } from "./navigation.js"; export { fontFamily } from './font-family.js'; // synced animations (LLP 1055.002, emit.rs `clocks`)
+import { commitGuestOrigin, guestMessageAuthorized, inertAncestor, sheetLeaves, liveById, renderMarkup, reportPlace, onSelection, textField, sourceField, editMenu, settleRadios, installFits, contextAt } from "./navigation.js"; export { animationClocks, launchLocation } from "./navigation.js"; export { fontFamily } from './font-family.js'; // synced animations (LLP 1055.002, emit.rs `clocks`)
 import { Docs, Head, head, markDocument, projectRoots, openTabs, unopened, tp } from "./document.js"; export { Head, unopened, tp }; import { conforms, eq, equal, failureCode, failureReason } from "./shape.js"; import { pointer, record } from "./pointer.js"; import { commands } from "./commands.js"; import { autofocus, press } from "./focus.js";
 let Paint; export function usePaint(pass) { Paint = pass; } export { conforms, eq, equal }; // the compiler installs `Paint` only when a plan can layer boxes
 import * as Ov from "./overlay.js"; import { beatAfter } from "./beat.js"; // optimistic writes shown over answers (the runner's writes.rs)
@@ -262,10 +262,10 @@ export function act(fn, types, skip = 0, names) {
 }
 /** The host commands, by name; a loaded piece adds its own (list.js `scrollIntoView`). */
 export const Hosts = {
-  focus: id => document.getElementById(id)?.focus(),
+  focus: id => liveById(id)?.focus(),
   blur: id => { const a = document.activeElement; if (a && a !== document.body && (id == null || a.id === id)) a.blur(); }, ...commands(say), // commands.js's: selectText, openURL, postMessage, reload, delivery's; `blur()` drops whatever holds focus; `blur(id)` only when that node holds it (navigation.js runFocusCommands)
   setScheme: s => heldOr("scheme", s, () => { document.documentElement.style.colorScheme = s === "system" ? "" : s; }), requestFullscreen: id => Media ? Media.requestFullscreen(id) : say(`requestFullscreen: refused: no video with id "${id}"`), // media.js's where a plan has media; without any, the same refusal
-  copyText: t => navigator.clipboard?.writeText(t), haptic: k => navigator.vibrate?.(k === "selection" ? 5 : 12), /* LLP 1077 D14: vibration where the browser has it */ scrollIntoView: (id, block, inline, behavior) => { const e = document.getElementById(id); if (e) e.scrollIntoView({ block: block ?? "start", inline: inline ?? "nearest", behavior: behavior ?? "auto" }); else say(`scrollIntoView "${id}" refused: no live node with that id`); }, /* an element's, by id (minesweeper F3); list.js takes a row's */ scrollBy: (id, x, y) => { const e = document.getElementById(id); if (e) e.scrollBy(x, y); else say(`scrollBy "${id}" refused: no live node with that id`); }, // LLP 1101.004 R3
+  copyText: t => navigator.clipboard?.writeText(t), haptic: k => navigator.vibrate?.(k === "selection" ? 5 : 12), /* LLP 1077 D14: vibration where the browser has it */ scrollIntoView: (id, block, inline, behavior) => { const e = liveById(id); if (e) e.scrollIntoView({ block: block ?? "start", inline: inline ?? "nearest", behavior: behavior ?? "auto" }); else say(`scrollIntoView "${id}" refused: no live node with that id`); }, /* an element's, by id (minesweeper F3); list.js takes a row's */ scrollBy: (id, x, y) => { const e = liveById(id); if (e) e.scrollBy(x, y); else say(`scrollBy "${id}" refused: no live node with that id`); }, // LLP 1101.004 R3
 };
 let KeyEvent = null, Propagating = null; Hosts.preventDefault = () => { KeyEvent?.preventDefault(); if (KeyEvent?.type === "beforeunload") KeyEvent.returnValue = ""; }; Hosts.stopPropagation = () => { const e = KeyEvent ?? Propagating; if (e) e.$stopped = true; }; // Propagating: the pointer's down or up a handler is running for, which only its `stopPropagation()` reaches (its default is the browser's); // the key, focus, wheel, beforeunload or clipboard event whose handler is running (`on`): commands run before its commit returns; a stopped key reaches no ancestor's `key` handler, its default still does (files diary F8); a prevented beforeunload is the browser's "Leave site?" (Safari reads `returnValue`)
 export const Sounds = { apply: null, own: new Set(["playSound", "playSounds", "stopSounds", "sendMIDI", "requestMIDIAccess"]), gate: null, stood: null, seq: null, midi: null, midiApply: null, beatAt: null }; // The voice table's and the MIDI queue's commands (LLP 1096 D5, LLP 1125 D7): the runtime's own, never a host's; sounds.js and midi.js apply a commit's once it stood, and transport.js reads the sequences in the gate step and plays them once it stood (LLP 1125 D2).
@@ -288,6 +288,7 @@ export function time() { if (!clock.agent && !Timing && start) clock.now = Math.
 function tick() { if (Now.v !== clock.now) { Now.v = clock.now; for (const o of Now.obs) stale(o, DIRTY); } }
 // A release build never enters agent mode (LLP 1069.007 D2): its build writes this false, as the wasm host's files are gated.
 const AGENT_ADMITTED = true;
+/** Whether the agent drives this page (or a render does): the clock is then the driver's. */ export const agentMode = () => !!globalThis.__exactRender || (AGENT_ADMITTED && new URLSearchParams(location.search).has("agent"));
 /** A timer: `every(ms, action, once)`, due from mount; `i` its plan order, which breaks ties (schedule.js inserts by it). */
 let Order = 0; export const order = () => Order++, Tasks = []; // every task, for the agent's `state.tasks`
 export function every(ms, action, once, name) {
@@ -789,11 +790,11 @@ export function c2(e, name, values, types, names) {
     if (!Canvas2d) {
       inflight.n++;
       Canvas2d = new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r))).then(() => import("./canvas2d.js"))
-        .then(m => m.engine({ data, clock, inflight, journal, advance, views: Views, viewId, wall: () => performance.now() - start }))
+        .then(m => m.engine({ data, clock, inflight, journal, advance, After, views: Views, viewId, wall: () => performance.now() - start }))
         .catch(err => say(`canvas2d: ${err.message}`)).finally(() => inflight.n--);
     }
-    // After the commit applied, as the runner publishes surface inputs.
-    queueMicrotask(() => Canvas2d.then(m => m?.args(c)));
+    // After the commit applied, as the runner publishes surface inputs, and before the canvas module's restyle (`After`).
+    Canvas2d.then(m => m?.args(c));
   });
 }
 /** When native code may load (LLP 1024 D7): after the browser's first paint entry, or two frames and 250 ms where it records none (glue.js `afterNativePaint`). */
@@ -802,7 +803,7 @@ export const painted = () => Painted ??= new Promise(r => { let o; const done = 
 /** A context menu's popover (LLP 1021 §5.1): after the node's own `contextmenu` (both fire), the popover its `contextpopover` names opens anchored to it,
  * the browser's own menu prevented and no ancestor hearing the event (macOS consumes the click too); a text field's edit menu stays the browser's (navigation.js `editMenu`), and a disabled or inert node opens nothing. */
 export function cp(e) {
-  e.addEventListener("contextmenu", ev => { if (ev.$cp || !e.getAttribute("contextpopover") || editMenu(ev.target) || e.matches(":disabled") || inertAncestor(e)) return; ev.$cp = 1; ev.preventDefault(); ev.stopPropagation(); contextAt(ev, () => { if (!e.isConnected || e.matches(":disabled") || inertAncestor(e)) return; const p = document.getElementById(e.getAttribute("contextpopover") ?? ""); if (p && !p.matches(":popover-open")) return [p, e]; }); });
+  e.addEventListener("contextmenu", ev => { if (ev.$cp || !e.getAttribute("contextpopover") || editMenu(ev.target) || e.matches(":disabled") || inertAncestor(e)) return; ev.$cp = 1; ev.preventDefault(); ev.stopPropagation(); contextAt(ev, () => { if (!e.isConnected || e.matches(":disabled") || inertAncestor(e)) return; const p = liveById(e.getAttribute("contextpopover") ?? ""); if (p && !p.matches(":popover-open")) return [p, e]; }); });
 }
 /** A native module's element (LLP 1024 D3): the real custom element, empty until the web host's adapter (`native.js`)
  * and the app's module artifact load (`painted`); the module renders into it, its events reaching the handlers as `exact-native` events (`on`). */
@@ -925,8 +926,9 @@ export const onValue = (e, kind, f, l) => { return l(kind, ev => {
 export const onBeforeInput = (e, kind, f, l) => l(kind, ev => { const outer = KeyEvent; KeyEvent = ev; try { f(inputRecord(e, e.value, false, ev)); } finally { KeyEvent = outer; } });
 export const onHover = (e, kind, f, l) => { l("pointerenter", () => f(true)); return l("pointerleave", () => f(false)); };
 export const onFocusWithin = (e, kind, f, l) => l(kind, ev => { if (ev.$stopped) return; const outer = KeyEvent; KeyEvent = ev; try { f([ev.target?.exactExitId ?? ev.target?.id ?? "", ev.relatedTarget?.exactExitId ?? ev.relatedTarget?.id ?? null]); } finally { KeyEvent = outer; } });
-// `keycapture` hears keydown outermost first, then `key` bubbles; `keyup` bubbles too (#140). An action taking one more parameter hears the KeyboardEvent record (contract/types selection.rs's order: code and repeat last).
-export const onKey = (e, kind, f, l) => { const type = kind === "keyup" ? "keyup" : "keydown"; if (!(e.exactFlowEvents ??= []).includes(type)) e.exactFlowEvents.push(type); return l(type, ev => { if (ev.$stopped || kind === "keycapture" && ev.exactFlowCapture && !ev.exactFlowCapture.includes(e)) return; const outer = KeyEvent; KeyEvent = ev; try { f(ev.key, [ev.key, ev.shiftKey, ev.ctrlKey, ev.altKey, ev.metaKey, ev.code, ev.repeat]); } finally { KeyEvent = outer; } }, kind === "keycapture"); };
+// `keycapture` hears keydown outermost first, then `key` bubbles; `keyup` bubbles too (#140). An action taking one more parameter hears the KeyboardEvent record (contract/types selection.rs's order: code and repeat last). With nothing focused a key or a clipboard event targets `<body>`, outside the app, where the DOM's `window` listeners hear it: the first root's handlers hear any event whose target is `<body>` or `<html>` (`atBody`; never a copy a flow forwards to a detached node), on `<html>` as it bubbles, so after the shortcuts (input-glue's capture listener) and before the document's defaults (a sheet's Escape, a list's ⌘A), its `keycapture` before its `key`.
+let BodyHeard; const atBody = (e, kind, g) => { (e.$body ??= {})[kind] = g; BodyHeard ??= ["keydown", "keyup", "copy", "cut", "paste"].map(t => document.documentElement.addEventListener(t, ev => { const root = document.getElementById("exact-root"), h = root?.firstElementChild?.$body; if (!h || (ev.target !== document.body && ev.target !== document.documentElement)) return; if (t === "keydown") { h.keycapture?.(ev); h.key?.(ev); } else h[t]?.(ev); })); return g; };
+export const onKey = (e, kind, f, l) => { const type = kind === "keyup" ? "keyup" : "keydown"; if (!(e.exactFlowEvents ??= []).includes(type)) e.exactFlowEvents.push(type); return l(type, atBody(e, kind, ev => { if (ev.$stopped || kind === "keycapture" && ev.exactFlowCapture && !ev.exactFlowCapture.includes(e)) return; const outer = KeyEvent; KeyEvent = ev; try { f(ev.key, [ev.key, ev.shiftKey, ev.ctrlKey, ev.altKey, ev.metaKey, ev.code, ev.repeat]); } finally { KeyEvent = outer; } }), kind === "keycapture"); };
 export const onMIDI = (e, kind, f) => { (Sounds.midi ??= new Set()).add([e, f]); }; // a MIDI input's message (LLP 1125 D8), heard by every connected element whose `midiinputs` lists the input (midi.js)
 // The window's, heard by every connected element that declares it (studio diary R17).
 export const onUnload = (e, kind, f, l) => { return addEventListener("beforeunload", ev => { if (!e.isConnected) return; const outer = KeyEvent; KeyEvent = ev; try { f(); } finally { KeyEvent = outer; } }); };
@@ -946,12 +948,12 @@ export const onPointer = (e, kind, f, l) => { return pointer(e, kind, kind === "
 export const onContextmenu = (e, kind, f, l) => { return l(kind, ev => { if (editMenu(ev.target)) return; ev.preventDefault(); ev.stopPropagation(); f(record(e, ev)); }); };
 // DOM's own, bubbling to every ancestor's handler; one that calls `preventDefault()` keeps the scroll (a pinch is a Control-held wheel) from happening (studio diary R3).
 export const onWheel = (e, kind, f, l) => { return e.addEventListener("wheel", ev => { if (ev.$stopped || e.matches(":disabled") || inertAncestor(e)) return; const outer = KeyEvent; KeyEvent = ev; try { f([...record(e, ev).slice(0, 2), ev.deltaX, ev.deltaY, ev.deltaMode, ev.shiftKey, ev.ctrlKey, ev.altKey, ev.metaKey]); } finally { KeyEvent = outer; } }, { passive: false }); };
-// Files dropped from outside, each a `doc:` handle (files.js, documents-glue.js; studio diary R19).
-export const onFileDrop = (e, kind, f, l) => { return OnHooks.drop?.(e, f); };
+// Files dropped from outside, each a `doc:` handle, and a file drag's enter and leave (files.js, documents-glue.js; studio diary R19).
+export const onFileDrop = (e, kind, f, l) => { return OnHooks.drop?.(e, f); }; export const onFileDrag = (e, kind, f, l) => { return OnHooks.drag?.(e, kind, f); };
 // Normal blur commits before focusout chooses its DOM path. Flush callbacks run before post-flush focus commands or autofocus; retired owners never dispatch teardown blur.
 export const onFocus = (e, kind, f, l) => { const own = Owner, run = () => e.isConnected && !own?.gone && f(); return l(kind, () => Flushing ? FocusQueue.push(run) : run()); };
-// the nearest handler hears the ClipboardEvent record; the default (a field's own paste) proceeds unless it calls preventDefault() (#125)
-export const onClipboard = (e, kind, f, l) => { return l(kind, ev => { ev.stopPropagation(); const outer = KeyEvent; KeyEvent = ev; try { f([ev.clipboardData?.getData("text/plain") ?? ""]); } finally { KeyEvent = outer; } }); };
+// the nearest handler hears the ClipboardEvent record, a paste's files minted `doc:` handles (files.js); the default (a field's own paste) proceeds unless it calls preventDefault() (#125)
+export const onClipboard = (e, kind, f, l) => { if (kind === "paste") OnHooks.pasteWarm?.(); return l(kind, atBody(e, kind, ev => { ev.stopPropagation(); const outer = KeyEvent; KeyEvent = ev; try { f([ev.clipboardData?.getData("text/plain") ?? "", kind === "paste" ? OnHooks.pasted?.(ev) ?? [] : []]); } finally { KeyEvent = outer; } })); };
 export const onToggle = (e, kind, f, l) => l(kind, ev => f([ev.oldState, ev.newState]));
 export const onSelectionChange = (e, kind, f, l) => { return sourceField(e) ? l(kind, () => f(inputRecord(e, e.value, false))) : onSelection(e, (text, a, b, rects) => f([text, a, b, rects])); };
 // ---------------------------------------------------------------- presence (LLP 1063)
@@ -967,7 +969,7 @@ export const onSelectionChange = (e, kind, f, l) => { return sourceField(e) ? l(
 let Pres = null, Presence = null, Present = null, Leave = null, Sh = null; // Sh: shared.js, loaded with presence-glue.js, runs the commits that hand on a shared element's name in a view transition (LLP 1013.000 D7)
 /** The after-paint pieces on their way (the agent waits for them before an
  * operation, as glue.js's `agentSettled` waits for `pieces.pending()`). */
-export const pieces = () => Promise.all([Motion, Inputs, Presence, Flow, Native, Media?.mediaPiece()].filter(Boolean)).then(() => {}, () => {});
+export const pieces = () => Promise.all([Motion, Inputs, Presence, Flow, Native, Media?.mediaPiece(), OnHooks.loading].filter(Boolean)).then(() => {}, () => {});
 /** A view leaves with the exit animation `css` names (a virtualized list's
  * row wrapper, list.js): whether it stays, leaving, for presence-glue.js to remove. */
 export function exitView(el, css) { if (!Pres || !css) return false; Pres.exit(el, css); return exiting(el); }
@@ -989,7 +991,7 @@ export function pr(e) {
       Leave = n => {
         const css = n.nodeType === 1 && n.style.getPropertyValue("--exact-exit-animation").trim();
         if (css) Pres.exit(n, css);
-        if (!exiting(n)) n.remove();
+        if (!exiting(n) && !sheetLeaves(n)) n.remove();
       };
     })
     .catch(err => say(`presence: unavailable; motion skipped: ${err.message}`)).finally(() => inflight.n--);
@@ -1077,6 +1079,7 @@ export { onResize, onIntersect } from "./observers.js";
 /** Page geometry (LLP 1051.000), fetched after first paint by `geo`; unavailable before loading.
  * Answers use the runner's Geometry: x, y, width, height, provisional, unavailable. */
 let Geo = null, Geometry = null;
+export const geoLoading = () => Geometry; // its load once `geo` asked (else null): a first element size (observers.js) waits for it
 export function geo() {
   if (Geometry || typeof requestAnimationFrame !== "function" || globalThis.__exactRender) return;
   inflight.n++;
@@ -1085,11 +1088,11 @@ export function geo() {
     .catch(err => say(`geometry: ${err.message}`)).finally(() => inflight.n--);
 }
 function geoRead(op, id) {
-  const out = new Float64Array(4), bits = Geo ? Geo.read(op, document.getElementById(id), out) : 0;
+  const out = new Float64Array(4), bits = Geo ? Geo.read(op, liveById(id), out) : 0;
   return bits & 1 ? [out[0], out[1], out[2], out[3], !!(bits & 2), false] : [0, 0, 0, 0, false, true];
 }
 export const x_frame = id => geoRead(0, id), x_measure = id => geoRead(1, id);
-export const x_rangeFrame = (id, start, end) => { const out = new Float64Array(4), bits = Geo ? Geo.range(document.getElementById(id), start, end, out) : 0;
+export const x_rangeFrame = (id, start, end) => { const out = new Float64Array(4), bits = Geo ? Geo.range(liveById(id), start, end, out) : 0;
   return bits & 1 ? [...out, !!(bits & 2), false] : [0, 0, 0, 0, false, true]; };
 export { decorationRecord } from './shape.js'; import { startDecoration } from './editor.js';
 export const decorate = e => startDecoration(e, {own:Owner, onEnd, inflight, say});
@@ -1105,7 +1108,7 @@ export function mde(e) {
   inflight.n++;
   if (!Editor) {
     Editor = import("./markup-editor.js").then(() => globalThis.exact.installMarkupEditor);
-    Hosts.format = (id, name, arg) => Editor.then(() => document.getElementById(id)?.exactMarkup?.format(name, arg ?? ""));
+    Hosts.format = (id, name, arg) => Editor.then(() => liveById(id)?.exactMarkup?.format(name, arg ?? ""));
   }
   Editor.then(install => {
     if (!e.isConnected) return;
@@ -1168,7 +1171,7 @@ function range(p) {
 // A view leaving with its exit animation stays where it was until it ends
 // (presence-glue.js removes it): never moved, since moving cancels a CSS animation.
 const exiting = n => n.nodeType === 1 && n.hasAttribute("data-exiting");
-function clear(a, b) { Paint?.list(a.parentNode); for (let n = a.nextSibling; n !== b;) { const m = n.nextSibling; if (!exiting(n)) Leave ? Leave(n, b) : n.remove(); n = m; } }
+function clear(a, b) { Paint?.list(a.parentNode); for (let n = a.nextSibling; n !== b;) { const m = n.nextSibling; if (!exiting(n)) Leave ? Leave(n, b) : sheetLeaves(n) || n.remove(); n = m; } }
 function build(b, f, own) {
   const frag = document.createDocumentFragment();
   const s = scope(() => f(frag), own);
@@ -1277,12 +1280,12 @@ export function each(p, list, key, row, pure) {
       const list = order = [...next.values()];
       for (let i = 0; i < list.length; i++) list[i].at = i;
       // Every row goes and the region is all its parent holds: emptied at once.
-      if (rows.size && b && !Leave && list.every(r => r.frag) && !a.previousSibling && !b.nextSibling) {
+      if (rows.size && b && !Leave && list.every(r => r.frag) && !a.previousSibling && !b.nextSibling && !parent.querySelector(':scope > [navigationPresentation="modal"]')) { // not where the parent holds a modal route, which may leave (navigation.js `sheetLeaves`)
         endAll(rows);
         parent.textContent = "";
         parent.append(a, b);
       }
-      else if (rows.size) { endAll(rows); for (const r of rows.values()) { let n = r.start; while (n) { const m = n.nextSibling; Leave ? Leave(n, b) : n.remove(); if (n === r.end) break; n = m; } } }
+      else if (rows.size) { endAll(rows); for (const r of rows.values()) { let n = r.start; while (n) { const m = n.nextSibling; Leave ? Leave(n, b) : sheetLeaves(n) || n.remove(); if (n === r.end) break; n = m; } } }
       // Order, from the last row back: kept rows on the longest run already in
       // order stay; any other moves before the row after it; new rows go in
       // one fragment per run.
@@ -1390,7 +1393,7 @@ export function mount(f) {
     if (!(t.closest?.("input, textarea, select") || t.isContentEditable) && t.closest?.('[retainFocus="true"]')) ev.preventDefault();
   });
   // Under the agent, and in a render, the clock is the driver's: no timer runs by itself.
-  clock.agent = !!globalThis.__exactRender || (AGENT_ADMITTED && new URLSearchParams(location.search).has("agent"));
+  clock.agent = agentMode();
   Store.load();
   let built = false;
   Adopt = !!(checkpoint().kept && root.firstElementChild);

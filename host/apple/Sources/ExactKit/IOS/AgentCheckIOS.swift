@@ -455,6 +455,8 @@ extension Agent {
                     item["label"] = true
                     // UIKit's white on a fill of the accent (LLP 1116.019 D3): what reads on it is the accent's choice.
                     if ButtonConfigurationIOS.filledStyles.contains(button.drawn), button.configuration?.baseForegroundColor == nil { item["onAccent"] = true }
+                    // UIKit's hue on its own pale fill: the tinted style's label in the button's tint.
+                    if button.drawn == "tinted", button.configuration?.baseForegroundColor == nil { item["tinted"] = true }
                     break
                 }
                 if cur is UIButton {

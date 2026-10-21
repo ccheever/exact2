@@ -63,6 +63,7 @@ pub use source::{
 mod delivery;
 mod links;
 pub use links::{CanvasLink, FormatLink, GeometryLink, RouterLink, RunnerLinks, SurfaceAnswer};
+pub use text_axes::TextAxesLink;
 mod device;
 mod device_links;
 mod document;
@@ -98,6 +99,7 @@ pub mod midi;
 mod modules;
 mod split;
 mod surface_record;
+mod text_axes;
 mod time;
 mod transport;
 #[cfg(test)]
@@ -372,6 +374,8 @@ pub struct Runner<D: DataSource> {
     strings: vm::Strings,
     sites: crate::instance::SiteIndex,
     inspection_digest: std::cell::OnceCell<String>,
+    /// [`Runner::keeps_midi`], made at the first agent read.
+    keeps_midi: std::cell::OnceCell<bool>,
     action_binding_origin: std::rc::Rc<()>,
     detached_focus: Vec<(ViewId, FocusPath)>,
     data: D,
@@ -536,6 +540,7 @@ pub struct Runner<D: DataSource> {
     // @ref LLP 1027.000.000 — the date, once the host says it.
     time: crate::time::WallTime,
     live_times: live_time::LiveTimes,
+    text_axes: text_axes::TextAxes,
     place: crate::time::Place,
     surface_records: exact_kernel::SortedMap<String, String>,
     surface_refusals: exact_kernel::SortedMap<String, String>,
@@ -855,6 +860,7 @@ impl<D: DataSource> Runner<D> {
             midi: crate::runner::midi::queue(&plan, &data),
             plan,
             inspection_digest: std::cell::OnceCell::new(),
+            keeps_midi: std::cell::OnceCell::new(),
             action_binding_origin: std::rc::Rc::new(()),
             detached_focus: Vec::new(),
             data,
@@ -935,6 +941,7 @@ impl<D: DataSource> Runner<D> {
             page: Default::default(),
             time: crate::time::launch_time(),
             live_times: Default::default(),
+            text_axes: Default::default(),
             place: launched_place.clone().unwrap_or_default(),
             surface_records: Default::default(),
             surface_refusals: Default::default(),
@@ -1254,6 +1261,16 @@ impl<D: DataSource> Runner<D> {
             .iter()
             .position(|d| self.plan.str(d.name) == name)
             .and_then(|i| self.derives[i].as_ref())
+    }
+
+    /// The plan's `i`th slot and derive, for a walk of all of them (the
+    /// agent's `state`): looking each up by name is quadratic in the slots.
+    pub(crate) fn slot_at(&self, i: usize) -> Option<&Value> {
+        self.slots.get(i)
+    }
+
+    pub(crate) fn derive_at(&self, i: usize) -> Option<&Value> {
+        self.derives.get(i).and_then(Option::as_ref)
     }
 
     /// Each resource whose last request failed, by name, with why: what

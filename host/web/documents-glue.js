@@ -214,6 +214,59 @@ function downloadFile(name) {
   return file;
 }
 const bytesOf = (b64) => { const raw = atob(b64 ?? ''), out = new Uint8Array(raw.length); for (let i = 0; i < raw.length; i++) out[i] = raw.charCodeAt(i); return out; };
+// The driver's files and folders (`{ name, bytes }`, `{ name, files: [{ path, bytes }] }`) as handles.
+const fromDriver = (list) => (list ?? []).map((f) => f.files ? memoryFolder(f.name, f.files.map((c) => ({ path: c.path, bytes: bytesOf(c.bytes) }))) : memoryFile(f.name, bytesOf(f.bytes)));
+
+// What a drop or a paste hands over without the File System Access API: a
+// File read-only, and a dropped folder's `FileSystemDirectoryEntry`
+// (`webkitGetAsEntry`, every engine) as a read-only folder handle.
+const copied = (file) => ({ kind: 'file', name: file.name, async getFile() { return file; }, async queryPermission() { return 'granted'; } });
+function entryHandle(entry) {
+  if (!entry.isDirectory) return { kind: 'file', name: entry.name, getFile: () => new Promise((ok, no) => entry.file(ok, no)), async queryPermission() { return 'granted'; } };
+  const list = async () => { const reader = entry.createReader(), out = []; for (;;) { const batch = await new Promise((ok, no) => reader.readEntries(ok, no)); if (!batch.length) return out; out.push(...batch); } };
+  const child = async (n, directory) => {
+    const found = (await list()).find((e) => e.name === n);
+    if (!found) throw new DOMException(n, 'NotFoundError');
+    if (found.isDirectory !== directory) throw new DOMException(n, 'TypeMismatchError');
+    return entryHandle(found);
+  };
+  return { kind: 'directory', name: entry.name,
+    async getFileHandle(n, { create = false } = {}) { if (create) throw new DOMException(n, 'NoModificationAllowedError'); return child(n, false); },
+    async getDirectoryHandle(n, { create = false } = {}) { if (create) throw new DOMException(n, 'NoModificationAllowedError'); return child(n, true); },
+    async *entries() { for (const e of await list()) yield [e.name, entryHandle(e)]; },
+    async queryPermission() { return 'granted'; } };
+}
+
+// File drags over the elements that hear `dragenter` or `dragleave`, for
+// both targets: the chain of those holding the element under the drag,
+// kept from the document's own events, so moving between an element's own
+// descendants is no leave (what T3 Code's `currentTarget.contains(
+// relatedTarget)` test does, without relying on `relatedTarget`, which
+// Safari leaves null). HTML fires the new target's dragenter before the old
+// one's dragleave (HTML §6.11.5), so a dragleave at the element last entered
+// is the drag leaving the page or cancelled. A drop ends the drag with no
+// dragleave, as the DOM's does: the drop's own action clears what the enter
+// drew. Each hearing element keeps its handlers itself (`exactDrags`), so
+// one gone from the page is forgotten with it.
+let over = [], last = null, at = null, tracking = false;
+const fileDrag = (ev) => ev.dataTransfer?.types?.includes('Files');
+function retarget(target) {
+  const now = []; // the innermost first, as the DOM's events bubble
+  for (let el = target; el; el = el.parentNode) if (el.exactDrags?.allowed()) now.push(el);
+  const was = over;
+  over = now;
+  for (const el of now) if (!was.includes(el)) el.exactDrags.kinds.get('dragenter')?.(at);
+  for (const el of was) if (!now.includes(el) && el.isConnected) el.exactDrags?.kinds.get('dragleave')?.(at);
+}
+function hearDrags(el, kind, allowed, fire) {
+  (el.exactDrags ??= { kinds: new Map(), allowed }).kinds.set(kind, fire);
+  if (tracking) return;
+  tracking = true;
+  document.addEventListener('dragenter', (ev) => { if (fileDrag(ev)) { at = ev; last = ev.target; retarget(ev.target); } }, true);
+  document.addEventListener('dragover', (ev) => { if (fileDrag(ev)) at = ev; }, true);
+  document.addEventListener('dragleave', (ev) => { if (fileDrag(ev) && ev.target === last) { at = ev; last = null; retarget(null); } }, true);
+  document.addEventListener('drop', (ev) => { if (fileDrag(ev)) { last = null; over = []; } }, true);
+}
 
 // The manifest's `file_handlers`, the only types a picker offers (D2).
 let declared;
@@ -224,7 +277,12 @@ function types() {
 }
 
 globalThis.exact.documents = {
-  mint, run, files, observe,
+  mint, run, files, observe, hearDrags,
+  /** A paste's files (`clipboardData.files`), each a read-only copy minted
+   * at once, so the action hears them in the paste's own event and its
+   * `preventDefault()` still cancels the field's paste; a pasted image with
+   * no file is the browser's own File (`image.png`). The driver's stand in. */
+  pasted(dt, driver) { return driver ? fromDriver(driver).map(mint) : [...(dt?.files ?? [])].map((f) => mint(copied(f))); },
   install(host) {
     // host: { dispatch(id, kind, payload), generation() (none on the JS target), log(line), openFile(value) }
     // A view id names a view only in the generation that asked: an answer that
@@ -246,13 +304,11 @@ globalThis.exact.documents = {
       dispatch(view, 1, found.map(mint).join('\n'));
     };
     const api = {
-      /** Files dropped on the page (studio diary R19): each handle the
-       * browser gave, else its File, read-only; of a declared type. */
-      async dropped(handles, files) {
-        const declared = (await types()).flatMap((t) => Object.entries(t.accept ?? {}));
-        const fits = (f) => declared.some(([mime, exts]) => f.type === mime || [exts].flat().some((x) => f.name.toLowerCase().endsWith(String(x).toLowerCase())));
-        return files.map((file, i) => [handles[i]?.kind === 'file' ? handles[i] : { kind: 'file', name: file.name, async getFile() { return file; }, async queryPermission() { return 'granted'; } }, file])
-          .filter(([, file]) => fits(file)).map(([handle]) => mint(handle));
+      /** Files and folders dropped on the page (studio diary R19), of any
+       * type (the any-file waiver, rules/DEFERRED.md): each handle the
+       * browser gave, else a folder's entry, else its File, read-only. */
+      async dropped(handles, files, entries = []) {
+        return files.map((file, i) => mint(handles[i] ?? (entries[i] ? entryHandle(entries[i]) : copied(file))));
       },
       /** A picker command's ruling `r`: call the browser's picker (the
        * press's activation is still live), then report what was chosen. */
@@ -269,8 +325,7 @@ globalThis.exact.documents = {
       answer(r, name, files) {
         const dispatch = since();
         if (r.answered === 'cancel') return chosen(dispatch, r.node, name, []);
-        const made = (files ?? []).map((f) => f.files ? memoryFolder(f.name, f.files.map((c) => ({ path: c.path, bytes: bytesOf(c.bytes) }))) : memoryFile(f.name, bytesOf(f.bytes)));
-        chosen(dispatch, r.node, name, made);
+        chosen(dispatch, r.node, name, fromDriver(files));
       },
     };
     return { ...api, at: g => pinnedTo(api, g, v => { pinned = v; }) };

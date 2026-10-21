@@ -184,6 +184,8 @@ shape Imported
 shape Build
   id: string
   host: string
+  // The variant gallery's page (`page: 'gallery'`, tamber/1.15): a label only.
+  gallery: bool
   // Its status has come (none since it registered or reloaded, else).
   reported: bool
   scheme: string
@@ -203,6 +205,8 @@ shape AxisChoice
 // The app's own design's axes, read while another file is open.
 shape AppAxes
   axes: AxisChoice[]
+  // Which read this is (0 for none): the inspector follows each.
+  answer: number
 
 // One row of an inspected node (LLP 1122 D5): its value, where it comes
 // from, and what the inspector offers: the token rung (`rung` "token", the
@@ -271,6 +275,19 @@ shape Inspected
   heldState: string
   heldRows: SelRow[]
   heldNote: string
+  // A node of an exported library component's own view (stage 12 D4, LLP
+  // 1139 D5): the component's declaring identity ("" outside one), the
+  // part this node is ("" for none), and its parts as the server lists them.
+  libraryIdentity: string
+  libraryPart: string
+  libraryParts: LibraryPart[]
+
+// One part of a library component, in the inspector's part outline.
+shape LibraryPart
+  name: string
+  // Whether the selected node is this part, and whether it holds the slot.
+  here: bool
+  slot: bool
 
 // A hold on the selected copy's build, as the inspector says it.
 shape HoldView
@@ -367,6 +384,37 @@ shape ParamRow
   // (LLP 1121 D14's mark).
   pinned: string[]
   default: string
+  // The token its default names ("" for none), that token's package ("" for
+  // the app's own), and whether its component is a package's (LLP 1139 D5:
+  // "Set for this app" writes the app's line).
+  token: string
+  tokenPackage: string
+  // Whether that token is a base name the app leaves unset (Exact's base).
+  tokenBase: bool
+  package: bool
+  // The package token its default reaches ("" for none) and whether the app
+  // has its own line for it: "Back to the package" removes that line.
+  packageToken: string
+  appSet: bool
+  // How many `when` branches the app's own param line has.
+  whens: number
+  // Whether the app's line is a literal with no when branch (its own value
+  // then wins on both scheme sides).
+  levelSelf: bool
+
+// A package param's winning level for the first tuple (stage 12 B2-levels,
+// each side's), read after the design: raw (the tooltip), and said: one
+// level where the sides agree, else each side's, and whether other tuples
+// differ.
+shape LevelRow
+  name: string
+  level: string
+  text: string
+
+shape Levels
+  ok: bool
+  answer: number
+  rows: LevelRow[]
 
 shape ParamGroup
   name: string
@@ -378,7 +426,16 @@ shape ComponentPanel
   name: string
   // Declared in the design (`app.tamber#Name`): a view that isn't Contract.
   native: bool
+  package: bool
+  // A library component's variant props (stage 12 D3), each with the
+  // options it takes: listed as text, nothing pinned or shown as chosen
+  // (per-instance pins are LLP 1139 §9 Q5).
+  variants: Variant[]
   groups: ParamGroup[]
+
+shape Variant
+  prop: string
+  options: string[]
 
 shape Column
   id: string
@@ -460,12 +517,15 @@ shape Design
   answer: number
   groups: DialGroup[]
   columns: Column[]
+  // The first column's id ("" for none): where a token opened from the
+  // component panel is shown when no cell is selected.
+  firstColumn: string
   tokenGroups: TokenGroup[]
   names: string[]
   axes: AxisChoice[]
   // The design's icons (LLP 1121 D10), read only: no operation writes one.
   icons: IconRow[]
-  // Each component with params (LLP 1121 D15).
+  // Each component with params (LLP 1121 D15) or variant props (LLP 1139 D5).
   components: ComponentPanel[]
 
 shape IconRow
@@ -682,7 +742,7 @@ component DesignTool
   mutation pinned as shape Pinned
   // Inspect mode on the builds (LLP 1122 D4, D5), and the token whose
   // impact the inspector shows.
-  resource inspected = loadSelection(changes.answer, design.answer) as shape Inspected else empty()
+  resource inspected = loadSelection(changes.answer, design.answer, appAxes.answer) as shape Inspected else empty()
   mutation inspectSent as shape Pinned refreshes inspected
   mutation holdSent as shape Pinned refreshes inspected
   state impactToken = ""
@@ -748,12 +808,15 @@ component DesignTool
   // leads the others. The copies frame the dev loop's page (paired: the
   // gateway's, once entered), and are read each second while shown.
   state canvasView = "one"
+  // The variant gallery (the JS dev loop's /__dev/gallery/) in the canvas and the grid, in place of the app.
+  state galleryOn = false
   state gridAxis = ""
   state gridLarge = 22 persist
   state gridCap = 6 persist
   state gridMirror = true
   state gridPoll = 0
-  derive gridPage = hello.local ? hello.frame : (canvasAt.frame != "" and canvasAt.frame.indexOf("#g=") < 0 ? canvasAt.frame : "")
+  derive galleryFrame = hello.local and hello.frame != "" ? `${hello.frame}/__dev/gallery/` : ""
+  derive gridPage = hello.local ? (galleryOn and canvasView == "grid" ? galleryFrame : hello.frame) : (canvasAt.frame != "" and canvasAt.frame.indexOf("#g=") < 0 ? canvasAt.frame : "")
   resource gridAt = loadGrid(client, canvasView, gridAxis, gridLarge, gridCap, gridPage, gridMirror, canWrite, hello.epoch, hello.local, gridPoll, changes.answer) as shape Grid else empty(ok=true)
   // The design file shown ("": the app's own), a group's "more" opened,
   // and the two tokens whose contrast is shown.
@@ -766,6 +829,7 @@ component DesignTool
   state pickA = ""
   state pickB = ""
   resource design = loadDesign(file, filesAt, epoch) as shape Design else empty(ok=true)
+  resource levels = loadLevels(design.answer) as shape Levels else empty(ok=true)
   // Contrast and a cell's branch follow the design read they are of.
   resource contrast = loadContrast(pickA, pickB, design.answer) as shape Contrast else empty(ok=true)
   // The cell chosen in the grid, and the edit being considered: an
@@ -923,6 +987,8 @@ component DesignTool
     canvasTick = canvasTick + 1
   action pollGrid
     gridPoll = gridPoll + 1
+  action toggleGallery(checked: bool)
+    galleryOn = checked
   action chooseCanvasView(v: string)
     canvasView = v
   action chooseGridAxis(v: string)
@@ -1526,6 +1592,13 @@ component DesignTool
                 if hello.page != ""
                   link href=hello.page target="_blank" testId="canvas-open"
                     text "Open in a tab"
+                // (The gallery is the local dev loop's: a paired canvas's gateway serves the app's pages only.)
+                if hello.local and hello.page != "" and canvasView != "states"
+                  row gap=4 align-items="center"
+                    input type="checkbox" checked=galleryOn change=toggleGallery aria-label="Variant gallery" testId="canvas-gallery"
+                    text "Gallery"
+              if galleryOn and hello.local and hello.page != "" and canvasView != "states"
+                text "The variant gallery: each library component the app uses, once per variant value, on the app's design. It follows each kept edit, not each scrub frame. It runs on the JS dev loop; another loop says so in the frame." color="-exact-secondary-label" font="-exact-footnote" testId="gallery-note"
               if not hello.local
                 // (A grant spent, or an entry slower than its 30 s: a new one.)
                 if canvasAt.frame != ""
@@ -1544,7 +1617,7 @@ component DesignTool
                         text "Try Again"
               else if hello.page != ""
                 if canvasView == "one"
-                  iframe src=hello.frame width=(canvasSize == "phone" ? 390 : canvasSize == "tablet" ? 820 : 1280) height=(canvasSize == "phone" ? 844 : canvasSize == "tablet" ? 1180 : 800) border="1px solid -exact-separator" border-radius=12 flex-shrink=0 sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-modals allow-downloads" testId="canvas-frame"
+                  iframe src=(galleryOn ? galleryFrame : hello.frame) width=(canvasSize == "phone" ? 390 : canvasSize == "tablet" ? 820 : 1280) height=(canvasSize == "phone" ? 844 : canvasSize == "tablet" ? 1180 : 800) border="1px solid -exact-separator" border-radius=12 flex-shrink=0 sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-modals allow-downloads" testId="canvas-frame"
               else
                 column gap=4 padding=16 border-radius=12 background-color="-exact-secondary-background" testId="no-app"
                   text "No app running" role="heading" aria-level=3
@@ -1608,6 +1681,13 @@ component DesignTool
                   for c in inspected.chain key=c
                     text `in ${c}` color="-exact-secondary-label" font="-exact-footnote"
                   text `${inspected.build}${inspected.modes != "" ? ` · ${inspected.modes}` : ""}` color="-exact-secondary-label" font="-exact-footnote" testId="selection-build"
+                  if inspected.libraryIdentity != ""
+                    column gap=2 testId="selection-library"
+                      text `Library: ${inspected.libraryIdentity}` font="-exact-footnote" role="heading" aria-level=3 testId="library-identity"
+                      text (inspected.libraryPart != "" ? `This node is its part ${inspected.libraryPart}` : "This node is no part of it") color="-exact-secondary-label" font="-exact-footnote" testId="library-part"
+                      for p in inspected.libraryParts key=p.name
+                        text `${p.here ? "▸ " : ""}${p.name}${p.slot ? " · its slot" : ""}` color=(p.here ? "-exact-label" : "-exact-secondary-label") font="-exact-footnote" testId=`library-part-${p.name}`
+                      text "Its rows are the package's recipe, read only here; a token or param a row reads is set for this app." color="-exact-secondary-label" font="-exact-caption1" testId="library-readonly"
                   if inspected.stale != ""
                     text `No longer current: ${inspected.stale}. Select it again to edit from here.` color="-exact-system-orange" testId="selection-stale"
                   if inspected.readOnly != ""
@@ -1711,7 +1791,7 @@ component DesignTool
               for b in changes.builds key=b.id
                 column gap=2 padding=8 border-radius=8 background-color="-exact-secondary-background" testId=`build-${b.id}`
                   row gap=8 align-items="center"
-                    text `${b.host} · ${b.id}` font="-exact-footnote" flex=1
+                    text `${b.host} · ${b.id}${b.gallery ? " · the gallery" : ""}` font="-exact-footnote" flex=1 testId=`build-name-${b.id}`
                     if b.pin != ""
                       text (b.caughtUp ? `pinned: ${b.pin}` : `pinning: ${b.pin}`) font="-exact-caption1" color=(b.caughtUp ? "-exact-secondary-label" : "-exact-system-orange") testId=`build-pin-${b.id}`
                     else if b.behind
@@ -1795,18 +1875,23 @@ component DesignTool
                       row gap=8 align-items="baseline"
                         text k.name role="heading" aria-level=3
                         text (k.native ? `${k.identity} · a native view's` : k.identity) color="-exact-secondary-label" font="-exact-footnote" testId=`component-${k.name}-identity`
+                      if k.variants.length > 0
+                        column gap=4 testId=`variants-${k.name}`
+                          text "Variants: the options each prop takes (the tool pins none on an instance)" color="-exact-secondary-label" font="-exact-footnote"
+                          for v in k.variants key=v.prop
+                            text `${v.prop}: ${v.options.join(" · ")}` testId=`variant-${k.name}-${v.prop}`
                       for g in k.groups key=g.name
                         column gap=4 testId=`param-group-${k.name}-${g.name}`
                           if g.name != ""
                             text g.name font="-exact-subheadline"
                           for r in g.params key=r.c.name
-                            ParamControl(locked=(not canPropose), r=r, focused=(focusDial == r.c.name), onNumber=dialNumber("set-param", r.c.name, r.c.unit), onText=dialText("set-param", r.c.name), onStep=dialStepped("set-param", r.c.name, r.c.unit), onRelease=dialReleased("set-param", r.c.name), onReset=resetParam(r.c.name))
+                            ParamControl(locked=(not canPropose), r=r, won=(levels.answer == design.answer ? levels.rows.filter(l => l.name == r.c.name) : []), focused=(focusDial == r.c.name), onNumber=dialNumber("set-param", r.c.name, r.c.unit), onText=dialText("set-param", r.c.name), onStep=dialStepped("set-param", r.c.name, r.c.unit), onRelease=dialReleased("set-param", r.c.name), onReset=resetParam(r.c.name), onToken=selectCell(r.token, design.columns.map(c => c.id).includes(selColumn) ? selColumn : design.firstColumn), onBackToPackage=backToBase(r.packageToken))
                           if g.more.length > 0
                             button press=toggleMore(`${k.identity}|${g.name}`) testId=`more-${k.name}-${g.name}`
                               text (opened.includes(`${k.identity}|${g.name}`) ? "Fewer" : `More (${g.more.length})`)
                             if opened.includes(`${k.identity}|${g.name}`)
                               for r in g.more key=r.c.name
-                                ParamControl(locked=(not canPropose), r=r, focused=(focusDial == r.c.name), onNumber=dialNumber("set-param", r.c.name, r.c.unit), onText=dialText("set-param", r.c.name), onStep=dialStepped("set-param", r.c.name, r.c.unit), onRelease=dialReleased("set-param", r.c.name), onReset=resetParam(r.c.name))
+                                ParamControl(locked=(not canPropose), r=r, won=(levels.answer == design.answer ? levels.rows.filter(l => l.name == r.c.name) : []), focused=(focusDial == r.c.name), onNumber=dialNumber("set-param", r.c.name, r.c.unit), onText=dialText("set-param", r.c.name), onStep=dialStepped("set-param", r.c.name, r.c.unit), onRelease=dialReleased("set-param", r.c.name), onReset=resetParam(r.c.name), onToken=selectCell(r.token, design.columns.map(c => c.id).includes(selColumn) ? selColumn : design.firstColumn), onBackToPackage=backToBase(r.packageToken))
               column gap=8 testId="tokens"
                 text "Tokens" role="heading" aria-level=2
                 column overflow-x="auto" align-items="flex-start" testId="grid"
@@ -2235,6 +2320,8 @@ component DialControl
 component ParamControl
   props
     r: ParamRow
+    // Its winning level, when read for the design shown (`levels`: none or one).
+    won: LevelRow[]
     focused: bool
     // Below propose (a paired reader, T6): not editable.
     locked: bool
@@ -2243,13 +2330,29 @@ component ParamControl
     onStep: action
     onRelease: action
     onReset: action
+    // A package component's param whose default names a token: open that token instead (its every use).
+    onToken: action
+    // Its package token's own line in the app removed: the token follows the package's line again.
+    onBackToPackage: action
   view
     column gap=2 testId=`param-${r.short}`
       DialControl(c=r.c, locked=locked, focused=focused, onNumber=onNumber, onText=onText, onStep=onStep, onRelease=onRelease)
       row gap=8 align-items="center" padding="0 4px"
-        text (r.set ? `set here · default ${r.default}` : "the default") color="-exact-secondary-label" font="-exact-footnote" flex=1 testId=`param-${r.short}-source`
+        text (r.package ? (r.set ? `set for this app · the package's default ${r.default}` : `the package's default ${r.default}: a change here is set for this app`) : r.set ? `set here · default ${r.default}` : "the default") color="-exact-secondary-label" font="-exact-footnote" flex=1 testId=`param-${r.short}-source`
         if r.set
           button press=onReset disabled=(locked) testId=`param-${r.short}-reset`
-            text "Reset"
+            text (r.package ? "Back to the default" : "Reset")
+      for l in won key=l.name
+        text l.text title=l.level color="-exact-secondary-label" font="-exact-footnote" padding="0 4px" testId=`param-${r.short}-level`
+      if r.set
+        text `${r.package ? "Back to the default" : "Reset"} removes the app's line${r.whens > 0 ? ` and its ${r.whens} when ${r.whens == 1 ? "branch" : "branches"} with it` : ""}.` color="-exact-secondary-label" font="-exact-footnote" padding="0 4px" testId=`param-${r.short}-whens`
+      if r.package and r.packageToken != "" and r.appSet
+        row gap=8 align-items="center" padding="0 4px"
+          button press=onBackToPackage disabled=(locked) testId=`param-${r.short}-package`
+            text "Back to the package"
+          text `removes the app's line for ${r.packageToken}, with any when branches it has: the token follows the package's line${r.levelSelf ? "; the app's own value of this param still wins over it" : r.set ? "; the app's own line for this param stays" : ""}.` color="-exact-secondary-label" font="-exact-footnote" flex=1 testId=`param-${r.short}-package-note`
+      if r.package and r.token != ""
+        button press=onToken disabled=(locked) testId=`param-${r.short}-token`
+          text (r.tokenPackage != "" ? `Edit the package token ${r.token} instead` : r.tokenBase ? `Edit Exact's base ${r.token} instead` : `Edit the token ${r.token} instead`)
       if r.pinned.length > 0
         text `pinned: no longer follows ${r.pinned.join(", ")}` color="-exact-system-orange" font="-exact-footnote" padding="0 4px" testId=`param-${r.short}-pinned`

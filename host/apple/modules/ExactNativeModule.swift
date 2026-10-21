@@ -152,6 +152,15 @@ public final class ExactModuleContext: @unchecked Sendable {
         let bytes = Array(topic.utf8)
         bytes.withUnsafeBufferPointer { changedFn(host, $0.baseAddress, UInt32($0.count)) }
     }
+
+    /// Say the module wrote the app's files (`data`, `cache` or `temporary`;
+    /// `path` is the `app:/` path it wrote, or the directory): what a
+    /// TypeScript write under `app:/` does by itself, a widget's timeline
+    /// is reloaded from the store as written, and every answer that
+    /// `native.watch(path)` is asked again. Any thread.
+    public func wrote(_ path: String = "app:/data") {
+        changed(path.hasPrefix("app:/") ? path : "app:/" + path)
+    }
 }
 
 /// One frame of a `frames` ticket: the session clock's time in milliseconds,

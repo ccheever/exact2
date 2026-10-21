@@ -148,6 +148,16 @@ export async function withMaterials(r, path, window) {
   finally { rmSync(dir, { recursive: true, force: true }); }
 }
 
+/** The simulator's display as it is, into `path` over the app's own picture: whatever is over the app (a system
+ *  permission alert, a sheet of the system's) is in it, and nothing checks it against the app's drawing. */
+export function displayAsIs(r, path, udid) {
+  const taken = read('xcrun', ['simctl', 'io', udid, 'screenshot', '--type=png', path], { timeout: 20000 });
+  if (taken.status !== 0) throw new Error(`simctl io screenshot: ${(taken.stderr || '').trim().split('\n').pop() || 'failed'}`);
+  r.pixels = 'display'; r.pixelsWhy = 'the display as it is, asked for'; r.statusBar = true;
+  if (r.front !== true) r.note = `the app is not in front (${r.front}): the display shows what is over it`;
+  return r;
+}
+
 /** Why the display is not the app's at the points the app drew itself (`points`, window points), or null: around a
  *  point whose 5x5 pixels the app drew in one colour (no edge of text or shape) the display's must be within 2 levels of
  *  it, as they are exactly where nothing lies over the app (measured on the euxy port, light and dark). A notification
@@ -571,6 +581,18 @@ export function profile(udid, bundle, required = [], { installed = installedProf
  * the id itself), the longest-lived first. */
 export function coveringProfiles(udid, bundle, installed = installedProfiles()) {
   return profilesFor(bundle, installed).filter((p) => iosProfile(p) && p.dev && !profileMisfit(p, udid)).sort(byExpiry);
+}
+/** The profile for a bundle the app embeds under an App ID of its own (its App Clip), chosen as `entryProfiles`
+ * chooses the widget extension's: for `bundle` itself or the team's wildcard, of the app's profile's (`like`) team,
+ * App ID prefix and method, naming the phone or, for an archive, every device the app's names, allowing `required`
+ * (the clip's parent-application-identifiers, which only an App ID registered with the App Clip capability grants);
+ * the longest-lived. Or a refusal naming what each profile for the id lacked. */
+export function embeddedProfile(udid, bundle, like, required = [], installed = installedProfiles()) {
+  const candidates = profilesFor(bundle, installed).filter(iosProfile).sort(byExpiry);
+  const why = candidates.map((p) => [p, profileMisfit(p, udid, like) ?? (allows(p, required) ? null : `does not allow ${required.filter((name) => !p.entitlements.includes(name)).join(', ')}`)]);
+  const found = why.find(([, reason]) => !reason)?.[0];
+  if (found) return found;
+  throw new Error(`host/apple: no ${METHODS[like.method]} profile on this Mac covers ${bundle} as the app's (${like.name}) does: ${why.length ? why.map(([p, reason]) => `"${p.name}" ${reason}`).join('; ') : 'none is for it'}. In the Apple Developer portal, register the App ID ${bundle}${required.length ? ` with ${required.join(', ')}` : ''}, make a ${METHODS[like.method]} profile for it of team ${like.team}${udid ? ' that includes this phone' : ''}, and install it.`);
 }
 export const byExpiry = (a, b) => b.expires - a.expires;
 export const iosProfile = p => !p.platforms?.length || p.platforms.includes('iOS');

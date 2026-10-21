@@ -228,8 +228,15 @@ export async function resetBackends(origins, rows = null, ms = 10000, app = null
   const said = [];
   for (const origin of origins) {
     let status;
-    try { const r = await fetch(`${origin}/dev/status`, { signal: AbortSignal.timeout(ms) }); status = r.ok ? await r.json().catch(() => null) : null; }
+    let closed = false;
+    try {
+      const r = await fetch(`${origin}/dev/status`, { signal: AbortSignal.timeout(ms) }), body = await r.json().catch(() => null);
+      status = r.ok ? body : null;
+      closed = r.status === 403 && /development doors are closed/.test(body?.denied?.message ?? '');
+    }
     catch (e) { throw new Error(`fresh: nothing answered at ${origin}${app ? ` (source: ${backendOriginSource(app,origin)})` : ''} (${e.cause?.code ?? e.message}): start \`snapback4 dev --port ${new URL(origin).port || 80}\` there first`); }
+    // Since 0.4.33 a password-only app's `dev` keeps /dev/* closed unless started with --unsafe-dev-doors.
+    if (closed) throw new Error(`fresh: the snapback4 dev server at ${origin} keeps its development doors closed (a password-only app's \`dev\` does unless asked): restart it with \`snapback4 dev --unsafe-dev-doors --port ${new URL(origin).port || 80}\` (\`bun exact.mjs backend dev --unsafe-dev-doors\`)`);
     if (typeof status?.storeId !== 'string') continue;
     const r = await fetch(`${origin}/dev/reset`, { method: 'POST', signal: AbortSignal.timeout(ms), ...(rows ? { headers: { 'content-type': 'application/json' }, body: JSON.stringify(rows) } : {}) });
     const text = await r.text();
@@ -306,13 +313,23 @@ export function refusalExpectation(logs, target) {
   return { message: `expected mutation ${JSON.stringify(target)} to refuse, but no refused reply was observed; clock data or clock settle lands a send` };
 }
 
+/** The first sound a journal says the runner dropped as undeclared (`sound dropped: …`, a sequence's `… step N dropped: …`; LLP 1096 D5), as quoted there. */
+export function undeclaredSound(lines) {
+  for (const l of Array.isArray(lines) ? lines : []) {
+    const m = typeof l === 'string' && l.match(/ dropped: ("(?:[^"\\]|\\.)*") is not a declared sound/);
+    if (m) return m[1];
+  }
+  return null;
+}
+// The euxy port played its kit samples from built paths that no `sound` declared: silent, said only in `logs`.
+const soundNote = (src) => `the app played ${src}, which no \`sound\` line declares, so the runner dropped it and nothing sounded (\`logs\` names each drop); declare every file a played path can name at the top level: \`sound ${src}\``;
 const replyNote = (name, why) => `mutation ${name}'s reply was refused: ${why}; its slot keeps what it had and its \`then\` does not run`;
 /** The notes a CLI drive writes on stderr beside its replies, each once (LLP 1102 §3.17; app farm round 1, where a
  * shape refusal lived only in `logs` and an early `tree` showed an empty list): a drive with no scratch store whose
- * source was refused storage; a resource that failed, and why; a read taken while the app's data is in flight. Call it
- * after each op with the op's name, and with `end` when the drive ends. The web reads after each input; a native
- * carrier, whose reads could be slow, at the end; both at a read before the clock first moved. Advice only: bounded,
- * and never fails a drive. */
+ * source was refused storage; a resource that failed, and why; a sound dropped as undeclared; a read taken while the
+ * app's data is in flight. Call it after each op with the op's name, and with `end` when the drive ends. The web
+ * reads after each input; a native carrier, whose reads could be slow, at the end; both at a read before the clock
+ * first moved. Advice only: bounded, and never fails a drive. */
 /** The journal line every host writes at a drive's first refused read or write of app storage, when the drive names no store. */
 export const STORAGE_REFUSED = /storage refused \(agent\)/;
 export const STORAGE_NOTE = 'this drive names no --storage, so the app\'s storage was refused: a data source that reads its files finds none and keeps nothing, so a screen may show an empty store, not the app\'s data; pass --storage <name> (docs/agent-pitfalls.md)';
@@ -367,7 +384,6 @@ export function driveNotes(s, { host, storage, origins = [] }) {
   let peek = 0, probes = 0, clocked = false, replies = 0, checkedClock = false;
   return async (op, reply) => {
     if (s.carrier?.installNote) note('install', s.carrier.installNote); // a Release build replaced for the drive (devices.mjs `keepInstalledRelease`)
-    if (s.carrier?.axNote) note('ax', s.carrier.axNote); // the simulator's accessibility, which this drive's touches turned on
     // The agent paints a menu where the app presents UIKit's pull-down: the euxy port read it as an app bug.
     // Only a tap that activated (not a hover, wheel, pinch or a contact's phase), and only once.
     if (op === 'tap' && reply?.tapped != null && ['activation', 'host-activation'].includes(reply.delivery) && reply.phase == null && reply.wheel == null && reply.error == null
@@ -409,6 +425,8 @@ export function driveNotes(s, { host, storage, origins = [] }) {
       const j = await bounded(peekLogs(s, replies), 3000);
       if (Array.isArray(j?.lines)) replies = j.next;
       for (const [name, why] of refusedReplies(j?.lines)) note(`reply ${name} ${why}`, replyNote(name, why));
+      const silent = undeclaredSound(j?.lines);
+      if (silent) note('sound', soundNote(silent));
       const state = await bounded(s.state(), 3000);
       // Resource failures are normal authored states (failed/failure gates). Keep them in state/logs;
       // request-shape refusals above and failing assertions below still get actionable notes.

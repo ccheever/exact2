@@ -62,11 +62,17 @@ const rowOf = (x: any, component: string) => x?.rung === 'template' || x?.rung =
       promote: x.rung === 'template' && x.text ? JSON.stringify({ addr: at(x), component: x.component ?? component, text: x.text }) : '', tokenize: x.rung === 'template' && x.text && !x.state, detach: '' }
   : { edit: '', editLabel: '', editText: '', editWords: '', promote: '', tokenize: false, detach: x?.rung === 'param' && x.template ? JSON.stringify({ addr: at(x.template), param: x.param }) : '' };
 const stateOf = (x: any) => x?.style ? { state: [x.style, x.state, x.row, x.file].join('|'), stateLabel: `Edit ${x.style} :${x.state} ${x.row}`, stateText: String(x.text ?? '') } : { state: '', stateLabel: '', stateText: '' };
-const noSelection = { key: '', files: '', has: false, stale: '', build: '', node: 0, readOnly: '', source: '', chain: [], modes: '', place: '', rows: [], trimmed: false, inspecting: false, hold: noHold, heldState: '', heldRows: [], heldNote: '' };
+const noSelection = { key: '', files: '', has: false, stale: '', build: '', node: 0, readOnly: '', source: '', chain: [], modes: '', place: '', rows: [], trimmed: false, inspecting: false, hold: noHold, heldState: '', heldRows: [], heldNote: '', libraryIdentity: '', libraryPart: '', libraryParts: [] };
+/** The part outline's fields: none outside a library component. */
+function libraryOf(library: any, partsOf: (identity: string) => { name: string; slot: boolean }[] | null) {
+  if (!library || typeof library.identity !== 'string') return { libraryIdentity: '', libraryPart: '', libraryParts: [] };
+  const part = typeof library.part === 'string' ? library.part : '';
+  return { libraryIdentity: library.identity, libraryPart: part, libraryParts: (partsOf(library.identity) ?? []).map(p => ({ name: p.name, here: p.name === part, slot: p.slot })) };
+}
 /** The selection as the inspector shows it: each row's source, and its edit
  * on the branch that won for the copy (D6: its modes' column and scheme), its
  * token link or why it is read-only; nothing to do while stale. */
-export function selectionView(s: Selected | null, stale: string, axes: Axis[], columns: Column[], inspecting: boolean, holding: Holding = { can: false, hold: null, held: null }, note = '') {
+export function selectionView(s: Selected | null, stale: string, axes: Axis[], columns: Column[], inspecting: boolean, holding: Holding = { can: false, hold: null, held: null }, note = '', partsOf: (identity: string) => { name: string; slot: boolean }[] | null = () => null) {
   if (!s) return { ...noSelection, inspecting };
   const e = s.e, dark = s.scheme === 'dark';
   // On a light copy an under-dark axis is its default; any other the copy
@@ -95,6 +101,9 @@ export function selectionView(s: Selected | null, stale: string, axes: Axis[], c
     key: [e.build, e.node, e.site, JSON.stringify(e.instance ?? []), s.at].join('|'), files: s.files ?? '',
     has: true, stale: stale || (col ? '' : !s.scheme ? 'the scheme it is shown in is not known' : !axes.length ? "the app's design is not read yet" : "its modes are not a column of the app's design"), build: String(e.build), node: Number(e.node ?? 0), readOnly: String(e.readOnly ?? ''),
     source: at(e.source, String(e.source?.file).split('/').pop()), chain: (e.source?.chain ?? []).map((x: any) => at(x)), modes: col?.label ?? '', place: col ? placeOf(axes, col) : '', trimmed: !!e.trimmed, inspecting,
+    // A node of an exported library component's own view (stage 12 D4, LLP 1139 D5): the component by its declaring
+    // identity, the part this node is or none, and its parts as the server lists them, this one and the slot's marked.
+    ...libraryOf(e.source?.library, partsOf),
     hold: shown,
     // The rows the state held here shows (stage 8 E), or why they are not
     // known: a host that reports none, or says it can't name their tokens,
@@ -104,6 +113,12 @@ export function selectionView(s: Selected | null, stale: string, axes: Axis[], c
     // (Its page asked to report them again, the answer not in yet: `asking`.)
     heldNote: !shown.held ? '' : !reported && s.asking ? 'Its page is asked for the held look\'s rows.'
       : !reported || !e.held.rows?.length || e.held.provenance === 'incomplete' ? 'Provenance incomplete: this host reports no rows (or not their tokens) for the held look, so it is read-only here.' : '',
-    rows: (e.rows ?? []).map(row),
+    // A folded `:disabled` or `:checked` row's parts, each beneath its row (queue item (2)): at its place, the value
+    // it writes as written, its own edit; two of one state (a class's and the node's) told apart by their places (file,
+    // line and column: two on one line).
+    rows: (e.rows ?? []).flatMap((r: any) => [row(r), ...(r.states ?? []).map((p: any, _: number, all: any[]) => {
+      const x = row({ name: r.name, value: String(p.editable?.text ?? ''), state: p.state, source: p.source, editable: p.editable });
+      return all.filter((q: any) => q.state === p.state).length > 1 ? { ...x, name: `${x.name} · ${String(p.source?.file ?? '')}:${p.source?.line}:${p.source?.col}` } : x;
+    })]),
   };
 }

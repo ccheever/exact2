@@ -103,6 +103,101 @@ fn compress_image_writes_an_upright_jpeg_or_refuses_by_name() {
     );
 }
 
+/// `type: "image/png"` (LLP 1069.002 A1.11) through the binding's fifth
+/// argument: on Apple a PNG with an alpha channel (IHDR colour type 6) at the
+/// fitted size; elsewhere `unsupported`. Any other type is a `TypeError`.
+#[test]
+fn compress_image_writes_a_png_with_alpha_or_refuses_by_name() {
+    let root = Root::new();
+    let mut m = root.module();
+    m.activate().unwrap();
+    let mut s = Store::new(GRANTS, Vec::<(String, Vec<u8>)>::new());
+    std::fs::write(root.0.join("data/in.png"), half_clear_png(16, 16)).unwrap();
+    let text = call(&mut m, &mut s, "compress-png", "8");
+    let lines: Vec<&str> = text.lines().collect();
+    if cfg!(target_vendor = "apple") {
+        let out = std::fs::read(root.0.join("data/out.png")).unwrap();
+        let head: Vec<String> = out[..26].iter().map(u8::to_string).collect();
+        assert_eq!(
+            lines[0],
+            format!(
+                "app:/data/out.png image/png {} 8 8 {}",
+                out.len(),
+                head.join(",")
+            )
+        );
+        assert!(out.starts_with(b"\x89PNG\r\n\x1a\n"), "{text}");
+        assert_eq!(out[25], 6, "an RGBA PNG: {text}");
+    } else {
+        assert!(
+            lines[0].starts_with("Error unsupported compressImage: unsupported: "),
+            "{text}"
+        );
+    }
+    assert!(
+        lines[1].starts_with("TypeError undefined")
+            && lines[1].contains("type must be \"image/jpeg\" or \"image/png\""),
+        "{text}"
+    );
+}
+
+/// A `w × h` RGBA PNG, clear on its left half and opaque red on its right,
+/// in stored (uncompressed) deflate blocks.
+fn half_clear_png(w: u32, h: u32) -> Vec<u8> {
+    fn crc(bytes: &[u8]) -> u32 {
+        let mut c = !0u32;
+        for &b in bytes {
+            c ^= u32::from(b);
+            for _ in 0..8 {
+                c = if c & 1 == 1 {
+                    0xEDB8_8320 ^ (c >> 1)
+                } else {
+                    c >> 1
+                };
+            }
+        }
+        !c
+    }
+    let chunk = |png: &mut Vec<u8>, kind: &[u8], data: &[u8]| {
+        png.extend_from_slice(&(data.len() as u32).to_be_bytes());
+        let body = [kind, data].concat();
+        png.extend_from_slice(&body);
+        png.extend_from_slice(&crc(&body).to_be_bytes());
+    };
+    let mut raw = Vec::new();
+    for _ in 0..h {
+        raw.extend([0]); // filter: none (one byte a row, then its pixels)
+        for x in 0..w {
+            raw.extend_from_slice(if x < w / 2 {
+                &[0, 0, 0, 0]
+            } else {
+                &[255, 0, 0, 255]
+            });
+        }
+    }
+    let mut zlib = vec![0x78, 0x01];
+    for (i, block) in raw.chunks(65535).enumerate() {
+        let last = (i + 1) * 65535 >= raw.len();
+        zlib.push(u8::from(last));
+        let n = block.len() as u16;
+        zlib.extend_from_slice(&n.to_le_bytes());
+        zlib.extend_from_slice(&(!n).to_le_bytes());
+        zlib.extend_from_slice(block);
+    }
+    let (mut a, mut b) = (1u32, 0u32);
+    for &byte in &raw {
+        a = (a + u32::from(byte)) % 65521;
+        b = (b + a) % 65521;
+    }
+    zlib.extend_from_slice(&((b << 16) | a).to_be_bytes());
+    let mut png = b"\x89PNG\r\n\x1a\n".to_vec();
+    let ihdr = [&w.to_be_bytes()[..], &h.to_be_bytes(), &[8, 6, 0, 0, 0]].concat();
+    chunk(&mut png, b"IHDR", &ihdr);
+    chunk(&mut png, b"IDAT", &zlib);
+    chunk(&mut png, b"IEND", &[]);
+    png
+}
+
 /// A wait that gives up on an `fs.compressImage` takes its right to write
 /// away (LLP 1069.002 A1.5): the answer fails `timeout`, the queue moves on
 /// to a write of the same path, and the compression, still running, never

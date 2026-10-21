@@ -258,19 +258,21 @@ mod split_facts {
         // @ref LLP 1043.000 §8 — a fact is one paragraph at one width: the
         // measurer is height-free (`TextMeasurer::height_free`), so a probe
         // under a definite, min-content or max-content height is one
-        // measurement. 208 for 16 rows (13 a row). Before facts were
+        // measurement. 192 for 16 rows (12 a row), since a column's text leaf
+        // is measured once at its fit-content width (106883c204, Taffy patch
+        // 28's leaf case); 208 (13 a row) before that. Before facts were
         // height-free it was 368, and 474 once Taffy patch 25's fit-content
         // probes (e962a65a8, min- and max-content widths of each non-stretched
         // column-flex item) multiplied the heights; that left the 33-row stage
         // past the 768-fact cap. Final owners and the cap are unchanged. Keep
         // an exact count so lost reuse cannot hide in the cap.
-        assert_eq!(r.kernel().region_retention().accepted_facts, 208);
+        assert_eq!(r.kernel().region_retention().accepted_facts, 192);
         feedback(&mut r, &a, false);
         drop(a);
         let tail = finish(&mut r, 980., &mut prior, false);
         assert_eq!(r.collections()[0].rows.len(), 33);
         assert_eq!(paragraphs(&r).len(), 132);
-        assert_eq!(r.kernel().region_retention().accepted_facts, 429);
+        assert_eq!(r.kernel().region_retention().accepted_facts, 396);
         feedback(&mut r, &tail, false);
         drop(tail);
         let settled = finish(&mut r, 980., &mut prior, false);

@@ -36,6 +36,9 @@ theme
 fn source(s: scale::ScaleSource) -> Value {
     match s {
         scale::ScaleSource::Metric(m) => json!({"kind": "metric", "ref": m}),
+        scale::ScaleSource::Stretch { metric, why } => {
+            json!({"kind": "stretch", "ref": metric, "why": why})
+        }
         scale::ScaleSource::Measured(id) => json!({"kind": "measured", "id": id}),
         scale::ScaleSource::Guideline(id) => json!({"kind": "guideline", "cite": id}),
         scale::ScaleSource::Full => json!({"kind": "full"}),
@@ -85,6 +88,15 @@ fn base_names_are_rows_read_from_the_kernel_with_the_apps_override() {
             );
         }
     }
+    // The Mac's space.xl is a stretch, its metric and why on the wire as
+    // the tool reads them (stage 13 D5).
+    let xl = base.iter().find(|r| r["name"] == "space.xl").unwrap();
+    assert_eq!(xl["columns"]["mac"]["source"]["kind"], "stretch");
+    assert_eq!(xl["columns"]["mac"]["source"]["ref"], "grouped-label-inset");
+    assert!(xl["columns"]["mac"]["source"]["why"]
+        .as_str()
+        .is_some_and(|w| !w.is_empty()));
+    assert_eq!(xl["columns"]["mac"]["value"], "30px");
     let md = base.iter().find(|r| r["name"] == "space.md").unwrap();
     assert_eq!(md["kind"], "length");
     assert_eq!(md["override"], Value::Null);
@@ -153,6 +165,38 @@ fn base_names_are_rows_read_from_the_kernel_with_the_apps_override() {
         json!(["space.md", "space.sm"]),
         "{label}"
     );
+    // Per tuple (stage 13 D4, *1.16*): each tuple's own line and the lines
+    // of the tokens it names there, each side. label.gap reaches card.pad
+    // only where density is roomy, where card.pad is space.md: space.sm,
+    // card.pad's tight line, is in `bases` and in no tuple.
+    assert_eq!(
+        label["ok"]["bases_by_tuple"],
+        json!([
+            {"modes": {"density": "roomy"}, "light": ["space.md"], "dark": ["space.md"]},
+            {"modes": {"density": "tight"}, "light": [], "dark": []},
+        ]),
+        "{label}"
+    );
+    assert_eq!(
+        pad["ok"]["bases_by_tuple"],
+        json!([
+            {"modes": {"density": "roomy"}, "light": ["space.md"], "dark": ["space.md"]},
+            {"modes": {"density": "tight"}, "light": ["space.sm"], "dark": ["space.sm"]},
+        ]),
+        "{pad}"
+    );
+    // gap.wide's default, space.md, is no tuple's (each has its `when`):
+    // in `bases`, in no tuple (Astra's D4 round 2).
+    assert_eq!(
+        wide["ok"]["bases_by_tuple"],
+        json!([
+            {"modes": {"density": "roomy"}, "light": [], "dark": []},
+            {"modes": {"density": "tight"}, "light": [], "dark": []},
+        ]),
+        "{wide}"
+    );
+    // A token reaching no base has neither field.
+    assert!(face["ok"]["bases_by_tuple"].is_null(), "{face}");
     // An overridden base that names another base says so too.
     let (xl, _) = s.ask(json!({"method": "explain", "token": "space.xl"}));
     assert_eq!(xl["ok"]["kind"], "base");
@@ -401,4 +445,118 @@ theme
     let (wide, _) = s.ask(json!({"method": "resolve", "token": "wide"}));
     assert_eq!(wide["ok"]["tuples"][0]["value"], "40px");
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Stage 12 B3 (*1.15*): a shadow token's lengths over base names are
+/// answered as written in `length_texts` (null among `lengths`), and its
+/// `bases` list them; a shadow over none has no `length_texts`.
+#[test]
+fn a_shadow_over_base_names_answers_its_lengths_as_written() {
+    let dir = app(
+        "base-shadow",
+        "tamber t\n\ntheme\n  card.shadow: box-shadow = 0 space.md calc(space.sm * 2) #000\n  plain.shadow: box-shadow = 0 1px 2px #000\n",
+    );
+    let mut s = Serve::start(&dir, &[]);
+    let (resolved, _) = s.ask(json!({"method": "resolve", "token": "card.shadow"}));
+    let tuple = &resolved["ok"]["tuples"][0];
+    // The numbers' field keeps its type: null where a length is over base
+    // names, every length's text beside (theme2's T1).
+    assert_eq!(
+        tuple["shadows"][0]["lengths"],
+        json!([0.0, null, null]),
+        "{resolved}"
+    );
+    assert_eq!(
+        tuple["shadows"][0]["length_texts"],
+        json!(["0px", "space.md", "calc(space.sm * 2)"]),
+        "{resolved}"
+    );
+    assert!(
+        tuple["value"]
+            .as_str()
+            .is_some_and(|v| v.starts_with("0px space.md calc(space.sm * 2) ")),
+        "{resolved}"
+    );
+    let (why, _) = s.ask(json!({"method": "explain", "token": "card.shadow"}));
+    assert_eq!(why["ok"]["bases"], json!(["space.md", "space.sm"]), "{why}");
+    let (plain, _) = s.ask(json!({"method": "resolve", "token": "plain.shadow"}));
+    let one = &plain["ok"]["tuples"][0]["shadows"][0];
+    assert_eq!(one["lengths"], json!([0.0, 1.0, 2.0]), "{plain}");
+    assert!(one.get("length_texts").is_none(), "{plain}");
+}
+
+/// `bases_by_tuple` is what the checker resolved in each tuple (stage 13
+/// D4, round 1): a function's name, a shadow's `inset`, a type's style and
+/// a quoted family are no references, though a token is named like each.
+#[test]
+fn bases_by_tuple_is_what_each_tuple_resolves() {
+    let design = "tamber t
+
+axes
+  density = roomy | tight
+
+theme
+  calc = space.sm
+  inset = space.sm
+  italic = space.sm
+  pad.c = calc(space.md * 2)
+  shade: box-shadow = inset 0 space.md 8px #000000
+  body.i: type = italic space.lg
+  body.q: type = space.lg 'space.md'
+  mixed = 4px
+    when density=tight: calc(space.xs * 2)
+  first = second
+  second = space.md
+    when density=tight: space.sm
+  hidden = other
+    when density=roomy: dep
+    when density=tight: 4px
+  dep = space.lg
+  other = space.xl
+";
+    let dir = app("base-by-tuple", design);
+    let mut s = Serve::start(&dir, &[]);
+    let by = |s: &mut Serve, name: &str| {
+        s.ask(json!({"method": "explain", "token": name})).0["ok"]["bases_by_tuple"].clone()
+    };
+    let both = |a: &[&str], b: &[&str]| {
+        json!([
+            {"modes": {"density": "roomy"}, "light": a, "dark": a},
+            {"modes": {"density": "tight"}, "light": b, "dark": b},
+        ])
+    };
+    assert_eq!(by(&mut s, "pad.c"), both(&["space.md"], &["space.md"]));
+    assert_eq!(by(&mut s, "shade"), both(&["space.md"], &["space.md"]));
+    assert_eq!(by(&mut s, "body.i"), both(&["space.lg"], &["space.lg"]));
+    assert_eq!(by(&mut s, "body.q"), both(&["space.lg"], &["space.lg"]));
+    // Each tuple its own line.
+    assert_eq!(by(&mut s, "mixed"), both(&[], &["space.xs"]));
+    // A token first folded inside another's value is recorded as its own
+    // (`second`, declared after `first`, which names it); one first folded
+    // in a line no tuple selects (`other`, the default of `hidden`)
+    // too, and that line gives `hidden` nothing (Astra's D4 round 2).
+    assert_eq!(by(&mut s, "first"), both(&["space.md"], &["space.sm"]));
+    assert_eq!(by(&mut s, "second"), both(&["space.md"], &["space.sm"]));
+    assert_eq!(by(&mut s, "hidden"), both(&["space.lg"], &[]));
+    assert_eq!(by(&mut s, "other"), both(&["space.xl"], &["space.xl"]));
+    drop(s);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Why `bases_by_tuple`'s light and dark are always alike (theme2's 19:47
+/// and 20:31): a base name is a length's, and a length (or a token over a
+/// base, a shadow or a type) can't vary by an axis `under scheme=dark`,
+/// which the checker refuses (`tamber-under-kind`), so no tuple's dark side
+/// reads another line than its light one.
+#[test]
+fn a_lengths_when_under_scheme_dark_is_refused() {
+    let vocab = contract_lower::tamber_vocab();
+    for value in ["12px", "space.lg", "calc(space.md * 2)"] {
+        let src = format!("tamber t\n\naxes\n  dark-style = dim | black  under scheme=dark\n\ntheme\n  gap: length = 8px\n    when dark-style=black: {value}\n");
+        let refused = exact_tamber::check(&src, &vocab).err().unwrap_or_default();
+        assert!(
+            refused.iter().any(|d| d.id == "tamber-under-kind"),
+            "{value}: {refused:?}"
+        );
+    }
 }

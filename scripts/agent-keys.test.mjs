@@ -2,7 +2,7 @@
 // a keyboard does (#140), each repeat a keydown whose `repeat` is true.
 import { test, expect } from 'bun:test';
 import { chordKeys } from './agent-playwright.mjs';
-import { KEY_REPEAT, validateKey, typeFor, cdpKey, withHeldModifiers, browserKey, nativeKey, typeArguments, typeCommand, tapWords, intoArguments, MalformedOperation, clockSlices } from './agent-keys.mjs';
+import { KEY_REPEAT, validateKey, typeFor, cdpKey, withHeldModifiers, browserKey, nativeKey, typeArguments, typeCommand, tapWords, intoArguments, MalformedOperation, clockSlices, padOp, postCommand, postInto, resizeArguments } from './agent-keys.mjs';
 import { open } from './agent.mjs';
 import { launchFacts } from './agent-launch.mjs';
 
@@ -15,6 +15,26 @@ test('tap midi is a MIDI input\'s message, its bytes two hex digits each; a test
   expect(tapWords(['midi', '"clk"', 'fa'])).toEqual([null, { midi: { input: 'clk', data: [0xfa] } }]);
   expect(() => tapWords(['midi', 'clk', 'clock', '0', '100'])).toThrow('a tempo above 0');
   expect(clockSlices({ bpm: 125, ms: 110 })).toEqual([{ to: 50, ticks: [20, 40] }, { to: 100, ticks: [60, 80, 100] }, { to: 110, ticks: [] }]);
+});
+
+test('a pad on a world canvas: tap stick and type key Gamepad… reach the world as its pad 0, held across requests (LLP 1127.003 D3)', async () => {
+  expect(tapWords(['world', 'stick', 'left', '0.7', '-0.2'])).toEqual(['world', { stick: 'left', value: [0.7, -0.2] }]);
+  expect(tapWords(['world', 'stick', 'right', '1', '0', 'for', '1500'])).toEqual(['world', { stick: 'right', value: [1, 0], for: 1500 }]);
+  for (const words of [['world', 'stick', 'middle', '0', '0'], ['world', 'stick', 'left', '1'], ['world', 'stick', 'left', '1', '0', 'over', '5']]) expect(() => tapWords(words)).toThrow(MalformedOperation);
+  const sent = [];
+  const s = {
+    target: async () => ({ id: 7 }),
+    op: async (req) => { sent.push(req); return { pad: 0, delivery: 'synthesized' }; },
+    clock: async (spec) => { sent.push(spec); return {}; },
+    landed: (r) => r,
+  };
+  const r = await padOp({ op: 'type', s, target: 'world', opts: { key: 'GamepadSouth', for: 100 }, host: 'linux', timing: 'agent' });
+  expect(sent).toEqual([{ op: 'type', id: 7, world: true, key: 'GamepadSouth', phase: 'down' }, '+100', { op: 'type', id: 7, world: true, key: 'GamepadSouth', phase: 'up' }]);
+  expect([r.typed, r.for, r.delivery]).toEqual([7, 100, 'synthesized']);
+  sent.length = 0;
+  await padOp({ op: 'tap', s, target: 'world', opts: { stick: 'left', value: [1, 0], for: 50 }, host: 'web', timing: 'agent' });
+  expect(sent).toEqual([{ op: 'tap', id: 7, world: true, stick: 'left', value: [1, 0] }, '+50', { op: 'tap', id: 7, world: true, stick: 'left', value: [0, 0] }]);
+  await expect(padOp({ op: 'tap', s, target: 'world', opts: { stick: 'left', value: [2, 0] } })).rejects.toBeInstanceOf(MalformedOperation);
 });
 
 test('a held contact\'s phase after a target says the phase takes none (euxy port: `tap dice-key up`)', () => {
@@ -129,4 +149,25 @@ test('typed host refusals precede driver frames for arbitrary messages and nativ
   try { hostReply(reply); throw new Error('accepted'); }
   catch (error) { expect(error.reply).toBe(reply); expect(error.stack.split('\n')[0]).toBe(refusalMessage(reply)); }
   await expect(nativeKey({id:2, opts:{key:'Enter'}, ask:async () => reply})).rejects.toThrow(refusalMessage(reply));
+});
+
+test('post is type <surface> message <text>: one word or one quoted string, the surface optional (LLP 1139.004 D1)', async () => {
+  expect(postCommand('post spawn-gulper')).toEqual([null, { message: 'spawn-gulper' }]);
+  expect(postCommand('post world "spawn gulper 3"')).toEqual(['world', { message: 'spawn gulper 3' }]);
+  expect(postCommand("post 'spawn gulper'")).toEqual([null, { message: 'spawn gulper' }]);
+  expect(typeCommand('type world message spawn gulper')).toEqual(['world', { message: 'spawn gulper' }]);
+  expect(() => postCommand('post world spawn gulper')).toThrow('quote text of several words');
+  expect(() => postCommand('post')).toThrow(MalformedOperation);
+  // The wire's `type` with a `message`: a canvas the tree finds by its id, else the name as a surface's, else none.
+  const sent = [], s = { find: async (t) => t === 'tank' ? { id: 7, world: { tick: 0 } } : t === 'title' ? { id: 3 } : undefined,
+    op: async (req) => (sent.push(req), { posted: req.surface ?? 'world', delivery: 'posted' }), landed: async (r) => r };
+  for (const target of [null, 'tank', 'title', 'ocean']) await postInto(s, target, 'spawn', { host: 'web', timing: 'agent' });
+  expect(sent).toEqual([{ op: 'type', message: 'spawn' }, { op: 'type', message: 'spawn', id: 7 }, { op: 'type', message: 'spawn', surface: 'title' }, { op: 'type', message: 'spawn', surface: 'ocean' }]);
+  await expect(postInto({ ...s, held: 'a drag' }, null, 'spawn', {})).rejects.toThrow('finger is down');
+});
+
+test('resize takes <w>x<h> and <w> <h>, and its refusal names both (LLP 1139.004 D4)', () => {
+  expect(resizeArguments(['1280x800'])).toEqual([1280, 800]);
+  expect(resizeArguments(['1280', '800'])).toEqual([1280, 800]);
+  for (const words of [['1280'], ['1280', 'by', '800'], ['1280x'], []]) expect(() => resizeArguments(words)).toThrow('resize <w>x<h> or resize <w> <h>');
 });

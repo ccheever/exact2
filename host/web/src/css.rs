@@ -5,8 +5,10 @@
 //! Unsupported rows are reported in [`Skipped`].
 
 mod clears;
+pub mod control_size;
 mod decorations;
 mod fonts;
+mod selection;
 pub use decorations::decoration_styles;
 pub use fonts::{font_alias, font_family_names, runtime_font_family};
 
@@ -68,6 +70,7 @@ fn css_text_in(
                 num_into(out, n * unit.basis(medium, medium, 1.0) / medium);
                 out.push_str("rem");
             }
+            Unit::TextStyleAtMost(_) => out.push_str(&unit.capped_css(n)),
             // @ref LLP 1115.000 D10.3 — one device pixel: the page's sheet
             // keeps `--exact-hairline` at it, whatever the display's scale.
             Unit::Hairline => out.push_str(HAIRLINE),
@@ -282,16 +285,9 @@ fn css_text_in(
             (StyleId::ColorScheme, RowValue::Enum("normal")) => {
                 out.push_str("color-scheme:inherit;")
             }
-            // LLP 1069.011.001 D8–D9: browser-owned absolute sizes and corners.
-            (StyleId::ControlSize, RowValue::Enum(size)) => {
-                let size = match *size {
-                    "mini" => "x-small",
-                    "small" => "small",
-                    "large" => "large",
-                    _ => "medium",
-                };
-                push_text!(&mut out, "--exact-control-font-size:{};", size);
-            }
+            (StyleId::UserSelect, RowValue::Enum(v)) => selection::push(&mut out, v),
+            (StyleId::ControlSize, RowValue::Enum(size)) => control_size::push(&mut out, size),
+            // LLP 1069.011.001 D9: browser-owned corners.
             (StyleId::ControlCornerStyle, RowValue::Enum(corner)) => {
                 out.push_str("--exact-control-radius:");
                 out.push_str(if *corner == "capsule" {
@@ -707,6 +703,7 @@ fn declared(out: &mut String, id: StyleId, value: &RowValue<'_>) {
         // D2); the browser mixes premultiplied, as CSS says (LLP 1066).
         RowValue::BackgroundImage(g) | RowValue::MaskImage(g) => out.push_str(&g.css()),
         RowValue::TextShadow(s) => out.push_str(&s.css()),
+        RowValue::FontVariations(v) => out.push_str(&v.css()),
         RowValue::BoxShadow(s) => out.push_str(&s.css()),
         RowValue::CornerShape(c) => out.push_str(&c.css()),
         RowValue::RotateAxis(_) | RowValue::SymbolPalette(_) => {}
@@ -1068,26 +1065,9 @@ mod writer_tests {
             .map(|n| n.trim_start_matches(','))
             .collect();
         assert_eq!(
-            names,
-            [
-                "opacity 1s ease 0s,stroke-dashoffset",
-                "r",
-                "color",
-                "background-color",
-                "fill",
-                "stroke",
-                "cx",
-                "cy",
-                "x",
-                "y",
-                "rx",
-                "ry",
-                "border-color",
-                "--exact-tint",
-                "box-shadow",
-                "d",
-                ""
-            ]
+            names.join(" "),
+            "opacity 1s ease 0s,stroke-dashoffset r color background-color fill stroke cx cy x y \
+             rx ry border-color --exact-tint box-shadow font-weight font-stretch d "
         );
     }
 }

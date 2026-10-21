@@ -14,6 +14,7 @@ impl<D: DataSource> Runner<D> {
         }
         let change = self.router_change()?;
         let live_undo = self.prepare_live_times(&mut ops);
+        let axes = self.prepare_text_axes(&mut ops);
         self.batch += 1;
         let (language, direction) = self.document_facts();
         let shown = std::mem::take(&mut self.shown);
@@ -25,6 +26,7 @@ impl<D: DataSource> Runner<D> {
                 Ok(receipt) => receipt,
                 Err(e) => {
                     live_undo.restore(&mut self.live_times);
+                    self.unwind_text_axes(axes);
                     self.notes.clear();
                     return Err(e.into());
                 }

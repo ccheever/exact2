@@ -1,8 +1,9 @@
 //! The underwater recipe's numbers (`game/recipes/underwater.md`): the frame's
 //! mean luminance sits in a band that a wrong exposure leaves, at the start and
-//! with the sub backed against the glass (still in the frame); a translucent
-//! water surface keeps the sand in sunlight where an opaque one shades it; and
-//! `Environment::underwater()`'s fog hides 90% of a surface at the reach it states.
+//! with the sub backed against the glass (still in the frame), and in a look
+//! frame with no tell; the water's surface keeps the sand in sunlight where an
+//! opaque lid shades it; and `Environment::underwater()`'s fog hides 90% of a
+//! surface at the reach it states.
 #![cfg(not(target_arch = "wasm32"))]
 #[path = "fixture/device.rs"]
 mod test_device;
@@ -64,15 +65,8 @@ fn tank(w: &mut World) {
             Material::rgb(0.45, 0.38, 0.24),
         ),
     );
-    // The surface faces down at the camera and, translucent, casts no shadow.
-    w.spawn_named(
-        "surface",
-        (
-            Transform::at(0., 8., -12.).looking_at(Vec3::new(0., 8., -13.), Vec3::NEG_Y),
-            Mesh::plane(20., 36.),
-            Material::rgb(0.6, 0.9, 0.95).alpha(0.25),
-        ),
-    );
+    // The surface: its caustics on the sand, its shafts in the water.
+    w.insert_resource(Water::at(GLASS_MAX.y));
     for (i, z) in [-4., -12., -24.].into_iter().enumerate() {
         w.spawn_named(
             format!("rock-{i}"),
@@ -113,7 +107,7 @@ fn fit_boom(w: &World) {
 struct TankArgs {
     /// Multiplies the recipe's exposure: 1 is the recipe.
     exposure: f32,
-    /// Close the tank with an opaque lid in place of the translucent surface.
+    /// Close the tank with an opaque lid over the water.
     opaque_surface: bool,
 }
 struct Tank;
@@ -124,8 +118,14 @@ impl Game for Tank {
         tank(w);
         w.resource_mut::<Environment>().exposure *= args.exposure;
         if args.opaque_surface {
-            *w.require_mut::<Mesh>("surface") = Mesh::cuboid(Vec3::new(20., 0.2, 36.));
-            w.require_mut::<Material>("surface").color[3] = 1.;
+            w.spawn_named(
+                "lid",
+                (
+                    Transform::at(0., GLASS_MAX.y + 0.2, -12.),
+                    Mesh::cuboid(Vec3::new(20., 0.2, 36.)),
+                    Material::rgb(0.6, 0.9, 0.95),
+                ),
+            );
         }
     }
     fn tick(w: &mut World, _: &Input, _: &TankArgs) {
@@ -258,7 +258,7 @@ fn the_recipe_frame_is_in_its_band_and_a_wrong_exposure_is_not() {
     let sands = [&recipe, &shaded].map(sand);
     eprintln!(
         "underwater mean luminance: recipe {:.4}, exposure x0.25 {:.4}, x4 {:.4}, \
-         sub at the glass {:.4}; sand: translucent surface {:.4}, opaque surface {:.4}; \
+         sub at the glass {:.4}; sand: under the water {:.4}, under an opaque lid {:.4}; \
          sub on screen at the glass {sub:?}",
         means[0], means[1], means[2], means[3], sands[0], sands[1]
     );
@@ -277,6 +277,33 @@ fn the_recipe_frame_is_in_its_band_and_a_wrong_exposure_is_not() {
         sands[1] < sands[0] * 0.8,
         "an opaque surface shades the sand: {sands:?}"
     );
+}
+
+/// The recipe's frame as the look oracle (LLP 1127.000) sees it, from the
+/// GPU-less proof host's look frame: in the band, and no tell, the surface and
+/// its shafts in it.
+#[test]
+fn the_recipe_frame_trips_no_tell_in_a_look_frame() {
+    let Some(_gpu) = gpu() else { return };
+    let mut s = WorldSurface::<Tank>::default();
+    s.bind(&[Value::Number(1.), Value::Bool(false)], None)
+        .unwrap();
+    s.agent(r#"{"op":"clock","now":0,"width":192,"height":108}"#)
+        .unwrap();
+    s.agent(r#"{"op":"clock","now":500}"#).unwrap();
+    let reply = s
+        .agent(r#"{"op":"state","look":true,"now":500,"width":192,"height":108}"#)
+        .unwrap();
+    let look: serde_json::Value = serde_json::from_str(&reply).unwrap();
+    let look = &look["look"];
+    let mean = look["mean"].as_f64().unwrap() as f32;
+    eprintln!(
+        "underwater look frame at 500 ms: mean {mean:.4}, tells {}",
+        look["tells"]
+    );
+    assert!(BAND.contains(&mean), "{look}");
+    assert_eq!(look["tells"], serde_json::json!([]), "{look}");
+    assert_eq!(look["gaps"], serde_json::json!([]), "{look}");
 }
 
 #[derive(Default, Args)]
@@ -358,4 +385,80 @@ fn the_underwater_fog_hides_nine_tenths_at_its_stated_reach() {
 fn luminance_at(p: &fixture::Pixels, x: u32, y: u32) -> f32 {
     let [r, g, b, _] = p.at(x, y);
     luminance([r, g, b])
+}
+
+/// The fog probe with `Water` 1 m under the eye: a ray that crosses the
+/// surface is fogged over its submerged part only. The sky is black, so the
+/// surface from above adds nothing, and its reflectance dims the probe and
+/// the open water beside it alike (the surface is still, and the two rays
+/// mirror each other about the frame's centre column).
+struct CrossingProbe;
+/// The probe pixel, 15° down, and the open-water pixel mirroring it.
+const CROSSING: (u32, u32, f32) = (44, 94, 20.);
+const OPEN: (u32, u32) = (84, 94);
+const SURFACE: f32 = 1.;
+impl Game for CrossingProbe {
+    const ID: &'static str = "underwater-crossing-probe";
+    type Args = ProbeArgs;
+    fn setup(w: &mut World, _: &ProbeArgs) {
+        w.insert_resource(Environment {
+            zenith: [0.; 3],
+            horizon: [0.; 3],
+            ground: [0.; 3],
+            ambient: 0.,
+            exposure: 4.,
+            tone_mapping: ToneMapping::None,
+            bloom: None,
+            fog: Some(Fog {
+                color: Some([0.03, 0.16, 0.2].into()),
+                ..Fog::new(0.07, 0.)
+            }),
+            ..Environment::underwater()
+        });
+        // Still, so the probe's and the open water's reflectance are the same.
+        w.insert_resource(Water {
+            waves: Waves {
+                amplitude: 0.,
+                ..Waves::default()
+            },
+            caustics: None,
+            shafts: None,
+            ..Water::at(SURFACE)
+        });
+        w.spawn((
+            Transform::at(EYE.x, EYE.y, EYE.z).looking_at(EYE - Vec3::Z, Vec3::Y),
+            Camera::default(),
+        ));
+        let (x, y, distance) = CROSSING;
+        let hit = EYE + ray(x, y) * distance;
+        let half = distance / 16.;
+        w.spawn((
+            Transform::at(hit.x, hit.y, hit.z - half),
+            Mesh::cube(2. * half),
+            Material::rgb(0., 0., 0.).rough(1.),
+        ));
+    }
+    fn tick(_: &mut World, _: &Input, _: &ProbeArgs) {}
+}
+
+#[test]
+fn with_water_a_ray_that_crosses_the_surface_is_fogged_only_under_it() {
+    let Some(gpu) = gpu() else { return };
+    let mut s = WorldSurface::<CrossingProbe>::default();
+    s.bind(&[], None).unwrap();
+    let size = PROBE as f32;
+    let (p, _) = fixture::render(&gpu, &mut s, &frame(size, size, 0.)).unwrap();
+    assert!(s.error().is_none(), "{:?}", s.error());
+    p.save("underwater-crossing-probe");
+    let (x, y, distance) = CROSSING;
+    let direction = ray(x, y);
+    let submerged = distance - (EYE.y - SURFACE) / -direction.y;
+    let measured = 1. - luminance_at(&p, x, y) / luminance_at(&p, OPEN.0, OPEN.1);
+    let expected = (-0.07 * submerged).exp();
+    let whole = (-0.07 * distance).exp();
+    eprintln!(
+        "underwater fog across the surface: transmittance {measured:.3} over {distance} m, \
+         {submerged:.2} m of it submerged: expected {expected:.3} (the whole ray's {whole:.3})"
+    );
+    assert!((measured - expected).abs() < 0.02, "{measured} {expected}");
 }

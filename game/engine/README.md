@@ -23,7 +23,9 @@ and randomness; `Sim` owns input. The renderer interpolates completed ticks.
   `Mesh`, `Material`, `Camera`, lights, `Visible`, `Ambient`, `Follow`, `Glow`,
   `Lit`) are registered by every world.
 - `near` and `near_xz` read global poses in entity order, including parented
-  entities. `nearest_xz_mut` supplies one entity and its mutable component together.
+  entities, as the loop reaches each row. `.limit(n)` keeps the `n` nearest, still
+  in entity order (equal distances keep the lower index), and reads every row when
+  it is called. `nearest_xz_mut` supplies one entity and its mutable component together.
 - A child's `Transform` composes with its parent's, scale included, axis by axis.
   Under a root scaled `(diameter, height, diameter)` so its parts can be authored in
   a unit box, every `Mesh::sphere` draws as an ellipsoid. Give a part that must stay
@@ -232,6 +234,16 @@ Retarget `Lit(Spring)` using `lit.to(w.tick_end(), intensity)`. The renderer
 samples both between ticks; keep authored emission or light intensity constant.
 Negative light overshoot clamps to zero. See [effects](../render/README.md#effects).
 
+`steer`, `collect` and `spawn` are the gameplay kit: functions and values the tick
+calls, none stepped by the engine ([what every game needs](../README.md#what-every-game-needs)).
+`steer::*` returns a `Steer { velocity, facing }` (`flee`, an `Option` of one, `None`
+outside its radius): the facing turns at most
+`turn_rate × dt` toward the goal and the speed scales with the cosine of the turn
+left, so a mover turns before it goes. `collect::drift` moves a pickup toward its
+collector inside a radius and reports `taken` on arrival. A `spawn::Spawner` saves
+its next tick and serial inside the game's own resource; `due(tick)` returns each
+owed serial.
+
 Animation order is explicit: `let motion = animation::step(w)`, apply root motion,
 then query sockets. The result owns its markers so component writes can follow.
 Reverse one-shots start at their end; saved playback state keeps a completed
@@ -317,22 +329,53 @@ when fog should match a flat `Environment.background`.
 `Environment.tone_mapping = ToneMapping::None` preserves linear colour before
 sRGB encoding. Use exposure 1 and `bloom: None` to avoid those effects too.
 
+`Water::at(height)` is water with a flat surface at that world Y, an optional
+resource like `AmbientOcclusion`: a world without it draws and hashes as before.
+Inserting it draws the surface (from below, the sky through Snell's window and the
+reflected depths outside it; from above, the sky's reflection over what lies
+beneath, `clarity` of it showing and the rest `color`), confines the fog to the
+part of each view ray below the height, and adds `caustics` (a moving net in the
+sun's light on surfaces under the water, none in shadow) and `shafts`
+(the sun's light scattered by that fog, seen from below). `Waves` bend the
+surface's normals; the plane stays flat, so nothing floats or collides with it.
+`Water` is saved and hashed like any resource, so adopting it moves a game's pins
+(repin); the wave phase and every GPU product derive from the displayed time and
+are never saved. The height is the game's: `Water::default()` exists for the
+codec and puts the surface at Y = 0. Insert it in `setup`, or register it
+(`Game::register`) when it first appears mid-game. The renderer can leave the
+caustics and shafts out at present time without changing the resource
+(`Renderer::set_water_effects`, [renderer](../render/README.md#water)).
+
 `Game::SAMPLES` selects scene sampling for the renderer's lifetime: override it
 with `const SAMPLES: SceneSamples = SceneSamples::One` for 1×, or leave the 4×
 MSAA default. It is a renderer construction choice, not saved simulation state.
+It is the ceiling of the quality ladder (`Game::quality`, [game/README.md](../README.md#arguments-pause-and-restart)):
+the `Low` rung draws one sample whatever it says.
 At 1×, `Game::DEPTH_PREPASS = true` can reduce opaque overdraw. It adds a depth
 pass and uses equal-depth colour testing; coplanar ties follow draw order. It is
 off by default. See [the renderer](../render/README.md) for coverage and measurement.
 See [toon rendering and parity options](../render/README.md#toon-models) for
 `MeshData.outline`, `MaterialData.rim` and their glTF import names.
+`MaterialData.name` is the glTF material's name, empty when it has none; names may
+repeat, and the mesh's `material` index is what selects one
+([Blender export](../recipes/blender-export.md)). A baked `.model` file is
+`asset::MODEL_RECORD` (2, material names); a file of an older bake or another record
+fails its asset by name (``baked before model records``), and baking `art/` again
+replaces it.
 
 ## Saves and assets
 
 `Sim::save` captures the simulation; `Sim::restore` validates format, game identity,
 registered types and assets before replacing anything. Failed restores leave the
-receiver intact. Restore reinstates the saved input queue, held keys and touch
-viewport; a later host resize replaces the viewport. Agent inspection does not
+receiver intact. Restore reinstates the saved input queue, held keys and pads,
+triggers mid-gesture and touch viewport; a later host resize replaces the viewport. Agent inspection does not
 consume input.
+
+A game whose saved shape changes under the same `Game::ID` versions it: insert a
+save-contract resource in setup and check it in `Game::restorable`, which sees the
+decoded world before it replaces anything and refuses with the reason it returns
+(`restore refused: \`small-game\` refuses this save: …`). The starter does this
+(`SaveContract`; version 2 holds its critter and shop).
 
 `sim.load_assets(|name| std::fs::read(name))?` loads headless dependencies, including
 declared `.sound` assets, which the primitive module also decodes; a save records

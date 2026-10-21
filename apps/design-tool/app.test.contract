@@ -1998,3 +1998,319 @@ test "T7: the selected view's states side by side, each copy holding one on the 
   clock data
   expect tree missing "build-pin-copy-2"
   request POST "/__stub/restart" {} as ada
+
+test "a folded :disabled row is read as its base, a param's rung, its part beneath it at its place with its own edit (LLP 1122 queue item (2))"
+  type "name" "Ada"
+  tap "save-name"
+  clock data
+  request POST "/__stub/event" {"event": "builds", "builds": [{"id": "web-1", "host": "web", "capabilities": ["pin", "inspect"], "status": {"scheme": "dark", "contrast": "no-preference", "mode": {"dark-style": "dim"}, "rootFontSize": 16, "revision": 0}, "pin": null, "pinRevision": 0, "hold": null, "held": null}]} as ada
+  clock +1
+  clock data
+  tap "inspect-toggle"
+  clock data
+  clock +1
+  clock data
+  request POST "/__stub/event" {"event": "selection", "build": "web-1", "node": 4, "site": 3, "instance": [], "tuple": {"dark-style": "dim", "density": "regular"}, "trimmed": false, "readOnly": null, "source": {"file": "/stub/post.contract", "line": 9, "col": 5, "end_col": 11, "component": "PostButton", "chain": []}, "rows": [{"name": "background_color", "value": "#999999", "source": "dynamic", "origin": "own", "at": {"file": "/stub/post.contract", "line": 10, "col": 7, "end_col": 23, "sha256": "x"}, "attr": "background-color", "editable": {"rung": "param", "param": "post.contract#PostButton.fill", "short": "PostButton.fill", "modes": ""}, "states": [{"state": "disabled", "source": {"file": "/stub/post.contract", "line": 12, "col": 9, "end_col": 25}, "editable": {"rung": "state", "style": "PostButton", "state": "disabled", "row": "background-color", "file": "post.contract", "text": "#999999"}}]}]} as ada
+  clock +1
+  clock data
+  // The base: the param it reads, not a dynamic expression's refusal.
+  expect text "selrow-edit-background-color" == "Edit PostButton.fill"
+  expect tree missing "selrow-reason-background-color"
+  // Its `:disabled` part beneath it: at its own place, set-state's edit.
+  expect text "selrow-source-:disabled background-color" == ":disabled part at post.contract:12"
+  expect text "selrow-state-:disabled background-color" == "Edit PostButton :disabled background-color"
+  request POST "/__stub/restart" {} as ada
+
+test "a library component's node: the part outline, its identity and part, its parts with this one and the slot marked; its package rows read only, with no recipe write control (stage 12 D, LLP 1139 D5)"
+  // The server's describe of the library component's parts (stage 12 D3), as the stub gives it.
+  request POST "/__stub/library" {"@acme/cards/card.contract#Card": {"name": "Card", "parts": [{"name": "root", "groups": ["paint", "shape"], "slot": false}, {"name": "header", "groups": ["paint", "text"], "slot": false}, {"name": "body", "groups": ["space"], "slot": true}], "variants": []}} as ada
+  type "name" "Ada"
+  tap "save-name"
+  clock data
+  request POST "/__stub/event" {"event": "builds", "builds": [{"id": "web-1", "host": "web", "capabilities": ["pin", "inspect"], "status": {"scheme": "dark", "contrast": "no-preference", "mode": {"dark-style": "dim"}, "rootFontSize": 16, "revision": 0}, "pin": null, "pinRevision": 0, "hold": null, "held": null}]} as ada
+  clock +1
+  clock data
+  tap "inspect-toggle"
+  clock data
+  clock +1
+  clock data
+  // A node that is the Card's header part: its rows are the package's recipe, read only through the package guard.
+  request POST "/__stub/event" {"event": "selection", "build": "web-1", "node": 7, "site": 3, "instance": [], "tuple": {"dark-style": "dim", "density": "regular"}, "trimmed": false, "readOnly": null, "source": {"file": "/stub/node_modules/@acme/cards/card.contract", "line": 9, "col": 5, "end_col": 9, "component": "Card", "chain": [], "library": {"identity": "@acme/cards/card.contract#Card", "part": "header"}}, "rows": [{"name": "background_color", "value": "#ffffff", "source": "authored", "origin": "class:CardHeader", "library": {"identity": "@acme/cards/card.contract#Card", "part": "header"}, "editable": {"rung": null, "reason": "a package's style (CardHeader): read-only here"}}, {"name": "text_color", "value": "#0a7aff", "source": "authored", "origin": "class:CardHeader", "library": {"identity": "@acme/cards/card.contract#Card", "part": "header"}, "token": {"names": ["accent.fill"], "text": "accent.fill", "modes": "", "implied": false}, "editable": {"rung": "token", "token": "accent.fill", "modes": ""}}]} as ada
+  clock +1
+  clock data
+  expect text "library-identity" == "Library: @acme/cards/card.contract#Card"
+  expect text "library-part" == "This node is its part header"
+  expect text "library-part-root" == "root"
+  expect text "library-part-header" == "▸ header"
+  expect text "library-part-body" == "body · its slot"
+  expect text "library-readonly" == "Its rows are the package's recipe, read only here; a token or param a row reads is set for this app."
+  // Read only: the reason, and no write control of any kind on its row.
+  expect text "selrow-reason-background-color" == "a package's style (CardHeader): read-only here"
+  expect tree missing "selrow-edit-background-color"
+  expect tree missing "selrow-state-background-color"
+  expect tree missing "selrow-row-background-color"
+  expect tree missing "selrow-param-background-color"
+  expect tree missing "selrow-detach-background-color"
+  expect tree missing "selrow-token-background-color"
+  expect tree missing "selrow-tokenize-background-color"
+  // A recipe row reading a token: the token (the library's knob, set for this app) is offered; the row itself is not.
+  expect text "selrow-edit-color" == "Edit accent.fill"
+  expect tree missing "selrow-row-color"
+  expect tree missing "selrow-state-color"
+  expect tree missing "selrow-param-color"
+  expect tree missing "selrow-tokenize-color"
+  expect tree missing "selrow-detach-color"
+  // A node of its view that is no part: its identity, and so.
+  request POST "/__stub/event" {"event": "selection", "build": "web-1", "node": 8, "site": 4, "instance": [], "tuple": {"dark-style": "dim", "density": "regular"}, "trimmed": false, "readOnly": null, "source": {"file": "/stub/node_modules/@acme/cards/card.contract", "line": 11, "col": 7, "end_col": 11, "component": "Card", "chain": [], "library": {"identity": "@acme/cards/card.contract#Card", "part": null}}, "rows": []} as ada
+  clock +1
+  clock data
+  expect text "library-part" == "This node is no part of it"
+  expect text "library-part-header" == "header"
+  // Another design file open: the app's describe still gives the parts, and the outline follows it (a part gone).
+  type "file" "brand.tamber"
+  clock settle
+  request POST "/__stub/library" {"@acme/cards/card.contract#Card": {"name": "Card", "parts": [{"name": "root", "groups": ["paint", "shape"], "slot": false}, {"name": "body", "groups": ["space"], "slot": true}], "variants": []}} as ada
+  request POST "/__stub/event" {"client": "agent:codex", "edited": ["app.tamber"], "files": {"app.tamber": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd", "brand.tamber": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}} as ada
+  clock +1
+  clock data
+  clock +1
+  clock data
+  clock settle
+  expect state file == "brand.tamber"
+  expect tree missing "library-part-header"
+  expect text "library-part-body" == "body · its slot"
+  // A node outside a library component (the app's own, or a slot's fill): no outline.
+  request POST "/__stub/event" {"event": "selection", "build": "web-1", "node": 9, "site": 5, "instance": [], "tuple": {"dark-style": "dim", "density": "regular"}, "trimmed": false, "readOnly": null, "source": {"file": "/stub/app.contract", "line": 3, "col": 5, "end_col": 9, "component": "App", "chain": []}, "rows": []} as ada
+  clock +1
+  clock data
+  expect tree missing "selection-library"
+  request POST "/__stub/restart" {} as ada
+
+test "a package component's param: set for this app by default, the package's default said, Back to the default, and its package token offered instead (stage 12 D, LLP 1139 D5)"
+  // A package's Badge with a fill param whose default names the token accent.fill; the app's own Contract sources listed.
+  request POST "/__stub/package-component" {"files": {"app.contract": "c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0"}, "components": [{"identity": "@acme/cards/badge.contract#Badge", "name": "Badge", "params": [{"name": "@acme/cards/badge.contract#Badge.fill", "short": "Badge.fill", "param": "fill", "token": "param.f00000001.Badge.fill", "kind": "color", "default": "accent.fill", "values": ["#0a7affff"], "set": null, "pinned": [], "range": null, "step": null, "control": "token", "options": null, "label": "Fill", "help": null, "group": "Color", "priority": 1}, {"name": "@acme/cards/badge.contract#Badge.edge", "short": "Badge.edge", "param": "edge", "token": "param.f00000001.Badge.edge", "kind": "color", "default": "#111111", "values": ["#111111ff"], "set": {"value": "#222222", "line": 30, "whens": 0}, "pinned": [], "range": null, "step": null, "control": "token", "options": null, "label": "Edge", "help": null, "group": "Color", "priority": 1}, {"name": "@acme/cards/badge.contract#Badge.soft", "short": "Badge.soft", "param": "soft", "token": "param.f00000001.Badge.soft", "kind": "color", "default": "accent.soft", "values": ["#cce0ffff"], "set": null, "pinned": [], "range": null, "step": null, "control": "token", "options": null, "label": "Soft", "help": null, "group": "Color", "priority": 1}, {"name": "@acme/cards/badge.contract#Badge.ink", "short": "Badge.ink", "param": "ink", "token": "param.f00000001.Badge.ink", "kind": "color", "default": "-Exact-Label", "values": ["#000000ff"], "set": null, "pinned": [], "range": null, "step": null, "control": "token", "options": null, "label": "Ink", "help": null, "group": "Color", "priority": 1}, {"name": "@acme/cards/badge.contract#Badge.radius", "short": "Badge.radius", "param": "radius", "token": "param.f00000001.Badge.radius", "kind": "length", "default": "radius.md", "values": ["8px"], "set": null, "pinned": [], "range": null, "step": null, "control": "token", "options": null, "label": "Radius", "help": null, "group": "Shape", "priority": 1}]}], "tokens": {"accent.soft": "@acme/cards"}, "base": [{"name": "radius.md", "kind": "radius", "columns": {"ios": {"value": "8px", "source": {"kind": "metric", "ref": "control-radius"}}}, "override": null}]} as ada
+  type "name" "Ada"
+  tap "save-name"
+  clock data
+  // (The design read again, as a change on disk makes it.)
+  request POST "/__stub/event" {"client": null, "edited": ["app.tamber"], "files": {"app.tamber": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee", "brand.tamber": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}} as ada
+  clock +1
+  clock settle
+  // Unset: the package's default, and a change here is set for this app; its token offered instead.
+  expect text "param-Badge.fill-source" == "the package's default accent.fill: a change here is set for this app"
+  expect tree missing "param-Badge.fill-reset"
+  // Its default names the app's token accent.fill: the token, not the package's.
+  expect text "param-Badge.fill-token" == "Edit the token accent.fill instead"
+  // A package token: said so. A role's spelling (-Exact-Label): its token, by the role.
+  expect text "param-Badge.soft-token" == "Edit the package token accent.soft instead"
+  expect text "param-Badge.ink-token" == "Edit the token -exact-label instead"
+  // A base name the app leaves unset: Exact's.
+  expect text "param-Badge.radius-token" == "Edit Exact's base radius.md instead"
+  // Set for this app: Back to the default (the app's line goes); a literal default offers no token.
+  expect text "param-Badge.edge-source" == "set for this app · the package's default #111111"
+  expect text "param-Badge.edge-reset" == "Back to the default"
+  expect tree missing "param-Badge.edge-token"
+  // The app's own component keeps its words.
+  expect text "param-Card.fade-source" == "the default"
+  // A change here is set for this app (`set-param`, the app design's params line); Back to the default is `unset-param`.
+  type "dial-@acme/cards/badge.contract#Badge.fill-field" "#ff0000"
+  type "dial-@acme/cards/badge.contract#Badge.fill-field" key "Enter"
+  clock settle
+  expect state editKind == "set-param"
+  expect state editTarget == "@acme/cards/badge.contract#Badge.fill"
+  // Its proposal is the param's own line (the op names Badge.fill).
+  expect text "proposal-tokens" == "Badge.fill"
+  tap "cancel-edit"
+  clock settle
+  tap "param-Badge.edge-reset"
+  clock settle
+  expect state editKind == "unset-param"
+  expect state editTarget == "@acme/cards/badge.contract#Badge.edge"
+  expect text "proposal-tokens" == "Badge.edge"
+  tap "cancel-edit"
+  clock settle
+  // The token instead: its branch opens.
+  tap "param-Badge.fill-token"
+  clock data
+  expect tree has "branch"
+  expect text "branch-label" == "accent.fill · default (Light)"
+  request POST "/__stub/restart" {} as ada
+
+test "a package component's param's winning level in words, Back to the package with what it removes and whether the app's value still wins said first, and each reset's when branches said (stage 12 D, LLP 1139 D5)"
+  // Two package tokens: accent.soft the app has its own line for, accent.fill it has none for.
+  request POST "/__stub/package-component" {"files": {"app.contract": "c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0"}, "tokens": {"accent.soft": "@acme/cards", "accent.fill": "@acme/cards"}, "components": [{"identity": "@acme/cards/pill.contract#Pill", "name": "Pill", "library": true, "parts": [], "variants": [], "params": [{"name": "@acme/cards/pill.contract#Pill.fill", "short": "Pill.fill", "param": "fill", "token": "param.f00000002.Pill.fill", "kind": "color", "default": "accent.soft", "values": ["#ff0000ff"], "set": {"value": "#ff0000", "line": 31, "whens": 2}, "pinned": [], "range": null, "step": null, "control": "token", "options": null, "label": "Fill", "help": null, "group": "Color", "priority": 1, "reaches": {"token": "accent.soft", "base": null, "app_set": true}}, {"name": "@acme/cards/pill.contract#Pill.mark", "short": "Pill.mark", "param": "mark", "token": "param.f00000002.Pill.mark", "kind": "color", "default": "accent.soft", "values": ["#00ff00ff"], "set": {"value": "#00ff00", "line": 34, "whens": 0}, "pinned": [], "range": null, "step": null, "control": "token", "options": null, "label": "Mark", "help": null, "group": "Color", "priority": 1, "reaches": {"token": "accent.soft", "base": null, "app_set": true}}, {"name": "@acme/cards/pill.contract#Pill.glow", "short": "Pill.glow", "param": "glow", "token": "param.f00000002.Pill.glow", "kind": "color", "default": "accent.soft", "values": ["#000000ff"], "set": {"value": "accent.soft", "line": 35, "whens": 2}, "pinned": [], "range": null, "step": null, "control": "token", "options": null, "label": "Glow", "help": null, "group": "Color", "priority": 1, "reaches": {"token": "accent.soft", "base": null, "app_set": true}}, {"name": "@acme/cards/pill.contract#Pill.edge", "short": "Pill.edge", "param": "edge", "token": "param.f00000002.Pill.edge", "kind": "color", "default": "accent.soft", "values": ["#cce0ffff"], "set": {"value": "accent.soft", "line": 32, "whens": 0}, "pinned": [], "range": null, "step": null, "control": "token", "options": null, "label": "Edge", "help": null, "group": "Color", "priority": 1, "reaches": {"token": "accent.soft", "base": null, "app_set": true}}, {"name": "@acme/cards/pill.contract#Pill.tone", "short": "Pill.tone", "param": "tone", "token": "param.f00000002.Pill.tone", "kind": "color", "default": "accent.fill", "values": ["#0a7affff"], "set": null, "pinned": [], "range": null, "step": null, "control": "token", "options": null, "label": "Tone", "help": null, "group": "Color", "priority": 1, "reaches": {"token": "accent.fill", "base": null, "app_set": false}}, {"name": "@acme/cards/pill.contract#Pill.gap", "short": "Pill.gap", "param": "gap", "token": "param.f00000002.Pill.gap", "kind": "length", "default": "12px", "values": ["16px"], "set": {"value": "16px", "line": 33, "whens": 0}, "pinned": [], "range": null, "step": null, "control": "token", "options": null, "label": "Gap", "help": null, "group": "Shape", "priority": 1, "reaches": null}, {"name": "@acme/cards/pill.contract#Pill.inset", "short": "Pill.inset", "param": "inset", "token": "param.f00000002.Pill.inset", "kind": "length", "default": "@acme/cards/pill.contract#Pill.gap", "values": ["16px"], "set": null, "pinned": [], "range": null, "step": null, "control": "token", "options": null, "label": "Inset", "help": null, "group": "Shape", "priority": 1, "reaches": null}, {"name": "@acme/cards/pill.contract#Pill.ring", "short": "Pill.ring", "param": "ring", "token": "param.f00000002.Pill.ring", "kind": "length", "default": "2px", "values": ["2px"], "set": null, "pinned": [], "range": null, "step": null, "control": "token", "options": null, "label": "Ring", "help": null, "group": "Shape", "priority": 1, "reaches": null}]}], "resolve": {"@acme/cards/pill.contract#Pill.fill": [{"level": "app-param", "name": "@acme/cards/pill.contract#Pill.fill"}, {"level": "app-token", "name": "accent.soft"}], "@acme/cards/pill.contract#Pill.mark": [{"level": "app-param", "name": "@acme/cards/pill.contract#Pill.mark"}], "@acme/cards/pill.contract#Pill.glow": [{"level": {"light": "app-token", "dark": "app-param"}, "name": {"light": "accent.soft", "dark": "@acme/cards/pill.contract#Pill.glow"}}], "@acme/cards/pill.contract#Pill.edge": [{"level": "app-token", "name": "accent.soft"}], "@acme/cards/pill.contract#Pill.tone": [{"level": "package", "name": "accent.fill"}], "@acme/cards/pill.contract#Pill.gap": [{"level": "app-param", "name": "@acme/cards/pill.contract#Pill.gap"}], "@acme/cards/pill.contract#Pill.inset": [{"level": "app-param", "name": "@acme/cards/pill.contract#Pill.gap"}], "@acme/cards/pill.contract#Pill.ring": [{"name": "@acme/cards/pill.contract#Pill.ring"}]}} as ada
+  type "name" "Ada"
+  tap "save-name"
+  clock data
+  request POST "/__stub/event" {"client": null, "edited": ["app.tamber"], "files": {"app.tamber": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff", "brand.tamber": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}} as ada
+  clock +1
+  clock settle
+  // The level that wins in the first tuple, read after the design, in words (the raw level its tooltip): one where both
+  // sides agree, each side's where not (glow's when lines are on dark-style, dark's only); other modes differing (fill's
+  // compact branch names the token), said.
+  expect text "param-Pill.fill-level" == "wins: set for this app (other modes differ)"
+  expect text "param-Pill.mark-level" == "wins: set for this app"
+  expect text "param-Pill.edge-level" == "wins: the app's token accent.soft"
+  expect text "param-Pill.tone-level" == "wins: the package's token accent.fill"
+  expect text "param-Pill.glow-level" == "wins in Light: the app's token accent.soft; in Dark: set for this app"
+  // Won through another param's app line: that param named. A reply that says no level: said so.
+  expect text "param-Pill.inset-level" == "wins: set for this app, on Pill.gap"
+  expect text "param-Pill.ring-level" == "wins: not known (this server says no level)"
+  // Each reset says what it removes before it writes: the app's line, and its when branches where it has them.
+  expect text "param-Pill.fill-whens" == "Back to the default removes the app's line and its 2 when branches with it."
+  expect text "param-Pill.edge-whens" == "Back to the default removes the app's line."
+  expect tree missing "param-Pill.tone-whens"
+  // Back to the package where the app has the token's own line: what it removes, and whether the app's own value
+  // still wins: only for a literal line with no when branch (mark), on both scheme sides; fill's branches may be one
+  // side's, and edge's line names the token, so their own lines only stay.
+  expect text "param-Pill.fill-package" == "Back to the package"
+  expect text "param-Pill.mark-package-note" == "removes the app's line for accent.soft, with any when branches it has: the token follows the package's line; the app's own value of this param still wins over it."
+  expect text "param-Pill.fill-package-note" == "removes the app's line for accent.soft, with any when branches it has: the token follows the package's line; the app's own line for this param stays."
+  expect text "param-Pill.edge-package-note" == "removes the app's line for accent.soft, with any when branches it has: the token follows the package's line; the app's own line for this param stays."
+  expect tree missing "param-Pill.tone-package"
+  // Its write: the app's line for the token, removed (`remove-token`), nothing of the package's.
+  tap "param-Pill.fill-package"
+  clock settle
+  expect state editKind == "remove-token"
+  expect state editTarget == "accent.soft"
+  expect text "proposal-tokens" == "accent.soft"
+  tap "cancel-edit"
+  request POST "/__stub/restart" {} as ada
+
+test "a package param the server can't resolve has no level words; the design still shows, unlike a token's (stage 12 D, LLP 1139 D5; review2 17:16)"
+  request POST "/__stub/package-component" {"files": {"app.contract": "c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0c0"}, "components": [{"identity": "@acme/cards/pill.contract#Pill", "name": "Pill", "params": [{"name": "@acme/cards/pill.contract#Pill.fill", "short": "Pill.fill", "param": "fill", "token": "param.f00000002.Pill.fill", "kind": "color", "default": "#0a7aff", "values": ["#0a7affff"], "set": null, "pinned": [], "range": null, "step": null, "control": "token", "options": null, "label": "Fill", "help": null, "group": "Color", "priority": 1, "reaches": null}]}], "refuse": ["@acme/cards/pill.contract#Pill.fill"]} as ada
+  type "name" "Ada"
+  tap "save-name"
+  clock data
+  request POST "/__stub/event" {"client": null, "edited": ["app.tamber"], "files": {"app.tamber": "9999999999999999999999999999999999999999999999999999999999999999", "brand.tamber": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}} as ada
+  clock +1
+  clock settle
+  expect tree missing "design-error"
+  expect text "param-Pill.fill-source" == "the package's default #0a7aff: a change here is set for this app"
+  expect tree missing "param-Pill.fill-level"
+  request POST "/__stub/restart" {} as ada
+
+test "a library component's variant props listed in its panel entry, each with its options, nothing shown as chosen; one with variants and no params listed too (stage 12 D, LLP 1139 D5)"
+  // The server's describe of two library components (stage 12 D3): Chip with an enum and a bool variant, Badge with a variant and no params.
+  request POST "/__stub/library" {"@acme/cards/chip.contract#Chip": {"name": "Chip", "parts": [{"name": "root", "groups": ["paint"], "slot": false}], "variants": [{"prop": "tone", "options": ["plain", "accent"]}, {"prop": "compact", "options": ["false", "true"]}]}, "@acme/cards/badge.contract#Badge": {"name": "Badge", "parts": [{"name": "root", "groups": ["paint"], "slot": false}], "variants": [{"prop": "size", "options": ["small", "medium", "large"]}]}} as ada
+  type "name" "Ada"
+  tap "save-name"
+  clock data
+  // The design read again (an edit's event), so describe gives the library components.
+  request POST "/__stub/event" {"client": null, "edited": ["app.tamber"], "files": {"app.tamber": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff", "brand.tamber": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}} as ada
+  clock +1
+  clock settle
+  expect text "component-Chip-identity" == "@acme/cards/chip.contract#Chip"
+  expect text "variant-Chip-tone" == "tone: plain · accent"
+  expect text "variant-Chip-compact" == "compact: false · true"
+  expect text "component-Badge-identity" == "@acme/cards/badge.contract#Badge"
+  expect text "variant-Badge-size" == "size: small · medium · large"
+  // Badge has no params, so no param group (its variants are text lines above).
+  expect tree missing "param-group-Badge-"
+  // A component with neither (the app's own Card has params, no variants): no variants block.
+  expect tree missing "variants-Card"
+  request POST "/__stub/restart" {} as ada
+
+test "the variant gallery: a toggle beside a local canvas frames the dev loop's /__dev/gallery/ in its place, and says it follows each kept edit, not each scrub frame; none for a page that isn't a loopback origin, nor in States (variant gallery G4)"
+  request POST "/__stub/page" {"page": "http://127.0.0.1:8765"} as ada
+  type "name" "Ada"
+  tap "save-name"
+  clock data
+  reload
+  clock data
+  expect tree has "canvas-frame"
+  expect state galleryOn == false
+  expect state galleryFrame == "http://localhost:8765/__dev/gallery/"
+  expect tree missing "gallery-note"
+  tap "canvas-gallery"
+  expect state galleryOn == true
+  expect tree has "canvas-frame"
+  expect text "gallery-note" == "The variant gallery: each library component the app uses, once per variant value, on the app's design. It follows each kept edit, not each scrub frame. It runs on the JS dev loop; another loop says so in the frame."
+  // States: the copies hold the selection's own view, the app's.
+  type "canvas-view" "states"
+  expect tree missing "canvas-gallery"
+  expect tree missing "gallery-note"
+  type "canvas-view" "one"
+  // A page on another origin is no page: no canvas, so no gallery.
+  request POST "/__stub/page" {"page": "http://example.com:8765"} as ada
+  reload
+  clock data
+  expect tree missing "canvas-frame"
+  expect tree missing "canvas-gallery"
+  expect state galleryFrame == ""
+  request POST "/__stub/page" {"page": null} as ada
+
+test "a gallery copy in the grid: listed as the gallery's, never sent where a moved copy leads, nor reloaded there; one moved leads no other (variant gallery G4)"
+  request POST "/__stub/restart" {} as ada
+  request POST "/__stub/copies" {"gallery": ["exact-copy-2"], "noNavigate": ["exact-copy-3"]} as ada
+  type "name" "Ada"
+  tap "save-name"
+  clock data
+  type "canvas-view" "grid"
+  clock data
+  clock +1000 real
+  clock data
+  clock +1000 real
+  clock data
+  clock +1000 real
+  clock data
+  clock +1000 real
+  clock data
+  expect text "build-name-copy-2" == "web · copy-2 · the gallery"
+  expect text "build-name-copy-1" == "web · copy-1"
+  // An app copy moved: the app copies follow; the gallery's stays on its own page.
+  request POST "/__stub/move" {"build": "copy-1", "location": "/post/3"} as ada
+  clock +1000 real
+  clock data
+  clock +1000 real
+  clock data
+  clock +1000 real
+  clock data
+  expect text "grid-note-exact-copy-3" == "dark · dark-style=dim · 16px · /post/3 · reloaded there: its build can't navigate"
+  expect text "grid-note-exact-copy-2" == "dark · dark-style=black · 16px · /"
+  // The gallery's copy moved: no copy follows it.
+  request POST "/__stub/move" {"build": "copy-2", "location": "/x"} as ada
+  clock +1000 real
+  clock data
+  clock +1000 real
+  clock data
+  expect text "grid-note-exact-copy-1" == "light · 16px · /post/3"
+  expect text "grid-note-exact-copy-3" == "dark · dark-style=dim · 16px · /post/3 · reloaded there: its build can't navigate"
+  // The gallery on: every copy frames it, the one reloaded at the app's place too.
+  tap "canvas-gallery"
+  clock +1000 real
+  clock data
+  clock +1000 real
+  clock data
+  clock +1000 real
+  clock data
+  expect text "grid-note-exact-copy-3" == "dark · dark-style=dim · 16px · /__dev/gallery/"
+  expect text "grid-note-exact-copy-1" == "light · 16px · /__dev/gallery/"
+  type "canvas-view" "one"
+  request POST "/__stub/restart" {} as ada
+
+test "a gallery cell selected: its literal rows read only, the gallery's reason said, no row, promote, tokenize or detach control; its token row's edit is still the app's token (variant gallery G4)"
+  type "name" "Ada"
+  tap "save-name"
+  clock data
+  request POST "/__stub/event" {"event": "builds", "builds": [{"id": "web-js-2", "host": "web-js", "page": "gallery", "capabilities": ["pin", "inspect", "hold"], "status": {"scheme": "dark", "contrast": "no-preference", "mode": {"dark-style": "dim"}, "rootFontSize": 16, "revision": 0}, "pin": null, "pinRevision": 0}]} as ada
+  clock +1
+  clock data
+  expect text "build-name-web-js-2" == "web-js · web-js-2 · the gallery"
+  tap "inspect-toggle"
+  clock data
+  clock +1
+  clock data
+  request POST "/__stub/event" {"event": "selection", "build": "web-js-2", "node": 1, "site": 0, "instance": [], "tuple": {"dark-style": "dim", "density": "regular"}, "trimmed": false, "readOnly": null, "source": {"file": "/repo/node_modules/.cache/exact-gallery/com.x/live/app.contract", "line": 3, "col": 5, "end_col": 11, "component": "Gallery", "chain": []}, "rows": [{"name": "background_color", "value": "#1e2732ff", "source": "authored", "origin": "own", "token": {"names": ["surface.card"], "text": "surface.card", "modes": "dark-style=dim", "implied": false}, "editable": {"rung": "token", "token": "surface.card", "modes": "dark-style=dim"}}, {"name": "opacity", "value": 1, "source": "authored", "origin": "own", "editable": {"rung": null, "reason": "the variant gallery's generated source: read-only (its tokens and params are the app's)"}}]} as ada
+  clock +1
+  clock data
+  expect text "selrow-edit-background-color" == "Edit surface.card"
+  expect text "selrow-reason-opacity" == "the variant gallery's generated source: read-only (its tokens and params are the app's)"
+  expect tree missing "selrow-row-opacity"
+  expect tree missing "selrow-param-opacity"
+  expect tree missing "selrow-detach-opacity"
+  expect tree missing "selrow-state-opacity"
+  expect tree missing "selrow-tokenize-opacity"
+  expect tree missing "selrow-tokenize-background-color"
+  expect tree missing "selrow-detach-background-color"
+  request POST "/__stub/restart" {} as ada

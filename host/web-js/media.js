@@ -8,7 +8,7 @@
 // tree has ended is retired: its player stops and it reports nothing more,
 // so a late `pause`, `timeupdate` or refused play never reaches whatever now
 // holds its place (jukebox F1, F5, F6, F20).
-import { onEnd, inflight, journal, data, clock } from "./rt.js";
+import { onEnd, inflight, journal, data, clock } from "./rt.js"; import { liveById } from "./navigation.js";
 
 // The media session's actions (LLP 1098 D2, D6): the glue sends them as it
 // sends the element's events, with `seekOffset seekTime fastSeek`.
@@ -148,7 +148,7 @@ export function mediaOn(e, kind, f) {
 // the screen, as HTML's Element.requestFullscreen(); the glue reports
 // `fullscreenchange`.
 export const requestFullscreen = id => {
-  const el = document.getElementById(String(id ?? ""));
+  const el = liveById(String(id ?? ""));
   if (!el?.$media) return journal.push(`t=${clock.now} requestFullscreen: refused: no video with id "${id}"`);
   el.requestFullscreen().catch(e => journal.push(`t=${clock.now} requestFullscreen: refused: ${e.name}`));
 };

@@ -193,7 +193,14 @@ fn uses_finds_a_motion_tokens_sites_from_the_loader() {
     assert_eq!(sites[1]["row"], "animation", "{rows:?}");
     assert_eq!(sites[2]["argument"]["component"], "Card", "{rows:?}");
     assert_eq!(sites[2]["via"]["token"], "duration.quick", "{rows:?}");
-    assert_eq!(sites[3]["file"], "lib/ui.contract", "{rows:?}");
+    // The loader's path, which the server's reply names from the app (`shown`).
+    let file = std::path::Path::new(sites[3]["file"].as_str().unwrap());
+    let dir = path.parent().unwrap();
+    assert_eq!(
+        contract::tamber_uses::shown(file, dir),
+        "lib/ui.contract",
+        "{rows:?}"
+    );
 }
 
 /// Review round 1: a used file's animation naming its own keyframes and a

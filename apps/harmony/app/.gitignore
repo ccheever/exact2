@@ -1,0 +1,7 @@
+/target/
+/dist/
+/node_modules/
+/app.contract.d.ts
+/.exact/
+/assets/snapback4.wasm
+/assets/snapback4.wasm.json

@@ -1,6 +1,7 @@
 //! File loading and source identity shared by Contract compilation and navigation.
 //! @ref LLP 1017.000 P8; LLP 1035.005 D2/D3; LLP 1091 (module scope).
 
+mod library;
 pub(crate) mod packages;
 mod refused;
 mod uses;
@@ -31,6 +32,10 @@ pub(crate) struct Sources {
     /// source map says them, so a reader knows a file has not moved since
     /// (LLP 1122 D5, D6's fail-closed rule).
     pub(crate) digests: Vec<String>,
+    /// Each source's home, by source id, as its components' identities
+    /// name it (`home`; LLP 1121 D15): the source map says it, so a reader
+    /// names a param by its full name from the file it reads it in.
+    pub(crate) homes: Vec<Option<String>>,
     /// Each source's text as compiled, by source id: the source map checks
     /// a row's written place against it (LLP 1122 D6), never the disk.
     pub(crate) texts: Vec<std::sync::Arc<str>>,
@@ -104,6 +109,11 @@ impl Sources {
             .zip(self.digests.iter().map(String::as_str))
     }
 
+    /// Source `id`'s home, as its components' identities name it.
+    pub(crate) fn home(&self, id: usize) -> Option<&str> {
+        self.homes.get(id).and_then(|h| h.as_deref())
+    }
+
     pub(crate) fn path(&self, span: contract_syntax::Span) -> &Path {
         &self.paths[span.source_id as usize]
     }
@@ -142,10 +152,12 @@ pub(crate) fn load_partial(
     });
     let mut loader = Loader {
         app_root,
+        root_given: path.to_path_buf(),
         sources: Sources {
             paths: vec![path.to_path_buf()],
             origins: vec![Origin::App],
             digests: vec![digest(src)],
+            homes: Vec::new(),
             texts: vec![src.into()],
             imports: Vec::new(),
             packages: Vec::new(),
@@ -185,7 +197,9 @@ impl Loader<'_> {
         // Each component's `param.` names, as their tokens (LLP 1121 D15),
         // before anything reads a row.
         let mut params_refused: Vec<CompileError> = Vec::new();
+        let mut owned = Vec::new();
         for unit in &mut self.units {
+            owned.extend(contract_lower::params::owned(&unit.file));
             params_refused.extend(
                 contract_lower::params::rewrite(&mut unit.file)
                     .into_iter()
@@ -246,8 +260,16 @@ impl Loader<'_> {
             &params,
             &identities,
         );
+        let library = library::read(&self.sources, self.app_root);
         match self.scope() {
             Ok(mut file) => {
+                let escaped = contract_lower::params::escaped(&file, &owned);
+                if !escaped.is_empty() {
+                    let all = escaped.into_iter().map(CompileError::from).collect();
+                    return Err(resolve(&self.sources, all));
+                }
+                file.library = library.components;
+                file.library_packages = library.packages;
                 file.design = design;
                 file.package_designs = package_designs;
                 crate::modules::desugar(&mut file).map_err(|all| resolve(&self.sources, all))?;
@@ -260,11 +282,15 @@ impl Loader<'_> {
 
 /// A source's file as a component's identity names it (LLP 1121 D15),
 /// from where the file is alone, never the route a `use` reached it by: a
-/// file in a package (the nearest directory above it, below the app's own,
-/// whose `package.json` has a name: under `node_modules`, linked from
-/// elsewhere, or vendored) under the package's name, else the file relative
-/// to the app's directory.
-fn home(path: &Path, origin: &Origin, app_root: &Path) -> String {
+/// file in a package (the nearest directory above it, below the app's own
+/// and no higher than a linked package's root, whose `package.json` has a
+/// name: under `node_modules`, linked from elsewhere, or vendored) under
+/// the package's name, else the file relative to the app's directory (the
+/// root linked into the app's tree, where the link sits). None for a file
+/// outside the app in no named package: its place from
+/// the app would spell this machine's directories, so it is refused
+/// ([`UNNAMED`]).
+fn home(path: &Path, origin: &Origin, app_root: &Path) -> Option<String> {
     let path = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
     let app = app_root
         .canonicalize()
@@ -280,33 +306,60 @@ fn home(path: &Path, origin: &Origin, app_root: &Path) -> String {
             .and_then(|t| serde_json::from_str::<serde_json::Value>(&t).ok())
             .and_then(|m| m["name"].as_str().map(str::to_string))
     };
+    // A directory above a linked package's root is none of the package's.
+    let root = match origin {
+        Origin::Package { root, .. } => Some(root.as_path()),
+        _ => None,
+    };
     for dir in path.ancestors().skip(1) {
-        // The app's own directory and those above it are no package of it.
-        if app.starts_with(dir) {
+        // The app's own directory and those above it are no package of it,
+        // unless the package holds the app (a package's own test app).
+        let ours = root.is_some_and(|r| dir.starts_with(r));
+        if !ours && app.starts_with(dir) {
             break;
         }
         if let (Some(name), Some(rest)) = (named(dir), relative(dir)) {
-            return format!("{name}/{rest}");
+            return Some(format!("{name}/{rest}"));
+        }
+        if root == Some(dir) {
+            break;
         }
     }
     if let Some(rest) = relative(&app) {
-        return rest;
+        return Some(rest);
     }
     match origin {
-        Origin::Builtin => path.to_string_lossy().into_owned(),
-        // Outside the app, in no named package: by its place from the app
-        // (`../libs/a/index.contract`), never its file name alone.
-        _ => {
-            let (a, p): (Vec<_>, Vec<_>) =
-                (app.components().collect(), path.components().collect());
-            let common = a.iter().zip(&p).take_while(|(x, y)| x == y).count();
-            let up = std::iter::repeat_n("..".to_string(), a.len() - common);
-            let down = p[common..]
-                .iter()
-                .map(|c| c.as_os_str().to_string_lossy().into_owned());
-            up.chain(down).collect::<Vec<_>>().join("/")
-        }
+        Origin::Builtin => Some(path.to_string_lossy().into_owned()),
+        _ => None,
     }
+}
+
+/// [`home`] for the root file linked into the app's tree from elsewhere
+/// (conform's corpus fixtures: `conformance/tabs.contract`, a link to the
+/// corpus's), by `given`, the path it was named by: the app's own, named
+/// where the link sits. None for a package's file, or a link outside. A
+/// file a `use` reaches is its canonical path's, refused outside the app
+/// by its `use` (`contract-use-path`).
+fn linked_home(given: &Path, origin: &Origin, app_root: &Path) -> Option<String> {
+    if matches!(origin, Origin::Package { .. }) {
+        return None;
+    }
+    let app = app_root.canonicalize().ok()?;
+    // A bare file name's directory is the working one, as `app_root`'s is.
+    let dir = given.parent().filter(|d| !d.as_os_str().is_empty());
+    let dir = dir.unwrap_or(Path::new(".")).canonicalize().ok()?;
+    let at = dir.join(given.file_name()?);
+    at.strip_prefix(&app)
+        .ok()
+        .map(|p| p.to_string_lossy().replace('\\', "/"))
+}
+
+/// The refusal of a component file outside the app in no named package.
+const UNNAMED: &str = "contract-package-unnamed";
+
+/// [`UNNAMED`]'s words: the package as its `use` named it, never its path.
+fn unnamed(package: &str) -> String {
+    format!("the package `{package}` is outside the app and its `package.json` has no `name`: a package outside the app needs a name in its package.json")
 }
 
 /// Where the app's design is (LLP 1121 D2): the file `app.json`'s
@@ -454,62 +507,7 @@ pub fn code_beside(root: &Path) -> bool {
     })
 }
 
-/// The `use` lines each file of the program rooted at `path` lacks (LLP
-/// 1091 D1), for `contract fmt --uses`; the loader's other refusals as
-/// they are.
-pub(crate) fn use_fixes(
-    path: &Path,
-    src: &str,
-    app_root: &Path,
-) -> Result<Vec<uses::UseFix>, Vec<CompileError>> {
-    let root_key = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
-    let mut loader = Loader {
-        app_root,
-        sources: Sources {
-            paths: vec![root_key.clone()],
-            origins: vec![Origin::App],
-            digests: vec![digest(src)],
-            texts: vec![src.into()],
-            imports: Vec::new(),
-            packages: Vec::new(),
-            consulted: Vec::new(),
-            motion: Vec::new(),
-        },
-        active: vec![root_key.clone()],
-        units: Vec::new(),
-        cache: HashMap::new(),
-        fixes: Vec::new(),
-        proposed: Vec::new(),
-        declared: Vec::new(),
-        motion: Vec::new(),
-        refused: Refused::default(),
-    };
-    let resolve = |sources: &Sources, all: Vec<CompileError>| {
-        all.into_iter()
-            .map(|e| sources.resolve(e))
-            .collect::<Vec<_>>()
-    };
-    let loaded = loader.load_source(&root_key, src, 0);
-    if !loader.refused.errors.is_empty() {
-        return Err(std::mem::take(&mut loader.refused.errors));
-    }
-    if let Err(all) = loaded {
-        return Err(resolve(&loader.sources, all));
-    }
-    match loader.scope() {
-        Ok(_) => Ok(Vec::new()),
-        Err(_) if !loader.fixes.is_empty() => Ok(std::mem::take(&mut loader.fixes)
-            .into_iter()
-            .map(|mut fix| {
-                fix.error = loader.sources.resolve(fix.error);
-                fix
-            })
-            .collect()),
-        Err(all) => Err(resolve(&loader.sources, all)),
-    }
-}
-
-pub(crate) use uses::apply as apply_uses;
+pub(crate) use uses::{apply as apply_uses, unreached, use_fixes};
 
 /// One source a compilation reads (LLP 1091 D10).
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -553,10 +551,12 @@ pub(crate) fn graph(path: &Path, src: &str, app_root: &Path) -> SourceGraph {
     let root_key = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
     let mut loader = Loader {
         app_root,
+        root_given: path.to_path_buf(),
         sources: Sources {
             paths: vec![root_key.clone()],
             origins: vec![Origin::App],
             digests: vec![digest(src)],
+            homes: Vec::new(),
             texts: vec![src.into()],
             imports: Vec::new(),
             packages: Vec::new(),
@@ -659,6 +659,8 @@ pub(crate) fn graph(path: &Path, src: &str, app_root: &Path) -> SourceGraph {
     // for, so adding it rebuilds.
     let (designs, unmade) = packages::sources(&loader.sources);
     sources.extend(designs);
+    // The files that say which components are the library's (LLP 1139 D0).
+    let library = library::read(&loader.sources, app_root).read;
     let missing: Vec<PathBuf> = missing.into_iter().chain(unmade).collect();
     sources.extend(icons.into_iter().map(|path| Source {
         path,
@@ -672,6 +674,7 @@ pub(crate) fn graph(path: &Path, src: &str, app_root: &Path) -> SourceGraph {
             .consulted
             .into_iter()
             .chain(missing)
+            .chain(library)
             .collect(),
         errors,
     }
@@ -685,6 +688,9 @@ struct Unit {
 
 struct Loader<'a> {
     app_root: &'a Path,
+    /// The root file as it was named: one linked into the app's tree is
+    /// named where the link sits ([`linked_home`]).
+    root_given: PathBuf,
     sources: Sources,
     // Each file is loaded once, whichever paths reach it; a unit's index is
     // its source id. Only the active stack decides cycles.
@@ -735,14 +741,32 @@ impl Loader<'_> {
         };
         // Each component's identity, its file relative to its root and its
         // name (LLP 1121 D15): what its params are named by.
-        let home = home(
-            path,
-            &self.sources.origins[source_id as usize],
-            self.app_root,
-        );
+        let origin = &self.sources.origins[source_id as usize];
+        let found = home(path, origin, self.app_root);
+        let linked = || match source_id {
+            0 => linked_home(&self.root_given, origin, self.app_root),
+            _ => None,
+        };
+        let Some(home) = found.or_else(linked) else {
+            // `link` refuses it at the `use` first; this is the backstop.
+            let span = Span {
+                source_id,
+                ..Default::default()
+            };
+            let name = match origin {
+                Origin::Package { name, .. } => name.as_str(),
+                _ => "",
+            };
+            return Err(vec![name_error(UNNAMED, unnamed(name), span)]);
+        };
         for c in &mut file.components {
             c.params.identity = Some(format!("{home}#{}", c.name));
         }
+        let homes = &mut self.sources.homes;
+        if homes.len() <= source_id as usize {
+            homes.resize(source_id as usize + 1, None);
+        }
+        homes[source_id as usize] = Some(home);
         contract_analyze::check_routes_root(&file, self.active.len() == 1)
             .map_err(|e| vec![CompileError::from(e)])?;
         self.units.push(Unit {
@@ -768,6 +792,12 @@ impl Loader<'_> {
             .map_err(|(id, message)| {
                 vec![use_error(id, format!("{}: {message}", described(u)), u)]
             })?;
+            if let Origin::Package { name, .. } = &resolved.origin {
+                if home(&resolved.key, &resolved.origin, self.app_root).is_none() {
+                    let message = format!("{}: {}", described(u), unnamed(name));
+                    return Err(vec![use_error(UNNAMED, message, u)]);
+                }
+            }
             if let Origin::Package {
                 name,
                 version,
@@ -1321,6 +1351,8 @@ impl Loader<'_> {
             // The design is the app's, read beside its root (`design`).
             design: None,
             package_designs: Vec::new(),
+            library: Vec::new(),
+            library_packages: Vec::new(),
             fns: all!(fns),
             modules: all!(modules),
             components: all!(components),

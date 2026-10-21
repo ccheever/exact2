@@ -109,6 +109,7 @@ component DuoLab
   // screen, one pane each, take the trailing segment, off the hinge: the default
   // docs/recipes/foldables.md chooses, as Apple's talk moves an alert there, under the
   // outer display as the device closes. Segment 0 keeps a pane on the leading side.
+  // The tablist's tabs, where it is a bar along the bottom, keep to the trailing segment too.
   derive paneLeft = twoAcross ? "env(viewport-segment-left 1 0)" : "0px"
   derive paneWidth = twoAcross ? "env(viewport-segment-width 1 0)" : "100%"
   derive paneInset = twoAcross ? "0px" : "env(-exact-safe-area-corners-inset-left)"
@@ -174,8 +175,11 @@ component DuoLab
                     // second, each inset on its own side by the safe area kept clear
                     // of the panel's corners (LLP 1123 D10); two down
                     // (the Duo's inner panel upright): the list on the upper, the
-                    // detail on the lower. The band belongs to neither (LLP 1078 D1,
-                    // D3); one segment stacks the panes.
+                    // detail on the lower. A pane reaching the bottom ends where the
+                    // route does: under UIKit's tab bar along the bottom by the home
+                    // indicator's inset, which its padding takes; at the bottom beside
+                    // UIKit's rail; above the web's tablist. The band
+                    // belongs to neither (LLP 1078 D1, D3); one segment stacks the panes.
                     if twoAcross
                       column testId="pane-list" width="env(viewport-segment-width 0 0)" height="100%" box-sizing="border-box" padding-top="env(-exact-safe-area-corners-inset-top)" padding-bottom="env(-exact-safe-area-corners-inset-bottom)" padding-left="env(-exact-safe-area-corners-inset-left)"
                         Facts(viewport=viewport)
@@ -187,7 +191,7 @@ component DuoLab
                         column testId="pane-list" width="100%" height="env(viewport-segment-height 0 0)" box-sizing="border-box" padding-top="env(-exact-safe-area-corners-inset-top)" padding-right="env(-exact-safe-area-corners-inset-right)" padding-left="env(-exact-safe-area-corners-inset-left)"
                           Facts(viewport=viewport)
                           ItemList(items=items, selected=selected, choose=choose)
-                        column testId="pane-detail" position="absolute" left=0 top="env(viewport-segment-top 0 1)" width="100%" height="env(viewport-segment-height 0 1)" box-sizing="border-box" padding-right="env(-exact-safe-area-corners-inset-right)" padding-bottom="env(-exact-safe-area-corners-inset-bottom)" padding-left="env(-exact-safe-area-corners-inset-left)" background-color="-exact-secondary-background"
+                        column testId="pane-detail" position="absolute" left=0 top="env(viewport-segment-top 0 1)" bottom=0 width="100%" box-sizing="border-box" padding-right="env(-exact-safe-area-corners-inset-right)" padding-bottom="env(-exact-safe-area-corners-inset-bottom)" padding-left="env(-exact-safe-area-corners-inset-left)" background-color="-exact-secondary-background"
                           Detail(items=items, selected=selected)
                       else
                         column testId="pane-list" flex=1 min-height=0 width="100%" box-sizing="border-box" padding-top="env(-exact-safe-area-corners-inset-top)" padding-right="env(-exact-safe-area-corners-inset-right)" padding-left="env(-exact-safe-area-corners-inset-left)"
@@ -210,11 +214,15 @@ component DuoLab
                           text "Back" font-size=14 font-weight=600 color="AccentColor"
                         text "Note" font-size=20 font-weight=700 testId="note-title"
                       text "A pushed route. The sheet below holds a textarea; its keyboard shortens the viewport (resizes-content)." class=Note padding-top=8
-                    // Partially folded like a laptop (two segments down), the sheet keeps to the lower
-                    // segment, where UIKit's sheets go and Apple's talk puts controls. The
-                    // keyboard fills that segment, and the sheet riding on it then takes the
-                    // upper one, below the header.
-                    column id="note-sheet" testId="note-sheet" position="absolute" bottom=0 left=paneLeft right=0 height=sheetPx max-height=(twoDown ? "min(env(viewport-segment-height 0 1), calc(100% - env(-exact-safe-area-corners-inset-top) - 72px))" : "calc(100% - 72px)") box-sizing="border-box" padding=16 padding-right="calc(env(-exact-safe-area-corners-inset-right) + 16px)" padding-bottom="calc(env(-exact-safe-area-corners-inset-bottom) + 16px)" padding-left=(twoAcross ? "16px" : "calc(env(-exact-safe-area-corners-inset-left) + 16px)") gap=12 background-color="-exact-secondary-background" border-top-left-radius=20 border-top-right-radius=20 transition="height -exact-spring(300, 30, 1)"
+                    // Partially folded like a laptop (two segments down), the sheet keeps below the
+                    // header and on the lower segment, where Apple's talk puts controls, down to the
+                    // route's end: the viewport's bottom, as this screen hides the tab bar. The
+                    // keyboard covers that segment and ends the route above it; the segment keeps its
+                    // top, 0 tall (LLP 1078, the keyboard). The step `(segment top - 100%) * 1000`,
+                    // at most zero while the route reaches the segment and past any cap once it ends
+                    // a point or more above it, then lifts the segment's cap, and the sheet riding
+                    // the keyboard takes the room below the header.
+                    column id="note-sheet" testId="note-sheet" position="absolute" bottom=0 left=paneLeft right=0 height=sheetPx max-height=(twoDown ? "min(calc(100% - env(-exact-safe-area-corners-inset-top) - 72px), max(calc(100% - env(viewport-segment-top 0 1)), calc((env(viewport-segment-top 0 1) - 100%) * 1000)))" : "calc(100% - 72px)") box-sizing="border-box" padding=16 padding-right="calc(env(-exact-safe-area-corners-inset-right) + 16px)" padding-bottom="calc(env(-exact-safe-area-corners-inset-bottom) + 16px)" padding-left=(twoAcross ? "16px" : "calc(env(-exact-safe-area-corners-inset-left) + 16px)") gap=12 background-color="-exact-secondary-background" border-top-left-radius=20 border-top-right-radius=20 transition="height -exact-spring(300, 30, 1)"
                       column heightDragFor="note-sheet" heightrelease=snapSheet touch-action="none" testId="sheet-handle" aria-label="Resize the note sheet" gap=3
                         text "Note" font-size=18 font-weight=600
                         text "Drag to resize" font-size=11 color="-exact-secondary-label"
@@ -224,7 +232,11 @@ component DuoLab
                         text (noteFocused ? "editing" : "idle") testId="note-state" font-size=13 color="-exact-secondary-label"
                       input appearance="none" value=title input=writeTitle focus=focusIn blur=focusOut placeholder="Title" testId="note-title-input" aria-label="Title" width="100%" box-sizing="border-box" padding=10 border-width=1 border-style="solid" border-color="-exact-separator" border-radius=10 font-size=16
                       textarea appearance="none" value=draft input=write focus=focusIn blur=focusOut placeholder="Write, then fold" testId="note-textarea" aria-label="Note" width="100%" min-height=96 box-sizing="border-box" padding=12 border-width=1 border-style="solid" border-color="-exact-separator" border-radius=10 font-size=16 line-height="22px"
-      row role="tablist" testId="tab-bar"
+      // Hidden on the note screen, an editor, as the guide hides a route's tab bar
+      // (docs/contract-for-agents.md, "Hide the tab bar on a route"). On a book
+      // fold its tabs keep to the trailing segment with the panes, by a padding the web's
+      // sidebar (900px and wider) overrides.
+      row role="tablist" testId="tab-bar" display=(current.name == "note" ? "none" : "flex") padding-left=(twoAcross ? "env(viewport-segment-left 1 0)" : "0px")
         button role="tab" aria-controls="panel-fold" aria-selected=(nav.tab == "fold") press=selectTab("fold") testId="tab-fold" flex=1
           image "symbol:book"
           text "Fold"

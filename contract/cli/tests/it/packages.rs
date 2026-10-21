@@ -289,6 +289,8 @@ component App
         EmptyState(symbol="symbol:calendar", title="Bare", message="No action.")
       column testId="space" height=600
         EmptyState(symbol="symbol:calendar", title="Centred", message="In the space it is given.")
+      column testId="short" height=120
+        EmptyState(symbol="symbol:calendar", title="Taller", message="Than the space it is given, which it scrolls.")
       column testId="rows"
         RowText(title="Monday", detail="Oct 5", value=some("1,800 ml"))
         RowText(title="Tuesday", detail="", value=none)
@@ -398,6 +400,22 @@ component App
         (space[1].frame.height - 600.0).abs() < 0.5 && title.y > 150.0,
         "{:?} {title:?}",
         space[1].frame
+    );
+    // Taller than its space, it scrolls with its top in reach.
+    let short = k.node(at(k, "short")).unwrap().frame;
+    let taller = find("short", "Taller").frame;
+    assert!(
+        taller.y >= short.y,
+        "the title in reach: {short:?} {taller:?}"
+    );
+    let scroll = under(k, at(k, "short"))
+        .into_iter()
+        .find(|n| n.node_type == NodeType::ScrollView)
+        .expect("a scroll");
+    assert!(
+        (scroll.frame.height - 120.0).abs() < 0.5,
+        "the scroll is the space: {:?}",
+        scroll.frame
     );
     // A row's detail and trailing value show only when given.
     find("rows", "Oct 5");
@@ -676,7 +694,7 @@ component App
         .unwrap();
     let k = r.kernel();
     // The box of the title and detail, the value beside it in one parent, and that parent.
-    let parts = |t: &str| {
+    let parts = |k: &exact_kernel::Kernel, t: &str| {
         let all = under(k, at(k, t));
         let text = |s: &str| {
             all.iter()
@@ -706,7 +724,7 @@ component App
             parent(value.id).frame,
         )
     };
-    let (title, lines, value, row) = parts("short");
+    let (title, lines, value, row) = parts(k, "short");
     assert!(
         value.y < lines.y + lines.height,
         "beside: {lines:?} {value:?}"
@@ -717,7 +735,7 @@ component App
         "the value at the far edge"
     );
     assert!(title.width > 0.0);
-    let (title, lines, value, row) = parts("long");
+    let (title, lines, value, row) = parts(k, "long");
     assert!(
         title.width >= 8.0 * 8.0,
         "the title keeps its words: {title:?}"
@@ -729,6 +747,17 @@ component App
     assert!(
         value.width <= row.width,
         "it wraps in the row: {value:?} {row:?}"
+    );
+    // At an accessibility size (AX1, a 28-point body) a short pair stacks too.
+    r.set_root_font_size(28.0).unwrap();
+    let k = r.kernel_mut();
+    k.compute_layout(top, Offer::definite(400.0, 800.0))
+        .unwrap();
+    let k = r.kernel();
+    let (_, lines, value, _) = parts(k, "short");
+    assert!(
+        value.y >= lines.y + lines.height && value.x == 0.0,
+        "under it at AX1: {lines:?} {value:?}"
     );
 }
 
@@ -749,6 +778,8 @@ component App
     column testId="root" width=900 height=2000
       column testId="wide" width=400
         RingProgress(label="Focus", value="17:30", fraction=0.3, tint=none)
+      column testId="long" width=400
+        RingProgress(label="Today", value="100,749 ml", fraction=1, tint=none)
       row testId="pair" width=370 flex-wrap="wrap" gap=16
         column flex="1 1 160px" testId="left"
           RingProgress(label="Water", value="2,000", fraction=1.2, tint=none)
@@ -816,6 +847,21 @@ component App
         "held to 1"
     );
     assert_eq!(right.props.str(PropId::AccessibilityValueNow), Some("0"));
+    // A value wider than the ring's inside is drawn smaller, inside its
+    // stroke (water-tracker's "100,749 ml", round 29).
+    let ring = &rings("long")[0];
+    let value = under(k, ring.id)
+        .into_iter()
+        .find(|n| n.props.str(PropId::Text) == Some("100,749 ml"))
+        .unwrap();
+    let (box_, scale, x) = (value.frame, value.fit_scale(), ring.frame.x);
+    assert!(
+        scale < 1.0
+            && box_.x >= x + 0.18 * 200.0 - 0.5
+            && box_.x + box_.width <= x + 0.82 * 200.0 + 0.5,
+        "fitted inside the ring at {scale}: {box_:?} in {:?}",
+        ring.frame
+    );
     // The ring's colour is the svg's: the accent, green at the goal, the tint.
     let ink = |t: &str| {
         under(k, at(k, t))
@@ -1101,6 +1147,23 @@ component App
             (title("Sushi"), false, Accessory::Checkmark, false),
         ]
     );
+    // The tile's own look gives way to the row's on every host (`-exact-row-look`):
+    // no tile edge or fill in the list's card, as the sheet draws a row.
+    {
+        let k = r.kernel();
+        let sushi = k.node(at(k, "Sushi")).unwrap();
+        assert!(
+            !sushi
+                .style
+                .written
+                .has(exact_kernel::StyleId::BorderWidthTop),
+            "no tile edge the author wrote"
+        );
+        assert_ne!(
+            sushi.style.border_width_top, 2.0,
+            "the tile's 2-point edge is gone"
+        );
+    }
     let close = at(r.kernel(), "close");
     r.dispatch(close, exact_runner::Event::Press).unwrap();
     assert_eq!(

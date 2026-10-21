@@ -751,6 +751,8 @@ pub(crate) fn continue_document(
                     defaults::after_prop(arena, layout, starts, touched, receipt);
                     source_changed(arena, slot, *prop, receipt);
                     text_style::shorthand_changed(arena, layout, slot, *prop, touched, receipt);
+                    receipt.layout_invalidated |=
+                        crate::rows::prop_changed(arena, layout, slot, *prop, touched);
                     touched.push(arena.key(slot));
                 }
                 Op::ClearProp { id, prop } => {
@@ -786,6 +788,8 @@ pub(crate) fn continue_document(
                         defaults::after_prop(arena, layout, starts, touched, receipt);
                         source_changed(arena, slot, *prop, receipt);
                         text_style::shorthand_changed(arena, layout, slot, *prop, touched, receipt);
+                        receipt.layout_invalidated |=
+                            crate::rows::prop_changed(arena, layout, slot, *prop, touched);
                         touched.push(arena.key(slot));
                     }
                 }
@@ -859,13 +863,11 @@ pub(crate) fn continue_document(
                         .collect();
                     // Whether a grouped list's margins reach each box that
                     // arrives or leaves, read before any parent changes.
-                    let reached: Vec<(u32, bool)> = if arena.has_grouped_margins() {
+                    let reached: Vec<(u32, bool)> = {
                         let arriving = new.iter().filter(|n| arena.parent(**n) != Some(slot));
                         let leaving = detached.iter().map(|d| &d.0);
                         let at = |n: &u32| (*n, crate::grouped::reached(arena, *n));
                         arriving.chain(leaving).map(at).collect()
-                    } else {
-                        Vec::new()
                     };
                     for o in &old {
                         if !retained.contains(o) {
@@ -911,14 +913,14 @@ pub(crate) fn continue_document(
                         count(arena.children(p).len(), 0);
                         arena.prune_children(p);
                         sync_children(arena, layout, p);
-                        crate::kernel::cover_children_changed(arena, layout, p);
+                        crate::kernel::cover_children_changed(arena, layout, p, touched);
                         arena.flags_mut(p).insert(NodeFlags::CHILDREN_DIRTY);
                         touched.push(arena.key(p));
                         defaults::changed(arena, layout, p, context, touched, receipt);
                     }
                     arena.set_children(slot, new);
                     sync_children(arena, layout, slot);
-                    crate::kernel::cover_children_changed(arena, layout, slot);
+                    crate::kernel::cover_children_changed(arena, layout, slot, touched);
                     // A box into or out of a grouped list takes or sheds the platform's margins.
                     for (n, was) in reached {
                         if was || crate::grouped::reached(arena, n) {
@@ -1140,8 +1142,16 @@ fn sync_children(arena: &NodeArena, layout: &mut dyn LayoutMirror, parent: u32) 
         return;
     };
     let _entries = layout.sync_children(arena, parent, node);
-    if arena.neutral_alert(parent) {
-        for child in arena.children(parent) {
+    // An alert's defaults read its children: whether it is grouped or a part
+    // box empty (its own and, for its actions' margin, its siblings'), and a
+    // row's place among them (arena/alert.rs)
+    if arena.neutral_alert(parent) || arena.alert_group(parent) {
+        layout.restyle(arena, parent, node);
+        let siblings = match arena.parent(parent) {
+            Some(alert) if arena.alert_group(parent) => arena.children(alert),
+            _ => &[],
+        };
+        for child in arena.children(parent).iter().chain(siblings) {
             if let Some(node) = arena.taffy(*child) {
                 layout.restyle(arena, *child, node);
                 layout.mark_dirty(node);
@@ -1197,7 +1207,7 @@ impl Detach {
                 count(arena.children(parent).len(), 0);
                 arena.prune_children(parent);
                 sync_children(arena, layout, parent);
-                crate::kernel::cover_children_changed(arena, layout, parent);
+                crate::kernel::cover_children_changed(arena, layout, parent, touched);
                 defaults::changed(arena, layout, parent, context, touched, receipt);
             }
         }
@@ -1376,13 +1386,8 @@ fn style_changed(
         {
             sync_children(arena, layout, slot);
         }
-        // A replaced header's padding is part of its route's top cover.
-        if arena.cover(slot) == Some(crate::kernel::HostCover::Whole) {
-            if let Some((p, node)) = arena.parent(slot).and_then(|p| Some((p, arena.taffy(p)?))) {
-                layout.restyle(arena, p, node);
-                layout.mark_dirty(node);
-            }
-        }
+        // What a cover takes of the box's parent or covered box (`cover::style_changed`).
+        crate::kernel::cover_style_changed(arena, layout, slot, &mask);
         receipt.layout_invalidated = true;
     }
     if mask.intersects(StyleMask::TEXT) {

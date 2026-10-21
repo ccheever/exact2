@@ -401,7 +401,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
     package override func becomeFirstResponder() -> Bool {
         guard !formDisabled, !inert, !cssVisibilityHidden else { return false }
         let ok = super.becomeFirstResponder()
-        if ok { presenter?.collections.pinsChanged() }
+        if ok { presenter?.collections.pinsChanged(); inputCanvas?.canvasInput?.focused() }
         if ok, presenter?.menus.focus.quiet != true { presenter?.focus(id) } // a menu's set-aside focus returns quietly (MenuFocusIOS)
         return ok
     }
@@ -410,6 +410,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
         if ok { showFocusRing(false) }
         if ok { presenter?.collections.pinsChanged() }
         if ok && !isSurfaceControl { inputCanvas?.canvasInput?.blur() }
+        if ok { inputCanvas?.canvasInput?.focusLeft() }
         if ok, presenter?.menus.focus.quiet != true { presenter?.blur(id) }
         return ok
     }
@@ -833,9 +834,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
         // padding and footer room remain content), and the
         // port plus the range UIKit clamps a settled offset to, so at the
         // end `scrollHeight - scrollTop - clientHeight` is 0 (chat F4).
-        let inset = sv.adjustedContentInset, viewportInset = scrollPortInsets(sv)
-        let port = CGSize(width: max(0, sv.bounds.width - viewportInset.left - viewportInset.right),
-                          height: max(0, sv.bounds.height - viewportInset.top - viewportInset.bottom))
+        let inset = sv.adjustedContentInset, port = scrollPort(sv).size
         let range = CGSize(width: max(0, sv.contentSize.width + inset.right - sv.bounds.width),
                            height: max(0, sv.contentSize.height + inset.bottom - sv.bounds.height + top))
         presenter?.scroll(id, [point.x, point.y + top, port.width + range.width, port.height + range.height,
@@ -1019,7 +1018,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
     package func color(_ key: String, _ fallback: UIColor) -> UIColor { cgColor(key).map { UIColor(cgColor: $0) } ?? fallback }
     /// CSS `::placeholder { color }` (LLP 1104 D3); nil, the platform's.
     var placeholderColor: UIColor? { cgColor("placeholder_color").map { UIColor(cgColor: $0) } }
-    func cgColor(_ key: String, dark: Bool? = nil) -> CGColor? { style[key].flatMap { $0.cgColor(dark: dark ?? drawsDark, contrast: drawsHighContrast, elevated: drawsElevated, tint: ownTint(for: $0)) } }
+    package func cgColor(_ key: String, dark: Bool? = nil) -> CGColor? { style[key].flatMap { $0.cgColor(dark: dark ?? drawsDark, contrast: drawsHighContrast, elevated: drawsElevated, tint: ownTint(for: $0)) } }
     package func number(_ key: String, _ fallback: CGFloat = 0) -> CGFloat {
         if let n = style[key]?.number { return CGFloat(n) }
         return fallback
@@ -1152,14 +1151,16 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
             if ownInert { endEditing(true) }
             isUserInteractionEnabled = !ownInert
         }
-        accessibilityElementsHidden = hidesAccessibility
+        // UIKit keeps each accessibility property a view is given, an unchanged
+        // one too, in an associated object table: so each is set only on change.
+        if accessibilityElementsHidden != hidesAccessibility { accessibilityElementsHidden = hidesAccessibility }
         updateKeyboardDismissal()
         updateMaterial()
         applyTextArea()
         if let f = field { applyField(f, set: set, clear: clear) }
-        if disabled || ariaUnavailable { accessibilityTraits.insert(.notEnabled) } else { accessibilityTraits.remove(.notEnabled) }
-        accessibilityIdentifier = props["testId"]
-        accessibilityLabel = props["accessibilityLabel"]
+        if accessibilityTraits.contains(.notEnabled) != (disabled || ariaUnavailable) { accessibilityTraits.formSymmetricDifference(.notEnabled) }
+        if accessibilityIdentifier != props["testId"] { accessibilityIdentifier = props["testId"] }
+        if accessibilityLabel != props["accessibilityLabel"] { accessibilityLabel = props["accessibilityLabel"] }
         updateTextAccessibility()
         if actsAsButton {
             isAccessibilityElement = true
@@ -1235,6 +1236,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
         if superview == nil { boxFilter?.remove() } else if boxFilter != nil { renderFilter() }
         // A box styled before it joined its parent learns its material now.
         if superview != nil { syncVibrancy() }
+        if superview != nil, style["color_scheme"] != nil || overrideUserInterfaceStyle != .unspecified { settleColorScheme() }
     }
     func applyStyle(_ s: NodeStyle) {
         defer { video?.update(); layoutContent(); applyCssVisibility(); if columnRecord?.columns.isEmpty == false { layoutColumnRules() } }
@@ -1257,6 +1259,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
         applyFieldStyle()
         if s["transform_origin"] != origin { applyTransform() }
         applySpace(changedFrom: old)
+        decorationChanged(from: old)
         setNeedsDisplay()
     }
 
@@ -1358,7 +1361,17 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
         let travel = size.width - sv.bounds.width
         let row = { (v: NodeView) in v.style["display"]?.string == "flex" || v.style["flex_direction"] != nil ? !(v.style["flex_direction"]?.string ?? "row").hasPrefix("column") : false }
         let carousel = travel > 0.5 && (travel > sv.bounds.width / 4 || row(self) || sv.subviews.contains { ($0 as? NodeView).map { $0.frame.width > sv.bounds.width + 0.5 && row($0) } ?? false })
-        sv.alwaysBounceVertical = sv.scrollsY && (size.height > sv.bounds.height + 0.5 || !carousel)
+        // One that fits inside an author's scroller that scrolls down leaves
+        // the drag to it, as a nested UIScrollView does (an `EmptyState` in a
+        // page's `scroll`). The presenter's viewport is no author's.
+        let fits = size.height <= sv.bounds.height + 0.5
+        // Pull to refresh needs its own drag.
+        var nested = false, up = fits && !handlers.contains("refresh") ? sv.superview : nil
+        while let v = up, !nested {
+            if let outer = v as? ScrollView, !(outer is Viewport) { nested = outer.scrollsY }
+            up = v.superview
+        }
+        sv.alwaysBounceVertical = sv.scrollsY && !nested && (!fits || !carousel)
     }
 
     package override func layoutSubviews() {

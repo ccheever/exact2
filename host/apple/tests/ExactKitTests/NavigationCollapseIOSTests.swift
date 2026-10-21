@@ -109,6 +109,26 @@ final class NavigationCollapseIOSTests: XCTestCase {
         return session
     }
 
+    /// `navigationBar="transparent"` over `scripts/fixtures/transparent-bar.contract`:
+    /// the bar shows, clear at the top of the route's scroller, whose content
+    /// starts at the top edge under it (UIKit insets it nothing), as under a
+    /// fixed transparent header on the web; the route is covered nothing
+    /// at the top, so the hero picture bleeds to the edge.
+    func testATransparentBarInsetsNothingOfItsScroller() throws {
+        let session = try booted("EXACT_TRANSPARENT_BAR_PLAN", label: "transparent-bar", beforeItsWindow: true)
+        let nav = try XCTUnwrap(session.presenter.navigation.primaryNavigation)
+        let route = try XCTUnwrap(nav.topViewController as? RouteController)
+        XCTAssertFalse(nav.isNavigationBarHidden, "the bar shows")
+        XCTAssertEqual(route.navigationItem.scrollEdgeAppearance, NavigationHost.clearScrollEdge, "clear at the scroller's top")
+        let home = try node(session, "home-scroll"), sv = try XCTUnwrap(home.scroll)
+        XCTAssertTrue(route.collapseScroll === home, "the bar follows the route's scroller")
+        XCTAssertEqual(sv.contentInsetAdjustmentBehavior, .never)
+        XCTAssertEqual(sv.adjustedContentInset.top, 0, "UIKit insets it nothing")
+        let hero = try node(session, "hero")
+        XCTAssertEqual(hero.convert(hero.bounds, to: nil).minY, 0, accuracy: 0.5, "the picture starts at the top edge, under the bar")
+        XCTAssertEqual(home.scrollOrigin, 0, "CSS scrollTop 0 is the top edge")
+    }
+
     /// LLP 1115.000 D11.1 over `scripts/fixtures/large-title.contract`: one
     /// stack with no tabs, the shape `exact new` makes, whose first screen
     /// names no scroller. Its large title opens expanded, its content below
@@ -201,6 +221,30 @@ final class NavigationCollapseIOSTests: XCTestCase {
         XCTAssertEqual(bar.frame.height, expanded, accuracy: 0.5, "the pull opened the title")
         XCTAssertEqual(sv.contentOffset.y, start, accuracy: 0.5, "at the top")
         XCTAssertEqual(try XCTUnwrap(pull["scrolledBy"] as? [Double])[1], -300, accuracy: 0.5, "the content moved back by the 300 it went")
+    }
+
+    /// LLP 1054 A4: the agent's drag pulls to refresh as a finger does. A
+    /// real touch's 200 points past the top refreshed, 180 did not (iOS 27).
+    func testTheAgentsDragPullsToRefreshAsAFingerDoes() throws {
+        let session = try booted("EXACT_PULL_REFRESH_PLAN", label: "pull-refresh")
+        let agent = Agent(session: session)
+        let feed = try node(session, "feed"), control = try XCTUnwrap(feed.scroll?.refreshControl)
+        let short = agent.tap(["id": Int(feed.id), "scrollDrag": [0.0, 150.0]])
+        XCTAssertNil(short["error"], "\(short)")
+        XCTAssertEqual(short["refreshed"] as? Bool, false, "short of the pull")
+        XCTAssertFalse(control.isRefreshing)
+        let pull = agent.tap(["id": Int(feed.id), "scrollDrag": [0.0, 300.0]])
+        XCTAssertNil(pull["error"], "\(pull)")
+        XCTAssertEqual(pull["refreshed"] as? Bool, true)
+        XCTAssertTrue(control.isRefreshing, "the spinner shows until the app's `refreshing` says otherwise")
+        // Target-action goes through UIApplication, which a bare test run has
+        // none of: the control's own actions, sent as UIKit would.
+        for target in control.allTargets {
+            for action in control.actions(forTarget: target, forControlEvent: .valueChanged) ?? [] {
+                _ = (target.base as AnyObject).perform(NSSelectorFromString(action), with: control)
+            }
+        }
+        until("the refresh ran the app's action") { (try? self.node(session, "pulls"))?.props["text"] == "1" }
     }
 
     /// A diagonal agent drag moves a scroller along the axes it scrolls

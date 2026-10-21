@@ -60,6 +60,7 @@ mod pan_release;
 mod picker;
 mod pointer;
 mod radio;
+mod range_frame;
 #[cfg(test)]
 mod save_tests;
 mod svg_hit;
@@ -199,8 +200,7 @@ pub struct Presenter<D: DataSource> {
     /// Where the pointer last moved for hover (`hover_at`): a frame that
     /// moves content under it hovers again there (`follow_pointer`).
     hover_point: Option<(f32, f32)>,
-    /// The node holding the pointer's `pointerdown` until it lifts: the
-    /// innermost hearing a pointer event, which hears the moves.
+    /// The node holding the pointer's `pointerdown` until it lifts: the innermost hearing a pointer event, which hears the moves.
     pointer_held: Option<exact_kernel::NodeKey>,
     /// The nodes from the held one up that hear `pointerdown` or
     /// `pointerup`, innermost first: each hears the up.
@@ -208,14 +208,16 @@ pub struct Presenter<D: DataSource> {
     /// During a pointer or wheel walk, a retired contact is cancelled when it
     /// ends so no other walk runs inside it ([`Presenter::retire_pointer`]).
     pointer_walking: bool,
-    /// The held pointer's buttons as DOM counts them: 1 primary, 2
-    /// secondary, 4 middle (review b5-b 1).
+    /// The held pointer's buttons as DOM counts them: 1 primary, 2 secondary, 4 middle (review b5-b 1).
     pointer_buttons: u8,
+    pub(crate) pads: crate::surfaces::controls::PadRoute,
     pub(crate) control_bindings: BTreeMap<(u32, u32), crate::surfaces::ControlBinding>,
     pub(crate) control_contact: Option<(ViewId, f32, f32)>,
     boxes: Vec<PaintedBox>,
     /// Bumped whenever `boxes` is replaced.
     boxes_serial: u64,
+    /// The fields `rangeFrame` reads, as painted beside `boxes`.
+    ranges: std::rc::Rc<range_frame::Painted>,
     pub(crate) dirty: bool,
     /// The app's `setScheme` (`None`: follow the system) and the appearance
     /// its shell or an agent says (LLP 1061 D5); light until either does.
@@ -481,9 +483,11 @@ impl<D: DataSource> Presenter<D> {
             pointer_walking: false,
             pointer_buttons: 0,
             control_contact: None,
+            pads: Default::default(),
             control_bindings: BTreeMap::new(),
             boxes: Vec::new(),
             boxes_serial: 0,
+            ranges: Default::default(),
             dirty: true,
             deferred_collections: None,
             live_clock: None,
@@ -524,6 +528,7 @@ impl<D: DataSource> Presenter<D> {
             last_region_scale: None,
             hatches: Default::default(),
         };
+        p.read_ranges();
         p.set_system_scheme(false);
         let e = p.after_commit();
         p.booting = false;
@@ -1291,6 +1296,7 @@ impl<D: DataSource> Presenter<D> {
 
     /// Another host took over: it is measured as the last was, and counted.
     pub(crate) fn replaced(&mut self) {
+        self.read_ranges();
         self.scroll_end = Default::default();
         self.give_clock();
         // A new kernel may have the same epoch.

@@ -1,10 +1,22 @@
+shape ShopRow
+  key: string
+  name: string
+  price: number
+  action: string
+  reason: string
+
 shape Hud
   lit: number
   total: number
   near: string
+  coins: number
+  critter: string
+  shop: ShopRow[]
 
 shape Viewport
   pointer: string
+  width: number
+  height: number
 
 component SmallGame
   state playing = false
@@ -14,8 +26,15 @@ component SmallGame
   resource viewport = exactViewport() as shape Viewport
   // The on-screen stick and buttons follow the primary input: shown on a
   // touch screen (`pointer: coarse`), hidden under a mouse or trackpad.
-  // "always" or "never" decides instead.
+  // "always" or "never" decides instead (the panel's Touch controls).
   state touchControls = "auto"
+  // One HUD, laid out by the screen's shape: in landscape the top and bottom
+  // groups sit in the corners and the panel beside the world; in portrait
+  // they become a top bar and a bottom strip, and the panel a sheet behind
+  // the bar's Menu button, so nothing covers the middle of the world.
+  derive portrait = viewport.height > viewport.width
+  derive touch = touchControls == "always" or (touchControls == "auto" and viewport.pointer == "coarse")
+  state sheet = false
 
   action play
     playing = true
@@ -27,27 +46,59 @@ component SmallGame
     again = not again
     paused = false
 
+  action toggleSheet
+    sheet = not sheet
+
+  action cycleTouch
+    touchControls = touchControls == "auto" ? "always" : (touchControls == "always" ? "never" : "auto")
+
   view
     main width="100%" height="100%" background-color="#202731" color="#ffffff"
       if playing
         canvas surface=world(seed=7, paused=paused, restart=again) testId="world" width="100%" height="100%" position="relative"
-          text `Lit ${hud.lit}` aria-live="polite" testId="hud-lit" position="absolute" top=24 left=24 padding=12 border-radius=12 background-color="#202731cc"
-          row position="absolute" top=24 right=24 gap=12
-            if paused
-              button press=restart testId="restart" aria-label="Restart" padding=12 border-radius=12 background-color="#354751"
-                text "Restart"
-            button press=togglePause testId="pause" aria-label=(paused ? "Resume" : "Pause") padding=12 border-radius=12 background-color="#202731cc"
-              text (paused ? "Resume" : "Pause")
+          // top: what the player reads at a glance, and the game's own controls.
+          row testId="hud-top" position="absolute" top=(portrait ? 0 : 24) left=(portrait ? 0 : 24) right=(portrait ? 0 : 24) padding=(portrait ? 8 : 0) gap=12 align-items="center" justify-content="space-between" background-color=(portrait ? "#202731cc" : "transparent")
+            row gap=12
+              text `Lit ${hud.lit}` aria-live="polite" testId="hud-lit" padding=12 border-radius=12 background-color="#202731cc"
+              if hud.critter != "asleep"
+                text `Coins ${hud.coins} · critter ${hud.critter}` testId="hud-coins" font-variant-numeric="tabular-nums" padding=12 border-radius=12 background-color="#202731cc"
+            row gap=12
+              if paused
+                button press=restart testId="restart" aria-label="Restart" padding=12 border-radius=12 background-color="#354751"
+                  text "Restart"
+              button press=togglePause testId="pause" aria-label=(paused ? "Resume" : "Pause") padding=12 border-radius=12 background-color="#202731cc"
+                text (paused ? "Resume" : "Pause")
+              if portrait
+                button press=toggleSheet testId="panel-open" aria-label="Menu" aria-expanded=sheet padding=12 border-radius=12 background-color="#202731cc"
+                  text "Menu"
           if hud.near != ""
-            text "Press E or tap Light" testId="near-prompt" position="absolute" top=76 left=24 padding=12 border-radius=12 background-color="#202731cc"
-          if touchControls == "always" or (touchControls == "auto" and viewport.pointer == "coarse")
-            button action="move" role="slider" aria-label="Move" testId="move" position="absolute" left=24 bottom=24 width=96 height=96 border-radius=48 background-color="#354751"
-              text "Move" color="#ffffff"
-            row position="absolute" right=24 bottom=24 gap=12
-              button action="jump" testId="jump" padding=16 border-radius=12 background-color="#354751"
-                text "Jump" color="#ffffff"
-              button action="light" testId="light" padding=16 border-radius=12 background-color="#e8ad61"
-                text "Light" color="#202731"
+            text "Press E or tap Light" testId="near-prompt" position="absolute" top=(portrait ? 72 : 76) left=24 padding=12 border-radius=12 background-color="#202731cc"
+          // bottom: the on-screen controls, a strip along the bottom edge.
+          if touch
+            row testId="hud-bottom" position="absolute" bottom=(portrait ? 0 : 24) left=(portrait ? 0 : 24) right=(portrait ? 0 : 24) padding=(portrait ? 12 : 0) align-items="end" justify-content="space-between"
+              button action="move" role="slider" aria-label="Move" testId="move" width=96 height=96 border-radius=48 background-color="#354751"
+                text "Move" color="#ffffff"
+              row gap=12
+                button action="jump" testId="jump" padding=16 border-radius=12 background-color="#354751"
+                  text "Jump" color="#ffffff"
+                button action="light" testId="light" padding=16 border-radius=12 background-color="#e8ad61"
+                  text "Light" color="#202731"
+          // panel: what the player opens on purpose (the help, the shop, settings);
+          // beside the world in landscape, a sheet in portrait.
+          if not portrait or sheet
+            column testId="panel" aria-label="Menu" position="absolute" top=(portrait ? "auto" : 80) bottom=(portrait ? 0 : "auto") right=(portrait ? 0 : 24) left=(portrait ? 0 : "auto") width=(portrait ? "auto" : 220) padding=16 gap=12 border-radius=12 background-color="#202731e6"
+              text "WASD or arrows move · Space jumps · E lights"
+              // The shop: each button holds its Actions action (1 and 2 on the keyboard).
+              if hud.critter != "asleep"
+                row testId="shop" gap=8 flex-wrap="wrap"
+                  for r in hud.shop key=r.key
+                    button action=r.action disabled=(r.reason != "") testId=`buy-${r.key}` aria-label=(r.reason == "" ? `${r.name}, ${r.price} ${r.price == 1 ? "coin" : "coins"}, key ${r.key}` : `${r.name}, ${r.reason}`) padding=12 border-radius=12 background-color=(r.reason == "" ? "#e8ad61" : "#354751")
+                      text (r.reason == "" ? `${r.key} ${r.name} · ${r.price}` : `${r.key} ${r.name} · ${r.reason}`) font-variant-numeric="tabular-nums" color=(r.reason == "" ? "#202731" : "#ffffff")
+              button press=cycleTouch testId="touch-controls" padding=12 border-radius=12 background-color="#354751"
+                text `Touch controls: ${touchControls == "auto" ? "Auto" : (touchControls == "always" ? "On" : "Off")}`
+              if portrait
+                button press=toggleSheet testId="panel-close" padding=12 border-radius=12 background-color="#354751"
+                  text "Close"
           if hud.total > 0 and hud.lit == hud.total
             column testId="victory" position="absolute" inset=0 align-items="center" justify-content="center" gap=20
               text "All beacons lit" font-size=32
@@ -59,6 +110,7 @@ component SmallGame
           column width="100%" max-width=320 align-items="center" gap=8
             text "Move with WASD or arrow keys" width="100%" text-align="center"
             text "Space jumps · E lights" width="100%" text-align="center"
+            text "Walk to the critter: it drops coins · 1 feeds it · 2 buys shoes" width="100%" text-align="center"
             text "On a touch screen, touch controls appear during play" width="100%" text-align="center"
           button press=play autofocus aria-label="Play" testId="play" padding=16 background-color="#e8ad61"
             text "Play" font-size=20 color="#202731"
