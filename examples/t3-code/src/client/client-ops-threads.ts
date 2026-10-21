@@ -77,7 +77,7 @@ export async function threadOps(this: T3Client, op: string, id: string, value: s
       if (id && this.shell.projects.some(project => project.id === id)) this.projectId = id;
       this.threadId = ''; this.thread = null; this.threadSubscription = ''; this.threadEpoch++;
       delete this.subscriptions.thread;
-      this.threadLive = true; this.diffOpen = false; this.answers = {}; this.chooseDefaults();
+      this.threadLive = true; this.diffOpen = false; this.chooseDefaults();
       if (modelSelection) Object.assign(this, modelSelection);
       if (this.connection === 'connected') await this.call(native, { op: 'unsubscribe', key: 'thread' });
       if (carry) heroLand(this, carry);
