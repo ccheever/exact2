@@ -157,8 +157,12 @@ fn scale_cell(
                 !why.trim().is_empty() && !why.contains('\n'),
                 "schema: scale {at}: a stretch's `why` says why in one line"
             );
+            let stretches = doc
+                .split("\n## ")
+                .find(|s| s.starts_with("Role stretches\n"))
+                .unwrap_or_default();
             assert!(
-                doc.contains(&format!("\n### `{text}`")),
+                stretches.contains(&format!("\n### `{text}`")),
                 "schema: scale {at}: the stretch `{text}` has no entry under docs/scale-measured.md's Role stretches"
             );
             let n = scale_metric(metrics, &at, column, metric);

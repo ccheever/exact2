@@ -30,6 +30,10 @@ test('a bare number, an unknown metric, an inexact binding or a terminal cell of
   expect(citations(row('space.xs', { stretch: '=grouped-label-inset', why: 'a test' }, ...refs, { cells: 0 }), measured)).toEqual([]);
   expect(citations(row('space.xs', { stretch: '=grouped-label-inset' }, ...refs, { cells: 0 }), measured)[0]).toContain('no stretch');
   expect(citations(row('space.xs', { stretch: '=grouped-row-gap', why: 'a test' }, ...refs, { cells: 0 }), measured)[0]).toContain('no entry under Role stretches');
+  expect(citations(row('space.xs', { stretch: '=grouped-label-inset', why: 'two\nlines' }, ...refs, { cells: 0 }), measured)[0]).toContain('no stretch');
+  // An entry outside Role stretches is none.
+  const elsewhere = measured.replace('## Role stretches\n', '## Moved\n');
+  expect(citations(row('space.xs', { stretch: '=grouped-label-inset', why: 'a test' }, ...refs, { cells: 0 }), elsewhere)[0]).toContain('no entry under Role stretches');
 });
 
 test('a cargo run passes only when it ran a test and none failed', () => {
