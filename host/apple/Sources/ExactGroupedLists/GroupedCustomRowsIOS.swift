@@ -67,6 +67,10 @@ extension GroupedListView {
     /// left as laid out, as is one whose fit or size its author wrote at
     /// all (`wrote`: the sheet's rows are the compiler's).
     private func leadingSymbol(of row: NodeView) -> NodeView? {
+        // At an accessibility size the fixed slot (24 by 20, the sheet's at
+        // every size) is too small for the list's scale: today's drawing
+        // stays until the slot's rows grow with Dynamic Type (QUEUE).
+        guard !collection.traitCollection.preferredContentSizeCategory.isAccessibilityCategory else { return nil }
         let first = row.container.subviews.lazy.compactMap { $0 as? NodeView }.first { $0.style["display"]?.string != "none" }
         guard let image = first, image.kind == "image", (image.props["imageSource"] ?? "").hasPrefix("symbol:"),
               !["chevron.forward", "chevron.right", "checkmark"].contains(image.props["symbolName"] ?? ""),

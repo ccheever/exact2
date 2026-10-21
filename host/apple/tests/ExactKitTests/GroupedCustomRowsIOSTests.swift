@@ -129,6 +129,16 @@ final class GroupedCustomRowsIOSTests: GroupedListFixture {
         XCTAssertFalse(image.listSymbol, "its author's contain")
         p.apply(wireBatch([["op": "style", "id": 30, "style": ["font_size": 17.0, "object_fit": "contain"]]]))
         XCTAssertTrue(image.listSymbol)
+        // At an accessibility size the slot keeps today's drawing (its
+        // medium scale, in its box) until its rows grow with Dynamic Type.
+        window.traitOverrides.preferredContentSizeCategory = .accessibilityLarge
+        window.layoutIfNeeded() // traits reach the views at layout
+        p.apply(wireBatch([["op": "props", "id": 21, "set": ["testId": "large"]]]))
+        XCTAssertFalse(image.listSymbol, "an accessibility size")
+        window.traitOverrides.preferredContentSizeCategory = .extraExtraExtraLarge
+        window.layoutIfNeeded()
+        p.apply(wireBatch([["op": "props", "id": 21, "set": ["testId": "xxxl"]]]))
+        XCTAssertTrue(image.listSymbol, "the largest size short of them")
         host(p).lists[1]?.remove()
         XCTAssertFalse(image.listSymbol, "gone with the list")
     }
