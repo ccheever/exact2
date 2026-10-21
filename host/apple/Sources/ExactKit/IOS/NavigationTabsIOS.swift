@@ -260,7 +260,7 @@ extension NavigationHost {
     /// else a bundled asset of the session's resolver.
     private func rasterURL(_ source: String) -> URL? {
         if source.hasPrefix("app:/") { return AppFiles.url(source) }
-        return presenter.session?.resolver?.url(source, maximumBytes: 4 << 20)
+        return presenter.session?.app.resolver?.url(source, maximumBytes: 4 << 20)
     }
 
     /// The items, from the authored tabs: each tab's own item, written in
