@@ -76,9 +76,16 @@ fn main() {
     shim.compile("exact_js_shim");
     println!("cargo:rustc-cfg=exact_js_engine");
 
+    // The bake's flags (`compile_bytecode`, js/bake/src/lib.rs).
     let compile = |script: &Path, bytecode: &Path| {
         let status = Command::new(&hermesc)
-            .args(["-O", "-emit-async-break-check", "-emit-binary", "-out"])
+            .args([
+                "-O",
+                "-emit-async-break-check",
+                "-Xes6-block-scoping",
+                "-emit-binary",
+                "-out",
+            ])
             .arg(bytecode)
             .arg(script)
             .status()
