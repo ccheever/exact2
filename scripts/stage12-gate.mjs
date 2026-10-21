@@ -527,23 +527,26 @@ const sameRect = (a, b) => ['x', 'y', 'w', 'h'].every(k => Math.abs(a[k] - b[k])
 /** The slot rendered, on `host`: every marker shown with each glyph, its
  * rect laid out inside the viewport and the same in both renders (each
  * render's own layout), and the two shots apart inside it (the terminal:
- * its cells in the two text shots). */
+ * its cells in the two text shots). A tap on the marker toggles every
+ * glyph. */
 export function slotOn(host, plan, dir, app = 'unsaid') {
   const ids = markerIds();
   if (!ids.length) return [{ host, id: '(none)', ok: false, why: 'apps/library-gate places no slotted cell' }];
   if (host === 'terminal') {
-    const a = join(dir, 'terminal-a.txt'), b = join(dir, 'terminal-b.txt');
-    let layout;
-    try { layout = drivePlan('terminal', plan, null, ['tap marker-toggle', 'layout', `screenshot ${a}`, 'tap marker-toggle', `screenshot ${b}`]); } catch (e) { return ids.map(id => ({ host, id, ok: false, why: whyOf(e) })); }
-    const first = layout.earlier?.[0];
-    if (!first) return ids.map(id => ({ host, id, ok: false, why: 'the first render\'s layout was not read' }));
-    const [ta, tb] = [a, b].map(f => readFileSync(f, 'utf8').split('\n'));
+    // Each marker tapped (a pressable box taps there since 2193289076), its
+    // cells read in the two text shots.
     return ids.map(id => {
+      const a = join(dir, `terminal-${id}-a.txt`), b = join(dir, `terminal-${id}-b.txt`);
+      let layout;
+      try { layout = drivePlan('terminal', plan, null, [`tap marker-${id}`, 'layout', `screenshot ${a}`, `tap marker-${id}`, `screenshot ${b}`]); } catch (e) { return { host, id, ok: false, why: whyOf(e) }; }
+      const first = layout.earlier?.[0];
+      if (!first) return { host, id, ok: false, why: 'the first render\'s layout was not read' };
       const [A, B] = [markerIn(first, id), markerIn(layout, id)];
       if (A.why || B.why) return { host, id, ok: false, why: A.why || B.why };
       const [ca, c] = [A.n.cells, B.n.cells];
       if (!c || c.w <= 0 || c.h <= 0) return { host, id, ok: false, why: 'no cells laid out' };
       if (!ca || !sameRect(ca, c)) return { host, id, ok: false, why: `its cells moved between the renders (${JSON.stringify(ca)} then ${JSON.stringify(c)})` };
+      const [ta, tb] = [a, b].map(f => readFileSync(f, 'utf8').split('\n'));
       const cut = t => Array.from({ length: c.h }, (_, r) => [...(t[c.y + r] ?? '')].slice(c.x, c.x + c.w).join(''));
       const differ = cut(ta).join('\n') !== cut(tb).join('\n');
       return { host, id, ok: differ, why: differ ? '' : 'its cells read the same with both glyphs', cells: c };
@@ -923,6 +926,35 @@ export function conformReport(file, root) {
   } catch { return null; }
 }
 
+/** A Rust Duration's Debug text (`250ns`, `1.2µs`, `3.4ms`, `1.5s`) in
+ * milliseconds; NaN for another. */
+export function durationMs(text) {
+  const m = /^(\d+(?:\.\d+)?)(ns|µs|us|ms|s)$/.exec(String(text).trim());
+  return m ? Number(m[1]) * { ns: 1e-6, µs: 1e-3, us: 1e-3, ms: 1, s: 1000 }[m[2]] : NaN;
+}
+
+/** The slot check's time (the lead's 10:15Z ask; rt1's stage 12 D2 tests in
+ * tamber_serve_slots.rs): the clone's design alone, and with the real
+ * @exact/cards and @exact/actions (an ignored test, which needs this
+ * checkout's node_modules), each a touched name's check and every chain's,
+ * under 10 ms. */
+export const SLOT_BAR_MS = 10;
+export function slotCheckTimes(out) {
+  return out.split('\n').filter(l => l.startsWith('check_slots')).map(l => {
+    const m = /one touched name (\S+), every chain (\S+)/.exec(l);
+    return { line: l, real: l.includes('@exact/cards'), one: durationMs(m?.[1]), all: durationMs(m?.[2]) };
+  });
+}
+function slotCheckTime() {
+  const r = run('cargo', ['test', '-q', '-p', 'contract', '--test', 'it', 'the_slot_check_alone', '--', '--include-ignored', '--nocapture', '--test-threads', '1']);
+  const times = slotCheckTimes(r.out);
+  const real = times.find(t => t.real);
+  const evidence = times.map(t => `${t.real ? 'with the real packages' : 'the clone\'s design alone'}: one touched name ${t.one} ms, every chain ${t.all} ms (${t.line.replace(/^check_slots,? ?/, '').slice(0, 160)})`);
+  if (!r.ok || !real) return fail(...evidence, r.ok ? 'the real packages\' timing did not print (bun install: node_modules/@exact)' : `the tests failed: ${r.out.trim().split('\n').slice(-3).join(' / ').slice(0, 300)}`);
+  const slow = times.filter(t => !(t.one < SLOT_BAR_MS && t.all < SLOT_BAR_MS));
+  return slow.length ? fail(...evidence, `over ${SLOT_BAR_MS} ms or unread: ${slow.length}`) : pass(...evidence, `bar: ${SLOT_BAR_MS} ms a check`);
+}
+
 /** The gate's lines, in LLP 1139 §5's order. */
 export function lines(opts) {
   return [
@@ -943,8 +975,7 @@ export function lines(opts) {
       return r.ok && passed > 0 && failed === 0 ? pass(said) : fail(said, r.out.trim().split('\n').slice(-4).join(' / ').slice(0, 400));
     }],
     ['slot-rendered', 'Every variant cell of apps/library-gate renders its slot\'s marker, both glyphs, on every required host', () => slotRendered(opts)],
-    ['slot-check-time', 'The slot check (check_slots) on the clone with both library packages takes under about 10 ms a check (the lead, 10:15Z; rt1 measures it)', () =>
-      waits('stage 12 C (check_slots), the packages and the adoption, then rt1\'s measurement')],
+    ['slot-check-time', 'The slot check (check_slots) on the clone with both library packages takes under about 10 ms a check (the lead, 10:15Z; rt1 measures it)', () => slotCheckTime()],
     ['no-forks', 'lower-library-platform clean over both packages', () => {
       // apps/library-gate uses every export, so its build reads both packages
       // whole; lower-library-platform is an error, so a clean build is clean.

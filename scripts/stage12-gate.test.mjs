@@ -6,7 +6,7 @@ import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { allowOf, beforeDrift, conformFailures, conformRead, conformReport, conformSame, renderedIds, renderedLibrary, viewportTop, BASELINE_TAG, comparePixels, expected, lines, releaseIdentity, parse, pixelDiff, RESTYLE, SCREENS, screenOps, WEB_NOISE } from './stage12-gate.mjs';
+import { allowOf, beforeDrift, durationMs, slotCheckTimes, conformFailures, conformRead, conformReport, conformSame, renderedIds, renderedLibrary, viewportTop, BASELINE_TAG, comparePixels, expected, lines, releaseIdentity, parse, pixelDiff, RESTYLE, SCREENS, screenOps, WEB_NOISE } from './stage12-gate.mjs';
 
 test('the command line', () => {
   expect(parse(['baseline', '--copy', '/c'])).toBe('baseline needs --copy and --out');
@@ -47,7 +47,7 @@ test('the pixel diff counts what differs outside the allowlist', () => {
 });
 
 test('a line whose parts are missing waits on them', async () => {
-  const waiting = ['consumer-pixels', 'slot-check-time'];
+  const waiting = ['consumer-pixels'];
   for (const [id, , check] of lines({ baseline: null, hosts: [] }).filter(([id]) => waiting.includes(id))) expect([id, (await check()).status]).toEqual([id, expect.stringMatching(/^WAITS-ON /)]);
 });
 
@@ -192,4 +192,11 @@ test('a conform report\'s failures, keyed without the checkout\'s path', () => {
   writeFileSync(f, JSON.stringify({ targets: { a: {} }, failures: [{ target: 'a', step: 's', what: 'at /r/exact2/x and /archive/r/exact2/x' }] }));
   expect(conformReport(f, '/r/exact2').failures).toEqual(['a | s | at <checkout>/x and /archive/r/exact2/x']);
   expect(conformReport(join(dir, 'none.json'), '/r')).toBe(null);
+});
+
+test('the slot check\'s times, from rt1\'s tests\' lines, in milliseconds', () => {
+  expect([durationMs('250ns'), durationMs('1.5µs'), durationMs('3.4ms'), durationMs('2s'), durationMs('soon')]).toEqual([0.00025, 0.0015, 3.4, 2000, NaN]);
+  const out = 'x\ncheck_slots on the clone\'s design (146 tokens): one touched name 250ns, every chain 30.1µs (median of 5, warm)\ncheck_slots, the clone\'s design (146 tokens) with @exact/cards and @exact/actions (1 chains, 0 names): one touched name 291ns, every chain 1.2ms (median of 5, warm)';
+  const t = slotCheckTimes(out);
+  expect(t.map(x => [x.real, +x.one.toPrecision(6), +x.all.toPrecision(6)])).toEqual([[false, 0.00025, 0.0301], [true, 0.000291, 1.2]]);
 });
