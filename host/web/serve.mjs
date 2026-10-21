@@ -1043,13 +1043,18 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
  * an orphaned server keeps its port (chat and onboarding F20). Without the variable a loop runs until stopped. */
 /** A dev loop answers on IPv6's loopback too, the same port: `localhost`
  * resolves to [::1] first, and the design tool frames the page as
- * localhost (another site than the tool's 127.0.0.1). Each connection
- * there is the HTTP server's own. Resolves once it listens, or when there
- * is no IPv6; rejects (EADDRINUSE) when another server holds the port
- * there, which a localhost URL would reach instead. */
+ * localhost (another site than the tool's 127.0.0.1). An HTTP server of
+ * its own there, each request and upgrade handed to `server`'s handlers:
+ * a raw socket handed over instead (`emit('connection')`) loses its
+ * requests' `close` under Bun, so a page's stream there never ended and
+ * the tool listed every canvas it had framed as connected. Closed, its
+ * connections with it, when `server` closes. Resolves once it listens, or
+ * when there is no IPv6; rejects (EADDRINUSE) when another server holds
+ * the port there, which a localhost URL would reach instead. */
 export function alsoOnIPv6Loopback(server, port) {
-  const six = createSocketServer((socket) => server.emit('connection', socket));
-  server.on('close', () => six.close());
+  const six = createServer((req, res) => server.emit('request', req, res));
+  six.on('upgrade', (req, socket, head) => server.emit('upgrade', req, socket, head));
+  server.on('close', () => { six.closeAllConnections?.(); six.close(); });
   return new Promise((ok, fail) => {
     six.once('error', (e) => (e.code === 'EADDRINUSE' ? fail(e) : ok(null)));
     six.listen(port, '::1', () => ok(six));
