@@ -23,19 +23,19 @@ component App
   state dropped = "initial"
   state count = 0
   state disabled = false
-  resource rows = rows() as shape list<string>
-  action edit(v: string) writes draft
+  resource rows = rows() as shape string[]
+  action edit(v: string)
     draft = v
-  action block writes disabled
+  action block
     disabled = true
-  action receive(item: string, before: option<string>) writes dropped, count
+  action receive(item: string, before: option<string>)
     dropped = item
     count = count + 1
   view
     column
       input value=draft change=edit
       list id="arrange" testId="list" virtualized=true height=100 reorderdrop=receive
-        each x in rows key=x
+        for x in rows key=x
           column reorderFor="arrange" disabled=disabled testId=`grip-${x}` height=20
             text x
 "#;
@@ -62,6 +62,7 @@ fn feedback<D: DataSource>(r: &Runner<D>, pin: Option<NodeKey>, top: f64) -> Col
         port_cross: 320.,
         port_main: 100.,
         cross: 320.,
+        padding: [0.0; 2],
         measurements: c
             .rows
             .iter()
@@ -192,9 +193,8 @@ impl DataSource for EditingRows {
     }
 }
 fn editing(mode: &'static str) -> Runner<EditingRows> {
-    let source = SOURCE.replace("resource rows = rows() as shape list<string>",
-        "resource initial = rows() as shape list<string>\n  mutation changed as shape list<string>\n  derive rows = match changed { case some(value) => value, case none => initial }")
-        .replace("writes dropped, count", "writes dropped, count, changed")
+    let source = SOURCE.replace("resource rows = rows() as shape string[]",
+        "resource initial = rows() as shape string[]\n  mutation changed as shape string[]\n  derive rows = match changed { case some(value) => value, case none => initial }")
         .replace("    dropped = item", "    send changed = move(item, before)\n    dropped = item");
     Runner::boot(
         contract::compile(&source).unwrap(),
@@ -223,6 +223,7 @@ fn edit_feedback(r: &mut Runner<EditingRows>, handle: NodeKey, top: f64) {
         port_cross: 320.,
         port_main: 100.,
         cross: 320.,
+        padding: [0.0; 2],
         focus_view: None,
         interaction_view: r.kernel().node_by_key(handle).map(|n| n.id),
         measurements: c
@@ -507,7 +508,7 @@ fn numeric_keys_remain_valid_collections_but_cannot_admit_physical_reorder() {
         }
     }
     let source = SOURCE
-        .replace("shape list<string>", "shape list<number>")
+        .replace("shape string[]", "shape number[]")
         .replace("text x", "text `${x}`");
     let mut r = Runner::boot(
         contract::compile(&source).unwrap(),
@@ -538,10 +539,6 @@ fn physical_terminal_preserves_empty_unicode_destination_and_true_end() {
         .replace(
             "state count = 0",
             "state count = 0\n  state destination = some(\"initial\")",
-        )
-        .replace(
-            "writes dropped, count",
-            "writes dropped, count, destination",
         )
         .replace(
             "    dropped = item",
@@ -641,10 +638,6 @@ fn source_exclusion_right_biases_and_certifies_zero_ties_after_normalization() {
                 "state count = 0\n  state destination = some(\"initial\")",
             )
             .replace(
-                "writes dropped, count",
-                "writes dropped, count, destination",
-            )
-            .replace(
                 "    dropped = item",
                 "    dropped = item\n    destination = before",
             );
@@ -681,9 +674,9 @@ fn source_exclusion_right_biases_and_certifies_zero_ties_after_normalization() {
 }
 #[test]
 fn terminal_source_key_survives_grip_replacement_and_a_second_reconciliation() {
-    let source=SOURCE.replace("state count = 0","state count = 0\n  state grip = true\n  action removeGrip writes grip\n    grip = false")
+    let source=SOURCE.replace("state count = 0","state count = 0\n  state grip = true\n  action removeGrip\n    grip = false")
         .replace("column reorderFor=\"arrange\" disabled=disabled testId=`grip-${x}` height=20\n            text x",
-            "column height=20\n            when grip\n              view reorderFor=\"arrange\" testId=`grip-${x}`\n            text `${x} ${disabled}`");
+            "column height=20\n            if grip\n              view reorderFor=\"arrange\" testId=`grip-${x}`\n            text `${x} ${disabled}`");
     let mut r = Runner::boot(
         contract::compile(&source).unwrap(),
         Rows {
@@ -744,14 +737,14 @@ fn transfer_away_then_back_to_same_grip_is_not_owned_by_old_terminal() {
 fn beneath_empty_when_arms() -> String {
     let source = SOURCE.replace(
         "state disabled = false",
-        "state disabled = false\n  state shown = true\n  state windowed = true\n  action hide writes shown\n    shown = false",
+        "state disabled = false\n  state shown = true\n  state windowed = true\n  action hide\n    shown = false",
     );
     let (head, list) = source.split_once("      list").unwrap();
     let list = format!("      list{list}")
         .lines()
         .map(|line| format!("    {line}\n"))
         .collect::<String>();
-    format!("{head}      when shown\n        when windowed\n{list}")
+    format!("{head}      if shown\n        if windowed\n{list}")
 }
 fn boot_source(source: &str) -> Runner<Rows> {
     Runner::boot(

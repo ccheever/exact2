@@ -3,3 +3,7 @@
 drag grip-1 0 150 400
 drag grip-2 0 4 200
 drag grip-5 0 -300 500
+# Drop rows and bring them back: the returning rows' grips lift theirs.
+tap fewer
+tap more
+drag grip-4 0 -150 400

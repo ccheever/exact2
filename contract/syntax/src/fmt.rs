@@ -1,12 +1,13 @@
 //! Source-preserving formatting. @ref LLP 1035.005 D1.
 //!
 //! The parser identifies safe attribute/argument breaks. The lexer's exact
-//! ranges preserve literal spelling, comments and opaque `contract` bodies;
+//! ranges preserve literal spelling and comments;
 //! no second literal scanner or expression printer is involved. Existing
 //! physical breaks remain, including comments and blank groups at file edges.
 
 use crate::{
-    parser::parse_tokens, Attr, File, Lexer, Node, Span, SyntaxError, Token, TokenKind, TypeExpr,
+    parser::parse_tokens, spans::VisitSpans, Attr, File, Lexer, Node, Span, SyntaxError, Token,
+    TokenKind, TypeExpr,
 };
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -40,8 +41,78 @@ pub fn format(src: &str) -> Result<String, SyntaxError> {
             span: Span::point(1, 1),
         });
     }
-    parse_tokens(after)?;
+    // Nor may a break change what a line means: a moved line that does not
+    // begin `name=` would become a child (habits F5). The tree, spans
+    // aside, must be the one that was read.
+    let (formatted_file, _) = parse_tokens(after)?;
+    if erase_spans(file) != erase_spans(formatted_file) {
+        return Err(SyntaxError {
+            id: "fmt-tree-change",
+            message: "formatting would change the parsed program; source was not written".into(),
+            span: Span::point(1, 1),
+        });
+    }
     Ok(out)
+}
+
+fn erase_spans(mut file: File) -> File {
+    file.visit_spans(&mut |span| *span = Span::default());
+    file
+}
+
+/// The conditional `:`s and the prefix operators, read from the tokens: every
+/// `?` opens a conditional, whose `:` is the next one at the same bracket
+/// depth; a `-` is prefix where no operand ends before it.
+fn operators(tokens: &[Token]) -> (BTreeSet<Span>, BTreeSet<Span>) {
+    let (mut colons, mut prefixes) = (BTreeSet::new(), BTreeSet::new());
+    let mut depth = 0usize;
+    let mut open: Vec<usize> = Vec::new();
+    let mut previous: Option<&Token> = None;
+    for t in tokens.iter().filter(|t| ordinary(t)) {
+        match &t.kind {
+            TokenKind::Punct("(" | "[" | "{") => depth += 1,
+            TokenKind::Punct(")" | "]" | "}") => {
+                depth = depth.saturating_sub(1);
+                while open.last().is_some_and(|&d| d > depth) {
+                    open.pop();
+                }
+            }
+            TokenKind::Punct("?") => open.push(depth),
+            TokenKind::Punct(":") if open.last() == Some(&depth) => {
+                open.pop();
+                colons.insert(t.span);
+            }
+            TokenKind::Punct("!") => {
+                prefixes.insert(t.span);
+            }
+            TokenKind::Punct("-") => {
+                let operand_ends = previous.is_some_and(|p| match &p.kind {
+                    TokenKind::Number(_) | TokenKind::Str(_) | TokenKind::Template(_) => true,
+                    TokenKind::Punct(p) => matches!(*p, ")" | "]" | "}"),
+                    TokenKind::Ident(w) => !matches!(
+                        w.as_str(),
+                        "and"
+                            | "or"
+                            | "not"
+                            | "in"
+                            | "when"
+                            | "if"
+                            | "for"
+                            | "match"
+                            | "with"
+                            | "return"
+                    ),
+                    _ => false,
+                });
+                if !operand_ends {
+                    prefixes.insert(t.span);
+                }
+            }
+            _ => {}
+        }
+        previous = Some(t);
+    }
+    (colons, prefixes)
 }
 
 fn ordinary(t: &Token) -> bool {
@@ -63,10 +134,17 @@ struct Layout<'a> {
     levels: Vec<usize>,
     attributes: BTreeSet<Span>,
     type_angles: BTreeSet<Span>,
-    /// A keyframe selector's `%`, which stays against its number: `50%`.
-    percents: BTreeSet<Span>,
+    /// A token that stays against the one before it: a keyframe selector's
+    /// `%` (`50%`), a test's viewport height (`1200x800`).
+    attached: BTreeSet<Span>,
+    /// A conditional's `:`, spaced as its `?` is: `a ? b : c` (habits F5).
+    ternary_colons: BTreeSet<Span>,
+    /// An element's tag, which keeps its space before a positional expression:
+    /// `text (n > 0 ? a : b)`, not a call `text(…)`.
+    tags: BTreeSet<Span>,
+    /// A prefix `-` or `!`, which stays against its operand: `-0.4`, `!done`.
+    prefixes: BTreeSet<Span>,
     breaks: BTreeMap<Span, usize>,
-    opaque: BTreeMap<usize, usize>,
 }
 
 impl<'a> Layout<'a> {
@@ -77,6 +155,7 @@ impl<'a> Layout<'a> {
         let mut depth: usize = 0;
         let mut brackets: usize = 0;
         let mut widths: BTreeMap<usize, Vec<(usize, usize)>> = BTreeMap::new();
+        let (ternary_colons, prefixes) = operators(tokens);
         for (i, t) in tokens.iter().enumerate() {
             match &t.kind {
                 TokenKind::Indent => depth += 1,
@@ -123,26 +202,6 @@ impl<'a> Layout<'a> {
                 }
             }
         }
-        let mut opaque = BTreeMap::new();
-        let mut contract_indent = None;
-        for (line, indices) in by_line.iter().enumerate() {
-            if let Some(&first) = indices.first() {
-                let source_indent = tokens[first].span.col as usize - 1;
-                if contract_indent.is_some_and(|width| source_indent <= width) {
-                    contract_indent = None;
-                }
-                if indents[line] == 1 && text(&tokens[first], lines) == "contract" {
-                    contract_indent = Some(source_indent);
-                    continue;
-                }
-            }
-            if let Some(width) = contract_indent {
-                let leading = lines[line].len() - lines[line].trim_start().len();
-                if leading > width {
-                    opaque.insert(line, width);
-                }
-            }
-        }
         Self {
             tokens,
             lines,
@@ -151,9 +210,11 @@ impl<'a> Layout<'a> {
             levels,
             attributes: BTreeSet::new(),
             type_angles: BTreeSet::new(),
-            percents: BTreeSet::new(),
+            attached: BTreeSet::new(),
+            ternary_colons,
+            tags: BTreeSet::new(),
+            prefixes,
             breaks: BTreeMap::new(),
-            opaque,
         }
     }
 
@@ -166,6 +227,27 @@ impl<'a> Layout<'a> {
     }
 
     fn file(&mut self, file: &File) {
+        // A named argument's `=` stays against its name, as an attribute's
+        // does: `Fields(base, title=value)`, `empty(field=value)`. Only a
+        // call's arguments put a name and `=` after `(` or `,`.
+        // A platform's word on a module call is a dotted name, `apple.word=`.
+        let ordinary: Vec<&Token> = self.tokens.iter().filter(|t| ordinary(t)).collect();
+        for (i, t) in ordinary.iter().enumerate() {
+            if !matches!(t.kind, TokenKind::Punct("(" | ",")) {
+                continue;
+            }
+            let mut at = i + 1;
+            while matches!(ordinary.get(at).map(|t| &t.kind), Some(TokenKind::Ident(_)))
+                && ordinary.get(at + 1).map(|t| &t.kind) == Some(&TokenKind::Punct("."))
+            {
+                at += 2;
+            }
+            if matches!(ordinary.get(at).map(|t| &t.kind), Some(TokenKind::Ident(_)))
+                && ordinary.get(at + 1).map(|t| &t.kind) == Some(&TokenKind::Punct("="))
+            {
+                self.attributes.insert(ordinary[at].span);
+            }
+        }
         for route in file.routes.iter().flat_map(|r| &r.rows) {
             self.attributes.extend(route.fields.iter().map(|a| a.span));
         }
@@ -178,8 +260,11 @@ impl<'a> Layout<'a> {
                 self.ty(ty);
             }
         }
-        for style in &file.styles {
+        for style in file.styles.iter().chain(&file.decorations) {
             self.attributes.extend(style.attrs.iter().map(|a| a.span));
+        }
+        if let Some(theme) = &file.theme {
+            self.attributes.extend(theme.entries.iter().map(|a| a.span));
         }
         for rule in &file.keyframes {
             for frame in &rule.frames {
@@ -192,14 +277,42 @@ impl<'a> Layout<'a> {
                 let selector = self.tokens[start..].iter().take_while(|t| {
                     !matches!(t.kind, TokenKind::Newline | TokenKind::Eof) && Some(t.span) != first
                 });
-                self.percents.extend(
+                self.attached.extend(
                     selector
                         .filter(|t| t.kind == TokenKind::Punct("%"))
                         .map(|t| t.span),
                 );
             }
         }
+        // A test step's numbers are signed literals, not arithmetic:
+        // `drag 10 -4` (habits F5's sweep), and `size 1200x800` is one word.
+        for step in file
+            .launch
+            .iter()
+            .chain(file.tests.iter().flat_map(|t| &t.steps))
+        {
+            let Some(start) = self.position(step.span()) else {
+                continue;
+            };
+            let line = self.tokens[start..]
+                .iter()
+                .take_while(|t| !matches!(t.kind, TokenKind::Newline | TokenKind::Eof));
+            for (t, next) in line.clone().zip(line.skip(1)) {
+                if t.kind == TokenKind::Punct("-") {
+                    self.prefixes.insert(t.span);
+                }
+                if matches!(step, crate::Step::Size { .. } | crate::Step::Resize { .. })
+                    && matches!(t.kind, TokenKind::Number(_))
+                {
+                    self.attached.insert(next.span);
+                }
+            }
+        }
         for component in &file.components {
+            // A part's name, lifted from its node by the parser, keeps its
+            // `=` tight as any attribute's (LLP 1139 D2).
+            self.attributes
+                .extend(component.anatomy.marks.iter().map(|m| m.span));
             for ty in component
                 .props
                 .iter()
@@ -223,6 +336,14 @@ impl<'a> Layout<'a> {
         let start = self.position(ty.span()).unwrap();
         match ty {
             TypeExpr::Named(..) => start + 1,
+            TypeExpr::Enum(..) => {
+                self.type_angles.insert(self.tokens[start + 1].span);
+                let end = (start + 2..self.tokens.len())
+                    .find(|&i| self.tokens[i].kind == TokenKind::Punct(">"))
+                    .unwrap();
+                self.type_angles.insert(self.tokens[end].span);
+                end + 1
+            }
             TypeExpr::List(inner, _) | TypeExpr::Option(inner, _) => {
                 let end = self.ty(inner);
                 self.type_angles.insert(self.tokens[start + 1].span);
@@ -245,10 +366,11 @@ impl<'a> Layout<'a> {
                 } => {
                     // The button's normalized text child has its parent's
                     // span, but no corresponding source tag of its own.
-                    if self
+                    if let Some(i) = self
                         .position(*span)
-                        .is_some_and(|i| text(&self.tokens[i], self.lines) == tag)
+                        .filter(|&i| text(&self.tokens[i], self.lines) == tag)
                     {
+                        self.tags.insert(self.tokens[i].span);
                         let mut last_positional = positional.iter().map(|e| e.span()).max();
                         if tag == "button" {
                             if let Some(Node::Element {
@@ -262,7 +384,22 @@ impl<'a> Layout<'a> {
                                 }
                             }
                         }
-                        self.header(*span, attrs, false, last_positional);
+                        // A part's declarations (`::placeholder` and its
+                        // block) and a state part's (`:disabled`) are not on
+                        // the element's head.
+                        // A continuation after such a block keeps its own
+                        // line: the head ends at the block.
+                        let block = attrs
+                            .iter()
+                            .filter(|a| a.name.starts_with(':'))
+                            .map(|a| a.span.line)
+                            .min();
+                        let (parts, head): (Vec<Attr>, Vec<Attr>) =
+                            attrs.iter().cloned().partition(|a| {
+                                a.name.starts_with(':') || block.is_some_and(|b| a.span.line >= b)
+                            });
+                        self.attributes.extend(parts.iter().map(|a| a.span));
+                        self.header(*span, &head, false, last_positional);
                     }
                     self.nodes(children);
                 }
@@ -275,7 +412,7 @@ impl<'a> Layout<'a> {
                     self.header(*span, args, true, None);
                     self.nodes(children);
                 }
-                Node::Provide { body, .. } | Node::Each { body, .. } => self.nodes(body),
+                Node::Each { body, .. } => self.nodes(body),
                 Node::When {
                     then, otherwise, ..
                 } => {
@@ -335,6 +472,16 @@ impl<'a> Layout<'a> {
                 if last_positional.is_some_and(|last| a.span < last) {
                     continue;
                 }
+                // A bare flag (`autofocus`) cannot begin a continued line:
+                // one that does not begin `name=` is a child (habits F5).
+                // It stays on the line of the attribute before it.
+                if !component
+                    && self.position(a.span).is_some_and(|i| {
+                        self.tokens.get(i + 1).map(|t| &t.kind) != Some(&TokenKind::Punct("="))
+                    })
+                {
+                    continue;
+                }
                 self.breaks.insert(a.span, indent + 1);
                 if !component {
                     // Moving an attribute off the element's head creates a
@@ -377,16 +524,34 @@ impl<'a> Layout<'a> {
             let tight = attr_equals
                 || after_attr_equals
                 || self.type_angles.contains(&token.span)
-                || self.percents.contains(&token.span)
+                || self.attached.contains(&token.span)
                 || (a == "<" && self.type_angles.contains(&previous.span))
                 || matches!(b, ")" | "]" | ",")
                 || matches!(a, "(" | "[")
+                || self.prefixes.contains(&previous.span)
                 || a == "."
                 || (b == "." && !matches!(previous.kind, TokenKind::Number(_)))
                 || (b == "("
                     && matches!(previous.kind, TokenKind::Ident(_))
-                    && !matches!(a, "when" | "if" | "match" | "not" | "and" | "or" | "in"))
-                || b == ":";
+                    && !self.tags.contains(&previous.span)
+                    && !matches!(
+                        a,
+                        "when" | "if" | "for" | "match" | "not" | "and" | "or" | "in" | "with"
+                    ))
+                || (b == ":" && !self.ternary_colons.contains(&token.span))
+                // A part's name against its `::` (`::placeholder`, parts.rs).
+                || (a == ":"
+                    && self
+                        .position(previous.span)
+                        .and_then(|i| i.checked_sub(1))
+                        .is_some_and(|i| self.tokens[i].kind == TokenKind::Punct(":")))
+                // A state part's name against its `:` at the start of its
+                // line (`:disabled`, states.rs).
+                || (a == ":"
+                    && !self.ternary_colons.contains(&previous.span)
+                    && self.lines.get(previous.span.line as usize - 1).is_some_and(|l| {
+                        l.len() - l.trim_start().len() + 1 == previous.span.col as usize
+                    }));
             if !tight {
                 out.push(' ');
             }
@@ -398,13 +563,6 @@ impl<'a> Layout<'a> {
         let mut out = String::new();
         for (line, raw) in self.lines.iter().enumerate() {
             if raw.trim().is_empty() {
-                out.push('\n');
-                continue;
-            }
-            if let Some(width) = self.opaque.get(&line) {
-                let leading = raw.len() - raw.trim_start().len();
-                out.push_str(&" ".repeat(2 + leading.saturating_sub(*width)));
-                out.push_str(raw.trim_start());
                 out.push('\n');
                 continue;
             }

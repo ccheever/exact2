@@ -124,6 +124,46 @@ schema.json` has for the kernel: edit the declaration, never the
 generated file. Bake generates every platform file from it and
 `build.mjs` consumes the generated files.
 
+**Amended 2026-10-11 for the protocol lane (Charlie’s 2026-10-08
+option A).** The top-level Web App Manifest `protocol_handlers` declarations
+are copied to the web manifest and baked into Apple `Info.plist` as both URL
+schemes and handler templates. They are host metadata, not deploy policy;
+the native session applies LLP 1038 D8's template before delivery.
+
+**Amended 2026-10-20: web links, and two macOS keys** (implemented by
+Claude (Opus 5.5), 2026-10-20). `protocol_handlers` admits `http` and
+`https`, declared as a pair with one template and one `distribution_only`;
+`readManifest` refuses any other form. On macOS the pair is a second URL
+type (`Web site URL`, role `Viewer`), and the build writes the `Web page`
+document type beside it (`public.html`, `public.xhtml`; `Viewer`,
+`Alternate`, marked `ExactWebPage`), because macOS lists an app under
+Default web browser only when it also opens web pages. The pickers and
+`drop` ignore that type. An HTML file Launch Services brings arrives at the
+`https` template as its `file:` URL unless `file_handlers` accept it: one
+delivery path, as the 2026-10-08 ruling keeps. The app makes no call to
+become the default; the person chooses it in System Settings. iOS and tvOS
+refuse the pair (a default browser there needs Apple's managed
+`com.apple.developer.web-browser` entitlement), the web manifest drops it
+(HTML's protocol handler safelist), and Linux, Windows and Android register
+no protocol handler. `host.macos.oneTimeCodeAutofill: "marked"` writes
+`NSAutoFillRequiresTextContentTypeForOneTimeCodeOnMac`; absent, the key is
+not written and macOS keeps its default. As with App Transport Security
+below, both are typed fields: there is no `Info.plist` pass-through. The
+Local Network prompt is a grant, LLP 1069.008's `device.local-network`.
+
+**Amended 2026-10-16: a launch picture.** `host.ios.launchImage`
+(`src`, a PNG in the app's directory, and `width` in points) is baked
+into the asset catalog as an image set at 1x, 2x and 3x and named by
+`UILaunchScreen`'s `UIImageName`, which iOS centres on the launch
+colour (`background_color`). An app whose first frame draws a picture
+on its background (the euxy port's unlit LED grid, Expo's splash
+`image` and `imageWidth`) launches showing it, where a colour alone
+flashed the bare background first. It is host metadata, part of the
+binary's identity: the receipt names its bytes among the binary's inputs
+(and its SHA-256 in the metadata), so a replaced picture is a new binary,
+and packaging draws the bytes the bake recorded, refusing a picture
+replaced since (Astra's review).
+
 The panel's correction: the manifest is not one blob whose digest is
 the binary's identity. It has typed sections, and only some are
 identity:
@@ -153,10 +193,79 @@ artifact of the app and is not managed here (D6).
 **Desktop window consumer (2026-09-07):** `host.macos.window` optionally declares
 `width`, `height`, `minWidth`, and `minHeight` in points, baked into the existing
 Info.plist as `ExactWindow`. Fieldnotes uses 1100×760 with a 760×560 minimum.
+`keepRunning` (2026-10-20) is baked there too: the app outlives its one window
+(LLP 1069.010 D8); a window may declare it with no size.
 The standalone adapter reads its title from the baked display name and restores
 a configured app's frame under its bundle identity. Bare development executables
 read the existing adjacent Info.plist. Agent/smoke runs skip restoration and use
 the existing viewport unless `EXACT_WINDOW_WIDTH`/`EXACT_WINDOW_HEIGHT` overrides it.
+
+**Icon Composer (2026-10-16, issue #467):** `host.ios.icon` and `host.macos.icon`
+explicitly select one app-owned `.icon` directory relative to `app.json`.
+Its stem is the primary icon's name in the single `actool` pass alongside
+the app's catalogs. A selected project conflicts with an `AppIcon.appiconset`,
+or a set of its own name, in those catalogs (any other set is an alternate icon); missing paths and non-`.icon` directories
+are refused by name. The project and every layer are native binary inputs:
+their hashes enter the bake receipt and asset cache, and packaging refuses
+changed sources. tvOS keeps asset catalogs and never inherits this selection.
+The web keeps `icons`, also the Apple raster fallback without a selection.
+
+**App Transport Security (2026-10-06, issue #106):** `host.macos.appTransportSecurity`
+and `host.ios.appTransportSecurity` are typed, not a pass-through: one key,
+`allowsArbitraryLoadsInWebContent`, baked as `NSAppTransportSecurity ›
+NSAllowsArbitraryLoadsInWebContent`, so an `iframe` loads `http://` from a named
+host as a browser does while a module's `URLSession` stays under ATS. Absent, no
+key; iOS merges it with `localNetworking`'s `NSAllowsLocalNetworking`. ATS reads
+only a bundle's `Info.plist`, so the agent's bare executable is not under it either
+way: a drive loads such a frame with or without the field, and one with
+`EXACT_MAC_BIN` naming the `.app`'s `Contents/MacOS/ExactMac` shows what a user sees.
+
+**The macOS design (2026-10-02):** AppKit draws its macOS 26 design (Liquid
+Glass bezels, new control metrics) by the SDK the executable records in
+`LC_BUILD_VERSION`, not the SDK it compiled against. SwiftPM's link drives clang
+with `--sysroot`, from which clang reads no SDK version, so every Exact macOS app
+had recorded its deployment target (`sdk 14.0`) and drawn as on macOS 14; the
+build now passes `-isysroot` to the linker driver, as the iOS build already did,
+and refuses an executable whose recorded SDK is not the one meant. An app that
+wants the earlier design says `host.macos.designRequiresCompatibility: true`:
+macOS 27 ignores Apple's `UIDesignRequiresCompatibility` key (probed on 27.0.1:
+the key is read, the new design drawn), so the link records the macOS 15 SDK,
+the last before the new design, which also turns off every other AppKit
+behaviour keyed on a later SDK; App Store Connect requires uploads built with a
+recent SDK and reads the recorded one. An app whose `minimumOS` is 26 or later
+cannot ask for it. `host.ios.designRequiresCompatibility` is the same on iOS: iOS
+27 ignores the key too (probed on the iOS 27.0 simulator: the key's build and the
+plain one draw identical pixels), and the link records the iOS 18 SDK, under
+which UIKit draws the iOS 18 design, a glass button configuration as a bordered
+one. The hosts read the recorded SDK (`LinkedDesign.liquidGlass`) where they
+choose between a glass look and an earlier one.
+
+**The executable's name (2026-10-06, from James's report that every Exact app
+ran as `ExactIOS`):** the executable is named after the app, following each
+platform's own convention, because that name is how a developer finds the
+process: crash reports (`<executable>-<date>.ips` and their `Process:` line),
+Settings › Analytics Data, the Organizer, Instruments, Console, `ps`. Two Exact
+apps on one phone had crash reports that looked identical. Each platform names
+its executable after either the app's name (Apple, Windows) or its id (Android,
+the Linux desktop), and the manifest's `[app]` section already declares both,
+so nothing new is declared. `scripts/app.mjs::executableName` derives
+the name: `app.name` verbatim, with the characters a macOS or Windows file
+name cannot carry (`<>:"/\|?*`, control characters) replaced by `-`, leading
+and trailing dots and spaces trimmed, and the id's last segment used if nothing
+is left.
+
+| Platform | The platform's convention | Exact |
+|---|---|---|
+| iOS, tvOS | Xcode: `PRODUCT_NAME` is the target's name, and `CFBundleExecutable` follows it: `Caltrain.app/Caltrain`, spaces kept | the same; the Swift package's products stay `ExactIOS`/`ExactMac` and are renamed as the bundle is assembled; the sample host keeps `ExactHostIOS`/`ExactHostMac`, because an embedder names its own |
+| macOS | Xcode: `Caltrain.app/Contents/MacOS/Caltrain` | the same, also for the bare development executable and its `<executable>-Info.plist` |
+| Windows | Visual Studio: the project's name is the assembly's, `Caltrain.exe` | `dist-windows/<executable>.exe`; Cargo's `<app>-windows.exe` is renamed as it is packaged |
+| Linux | a lowercase, hyphenated binary; the `.desktop` file, the Wayland `app_id` and the X11 `WM_CLASS` are the reverse-DNS id | unchanged: the host draws to DRM or VNC and opens no desktop window, so nothing uses the name, and the development binary stays Cargo's `<app>-linux`. A Linux package or window takes `app.id` for its desktop identity |
+| Android | Android Studio: the name is only `android:label`; the process, logcat and Play Console use the `applicationId` | no host; it would be `app.id`, with no name to choose |
+| Web | `<title>` and the web manifest's `name`/`short_name`; no executable | already so: `app.json` is the web manifest |
+
+Renaming the executable leaves an installed app's data in place: containers,
+the keychain and the macOS privacy grants are keyed by the bundle id and the
+signature.
 
 ### D3a — The compatibility id: the cohort a bundle is safe for
 

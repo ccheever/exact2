@@ -1,0 +1,19 @@
+// == and != on bools, and bools compared with comparison results.
+component App
+  state a = true
+  state b = false
+  derive eq = a == b
+  derive ne = a != b
+  derive chained = (a == true) == (b == false)
+  derive cmp = (1 < 2) == a
+  action flip
+    b = not b
+  view
+    column
+      text `${eq} ${ne} ${chained} ${cmp}` testId="r"
+      button "flip" press=flip testId="flip"
+
+test "bool equality"
+  expect text "r" == "false true true true"
+  tap "flip"
+  expect text "r" == "true false false true"

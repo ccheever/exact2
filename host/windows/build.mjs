@@ -1,0 +1,42 @@
+#!/usr/bin/env bun
+// The ordinary bake, packaged as a native executable, GPU DLL and baked assets.
+import { copyFileSync, cpSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+import { spawnSync } from 'node:child_process';
+import { bakeTarget, buildBake, copyShaders, developmentBuildEnv, resolveApp, windowsFile } from '../../scripts/app.mjs';
+
+if (process.platform !== 'win32') throw new Error('build the Windows host on Windows with the MSVC Rust target');
+const args = process.argv.slice(2);
+const outAt = args.indexOf('--out');
+if (outAt >= 0 && !args[outAt + 1]) throw new Error('--out needs a directory');
+const app = resolveApp(args.find((arg, i) => !arg.startsWith('--') && (outAt < 0 || i !== outAt + 1)));
+const target = bakeTarget('windows');
+const profile = args.includes('--release') ? 'release' : 'gpu-dev';
+const build = buildBake(app, 'windows', target, { profile, env: developmentBuildEnv(app) });
+// A running copy holds its executable and DLL open, so another directory lets
+// a second copy be packaged beside it.
+const output = outAt >= 0 ? resolve(args[outAt + 1]) : resolve(app.dir, 'dist-windows');
+mkdirSync(output, {recursive:true});
+let executable;
+for (const product of build.products) {
+  if (!/\.(exe|dll)$/.test(product.path)) continue;
+  const destination = resolve(output, windowsFile(app, product.path));
+  try { copyFileSync(product.path, destination); }
+  catch (error) {
+    if (error.code !== 'EBUSY' && error.code !== 'EPERM') throw error;
+    throw new Error(`${destination} is in use, most likely by a running copy of the game: quit it, or package into another directory with --out <dir> (run that copy under the agent with EXACT_WINDOWS_BIN)`);
+  }
+  if (product.path.endsWith(`${app.crate('windows')}.exe`)) executable = destination;
+}
+if (!executable) throw new Error('Windows bake produced no executable');
+for (const name of ['assets','deck']) {
+  const source = resolve(app.dir, name);
+  if (existsSync(source)) cpSync(source, resolve(output, name), {recursive:true});
+}
+copyShaders(app, resolve(output, 'shaders'), {replace:true});
+writeFileSync(resolve(output, 'compat.json'), JSON.stringify(build.compat, null, 2) + '\n');
+console.log(`Windows game: ${executable}`);
+if (args.includes('--run')) {
+  const result = spawnSync(executable, [], {cwd:output, env:process.env, stdio:'inherit'});
+  process.exitCode = result.status ?? 1;
+}

@@ -1,0 +1,53 @@
+[
+  {
+    "id": "82jh012hjfu190fhf12nbxmzbayh2398f3h09f9h",
+    "name": "_",
+    "selectedTokenSets": {
+      "primitive/colors": "source",
+      "primitive/radii": "source",
+      "semantic/typography": "source",
+      "component/button": "source"
+    },
+    "group": "_"
+  },
+  {
+    "id": "kjhrawkher8923487fhdfhkjw398fhsjr2973rhf",
+    "name": "Casual",
+    "selectedTokenSets": {
+      "brand/casual": "enabled"
+    },
+    "group": "brand"
+  },
+  {
+    "id": "hjk437bhd83hfhfsf8092hamnskiu32800csjjlka",
+    "name": "Business",
+    "selectedTokenSets": {
+      "brand/business": "enabled"
+    },
+    "group": "brand"
+  },
+  {
+    "id": "ff04d8b99db8cddbaaceac800e10e106118ccdcf",
+    "name": "Green",
+    "selectedTokenSets": {
+      "color/green": "enabled"
+    },
+    "group": "color"
+  },
+  {
+    "id": "e6dd916d4cb30ccace7631035ac91c98ea5960eb",
+    "name": "Blue",
+    "selectedTokenSets": {
+      "color/blue": "enabled"
+    },
+    "group": "color"
+  },
+  {
+    "id": "a9dc2652a4c8db0771643fdf7fe49da5371e701f",
+    "name": "Purple",
+    "selectedTokenSets": {
+      "color/purple": "enabled"
+    },
+    "group": "color"
+  }
+]

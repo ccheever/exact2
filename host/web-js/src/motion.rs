@@ -5,7 +5,7 @@ use super::{value_js, Em};
 use crate::code::Scope;
 use crate::style;
 use exact_kernel::{PropId, StyleId};
-use exact_plan::{BindingKind, EventKind, Value};
+use exact_plan::{BindingKind, EventKind, NodesId, Value};
 use std::fmt::Write as _;
 
 impl Em<'_> {
@@ -14,7 +14,7 @@ impl Em<'_> {
     /// leaves springs to the engine).
     pub(crate) fn is_motion_node(&self, i: u32) -> bool {
         let plan = self.plan;
-        let row = &plan.nodes[i as usize];
+        let row = &plan.node(NodesId(i));
         let binding = |id: u16, kind: BindingKind| {
             row.bindings
                 .iter()
@@ -38,7 +38,7 @@ impl Em<'_> {
                 None => style::can_be(plan, plan.code(b.expr), &|v| v.contains("spring")),
             }
         });
-        let target = self.transforms.values().any(|(t, _)| *t == i);
+        let target = self.transforms.contains(&i);
         swiped || indicator || spring || target
     }
 
@@ -50,7 +50,7 @@ impl Em<'_> {
             return Ok(());
         }
         let plan = self.plan;
-        let row = &plan.nodes[i as usize];
+        let row = &plan.node(NodesId(i));
         let binding = |id: u16, kind: BindingKind| {
             row.bindings
                 .iter()
@@ -79,71 +79,70 @@ impl Em<'_> {
         Ok(())
     }
 
-    /// Each `heightDragFor` handle's owner: the unique strict ancestor whose
-    /// `id` it names (kernel `height_drag_target`), read from the plan, whose
-    /// literal ids the kernel's are. A handle that names none drags nothing.
-    pub(super) fn height_targets(&self) -> std::collections::BTreeMap<u32, u32> {
-        self.drag_targets(PropId::HeightDragFor)
-    }
-
-    /// Each `transformDragFor` handle's target and its clip, the target's
-    /// parent (kernel `transform_drag_binding`).
-    pub(super) fn transform_targets(&self) -> std::collections::BTreeMap<u32, (u32, u32)> {
-        self.drag_targets(PropId::TransformDragFor)
-            .into_iter()
-            .filter_map(|(h, t)| Some((h, (t, self.parent_of(t)?))))
-            .collect()
-    }
-
-    /// Each `reorderFor` grip's list: the unique strict ancestor with that
-    /// `id` (runner `reorder_binding`; the list, its handler and its rows
-    /// are checked at run time).
-    pub(super) fn reorder_lists(&self) -> std::collections::BTreeMap<u32, u32> {
-        self.drag_targets(PropId::ReorderFor)
-    }
-
-    fn drag_targets(&self, prop: PropId) -> std::collections::BTreeMap<u32, u32> {
+    /// Possible owners need their authored motion values registered before a
+    /// drag starts. The live binding is resolved from the DOM after each commit;
+    /// only a literal mismatch can rule an ancestor out here.
+    pub(super) fn drag_targets(&self, prop: PropId) -> std::collections::BTreeSet<u32> {
         let plan = self.plan;
-        let literal = |i: u32, prop: PropId| {
-            plan.nodes[i as usize]
+        let binding = |i: u32, prop: PropId| {
+            plan.node(NodesId(i))
                 .bindings
                 .iter()
                 .map(|b| plan.binding(b))
                 .find(|b| b.kind == BindingKind::Prop && b.id == prop as u16)
-                .and_then(|b| style::literal(plan, plan.code(b.expr)))
-                .and_then(|v| v.as_str().map(str::to_string))
         };
-        let mut out = std::collections::BTreeMap::new();
+        let mut out = std::collections::BTreeSet::new();
         for i in 0..plan.nodes.len() as u32 {
-            let Some(name) = literal(i, prop).filter(|n| !n.is_empty()) else {
+            let Some(b) = binding(i, prop) else {
                 continue;
             };
-            let mut found = Vec::new();
+            let name = style::literal(plan, plan.code(b.expr));
+            if name
+                .as_ref()
+                .is_some_and(|v| v.as_str().is_none_or(str::is_empty))
+            {
+                continue;
+            }
             let mut at = self.parent_of(i);
             while let Some(p) = at {
-                if literal(p, PropId::Id).as_deref() == Some(name.as_str()) {
-                    found.push(p);
+                if let Some(id) = binding(p, PropId::Id) {
+                    let id = style::literal(plan, plan.code(id.expr));
+                    let possible = match (&name, &id) {
+                        (_, Some(id)) if id.as_str().is_none_or(str::is_empty) => false,
+                        (Some(name), Some(id)) => name.as_str() == id.as_str(),
+                        _ => true,
+                    };
+                    if possible {
+                        out.insert(p);
+                    }
                 }
                 at = self.parent_of(p);
-            }
-            if let [t] = found[..] {
-                out.insert(i, t);
             }
         }
         out
     }
 
+    pub(super) fn reorder_handle(&self, i: u32) -> bool {
+        let plan = self.plan;
+        plan.node(NodesId(i))
+            .bindings
+            .iter()
+            .map(|b| plan.binding(b))
+            .any(|b| b.kind == BindingKind::Prop && b.id == PropId::ReorderFor as u16)
+    }
+
     /// A height drag's owner (rt.js `mh`): its numeric height and its
     /// `transition`, which a released drag springs by.
     pub(crate) fn height_owner(&mut self, i: u32, e: &str, scope: &Scope) -> Result<(), String> {
-        if !self.heights.values().any(|t| *t == i) {
+        if !self.heights.contains(&i) {
             return Ok(());
         }
         self.motion = true;
         let plan = self.plan;
         let mut values = Vec::new();
         for (id, initial) in [(StyleId::Height, "null"), (StyleId::Transition, "\"\"")] {
-            let b = plan.nodes[i as usize]
+            let b = plan
+                .node(NodesId(i))
                 .bindings
                 .iter()
                 .map(|b| plan.binding(b))

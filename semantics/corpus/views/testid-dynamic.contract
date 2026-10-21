@@ -1,0 +1,25 @@
+// testIds computed from state; the first element in preorder with a given
+// testId receives the tap.
+component App
+  state mode = "a"
+  state hits = ""
+  action hit(w: string)
+    hits = hits + w
+  action flip
+    mode = mode == "a" ? "b" : "a"
+  view
+    column
+      button "first" press=hit("1") testId=`btn-${mode}`
+      button "second" press=hit("2") testId="btn-a"
+      button "flip" press=flip testId="flip"
+      text hits testId="hits"
+
+test "duplicate testId goes to the first"
+  tap "btn-a"
+  expect state hits == "1"
+
+test "after flip"
+  tap "flip"
+  tap "btn-a"
+  tap "btn-b"
+  expect state hits == "21"

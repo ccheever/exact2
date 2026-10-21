@@ -1,0 +1,33 @@
+// Synthetic conformance plan (LLP 1088 §9.1): a list the screen keeps for
+// the session, built in Contract on both runners. `[a, b]` holds its items;
+// `concat`, `slice` and `includes` are the web's array methods — `slice`
+// clamped as text's is (negative from the end, NaN is 0, fractions
+// truncate, an omitted end the end), `includes` by SameValueZero (NaN is
+// found, -0 is 0), `indexOf` by strict equality (NaN is not found) or over
+// text in UTF-16 units, `split` text's (an empty separator into code units,
+// each well formed). HN's collapsed comments, mail's selection and chips.
+component Construct
+  state collapsed = []
+  state picked = ["a"]
+  state nums = [1, -0, 3]
+  derive both = picked.concat(["b", "c",])
+  derive cuts = [both.slice(1).join(""), both.slice(0, -1).join(""), both.slice(0.9, 2.7).join(""), both.slice(0 / 0, 1).join(""), both.slice(5).join(""), both.slice(2, 1).join("")]
+  derive finds = [nums.concat([0 / 0]).includes(0 / 0), nums.includes(0), nums.includes(2), both.includes("b"), [true, false].includes(false), "abc".includes("b")]
+  state to = "ann, bo,, 😀"
+  derive at = [nums.concat([0 / 0]).indexOf(0 / 0), nums.indexOf(0), both.indexOf("c"), both.indexOf("z"), to.indexOf("bo"), to.indexOf("😀"), to.indexOf("")]
+  derive chips = [to.split(", ").join("|"), to.split("").join("."), "".split("").length.toString(), "".split(",").length.toString()]
+  action toggle(id: string)
+    collapsed = collapsed.includes(id) ? collapsed.filter(c => c != id) : collapsed.concat([id])
+  action add(id: string)
+    picked = picked.concat([id])
+  view
+    column testId="root" gap=4 padding=8
+      text collapsed.join(",") testId="collapsed"
+      text picked.join(",") testId="picked"
+      text cuts.join("|") testId="cuts"
+      text finds.map(f => f.toString()).join(",") testId="finds"
+      text at.join(",") testId="at"
+      text chips.join("/") testId="chips"
+      button "x" press=toggle("x") testId="x"
+      button "y" press=toggle("y") testId="y"
+      button "add" press=add("z") testId="add"

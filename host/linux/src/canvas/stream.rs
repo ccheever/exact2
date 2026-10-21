@@ -1,0 +1,213 @@
+//! A stream's drawing apart from its definitions. A stream carries both:
+//! what the frame draws (matrices, shapes, clips, references to kept rows,
+//! slots and layers) and what the reader makes once and keeps (faces,
+//! pictures, rows, slots' and layers' drawings, keyframes, frees). A paint
+//! that draws what the last stream drew and defines nothing new (a touch
+//! down that changes nothing shown, after a stream that defined rows) is no
+//! new frame for the reader: no ingest, no replay, no redraw of the window.
+use super::layer::{CLOCK, LAYER_FREE, LAYER_REF, LAYER_SET, TRACKS};
+use super::*;
+
+/// Where the op at `i` ends, or `None` for a malformed stream.
+pub(super) fn end(b: &[u32], i: usize) -> Option<usize> {
+    let at = |k: usize| b.get(i + k).map(|v| *v as usize);
+    // A path's tagged segments from its count at `p`.
+    let path = |p: usize| -> Option<usize> {
+        let n = *b.get(p)? as usize;
+        let mut k = p + 1;
+        for _ in 0..n {
+            k += match *b.get(k)? {
+                0 | 1 => 3,
+                2 => 7,
+                _ => 1,
+            };
+        }
+        Some(k)
+    };
+    let words = |len: usize| len.div_ceil(4);
+    Some(match *b.get(i)? {
+        MATRIX => i + 7,
+        RRECT => i + 14,
+        PATH => path(i + 3)?,
+        CLIP_RRECT => i + 13,
+        CLIP_PATH => path(i + 2)?,
+        RESTORE | ROW_END | GROUP_END => i + 1,
+        LAYER | IMAGE_FREE | ROW_FREE | GROUP_BEGIN | SLOT | LAYER_FREE | LAYER_REF => i + 2,
+        IMAGE => i + 6,
+        GLYPHS => i + 6 + 3 * at(5)?,
+        FONT => i + 5 + words(at(4)?),
+        FONT_AXES => {
+            let len = i + 5 + 2 * at(4)?;
+            len + 1 + words(*b.get(len)? as usize)
+        }
+        IMAGE_DEF => i + 4,
+        STROKE => path(i + 5)?,
+        IMAGE_RRECT => i + 18,
+        DASH => i + 3 + at(2)?,
+        gradient::SHADER => i + 2 + at(1)?,
+        glyphs::BLUR => i + 2,
+        ANIMATED => i + 3 + words(at(2)?),
+        BACKDROP => i + 14 + 2 * at(1)?,
+        NATIVE => i + 16 + words(at(15)?),
+        40 => i + 27, // SHADOW
+        ROW_BEGIN => i + 6 + at(5)?,
+        ROW_DRAW => i + 4,
+        RING => i + 26,
+        SLOT_SET | LAYER_SET | TRACKS => i + 3 + at(2)?,
+        CLOCK => i + 3,
+        _ => return None,
+    })
+}
+
+/// Retained drawing that samples or contains the world must stay in HWUI.
+pub(super) fn needs_world(b: &[u32]) -> bool {
+    let mut i = 0;
+    while i < b.len() {
+        let Some(j) = end(b, i).filter(|j| *j <= b.len()) else {
+            return true;
+        };
+        match b[i] {
+            BACKDROP => return true,
+            NATIVE if b[i + 2] & 255 == 3 => return true,
+            ROW_BEGIN if needs_world(&b[i + 6..j - 1]) => return true,
+            SLOT_SET if needs_world(&b[i + 3..j]) => return true,
+            LAYER_SET if needs_world(&b[i + 19..j]) => return true,
+            _ => (),
+        }
+        i = j;
+    }
+    false
+}
+
+/// Whether op `op` defines something the reader keeps (rather than draws).
+fn defines(op: u32) -> bool {
+    matches!(
+        op,
+        FONT | FONT_AXES
+            | IMAGE_DEF
+            | IMAGE_FREE
+            | ANIMATED
+            | ROW_BEGIN
+            | ROW_FREE
+            | SLOT_SET
+            | LAYER_SET
+            | TRACKS
+            | LAYER_FREE
+            | CLOCK
+    )
+}
+
+/// The stream's drawing (its definitions left out), and whether it defines
+/// anything; `None` for a stream this walk does not know (never skipped).
+pub fn drawing(b: &[u32]) -> Option<(Vec<u32>, bool)> {
+    let mut out = Vec::with_capacity(b.len());
+    let mut defs = false;
+    let mut i = 0;
+    while i < b.len() {
+        let j = end(b, i).filter(|j| *j <= b.len())?;
+        if defines(b[i]) {
+            defs = true;
+        } else {
+            out.extend_from_slice(&b[i..j]);
+        }
+        i = j;
+    }
+    Some((out, defs))
+}
+
+/// What a frame's recording learns of whether its GPU canvas may be presented directly (op 28's
+/// direct bit): the frame's only canvas, filling the window, with nothing composited into it.
+#[derive(Default)]
+pub(super) struct Direct {
+    /// The window, in points.
+    pub(super) size: (f32, f32),
+    /// Opacity layers open where the recording is.
+    pub(super) isolation: usize,
+    /// Where an eligible canvas's NATIVE op starts in the recording.
+    pub(super) at: Option<usize>,
+    /// GPU canvases recorded.
+    pub(super) surfaces: usize,
+    /// Whether a backdrop filter reads what is under it.
+    pub(super) backdrop: bool,
+}
+
+impl Recorder {
+    pub(super) fn finish_stream(&mut self) -> Result<Pixmap, String> {
+        self.layers_finish();
+        if self.direct.surfaces == 1
+            && !self.direct.backdrop
+            && !self
+                .kept
+                .values()
+                .any(|(ops, _)| needs_world(ops.get(3..).unwrap_or(&[u32::MAX])))
+            && !self.slots.values().any(|ops| needs_world(ops))
+            && !self.layers.needs_world()
+        {
+            if let Some(at) = self.direct.at {
+                self.ops[at + 2] |= 1 << 8;
+            }
+        }
+        let ops = std::mem::take(&mut self.ops);
+        FINISHED.with(|f| {
+            let old = f.borrow_mut().replace(ops);
+            #[cfg(target_os = "android")]
+            agent::kept(old);
+            #[cfg(not(target_os = "android"))]
+            drop(old);
+        });
+        Pixmap::new(1, 1).ok_or_else(|| "placeholder".to_string())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn definitions_apart() {
+        let row = [ROW_BEGIN, 7, 0, 0, 0, 2, RESTORE, ROW_END];
+        let mut with = vec![MATRIX, 0, 0, 0, 0, 0, 0];
+        with.extend(row);
+        with.extend([ROW_DRAW, 7, 0, 0, TRACKS, 3, 1, 9]);
+        let (d, defs) = drawing(&with).expect("known");
+        assert!(defs);
+        assert_eq!(d, vec![MATRIX, 0, 0, 0, 0, 0, 0, ROW_DRAW, 7, 0, 0]);
+        let (again, defs) = drawing(&d).expect("known");
+        assert!(!defs);
+        assert_eq!(again, d);
+        assert!(drawing(&[99]).is_none());
+        assert!(drawing(&[GLYPHS, 1, 0, 0, 0, 5]).is_none());
+    }
+
+    #[test]
+    fn ordered_backdrops_keep_the_following_drawing_aligned() {
+        use exact_kernel::style::{BackdropFilter, BackdropOp};
+        let mut recorder = Recorder::new();
+        let shape = Shape::new((0.0, 0.0, 40.0, 30.0), [4.0; 4]);
+        let filter = BackdropFilter(vec![BackdropOp::Saturate(1.8), BackdropOp::Blur(4.0)]);
+        recorder.backdrop_filter(&shape, &filter, Transform::identity());
+        let backdrop_end = recorder.ops.len();
+        assert!(drawing(&recorder.ops[..backdrop_end - 1]).is_none());
+        recorder.fill(&shape, [255, 0, 0, 255], Transform::identity());
+        let (ops, definitions) = drawing(&recorder.ops).expect("backdrop followed by fill");
+        assert!(!definitions);
+        assert_eq!(ops, recorder.ops);
+        assert_eq!(ops[backdrop_end], RRECT);
+        // Radius-only readers cannot silently misinterpret the list's count.
+        assert_ne!(BACKDROP, 27);
+        assert!(drawing(&[27, 0]).is_none());
+    }
+
+    #[test]
+    fn a_face_with_axes_is_a_definition() {
+        let ital = u32::from_be_bytes(*b"ital");
+        // Key 1, index 0, weight 400, one axis, then a five-byte path.
+        let face = [FONT_AXES, 1, 0, 400, 1, ital, 1f32.to_bits(), 5, 0, 0];
+        let glyphs = [GLYPHS, 1, 0, 0, 0, 1, 7, 0, 0];
+        let stream: Vec<u32> = face.iter().chain(&glyphs).copied().collect();
+        let (d, defs) = drawing(&stream).expect("known");
+        assert!(defs);
+        assert_eq!(d, glyphs);
+        assert!(drawing(&face[..8]).is_none(), "a cut path is malformed");
+    }
+}

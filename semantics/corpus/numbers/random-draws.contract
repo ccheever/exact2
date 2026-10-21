@@ -1,0 +1,43 @@
+// docs/recipes/random-rolls.md's draws: integer `*`, `%` and `floor`
+// below 2^47, then one division, so every executor gives the same bits.
+fn turn(x: number): number = (x % 65536) * 32768 + floor(x / 65536)
+fn stir(x: number): number = turn((x * (16807 + floor(x / 65536))) % 2147483647)
+fn draw(seed: number, k: number): number = stir(stir(stir(1 + (stir(stir(1 + seed % 2147483646)) + k) % 2147483646)))
+fn roll(seed: number, k: number, n: number): number = floor(draw(seed, k) * n / 2147483647)
+
+component App
+  state seed = 0
+  state k = 0
+  derive dice = range(8).map(i => `${1 + roll(seed, k + i, 6)}`).join(" ")
+  action next
+    k = k + 1
+  action reseed(s: number)
+    seed = s
+    k = 0
+  view
+    column
+      text dice testId="dice"
+      text `${draw(seed, k)} ${draw(seed, k + 1)}` testId="draws"
+      text `${roll(seed, k + 1000000, 100)}` testId="far"
+      button "next" press=next testId="next"
+      button "two" press=reseed(2) testId="two"
+      button "max" press=reseed(4294967295) testId="max"
+      button "edge" press=reseed(2147483645) testId="edge"
+
+test "seed 0"
+  expect text "dice" == "1 3 4 2 6 5 5 2"
+  expect text "draws" == "88649418 1061365310"
+  expect text "far" == "67"
+  tap "next"
+  expect text "draws" == "1061365310 1418207517"
+
+test "other seeds"
+  tap "two"
+  expect text "dice" == "2 2 4 2 2 1 6 2"
+  expect text "far" == "27"
+  tap "max"
+  expect text "dice" == "2 2 4 3 2 2 5 4"
+  expect text "draws" == "417159102 705966837"
+  tap "edge"
+  expect text "dice" == "6 1 5 2 6 2 5 1"
+  expect text "draws" == "2129083954 80246413"

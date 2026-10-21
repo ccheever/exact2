@@ -2,7 +2,7 @@
 //! server keeps serving (LLP 1048.000 D10): the render's watchdog interrupts
 //! the running call, which is refused, and the page shows its placeholder.
 
-#![cfg(exact_js_engine)]
+#![cfg(all(exact_js_engine, unix))]
 
 use exact_js::Module;
 use exact_plan::{Plan, Value};
@@ -106,7 +106,12 @@ fn get(addr: SocketAddr, path: &str) -> (u16, Vec<(String, String)>, String) {
     stream
         .set_read_timeout(Some(Duration::from_secs(60)))
         .unwrap();
-    write!(stream, "GET {path} HTTP/1.1\r\nHost: spin.test\r\n\r\n").unwrap();
+    // One request a connection: it ends at the server's close, not at the keep-alive's idle
+    write!(
+        stream,
+        "GET {path} HTTP/1.1\r\nHost: spin.test\r\nConnection: close\r\n\r\n"
+    )
+    .unwrap();
     let mut bytes = Vec::new();
     stream
         .read_to_end(&mut bytes)

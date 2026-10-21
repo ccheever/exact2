@@ -10,6 +10,10 @@ use exact_kernel::{
 /// A flex column with one image in it; `stretch` false pins the items at
 /// their own size (`align-items: flex-start`), true leaves CSS's default.
 fn tree_with(image: StyleProps, stretch: bool) -> (Kernel, u32) {
+    measured_tree(NodeType::Image, image, stretch)
+}
+
+fn measured_tree(kind: NodeType, image: StyleProps, stretch: bool) -> (Kernel, u32) {
     let mut kernel = Kernel::with_monospace();
     let mut root = StyleProps::default();
     root.display = Display::Flex;
@@ -31,7 +35,7 @@ fn tree_with(image: StyleProps, stretch: bool) -> (Kernel, u32) {
         },
         Op::CreateView {
             id: 2,
-            node_type: NodeType::Image,
+            node_type: kind,
         },
         Op::SetStyle {
             id: 2,
@@ -202,7 +206,7 @@ fn a_grid_image_can_compress_below_its_natural_width() {
     grid.mask.set(StyleId::Display);
     grid.width = Dimension::Points(80.0);
     grid.mask.set(StyleId::Width);
-    grid.grid_template_columns = exact_kernel::GridTracks(vec![
+    grid.rare.grid_template_columns = exact_kernel::GridTracks::from_tracks(vec![
         exact_kernel::GridTrack::Auto,
         exact_kernel::GridTrack::Points(20.0),
     ]);
@@ -433,6 +437,56 @@ fn a_projected_tablist_reserves_its_native_height_and_releases_it() {
     assert_eq!(frame(&mut kernel, 1).1, 20.0);
 }
 
+/// LLP 1116.004 D5.2: a radio group drawn as the platform's segmented
+/// control reserves its height as a tablist does; another role is refused.
+#[test]
+fn a_projected_radio_group_reserves_its_native_height() {
+    use exact_kernel::{PropId, PropValue};
+    let (mut kernel, _) = tree(None);
+    for (version, role) in [(2u64, "group"), (3, "radiogroup")] {
+        kernel
+            .apply(
+                1,
+                version,
+                &[Op::SetProp {
+                    id: 1,
+                    prop: PropId::AccessibilityRole,
+                    value: PropValue::Str(role.into()),
+                }],
+            )
+            .unwrap();
+        let measured = kernel.set_intrinsic_size(1, Some((390.0, 32.0)));
+        assert_eq!(measured.is_ok(), role == "radiogroup", "{role}");
+    }
+    assert_eq!(frame(&mut kernel, 1).1, 32.0);
+    // LLP 1116.019 D1: the control's height is its box's, so the radios it
+    // hides, grown with the text, do not make it taller; a tablist, which
+    // may be a tab bar, keeps the height as a minimum.
+    kernel
+        .apply(
+            3,
+            4,
+            &[Op::SetStyle {
+                id: 2,
+                patch: Box::new(image_style(&[(StyleId::Height, 50.0)])),
+            }],
+        )
+        .unwrap();
+    assert_eq!(frame(&mut kernel, 1).1, 32.0, "a radio group");
+    kernel
+        .apply(
+            4,
+            5,
+            &[Op::SetProp {
+                id: 1,
+                prop: PropId::AccessibilityRole,
+                value: PropValue::Str("tablist".into()),
+            }],
+        )
+        .unwrap();
+    assert_eq!(frame(&mut kernel, 1).1, 50.0, "a tablist");
+}
+
 #[test]
 fn a_tab_bar_minimum_moves_siblings_without_overriding_explicit_css_min_height() {
     use exact_kernel::{PropId, PropValue};
@@ -493,4 +547,214 @@ fn a_tab_bar_minimum_moves_siblings_without_overriding_explicit_css_min_height()
         assert_eq!(frame(&mut kernel, 2), (390.0, 20.0));
         assert_eq!(kernel.node(3).unwrap().frame.y, 20.0);
     }
+}
+
+/// LLP 1116.004 D2 (unit-converter, round 6): a projected tablist's width
+/// report is its control's narrowest, the automatic minimum width in place
+/// of its hidden tabs' own, so a segmented control in a grouped row shrinks
+/// to the row instead of overflowing it by the tabs' widths. An explicit
+/// `min-width` still wins.
+#[test]
+fn a_projected_tablist_shrinks_to_its_row_by_its_controls_narrowest() {
+    use exact_kernel::{PropId, PropValue};
+    let mut kernel = Kernel::with_monospace();
+    let mut row = image_style(&[(StyleId::Width, 300.0)]);
+    row.display = Display::Flex;
+    row.mask.set(StyleId::Display);
+    let mut tablist = StyleProps::default();
+    tablist.display = Display::Flex;
+    tablist.mask.set(StyleId::Display);
+    tablist.flex_grow = 1.0;
+    tablist.mask.set(StyleId::FlexGrow);
+    let tab = || {
+        Box::new(image_style(&[
+            (StyleId::Width, 200.0),
+            (StyleId::MinWidth, 200.0),
+            (StyleId::Height, 30.0),
+        ]))
+    };
+    let mut ops: Vec<_> = (1..=4)
+        .map(|id| Op::CreateView {
+            id,
+            node_type: NodeType::View,
+        })
+        .collect();
+    ops.extend([
+        Op::SetStyle {
+            id: 1,
+            patch: Box::new(row),
+        },
+        Op::SetStyle {
+            id: 2,
+            patch: Box::new(tablist),
+        },
+        Op::SetStyle {
+            id: 3,
+            patch: tab(),
+        },
+        Op::SetStyle {
+            id: 4,
+            patch: tab(),
+        },
+        Op::SetProp {
+            id: 2,
+            prop: PropId::AccessibilityRole,
+            value: PropValue::Str("tablist".into()),
+        },
+        Op::SetChildren {
+            id: 1,
+            children: vec![2],
+        },
+        Op::SetChildren {
+            id: 2,
+            children: vec![3, 4],
+        },
+        Op::AttachRoot { id: 1 },
+    ]);
+    kernel.apply(0, 1, &ops).unwrap();
+    assert_eq!(
+        frame(&mut kernel, 2),
+        (400.0, 30.0),
+        "authored: the tabs overflow the row"
+    );
+    kernel.set_intrinsic_size(2, Some((1.0, 32.0))).unwrap();
+    assert_eq!(
+        frame(&mut kernel, 2),
+        (300.0, 32.0),
+        "projected: the row's width"
+    );
+    kernel.set_intrinsic_size(2, None).unwrap();
+    assert_eq!(
+        frame(&mut kernel, 2).0,
+        400.0,
+        "the projection gone, the tabs' own minimum"
+    );
+    kernel.set_intrinsic_size(2, Some((1.0, 32.0))).unwrap();
+    let mut explicit = StyleProps::default();
+    explicit.min_width = Dimension::Points(350.0);
+    explicit.mask.set(StyleId::MinWidth);
+    kernel
+        .apply(
+            1,
+            2,
+            &[Op::SetStyle {
+                id: 2,
+                patch: Box::new(explicit),
+            }],
+        )
+        .unwrap();
+    assert_eq!(
+        frame(&mut kernel, 2),
+        (350.0, 32.0),
+        "an authored min-width wins"
+    );
+}
+
+// Native modules and built-in controls share preferred-size layout, without
+// turning a widget into a replaced image or inferring a natural aspect ratio.
+#[test]
+fn native_modules_share_control_intrinsics_and_css_constraints() {
+    use StyleId::*;
+    for kind in [NodeType::NativeView, NodeType::Control] {
+        for (rows, stretch, expected) in [
+            (vec![], false, (120.0, 40.0)),
+            (vec![(Width, 60.0)], false, (60.0, 40.0)),
+            (vec![(Height, 20.0)], false, (120.0, 20.0)),
+            (vec![(Width, 70.0), (Height, 25.0)], false, (70.0, 25.0)),
+            (
+                vec![(MaxWidth, 80.0), (MaxHeight, 30.0)],
+                false,
+                (80.0, 30.0),
+            ),
+            (vec![(MinWidth, 150.0)], false, (150.0, 40.0)),
+            (vec![], true, (390.0, 40.0)),
+        ] {
+            let (mut kernel, id) = measured_tree(kind, image_style(&rows), stretch);
+            kernel.set_intrinsic_size(id, Some((120.0, 40.0))).unwrap();
+            near(
+                frame(&mut kernel, id),
+                expected,
+                &format!("{kind:?} {rows:?}"),
+            );
+        }
+    }
+}
+
+#[test]
+fn native_content_growth_clear_and_padding_move_the_next_sibling() {
+    let mut style = StyleProps::default();
+    for id in [
+        StyleId::PaddingLeft,
+        StyleId::PaddingRight,
+        StyleId::PaddingTop,
+        StyleId::PaddingBottom,
+    ] {
+        style
+            .set_dynamic(id, &exact_kernel::StyleValue::Number(4.0))
+            .unwrap();
+    }
+    let (mut kernel, id) = measured_tree(NodeType::NativeView, style, false);
+    kernel
+        .apply(
+            1,
+            2,
+            &[
+                Op::CreateView {
+                    id: 3,
+                    node_type: NodeType::View,
+                },
+                Op::SetChildren {
+                    id: 1,
+                    children: vec![id, 3],
+                },
+            ],
+        )
+        .unwrap();
+    for (size, expected) in [
+        (None, (8.0, 8.0)),
+        (Some((120.0, 40.0)), (128.0, 48.0)),
+        (Some((120.0, 80.0)), (128.0, 88.0)),
+        (Some((120.0, 80.0)), (128.0, 88.0)),
+        (None, (8.0, 8.0)),
+    ] {
+        kernel.set_intrinsic_size(id, size).unwrap();
+        near(
+            frame(&mut kernel, id),
+            expected,
+            "native content box plus padding",
+        );
+        assert_eq!(kernel.node(3).unwrap().frame.y, expected.1);
+    }
+    for bad in [
+        (0.0, 40.0),
+        (-1.0, 40.0),
+        (120.0, f32::NAN),
+        (f32::INFINITY, 40.0),
+    ] {
+        assert_eq!(
+            kernel.set_intrinsic_size(id, Some(bad)),
+            Err(LayoutError::InvalidIntrinsicSize(id).into())
+        );
+    }
+}
+
+#[test]
+fn native_block_without_a_report_still_stretches_and_has_no_content_height() {
+    let (mut kernel, id) = measured_tree(NodeType::NativeView, StyleProps::default(), false);
+    let mut block = StyleProps::default();
+    block.display = Display::Block;
+    block.mask.set(StyleId::Display);
+    kernel
+        .apply(
+            1,
+            2,
+            &[Op::SetStyle {
+                id: 1,
+                patch: Box::new(block),
+            }],
+        )
+        .unwrap();
+    assert_eq!(frame(&mut kernel, id), (390.0, 0.0));
+    kernel.set_intrinsic_size(id, Some((120.0, 40.0))).unwrap();
+    assert_eq!(frame(&mut kernel, id), (390.0, 40.0));
 }

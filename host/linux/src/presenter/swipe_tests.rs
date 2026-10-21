@@ -2,33 +2,22 @@ use super::*;
 use exact_motion::{HoldEnd, Property, Value};
 use exact_runner::DataError;
 
-#[derive(Default)]
-struct NoData;
-impl DataSource for NoData {
-    fn query(
-        &mut self,
-        name: &str,
-        _: &[exact_runner::Value],
-    ) -> Result<exact_runner::Value, DataError> {
-        Err(DataError::UnknownSource(name.into()))
-    }
-}
 fn source() -> String {
     r#"component App
   state count = 0
   state target = 0
   state showing = true
-  action reply writes count, target
+  action reply
     count = count + 1
     target = 180
-  action hide writes showing
+  action hide
     showing = false
-  action show writes showing
+  action show
     showing = true
   view
     column width=400 height=500
-      when showing
-        box testId="row" width=400 height=100 swiperight=reply touch-action="pan-y" opacity=(target == 0 ? 1 : 0.25) transition="translate spring(300, 30, 1)"
+      if showing
+        box testId="row" width=400 height=100 swiperight=reply touch-action="pan-y" opacity=(target == 0 ? 1 : 0.25) transition="translate -exact-spring(300, 30, 1)"
           box testId="indicator" swipeIndicator=true opacity=0 scale=0 transition="opacity 100ms ease-out, scale 100ms ease-out" width=10 height=10
           text "swipe me" testId="label"
       button press=hide testId="hide"
@@ -38,10 +27,10 @@ fn source() -> String {
       text `${count}` testId="count"
 "#.into()
 }
-fn boot(src: &str) -> Presenter<NoData> {
+fn boot(src: &str) -> Presenter<()> {
     let (p, error) = Presenter::boot_with(
-        &contract::compile(src).unwrap().encode(),
-        NoData,
+        &crate::test_plan(src),
+        (),
         (400., 500.),
         1.,
         PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/../../apps/caltrain")),
@@ -51,11 +40,11 @@ fn boot(src: &str) -> Presenter<NoData> {
     assert!(error.is_none(), "{error:?}");
     p
 }
-fn id(p: &Presenter<NoData>, name: &str) -> ViewId {
+fn id(p: &Presenter<()>, name: &str) -> ViewId {
     let k = p.host.kernel();
     k.node_by_key(k.find_by_test_id(name)[0]).unwrap().id
 }
-fn count(p: &Presenter<NoData>) -> &str {
+fn count(p: &Presenter<()>) -> &str {
     p.host
         .kernel()
         .node(id(p, "count"))
@@ -64,7 +53,7 @@ fn count(p: &Presenter<NoData>) -> &str {
         .str(PropId::Text)
         .unwrap()
 }
-fn recognize(p: &mut Presenter<NoData>) {
+fn recognize(p: &mut Presenter<()>) {
     assert!(p.pointer_down(20., 40., 0.).unwrap());
     assert!(p.pointer_move(30., 40., 10.).unwrap());
 }
@@ -192,8 +181,7 @@ fn deletion_remount_and_runtime_replacement_cannot_receive_old_release() {
         .unwrap()
         .primary
         .token;
-    p.reload(&contract::compile(&src).unwrap().encode(), NoData)
-        .unwrap();
+    p.reload(&crate::test_plan(&src), ()).unwrap();
     assert!(!p.host.hold_update(token, Value::ZERO, f64::NAN).unwrap());
     assert!(!p.pointer_up(150., 40., 200.).unwrap());
     assert_eq!(count(&p), "0");
@@ -328,16 +316,16 @@ fn navigation_cancels_a_held_view_without_waiting_for_the_next_pointer_event() {
     let src = r#"component App
   state selected = "a"
   state count = 0
-  action away writes selected
+  action away
     selected = "b"
-  action back writes selected
+  action back
     selected = "a"
-  action reply writes count
+  action reply
     count = count + 1
   view
     main navigationKey=selected navigationBack="back"
       column navigationKey="a"
-        box testId="row" width=400 height=100 swiperight=reply touch-action="pan-y" transition="translate spring(300, 30, 1)"
+        box testId="row" width=400 height=100 swiperight=reply touch-action="pan-y" transition="translate -exact-spring(300, 30, 1)"
           text "swipe me"
       column navigationKey="b"
         text "other route"
@@ -499,20 +487,20 @@ component App
   state showing = true
   state replying = ""
   state draft = ""
-  resource rows = rows(revision, changed) as shape list<Message>
-  action body writes revision
+  resource rows = rows(revision, changed) as shape Message[]
+  action body
     revision = revision + 1
-  action curry writes changed
+  action curry
     changed = true
-  action disable writes disabled
+  action disable
     disabled = true
-  action hide writes showing
+  action hide
     showing = false
-  action replyTo(id: string) writes replying
+  action replyTo(id: string)
     replying = id
-  action outside writes replying
+  action outside
     replying = "outside"
-  action edit(value) writes draft
+  action edit(value)
     draft = value
   view
     column width=400 height=500 padding-left=5.3 padding-top=3.7 box-sizing="border-box"
@@ -527,13 +515,13 @@ component App
           text "Hide"
         button press=outside testId="outside"
           text "Outside"
-      input value=draft change=edit testId="composer" height=32
+      input value=draft input=edit testId="composer" height=32
       text replying testId="replying" height=20
       view id="owner" width=360.25 height=200.5 overflow-x="hidden" overflow-y="hidden"
         list id="content" testId="transcript" virtualized=true width=360.25 height=200.5 padding-left=1.3 border-width=0.7 border-style="solid" box-sizing="border-box"
-          each m in rows key=m.rowKey
+          for m in rows key=m.rowKey
             column width="100%" padding=5.3 disabled=disabled display=(showing ? "flex" : "none")
-              box testId=`reply-hit-${{m.id}}` swiperight=replyTo(m.id) touch-action="pan-y" retainFocus=true transition="translate spring(300, 30, 1)" width="100%" padding=0 border-width=0 background-color="#00000000" text-align="left"
+              box testId=`reply-hit-${{m.id}}` swiperight=replyTo(m.id) touch-action="pan-y" retainFocus=true transition="translate -exact-spring(300, 30, 1)" width="100%" padding=0 border-width=0 background-color="#00000000" text-align="left"
                 MessageBubble(message=m)
               button press=replyTo(m.id) testId=`reply-${{m.id}}` padding=4 border-width=0 background-color="#00000000" align-self="flex-end"
                 text "Reply" font-size=11 color="#2668d8"
@@ -551,6 +539,8 @@ component MessageBubble
         let plan = contract::compile(source).unwrap().encode();
         let assets = PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/../../apps/caltrain"));
         let (mut p, error) = if region {
+            // A region an earlier boot in this test dropped retires first.
+            crate::content_region::test_wait_idle();
             Presenter::boot_with_content_region(
                 &plan,
                 data,
@@ -593,7 +583,8 @@ component MessageBubble
             assert!(Instant::now() < end, "existing real worker watchdog");
             assert!(p.host.content_region().unwrap().refusal().is_none());
             std::thread::sleep(Duration::from_millis(1));
-            assert!(p.poll_content_region().is_none());
+            let error = p.poll_content_region();
+            assert!(error.is_none(), "{error:?}");
         }
     }
     pub(crate) fn ack(p: &mut Presenter<Rows>) -> SubmittedFrame {
@@ -776,15 +767,15 @@ component MessageBubble
     fn budget_source() -> &'static str {
         r##"component App
   state replying = ""
-  resource extras = extras() as shape list<string>
-  action replyTo(id: string) writes replying
+  resource extras = extras() as shape string[]
+  action replyTo(id: string)
     replying = id
   view
-    view id="owner" width=400 height=500 overflow-x="hidden" overflow-y="hidden"
+    view id="owner" position="relative" width=400 height=500 overflow-x="hidden" overflow-y="hidden"
       scroll id="content" width=400 height=500
         column
           text "one complete paragraph"
-          each value in extras key=value
+          for value in extras key=value
             box width=1 height=1 press=replyTo(value)
       text "Preparing" id="pending"
 "##
@@ -844,9 +835,9 @@ component MessageBubble
     fn retained_actions_binding_utf8_accounting_counts_bytes_not_scalars_or_source() {
         let source = r#"component App
   state selected = ""
-  action choose(id: string, ok: bool, n: number) writes selected
+  action choose(id: string, ok: bool, n: number)
     selected = id
-  action clear writes selected
+  action clear
     selected = ""
   view
     column
@@ -876,8 +867,14 @@ component MessageBubble
     fn retained_actions_unsupported_child_is_a_barrier_not_parent_fallthrough() {
         let _service = crate::content_region::test_service();
         let src = source()
-            .replace("  action outside writes replying", "  action unsupported writes replying\n    replying = replying\n  action outside writes replying")
-            .replace("column width=\"100%\" padding=5.3", "column press=outside width=\"100%\" padding=5.3")
+            .replace(
+                "  action outside",
+                "  action unsupported\n    replying = replying\n  action outside",
+            )
+            .replace(
+                "column width=\"100%\" padding=5.3",
+                "column press=outside width=\"100%\" padding=5.3",
+            )
             .replace("button press=replyTo(m.id)", "button press=unsupported");
         let mut p = boot(&src, true, Rows::default());
         let child = id(&p, "reply-message-0");
@@ -921,9 +918,7 @@ component MessageBubble
         let before = clocks(&p);
         // Existing region sessions explicitly refuse in-place reload; do not
         // invent a carrier policy or weaken that refusal for this adapter.
-        assert!(p
-            .reload(&contract::compile(&src).unwrap().encode(), Rows::default())
-            .is_err());
+        assert!(p.reload(&crate::test_plan(&src), Rows::default()).is_err());
         assert_eq!(clocks(&p), before);
         p.pointer_cancel(20.).unwrap();
         assert!(!p.host.has_hold(token));
@@ -950,12 +945,12 @@ component MessageBubble
     #[test]
     fn retained_actions_recycled_row_key_cannot_borrow_old_coordinates_or_binding() {
         let _service = crate::content_region::test_service();
-        let src = source().replace("  action hide writes showing", "  action show writes showing\n    showing = true\n  action hide writes showing")
+        let src = source().replace("  action hide", "  action show\n    showing = true\n  action hide")
             .replace("      input value=draft", "      button press=show testId=\"show\" height=20\n        text \"Show\"\n      input value=draft")
-            .replace("  resource rows = rows(revision, changed) as shape list<Message>", "  resource rows = rows(revision, changed) as shape list<Message>\n  resource emptyRows = extras() as shape list<Message>")
-            .replace("each m in rows key=m.rowKey", "each m in (showing ? rows : emptyRows) key=m.rowKey");
+            .replace("  resource rows = rows(revision, changed) as shape Message[]", "  resource rows = rows(revision, changed) as shape Message[]\n  resource emptyRows = extras() as shape Message[]")
+            .replace("for m in rows key=m.rowKey", "for m in (showing ? rows : emptyRows) key=m.rowKey");
         // Default Rows has an empty extras list. The typed conditional removes
-        // actual keyed rows while keeping the required direct each and handlers.
+        // actual keyed rows while keeping the required direct `for` and handlers.
         let mut p = boot(&src, true, Rows::default());
         let row = id(&p, "reply-message-0");
         let at = point(&mut p, row);
@@ -1216,5 +1211,96 @@ component MessageBubble
                 assert_eq!(p.host.presented(row).translate.0, 0.);
             }
         }
+    }
+    #[test]
+    fn retained_actions_omitted_descendants_reach_the_rows_handlers() {
+        let _service = crate::content_region::test_service();
+        let mut actual = Vec::new();
+        let mut expected = Vec::new();
+        for child in ["svg", "transparent"] {
+            for pointer in [PointerKind::Mouse, PointerKind::Touch, PointerKind::Pen] {
+                let descendant = if child == "svg" {
+                    "svg width=60 height=30 viewBox=\"0 0 60 30\"\n                  rect testId=`child-${m.id}` x=0 y=0 width=60 height=30 fill=\"red\""
+                } else {
+                    "box opacity=0 width=60 height=30\n                  box testId=`child-${m.id}` width=60 height=30"
+                };
+                let src = source()
+                    .replace("text \"Reply\" font-size=11 color=\"#2668d8\"", descendant)
+                    .replace(
+                        "  action outside",
+                        "  action keyed(k: string)\n    replying = \"key\"\n  action outside",
+                    )
+                    .replace(
+                        "button press=replyTo(m.id)",
+                        "button key=keyed press=replyTo(m.id)",
+                    );
+                let mut p = boot(&src, true, Rows::default());
+                let child_id = id(&p, "child-message-0");
+                let row = id(&p, "reply-message-0");
+                assert!(!p.brush.region_blocks_action(child_id));
+                assert!(p.brush.region_blocks_action(row));
+                let parent = p.host.kernel().node(child_id).unwrap().parent.unwrap();
+                let at = point(&mut p, parent);
+                assert_eq!(
+                    p.hit(at.0, at.1),
+                    Some(if child == "svg" { child_id } else { parent })
+                );
+                actual.push((
+                    child,
+                    pointer,
+                    p.handler_target(child_id, EventKind::Key),
+                    None,
+                ));
+                // Opacity-zero descendants have no acknowledged display ancestry.
+                expected.push((child, pointer, (child == "svg").then_some(row), None));
+                p.set_pointer_kind(pointer);
+                p.pointer_down(at.0, at.1, 1.).unwrap();
+                p.pointer_up(at.0, at.1, 2.).unwrap();
+                actual.push((child, pointer, None, Some(selected(&p))));
+                expected.push((child, pointer, None, Some(DataValue::str("message-0"))));
+                p.focus = Some(child_id);
+                assert!(p
+                    .key_event(EventKind::Key, "k", "KeyK", false, 3.)
+                    .0
+                    .is_none());
+                actual.push((child, pointer, None, Some(selected(&p))));
+                expected.push((
+                    child,
+                    pointer,
+                    None,
+                    Some(DataValue::str(if child == "svg" {
+                        "key"
+                    } else {
+                        "message-0"
+                    })),
+                ));
+            }
+        }
+        assert_eq!(actual, expected);
+    }
+    #[test]
+    fn mouse_svg_click_keeps_the_retained_action_refusal() {
+        let _service = crate::content_region::test_service();
+        let src = source()
+            .replace("  action outside", "  action unsupported\n    replying = `${replying}unsafe`\n  action outside")
+            .replace("column width=\"100%\" padding=5.3", "column press=outside width=\"100%\" padding=5.3")
+            .replace("button press=replyTo(m.id)", "button press=unsupported")
+            .replace("text \"Reply\" font-size=11 color=\"#2668d8\"", "svg testId=`svg-${m.id}` width=60 height=30 viewBox=\"0 0 60 30\"\n                  rect x=0 y=0 width=60 height=30 fill=\"red\"");
+        let mut p = boot(&src, true, Rows::default());
+        let row = id(&p, "reply-message-0");
+        let key = p.host.kernel().node(row).unwrap().key;
+        assert!(matches!(
+            p.host
+                .runner()
+                .capture_action_binding(key, EventKind::Press),
+            Err(exact_runner::runner::ActionBindingRefusal::Unsupported)
+        ));
+        let svg = id(&p, "svg-message-0");
+        let at = point(&mut p, svg);
+        let hit = p.hit(at.0, at.1).unwrap();
+        assert!(!p.brush.region_blocks_action(hit));
+        p.pointer_down(at.0, at.1, 1.).unwrap();
+        p.pointer_up(at.0, at.1, 2.).unwrap();
+        assert_eq!(selected(&p), DataValue::str(""));
     }
 }

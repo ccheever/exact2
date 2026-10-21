@@ -1,0 +1,10 @@
+tamber blocks
+
+icons
+  icon.reply = icon(sf "bubble.left")
+
+icons garbage
+  icon.second = icon(sf "star")
+
+icons
+  icon.third = icon(sf "star")

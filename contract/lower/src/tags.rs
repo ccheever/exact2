@@ -1,7 +1,7 @@
 //! The tag and attribute table: Contract's view vocabulary onto the kernel's.
 //!
 //! @ref LLP 1004 D2 (kernel ordinals from `exact-kernel`, never redeclared)
-//! @ref `rules/RULES.md` §Scope (the web is the standard: every row here is a
+//! @ref LLP 1115 §2 (names stay CSS: every row here is a
 //! CSS property or an HTML attribute by its CSS/HTML name)
 //! @ref LLP 1017 §8.1 (the literal CSS names, hyphens as grammar, no aliases;
 //! `testId` and explicitly declared host-policy props aside)
@@ -12,9 +12,8 @@
 //! with a stable id — there is no fallback attribute, and an old spelling
 //! (`size`, `fontSize`, `radius`, `label`) is refused with the CSS name it
 //! became.
-
 use exact_kernel::{NodeType, PropId, StyleId};
-
+use exact_plan::BindingsRow;
 /// What an attribute lowers to.
 #[derive(Debug, Clone, PartialEq)]
 pub enum AttrTarget {
@@ -26,127 +25,16 @@ pub enum AttrTarget {
     InvertedBoolProp(PropId),
     /// A handler for the named event.
     Handler(&'static str),
-    /// CSS `flex: <n>` — grow, shrink, and basis together.
+    /// CSS `flex` shorthand — grow, shrink, and basis together.
     Flex,
+    /// CSS border and text-decoration shorthands.
+    Shorthand,
     /// A canvas's surface binding: `surface=name(args)` (LLP 1009 D3).
     Surface,
+    /// `metadata=MediaMetadata(…)` on `audio` or `video`: four string props,
+    /// one a field (LLP 1098 D1).
+    MediaMetadata,
 }
-
-/// The rows that make a box the containing block of its absolutely
-/// positioned descendants on some host, whatever its `position` (LLP 1074
-/// T1): a box with one is lowered `position: relative` unless it names a
-/// position.
-///
-/// - `overflow`: a native host clips and scrolls a box's view subtree, so a
-///   descendant placed against an ancestor outside it would still be clipped
-///   and scrolled by it. CSS does not make a clipping box a containing block;
-///   this is the declared deviation.
-/// - The transforms, `filter` and `backdrop-filter`: CSS's own rule.
-/// - Motion (an animation, a transition, a press scale, a timeline): the
-///   browser makes the box a containing block while a transform runs, so it
-///   is one at rest too.
-pub const CONTAINS_ABSOLUTE: [StyleId; 15] = [
-    StyleId::OverflowX,
-    StyleId::OverflowY,
-    StyleId::Translate,
-    StyleId::Scale,
-    StyleId::Rotate,
-    StyleId::Transform,
-    StyleId::Filter,
-    StyleId::BackdropBlur,
-    StyleId::Animation,
-    StyleId::Transition,
-    StyleId::LayoutTransition,
-    StyleId::ExitAnimation,
-    StyleId::PressScale,
-    StyleId::DragTimeline,
-    StyleId::AnimationTimeline,
-];
-
-/// Whether an attribute makes its box a containing block (see
-/// [`CONTAINS_ABSOLUTE`]): one of those rows, a material (a backdrop filter),
-/// a navigation screen or modal (which the host moves), or a context
-/// preview (which the host transforms).
-pub fn contains_absolute(name: &str, value: &contract_syntax::Expr) -> bool {
-    // A literal that clips nothing and transforms nothing makes no containing block.
-    if matches!(value, contract_syntax::Expr::Str(v, _) if v == "visible" || v == "none") {
-        return false;
-    }
-    match attr(name) {
-        Some(AttrTarget::Styles(rows)) => rows.iter().any(|row| CONTAINS_ABSOLUTE.contains(row)),
-        _ => matches!(
-            name,
-            "backgroundMaterial" | "navigationKey" | "navigationPresentation" | "contextTarget"
-        ),
-    }
-}
-
-/// An element's attributes with `position: relative` added, when it is the
-/// containing block of its absolutely positioned descendants on every host
-/// and names no position: it has a [`contains_absolute`] attribute, scrolls
-/// by its tag, is a canvas (whose surface the page positions) or a Markdown
-/// editor (whose line markers it holds). `None` otherwise. An authored
-/// `position: static` there is refused.
-pub(crate) fn positioned(
-    tag: &Tag,
-    attrs: &[contract_syntax::Attr],
-    in_svg: bool,
-    span: contract_syntax::Span,
-    host_transform: bool,
-) -> Result<Option<Vec<contract_syntax::Attr>>, crate::LowerError> {
-    use contract_syntax::Expr;
-    let literal =
-        |a: &contract_syntax::Attr, v: &str| matches!(&a.value, Expr::Str(s, _) if s == v);
-    let contains = !in_svg
-        && !tag.node_type.is_svg_element()
-        && (host_transform
-            || attrs.iter().any(|a| contains_absolute(&a.name, &a.value))
-            || tag.node_type.scrolls_by_default()
-            || tag.node_type == NodeType::Canvas
-            || attrs
-                .iter()
-                .any(|a| a.name == "markup" && literal(a, "markdown")));
-    if !contains {
-        return Ok(None);
-    }
-    match attrs.iter().find(|a| a.name == "position") {
-        Some(a) if literal(a, "static") => crate::err(
-            "lower-attr-value",
-            "`position: static` on a box that clips, scrolls, transforms or animates: such a box is the containing block of its absolutely positioned descendants on every host, so it is `relative`; remove `position`",
-            a.span,
-        ),
-        // A bound position is fine when every value it can take is positioned.
-        Some(a) if !always_positioned(&a.value) => crate::err(
-            "lower-attr-value",
-            "a bound `position` on a box that clips, scrolls, transforms or animates: such a box is the containing block of its absolutely positioned descendants on every host, so every value its position can take must be `relative` or `absolute`",
-            a.span,
-        ),
-        Some(_) => Ok(None),
-        None if tag.fixed_styles.iter().any(|(id, _)| *id == StyleId::PositionType) => Ok(None),
-        None => {
-            let mut attrs = attrs.to_vec();
-            attrs.push(contract_syntax::Attr {
-                name: "position".into(),
-                value: Expr::Str("relative".into(), span),
-                span,
-            });
-            Ok(Some(attrs))
-        }
-    }
-}
-
-/// Whether every value a `position` expression can take is `relative` or
-/// `absolute`: a literal, or a choice between such expressions. Anything a
-/// value could come from at run time (a state, a field, a call) is not.
-fn always_positioned(value: &contract_syntax::Expr) -> bool {
-    use contract_syntax::Expr;
-    match value {
-        Expr::Str(v, _) => v == "relative" || v == "absolute",
-        Expr::Ternary(_, a, b, _) => always_positioned(a) && always_positioned(b),
-        _ => false,
-    }
-}
-
 /// A tag's node type, its fixed rows, and how positional arguments land.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Tag {
@@ -159,11 +47,9 @@ pub struct Tag {
     /// The prop the first positional argument fills, if any.
     pub positional: Option<PropId>,
 }
-
 fn p(name: &str) -> PropId {
     PropId::from_name(name).unwrap_or_else(|| panic!("kernel schema has no prop `{name}`"))
 }
-
 /// Look up a tag.
 pub fn tag(name: &str) -> Option<Tag> {
     let fe = |fixed_props: &'static [(PropId, &'static str)]| Tag {
@@ -196,6 +82,9 @@ pub fn tag(name: &str) -> Option<Tag> {
             &[(StyleId::PositionType, "absolute")],
             &[(PropId::SemanticTag, "dialog")],
         ),
+        // @ref LLP 1021 D1 — HTML's separator, one hairline (LLP 1115.000
+        // D10.3); void.
+        "hr" => view(crate::menus::HR, &[(PropId::SemanticTag, "hr")]),
         "main" => view(&[], &[(PropId::SemanticTag, "main")]),
         "header" => view(&[], &[(PropId::SemanticTag, "header")]),
         "nav" => view(&[], &[(PropId::SemanticTag, "nav")]),
@@ -215,22 +104,28 @@ pub fn tag(name: &str) -> Option<Tag> {
             fixed_props: &[],
             positional: None,
         },
+        "time" => Tag {
+            node_type: NodeType::Text,
+            fixed_styles: &[],
+            fixed_props: &[(PropId::SemanticTag, "time")],
+            positional: None,
+        },
         "text" => Tag {
             node_type: NodeType::Text,
             fixed_styles: &[],
             fixed_props: &[],
             positional: Some(PropId::Text),
         },
-        // A pressable `column` (Charlie, 2026-09-23: "One native button, flex
-        // column"): a block <button> would centre its content in an anonymous
-        // box, which a flex one does not, so the web lays it out as the
-        // kernel does (LLP 1006 §3, LLP 1007 §1).
+        // Chrome's `<button>` (Charlie, 2026-10-04, reversing 2026-09-23's
+        // "One native button, flex column"; LLP 1001 §1): a block whose
+        // content the kernel centres as HTML's anonymous button box does,
+        // with the UA sheet's `text-align: center`. An authored `display`
+        // makes it a flex or grid container, as in Chrome.
+        // @ref LLP 1104 D1, D2 — lowering chooses native or bare from the
+        // author's rows and face; the tag has no fixed appearance.
         "button" => Tag {
             node_type: NodeType::Pressable,
-            fixed_styles: &[
-                (StyleId::Display, "flex"),
-                (StyleId::FlexDirection, "column"),
-            ],
+            fixed_styles: &[(StyleId::TextAlign, "center")],
             fixed_props: &[(PropId::AccessibilityRole, "button")],
             positional: None,
         },
@@ -277,6 +172,7 @@ pub fn tag(name: &str) -> Option<Tag> {
             fixed_props: &[],
             positional: Some(PropId::Src),
         },
+        "audio" => crate::media::AUDIO,
         "image" => Tag {
             node_type: NodeType::Image,
             fixed_styles: &[],
@@ -317,8 +213,7 @@ pub fn tag(name: &str) -> Option<Tag> {
             positional: None,
         },
         // @ref LLP 1055.000 D7/D10 — a mask and a pattern render only where
-        // they are referenced; a pattern's tile clips its content, which
-        // the hosts do (no row says so).
+        // they are referenced; a pattern's tile clips its content, which the hosts do (no row says so).
         "mask" => Tag {
             node_type: NodeType::SvgMask,
             fixed_styles: &[],
@@ -419,6 +314,21 @@ pub fn tag(name: &str) -> Option<Tag> {
             ],
             positional: None,
         },
+        // @ref LLP 1069.001 (amended 2026-10-07) — HTML's `progress` with no
+        // `value`, indeterminate: the platform's activity indicator, a
+        // measured leaf (20 × 20 until sized); the lowering adds `aria-busy`.
+        // @ref LLP 1116 D8 — with a `value` (and `max`, strings as a
+        // range's), the determinate bar, sized by HTML's UA sheet. ARIA's
+        // role is `progressbar` either way.
+        "progress" => Tag {
+            node_type: NodeType::Control,
+            fixed_styles: &[],
+            fixed_props: &[
+                (PropId::Type, "progress"),
+                (PropId::AccessibilityRole, "progressbar"),
+            ],
+            positional: None,
+        },
         // An option is a paragraph a closed select never lays out: HTML's
         // `option` shows only in the menu the host builds from it.
         "option" => Tag {
@@ -437,7 +347,6 @@ pub fn tag(name: &str) -> Option<Tag> {
         _ => return None,
     })
 }
-
 /// What a prop attribute's value must be.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PropTy {
@@ -450,7 +359,6 @@ pub enum PropTy {
     /// A finite number, including a fractional pixel.
     Float,
 }
-
 /// The type a prop attribute takes, by the kernel prop's name.
 pub fn prop_ty(prop: PropId) -> PropTy {
     match prop.kind() {
@@ -460,16 +368,47 @@ pub fn prop_ty(prop: PropId) -> PropTy {
         exact_kernel::PropKind::Str => PropTy::Str,
     }
 }
-
 /// Whether an attribute sets style rows.
 pub fn style(name: &str) -> bool {
-    matches!(attr(name), Some(AttrTarget::Styles(_)))
+    // A state part's row (`:disabled opacity`, LLP 1121 D8) is the row it is.
+    let name = contract_syntax::state::state_of(name).map_or(name, |(_, row)| row);
+    matches!(
+        attr(name),
+        Some(AttrTarget::Styles(_) | AttrTarget::Flex | AttrTarget::Shorthand)
+    )
+}
+/// Look up an attribute as written, routed by its value where one name is
+/// two things: `resize` is CSS's property for a string, and given an action
+/// (an `Ident` or a `Call`, never valid CSS there) the element resize event,
+/// ResizeObserver's (x2apps backlog: decided, route by value).
+pub fn attr_valued(name: &str, value: &contract_syntax::Expr) -> Option<AttrTarget> {
+    use contract_syntax::Expr;
+    if name == "resize" && matches!(value, Expr::Ident(..) | Expr::Call(..)) {
+        return Some(AttrTarget::Handler("resize"));
+    }
+    attr(name)
+}
+/// The style rows an attribute writes: its own, a shorthand's longhands,
+/// none for a prop or a handler.
+pub fn rows(a: &contract_syntax::Attr) -> Vec<StyleId> {
+    match attr_valued(&a.name, &a.value) {
+        Some(AttrTarget::Styles(ids)) => ids.to_vec(),
+        Some(AttrTarget::Shorthand) => crate::shorthands::rows(&a.name).to_vec(),
+        Some(AttrTarget::Flex) => vec![StyleId::FlexGrow, StyleId::FlexShrink, StyleId::FlexBasis],
+        _ => Vec::new(),
+    }
 }
 
 /// Look up an attribute.
 pub fn attr(name: &str) -> Option<AttrTarget> {
-    let styles = |rows: &'static [StyleId]| AttrTarget::Styles(rows);
+    if let Some(target) = crate::style_names::lookup(name) {
+        return Some(target);
+    }
     Some(match name {
+        "datetime" => AttrTarget::Prop(PropId::Datetime),
+        "format" => AttrTarget::Prop(PropId::TimeFormat),
+        "start" => AttrTarget::Prop(PropId::Start),
+        "end" => AttrTarget::Prop(PropId::End),
         // handlers (the web's events, LLP 1005 §3)
         "loadedmetadata" => AttrTarget::Handler("loadedmetadata"),
         "durationchange" => AttrTarget::Handler("durationchange"),
@@ -484,13 +423,32 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "ratechange" => AttrTarget::Handler("ratechange"),
         "volumechange" => AttrTarget::Handler("volumechange"),
         "error" => AttrTarget::Handler("error"),
+        // A `video` entered or left full screen (`requestFullscreen`, the
+        // platform's own controls); the payload says which.
+        "fullscreenchange" => AttrTarget::Handler("fullscreenchange"),
         "canplay" => AttrTarget::Handler("canplay"),
+        // @ref LLP 1098 D1, D2 — the media session: `metadata=` claims it,
+        // the six actions by `setActionHandler`'s names, and the seconds a
+        // seek moves when the platform gives none.
+        "metadata" => AttrTarget::MediaMetadata,
+        "decorations" => AttrTarget::Prop(PropId::Decorations),
+        "alertPart" => AttrTarget::Prop(PropId::AlertPart),
+        "seekbackward" => AttrTarget::Handler("seekbackward"),
+        "seekforward" => AttrTarget::Handler("seekforward"),
+        "seekto" => AttrTarget::Handler("seekto"),
+        "previoustrack" => AttrTarget::Handler("previoustrack"),
+        "nexttrack" => AttrTarget::Handler("nexttrack"),
+        "stop" => AttrTarget::Handler("stop"),
+        "seekbackwardOffset" => AttrTarget::Prop(p("seekbackwardOffset")),
+        "seekforwardOffset" => AttrTarget::Prop(p("seekforwardOffset")),
         "press" => AttrTarget::Handler("press"),
         // @ref LLP 1069.001 D4 — HTML's two: `input` as the value moves (a
         // text field's every keystroke), `change` when it is committed.
         "change" => AttrTarget::Handler("change"),
         "input" => AttrTarget::Handler("input"),
         "checked" => AttrTarget::Prop(p("checked")),
+        // HTML's radio button group (x2apps survey #2).
+        "name" => AttrTarget::Prop(p("name")),
         // @ref LLP 1069.002 D1, D2 — a file input's types and count, and
         // HTML's `cancel` when its picker is dismissed.
         "accept" => AttrTarget::Prop(p("accept")),
@@ -499,22 +457,55 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "min" => AttrTarget::Prop(p("min")),
         "max" => AttrTarget::Prop(p("max")),
         "step" => AttrTarget::Prop(p("step")),
+        "rows" => AttrTarget::Prop(p("rows")),
+        "maxlength" => AttrTarget::Prop(p("maxlength")),
         "cancel" => AttrTarget::Handler("cancel"),
+        "close" => AttrTarget::Handler("close"),
+        "toggle" => AttrTarget::Handler("toggle"),
         "select" => AttrTarget::Handler("select"),
         "hover" => AttrTarget::Handler("hover"),
         "focus" => AttrTarget::Handler("focus"),
         "blur" => AttrTarget::Handler("blur"),
+        "focusin" => AttrTarget::Handler("focusin"),
+        "focusout" => AttrTarget::Handler("focusout"),
         "key" => AttrTarget::Handler("key"),
+        "keycapture" => AttrTarget::Handler("keycapture"),
+        // DOM's `keyup`: a key's release, bubbling as `key` does (#140).
+        "keyup" => AttrTarget::Handler("keyup"),
         "submit" => AttrTarget::Handler("submit"),
         "load" => AttrTarget::Handler("load"),
         "message" => AttrTarget::Handler("message"),
         "contextmenu" => AttrTarget::Handler("contextmenu"),
         "dblclick" => AttrTarget::Handler("dblclick"),
+        "pointerdown" => AttrTarget::Handler("pointerdown"), // LLP 1005 §Events, DOM's own
+        "pointerup" => AttrTarget::Handler("pointerup"),
+        "pointermove" => AttrTarget::Handler("pointermove"), // LLP 1056 §3 stage 3
+        // DOM's `beforeunload` (studio diary R17): the window is closing or
+        // the app quitting; an action that calls `preventDefault()` keeps it.
+        "beforeunload" => AttrTarget::Handler("beforeunload"),
+        // @ref LLP 1125 D8 — `MIDIInput`'s event: every mounted element that
+        // declares it hears each message from an input its `midiinputs` lists.
+        "midimessage" => AttrTarget::Handler("midimessage"),
+        "midiinputs" => AttrTarget::Prop(p("midiInputs")),
+        // DOM's `wheel` (studio diary R3), `drop` of files (R19), and the
+        // `dragenter` and `dragleave` of a file drag over the node.
+        "wheel" => AttrTarget::Handler("wheel"),
+        "drop" => AttrTarget::Handler("drop"),
+        "dragenter" => AttrTarget::Handler("dragenter"),
+        "dragleave" => AttrTarget::Handler("dragleave"),
+        "copy" => AttrTarget::Handler("copy"),
+        "cut" => AttrTarget::Handler("cut"),
+        "paste" => AttrTarget::Handler("paste"),
+        "beforeinput" => AttrTarget::Handler("beforeinput"),
+        "selectionchange" => AttrTarget::Handler("selectionchange"),
         "reachstart" => AttrTarget::Handler("reachstart"),
+        "intersect" => AttrTarget::Handler("intersect"),
+        "intersect-margin" => AttrTarget::Prop(p("intersectMargin")),
         "reachend" => AttrTarget::Handler("reachend"),
         "swiperight" => AttrTarget::Handler("swiperight"),
         "refresh" => AttrTarget::Handler("refresh"),
         "scroll" => AttrTarget::Handler("scroll"),
+        "scrollend" => AttrTarget::Handler("scrollend"),
         "pan" => AttrTarget::Handler("pan"),
         "panrelease" => AttrTarget::Handler("panrelease"),
         "navigate" => AttrTarget::Handler("navigate"),
@@ -523,10 +514,10 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "transformrelease" => AttrTarget::Handler("transformrelease"),
         "reorderdrop" => AttrTarget::Handler("reorderdrop"),
         "reorderFor" => AttrTarget::Prop(p("reorderFor")),
+        "reorderGroup" => AttrTarget::Prop(p("reorderGroup")),
         "transformDragFor" => AttrTarget::Prop(p("transformDragFor")),
         "heightDragFor" => AttrTarget::Prop(p("heightDragFor")),
-        // the canvas's surface (LLP 1009 D3)
-        "surface" => AttrTarget::Surface,
+        "surface" => AttrTarget::Surface, // the canvas's surface (LLP 1009 D3)
         // props (HTML and ARIA attribute names; `testId` is Exact's)
         "poster" => AttrTarget::Prop(p("poster")),
         "autoplay" => AttrTarget::Prop(p("autoplay")),
@@ -571,8 +562,8 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "canonical" => AttrTarget::Prop(p("headCanonical")),
         "robots" => AttrTarget::Prop(p("headRobots")),
         "status" => AttrTarget::Prop(p("headStatus")),
-        // `scroll document=(expr)`: the page's scroller when the expression
-        // holds (LLP 1048.003 D4); bare `scroll document` is `document=true`.
+        "edited" => AttrTarget::Prop(p("headEdited")),
+        // `scroll document=(expr)`: the page's scroller when it holds (LLP 1048.003 D4); bare is `=true`.
         "document" => AttrTarget::Prop(p("scrollDocument")),
         "virtualized" => AttrTarget::Prop(p("virtualized")),
         "testId" => AttrTarget::Prop(p("testId")),
@@ -580,19 +571,42 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "navigationBack" => AttrTarget::Prop(p("navigationBack")),
         "navigationPresentation" => AttrTarget::Prop(p("navigationPresentation")),
         "navigationDetent" => AttrTarget::Prop(p("navigationDetent")),
-        "navigationSource" => AttrTarget::Prop(p("navigationSource")),
+        "navigationInitialDetent" => AttrTarget::Prop(p("navigationInitialDetent")),
+        "navigationGrabber" => AttrTarget::Prop(p("navigationGrabber")),
+        // @ref LLP 1125 D11 — the Screen Wake Lock API's one type, on any element.
+        "wakelock" => AttrTarget::Prop(p("wakelock")),
+        // @ref LLP 1115.000 D5.2 — a route's say over the platform's bar:
+        // `none` for a full-bleed screen.
+        "navigationBar" => AttrTarget::Prop(p("navigationBar")),
+        "navigationSource" | "sharedElement" => AttrTarget::Prop(p(name)),
+        // @ref LLP 1075.003 §3.5 — the route's content scroll view, by HTML id.
+        "navigationScroll" => AttrTarget::Prop(p("navigationScroll")),
+        // @ref LLP 1116.004 D1.2 — a wide window's split: "none", or the list column's width.
+        "navigationSplit" => AttrTarget::Prop(p("navigationSplit")),
+        // @ref LLP 1075.003.000 — the node the app's native code receives.
+        "hatch" => AttrTarget::Prop(p("hatch")),
         "closedby" => AttrTarget::Prop(p("closedby")),
         "contextTarget" => AttrTarget::Prop(p("contextTarget")),
         "contextMagnify" => AttrTarget::Prop(p("contextMagnify")),
+        // @ref LLP 1021 §5.1 — the popover a node's context menu shows, and its preview row.
+        "contextPopover" | "contextPreview" => AttrTarget::Prop(p(name)),
         "emojiPicker" => AttrTarget::Prop(p("emojiPicker")),
         "backgroundMaterial" => AttrTarget::Prop(p("backgroundMaterial")),
+        "glassGroup" => AttrTarget::Prop(p("glassGroup")),
+        "buttonStyle" => AttrTarget::Prop(p("buttonStyle")),
+        "listStyle" => AttrTarget::Prop(p("listStyle")),
         "toolbarPlacement" => AttrTarget::Prop(p("toolbarPlacement")),
         "retainFocus" => AttrTarget::Prop(p("retainFocus")),
+        "focusGuide" => AttrTarget::Prop(p("focusGuide")),
         "swipeIndicator" => AttrTarget::Prop(p("swipeIndicator")),
         "aria-live" => AttrTarget::Prop(p("accessibilityLive")),
+        "aria-busy" => AttrTarget::Prop(p("accessibilityBusy")),
+        "aria-atomic" => AttrTarget::Prop(p("accessibilityAtomic")),
         "autofocus" => AttrTarget::Prop(p("autofocus")),
         "action" => AttrTarget::Prop(p("action")),
         "aria-label" => AttrTarget::Prop(p("accessibilityLabel")),
+        "-exact-menu" => AttrTarget::Prop(p("menuPlacement")),
+        "-exact-menu-remove" => AttrTarget::Prop(p("menuRemove")),
         "aria-keyshortcuts" => AttrTarget::Prop(p("accessibilityKeyShortcuts")),
         "aria-description" => AttrTarget::Prop(p("accessibilityHint")),
         "aria-level" => AttrTarget::Prop(p("accessibilityHeadingLevel")),
@@ -605,6 +619,10 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         // HTML's attribute is `inputmode`; the kernel's prop keeps the DOM
         // property's spelling, as the schema does for every prop.
         "inputmode" => AttrTarget::Prop(p("inputMode")),
+        "enterkeyhint" => AttrTarget::Prop(p("enterKeyHint")),
+        "autocomplete" => AttrTarget::Prop(p("autocomplete")),
+        // An image's accessible name by HTML's spelling (feed F1).
+        "alt" => AttrTarget::Prop(p("accessibilityLabel")),
         "autocapitalize" => AttrTarget::Prop(p("autocapitalize")),
         "autocorrect" => AttrTarget::Prop(p("autocorrect")),
         "spellcheck" => AttrTarget::Prop(p("spellcheck")),
@@ -612,10 +630,14 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         // (LLP 1008 §9): the layout viewport becomes the whole screen and
         // `env(safe-area-inset-*)` lengths carry the insets.
         "viewport-fit" => AttrTarget::Prop(p("viewportFit")),
+        // The status bar's text over this node's screen, from state (LLP 1105).
+        "status-bar-style" => AttrTarget::Prop(p("statusBarStyle")),
+        "status-bar-animation" => AttrTarget::Prop(p("statusBarAnimation")),
         // The viewport meta's `interactive-widget`, read from the first root
         // (LLP 1008 §9): `resizes-content` shrinks the layout viewport to a
         // software keyboard's top, so what is pinned to the bottom rises with
-        // it; the default, `resizes-visual`, insets the viewport instead.
+        // it, iOS's default (LLP 1116 D2); `resizes-visual`, the web's
+        // default and iOS's opt-out, insets the viewport instead.
         "interactive-widget" => AttrTarget::Prop(p("interactiveWidget")),
         "value" => AttrTarget::Prop(p("value")),
         "estimated-item-height" => AttrTarget::Prop(p("estimatedItemHeight")),
@@ -627,10 +649,16 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         // History's `scrollRestoration` values (LLP 1070 §4.2): whether a
         // nested list keeps its position across its row's retirement.
         "scroll-restoration" => AttrTarget::Prop(p("scrollRestoration")),
+        // Where a virtualized list opens: at its start, or at its end (a
+        // transcript), CSS Scroll Snap 2's container-level `scroll-start`.
+        "scroll-start" => AttrTarget::Prop(p("scrollStart")),
         // @ref LLP 1056 D6 (r3): a canvas's explicit bitmap size, HTML's
         // `width`/`height` content attributes (Contract's are the CSS box).
         "bitmap-width" => AttrTarget::Prop(p("bitmapWidth")),
         "bitmap-height" => AttrTarget::Prop(p("bitmapHeight")),
+        // LLP 1100 D12a: getContext's settings.
+        "color-space" => AttrTarget::Prop(p("colorSpace")),
+        "color-type" => AttrTarget::Prop(p("colorType")),
         "scrollTop" => AttrTarget::Prop(p("scrollTop")),
         "scrollLeft" => AttrTarget::Prop(p("scrollLeft")),
         "swipeContent" => AttrTarget::Prop(p("swipeContent")),
@@ -640,19 +668,20 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "scrollFollowEnd" => AttrTarget::Prop(p("scrollFollowEnd")),
         "refreshing" => AttrTarget::Prop(p("refreshing")),
         "keyboardDismissMode" => AttrTarget::Prop(p("keyboardDismissMode")),
-        "href" => AttrTarget::Prop(p("href")),
+        // @ref LLP 1077 D12 — what a discrete symbol effect plays on.
+        "symbolEffectValue" => AttrTarget::Prop(p("symbolEffectValue")),
+        "href" | "target" => AttrTarget::Prop(p(name)),
         "disabled" => AttrTarget::Prop(p("disabled")),
         "inert" => AttrTarget::Prop(p("inert")),
         "readonly" => AttrTarget::InvertedBoolProp(p("editable")),
         "lang" => AttrTarget::Prop(p("lang")),
         "src" => AttrTarget::Prop(p("src")),
         "sandbox" => AttrTarget::Prop(p("sandbox")),
-        // The Popover API, by its own names (LLP 1021 D1): a container with
-        // `popover` is hidden until its invoker — a `button` whose
-        // `popovertarget` names the container's `id` — toggles it; open
-        // state is the host's, never the plan's (D2). `aria-checked` is the
-        // ARIA state a menu row's dot would hand-draw; a native menu renders
-        // it as the platform's checkmark (D3).
+        // The Popover API, by its own names (LLP 1021 D1): a container with `popover` is
+        // hidden until its invoker — a `button` whose `popovertarget` names the container's
+        // `id` — toggles it; open state is the host's, never the plan's (D2). `aria-checked`
+        // is the ARIA state a menu row's dot would hand-draw; a native menu renders it as the
+        // platform's checkmark (D3).
         "id" => AttrTarget::Prop(p("id")),
         "popover" => AttrTarget::Prop(p("popover")),
         "popovertarget" => AttrTarget::Prop(p("popovertarget")),
@@ -662,9 +691,30 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "aria-checked" => AttrTarget::Prop(p("accessibilityChecked")),
         // @ref LLP 1039 D6 — vertical tablists retain authored layout.
         "aria-orientation" => AttrTarget::Prop(p("accessibilityOrientation")),
+        "aria-controls" => AttrTarget::Prop(p("accessibilityControls")), // LLP 1075.003 §3.7: a tab names its tabpanel.
         "aria-selected" => AttrTarget::Prop(p("accessibilitySelected")),
         "aria-expanded" => AttrTarget::Prop(p("accessibilityExpanded")),
+        "aria-pressed" => AttrTarget::Prop(p("accessibilityPressed")),
+        "aria-disabled" => AttrTarget::Prop(p("accessibilityDisabled")),
+        "aria-modal" => AttrTarget::Prop(p("accessibilityModal")),
         "aria-hidden" => AttrTarget::Prop(p("accessibilityElementsHidden")),
+        "aria-invalid" => AttrTarget::Prop(p("accessibilityInvalid")), // onboarding F22, spreadsheet F20
+        "aria-describedby" => AttrTarget::Prop(p("accessibilityDescribedBy")),
+        // ARIA's name by reference (ledger2 Rough 3): the ids, space-separated,
+        // of the elements whose text names this one, before `aria-label`.
+        "aria-labelledby" => AttrTarget::Prop(p("accessibilityLabelledBy")),
+        // HTML's `tabindex`, no alias (LLP 1088 D7.3): present makes a box
+        // focusable, `>= 0` a Tab stop; absent is never `0`.
+        "tabindex" => AttrTarget::Prop(p("tabIndex")),
+        "aria-required" => AttrTarget::Prop(p("accessibilityRequired")),
+        "aria-haspopup" => AttrTarget::Prop(p("accessibilityHasPopup")),
+        "aria-current" => AttrTarget::Prop(p("accessibilityCurrent")), // Depot: a nav link's page
+        // @ref LLP 1116 D8 — a range role's value (`progressbar`, `slider`,
+        // `meter`, …), numbers written as HTML writes them (`aria_values`).
+        "aria-valuenow" => AttrTarget::Prop(p("accessibilityValueNow")),
+        "aria-valuemin" => AttrTarget::Prop(p("accessibilityValueMin")),
+        "aria-valuemax" => AttrTarget::Prop(p("accessibilityValueMax")),
+        "aria-valuetext" => AttrTarget::Prop(p("accessibilityValueText")),
         // SVG 2 attributes CSS cannot set (LLP 1055 D1/D2), by their SVG names.
         "viewBox" => AttrTarget::Prop(p("viewBox")),
         "preserveAspectRatio" => AttrTarget::Prop(p("preserveAspectRatio")),
@@ -713,7 +763,7 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "feScale" => AttrTarget::Prop(p("feScale")),
         "xChannelSelector" => AttrTarget::Prop(p("xChannelSelector")),
         "yChannelSelector" => AttrTarget::Prop(p("yChannelSelector")),
-        "order" => AttrTarget::Prop(p("order")),
+        "feOrder" => AttrTarget::Prop(p("feOrder")),
         "kernelMatrix" => AttrTarget::Prop(p("kernelMatrix")),
         "divisor" => AttrTarget::Prop(p("divisor")),
         "bias" => AttrTarget::Prop(p("bias")),
@@ -733,260 +783,35 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "pointsAtY" => AttrTarget::Prop(p("pointsAtY")),
         "pointsAtZ" => AttrTarget::Prop(p("pointsAtZ")),
         "limitingConeAngle" => AttrTarget::Prop(p("limitingConeAngle")),
-        "filter" => styles(&[StyleId::Filter]),
-        "mix-blend-mode" => styles(&[StyleId::MixBlendMode]),
-        "isolation" => styles(&[StyleId::Isolation]),
-        "flood-color" => styles(&[StyleId::FloodColor]),
-        "flood-opacity" => styles(&[StyleId::FloodOpacity]),
-        "lighting-color" => styles(&[StyleId::LightingColor]),
-        "color-interpolation-filters" => styles(&[StyleId::ColorInterpolationFilters]),
-        "mask" => styles(&[StyleId::SvgMask]),
-        "mask-type" => styles(&[StyleId::MaskType]),
         "markerWidth" => AttrTarget::Prop(p("markerWidth")),
         "markerHeight" => AttrTarget::Prop(p("markerHeight")),
         "refX" => AttrTarget::Prop(p("refX")),
         "refY" => AttrTarget::Prop(p("refY")),
         "orient" => AttrTarget::Prop(p("orient")),
         "markerUnits" => AttrTarget::Prop(p("markerUnits")),
-        "marker-start" => styles(&[StyleId::MarkerStart]),
-        "marker-mid" => styles(&[StyleId::MarkerMid]),
-        "marker-end" => styles(&[StyleId::MarkerEnd]),
-        "marker" => styles(&[StyleId::MarkerStart, StyleId::MarkerMid, StyleId::MarkerEnd]),
         // @ref LLP 1055.000 D11 — SVG text's positions (`x`, `y`, `dx`,
         // `dy` on `text`/`tspan` lower to these) and its alignment.
         "textX" => AttrTarget::Prop(p("textX")),
         "textY" => AttrTarget::Prop(p("textY")),
         "textDx" => AttrTarget::Prop(p("textDx")),
         "textDy" => AttrTarget::Prop(p("textDy")),
-        "text-anchor" => styles(&[StyleId::TextAnchor]),
-        "dominant-baseline" => styles(&[StyleId::DominantBaseline]),
-        "pointer-events" => styles(&[StyleId::PointerEvents]),
-        "clip-rule" => styles(&[StyleId::ClipRule]),
-        "stop-color" => styles(&[StyleId::StopColor]),
-        "stop-opacity" => styles(&[StyleId::StopOpacity]),
-        "paint-order" => styles(&[StyleId::PaintOrder]),
         "x1" => AttrTarget::Prop(p("x1")),
         "y1" => AttrTarget::Prop(p("y1")),
         "x2" => AttrTarget::Prop(p("x2")),
         "y2" => AttrTarget::Prop(p("y2")),
-        // SVG 2 presentation and geometry properties: CSS rows (LLP 1055 D2).
-        "fill" => styles(&[StyleId::Fill]),
-        "stroke" => styles(&[StyleId::Stroke]),
-        "stroke-width" => styles(&[StyleId::StrokeWidth]),
-        "stroke-linecap" => styles(&[StyleId::StrokeLinecap]),
-        "stroke-linejoin" => styles(&[StyleId::StrokeLinejoin]),
-        "stroke-miterlimit" => styles(&[StyleId::StrokeMiterlimit]),
-        "stroke-dasharray" => styles(&[StyleId::StrokeDasharray]),
-        "stroke-dashoffset" => styles(&[StyleId::StrokeDashoffset]),
-        "fill-opacity" => styles(&[StyleId::FillOpacity]),
-        "stroke-opacity" => styles(&[StyleId::StrokeOpacity]),
-        "fill-rule" => styles(&[StyleId::FillRule]),
-        "x" => styles(&[StyleId::X]),
-        "y" => styles(&[StyleId::Y]),
-        "rx" => styles(&[StyleId::Rx]),
-        "ry" => styles(&[StyleId::Ry]),
-        // @ref LLP 1055.000 D5 — transforms on SVG elements.
-        "transform" => styles(&[StyleId::Transform]),
-        "transform-origin" => styles(&[StyleId::TransformOrigin]),
-        "transform-box" => styles(&[StyleId::TransformBox]),
-        "vector-effect" => styles(&[StyleId::VectorEffect]),
-        "visibility" => styles(&[StyleId::Visibility]),
-        "cx" => styles(&[StyleId::Cx]),
-        "cy" => styles(&[StyleId::Cy]),
-        "r" => styles(&[StyleId::R]),
-        // CSS Animations (LLP 1055 D5): the shorthand is the row; the
-        // longhands compose into it before lowering (`svg::compose_animation`).
-        "animation"
-        | "animation-name"
-        | "animation-duration"
-        | "animation-timing-function"
-        | "animation-delay"
-        | "animation-iteration-count"
-        | "animation-direction"
-        | "animation-fill-mode"
-        | "animation-play-state" => styles(&[StyleId::Animation]),
-        // style rows, by their CSS property names
-        "white-space" => styles(&[StyleId::WhiteSpace]),
-        "overflow-wrap" => styles(&[StyleId::OverflowWrap]),
-        "field-sizing" => styles(&[StyleId::FieldSizing]),
-        "scroll-snap-type" => styles(&[StyleId::ScrollSnapType]),
-        "scrollbar-width" => styles(&[StyleId::ScrollbarWidth]),
-        "touch-action" => styles(&[StyleId::TouchAction]),
-        "clip-path" => styles(&[StyleId::ClipPath]),
-        // @ref LLP 1043.000 §3 D1
-        "wrap-flow" => styles(&[StyleId::WrapFlow]),
-        "shape-outside" => styles(&[StyleId::ShapeOutside]),
-        "shape-margin" => styles(&[StyleId::ShapeMargin]),
-        "scroll-snap-align" => styles(&[StyleId::ScrollSnapAlign]),
-        "line-clamp" => styles(&[StyleId::LineClamp]),
-        "text-overflow" => styles(&[StyleId::TextOverflow]),
-        // @ref LLP 1053 §0 G4 — `normal` and `tabular-nums`; others refused by name.
-        "font-variant-numeric" => styles(&[StyleId::FontVariantNumeric]),
-        "text-decoration-line" => styles(&[StyleId::TextDecorationLine]),
-        // @ref LLP 1064 D5
-        "text-transform" => styles(&[StyleId::TextTransform]),
-        "font-size" => styles(&[StyleId::FontSize]),
-        "font-weight" => styles(&[StyleId::FontWeight]),
-        "font-style" => styles(&[StyleId::FontStyle]),
-        "font-family" => styles(&[StyleId::FontFamily]),
-        "color" => styles(&[StyleId::TextColor]),
-        "background-color" => styles(&[StyleId::BackgroundColor]),
-        // @ref LLP 1066 — `none` or one linear/radial gradient.
-        "background-image" => styles(&[StyleId::BackgroundImage]),
-        "caret-color" => styles(&[StyleId::CaretColor]),
-        // @ref LLP 1069.001 D6 — a form control's tint and whether the
-        // platform draws it.
-        "accent-color" => styles(&[StyleId::AccentColor]),
-        "appearance" => styles(&[StyleId::Appearance]),
-        "tint-color" => styles(&[StyleId::TintColor]),
-        "opacity" => styles(&[StyleId::Opacity]),
-        // @ref LLP 1064 D1 — one value, each row takes its part of the parse.
-        "box-shadow" => styles(&[
-            StyleId::ShadowColor,
-            StyleId::ShadowOffset,
-            StyleId::ShadowRadius,
-            StyleId::ShadowOpacity,
-        ]),
-        // @ref LLP 1053.000 D1 — `none` or one `blur(<length>)`; the rest of
-        // CSS's filter functions are refused by name.
-        "backdrop-filter" => styles(&[StyleId::BackdropBlur]),
-        "letter-spacing" => styles(&[StyleId::LetterSpacing]),
-        "line-height" => styles(&[StyleId::LineHeight]),
-        "text-align" => styles(&[StyleId::TextAlign]),
-        "gap" => styles(&[StyleId::RowGap, StyleId::ColumnGap]),
-        "row-gap" => styles(&[StyleId::RowGap]),
-        "column-gap" => styles(&[StyleId::ColumnGap]),
-        "padding" => styles(&[
-            StyleId::PaddingTop,
-            StyleId::PaddingRight,
-            StyleId::PaddingBottom,
-            StyleId::PaddingLeft,
-        ]),
-        "padding-top" => styles(&[StyleId::PaddingTop]),
-        "padding-right" => styles(&[StyleId::PaddingRight]),
-        "padding-bottom" => styles(&[StyleId::PaddingBottom]),
-        "padding-left" => styles(&[StyleId::PaddingLeft]),
-        "margin" => styles(&[
-            StyleId::MarginTop,
-            StyleId::MarginRight,
-            StyleId::MarginBottom,
-            StyleId::MarginLeft,
-        ]),
-        "margin-top" => styles(&[StyleId::MarginTop]),
-        "margin-right" => styles(&[StyleId::MarginRight]),
-        "margin-bottom" => styles(&[StyleId::MarginBottom]),
-        "margin-left" => styles(&[StyleId::MarginLeft]),
-        "border-radius" => styles(&[
-            StyleId::BorderRadiusTopLeft,
-            StyleId::BorderRadiusTopRight,
-            StyleId::BorderRadiusBottomRight,
-            StyleId::BorderRadiusBottomLeft,
-        ]),
-        "border-top-left-radius" => styles(&[StyleId::BorderRadiusTopLeft]),
-        "border-top-right-radius" => styles(&[StyleId::BorderRadiusTopRight]),
-        "border-bottom-left-radius" => styles(&[StyleId::BorderRadiusBottomLeft]),
-        "border-bottom-right-radius" => styles(&[StyleId::BorderRadiusBottomRight]),
-        "border-width" => styles(&[
-            StyleId::BorderWidthTop,
-            StyleId::BorderWidthRight,
-            StyleId::BorderWidthBottom,
-            StyleId::BorderWidthLeft,
-        ]),
-        "border-top-width" => styles(&[StyleId::BorderWidthTop]),
-        "border-right-width" => styles(&[StyleId::BorderWidthRight]),
-        "border-bottom-width" => styles(&[StyleId::BorderWidthBottom]),
-        "border-left-width" => styles(&[StyleId::BorderWidthLeft]),
-        "border-style" => styles(&[
-            StyleId::BorderStyleTop,
-            StyleId::BorderStyleRight,
-            StyleId::BorderStyleBottom,
-            StyleId::BorderStyleLeft,
-        ]),
-        "border-top-style" => styles(&[StyleId::BorderStyleTop]),
-        "border-right-style" => styles(&[StyleId::BorderStyleRight]),
-        "border-bottom-style" => styles(&[StyleId::BorderStyleBottom]),
-        "border-left-style" => styles(&[StyleId::BorderStyleLeft]),
-        "border-color" => styles(&[
-            StyleId::BorderColorTop,
-            StyleId::BorderColorRight,
-            StyleId::BorderColorBottom,
-            StyleId::BorderColorLeft,
-        ]),
-        "border-top-color" => styles(&[StyleId::BorderColorTop]),
-        "border-right-color" => styles(&[StyleId::BorderColorRight]),
-        "border-bottom-color" => styles(&[StyleId::BorderColorBottom]),
-        "border-left-color" => styles(&[StyleId::BorderColorLeft]),
-        "width" => styles(&[StyleId::Width]),
-        "height" => styles(&[StyleId::Height]),
-        "min-width" => styles(&[StyleId::MinWidth]),
-        "min-height" => styles(&[StyleId::MinHeight]),
-        "max-width" => styles(&[StyleId::MaxWidth]),
-        "max-height" => styles(&[StyleId::MaxHeight]),
-        "flex" => AttrTarget::Flex,
-        // @ref LLP 1053 G3 — the longhand: `flex-basis` stays `auto`, unlike `flex`.
-        "flex-grow" => styles(&[StyleId::FlexGrow]),
-        "flex-shrink" => styles(&[StyleId::FlexShrink]),
-        "flex-basis" => styles(&[StyleId::FlexBasis]),
-        "flex-wrap" => styles(&[StyleId::FlexWrap]),
-        "flex-direction" => styles(&[StyleId::FlexDirection]),
-        // @ref LLP 1053 — CSS `direction` (inherited), not a flex direction.
-        "direction" => styles(&[StyleId::Direction]),
-        // @ref LLP 1053 G1 — `auto || <ratio>`.
-        "aspect-ratio" => styles(&[StyleId::AspectRatio]),
-        // @ref LLP 1057.003 D1 — drag timelines, CSS scroll-driven animations' shape.
-        "drag-timeline" => styles(&[StyleId::DragTimeline]),
-        "animation-timeline" => styles(&[StyleId::AnimationTimeline]),
-        "animation-range" => styles(&[StyleId::AnimationRange]),
-        // @ref LLP 1057.003 D4 — CSS `timeline-scope`.
-        "timeline-scope" => styles(&[StyleId::TimelineScope]),
-        "display" => styles(&[StyleId::Display]),
-        "align-items" => styles(&[StyleId::AlignItems]),
-        "align-content" => styles(&[StyleId::AlignContent]),
-        "align-self" => styles(&[StyleId::AlignSelf]),
-        "box-sizing" => styles(&[StyleId::BoxSizing]),
-        "object-fit" => styles(&[StyleId::ObjectFit]),
-        "justify-content" => styles(&[StyleId::JustifyContent]),
-        "justify-items" => styles(&[StyleId::JustifyItems]),
-        "position" => styles(&[StyleId::PositionType]),
-        "inset" => styles(&[StyleId::Top, StyleId::Right, StyleId::Bottom, StyleId::Left]),
-        "top" => styles(&[StyleId::Top]),
-        "left" => styles(&[StyleId::Left]),
-        "right" => styles(&[StyleId::Right]),
-        "bottom" => styles(&[StyleId::Bottom]),
-        "overflow" => styles(&[StyleId::OverflowX, StyleId::OverflowY]),
-        "overflow-x" => styles(&[StyleId::OverflowX]),
-        "overflow-y" => styles(&[StyleId::OverflowY]),
-        "overscroll-behavior" => {
-            styles(&[StyleId::OverscrollBehaviorX, StyleId::OverscrollBehaviorY])
-        }
-        "overscroll-behavior-x" => styles(&[StyleId::OverscrollBehaviorX]),
-        "overscroll-behavior-y" => styles(&[StyleId::OverscrollBehaviorY]),
-        "scroll-behavior" => styles(&[StyleId::ScrollBehavior]),
-        "z-index" => styles(&[StyleId::ZIndex]),
-        "transition" => styles(&[StyleId::Transition]),
-        // @ref LLP 1063 — played as the node leaves; its names resolve against
-        // the plan's keyframes as `animation`'s do (LLP 1055 D5).
-        "exit-animation" => styles(&[StyleId::ExitAnimation]),
-        // @ref LLP 1063 — how the laid-out box moves when layout moves it.
-        "layout-transition" => styles(&[StyleId::LayoutTransition]),
-        "interpolate-size" => styles(&[StyleId::InterpolateSize]),
-        "translate" => styles(&[StyleId::Translate]),
-        "scale" => styles(&[StyleId::Scale]),
-        "rotate" => styles(&[StyleId::Rotate]),
-        // @ref LLP 1061 D1 — host-owned press feedback; not a motion target.
-        "press-scale" => styles(&[StyleId::PressScale]),
         _ => return None,
     })
 }
 
-/// The name an old spelling became — the short nicknames and the DOM's
-/// camelCase that the table accepted before LLP 1017 §8.1 — so the refusal of
+/// The name an old nickname or DOM camelCase spelling became (LLP 1017 §8.1), so the refusal of
 /// `size=13` says `font-size`. Nothing here is accepted; it is only named.
 pub fn renamed(old: &str) -> Option<&'static str> {
     Some(match old {
         "size" | "fontSize" => "font-size",
         "weight" | "fontWeight" => "font-weight",
         "fontStyle" => "font-style",
+        "fontStretch" => "font-stretch",
+        "fontVariationSettings" => "font-variation-settings",
         "fontFamily" => "font-family",
         "background" | "backgroundColor" => "background-color",
         "letterSpacing" => "letter-spacing",
@@ -1023,34 +848,74 @@ pub fn renamed(old: &str) -> Option<&'static str> {
         "flexDirection" => "flex-direction",
         "flexGrow" => "flex-grow",
         "aspectRatio" => "aspect-ratio",
-        "dragTimeline" => "drag-timeline",
+        "dragTimeline" | "drag-timeline" => "-exact-drag-timeline",
         "animationTimeline" => "animation-timeline",
         "animationRange" => "animation-range",
+        "animationTrigger" | "animation-trigger" => "-exact-animation-trigger",
         "timelineScope" => "timeline-scope",
         "transformOrigin" => "transform-origin",
         "align" | "alignItems" => "align-items",
         "alignSelf" => "align-self",
         "boxSizing" => "box-sizing",
-        "fit" | "objectFit" => "object-fit",
+        "fit" | "objectFit" | "resizeMode" => "object-fit",
+        // React Native's names for CSS's text rows.
+        "numberOfLines" => "line-clamp",
+        "ellipsizeMode" => "text-overflow",
+        "textTransform" => "text-transform",
+        "fontVariant" => "font-variant-numeric",
+        // UIKit's, SwiftUI's and React Native's shrink-to-fit (LLP 1116.001 D1.4).
+        "adjustsFontSizeToFitWidth"
+        | "adjustsFontSizeToFit"
+        | "minimumScaleFactor"
+        | "minimumFontScale" => "-exact-fit",
         "justify" | "justifyContent" => "justify-content",
         "overflowX" => "overflow-x",
         "overflowY" => "overflow-y",
         "zIndex" => "z-index",
         "accessibilityOrientation" => "aria-orientation",
         "label" | "accessibilityLabel" => "aria-label",
+        "tabIndex" => "tabindex",
         "hint" | "accessibilityHint" => "aria-description",
         "headingLevel" => "aria-level",
         "inputMode" | "keyboardType" => "inputmode",
+        "enterKeyHint" | "returnKeyType" => "enterkeyhint",
+        "autoComplete" | "textContentType" | "autoCompleteType" => "autocomplete",
         "viewportFit" | "safeArea" | "safeAreaView" => "viewport-fit",
+        "statusBarStyle" | "barStyle" | "StatusBar" => "status-bar-style",
+        // Android's view attribute, UIKit's idle timer, Expo's hook (LLP 1125 D11).
+        "keepScreenOn" | "keep-screen-on" | "idleTimerDisabled" | "keepAwake" | "wakeLock" => {
+            "wakelock"
+        }
         "interactiveWidget" | "keyboardAvoidingView" | "keyboardAvoiding" => "interactive-widget",
         "secureTextEntry" => "type",
         "onClick" | "onPress" => "press",
+        // Web MIDI's handler properties (LLP 1125 D8).
+        "onMIDIMessage" | "onmidimessage" | "midiMessage" => "midimessage",
+        "midiInputs" | "midi-inputs" => "midiinputs",
+        // LLP 1081 D2: the names Exact invents are spelled `-exact-`.
+        "tint-color" => "-exact-tint-color",
+        "exit-animation" => "-exact-exit-animation",
+        "layout-transition" => "-exact-layout-transition",
+        "press-scale" => "-exact-press-scale",
+        "symbol-rendering" => "-exact-symbol-rendering",
+        "symbol-palette" => "-exact-symbol-palette",
+        "symbol-value" => "-exact-symbol-value",
+        "symbol-effect" => "-exact-symbol-effect",
+        "press-haptic" => "-exact-press-haptic",
+        // LLP 1061 D7: the pressed paint, and React Native's
+        // `TouchableOpacity`/`TouchableHighlight` props that set it.
+        "press-opacity" | "activeOpacity" => "-exact-press-opacity",
+        "press-background-color" | "underlayColor" => "-exact-press-background-color",
+        "press-color" => "-exact-press-color",
+        "content-transition" => "-exact-content-transition",
+        "scroll-edge-effect" => "-exact-scroll-edge-effect",
+        "hover-effect" => "-exact-hover-effect",
+        "smart-invert" => "-exact-smart-invert",
         "onChange" | "onChangeText" | "onInput" => "input",
         "className" | "class" | "style" => return None,
         _ => return None,
     })
 }
-
 // A list's row-size estimate is the virtualized list's host policy (LLP 1010
 // §6.5); the fixed-height windowed list it once also named is deleted (LLP
 // 1070 stage 1), so a hint without `virtualized=true` says how to migrate.
@@ -1060,18 +925,20 @@ pub(crate) fn validate_list(
     span: contract_syntax::Span,
 ) -> Result<(), super::LowerError> {
     use contract_syntax::Expr;
-    if let Some(count) = expanded.iter().find(|a| a.name == "initial-item-count") {
-        let virtualized = tag == "list"
-            && expanded
-                .iter()
-                .any(|a| a.name == "virtualized" && matches!(a.value, Expr::Bool(true, _)));
-        if !virtualized {
-            return super::err(
-                "lower-list-virtualized",
-                "`initial-item-count` is a virtualized list's first window; it goes on `list virtualized=true`",
-                count.span,
-            );
+    let virtualized = tag == "list"
+        && expanded
+            .iter()
+            .any(|a| a.name == "virtualized" && matches!(a.value, Expr::Bool(true, _)));
+    // A virtualized list's first window, and where it opens (its value is
+    // checked with the list's, `collection.rs`).
+    for name in ["initial-item-count", "scroll-start"] {
+        if let Some(a) = expanded.iter().find(|a| a.name == name && !virtualized) {
+            let why =
+                format!("`{name}` is a virtualized list's; it goes on `list virtualized=true` (a chat's transcript: `contract vocab chat-thread`)");
+            return super::err("lower-list-virtualized", why, a.span);
         }
+    }
+    if let Some(count) = expanded.iter().find(|a| a.name == "initial-item-count") {
         if !matches!(count.value, Expr::Number(n, _) if n.fract() == 0.0 && (1.0..=64.0).contains(&n))
         {
             return super::err(
@@ -1125,7 +992,6 @@ pub(crate) fn validate_list(
     }
     Ok(())
 }
-
 /// The attributes `head` takes, and only `head` (LLP 1048.003 D1).
 pub const HEAD_FIELDS: &[&str] = &[
     "title",
@@ -1134,18 +1000,20 @@ pub const HEAD_FIELDS: &[&str] = &[
     "canonical",
     "robots",
     "status",
+    // LLP 1069.010 D6: the document has unsaved changes (a declared deviation).
+    "edited",
 ];
-
 /// Suggest one unambiguous single-edit spelling from the existing attribute
 /// lookup. No second vocabulary is maintained, and this never admits an alias.
 pub(crate) fn similar_attr(name: &str, style_only: bool) -> Option<String> {
     similar(name, |candidate| match attr(candidate) {
-        Some(AttrTarget::Styles(_) | AttrTarget::Flex) => true,
+        // Lowering's own row for `:active`'s opacity (LLP 1121 D8).
+        _ if candidate == crate::states::PRESS_OPACITY_TO => false,
+        Some(AttrTarget::Styles(_) | AttrTarget::Flex | AttrTarget::Shorthand) => true,
         Some(_) => !style_only,
         None => false,
     })
 }
-
 /// The same for a tag, from the tag lookup.
 pub(crate) fn similar_tag(name: &str) -> Option<String> {
     similar(name, |candidate| tag(candidate).is_some())
@@ -1155,9 +1023,32 @@ pub(crate) fn similar_tag(name: &str) -> Option<String> {
 pub(crate) fn html_tag(name: &str) -> Option<&'static str> {
     Some(match name {
         "div" => "a flex container is `column` or `row`, and a plain box `view`",
-        "span" | "p" | "label" | "strong" | "em" | "b" | "i" | "h1" | "h2" | "h3" | "h4" | "h5"
-        | "h6" => "text is `text`",
-        "img" => "an image is `image`",
+        "span" | "p" | "strong" | "em" | "b" | "i" => "text is `text`",
+        "label" => {
+            "a label is `text` beside its field, and the field is named by `aria-label` (or `aria-labelledby` with the text's `id`)"
+        }
+        "heading" => "a heading is `h1` (to `h6` for the level)",
+        // The app farm's guesses (round 1): each names the Contract form
+        // that does the job.
+        "small" | "code" | "pre" | "paragraph" | "subtitle" => {
+            "text is `text`, styled by its attributes (`font-size`, `font-family`, `white-space`)"
+        }
+        "form" => {
+            "there is no `form`: a field's Enter is its `submit` (`input … submit=save`), and a `button`'s `press` acts"
+        }
+        "table" | "thead" | "tbody" | "tr" | "td" | "th" | "grid" => {
+            "a table or grid is `view display=\"grid\"` with `grid-template-columns`, or a `column` of `row`s"
+        }
+        "details" | "summary" => {
+            "there is no `details`: keep `open` in state, show the body `if open`, and toggle it from a `button`"
+        }
+        "hstack" | "vstack" | "stack" | "flex" => "a horizontal stack is `row`, a vertical one `column`",
+        "container" | "card" => "a box is `view` (or `column`, `row`), styled by a `style` declared in this file",
+        "spacer" => "a spacer is `view flex=1` in a `row` or `column`",
+        "divider" => "a divider is `hr`",
+        "br" => "a line break is a new `text`, or `\\n` in a string with `white-space=\"pre-line\"`",
+        "icon" => "an icon is `image \"symbol:<role>\"`, or an `svg`",
+        "img" | "picture" => "an image is `image`",
         "a" => "a link is `link`",
         "title" | "meta" => "a page's title and description are `head title=… description=…`",
         "ul" | "ol" | "li" => "a list is `list` (or a `column` of rows)",
@@ -1312,8 +1203,7 @@ pub(crate) fn host_transform_recipients(
                     let maybe_absolute =
                         absolute || position.is_some_and(|a| !matches!(&a.value, Expr::Str(_, _)));
                     let scrolls = tag(name).is_some_and(|t| t.node_type.scrolls_by_default())
-                        || rows.iter().any(|a| matches!(a.name.as_str(), "overflow" | "overflow-y")
-                            && !matches!(&a.value, Expr::Str(v, _) if v != "auto" && v != "scroll"));
+                        || crate::overflow::Overflow::of(&rows, "visible").may_scroll_y();
                     let index = boxes.len();
                     boxes.push(BoxSite {
                         key: (*span, *instance),
@@ -1333,7 +1223,6 @@ pub(crate) fn host_transform_recipients(
                     collect(lower, otherwise, parent, repeated, boxes);
                 }
                 Node::Each { body, .. } => collect(lower, body, parent, true, boxes),
-                Node::Provide { body, .. } => collect(lower, body, parent, repeated, boxes),
                 Node::Match { some, none, .. } => {
                     collect(lower, &some.1, parent, repeated, boxes);
                     collect(lower, none, parent, repeated, boxes);
@@ -1400,31 +1289,188 @@ pub(crate) fn host_transform_recipients(
     recipients
 }
 
-/// Atomic text boxes are supported in paragraphs; images there remain inline despite the host reset.
-pub(crate) fn inline_content(
+/// @ref LLP 1116.019 D6 — a `color` the author wrote on a symbol `image`
+/// (or its class) is the symbol's colour, as an inline SVG icon drawn in
+/// `currentcolor` follows `color` on the web: the row this returns,
+/// `-exact-tint-color: currentcolor`, said as the `color` was. `None` where
+/// the image names its `-exact-tint-color`, writes no `color`, or is no
+/// symbol (a raster given a tint paints as a silhouette). `rows` are the
+/// author's, its classes' included, without the sheet's.
+pub(crate) fn symbol_ink(
     tag: &str,
-    t: &mut Tag,
-    attrs: &[contract_syntax::Attr],
-    parent: Option<&str>,
-    span: contract_syntax::Span,
-) -> Result<(), crate::LowerError> {
-    use contract_syntax::Expr;
-    if attrs
-        .iter()
-        .any(|a| a.name == "display" && matches!(&a.value,Expr::Str(v,_) if v=="inline-block"))
-        && !((tag == "text" || tag == "image") && parent == Some("text"))
-    {
-        return crate::err(
-            "lower-inline-block",
-            "`inline-block` is supported on `text` and `image` inside a `text` paragraph",
-            span,
-        );
+    positional: &[contract_syntax::Expr],
+    rows: &[contract_syntax::Attr],
+) -> Option<contract_syntax::Attr> {
+    use contract_syntax::{Expr, TemplatePart};
+    fn symbol(source: &Expr) -> bool {
+        match source {
+            Expr::Str(s, _) => s.starts_with("symbol:"),
+            Expr::Template(parts, _) => {
+                matches!(parts.first(), Some(TemplatePart::Text(t)) if t.starts_with("symbol:"))
+            }
+            Expr::Ternary(_, a, b, _) => symbol(a) && symbol(b),
+            _ => false,
+        }
     }
-    if t.node_type == NodeType::Image
-        && parent == Some("text")
-        && !attrs.iter().any(|a| a.name == "display")
-    {
-        t.fixed_styles = &[(StyleId::Display, "inline-block")];
+    if tag != "image" || !positional.first().is_some_and(symbol) {
+        return None;
+    }
+    if rows.iter().any(|a| a.name == "-exact-tint-color") {
+        return None;
+    }
+    let color = rows.iter().rev().find(|a| a.name == "color")?;
+    Some(contract_syntax::Attr {
+        name: "-exact-tint-color".into(),
+        value: Expr::Str("currentcolor".into(), color.span),
+        span: color.span,
+        written: color.written,
+    })
+}
+
+/// How an element is a flex or grid container, if it is: its tag, or a
+/// literal `display` (LLP 1093 §1).
+pub(crate) fn flex_container<'a>(tag: &'a str, attrs: &[contract_syntax::Attr]) -> Option<&'a str> {
+    let display = attrs
+        .iter()
+        .rev()
+        .find(|a| a.name == "display")
+        .and_then(|a| match &a.value {
+            contract_syntax::Expr::Str(v, _) => Some(v.as_str()),
+            _ => None,
+        });
+    match display {
+        Some("flex" | "grid" | "inline-flex" | "inline-grid") => {
+            Some("a `display` of flex or grid")
+        }
+        Some(_) => None,
+        None => matches!(tag, "column" | "row").then_some(tag),
+    }
+}
+
+/// @ref LLP 1093 §1 — a flex or grid container is never a multi-column one:
+/// CSS ignores the rows there, so they are refused rather than dropped.
+pub(crate) fn multicol_on_flex(
+    tag: &str,
+    a: &contract_syntax::Attr,
+) -> Result<(), crate::LowerError> {
+    let multicol = matches!(
+        a.name.as_str(),
+        "columns"
+            | "column-count"
+            | "column-width"
+            | "column-fill"
+            | "column-rule"
+            | "column-rule-width"
+            | "column-rule-style"
+            | "column-rule-color"
+    );
+    if multicol {
+        return crate::err("lower-attr-tag", format!("`{}` makes a block a multi-column container, and `{tag}` makes a flex or grid container, where CSS ignores it; write `view` (a block) for columns", a.name), a.span);
     }
     Ok(())
+}
+
+impl crate::Lowerer<'_> {
+    /// @ref LLP 1115 §3, LLP 1115.000 D3.5 — a link's unsaid colour is the
+    /// platform's link role (the tint on iOS, `linkColor` on macOS, the
+    /// accent on the web), as the UA's `a:link` is: a run with an `href` in
+    /// its paragraph, and a block `link` of text (a `tel:` or `mailto:`
+    /// value, a "Learn more"), which a hand-built screen draws in the tint.
+    /// A `link` holding a row or a column, or given a `role`, is its
+    /// author's row or button and keeps inheriting. Pushed before the
+    /// author's rows, so a `color` on the link, the run or a class wins. A
+    /// terminal entry's block link is left as it is: what a terminal shows
+    /// for a link is the terminal's to decide (`QUEUE.md`).
+    ///
+    /// An `href` that turns out empty is no link (`Props::link` is how a
+    /// host reads the value), so the row follows the value: a computed
+    /// `href` chooses between the role and `inherit` as it changes, and a
+    /// written `href=""` gets no row. A package that writes `href=r.href`
+    /// on every run of a paragraph, empty for plain prose, then colours
+    /// only its links.
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn link_color(
+        &mut self,
+        tag: &str,
+        parent_tag: Option<&str>,
+        attrs: &[contract_syntax::Attr],
+        children: &[contract_syntax::Node],
+        scope: &crate::Scope,
+        locals: u16,
+        bindings: &mut Vec<BindingsRow>,
+    ) {
+        use contract_syntax::Expr;
+        let Some(chosen) = self.link_colour(tag, parent_tag, attrs, children) else {
+            return;
+        };
+        let link = match &chosen {
+            Expr::Str(word, _) if word == "LinkText" => self.fixed(true, "LinkText"),
+            // A value the attribute's own lowering refuses is said there.
+            _ => match self.expr_code(&chosen, scope, locals) {
+                Ok(code) => code,
+                Err(_) => return,
+            },
+        };
+        bindings.push(crate::style_row(StyleId::TextColor, link, crate::IMPLIED));
+    }
+
+    /// The colour a link's text takes when its author writes none: `LinkText`,
+    /// or `inherit` where its computed target is empty; `None` for a node that
+    /// is no link's text (a state part's base, LLP 1121 D8, reads it too).
+    pub(crate) fn link_colour(
+        &self,
+        tag: &str,
+        parent_tag: Option<&str>,
+        attrs: &[contract_syntax::Attr],
+        children: &[contract_syntax::Node],
+    ) -> Option<contract_syntax::Expr> {
+        use contract_syntax::{BinOp, Expr, Node, TemplatePart};
+        // Texts and images alone, an `if` or a `for` of them included.
+        fn words(node: &Node) -> bool {
+            match node {
+                Node::Element { tag, .. } => tag == "text" || tag == "image",
+                Node::When {
+                    then, otherwise, ..
+                } => then.iter().chain(otherwise).all(words),
+                Node::Each { body, .. } => body.iter().all(words),
+                Node::Match { some, none, .. } => some.1.iter().chain(none).all(words),
+                Node::Use { .. } | Node::Children { .. } => false,
+            }
+        }
+        let has = |name: &str| attrs.iter().any(|a| a.name == name);
+        let href = attrs.iter().rev().find(|a| a.name == "href");
+        let run = tag == "text" && parent_tag == Some("text") && href.is_some();
+        let block = tag == "link"
+            && self.profile != crate::Profile::Terminal
+            && !has("role")
+            && !children.is_empty()
+            && children.iter().all(words);
+        if !(run || block) {
+            return None;
+        }
+        let span = href.map_or(contract_syntax::Span::default(), |a| a.value.span());
+        let word = |w: &str| Expr::Str(w.into(), span);
+        Some(match href.map(|a| &a.value) {
+            Some(Expr::Str(to, _)) if to.is_empty() => return None,
+            // A written target, a template with words of its own, or a
+            // block `link` that is its `press`: a link whatever happens.
+            None | Some(Expr::Str(..)) => word("LinkText"),
+            Some(Expr::Template(parts, _))
+                if parts
+                    .iter()
+                    .any(|p| matches!(p, TemplatePart::Text(t) if !t.is_empty())) =>
+            {
+                word("LinkText")
+            }
+            Some(to) => {
+                let empty = Expr::Binary(BinOp::Eq, Box::new(to.clone()), Box::new(word("")), span);
+                Expr::Ternary(
+                    Box::new(empty),
+                    Box::new(word("inherit")),
+                    Box::new(word("LinkText")),
+                    span,
+                )
+            }
+        })
+    }
 }

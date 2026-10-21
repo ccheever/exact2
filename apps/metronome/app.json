@@ -1,0 +1,45 @@
+{
+  "$schema": "../../scripts/app.schema.json",
+  "name": "Metronome",
+  "short_name": "Metronome",
+  "id": "com.exact.metronome",
+  "start_url": "/",
+  "display": "standalone",
+  "theme_color": "#ffffff",
+  "background_color": "#ffffff",
+  "app": {
+    "id": "com.exact.metronome",
+    "name": "Metronome"
+  },
+  "audio_session": "playback",
+  "host": {
+    "ios": {
+      "minimumOS": "17.0",
+      "deviceFamily": [
+        "iphone",
+        "ipad"
+      ],
+      "backgroundModes": [
+        "audio"
+      ]
+    },
+    "macos": {
+      "minimumOS": "14.0",
+      "window": {
+        "width": 402,
+        "height": 700,
+        "minWidth": 320,
+        "minHeight": 520
+      }
+    },
+    "web": {}
+  },
+  "deploy": {
+    "store": {
+      "web": "0",
+      "macos": "0",
+      "ios": "0",
+      "linux": "0"
+    }
+  }
+}

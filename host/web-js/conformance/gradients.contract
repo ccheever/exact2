@@ -1,0 +1,14 @@
+// LLP 1066: static and computed repeating gradients, masks and mixed stops.
+component Gradients
+  state size = 120
+  state period = 8
+  action change
+    size = 240
+    period = 12
+  view
+    column gap=8
+      view testId="hatch" width=size height=100 background-image=`repeating-linear-gradient(-45deg, #000 0 4px, #fff 4px ${period}px)`
+      view testId="mixed" width=size height=80 background-image="linear-gradient(to right, red 20px, green, blue 80%)"
+      view testId="mask" width=size height=80 background-color="blue" mask-image="repeating-linear-gradient(to right, black 0 4px, transparent 4px 8px)"
+      button testId="change" press=change
+        text "Resize and change period"

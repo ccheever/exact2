@@ -1,0 +1,19 @@
+# Code review: the status bar's style from state, LLP 1105, round 2 (432c047d6), 2026-10-06 (astra)
+
+- **Family:** OpenAI. `gpt-6-astra` via `codex exec`, reasoning effort max, sandbox read-only, a detached worktree at `432c047d6`.
+- **Method:** one brief (sha256 `734aba1e8f9795fc4a11af3204e4d07b6df92c0eb2b2e077de40b58d87070d40`), shared with grok. Round 2, blind to the other review. The author (Claude) is not a reviewer.
+- **Transcription:** the final message, unedited.
+- **Verdict:** DO NOT LAND.
+- **Disposition:** 1 taken in part: a covering presentation's scope is its navigation view (its routes and their pushes), so the app's root nodes, which ride into the modal with the viewport, no longer decide for a route that declares nothing; the primary scope leaves out every presentation's navigation view and keeps the root's nodes. Custom tab containers that keep unselected stacks mounted are not excluded (noted). 2 taken: the modal's reappearance (a cancelled drag or zoom) resolves, after its transition coordinator ends. 3 not taken: no session-driven scroll, presented controller or cancelled gesture in a test; the gesture paths were not exercised beyond the code review.
+
+---
+
+DO NOT LAND
+
+1. **MATERIAL — Modal scope admits the app root’s declaration.** [ModalIOS.swift:418](host/apple/Sources/ExactKit/IOS/ModalIOS.swift:418) moves the entire viewport into the modal; [StatusBarIOS.swift:59](host/apple/Sources/ExactKit/IOS/StatusBarIOS.swift:59) then accepts every descendant. A root declaring `light-content` therefore controls a fullscreen route declaring nothing, instead of resolving `.default`. This ancestry-only test also admits unselected stacks kept mounted by custom tab containers. **Fix:** scope by the appropriate stack’s committed top route, preserving pushes within presentations; include surrounding root declarations only in primary scope. Round 1’s scope disposition is incomplete.
+
+2. **MATERIAL — Cancelled zoom dismissal can strand a state change.** [StatusBarIOS.swift:23](host/apple/Sources/ExactKit/IOS/StatusBarIOS.swift:23) holds the previous style during dismissal, including through UIKit’s [inherited transition coordinator](https://developer.apple.com/documentation/uikit/uiviewcontroller/transitioncoordinator). Flip the fullscreen route’s style during that gesture, then cancel: its [appearance callback](host/apple/Sources/ExactKit/IOS/ModalIOS.swift:66) only invokes `appeared`, wired to reset zoom alignment at [line 374](host/apple/Sources/ExactKit/IOS/ModalIOS.swift:374). Neither new presentation nor retired-dismissal completion runs. With unchanged geometry, the old style persists until another batch. **Fix:** resolve on cancellation completion, ignoring only the completed transition’s guard; test a state change while the gesture is active.
+
+3. **MINOR — The revised test still cannot establish UIKit re-reading.** [StatusBarIOSTests.swift:117](host/apple/tests/ExactKitTests/StatusBarIOSTests.swift:117) increments `reread` in the callback, then manually reads the getter. Deleting `setNeedsStatusBarAppearanceUpdate()` still passes. The “scroll” test injects props, `fade` is only a Boolean assertion, and no modal is presented. **Fix:** drive a real scroll-bound session; verify root and presented-controller updates, transition completion/cancellation, and the native fade context.
+
+The detent-selector, visibility, queued-push and `none` fixes hold on inspection. This diff does not widen idle-tick skips. ChromeIndex’s empty path, web skips and source sizes check out. Swift parsing passed for iOS/tvOS/macOS; agent-rendering and schema checks passed. Full builds and UIKit tests were not run in this read-only checkout.

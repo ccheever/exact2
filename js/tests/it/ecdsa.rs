@@ -1,7 +1,7 @@
 //! LLP 1069.005 D1b through the Hermes executor: ECDSA P-256 with the web's
 //! names and errors, checked against `exact_data::crypto` (RustCrypto's
 //! P-256) as the reference, both ways. Signatures are randomized, so a test
-//! verifies them, never compares them. `js/web/tests/browser.rs` holds the
+//! verifies them, never compares them. `js/web/tests/it/browser.rs` holds the
 //! browser realms (Chrome's WebCrypto) to the same checks.
 #![cfg(exact_js_engine)]
 
@@ -16,19 +16,19 @@ const GRANTS: &str = "secret.keep dpop\n";
 const SRC: &str = r#"
 component App
   mutation result as shape string
-  action initKey writes result
+  action initKey
     send result = initKey()
-  action keypair writes result
+  action keypair
     send result = keypair()
-  action importSign writes result
+  action importSign
     send result = importSign("")
-  action roundTrip writes result
+  action roundTrip
     send result = roundTrip("")
-  action refusals writes result
+  action refusals
     send result = refusals()
-  action keep writes result
+  action keep
     send result = keep()
-  action kept writes result
+  action kept
     send result = kept()
   view
     column

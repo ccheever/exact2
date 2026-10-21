@@ -1,16 +1,11 @@
 use super::*;
-#[derive(Default)]
-struct NoData;
-impl DataSource for NoData {
-    fn query(
-        &mut self,
-        n: &str,
-        _: &[exact_runner::Value],
-    ) -> Result<exact_runner::Value, exact_runner::DataError> {
-        Err(exact_runner::DataError::UnknownSource(n.into()))
-    }
-}
-fn find(p: &Presenter<NoData>, name: &str) -> u32 {
+#[path = "surface_controls_tests/logs.rs"]
+mod logs;
+#[path = "surface_controls_tests/pads.rs"]
+mod pads;
+#[path = "surface_controls_tests/wheel.rs"]
+mod wheel;
+fn find(p: &Presenter<()>, name: &str) -> u32 {
     p.host
         .preorder()
         .into_iter()
@@ -25,43 +20,50 @@ fn find(p: &Presenter<NoData>, name: &str) -> u32 {
         })
         .unwrap()
 }
-fn fixture() -> (Presenter<NoData>, PathBuf) {
+fn fixture() -> (Presenter<()>, PathBuf) {
     fixture_with_hud_removal(false)
 }
-fn fixture_with_hud_removal(remove_hud: bool) -> (Presenter<NoData>, PathBuf) {
-    let (path, compat) = super::tests::fixture();
+fn fixture_with_hud_removal(remove_hud: bool) -> (Presenter<()>, PathBuf) {
     let source = r#"component Controls
   state removed = false
   state text = ""
-  action change(value: string) writes text
+  state spins = 0
+  action spun(e: WheelEvent)
+    spins = spins + 1
+  action change(value: string)
     text = value
-  action remove writes removed
+  action remove
     removed = true
   view
     column
       input testId="editor" value=text input=change width=100 height=30
       canvas testId="a" width=100 height=100
-        when !removed
+        if !removed
           button testId="a-jump" action="jump" width=100 height=100
             box testId="label" width=100 height=100
       canvas testId="b" width=100 height=100
         button testId="b-jump" action="jump" width=100 height=100
-      canvas testId="raw" width=100 height=100
+      canvas testId="raw" wheel=spun width=100 height=100
         button testId="hud-remove" press=remove width=100 height=30
       button testId="remove" press=remove width=100 height=30
 "#;
     let source = if remove_hud {
         source.replace(
             "        button testId=\"hud-remove\" press=remove width=100 height=30",
-            "        when !removed\n          button testId=\"hud-remove\" press=remove width=100 height=30",
+            "        if !removed\n          button testId=\"hud-remove\" press=remove width=100 height=30",
         )
     } else {
         source.to_owned()
     };
-    let plan = contract::compile(&source).unwrap();
+    boot(&source, &["a", "b", "raw"])
+}
+/// A presenter over `source` whose canvases named by testId are worlds of the probe module.
+fn boot(source: &str, canvases: &[&str]) -> (Presenter<()>, PathBuf) {
+    let (path, compat) = super::tests::fixture();
+    let plan = contract::compile(source).unwrap();
     let (mut p, _) = Presenter::boot(
         &plan.encode(),
-        NoData,
+        (),
         (100., 360.),
         1.,
         path.parent().unwrap().into(),
@@ -70,7 +72,7 @@ fn fixture_with_hud_removal(remove_hud: bool) -> (Presenter<NoData>, PathBuf) {
     p.surfaces
         .abis
         .insert(String::new(), Abi::open_path(&path, &compat, "").unwrap());
-    for (i, name) in ["a", "b", "raw"].iter().enumerate() {
+    for (i, name) in canvases.iter().enumerate() {
         let view = find(&p, name);
         p.surfaces.canvases.insert(
             view,
@@ -92,7 +94,7 @@ fn fixture_with_hud_removal(remove_hud: bool) -> (Presenter<NoData>, PathBuf) {
     p.boxes();
     (p, path)
 }
-fn restore(p: &mut Presenter<NoData>, name: &str, contacts: Value) {
+fn restore(p: &mut Presenter<()>, name: &str, contacts: Value) {
     let id = find(p, name);
     let c = p.surfaces.canvases.get_mut(&id).unwrap();
     c.restore_input = true;
@@ -102,7 +104,7 @@ fn restore(p: &mut Presenter<NoData>, name: &str, contacts: Value) {
     );
     p.restore_controls();
 }
-fn done(p: Presenter<NoData>, path: PathBuf) {
+fn done(p: Presenter<()>, path: PathBuf) {
     drop(p);
     std::fs::remove_dir_all(path.parent().unwrap()).unwrap();
 }
@@ -162,6 +164,16 @@ fn passive_control_descendant_taps_and_editor_keeps_focus() {
     p.focus = Some(editor);
     assert!(p.tap(label).is_ok());
     assert_eq!(p.focus(), Some(editor));
+    let mut actual = Vec::new();
+    for name in ["a-jump", "label", "b-jump"] {
+        p.focus = Some(editor);
+        let (x, y, w, h) = p.rect_of(find(&p, name)).unwrap();
+        p.pointer_down(x + w / 2., y + h / 2., 0.).unwrap();
+        let down = p.focus();
+        p.pointer_up(x + w / 2., y + h / 2., 0.).unwrap();
+        actual.push((down, p.focus()));
+    }
+    assert_eq!(actual, vec![(Some(editor), Some(editor)); 3]);
     done(p, path);
 }
 #[test]
@@ -319,7 +331,7 @@ fn r13_named_and_empty_arguments_reach_linux_gpu_binding() {
         .unwrap();
         let (mut p, _) = Presenter::boot(
             &plan.encode(),
-            NoData,
+            (),
             (100., 100.),
             1.,
             path.parent().unwrap().into(),
@@ -344,6 +356,200 @@ fn r13_named_and_empty_arguments_reach_linux_gpu_binding() {
         assert_eq!(serde_json::from_str::<Value>(&text).unwrap(), expected);
         done(p, path);
     }
+}
+
+/// The platformer's diary, R8: a key typed at a world's canvas reaches the
+/// canvas's `key` handler as on the web, and the world unless one prevents it.
+#[test]
+fn a_world_key_reaches_the_canvas_key_handler_first() {
+    let (mut p, path) = boot(
+        r#"component Keys
+  state heard = ""
+  action key(k: string)
+    heard = heard + k
+    if k == "x"
+      preventDefault()
+  view
+    canvas testId="world" key=key width=100 height=100
+      text heard testId="heard"
+"#,
+        &["world"],
+    );
+    let world = find(&p, "world");
+    p.type_key(world, "KeyO", "o", true, false).unwrap();
+    p.type_key(world, "KeyX", "x", true, false).unwrap();
+    let held = &p.surfaces.canvases[&world].held;
+    assert!(
+        held.contains("KeyO"),
+        "an unprevented key reaches the world"
+    );
+    assert!(!held.contains("KeyX"), "a prevented key goes no further");
+    let text = find(&p, "heard");
+    assert_eq!(
+        p.host
+            .kernel()
+            .node(text)
+            .unwrap()
+            .props
+            .str(exact_kernel::PropId::Text),
+        Some("ox")
+    );
+    done(p, path);
+}
+
+/// b6 review B1: at a world's canvas an `aria-keyshortcuts` button takes
+/// its key before the `key` handlers and the world, down and up, as the
+/// web's capture listener and macOS's `routeKey` do.
+#[test]
+fn a_shortcut_button_takes_a_world_key_before_its_handlers() {
+    let (mut p, path) = boot(
+        r#"component Keys
+  state heard = ""
+  state paused = 0
+  action key(k: string)
+    heard = heard + k
+  action pause
+    paused = paused + 1
+  view
+    column
+      button aria-keyshortcuts="Escape" press=pause testId="pause"
+        text `${paused}` testId="paused"
+      canvas testId="world" key=key width=100 height=100
+        text heard testId="heard"
+"#,
+        &["world"],
+    );
+    let world = find(&p, "world");
+    let text = |p: &super::Presenter<_>, id: &str| {
+        p.host
+            .kernel()
+            .node(find(p, id))
+            .unwrap()
+            .props
+            .str(exact_kernel::PropId::Text)
+            .unwrap_or("")
+            .to_string()
+    };
+    p.type_key(world, "KeyO", "o", true, false).unwrap();
+    p.type_key(world, "Escape", "Escape", true, false).unwrap();
+    assert!(!p.surfaces.canvases[&world].held.contains("Escape"));
+    p.type_key(world, "Escape", "Escape", false, false).unwrap();
+    assert_eq!(text(&p, "paused"), "1", "the button pressed");
+    assert_eq!(text(&p, "heard"), "o", "no key handler heard Escape");
+    assert!(p.surfaces.canvases[&world].held.contains("KeyO"));
+    done(p, path);
+}
+
+/// A hardware keyup returns before `type_key`, which is what forgets a
+/// shortcut's code. The down inserts it; once that button is gone, an agent
+/// key of the same code delivers the down and swallows the up, so the world
+/// keeps the key down.
+#[test]
+fn a_hardware_shortcut_keyup_does_not_stick_the_key_in_the_world() {
+    let (mut p, path) = boot(
+        r#"component Keys
+  state gone = false
+  state heard = ""
+  action key(k: string)
+    heard = heard + k
+  action go
+    gone = true
+  view
+    column
+      if !gone
+        button aria-keyshortcuts="Escape" press=go testId="go" height=24
+          text "go"
+      canvas testId="world" key=key width=100 height=100
+        text heard testId="heard"
+"#,
+        &["world"],
+    );
+    let world = find(&p, "world");
+    let text = |p: &Presenter<()>, id: &str| {
+        p.host
+            .kernel()
+            .node(find(p, id))
+            .unwrap()
+            .props
+            .str(exact_kernel::PropId::Text)
+            .unwrap_or("")
+            .to_string()
+    };
+    let shown = |p: &Presenter<()>, name: &str| {
+        p.host.preorder().into_iter().any(|id| {
+            p.host
+                .kernel()
+                .node(id)
+                .unwrap()
+                .props
+                .str(exact_kernel::PropId::TestId)
+                == Some(name)
+        })
+    };
+    p.focus = Some(world);
+    p.hardware_key("Escape", "Escape", true, false);
+    assert!(!shown(&p, "go"), "the shortcut pressed its button away");
+    assert_eq!(text(&p, "heard"), "", "the world did not hear the shortcut");
+    assert!(
+        !p.surfaces.canvases[&world].held.contains("Escape"),
+        "a shortcut down does not reach the world"
+    );
+    p.hardware_key("Escape", "Escape", false, false);
+    assert!(
+        p.shortcut_keys.is_empty(),
+        "the hardware keyup forgets the shortcut code"
+    );
+    p.type_key(world, "Escape", "Escape", true, false).unwrap();
+    assert!(
+        p.surfaces.canvases[&world].held.contains("Escape"),
+        "with the button gone the key reaches the world"
+    );
+    p.type_key(world, "Escape", "Escape", false, false).unwrap();
+    assert!(
+        !p.surfaces.canvases[&world].held.contains("Escape"),
+        "its up reaches the world too"
+    );
+    assert_eq!(text(&p, "heard"), "Escape");
+    done(p, path);
+}
+
+/// LLP 1132 D11: a held Control chord's auto-repeats reach the shortcut as
+/// repeats, so its button is pressed once, as a browser's `keydown` repeat
+/// is not a click.
+#[test]
+fn a_held_control_shortcut_presses_once_through_its_repeats() {
+    let (mut p, path) = boot(
+        r#"component Keys
+  state n = 0
+  action bump
+    n = n + 1
+  view
+    column
+      button aria-keyshortcuts="Control+1" press=bump testId="buy" height=24
+        text `${n}` testId="n"
+"#,
+        &[],
+    );
+    p.focus = Some(find(&p, "buy"));
+    p.hardware_key("ControlLeft", "Control", true, false);
+    p.hardware_key("Digit1", "1", true, false);
+    for at in [520.0, 603.0, 686.0] {
+        let _ = p.advance(at);
+        p.hardware_key("Digit1", "1", true, true);
+    }
+    p.hardware_key("Digit1", "1", false, false);
+    p.hardware_key("ControlLeft", "Control", false, false);
+    let n = p
+        .host
+        .kernel()
+        .node(find(&p, "n"))
+        .and_then(|n| n.props.str(exact_kernel::PropId::Text).map(str::to_owned));
+    assert_eq!(
+        n.as_deref(),
+        Some("1"),
+        "one press for the down, none for its repeats"
+    );
+    done(p, path);
 }
 
 #[test]
@@ -376,7 +582,10 @@ fn r15_pointer_hud_button_releases_focus_but_keyboard_keeps_it() {
         .values()
         .any(|c| c.held.contains("Space")));
     p.hardware_key("Space", "Space", false, false);
-    p.type_key(button, "Tab", "Tab", true, false).unwrap();
+    // Tab from the stop before it (LLP 1088 D7.3: Tab moves the focus).
+    p.type_key(find(&p, "b-jump"), "Tab", "Tab", true, false)
+        .unwrap();
+    assert_eq!(p.focus(), Some(button));
     p.hardware_key("Space", "Space", true, false);
     p.hardware_key("Space", "Space", false, false);
     assert_eq!(p.focus(), Some(button));
@@ -390,11 +599,11 @@ fn r15_pointer_completion_preserves_a_replacement_buttons_autofocus() {
     let plan = contract::compile(
         r#"component Test
   state done = false
-  action finish writes done
+  action finish
     done = true
   view
     column
-      when done
+      if done
         button autofocus testId="next" width=100 height=30
       else
         button press=finish testId="start" width=100 height=30
@@ -403,7 +612,7 @@ fn r15_pointer_completion_preserves_a_replacement_buttons_autofocus() {
     .unwrap();
     let (mut p, _) = Presenter::boot(
         &plan.encode(),
-        NoData,
+        (),
         (100., 60.),
         1.,
         path.parent().unwrap().into(),
@@ -434,12 +643,12 @@ fn e11_pointer_press_keeps_ordinary_focus_and_allows_new_autofocus() {
         let plan = contract::compile(&format!(
             r#"component Test
   state done = false
-  action finish writes done
+  action finish
     done = true
   view
     column
       button press=finish testId="start" width=100 height=30
-      when done
+      if done
         button {} testId="next" width=100 height=30
 "#,
             if overlay { "autofocus" } else { "" }
@@ -447,7 +656,7 @@ fn e11_pointer_press_keeps_ordinary_focus_and_allows_new_autofocus() {
         .unwrap();
         let (mut p, _) = Presenter::boot(
             &plan.encode(),
-            NoData,
+            (),
             (100., 60.),
             1.,
             path.parent().unwrap().into(),
@@ -502,7 +711,7 @@ fn blur_clears_raw_hold_without_focus() {
     done(p, path);
 }
 
-fn last_input(p: &Presenter<NoData>) -> (u32, u32, Value) {
+fn last_input(p: &Presenter<()>) -> (u32, u32, Value) {
     let abi = &p.surfaces.abis[""];
     unsafe {
         let text = std::ffi::CStr::from_ptr(abi
@@ -694,4 +903,591 @@ fn a_declared_module_is_routed_by_surface_and_verified_by_its_own_card() {
         .unwrap_err()
         .contains("missing baked identity"));
     std::fs::remove_dir_all(&dir).unwrap();
+}
+
+/// A held contact on a canvas is the canvas's own (rivals diary, limit 7): the
+/// presenter used to retire it at its first move (`contact:false`) and the
+/// world saw neither the down nor any move, so mouse look could not turn.
+#[test]
+fn held_canvas_contact_streams_down_moves_and_up_to_the_canvas() {
+    let (mut p, path) = fixture();
+    let raw = find(&p, "raw");
+    let (ox, oy, _, _) = p.rect_of(raw).unwrap();
+    let ask = |p: &mut Presenter<()>, q: Value| -> Value {
+        serde_json::from_str(&crate::agent::contact::answer(p, &q)).unwrap()
+    };
+    let before = unsafe {
+        p.surfaces.abis[""].symbol::<unsafe extern "C" fn() -> u32>(b"test_input_count")()
+    };
+    let down = ask(
+        &mut p,
+        json!({"op":"tap","id":raw,"phase":"down","x":ox + 50.,"y":oy + 70.}),
+    );
+    assert_eq!(down["contact"], true, "{down}");
+    let (id, count, event) = last_input(&p);
+    assert_eq!(id, p.surfaces.canvases[&raw].id);
+    assert_eq!(count, before + 1);
+    assert_eq!(
+        (event["phase"].as_str(), event["buttons"].as_u64()),
+        (Some("down"), Some(1))
+    );
+    assert_eq!(
+        (event["x"].as_f64(), event["y"].as_f64()),
+        (Some(50.), Some(70.))
+    );
+    // 100 points over 100 ms: seven samples, every one a move the world sees.
+    let moved = ask(
+        &mut p,
+        json!({"op":"tap","phase":"move","dx":100,"dy":0,"ms":100}),
+    );
+    assert_eq!(moved["contact"], true, "{moved}");
+    assert_eq!(moved["delivery"], "presenter");
+    let (_, count, event) = last_input(&p);
+    assert_eq!(count, before + 8);
+    assert_eq!(
+        (event["phase"].as_str(), event["buttons"].as_u64()),
+        (Some("move"), Some(1))
+    );
+    assert_eq!(
+        event["x"].as_f64(),
+        Some(150.),
+        "the canvas keeps the contact off its edge"
+    );
+    let up = ask(&mut p, json!({"op":"tap","phase":"up"}));
+    assert_eq!(up["contact"], false, "{up}");
+    let (_, count, event) = last_input(&p);
+    assert_eq!(count, before + 9, "the up adds no zero-length move");
+    assert_eq!(
+        (event["phase"].as_str(), event["buttons"].as_u64()),
+        (Some("up"), Some(0))
+    );
+    assert_eq!(event["x"].as_f64(), Some(150.));
+    // A click without movement is still one down and one up, and Escape (a
+    // cancel) ends a held contact with the canvas's `cancel`.
+    assert!(p.pointer_down(ox + 20., oy + 80., 200.).unwrap());
+    p.pointer_up(ox + 20., oy + 80., 210.).unwrap();
+    let (_, count, event) = last_input(&p);
+    assert_eq!((count, event["phase"].as_str()), (before + 11, Some("up")));
+    assert!(p.pointer_down(ox + 20., oy + 80., 220.).unwrap());
+    p.pointer_cancel(230.).unwrap();
+    let (_, count, event) = last_input(&p);
+    assert_eq!(
+        (count, event["phase"].as_str()),
+        (before + 13, Some("cancel"))
+    );
+    assert!(p.contact_position().is_none());
+    done(p, path);
+}
+
+/// A canvas sees the pointer's motion beside its position (the device's own,
+/// from evdev, past the screen's edge), its hover, and the secondary and
+/// middle buttons as the web's chorded buttons (rivals diary, limit 2).
+#[test]
+fn canvas_pointer_carries_motion_hover_and_the_other_buttons() {
+    let (mut p, path) = fixture();
+    let raw = find(&p, "raw");
+    let (ox, oy, _, _) = p.rect_of(raw).unwrap();
+    let phase = |p: &Presenter<()>| {
+        let (_, _, e) = last_input(p);
+        (
+            e["phase"].as_str().unwrap().to_string(),
+            e["buttons"].as_u64().unwrap(),
+            e["dx"].as_f64().unwrap(),
+            e["dy"].as_f64().unwrap(),
+        )
+    };
+    p.pointer_move(ox + 10., oy + 60., 0.).unwrap();
+    assert_eq!(phase(&p), ("move".into(), 0, 0., 0.), "a hover");
+    p.pointer_move(ox + 14., oy + 57., 1.).unwrap();
+    assert_eq!(phase(&p), ("move".into(), 0, 4., -3.));
+    // At the screen's edge the position stops; the device's motion does not.
+    p.raw_motion(25., 0.);
+    p.pointer_move(ox + 14., oy + 57., 2.).unwrap();
+    assert_eq!(phase(&p), ("move".into(), 0, 25., 0.));
+    // A held contact pinned at the edge still turns, and motion never lingers.
+    assert!(p.pointer_down(ox + 14., oy + 57., 2.5).unwrap());
+    p.raw_motion(30., 0.);
+    p.pointer_move(ox + 14., oy + 57., 2.6).unwrap();
+    assert_eq!(phase(&p), ("move".into(), 1, 30., 0.));
+    p.pointer_up(ox + 14., oy + 57., 2.7).unwrap();
+    p.raw_motion(9., 9.);
+    p.pointer_move(ox + 500., oy + 57., 2.8).unwrap();
+    p.pointer_move(ox + 14., oy + 57., 2.9).unwrap();
+    assert_eq!(
+        phase(&p),
+        ("move".into(), 0, 0., 0.),
+        "off the canvas, then back"
+    );
+    p.pointer_aux(2, true, ox + 14., oy + 57., 3.);
+    assert_eq!(
+        phase(&p),
+        ("down".into(), 2, 0., 0.),
+        "right alone is a down"
+    );
+    assert!(p.pointer_down(ox + 14., oy + 57., 4.).unwrap());
+    assert_eq!(phase(&p), ("move".into(), 3, 0., 0.), "a chord is a move");
+    p.pointer_aux(4, true, ox + 14., oy + 57., 5.);
+    assert_eq!(phase(&p), ("move".into(), 7, 0., 0.));
+    p.pointer_aux(2, false, ox + 14., oy + 57., 6.);
+    p.pointer_aux(4, false, ox + 14., oy + 57., 7.);
+    assert_eq!(phase(&p), ("move".into(), 1, 0., 0.));
+    p.pointer_up(ox + 14., oy + 57., 8.).unwrap();
+    assert_eq!(phase(&p), ("up".into(), 0, 0., 0.), "the last button up");
+    done(p, path);
+}
+
+/// A lost pointer (Escape, a dropped evdev report) holds no button, and a
+/// secondary press on the canvas is released to it wherever the pointer is
+/// (pointer capture). Before: a stale secondary bit turned the next primary
+/// down into a move and the cancel went out with buttons 2.
+#[test]
+fn a_lost_pointer_holds_no_button_and_the_canvas_hears_its_release() {
+    let (mut p, path) = fixture();
+    let raw = find(&p, "raw");
+    let (ox, oy, _, _) = p.rect_of(raw).unwrap();
+    let last = |p: &Presenter<()>| {
+        let (_, count, e) = last_input(p);
+        (
+            count,
+            e["phase"].as_str().unwrap().to_string(),
+            e["buttons"].as_u64().unwrap(),
+        )
+    };
+    p.pointer_aux(2, true, ox + 20., oy + 60., 1.);
+    assert!(p.pointer_down(ox + 20., oy + 60., 2.).unwrap());
+    p.pointer_lost(3.).unwrap();
+    let (_, phase, buttons) = last(&p);
+    assert_eq!((phase.as_str(), buttons), ("cancel", 0));
+    assert!(p.pointer_down(ox + 20., oy + 60., 4.).unwrap());
+    let (_, phase, buttons) = last(&p);
+    assert_eq!((phase.as_str(), buttons), ("down", 1), "no stale secondary");
+    p.pointer_up(ox + 20., oy + 60., 5.).unwrap();
+    // Pressed on the canvas, released off it: the canvas hears the up.
+    p.pointer_aux(2, true, ox + 20., oy + 60., 6.);
+    p.pointer_move(ox + 500., oy + 60., 7.).unwrap();
+    let (count, _, _) = last(&p);
+    p.pointer_aux(2, false, ox + 500., oy + 60., 8.);
+    assert_eq!(last(&p), (count + 1, "up".into(), 0));
+    // Lost with only the secondary held: a cancel, nothing held after.
+    p.pointer_aux(4, true, ox + 20., oy + 60., 9.);
+    p.pointer_lost(10.).unwrap();
+    assert_eq!(last(&p).1, "cancel");
+    p.pointer_aux(4, true, ox + 20., oy + 60., 11.);
+    assert_eq!(last(&p).1, "down", "the middle button begins again");
+    done(p, path);
+}
+
+/// The agent's taps and contacts reach a canvas as a finger on every host (the
+/// web's CDP touch, iOS's touches); its hover is a mouse with nothing held.
+/// Before: a Linux agent tap was a mouse with the primary button, so the world
+/// held MouseLeft there and not on the web or iOS.
+#[test]
+fn the_agents_canvas_taps_are_a_finger_and_its_hover_a_mouse() {
+    let (mut p, path) = fixture();
+    let raw = find(&p, "raw");
+    let (ox, oy, _, _) = p.rect_of(raw).unwrap();
+    let kind = |p: &Presenter<()>| {
+        let (_, _, e) = last_input(p);
+        (
+            e["phase"].as_str().unwrap().to_string(),
+            e["kind"].as_str().unwrap().to_string(),
+        )
+    };
+    crate::agent::answer(
+        &mut p,
+        &format!(
+            r#"{{"op":"tap","id":{raw},"phase":"down","x":{},"y":{}}}"#,
+            ox + 50.,
+            oy + 70.
+        ),
+    );
+    assert_eq!(kind(&p), ("down".into(), "touch".into()));
+    crate::agent::answer(&mut p, r#"{"op":"tap","phase":"up"}"#);
+    assert_eq!(kind(&p), ("up".into(), "touch".into()));
+    p.pointer_move(ox + 40., oy + 60., 1.).unwrap();
+    assert_eq!(
+        kind(&p),
+        ("move".into(), "mouse".into()),
+        "a device's hover"
+    );
+    done(p, path);
+}
+
+#[test]
+fn agent_contextmenu_delivers_a_secondary_mouse_click_and_refuses_controls() {
+    let (mut p, path) = fixture();
+    let raw = find(&p, "raw");
+    let reply: Value = serde_json::from_str(&crate::agent::answer(
+        &mut p,
+        &format!(r#"{{"op":"tap","id":{raw},"contextmenu":true}}"#),
+    ))
+    .unwrap();
+    assert_eq!(reply["delivery"], "presenter", "{reply}");
+    let (canvas, count, up) = last_input(&p);
+    let down: Value = unsafe {
+        let abi = &p.surfaces.abis[""];
+        serde_json::from_str(
+            std::ffi::CStr::from_ptr(abi
+                .symbol::<unsafe extern "C" fn() -> *const std::ffi::c_char>(
+                    b"test_previous_input",
+                )())
+            .to_str()
+            .unwrap(),
+        )
+        .unwrap()
+    };
+    assert_eq!(canvas, 3);
+    assert_eq!(count, 3, "move, right down, right up");
+    for (event, phase, buttons) in [(&down, "down", 2), (&up, "up", 0)] {
+        assert_eq!(event["id"], 1);
+        assert_eq!(event["kind"], "mouse");
+        assert_eq!(event["phase"], phase);
+        assert_eq!(event["buttons"], buttons);
+        assert_eq!(
+            (event["x"].as_f64(), event["y"].as_f64()),
+            (Some(50.), Some(50.))
+        );
+    }
+    assert!(p.contact_position().is_none());
+    for name in ["a-jump", "editor"] {
+        let id = find(&p, name);
+        let refusal: Value = serde_json::from_str(&crate::agent::answer(
+            &mut p,
+            &format!(r#"{{"op":"tap","id":{id},"contextmenu":true}}"#),
+        ))
+        .unwrap();
+        assert!(refusal["error"].as_str().unwrap().contains("contextmenu"));
+        assert_eq!(last_input(&p).1, count, "refused without canvas input");
+    }
+    let (x, y, w, h) = p.rect_of(raw).unwrap();
+    assert!(p.pointer_down(x + w / 2., y + h / 2., 1.).unwrap());
+    let count = last_input(&p).1;
+    assert!(p
+        .contextmenu(raw, None)
+        .unwrap_err()
+        .contains("held contact"));
+    assert_eq!(last_input(&p).1, count);
+    p.pointer_lost(2.).unwrap();
+    done(p, path);
+}
+
+#[test]
+fn agent_contextmenu_uses_the_requested_point_and_refuses_invalid_points_without_input() {
+    let (mut p, path) = fixture();
+    let raw = find(&p, "raw");
+    let (x, y, _, _) = p.rect_of(raw).unwrap();
+    let reply: Value = serde_json::from_str(&crate::agent::answer(
+        &mut p,
+        &format!(r#"{{"op":"tap","id":{raw},"contextmenu":true,"at":[25,75]}}"#),
+    ))
+    .unwrap();
+    assert_eq!(
+        (reply["at"][0].as_f64(), reply["at"][1].as_f64()),
+        (Some(f64::from(x + 25.)), Some(f64::from(y + 75.))),
+        "{reply}"
+    );
+    let (_, count, up) = last_input(&p);
+    assert_eq!(count, 3);
+    assert_eq!((up["x"].as_f64(), up["y"].as_f64()), (Some(25.), Some(75.)));
+    assert_eq!(up["buttons"], 0);
+    // The first point is covered by the HUD button; others are outside the
+    // target or not an exact finite pair. Refusal must not leak a mouse event.
+    for at in [
+        "[25,15]",
+        "[-1,75]",
+        "[100,75]",
+        "[25,100]",
+        "null",
+        "[]",
+        "[25]",
+        "[25,75,0]",
+        r#"["25",75]"#,
+        "[1e100,75]",
+    ] {
+        let reply: Value = serde_json::from_str(&crate::agent::answer(
+            &mut p,
+            &format!(r#"{{"op":"tap","id":{raw},"contextmenu":true,"at":{at}}}"#),
+        ))
+        .unwrap();
+        assert!(reply.get("error").is_some(), "accepted {at}: {reply}");
+        assert_eq!(last_input(&p).1, count, "{at} delivered input");
+    }
+    assert!(p.contextmenu(raw, Some((f32::NAN, 75.))).is_err());
+    assert!(p.contextmenu(raw, Some((25., f32::INFINITY))).is_err());
+    p.resize(100., y + 60.);
+    assert!(p
+        .contextmenu(raw, Some((25., 75.)))
+        .unwrap_err()
+        .contains("viewport"));
+    assert_eq!(last_input(&p).1, count);
+    done(p, path);
+}
+
+#[test]
+fn agent_primary_mouse_after_touch_preserves_device_identity_and_refusal_atomicity() {
+    let (mut p, path) = fixture();
+    let raw = find(&p, "raw");
+    crate::agent::answer(&mut p, &format!(r#"{{"op":"tap","id":{raw}}}"#));
+    assert_eq!(last_input(&p).2["kind"], "touch");
+    for (mode, buttons) in [("mouse", 1), ("contextmenu", 2)] {
+        let reply: Value = serde_json::from_str(&crate::agent::answer(
+            &mut p,
+            &format!(r#"{{"op":"tap","id":{raw},"{mode}":true,"at":[25,75]}}"#),
+        ))
+        .unwrap();
+        assert_eq!(reply["delivery"], "presenter", "{reply}");
+        let (_, _, up) = last_input(&p);
+        let down: Value = unsafe {
+            let abi = &p.surfaces.abis[""];
+            serde_json::from_str(
+                std::ffi::CStr::from_ptr(abi
+                    .symbol::<unsafe extern "C" fn() -> *const std::ffi::c_char>(
+                        b"test_previous_input",
+                    )())
+                .to_str()
+                .unwrap(),
+            )
+            .unwrap()
+        };
+        for (event, phase, buttons) in [(&down, "down", buttons), (&up, "up", 0)] {
+            assert_eq!(event["id"], 1);
+            assert_eq!(event["kind"], "mouse");
+            assert_eq!(event["phase"], phase);
+            assert_eq!(event["buttons"], buttons);
+            assert_eq!(
+                (event["x"].as_f64(), event["y"].as_f64()),
+                (Some(25.), Some(75.))
+            );
+        }
+        assert!(p.contact_position().is_none());
+    }
+    let count = last_input(&p).1;
+    for extra in [
+        r#""at":[25,15]"#,
+        r#""at":[-1,75]"#,
+        r#""at":[100,75]"#,
+        r#""at":null"#,
+        r#""at":[25]"#,
+        r#""at":[1e100,75]"#,
+        // A phase with `mouse` is a held contact (9d75806c8, review A1),
+        // which takes x/y, never a click's `at`.
+        r#""phase":"down","at":[25,75]"#,
+        r#""contextmenu":true"#,
+        r#""resize":[200,200]"#,
+    ] {
+        let reply: Value = serde_json::from_str(&crate::agent::answer(
+            &mut p,
+            &format!(r#"{{"op":"tap","id":{raw},"mouse":true,{extra}}}"#),
+        ))
+        .unwrap();
+        assert!(reply.get("error").is_some(), "{reply}");
+        assert_eq!(last_input(&p).1, count);
+    }
+    let control = find(&p, "a-jump");
+    assert!(p.mouse_click(control, None, false).is_err());
+    let (x, y, _, _) = p.rect_of(raw).unwrap();
+    p.pointer_down(x + 25., y + 75., 0.).unwrap();
+    let count = last_input(&p).1;
+    assert!(p
+        .mouse_click(raw, Some((25., 75.)), false)
+        .unwrap_err()
+        .contains("held contact"));
+    assert_eq!(last_input(&p).1, count);
+    p.pointer_lost(1.).unwrap();
+    done(p, path);
+}
+
+#[test]
+fn a_finger_drag_focuses_its_input_canvas_at_down() {
+    let (mut p, path) = boot(
+        "component App\n  view\n    canvas testId=\"world\" tabindex=0 width=100 height=100\n",
+        &["world"],
+    );
+    let world = find(&p, "world");
+    p.set_pointer_kind(crate::presenter::PointerKind::Touch);
+    assert!(p.pointer_down(20., 20., 0.).unwrap());
+    assert_eq!(p.focus(), Some(world));
+    assert!(p.pointer_move(50., 20., 1.).unwrap());
+    assert_eq!(p.focus(), Some(world));
+    assert!(p.pointer_up(50., 20., 2.).unwrap());
+    assert_eq!(p.focus(), Some(world));
+    done(p, path);
+}
+
+#[test]
+fn baked_gpu_code_and_development_receipts_keep_distinct_digest_policies() {
+    let signed = |signature: &[u8], code: u8| {
+        let mut bytes = vec![0u8; 160];
+        bytes[..4].copy_from_slice(&0xfeed_facfu32.to_le_bytes());
+        bytes[16..20].copy_from_slice(&1u32.to_le_bytes());
+        bytes[32..36].copy_from_slice(&0x1du32.to_le_bytes());
+        bytes[36..40].copy_from_slice(&16u32.to_le_bytes());
+        bytes[40..44].copy_from_slice(&160u32.to_le_bytes());
+        bytes[44..48].copy_from_slice(&(signature.len() as u32).to_le_bytes());
+        bytes[150] = code;
+        bytes.extend_from_slice(signature);
+        bytes
+    };
+    let dir = std::env::temp_dir().join(format!("gpu-digest-policy-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let original = dir.join("original.dylib");
+    let resigned = dir.join("resigned.dylib");
+    let edited = dir.join("edited.dylib");
+    let bytes = signed(b"ad-hoc", 1);
+    std::fs::write(&original, &bytes).unwrap();
+    std::fs::write(&resigned, signed(b"another signature", 1)).unwrap();
+    std::fs::write(&edited, signed(b"ad-hoc", 2)).unwrap();
+    let mut compat = json!({"id":"cohort","inputs":{"app":"app"},"embedded":{"gpu":{
+        "app":"app","cohort":"cohort","trust":"development",
+        "sha256":exact_update::gpu_code_digest(&bytes)}}});
+    verify_module(&original, &compat, "").unwrap();
+    verify_module(&resigned, &compat, "").unwrap();
+    assert!(verify_module(&edited, &compat, "")
+        .unwrap_err()
+        .contains("digest mismatch"));
+    compat["embedded"]["gpu"] =
+        json!({"app":"app","cohort":"cohort","trust":"development","receipt":true});
+    let receipt = json!({"inputs":"0".repeat(64),"artifact":exact_update::sha256_hex(&bytes)});
+    for path in [&original, &resigned] {
+        std::fs::write(
+            format!("{}.proof.json", path.display()),
+            receipt.to_string(),
+        )
+        .unwrap();
+    }
+    // The first read cached the code digest; a receipt still checks the raw file.
+    verify_module(&original, &compat, "").unwrap();
+    assert!(verify_module(&resigned, &compat, "")
+        .unwrap_err()
+        .contains("digest mismatch"));
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn mouse_canvas_action_keeps_its_press_handler_and_editor_focus() {
+    let mut actual = Vec::new();
+    for feedback in ["", "-exact-press-opacity=0.5"] {
+        let source = format!(
+            r#"component Controls
+  state seen = ""
+  state ready = false
+  action pressed
+    seen = `${{seen}}press `
+    ready = true
+  view
+    column
+      input testId="editor" width=100 height=30
+      canvas testId="a" width=100 height=100
+        button action="jump" testId="button" width=100 height=100 press=pressed {feedback}
+          box testId="label" width=100 height=100
+      input testId="next" autofocus=ready width=100 height=30
+      text seen testId="seen"
+"#
+        );
+        let (mut p, path) = boot(&source, &["a"]);
+        let editor = find(&p, "editor");
+        p.focus = Some(editor);
+        let (x, y, w, h) = p.rect_of(find(&p, "label")).unwrap();
+        p.pointer_down(x + w / 2., y + h / 2., 0.).unwrap();
+        let down = p.focus();
+        p.pointer_up(x + w / 2., y + h / 2., 0.).unwrap();
+        let text = p
+            .host
+            .kernel()
+            .node(find(&p, "seen"))
+            .unwrap()
+            .props
+            .str(exact_kernel::PropId::Text)
+            .unwrap()
+            .to_string();
+        let (_, count, event) = last_input(&p);
+        actual.push((
+            down == Some(editor),
+            p.focus() == Some(editor),
+            text,
+            count,
+            event["phase"].clone(),
+        ));
+        done(p, path);
+    }
+    assert_eq!(
+        actual,
+        vec![(true, true, "press ".to_string(), 2, json!("up")); 2]
+    );
+}
+
+#[test]
+fn mouse_canvas_action_focus_emits_events_unless_an_editor_keeps_focus() {
+    let mut actual = Vec::new();
+    let mut expected = Vec::new();
+    for initial in ["none", "old", "editor"] {
+        for target in ["button", "label"] {
+            for feedback in ["", "-exact-press-opacity=0.5"] {
+                let source = format!(
+                    r#"component Controls
+  state seen = ""
+  action record(name: string)
+    seen = `${{seen}}${{name}} `
+  action entered(e: FocusEvent)
+    seen = `${{seen}}in `
+  action left(e: FocusEvent)
+    seen = `${{seen}}out `
+  action clear
+    seen = ""
+  view
+    column focusin=entered focusout=left
+      button testId="old" width=100 height=30 blur=record("blur")
+      input testId="editor" width=100 height=30 blur=record("blur")
+      canvas testId="a" width=100 height=100
+        button action="jump" testId="button" width=100 height=100 focus=record("focus") {feedback}
+          box testId="label" width=60 height=60
+"#
+                );
+                let (mut p, path) = boot(&source, &["a"]);
+                let old = (initial != "none").then(|| find(&p, initial));
+                assert!(p.set_focus(old, 0.).is_none());
+                p.brush.ringless = old;
+                p.host.runner_mut().act("clear", vec![]).unwrap();
+                assert!(p.after_commit().is_none());
+                let (x, y, w, h) = p.rect_of(find(&p, target)).unwrap();
+                p.pointer_down(x + w / 2., y + h / 2., 1.).unwrap();
+                let down = (p.focus(), p.host.runner().slot("seen").cloned());
+                p.pointer_up(x + w / 2., y + h / 2., 2.).unwrap();
+                actual.push((
+                    initial,
+                    target,
+                    feedback,
+                    down,
+                    p.focus(),
+                    p.host.runner().slot("seen").cloned(),
+                    p.brush.ringless,
+                ));
+                let (focus, events, ringless) = if initial == "editor" {
+                    (old, "", old)
+                } else {
+                    (
+                        Some(find(&p, "button")),
+                        if old.is_some() {
+                            "blur out focus in "
+                        } else {
+                            "focus in "
+                        },
+                        None,
+                    )
+                };
+                let seen = Some(exact_runner::Value::str(events));
+                expected.push((
+                    initial,
+                    target,
+                    feedback,
+                    (focus, seen.clone()),
+                    focus,
+                    seen,
+                    ringless,
+                ));
+                done(p, path);
+            }
+        }
+    }
+    assert_eq!(actual, expected);
 }

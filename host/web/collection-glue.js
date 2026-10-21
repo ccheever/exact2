@@ -3,14 +3,16 @@
 // commits a collection (LLP 1047 D5); navigation.js stands in until then.
 // `fill` (LLP 1050.000 §6): `velocity` in CSS px/s toward the end, and
 // `limit`, the rows past what the report owes it may build (null: any);
-// `ancestorMoving`, an enclosing list is moving (LLP 1070 F2). Wire v3:
-// offset, port and row sizes on the list's main and cross axes.
+// `ancestorMoving`, an enclosing list is moving (LLP 1070 F2). Wire v4:
+// offset, port, padding and row sizes on the list's main and cross axes.
 export function collectionBytes(facts, fill = {}) {
   const valid = n => Number.isFinite(n) && n >= 0 && n <= 3.4028234663852886e38;
   const id = n => Number.isInteger(n) && n > 0 && n <= 0xffffffff;
   const u64 = n => { if (typeof n === 'number' && !Number.isSafeInteger(n)) throw Error('unsafe collection identity'); const v = BigInt(n); if (v < 0n || v > 0xffffffffffffffffn) throw Error('invalid collection identity'); return v; };
   const rows = facts.measurements, seen = new Set();
-  if (!id(facts.view) || ![facts.offset, facts.port_main, facts.port_cross, facts.cross].every(valid)
+  // The offset counts from the first row: negative in the padding before it (LLP 1010 §6.9).
+  if (!id(facts.view) || !(Number.isFinite(facts.offset) && Math.abs(facts.offset) <= 3.4028234663852886e38)
+      || ![facts.port_main, facts.port_cross, facts.cross, facts.padding?.[0], facts.padding?.[1]].every(valid)
       || [facts.focus_view, facts.interaction_view].some(n => n != null && !id(n))) throw Error('invalid collection geometry');
   for (const row of rows) {
     if (!id(row.view) || seen.has(row.view) || !valid(row.size)) throw Error('invalid collection row');
@@ -18,16 +20,16 @@ export function collectionBytes(facts, fill = {}) {
   }
   const velocity = Number.isFinite(fill.velocity) ? fill.velocity : 0;
   const limit = Number.isInteger(fill.limit) && fill.limit >= 0 ? Math.min(fill.limit, 0xfffffffe) : 0xffffffff;
-  const bytes = new Uint8Array(84 + rows.length * 20), d = new DataView(bytes.buffer);
-  d.setUint32(0, 3, true); d.setUint32(4, facts.view, true);
+  const bytes = new Uint8Array(100 + rows.length * 20), d = new DataView(bytes.buffer);
+  d.setUint32(0, 4, true); d.setUint32(4, facts.view, true);
   d.setBigUint64(8, u64(facts.revision), true); d.setBigUint64(16, u64(facts.scroll_sequence), true);
-  [facts.offset, facts.port_main, facts.port_cross, facts.cross].forEach((n, i) => d.setFloat64(24 + i * 8, n, true));
-  d.setUint32(56, facts.focus_view ?? 0, true); d.setUint32(60, facts.interaction_view ?? 0, true);
-  d.setFloat64(64, velocity, true); d.setUint32(72, limit, true);
-  d.setUint32(76, fill.ancestorMoving ? 1 : 0, true); d.setUint32(80, rows.length, true);
+  [facts.offset, facts.port_main, facts.port_cross, facts.cross, facts.padding[0], facts.padding[1]].forEach((n, i) => d.setFloat64(24 + i * 8, n, true));
+  d.setUint32(72, facts.focus_view ?? 0, true); d.setUint32(76, facts.interaction_view ?? 0, true);
+  d.setFloat64(80, velocity, true); d.setUint32(88, limit, true);
+  d.setUint32(92, fill.ancestorMoving ? 1 : 0, true); d.setUint32(96, rows.length, true);
   rows.forEach((row, i) => {
-    d.setUint32(84 + i * 20, row.view, true); d.setBigUint64(88 + i * 20, u64(row.epoch), true);
-    d.setFloat64(96 + i * 20, row.size, true);
+    d.setUint32(100 + i * 20, row.view, true); d.setBigUint64(104 + i * 20, u64(row.epoch), true);
+    d.setFloat64(112 + i * 20, row.size, true);
   });
   return bytes;
 }
@@ -38,9 +40,9 @@ const INPUT = ['wheel', 'touchstart', 'keydown', 'pointerdown'];
 // Every main-axis read and write goes through one of these.
 const AXES = {
   y: { offset: 'scrollTop', client: 'clientHeight', crossClient: 'clientWidth', scrollSize: 'scrollHeight', overflow: 'overflowY',
-    start: 'top', end: 'bottom', size: 'height', clientStart: 'clientTop', padStart: 'paddingTop', crossPads: ['paddingLeft', 'paddingRight'] },
+    start: 'top', end: 'bottom', size: 'height', clientStart: 'clientTop', padStart: 'paddingTop', padEnd: 'paddingBottom', crossPads: ['paddingLeft', 'paddingRight'] },
   x: { offset: 'scrollLeft', client: 'clientWidth', crossClient: 'clientHeight', scrollSize: 'scrollWidth', overflow: 'overflowX',
-    start: 'left', end: 'right', size: 'width', clientStart: 'clientLeft', padStart: 'paddingLeft', crossPads: ['paddingTop', 'paddingBottom'] },
+    start: 'left', end: 'right', size: 'width', clientStart: 'clientLeft', padStart: 'paddingLeft', padEnd: 'paddingRight', crossPads: ['paddingTop', 'paddingBottom'] },
 };
 
 export function applyCollectionFeedback(batch, applyBatch) {
@@ -50,9 +52,10 @@ export function applyCollectionFeedback(batch, applyBatch) {
 
 // `report(bytes, facts, fill)`: the wire bytes for the wasm runner, the
 // same facts as values for the JS target's (host/web-js/list.js).
-export function collectionController({ root, views, report, settled=()=>{},
+export function collectionController({ root, views, report, settled=()=>{}, agent = false,
   requestFrame = fn => requestAnimationFrame(fn), cancelFrame = id => cancelAnimationFrame(id), now = () => performance.now() }) {
   const states = new Map(), dirty = new Set(), waiting = new Set(), rowOwners = new WeakMap(), doc = root.ownerDocument;
+  let scrollsFired = 0; // scroll events the lists' ports have delivered (fireOwedScrolls)
   let settling = false, frame = null, delivering = false, interaction = null, reportsLeft = 4, notification=false, reported = 0;
   // LLP 1050.000 stage 1. The browser scrolls on its own thread and never
   // waits for rows (the declared deviation), so each frame's reports share a
@@ -66,7 +69,8 @@ export function collectionController({ root, views, report, settled=()=>{},
   // A `scrollIntoView` under way (LLP 1070.000 §2.5): the port's moves are
   // its own and the browser's clamps, never travel, until the reader's input.
   const authored = s => s.seeking && !s.input;
-  const velocity = s => !authored(s) && s.travel && now() - s.travel.time < 150 ? s.travel.velocity : 0;
+  // Nor while a smooth correction animates (LLP 1070.000 §11).
+  const velocity = s => !authored(s) && s.animating == null && s.travel && now() - s.travel.time < 150 ? s.travel.velocity : 0;
   function sample(s) {
     const A = AXES[s.axis], time = now(), at = s.port[A.offset], t = s.travel;
     if (s.clampAt === at) { s.travel = { at, time, velocity: 0 }; return; }
@@ -120,14 +124,15 @@ export function collectionController({ root, views, report, settled=()=>{},
     ? { start: 0, main: doc.documentElement[A.client], cross: doc.documentElement[A.crossClient] }
     : { start: port.getBoundingClientRect()[A.start] + port[A.clientStart], main: port[A.client], cross: port[A.crossClient] };
   // `raw`: the port's start edge from the list's content origin; `cross`: the
-  // rows' available cross size, after the list's cross-axis padding.
+  // rows' available cross size, after the list's cross-axis padding;
+  // `padding`: the padding before the rows and after them (LLP 1010 §6.9).
   function geometry(s) {
     if (!s.el.isConnected || !s.el.getClientRects().length) return null;
-    const A = AXES[s.axis], css = getComputedStyle(s.el), port = viewport(s.port, A);
-    const origin = s.el.getBoundingClientRect()[A.start] + s.el[A.clientStart] + number(css[A.padStart])
+    const A = AXES[s.axis], css = getComputedStyle(s.el), port = viewport(s.port, A), leading = number(css[A.padStart]);
+    const origin = s.el.getBoundingClientRect()[A.start] + s.el[A.clientStart] + leading
       - (s.el === s.port ? s.port[A.offset] : 0);
     return { raw: port.start - origin, portMain: port.main, portCross: port.cross,
-      cross: s.el[A.crossClient] - number(css[A.crossPads[0]]) - number(css[A.crossPads[1]]) };
+      cross: s.el[A.crossClient] - number(css[A.crossPads[0]]) - number(css[A.crossPads[1]]), padding: [leading, number(css[A.padEnd])] };
   }
   const dimensionsOf = g => `${g.portCross},${g.portMain},${g.cross}`;
   function liveView(s, element) {
@@ -149,9 +154,61 @@ export function collectionController({ root, views, report, settled=()=>{},
     if (stimulus) s.budget = 2;
     if (s.budget > 0) { dirty.add(s); schedule(); }
   }
+  // A correction's offset: smooth only when the correction says so, never
+  // by the element's own `scroll-behavior: smooth` (an anchor's shift must
+  // land with the rows that moved, before the frame paints).
+  // `s.exact` is where an instant correction put the port and what the browser then read back:
+  // WebKit keeps whole-pixel offsets (a place at 91783.6 reads back 91783), so a later correction
+  // relative to the read-back offset would lose up to a pixel each time, and the reader's row
+  // creep (two corrections: 2 px). It holds only while the port still reads exactly that.
+  function place(s, at, smooth) {
+    const name = AXES[s.axis].offset, was = s.port[name];
+    s.port.scrollTo({ [name === 'scrollTop' ? 'top' : 'left']: at, behavior: smooth ? 'smooth' : 'instant' });
+    if (smooth || s.port[name] !== was) s.owesScroll = true;
+    // Only a rounding residual (under a pixel): a target the browser clamped (an offset below 0 or past
+    // the end) is not where the port is, and a later correction builds on the port.
+    const A = AXES[s.axis], read = s.port[name], max = s.port[A.scrollSize] - s.port[A.client];
+    s.exact = !smooth && at >= 0 && at <= max && Math.abs(at - read) < 1 ? { at, read } : null;
+  }
+  // A smooth correction (LLP 1070.000 §6.2) is the browser's smooth scroll
+  // to `s.animating`. While it runs the sequence stays, nothing is sampled
+  // as travel, and reports say where it is headed (`s.owed ?? s.animating`).
+  // A target that arrives meanwhile is held in `s.owed` and taken when it
+  // lands, as UIKit's is: a new smooth scrollTo would restart the ease.
+  function animate(s, to) {
+    const A = AXES[s.axis], port = s.port;
+    to = Math.max(0, Math.min(to, port[A.scrollSize] - port[A.client]));
+    if (s.animating != null) { s.owed = to; return; }
+    if (Math.abs(to - port[A.offset]) <= 0.5) { place(s, to, false); s.offset = port[A.offset]; return; }
+    s.animating = to; s.owed = null; s.travel = null; s.animationMoved = false;
+    place(s, to, true);
+  }
+  // It landed (or the browser clamped it short): what was owed goes next.
+  // A successor starts only from the predecessor's `scrollend`, after the
+  // browser has queued it, so that event never lands the successor; where
+  // the browser has no `scrollend`, from the arriving scroll.
+  function landed(s) {
+    const owed = s.owed;
+    s.animating = s.owed = null; s.travel = null;
+    if (owed != null) animate(s, owed);
+  }
+  // The reader, an authored offset or an ordinary correction takes over: the
+  // browser's animation stops where it is.
+  function stopAnimation(s) {
+    if (s.animating == null) return;
+    s.animating = s.owed = null; s.travel = null;
+    place(s, s.port[AXES[s.axis].offset], false);
+  }
   function scrollChanged(s) {
     const A = AXES[s.axis], at = s.port[A.offset];
     if (at === s.offset) return false;
+    if (s.animating != null) {
+      s.offset = at; s.animationMoved = true;
+      if (Math.abs(at - s.animating) > 0.5) return false;
+      if (s.owed != null && 'onscrollend' in s.port) return false;
+      landed(s);
+      return true;
+    }
     // The browser clamping the port to an extent a row laid out smaller than
     // its estimate shortened: not a scroll. The runner's coordinates are the
     // painted frame's, where the port was still where it was (LLP 1070.000).
@@ -160,7 +217,7 @@ export function collectionController({ root, views, report, settled=()=>{},
       s.clamp = { from: s.clamp?.from ?? s.offset, at }; s.offset = s.clampAt = at;
       return false;
     }
-    s.clamp = s.clampAt = null; s.offset = at; s.sequence++;
+    s.clamp = s.clampAt = null; s.offset = at; s.sequence++; s.exact = null; // the reader's own scroll
     return true;
   }
   function desired(s) {
@@ -208,32 +265,35 @@ export function collectionController({ root, views, report, settled=()=>{},
           return { view: row.view, epoch: row.epoch, size: rect[A.size] };
         });
       } else if (releases.includes(s)) {
-        g = { raw: old.offset, portCross: old.port_cross, portMain: old.port_main, cross: old.cross };
+        g = { raw: old.offset, portCross: old.port_cross, portMain: old.port_main, cross: old.cross, padding: old.padding };
       } else continue;
       scrollChanged(s);
       // The jump's target, clamped as the browser will: reported before it
       // is assigned, so its rows exist before any frame shows it.
       if (jump != null) {
         g = { ...g, raw: g.raw + Math.max(0, Math.min(jump, s.port[A.scrollSize] - s.port[A.client])) - s.port[A.offset] };
-        s.sequence++;
+        s.sequence++; s.jumpedAt = s.sequence;
       }
       const dimensions = dimensionsOf(g);
-      if (s.dimensions !== null && dimensions !== s.dimensions) s.sequence++;
+      if (s.dimensions !== null && dimensions !== s.dimensions) { s.sequence++; s.jumpedAt = s.sequence; }
       s.dimensions = dimensions;
       const facts = { view: s.snapshot.view, revision: s.snapshot.revision, scroll_sequence: s.sequence,
-        offset: Math.max(0, g.raw + (s.clamp?.at === s.port[A.offset] ? s.clamp.from - s.clamp.at : 0)), port_main: g.portMain, port_cross: g.portCross, cross: g.cross,
-        focus_view: pins[0], interaction_view: pins[1], measurements };
-      const signature = [facts.offset, facts.scroll_sequence, dimensions, ...pins,
+        offset: Math.max(-g.padding[0], g.raw + (s.animating != null ? (s.owed ?? s.animating) - s.port[A.offset] : s.clamp?.at === s.port[A.offset] ? s.clamp.from - s.clamp.at : 0)), port_main: g.portMain, port_cross: g.portCross, cross: g.cross,
+        padding: g.padding, focus_view: pins[0], interaction_view: pins[1], measurements };
+      const signature = [facts.offset, facts.scroll_sequence, dimensions, ...g.padding, ...pins,
         ...measurements.flatMap(r => [r.view, r.epoch, r.size])].join('|');
       for (const [el, value] of measuredSizes) if (s.observed.has(el)) s.observed.set(el, value);
       if (s.signature === signature && jump == null && !s.snapshot.pending) continue;
-      const v = jump == null && !settling ? velocity(s) : 0;
+      // Under the agent a frame fills as a settle does: what it builds may
+      // not depend on the wall clock (a frame's time slice, a velocity), or
+      // which rows a list has measured, and so where it stands, would vary.
+      const v = jump == null && !settling && !agent ? velocity(s) : 0;
       // While its outer list moves, an inner list builds only what it owes
       // (LLP 1070 F2); its pending reply continues the fill at rest.
       const outer = s.snapshot.parent == null ? null : states.get(s.snapshot.parent);
       // The agent's settle ends motion and builds all a report owes at once,
       // as the native pumps do.
-      const fill = { velocity: v, ancestorMoving: !settling && !!outer && velocity(outer) !== 0, limit: settling ? null : jump != null ? 2
+      const fill = { velocity: v, ancestorMoving: !settling && !agent && !!outer && velocity(outer) !== 0, limit: settling || agent ? null : jump != null ? 2
         : Math.max(1, fits(s, deadline - now()), rowsToCover(s, rects, g, v * interval * 2 / 1000)) };
       let bytes;
       try { bytes = collectionBytes(facts, fill); } catch { continue; }
@@ -262,11 +322,13 @@ export function collectionController({ root, views, report, settled=()=>{},
     if (!delivering) for (const [s, at] of jumps.splice(0)) jumpTo(s, at);
   }
   function move(s, at) {
-    const name = AXES[s.axis].offset;
-    s.port[name] = at; s.offset = s.port[name]; s.travel = null;
+    const name = AXES[s.axis].offset, was = s.port[name];
+    s.port[name] = at; s.offset = s.port[name]; s.travel = null; s.exact = null;
+    if (s.offset !== was) s.owesScroll = true;
   }
   function jumpTo(s, at) {
     if (!states.has(s.snapshot.view)) return;
+    stopAnimation(s);
     if (delivering) { jumps.push([s, at]); return; }
     s.jump = at; enqueue(s, true); flush(true, s);
     // Not reportable (hidden, partial): move now; its rows follow a frame later.
@@ -276,6 +338,8 @@ export function collectionController({ root, views, report, settled=()=>{},
     dirty.delete(s); waiting.delete(s); s.observer.disconnect();
     for (const row of s.rows) if (row.el) rowOwners.delete(row.el);
     s.port.removeEventListener('scroll', s.scrolled);
+    s.ackTarget?.removeEventListener('scroll', s.acked, { capture: true });
+    s.port.removeEventListener('scrollend', s.scrollEnded);
     s.el.style.overflowAnchor = s.anchor;
     for (const name of INPUT) s.port.removeEventListener(name, s.touched);
     states.delete(s.snapshot.view);
@@ -319,7 +383,7 @@ export function collectionController({ root, views, report, settled=()=>{},
       if(scrollChanged(s))enqueue(s,true);
       enqueue(s);if(!delivering)flush(true);
       const g=geometry(s),f=s.lastFacts,p=viewport(s.port,AXES.y);
-      if(!g||!f||f.offset!==Math.max(0,g.raw)||f.port_cross!==g.portCross||f.port_main!==g.portMain
+      if(!g||!f||f.offset!==Math.max(-g.padding[0],g.raw)||f.port_cross!==g.portCross||f.port_main!==g.portMain
         ||f.cross!==g.cross||BigInt(f.scroll_sequence)!==s.sequence)return undefined;
       return {revision:s.snapshot.revision,scrollSequence:String(s.sequence),scrollTop:f.offset,
         portWidth:g.portCross,portHeight:g.portMain,rowWidth:g.cross,totalExtent:s.snapshot.totalExtent,
@@ -345,7 +409,7 @@ export function collectionController({ root, views, report, settled=()=>{},
       if (!lease || interaction?.lease !== lease || delivering || reportsLeft <= 0) return null;
       const s=lease.state,view=liveView(s,element),g=geometry(s),old=s.lastFacts;
       if (!states.has(s.snapshot.view)||!lease.wrapper.isConnected||!lease.wrapper.contains(element)||view==null
-        ||!g||old?.interaction_view!==lease.view||old.offset!==Math.max(0,g.raw)
+        ||!g||old?.interaction_view!==lease.view||old.offset!==Math.max(-g.padding[0],g.raw)
         ||old.port_cross!==g.portCross||old.port_main!==g.portMain||old.cross!==g.cross
         ||s.port[AXES[s.axis].offset]!==s.offset) return null;
       const facts={...old,revision:s.snapshot.revision,interaction_view:view,measurements:[]};
@@ -372,8 +436,9 @@ export function collectionController({ root, views, report, settled=()=>{},
           s = { el, port, axis, snapshot, rows: [], valid: false, observed: new Map(), budget: 2, travel: null, perRow: null, lastRows: 1, jump: null,
             sequence: BigInt(snapshot.scrollSequence), offset: port[AXES[axis].offset],
             dimensions: null, signature: null, lastFacts: null, corrected: null, anchor: el.style.overflowAnchor };
-          s.scrolled = () => { const changed = scrollChanged(s); sample(s); if (changed) enqueue(s, true); };
-          s.touched = () => { s.input = true; };
+          // A smooth correction's ticks are never sampled as travel.
+          s.scrolled = () => { const animated = s.animating != null, changed = scrollChanged(s); if (!animated) sample(s); if (changed) enqueue(s, true); };
+          s.touched = () => { s.input = true; stopAnimation(s); };
           for (const name of INPUT) port.addEventListener(name, s.touched, { passive: true });
           s.observer = new ResizeObserver(entries => {
             let changed = false, resizedPort = false, pending = false;
@@ -396,6 +461,26 @@ export function collectionController({ root, views, report, settled=()=>{},
             } else if (pending) enqueue(s); // Coalesce an own notification, never replenish.
           });
           port.addEventListener('scroll', s.scrolled, { passive: true });
+          // A scroll event acknowledged before any reader's handler (capture runs
+          // first at the target), so a jump that handler makes stays owed; only
+          // the port's own (a descendant's passes through capture too); the
+          // viewport's scroll events fire at the document.
+          s.acked = e => { if (e.target !== s.ackTarget) return; s.owesScroll = false; scrollsFired++; };
+          s.ackTarget = port === doc.scrollingElement ? doc : port;
+          s.ackTarget.addEventListener('scroll', s.acked, { passive: true, capture: true });
+          // A smooth correction that ended short of its target (clamped, or
+          // the reader took over) reports where it rests.
+          s.scrollEnded = () => {
+            if (s.animating == null) return;
+            // Its own end: at its target clamped to the content as it is
+            // now, or anywhere once it has moved the port (a snap or a clamp
+            // stopped it short). A `scrollend` for an earlier scroll, before
+            // this animation moved, lands nothing.
+            const A = AXES[s.axis], at = s.port[A.offset], max = s.port[A.scrollSize] - s.port[A.client];
+            if (Math.abs(at - Math.max(0, Math.min(s.animating, max))) > 0.5 && !s.animationMoved) return;
+            s.offset = at; landed(s); enqueue(s, true);
+          };
+          port.addEventListener('scrollend', s.scrollEnded, { passive: true });
           states.set(snapshot.view, s);
         }
         // A new wrapper/epoch is new measurement work, including membership
@@ -417,21 +502,75 @@ export function collectionController({ root, views, report, settled=()=>{},
         if (snapshot.seeking && !s.seeking) s.input = false;
         s.seeking = snapshot.seeking === true;
         const correction = snapshot.correction;
+        // An anchor's correction (`from`) is relative: the rows before the
+        // anchor moved by `offset - from` in this commit, so the port moves
+        // with them before it paints, whatever was scrolled since the report
+        // (a fling's frames). Once: a later revision with the same anchor's
+        // correction owes only what it adds.
+        // Not one from before an authored jump or a resize (`jumpedAt`); a
+        // port this commit resizes is not the reader moving, so it still
+        // lands (feed F14: posts put above the reader as a pull-to-refresh
+        // zone closes).
+        if (correction && Number.isFinite(correction.from) && s.corrected !== snapshot.revision
+            && BigInt(correction.scrollSequence) >= (s.jumpedAt ?? 0n)) {
+          const g = geometry(s), name = AXES[axis].offset;
+          // H4: a row list moving under the user's hand is not corrected
+          // (below); a vertical one moves with its rows, mid-fling too.
+          const moving = axis === 'x' && velocity(s) !== 0;
+          if (g && !moving) {
+            s.corrected = snapshot.revision;
+            const last = s.shifted;
+            const done = last && last.scrollSequence === correction.scrollSequence && last.from === correction.from ? last.offset : correction.from;
+            s.shifted = correction;
+            if (correction.offset !== done && s.animating != null) {
+              // Under a smooth correction's animation the rows moved: where
+              // it lands moves with them, and the animation goes on.
+              s.owed = (s.owed ?? s.animating) + correction.offset - done;
+            } else if (correction.offset !== done) {
+              // From where the port was: rows leaving above a deep offset
+              // shrink the extent first, and the browser's clamp to it is
+              // not where the reader is (scrollChanged's `s.clamp`).
+              // The read-back offset, or where the last correction put it while the port still reads
+              // just what the browser made of that: anything that moved it since (the reader, a jump,
+              // an authored offset) is the base instead.
+              const read = port[name], base = s.exact && s.exact.read === read ? s.exact.at : read;
+              const was = s.clamp?.at === read ? s.clamp.from : base;
+              s.clamp = s.clampAt = null;
+              const before = port[name];
+              place(s, was + correction.offset - done, false);
+              s.offset = port[name]; // consume the programmatic scroll echo
+              // Not the reader's travel: its velocity reads on from here (by what the browser moved,
+              // never a residual `s.exact` carries).
+              if (s.travel) s.travel.at += port[name] - before;
+            }
+          }
+        } else
         // A request's correction is authored: the browser's clamps and
         // scroll anchoring since the runner's last report don't void it.
         if (correction && s.corrected !== snapshot.revision
             && (BigInt(correction.scrollSequence) === s.sequence || authored(s))
-            && Number.isFinite(correction.offset) && correction.offset >= 0) {
+            && Number.isFinite(correction.offset)) {
           const g = geometry(s), name = AXES[axis].offset;
           // H4: a row list moving under the user's hand is not corrected;
           // its next report carries the uncorrected offset and the runner
           // re-anchors from that. Vertical lists correct as before.
           const moving = axis === 'x' && velocity(s) !== 0;
-          if (g && !moving && (s.dimensions === null || s.dimensions === dimensionsOf(g))) {
+          // A port this commit resized (not reported yet, so the sequence
+          // has not moved past the correction's) is not the reader moving:
+          // a correction planned at that sequence still lands, clamped by
+          // the browser to the new port, as on Apple and Linux (review B5:
+          // a sent message's end-follow as the composer shrinks back).
+          const planned = BigInt(correction.scrollSequence) === s.sequence;
+          if (g && !moving && (planned || s.dimensions === null || s.dimensions === dimensionsOf(g))) {
             s.corrected = snapshot.revision;
             // Relative conversion also handles a list below siblings in its port.
-            port[name] += correction.offset - g.raw;
-            s.offset = port[name]; // consume the programmatic scroll echo
+            const to = port[name] + correction.offset - g.raw;
+            if (correction.smooth === true && !agent) animate(s, to);
+            else {
+              stopAnimation(s);
+              place(s, to, false);
+              s.offset = port[name]; // consume the programmatic scroll echo
+            }
             s.travel = null; // a correction is not the reader's travel (LLP 1070.000 §2.5)
           }
         }
@@ -440,6 +579,17 @@ export function collectionController({ root, views, report, settled=()=>{},
         enqueue(s, !delivering || freshRows || snapshot.pending === true);
       }
       if (!dirty.size && frame !== null && !delivering) { cancelFrame(frame); frame = null; }
+    },
+    // After a commit that changed no snapshot: a list whose padding changed
+    // and nothing the browser observes (a border-box list keeps its size)
+    // reports it, so the runner's end follows (LLP 1010 §6.9).
+    restyled() {
+      for (const s of states.values()) {
+        const f = s.lastFacts, A = AXES[s.axis];
+        if (!f || !s.valid || !s.el.isConnected) continue;
+        const css = getComputedStyle(s.el);
+        if (number(css[A.padStart]) !== f.padding[0] || number(css[A.padEnd]) !== f.padding[1]) enqueue(s, true);
+      }
     },
     // An authored offset on a collection (glue.js): on the list's own axis
     // (`scrollTop` for y, `scrollLeft` for x) its rows are built at the
@@ -463,6 +613,24 @@ export function collectionController({ root, views, report, settled=()=>{},
         if (!delivering) flush(true);
         if (reported === before) break;
       } } finally { settling = false; }
+    },
+    // Lists whose offset this moved and whose `scroll` event the browser
+    // hasn't fired yet: it fires at a rendering step, and a reader's handler
+    // (an author's `scroll=`, its ScrollEvent) runs then, so the agent's
+    // settle waits for those frames before it says settled.
+    owedScrolls() {
+      let n = 0;
+      for (const s of states.values()) if (s.owesScroll) n++;
+      return n;
+    },
+    scrollsFired: () => scrollsFired,
+    // Waits, up to `frames` frames, while scrolls are owed: `fired`, any
+    // event delivered meanwhile (its handler's work wants a round), and what
+    // is still `owed` when the frames ran out (not settled).
+    async fireOwedScrolls(frames = 8) {
+      const before = scrollsFired;
+      for (let f = 0; f < frames && this.owedScrolls(); f++) await new Promise(r => requestAnimationFrame(() => setTimeout(r, 0)));
+      return { fired: scrollsFired > before, owed: this.owedScrolls() };
     },
     dataReady() {
       // A refused pre-activation action stays armed. Retry unchanged geometry

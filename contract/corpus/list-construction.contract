@@ -1,0 +1,44 @@
+// Accept fixture: a list the screen keeps for the session is built in
+// Contract (LLP 1088 §9.1). `[a, b]` is a list of its items, which may span
+// lines and keep a trailing comma, and whose types meet as a ternary's arms
+// do; `concat`, `slice`, `includes` and `indexOf` are the web's array
+// methods, and `split` text's. HN's collapsed comments, mail's selection and
+// its recipient chips, without a data module round trip.
+shape Row
+  id: string
+  title: string
+
+component ListConstruction
+  resource rows = rows() as shape Row[]
+  state picked = []
+  state collapsed = []
+  state tabs = [
+    "inbox",
+    "sent",
+  ]
+  state scores = [none, some(2)]
+  derive lengths = [tabs.length, picked.length, rows.length]
+  derive shown = rows.slice(0, -1)
+  state to = "ann@x.org, bo@y.org"
+  derive chips = to.split(", ")
+  derive at = `${picked.indexOf("a")} ${to.indexOf("bo")}`
+  action pick(id: string)
+    picked = picked.concat([id])
+  action toggle(id: string)
+    collapsed = collapsed.includes(id) ? collapsed.filter(c => c != id) : collapsed.concat([id])
+  action clear
+    picked = []
+  view
+    column testId="root"
+      text tabs.join(",") testId="tabs"
+      text picked.join(",") testId="picked"
+      text collapsed.join(",") testId="collapsed"
+      text lengths.join(",") testId="lengths"
+      text shown.map(r => r.id).join(",") testId="shown"
+      text scores.length.toString() testId="scores"
+      text chips.join("|") testId="chips"
+      text at testId="at"
+      for r in rows key=r.id
+        button r.title press=pick(r.id) testId=r.id
+        button "fold" press=toggle(r.id) testId=`fold-${r.id}`
+      button "clear" press=clear testId="clear"

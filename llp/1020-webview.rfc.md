@@ -190,7 +190,8 @@ symlink-resolved containment check and inlines it as the inner frame's
 This is not the Contract-facing `srcdoc` §5 cuts — no author writes it —
 and it carries a declared limit: a multi-file local bundle's subresources
 do not resolve; multi-file local decks wait for scheme-handler serving
-(the shipped Castle mechanism, §8 Q1).
+(the shipped Castle mechanism, §8 Q1), which LLP 1020.001 builds: `assets/`
+and `deck/` served at `exact-app://app`.
 
 Guest→app: the guest calls `window.parent.postMessage(data, …)` exactly
 as it would on castle.xyz; the wrapper (native) or the host page (web)
@@ -211,8 +212,8 @@ reply is M3's design (LLP 1020.000): the plausible shape is the data
 seam — a guest `message` lands as an action, the command runs as a
 mutation (LLP 1016) with the client's auth, and the settled result is
 posted back — keeping the token out of the guest and the bridge out of
-the Contract's way. General app→guest messaging beyond replies stays
-cut (§5).
+the Contract's way. Host-initiated string updates to a mounted frame were
+earned back on 2026-10-19 (§5, §11); structured messages stay cut.
 
 **D3 — loading is the GPU-module shape.** The Apple webview arm is a
 separate artifact beside `libexact_gpu.dylib`, `dlopen`ed at the first
@@ -309,9 +310,11 @@ so each return is a measurement or a named consumer, not drift:
 - **App→guest messaging** — the earn-back trigger ("the first deck the
   URL cannot configure") was met the day the survey read the shipped SDK:
   every `castleSdk` deck expects replies in its window. The narrow form
-  — replies to guest messages — is scoped in as D2r; **general**
-  app→guest messaging (host-initiated pushes) stays cut until a deck
-  needs one the reply channel cannot carry.
+  — replies to guest messages — is scoped in as D2r. **Host-initiated
+  string updates — earned back 2026-10-19** by T3 Code's MCP App and HTML
+  documents, which need theme, shortcut and context changes the reply
+  channel cannot carry (§11). Structured clone and broadcast to every frame
+  stay cut until a guest needs one a string to one frame cannot carry.
 - **Navigation policy, verdicts, popups, the 13-op controller** — the
   first product need to intercept guest navigation. Until then: the guest
   navigates itself as any iframe may; popups are denied by `sandbox`
@@ -492,9 +495,60 @@ inner frame remain only where one document cannot keep that parity:
 | Remote http(s), no `sandbox` | direct | the wrapper |
 | Remote with `sandbox`, and `data:`/`about:`/`blob:` | the wrapper | the wrapper |
 
+LLP 1020.001 D4 amends this table for a bundled HTML page under `assets/` or `deck/`.
+
+- **`data:` on the web (2026-10-08).** The web host's `iframe` is the guest
+  itself, and its `src` takes the page's scheme allowlist (http, https, mailto,
+  tel), which exists so a `javascript:` URL never runs in the app's origin. A
+  `data:` document is admitted too when the frame's `sandbox` withholds
+  `allow-same-origin`: its origin is then opaque, so its script cannot reach
+  the app's page, and its posts arrive from `"null"`. Without a `sandbox`, or
+  with `allow-same-origin`, a `data:` source is refused and the frame shows
+  `about:blank`. A `blob:` source is refused, because an app cannot name one
+  the page made. The rule is `frameURL` (`host/web/navigation.js`), `navigable`
+  (`host/web-js/rt.js`) and `frame_navigable` (`host/web/src/document.rs`,
+  which the render host and the JS target's literal attributes share). A changed
+  `sandbox` navigates a `data:` or HTTP(S) frame again, even when it admits the same
+  URL, so the loaded document takes the new permissions. Both web targets retain
+  the authored source and reconsider a refused `data:` URL when its sandbox changes.
+  Apple serves a `data:` source through the wrapper whatever its `sandbox` (the row above),
+  so an app that wants one `src` string for every host gives that frame an
+  opaque `sandbox`.
+
+- **HTTP guests (#106).** The synthetic wrapper uses `http://exact.invalid`
+  for a remote `http:` source. An HTTPS wrapper would block that guest as
+  mixed content even when `app.json` explicitly permits it through ATS.
+  WebKit still enforces the bundle's ATS policy and the inner iframe's
+  `sandbox`; this does not enable HTTP by itself. Other remote sources keep
+  the HTTPS wrapper.
+- **Local documents (#135).** A local document is served at the synthetic
+  origin `http://exact.localhost` (a srcdoc frame's origin in the wrapper).
+  Under an `https:` origin WebKit refuses every `http:` sub-resource as mixed
+  content, loopback included, where Chrome loads `http://127.0.0.1`,
+  `localhost` and `[::1]` from a secure page. A loopback origin is a secure
+  context in WebKit, as the web dev loop's `http://127.0.0.1` page is, and is
+  not held to mixed-content blocking. A named `http:` host is then ATS's to
+  allow (`appTransportSecurity`), as for a remote guest. The page sees only
+  an `error` event when a sub-resource fails; the host logs it to stderr
+  (`exact: iframe <src>: <url> did not load (<likely reason>)`).
+- **App files (Charlie, 2026-10-08; implemented 2026-10-13).** An
+  `app:/data`, `app:/cache` or `app:/tmp` source uses the app's file roots,
+  refusing traversal and other roots (LLP 1069.002 D7). Apple reads it off
+  the main thread and serves the bytes through the same typed-document
+  path as a bundled file; the web creates a typed object URL owned by the
+  iframe and revokes it on source change or removal; rebinding the same
+  source preserves the document. Plain text keeps its MIME type and is never
+  interpreted as HTML. The authored `sandbox` and message-origin checks
+  still apply. Chrome loads blob HTML/text with an opaque sandbox origin,
+  but blocks PDF viewers under any sandbox. The web host reports that
+  blocked app PDF through `error`, as it does an unavailable app file,
+  with a message and no `load` for the empty frame. Load/error events that
+  precede data activation are delivered once the executor is ready.
+  This is the scoped local-file failure rule, not a change to network
+  iframe failures. A fitted PDF element and Chrome's PDF viewer fragments
+  remain outside this scope.
 - **Direct** is the web view's own document. A local one is served at the
-  synthetic origin `https://exact.invalid` (a srcdoc frame's origin in the
-  wrapper), with `sandbox` sent as a `Content-Security-Policy: sandbox …`
+  synthetic origin above, with `sandbox` sent as a `Content-Security-Policy: sandbox …`
   header, which WebKit enforces on a top-level document, opaque origin
   included. A remote one is loaded as itself.
 - **Messages.** A direct guest's `parent` is its own window, so a post to
@@ -543,3 +597,33 @@ inner frame remain only where one document cannot keep that parity:
 - **The document read.** A local `src` is read once per `src`, off the main
   thread (`WebViews.update`). It used to be read on the main thread at every
   update of the row.
+
+
+## 11. Addressed string replies and host updates (2026-10-19)
+
+Admitted by a doing-list trade (`rules/DEFERRED.md`, section "Features carried over as 'no'").
+
+`postMessage(text, iframeId)` runs on Apple and both web executors
+for string replies and host-initiated theme, shortcut and MCP-context updates. The
+consumer needs these for interactive HTML and MCP documents. It keeps
+the existing canvas form and its ordered pending queue. Its compiler distinguishes
+iframe delivery internally; the public command still has two string arguments, and
+repeated iframe instances may compute their ids.
+
+A post addresses one mounted frame. Missing or ambiguous ids and names shared
+with a live canvas are refused. Iframe posts never wait by id for a future frame:
+a replacement document cannot inherit a prior frame's messages. Web delivery uses
+that document's Window and known origin, or `*` only for an opaque sandbox; an
+observed subsequent load revokes its channel until the app commits a new source.
+Authored source or sandbox changes immediately replace the channel token. On the web,
+a cross-origin or opaque guest can start self-navigation before its parent observes
+load; its WindowProxy remains stable during that interval. This channel does not
+claim navigation-start revocation there. Apple checks the wrapper generation or a
+direct document's private isolated-world nonce, and revokes at navigation start. A
+direct native guest receives a synthesized string MessageEvent; its own posts continue
+through the existing guest-to-app bridge.
+
+It excludes structured-clone expansion, a permission broker, a navigation controller
+and an app-owned native bridge. Linux refuses iframe-tagged posts explicitly and keeps
+its existing canvas protocol. The focused compiler/browser tests and native fixture are
+`post_message.rs`, `frame-messages.test.mjs` and `IframePostMessageTests.swift`.

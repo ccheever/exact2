@@ -18,8 +18,8 @@ use super::transform_drag_wire::Input;
 use super::{Batch, Host, HostError};
 use exact_kernel::{motion::motion_node, Kernel, NodeKey, TransformDragBinding, ViewId};
 use exact_motion::{Engine, HoldEnd, Property, TransformHold};
-use exact_runner::{DataSource, Timed};
-use std::collections::BTreeMap;
+use exact_runner::{DataSource, Event, Timed};
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::atomic::{AtomicU64, Ordering};
 
 static NEXT_RUNTIME: AtomicU64 = AtomicU64::new(1);
@@ -49,6 +49,7 @@ struct Active {
 pub(super) struct TransformDrags {
     runtime: u64,
     owner: Option<NodeKey>,
+    reported_targets: BTreeSet<NodeKey>,
     pub(super) mapping_pending: bool,
     handles: BTreeMap<ViewId, Handle>,
     // Existing Translate serial is the key, not a second pair serial/registry.
@@ -67,6 +68,7 @@ impl TransformDrags {
         Ok(Self {
             runtime,
             owner: None,
+            reported_targets: BTreeSet::new(),
             mapping_pending: false,
             handles: BTreeMap::new(),
             pairs: BTreeMap::new(),
@@ -96,6 +98,52 @@ impl TransformDrags {
 }
 
 impl<D: DataSource> Host<D> {
+    /// Before an event the host delivers itself, mid-gesture (a drag's
+    /// release, its handle's new geometry): the runner's clock moves to the
+    /// input's time `now_ms`, as [`Host::dispatch_at`] moves it, firing the
+    /// timers due by then at their own times. Idle, with no frame or timer to
+    /// move it, the runner's clock can be seconds old, and the event's action
+    /// would read that `performanceNow()` and arm its `after`s from it. Their commits,
+    /// in order, and a refusal, which stops the clock at the refusing timer
+    /// (the runner's rule): the event then runs there, as through
+    /// `dispatch_at`.
+    pub(super) fn advance_for_input(&mut self, now_ms: f64) -> (Vec<Timed>, Option<String>) {
+        let a = self.runner.advance_timed(now_ms);
+        (a.receipts, a.error.map(|e| format!("{e:?}")))
+    }
+
+    /// The event after [`Host::advance_for_input`], its commit last, unless
+    /// the timers just fired ended its gesture (`still` false: they changed
+    /// or removed the binding the input was validated against). The commits,
+    /// the first refusal, and whether the event committed.
+    pub(super) fn deliver_after(
+        &mut self,
+        view: ViewId,
+        event: Event,
+        mut receipts: Vec<Timed>,
+        mut error: Option<String>,
+        still: bool,
+    ) -> (Vec<Timed>, Option<String>, bool) {
+        if !still {
+            error.get_or_insert_with(|| "the gesture's binding changed before its event".into());
+            return (receipts, error, false);
+        }
+        let committed = match self.runner.dispatch(view, event) {
+            Ok(receipt) => {
+                receipts.push(Timed {
+                    at_ms: self.runner.now_ms(),
+                    receipt,
+                });
+                true
+            }
+            Err(e) => {
+                error.get_or_insert(format!("{e:?}"));
+                false
+            }
+        };
+        (receipts, error, committed)
+    }
+
     /// Consume the fixed v2 photo packet. Geometry does not prove a worker result
     /// or change Kernel layout: it is a bound native observation. Refused stale
     /// inputs never seek their incoming clock. A stale reply may include a batch
@@ -234,19 +282,16 @@ impl<D: DataSource> Host<D> {
         });
         // All six values/time passed preflight, both old holds are live, and the
         // action executes while both still own presentation. Do not lower first.
-        let (committed, batch) = match self.runner.dispatch(view, input.event()) {
-            Ok(receipt) => (
-                true,
-                self.commit(
-                    &[Timed {
-                        at_ms: input.now_ms,
-                        receipt,
-                    }],
-                    None,
-                ),
-            ),
-            Err(e) => (false, self.commit(&[], Some(format!("{e:?}")))),
-        };
+        let (early, early_error) = self.advance_for_input(input.now_ms);
+        let still = early.is_empty()
+            || self
+                .runner
+                .kernel()
+                .transform_drag_binding(input.binding.handle)
+                == Some(input.binding);
+        let (receipts, error, committed) =
+            self.deliver_after(view, input.event(), early, early_error, still);
+        let batch = self.commit(&receipts, error);
         Ok(format!(
             "{{\"accepted\":true,\"dispatched\":true,\"committed\":{committed},\"velocity\":[{},{},{}],\"batch\":{batch}}}",
             input.values[3], input.values[4], input.values[5]
@@ -296,6 +341,9 @@ impl<D: DataSource> Host<D> {
         self.engine
             .advance(input.now_ms / 1000.0)
             .map_err(|_| "transform clock refused")?;
+        // Timers due by the observation fire first, so the authoring adopted
+        // below while held, and the cancellation, are what they left.
+        let (early, early_error) = self.advance_for_input(input.now_ms);
         // Latest authored pair targets/declarations arrive while still held.
         if let Some(node) = self.runner.kernel().node_by_key(input.binding.target) {
             let mut sync = exact_kernel::motion::MotionSync::default();
@@ -311,8 +359,14 @@ impl<D: DataSource> Host<D> {
                     });
                 }
             }
-            sync.apply(&mut self.engine)
-                .map_err(|_| "transform authoring refused")?;
+            if sync.apply(&mut self.engine).is_err() {
+                if early.is_empty() && early_error.is_none() {
+                    return Err("transform authoring refused");
+                }
+                // The timers' commits are in the tree: they reach the presenter.
+                let error = early_error.unwrap_or_else(|| "transform authoring refused".into());
+                return Ok(accepted(self.commit_into(&early, Some(error), batch)));
+            }
         }
         let active: Vec<_> = self
             .transform_drags
@@ -324,21 +378,20 @@ impl<D: DataSource> Host<D> {
             self.retire_transform_pair(serial, &mut batch);
         }
         if dispatch {
-            match self.runner.dispatch(view, input.event()) {
-                Ok(receipt) => Ok(accepted(self.commit_into(
-                    &[Timed {
-                        at_ms: input.now_ms,
-                        receipt,
-                    }],
-                    None,
-                    batch,
-                ))),
-                Err(error) => Ok(accepted(self.commit_into(
-                    &[],
-                    Some(format!("{error:?}")),
-                    batch,
-                ))),
-            }
+            let still = early.is_empty()
+                || self
+                    .runner
+                    .kernel()
+                    .transform_drag_binding(input.binding.handle)
+                    == Some(input.binding);
+            let (receipts, error, committed) =
+                self.deliver_after(view, input.event(), early, early_error, still);
+            Ok(admitted(
+                self.commit_into(&receipts, error, batch),
+                committed,
+            ))
+        } else if !early.is_empty() || early_error.is_some() {
+            Ok(admitted(self.commit_into(&early, early_error, batch), true))
         } else {
             self.present(&mut batch, false);
             Ok(accepted(self.finish(batch, None)))
@@ -366,19 +419,38 @@ impl<D: DataSource> Host<D> {
             .retain(|_, h| kernel.node_by_key(h.key).is_some());
         let mut first = None;
         let mut current_valid = false;
+        let mut valid = BTreeMap::new();
         for h in self.transform_drags.handles.values() {
             if !h.geometry_handler || !h.release_handler {
                 continue;
             }
             if let Some(b) = kernel.transform_drag_binding(h.key) {
+                valid.insert(
+                    b.target,
+                    kernel.node_by_key(b.target).expect("valid target").id,
+                );
                 first.get_or_insert(b.target);
                 current_valid |= self.transform_drags.owner == Some(b.target);
             }
         }
         // Keep one eligible owner across sibling handle removal; never steal a
-        // live owner for a second target. No retained history or per-frame scan.
+        // live owner for a second target.
         if !current_valid {
             self.transform_drags.owner = first;
+        }
+        // Forget a report when the target loses its last valid binding.
+        self.transform_drags
+            .reported_targets
+            .retain(|target| valid.contains_key(target));
+        if let Some(owner) = self.transform_drags.owner {
+            let owner_view = valid[&owner];
+            for (target, view) in valid {
+                if target != owner && self.transform_drags.reported_targets.insert(target) {
+                    self.log(&format!(
+                        "transformDragFor: target view #{view} passed over for owner view #{owner_view}; one owner (first valid, never stolen; LLP 1071)"
+                    ));
+                }
+            }
         }
     }
 
@@ -450,10 +522,7 @@ impl<D: DataSource> Host<D> {
     }
 
     fn transform_refused(&self) -> String {
-        format!(
-            "{{\"accepted\":false,\"batch\":{}}}",
-            self.finish(Batch::new(), None)
-        )
+        format!("{{\"accepted\":false,\"batch\":{}}}", self.refused(None))
     }
 
     fn transform_stale(&mut self) -> String {
@@ -496,6 +565,12 @@ impl<D: DataSource> Host<D> {
 }
 fn accepted(batch: String) -> String {
     format!("{{\"accepted\":true,\"batch\":{batch}}}")
+}
+
+/// A geometry reply that says whether its event committed: a timer's
+/// refusal in the batch is not the observation's.
+fn admitted(batch: String, committed: bool) -> String {
+    format!("{{\"accepted\":true,\"committed\":{committed},\"batch\":{batch}}}")
 }
 
 // Actual native samples are certified again by Swift. This preflight rejects

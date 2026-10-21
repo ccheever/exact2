@@ -49,6 +49,8 @@ pub struct DocTree {
     roots: Vec<ViewId>,
     /// The nodes each `id` prop names, in tree order.
     ids: std::collections::HashMap<String, Vec<ViewId>>,
+    /// Its styles' wide colours, kept from the table's sweep.
+    kept: exact_kernel::style::wide::Keep,
 }
 
 /// Why a tree has no kernel-free document.
@@ -80,6 +82,11 @@ impl DocTree {
         &self.nodes
     }
 
+    /// Every node, mutably, for the props the runner adds after the fold.
+    pub(crate) fn nodes_mut(&mut self) -> &mut [DocNode] {
+        &mut self.nodes
+    }
+
     /// The node `id`.
     pub fn node(&self, id: ViewId) -> Option<&DocNode> {
         self.index.get(&id).map(|i| &self.nodes[*i as usize])
@@ -100,7 +107,58 @@ impl DocTree {
             props: &node.props,
             is_root: node.is_root,
             inline_run,
+            symbol_color: self.symbol_color(node),
         })
+    }
+
+    /// [`exact_kernel::NodeRef::symbol_color_said`] over this tree: the
+    /// nearest node that sets `color` decides, said when its author wrote
+    /// it, and where its author wrote none a start of the neutral sheet's
+    /// that sets `color` (`says`'s) stops the walk: a route header's, a
+    /// neutral alert's and its children's but its buttons'. (A field's start
+    /// sets it too, and a field holds no image.)
+    fn symbol_color(&self, node: &DocNode) -> bool {
+        use exact_kernel::style::metrics::{column, Column};
+        use exact_kernel::PropId;
+        let symbol = node.node_type == NodeType::Image
+            && node
+                .props
+                .str(PropId::ImageSource)
+                .is_some_and(|s| s.starts_with("symbol:"));
+        let parent = |n: &DocNode| n.parent.and_then(|p| self.node(p));
+        if !symbol || parent(node).is_some_and(|p| p.node_type == NodeType::Control) {
+            return false;
+        }
+        let neutral = column() == Column::Neutral;
+        let alert = |n: &DocNode| {
+            neutral
+                && n.props.str(PropId::SemanticTag) == Some("dialog")
+                && n.props.str(PropId::AccessibilityRole) == Some("alertdialog")
+        };
+        let button = |n: &DocNode| {
+            n.node_type == NodeType::Pressable && n.props.str(PropId::Href).is_none()
+                || exact_kernel::control::ControlKind::of(n.node_type, &n.props)
+                    == Some(exact_kernel::control::ControlKind::Button)
+        };
+        let starts = |n: &DocNode| {
+            let up = parent(n);
+            neutral
+                && n.props.str(PropId::SemanticTag) == Some("header")
+                && up.is_some_and(|p| p.props.get(PropId::NavigationKey).is_some())
+                || alert(n)
+                || up.is_some_and(&alert) && !button(n)
+        };
+        let mut at = Some(node);
+        while let Some(n) = at {
+            if n.style.written.has(StyleId::TextColor) {
+                return true;
+            }
+            if n.style.mask.has(StyleId::TextColor) || starts(n) {
+                return false;
+            }
+            at = parent(n);
+        }
+        false
     }
 
     /// The active head, as [`crate::Runner::head`] reads a kernel's tree.
@@ -145,15 +203,31 @@ impl DocTree {
 
 impl Tree {
     /// The document's nodes, from the values the tree's bindings last took.
-    pub(crate) fn document(&self, plan: &Plan, sites: &SiteIndex) -> Result<DocTree, DocTreeError> {
+    pub(crate) fn document(
+        &self,
+        plan: &Plan,
+        sites: &SiteIndex,
+        fonts: Rc<RefCell<bridge::RuntimeFonts>>,
+    ) -> Result<DocTree, DocTreeError> {
         let mut build = Build {
             plan,
             sites,
+            fonts,
             doc: DocTree::default(),
             shared: vec![None; plan.nodes.len()],
         };
         build.doc.roots = roots_of(&self.children);
+        // What the fold parses is kept from the sweep until its keep is made.
+        let _batch = exact_kernel::style::wide::Batch::open();
         build.children(&self.children, None, 0)?;
+        // Its styles' wide colours, kept while the tree lives: it is no
+        // kernel's (LLP 1121 stage 4).
+        let nodes = &build.doc.nodes;
+        build.doc.kept = exact_kernel::style::wide::Keep::of(|m| {
+            for node in nodes {
+                exact_kernel::style::wide::Colors::colors(&*node.style, m);
+            }
+        });
         Ok(build.doc)
     }
 }
@@ -161,6 +235,7 @@ impl Tree {
 struct Build<'p> {
     plan: &'p Plan,
     sites: &'p SiteIndex,
+    fonts: Rc<RefCell<bridge::RuntimeFonts>>,
     doc: DocTree,
     /// Each plan node's rows when every style binding it has reads nothing:
     /// one allocation for all its instances.
@@ -327,30 +402,61 @@ impl Build<'_> {
             match binding.kind {
                 BindingKind::Prop => match bridge::prop_value(binding.id, value) {
                     Ok((prop, value)) => {
-                        props.set(prop, value);
+                        props.set(prop, bridge::icon_source(plan, prop, value));
                     }
                     // Cleared, with a journal line on a kernel's commit.
-                    Err(bridge::BridgeError::PropKind { prop, .. }) => {
+                    Err(
+                        bridge::BridgeError::PropKind { prop, .. }
+                        | bridge::BridgeError::Unset(prop),
+                    ) => {
                         props.remove(prop);
                     }
                     Err(e) => return Err(DocTreeError::Refused(format!("{e:?}"))),
                 },
                 BindingKind::Style if shared.is_some() => {}
-                // `none` clears the row: unset in a fold from the default.
+                // `none` clears the row: unset in a fold from the default. An
+                // authored CSS-wide clear keeps its declaration's intent, as a
+                // kernel's `ClearStyle` does (`NodeInst::emit_bindings`).
                 BindingKind::Style if matches!(value, Value::Option(None)) => {}
+                BindingKind::Style if bridge::unsets(binding.id, value) => {
+                    if let (true, Some(style)) =
+                        (binding.written, StyleId::from_bit(binding.id as u32))
+                    {
+                        patch.written.set(style);
+                    }
+                }
                 BindingKind::Style => {
-                    match bridge::set_style(&mut patch, binding.id, value, plan.stacks.len()) {
+                    let (family_value, family_id) =
+                        bridge::family_binding(plan, Some(&*self.fonts), &binding, value);
+                    let styled = if let Some(id) = family_id {
+                        bridge::set_runtime_font_style(
+                            &mut patch,
+                            &binding,
+                            id,
+                            plan.stacks.len() + self.fonts.borrow().names().len(),
+                        )
+                    } else {
+                        bridge::set_binding_style(&mut patch, &binding, family_value, plan)
+                    };
+                    match styled {
                         Ok(StyleId::Animation) => {
                             self.sites.keyframes.resolve(&mut patch.animation);
                         }
                         Ok(StyleId::ExitAnimation) => {
-                            self.sites.keyframes.resolve(&mut patch.exit_animation);
+                            self.sites.keyframes.resolve(&mut patch.rare.exit_animation);
                         }
                         Ok(_) => {}
-                        // A value its row refuses is unset, as on a kernel.
+                        // A value its row refuses is unset, its declaration's
+                        // intent kept, as on a kernel (`ClearStyle`).
                         Err(
                             bridge::BridgeError::Style(_) | bridge::BridgeError::StyleKind { .. },
-                        ) => {}
+                        ) => {
+                            if let (true, Some(style)) =
+                                (binding.written, StyleId::from_bit(binding.id as u32))
+                            {
+                                patch.written.set(style);
+                            }
+                        }
                         Err(e) => return Err(DocTreeError::Refused(format!("{e:?}"))),
                     }
                 }
@@ -363,6 +469,14 @@ impl Build<'_> {
             // The kernel resolves `rem` and `em` against inherited font
             // sizes; the fold doesn't.
             return Err(DocTreeError::Unsupported("a relative length (rem, em)"));
+        }
+        if !plan.axes.is_empty() || !plan.theme.is_empty() && patch.mask.has(StyleId::ColorScheme) {
+            // A token's slice is the tuple around the node and a mode
+            // boundary's implied rows, which the instance tree keeps
+            // (LLP 1121 D7); the fold doesn't.
+            return Err(DocTreeError::Unsupported(
+                "a design's modes or a themed scheme boundary",
+            ));
         }
         patch
             .validate_domain()

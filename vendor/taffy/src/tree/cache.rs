@@ -155,8 +155,13 @@ pub(crate) struct CacheEntry<T> {
 pub struct Cache {
     /// The cache entry for the node's final layout
     final_layout_entry: Option<CacheEntry<LayoutOutput>>,
-    /// The cache entries for the node's preliminary size measurements
-    measure_entries: [Option<CacheEntry<Size<f32>>>; CACHE_SIZE],
+    /// The cache entries for the node's preliminary size measurements.
+    ///
+    /// EXACT PATCH 59: the slots used so far, in slot order, of the `CACHE_SIZE`
+    /// upstream holds inline (360 of a cache's 448 bytes, for a box measured
+    /// under one or two inputs). Slots fill in cursor order and the cursor
+    /// wraps only past the last, so slot `i` exists for every `i < len()`.
+    measure_entries: Vec<CacheEntry<Size<f32>>>,
     /// Tracks which measure entries have been used since the eviction cursor last passed them
     recently_used_entries: u16,
     /// The next measure entry to consider replacing
@@ -176,7 +181,7 @@ impl Cache {
     pub const fn new() -> Self {
         Self {
             final_layout_entry: None,
-            measure_entries: [None; CACHE_SIZE],
+            measure_entries: Vec::new(),
             recently_used_entries: 0,
             next_measure_entry: 0,
             is_empty: true,
@@ -191,7 +196,6 @@ impl Cache {
             RunMode::PerformLayout => self.final_layout_entry.filter(|entry| entry.key == key).map(|e| e.content),
             RunMode::ComputeSize => {
                 for (index, entry) in self.measure_entries.iter().enumerate() {
-                    let Some(entry) = entry else { continue };
                     // EXACT PATCH 11: every input matches except the requested axis. Upstream
                     // compared only the parent's width, but a node's own percentage height
                     // resolves against the parent's height (CSS 2.1 §10.5).
@@ -233,10 +237,8 @@ impl Cache {
                     return;
                 }
                 self.is_empty = false;
-                if let Some(index) =
-                    self.measure_entries.iter().position(|entry| entry.is_some_and(|entry| entry.key == key))
-                {
-                    self.measure_entries[index].as_mut().unwrap().content = layout_output.size;
+                if let Some(index) = self.measure_entries.iter().position(|entry| entry.key == key) {
+                    self.measure_entries[index].content = layout_output.size;
                     self.recently_used_entries |= 1 << index;
                     return;
                 }
@@ -248,7 +250,17 @@ impl Cache {
                     }
                 }
                 let entry_index = self.next_measure_entry as usize;
-                self.measure_entries[entry_index] = Some(CacheEntry { key, content: layout_output.size });
+                let entry = CacheEntry { key, content: layout_output.size };
+                if entry_index < self.measure_entries.len() {
+                    self.measure_entries[entry_index] = entry;
+                } else {
+                    // Three slots at a time: a box measured under a third input
+                    // is on its way to the nine; one measured once rarely is.
+                    if self.measure_entries.len() == self.measure_entries.capacity() {
+                        self.measure_entries.reserve_exact((CACHE_SIZE - entry_index).min(3));
+                    }
+                    self.measure_entries.push(entry);
+                }
                 self.recently_used_entries |= 1 << entry_index;
                 self.next_measure_entry += 1;
                 if self.next_measure_entry == CACHE_SIZE as u8 {
@@ -266,7 +278,7 @@ impl Cache {
         }
         self.is_empty = true;
         self.final_layout_entry = None;
-        self.measure_entries = [None; CACHE_SIZE];
+        self.measure_entries.clear();
         self.recently_used_entries = 0;
         self.next_measure_entry = 0;
         ClearState::Cleared
@@ -274,7 +286,48 @@ impl Cache {
 
     /// Returns true if all cache entries are None, else false
     pub fn is_empty(&self) -> bool {
-        self.final_layout_entry.is_none() && !self.measure_entries.iter().any(|entry| entry.is_some())
+        self.final_layout_entry.is_none() && self.measure_entries.is_empty()
+    }
+}
+
+/// EXACT PATCH 30: tree-owned cache storage, allocated after a result is cached. Inline
+/// text runs have engine nodes but their paragraph is the measured box, so
+/// they never need the nine-entry layout cache. Keep an allocated cache when
+/// cleared: active boxes reuse it across edits without another allocation.
+#[cfg(feature = "taffy_tree")]
+#[derive(Debug, Clone, PartialEq, Default)]
+pub(crate) struct LazyCache(Option<std::boxed::Box<Cache>>);
+
+#[cfg(feature = "taffy_tree")]
+impl LazyCache {
+    pub const fn new() -> Self {
+        Self(None)
+    }
+
+    #[inline]
+    pub fn get(&mut self, input: &LayoutInput) -> Option<LayoutOutput> {
+        self.0.as_deref_mut().and_then(|cache| cache.get(input))
+    }
+
+    pub fn store(&mut self, input: &LayoutInput, output: LayoutOutput) {
+        if let Some(cache) = self.0.as_deref_mut() {
+            cache.store(input, output);
+        } else {
+            let mut cache = Cache::new();
+            cache.store(input, output);
+            if !cache.is_empty {
+                self.0 = Some(std::boxed::Box::new(cache));
+            }
+        }
+    }
+
+    #[inline]
+    pub fn clear(&mut self) -> ClearState {
+        self.0.as_deref_mut().map_or(ClearState::AlreadyEmpty, Cache::clear)
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.0.as_deref().map_or(true, Cache::is_empty)
     }
 }
 
@@ -309,6 +362,56 @@ mod tests {
         LayoutOutput::from_outer_size(Size { width, height: width })
     }
 
+    #[cfg(feature = "taffy_tree")]
+    #[test]
+    fn lazy_storage_preserves_cache_answers_and_clear_state() {
+        let mut lazy = LazyCache::new();
+        let mut eager = Cache::new();
+        let mut seen = Vec::new();
+        for i in 0..240 {
+            let mut request = input((i % 17) as f32);
+            request.run_mode = [RunMode::PerformHiddenLayout, RunMode::ComputeSize, RunMode::PerformLayout][i % 3];
+            request.axis = [RequestedAxis::Both, RequestedAxis::Vertical, RequestedAxis::Horizontal][(i / 3) % 3];
+            request.sizing_mode = if i % 2 == 0 { SizingMode::InherentSize } else { SizingMode::ContentSize };
+            request.parent_size.height = (i % 5 != 0).then_some((i % 7) as f32);
+            request.known_dimensions_are_definite.width = i % 4 == 0;
+            request.vertical_margins_are_collapsible.start = i % 2 == 0;
+            let mut result = output(i as f32);
+            if i % 7 == 0 { result.top_margin = CollapsibleMarginSet::from_margin(10.0); }
+            if i % 11 == 0 { result.margins_can_collapse_through = true; }
+            assert_eq!(lazy.get(&request), eager.get(&request));
+            lazy.store(&request, result);
+            eager.store(&request, result);
+            seen.push(request);
+            for request in seen.iter().rev().take(19) { assert_eq!(lazy.get(request), eager.get(request)); }
+            assert_eq!(lazy.is_empty(), eager.is_empty());
+            if i % 31 == 0 {
+                assert_eq!(matches!(lazy.clear(), ClearState::Cleared), matches!(eager.clear(), ClearState::Cleared));
+            }
+        }
+    }
+
+    #[cfg(feature = "taffy_tree")]
+    #[test]
+    fn lazy_storage_allocates_only_for_a_cached_result_and_reuses_it() {
+        let mut cache = LazyCache::new();
+        assert!(matches!(cache.clear(), ClearState::AlreadyEmpty));
+        assert!(cache.get(&input(10.0)).is_none());
+        cache.store(&LayoutInput { run_mode: RunMode::PerformHiddenLayout, ..input(10.0) }, output(10.0));
+        let mut carried = output(10.0);
+        carried.top_margin = CollapsibleMarginSet::from_margin(3.0);
+        cache.store(&input(10.0), carried);
+        assert!(cache.0.is_none());
+        cache.store(&input(10.0), output(10.0));
+        let allocation = cache.0.as_deref().unwrap() as *const Cache;
+        let mut cloned = cache.clone();
+        assert!(matches!(cache.clear(), ClearState::Cleared));
+        assert_eq!(cloned.get(&input(10.0)), Some(output(10.0)));
+        assert!(cache.get(&input(10.0)).is_none());
+        cache.store(&input(11.0), output(11.0));
+        assert_eq!(allocation, cache.0.as_deref().unwrap() as *const Cache);
+    }
+
     #[test]
     fn recently_used_measure_entries_get_a_second_chance() {
         let mut cache = Cache::new();
@@ -331,7 +434,7 @@ mod tests {
         cache.store(&input(2.0), output(2.0));
         cache.store(&input(1.0), output(3.0));
 
-        assert_eq!(cache.measure_entries.iter().flatten().count(), 2);
+        assert_eq!(cache.measure_entries.len(), 2);
         assert_eq!(cache.get(&input(1.0)), Some(output(3.0)));
     }
 
@@ -356,7 +459,7 @@ mod tests {
         cache.store(&input(1.0), output(1.0));
         cache.store(&input(2.0), output(2.0));
         cache.recently_used_entries = 0;
-        let entries = cache.measure_entries;
+        let entries = cache.measure_entries.clone();
 
         assert_eq!(cache.get(&input(1.0)), Some(output(1.0)));
         assert_eq!(cache.measure_entries, entries);

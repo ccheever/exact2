@@ -1,0 +1,7 @@
+{
+  "proof_command": "bun run proof",
+  "proof_passed": true,
+  "not_done": [],
+  "game_dirs": ["."],
+  "notes": "Headless Chromium proof covers P1–P10. Frame time was about 2.6 ms at 101 plants and 5.5 ms at 1082. The barrel glb is wood, tinted blue with a water disc. Character mount yaw is π because the face sits on asset +Z. Thunder flashes and snow are implemented; the proof screenshots rain and night. Trees are scaled stage-4 crop models, as the brief asks."
+}

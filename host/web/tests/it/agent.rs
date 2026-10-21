@@ -45,6 +45,38 @@ fn tree_lists_every_live_node_in_preorder_with_props_and_handlers() {
 }
 
 #[test]
+fn mapped_tree_names_sites_and_the_digest_from_the_same_runner_read() {
+    let host = boot();
+    let ordinary = host.agent(r#"{"op":"tree"}"#);
+    assert!(!ordinary.contains("\"planDigest\""));
+    assert!(!ordinary.contains("\"site\""));
+    let mapped = host.agent(r#"{"op":"tree","plan":true}"#);
+    let plan = caltrain::build().unwrap().encode();
+    let digest = contract::plan_digest(&plan);
+    assert!(
+        mapped.contains(&format!("\"planDigest\":\"{digest}\"")),
+        "{mapped}"
+    );
+    assert_eq!(
+        mapped.matches("\"site\":").count(),
+        ordinary.matches("{\"id\":").count()
+    );
+    let id = view_with_test_id(&host, "change-station");
+    let one = host.agent(&format!(
+        r#"{{"op":"tree","target":{id},"shallow":true,"plan":true}}"#
+    ));
+    let detail = host.agent(&format!(r#"{{"op":"node","id":{id},"plan":true}}"#));
+    let site = host.runner().site_of(id).unwrap().0 .0;
+    for reply in [one, detail] {
+        assert!(reply.contains(&format!("\"site\":{site}")), "{reply}");
+        assert!(
+            reply.contains(&format!("\"planDigest\":\"{digest}\"")),
+            "{reply}"
+        );
+    }
+}
+
+#[test]
 fn state_is_typed_json_with_field_names() {
     let host = boot();
     let state = host.agent(r#"{"op":"state"}"#);
@@ -65,11 +97,17 @@ fn state_is_typed_json_with_field_names() {
     ] {
         assert!(state.contains(slot), "{slot} in {state}");
     }
-    assert!(
-        state.contains(
-            "\"derives\":{\"selectedId\":\"mv\",\"skyOn\":true,\"canvasColor\":\"#05081a\"}"
-        ),
-        "{state}"
+    let json: serde_json::Value = serde_json::from_str(&state).unwrap();
+    let derives = &json["derives"];
+    assert_eq!(derives["selectedId"], "mv");
+    assert_eq!(derives["tv"], false);
+    assert_eq!(derives["skyOn"], true);
+    assert_eq!(derives["canvasColor"], "#05081a");
+    assert_eq!(derives["tracked"], serde_json::Value::Null);
+    assert_eq!(derives["trackedId"], "");
+    assert_eq!(
+        derives["departureState"],
+        serde_json::json!({"station":"Mountain View","headsign":"San Francisco","train":101,"at":1787916000000_u64,"status":"On time"})
     );
     assert!(
         state.contains("\"station\":{\"id\":\"mv\",\"name\":\"Mountain View\",\"zone\":"),

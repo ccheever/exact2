@@ -22,7 +22,14 @@ pub fn compile() -> Result<Plan, contract::CompileError> {
 /// Compile and bake: every resource's boot value becomes compiled data.
 pub fn build() -> Result<Plan, Box<dyn std::error::Error>> {
     let plan = compile()?;
-    contract::bake(plan, caltrain_data::Caltrain).map_err(|e| format!("{e:?}").into())
+    let entries = contract::snapshot::entries(std::path::Path::new(env!("CARGO_MANIFEST_DIR")))?;
+    contract::snapshot::bake_app(
+        &entries,
+        plan,
+        caltrain_data::Caltrain,
+        caltrain_data::Caltrain,
+    )
+    .map_err(|e| format!("{e:?}").into())
 }
 
 /// Boot a runner for `plan` against the app's data source and a kernel.

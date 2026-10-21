@@ -7,12 +7,13 @@ import { basename, dirname, extname, join, resolve, relative } from 'node:path';
 import { gzipSync } from 'node:zlib';
 import { pathToFileURL } from 'node:url';
 import { edge, keys } from './probes/input.mjs';
+import { chromium } from '../../scripts/agent-launch.mjs';
 
 const here = import.meta.dir, resultsDir = join(here, 'results');
 // Brief F3's half-physical-pixel reporting threshold; not a universal visibility JND.
 export const DISPLACEMENT_CHANGE_PX = 0.5;
 const GODOT = process.env.GODOT ?? resolve(process.env.HOME, 'Library/Caches/exact2-game/godot/Godot.app/Contents/MacOS/Godot');
-const CHROME = process.env.CHROME ?? '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
+const CHROME = chromium({ needs: ['gpu', 'perf'] }).executable;
 // Adapters provide a page and the window.feel protocol; scheduling/analysis are shared.
 export const adapters = {
   exact: { transport: 'web', variants: ['60hz'], hz: 60,

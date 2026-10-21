@@ -5,7 +5,7 @@ use exact_raster::{
     Demand, Gate, PixelSize, Priority, RasterKey, RasterLease, Refusal, RequestId, RequestStatus,
     Stats, ViewKey, SESSION_BYTES, SUBSCRIPTIONS,
 };
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -20,15 +20,31 @@ mod bitmap;
 #[cfg(test)]
 #[path = "image/control_tests.rs"]
 mod control_tests;
+#[path = "image/crop.rs"]
+mod crop;
 #[cfg(test)]
 #[path = "image/decode_tests.rs"]
 mod decode_tests;
+#[path = "image/jpeg.rs"]
+mod jpeg_decode;
 #[path = "image/png.rs"]
 mod png_decode;
+#[path = "image/svg.rs"]
+mod svg_picture;
+#[cfg(test)]
+#[path = "image/svg_tests.rs"]
+mod svg_tests;
 #[path = "image/workers.rs"]
 mod workers;
 pub use assets::{AssetResolver, Assets};
 pub use bitmap::Bitmap;
+#[cfg(target_os = "android")]
+#[path = "image/hardware.rs"]
+mod hardware;
+#[cfg(target_os = "android")]
+pub use hardware::hardware_pictures;
+#[cfg(target_os = "android")]
+pub(crate) use jpeg_decode::platform_decoder;
 use workers::{Backend, Prepared, SourceOwner};
 
 struct View {
@@ -43,6 +59,19 @@ struct View {
     desired: (f32, f32),
     visible: bool,
     refusal: Option<Refusal>,
+    symbol_size: Option<f32>,
+    /// How the box fits the picture, where it clips the picture to itself
+    /// and is nothing but the picture (no padding, no border): the fit a
+    /// part of the picture may be decoded for (`crop`).
+    fit: Option<exact_kernel::ObjectFit>,
+    /// How the box fits the picture, whatever the box: what an SVG picture
+    /// is drawn for (`svg_picture::plan`).
+    object_fit: exact_kernel::ObjectFit,
+    /// The box changed size while it showed a part: from then on it gets the
+    /// whole picture (a box that animates would ask for a part a frame).
+    resized: bool,
+    /// The request is for a part of the picture.
+    part: bool,
 }
 
 /// One generation's bounded live demand, sharing its budget with replacements.
@@ -57,6 +86,26 @@ pub struct Images {
     pub loaded: Vec<(String, (u32, u32))>,
     decode_enabled: bool,
     deferred: usize,
+    /// The last [`Images::sync_visible`] met a picture (an image that is not
+    /// a symbol), and the kernel epoch at which one met none and reported
+    /// nothing: until a commit, another has nothing to find (a symbol asks
+    /// no file and is the same shown or not).
+    pictures: bool,
+    pub(crate) settled: Option<u64>,
+    /// Device pixels per point, as the last sync said: what an SVG picture
+    /// is drawn at.
+    scale: f32,
+    /// The paint thread's text engine, when it is this thread (the
+    /// presenter sets it): an SVG picture with text is painted here, with
+    /// the session's fonts (LLP 1011.001 D3).
+    painter: Option<crate::text::Shared>,
+    /// The image nodes in preorder, as of a kernel epoch: the walk
+    /// [`Images::sync_visible`] needs, redone only after a commit.
+    pub(crate) order: Option<(u64, Vec<ViewId>)>,
+    /// Where each of those nodes' and each row group's first painted box is,
+    /// for the painted boxes of a serial and the order of an epoch: one walk
+    /// of the boxes a paint, not one a pass.
+    pub(crate) box_index: Option<(u64, u64, std::collections::HashMap<ViewId, usize>)>,
 }
 
 /// Accepted pixels and natural size, or explicit empty-source removal.
@@ -80,11 +129,47 @@ impl Images {
             loaded: Vec::new(),
             decode_enabled: true,
             deferred: 0,
+            pictures: false,
+            settled: None,
+            scale: 1.0,
+            painter: None,
+            order: None,
+            box_index: None,
         }
     }
     pub(crate) fn candidate(&self, assets: Assets) -> Self {
         Self::make(assets, self.backend.clone())
     }
+    /// Size the decoded-image budget to the screen, as the Apple host does
+    /// (`RasterLoader.viewportBudget`): eight viewport-sized RGBA bitmaps,
+    /// 32–192 MiB, so the pictures a scroll leaves stay cached for its return
+    /// instead of decoding again (on a 3x phone the 32 MiB floor held about
+    /// one screen of the heavy list's photos).
+    pub fn fit(&self, viewport: (f32, f32), scale: f32) {
+        let pixels = f64::from(viewport.0 * scale) * f64::from(viewport.1 * scale);
+        let floor = exact_raster::SESSION_BYTES as f64;
+        // EXACT_IMAGE_VIEWPORTS: how many viewports of pictures to keep
+        // decoded (8, Apple's RasterLoader rule, unless a host says).
+        let viewports = std::env::var("EXACT_IMAGE_VIEWPORTS")
+            .ok()
+            .and_then(|v| v.parse::<f64>().ok())
+            .filter(|v| *v > 0.0)
+            .unwrap_or(8.0);
+        let cap = (192.0f64 * 1024.0 * 1024.0).max(pixels * 4.0 * viewports);
+        let budget = if pixels.is_finite() && pixels > 0.0 {
+            (pixels * 4.0 * viewports).clamp(floor, cap)
+        } else {
+            floor
+        };
+        self.backend.session.set_budget(budget as u64);
+    }
+
+    /// Paint the SVG pictures that wait for this thread with `text`, from
+    /// now on at every poll (the presenter's thread, whose fonts they take).
+    pub fn paint_with(&mut self, text: crate::text::Shared) {
+        self.painter = Some(text);
+    }
+
     /// The shared session ledger, including allocations retained by old owners.
     pub fn stats(&self) -> Stats {
         self.backend.session.stats()
@@ -102,6 +187,11 @@ impl Images {
     pub fn sync(&mut self, kernel: &Kernel, live: &[ViewId]) -> Vec<Report> {
         self.sync_visible(kernel, live, 1., |_| true)
     }
+    /// [`Images::settled`] after a sync at `epoch`.
+    pub(crate) fn settled_at(&self, epoch: u64, quiet: bool) -> Option<u64> {
+        (quiet && !self.pictures && self.deferred == 0).then_some(epoch)
+    }
+
     pub(crate) fn sync_visible(
         &mut self,
         kernel: &Kernel,
@@ -110,8 +200,10 @@ impl Images {
         visible: impl Fn(ViewId) -> bool,
     ) -> Vec<Report> {
         let mut reports = Vec::new();
-        let mut seen = BTreeSet::new();
+        let mut seen = std::collections::HashSet::with_capacity(live.len().min(SUBSCRIPTIONS));
         self.deferred = 0;
+        self.pictures = false;
+        self.scale = scale;
         for id in live {
             let Some(node) = kernel.node(*id) else {
                 continue;
@@ -145,12 +237,57 @@ impl Images {
                 desired: (0., 0.),
                 visible: true,
                 refusal: None,
+                symbol_size: None,
+                fit: None,
+                object_fit: node.style.object_fit,
+                resized: false,
+                part: false,
             });
             view.desired = (node.frame.width * scale, node.frame.height * scale);
-            view.visible = visible(*id);
-            if !view.visible {
+            view.fit = plain_box(node.style).then_some(node.style.object_fit);
+            view.object_fit = node.style.object_fit;
+            // LLP 1035.004.000: a symbol is an em square no file fills (the
+            // paint walk strokes a portable role's path into it, `symbol`),
+            // never a file request and never the previously accepted raster.
+            if source.starts_with("symbol:") {
                 if let Some((request, _)) = view.request.take() {
                     self.backend.cancel(request);
+                }
+                view.source_id = None;
+                view.accepted = None;
+                view.lease = None;
+                view.refusal = None;
+                view.displayed_source.clear();
+                self.bitmaps.remove(id);
+                // The one row, read where it is set: no style copied a pass.
+                let size = node.computed_row(exact_kernel::StyleId::FontSize, |s| s.font_size);
+                if view.source != source || view.symbol_size != Some(size) {
+                    reports.push((*id, (size > 0.).then_some((size, size))));
+                    view.source = source.to_owned();
+                    view.symbol_size = Some(size);
+                }
+                continue;
+            }
+            // Only a picture loads by whether it shows: a symbol's never asked.
+            self.pictures = true;
+            view.visible = visible(*id);
+            if view.symbol_size.take().is_some() {
+                reports.push((*id, None));
+            }
+            if !view.visible {
+                // A decode under way finishes into the cache (`poll` lets go
+                // of it then): a row a fling carries past before its picture
+                // is decoded would otherwise throw the work away, and the
+                // next row showing that picture decode it again.
+                if let Some((request, _)) = view.request {
+                    let decoding = matches!(
+                        self.backend.session.status(request),
+                        Some(RequestStatus::Decoding)
+                    );
+                    if !decoding {
+                        self.backend.cancel(request);
+                        view.request = None;
+                    }
                 }
                 view.lease = None;
                 self.bitmaps.remove(id);
@@ -192,6 +329,29 @@ impl Images {
         reports.extend(self.poll());
         reports
     }
+    /// Views a commit renewed (LLP 1078): one that shows a picture of a
+    /// source its node no longer names starts as a new image does, with no
+    /// picture and no natural size; one whose source is the same keeps its
+    /// picture, as a new one would find it decoded. A symbol is resolved
+    /// from its source at every sync.
+    pub fn renew(&mut self, kernel: &Kernel, ids: &[ViewId]) -> Vec<Report> {
+        let mut reports = Vec::new();
+        for id in ids {
+            let Some(view) = self.views.get(id) else {
+                continue;
+            };
+            let source = kernel
+                .node(*id)
+                .and_then(|n| n.props.str(PropId::ImageSource).map(str::to_owned))
+                .unwrap_or_default();
+            if view.symbol_size.is_some() || view.source == source {
+                continue;
+            }
+            self.remove(*id);
+            reports.push((*id, None));
+        }
+        reports
+    }
     fn remove(&mut self, id: ViewId) {
         if let Some(view) = self.views.remove(&id) {
             if let Some((request, _)) = view.request {
@@ -204,9 +364,13 @@ impl Images {
     /// Consume bounded completions and retry metadata/decode admission once.
     pub fn poll(&mut self) -> Vec<Report> {
         self.backend.drain_wake();
+        if let Some(text) = &self.painter {
+            self.backend.finish_pictures(text);
+        }
         let mut reports = Vec::new();
+        let scale = self.scale;
         for (id, view) in &mut self.views {
-            if view.source.is_empty() {
+            if view.source.is_empty() || view.symbol_size.is_some() {
                 continue;
             }
             if view.source_id.is_none() {
@@ -233,7 +397,21 @@ impl Images {
                 }
                 _ => continue,
             };
-            if !view.visible || !self.decode_enabled {
+            if !view.visible {
+                // Its decode has finished since it went out of view: kept
+                // cold, its delivery cell free for the pictures that show.
+                if let Some((request, _)) = view.request {
+                    if !matches!(
+                        self.backend.session.status(request),
+                        Some(RequestStatus::Decoding)
+                    ) {
+                        self.backend.cancel(request);
+                        view.request = None;
+                    }
+                }
+                continue;
+            }
+            if !self.decode_enabled {
                 continue;
             }
             // Ask for the intended bucket first: a cache hit requires no new
@@ -266,7 +444,7 @@ impl Images {
                         let stats = self.backend.session.stats();
                         admission_budget =
                             SESSION_BYTES - stats.resident_bytes - stats.reserved_bytes;
-                        let smaller = plan(header, view.desired, admission_budget);
+                        let smaller = plan_view(header, view, scale, admission_budget);
                         if smaller.as_ref().is_ok_and(|p| p.pixels != pixels) {
                             self.backend.cancel(request);
                             view.request = None;
@@ -280,20 +458,56 @@ impl Images {
                 }
             }
             if let Some((request, _)) = view.request {
+                // A part was cut for the box as it was: any other box (or
+                // fit) gets the whole picture, now and from here on.
+                let recut = view.part
+                    && (view.requested_for != view.desired
+                        || view.fit != Some(exact_kernel::ObjectFit::Cover));
+                view.resized |= recut;
                 // A changed offered size replaces demand, retaining old pixels.
-                if resize_changes_decode(header, view.requested_for, view.desired) {
+                if recut || resize_changes_view(header, view, scale) {
                     self.backend.cancel(request);
                     view.request = None;
                 }
             }
             if view.request.is_none() && !matches!(view.refusal, Some(Refusal::DecodeFailed)) {
-                let decode = match plan(header, view.desired, admission_budget) {
+                let decode = match plan_view(header, view, scale, admission_budget) {
                     Ok(plan) => plan,
                     Err(e) => {
                         view.refusal = Some(e);
                         continue;
                     }
                 };
+                // A picture of this source already decoded (or decoding) a
+                // little larger serves this view too: no second decode, no
+                // second charge. An SVG is drawn for its box: one a little
+                // larger is another picture (under `fill`, another ratio).
+                let wanted = u64::from(decode.pixels.width) * u64::from(decode.pixels.height);
+                let held = (!header.is_svg())
+                    .then(|| {
+                        (self.backend.session).covering(
+                            source,
+                            self.generation,
+                            1,
+                            decode.pixels,
+                            wanted * 5 / 2,
+                        )
+                    })
+                    .flatten();
+                let decode = held
+                    .filter(|p| *p != decode.pixels)
+                    .and_then(|p| png_decode::DecodePlan::new(header, (p.width, p.height)).ok())
+                    .filter(|p| p.peak_bytes() <= admission_budget)
+                    .unwrap_or(decode);
+                // No whole picture to share: one that a box clips to itself
+                // is decoded as the part the box shows (`crop`), unless the
+                // box has changed size under a part before.
+                let cut = (held.is_none() && !view.resized && *PARTS && !header.is_svg())
+                    .then_some(view.fit)
+                    .flatten()
+                    .and_then(|fit| crop::part(decode.natural(), decode.pixels, view.desired, fit))
+                    .and_then(|(x, y, pixels)| decode.part(x, y, pixels).ok());
+                let decode = cut.unwrap_or(decode);
                 let demand = Demand {
                     view: view.key,
                     key: RasterKey {
@@ -301,16 +515,40 @@ impl Images {
                         generation: self.generation,
                         pixels: decode.pixels,
                         variant: 1,
+                        crop: decode.crop,
                     },
                     metadata: header.metadata,
                     cost: decode.cost,
                     priority: Priority::Visible,
                 };
+                if header.is_svg() {
+                    self.backend.note_scale(source, decode.pixels, scale);
+                }
                 match self.backend.request(demand) {
                     Ok(request) => {
-                        view.request = Some((request, decode.pixels));
+                        view.request = Some((request, decode.full()));
                         view.requested_for = view.desired;
+                        view.part = !decode.crop.whole();
                         view.refusal = None;
+                        // A picture the cache holds is ready as it is asked
+                        // for: taken now, it is in this paint, not the next
+                        // poll's (a frame later, of the five a row is in
+                        // view for at 24,000 dp/s).
+                        if matches!(
+                            self.backend.session.status(request),
+                            Some(RequestStatus::Ready)
+                        ) {
+                            if let Some(lease) = self.backend.session.take_ready(request) {
+                                if let Some(bitmap) = lease.payload::<Arc<Bitmap>>() {
+                                    self.bitmaps.insert(*id, bitmap.clone());
+                                    let natural = bitmap.natural();
+                                    reports.push((*id, Some((natural.0 as f32, natural.1 as f32))));
+                                    view.lease = Some(lease);
+                                    view.accepted = Some(request);
+                                    view.displayed_source = view.source.clone();
+                                }
+                            }
+                        }
                     }
                     Err(e) => view.refusal = Some(e),
                 }
@@ -371,6 +609,7 @@ impl Images {
         self.sync(kernel, live);
         let start = Instant::now();
         loop {
+            let seen = self.revision();
             self.poll();
             if self.views.values().all(|v| {
                 v.source.is_empty()
@@ -387,6 +626,7 @@ impl Images {
                 return false;
             }
             self.pause_wait(
+                seen,
                 timeout
                     .saturating_sub(start.elapsed())
                     .min(Duration::from_millis(20)),
@@ -399,20 +639,35 @@ impl Images {
     /// Wait for available work until the deadline, without spinning on capacity.
     pub fn wait(&mut self, timeout: Duration) -> Vec<Report> {
         let start = Instant::now();
+        let mut seen = self.revision();
         let mut reports = self.poll();
         while self.pending() && start.elapsed() < timeout {
             self.pause_wait(
+                seen,
                 timeout
                     .saturating_sub(start.elapsed())
                     .min(Duration::from_millis(20)),
             );
+            seen = self.revision();
             reports.extend(self.poll());
         }
         reports
     }
-    fn pause_wait(&self, duration: Duration) {
+    /// The workers' revision: it moves at every result they publish.
+    fn revision(&self) -> u64 {
+        *self.backend.revision.lock().unwrap()
+    }
+    /// Wait until the workers publish past `seen` (read before the poll that found nothing
+    /// to do), or `duration` passes. A result published between that read and this wait
+    /// has already moved the revision, so it is not waited out.
+    fn pause_wait(&self, seen: u64, duration: Duration) {
         let lock = self.backend.revision.lock().unwrap();
-        drop(self.backend.changed.wait_timeout(lock, duration).unwrap());
+        drop(
+            self.backend
+                .changed
+                .wait_timeout_while(lock, duration, |revision| *revision == seen)
+                .unwrap(),
+        );
     }
     /// Retire this generation. Old worker/backing ownership remains charged.
     pub fn reset(&mut self) {
@@ -421,7 +676,9 @@ impl Images {
         self.bitmaps.clear();
         self.loaded.clear();
         self.generation = self.backend.generation();
+        self.settled = None;
     }
+    #[cfg(unix)]
     pub(crate) fn wake_fd(&self) -> std::os::fd::RawFd {
         self.backend.wake_fd()
     }
@@ -458,6 +715,27 @@ impl Drop for Images {
     }
 }
 
+/// The plan for a view's box: a raster's, or an SVG picture's at the box's
+/// own pixels (LLP 1011.001 D1).
+fn plan_view(
+    header: png_decode::Header,
+    view: &View,
+    scale: f32,
+    available: u64,
+) -> Result<png_decode::DecodePlan, Refusal> {
+    if header.is_svg() {
+        return svg_picture::plan(header, view.desired, svg_ask(view, scale), available);
+    }
+    plan(header, view.desired, available)
+}
+
+fn svg_ask(view: &View, scale: f32) -> svg_picture::Ask {
+    svg_picture::Ask {
+        fit: view.object_fit,
+        scale,
+    }
+}
+
 fn plan(
     header: png_decode::Header,
     desired: (f32, f32),
@@ -473,10 +751,13 @@ fn plan(
     }
     .min(2048. / natural.width.max(natural.height) as f32);
     let longest = natural.width.max(natural.height);
-    let bucket = ((longest as f32 * scale).ceil().max(1.) as u32)
-        .div_ceil(128)
-        .saturating_mul(128)
-        .min(longest);
+    let wanted = (longest as f32 * scale).ceil().max(1.) as u32;
+    let bucket = if header.snaps() {
+        wanted.div_ceil(32).saturating_mul(32)
+    } else {
+        wanted.div_ceil(128).saturating_mul(128)
+    }
+    .min(longest);
     let mut pixels = (
         (u64::from(natural.width) * u64::from(bucket)).div_ceil(u64::from(longest)) as u32,
         (u64::from(natural.height) * u64::from(bucket)).div_ceil(u64::from(longest)) as u32,
@@ -494,11 +775,40 @@ fn plan(
     }
 }
 
+/// `EXACT_PICTURE_PARTS=0`: every picture is decoded whole, to compare.
+static PARTS: std::sync::LazyLock<bool> =
+    std::sync::LazyLock::new(|| std::env::var("EXACT_PICTURE_PARTS").map_or(true, |v| v != "0"));
+
+/// Whether a node's box is nothing but its content: no padding and no
+/// border, so the box a picture is clipped to is the node's frame.
+fn plain_box(style: &exact_kernel::StyleProps) -> bool {
+    use exact_kernel::Dimension;
+    let none = |d: &Dimension| matches!(d, Dimension::Points(p) if *p == 0.0);
+    style.border_widths() == [0.0; 4]
+        && none(&style.padding_top)
+        && none(&style.padding_right)
+        && none(&style.padding_bottom)
+        && none(&style.padding_left)
+}
+
+/// Whether a view's box, resized, wants another decode: a raster's by its
+/// longest side, an SVG picture's by either axis.
+fn resize_changes_view(header: png_decode::Header, view: &View, scale: f32) -> bool {
+    let (previous, next) = (view.requested_for, view.desired);
+    if header.is_svg() {
+        return svg_picture::resize_changes(header, svg_ask(view, scale), previous, next);
+    }
+    resize_changes_decode(header, previous, next)
+}
+
 fn resize_changes_decode(
     header: png_decode::Header,
     previous: (f32, f32),
     next: (f32, f32),
 ) -> bool {
+    if previous == next {
+        return false;
+    }
     let (Ok(before), Ok(after)) = (
         plan(header, previous, SESSION_BYTES),
         plan(header, next, SESSION_BYTES),

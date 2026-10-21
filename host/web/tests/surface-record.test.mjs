@@ -2,6 +2,11 @@ import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 import { fixture } from './surface.mjs';
 
+test('a connected registered publisher is duplicate even before the GPU gives it an id', async () => {
+  const f = await fixture({ duplicateDuringLoad: true });
+  assert.equal(f.diagnostics.filter(line => line.includes('duplicate live publisher')).length, 1);
+});
+
 test('player restore flushes its public record before reporting success', async () => {
   const f=await fixture();f.create(1);
   f.gpu.gpu_restore=id=>{f.publish(id,{restored:true});return true;};
@@ -53,6 +58,32 @@ test('destroy/create publications wait for the outermost apply and drain before 
   assert.equal(f.hud(), 'world\0{"value":2}');
 });
 
+test('a detached queued canvas never claims its surface name when the module arrives', async () => {
+  const f = await fixture(), old = new f.Element('host');
+  old.canvas = new f.Element(); old.canvas.isConnected = false;
+  f.exact.views.set(1, old);
+  f.exact.gpu.surface(1, 'glass', []);
+  assert.deepEqual(f.records, []);
+  f.create(2, 'glass');
+  assert.deepEqual(f.records, ['glass\0{"value":1}']);
+  assert.deepEqual(f.diagnostics, []);
+});
+
+for (const stale of ['detached', 'unregistered']) test(`a ${stale} publisher yields to its replacement before late destroy`, async () => {
+  const f = await fixture(), old = f.create(1, 'glass');
+  if (stale === 'detached') old.canvas.isConnected = false;
+  else f.exact.views.delete(1);
+  f.create(2, 'glass');
+  assert.deepEqual(f.records, ['glass\0{"value":1}', 'glass', 'glass\0{"value":2}']);
+  assert.deepEqual(f.diagnostics, []);
+  assert.ok(f.order.includes('old destroy'));
+  f.destroy(1);
+  assert.equal(f.records.at(-1), 'glass\0{"value":2}');
+  f.exact.gpu.surface(2, 'glass', []);
+  assert.equal(f.records.length, 4, 'the replacement still publishes after late destroy');
+  assert.equal(f.records.at(-1), 'glass\0{"value":2}');
+});
+
 test('first live canvas alone publishes and clears, with one named duplicate diagnostic', async () => {
   const f = await fixture();
   f.create(1); f.create(2);
@@ -68,6 +99,17 @@ test('first live canvas alone publishes and clears, with one named duplicate dia
   assert.equal(f.records.at(-1), 'world', 'an ignored instance does not silently take ownership');
   f.destroy(3); f.create(4);
   assert.equal(f.records.at(-1), 'world\0{"value":4}');
+});
+
+test('a replacement created before its disconnected publisher is destroyed takes ownership', async () => {
+  const f = await fixture();
+  const old = f.create(1);
+  old.canvas.isConnected = false;
+  f.create(2);
+  assert.deepEqual(f.records, ['world\0{"value":1}', 'world', 'world\0{"value":2}']);
+  assert.deepEqual(f.diagnostics, []);
+  f.destroy(1);
+  assert.equal(f.records.at(-1), 'world\0{"value":2}', 'late destruction cleared the replacement');
 });
 
 for (const failure of ['createFail', 'bindFail']) test(`swap ${failure} keeps the live module and canvas`, async () => {
@@ -90,10 +132,53 @@ test('forwarded keyups survive focus changes; editable focus blurs; shortcuts st
   const f = await fixture({input:true}), el = f.create(1), button = new f.Element('button'), input = new f.Element('input');
   const send = (name, code, target = el, extra = {}) => el.listeners[name]({target, code, timeStamp:0, preventDefault(){}, ...extra});
   send('keydown', 'Space'); send('keyup', 'Space', button);
-  send('keyup', 'KeyX'); send('keydown', 'Tab'); send('keydown', 'KeyR', el, {metaKey:true}); send('keydown', 'KeyW', el, {isComposing:true});
+  send('keyup', 'KeyX'); send('keydown', 'Tab'); send('keydown', 'KeyR', button, {metaKey:true}); send('keydown', 'KeyW', el, {isComposing:true});
   assert.deepEqual(f.events.map(e => [e.code, e.down]), [['Space',true],['Space',false]]);
   send('keydown', 'KeyW'); send('focusin', '', input); send('keyup', 'KeyW', input);
   assert.equal(f.events.at(-1).t, 'blur');
+});
+test('a held pad stays off a world while an editor in its canvas has the focus', async () => {
+  const { padPoller } = await import('../gpu-pads.js');
+  const frames = [], saved = { navigator: globalThis.navigator, requestAnimationFrame: globalThis.requestAnimationFrame, window: globalThis.window, document: globalThis.document };
+  const south = { index: 0, mapping: 'standard', connected: true, axes: [0, 0, 0, 0],
+    buttons: Array.from({ length: 17 }, (_, i) => ({ value: i === 0 ? 1 : 0, pressed: i === 0 })) };
+  globalThis.navigator = { getGamepads: () => [south] };
+  globalThis.requestAnimationFrame = fn => frames.push(fn);
+  globalThis.window = { addEventListener() {} };
+  globalThis.document = { hasFocus: () => true };
+  try {
+    const f = await fixture({input:true, padPoller}), el = f.create(1), input = new f.Element('input');
+    el.canvas.parent = el; input.parent = el; // an editor among the world's controls
+    const poll = () => frames.shift()(), pads = () => f.events.filter(e => e.t === 'pad').map(e => e.buttons[0]);
+    f.document.activeElement = el.canvas;
+    poll();
+    assert.deepEqual(pads(), [1]);
+    f.document.activeElement = input;
+    el.listeners.focusin({target:input, timeStamp:0});
+    assert.equal(f.events.at(-1).t, 'blur');
+    poll();
+    assert.deepEqual(pads(), [1], 'the editor has the pads: none go to the world');
+    f.document.activeElement = el.canvas;
+    poll();
+    assert.deepEqual(pads(), [1, 1], 'back on the canvas, the world hears the pad held');
+  } finally { Object.assign(globalThis, saved); }
+});
+test('only the focused game host or render canvas owns Ctrl and Meta chords', async () => {
+  const f=await fixture({input:true}), el=f.create(1), button=new f.Element('button'), input=new f.Element('input');
+  const send=(type,code,target,extra={})=>{let prevented=false;el.listeners[type]({target,code,timeStamp:0,preventDefault(){prevented=true;},...extra});return prevented;};
+  for(const [code,flag] of [['ControlLeft','ctrlKey'],['MetaRight','metaKey']]) {
+    assert.equal(send('keydown',code,el,{[flag]:true}),true);
+    assert.equal(send('keydown','Digit1',el.canvas,{[flag]:true}),true);
+    send('keyup','Digit1',button,{[flag]:true}); send('keyup',code,button);
+  }
+  assert.deepEqual(f.events.map(e=>[e.code,e.down]),[['ControlLeft',true],['Digit1',true],['Digit1',false],['ControlLeft',false],['MetaRight',true],['Digit1',true],['Digit1',false],['MetaRight',false]]);
+  const count=f.events.length;
+  for(const target of [button,input]) for(const code of ['ControlLeft','Digit1','Space','Enter']) assert.equal(send('keydown',code,target,{ctrlKey:true}),false);
+  for(const extra of [{ctrlKey:true,isComposing:true},{ctrlKey:true,defaultPrevented:true}]) send('keydown','Digit1',el,extra);
+  send('keydown','Tab',el,{ctrlKey:true});
+  assert.equal(f.events.length,count);
+  send('keydown','ControlRight',el,{ctrlKey:true}); send('focusin','',input); send('keyup','ControlRight',input);
+  assert.equal(f.events.at(-1).t,'blur');
 });
 test('restore bytes survive a refusal and reach the next capable surface', async () => {
   const f = await fixture({refuse:id=>id===1}); f.exact.worldCarry = new Uint8Array([7]);
@@ -205,7 +290,8 @@ test('device loss replaces contexts without creating, restoring or unloading sur
 
 
 test('failed recovery removes clones and backs off instead of retrying each frame', async () => {
-  const f=await fixture(); f.create(1);
+  // The glue's timers with a delay are held until the test runs them, so the backoff cannot expire early on a slow machine
+  const held=[], f=await fixture({setTimeout:(fn,ms)=>ms>0?held.push([fn,ms]):setTimeout(fn,ms)}); f.create(1);
   let attempts=0;
   f.gpu.gpu_render=()=>3;
   f.gpu.gpu_recover=async()=>{ attempts++; throw new Error('fail once'); };
@@ -216,9 +302,104 @@ test('failed recovery removes clones and backs off instead of retrying each fram
   for(let i=0;i<10;i++) { f.frame(); f.exact.gpu.deviceLost(); }
   await new Promise(r=>setTimeout(r,0));
   assert.equal(attempts,1,'retry is held until the backoff expires');
+  assert.deepEqual(held.map(([,ms])=>ms),[100]);
   f.gpu.gpu_recover=async()=>{attempts++;f.gpu.gpu_render=()=>0;return '{"status":"recovered"}';};
-  await new Promise(r=>setTimeout(r,150));
+  held.shift()[0]();
+  await new Promise(r=>setTimeout(r,0));
   assert.equal(attempts,2); assert.equal(f.exact.gpu.recovery.status,'recovered');
+});
+
+test('a missing adapter leaves a settled fallback through dirty frames and agent settle', async () => {
+  const f=await fixture();
+  // This recovery test has no runner record consumer; keep creation local to
+  // the GPU harness instead of entering glue.js's extracted batch fixture.
+  f.gpu.gpu_published=()=>undefined;
+  const host=f.create(1), canvas=host.canvas;
+  host.style.background='#123456';
+  let attempts=0, renders=0, dirty=true;
+  f.gpu.gpu_dirty=()=>dirty;
+  f.gpu.gpu_render=()=>{renders++;dirty=false;return 0;};
+  f.frame();
+  // gpu_recover resolves Rust's typed report (gpu/src/web.rs); the glue must carry its code.
+  f.gpu.gpu_recover=async()=>{attempts++;return '{"status":"failed","code":"no-adapter","error":"no adapter: no suitable graphics adapter found"}';};
+  f.exact.gpu.deviceLost();
+  for(let i=0;i<4;i++) await Promise.resolve();
+  assert.equal(renders,1);
+  assert.equal(attempts,1);
+  assert.equal(f.exact.gpu.recovery.status,'no device');
+  assert.equal(f.diagnostics.filter(line=>line.includes('exact gpu recovery')).length,1);
+  assert.deepEqual([canvas.width,canvas.height],[1,1]);
+  const writes=f.sizeWrites.length;
+  dirty=true;
+  f.gpu.gpu_render=()=>{renders++;return 3;};
+  f.frame();
+  assert.deepEqual(await f.exact.gpu.settled(),[]);
+  assert.equal(renders,1,'a terminal surface never renders again');
+  assert.equal(f.sizeWrites.length,writes,'no canvas receives a width or height write after terminal fallback');
+  assert.deepEqual([canvas.width,canvas.height],[1,1],'a terminal frame never resizes the bitmap');
+  assert.equal(host.style.background,'#123456','the kernel-owned fallback box keeps its background');
+  assert.ok(canvas.isConnected,'the transparent surface leaf stays under fallback children');
+});
+
+test('the last bounded non-adapter failure enters fallback and logs the terminal transition', async () => {
+  const timers=[];
+  const f=await fixture({setTimeout:(fn,ms)=>{timers.push({fn,ms});return timers.length;}});
+  f.gpu.gpu_published=()=>undefined;
+  const host=f.create(1), canvas=host.canvas;
+  let attempts=0;
+  f.gpu.gpu_recover=async()=>{
+    attempts++;
+    return '{"status":"failed","code":"no-device","error":"no device: limits rejected"}';
+  };
+  f.exact.gpu.deviceLost();
+  await new Promise(setImmediate);
+  for(const delay of [100,200,400,800]) {
+    assert.equal(timers.length,1);
+    const timer=timers.shift(); assert.equal(timer.ms,delay); timer.fn();
+    await new Promise(setImmediate);
+  }
+  assert.equal(attempts,5);
+  assert.equal(f.exact.gpu.recovery.status,'no device');
+  assert.deepEqual([canvas.width,canvas.height],[1,1]);
+  assert.equal(f.diagnostics.filter(line=>line.includes('exact gpu recovery')).length,2,
+    'the first error and the later terminal transition are each reported once');
+  f.gpu.gpu_dirty=()=>true;
+  assert.deepEqual(await f.exact.gpu.settled(),[]);
+});
+
+for (const [name, report, code] of [
+  ['navigator.gpu absent', '{"status":"failed","code":"no-adapter","error":"no adapter: requestAdapter returned null"}', 'no-adapter'],
+  ['requestDevice rejecting', '{"status":"failed","code":"no-device","error":"no device: requestDevice rejected \\"limits\\""}', 'no-device'],
+]) test(`${name} consumes Rust's typed load failure and keeps the fallback settled`, async () => {
+  let loads=0;
+  const f=await fixture({pendingCount:1,pendingBackground:'#abcdef',gpuLoad:async()=>{loads++;throw report;}});
+  assert.deepEqual(await f.exact.gpu.settled(),[]);
+  assert.equal(loads,1);
+  const host=f.exact.views.get(1);
+  assert.equal(f.exact.gpu.recovery.status,'no device');
+  assert.equal(f.exact.gpu.recovery.code,code);
+  assert.equal(host.style.background,'#abcdef');
+  assert.deepEqual([host.canvas.width,host.canvas.height],[1,1]);
+  assert.ok(host.canvas.isConnected);
+  const writes=f.sizeWrites.length;
+  f.gpu.gpu_dirty=()=>true; f.frame();
+  assert.deepEqual(await f.exact.gpu.settled(),[]);
+  assert.equal(f.sizeWrites.length,writes);
+  assert.equal(f.diagnostics.filter(line=>line.includes('exact gpu recovery')).length,1);
+});
+
+test('settled reports a recovery that is still pending at its deadline', async () => {
+  let now=0, finish;
+  const f=await fixture({performance:{now:()=>now},setTimeout:(fn)=>{now=2500;queueMicrotask(fn);return 1;}});
+  f.gpu.gpu_published=()=>undefined;
+  f.create(1);
+  f.gpu.gpu_recover=()=>new Promise(resolve=>{finish=resolve;});
+  f.exact.gpu.deviceLost();
+  for(let i=0;i<4;i++) await Promise.resolve();
+  const pending=await f.exact.gpu.settled();
+  assert.deepEqual(pending.map(item=>item.name),['GPU recovery world']);
+  finish('{"status":"no device","instances":[]}');
+  for(let i=0;i<4;i++) await Promise.resolve();
 });
 
 
@@ -352,8 +533,8 @@ test('second cutover failure preserves both live canvases and their input',async
 
 for(const refusal of ['disabled','hidden','inert','missing']) test(`control down refuses ${refusal}`,async()=>{
  const f=await fixture({input:true}),canvas=f.create(1),b=new f.Element('button');b.parent=canvas;
- b.closest=s=>s==='[data-gpu-input]'?canvas:s==='button[data-action]'?b:s.includes('[inert]')&&refusal==='inert'?b:null;
- b.getAttribute=()=>refusal==='missing'?null:'jump';b.disabled=refusal==='disabled';b.hidden=refusal==='hidden';
+ b.closest=s=>s==='[data-gpu-input]'?canvas:s==='button[data-action]'?b:null;
+ b.getAttribute=()=>refusal==='missing'?null:'jump';b.disabled=refusal==='disabled';b.hidden=refusal==='hidden';b.inert=refusal==='inert';
  canvas.listeners.pointerdown({target:b,pointerId:1,clientX:0,clientY:0,timeStamp:0,preventDefault(){}});
  assert.deepEqual(f.events,[]);
 });
@@ -486,4 +667,57 @@ test('E10 focused Contract buttons consume activation keys before the world', as
   assert.equal(f.events.length,0);
   canvas.listeners.keydown({target:canvas,code:'KeyW',timeStamp:0});
   assert.equal(f.events.at(-1).code,'KeyW');
+});
+
+// The art pass's flake (garden diary, "GPU is not settled: GPU presentation
+// world" right after Play while 202 models uploaded): asset delivery spent the
+// agent's whole 2.5 s settle budget, so a first frame still preparing was
+// reported unsettled. Presentation now has its own budget once assets are in.
+test('a slow asset delivery leaves the first frame its own presentation budget', async () => {
+  let clock = 0;
+  const f = await fixture({ performance: { now: () => clock, getEntriesByName: () => [] },
+    delivery: { fetch: async () => { clock += 3000; return { status: 404, ok: false, headers: { get: () => null } }; } } });
+  f.create(1);
+  let first = true;
+  f.gpu.gpu_assets = () => { const requests = first ? ['slow.model'] : []; first = false; return JSON.stringify({ requests, retired: [] }); };
+  f.gpu.gpu_asset = () => true;
+  let preparing = 3;
+  f.gpu.gpu_dirty = () => preparing > 0;
+  f.gpu.gpu_render = () => { preparing--; clock += 100; return 0; };
+  assert.deepEqual(await f.exact.gpu.settled(), []);
+  assert.equal(preparing, 0);
+});
+
+// LLP 1139.003 D2: `prefer gpu-tier` remakes renderers inside the module; no
+// world is captured, destroyed or created, so two instances of one name and a
+// world whose capture would fail keep running.
+test('prefer gpu-tier retiers every live world in place, duplicates and all', async () => {
+  const f=await fixture();f.create(1);f.create(2);
+  const told=[];let retiers=0,carries=0,creates=0,destroys=0;
+  Object.assign(f.gpu,{gpu_tier:code=>told.push(code),gpu_retier:()=>retiers++,gpu_carry:()=>{carries++;throw new Error('capture refused');}});
+  const create=f.gpu.gpu_create;f.gpu.gpu_create=(...a)=>{creates++;return create(...a);};
+  const destroy=f.gpu.gpu_destroy;f.gpu.gpu_destroy=(...a)=>{destroys++;return destroy(...a);};
+  f.exact.gpu.retier('low');
+  assert.deepEqual(told,[2]);
+  assert.equal(retiers,1);
+  assert.deepEqual([carries,creates,destroys],[0,0,0]);
+  assert.equal(f.exact.gpu.handle({op:'state',id:1,world:true},null,x=>x).world.tick,0);
+  assert.equal(f.exact.gpu.handle({op:'state',id:2,world:true},null,x=>x).world.tick,0);
+});
+
+// A world's render scale (its quality rung, LLP 1139.003 D3) is the canvas's backing store: the module
+// configures its drawable at that size, and a full-size backing store would leave it in one corner.
+test('the canvas backing store is the raster the module draws, at its render scale', async () => {
+  const f=await fixture();
+  f.gpu.gpu_published=()=>undefined;
+  const host=f.create(1), canvas=host.canvas;
+  let dirty=true;
+  f.gpu.gpu_dirty=()=>dirty;
+  f.gpu.gpu_render=()=>{dirty=false;return 0;};
+  f.gpu.gpu_render_scale=()=>0.5;
+  f.frame();
+  assert.deepEqual([canvas.width,canvas.height],[15,15],'10 points at 3 device pixels each, halved');
+  dirty=true; f.gpu.gpu_render_scale=()=>1;
+  f.frame();
+  assert.deepEqual([canvas.width,canvas.height],[30,30]);
 });

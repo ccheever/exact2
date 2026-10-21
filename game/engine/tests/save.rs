@@ -133,3 +133,34 @@ fn published_values_and_skipped_fields_are_not_saved() {
     assert_eq!(w.get::<Cache>(e).unwrap().cache, 0);
     assert_eq!(w.hash(), hash);
 }
+#[test]
+fn engine_scene_components_first_spawned_mid_game_restore_unregistered() {
+    // Grow a Garden's restore refused `unregistered component Parent` until the
+    // game registered the engine's own component (garden diary, friction 3).
+    let mut w = World::new(60, 3);
+    let root = w.spawn(Transform::at(1.0, 0.0, 0.0));
+    let fruit = w.spawn((
+        Transform::at(0.0, 2.0, 0.0),
+        exact_game::Parent(root),
+        exact_game::Mesh::Sphere { radius: 0.2 },
+        exact_game::Material::default(),
+        exact_game::Visible(true),
+        exact_game::Ambient,
+    ));
+    // The lights, the viewmodel and mouse look later lanes added restore the same way.
+    w.spawn((
+        Transform::default(),
+        exact_game::SpotLight::default(),
+        exact_game::LightShadows,
+        exact_game::ViewModel,
+        exact_game::MouseLook::default(),
+    ));
+    w.propagate();
+    let mut fresh = World::new(60, 0);
+    fresh.load(&w.save()).unwrap();
+    assert_eq!(fresh.hash(), w.hash());
+    assert_eq!(
+        fresh.global(fruit).unwrap().translation,
+        exact_game::Vec3::new(1.0, 2.0, 0.0).into()
+    );
+}

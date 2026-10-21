@@ -11,8 +11,9 @@ pub const fn link(mut linked: Linked) -> Linked {
 }
 
 /// The pieces of a Markdown source as a JSON array of
-/// `[text, scale, weight, flags, href]`, flags being italic 1, mono 2,
-/// strike 4, link 8, quiet (marker or quote) 16.
+/// `[text, scale, weight, flags, href, indent]`, flags being italic 1,
+/// mono 2, strike 4, link 8, quiet (marker or quote) 16, a list marker that
+/// hangs in the indent 32; the indent in CSS px, left out when 0.
 pub fn pieces(source: &str) -> String {
     fn quoted(out: &mut String, s: &str) {
         out.push('"');
@@ -43,7 +44,8 @@ pub fn pieces(source: &str) -> String {
             | u8::from(matches!(
                 p.role,
                 exact_markdown::Role::Marker | exact_markdown::Role::Quote
-            )) << 4;
+            )) << 4
+            | u8::from(p.hang) << 5;
         out.push_str(&format!(
             ",{},{},{},",
             exact_web::css::num(p.scale),
@@ -51,6 +53,10 @@ pub fn pieces(source: &str) -> String {
             flags
         ));
         quoted(&mut out, &p.href);
+        if p.indent != 0.0 {
+            out.push(',');
+            out.push_str(&exact_web::css::num(p.indent));
+        }
         out.push(']');
     }
     out.push(']');
@@ -67,6 +73,10 @@ mod tests {
         assert_eq!(
             json,
             r#"[["T \"q\"",1.6,700,0,""],["\n",1,0,0,""],["\n",0.5,0,0,""],["b",1,700,0,""],[" ",1,0,0,""],["l",1,0,8,"https://e.dev/a?b=1"],[" ",1,0,0,""],["c",0.92,0,2,""]]"#
+        );
+        assert_eq!(
+            pieces("- a\n\n1. b"),
+            r#"[["• ",1,0,48,"",40],["a",1,0,0,"",40],["\n",1,0,0,"",40],["\n",0.5,0,0,""],["1. ",1,0,48,"",40],["b",1,0,0,"",40]]"#
         );
         assert_eq!(pieces(""), "[]");
         assert_eq!(pieces("a\\b\tc"), r#"[["a\\b\tc",1,0,0,""]]"#);

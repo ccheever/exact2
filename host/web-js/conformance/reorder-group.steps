@@ -1,0 +1,34 @@
+# A card into the next list, before its second card; the empty list; a
+# card dropped over a header, which lands in the last list it crossed.
+drag grip-c1 to card-c7 400
+clock settle
+drag grip-c3 to grip-c6 300
+clock settle
+# Autoscroll: carried to the board's right edge and held there, the board
+# scrolls until the empty list is under it.
+drag grip-c2 250 20 400 hold 1500
+clock settle
+# Escape mid-drag: no action runs and the card goes home.
+down grip-c4
+move 140 30 300
+key now Escape
+up
+clock settle
+# A drop whose answer lands on the next 200 ms tick: held, then landed.
+tap late
+drag grip-c4 to card-c6 300
+clock +100
+clock settle
+# A drop that never answers: held for a second, then home.
+tap never
+drag grip-c5 to card-c6 300
+clock +500
+clock +600
+clock settle
+tap now
+# The keys: lift, one list right, one row down, drop.
+key grip-c5 Space
+key grip-c5 ArrowRight
+key grip-c5 ArrowDown
+key grip-c5 Enter
+clock settle

@@ -1189,3 +1189,98 @@ impl<T> ops::IndexMut<Index> for Arena<T> {
         self.get_mut(index).expect("No element at index")
     }
 }
+
+/// Exact2: an arena serialized with selected values left out, for a caller that
+/// rebuilds them bit-exactly. Slots, generations and the free list are kept, so the
+/// filled arena equals the original and attributes indices in the same order.
+#[cfg(all(feature = "alloc", feature = "serde-serialize"))]
+pub(crate) mod holes {
+    use super::{Arena, Entry, Index};
+    use crate::alloc_prelude::*;
+
+    #[derive(Serialize)]
+    enum EntryOut<'a, T> {
+        Free {
+            next_free: Option<u32>,
+        },
+        Occupied {
+            generation: u32,
+            value: Option<&'a T>,
+        },
+    }
+    #[derive(Serialize)]
+    pub(crate) struct ArenaOut<'a, T> {
+        items: Vec<EntryOut<'a, T>>,
+        generation: u32,
+        free_list_head: Option<u32>,
+        len: usize,
+    }
+    #[derive(Deserialize)]
+    enum EntryIn<T> {
+        Free { next_free: Option<u32> },
+        Occupied { generation: u32, value: Option<T> },
+    }
+    #[derive(Deserialize)]
+    pub(crate) struct ArenaIn<T> {
+        items: Vec<EntryIn<T>>,
+        generation: u32,
+        free_list_head: Option<u32>,
+        len: usize,
+    }
+
+    impl<T> Arena<T> {
+        /// A serializable view writing each value `hole` selects as absent.
+        pub(crate) fn with_holes(&self, hole: impl Fn(Index, &T) -> bool) -> ArenaOut<'_, T> {
+            ArenaOut {
+                items: self
+                    .items
+                    .iter()
+                    .enumerate()
+                    .map(|(i, e)| match e {
+                        Entry::Free { next_free } => EntryOut::Free {
+                            next_free: *next_free,
+                        },
+                        Entry::Occupied { generation, value } => EntryOut::Occupied {
+                            generation: *generation,
+                            value: (!hole(Index::from_raw_parts(i as u32, *generation), value))
+                                .then_some(value),
+                        },
+                    })
+                    .collect(),
+                generation: self.generation,
+                free_list_head: self.free_list_head,
+                len: self.len,
+            }
+        }
+    }
+    impl<T> ArenaIn<T> {
+        /// The arena with every hole supplied by `fill`; `Err` names the first it refused.
+        pub(crate) fn fill(
+            self,
+            mut fill: impl FnMut(Index) -> Option<T>,
+        ) -> Result<Arena<T>, Index> {
+            let mut items = Vec::with_capacity(self.items.len());
+            for (i, e) in self.items.into_iter().enumerate() {
+                items.push(match e {
+                    EntryIn::Free { next_free } => Entry::Free { next_free },
+                    EntryIn::Occupied { generation, value } => {
+                        let index = Index::from_raw_parts(i as u32, generation);
+                        Entry::Occupied {
+                            generation,
+                            value: match value {
+                                Some(v) => v,
+                                None => fill(index).ok_or(index)?,
+                            },
+                        }
+                    }
+                });
+            }
+            Ok(Arena {
+                items,
+                generation: self.generation,
+                free_list_head: self.free_list_head,
+                len: self.len,
+            })
+        }
+    }
+}

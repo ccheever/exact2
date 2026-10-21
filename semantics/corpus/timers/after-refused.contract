@@ -1,0 +1,22 @@
+// An after-timer whose action is refused: it does not fire again.
+component App
+  state ok = false
+  state n = 1
+  state d = 0
+  action risky
+    n = n / d
+  action arm
+    d = 1
+  task t mount
+    after(10, risky)
+  view
+    column
+      text `${n}` testId="n"
+      button "arm" press=arm testId="arm"
+
+test "refused once"
+  clock +10
+  expect state n == 1
+  tap "arm"
+  clock +100
+  expect state n == 1

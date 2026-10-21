@@ -26,7 +26,7 @@ pub use self::dimension::{
 use crate::sys::DefaultCheapStr;
 
 #[cfg(feature = "block_layout")]
-pub use self::block::{BlockContainerStyle, BlockItemStyle, TextAlign};
+pub use self::block::{BlockContainerStyle, BlockItemStyle, Multicol, TextAlign};
 #[cfg(feature = "flexbox")]
 pub use self::flex::{FlexDirection, FlexWrap, FlexboxContainerStyle, FlexboxItemStyle};
 #[cfg(feature = "float_layout")]
@@ -105,6 +105,12 @@ pub trait CoreStyle {
     /// <https://drafts.csswg.org/css-sizing-3/#min-content-zero>
     #[inline(always)]
     fn is_compressible_replaced(&self) -> bool {
+        false
+    }
+    /// Whether this node carries the table-item sizing marker. Exact also
+    /// uses it for HTML form-control shrink-to-fit sizing (patch 21).
+    #[inline(always)]
+    fn is_table_item(&self) -> bool {
         false
     }
     /// Which box do size styles apply to
@@ -706,6 +712,9 @@ pub struct Style<S: CheapCloneStr = DefaultCheapStr> {
     /// How items elements should aligned in the inline axis
     #[cfg(feature = "block_layout")]
     pub text_align: TextAlign,
+    /// EXACT PATCH 27: a multi-column container's columns
+    #[cfg(feature = "block_layout")]
+    pub multicol: Option<Multicol>,
 
     // Flexbox container properties
     /// Which direction does the main axis flow in?
@@ -819,6 +828,8 @@ impl<S: CheapCloneStr> Style<S> {
         // Block
         #[cfg(feature = "block_layout")]
         text_align: TextAlign::Auto,
+        #[cfg(feature = "block_layout")]
+        multicol: None,
         // Flexbox
         #[cfg(feature = "flexbox")]
         flex_direction: FlexDirection::Row,
@@ -880,6 +891,10 @@ impl<S: CheapCloneStr> CoreStyle for Style<S> {
     #[inline(always)]
     fn is_compressible_replaced(&self) -> bool {
         self.item_is_replaced
+    }
+    #[inline(always)]
+    fn is_table_item(&self) -> bool {
+        self.item_is_table
     }
     #[inline(always)]
     fn box_sizing(&self) -> BoxSizing {
@@ -959,6 +974,10 @@ impl<T: CoreStyle> CoreStyle for &'_ T {
         (*self).is_compressible_replaced()
     }
     #[inline(always)]
+    fn is_table_item(&self) -> bool {
+        (*self).is_table_item()
+    }
+    #[inline(always)]
     fn box_sizing(&self) -> BoxSizing {
         (*self).box_sizing()
     }
@@ -1031,6 +1050,11 @@ impl<S: CheapCloneStr> BlockContainerStyle for Style<S> {
     fn align_content(&self) -> Option<AlignContent> {
         self.align_content
     }
+
+    #[inline(always)]
+    fn multicol(&self) -> Option<Multicol> {
+        self.multicol
+    }
 }
 
 #[cfg(feature = "block_layout")]
@@ -1043,6 +1067,11 @@ impl<T: BlockContainerStyle> BlockContainerStyle for &'_ T {
     #[inline(always)]
     fn align_content(&self) -> Option<AlignContent> {
         (*self).align_content()
+    }
+
+    #[inline(always)]
+    fn multicol(&self) -> Option<Multicol> {
+        (*self).multicol()
     }
 }
 
@@ -1482,6 +1511,8 @@ mod tests {
             gap: Size::zero(),
             #[cfg(feature = "block_layout")]
             text_align: Default::default(),
+            #[cfg(feature = "block_layout")]
+            multicol: None,
             #[cfg(feature = "flexbox")]
             flex_grow: 0.0,
             #[cfg(feature = "flexbox")]
@@ -1618,12 +1649,12 @@ mod tests {
         assert_type_size::<GridTemplateComponent<String>>(56);
         assert_type_size::<GridPlacement<String>>(32);
         assert_type_size::<Line<GridPlacement<String>>>(64);
-        assert_type_size::<Style<String>>(560);
+        assert_type_size::<Style<String>>(600);
 
         // String-type dependent (Arc<str>)
         assert_type_size::<GridTemplateComponent<Arc<str>>>(56);
         assert_type_size::<GridPlacement<Arc<str>>>(24);
         assert_type_size::<Line<GridPlacement<Arc<str>>>>(48);
-        assert_type_size::<Style<Arc<str>>>(528);
+        assert_type_size::<Style<Arc<str>>>(568);
     }
 }

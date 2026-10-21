@@ -1,0 +1,21 @@
+tamber literals
+
+theme
+  hex3 = #f0a
+  hex8 = #11223380
+  named = rebeccapurple
+  clear = transparent
+  rgb.legacy = rgb(10, 20, 30)
+  rgb.modern = rgb(10 20 30 / 50%)
+  hsl = hsl(210 50% 40%)
+  hwb = hwb(210 10% 20%)
+  oklch = oklch(0.7 0.1 200)
+  lab = lab(50 20 -30 / 0.5)
+  p3 = color(display-p3 1 0 0)
+  pair.legacy = light-dark(#fff, #000)
+  pair.modern = light-dark(#fff, oklch(0.3 0.05 250))
+  pair.nested = light-dark(light-dark(#111, #222), light-dark(#333, #444))
+  platform = -exact-platform-color(ios systemTealColor, light-dark(#30b0c7, #40c8e0))
+  platform.web = -exact-platform-color(web AccentColor, ios systemBlueColor, #0088ff)
+  platform.asset = -exact-platform-color(ios named:Brand Red, macos systemRedColor, #c8102e)
+  platform.both = -exact-platform-color(ios systemTealColor, macos systemTealColor, pair.legacy)

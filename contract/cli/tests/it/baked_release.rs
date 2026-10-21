@@ -12,23 +12,23 @@ shape Row
   id: string
   text: string
 shape Feed
-  rows: list<Row>
+  rows: Row[]
 
 component App
   state peek = false
   resource initial = feed() as shape Feed
   mutation changed as shape Feed
   derive feed = match changed { case some(m) => m, case none => initial }
-  derive baked = peek ? length(initial.rows) : 0
-  action edit writes changed
+  derive baked = peek ? initial.rows.length : 0
+  action edit
     send changed = edit()
-  action look writes peek
+  action look
     peek = true
 
   view
     column
       text `${baked}` testId="baked"
-      each r in feed.rows key=r.id
+      for r in feed.rows key=r.id
         text r.text
 "#;
 
@@ -181,4 +181,26 @@ fn a_value_still_on_screen_is_never_released() {
         r.advance(100.).unwrap();
     }
     assert!(alive(&first));
+}
+
+/// Authoring bench: an iOS bake panicked on a source that read storage at build; the
+/// refusal says what to do.
+#[test]
+fn a_source_that_reads_storage_at_bake_is_told_to_catch_it() {
+    struct NoStorage;
+    impl DataSource for NoStorage {
+        fn query(&mut self, _: &str, _: &[Value]) -> Result<Value, DataError> {
+            Err(DataError::Unavailable(
+                "storage is unavailable during bake".into(),
+            ))
+        }
+    }
+    let src = "shape Task\n  id: string\ncomponent App\n  resource tasks = loadTasks() as shape Task[]\n  view\n    text \"a\"\n";
+    let error = contract::bake(contract::compile(src).unwrap(), NoStorage).unwrap_err();
+    let message = error.to_string();
+    assert!(
+        message.starts_with("`tasks` read storage while baking"),
+        "{message}"
+    );
+    assert!(message.contains("`e.code === 'bake'`"), "{message}");
 }

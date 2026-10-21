@@ -2,15 +2,23 @@
 // a select's menu as the runtime reads it from the kernel: both hosts'
 // presenters build the platform's own control from these.
 import Foundation
+import MachO
 
 enum ControlKinds {
     /// The chrome index's keys for the controls the presenter projects.
-    static let indexed = ["type:checkbox", "type:select", "type:range", "type:date", "type:time", "type:datetime-local"]
+    static let indexed = ["type:checkbox", "type:radio", "type:select", "type:range", "type:date", "type:time", "type:datetime-local", "type:button"]
     static let dates: Set<String> = ["date", "time", "datetime-local"]
-    /// `switch`, `checkbox` or the `type` prop's value.
+    /// The chrome index's key for a `progress`, the platform's activity
+    /// indicator (LLP 1069.001, amended 2026-10-07) or, with a `value`, its
+    /// progress bar (LLP 1116 D8): a view, not a control, so its own pass,
+    /// outside `indexed`.
+    static let progress = "type:progress"
+    /// `switch`, `checkbox`, or the `type` prop's value (`radio`, a select, …).
     static func kind(_ props: [String: String]) -> String {
         switch props["type"] {
+        case "button": return "button" // LLP 1069.011 D3: before the checkbox default
         case "select": return "select"
+        case "radio": return "radio" // x2apps survey #2
         case "range": return "range"
         case let t? where dates.contains(t): return t
         default: return props["accessibilityRole"] == "switch" ? "switch" : "checkbox"
@@ -50,10 +58,33 @@ struct RangeSpec {
     }
 }
 
+/// A determinate progress's `value` and `max` by HTML's rules
+/// (`exact_kernel::Progress`, LLP 1116 D8): `max` is 1 unless it reads as a
+/// number above 0; `value` is 0 unless it reads as one, held to 0 and `max`.
+struct ProgressSpec {
+    var value = 0.0, max = 1.0
+
+    init(_ props: [String: String]) {
+        let number = { (s: String?) in s.flatMap { Double($0.trimmingCharacters(in: .whitespaces)) }.flatMap { $0.isFinite ? $0 : nil } }
+        max = number(props["max"]).flatMap { $0 > 0 ? $0 : nil } ?? 1
+        value = Swift.min(Swift.max(number(props["value"]) ?? 0, 0), max)
+    }
+
+    /// How much of the bar is filled, 0 to 1.
+    var fraction: Double { value / max }
+}
+
 /// A date control's value in HTML's format, read and written as the
 /// platform's `Date` at UTC: HTML's values carry no zone, so the picker
 /// shows the wall time the string names and never converts it.
 enum DateValue {
+    /// What an empty date control says (LLP 1115.000 D13.1): its author's
+    /// `placeholder`, or no words. A date format (`mm/dd/yyyy`) is a
+    /// browser's empty field, which the platform's control does not have.
+    static func placeholder(_ props: [String: String]) -> String {
+        props["placeholder"] ?? ""
+    }
+
     static let utc = TimeZone(identifier: "UTC")!
     private static func formatter(_ pattern: String) -> DateFormatter {
         let f = DateFormatter()
@@ -99,10 +130,137 @@ struct SelectMenu: Equatable {
         chosen = (obj["chosen"] as? Int).flatMap { $0 < options.count ? $0 : nil }
     }
 
-    /// The agent's `type <select> <value>` (LLP 1069.001 D9): the refusal
-    /// when no enabled option has `value`.
-    func refusal(_ value: String, id: UInt32) -> String? {
-        if options.contains(where: { $0.value == value && !$0.disabled }) { return nil }
-        return "select \(id) has no enabled option \"\(value)\" (options: \(options.map { "\"\($0.value)\"" }.joined(separator: ", ")))"
+    /// The agent's `type <select> <value>` (LLP 1069.001 D9): the enabled
+    /// option with that value, else the one option with that label, as the
+    /// web host chooses (Playwright's `selectOption`; kanban F17, shop F10);
+    /// else the refusal, naming the options.
+    func choose(_ text: String, id: UInt32) -> (value: String?, refusal: String?) {
+        let enabled = options.filter { !$0.disabled }
+        if enabled.contains(where: { $0.value == text }) { return (text, nil) }
+        let trimmed = text.trimmingCharacters(in: .whitespaces)
+        let labelled = enabled.filter { $0.label.trimmingCharacters(in: .whitespaces) == trimmed }
+        if labelled.count == 1 { return (labelled[0].value, nil) }
+        let twice = labelled.count > 1 ? " (that label is on more than one option: choose by value)" : ""
+        return (nil, "select \(id) has no enabled option \"\(text)\"\(twice) (options: \(enabled.map { "\"\($0.value)\" \"\($0.label)\"" }.joined(separator: ", ")))")
+    }
+}
+
+/// A button's face (`exact_press_face`, LLP 1069.011.000 D1), custom or
+/// native, as the kernel reads it from its children: its title, its symbol as
+/// the platform names it (an svg-only icon's path as its `FaceSymbol` token), whether its image is a raster instead, whether the
+/// image leads, its `aria-label`, whether its children fit (one text, one
+/// image, nothing else); and a native button's `buttonStyles` row (LLP
+/// 1069.011 D2) — each platform's draw, a `~` marking a stand-in. `style` is
+/// the `buttonStyle` its author wrote, nil when they wrote none: the face
+/// then carries no row, and the platform columns keep their defaults here,
+/// which are what a button with no style draws (`unsaid`; the Mac's push
+/// button).
+struct ButtonFace: Equatable {
+    /// Whether the node is a button at all; the rest is empty when not.
+    var button = true
+    var title: String?
+    var subtitle: String?
+    var placement: String?
+    var rows = ButtonFaceRows()
+    var symbol: String?
+    /// An svg-only icon's token name (`icon.reply`), the agent's name for its path.
+    var symbolIcon: String?
+    var raster = false
+    var leading = true
+    var label: String?
+    var fits = true
+    var style: String?
+    var ios = ButtonFace.unsaid
+    var iosBefore26 = ButtonFace.unsaid
+    var macos = "push"
+    var known = true
+
+    init() {}
+    init(json: Data) {
+        guard let o = try? JSONSerialization.jsonObject(with: json) as? [String: Any] else { return }
+        button = o["button"] as? Bool ?? true
+        title = o["title"] as? String
+        subtitle = o["subtitle"] as? String
+        placement = o["placement"] as? String
+        rows = ButtonFaceRows(o["rows"] as? [String: Any] ?? [:])
+        // An svg-only icon's path as its token (FaceSymbol, stage 9 A2).
+        symbol = FaceSymbol.of(o)
+        symbolIcon = o["symbolIcon"] as? String
+        raster = o["raster"] as? Bool ?? false
+        leading = o["leading"] as? Bool ?? true
+        label = o["label"] as? String
+        fits = o["fits"] as? Bool ?? true
+        style = o["style"] as? String
+        ios = o["ios"] as? String ?? ios
+        iosBefore26 = o["iosBefore26"] as? String ?? iosBefore26
+        macos = o["macos"] as? String ?? macos
+        known = o["known"] as? Bool ?? true
+    }
+
+    /// What UIKit draws for a button whose author wrote no `buttonStyle`, by
+    /// its name in the table's iOS column (LLP 1115.000 D15). On iOS it is
+    /// the plain configuration, tinted text with no fill, as `UIButton(type:
+    /// .system)` and SwiftUI's `Button` are; `buttonStyle="bordered"` is what
+    /// an author writes for the grey capsule. tvOS keeps the bordered button:
+    /// its focus look is drawn on the button's own shape, and a plain button
+    /// has none to draw it on. The two are told apart here and nowhere else.
+    #if os(iOS)
+    static let unsaid = "plain"
+    #else
+    static let unsaid = "bordered"
+    #endif
+
+    /// The text a platform entry shows (a menu row, a confirmation's action):
+    /// the title, else the label (a symbol-only button's).
+    var shown: String? { title ?? label }
+
+    /// A platform name without its stand-in mark, and whether it had one.
+    static func drawn(_ name: String) -> (name: String, standIn: Bool) {
+        name.hasPrefix("~") ? (String(name.dropFirst()), true) : (name, false)
+    }
+}
+
+/// Whether UIKit and AppKit draw this app in their 26 design (Liquid Glass):
+/// they key it on the SDK the main executable records in `LC_BUILD_VERSION`,
+/// not on the OS, so an app linked to record an older SDK
+/// (`designRequiresCompatibility`, `host/apple/build.mjs`) draws as before 26
+/// on iOS 27 and macOS 27, where a glass button configuration or bezel draws
+/// no glass. Read once; callers also check the OS (`#available(… 26.0, *)`).
+enum LinkedDesign {
+    static let liquidGlass: Bool = {
+        guard let header = _dyld_get_image_header(0) else { return false }
+        var at = UnsafeRawPointer(header).advanced(by: MemoryLayout<mach_header_64>.size)
+        for _ in 0..<header.pointee.ncmds {
+            let command = at.loadUnaligned(as: load_command.self)
+            if command.cmd == UInt32(LC_BUILD_VERSION) {
+                return at.loadUnaligned(as: build_version_command.self).sdk >= 26 << 16
+            }
+            at = at.advanced(by: Int(command.cmdsize))
+        }
+        return false
+    }()
+}
+
+
+/// Only authored rows cross this dictionary; absence is UIKit's answer (D1–D2).
+struct ButtonFaceRows: Equatable {
+    var title: NodeStyle = [:], subtitle: NodeStyle = [:], symbol: NodeStyle = [:], button: NodeStyle = [:]
+    var imageGap: CGFloat?
+    init() {}
+    init(_ object: [String: Any]) {
+        func value(_ v: Any) -> BatchValue {
+            if let s = v as? String { return .string(s) }
+            if let n = v as? NSNumber { return .number(n.doubleValue) }
+            if let a = v as? [Any] { return .array(a.map(value)) }
+            if let o = v as? [String: Any] {
+                let values = o.mapValues(value)
+                if let c = CalculatedLength(values) { return .calculation(c) }
+                return .object(values)
+            }
+            return .null
+        }
+        func rows(_ name: String) -> NodeStyle { (object[name] as? [String: Any] ?? [:]).mapValues(value) }
+        title = rows("title"); subtitle = rows("subtitle"); symbol = rows("symbol"); button = rows("button")
+        imageGap = (object["imageGap"] as? NSNumber).map { CGFloat($0.doubleValue) }
     }
 }

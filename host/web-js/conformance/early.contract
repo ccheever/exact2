@@ -16,18 +16,18 @@ component Early
   state b = false
   state words = ""
   state pick = "one"
-  action toggleA(on: bool) writes a
+  action toggleA(on: bool)
     a = not a
-  action setB(value: bool) writes b
+  action setB(value: bool)
     b = value
-  action setWords(value: string) writes words
+  action setWords(value: string)
     words = value
-  action setPick(value: string) writes pick
+  action setPick(value: string)
     pick = value
   view
     column testId="root" padding=24 gap=12
-      input type="checkbox" checked=a change=toggleA testId="early-a" aria-label="A"
-      input type="checkbox" checked=b change=setB testId="early-b" aria-label="B"
+      input type="checkbox" checked=a change=toggleA testId="early-a" aria-label="A" width=16 height=16
+      input type="checkbox" checked=b change=setB testId="early-b" aria-label="B" width=16 height=16
       input value=words change=setWords testId="early-words" aria-label="Words"
       select value=pick change=setPick testId="early-pick" aria-label="Pick"
         option "One" value="one"

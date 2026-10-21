@@ -32,6 +32,12 @@
 
 use ed25519_dalek::{Signature as Ed25519Signature, VerifyingKey};
 use sha2::{Digest, Sha256};
+// Both packages are publish=false and consumed by workspace path; vendoring
+// Exact requires the workspace tree. Share this leaf rule without linking the
+// plan VM into the update store or adding a crate for a filename predicate.
+#[path = "../../plan/src/entry.rs"]
+mod entry;
+use entry::entry_identifier;
 
 /// The SHA-256 of `bytes`, lowercase hex — payload integrity as LLP 1023 D2
 /// defines it. Bundle identity instead hashes [`canonical_bytes`].
@@ -197,6 +203,8 @@ pub struct Envelope {
     pub app_name: Option<String>,
     /// The plan card. Its `name` is `app.plan`.
     pub plan: FileCard,
+    /// Snapshot entry kinds indexed into the authenticated asset roster (LLP 1126 D2).
+    pub plans: std::collections::BTreeMap<String, FileCard>,
     /// The format version the plan header carries, when stated (LLP 1023 D2).
     pub format_version: Option<u64>,
     /// The kernel schema digest, when stated: a client may refuse before
@@ -310,6 +318,28 @@ impl Envelope {
             }
             check_asset_names(assets.iter().map(|a| a.name.as_str()))?;
         }
+        let mut plans = std::collections::BTreeMap::new();
+        if let Some(value) = root.get("plans") {
+            let map = value
+                .as_object()
+                .ok_or("the envelope's plans must be a map")?;
+            for (kind, value) in map {
+                if !entry_identifier(kind) {
+                    return Err(format!("invalid snapshot entry kind {kind:?}"));
+                }
+                let name = format!("plans/{kind}.plan");
+                let card = file_card(
+                    &name,
+                    value.as_object().ok_or("an entry plan must be a card")?,
+                )?;
+                if !assets.iter().any(|a| a == &card) {
+                    return Err(format!(
+                        "entry plan {kind} must match its authenticated asset card {name}"
+                    ));
+                }
+                plans.insert(kind.clone(), card);
+            }
+        }
         let sunset = match root.get("sunset") {
             None => None,
             Some(v) => {
@@ -360,6 +390,7 @@ impl Envelope {
             app_id,
             app_name: app.get("name").and_then(|v| v.as_str()).map(str::to_string),
             plan,
+            plans,
             format_version: plan_object.get("formatVersion").and_then(|v| v.as_u64()),
             kernel_schema: plan_object
                 .get("kernelSchema")
@@ -442,10 +473,11 @@ fn file_card(
 
 /// An asset name is a relative path under the entry's `assets/`: no root, no
 /// `..`, no empty segment, and every segment from the POSIX portable filename
-/// set, `A-Z a-z 0-9 . _ -`. A name that could leave the entry is refused
-/// before anything is written, and so is any character a filesystem may fold
-/// or normalize: `café` spelled NFC and NFD would be two names for one APFS
-/// file.
+/// set, `A-Z a-z 0-9 . _ -`, plus `@` (`photo@2x.png`, a designer's export,
+/// which no filesystem folds and no URL escapes). A name that could leave the
+/// entry is refused before anything is written, and so is any character a
+/// filesystem may fold or normalize: `café` spelled NFC and NFD would be two
+/// names for one APFS file. A space is refused as a URL and shell hazard.
 pub(crate) fn safe_name(name: &str) -> Result<(), String> {
     if name.is_empty() {
         return Err("an asset name is empty".into());
@@ -456,10 +488,10 @@ pub(crate) fn safe_name(name: &str) -> Result<(), String> {
         }
         if !segment
             .bytes()
-            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b'-'))
+            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b'-' | b'@'))
         {
             return Err(format!(
-                "the asset name {name} is not portable: segments use A-Z, a-z, 0-9, '.', '_' and '-'"
+                "the asset name {name} is not portable: segments use A-Z, a-z, 0-9, '.', '_', '-' and '@'"
             ));
         }
     }
@@ -470,29 +502,37 @@ pub(crate) fn safe_name(name: &str) -> Result<(), String> {
 /// on a case-insensitive filesystem (APFS's default): no two may differ only
 /// by ASCII case, and none may be a file where another needs a directory (`a`
 /// beside `a/b`). The bake, the publisher and every parse refuse the same.
+/// Every refused name is in the error, one per line: a build names them all
+/// in one run.
 pub fn check_asset_names<'a>(names: impl IntoIterator<Item = &'a str>) -> Result<(), String> {
     use std::collections::HashMap;
     let mut files: HashMap<String, &str> = HashMap::new();
     let mut directories: HashMap<String, &str> = HashMap::new();
+    let mut problems = Vec::new();
     for name in names {
-        safe_name(name)?;
+        if let Err(problem) = safe_name(name) {
+            problems.push(problem);
+            continue;
+        }
         let folded = name.to_ascii_lowercase();
         if let Some(other) = files.get(&folded) {
-            return Err(if *other == name {
+            problems.push(if *other == name {
                 format!("the envelope names the asset {name} twice")
             } else {
                 format!("the assets {other} and {name} differ only by case, one file on a case-insensitive filesystem")
             });
+            continue;
         }
         if let Some(other) = directories.get(&folded) {
-            return Err(format!(
+            problems.push(format!(
                 "the asset {name} is a file where {other} needs a directory"
             ));
+            continue;
         }
         for (end, _) in folded.match_indices('/') {
             let directory = &folded[..end];
             if let Some(other) = files.get(directory) {
-                return Err(format!(
+                problems.push(format!(
                     "the asset {other} is a file where {name} needs a directory"
                 ));
             }
@@ -500,7 +540,11 @@ pub fn check_asset_names<'a>(names: impl IntoIterator<Item = &'a str>) -> Result
         }
         files.insert(folded, name);
     }
-    Ok(())
+    if problems.is_empty() {
+        Ok(())
+    } else {
+        Err(problems.join("\n"))
+    }
 }
 
 /// Resolve a card's `url` against the envelope's own URL, the way a browser
@@ -765,5 +809,44 @@ mod url_tests {
         assert!(resolve_url(base, "../../../../app.plan").is_err());
         assert!(resolve_url(base, r"..\app.plan").is_err());
         assert!(resolve_url("https://user@updates.example/head", "./plan").is_err());
+    }
+}
+
+#[cfg(test)]
+mod entry_tests {
+    use super::Envelope;
+    use serde_json::json;
+
+    #[test]
+    fn snapshot_index_requires_the_same_authenticated_asset_card() {
+        let card = json!({"name":"plans/trains.plan","url":"./plans/trains.plan","sha256":"a".repeat(64),"bytes":128});
+        let base = json!({"exact":1,"app":{"id":"test.app"},
+            "plan":{"url":"./app.plan","sha256":"b".repeat(64),"bytes":256},
+            "stream":{"channel":"prod","compatibilityId":"c".repeat(32),"seq":1},
+            "assets":[card.clone()],"plans":{"trains":card}});
+        let parse = |v: &serde_json::Value| Envelope::parse(v.to_string().as_bytes());
+        let envelope = parse(&base).unwrap();
+        assert_eq!(envelope.plans["trains"], envelope.assets[0]);
+        for (key, value) in [
+            ("sha256", json!("d".repeat(64))),
+            ("bytes", json!(129)),
+            ("url", json!("./other.plan")),
+        ] {
+            let mut bad = base.clone();
+            bad["plans"]["trains"][key] = value;
+            assert!(parse(&bad)
+                .unwrap_err()
+                .contains("authenticated asset card"));
+        }
+        let mut absent = base.clone();
+        absent["assets"] = json!([]);
+        assert!(parse(&absent).is_err());
+        let mut bad = base.clone();
+        bad["plans"] = json!({"../trains":base["plans"]["trains"].clone()});
+        assert!(parse(&bad).is_err());
+        let mut ordinary = base;
+        ordinary.as_object_mut().unwrap().remove("plans");
+        ordinary["assets"] = json!([]);
+        assert!(parse(&ordinary).unwrap().plans.is_empty());
     }
 }

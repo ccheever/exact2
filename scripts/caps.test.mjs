@@ -1,7 +1,7 @@
 // Proves caps rules fire in throwaway repositories and a clean repo passes;
 // also exercises the shared build and launch helpers.
 // `bun test ./scripts/caps.test.mjs`.
-import { test } from 'bun:test';
+import { test, expect } from 'bun:test';
 // These cases run cargo (the filesystem tool, bakes, locks). A shell whose PATH
 // omits rustup's bin directory still finds it there; without cargo, say so.
 const cargoBin = `${process.env.CARGO_HOME ?? `${process.env.HOME}/.cargo`}/bin`;
@@ -11,23 +11,26 @@ if (!Bun.which('cargo', { PATH: process.env.PATH })) throw new Error(`these test
 delete process.env.EXACT_APP_DIR;
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync, rmSync, symlinkSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, readdirSync, mkdtempSync, readFileSync, realpathSync, utimesSync, writeFileSync, rmSync, symlinkSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join, dirname, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { runInNewContext } from 'node:vm';
-import { applyStaticChange, applyStaticTreeChange, appManifestDigest, builtAppMatches, copyStaticTree, copyStaticTreeIfPresent, installStaticCandidate, listAssets, listPublicFiles, publicFileCards, readDevGeneration, retainDevGeneration, shaderInterfaceDigests, staticFile, readStaticFile, serveStatic, syncStaticTree, watchStaticTrees, webEnvelope } from '../host/web/serve.mjs';
+import { applyStaticChange, applyStaticTreeChange, appManifestDigest, builtAppMatches, copyStaticTree, copyStaticTreeIfPresent, installStaticCandidate, listAssets, listPublicFiles, publicFileCards, readDevGeneration, retainDevGeneration, shaderInterfaceDigests, staticFile, readStaticFile, serveStatic, syncStaticTree, watchStaticTrees, webEnvelope, devGenerationDigest, assetCards } from '../host/web/serve.mjs';
 import { assertWebDistApp, jsonLines } from './agent.mjs';
 import { verifyBakeFiles, pendingBuildInputs } from './app.mjs';
-import { copyAppleStaticTrees, developmentLaunchEnvironment, deviceLaunchArgs } from '../host/apple/build.mjs';
+import { appDigest, driveStore, newerThan, notBuildInput, receiptChanges, webStore } from './agent-launch.mjs';
+import { storeBase, sweepTestStores } from './agent-test.mjs';
+import { copyAppleStaticTrees, rebuildArgs } from '../host/apple/build.mjs';
+import { developmentLaunchEnvironment, deviceLaunchArgs } from '../host/apple/devices.mjs';
 import { classify, publishRoot, webRelease } from './deploy.mjs';
 import { DirectoryOrigin, webRootPath, webReleasePath, sha256 } from './origin.mjs';
 const CAPS = join(dirname(fileURLToPath(import.meta.url)), 'caps.mjs');
 const BOOT = join(dirname(fileURLToPath(import.meta.url)), 'boot.mjs');
 const DEPLOY = join(dirname(fileURLToPath(import.meta.url)), 'deploy.mjs');
 const GOOD_RULES = `# Rules
-- **5 blocking checks, 60s total.** **[check]**
+- **6 blocking checks, 65s total.** **[check]**
 - **15 documents in the working set.** **[check]**
 - **10 documents in the foundation.** **[check]**
 - **This file: 700 words.** **[check]**
@@ -36,8 +39,8 @@ const GOOD_RULES = `# Rules
 | | |
 |---|---|
 | Cold start to interactive | 100ms |
-## The five checks
-\`build\` · \`test\` · \`lint\` · \`caps\` · \`boot\`
+## The six checks
+\`build\` · \`test\` · \`lint\` · \`caps\` · \`boot\` · \`workspace\`
 `;
 
 function repo(files) {
@@ -59,13 +62,19 @@ function run(dir) {
   return { out: r.stdout + r.stderr, code: r.status };
 }
 
+// A one-package Cargo workspace, `app`, beside the rules
+const PACKAGE = '[package]\nname = "app"\nversion = "0.1.0"\nedition = "2021"\n';
+// (with this checkout's toolchain, which a directory outside it would not select)
+const crate = (files) => ({ 'rules/RULES.md': GOOD_RULES, 'Cargo.toml': '[workspace]\nmembers = ["app"]\nresolver = "2"\n',
+  'rust-toolchain.toml': readFileSync(join(dirname(fileURLToPath(import.meta.url)), '../rust-toolchain.toml'), 'utf8'), ...files });
+
 const cases = [
   ['missing rules file fails', {}, 'rules:missing'],
   ['unparseable budget fails closed', { 'rules/RULES.md': '# Rules\n\nno budgets here at all\n' }, 'budget:words'],
   ['over the word cap fails',
     { 'rules/RULES.md': GOOD_RULES.replace('This file: 700 words', 'This file: 10 words') }, 'cap:words'],
   ['too many blocking checks fails',
-    { 'rules/RULES.md': GOOD_RULES.replace('**5 blocking checks', '**3 blocking checks') }, 'cap:checks'],
+    { 'rules/RULES.md': GOOD_RULES.replace('**6 blocking checks', '**3 blocking checks') }, 'cap:checks'],
   ['unfilled product-latency row fails',
     { 'rules/RULES.md': GOOD_RULES.replace('| Cold start to interactive | 100ms |', '| **<the product latency that actually matters>** | |') },
     'cap:product-latency'],
@@ -105,6 +114,30 @@ const cases = [
     null],
   ['vendored source is not held to the line cap',
     { 'rules/RULES.md': GOOD_RULES, 'vendor/brotli/enc.c': 'x\n'.repeat(9000), 'src/ok.js': 'const a = 1;\n' }, null],
+  ['a package without tests that skips its harnesses passes',
+    crate({ 'app/Cargo.toml': PACKAGE + '[lib]\ntest = false\nbench = false\n[[bin]]\nname = "tool"\npath = "src/main.rs"\ntest = false\nbench = false\n',
+      'app/src/lib.rs': 'pub fn f() {}\n', 'app/src/main.rs': 'fn main() {}\n' }), null],
+  ['a package without tests that builds a harness fails',
+    crate({ 'app/Cargo.toml': PACKAGE + '[lib]\ntest = false\n', 'app/src/lib.rs': 'pub fn f() {}\n', 'app/src/main.rs': 'fn main() {}\n' }),
+    'tests:empty-harness'],
+  ['a package with tests builds its harnesses unmarked',
+    crate({ 'app/Cargo.toml': PACKAGE, 'app/src/lib.rs': '#[test]\nfn t() {}\n' }), null],
+  ['a platform-gated test under a skipped harness fails',
+    crate({ 'app/Cargo.toml': PACKAGE + '[lib]\ntest = false # no tests yet\nbench = false\n', 'app/src/lib.rs': 'pub fn f() {}\n',
+      'app/src/more.rs': '#[cfg(all(\n    test,\n    windows\n))]\nmod tests {}\n' }), 'tests:unbuilt'],
+  ['an attribute macro test under a skipped harness fails',
+    crate({ 'app/Cargo.toml': PACKAGE + '[[bin]]\nname = "app"\npath = "src/main.rs"\ntest = false\nbench = false\n',
+      'app/src/main.rs': '#[tokio::test]\nasync fn t() {}\n' }), 'tests:unbuilt'],
+  ['a recipe over 3,072 bytes fails',
+    { 'rules/RULES.md': GOOD_RULES, 'docs/recipes/money.md': 'x'.repeat(3073) }, 'cap:recipe'],
+  ['a recipe of exactly 3,072 bytes passes',
+    { 'rules/RULES.md': GOOD_RULES, 'docs/recipes/money.md': 'x'.repeat(3072) }, null],
+  ['the recipe cap counts bytes, not characters',
+    { 'rules/RULES.md': GOOD_RULES, 'docs/recipes/money.md': '’'.repeat(1025) }, 'cap:recipe'],
+  ['navigation-stack and rest-backend may run to 5,120 bytes',
+    { 'rules/RULES.md': GOOD_RULES, 'docs/recipes/navigation-stack.md': 'x'.repeat(5120), 'docs/recipes/rest-backend.md': 'x'.repeat(5120) }, null],
+  ['navigation-stack over 5,120 bytes fails',
+    { 'rules/RULES.md': GOOD_RULES, 'docs/recipes/navigation-stack.md': 'x'.repeat(5121) }, 'cap:recipe'],
   ['a clean repository passes', { 'rules/RULES.md': GOOD_RULES, 'src/ok.js': 'const a = 1;\n' }, null],
 ];
 
@@ -118,6 +151,17 @@ for (const [name, files, expect] of cases) {
   rmSync(dir, { recursive: true, force: true });
   const ok = expect ? (code === 1 && out.includes(expect)) : code === 0;
   result(name, ok, `expected ${expect ? `code 1 with "${expect}"` : 'code 0'}, got code ${code}\n${out}`);
+}
+{
+  const dir = repo(crate({ 'app/Cargo.toml': PACKAGE, 'app/src/lib.rs': 'pub fn f() {}\n', 'src/big.js': 'x\n'.repeat(2000) }));
+  const bin = mkdtempSync(join(tmpdir(), 'caps-bin-'));
+  symlinkSync(Bun.which('git'), join(bin, 'git'));
+  const r = spawnSync(process.execPath, [CAPS], { cwd: dir, encoding: 'utf8', env: { ...process.env, PATH: bin } });
+  rmSync(dir, { recursive: true, force: true });
+  rmSync(bin, { recursive: true, force: true });
+  const out = r.stdout + r.stderr;
+  result('cargo missing from PATH is reported with every other violation',
+    r.status === 1 && /tests:metadata\n.*\n.*cargo/.test(out) && out.includes('cap:lines') && out.includes('2 violations'), `got code ${r.status}\n${out}`);
 }
 async function rejects(action, matches) {
   try { await action(); return false; } catch (error) { return matches(error); }
@@ -363,6 +407,28 @@ for (const [name, html, files, expectCode, expect] of [
     good.first === 4 && peak === 4 && count === 16 && good.value?.assets.size === 5 && good.value?.module
       && bad.error?.message.includes('payload integrity failed: module web'),
     JSON.stringify({first:good.first,peak,count,goodError:good.error?.message,badError:bad.error?.message,assets:good.value?.assets.size}));
+}
+// A generation the dev loop names from asset cards captured on disk (which
+// carry their urls, as at a loop's start or an asset's edit) binds the
+// manifest a client checks: its identity is over names, digests and lengths.
+{
+  const origin = 'http://exact.test/', body = Buffer.from('payload');
+  // An entry plan (`plans/`) among them, as a widget's entry rides a generation.
+  const assets = assetCards(new Map([...Array.from({ length: 3 }, (_, i) => [`assets/${i}.txt`, body]), ['plans/widget.plan', body]]));
+  const card = name => ({ url: origin + name, bytes: body.length, sha256: sha256(body) });
+  const module = Object.fromEntries(['native', 'receipt', 'web'].map(key => [key, { bytes: body.length, sha256: sha256(body) }]));
+  // Named in any order: the identity is over UTF-8 order, as a client sorts them.
+  const generation = devGenerationDigest({ bytes: body.length, sha256: sha256(body) }, [...assets].reverse(), module);
+  const identity = { epoch: 'a'.repeat(32), seq: 1, generation, program: 'b'.repeat(64) };
+  const envelope = { exact: 1, app: { id: 'com.exact.test' }, dev: identity, plan: card('app.plan'),
+    assets: assets.map(a => ({ ...a, url: origin + a.name })), module: Object.fromEntries(Object.keys(module).map(key => [key, card(key)])) };
+  const context = { TextEncoder, TextDecoder, AbortController, URL, setTimeout, clearTimeout,
+    performance, location: { href: origin, origin: new URL(origin).origin }, exact: { ready: Promise.resolve(), compat: { inputs: { app: 'com.exact.test' } } },
+    fetch: async url => new Response(url === origin + 'exact.json' ? JSON.stringify(envelope) : body) };
+  runInNewContext(readFileSync(resolve(dirname(fileURLToPath(import.meta.url)), '../host/web/dev.js'), 'utf8'), context);
+  const got = await context.fetchGeneration({ ...identity, envelope: origin + 'exact.json' }, new AbortController().signal).then(value => ({ value }), error => ({ error }));
+  result('a dev generation named from cards captured on disk binds the manifest a client checks',
+    got.value?.generation === generation && !got.error, got.error?.message ?? '');
 }
 // The protocol reconciles complete namespaces and rejects out-of-order
 // completions. Its LAN hash path must match SHA-256 at block boundaries.
@@ -611,6 +677,56 @@ for (const [name, html, files, expectCode, expect] of [
   result('dev reports replaced compiler input types as pending without terminating',pending.includes('source')&&pending.includes(file),JSON.stringify(pending));
   rmSync(dir,{recursive:true,force:true});
 }
+{
+  // A screenshot, log, export, shot, tool, repro or test saved into an app is not an input,
+  // ignored by Git or not; what the bake captures, a declared shader root, a crate's files
+  // (including a csv beside them), a native module's script, presentation and logic scripts,
+  // a game's art and an icon the manifest names are. An ignored file outside those
+  // (scratch/), a saved world and a local server's database are not. A helper script
+  // (drive.sh) is not.
+  const dir=realpathSync(mkdtempSync(join(tmpdir(),'exact-build-inputs-')));
+  for(const sub of ['shots','tools','repros','gen','shader-gen','data','modules/web','art','scratch','logic/src','assets','presentation','server']) mkdirSync(join(dir,sub),{recursive:true});
+  for(const [name,text] of [['.gitignore','/local.ts\n/gen/\n/shader-gen/\n/notes/\n/modules/\n/art/\n/icon.png\n/data/table.bin\n/scratch/\n'],['Cargo.toml','[workspace]'],['app.json','{"icons":[{"src":"icon.png"}]}'],['icon.png','png'],['app.contract','view'],['local.ts','key'],['run.log','log'],['shots/one.png','png'],['shots/notes.txt','notes'],['shots/exported.json','{}'],['tools/probe.mjs','mjs'],['tools/levels.ops','ops'],['repros/bug.contract','view'],['app.test.ts','test'],['app.test.contract','test'],['drive.sh','sh'],['export.csv','a,b'],['logic/build.mjs','mjs'],['logic/src/foo.test.rs','rs'],['assets/x.js','js'],['presentation/view.mjs','mjs'],['data/ledger.csv','a,b'],['gen/made.rs','fn f() {}'],['shader-gen/paint.wgsl','fn main() {}'],['shader-gen/table.bin','bytes'],['data/Cargo.toml','[package]'],['data/table.bin','bytes'],['modules/web/index.js','js'],['art/strip.png','png'],['art/fox.glb','glb'],['run.world','world'],['data.db','db'],['data.db-wal','wal'],['server/club.sqlite-shm','shm'],['scratch/out.bin','bytes']]) writeFileSync(join(dir,name),text);
+  const walk=()=>newerThan(0,[dir],notBuildInput(dir,[join(dir,'shader-gen')])).map(p=>relative(dir,p)).sort();
+  const outside=walk();
+  spawnSync('git',['init','-q'],{cwd:dir});
+  const inside=walk(),want='["Cargo.toml","app.contract","app.json","art/fox.glb","art/strip.png","assets/x.js","data/Cargo.toml","data/ledger.csv","data/table.bin","gen/made.rs","icon.png","local.ts","logic/build.mjs","modules/web/index.js","presentation/view.mjs","shader-gen/paint.wgsl","shader-gen/table.bin"]';
+  result('the staleness walk skips what an agent leaves in an app, never what a build reads',
+    JSON.stringify(inside)===want&&JSON.stringify(outside)===want.replace('"presentation/view.mjs",','"presentation/view.mjs","scratch/out.bin",'),JSON.stringify({inside,outside}));
+  const receipt=join(dir,'receipt.json');
+  writeFileSync(receipt,JSON.stringify({target:'aarch64-apple-darwin'}));
+  writeFileSync(join(dir,'pins.json'),'{}');
+  const built=new Date(Date.now()+10000),edited=new Date(+built+10000);
+  utimesSync(receipt,built,built);
+  for(const name of ['pins.json','app.contract','drive.sh','tools/probe.mjs','shots/exported.json']) utimesSync(join(dir,name),edited,edited);
+  const game={dir,target:join(dir,'missing-target'),manifest:{game:true},crate:()=>'game-macos'};
+  const changed=receiptChanges(receipt,game).map(p=>relative(dir,p)).sort();
+  result('a game receipt ignores pins and driver scripts, and still sees the contract',
+    JSON.stringify(changed)==='["app.contract"]',JSON.stringify(changed));
+  rmSync(dir,{recursive:true,force:true});
+}
+{
+  // A killed authored-test run's stores are swept; a live run's, another name's and a plain store stay.
+  const base=mkdtempSync(join(tmpdir(),'exact-test-stores-'));
+  for(const name of ['test.r999999-ab12.t0','test.r999999-ab12.t1',`test.r${process.pid}-cd34.t0`,'test','test.t0','mine.r999999-ab12.t0','tests.r999999-ab12.t0']) mkdirSync(join(base,name));
+  sweepTestStores(base,'test');
+  const left=readdirSync(base).sort();
+  rmSync(base,{recursive:true,force:true});
+  result('authored-test stores: a dead run\'s are swept, a live run\'s and other names stay',
+    JSON.stringify(left)===JSON.stringify(['mine.r999999-ab12.t0','test','test.r'+process.pid+'-cd34.t0','test.t0','tests.r999999-ab12.t0'].sort()),JSON.stringify(left));
+  result('authored-test stores live where the hosts keep them',storeBase('com.x','mac',{},'/h')==='/h/Library/Caches/exact/com.x/agent'&&storeBase('com.x','linux',{XDG_CACHE_HOME:'/c'},'/h')==='/c/exact/com.x/agent'&&storeBase('com.x','linux',{XDG_CACHE_HOME:'rel'},'/h')==='/h/.cache/exact/com.x/agent'&&storeBase('com.x','ios')===null);
+  // dash, weather, kanban: a web store is a kept Chrome profile and one origin, the same port each drive.
+  const x={id:'com.x',dir:'/apps/x'},dx=appDigest('/apps/x');
+  const a=webStore(x,'pulse',{},'/h','darwin'),b=webStore(x,'pulse',{XDG_CACHE_HOME:'/c'},'/h','linux'),c=webStore(x,'other',{},'/h','darwin');
+  result('a web drive\'s named store keeps its profile and port',a.profile===`/h/Library/Caches/exact/com.x/agent-web-${dx}/pulse`&&b.base===`/c/exact/com.x/agent-web-${dx}`&&a.port===b.port&&a.port>=20000&&a.port<48000&&c.port!==a.port&&/^[0-9a-f]{12}$/.test(dx),JSON.stringify([a,b,c]));
+  // review b5-c 3: the driver opens Chrome's store where runTests sweeps and removes it, under the drive's env.
+  const d=driveStore(x,'pulse',{XDG_CACHE_HOME:'/iso',HOME:'/hh'},'linux'),e=driveStore(x,'pulse',{HOME:'/hh'},'darwin');
+  result('a drive\'s env places its web store',d.base===`/iso/exact/com.x/agent-web-${dx}`&&e.profile===`/hh/Library/Caches/exact/com.x/agent-web-${dx}/pulse`,JSON.stringify([d,e]));
+  // LLP 1116.004 D8: contacts' drive read an earlier round's contacts.json, the same default id and store name in
+  // another directory; a store is its app's directory's too, so neither its profile nor its origin is shared.
+  const y=webStore({id:'com.x',dir:'/rounds/r6/x'},'pulse',{},'/h','darwin');
+  result('two apps of one id and one store name keep apart',y.profile!==a.profile&&y.port!==a.port&&!y.profile.startsWith(a.base+'/'),JSON.stringify([a,y]));
+}
 // A matching hand-written exact.json is not build identity. The agent must
 // consume the complete private marker verifier before it drives a dist.
 {
@@ -627,6 +743,14 @@ for (const [name, html, files, expectCode, expect] of [
   const stream = new (await import('node:stream')).PassThrough(), writes = [], lines = jsonLines(stream, {write: x => writes.push(x)}, []), pending = lines.ask({op:'state'}).catch(e => e.message);
   lines.fail('phone crashed'); lines.fail('socket closed'); const later = await lines.ask({op:'logs'}).catch(e => e.message);
   result('a dead agent rejects pending and future requests without writing again', await pending === 'phone crashed' && later === 'phone crashed' && writes.length === 1); stream.destroy();
+  // A reply split over many chunks (a `state` carrying a large surface record), and two in one chunk.
+  const split = new (await import('node:stream')).PassThrough(), host = [], replies = jsonLines(split, {write() {}}, host);
+  const big = replies.ask({op:'state'}), next = replies.ask({op:'logs'}), third = replies.ask({op:'tree'});
+  const text = JSON.stringify({record: 'x'.repeat(4 << 20)}) + '\n';
+  for (let i = 0; i < text.length; i += 65536) split.write(text.slice(i, i + 65536));
+  split.write('{"n":2}\n{"n":3}\nstray');
+  const [a, b, c] = await Promise.all([big, next, third]); split.write('\n');
+  result('agent replies split over chunks or sharing one are each read whole', a.record.length === 4 << 20 && b.n === 2 && c.n === 3 && host[0] === 'app: stray'); split.destroy();
   const inherited = { EXACT_DEV_PLAN: '/tmp/local.plan', PRESERVED: 'yes' };
   const launched = developmentLaunchEnvironment(['--run', '--url', 'http://192.168.1.20:8765'], inherited);
   const invalid = [['--url', 'https://example.test'], ['--run', '--url'], ['--run', '--url', '/tmp/app.plan'], ['--run', '--url', 'file:///tmp/app.plan'], ['--run', '--url', 'https://a.test', '--url', 'https://b.test']];
@@ -673,20 +797,24 @@ for (const [name, html, files, expectCode, expect] of [
   let matched = true;
   try { verifyBakeFiles(receipt, plan, listAssets(bundle).reverse()); }
   catch { matched = false; }
-  const refuses = (bytes = plan) => {
+  // Each refusal names what differs and asks for the build again; the Apple build adds its own command.
+  const refuses = (bytes = plan, named = 'plan differs') => {
     try { verifyBakeFiles(receipt, bytes, listAssets(bundle)); return false; }
-    catch { return true; }
+    catch (e) { return e.rebuild === true && e.message.includes(`the packaged ${named} from the binary bake receipt: a source changed after the bake read it`) && e.message.endsWith('build again'); }
   };
   const changedPlan = refuses(Buffer.from('a changed plan'));
   rmSync(join(bundle, 'assets', 'logo.png'));
-  const removed = refuses();
+  const removed = refuses(plan, 'static files (assets/logo.png) differ');
   writeFileSync(join(bundle, 'assets', 'logo.png'), 'other');
-  const changed = refuses();
+  const changed = refuses(plan, 'static files (assets/logo.png) differ');
   writeFileSync(join(bundle, 'assets', 'logo.png'), 'image');
   writeFileSync(join(bundle, 'assets', 'extra.png'), 'extra');
-  const added = refuses();
+  const added = refuses(plan, 'static files (assets/extra.png) differ');
   rmSync(join(bundle, 'assets', 'extra.png'));
-  result('Apple and web packaging enforce the baked plan and complete static roster', matched && changedPlan && removed && changed && added);
+  // Each argument shell-quoted as the directory is: a simulator's name has spaces.
+  const again = rebuildArgs(['--ios', 'euxy-apple', '--release', '--sim', 'iPhone 17 Pro'], "/p/it's") === "(cd '/p/it'\\''s' && bun exact.mjs ios --release --sim 'iPhone 17 Pro')"
+    && rebuildArgs(['caltrain-apple', '--run', '--sim', "Bob's phone"], undefined) === "bun host/apple/build.mjs caltrain-apple --run --sim 'Bob'\\''s phone'";
+  result('Apple and web packaging enforce the baked plan and complete static roster, naming what differs and the build to run again', matched && changedPlan && removed && changed && added && again);
   symlinkSync(outside, join(source, 'assets', 'linked'));
   const appRefused = await rejects(() => copyAppleStaticTrees(source, join(dir, 'refused-app'), appTrees), error => error.message.includes('cannot be symlinks'));
   symlinkSync(outside, join(bundle, 'assets', 'linked'));
@@ -698,3 +826,33 @@ for (const [name, html, files, expectCode, expect] of [
   rmSync(dir, { recursive: true, force: true });
   result('Apple packages reject linked static files and roots', copied && appRefused && hostRefused && danglingRootRefused);
 }
+
+// Exercise the driver's actual method with a quantized wall clock (#285).
+test('clock +N real never seeks behind the last reply and ends at from + N', async () => {
+  const source = readFileSync(new URL('./agent.mjs', import.meta.url), 'utf8');
+  const start = source.indexOf("    async clock(spec = 'settle'"); // (its parameters after the spec are its own)
+  const end = source.indexOf('\n    /** The window', start);
+  for (const host of ['macos', 'ios', 'host', 'host-ios', 'web', 'linux']) {
+    for (const ahead of [0, 0.75]) {
+      const sent = [], sleeps = [], wall = [18.329417, 18.329417, 18.829417, 20.329417, 20.329417];
+      let reported = 250;
+      const s = { now: ['web', 'linux'].includes(host) ? reported : 0, async op(req) {
+        if (req.take) return { clock: reported };
+        expect(req.to).toBeGreaterThanOrEqual(reported);
+        sent.push(req.to);
+        // Keep the host's last reported time even when it is ahead of the next wall sample.
+        reported = sent.length === 1 ? req.to + ahead : req.to;
+        return { clock: reported };
+      } };
+      const clock = new Function('s', 'carrier', 'performance', 'setTimeout', 'REAL_STEP_MS',
+        `return ({${source.slice(start, end)}}).clock;`)(s, { host }, { now: () => wall.shift() },
+        (done, ms) => { sleeps.push(ms); done(); }, 50);
+      const reply = await clock('+1 real');
+      expect(sent).toEqual([250, Math.max(250.5, 250 + ahead), 251]);
+      expect(reply.clock).toBe(251);
+      expect(s.now).toBe(251);
+      expect(reply.real).toBe(2);
+      expect(sleeps).toEqual([1, 251 - sent[1]]);
+    }
+  }
+});

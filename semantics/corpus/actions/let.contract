@@ -1,0 +1,51 @@
+// `let` in actions: immutable locals, scoped to their block, reading the
+// pre-state even after a write.
+component App
+  state count = 3
+  state out = ""
+  state other = 0
+  action go
+    let start = count
+    count = count + 1
+    let after = count
+    out = `${start}->${after}`
+  action branch(n: number)
+    let big = n > 10
+    if big
+      let word = "big"
+      out = `${word}:${n}`
+    else
+      let word = "small"
+      let doubled = n * 2
+      out = `${word}:${doubled}`
+  action chain
+    let a = count * 2
+    let b = a + 1
+    let c = `${a},${b}`
+    out = c
+    other = b
+  view
+    column
+      text out testId="out"
+      button "go" press=go testId="go"
+      button "b5" press=branch(5) testId="b5"
+      button "b50" press=branch(50) testId="b50"
+      button "chain" press=chain testId="chain"
+
+test "local after write sees pre-state"
+  tap "go"
+  expect state count == 4
+  expect text "out" == "3->3"
+  tap "go"
+  expect text "out" == "4->4"
+
+test "block scoping"
+  tap "b5"
+  expect text "out" == "small:10"
+  tap "b50"
+  expect text "out" == "big:50"
+
+test "let chain"
+  tap "chain"
+  expect text "out" == "6,7"
+  expect state other == 7

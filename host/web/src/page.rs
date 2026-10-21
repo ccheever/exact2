@@ -179,10 +179,11 @@ fn fonts(out: &mut String, plan: &Plan) -> Result<(), DocumentError> {
         }
         let _ = write!(
             rules,
-            "@font-face{{font-family:\"{}\";src:url(\"{}\");font-weight:{};font-style:{}}}",
+            "@font-face{{font-family:\"{}\";src:url(\"{}\");font-weight:{};font-stretch:{};font-style:{}}}",
             face.family,
             face.source,
-            face.weight,
+            face.weight_css(),
+            face.stretch_css(),
             if face.italic { "italic" } else { "normal" }
         );
     }
@@ -433,7 +434,7 @@ impl<D: DataSource> crate::Host<D> {
         data: D,
         page: &str,
         page_digest: &str,
-        snapshot: Vec<(String, String)>,
+        snapshot: Vec<(String, Vec<u8>)>,
         compat: Option<&str>,
         viewport: exact_runner::Viewport,
         launch: &str,
@@ -460,7 +461,7 @@ impl<D: DataSource> crate::Host<D> {
         data: D,
         page: &str,
         page_digest: &str,
-        snapshot: Vec<(String, String)>,
+        snapshot: Vec<(String, Vec<u8>)>,
         compat: Option<&str>,
         viewport: exact_runner::Viewport,
         launch: &str,
@@ -505,18 +506,29 @@ impl<D: DataSource> crate::Host<D> {
         let delivery = compat.map_or_else(Default::default, |json| {
             exact_runner::Delivery::default().with_compat(json)
         });
-        let runner = Runner::boot_checkpoint_linked(
-            crate::link::runner_links(),
-            plan,
-            data,
-            crate::host::browser_kernel(),
-            &checkpoint,
-            snapshot,
-            delivery,
-            viewport,
-            launch,
-        )
-        .map_err(crate::HostError::Runner)?;
+        let boot = || {
+            Runner::boot_checkpoint_linked(
+                crate::link::runner_links(),
+                plan,
+                data,
+                crate::host::browser_kernel(),
+                &checkpoint,
+                snapshot,
+                delivery,
+                viewport,
+                launch,
+            )
+        };
+        // A checkpoint on its renderer's clock is no clock the page's date
+        // is against: told after the boot. A drive's starts at zero.
+        let booted = if driven {
+            boot()
+        } else {
+            exact_runner::time::without_launch_time(boot)
+        };
+        let mut runner = booted.map_err(crate::HostError::Runner)?;
+        // @ref LLP 1079 D1 — as `Host::boot_linked`.
+        runner.measure_unless_production(compat, false);
         // The renderer's location: the runtime's only input of its own is its
         // first tree, so a query the app doesn't read adopts the same document.
         // The projection's per-view results serve the first batch too.

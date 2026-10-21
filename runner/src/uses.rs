@@ -20,7 +20,7 @@ use std::fmt;
 pub enum Capability {
     /// `markup="markdown"` text: its source styled as pieces.
     Markdown,
-    /// Springs and holds: a `transition` that can be a `spring()`, and the
+    /// Springs and holds: a `transition` that can be a `-exact-spring()`, and the
     /// gestures that hold a value (a swipe, a height, transform or reorder
     /// drag). CSS plays every other transition.
     Motion,
@@ -46,12 +46,12 @@ pub enum Capability {
     /// `share(…)` (LLP 1069.003): a plan whose code runs the command.
     Share,
     /// `saveFile` and the three file pickers (LLP 1069.010): a plan whose
-    /// code runs one.
+    /// code runs one, or that hears a `drop` of files (studio diary R19).
     Documents,
     /// `input type="file"` and `showPicker` (LLP 1069.002): a plan with a
     /// file input, or whose code runs the command.
     Picker,
-    /// Drag timelines (LLP 1057.003): `drag-timeline`, `animation-timeline`,
+    /// Drag timelines (LLP 1057.003): `-exact-drag-timeline`, `animation-timeline`,
     /// `animation-range` and `timeline-scope`, their grammar, lowering and
     /// name lookup. A timeline follows a held value, so it uses motion too.
     Timelines,
@@ -63,20 +63,73 @@ pub enum Capability {
     Effects,
     /// CSS animations (LLP 1055 D5): the `animation` shorthand's and
     /// `@keyframes`' grammars, for a plan that declares keyframes or binds
-    /// `animation` or `exit-animation`.
+    /// `animation` or `-exact-exit-animation`.
     Animations,
     /// `background-image`'s gradients (LLP 1066): its grammar, for a plan
     /// that binds the row.
     Gradients,
+    /// CSS grid's track, placement and keyword grammars, for a plan that
+    /// binds any of the six grid rows.
+    Grid,
     /// `frame` and `measure` (LLP 1051.000): a plan whose actions read
     /// geometry. Native hosts answer from the kernel; the web links a
     /// synchronous import the page answers.
     Geometry,
+    /// `env(viewport-segment-*)` lengths (LLP 1078 D3): the segment grammar,
+    /// resolution and wire decode, for a plan whose strings name a segment.
+    /// The fold's `exactViewport` fields are the core's.
+    Segments,
+    /// `data-*` words (LLP 1075.003 §3.3): a plan that binds `dataset`. The
+    /// web writes each word as its own attribute.
+    Dataset,
+    /// A navigation root's tabs (LLP 1075.003 §3.7): a plan that binds
+    /// `aria-controls`. The web's document shows each tab's stack.
+    Tabs,
+    /// `showNotification` and `closeNotification` (rules/DEFERRED.md,
+    /// 2026-10-04): a plan whose code runs one.
+    Notifications,
+    /// A native grouped list: a `list` whose appearance is `auto`, which
+    /// Contract marks with `listStyle` (LLP 1084 D2). A native host draws it
+    /// with the platform's list; the web draws its authored nodes, so the web
+    /// links nothing for it (LLP 1047.001 D2).
+    GroupedLists,
+    /// The host's I/O: the requests a data source makes (fetch, sockets,
+    /// files, SQLite) and the kept secrets and answers it stores. A plan
+    /// uses it when a resource keeps its answer (a reader); an app's grants
+    /// link it too, which the bake reads (LLP 1047.001). The browser does
+    /// its own, so the web links nothing for it.
+    Io,
+    /// What a native engine plays that CSS plays on the web: a `transition`,
+    /// a `-exact-layout-transition` or a shared element's flight. A native
+    /// host's motion engine moves them; without them it only settles values
+    /// (LLP 1047.001). The browser plays them, so the web links nothing for
+    /// it.
+    Transitions,
+    /// iOS's photo picker (LLP 1047.001.000 E): a file input whose `accept`
+    /// is only images and videos, or is computed. Linking it costs every
+    /// launch PhotosUI's images, so a document input does not; the picker
+    /// itself is [`Capability::Picker`].
+    MediaPicker,
+    /// The sign-in sheet behind `openAuthSession` (LLP 1047.001.000 E):
+    /// never set by a plan, since a data source's requests are the source's;
+    /// the bake links it for an app whose grants name `auth.session`, and a
+    /// manifest's `link` may name it.
+    AuthSession,
+    /// A text's numerals rolling as they change, per glyph
+    /// (`-exact-content-transition`, LLP 1077 D15): on Apple, SwiftUI's
+    /// numeric text, whose framework an app links only for this (LLP
+    /// 1115.003 D3). A plan uses it when it binds the row.
+    Numerals,
+    /// A date or time control (`input type="date"`, `"time"` or
+    /// `"datetime-local"`): on Android its picker is Compose Material 3's,
+    /// which an app links only for it (LLP 1115.001.000 D2). Every other
+    /// host shows its platform's own picker and links nothing for it.
+    Dates,
 }
 
 impl Capability {
     /// Every capability, in bit order.
-    pub const ALL: [Capability; 18] = [
+    pub const ALL: [Capability; 30] = [
         Capability::Markdown,
         Capability::Motion,
         Capability::Collections,
@@ -94,7 +147,19 @@ impl Capability {
         Capability::Effects,
         Capability::Animations,
         Capability::Gradients,
+        Capability::Grid,
         Capability::Geometry,
+        Capability::Segments,
+        Capability::Dataset,
+        Capability::Tabs,
+        Capability::Notifications,
+        Capability::GroupedLists,
+        Capability::Io,
+        Capability::Transitions,
+        Capability::MediaPicker,
+        Capability::AuthSession,
+        Capability::Numerals,
+        Capability::Dates,
     ];
 
     /// The name an entry, a refusal and a report use.
@@ -117,8 +182,26 @@ impl Capability {
             Capability::Effects => "effects",
             Capability::Animations => "animations",
             Capability::Gradients => "gradients",
+            Capability::Grid => "grid",
             Capability::Geometry => "geometry",
+            Capability::Segments => "segments",
+            Capability::Dataset => "dataset",
+            Capability::Tabs => "tabs",
+            Capability::Notifications => "notifications",
+            Capability::GroupedLists => "grouped_lists",
+            Capability::Io => "io",
+            Capability::Transitions => "transitions",
+            Capability::MediaPicker => "media_picker",
+            Capability::AuthSession => "auth_session",
+            Capability::Numerals => "numerals",
+            Capability::Dates => "dates",
         }
+    }
+
+    /// The capability `name` names ([`Capability::name`]), as a manifest's
+    /// `link` list does (LLP 1047 D8).
+    pub fn from_name(name: &str) -> Option<Capability> {
+        Capability::ALL.into_iter().find(|c| c.name() == name)
     }
 
     const fn bit(self) -> u32 {
@@ -182,6 +265,16 @@ pub fn uses(plan: &Plan) -> Uses {
     if plan.router.is_some() {
         uses = uses.with(Capability::Router);
     }
+    // A reader's last answer is kept in the host's store (LLP 1027 D4).
+    if plan.resources.iter().any(|r| r.reader) {
+        uses = uses.with(Capability::Io);
+    }
+    // A segment length is a value, not a row: any string of the plan's
+    // naming one (a literal, a template's piece) can reach a dimension row,
+    // so the set is never smaller than what a run can reach.
+    if plan.strings.iter().any(names_segment) {
+        uses = uses.with(Capability::Segments);
+    }
     if !plan.surfaces.is_empty()
         || plan
             .resources
@@ -193,28 +286,40 @@ pub fn uses(plan: &Plan) -> Uses {
     let can_be = |binding: &exact_plan::BindingsRow, used: &dyn Fn(&str) -> bool| {
         constant_str(plan, plan.code(binding.expr)).is_none_or(used)
     };
-    for binding in &plan.bindings {
+    for binding in plan.bindings.iter() {
         match binding.kind {
             BindingKind::Prop => match PropId::from_wire(binding.id) {
-                Some(PropId::Markup) if can_be(binding, &|v| v == "markdown") => {
+                Some(PropId::Markup) if can_be(&binding, &|v| v == "markdown") => {
                     uses = uses.with(Capability::Markdown);
                 }
                 Some(PropId::HeightDragFor | PropId::TransformDragFor | PropId::ReorderFor) => {
                     uses = uses.with(Capability::Motion).with(Capability::Drag);
                 }
+                // A shared element flies between its two places (LLP 1013.000).
+                Some(PropId::SharedElement) => uses = uses.with(Capability::Transitions),
                 Some(PropId::Virtualized)
                     if constant_bool(plan.code(binding.expr)).is_none_or(|on| on) =>
                 {
                     uses = uses.with(Capability::Collections);
                 }
                 Some(PropId::BackgroundMaterial) => uses = uses.with(Capability::Materials),
-                Some(PropId::Type) if can_be(binding, &|v| v == "file") => {
+                Some(PropId::ListStyle) => uses = uses.with(Capability::GroupedLists),
+                Some(PropId::Dataset) => uses = uses.with(Capability::Dataset),
+                Some(PropId::AccessibilityControls) => uses = uses.with(Capability::Tabs),
+                Some(PropId::Type) if can_be(&binding, &|v| v == "file") => {
                     uses = uses.with(Capability::Picker);
+                }
+                Some(PropId::Type)
+                    if can_be(&binding, &|v| {
+                        matches!(v, "date" | "time" | "datetime-local")
+                    }) =>
+                {
+                    uses = uses.with(Capability::Dates);
                 }
                 _ => {}
             },
             BindingKind::Style => {
-                if StyleId::from_bit(u32::from(binding.id)) == Some(StyleId::BackdropBlur) {
+                if StyleId::from_bit(u32::from(binding.id)) == Some(StyleId::BackdropFilter) {
                     uses = uses.with(Capability::Backdrop);
                 }
                 if matches!(
@@ -231,6 +336,9 @@ pub fn uses(plan: &Plan) -> Uses {
                 if StyleId::from_bit(u32::from(binding.id)) == Some(StyleId::TextTransform) {
                     uses = uses.with(Capability::TextTransform);
                 }
+                if StyleId::from_bit(u32::from(binding.id)) == Some(StyleId::ContentTransition) {
+                    uses = uses.with(Capability::Numerals);
+                }
                 if matches!(
                     StyleId::from_bit(u32::from(binding.id)),
                     Some(StyleId::Filter | StyleId::ClipPath)
@@ -243,13 +351,37 @@ pub fn uses(plan: &Plan) -> Uses {
                 ) {
                     uses = uses.with(Capability::Animations);
                 }
-                if StyleId::from_bit(u32::from(binding.id)) == Some(StyleId::BackgroundImage) {
+                if matches!(
+                    StyleId::from_bit(u32::from(binding.id)),
+                    Some(StyleId::BackgroundImage | StyleId::MaskImage)
+                ) {
                     uses = uses.with(Capability::Gradients);
                 }
+                if matches!(
+                    StyleId::from_bit(u32::from(binding.id)),
+                    Some(
+                        StyleId::GridTemplateColumns
+                            | StyleId::GridTemplateRows
+                            | StyleId::GridColumn
+                            | StyleId::GridRow
+                            | StyleId::GridAutoFlow
+                            | StyleId::JustifyItems
+                    )
+                ) {
+                    uses = uses.with(Capability::Grid);
+                }
                 if StyleId::from_bit(u32::from(binding.id)) == Some(StyleId::Transition)
-                    && can_be(binding, &|v| v.contains("spring"))
+                    && can_be(&binding, &|v| v.contains("spring"))
                 {
                     uses = uses.with(Capability::Motion);
+                }
+                // A native engine plays every transition, a layout's too.
+                if matches!(
+                    StyleId::from_bit(u32::from(binding.id)),
+                    Some(StyleId::Transition | StyleId::LayoutTransition)
+                ) && can_be(&binding, &|v| !matches!(v.trim(), "" | "none"))
+                {
+                    uses = uses.with(Capability::Transitions);
                 }
             }
         }
@@ -265,6 +397,11 @@ pub fn uses(plan: &Plan) -> Uses {
             | EventKind::Reorderdrop => {
                 uses = uses.with(Capability::Motion).with(Capability::Drag);
             }
+            // Dropped and pasted files become `doc:` handles (studio diary
+            // R19); the web's file drag is heard beside its drop (files.js).
+            EventKind::Drop | EventKind::Dragenter | EventKind::Dragleave | EventKind::Paste => {
+                uses = uses.with(Capability::Documents)
+            }
             _ => {}
         }
     }
@@ -275,12 +412,19 @@ pub fn uses(plan: &Plan) -> Uses {
     {
         uses = uses.with(Capability::Collections);
     }
-    let (format, geometry) = stdlib_calls(plan);
+    let (format, geometry, lowercase) = stdlib_calls(plan);
     if format {
         uses = uses.with(Capability::Format);
     }
+    // `toLowerCase` and `toUpperCase` map through the same case tables (LLP 1088 D2).
+    if lowercase {
+        uses = uses.with(Capability::TextTransform);
+    }
     if runs_command(plan, &["share"]) {
         uses = uses.with(Capability::Share);
+    }
+    if runs_command(plan, &["showNotification", "closeNotification"]) {
+        uses = uses.with(Capability::Notifications);
     }
     if runs_command(
         plan,
@@ -299,7 +443,40 @@ pub fn uses(plan: &Plan) -> Uses {
     if geometry {
         uses = uses.with(Capability::Geometry);
     }
+    if shows_media_picker(plan) {
+        uses = uses.with(Capability::MediaPicker);
+    }
     uses
+}
+
+/// Whether a file input of `plan` can take iOS's photo picker: its `type`
+/// can be `file` and its `accept`, as the host reads it, is a non-empty list
+/// of only `image/…` and `video/…` types, or is computed. `showPicker` names
+/// an input, so the inputs decide.
+fn shows_media_picker(plan: &Plan) -> bool {
+    let media = |accept: &str| {
+        let types: Vec<String> = accept
+            .split(',')
+            .map(|t| t.trim().to_ascii_lowercase())
+            .filter(|t| !t.is_empty())
+            .collect();
+        !types.is_empty()
+            && types
+                .iter()
+                .all(|t| t.starts_with("image/") || t.starts_with("video/"))
+    };
+    plan.nodes.iter().any(|node| {
+        let prop = |id: PropId| {
+            node.bindings
+                .iter()
+                .map(|b| plan.binding(b))
+                .find(|b| b.kind == BindingKind::Prop && b.id == id as u16)
+        };
+        let file = prop(PropId::Type)
+            .is_some_and(|b| constant_str(plan, plan.code(b.expr)).is_none_or(|v| v == "file"));
+        file && prop(PropId::Accept)
+            .is_some_and(|b| constant_str(plan, plan.code(b.expr)).is_none_or(media))
+    })
 }
 
 /// Whether `plan` can show an SVG island (LLP 1055.000 D10, D14): a `mask`
@@ -336,26 +513,77 @@ pub fn svg_filters(plan: &Plan) -> bool {
         })
 }
 
-/// Whether any code range calls a `format` entry, and whether any reads
-/// geometry (`frame`, `measure`): each validated body walked whole, so no
-/// call a run can reach is missed.
-fn stdlib_calls(plan: &Plan) -> (bool, bool) {
-    let (mut format, mut geometry) = (false, false);
+/// Whether any code range calls a `format` entry, whether any reads
+/// geometry (`frame`, `measure`, `elementFromPoint`), and whether any calls `toLowerCase` or `toUpperCase`: each
+/// validated body walked whole, so no call a run can reach is missed.
+fn stdlib_calls(plan: &Plan) -> (bool, bool, bool) {
+    let (mut format, mut geometry, mut lowercase) = (false, false, false);
     plan.each_code(&mut |code| {
         for i in crate::vm::instructions(plan.code(code)).flatten() {
             if i.op == Opcode::Call {
                 match Stdlib::from_wire(i.args[0] as u8) {
-                    Some(Stdlib::FormatDate | Stdlib::FormatNumber) => format = true,
-                    Some(Stdlib::Frame | Stdlib::Measure) => geometry = true,
+                    Some(
+                        Stdlib::FormatDate
+                        | Stdlib::FormatNumber
+                        | Stdlib::ToFixed
+                        | Stdlib::FormatDecimal
+                        | Stdlib::FormatDay,
+                    ) => format = true,
+                    Some(
+                        Stdlib::Frame
+                        | Stdlib::RangeFrame
+                        | Stdlib::Measure
+                        | Stdlib::ElementFromPoint
+                        | Stdlib::ElementsFromPoint
+                        | Stdlib::QuerySelectorAll,
+                    ) => geometry = true,
+                    Some(Stdlib::ToLowerCase | Stdlib::ToUpperCase) => lowercase = true,
                     _ => {}
                 }
             }
         }
     });
-    (format, geometry)
+    (format, geometry, lowercase)
 }
 
 /// Whether any code range runs a host command named one of `names`.
+/// Whether `plan` declares a sound or a sequence, or runs one of the voice
+/// table's commands (LLP 1096; LLP 1125 D3): what links the JS target's
+/// table and its output.
+pub fn runs_sounds(plan: &Plan) -> bool {
+    !plan.sounds.is_empty()
+        || !plan.sequences.is_empty()
+        || runs_command(plan, &["playSound", "playSounds", "stopSounds"])
+}
+
+/// Whether `plan` asks for MIDI ports or hears an input (LLP 1125 D6–D8):
+/// it reads `exactMIDI`, runs `sendMIDI` or `requestMIDIAccess`, declares a
+/// `midimessage` handler, or plays a sequence with `clockOut=`. What loads a
+/// host's MIDI arm (rulings #10); a sequence's notes alone do not, since
+/// without access no note is sent.
+pub fn uses_midi(plan: &Plan) -> bool {
+    plan.resources
+        .iter()
+        .any(|r| plan.str(r.source) == crate::midi::SOURCE)
+        || runs_command(plan, &["sendMIDI", "requestMIDIAccess"])
+        || plan.nodes.iter().any(|n| {
+            n.handlers
+                .iter()
+                .any(|h| plan.handler(h).event == exact_plan::EventKind::Midimessage)
+        })
+        || plan.sequences.iter().any(|q| {
+            constant_str(plan, plan.code(q.clock_out)) != Some("")
+                || constant_str(plan, plan.code(q.clock)) != Some("")
+        })
+}
+
+/// Whether the runner keeps a MIDI queue the agent shows (`state.midi`):
+/// for a plan that [`uses_midi`] or declares a sequence, whose notes and
+/// clock go on it. The JS target bundles midi.js then.
+pub fn keeps_midi(plan: &Plan) -> bool {
+    uses_midi(plan) || !plan.sequences.is_empty()
+}
+
 fn runs_command(plan: &Plan, names: &[&str]) -> bool {
     let mut runs = false;
     plan.each_code(&mut |code| {
@@ -394,4 +622,12 @@ fn constant_str<'a>(plan: &'a Plan, code: &[u8]) -> Option<&'a str> {
         }
         _ => None,
     }
+}
+
+/// Whether a string names a viewport segment variable (`viewport-segment-`
+/// anywhere in it): a byte scan, so the core carries no string searcher
+/// for it.
+fn names_segment(s: &str) -> bool {
+    const NAME: &[u8] = b"viewport-segment-";
+    s.as_bytes().windows(NAME.len()).any(|w| w == NAME)
 }

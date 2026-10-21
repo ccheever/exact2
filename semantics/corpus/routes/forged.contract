@@ -1,0 +1,60 @@
+// A router value from somewhere else: a program cannot build one, but a
+// source can answer the compiler's shapes. The router slot must hold a
+// valid router after every commit (else the commit is refused), and a verb
+// or read of an invalid router traps; searchParam reads any entry.
+routes nav
+  tab home "/"
+    post "/post/:post"
+
+component App
+  resource forged = loadRouter() as shape Router
+  resource entry = loadEntry() as shape Entry
+  state saved = nav
+  state n = 0
+  derive current = top(nav)
+  derive q = searchParam(entry, "q")
+  action adopt
+    nav = forged
+  action pushForged
+    nav = push(forged, "/post/1")
+  action readForged
+    nav = push(nav, top(forged).url)
+  action depthForged
+    n = depth(forged)
+  action save
+    saved = nav
+  action restore
+    nav = saved
+  action pushPost
+    nav = push(nav, "/post/1")
+  action back
+    nav = back(nav)
+  view
+    column
+      text current.url testId="url"
+      text `${current.id}` testId="id"
+      text q testId="q"
+      text entry.url testId="entry-url"
+      button "x" press=adopt testId="adopt"
+      button "x" press=pushForged testId="push-forged"
+      button "x" press=readForged testId="read-forged"
+      button "x" press=depthForged testId="depth-forged"
+      button "x" press=save testId="save"
+      button "x" press=restore testId="restore"
+      button "x" press=pushPost testId="push-post"
+      button "x" press=back testId="back"
+
+test "a forged router is refused or traps"
+  tap "adopt"
+  tap "push-forged"
+  tap "read-forged"
+  tap "depth-forged"
+  tap "push-post"
+
+test "a router saved and restored is valid"
+  tap "push-post"
+  tap "save"
+  tap "back"
+  tap "restore"
+  expect text "url" == "/post/1"
+  tap "push-post"

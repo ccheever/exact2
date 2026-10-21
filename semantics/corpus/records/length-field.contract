@@ -1,0 +1,31 @@
+// A record's field may be named `length` (LLP 1116.015 D2, amended
+// 2026-10-17): `x.length` reads it when the receiver is such a record, and
+// counts a list or text otherwise.
+shape Lane
+  name: string
+  length: number
+  hits: number[]
+
+fn steps(l: Lane): number = l.length
+
+component App
+  state lane = Lane(name="kick", length=16, hits=[0, 4])
+  state lanes = [Lane(name="a", length=8, hits=[]), Lane(name="bb", length=12, hits=[1])]
+  derive longest = lanes.filter(l => l.length > 10).length
+  derive total = sum(lanes.map(l => l.length))
+  action grow
+    lane = Lane(lane, length=lane.length + 1)
+  view
+    column
+      text `${lane.length} ${steps(lane)} ${lane.name.length} ${lane.hits.length}` testId="lane"
+      text `${lanes.length} ${longest} ${total}` testId="lanes"
+      for l in lanes key=l.name
+        text `${l.name}: ${l.length} ${l.name.length}` testId=`row-${l.name}`
+      button "grow" press=grow testId="grow"
+
+test "a field named length is read and written"
+  expect text "lane" == "16 16 4 2"
+  expect text "lanes" == "2 1 20"
+  expect text "row-bb" == "bb: 12 2"
+  tap "grow"
+  expect text "lane" == "17 17 4 2"

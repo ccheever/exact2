@@ -1,6 +1,6 @@
 // `<native-map>` on Apple hosts (LLP 1024): MKMapView, the platform's own
 // map and gestures. Props: latitude, longitude, span (degrees of latitude in
-// view), pins (`id|lat|lon|title;…`), selected (an id). Events: `change`
+// view; a new span alone zooms about what the map shows now, a pan kept), pins (`id|lat|lon|title;…`), selected (an id). Events: `change`
 // with the id of a pin the person selected on the map. A `selected` prop
 // selects and centres without an event. MapKit draws with Metal, which the
 // host's ordinary capture cannot see, so the tag answers snapshots
@@ -113,7 +113,11 @@ final class NativeMap: ExactNativeInstance {
         if map.userTrackingMode != .none { map.setUserTrackingMode(.none, animated: false) }
         #endif
         map.mapType = .standard
-        map.isScrollEnabled = true; map.isZoomEnabled = true; map.isRotateEnabled = true; map.isPitchEnabled = true
+        map.isScrollEnabled = true; map.isZoomEnabled = true
+        #if !os(tvOS)
+        // tvOS's map has neither gesture.
+        map.isRotateEnabled = true; map.isPitchEnabled = true
+        #endif
         #if os(macOS)
         map.setAccessibilityLabel("Map of stores")
         #else
@@ -131,8 +135,9 @@ final class NativeMap: ExactNativeInstance {
     private func apply(_ next: [String: String], first: Bool) {
         applying = true
         defer { applying = false }
-        if first || next["latitude"] != props["latitude"] || next["longitude"] != props["longitude"] || next["span"] != props["span"] {
-            let centre = CLLocationCoordinate2D(latitude: Double(next["latitude"] ?? "") ?? 0, longitude: Double(next["longitude"] ?? "") ?? 0)
+        let moved = first || next["latitude"] != props["latitude"] || next["longitude"] != props["longitude"]
+        if moved || next["span"] != props["span"] {
+            let centre = moved ? CLLocationCoordinate2D(latitude: Double(next["latitude"] ?? "") ?? 0, longitude: Double(next["longitude"] ?? "") ?? 0) : map.centerCoordinate
             let span = Double(next["span"] ?? "") ?? 0.05
             map.setRegion(MKCoordinateRegion(center: centre, span: MKCoordinateSpan(latitudeDelta: span, longitudeDelta: span)), animated: !first)
         }

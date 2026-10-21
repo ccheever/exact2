@@ -1,0 +1,9 @@
+- **Blocker — native cancellation leaves unbounded detached readers.** [executor_body.rs:78](/private/tmp/bsky4-rv/wt-bf/host/apple/src/executor_body.rs:78). Timeout/abort now settles the request, but its read thread continues without cancellation or a retained capacity reservation. Repeated uploads against a stalled filesystem accumulate threads, descriptors and buffers after executor slots are released. **Fix:** bound outstanding readers, retain their reservations until they exit, and check cancellation between read operations. Astra’s native finding is only partially resolved.
+
+- **Should-fix — pre-aborted uploads produce an unhandled rejection.** [ts-fetch.js:51](/private/tmp/bsky4-rv/wt-bf/host/web-js/ts-fetch.js:51). `ended` is already rejected when this branch throws, bypassing the `Promise.race` that would handle it. An in-memory probe caught the fetch rejection but still received `unhandledRejection`. Acquisition is correctly skipped, resolving Grok’s original nit with this regression. **Fix:** check pre-abort before constructing `ended`.
+
+The remaining findings are resolved: both web checks reject immediately before transport after deadline expiry; streams honor `Request.signal`, `init.signal` and override semantics; UTF-8 counting matches `TextEncoder`; `Request` URLs using `wss:` are refused; and the new receipt test asserts the actual `app.plan` requirement.
+
+In-memory probes confirmed valid uploads still send and stream aborts settle during acquisition and response reading. Native behavior and the receipt test were source-traced; no native builds ran.
+
+**Blocks landing: yes — the unbounded native readers.**

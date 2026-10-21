@@ -1,7 +1,7 @@
 //! Refusals that need no types: an element's tag, its attributes' names,
 //! and its literal style values against their rows.
 
-use crate::{native, svg, tags, values, LowerError, MAX_REFUSALS};
+use crate::{dataset, native, svg, tags, values, LowerError, MAX_REFUSALS};
 use contract_syntax::{Attr, File, Node, Span};
 use contract_types::Ty;
 use exact_kernel::StyleId;
@@ -19,18 +19,344 @@ pub(crate) fn unknown_tag(tag: &str, span: Span) -> LowerError {
     }
 }
 
+/// CSS's fragmentation properties exact2 knows and does not implement: the
+/// spanning element and paged media's breaks (LLP 1093 §1, §5). Multi-column
+/// layout and its `break-*`, `widows` and `orphans` are rows (LLP 1093); these
+/// are refused by what they would need, not as misspellings.
+pub(crate) fn fragmentation(name: &str) -> Option<&'static str> {
+    Some(match name {
+        "column-span" => "is CSS Multi-column Layout's spanning element, which exact2 does not implement (only `column-span: none` exists, LLP 1093 §1); end the column flow and put the spanning content after it",
+        "page-break-before" | "page-break-after" | "page-break-inside" => "controls where content breaks across printed pages, and exact2 does not print (LLP 1093 §5); in a multi-column flow `break-before`, `break-after` and `break-inside` take `column`, `avoid-column` and `avoid`",
+        _ => return None,
+    })
+}
+
+/// WAI-ARIA 1.2's states and properties: an unknown `aria-*` name is told
+/// whether ARIA has it, and which of these Contract carries (`tags::attr`).
+const ARIA: &[&str] = &[
+    "aria-activedescendant",
+    "aria-atomic",
+    "aria-autocomplete",
+    "aria-braillelabel",
+    "aria-brailleroledescription",
+    "aria-busy",
+    "aria-checked",
+    "aria-colcount",
+    "aria-colindex",
+    "aria-colindextext",
+    "aria-colspan",
+    "aria-controls",
+    "aria-current",
+    "aria-describedby",
+    "aria-description",
+    "aria-details",
+    "aria-disabled",
+    "aria-dropeffect",
+    "aria-errormessage",
+    "aria-expanded",
+    "aria-flowto",
+    "aria-grabbed",
+    "aria-haspopup",
+    "aria-hidden",
+    "aria-invalid",
+    "aria-keyshortcuts",
+    "aria-label",
+    "aria-labelledby",
+    "aria-level",
+    "aria-live",
+    "aria-modal",
+    "aria-multiline",
+    "aria-multiselectable",
+    "aria-orientation",
+    "aria-owns",
+    "aria-placeholder",
+    "aria-posinset",
+    "aria-pressed",
+    "aria-readonly",
+    "aria-relevant",
+    "aria-required",
+    "aria-roledescription",
+    "aria-rowcount",
+    "aria-rowindex",
+    "aria-rowindextext",
+    "aria-rowspan",
+    "aria-selected",
+    "aria-setsize",
+    "aria-sort",
+    "aria-valuemax",
+    "aria-valuemin",
+    "aria-valuenow",
+    "aria-valuetext",
+];
+
+/// The physical longhands for a CSS logical box property (r37 t1 wrote `padding-block`),
+/// in a left-to-right, top-to-bottom flow.
+fn logical(name: &str) -> Option<String> {
+    let (base, rest) = ["padding", "margin", "inset"]
+        .into_iter()
+        .find_map(|b| name.strip_prefix(b).map(|r| (b, r)))?;
+    let side = |s: &str| {
+        if base == "inset" {
+            format!("`{s}`")
+        } else {
+            format!("`{base}-{s}`")
+        }
+    };
+    Some(match rest {
+        "-block" => format!("{} and {}", side("top"), side("bottom")),
+        "-inline" => format!(
+            "{} and {} in a left-to-right flow",
+            side("left"),
+            side("right")
+        ),
+        "-block-start" => side("top"),
+        "-block-end" => side("bottom"),
+        "-inline-start" => format!("{} in a left-to-right flow", side("left")),
+        "-inline-end" => format!("{} in a left-to-right flow", side("right")),
+        _ => return None,
+    })
+}
+
+/// What is written for a React Native style name that has no one CSS name.
+pub(crate) fn react_native(name: &str) -> Option<&'static str> {
+    Some(match name {
+        "paddingHorizontal" => "; React Native's `paddingHorizontal` is `padding-left` and `padding-right` here, or `padding=\"<vertical> <horizontal>\"`",
+        "paddingVertical" => "; React Native's `paddingVertical` is `padding-top` and `padding-bottom` here, or `padding=\"<vertical> <horizontal>\"`",
+        "marginHorizontal" => "; React Native's `marginHorizontal` is `margin-left` and `margin-right` here, or `margin=\"<vertical> <horizontal>\"`",
+        "marginVertical" => "; React Native's `marginVertical` is `margin-top` and `margin-bottom` here, or `margin=\"<vertical> <horizontal>\"`",
+        "shadowColor" | "shadowOpacity" | "shadowRadius" | "shadowOffset" | "elevation" => {
+            "; React Native's shadow is one `box-shadow=\"<x>px <y>px <2 × shadowRadius>px <shadowColor at shadowOpacity>\"` here"
+        }
+        "selectable" => "; selectable text is `user-select=\"text\"` here",
+        _ => return None,
+    })
+}
+
+/// The edit for HTML's `style=`: a node's own look is its attributes, and a
+/// look nodes share is a `style` block named by `class=`. CSS declarations
+/// (`"padding: 8px; color: red"`) are written back as the attributes, each
+/// one the hint can say in Contract: a name that is an attribute identifier
+/// (a custom property is not), a plain number unquoted as the lexer wants
+/// it, `!important` dropped. A bare word is `class=` unless it is reserved
+/// (`none`, `if`).
+///
+/// The rewrite is written only for distinct properties that cannot overlap:
+/// CSS resolves a property written twice, or a shorthand beside its longhand,
+/// by importance and order, and Contract's attributes do not, so such a set
+/// gets the hint without a rewrite rather than one that means something else.
+fn style_hint(value: &contract_syntax::Expr) -> String {
+    let shared = "a look nodes share is a `style Name` block in the file, named with `class=Name`";
+    let contract_syntax::Expr::Str(text, _) = value else {
+        return format!("; a node's look is its attributes (`padding=8 color=\"-exact-secondary-label\"`), and {shared}");
+    };
+    // Each declaration: its name, and its value as a string literal's text
+    // or a bare number.
+    let decls: Vec<(&str, String)> = declarations(text)
+        .into_iter()
+        .filter_map(|d| {
+            let (name, value) = d.split_once(':')?;
+            let name = name.trim();
+            if !attribute_name(name) {
+                return None;
+            }
+            // A string literal of the value: CSS's runs of whitespace as one
+            // space, which mean the same, and every other control character,
+            // a quote and a backslash escaped.
+            let value = value.split_whitespace().collect::<Vec<_>>().join(" ");
+            let value = match value.strip_suffix("important").map(str::trim_end) {
+                Some(v) if v.ends_with('!') => v[..v.len() - 1].trim_end(),
+                _ => value.as_str(),
+            };
+            // A number token begins with a digit (`.5` is not one).
+            if value.starts_with(|c: char| c.is_ascii_digit())
+                && value.bytes().all(|b| b.is_ascii_digit() || b == b'.')
+                && value.parse::<f64>().is_ok()
+            {
+                return Some((name, value.to_string()));
+            }
+            let value: String = value
+                .chars()
+                .map(|c| match c {
+                    '\\' | '"' => format!("\\{c}"),
+                    c if c.is_control() => format!("\\u{{{:x}}}", c as u32),
+                    c => c.to_string(),
+                })
+                .collect();
+            Some((name, format!("\"{value}\"")))
+        })
+        .collect();
+    let distinct = decls
+        .iter()
+        .enumerate()
+        .all(|(i, a)| decls[i + 1..].iter().all(|b| !overlap(a.0, b.0)));
+    let word = text.trim();
+    if !decls.is_empty() && distinct {
+        let attrs: Vec<String> = decls.iter().map(|(n, v)| format!("{n}={v}")).collect();
+        format!(
+            "; write the declarations as attributes, `{}`: a node's look is its attributes, and {shared}",
+            attrs.join(" ")
+        )
+    } else if !text.contains(':') && attribute_name(word) && !contract_syntax::is_reserved(word) {
+        format!("; write `class={word}`: {shared}, and a node's own look is its attributes")
+    } else {
+        format!("; {shared}, and a node's own look is its attributes")
+    }
+}
+
+/// Whether two CSS properties may set the same thing: one name, one a prefix
+/// of the other at a hyphen (`flex` and `flex-grow`, `border` and
+/// `border-top-left-radius`), or a shorthand whose longhands are named
+/// otherwise. CSS shorthands are not modelled further: a doubtful pair is an
+/// overlap.
+fn overlap(a: &str, b: &str) -> bool {
+    let prefix = |short: &str, long: &str| {
+        long.len() > short.len() && long.starts_with(short) && long.as_bytes()[short.len()] == b'-'
+    };
+    let family = |short: &str, long: &str| match short {
+        "font" => matches!(long, "line-height"),
+        "inset" => matches!(long, "top" | "right" | "bottom" | "left"),
+        "gap" => matches!(long, "row-gap" | "column-gap"),
+        "columns" => matches!(long, "column-width" | "column-count"),
+        "flex-flow" => matches!(long, "flex-direction" | "flex-wrap"),
+        "place-items" => matches!(long, "align-items" | "justify-items"),
+        "place-content" => matches!(long, "align-content" | "justify-content"),
+        "place-self" => matches!(long, "align-self" | "justify-self"),
+        "grid-area" => long.starts_with("grid-row") || long.starts_with("grid-column"),
+        "border-radius" => long.starts_with("border-") && long.ends_with("-radius"),
+        _ => false,
+    };
+    a == b || prefix(a, b) || prefix(b, a) || family(a, b) || family(b, a)
+}
+
+/// CSS declarations split at `;` outside quotes and parentheses
+/// (`font-family: "A; B"`, `url(data:;base64,…)`), empty ones left out.
+fn declarations(text: &str) -> Vec<&str> {
+    let (mut out, mut from, mut depth, mut quote) = (Vec::new(), 0, 0usize, None::<char>);
+    let mut chars = text.char_indices();
+    while let Some((i, c)) = chars.next() {
+        match (quote, c) {
+            (Some(q), _) if c == q => quote = None,
+            (Some(_), '\\') => {
+                chars.next();
+            }
+            (Some(_), _) => {}
+            (None, '"' | '\'') => quote = Some(c),
+            (None, '(') => depth += 1,
+            (None, ')') => depth = depth.saturating_sub(1),
+            (None, ';') if depth == 0 => {
+                out.push(&text[from..i]);
+                from = i + 1;
+            }
+            _ => {}
+        }
+    }
+    out.push(&text[from..]);
+    out.into_iter()
+        .map(str::trim)
+        .filter(|d| !d.is_empty())
+        .collect()
+}
+
+/// Whether `name` is an attribute identifier as the lexer reads one
+/// (contract-grammar.md, "Lexical rules"): a letter or `_` (`-exact-…` may
+/// lead with one hyphen), then alphanumerics, `_`, or a hyphen before a
+/// letter. A custom property (`--gap`) is not.
+fn attribute_name(name: &str) -> bool {
+    let body = name.strip_prefix('-').unwrap_or(name);
+    let mut chars = body.chars().peekable();
+    if !chars
+        .next()
+        .is_some_and(|c| c.is_ascii_alphabetic() || c == '_')
+    {
+        return false;
+    }
+    while let Some(c) = chars.next() {
+        match c {
+            '-' if chars.peek().is_some_and(char::is_ascii_alphabetic) => {}
+            c if c.is_ascii_alphanumeric() || c == '_' => {}
+            _ => return false,
+        }
+    }
+    true
+}
+
 pub(crate) fn unknown_attr(tag: &str, a: &Attr) -> LowerError {
     let hint = match tags::renamed(&a.name) {
+        None if crate::fields::placeholder_hint(&a.name).is_some() => {
+            crate::fields::placeholder_hint(&a.name).unwrap_or_default()
+        }
         Some(new @ ("press" | "change" | "input")) => format!(
             "; `{}` is `{new}` here: a handler is named for its event (LLP 1005 §3)",
             a.name
         ),
+        // CSS's own shorthand, not a nickname: Contract takes the longhand (app farm wave 1, about twelve builds).
+        Some(new @ "background-color") if a.name == "background" => {
+            format!("; CSS's `background` shorthand is not taken here: a colour is `{new}` (LLP 1017 §8.1)")
+        }
         Some(new) => format!(
             "; `{}` is spelled `{new}` here, the web's name (LLP 1017 §8.1)",
             a.name
         ),
+        None if fragmentation(&a.name).is_some() => {
+            format!(
+                ": `{}` {}",
+                a.name,
+                fragmentation(&a.name).unwrap_or_default()
+            )
+        }
+        None if react_native(&a.name).is_some() => {
+            react_native(&a.name).unwrap_or_default().into()
+        }
+        None if logical(&a.name).is_some() => format!(
+            "; CSS's logical `{}` is not admitted: write {}",
+            a.name,
+            logical(&a.name).unwrap_or_default()
+        ),
+        None if tag == "dialog" && a.name == "open" => {
+            ": in HTML, `open` alone shows a dialog non-modally, which Exact does not support. For a \
+             modal, give the dialog an `id` and call `showModal(\"id\")` in an action, or put \
+             `commandfor=\"id\" command=\"show-modal\"` on a button; close it with `close(\"id\")` \
+             or `commandfor=\"id\" command=\"close\"`. A dialog that state holds open is not \
+             available yet"
+                .into()
+        }
+        // @ref LLP 1061 D7: no selectors, so no pressed block of any row;
+        // what the host can change under a finger, with no layout, is named.
+        None if a.name.starts_with("-exact-press-") => {
+            "; a pressed look is paint only, never layout: `-exact-press-opacity`, \
+             `-exact-press-background-color`, `-exact-press-color` and `-exact-press-scale` \
+             (and `-exact-press-haptic`), which the host shows while a pointer holds the node"
+                .into()
+        }
+        // Every host ends a hold the system took (a scroll, an alert, the
+        // window losing focus) with the hold's `pointerup`.
+        None if matches!(a.name.as_str(), "pointercancel" | "touchcancel" | "lostpointercapture") => {
+            "; a cancelled pointer ends with `pointerup` (its `buttons` 0), so the `pointerup` handler that ends a hold covers it".into()
+        }
         None if a.name == "className" => {
             "; `class` names a `style` declared in this file, as in `class=Card`".into()
+        }
+        // The euxy port wrote `style=` for a declared style.
+        None if a.name == "style" => style_hint(&a.value),
+        None if a.name.starts_with("aria-") => {
+            let carried: Vec<&str> = ARIA
+                .iter()
+                .copied()
+                .filter(|n| tags::attr(n).is_some())
+                .collect();
+            let what = if ARIA.contains(&a.name.as_str()) {
+                "is ARIA's, and Contract does not carry it yet".to_string()
+            } else {
+                match tags::similar_attr(&a.name, false) {
+                    Some(n) => format!("is not ARIA's (did you mean `{n}`?)"),
+                    None => "is not ARIA's".to_string(),
+                }
+            };
+            format!(
+                "; `{}` {what}; Contract carries {}",
+                a.name,
+                carried.join(", ")
+            )
         }
         None => tags::similar_attr(&a.name, false)
             .map(|n| format!("; did you mean `{n}`?"))
@@ -48,6 +374,10 @@ pub(crate) fn unknown_attr(tag: &str, a: &Attr) -> LowerError {
 /// rows. The driver runs this when an earlier pass refused, so a misspelled
 /// tag or a bad colour is reported in the same run as a type error.
 pub fn lint(file: &File) -> Vec<LowerError> {
+    // A theme's names are colours (LLP 1095 D4); the lint asks only whether a
+    // row's value is one, so each stands for any.
+    crate::theme::bind_axes(file);
+    let _theme = crate::theme::lint_scope(file);
     fn walk(nodes: &[Node], errors: &mut Vec<LowerError>) {
         for n in nodes {
             match n {
@@ -63,37 +393,95 @@ pub fn lint(file: &File) -> Vec<LowerError> {
                     } else {
                         let coerced = svg::coerce_lengths(tag, false, attrs);
                         let attrs = coerced.as_deref().unwrap_or(attrs);
-                        for a in attrs
-                            .iter()
-                            .filter(|a| a.name != "class" && !native::leftover(tag, a))
-                        {
+                        // `delete=` is lowering's, a list row's swipe (`swipe_rows.rs`).
+                        for a in attrs.iter().filter(|a| {
+                            a.name != "class"
+                                && a.name != "delete"
+                                && a.name != crate::row_look::ROW_LOOK
+                                && !native::leftover(tag, a)
+                        }) {
                             if let Some(e) = native::refused(tag, a) {
                                 errors.push(e);
                                 continue;
                             }
-                            let checked = match tags::attr(&a.name) {
+                            if dataset::word(&a.name).is_some() {
+                                errors.extend(dataset::refused(a));
+                                continue;
+                            }
+                            let check = |a: &contract_syntax::Attr| match tags::attr_valued(
+                                &a.name, &a.value,
+                            ) {
                                 None => Err(unknown_attr(tag, a)),
                                 // A family is resolved against declared fonts.
                                 Some(tags::AttrTarget::Styles(rows))
                                     if rows != [StyleId::FontFamily] =>
                                 {
-                                    values::check_style_value(a, rows, &Ty::Unknown, &[])
+                                    values::check_style_value(
+                                        a,
+                                        rows,
+                                        &Ty::Unknown,
+                                        &[],
+                                        &Default::default(),
+                                        &Default::default(),
+                                    )
                                 }
-                                Some(tags::AttrTarget::Flex) => values::check_style_value(
-                                    a,
-                                    &[StyleId::FlexGrow],
-                                    &Ty::Unknown,
-                                    &[],
-                                ),
+                                // The shorthand's parts, as lowering checks them: `flex="none"`
+                                // was refused here as a grow number beside another error
+                                // (authoring bench: three builders).
+                                Some(tags::AttrTarget::Flex) => {
+                                    [StyleId::FlexGrow, StyleId::FlexShrink, StyleId::FlexBasis]
+                                        .into_iter()
+                                        .enumerate()
+                                        .try_for_each(|(index, row)| {
+                                            let value = values::flex_component(&a.value, index)?;
+                                            let part = contract_syntax::Attr { value, ..a.clone() };
+                                            values::check_style_value(
+                                                &part,
+                                                &[row],
+                                                &Ty::Unknown,
+                                                &[],
+                                                &Default::default(),
+                                                &Default::default(),
+                                            )
+                                        })
+                                }
+                                // A type token's longhands are its own (stage 6 C).
+                                Some(tags::AttrTarget::Shorthand)
+                                    if a.name == "font"
+                                        && matches!(&a.value, contract_syntax::Expr::Str(t, _)
+                                            if crate::theme::measure_values(t).is_some()) =>
+                                {
+                                    Ok(())
+                                }
+                                Some(tags::AttrTarget::Shorthand) => {
+                                    super::shorthands::component(&a.value, &a.name, 0).map(|_| ())
+                                }
                                 Some(_) => Ok(()),
                             };
-                            errors.extend(checked.err());
+                            // An expression over a token is folded by the
+                            // build (a synthetic token, LLP 1121 D3), not here,
+                            // in a choice's arm as in a whole value; the other
+                            // arms are checked here.
+                            let folded = |t: &str| {
+                                t.contains('(')
+                                    && crate::theme::words(t).any(exact_kernel::style::theme::names)
+                            };
+                            let mut leaves = Vec::new();
+                            crate::theme::literal_leaves(&a.value, &mut leaves);
+                            if leaves.iter().any(|(t, _)| folded(t)) {
+                                for (t, span) in leaves.into_iter().filter(|(t, _)| !folded(t)) {
+                                    let value = contract_syntax::Expr::Str(t, span);
+                                    let leaf = contract_syntax::Attr { value, ..a.clone() };
+                                    errors.extend(check(&leaf).err());
+                                }
+                            } else {
+                                errors.extend(check(a).err());
+                            }
                         }
                     }
                     walk(children, errors);
                 }
                 Node::Use { children, .. } => walk(children, errors),
-                Node::Provide { body, .. } => walk(body, errors),
                 Node::When {
                     then, otherwise, ..
                 } => {
@@ -113,6 +501,18 @@ pub fn lint(file: &File) -> Vec<LowerError> {
     for c in &file.components {
         walk(&c.view, &mut errors);
     }
+    // A component's anatomy, which no type is needed to check (LLP 1139 D2).
+    for c in file.components.iter().filter(|c| !c.anatomy.is_empty()) {
+        errors.extend(crate::anatomy::check(c, file));
+    }
+    // A library package's host reads (LLP 1139 D6), said beside the type
+    // error a child's resource is.
+    errors.extend(crate::anatomy::platform(file));
     errors.truncate(MAX_REFUSALS);
+    // A param by its full name, never its token's (LLP 1121 D15).
+    let params = crate::params::tokens(file);
+    for e in &mut errors {
+        e.message = crate::params::shown(&e.message, &params);
+    }
     errors
 }

@@ -92,7 +92,7 @@ fn rendered_atlas_and_mid_fall_restore() {
     let Some(gpu) = gpu_test::device_or_skip(exact_game_render::exact_gpu::fixture::device()) else {
         return;
     };
-    let mut s = WorldSurface::<SmallGame, exact_game_render::ModelPresentation, true>::default();
+    let mut s = WorldSurface::<SmallGame, exact_game_render::ModelExecutor, true>::default();
     s.device_ready(wgpu::Features::empty());
     s.bind(&[], None).unwrap();
     for _ in 0..4 {
@@ -110,6 +110,7 @@ fn rendered_atlas_and_mid_fall_restore() {
         period_ms: 0.,
         children_generation: 0,
         shader_generation: 0,
+        headroom: 1.0,
     };
     let first = fixture::render(&gpu, &mut s, &f).unwrap().0;
     f.now_ms = 2500.;

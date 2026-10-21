@@ -18,9 +18,14 @@ use crate::paint::{Backend, Rect4, Shape, POINTER};
 use crate::text::{Paragraph, RunPaint, TextEngine};
 mod backdrop;
 mod images;
+mod mask;
+#[cfg(target_os = "android")]
+mod present;
 use crate::paint::GradientPaint;
 use exact_kernel::gradient::Geometry;
 use images::ImageCache;
+#[cfg(target_os = "android")]
+pub use present::{current_window, set_window};
 use std::num::NonZeroUsize;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -43,8 +48,12 @@ struct Target {
 pub struct Gpu {
     device: wgpu::Device,
     queue: wgpu::Queue,
-    renderer: Renderer,
+    /// Shared with Android's present thread (`gpu/present.rs`), which renders
+    /// while the next frame is painted.
+    renderer: Arc<std::sync::Mutex<Renderer>>,
     image_refused: bool,
+    /// The page's colour ([`Backend::page`]); white until one is told.
+    page: Option<[u8; 4]>,
     scene: vello::Scene,
     scale: f32,
     width: f32,
@@ -72,6 +81,13 @@ pub struct Gpu {
     pub cached: bool,
     /// The last frame's encode, render, and readback, milliseconds.
     pub last_ms: (f64, f64),
+    /// The window frames are presented to instead of read back (Android).
+    #[cfg(target_os = "android")]
+    present: Option<present::Presenting>,
+    /// Images retired while a frame that may draw them is still rendering
+    /// on the present thread; it unregisters them after its next render.
+    #[cfg(target_os = "android")]
+    retired: Vec<vello::peniko::ImageData>,
 }
 
 /// Run a future to completion on this thread (wgpu's requests complete
@@ -118,9 +134,15 @@ impl Gpu {
             backends: wgpu::Backends::PRIMARY,
             ..wgpu::InstanceDescriptor::new_without_display_handle()
         });
+        #[cfg(target_os = "android")]
+        let window = present::surface(&instance)?;
+        #[cfg(target_os = "android")]
+        let compatible_surface = window.as_ref().map(|w| &w.0);
+        #[cfg(not(target_os = "android"))]
+        let compatible_surface = None;
         let adapter = block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
             power_preference: wgpu::PowerPreference::HighPerformance,
-            compatible_surface: None,
+            compatible_surface,
             force_fallback_adapter: false,
         }))
         .map_err(|e| format!("no adapter: {e}"))?;
@@ -173,7 +195,14 @@ impl Gpu {
             },
         )
         .map_err(|e| format!("vello: {e}"))?;
+        let renderer = Arc::new(std::sync::Mutex::new(renderer));
         let shaders_ms = t1.elapsed().as_secs_f64() * 1000.0;
+        #[cfg(target_os = "android")]
+        let present = window
+            .map(|(surface, w, h)| {
+                present::Presenting::new(surface, (w, h), &adapter, &device, &queue, &renderer)
+            })
+            .transpose()?;
         if let (Some(cache), Some(path)) = (cache.as_ref(), path) {
             if let Some(bytes) = cache.get_data() {
                 if data.as_deref() != Some(bytes.as_slice()) {
@@ -196,6 +225,7 @@ impl Gpu {
             queue,
             renderer,
             image_refused: false,
+            page: None,
             scene: vello::Scene::new(),
             scale: 1.0,
             width: 1.0,
@@ -210,6 +240,10 @@ impl Gpu {
             shaders_ms,
             cached,
             last_ms: (0.0, 0.0),
+            #[cfg(target_os = "android")]
+            present,
+            #[cfg(target_os = "android")]
+            retired: Vec::new(),
         })
     }
 
@@ -219,17 +253,20 @@ impl Gpu {
         let height = ((self.height * self.scale).round() as u32).max(1);
         let t0 = Instant::now();
         let (device, queue) = (self.device.clone(), self.queue.clone());
+        let [r, g, b, a] = self.page.unwrap_or([255; 4]);
         let result = {
             let target = self.target(width, height);
             let view = target.view.clone();
             self.renderer
+                .lock()
+                .unwrap()
                 .render_to_texture(
                     &device,
                     &queue,
                     scene,
                     &view,
                     &RenderParams {
-                        base_color: Color::WHITE,
+                        base_color: Color::from_rgba8(r, g, b, a),
                         width,
                         height,
                         antialiasing_method: AaConfig::Area,
@@ -348,7 +385,7 @@ impl Gpu {
     }
 
     fn brush(&mut self, image: &Arc<Bitmap>) -> Option<ImageBrush> {
-        let renderer = &mut self.renderer;
+        let renderer = self.renderer.clone();
         let device = &self.device;
         let queue = &self.queue;
         self.images.brush(image, |data, pixels| {
@@ -379,7 +416,7 @@ impl Gpu {
                 },
                 size,
             );
-            renderer.override_image(
+            renderer.lock().unwrap().override_image(
                 data,
                 Some(wgpu::TexelCopyTextureInfoBase {
                     texture,
@@ -398,7 +435,7 @@ impl Gpu {
 /// the CPU painter's cubic arcs.
 fn shape(s: &Shape) -> BezPath {
     let mut ops = Vec::new();
-    crate::paint::border::rounded_rect(&mut ops, s.rect, s.radii.map(|r| (r, r)));
+    crate::paint::border::shape_path(&mut ops, s);
     bez(&ops)
 }
 
@@ -426,15 +463,26 @@ impl Backend for Gpu {
         "gpu"
     }
 
+    fn page(&mut self, color: [u8; 4]) {
+        self.page = Some(color);
+    }
+
     fn begin(&mut self, width: f32, height: f32, scale: f32) {
         self.scale = scale;
         self.width = width;
         self.height = height;
         self.scene.reset();
         self.layers.clear();
-        let renderer = &mut self.renderer;
+        #[cfg(target_os = "android")]
+        if self.presents() {
+            let retired = &mut self.retired;
+            self.images.begin(|image| retired.push(image));
+            self.image_refused = false;
+            return;
+        }
+        let renderer = self.renderer.clone();
         self.images
-            .begin(|image| renderer.unregister_texture(image));
+            .begin(|image| renderer.lock().unwrap().unregister_texture(image));
         self.image_refused = false;
     }
 
@@ -591,12 +639,31 @@ impl Backend for Gpu {
                     center.1 as f64,
                 ])),
             ),
+            // A whole turn, turned to start where CSS's `from` does.
+            Geometry::Conic { center, from } => (
+                Gradient::new_sweep((0.0, 0.0), 0.0, std::f32::consts::TAU),
+                Some(
+                    Affine::translate((center.0 as f64, center.1 as f64))
+                        * Affine::rotate(((from - 90.0) as f64).to_radians()),
+                ),
+            ),
         };
         let a = self.affine(ts);
+        // Vello samples the ramp at integer device coordinates; CSS uses
+        // pixel centres. Shift the repeating brush, not its clipped shape.
+        let placed = if g.repeat {
+            Some(a.inverse() * Affine::translate((-0.5, -0.5)) * a)
+        } else {
+            placed
+        };
         self.scene.fill(
             Fill::NonZero,
             a,
-            &brush.with_stops(stops.as_slice()),
+            &brush.with_stops(stops.as_slice()).with_extend(if g.repeat {
+                vello::peniko::Extend::Repeat
+            } else {
+                vello::peniko::Extend::Pad
+            }),
             placed,
             &shape(s),
         );
@@ -604,6 +671,9 @@ impl Backend for Gpu {
 
     fn fill_border(&mut self, part: &BorderFill, ts: Transform) {
         let a = self.affine(ts);
+        if let Some(ring) = &part.ring_clip {
+            self.scene.push_clip_layer(Fill::EvenOdd, a, &bez(ring));
+        }
         if let Some(clip) = &part.clip {
             self.scene.push_clip_layer(Fill::NonZero, a, &bez(clip));
         }
@@ -615,6 +685,9 @@ impl Backend for Gpu {
             &bez(&part.region),
         );
         if part.clip.is_some() {
+            self.scene.pop_layer();
+        }
+        if part.ring_clip.is_some() {
             self.scene.pop_layer();
         }
     }
@@ -795,6 +868,10 @@ impl Backend for Gpu {
         origin: (f32, f32),
         ts: Transform,
     ) {
+        #[cfg(target_os = "android")]
+        if present::experiment() == Some("notext") {
+            return;
+        }
         let a = self.affine(ts) * Affine::translate((origin.0 as f64, origin.1 as f64));
         for run in text.glyph_runs(paragraph, palette) {
             if run.paint.color[3] == 0 {
@@ -802,6 +879,7 @@ impl Backend for Gpu {
             }
             self.scene
                 .draw_glyphs(&run.font)
+                .normalized_coords(&run.coords)
                 .font_size(run.size)
                 .brush(color(run.paint.color))
                 .transform(a)
@@ -809,7 +887,7 @@ impl Backend for Gpu {
                     run.synthetic_italic
                         .then(|| Affine::skew(14_f64.to_radians().tan(), 0.0)),
                 )
-                .hint(true)
+                .hint(!cfg!(target_os = "android"))
                 .draw(
                     Fill::NonZero,
                     run.glyphs.iter().map(|(id, x, y)| vello::Glyph {
@@ -831,8 +909,13 @@ impl Backend for Gpu {
         self.push_recorded(backdrop::Layer::Clip(Fill::NonZero, a, clip));
     }
 
-    fn backdrop_blur(&mut self, s: &Shape, sigma: f32, ts: Transform) {
-        self.blur_backdrop(s, sigma, ts);
+    fn backdrop_filter(
+        &mut self,
+        s: &Shape,
+        filter: &exact_kernel::style::BackdropFilter,
+        ts: Transform,
+    ) {
+        self.filter_backdrop(s, filter, ts);
     }
 
     fn push_css_clip(&mut self, path: &exact_kernel::clip::ClipPath, ts: Transform) -> bool {
@@ -903,6 +986,15 @@ impl Backend for Gpu {
         self.pop_recorded();
     }
 
+    fn push_mask(&mut self, s: &Shape, ts: Transform) {
+        let a = self.affine(ts);
+        self.push_recorded(backdrop::Layer::Group(a, shape(s)));
+    }
+
+    fn pop_mask(&mut self, shape: &Shape, mask: &Result<GradientPaint, [u8; 4]>, ts: Transform) {
+        self.pop_masked(shape, mask, ts);
+    }
+
     fn pointer(&mut self, x: f32, y: f32) {
         let mut path = BezPath::new();
         for (i, (px, py)) in POINTER.iter().enumerate() {
@@ -926,6 +1018,10 @@ impl Backend for Gpu {
     fn finish(&mut self) -> Result<Pixmap, String> {
         if self.image_refused {
             return Err("GPU image descriptor capacity exceeded".into());
+        }
+        #[cfg(target_os = "android")]
+        if self.presents() {
+            return self.present_frame();
         }
         let scene = std::mem::take(&mut self.scene);
         let result = self.render_scene(&scene);

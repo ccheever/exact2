@@ -70,7 +70,7 @@ extern "C" fn record_font_runs(_ctx: *mut c_void, request: *const CRequest) -> C
     }
 }
 
-fn boot() -> (Host<caltrain_data::Caltrain>, String) {
+pub(crate) fn boot() -> (Host<caltrain_data::Caltrain>, String) {
     let plan = caltrain::build().unwrap();
     Host::boot(
         &plan.encode(),
@@ -82,14 +82,14 @@ fn boot() -> (Host<caltrain_data::Caltrain>, String) {
     .unwrap()
 }
 
-fn view<D: DataSource>(host: &Host<D>, test_id: &str) -> u32 {
+pub(crate) fn view<D: DataSource>(host: &Host<D>, test_id: &str) -> u32 {
     let k = host.runner().kernel();
     let key = k.find_by_test_id(test_id)[0];
     k.node_by_key(key).unwrap().id
 }
 
 /// The last `frame` op for `id`: (x, y, w, h).
-fn frame_of(batch: &str, id: u32) -> (f32, f32, f32, f32) {
+pub(crate) fn frame_of(batch: &str, id: u32) -> (f32, f32, f32, f32) {
     let marker = format!("\"op\":\"frame\",\"id\":{id},");
     let at = batch
         .rfind(&marker)
@@ -116,7 +116,7 @@ fn content_of(batch: &str, id: u32) -> (f32, f32) {
     (field("w"), field("h"))
 }
 
-fn count(batch: &str, op: &str) -> usize {
+pub(crate) fn count(batch: &str, op: &str) -> usize {
     batch.matches(&format!("\"op\":\"{op}\"")).count()
 }
 
@@ -124,7 +124,7 @@ fn count(batch: &str, op: &str) -> usize {
 fn inherited_text_color_reaches_untouched_descendants_as_an_unresolved_pair() {
     let src = r##"component Ink
   state changed = false
-  action toggle writes changed
+  action toggle
     changed = not changed
   view
     column color=(changed ? "light-dark(#123456, #abcdef)" : "light-dark(#000000, #ffffff)")
@@ -155,16 +155,20 @@ fn inherited_text_color_reaches_untouched_descendants_as_an_unresolved_pair() {
             .unwrap_or_else(|| panic!("missing {id} in {batch}"))
             .to_owned()
     };
+    // No platform font environment here: the reference host inherits the
+    // page's ink, as the web does. The r4 field sheet is retired.
     for id in [inherited, field] {
         assert!(op(&first, id).contains("\"text_color\":[[0,0,0,255],[255,255,255,255]]"));
     }
     assert!(op(&first, overridden).contains("\"text_color\":[255,0,0,255]"));
     let toggle = view(&host, "toggle");
     let changed = host.dispatch_at(toggle, Event::Press, 0.0);
-    for id in [inherited, field] {
-        assert!(op(&changed, id).contains("\"text_color\":[[18,52,86,255],[171,205,239,255]]"));
-    }
-    assert!(!changed.contains(&format!("\"op\":\"style\",\"id\":{overridden},")));
+    assert!(op(&changed, inherited).contains("\"text_color\":[[18,52,86,255],[171,205,239,255]]"));
+    assert!(op(&changed, field).contains("\"text_color\":[[18,52,86,255],[171,205,239,255]]"));
+    assert!(
+        !changed.contains(&format!("\"op\":\"style\",\"id\":{overridden},")),
+        "{changed}"
+    );
     assert_eq!(count(&host.resize(402.0, 874.0), "style"), 0);
 }
 
@@ -189,8 +193,8 @@ fn the_first_batch_creates_places_and_sizes_the_whole_tree() {
     );
     assert!(batch.contains("\"kind\":\"button\"") && batch.contains("\"handlers\":[\"press\"]"));
     assert!(
-        batch.contains("\"kind\":\"scroll\"") && count(&batch, "content") == 1,
-        "one scroll container, one content size"
+        batch.contains("\"kind\":\"scroll\"") && count(&batch, "content") == 2,
+        "a content size for the one scroll container and the root"
     );
     assert!(
         batch.contains("\"font_size\":24,\"font_weight\":700"),
@@ -294,7 +298,7 @@ fn an_iframe_batch_and_its_events_match_the_web_arm() {
     );
 }
 
-struct NoData;
+pub(crate) struct NoData;
 impl DataSource for NoData {
     fn query(&mut self, s: &str, _: &[Value]) -> Result<Value, DataError> {
         Err(DataError::UnknownSource(s.into()))
@@ -398,9 +402,12 @@ fn text_is_measured_through_the_registered_callback() {
         exact_apple::abi::Hooks {
             measure: Some(wide_glyphs),
             ctx: std::ptr::null_mut(),
+            lines: None,
             wake: None,
             wake_ctx: std::ptr::null_mut(),
             canvas_text: None,
+            symbol: None,
+            time_format: None,
         },
         390.0,
         844.0,
@@ -482,9 +489,12 @@ fn a_runner_refusal_never_installs_the_candidate_font_catalog() {
         exact_apple::abi::Hooks {
             measure: Some(wide_glyphs),
             ctx: std::ptr::null_mut(),
+            lines: None,
             wake: None,
             wake_ctx: std::ptr::null_mut(),
             canvas_text: None,
+            symbol: None,
+            time_format: None,
         },
         390.0,
         844.0,
@@ -505,9 +515,12 @@ fn a_runner_refusal_never_installs_the_candidate_font_catalog() {
         exact_apple::abi::Hooks {
             measure: Some(wide_glyphs),
             ctx: std::ptr::null_mut(),
+            lines: None,
             wake: None,
             wake_ctx: std::ptr::null_mut(),
             canvas_text: None,
+            symbol: None,
+            time_format: None,
         },
         390.0,
         844.0,
@@ -530,9 +543,12 @@ fn an_invalid_viewport_plan_boot_keeps_the_running_host() {
         exact_apple::abi::Hooks {
             measure: Some(wide_glyphs),
             ctx: std::ptr::null_mut(),
+            lines: None,
             wake: None,
             wake_ctx: std::ptr::null_mut(),
             canvas_text: None,
+            symbol: None,
+            time_format: None,
         },
         390.0,
         844.0,
@@ -550,9 +566,12 @@ fn an_invalid_viewport_plan_boot_keeps_the_running_host() {
         exact_apple::abi::Hooks {
             measure: Some(wide_glyphs),
             ctx: std::ptr::null_mut(),
+            lines: None,
             wake: None,
             wake_ctx: std::ptr::null_mut(),
             canvas_text: None,
+            symbol: None,
+            time_format: None,
         },
         f32::NAN,
         844.0,
@@ -578,9 +597,12 @@ fn an_invalid_initial_viewport_publishes_no_host() {
         exact_apple::abi::Hooks {
             measure: Some(wide_glyphs),
             ctx: std::ptr::null_mut(),
+            lines: None,
             wake: None,
             wake_ctx: std::ptr::null_mut(),
             canvas_text: None,
+            symbol: None,
+            time_format: None,
         },
         f32::NAN,
         844.0,
@@ -603,9 +625,12 @@ fn a_refused_fresh_boot_keeps_the_running_host() {
     let hooks = exact_apple::abi::Hooks {
         measure: Some(wide_glyphs),
         ctx: std::ptr::null_mut(),
+        lines: None,
         wake: None,
         wake_ctx: std::ptr::null_mut(),
         canvas_text: None,
+        symbol: None,
+        time_format: None,
     };
     let mut bridge: Bridge<NoData> = Bridge::new();
     let len = bridge.boot(&running, NoData, hooks, 390.0, 844.0);
@@ -633,9 +658,12 @@ fn two_prepared_sessions_keep_their_live_hosts_until_both_accept() {
     let hooks = exact_apple::abi::Hooks {
         measure: None,
         ctx: std::ptr::null_mut(),
+        lines: None,
         wake: None,
         wake_ctx: std::ptr::null_mut(),
         canvas_text: None,
+        symbol: None,
+        time_format: None,
     };
     let mut a: Bridge<NoData> = Bridge::new();
     let mut b: Bridge<NoData> = Bridge::new();
@@ -686,9 +714,12 @@ fn the_plan_font_catalog_and_family_runs_cross_the_host_seam_before_layout() {
         exact_apple::abi::Hooks {
             measure: Some(record_font_runs),
             ctx: std::ptr::null_mut(),
+            lines: None,
             wake: None,
             wake_ctx: std::ptr::null_mut(),
             canvas_text: None,
+            symbol: None,
+            time_format: None,
         },
         390.0,
         844.0,
@@ -843,9 +874,19 @@ fn the_insets_re_send_the_styles_that_read_them_and_move_what_they_pad() {
     // A non-finite inset is refused by the kernel, as an error on the batch.
     let bad = host.set_insets(f32::NAN, 0.0, 0.0, 0.0);
     assert!(bad.contains("\"error\":\"insets: "), "{bad}");
-    // An app that reads no inset (Caltrain) gets an empty batch.
-    let (mut caltrain, _) = boot();
-    let none = caltrain.set_insets(62.0, 0.0, 34.0, 0.0);
+    // An app that reads no inset gets an empty batch. (Not Caltrain: its
+    // full-screen sky pads by the insets since cf992c8ee.)
+    let plain =
+        contract::compile("component App\n  view\n    column\n      text \"no insets\"\n").unwrap();
+    let (mut plain, _) = Host::boot(
+        &plain.encode(),
+        NoData,
+        Box::new(MonospaceMeasurer::default()),
+        402.0,
+        874.0,
+    )
+    .unwrap();
+    let none = plain.set_insets(62.0, 0.0, 34.0, 0.0);
     assert_eq!(count(&none, "style") + count(&none, "frame"), 0, "{none}");
 }
 
@@ -853,7 +894,7 @@ fn the_insets_re_send_the_styles_that_read_them_and_move_what_they_pad() {
 
 /// The exports for a fixture app: two runtimes in one thread, each with its
 /// own plan and clock; a destroyed or invented handle refused by name.
-mod handles {
+pub(crate) mod handles {
     use exact_runner::{DataError, DataSource, Value};
     use std::cell::Cell;
     use std::sync::OnceLock;
@@ -941,13 +982,13 @@ mod handles {
     exact_apple::host!(Fixture, baked(), compat(), delivery(), std::ptr::null());
 }
 
-fn out(rt: u32, len: u32) -> String {
+pub(crate) fn out(rt: u32, len: u32) -> String {
     let p = handles::exact_out(rt);
     assert!(!p.is_null());
     String::from_utf8(unsafe { std::slice::from_raw_parts(p, len as usize) }.to_vec()).unwrap()
 }
 
-fn put(rt: u32, bytes: &[u8]) -> usize {
+pub(crate) fn put(rt: u32, bytes: &[u8]) -> usize {
     let p = handles::exact_in(rt, bytes.len());
     assert!(!p.is_null(), "runtime {rt} has no input buffer");
     unsafe { std::ptr::copy_nonoverlapping(bytes.as_ptr(), p, bytes.len()) };
@@ -1160,15 +1201,15 @@ fn a_multi_timer_advance_creates_children_before_attaching_them() {
     let plan = contract::compile(
         r#"component App
   state phase = 0
-  action tick writes phase
+  action tick
     phase = phase + 1
   task clock mount
     every(100, tick)
   view
     column testId="parent"
-      when phase == 1
+      if phase == 1
         text "typing"
-      when phase >= 2
+      if phase >= 2
         text "reply" testId="reply"
 "#,
     )
@@ -1210,9 +1251,9 @@ fn inherited_spelling_hint_updates_editors_and_returns_to_default() {
     let plan = contract::compile(
         r#"component App
   state hint = "false"
-  action enable writes hint
+  action enable
     hint = "true"
-  action reset writes hint
+  action reset
     hint = "invalid"
   view
     column spellcheck=hint
@@ -1271,7 +1312,7 @@ fn content_below_the_client_height_keeps_its_extent_and_changes() {
     let plan = contract::compile(
         r#"component Extent
   state large = false
-  action grow writes large
+  action grow
     large = true
   view
     column
@@ -1303,11 +1344,11 @@ fn created_listeners_follow_the_final_tree_in_single_and_bulk_batches() {
     let plan = contract::compile(
         r#"component App
   state phase = 0
-  action next writes phase
+  action next
     phase = phase + 1
   view
     column
-      when phase == 1
+      if phase == 1
         column
           text "next" press=next contextmenu=next testId="go"
           text "plain" testId="plain"
@@ -1370,7 +1411,7 @@ fn resolved_language_is_published_at_boot_and_after_switching() {
     plan.locale = Some(exact_plan::SlotsId(0));
     for rtl in [false, true] {
         let name = exact_plan::StrId(plan.strings.len() as u32);
-        plan.strings.push(if rtl { "ar" } else { "en" }.into());
+        plan.strings.push(if rtl { "ar" } else { "en" });
         plan.locales.push(exact_plan::LocalesRow {
             name,
             rtl,
@@ -1409,9 +1450,9 @@ fn a_frame_task_fires_once_per_presented_frame() {
         r#"component App
   state frames = 0
   state at = 0
-  action step writes frames, at
+  action step
     frames = frames + 1
-    at = now()
+    at = performanceNow()
   task ticker mount
     every(frame, step)
   view

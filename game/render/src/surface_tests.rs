@@ -1,4 +1,8 @@
 use super::*;
+#[path = "surface_tests/quality.rs"]
+mod quality;
+#[path = "surface_tests/trace.rs"]
+mod trace;
 use exact_game::{Camera, Input, Mesh, Transform, Vec3};
 use exact_gpu::{fixture, Gpu};
 
@@ -19,6 +23,7 @@ impl Game for Move {
         w.spawn((Transform::at(0., 0., 8.), Camera::default()));
     }
     fn tick(w: &mut World, _: &Input, args: &Self::Args) {
+        let _span = w.span("move");
         if args.r#move {
             for (_, (_, t)) in w.query::<(&Mesh, &mut Transform)>().iter() {
                 t.position.x += 1.;
@@ -36,6 +41,7 @@ fn frame(now_ms: f64) -> Frame {
         period_ms: 0.0,
         children_generation: 0,
         shader_generation: 0,
+        headroom: 1.0,
     }
 }
 fn gpu() -> Option<Gpu> {
@@ -437,7 +443,7 @@ fn asset_refusal_is_named_without_poisoning_the_surface() {
     let Some(gpu) = gpu() else {
         return;
     };
-    let mut s = WorldSurface::<Move, crate::ModelPresentation, true>::default();
+    let mut s = WorldSurface::<Move, crate::ModelExecutor, true>::default();
     s.bind(&[Value::Bool(true), Value::Number(0.)], None)
         .unwrap();
     let w = s.sim.as_mut().unwrap().world_mut();
@@ -541,6 +547,7 @@ fn headless_fixture_ticks_under_the_agent_clock_to_the_native_hash() {
         code: "KeyW".into(),
         down: true,
         at_ms: 0.,
+        player: 0,
     });
     reference.run(1500.);
     let moved = format!("0x{:016x}", reference.world().hash());
@@ -586,7 +593,7 @@ fn presentation_hook_follows_frames_transport_and_gestures() {
         frames: Vec<(u64, u64, bool, bool)>,
         gestures: usize,
     }
-    impl Presentation for Probe {
+    impl Executor for Probe {
         fn sync(&mut self, w: &World, generation: u64, playing: bool, seekable: bool) {
             self.frames.push((w.tick(), generation, playing, seekable));
         }
@@ -662,6 +669,8 @@ fn fresh_touch_region_matches_rendered_and_headless_worlds() {
             phase: exact_gpu::PointerPhase::Down,
             x: 48.,
             y: 32.,
+            dx: 0.,
+            dy: 0.,
             kind: exact_gpu::PointerKind::Touch,
             buttons: 1,
             at_ms: 0.,
@@ -728,14 +737,14 @@ fn peer_assets_finish_gpu_work_before_loaded_and_restore_keeps_the_loading_windo
         * glam::Mat4::from_cols_array(&mirrored.transform))
     .to_cols_array();
     model.nodes.push(mirrored);
-    let bytes = exact_game::bin::to_vec(&model);
+    let bytes = exact_game::asset::encode_model(&model);
     let fresh = || {
-        let mut s = WorldSurface::<Art, crate::ModelPresentation, true>::default();
+        let mut s = WorldSurface::<Art, crate::ModelExecutor, true>::default();
         s.device_ready(exact_gpu::wgpu::Features::empty());
         s.bind(&[], None).unwrap();
         s
     };
-    let deliver = |s: &mut WorldSurface<Art, crate::ModelPresentation, true>| {
+    let deliver = |s: &mut WorldSurface<Art, crate::ModelExecutor, true>| {
         assert_eq!(s.assets().requests, ["crate.model"]);
         s.asset("crate.model", Ok(&bytes));
         assert!(s.sim().unwrap().is_loading());
@@ -768,8 +777,8 @@ fn peer_assets_finish_gpu_work_before_loaded_and_restore_keeps_the_loading_windo
     let work = original.render.as_ref().unwrap().0.asset_work();
     assert_eq!(
         work,
-        (10, 4),
-        "both winding variants and one shared texture plus three defaults"
+        (0, 4),
+        "geometry and textures upload before drawing; pipeline variants follow the scene"
     );
     let renderer = &original.render.as_ref().unwrap().0 as *const _;
     for _ in 0..2 {
@@ -781,7 +790,13 @@ fn peer_assets_finish_gpu_work_before_loaded_and_restore_keeps_the_loading_windo
             "matching presentation/readback format must not rebuild or upload"
         );
     }
-    for tick in 0..=30 {
+    fixture::render(&gpu, &mut original, &frame(0.)).unwrap();
+    let work = original.render.as_ref().unwrap().0.asset_work();
+    assert!(
+        work.0 > 0 && work.0 < 44,
+        "only the drawn scene variants compile"
+    );
+    for tick in 1..=30 {
         fixture::render(&gpu, &mut original, &frame(tick as f64 * 1000. / 60.)).unwrap();
         assert_eq!(
             original.render.as_ref().unwrap().0.asset_work(),
@@ -984,6 +999,58 @@ fn control_json_reaches_world_and_unknown_names_refuse_without_poisoning_it() {
     );
 }
 
+/// The rows the Linux presenter sends for a pad's 150 ms and 210 ms presses
+/// (`host/linux`'s `pad_report_times_survive_the_read_and_the_first_owner`),
+/// parsed as the canvas parses them: the shorter is a tap, the longer a hold.
+#[test]
+fn pad_rows_tap_and_hold_by_their_report_times() {
+    struct Pads;
+    impl Game for Pads {
+        const ID: &'static str = "pad-route";
+        type Args = ();
+        fn actions() -> exact_game::Actions {
+            exact_game::Actions::new()
+                .tap("dash", &["GamepadEast"])
+                .hold("charge", &["GamepadEast"], 0.2)
+        }
+        fn setup(w: &mut World, _: &()) {
+            w.spawn_named("player", (Transform::default(),));
+        }
+        fn tick(w: &mut World, input: &Input, _: &()) {
+            let mut player = w.get_mut::<Transform>("player").unwrap();
+            player.position.x += f32::from(u8::from(input.pressed("dash")));
+            player.position.y += f32::from(u8::from(input.pressed("charge")));
+        }
+    }
+    let row = |east: u8, at: f64| {
+        let mut buttons = [0; 17];
+        buttons[1] = east;
+        format!(
+            r#"{{"t":"pad","index":0,"connected":true,"standard":true,"buttons":{buttons:?},"axes":[0,0,0,0],"at":{at}}}"#
+        )
+    };
+    for (release, dash, charge) in [(1250., 1., 0.), (1310., 0., 1.)] {
+        let mut surface = WorldSurface::<Pads>::default();
+        surface.bind(&[], Some(1000.)).unwrap();
+        for text in [row(0, 1100.), row(1, 1100.), row(0, release)] {
+            surface.input(&exact_gpu::json::parse_input(&text).unwrap());
+            assert!(surface.take_error().is_none());
+        }
+        surface
+            .sim
+            .as_mut()
+            .unwrap()
+            .advance(1600., Clock::Seekable);
+        let p = surface
+            .sim()
+            .unwrap()
+            .get::<Transform>("player")
+            .unwrap()
+            .position;
+        assert_eq!((p.x, p.y), (dash, charge), "released at {release}");
+    }
+}
+
 #[test]
 fn placement_and_renderer_share_warnings_across_restore_and_prune_dead_followers() {
     struct Missing;
@@ -1009,7 +1076,7 @@ fn placement_and_renderer_share_warnings_across_restore_and_prune_dead_followers
     let Some(gpu) = crate::test_device::device_or_skip(exact_gpu::fixture::device()) else {
         return;
     };
-    let mut s = WorldSurface::<Missing, crate::ModelPresentation, true>::default();
+    let mut s = WorldSurface::<Missing, crate::ModelExecutor, true>::default();
     s.bind(&[], None).unwrap();
     fixture::render(&gpu, &mut s, &frame(0.)).unwrap();
     let registry = s.placed.attachments.diagnostics.clone();
@@ -1069,7 +1136,7 @@ fn a_level_declares_its_asset_requirement_without_a_model_list() {
         }
         fn tick(_: &mut World, _: &Input, _: &()) {}
     }
-    fn loaded<P: Presentation, const A: bool>() -> WorldSurface<LevelOnly, P, A> {
+    fn loaded<P: Executor, const A: bool>() -> WorldSurface<LevelOnly, P, A> {
         let mut surface = WorldSurface::<LevelOnly, P, A>::default();
         surface.bind(&[], None).unwrap();
         assert_eq!(surface.assets().requests, ["seed.level.json"]);
@@ -1104,7 +1171,7 @@ fn a_level_declares_its_asset_requirement_without_a_model_list() {
         surface
     }
     let mut primitive = loaded::<(), false>();
-    let mut models = loaded::<crate::ModelPresentation, true>();
+    let mut models = loaded::<crate::ModelExecutor, true>();
     assert_eq!(primitive.carry().unwrap(), models.carry().unwrap());
     let Some(gpu) = gpu() else { return };
     let before = fixture::render(&gpu, &mut models, &frame(0.)).unwrap();
@@ -1116,4 +1183,275 @@ fn a_level_declares_its_asset_requirement_without_a_model_list() {
     );
     assert_eq!(before, after);
     assert_eq!(primitive.render.as_ref().unwrap().0.asset_work(), (0, 0));
+}
+
+// exact_game::Offset on a rigged owner moves its socketed prop with it; one on
+// the prop moves the prop alone. Sockets draw from the attachment chain, not
+// the follower's own pose, so both are applied there.
+struct Socketed;
+#[derive(Default, exact_game::Args)]
+struct SocketLook {
+    #[live]
+    owner_x: f64,
+    #[live]
+    prop_y: f64,
+    #[live]
+    carrier_x: f64,
+}
+impl Game for Socketed {
+    const ID: &'static str = "offset-socket";
+    const ASSETS: &'static [&'static str] = &["fox.model"];
+    type Args = SocketLook;
+    fn setup(w: &mut World, _: &SocketLook) {
+        w.insert_resource(exact_game::Environment {
+            background: Some([0.; 3].into()),
+            bloom: None,
+            fog: None,
+            ..Default::default()
+        });
+        // The rig rides a carrier: the carrier's offset moves the rig as drawn.
+        let carrier = w.spawn_named("carrier", Transform::default());
+        w.spawn_named(
+            "rig",
+            (
+                Transform::at(-3., 0., 0.),
+                exact_game::Parent(carrier),
+                Mesh::asset("fox.model"),
+            ),
+        );
+        w.spawn_named(
+            "prop",
+            (
+                Transform::default(),
+                exact_game::SocketFollow::new("rig", "joint").offset(Transform::at(0., 1.5, 0.)),
+                Mesh::cube(0.6),
+                exact_game::Material::rgb(0., 0., 1.),
+            ),
+        );
+        w.spawn((Transform::at(0., 0., 10.), Camera::orthographic(8.)));
+        w.spawn((
+            Transform::at(0., 0., 5.).looking_at(Vec3::ZERO, Vec3::Y),
+            exact_game::DirectionalLight::default(),
+        ));
+    }
+    fn tick(_: &mut World, _: &Input, _: &SocketLook) {}
+    fn paused(_: &SocketLook) -> bool {
+        true
+    }
+    fn present(w: &mut exact_game::Present<'_>, look: &SocketLook) {
+        let rig = w.named("rig").unwrap();
+        w.insert(
+            rig,
+            exact_game::Offset(Transform::at(look.owner_x as f32, 0., 0.)),
+        );
+        let prop = w.named("prop").unwrap();
+        w.insert(
+            prop,
+            exact_game::Offset(Transform::at(0., look.prop_y as f32, 0.)),
+        );
+        let carrier = w.named("carrier").unwrap();
+        w.insert(
+            carrier,
+            exact_game::Offset(Transform::at(look.carrier_x as f32, 0., 0.)),
+        );
+    }
+}
+#[test]
+fn offsets_move_socketed_props_with_their_owner_and_alone() {
+    let Some(gpu) = gpu() else { return };
+    // The blue prop's pixel centre, (x, y).
+    let drawn = |owner_x: f64, prop_y: f64, carrier_x: f64| {
+        let mut surface = WorldSurface::<Socketed, crate::ModelExecutor, true>::default();
+        surface.device_ready(exact_gpu::wgpu::Features::empty());
+        surface
+            .bind(
+                &[
+                    Value::Number(owner_x),
+                    Value::Number(prop_y),
+                    Value::Number(carrier_x),
+                ],
+                None,
+            )
+            .unwrap();
+        surface.asset(
+            "fox.model",
+            Ok(&exact_game::asset::encode_model(
+                &crate::test_model::skinned_model(),
+            )),
+        );
+        surface.asset(
+            "fox/0-srgb-straight.tex",
+            Ok(include_bytes!(
+                "../../bake/tests/fixtures/crate/0-srgb-straight.tex"
+            )),
+        );
+        let frame = Frame {
+            width: 160.,
+            height: 160.,
+            ..frame(0.)
+        };
+        fixture::render(&gpu, &mut surface, &frame).unwrap();
+        let image = fixture::render(&gpu, &mut surface, &frame).unwrap().0;
+        assert!(surface.take_error().is_none());
+        let blue: Vec<(u32, u32)> = (0..160)
+            .flat_map(|y| (0..160).map(move |x| (x, y)))
+            .filter(|&(x, y)| {
+                let p = image.at(x, y).map(u16::from);
+                p[2] > 60 && p[2] > p[0] + 40 && p[2] > p[1] + 40
+            })
+            .collect();
+        assert!(!blue.is_empty(), "the prop draws");
+        let n = blue.len() as f64;
+        (
+            blue.iter().map(|p| f64::from(p.0)).sum::<f64>() / n,
+            blue.iter().map(|p| f64::from(p.1)).sum::<f64>() / n,
+        )
+    };
+    let still = drawn(0., 0., 0.);
+    let owner = drawn(2., 0., 0.);
+    let prop = drawn(0., 1., 0.);
+    // An offset on the owner's parent moves the drawn rig and its socket.
+    let carried = drawn(0., 0., 2.);
+    assert!(
+        (carried.0 - still.0 - 40.).abs() < 3. && (carried.1 - still.1).abs() < 3.,
+        "{still:?} -> {carried:?}"
+    );
+    // 8 world units span 160 pixels: 20 pixels a unit.
+    assert!(
+        (owner.0 - still.0 - 40.).abs() < 3. && (owner.1 - still.1).abs() < 3.,
+        "{still:?} -> {owner:?}"
+    );
+    assert!(
+        (prop.1 - still.1 + 20.).abs() < 3. && (prop.0 - still.0).abs() < 3.,
+        "{still:?} -> {prop:?}"
+    );
+}
+
+#[path = "surface_pose_tests.rs"]
+mod poses;
+
+#[test]
+fn srgb_target_matches_shader_transfer_after_hdr_rendering() {
+    use exact_game::{Environment, Material, SceneSamples};
+    struct Transfer;
+    impl Game for Transfer {
+        type Args = ();
+        const ID: &'static str = "srgb-output-pixels";
+        const SAMPLES: SceneSamples = SceneSamples::One;
+        fn setup(w: &mut World, _: &()) {
+            for (i, value) in [0.001, 0.003, 0.01, 0.05, 0.2, 0.5, 1., 2., 8.]
+                .into_iter()
+                .enumerate()
+            {
+                w.spawn((
+                    Transform::at((i % 3) as f32 - 1., (i / 3) as f32 - 1., 0.),
+                    Mesh::cube(0.8),
+                    Material {
+                        emissive: [value, value * 0.5, value * 0.2],
+                        ..Material::rgb(0., 0., 0.)
+                    },
+                ));
+            }
+            w.spawn((Transform::at(0., 0., 6.), Camera::default()));
+            w.insert_resource(Environment {
+                fog: None,
+                ..Default::default()
+            });
+        }
+        fn tick(_: &mut World, _: &Input, _: &()) {}
+    }
+    let Some(gpu) = gpu() else {
+        return;
+    };
+    let draw = |format| {
+        let mut s = WorldSurface::<Transfer>::default();
+        assert!(s.srgb_target());
+        s.bind(&[], None).unwrap();
+        let texture = gpu.device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("sRGB transfer comparison"),
+            size: wgpu::Extent3d {
+                width: 64,
+                height: 64,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
+            view_formats: &[],
+        });
+        let view = texture.create_view(&Default::default());
+        for _ in 0..4 {
+            s.prepare_assets(&gpu.device, &gpu.queue, format);
+            let mut encoder = gpu.device.create_command_encoder(&Default::default());
+            s.render(
+                &frame(0.),
+                &gpu.device,
+                &gpu.queue,
+                &mut encoder,
+                &view,
+                format,
+            );
+            gpu.queue.submit([encoder.finish()]);
+            s.submitted();
+            assert!(s.error().is_none(), "{:?}", s.error());
+        }
+        fixture::read(&gpu, &texture).unwrap()
+    };
+    let shader = draw(wgpu::TextureFormat::Rgba8Unorm);
+    let hardware = draw(wgpu::TextureFormat::Rgba8UnormSrgb);
+    assert!(shader
+        .data
+        .iter()
+        .zip(&hardware.data)
+        .all(|(a, b)| a.abs_diff(*b) <= 1));
+    assert!(
+        !WorldSurface::<Move>::default().srgb_target(),
+        "the four-sample path is unchanged"
+    );
+}
+
+#[test]
+fn world_perf_difference_reads_only_the_requested_ticks_over_the_wire() {
+    #[derive(Default, exact_game::Data)]
+    struct Sample {
+        count: u64,
+    }
+    #[derive(Default, exact_game::Data)]
+    struct Spans {
+        spans: Vec<Sample>,
+        error: String,
+    }
+    #[allow(non_snake_case)]
+    #[derive(Default, exact_game::Data)]
+    struct Metrics {
+        tickSpans: Spans,
+    }
+    #[derive(Default, exact_game::Data)]
+    struct WorldState {
+        perf: Metrics,
+    }
+    #[derive(Default, exact_game::Data)]
+    struct Reply {
+        world: WorldState,
+    }
+    let mut s = surface();
+    s.agent(r#"{"op":"clock","now":0}"#);
+    s.agent(r#"{"op":"state","perf":true}"#);
+    s.agent(r#"{"op":"clock","now":34}"#);
+    let read = |text: String| {
+        exact_game::json::from_str::<Reply>(&text)
+            .unwrap()
+            .world
+            .perf
+            .tickSpans
+    };
+    let window = read(s.agent(r#"{"op":"state","span_since":1}"#).unwrap());
+    assert!(!window.spans.is_empty());
+    assert!(window.spans.iter().all(|s| s.count == 1));
+    let all = read(s.agent(r#"{"op":"state","span_since":0}"#).unwrap());
+    assert!(all.spans.iter().all(|s| s.count == 2));
+    let backwards = read(s.agent(r#"{"op":"state","span_since":3}"#).unwrap());
+    assert!(backwards.error.contains("counters went back"));
 }

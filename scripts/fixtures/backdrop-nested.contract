@@ -1,0 +1,67 @@
+// Issue 20261010-macos-backdrop-beyond-parent: A/B, clipped fallback,
+// and the same glass over a list while its rows move under it.
+component BackdropNested
+  view
+    main testId="root" position="relative" width=400 height=580 background-color="#ffffff"
+      box position="absolute" left=0 top=0
+        Stripes()
+      box testId="sibling"
+        position="absolute"
+        left=20
+        top=40
+        width=160
+        height=100
+        background-color="#ffffff33"
+        backdrop-filter="blur(8px)"
+      box testId="wrapper" position="absolute" left=220 top=40 width=160 height=100
+        box testId="nested"
+          width="100%"
+          height="100%"
+          background-color="#ffffff33"
+          backdrop-filter="blur(8px)"
+      list testId="list" position="absolute" left=0 top=200 width=400 height=180
+        box height=40 flex-shrink=0 background-color="#e53935"
+        box height=40 flex-shrink=0 background-color="#1e88e5"
+        box height=40 flex-shrink=0 background-color="#e53935"
+        box height=40 flex-shrink=0 background-color="#1e88e5"
+        box height=40 flex-shrink=0 background-color="#e53935"
+        box height=40 flex-shrink=0 background-color="#1e88e5"
+        box height=40 flex-shrink=0 background-color="#e53935"
+        box height=40 flex-shrink=0 background-color="#1e88e5"
+      box testId="scroll-sibling"
+        position="absolute"
+        left=20
+        top=240
+        width=160
+        height=100
+        background-color="#ffffff33"
+        backdrop-filter="blur(8px) saturate(1.14)"
+        pointer-events="none"
+      box position="absolute" left=220 top=240 width=160 height=100 pointer-events="none"
+        box testId="scroll-nested"
+          width="100%"
+          height="100%"
+          background-color="#ffffff33"
+          backdrop-filter="blur(8px) saturate(1.14)"
+      box position="absolute" left=0 top=400
+        Stripes()
+      box position="absolute" left=220 top=440 width=160 height=100 overflow="hidden"
+        box testId="clipped"
+          width="100%"
+          height="100%"
+          background-color="#ffffff33"
+          backdrop-filter="blur(8px)"
+
+component Stripes
+  view
+    row width=400 height=180
+      box width=40 background-color="#e53935"
+      box width=40 background-color="#1e88e5"
+      box width=40 background-color="#e53935"
+      box width=40 background-color="#1e88e5"
+      box width=40 background-color="#e53935"
+      box width=40 background-color="#1e88e5"
+      box width=40 background-color="#e53935"
+      box width=40 background-color="#1e88e5"
+      box width=40 background-color="#e53935"
+      box width=40 background-color="#1e88e5"

@@ -3,9 +3,9 @@
 component Frame
   state loaded = false
   state received = ""
-  action didLoad writes loaded
+  action didLoad
     loaded = true
-  action receivedMessage(payload) writes received
+  action receivedMessage(payload)
     received = payload
   view
     column testId="root"

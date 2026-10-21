@@ -40,7 +40,12 @@ pub const MAX_MODULE: usize = 32 << 20;
 
 trait Executor {
     fn call(&mut self, bytes: &[u8]) -> Result<Vec<u8>, String>;
-    #[cfg(all(not(target_arch = "wasm32"), not(target_os = "ios")))]
+    #[cfg(any(
+        target_os = "macos",
+        target_os = "linux",
+        target_os = "windows",
+        target_os = "android"
+    ))]
     fn stateless(&self) -> bool {
         false
     }
@@ -66,7 +71,13 @@ pub struct Swappable<D> {
     /// The embedded crate's Canvas 2D roster (LLP 1056 D1), kept across a
     /// replacement: the roster is part of the binary.
     canvas_surfaces: Vec<(String, usize)>,
+    /// The source the binary compiled natively, and how to make that source
+    /// again: a Rust candidate built from the same source runs it instead.
+    native: Option<Native<D>>,
 }
+
+/// The source digest a binary compiled its data crate from, and its constructor.
+type Native<D> = (&'static str, fn() -> D);
 
 impl<D: DataSource> Swappable<D> {
     fn configured(embedded: D, mode: &'static str, loader: Option<Loader>) -> Self {
@@ -82,7 +93,16 @@ impl<D: DataSource> Swappable<D> {
             revision: None,
             plan: None,
             executor: None,
+            native: None,
         }
+    }
+    /// Name the source digest (`scripts/app.mjs` `nativeSource`) the binary
+    /// compiled `make`'s data crate from. A Rust candidate whose receipt names
+    /// the same source is that code already: replacement makes it natively,
+    /// so a module costs interpretation only while it differs from the binary.
+    pub fn with_native(mut self, source: &'static str, make: fn() -> D) -> Self {
+        self.native = Some((source, make));
+        self
     }
     /// Runtime policy selection. Generated entries should prefer concrete constructors.
     pub fn new(embedded: D, policy: &str) -> Self {
@@ -109,7 +129,7 @@ impl<D: DataSource> Swappable<D> {
             Self::browser(embedded)
         }
     }
-    /// Load the native target's data-only shared library (unavailable on iOS).
+    /// Load a data-only shared library on macOS, Linux, Windows or Android.
     pub fn native(embedded: D) -> Self {
         #[cfg(any(
             target_os = "macos",
@@ -207,6 +227,29 @@ impl<D: DataSource> Swappable<D> {
 }
 
 impl<D: DataSource> DataSource for Swappable<D> {
+    fn prepare_snapshot(
+        &mut self,
+        module: Option<exact_runner::SnapshotModule<'_>>,
+        deadline: std::time::Instant,
+    ) -> Result<(), DataError> {
+        self.embedded
+            .as_mut()
+            .ok_or_else(|| DataError::Unavailable("snapshot needs the embedded cohort".into()))?
+            .prepare_snapshot(module, deadline)
+    }
+
+    fn take_storage_changed(&mut self) -> bool {
+        self.embedded
+            .as_mut()
+            .is_some_and(DataSource::take_storage_changed)
+    }
+
+    fn set_document_owner(&mut self, owner: u64) {
+        if let Some(embedded) = &mut self.embedded {
+            embedded.set_document_owner(owner);
+        }
+    }
+
     fn preload(&self) -> Result<bool, DataError> {
         if let Some(embedded) = &self.embedded {
             return embedded.preload();
@@ -214,6 +257,21 @@ impl<D: DataSource> DataSource for Swappable<D> {
         match (self.preloader, self.bytes.as_deref()) {
             (Some(preload), Some(bytes)) => preload(bytes).map_err(DataError::Unavailable),
             _ => Ok(true),
+        }
+    }
+    fn when_preloaded(&self, wake: Box<dyn FnOnce() + Send>) {
+        if let Some(embedded) = &self.embedded {
+            return embedded.when_preloaded(wake);
+        }
+        match (self.preloader, self.bytes.as_deref()) {
+            #[cfg(any(
+                target_os = "macos",
+                target_os = "linux",
+                target_os = "windows",
+                target_os = "android"
+            ))]
+            (Some(_), Some(bytes)) => native::when_loaded(bytes, wake),
+            _ => wake(),
         }
     }
     fn app_id(&self) -> &str {
@@ -260,10 +318,31 @@ impl<D: DataSource> DataSource for Swappable<D> {
     fn native(&self) -> Option<exact_runner::Native> {
         self.embedded.as_ref().and_then(DataSource::native)
     }
-    /// A replaced Rust module parks nothing.
-    fn forgotten(&mut self, in_flight: &[exact_runner::InFlight<'_>]) {
+    /// The embedded source's overlay, or the loaded module's through the
+    /// ABI's overlay operation, called synchronously as an answer is.
+    fn overlay(
+        &mut self,
+        source: &str,
+        args: &[Value],
+        answer: &Value,
+        writes: &[exact_runner::Write<'_>],
+    ) -> Result<Option<exact_runner::Overlaid>, DataError> {
         if let Some(embedded) = &mut self.embedded {
-            embedded.forgotten(in_flight);
+            return embedded.overlay(source, args, answer, writes);
+        }
+        // Before activation the module can't overlay: the answer shows.
+        let Some(engine) = self.executor.as_mut() else {
+            return Ok(None);
+        };
+        let request =
+            abi::overlay_request(source, args, answer, writes).map_err(DataError::Interface)?;
+        let bytes = engine.call(&request).map_err(DataError::Interface)?;
+        abi::overlay_reply(&bytes)
+    }
+    /// A replaced Rust module parks nothing.
+    fn forgotten(&mut self, store: &exact_runner::Store, in_flight: &[exact_runner::InFlight<'_>]) {
+        if let Some(embedded) = &mut self.embedded {
+            embedded.forgotten(store, in_flight);
         }
     }
     fn dispatch(&mut self, token: u64, store: &Store) -> exact_runner::Dispatch {
@@ -282,6 +361,28 @@ impl<D: DataSource> DataSource for Swappable<D> {
         if let Some(embedded) = self.embedded.as_mut() {
             embedded.discard(token);
         }
+    }
+    fn background(&mut self, store: &Store) -> Option<exact_runner::Request> {
+        self.embedded.as_mut()?.background(store)
+    }
+    fn background_landed(
+        &mut self,
+        store: &Store,
+        outcome: Outcome,
+    ) -> Result<Option<exact_runner::Request>, DataError> {
+        match self.embedded.as_mut() {
+            Some(embedded) => embedded.background_landed(store, outcome),
+            None => Ok(None),
+        }
+    }
+    fn background_state(&self) -> Option<exact_runner::BackgroundState> {
+        self.embedded.as_ref()?.background_state()
+    }
+    fn take_logs(&mut self) -> Vec<String> {
+        self.embedded
+            .as_mut()
+            .map(DataSource::take_logs)
+            .unwrap_or_default()
     }
     fn bind(&mut self, plan: &Plan) {
         if let Some(embedded) = &mut self.embedded {
@@ -327,6 +428,7 @@ impl<D: DataSource> DataSource for Swappable<D> {
                     .map_err(|e| format!("{e:?}"))?;
                 let mut source = Self::configured(embedded, self.mode, self.loader);
                 source.preloader = self.preloader;
+                source.native = self.native;
                 return Ok(source);
             }
             if self.loader.is_none() {
@@ -380,6 +482,14 @@ impl<D: DataSource> DataSource for Swappable<D> {
             if decoded.app_id != self.app_id {
                 return Err("Rust candidate plan names another app".into());
             }
+            if let Some((source, make)) = self.native {
+                if meta["source"].as_str() == Some(source) {
+                    let mut native = Self::configured(make(), self.mode, self.loader);
+                    native.preloader = self.preloader;
+                    native.native = self.native;
+                    return Ok(native);
+                }
+            }
             if self.mode == "wasm" && !module.starts_with(b"\0asm\x01\0\0\0") {
                 return Err("candidate is not a version 1 wasm module".into());
             }
@@ -395,6 +505,7 @@ impl<D: DataSource> DataSource for Swappable<D> {
                 plan: Some(plan.to_vec()),
                 executor: None,
                 canvas_surfaces: self.canvas_surfaces.clone(),
+                native: self.native,
             })
         };
         build().map_err(DataError::Unavailable)

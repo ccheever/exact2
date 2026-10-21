@@ -19,7 +19,7 @@ pub(super) fn patch(plan: &Plan, rows: &[(&str, Value)]) -> Result<StyleProps, I
     let mut patch = StyleProps::default();
     for (name, value) in rows {
         let id = StyleId::from_name(name).unwrap_or_else(|| panic!("unknown kernel style: {name}"));
-        bridge::set_style(&mut patch, id as u16, value, plan.stacks.len())
+        bridge::set_plan_style(&mut patch, id as u16, value, plan)
             .map_err(InstanceError::Bridge)?;
     }
     Ok(patch)
@@ -108,15 +108,24 @@ pub(super) fn row_wrapper(
     Ok(view)
 }
 
+/// A rebound row's wrapper takes its new item's key (LLP 1078).
+pub(super) fn rekey(u: &mut Update<'_>, wrapper: ViewId, key: &str) {
+    u.ops.push(Op::SetProp {
+        id: wrapper,
+        prop: PropId::ListItemKey,
+        value: PropValue::Str(key.into()),
+    });
+}
+
 /// A row whose item left the data, before the list detaches and destroys its
 /// wrapper: an empty `listItemKey` tells the kernel it leaves (and plays its
-/// root's `exit-animation`, LLP 1063), where a row that scrolled away simply
+/// root's `-exact-exit-animation`, LLP 1063), where a row that scrolled away simply
 /// goes.
 pub(crate) fn item_left(u: &mut Update<'_>, wrapper: ViewId) {
     u.ops.push(Op::SetProp {
         id: wrapper,
         prop: PropId::ListItemKey,
-        value: PropValue::Str(String::new()),
+        value: PropValue::Str("".into()),
     });
 }
 
@@ -246,7 +255,7 @@ impl Collection {
                 .ok_or_else(|| invalid("a row's key has no text"))?;
             let mut props = exact_kernel::PropList::new();
             props.set(PropId::AccessibilityRole, PropValue::Str("listitem".into()));
-            props.set(PropId::ListItemKey, PropValue::Str(key));
+            props.set(PropId::ListItemKey, PropValue::Str(key.into()));
             if row.published != (usize::MAX, usize::MAX) {
                 let (position, count) = row.published;
                 props.set(
@@ -285,11 +294,12 @@ pub(super) fn validate_row(plan: &Plan, roots: &[Child]) -> Result<(), InstanceE
         let Some(value) = root.last[i].as_ref() else {
             continue;
         };
+        // A transform or a relative offset moves the row's box where it
+        // paints and leaves its flow, and so its wrapper's measure, as CSS
+        // does: a lifted row being dragged is `translate` and `z-index`
+        // (files F14: "0px 0px" was refused and the list drew nothing).
         let allowed = match style.name() {
             "position_type" => value == &Value::str("relative") || value == &Value::str("static"),
-            "top" | "bottom" | "left" | "right" | "rotate" => value.as_number() == Some(0.0),
-            "scale" => value.as_number() == Some(1.0),
-            "translate" => value == &Value::str("0 0"),
             "margin_top" | "margin_bottom" => value.as_number().is_some_and(|n| n >= 0.0),
             _ => true,
         };

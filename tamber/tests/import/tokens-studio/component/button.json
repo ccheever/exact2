@@ -1,0 +1,20 @@
+{
+  "button": {
+    "bg": {
+      "color": {
+        "value": "{colors.bg.default.color}",
+        "type": "color"
+      }
+    },
+    "borderRadius": {
+      "value": "{borderRadius.default}",
+      "type": "borderRadius"
+    },
+    "text": {
+      "color": {
+        "value": "{text.primary.color}",
+        "type": "color"
+      }
+    }
+  }
+}

@@ -10,8 +10,10 @@
 // `tap @t …` / `type @t …` answers it
 // (agent.js). Bundled only for a plan with a file input or one of the
 // commands.
-import { journal, clock, nextTicket, inflight, Hosts, OnHooks, viewId, Views, data } from './rt.js';
-import { reportPlace } from './navigation.js';
+import { journal, clock, nextTicket, inflight, Hosts, OnHooks, viewId, Views, data, painted } from './rt.js';
+import { record } from './pointer.js';
+import { inertAncestor, reportPlace, liveById } from './navigation.js';
+import { appGrantSet, coversPath } from './admission.js';
 
 const say = line => journal.push(`t=${clock.now} ${line}`);
 const x = () => (globalThis.exact ??= {});
@@ -20,7 +22,7 @@ const x = () => (globalThis.exact ??= {});
 // payload)` in the runner's host event kinds — 26 a file input's picked
 // files, 1 `change` with a string, 27 HTML's `cancel`.
 let Glue = null, picked = 0;
-const glue = () => Glue ??= import(new URL('picker-glue.js', document.baseURI).href).then(() => x().picker({
+const glue = () => Glue ??= import(new URL('./picker-glue.js', import.meta.url).href).then(() => x().picker({
   appId: data.appId, log: say,
   pickedPath: async name => `app:/tmp/picked/${reportPlace().split('\0')[2]}-${++picked}.${extension(name)}`,
   dispatch(view, kind, payload) {
@@ -33,7 +35,7 @@ const glue = () => Glue ??= import(new URL('picker-glue.js', document.baseURI).h
 }));
 const counted = p => { inflight.n++; return Promise.resolve(p).finally(() => inflight.n--); };
 const extension = name => { const e = /\.([^.]*)$/.exec(name)?.[1]?.toLowerCase() ?? ''; return e && e.length <= 8 && /^[a-z0-9]+$/.test(e) ? e : 'bin'; };
-const byId = id => { const el = document.getElementById(id); return el ? { el, view: viewId(el) } : null; };
+const byId = id => { const el = liveById(id); return el ? { el, view: viewId(el) } : null; };
 
 // A file input's `change` payload (picker.rs `Picked::payload`): one line
 // per file, as `Picked` records; null for anything malformed.
@@ -58,7 +60,7 @@ OnHooks.file = (e, kind, f) => {
   e.addEventListener('exact-picked', ev => {
     const files = records(ev.detail);
     if (!files) return say('picker: refused: a malformed payload');
-    f(files);
+    f(files, ["", false, 0, 0, "none", "", null, false, false]); // its `InputEvent`, as the runner's: no value, no text selection
   });
   return true;
 };
@@ -95,11 +97,15 @@ export async function answer(req) {
 Object.assign(x(), { files: { holds, answer } });
 
 // ---------------------------------------------------------------- showPicker (picker.rs)
-const tokens = el => (el.getAttribute('accept') ?? el.dataset.accept ?? '').split(',').map(t => t.trim().toLowerCase()).filter(Boolean);
+export const tokens = el => (el.getAttribute('accept') ?? '').split(',').map(t => t.trim().toLowerCase()).filter(Boolean);
 const MIME = { jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', gif: 'image/gif', webp: 'image/webp', heic: 'image/heic', heif: 'image/heif', avif: 'image/avif', tif: 'image/tiff', tiff: 'image/tiff',
-  mp4: 'video/mp4', mov: 'video/quicktime', m4v: 'video/x-m4v', webm: 'video/webm', json: 'application/json', md: 'text/markdown', markdown: 'text/markdown', txt: 'text/plain' };
-const accepts = (accept, name, mime) => accept.some(t => t === '.' + extension(name) || t === mime || (t.endsWith('/*') && mime.split('/')[0] === t.slice(0, -2)));
-const paths = v => { const l = v.split('\n').map(s => s.trim()).filter(Boolean); return l.length === 1 ? l[0].split(/\s+/) : l; };
+  mp4: 'video/mp4', mov: 'video/quicktime', m4v: 'video/x-m4v', webm: 'video/webm', pdf: 'application/pdf', json: 'application/json', md: 'text/markdown', markdown: 'text/markdown', txt: 'text/plain', html: 'text/html', htm: 'text/html', xml: 'application/xml', log: 'text/plain', csv: 'text/csv', tsv: 'text/tab-separated-values', css: 'text/css', yaml: 'application/yaml', yml: 'application/yaml' };
+export const accepts = (accept, name, mime) => !accept.length || accept.some(t => t === '*/*' || t === '.' + extension(name) || t === mime || (t.endsWith('/*') && mime.split('/')[0] === t.slice(0, -2)));
+export const deliveredType = (mime, accept) => {
+  const heic = mime === 'image/heic' || mime === 'image/heif', keeps = accept.some(t => ['*/*', 'image/*', 'image/heic', 'image/heif', '.heic', '.heif'].includes(t));
+  return heic && !keeps && accept.some(t => t.startsWith('image/')) ? 'image/jpeg' : mime;
+};
+const paths = v => { const l = v.split('\n').map(s => s.trim()).filter(Boolean); return v.includes('\n') ? l : String(v).trim().split(/\s+/).filter(Boolean); };
 Hosts.showPicker = id => {
   const found = byId(String(id ?? ''));
   const el = found?.el.localName === 'input' && found.el.type === 'file' ? found.el : null;
@@ -120,8 +126,7 @@ Hosts.showPicker = id => {
     if (list.length > 1 && !multiple) return `this input takes one file, not ${list.length}`;
     for (const p of list) {
       const name = p.split(/[\\/]/).pop(), mime = MIME[extension(name)] ?? 'application/octet-stream';
-      const heic = mime === 'image/heic' || mime === 'image/heif', keeps = accept.some(t => ['image/*', 'image/heic', 'image/heif', '.heic', '.heif'].includes(t));
-      const delivered = heic && !keeps && accept.some(t => t.startsWith('image/')) ? 'image/jpeg' : mime;
+      const delivered = deliveredType(mime, accept);
       if (!(delivered === mime && accepts(accept, name, mime)) && !accepts(accept, name, delivered)) return `${name} (${mime}) is not among accept="${accept.join(',')}"`;
     }
     return null;
@@ -129,23 +134,21 @@ Hosts.showPicker = id => {
 };
 
 // ---------------------------------------------------------------- saveFile (save_file.rs)
-function covered(grants, capability, path) {
-  const parts = p => { const i = p.indexOf(':/'); return i < 0 ? ['', ...p.split('/').filter(Boolean)] : [p.slice(0, i), ...p.slice(i + 2).split('/').filter(Boolean)]; };
-  const target = parts(path);
-  return grants.split('\n').some(line => { const [cap, prefix] = line.trim().split(/\s+/); return cap === capability && prefix && parts(prefix).every((c, i) => target[i] === c); });
-}
+// `(id, from, suggestedName)`, or `(id, none, suggestedName, text)` for
+// `text=`: the text itself, with no file to write first (x2apps notes #4).
 Hosts.saveFile = (...args) => {
   const refuse = (why, el) => { say(`saveFile: refused: ${why}`); if (el) el.dispatchEvent(new Event('cancel')); };
-  if (args.length !== 3 || args.some(a => typeof a !== 'string')) return refuse('saveFile takes (id, from, suggestedName), three strings');
-  const [id, from, suggestedName] = args, found = byId(id);
+  const text = args.length === 4 && args[1] == null ? args[3] : undefined;
+  if (text !== undefined ? [args[0], args[2], text].some(a => typeof a !== 'string') : args.length !== 3 || args.some(a => typeof a !== 'string')) return refuse('saveFile takes (id, from, suggestedName) or (id, text=, suggestedName=), strings');
+  const [id, from, suggestedName] = text !== undefined ? [args[0], '', args[2]] : args, found = byId(id);
   if (!found) return refuse(`no element with id "${id}"`);
   const rest = from.startsWith('app:/') ? from.slice(5).split('/') : [];
-  if (rest.length < 2 || rest.some(p => !p || p === '.' || p === '..' || p.includes('\0'))) return refuse(`${from} is not an app:/ file`, found.el);
-  if (!covered(data.grants ?? '', 'fs.read', from)) return refuse(`${from} is outside the app's fs.read grants`, found.el);
+  if (text === undefined && (rest.length < 2 || rest.some(p => !p || p === '.' || p === '..' || p.includes('\0')))) return refuse(`${from} is not an app:/ file`, found.el);
+  if (text === undefined && !coversPath(appGrantSet(), 'fs.read', from)) return refuse(`${from} is outside the app's fs.read grants`, found.el);
   if (!suggestedName || suggestedName.length > 255 || suggestedName === '.' || suggestedName === '..' || /[/\\\x00-\x1f\x7f]/.test(suggestedName)) return refuse('suggestedName is not a file name', found.el);
-  const r = { present: true, view: found.view, from, suggestedName };
+  const r = text !== undefined ? { present: true, view: found.view, text, suggestedName } : { present: true, view: found.view, from, suggestedName };
   if (clock.agent) {
-    hold('export', found.el, { id, from, suggestedName }, (value, req) => counted(glue().then(m => m.answerSave({ node: found.view, answered: value == null ? 'cancel' : 'value', request: r }, req.text))));
+    hold('export', found.el, text !== undefined ? { id, text, suggestedName } : { id, from, suggestedName }, (value, req) => counted(glue().then(m => m.answerSave({ node: found.view, answered: value == null ? 'cancel' : 'value', request: r }, req.text))));
     Holds.at(-1).check = v => { v = v.trim(); return (v.startsWith('/') || /^.:\\/.test(v)) && !/[\\/]$/.test(v) ? null : 'type an absolute file path to save to'; };
     return;
   }
@@ -156,14 +159,24 @@ Hosts.saveFile = (...args) => {
 };
 
 // ---------------------------------------------------------------- share (share.rs)
-Hosts.share = (title, text, url) => {
+Hosts.share = (title, text, url, files) => {
   const refuse = why => say(`share: refused: ${why}`);
-  if (text == null && url == null) return refuse('needs text= or url=');
+  files ??= [];
+  if (!Array.isArray(files) || files.some(f => typeof f !== 'string')) return refuse('files= is a list of strings');
+  if (text == null && url == null && !files.length) return refuse('needs text=, url= or files=');
   if (url != null && !/^https?:\/\/[^/?#\s]\S*$/i.test(url)) return refuse('url is not an absolute http: or https: URL');
+  // `files=` (LLP 1125 D12): app:/ files behind `fs.read`; a picture of an element is refused on the web.
+  for (const f of files) {
+    if (f.startsWith('#')) return refuse('a picture of an element is not available on the web');
+    const rest = f.startsWith('app:/') ? f.slice(5).split('/') : [];
+    if (rest.length < 2 || rest.some(p => !p || p === '.' || p === '..' || p.includes('\0'))) return refuse(`${f} is neither an app:/ file nor an element's #id`);
+    if (!coversPath(appGrantSet(), 'fs.read', f)) return refuse(`${f} is outside the app's fs.read grants`);
+  }
   // The pressed node anchors the sheet (the press's own event, in whose commit commands run).
   const source = globalThis.event?.currentTarget, anchor = source instanceof Element ? viewId(source) : null;
-  if (clock.agent) return hold('share', null, { title: title ?? null, text: text ?? null, url: url ?? null, anchor }, (_, req) => { say(req.choice === 'shared' ? 'share: shared' : 'share: dismissed'); });
+  if (clock.agent) return hold('share', null, { title: title ?? null, text: text ?? null, url: url ?? null, files, anchor }, (_, req) => { say(req.choice === 'shared' ? 'share: shared' : 'share: dismissed'); });
   if (typeof navigator.share !== 'function') return refuse('unavailable');
+  if (files.length) return void counted(glue().then(m => m.share({ title, text, url }, files.map(path => ({ path })))).then(say));
   navigator.share(Object.fromEntries(Object.entries({ title, text, url }).filter(([, v]) => v != null)))
     .then(() => 'share: shared', e => e?.name === 'AbortError' ? 'share: dismissed' : `share: refused: ${e?.name ?? e}`).then(say);
 };
@@ -172,7 +185,7 @@ Hosts.share = (title, text, url) => {
 // What the person chooses becomes a `doc:/<n>/<name>` path the app reaches
 // through `storage.fs` (the glue's handles; storage-request.js routes it).
 let Docs = null;
-const docs = () => Docs ??= import(new URL('documents-glue.js', document.baseURI).href).then(() => x().documents.install({
+const docs = () => Docs ??= import(new URL('./documents-glue.js', import.meta.url).href).then(() => x().documents.install({
   log: say, openFile: () => false,
   dispatch(view, kind, payload) {
     const el = Views.get(view);
@@ -181,6 +194,47 @@ const docs = () => Docs ??= import(new URL('documents-glue.js', document.baseURI
     else el.dispatchEvent(new CustomEvent('change', { detail: payload }));
   },
 }));
+// Files and folders dropped from outside (DOM's `drop`, studio diary R19),
+// of any type: Chromium's handles, asked for while the event lasts
+// (`getAsFileSystemHandle`), else a folder's entry or each File read-only,
+// minted as a picker's choice is and heard with the `DragEvent` record. The
+// innermost element with the handler takes them, over a text field too (its
+// own drop is the default this prevents). A `dragover` that carries files
+// is accepted, or the browser would open them itself.
+const allowed = e => () => !inertAncestor(e) && !e.matches(':disabled'); // a disabled control, never a box (review b5-b 4)
+// The glue fetched after the first paint, so a drag's enter and a paste find it loaded; the agent waits for it (rt.js `pieces`).
+const warm = (then = () => {}) => { const p = painted().then(docs).then(then); OnHooks.loading = Promise.all([OnHooks.loading, p]); return p; };
+OnHooks.drop = (e, f) => {
+  warm();
+  e.addEventListener('dragover', ev => { if (ev.dataTransfer?.types?.includes('Files') && allowed(e)()) { ev.preventDefault(); ev.dataTransfer.dropEffect = 'copy'; } });
+  e.addEventListener('drop', ev => {
+    const dt = ev.dataTransfer;
+    if (!dt?.types?.includes('Files') || !allowed(e)()) return;
+    ev.preventDefault(); ev.stopPropagation();
+    const [offsetX, offsetY] = record(e, ev), held = [ev.shiftKey, ev.ctrlKey, ev.altKey, ev.metaKey];
+    const items = [...dt.items].filter(i => i.kind === 'file');
+    const handles = items.map(i => i.getAsFileSystemHandle?.().catch(() => null) ?? null), entries = items.map(i => i.webkitGetAsEntry?.() ?? null), files = [...dt.files];
+    counted(docs().then(async m => {
+      const found = await m.dropped(await Promise.all(handles), files, entries);
+      if (!found.length) return say('drop: refused: the browser handed over no file');
+      f([offsetX, offsetY, found, ...held]);
+    }));
+  });
+};
+// `dragenter` and `dragleave` of a file drag (documents-glue.js `hearDrags`):
+// the point, no files (the DOM's are protected until the drop).
+OnHooks.drag = (e, kind, f) => {
+  warm(() => x().documents.hearDrags(e, kind, allowed(e), ev => f([...record(e, ev).slice(0, 2), [], ev.shiftKey, ev.ctrlKey, ev.altKey, ev.metaKey])));
+};
+// A paste's files (`clipboardData.files`), minted in the paste's own event; none before the glue has loaded.
+OnHooks.pasteWarm = () => warm();
+OnHooks.pasted = ev => {
+  const driver = clock.agent ? x().agentPaste : null;
+  x().agentPaste = null;
+  if (!ev.clipboardData?.files?.length && !driver) return [];
+  if (!x().documents?.pasted) { say('paste: its files came before the page could hold them'); return []; }
+  return x().documents.pasted(ev.clipboardData, driver);
+};
 const PICKERS = { showOpenFilePicker: ['open-file', 'showOpenFilePicker takes (id) or (id, multiple)'], showDirectoryPicker: ['open-directory', 'showDirectoryPicker takes (id)'], showSaveFilePicker: ['save-file', 'showSaveFilePicker takes (id, suggestedName)'] };
 for (const [name, [capability, usage]] of Object.entries(PICKERS)) Hosts[name] = (...args) => {
   const refuse = (why, el) => { say(`${name}: refused: ${why}`); if (el) el.dispatchEvent(new Event('cancel')); };
@@ -200,7 +254,8 @@ for (const [name, [capability, usage]] of Object.entries(PICKERS)) Hosts[name] =
     Holds.at(-1).check = v => { const list = paths(v); return !list.length || list.some(p => !p.startsWith('/')) ? 'type an absolute path' : list.length > 1 && !multiple ? `one path, not ${list.length}` : null; };
     return;
   }
-  if (typeof globalThis[name] !== 'function') return refuse('unavailable', found.el);
+  // A save without the browser's picker downloads (documents-glue.js), as `saveFile` does.
+  if (typeof globalThis[name] !== 'function' && capability !== 'save-file') return refuse('unavailable', found.el);
   // The browser's picker is called in the glue, after it loads: a picker
   // needs the activation, which a page that has loaded it already keeps.
   counted(docs().then(m => m.show(r, name)));

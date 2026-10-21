@@ -33,6 +33,14 @@ impl<'a> Reader<'a> {
         self.bytes.len() - self.pos
     }
 
+    /// How many of `n` announced elements, each at least `each` bytes
+    /// encoded, to reserve up front: what the bytes left could hold, so a
+    /// short payload reserves no more than it fills and a whole one reserves
+    /// exactly, with no slack from growing.
+    pub fn reserve(&self, n: usize, each: usize) -> usize {
+        n.min(self.remaining() / each.max(1))
+    }
+
     /// Current offset.
     pub fn position(&self) -> usize {
         self.pos
@@ -63,6 +71,11 @@ impl<'a> Reader<'a> {
             return Err(PlanError::BadCount(n as u32));
         }
         Ok(n)
+    }
+
+    /// The next byte, not read.
+    pub fn peek(&self) -> Option<u8> {
+        self.bytes.get(self.pos).copied()
     }
 
     /// One byte.
@@ -143,6 +156,16 @@ impl<'a> Sticky<'a> {
             return T::default();
         }
         read(&mut self.r).unwrap_or_else(|error| self.fail(error, T::default()))
+    }
+
+    /// [`Reader::position`].
+    pub fn position(&self) -> usize {
+        self.r.position()
+    }
+
+    /// [`Reader::reserve`].
+    pub fn reserve(&self, n: usize, each: usize) -> usize {
+        self.r.reserve(n, each)
     }
 
     /// [`Reader::count`]; zero after a failure.

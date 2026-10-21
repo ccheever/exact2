@@ -62,6 +62,14 @@ impl ScrollBounds {
     /// block list, x for a flex (row) one, the runner's rule at creation
     /// (LLP 1070 H1).
     fn capture(node: &NodeRef<'_>, kernel: &Kernel, collection_max: Option<f32>) -> Self {
+        let axes = effective_overflow(node);
+        // Not a scroll container: nothing to measure; it never moves.
+        if axes == (Overflow::Visible, Overflow::Visible) && collection_max.is_none() {
+            return Self {
+                axes,
+                max: (0., 0.),
+            };
+        }
         let (width, height) = content_size(node, kernel);
         let mut max = (
             (width - node.frame.width).max(0.),
@@ -72,10 +80,7 @@ impl ScrollBounds {
             Some(main) => max.1 = main,
             None => {}
         }
-        Self {
-            axes: effective_overflow(node),
-            max,
-        }
+        Self { axes, max }
     }
     pub(crate) fn clamp(self, offset: (f32, f32)) -> (f32, f32) {
         (
@@ -95,13 +100,15 @@ enum Payload {
     Image(Arc<Bitmap>, ObjectFit, Option<[u8; 4]>),
     Text(Rc<Paragraph>, Vec<RunPaint>),
     /// An `svg`'s scene as resolved at capture (LLP 1055.000 §4: SVG in a
-    /// retained region; the instant is the capture's).
+    /// retained region; the instant is the capture's), its wide colours
+    /// settled for the capture's appearance (LLP 1121 stage 4).
     Svg(Rc<exact_kernel::svg::Scene>),
 }
 struct NodePaint {
     ordinal: usize,
     key: NodeKey,
     id: ViewId,
+    pointer_hit: bool,
     paint: BoxPaint,
     payload: Payload,
     opacity: f32,
@@ -245,7 +252,9 @@ impl Picture {
                 return Err("content mounted node limit".into());
             }
             let frame = publication.frames()[ordinal].frame;
-            let paint = BoxPaint::capture(&node, scene.kernel, painter.dark, frame.width);
+            // The node's accent for all it captures (its box, its image's tint).
+            let _accent = super::accent_scope(&node);
+            let paint = BoxPaint::capture(&node, scene.kernel, painter.dark);
             let geometry = paint.geometry(paint_rect(frame, (0., 0.)));
             let axes = effective_overflow(&node);
             let clips = axes.0 != Overflow::Visible || axes.1 != Overflow::Visible;
@@ -270,14 +279,14 @@ impl Picture {
                         Payload::Image(
                             image.clone(),
                             node.style.object_fit,
-                            super::image_tint(node.style, &(scene.presented)(id), painter.dark),
+                            super::image_tint(&node, &(scene.presented)(id), painter.dark),
                         )
                     }),
-                    NodeType::Svg => Payload::Svg(Rc::new(super::svg::resolve_svg(
-                        scene,
-                        &node,
-                        geometry.content,
-                    ))),
+                    NodeType::Svg => {
+                        let mut svg = super::svg::resolve_svg(scene, &node, geometry.content);
+                        exact_kernel::style::wide::Settle::settle(&mut svg);
+                        Payload::Svg(Rc::new(svg))
+                    }
                     _ => Payload::Empty,
                 }
             };
@@ -286,9 +295,11 @@ impl Picture {
             let mut cost = 1usize; // hit, including opacity-zero nodes
             if opacity > 0. {
                 paint.emit(&geometry, |_, _| cost += 1);
-                cost += usize::from(paint.gradient.is_some());
-                cost += usize::from(paint.backdrop > 0.);
-                cost += paint.borders(&geometry).len() + paint.shadow_fills(&geometry).len();
+                cost += paint.gradients.len();
+                cost += usize::from(!paint.backdrop.is_none());
+                cost += paint.borders(&geometry).len()
+                    + paint.shadow_fills(&geometry).len()
+                    + paint.inset_shadow_fills(&geometry).len();
                 cost += match &payload {
                     Payload::Empty => 0,
                     Payload::Text(..) => 1,
@@ -303,7 +314,7 @@ impl Picture {
                 };
                 cost += 2 * usize::from(opacity < 1.)
                     + 2 * usize::from(clips)
-                    + 2 * usize::from(!node.style.clip_path.commands().is_empty())
+                    + 2 * usize::from(!node.style.rare.clip_path.commands().is_empty())
                     + 2 * usize::from(scroll_offset.is_some());
             }
             command_cost = command_cost
@@ -374,11 +385,14 @@ impl Picture {
                 ordinal,
                 key: node.key,
                 id,
+                pointer_hit: node
+                    .computed_row(exact_kernel::StyleId::PointerEvents, |s| s.pointer_events)
+                    != exact_kernel::PointerEvents::None,
                 paint,
                 payload,
                 opacity,
                 clips,
-                css_clip: node.style.clip_path.clone(),
+                css_clip: node.style.rare.clip_path.clone(),
                 scroll: scroll_offset,
                 action,
             });
@@ -495,7 +509,7 @@ impl Painter {
     pub(crate) fn region_blocks_action(&self, view: ViewId) -> bool {
         self.region_picture
             .as_ref()
-            .is_some_and(|p| p.owner == view || p.nodes.iter().any(|n| n.id == view))
+            .is_some_and(|p| p.owner == view || p.by_id.contains_key(&view))
     }
 }
 fn finite_rect(rect: Rect4) -> bool {
@@ -591,6 +605,7 @@ impl<'a> Replay<'a> {
                                 || !(actions.motion)(n.key, &picture.action_identity)
                                 || !p.translate.0.is_finite()
                                 || !p.translate.1.is_finite()
+                                || p.translate_percent != (0., 0.)
                                 || p.scale != 1.
                                 || p.rotate != 0.
                                 || p.layout != Presented::IDENTITY.layout
@@ -605,8 +620,9 @@ impl<'a> Replay<'a> {
                             let (x, y, w, h) = paint_rect(f.frame, offset);
                             let (ox, oy) = node.style.transform_origin.resolve(w, h);
                             let (cx, cy) = (x + ox, y + oy);
+                            let (tx, ty) = p.translate_at(w, h);
                             transform = parent.pre_concat(
-                                Transform::from_translate(cx + p.translate.0, cy + p.translate.1)
+                                Transform::from_translate(cx + tx, cy + ty)
                                     .pre_rotate(p.rotate)
                                     .pre_scale(p.scale, p.scale)
                                     .pre_translate(-cx, -cy),
@@ -629,11 +645,17 @@ impl<'a> Replay<'a> {
                             .padding
                             .into_iter()
                             .chain(n.paint.widths)
-                            .chain(n.paint.radii)
-                            .all(f32::is_finite);
+                            .all(f32::is_finite)
+                        && n.paint
+                            .radii
+                            .into_iter()
+                            .all(exact_kernel::Dimension::is_finite);
                     n.paint.emit(&geometry, |shape, _| {
-                        finite &=
-                            finite_rect(shape.rect) && shape.radii.into_iter().all(f32::is_finite);
+                        finite &= finite_rect(shape.rect)
+                            && shape
+                                .radii
+                                .into_iter()
+                                .all(|(x, y)| x.is_finite() && y.is_finite());
                     });
                     if let Payload::Image(image, fit, _) = &n.payload {
                         finite &= object_fit(image.natural(), *fit, c).is_none_or(finite_rect);
@@ -714,6 +736,7 @@ impl<'a> Replay<'a> {
                     let parent = r.transform;
                     if r.live_hit {
                         walk.boxes.push(PaintedBox {
+                            pointer_hit: n.pointer_hit,
                             projective: None,
                             affine: Some((parent, g.outer.rect)),
                             press: 1.,
@@ -744,7 +767,7 @@ impl<'a> Replay<'a> {
                             if let Some(dst) = object_fit(image.natural(), *fit, g.content) {
                                 painter.backend.image(
                                     image,
-                                    dst,
+                                    image.placed(dst),
                                     &[Shape::rect(g.content), g.outer],
                                     parent,
                                     *tint,
@@ -802,6 +825,7 @@ mod hit_tests {
             let ts = Transform::from_rotate_at(degrees, 50.0, 50.0);
             let rect = (0.0, 0.0, 100.0, 100.0);
             let b = PaintedBox {
+                pointer_hit: true,
                 id: 1,
                 rect: bbox(ts, rect),
                 clip: None,

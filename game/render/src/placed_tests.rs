@@ -205,7 +205,7 @@ fn captured_children_share_draw_and_hit_depth_and_a_wall_occludes_them() {
         type Args = ();
         fn setup(w: &mut World, _: &()) {
             w.insert_resource(exact_game::Environment {
-                background: Some([0.; 3]),
+                background: Some([0.; 3].into()),
                 fog: None,
                 bloom: None,
                 ..Default::default()
@@ -285,6 +285,7 @@ fn captured_children_share_draw_and_hit_depth_and_a_wall_occludes_them() {
         period_ms: 0.,
         children_generation: 0,
         shader_generation: 0,
+        headroom: 1.0,
     };
     let pixels = fixture::render(&gpu, &mut s, &frame).unwrap().0;
     let [r, g, b, _] = pixels.at(50, 50);
@@ -497,6 +498,7 @@ fn linux_placed_socket_redelivery_snaps_the_new_rig_history() {
     let mut p = Placements::default();
     p.child(0, "", None, [0., 0., 100., 50.]);
     p.feed(sim.world()).unwrap();
+    sim.run(17.);
     p.feed(sim.world()).unwrap();
     p.headless(Vec2::splat(200.), 0.5);
     assert!((p.children[0].plane.unwrap().center.x - 2.).abs() < 1e-5);

@@ -1,0 +1,34 @@
+// formatDate's `iso` style (LLP 1102 §3.4): `YYYY-MM-DD` at the wall time
+// (the date part of toISOString there), four-digit years with leading
+// zeros, "" outside years 1–9999 or at an offset past 18 h, as every style.
+fn iso(t: number, o: number): string = formatDate(t, o, "iso")
+
+component App
+  state offset = 0
+  derive a = `${iso(0, offset)} ${iso(-1, offset)} ${iso(86399999, offset)} ${iso(951782400000, offset)} ${iso(1709164800000, offset)}`
+  derive edges = `${iso(-62135596800000, offset)} ${iso(253402300799999, offset)} [${iso(253402300800000, offset)}] [${iso(-62135596800001, offset)}]`
+  derive bad = `[${iso(0, 1081)}][${iso(0 / 0, 0)}]`
+  derive early = iso(-59011459200000, 0)
+  action east
+    offset = offset + 330
+  action west
+    offset = offset - 600
+  view
+    column
+      text a testId="a"
+      text edges testId="edges"
+      text bad testId="bad"
+      text early testId="early"
+      button "east" press=east testId="east"
+      button "west" press=west testId="west"
+
+test "offsets"
+  expect text "a" == "1970-01-01 1969-12-31 1970-01-01 2000-02-29 2024-02-29"
+  expect text "edges" == "0001-01-01 9999-12-31 [] []"
+  expect text "bad" == "[][]"
+  expect text "early" == "0100-01-01"
+  tap "east"
+  expect text "a" == "1970-01-01 1970-01-01 1970-01-02 2000-02-29 2024-02-29"
+  tap "west"
+  tap "west"
+  expect text "a" == "1969-12-31 1969-12-31 1970-01-01 2000-02-28 2024-02-28"

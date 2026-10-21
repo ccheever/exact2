@@ -90,7 +90,7 @@ fn selected_config(dir: &Path, baked: &[u8], client: Client) -> Config {
     let mut config = Config {
         content_region: None,
         launch: "/".into(),
-        plan: baked.to_vec(),
+        plan: baked.to_vec().into(),
         fallback_plan: None,
         assets: dir.to_path_buf(),
         scale: 1.0,
@@ -109,6 +109,8 @@ fn selected_config(dir: &Path, baked: &[u8], client: Client) -> Config {
         selected_assets: None,
         module: Ok(None),
         updates: None,
+        hatches: None,
+        clock_started: None,
     };
     config.use_updates(Box::new(Updates::from_client(client).unwrap()), baked);
     config
@@ -151,7 +153,7 @@ fn a_fetched_plan_refused_at_boot_falls_back_to_baked() {
     let mut config = Config {
         content_region: None,
         launch: "/".into(),
-        plan: foreign.encode(),
+        plan: foreign.encode().into(),
         fallback_plan: Some(baked),
         assets: std::env::current_dir().unwrap(),
         scale: 1.0,
@@ -170,6 +172,8 @@ fn a_fetched_plan_refused_at_boot_falls_back_to_baked() {
         selected_assets: None,
         module: Ok(None),
         updates: None,
+        hatches: None,
+        clock_started: None,
     };
     let size = config.size;
     let (presenter, error) = boot_presenter::<Named>(&mut config, size).unwrap();
@@ -220,7 +224,7 @@ fn a_partial_initial_dev_plan_falls_back_without_counting_the_store() {
     let mut config = Config {
         content_region: None,
         launch: "/".into(),
-        plan: b"EXPL".to_vec(), // the compiler was interrupted mid-write
+        plan: b"EXPL".to_vec().into(), // the compiler was interrupted mid-write
         fallback_plan: Some(baked.clone()),
         assets: PathBuf::from("."),
         scale: 1.0,
@@ -239,9 +243,11 @@ fn a_partial_initial_dev_plan_falls_back_without_counting_the_store() {
         selected_assets: None,
         module: Ok(None),
         updates: None,
+        hatches: None,
+        clock_started: None,
     };
     config.use_updates(Box::new(updates), &baked);
-    assert_eq!(config.plan, b"EXPL");
+    assert_eq!(&*config.plan, b"EXPL");
     assert!(config.entry.is_none(), "the selected entry did not win");
     let (presenter, _) = boot_presenter::<Named>(&mut config, (390.0, 844.0)).unwrap();
     assert_eq!(presenter.node_count(), 1, "the baked plan booted");
@@ -259,7 +265,7 @@ fn a_selected_image_loads_from_its_verified_generation() {
         .unwrap()
         .encode();
     let selected =
-        contract::compile("shape Delivery\n  seq: number\ncomponent App\n  resource delivery = exactDelivery() as shape Delivery\n  view\n    column\n      when delivery.seq > 0\n        image \"assets/mark.png\" width=96\n      else\n        text \"embedded\"\n")
+        contract::compile("shape Delivery\n  seq: number\ncomponent App\n  resource delivery = exactDelivery() as shape Delivery\n  view\n    column\n      if delivery.seq > 0\n        image \"assets/mark.png\" width=96\n      else\n        text \"embedded\"\n")
             .unwrap()
             .encode();
     let png = std::fs::read(concat!(
@@ -367,7 +373,7 @@ fn a_corrupt_selected_asset_falls_back_before_first_pixel() {
         .unwrap()
         .encode();
     let selected =
-        contract::compile("shape Delivery\n  seq: number\ncomponent App\n  resource delivery = exactDelivery() as shape Delivery\n  view\n    column\n      when delivery.seq > 0\n        image \"assets/mark.png\" width=96\n      else\n        text \"embedded\"\n")
+        contract::compile("shape Delivery\n  seq: number\ncomponent App\n  resource delivery = exactDelivery() as shape Delivery\n  view\n    column\n      if delivery.seq > 0\n        image \"assets/mark.png\" width=96\n      else\n        text \"embedded\"\n")
             .unwrap()
             .encode();
     let dir = std::env::temp_dir().join(format!(
@@ -404,7 +410,7 @@ fn a_corrupt_selected_asset_falls_back_before_first_pixel() {
 
 #[test]
 fn activation_refuses_carried_layout_without_advancing_then_commits_after_repair() {
-    let source = "component App\n  state divisor = 1\n  action breakIt writes divisor\n    divisor = 0\n  action repair writes divisor\n    divisor = 1\n  view\n    column width=100\n      text \"running\"\n      button press=breakIt testId=\"break\"\n        text \"break\"\n      button press=repair testId=\"repair\"\n        text \"repair\"\n";
+    let source = "component App\n  state divisor = 1\n  action breakIt\n    divisor = 0\n  action repair\n    divisor = 1\n  view\n    column width=100\n      text \"running\"\n      button press=breakIt testId=\"break\"\n        text \"break\"\n      button press=repair testId=\"repair\"\n        text \"repair\"\n";
     let baked = contract::compile(source).unwrap().encode();
     // A derive must be a finite number: carried `divisor = 0` refuses the
     // candidate's boot (a bound style value would only be unset).
@@ -823,14 +829,14 @@ fn signed_rust_pair_is_deferred_and_failed_live_replacement_keeps_the_old_genera
         bytes: b"fails".to_vec(),
     };
     assert!(presenter
-        .reload_module(&baked, DeferredRust::default(), Some(refused))
+        .reload_module(&baked, DeferredRust::default(), Some(refused), false)
         .is_err());
     assert_eq!(RUST_VALIDATIONS.load(SeqCst), 1);
     assert_eq!(RUST_ACTIVATIONS.load(SeqCst), 1);
     assert_eq!(presenter.host().agent("{\"op\":\"tree\"}"), tree);
     // A plan-only reload keeps the admitted pair and recreates its deferred source.
     presenter
-        .reload_module(&candidate, DeferredRust::default(), None)
+        .reload_module(&candidate, DeferredRust::default(), None, false)
         .unwrap();
     assert_eq!(RUST_VALIDATIONS.load(SeqCst), 2);
     assert_eq!(RUST_ACTIVATIONS.load(SeqCst), 1);
@@ -972,7 +978,7 @@ fn a_live_rust_swap_refuses_before_loading_while_a_request_is_pending() {
             Ok(self.clone())
         }
     }
-    let plan = contract::compile("shape Reply\n  value: string\ncomponent App\n  mutation reply as shape Reply\n  action start writes reply\n    send reply = write()\n  view\n    button press=start testId=\"start\"\n      text \"send\"\n").unwrap().encode();
+    let plan = contract::compile("shape Reply\n  value: string\ncomponent App\n  mutation reply as shape Reply\n  action start\n    send reply = write()\n  view\n    button press=start testId=\"start\"\n      text \"send\"\n").unwrap().encode();
     let calls = Arc::new(std::sync::atomic::AtomicUsize::new(0));
     let source = Held(calls.clone());
     let (mut presenter, _) = exact_linux::Presenter::boot(
@@ -996,9 +1002,12 @@ fn a_live_rust_swap_refuses_before_loading_while_a_request_is_pending() {
         bytes: Vec::new(),
     };
     let error = presenter
-        .reload_module(&plan, source, Some(module))
+        .reload_module(&plan, source, Some(module), false)
         .unwrap_err();
-    assert!(error.to_string().contains("retry after they settle"));
+    assert!(
+        matches!(error, exact_linux::host::HostError::RequestsPending),
+        "{error}"
+    );
     assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 0);
     assert_eq!(presenter.host().runner().pending(), pending);
 }

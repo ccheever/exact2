@@ -86,11 +86,13 @@ async function capture(open, host, dir, check) {
       }
       void reply;
     }
-    // LLP 1055.000 D17: a tap on a tile's centre presses the element there.
+    // LLP 1055.000 D17: a tap on a tile's centre presses the element there — a point, `at` its middle: a plain
+    // tap names the `svg`, which has no press of its own, and never presses an element inside it (LLP 1012 §1).
     if (pages.includes('page-6')) {
       await s.tap('page-6');
       for (const [fixture, want] of [['fx-hit', 'disc'], ['fx-bars', 'bars']]) {
-        await s.tap(fixture);
+        const tile = (await s.layout()).nodes.find((n) => n.testId === fixture);
+        await s.tap(fixture, { at: [tile.w / 2, tile.h / 2] });
         await s.clock('settle');
         const t = await s.tree();
         const got = t.nodes.find((n) => n.props?.testId === 'picked-label')?.props.text;

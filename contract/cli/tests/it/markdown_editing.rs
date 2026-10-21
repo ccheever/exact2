@@ -16,12 +16,12 @@ const SOURCE: &str = r#"component App
   state link = ""
   state unavailable = ""
   state boldActive = false
-  action selected(s) writes formats, mixed, link, unavailable, boldActive
+  action selected(s)
     formats = s.formats
     mixed = s.mixed
     link = s.link
     unavailable = s.unavailable
-    boldActive = includes(` ${s.formats} `, " bold ")
+    boldActive = ` ${s.formats} `.includes(" bold ")
   action bold()
     format("editor", "bold")
   action setLink()
@@ -105,4 +105,112 @@ fn select_rejects_a_wrong_payload_type_or_arity() {
         let error = contract::compile(&source).unwrap_err().to_string();
         assert!(error.contains(message), "{error}");
     }
+}
+
+/// `markup` is `"markdown"` or `"none"`, on a `text` or a `textarea`;
+/// another word or another tag did nothing, silently (notes #1).
+#[test]
+fn markup_is_markdown_or_none_on_a_text_or_a_textarea() {
+    // A plain textarea's `select` is HTML's, carrying its `InputEvent`
+    // (x2apps codeedit #2); the editor's carries its formats.
+    contract::compile(
+        "component App\n  state at = 0\n  action moved(e: InputEvent)\n    at = e.selectionStart\n  view\n    textarea value=\"hello\" markup=\"none\" select=moved\n",
+    )
+    .unwrap();
+    let error = contract::compile(
+        &SOURCE
+            .replace(
+                "action selected(s)",
+                "action selected(s: MarkdownSelection)",
+            )
+            .replace("markup=\"markdown\"", "markup=\"none\""),
+    )
+    .unwrap_err();
+    assert_eq!(error.id, "type-handler-payload", "{error}");
+    let error =
+        contract::compile(&SOURCE.replace("markup=\"markdown\"", "markup=\"html\"")).unwrap_err();
+    assert_eq!(error.id, "lower-attr-value", "{error}");
+    let error = contract::compile(
+        &SOURCE.replace("testId=\"bold\"", "testId=\"bold\" markup=\"markdown\""),
+    )
+    .unwrap_err();
+    assert_eq!(error.id, "lower-attr-tag", "{error}");
+    assert!(error.message.contains("not `button`"), "{error}");
+}
+
+/// The editor's `input`, `selectionchange` and `beforeinput` are a text
+/// field's, over its source (LLP 1045 D6): each carries the `InputEvent`
+/// with the source selection, its `select` still its formats; and
+/// `setSelectionRange` and `setRangeText` name it as they name a field.
+#[test]
+fn the_editors_text_events_carry_the_source_selection() {
+    let source = r#"component App
+  state seen = ""
+  action moved(e: InputEvent)
+    seen = `moved ${e.value}:${e.selectionStart}-${e.selectionEnd}:${e.selectionDirection}`
+  action before(e: InputEvent)
+    seen = `before ${e.inputType}:${e.selectionStart}-${e.selectionEnd}:${e.cancelable}:${e.isComposing}`
+    preventDefault()
+  action edited(v: string, e: InputEvent)
+    seen = `input ${v}:${e.inputType}:${e.selectionStart}-${e.selectionEnd}:${e.isComposing}`
+  action selected(s: MarkdownSelection)
+    seen = `select ${s.formats}`
+  action complete
+    setRangeText("editor", "@a.ts ", 0, 1, "end")
+    setSelectionRange("editor", 2, 4, "backward")
+  view
+    column
+      textarea id="editor" testId="editor" value="**b**" markup="markdown" input=edited selectionchange=moved beforeinput=before select=selected
+      button testId="complete" press=complete
+        text "Complete"
+"#;
+    let plan = Plan::decode(&contract::compile(source).unwrap().encode()).unwrap();
+    let mut r = Runner::boot(
+        plan,
+        NoData,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    let id = |r: &Runner<NoData>, name| {
+        r.kernel()
+            .node_by_key(r.kernel().find_by_test_id(name)[0])
+            .unwrap()
+            .id
+    };
+    let editor = id(&r, "editor");
+    for (event, expected) in [
+        (
+            Event::of_host_kind(52, "1,4,backward,**b**").unwrap(),
+            "moved **b**:1-4:backward",
+        ),
+        (
+            Event::of_host_kind(53, "insertLineBreak,1,0,-1,2,2,none,**b**").unwrap(),
+            "before insertLineBreak:2-2:true:false",
+        ),
+        (
+            Event::of_host_kind(54, "insertCompositionText,0,1,3,あ3,3,none,**あb**").unwrap(),
+            "input **あb**:insertCompositionText:3-3:true",
+        ),
+        (
+            Event::selection_payload("bold\n0\n\n").unwrap(),
+            "select bold",
+        ),
+    ] {
+        r.dispatch(editor, event).unwrap();
+        assert_eq!(r.slot("seen"), Some(&Value::str(expected)));
+    }
+    r.take_commands();
+    r.dispatch(id(&r, "complete"), Event::Press).unwrap();
+    let names: Vec<_> = r.take_commands().into_iter().map(|c| c.name).collect();
+    assert_eq!(names, ["setRangeText", "setSelectionRange"]);
+    // A `selectionchange` action declaring the `Selection` of a `text` is
+    // the arity refusal a text field's gets.
+    let error = contract::compile(&source.replace(
+        "action moved(e: InputEvent)\n    seen = `moved ${e.value}:${e.selectionStart}-${e.selectionEnd}:${e.selectionDirection}`",
+        "action moved(text: string, a: number, b: number, e: Selection)\n    seen = text",
+    ))
+    .unwrap_err();
+    assert!(error.id.contains("handler"), "{error}");
 }

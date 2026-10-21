@@ -1,5 +1,5 @@
 #!/usr/bin/env bun
-import {proof} from '../../proof.mjs';
+import {proof, axNames} from '../../proof.mjs';
 import {decodePng} from '../../../scripts/png.mjs';
 import {readFileSync,writeFileSync} from 'node:fs';
 import {resolve} from 'node:path';
@@ -15,7 +15,7 @@ if (import.meta.main) await proof(import.meta,async ({pin, pinSave, open,check,e
   const start=async world=>{const s=await open({size:[1280,720],...world?{world}:{}});await s.tap('play');return s;};
   const s=await start(),w=s.world('world');
   const node=(tree,id)=>tree.nodes.find(n=>n.props?.testId===id);
-  const box=async id=>(await s.layout(id)).nodes.find(n=>n.testId===id);
+  const box=async id=>{const {node}=await s.layout(id);return {id:node.id,...node.space.viewport};};
   const covered=await box('hud'), pull=await box('pull');
   const overlap=[pull.x+pull.w/2,pull.y+pull.h-5];
   check('HUD overlaps Pull',overlap[0]>covered.x && overlap[0]<covered.x+covered.w && overlap[1]>covered.y && overlap[1]<covered.y+covered.h,{covered,pull});
@@ -32,14 +32,14 @@ if (import.meta.main) await proof(import.meta,async ({pin, pinSave, open,check,e
   const initialTick=(await w.snapshot()).tick;
   const tuples={initial:{...Object.fromEntries(['x','y','w','h'].map(k=>[k,first[k]])),tick:initialTick}};
   check('initial placement pinned at tick zero',initialTick===0);
-  const firstAX=node(await s.tree(),'sign')?.accessibilityFrame;
+  const firstAX=(await axNames(s)).frame?.('sign');
   const oracle={x:430.91,y:299.76,w:140.23,h:30.55};
   check('placed sign matches Placed::project within 0.5 px at 1280x720',Object.entries(oracle).every(([k,v])=>Math.abs(first[k]-v)<=0.5),first);
   await s.tap('hud');await s.clock('+0');
   check('zero-sized child is explicitly hidden',(await s.state('world:sign')).entity.placed.hidden===true);
   const signId=node(await s.tree(),'sign')?.id ?? first.id;
   const hiddenLayout=await s.op({op:'layout',id:signId});
-  const hiddenBox=hiddenLayout.nodes.find(n=>n.id===signId) ?? hiddenLayout.node?.space?.viewport;
+  const hiddenBox=hiddenLayout.node?.space?.viewport;
   check('hidden placement reports a zero box',!!hiddenBox && ['x','y','w','h'].every(k=>hiddenBox[k]===0),hiddenLayout);
   await s.tap('hud');await s.clock('+0');
   check('restored child has a fresh visible capture',(await s.state('world:sign')).entity.placed.hidden===false);
@@ -65,8 +65,10 @@ if (import.meta.main) await proof(import.meta,async ({pin, pinSave, open,check,e
     check('orbit moves sign placed box',Math.abs(after.x-first.x)>1,after);
     check('HUD stays at kernel frame',equal(await box('hud'),hud));
     if(host==='macos') {
-      const sign=node(await s.tree(),'sign');
-      check('accessible sign text uses the placed frame',sign?.props.text==='The lantern path' && Math.abs(sign.accessibilityFrame[2]-after.w)<0.1 && Math.abs(sign.accessibilityFrame[3]-after.h)<0.1 && Math.abs((sign.accessibilityFrame[0]-firstAX[0])-(after.x-first.x))<0.1 && Math.abs((sign.accessibilityFrame[1]-firstAX[1])+(after.y+after.h-first.y-first.h))<0.1 && !sign.accessibilityHidden,sign);
+      // The ax element's frame (LLP 1080.002), in viewport points, y down; an
+      // element present in the platform's tree is exposed, not hidden.
+      const sign=node(await s.tree(),'sign'), ax=(await axNames(s)).frame('sign');
+      check('accessible sign text uses the placed frame',sign?.props.text==='The lantern path' && !!ax && !!firstAX && Math.abs(ax.w-after.w)<0.1 && Math.abs(ax.h-after.h)<0.1 && Math.abs((ax.x-firstAX.x)-(after.x-first.x))<0.1 && Math.abs((ax.y-firstAX.y)-(after.y-first.y))<0.1,{sign,ax,firstAX});
     }
   }
   const mid=await w.snapshot(),save=resolve(out,'placed.world');await w.save(save);
@@ -84,7 +86,7 @@ if (import.meta.main) await proof(import.meta,async ({pin, pinSave, open,check,e
   {
     check('fixed sign explicitly hidden from behind',(await s.state('world:sign')).entity.placed.hidden===true);
     const backLayout=await s.op({op:'layout',id:reorderedSign.id});
-    const backBox=backLayout.nodes.find(n=>n.id===reorderedSign.id) ?? backLayout.node?.space?.viewport;
+    const backBox=backLayout.node?.space?.viewport;
     check('back-face hidden child also reports a zero box',!!backBox && ['x','y','w','h'].every(k=>backBox[k]===0),backBox);
     if(host==='linux') check('hidden sign leaves the tree', !node(await s.tree(),'sign'));
     else check('layout reports hidden sign',(await s.layout('sign')).node.visible.hidden===true);

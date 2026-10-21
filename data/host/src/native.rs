@@ -6,6 +6,7 @@ use ibex2::{
     stdlib::{
         app_fs::{self, AppDirectories},
         fs::{self, FsOp, FsResult},
+        fs_image::{self, ImageJob, ImageRequest, ImageService, ImageWork},
         sqlite::{self, Location, Provider},
     },
 };
@@ -102,12 +103,12 @@ fn commands(args: &Value) -> Result<Vec<(String, sqlite::Command)>, String> {
 }
 fn execute(
     grants: &GrantSet,
-    directories: &AppDirectories,
+    directories: Option<&AppDirectories>,
     op: &str,
     args: &Value,
 ) -> Result<Value, String> {
     let path = text(args, "path")?;
-    if !path.starts_with("app:/") {
+    if !path.starts_with("app:/") && !native_filesystem(op, args) {
         return Err("portable storage needs an app:/ path".into());
     }
     if op == "sqlite" || op == "sqlite.transaction" {
@@ -115,7 +116,7 @@ fn execute(
         if op == "sqlite.transaction" && commands.iter().any(|(k, _)| k != "execute") {
             return Err("SQLite write transaction requires execute commands".into());
         }
-        let path = app_fs::resolve_sqlite(grants, Some(directories), path).map_err(error)?;
+        let path = app_fs::resolve_sqlite(grants, directories, path).map_err(error)?;
         let db = sqlite::Database::new(
             ibex2_sqlite::SqliteProvider
                 .open(Location { path })
@@ -139,7 +140,32 @@ fn execute(
             Err(e) => Err(e),
         };
     }
-    let (operation, destination, data) = match op {
+    if op == "fs.compressImage" {
+        return compress_image(grants, directories, args);
+    }
+    let (operation, destination, data) = operation(op, args)?;
+    if path.starts_with("app:/") && destination.is_some_and(|d| !d.starts_with("app:/")) {
+        return Err("portable storage needs an app:/ destination".into());
+    }
+    let result = fs::run_with_limits(
+        grants,
+        directories,
+        None,
+        fs::ResultLimits {
+            bytes: exact_data::storage::MAX_BYTES,
+        },
+        operation,
+        path,
+        destination,
+        data.as_deref(),
+    )
+    .map_err(error)?;
+    Ok(fs_value(result))
+}
+/// A filesystem request's operation, its destination, and its bytes.
+type Operation<'a> = (FsOp, Option<&'a str>, Option<Vec<u8>>);
+fn operation<'a>(op: &str, args: &'a Value) -> Result<Operation<'a>, String> {
+    Ok(match op {
         "fs.readFile" => (FsOp::ReadFile, None, None),
         "fs.writeFile" => (FsOp::WriteFile, None, Some(bytes(args)?)),
         "fs.atomicWriteFile" => (FsOp::AtomicWriteFile, None, Some(bytes(args)?)),
@@ -149,33 +175,119 @@ fn execute(
         "fs.stat" => (FsOp::Stat, None, None),
         "fs.readdir" => (FsOp::ReadDir, None, None),
         "fs.realpath" => (FsOp::Realpath, None, None),
-        "fs.rename" | "fs.copyFile" => {
-            let destination = text(args, "destination")?;
-            if !destination.starts_with("app:/") {
-                return Err("portable storage needs an app:/ destination".into());
-            }
-            (
-                if op == "fs.rename" {
-                    FsOp::Rename
-                } else {
-                    FsOp::CopyFile
-                },
-                Some(destination),
-                None,
-            )
-        }
+        "fs.rename" => (FsOp::Rename, Some(text(args, "destination")?), None),
+        "fs.copyFile" => (FsOp::CopyFile, Some(text(args, "destination")?), None),
         _ => return Err(format!("unsupported storage operation {op}")),
+    })
+}
+/// `fs.compressImage` (LLP 1069.002 A1): the operation a TypeScript source's
+/// `storage.fs.compressImage` runs, through ibex2's one executor and the
+/// same codec, so a grant and a failure mean the same in either language.
+fn compress_image(
+    grants: &GrantSet,
+    directories: Option<&AppDirectories>,
+    args: &Value,
+) -> Result<Value, String> {
+    let (from, to) = (text(args, "path")?, text(args, "destination")?);
+    let number = |k: &str| {
+        args[k]
+            .as_f64()
+            .ok_or_else(|| format!("storage: {k} must be a number"))
     };
-    let result = fs::run(
-        grants,
-        Some(directories),
-        operation,
-        path,
-        destination,
-        data.as_deref(),
+    let (max_dimension, max_bytes) =
+        exact_data::image::check_limits(number("maxDimension")?, number("maxBytes")?)?;
+    // `type` (A1.11): absent is a JPEG.
+    let format = match &args["type"] {
+        Value::Null => exact_data::image::Format::Jpeg,
+        Value::String(t) => exact_data::image::Format::parse(t).ok_or_else(|| {
+            exact_data::image::failure("invalid", "type must be image/jpeg or image/png")
+        })?,
+        _ => return Err("storage: type must be a string".into()),
+    };
+    let service = cfg!(target_vendor = "apple")
+        .then(|| ImageService::new(std::sync::Arc::new(ImageCodec), image_limits()))
+        .transpose()
+        .map_err(error)?;
+    let work = ImageWork::new(image_limits());
+    let job = ImageJob::prepare(
+        &work,
+        service.as_ref(),
+        directories.cloned().map(std::sync::Arc::new),
+        std::sync::Arc::new(grants.clone()),
+        from,
+        to,
+        ImageRequest {
+            max_dimension,
+            max_bytes,
+            format: match format {
+                exact_data::image::Format::Jpeg => fs_image::ImageFormat::Jpeg,
+                exact_data::image::Format::Png => fs_image::ImageFormat::Png,
+            },
+        },
     )
     .map_err(error)?;
-    Ok(match result {
+    let handle = job.handle();
+    let result = job.execute();
+    handle.take_outcome();
+    let file = result.map_err(error)?;
+    Ok(json!({
+        "path": to,
+        "type": format.media_type(),
+        "size": file.size,
+        "width": file.width,
+        "height": file.height
+    }))
+}
+/// Exact owns the platform codec and its admission budget; Ibex owns work
+/// identity, bounded source reads and the publication decision.
+struct ImageCodec;
+fn image_limits() -> fs_image::WorkLimits {
+    fs_image::WorkLimits {
+        max_job_bytes: 640 << 20,
+        max_dimension: exact_data::image::MAX_DIMENSION,
+        ..fs_image::WorkLimits::default()
+    }
+}
+impl fs_image::ImageCodec for ImageCodec {
+    fn limits(&self) -> fs_image::CodecLimits {
+        fs_image::CodecLimits {
+            max_pixels: exact_data::image::MAX_SOURCE_PIXELS,
+            max_scratch_bytes: 512 << 20,
+        }
+    }
+    fn encode(
+        &self,
+        bytes: &[u8],
+        request: ImageRequest,
+        control: &fs_image::WorkControl,
+    ) -> Result<fs_image::CompressedImage, ibex2::boundary::HostError> {
+        exact_data::image::compress_controlled(
+            bytes,
+            match request.format {
+                fs_image::ImageFormat::Jpeg => exact_data::image::Format::Jpeg,
+                fs_image::ImageFormat::Png => exact_data::image::Format::Png,
+            },
+            request.max_dimension,
+            request.max_bytes,
+            control.deadline(),
+            &|| {
+                control
+                    .check()
+                    .map_err(|e| exact_data::image::failure("timeout", e))
+            },
+            control.limits().max_pixels,
+            control.limits().max_scratch_bytes,
+        )
+        .map(|c| fs_image::CompressedImage {
+            bytes: c.bytes,
+            width: c.width,
+            height: c.height,
+        })
+        .map_err(ibex2::boundary::HostError::Failed)
+    }
+}
+fn fs_value(result: FsResult) -> Value {
+    match result {
         FsResult::Done => Value::Null,
         FsResult::Bytes(bytes) => {
             json!({"base64":exact_runner::agent::base64(&bytes)})
@@ -188,17 +300,146 @@ fn execute(
             "isDirectory": stat.is_directory,
             "modifiedMs": stat.modified_ms
         }),
+    }
+}
+/// A `doc:` path (LLP 1069.010 D1): the file or folder the person chose,
+/// through ibex2's one executor for documents, the one a TypeScript
+/// source's `storage.fs` runs, so a grant means the same in either language.
+fn document_request(
+    grants: &GrantSet,
+    op: &str,
+    args: &Value,
+    owner: u64,
+) -> Result<Value, String> {
+    let path = text(args, "path")?;
+    let (operation, _, data) = operation(op, args)?;
+    let run = |operation, data: Option<&[u8]>| {
+        fs::run_with_limits(
+            grants,
+            None,
+            Some(&move |path, _access| documents(path, owner)),
+            fs::ResultLimits {
+                bytes: exact_data::storage::MAX_BYTES,
+            },
+            operation,
+            path,
+            None,
+            data,
+        )
+        .map_err(error)
+    };
+    // A write that expects what it read (@ref LLP 1069.010.000 D2a): the
+    // stat just before the write, as a TypeScript source's prelude does.
+    let expect = &args["expect"];
+    if !expect.is_null()
+        && matches!(
+            operation,
+            FsOp::WriteFile | FsOp::AtomicWriteFile | FsOp::AppendFile
+        )
+    {
+        let (Some(modified), Some(size)) = (expect["modifiedMs"].as_f64(), expect["size"].as_u64())
+        else {
+            return Err("storage: expect must be a stat (modifiedMs and size)".into());
+        };
+        let FsResult::Stat(now) = run(FsOp::Stat, None)? else {
+            return Err("storage: expect: the document has no stat".into());
+        };
+        if now.modified_ms as f64 != modified || now.size != size {
+            return Err(format!(
+                "document ECHANGED: {path} changed on disk since it was read"
+            ));
+        }
+    }
+    // A kept file the app replaces with its own atomic write stays kept (D4).
+    let kept = (operation == FsOp::AtomicWriteFile)
+        .then(|| exact_data::documents::kept::before_write(owner, path))
+        .flatten();
+    let written = run(operation, data.as_deref())?;
+    if let Some(replaced) = kept {
+        exact_data::documents::kept::carry(owner, replaced);
+    }
+    Ok(fs_value(written))
+}
+/// `storage.fs.recentDocuments()` and `forgetDocument(path)` (@ref LLP
+/// 1069.010.000 D5): what the app keeps across launches, under `doc.keep`,
+/// which `io_grants` leaves out of `grants`. `None` for any other request.
+fn kept_request(spec: &str, op: &str, args: &Value, owner: u64) -> Option<Result<Value, String>> {
+    use exact_data::documents::kept;
+    if !matches!(op, "fs.recentDocuments" | "fs.forgetDocument") {
+        return None;
+    }
+    if !spec.lines().any(|line| line.trim() == "doc.keep") {
+        return Some(Err(format!("storage: {op} needs the doc.keep grant")));
+    }
+    Some(match op {
+        // A session that keeps nothing (no store: a drive with no scratch
+        // store) has kept nothing.
+        "fs.recentDocuments" => Ok(kept::list(owner).unwrap_or_else(|| json!([]))),
+        _ => text(args, "path").and_then(|path| {
+            kept::forget(owner, path)
+                .map(|()| Value::Null)
+                .map_err(|_| format!("document ENOENT: {path} is not a document this app keeps"))
+        }),
     })
 }
-/// Whether a storage request names a `doc:` path (LLP 1069.010 D1).
-pub(super) fn document(payload: &[u8]) -> bool {
+/// [`exact_data::documents`] as ibex2's table.
+fn documents(path: &str, owner: u64) -> Result<fs::DocumentLease, fs::DocumentError> {
+    use exact_data::documents::{resolve, Resolved};
+    let resolved = resolve(path, owner).map_err(fs::DocumentError::from)?;
+    let guard = std::sync::Arc::new(());
+    match resolved {
+        Resolved::Root(name) => fs::DocumentLease::root(name, guard),
+        Resolved::Real {
+            directory,
+            path,
+            selected_file: Some(name),
+        } => fs::DocumentLease::selected_file_named(directory, path, name, guard),
+        Resolved::Real {
+            directory,
+            path,
+            selected_file: None,
+        } => fs::DocumentLease::directory(directory, path, guard),
+    }
+}
+/// A scripted drive's answer when it names no scratch store: the web's
+/// refusal, word for word (`storage-environment.js`, `storage-request.js`),
+/// as a TypeScript module's `agent` refusal says it (trivia F7).
+pub(super) fn agent_refusal() -> Outcome {
+    Outcome::Storage(serde_json::to_vec(&json!({ "error": AGENT_REFUSAL })).unwrap())
+}
+pub(super) const AGENT_REFUSAL: &str =
+    "storage is unavailable in agent mode unless the drive names a scratch store (--storage <name>)";
+/// Native disk operations do not need (or initialize) the app storage roots.
+/// Classify malformed disk spellings too: the filesystem adapter refuses them
+/// after source/grant admission, before opening any handle. This is not authority.
+fn native_filesystem(op: &str, args: &Value) -> bool {
+    cfg!(windows)
+        && op.starts_with("fs.")
+        && args["path"].as_str().is_some_and(|path| {
+            !path.starts_with("app:/") && !exact_data::documents::is_document(path)
+        })
+}
+/// Chosen documents, the kept list and Windows disk requests require no
+/// app directories.
+pub(super) fn independent_storage(payload: &[u8]) -> bool {
     serde_json::from_slice::<Value>(payload).is_ok_and(|r| {
-        r["args"]["path"]
+        matches!(
+            r["op"].as_str(),
+            Some("fs.recentDocuments" | "fs.forgetDocument")
+        ) || r["args"]["path"]
             .as_str()
             .is_some_and(exact_data::documents::is_document)
+            || r["op"]
+                .as_str()
+                .is_some_and(|op| native_filesystem(op, &r["args"]))
     })
 }
-pub(super) fn run(paths: Option<&Directories>, grants: &str, payload: &[u8]) -> Outcome {
+pub(super) fn run(
+    paths: Option<&Directories>,
+    grants: &str,
+    payload: &[u8],
+    owner: u64,
+) -> Outcome {
     let result = (|| {
         if payload.len() > exact_data::storage::MAX_BYTES {
             return Err("storage request exceeds its byte limit".into());
@@ -208,17 +449,30 @@ pub(super) fn run(paths: Option<&Directories>, grants: &str, payload: &[u8]) -> 
             return Err("unsupported storage protocol".into());
         }
         let op = text(&request, "op")?;
-        let grants = GrantSet::parse(&exact_runner::io_grants(grants)).map_err(error)?;
         let args = &request["args"];
+        if let Some(kept) = kept_request(grants, op, args, owner) {
+            return kept;
+        }
+        let grants = GrantSet::parse(&exact_runner::io_grants(grants)).map_err(error)?;
+        // Two app files, never a document or a disk path (LLP 1069.002 A1.1).
+        if op == "fs.compressImage"
+            && ![&args["path"], &args["destination"]]
+                .iter()
+                .all(|p| p.as_str().is_some_and(|p| p.starts_with("app:/")))
+        {
+            return Err("compressImage: needs app:/ paths".into());
+        }
         if args["path"]
             .as_str()
             .is_some_and(exact_data::documents::is_document)
         {
-            let data = match op {
-                "fs.writeFile" | "fs.atomicWriteFile" | "fs.appendFile" => Some(bytes(args)?),
-                _ => None,
-            };
-            return super::documents::execute(&grants, op, args, data);
+            return document_request(&grants, op, args, owner);
+        }
+        if native_filesystem(op, args) {
+            return execute(&grants, None, op, args);
+        }
+        if !text(args, "path")?.starts_with("app:/") {
+            return Err("portable storage needs an app:/ path".into());
         }
         let paths = paths.ok_or("storage is unavailable in an unconfigured host")?;
         for path in [&paths.data, &paths.cache, &paths.temporary] {
@@ -226,7 +480,7 @@ pub(super) fn run(paths: Option<&Directories>, grants: &str, payload: &[u8]) -> 
         }
         let directories =
             AppDirectories::new(&paths.data, &paths.cache, &paths.temporary).map_err(error)?;
-        execute(&grants, &directories, op, &request["args"])
+        execute(&grants, Some(&directories), op, &request["args"])
     })();
     match result {
         Ok(v) => {
@@ -238,6 +492,12 @@ pub(super) fn run(paths: Option<&Directories>, grants: &str, payload: &[u8]) -> 
                 }
             } else {
                 Outcome::Storage(bytes)
+            }
+        }
+        Err(message) if message.contains("storage result exceeds its byte limit") => {
+            Outcome::Failed {
+                kind: FailureKind::Unsupported,
+                message: "storage result exceeds its byte limit".into(),
             }
         }
         Err(message) => Outcome::Storage(serde_json::to_vec(&json!({"error":message})).unwrap()),

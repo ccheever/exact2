@@ -1,0 +1,74 @@
+component App
+  state small = true
+  state omitted = false
+  state zero = false
+  state initial = false
+  state fallback = false
+  state thin = true
+  derive segment = fallback ? "env(viewport-segment-height 1 0, 25%)" : "calc(env(viewport-segment-height 1 0) + 0px)"
+  derive environment = initial ? "10px" : segment
+  derive extent = initial ? "auto" : zero ? "0" : small ? "25vh" : "50vh"
+  derive useExtent = zero ? "25vh" : extent
+  derive foreignExtent = initial ? "10px" : extent
+  derive offset = zero ? 0 : small ? 10 : 20
+  action resize
+    small = not small
+  action omit
+    omitted = not omitted
+  action collapse
+    zero = not zero
+  action reset
+    initial = not initial
+  action substitute
+    fallback = not fallback
+  action thicken
+    thin = not thin
+  view
+    column background-color="#ffffff"
+      row
+        button "Resize" press=resize testId="resize"
+        button "Omit" press=omit testId="omit"
+        button "Zero" press=collapse testId="zero"
+        button "Auto" press=reset testId="auto"
+        button "Fallback" press=substitute testId="fallback"
+        button "Hairline" press=thicken testId="hairline-toggle"
+      svg width=400 height=100
+        defs
+          pattern id="hairline-tile" testId="hairline-pattern" patternUnits="userSpaceOnUse" width=8 height="-exact-hairline"
+            rect width=4 height=1 fill="#e11d48"
+        rect testId="hairline-paint" x=110 y=60 width=80 height=12 fill="url(#hairline-tile)"
+        foreignObject testId="hairline" x=100 y=80 width=100 height=(thin ? "-exact-hairline" : "10px")
+          view width="100%" height="100%" background-color="#0ea5e9"
+        foreignObject testId="hairline-static" x=100 y=95 width=100 height="-exact-hairline"
+          view width="100%" height="100%" background-color="#0ea5e9"
+        rect testId="calculated-rect" width=100 height=100 rx="calc(10vw - 90px)" ry=10 fill="#14b8a6"
+        ellipse testId="calculated-ellipse" cx=150 cy=50 rx="calc(10vw - 30px)" ry=10 fill="#0ea5e9"
+        svg testId="viewport-static" x=220 width="10vw" height="10vh"
+          rect width="100%" height="100%" fill="#f59e0b"
+        svg testId="viewport-minmax" x=320 width="5vmin" height="5vmax"
+          rect width="100%" height="100%" fill="#8b5cf6"
+      svg width=200 height=400
+        defs
+          radialGradient id="environment-gradient" testId="environment-gradient" cx=environment
+            stop offset="0%" stop-color="#14b8a6"
+            stop offset="100%" stop-color="#0ea5e9"
+        svg testId="environment-static" width=100 height="env(viewport-segment-height 1 0)"
+          rect width="100%" height="100%" fill="url(#environment-gradient)"
+        svg testId="environment-bound" x=100 width=100 height=environment
+          rect width="100%" height="100%" fill="url(#environment-gradient)"
+      svg width=200 height=400
+        defs
+          symbol id="shape"
+            rect width="100%" height="100%" fill="#0ea5e9"
+          mask testId="mask" x=(omitted ? none : offset) y=(omitted ? none : offset) width=(omitted ? none : extent) height=(omitted ? none : extent)
+            rect width=100 height=100 fill="#ffffff"
+          pattern testId="pattern" x=(omitted ? none : offset) y=(omitted ? none : offset) width=(omitted ? none : extent) height=(omitted ? none : extent)
+            rect width=10 height=10
+          radialGradient testId="gradient" cx=(omitted ? none : extent) cy=(omitted ? none : extent) r=(omitted ? none : extent)
+            stop offset="0%" stop-color="#14b8a6"
+          filter testId="filter" x=(omitted ? none : offset) y=(omitted ? none : offset) width=(omitted ? none : extent) height=(omitted ? none : extent)
+            feFlood testId="primitive" x=(omitted ? none : offset) y=(omitted ? none : offset) width=(omitted ? none : extent) height=(omitted ? none : extent)
+        foreignObject testId="foreign" x=(omitted ? none : offset) y=(omitted ? none : offset) width=(omitted ? none : foreignExtent) height=(omitted ? none : foreignExtent)
+        use testId="use" href="#shape" x=(omitted ? none : offset) y=(omitted ? none : offset) width=(omitted ? none : useExtent) height=(omitted ? none : useExtent)
+        svg testId="nested" x=(omitted ? none : offset) y=(omitted ? none : offset) width=100 height=(omitted ? none : extent)
+          rect width="100%" height="100%" fill="#14b8a6"

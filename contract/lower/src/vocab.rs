@@ -1,0 +1,413 @@
+//! What the compiler admits, listed from its own lookups (LLP 1086 D3).
+//!
+//! `tags.rs`'s `tag`, `attr`, `renamed` and `html_tag` are `match`
+//! expressions with no table to iterate; `build.rs` scans their arms'
+//! patterns into candidates, and this module keeps the ones the live lookup
+//! admits, so the list cannot claim a name the compiler refuses. The style
+//! names are a table, `style_names::STYLE_NAMES` (LLP 1081 D8), read whole. The rules
+//! no lookup lists (the `head` fields, the attributes admitted only on some
+//! tags, the two open sets) are named here beside them.
+
+use crate::tags::{self, AttrTarget, Tag};
+use contract_syntax::{Attr, Expr, Span};
+use exact_kernel::{PropId, StyleCodec, StyleId};
+
+/// A prop's literal value grammar, shared by its refusal and `contract vocab`.
+pub fn accepts(prop: PropId) -> Option<&'static str> {
+    match prop {
+        PropId::NavigationDetent => Some("space-separated large, medium, finite positive point heights, or percentages of the sheet's maximum height above 0% and at most 100%; fit-content alone or as fit-content large; otherwise ascending, point heights and percentages (or medium) not mixed, large last"),
+        _ => None,
+    }
+}
+
+/// Whether `word` is one of a `navigationDetent`'s heights: `large`,
+/// `medium`, `fit-content`, a positive point height, or a percentage above
+/// 0% and at most 100%.
+pub fn detent_word(word: &str) -> bool {
+    matches!(word, "large" | "medium" | "fit-content")
+        || word.parse::<f64>().is_ok_and(|h| h.is_finite() && h > 0.0)
+        || word.strip_suffix('%').is_some_and(|p| {
+            p.parse::<f64>()
+                .is_ok_and(|p| p.is_finite() && p > 0.0 && p <= 100.0)
+        })
+}
+
+/// The first of a `navigationDetent`'s valid words that is not taller than
+/// the one before it on every screen (LLP 1075.003 §9.13): UIKit takes
+/// detents from shortest to tallest. A point height and a share of the
+/// sheet's maximum (`medium`, which is half, or a percentage) cross on some
+/// screen, so the words before `large` are of one kind and ascend; `large`,
+/// the maximum, goes last, and `100%` is `large` (the same height, so one
+/// of them only). `fit-content` has its own rule.
+pub fn detent_out_of_order<'a>(words: &[&'a str]) -> Option<&'a str> {
+    let mut last: Option<(bool, f64)> = None;
+    let mut large = false;
+    for word in words {
+        if large {
+            return Some(word);
+        }
+        let (share, height) = match *word {
+            "large" => {
+                large = true;
+                continue;
+            }
+            "fit-content" => continue,
+            "medium" => (true, 50.0),
+            w => match w.strip_suffix('%') {
+                Some(p) => {
+                    let p: f64 = p.parse().ok()?;
+                    if p >= 100.0 {
+                        large = true;
+                        continue;
+                    }
+                    (true, p)
+                }
+                None => (false, w.parse().ok()?),
+            },
+        };
+        if last.is_some_and(|(kind, before)| kind != share || height <= before) {
+            return Some(word);
+        }
+        last = Some((share, height));
+    }
+    None
+}
+
+include!(concat!(env!("OUT_DIR"), "/vocab.rs"));
+
+/// Attributes restricted by tag or collection shape; the `head` fields
+/// are [`tags::HEAD_FIELDS`].
+pub const CONTEXTUAL: &[(&str, &str)] = &[
+    ("datetime", "`time`"),
+    ("format", "`time`"),
+    ("start", "`progress` with `end`"),
+    ("end", "`progress` with `start`"),
+    ("sandbox", "`iframe`"),
+    ("src", "`iframe` or `video`"),
+    ("load", "`iframe`, `image` or a native module"),
+    ("message", "`iframe`, `canvas` or a native module"),
+    ("document", "`scroll`"),
+    (
+        "reachstart",
+        "`list virtualized=true` with one direct `each`",
+    ),
+    ("reachend", "`list virtualized=true` with one direct `each`"),
+    ("text-transform", "any tag but `input` and `textarea`"),
+    (
+        "transform",
+        "SVG elements, including `svg` and SVG `text`, with the whole property; a box takes a `translate`, `rotate`, `scale` list in that order, which lowers to those rows",
+    ),
+    (
+        "selectionchange",
+        "`text`, plain text `input` or `textarea`",
+    ),
+    ("beforeinput", "plain text `input` or `textarea`"),
+    ("name", "`input type=\"radio\"` or `iframe`"),
+    ("markup", "`text` or `textarea`"),
+    // @ref LLP 1098 D1, D2 — the media session's, `media::check_session`.
+    ("metadata", "`audio` or `video`"),
+    ("seekbackward", "an `audio` or `video` with `metadata=`"),
+    ("seekforward", "an `audio` or `video` with `metadata=`"),
+    ("seekto", "an `audio` or `video` with `metadata=`"),
+    ("previoustrack", "an `audio` or `video` with `metadata=`"),
+    ("nexttrack", "an `audio` or `video` with `metadata=`"),
+    ("stop", "an `audio` or `video` with `metadata=`"),
+    (
+        "seekbackwardOffset",
+        "an `audio` or `video` with `metadata=`",
+    ),
+    (
+        "seekforwardOffset",
+        "an `audio` or `video` with `metadata=`",
+    ),
+];
+
+/// The compiler and target emitters share the collection-edge refusal.
+pub fn collection_edge_refusal(event: &str) -> String {
+    format!("`{event}` belongs to a virtualized list (LLP 1010): write `list virtualized=true` with one direct `each`. Only a non-empty collection has edges in its geometric window; a plain list lays out all its children and has no collection window to report an edge. For a plain feed or masonry, use the web's `intersect=` on a marker at the end of the content, after the columns (docs/reference.md, \"Intersection visibility\"):\nview intersect=loadMore intersect-margin=\"0px 0px 800px 0px\"\n  height=1")
+}
+
+/// What `transform` is on a box (LLP 1055.000 D5), printed by `contract
+/// vocab` and, with a clause naming the value's own fault, as the refusal.
+pub const BOX_TRANSFORM_REFUSAL: &str = "`transform` on a box is the individual `translate`, `rotate` and `scale` properties: a value made of those functions, each at most once, in that order (CSS applies the rows translate, then rotate, then scale: CSS Transforms 2 §6.1) lowers to the rows it equals, so `transform=\"translate(0px, 25px)\"` is `translate=\"0px 25px\"`, `transform=\"scale(0.8)\"` is `scale=0.8`, and `transform=\"translate(10px) rotate(45deg) scale(1.5)\"` is all three; `none` is no row. The rest of the property is deferred on a box (LLP 1055.000 D5) and accepted only on SVG elements: `matrix`, a skew, a per-axis or 3D scale, a 3D function, a function repeated, functions in another order (`scale(2) translate(10px)` is not `translate(10px) scale(2)`), and a bound string the compiler cannot read";
+
+/// What a button with no `buttonStyle` is on each host (LLP 1115.000 D15,
+/// D14.5), in one sentence for both places that print it. The hosts hold the
+/// defaults themselves: `ButtonFace.unsaid` on Apple's, `bordered` wherever
+/// another host reads the prop.
+macro_rules! button_default {
+    () => {
+        "with no `buttonStyle` a button is the platform's default: plain tinted text on iOS (as `UIButton(type: .system)` and SwiftUI's `Button` are), a push button on macOS, bordered on the web (a bare text button there reads as unstyled)"
+    };
+}
+
+/// Printed under `contract vocab buttonStyle`.
+pub const BUTTON_DEFAULT_NOTE: &str = button_default!();
+
+/// What a tag means beyond its node, where the hosts make more of it than
+/// the web: `contract vocab <tag>` prints it under the tag.
+pub const TAG_NOTES: &[(&str, &str)] = &[
+    ("time", "HTML time: `datetime` is an instant in epoch milliseconds, as `date(...)` returns. `format` is a literal named presentation: relative, timer, countdown, date-short, date-medium (default), date-long, date-full, time-short or time-medium. The platform formats it in the viewer locale and time zone. Relative time advances on minute boundaries; timer and countdown advance each second on the runner clock, with no app task. Apple timers use SwiftUI’s unpadded first field (`0:05`, `1:00:00`). A timer counts away from either side of its instant; countdown stops at zero. On snapshots, timer uses `Text(date, style: .timer)`, countdown uses `Text(timerInterval: entryDate...instant, countsDown: true)` to stop at zero, and calendar formats draw the kernel’s formatted string without ticking. Children are fallback content when the host cannot format the instant. A standalone live time reserves its box at its font: two localized units for relative time, one extra hour digit for timer, and the first displayed shape for countdown. An inline time among other runs in a text reflows as on the web. Ticking formats use tabular digits by default."),
+    ("section", "In a `list`, a group of rows. In a grouped list (`listStyle=\"inset-grouped\"`) a `header` child holding one `text` is the section's title, drawn in the list's header style, and a `footer` child holding one `text` the note under its rows: `section` / `header` / `text \"Results\"`, then its `row`s, then `footer` / `text \"Tap an option to vote.\"`. A `header` in a section is never the navigation bar. Outside a list it is HTML's section. docs/recipes/grouped-form.md"),
+    ("progress", "HTML progress: `value` and optional `max` (1 by default) make a determinate bar; with neither it is the platform activity indicator. `start` and `end` instead name epoch millisecond instants: the runner advances the bar from 0 to 1 over that interval, clamps before and after it, and executes no app task. Write both, with end after start; do not combine them with value or max. It remains a native control with no children; name it with aria-label."),
+    (
+        "header",
+        // @ref LLP 1116.003 D2.2, LLP 1115.000 D5.2, D5.3 —
+        // NavigationBarIOS.swift's `HeaderShape`, `NavigationRules.bar`.
+        "on iOS a route's `header` is its navigation bar when it is the route's first child, is shown, and holds exactly one heading (`text role=\"heading\"`, or a `text` with `aria-level`), whatever the stack's other routes have. The heading is the title, large at `aria-level=1`, else inline; buttons that press or open a popover are the bar's items, leading before the heading and trailing after it (on iOS 26 and later neighbours share one glass capsule; `buttonStyle=\"glass\"` gives an item its own); the first text after the heading is the subtitle; a readout (`role=\"status\"`, which nothing presses: a dot and a monospaced \"Clock\" beside the title) is an item placed as a button is, its custom view drawn as written (its fonts, colours and dot) and read by VoiceOver as static text; one `input type=\"search\"` is the bar's search field and one `role=\"tablist\"` its segmented title; the root's `navigationBack` control is the system Back button. The rest of the header is hidden (warning `lower-header-unplaced`). A header with no heading or with two is no bar and is drawn in the page as written (warning `lower-header-no-bar`), and so is one a box down from the route, such as a screen component's root `column` holding it inside the route column that uses it: put `navigationKey` on that root (warning `lower-header-nested`). A pushed route with no bar of its own (no header, or one that is no bar) still gets a bar holding the system Back button alone, with no title; a stack's first route with none has no bar. A route that draws its own chrome says `navigationBar=\"none\"`: no bar, and the edge swipe still goes back. A route whose scroller starts with a full-bleed picture says `navigationBar=\"transparent\"`: the bar as before, drawn clear at the top of the scroller, whose content starts under it as under a fixed transparent header on the web, with the bar's material coming as the content scrolls; without either, a `navigationBack` control drawn in a pushed route's page is a second Back under the bar's (warning `lower-back-twice`). On the Mac the same header is the window's title bar and toolbar (LLP 1115.002 D2): the heading is the window's title, with no large title; the buttons are toolbar items, one whose popover is a menu a menu item; a `role=\"tablist\"` of text tabs is the centred segments; the search input is the toolbar's search field. There a header holding anything a toolbar has no place for (a picture, a second text, a readout, a pressable title, a button drawn as a box) is drawn in the page as written, whole. docs/recipes/navigation-stack.md",
+    ),
+    (
+        "button",
+        // @ref LLP 1115.000 D15 — the default, then what an author says in its place.
+        concat!(
+            button_default!(),
+            ". Say what the action is and leave the look: `buttonStyle=\"filled\"` on the screen's main action (Save, Add, Send), `\"bordered\"` on one that must read as a button, nothing on a secondary or inline one (Cancel, Edit, an empty state's), and `destructive=true` on one that deletes, which iOS draws in the system red. In a `header` it is a bar item, in a `dialog role=\"alertdialog\"` an alert's action, and as a grouped `list`'s row a cell: each the platform's already. A background, border or radius of your own makes it your box, the same on every host (`contract vocab appearance`)"
+        ),
+    ),
+];
+
+/// A tag's note, if it has one ([`TAG_NOTES`]).
+pub fn tag_note(name: &str) -> Option<&'static str> {
+    TAG_NOTES
+        .iter()
+        .find(|(n, _)| *n == name)
+        .map(|(_, note)| *note)
+}
+
+/// The open set of tags: a hyphenated name is a native module.
+pub const MODULE_NOTE: &str = "a hyphenated tag (`map-view`) is a native module, admitted when app.json's `modules` declares it; its other attributes are the module's props";
+
+/// The open set of attributes: `data-*`.
+pub const DATA_NOTE: &str = "`data-<word>` is the app's own word on any element, admitted when app.json's `data` declares the word";
+
+fn sorted(names: &[&'static str]) -> Vec<&'static str> {
+    let mut names = names.to_vec();
+    names.sort_unstable();
+    names.dedup();
+    names
+}
+
+/// Every built-in tag, by name.
+pub fn tags() -> Vec<(&'static str, Tag)> {
+    sorted(TAG_CANDIDATES)
+        .into_iter()
+        .filter_map(|n| tags::tag(n).map(|t| (n, t)))
+        .collect()
+}
+
+/// Every attribute, by name: the scanned arms of `attr`, and the style
+/// names, which are a table (`style_names::STYLE_NAMES`, LLP 1081 D8).
+pub fn attrs() -> Vec<(&'static str, AttrTarget)> {
+    // A part's declaration (`::placeholder color`) is no attribute to write:
+    // `contract vocab ::placeholder` describes the block. Nor is lowering's
+    // own row for `:active`'s `opacity` (LLP 1121 D8).
+    let styles: Vec<&'static str> = crate::style_names::STYLE_NAMES
+        .iter()
+        .map(|(n, ..)| *n)
+        .filter(|n| !n.starts_with("::") && *n != crate::states::PRESS_OPACITY_TO)
+        .collect();
+    sorted(&[ATTR_CANDIDATES, &styles].concat())
+        .into_iter()
+        .filter_map(|n| tags::attr(n).map(|t| (n, t)))
+        .collect()
+}
+
+/// Every old spelling with the name it became.
+pub fn renamed() -> Vec<(&'static str, &'static str)> {
+    sorted(RENAMED_CANDIDATES)
+        .into_iter()
+        .filter_map(|n| tags::renamed(n).map(|t| (n, t)))
+        .collect()
+}
+
+/// Every HTML element Contract spells differently, with what to write.
+pub fn html_tags() -> Vec<(&'static str, &'static str)> {
+    sorted(HTML_CANDIDATES)
+        .into_iter()
+        .filter_map(|n| tags::html_tag(n).map(|t| (n, t)))
+        .collect()
+}
+
+/// The longhand rows a CSS shorthand attribute (`border`, `border-top`, …,
+/// `text-decoration`) sets, in the order it lowers them.
+pub fn shorthand_rows(name: &str) -> &'static [StyleId] {
+    crate::shorthands::rows(name)
+}
+
+/// A style row's wire codec, by the schema's spelling (`dimension`,
+/// `colorValue`, `enum`).
+pub fn codec(row: StyleId) -> String {
+    let name = format!("{:?}", row.codec());
+    let mut chars = name.chars();
+    chars
+        .next()
+        .map(|c| c.to_ascii_lowercase().to_string() + chars.as_str())
+        .unwrap_or_default()
+}
+
+/// What a `transition` names (`transition-property`, LLP 1002): `all`,
+/// `border-color`, and each property the engine moves, a path's `d` among
+/// them (LLP 1055.000 D15).
+pub fn transition_properties() -> Vec<&'static str> {
+    use exact_motion::Property;
+    let mut names = vec!["all", "border-color"];
+    names.extend(
+        Property::ALL
+            .into_iter()
+            .chain([Property::D])
+            .filter(|p| *p != Property::ShadowColor)
+            .map(|p| p.name()),
+    );
+    names
+}
+
+/// A style row's default as the schema writes it, if it declares one; a
+/// colour's zero is `transparent`.
+pub fn default(row: StyleId) -> Option<&'static str> {
+    let default = STYLE_DEFAULTS
+        .iter()
+        .find(|(field, _)| *field == row.name())
+        .map(|(_, default)| *default)?;
+    // An unset pressed colour paints nothing over the node's own (LLP 1061 D7).
+    if matches!(row, StyleId::PressBackgroundColor | StyleId::PressColor) {
+        return Some("none (the node's own)");
+    }
+    let colour = matches!(row.codec(), StyleCodec::ColorValue | StyleCodec::Rgba8);
+    Some(if colour && default == "0" {
+        "transparent"
+    } else {
+        default
+    })
+}
+
+/// Whether a style row takes a colour role by name (`-exact-label`, `Canvas`): the colour codecs that read one.
+pub fn takes_roles(row: StyleId) -> bool {
+    matches!(
+        row.codec(),
+        StyleCodec::ColorValue | StyleCodec::KeywordColor
+    )
+}
+
+/// The colour roles the schema's table gives, as written: Exact's (`-exact-<name>`, listed by `<name>`), then CSS's
+/// system colours (by their names). `contract vocab background-color` lists them (LLP 1116.009 D6: tip-splitter guessed one).
+pub fn color_roles() -> (Vec<&'static str>, Vec<&'static str>) {
+    let names = |css: bool| {
+        exact_kernel::generated::COLOR_ROLES
+            .iter()
+            .filter(|r| exact_kernel::style::roles::is_css_system(r) == css)
+            .map(|r| r.name)
+            .collect()
+    };
+    (names(false), names(true))
+}
+
+/// Whether `name` is in one of the open sets: a `data-*` attribute or a
+/// native module's tag. A built-in name is not (`align-items` is hyphenated).
+pub fn open_set(name: &str) -> Option<&'static str> {
+    if name.starts_with("data-") {
+        Some(DATA_NOTE)
+    } else if crate::native::is_module_tag(name)
+        && crate::lint::fragmentation(name).is_none()
+        // An `aria-*` name is an attribute ARIA has or does not, never a module.
+        && !name.starts_with("aria-")
+    {
+        Some(MODULE_NOTE)
+    } else {
+        None
+    }
+}
+
+/// What the compiler says of a name that is neither a tag nor an attribute:
+/// its own hints for an unknown tag and an unknown attribute (a renamed
+/// spelling, an HTML element's Contract name, "did you mean").
+pub fn refusal(name: &str) -> String {
+    let span = Span::default();
+    let tag = crate::lint::unknown_tag(name, span).message;
+    let attr = Attr {
+        name: name.into(),
+        value: Expr::Bool(true, span),
+        span,
+        written: true,
+    };
+    let attr = crate::lint::unknown_attr("view", &attr).message;
+    let mut hints: Vec<&str> = Vec::new();
+    for (message, prefix) in [
+        (&tag, format!("unknown tag `{name}`")),
+        (&attr, format!("`view` has no attribute `{name}`")),
+    ] {
+        let hint = message.strip_prefix(&prefix).unwrap_or(message);
+        if !hint.is_empty() && !hints.contains(&hint) {
+            hints.push(hint);
+        }
+    }
+    format!("`{name}` is not a tag or an attribute{}", hints.concat())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Every scanned spelling resolves, or is a refusal the compiler names.
+    #[test]
+    fn every_candidate_resolves_or_is_a_refusal() {
+        for name in TAG_CANDIDATES {
+            assert!(
+                tags::tag(name).is_some(),
+                "tag `{name}` is scanned but refused"
+            );
+        }
+        for name in ATTR_CANDIDATES {
+            assert!(
+                tags::attr(name).is_some(),
+                "attribute `{name}` is scanned but refused"
+            );
+        }
+        for name in RENAMED_CANDIDATES {
+            assert!(tags::attr(name).is_none(), "renamed `{name}` is admitted");
+            assert!(
+                tags::renamed(name).is_some() || matches!(*name, "className" | "class" | "style"),
+                "`{name}` is scanned in `renamed` but names nothing"
+            );
+        }
+        for name in HTML_CANDIDATES {
+            assert!(tags::tag(name).is_none(), "HTML `{name}` is admitted");
+            assert!(tags::html_tag(name).is_some(), "`{name}` names nothing");
+        }
+    }
+
+    /// Arm bodies are skipped: their value literals are never candidates.
+    #[test]
+    fn the_scan_reads_patterns_only() {
+        for value in ["flex", "pre-wrap", "absolute", "font-size", "hidden"] {
+            assert!(
+                !TAG_CANDIDATES.contains(&value),
+                "`{value}` scanned as a tag"
+            );
+            assert!(
+                !RENAMED_CANDIDATES.contains(&value),
+                "`{value}` scanned as renamed"
+            );
+        }
+        for name in ["column", "feSpotLight", "rect", "clipPath", "head"] {
+            assert!(TAG_CANDIDATES.contains(&name), "tag `{name}` missed");
+        }
+        assert!(
+            ATTR_CANDIDATES.contains(&"press"),
+            "attribute `press` missed"
+        );
+        // Style names are a table, not scanned arms (LLP 1081 D8).
+        let listed: Vec<&str> = attrs().into_iter().map(|(n, _)| n).collect();
+        for name in [
+            "padding",
+            "animation-play-state",
+            "overscroll-behavior",
+            "-exact-press-scale",
+        ] {
+            assert!(listed.contains(&name), "attribute `{name}` missed");
+        }
+        assert!(RENAMED_CANDIDATES.contains(&"keyboardAvoiding"));
+        assert!(HTML_CANDIDATES.contains(&"label"));
+        assert_eq!(default(StyleId::PaddingTop), Some("0"));
+        assert_eq!(default(StyleId::FlexDirection), Some("row"));
+    }
+}

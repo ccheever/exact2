@@ -8,7 +8,7 @@ Each rule is **[check]** (enforced in CI) or **[review]** (enforced by a human).
 
 ## Budgets — every budget is a trade, not a limit
 
-- **5 blocking checks, 60s total.** A sixth requires deleting one, same PR. **[check]**
+- **6 blocking checks, 65s total.** A seventh requires deleting one, same PR. **[check]**
 - **15 documents in the working set** (`llp/current/`). A 16th requires archiving one —
   which is just removing the link. The corpus itself is uncapped. **[check]**
 - **10 documents in the foundation** (`llp/foundation/`). **[check]**
@@ -20,8 +20,7 @@ A limit gets exceptions. A trade doesn't: it forces someone to name what matters
 ## Loop shape
 
 - **Every check reports all failures in one run.** Fail-fast is banned. A check that
-  surfaces one defect per run turns N bugs into N x runtime — that pattern alone cost
-  the old repo 89 hours on a single work package. **[check]**
+  surfaces one defect per run turns N bugs into N x runtime. **[check]**
 - **Nothing blocks on anything slower than 60 seconds.** Slow verification runs
   asynchronously, per-commit, on fleet hardware, attributed to the breaking commit.
   Run everything; block on almost nothing. **[review]**
@@ -36,7 +35,7 @@ Tracked every commit. A regression is a P0 with a name on it.
 |---|---|
 | Touch one line, rebuild that crate | 30s |
 | Test what you changed | 60s |
-| Blocking gate suite | 60s |
+| Blocking gate suite | 65s |
 | Full build, warm cache | 5 min |
 | Dev restart, request to present | 100ms p50 |
 | Cold start to interactive first frame | 100ms p50 |
@@ -48,13 +47,13 @@ Tracked every commit. A regression is a P0 with a name on it.
   and taking something off, or Charlie's waiver. **[review]**
 - **Delete; don't deprecate.** No compat shims, no migration paths, no legacy branches
   before 1.0. **[review]**
-- **Web is the standard and the dev loop; native is swept.** One Contract source targets
-  all four surfaces; a semantic that could follow CSS follows CSS. Verify on the
-  seconds-loop and let the minutes-loop run behind you. **[review]**
+- **Write the web, ship the platform.** Authors write CSS; what they leave unsaid is the
+  platform's, as a hand-built UIKit/SwiftUI app has it (LLP 1115, "no tells"). Author >
+  platform > CSS default. **[review]**
 - **The boot path executes and compiles nothing.** No app JS before first pixel; modules
   ship as bytecode, never source strings transpiled per module at boot. Startup is
   emergent and cannot be retrofitted, so the boot graph is budgeted from commit one —
-  counted, not timed. The old repo transpiles 5.47MB of ESM on every launch. **[check]**
+  counted, not timed. Every launch pays for boot. **[check]**
 - **A spec needs an implementer and a date, or it isn't written.** Specifying something
   you are about to build is transcription and costs nothing. Specifying something nobody
   is assigned to build is how a corpus reaches 8.2M words. **[review]**
@@ -64,7 +63,9 @@ Tracked every commit. A regression is a P0 with a name on it.
 - **Agents remove apparatus freely and add none.** An agent PR that adds a check,
   script, registry, config file, or design doc needs explicit human approval saying so.
   This asymmetry is the whole game: agents produce governance faster than humans can
-  read it. 675 checks and 450 scripts got there one reasonable addition at a time. **[review]**
+  read it. Governance accretes one reasonable addition at a time. **[review]**
+- **Prose follows `AGENTS.md` "Writing".** Before opening a PR or pushing to main,
+  do an editing pass on the prose you added or changed. **[review]**
 - **The old repo is research, never authority.** Cite it for how something worked.
   Never to block. **[review]**
 
@@ -75,12 +76,13 @@ Tracked every commit. A regression is a P0 with a name on it.
   another lane's work into yours. Use a temporary commit.
 - Kill only PIDs you recorded at launch. Never by name or pattern.
 
-## The five checks
+## The six checks
 
-`build` · `test` · `lint` · `caps` · `boot`
+`build` · `test` · `lint` · `caps` · `boot` · `workspace`
 
 `caps` enforces the budgets above. `boot` counts the module graph reachable before first
-pixel and fails when it grows — a count, so it cannot flake the way a timer does. It takes
-the last slot; a sixth check now costs one of these five.
+pixel and fails when it grows — a count, so it cannot flake the way a timer does.
+`workspace` is `cargo check --workspace --all-targets --keep-going`, with the pinned Bun:
+the others compile only `default-members`.
 
 Everything else runs async.

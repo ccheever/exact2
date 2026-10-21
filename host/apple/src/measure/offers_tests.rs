@@ -53,7 +53,7 @@ extern "C" fn foreign(ctx: *mut c_void, req: *const CRequest) -> CMetrics {
 }
 
 fn callback(state: &RefCell<Foreign>) -> CallbackMeasurer {
-    CallbackMeasurer::new(foreign, std::ptr::from_ref(state).cast_mut().cast())
+    CallbackMeasurer::new(foreign, std::ptr::from_ref(state).cast_mut().cast(), None)
 }
 
 fn measure(m: &mut CallbackMeasurer, k: &Kernel, w: AxisOffer, h: AxisOffer) -> TextMetrics {
@@ -405,6 +405,11 @@ mod storage {
             && actual.has_line_height == expected.has_line_height
             && actual.line_height.to_bits() == expected.line_height.to_bits()
             && actual.letter_spacing.to_bits() == expected.letter_spacing.to_bits()
+            && actual.font_stretch.to_bits() == expected.font_stretch.to_bits()
+            && actual.variation_count == expected.variation_count
+            && actual.variation_tags == expected.variation_tags
+            && actual.variation_values.map(f32::to_bits)
+                == expected.variation_values.map(f32::to_bits)
     }
 
     extern "C" fn inspect_request(ctx: *mut c_void, request: *const CRequest) -> CMetrics {
@@ -420,6 +425,9 @@ mod storage {
             && actual.align == expected.align
             && actual.line_clamp == expected.line_clamp
             && actual.overflow_wrap == expected.overflow_wrap
+            && actual.text_indent.to_bits() == expected.text_indent.to_bits()
+            && actual.hyphens == expected.hyphens
+            && actual.text_wrap_style == expected.text_wrap_style
             && same_run(&actual.strut, &expected.strut)
             && !actual.runs.is_null();
         if probe.exact {
@@ -458,19 +466,25 @@ mod storage {
             font_size: sizes[variant],
             font_weight: 537,
             font_style: FontStyle::Italic,
+            font_stretch: 87.5,
+            font_variations: exact_kernel::style::FontVariations::parse(r#""GRAD" 150"#).unwrap(),
             font_family: 23,
             line_height: heights[variant],
             letter_spacing: -0.125,
             font_variant_numeric: 0,
+            bold_text: false,
         };
         let strut = TextStyle {
             font_size: 19.5,
             font_weight: 411,
             font_style: FontStyle::Normal,
+            font_stretch: 100.0,
+            font_variations: Default::default(),
             font_family: 7,
             line_height: Some(30.25),
             letter_spacing: -0.0,
             font_variant_numeric: 0,
+            bold_text: false,
         };
         let runs = [
             TextRun {
@@ -500,6 +514,10 @@ mod storage {
                 line_height: heights[variant].unwrap_or(0.0),
                 letter_spacing: -0.125,
                 font_variant_numeric: 0,
+                font_stretch: 87.5,
+                variation_count: 1,
+                variation_tags: [u32::from_be_bytes(*b"GRAD"), 0, 0, 0, 0, 0, 0, 0],
+                variation_values: [150.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
             },
             CRun {
                 has_inline_box: 0,
@@ -516,6 +534,10 @@ mod storage {
                 line_height: 30.25,
                 letter_spacing: -0.0,
                 font_variant_numeric: 0,
+                font_stretch: 100.0,
+                variation_count: 0,
+                variation_tags: [0; 8],
+                variation_values: [0.0; 8],
             },
         ];
         let widths = [
@@ -540,6 +562,11 @@ mod storage {
         ][variant];
         paragraph.line_clamp = 3;
         paragraph.overflow_wrap = OverflowWrap::Anywhere;
+        paragraph.text_indent = [0.0, 24.5, -12.0, 2.0][variant];
+        paragraph.hyphens = exact_kernel::Hyphens::ALL[variant % 3];
+        if variant % 2 == 1 {
+            paragraph.text_wrap_style = exact_kernel::TextWrapStyle::Balance;
+        }
         let request = TextMeasureRequest {
             exclusions: &[],
             runs: &runs[..count],
@@ -567,11 +594,20 @@ mod storage {
                 exclusions: std::ptr::null(),
                 exclusion_count: 0,
                 markup: 0,
+                text_indent: [0.0, 24.5, -12.0, 2.0][variant],
+                hyphens: [1, 0, 2, 1][variant],
+                lang: std::ptr::null(),
+                lang_len: 0,
+                text_box_trim: 0,
+                text_box_over: 0,
+                text_box_under: 0,
+                text_wrap_style: (variant % 2) as u8,
             },
             calls: 0,
             exact: true,
         };
-        let mut m = CallbackMeasurer::new(inspect_request, std::ptr::from_mut(&mut probe).cast());
+        let mut m =
+            CallbackMeasurer::new(inspect_request, std::ptr::from_mut(&mut probe).cast(), None);
         TRACK.with(|s| {
             s.set(Counts {
                 active: true,

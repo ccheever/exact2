@@ -2,20 +2,8 @@
 use exact_kernel::{motion::motion_node, NodeKey, PropId};
 use exact_linux::{presenter::PainterChoice, Presenter};
 use exact_motion::{Property, Value};
-use exact_runner::{DataError, DataSource};
 use std::path::PathBuf;
 
-#[derive(Default)]
-struct Empty;
-impl DataSource for Empty {
-    fn query(
-        &mut self,
-        name: &str,
-        _: &[exact_runner::Value],
-    ) -> Result<exact_runner::Value, DataError> {
-        Err(DataError::UnknownSource(name.into()))
-    }
-}
 const APP: &str = r#"component App
   state x = 20
   state y = 10
@@ -32,11 +20,11 @@ const APP: &str = r#"component App
   state disabled = false
   state showing = true
   state draft = ""
-  action geometry(w: number, h: number, pw: number, ph: number) writes geometryCount, boxWidth, portWidth
+  action geometry(w: number, h: number, pw: number, ph: number)
     geometryCount = geometryCount + 1
     boxWidth = w
     portWidth = pw
-  action release(px: number, py: number, s: number, vx: number, vy: number, vs: number) writes x, y, count, seenScale, seenX, seenY, seenVx
+  action release(px: number, py: number, s: number, vx: number, vy: number, vs: number)
     x = px
     y = py
     count = count + 1
@@ -44,23 +32,23 @@ const APP: &str = r#"component App
     seenY = py
     seenScale = s
     seenVx = vx
-  action fit writes zoom
+  action fit
     zoom = 1
-  action shift writes left
+  action shift
     left = 40
-  action disable writes disabled
+  action disable
     disabled = true
-  action hide writes showing
+  action hide
     showing = false
-  action show writes showing
+  action show
     showing = true
-  action edit(value) writes draft
+  action edit(value)
     draft = value
   view
     box width="100%" height="100%"
-      when showing
+      if showing
         box testId="clip" position="absolute" left=left top=40 width="60%" height=160 overflow="hidden" box-sizing="border-box" padding=0 border-width=0
-          box id="target" testId="target" width="100%" height="100%" box-sizing="border-box" margin=0 padding=0 border-width=0 translate=`${x}px ${y}px` scale=zoom transition="translate spring(300,30,1), scale spring(300,30,1)"
+          box id="target" testId="target" width="100%" height="100%" box-sizing="border-box" margin=0 padding=0 border-width=0 translate=`${x}px ${y}px` scale=zoom transition="translate -exact-spring(300,30,1), scale -exact-spring(300,30,1)"
             box testId="handle" position="absolute" left=0 top=0 width="100%" height="100%" transformDragFor="target" transformgeometry=geometry transformrelease=release touch-action="none" disabled=disabled
       column position="absolute" top=300
         button testId="fit" press=fit
@@ -83,10 +71,10 @@ const APP: &str = r#"component App
         text `${boxWidth}` testId="boxWidth"
         text `${portWidth}` testId="portWidth"
 "#;
-fn boot(source: &str) -> Presenter<Empty> {
+fn boot(source: &str) -> Presenter<()> {
     let (p, error) = Presenter::boot_with(
         &contract::compile(source).unwrap().encode(),
-        Empty,
+        (),
         (400., 500.),
         1.,
         PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/../../apps/caltrain")),
@@ -96,13 +84,13 @@ fn boot(source: &str) -> Presenter<Empty> {
     assert!(error.is_none(), "{error:?}");
     p
 }
-fn key(p: &Presenter<Empty>, name: &str) -> NodeKey {
+fn key(p: &Presenter<()>, name: &str) -> NodeKey {
     p.host().kernel().find_by_test_id(name)[0]
 }
-fn id(p: &Presenter<Empty>, name: &str) -> u32 {
+fn id(p: &Presenter<()>, name: &str) -> u32 {
     p.host().kernel().node_by_key(key(p, name)).unwrap().id
 }
-fn text<'a>(p: &'a Presenter<Empty>, name: &str) -> &'a str {
+fn text<'a>(p: &'a Presenter<()>, name: &str) -> &'a str {
     p.host()
         .kernel()
         .node(id(p, name))
@@ -111,14 +99,14 @@ fn text<'a>(p: &'a Presenter<Empty>, name: &str) -> &'a str {
         .str(PropId::Text)
         .unwrap()
 }
-fn press(p: &mut Presenter<Empty>, name: &str) {
+fn press(p: &mut Presenter<()>, name: &str) {
     p.tap(id(p, name)).unwrap();
 }
-fn held(p: &Presenter<Empty>, target: NodeKey) -> [bool; 2] {
+fn held(p: &Presenter<()>, target: NodeKey) -> [bool; 2] {
     [Property::Translate, Property::Scale]
         .map(|prop| p.host().engine().is_held(motion_node(target), prop))
 }
-fn recognize(p: &mut Presenter<Empty>) -> NodeKey {
+fn recognize(p: &mut Presenter<()>) -> NodeKey {
     let target = key(p, "target");
     assert!(p.pointer_down(80., 80., 0.).unwrap());
     assert!(p.pointer_move(86., 86., 10.).unwrap());
@@ -297,7 +285,7 @@ fn unrelated_typing_preserves_contact_and_negative_pan_velocity_is_parent_space(
 
 #[test]
 fn ancestor_scroll_changes_mapping_without_repeating_identical_dimensions() {
-    let start = APP.find("      when showing").unwrap();
+    let start = APP.find("      if showing").unwrap();
     let end = APP.find("      column position").unwrap();
     let body = APP[start..end]
         .lines()
@@ -315,15 +303,10 @@ fn ancestor_scroll_changes_mapping_without_repeating_identical_dimensions() {
 
 #[test]
 fn geometry_callback_deletion_clears_owner_and_does_not_dispatch_again() {
-    let source = APP
-        .replace(
-            "writes geometryCount, boxWidth, portWidth",
-            "writes geometryCount, boxWidth, portWidth, showing",
-        )
-        .replace(
-            "    portWidth = pw",
-            "    portWidth = pw\n    showing = false",
-        );
+    let source = APP.replace(
+        "    portWidth = pw",
+        "    portWidth = pw\n    showing = false",
+    );
     let mut p = boot(&source);
     assert!(p.host().kernel().find_by_test_id("target").is_empty());
     assert!(p.host().transform_bindings().is_empty());
@@ -342,4 +325,87 @@ fn malformed_live_terminal_does_not_consume_contact_or_clock() {
     assert_eq!(held(&p, target), [true, true]);
     assert!(p.pointer_up(106., 86., 30.).unwrap());
     assert_eq!(text(&p, "count"), "1");
+}
+/// Chess diary #4: `translate` in percentages of the box paints, hits and
+/// measures where CSS puts it — a dialog centred by `-50% -50%` — and
+/// `frame()` is that box, as `getBoundingClientRect` (LLP 1051.000 D1).
+#[test]
+fn a_box_centred_by_translate_percentages_is_hit_and_framed_where_it_paints() {
+    let mut p = boot(
+        r#"component App
+  state where = ""
+  action measure
+    let f = frame("dialog")
+    where = `${f.x},${f.y},${f.width},${f.height}`
+  view
+    box width="100%" height="100%" position="relative"
+      box id="dialog" testId="dialog" position="absolute" left="50%" top="50%" width=200 height=100 translate="-50% -50%"
+        button testId="ok" press=measure width=200 height=100
+          text "OK"
+      text where testId="where"
+"#,
+    );
+    let ok = id(&p, "ok");
+    // Laid out at 200,250; painted at 100,200.
+    assert_eq!(p.hit(110., 210.), Some(ok));
+    assert_ne!(p.hit(390., 340.), Some(ok));
+    press(&mut p, "ok");
+    assert_eq!(text(&p, "where"), "100,200,200,100");
+}
+/// The element resize event (`resize=action`, ResizeObserver's): its
+/// content box after the first layout and after every change of size, not
+/// after a commit that leaves it; `resize="none"` stays CSS's property. A
+/// handler that grows its own box each time is delivered once per layout,
+/// as the browser's loop does, and the log says what it left undelivered.
+#[test]
+fn a_resize_handler_hears_its_content_box_after_layout_and_cannot_spin() {
+    let mut p = boot(
+        r#"component App
+  state wide = false
+  state seen = ""
+  state calls = 0
+  state grow = 100
+  action widen
+    wide = true
+  action other
+    calls = calls
+  action fit(w: number, h: number, r: DOMRectReadOnly)
+    seen = `${w}x${h} at ${r.x},${r.y} right ${r.right}`
+    calls = calls + 1
+  action spin(w: number, h: number)
+    grow = w + 10
+  view
+    column
+      box testId="panel" width=(wide ? 300 : 200) height=50 padding-left=4 padding-top=2 resize=fit
+      box testId="grab" width=40 height=20 resize="none"
+      box testId="spinner" width=grow height=10 resize=spin
+      button testId="widen" press=widen
+        text "w"
+      button testId="other" press=other
+        text "o"
+      text seen testId="seen"
+      text `${calls}` testId="calls"
+"#,
+    );
+    assert_eq!(text(&p, "seen"), "200x50 at 4,2 right 204");
+    assert_eq!(text(&p, "calls"), "1");
+    press(&mut p, "other");
+    assert_eq!(
+        text(&p, "calls"),
+        "1",
+        "a commit that leaves the box says nothing"
+    );
+    press(&mut p, "widen");
+    assert_eq!(text(&p, "seen"), "300x50 at 4,2 right 304");
+    assert_eq!(text(&p, "calls"), "2");
+    let undelivered = p
+        .host()
+        .runner()
+        .journal()
+        .filter(|l| l.contains(exact_runner::RESIZE_UNDELIVERED))
+        .count();
+    assert!(undelivered >= 1, "the spinner's loop is cut and said");
+    let k = p.host().kernel();
+    let width = k.node(id(&p, "spinner")).unwrap().frame.width;
+    assert!(width < 200.0, "one growth per layout, not a spin: {width}");
 }

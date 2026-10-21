@@ -34,7 +34,11 @@ impl ObservedRaster {
         let (x, y, w, h) = s.rect;
         let mut bits = point((x, y), ts).to_vec();
         bits.extend(point((x + w, y + h), ts));
-        bits.extend(s.radii.map(f32::to_bits));
+        bits.extend(
+            s.radii
+                .into_iter()
+                .flat_map(|(x, y)| [x.to_bits(), y.to_bits()]),
+        );
         bits.extend(rect_bits(s.rect));
         bits.extend(transform_bits(ts));
         bits.extend_from_slice(extra);
@@ -137,9 +141,9 @@ impl Backend for ObservedRaster {
             let mut glyphs = 0;
             for (i, run) in p.layout_runs().enumerate() {
                 for g in run.glyphs {
-                    let a = g.physical((at.0, at.1 + p.baselines()[i]), 1.);
-                    let b = g.physical((origin.0, origin.1 + p.baselines()[i]), 1.);
-                    glyphs += usize::from(a.x != b.x || a.y != b.y || a.cache_key != b.cache_key);
+                    let a = g.pixel((at.0, at.1 + p.baselines()[i]), 1.);
+                    let b = g.pixel((origin.0, origin.1 + p.baselines()[i]), 1.);
+                    glyphs += usize::from(a != b);
                 }
             }
             eprintln!("same-paragraph text{index}: raw={raw:?} expected={e:?} glyph-placement/key-diffs={glyphs} RGBA-different-bytes={different}");
@@ -175,7 +179,7 @@ impl Backend for ObservedRaster {
         self.raster.finish()
     }
 }
-fn observe(p: &mut Presenter<Empty>, reference: Option<Calls>) -> Calls {
+fn observe(p: &mut Presenter<()>, reference: Option<Calls>) -> Calls {
     let calls = Rc::new(RefCell::new(Observation::default()));
     p.brush.replace_backend(Box::new(ObservedRaster {
         raster: Raster::new(),
@@ -195,9 +199,9 @@ fn app(fractional: bool) -> String {
         r##"component App
   state top = {y}
   state text = "{text}"
-  action move writes top
+  action move
     top = {next}
-  action replaceAndMove writes text, top
+  action replaceAndMove
     text = "Candidate B must not supply retained source A pixels or hits."
     top = {next}
   view
@@ -217,12 +221,12 @@ fn app(fractional: bool) -> String {
 "##
     )
 }
-fn fixture(plan: &[u8], region: bool) -> Presenter<Empty> {
+fn fixture(plan: &[u8], region: bool) -> Presenter<()> {
     let assets = PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/../../apps/caltrain"));
     let (mut p, error) = if region {
         Presenter::boot_with_content_region(
             plan,
-            Empty,
+            (),
             (400., 600.),
             1.,
             assets,
@@ -235,7 +239,7 @@ fn fixture(plan: &[u8], region: bool) -> Presenter<Empty> {
             },
         )
     } else {
-        Presenter::boot_with(plan, Empty, (400., 600.), 1., assets, PainterChoice::Cpu)
+        Presenter::boot_with(plan, (), (400., 600.), 1., assets, PainterChoice::Cpu)
     }
     .unwrap();
     assert!(error.is_none(), "{error:?}");
@@ -247,7 +251,7 @@ fn fixture(plan: &[u8], region: bool) -> Presenter<Empty> {
     assert!(p.last_frame_succeeded);
     p
 }
-fn wheel(p: &mut Presenter<Empty>, dy: f32) {
+fn wheel(p: &mut Presenter<()>, dy: f32) {
     let port = id(p, "port");
     let at = natural_point(p, port);
     p.wheel_at(at.0, at.1, 0., dy);
@@ -261,8 +265,8 @@ fn frame_bits(f: exact_kernel::Frame) -> [u32; 4] {
 }
 fn compare(
     label: &str,
-    ordinary: &mut Presenter<Empty>,
-    region: &mut Presenter<Empty>,
+    ordinary: &mut Presenter<()>,
+    region: &mut Presenter<()>,
     a: &Calls,
     b: &Calls,
     retained: bool,

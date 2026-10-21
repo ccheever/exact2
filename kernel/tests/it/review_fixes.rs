@@ -31,7 +31,9 @@ fn intrinsic_flex_items_do_not_include_their_containers_padding() {
         Box::new(result)
     }
     let number = StyleValue::Number;
-    let text = |value: &str| StyleValue::Text(value.into());
+    fn text(value: &str) -> StyleValue<'_> {
+        StyleValue::Text(value.into())
+    }
     for parent_direction in ["row", "column"] {
         for direction in ["row", "column"] {
             for inset in [0.0, 5.0, 14.0, 24.0] {
@@ -267,8 +269,8 @@ fn non_finite_style_numbers_are_refused_on_both_ingress_paths() {
     ));
 
     let mut shadow = StyleProps::default();
-    shadow.shadow_offset.y = f32::NAN;
-    shadow.mask.set(StyleId::ShadowOffset);
+    shadow.translate.y = f32::NAN;
+    shadow.mask.set(StyleId::Translate);
     assert!(matches!(
         k.apply(
             0,
@@ -279,7 +281,7 @@ fn non_finite_style_numbers_are_refused_on_both_ingress_paths() {
             }]
         ),
         Err(KernelError::Apply(ApplyError::NonFiniteStyle {
-            style: StyleId::ShadowOffset,
+            style: StyleId::Translate,
             ..
         }))
     ));
@@ -336,7 +338,7 @@ fn zero_grid_spans_are_refused_on_both_ingress_paths() {
     )
     .unwrap();
     let mut patch = StyleProps::default();
-    patch.grid_column = GridPlacement {
+    patch.rare.grid_column = GridPlacement {
         start: GridLine::Auto,
         end: GridLine::Span(0),
     };
@@ -373,27 +375,50 @@ fn structured_style_domain_matches_wire_and_export() {
         ],
     )
     .unwrap();
+    let mut overlarge = StyleProps::default();
+    overlarge.rare.grid_template_columns =
+        GridTracks::from_tracks(vec![GridTrack::Fr(1.0); 10_001]);
+    overlarge.mask.set(StyleId::GridTemplateColumns);
     let before = k.export(None).unwrap();
     let epoch = k.epoch();
-
-    let mut too_many = StyleProps::default();
-    too_many.grid_template_columns = GridTracks(vec![GridTrack::Fr(1.0); 33]);
-    too_many.mask.set(StyleId::GridTemplateColumns);
+    let overlarge = Op::SetStyle {
+        id: 1,
+        patch: Box::new(overlarge),
+    };
     assert_eq!(
-        k.apply(
-            0,
-            2,
-            &[Op::SetStyle {
-                id: 1,
-                patch: Box::new(too_many),
-            }],
-        ),
-        Err(KernelError::Apply(ApplyError::TooManyTracks {
+        k.apply(0, 2, std::slice::from_ref(&overlarge)),
+        Err(KernelError::Apply(ApplyError::InvalidGridTrack {
             op_index: 0,
             style: StyleId::GridTemplateColumns,
-            count: 33,
         }))
     );
+    assert_eq!(
+        k.apply_frame(&wire::encode(0, 2, &[overlarge])),
+        Err(KernelError::Decode(DecodeError::InvalidGridTrack))
+    );
+    assert_eq!(k.export(None).unwrap(), before);
+    assert_eq!(k.epoch(), epoch);
+
+    let mut overlarge = StyleProps::default();
+    overlarge.rare.grid_column = GridPlacement::from_lines(GridLine::Line(10_001), GridLine::Auto);
+    overlarge.mask.set(StyleId::GridColumn);
+    let overlarge = Op::SetStyle {
+        id: 1,
+        patch: Box::new(overlarge),
+    };
+    assert_eq!(
+        k.apply(0, 3, std::slice::from_ref(&overlarge)),
+        Err(KernelError::Apply(ApplyError::InvalidGridSpan {
+            op_index: 0,
+            style: StyleId::GridColumn,
+        }))
+    );
+    assert_eq!(
+        k.apply_frame(&wire::encode(0, 3, &[overlarge])),
+        Err(KernelError::Decode(DecodeError::InvalidGridSpan))
+    );
+    assert_eq!(k.export(None).unwrap(), before);
+    assert_eq!(k.epoch(), epoch);
 
     let mut auto_padding = StyleProps::default();
     auto_padding.padding_top = Dimension::Auto;
@@ -403,14 +428,14 @@ fn structured_style_domain_matches_wire_and_export() {
         patch: Box::new(auto_padding),
     };
     assert_eq!(
-        k.apply(0, 3, std::slice::from_ref(&invalid_auto)),
+        k.apply(0, 4, std::slice::from_ref(&invalid_auto)),
         Err(KernelError::Apply(ApplyError::AutoNotAdmitted {
             op_index: 0,
             style: StyleId::PaddingTop,
         }))
     );
     assert_eq!(
-        k.apply_frame(&wire::encode(0, 4, &[invalid_auto])),
+        k.apply_frame(&wire::encode(0, 5, &[invalid_auto])),
         Err(KernelError::Decode(DecodeError::AutoNotAdmitted {
             style: StyleId::PaddingTop,
         }))
@@ -419,7 +444,7 @@ fn structured_style_domain_matches_wire_and_export() {
     assert_eq!(k.export(None).unwrap(), before);
 
     let mut maximum = StyleProps::default();
-    maximum.grid_template_columns = GridTracks(vec![GridTrack::Fr(1.0); 32]);
+    maximum.rare.grid_template_columns = GridTracks::parse("repeat(10000, 1fr)").unwrap();
     maximum.mask.set(StyleId::GridTemplateColumns);
     maximum.padding_top = Dimension::Points(4.0);
     maximum.mask.set(StyleId::PaddingTop);
@@ -431,7 +456,10 @@ fn structured_style_domain_matches_wire_and_export() {
     };
     k.apply(0, 5, std::slice::from_ref(&valid_style)).unwrap();
     let snapshot = export::decode(&k.export(None).unwrap()).unwrap();
-    assert_eq!(snapshot.styles[0].grid_template_columns.0.len(), 32);
+    assert_eq!(
+        snapshot.styles[0].rare.grid_template_columns.css(),
+        "repeat(10000, 1fr)"
+    );
     assert_eq!(snapshot.styles[0].padding_top, Dimension::Points(4.0));
     assert_eq!(snapshot.styles[0].width, Dimension::Auto);
 

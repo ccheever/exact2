@@ -23,8 +23,10 @@ pub struct CollectionFeedback {
     pub revision: u64,
     /// Monotonically increasing host scroll/layout sequence.
     pub scroll_sequence: u64,
-    /// Actual content-relative offset on the main axis, clamped past
-    /// rubber-banding: `scrollTop` for a vertical list.
+    /// Actual offset on the main axis from the first row's start, clamped
+    /// past rubber-banding: `scrollTop` less the padding before the rows for
+    /// a vertical list. Negative while the port is in that padding, down to
+    /// it (`scrollTop` 0, LLP 1010 §6.9).
     pub offset: f64,
     /// Actual inner scrollport size on the main axis.
     pub port_main: f64,
@@ -33,6 +35,10 @@ pub struct CollectionFeedback {
     /// The rows' available cross size, after content padding and any
     /// scrollbar reservation: a vertical list's row width.
     pub cross: f64,
+    /// The main-axis padding before the first row and after the last, as
+    /// the host laid it out: the room `offset` counts past and the scroll
+    /// range runs into (LLP 1010 §6.9).
+    pub padding: [f64; 2],
     /// Only currently mounted row wrappers may be measured.
     pub measurements: Vec<RowMeasurement>,
     /// Focused authored descendant; pins at most its containing row.
@@ -63,6 +69,13 @@ pub struct CollectionFill {
     /// optional row, retires within `limit` as a slice does, and runs edge
     /// actions. The immediate report after a build-only one.
     pub no_build: bool,
+    /// With a velocity, the window keeps half a viewport behind its
+    /// travel instead of a whole one. For a host that leads its window far
+    /// and waits for its passes (the rows behind then pile up to two and a
+    /// half viewports before a pass retires them), and whose travel turns
+    /// only through a report without a velocity, which builds the side it
+    /// turned to. Carried on the wire as flag bit 3.
+    pub lean: bool,
 }
 /// A mounted row; unmounted keys and records never cross the host seam.
 #[derive(Debug, Clone, PartialEq)]
@@ -83,13 +96,26 @@ pub struct CollectionRow {
     /// Whether the estimate has been confirmed in this epoch.
     pub measured: bool,
 }
-/// Apply only if the host has not advanced beyond `scroll_sequence`.
+/// Apply only if the host has not advanced beyond `scroll_sequence`, unless
+/// it is relative (`from`).
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct AnchorCorrection {
     /// Scroll sequence whose anchor was preserved.
     pub scroll_sequence: u64,
-    /// Corrected content-relative offset on the main axis.
+    /// Corrected content-relative offset on the main axis. Negative only
+    /// for an authored `scrollIntoView` into the padding before the first
+    /// row, down to that padding: `scrollTop` 0 (LLP 1010 §6.9).
     pub offset: f64,
+    /// An anchor's correction: the offset the anchor was taken at, so
+    /// `offset - from` is how far the content before it moved. A host may
+    /// add that to the offset it has now, whatever it sampled since, in the
+    /// frame that lays the moved rows out (a fling keeps its velocity).
+    /// None: an authored position (a restore, `scrollIntoView`), absolute.
+    pub from: Option<f64>,
+    /// Animate to `offset` with the platform's scroll animation (a smooth
+    /// `scrollIntoView`, or a `scroll-behavior: smooth` list following its
+    /// end), rather than set it (LLP 1070.000 §6.2). Absolute only.
+    pub smooth: bool,
 }
 /// The axis a collection scrolls on, fixed when it is created from its
 /// list's style (LLP 1070 H1): `display: block` is vertical, `display:
@@ -135,7 +161,9 @@ pub struct CollectionSnapshot {
     pub count: usize,
     /// Measured plus estimated full content extent on the main axis.
     pub total_extent: f64,
-    /// Only live wrappers, in logical order, including at most two pinned rows.
+    /// Only live wrappers, in logical order, including at most two pinned
+    /// rows and, where rows are rebound, the few held past the window for
+    /// the rows it needs next (LLP 1078).
     pub rows: Vec<CollectionRow>,
     /// Optional anchor correction; consume at most once per revision.
     pub correction: Option<AnchorCorrection>,
@@ -152,11 +180,12 @@ impl CollectionFeedback {
     pub fn encode(&self) -> Result<Vec<u8>, FeedbackError> {
         self.encode_with(CollectionFill::default())
     }
-    /// Portable LE wire version 3 (LLP 1070 H1): u32 version, u32 view, u64
-    /// revision, u64 sequence, f64 offset/port_main/port_cross/cross, u32
+    /// Portable LE wire version 4 (LLP 1070 H1): u32 version, u32 view, u64
+    /// revision, u64 sequence, f64 offset/port_main/port_cross/cross, f64
+    /// padding start/end (LLP 1010 §6.9), u32
     /// focus and interaction (zero means none), f64 velocity, u32 limit
     /// (`u32::MAX` means none), u32 flags (bit 0: an ancestor list is
-    /// moving; bit 1: build only; bit 2: retire only), u32 count, then count × (u32 wrapper, u64 epoch, f64 size).
+    /// moving; bit 1: build only; bit 2: retire only; bit 3: lean), u32 count, then count × (u32 wrapper, u64 epoch, f64 size).
     /// Main and cross are the list's axes. No keys, strings, or JSON parsing.
     pub fn encode_with(&self, fill: CollectionFill) -> Result<Vec<u8>, FeedbackError> {
         self.validate()?;
@@ -164,13 +193,15 @@ impl CollectionFeedback {
             return Err(FeedbackError);
         }
         let mut w = Writer::default();
-        w.u32(3);
+        w.u32(4);
         w.u32(self.view);
         w.u64(self.revision);
         w.u64(self.scroll_sequence);
         for n in [self.offset, self.port_main, self.port_cross, self.cross] {
             w.f64(n);
         }
+        w.f64(self.padding[0]);
+        w.f64(self.padding[1]);
         w.u32(self.focus_view.unwrap_or(0));
         w.u32(self.interaction_view.unwrap_or(0));
         w.f64(fill.velocity);
@@ -181,7 +212,8 @@ impl CollectionFeedback {
         w.u32(
             u32::from(fill.ancestor_moving)
                 | u32::from(fill.create_only) << 1
-                | u32::from(fill.no_build) << 2,
+                | u32::from(fill.no_build) << 2
+                | u32::from(fill.lean) << 3,
         );
         w.u32(
             self.measurements
@@ -205,7 +237,7 @@ impl CollectionFeedback {
     pub fn decode_with_fill(bytes: &[u8]) -> Result<(Self, CollectionFill), FeedbackError> {
         let mut r = Reader::new(bytes);
         let out = (|| -> Result<(Self, CollectionFill), exact_plan::PlanError> {
-            if r.u32()? != 3 {
+            if r.u32()? != 4 {
                 return Err(exact_plan::PlanError::BadCount(0));
             }
             let view = r.u32()?;
@@ -215,12 +247,13 @@ impl CollectionFeedback {
             let port_main = r.f64()?;
             let port_cross = r.f64()?;
             let cross = r.f64()?;
+            let padding = [r.f64()?, r.f64()?];
             let focus = r.u32()?;
             let interaction = r.u32()?;
             let velocity = r.f64()?;
             let limit = r.u32()?;
             let flags = r.u32()?;
-            if flags > 7 || flags & 6 == 6 {
+            if flags > 15 || flags & 6 == 6 {
                 return Err(exact_plan::PlanError::BadCount(flags));
             }
             let fill = CollectionFill {
@@ -229,6 +262,7 @@ impl CollectionFeedback {
                 ancestor_moving: flags & 1 != 0,
                 create_only: flags & 2 != 0,
                 no_build: flags & 4 != 0,
+                lean: flags & 8 != 0,
             };
             let count = r.u32()? as usize;
             if count.checked_mul(20) != Some(r.remaining()) {
@@ -250,6 +284,7 @@ impl CollectionFeedback {
                 port_main,
                 port_cross,
                 cross,
+                padding,
                 measurements,
                 focus_view: (focus != 0).then_some(focus),
                 interaction_view: (interaction != 0).then_some(interaction),
@@ -268,9 +303,16 @@ impl CollectionFeedback {
         if self.view == 0
             || self.focus_view == Some(0)
             || self.interaction_view == Some(0)
-            || ![self.offset, self.port_main, self.port_cross, self.cross]
-                .into_iter()
-                .all(valid)
+            || !(self.offset.is_finite() && self.offset.abs() <= f32::MAX as f64)
+            || ![
+                self.port_main,
+                self.port_cross,
+                self.cross,
+                self.padding[0],
+                self.padding[1],
+            ]
+            .into_iter()
+            .all(valid)
         {
             return Err(FeedbackError);
         }
@@ -315,11 +357,18 @@ pub fn snapshots_json(snapshots: &[CollectionSnapshot]) -> String {
         if let Some(correction) = c.correction {
             write!(
                 out,
-                "{{\"scrollSequence\":\"{}\",\"offset\":{}}}",
+                "{{\"scrollSequence\":\"{}\",\"offset\":{}",
                 correction.scroll_sequence,
                 exact_num::Shortest(correction.offset)
             )
             .unwrap();
+            if let Some(from) = correction.from {
+                write!(out, ",\"from\":{}", exact_num::Shortest(from)).unwrap();
+            }
+            if correction.smooth {
+                out.push_str(",\"smooth\":true");
+            }
+            out.push('}');
         } else {
             out.push_str("null");
         }
@@ -338,5 +387,41 @@ impl CollectionSnapshot {
     /// Append this snapshot to an existing host batch envelope.
     pub fn write_json(&self, out: &mut String) {
         out.push_str(&self.json());
+    }
+}
+
+impl super::Collection {
+    pub(super) fn snapshot(&self) -> CollectionSnapshot {
+        self.snapshot_rows(usize::MAX)
+    }
+    /// [`Collection::snapshot`] with at most `rows` mounted rows (the first).
+    pub(super) fn snapshot_rows(&self, rows: usize) -> CollectionSnapshot {
+        CollectionSnapshot {
+            view: self.view,
+            axis: self.axis,
+            parent: self.parent,
+            restored: self.restored,
+            seeking: self.target.is_some(),
+            revision: self.revision,
+            scroll_sequence: self.geometry.as_ref().map_or(0, |g| g.scroll_sequence),
+            count: self.index.len(),
+            total_extent: self.index.total_height(),
+            rows: self
+                .mounted
+                .iter()
+                .take(rows)
+                .map(|row| CollectionRow {
+                    view: row.wrapper,
+                    root: super::super::first_root(&row.row.roots).expect("a row has a root"),
+                    index: row.position,
+                    start: self.index.prefix(row.position).unwrap(),
+                    size: self.index.height(row.position).unwrap(),
+                    epoch: row.epoch,
+                    measured: self.index.is_measured_at(row.position),
+                })
+                .collect(),
+            correction: self.correction,
+            pending: self.pending || self.target.is_some(), // an into-view request wants its next report
+        }
     }
 }

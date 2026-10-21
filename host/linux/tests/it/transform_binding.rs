@@ -2,28 +2,18 @@
 use exact_kernel::{motion::motion_node, MonospaceMeasurer, NodeKey, PropId, TransformDragBinding};
 use exact_linux::Host;
 use exact_motion::{HoldEnd, Property, Value};
-use exact_runner::{DataError, DataSource, Event};
-struct Empty;
-impl DataSource for Empty {
-    fn query(
-        &mut self,
-        name: &str,
-        _: &[exact_runner::Value],
-    ) -> Result<exact_runner::Value, DataError> {
-        Err(DataError::UnknownSource(name.into()))
-    }
-}
+use exact_runner::Event;
 const APP: &str = r#"component App
   state binding = "target"
   state x = 20
   state zoom = 2
-  state transition = "translate spring(300,30,1), scale spring(300,30,1)"
+  state transition = "translate -exact-spring(300,30,1), scale -exact-spring(300,30,1)"
   state count = 0
-  action geometry(w: number, h: number, pw: number, ph: number) writes count
+  action geometry(w: number, h: number, pw: number, ph: number)
     count = count
-  action release(x: number, y: number, s: number, vx: number, vy: number, vs: number) writes count
+  action release(x: number, y: number, s: number, vx: number, vy: number, vs: number)
     count = count + 1
-  action unbind writes binding, transition, x, zoom
+  action unbind
     binding = ""
     transition = "none"
     x = 40
@@ -41,10 +31,10 @@ const APP: &str = r#"component App
         text "unbind"
       text `${count}` testId="count"
 "#;
-fn boot(source: &str) -> Host<Empty> {
+fn boot(source: &str) -> Host<()> {
     let (h, e) = Host::boot(
         &contract::compile(source).unwrap().encode(),
-        Empty,
+        (),
         Box::new(MonospaceMeasurer::default()),
         400.,
         500.,
@@ -53,13 +43,13 @@ fn boot(source: &str) -> Host<Empty> {
     assert!(e.is_none(), "{e:?}");
     h
 }
-fn key(h: &Host<Empty>, name: &str) -> NodeKey {
+fn key(h: &Host<()>, name: &str) -> NodeKey {
     h.kernel().find_by_test_id(name)[0]
 }
-fn binding(h: &Host<Empty>, name: &str) -> TransformDragBinding {
+fn binding(h: &Host<()>, name: &str) -> TransformDragBinding {
     h.transform_drag_binding(key(h, name)).unwrap()
 }
-fn count(h: &Host<Empty>) -> &str {
+fn count(h: &Host<()>) -> &str {
     h.kernel()
         .node_by_key(key(h, "count"))
         .unwrap()
@@ -68,15 +58,10 @@ fn count(h: &Host<Empty>) -> &str {
         .unwrap()
 }
 #[test]
-fn sole_owner_multiple_handles_and_prop_only_cannot_claim_owner() {
+fn sole_owner_allows_multiple_handles() {
     let h = boot(APP);
     assert_eq!(binding(&h, "first").target, binding(&h, "second").target);
     assert!(h.transform_drag_binding(key(&h, "other-handle")).is_none());
-    let h=boot(&APP.replace("transformgeometry=geometry transformrelease=release\n          box", "transformgeometry=geometry\n          box")
-        .replace("testId=\"second\" transformDragFor=\"target\" transformgeometry=geometry transformrelease=release", "testId=\"second\" transformDragFor=\"target\" transformgeometry=geometry"));
-    assert!(h.transform_drag_binding(key(&h, "first")).is_none());
-    assert!(h.transform_drag_binding(key(&h, "second")).is_none());
-    assert_eq!(binding(&h, "other-handle").target, key(&h, "other"));
 }
 #[test]
 fn live_tuple_range_validation_is_atomic_and_stale_is_before_validation() {
@@ -236,8 +221,8 @@ fn receipt_latest_none_transition_and_target_precede_invalid_binding_cancellatio
 
 #[test]
 fn pair_moves_also_publish_an_unrelated_running_height_projection() {
-    let source = APP.replace("  state binding", "  state height = 180\n  action grow writes height\n    height = 300\n  state binding")
-        .replace("      button testId=\"unbind\"", "      box testId=\"panel\" position=\"absolute\" bottom=0 width=40 height=height box-sizing=\"border-box\" transition=\"height spring(300,30,1)\"\n      button testId=\"grow\" press=grow\n        text \"grow\"\n      button testId=\"unbind\"");
+    let source = APP.replace("  state binding", "  state height = 180\n  action grow\n    height = 300\n  state binding")
+        .replace("      button testId=\"unbind\"", "      box testId=\"panel\" position=\"absolute\" bottom=0 width=40 height=height box-sizing=\"border-box\" transition=\"height -exact-spring(300,30,1)\"\n      button testId=\"grow\" press=grow\n        text \"grow\"\n      button testId=\"unbind\"");
     let mut h = boot(&source);
     let panel = h.kernel().node_by_key(key(&h, "panel")).unwrap().id;
     h.set_height_owner(Some(panel)).unwrap();

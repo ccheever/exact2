@@ -10,6 +10,14 @@ build = "build.rs"
 [lib]
 name = "video_player_web"
 crate-type = ["cdylib", "rlib"]
+test = false
+bench = false
+
+[[bin]]
+name = "video-player-dev"
+path = "src/bin/video-player-dev.rs"
+test = false
+bench = false
 
 [dependencies]
 exact-logic = { path = "../../../logic" }

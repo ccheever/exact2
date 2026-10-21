@@ -35,11 +35,11 @@ fn op(batch: &str, id: u32) -> String {
 
 const SRC: &str = r##"component Type
   state big = false
-  action toggle writes big
+  action toggle
     big = not big
   view
     column font-size=(big ? 24 : 20) line-height="24px" testId="root"
-      button press=toggle testId="toggle"
+      button appearance="none" press=toggle testId="toggle"
         text "Toggle"
       text testId="paragraph"
         text "plain" testId="plain"
@@ -54,12 +54,12 @@ const SRC: &str = r##"component Type
 fn symbol_identity_and_inherited_font_cross_the_image_boundary() {
     let plan = contract::compile(r##"component App
   state large = false
-  action change writes large
+  action change
     large = not large
   view
     column font-size=(large ? 28 : 17) font-weight=(large ? 600 : 400)
       button "Change" press=change testId="change"
-      image (large ? "symbol:send" : "symbol:search") tint-color="light-dark(#007aff,#0a84ff)" testId="symbol"
+      image (large ? "symbol:send" : "symbol:search") -exact-tint-color="light-dark(#007aff,#0a84ff)" testId="symbol"
 "##).unwrap();
     let (mut host, first) = Host::boot(
         &plan.encode(),
@@ -82,6 +82,95 @@ fn symbol_identity_and_inherited_font_cross_the_image_boundary() {
     assert!(changed.contains("\"symbolName\":\"arrow.up\""), "{changed}");
     assert!(changed.contains("\"font_size\":28"), "{changed}");
     assert!(changed.contains("\"font_weight\":600"), "{changed}");
+}
+
+/// LLP 1121 stage 9 B (D10): a symbol whose `color` its author wrote, on
+/// it or on the nearest ancestor that sets one, says so
+/// (`symbolColorWritten`) beside the colour its style carries; one under no
+/// written colour does not.
+#[test]
+fn a_symbol_under_a_written_colour_says_so() {
+    let plan = contract::compile(
+        r##"component App
+  action pick
+  view
+    column
+      column color="#ff0000"
+        image "symbol:star" testId="under"
+        row role="tablist"
+          button appearance="none" role="tab" aria-label="Library" aria-selected=true press=pick
+            image "symbol:book" testId="tab"
+        column color="AccentColor"
+          image "symbol:star" testId="accent"
+      image "symbol:star" testId="bare"
+"##,
+    )
+    .unwrap();
+    let (host, first) = Host::boot(
+        &plan.encode(),
+        NoData,
+        Box::new(MonospaceMeasurer::default()),
+        402.,
+        874.,
+    )
+    .unwrap();
+    let under = op(&first, view(&host, "under"));
+    assert!(under.contains("\"symbolColorWritten\":\"1\""), "{under}");
+    assert!(under.contains("\"text_color\":[255,0,0,255]"), "{under}");
+    let accent = op(&first, view(&host, "accent"));
+    assert!(accent.contains("\"symbolColorWritten\":\"1\""), "{accent}");
+    assert!(
+        accent.contains("\"text_color\":{\"sys\":\"@tint\""),
+        "{accent}"
+    );
+    // A tab's image is the page's too: where it is shown as a segment, the
+    // host draws the segment in the control's tint (`faceImage`).
+    let tab = op(&first, view(&host, "tab"));
+    assert!(tab.contains("\"symbolColorWritten\":\"1\""), "{tab}");
+    let bare = op(&first, view(&host, "bare"));
+    assert!(!bare.contains("symbolColorWritten"), "{bare}");
+}
+
+#[test]
+fn raw_symbol_names_cross_the_boundary_without_a_catalog() {
+    let plan = contract::compile(
+        r#"component App
+  state source = "symbol:sf/airpodsmax"
+  action missing
+    source = "symbol:sf/exact.nonexistent"
+  action empty
+    source = "symbol:sf/"
+  action restore
+    source = "symbol:sf/airpodsmax"
+  view
+    column
+      image source testId="icon"
+      button "Missing" press=missing testId="missing"
+      button "Empty" press=empty testId="empty"
+      button "Restore" press=restore testId="restore"
+"#,
+    )
+    .unwrap();
+    let (mut host, first) = Host::boot(
+        &plan.encode(),
+        NoData,
+        Box::new(MonospaceMeasurer::default()),
+        402.,
+        874.,
+    )
+    .unwrap();
+    assert!(first.contains("\"symbolName\":\"airpodsmax\""));
+    for (action, expected) in [
+        ("missing", "exact.nonexistent"),
+        ("empty", ""),
+        ("restore", "airpodsmax"),
+    ] {
+        let batch = host.dispatch(view(&host, action), Event::Press);
+        assert!(
+            batch.contains(&format!("\"symbolName\":\"{expected}\"")),
+            "{batch}"
+        );
+    }
 }
 
 #[test]
@@ -168,7 +257,7 @@ fn a_node_read_names_where_each_value_came_from() {
         "{reply}"
     );
     assert!(
-        reply.contains("\"text_color\":{\"value\":\"#000000\",\"source\":\"initial\"}"),
+        reply.contains("\"text_color\":{\"value\":\"CanvasText\",\"source\":\"initial\"}"),
         "{reply}"
     );
     // A box row never appears unless authored.
@@ -192,7 +281,7 @@ fn caret_color_reaches_editors_and_explicit_auto_stops_inheritance() {
     let plan = contract::compile(
         r##"component Caret
   state changed = false
-  action toggle writes changed
+  action toggle
     changed = not changed
   view
     column caret-color=(changed ? "#00aaff" : "#ffffff")
@@ -213,7 +302,7 @@ fn caret_color_reaches_editors_and_explicit_auto_stops_inheritance() {
     )
     .unwrap();
     assert!(op(&first, view(&host, "inherited")).contains("\"caret_color\":[255,255,255,255]"));
-    assert!(!op(&first, view(&host, "auto")).contains("[255,255,255,255]"));
+    assert!(!op(&first, view(&host, "auto")).contains("\"caret_color\":[255,255,255,255]"));
     assert!(op(&first, view(&host, "transparent")).contains("\"caret_color\":[0,0,0,0]"));
     let changed = host.dispatch_at(view(&host, "toggle"), Event::Press, 0.0);
     assert!(op(&changed, view(&host, "inherited")).contains("\"caret_color\":[0,170,255,255]"));
@@ -227,9 +316,9 @@ fn border_layout_paint_and_current_color_follow_live_style_changes() {
     let plan = contract::compile(r##"component Borders
   state mode = "none"
   state blue = false
-  action setMode(value: string) writes mode
+  action setMode(value: string)
     mode = value
-  action recolor writes blue
+  action recolor
     blue = not blue
   view
     column color=(blue ? "#0000ff" : "#ff0000")
@@ -275,17 +364,38 @@ fn border_layout_paint_and_current_color_follow_live_style_changes() {
         if control == "hidden" {
             assert!(op(&batch, wide).contains("\"border_width_top\":0"));
         } else {
-            // `hidden` to `none` paints the same box: the presenter gets no
-            // style (it never reads `border-style`, the widths say it).
-            assert_eq!(count(&batch, "style"), 0, "{batch}");
+            // The width and geometry stay zero, but the presenter now reads
+            // the authored style so a later dotted/dashed change can paint.
+            assert_eq!(count(&batch, "style"), 3, "{batch}");
+            assert!(op(&batch, wide).contains("\"border_style_top\":\"none\""));
         }
     }
 }
 
 #[test]
+fn patterned_border_styles_reach_the_presenter() {
+    use exact_kernel::{Env, StyleId, StyleProps, StyleValue};
+    let mut style = StyleProps::default();
+    style
+        .set_dynamic(StyleId::BorderStyleTop, &StyleValue::Text("dotted".into()))
+        .unwrap();
+    style
+        .set_dynamic(
+            StyleId::BorderStyleRight,
+            &StyleValue::Text("dashed".into()),
+        )
+        .unwrap();
+    let json = exact_apple::style::style_json(&style, &Env::default()).0;
+    let json: serde_json::Value = serde_json::from_str(&json).unwrap();
+    assert_eq!(json["border_style_top"], "dotted");
+    assert_eq!(json["border_style_right"], "dashed");
+}
+
+#[test]
+#[ignore = "async lane: launches Bun and nested cargo builds; bun scripts/async.mjs runs it"]
 fn apple_artifacts_own_paths_locks_identity_and_failed_placement() {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-    let result = std::process::Command::new("bun")
+    let result = std::process::Command::new(std::env::var_os("BUN").unwrap_or_else(|| "bun".into()))
         .current_dir(root)
         .args(["--input-type=module", "-e", r#"
 import assert from 'node:assert/strict';
@@ -313,6 +423,9 @@ try {
       [false,true].map(host => appleArtifacts(a,{destination,composition,trust,host})))));
   for (const key of ['products','binary']) assert.equal(new Set(forms.map(p => p[key])).size, forms.length, key);
   for (const key of ['scratch','embed']) assert.equal(new Set(forms.map(p => p[key])).size, forms.length / 2, key);
+  // One Swift compile per destination, whatever the app, composition, trust or product.
+  assert.equal(new Set(forms.map(p => p.swift)).size, 3);
+  assert.equal(appleArtifacts(b).swift, first.swift);
   assert.equal(new Set(forms.map(p => p.lock)).size, 1);
   assert.equal(appleArtifacts(a,{trust:'production'}).bundle, first.bundle);
   const release = appleBuildLock(a);
@@ -381,6 +494,186 @@ try {
 }
 
 #[test]
+#[ignore = "async lane: launches Bun; bun scripts/async.mjs runs it"]
+fn a_kept_module_is_taken_only_by_a_checkout_of_the_same_bytes() {
+    // @ref LLP 1036.000 §10 — the host's Rust modules, kept for the machine.
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let result = std::process::Command::new(std::env::var_os("BUN").unwrap_or_else(|| "bun".into()))
+        .current_dir(root)
+        .args(["--input-type=module", "-e", r#"
+import assert from 'node:assert/strict';
+import {mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, rmSync, utimesSync, readdirSync} from 'node:fs';
+import {tmpdir} from 'node:os';
+import {resolve} from 'node:path';
+import {spawnSync} from 'node:child_process';
+import {keptModules} from './host/apple/modules.mjs';
+const run = mkdtempSync(resolve(tmpdir(), 'exact-kept-modules-')), home = resolve(run, 'home');
+const git = (cwd, ...args) => assert.equal(spawnSync('git', ['-C', cwd, '-c', 'user.name=t', '-c', 'user.email=t@example.com', ...args], {encoding:'utf8'}).status, 0, args.join(' '));
+const past = new Date(Date.now() - 60_000);
+// A checkout: a workspace of one path crate with a shader directory, and one registry crate.
+const checkout = (name, source = 'pub fn draw() {}\n') => {
+  const root = resolve(run, name);
+  for (const [file, text] of Object.entries({
+    'Cargo.toml': '[workspace]\nmembers = ["canvas", "apps/' + name + '"]\n[profile.host-dev]\ninherits = "release"\n',
+    'Cargo.lock': 'version = 4\n[[package]]\nname = "exact-canvas-vello"\nversion = "0.1.0"\ndependencies = ["dep"]\n[[package]]\nname = "dep"\nversion = "1.0.0"\nsource = "registry+x"\nchecksum = "abc"\n',
+    'canvas/Cargo.toml': '[package]\nname = "exact-canvas-vello"\n', 'canvas/src/lib.rs': source, 'canvas/shaders/a.wgsl': 'fn a() {}\n',
+  })) { mkdirSync(resolve(root, file, '..'), {recursive:true}); writeFileSync(resolve(root, file), text); utimesSync(resolve(root, file), past, past); }
+  git(root, 'init', '-q'); git(root, 'add', '-A'); git(root, 'commit', '-q', '-m', 'one');
+  return root;
+};
+// What Cargo leaves after compiling the module there: the dylib, its dep-info, a build script's output.
+const compiled = (root, bytes) => {
+  const moduleTarget = resolve(root, 'target/apple-modules'), lib = resolve(moduleTarget, 'aarch64-apple-darwin/host-dev');
+  mkdirSync(resolve(lib, 'build/dep-1/out'), {recursive:true});
+  writeFileSync(resolve(lib, 'build/dep-1/output'), 'cargo:rerun-if-env-changed=DEP_FLAVOR\n');
+  writeFileSync(resolve(lib, 'build/dep-1/out/made.rs'), '');
+  writeFileSync(resolve(lib, 'libexact_canvas_vello.dylib'), bytes);
+  writeFileSync(resolve(lib, 'libexact_canvas_vello.d'), `${resolve(lib, 'libexact_canvas_vello.dylib')}: ${resolve(root, 'canvas/src/lib.rs')} ${resolve(root, 'canvas/shaders')} ${resolve(lib, 'build/dep-1/out/made.rs')}\n`);
+};
+const kept = (root, env = {}) => keptModules({root, moduleTarget: resolve(root, 'target/apple-modules'), target: 'aarch64-apple-darwin', profile: 'host-dev',
+  env: {HOME: home, PATH: process.env.PATH, MACOSX_DEPLOYMENT_TARGET: '14.0', ...env}, sdk: resolve(run, 'no-sdk'), metal: 'metal 1'});
+const entries = () => { const dir = resolve(home, '.cache/exact/apple-modules'); return existsSync(dir) ? readdirSync(dir).flatMap(g => readdirSync(resolve(dir, g))) : []; };
+const crate = 'exact-canvas-vello';
+try {
+  const first = checkout('first'), started = Date.now() - 1000;
+  assert.equal(kept(first).find(crate), null, 'nothing is kept yet');
+  compiled(first, 'module of one');
+  // Cargo linked nothing since: nothing is kept. An uncommitted input: nothing is kept.
+  kept(first).keep(crate, Date.now() + 60_000); assert.deepEqual(entries(), []);
+  writeFileSync(resolve(first, 'canvas/shaders/b.wgsl'), ''); utimesSync(resolve(first, 'canvas/shaders/b.wgsl'), past, past);
+  kept(first).keep(crate, started); assert.deepEqual(entries(), []);
+  rmSync(resolve(first, 'canvas/shaders/b.wgsl'));
+  // An input written after the compile started: nothing is kept.
+  kept(first).keep(crate, past.getTime() - 1000); assert.deepEqual(entries(), []);
+  kept(first).keep(crate, started); assert.equal(entries().length, 1);
+  // The checkout that compiled it asks Cargo, not the cache.
+  assert.equal(kept(first).find(crate), null);
+  // Another checkout of the same bytes takes it, whatever else its workspace holds; again without a search.
+  const second = checkout('second'), taken = kept(second).find(crate);
+  assert.equal(readFileSync(taken, 'utf8'), 'module of one');
+  assert.equal(kept(second).find(crate), taken);
+  // Not with another deployment target, nor a variable a build script reads.
+  assert.equal(kept(second, {MACOSX_DEPLOYMENT_TARGET: '15.0'}).find(crate), null);
+  assert.equal(kept(second, {DEP_FLAVOR: 'other'}).find(crate), null);
+  // Not once a source, a file of a directory Cargo watches, the crate's manifest, or a pinned registry crate differs.
+  for (const [file, text] of [['canvas/src/lib.rs', 'pub fn draw() { }\n'], ['canvas/shaders/a.wgsl', 'fn b() {}\n'], ['canvas/Cargo.toml', '[package]\nname = "exact-canvas-vello"\nedition = "2021"\n']]) {
+    const was = readFileSync(resolve(second, file), 'utf8');
+    writeFileSync(resolve(second, file), text); assert.equal(kept(second).find(crate), null, file);
+    writeFileSync(resolve(second, file), was); assert.equal(kept(second).find(crate), taken, `${file} restored`);
+  }
+  writeFileSync(resolve(second, 'canvas/shaders/new.wgsl'), ''); assert.equal(kept(second).find(crate), null, 'a new shader');
+  rmSync(resolve(second, 'canvas/shaders/new.wgsl')); assert.equal(kept(second).find(crate), taken);
+  const lock = readFileSync(resolve(second, 'Cargo.lock'), 'utf8');
+  writeFileSync(resolve(second, 'Cargo.lock'), lock.replace('abc', 'abd')); assert.equal(kept(second).find(crate), null, 'a registry crate');
+  writeFileSync(resolve(second, 'Cargo.lock'), lock); assert.equal(kept(second).find(crate), taken);
+  // A checkout of other bytes compiles its own and keeps it beside the first.
+  const third = checkout('third', 'pub fn draw() { let _ = 1; }\n');
+  assert.equal(kept(third).find(crate), null);
+  compiled(third, 'module of three'); kept(third).keep(crate, started);
+  assert.equal(entries().length, 2);
+  assert.equal(readFileSync(kept(checkout('fourth', 'pub fn draw() { let _ = 1; }\n')).find(crate), 'utf8'), 'module of three');
+  assert.equal(readFileSync(kept(checkout('fifth')).find(crate), 'utf8'), 'module of one');
+} finally { rmSync(run,{recursive:true,force:true}); }
+"#])
+        .output()
+        .unwrap();
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+}
+
+#[test]
+#[ignore = "async lane: launches Bun; bun scripts/async.mjs runs it"]
+fn kept_registry_crates_are_one_target_directory_at_a_time() {
+    // @ref LLP 1036.000 §11 — compiled registry crates, kept for the machine.
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let result = std::process::Command::new(std::env::var_os("BUN").unwrap_or_else(|| "bun".into()))
+        .current_dir(root)
+        .args(["--input-type=module", "-e", r#"
+import assert from 'node:assert/strict';
+import {mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, rmSync, utimesSync, readdirSync, statSync, realpathSync} from 'node:fs';
+import {tmpdir} from 'node:os';
+import {resolve, dirname} from 'node:path';
+import {keptCrates, registryPackages} from './host/apple/crates.mjs';
+const run = realpathSync(mkdtempSync(resolve(tmpdir(), 'exact-kept-crates-'))), home = resolve(run, 'home');
+const put = (file, text, at) => { mkdirSync(dirname(file), {recursive:true}); writeFileSync(file, text); if (at) utimesSync(file, at, at); };
+const lock = resolve(run, 'Cargo.lock');
+put(lock, ['kernel', 'vendored'].map(n => `[[package]]\nname = "${n}"\nversion = "1.0.0"\n`).join('')
+  + '[[package]]\nname = "vendored"\nversion = "0.9.0"\nsource = "registry+x"\n'
+  + '[[package]]\nname = "plain"\nversion = "1.0.0"\nsource = "registry+x"\n'
+  + '[[package]]\nname = "over-plain"\nversion = "1.0.0"\nsource = "registry+x"\ndependencies = ["plain"]\n'
+  + '[[package]]\nname = "over-path"\nversion = "1.0.0"\nsource = "registry+x"\ndependencies = ["plain", "vendored 1.0.0"]\n'
+  + '[[package]]\nname = "over-over-path"\nversion = "1.0.0"\nsource = "registry+x"\ndependencies = ["over-path"]\n');
+// A registry package is kept unless a version of it is a path crate or has one under it.
+assert.deepEqual([...registryPackages(lock)].sort(), ['over-plain', 'plain']);
+const TRIPLE = 'aarch64-apple-darwin/host-dev', HOST = 'host-dev', then = new Date(Date.now() - 3_600_000);
+// What Cargo leaves for one compiled unit: its fingerprint, its files, rustc's dep-info naming the target directory.
+const unit = (target, dir, pkg, hash, build = false) => {
+  const at = resolve(target, dir), lib = pkg.replaceAll('-', '_');
+  put(resolve(at, '.fingerprint', `${pkg}-${hash}`, `lib-${lib}`), hash, then);
+  put(resolve(at, 'deps', `lib${lib}-${hash}.rlib`), `${pkg} compiled in ${target}`, then);
+  put(resolve(at, 'deps', `${lib}-${hash}.d`), `${at}/deps/lib${lib}-${hash}.rlib: /registry/${pkg}/src/lib.rs\n`, then);
+  if (build) { put(resolve(at, 'build', `${pkg}-${hash}`, 'output'), 'cargo:rustc-cfg=x\n', then); put(resolve(at, 'build', `${pkg}-${hash}`, `build_script_build-${hash}.d`), `${at}/build/${pkg}-${hash}/build_script_build-${hash}: /registry/${pkg}/build.rs\n`, then); }
+};
+const A = '0'.repeat(15), kept = (lockFile = lock) => keptCrates({root: run, env: {HOME: home, RUSTUP_TOOLCHAIN: '1.0.0'}, profile: 'host-dev'});
+const store = resolve(home, '.cache/exact/apple-crates/1.0.0-host-dev/app'), generations = () => existsSync(store) ? readdirSync(store).filter(n => n.startsWith('gen-')).sort() : [];
+const units = (target, dir) => existsSync(resolve(target, dir, '.fingerprint')) ? readdirSync(resolve(target, dir, '.fingerprint')).sort() : [];
+try {
+  // The first directory to build makes the first generation: its registry units, not its own crates nor what stands on them.
+  const first = resolve(run, 'first/target');
+  kept().take(first, 'app'); assert.ok(!existsSync(first), 'nothing is kept yet');
+  for (const [dir, pkg, hash, build] of [[TRIPLE, 'plain', A + '1', true], [TRIPLE, 'over-plain', A + '2'], [TRIPLE, 'kernel', A + '3'], [TRIPLE, 'over-path', A + '4'], [TRIPLE, 'vendored', A + '5'], [HOST, 'plain', A + '6', true]]) unit(first, dir, pkg, hash, build);
+  kept().keep(first, 'app', lock);
+  assert.equal(generations().length, 1);
+  const one = resolve(store, generations()[0]);
+  assert.deepEqual(units(one, TRIPLE), [`over-plain-${A}2`, `plain-${A}1`]); assert.deepEqual(units(one, HOST), [`plain-${A}6`]);
+  assert.deepEqual(readdirSync(resolve(one, TRIPLE, 'deps')).sort(), [`libover_plain-${A}2.rlib`, `libplain-${A}1.rlib`, `over_plain-${A}2.d`, `plain-${A}1.d`]);
+  for (const file of [`deps/plain-${A}1.d`, `build/plain-${A}1/build_script_build-${A}1.d`]) assert.ok(readFileSync(resolve(one, TRIPLE, file), 'utf8').startsWith('@exact-target@/aarch64-apple-darwin/host-dev/'), file);
+  kept().keep(first, 'app', lock); assert.equal(generations().length, 1, 'nothing new, no new generation');
+  // A directory that has compiled nothing starts with that generation: its files, their times, and dep-info naming this directory.
+  const second = resolve(run, 'second/target');
+  kept().take(second, 'app');
+  assert.deepEqual(units(second, TRIPLE), units(one, TRIPLE)); assert.deepEqual(units(second, HOST), units(one, HOST));
+  assert.equal(readFileSync(resolve(second, TRIPLE, 'deps', `libplain-${A}1.rlib`), 'utf8'), `plain compiled in ${first}`);
+  for (const file of [`deps/plain-${A}1.d`, `build/plain-${A}1/build_script_build-${A}1.d`]) {
+    assert.ok(readFileSync(resolve(second, TRIPLE, file), 'utf8').startsWith(`${second}/aarch64-apple-darwin/host-dev/`), file);
+    assert.equal(Math.round(statSync(resolve(second, TRIPLE, file)).mtimeMs), Math.round(statSync(resolve(first, TRIPLE, file)).mtimeMs), `${file} keeps its time`);
+  }
+  assert.equal(Math.round(statSync(resolve(second, TRIPLE, 'deps', `libplain-${A}1.rlib`)).mtimeMs), then.getTime());
+  // One that has compiled is left alone, and one that compiled apart from every generation adds nothing to them.
+  const apart = resolve(run, 'apart/target');
+  unit(apart, HOST, 'plain', A + '7'); unit(apart, TRIPLE, 'over-plain', A + '8');
+  kept().take(apart, 'app'); assert.deepEqual(units(apart, TRIPLE), [`over-plain-${A}8`]);
+  kept().keep(apart, 'app', lock); assert.equal(generations().length, 1);
+  // One that took a generation and compiled a new registry unit makes the next: everything it has, taken or compiled.
+  unit(second, TRIPLE, 'over-plain', A + '9'); unit(second, TRIPLE, 'kernel', A + 'a');
+  kept().keep(second, 'app', lock);
+  assert.equal(generations().length, 2);
+  const two = resolve(store, generations()[1]);
+  assert.deepEqual(units(two, TRIPLE), [`over-plain-${A}2`, `over-plain-${A}9`, `plain-${A}1`]);
+  assert.ok(readFileSync(resolve(two, TRIPLE, 'deps', `plain-${A}1.d`), 'utf8').startsWith('@exact-target@/'));
+  // A unit it took is carried on even where its own lock no longer names the package.
+  const other = resolve(run, 'other.lock'); put(other, '[[package]]\nname = "plain"\nversion = "1.0.0"\nsource = "registry+x"\n');
+  const third = resolve(run, 'third/target');
+  kept().take(third, 'app'); unit(third, TRIPLE, 'plain', A + 'b');
+  kept().keep(third, 'app', other);
+  assert.deepEqual(units(resolve(store, generations().at(-1)), TRIPLE), [`over-plain-${A}2`, `over-plain-${A}9`, `plain-${A}1`, `plain-${A}b`]);
+  // Two generations stay: the newest, and the one a build may still be cloning.
+  assert.equal(generations().length, 2); assert.ok(!existsSync(one));
+} finally { rmSync(run,{recursive:true,force:true}); }
+"#])
+        .output()
+        .unwrap();
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+}
+
+#[test]
 fn a_reloaded_plan_resolves_line_height_kinds_against_the_new_receiving_font() {
     let source = |height: &str, size| {
         format!("component App\n  view\n    column font-size=16 line-height={height}\n      text \"child\" font-size={size} testId=\"child\"\n")
@@ -437,8 +730,8 @@ fn a_reloaded_plan_resolves_line_height_kinds_against_the_new_receiving_font() {
 fn paragraph_batches_preserve_inline_identity_and_replace_the_complete_run_table() {
     let plan = contract::compile(r##"component Inline
   state changed = false
-  resource additions = additions(changed) as shape list<string>
-  action change writes changed
+  resource additions = additions(changed) as shape string[]
+  action change
     changed = not changed
   view
     column
@@ -447,7 +740,7 @@ fn paragraph_batches_preserve_inline_identity_and_replace_the_complete_run_table
         text (changed ? "after 👩‍🚀" : "before é") testId="run" press=change font-weight=(changed ? 700 : 400) color=(changed ? "#ff0000" : "#000000")
         text testId="nested"
           text "link" href="https://example.invalid/" testId="link"
-        each value in additions key=value
+        for value in additions key=value
           text value testId="added"
 "##).unwrap();
     struct InlineData;
@@ -514,7 +807,7 @@ fn text_transform_crosses_as_the_measured_string_and_box_shadow_as_its_rows() {
     let plan = contract::compile(
         r##"component Case
   state caps = false
-  action toggle writes caps
+  action toggle
     caps = not caps
   view
     column text-transform=(caps ? "uppercase" : "capitalize") box-shadow="0 2px 12px rgba(0, 0, 0, 0.2)" testId="root"
@@ -546,14 +839,8 @@ fn text_transform_crosses_as_the_measured_string_and_box_shadow_as_its_rows() {
     );
     assert!(op(&first, view(&host, "field")).contains("\"value\":\"typed\""));
     let root = op(&first, view(&host, "root"));
-    for row in [
-        "\"shadow_color\":[0,0,0,51]",
-        "\"shadow_offset\":[0,2]",
-        "\"shadow_radius\":12",
-        "\"shadow_opacity\":1",
-    ] {
-        assert!(root.contains(row), "{row} in {root}");
-    }
+    let row = "\"box_shadow\":[{\"o\":[0,2],\"b\":12,\"s\":0,\"c\":[0,0,0,51]}]";
+    assert!(root.contains(row), "{row} in {root}");
     let changed = host.dispatch_at(view(&host, "toggle"), Event::Press, 0.0);
     for text in ["STRASSE HERE", "HEL", "LO WORLD"] {
         assert!(
@@ -562,4 +849,245 @@ fn text_transform_crosses_as_the_measured_string_and_box_shadow_as_its_rows() {
         );
     }
     assert!(!changed.contains("\"value\":\"TYPED\""), "{changed}");
+}
+
+/// `pointer-events` is inherited (CSS): a box under a `none` parent says
+/// `none` too, so a host that hits it outside its parent's box (a toast
+/// translated over the tab bar) lets the pointer through, as the web does
+/// (x2apps feed repro pointer-events-inherit-translate). A child that sets
+/// `auto` again keeps it; a parent's change re-sends the child.
+#[test]
+fn pointer_events_none_reaches_a_box_that_inherits_it() {
+    let plan = contract::compile(
+        r##"component Toast
+  state through = true
+  action toggle
+    through = not through
+  view
+    column
+      button press=toggle testId="toggle"
+        text "Toggle"
+      row pointer-events=(through ? "none" : "auto") testId="row"
+        box testId="toast" width=300 height=60 translate="0px -80px"
+        box testId="again" width=10 height=10 pointer-events="auto"
+"##,
+    )
+    .unwrap();
+    let (mut host, first) = Host::boot(
+        &plan.encode(),
+        NoData,
+        Box::new(MonospaceMeasurer::default()),
+        402.0,
+        874.0,
+    )
+    .unwrap();
+    let (toast, again) = (view(&host, "toast"), view(&host, "again"));
+    assert!(
+        op(&first, toast).contains("\"pointer_events\":\"none\""),
+        "{}",
+        op(&first, toast)
+    );
+    assert!(op(&first, again).contains("\"pointer_events\":\"auto\""));
+    let changed = host.dispatch_at(view(&host, "toggle"), Event::Press, 0.0);
+    assert!(
+        op(&changed, toast).contains("\"pointer_events\":\"auto\""),
+        "{changed}"
+    );
+}
+
+/// An `href` that turns out empty is no link (LLP 1115 §3, the kernel's
+/// `Props::link`): Swift is told no `href`, so every place it asks whether a
+/// run has one (its role, its pointer, what a press follows) answers no, and
+/// the run inherits its paragraph's colour. A target that arrives is told,
+/// with the link's colour, and one that leaves is cleared.
+#[test]
+fn an_href_that_turns_out_empty_is_no_href_to_swift() {
+    let plan = contract::compile(
+        r##"component App
+  state to = ""
+  action go
+    to = to == "" ? "/about" : ""
+  view
+    column color="#336699"
+      button appearance="none" press=go testId="go"
+        text "Go"
+      text testId="p"
+        text "Read " testId="plain"
+        text "about" href=to testId="run"
+"##,
+    )
+    .unwrap();
+    let (mut host, first) = Host::boot(
+        &plan.encode(),
+        NoData,
+        Box::new(MonospaceMeasurer::default()),
+        402.0,
+        874.0,
+    )
+    .unwrap();
+    // The run as its paragraph tells it: `{"id":…,…,"handlers":[…]}`.
+    let run = view(&host, "run");
+    let told = |batch: &str| {
+        let from = batch
+            .find(&format!("{{\"id\":{run},\"parent\""))
+            .expect(batch);
+        batch[from..from + batch[from..].find("\"handlers\"").unwrap()].to_owned()
+    };
+    let page = "\"text_color\":[51,102,153,255]";
+    let made = told(&first);
+    assert!(!made.contains("\"href\""), "{made}");
+    assert!(made.contains(page), "{made}");
+    let linked = told(&host.dispatch(view(&host, "go"), Event::Press));
+    assert!(linked.contains("\"href\":\"/about\""), "{linked}");
+    assert!(!linked.contains(page), "{linked}");
+    let cleared = told(&host.dispatch(view(&host, "go"), Event::Press));
+    assert!(!cleared.contains("\"href\""), "{cleared}");
+    assert!(cleared.contains(page), "{cleared}");
+}
+
+#[test]
+fn explicit_clears_export_computed_values_and_own_declaration_intent() {
+    use exact_kernel::{Env, StyleId, StyleMask, StyleProps};
+    let clear = StyleProps {
+        written: StyleMask::of(StyleId::PlaceholderColor),
+        ..Default::default()
+    };
+    let only_intent = exact_apple::style::style_json(&clear, &Env::default()).0;
+    assert_eq!(
+        serde_json::from_str::<serde_json::Value>(&only_intent).unwrap(),
+        serde_json::json!({"written":["placeholder_color"]})
+    );
+    let check_placeholder = |batch: &str, id, colored| {
+        let batch: serde_json::Value = serde_json::from_str(batch).unwrap();
+        let style = &batch["ops"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|op| op["id"] == id && op.get("style").is_some())
+            .unwrap()["style"];
+        assert!(
+            style["written"]
+                .as_array()
+                .unwrap()
+                .contains(&serde_json::json!("placeholder_color")),
+            "{style}"
+        );
+        if colored {
+            assert_eq!(
+                style["placeholder_color"],
+                serde_json::json!([171, 205, 239, 255])
+            );
+        } else {
+            assert!(style.get("placeholder_color").is_none(), "{style}");
+        }
+    };
+    let check_color = |batch: &str, id, color: exact_kernel::ColorValue| {
+        let batch: serde_json::Value = serde_json::from_str(batch).unwrap();
+        let style = &batch["ops"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|op| op["id"] == id && op.get("style").is_some())
+            .unwrap()["style"];
+        let rgba = |dark| {
+            let c = color.resolve(dark);
+            serde_json::json!([c.r(), c.g(), c.b(), c.a()])
+        };
+        let light = rgba(false);
+        let expected = if matches!(color.fallback(), exact_kernel::ColorValue::Fixed(_)) {
+            light
+        } else {
+            serde_json::json!([light, rgba(true)])
+        };
+        let actual = &style["text_color"];
+        assert_eq!(actual.get("c").unwrap_or(actual), &expected, "{style}");
+    };
+    for ground in ["", " color=\"#123456\""] {
+        let plan = contract::compile(&format!(
+            r##"component App
+  state changed = false
+  action change
+    changed = not changed
+  view
+    column{ground}
+      button "Change" press=change testId="change"
+      input color="inherit" testId="field"
+      text "Words" color=(changed ? "#abcdef" : "unset") testId="words"
+      input placeholder="Hint" testId="placeholder"
+        ::placeholder
+          color=(changed ? "#abcdef" : "unset")
+"##
+        ))
+        .unwrap();
+        let (mut host, first) = Host::boot(
+            &plan.encode(),
+            NoData,
+            Box::new(MonospaceMeasurer::default()),
+            402.0,
+            874.0,
+        )
+        .unwrap();
+        for name in ["field", "words"] {
+            let id = view(&host, name);
+            let node = host.runner().kernel().node(id).unwrap();
+            assert!(!node.style.mask.has(StyleId::TextColor));
+            assert!(node.style.written.has(StyleId::TextColor));
+            check_color(&first, id, node.text_color());
+            let batch = op(&first, id);
+            assert!(batch.contains("\"written\":[\"text_color\"]"), "{batch}");
+        }
+        let placeholder = view(&host, "placeholder");
+        check_placeholder(&first, placeholder, false);
+        let colored = host.dispatch(view(&host, "change"), Event::Press);
+        check_placeholder(&colored, placeholder, true);
+        let restored = host.dispatch(view(&host, "change"), Event::Press);
+        check_placeholder(&restored, placeholder, false);
+        let id = view(&host, "words");
+        check_color(
+            &restored,
+            id,
+            host.runner().kernel().node(id).unwrap().text_color(),
+        );
+        let batch = op(&restored, id);
+        assert!(batch.contains("\"written\":[\"text_color\"]"), "{batch}");
+    }
+}
+
+/// LLP 1061 D7: a pressed paint cleared by its expression is no pressed
+/// look, so the presenter is sent no row (an initial transparent would
+/// erase the background while held and keep the platform's press away).
+#[test]
+fn a_cleared_pressed_paint_sends_no_row() {
+    let plan = contract::compile(
+        r##"component App
+  state on = true
+  action flip
+    on = not on
+  view
+    button press=flip background-color="#ffffff" -exact-press-background-color=(on ? "#abcdef" : "unset") -exact-press-opacity=(on ? 0.5 : "unset") testId="b"
+      text "b"
+"##,
+    )
+    .unwrap();
+    let (mut host, first) = Host::boot(
+        &plan.encode(),
+        NoData,
+        Box::new(MonospaceMeasurer::default()),
+        402.0,
+        874.0,
+    )
+    .unwrap();
+    let b = view(&host, "b");
+    let made = op(&first, b);
+    assert!(
+        made.contains("\"press_background_color\":[171,205,239,255]"),
+        "{made}"
+    );
+    assert!(made.contains("\"press_opacity\":0.5"), "{made}");
+    let cleared = op(&host.dispatch(b, Event::Press), b);
+    assert!(
+        !cleared.contains("\"press_background_color\":"),
+        "{cleared}"
+    );
+    assert!(!cleared.contains("\"press_opacity\":"), "{cleared}");
 }

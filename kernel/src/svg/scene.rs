@@ -15,7 +15,6 @@
 use super::length::Viewport;
 use super::transform::{self as tf, Affine, TransformOrigin};
 use super::{circle, dash_scale, geometry, view_box, view_box_transform, Paint, Path};
-use crate::generated::BorderStyle;
 use crate::generated::{
     Display, FillRule, NodeType, Overflow, PropId, StrokeLinecap, StrokeLinejoin, StyleId,
     StyleMask, StyleProps, TransformBox, VectorEffect, Visibility,
@@ -39,9 +38,27 @@ pub use clip::{Clip, ClipShape};
 pub use island::{Mask, Pattern};
 pub use text::{TextChunk, TextItem, TextRun};
 
-/// A host's presented value for a node's property: a running transition's
-/// or a sampled animation's; `None` shows the row.
-pub type Presented<'a> = &'a dyn Fn(NodeKey, Property) -> Option<Value>;
+/// What a host's motion engine presents: a node's value for a property (a
+/// running transition's or a sampled animation's), and a path's `d` while a
+/// transition moves it (LLP 1055.000 D15); `None` shows the row. A closure
+/// over the values is one that presents no path.
+pub trait Present {
+    /// The presented value of `p` on `key`.
+    fn value(&self, key: NodeKey, p: Property) -> Option<Value>;
+    /// The presented `d` of the path `key`.
+    fn path(&self, _key: NodeKey) -> Option<exact_motion::PathValue> {
+        None
+    }
+}
+
+impl<F: Fn(NodeKey, Property) -> Option<Value>> Present for F {
+    fn value(&self, key: NodeKey, p: Property) -> Option<Value> {
+        self(key, p)
+    }
+}
+
+/// A host's [`Present`].
+pub type Presented<'a> = &'a dyn Present;
 
 /// One `svg`, resolved.
 #[derive(Debug, Clone, PartialEq)]
@@ -224,30 +241,16 @@ pub struct Shape {
     pub markers: Vec<Item>,
 }
 
-/// The content box inside a box's border box: x, y, width, height. A
-/// border takes space only when its style draws one (CSS: `none` and
-/// `hidden` compute the width to zero, whatever `medium` says).
-pub fn content_box(node: &NodeRef<'_>) -> (f32, f32, f32, f32) {
-    let s = node.style;
-    let len = |d: Dimension| match d {
-        Dimension::Points(p) => p,
-        Dimension::Percent(p) => node.frame.width * p / 100.0,
-        _ => 0.0,
-    };
-    let border = |w: f32, style: BorderStyle| match style {
-        BorderStyle::None | BorderStyle::Hidden => 0.0,
-        _ => w,
-    };
-    let left = len(s.padding_left) + border(s.border_width_left, s.border_style_left);
-    let top = len(s.padding_top) + border(s.border_width_top, s.border_style_top);
-    let w = node.frame.width
-        - left
-        - len(s.padding_right)
-        - border(s.border_width_right, s.border_style_right);
-    let h = node.frame.height
-        - top
-        - len(s.padding_bottom)
-        - border(s.border_width_bottom, s.border_style_bottom);
+/// CSS's content box inside a box's border box: x, y, width, height. The
+/// padding is what the last layout resolved, a percentage of the containing
+/// block (zero for a node with no engine layout); the border is CSS's, as
+/// the engine's also holds a native field's chrome.
+pub fn content_box(kernel: &Kernel, node: &NodeRef<'_>) -> (f32, f32, f32, f32) {
+    let (pl, pt, pr, pb) = kernel.resolved_padding(node.key).unwrap_or_default();
+    let [bt, br, bb, bl] = node.style.border_widths_in(kernel.arena().env());
+    let (left, top) = (pl + bl, pt + bt);
+    let w = node.frame.width - left - pr - br;
+    let h = node.frame.height - top - pb - bb;
     (left, top, w.max(0.0), h.max(0.0))
 }
 
@@ -269,15 +272,18 @@ pub fn resolve(
         Some(v) => Viewport {
             width: v.width,
             height: v.height,
+            env: kernel.arena().env(),
         },
         None => Viewport {
             width: content.2,
             height: content.3,
+            env: kernel.arena().env(),
         },
     };
     let clip =
         node.style.overflow_x != Overflow::Visible || node.style.overflow_y != Overflow::Visible;
-    let mut inherited = node.computed_style(StyleMask::INHERITED);
+    // As CSS computes it: Bold Text steps each text run, after its cascade.
+    let mut inherited = node.arena.computed_rows(node.slot, StyleMask::INHERITED);
     let mut r = Resolver {
         kernel,
         presented,
@@ -319,7 +325,16 @@ fn cascade(node: &NodeRef<'_>, inherited: &StyleProps) -> StyleProps {
 
 impl Resolver<'_, '_> {
     fn value(&self, key: NodeKey, p: Property) -> Option<Value> {
-        (self.presented)(key, p).filter(|v| v.is_finite())
+        self.presented.value(key, p).filter(|v| v.is_finite())
+    }
+
+    /// A path's `d`: the presented one while a transition moves it, else
+    /// the attribute's.
+    fn d<'n>(&self, node: &NodeRef<'n>) -> Option<std::borrow::Cow<'n, str>> {
+        match self.presented.path(node.key) {
+            Some(path) => Some(std::borrow::Cow::Owned(path.to_d())),
+            None => node.props.str(PropId::D).map(std::borrow::Cow::Borrowed),
+        }
     }
 
     /// The inherited properties an animation or transition is moving on
@@ -418,7 +433,7 @@ impl Resolver<'_, '_> {
                 Kind::Shape(Box::new(shape))
             }
         };
-        let clip = if style.clip_path.url().is_some() {
+        let clip = if style.rare.clip_path.url().is_some() {
             let bbox = match &kind {
                 Kind::Shape(s) => s.path.bounds(),
                 _ => self.bbox(node, &style, vp),
@@ -427,7 +442,7 @@ impl Resolver<'_, '_> {
         } else {
             None
         };
-        let mask = if style.svg_mask.url().is_some() {
+        let mask = if style.rare.svg_mask.url().is_some() {
             let bbox = match &kind {
                 Kind::Shape(s) => s.path.bounds(),
                 _ => self.bbox(node, &style, vp),
@@ -472,11 +487,15 @@ impl Resolver<'_, '_> {
     /// The element's transform, or `None` when every part is the identity.
     fn transform(&self, node: &NodeRef<'_>, style: &StyleProps, vp: Viewport) -> Option<Transform> {
         let key = node.key;
-        let translate = self
-            .value(key, Property::Translate)
-            .map_or((style.translate.x, style.translate.y), |v| {
-                (v.x as f32, v.y as f32)
-            });
+        // Lengths, then percentages of the reference box (CSS Transforms 1
+        // §4, as `transform-origin`'s; chess diary #4).
+        let (translate, percent) = self.value(key, Property::Translate).map_or(
+            (
+                (style.translate.x, style.translate.y),
+                (style.translate_percent.x, style.translate_percent.y),
+            ),
+            |v| ((v.x as f32, v.y as f32), (v.z as f32, v.w as f32)),
+        );
         let rotate = self
             .value(key, Property::Rotate)
             .map_or(style.rotate, |v| v.x as f32);
@@ -488,6 +507,7 @@ impl Resolver<'_, '_> {
         // identity: a host that plays the animation itself needs somewhere
         // to play it (Apple's transform pair, LLP 1055.001).
         if translate == (0.0, 0.0)
+            && percent == (0.0, 0.0)
             && rotate == 0.0
             && scale == 1.0
             && tf::is_identity(matrix)
@@ -517,6 +537,10 @@ impl Resolver<'_, '_> {
                 (x - half, y - half, w + 2.0 * half, h + 2.0 * half)
             }
         };
+        let translate = (
+            translate.0 + percent.0 / 100.0 * reference.2,
+            translate.1 + percent.1 / 100.0 * reference.3,
+        );
         Some(Transform {
             origin: origin.point(reference),
             translate,
@@ -606,6 +630,10 @@ impl Resolver<'_, '_> {
                 .map_or(vp.d(style.r), |v| v.x as f32);
             let (cx, cy) = (vp.x(style.cx), vp.y(style.cy));
             return circle(cx, cy, r).map(|p| (p, Some((cx, cy, r))));
+        }
+        if node.node_type == NodeType::SvgPath {
+            let path = super::parse_d(&self.d(node)?);
+            return (!path.0.is_empty()).then_some((path, None));
         }
         geometry(node.node_type, node.props, style, vp).map(|p| (p, None))
     }
@@ -774,16 +802,7 @@ impl Resolver<'_, '_> {
             target.node_type,
             NodeType::SvgSymbol | NodeType::SvgViewport | NodeType::Svg
         ) {
-            let size = |d: Dimension, basis: f32| match d {
-                Dimension::Auto => basis,
-                d => super::length::resolve(d, basis),
-            };
-            let rect = (
-                x,
-                y,
-                size(style.width, vp.width).max(0.0),
-                size(style.height, vp.height).max(0.0),
-            );
+            let rect = viewport_rect(style, vp);
             let tstyle = cascade(&target, style);
             let vb = view_box(target.props);
             let view = view_box_transform(
@@ -797,10 +816,12 @@ impl Resolver<'_, '_> {
                 Some(v) => Viewport {
                     width: v.width,
                     height: v.height,
+                    ..vp
                 },
                 None => Viewport {
                     width: rect.2,
                     height: rect.3,
+                    ..vp
                 },
             };
             let clip =
@@ -869,10 +890,12 @@ impl Resolver<'_, '_> {
             Some(v) => Viewport {
                 width: v.width,
                 height: v.height,
+                ..vp
             },
             None => Viewport {
                 width: rect.2,
                 height: rect.3,
+                ..vp
             },
         };
         let clip = style.overflow_x != Overflow::Visible || style.overflow_y != Overflow::Visible;
@@ -892,15 +915,15 @@ impl Resolver<'_, '_> {
 /// A nested `svg`'s rect: `x`, `y`, and `width`/`height` whose `auto` is
 /// 100% (SVG 2 §8.2).
 fn viewport_rect(style: &StyleProps, vp: Viewport) -> (f32, f32, f32, f32) {
-    let size = |d: Dimension, basis: f32| match d {
-        Dimension::Auto => basis,
-        d => super::length::resolve(d, basis),
-    };
     (
         vp.x(style.x),
         vp.y(style.y),
-        size(style.width, vp.width).max(0.0),
-        size(style.height, vp.height).max(0.0),
+        vp.resolve(style.width, vp.width)
+            .unwrap_or(vp.width)
+            .max(0.0),
+        vp.resolve(style.height, vp.height)
+            .unwrap_or(vp.height)
+            .max(0.0),
     )
 }
 

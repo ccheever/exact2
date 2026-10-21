@@ -138,6 +138,7 @@ mod tests {
         assert!(!StyleId::ClipPath.affects_layout());
         let mut bad = Writer::new();
         bad.style_mask(StyleMask::of(StyleId::ClipPath));
+        bad.style_mask(StyleMask::EMPTY);
         bad.string("path('M 0 NaN')");
         assert_eq!(
             StyleProps::decode_patch(&mut Reader::new(bad.as_slice())),

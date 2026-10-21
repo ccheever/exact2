@@ -86,14 +86,14 @@ and `galleryAction("sheet", ...)` is removed.
 The host must apply the final pointer sample, dispatch this synchronous release
 action and apply its resulting target while the hold is active, then end that
 hold once with release velocity. Cancellation sends no snap action. The declared
-transition is `height spring(300, 30, 1)`; projection changes the actual nested
+transition is `height -exact-spring(300, 30, 1)`; projection changes the actual nested
 List port on every presentation sample, without writing sampled height back into
 `sheetPx`. The header's binding uses an authored IDREF, never `testId` inference.
 
-Photos appends one bounded `viewer: list<ViewerState>` to gallery metadata. It is
+Photos appends one bounded `viewer: ViewerState[]` to gallery metadata. It is
 empty when closed and contains one `{viewerToken, photo, naturalWidth,
 naturalHeight}` while open. The existing eight-field Photo records and full-row
-resource are unchanged. `each viewer in gallery.viewer key=viewer.viewerToken`
+resource are unchanged. `for viewer in gallery.viewer key=viewer.viewerToken`
 owns a child component whose `panX=0`, `panY=0`, `zoom=1` and geometry reset only
 when that accepted lifetime changes. Open/Previous/Next and selecting a different
 open photo reserve a new token before replacement; same-item selection, typing,
@@ -124,7 +124,7 @@ The host validates the complete terminal tuple, applies the final paired sample,
 dispatches this action while both holds are live, then ends each surviving owned
 token once. Velocities go to the shared spring; the app does not project another
 zoom target or issue a data request. Cancellation dispatches no release action.
-Both declarations use `spring(300, 30, 1)`; there is no app timer or frame loop.
+Both declarations use `-exact-spring(300, 30, 1)`; there is no app timer or frame loop.
 
 Each windowed row owns its spacing; the shared list receives the actual nested
 scrollport and measured row heights. The sheet changes that port's height.
@@ -164,7 +164,7 @@ export EXACT_UPDATE_TRUST=development
 cargo test -p interaction-gallery-data
 bun host/web/dev.mjs --app interaction-gallery
 bun host/apple/build.mjs --app interaction-gallery --run
-cargo build --release -p interaction-gallery-linux
+cargo build --profile host-dev -p interaction-gallery-linux
 ```
 
 The pure model can be tested before workspace integration:

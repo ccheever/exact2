@@ -16,5 +16,7 @@ name = "exact_svg_raster"
 crate-type = ["rlib", "cdylib"]
 
 [dependencies]
-# The chain it runs is the kernel's resolved filter and its wire form.
-exact-kernel = { path = "../../kernel" }
+# The chain it runs is the resolved filter and its wire form, which the
+# kernel makes: that crate and not the kernel, which a loaded module would
+# otherwise compile whole (LLP 1036.000 §12).
+exact-svg-filter = { path = "../../svg-filter" }

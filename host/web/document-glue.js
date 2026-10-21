@@ -11,6 +11,17 @@
 const AGENT_ADMITTED = true; // false in a production bake: host/web/build.mjs rewrites this line (LLP 1069.007 D2)
 
 const IDLE_FALLBACK_MS = 200;
+// A keydown or keyup as kind 6's or 43's payload, as glue.js's `keyChord` writes it (#140).
+const keyChord = e => (e.shiftKey ? "Shift+" : "") + (e.ctrlKey ? "Control+" : "") + (e.altKey ? "Alt+" : "") + (e.metaKey ? "Meta+" : "") + e.key + "\n" + (/^[A-Za-z0-9]*$/.test(e.code ?? "") ? e.code ?? "" : "") + "\n" + !!e.repeat;
+
+// Twin of navigation.js's inertAncestor: this boot entry must stay import-free.
+function inertAncestor(el) {
+  for (let node = el; node; node = node.parentElement) {
+    if (node.hasAttribute("inert")) return node;
+    if (node.localName === "dialog" && node.matches(":modal")) return null;
+  }
+  return null;
+}
 
 // The runtime's first loads after it boots, fetched beside its wasm: each
 // would otherwise wait for the one before it, a round trip apiece (0.45 s of
@@ -62,13 +73,13 @@ function documentBoot(options) {
     for (let el = target.closest("[data-view]"); el && root.contains(el); el = el.parentElement?.closest("[data-view]")) out.push(el);
     return out;
   };
-  const matches = (el, at) => el && el.localName === at.tag && el.getAttribute("name") === at.name
+  const matches = (el, at, sameDispatch = false) => el && el.localName === at.tag && el.getAttribute("name") === at.name
     && el.getAttribute("data-testid") === at.test && el.getAttribute("type") === at.type
-    && (at.text === null || el.textContent === at.text);
+    && (sameDispatch || at.text === null || el.textContent === at.text);
   const usable = target => target instanceof Element && root.contains(target)
-    && !target.closest("[inert],:disabled,[disabled='true']");
-  const enqueue = (el, kind, value = "") => {
-    const event = { at: identity(el), kind, value };
+    && !inertAncestor(target) && !target.closest(":disabled,[disabled='true']");
+  const enqueue = (el, kind, value = "", scope = null) => {
+    const event = { at: identity(el), kind, value, scope };
     const previous = events.at(-1);
     // Consecutive edits carry their latest value; action ordering is preserved.
     if (kind === "input" && previous?.kind === kind && previous.at.id === event.at.id) events.pop();
@@ -90,13 +101,29 @@ function documentBoot(options) {
     } else if (event.type === "focusin" || event.type === "focusout") {
       const kind = event.type === "focusin" ? "focus" : "blur";
       if (hears(event.target, kind)) enqueue(event.target, kind);
+      const target = event.target?.id ?? "";
+      const related = event.relatedTarget?.id;
+      const payload = `${new TextEncoder().encode(target).length}:${target}${related === undefined ? "0" : `1${related}`}`;
+      const scope = { exactStopped: false, preventDefault() {} };
+      for (const el of els) if (hears(el, event.type)) enqueue(el, event.type, payload, scope);
     } else if (event.type === "keydown") {
+      // One keydown's phases share cancellation; its default replays last.
+      const keyEvent = { type: "keydown", exactStopped: false, defaultPrevented: false,
+        identities: els.map(identity),
+        preventDefault() { this.defaultPrevented = true; } };
+      for (const el of [...els].reverse()) if (hears(el, "keycapture")) enqueue(el, "keycapture", keyChord(event), keyEvent);
       for (const el of els) {
-        if (hears(el, "key")) enqueue(el, "key", event.key);
+        // The chord kind 6 carries, as glue.js's `keyChord` writes it.
+        if (hears(el, "key")) enqueue(el, "key", keyChord(event), keyEvent);
+      }
+      for (const el of els) {
         if (hears(el, "submit") && el.localName !== "textarea" && event.key === "Enter" && !event.isComposing) {
-          event.preventDefault(); enqueue(el, "submit");
+          event.preventDefault(); enqueue(el, "submit", "", keyEvent);
         }
       }
+    } else if (event.type === "keyup") {
+      // A key's release (#140), kind 43, as glue.js's `keyup` sends it.
+      for (const el of els) if (hears(el, "keyup")) enqueue(el, "keyup", keyChord(event));
     } else if (event.type === "compositionstart") {
       composing.add(event.target); start();
     } else if (event.type === "compositionend") {
@@ -107,11 +134,15 @@ function documentBoot(options) {
   };
   const intent = event => {
     if (!holding || !usable(event.target) || event.target.closest("a[href]")) return;
-    if (chain(event.target).some(el => ["press", "input", "change", "focus", "blur", "key", "submit"].some(kind => hears(el, kind)))) start();
+    if (chain(event.target).some(el => ["press", "input", "change", "focus", "blur", "focusin", "focusout", "key", "submit"].some(kind => hears(el, kind)))) start();
   };
-  const kinds = ["click", "input", "change", "focusin", "focusout", "keydown", "compositionstart", "compositionend"];
+  const kinds = ["click", "input", "change", "focusin", "focusout", "keydown", "keyup", "compositionstart", "compositionend"];
   for (const kind of kinds) root.addEventListener(kind, record, true);
   for (const kind of ["pointerdown", "keydown", "focusin"]) root.addEventListener(kind, intent, true);
+  // Opening a grouped alert is intent too, even by an invoker with no handler: its message's Tab stop waits for the
+  // runtime (alert-message.js)
+  root.addEventListener("beforetoggle", event => { if (holding && event.newState === "open" && event.target.querySelector?.(':scope > [data-alertpart="message"]')) start(); }, true);
+  if (root.querySelector('dialog[open] > [data-alertpart="message"]')) start(); // one opened before this loaded
   for (const event of options.early?.splice(0) ?? []) record(event);
   if (!interaction) {
     // Beside the wasm: now, when its download began at the first paint;
@@ -126,11 +157,17 @@ function documentBoot(options) {
     try { for (let i = 0; i < localStorage.length; i++) if (localStorage.key(i)?.startsWith("exact.secret.")) { start(); break; } } catch {}
   }
   const replay = event => {
+    if (event.scope?.exactStopped && event.kind !== "submit") return;
+    if (event.scope?.defaultPrevented && event.kind === "submit") return;
     const at = event.at;
     const el = at && views.get(at.id);
-    if (matches(el, at) && el.exactHandlers?.includes(event.kind) && usable(el)) {
+    // Validate the whole key path before its first action can change its text.
+    // Later phases keep those elements; other queued events still check labels.
+    const targets = event.scope?.identities && (event.scope.targets ??= new Map(event.scope.identities
+      .filter(at => matches(views.get(at.id), at)).map(at => [at.id, views.get(at.id)])));
+    if ((!targets || targets.get(at.id) === el) && matches(el, at, !!targets) && el.exactHandlers?.includes(event.kind) && usable(el)) {
       const box = at.type === "checkbox";
-      dispatch(at.id, { press: 0, change: box ? 24 : 1, input: box ? 25 : 23, focus: 4, blur: 5, key: 6, submit: 7 }[event.kind], event.value ?? "");
+      dispatch(at.id, { press: 0, change: box ? 24 : 1, input: box ? 25 : 23, focus: 4, blur: 5, focusin: 46, focusout: 47, key: 6, keycapture: 44, keyup: 43, submit: 7 }[event.kind], event.value ?? "", event.scope);
     } else log(`document: an early ${event.kind} was dropped (view ${at.id} is not what received it)`);
   };
   const page = {
@@ -142,9 +179,10 @@ function documentBoot(options) {
     get adopting() { return adopting; },
     get restoringFocus() { return restoringFocus; },
     hold(batch) { if (holding) held.push(batch); return holding; },
-    release(apply, inputReady = Promise.resolve()) {
+    /** `onAdopted` runs once the held batches are applied, which a composition can defer past this call. */
+    release(apply, inputReady = Promise.resolve(), onAdopted = () => {}) {
       if (!holding) return;
-      if (composing.size) { releaseAfterComposition = [apply, inputReady]; return; }
+      if (composing.size) { releaseAfterComposition = [apply, inputReady, onAdopted]; return; }
       releaseAfterComposition = null;
       holding = false;
       for (const kind of kinds) root.removeEventListener(kind, record, true);
@@ -165,6 +203,7 @@ function documentBoot(options) {
       }
       for (const batch of held.splice(0)) apply(batch);
       adopting = null;
+      onAdopted();
       // Once the caller's input is ready: until then the host holds every
       // control disabled (input waits for the handlers of the pieces the tree
       // uses, LLP 1047 D5), and a replay into one would be dropped. The caller
@@ -208,8 +247,9 @@ function difference(root, batch) {
 }
 
 // The head's fields in the page's <head>, as the renderer first wrote them:
-// what a share sheet, a bookmark or a tab reads while the runtime runs.
-let appTitle = null;
+// what a share sheet, a bookmark or a tab reads while the runtime runs. The
+// title is the page's as the glue has just set it (navigation.js `pageTitle`):
+// the head's, else the selected route's heading, else the app's name.
 function meta(key, name, content) {
   let el = document.head.querySelector(`meta[${key}="${name}"]`);
   if (content == null) { el?.remove(); return; }
@@ -217,9 +257,7 @@ function meta(key, name, content) {
   if (el.content !== content) el.content = content;
 }
 function documentHead(op) {
-  appTitle ??= document.querySelector('meta[property="og:site_name"]')?.content ?? document.title;
-  const title = op.title ?? appTitle;
-  if (document.title !== title) document.title = title;
+  const title = document.title;
   meta("name", "description", op.description);
   meta("name", "robots", op.robots);
   let canonical = document.head.querySelector('link[rel="canonical"]');

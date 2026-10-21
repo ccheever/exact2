@@ -2,10 +2,14 @@ use super::*;
 
 /// A tick-boundary and presentation attachment. Its Transform is the fallback when the target is unavailable.
 /// Each attachment chooses its own joint; no bone entities or simulation transform writes.
+/// animation::step resolves tick sockets; the renderer follows the displayed joint pose.
 #[derive(Default, Clone, Debug, Data)]
 pub struct SocketFollow {
+    /// Target entity or name, resolved by lowest living slot.
     pub target: crate::FollowTarget,
+    /// Imported joint name on the target model.
     pub joint: String,
+    /// Joint-local pose; translation in metres, rotation quaternion, unitless scale.
     pub offset: Transform,
 }
 impl SocketFollow {
@@ -133,7 +137,7 @@ pub(crate) fn socket_matrix_with(
 }
 /// Whether an animated socket needs this tick's animation step. Setup's bind pose is valid.
 pub fn socket_stale(w: &World, e: Entity) -> bool {
-    if !(w.has::<Animation>(e) || w.has::<Blend>(e) || w.has::<Animator>(e)) {
+    if !(w.has::<Animation>(e) || w.has::<Blend>(e) || w.has::<Animator>(e) || w.has::<Layers>(e)) {
         return false;
     }
     let stepped = w.get::<Pose>(e).and_then(|p| p.stepped);

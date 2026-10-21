@@ -1,0 +1,19 @@
+// A timer action that sends: each fire asks the source with its own
+// argument.
+shape Beat
+  n: number
+
+component App
+  state count = 0
+  mutation beat as shape Beat
+  action tick
+    count = count + 1
+    send beat = heartbeat(count)
+  task t mount
+    every(50, tick)
+  view
+    text `${count}` testId="count"
+
+test "beats"
+  clock +200
+  expect state count == 4

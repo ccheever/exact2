@@ -1,0 +1,21 @@
+tamber syntax
+
+axes
+  dark-style = black | dim under scheme=light
+  Bad Axis = a | b
+
+dials
+  accent color = #fff
+  noval: color =
+  escaped: color = #fff label="a\qb"
+
+theme
+  surface.page light-dark(#fff, #000)
+  unclosed = rgb(1 2 3
+    when dark-style=dim #000
+  when dark-style=dim: #000
+theme
+  again = #000
+
+palette
+  x = #000

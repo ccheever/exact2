@@ -41,6 +41,7 @@ pub mod abi;
 pub mod batch;
 #[cfg(test)]
 mod batch_tests;
+pub mod colors;
 pub mod css;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod dev;
@@ -49,6 +50,7 @@ pub mod link;
 pub mod motion;
 mod pan_velocity;
 pub mod parity;
+mod text_box_css;
 #[cfg(test)]
 mod textflow_tests;
 

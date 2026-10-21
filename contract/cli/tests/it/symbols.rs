@@ -65,6 +65,30 @@ fn line(source: &str, text: &str) -> usize {
     source.lines().position(|l| l.contains(text)).unwrap() + 1
 }
 
+#[test]
+fn resource_context_references_resolve_at_their_original_source_ranges() {
+    let source = r#"component App
+  state car = "train"
+  state minute = 0
+  derive sample = minute + 1
+  resource status = status(car) with max(sample, minute) as shape string
+  action tick
+    minute = minute + 1
+  action choose(value: string)
+    car = value
+  view
+    text status
+"#;
+    let f = Fixture::new("resource-context");
+    let graph = f.query(source);
+    for (name, kind) in [("car", "state"), ("sample", "derive"), ("minute", "state")] {
+        let refs = at_line(&graph, name, line(source, "resource status"));
+        assert_eq!(refs.len(), 1, "{name}: {graph}");
+        assert_eq!(target(&graph, refs[0])["kind"], kind);
+        assert_eq!(spelling(refs[0]), name);
+    }
+}
+
 const SOURCE: &str = r##"shape Item
   id: string
   label: string
@@ -75,30 +99,31 @@ fn otherLabel(value: Other): string = value.label
 component App
   state textValue = "root"
   state choice = some("chosen")
-  resource items = loadItems() as shape list<Item>
+  resource items = loadItems() as shape Item[]
   mutation saved as shape Item
-  action edit(textValue: string) writes textValue
+  action edit(textValue: string)
     textValue = textValue
-  action save(item: Item) writes saved
+  action save(item: Item)
     send saved = saveItem(item)
     refresh items
     focus("entry")
-  action tick writes textValue
+  action tick
     textValue = "tick"
   task ticker mount
     every(1000, tick)
+  provide
+    accent = "#fff"
   view
-    provide accent = "#fff"
-      column navigationBack="entry"
-        input id="entry" testId="entry-test" value=textValue change=edit
-        each item in items key=item.id
-          Row(item=item, onPick=save)
-        match choice
-          case some(textValue)
-            text textValue
-          case none
-            text textValue
-        text `é ${match choice { case some(textValue) => textValue, case none => textValue }}`
+    column navigationBack="entry"
+      input id="entry" testId="entry-test" value=textValue change=edit
+      for item in items key=item.id
+        Row(item=item, onPick=save)
+      match choice
+        case some(textValue)
+          text textValue
+        case none
+          text textValue
+      text `é ${match choice { case some(textValue) => textValue, case none => textValue }}`
 component Row
   props
     item: Item
@@ -147,6 +172,20 @@ fn exact_ranges_cover_declarations_sources_locals_fields_and_ids() {
     let action = at_line(&graph, "tick", line(SOURCE, "every(1000"));
     assert_eq!(action.len(), 1);
     assert_eq!(target(&graph, action[0])["kind"], "action");
+    // An action's effects are inferred and shown on its definition
+    // (LLP 1035.005.000 D1); nothing else carries `writes`.
+    for (name, writes) in [
+        ("edit", vec!["textValue"]),
+        ("save", vec!["saved"]),
+        ("tick", vec!["textValue"]),
+    ] {
+        let action = definition(&graph, "action", name, None);
+        assert_eq!(action["writes"], serde_json::json!(writes));
+    }
+    assert!(refs(&graph).iter().all(|r| r.get("writes").is_none()));
+    assert!(defs(&graph)
+        .iter()
+        .all(|d| (d["kind"] == "action") == d.get("writes").is_some()));
 }
 
 #[test]
@@ -157,7 +196,7 @@ fn parameters_and_branch_bindings_shadow_reads_but_never_assignment_targets() {
     assert_eq!(both.len(), 2);
     assert_eq!(target(&graph, both[0])["kind"], "state");
     assert_eq!(target(&graph, both[1])["kind"], "parameter");
-    let local_line = line(SOURCE, "            text textValue");
+    let local_line = line(SOURCE, "          text textValue");
     let some = at_line(&graph, "textValue", local_line);
     let none = at_line(&graph, "textValue", local_line + 2);
     assert_eq!(target(&graph, some[0])["kind"], "local");
@@ -182,7 +221,7 @@ fn field_references_use_the_inferred_shape_and_component_arguments_name_props() 
     assert_eq!(target(&graph, item_refs[0])["kind"], "prop");
     assert_eq!(target(&graph, item_refs[0])["component"], "Row");
     assert_eq!(target(&graph, item_refs[1])["kind"], "local");
-    let field = at_line(&graph, "id", line(SOURCE, "each item"));
+    let field = at_line(&graph, "id", line(SOURCE, "for item"));
     assert_eq!(target(&graph, field[0])["owner"], "Item");
 }
 
@@ -509,4 +548,106 @@ fn route_paths_and_router_slot_offsets_follow_the_type_checker() {
         .iter()
         .any(|r| r["kind"] == "fn" && r["name"] == "path"));
     assert!(refs(&graph).iter().all(|r| r["kind"] != "route"));
+}
+
+#[test]
+fn a_let_is_a_local_for_its_block_and_a_record_names_its_shape_and_fields() {
+    // LLP 1035.005.000 D2 and D3.
+    let fixture = Fixture::new("let-records");
+    let graph = fixture.query(
+        "shape F\n  title: string\n  done: bool\ncomponent App\n  state f = F(title=\"a\", done=false)\n  action go\n    let next = F(f, done=true)\n    f = next\n  view\n    text f.title\n",
+    );
+    let local = definition(&graph, "local", "next", Some("go"));
+    assert_eq!(
+        (local["line"].as_u64(), local["col"].as_u64()),
+        (Some(7), Some(9))
+    );
+    let reads = at_line(&graph, "next", 8);
+    assert_eq!(reads.len(), 1);
+    assert_eq!(target(&graph, reads[0]), local);
+    let shape = definition(&graph, "shape", "F", None);
+    for line in [5, 7] {
+        let uses = at_line(&graph, "F", line);
+        assert_eq!(uses.len(), 1, "line {line}");
+        assert_eq!(target(&graph, uses[0]), shape);
+        assert_eq!(spelling(uses[0]), "F");
+    }
+    let done = definition(&graph, "field", "done", Some("F"));
+    for line in [5, 7] {
+        let uses = at_line(&graph, "done", line);
+        assert_eq!(uses.len(), 1, "line {line}");
+        assert_eq!(target(&graph, uses[0]), done);
+        assert_eq!(spelling(uses[0]), "done");
+    }
+}
+
+#[test]
+fn a_call_refers_to_its_callee_and_the_caller_writes_what_it_writes() {
+    // LLP 1089 D5: `symbols --name enter` answers what Enter touches.
+    let source = r#"component App
+  state sel = 0
+  state seen = 0
+  state log = ""
+  action follow(v: number)
+    seen = v
+  action enter(next: number)
+    log = "enter"
+    follow(next)
+  view
+    column
+      button press=enter(1) testId="enter"
+        text "enter"
+      Row(go=follow)
+
+component Row
+  props
+    go: action
+  state taps = 0
+  action tap
+    go(2)
+    taps = taps + 1
+  view
+    button press=tap testId="tap"
+      text "tap"
+"#;
+    let f = Fixture::new("calls");
+    let graph = f.query(source);
+    let enter = definition(&graph, "action", "enter", None);
+    assert_eq!(enter["writes"], serde_json::json!(["seen", "log"]));
+    let call = at_line(&graph, "follow", line(source, "    follow(next)"));
+    assert_eq!(call.len(), 1);
+    assert_eq!(target(&graph, call[0])["kind"], "action");
+    let prop = at_line(&graph, "go", line(source, "    go(2)"));
+    assert_eq!(prop.len(), 1);
+    assert_eq!(target(&graph, prop[0])["kind"], "prop");
+    // A prop call writes the owner's slots, none of this component's.
+    let tap = definition(&graph, "action", "tap", None);
+    assert_eq!(tap["writes"], serde_json::json!(["taps"]));
+}
+
+#[test]
+fn an_ambiguous_call_in_an_imported_component_is_refused_alike_with_its_declaration() {
+    // LLP 1089 D1: build and navigation report the same refusal, its
+    // related location in the imported file where the prop is declared.
+    let f = Fixture::new("ambiguous");
+    let viewer = f.write(
+        "viewer.contract",
+        "component Viewer\n  props\n    close: action\n  action swiped\n    close()\n  view\n    button press=swiped testId=\"swipe\"\n      text \"x\"\n",
+    );
+    let root = f.write(
+        "app.contract",
+        "use Viewer from \"./viewer.contract\"\ncomponent App\n  state open = true\n  action dismiss\n    open = false\n  view\n    Viewer(close=dismiss)\n",
+    );
+    let build = contract::compile_path(&root).unwrap_err();
+    let query = contract::symbols_json(&root, None).unwrap_err();
+    assert_eq!(build, query);
+    assert_eq!(build.id, "syntax-call-ambiguous", "{build}");
+    let viewer = viewer.canonicalize().unwrap();
+    assert_eq!(build.file.as_deref(), Some(viewer.as_path()));
+    assert_eq!(build.span.line, 5);
+    let related = build.related.first().expect("the declaration");
+    assert_eq!(
+        (related.file.as_deref(), related.span.line),
+        (Some(viewer.as_path()), 3)
+    );
 }

@@ -1,0 +1,24 @@
+# The Rust binding's fixture (LLP 1133.002 stage 3): a data source that calls
+# @exact/geolocation through the binding `build.rs` generates from the app's
+# plan.
+[package]
+name = "module-fixture-data"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "The Rust binding's fixture: a data source calling a module"
+publish = false
+
+[lib]
+name = "module_fixture_data"
+crate-type = ["rlib"]
+test = false
+bench = false
+
+[dependencies]
+exact-data = { path = "../../../data" }
+exact-plan = { path = "../../../plan" }
+exact-runner = { path = "../../../runner" }
+
+[build-dependencies]
+contract = { path = "../../../contract/cli" }

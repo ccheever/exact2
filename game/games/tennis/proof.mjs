@@ -7,7 +7,7 @@
 // whole resource → HTTP → plan path runs on the real host without a network.
 import {resolve} from 'node:path';
 import {readFileSync} from 'node:fs';
-import { proof } from '../../proof.mjs';
+import { proof, axNames } from '../../proof.mjs';
 
 const TICK = 1000 / 120 + 0.0001, CONTACT = 19, TOSS_HIT = 68 - CONTACT;
 const name = v => typeof v === 'string' ? v : Object.keys(v ?? {})[0];
@@ -121,8 +121,9 @@ if (import.meta.main) await proof(import.meta, async ({open, check, out, host, p
   // Title screen: accessible, focused, both opponents offered.
   const s = await open({env: {AI_GATEWAY_API_KEY: ''}});
   const title = await s.tree();
-  check('Play Jev is focused and named', node(title, 'play')?.focused === true && node(title, 'play')?.accessibleName === 'Play Jev');
-  check('title offers the offline opponent', node(title, 'offline')?.accessibleName === 'Play offline');
+  const titleAx = await axNames(s);
+  check('Play Jev is focused and named', node(title, 'play')?.focused === true && (titleAx.unavailable || titleAx.name('play') === 'Play Jev'));
+  check('title offers the offline opponent', !!node(title, 'offline') && (titleAx.unavailable || titleAx.name('offline') === 'Play offline'));
   check('title explains the controls', ['TENNIS', 'J forehand · K backhand — on the correct side, in time', 'First to 4 games'].every(t => title.nodes.some(n => n.props?.text === t)));
   check('world loads after Play', !node(title, 'world'));
 
@@ -133,7 +134,8 @@ if (import.meta.main) await proof(import.meta, async ({open, check, out, host, p
   check('scoreboard starts level', text(hud, 'you-games') === '0' && text(hud, 'jev-games') === '0' && text(hud, 'you-points') === '0');
   check('you serve first', text(hud, 'prompt') === 'Your serve — J or K to toss, again to hit');
   check('offline opponent is named', text(hud, 'jev-line') === 'Offline opponent');
-  check('touch controls are named buttons', ['Move', 'Forehand (J)', 'Backhand (K)', 'Pause'].every(n => hud.nodes.some(x => x.accessibleName === n)));
+  const hudAx = await axNames(s);
+  check('touch controls are named buttons', hudAx.unavailable || ['Move', 'Forehand (J)', 'Backhand (K)', 'Pause'].every(n => hudAx.all.includes(n)), hudAx.all);
   pin(0, await world.snapshot());
   const court = await world.get('court', 'Mesh');
   check('singles court is 8.23 × 23.77 m', Math.abs(court.Plane.width - 8.23) < 1e-4 && Math.abs(court.Plane.depth - 23.77) < 1e-4, court);

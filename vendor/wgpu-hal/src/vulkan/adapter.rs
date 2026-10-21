@@ -447,9 +447,20 @@ impl PhysicalDeviceFeatures {
             {
                 Some(
                     vk::PhysicalDevice16BitStorageFeatures::default()
-                        .storage_buffer16_bit_access(true)
+                        // EXACT (EXACT-PATCHES.md, 11): enable only supported storage bits.
+                        .storage_buffer16_bit_access(
+                            phd_features
+                                ._16bit_storage
+                                .as_ref()
+                                .is_some_and(|f| f.storage_buffer16_bit_access != 0),
+                        )
                         .storage_input_output16(phd_features.supports_storage_input_output_16())
-                        .uniform_and_storage_buffer16_bit_access(true),
+                        .uniform_and_storage_buffer16_bit_access(
+                            phd_features
+                                ._16bit_storage
+                                .as_ref()
+                                .is_some_and(|f| f.uniform_and_storage_buffer16_bit_access != 0),
+                        ),
                 )
             } else {
                 None
@@ -665,6 +676,7 @@ impl PhysicalDeviceFeatures {
         phd: vk::PhysicalDevice,
         caps: &PhysicalDeviceProperties,
         queue_props: &vk::QueueFamilyProperties,
+        f16_arithmetic: bool, // EXACT (EXACT-PATCHES.md, 11).
     ) -> (wgt::Features, wgt::DownlevelFlags) {
         use wgt::{DownlevelFlags as Df, Features as F};
         let mut features = F::empty()
@@ -888,9 +900,11 @@ impl PhysicalDeviceFeatures {
             // types when this capability is not available
             features.set(
                 F::SHADER_F16,
+                // EXACT (EXACT-PATCHES.md, 11): only opted-in native instances
+                // may substitute a pipeline error for unsupported uniform f16.
                 f16_i8.shader_float16 != 0
                     && bit16.storage_buffer16_bit_access != 0
-                    && bit16.uniform_and_storage_buffer16_bit_access != 0,
+                    && (bit16.uniform_and_storage_buffer16_bit_access != 0 || f16_arithmetic),
             );
         }
 
@@ -1346,6 +1360,17 @@ impl PhysicalDeviceProperties {
             extensions.push(khr::external_memory_fd::NAME);
         }
 
+        // EXACT (EXACT-PATCHES.md, 8): Optional
+        // `VK_ANDROID_external_memory_android_hardware_buffer`, with the
+        // extension it requires that is not core in 1.1.
+        #[cfg(target_os = "android")]
+        if self.supports_extension(ash::android::external_memory_android_hardware_buffer::NAME)
+            && self.supports_extension(ext::queue_family_foreign::NAME)
+        {
+            extensions.push(ash::android::external_memory_android_hardware_buffer::NAME);
+            extensions.push(ext::queue_family_foreign::NAME);
+        }
+
         // Optional `VK_EXT_external_memory_dma`
         if self.supports_extension(ext::external_memory_dma_buf::NAME) {
             extensions.push(ext::external_memory_dma_buf::NAME);
@@ -1495,9 +1520,12 @@ impl PhysicalDeviceProperties {
             .maintenance_3
             .map(|maintenance_3| maintenance_3.max_memory_allocation_size)
             .unwrap_or(u64::MAX);
+        // EXACT (EXACT-PATCHES.md, 14): a `maxBufferSize` below the spec's
+        // required minimum (2^30) is a driver's error, read as unreported.
         let max_buffer_size = self
             .maintenance_4
             .map(|maintenance_4| maintenance_4.max_buffer_size)
+            .filter(|&size| size >= 1 << 30)
             .unwrap_or(u64::MAX);
         let max_buffer_size = max_buffer_size.min(max_memory_allocation_size);
 
@@ -2362,6 +2390,10 @@ impl super::Instance {
             phd,
             &phd_capabilities,
             queue_family_properties,
+            // EXACT (EXACT-PATCHES.md, 11).
+            self.shared
+                .f16_arithmetic
+                .load(core::sync::atomic::Ordering::Relaxed),
         );
 
         if phd_capabilities.is_driver(vk::DriverId::MESA_LLVMPIPE) {
@@ -2731,9 +2763,16 @@ impl super::Adapter {
                 capabilities.push(spv::Capability::Int64);
             }
 
-            if features.contains(wgt::Features::SHADER_F16) {
-                capabilities.push(spv::Capability::Float16);
-            }
+            // EXACT (EXACT-PATCHES.md, 11): the translator uses the uniform
+            // grant to reject actual uniform f16 on arithmetic-only adapters.
+            super::f16::allow(
+                &mut capabilities,
+                features.contains(wgt::Features::SHADER_F16),
+                self.phd_features
+                    ._16bit_storage
+                    .as_ref()
+                    .is_some_and(|f| f.uniform_and_storage_buffer16_bit_access != 0),
+            );
 
             if features.contains(wgt::Features::SHADER_I16) {
                 capabilities.push(spv::Capability::Int16);
@@ -2934,6 +2973,9 @@ impl super::Adapter {
 
             texture_identity_factory: super::ResourceIdentityFactory::new(),
             texture_view_identity_factory: super::ResourceIdentityFactory::new(),
+            // EXACT (EXACT-PATCHES.md, 6).
+            surface_views: Mutex::new(Default::default()),
+            framebuffers: Mutex::new(Default::default()),
             empty_descriptor_set_layout,
         });
 
@@ -3003,9 +3045,23 @@ impl super::Adapter {
         let mut enabled_phd_features = self.physical_device_features(&enabled_extensions, features);
 
         let family_index = 0; //TODO
-        let family_info = vk::DeviceQueueCreateInfo::default()
+        #[allow(unused_mut)]
+        let mut family_info = vk::DeviceQueueCreateInfo::default()
             .queue_family_index(family_index)
             .queue_priorities(&[1.0]);
+        // EXACT (EXACT-PATCHES.md, 9): the queue at low global priority, so the
+        // platform's renderer and compositor preempt a frame of ours on the GPU.
+        #[cfg(target_os = "android")]
+        let mut global = vk::DeviceQueueGlobalPriorityCreateInfoKHR::default()
+            .global_priority(vk::QueueGlobalPriorityKHR::LOW);
+        #[cfg(target_os = "android")]
+        if self
+            .phd_capabilities
+            .supports_extension(vk::EXT_GLOBAL_PRIORITY_NAME)
+        {
+            enabled_extensions.push(vk::EXT_GLOBAL_PRIORITY_NAME);
+            family_info = family_info.push_next(&mut global);
+        }
         let mut family_infos = Vec::from([family_info]);
 
         let mut pre_info = vk::DeviceCreateInfo::default();
@@ -3245,7 +3301,12 @@ impl crate::Adapter for super::Adapter {
     // We just don't want to insert barriers between inclusive uses
     // See https://github.com/gfx-rs/wgpu/issues/8853
     fn get_ordered_texture_usages(&self) -> wgt::TextureUses {
-        wgt::TextureUses::INCLUSIVE
+        // EXACT (EXACT-PATCHES.md, 7): PRESENT to PRESENT needs no barrier
+        // (nothing on the queue touches an image in that state). Without it
+        // wgpu-core's `Queue::present` finds a "transition" for a texture the
+        // frame's submit already left in PRESENT and submits it alone: a
+        // second submission, fence and kick every canvas frame.
+        wgt::TextureUses::INCLUSIVE | wgt::TextureUses::PRESENT
     }
 }
 

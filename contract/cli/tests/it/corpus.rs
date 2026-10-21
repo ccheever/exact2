@@ -7,7 +7,7 @@ use exact_runner::{DataError, DataSource, Event, Runner};
 use std::path::Path;
 
 #[test]
-fn symbols_admit_roles_and_refuse_platform_names_or_misspellings() {
+fn symbols_admit_roles_and_opaque_sf_names_but_refuse_misspelled_roles() {
     for role in [
         "back",
         "close",
@@ -37,23 +37,35 @@ fn symbols_admit_roles_and_refuse_platform_names_or_misspellings() {
         "sort",
         "filter",
     ] {
-        contract::compile(&format!("component App\n  view\n    image \"symbol:{role}\" tint-color=\"light-dark(#123456,#abcdef)\"\n")).unwrap();
+        contract::compile(&format!("component App\n  view\n    image \"symbol:{role}\" -exact-tint-color=\"light-dark(#123456,#abcdef)\"\n")).unwrap();
     }
     contract::compile("component App\n  state selected = true\n  view\n    button role=\"tab\" aria-selected=selected\n      text \"Questions\"\n").unwrap();
+    // An empty name is no symbol, as an empty `sf/` one is (stage 9 H,
+    // vocab.rs's an_empty_symbol_name_is_no_symbol).
     for role in [
-        "",
-        "chevron.backward",
-        "sf/plus",
         "Search",
         "serach",
-        "bookmark.fill",
-        "checkmark-circle",
+        "bookmark.filled",
+        "trash.slash",
+        "checkmark-circle-slash",
     ] {
         let error = contract::compile(&format!(
             "component App\n  view\n    image \"symbol:{role}\"\n"
         ))
         .unwrap_err();
         assert!(error.to_string().contains("not a role"), "{error}");
+        // LLP 1116 D8: after the roles, the form that names any SF Symbol.
+        let sf = format!("`symbol:sf/{role}`");
+        assert!(
+            error.message.contains("`symbol:sf/<name>`") && error.message.contains(&sf),
+            "{error}"
+        );
+    }
+    for name in ["", "house.fill", "not.an.os.symbol", "future/opaque name"] {
+        contract::compile(&format!(
+            "component App\n  view\n    image \"symbol:sf/{name}\"\n"
+        ))
+        .unwrap();
     }
     // A dynamic source is checked by the host after it resolves.
     contract::compile(
@@ -68,7 +80,7 @@ fn dynamic_auto_keeps_the_meaning_of_its_style_row() {
         r#"component AutoRows
   state sizing = "auto"
   state bars = "auto"
-  action choose(value: string) writes bars
+  action choose(value: string)
     bars = value
   view
     scroll testId="reader" height=100 width=sizing overscroll-behavior-x=sizing align-self=sizing scrollbar-width=bars
@@ -236,6 +248,23 @@ fn a_template_with_an_inline_match_runs_through_the_compiler() {
 }
 
 #[test]
+fn template_escapes_run_as_the_text_they_spell() {
+    let src = "component App\n  state x = 7\n  view\n    column\n      text `a\\${x}` testId=\"literal\"\n      text `a\\tb \\` \\\\${x}` testId=\"decoded\"\n      text `${x}\\u{2011}${x}` testId=\"code\"\n";
+    let plan = contract::compile(src).unwrap();
+    let r = Runner::boot(
+        plan,
+        Schedule,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    assert_eq!(text_of(&r, "literal").as_deref(), Some("a${x}"));
+    assert_eq!(text_of(&r, "decoded").as_deref(), Some("a\tb ` \\7"));
+    assert_eq!(text_of(&r, "code").as_deref(), Some("7\u{2011}7"));
+}
+
+#[test]
 fn state_initializers_keep_earlier_bindings_after_local_shadowing() {
     let src = r#"component App
   state value = 7
@@ -259,12 +288,13 @@ fn state_initializers_keep_earlier_bindings_after_local_shadowing() {
 #[test]
 fn state_initializers_refuse_later_names_and_leaked_locals() {
     for (declarations, id, line) in [
+        // LLP 1088 D4: a later state is named as one.
         (
             "  state next = later\n  state later = 1\n",
-            "type-unknown-name",
+            "type-initializer-scope",
             2,
         ),
-        ("  state own = own\n", "type-unknown-name", 2),
+        ("  state own = own\n", "type-initializer-scope", 2),
         (
             "  state value = 1\n  state value = 2\n",
             "type-duplicate-name",
@@ -281,11 +311,23 @@ fn state_initializers_refuse_later_names_and_leaked_locals() {
         assert_eq!(error.id, id, "{source}");
         assert_eq!(error.span.line, line, "{source}");
     }
+    // The survey diary: a mutation and an action of one name. The message
+    // says the kinds share their names.
+    let source = "shape Ok\n  ok: bool\ncomponent App\n  mutation exported as shape Ok\n  action exported\n    exported = none\n  view\n    text \"value\"\n";
+    let error = contract::compile(source).unwrap_err();
+    assert_eq!(error.id, "type-duplicate-name", "{error}");
+    assert!(error.message.contains("first on line 4"), "{error}");
+    assert!(
+        error
+            .message
+            .contains("mutations and actions share one set of names"),
+        "{error}"
+    );
 }
 
 #[test]
 fn button_primary_text_is_a_real_accessible_text_child() {
-    let src = "component App\n  state pressed = false\n  action press writes pressed\n    pressed = true\n  view\n    button \"Post\" press=press testId=\"post\"\n";
+    let src = "component App\n  state pressed = false\n  action press\n    pressed = true\n  view\n    button \"Post\" press=press testId=\"post\"\n";
     let plan = contract::compile(src).unwrap();
     let r = Runner::boot(
         plan,
@@ -297,7 +339,7 @@ fn button_primary_text_is_a_real_accessible_text_child() {
     .unwrap();
     let key = r.kernel().find_by_test_id("post")[0];
     let button = r.kernel().node_by_key(key).unwrap();
-    assert_eq!(button.node_type, NodeType::Pressable);
+    assert_eq!(button.node_type, NodeType::Control);
     assert_eq!(button.props.str(PropId::AccessibilityRole), Some("button"));
     let children = button.children();
     assert_eq!(children.len(), 1);
@@ -306,12 +348,55 @@ fn button_primary_text_is_a_real_accessible_text_child() {
     assert_eq!(label.props.str(PropId::Text), Some("Post"));
 }
 
-/// A `button` is a pressable `column` (Charlie, 2026-09-23: "One native
-/// button, flex column"; LLP 1006 §3): its two rows are fixed, and an
+/// A `button` is Chrome's `<button>` (Charlie, 2026-10-04, reversing
+/// 2026-09-23's "One native button, flex column"; LLP 1001 §1): a block with
+/// the UA sheet's `text-align: center` whose content the kernel centres in
+/// its height. An author's `display` makes a CSS flex row or a grid, and an
 /// author's own row wins, as on any tag.
 #[test]
-fn a_button_is_a_pressable_column_whose_rows_an_author_overrides() {
-    let src = "component App\n  state n = 0\n  action bump writes n\n    n = n + 1\n  view\n    column\n      button \"Save\" press=bump testId=\"save\"\n      button press=bump flex-direction=\"row\" testId=\"row\"\n        text \"Row\"\n";
+fn a_button_is_chromes_button_whose_rows_an_author_overrides() {
+    let src = "component App\n  state n = 0\n  action bump\n    n = n + 1\n  view\n    column\n      button \"Save\" appearance=\"none\" press=bump height=40 testId=\"save\"\n      button appearance=\"none\" press=bump display=\"flex\" text-align=\"start\" testId=\"row\"\n        text \"Row\"\n";
+    let plan = contract::compile(src).unwrap();
+    let mut r = Runner::boot(
+        plan,
+        Schedule,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    let root = r.roots()[0];
+    r.kernel_mut()
+        .compute_layout(root, exact_kernel::Offer::definite(400.0, 600.0))
+        .unwrap();
+    let node = |id: &str| {
+        let key = r.kernel().find_by_test_id(id)[0];
+        r.kernel().node_by_key(key).unwrap()
+    };
+    let save = node("save");
+    assert_eq!(save.node_type, NodeType::Pressable);
+    assert_eq!(save.style.display, exact_kernel::Display::Block);
+    assert_eq!(save.style.text_align, exact_kernel::TextAlign::Center);
+    let label = r.kernel().node(save.children()[0]).unwrap();
+    assert_eq!(
+        label.frame.y - save.frame.y,
+        (40.0 - label.frame.height) / 2.0
+    );
+    let row = node("row");
+    assert_eq!(row.style.display, exact_kernel::Display::Flex);
+    assert_eq!(row.style.flex_direction, exact_kernel::FlexDirection::Row);
+    assert_eq!(row.style.text_align, exact_kernel::TextAlign::Start);
+}
+
+#[test]
+fn every_handler_kind_types_and_untyped_payloads_are_inferred() {
+    let src = "component App\n  state textValue = \"\"\n  state boolValue = false\n  action noPayload\n  action stringPayload(value)\n    textValue = value\n  action boolPayload(value)\n    boolValue = value\n  view\n    column\n      button \"press\" press=noPayload\n      input change=stringPayload key=stringPayload hover=boolPayload focus=noPayload blur=noPayload submit=noPayload\n      iframe \"/guest\" load=noPayload message=stringPayload\n";
+    contract::compile(src).unwrap();
+}
+
+#[test]
+fn bubbling_focus_handlers_accept_a_focus_event_without_making_a_wrapper_focusable() {
+    let src = "component App\n  action entered(e: FocusEvent)\n  view\n    column focusin=entered focusout=entered testId=\"wrapper\"\n      link href=\"https://example.com\" testId=\"inner\"\n        text \"Inside\"\n";
     let plan = contract::compile(src).unwrap();
     let r = Runner::boot(
         plan,
@@ -321,26 +406,18 @@ fn a_button_is_a_pressable_column_whose_rows_an_author_overrides() {
         "/",
     )
     .unwrap();
-    let node = |id: &str| {
-        let key = r.kernel().find_by_test_id(id)[0];
-        r.kernel().node_by_key(key).unwrap()
-    };
-    let save = node("save");
-    assert_eq!(save.node_type, NodeType::Pressable);
-    assert_eq!(save.style.display, exact_kernel::Display::Flex);
+    let kernel = r.kernel();
+    let wrapper = kernel
+        .node_by_key(kernel.find_by_test_id("wrapper")[0])
+        .unwrap();
+    assert_eq!(wrapper.props.get(exact_kernel::PropId::TabIndex), None);
     assert_eq!(
-        save.style.flex_direction,
-        exact_kernel::FlexDirection::Column
+        r.handlers_of(wrapper.id)
+            .iter()
+            .map(|k| k.name())
+            .collect::<Vec<_>>(),
+        vec!["focusin", "focusout"]
     );
-    let row = node("row");
-    assert_eq!(row.style.display, exact_kernel::Display::Flex);
-    assert_eq!(row.style.flex_direction, exact_kernel::FlexDirection::Row);
-}
-
-#[test]
-fn every_handler_kind_types_and_untyped_payloads_are_inferred() {
-    let src = "component App\n  state textValue = \"\"\n  state boolValue = false\n  action noPayload\n  action stringPayload(value) writes textValue\n    textValue = value\n  action boolPayload(value) writes boolValue\n    boolValue = value\n  view\n    column\n      button \"press\" press=noPayload\n      input change=stringPayload key=stringPayload hover=boolPayload focus=noPayload blur=noPayload submit=noPayload\n      iframe \"/guest\" load=noPayload message=stringPayload\n";
-    contract::compile(src).unwrap();
 }
 
 #[test]
@@ -494,7 +571,7 @@ fn the_now_screen_fixture_compiles_and_behaves_like_the_hand_built_plan() {
         "keyed rows keep their views"
     );
 
-    // Search flips the `when`; the timer ticks under the clock.
+    // Search flips the `if`; the timer ticks under the clock.
     let search = ids(&r, "search")[0].1;
     r.dispatch(search, Event::Input("pal".into())).unwrap();
     assert_eq!(text_of(&r, "searching").as_deref(), Some("searching"));
@@ -503,9 +580,79 @@ fn the_now_screen_fixture_compiles_and_behaves_like_the_hand_built_plan() {
     assert_eq!(ids(&r, "dep-").len(), 3);
     assert_eq!(r.advance(2_500.0).unwrap().len(), 2);
     assert_eq!(r.slot("nowMs"), Some(&Value::Number(2_000.0)));
+    let k = r.kernel();
+    let countdowns: Vec<String> = ids(&r, "dep-")
+        .iter()
+        .map(|(_, id)| {
+            let child = k.node(*id).unwrap().children()[0];
+            k.node(child)
+                .unwrap()
+                .props
+                .str(PropId::Text)
+                .unwrap()
+                .to_string()
+        })
+        .collect();
+    assert_eq!(countdowns, ["20", "5", "150"], "whole minutes, rounded up");
 
     r.act("setDark", vec![Value::str("dark")]).unwrap();
     assert_eq!(r.take_commands()[0].name, "setScheme");
+}
+
+/// LLP 1024 D1: a module tag's prop named like an SVG element's own
+/// attribute (`fx`) is the module's, and a name refused for what it means
+/// elsewhere (a renamed spelling, another element's attribute, an event)
+/// says to give the module prop another name.
+#[test]
+fn a_module_tag_keeps_svg_names_and_names_the_fix_for_known_ones() {
+    let src = "component A\n  view\n    step-strip testId=\"strip\" width=320 fx=\"bloom\" offset=\"2\"\n";
+    let r = Runner::boot(
+        contract::compile(src).unwrap_or_else(|e| panic!("{e}")),
+        Schedule,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    let node = r
+        .kernel()
+        .node_by_key(r.kernel().find_by_test_id("strip")[0])
+        .unwrap();
+    assert_eq!(
+        node.props.str(PropId::NativeViewProps),
+        Some(r#"{"fx":"bloom","offset":"2"}"#)
+    );
+    for attr in [
+        "size=\"3\"",
+        "label=\"x\"",
+        "name=\"x\"",
+        "rows=2",
+        "playing=true",
+    ] {
+        let src = format!("component A\n  view\n    step-strip width=320 {attr}\n");
+        let e = contract::compile(&src).unwrap_err();
+        assert!(
+            e.message.contains("give the module prop another name"),
+            "{attr}: {e}"
+        );
+    }
+    // A state field where an action is wanted says so with the module hint.
+    let src = "component A\n  state n = 0\n  view\n    step-strip width=320 playing=n\n";
+    let e = contract::compile(src).unwrap_err();
+    assert!(
+        e.id == "analyze-unknown-action" && e.message.contains("give the module prop another name"),
+        "{e}"
+    );
+    // An event's name bound to a real action is a handler nothing fires: a
+    // module sends nine events, and `playing` is not one of them.
+    let src = "component A\n  state n = 0\n  action go\n    n = 1\n  view\n    step-strip width=320 playing=go press=go\n";
+    let e = contract::compile(src).unwrap_err();
+    assert!(
+        e.message.contains(
+            "`playing` on `step-strip` is an event the box hears and a module never sends"
+        ) && e.message.contains("give the module prop another name"),
+        "{e}"
+    );
 }
 
 /// LLP 1024 D1: a module tag's leftover attributes are its props, one
@@ -527,6 +674,10 @@ fn a_module_tag_keeps_its_props_and_refuses_a_rows_name() {
         ("placeholder=\"x\"", "a form control's prop"),
         ("autofocus=true", "a form control's prop"),
         ("color=\"#fff\"", "a text row"),
+        // LLP 1088 D7.2: an allow-list — paint F7's `command` set a host
+        // command the module never saw.
+        ("command=\"zoom\"", "another element's attribute"),
+        ("href=\"/x\"", "another element's attribute"),
     ] {
         let src =
             format!("component A\n  view\n    ghostty-terminal testId=\"term\" width=320 {attr}\n");
@@ -560,6 +711,27 @@ fn a_module_tag_keeps_its_props_and_refuses_a_rows_name() {
         Some(r#"{"cwd":"/tmp","mode":"x","scheme":"dark"}"#)
     );
     assert_eq!(node.style.width, Dimension::Points(320.0));
+    // `disabled` and `inert` are the box's (the module's interaction
+    // suppression reads them, LLP 1088 D7.2), never a module prop.
+    let src = "component A\n  view\n    ghostty-terminal testId=\"term\" mode=\"x\" disabled=true inert=true\n";
+    let r = Runner::boot(
+        contract::compile(src).unwrap_or_else(|e| panic!("{e}")),
+        Schedule,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    let node = r
+        .kernel()
+        .node_by_key(r.kernel().find_by_test_id("term")[0])
+        .unwrap();
+    assert_eq!(node.props.bool(PropId::Disabled), Some(true));
+    assert_eq!(node.props.bool(PropId::Inert), Some(true));
+    assert_eq!(
+        node.props.str(PropId::NativeViewProps),
+        Some(r#"{"mode":"x"}"#)
+    );
     // The check is by name over the tag's own attributes, not by position
     // in the expanded list: a class's `animation` composed with an own
     // longhand rewrites that list, and the own `font-size` is still refused.
@@ -606,12 +778,51 @@ fn the_iframe_fixture_lowers_and_records_its_events() {
     assert_eq!(r.slot("received"), Some(&Value::str("deck-ready")));
 }
 
+/// HTML `<img>`'s `load` and `error` (LLP 1011 §2): `load` carries nothing,
+/// `error` the reason the host gives; `load` stays an `iframe`'s and an
+/// `image`'s.
+#[test]
+fn an_image_hears_its_load_and_its_error() {
+    let src = r#"component App
+  state shown = "loading"
+  action mark(value: string)
+    shown = value
+  action broke(which: string, message: string)
+    shown = `${which}: ${message}`
+  view
+    image "https://example.com/icon.png" width=48 height=48 load=mark("loaded") error=broke("icon") testId="icon"
+"#;
+    let mut r = Runner::boot(
+        contract::compile(src).unwrap(),
+        Schedule,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    let id = r.kernel().find_by_test_id("icon")[0];
+    let id = r.kernel().node_by_key(id).unwrap().id;
+    assert_eq!(r.handlers_of(id), vec![EventKind::Load, EventKind::Error]);
+    r.dispatch(id, Event::Load).unwrap();
+    assert_eq!(r.slot("shown"), Some(&Value::str("loaded")));
+    r.dispatch(id, Event::Media(EventKind::Error, "HTTP 404".into()))
+        .unwrap();
+    assert_eq!(r.slot("shown"), Some(&Value::str("icon: HTTP 404")));
+    let e = contract::compile(&src.replace("image \"https://example.com/icon.png\"", "view"))
+        .unwrap_err();
+    assert_eq!(e.id, "lower-attr-tag", "{e}");
+    assert!(
+        e.message.contains("`iframe`, `image` or a native module"),
+        "{e}"
+    );
+}
+
 #[test]
 fn contextmenu_and_double_click_keep_their_authored_arguments_and_do_not_take_a_press() {
     let src = r#"component App
   state selected = ""
   state magnify = false
-  action choose(value: string) writes selected, magnify
+  action choose(value: string)
     selected = value
     magnify = value == "context"
   view
@@ -669,7 +880,7 @@ fn contextmenu_and_double_click_keep_their_authored_arguments_and_do_not_take_a_
 fn content_sized_composer_grows_wraps_and_stops_at_its_maximum() {
     let source = r#"component App
   state draft = ""
-  action write(value) writes draft
+  action write(value)
     draft = value
   view
     column width=200 height=400 testId="root"
@@ -716,6 +927,7 @@ fn content_sized_composer_grows_wraps_and_stops_at_its_maximum() {
         ),
     )
     .unwrap();
+    // No compiled field sheet adds padding or border (LLP 1104 r8 D1).
     assert_eq!(height(&mut r), 88.0);
     assert_eq!(
         r.kernel().node_by_key(fixed).unwrap().frame.height,
@@ -732,7 +944,7 @@ fn scroll_events_append_two_numeric_offsets_after_authored_arguments() {
   state name = ""
   state left = 0
   state top = 0
-  action moved(id: string, x, y) writes name, left, top
+  action moved(id: string, x, y)
     name = id
     left = x
     top = y
@@ -754,13 +966,25 @@ fn scroll_events_append_two_numeric_offsets_after_authored_arguments() {
         .node_by_key(r.kernel().find_by_test_id("port")[0])
         .unwrap()
         .id;
-    r.dispatch(id, Event::scroll_payload("12.5,-3.25").unwrap())
-        .unwrap();
+    r.dispatch(
+        id,
+        Event::scroll_payload("12.5,-3.25,600,600,400,100").unwrap(),
+    )
+    .unwrap();
     assert_eq!(r.slot("name"), Some(&Value::str("row")));
     assert_eq!(r.slot("left"), Some(&Value::Number(12.5)));
     assert_eq!(r.slot("top"), Some(&Value::Number(-3.25)));
-    for bad in ["NaN,0", "0,inf", "0", "1,2,3", "bad,2"] {
-        assert!(Event::scroll_payload(bad).is_none());
+    for bad in [
+        "NaN,0,1,1,1,1",
+        "0,inf,1,1,1,1",
+        "0",
+        "1,2",
+        "1,2,3,4,5",
+        "0,0,-1,1,1,1",
+        "bad,2,1,1,1,1",
+        "0,0,1,1,1,1,1",
+    ] {
+        assert!(Event::scroll_payload(bad).is_none(), "{bad}");
     }
     for params in [
         "id: string, x: string, y: number",
@@ -773,18 +997,57 @@ fn scroll_events_append_two_numeric_offsets_after_authored_arguments() {
         );
     }
     assert_eq!(
-        contract::compile(&src.replace("scroll=moved(\"row\")", "scroll=moved"))
+        contract::compile(&src.replace("scroll=moved(\"row\")", "scroll=moved(\"row\", 1)"))
             .unwrap_err()
             .id,
         "analyze-handler-arity"
     );
 }
 
+/// An action taking one more parameter hears the scroller's extents, the
+/// web's `Element` fields, so "at the end" is the web's arithmetic (chat F4).
+#[test]
+fn a_scroll_action_taking_one_more_parameter_hears_the_scroll_event() {
+    let src = r#"component App
+  state away = 0
+  state wide = 0
+  state first = some("old")
+  state within = 9
+  action moved(x: number, y: number, e: ScrollEvent)
+    first = e.firstVisibleKey
+    within = e.firstVisibleOffset
+    away = e.scrollHeight - e.scrollTop - e.clientHeight
+    wide = e.scrollWidth - e.clientWidth + e.scrollLeft
+  view
+    scroll height=100 scroll=moved testId="port"
+      box width=600 height=600
+"#;
+    let mut r = Runner::boot(
+        Plan::decode(&contract::compile(src).unwrap().encode()).unwrap(),
+        Schedule,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    let port = r.kernel().find_by_test_id("port")[0];
+    let id = r.kernel().node_by_key(port).unwrap().id;
+    r.dispatch(id, Event::scroll_payload("2,380,600,600,400,100").unwrap())
+        .unwrap();
+    assert_eq!(r.slot("away"), Some(&Value::Number(120.0)));
+    assert_eq!(r.slot("wide"), Some(&Value::Number(202.0)));
+    assert_eq!(r.slot("first"), Some(&Value::NONE));
+    assert_eq!(r.slot("within"), Some(&Value::Number(0.0)));
+    r.dispatch(id, Event::scroll_payload("2,500,600,600,400,100").unwrap())
+        .unwrap();
+    assert_eq!(r.slot("away"), Some(&Value::Number(0.0)));
+}
+
 #[test]
 fn native_swipe_bindings_keep_authored_ids_through_plan_roundtrip_and_updates() {
     let src = r#"component App
   state alternate = false
-  action choose writes alternate
+  action choose
     alternate = not alternate
   view
     scroll swipeContent="row" swipeLeading=(alternate ? "second" : "first") swipeTrailing="delete" width=300 height=80
@@ -934,7 +1197,7 @@ fn template_folding_preserves_dynamic_values_and_string_conversion() {
     let source = r#"component App
   state name = "one"
   state n = 2
-  action change writes name, n
+  action change
     name = "two"
     n = 3
   view
@@ -1000,7 +1263,7 @@ fn the_motion_fixtures_after_task_fires_once_and_its_timer_is_then_spent() {
 #[test]
 fn every_frame_lowers_to_a_frame_timer_the_frame_source_drives() {
     let plan = contract::compile(
-        "component App\n  state n = 0\n  action step writes n\n    n = n + 1\n  task ticker mount\n    every(frame, step)\n  view\n    text toString(n) testId=\"n\"\n",
+        "component App\n  state n = 0\n  action step\n    n = n + 1\n  task ticker mount\n    every(frame, step)\n  view\n    text n.toString() testId=\"n\"\n",
     )
     .unwrap();
     assert_eq!(plan.timers.len(), 1);
@@ -1058,20 +1321,20 @@ fn a_child_binder_never_captures_a_name_its_parent_passes_in() {
 #[test]
 fn roster_calls_the_runner_cannot_answer_are_refused_while_checking() {
     let app = |expr: &str| {
-        format!("shape Station\n  id: string\n  name: string\ncomponent App\n  resource items = stations() as shape list<Station>\n  view\n    text toString({expr}) testId=\"out\"\n")
+        format!("shape Station\n  id: string\n  name: string\ncomponent App\n  resource items = stations() as shape Station[]\n  view\n    text ({expr}).toString() testId=\"out\"\n")
     };
     for (expr, expects) in [
         (
-            "length(5)",
-            "argument 1 of `length` expects `string | list`, given `number`",
+            "(5).length",
+            "the value before `.length` expects `string | list`, given `number`",
         ),
         (
-            "isEmpty(true)",
-            "argument 1 of `isEmpty` expects `string | list`, given `bool`",
+            "true.isEmpty()",
+            "the value before `.isEmpty` expects `string | list`, given `bool`",
         ),
         (
-            "toString(items)",
-            "argument 1 of `toString` expects `number | string | bool`, given `list<Station>`",
+            "items.toString()",
+            "the value before `.toString` expects `number | string | bool`, given `Station[]`",
         ),
     ] {
         let error = contract::compile(&app(expr)).unwrap_err();
@@ -1086,10 +1349,10 @@ fn roster_calls_the_runner_cannot_answer_are_refused_while_checking() {
         "{error}"
     );
     for (expr, shown) in [
-        ("length(\"héllo\")", "5"),
-        ("length(items)", "2"),
-        ("isEmpty(\"\")", "true"),
-        ("toString(true)", "true"),
+        ("\"héllo\".length", "5"),
+        ("items.length", "2"),
+        ("\"\".isEmpty()", "true"),
+        ("true.toString()", "true"),
     ] {
         let r = Runner::boot(
             contract::compile(&app(expr)).unwrap(),

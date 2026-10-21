@@ -1,20 +1,66 @@
 # Agent instructions
 
+**Building an app with Exact rather than working on it?** Make it with `bun scripts/exact.mjs
+new <path>` and read `docs/start-here.md`: it is the only required reading (LLP 1115 D7). The
+rest (`docs/contract-for-agents.md`, `docs/agent-pitfalls.md`, `docs/contract-grammar.md`,
+`docs/reference.md`) is lookup only, by the section its table names: do not read the long
+guides front to back. `docs/recipes/` answers the common questions in one short file each,
+`contract vocab <name>` answers for any tag or property, every `bun exact.mjs <verb>
+--help` names its flags, and `apps/shelf` is a whole app to grep.
+
 Read `rules/RULES.md` and `rules/DEFERRED.md` first; they bind and this file does not.
-`llp/1000-exact2-root.explainer.md` is the map. Design documents under `llp/research/`
+`llp/1000-exact2-root.explainer.md` is the map. `docs/agent-pitfalls.md` lists verified
+footguns in writing apps here; add to it when you hit one. Design documents under `llp/research/`
 are the predecessor's — research, never authority.
 
-## The web is the standard
+## Write the web, ship the platform
 
-Where a default, a property name, a value vocabulary, or a behavior could follow CSS or
-something else (React Native/Yoga, UIKit, AppKit), it follows CSS — even where a CSS
-reset would usually override it. A bare node is `display: block`, `box-sizing:
-content-box`, `flex-direction: row`, `flex-shrink: 1`. Rows are named `object-fit`,
-`text-overflow`, `line-clamp`, not `resizeMode`, `ellipsizeMode`, `numberOfLines`.
-The web is the dev loop and the parity oracle for every other surface; a kernel that
-disagrees with a bare `<div>` reintroduces the four-disagreeing-default-layers bug
-class the predecessor had. An unavoidable deviation (Taffy has no `position: static`)
-is declared in `llp/1001-kernel-v1.spec.md` with the reason.
+LLP 1115 (Charlie, 2026-10-09; James's "no tells"). **What the author writes is CSS**: the
+vocabulary, the layout model, the dev loop. **What the author leaves unsaid is the
+platform's**: controls, colour, type, motion, gestures, presentation, haptics, keyboard and
+accessibility come out as a hand-built UIKit/SwiftUI app following Apple's guidelines would
+have them (AppKit on the Mac, and each platform likewise). **What the author writes wins.**
+Precedence: author > platform > CSS default. One test settles a dispute: *would someone who
+knows the platform notice?* If so it is a tell, and the platform's answer wins; judge against
+a hand-built screen on the same OS version, not against Chrome.
+
+So layout stays CSS (users cannot perceive it): a bare node is `display: block`,
+`box-sizing: content-box`, `flex-direction: row`, `flex-shrink: 1`, and the web is the
+layout parity oracle — a kernel that disagrees with a bare `<div>` reintroduces the
+four-disagreeing-default-layers bug class the predecessor had (an unavoidable deviation is
+declared in `llp/1001-kernel-v1.spec.md`). Names stay CSS (they are what the author writes):
+`object-fit`, `text-overflow`, `line-clamp`, not `resizeMode`, `ellipsizeMode`,
+`numberOfLines`; where a common reset (normalize.css, Tailwind's preflight) differs from the
+raw default, its behaviour is a familiar path too (LLP 1104 D4). Unsaid presentation is the
+platform's: a `color` a bar button only inherits from the page leaves UIKit's tint. Agents
+writing apps should therefore say less — structure (a header's heading and buttons, a
+`tablist`, an `alertdialog`) and leave colours, fonts and metrics to the platform.
+
+## Numeric typography
+
+On graphical hosts, use tabular digits for numeric columns and values that change
+in place. Use default spacing for prose, ordinary labels and static standalone
+statistics. Apply it to numeric text, keeping the platform font. See the
+[guidance and limits](docs/contract-for-agents.md#tabular-numbers).
+
+## Writing
+
+For all prose, always: comments, commit messages, guides, LLPs, issues and PR text. This
+section binds (`rules/RULES.md`, "Agents").
+
+- Write with clarity of mind. A reader should understand it on first reading and find
+  nothing ambiguous.
+- Say what the reader needs to know about the topic and nothing more. Do not recount
+  history or keep a diary; an alternative not chosen earns a line when it explains the
+  choice.
+- Cite sources where they help: standard specifications, and host platform API
+  documentation and guidelines.
+- Comments should communicate information that cannot be easily inferred from the code.
+  Judiciously omit or remove comments or parts of comments that do not clearly explain
+  anything that is not already communicated by the code, though take care not to delete
+  comments with meaningful marginal value.
+- Before opening a PR or pushing to main, do an editing pass: reread the prose you added
+  or changed as a reader new to the work would, and hold each line to the points above.
 
 ## Working here
 
@@ -22,22 +68,49 @@ is declared in `llp/1001-kernel-v1.spec.md` with the reason.
   Rolldown remains the app bundler. Node and npm are not required.
 - The web artifacts (`app.wasm`, the Markdown editor, text flow) build with a pinned
   nightly (`WEB_TOOLCHAIN` in `scripts/app.mjs`) that builds std for size; everything
-  else is `rust-toolchain.toml`'s stable, which the five checks use. `build.mjs`
+  else is `rust-toolchain.toml`'s stable, which the six checks use. `build.mjs`
   names the install commands when the nightly or its `rust-src` is missing.
 
 - `kernel/tables/schema.json` is the one declaration authority; `kernel/build.rs`
   generates from it. Edit the table, never generated code.
 - Every source file ≤ 1,500 lines. Stage (`git add -A`) and run `bun scripts/caps.mjs`.
-- The five checks: `cargo build --all-targets --keep-going` ·
-  `cargo test --lib --bins --tests --no-fail-fast` · `cargo clippy --all-targets
+- Writing or changing a test: read `docs/testing.md` (waits, isolation, coverage, measuring).
+- The six checks: `cargo build --all-targets --keep-going` ·
+  `cargo test --tests --no-fail-fast` · `cargo clippy --all-targets
   --keep-going -- -D warnings` and `cargo fmt --all -- --check` (run both) ·
-  `bun scripts/caps.mjs` · `bun scripts/boot.mjs`. The flags keep Cargo from
-  stopping at the first failing crate or test binary. Cargo's scope is the root
-  `default-members`; the async lane (`bun scripts/async.mjs`, per commit on
-  origin/main) runs the same with `--workspace` plus the `async lane:` ignored tests,
-  the web JS target's conformance run (`host/web-js/conform.mjs --strict`),
-  the UIKit XCTests for commits under `host/apple` (`build.mjs --test --ios`), then
-  `metrics.mjs --long`. Building
+  `bun scripts/caps.mjs` · `bun scripts/boot.mjs` · `cargo check --workspace
+  --all-targets --keep-going`. The flags keep Cargo from
+  stopping at the first failing crate or test binary. The first three's scope is the root
+  `default-members`. The sixth (Charlie, 2026-10-12) compiles every crate and target
+  of the workspace and runs none of their tests: on 2026-10-11 six things outside
+  `default-members` were broken on origin/main while the five were green, and it
+  catches the ones that did not compile (`exact-web-js`, `exact-linux`'s tests). It
+  needs the pinned Bun first on PATH (or named by `BUN`): app crates' build scripts
+  run Bun, and under an older one each fails with "Bun … is older than …". It shares
+  no compiled crate with the build, so it costs its whole time again: on an 18-core
+  Mac, 2 to 5 s with nothing changed, 45 to 90 s after a touched kernel line
+  (the build: 7 to 13 s), 2.4 min cold. The async lane (`bun scripts/async.mjs`, per commit on
+  origin/main) runs the first three with `--workspace`, which covers the sixth, plus the `async lane:` ignored tests,
+  the web JS target's conformance run (`host/web-js/conform.mjs --strict`) and its
+  Chrome-oracle Firefox/WebKit steps (`conform-firefox`, `conform-webkit`),
+  the separate game workspace's locked tests, the UIKit XCTests, touch smoke and
+  the tvOS compile
+  when a coalesced range changes anything outside `llp/`, `issues/`, `rules/`,
+  `docs/`, `QUEUE.md`, and `*.md` paths
+  (`build.mjs --test --ios`; `build.mjs --tvos --no-install`, which builds and signs
+  the Apple TV bundle and asks for no simulator), the
+  Contract semantics (`semantics/README.md`: the Lean proofs, the extracted VM's, and
+  `contract-difftest` running the runner and the web JS target against the Lean
+  semantics; each skipped when its inputs are those of a run that passed,
+  `scripts/async-inputs.mjs`), then `metrics.mjs --long`. A second, hourly tier (`bun scripts/async.mjs --tier 2`) builds
+  the platforms that ride on another host's code: tvOS on the UIKit presenter
+  (installed on an Apple TV simulator, which that machine must have),
+  plus cross-target Cargo checks of the Linux host with every Linux app (`-p '*-linux'`)
+  and the Windows host with Windows Desk, and Weatherlight's Android APK (its Rust
+  for `aarch64-linux-android` and the reader's and its module's Kotlin). Tier 2 needs both Rust cross targets,
+  Zig (C and C++) and the pinned Linux Hermes bundle on this Mac, and for Android the SDK
+  with platform 37.2, an NDK, a JDK 17 or newer and the `aarch64-linux-android` target and Hermes bundle. These checks qualify
+  compilation, not native window, KMS, or input behavior. Building
   `--all-targets` resolves features as `cargo test` does, so the two share artifacts.
 - A green `--workspace` build proves the apps compile, not that they work: their Apple
   crates are rlibs to Cargo, and the archive an app links is built only by
@@ -49,9 +122,10 @@ is declared in `llp/1001-kernel-v1.spec.md` with the reason.
   origin named by `EXACT_UPDATE_ORIGIN`. `EXACT_UPDATE_TRUST=production` native
   bakes require an authenticated `EXACT_UPDATE_RECEIPT` or explicit new-stream
   `EXACT_UPDATE_GENESIS=1` (README).
-- An app outside this repo (weird-castle, `~/projects/weird-castle`) builds, runs, and is
+- An app outside this repo (one `bun scripts/exact.mjs new <path>` made) builds, runs, and is
   driven through these same scripts with `EXACT_APP_DIR` set — `scripts/app.mjs` is the
-  one place that knows; its `exact.mjs` sets it. exact2 is consumed there by path.
+  one place that knows; its `exact.mjs` sets it. exact2 is consumed there by path. What
+  `exact new` writes (its `AGENTS.md`, `exact.mjs` verbs, `app.json` `$schema`) is LLP 1086.
 - The web build, `bun host/web/build.mjs <app>`, makes the JS target (LLP 1071: the
   plan compiled to one ES module over a ~20 KB runtime, `host/web-js`); what it refuses
   fails the build. A game builds the wasm target (LLP 1071 §8), and `--wasm` is the
@@ -68,6 +142,8 @@ is declared in `llp/1001-kernel-v1.spec.md` with the reason.
   (`--long` adds the macOS build and boot, and the loop's own budgets: the
   warm gate, touch one line, test what you changed). macOS: `bun host/apple/build.mjs --run`;
   iOS: `bun host/apple/build.mjs --ios --run` (a simulator; `--sim` or `EXACT_SIM` picks one);
+  tvOS: `bun host/apple/build.mjs --tvos --run` (an Apple TV simulator; LLP 1008 §9;
+  `--tvos --no-install` compiles it with none, which is what to run after a change to Swift it shares with iOS);
   `--device --run` on a connected iPhone (signed with a team profile on this Mac);
   `--host` also builds the sample host (LLP 1031 D10), the native app that embeds two
   sessions, which `bun scripts/smoke.mjs host` drives and `scripts/agent.mjs host
@@ -76,15 +152,50 @@ is declared in `llp/1001-kernel-v1.spec.md` with the reason.
   `ExactKit` (session, view, app owner — what an embedder links) and the executables
   as adapters over it. `apps/<name>/app.json` is the app manifest (LLP 1030 D2): the
   bundle id, name, host files, and deploy policy come from it, never from a crate name.
+- When you touch `contract/`, `runner/`, `plan/` or `semantics/`, run `cargo run -p
+  contract-difftest -- quick` before landing. It checks the semantics on what you changed,
+  takes about 10 s warm, and is advice, not a check (`semantics/README.md`, "Using it day to
+  day"; `contract verify <app>` is the app author's version).
+- The gate tests only `default-members`. Of the hosts it holds the web host
+  (`exact-web`) and the Apple host's Rust (`exact-apple`; its tests that drive a real
+  socket through URLSession, wait on the wall clock or launch Bun, Swift or a nested
+  cargo build are `async lane:`, and its Swift is the XCTests). The
+  others (`exact-web-js`, `exact-web-capabilities`, `exact-linux`, `exact-windows`,
+  `exact-render`, …), `js/`, `gpu/` and most apps are
+  not tested by it (the sixth check compiles them, their tests too, and runs none),
+  and the async lane reports a failing test only after the push. When you touch one, or
+  what its tests read, run its tests before landing: `cargo test -p exact-linux --lib
+  --tests --no-fail-fast`, or `--bins` for a bin-only crate such as `exact-web-js`.
+  Advice, not a check.
 - Verify by running, never by grepping. Fix loops get three rounds, then stop and say so.
 - To see a change work, drive the app: `bun scripts/agent.mjs <web|macos|ios|linux> tree
   "tap change-station" "type station-search Palo" "clock +60000" state logs "screenshot
-  out.png"` — the nine operations of LLP 1012, the same on every host, with the clock
+  out.png"` — the ten operations of LLP 1012 and LLP 1079 (`perf`: a subtree's work by
+  plan site, `perf <target> during "<op>" …` for the difference a drive made, and
+  `perf frames`, `perf frames live <ms>` for a game's frame pacing; a development build's ⌥⇧T, Save Trace or `SIGUSR1` writes a trace
+  that `bun scripts/agent.mjs trace <file>` reads, `trace --phone` a phone's), the same on every host, with the clock
   in your hands (`clock settle` instead of waiting; `"screenshot out.png over 600 every
   50"` films motion on it as a contact sheet, `.apng` to play). The driver refuses a
   build older than its sources and names the rebuild (LLP 1012.001.000). `bun scripts/smoke.mjs
   <web|macos|ios|linux|host>` is the whole app driven that way. The Linux host
-  (`cargo build --release -p caltrain-linux`) runs headless anywhere, macOS included.
+  (`cargo build --profile host-dev -p caltrain-linux`: a development build, as
+  `build.mjs` makes for Apple; `--release` is the one that ships) runs headless
+  anywhere, macOS included. `host-dev` compiles incrementally unless the shell
+  exports `CARGO_INCREMENTAL=0`, which a hand-run cargo obeys (a touched kernel
+  line is then 17 s, not 6) and `build.mjs` overrides, saying so.
+- The terminal host (LLP 1101): `cargo build --profile host-dev -p harness-terminal`,
+  then `./target/host-dev/harness` runs the coding harness in this terminal (inline;
+  `--fullscreen` for the alternate screen), or `exact-terminal <entry.contract>` any
+  terminal entry. With operations it runs headless (`--size 80x24 type prompt "hi" key
+  Enter until "…" print`); headless, the frames go into a terminal emulator (`vt100`)
+  and `print`, `screenshot` read its screen (`print --all` the scrollback, `document`
+  the whole laid-out document). Develop it in `host-dev`: a debug build lays out a long
+  document hundreds of times slower. `exact-terminal` is in `default-members`
+  (`tests/it/screen.rs` drives inline mode through the emulator); `harness-data` is not,
+  so when you touch the harness run `cargo test -p harness-data`.
+  `examples/replay.rs` replays a recorded session through the same emulator.
+  The LLP reader is the other terminal app (LLP 1101.004): `cargo build --profile
+  host-dev -p llp-terminal`, then `./target/host-dev/llp [llp/ or a document]`.
 - Delivery (LLP 1030.000): `bun scripts/deploy.mjs <app> [--origin <dir>]` prints the
   classifier's table (a dry run); `--yes` publishes the web root and signed bundles per stream through
   `scripts/origin.mjs`; `keygen <id>` makes a signing key (the private half never enters
@@ -95,13 +206,32 @@ is declared in `llp/1001-kernel-v1.spec.md` with the reason.
   opens its update store at launch and checks after first pixel
   (`EXACT_UPDATE_ORIGIN=<url>` points a dev build at a directory `serve.mjs` serves;
   `state.delivery` shows what it did).
+  `bun scripts/push.mjs <app> [--watch]` publishes an edit to installed release binaries
+  as a signed update in about a second, from the stream a deploy or a production build
+  started; `deploy.activate: "immediate"` applies it while the app is open. A channel's
+  origin `"appdrop"` is AppDrop's, named after the signing key: no account, no server.
+  Moving a stream to a new origin, pass `--seq-above` the old origin's seq.
 - `QUEUE.md` is what would make sense to do next. Add a line when you find something
   worth doing; delete it when it lands. It decides nothing.
 - Each worktree builds into its own `target/`: never symlink or share another
   checkout's (the scripts refuse); a private `CARGO_TARGET_DIR` outside every
-  checkout is fine.
+  checkout is fine. What a development Apple build takes from the machine
+  instead: the host's two Rust modules, by the SHA-256 of every input
+  (`~/.cache/exact/apple-modules`, `host/apple/modules.mjs`), and, into a
+  `target/` that has compiled nothing, the registry crates another build
+  compiled, which Cargo then accepts or not by its own fingerprints
+  (`~/.cache/exact/apple-crates`, `host/apple/crates.mjs`). A development web
+  build takes the compiler and the leaf wasm modules the same way
+  (`~/.cache/exact/web-modules`, `host/web-js/module.mjs`; `bun
+  host/web-js/module.mjs --prebuild` warms a builder for its checkout's
+  sources). Deleting any of these directories only costs the next first build
+  its time.
 - Never `git stash`. Kill only PIDs you recorded. Agents remove apparatus freely and add
   none without a human saying so.
 - Optional capability is a separate artifact loaded on demand (the GPU module) or another
   executor (the browser, for motion on the web) — never a cargo feature on a core crate.
   Each crate depends on strictly less than the one above it; there is no build matrix.
+
+Snapback4 consumers use published `snapback4@0.4.33` and the matching immutable
+Rust revision in `snapback4/Cargo.toml`; rebuild an app’s device with
+`bun exact.mjs snapback --rebuild` after changing these pins.

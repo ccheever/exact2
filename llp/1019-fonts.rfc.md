@@ -21,10 +21,13 @@ the fourth forgot weight, and a `display` policy that only worked on web.
 
 exact2 has no app JS and compiles the plan before the first frame, so it does
 not have to make that choice. **A font is a declaration in the Contract,
-compiled to plan tables, registered by the host before first layout.** The
-family id is assigned by the compiler, never at runtime; an undeclared family
-and a missing file are compile errors; there is no app-visible loading state,
-so there is nothing to invalidate.
+compiled to plan tables, registered by the host before first layout.** A bundled
+family id is assigned by the compiler; an installed or generic family list may
+also receive a session-scoped runtime id (D2, Charlie 2026-10-11). An undeclared
+bundled face and a missing file are compile errors; installed names need no
+declaration. There is no app-visible loading state,
+so a bundled face's arrival has nothing to invalidate. Runtime installed-family
+choices are the later D2 amendment and do invalidate affected text on change.
 
 What that does *not* buy is the part that is genuinely hard, and r2 is mostly
 about being honest on it. The compiler freezes identity, not resolution: hosts
@@ -155,10 +158,10 @@ font "Castle Display" = "assets/CastleDisplay-Variable.ttf"
 ```
 
 A single path is a whole family (a variable font, or a one-weight face).
-**A `faces` row of `weight: u16, italic: bool, path` cannot express that
-shorthand** — Sol's catch — so either the compiler inspects the file's axes at
-build time and records a range, or v1 declares itself static-only and the
-variable shorthand waits. Decide it in the table (D2), not in prose.
+**Decided in §13:** the compiler reads the file's `fvar` axes at build time and
+records each face's weight and width ranges in its `faces` row, so the
+shorthand is `@font-face` with its descriptors left `auto`; a block face
+names one weight (`600 = …`) or a range (`100 900 = …`).
 A block names faces by weight and optional `italic`, which is exact1's
 weight-map source form as syntax rather than an object literal. Paths are
 portable relative paths under the app's `assets/` directory. The compiler
@@ -189,8 +192,10 @@ so is a **missing or unreadable font file** — LLP 1011 makes a missing
 inherited: a missing face is not one wrong picture, it is every text node in
 the wrong metrics.
 
-Ids are constant for the life of a plan, so nothing re-resolves and nothing
-is invalidated. Two limits on that claim, both from the panel:
+Compiled ids are constant for the life of a plan, so bundled stacks need no
+re-resolution when a state value changes. Runtime installed-family lists from
+D2 have separate session-scoped ids and do invalidate affected text. Two
+limits on the compiled-id claim, both from the panel:
 
 - **"Nothing resolves at runtime" is too strong.** The compiler freezes
   *identity*. Hosts still resolve paths, parse and register faces, match
@@ -203,12 +208,30 @@ is invalidated. Two limits on that claim, both from the panel:
   plan-scoped catalog and must discard id-keyed caches on plan replacement.
   "No `unloadFont`" is true of the app-facing API and false of the host.
 
-**`font-family` is literal-only.** A `derive` evaluating to `"Menlo"` has
-nowhere to intern. v1 accepts string literals and closed control flow over
-literals (a `when` with two literal stacks — which is how theme switching is
-written); it does not accept a data string. As built (LLP 1053 G7,
-2026-09-25): a `?:` or `match` whose every arm is a literal family compiles
-each arm to its stack id, and the face checks apply to every declared arm.
+**Amended (Charlie, 2026-10-11): `font-family` accepts a runtime string.**
+Literal lists and closed literal choices retain compile-time stack ids and
+declared-face checks. A string from state, a derive or data may name an
+installed family, a supported generic, or an ordered CSS family list. The
+runner interns each distinct runtime list in the session above the plan's
+stack ids and passes the list to hosts before a node uses the id. Hosts resolve
+installed faces with the same weight/style matching and fallback as literal
+lists. A changed id invalidates affected measurement and paint. Bundled faces
+retain compile-time ids; a runtime string loads no font file and introduces no
+`loadFont` operation. This supersedes the literal-only rule here and LLP 1053
+G7's runtime-string refusal. The JS web target can apply the string directly
+as CSS while native hosts consume the runner's id and list. A quoted generic
+is an installed family name. An invalid list (an unquoted member that is not
+CSS identifiers, `Arial;`, by the rule a compiled literal meets) and `inherit`,
+`unset`, `revert` or `revert-layer` leave the row unset so its inherited value
+applies, as the browser does; `initial` is the row's initial family, stack 0
+(`system-ui`).
+
+**Implementation status, 2026-10-12:** Contract resolves constant templates
+through literal stack validation and preserves other string expressions. The
+runner interns runtime lists above plan stacks, and the wasm web, AppKit,
+UIKit and Linux hosts register those lists before layout. The JS web target
+sets a dynamic string as CSS. Native family changes invalidate text layout;
+the hosts use their existing installed-face matching for weights and styles.
 
 ### D3 — the id names a stack; v1 stacks are single-member
 
@@ -369,11 +392,11 @@ web (which already does CSS matching if you emit `font-family` and
 `font-weight` and do not snap) would *create* divergence. Linux may keep it as
 a local clamp, per family, and must not snap a real `wght` axis.
 
-**Two domain questions this opens.** The kernel carries `font_weight: u16`
-defaulting to 400 (`kernel/tables/schema.json:152`) while CSS Fonts 4 is
-1–1000 and a `wght` axis is continuous; and there is no `font_stretch` row at
-all, though stretch is part of CSS matching. Each needs a decision or an
-LLP 1001 deviation, not silence.
+**Two domain questions this opens**, both answered in §13: a `wght` axis is
+continuous while `font_weight` is a whole number (a whole weight is
+indistinguishable at any text size, and CSS's computed weights are what an
+author writes), and stretch is part of CSS matching (the `font_stretch` row,
+D8).
 
 ### D7 — `font-style` lands in the same change
 
@@ -505,8 +528,8 @@ Each of these is declared here so it is not silently assumed:
 
 - **Remote fonts and `display` policy** — D5. A URL source is a `resource`
   if it ever matters.
-- **`font-feature-settings`, `font-variation-settings`, small caps,
-  `font-variant-caps`** — `font_variant_numeric` (bit 75) is the one
+- **`font-feature-settings`, `font-variation-settings`, `font-optical-sizing`,
+  small caps, `font-variant-caps`** (`font-stretch` is in: §13) — `font_variant_numeric` (bit 75) is the one
   OpenType row that exists, and it is also unreachable from Contract; it
   should get an attribute with this work or be declared unreachable on
   purpose.
@@ -600,7 +623,7 @@ now has an implementer and a date, so it is buildable. In dependency order:
    Decide the variable-axis question here (D1): axis ranges on a face row, or
    v1 is static-only.
 2. **Contract** — the `font` declaration at file scope (D1), the
-   `font-family` and `font-style` attributes, literal-only values, id
+   `font-family` and `font-style` attributes, initially literal-only values, id
    assignment, and the four refusals: undeclared family, missing/unreadable
    file, `.woff2`, and the §5 weight/style diagnostic. Duplicate direct
    attributes are refused, so the diagnostic and the effective binding cannot
@@ -756,3 +779,134 @@ list is likewise unbuilt by choice, not by accident.
 `.otf` exists in Weird Castle or exact2 outside the DejaVu fixture pair, so the
 brand face remains an open product choice — which typeface, and whether its
 licence permits bundling into a shipped binary.
+
+## 13. Variable faces and `font-stretch` (2026-10-19)
+
+A variable file is one face that covers a range of weights and widths. A
+browser draws it from `@font-face`'s range descriptors (CSS Fonts 4 §4.5,
+§4.6): a request inside `font-weight: 100 900` is set on the `wght` axis at
+that value, and one outside is matched at the range's nearer end. Exact now
+does the same on every host.
+
+### D2, decided — a face carries its ranges
+
+A `faces` row is one source, a weight range (`weight` to `weight_max`), a width
+range in tenths of a percent (`stretch_min` to `stretch_max`, 1000 normal) and
+italic: `@font-face`'s `font-weight`, `font-stretch` and `font-style`. One
+weight is a range of one value and pins `wght` there, as a single
+descriptor does.
+
+- **The shorthand is `auto`.** `font "Name" = "path"` reads the file's `fvar`
+  at compile time (`contract/lower/src/font_axes.rs`): a `wght` axis is the
+  face's weight range and a `wdth` axis its width range. A static face is 400,
+  normal width. CSS Fonts 4's `auto` would take a static face's weight from
+  its OS/2 class; Exact keeps 400, which the identity rule (D3) already
+  required of a face whose name table disagrees with its declaration.
+- **A block face names one weight or a range:** `600 = "…"` pins, `100 900 =
+  "…"` covers. Its width range is always the file's, as `auto`.
+- **No host infers a range.** The plan holds them, so web emits them as
+  descriptors and native hosts read the same rows.
+
+### D8 — `font-stretch`
+
+`font_stretch` is a kernel row (bit 216): an inherited percentage, default
+100, written as CSS writes it (`75%`, `condensed`; a bare number is refused, as
+CSS refuses it). It is the first criterion of face matching (§5.2: the nearest
+width, narrower first at or below 100%, wider first above it), then style,
+then weight; a face declared over a `wdth` range draws the request on that
+axis, clamped to the range. Fonts 4 renames the property `font-width`; the
+compiler takes the name browsers implement.
+
+### Optical size
+
+`font-optical-sizing: auto` (CSS Fonts 4 §2.7) sets a face's `opsz` to the
+font size in px, and it decides more than letterforms: Roboto Flex's width
+range grows with `opsz` (at weight 944 and 168 px, `wdth` 50–150 spans 1047 to
+1241 px at `opsz` 14, 887 to 1564 at 144). Every host sets it: the browser
+itself; Apple in `RegisteredFace.drawn`, since CoreText stops choosing `opsz`
+once a descriptor carries a variation; Linux as a Parley style variation after
+fontique's synthesis (`text::shaping::push_style`), which Android's
+`FONT_AXES` carries to the reader.
+
+### How each host draws it
+
+| Host | Weight and width |
+|---|---|
+| Web | `@font-face { font-weight: 100 900; font-stretch: 25% 151% }`; the browser sets the axes. |
+| Apple | `RegisteredFace` holds both ranges; `matched` is §5.2 over them; `drawn` sets `wght` and `wdth` on the descriptor per request (one declared weight stays pinned at registration). |
+| Linux, Android | fontique's `FontInfo::with_declared_ranges` (`vendor/fontique/EXACT-PATCHES.md` §5): matching takes a range at its value nearest the request, and synthesis always emits the clamped coordinate. Android draws the axes fontique chose. |
+
+### D9 — `font-variation-settings`, and the width everywhere
+
+`font_variation_settings` is a kernel row (bit 217): inherited, `normal` or a
+list of quoted four-character tags with numbers, as CSS Fonts 4 §7.2 writes it.
+A repeated tag keeps its last value; a tag the face lacks does nothing.
+
+- **The value is a fixed array of eight axes**, not an interned list.
+  `TextStyle` stays `Copy` and crosses the C ABI by value (`ExactTextRun`
+  carries a count and two arrays of eight), so no host keeps a table in step
+  with the kernel, and two values of the same tags interpolate axis by axis
+  when motion takes text rows. Eight covers every registered axis and the
+  parametric ones a face like Roboto Flex names together; a ninth distinct tag
+  is refused at compile.
+- **It draws last.** §7 orders the axes: weight, width and optical size first,
+  then each tag the settings name, which wins for its own axis.
+  `"wdth" 50` draws as `font-stretch: 50%` does.
+- **A platform family stretches.** `font-stretch` on `system-ui` (and the
+  generics Apple draws with San Francisco) sets SF's `wdth` axis (30–150) to
+  the percentage, as Chrome and WebKit draw it; `UIFont.Width` and
+  `NSFont.Width` are points on that axis. Once a variation is set CoreText
+  stops choosing `opsz`, so it is set to the size (`TextEngine.cssAxes`).
+- **Fields and Canvas 2D take the width.** Apple's native fields draw the
+  field's stretch and settings through the same font call as text. Android's
+  fields set `Typeface.Builder.setFontVariationSettings` from the weight,
+  width and settings for a declared family; the device's default family is
+  `Typeface.create`, which takes no axes. Canvas 2D's `font` shorthand and
+  `fontStretch` were parsed already; Apple now draws them, as Linux and the
+  browser did. A canvas takes no `font-variation-settings`: the HTML canvas
+  has none.
+
+### How each host draws the settings
+
+| Host | `font-variation-settings` |
+|---|---|
+| Web | The property itself. |
+| Apple | `RegisteredFace.drawn` and `TextEngine.cssAxes` set the tags on the descriptor after `wght`, `wdth` and `opsz`. |
+| Linux, Android | Parley's style variations, after `opsz` and after fontique's synthesis; Android's `FONT_AXES` carries them to the reader. |
+
+### Not here
+
+`font-optical-sizing` stays `auto` and is not authorable.
+`font-variation-settings` takes no transition (D10 is the weight and the
+width alone); its eight pairs would interpolate axis by axis.
+
+### D10 — `font-weight` and `font-stretch` transition (2026-10-20)
+
+`transition` takes both rows, as CSS does: `font-weight 300ms ease-out`, a
+spring, `all`. Each is a layout property: a weight's glyphs are wider, so
+every frame of the transition lays its text out again. That is admitted for
+these two rows alone (`rules/DEFERRED.md` §Motion). Measured first on an
+iPhone 17 Pro Max with the weight set every frame: the poster and a title
+hold 119 fps and as few late frames as the same screens built in UIKit;
+twelve paragraphs of body text hold the rate with more late frames (QUEUE).
+
+- **The runner plays them** (`runner/src/runner/text_axes.rs`): no
+  compositor can draw a weight it was not given, so no host's engine takes
+  their targets. A commit that changes one under a matching declaration
+  writes the value presented now and starts the transition in an
+  `exact-motion` engine of the runner's own; each frame writes the next
+  value as a presentation-only commit, and layout follows. CSS's
+  before-change value (the computed one, inherited included), interruption
+  and reversing shortening are the engine's, as for every other property.
+- **A spring is its curve from rest**, a `linear()` over its settle time, as
+  for paint (LLP 1062 D3): nothing carries a weight's velocity.
+- **A weight moves in whole steps** of 1 in 1000, the row's own encoding.
+- **The web links none of it.** The row emits as CSS `transition`, and the
+  browser plays it (`RunnerLinks::text_axes` is `None` there); Apple links it
+  by use, when the plan declares any transition.
+- **Settle** folds the runner's end time into each native host's `settle`,
+  and the seekable clock steps its virtual frames while an axis moves.
+- **Not here:** a child that inherits a transitioning parent's weight follows
+  each frame's commit, but a child's own `transition` does not start when
+  only its inherited value changes, which CSS would do.
+

@@ -3,29 +3,52 @@
 // through the agent's contact phases. A flick at a known speed releases at
 // about that speed; the same distance dragged slowly releases near rest, and
 // so does a contact that pauses (`tap hold`) before it lifts, as a finger's
-// does on UIKit. Needs a web dist that links every capability:
+// does on UIKit; the flick said as one `drag` releases as the phases do.
+// Needs a web dist that links every capability:
 //   EXACT_WEB_LINK=all EXACT_WEB_DIST=/tmp/exact-all-dist bun host/web/build.mjs caltrain-web
 //   EXACT_MOTION_DIST=/tmp/exact-all-dist bun test host/web/tests/pan-release-engine.test.mjs
 import { test, expect } from 'bun:test';
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
-import { open } from '../../../scripts/agent.mjs';
+import { assertWebDistApp, open } from '../../../scripts/agent.mjs';
+import { chromium, refuseStale, webChanges } from '../../../scripts/agent-launch.mjs';
+import { resolveApp } from '../../../scripts/app.mjs';
+import { jsTargetBuild } from '../serve.mjs';
+import { need } from '../../../scripts/coverage.mjs';
 
 const ROOT = resolve(new URL('../../..', import.meta.url).pathname);
-const chrome = process.env.CHROME ?? '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
-const dist = process.env.EXACT_MOTION_DIST;
-const check = existsSync(chrome) && dist && existsSync(resolve(dist, 'app.wasm')) ? test : test.skip;
+const app = resolveApp('caltrain');
+const dist = process.env.EXACT_MOTION_DIST && resolve(process.env.EXACT_MOTION_DIST);
+const { unavailable: browserUnavailable } = chromium();
+async function fixtureUnavailable() {
+  if (browserUnavailable) return browserUnavailable;
+  if (!dist) return 'EXACT_MOTION_DIST does not name an EXACT_WEB_LINK=all wasm build';
+  try { await assertWebDistApp(dist, app); }
+  catch (error) { return error.message; }
+  if (jsTargetBuild(dist)) return `EXACT_MOTION_DIST=${dist} is a JS-target build, not an EXACT_WEB_LINK=all wasm build`;
+  let receipt;
+  try { receipt = JSON.parse(readFileSync(resolve(dist, 'bake.json'), 'utf8')); }
+  catch { return `EXACT_MOTION_DIST=${dist} has no readable bake receipt`; }
+  if (receipt.binary?.configuration?.flags?.EXACT_WEB_LINK !== 'all') return `EXACT_MOTION_DIST=${dist} was not built with EXACT_WEB_LINK=all`;
+  try {
+    refuseStale('web', resolve(dist, '.exact-build.json'), webChanges(dist, app).all,
+      `EXACT_WEB_LINK=all EXACT_WEB_DIST=${dist} bun host/web/build.mjs ${app.crate('web')} --wasm`);
+  } catch (error) { return error.message; }
+  return null;
+}
+const unavailable = await fixtureUnavailable();
+const check = need(browserUnavailable ? 'chrome' : 'fixture', unavailable);
 
 const SOURCE = `component App
   state x = 0
   state vx = 0
   state vy = 0
   state releases = 0
-  action moved(dx: number, dy: number) writes x
+  action moved(dx: number, dy: number)
     x = x + dx
-  action released(sx: number, sy: number) writes vx, vy, releases
+  action released(sx: number, sy: number)
     vx = sx
     vy = sy
     releases = releases + 1
@@ -34,14 +57,15 @@ const SOURCE = `component App
       box testId="card" width=300 height=300 background-color="#f06" touch-action="none" pan=moved panrelease=released
 `;
 
-check('a flick releases at its speed; a slow drag and a pause before lifting near rest', async () => {
+check(`a flick releases at its speed; a slow drag and a pause before lifting near rest`, async () => {
   const tmp = mkdtempSync(resolve(tmpdir(), 'exact-panrelease-'));
   const plan = resolve(tmp, 'pan.plan');
-  writeFileSync(resolve(tmp, 'pan.contract'), SOURCE);
-  const built = spawnSync('cargo', ['run', '-q', '-p', 'contract', '--', 'build', resolve(tmp, 'pan.contract'), '-o', plan], { cwd: ROOT, encoding: 'utf8' });
-  expect(built.status, built.stderr).toBe(0);
-  const s = await open({ host: 'web', plan, webDist: dist });
+  let s;
   try {
+    writeFileSync(resolve(tmp, 'pan.contract'), SOURCE);
+    const built = spawnSync('cargo', ['run', '-q', '-p', 'contract', '--', 'build', resolve(tmp, 'pan.contract'), '-o', plan], { cwd: ROOT, encoding: 'utf8' });
+    expect(built.status, built.stderr).toBe(0);
+    s = await open({ host: 'web', plan, webDist: dist });
     const drag = async (dx, ms, hold = 0) => {
       await s.tap('card', { down: true });
       await s.pointer('move', { dx, dy: 0, ms });
@@ -65,8 +89,15 @@ check('a flick releases at its speed; a slow drag and a pause before lifting nea
     slots = await drag(150, 60, 200);
     expect(slots.releases).toBe(3);
     expect(Math.abs(slots.vx)).toBeLessThan(1);
+    // The flick as one whole gesture (`tap card drag 150 0 over 60`, LLP 1080.000 §11): the same release.
+    const whole = await s.tap('card', { drag: { dx: 150, dy: 0, over: 60 } });
+    expect(whole.delivery).toBe('platform');
+    slots = (await s.state()).slots;
+    expect(slots.releases).toBe(4);
+    expect(slots.vx).toBeGreaterThan(1500);
+    expect(slots.vx).toBeLessThan(3500);
   } finally {
-    await s.close();
+    await s?.close();
     rmSync(tmp, { recursive: true, force: true });
   }
 }, 120000);

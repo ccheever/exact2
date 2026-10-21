@@ -2,7 +2,10 @@ use crate::Mixed;
 use exact_plan::{Plan, Value};
 use exact_runner::{Answer, DataError, DataSource, FailureKind, Outcome, Request, Store};
 use serde_json::{json, Value as Json};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::{cell::RefCell, rc::Rc};
+
+type Wake = Box<dyn FnOnce() + Send>;
 
 #[derive(Clone)]
 struct Source {
@@ -11,6 +14,9 @@ struct Source {
     revision: String,
     state: u8,
     ready: bool,
+    loading: bool,
+    failed: bool,
+    waiting: std::sync::Arc<std::sync::Mutex<Vec<Wake>>>,
     calls: Rc<RefCell<Vec<String>>>,
 }
 
@@ -22,6 +28,9 @@ impl Source {
             revision: label.into(),
             state: 1,
             ready: true,
+            loading: false,
+            failed: false,
+            waiting: Default::default(),
             calls: Default::default(),
         }
     }
@@ -92,6 +101,15 @@ impl DataSource for Source {
     }
     fn ready(&self) -> bool {
         self.ready
+    }
+    fn preload(&self) -> Result<bool, DataError> {
+        if self.failed {
+            return Err(DataError::Unavailable("load failed".into()));
+        }
+        Ok(!self.loading)
+    }
+    fn when_preloaded(&self, wake: Box<dyn FnOnce() + Send>) {
+        self.waiting.lock().unwrap().push(wake);
     }
     fn activate(&mut self) -> Result<(), DataError> {
         self.record("activate");
@@ -277,7 +295,9 @@ fn secret_union_preserves_per_side_restrictions_and_shared_values() {
     }
     assert_eq!(store.get("js"), Some("written"));
     assert_eq!(store.get("rust"), Some("written"));
-    assert_eq!(store.take_writes().len(), 4);
+    // Each side keeps "written" as it answers and again as it parses; the
+    // second keeps what is kept, so it is no write.
+    assert_eq!(store.take_writes().len(), 2);
     for source in ["jsrequest", "rustrequest"] {
         let Answer::Later(request) = mixed.answer(&mut store, source, &[]).unwrap() else {
             panic!()
@@ -477,6 +497,7 @@ fn run(dispatch: Dispatch) -> Outcome {
             rx.recv_timeout(std::time::Duration::from_secs(5))
                 .expect("a reply")
         }
+        Dispatch::Again => Dispatch::again_outcome(),
         Dispatch::Held => panic!("held"),
         Dispatch::Host(_) => panic!("host"),
         Dispatch::Missing => panic!("missing"),
@@ -505,7 +526,7 @@ fn a_worker_child_orders_every_member_that_shares_a_secret_and_commits_through_p
     assert_eq!(mixed.placement(), Placement::Worker);
     let mut store = Store::new(
         "secret.keep js\nsecret.keep rust\nsecret.keep shared",
-        [("shared".to_string(), "before".to_string())],
+        [("shared".to_string(), "before".into())],
     );
     // Nothing ran at `answer`: both calls are recorded, both answer later.
     let a = token(mixed.answer(&mut store, "jssecret", &[]).unwrap());
@@ -641,7 +662,7 @@ fn a_placed_source_runs_its_turns_on_its_own_thread_and_the_runner_commits_them(
     assert_eq!(placed.placement(), Placement::Worker);
     let mut store = Store::new(
         "secret.keep rust\nsecret.keep shared",
-        [("shared".to_string(), "s".to_string())],
+        [("shared".to_string(), "s".into())],
     );
     let arg = Value::str("arg");
     let t = token(
@@ -1321,4 +1342,124 @@ fn a_refresh_with_equal_arguments_reaches_a_placed_member_of_a_set() {
     assert_eq!(resource(&r, "found"), "again");
     assert!(!r.has_pending());
     assert_eq!(r.data().staged_keys(), 0);
+}
+
+#[test]
+fn mixed_and_placed_forward_logs_from_successful_and_refused_turns_once() {
+    #[derive(Clone, Default)]
+    struct Logging(Vec<String>);
+    impl DataSource for Logging {
+        fn app_id(&self) -> &str {
+            "test.logs"
+        }
+        fn query(&mut self, source: &str, _: &[Value]) -> Result<Value, DataError> {
+            self.0.push(format!("console {source}"));
+            if source == "fail" {
+                Err(DataError::Unavailable("refused".into()))
+            } else {
+                Ok(Value::str("answer"))
+            }
+        }
+        fn take_logs(&mut self) -> Vec<String> {
+            std::mem::take(&mut self.0)
+        }
+    }
+    for placement in [Placement::Main, Placement::Worker] {
+        let mut placed = Mixed::new(
+            Placed::new(Logging::default(), placement),
+            Placed::new(Logging::default(), placement),
+            &["js"],
+            &["rust", "fail"],
+        )
+        .unwrap();
+        placed.activate().unwrap();
+        let mut store = Store::default();
+        for source in ["js", "rust", "fail"] {
+            let answer = placed.answer(&mut store, source, &[]);
+            let result = match answer {
+                Ok(Answer::Later(request)) => {
+                    let outcome = run(placed.dispatch(request.continuation.unwrap(), &store));
+                    placed.parse(&mut store, source, &[], outcome)
+                }
+                other => other,
+            };
+            assert_eq!(result.is_err(), source == "fail");
+            assert_eq!(placed.take_logs(), [format!("console {source}")]);
+            assert!(placed.take_logs().is_empty());
+        }
+    }
+}
+
+#[test]
+fn a_loading_pair_wakes_once_when_either_loading_half_finishes() {
+    let fire = |source: &Source| {
+        for wake in std::mem::take(&mut *source.waiting.lock().unwrap()) {
+            wake()
+        }
+    };
+    // (JS loading, Rust loading, Rust failed, which half finishes first)
+    for (js_loading, rust_loading, rust_failed, rust_first) in [
+        (true, true, false, false),
+        (true, true, false, true),
+        (true, false, false, false),
+        (false, true, false, true),
+        (true, false, true, false),
+    ] {
+        let (mut js, mut rust) = (Source::new("js"), Source::new("rust"));
+        (js.loading, rust.loading, rust.failed) = (js_loading, rust_loading, rust_failed);
+        let (js_waits, rust_waits) = (js.waiting.clone(), rust.waiting.clone());
+        let pair = Mixed::new(js.clone(), rust.clone(), &["js"], &["rust"]).unwrap();
+        assert_ne!(pair.preload().ok(), Some(true));
+        let wakes = Arc::new(AtomicUsize::new(0));
+        let counted = wakes.clone();
+        pair.when_preloaded(Box::new(move || {
+            counted.fetch_add(1, Ordering::SeqCst);
+        }));
+        if rust_failed {
+            assert_eq!(
+                wakes.load(Ordering::SeqCst),
+                1,
+                "a failed half wakes at once"
+            );
+            assert!(js_waits.lock().unwrap().is_empty());
+            continue;
+        }
+        let held = |w: &Arc<Mutex<Vec<_>>>| w.lock().unwrap().len();
+        assert_eq!(
+            (held(&js_waits), held(&rust_waits)),
+            (js_loading as usize, rust_loading as usize)
+        );
+        assert_eq!(wakes.load(Ordering::SeqCst), 0);
+        let (first, second) = if rust_first {
+            (&rust, &js)
+        } else {
+            (&js, &rust)
+        };
+        fire(first);
+        assert_eq!(wakes.load(Ordering::SeqCst), 1);
+        fire(second);
+        assert_eq!(wakes.load(Ordering::SeqCst), 1, "one wake for the pair");
+    }
+}
+
+#[test]
+fn a_worker_child_s_overlay_shows_the_answer_and_says_so_once() {
+    let mut mixed = Mixed::new(
+        Proxy::new(Source::new("js")),
+        Source::new("rust"),
+        &["jssecret", "js"],
+        &["rustsecret", "rust"],
+    )
+    .unwrap();
+    assert_eq!(mixed.placement(), Placement::Worker);
+    for _ in 0..2 {
+        let shown = mixed.overlay("jssecret", &[], &Value::str("answer"), &[]);
+        assert!(matches!(shown, Ok(None)));
+    }
+    let told: Vec<String> = mixed
+        .take_logs()
+        .into_iter()
+        .filter(|l| l.starts_with("overlay: jssecret"))
+        .collect();
+    assert_eq!(told.len(), 1, "{told:?}");
 }

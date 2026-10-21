@@ -140,7 +140,7 @@ fn substitution_never_captures_a_replacements_free_name() {
         for (name, replacement) in &subst {
             bound.insert(name.clone(), eval(replacement, &env));
         }
-        let result = substituted(&e, &subst);
+        let result = substituted(&e, &subst, &Default::default());
         renamed += format!("{result:?}").contains('@') as u32;
         assert_eq!(
             eval(&result, &env),
@@ -260,7 +260,7 @@ fn a_shared_derive_is_evaluated_exactly_where_its_readers_evaluated_it() {
         let src = derive_source(&mut rng, derives);
         let file = crate::parse(&src).unwrap_or_else(|e| panic!("{e}\n{src}"));
         let c = &file.components[0];
-        let resolved = super::resolved_derives(c).unwrap();
+        let resolved = super::resolved_derives(c, &Default::default()).unwrap();
         let authored: BTreeMap<String, Expr> = c
             .derives
             .iter()
@@ -292,4 +292,118 @@ fn a_shared_derive_is_evaluated_exactly_where_its_readers_evaluated_it() {
         shared > 500 && traps > 500,
         "{shared} shared, {traps} traps"
     );
+}
+
+/// A statement `let` (LLP 1035.005.000 D2) binds for the rest of its block:
+/// a replacement that mentions its name renames it apart there, and the
+/// statements before it and after its block keep the outer name.
+#[test]
+fn a_statement_let_is_renamed_apart_from_a_replacement_for_the_rest_of_its_block() {
+    use super::subst::{subst_stmts, Subst};
+    use crate::ast::Stmt;
+    let s = Span::default();
+    let id = |n: &str| Expr::Ident(n.into(), s);
+    let assign = |target: &str, expr: Expr| Stmt::Assign {
+        target: target.into(),
+        expr,
+        span: s,
+    };
+    let add = |a: Expr, b: Expr| Expr::Binary(BinOp::Add, Box::new(a), Box::new(b), s);
+    // `x = b; if c { let a = 1; x = a + b }; x = a`, with `b` replaced by the
+    // parent's `a`.
+    let body = vec![
+        assign("x", id("b")),
+        Stmt::If {
+            cond: id("c"),
+            then: vec![
+                Stmt::Let {
+                    name: "a".into(),
+                    expr: Expr::Number(1.0, s),
+                    span: s,
+                },
+                assign("x", add(id("a"), id("b"))),
+            ],
+            otherwise: Vec::new(),
+            span: s,
+        },
+        assign("x", id("a")),
+    ];
+    let map = BTreeMap::from([("b".to_owned(), id("a"))]);
+    let out = subst_stmts(
+        &body,
+        &mut Subst::new(&map, &Default::default()),
+        &BTreeMap::new(),
+    );
+    let Stmt::If { then, .. } = &out[1] else {
+        panic!("{out:?}")
+    };
+    assert_eq!(
+        then,
+        &vec![
+            Stmt::Let {
+                name: "a@1".into(),
+                expr: Expr::Number(1.0, s),
+                span: s,
+            },
+            assign("x", add(id("a@1"), id("a"))),
+        ]
+    );
+    assert_eq!(out[0], assign("x", id("a")));
+    assert_eq!(out[2], assign("x", id("a")));
+}
+
+/// A tab panel's contents are one arm (LLP 1075.003 §9.14) in typed
+/// expansion as in ordinary: a role passed as a typed prop reaches the
+/// element ascribed, and is still the literal `"tabpanel"`.
+#[test]
+fn a_tab_panel_is_one_arm_in_both_expansions() {
+    let src = "routes nav
+  tab a \"/\"
+  tab b \"/b\"
+
+component App
+  view
+    main navigationKey=`${top(nav).id}` navigationBack=\"back\"
+      for t in nav.tabs key=t.name
+        Panel(kind=\"tabpanel\", name=t.name)
+
+component Panel
+  props
+    kind: string
+    name: string
+  view
+    column role=kind id=`panel-${name}`
+      Editor()
+
+component Editor
+  state draft = \"\"
+  view
+    text draft
+";
+    let file = crate::parse(src).unwrap();
+    let plain = super::expand(&file).unwrap();
+    let (typed, errors) = super::expand_typed(&file);
+    assert!(errors.is_empty(), "{errors:?}");
+    fn whens(nodes: &[crate::ast::Node]) -> usize {
+        use crate::ast::Node;
+        nodes
+            .iter()
+            .map(|n| match n {
+                Node::Element { children, .. } => whens(children),
+                Node::When {
+                    then, otherwise, ..
+                } => 1 + whens(then) + whens(otherwise),
+                Node::Each { body, .. } => whens(body),
+                Node::Match { some, none, .. } => whens(&some.1) + whens(none),
+                _ => 0,
+            })
+            .sum()
+    }
+    assert_eq!(whens(&plain.root.view), 1);
+    assert_eq!(whens(&typed.root.view), 1);
+    assert_eq!(plain.owners, typed.owners);
+    assert!(matches!(
+        plain.owners.last(),
+        Some(super::Owner::Arm { arm: 0, .. })
+    ));
 }

@@ -4,6 +4,9 @@
 
 #![deny(missing_docs)]
 
+mod linked;
+#[path = "../../package_tool.rs"]
+mod package_tool;
 mod resident;
 #[cfg(test)]
 mod sources_tests;
@@ -11,24 +14,93 @@ pub use resident::Producer;
 
 use contract::DataSource;
 use exact_js::Module;
+use linked::{names_its_plan, take_baked, LINKED_BYTECODE, NAMED};
+#[cfg(test)]
+use linked::{COMPILED, LINKED};
+use package_tool::package_tool;
 use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::atomic::{AtomicU64, Ordering};
 
+/// Why a bake failed, as its build script says it. Every app's build script
+/// ends in `.expect("bake …")`, which prints an error's `Debug`: a `String`'s
+/// quotes and escaped newlines put tsc's diagnostics on one line, so `Debug`
+/// is the text as written.
+pub struct BakeError(pub String);
+
+impl std::fmt::Debug for BakeError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "\n{}", self.0.trim_end())
+    }
+}
+
+impl std::fmt::Display for BakeError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+impl std::error::Error for BakeError {}
+
 /// An app's Cargo build-script entrypoint. Write the paired artifacts and
 /// actual target/grants receipt to OUT_DIR; source files stay untouched.
 /// This development slice requires an updater-free composition (store L=0).
-pub fn build(app: &Path, platform: &str) -> Result<(), String> {
-    build_sources(app, platform, None, None)
+///
+/// With `EXACT_BAKED` naming a directory `exact-js-bake --cargo` filled (an
+/// Apple build, `host/apple/build.mjs`), the bake has run outside Cargo: the
+/// script takes the files Rust compiles from it and watches only those, so
+/// an edit that changes the plan alone leaves the archive as it was, and the
+/// link carries the plan (`exact_apple::baked`).
+pub fn build(app: &Path, platform: &str) -> Result<(), BakeError> {
+    println!("cargo:rerun-if-env-changed=EXACT_BAKED");
+    match std::env::var_os("EXACT_BAKED") {
+        Some(baked) => std::env::var_os("OUT_DIR")
+            .ok_or_else(|| "build requires OUT_DIR".to_string())
+            .and_then(|out| take_baked(Path::new(&baked), Path::new(&out))),
+        None => build_sources(app, platform, None, None, false),
+    }
+    .map_err(BakeError)
 }
+
+/// What `build` writes to OUT_DIR, written by a process outside Cargo
+/// (`exact-js-bake --cargo`, with OUT_DIR and TARGET set). Each file is
+/// rewritten only when its bytes change, so the ones Rust compiles keep their
+/// times across a bake that changed only the plan or the module's code. The
+/// `cargo:rerun-if` lines go to stdout: the inputs whose change calls for
+/// another bake.
+pub fn bake_outside(app: &Path, platform: &str) -> Result<(), BakeError> {
+    build_sources(app, platform, None, None, true).map_err(BakeError)
+}
+
+/// The module's bytecode for `exact_js::Module::new`, aligned so Hermes reads
+/// it where it is linked instead of a copy (an `include_bytes!` is not).
+const APP_BYTECODE: &str = r#"#[allow(dead_code)]
+pub const APP_BYTECODE: &[u8] = {
+    #[repr(C, align(16))]
+    struct Aligned<B: ?Sized>(B);
+    static BYTES: &Aligned<[u8]> = &Aligned(*include_bytes!(concat!(env!("OUT_DIR"), "/app.hbc")));
+    &BYTES.0
+};
+"#;
+
+/// The entry's plan and compatibility document, embedded from OUT_DIR.
+const EMBEDDED: &str = r#"#[allow(dead_code)]
+fn exact_plan() -> &'static [u8] {
+    include_bytes!(concat!(env!("OUT_DIR"), "/app.plan"))
+}
+#[allow(dead_code)]
+fn exact_compat() -> &'static str {
+    include_str!(concat!(env!("OUT_DIR"), "/compat.json"))
+}
+"#;
 
 /// Bake a mixed app using each source's own identity and grants. Metadata reads
 /// never invoke or activate the Rust implementation; first-frame values bake
 /// through TypeScript alone.
-pub fn build_mixed(app: &Path, platform: &str, rust: &dyn DataSource) -> Result<(), String> {
-    build_sources(app, platform, Some(rust), None)
+pub fn build_mixed(app: &Path, platform: &str, rust: &dyn DataSource) -> Result<(), BakeError> {
+    build_sources(app, platform, Some(rust), None, false).map_err(BakeError)
 }
 
 /// Bake a mixed app through its own composer (LLP 1027.002 §5 step 0): the
@@ -41,19 +113,19 @@ pub fn build_mixed_with(
     platform: &str,
     rust: &dyn DataSource,
     rust_sources: &[&str],
-    compose: impl FnOnce(Module) -> Box<dyn DataSource>,
-) -> Result<(), String> {
+    compose: impl Fn(Module) -> Box<dyn DataSource>,
+) -> Result<(), BakeError> {
     let composer = Composer {
         rust_sources: rust_sources.iter().map(|s| s.to_string()).collect(),
         compose: Box::new(compose),
     };
-    build_sources(app, platform, Some(rust), Some(composer))
+    build_sources(app, platform, Some(rust), Some(composer), false).map_err(BakeError)
 }
 
 /// How a Cargo bake composes the TypeScript module with the app's Rust.
 struct Composer<'a> {
     rust_sources: Vec<String>,
-    compose: Box<dyn FnOnce(Module) -> Box<dyn DataSource> + 'a>,
+    compose: Box<dyn Fn(Module) -> Box<dyn DataSource> + 'a>,
 }
 
 /// A composed source, as `contract::bake` takes it.
@@ -83,6 +155,15 @@ impl DataSource for Composed {
         args: &[exact_plan::Value],
     ) -> Result<exact_runner::Answer, exact_runner::DataError> {
         self.0.answer_for(target, store, source, args)
+    }
+    fn overlay(
+        &mut self,
+        source: &str,
+        args: &[exact_plan::Value],
+        answer: &exact_plan::Value,
+        writes: &[exact_runner::Write<'_>],
+    ) -> Result<Option<exact_runner::Overlaid>, exact_runner::DataError> {
+        self.0.overlay(source, args, answer, writes)
     }
     fn app_id(&self) -> &str {
         self.0.app_id()
@@ -140,6 +221,13 @@ impl Seed {
                     ))
                 })
                 .or_insert(value);
+        }
+        for source in rust_sources {
+            values.entry(source.clone()).or_insert_with(|| {
+                Err(format!(
+                    "`{source}` has no seeded resource; checked by its source declaration"
+                ))
+            });
         }
         Ok(Seed { values })
     }
@@ -211,6 +299,18 @@ impl DataSource for Seeded<'_> {
         }
         self.module.answer_for(target, store, source, args)
     }
+    fn overlay(
+        &mut self,
+        source: &str,
+        args: &[exact_plan::Value],
+        answer: &exact_plan::Value,
+        writes: &[exact_runner::Write<'_>],
+    ) -> Result<Option<exact_runner::Overlaid>, exact_runner::DataError> {
+        if self.seed.values.contains_key(source) {
+            return Ok(None);
+        }
+        self.module.overlay(source, args, answer, writes)
+    }
     fn app_id(&self) -> &str {
         self.module.app_id()
     }
@@ -244,13 +344,47 @@ fn mixed_grants<'a>(
     .transpose()
 }
 
+/// `module.rs`'s first constants: the app, its grants and, but in a linked
+/// bake, the module's hash (`REVISION`, which the web's entry passes on); on
+/// a native platform the bytecode, embedded, or in a linked bake the
+/// section the link adds, so that an edit to the module's code leaves the
+/// file as it was.
+fn module_constants(
+    meta: &serde_json::Value,
+    rust_updates: bool,
+    platform: &str,
+    linked: bool,
+) -> Result<String, String> {
+    let mut metadata = format!(
+        "pub const APP: &str = {:?};\npub const GRANTS: &str = {:?};\n",
+        meta["appId"].as_str().ok_or("missing appId")?,
+        meta["grants"].as_str().ok_or("missing grants")?
+    );
+    if !linked {
+        let hash = meta["module"]["sha256"]
+            .as_str()
+            .ok_or("missing module hash")?;
+        metadata.push_str(&format!("pub const REVISION: &str = {hash:?};\n"));
+    }
+    metadata.push_str(&format!("pub const RUST_UPDATES: bool = {rust_updates};\n"));
+    if platform != "web" {
+        metadata.push_str(if linked {
+            LINKED_BYTECODE
+        } else {
+            APP_BYTECODE
+        });
+    }
+    Ok(metadata)
+}
+
 fn build_sources(
     app: &Path,
     platform: &str,
     rust: Option<&dyn DataSource>,
     composer: Option<Composer<'_>>,
+    outside: bool,
 ) -> Result<(), String> {
-    if !matches!(platform, "web" | "macos" | "ios" | "linux") {
+    if !matches!(platform, "web" | "macos" | "ios" | "linux" | "windows") {
         return Err(format!(
             "module client executor is not yet implemented for {platform}"
         ));
@@ -265,6 +399,26 @@ fn build_sources(
         composer,
         None,
     )?;
+    // Cargo says a build script's warnings (prefixed with the crate) as the
+    // script runs, which is when the plan's sources changed. The SF Symbols
+    // only the web draws blank are one line, as `contract build` says them.
+    let web: Vec<&String> = baked
+        .warnings
+        .iter()
+        .filter(|w| contract::web_only_said(w))
+        .collect();
+    for warning in &baked.warnings {
+        let said = match web.first() {
+            Some(first) if std::ptr::eq(*first, warning) => {
+                contract::web_only_line(first, web.len())
+            }
+            Some(_) if contract::web_only_said(warning) => continue,
+            _ => warning.clone(),
+        };
+        for line in said.lines().take(1) {
+            println!("cargo:warning={line}");
+        }
+    }
     let meta: serde_json::Value =
         serde_json::from_str(&baked.receipt).map_err(|e| e.to_string())?;
     let out = PathBuf::from(std::env::var_os("OUT_DIR").ok_or("build requires OUT_DIR")?);
@@ -274,27 +428,39 @@ fn build_sources(
         ("app.hbc", &baked.bytecode[..]),
         ("app.module.json", baked.receipt.as_bytes()),
     ] {
-        std::fs::write(out.join(name), bytes).map_err(|e| e.to_string())?;
+        replace_changed(&out.join(name), bytes)?;
     }
     let manifest = contract::Manifest::read(app)?;
     let target = std::env::var("TARGET").map_err(|e| e.to_string())?;
-    let compat = exact_bake::compatibility_id_sources(
+    let compat = exact_bake::compatibility_id_sources_with_entries(
         app,
         platform,
         &target,
         &manifest,
         meta["grants"].as_str(),
         mixed_grants(&meta, rust)?,
+        Some(&baked.entries),
     )?;
-    if compat.inputs["store"]["L"] != "0" {
-        return Err("module clients currently require deploy.store.<platform> = 0; signed module delivery is not implemented".into());
+    // A TypeScript app's update carries its module pair (`typescript/`); a
+    // mixed app's two modules travel as one generation, which no host takes yet.
+    let updating = compat.inputs["store"]["L"] != "0";
+    if updating && rust.is_some() {
+        return Err("a TypeScript and Rust app currently requires deploy.store.<platform> = 0; signed delivery of both modules is not implemented".into());
     }
-    std::fs::write(out.join("compat.json"), compat.to_json()).map_err(|e| e.to_string())?;
+    // The Apple entry's host: the update composition when the binary has a store.
+    let host = if updating {
+        "exact_apple_update"
+    } else {
+        "exact_apple"
+    };
+    // What an Apple archive links, as its compatibility inputs name it (LLP 1047.001 D2).
+    let linked = (platform != "web").then(|| exact_bake::apple_link(&compat, host));
+    replace_changed(&out.join("compat.json"), compat.to_json().as_bytes())?;
     let rust_updates = compat.inputs["rustMode"] != "off"
         && compat.inputs["rustModule"]
             .as_str()
             .is_some_and(|module| !module.is_empty());
-    let mut metadata = format!("pub const APP: &str = {:?};\npub const GRANTS: &str = {:?};\npub const REVISION: &str = {:?};\npub const RUST_UPDATES: bool = {rust_updates};\n", meta["appId"].as_str().ok_or("missing appId")?, meta["grants"].as_str().ok_or("missing grants")?, meta["module"]["sha256"].as_str().ok_or("missing module hash")?);
+    let mut metadata = module_constants(&meta, rust_updates, platform, outside)?;
     // The module's Canvas 2D roster (LLP 1056 D1), known before it loads.
     metadata.push_str("#[allow(dead_code)]\npub const CANVAS_SURFACES: &[(&str, usize)] = &[");
     for (name, arity) in meta["surfaces"].as_object().into_iter().flatten() {
@@ -320,7 +486,7 @@ fn build_sources(
             "pub const {name}: {placement_type} = {placement_type}::{variant};\n"
         ));
     }
-    std::fs::write(out.join("module.rs"), metadata).map_err(|e| e.to_string())?;
+    replace_changed(&out.join("module.rs"), metadata.as_bytes())?;
     {
         let mode = compat.inputs["rustMode"]
             .as_str()
@@ -331,13 +497,46 @@ fn build_sources(
         } else {
             mode
         };
-        let mut entry = contract::rust_entry("ExactEmbeddedData", "embedded_data()", mode)?;
+        // The Linux (and Android) and Windows hosts make their data source with
+        // `Default` (`exact_linux::run::<D: Default>`); with no Rust module the
+        // entry is otherwise the bare embedded source, which has none. A
+        // replacement-free `Swappable::off` gives it one and links no executor
+        // (LLP 1047.001 D7), as Apple's `host!` gets from `app_data()`.
+        let mut entry = if mode == "off" && matches!(platform, "linux" | "android" | "windows") {
+            "exact_logic::configured!(AppData, ExactEmbeddedData, || exact_logic::Swappable::off(embedded_data()));\n#[allow(dead_code)]\nfn app_data() -> AppData { Default::default() }\n".to_string()
+        } else {
+            contract::rust_entry("ExactEmbeddedData", "embedded_data()", mode)?
+        };
         // The web entry links what the plan uses (LLP 1047 D3).
         if platform == "web" {
             let plan = exact_plan::Plan::decode(&baked.plan).map_err(|e| format!("{e:?}"))?;
             entry.push_str(&contract::web_linked(&plan, &compat.inputs));
         }
-        std::fs::write(out.join("logic.rs"), entry).map_err(|e| e.to_string())?;
+        replace_changed(&out.join("logic.rs"), entry.as_bytes())?;
+        // An Apple entry names what it links (LLP 1047.001 D3) beside it, for
+        // `host!(…; linked = EXACT_LINKED)`; an entry that does not include it
+        // links every capability, as before.
+        if let Some(linked) = linked {
+            replace_changed(&out.join("linked.rs"), linked.as_bytes())?;
+            // `exact_plan()` and `exact_compat()`, for an entry that names
+            // its host itself too; `take_baked` writes the linked pair.
+            let pair = if names_its_plan() { NAMED } else { EMBEDDED };
+            replace_changed(&out.join("baked.rs"), pair.as_bytes())?;
+            // `include!(concat!(env!("OUT_DIR"), "/host.rs"))` instantiates
+            // the host this compatibility id names.
+            let new = if updating {
+                ""
+            } else {
+                "None, std::ptr::null(), "
+            };
+            replace_changed(
+                &out.join("host.rs"),
+                format!(
+                    "include!(concat!(env!(\"OUT_DIR\"), \"/baked.rs\"));\n{host}::host!(AppData, exact_plan(), exact_compat(), {new}app_data; linked = EXACT_LINKED);\n"
+                )
+                .as_bytes(),
+            )?;
+        }
     }
     // Each captured source by name, not the app directory: Cargo scans a named
     // directory recursively, and an app outside this repo keeps its `target/`
@@ -352,7 +551,79 @@ fn build_sources(
             origin(&root, &mounted, name).display()
         );
     }
+    // And the package declarations the type check read: a changed `.d.ts`
+    // checks the app again (LLP 1027 D5, "Type-only package imports").
+    // And the package code the bundle captured ("Package code").
+    let code = package_code(&stage.0)?;
+    for file in package_declarations(&stage.0)?.iter().chain(&code.watched) {
+        println!("cargo:rerun-if-changed={}", file.display());
+    }
+    println!("cargo:rerun-if-env-changed=EXACT_BACKEND_ORIGIN");
+    // An absent file Cargo watches is a missing input, which reran this bake
+    // on every build. The builder says whether the selection exists
+    // (EXACT_BACKEND_SELECTION, as EXACT_ASSET_ROOTS names the asset roots
+    // that do), so its creation still reruns it; a direct Cargo build, which
+    // does not, keeps the watch.
+    println!("cargo:rerun-if-env-changed=EXACT_BACKEND_SELECTION");
+    let selection = root.join(".exact/backend-origin");
+    if selection.exists() || std::env::var_os("EXACT_BACKEND_SELECTION").is_none() {
+        println!("cargo:rerun-if-changed={}", selection.display());
+    }
+    // And the Contract libraries the app uses, wherever they are installed.
+    contract::rerun_if_changed(&root.join("app.contract"));
     Ok(())
+}
+
+/// Every package file the configuration captured for the type check, where
+/// it was read from (`__exact_declarations.json`, written by `stagePackages`).
+fn package_declarations(stage: &Path) -> Result<Vec<PathBuf>, String> {
+    let Ok(bytes) = std::fs::read(stage.join("__exact_declarations.json")) else {
+        return Ok(Vec::new());
+    };
+    let record: serde_json::Value = serde_json::from_slice(&bytes).map_err(|e| e.to_string())?;
+    Ok(record["files"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|file| file.as_str().map(PathBuf::from))
+        .collect())
+}
+
+/// The package code a bake captured (`__exact_packages.json`, written by
+/// `capturedSources`): each package's installed paths, which Cargo walks
+/// (the link itself included, so a retargeted install is a change), each
+/// captured file where it was read (one reached through a file link has no
+/// installed path), and each package's digest of the files and resolutions
+/// captured, for the receipt.
+struct PackageCode {
+    watched: Vec<PathBuf>,
+    packages: serde_json::Map<String, serde_json::Value>,
+}
+
+fn package_code(stage: &Path) -> Result<PackageCode, String> {
+    let Ok(bytes) = std::fs::read(stage.join("__exact_packages.json")) else {
+        return Ok(PackageCode {
+            watched: Vec::new(),
+            packages: serde_json::Map::new(),
+        });
+    };
+    let record: serde_json::Value = serde_json::from_slice(&bytes).map_err(|e| e.to_string())?;
+    let watched = record["packages"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .flat_map(|p| p[2].as_array().into_iter().flatten())
+        .chain(
+            record["files"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .map(|file| &file[2]),
+        )
+        .filter_map(|path| path.as_str().map(PathBuf::from))
+        .collect();
+    let packages = record["digests"].as_object().cloned().unwrap_or_default();
+    Ok(PackageCode { watched, packages })
 }
 
 /// The tools on the producer machine, not on a client.
@@ -362,7 +633,7 @@ pub struct Tools {
     pub tsc: PathBuf,
     /// The bundler (`EXACT_ROLLDOWN`).
     pub rolldown: PathBuf,
-    /// The compiler paired with the host's lean Hermes (`EXACT_HERMESC`).
+    /// The compiler paired with the host's verified lean Hermes bundle.
     pub hermesc: PathBuf,
 }
 
@@ -372,23 +643,23 @@ impl Default for Tools {
         let tool = |key: &str, fallback: PathBuf| {
             std::env::var_os(key).map(PathBuf::from).unwrap_or(fallback)
         };
-        let arch = if std::env::consts::ARCH == "aarch64" {
-            "arm64"
-        } else {
-            "x64"
-        };
         Self {
-            tsc: tool("EXACT_TSC", root.join("node_modules/.bin/tsc")),
-            rolldown: tool("EXACT_ROLLDOWN", root.join("node_modules/.bin/rolldown")),
-            hermesc: tool(
-                "EXACT_HERMESC",
-                if cfg!(target_os = "linux") {
-                    root.join(format!("../ibex/tools/hermes-vanilla/hermesc-linux-{arch}"))
-                } else {
-                    root.join(format!("../ibex/tools/hermes-vanilla/hermesc-macos-{arch}"))
-                },
-            ),
+            tsc: tool("EXACT_TSC", package_tool(&root, "tsc")),
+            rolldown: tool("EXACT_ROLLDOWN", package_tool(&root, "rolldown")),
+            hermesc: PathBuf::from(hermes_lean_sys::HERMESC_PATH),
         }
+    }
+}
+
+impl Tools {
+    fn check_engine(&self) -> Result<(), String> {
+        if exact_js::ENGINE_INPUTS != hermes_lean_sys::LEAN_ENGINE_DIGEST {
+            return Err(
+                "Hermes compiler bundle differs from the linked executor; rebuild the producer"
+                    .into(),
+            );
+        }
+        Ok(())
     }
 }
 
@@ -408,6 +679,11 @@ pub struct Baked {
     /// Development-only source locations, keyed by the final plan digest.
     /// Absent from standalone and Cargo bakes, receipts and module payloads.
     pub source_map: Option<String>,
+    /// The compiler's warnings, each as `contract build` prints it, its file
+    /// from the app's directory: the bake's caller says them (LLP 1116.004 D7).
+    pub warnings: Vec<String>,
+    /// Snapshot plans compiled alongside the app, reused by bundle generation.
+    pub entries: BTreeMap<String, contract::snapshot::Entry>,
 }
 
 /// A temporary directory we created, cleaned on every success/refusal path.
@@ -492,7 +768,13 @@ fn mounts(root: &Path) -> Result<Vec<(String, PathBuf)>, String> {
         let dir = root
             .join(path)
             .canonicalize()
-            .map_err(|e| format!("typescript.sources.{name}: {path}: {e}"))?;
+            // Relative to the app's directory, where app.json is: say which (app farm wave 1, five builds).
+            .map_err(|e| {
+                format!(
+                    "typescript.sources.{name}: {path}, resolved from the app's directory {}: {e}",
+                    root.display()
+                )
+            })?;
         let app = root.canonicalize().map_err(|e| e.to_string())?;
         if !dir.is_dir() || dir.starts_with(&app) || app.starts_with(&dir) {
             return Err(format!(
@@ -500,6 +782,18 @@ fn mounts(root: &Path) -> Result<Vec<(String, PathBuf)>, String> {
             ));
         }
         out.push((name.clone(), dir));
+    }
+    // A file reachable through two mounts would have two places in the
+    // capture, and the web build could resolve its imports from the other:
+    // mounts may not overlap.
+    for (i, (a, a_dir)) in out.iter().enumerate() {
+        for (b, b_dir) in &out[i + 1..] {
+            if a_dir.starts_with(b_dir) || b_dir.starts_with(a_dir) {
+                return Err(format!(
+                    "typescript.sources.{a} and typescript.sources.{b} overlap; mount directories that do not contain each other"
+                ));
+            }
+        }
     }
     Ok(out)
 }
@@ -516,12 +810,44 @@ fn origin(root: &Path, mounts: &[(String, PathBuf)], name: &Path) -> PathBuf {
     }
 }
 
+/// Every Contract source compiling the app reads, and every `package.json`
+/// its resolution read, by path, with their bytes (LLP 1091 D10): read
+/// before the compile and after, so a plan is built from one state of the
+/// app's packages as of the app's own files, or the bake is refused.
+fn contract_inputs(app: &Path) -> Result<BTreeMap<PathBuf, Option<Vec<u8>>>, String> {
+    let graph = contract::source_graph(&app.join("app.contract"));
+    Ok(graph
+        .sources
+        .iter()
+        .map(|source| &source.path)
+        .filter(|path| path.is_absolute())
+        .chain(&graph.consulted)
+        .map(|path| (path.clone(), std::fs::read(path).ok()))
+        .collect())
+}
+
 /// Capture the app-local source graph, and the directories the manifest
-/// mounts beside it. External/npm imports intentionally fail in the private
-/// snapshot until dependency capture is implemented; they must not silently
-/// resolve to unrelated files on the producer machine.
+/// mounts beside it. Packages are captured by the configuration: their
+/// declarations for the type check (`typescript.mjs` `stagePackages`; LLP
+/// 1027 D5, "Type-only package imports"), their code file by file as the
+/// bundle reaches it (`capturedSources`; "Package code").
 fn sources(root: &Path) -> Result<BTreeMap<PathBuf, Vec<u8>>, String> {
     let mounts = mounts(root)?;
+    let manifest = root.join("app.json");
+    let native: Vec<PathBuf> = if manifest.exists() {
+        let json: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(manifest).map_err(|e| e.to_string())?)
+                .map_err(|e| e.to_string())?;
+        json.pointer("/host/macos/resources")
+            .and_then(|v| v.as_array())
+            .into_iter()
+            .flatten()
+            .filter_map(|v| v.get("from").and_then(|v| v.as_str()))
+            .map(|p| root.join(p))
+            .collect()
+    } else {
+        Vec::new()
+    };
     fn walk(
         root: &Path,
         at: &Path,
@@ -529,6 +855,7 @@ fn sources(root: &Path) -> Result<BTreeMap<PathBuf, Vec<u8>>, String> {
         total: &mut usize,
         mounts: &[(String, PathBuf)],
         prefix: &Path,
+        native: &[PathBuf],
     ) -> Result<(), String> {
         for entry in std::fs::read_dir(at).map_err(|e| e.to_string())? {
             let entry = entry.map_err(|e| e.to_string())?;
@@ -539,12 +866,22 @@ fn sources(root: &Path) -> Result<BTreeMap<PathBuf, Vec<u8>>, String> {
             }
             if matches!(&*name, ".git" | "node_modules" | "target" | "dist")
                 || name.starts_with(".exact-js-bake-")
+                // The app's dot directories hold what no build reads: `.exact/`
+                // keeps an agent's diary, evidence, logs and runtime files
+                // (Depot: a `results.json` beside the app made every build stale).
+                || (at == root && name.starts_with('.') && entry.path().is_dir())
+                // The driver reads a test file; no build does, so editing
+                // one rebuilds nothing (trivia F8).
+                || name.ends_with(".test.contract")
                 // Written beside app.ts for an editor (below); the bake makes its own.
                 || (at == root && name == DECLARATIONS)
             {
                 continue;
             }
             let path = entry.path();
+            if native.contains(&path) {
+                continue;
+            }
             let relative = path.strip_prefix(root).unwrap();
             let kind = entry.file_type().map_err(|e| e.to_string())?;
             if let Some((_, dir)) = mounts.iter().find(|(m, _)| at == root && **m == *name) {
@@ -559,18 +896,28 @@ fn sources(root: &Path) -> Result<BTreeMap<PathBuf, Vec<u8>>, String> {
                     path.display()
                 ));
             }
-            if kind.is_symlink() {
-                return Err(format!("source links are not captured: {}", path.display()));
-            }
-            if kind.is_dir() {
-                walk(root, &path, out, total, mounts, prefix)?;
-            } else if matches!(
+            let captured = matches!(
                 path.extension().and_then(|s| s.to_str()),
-                Some("ts" | "json" | "contract" | "ttf" | "otf")
+                Some("ts" | "js" | "mjs" | "cjs" | "json" | "contract" | "ttf" | "otf")
             ) || ["assets", "deck", "gpu/shaders"]
                 .iter()
-                .any(|tree| relative.starts_with(tree))
-            {
+                .any(|tree| relative.starts_with(tree));
+            // Links are refused, except a document link outside the captured
+            // trees (CLAUDE.md → AGENTS.md): no build reads one. The web
+            // build's capture keeps the same rule (host/web-js/build.mjs).
+            if kind.is_symlink() {
+                let document = matches!(
+                    path.extension().and_then(|s| s.to_str()),
+                    Some("md" | "txt")
+                );
+                if captured || !document || path.is_dir() {
+                    return Err(format!("source links are not captured: {}", path.display()));
+                }
+                continue;
+            }
+            if kind.is_dir() {
+                walk(root, &path, out, total, mounts, prefix, native)?;
+            } else if captured {
                 if !kind.is_file() {
                     return Err(format!("source is not a regular file: {}", path.display()));
                 }
@@ -587,17 +934,32 @@ fn sources(root: &Path) -> Result<BTreeMap<PathBuf, Vec<u8>>, String> {
     }
     let mut result = BTreeMap::new();
     let mut total = 0;
-    walk(root, root, &mut result, &mut total, &mounts, Path::new(""))?;
+    walk(
+        root,
+        root,
+        &mut result,
+        &mut total,
+        &mounts,
+        Path::new(""),
+        &native,
+    )?;
     for (name, dir) in &mounts {
         // Only what TypeScript imports: a shared core's tests and fixtures
         // stay behind (the bundle takes only what `app.ts` reaches anyway).
         let mut mounted = BTreeMap::new();
-        walk(dir, dir, &mut mounted, &mut total, &[], Path::new(name))?;
-        result.extend(
-            mounted
-                .into_iter()
-                .filter(|(path, _)| path.extension().is_some_and(|e| e == "ts" || e == "json")),
-        );
+        walk(
+            dir,
+            dir,
+            &mut mounted,
+            &mut total,
+            &[],
+            Path::new(name),
+            &[],
+        )?;
+        result.extend(mounted.into_iter().filter(|(path, _)| {
+            path.extension()
+                .is_some_and(|e| ["ts", "js", "mjs", "cjs", "json"].iter().any(|x| e == *x))
+        }));
     }
     Ok(result)
 }
@@ -647,7 +1009,7 @@ fn digest(bytes: &[u8]) -> String {
 /// Build `app.contract` plus `app.ts`, including app-local imports. The app
 /// exports `appId`, `grants`, and `answer`; the generated entry checks their
 /// types and supplies the executor ABI. No source or source-adjacent generated
-/// declaration is overwritten. This producer currently requires macOS Hermes.
+/// declaration is overwritten. This producer requires its host's lean Hermes.
 pub fn bake(app: &Path, tools: &Tools) -> Result<Baked, String> {
     let stage = Scratch::new(&std::env::temp_dir())?;
     bake_in(
@@ -680,8 +1042,10 @@ fn bake_in(
     if !exact_js::ENGINE_LINKED {
         return Err("TypeScript bake requires the lean Hermes executor on this producer".into());
     }
+    tools.check_engine()?;
     let app = app.canonicalize().map_err(|e| e.to_string())?;
     let captured = sources(&app)?;
+    let inputs = contract_inputs(&app)?;
     if !captured.contains_key(Path::new("app.ts"))
         || !captured.contains_key(Path::new("app.contract"))
     {
@@ -689,19 +1053,21 @@ fn bake_in(
     }
     if [
         "__exact_entry.ts",
+        "__exact_backend_source.json",
         "__exact_tsconfig.json",
         "__exact_config.mjs",
         "__exact_paths.json",
+        "__exact_declarations.json",
+        "__exact_packages.json",
+        "__exact_bundle.mjs",
         "__exact_canvas.js",
         "__exact_canvas.d.ts",
+        "app.js",
     ]
     .iter()
     .any(|name| captured.contains_key(Path::new(name)))
     {
-        return Err(
-            "__exact_entry.ts, __exact_tsconfig.json, __exact_config.mjs, __exact_paths.json and __exact_canvas.* are reserved for the producer"
-                .into(),
-        );
+        return Err("__exact_* and app.js (the bundle) are reserved for the producer".into());
     }
     for name in previous.keys().filter(|name| !captured.contains_key(*name)) {
         let path = stage.join(name);
@@ -722,25 +1088,51 @@ fn bake_in(
         }
     }
     *previous = captured.clone();
-    // A changed graph (including a newly added import) is a refused capture.
-    if sources(&app)? != captured {
-        return Err("app sources changed during capture; retry the build".into());
-    }
+    // The Contract is compiled where it lives, as the web build compiles it
+    // (LLP 1091 D10): its uses, packages and links resolve as they do for
+    // every other reader, with no staged copy to tell apart from the
+    // original. The capture is checked again after, so the plan is built
+    // from the bytes captured, or the bake is refused.
     // Every independent refusal, one after another as `contract build`
     // prints them, in the bake's output and the dev overlay.
     let development = matches!(mode, BakeMode::Development { .. });
-    let (plan, mut source_map) =
-        contract::compile_path_all(&stage.join("app.contract"), development).map_err(|errors| {
-            errors
-                .into_iter()
-                .map(|e| contract_error(e, stage, &app))
-                .collect::<Vec<_>>()
-                .join("\n")
-        })?;
-    if let Some(map) = source_map.as_mut() {
-        map.relocate_sources(stage, &app)?;
+    let (compiled, warned) =
+        contract::compile_path_all_with_warnings(&app.join("app.contract"), development);
+    // Each from the app's directory, as `contract build app.contract` there names it.
+    let mut warnings: Vec<String> = warned
+        .into_iter()
+        .map(|mut warning| {
+            if let Some(file) = warning
+                .file
+                .as_deref()
+                .and_then(|f| f.strip_prefix(&app).ok())
+            {
+                warning.file = Some(file.into());
+            }
+            warning.to_string()
+        })
+        .collect();
+    // A changed graph (including a newly added import) is a refused capture.
+    if sources(&app)? != captured || contract_inputs(&app)? != inputs {
+        return Err("app sources changed during capture; retry the build".into());
     }
-    let mut declarations = contract::typescript(&plan)?;
+    let (plan, source_map) = compiled.map_err(|errors| {
+        errors
+            .into_iter()
+            .map(|e| format!("{e}{}", contract::excerpt(&e)))
+            .collect::<Vec<_>>()
+            .join("\n")
+    })?;
+    write_changed(
+        &stage.join("__exact_backend_source.json"),
+        serde_json::to_string(&String::from_utf8_lossy(&captured[Path::new("app.ts")]))
+            .map_err(|e| e.to_string())?
+            .as_bytes(),
+    )?;
+    let exported = contract::design_exports(&app.join("app.contract"));
+    let entries = contract::snapshot::entries(&app)?;
+    let source_plan = contract::snapshot::source_plan(&entries, &plan)?;
+    let mut declarations = contract::typescript_exporting(&source_plan, exported.as_deref())?;
     // Canvas 2D (LLP 1056 D1): a module that exports `draw` and `surfaces`
     // speaks ABI 2, and only it carries the recorder.
     let app_ts = String::from_utf8_lossy(&captured[Path::new("app.ts")]).into_owned();
@@ -766,6 +1158,10 @@ fn bake_in(
         write_changed(&app.join(DECLARATIONS), declarations.as_bytes())?;
     }
     let mut entry = format!("import * as app from './app';\nimport type {{ Answer }} from './app.contract.d.ts';\nexport const abi = {};\nexport const appId: string = app.appId;\nexport const grants: string = app.grants;\nexport const answer: Answer = app.answer;\n", if draws { 2 } else { 1 });
+    // An overlay shows writes over the resources they change.
+    if exports(&app_ts, "overlay") {
+        entry.push_str("import type { Overlay } from './app.contract.d.ts';\nexport const overlay: Overlay = app.overlay;\n");
+    }
     if draws {
         entry.push_str(CANVAS_ENTRY);
     }
@@ -789,9 +1185,21 @@ fn bake_in(
         compile_once(stage, tools)?;
         compile_bytecode(stage, &tools.hermesc)?;
     }
+    if let Ok(bytes) = std::fs::read(stage.join("__exact_backend_warning.json")) {
+        if let Some(warning) =
+            serde_json::from_slice::<Option<String>>(&bytes).map_err(|e| e.to_string())?
+        {
+            warnings.push(warning);
+        }
+    }
     let script = std::fs::read(stage.join("app.js")).map_err(|e| e.to_string())?;
     let bytecode = std::fs::read(stage.join("app.hbc")).map_err(|e| e.to_string())?;
-    let module = Module::inspect(bytecode.clone())?;
+    let mut module = Module::inspect(bytecode.clone())?;
+    // The 100 ms per-call budget is a runtime promise about a device, not
+    // about a build machine's load: a loaded Mac failed the Signal Clone's
+    // bake at 104.8 ms, then passed on retry. A build fails on the source,
+    // never on how busy the machine was (LLP 1027 §6).
+    module.set_budget_ms(f64::INFINITY);
     let app_id = module.app_id().to_owned();
     let grants = module.grants().to_owned();
     let surfaces: serde_json::Map<String, serde_json::Value> = module
@@ -806,10 +1214,25 @@ fn bake_in(
     // The first frame bakes through the declared owners (LLP 1027.002 §5
     // step 0): the app's composer in a Cargo bake; the previous plan's
     // values for the Rust half a development producer cannot run.
+    let mut refresh_module = Module::inspect(bytecode.clone())?;
+    refresh_module.set_budget_ms(f64::INFINITY);
     let plan = match (composer, seed) {
-        (Some(composer), _) => contract::bake(plan, Composed((composer.compose)(module))),
-        (None, Some(seed)) => contract::bake(plan, Seeded { module, seed }),
-        (None, None) => contract::bake(plan, module),
+        (Some(composer), _) => contract::snapshot::bake_app(
+            &entries,
+            plan,
+            Composed((composer.compose)(module)),
+            Composed((composer.compose)(refresh_module)),
+        ),
+        (None, Some(seed)) => contract::snapshot::bake_app(
+            &entries,
+            plan,
+            Seeded { module, seed },
+            Seeded {
+                module: refresh_module,
+                seed,
+            },
+        ),
+        (None, None) => contract::snapshot::bake_app(&entries, plan, module, refresh_module),
     }
     .map_err(|e| {
         source_map
@@ -818,7 +1241,8 @@ fn bake_in(
     })?
     .encode();
     let source_map = source_map.map(|map| map.json(&plan));
-    let receipt = serde_json::json!({
+    let packages = package_code(stage)?.packages;
+    let mut receipt = serde_json::json!({
         "version": 1, "appId": app_id, "grants": grants, "abi": if draws { 2 } else { 1 },
         "surfaces": surfaces,
         "rustSources": rust_sources,
@@ -826,8 +1250,18 @@ fn bake_in(
         "plan": {"file": "app.plan", "sha256": digest(&plan), "bytes": plan.len()},
         "module": {"file": "app.hbc", "sha256": digest(&bytecode), "bytes": bytecode.len()},
         "web": {"file": "app.js", "sha256": digest(&script), "bytes": script.len()},
-    })
-    .to_string();
+    });
+    if !entries.is_empty() {
+        receipt["plans"] = entries.iter().map(|(kind, entry)| {
+            let bytes = entry.plan.encode();
+            (kind.clone(), serde_json::json!({"file":format!("plans/{kind}.plan"),"bytes":bytes.len(),"sha256":digest(&bytes)}))
+        }).collect::<serde_json::Map<_, _>>().into();
+    }
+    // The package code bundled in, by name and version (absent with none).
+    if !packages.is_empty() {
+        receipt["packages"] = packages.into();
+    }
+    let receipt = receipt.to_string();
     Ok(Baked {
         plan,
         script,
@@ -835,6 +1269,8 @@ fn bake_in(
         declarations,
         receipt,
         source_map,
+        warnings,
+        entries,
     })
 }
 
@@ -849,45 +1285,9 @@ const CANVAS_ENTRY: &str = "import { canvasSeam } from './__exact_canvas.js';\ne
 
 /// What a drawing module's author types against (LLP 1056 D1, stages 1–2):
 /// the context is the web's own interface, narrowed to the built members,
-/// with `drawImage` and `createPattern` taking an image handle (D9).
-const CANVAS_TYPES: &str = "
-/** An image, by the URL or asset an `image` node's `src` takes (LLP 1056 D9). */
-export type ImageHandle = string;
-/** The 2D context a surface draws with (LLP 1056 §3, stages 1 and 2). */
-export type Ctx2D = Pick<OffscreenCanvasRenderingContext2D,
-  | 'save' | 'restore' | 'reset'
-  | 'translate' | 'rotate' | 'scale' | 'transform' | 'setTransform' | 'resetTransform' | 'getTransform'
-  | 'beginPath' | 'moveTo' | 'lineTo' | 'quadraticCurveTo' | 'bezierCurveTo' | 'arc' | 'arcTo' | 'ellipse' | 'rect' | 'roundRect' | 'closePath'
-  | 'fill' | 'stroke' | 'clip' | 'fillRect' | 'strokeRect' | 'clearRect'
-  | 'lineWidth' | 'lineCap' | 'lineJoin' | 'miterLimit' | 'setLineDash' | 'getLineDash' | 'lineDashOffset'
-  | 'fillStyle' | 'strokeStyle' | 'createLinearGradient' | 'createRadialGradient' | 'createConicGradient'
-  | 'globalAlpha' | 'globalCompositeOperation'
-  | 'shadowColor' | 'shadowBlur' | 'shadowOffsetX' | 'shadowOffsetY'
-  | 'imageSmoothingEnabled' | 'imageSmoothingQuality'
-  | 'font' | 'textAlign' | 'textBaseline' | 'direction' | 'letterSpacing' | 'wordSpacing'
-  | 'fontKerning' | 'fontStretch' | 'fontVariantCaps' | 'textRendering'
-  | 'fillText' | 'strokeText' | 'measureText'
-  | 'createImageData' | 'putImageData'> & {
-  drawImage(image: ImageHandle, dx: number, dy: number): void;
-  drawImage(image: ImageHandle, dx: number, dy: number, dw: number, dh: number): void;
-  drawImage(image: ImageHandle, sx: number, sy: number, sw: number, sh: number, dx: number, dy: number, dw: number, dh: number): void;
-  createPattern(image: ImageHandle, repetition: string | null): CanvasPattern | null;
-};
-/** What one draw is told (LLP 1056 D4–D6). */
-export interface Frame {
-  readonly time: number;
-  readonly mounted: number;
-  readonly cause: 'mount' | 'args' | 'size' | 'frame' | 'image' | 'font';
-  readonly causes: readonly string[];
-  readonly width: number;
-  readonly height: number;
-  readonly pixelWidth: number;
-  readonly pixelHeight: number;
-  readonly scale: number;
-}
-/** A module's `draw`: true asks for another frame. */
-export type Draw = (surface: string, args: any, ctx: Ctx2D, frame: Frame) => boolean;
-";
+/// with `drawImage` and `createPattern` taking an image handle (D9). The web
+/// build's type check appends the same file (host/web-js/build.mjs).
+const CANVAS_TYPES: &str = include_str!("canvas-types.d.ts");
 
 /// Whether `app.ts` exports `name` (a function, a binding, or in a list).
 fn exports(source: &str, name: &str) -> bool {
@@ -915,23 +1315,6 @@ fn exports(source: &str, name: &str) -> bool {
     })
 }
 
-fn contract_error(mut error: contract::CompileError, stage: &Path, app: &Path) -> String {
-    let canonical = stage.canonicalize().unwrap_or_else(|_| stage.to_path_buf());
-    for path in error
-        .file
-        .iter_mut()
-        .chain(error.related.iter_mut().filter_map(|r| r.file.as_mut()))
-    {
-        if let Ok(relative) = path
-            .strip_prefix(stage)
-            .or_else(|_| path.strip_prefix(&canonical))
-        {
-            *path = app.join(relative);
-        }
-    }
-    error.to_string()
-}
-
 /// With async break checks in every loop and function, so a host can
 /// interrupt a running call from another thread (LLP 1048.000 D10).
 fn compile_bytecode(stage: &Path, hermesc: &Path) -> Result<(), String> {
@@ -956,41 +1339,68 @@ fn write_changed(path: &Path, bytes: &[u8]) -> Result<(), String> {
     Ok(())
 }
 
+/// `write_changed` for a bake's output, which another process may be reading
+/// (an Apple build's early link reads a linked plan): the new bytes replace
+/// the file whole, by rename.
+fn replace_changed(path: &Path, bytes: &[u8]) -> Result<(), String> {
+    if std::fs::read(path).ok().as_deref() == Some(bytes) {
+        return Ok(());
+    }
+    let staged = PathBuf::from(format!("{}.{}.tmp", path.display(), std::process::id()));
+    std::fs::write(&staged, bytes)
+        .and_then(|()| std::fs::rename(&staged, path))
+        .map_err(|e| format!("{}: {e}", path.display()))
+}
+
+/// The one-shot producer's configuration and check: `tsc` and the repository
+/// root are its arguments; a refused check exits 3.
+const ONE_SHOT_CHECK: &str = r#"
+import { configure, check } from './__exact_config.mjs';
+import { createRequire } from 'node:module';
+import { dirname, resolve } from 'node:path';
+const [tsc, root] = process.argv.slice(1);
+const {parseSync}=await import(createRequire(resolve(root, 'package.json')).resolve('rolldown/utils'));
+configure(process.cwd(),false,parseSync);
+const libraries = resolve(dirname(createRequire(resolve(root, 'package.json')).resolve(`@typescript/typescript-${process.platform}-${process.arch}/package.json`)), 'lib');
+try { await check(process.cwd(), tsc, libraries); }
+catch (error) { process.stderr.write(String(error?.message ?? error)); process.exit(3); }
+"#;
+
 fn compile_once(stage: &Path, tools: &Tools) -> Result<(), String> {
     write_changed(
         &stage.join("__exact_config.mjs"),
         resident::CONFIG.as_bytes(),
     )?;
-    let configured = exact_bake::bun()
-        .args([
-            "--input-type=module",
-            "-e",
-            "import { configure } from './__exact_config.mjs'; configure(process.cwd());",
-        ])
+    // Configure, then check as the resident and web producers check: the
+    // compiler's resolved graph, package declarations included, stays inside
+    // the capture and the configured libraries (`typescript.mjs` `check`).
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let checked = exact_bake::bun()
+        .args(["--input-type=module", "-e", ONE_SHOT_CHECK])
+        .arg(&tools.tsc)
+        .arg(&root)
         .current_dir(stage)
         .output()
         .map_err(|e| format!("tsconfig: {e}"))?;
-    if !configured.status.success() {
-        return Err(String::from_utf8_lossy(&configured.stderr).into_owned());
+    if !checked.status.success() {
+        let said = String::from_utf8_lossy(&checked.stderr).into_owned();
+        return Err(if checked.status.code() == Some(3) {
+            format!("the TypeScript does not compile (tsc):\n{said}")
+        } else {
+            said
+        });
     }
-    run(
-        &tools.tsc,
-        &["--project", "__exact_tsconfig.json", "--pretty", "false"],
-        stage,
-    )?;
     // No absolute import or dependency may escape the captured graph, and a
     // path mapping names only files inside it. This generated config is
     // producer-owned, not app configuration.
     std::fs::write(
         stage.join("__exact_bundle.mjs"),
         r#"
+import { dataBundle } from './__exact_config.mjs';
 export default {
+  ...dataBundle(process.cwd()),
   input: '__exact_entry.ts',
   tsconfig: '__exact_tsconfig.json',
-  plugins: [{ name: 'captured-sources', load(id) {
-    if (!id.startsWith(process.cwd() + '/')) throw new Error('module outside captured app: ' + id);
-    return null;
-  }}],
 };
 "#,
     )
@@ -1007,8 +1417,6 @@ export default {
             "iife",
             "--name",
             "exact",
-            "--platform",
-            "neutral",
             "--file",
             "app.js",
         ],
@@ -1030,6 +1438,7 @@ impl Baked {
         // directory is not a candidate until that complete receipt exists.
         std::fs::create_dir(&output).map_err(|e| e.to_string())?;
         let result = (|| {
+            contract::snapshot::write_entries(&self.entries, &output)?;
             if let Some(map) = &self.source_map {
                 std::fs::write(output.join("app.plan.map.json"), map).map_err(|e| e.to_string())?;
             }

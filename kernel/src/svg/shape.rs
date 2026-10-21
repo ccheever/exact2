@@ -7,7 +7,6 @@ use super::length::{self, Viewport};
 use super::path::{parse_d, parse_points, Path, Seg};
 use crate::generated::{NodeType, PropId};
 use crate::props::PropList;
-use crate::style::Dimension;
 use crate::StyleProps;
 
 /// The cubic control distance of a quarter circle.
@@ -57,11 +56,22 @@ pub fn geometry(
     }
 }
 
-/// `rx` and `ry` as authored: `None` for `auto` (or a negative length,
-/// which is an error SVG renders as `auto`).
+/// Negative literals are invalid; calculations clamp to the nonnegative
+/// range at used-value time (CSS Values 4 §10.12).
 fn radii(style: &StyleProps, vp: Viewport) -> (Option<f32>, Option<f32>) {
-    let r = |d: Dimension, v: f32| (!matches!(d, Dimension::Auto) && v >= 0.0).then_some(v);
-    (r(style.rx, vp.x(style.rx)), r(style.ry, vp.y(style.ry)))
+    use crate::Dimension::*;
+    let r = |d, basis| {
+        let d = match d {
+            Compare(c) => c.substituted(vp.env)?,
+            d => d,
+        };
+        let v = vp.resolve(d, basis)?;
+        match d {
+            Calc(..) | Compare(..) | Env(..) | Segment(..) => Some(v.max(0.0)),
+            _ => (v >= 0.0).then_some(v),
+        }
+    };
+    (r(style.rx, vp.width), r(style.ry, vp.height))
 }
 
 /// An ellipse as SVG 2 §10.4 draws it; an `auto` radius takes the other's.

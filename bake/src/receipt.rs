@@ -4,7 +4,7 @@
 
 use crate::compat::Compat;
 use contract::Manifest;
-use exact_update::{Baked, Envelope};
+use exact_update::{gpu_code_digest as code_digest, Baked, Envelope};
 use serde_json::{json, Value};
 use std::path::{Path, PathBuf};
 
@@ -40,11 +40,12 @@ pub(crate) fn emit(
     compat: &mut Compat,
     trust: &str,
     app: &Path,
-    platform: &str,
-    target: &str,
+    destination: (&str, &str),
     manifest: &Manifest,
     out: &Path,
+    entries: &std::collections::BTreeMap<String, contract::snapshot::Entry>,
 ) -> Result<(), String> {
+    let (platform, target) = destination;
     for name in [
         "EXACT_UPDATE_RECEIPT",
         "EXACT_UPDATE_GENESIS",
@@ -75,6 +76,12 @@ pub(crate) fn emit(
     source_map(trust, app, out, &plan, &plan_bytes);
     let plan_card = json!({"sha256": hash(&plan_bytes), "bytes": plan_bytes.len()});
     let mut assets = asset_cards(app, out, manifest)?;
+    let (widget_assets, plans) = crate::widgets::emit(
+        out,
+        matches!(platform, "ios" | "macos") && app.join("app.ts").is_file(),
+        entries,
+    )?;
+    assets.extend(widget_assets);
     let rust_assets = if let Some(directory) = std::env::var_os("EXACT_RUST_BUNDLE") {
         stage_rust_bundle(
             Path::new(&directory),
@@ -99,6 +106,9 @@ pub(crate) fn emit(
     compat.target = target.into();
     compat.embedded =
         json!({"seq":0,"plan":plan_card,"assets":assets,"entryDigest":null,"genesis":true});
+    if plans.as_object().is_some_and(|p| !p.is_empty()) {
+        compat.embedded["plans"] = plans;
+    }
     // The GPU product is built (and on Apple, signed) before the host. Its
     // exact bytes belong to this app/cohort; a sibling filename is not identity.
     if platform != "web" {
@@ -153,6 +163,7 @@ pub(crate) fn emit(
         std::fs::create_dir_all(&destination)
             .map_err(|e| format!("{}: {e}", destination.display()))?;
         let stem = format!("{platform}-{target}");
+        crate::widgets::copy(out, &destination.join(format!("{stem}.entries")), &assets)?;
         // Never watched: the builder rewrites these from OUT_DIR after every
         // Cargo run, so a watch here would rerun this bake on every next build.
         std::fs::write(destination.join(format!("{stem}.json")), compat.to_json())
@@ -251,16 +262,25 @@ fn asset_cards(app: &Path, out: &Path, manifest: &Manifest) -> Result<Vec<Value>
             outputs.push(PathBuf::from(path));
         }
     }
-    let roots = [app.join("assets"), app.join("deck")].into_iter().chain(
-        inventory["roots"]
-            .as_array()
-            .ok_or("missing shader roots")?
-            .iter()
-            .map(|v| PathBuf::from(v.as_str().unwrap())),
-    );
-    let paths = roots
-        .map(|path| watch::optional_tree(&path, &outputs))
-        .collect::<std::collections::BTreeSet<_>>();
+    println!("cargo:rerun-if-env-changed=EXACT_ASSET_ROOTS");
+    let declared = std::env::var("EXACT_ASSET_ROOTS").ok();
+    let roots = ["assets", "deck"]
+        .into_iter()
+        .filter_map(|root| watch::asset_tree(app, root, &outputs, declared.as_deref()))
+        .chain(
+            inventory["roots"]
+                .as_array()
+                .ok_or("missing shader roots")?
+                .iter()
+                .filter_map(|v| {
+                    watch::shader_tree(
+                        Path::new(v.as_str().unwrap()),
+                        &outputs,
+                        declared.as_deref(),
+                    )
+                }),
+        );
+    let paths = roots.collect::<std::collections::BTreeSet<_>>();
     for path in paths {
         println!("cargo:rerun-if-changed={}", path.display());
     }
@@ -315,7 +335,7 @@ fn stage_rust_bundle(
         serde_json::from_slice(&receipt).map_err(|e| format!("Rust bundle receipt: {e}"))?;
     if meta["version"].as_u64() != Some(1)
         || meta["kind"] != "rust"
-        || meta["abi"].as_u64() != Some(2)
+        || meta["abi"].as_u64() != Some(crate::compat::RUST_ABI.into())
     {
         return Err("Rust bundle has an unsupported receipt or ABI".into());
     }
@@ -427,6 +447,18 @@ fn shape(plan: &exact_plan::Plan, ty: exact_plan::TypesId, depth: usize) -> Resu
     })
 }
 
+/// The plan's requirement graph against a cohort's compatibility inputs
+/// (`exact-bake graph`): what a publisher that starts from a signed stream
+/// head, not a native bake, checks a new plan against.
+pub fn plan_graph(plan_bytes: &[u8], inputs: &Value, target: &str) -> Result<Value, String> {
+    let plan = exact_plan::Plan::decode(plan_bytes).map_err(|e| format!("the plan: {e:?}"))?;
+    let mut graph = artifact_graph(&plan, inputs, &[], target)?;
+    let node = &mut graph["artifacts"][0];
+    node["sha256"] = json!(hash(plan_bytes));
+    node["bytes"] = json!(plan_bytes.len());
+    Ok(graph)
+}
+
 fn artifact_graph(
     plan: &exact_plan::Plan,
     inputs: &Value,
@@ -477,8 +509,37 @@ fn artifact_graph(
         requires.insert("executors".into(), inputs["executors"].clone());
         requires.insert("grantCeiling".into(), inputs["grantCeiling"].clone());
     }
+    // @ref LLP 1075.003.000.001 §4.3 — the hatch words the plan marks that
+    // this platform's module handles: the installed module must handle each.
+    // A word this platform does not handle is no requirement here: its nodes
+    // are shown and never called.
+    let handled = inputs["hatches"].as_array().cloned().unwrap_or_default();
+    let mut marked: Vec<&str> = plan
+        .bindings
+        .iter()
+        .filter(|b| {
+            b.kind == exact_plan::BindingKind::Prop
+                && exact_kernel::PropId::from_wire(b.id) == Some(exact_kernel::PropId::Hatch)
+        })
+        .filter_map(|b| crate::colors::literal(plan, &b))
+        .filter(|word| handled.iter().any(|h| h == word))
+        .collect();
+    marked.sort_unstable();
+    marked.dedup();
+    if !marked.is_empty() {
+        requires.insert("hatches".into(), json!(marked));
+    }
     // A purpose's text is in the installed binary's Info.plist: a bundle
     // whose purposes differ is a binary release (LLP 1069.008 D5).
+    // What a TypeScript module may ask of the binary's prelude (compat.rs
+    // `TYPESCRIPT_RUNTIME`): an older cohort's prelude would ignore it
+    // silently (`exactBodyFrom` sent as an empty body), so it takes no bundle.
+    if inputs.get("typescriptRuntime").is_some() {
+        requires.insert(
+            "typescriptRuntime".into(),
+            inputs["typescriptRuntime"].clone(),
+        );
+    }
     if inputs.get("grantPurposes").is_some() {
         requires.insert("grantPurposes".into(), inputs["grantPurposes"].clone());
     }
@@ -527,7 +588,80 @@ fn artifact_graph(
         }
         artifacts.push(json!({"name":asset["name"],"kind":"bundle","sha256":asset["sha256"],"bytes":asset["bytes"],"requires":requires}));
     }
-    Ok(json!({"version":1,"sources":sources,"surfaceCalls":calls,"artifacts":artifacts}))
+    // The host's loaded modules the plan can reach (LLP 1047 D1's loaded
+    // tier), deferred templates and branches included, each by the rule its
+    // host loads it by: the Canvas 2D GPU module for a `Canvas`, the SVG
+    // island module where `svg_islands` holds, the video arm for a `Video`,
+    // the web arm for a `WebView`, and the sound arm for a declared sound
+    // (LLP 1096 D8: a `sound` declaration is not a node). A build whose plan
+    // is fixed leaves out the rest.
+    let makes = |wanted: exact_kernel::NodeType| {
+        plan.nodes
+            .iter()
+            .any(|node| exact_kernel::NodeType::from_wire(node.node_type) == Some(wanted))
+    };
+    let loads: Vec<&str> = [
+        ("canvas", makes(exact_kernel::NodeType::Canvas)),
+        ("svg", exact_runner::svg_islands(plan)),
+        ("video", makes(exact_kernel::NodeType::Video)),
+        ("web", makes(exact_kernel::NodeType::WebView)),
+        ("sound", !plan.sounds.is_empty()),
+        // LLP 1125 D6: the MIDI arm for a plan that asks for ports or hears an input.
+        ("midi", exact_runner::uses::uses_midi(plan)),
+    ]
+    .into_iter()
+    .filter_map(|(module, reached)| reached.then_some(module))
+    .collect();
+    // LLP 1098 D8: a node that binds `mediaTitle` (`metadata=`) claims the
+    // media session, which iOS shows only for a playback session.
+    let media_session = plan.nodes.iter().any(|node| {
+        node.bindings.iter().any(|b| {
+            let b = plan.binding(b);
+            b.kind == exact_plan::BindingKind::Prop
+                && b.id == exact_kernel::PropId::MediaTitle as u16
+        })
+    });
+    // The linked tier the plan uses (LLP 1047 D2), by name: a native build
+    // whose plan is fixed links these and no other (LLP 1047.001 D2).
+    let uses: Vec<&str> = exact_runner::uses(plan).iter().map(|c| c.name()).collect();
+    Ok(
+        json!({"version":1,"sources":sources,"surfaceCalls":calls,"loads":loads,"uses":uses,"mediaSession":media_session,"launchBackground":launch_background(plan),"artifacts":artifacts}),
+    )
+}
+
+/// LLP 1116.011 D2.3: the ground the app's first route stands on, which the
+/// iOS launch screen shows until its first frame: `"grouped"` where the first
+/// route's `background-color` is the role the compiler gives a route that
+/// scrolls a grouped list (`-exact-grouped-background`, LLP 1116.007 D5),
+/// `"system"` for any other (the platform's page, `systemBackground`). A route
+/// is a node with a `navigationKey` and no `navigationBack` (the navigation
+/// root has both); the first in the plan's order, past the page the compiler
+/// writes for an unknown address (its test id `not-found`), is the first one
+/// the author declared. A route whose background is written or computed is
+/// the author's: the manifest's `background_color` names its launch colour.
+fn launch_background(plan: &exact_plan::Plan) -> &'static str {
+    use exact_kernel::PropId;
+    use exact_plan::BindingKind::{Prop, Style};
+    let literal = |node: &exact_plan::NodesRow, kind, id: u16| {
+        node.bindings.iter().find_map(|b| {
+            let b = plan.binding(b);
+            (b.kind == kind && b.id == id).then(|| crate::colors::literal(plan, &b))
+        })
+    };
+    let route = plan.nodes.iter().find(|node| {
+        let has = |id: PropId| literal(node, Prop, id as u16).is_some();
+        has(PropId::NavigationKey)
+            && !has(PropId::NavigationBack)
+            && literal(node, Prop, PropId::TestId as u16) != Some(Some("not-found"))
+    });
+    let ground = route.and_then(|node| {
+        literal(&node, Style, exact_kernel::StyleId::BackgroundColor as u16).flatten()
+    });
+    if ground == Some("-exact-grouped-background") {
+        "grouped"
+    } else {
+        "system"
+    }
 }
 
 /// Refresh the resident compiler's candidate graph beside its plan. The
@@ -579,10 +713,16 @@ fn apply_release(compat: &mut Compat, bytes: &[u8], plan: &[u8]) -> Result<(), S
         || envelope.stream.compatibility_id != compat.id
         || envelope.stream.seq == 0
     {
-        return Err(
-            "publisher receipt does not name this app, channel, cohort and a published sequence"
-                .into(),
-        );
+        return Err(format!(
+            "publisher receipt names {} {} {} seq {}; this binary is {} {} {}",
+            envelope.app_id,
+            envelope.stream.channel,
+            envelope.stream.compatibility_id,
+            envelope.stream.seq,
+            baked.embedded.app_id,
+            baked.embedded.channel,
+            compat.id
+        ));
     }
     if envelope.plan.sha256 != compat.embedded["plan"]["sha256"]
         || envelope.plan.bytes != plan.len() as u64
@@ -604,15 +744,15 @@ fn apply_release(compat: &mut Compat, bytes: &[u8], plan: &[u8]) -> Result<(), S
     Ok(())
 }
 
-/// A signed GPU product's file name and digest, watched by the bake: its exact
-/// bytes belong to this app and cohort, which the loader checks before opening it.
+/// A signed GPU product's file name and digest, watched by the bake: its code
+/// belongs to this app and cohort, which the loader checks before opening it.
 fn gpu_product(path: &Path) -> Result<(String, String), String> {
     println!("cargo:rerun-if-changed={}", path.display());
     let bytes = std::fs::read(path).map_err(|e| format!("GPU product {}: {e}", path.display()))?;
     let name = path.file_name().and_then(|n| n.to_str());
     Ok((
         name.ok_or("GPU product filename is not UTF-8")?.to_string(),
-        hash(&bytes),
+        code_digest(&bytes),
     ))
 }
 
@@ -652,6 +792,169 @@ mod tests {
         source_map("development", &app, &out, &other, &other.encode());
         assert!(!map.exists(), "a map for other nodes is never written");
         std::fs::remove_dir_all(&root).unwrap();
+    }
+
+    /// LLP 1096 D8: a declared sound is not a node, so the plan's `sounds`
+    /// table is what says a fixed build carries the sound arm.
+    #[test]
+    fn a_plan_with_a_sound_loads_the_sound_arm() {
+        let without = exact_plan::builder::PlanBuilder::new(0, 0)
+            .finish()
+            .unwrap();
+        let mut b = exact_plan::builder::PlanBuilder::new(0, 0);
+        b.sound("assets/kick.wav", 4_800, 48_000, 1, "00");
+        let with = b.finish().unwrap();
+        for (plan, loads) in [(without, json!([])), (with, json!(["sound"]))] {
+            let graph = artifact_graph(&plan, &json!({}), &[], "aarch64-apple-darwin").unwrap();
+            assert_eq!(graph["loads"], loads);
+        }
+    }
+
+    /// LLP 1075.003.000.001 §4.3: the plan requires the hatch words it marks
+    /// that this platform's module handles, and no others.
+    #[test]
+    fn a_plan_requires_the_hatch_words_its_platform_handles() {
+        let mut b = exact_plan::builder::PlanBuilder::new(0, 0);
+        for word in ["dot", "avatar", "avatar", "badge"] {
+            let expr = b.constant(&exact_plan::Value::str(word));
+            let bindings = [exact_plan::BindingsRow {
+                kind: exact_plan::BindingKind::Prop,
+                id: exact_kernel::PropId::Hatch as u16,
+                expr,
+                written: true,
+            }];
+            b.node(
+                exact_kernel::NodeType::Video as u8,
+                None,
+                None,
+                0,
+                &bindings,
+                &[],
+                None,
+            );
+        }
+        let plan = b.finish().unwrap();
+        let requires = |inputs: Value| {
+            let graph = artifact_graph(&plan, &inputs, &[], "aarch64-apple-darwin").unwrap();
+            graph["artifacts"][0]["requires"]["hatches"].clone()
+        };
+        // This platform handles `avatar` and `dot`; `badge` is another platform's.
+        assert_eq!(
+            requires(json!({"hatches": ["avatar", "dot", "unused"]})),
+            json!(["avatar", "dot"])
+        );
+        // A platform that handles none of them is asked for nothing.
+        assert_eq!(requires(json!({"hatches": null})), Value::Null);
+        assert_eq!(requires(json!({})), Value::Null);
+    }
+
+    /// LLP 1108 D6 R2: a TypeScript app's plan requires the prelude runtime
+    /// its compatibility inputs carry (`exactBodyFrom`), so an older cohort
+    /// takes no bundle; an app without one requires none.
+    #[test]
+    fn a_plan_requires_the_typescript_runtime_its_inputs_carry() {
+        let plan = exact_plan::builder::PlanBuilder::new(0, 0)
+            .finish()
+            .unwrap();
+        let requires = |inputs: Value| {
+            let graph = artifact_graph(&plan, &inputs, &[], "aarch64-apple-ios").unwrap();
+            graph["artifacts"][0]["requires"]["typescriptRuntime"].clone()
+        };
+        assert_eq!(
+            requires(json!({"typescriptRuntime": crate::compat::TYPESCRIPT_RUNTIME})),
+            json!(crate::compat::TYPESCRIPT_RUNTIME)
+        );
+        assert_eq!(requires(json!({})), Value::Null);
+    }
+
+    /// LLP 1098 D8: the receipt says whether a node claims the media session.
+    #[test]
+    fn a_plan_with_metadata_claims_the_media_session() {
+        for (prop, claims) in [
+            (exact_kernel::PropId::Src, false),
+            (exact_kernel::PropId::MediaTitle, true),
+        ] {
+            let mut b = exact_plan::builder::PlanBuilder::new(0, 0);
+            let expr = b.constant(&exact_plan::Value::str("Episode 1"));
+            let bindings = [exact_plan::BindingsRow {
+                kind: exact_plan::BindingKind::Prop,
+                id: prop as u16,
+                expr,
+                written: true,
+            }];
+            b.node(
+                exact_kernel::NodeType::Video as u8,
+                None,
+                None,
+                0,
+                &bindings,
+                &[],
+                None,
+            );
+            let graph = artifact_graph(
+                &b.finish().unwrap(),
+                &json!({}),
+                &[],
+                "aarch64-apple-darwin",
+            )
+            .unwrap();
+            assert_eq!(
+                (graph["loads"].clone(), graph["mediaSession"].clone()),
+                (json!(["video"]), json!(claims))
+            );
+        }
+    }
+
+    /// LLP 1116.011 D2.3: the receipt says what the first route stands on, for
+    /// the iOS launch screen: the grouped grey where the route scrolls a
+    /// grouped list (stopwatch, round 13), the page's own otherwise.
+    #[test]
+    fn a_plan_says_the_ground_its_first_route_stands_on() {
+        const SCREEN: &str = "routes nav
+  home \"/\"
+component App
+  view
+    main navigationKey=`${top(nav).id}` navigationBack=\"back\"
+      for e in stack(nav) key=e.id
+        column navigationKey=`${e.id}` navigationScroll=\"l\" ROUTE position=\"absolute\" inset=0
+          header
+            text \"Laps\" role=\"heading\" aria-level=1
+          LIST
+            section
+              row
+                text \"One\"
+";
+        const GROUPED: &str =
+            "list id=\"l\" appearance=\"auto\" listStyle=\"inset-grouped\" flex=1 min-height=0";
+        let launch = |route: &str, list: &str| {
+            let plan = contract::compile(&SCREEN.replace("ROUTE", route).replace("LIST", list))
+                .unwrap_or_else(|e| panic!("{e}"));
+            artifact_graph(&plan, &json!({}), &[], "aarch64-apple-ios-sim").unwrap()
+                ["launchBackground"]
+                .clone()
+        };
+        assert_eq!(launch("", GROUPED), json!("grouped"));
+        assert_eq!(
+            launch("", &GROUPED.replace("inset-grouped", "grouped")),
+            json!("grouped")
+        );
+        // Any other scroll, or a page of its own, is the platform's.
+        assert_eq!(
+            launch("", "scroll id=\"l\" flex=1 min-height=0"),
+            json!("system")
+        );
+        assert_eq!(
+            launch("background-color=\"-exact-background\"", GROUPED),
+            json!("system")
+        );
+        // No route at all, as a plan with no navigation root is.
+        let bare =
+            contract::compile("component App\n  view\n    text \"a\" testId=\"a\"\n").unwrap();
+        assert_eq!(
+            artifact_graph(&bare, &json!({}), &[], "aarch64-apple-ios-sim").unwrap()
+                ["launchBackground"],
+            json!("system")
+        );
     }
 
     #[test]
@@ -705,7 +1008,7 @@ mod tests {
         let inputs =
             json!({"app":"com.exact.caltrain","grantCeiling":"","rustGrants":"","rustMode":"wasm"});
         let module = b"\0asm\x01\0\0\0";
-        let receipt = json!({"version":1,"kind":"rust","abi":2,"appId":inputs["app"],"grants":"",
+        let receipt = json!({"version":1,"kind":"rust","abi":crate::compat::RUST_ABI,"appId":inputs["app"],"grants":"",
             "target":"wasm32-unknown-unknown","executor":"wasm",
             "plan":{"file":"app.plan","sha256":hash(plan),"bytes":plan.len()},
             "module":{"file":"app.module.wasm","sha256":hash(module),"bytes":module.len()}});

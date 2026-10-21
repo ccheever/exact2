@@ -88,7 +88,7 @@ function digest() {
 function artifact(host, paths) {
   const h = createHash('sha256');
   try {
-    const files = host === 'web' ? ['.exact-build.json','app.wasm','gpu_bg.wasm','gpu.js','glue.js','gpu-glue.js','app.plan'].map(f=>resolve(dist,f)) : [paths.binary, resolve(paths.products,'libexact_gpu.dylib'), resolve(paths.products,'libexact_web.dylib'), resolve(paths.products,'ExactMac-Info.plist')];
+    const files = host === 'web' ? ['.exact-build.json','app.wasm','gpu_bg.wasm','gpu.js','glue.js','gpu-glue.js','app.plan'].map(f=>resolve(dist,f)) : [paths.binary, resolve(paths.products,'libexact_gpu.dylib'), resolve(paths.products,'libexact_web.dylib'), resolve(paths.products,`${paths.executable}-Info.plist`)];
     for (const f of files) h.update(readFileSync(f));
     return h.digest('hex');
   } catch { return null; }

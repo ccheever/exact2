@@ -19,6 +19,19 @@ private typealias WebReplyFn = @convention(c) (
     UnsafeMutableRawPointer?, UInt32, UInt32, UInt32, UnsafePointer<UInt8>?, UInt32
 ) -> Void
 
+private typealias WebAssetSinkFn = @convention(c) (UnsafeMutableRawPointer?, UnsafePointer<UInt8>?, UInt32) -> Void
+private typealias WebAssetReadFn = @convention(c) (UnsafePointer<UInt8>?, UInt32, UnsafeMutableRawPointer?, WebAssetSinkFn?) -> Void
+
+/// An app asset for the arm's `exact-app` origin, through the resolver every
+/// session reads: a delivered generation's or the dev URL's files reach a
+/// bundled page's sub-resources as they reach its document (@ref LLP 1020.001 D3).
+private let exactWebAssetRead: WebAssetReadFn = { name, length, context, sink in
+    guard let sink else { return }
+    let name = String(decoding: UnsafeBufferPointer(start: name, count: Int(length)), as: UTF8.self)
+    guard let bytes = ExactApp.shared.resolver.bytes(name) else { return }
+    bytes.withUnsafeBytes { sink(context, $0.bindMemory(to: UInt8.self).baseAddress, UInt32(bytes.count)) }
+}
+
 private struct WebLoadError: Error { let message: String }
 private struct WebRequestError: Error { let message: String }
 
@@ -26,9 +39,11 @@ private final class WebModule {
     typealias CreateFn = @convention(c) (UInt32, UnsafeMutableRawPointer?, WebEventFn?, WebReplyFn?) -> UnsafeMutableRawPointer?
     typealias PlatformViewFn = @convention(c) (UnsafeMutableRawPointer?) -> UnsafeMutableRawPointer?
     typealias SetFn = @convention(c) (UnsafeMutableRawPointer?, UnsafePointer<UInt8>?, UInt32, UInt32) -> Void
+    typealias PostFn = @convention(c) (UnsafeMutableRawPointer?, UnsafePointer<UInt8>?, UInt32) -> Void
     typealias SnapshotFn = @convention(c) (UnsafeMutableRawPointer?, UInt32) -> Void
     typealias EvalFn = @convention(c) (UnsafeMutableRawPointer?, UInt32, UnsafePointer<UInt8>?, UInt32) -> Void
     typealias DestroyFn = @convention(c) (UnsafeMutableRawPointer?) -> Void
+    typealias SetReaderFn = @convention(c) (WebAssetReadFn?) -> Void
 
     let library: UnsafeMutableRawPointer
     let create: CreateFn
@@ -36,6 +51,7 @@ private final class WebModule {
     let setSrc: SetFn
     let setDocument: SetFn
     let setSandbox: SetFn
+    let postMessage: PostFn
     let snapshot: SnapshotFn
     let evaluate: EvalFn
     let destroy: DestroyFn
@@ -52,23 +68,26 @@ private final class WebModule {
               let setSrc = symbol("exact_web_set_src", SetFn.self),
               let setDocument = symbol("exact_web_set_document", SetFn.self),
               let setSandbox = symbol("exact_web_set_sandbox", SetFn.self),
+              let postMessage = symbol("exact_web_post_message", PostFn.self),
               let snapshot = symbol("exact_web_snapshot", SnapshotFn.self),
               let evaluate = symbol("exact_web_agent_eval", EvalFn.self),
-              let destroy = symbol("exact_web_destroy", DestroyFn.self)
+              let destroy = symbol("exact_web_destroy", DestroyFn.self),
+              let setReader = symbol("exact_web_set_reader", SetReaderFn.self)
         else {
             dlclose(library)
             return .failure(WebLoadError(message: "\(path) is not an exact web arm (missing exports)"))
         }
+        setReader(exactWebAssetRead)
         return .success(WebModule(
             library: library, create: create, platformView: platformView,
-            setSrc: setSrc, setDocument: setDocument, setSandbox: setSandbox, snapshot: snapshot,
+            setSrc: setSrc, setDocument: setDocument, setSandbox: setSandbox, postMessage: postMessage, snapshot: snapshot,
             evaluate: evaluate, destroy: destroy))
     }
 
     private init(
         library: UnsafeMutableRawPointer, create: @escaping CreateFn,
         platformView: @escaping PlatformViewFn, setSrc: @escaping SetFn, setDocument: @escaping SetFn,
-        setSandbox: @escaping SetFn, snapshot: @escaping SnapshotFn,
+        setSandbox: @escaping SetFn, postMessage: @escaping PostFn, snapshot: @escaping SnapshotFn,
         evaluate: @escaping EvalFn, destroy: @escaping DestroyFn
     ) {
         self.library = library
@@ -77,6 +96,7 @@ private final class WebModule {
         self.setSrc = setSrc
         self.setDocument = setDocument
         self.setSandbox = setSandbox
+        self.postMessage = postMessage
         self.snapshot = snapshot
         self.evaluate = evaluate
         self.destroy = destroy
@@ -99,6 +119,8 @@ private final class WebEntry {
     var initialized = false
     var loading = true
     var unavailable = false
+    var fileFailed = false
+    var sourceRevision: UInt64 = 0
 
     init(owner: NodeView, callback: WebCallbackBox) {
         self.owner = owner
@@ -140,6 +162,7 @@ final class WebViews {
     private var waits: [UInt32: WebWait] = [:]
     private var nextToken: UInt32 = 1
     private(set) var failure: String?
+    var moduleLocation: () -> String = WebViews.modulePath
 
     var status: String {
         if module != nil { return "module loaded; \(entries.count) iframes" }
@@ -158,7 +181,7 @@ final class WebViews {
         if let module { return module }
         guard !WebViews.attempted else { return nil }
         WebViews.attempted = true
-        switch WebModule.load(path: WebViews.modulePath()) {
+        switch WebModule.load(path: moduleLocation()) {
         case .success(let loaded):
             WebViews.sharedModule = loaded
             return loaded
@@ -212,10 +235,18 @@ final class WebViews {
         entry.sandbox = sandbox
         entry.initialized = true
         guard let module, let handle = entry.handle, changedSrc || changedSandbox else { return }
+        guard changedSrc else {
+            if !entry.fileFailed { entry.loading = true }
+            send(sandbox, to: handle, using: module.setSandbox)
+            return
+        }
         entry.loading = true
-        guard changedSrc else { send(sandbox, to: handle, using: module.setSandbox); return }
-        guard let src, URL(string: src)?.scheme == nil, !src.hasPrefix("//"), let resolver = session?.app.resolver else {
-            send(nil, to: handle, using: module.setDocument)
+        entry.fileFailed = false
+        entry.sourceRevision &+= 1
+        let revision = entry.sourceRevision
+        let resolver = session?.app.resolver
+        guard let src, src.hasPrefix("app:/") || (URL(string: src)?.scheme == nil && !src.hasPrefix("//") && resolver != nil) else {
+            send(nil as Data?, to: handle, using: module.setDocument)
             if changedSandbox { send(sandbox, to: handle, using: module.setSandbox) }
             send(src, to: handle, using: module.setSrc)
             return
@@ -223,15 +254,30 @@ final class WebViews {
         // A local document is read off the main thread, once per `src`
         // (a row mounting read its file on the main thread at every
         // update); `src` reaches the arm with it, and the frame shows
-        // loading until then.
+        // loading until then. Its bytes go as they are: the arm shows an
+        // HTML file as a document and another (a PDF) by its type (#115).
         let path = src.components(separatedBy: "?")[0].components(separatedBy: "#")[0]
         let name = path.hasPrefix("/") ? String(path.dropFirst()) : path
         let id = owner.id
+        let appFile = src.hasPrefix("app:/") ? AppFiles.url(path) : nil
         WebViews.reads.async { [weak self] in
-            let document = resolver.bytes(name).map { String(decoding: $0, as: UTF8.self) } ?? ""
+            let document = src.hasPrefix("app:/")
+                ? appFile.flatMap { try? Data(contentsOf: $0) }
+                : resolver?.bytes(name)
             DispatchQueue.main.async {
-                guard let self, let entry = self.entries[id], entry.src == src, let handle = entry.handle, let module = self.module else { return }
-                self.send(document, to: handle, using: module.setDocument)
+                guard let self, self.entries[id] === entry, entry.sourceRevision == revision, let handle = entry.handle, let module = self.module else { return }
+                if src.hasPrefix("app:/"), document == nil {
+                    entry.fileFailed = true
+                    entry.loading = false
+                    self.send(nil as Data?, to: handle, using: module.setDocument)
+                    self.send(entry.sandbox, to: handle, using: module.setSandbox)
+                    self.send(nil as String?, to: handle, using: module.setSrc)
+                    if let session = self.session, entry.owner?.handlers.contains("error") == true {
+                        session.apply(session.runtime.media(id, event: "error", payload: "iframe: \(src): file unavailable", now: session.now()))
+                    }
+                    return
+                }
+                self.send(document ?? Data(), to: handle, using: module.setDocument)
                 self.send(entry.sandbox, to: handle, using: module.setSandbox)
                 self.send(src, to: handle, using: module.setSrc)
             }
@@ -247,11 +293,30 @@ final class WebViews {
     }
 
     private func send(_ value: String?, to handle: UnsafeMutableRawPointer, using setter: WebModule.SetFn) {
-        guard let value else { setter(handle, nil, 0, 0); return }
-        let data = Data(value.utf8)
+        send(value.map { Data($0.utf8) }, to: handle, using: setter)
+    }
+
+    private func send(_ data: Data?, to handle: UnsafeMutableRawPointer, using setter: WebModule.SetFn) {
+        guard let data else { setter(handle, nil, 0, 0); return }
         data.withUnsafeBytes { bytes in
             setter(handle, bytes.bindMemory(to: UInt8.self).baseAddress, UInt32(data.count), 1)
         }
+    }
+
+    /// Replies are sent only to this mounted frame, never queued by its authored id.
+    func postMessage(_ target: String, _ text: String) {
+        let matches = entries.values.filter { $0.owner?.props["id"] == target }
+        guard matches.count == 1, let entry = matches.first, !entry.fileFailed,
+              let handle = entry.handle, let module else {
+            fputs("exact: postMessage: no unique live iframe with id \(target)\n", stderr)
+            return
+        }
+        Data(text.utf8).withUnsafeBytes { bytes in
+            module.postMessage(handle, bytes.bindMemory(to: UInt8.self).baseAddress, UInt32(bytes.count))
+        }
+    }
+    func hasFrame(_ target: String) -> Bool {
+        entries.values.contains { $0.owner?.props["id"] == target }
     }
 
     func destroy(id: UInt32) {
@@ -265,7 +330,7 @@ final class WebViews {
     }
 
     fileprivate func receivedEvent(id: UInt32, kind: UInt32, data: Data) {
-        guard let entry = entries[id], let owner = entry.owner else { return }
+        guard let entry = entries[id], !entry.fileFailed, let owner = entry.owner else { return }
         switch kind {
         case 0:
             if owner.handlers.contains("load") { DispatchQueue.main.async { [weak owner] in owner?.presenter?.load(id) } }
@@ -381,7 +446,8 @@ final class WebViews {
           // Script input is intentionally isTrusted:false (@ref LLP 1020 D4).
           target.focus();
           \(action)
-          return JSON.stringify({ok:true, value:'value' in target ? target.value : target.textContent});
+          // A password's value is never agent output (#134): a fixed mark.
+          return JSON.stringify({ok:true, value:'value' in target ? (target.type === 'password' && target.value ? '•••' : target.value) : target.textContent});
         })()
         """
         let object: [String: Any]
@@ -459,5 +525,21 @@ final class WebViews {
         text.removeFirst()
         text.removeLast()
         return text
+    }
+}
+
+extension ExactSession {
+    /// `postMessage(text, target)`: the compiler marks an iframe target; a name that is both a
+    /// live frame's id and a canvas surface, or a canvas post to a frame's id, is refused.
+    func post(_ text: String, to target: String, iframe: Bool) {
+        if webviews.hasFrame(target) && canvases.hasSurface(target) {
+            fputs("exact: postMessage: ambiguous iframe id and canvas surface \(target)\n", stderr)
+        } else if iframe {
+            webviews.postMessage(target, text)
+        } else if webviews.hasFrame(target) {
+            fputs("exact: postMessage: canvas name collides with an iframe id \(target)\n", stderr)
+        } else {
+            canvases.post(target, text)
+        }
     }
 }

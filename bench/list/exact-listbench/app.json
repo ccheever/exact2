@@ -1,0 +1,17 @@
+{
+  "$schema": "../../../scripts/app.schema.json",
+  "name": "List Bench",
+  "short_name": "List Bench",
+  "id": "dev.exact.listbench.exact",
+  "start_url": "/",
+  "display": "standalone",
+  "theme_color": "#f2f2f7",
+  "background_color": "#f2f2f7",
+  "app": { "id": "dev.exact.listbench.exact", "name": "List Bench" },
+  "rust": { "mode": "off" },
+  "host": {
+    "ios": { "minimumOS": "17.0", "deviceFamily": ["iphone", "ipad"] },
+    "macos": { "minimumOS": "14.0" }
+  },
+  "deploy": { "store": { "macos": "0", "ios": "0" } }
+}

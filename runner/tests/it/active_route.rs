@@ -3,7 +3,7 @@
 //! and a covered copy is the target only when no active screen carries it.
 use exact_kernel::Kernel;
 use exact_plan::Value;
-use exact_runner::{agent, DataError, DataSource, Runner};
+use exact_runner::{agent, DataError, DataSource, Head, Runner};
 
 struct NoData;
 impl DataSource for NoData {
@@ -17,15 +17,15 @@ const SOURCE: &str = "routes nav
     thread \"/t/:thread\"
 
 component App
-  action back writes nav
+  action back
     nav = back(nav)
   view
     main navigationKey=`${top(nav).id}` navigationBack=\"back\" testId=\"navigation\"
-      each e in stack(nav) key=e.id
+      for e in stack(nav) key=e.id
         column navigationKey=`${e.id}` testId=`route-${e.name}`
           button testId=\"dup\" press=back
             text e.name
-          when e.name == \"home\"
+          if e.name == \"home\"
             text \"only here\" testId=\"only-home\"
 ";
 
@@ -103,4 +103,116 @@ fn a_test_id_resolves_on_the_selected_route_and_covered_screens_are_flagged() {
         field(nodes(&found)[0], "parent"),
         field(by_test_id(&tree, "route-home"), "id")
     );
+}
+
+/// shop F16: with tabs (LLP 1075.003 §3.7) each tabpanel is a stack, and
+/// every screen of a tab that is not selected is inactive too: its top
+/// screen's copy of a testId is never the target while the selected tab's
+/// carries it.
+const TABS: &str = "routes nav
+  tab a \"/\"
+  tab b \"/b\"
+
+component App
+  action pick(name: string)
+    nav = select(nav, name)
+  view
+    main navigationKey=`${top(nav).id}` navigationBack=\"back\"
+      column
+        for t in nav.tabs key=t.name
+          column role=\"tabpanel\" id=`panel-${t.name}` testId=`panel-${t.name}`
+            for e in t.stack key=e.id
+              column navigationKey=`${e.id}`
+                button testId=\"hello\" press=pick(\"a\")
+                  text e.name
+      row role=\"tablist\"
+        button press=pick(\"a\") testId=\"tab-a\" role=\"tab\" aria-controls=\"panel-a\" aria-selected=(nav.tab == \"a\")
+          text \"A\"
+        button press=pick(\"b\") testId=\"tab-b\" role=\"tab\" aria-controls=\"panel-b\" aria-selected=(nav.tab == \"b\")
+          text \"B\"
+";
+
+#[test]
+fn a_test_id_resolves_on_the_selected_tab_and_the_other_tabs_are_flagged() {
+    let plan = contract::compile(TABS).unwrap();
+    let mut r = Runner::boot(
+        plan,
+        NoData,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    r.act("pick", vec![Value::str("b")]).unwrap();
+    let tree = agent::tree(&r);
+    let (a, b) = (by_test_id(&tree, "panel-a"), by_test_id(&tree, "panel-b"));
+    assert_eq!(field(a, "inactive"), "true");
+    assert!(!b.contains("\"inactive\""), "{b}");
+    let hellos: Vec<&str> = nodes(&tree)
+        .into_iter()
+        .filter(|n| n.contains("\"testId\":\"hello\""))
+        .collect();
+    assert_eq!(hellos.len(), 2);
+    assert_eq!(field(hellos[0], "inactive"), "true");
+    assert!(!hellos[1].contains("\"inactive\""), "{}", hellos[1]);
+    // The target is tab b's copy, not tab a's first in preorder.
+    let found = target(&r, "hello");
+    assert_eq!(field(nodes(&found)[0], "id"), field(hellos[1], "id"));
+    // Back on tab a, b's screen is the inactive one.
+    r.act("pick", vec![Value::str("a")]).unwrap();
+    let tree = agent::tree(&r);
+    assert_eq!(field(by_test_id(&tree, "panel-b"), "inactive"), "true");
+    assert!(!by_test_id(&tree, "panel-a").contains("\"inactive\""));
+}
+
+#[test]
+fn the_head_follows_the_selected_tabs_top_screen() {
+    let plan = contract::compile(include_str!(
+        "../../../host/web-js/conformance/heads-tabs.contract"
+    ))
+    .unwrap();
+    let mut r = Runner::boot(
+        plan,
+        NoData,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    let home = Head {
+        title: Some("Home".into()),
+        description: Some("Base description".into()),
+        robots: Some("noindex".into()),
+        ..Head::default()
+    };
+    let detail = Head {
+        title: Some("Detail".into()),
+        canonical: Some("/detail".into()),
+        status: Some(410),
+        ..home.clone()
+    };
+    let saved = Head {
+        title: Some("Saved".into()),
+        description: Some("Saved description".into()),
+        image: Some("/saved.png".into()),
+        canonical: Some("/saved".into()),
+        robots: Some("nofollow".into()),
+        status: Some(404),
+        edited: true,
+    };
+    assert_eq!(r.head(), home);
+    for (action, args, expected) in [
+        ("pick", vec![Value::str("saved")], &saved),
+        ("pick", vec![Value::str("home")], &home),
+        ("push", vec![], &detail),
+        ("pick", vec![Value::str("saved")], &saved),
+        ("pick", vec![Value::str("home")], &detail),
+        ("back", vec![], &home),
+        ("pick", vec![Value::str("saved")], &saved),
+        ("pick", vec![Value::str("home")], &home),
+    ] {
+        r.act(action, args).unwrap();
+        assert_eq!(&r.head(), expected, "after {action}");
+        assert_eq!(&r.document_tree().unwrap().head(), expected, "document");
+    }
 }

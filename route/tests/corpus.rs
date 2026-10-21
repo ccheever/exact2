@@ -313,7 +313,7 @@ fn corpus_verb_sequences() {
 // all three tables. The JSON supplies its statement and the location domain.
 fn law(name: &str, run: impl Fn(&Table, &Router, &[String])) {
     let c = corpus();
-    assert_eq!(c.laws.len(), 9);
+    assert_eq!(c.laws.len(), 10);
     assert!(!c
         .laws
         .iter()
@@ -336,10 +336,23 @@ fn law(name: &str, run: impl Fn(&Table, &Router, &[String])) {
 fn law_back_undoes_a_push_on_the_selected_stack() {
     law("back_push", |t, r, urls| {
         for url in urls {
+            if top(r).is_some_and(|e| e.url == canonical(url)) {
+                continue; // the top's own location: law_push_of_the_top_is_unchanged
+            }
             let pushed = success(push(t, r.clone(), url));
             let popped = success(back(t, pushed));
             assert_eq!(stack(&popped), stack(r));
             assert_eq!(popped.tabs, r.tabs);
+        }
+    });
+}
+#[test]
+fn law_push_of_the_top_is_unchanged() {
+    // A same-URL navigation replaces its entry (HTML); a link to the screen
+    // shown adds no visit.
+    law("push_top", |t, r, _| {
+        if let Some(url) = top(r).map(|e| e.url.clone()) {
+            assert_eq!(&success(push(t, r.clone(), &url)), r);
         }
     });
 }

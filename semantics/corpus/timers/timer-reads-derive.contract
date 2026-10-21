@@ -1,0 +1,16 @@
+// A timer's action reads derives and resources as settled at the last
+// commit.
+component App
+  state n = 1
+  derive doubled = n * 2
+  action tick
+    n = doubled
+  task t mount
+    every(10, tick)
+  view
+    text `${n} ${doubled}` testId="r"
+
+test "doubling"
+  clock +50
+  expect state n == 32
+  expect text "r" == "32 64"

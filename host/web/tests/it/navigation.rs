@@ -11,6 +11,33 @@ impl DataSource for Empty {
     }
 }
 
+#[test]
+fn incoming_notification_locations_use_the_route_corpus_through_the_web_abi() {
+    let corpus: serde_json::Value =
+        serde_json::from_str(include_str!("../../../../route/tests/corpus.json")).unwrap();
+    let mut bridge = exact_web::abi::Bridge::<caltrain_data::Caltrain>::new();
+    for section in ["location_of", "canonical"] {
+        for case in corpus[section].as_array().unwrap() {
+            let input = case["input"].as_str().unwrap();
+            let href = if section == "canonical" {
+                format!(
+                    "https://x{}{input}",
+                    if input.starts_with('/') { "" } else { "/" }
+                )
+            } else {
+                input.to_owned()
+            };
+            let count = bridge.input_write(href.as_bytes());
+            let len = bridge.location_of(count);
+            assert_eq!(
+                std::str::from_utf8(bridge.output_bytes(len as usize)).unwrap(),
+                case["expected"].as_str().unwrap(),
+                "{href}"
+            );
+        }
+    }
+}
+
 /// Real Chrome sweep, run by `bun scripts/smoke.mjs web`: the wasm host.
 #[test]
 #[ignore = "real Chrome sweep: bun scripts/smoke.mjs web"]
@@ -27,15 +54,9 @@ fn browser_session_history_on_the_js_target() {
 
 fn sweep(js: bool) {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-    let chrome = std::env::var("CHROME")
-        .unwrap_or_else(|_| "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome".into());
     let dist = std::env::var_os("EXACT_ROUTER_DIST")
         .map(std::path::PathBuf::from)
         .unwrap_or_else(|| root.join("host/web/dist"));
-    assert!(
-        Path::new(&chrome).exists(),
-        "Chrome is required: set CHROME"
-    );
     assert!(
         js || dist.join("app.wasm").exists(),
         "build the web dist first"
@@ -50,7 +71,7 @@ fn sweep(js: bool) {
         .replace("params(nav, \"person\")", "")
         .replace(
             "  state initialUrl",
-            "  state blurPresses = 0\n  action editorBlur writes blurPresses\n    blurPresses = blurPresses + 1\n  state initialUrl",
+            "  state blurPresses = 0\n  action editorBlur\n    blurPresses = blurPresses + 1\n  state initialUrl",
         )
         .replace(
             "  state initialUrl",
@@ -64,30 +85,52 @@ fn sweep(js: bool) {
             "  state scriptURL = \"java\\tscript:parent.scriptProbe++\"\n  state initialUrl",
         )
         .replace(
-            "          when e.name == \"home\"\n",
-            "          link href=\"/post/42\" testId=`link-post-${e.id}` padding=8\n            text \"Link post\"\n          text testId=`link-text-${e.id}`\n            text \"Link person\" href=\"/people/7\" testId=`link-person-${e.id}`\n          link href=\"/prompts\" press=selectTab(\"prompts\") testId=`link-press-${e.id}` padding=8\n            text \"Link prompts by press\"\n          link href=\"/post/43\" press=push(\"/post/43\") testId=`link-push-${e.id}` padding=8\n            text \"Link that pushes\"\n          link href=\"/manifest.json\" testId=`link-file-${e.id}` padding=8\n            text \"Link undeclared\"\n          when e.name == \"home\"\n",
+            "          if e.name == \"home\"\n",
+            "          link href=\"/post/42\" testId=`link-post-${e.id}` padding=8\n            text \"Link post\"\n          text testId=`link-text-${e.id}`\n            text \"Link person\" href=\"/people/7\" testId=`link-person-${e.id}`\n          link href=\"/prompts\" press=selectTab(\"prompts\") testId=`link-press-${e.id}` padding=8\n            text \"Link prompts by press\"\n          link href=\"/post/43\" press=push(\"/post/43\") testId=`link-push-${e.id}` padding=8\n            text \"Link that pushes\"\n          link href=\"/manifest.json\" testId=`link-file-${e.id}` padding=8\n            text \"Link undeclared\"\n          if e.name == \"home\"\n",
         )
         .replace(
-            "          when e.name == \"home\"\n            text \"Home\"\n",
-            "          when e.name == \"home\"\n            text \"Home\"\n            link href=\"javascript:globalThis.scriptProbe++\" testId=`script-link-${e.id}` padding=8\n              text \"Script link\"\n            text testId=`script-text-${e.id}`\n              text \"Script run\" href=scriptURL testId=`script-run-${e.id}`\n            iframe scriptURL width=40 height=20 testId=`script-frame-${e.id}`\n",
+            "          if e.name == \"home\"\n            text \"Home\"\n",
+            "          if e.name == \"home\"\n            text \"Home\"\n            link href=\"javascript:globalThis.scriptProbe++\" testId=`script-link-${e.id}` padding=8\n              text \"Script link\"\n            text testId=`script-text-${e.id}`\n              text \"Script run\" href=scriptURL testId=`script-run-${e.id}`\n            iframe scriptURL width=40 height=20 testId=`script-frame-${e.id}`\n",
+        )
+        // A `data:` document shows in a sandbox without `allow-same-origin`
+        // and nowhere else (LLP 1020 §10): a literal or bound source, under a
+        // literal or bound sandbox that `flipFrame` opens and closes. A
+        // flipped one posts its letter from the opaque origin (a post at
+        // boot can come before the wasm host hears input, which drops it).
+        .replace(
+            "  state initialUrl",
+            "  state frameSandbox = \"allow-same-origin\"\n  state frameDoc = \"data:text/html,<script>parent.postMessage('b','*')</script>\"\n  state frameHref = \"/post/42\"\n  state frameHeard = \"\"\n  state httpHeard = 0\n  action heardHTTP(m: string)\n    httpHeard = httpHeard + 1\n  action flipFrame\n    frameSandbox = frameSandbox == \"allow-scripts\" ? \"allow-same-origin\" : \"allow-scripts\"\n  action restrictFrame\n    frameSandbox = \"\"\n  action clearFrameLink\n    frameHref = \"\"\n  action heardFrame(m: string)\n    frameHeard = `${frameHeard}${m}`\n  state initialUrl",
         )
         .replace(
-            "  action followLink(url: string) writes nav\n    nav = go(nav, url)",
-            "  action followLink(url: string) writes nav, navigatePresses\n    navigatePresses = navigatePresses + 1\n    if redirectLink\n      nav = push(nav, \"/other\")\n    else\n      if followEnabled\n        nav = go(nav, url)\n  action redirectNextLink writes redirectLink\n    redirectLink = true\n  action refuseLink writes followEnabled\n    followEnabled = false",
+            "            iframe scriptURL width=40 height=20 testId=`script-frame-${e.id}`\n",
+            "            iframe scriptURL width=40 height=20 testId=`script-frame-${e.id}`\n            iframe \"data:text/html,<p>s</p>\" sandbox=\"allow-scripts\" width=40 height=20 testId=`data-frame-${e.id}`\n            iframe \"data:text/html,x\" width=40 height=20 testId=`data-bare-${e.id}`\n            iframe \"data:text/html,x\" sandbox=\"allow-scripts allow-same-origin\" width=40 height=20 testId=`data-same-${e.id}`\n            iframe \"data:text/html,<script>parent.postMessage('l','*')</script>\" sandbox=frameSandbox message=heardFrame width=40 height=20 testId=`data-literal-${e.id}`\n            iframe frameDoc sandbox=frameSandbox message=heardFrame width=40 height=20 testId=`data-bound-${e.id}`\n            iframe \"/__test-guest\" sandbox=frameSandbox message=heardHTTP width=40 height=20 testId=`http-frame-${e.id}`\n            button press=flipFrame testId=`flip-frame-${e.id}`\n              text \"Flip frame\"\n            button press=restrictFrame testId=`restrict-frame-${e.id}`\n              text \"Restrict frame\"\n            link href=frameHref testId=`empty-frame-link-${e.id}`\n              text \"Frame link\"\n            button press=clearFrameLink testId=`clear-frame-link-${e.id}`\n              text \"Clear frame link\"\n",
         )
         .replace(
-            "  action back writes nav\n    nav = back(nav)",
-            "  action back writes nav, backPresses\n    backPresses = backPresses + 1\n    if backReplacement\n      nav = replace(back(nav), \"/?from=back\")\n    else\n      nav = back(nav)\n  action replaceBack writes backReplacement\n    backReplacement = true\n  action refuseBack writes backEnabled\n    backEnabled = false",
+            "  action followLink(url: string)\n    nav = go(nav, url)",
+            "  action followLink(url: string)\n    navigatePresses = navigatePresses + 1\n    if redirectLink\n      nav = push(nav, \"/other\")\n    else\n      if followEnabled\n        nav = go(nav, url)\n  action redirectNextLink\n    redirectLink = true\n  action refuseLink\n    followEnabled = false",
         )
         .replace(
-            "          button id=\"back\"",
-            "          textarea blur=editorBlur testId=`editor-${e.id}` height=32\n          button press=redirectNextLink testId=`redirect-link-${e.id}`\n            text \"Redirect link\"\n          button press=refuseLink testId=`refuse-link-${e.id}`\n            text \"Refuse link\"\n          button press=open(\"//evil.invalid/x\") testId=`open-unknown-${e.id}`\n            text \"Open unknown\"\n          button press=replace(\"//evil.invalid/y\") testId=`replace-unknown-${e.id}`\n            text \"Replace unknown\"\n          button id=\"back\"",
+            "  action back\n    nav = back(nav)",
+            "  action back\n    backPresses = backPresses + 1\n    if backReplacement\n      nav = replace(back(nav), \"/?from=back\")\n    else\n      nav = back(nav)\n  action replaceBack\n    backReplacement = true\n  action refuseBack\n    backEnabled = false",
         )
-        .replace("button id=\"back\" press=back", "button id=\"back\" disabled=(!backEnabled) press=back")
         .replace(
-            "          when e.name == \"home\"",
-            "          button press=replaceBack testId=`replace-back-${e.id}`\n            text \"Rewrite Back\"\n          button press=refuseBack testId=`refuse-${e.id}`\n            text \"Refuse Back\"\n          button press=replace(\"/post/43\") testId=`replace-${e.id}`\n            text \"Replace\"\n          button press=go(\"/\") testId=`go-home-${e.id}`\n            text \"Go home\"\n          when e.name == \"home\"",
+            "          button appearance=\"none\" id=\"back\"",
+            "          textarea blur=editorBlur testId=`editor-${e.id}` height=32\n          button press=redirectNextLink testId=`redirect-link-${e.id}`\n            text \"Redirect link\"\n          button press=refuseLink testId=`refuse-link-${e.id}`\n            text \"Refuse link\"\n          button press=open(\"//evil.invalid/x\") testId=`open-unknown-${e.id}`\n            text \"Open unknown\"\n          button press=replace(\"//evil.invalid/y\") testId=`replace-unknown-${e.id}`\n            text \"Replace unknown\"\n          button appearance=\"none\" id=\"back\"",
+        )
+        .replace("button appearance=\"none\" id=\"back\" press=back", "button appearance=\"none\" id=\"back\" disabled=(!backEnabled) press=back")
+        // A screen with no Back control: browser Back still goes back.
+        .replace(
+            "          button appearance=\"none\" id=\"back\" disabled=(!backEnabled) press=back testId=`back-${e.id}` padding=8\n            text \"Back\"\n",
+            "          if e.name != \"notifications\"\n            button appearance=\"none\" id=\"back\" disabled=(!backEnabled) press=back testId=`back-${e.id}` padding=8\n              text \"Back\"\n          button press=push(\"/notifications\") testId=`push-notifications-${e.id}` padding=8\n            text \"Push notifications\"\n",
+        )
+        .replace(
+            "          if e.name == \"home\"",
+            "          button press=replaceBack testId=`replace-back-${e.id}`\n            text \"Rewrite Back\"\n          button press=refuseBack testId=`refuse-${e.id}`\n            text \"Refuse Back\"\n          button press=replace(\"/post/43\") testId=`replace-${e.id}`\n            text \"Replace\"\n          button press=go(\"/\") testId=`go-home-${e.id}`\n            text \"Go home\"\n          if e.name == \"home\"",
         );
+    assert!(
+        source.contains("textarea blur=editorBlur"),
+        "the corpus Back anchor must install the focus fixture"
+    );
     let plan = contract::bake(contract::compile(&source).unwrap(), Empty).unwrap();
     let dir = std::env::temp_dir().join(format!(
         "exact-router-browser-{}{}",
@@ -102,15 +145,34 @@ fn sweep(js: bool) {
     )
     .unwrap();
     std::fs::write(dir.join("no-navigate.plan"), no_handler.encode()).unwrap();
+    // No `notfound` route and a navigation root: the compiler writes the route and its screen, so a
+    // location no route matches keeps its URL and says so (LLP 1116.009 D2).
+    let no_notfound = contract::bake(
+        contract::compile(
+            "routes nav\n  home \"/\"\n    item \"/item/:id\"\n\ncomponent App\n  state backPresses = 0\n  state navigatePresses = 0\n  action back\n    backPresses = backPresses + 1\n    nav = back(nav)\n  action follow(url: string)\n    navigatePresses = navigatePresses + 1\n    nav = go(nav, url)\n  view\n    main navigationKey=`${top(nav).id}` navigationBack=\"back\" navigate=follow testId=\"navigation\" width=\"100%\" height=\"100%\"\n      for e in stack(nav) key=e.id\n        column navigationKey=`${e.id}` position=\"absolute\" inset=0\n          if e.name == \"home\"\n            text \"Home\" testId=\"home\"\n          if e.name == \"item\"\n            text e.params.id testId=\"item\"\n",
+        )
+        .unwrap(),
+        Empty,
+    )
+    .unwrap();
+    std::fs::write(dir.join("no-notfound.plan"), no_notfound.encode()).unwrap();
+    // No navigation root either: no screen to draw "Page not found" in, so a launch no route matches opens
+    // the first screen, journaled, on every target.
+    let no_root = contract::bake(
+        contract::compile("routes nav\n  home \"/\"\n  about \"/about\"\n\ncomponent App\n  view\n    text top(nav).url testId=\"url\"\n")
+            .unwrap(),
+        Empty,
+    )
+    .unwrap();
+    std::fs::write(dir.join("no-root.plan"), no_root.encode()).unwrap();
     let accessibility = contract::compile(include_str!(
         "../../../../contract/corpus/accessibility.contract"
     ))
     .unwrap();
     std::fs::write(dir.join("accessibility.plan"), accessibility.encode()).unwrap();
-    let output = Command::new("bun")
+    let output = Command::new(std::env::var_os("BUN").unwrap_or_else(|| "bun".into()))
         .arg("host/web/tests/navigation.mjs")
         .env("EXACT_ROUTER_DIST", dist)
-        .env("CHROME", chrome)
         .env("EXACT_ROUTER_TEST", &dir)
         .env("EXACT_ROUTER_TARGET", if js { "js" } else { "wasm" })
         .current_dir(root)

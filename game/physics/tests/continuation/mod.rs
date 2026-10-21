@@ -33,7 +33,8 @@ fn collision_refresh(w: &World) {
     let mut saved = p.executor.0.borrow_mut();
     saved.dirty = true;
     let live = saved.live();
-    crate::step::sync(w, live);
+    let pending = crate::step::pending(w, live);
+    crate::step::sync(w, live, &pending);
     let r = &mut live.rapier;
     CollisionPipeline::new().step(
         r.integration_parameters.prediction_distance(),

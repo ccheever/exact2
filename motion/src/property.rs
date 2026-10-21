@@ -18,15 +18,26 @@
 //! of legacy colours (LLP 1055.000 D6).
 //!
 //! Paint motion (LLP 1062) adds the four border sides' colours, a symbol's
-//! `tint-color`, and `box-shadow` as two engine properties: its geometry
+//! `-exact-tint-color`, and `box-shadow` as two engine properties: its geometry
 //! (offset and blur, in points) and its colour, the shadow's opacity folded
 //! into the alpha, so a shadow from `none` is CSS's transparent, zero-length
 //! padding.
 //!
+//! `font-weight` and `font-stretch` are numbers (CSS Fonts 4: a weight, a
+//! percentage). They change glyph advances, so the runner moves them, a
+//! style commit each presented frame, and layout follows as for any commit;
+//! no host's engine is given their targets (LLP 1019 §13 D10).
+//!
 //! `layout` is not a CSS property: it is a node's laid-out box in its parent
-//! (origin and size), which a `layout-transition` row animates (LLP 1063).
+//! (origin and size), which a `-exact-layout-transition` row animates (LLP 1063).
 //! It is never authored in `transition` or `@keyframes`, so it is outside
 //! [`Property::ALL`] and never on the wire.
+//!
+//! `d` is SVG 2's path data as a property (LLP 1055.000 D15). A path is not a
+//! [`Value`]: the engine's `d` slot holds a transition's progress, 0 to 1,
+//! and the paths at its two ends live beside it ([`crate::path`]). It is
+//! named by `transition` (never `@keyframes` yet), so it is outside
+//! [`Property::ALL`]; a `transition` row carries it by its own code.
 
 /// One animatable property.
 #[repr(u8)]
@@ -74,24 +85,42 @@ pub enum Property {
     BorderBottomColor = 19,
     /// `border-left-color`.
     BorderLeftColor = 20,
-    /// `tint-color`, a symbol image's colour.
+    /// `-exact-tint-color`, a symbol image's colour.
     TintColor = 21,
     /// `box-shadow`'s offset and blur radius, points (`x`, `y`, `z`).
     BoxShadow = 22,
     /// `box-shadow`'s colour, its opacity folded into the alpha. Named only
     /// by `box-shadow`, never on its own.
     ShadowColor = 23,
+    /// CSS `font-weight`, a number (LLP 1019 §13 D10).
+    FontWeight = 24,
+    /// CSS `font-stretch`, a percentage of normal width.
+    FontStretch = 25,
     /// The laid-out box in the parent, in points: origin (`x`, `y`) and size
     /// (`z` wide, `w` high) (LLP 1063). Its target is layout's answer,
-    /// observed by a host after layout; only a node's `layout-transition` row
+    /// observed by a host after layout; only a node's `-exact-layout-transition` row
     /// moves it, never `transition`.
-    Layout = 24,
+    Layout = 26,
+    /// SVG 2 `d`, a path's data (LLP 1055.000 D15). Its slot's value is a
+    /// running transition's progress from one path to the next; the paths
+    /// are [`crate::path::PathValue`]s the engine keeps beside it.
+    D = 27,
 }
 
 impl Property {
+    /// The property numbered `slot` (its discriminant): every property,
+    /// [`Property::Layout`] and [`Property::D`] included.
+    pub(crate) fn from_slot(slot: u32) -> Property {
+        match slot {
+            26 => Property::Layout,
+            27 => Property::D,
+            slot => Property::ALL[slot as usize],
+        }
+    }
+
     /// Every authorable property, in wire order ([`Property::Layout`] is
     /// the host's, not an author's, and never on the wire).
-    pub const ALL: [Property; 24] = [
+    pub const ALL: [Property; 26] = [
         Property::Translate,
         Property::Scale,
         Property::Rotate,
@@ -116,10 +145,16 @@ impl Property {
         Property::TintColor,
         Property::BoxShadow,
         Property::ShadowColor,
+        Property::FontWeight,
+        Property::FontStretch,
     ];
 
     /// How many properties there are on the wire.
-    pub const COUNT: usize = 24;
+    pub const COUNT: usize = 26;
+
+    /// How many properties the engine has slots for: the wire's, then
+    /// [`Property::Layout`] and [`Property::D`].
+    pub const SLOTS: usize = Property::COUNT + 2;
 
     /// The paint properties: repainted, never laid out. A native host's
     /// paint pass owns them (LLP 1062 D2): CSS's box colours and
@@ -164,16 +199,19 @@ impl Property {
             Property::BorderRightColor => "border-right-color",
             Property::BorderBottomColor => "border-bottom-color",
             Property::BorderLeftColor => "border-left-color",
-            Property::TintColor => "tint-color",
+            Property::TintColor => "-exact-tint-color",
             Property::BoxShadow => "box-shadow",
             Property::ShadowColor => "box-shadow-color",
+            Property::FontWeight => "font-weight",
+            Property::FontStretch => "font-stretch",
             Property::Layout => "layout",
+            Property::D => "d",
         }
     }
 
     /// The name a browser knows the property by: [`Property::name`], but
-    /// `tint-color`, which the web host carries as the registered custom
-    /// property `--exact-tint` (LLP 1062 D6).
+    /// `-exact-tint-color`, which the web host carries as the registered
+    /// custom property `--exact-tint` (LLP 1062 D6).
     pub fn css_name(self) -> &'static str {
         match self {
             Property::TintColor => "--exact-tint",
@@ -181,9 +219,18 @@ impl Property {
         }
     }
 
-    /// From an authorable CSS property name; `box-shadow`'s colour half has
-    /// none. `tint-color` also answers to its [`Property::css_name`], the
-    /// name a keyframes rule carries it by.
+    /// From a name an author writes; `box-shadow`'s colour half has none,
+    /// and the host's own `--exact-tint` is not one (LLP 1081 D5).
+    pub fn from_author_name(name: &str) -> Option<Property> {
+        Property::ALL
+            .into_iter()
+            .find(|p| *p != Property::ShadowColor && p.name() == name)
+    }
+
+    /// From a name in stored plan text: an author name, or the
+    /// [`Property::css_name`] a serialized keyframes rule carries
+    /// `-exact-tint-color` by (LLP 1081 D5). Author text goes through
+    /// [`Property::from_author_name`].
     pub fn from_name(name: &str) -> Option<Property> {
         Property::ALL
             .into_iter()
@@ -212,7 +259,7 @@ impl Property {
         )
     }
 
-    /// Whether a `spring()` drives the property as physics, carrying
+    /// Whether a `-exact-spring()` drives the property as physics, carrying
     /// velocity across an interruption. The web lowers these springs to
     /// frames; every other property (paint, SVG geometry and paint) plays a
     /// spring as its curve from rest, a CSS `linear()` easing, on every host
@@ -229,12 +276,13 @@ impl Property {
         )
     }
 
-    /// How many components the value carries: two for `translate`, three
-    /// for `box-shadow`'s geometry, four for a colour and for `layout`'s box,
-    /// else one.
+    /// How many components the value carries: four for `translate` (its x
+    /// and y lengths, then its x and y percentages of the box, which CSS
+    /// interpolates componentwise as a `calc()`), three for `box-shadow`'s
+    /// geometry, four for a colour and for `layout`'s box, else one.
     pub fn components(self) -> usize {
         match self {
-            Property::Translate => 2,
+            Property::Translate => 4,
             Property::BoxShadow => 3,
             Property::Layout => 4,
             p if p.is_color() => 4,
@@ -272,11 +320,14 @@ pub struct Value {
     pub x: f64,
     /// Second component (`translate`'s y; premultiplied green).
     pub y: f64,
-    /// Third component (a shadow's blur; premultiplied blue; a layout box's
-    /// width).
+    /// Third component (`translate`'s x percentage; a shadow's blur;
+    /// premultiplied blue; a layout box's width).
     pub z: f64,
-    /// Fourth component (a colour's alpha; a layout box's height).
+    /// Fourth component (`translate`'s y percentage; a colour's alpha; a
+    /// layout box's height).
     pub w: f64,
+    /// A colour stored as premultiplied OKLab rather than sRGB (LLP 1100 D2).
+    pub oklab: bool,
 }
 
 impl Value {
@@ -295,7 +346,49 @@ impl Value {
 
     /// A four-component value.
     pub const fn four(x: f64, y: f64, z: f64, w: f64) -> Value {
-        Value { x, y, z, w }
+        Value {
+            x,
+            y,
+            z,
+            w,
+            oklab: false,
+        }
+    }
+
+    /// A colour from OKLab components and alpha, stored premultiplied.
+    pub fn oklab(l: f64, a: f64, b: f64, alpha: f64) -> Value {
+        Value {
+            oklab: true,
+            ..Value::four(l * alpha, a * alpha, b * alpha, alpha)
+        }
+    }
+
+    /// The same colour as premultiplied OKLab (itself when it already is).
+    pub fn to_oklab(self) -> Value {
+        if self.oklab {
+            return self;
+        }
+        let alpha = self.w.clamp(0.0, 1.0);
+        if alpha == 0.0 {
+            return Value::oklab(0.0, 0.0, 0.0, 0.0);
+        }
+        let rgb = [self.x / alpha, self.y / alpha, self.z / alpha].map(exact_color::srgb_to_linear);
+        let [l, a, b] = exact_color::MixSpace::Oklab.from_linear_srgb(rgb);
+        Value::oklab(l, a, b, alpha)
+    }
+
+    /// A colour's straight extended linear sRGB and alpha, unclipped.
+    pub fn linear_srgb(self) -> ([f64; 3], f64) {
+        let alpha = self.w.clamp(0.0, 1.0);
+        if alpha == 0.0 {
+            return ([0.0; 3], 0.0);
+        }
+        let c = [self.x / alpha, self.y / alpha, self.z / alpha];
+        if self.oklab {
+            (exact_color::MixSpace::Oklab.to_linear_srgb(c), alpha)
+        } else {
+            (c.map(exact_color::srgb_to_linear), alpha)
+        }
     }
 
     /// A colour from straight sRGB components in 0–1, stored premultiplied:
@@ -312,6 +405,11 @@ impl Value {
 
     /// A colour value as straight 8-bit RGBA (alpha 0 is transparent black).
     pub fn to_rgba8(self) -> [u8; 4] {
+        if self.oklab {
+            let [r, g, b, a] = self.straight();
+            let q = |v: f64| (v * 255.0).round().clamp(0.0, 255.0) as u8;
+            return [q(r), q(g), q(b), q(a)];
+        }
         let a = self.w.clamp(0.0, 1.0);
         let q = |v: f64| (v * 255.0).round().clamp(0.0, 255.0) as u8;
         if a <= 0.0 {
@@ -327,6 +425,11 @@ impl Value {
         let a = self.w.clamp(0.0, 1.0);
         if a == 0.0 {
             return [0.0; 4];
+        }
+        if self.oklab {
+            let ([r, g, b], a) = self.linear_srgb();
+            let c = |v: f64| exact_color::linear_to_srgb(v).clamp(0.0, 1.0);
+            return [c(r), c(g), c(b), a];
         }
         let c = |v: f64| (v / a).clamp(0.0, 1.0);
         [c(self.x), c(self.y), c(self.z), a]
@@ -351,17 +454,23 @@ impl Value {
 
     /// Each component through `f`.
     pub fn map(self, f: impl Fn(f64) -> f64) -> Value {
-        Value::four(f(self.x), f(self.y), f(self.z), f(self.w))
+        Value {
+            oklab: self.oklab,
+            ..Value::four(f(self.x), f(self.y), f(self.z), f(self.w))
+        }
     }
 
-    /// Two values componentwise through `f`.
+    /// Two values componentwise through `f`; mixed encodings meet in OKLab.
     pub fn zip(self, other: Value, f: impl Fn(f64, f64) -> f64) -> Value {
-        Value::four(
-            f(self.x, other.x),
-            f(self.y, other.y),
-            f(self.z, other.z),
-            f(self.w, other.w),
-        )
+        let (a, b) = if self.oklab != other.oklab {
+            (self.to_oklab(), other.to_oklab())
+        } else {
+            (self, other)
+        };
+        Value {
+            oklab: a.oklab,
+            ..Value::four(f(a.x, b.x), f(a.y, b.y), f(a.z, b.z), f(a.w, b.w))
+        }
     }
 
     /// The components, in order.

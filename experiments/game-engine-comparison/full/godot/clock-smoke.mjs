@@ -1,7 +1,8 @@
+import { homedir as browserHome } from 'node:os';
 import { chromium } from "playwright";
 
 const executablePath = process.env.CHROMIUM ??
-  "/home/ccheever/.cache/ms-playwright/chromium-1234/chrome-linux64/chrome";
+  (process.env.CHROME || browserHome() + "/.cache/ms-playwright/chromium-1234/chrome-linux64/chrome");
 const browser = await chromium.launch({ headless: true, executablePath });
 const page = await browser.newPage();
 await page.goto(process.env.LANTERNS_URL ?? "http://127.0.0.1:4173/?agent=1");

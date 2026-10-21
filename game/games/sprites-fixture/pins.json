@@ -1,16 +1,26 @@
 {
   "ticks": {
-    "300": "0x4a25336e5266aa60"
+    "300": "0x4884240fd15afc36"
   },
   "saves": {
-    "continuation": "2049c98103f6950fbd0fccfd9340c14e605982bfb074833cd37c5dc71cb98d4b"
+    "continuation": "9421f2f2dd5cfcf6076976091042279acf461fe349a822f806892cd440c5c448"
   },
   "hosts": [
     "linux",
     "web"
   ],
+  "modes": [
+    "0",
+    "1",
+    "fresh-game"
+  ],
+  "profiles": [
+    "gpu-dev"
+  ],
+  "inputs": "750d164c117dcfe25b612c35d0ae58426f034e69426e7f18ec06d3b1983b07c3",
+  "sourceInputs": "fe5c6ab7d66a9ac920365621f99ce12ddf56215a3ebc184f6872217f32560164",
   "game": "sprites-fixture",
-  "generated": "bun game/prove.mjs sprites-fixture --repin --hosts linux,web",
-  "at": "64b5af14d0b08d4f35be20a08502e4834ad5f133",
-  "reason": "D6 saved Parallax component replaces tick name lookup"
+  "generated": "bun game/prove.mjs sprites-fixture --repin --hosts 'linux,web'",
+  "at": "18bfc2e9058a7a4e687fa623435e60be0f9b059d",
+  "reason": "EXSIM v8 (player: u8, pads) over EXGAME v6: continuation bytes change; tick hashes unchanged"
 }

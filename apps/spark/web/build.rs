@@ -4,7 +4,7 @@
 use contract::DataSource;
 
 fn main() {
-    println!("cargo:rerun-if-changed=../app.contract");
+    contract::rerun_if_changed(std::path::Path::new("../app.contract"));
     println!("cargo:rerun-if-changed=../app.json");
     println!("cargo:rerun-if-changed=../assets");
     println!("cargo:rerun-if-changed=../data");

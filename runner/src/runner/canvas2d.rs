@@ -41,6 +41,18 @@ pub struct Geometry {
     pub scale: f64,
     /// An explicit bitmap size, when the author set one.
     pub bitmap: Option<(u32, u32)>,
+    /// Its getContext settings ([`Runner::canvas_settings`]).
+    pub settings: Settings,
+}
+
+/// A canvas's `color-space` and `color-type`, HTML's getContext settings
+/// (LLP 1100 D12a). A change is a new generation, as a new context would be.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct Settings {
+    /// `display-p3`: colours and pixels are Display P3.
+    pub p3: bool,
+    /// `float16`: the bitmap is half floats (8 bytes a pixel).
+    pub float16: bool,
 }
 
 /// The backing store a geometry implies: what a generation is keyed by.
@@ -53,6 +65,7 @@ struct Backing {
     height: f64,
     scale: f64,
     stretch: bool,
+    settings: Settings,
 }
 
 impl Backing {
@@ -65,6 +78,7 @@ impl Backing {
                 height: h as f64,
                 scale: 1.0,
                 stretch: true,
+                settings: g.settings,
             },
             None => Backing {
                 pixel_width: (g.width * g.scale).round().max(0.0) as u32,
@@ -73,12 +87,15 @@ impl Backing {
                 height: g.height,
                 scale: g.scale,
                 stretch: false,
+                settings: g.settings,
             },
         }
     }
 
     fn bytes(self) -> u64 {
-        self.pixel_width as u64 * self.pixel_height as u64 * 4
+        self.pixel_width as u64
+            * self.pixel_height as u64
+            * if self.settings.float16 { 8 } else { 4 }
     }
 
     fn empty(self) -> bool {
@@ -145,6 +162,8 @@ pub struct DrawRequest<'a> {
     pub current_color: Option<Rgba>,
     /// The canvas node's `direction` is `rtl`.
     pub rtl: bool,
+    /// The canvas is `display-p3` (LLP 1100 D12a).
+    pub p3: bool,
 }
 
 impl DrawRequest<'_> {
@@ -204,6 +223,9 @@ impl DrawRequest<'_> {
                 c.b,
                 crate::agent::num(c.a)
             );
+        }
+        if self.p3 {
+            s.push_str(",\"colorSpace\":\"display-p3\"");
         }
         let _ = write!(s, ",\"rtl\":{}}}", self.rtl);
         s
@@ -279,6 +301,8 @@ pub struct CanvasList {
     /// The draw asked for the next frame: the canvas animates (a host may
     /// present it differently, LLP 1056 §8.4).
     pub animating: bool,
+    /// The bitmap's getContext settings.
+    pub settings: Settings,
 }
 
 static LIFETIMES: AtomicU64 = AtomicU64::new(1);
@@ -314,6 +338,8 @@ struct Record {
     framed_at: Option<f64>,
     /// Its last draw drew text: a font that loads redraws it (D8).
     text: bool,
+    /// The colour and direction its last draw drew in: a change redraws it.
+    drawn_in: Option<(Option<Rgba>, bool)>,
 }
 
 /// Every 2D canvas the runner draws.
@@ -358,7 +384,7 @@ pub trait CanvasEngine {
     /// [`Runner::canvas_wants_frame`].
     fn wants_frame(&self) -> bool;
     /// [`Runner::canvas_owed`].
-    fn owed(&self, ready: bool, on_screen: &dyn Fn(ViewId) -> bool) -> bool;
+    fn owed(&self, ready: bool, on_screen: &dyn Fn(ViewId) -> bool, style: NodeStyle<'_>) -> bool;
     /// Drop the canvases `alive` denies, and take the generations retired
     /// since the last take, for the source.
     fn take_retired(&mut self, alive: &dyn Fn(ViewId) -> bool) -> Vec<(u64, u32)>;
@@ -488,6 +514,7 @@ impl CanvasEngine for Canvases {
                             draws: 0,
                             framed_at: None,
                             text: false,
+                            drawn_in: None,
                         },
                     );
                 }
@@ -549,6 +576,7 @@ impl CanvasEngine for Canvases {
             b.pixel_width == next.pixel_width
                 && b.pixel_height == next.pixel_height
                 && b.stretch == next.stretch
+                && b.settings == next.settings
                 && (b.stretch || b.scale == next.scale)
         });
         r.refused = refusal;
@@ -587,7 +615,7 @@ impl CanvasEngine for Canvases {
         self.records.values().any(|r| r.wants_frame)
     }
 
-    fn owed(&self, ready: bool, on_screen: &dyn Fn(ViewId) -> bool) -> bool {
+    fn owed(&self, ready: bool, on_screen: &dyn Fn(ViewId) -> bool, style: NodeStyle<'_>) -> bool {
         // What `draw` would hand the host or the source: lists and retired
         // generations waiting, a fresh bitmap, or a due draw it would run.
         !self.out.is_empty()
@@ -603,7 +631,7 @@ impl CanvasEngine for Canvases {
                 if causes.has(Causes::FRAME) && !on_screen(*view) {
                     causes = Causes(causes.0 & !Causes::FRAME.0);
                 }
-                !causes.is_empty()
+                !causes.is_empty() || r.drawn_in.is_some_and(|was| was != style(*view))
             })
     }
 
@@ -646,6 +674,7 @@ impl CanvasEngine for Canvases {
                     stretch: b.stretch,
                     lists: Vec::new(),
                     animating: false,
+                    settings: b.settings,
                 });
             }
             let Some(b) = r.backing else { continue };
@@ -653,6 +682,10 @@ impl CanvasEngine for Canvases {
             // are transparent until its executor is active); the causes wait.
             if !ready || b.empty() || r.in_flight.is_some() || queued > QUEUED_BYTES {
                 continue;
+            }
+            let drawn_in = style(view);
+            if r.drawn_in.is_some_and(|was| was != drawn_in) {
+                r.causes = r.causes.with(Causes::STYLE);
             }
             let mut causes = r.causes;
             if causes.has(Causes::FRAME) && !on_screen(view) {
@@ -687,13 +720,15 @@ impl CanvasEngine for Canvases {
                 r.names.clone(),
                 r.ctx.clone(),
             );
-            let (current_color, rtl) = style(view);
+            let (current_color, rtl) = drawn_in;
+            r.drawn_in = Some(drawn_in);
             ctx.set_env(Env {
                 canvas: lifetime,
                 text: self.text.clone(),
                 images: self.images.clone(),
                 current_color,
                 rtl,
+                p3: b.settings.p3,
             });
             let request = DrawRequest {
                 canvas: lifetime,
@@ -705,6 +740,7 @@ impl CanvasEngine for Canvases {
                 frame,
                 current_color,
                 rtl,
+                p3: b.settings.p3,
             };
             match draw(&request, &ctx) {
                 Drawn::Now(reply) => {
@@ -747,12 +783,16 @@ impl CanvasEngine for Canvases {
                         "canvas {} ({}): {e}; a new generation starts",
                         view, r.surface
                     );
+                    // Drawn once more, unless the last reply failed too:
+                    // a source that keeps failing waits for another cause.
+                    if r.error.is_none() {
+                        r.causes = r.causes.with(Causes::SIZE);
+                    }
                     r.error = Some(e.to_string());
                     r.wants_frame = false;
                     self.retired.push((r.lifetime, r.generation));
                     r.generation += 1;
                     r.fresh = true;
-                    r.causes = r.causes.with(Causes::SIZE);
                     r.ctx = Context2d::new();
                     r.gradients.clear();
                     log(line);
@@ -791,6 +831,7 @@ impl CanvasEngine for Canvases {
             stretch: b.stretch,
             lists: reply.lists,
             animating: r.wants_frame,
+            settings: b.settings,
         };
         let surface = r.surface.clone();
         if !out.lists.is_empty() {
@@ -842,15 +883,17 @@ impl CanvasEngine for Canvases {
                 Some(b) => {
                     let _ = write!(
                         s,
-                        ",\"width\":{},\"height\":{},\"scale\":{},\"stretch\":{}",
+                        ",\"width\":{},\"height\":{},\"scale\":{},\"stretch\":{},\"colorSpace\":\"{}\",\"colorType\":\"{}\"",
                         b.pixel_width,
                         b.pixel_height,
                         crate::agent::num(b.scale),
-                        b.stretch
+                        b.stretch,
+                        if b.settings.p3 { "display-p3" } else { "srgb" },
+                        if b.settings.float16 { "float16" } else { "unorm8" }
                     );
                 }
                 None => {
-                    s.push_str(",\"width\":null,\"height\":null,\"scale\":null,\"stretch\":false")
+                    s.push_str(",\"width\":null,\"height\":null,\"scale\":null,\"stretch\":false,\"colorSpace\":null,\"colorType\":null")
                 }
             }
             s.push_str(",\"lastDraw\":");
@@ -987,6 +1030,23 @@ impl<D: DataSource> Runner<D> {
         (w.is_some() || h.is_some()).then(|| (w.unwrap_or(300), h.unwrap_or(150)))
     }
 
+    /// A canvas's getContext settings (LLP 1100 D12a); an unknown value is the
+    /// default, as in HTML. A host that shows only sRGB has only sRGB canvases (D10).
+    pub fn canvas_settings(&self, view: ViewId) -> Settings {
+        let Some(node) = self.kernel.node(view) else {
+            return Settings::default();
+        };
+        let text = |id| match node.props.get(id) {
+            Some(exact_kernel::PropValue::Str(v)) => Some(v.to_string()),
+            _ => None,
+        };
+        Settings {
+            p3: text(exact_kernel::PropId::ColorSpace).as_deref() == Some("display-p3")
+                && !exact_kernel::style::wide::limited(),
+            float16: text(exact_kernel::PropId::ColorType).as_deref() == Some("float16"),
+        }
+    }
+
     /// A native host's geometry for every 2D canvas, from the kernel's
     /// layout in this turn (LLP 1056 D4): the content box, the device
     /// `scale`, and an explicit bitmap size ([`Runner::canvas_bitmap`]).
@@ -995,8 +1055,9 @@ impl<D: DataSource> Runner<D> {
             let Some(node) = self.kernel.node(view) else {
                 continue;
             };
-            let (_, _, w, h) = exact_kernel::svg::scene::content_box(&node);
+            let (_, _, w, h) = exact_kernel::svg::scene::content_box(&self.kernel, &node);
             let bitmap = self.canvas_bitmap(view);
+            let settings = self.canvas_settings(view);
             self.set_canvas_geometry(
                 view,
                 Geometry {
@@ -1004,6 +1065,7 @@ impl<D: DataSource> Runner<D> {
                     height: h as f64,
                     scale,
                     bitmap,
+                    settings,
                 },
             );
         }
@@ -1029,17 +1091,18 @@ impl<D: DataSource> Runner<D> {
     /// lists and retired generations waiting. A host that runs its draws
     /// in a turn of their own (LLP 1072 §8.5) asks after every other turn.
     pub fn canvas_owed(&self, on_screen: &dyn Fn(ViewId) -> bool) -> bool {
-        let ready = self.data.ready();
+        let (ready, dark) = (self.data.ready(), self.page_dark());
+        let style = |view: ViewId| canvas_node_style(&self.kernel, view, dark);
         self.canvases
             .as_ref()
-            .is_some_and(|c| c.owed(ready, on_screen))
+            .is_some_and(|c| c.owed(ready, on_screen, &style))
     }
 
     /// Run every due draw, in tree order, after this turn's commits and
     /// geometry. `on_screen` is the host's judgement; a frame request waits
     /// for it, every other cause draws regardless (D4).
     pub fn draw_canvases(&mut self, on_screen: &dyn Fn(ViewId) -> bool) {
-        let kernel = &self.kernel;
+        let (kernel, dark) = (&self.kernel, self.page_dark());
         let Some(c) = self.canvases.as_mut() else {
             return;
         };
@@ -1051,7 +1114,7 @@ impl<D: DataSource> Runner<D> {
         let now = self.now_ms;
         let data = &mut self.data;
         let mut lines = Vec::new();
-        let style = |view: ViewId| canvas_node_style(kernel, view);
+        let style = |view: ViewId| canvas_node_style(kernel, view, dark);
         c.draw(
             ready,
             now,
@@ -1158,14 +1221,20 @@ impl<D: DataSource> Runner<D> {
 }
 
 /// A canvas's node `color` and `direction` (LLP 1056 D3, D8):
-/// `currentColor` and `direction = "inherit"` resolve to them.
-fn canvas_node_style(kernel: &exact_kernel::Kernel, view: ViewId) -> (Option<Rgba>, bool) {
+/// `currentColor` and `direction = "inherit"` resolve to them. The colour is
+/// its scheme's: the nearest `color-scheme`, else the page's (`dark`).
+fn canvas_node_style(
+    kernel: &exact_kernel::Kernel,
+    view: ViewId,
+    dark: bool,
+) -> (Option<Rgba>, bool) {
     let Some(node) = kernel.node(view) else {
         return (None, false);
     };
-    let c = match node.text_color() {
-        exact_kernel::ColorValue::Fixed(c) | exact_kernel::ColorValue::LightDark(c, _) => c.0,
-    };
+    let c = node
+        .text_color()
+        .resolve(node.color_scheme_dark().unwrap_or(dark))
+        .0;
     let [r, g, b, a] = c.to_be_bytes();
     let rtl = node
         .computed_style(exact_kernel::StyleMask::INHERITED)

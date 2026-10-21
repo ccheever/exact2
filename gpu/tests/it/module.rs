@@ -89,7 +89,7 @@ fn device_event_json_preserves_every_variant_and_refuses_fields_by_name() {
             ("pen", PointerKind::Pen),
         ] {
             let text = format!(
-                r#"{{"t":"pointer","phase":"{phase}","id":1,"x":10.5,"y":20,"kind":"{kind}","buttons":1,"at":2}}"#
+                r#"{{"t":"pointer","phase":"{phase}","id":1,"x":10.5,"y":20,"dx":-3,"dy":0.5,"kind":"{kind}","buttons":1,"at":2}}"#
             );
             assert_eq!(
                 parse_input(&text).unwrap(),
@@ -98,6 +98,8 @@ fn device_event_json_preserves_every_variant_and_refuses_fields_by_name() {
                     phase: expected,
                     x: 10.5,
                     y: 20.0,
+                    dx: -3.0,
+                    dy: 0.5,
                     kind: device,
                     buttons: 1,
                     at_ms: 2.0
@@ -119,6 +121,28 @@ fn device_event_json_preserves_every_variant_and_refuses_fields_by_name() {
         parse_input(r#"{"t":"blur","at":5}"#).unwrap(),
         InputEvent::Blur { at_ms: 5.0 }
     );
+    // A pad's whole state: the only lists an input event carries.
+    let mut buttons = [0.0; 17];
+    buttons[0] = 1.0;
+    buttons[7] = 0.5;
+    assert_eq!(
+        parse_input(r#"{"t":"pad","index":1,"connected":true,"standard":true,"buttons":[1,0,0,0,0,0,0,0.5,0,0,0,0,0,0,0,0,0],"axes":[0.25,-1,0,0],"at":6}"#).unwrap(),
+        InputEvent::Pad {
+            index: 1,
+            connected: true,
+            standard: true,
+            buttons,
+            axes: [0.25, -1.0, 0.0, 0.0],
+            at_ms: 6.0
+        }
+    );
+    for bad in [
+        r#"{"t":"pad","index":0,"connected":true,"standard":true,"buttons":[1],"axes":[0,0,0,0],"at":6}"#,
+        r#"{"t":"pad","index":0,"connected":true,"standard":true,"buttons":[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,2],"axes":[0,0,0,0],"at":6}"#,
+        r#"{"t":"key","code":["KeyW"],"key":"w","down":true,"repeat":false,"at":6}"#,
+    ] {
+        assert!(parse_input(bad).is_err(), "{bad}");
+    }
     for (phase, expected) in [
         ("down", PointerPhase::Down),
         ("move", PointerPhase::Move),
@@ -142,8 +166,7 @@ fn device_event_json_preserves_every_variant_and_refuses_fields_by_name() {
         assert!(parse_input(&json.replace("1234.5", "1e999")).is_err());
         assert!(parse_input(&json.replace(phase, "invalid")).is_err());
     }
-    let pointer =
-        r#"{"t":"pointer","phase":"down","id":1,"x":10,"y":20,"kind":"mouse","buttons":1,"at":2}"#;
+    let pointer = r#"{"t":"pointer","phase":"down","id":1,"x":10,"y":20,"dx":0,"dy":0,"kind":"mouse","buttons":1,"at":2}"#;
     let mut module = Module::new(&EMPTY);
     for (text, field) in [
         (r#"{"t":"blur","at":1e999}"#.into(), "at"),
@@ -160,6 +183,8 @@ fn device_event_json_preserves_every_variant_and_refuses_fields_by_name() {
         ),
         (pointer.replace("\"x\":10", "\"x\":1e100"), "x"),
         (pointer.replace("\"y\":20", "\"y\":[]"), "y"),
+        (pointer.replace("\"dx\":0,", ""), "dx"),
+        (pointer.replace("\"dy\":0", "\"dy\":1e100"), "dy"),
     ] {
         assert!(!module.input_json(1, &text));
         let error = module.take_error();
@@ -227,6 +252,9 @@ mod seams {
         fn take_error(&mut self) -> Option<SurfaceError> {
             self.1.take()
         }
+        fn opaque(&self) -> bool {
+            true
+        }
         fn wants_input(&self) -> bool {
             true
         }
@@ -285,7 +313,8 @@ mod seams {
     #[test]
     fn module_seams_drain_once_and_stamp_frames() {
         if gpu_load() != 0 {
-            eprintln!("{}; seam device test skipped", exact_gpu::native::error());
+            // Only an absent adapter skips (and fails under EXACT_REQUIRED); a load failure fails.
+            exact_gpu::fixture::device_or_skip::<()>(Err(exact_gpu::native::error()));
             return;
         }
         // SAFETY: a retained Metal layer stays alive until after gpu_destroy.
@@ -307,6 +336,8 @@ mod seams {
         };
         assert_ne!(id, 0, "{}", exact_gpu::native::error());
         assert_eq!(gpu_wants_input(id), 1);
+        assert_eq!(gpu_presentation_flags(id), 3);
+        assert_eq!(gpu_presentation_flags(u32::MAX), 0);
         assert_eq!(exact_gpu::native::bind(id, "[]"), 0);
         assert_eq!(unsafe { gpu_bind_at(id, b"[]".as_ptr(), 2, 500.0) }, 0);
         BINDS.with(|b| assert_eq!(*b.borrow(), [None, Some(500.0)]));
@@ -419,7 +450,7 @@ mod seams {
     #[test]
     fn surface_failures_reach_the_real_abi_and_committed_binds_stay_accepted() {
         if gpu_load() != 0 {
-            eprintln!("SKIP error ABI fixture: {}", exact_gpu::native::error());
+            exact_gpu::fixture::device_or_skip::<()>(Err(exact_gpu::native::error()));
             return;
         }
         // SAFETY: retained layer outlives the canvas.
@@ -571,6 +602,7 @@ fn headless_ownership_keeps_every_non_drawing_seam() {
         period_ms: 0.0,
         children_generation: 0,
         shader_generation: 0,
+        headroom: 1.0,
     };
     for _ in 0..2 {
         assert_eq!(m.render(id, &f), None);
@@ -623,6 +655,9 @@ fn assets_are_validated_drained_and_delivered_without_a_device() {
                 self.wanted.push("next.bin".into());
             }
         }
+        fn accepts_asset_update(&self, name: &str) -> bool {
+            name == "tables/lookup.bin"
+        }
         fn messages(&mut self) -> Vec<String> {
             std::mem::take(&mut self.delivered)
         }
@@ -668,6 +703,8 @@ fn assets_are_validated_drained_and_delivered_without_a_device() {
     );
     assert!(m.take_messages(id).is_empty());
     assert!(!m.asset(id, "next.bin", Err(exact_gpu::AssetError::Missing)));
+    assert!(m.asset(id, "tables/lookup.bin", Ok(&[4])));
+    assert_eq!(m.take_messages(id), ["tables/lookup.bin:Ok([4])"]);
 }
 
 #[test]
@@ -727,7 +764,7 @@ fn lifecycle_and_clock_reach_surfaces_without_a_device() {
     );
     m.set_seekable(false);
     assert!(m.agent(agent, "").unwrap().ends_with("clock:false"));
-    exact_gpu::native::load_headless(&REGISTRY);
+    exact_gpu::native::load_headless(&REGISTRY, "test-gpu");
     let id = exact_gpu::native::create_headless("probe");
     assert_eq!(exact_gpu::native::agent(id, ""), "clock:true");
     exact_gpu::native::unload();
@@ -757,7 +794,7 @@ fn asset_names_use_the_portable_bounded_ascii_path_grammar() {
 }
 
 #[test]
-fn answered_names_retire_and_device_loss_reopens_delivery_with_a_bounded_set() {
+fn answered_names_beyond_256_retire_and_device_loss_reopens_delivery() {
     use exact_gpu::{wgpu, AssetError, Frame, Surface, SurfaceError, Value};
     #[derive(Default)]
     struct Probe {
@@ -806,15 +843,15 @@ fn answered_names_retire_and_device_loss_reopens_delivery_with_a_bounded_set() {
     let mut module = Module::new(&REGISTRY);
     let id = module.create_headless("bounded").unwrap();
     assert!(module.bind(id, &[], None));
-    assert_eq!(module.take_assets(id).requests.len(), 256);
-    assert_eq!(module.agent(id, "").as_deref(), Some("256.model"));
+    assert_eq!(module.take_assets(id).requests.len(), 257);
+    assert_eq!(module.agent(id, "").as_deref(), Some(""));
     assert!(module.asset(id, "0.model", Ok(&[])));
     assert!(module.take_assets(id).requests.is_empty());
     assert!(module.bind(id, &[Value::Bool(true)], None));
     assert_eq!(module.take_assets(id).requests, ["0.model"]);
     assert!(module.asset(id, "0.model", Ok(&[])));
     module.lose_device();
-    assert_eq!(module.take_assets(id).requests.len(), 256);
+    assert_eq!(module.take_assets(id).requests.len(), 257);
 }
 
 #[test]
@@ -927,6 +964,7 @@ fn every_render_prepares_retained_assets_before_surface_readiness() {
         period_ms: 0.,
         children_generation: 0,
         shader_generation: 0,
+        headroom: 1.0,
     };
     assert!(module.readback(id, &frame).is_some());
     module.lose_device();

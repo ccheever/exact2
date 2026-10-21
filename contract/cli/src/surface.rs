@@ -12,7 +12,7 @@ pub(super) fn arguments(
         id: "analyze-surface-declaration".into(),
         message,
         span: Span::default(),
-        file: Some(path.clone()),
+        file: Some(path.as_path().into()),
         related: Box::new([]),
     };
     let bytes = match std::fs::read(&path) {
@@ -40,6 +40,53 @@ pub(super) fn arguments(
             "expected surface names mapped to argument declarations with a `name` string".into(),
         )
     })
+}
+
+/// The keys each surface's `Actions` bind (`.shells/keys.json`, written by
+/// the game's last GPU build beside `surfaces.json`), each with the actions
+/// it drives; empty without one. It feeds a warning only, so an unreadable
+/// file is none.
+pub(super) fn keys(app_root: &Path) -> BTreeMap<String, BTreeMap<String, Vec<String>>> {
+    std::fs::read(app_root.join(".shells/keys.json"))
+        .ok()
+        .and_then(|bytes| serde_json::from_slice(&bytes).ok())
+        .unwrap_or_default()
+}
+
+/// The game Rust newer than `.shells/surfaces.json`, when some is: the
+/// declaration is the last GPU build's, so it may predate an `Options` edit
+/// (the platformer's diary, R4). Content-stable writes keep an unchanged
+/// declaration's time, so newer Rust only says it may be stale.
+pub(super) fn newer_rust(app_root: &Path) -> Option<std::path::PathBuf> {
+    newer_rust_than(app_root, ".shells/surfaces.json")
+}
+
+/// The game Rust newer than the declaration at `declaration` (relative to
+/// the app's root), when some is.
+pub(super) fn newer_rust_than(app_root: &Path, declaration: &str) -> Option<std::path::PathBuf> {
+    fn newest(dir: &Path, best: &mut Option<(std::time::SystemTime, std::path::PathBuf)>) {
+        let Ok(entries) = std::fs::read_dir(dir) else {
+            return;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                newest(&path, best);
+            } else if path.extension().is_some_and(|e| e == "rs") || path.ends_with("Cargo.toml") {
+                if let Ok(at) = entry.metadata().and_then(|m| m.modified()) {
+                    if best.as_ref().is_none_or(|(t, _)| at > *t) {
+                        *best = Some((at, path));
+                    }
+                }
+            }
+        }
+    }
+    let declared = std::fs::metadata(app_root.join(declaration))
+        .and_then(|m| m.modified())
+        .ok()?;
+    let mut best = None;
+    newest(&app_root.join("logic"), &mut best);
+    best.filter(|(at, _)| *at > declared).map(|(_, path)| path)
 }
 
 /// Surface records are runner-owned and default before the module loads.

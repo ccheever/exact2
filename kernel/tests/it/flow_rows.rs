@@ -8,12 +8,12 @@ use exact_kernel::{
 fn defaults_masks_and_wire_vocabulary() {
     let defaults = StyleProps::default();
     assert_eq!(defaults.wrap_flow, WrapFlow::Auto);
-    assert_eq!(defaults.shape_outside, ShapeOutside::default());
+    assert_eq!(defaults.rare.shape_outside, ShapeOutside::default());
     assert_eq!(defaults.shape_margin.to_bits(), 0f32.to_bits());
     for (id, bit) in [
-        (StyleId::WrapFlow, 95),
-        (StyleId::ShapeOutside, 96),
-        (StyleId::ShapeMargin, 97),
+        (StyleId::WrapFlow, 92),
+        (StyleId::ShapeOutside, 93),
+        (StyleId::ShapeMargin, 94),
     ] {
         assert_eq!(id as u32, bit);
         assert!(!id.inherited());
@@ -48,6 +48,7 @@ fn defaults_masks_and_wire_vocabulary() {
 fn bad_shape_outside_is_a_typed_decode_rejection() {
     let mut w = Writer::new();
     w.style_mask(StyleMask::of(StyleId::ShapeOutside));
+    w.style_mask(StyleMask::EMPTY);
     w.string("url(dancer.png)");
     assert_eq!(
         StyleProps::decode_patch(&mut Reader::new(w.as_slice())),

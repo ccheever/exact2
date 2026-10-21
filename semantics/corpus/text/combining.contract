@@ -1,0 +1,20 @@
+// Search over text with combining marks and surrogate pairs: matches are on
+// code points, never splitting a pair.
+component App
+  state hay = "café 😀😁"
+  derive hasE = hay.includes("e")
+  derive hasAccent = hay.includes("́")
+  derive endsFace = hay.endsWith("😁")
+  derive startsCaf = hay.startsWith("caf")
+  derive len = hay.length
+  derive trimmed = hay.trim().length
+  view
+    text hay testId="hay"
+
+test "combining"
+  expect state hasE == true
+  expect state hasAccent == true
+  expect state endsFace == true
+  expect state startsCaf == true
+  expect state len == 10
+  expect state trimmed == 10

@@ -29,7 +29,9 @@ mod command;
 pub mod conv;
 mod descriptor;
 mod device;
+// EXACT (EXACT-PATCHES.md, 11).
 mod drm;
+mod f16;
 mod instance;
 mod sampler;
 mod semaphore_list;
@@ -161,6 +163,8 @@ pub struct DebugUtilsMessengerUserData {
 }
 
 pub struct InstanceShared {
+    // EXACT (EXACT-PATCHES.md, 11): explicit native arithmetic-only opt-in.
+    f16_arithmetic: core::sync::atomic::AtomicBool,
     raw: ash::Instance,
     extensions: Vec<&'static CStr>,
     flags: wgt::InstanceFlags,
@@ -186,6 +190,7 @@ pub struct InstanceShared {
 impl fmt::Debug for InstanceShared {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let Self {
+            f16_arithmetic: _, // EXACT (EXACT-PATCHES.md, 11).
             raw: _,
             extensions,
             flags,
@@ -529,6 +534,16 @@ struct DeviceShared {
     /// As above, for texture views.
     texture_view_identity_factory: ResourceIdentityFactory<vk::ImageView>,
 
+    /// EXACT (EXACT-PATCHES.md, 6): views of swapchain images, one per image
+    /// and view description, and the framebuffers whose attachments are all
+    /// such views. Kept until the swapchain is released, so an animated
+    /// canvas does not make (and the driver set up and later tear down) a
+    /// view and a framebuffer every frame.
+    surface_views: Mutex<FastHashMap<SurfaceViewKey, IdentifiedTextureView>>,
+    /// EXACT (EXACT-PATCHES.md, 6 and 13): framebuffers whose attachments all
+    /// outlive a command encoder, until one of their views is destroyed.
+    framebuffers: Mutex<FastHashMap<FramebufferKey, vk::Framebuffer>>,
+
     empty_descriptor_set_layout: vk::DescriptorSetLayout,
 
     // The `drop_guard` field must be the last field of this struct so it is dropped last.
@@ -538,6 +553,13 @@ struct DeviceShared {
 
 impl Drop for DeviceShared {
     fn drop(&mut self) {
+        // EXACT (EXACT-PATCHES.md, 6).
+        for (_, fb) in self.framebuffers.lock().drain() {
+            unsafe { self.raw.destroy_framebuffer(fb, None) };
+        }
+        for (_, view) in self.surface_views.lock().drain() {
+            unsafe { self.raw.destroy_image_view(view.raw, None) };
+        }
         for &raw in self.render_passes.lock().values() {
             unsafe { self.raw.destroy_render_pass(raw, None) };
         }
@@ -820,6 +842,9 @@ pub struct Texture {
     format: wgt::TextureFormat,
     copy_size: crate::CopyExtent,
     identity: ResourceIdentity<vk::Image>,
+    /// EXACT (EXACT-PATCHES.md, 6): a swapchain image, whose views and
+    /// framebuffers the device keeps until its swapchain is released.
+    surface_image: bool,
 
     // The `drop_guard` field must be the last field of this struct so it is dropped last.
     // Do not add new fields after it.
@@ -856,6 +881,9 @@ pub struct TextureView {
     dimension: wgt::TextureViewDimension,
     texture_identity: ResourceIdentity<vk::Image>,
     view_identity: ResourceIdentity<vk::ImageView>,
+    /// EXACT (EXACT-PATCHES.md, 6): the device's view of a swapchain image,
+    /// which destroying this one leaves alone.
+    cached: bool,
 }
 
 impl crate::DynTextureView for TextureView {}
@@ -997,7 +1025,7 @@ impl<T> ResourceIdentityFactory<T> {
 /// This is used as a hashable key for resources, which
 /// is permanently unique through the lifetime of the program.
 #[derive(Debug, Copy, Clone, Eq, Hash, PartialEq)]
-struct ResourceIdentity<T> {
+pub(super) struct ResourceIdentity<T> {
     id: u64,
     _phantom: PhantomData<T>,
 }
@@ -1028,6 +1056,88 @@ impl FramebufferKey {
 struct IdentifiedTextureView {
     raw: vk::ImageView,
     identity: ResourceIdentity<vk::ImageView>,
+}
+
+/// EXACT (EXACT-PATCHES.md, 6): a view of a swapchain image, as
+/// `create_texture_view` was asked for it.
+#[derive(Clone, Copy, Eq, Hash, PartialEq)]
+struct SurfaceViewKey {
+    texture_identity: ResourceIdentity<vk::Image>,
+    raw_format: vk::Format,
+    view_type: vk::ImageViewType,
+    aspect_mask: vk::ImageAspectFlags,
+    /// Base mip level, level count, base array layer, layer count.
+    range: [u32; 4],
+    usage: u32,
+}
+
+impl DeviceShared {
+    /// EXACT (EXACT-PATCHES.md, 6 and 13): the device's framebuffer for
+    /// attachments that all outlive the command encoder (see `framebuffers`).
+    fn make_lasting_framebuffer(
+        &self,
+        key: FramebufferKey,
+    ) -> Result<vk::Framebuffer, crate::DeviceError> {
+        use hashbrown::hash_map::Entry;
+        Ok(match self.framebuffers.lock().entry(key) {
+            Entry::Occupied(e) => *e.get(),
+            Entry::Vacant(e) => {
+                let key = e.key();
+                let vk_info = vk::FramebufferCreateInfo::default()
+                    .render_pass(key.raw_pass)
+                    .width(key.extent.width)
+                    .height(key.extent.height)
+                    .layers(key.extent.depth_or_array_layers)
+                    .attachments(&key.attachment_views);
+                let raw = unsafe { self.raw.create_framebuffer(&vk_info, None) }
+                    .map_err(map_host_device_oom_err)?;
+                *e.insert(raw)
+            }
+        })
+    }
+
+    /// EXACT (EXACT-PATCHES.md, 13): destroy every framebuffer drawing into
+    /// `view`, which is being destroyed; nothing submitted uses either any more.
+    fn forget_view(&self, view: ResourceIdentity<vk::ImageView>) {
+        self.framebuffers.lock().retain(|key, fb| {
+            let keep = !key.attachment_identities.contains(&view);
+            if !keep {
+                unsafe { self.raw.destroy_framebuffer(*fb, None) };
+            }
+            keep
+        });
+    }
+
+    /// EXACT (EXACT-PATCHES.md, 6): destroy the views of these swapchain
+    /// images and every framebuffer drawing into one, once nothing uses them
+    /// (the swapchain is being released).
+    fn forget_surface_images(&self, images: &[ResourceIdentity<vk::Image>]) {
+        let mut views = self.surface_views.lock();
+        let gone: Vec<(SurfaceViewKey, IdentifiedTextureView)> = views
+            .iter()
+            .filter(|(k, _)| images.contains(&k.texture_identity))
+            .map(|(k, v)| (*k, *v))
+            .collect();
+        if gone.is_empty() {
+            return;
+        }
+        let gone_views: Vec<ResourceIdentity<vk::ImageView>> =
+            gone.iter().map(|(_, v)| v.identity).collect();
+        self.framebuffers.lock().retain(|key, fb| {
+            let keep = !key
+                .attachment_identities
+                .iter()
+                .any(|id| gone_views.contains(id));
+            if !keep {
+                unsafe { self.raw.destroy_framebuffer(*fb, None) };
+            }
+            keep
+        });
+        for (key, view) in gone {
+            views.remove(&key);
+            unsafe { self.raw.destroy_image_view(view.raw, None) };
+        }
+    }
 }
 
 #[derive(Clone, Eq, Hash, PartialEq)]
@@ -1178,7 +1288,48 @@ impl crate::DynRayTracingPipeline for RayTracingPipeline {}
 
 #[derive(Debug)]
 pub struct PipelineCache {
-    raw: vk::PipelineCache,
+    // EXACT (EXACT-PATCHES.md, 10): creations share access; snapshots exclude them.
+    raw: RwLock<vk::PipelineCache>,
+}
+
+// EXACT (EXACT-PATCHES.md, 10): keep access guards around the driver calls.
+impl PipelineCache {
+    fn with_creation<T>(cache: Option<&Self>, create: impl FnOnce(vk::PipelineCache) -> T) -> T {
+        let guard = cache.map(|cache| cache.raw.read());
+        create(guard.as_deref().copied().unwrap_or_default())
+    }
+
+    fn with_data<T>(&self, snapshot: impl FnOnce(vk::PipelineCache) -> T) -> T {
+        let guard = self.raw.write();
+        snapshot(*guard)
+    }
+}
+
+#[test]
+fn pipeline_cache_snapshot_excludes_creators() {
+    let cache = PipelineCache {
+        raw: RwLock::new(vk::PipelineCache::null()),
+    };
+    std::thread::scope(|scope| {
+        PipelineCache::with_creation(Some(&cache), |_| {
+            scope
+                .spawn(|| {
+                    PipelineCache::with_creation(Some(&cache), |_| {
+                        assert!(cache.raw.try_write().is_none());
+                    })
+                })
+                .join()
+                .unwrap();
+            assert!(cache.raw.try_write().is_none());
+        });
+        cache.with_data(|_| {
+            scope
+                .spawn(|| assert!(cache.raw.try_read().is_none()))
+                .join()
+                .unwrap();
+        });
+        assert!(cache.raw.try_read().is_some());
+    });
 }
 
 impl crate::DynPipelineCache for PipelineCache {}

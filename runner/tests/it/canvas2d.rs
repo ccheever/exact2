@@ -14,13 +14,13 @@ use std::rc::Rc;
 const SOURCE: &str = "component App
   state n = 1
   state show = true
-  action bump writes n
+  action bump
     n = n + 1
-  action hide writes show
+  action hide
     show = false
   view
     column
-      when show
+      if show
         canvas surface=spark(n) width=100 height=50 testId=\"c\"
       canvas surface=globe(n) testId=\"g\"
 ";
@@ -33,6 +33,12 @@ struct Log {
     pictures: bool,
     parked: Vec<(u64, u32, u64)>,
     retired: Vec<(u64, u32)>,
+    /// Each draw's request was for a `display-p3` canvas.
+    p3: Vec<bool>,
+    /// Reply with a list that does not read.
+    malformed: bool,
+    /// Each draw's `currentColor`.
+    colors: Vec<Option<exact_canvas::Rgba>>,
 }
 
 struct Spark(Rc<RefCell<Log>>);
@@ -71,12 +77,21 @@ impl DataSource for Spark {
         Ok(n == 4.0)
     }
     fn draw(&mut self, request: &DrawRequest<'_>, ctx: &Context2d) -> Drawn {
+        self.0.borrow_mut().p3.push(request.p3);
+        self.0.borrow_mut().colors.push(request.current_color);
         if self.0.borrow().later {
             self.0
                 .borrow_mut()
                 .parked
                 .push((request.canvas, request.generation, request.seq));
             return Drawn::Later;
+        }
+        if self.0.borrow().malformed {
+            self.0.borrow_mut().frames.push(request.frame);
+            return Drawn::Now(DrawReply {
+                lists: vec![vec![0xff; 8]],
+                ..Default::default()
+            });
         }
         let result = self.draw_2d(request.surface, request.args, ctx, &request.frame);
         Drawn::Now(DrawReply {
@@ -92,8 +107,12 @@ impl DataSource for Spark {
 }
 
 fn boot() -> (Runner<Spark>, Rc<RefCell<Log>>) {
+    boot_source(SOURCE)
+}
+
+fn boot_source(source: &str) -> (Runner<Spark>, Rc<RefCell<Log>>) {
     let log = Rc::new(RefCell::new(Log::default()));
-    let plan = contract::compile(SOURCE).unwrap();
+    let plan = contract::compile(source).unwrap();
     let r = Runner::boot(
         plan,
         Spark(log.clone()),
@@ -111,6 +130,7 @@ fn geometry(w: f64, h: f64, scale: f64) -> Geometry {
         height: h,
         scale,
         bitmap: None,
+        settings: Default::default(),
     }
 }
 
@@ -256,6 +276,26 @@ fn a_later_reply_applies_only_with_live_stamps() {
         .any(|l| !l.fresh && l.animating));
 }
 
+/// A list that does not read starts a new generation and draws it once
+/// more; a source that keeps replying so is not asked again until
+/// something else changes, so a host drawing whenever one is owed
+/// (LLP 1072 §8.5) does not draw it forever.
+#[test]
+fn a_malformed_reply_is_retried_once() {
+    let (mut r, log) = boot();
+    log.borrow_mut().malformed = true;
+    let view = r.canvas_views()[0];
+    r.set_canvas_geometry(view, geometry(10.0, 10.0, 1.0));
+    let mut turns = 0;
+    while r.canvas_owed(&|_| true) && turns < 10 {
+        r.draw_canvases(&|_| true);
+        r.take_canvas_lists();
+        turns += 1;
+    }
+    assert!(!r.canvas_owed(&|_| true), "still owed after {turns} turns");
+    assert_eq!(log.borrow().frames.len(), 2, "the first draw and one retry");
+}
+
 #[test]
 fn sizes_past_the_limits_are_refused_through_state() {
     let (mut r, _) = boot();
@@ -309,4 +349,115 @@ fn an_image_a_draw_asks_for_redraws_it_when_it_decodes() {
     r.draw_canvases(&|_| true);
     assert_eq!(r.take_canvas_lists().len(), 1);
     assert_eq!(log.borrow().frames.last().unwrap().cause.primary(), "font");
+}
+
+/// LLP 1100 D12a: `color-space` and `color-type` are the canvas's getContext
+/// settings: the draw is told, the host's bitmap carries them, a change is
+/// a new generation, and float16 counts 8 bytes a pixel.
+#[test]
+fn a_canvas_settings_reach_the_draw_and_the_host() {
+    let (mut r, log) = boot_source(
+        "component App
+  state wide = true
+  action narrow
+    wide = false
+  view
+    canvas surface=spark(1) width=100 height=50 color-space=(wide ? \"display-p3\" : \"srgb\") color-type=\"float16\"
+",
+    );
+    let view = r.canvas_views()[0];
+    let settings = r.canvas_settings(view);
+    assert!(settings.p3 && settings.float16);
+    r.set_canvas_geometry(
+        view,
+        Geometry {
+            settings,
+            ..geometry(100.0, 50.0, 1.0)
+        },
+    );
+    r.draw_canvases(&|_| true);
+    let lists = r.take_canvas_lists();
+    assert!(lists.iter().all(|l| l.settings == settings));
+    assert_eq!(log.borrow().p3, [true]);
+    r.act("narrow", vec![]).unwrap();
+    let settings = r.canvas_settings(view);
+    assert!(!settings.p3 && settings.float16);
+    r.set_canvas_geometry(
+        view,
+        Geometry {
+            settings,
+            ..geometry(100.0, 50.0, 1.0)
+        },
+    );
+    r.draw_canvases(&|_| true);
+    let lists = r.take_canvas_lists();
+    assert!(lists[0].fresh && lists[0].generation == 1, "a new context");
+    assert_eq!(log.borrow().p3.last(), Some(&false));
+}
+
+/// `-exact-system-green` in a scheme, as a draw's `currentColor`.
+fn green(dark: bool) -> Option<exact_canvas::Rgba> {
+    let role = exact_kernel::style::roles::role("-exact-system-green").unwrap();
+    let [r, g, b, a] = exact_kernel::ColorValue::Role(role)
+        .resolve(dark)
+        .0
+        .to_be_bytes();
+    Some(exact_canvas::Rgba {
+        r,
+        g,
+        b,
+        a: a as f64 / 255.0,
+    })
+}
+
+/// A canvas's `currentColor` is its colour in its own scheme (LLP 1056 D3):
+/// a role under `color-scheme="dark"` is the role's dark value, else the
+/// window's scheme's.
+#[test]
+fn a_canvas_current_color_is_its_schemes() {
+    let (mut r, log) = boot_source(
+        "component App
+  view
+    column
+      canvas surface=spark(1) width=10 height=10 color=\"-exact-system-green\"
+      column color-scheme=\"dark\"
+        canvas surface=spark(1) width=10 height=10 color=\"-exact-system-green\"
+",
+    );
+    for view in r.canvas_views() {
+        r.set_canvas_geometry(view, geometry(10.0, 10.0, 1.0));
+    }
+    r.draw_canvases(&|_| true);
+    assert_ne!(green(false), green(true), "the role has two values");
+    assert_eq!(log.borrow().colors, [green(false), green(true)]);
+}
+
+/// With no subtree scheme, a canvas's `currentColor` follows the scheme the
+/// app chose (`setScheme`), not the window's beneath it, and a change of
+/// scheme draws it again (cause `"style"`), as nothing else would.
+#[test]
+fn a_canvas_current_color_follows_the_apps_scheme() {
+    let (mut r, log) = boot_source(
+        "component App
+  action chooseLight
+    setScheme(\"light\")
+  view
+    canvas surface=spark(1) width=10 height=10 color=\"-exact-system-green\"
+",
+    );
+    r.set_preferences(exact_runner::Preferences {
+        dark: true,
+        ..Default::default()
+    })
+    .unwrap();
+    let view = r.canvas_views()[0];
+    r.set_canvas_geometry(view, geometry(10.0, 10.0, 1.0));
+    r.draw_canvases(&|_| true);
+    r.take_canvas_lists();
+    assert!(!r.canvas_owed(&|_| true), "drawn, and nothing changed");
+    r.act("chooseLight", vec![]).unwrap();
+    assert!(r.canvas_owed(&|_| true), "the scheme changed");
+    r.draw_canvases(&|_| true);
+    assert_eq!(log.borrow().colors, [green(true), green(false)]);
+    assert_eq!(log.borrow().frames.last().unwrap().cause.names(), ["style"]);
 }

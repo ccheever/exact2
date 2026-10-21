@@ -51,19 +51,23 @@ pub extern "C" fn m_transitions(node: f64, len: u32) -> u32 {
     state().transitions(node as u64, &text) as u32
 }
 
-/// A node's four targets after a commit at `now` seconds.
+/// A node's four targets after a commit at `now` seconds: translate as its
+/// lengths and its percentages of the box.
 #[no_mangle]
+#[allow(clippy::too_many_arguments)]
 pub extern "C" fn m_observe(
     node: f64,
     x: f64,
     y: f64,
+    px: f64,
+    py: f64,
     scale: f64,
     rotate: f64,
     opacity: f64,
     now: f64,
 ) -> u32 {
     state()
-        .observe(node as u64, [x, y, scale, rotate, opacity], now)
+        .observe(node as u64, [x, y, px, py, scale, rotate, opacity], now)
         .is_ok() as u32
 }
 

@@ -12,15 +12,15 @@ fn physics_snapshot_survives_every_tick_reconstruction() {
 }
 
 #[test]
-fn incomplete_v1_refusal_keeps_destination_unchanged() {
+fn obsolete_snapshot_refusal_keeps_destination_unchanged() {
     let mut sim = common::scene("stack");
     sim.run(50.0);
     sim.key_down("KeyW");
     let before = sim.save().unwrap();
     let mut old = before.clone();
-    let at = old.windows(8).position(|s| s == b"EXPHYS\0\x02").unwrap();
-    old[at + 7] = 1;
-    for bound in [false, true] {
+    let at = old.windows(8).position(|s| s == b"EXPHYS\0\x03").unwrap();
+    for (version, bound) in [(1, false), (2, false), (1, true), (2, true)] {
+        old[at + 7] = version;
         let error = if bound {
             sim.restore_bound(&old)
         } else {
@@ -29,7 +29,7 @@ fn incomplete_v1_refusal_keeps_destination_unchanged() {
         .unwrap_err()
         .to_string();
         assert!(
-            error.contains("EXPHYS v2") && error.contains("incomplete"),
+            error.contains("EXPHYS v3") && error.contains("predate"),
             "{error}"
         );
         assert!(

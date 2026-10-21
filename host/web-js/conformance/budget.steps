@@ -1,0 +1,47 @@
+# The cases of budget.contract, in its order (LLP 1090 D7); each refusal
+# leaves the next step's state as it was, on every target (case 19).
+tap case-1
+tap case-2
+tap case-3
+tap case-4
+tap case-5
+tap both-0
+type in-0 x
+tap case-6
+tap case-8
+tap case-24
+tap case-9
+tap case-32
+tap case-11
+tap case-12
+tap case-25
+tap case-33
+tap case-13
+tap case-34
+tap case-14
+tap case-26
+tap case-27
+tap case-15
+tap case-16
+tap case-29
+tap case-18
+tap case-30
+tap case-35
+tap case-36
+tap case-37
+tap case-38
+tap case-39
+tap case-40
+tap case-41
+tap case-42
+tap case-43
+tap case-44
+tap case-45
+tap case-46
+tap case-0
+tap arm
+tap argtrap
+tap edge
+clock settle
+tap poison
+tap argtrap

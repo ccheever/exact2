@@ -3,7 +3,15 @@
 use std::{path::PathBuf, process::Command};
 
 fn root(binding: &str, children: &str) -> String {
-    format!("component App\n  state n = 0\n  action zero writes n\n    n = 0\n  action one(x: number) writes n\n    n = x\n  action two(x: number, y: number) writes n\n    n = x + y\n  view\n    {binding}\n{children}")
+    format!("component App\n  state n = 0\n  action zero\n    n = 0\n  action one(x: number)\n    n = x\n  action two(x: number, y: number)\n    n = x + y\n  view\n    {binding}\n{children}")
+}
+/// The root with a `provide` section (LLP 1035.005.000 D9) over `view`.
+fn provided(provide: &str, view: &str, children: &str) -> String {
+    root(view, children).replacen(
+        "  view\n",
+        &format!("  provide\n    {provide}\n  view\n"),
+        1,
+    )
 }
 fn refusal(source: &str) -> contract::CompileError {
     let error = contract::compile(source).unwrap_err();
@@ -57,43 +65,48 @@ fn incompatible_invocations_are_rejected_even_in_an_unused_component() {
 
 #[test]
 fn injected_requirements_cross_wrappers_and_use_the_nearest_provider() {
-    let children = "component Wrap\n  view\n    Injected()\ncomponent Injected\n  inject\n    callback: action\n  view\n    button \"run\" press=callback()\n";
-    refusal(&root("provide callback = one\n      Wrap()", children));
-    contract::compile(&root("provide callback = zero\n      Wrap()", children)).unwrap();
-    contract::compile(&root(
-        "provide callback = one\n      provide callback = zero\n        Wrap()",
-        children,
-    ))
-    .unwrap();
-    let error = refusal(&root(
-        "provide callback = zero\n      provide callback = one\n        Wrap()",
-        children,
-    ));
-    assert_eq!(error.related[1].span.line, 11);
+    let children = |wrap: &str| {
+        format!("component Wrap\n  state m = 0\n  action idle\n    m = 0\n  action single(x: number)\n    m = x\n{wrap}  view\n    Plain()\ncomponent Plain\n  view\n    Injected()\ncomponent Injected\n  inject\n    callback: action\n  view\n    button \"run\" press=callback()\n")
+    };
+    let plain = children("");
+    refusal(&provided("callback = one", "Wrap()", &plain));
+    contract::compile(&provided("callback = zero", "Wrap()", &plain)).unwrap();
+    // A nearer component's section shadows an outer one's (LLP 1035.005.000 D9).
+    let inner = |value: &str| children(&format!("  provide\n    callback = {value}\n"));
+    contract::compile(&provided("callback = one", "Wrap()", &inner("idle"))).unwrap();
+    let error = refusal(&provided("callback = zero", "Wrap()", &inner("single")));
+    assert_eq!(error.related[1].span.line, 20);
 }
 
 #[test]
 fn providers_can_forward_action_props_and_curry_them() {
-    let children = "component Wrap\n  props\n    callback: action\n  view\n    provide callback = callback(1)\n      Injected()\ncomponent Injected\n  inject\n    callback: action\n  view\n    button \"run\" press=callback()\n";
+    let children = "component Wrap\n  props\n    callback: action\n  provide\n    callback = callback(1)\n  view\n    Injected()\ncomponent Injected\n  inject\n    callback: action\n  view\n    button \"run\" press=callback()\n";
     contract::compile(&root("Wrap(callback=one)", children)).unwrap();
     refusal(&root("Wrap(callback=two)", children));
     let children =
         "component Wrap\n  inject\n    callback: action\n  view\n    Button(callback=callback(1))\n"
             .to_owned() + BUTTON;
-    contract::compile(&root("provide callback = one\n      Wrap()", &children)).unwrap();
-    refusal(&root("provide callback = two\n      Wrap()", &children));
+    contract::compile(&provided("callback = one", "Wrap()", &children)).unwrap();
+    refusal(&provided("callback = two", "Wrap()", &children));
+    // A bare name provides the value of that name: an injected action is
+    // forwarded unchanged.
+    let forward = "component Wrap\n  inject\n    callback: action\n  provide\n    callback\n  view\n    Injected()\ncomponent Injected\n  inject\n    callback: action\n  view\n    button \"run\" press=callback()\n";
+    contract::compile(&provided("callback = zero", "Wrap()", forward)).unwrap();
+    refusal(&provided("callback = one", "Wrap()", forward));
 }
 
 #[test]
 fn slot_fills_keep_the_callers_provider_context() {
-    let children = "component Slot\n  slot\n  action local\n    focus(\"nothing\")\n  view\n    provide callback = local\n      children\ncomponent Injected\n  inject\n    callback: action\n  view\n    button \"run\" press=callback()\n";
-    // The slot's inner provider must not rescue the caller's mismatched fill.
-    refusal(&root(
-        "provide callback = one\n      Slot()\n        Injected()",
+    let children = "component Slot\n  slot\n  action local\n    focus(\"nothing\")\n  provide\n    callback = local\n  view\n    children\ncomponent Injected\n  inject\n    callback: action\n  view\n    button \"run\" press=callback()\n";
+    // The slot's own section must not rescue the caller's mismatched fill.
+    refusal(&provided(
+        "callback = one",
+        "Slot()\n      Injected()",
         children,
     ));
-    contract::compile(&root(
-        "provide callback = zero\n      Slot()\n        Injected()",
+    contract::compile(&provided(
+        "callback = zero",
+        "Slot()\n      Injected()",
         children,
     ))
     .unwrap();
@@ -126,19 +139,27 @@ fn navigate_optional_arity_survives_multiple_bindings_and_intersection() {
 
 #[test]
 fn all_event_payload_arities_share_the_lowering_rule() {
+    // `press` may also hand on its `MouseEvent` (`handler_accepts`), and
+    // `reorderdrop` its `ReorderEvent` after the two keys (LLP 1094 D2).
+    assert_eq!(contract_analyze::handler_arity("press", 0), Some(0..=1));
+    assert_eq!(
+        contract_analyze::handler_arity("reorderdrop", 0),
+        Some(2..=3)
+    );
+    // `input` and `change` their value, then optionally the `InputEvent`
+    // (x2apps codeedit #2).
+    for event in ["input", "change"] {
+        assert_eq!(contract_analyze::handler_arity(event, 0), Some(1..=2));
+    }
     for (event, count) in [
-        ("press", 0),
-        ("change", 1),
         ("hover", 1),
         ("timeupdate", 1),
         ("durationchange", 1),
         ("pan", 2),
         ("panrelease", 2),
-        ("scroll", 2),
         ("heightrelease", 2),
         ("transformgeometry", 4),
         ("transformrelease", 6),
-        ("reorderdrop", 2),
         ("reachstart", 0),
         ("reachend", 0),
     ] {
@@ -158,6 +179,8 @@ fn all_event_payload_arities_share_the_lowering_rule() {
             refusal(&root("text \"hello\"", &wrong));
         }
     }
+    // `scroll`'s two offsets, then its optional `ScrollEvent` (chat F4).
+    assert_eq!(contract_analyze::handler_arity("scroll", 0), Some(2..=3));
     // Edges carry no payload: their action takes exactly the bound arguments.
     assert_eq!(
         contract_analyze::handler_arity("reachstart", 1),
@@ -202,7 +225,7 @@ fn related_import_locations_resolve_independently_and_cli_prints_them() {
     let child = app.write("button.contract", BUTTON).canonicalize().unwrap();
     let error = contract::compile_path(&root).unwrap_err();
     assert_eq!(error.id, "analyze-action-arity");
-    assert_eq!(error.file.as_ref(), Some(&child));
+    assert_eq!(error.file.as_deref(), Some(child.as_path()));
     assert_eq!(error.related[0].file.as_ref(), Some(&child));
     assert_eq!(error.related[1].file.as_ref(), Some(&root));
     assert_eq!(
@@ -234,12 +257,9 @@ fn every_binding_is_checked_and_valid_lifted_child_actions_keep_their_arity() {
         "view\n      Button(callback=zero)\n      Button(callback=one)",
         BUTTON,
     ));
-    let children = format!("component Stateful\n  props\n    value: number\n  state n = 0\n  action local writes n\n    n = value\n  view\n    Button(callback=local)\n{BUTTON}");
+    let children = format!("component Stateful\n  props\n    value: number\n  state n = 0\n  action local\n    n = value\n  view\n    Button(callback=local)\n{BUTTON}");
     contract::compile(&root("Stateful(value=7)", &children)).unwrap();
-    let invalid = children.replace(
-        "action local writes n",
-        "action local(extra: number) writes n",
-    );
+    let invalid = children.replace("action local", "action local(extra: number)");
     refusal(&root("Stateful(value=7)", &invalid));
 }
 

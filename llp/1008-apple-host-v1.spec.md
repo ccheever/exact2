@@ -124,14 +124,18 @@ The Swift side is CoreText and nothing else. A **`Paragraph`** is a
 width-specific snapshot — the wrapped `CTLine`s from a `CTTypesetter`, each
 line's baseline from the top, and its layout dimensions — cached by `(spec,
 width)`. An authored line height retains the fractional sum of its line boxes,
-including empty and clamped paragraphs. Intrinsic width and `normal` paragraph
-height retain their existing whole-point ceiling: changing those measurements
+including clamped paragraphs. Empty text has no line box, so its intrinsic height is zero.
+Intrinsic width and `normal` paragraph height retain their existing whole-point
+ceiling: changing those measurements
 requires a separate wrapping/host-parity comparison. The measure callback answers
 from the paragraph, and `NodeView.draw` paints those same lines: one `CTLineDraw`
 per line, flush by alignment inside the CSS content box. Borders and padding
 are excluded from the wrapping width and added to the painted origin; the
 paragraph cache keys that content width, even when its outer frame is unchanged.
-AppKit selection and link hits use the same origin and alignment. The padded
+AppKit selection and link hits use the same origin and alignment. Inline
+`frame()` reads and agent `layout` use the union of the run's fragments on
+AppKit and UIKit, through the paragraph's viewport conversion (LLP 1051.000
+D1). Collapsed whitespace at a soft wrap contributes no width to that union. The padded
 paragraph/container comparison, padding mutation and recreation, and Messages
 quoted replies and empty results are recorded in `/tmp/messages-text-padding/`.
 Painting still snaps baselines to the logical point
@@ -153,11 +157,16 @@ long-reply drive are in `/tmp/messages-line-clamp/verification.json`. Mixed-run
 token styling still differs from the browser's paragraph-styled ellipsis, and
 the browser fixture does not show the token on a right-aligned line; full text raster
 parity remains open. `overflow-wrap` travels through `ExactMeasureRequest`
-and the paragraph cache. Normal uses public Unicode line-break boundaries
-so CoreText's emergency word split becomes overflow; `break-word` retains
-that split. `anywhere` additionally measures min-content by composed-character
-clusters; the other modes retain the widest word. A forward cursor consumes
-line boundaries once rather than searching the whole list for every line.
+and the paragraph cache. Every mode breaks at the last of Chrome's
+line-break opportunities whose content fits, the shared walker's
+(`exact_text_line_breaks`, `textflow/src/walker.rs`; 2026-10-06, #128: the
+public Unicode boundaries broke a path after each `/`); when none fits,
+normal lets the word overflow, and `break-word` and `anywhere` split it at
+the last cluster that fits. `anywhere` measures min-content by
+composed-character clusters; the other modes measure the widest piece
+between those same opportunities, not only between spaces (2026-10-05: a URL in a chat bubble had sized its box to
+the whole URL, then overflowed it). A forward cursor consumes line
+boundaries once rather than searching the whole list for every line.
 The normal/break-word/anywhere/restored fixture agrees with the browser's
 finite-width and flex minimum behavior (`/tmp/messages-overflow-wrap/`).
 Native editing controls keep their existing UIKit/AppKit wrapping policy;
@@ -335,16 +344,24 @@ to the new extent. Browser/iOS/macOS fixtures cover both axes, manual scrolling,
 self/ancestor hiding and content shrinkage while hidden.
 An `input` node carries an `NSTextField`; a `scroll`/`list` node an
 `NSScrollView` whose flipped document view holds the children and takes the
-`content` size. A new leading child is inserted before existing Exact-only
-siblings, preserving their mounts; containers with native decorations retain
-their existing ordering path. Child updates use an identity set for membership
-and compare each retained child's current position directly. Frames are set from `frame` ops; `present` ops set an
+`content` size. Child updates use an identity set for membership, mount only
+new children, and sort retained siblings in place without detaching their
+responders. A flight slot takes its lifted child's place in the authored order.
+Native decorations stay below the authored children, and exit ghosts keep
+their slots among live and flying children. Window overlays live outside
+these child containers.
+Frames are set from `frame` ops; `present` ops set an
 affine transform about the bounds' center (translate · rotate · scale) and
 `alphaValue`. A press is a mouse-down and -up inside the bounds on a node
 with a `press` handler; an input's `controlTextDidChange` is a `change`. The
 events beyond those (LLP 1005 §3; 2026-08-30): a `hover` handler is an
 `NSTrackingArea` — `mouseEntered`/`Exited`, the previously hovered node's
-leave sent before the new one's enter; `focus`/`blur` are first-responder
+leave sent before the new one's enter. A tracking area hears only a pointer
+that moves, so after a batch that makes, moves, removes or transforms boxes,
+or a scroll, the next display frame hit-tests the resting pointer (once a
+frame; none while a button is down or the pointer is off the window or over
+another one) and sends the leave/enter a browser's hover update would (#139,
+2026-10-06); `focus`/`blur` are first-responder
 changes (a field's begin/end editing; a node with such a handler
 `acceptsFirstResponder` and takes it on mouse-down); a `key` handler gets
 `keyDown`'s name in the web's vocabulary (`Enter`, `Escape`, `Tab`,
@@ -541,8 +558,9 @@ The crate argument names the app; `scripts/app.mjs` (`resolveApp`, 2026-08-30)
 turns it into a directory, a cargo workspace, and a target directory — `apps/<name>`
 in this repo, or `EXACT_APP_DIR` for an app outside it (weird-castle) — and cargo
 runs there while `EXACT_LIB_DIR` points the Swift packages at that target. The
-bundle id is `com.exact.<name>`; `ExactMac`/`ExactIOS.app` are the one output slot
-per host. LLP 1007 §7 has the shape.
+bundle id and name come from its manifest, and the executable and its `.app` are
+named for the app, as Xcode names them (LLP 1030 D2, "The executable's name").
+LLP 1007 §7 has the shape.
 
 `node host/apple/build.mjs [--run]` — `cargo build --release -p
 caltrain-apple`, then `swift build -c release` against it. `node
@@ -665,25 +683,27 @@ allocation while surviving charges exceed the new capacity; growth wakes
 queued decodes. AppKit follows its view's backing-properties callback through
 the same capacity seam. The iOS deployment floor remains 17.
 
-*Exercised on the iPhone Duo simulator (Xcode 27.1 beta 27A9269, iOS 27.1
-24A94401, 2026-09-30)*, headlessly: the hinge through the vendor HID event
-Device Hub's slider sends, orientation and captures through `devicectl`, the
-apps through the agent socket. Closed, the cover panel is 466×678 pt; open
-(180°), book (130°) and half (90°) light the inner panel, 951×669 pt; this beta
-puts the status bar in an 84-pt strip on the right of both panels and the home
-indicator at the bottom, so the safe area is `right: 84, bottom: 34` on either,
-with a transient `top: 82` layout while the panels switch. Across every pose
-change, in both directions: a cover root fills the new panel and its content
-keeps out of the new insets, a non-cover viewport is the panel less the insets,
-the software keyboard rises and `resizes-content`'s bar rides it, a focused
-field keeps its text and focus, a pushed screen and a presented sheet survive,
-a scrolled list keeps its offset, and the two-session sample host's panes both
-follow (the `insets`, `keyboard-bar`, Caltrain, Messages, Fieldnotes and host
-sweeps). Not exercised: rotation and Split View, which this beta's simulator
-does not honour from CoreDevice (`devicectl device orientation set` is accepted
-and changes nothing; Device Hub's own rotate goes through an accessibility
-path) — rotation was exercised with the same bundles on the iOS 27.0 iPhone
-simulator instead — and a resizable app session, refused for the same reason.
+*Exercised on the iPhone Duo simulator (Xcode 27.1 27A9275, iOS 27.1
+24A94425, 2026-10-19)*, headlessly, by `bun scripts/smoke.mjs duo`: the hinge
+and the turns through the vendor HID events Device Hub's controls send
+(`scripts/duo/hinge_helper.c`), captures through `devicectl`, the apps through
+the agent socket. Closed, the outer display is 466×678 pt; fully open and
+partially folded (130°, 90°) light the inner display, 951×669 pt; the status bar
+stands in an 84-pt strip on the right of both displays and the home indicator
+at the bottom, so the safe area is `right: 84, bottom: 34` on either. Across
+every pose change, in both directions: a cover root fills the new display and
+its content keeps out of the new insets, a non-cover viewport is the display
+less the insets, the software keyboard rises and `resizes-content`'s bar rides
+it, a focused field keeps its text and focus, a pushed screen and a presented
+sheet survive, a scrolled list keeps its offset, the two-session sample host's
+panes both follow, the scene turns with the device at every pose, and in a
+resizable app session the Fold screen follows each window UIKit gives it (the
+`insets`, `keyboard-bar`, `lab`, `host`, `rotate` and `resize` legs). Under the
+agent's own chrome, its tablist below the routes, flat and folded like a book and
+like a laptop, the Fold screen's panes and the note sheet end where the routes
+do (the `web` leg). `devicectl device
+orientation set` is accepted and turns nothing, so the turns go through the
+helper. Not exercised: Split View with another app beside this one (QUEUE).
 
 *Reserved regions, evaluated.* UIKit 27.1 adds `UIView.reservedRegions(kind:)`
 and `UIHingeInteraction`. On the inner panel the simulator reports two
@@ -836,9 +856,11 @@ with the projection (`/tmp/messages-swipe-accessibility/verification.json`).
 This verifies the named-button boundary, not a complete VoiceOver interaction.
 
 **Horizontal scroll snap** (2026-09-09, Messages): the admitted CSS subset is
-`scroll-snap-type: none | x mandatory` and `scroll-snap-align: none | start`.
+`scroll-snap-type: none | x mandatory` and `scroll-snap-align: none | start | end`
+(`end` 2026-10-03, asked for by the Signal Clone's swipe row before native swipe
+actions: a narrower area rests with its end at the viewport's end).
 The browser executes these as CSS. UIKit's `scrollViewWillEndDragging` finds
-the nearest captured start position to its projected destination and adjusts
+the nearest captured position to its projected destination and adjusts
 `targetContentOffset`; UIKit owns dragging and deceleration, using its fast
 rate for mandatory snapping (normal otherwise). Oversized snap
 areas remain freely scrollable while they cover the viewport; nested scroll
@@ -985,6 +1007,9 @@ re-sent by the batch that changes the insets. `layout` reports the insets
 given as `env` (LLP 1012 §1) — zero when the viewport is the safe area, as
 `env()` is zero on a page without the meta.
 
+> **Amended by LLP 1115 D2.** Where the root sets none it is the platform's background
+> (`systemBackground` on iOS, `windowBackgroundColor` on the Mac), never a fixed white.
+
 The standalone macOS adapter also applies the current `viewport-fit` when it
 installs its window callback: mounting the view can already have booted the
 embedded plan. Every successful session boot re-sends the view's insets,
@@ -1046,6 +1071,39 @@ runtime already believes them applied. The deferred change retains the keyboard'
 animation duration and curve; it is independent of the removed view's lifetime.
 The Messages forwarding-cancel/Back drive verifies the inbox's painted search
 position returns to its original full-height position.
+**`resizes-content` is iOS's default (2026-10-10, LLP 1116 D2).** A hand-built
+app keeps a focused field and the content under it above the keyboard (UIKit's
+keyboard layout guide, SwiftUI's keyboard safe area); the web's default left the
+fields under it covered and panned the whole page, header and all, so the bake-off
+graders marked it down. A root without `interactive-widget` now has the
+`resizes-content` reading above (`Presenter.keyboardPolicy`; the agent's
+`state.keyboard.policy` reports it); `interactive-widget="resizes-visual"` is the
+opt-out to the inset reading, and `overlays-content` stays as below. The web keeps
+the browser's default.
+
+**`interactive-widget="overlays-content"` and the keyboard toolbar
+(2026-10-03, §9.1).** CSS's third value: the keyboard covers the viewport and
+nothing is resized. Its consumer, the Signal Clone app (an outside app,
+`~/.tuft/projects/signal-exact2`), wanted Signal's own technique: its input
+toolbar pinned to the keyboard's top while the transcript keeps its layout
+and only gains a bottom inset. Under this mode `Presenter.applyKeyboard`
+neither insets the viewport nor has `fit` frame it; `KeyboardToolbars.ride`
+lifts each `role="toolbar" toolbarPlacement="keyboard"` by the keyboard's
+overlap less the gap below the toolbar and its own bottom padding (which
+already clears the home indicator), as a transform (`keyboardLift`, outermost
+in `applyTransform`), and gives every scroller whose bottom meets the
+toolbar's top, across its width, a `contentInset.bottom` and indicator inset
+of the same amount, keeping one that was at its end at its end. Both are set
+inside the keyboard's animation block, so they move with its duration and
+curve; no frame changes and no batch runs as the keyboard moves. When the
+keyboard goes the lift and the insets come back exactly (each scroller's
+owned inset is remembered). The web and the other hosts have no keyboard
+toolbar: on the web the keyboard covers the page under this mode, as the
+browser defines it (a declared difference; Safari ignores
+`interactive-widget` anyway). XCTest: `KeyboardToolbarIOSTests`. A software
+keyboard could not be shown on this Mac's Xcode 27 simulators (no
+Simulator.app to clear *Connect Hardware Keyboard*), so the real keyboard
+drive is owed on a phone.
 **Authored inertness (2026-09-11, LLP 1035.001 D3):** a node becoming inert
 ends editing within its subtree and excludes that subtree from UIKit input and
 accessibility. Direct activation checks the entire ancestor chain before choosing
@@ -1089,16 +1147,14 @@ a 335 keyboard, the bar's bottom 840 → 539, the bottom inset 34 → 0, all
 back on dismiss; Weird Castle's root uses it, with a yellow bar under its
 screens. Not built: `env(keyboard-inset-*)`, the `overlays-content` mode.
 
-**A contact on the simulator** (LLP 1035.003 §3 candidate 1, 2026-09-10):
-the app synthesizes no touch. The driver posts a real mouse into the
-simulator's window (`host/apple/pointer.swift`: Simulator.app's, or under
-Xcode 27, which ships none, the window Device Hub opens for the device,
-2026-09-30), calibrated by hovering at
-two desktop points and reading where the viewport saw the pointer
-(`layout.pointer`, a hover recognizer the presenter installs only under the
-agent), and refuses — naming the covering app — when the simulator's window
-is not the topmost at the point, or saying so when the Mac's screen is locked. `layout` also reports `screen` (the
-device's size and scale, and the viewport's origin on it).
+**Real touches on the simulator** (LLP 1080.000, 2026-10-03; the desktop
+pointer of LLP 1035.003 §3 is deleted): under `--touch platform` the driver
+starts an XCTest touch runner before the app, and a `tap` is a real touch
+from it — aimed by the host, confirmed by `ExactWindow`'s dispatch log —
+with `delivery: platform`. No touch stays down across requests, so a
+contact's phases answer `unsupported`. `layout` also reports `screen` (the
+device's size and scale, the viewport's origin on it, and the scene's
+interface orientation).
 
 **The agent (LLP 1012) on iOS.** A simulator app has no stdin, so
 `EXACT_AGENT=1` with `EXACT_AGENT_SOCKET=<path>` listens on a Unix socket
@@ -1133,8 +1189,8 @@ editor, `keyboard.visible` false, the stack as `NavigationRules.stack`'s
 prefix and `idle`. Every reply the host answers itself (`layout`, `tap`,
 `type`, `clock`, `screenshot`) is tagged `epoch`/`incarnation`/`clock` through
 the runner's `tags` message (D3, `Agent.tagged`). **`tap` is the one declared
-deviation from §1's contract**: UIKit offers no public touch synthesis, so
-a tap hit-tests through the window (UIKit's own, placements included) and
+deviation from §1's contract** unless the session runs `--touch platform`
+(above): UIKit offers no in-process touch synthesis, so a tap hit-tests through the window (UIKit's own, placements included) and
 delivers the press by the responder-chain rule a touch gets
 (`NodeView.activate`, which VoiceOver's `accessibilityActivate` also uses);
 a wheel applies LLP 1010's chaining rule from the hit view up. `type` is
@@ -1144,7 +1200,31 @@ at the screen's scale in the standard (8-bit sRGB) range — a wide-color
 screen would otherwise yield a 16-bit PNG — and sees Metal. By default it
 captures the session viewport. `window: true` captures the containing UIWindow,
 including native confirmations and other embedded sessions; separate system
-windows such as the keyboard are outside that capture. This distinction landed
+windows such as the keyboard are outside that capture. On a simulator the
+driver then takes a window capture's pixels from the display (`simctl io …
+screenshot`, `devices.mjs` `withDisplay`), as a device screenshot has them:
+`drawHierarchy` draws Liquid Glass and the other backdrop materials only
+roughly (a tab bar's glass left the rows under it legible, an alert's the list
+behind it), and the keyboard is another process's. Nothing of the display is
+read unless the reply said the app was in front (active, its scene in front,
+its window key), and nothing is taken unless the app, asked again after the
+reads (`{"op":"screenshot","probe":true}`), still is, at the same epoch,
+incarnation and clock. The display is read three times, the third 400 ms after
+the second, so a caret's blink cannot fall in all three, and it is taken whole
+only when the three agree below the status bar, UIKit's motion had settled, and
+the display matches the app's drawing at the plain points the reply names
+(`opaque`: a 16-point grid less the status bar, the bottom safe area, the
+keyboard and every glass, blur, portal or filtered layer that draws), to within
+2 levels in each 5x5-pixel patch the app drew in one colour: there the two
+matched exactly on euxy's screens, and a notification banner's frosted
+material over the page was 3 or 4 levels off it. A launch and such a capture hold the
+simulator's display lock (`simulatorDisplay`), so another drive's app does not
+come to the front between them. Otherwise the picture stays the app's, with
+the status bar's rows and the keyboard's band taken only where all three reads
+agree on them, and the reply's `pixels: "app"` and `pixelsWhy` say why. The
+status bar's rows stay the app's unless asked for (`window status`); `window
+app` asks for the app's own drawing, as does a capture that strikes through
+header nodes the bar leaves out. This distinction landed
 with LLP 1021 D2's confirmation integration (2026-09-10). The driver's `ios` carrier (`scripts/agent.mjs`
 `openIOS`) installs the bundle, launches it with `simctl launch --console
 --terminate-running-process` and keeps that attached for the app's stdout
@@ -1205,7 +1285,9 @@ processes` shows it). A phone that is asleep, on another network, or with
 Wi-Fi off is `unavailable` to `devicectl`; the script says so and stops
 after signing.
 
-**The frame rate on the phone, measured (2026-08-30).** `EXACT_FPS=1` makes
+**The frame rate on the phone, measured (2026-08-30).** (`EXACT_FPS` was
+deleted on 2026-10-03 for `perf frames` and Save Trace, LLP 1079 D7; this is
+how the measurement below was taken.) `EXACT_FPS=1` made
 the display link run always and report once a second — frames delivered,
 the longest gap, the canvases' renders and captures with their times — to
 stderr (which `devicectl device process launch --console` relays), to
@@ -1298,6 +1380,57 @@ where this began. The deck's per-child textures still take the byte path
 but untested; `scripts/metrics.mjs` has no iOS row; the agent API on a
 phone (the socket is a simulator's; a phone would want the same lines over
 `devicectl`'s tunnel or USB).
+
+### tvOS (Doug Lowder, landed 2026-10-03)
+
+tvOS is the UIKit presenter compiled for Apple TV, not another presenter
+(`rules/DEFERRED.md` §Surfaces). Shared Swift admits it beside `os(iOS)` and
+carves out what tvOS lacks: editing text views, the pasteboard, keyboard
+frames and the keyboard layout guide, pointer lock, large titles, navigation
+subtitles, inset grouped lists and `UISwitch` (a grouped list's toggle row
+shows a checkmark). Every `target_os = "ios"` gate outside `vendor/` admits
+`"tvos"` as well, so the Metal GPU path, Apple audio and the iOS SVG lowering
+take the iOS behavior. A tvOS-only file, `IOS/RemoteTVOS.swift`, compiles
+into the tvOS binary alone.
+
+- **Build.** `bun host/apple/build.mjs --tvos [crate] [--run] [--sim …]`
+  builds for an Apple TV simulator through the iOS path, with
+  `aarch64-apple-tvos-sim` (arm64 only; `rustup target add` it), the
+  manifest's iOS section and deployment target, and device family 3. No
+  device builds, icons or iframe arm (tvOS has no WebKit). An app with
+  `app.ts` links the pinned lean Hermes built once per machine for
+  `tvos-simulator`; tvOS bakes the iOS plan. Photo Editor and Recorder refuse
+  tvOS builds because they require a touchscreen or microphone.
+- **The Siri Remote.** Node views join UIKit's focus engine. A node takes
+  focus when a keyboard could focus it or when it is an enabled press target.
+  Each move dispatches `focus` and `blur` and shows the ring, drawn 10 pt
+  outside the box at the sides and 5 pt above and below, with a 12 pt radius.
+  Select presses the focused node. Menu presses the active route's
+  `navigationBack` while a route can pop, else a shown, enabled button that
+  declares `aria-keyshortcuts="Escape"`. With neither, the recognizer is
+  removed, so Menu leaves the app, as tvOS requires at an app's root.
+  A canvas's overlay stays at alpha 1 behind the Metal picture, because tvOS
+  never focuses a view at alpha 0. Nothing fires `pointerdown`/`pointerup`.
+- **Focus guides.** `focusGuide="auto"` on a container installs a UIKit focus
+  guide over its box. A move entering from outside returns to the descendant
+  that last held focus, or its first focusable descendant; moves inside keep
+  UIKit's geometry. Other hosts ignore it. When a focused node is replaced,
+  the session prefers the shown, focusable replacement with the same `testId`.
+- **Interaction media.** Hosts send CSS's `pointer` (`fine`, `coarse`,
+  `none`) and `hover` (`hover`, `none`) as preference bits 5–7, and
+  `exactViewport` names them. Zero is a mouse, so a host that sends nothing
+  answers as before. tvOS reports `pointer: none`, `hover: none`, and iOS
+  reports `coarse`. Caltrain reads `pointer == "none"` as a TV: two columns,
+  24-point root text, no Light/Dark, the sky dimmed.
+- **`reload()`.** An action may call `reload()`. The Apple session answers it
+  with the dev menu's Reload when the dev menu is on, and every other host
+  refuses it as it refuses any command it does not answer. Caltrain shows its
+  Reload only on a TV, where a remote has no dev-menu gesture.
+
+The tier 2 async lane (`scripts/async.mjs --tier 2`, hourly) builds it, and
+files a break against the range since the last commit it checked. Not yet:
+the agent driver and the smoke on a TV, and scripted remote presses
+(QUEUE.md "tvOS, what is owed").
 
 ## 10. The store (LLP 1018, as built 2026-08-30)
 

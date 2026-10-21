@@ -27,15 +27,15 @@ component Blog
   resource post = post(params(nav, "post")) as shape Post else emptyPost()
   view
     column
-      each e in stack(nav) key = e.id
+      for e in stack(nav) key = e.id
         column
-          when e.name == "notfound"
+          if e.name == "notfound"
             head title="Not found" robots="noindex" status=404
             text "Nothing here"
-          when e.name == "post" or e.name == "live"
+          if e.name == "post" or e.name == "live"
             head title=post.title
             text post.title testId="title"
-          when e.name == "draft"
+          if e.name == "draft"
             head title=post.title robots="noindex"
             text post.title
 "#;
@@ -111,7 +111,7 @@ impl DataSource for Posts {
 }
 
 /// A dist: the web host's shell, a script and an image.
-fn dist(name: &str) -> PathBuf {
+pub(super) fn dist(name: &str) -> PathBuf {
     let dir =
         std::env::temp_dir().join(format!("exact-render-serve-{name}-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
@@ -165,16 +165,23 @@ impl Drop for Served {
     }
 }
 
-fn run(serve: Serve) -> Served {
-    let plan = contract::compile(SRC).unwrap();
-    let server = Server::bind(serve, plan, Posts.grants()).unwrap();
+/// Run `server` on its own thread until the returned [`Served`] drops.
+pub(super) fn serving<D: exact_runner::DataSource + 'static>(
+    server: Server,
+    data: fn() -> D,
+) -> Served {
     let (addr, stopper) = (server.addr(), server.stopper());
-    let serving = Some(std::thread::spawn(move || server.run(|| Posts)));
+    let serving = Some(std::thread::spawn(move || server.run(data)));
     Served {
         addr,
         stopper,
         serving,
     }
+}
+
+fn run(serve: Serve) -> Served {
+    let plan = contract::compile(SRC).unwrap();
+    serving(Server::bind(serve, plan, Posts.grants()).unwrap(), || Posts)
 }
 
 /// Status, headers (lowercased names) and body of one request.
@@ -238,7 +245,7 @@ pub(super) fn get(addr: SocketAddr, target: &str) -> (u16, Vec<(String, String)>
     )
 }
 
-fn header<'a>(headers: &'a [(String, String)], name: &str) -> Option<&'a str> {
+pub(super) fn header<'a>(headers: &'a [(String, String)], name: &str) -> Option<&'a str> {
     headers
         .iter()
         .find(|(k, _)| k == name)
@@ -285,7 +292,7 @@ fn each_route_answers_by_its_policy() {
     // Beside it, every device the app does not grant is denied (LLP 1069.008 D6).
     assert_eq!(
         header(&headers, "permissions-policy"),
-        Some("microphone=(), camera=(), geolocation=()")
+        Some("microphone=(), camera=(), geolocation=(), midi=()")
     );
     // The page's one inline script that runs, the capture script, by hash.
     let capture = {
@@ -526,14 +533,14 @@ routes nav
   tab home "/" render=request
 
 component Feed
-  resource cards = cards() as shape list<string>
-  resource saved = saved() as shape list<string>
+  resource cards = cards() as shape string[]
+  resource saved = saved() as shape string[]
   view
     column
-      each c in cards key = c
+      for c in cards key = c
         text c
       text "the end" testId="end"
-      each s in saved key = s
+      for s in saved key = s
         text s
 "#;
 
@@ -601,9 +608,11 @@ fn a_page_whose_data_answered_later_is_adopted_with_what_is_pending() {
         generations: None,
     };
     let plan = contract::compile(FEED).unwrap();
-    let server = Server::bind(serve, plan.clone(), Feed.grants()).unwrap();
-    let addr = server.addr();
-    std::thread::spawn(move || server.run(|| Feed));
+    let served = serving(
+        Server::bind(serve, plan.clone(), Feed.grants()).unwrap(),
+        || Feed,
+    );
+    let addr = served.addr;
     let (status, _, body) = get(addr, "/");
     assert_eq!(status, 200);
     assert!(body.contains(">third<"), "{body}");
@@ -1148,7 +1157,7 @@ fn large_static_files_stream_with_lengths_validators_and_head() {
 }
 
 /// The JavaScript runtime's shell, as host/web-js/build.mjs writes it.
-const JS_SHELL: &str = "<!doctype html>\n<html lang=\"en\">\n<meta charset=\"utf-8\">\n<base href=\"/\">\n<title>Blog</title>\n<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n<link rel=\"modulepreload\" href=\"./app.js\">\n<style>p{margin:0}</style>\n<div id=\"exact-root\"></div>\n<script type=\"module\" src=\"./app.js\"></script>\n";
+pub(super) const JS_SHELL: &str = "<!doctype html>\n<html lang=\"en\">\n<meta charset=\"utf-8\">\n<base href=\"/\">\n<title>Blog</title>\n<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n<link rel=\"modulepreload\" href=\"./app.js\">\n<style>p{margin:0}</style>\n<div id=\"exact-root\"></div>\n<script type=\"module\" src=\"./app.js\"></script>\n";
 
 /// A chunked body, its chunks joined.
 #[test]
@@ -1245,7 +1254,7 @@ fn a_connection_is_kept_for_the_next_request() {
     assert!(rest.is_empty());
 }
 
-fn unchunk(mut body: &[u8]) -> Vec<u8> {
+pub(super) fn unchunk(mut body: &[u8]) -> Vec<u8> {
     let mut out = Vec::new();
     loop {
         let line = body.windows(2).position(|w| w == b"\r\n").unwrap();
@@ -1278,11 +1287,15 @@ fn a_navigation_gets_the_head_before_the_render_and_the_rest_after() {
         generations: None,
     });
     let addr = served.addr;
+    // One request a connection: the page ends at the server's close, not the keep-alive's idle
     let navigate = |target: &str| {
         format!(
-            "GET {target} HTTP/1.1\r\nSec-Fetch-Dest: document\r\nSec-Fetch-Mode: navigate\r\n\r\n"
+            "GET {target} HTTP/1.1\r\nSec-Fetch-Dest: document\r\nSec-Fetch-Mode: navigate\r\nConnection: close\r\n\r\n"
         )
     };
+    // Whoever reads a status still gets the render's: no `Sec-Fetch-Dest`. Asked
+    // now, so its render runs beside the navigation's (two renders at once)
+    let plain = std::thread::spawn(move || get(addr, "/post/slow").0);
     // A render held to its deadline: the head arrives long before it.
     let started = std::time::Instant::now();
     let mut stream = TcpStream::connect_timeout(&addr, BOUND).unwrap();
@@ -1328,16 +1341,16 @@ fn a_navigation_gets_the_head_before_the_render_and_the_rest_after() {
     assert!(first_chunk.contains("<style>p{margin:0}</style>"));
     assert!(!first_chunk.contains("<title>"));
     // The rest: at the deadline, the document with what is pending, which
-    // the runtime asks again once it adopts the page.
+    // the runtime asks again once it adopts the page. Its language is the
+    // shell's, the manifest's: this plan has no strings table to name one
+    // (LLP 1115.000 D4.6).
     assert!(
-        page.starts_with("<!doctype html>\n<html lang=\"\" dir=\"ltr\">"),
+        page.starts_with("<!doctype html>\n<html lang=\"en\" dir=\"ltr\">"),
         "{page}"
     );
     assert!(page.contains("\"pending\":[\"post\"]"), "{page}");
     assert!(page.ends_with("</script>\n"), "{page}");
-    // Whoever reads a status still gets the render's: no `Sec-Fetch-Dest`.
-    let (status, _, _) = get(addr, "/post/slow");
-    assert_eq!(status, 503);
+    assert_eq!(plain.join().unwrap(), 503);
     let (status, _, body) = fetch(addr, &navigate("/no/such/page"));
     assert_eq!(status, 404);
     assert!(body.contains(">Nothing here<"), "{body}");

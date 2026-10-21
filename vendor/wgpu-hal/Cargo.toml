@@ -543,3 +543,6 @@ check-cfg = [
     'cfg(feature, values("cargo-clippy"))',
     "cfg(web_sys_unstable_apis)",
 ]
+
+# EXACT: keep this path dependency out of enclosing workspaces.
+[workspace]

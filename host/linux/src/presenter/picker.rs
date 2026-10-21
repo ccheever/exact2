@@ -3,7 +3,11 @@
 //! held for `tap @t cancel` or `type @t <path>…`, whose files are copied
 //! into `app:/tmp/picked/` before `change` fires. `saveFile` likewise
 //! (LLP 1069.010 D3): refused with `cancel`, or held as `export` for
-//! `type @t <path>`, which the `app:/` file is copied to.
+//! `type @t <path>`, which the `app:/` file is copied to. Notifications have
+//! no centre here either: refused, or listed for the agent. On a host with
+//! a shell (Android) the platform has every one of these, and the channel
+//! to it (`requests.rs`, LLP 1115.001 D5) carries none of them yet: the
+//! refusal then says that, beside the runner's own line.
 use super::*;
 use exact_runner::picker_support as support;
 use exact_runner::ControlValue;
@@ -21,6 +25,7 @@ impl<D: DataSource> Presenter<D> {
             return;
         }
         self.host.log("picker: refused: unavailable");
+        self.not_carried("showPicker", "unavailable");
         if let Some(view) = self.host.runner().picker(id).map(|p| p.view) {
             self.deliver_picker(view, Event::Cancel);
         }
@@ -88,14 +93,32 @@ impl<D: DataSource> Presenter<D> {
         use exact_runner::save_file::{arm, Arm, SaveFile};
         let request = SaveFile::from_args(args);
         let agent = crate::picker::agent();
-        if let Arm::Refused(_, Some(view)) = arm(self.host.runner_mut(), request, agent, false) {
-            self.deliver_picker(view, Event::Cancel);
+        if let Arm::Refused(reason, view) = arm(self.host.runner_mut(), request, agent, false) {
+            self.not_carried("saveFile", &reason);
+            if let Some(view) = view {
+                self.deliver_picker(view, Event::Cancel);
+            }
         }
         self.dirty = true;
     }
 
-    /// The agent's answer to a held export: copy the `app:/` file to the
-    /// driver's path and fire `change` with its name, or `cancel`.
+    /// `showNotification(…)` and `closeNotification(tag)`: the runner's rule,
+    /// with no notification centre (refused, or listed for the agent).
+    pub(crate) fn notify(&mut self, name: &str, args: &[exact_plan::Value]) {
+        use exact_runner::notify::{arm, close, Arm, Notice};
+        let runner = self.host.runner_mut();
+        if name == "closeNotification" {
+            let tag = args.first().and_then(exact_plan::Value::as_str);
+            close(runner, tag.unwrap_or_default(), self.agent);
+        } else if let Arm::Refused(reason) = arm(runner, Notice::from_args(args), self.agent, false)
+        {
+            self.not_carried("showNotification", &reason);
+        }
+    }
+
+    /// The agent's answer to a held export: copy the `app:/` file (or write
+    /// the `text=`) to the driver's path and fire `change` with its name,
+    /// or `cancel`.
     pub(crate) fn answer_save(&mut self, request: &str, reply: &str) {
         let r: serde_json::Value = serde_json::from_str(reply).unwrap_or_default();
         if r["capability"] != "export" {
@@ -111,11 +134,18 @@ impl<D: DataSource> Presenter<D> {
         }
         let q: serde_json::Value = serde_json::from_str(request).unwrap_or_default();
         let to = std::path::PathBuf::from(q["text"].as_str().unwrap_or("").trim());
-        let copied = r["request"]["from"]
-            .as_str()
-            .and_then(crate::picker::resolve)
-            .ok_or_else(|| "no app file to copy".to_owned())
-            .and_then(|from| std::fs::copy(from, &to).map_err(|e| e.to_string()));
+        let copied = match r["request"]["text"].as_str() {
+            Some(text) => std::fs::write(&to, text).map_err(|e| e.to_string()),
+            None => r["request"]["from"]
+                .as_str()
+                .and_then(crate::picker::resolve)
+                .ok_or_else(|| "no app file to copy".to_owned())
+                .and_then(|from| {
+                    std::fs::copy(from, &to)
+                        .map(drop)
+                        .map_err(|e| e.to_string())
+                }),
+        };
         match copied {
             Ok(_) => {
                 self.host.log("saveFile: saved");
@@ -138,10 +168,12 @@ impl<D: DataSource> Presenter<D> {
         };
         let request = Picker::from_args(kind, args);
         let agent = crate::picker::agent();
-        if let Arm::Refused(_, Some(view)) =
-            arm(self.host.runner_mut(), kind, request, agent, false)
+        if let Arm::Refused(reason, view) = arm(self.host.runner_mut(), kind, request, agent, false)
         {
-            self.deliver_picker(view, Event::Cancel);
+            self.not_carried(name, &reason);
+            if let Some(view) = view {
+                self.deliver_picker(view, Event::Cancel);
+            }
         }
         self.dirty = true;
     }

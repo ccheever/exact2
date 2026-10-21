@@ -317,16 +317,22 @@ mod tests {
             1000.0, 1001.0, 1002.0, 495.5, 496.0, 751.5, 752.0, 1007.5, 1008.0, 1263.5, 1264.0,
             120.0, 2000.0, 1000.0,
         ];
+        // The reference measurements, made once for each (seed, column): several widths round
+        // to one column and seed 1 comes round again, and a measurement depends on nothing else
+        let mut reference = std::collections::HashMap::new();
         for seed in [1, 9, u64::MAX, 1] {
             for width in widths {
                 wall(&mut cache, width, 0.0, 800.0, seed);
                 let w = cache.as_ref().unwrap();
                 let (cols, column) = grid(width);
+                let measured: &Vec<Measured> = reference
+                    .entry((seed, column.to_bits()))
+                    .or_insert_with(|| (0..WALL_COUNT).map(|i| measure(seed, i, column)).collect());
                 let mut heights = vec![0.0; cols];
                 assert_eq!(w.placed.len(), WALL_COUNT);
                 assert_eq!((w.cols, w.column, w.seed), (cols, column, seed));
                 for (index, placed) in w.placed.iter().enumerate() {
-                    let fresh = measure(seed, index, column);
+                    let fresh = &measured[index];
                     let c = shortest(&heights);
                     assert_eq!(placed.m.index, index);
                     assert_eq!(placed.m.title, fresh.title);

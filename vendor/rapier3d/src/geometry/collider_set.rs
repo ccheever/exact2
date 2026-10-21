@@ -474,3 +474,56 @@ impl IndexMut<ColliderHandle> for ColliderSet {
         collider
     }
 }
+
+/// Exact2: snapshot elision. A collider the caller can rebuild bit-exactly (as it is
+/// after a step, with no pending change flags) is written as a hole and refilled on
+/// read; slots, generations, the free list and the modification lists are kept.
+#[cfg(feature = "serde-serialize")]
+pub(crate) mod holes {
+    use super::*;
+    use crate::data::arena::holes::{ArenaIn, ArenaOut};
+
+    #[derive(Serialize)]
+    pub(crate) struct ColliderSetOut<'a> {
+        colliders: ArenaOut<'a, Collider>,
+        modified_colliders: &'a ModifiedColliders,
+        removed_colliders: &'a Vec<ColliderHandle>,
+    }
+    #[derive(Deserialize)]
+    pub(crate) struct ColliderSetIn {
+        colliders: ArenaIn<Collider>,
+        modified_colliders: ModifiedColliders,
+        removed_colliders: Vec<ColliderHandle>,
+    }
+    impl ColliderSet {
+        pub(crate) fn with_holes(
+            &self,
+            hole: impl Fn(ColliderHandle, &Collider) -> bool,
+        ) -> ColliderSetOut<'_> {
+            ColliderSetOut {
+                colliders: self.colliders.with_holes(|i, c| hole(ColliderHandle(i), c)),
+                modified_colliders: &self.modified_colliders,
+                removed_colliders: &self.removed_colliders,
+            }
+        }
+    }
+    impl ColliderSetIn {
+        pub(crate) fn fill(
+            self,
+            mut fill: impl FnMut(ColliderHandle) -> Option<Collider>,
+        ) -> Result<ColliderSet, ColliderHandle> {
+            Ok(ColliderSet {
+                colliders: self
+                    .colliders
+                    .fill(|i| {
+                        let mut c = fill(ColliderHandle(i))?;
+                        c.changes = ColliderChanges::empty();
+                        Some(c)
+                    })
+                    .map_err(ColliderHandle)?,
+                modified_colliders: self.modified_colliders,
+                removed_colliders: self.removed_colliders,
+            })
+        }
+    }
+}

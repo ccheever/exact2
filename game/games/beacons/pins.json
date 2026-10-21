@@ -1,18 +1,27 @@
 {
   "ticks": {
-    "0": "0xb6e90714710c57ff",
-    "90": "0x164306fd0014d2eb"
+    "0": "0x2961d75463b1486e",
+    "90": "0xdf2367cf46480dc2"
   },
   "saves": {
-    "continuation": "581d5b29e678c8d92382d57d92028f9158d87a69d7e10b5ee93bc960f650e58c"
+    "continuation": "bb3a308692972a706e8746420a154ea81ad04fe6c4317d9b73a27c20c455fff3"
   },
   "hosts": [
     "linux",
     "web"
   ],
-  "inputs": "d6d77289ec9b1990a7579e71e8eb739acf84306406641d5dd40120a4e95a380c",
+  "modes": [
+    "0",
+    "1",
+    "fresh-game"
+  ],
+  "profiles": [
+    "gpu-dev"
+  ],
+  "inputs": "375f2d62321c7fba3e2788255abf02b4eb0cf8d04c6ee509263bab6c7c52ace7",
+  "sourceInputs": "5bb5595617941f6ef0e07cb82ea52d08ca3aec1fcb4aa3ae3837311e5d5ab6de",
   "game": "beacons",
-  "generated": "bun game/prove.mjs beacons --repin --hosts linux,web",
-  "at": "126daba5b97ef4bbb9d8fc6f0dba8c660b103585",
-  "reason": "E11 bounded walking accounts for acceleration and braking; continuation timing changed, tick pins retained; inputs identify the producing source tree."
+  "generated": "bun game/prove.mjs beacons --repin --hosts 'linux,web'",
+  "at": "7264fa20ac285687b76520e05166fbec1444a0e2",
+  "reason": "EXSIM v8 (player: u8, pads) over EXGAME v6: continuation bytes change; tick hashes unchanged; and the InputState resource its sprint hold and context put in the world"
 }

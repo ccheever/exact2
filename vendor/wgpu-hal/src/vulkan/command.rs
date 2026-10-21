@@ -797,6 +797,10 @@ impl crate::CommandEncoder for super::CommandEncoder {
             attachment_identities: ArrayVec::default(),
             extent: desc.extent,
         };
+        // EXACT (EXACT-PATCHES.md, 6 and 13): whether every attachment is a
+        // view that outlives this encoder (not a temporary slice view), so the
+        // device's framebuffer serves.
+        let mut lasting = true;
 
         for cat in desc.color_attachments {
             if let Some(cat) = cat.as_ref() {
@@ -808,6 +812,7 @@ impl crate::CommandEncoder for super::CommandEncoder {
                         mip_level: cat.target.view.base_mip_level,
                         depth_slice: cat.depth_slice.unwrap(),
                     };
+                    lasting = false;
                     self.make_temp_texture_view(key)?
                 } else {
                     cat.target.view.identified_raw_view()
@@ -867,7 +872,11 @@ impl crate::CommandEncoder for super::CommandEncoder {
 
         let raw_pass = self.device.make_render_pass(rp_key).unwrap();
         fb_key.raw_pass = raw_pass;
-        let raw_framebuffer = self.make_framebuffer(fb_key).unwrap();
+        let raw_framebuffer = if lasting && !fb_key.attachment_views.is_empty() {
+            self.device.make_lasting_framebuffer(fb_key)?
+        } else {
+            self.make_framebuffer(fb_key).unwrap()
+        };
 
         let vk_info = vk::RenderPassBeginInfo::default()
             .render_pass(raw_pass)

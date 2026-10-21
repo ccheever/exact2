@@ -47,7 +47,6 @@ pub(crate) fn check_prop_names(
                 check_prop_names(children, file, sink, explained);
             }
             Node::Element { children, .. } => check_prop_names(children, file, sink, explained),
-            Node::Provide { body, .. } => check_prop_names(body, file, sink, explained),
             Node::When {
                 then, otherwise, ..
             } => {
@@ -212,7 +211,13 @@ fn walk_use(
                         continue;
                     }
                     let t = infer(&arg.value, scope, &types.shapes)?;
-                    if !checks::can_unify(&t, &target_t.props[i]) {
+                    if !checks::accepts_expr(
+                        &target_t.props[i],
+                        &arg.value,
+                        &t,
+                        scope,
+                        &types.shapes,
+                    ) {
                         return err(
                             "type-prop",
                             format!("`{}` expects `{}`, given `{t}`", p.name, target_t.props[i]),
@@ -228,12 +233,6 @@ fn walk_use(
             }
             Node::Element { children, .. } => {
                 walk_uses(children, scope, types, file, actions, sink)
-            }
-            Node::Provide { expr, body, .. } => {
-                if actions {
-                    infer(expr, scope, &types.shapes)?;
-                }
-                walk_uses(body, scope, types, file, actions, sink);
             }
             Node::Children { .. } => {}
             Node::When {
@@ -253,7 +252,7 @@ fn walk_use(
                 let Ty::List(item) = lt else {
                     return err(
                         "type-each-list",
-                        format!("`each` needs a list, given `{lt}`"),
+                        format!("`for` needs a list, given `{lt}`"),
                         list.span(),
                     );
                 };

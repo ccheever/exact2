@@ -1,5 +1,5 @@
 #!/usr/bin/env bun
-// Real host correctness drive. Timings are command acknowledgements, never FPS.
+// Real host correctness drive. Timings include data settlement, never FPS.
 import assert from 'node:assert/strict';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { platform, release, arch } from 'node:os';
@@ -27,7 +27,7 @@ mkdirSync(output, { recursive: true });
 const report = {
   host, os: platform(), os_release: release(), arch: arch(), viewport_requested: size,
   budget_bytes: bytes, mode, results: [],
-  measurement: 'Agent command through state/tree acknowledgement, including inspection and IPC; no display FPS or OS input latency measurement.',
+  measurement: 'Agent sequence through data settlement and state/tree acknowledgement, including inspection and IPC; no display FPS or OS input latency measurement.',
   surface: host === 'linux' ? `Linux host CPU raster on ${platform()}; no desktop compositor` : host,
   resizing: 'Column-width controls reflow content inside one window. This driver does not resize the OS window.',
 };
@@ -38,6 +38,10 @@ async function command(work) {
   finally { clearTimeout(timer); }
 }
 const tap = name => command(app.tap(name));
+const data = async () => {
+  const reply = await command(app.clock('data'));
+  assert.equal(reply.settled, true, `document data did not settle: ${JSON.stringify(reply)}`);
+};
 const echo = async value => {
   await command(app.type('stress-input', value));
   assert.equal((await command(app.find('stress-echo'))).props.text, value);
@@ -56,6 +60,7 @@ try {
     await echo(`Reading ${profile}: café 🦀`);
     await tap('width-wide');
     await tap('reparse');
+    await data();
     const state = await command(app.state());
     const doc = state.resources.doc;
     assert.equal(state.slots.draft, `Reading ${profile}: café 🦀`);
@@ -63,7 +68,10 @@ try {
     assert.ok(doc.sourceBytes <= bytes && doc.sourceBytes > bytes * 0.9);
     if (mode === 'windowed') assert.equal(doc.materialized, doc.totalBlocks);
     else assert.ok(doc.materialized <= 40);
+    // Profile changes retain the reading position; each scroll check starts at the top.
+    await command(app.tap('document', { wheel: [0, -1e9] }));
     const layoutBefore = (await command(app.layout())).nodes.find(n => n.testId === 'document');
+    assert.equal(layoutBefore.sy, 0, `${profile}: document must start at the top`);
     await command(app.tap('document', { wheel: [0, 400] }));
     const layoutAfter = (await command(app.layout())).nodes.find(n => n.testId === 'document');
     assert.ok(layoutAfter.sy > layoutBefore.sy, `${profile}: document must scroll`);
@@ -114,17 +122,22 @@ try {
   // Keep eager correctness bounded regardless of the opt-in giant input above.
   await tap('reset');
   await tap('profile-blocks');
+  await data();
   await tap('next-page');
+  await data();
   assert.equal((await command(app.state())).resources.doc.first, 40);
   await tap('toggle-eager');
+  await data();
   const eager = (await command(app.state())).resources.doc;
   assert.equal(eager.materialized, eager.totalBlocks);
   assert.ok(eager.totalBlocks > 100);
   await tap('start');
   await command(app.clock('+1000'));
+  await data();
   assert.equal((await command(app.state())).resources.doc.revision, 1);
   await tap('pause');
   await command(app.clock('+1000'));
+  await data();
   assert.equal((await command(app.state())).resources.doc.revision, 1);
   await tap('reset');
   assert.equal((await command(app.find('stress-echo'))).props.text, '');

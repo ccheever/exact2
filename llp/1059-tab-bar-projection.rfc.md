@@ -2,7 +2,7 @@
 
 **Type:** RFC
 **Status:** Implemented 2026-09-26
-**Systems:** iOS host (`SegmentsIOS.swift`)
+**Systems:** iOS host (`SegmentsIOS.swift`); macOS host (`SegmentsMac.swift`, D2a's segmented control only)
 **Author:** Claude (Opus 5.5) for Seth Webster
 **Date:** 2026-09-26
 **Related:** LLP 1035.001 D10 (tablists project to a segmented control); LLP 1035.006 07.03 (application tab bars); LLP 1038 (the router's tabs); grnl's FRICTION.md F12, M10
@@ -16,7 +16,7 @@ A horizontal `role="tablist"` projects on iOS by the shape of its tabs:
 
 | Tabs | iOS presents |
 | --- | --- |
-| each one image or one label | `UISegmentedControl` (LLP 1035.001 D10, unchanged) |
+| each one image or one label | `UISegmentedControl` (LLP 1035.001 D10); its native height is returned to layout as in D2a |
 | each exactly an `image "symbol:…"` plus a text label | `UITabBar` in the tablist's own box |
 | anything else | kept as authored |
 
@@ -36,16 +36,51 @@ A tab bar item has exactly the second shape. A segment cannot show it.
   The authored tabs are hidden, as for segments. Selection is Contract's:
   - a tap presses the authored tab;
   - `aria-selected` selects the item.
+
+  Amended 2026-10-20: the bar spans the box's content box across, its edges
+  on the device's pixel grid, and the box's whole height down, so a tablist
+  padded at a side keeps its tabs inside the padding, as the web lays them
+  out. duo-lab pads its tablist onto a book fold's trailing segment, off the
+  hinge.
 - **D3 — The app's accent, the platform's face.** The selected item takes
   the selected symbol's authored `tint-color`. Everything else is the bar's
   own look.
+  Amended 2026-10-21: the selected item shows its symbol's `.fill` variant
+  where one exists, as the root's tab bar does (LLP 1075.003,
+  `NavigationTabsIOS.swift`); an unselected item shows the symbol as
+  written, where the root's bar drops a `.fill` ending.
 - **D2a — The measured height belongs to layout.** The host reports
   `sizeThatFits` through the existing intrinsic-size seam, after the creating
   batch. Its height supplies the tablist's automatic minimum height, without
   changing authored rows or introducing an aspect ratio. An explicit CSS
-  `min-height` remains authoritative. The bar's frame is exactly the kernel
-  box; it never grows upward outside it. Resizing remeasures; ending the
+  `min-height` remains authoritative. The bar's frame never leaves the
+  kernel box: across, its content box (D2); it never grows upward outside
+  it. Resizing remeasures, at the content box's width; ending the
   projection clears the measurement and restores authored layout.
+  A segmented control reports its `intrinsicContentSize` through the same
+  seam and cache (2026-10-05, PR #93) and fills the tablist's content box,
+  so a text-only row no longer squashes it to the height of its labels. Its
+  height does not follow the box's width (nor Dynamic Type or bold text,
+  measured on the iOS 27.1 simulator), so it is measured at any width and a
+  resize does not remeasure. Under `box-sizing: border-box` the report adds
+  the tablist's vertical padding and border, which is why `box_sizing`
+  crosses to the Apple presenter. macOS's `NSSegmentedControl` does the
+  same (2026-10-05): an unsized row of text tabs had clipped it to 18 pt in
+  Caltrain's window, and the tablist now takes the control's 24.
+  Amended 2026-10-11 (LLP 1116.004 D2, unit-converter): the reported width is
+  the control's narrowest and supplies the automatic minimum width, which had
+  been the hidden tabs' own, so four text tabs overflowed a grouped row.
+  UIKit's segmented control and tab bar report none; a segmented control
+  narrower than its equal segments apportions them by content. AppKit's
+  reports its natural width. An explicit `min-width` still wins.
+  Amended 2026-10-21 (the Duo simulator, iOS 27.1): the tab bar's fit is
+  the same wherever the bar is, 83 points on the Duo, above a keyboard too:
+  the bar keeps its pill 21 points above its bottom edge whatever its safe
+  area, so a shorter bar would cut the pill. UIKit sizes an item's label in
+  the room the bar has when it first lays the item out (its height less its
+  bottom safe-area inset), and again only for a new appearance or new
+  traits. The bar's first layout comes before its measured height reaches
+  the box, so the host gives it a new appearance as its room grows.
 - **D4 — The journal says which.** The one-line journal per tablist
   (`tablist #N: …`) now also names `projected to UITabBar`, and the agent
   observation reports `view: UITabBar`. That makes F12's surprise

@@ -94,6 +94,10 @@ impl Assets {
         if name.starts_with("app:/") {
             return crate::picker::resolve(name).map(ImageInput::Path);
         }
+        // A `data:` URL, as a page's `<img>` takes one, to its bound (LLP 1011 §2).
+        if name.starts_with("data:") {
+            return data_url(name).map(|bytes| ImageInput::Bytes(Arc::from(bytes)));
+        }
         if !Self::relative(name) {
             return None;
         }
@@ -130,5 +134,62 @@ impl Assets {
         let root = self.root.canonicalize().ok()?;
         let path = root.join(name).canonicalize().ok()?;
         path.starts_with(&root).then_some(path)
+    }
+}
+
+/// A `data:` URL's bytes (RFC 2397): base64 after `;base64`, else
+/// percent-decoded; whitespace and escapes in base64 are forgiven, as
+/// browsers forgive them. `None` past `exact_raster::MAX_DATA_URL_BYTES`.
+pub(super) fn data_url(name: &str) -> Option<Vec<u8>> {
+    use base64::Engine;
+    if name.len() > exact_raster::MAX_DATA_URL_BYTES {
+        return None;
+    }
+    let (meta, body) = name.strip_prefix("data:")?.split_once(',')?;
+    let (body, mut bytes, mut i) = (body.as_bytes(), Vec::new(), 0);
+    while i < body.len() {
+        let hex = body
+            .get(i + 1..i + 3)
+            .and_then(|h| std::str::from_utf8(h).ok());
+        match hex
+            .filter(|_| body[i] == b'%')
+            .and_then(|h| u8::from_str_radix(h, 16).ok())
+        {
+            Some(byte) => (bytes.push(byte), i += 3),
+            None => (bytes.push(body[i]), i += 1),
+        };
+    }
+    if !meta.to_ascii_lowercase().ends_with(";base64") {
+        return Some(bytes);
+    }
+    bytes.retain(|b| !b.is_ascii_whitespace() && *b != b'=');
+    base64::engine::general_purpose::STANDARD_NO_PAD
+        .decode(bytes)
+        .ok()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A page's `<img>` takes these; so does every native host, to its bound.
+    #[test]
+    fn data_urls_decode_to_their_bytes_within_the_bound() {
+        let assets = Assets::embedded(PathBuf::from("/nonexistent"));
+        let png = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
+        let Some(ImageInput::Bytes(bytes)) = assets.image_input(png) else {
+            panic!("a base64 PNG is bytes")
+        };
+        assert!(bytes.starts_with(b"\x89PNG") && bytes.len() == 70);
+        // Unpadded, wrapped and escaped base64; a percent-encoded SVG.
+        assert_eq!(data_url("data:;base64,aGk%3D"), Some(b"hi".to_vec()));
+        assert_eq!(data_url("data:;BASE64,aG\n k"), Some(b"hi".to_vec()));
+        assert_eq!(
+            data_url("data:image/svg+xml,%3Csvg%3E <"),
+            Some(b"<svg> <".to_vec())
+        );
+        assert_eq!(data_url("data:image/png;base64"), None);
+        let over = format!("data:,{}", "a".repeat(exact_raster::MAX_DATA_URL_BYTES));
+        assert!(assets.image_input(&over).is_none());
     }
 }

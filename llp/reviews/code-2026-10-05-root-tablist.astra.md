@@ -1,0 +1,20 @@
+# Code review: a hidden tablist over a stack's root hides the tab bar (LLP 1075.003 §3.7 as amended), 2026-10-05 (astra)
+
+- **Family:** OpenAI. `gpt-6-astra` via `codex exec`, reasoning effort xhigh, sandbox read-only, `-C /tmp/x24`.
+- **Method:** one brief (sha256 `5743a2dd11b3161fb8a42d26d28cd5260001706e9a2af5cd586e6b87512935ef`), shared with grok. Round 1, blind to the other review. Reviewed the staged diff in a worktree at 5111d86af. The author (Claude) is not a reviewer.
+- **Transcription:** the review's findings and verdict, unedited.
+- **Verdict:** NOT READY.
+- **Disposition (r2):** r1 taken by a redesign. The root's wish (`tablistHidden`) is now recorded every batch, even when the bar cannot move yet; the bar moves when the wish changes or the root has just arrived on top: `didShow` calls a new `settleTablist` once a transition settles on a stack's root (Astra 1, Grok 1: a contract or UIKit pop back to a still-hidden root), and selecting another tab's root counts as arriving (`tablistRoot`, Grok 2). A shown tablist shows the bar only if Exact hid it (`tablistHidBar`), so a hook's own hide stands, and between those moments nothing is written, so a hook's own show stands too (Astra 2: the out-of-step repair on every batch is gone). Test (Astra 3, Grok 3): the native fixture gains a Choose button that hides its tablist at Home, and the test drives the real batch path: hide/show at the root, a pushed Detail and a pop back to the still-hidden root (UIKit's pop; the fixture's authored back is the bar's item), the second tab's root, and a hook's show and hide standing between those moments. LLP (Grok 4, 5): the "Not built" clause updated and the new test named; the pop write described as running when the transition settles; the census says `add` is a presented stack's root that the change does not reach. NOT TAKEN: a cancelled interactive pop's own test (both reviews traced it as staying on the pushed-route path, unchanged).
+
+---
+
+NOT READY
+
+1. [NavigationTitleIOS.swift:343](/tmp/x24/host/apple/Sources/ExactKit/IOS/NavigationTitleIOS.swift:343) — **must-fix:** Root reconciliation can be skipped permanently. `prepareRoutes` runs before `setViewControllers`, so a batch that pops and hides the root’s tablist encounters the outgoing controller on top and returns here. `didShow` only resyncs when `pendingSync` is set; unchanged covers and viewport need not produce another batch. The bar then remains visible until another event. **Fix:** guarantee reconciliation after transition completion, rereading the selected route and current tablist after the coordinator clears, including cancellation.
+
+2. [NavigationTitleIOS.swift:347](/tmp/x24/host/apple/Sources/ExactKit/IOS/NavigationTitleIOS.swift:347) — **must-fix:** `outOfStep` overrides hooks without any pop occurring. After Contract hides the root’s bar, a hook calling `setTabBarHidden(false, animated: false)` is undone by the next batch because `tablistHidden` remains `true`. This contradicts the promised “a hook’s own value stands.” **Fix:** restrict restoration repair to an actual completed return to the root; preserve hook overrides during ordinary unchanged batches. Test the hook-showing direction too.
+
+3. [NavigationBasicsIOSTests.swift:195](/tmp/x24/host/apple/tests/ExactKitTests/NavigationBasicsIOSTests.swift:195) — **should-fix:** The restoration test never performs a pop. It manually shows the bar and immediately calls the helper, bypassing the ordering and deferred-sync problem above. Direct style mutation also bypasses authored state delivery. **Fix:** add a fixture action controlling root tablist visibility and drive the normal batch path through hide/show, a shown pushed route followed by a pop, and cancellation. Assert the final bar state without manually calling `followTablist`.
+
+The root-key branch preserves the existing pushed-route loop, including cold-launch batches. Agent, custom-container and iOS 17 exclusions remain intact. The LLP’s retry and hook guarantees require the fixes above. UIKit tests and the reported animation probe were not run in this read-only review.
+exit 0

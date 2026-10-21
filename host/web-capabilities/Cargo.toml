@@ -20,3 +20,9 @@ exact-markdown = { path = "../../markdown" }
 exact-runner = { path = "../../runner" }
 exact-web = { path = "../web" }
 exact-web-geometry = { path = "../web-geometry" }
+exact-plan = { path = "../../plan" }
+
+# `plan-metrics`, the native measurement of any app's baked plan, compiles
+# its Contract to time the compiler; the wasm never does.
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+contract = { path = "../../contract/cli" }

@@ -1,0 +1,25 @@
+// join prints strings, numbers and bools as toString does; a lone string
+// item is returned as is.
+shape Row
+  name: string
+  score: number
+  ok: bool
+  tags: string[]
+
+component App
+  resource rows = rows() as shape Row[]
+  derive names = rows.map(r => r.name).join(", ")
+  derive scores = rows.map(r => r.score).join("")
+  derive oks = rows.map(r => r.ok).join("/")
+  derive tagged = rows.map(r => r.tags.join("+")).join(";")
+  derive emptyJoin = rows.map(r => r.name).filter(n => false).join(",")
+  derive viaFilter = rows.map(r => r.name).filter(n => n != "").join("|")
+  view
+    column
+      text names testId="names"
+      text scores testId="scores"
+      text oks testId="oks"
+      text tagged testId="tagged"
+
+test "joins"
+  expect state emptyJoin == ""

@@ -13,7 +13,9 @@ either screen. Escape clears/closes search or returns from Backups. New note
 clears the search and focuses the title; selecting a saved note focuses its body.
 Drafts remain protected: New note stays disabled until saved or discarded.
 Share… hands the note's title and text to the system share sheet; it shows
-only where the host has one (`exactPage().canShare`, LLP 1069.003).
+only where the host has one (`exactPage().canShare`, LLP 1069.003). Share
+backup file… hands the saved backup to the sheet as a file where the host
+takes files (`canShareFiles`, LLP 1125 D12).
 
 ```sh
 bun host/web/dev.mjs --app fieldnotes
@@ -30,7 +32,10 @@ somewhere safe also keeps an independent copy. Restore accepts pasted backup tex
 empty, uses the saved file; it validates the complete backup before replacing
 notes in a transaction.
 
-`app.contract` owns the UI. `app.ts` owns notes, search and restore; `data/`
+`app.contract` owns the UI. Its editing session is one `Session` record (LLP
+1035.005.000 D3): opening a note, New note, restore and delete each start the
+next one through `nextSession`, which names every field, so a pending delete
+question never outlives its note. `app.ts` owns notes, search and restore; `data/`
 implements `backupNotes` in Rust behind the same data-source interface. Both use
 the same storage and grants. Mutation revisions use the runner's app-owned
 `fieldnotes.revision` Store entry, so repeated saves/deletions still invalidate

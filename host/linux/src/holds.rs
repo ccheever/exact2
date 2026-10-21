@@ -6,7 +6,7 @@ impl<D: DataSource> Host<D> {
     /// A distinct acknowledged picture cannot inherit an old contact's hold.
     /// Only its exact held/returning Translate token may snap to the current target;
     /// this never ends a replacement hold/curve or advances either clock.
-    #[cfg(any(target_os = "linux", test))]
+    #[cfg(any(target_os = "linux", target_os = "android", test))]
     pub(crate) fn snap_retained_motion(&mut self, token: HoldToken) -> Result<bool, String> {
         if token.property() != Property::Translate
             || !(self.has_hold(token) || self.engine.owns_return(token))

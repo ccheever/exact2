@@ -27,6 +27,9 @@ const HASH = /-([0-9a-f]{16})(?:\.|$)/;
 /** Start a sweep of `target` in the background if the last one finished over an hour ago. A
  * sweep that failed leaves its error in the log, reported on every build until one succeeds. */
 export function startSweep(target, now = Date.now()) {
+  // This is optional cache housekeeping. Windows has neither this flock
+  // protocol nor reliable immediate access-time updates; keep its build units.
+  if (process.platform === 'win32') return;
   if (!existsSync(target)) return;
   const log = resolve(target, LOG);
   if (existsSync(log) && statSync(log).size) process.stderr.write(`target sweep failed (${log}):\n${readFileSync(log, 'utf8')}`);
@@ -61,6 +64,7 @@ const profiles = target => [target, ...readdirSync(target, { withFileTypes: true
 
 /** Sweep `target` as of `now`. Returns what was moved out, per profile directory. */
 export async function sweep(target, now = Date.now()) {
+  if (process.platform === 'win32') throw new Error('Cargo cache sweeping is unavailable on Windows: its lock and access-time semantics have not been verified');
   const lock = await locker(), own = lock(resolve(target, `${LEDGER}.lock`));
   if (own === null) return {};
   try {

@@ -11,10 +11,10 @@ fn patch(id: u32, rows: &[(StyleId, StyleValue)]) -> Op {
         patch: Box::new(s),
     }
 }
-fn n(n: f64) -> StyleValue {
+fn n(n: f64) -> StyleValue<'static> {
     StyleValue::Number(n)
 }
-fn t(s: &str) -> StyleValue {
+fn t(s: &str) -> StyleValue<'_> {
     StyleValue::Text(s.into())
 }
 fn create(id: u32, node_type: NodeType) -> Op {
@@ -193,6 +193,7 @@ fn auto_height_hidden_unsupported_and_nonabsolute_exclusions() {
             Op::ClearStyle {
                 id: 2,
                 mask: StyleMask::of(StyleId::Height),
+                written: false,
             },
             patch(3, &[(StyleId::Top, n(0.))]),
         ],
@@ -364,6 +365,7 @@ fn stretched_height_proof_survives_cache_hits_and_changed_parent_constraints() {
             Op::ClearStyle {
                 id: 2,
                 mask: StyleMask::of(StyleId::Height),
+                written: false,
             },
         ],
     )

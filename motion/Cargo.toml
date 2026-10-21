@@ -19,5 +19,6 @@ name = "exact_motion"
 crate-type = ["rlib"]
 
 [dependencies]
+exact-color = { path = "../color" }
 exact-num = { path = "../num" }
 libm = "0.2"

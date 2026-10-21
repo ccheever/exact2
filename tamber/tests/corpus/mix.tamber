@@ -1,0 +1,12 @@
+tamber mix
+
+theme
+  srgb.even = color-mix(in srgb, #ff0000, #0000ff)
+  srgb.weighted = color-mix(in srgb, #ff0000 25%, #0000ff)
+  oklab = color-mix(in oklab, #1083fe 88%, #0b0f14)
+  oklch.longer = color-mix(in oklch longer hue, oklch(0.7 0.1 30), oklch(0.7 0.1 90))
+  hsl = color-mix(in hsl, red, blue)
+  faded = color-mix(in srgb, #000 20%, #fff 30%)
+  over.pair = color-mix(in srgb, light-dark(#fff, #000), #808080)
+  zero = color-mix(in srgb, red 0%, blue 0%)
+  with.transparent = color-mix(in srgb, #1083fe 40%, transparent)

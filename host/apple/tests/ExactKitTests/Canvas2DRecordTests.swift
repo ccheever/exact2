@@ -2,11 +2,13 @@ import XCTest
 import CoreGraphics
 import QuartzCore
 @testable import ExactKit
+@testable import ExactSurfaces
 
 /// Canvas 2D recording (LLP 1056 §8.4): the tracker's covers and refusals,
 /// replay from the kept lists' start matching a bitmap drawn throughout, and
 /// the host's policy.
 final class Canvas2DRecordTests: XCTestCase {
+    override class func setUp() { super.setUp(); ExactSurfaces.install() } // LLP 1047.001 D4
     /// A list writer: records as (opcode, operands).
     private func list(_ records: [(Canvas2DOp, [Double])]) -> Data {
         var d = Data()
@@ -93,7 +95,29 @@ final class Canvas2DRecordTests: XCTestCase {
 
     private func op(_ lists: [Data], fresh: Bool, stretch: Bool = false, animating: Bool = true) -> [String: Any] {
         ["lifetime": 1, "generation": 0, "fresh": fresh, "w": 300, "h": 200, "scale": 2.0,
-         "stretch": stretch, "animating": animating, "box": [0.0, 0.0, 150.0, 100.0], "radii": [0.0, 0.0, 0.0, 0.0], "lists": lists]
+         "stretch": stretch, "animating": animating, "lists": lists]
+    }
+
+    /// A recording shows in its canvas's placed box, as a bitmap does, also
+    /// when it was drawn at a new size its view has not laid out (beneath a
+    /// sheet): stretched into the old box until the view lays out.
+    func testARecordingShowsInItsPlacedBox() throws {
+        let host = Canvas2DHost(), parent = CALayer()
+        host.place(7, in: CGRect(x: 0, y: 0, width: 150, height: 100), radii: [])
+        var wider = op([list(cover)], fresh: true)
+        wider["w"] = 340
+        host.apply(7, wider, layer: parent)
+        for _ in 0..<3 {
+            wider["fresh"] = false
+            host.apply(7, wider, layer: parent); host.waitForReplays(timeout: 5)
+        }
+        let layer = try XCTUnwrap(parent.sublayers?.first)
+        let recorder = try XCTUnwrap(layer.sublayers?.compactMap { $0 as? Canvas2DRecordLayer }.first)
+        XCTAssertFalse(recorder.isHidden)
+        XCTAssertEqual(recorder.bounds.size, CGSize(width: 150, height: 100), "the placed box, not the drawn size")
+        host.place(7, in: CGRect(x: 0, y: 0, width: 170, height: 100), radii: [])
+        XCTAssertEqual(layer.frame.width, 170)
+        XCTAssertEqual(recorder.bounds.size, CGSize(width: 170, height: 100))
     }
 
     func testAnAnimatingCanvasIsRecordedAndAShadowReturnsItToTheBitmap() throws {

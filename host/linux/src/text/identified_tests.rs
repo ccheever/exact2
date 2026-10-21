@@ -125,12 +125,16 @@ fn paint(p: &mut Painter, k: &Kernel) -> crate::paint::Frame {
             roots: &k.roots(),
             hidden: &|_| false,
             presented: &|_| Presented::IDENTITY,
+            paths: &|_| None,
             scroll: &BTreeMap::new(),
             page: (0., 0.),
             images: &BTreeMap::new(),
             focus: None,
+            selection: None,
+            caret_upstream: false,
             pointer: None,
             controls: &BTreeMap::new(),
+            chosen: &BTreeMap::new(),
             menu: None,
         },
         (360., 160.),
@@ -140,8 +144,9 @@ fn paint(p: &mut Painter, k: &Kernel) -> crate::paint::Frame {
 #[test]
 fn unchanged_giant_and_sibling_typing_copy_hash_and_shape_no_giant_source() {
     let engine = TextEngine::shared();
-    let text = "word é\n".repeat(131072);
-    assert!(text.len() >= 1024 * 1024);
+    // Twice the giant bar: any whole-source copy, hash or shape is counted
+    let text = "word é\n".repeat(16384);
+    assert!(text.len() >= 2 * 65536);
     let mut k = tree(engine.clone(), &text);
     let mut p = Painter::new(engine.clone(), 1., Box::new(Raster::new()));
     let first = paint(&mut p, &k);
@@ -544,13 +549,12 @@ mod owned_spec {
     use super::*;
 
     fn engine() -> TextEngine {
-        let mut db = fontdb::Database::new();
-        db.load_font_source(fontdb::Source::Binary(Arc::new(
-            include_bytes!("../../../../scripts/fixtures/fonts/assets/DejaVuSans.ttf").to_vec(),
-        )));
-        db.set_sans_serif_family("DejaVu Sans");
-        TextEngine::with_catalog(catalog::Catalog::with_fonts(
-            FontSystem::new_with_locale_and_db("en-US".into(), db),
+        TextEngine::with_catalog(catalog::Catalog::from_bytes(
+            &[
+                include_bytes!("../../../../scripts/fixtures/fonts/assets/DejaVuSans.ttf")
+                    .as_slice(),
+            ],
+            "DejaVu Sans",
         ))
     }
     fn run(text: &str) -> Run {
@@ -561,9 +565,16 @@ mod owned_spec {
             weight: 400,
             family: 0,
             italic: false,
+            stretch: 100.,
+            variations: Default::default(),
             line_height: None,
             letter_spacing: 0.,
             font_variant_numeric: 0,
+            indent: 0.,
+            hang: false,
+            mark: 0,
+            href: String::new(),
+            bold_text: false,
         }
     }
     fn spec(text: &str) -> Spec {
@@ -574,7 +585,11 @@ mod owned_spec {
             line_clamp: 0,
             overflow_wrap: exact_kernel::OverflowWrap::Normal,
             white_space: exact_kernel::WhiteSpace::Normal,
+            text_wrap_style: exact_kernel::TextWrapStyle::Auto,
             direction: exact_kernel::Direction::Ltr,
+            text_indent: 0.0,
+            text_box_trim: exact_kernel::TextBoxTrim::None,
+            text_box_edge: exact_kernel::TextBoxEdge::Auto,
         }
     }
     fn stamp_tree(text: &str) -> Kernel {

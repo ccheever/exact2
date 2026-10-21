@@ -1,16 +1,28 @@
 {
   "ticks": {
-    "0": "0xf560b8cf6dd9601d",
-    "90": "0xc92812672686717e"
+    "0": "0xa28d39d25aa334b7",
+    "90": "0x1dd0b2c4abc3cc01",
+    "98": "0x3e39671242e6ac85"
   },
   "saves": {
-    "continuation": "ac641a9d1353c0e6c73e9d8867bbc5192dc6d46e407b08b6fd17e758dacac3dc"
+    "continuation": "c6d0459fb3a0469282aa2ae125a150f4038587e295230ca5232b6b4159ae1db5"
   },
   "hosts": [
     "linux",
     "web"
   ],
+  "modes": [
+    "0",
+    "1",
+    "fresh-game"
+  ],
+  "profiles": [
+    "gpu-dev"
+  ],
+  "inputs": "f17e7defb613a6400444f0377f1e3a409a5a551c89b6152f2dbff74c96944906",
+  "sourceInputs": "fd01f52b04150f7840d48aa9d342d11962114d2028d540e392b572aacae15439",
   "game": "greybox",
-  "generated": "bun game/prove.mjs greybox --repin --hosts linux,web",
-  "at": "8db5e42e8f05122e7f4ca265ba0bd480c6ab7621"
+  "generated": "bun game/prove.mjs greybox --repin --hosts 'linux,web'",
+  "at": "bc0c251344b11c4abca02a927b6e331395aaee8d",
+  "reason": "EXSIM v8 (player: u8, pads) over EXGAME v6: continuation bytes change; tick hashes unchanged"
 }

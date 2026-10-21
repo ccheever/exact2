@@ -1,0 +1,23 @@
+// Synthetic conformance plan: LLP 1095 D4's theme. A literal row naming an
+// entry, a string from state naming one when it runs, a name inside a
+// shadow, and a role the theme overrides, named by a row and bound: the JS
+// target's colour map and the wasm host's kernel read the same colours.
+theme
+  brand = "#c8102e"
+  card = "light-dark(#f1f3f5, #0f1419)"
+  ink = "brand"
+  -exact-secondary-label = "#336699"
+
+component ThemeBound
+  state c: string = "card"
+  state r: string = "#000000"
+  action pick
+    c = "brand"
+    r = "-exact-secondary-label"
+  view
+    column gap=8
+      button press=pick testId="pick"
+        text "Pick"
+      text "Literal" testId="literal" color="ink" box-shadow="0 1px 2px brand"
+      text "Bound" testId="bound" color=c background-color=c
+      text "Role" testId="role" color=r border-color="-exact-secondary-label"

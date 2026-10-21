@@ -13,45 +13,25 @@ final class RegionPreparedSource {
     // Lazy so intrinsic and emergency-wrap layouts keep no boundary array.
     // Like the typesetter, this storage is confined to the serial worker and
     // released with its last live preparation owner; there is no width history.
-    lazy var lineBreakBoundaries: [Int] = {
-        let text = attributed.string as NSString
-        let length = source.utf16Count
-        let tokenizer = CFStringTokenizerCreate(nil, text as CFString,
-            CFRange(location: 0, length: length), kCFStringTokenizerUnitLineBreak, nil)!
-        var boundaries: [Int] = []
-        while CFStringTokenizerAdvanceToNextToken(tokenizer).rawValue != 0 {
-            let range = CFStringTokenizerGetCurrentTokenRange(tokenizer)
-            boundaries.append(range.location + range.length)
-        }
-        if boundaries.last != length { boundaries.append(length) }
-        return boundaries
-    }()
+    lazy var lineBreakBoundaries: [Int] = TextEngine.lineBreaks(attributed.string as NSString, length: source.utf16Count)
     /// CoreText's word-break iterator can rescan the whole prefix on every
     /// line of a giant paragraph. Cluster fitting plus the already indexed
-    /// Unicode opportunities avoids that quadratic search. Trailing whitespace
-    /// hangs at a break, just as in CTTypesetterSuggestLineBreak.
-    lazy var breakContentEnds: [Int] = {
-        let text = attributed.string as NSString
-        return lineBreakBoundaries.map { boundary in
-            var end = boundary
-            while end > 0, let scalar = UnicodeScalar(text.character(at: end - 1)),
-                  CharacterSet.whitespaces.contains(scalar) { end -= 1 }
-            return end
-        }
+    /// Unicode opportunities avoids that quadratic search; the choice is
+    /// Text.swift's (TextEngine.cssBreak), forced breaks and hanging spaces
+    /// included.
+    lazy var breakEnds: (content: [Int], hard: [Int]) = {
+        let ends = TextEngine.breakEnds(attributed.string as NSString, boundaries: lineBreakBoundaries, length: source.utf16Count)
+        return (ends.0, ends.1)
     }()
     func suggestBreak(at start: Int, width: Double, cursor: inout Int) -> Int {
-        let fitted = CTTypesetterSuggestClusterBreak(typesetter, start, width)
-        let ends = lineBreakBoundaries, content = breakContentEnds
+        let ends = lineBreakBoundaries, plan = breakEnds
         while cursor < ends.count && ends[cursor] <= start { cursor += 1 }
-        let first = cursor
-        while cursor < ends.count && content[cursor] <= start + fitted { cursor += 1 }
-        if cursor > first { return ends[cursor - 1] - start }
-        if source.overflowWrap == 0, cursor < ends.count {
-            defer { cursor += 1 }
-            return ends[cursor] - start
-        }
-        if fitted > 0 { return fitted }
-        return (attributed.string as NSString).rangeOfComposedCharacterSequence(at: start).length
+        var lo = 0, hi = plan.hard.count
+        while lo < hi { let mid = (lo + hi) / 2; if plan.hard[mid] <= start { lo = mid + 1 } else { hi = mid } }
+        let hard = (lo < plan.hard.count ? plan.hard[lo] : source.utf16Count) - start
+        let fitted = min(CTTypesetterSuggestClusterBreak(typesetter, start, width), hard)
+        return TextEngine.cssBreak(start: start, fitted: fitted, hard: hard, boundaries: ends, contentEnds: plan.content,
+                                   from: cursor, breakWord: source.overflowWrap != 0, text: attributed.string as NSString)
     }
 
     init(_ source: RegionTextSource) {
@@ -79,7 +59,9 @@ final class RegionWorkerLayout {
         if !lines.isEmpty { return lines[index] }
         if let cached = viewportLines[index] { return cached }
         let r = metadata.lines[index].range
-        let value = CTTypesetterCreateLine(preparation.typesetter, CFRange(location: r.location, length: r.length))
+        let range = CFRange(location: r.location, length: r.length)
+        let value = TextEngine.finishedLine(CTTypesetterCreateLine(preparation.typesetter, range), source: preparation.attributed,
+                                            range: range, justify: source.align == 3 ? Double(metadata.offeredWidth) : nil)
         if viewportLines.count < 512 { viewportLines[index] = value }
         return value
     }
@@ -114,7 +96,7 @@ final class RegionWorkerLayout {
         let flush: CGFloat = source.align == 1 ? 0.5 : source.align == 2 ? 1 : 0
         var baselines: [CGFloat] = []
         var maxWidth: CGFloat = 0
-        var y: CGFloat = 0
+        var y: CGFloat = 0, lastBaseline: CGFloat = 0
         var start = 0
         var lineCount = 0
         let limit = width.isFinite ? Double(width) : Double.greatestFiniteMagnitude
@@ -123,14 +105,51 @@ final class RegionWorkerLayout {
         // emergency breaks from ordinary opportunities (including CJK).
         let boundaries = spec.overflowWrap == 0 && width.isFinite ? preparation.lineBreakBoundaries : []
         var boundaryIndex = 0
+        func next(_ start: Int, _ room: Double, _ cursor: inout Int) -> Int {
+            let from = cursor
+            let count = preparation.suggestBreak(at: start, width: room, cursor: &cursor)
+            // A soft hyphen's break shows one, which must fit, as in the
+            // paragraph (TextEngine.fitSoftHyphen).
+            return TextEngine.fitSoftHyphen(start: start, count: count, room: room, boundaries: preparation.lineBreakBoundaries,
+                                            source: attributed, typesetter: typesetter, length: length) { room in
+                cursor = from
+                return preparation.suggestBreak(at: start, width: room, cursor: &cursor)
+            }
+        }
+        // CSS `text-wrap-style: balance`, as a paragraph's (LineBreakPlan.balance).
+        var balanced: (until: Int, room: Double)?
+        var greedyWidest: CGFloat = 0
+        if source.balance, spec.lineClamp == 0, width.isFinite, width > 0 {
+            let until = preparation.breakEnds.hard.first ?? length
+            func lines(_ room: Double, widest: Bool = false) -> Int {
+                var start = 0, n = 0, cursor = 0
+                while start < until && n <= TextEngine.balanceMaxLines {
+                    var count = next(start, room, &cursor)
+                    if count <= 0 { count = length - start }
+                    if widest {
+                        let range = CFRangeMake(start, count)
+                        let line = TextEngine.inkedSoftHyphen(CTTypesetterCreateLine(typesetter, range), source: attributed, range: range)
+                        greedyWidest = max(greedyWidest, CGFloat(CTLineGetTypographicBounds(line, nil, nil, nil)))
+                    }
+                    start += count; n += 1
+                }
+                return n
+            }
+            if let room = TextEngine.balancedLimit(limit, lines: { lines($0) }) {
+                balanced = (until, room)
+                _ = lines(limit, widest: true)
+            }
+        }
         while start < length {
             if lineCount % 128 == 0 { try beforeMetadata() }
             if spec.lineClamp > 0 && lineCount == spec.lineClamp { break }
             var count: Int
             // Line breaking depends on source/wrap, not compact glyph retention.
             // Zero-width offers retain CoreText's degenerate newline handling.
-            if width.isFinite && width > 0 && spec.overflowWrap == 0 {
-                count = preparation.suggestBreak(at: start, width: limit, cursor: &boundaryIndex)
+            // `break-word` and `anywhere` take the same opportunities, breaking
+            // inside a word only when none fits (suggestBreak's emergency).
+            if width.isFinite && width > 0 {
+                count = next(start, balanced.map { start < $0.until ? $0.room : limit } ?? limit, &boundaryIndex)
             } else {
                 count = CTTypesetterSuggestLineBreak(typesetter, start, limit)
                 while boundaryIndex < boundaries.count && boundaries[boundaryIndex] < start + count {
@@ -139,12 +158,23 @@ final class RegionWorkerLayout {
                 if boundaryIndex < boundaries.count { count = boundaries[boundaryIndex] - start }
             }
             if count <= 0 { count = length - start }
-            var line = CTTypesetterCreateLine(typesetter, CFRangeMake(start, count))
-            if spec.lineClamp > 0 && lineCount + 1 == spec.lineClamp && start + count < length {
+            var line = TextEngine.inkedSoftHyphen(CTTypesetterCreateLine(typesetter, CFRangeMake(start, count)),
+                                                  source: attributed, range: CFRangeMake(start, count))
+            var clamps = false
+            var natural: CGFloat? // as TextEngine.layout: a too-long word keeps its width
+            if spec.lineClamp > 0 && lineCount + 1 == spec.lineClamp
+                && TextEngine.clampsLast(line, start: start, count: count, length: length, width: limit) {
+                if start + count == length { natural = CGFloat(CTLineGetTypographicBounds(line, nil, nil, nil)) }
                 line = TextEngine.clampedLine(attributed, range: NSRange(location: start, length: count), width: limit) ?? line
+                clamps = true
             }
             var ascent: CGFloat = 0, descent: CGFloat = 0, leading: CGFloat = 0
-            let w = CGFloat(CTLineGetTypographicBounds(line, &ascent, &descent, &leading))
+            // The natural width: justification fills the box, never sizes it.
+            let drawn = CGFloat(CTLineGetTypographicBounds(line, &ascent, &descent, &leading))
+            let w = natural ?? drawn
+            if spec.align == 3, !clamps, width.isFinite {
+                line = TextEngine.justified(line, source: attributed, range: CFRangeMake(start, count), width: limit)
+            }
             // CSS inline boxes share a baseline. Include the paragraph strut
             // and only the runs on this line, preserving each font's half-leading.
             var above = minimum.0, below = minimum.1
@@ -188,37 +218,39 @@ final class RegionWorkerLayout {
             }
             explicit = explicit || aboveExplicit || belowExplicit
             if retainHits || lineCount == 0 { baselines.append(y + above) }
+            lastBaseline = y + above
             y += above + below
             if retainHits { lineBottoms.append(y) }
             maxWidth = max(maxWidth, w)
             if retainHits {
                 if compact {
-                    summaries.append(RegionLine(line, flush: flush, width: width, captureHits: false,
+                    summaries.append(RegionLine(line, flush: flush, width: width, rtl: source.direction == 1, captureHits: false,
                                                 conservativeInk: lineInk.isNull ? .zero : lineInk))
                 } else { lines.append(line) }
             }
             lineCount += 1
             start += count
         }
-        if lineCount == 0 {
-            // Empty editors retain the paragraph's own line box.
-            baselines.append(minimum.0)
-            y = minimum.0 + minimum.1
-            explicit = source.strutExplicit
-        }
         // An authored line height keeps its fractions; `normal` rounds up once
         // (CSSLineBox); a width rounds up to the 1/64 layout unit.
         // Check before metadata and at its coarse line boundaries. No partial
         // metrics or layout binding escape if the authoritative owner changed.
         try beforeMetadata()
+        maxWidth = max(maxWidth, greedyWidest)
+        var height = explicit ? y : ceil(y)
+        // CSS `text-box`, cut as `TextEngine.trimTextBox` cuts a paragraph with lines.
+        if source.textBox.trim != 0, lineCount > 0, let root = source.strut?.value, let first = baselines.first {
+            let cut = TextEngine.textBoxTrim(source.textBox, root: root, first: first, last: lastBaseline, height: height)
+            TextEngine.trimLines(cut, baselines: &baselines, lineBottoms: &lineBottoms, height: &height)
+        }
         let metadata: RegionParagraph
         if compact {
             metadata = RegionParagraph(source: source, sourceSHA256: preparation.sourceSHA256,
                 lines: summaries, baselines: baselines, lineBottoms: lineBottoms,
-                width: CSSLineBox.layoutWidth(maxWidth), height: explicit ? y : ceil(y), offeredWidth: width)
+                width: CSSLineBox.layoutWidth(maxWidth), height: height, offeredWidth: width)
         } else {
             metadata = try RegionParagraph(source: source, sourceSHA256: preparation.sourceSHA256,
-                lines: lines, baselines: baselines, width: CSSLineBox.layoutWidth(maxWidth), height: explicit ? y : ceil(y),
+                lines: lines, baselines: baselines, width: CSSLineBox.layoutWidth(maxWidth), height: height,
                 lineBottoms: lineBottoms, offeredWidth: width, retainHits: retainHits, captureHits: false,
                 metadataCheckpoint: beforeMetadata)
         }
@@ -253,8 +285,8 @@ final class RegionWorkerLayout {
         for run in source.runs {
             var words: [String: CGFloat] = [:]
             var bytes = 0
-            for slice in run.text.split(whereSeparator: { $0.isWhitespace }) {
-                let word = String(slice)
+            // UAX #14's pieces, as layout breaks (TextEngine.unbreakablePieces).
+            for word in TextEngine.unbreakablePieces(run.text) {
                 if let value = words[word] { widest = max(widest, value); continue }
                 var attrs: [NSAttributedString.Key: Any] = [NSAttributedString.Key(kCTFontAttributeName as String): run.font.value]
                 if run.letterSpacing != 0 { attrs[.kern] = run.letterSpacing }

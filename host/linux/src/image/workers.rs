@@ -1,16 +1,15 @@
 //! The process owns exactly two persistent PNG workers. Waiting work is source
 //! identity/metadata; encoded bytes and raster buffers never enter this queue.
-use super::{assets::ImageInput, png_decode, Assets, Bitmap};
+use super::{assets::ImageInput, png_decode, svg_picture, Assets, Bitmap};
+use crate::wake::Stream as UnixStream;
 use exact_raster::{
     DecodePermit, Gate, RasterSession, Refusal, ResidentBytes, COLD_ENTRIES, PENDING_JOBS,
     SUBSCRIPTIONS,
 };
 use std::collections::BTreeMap;
 use std::io::{Cursor, Read, Seek, Write};
-use std::os::{
-    fd::{AsRawFd, RawFd},
-    unix::net::UnixStream,
-};
+#[cfg(unix)]
+use std::os::fd::{AsRawFd, RawFd};
 use std::sync::{Arc, Condvar, Mutex, OnceLock, Weak};
 use std::time::Duration;
 
@@ -28,6 +27,20 @@ pub(super) struct SourceOwner {
     assets: Weak<Assets>,
     prepared: Mutex<Prepared>,
 }
+impl SourceOwner {
+    /// The file it reads, when it is one (not an update's bytes).
+    pub(super) fn file(&self) -> Option<std::path::PathBuf> {
+        match self.assets.upgrade()?.image_input(&self.name)? {
+            ImageInput::Path(path) => Some(path),
+            ImageInput::Bytes(_) => None,
+        }
+    }
+
+    /// The asset name it was asked for.
+    pub(super) fn name(&self) -> &str {
+        &self.name
+    }
+}
 struct State {
     sources: BTreeMap<u64, Weak<SourceOwner>>,
     next_source: u64,
@@ -42,6 +55,13 @@ pub(super) struct Backend {
     budget_notice: Mutex<Option<(u64, u64, u64)>>,
     wake_read: Mutex<UnixStream>,
     wake_write: Mutex<UnixStream>,
+    /// The device scale each SVG picture was asked at, by source and
+    /// pixels: with the key's pixels it gives the CSS size the scene
+    /// resolves at (LLP 1011.001 D3), which the key does not carry.
+    scales: Mutex<BTreeMap<(u64, exact_raster::PixelSize), f32>>,
+    /// SVG pictures with text, resolved on a worker and waiting for the
+    /// paint thread ([`Backend::finish_pictures`]).
+    pictures: Mutex<Vec<svg_picture::Pending>>,
     #[cfg(test)]
     pub hook: Mutex<Option<Arc<DecodeHook>>>,
 }
@@ -68,6 +88,8 @@ impl Backend {
             budget_notice: Mutex::new(None),
             wake_read: Mutex::new(wake_read),
             wake_write: Mutex::new(wake_write),
+            scales: Mutex::new(BTreeMap::new()),
+            pictures: Mutex::new(Vec::new()),
             #[cfg(test)]
             hook: Mutex::new(None),
         });
@@ -92,7 +114,9 @@ impl Backend {
         name: &str,
         assets: &Arc<Assets>,
     ) -> Result<Arc<SourceOwner>, Refusal> {
+        Workers::process().start();
         let mut state = self.state.lock().unwrap();
+        let mut queued = false;
         state.sources.retain(|_, source| source.strong_count() > 0);
         // Keep upgraded owners until AFTER releasing the index lock: their
         // asset descriptor may have an arbitrary final destructor.
@@ -125,12 +149,17 @@ impl Backend {
             });
             state.next_source = next;
             state.sources.insert(source.id, Arc::downgrade(&source));
+            queued = true;
             Ok(source)
         } else {
             Err(Refusal::Overflow)
         };
         drop(state);
         drop(owners);
+        // A header to read: a worker reads it now, not at its backstop timeout.
+        if queued {
+            self.session.wake();
+        }
         result
     }
     fn owners(&self) -> Vec<Arc<SourceOwner>> {
@@ -163,9 +192,35 @@ impl Backend {
         &self,
         demand: exact_raster::Demand,
     ) -> Result<exact_raster::RequestId, Refusal> {
+        Workers::process().start();
         let id = self.session.request(demand)?;
         self.requests.lock().unwrap().insert(id);
         Ok(id)
+    }
+    /// The device scale an SVG picture of `source` at `pixels` is asked at.
+    pub fn note_scale(&self, source: u64, pixels: exact_raster::PixelSize, scale: f32) {
+        let mut scales = self.scales.lock().unwrap();
+        if scales.len() >= 4 * (SUBSCRIPTIONS + COLD_ENTRIES) {
+            scales.clear();
+        }
+        scales.insert((source, pixels), scale);
+    }
+    /// Paint the SVG pictures waiting for the paint thread with `text`,
+    /// completing their permits as a worker completes a raster's.
+    pub fn finish_pictures(&self, text: &crate::text::Shared) {
+        let waiting = std::mem::take(&mut *self.pictures.lock().unwrap());
+        if waiting.is_empty() {
+            return;
+        }
+        for pending in waiting {
+            svg_picture::finish(text, pending);
+        }
+        self.notify();
+    }
+    /// How many pictures wait for the paint thread.
+    #[cfg(test)]
+    pub fn pictures_waiting(&self) -> usize {
+        self.pictures.lock().unwrap().len()
     }
     pub fn forget(&self, id: exact_raster::RequestId) {
         self.requests.lock().unwrap().remove(&id);
@@ -174,6 +229,7 @@ impl Backend {
         self.forget(id);
         self.session.cancel(id);
     }
+    #[cfg(unix)]
     pub fn wake_fd(&self) -> RawFd {
         self.wake_read.lock().unwrap().as_raw_fd()
     }
@@ -234,6 +290,7 @@ impl Backend {
             .sources
             .get(&key.source)
             .and_then(Weak::upgrade);
+        let mut later = None;
         let result = source.ok_or(Refusal::Stale).and_then(|source| {
             if source.generation != key.generation || permit.is_cancelled() {
                 return Err(Refusal::Stale);
@@ -241,21 +298,57 @@ impl Backend {
             let Prepared::Ready(header) = *source.prepared.lock().unwrap() else {
                 return Err(Refusal::Stale);
             };
-            let plan = png_decode::DecodePlan::new(header, (key.pixels.width, key.pixels.height))?;
+            let plan = png_decode::DecodePlan::of_key(header, &key)?;
             if plan.cost != permit.cost() || header.metadata != permit.metadata() {
                 return Err(Refusal::ConflictingMetadata);
             }
-            let (input, bytes) = open(&source)?;
+            let (mut input, bytes) = open(&source)?;
             if bytes != header.metadata.encoded_bytes {
                 return Err(Refusal::ConflictingMetadata);
+            }
+            if header.is_svg() {
+                // The parse and the scene precede the charge: the picture is
+                // allocated by the painter, after it (as `charge` precedes
+                // a raster's output).
+                let scale = self
+                    .scales
+                    .lock()
+                    .unwrap()
+                    .get(&(key.source, key.pixels))
+                    .copied()
+                    .unwrap_or(1.0);
+                let mut text = Vec::with_capacity(bytes as usize);
+                input
+                    .read_to_end(&mut text)
+                    .map_err(|_| Refusal::DecodeFailed)?;
+                let decoded = svg_picture::decode(&source.name, &text, &plan, scale, || {
+                    permit.is_cancelled()
+                })?;
+                return match decoded {
+                    svg_picture::Decoded::Pixels(pixels) => {
+                        let charge = permit.allocation_charge();
+                        Ok(Arc::new(Bitmap::from_source(
+                            pixels.into(),
+                            plan.natural(),
+                            plan.crop,
+                            charge,
+                            source.clone(),
+                        )))
+                    }
+                    svg_picture::Decoded::Later(scene) => {
+                        later = Some((scene, scale, plan, source.clone()));
+                        Err(Refusal::Paused)
+                    }
+                };
             }
             // This charge precedes the decoder and output allocations. On an
             // error decode_rows destroys both before the permit can retire.
             let charge = permit.allocation_charge();
-            let pixels = png_decode::decode_rows(input, &plan, || permit.is_cancelled())?;
+            let pixels = super::jpeg_decode::decode_pixels(input, &plan, || permit.is_cancelled())?;
             let bitmap = Arc::new(Bitmap::from_source(
                 pixels,
                 plan.natural(),
+                plan.crop,
                 charge,
                 source.clone(),
             ));
@@ -270,7 +363,7 @@ impl Backend {
         });
         match result {
             Ok(bitmap) => {
-                let bytes = bitmap.as_ref().as_ref().len() as u64;
+                let bytes = bitmap.bytes();
                 let _ = permit.complete(
                     bitmap,
                     ResidentBytes {
@@ -278,6 +371,19 @@ impl Backend {
                         copy: 0,
                     },
                 );
+            }
+            Err(Refusal::Paused) if later.is_some() => {
+                // A picture with text waits for the paint thread, its permit
+                // with it (LLP 1011.001 D3).
+                let (scene, scale, plan, source) = later.unwrap();
+                self.pictures.lock().unwrap().push(svg_picture::Pending {
+                    permit,
+                    scene,
+                    css: svg_picture::css_size(plan.pixels, scale),
+                    scale,
+                    natural: plan.natural(),
+                    source,
+                });
             }
             Err(_) => permit.fail(),
         }
@@ -306,12 +412,7 @@ fn open(source: &SourceOwner) -> Result<(Box<dyn Input>, u64), Refusal> {
             Ok((Box::new(Cursor::new(bytes)), len))
         }
         ImageInput::Path(path) => {
-            use std::os::unix::fs::OpenOptionsExt;
-            let file = std::fs::OpenOptions::new()
-                .read(true)
-                .custom_flags(libc::O_NONBLOCK)
-                .open(path)
-                .map_err(|_| Refusal::DecodeFailed)?;
+            let file = crate::file::open_regular(&path).map_err(|_| Refusal::DecodeFailed)?;
             let metadata = file.metadata().map_err(|_| Refusal::DecodeFailed)?;
             if !metadata.is_file() {
                 return Err(Refusal::DecodeFailed);
@@ -333,20 +434,31 @@ impl Workers {
     fn process() -> &'static Arc<Self> {
         static WORKERS: OnceLock<Arc<Workers>> = OnceLock::new();
         WORKERS.get_or_init(|| {
-            let workers = Arc::new(Self {
+            Arc::new(Self {
                 gate: Gate::process(),
                 backends: Mutex::new(Vec::new()),
                 cursor: Mutex::new(0),
-            });
+            })
+        })
+    }
+    /// Start the process's two decoders, once: at the first picture source
+    /// or request, so an app that shows no picture carries no decoder (each
+    /// otherwise woke five times a second on its backstop).
+    fn start(self: &Arc<Self>) {
+        static STARTED: std::sync::Once = std::sync::Once::new();
+        STARTED.call_once(|| {
             for n in 0..2 {
-                let owner = workers.clone();
+                let owner = self.clone();
                 std::thread::Builder::new()
                     .name(format!("exact-png-{n}"))
-                    .spawn(move || owner.run())
+                    .spawn(move || {
+                        #[cfg(target_os = "android")]
+                        crate::android::background_priority();
+                        owner.run()
+                    })
                     .expect("PNG worker");
             }
-            workers
-        })
+        });
     }
     fn sessions(&self) -> Vec<Arc<Backend>> {
         let mut backends = self.backends.lock().unwrap();
@@ -399,7 +511,12 @@ impl Workers {
         }
         drop(backends);
         before_wait();
-        if let Some(permit) = self.gate.wait_decode(Duration::from_millis(20)) {
+        // Requests, cancels, freed budget and sources to read all wake a
+        // worker, which takes the next turn at once (a header to read is no
+        // decode: waiting on for one held every first picture to the
+        // timeout); the timeout is only a backstop, so it is long enough not
+        // to be a poll.
+        if let Some(permit) = self.gate.wait_work(Duration::from_millis(200)) {
             *metadata_turn = true;
             self.complete(permit);
         }

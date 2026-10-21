@@ -1,3 +1,4 @@
+import { homedir as browserHome } from 'node:os';
 // Independent gameplay acceptance. No engine implementation is imported here.
 import { chromium } from 'playwright';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
@@ -16,7 +17,7 @@ const level = JSON.parse(await readFile(new URL('../shared/level.json', import.m
 if (task === 'extra') level.lanterns.push({ id: 'lantern-13', position: [-8, 1.2, 7] });
 const started = performance.now();
 const browser = await chromium.launch({
-  executablePath: process.env.CHROMIUM || '/home/ccheever/.cache/ms-playwright/chromium-1234/chrome-linux64/chrome',
+  executablePath: process.env.CHROMIUM || (process.env.CHROME || browserHome() + "/.cache/ms-playwright/chromium-1234/chrome-linux64/chrome"),
   headless: true,
   args: ['--no-sandbox', '--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader'],
 });

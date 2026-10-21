@@ -1,0 +1,8 @@
+tap push-detail
+tap rename
+tap push-plain
+tap rename
+tap back
+tap back
+tap toggle
+tap toggle

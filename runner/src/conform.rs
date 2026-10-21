@@ -81,6 +81,83 @@ impl Conformed {
     }
 }
 
+/// Where a value that does not conform to `ty` first differs from it: a
+/// path from the value's root and what was there, the refusal's `why`
+/// (LLP 1101.002 §0 P9). Only asked once a value is refused.
+pub(crate) fn mismatch(plan: &Plan, value: &Value, ty: TypesId) -> String {
+    let mut path = String::from(plan.str(plan.type_(ty).name));
+    let what = differs(plan, value, ty, &mut path).unwrap_or_else(|| "it conforms".into());
+    format!("{path}: {what}")
+}
+
+fn differs(plan: &Plan, value: &Value, ty: TypesId, path: &mut String) -> Option<String> {
+    let row = plan.type_(ty);
+    match (row.kind, value) {
+        (TypeKind::Option, Value::Option(Some(inner))) => differs(plan, inner, row.elem?, path),
+        (TypeKind::List, Value::List(items)) => {
+            let elem = row.elem?;
+            let (i, item) = items
+                .iter()
+                .enumerate()
+                .find(|(_, v)| !v.conforms(plan, elem))?;
+            path.push_str(&format!("[{i}]"));
+            differs(plan, item, elem, path)
+        }
+        (TypeKind::Record, Value::Record(values)) => {
+            let declared = row.fields.len as usize;
+            for (i, f) in row.fields.iter().enumerate() {
+                let field = plan.field(f);
+                let Some(v) = values.get(i) else { break };
+                if !v.conforms(plan, field.ty) {
+                    path.push('.');
+                    path.push_str(plan.str(field.name));
+                    return differs(plan, v, field.ty, path);
+                }
+            }
+            (values.len() != declared).then(|| {
+                let first = row.fields.iter().nth(values.len().min(declared));
+                let missing = match first {
+                    Some(f) if values.len() < declared => {
+                        format!(", from `{}` on", plan.str(plan.field(f).name))
+                    }
+                    _ => String::new(),
+                };
+                format!(
+                    "{} fields where the shape declares {declared}{missing}",
+                    values.len()
+                )
+            })
+        }
+        _ if value.conforms(plan, ty) => None,
+        (kind, _) => Some(format!(
+            "a {kind:?} was declared, and {} answered",
+            found(value)
+        )),
+    }
+}
+
+/// A value as a refusal names it: a scalar itself (a string cut to 40
+/// characters), anything larger by its kind and size.
+fn found(value: &Value) -> String {
+    match value {
+        Value::Number(n) => format!("{n}"),
+        Value::Bool(b) => format!("{b}"),
+        Value::Unit => "unit".into(),
+        Value::Option(None) => "none".into(),
+        Value::Option(Some(v)) => format!("some({})", found(v)),
+        Value::List(items) => format!("a list of {}", items.len()),
+        Value::Record(items) => format!("a record of {} fields", items.len()),
+        _ => {
+            let text = value.as_str().unwrap_or_default();
+            let mut cut: String = text.chars().take(40).collect();
+            if cut.len() < text.len() {
+                cut.push('…');
+            }
+            format!("{cut:?}")
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -153,5 +230,27 @@ mod tests {
         let before = c.items_checked;
         assert!(c.conforms(&plan, &feed(&rows), ty));
         assert_eq!(c.items_checked, before);
+    }
+
+    #[test]
+    fn a_refusal_names_where_the_answer_differs() {
+        let (plan, ty) = plan();
+        let rows = |bad: Value| {
+            let mut all: Vec<Value> = (0..3).map(item).collect();
+            all[2] = bad;
+            feed(&Items::from(all))
+        };
+        let why = |v: &Value| mismatch(&plan, v, ty);
+        assert_eq!(
+            why(&rows(Value::record(vec![
+                Value::str("m2"),
+                Value::str("two")
+            ]))),
+            "Feed.rows[2].count: a Number was declared, and \"two\" answered"
+        );
+        assert_eq!(
+            why(&rows(Value::record(vec![Value::str("m2")]))),
+            "Feed.rows[2]: 1 fields where the shape declares 2, from `count` on"
+        );
     }
 }

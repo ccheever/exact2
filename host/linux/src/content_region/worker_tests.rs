@@ -187,6 +187,7 @@ fn result_drop_reenters_mailbox_without_a_locked_destructor() {
 }
 
 #[test]
+#[cfg(unix)]
 fn delivery_notifies_without_ui_poll_and_cancel_rejects_late_result() {
     use std::io::Read;
     let gate = ThreadSlot::default();

@@ -1,0 +1,23 @@
+// A frame task beside an `after` timer: the timer stops the animation at
+// its due time; a frame and the timer due at once fire in declaration order.
+component App
+  state frames = 0
+  state running = true
+  state log = ""
+  action tick
+    if running
+      frames = frames + 1
+  action stop
+    running = false
+    log = `${frames}`
+  task f mount
+    every(frame, tick)
+  task s mount
+    after(100, stop)
+  view
+    text `${frames} ${running}` testId="out"
+
+test "stopped at 100ms"
+  clock +250
+  expect state frames == 6
+  expect state log == "6"

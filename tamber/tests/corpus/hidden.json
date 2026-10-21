@@ -1,0 +1,16 @@
+{
+  "format": 1,
+  "digest": "56079d35f3cd3587",
+  "name": "hidden",
+  "tuples": 8,
+  "axes": [
+    {"name": "dark-style", "values": ["black", "dim"], "under": "dark"},
+    {"name": "density", "values": ["default", "compact"], "under": null},
+    {"name": "variant", "values": ["a", "b"], "under": null}
+  ],
+  "dials": [],
+  "tokens": [
+    {"name": "t", "kind": "color", "role": null, "values": ["light-dark(#ffffffff, #000000ff)", "light-dark(#eeeeeeff, #050505ff)", "light-dark(#eeeeeeff, #333333ff)", "light-dark(#eeeeeeff, #444444ff)"], "entries": [0, 0, 1, 1, 0, 0, 2, 3], "dials": [], "fallback": ["#ffffffff", "#000000ff"]}
+  ],
+  "exports": null
+}

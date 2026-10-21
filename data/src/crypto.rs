@@ -65,7 +65,8 @@ impl AgentStream {
     /// The seed the agent flag names, or `None` outside the agent: the
     /// process's `EXACT_AGENT=1` and `EXACT_AGENT_SEED` (default 1), which
     /// every native host also reads for `exactTime().seed`. A seed that is
-    /// not an integer below 2^53 is 1, as the Apple host takes it.
+    /// not an integer below 2^32 (LLP 1116.005 D5) is 1, as the Apple host
+    /// takes it.
     pub fn agent_seed() -> Option<u64> {
         // `EXACT_DEVICE=real` (LLP 1069.007 D8): a drive that reaches the
         // real device reaches it with OS entropy (LLP 1069.006 D7).
@@ -78,7 +79,7 @@ impl AgentStream {
             std::env::var("EXACT_AGENT_SEED")
                 .ok()
                 .and_then(|s| s.parse::<u64>().ok())
-                .filter(|&s| s < 1 << 53)
+                .filter(|&s| s < 1 << 32)
                 .unwrap_or(1),
         )
     }

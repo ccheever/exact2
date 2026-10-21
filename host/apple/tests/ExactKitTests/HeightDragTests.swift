@@ -1,7 +1,9 @@
 import XCTest
 @testable import ExactKit
+@testable import ExactDrag
 
 final class HeightDragTests: XCTestCase {
+    override class func setUp() { super.setUp(); ExactDrag.install() } // LLP 1047.001 D4
     func testBindingPreservesGenerationalKeysAndDoesNotResolveNames() {
         let binding = HeightDragBinding([
             "id": 7, "target": 3,

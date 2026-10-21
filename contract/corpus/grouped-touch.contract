@@ -1,0 +1,39 @@
+// Real-touch fixture (LLP 1080.000, LLP 1084 D5): a grouped list whose rows
+// UIKit draws, its authored rows hidden beneath. `tap <testId>` under
+// `--touch platform` aims at the cell or accessory a finger sees: the
+// switch flips `on`, the detail button and the row each count a press
+// (`bun scripts/smoke-touch.mjs`).
+component GroupedTouch
+  state on = false
+  state infos = 0
+  state opens = 0
+  action setOn(v: bool)
+    on = v
+  action info
+    infos = infos + 1
+  action open
+    opens = opens + 1
+  view
+    column testId="root" width="100%" height="100%"
+      text `${on} ${infos} ${opens}` testId="facts" padding-top=60
+      list appearance="auto"
+        listStyle="inset-grouped"
+        testId="list"
+        flex=1
+        min-height=0
+        width="100%"
+        section
+          row testId="toggle-row"
+            text "Read Receipts"
+            input type="checkbox" switch
+              checked=on
+              change=setOn
+              testId="toggle"
+              aria-label="Read Receipts"
+          row testId="info-row"
+            text "Device"
+            button press=info testId="info" aria-label="Info"
+              image "symbol:sf/info.circle"
+          button press=open testId="open"
+            text "Open"
+            image "symbol:sf/chevron.right"

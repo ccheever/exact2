@@ -288,7 +288,13 @@ impl crate::Surface for super::Surface {
                 unreachable!("wgpu-core resolves `Auto` before configuring the surface")
             }
             // Reset to the layer's default, which treats contents as sRGB.
+            // EXACT (EXACT-PATCHES.md, 5): on iOS. On macOS a nil colorspace
+            // means no color matching (the values are shown as the display's
+            // own), so sRGB is said.
+            #[cfg(not(target_os = "macos"))]
             wgt::SurfaceColorSpace::Srgb => None,
+            #[cfg(target_os = "macos")]
+            wgt::SurfaceColorSpace::Srgb => Some(unsafe { objc2_core_graphics::kCGColorSpaceSRGB }),
             wgt::SurfaceColorSpace::ExtendedSrgbLinear => {
                 Some(unsafe { objc2_core_graphics::kCGColorSpaceExtendedLinearSRGB })
             }

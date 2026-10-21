@@ -1,0 +1,59 @@
+# Code review: LLP 1121 stage 3, commit 8, 2026-10-15 (astra)
+
+- **Family:** OpenAI. `gpt-6-astra` via `codex exec`, reasoning effort max, sandbox read-only, the landing worktree.
+- **Method:** one brief (sha256 `d1f51cb335565354075447ea957a1aa4e24a2e3c9461e757203624313cd32de0`), shared by both reviewers, blind to the other review. The author (Claude) is not a reviewer.
+- **Transcription:** the final message, unedited.
+- **Verdict:** Astra: eight high, twelve medium, three low; Grok: three high, ten medium, five low.
+- **Disposition:** fixed in round 1 by a rewrite: each mode tuple resolved on its own in layer order, declarations' fates decided after assembly, the format and the resolver read as written; a gradient's reference stops stay in its report row; our own export's round trip is stage 5's
+
+---
+
+I would request changes on HEAD `bc46c8a4a`.
+
+1. **High — Inline Resolver entries disappear.** [dtcg.rs:359](/tmp/rv-s3c8/tamber/src/import/dtcg.rs:359) substitutes `""` for a missing `$ref`; `doc.pointer("")` then returns the whole document instead of the inline entry. Valid inline sets and modifiers therefore produce no tokens, potentially reporting `0 = 0 + 0`. **Fix:** distinguish inline entries from references and use their declared `name` and `type`. [Resolver specification](https://www.designtokens.org/tr/2025.10/resolver/)
+
+2. **High — Resolver references are not recursively expanded.** [dtcg.rs:331](/tmp/rv-s3c8/tamber/src/import/dtcg.rs:331) passes referenced objects directly to `tokens()`. A context referencing `#/sets/base` consequently encounters a `sources` array and imports nothing. Reference chains and local overrides are also lost; unresolved `resolutionOrder` pointers can silently become empty layers. **Fix:** recursively resolve and validate reference objects, expand sets/context arrays, and apply local overrides before token traversal.
+
+3. **High — Assembly loses `resolutionOrder`.** [dtcg.rs:659](/tmp/rv-s3c8/tamber/src/import/dtcg.rs:659) always places scheme values over base values and axis values over the scheme. A set occurring *after* a modifier cannot override it; an axis occurring *before* the scheme still overrides both scheme sides. **Fix:** resolve each complete mode tuple in source order, then derive defaults, `light-dark()` pairs and disjoint `when` conditions. This also permits faithful handling of overlapping axes. [Resolver ordering](https://www.designtokens.org/tr/2025.10/resolver/)
+
+4. **High — Alias validation permits dangling references and misses mode-dependent cycles.** [dtcg.rs:589](/tmp/rv-s3c8/tamber/src/import/dtcg.rs:589), [dtcg.rs:602](/tmp/rv-s3c8/tamber/src/import/dtcg.rs:602). A token merely declared as colour qualifies as an alias target even when its value was rejected. Separately, cycle detection examines only the first scope for each path. Valid light `{a: white, b: "{a}"}` and dark `{a: "{b}", b: black}` become mutually recursive Tamber pairs. **Fix:** resolve dependencies per tuple/scheme, propagate rejected targets through alias chains, and eliminate cycles introduced when combining scheme sides.
+
+5. **High — DTCG structural constructs vanish before counting.** [dtcg.rs:119](/tmp/rv-s3c8/tamber/src/import/dtcg.rs:119) skips every `$` key, losing `$root` tokens and `$extends` inheritance. Tokens expressed through `$ref` are likewise never recognized; property-level JSON-pointer references are not resolved. These omissions escape both the mapped count and unmapped report. **Fix:** distinguish structural properties from metadata and resolve them before inventorying tokens. [Format specification](https://www.designtokens.org/tr/2025.10/format/)
+
+6. **High — Colour conversion prefers the fallback over the actual colour.** [dtcg.rs:434](/tmp/rv-s3c8/tamber/src/import/dtcg.rs:434) immediately uses `hex`, discarding `colorSpace` and `components`. A Display-P3 colour with an sRGB fallback therefore imports as the fallback despite Tamber supporting the original colour space. **Fix:** convert the colour-space components first; use the fallback only when necessary and report the loss. [DTCG colour definition](https://www.designtokens.org/tr/2025.10/color/)
+
+7. **High — Tokens Studio colour modifiers are silently discarded.** [dtcg.rs:111](/tmp/rv-s3c8/tamber/src/import/dtcg.rs:111) retains only type and value. A token with `$extensions["studio.tokens"].modify` imports its unmodified literal or alias and is counted as mapped. **Fix:** preserve and evaluate recognized modifiers, or report the entire modified token as unsupported. [Tokens Studio modifier format](https://github.com/tokens-studio/sd-transforms#tscolormodifiers)
+
+8. **High — An empty Tokens Studio themes array drops every set.** [dtcg.rs:280](/tmp/rv-s3c8/tamber/src/import/dtcg.rs:280) handles a non-array as “no themes”, but `$themes: []` takes the empty iteration path. A populated single-file export—or directory with an empty `$themes.json`—returns no tokens and a zero source count. **Fix:** handle an empty themes array explicitly and inventory the sets.
+
+9. **Medium — Legacy detection misclassifies valid DTCG groups.** [dtcg.rs:105](/tmp/rv-s3c8/tamber/src/import/dtcg.rs:105) treats any property named `value` as a legacy token value. A group containing tokens named `value` and `other` becomes one bogus token, and traversal stops. **Fix:** restrict legacy detection to a recognized Tokens Studio token shape; ordinary DTCG member names must remain group members.
+
+10. **Medium — Alias types are not inferred from their targets.** [dtcg.rs:99](/tmp/rv-s3c8/tamber/src/import/dtcg.rs:99) consults only explicit and parent types. A valid untyped alias to a colour is reported as missing `$type`; an inherited parent type can also misclassify it. **Fix:** resolve alias types before dispatching to `kind()`. [Type-resolution rules](https://www.designtokens.org/tr/2025.10/format/)
+
+11. **Medium — Tokens Studio set precedence is wrong.** [dtcg.rs:297](/tmp/rv-s3c8/tamber/src/import/dtcg.rs:297) discards the distinction between `enabled` and `source`, allowing a later source set to override an enabled set. Additionally, [dtcg.rs:263](/tmp/rv-s3c8/tamber/src/import/dtcg.rs:263) can assign `colors` and `brand/colors` the same rank despite explicit full-path ordering. **Fix:** retain status priority and prefer exact set-name matches when interpreting `tokenSetOrder`. [Tokens Studio precedence](https://docs.tokens.studio/manage-tokens/token-values/)
+
+12. **Medium — Ungrouped Tokens Studio themes become simultaneous base layers.** [dtcg.rs:292](/tmp/rv-s3c8/tamber/src/import/dtcg.rs:292) uses each theme’s name as its missing group. Legacy ungrouped Light and Dark themes consequently overwrite each other instead of becoming the scheme. **Fix:** place ungrouped themes in one common implicit group.
+
+13. **Medium — One non-mode filename disables Figma mode recognition globally.** [dtcg.rs:204](/tmp/rv-s3c8/tamber/src/import/dtcg.rs:204). `My.Collection.Light.json` and `My.Collection.Dark.json` work together, but adding `base.json` makes every file a base layer, collapsing the scheme. **Fix:** classify files individually and combine recognized collection/mode layers with ordinary base files.
+
+14. **Medium — Axis identities can silently collide or reuse incompatible existing axes.** [dtcg.rs:640](/tmp/rv-s3c8/tamber/src/import/dtcg.rs:640), [dtcg.rs:735](/tmp/rv-s3c8/tamber/src/import/dtcg.rs:735). Names such as `Brand A` and `Brand-A`, or similarly sanitized context values, merge without a collision diagnostic. Existing axes are reused without checking defaults or `under scheme=dark`; reserved names such as `contrast` produce rejected proposals. **Fix:** validate axis/value identities and compatibility before reconciliation, reporting collisions or proposing distinct names.
+
+15. **Medium — Missing modes acquire invented values.** [dtcg.rs:650](/tmp/rv-s3c8/tamber/src/import/dtcg.rs:650), [dtcg.rs:681](/tmp/rv-s3c8/tamber/src/import/dtcg.rs:681). A missing scheme side copies the surviving side. An axis-only token absent from the declared default context takes the first available context’s value as its unconditional default. **Fix:** preserve whether a value is actually defined in each context; report tokens whose missing contexts cannot be represented.
+
+16. **Medium — Later unsupported kinds do not supersede earlier colours.** [dtcg.rs:554](/tmp/rv-s3c8/tamber/src/import/dtcg.rs:554) chooses winners only among colour definitions. If a later set replaces a colour with a number or gradient, the later value is reported but the obsolete colour is still proposed. **Fix:** determine winning definitions before classifying their kinds.
+
+17. **Medium — “Mapped” is counted before checking whether the output carries the value.** [dtcg.rs:619](/tmp/rv-s3c8/tamber/src/import/dtcg.rs:619). For base red, light white and dark black, all three definitions count as mapped although the result contains only white/black. Selection also happens before the source inventory, hiding omitted sets. **Fix:** track each source declaration through assembly and assign its final mapped, superseded or unsupported disposition afterward.
+
+18. **Medium — External Resolver paths can select the wrong file.** [dtcg.rs:343](/tmp/rv-s3c8/tamber/src/import/dtcg.rs:343) uses suffix matching rather than resolving relative to the referring document. With `a/colors.json`, `b/colors.json` and `b/resolver.json`, `"colors.json"` can select the file under `a`; `"./colors.json"` fails. [tamber_import.rs:112](/tmp/rv-s3c8/contract/cli/src/tamber_import.rs:112) also supplies no dependencies when a resolver is passed as a file. **Fix:** resolve normalized paths relative to each document and load referenced files deliberately.
+
+19. **Medium — Invalid Resolver defaults are silently replaced.** [dtcg.rs:367](/tmp/rv-s3c8/tamber/src/import/dtcg.rs:367) merely sorts matching defaults first. A nonexistent default therefore becomes an arbitrary context, while empty or malformed context structures can yield a successful empty import. **Fix:** validate defaults and required Resolver structures before constructing layers.
+
+20. **Medium — Tuple-cap arithmetic can overflow before enforcing the cap.** [dtcg.rs:724](/tmp/rv-s3c8/tamber/src/import/dtcg.rs:724) multiplies all cardinalities unchecked. Sixty-four binary axes overflow a 64-bit `usize`, causing a debug panic or release wraparound instead of the intended diagnostic. **Fix:** use checked multiplication and stop as soon as the product exceeds `MAX_TUPLES`.
+
+21. **Low — Directory traversal follows symlink cycles.** [tamber_import.rs:123](/tmp/rv-s3c8/contract/cli/src/tamber_import.rs:123) follows directory symlinks without tracking visited directories. A link to an ancestor repeatedly traverses and imports the same files. **Fix:** skip directory symlinks or deduplicate canonical directory identities.
+
+22. **Low — The Tokens Studio gate does not independently verify its count.** [import.rs:739](/tmp/rv-s3c8/tamber/tests/import.rs:739) checks only the arithmetic already enforced by `counted()`. It does not pin the fixture’s `49 / 44 / 5` totals, so omissions can remain green. **Fix:** assert those totals and add focused cases for the failures above, including folded values across modes.
+
+23. **Low — The second-axis report loses the rejected source value.** [dtcg.rs:701](/tmp/rv-s3c8/tamber/src/import/dtcg.rs:701) writes `axis=value` into `Unmapped.value` instead of the original colour or alias. **Fix:** retain the original declaration value and put the axis condition in the report’s context or explanation.
+
+`bun scripts/caps.mjs` passed all eight categories; `git diff --check HEAD^ HEAD` passed. The fixture census confirmed 49 Tokens Studio tokens and 104 Figma tokens. Rust tests were not run because this read-only checkout has no built test artifacts. No files were changed.

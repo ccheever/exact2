@@ -9,6 +9,7 @@ const { format } = dateFormatter;
 const parts = dateFormatter.formatToParts.bind(dateFormatter);
 const formatGetter = Object.getOwnPropertyDescriptor(Intl.DateTimeFormat.prototype, "format")!.get!;
 const calls: Record<string, () => unknown> = {
+  idle: () => "idle",
   now: () => Date.now(),
   new: () => new Date(),
   call: () => Date(),
@@ -34,6 +35,11 @@ const calls: Record<string, () => unknown> = {
   "intl-format-getter": () => formatGetter.call(dateFormatter)(),
   "intl-format-computed": () => new globalThis["In" + "tl"]["DateTime" + "Format"]()["for" + "mat"](),
   "intl-parts-prototype": () => Intl.DateTimeFormat.prototype.formatToParts.call(dateFormatter),
+  timeout: () => setTimeout(() => {}, 0),
+  interval: () => setInterval(() => {}, 1000),
+  "computed-timeout": () => (globalThis as any)["set" + "Timeout"](() => {}, 0),
+  frame: () => requestAnimationFrame(() => {}),
+  performance: () => performance.now(),
 };
 
 const atInit: Record<string, string> = {};
@@ -59,7 +65,7 @@ function answer(source: string, args: any[]): unknown {
       console.log("explicit", args[0], args[1]);
       return explicit(args[0], args[1]);
     case "explicitLater":
-      return fetch("https://fixture.exact.test/value").then(() => explicit(args[0], args[1]));
+      return fetch("https://fixture.exact.test/value").then(() => { console.log("explicitLater", args[0], args[1]); return explicit(args[0], args[1]); });
     case "utc":
       return [
         new Date(Date.UTC(2024, 1, 29, 12, 34, 56, 789)).toISOString(),

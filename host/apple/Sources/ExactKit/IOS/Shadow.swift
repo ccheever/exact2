@@ -12,12 +12,22 @@
 // where there is no Metal device.
 import Metal
 import QuartzCore
-#if os(iOS)
+#if os(iOS) || os(tvOS)
 import UIKit
 
-final class Shadow {
+package final class Shadow {
     /// The one shadow renderer, or nil where Metal is absent.
-    nonisolated(unsafe) static let shared: Shadow? = Shadow()
+    nonisolated(unsafe) static var active: Shadow?
+    nonisolated(unsafe) package static let shared: Shadow? = {
+        let shadow = Shadow()
+        active = shadow
+        return shadow
+    }()
+
+    /// Update an existing mirror immediately; creation takes the same setter.
+    func rank(_ layer: CALayer, _ value: CGFloat) {
+        if let mirror = mirrors[ObjectIdentifier(layer)], mirror.zPosition != value { mirror.zPosition = value }
+    }
 
     let device: MTLDevice
     let queue: MTLCommandQueue
@@ -39,10 +49,6 @@ final class Shadow {
     private let root = CALayer()
     private var mirrors: [ObjectIdentifier: CALayer] = [:]
     private var used: Set<ObjectIdentifier> = []
-    /// Milliseconds of the last capture's parts, for the measure.
-    var lastMirrorMs = 0.0
-    var lastRenderMs = 0.0
-    var lastReadMs = 0.0
 
     /// The renderer's option for the command queue it renders on — the
     /// constant `kCARendererMetalCommandQueue`, whose Swift name the iOS SDK
@@ -76,7 +82,7 @@ final class Shadow {
     /// one every time at a size. The renderer's work is complete when this
     /// returns (a wait on the presenter's queue), since the module samples
     /// on its own queue.
-    func renderTexture(_ view: UIView, scale: CGFloat) -> MTLTexture? {
+    package func renderTexture(_ view: UIView, scale: CGFloat) -> MTLTexture? {
         let w = Int((view.bounds.width * scale).rounded()), h = Int((view.bounds.height * scale).rounded())
         guard w > 0, h > 0 else { return nil }
         if handed == nil || handed!.width != w || handed!.height != h {
@@ -90,17 +96,11 @@ final class Shadow {
             handedRenderer = r
         }
         guard let texture = handed, let renderer = handedRenderer else { return nil }
-        let t0 = CACurrentMediaTime()
         mirror(view, width: w, height: h, scale: scale)
-        let t1 = CACurrentMediaTime()
         draw(renderer, into: texture, width: w, height: h)
         guard let cb = queue.makeCommandBuffer() else { return nil }
         cb.commit()
         cb.waitUntilCompleted()
-        let t2 = CACurrentMediaTime()
-        lastMirrorMs = (t1 - t0) * 1000
-        lastRenderMs = (t2 - t1) * 1000
-        lastReadMs = 0
         return texture
     }
 
@@ -109,9 +109,7 @@ final class Shadow {
     func render(_ view: UIView, scale: CGFloat, into bitmap: Bitmap) -> Bool {
         let w = bitmap.width, h = bitmap.height
         guard let bytes = bitmap.bytes, prepare(width: w, height: h), let renderer, let target, let readback else { return false }
-        let t0 = CACurrentMediaTime()
         mirror(view, width: w, height: h, scale: scale)
-        let t1 = CACurrentMediaTime()
         draw(renderer, into: target, width: w, height: h)
         // The pixels back: a blit on the same queue after the renderer's
         // work, waited for (the per-child textures of a deck, and any host
@@ -121,12 +119,7 @@ final class Shadow {
         blit.endEncoding()
         cb.commit()
         cb.waitUntilCompleted()
-        let t2 = CACurrentMediaTime()
         memcpy(bytes, readback.contents(), w * h * 4)
-        let t3 = CACurrentMediaTime()
-        lastMirrorMs = (t1 - t0) * 1000
-        lastRenderMs = (t2 - t1) * 1000
-        lastReadMs = (t3 - t2) * 1000
         return true
     }
 
@@ -219,6 +212,8 @@ final class Shadow {
         // colour: LLP 1055.000) is captured as it shows, not as its model.
         let shown = layer.animationKeys()?.isEmpty == false ? (layer.presentation() ?? layer) : layer
         copy(shown, to: shadow)
+        if let node = layer.delegate as? NodeView { node.setPaintPosition(node.paintZPosition) }
+        else { rank(layer, shown.zPosition) }
         // An SVG part's mask (a gradient under its shape) comes along.
         if let mask = layer.mask {
             let m = mirror(mask)
@@ -289,7 +284,6 @@ final class Shadow {
         if b.contentsScale != a.contentsScale { b.contentsScale = a.contentsScale }
         if b.contentsGravity != a.contentsGravity { b.contentsGravity = a.contentsGravity }
         if b.isOpaque != a.isOpaque { b.isOpaque = a.isOpaque }
-        if b.zPosition != a.zPosition { b.zPosition = a.zPosition }
         // A `box-shadow` (`BoxShadow.swift`): the shadow, and the mask that
         // keeps it outside the box.
         if a is ShadowCaster {

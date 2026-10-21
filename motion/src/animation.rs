@@ -125,9 +125,10 @@ impl Keyframe {
     }
 }
 
-/// A resolved `@keyframes` rule: keyframes in offset order.
+/// A resolved `@keyframes` rule: keyframes in offset order. Shared: every
+/// copy of an animation (a style's row, the engine's play) holds one list.
 #[derive(Debug, Clone, PartialEq, Default)]
-pub struct Keyframes(pub Vec<Keyframe>);
+pub struct Keyframes(pub std::sync::Arc<[Keyframe]>);
 
 /// One entry of the `animation` row.
 #[derive(Debug, Clone, PartialEq)]
@@ -179,7 +180,7 @@ pub enum AnimationError {
     /// A property keyframes do not animate: half of a `box-shadow` without
     /// the other, or a dark value for no colour of the keyframe.
     NotAnimatable(Property),
-    /// An `exit-animation` that never ends — an `infinite` count, or
+    /// An `-exact-exit-animation` that never ends — an `infinite` count, or
     /// `paused` — would keep its leaving node forever (LLP 1063).
     Endless,
 }
@@ -215,7 +216,7 @@ impl Keyframes {
     /// Every property some keyframe declares, in wire order.
     pub fn properties(&self) -> Vec<Property> {
         let mut out: Vec<Property> = Vec::new();
-        for frame in &self.0 {
+        for frame in self.0.iter() {
             for (p, _) in &frame.values {
                 if !out.contains(p) {
                     out.push(*p);
@@ -232,7 +233,7 @@ impl Keyframes {
             return Err(AnimationError::TooManyKeyframes);
         }
         let mut last = 0.0;
-        for frame in &self.0 {
+        for frame in self.0.iter() {
             if !frame.offset.is_finite() {
                 return Err(AnimationError::NonFinite);
             }
@@ -289,7 +290,7 @@ impl Keyframes {
     /// with CSS's implicit `0%` and `100%` from `underlying` where no
     /// keyframe declares it (CSS Animations 1 §3). A `light-dark()` colour
     /// takes its value under `dark`.
-    fn track(
+    pub fn track(
         &self,
         property: Property,
         underlying: Value,
@@ -501,7 +502,7 @@ impl Animations {
     }
 
     /// [`Animations::validate`], and every entry runs to an end: the rule for
-    /// an `exit-animation`, whose node is removed when it ends (LLP 1063).
+    /// an `-exact-exit-animation`, whose node is removed when it ends (LLP 1063).
     pub fn validate_ending(&self) -> Result<(), AnimationError> {
         self.validate()?;
         if self.0.iter().any(|a| a.paused || !a.end_time().is_finite()) {

@@ -2,6 +2,7 @@
 import UIKit
 import XCTest
 @testable import ExactKit
+@testable import ExactSurfaces
 
 /// A virtualized list's retired row lends its views to the next row of its
 /// shape (`NodePool`): the views stay in the list, parked, and come back
@@ -9,6 +10,7 @@ import XCTest
 /// presentation. UIKit, so a simulator runs it:
 ///   bun host/apple/build.mjs --test --ios
 final class NodePoolIOSTests: XCTestCase {
+    override class func setUp() { super.setUp(); ExactSurfaces.install() } // LLP 1047.001 D4
     private var window: UIWindow!
 
     private func collections(_ rows: [(view: Int, root: Int)]) -> [String: Any] {
@@ -46,6 +48,59 @@ final class NodePoolIOSTests: XCTestCase {
         return p
     }
 
+    func testQueuedPopoverEventsDoNotFollowARecycledRow() throws {
+        for newEvent in [false, true] {
+            let p = fixture(), row = try XCTUnwrap(p.views[10])
+            row.props["popover"] = "auto"; row.handlers.insert("toggle")
+            var events: [String] = []
+            p.onClipboard = { id, _, payload in events.append("\(id):\(payload)") }
+            p.popoverEvents.changed(row, open: false)
+            let token = row.incarnation
+            p.apply(wireBatch([collections([(20, 20)])] + destroy([10, 11, 12]) + rowOps(20, y: 44, label: "Save 20")
+                + [["op": "children", "id": 1, "ids": [20]]]))
+            XCTAssertTrue(p.views[20] === row)
+            XCTAssertNotEqual(row.incarnation, token)
+            row.props["popover"] = "auto"; row.handlers.insert("toggle")
+            if newEvent { p.popoverEvents.changed(row, open: true) }
+            let drained = expectation(description: "queued toggle tasks drained")
+            DispatchQueue.main.async { drained.fulfill() }
+            wait(for: [drained], timeout: 20)
+            XCTAssertEqual(events, newEvent ? ["20:closed,open"] : [])
+        }
+    }
+
+    /// A hover held on a row's descendant (stage 9 G3: the hold put a look
+    /// recognizer on it): the row is not pooled with it, the hold goes once
+    /// (`gone`), and nothing of it survives the next row of that shape.
+    @MainActor func testAHoverHeldOnARowsDescendantGoesWithTheRow() throws {
+        let p = fixture(), row = try XCTUnwrap(p.views[10]), button = try XCTUnwrap(p.views[12])
+        defer { HeldState.letGo(nil) }
+        var reasons: [String] = []
+        XCTAssertEqual(button.hold("hover", dropped: { reasons.append($0) }).held, "hover")
+        XCTAssertNotNil(button.lookHoverRecognizer, "the hold's recognizer")
+        p.apply(wireBatch([collections([(20, 20)])] + destroy([10, 11, 12]) + rowOps(20, y: 44, label: "Save 20")
+            + [["op": "children", "id": 1, "ids": [20]]]))
+        XCTAssertEqual(reasons, ["gone"])
+        XCTAssertNil(HeldState.view)
+        XCTAssertFalse(p.views[20] === row, "a row holding a hover is not pooled")
+        XCTAssertNil(button.lookHoverRecognizer, "the hold's recognizer went with it")
+        XCTAssertNil(p.views[22]?.lookHoverRecognizer, "the next row's button has none")
+    }
+
+    /// A pooled view lets its hold go as it is recycled (`recycle`), whatever
+    /// kept its row in the pool: once, its recognizer with it.
+    @MainActor func testARecycledViewLetsItsHoldGo() throws {
+        let p = fixture(), button = try XCTUnwrap(p.views[12])
+        defer { HeldState.letGo(nil) }
+        var reasons: [String] = []
+        XCTAssertEqual(button.hold("hover", dropped: { reasons.append($0) }).held, "hover")
+        button.recycle()
+        XCTAssertEqual(reasons, ["gone"])
+        XCTAssertNil(HeldState.view)
+        XCTAssertNil(button.lookHoverRecognizer)
+        withExtendedLifetime(p) {}
+    }
+
     func testARetiredRowsViewsComeBackUnderTheNextRowsIds() throws {
         let p = fixture()
         let row = try XCTUnwrap(p.views[10]), glyph = try XCTUnwrap(p.views[11]), button = try XCTUnwrap(p.views[12])
@@ -69,6 +124,43 @@ final class NodePoolIOSTests: XCTestCase {
         XCTAssertTrue(glyph.symbolView === symbolView, "the same symbol keeps its glyph view")
         XCTAssertFalse(p.pool.isParked(row))
         XCTAssertEqual(p.pool.count, 0)
+    }
+
+    func testARetiredForwardingRowCancelsItsAncestorInsteadOfBeingReused() throws {
+        final class Contact: UITouch {
+            let target: UIView, point: CGPoint
+            init(_ target: UIView, point: CGPoint) { self.target = target; self.point = point; super.init() }
+            override var view: UIView? { target }
+            override func location(in view: UIView?) -> CGPoint { view.map { $0.convert(point, from: nil) } ?? point }
+        }
+        for releaseTouch in [false, true] {
+            let p = fixture(), row = try XCTUnwrap(p.views[10]), list = try XCTUnwrap(p.views[1])
+            list.handlers = ["press"]
+            let point = row.convert(CGPoint(x: 150, y: 22), to: nil)
+            XCTAssertTrue(window.hitTest(window.convert(point, from: nil), with: nil) === row)
+            var pressed: [UInt32] = []; p.onPress = { pressed.append($0) }
+            weak var weakTouch: Contact?
+            var retainedTouch: Contact?
+            autoreleasepool {
+                let touch = Contact(row, point: point)
+                weakTouch = touch
+                if !releaseTouch { retainedTouch = touch }
+                row.touchesBegan([touch], with: nil)
+            }
+            XCTAssertEqual(weakTouch == nil, releaseTouch, "the released case has no UITouch and no terminal callback")
+            XCTAssertFalse(row.pressed, "only the ancestor owns the press")
+            XCTAssertTrue(list.pressed)
+            p.apply(wireBatch([collections([(20, 20)])] + destroy([10, 11, 12]) + rowOps(20, y: 44, label: "Save 20")
+                + [["op": "children", "id": 1, "ids": [20]]]))
+            XCTAssertFalse(p.views[20] === row, "the unfinished forwarder is not recycled into the next row")
+            XCTAssertFalse(list.pressed, "retiring the hit cancels its ancestor even after the weak touch is gone")
+            XCTAssertNil(row.presenter)
+            if let touch = retainedTouch {
+                row.touchesEnded([touch], with: nil)
+                row.touchesCancelled([touch], with: nil)
+            }
+            XCTAssertEqual(pressed, [])
+        }
     }
 
     func testAPropTheNewRowLacksIsGoneAndAnotherSymbolIsSet() throws {
@@ -293,6 +385,49 @@ final class NodePoolIOSTests: XCTestCase {
         }
     }
 
+    /// LLP 1069.011.000 D8: a row holding controls — a native button and a
+    /// switch — pools around them; each is a new node with a new `UIControl`
+    /// under the next row's id, pressing that id.
+    func testARowPoolsAroundItsControlsWhichAreBuiltFresh() throws {
+        func row(_ base: Int, y: Double) -> [[String: Any]] {
+            [
+                ["op": "create", "id": base, "kind": "view", "props": ["testId": "row-\(base)"]],
+                ["op": "create", "id": base + 1, "kind": "text", "props": ["text": "Row \(base)"], "style": ["font_size": 17.0]],
+                ["op": "create", "id": base + 2, "kind": "control", "handlers": ["press"],
+                 "props": ["type": "button", "accessibilityRole": "button"], "style": ["appearance": "auto", "text_color": [0, 0, 0, 255]]],
+                ["op": "create", "id": base + 3, "kind": "control", "handlers": ["change"],
+                 "props": ["type": "checkbox", "accessibilityRole": "switch", "checked": "true"], "style": ["text_color": [0, 0, 0, 255]]],
+                ["op": "children", "id": base, "ids": [base + 1, base + 2, base + 3]],
+                ["op": "frame", "id": base, "x": 0.0, "y": y, "w": 300.0, "h": 60.0],
+                ["op": "frame", "id": base + 1, "x": 8.0, "y": 10.0, "w": 120.0, "h": 24.0],
+                ["op": "frame", "id": base + 2, "x": 140.0, "y": 10.0, "w": 80.0, "h": 34.0],
+                ["op": "frame", "id": base + 3, "x": 230.0, "y": 10.0, "w": 51.0, "h": 31.0],
+            ]
+        }
+        let p = listFixture(row(10, y: 0), root: 10)
+        p.buttonFace = { _ in var f = ButtonFace(); f.title = "Go"; return f }
+        p.apply(wireBatch([]))
+        let rowView = try XCTUnwrap(p.views[10]), label = try XCTUnwrap(p.views[11])
+        let button = try XCTUnwrap(p.controls.controls[12] as? NativeButtonIOS)
+        let toggle = try XCTUnwrap(p.controls.controls[13])
+        p.apply(wireBatch([collections([(20, 20)])] + destroy([10, 11, 12, 13]) + row(20, y: 0)
+            + [["op": "children", "id": 1, "ids": [20]]]))
+        XCTAssertTrue(p.views[20] === rowView && p.views[21] === label, "the plain views, by position")
+        let freshButton = try XCTUnwrap(p.controls.controls[22] as? NativeButtonIOS)
+        let freshToggle = try XCTUnwrap(p.controls.controls[23])
+        XCTAssertFalse(freshButton === button, "a new UIButton")
+        XCTAssertFalse(freshToggle === toggle, "a new switch")
+        XCTAssertNil(p.controls.controls[12]); XCTAssertNil(p.controls.controls[13])
+        XCTAssertNil(button.superview, "the old control left with its node")
+        XCTAssertEqual(p.pool.leavesDropped["control"], 2); XCTAssertEqual(p.pool.leavesBuilt["control"], 2)
+        var pressed: [UInt32] = []
+        p.onPress = { pressed.append($0) }
+        freshButton.sendActions(for: .primaryActionTriggered)
+        XCTAssertEqual(pressed, [22], "the new row's id")
+        button.sendActions(for: .primaryActionTriggered)
+        XCTAssertEqual(pressed, [22], "the old control reaches nothing")
+    }
+
     /// A 2D canvas row (LLP 1056 D10, LLP 1068 §4.0): the canvas is a new
     /// view with no bitmap of the old row's, a late list for the old canvas
     /// lands nowhere, and the new canvas draws its own lifetime's lists.
@@ -300,7 +435,7 @@ final class NodePoolIOSTests: XCTestCase {
         let p = listFixture(heavyRowOps(10, kind: "canvas2d", y: 0), root: 10)
         let draw = { (id: Int, lifetime: Int) -> [String: Any] in
             ["op": "canvas2d", "id": id, "lifetime": lifetime, "generation": 0, "seq": 0, "fresh": true,
-             "w": 300, "h": 200, "scale": 2.0, "stretch": false, "box": [0.0, 0.0, 150.0, 100.0], "radii": [0.0, 0.0, 0.0, 0.0], "lists": [String]()]
+             "w": 300, "h": 200, "scale": 2.0, "stretch": false, "lists": [String]()]
         }
         p.apply(wireBatch([draw(12, 1)]))
         p.canvas2d.waitForReplays()  // replay runs off the main thread (LLP 1056 §8.3)
@@ -366,6 +501,45 @@ final class NodePoolIOSTests: XCTestCase {
         }
     }
 
+    /// LLP 1053.000.000 D2: a glass group is the row's own view; parked, it
+    /// goes, and the next row's props make a new one.
+    func testAGroupRowPoolsWithANewGroupView() throws {
+        guard #available(iOS 26.0, *) else { throw XCTSkip("Liquid Glass is iOS 26") }
+        let p = listFixture(rowOps(10, y: 0, label: "Save 10").enumerated().map { i, op in
+            i == 0 ? op.merging(["props": ["testId": "row-10", "glassGroup": "8"]]) { $1 } : op
+        }, root: 10)
+        let row = try XCTUnwrap(p.views[10]), glyph = try XCTUnwrap(p.views[11])
+        let view = try XCTUnwrap(row.glassGroupView)
+        var next = rowOps(20, y: 0, label: "Save 20")
+        next[0]["props"] = ["testId": "row-20", "glassGroup": "8"]
+        p.apply(wireBatch([collections([(20, 20)])] + destroy([10, 11, 12]) + next
+            + [["op": "children", "id": 1, "ids": [20]]]))
+        XCTAssertTrue(p.views[20] === row, "the row pools")
+        let fresh = try XCTUnwrap(row.glassGroupView)
+        XCTAssertFalse(fresh === view)
+        XCTAssertNil(view.superview)
+        XCTAssertTrue(glyph.superview === fresh.contentView)
+    }
+
+    /// LLP 1053.000.000.000 (grok's code review): a row recycled from an
+    /// auto group onto a numeric one does not report the old `auto`.
+    func testAnAutoGroupRowRecycledOntoANumericGroupIsNotAuto() throws {
+        guard #available(iOS 26.0, *) else { throw XCTSkip("Liquid Glass is iOS 26") }
+        let p = listFixture(rowOps(10, y: 0, label: "Save 10").enumerated().map { i, op in
+            i == 0 ? op.merging(["props": ["testId": "row-10", "glassGroup": "8", "glassGroupAuto": "true"]]) { $1 } : op
+        }, root: 10)
+        var next = rowOps(20, y: 0, label: "Save 20")
+        next[0]["props"] = ["testId": "row-20", "glassGroup": "12"]
+        p.apply(wireBatch([collections([(20, 20)])] + destroy([10, 11, 12]) + next
+            + [["op": "children", "id": 1, "ids": [20]]]))
+        let row = try XCTUnwrap(p.views[20])
+        XCTAssertNil(row.props["glassGroupAuto"])
+        var native: [String: Any] = [:]
+        row.glassAgentFields(&native)
+        XCTAssertEqual((native["glassGroup"] as? [String: Any])?["spacing"] as? Double, 12)
+        XCTAssertNil((native["glassGroup"] as? [String: Any])?["auto"])
+    }
+
     func testAMaterialRowWithoutTheMaterialComesBackWithout() throws {
         let p = listFixture(rowOps(10, y: 0, label: "Save 10").enumerated().map { i, op in
             i == 0 ? op.merging(["props": ["testId": "row-10", "backgroundMaterial": "glass"]]) { $1 } : op
@@ -417,6 +591,8 @@ final class NodePoolIOSTests: XCTestCase {
         p.viewport.frame = window.bounds; window.addSubview(p.viewport); window.makeKeyAndVisible()
         let natives = NativeViews()
         natives.install(module: UnsafeMutableRawPointer(bitPattern: 1)!)
+        var sizes: [(UInt32, CGSize?)] = []
+        p.onIntrinsic = { sizes.append(contentsOf: $0) }
         var loads: [UInt32] = []
         p.onLoad = { loads.append($0) }
         func node(_ id: UInt32, _ tag: String, _ props: String) -> NodeView {
@@ -440,10 +616,36 @@ final class NodePoolIOSTests: XCTestCase {
         XCTAssertEqual(FakeModule.made.count, 1)
         let first = FakeModule.made[0]
         XCTAssertTrue(first.view.superview === a)
-        retire(a)
+        a.style = ["padding_left": 4, "padding_right": 4, "padding_top": 4, "padding_bottom": 4, "border_width": 2]
+        a.applyContentBox(padding: [4, 4, 4, 4], border: [2, 2, 2, 2])
+        natives.laidOut(a)
+        XCTAssertEqual(first.view.frame, CGRect(x: 6, y: 6, width: 188, height: 88), "module content excludes padding and border")
+        a.frame.size = CGSize(width: 160, height: 80)
+        a.applyContentBox(padding: [4, 4, 4, 4], border: [2, 2, 2, 2])
+        natives.laidOut(a)
+        XCTAssertEqual(first.view.frame, CGRect(x: 6, y: 6, width: 148, height: 68), "the content frame follows CSS resizing")
+        first.send(9, "120,40"); first.send(9, "120,80")
+        settle(); settle()
+        XCTAssertEqual(sizes.count, 1, "one turn coalesces to the latest preferred size")
+        XCTAssertEqual(sizes.last?.0, 10)
+        XCTAssertEqual(sizes.last?.1, CGSize(width: 120, height: 80))
+        first.send(9, "120,80"); first.send(9, "nan,20"); first.send(9, "0,20")
+        settle(); settle()
+        XCTAssertEqual(sizes.count, 1, "unchanged and invalid sizes do not relayout")
+        first.send(9)
+        settle(); settle()
+        XCTAssertEqual(sizes.count, 2)
+        XCTAssertNil(sizes.last!.1, "empty clears the preference")
+        sizes.removeAll()
+        // Let the callback hop accept the size, then park before its flush.
+        first.send(9, "120,90")
+        DispatchQueue.main.async { retire(a) }
+        settle(); settle()
+        XCTAssertTrue(sizes.isEmpty, "a queued report cannot survive retirement")
         XCTAssertEqual(first.resets, 1, "reset at the park")
         XCTAssertNil(first.view.superview, "parked out of the window")
         XCTAssertFalse(first.destroyed)
+        first.send(9, "120,100") // a size issued while parked
         first.send(7) // a load issued while parked
         let b = node(20, "fake-map", #"{"place":"b"}"#)
         XCTAssertEqual(FakeModule.made.count, 1, "no new instance: the parked one is taken")
@@ -452,6 +654,11 @@ final class NodePoolIOSTests: XCTestCase {
         XCTAssertEqual(first.view.alpha, 0, "transparent until the instance says nothing of the last row shows")
         settle()
         XCTAssertEqual(loads, [], "the parked instance's load reaches no node")
+        XCTAssertTrue(sizes.isEmpty, "a parked size cannot reach a new incarnation")
+        first.send(9, "120,60")
+        settle(); settle()
+        XCTAssertEqual(sizes.last?.0, 20)
+        XCTAssertEqual(sizes.last?.1, CGSize(width: 120, height: 60))
         XCTAssertEqual(first.view.alpha, 0)
         first.send(7)
         settle()
@@ -476,10 +683,152 @@ final class NodePoolIOSTests: XCTestCase {
         let made = try XCTUnwrap(FakeModule.made.last)
         retire(plain)
         XCTAssertTrue(made.destroyed); XCTAssertEqual(made.resets, 0)
+        // Recycling destroys an instance but leaves its kernel node and size.
+        // A new incarnation's first nil must clear that retained preference.
+        let far = node(110, "fake-plain", "{}")
+        let old = try XCTUnwrap(FakeModule.made.last)
+        old.send(9, "120,40")
+        settle(); settle()
+        sizes.removeAll()
+        XCTAssertEqual(natives.recycleFar(hide: 1, release: 2) { $0 === far ? 3 : nil }.count, 1)
+        natives.release(far)
+        let fresh = try XCTUnwrap(FakeModule.made.last)
+        XCTAssertFalse(old === fresh)
+        fresh.send(9)
+        settle(); settle()
+        XCTAssertEqual(sizes.count, 1, "the first clear of a fresh instance must reach the retained node")
+        XCTAssertEqual(sizes.last?.0, 110)
+        XCTAssertNil(sizes.last!.1)
+        retire(far)
         XCTAssertEqual(natives.observation["reused"] as? Int, NativeViews.reuseLimit)
         natives.drainParked()
         NativeViews.uninstallTable()
         window.isHidden = true
+    }
+
+    /// Activation hands default views to the turn after its transaction
+    /// commits: nothing is made before the run loop gets there, and nothing
+    /// when the session is no longer live by then.
+    func testActivationMakesDefaultViewsAfterTheCommit() throws {
+        FakeModule.reset()
+        FakeModule.table.withUnsafeBytes { NativeViews.install(table: $0.baseAddress!) }
+        defer { NativeViews.uninstallTable() }
+        let p = Presenter()
+        func mount(_ natives: NativeViews, _ id: UInt32) {
+            natives.install(module: UnsafeMutableRawPointer(bitPattern: 1)!, gateOpen: false)
+            let v = NodeView(id: id, kind: "native", presenter: p)
+            v.frame = CGRect(x: 0, y: 0, width: 200, height: 100)
+            p.viewport.addSubview(v); p.views[id] = v
+            natives.create(owner: v)
+            v.props = ["nativeViewModuleName": "fake-plain", "nativeViewProps": "{}"]
+            natives.update(v)
+        }
+        let live = NativeViews(), stale = NativeViews()
+        mount(live, 1); mount(stale, 2)
+        live.activateAfterCommit { true }
+        stale.activateAfterCommit { false }
+        XCTAssertTrue(live.activationQueued)
+        XCTAssertEqual(FakeModule.made.count, 0, "nothing is made inside activation's turn")
+        let deadline = Date(timeIntervalSinceNow: 2)
+        while live.activationQueued || stale.activationQueued, Date() < deadline { RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.01)) }
+        XCTAssertFalse(live.activationQueued)
+        XCTAssertFalse(stale.activationQueued)
+        XCTAssertEqual(FakeModule.made.count, 1, "the live session's view is made; the stale one's is not")
+    }
+
+    /// A first-frame tag's view is made with the batch that made its node,
+    /// before the paint gate opens; another tag's waits for the gate.
+    func testAFirstFrameTagAttachesBeforeThePaintGate() throws {
+        FakeModule.reset()
+        FakeModule.table.withUnsafeBytes { NativeViews.install(table: $0.baseAddress!) }
+        defer { NativeViews.uninstallTable() }
+        let p = Presenter()
+        let natives = NativeViews()
+        natives.install(module: UnsafeMutableRawPointer(bitPattern: 1)!, gateOpen: false)
+        natives.firstFrameTags = ["fake-splash"] // as the build writes Info.plist from the roster
+        for (id, tag) in [(UInt32(1), "fake-plain"), (2, "fake-splash")] {
+            let v = NodeView(id: id, kind: "native", presenter: p)
+            v.frame = CGRect(x: 0, y: 0, width: 200, height: 100)
+            p.viewport.addSubview(v); p.views[id] = v
+            natives.create(owner: v)
+            v.props = ["nativeViewModuleName": tag, "nativeViewProps": "{}"]
+            natives.update(v)
+        }
+        XCTAssertEqual(FakeModule.made.count, 1, "only the first-frame tag's view is made before the gate")
+        XCTAssertTrue(FakeModule.made.first?.view.superview === p.views[2])
+        natives.activated()
+        XCTAssertEqual(FakeModule.made.count, 2, "the gate makes the other")
+        XCTAssertTrue(FakeModule.made.last?.view.superview === p.views[1])
+    }
+
+    /// A touch a module view declines inside its box (its hit test answers
+    /// nil there) is passed on; one on a view that takes no touches, or on a
+    /// box with `press`, is the box's, as a UIKit superview's would be.
+    func testAModuleViewThatDeclinesATouchPassesItOn() throws {
+        FakeModule.reset()
+        FakeModule.table.withUnsafeBytes { NativeViews.install(table: $0.baseAddress!) }
+        defer { NativeViews.uninstallTable() }
+        let p = Presenter()
+        let natives = NativeViews()
+        natives.install(module: UnsafeMutableRawPointer(bitPattern: 1)!)
+        let v = NodeView(id: 1, kind: "native", presenter: p)
+        v.frame = CGRect(x: 0, y: 0, width: 200, height: 100)
+        p.viewport.addSubview(v); p.views[1] = v
+        natives.create(owner: v)
+        v.props = ["nativeViewModuleName": "fake-plain", "nativeViewProps": "{}"]
+        natives.update(v)
+        let view = try XCTUnwrap(FakeModule.made.first?.view)
+        let inside = CGPoint(x: 100, y: 50)
+        XCTAssertFalse(natives.declined(v, at: inside, with: nil), "a plain view takes the touch")
+        view.declines = true
+        XCTAssertTrue(natives.declined(v, at: inside, with: nil))
+        XCTAssertFalse(natives.declined(v, at: CGPoint(x: 300, y: 50), with: nil), "outside the module view")
+        v.handlers = ["press"]
+        XCTAssertFalse(natives.declined(v, at: inside, with: nil), "the box's own press takes it")
+        v.handlers = ["message"]
+        XCTAssertTrue(natives.declined(v, at: inside, with: nil))
+        view.isUserInteractionEnabled = false
+        XCTAssertFalse(natives.declined(v, at: inside, with: nil), "a view that takes no touches declines nothing")
+    }
+
+    /// A module view with an element in it, or a list of its own, speaks for
+    /// itself to accessibility; a plain drawn one leaves its box to.
+    func testAModuleViewWithElementsSpeaksForItself() throws {
+        FakeModule.reset()
+        FakeModule.table.withUnsafeBytes { NativeViews.install(table: $0.baseAddress!) }
+        defer { NativeViews.uninstallTable() }
+        let p = Presenter()
+        let natives = NativeViews()
+        natives.install(module: UnsafeMutableRawPointer(bitPattern: 1)!)
+        let v = NodeView(id: 1, kind: "native", presenter: p)
+        p.viewport.addSubview(v); p.views[1] = v
+        natives.create(owner: v)
+        v.props = ["nativeViewModuleName": "fake-plain", "nativeViewProps": "{}"]
+        natives.update(v)
+        let view = try XCTUnwrap(FakeModule.made.first?.view)
+        XCTAssertFalse(natives.speaksForItself(v))
+        view.accessibilityElements = [UIAccessibilityElement(accessibilityContainer: view)]
+        XCTAssertTrue(natives.speaksForItself(v))
+        view.accessibilityElements = nil
+        // A UILabel is an element once UIKit's accessibility runtime loads,
+        // which a test runner does not.
+        let label = UIView()
+        label.isAccessibilityElement = true
+        view.addSubview(label)
+        XCTAssertTrue(natives.speaksForItself(v), "an element in it")
+        label.isHidden = true
+        XCTAssertFalse(natives.speaksForItself(v))
+        let chart = Counted()
+        view.addSubview(chart)
+        XCTAssertTrue(natives.speaksForItself(v), "a container by count and index")
+        view.accessibilityElements = []
+        XCTAssertFalse(natives.speaksForItself(v), "an empty list hides what is in the view")
+    }
+
+    /// A drawn chart's virtual elements, by count and index.
+    private final class Counted: UIView {
+        override func accessibilityElementCount() -> Int { 3 }
+        override func accessibilityElement(at index: Int) -> Any? { UIAccessibilityElement(accessibilityContainer: self) }
     }
 
     func testHeavyLeafCostsLeaveOutEachKindsFirstCreation() {
@@ -491,12 +840,17 @@ final class NodePoolIOSTests: XCTestCase {
     }
 }
 
-/// A module table in memory for the reuse test: two tags, `fake-map`
-/// (reuse) and `fake-plain`, each instance a plain view that records what
-/// the host asked of it.
+/// A module table in memory for the reuse and activation tests: three tags,
+/// `fake-map` (reuse), `fake-plain` and `fake-splash` (first frame), each
+/// instance a plain view that records what the host asked of it.
 private enum FakeModule {
+    /// A view whose hit test answers nil inside it once it `declines`.
+    final class View: UIView {
+        var declines = false
+        override func point(inside point: CGPoint, with event: UIEvent?) -> Bool { !declines && super.point(inside: point, with: event) }
+    }
     final class Instance {
-        let view = UIView()
+        let view = View()
         let nonce: UInt32
         let event: @convention(c) (UnsafeMutableRawPointer?, UInt32, UInt32, UnsafePointer<UInt8>?, UInt32) -> Void
         var props: [String] = []
@@ -505,12 +859,15 @@ private enum FakeModule {
         init(nonce: UInt32, event: @escaping @convention(c) (UnsafeMutableRawPointer?, UInt32, UInt32, UnsafePointer<UInt8>?, UInt32) -> Void) {
             self.nonce = nonce; self.event = event
         }
-        func send(_ kind: UInt32) { event(nil, nonce, kind, nil, 0) }
+        func send(_ kind: UInt32, _ text: String = "") {
+            let bytes = Array(text.utf8)
+            bytes.withUnsafeBufferPointer { event(nil, nonce, kind, $0.baseAddress, UInt32($0.count)) }
+        }
     }
     nonisolated(unsafe) static var made: [Instance] = []
     static func reset() { made = [] }
     static func instance(_ raw: UnsafeMutableRawPointer?) -> Instance { Unmanaged<Instance>.fromOpaque(raw!).takeUnretainedValue() }
-    static let roster = strdup(#"{"fake-map":{"snapshot":false,"reuse":true},"fake-plain":{"snapshot":false}}"#)!
+    static let roster = strdup(#"{"fake-map":{"snapshot":false,"reuse":true},"fake-plain":{"snapshot":false},"fake-splash":{"firstFrame":true}}"#)!
     static let table: [UInt8] = {
         var t = [UInt8](repeating: 0, count: 112)
         func put<T>(_ value: T, _ offset: Int) { withUnsafeBytes(of: value) { for (i, b) in $0.enumerated() { t[offset + i] = b } } }
@@ -532,7 +889,7 @@ private enum FakeModule {
         }
         let none: @convention(c) (UnsafeMutableRawPointer?) -> Void = { _ in }
         let reuse: @convention(c) (UnsafeMutableRawPointer?) -> Int32 = { FakeModule.instance($0).resets += 1; return 0 }
-        put(UInt32(2), 0); put(UInt32(112), 4); put(UnsafeRawPointer(roster), 8)
+        put(UInt32(3), 0); put(UInt32(112), 4); put(UnsafeRawPointer(roster), 8)
         put(unsafeBitCast(create, to: UnsafeRawPointer.self), 16); put(unsafeBitCast(view, to: UnsafeRawPointer.self), 24)
         put(unsafeBitCast(set, to: UnsafeRawPointer.self), 32); put(unsafeBitCast(destroy, to: UnsafeRawPointer.self), 48)
         // The module entries are never called here (the test installs an instance).

@@ -1,0 +1,33 @@
+// Child components with props: a prop follows its argument expression in
+// the parent's scope; two uses are independent.
+component App
+  state n = 1
+  state name = "x"
+  action inc
+    n = n + 1
+  action rename(v: string)
+    name = v
+  view
+    column
+      Badge(label=name, count=n, tag="a")
+      Badge(label=`${name}!`, count=n * 10, tag="b")
+      button "inc" press=inc testId="inc"
+      input value=name change=rename testId="name"
+
+component Badge
+  props
+    label: string
+    count: number
+    tag: string
+  derive shown = `${label}:${count}`
+  view
+    text shown testId=`badge-${tag}`
+
+test "props follow"
+  expect text "badge-a" == "x:1"
+  expect text "badge-b" == "x!:10"
+  tap "inc"
+  expect text "badge-a" == "x:2"
+  expect text "badge-b" == "x!:20"
+  type "name" "yo"
+  expect text "badge-b" == "yo!:20"

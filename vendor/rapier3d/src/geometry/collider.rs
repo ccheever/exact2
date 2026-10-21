@@ -64,6 +64,14 @@ pub struct Collider {
 }
 
 impl Collider {
+    /// Exact2: this collider as a step leaves it, without pending change flags, so a
+    /// rebuilt collider can be compared bit-exactly with one already in a set. Never
+    /// call it on a collider inside a set: the pipeline would miss its changes.
+    pub fn settled(mut self) -> Self {
+        self.changes = ColliderChanges::empty();
+        self
+    }
+
     pub(crate) fn reset_internal_references(&mut self) {
         self.changes = ColliderChanges::all();
     }
@@ -183,6 +191,11 @@ impl Collider {
 
     /// Sets the collision types enabled for this collider.
     pub fn set_active_collision_types(&mut self, active_collision_types: ActiveCollisionTypes) {
+        // Exact2: a pair-filter input, like the collision groups: the broad phase
+        // re-inserts the leaf so pairs it suppressed before are re-discovered.
+        if self.flags.active_collision_types != active_collision_types {
+            self.changes.insert(ColliderChanges::GROUPS);
+        }
         self.flags.active_collision_types = active_collision_types;
     }
 

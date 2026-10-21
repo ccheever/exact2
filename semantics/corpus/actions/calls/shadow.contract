@@ -1,0 +1,21 @@
+// A local of one spelling in caller and callee (LLP 1089 D2): each reads
+// its own, and the caller's after the call is still its own.
+component App
+  state out = ""
+  state seen = ""
+  action helper(x: number)
+    let k = x * 2
+    seen = `${k}`
+  action go
+    let k = 1
+    helper(20)
+    let after = k + 2
+    out = `${k} ${after}`
+  view
+    column
+      text `${out} ${seen}` testId="out"
+      button "go" press=go testId="go"
+
+test "shadow"
+  tap "go"
+  expect text "out" == "1 3 40"

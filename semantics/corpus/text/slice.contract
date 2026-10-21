@@ -1,0 +1,39 @@
+// `slice` is JavaScript's over UTF-16 code units (LLP 1088 D2): negative
+// and fractional indices, NaN, an omitted end, a cut through a surrogate
+// pair made well formed (U+FFFD).
+component App
+  state expr = "12+3"
+  state face = "a😀b"
+  derive back = expr.slice(0, -1)
+  derive tail = expr.slice(1)
+  derive fraction = expr.slice(1.9, -1.2)
+  derive nan = expr.slice(0 / 0, 2)
+  derive past = expr.slice(10)
+  derive reversed = expr.slice(3, 1)
+  derive cutHigh = face.slice(1, 2)
+  derive cutLow = face.slice(2, 4)
+  derive whole = face.slice(0, -1)
+  derive huge = expr.slice(-1 / 0, 1 / 0)
+  action backspace
+    expr = expr.slice(0, -1)
+  view
+    column
+      text expr testId="expr"
+      button "Backspace" press=backspace testId="back"
+
+test "initial"
+  expect state back == "12+"
+  expect state tail == "2+3"
+  expect state fraction == "2+"
+  expect state nan == "12"
+  expect state past == ""
+  expect state reversed == ""
+  expect state cutHigh == "�"
+  expect state cutLow == "�b"
+  expect state whole == "a😀"
+  expect state huge == "12+3"
+
+test "backspace"
+  tap "back"
+  tap "back"
+  expect text "expr" == "12"

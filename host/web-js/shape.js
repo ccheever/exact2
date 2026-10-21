@@ -1,6 +1,6 @@
 // A value's shape check by the plan's type codes (LLP 1005 §3), for rt.js.
-/** Whether `v` conforms to type code `t` (`n b s u ?T [T {T…}`), from `i`;
- * numbers are finite, as the runner's shape checks require. `o` is a value
+/** Whether `v` conforms to type code `t` (`n N b s u ?T [T {T…}`), from `i`;
+ * numbers are finite (`N`: any number), as the runner's checks require. `o` is a value
  * that conformed: a part of `v` that is the same array as its part in `o`
  * conforms as it did, unchecked (the Rust runner's `Conformed` re-checks
  * only the list items that are not the same object, runner/src/conform.rs). */
@@ -8,7 +8,9 @@ export function conforms(v, t, i = [0], o) {
   if (o !== undefined && v === o && typeof v === "object" && v !== null) { skip(t, i); return true; }
   const c = t[i[0]++];
   if (c === "n") return typeof v === "number" && isFinite(v);
+  if (c === "N") return typeof v === "number"; // any number: a hidden parameter's (emit.rs)
   if (c === "b") return typeof v === "boolean";
+  if (c === "e") { const end = t.indexOf(":", i[0]), n = Number(t.slice(i[0], end)); i[0] = end + 1; const values = JSON.parse(t.slice(i[0], i[0] + n)); i[0] += n; return typeof v === "string" && values.includes(v); }
   if (c === "s") return typeof v === "string";
   if (c === "u") return v == null;
   if (c === "?") { if (v == null) { skip(t, i); return true; } return conforms(v, t, i, o); }
@@ -21,12 +23,43 @@ export function conforms(v, t, i = [0], o) {
   if (c === "{") { let k = 0; const was = Array.isArray(o) ? o : null; for (; t[i[0]] !== "}"; k++) if (!Array.isArray(v) || !conforms(v[k], t, i, was?.[k])) return false; i[0]++; return v.length === k; }
   return true;
 }
-function skip(t, i) { const c = t[i[0]++]; if (c === "?" || c === "[") skip(t, i); else if (c === "{") { while (t[i[0]] !== "}") skip(t, i); i[0]++; } }
-/** Plan value equality: signed zero, NaN, and recursively equal lists. */
+function skip(t, i) { const c = t[i[0]++]; if (c === "e") { const end = t.indexOf(":", i[0]); i[0] = end + 1 + Number(t.slice(i[0], end)); } else if (c === "?" || c === "[") skip(t, i); else if (c === "{") { while (t[i[0]] !== "}") skip(t, i); i[0]++; } }
+/** Contract's `==`, and what the runner compares a resource's arguments
+ * with (runner/src/compare.rs `equal`, `Value`'s `PartialEq`): numbers as
+ * IEEE compares them (`-0` equals `0`, NaN equals nothing, itself
+ * included), lists and records item by item. */
+export function equal(a, b) {
+  if (!Array.isArray(a) || !Array.isArray(b)) return a === b;
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) if (!equal(a[i], b[i])) return false;
+  return true;
+}
+/** Plan value identity, for change detection (an equal value keeps its old
+ * object): signed zero told apart, NaN the same as itself, and recursively
+ * equal lists. Not Contract's `==`, which is `equal`. */
 export function eq(a, b) {
   if (a === b) return a !== 0 || 1 / a === 1 / b;
   if (typeof a === "number" && typeof b === "number") return a !== a && b !== b;
   if (!Array.isArray(a) || !Array.isArray(b) || a.length !== b.length) return false;
   for (let i = 0; i < a.length; i++) if (!eq(a[i], b[i])) return false;
   return true;
+}
+/** `failure(x)`'s code for what a source let through (LLP 1109 D3), as js/src/prelude.js `failureCode` and
+ * runner/src/failure.rs read it: a fetch's rejection by its kind, a coded storage refusal, an answer ts-data.js
+ * found outside its shape (`Shaped`), else the source's own error. */
+export const Shaped = Symbol("shape");
+const FETCH_FAILURE = { Network: "offline", Timeout: "timeout", Refused: "refused" };
+export function failureCode(e) {
+  if (!e || typeof e !== "object") return "error";
+  if (e[Shaped]) return "shape";
+  if (e.name === "FetchError") return FETCH_FAILURE[e.kind] ?? "error";
+  return e.kind === "Unavailable" && typeof e.code === "string" ? "storage" : "error";
+}
+/** `failure(x).reason`: a string the thrown value carries as `reason` (the snapback4 driver's refusal code, `SLOT_FULL`),
+ * else empty; as js/src/prelude.js `fail` reads it (the author's ruling of 2026-10-12). */
+export const failureReason = e => e && typeof e === "object" && typeof e.reason === "string" ? e.reason : "";
+
+/** The compiler's positional `TextDecorations(value, spans)` as the named JSON the web host reads (LLP 1114.007). */
+export function decorationRecord(v) {
+  return v == null ? null : JSON.stringify({ value: v[0], spans: v[1].map(([name, start, end]) => ({ name, start, end })) });
 }

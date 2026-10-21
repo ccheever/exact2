@@ -1,0 +1,31 @@
+# Code review: LLP 1122 T1 commit 2 (the design tool's skeleton and its connection), round 1, 2026-10-15 (astra)
+
+- **Family:** OpenAI. `gpt-6-astra` via the Codex CLI, reasoning effort max, read-only sandbox, a throwaway worktree at `0beef42fd`.
+- **Method:** one brief (sha256 `93951f84cabd7661cf1682a6a9aa29ea578b2089aad0a506205fa5c61fed0b2d`), shared by both reviewers, blind to the other review. The author (Claude) is not a reviewer.
+- **Transcription:** the final message, unedited.
+- **Verdict:** request changes (2 high, 5 medium, 1 low).
+- **Disposition:** all taken: `--via` only to a loopback address (no name, not the tool's own port), after a handshake naming this app; the tool built from this checkout whatever EXACT_APP_DIR says, its build checked by app id; the long poll answers 503 while the design server is down; the proxy aborts upstream when its client goes, keeps backpressure and cuts a stream it cannot finish; `hello` read again after each change; the list cleared on a new epoch or `missed`; one token ask at a time.
+
+---
+
+I found eight issues. This was a read-only review; I did not run builds or tests because they write files.
+
+1. **High — `--via` can send a project token off-machine.** [scripts/tamber-server.mjs:703](/tmp/rv-dt-2/scripts/tamber-server.mjs:703) accepts any upstream origin, and [line 742](/tmp/rv-dt-2/scripts/tamber-server.mjs:742) forwards the token header there. `access.local` checks only the incoming connection. For example, an existing tab retains a valid token when its proxy stops; restarting the proxy with a non-local `--via` sends that cached token to the new destination, potentially over plain HTTP. **Fix:** enforce a loopback upstream before listening or forwarding credentials, without allowing DNS names that can resolve off-machine.
+
+2. **High — The advertised app-local command can build the wrong app.** [scripts/tamber-server.mjs:658](/tmp/rv-dt-2/scripts/tamber-server.mjs:658) calls `resolveApp('design-tool')`, but `resolveApp` gives `EXACT_APP_DIR` precedence over that name. An app’s generated `exact.mjs` always sets that variable. Thus, on a fresh build, `bun exact.mjs tamber tool .` builds the user’s app into `target/design-tool-web` and serves it as the tool. With an existing build, staleness is checked against the wrong sources. **Fix:** explicitly resolve and build `ROOT/apps/design-tool` independently of the caller’s app environment, and verify the cached artifact’s app identity.
+
+3. **Medium — `--via` never verifies which app the upstream serves.** [scripts/tamber-server.mjs:702](/tmp/rv-dt-2/scripts/tamber-server.mjs:702) starts forwarding without obtaining the upstream’s hello or comparing its app with `dir`. The comparison above it checks only an existing listener on port 7740. Consequently, `tool app-A --via <app-B’s URL>` succeeds against B. Passing the tool’s own unused port also creates recursive forwarding once the listener starts. **Fix:** perform a bounded upstream handshake before starting the proxy, compare canonical app paths, and reject self-targets.
+
+4. **Medium — A dead server child causes continuous polling with a healthy status.** [apps/design-tool/app.ts:94](/tmp/rv-dt-2/apps/design-tool/app.ts:94) treats every successful HTTP event response as healthy, including `down`. The wire answers `/events` immediately with HTTP 200 while `down` is set; the Contract therefore schedules another request after 1 ms indefinitely. The UI continues saying “Following changes,” and the three-second failure retry never applies. **Fix:** expose persistent server failure as an error—such as HTTP 503 while down—and retain the failure message until recovery.
+
+5. **Medium — Proxy streams survive their clients and mishandle partial-response errors.** [scripts/tamber-server.mjs:742](/tmp/rv-dt-2/scripts/tamber-server.mjs:742) creates an upstream fetch without cancellation tied to the downstream connection. Closing a proxied `/subscribe` client leaves its upstream subscription alive indefinitely; repeated connections accumulate subscriptions. An upstream reset after response bytes were written also reaches `json(res, 502, …)`, attempting another response after headers were sent. **Fix:** abort upstream work when the downstream closes, respect write backpressure, and destroy an already-started response on streaming failure.
+
+6. **Medium — Ordinary change events leave displayed file digests stale.** [apps/design-tool/app.contract:55](/tmp/rv-dt-2/apps/design-tool/app.contract:55) refreshes hello only after `missed` or an earlier hello failure. The data module discards the current `files` map from normal poll responses. After another client edits `app.tamber`, its change appears while the file list still displays the old digest indefinitely. **Fix:** consume the poll’s authoritative file snapshot or refresh hello after file changes. The stub’s constant `FILES` currently prevents the tests from detecting this.
+
+7. **Medium — Restarted servers reuse event identities retained by the client.** [apps/design-tool/app.ts:92](/tmp/rv-dt-2/apps/design-tool/app.ts:92) retains `recent` across epoch changes, while the view keys rows and test IDs solely by `seq`. After a restart, a new event numbered 1 collides with the retained event 1. Reusing the fixed port for another app also mixes the previous app’s changes into the new app’s display. **Fix:** clear history when changing server/project identity, or carry epoch-qualified event identities and explicitly separate histories.
+
+8. **Low — The token is fetched twice at startup.** [apps/design-tool/app.ts:23](/tmp/rv-dt-2/apps/design-tool/app.ts:23) caches only a completed token. `loadHello` and `waitChanges` start concurrently, both observe `token === null`, and both fetch `/__tamber/token`. **Fix:** share an in-flight token promise and clear it appropriately when renewing a rejected token.
+
+The static-serving extraction preserves the existing locality, traversal, and symlink guards. The new tests cover name persistence, injected fetch failure, and successful attributed events; they do not establish correctness for `--via`, server death/restart, token-fetch counts, or the generated app launcher.
+
+Verdict: **Request changes.**

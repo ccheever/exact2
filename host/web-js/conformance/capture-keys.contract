@@ -1,0 +1,33 @@
+// Capture runs before the target's keydown, with Chrome's propagation and default.
+component CaptureKeys
+  state value = ""
+  state heard = ""
+  state submits = 0
+  action submitted
+    submits = submits + 1
+  action edit(v: string)
+    value = v
+  action outerCapture(k: string, e: KeyboardEvent)
+    heard = `${heard}C${k}:${e.code};`
+    if k == "x"
+      stopPropagation()
+    if k == "z"
+      preventDefault()
+    if k == "Enter" and e.shiftKey
+      preventDefault()
+    if k == "Enter" and not e.shiftKey
+      stopPropagation()
+  action innerCapture(k: string)
+    heard = `${heard}T${k};`
+    if k == "y"
+      stopPropagation()
+  action inner(k: string)
+    heard = `${heard}K${k};`
+  action outer(k: string)
+    heard = `${heard}B${k};`
+  view
+    column keycapture=outerCapture testId="root" padding=8
+      column disabled=true key=outer testId="wrapper"
+        input value=value input=edit key=inner keycapture=innerCapture submit=submitted testId="field" id="field"
+      text heard testId="heard"
+      text `submits ${submits}` testId="submits"

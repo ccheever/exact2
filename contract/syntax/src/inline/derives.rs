@@ -20,7 +20,12 @@ use std::collections::{BTreeMap, BTreeSet};
 /// The derives of `c` that its view, states, or actions read, each with its
 /// resolved expression. A derive read only by other derives is resolved
 /// where they read it.
-pub(super) fn resolved_derives(c: &Component) -> Result<Vec<(&Binding, Expr)>, SyntaxError> {
+/// `records` are the declared record constructors, whose call heads a
+/// renamed binder never replaces.
+pub(super) fn resolved_derives<'c>(
+    c: &'c Component,
+    records: &BTreeSet<String>,
+) -> Result<Vec<(&'c Binding, Expr)>, SyntaxError> {
     let mut indices = BTreeMap::new();
     for (i, derive) in c.derives.iter().enumerate() {
         if indices.insert(derive.name.as_str(), i).is_some() {
@@ -40,7 +45,7 @@ pub(super) fn resolved_derives(c: &Component) -> Result<Vec<(&Binding, Expr)>, S
     let bodies: Vec<Expr> = c
         .derives
         .iter()
-        .map(|d| freshen(&d.expr, &mut fresh))
+        .map(|d| freshen(&d.expr, &mut fresh, records))
         .collect();
     let reads: Vec<BTreeSet<usize>> = bodies
         .iter()
@@ -271,7 +276,7 @@ impl Cx<'_> {
 
 /// `e` with every `match` binder renamed to a spelling no author can write
 /// (`x@b1`), each distinct.
-fn freshen(e: &Expr, fresh: &mut u32) -> Expr {
+fn freshen(e: &Expr, fresh: &mut u32, records: &BTreeSet<String>) -> Expr {
     match e {
         Expr::Match {
             subject,
@@ -282,13 +287,14 @@ fn freshen(e: &Expr, fresh: &mut u32) -> Expr {
         } => {
             *fresh += 1;
             let name = format!("{var}@b{fresh}");
-            let some = freshen(some, fresh);
-            let some = substituted(&some, &BTreeMap::from([(var.clone(), name.clone())]));
+            let some = freshen(some, fresh, records);
+            let renamed = BTreeMap::from([(var.clone(), name.clone())]);
+            let some = substituted(&some, &renamed, records);
             Expr::Match {
-                subject: Box::new(freshen(subject, fresh)),
+                subject: Box::new(freshen(subject, fresh, records)),
                 var: name,
                 some: Box::new(some),
-                none: Box::new(freshen(none, fresh)),
+                none: Box::new(freshen(none, fresh, records)),
                 span: *span,
             }
         }
@@ -303,14 +309,14 @@ fn freshen(e: &Expr, fresh: &mut u32) -> Expr {
                     name
                 })
                 .collect();
-            let body = freshen(body, fresh);
+            let body = freshen(body, fresh, records);
             Expr::Arrow {
                 params,
-                body: Box::new(substituted(&body, &renamed)),
+                body: Box::new(substituted(&body, &renamed, records)),
                 span: *span,
             }
         }
-        _ => map_children(e, &mut |child| freshen(child, fresh)),
+        _ => map_children(e, &mut |child| freshen(child, fresh, records)),
     }
 }
 
@@ -336,9 +342,13 @@ fn read_outside_derives(c: &Component) -> BTreeSet<&str> {
     fn stmts<'a>(body: &'a [Stmt], out: &mut BTreeSet<&'a str>) {
         for st in body {
             match st {
-                Stmt::Assign { expr: e, .. } => expr(e, out),
+                Stmt::Assign { expr: e, .. } | Stmt::Let { expr: e, .. } => expr(e, out),
                 Stmt::Command { args, .. } | Stmt::Send { args, .. } => {
                     args.iter().for_each(|a| expr(a, out))
+                }
+                Stmt::Call { args, body, .. } => {
+                    args.iter().for_each(|a| expr(a, out));
+                    stmts(body, out);
                 }
                 Stmt::Refresh { .. } => {}
                 Stmt::If {
@@ -381,10 +391,6 @@ fn read_outside_derives(c: &Component) -> BTreeSet<&str> {
                     args.iter().for_each(|a| expr(&a.value, out));
                     nodes(children, out);
                 }
-                Node::Provide { expr: e, body, .. } => {
-                    expr(e, out);
-                    nodes(body, out);
-                }
                 Node::When {
                     cond,
                     then,
@@ -418,8 +424,8 @@ fn read_outside_derives(c: &Component) -> BTreeSet<&str> {
     }
     let mut out = BTreeSet::new();
     nodes(&c.view, &mut out);
-    for s in &c.states {
-        expr(&s.expr, &mut out);
+    for b in c.states.iter().chain(&c.provides) {
+        expr(&b.expr, &mut out);
     }
     for a in &c.actions {
         stmts(&a.body, &mut out);
@@ -432,7 +438,8 @@ fn each_child<'a>(e: &'a Expr, f: &mut dyn FnMut(&'a Expr)) {
         Expr::Some(x, _)
         | Expr::Unary(_, x, _)
         | Expr::Member(x, _, _)
-        | Expr::NamedArg(_, x, _) => f(x),
+        | Expr::NamedArg(_, x, _)
+        | Expr::Typed(x, _, _) => f(x),
         Expr::Binary(_, a, b, _) => {
             f(a);
             f(b);
@@ -457,18 +464,13 @@ fn each_child<'a>(e: &'a Expr, f: &mut dyn FnMut(&'a Expr)) {
             f(body);
         }
         Expr::Arrow { body, .. } => f(body),
-        Expr::Call(_, args, _) => args.iter().for_each(f),
+        Expr::Call(_, args, _) | Expr::List(args, _) => args.iter().for_each(f),
         Expr::Template(parts, _) => parts.iter().for_each(|p| {
             if let TemplatePart::Expr(x) = p {
                 f(x)
             }
         }),
-        Expr::Number(..)
-        | Expr::Str(..)
-        | Expr::Bool(..)
-        | Expr::None(_)
-        | Expr::EmptyList(_)
-        | Expr::Ident(..) => {}
+        Expr::Number(..) | Expr::Str(..) | Expr::Bool(..) | Expr::None(_) | Expr::Ident(..) => {}
     }
 }
 
@@ -478,6 +480,7 @@ fn map_children(e: &Expr, f: &mut dyn FnMut(&Expr) -> Expr) -> Expr {
         Expr::Unary(op, x, s) => Expr::Unary(*op, Box::new(f(x)), *s),
         Expr::Member(x, field, s) => Expr::Member(Box::new(f(x)), field.clone(), *s),
         Expr::NamedArg(n, x, s) => Expr::NamedArg(n.clone(), Box::new(f(x)), *s),
+        Expr::Typed(x, t, s) => Expr::Typed(Box::new(f(x)), t.clone(), *s),
         Expr::Binary(op, x, y, s) => {
             let x = Box::new(f(x));
             Expr::Binary(*op, x, Box::new(f(y)), *s)
@@ -522,6 +525,7 @@ fn map_children(e: &Expr, f: &mut dyn FnMut(&Expr) -> Expr) -> Expr {
             span: *span,
         },
         Expr::Call(n, args, s) => Expr::Call(n.clone(), args.iter().map(&mut *f).collect(), *s),
+        Expr::List(items, s) => Expr::List(items.iter().map(&mut *f).collect(), *s),
         Expr::Template(parts, s) => Expr::Template(
             parts
                 .iter()

@@ -18,6 +18,7 @@ pub fn zero(ty: &Ty, shapes: &Shapes) -> Option<Value> {
     Some(match ty {
         Ty::Number => Value::Number(0.0),
         Ty::String => Value::str(""),
+        Ty::Enum(values) => Value::str(values.first()?),
         Ty::Bool => Value::Bool(false),
         Ty::Unit => Value::Unit,
         Ty::Option(_) => Value::Option(None),
@@ -129,7 +130,7 @@ fn build(
 }
 
 /// A constant of type `ty`: a literal, `-` a number, `none`, `some(v)`,
-/// `[]`, or a nested `empty(…)` for a record.
+/// a list of them (`[]`, `[a, b]`), or a nested `empty(…)` for a record.
 fn constant(
     ty: &Ty,
     e: &Expr,
@@ -154,6 +155,7 @@ fn constant(
             };
             Some(Value::Number(-n))
         }
+        (Ty::Enum(values), Expr::Str(s, _)) if values.contains(s) => Some(Value::str(s)),
         (Ty::String, Expr::Str(s, _)) => Some(Value::str(s)),
         (Ty::String, Expr::Template(parts, _))
             if parts.iter().all(|p| matches!(p, TemplatePart::Text(_))) =>
@@ -169,7 +171,12 @@ fn constant(
         }
         (Ty::Bool, Expr::Bool(b, _)) => Some(Value::Bool(*b)),
         (Ty::Option(_), Expr::None(_)) => Some(Value::Option(None)),
-        (Ty::List(_), Expr::EmptyList(_)) => Some(Value::list(Vec::new())),
+        (Ty::List(inner), Expr::List(items, _)) => items
+            .iter()
+            .enumerate()
+            .map(|(i, v)| constant(inner, v, shapes, &format!("{path}[{i}]"), errors))
+            .collect::<Option<Vec<_>>>()
+            .map(Value::list),
         (Ty::Option(inner), Expr::Some(v, _)) => {
             constant(inner, v, shapes, path, errors).map(Value::some)
         }
@@ -180,14 +187,14 @@ fn constant(
         (_, Expr::Str(..)) => mismatch(errors, "a string"),
         (_, Expr::Bool(..)) => mismatch(errors, "a bool"),
         (_, Expr::None(_) | Expr::Some(..)) => mismatch(errors, "an option"),
-        (_, Expr::EmptyList(_)) => mismatch(errors, "a list"),
+        (_, Expr::List(..)) => mismatch(errors, "a list"),
         (_, Expr::Call(name, _, _)) if name == EMPTY => mismatch(errors, "a record"),
         _ => {
             error(
                 errors,
                 "type-placeholder-value",
                 format!(
-                    "`{path}` must be a constant: a literal, `none`, `some(…)`, `[]`, or `empty(…)`; use `else source(…)` for a computed placeholder"
+                    "`{path}` must be a constant: a literal, `none`, `some(…)`, a list of constants (`[]`, `[a, b]`), or `empty(…)`; use `else source(…)` for a computed placeholder"
                 ),
                 e.span(),
             );

@@ -1,0 +1,8 @@
+# Two ids folded, the first unfolded again: `includes` decides, `filter` and
+# `concat` rebuild the list.
+tap x
+tap y
+tap x
+# A selection grows by `concat`; the cuts and finds follow it.
+tap add
+tap add

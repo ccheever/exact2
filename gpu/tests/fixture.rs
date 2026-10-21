@@ -53,6 +53,57 @@ fn device() -> Option<Gpu> {
     fixture::device_or_skip(fixture::device())
 }
 
+#[test]
+fn offscreen_module_admits_device_before_its_first_readback() {
+    struct Ready(bool);
+    impl Surface for Ready {
+        fn device_ready(&mut self, _: wgpu::Features) {
+            self.0 = true;
+        }
+        fn bind(&mut self, _: &[Value], _: Option<f64>) -> Result<(), SurfaceError> {
+            Ok(())
+        }
+        fn render(
+            &mut self,
+            frame: &Frame,
+            device: &wgpu::Device,
+            queue: &wgpu::Queue,
+            encoder: &mut wgpu::CommandEncoder,
+            target: &wgpu::TextureView,
+            format: wgpu::TextureFormat,
+        ) -> bool {
+            assert!(
+                self.0,
+                "offscreen canvases need the same device admission as presented canvases"
+            );
+            Fill([0.2, 0.4, 0.6, 1.0]).render(frame, device, queue, encoder, target, format)
+        }
+    }
+    static REGISTRY: exact_gpu::Registry = exact_gpu::Registry {
+        surfaces: &[("ready", 0, || Box::new(Ready(false)))],
+        shaders: &[],
+    };
+    let Some(gpu) = device() else { return };
+    let mut module = exact_gpu::Module::new(&REGISTRY);
+    module.set_gpu(gpu);
+    let id = module.create_headless("ready").unwrap();
+    assert!(module.bind(id, &[], None));
+    let frame = Frame {
+        width: 3.,
+        height: 2.,
+        scale: 1.,
+        now_ms: 0.,
+        seekable: false,
+        period_ms: 0.,
+        children_generation: 0,
+        shader_generation: 0,
+        headroom: 1.0,
+    };
+    let (pixels, wants) = module.readback(id, &frame).unwrap();
+    assert!(!wants);
+    assert_eq!(pixels.at(2, 1), [51, 102, 153, 255]);
+}
+
 fn texture(gpu: &Gpu, format: wgpu::TextureFormat, layers: u32) -> wgpu::Texture {
     gpu.device.create_texture(&wgpu::TextureDescriptor {
         label: None,
@@ -84,6 +135,7 @@ fn a_frame_reads_back_unpadded_and_as_a_ppm() {
         seekable: false,
         period_ms: 0.0,
         shader_generation: exact_gpu::shaders::shader_generation(),
+        headroom: 1.0,
     };
     let (px, wants) = fixture::render(&gpu, &mut fill, &frame).unwrap();
     assert!(!wants);
@@ -110,6 +162,7 @@ fn a_bgra_texture_comes_back_rgba() {
         seekable: false,
         period_ms: 0.0,
         shader_generation: exact_gpu::shaders::shader_generation(),
+        headroom: 1.0,
     };
     let mut encoder = gpu.device.create_command_encoder(&Default::default());
     fill.render(
@@ -169,9 +222,10 @@ fn save_creates_the_directory_it_is_pointed_at() {
 
 #[test]
 fn only_no_adapter_is_a_skip() {
-    assert_eq!(fixture::device_or_skip(Ok(7)), Some(7));
+    // The policy is given, not read from EXACT_REQUIRED, so this holds in the lane too.
+    assert_eq!(fixture::device_or(Ok(7), false), Some(7));
     assert_eq!(
-        fixture::device_or_skip::<()>(Err("no adapter: unavailable".into())),
+        fixture::device_or::<()>(Err("no adapter: unavailable".into()), false),
         None
     );
     for reason in [
@@ -180,7 +234,28 @@ fn only_no_adapter_is_a_skip() {
         "shader validation failed",
     ] {
         assert!(
-            std::panic::catch_unwind(|| fixture::device_or_skip::<()>(Err(reason.into()))).is_err()
+            std::panic::catch_unwind(|| fixture::device_or::<()>(Err(reason.into()), false))
+                .is_err()
         );
     }
+}
+
+#[test]
+fn a_required_gpu_fails_when_no_adapter_is_found() {
+    assert_eq!(fixture::device_or(Ok(7), true), Some(7));
+    assert!(std::panic::catch_unwind(|| fixture::device_or::<()>(
+        Err("no adapter: unavailable".into()),
+        true
+    ))
+    .is_err());
+}
+
+/// LLP 1139.003 D2: a fixture's device (a test's, or a headless world's look
+/// frame's) never chooses the process's GPU tier; only a module's own load
+/// does, so worlds bound before and after it resolve the same rung.
+#[test]
+fn a_fixture_device_does_not_choose_the_process_tier() {
+    let _ = fixture::device();
+    assert!(!exact_gpu::tier::chosen());
+    assert_eq!(exact_gpu::tier(), exact_gpu::GpuTier::High);
 }

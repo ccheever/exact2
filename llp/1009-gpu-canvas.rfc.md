@@ -154,7 +154,14 @@ of `gpu-glue.js` only when modules are declared — is `exact.gpu` and
 imports one `gpu-glue.js?artifact=<stem>` instance per artifact (a URL is
 one module instance); natively a module is `libexact_gpu_<m>.dylib`
 beside the primary (Frameworks on iOS), and on Linux its Cargo product
-beside the binary. The dev server rebuilds and swaps only the artifacts
+beside the binary. An iOS/tvOS archive wraps the primary as `ExactGpu.framework`
+and each declared module as `ExactGpu_<m>.framework` (hyphens become underscores).
+The build sets the framework install name and signs it before the bake hashes
+its binary; capture and packaging preserve that signature. The UIKit loader
+takes the framework binary when present, otherwise the development dylib.
+Archives refuse loose dylibs. A macOS release likewise signs GPU code with its
+release identity and hardened runtime before hashing, and never re-signs it
+after the bake. The dev server rebuilds and swaps only the artifacts
 an edit's files reach. An app that declares none bakes, ships and loads
 exactly as before: no key, no router, no extra file. Runtime shader
 assets (LLP 1030 D8) stay the primary's — the native ABI does not name a

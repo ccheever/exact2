@@ -1,0 +1,28 @@
+// data: realworld
+// Synthetic conformance plan: a press and an edit on a boot document (LLP
+// 1048.005). The route paints its boot document first; RealWorld's render
+// entry serves it, its tags asked of the API while the boot document shows.
+// conform.mjs presses the button and types in the field before the settled
+// page arrives, and reads `boot-state` once the runtime has adopted it: the
+// capture script queued both on boot elements, and the swap moved them.
+routes nav
+  tab home "/" render=request paint=boot
+
+component BootPress
+  state presses = 0
+  state words = ""
+  resource tags = popularTags(true) as shape string[]
+  action bump
+    presses = presses + 1
+  action setWords(value: string)
+    words = value
+  view
+    column testId="root" padding=24 gap=12
+      button press=bump testId="boot-bump" width=160 height=48
+        text "Press"
+      input value=words change=setWords testId="boot-words" aria-label="Words"
+      text `${presses} ${words}` testId="boot-state"
+      if tags.length == 0
+        text "Loading tags" testId="boot-loading"
+      for t in tags key = t
+        text t

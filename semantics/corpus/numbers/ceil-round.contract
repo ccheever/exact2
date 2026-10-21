@@ -1,0 +1,40 @@
+// ceil and round (LLP 1102 §3.2): ceil toward +Infinity; round is
+// JavaScript's Math.round, a half up (-2.5 is -2, never Rust's -3), the
+// largest double below a half rounds to 0, and a zero result keeps the
+// sign (1 / round(-0.4) is -Infinity). NaN and the infinities are their own.
+component App
+  state x = 2.5
+  derive c = ceil(x)
+  derive r = round(x)
+  derive rneg = round(-x)
+  derive cneg = ceil(-x)
+  derive under = round(0.49999999999999994)
+  derive big = round(4503599627370495.5)
+  derive huge = round(9007199254740993)
+  action set(v: number)
+    x = v
+  view
+    column
+      text `${c} ${r} ${rneg} ${cneg}` testId="r"
+      text `${under} ${1 / round(-0.5)} ${1 / round(-0.4)} ${1 / ceil(-0.5)} ${big} ${huge} ${round(1 / 0)} ${round(0 / 0)}` testId="edges"
+      button "neg" press=set(-1.5) testId="neg"
+      button "int" press=set(7) testId="int"
+      button "frac" press=set(0.1) testId="frac"
+
+test "values"
+  expect state c == 3
+  expect state r == 3
+  expect state rneg == -2
+  expect state cneg == -2
+  expect state under == 0
+  expect state big == 4503599627370496
+  expect text "r" == "3 3 -2 -2"
+  expect text "edges" == "0 -Infinity -Infinity -Infinity 4503599627370496 9007199254740992 Infinity NaN"
+
+test "negative, integer, fraction"
+  tap "neg"
+  expect text "r" == "-1 -1 2 2"
+  tap "int"
+  expect text "r" == "7 7 -7 -7"
+  tap "frac"
+  expect text "r" == "1 0 0 0"

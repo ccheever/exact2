@@ -1,13 +1,13 @@
 // The production presence controller under Chrome's layout and animation
 // clocks, including the host's resize entry and child reconciliation.
 import { beforeAll, afterAll, test, expect } from 'bun:test';
-import { spawn } from 'node:child_process';
-import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { readFileSync, existsSync } from 'node:fs';
 import { createServer } from 'node:http';
-import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
-import { Cdp } from '../../../scripts/agent.mjs';
+import { cdpBrowser, chromium } from '../../../scripts/agent-launch.mjs';
 import { comparePresence } from '../parity.mjs';
+import { need } from '../../../scripts/coverage.mjs';
+import { readyPage } from './page.mjs';
 
 test('the timeline comparator rejects missing ghosts, drift, and invalid recordings', () => {
   const node = { x: 10, y: 20, w: 100, h: 40, opacity: .5, exiting: true };
@@ -30,8 +30,8 @@ test('the timeline comparator rejects missing ghosts, drift, and invalid recordi
 });
 
 const WEB = resolve(new URL('..', import.meta.url).pathname);
-const chrome = process.env.CHROME ?? '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
-const check = existsSync(chrome) ? test : test.skip;
+const { unavailable } = chromium();
+const check = need('chrome', unavailable);
 const glue = readFileSync(resolve(WEB, 'glue.js'), 'utf8');
 const children = glue.slice(glue.indexOf('      case "children":'), glue.indexOf('      case "animate":'));
 const resize = glue.slice(glue.indexOf('const mediaChanged ='), glue.indexOf('\nvisualViewport?.'));
@@ -62,7 +62,7 @@ const page = `<style>
     presence.live.after(batch, views);
   }
   const readOut = x => x, now = () => 0, preferences = () => 0;
-  const positionContexts = () => {}, onPreferences = () => {};
+  const positionContexts = () => {}, onPreferences = () => {}, foldBits = () => 0, onFold = () => {}; // no fold posture (LLP 1078 D6)
   const wasm = { exact_resize: () => JSON.stringify(window.resizeBatch) };
   ${resize}
   window.fixture = html => {
@@ -80,36 +80,32 @@ const page = `<style>
   window.ready = true;
 </script>`;
 
-let server, child, profile, evaluate;
+let server, suite, evaluate;
 beforeAll(async () => {
-  if (!existsSync(chrome)) return;
+  if (unavailable) return;
   server = createServer((req, res) => {
     if (req.url === '/favicon.ico') { res.writeHead(204); res.end(); return; }
     res.writeHead(200, { 'content-type': req.url === '/' ? 'text/html' : 'text/javascript' });
-    res.end(req.url === '/' ? page : readFileSync(resolve(WEB, req.url.slice(1))));
+    if (req.url === '/js/names.js') { res.end('export const sourceTypes = {};'); return; }
+    const path = req.url.startsWith('/js/') ? req.url.slice(4) : req.url.slice(1);
+    const js = resolve(WEB, '../web-js', path);
+    // names.js is a build's output (the plan's names), which rt.js reaches through perf.js since db825de7b.
+    if (req.url === '/js/names.js') { res.end('export const sourceTypes = {};'); return; }
+    res.end(req.url === '/' ? page : readFileSync(req.url.startsWith('/js/') && existsSync(js) ? js : resolve(WEB, path)));
   });
   await new Promise(ok => server.listen(0, '127.0.0.1', ok));
-  profile = mkdtempSync(resolve(tmpdir(), 'exact-presence-'));
-  child = spawn(chrome, ['--headless=new', '--remote-debugging-pipe', '--window-size=500,500', `--user-data-dir=${profile}`,
-    '--no-sandbox', '--no-first-run', '--disable-background-networking', 'about:blank'], { stdio:['ignore', 'ignore', 'ignore', 'pipe', 'pipe'] });
-  const cdp = new Cdp(child.stdio[3], child.stdio[4]);
-  const { targetId } = await cdp.send('Target.createTarget', { url:'about:blank' });
-  const { sessionId } = await cdp.send('Target.attachToTarget', { targetId, flatten:true });
+  suite = await cdpBrowser({ args: ['--window-size=500,500'] });
+  const { cdp } = suite, { sessionId } = await suite.page();
   const call = (method, params) => cdp.send(method, params, sessionId);
   evaluate = async expression => {
     const reply = await call('Runtime.evaluate', { expression, returnByValue:true, awaitPromise:true });
     if (reply.exceptionDetails) throw new Error(reply.exceptionDetails.exception?.description ?? reply.exceptionDetails.text);
     return reply.result.value;
   };
-  await call('Page.navigate', { url:`http://127.0.0.1:${server.address().port}/` });
-  for (let i = 0; !(await evaluate('window.ready === true')); i++) {
-    if (i > 2000) throw new Error('presence page never ready');
-    await Bun.sleep(5);
-  }
-});
-afterAll(() => {
-  child?.kill(); server?.close();
-  if (profile) rmSync(profile, { recursive:true, force:true });
+  await readyPage(cdp, sessionId, `http://127.0.0.1:${server.address().port}/`);
+}, 60000);
+afterAll(async () => {
+  await suite?.close(); server?.close();
 });
 
 const card = 'width:100px;height:40px;background:red;--exact-layout-transition:1000 0 linear';
@@ -143,7 +139,7 @@ check('resize snaps an active move and takes new boxes without a move', async ()
 });
 
 check('an interrupted spring uses the seeked time, including its delay and velocity', async () => {
-  const spring = card.replace('1000 0 linear', '0 100 spring(300, 30, 1)');
+  const spring = card.replace('1000 0 linear', '0 100 spring(300, 30, 1)'); // the private row (css.rs layout_transition_css; LLP 1081 D5)
   await fixture(`<div id="card" style="${spring}"></div>`);
   await style(spring + ';margin-left:100px');
   await evaluate('seek(250)');
@@ -237,4 +233,102 @@ check('reordering equal siblings keeps a surface anchored when its owner has the
   await evaluate('batch({ops:[{op:"children",id:"row",ids:["b","card","a"]}]})');
   expect(await evaluate('document.getElementById("card").getBoundingClientRect().y')).toBe(before);
   expect(await evaluate('surface().getBoundingClientRect().y')).toBeCloseTo(before, 1);
+});
+
+check('ghosts stay above authored z and isolate their parent until its last exit ends', async () => {
+  await fixture(`<div id="holder" style="position:relative">
+    <div id="card" style="width:100px;height:40px"></div>
+    <div id="second" style="width:100px;height:40px"></div>
+    <div id="ranked" style="position:absolute;z-index:2147483645;width:100px;height:40px"></div>
+  </div>`);
+  await evaluate(`batch({ops:[{op:'exit',id:'card',css:'pulse 1000ms linear both'},
+    {op:'exit',id:'second',css:'pulse 2000ms linear both'}]}); seek(0)`);
+  expect(await evaluate('document.getElementById("holder").style.isolation')).toBe('isolate');
+  expect(await evaluate('[...document.querySelectorAll("[data-exiting]")].map(el => el.style.zIndex)')).toEqual(['2147483646', '2147483646']);
+  await evaluate(`document.getAnimations().find(a => a.effect.getTiming().duration === 1000).finish(); Promise.resolve()`);
+  expect(await evaluate('document.querySelectorAll("[data-exiting]").length')).toBe(1);
+  expect(await evaluate('document.getElementById("holder").style.isolation')).toBe('isolate');
+  // Replacing cssText while a ghost lives cannot drop the temporary trap.
+  await style('position:relative;color:blue', 'holder');
+  expect(await evaluate('document.getElementById("holder").style.isolation')).toBe('isolate');
+  await evaluate('document.getAnimations().forEach(a => a.finish()); Promise.resolve()');
+  expect(await evaluate('document.getElementById("holder").style.isolation')).toBe('');
+});
+
+check('a finished or cancelled ghost restores the parents current isolation row', async () => {
+  for (const initial of ['', 'auto', 'isolate']) {
+    for (const updated of ['', 'auto', 'isolate']) {
+      await fixture(`<div id="holder" style="position:relative;${initial ? `isolation:${initial}` : ''}"><div id="card" style="width:100px;height:40px"></div></div>`);
+      await evaluate(`leave('pulse 1000ms linear both'); seek(0)`);
+      await style(`position:relative;${updated ? `isolation:${updated}!important` : ''}`, 'holder');
+      expect(await evaluate('document.getElementById("holder").style.isolation')).toBe('isolate');
+      await evaluate('document.getAnimations().forEach(a => a.cancel()); Promise.resolve()');
+      expect(await evaluate('document.getElementById("holder").style.isolation')).toBe(updated);
+      expect(await evaluate('document.getElementById("holder").style.getPropertyPriority("isolation")')).toBe(updated ? 'important' : '');
+    }
+  }
+});
+
+check('layout resizing uses its parents structural isolation without animating it', async () => {
+  await fixture(`<div id="holder" style="position:relative;isolation:isolate"><div id="card" style="${card};isolation:isolate"></div></div>`);
+  await style(card.replace('40px', '140px') + ';isolation:isolate');
+  await evaluate('seek(500)');
+  expect(await evaluate('surface().getBoundingClientRect().height')).toBeCloseTo(90, 2);
+  expect(await evaluate('document.getElementById("holder").getAnimations().length')).toBe(0);
+  expect(await evaluate('document.getElementById("holder").style.isolation')).toBe('isolate');
+});
+
+check('JS commits keep ghost containment and restore the latest paint decision after the last exit', async () => {
+  await fixture('');
+  await evaluate(`(async () => {
+    const { h, when, sig, W, act, pr, mount, pieces, usePaint } = await import('/js/rt.js');
+    const { paintUse } = await import('/js/paint.js');
+    usePaint(paintUse());
+    const shown = sig(true), trapped = sig(false);
+    window.jsShown = act(v => W(shown, v));
+    window.jsIsolation = act(v => W(trapped, v));
+    mount(root => {
+      const app = h(root, 'div', 0, {'data-exact-f':'133'}, 0);
+      window.jsHolder = h(app, 'div', 0, {'data-exact-f':'0'}, 0);
+      when(jsHolder, shown, p => {
+        for (const duration of [1000, 2000]) {
+          const c = h(p, 'div', 0, {'data-exact-f':'4'}, 0);
+          c.style.cssText = 'width:100px;height:40px;--exact-exit-animation:pulse ' + duration + 'ms linear both';
+          pr(c);
+        }
+      }, () => {});
+      // A live z descendant requires isolation independently of the ghosts.
+      when(jsHolder, trapped, p => {
+        const c = h(p, 'div', 0, {'data-exact-f':'513','data-exact-zi':'2'}, 0);
+        c.style.cssText = 'position:absolute;z-index:2;width:10px;height:10px';
+      }, () => {});
+      const sibling = h(app, 'div', 0, {'data-exact-f':'513','data-exact-zi':'1'}, 0);
+      sibling.style.cssText = 'position:absolute;z-index:1;width:100px;height:40px';
+    });
+    await pieces();
+    if (!jsHolder.$paint?.own || jsHolder.$paint.own.outside) throw Error('the production paint pass must classify the holder');
+  })()`);
+  expect(await evaluate('jsHolder.style.isolation')).toBe('');
+  for (const required of [true, false]) {
+    await evaluate('jsShown(false); seek(0)');
+    expect(await evaluate('document.querySelectorAll("[data-exiting]").length')).toBe(2);
+    expect(await evaluate('jsHolder.style.isolation')).toBe('isolate');
+    // These actions must commit the production pass themselves: no manual flush.
+    for (const trapped of [true, false, true]) {
+      await evaluate(`jsIsolation(${trapped})`);
+      expect(await evaluate('jsHolder.$paint.isolated')).toBe(trapped);
+      expect(await evaluate('jsHolder.$ghostIsolation.value')).toBe(trapped ? 'isolate' : '');
+      expect(await evaluate('jsHolder.style.isolation')).toBe('isolate');
+    }
+    await evaluate('document.getAnimations().find(a => a.effect.getTiming().duration === 1000).finish(); Promise.resolve()');
+    expect(await evaluate('document.querySelectorAll("[data-exiting]").length')).toBe(1);
+    expect(await evaluate('jsHolder.style.isolation')).toBe('isolate');
+    await evaluate(`jsIsolation(${required})`);
+    expect(await evaluate('jsHolder.$ghostIsolation.value')).toBe(required ? 'isolate' : '');
+    await evaluate(`document.getAnimations().forEach(a => a.${required ? 'finish' : 'cancel'}()); Promise.resolve()`);
+    expect(await evaluate('document.querySelectorAll("[data-exiting]").length')).toBe(0);
+    expect(await evaluate('!!jsHolder.$ghostIsolation')).toBe(false);
+    expect(await evaluate('jsHolder.style.isolation')).toBe(required ? 'isolate' : '');
+    await evaluate('jsIsolation(false); jsShown(true)');
+  }
 });

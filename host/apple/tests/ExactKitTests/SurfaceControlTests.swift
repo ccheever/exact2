@@ -4,16 +4,40 @@ import AppKit
 import UIKit
 #endif
 import XCTest
+import CryptoKit
 @testable import ExactKit
+@testable import ExactSurfaces
 
 private let recoveryReply = UnsafeMutablePointer<UInt8>.allocate(capacity: 128)
 private var recoveryLength: UInt32 = 0
 private var replacementLost = true
 private var replacements = 0
-private var controlEvents: [[String: Any]] = []
+var controlEvents: [[String: Any]] = []
 private var boundObjects: [NSDictionary] = []
 final class SurfaceControlTests: XCTestCase {
-    private func fixture() -> (ExactSession, NodeView, NodeView) {
+    func testArchivedGpuFrameworksKeepTheBakedDigestAndDevelopmentDylibPath() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        for (artifact, name) in [("", "ExactGpu"), ("title-sky", "ExactGpu_title_sky")] {
+            let loose = directory.appendingPathComponent(GpuModule.loadName(artifact: artifact)).path
+            XCTAssertEqual(GpuModule.embeddedPath(directory: directory.path, artifact: artifact), loose)
+            let framework = directory.appendingPathComponent("\(name).framework")
+            try FileManager.default.createDirectory(at: framework, withIntermediateDirectories: true)
+            let binary = framework.appendingPathComponent(name), bytes = Data("signed GPU product".utf8)
+            try bytes.write(to: binary)
+            let path = GpuModule.embeddedPath(directory: directory.path, artifact: artifact)
+            XCTAssertEqual(path, binary.path)
+            let card: [String: Any] = ["app": "test.app", "cohort": "cohort",
+                "sha256": SHA256.hash(data: bytes).map { String(format: "%02x", $0) }.joined()]
+            let embedded: [String: Any] = artifact.isEmpty ? ["gpu": card] : ["gpuModules": [artifact: card]]
+            let compat: [String: Any] = ["id": "cohort", "inputs": ["app": "test.app"], "embedded": embedded]
+            XCTAssertNil(GpuModule.verify(path: path, compat: compat, artifact: artifact))
+            try Data("changed after bake".utf8).write(to: binary)
+            XCTAssertTrue(try XCTUnwrap(GpuModule.verify(path: path, compat: compat, artifact: artifact)).message.contains("digest mismatch"))
+        }
+    }
+    override class func setUp() { super.setUp(); ExactSurfaces.install() } // LLP 1047.001 D4
+    func fixture() -> (ExactSession, NodeView, NodeView) {
         #if os(macOS)
         _ = NSApplication.shared
         #endif
@@ -29,17 +53,45 @@ final class SurfaceControlTests: XCTestCase {
             wantsInput: { _ in 1 }, input: { _, p, n in
                 controlEvents.append((try? JSONSerialization.jsonObject(with: Data(bytes:p!, count:n))) as? [String: Any] ?? [:]); return 0
             }, messages: nil, published: nil, agent: { _, _, _ in recoveryLength }, outPtr: { UnsafePointer(recoveryReply) })
-        s.canvases.modules[""] = m; s.canvases.attempted = [""]
+        s.surfaceHost.modules[""] = m; s.surfaceHost.attempted = [""]
         let canvas = NodeView(id:100, kind:"canvas", presenter:s.presenter)
         let button = NodeView(id:101, kind:"button", presenter:s.presenter)
         canvas.frame = CGRect(x:0,y:0,width:200,height:200); button.frame=CGRect(x:0,y:0,width:100,height:100)
         canvas.addSubview(button); button.props["action"] = "jump"
         s.presenter.root.addSubview(canvas); s.presenter.views[100] = canvas; s.presenter.views[101] = button
-        let e = Canvases.Entry(view:canvas, name:"world", values:[]); e.id=1; e.wantsInput=true; e.module=m
-        s.canvases.entries[100]=e; canvas.canvasInput=CanvasInput(view:canvas)
+        let e = CanvasesHost.Entry(view:canvas, name:"world", values:[]); e.id=1; e.wantsInput=true; e.module=m
+        s.surfaceHost.entries[100]=e; canvas.canvasInput=CanvasInputHost(view:canvas)
         return (s, canvas, button)
     }
     #if os(macOS)
+    /// A canvas that wants input still dispatches the node's own
+    /// `contextmenu` and `wheel` beside the module's input (review b5-b 2).
+    func testAnInputCanvasStillHearsItsContextmenuAndWheel() {
+        let (s, canvas, _) = fixture(); defer { s.destroy() }
+        let window=NSWindow(contentRect:NSRect(x:0,y:0,width:400,height:200),styleMask:[.borderless],backing:.buffered,defer:false)
+        window.contentView=s.presenter.viewport
+        // The tree fills the window, so a point on the canvas hits it.
+        var above: NSView? = canvas.superview
+        while let v = above, v !== s.presenter.viewport { v.frame = s.presenter.viewport.bounds; above = v.superview }
+        canvas.handlers = ["contextmenu", "wheel"]
+        let hit = s.presenter.viewport.hitTest(s.presenter.viewport.superview?.convert(canvas.convert(NSPoint(x:150,y:150), to:nil), from:nil) ?? .zero)
+        XCTAssertTrue(hit === canvas, "the point is the canvas's: \(String(describing: hit))")
+        var heard: [UInt32] = []
+        s.presenter.onClipboard = { _, kind, _ in heard.append(kind) }
+        controlEvents = []
+        let point = canvas.convert(NSPoint(x:150,y:150), to:nil)
+        let right = NSEvent.mouseEvent(with:.rightMouseDown,location:point,modifierFlags:[],timestamp:0,windowNumber:window.windowNumber,context:nil,eventNumber:0,clickCount:1,pressure:1)!
+        canvas.rightMouseDown(with: right)
+        let cg = CGEvent(scrollWheelEvent2Source: nil, units: .pixel, wheelCount: 2, wheel1: -3, wheel2: 0, wheel3: 0)!
+        cg.location = CGPoint(x: point.x, y: (NSScreen.screens.first?.frame.height ?? 0) - point.y)
+        let scroll = NSEvent(cgEvent: cg)!
+        XCTAssertTrue(canvas.canvasInput?.wheel(scroll) == true, "the module takes this wheel")
+        canvas.scrollWheel(with: scroll)
+        let up = NSEvent.mouseEvent(with:.rightMouseUp,location:point,modifierFlags:[],timestamp:0,windowNumber:window.windowNumber,context:nil,eventNumber:0,clickCount:1,pressure:0)!
+        XCTAssertTrue(canvas.canvasInput?.pointer(up, phase: "up") == true, "the module held the secondary button")
+        XCTAssertEqual(heard, [10, 37], "and the node its contextmenu and wheel")
+        withExtendedLifetime(window) {}
+    }
     func testE11ActionAndSliderKeepPointerFocus() {
         let (s, _, button) = fixture(); defer { s.destroy() }
         let window=NSWindow(contentRect:NSRect(x:0,y:0,width:400,height:200),styleMask:[.borderless],backing:.buffered,defer:false)
@@ -69,6 +121,7 @@ final class SurfaceControlTests: XCTestCase {
         withExtendedLifetime(window) {}
     }
     func testR15PointerButtonReturnsSpaceToCanvasAndKeyboardKeepsFocus() {
+        keyboardNavigation(true) // Tab reaches the button below (LLP 1115.000 D7.2)
         let (s, canvas, button) = fixture(); defer { s.destroy() }
         button.props.removeValue(forKey:"action"); button.handlers.insert("press")
         let window=NSWindow(contentRect:NSRect(x:0,y:0,width:400,height:200),styleMask:[.borderless],backing:.buffered,defer:false)
@@ -120,19 +173,25 @@ final class SurfaceControlTests: XCTestCase {
         XCTAssertTrue(controlEvents.contains { $0["code"] as? String == "KeyX" && $0["down"] as? Bool == true })
         withExtendedLifetime(window) {}
     }
-    func testDetachedKeyboardButtonReturnsEnterAndSpaceToOriginalCanvas() {
-        for (characters,keyCode): (String,UInt16) in [("\r",36),(" ",49)] {
+    /// Space presses the focused button (LLP 1115.000 D7.3), and the press
+    /// that removes it hands the keys back to its canvas; Return presses no
+    /// merely focused button, so it stays.
+    func testDetachedKeyboardButtonReturnsSpaceToOriginalCanvasAndReturnPressesNothing() {
+        for (characters,keyCode,presses): (String,UInt16,Bool) in [("\r",36,false),(" ",49,true)] {
             let (s, canvas, button) = fixture()
             button.props.removeValue(forKey:"action"); button.handlers.insert("press")
             let window=NSWindow(contentRect:NSRect(x:0,y:0,width:400,height:200),styleMask:[.borderless],backing:.buffered,defer:false)
             window.contentView=s.presenter.viewport
             XCTAssertTrue(window.makeFirstResponder(button))
+            var pressed=0
             s.presenter.onPress = { _ in
+                pressed+=1
                 s.presenter.apply(wireBatch([["op":"destroy","id":Int(button.id)]]))
             }
             let event=NSEvent.keyEvent(with:.keyDown,location:.zero,modifierFlags:[],timestamp:1,windowNumber:window.windowNumber,context:nil,characters:characters,charactersIgnoringModifiers:characters,isARepeat:false,keyCode:keyCode)!
             window.sendEvent(event)
-            XCTAssertTrue(window.firstResponder === canvas)
+            XCTAssertEqual(pressed,presses ? 1 : 0)
+            XCTAssertTrue(window.firstResponder === (presses ? canvas : button))
             s.destroy(); withExtendedLifetime(window) {}
         }
     }
@@ -149,8 +208,8 @@ final class SurfaceControlTests: XCTestCase {
                 s.presenter.apply(wireBatch([["op":"destroy","id":Int(button.id)]]))
                 XCTAssertTrue(window.makeFirstResponder(explicit))
             }
-            let enter=NSEvent.keyEvent(with:.keyDown,location:.zero,modifierFlags:[],timestamp:1,windowNumber:window.windowNumber,context:nil,characters:"\r",charactersIgnoringModifiers:"\r",isARepeat:false,keyCode:36)!
-            window.sendEvent(enter)
+            let space=NSEvent.keyEvent(with:.keyDown,location:.zero,modifierFlags:[],timestamp:1,windowNumber:window.windowNumber,context:nil,characters:" ",charactersIgnoringModifiers:" ",isARepeat:false,keyCode:49)!
+            window.sendEvent(space)
             XCTAssertTrue(window.firstResponder === explicit)
             withExtendedLifetime((window,canvas)) {}
         }
@@ -190,22 +249,22 @@ final class SurfaceControlTests: XCTestCase {
         let other=NodeView(id:200,kind:"canvas",presenter:s.presenter), second=NodeView(id:201,kind:"button",presenter:s.presenter)
         s.presenter.root.addSubview(other); other.addSubview(second); second.props["action"]="jump"
         s.presenter.views[200]=other; s.presenter.views[201]=second
-        other.canvasInput=CanvasInput(view:other)
-        let e=Canvases.Entry(view:other,name:"other",values:[]); e.id=2; e.wantsInput=true; e.module=s.canvases.modules[""]; s.canvases.entries[200]=e
+        other.canvasInput=CanvasInputHost(view:other)
+        let e=CanvasesHost.Entry(view:other,name:"other",values:[]); e.id=2; e.wantsInput=true; e.module=s.surfaceHost.modules[""]; s.surfaceHost.entries[200]=e
         XCTAssertTrue(button.control("down",id:1)); XCTAssertTrue(second.control("down",id:1))
-        XCTAssertTrue(second.control("up",id:1)); XCTAssertNotNil(s.canvases.entries[100]!.controls[1]); XCTAssertNil(e.controls[1])
+        XCTAssertTrue(second.control("up",id:1)); XCTAssertNotNil(s.surfaceHost.entries[100]!.controls[1]); XCTAssertNil(e.controls[1])
         XCTAssertTrue(second.control("down",id:1))
-        XCTAssertEqual(s.canvases.releaseContact(["id":200,"contact":1,"phase":"cancel"])?["delivery"] as? String,"recognized")
-        XCTAssertNotNil(s.canvases.entries[100]!.controls[1]); XCTAssertNil(e.controls[1])
+        XCTAssertEqual(s.surfaceHost.releaseContact(["id":200,"contact":1,"phase":"cancel"])?["delivery"] as? String,"recognized")
+        XCTAssertNotNil(s.surfaceHost.entries[100]!.controls[1]); XCTAssertNil(e.controls[1])
         withExtendedLifetime((window,canvas)) {}
     }
     func testRestoredContactCancelsWhenItsControlUnmounts() {
         let (s, _, button) = fixture(); defer { s.destroy() }
-        let m = s.canvases.modules[""]!, e = s.canvases.entries[100]!
+        let m = s.surfaceHost.modules[""]!, e = s.surfaceHost.entries[100]!
         let bytes = Array("{\"world\":{\"restored\":true,\"input\":{\"controlContacts\":[{\"id\":7,\"action\":\"jump\"}]}}}".utf8)
         bytes.withUnsafeBufferPointer { recoveryReply.update(from:$0.baseAddress!,count:$0.count) }
         recoveryLength = UInt32(bytes.count)
-        e.restorePending = true; s.canvases.finishRestore(m, e)
+        e.restorePending = true; s.surfaceHost.finishRestore(m, e)
         XCTAssertEqual(e.controls[7]?.node, button.id)
         controlEvents = []; button.forget()
         XCTAssertTrue(e.controls.isEmpty)
@@ -219,7 +278,7 @@ final class SurfaceControlTests: XCTestCase {
         let window=UIWindow(frame:CGRect(x:0,y:0,width:400,height:200));window.addSubview(s.presenter.viewport)
         #endif
         defer {withExtendedLifetime(window) {}}
-        let e=s.canvases.entries[100]!
+        let e=s.surfaceHost.entries[100]!
         e.controls[7]=SurfaceControl(node:button.id,name:"jump",offset:.zero,position:.zero)
         controlEvents=[];canvas.canvasInput!.blur()
         XCTAssertTrue(e.controls.isEmpty)
@@ -229,13 +288,13 @@ final class SurfaceControlTests: XCTestCase {
         let (s,canvas,first)=fixture(); defer {s.destroy()}
         let second=NodeView(id:102,kind:"button",presenter:s.presenter)
         second.props["action"]="jump";canvas.addSubview(second);s.presenter.views[102]=second
-        let e=s.canvases.entries[100]!,m=s.canvases.modules[""]!
+        let e=s.surfaceHost.entries[100]!,m=s.surfaceHost.modules[""]!
         let bytes=Array("{\"world\":{\"restored\":true,\"input\":{\"controlContacts\":[{\"id\":7,\"action\":\"jump\"}]}}}".utf8)
         bytes.withUnsafeBufferPointer {recoveryReply.update(from:$0.baseAddress!,count:$0.count)};recoveryLength=UInt32(bytes.count)
-        e.restorePending=true;s.canvases.finishRestore(m,e)
+        e.restorePending=true;s.surfaceHost.finishRestore(m,e)
         XCTAssertEqual(e.controls[7]?.node,canvas.id)
-        second.forget();second.removeFromSuperview();s.presenter.views.removeValue(forKey:second.id);s.canvases.cancelMovedControls();XCTAssertNotNil(e.controls[7])
-        first.forget();first.removeFromSuperview();s.presenter.views.removeValue(forKey:first.id);s.canvases.cancelMovedControls();XCTAssertNil(e.controls[7])
+        second.forget();second.removeFromSuperview();s.presenter.views.removeValue(forKey:second.id);s.surfaceHost.cancelMovedControls();XCTAssertNotNil(e.controls[7])
+        first.forget();first.removeFromSuperview();s.presenter.views.removeValue(forKey:first.id);s.surfaceHost.cancelMovedControls();XCTAssertNil(e.controls[7])
     }
     func testR12ReparentAndCrossViewRelease() {
         let (s,canvas,button)=fixture(); defer {s.destroy()}
@@ -246,23 +305,23 @@ final class SurfaceControlTests: XCTestCase {
         #endif
         let other=NodeView(id:200,kind:"canvas",presenter:s.presenter),second=NodeView(id:201,kind:"button",presenter:s.presenter)
         s.presenter.root.addSubview(other);other.addSubview(second);second.props["action"]="jump"
-        s.presenter.views[200]=other;s.presenter.views[201]=second;other.canvasInput=CanvasInput(view:other)
-        let e=Canvases.Entry(view:other,name:"other",values:[]);e.id=2;e.wantsInput=true;e.module=s.canvases.modules[""];s.canvases.entries[200]=e
-        XCTAssertTrue(button.control("down",id:7));XCTAssertTrue(second.control("up",id:7));XCTAssertTrue(s.canvases.entries[100]!.controls.isEmpty)
+        s.presenter.views[200]=other;s.presenter.views[201]=second;other.canvasInput=CanvasInputHost(view:other)
+        let e=CanvasesHost.Entry(view:other,name:"other",values:[]);e.id=2;e.wantsInput=true;e.module=s.surfaceHost.modules[""];s.surfaceHost.entries[200]=e
+        XCTAssertTrue(button.control("down",id:7));XCTAssertTrue(second.control("up",id:7));XCTAssertTrue(s.surfaceHost.entries[100]!.controls.isEmpty)
         XCTAssertTrue(button.control("down",id:8));other.addSubview(button)
         s.presenter.apply(wireBatch([]))
-        XCTAssertTrue(s.canvases.entries[100]!.controls.isEmpty)
+        XCTAssertTrue(s.surfaceHost.entries[100]!.controls.isEmpty)
         withExtendedLifetime((window,canvas)) {}
     }
     func testCanvasRecreatedWhileRecoveryIsPendingGetsInitialClock() {
         let (s, canvas, _) = fixture(); defer { s.destroy() }
-        let m=s.canvases.modules[""]!; m.canvases.add(s.canvases)
+        let m=s.surfaceHost.modules[""]!; m.canvases.add(s.surfaceHost)
         replacementLost=true
         let bytes=Array("{\"status\":\"recovered\"}".utf8)
         bytes.withUnsafeBufferPointer { recoveryReply.update(from:$0.baseAddress!,count:$0.count) }; recoveryLength=UInt32(bytes.count)
         m.deviceLost={ replacementLost }; m.recover={ replacementLost=false; return recoveryLength }
         m.recoverDevice()
-        let fresh=Canvases.Entry(view:canvas,name:"fresh",values:[]); fresh.id=2; s.canvases.entries[100]=fresh
+        let fresh=CanvasesHost.Entry(view:canvas,name:"fresh",values:[]); fresh.id=2; s.surfaceHost.entries[100]=fresh
         let done=expectation(description:"recovery")
         DispatchQueue.main.asyncAfter(deadline:.now()+0.05) { done.fulfill() }; wait(for:[done],timeout:2)
         XCTAssertEqual(m.deliveryClock(fresh,now:300)["now"] as? Double,300)
@@ -277,7 +336,7 @@ final class SurfaceControlTests: XCTestCase {
         XCTAssertTrue(window.firstResponder === editor)
         XCTAssertTrue(button.controlKey("Space",down:true))
         XCTAssertTrue(window.firstResponder === editor)
-        XCTAssertNotNil(s.canvases.entries[100]!.controls[4294967294])
+        XCTAssertNotNil(s.surfaceHost.entries[100]!.controls[4294967294])
         XCTAssertTrue(button.controlKey("Space",down:false))
         controlEvents=[]
         let reply=s.agentInstance.type(["id":Int(button.id),"key":"Space"])
@@ -298,30 +357,54 @@ final class SurfaceControlTests: XCTestCase {
     #endif
     func testResultThreeRetriesReplacementLossWithoutDeviceObserverAndScopesRedelivery() {
         let (s, canvas, _) = fixture(); defer { s.destroy() }
-        let m = s.canvases.modules[""]!, e = s.canvases.entries[100]!
-        m.canvases.add(s.canvases); replacements = 0; replacementLost = true
+        let m = s.surfaceHost.modules[""]!, e = s.surfaceHost.entries[100]!
+        m.canvases.add(s.surfaceHost); replacements = 0; replacementLost = true
         let bytes = Array("{\"status\":\"recovered\"}".utf8)
         bytes.withUnsafeBufferPointer { recoveryReply.update(from:$0.baseAddress!,count:$0.count) }; recoveryLength=UInt32(bytes.count)
         m.deviceLost = { replacementLost }
         m.recover = { replacements += 1; replacementLost = replacements == 1; return recoveryLength }
-        s.canvases.rendered(e, 3); s.canvases.rendered(e, 3)
+        s.surfaceHost.rendered(e, 3); s.surfaceHost.rendered(e, 3)
         let done = expectation(description:"replacement retry")
         DispatchQueue.main.asyncAfter(deadline:.now()+0.3) { done.fulfill() }
         wait(for:[done],timeout:2)
         XCTAssertEqual(replacements,2); XCTAssertEqual(m.lossGeneration,1)
         XCTAssertNil(m.deliveryClock(e,now:100)["now"])
         XCTAssertNotNil(m.deliveryClock(e,now:200)["now"])
-        let fresh = Canvases.Entry(view:canvas,name:"new",values:[])
+        let fresh = CanvasesHost.Entry(view:canvas,name:"new",values:[])
         XCTAssertEqual(m.deliveryClock(fresh,now:300)["now"] as? Double,300)
     }
     #if os(macOS)
+    /// The platformer's diary, R8: a key the agent types at a world's canvas
+    /// takes the keyboard's route, as on the web — the canvas's `key`
+    /// handlers hear it, and one that prevents it keeps it from the world.
+    func testAgentCanvasKeyReachesKeyHandlersAndPreventedOnesStopThere() {
+        let (s, canvas, _) = fixture(); defer { s.destroy() }
+        let window=NSWindow(contentRect:NSRect(x:0,y:0,width:200,height:200),styleMask:[.borderless],backing:.buffered,defer:false)
+        window.contentView=s.presenter.viewport
+        canvas.handlers.insert("key")
+        var heard: [String] = [], prevent = false
+        s.presenter.onKey = { id, name in heard.append("\(id) \(name)"); if prevent { s.presenter.defaultPrevented = true } }
+        controlEvents = []
+        let agent = s.agentInstance
+        XCTAssertNil(agent.type(["id": 100, "key": "KeyO"])["error"])
+        XCTAssertEqual(heard, ["100 o"])
+        XCTAssertEqual(controlEvents.compactMap { $0["code"] as? String }, ["KeyO", "KeyO"], "a key nothing prevents reaches the world too")
+        prevent = true; heard = []; controlEvents = []
+        XCTAssertNil(agent.type(["id": 100, "key": "KeyO"])["error"])
+        XCTAssertEqual(heard, ["100 o"])
+        XCTAssertTrue(controlEvents.isEmpty, "a prevented key goes no further")
+        withExtendedLifetime(window) {}
+    }
     func testAgentCancelClearsMouseContact() {
         let (s,_,_) = fixture(); defer { s.destroy() }
         let window=NSWindow(contentRect:NSRect(x:0,y:0,width:200,height:200),styleMask:[.borderless],backing:.buffered,defer:false)
         window.contentView=s.presenter.viewport
-        let agent=s.agentInstance; agent.contact=CGPoint(x:50,y:50)
+        let agent=s.agentInstance
+        let down=agent.contact("down",["id":100,"x":50.0,"y":50.0])
+        XCTAssertEqual(down["delivery"] as? String,"platform"); XCTAssertNotNil(agent.contact)
         let reply=agent.contact("cancel",[:])
         XCTAssertEqual(reply["delivery"] as? String,"platform"); XCTAssertNil(agent.contact)
+        XCTAssertNil(agent.contactWindow)
         withExtendedLifetime(window) {}
     }
     #else

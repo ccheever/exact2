@@ -1,0 +1,5 @@
+{
+  "source": "apps/interaction-gallery/assets (see its provenance.json): generated photographic illustrations of imagined locations, no license claimed",
+  "derived": "2026-10-04: resized to 720 px on the long edge and re-encoded as JPEG (quality 78) with sips, for the shared-elements example (LLP 1013.000)",
+  "files": ["alpine-water.jpg", "glasshouse.jpg", "last-light.jpg", "north-shore.jpg", "ochre-dunes.jpg", "winter-ridge.jpg"]
+}

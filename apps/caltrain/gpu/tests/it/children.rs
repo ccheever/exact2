@@ -75,6 +75,7 @@ fn the_aurora_composes_its_children_over_the_sky() {
         seekable: false,
         period_ms: 0.0,
         shader_generation: exact_gpu::shaders::shader_generation(),
+        headroom: 1.0,
     };
     let mut sky = AuroraSurface::new();
     sky.bind(&[Value::str("mv")], None).unwrap();
@@ -152,6 +153,7 @@ fn glass_receives_current_and_previous_children() {
         seekable: true,
         period_ms: 0.,
         shader_generation: exact_gpu::shaders::shader_generation(),
+        headroom: 1.0,
     };
     let render = |old: &wgpu::TextureView| {
         let mut glass = caltrain_gpu::GlassSurface::new();

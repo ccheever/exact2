@@ -17,7 +17,7 @@
 
 use crate::arena::NodeArena;
 use crate::id::{Frame, IdMap};
-use crate::{AlignContent, Dimension, Display, NodeKey, NodeType, PositionType, WrapFlow};
+use crate::{AlignContent, Dimension, Display, Env, NodeKey, NodeType, PositionType, WrapFlow};
 use exact_textflow::{meets, FlowShape};
 use std::collections::HashMap;
 
@@ -34,13 +34,14 @@ pub(crate) struct FlowState {
 /// (and overlaps it). Journalled once per leaf; `message` says what to change.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum FlowRefusal {
-    /// A wrapping context (an exclusion's parent) is flex or grid, or sets
-    /// `align-content`: the leaf's offset would depend on its own height.
+    /// A wrapping context (an exclusion's parent) is flex or grid, a button,
+    /// or sets `align-content`: the leaf's offset would depend on its own
+    /// height.
     Context,
     /// An exclusion's top or height depends on its context's auto height.
     Placement,
     /// The leaf, or a box between it and a wrapping context, is absolutely
-    /// positioned, flex or grid, sets `align-content`, or is offset
+    /// positioned, flex or grid, a button, sets `align-content`, or is offset
     /// vertically by a percentage.
     Chain,
     /// Content regions lay auto-height text out unobstructed.
@@ -53,9 +54,9 @@ impl FlowRefusal {
     /// What the author can change, for the journal line.
     pub fn message(self) -> &'static str {
         match self {
-            FlowRefusal::Context => "its wrapping context (the exclusion's parent) is flex or grid, sets align-content, or is position: static; make that parent display: block and position: relative, or give the text a height",
+            FlowRefusal::Context => "its wrapping context (the exclusion's parent) is flex or grid, a button, sets align-content, or is position: static; make that parent display: block and position: relative, or give the text a height",
             FlowRefusal::Placement => "an exclusion's top or height depends on its context's height; give every exclusion there a top and a height in points (not %, not bottom), or give the text a height",
-            FlowRefusal::Chain => "the text, or a box between it and the wrapping context, is absolutely positioned, flex or grid, sets align-content, or has a percentage top or bottom; keep ordinary in-flow blocks between them, or give the text a height",
+            FlowRefusal::Chain => "the text, or a box between it and the wrapping context, is absolutely positioned, flex or grid, a button, sets align-content, or has a percentage top or bottom; keep ordinary in-flow blocks between them, or give the text a height",
             FlowRefusal::Region => "text inside a content region flows only with a definite height",
             FlowRefusal::Unsettled => "layout did not settle around the exclusions; this is a kernel defect, please report it",
         }
@@ -75,9 +76,11 @@ pub(crate) fn is_exclusion(arena: &NodeArena, slot: u32) -> bool {
     s.position_type == PositionType::Absolute && s.wrap_flow == WrapFlow::Both
 }
 
-// A length that resolves without the containing block's height.
-fn own_length(d: Dimension) -> bool {
-    matches!(d, Dimension::Points(_) | Dimension::Env(..))
+// A length that resolves without the containing block's height: points, or
+// an `env()` length the environment defines (an undefined segment takes the
+// row's initial value, `auto`, as `StyleProps::env_resolved` does).
+fn own_length(d: Dimension, env: &Env) -> bool {
+    matches!(d.resolve(env), Dimension::Points(_))
 }
 
 // Taffy places an absolute child after the context's in-flow content, against
@@ -85,25 +88,29 @@ fn own_length(d: Dimension) -> bool {
 // independent of what the flowed text makes that size.
 fn placed(arena: &NodeArena, exclusion: u32) -> bool {
     let s = arena.style(exclusion);
-    let bounded = |d: Dimension| matches!(d, Dimension::Auto) || own_length(d);
-    own_length(s.top)
-        && (own_length(s.height) || (s.height == Dimension::Auto && s.bottom == Dimension::Auto))
+    let env = arena.env();
+    let bounded = |d: Dimension| matches!(d, Dimension::Auto) || own_length(d, env);
+    own_length(s.top, env)
+        && (own_length(s.height, env)
+            || (s.height == Dimension::Auto && s.bottom == Dimension::Auto))
         && bounded(s.min_height)
         && bounded(s.max_height)
 }
 
 // A block places children in order: a child's offset depends on what precedes
-// it and never on its own height, unless alignment distributes free space.
+// it and never on its own height, unless alignment distributes free space
+// (a button's centring is such alignment).
 fn orders(arena: &NodeArena, slot: u32) -> bool {
     let s = arena.style(slot);
-    s.display == Display::Block && s.align_content == AlignContent::Normal
+    s.display == Display::Block && s.align_content == AlignContent::Normal && !arena.is_button(slot)
 }
 
 fn in_flow(arena: &NodeArena, slot: u32) -> bool {
-    let s = arena.style(slot);
-    let offset = |d: Dimension| d == Dimension::Auto || own_length(d);
-    // A static box's insets do nothing; a relative one's must not depend on the context's height.
-    s.position_type == PositionType::Static
+    let s = arena.effective_style(slot);
+    let offset = |d: Dimension| d == Dimension::Auto || own_length(d, arena.env());
+    // A static or sticky box's insets do not move its layout; a relative one's
+    // must not depend on the context's height.
+    matches!(s.position_type, PositionType::Static | PositionType::Sticky)
         || (s.position_type == PositionType::Relative && offset(s.top) && offset(s.bottom))
 }
 
@@ -118,8 +125,11 @@ pub(crate) fn contexts(arena: &NodeArena, exclusions: &[u32]) -> Contexts {
         };
         // @ref LLP 1074 T1 — the exclusion is placed against its containing
         // block. Auto-height flow is proven only where that is the context.
-        let contains =
-            arena.is_root(context) || arena.style(context).position_type != PositionType::Static;
+        let contains = arena.is_root(context)
+            || arena
+                .computed_source(context, crate::StyleId::PositionType)
+                .position_type
+                != PositionType::Static;
         let refusal = out.entry(context).or_insert_with(|| {
             (!orders(arena, context) || !contains).then_some(FlowRefusal::Context)
         });
@@ -190,6 +200,11 @@ pub(crate) fn visible_exclusions(arena: &NodeArena, root: u32) -> Vec<u32> {
                 if at == root {
                     return true;
                 }
+                // Another layout's: an exclusion shapes no text across a
+                // host's containing block (LLP 1115.002 D8.2).
+                if arena.blocks.holds(at) {
+                    return false;
+                }
                 match arena.parent(at) {
                     Some(p) => at = p,
                     None => return false,
@@ -241,7 +256,8 @@ fn visit(
         let resolve_shape = |exclusion| {
             let f = frame(exclusion);
             let s = arena.style(exclusion);
-            s.shape_outside
+            s.rare
+                .shape_outside
                 .resolve(f.width, f.height)
                 .grow(s.shape_margin)
                 .translate(f.x, f.y)
@@ -261,6 +277,7 @@ fn visit(
             if is_exclusion(arena, slot)
                 || !included(slot)
                 || arena.style(slot).display == Display::None
+                || arena.blocks.holds(slot)
             {
                 continue;
             }

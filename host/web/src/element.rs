@@ -4,6 +4,8 @@
 //!
 //! @ref LLP 1007 §1 (a bare node is a bare `<div>`) / LLP 1048 D1
 
+#[path = "button_css.rs"]
+mod button_css;
 use exact_kernel::svg::Paint;
 use exact_kernel::SortedMap;
 use exact_kernel::{Kernel, NodeFacts, NodeRef, NodeType, ObjectFit, PropId, PropValue, StyleId};
@@ -19,22 +21,251 @@ pub type Resolve<'r> = &'r dyn Fn(exact_kernel::ViewId, &str) -> Option<exact_ke
 /// above the canvas's background and below its children. A container a
 /// button holds is a `<span>` ([`tag_for`]) whose box is still a block unless
 /// a row says otherwise, as a `<div>`'s is.
-pub(super) fn host_css(node: &NodeRef<'_>, css: String, tag: &str) -> String {
-    host_css_of(&node.facts(), css, tag)
+pub(super) fn host_css(kernel: &Kernel, node: &NodeRef<'_>, css: String, tag: &str) -> String {
+    let parent = node.parent.and_then(|p| kernel.node(p));
+    host_css_of(&node.facts(), parent.map(|p| p.facts()).as_ref(), css, tag)
+}
+
+/// Whether a text is its box's text content on the web, not an element box of
+/// its own (LLP 1007.001): the only child of a box or a button, with no style
+/// row, no prop but its text and no handler — nothing a box of its own could
+/// show or hear. Its element stays (the runtime writes its text, the agent
+/// reads its node) as `display: contents`, so it makes no box (an inline
+/// box under a box that restricts touch, [`contents`]), and a flex
+/// box holding it is a block ([`blocks`]): its text is the box's own line
+/// boxes, laid out and painted as a stretched style-less block child's are.
+/// Only where the two lay out alike — a block, or a flex column that
+/// stretches and starts its items — and not where the box's own rows would
+/// reach its inline content (`text-overflow`, `line-clamp`).
+pub fn folds(
+    text: &NodeFacts<'_>,
+    parent: &NodeFacts<'_>,
+    outer: Option<&NodeFacts<'_>>,
+    only_child: bool,
+    handled: bool,
+) -> bool {
+    only_child
+        && !handled
+        && text.node_type == NodeType::Text
+        && !text.is_inline_run()
+        && text.style.mask == exact_kernel::StyleMask::EMPTY
+        && text.props.iter().all(|(p, _)| p == PropId::Text)
+        && matches!(parent.node_type, NodeType::View | NodeType::Pressable)
+        && !parent.style.mask.has(StyleId::TextOverflow)
+        && !parent.style.mask.has(StyleId::LineClamp)
+        && lays_out_as_block(parent)
+        && (parent.node_type != NodeType::Pressable
+            || parent.style.display == exact_kernel::Display::Block
+            || content_tall(parent, outer))
+}
+
+/// A `<button>` that is a block centers its line boxes in its height, so a
+/// flex button becomes one only where its height is its content's: none of
+/// its own, nothing to grow into, and not stretched across a row by `outer`.
+fn content_tall(b: &NodeFacts<'_>, outer: Option<&NodeFacts<'_>>) -> bool {
+    use exact_kernel::{AlignItems, AlignSelf, Dimension, Display, FlexDirection, PositionType};
+    let s = b.style;
+    let Some(o) = outer.map(|o| o.style) else {
+        return false;
+    };
+    let sized = s.height != Dimension::Auto
+        || s.min_height != Dimension::Auto
+        || s.aspect_ratio != Default::default()
+        || s.position_type == PositionType::Absolute;
+    !sized
+        && match (o.display, o.flex_direction) {
+            (Display::Block, _) => true,
+            (Display::Flex, FlexDirection::Column | FlexDirection::ColumnReverse) => {
+                s.flex_grow == 0.0 && s.flex_basis == Dimension::Auto
+            }
+            (Display::Flex, _) => match s.align_self {
+                AlignSelf::Auto => {
+                    !matches!(o.align_items, AlignItems::Normal | AlignItems::Stretch)
+                }
+                a => a != AlignSelf::Stretch,
+            },
+            _ => false,
+        }
+}
+
+/// A box whose one anonymous child lays out as a block's would.
+fn lays_out_as_block(b: &NodeFacts<'_>) -> bool {
+    use exact_kernel::{AlignItems, Display, FlexDirection, JustifyContent};
+    let s = b.style;
+    match s.display {
+        Display::Block => true,
+        Display::Flex => {
+            s.flex_direction == FlexDirection::Column
+                && matches!(
+                    s.justify_content,
+                    JustifyContent::Normal | JustifyContent::FlexStart | JustifyContent::Start
+                )
+                && matches!(s.align_items, AlignItems::Normal | AlignItems::Stretch)
+        }
+        _ => false,
+    }
+}
+
+/// [`folds`] for a node of `kernel`, as its tree stands.
+pub(super) fn folded(kernel: &Kernel, node: &NodeRef<'_>, handled: bool) -> bool {
+    node.node_type == NodeType::Text
+        && node.looks().is_empty() // a look paints its own box (LLP 1121 D8)
+        && node.parent.and_then(|p| kernel.node(p)).is_some_and(|p| {
+            let outer = p.parent.and_then(|o| kernel.node(o)).map(|o| o.facts());
+            folds(
+                &node.facts(),
+                &p.facts(),
+                outer.as_ref(),
+                p.children().len() == 1,
+                handled,
+            )
+        })
+}
+
+/// Whether a node of `kernel` holds a folded text: its only child folds.
+pub(super) fn holds_folded(
+    kernel: &Kernel,
+    node: &NodeRef<'_>,
+    handled: &dyn Fn(exact_kernel::ViewId) -> bool,
+) -> bool {
+    let children = node.children();
+    let outer = node.parent.and_then(|o| kernel.node(o)).map(|o| o.facts());
+    children.len() == 1
+        && kernel.node(children[0]).is_some_and(|c| {
+            c.node_type == NodeType::Text
+                && c.looks().is_empty()
+                && folds(
+                    &c.facts(),
+                    &node.facts(),
+                    outer.as_ref(),
+                    true,
+                    handled(c.id),
+                )
+        })
+}
+
+/// A box holding a folded text ([`folds`]) is a block, which wraps no
+/// anonymous item around its text.
+pub fn blocks(mut css: String, holds_folded: bool) -> String {
+    if holds_folded {
+        css.push_str("display:block;");
+    }
+    css
+}
+
+/// A folded text's CSS ([`folds`]): no box (`display: contents`), or an
+/// inline box under a box that restricts touch ([`touch_scoped`]). Chrome
+/// 154 lays out the text of a `display: contents` element with a style that
+/// keeps no effective `touch-action`, so a touch that starts on its glyphs
+/// under a `touch-action: none` pan is the browser's, cancelled after its
+/// first move (smoke step 11b); an inline box keeps its ancestors' touch
+/// action, at one more layout object (LLP 1007.001 §5).
+pub fn contents(css: String, folded: bool, touch_scoped: bool) -> String {
+    if !folded {
+        return css;
+    }
+    let mut css = css.replace("display:block;", "");
+    css.push_str(if touch_scoped {
+        "display:inline;"
+    } else {
+        "display:contents;"
+    });
+    css
+}
+
+/// Whether a box restricts touch on the web: an authored `touch-action`
+/// other than `auto`, or what the page gives `touch-action: none` — a drag
+/// timeline's source, a game action, a reorder handle.
+pub fn restricts_touch(n: &NodeFacts<'_>) -> bool {
+    use exact_kernel::{StyleId, TouchAction};
+    (n.style.mask.has(StyleId::TouchAction) && n.style.touch_action != TouchAction::Auto)
+        || n.style.mask.has(StyleId::DragTimeline)
+        || n.props.str(PropId::Action).is_some()
+        || n.props.str(PropId::ReorderFor).is_some()
+}
+
+/// A node of `kernel`'s CSS with its fold's ([`contents`]), as its tree stands.
+pub(super) fn folded_css(
+    kernel: &Kernel,
+    node: &NodeRef<'_>,
+    css: String,
+    handled: bool,
+) -> String {
+    contents(
+        css,
+        folded(kernel, node, handled),
+        touch_scoped(kernel, node),
+    )
+}
+
+/// Whether a node of `kernel` sits under a box that [`restricts_touch`].
+pub(super) fn touch_scoped(kernel: &Kernel, node: &NodeRef<'_>) -> bool {
+    let mut up = node.parent;
+    while let Some(p) = up.and_then(|p| kernel.node(p)) {
+        if restricts_touch(&p.facts()) {
+            return true;
+        }
+        up = p.parent;
+    }
+    false
 }
 
 /// [`host_css`], from a node's facts.
-pub fn host_css_of(node: &NodeFacts<'_>, mut css: String, tag: &str) -> String {
+/// `grouped-separator` in this page's column, as a colour row reads it.
+fn grouped_separator_color() -> Option<exact_kernel::ColorValue> {
+    let name = exact_kernel::StyleValue::Text("-exact-grouped-separator".into());
+    let value = exact_kernel::style::metrics::of(StyleId::BorderColorBottom, &name)??;
+    let mut style = exact_kernel::StyleProps::default();
+    style.set_dynamic(StyleId::BorderColorBottom, &value).ok()?;
+    style.border_color_bottom
+}
+
+pub fn host_css_of(
+    node: &NodeFacts<'_>,
+    parent: Option<&NodeFacts<'_>>,
+    mut css: String,
+    tag: &str,
+) -> String {
     if tag == "span" && !node.is_inline_run() && !css.split(';').any(|d| d.starts_with("display:"))
     {
         css.push_str("display:block;");
+    }
+    if tag == "time" && !node.is_inline_run() && !node.style.mask.has(StyleId::Display) {
+        css.push_str("display:block;");
+    }
+    css = button_css::face(node, css);
+    // @ref LLP 1084 D7 — a grouped row's separator, which the page's sheet
+    // draws (index.html) in the platform's colour at the foot of its
+    // padding box, below its bottom padding.
+    if node.props.bool(PropId::GroupedRowSeparator) == Some(true) {
+        if let Some(line) = grouped_separator_color() {
+            css.push_str("--exact-grouped-separator:");
+            exact_kernel::gradient::color_css(&mut css, line);
+            css.push(';');
+        }
+        // Always said, so a grouped list inside the row inherits none. A
+        // percentage is of the containing block's width, which a background
+        // cannot reach: the line then stands at the content box's foot.
+        let mut bottom = String::new();
+        crate::css::dimension(&mut bottom, node.style.padding_bottom);
+        if bottom.contains('%') || bottom == "auto" {
+            bottom = "0px".into();
+        }
+        css.push_str("--exact-padding-bottom:");
+        css.push_str(&bottom);
+        css.push(';');
     }
     if node.node_type == NodeType::Canvas {
         if !(css.starts_with("position:") || css.contains(";position:")) {
             css.push_str("position:relative;");
         }
-        css.push_str("isolation:isolate;");
+        if !node.style.mask.has(StyleId::Isolation) {
+            css.push_str("isolation:isolate;");
+        }
         canvas_css(node, &mut css);
+    }
+    if is_progress(node) {
+        progress_css(node, parent, &mut css);
     }
     // A root is a block formatting context in the kernel, as CSS's root
     // element is: its first child's top margin stays inside it. On the web a
@@ -55,7 +286,7 @@ pub fn host_css_of(node: &NodeFacts<'_>, mut css: String, tag: &str) -> String {
     if node.is_root && node.style.position_type == exact_kernel::PositionType::Static {
         css.push_str("position:relative;");
     }
-    // A raster image with a `tint-color` is a template (LLP 1011 §3): its
+    // A raster image with a `-exact-tint-color` is a template (LLP 1011 §3): its
     // alpha masks the tint, fitted and centered in the content box as
     // `object-fit` fits the picture, which moves out of the box, where the
     // replaced element's own clip hides it. `scale-down` needs the natural
@@ -135,6 +366,47 @@ fn canvas_css(node: &NodeFacts<'_>, css: &mut String) {
     }
 }
 
+/// Whether the node is an indeterminate `progress` (LLP 1069.001, amended
+/// 2026-10-07), which the page draws as a ring in a box.
+fn is_progress(node: &NodeFacts<'_>) -> bool {
+    exact_kernel::ControlKind::of(node.node_type, node.props)
+        == Some(exact_kernel::ControlKind::Progress)
+}
+
+/// Whether the node is a determinate `progress` (LLP 1116 D8): HTML's own
+/// `<progress value max>`, which the browser draws and sizes (its UA
+/// sheet's `10em` by `1em`, as the kernel's `control::progress_box`).
+fn is_progress_bar(node: &NodeFacts<'_>) -> bool {
+    exact_kernel::ControlKind::of(node.node_type, node.props)
+        == Some(exact_kernel::ControlKind::ProgressBar)
+}
+
+/// A progress's box sized as the kernel's measured leaf: 20 × 20 content,
+/// each axis CSS's where it is given. Size containment (`container-type:
+/// size`) with a `contain-intrinsic-size` is that content, a flex item's
+/// automatic minimum included; a grid, so the base sheet's ring (its
+/// `::before`) fills the content box whether or not a height is given
+/// (container units resolve to 0 in an automatic height). Like the kernel's form controls (`item_is_table`), it
+/// keeps that width in block flow, where a `div` would stretch
+/// (`justify-self: start`, as a canvas's), and stretches where the kernel
+/// does: in a flex or grid container, and between an absolute box's insets.
+fn progress_css(node: &NodeFacts<'_>, parent: Option<&NodeFacts<'_>>, css: &mut String) {
+    use exact_kernel::{Display, PositionType};
+    let position = node.style.position_type;
+    css.push_str("container-type:size;contain-intrinsic-size:20px 20px;");
+    if node.style.display != Display::None {
+        css.push_str("display:grid;");
+    }
+    // Sticky is laid out as relative, in flow (kernel `style.rs`).
+    let in_flow = matches!(
+        position,
+        PositionType::Static | PositionType::Relative | PositionType::Sticky
+    );
+    if in_flow && parent.is_none_or(|p| p.style.display == Display::Block) {
+        css.push_str("justify-self:start;");
+    }
+}
+
 /// The element for a node: its type, refined by `semanticTag`. A `<button>`
 /// holds only phrasing content, so there a container — a box, a paragraph,
 /// a heading, a landmark — is a `<span>` with the same style (LLP 1007 §1).
@@ -154,8 +426,8 @@ pub fn tag_of<'a>(node: &NodeFacts<'a>, in_button: bool) -> &'a str {
         return name;
     }
     match element(node) {
-        "div" | "main" | "header" | "nav" | "section" | "footer" | "article" | "aside" | "h1"
-        | "h2" | "h3" | "h4" | "h5" | "h6"
+        "div" | "main" | "header" | "nav" | "section" | "footer" | "article" | "aside" | "hr"
+        | "h1" | "h2" | "h3" | "h4" | "h5" | "h6"
             if in_button =>
         {
             "span"
@@ -198,6 +470,13 @@ pub(super) fn in_button(kernel: &Kernel, node: &NodeRef<'_>) -> bool {
 }
 
 /// The element for a node wherever it is: its type, refined by `semanticTag`.
+/// A URL that leaves the app: an absolute `http(s)` one, or scheme-relative.
+/// A path, or a relative URL, stays in it (the native hosts' rule).
+pub fn leaves_app(href: &str) -> bool {
+    let h = href.trim_start().to_ascii_lowercase();
+    h.starts_with("http:") || h.starts_with("https:") || h.starts_with("//")
+}
+
 fn element(node: &NodeFacts<'_>) -> &'static str {
     if node.node_type == NodeType::TextInput
         && node.props.str(PropId::SemanticTag) == Some("textarea")
@@ -211,6 +490,7 @@ fn element(node: &NodeFacts<'_>) -> &'static str {
     }
     if let Some(t) = node.props.str(PropId::SemanticTag) {
         match t {
+            "time" => return "time",
             "main" => return "main",
             "header" => return "header",
             "nav" => return "nav",
@@ -219,6 +499,9 @@ fn element(node: &NodeFacts<'_>) -> &'static str {
             "article" => return "article",
             "aside" => return "aside",
             "dialog" => return "dialog",
+            // @ref LLP 1021 D1 — HTML's separator, void: the kernel gives it
+            // no children, and its UA rows are the node's own.
+            "hr" => return "hr",
             _ => {}
         }
     }
@@ -281,36 +564,36 @@ fn element(node: &NodeFacts<'_>) -> &'static str {
         NodeType::TextInput => "input",
         NodeType::Pressable => "button",
         NodeType::Control if node.props.str(PropId::Type) == Some("select") => "select",
+        // @ref LLP 1069.011 D8 — a native button is the browser's own.
+        NodeType::Control if node.props.str(PropId::Type) == Some("button") => "button",
+        // An indeterminate progress is a box the page draws a ring in
+        // (LLP 1069.001, amended 2026-10-07): HTML's own draws a bar.
+        NodeType::Control if is_progress(node) => "div",
+        NodeType::Control if is_progress_bar(node) => "progress",
         NodeType::Control => "input",
         NodeType::Canvas => "canvas",
         NodeType::WebView => "iframe",
+        // @ref LLP 1042 §8 — HTML's `audio` is the media node marked so.
+        NodeType::Video if node.props.str(PropId::SemanticTag) == Some("audio") => "audio",
         NodeType::Video => "video",
         // Never created: a head is the page's `<head>` (LLP 1048.003 D1).
         NodeType::Head => "template",
     }
 }
 
-/// A text block's heading level, when it is a heading: `aria-level` with no
-/// other role. HTML's `h1`–`h6` carry levels 1–6 into the accessibility tree
-/// (an `aria-level` on a role-less `div` is ignored); a deeper level is a
-/// `div` with `role="heading"`. `index.html` resets the UA heading styles, so
-/// the box stays a bare div's. The tag is fixed at creation; a level bound
-/// to data that changes later still reaches `aria-level`.
+/// A text block's heading level, when it is a heading: `role="heading"`,
+/// by the kernel's `Props::heading` (LLP 1115.000 D12.5). An `aria-level`
+/// alone makes none, here as on every host: the block stays a `div`, where
+/// Chrome's accessibility tree ignores the level. HTML's `h1`–`h6` carry
+/// levels 1–6 into that tree; a deeper level is a `div` with its
+/// `role="heading"`. `index.html` resets the UA heading styles, so the box
+/// stays a bare div's. The tag is fixed at creation; a level bound to data
+/// that changes later still reaches `aria-level`.
 fn heading_level(node: &NodeFacts<'_>) -> Option<i64> {
     if node.node_type != NodeType::Text || node.is_inline_run() {
         return None;
     }
-    if node
-        .props
-        .str(PropId::AccessibilityRole)
-        .is_some_and(|role| role != "heading")
-    {
-        return None;
-    }
-    match node.props.get(PropId::AccessibilityHeadingLevel) {
-        Some(PropValue::Int(level)) if *level >= 1 => Some(*level),
-        _ => None,
-    }
+    node.props.heading()
 }
 
 /// The filter primitives' tags (LLP 1055.000 D14), as `fe` holds them.
@@ -350,7 +633,45 @@ pub(super) fn css_style<'a>(
     kernel: &Kernel,
     node: &NodeRef<'a>,
 ) -> std::borrow::Cow<'a, exact_kernel::StyleProps> {
-    css_style_of(&|from, id| kernel.resolve_id(from, id), &node.facts())
+    css_style_named(kernel, node, true)
+}
+
+/// [`css_style`], with a platform text style's weight and leading where it
+/// is named (LLP 1115.000 D12.2), which the page's descendants inherit as
+/// CSS does: a `font` shorthand's always, a bare `font-size`'s with `bare`
+/// (the live host, whose kernel sees an ancestor's weight arrive and writes
+/// the node again; the JS target, which keeps no kernel, writes CSS's
+/// nothing for one).
+pub(super) fn css_style_named<'a>(
+    kernel: &Kernel,
+    node: &NodeRef<'a>,
+    bare: bool,
+) -> std::borrow::Cow<'a, exact_kernel::StyleProps> {
+    let style = css_style_of(&|from, id| kernel.resolve_id(from, id), &node.facts());
+    if !bare && !node.names_text_style_through_font() {
+        return style;
+    }
+    with_style_rows(style, node)
+}
+
+/// `style` with the weight and leading a text style named on `node` gives it
+/// (LLP 1115.000 D12.2), for a writer that declares them where it is named.
+pub(super) fn with_style_rows<'a>(
+    mut style: std::borrow::Cow<'a, exact_kernel::StyleProps>,
+    node: &NodeRef<'_>,
+) -> std::borrow::Cow<'a, exact_kernel::StyleProps> {
+    use exact_kernel::StyleId::{FontWeight, LineHeight};
+    if let Some(rows) = node.style_given(FontWeight) {
+        let style = style.to_mut();
+        style.font_weight = rows.font_weight;
+        style.mask.set(FontWeight);
+    }
+    if let Some(rows) = node.style_given(LineHeight) {
+        let style = style.to_mut();
+        style.line_height = rows.line_height;
+        style.mask.set(LineHeight);
+    }
+    style
 }
 
 /// [`css_style`], from a node's facts and its tree's references.
@@ -372,8 +693,8 @@ pub fn css_style_of<'a>(
     if as_attributes.is_empty()
         && !url(&node.style.fill)
         && !url(&node.style.stroke)
-        && node.style.clip_path.url().is_none()
-        && node.style.svg_mask.url().is_none()
+        && node.style.rare.clip_path.url().is_none()
+        && node.style.rare.svg_mask.url().is_none()
         && node.style.filter.is_none()
         && [
             &node.style.marker_start,
@@ -392,9 +713,14 @@ pub fn css_style_of<'a>(
     }
     style.clear(mask);
     // @ref LLP 1055.000 D10 — a clipPath by the id the page gives it.
-    if let Some(target) = style.clip_path.url().and_then(|id| resolve(node.id, id)) {
+    if let Some(target) = style
+        .rare
+        .clip_path
+        .url()
+        .and_then(|id| resolve(node.id, id))
+    {
         if let Some(c) = exact_kernel::clip::ClipPath::parse(&format!("url(#{})", dom_id(target))) {
-            style.clip_path = c;
+            style.rare.clip_path = c;
         }
     }
     // @ref LLP 1055.000 D14 — a filter by the id the page gives it.
@@ -406,8 +732,13 @@ pub fn css_style_of<'a>(
         }
     }
     // @ref LLP 1055.000 D10 — a mask by the id the page gives it.
-    if let Some(target) = style.svg_mask.url().and_then(|id| resolve(node.id, id)) {
-        style.svg_mask = exact_kernel::svg::MarkerRef(Some(dom_id(target).into()));
+    if let Some(target) = style
+        .rare
+        .svg_mask
+        .url()
+        .and_then(|id| resolve(node.id, id))
+    {
+        style.rare.svg_mask = exact_kernel::svg::MarkerRef(Some(dom_id(target).into()));
     }
     // @ref LLP 1055.000 D9 — a marker by the id the page gives it.
     for marker in [
@@ -441,7 +772,7 @@ fn dom_id(view: exact_kernel::ViewId) -> String {
 /// properties; a `mask`'s and a `pattern`'s region is attributes only, as
 /// is a radial gradient's `cx`, `cy` and `r` are attributes
 /// only (LLP 1055.000 D4, D7).
-fn attribute_rows(t: NodeType) -> &'static [(exact_kernel::StyleId, &'static str)] {
+pub fn attribute_rows(t: NodeType) -> &'static [(exact_kernel::StyleId, &'static str)] {
     use exact_kernel::StyleId::*;
     match t {
         NodeType::SvgViewport
@@ -494,6 +825,19 @@ pub fn svg_props_of(
             exact_kernel::RowValue::Dimension(exact_kernel::Dimension::Percent(p)) => {
                 format!("{}%", exact_num::Shortest(p as f64))
             }
+            exact_kernel::RowValue::Dimension(
+                d @ exact_kernel::Dimension::Viewport(
+                    exact_kernel::ViewportUnit::Vw
+                    | exact_kernel::ViewportUnit::Vh
+                    | exact_kernel::ViewportUnit::Vmin
+                    | exact_kernel::ViewportUnit::Vmax,
+                    _,
+                ),
+            ) => {
+                let mut text = String::new();
+                crate::css::dimension(&mut text, d);
+                text
+            }
             _ => continue,
         };
         out.insert((*name).into(), text);
@@ -504,9 +848,42 @@ pub(super) fn props_for(node: &NodeRef<'_>) -> SortedMap<String, String> {
     props_of(&node.facts())
 }
 
+pub(super) fn router_press(props: &mut SortedMap<String, String>, writes: Option<bool>) {
+    if let Some(writes) = writes {
+        props.insert("data-exact-router-press".into(), writes.to_string());
+    } else {
+        props.remove("data-exact-router-press");
+    }
+}
+
 /// [`props_for`], from a node's facts.
 pub fn props_of(node: &NodeFacts<'_>) -> SortedMap<String, String> {
     let mut out = SortedMap::new();
+    // A live `time` the runner formatted shows that text; its children are
+    // the fallback for a host that cannot (docs/reference.md, Live time):
+    // they stay views, hidden (index.html).
+    if node.props.str(PropId::SemanticTag) == Some("time") && node.props.str(PropId::Text).is_some()
+    {
+        out.insert("data-time-shown".into(), String::new());
+    }
+    if node.node_type == NodeType::List {
+        out.insert("data-exact-list".into(), String::new());
+    }
+    // @ref LLP 1104 D8 — shared by live wasm batches, server documents and
+    // the JS target's templates. Lowering keeps excluded editors bare.
+    if node.node_type == NodeType::TextInput
+        && node.style.appearance != exact_kernel::Appearance::None
+    {
+        out.insert("data-native".into(), String::new());
+    }
+    // @ref LLP 1116.007 D4 — `appearance: textfield` drops a number input's
+    // spin buttons: Firefox reads the CSS, Chrome and Safari need their
+    // pseudo-elements told (index.html).
+    if node.node_type == NodeType::TextInput
+        && node.style.appearance == exact_kernel::Appearance::Textfield
+    {
+        out.insert("data-exact-textfield".into(), String::new());
+    }
     if node.style.wrap_flow == exact_kernel::WrapFlow::Both {
         out.insert("data-wrap-flow".into(), "both".into());
     }
@@ -540,32 +917,64 @@ pub fn props_of(node: &NodeFacts<'_>) -> SortedMap<String, String> {
             );
             continue;
         }
+        // @ref LLP 1075.003 §3.3 — the app's words are real attributes.
+        if let (PropId::Dataset, PropValue::Str(json)) = (id, value) {
+            if let Some(dataset) = crate::link::linked().dataset {
+                for (word, value) in dataset(json) {
+                    out.insert("data-".to_owned() + &word, value);
+                }
+            }
+            continue;
+        }
+        if id == PropId::Datetime {
+            if let Some(text) = value.as_float().and_then(datetime_text) {
+                out.insert("datetime".into(), text);
+            }
+            continue;
+        }
         let text = match value {
-            PropValue::Str(s) => s.clone(),
+            PropValue::Str(s) => s.to_string(),
             PropValue::Bool(b) => b.to_string(),
             PropValue::Int(i) => i.to_string(),
+            // LLP 1053.000.000.000 D3: the reserved `-1` is written as `auto`.
+            PropValue::Float(f) if id == PropId::GlassGroup && *f == -1.0 => "auto".into(),
+            PropValue::Float(f) if matches!(id, PropId::Start | PropId::End) => exact_num::js(*f),
             PropValue::Float(f) => crate::css::num(*f as f32),
         };
         let name = match id {
+            // macOS menu hints have no DOM representation.
+            PropId::MenuPlacement | PropId::MenuRemove => continue,
             PropId::Text => "text",
             PropId::Markup => "markup",
+            PropId::Decorations => "data-decorations",
+            PropId::DecorationStyles => "data-decoration-styles",
             PropId::TestId => "data-testid",
             // An image's label is its `alt`: the replaced element's text
             // alternative, shown when it does not load.
             PropId::AccessibilityLabel if node.node_type == NodeType::Image => "alt",
             PropId::AccessibilityLive => "aria-live",
+            PropId::AccessibilityBusy => "aria-busy",
+            PropId::AccessibilityAtomic => "aria-atomic",
             PropId::Autofocus => "autofocus",
             PropId::AccessibilityLabel => "aria-label",
             PropId::AccessibilityKeyShortcuts => "aria-keyshortcuts",
             PropId::AccessibilityRole => "role",
             PropId::AccessibilityHint => "aria-description",
             PropId::AccessibilityOrientation => "aria-orientation",
+            PropId::AccessibilityControls => "aria-controls",
             PropId::AccessibilityHeadingLevel => "aria-level",
             PropId::AccessibilityPosInSet => "aria-posinset",
             PropId::AccessibilitySetSize => "aria-setsize",
+            // @ref LLP 1116 D8 — a range role's value, ARIA's own attributes.
+            PropId::AccessibilityValueNow => "aria-valuenow",
+            PropId::AccessibilityValueMin => "aria-valuemin",
+            PropId::AccessibilityValueMax => "aria-valuemax",
+            PropId::AccessibilityValueText => "aria-valuetext",
             PropId::Placeholder => "placeholder",
             PropId::Type => "type",
             PropId::InputMode => "inputmode",
+            PropId::EnterKeyHint => "enterkeyhint",
+            PropId::Autocomplete => "autocomplete",
             PropId::Autocapitalize => "autocapitalize",
             PropId::Autocorrect => "autocorrect",
             PropId::Spellcheck => "spellcheck",
@@ -579,6 +988,11 @@ pub fn props_of(node: &NodeFacts<'_>) -> SortedMap<String, String> {
             PropId::NavigationBack => "navigationBack",
             PropId::NavigationPresentation => "navigationPresentation",
             PropId::NavigationSource => "navigationSource",
+            PropId::NavigationSplit => "navigationSplit",
+            PropId::EstimatedItemWidth => "data-exact-estimated-item-width",
+            // LLP 1013.000 D7: the shared-element name the JS target's view
+            // transitions pair by.
+            PropId::SharedElement => "data-shared-element",
             PropId::Closedby => "closedby",
             PropId::ContextTarget => "contextTarget",
             PropId::ContextMagnify => "contextMagnify",
@@ -588,13 +1002,29 @@ pub fn props_of(node: &NodeFacts<'_>) -> SortedMap<String, String> {
             PropId::Destructive => "data-destructive",
             PropId::EmojiPicker => "emojiPicker",
             PropId::BackgroundMaterial => "backgroundMaterial",
+            // LLP 1053.000.000 D1: written, read by no rule, drawn nowhere.
+            PropId::GlassGroup => "glassGroup",
             PropId::RetainFocus => "retainFocus",
+            // tvOS's focus guide; a browser's Tab order is sequential.
+            PropId::FocusGuide => continue,
+            // A page cannot style the phone's status bar (LLP 1105 D7).
+            PropId::StatusBarStyle | PropId::StatusBarAnimation => continue,
+            // Read by wakelock-glue.js (LLP 1125 D11).
+            PropId::Wakelock => "data-exact-wakelock",
+            // Read by the JS target's midi.js (LLP 1125 D8): the inputs, newline-joined.
+            PropId::MidiInputs => "data-exact-midiinputs",
             PropId::SwipeIndicator => "swipeIndicator",
-            PropId::Href if text.is_empty() => continue,
+            PropId::Href if node.props.link().is_none() => continue,
             PropId::Href => "href",
+            PropId::Target => "target",
             PropId::Disabled => "disabled",
             PropId::Min => "min",
             PropId::Max => "max",
+            PropId::Datetime => "datetime",
+            PropId::TimeFormat => "data-time-format",
+            PropId::Start => "data-time-start",
+            PropId::End => "data-time-end",
+            PropId::TextReservation => "data-time-reservation",
             PropId::Step => "step",
             PropId::Inert => "inert",
             PropId::Lang => "lang",
@@ -632,10 +1062,25 @@ pub fn props_of(node: &NodeFacts<'_>) -> SortedMap<String, String> {
             PropId::PreventsDisplaySleepDuringVideoPlayback => {
                 "preventsDisplaySleepDuringVideoPlayback"
             }
+            // @ref LLP 1098 D6 — the media session's, which media-glue.js reads.
+            PropId::MediaTitle => "mediaTitle",
+            PropId::MediaArtist => "mediaArtist",
+            PropId::MediaAlbum => "mediaAlbum",
+            PropId::MediaArtwork => "mediaArtwork",
+            PropId::SeekbackwardOffset => "seekbackwardOffset",
+            PropId::SeekforwardOffset => "seekforwardOffset",
 
             PropId::Sandbox => "sandbox",
             PropId::SemanticTag => continue,
             PropId::Checked => "checked",
+            // A radio's group (x2apps survey #2): the browser's own exclusivity and arrows.
+            PropId::Name => "name",
+            PropId::Rows => "rows",
+            PropId::Maxlength => "maxlength",
+            // A file input's own attributes (LLP 1069.002 D1), so the
+            // browser's picker takes the types and the count (gallery F6).
+            PropId::Accept => "accept",
+            PropId::Multiple => "multiple",
             // The Popover API by identity (LLP 1021 D5): the browser owns
             // the top layer, light dismiss, and Escape once these land on
             // the real elements.
@@ -643,12 +1088,30 @@ pub fn props_of(node: &NodeFacts<'_>) -> SortedMap<String, String> {
             PropId::Popover => "popover",
             PropId::Popovertarget => "popovertarget",
             PropId::Popovertargetaction => "popovertargetaction",
+            // LLP 1021 §5.1: the context menu's popover and its preview row,
+            // which the glue opens on `contextmenu` (glue.js).
+            PropId::ContextPopover => "contextpopover",
+            PropId::ContextPreview => "data-context-preview",
             PropId::Commandfor => "commandfor",
             PropId::Command => "command",
             PropId::AccessibilityChecked => "aria-checked",
             PropId::AccessibilitySelected => "aria-selected",
             PropId::AccessibilityExpanded => "aria-expanded",
+            PropId::AccessibilityPressed => "aria-pressed",
+            PropId::AccessibilityDisabled => "aria-disabled",
+            PropId::AccessibilityModal => "aria-modal",
             PropId::AccessibilityElementsHidden => "aria-hidden",
+            PropId::AccessibilityInvalid => "aria-invalid",
+            PropId::AccessibilityDescribedBy => "aria-describedby",
+            PropId::AccessibilityLabelledBy => "aria-labelledby",
+            // HTML's own attribute, so the browser makes the box focusable
+            // (LLP 1088 D7.3); `data-tabindex` would be ignored.
+            PropId::TabIndex => "tabindex",
+            PropId::AccessibilityRequired => "aria-required",
+            PropId::AccessibilityHasPopup => "aria-haspopup",
+            PropId::AccessibilityCurrent => "aria-current",
+            // HTML's global `title`: the browser's own tooltip (studio diary R24).
+            PropId::Title => "title",
             // SVG 2 attributes by their exact (case-sensitive) names (LLP 1055 D1).
             PropId::ViewBox => "viewBox",
             PropId::PreserveAspectRatio => "preserveAspectRatio",
@@ -689,9 +1152,11 @@ pub fn props_of(node: &NodeFacts<'_>) -> SortedMap<String, String> {
             PropId::FeDy => "dy",
             PropId::FeScale => "scale",
             PropId::FeRadius => "radius",
+            PropId::FeOrder => "order",
             PropId::LightX => "x",
             PropId::LightY => "y",
             PropId::LightZ => "z",
+            PropId::ButtonStyle => "data-button-style",
             other if matches!(node.node_type, NodeType::SvgFe | NodeType::SvgFilter) => {
                 other.name()
             }
@@ -705,26 +1170,152 @@ pub fn props_of(node: &NodeFacts<'_>) -> SortedMap<String, String> {
         };
         out.insert(name.to_string(), text);
     }
-    if heading_level(node).is_some_and(|level| level > 6) {
-        out.get_or_insert_with("role".into(), || "heading".into());
-    }
     if node.node_type.scrolls_by_default() {
         out.insert("data-scroll".into(), "true".into());
     }
-    if element(node) == "select" {
-        // A `<select>` is its own kind; its `type` is not an attribute.
+    if matches!(element(node), "select" | "progress") {
+        // A `<select>` and a `<progress>` are their own kinds; `type` is not an attribute.
         out.remove("type");
+    } else if is_progress(node) {
+        out.remove("type"); // The base sheet draws the ring from this mark.
+        out.insert("data-exact-progress".into(), String::new());
     } else if node.node_type == NodeType::Control {
         out.get_or_insert_with("type".into(), || "checkbox".into());
-        // @ref LLP 1069.001 D1 — WebKit's `switch`; a browser without it
-        // draws a checkbox that ARIA still hears as a switch.
+        // @ref LLP 1069.001 D1 — WebKit's `switch`, else drawn by index.html (LLP 1116 D1).
         if node.props.str(PropId::AccessibilityRole) == Some("switch") {
             out.insert("switch".into(), String::new());
+            if node.style.appearance == exact_kernel::Appearance::Auto {
+                out.insert("data-exact-switch".into(), String::new());
+            }
+        }
+        // LLP 1116.001 D1: a date, time or local date-time control takes the
+        // page's field look (index.html) while its appearance is the platform's.
+        if node.style.appearance == exact_kernel::Appearance::Auto
+            && matches!(
+                exact_kernel::ControlKind::of(node.node_type, node.props),
+                Some(
+                    exact_kernel::ControlKind::Date
+                        | exact_kernel::ControlKind::Time
+                        | exact_kernel::ControlKind::DateTimeLocal
+                )
+            )
+        {
+            out.insert("data-exact-field".into(), String::new());
+        }
+    }
+    // @ref LLP 1116.009 D4 — a sheet's bar centres its title (index.html) unless the
+    // author flows its items: a header whose author wrote `justify-content` is named,
+    // as D2's bit names a written row to the neutral look's sheet below.
+    if element(node) == "header"
+        && node
+            .style
+            .written
+            .has(exact_kernel::StyleId::JustifyContent)
+    {
+        out.insert("data-exact-said".into(), "justify-content".into());
+    }
+    // @ref LLP 1115.000 D4 part B — the neutral sheet draws these marks
+    // itself (neutral.css), and reads here what CSS cannot say. A checkbox,
+    // radio, range or file control whose appearance is the platform's is
+    // marked, as a switch and a date field are above: `appearance="none"`
+    // hands the box to the author. And a row the author wrote where the
+    // sheet would draw over an inherited or implied one (D2's bit) is named:
+    // a spinner's own `color`, a grouped list's own ground, and a button's
+    // fill, which hovers in its own ink (LLP 1129 D1; a fill computed at run
+    // time is not seen here).
+    use exact_kernel::{ControlKind, StyleId};
+    let kind = ControlKind::of(node.node_type, node.props);
+    if node.style.appearance == exact_kernel::Appearance::Auto
+        && matches!(
+            kind,
+            Some(
+                ControlKind::Checkbox | ControlKind::Radio | ControlKind::Range | ControlKind::File
+            )
+        )
+    {
+        out.insert("data-exact-control".into(), String::new());
+    }
+    let said = match kind {
+        Some(ControlKind::Progress) => Some((StyleId::TextColor, "color")),
+        _ if node.props.get(PropId::ListStyle).is_some() => {
+            Some((StyleId::BackgroundColor, "background-color"))
+        }
+        _ if element(node) == "button"
+            && node.node_type == NodeType::Pressable
+            && (node.style.background_color)
+                .is_some_and(|c| c.resolve(false).a() != 0 || c.resolve(true).a() != 0) =>
+        {
+            Some((StyleId::BackgroundColor, "background-color"))
+        }
+        _ => None,
+    };
+    if let Some((_, name)) = said.filter(|(id, _)| node.style.written.has(*id)) {
+        out.insert("data-exact-said".into(), name.into());
+    }
+    // @ref LLP 1115.000 D16 — a box whose author wrote its top or its
+    // bottom edge (a width or a style, `none` included) has drawn its
+    // own separator there, or said it has none: where it is a list's
+    // row the sheet draws no line of its own at that edge. It is told
+    // by its own rows, since a node here does not know what holds it.
+    if matches!(
+        node.node_type,
+        NodeType::View | NodeType::Pressable | NodeType::ScrollView | NodeType::Text
+    ) {
+        for (width, line, word) in [
+            (
+                StyleId::BorderWidthTop,
+                StyleId::BorderStyleTop,
+                "border-top",
+            ),
+            (
+                StyleId::BorderWidthBottom,
+                StyleId::BorderStyleBottom,
+                "border-bottom",
+            ),
+            // A grouped row's own background image is where the sheet draws
+            // its separator (LLP 1084 D7).
+            (
+                StyleId::BackgroundImage,
+                StyleId::BackgroundImage,
+                "background-image",
+            ),
+        ] {
+            let channel = width == StyleId::BackgroundImage;
+            if channel && node.props.bool(PropId::GroupedRowSeparator) != Some(true) {
+                continue;
+            }
+            if node.style.written.has(width) || node.style.written.has(line) {
+                let words = match out.get("data-exact-said") {
+                    Some(said) if !said.is_empty() => format!("{said} {word}"),
+                    _ => word.to_string(),
+                };
+                out.insert("data-exact-said".into(), words);
+            }
+        }
+    }
+    // A platform button's floor (neutral.css: 36 px each way, 44 on a
+    // touch device) and its padding are the look's, and a size its
+    // author wrote is the author's. In CSS a minimum outranks a size, so
+    // the sheet is told which of the two were written and steps aside on
+    // that axis.
+    if node.node_type == NodeType::Control && node.props.str(PropId::Type) == Some("button") {
+        let sizes: Vec<&str> = [(StyleId::Width, "width"), (StyleId::Height, "height")]
+            .into_iter()
+            .filter(|(id, _)| node.style.written.has(*id))
+            .map(|(_, name)| name)
+            .collect();
+        if !sizes.is_empty() {
+            out.insert("data-exact-said".into(), sizes.join(" "));
         }
     }
     // A `<button>` submits a form unless it says otherwise; a `button` never does.
     if element(node) == "button" {
         out.get_or_insert_with("type".into(), || "button".into());
+    }
+    // A native button's look, its default named too (LLP 1069.011 D8).
+    if node.node_type == NodeType::Control && node.props.str(PropId::Type) == Some("button") {
+        out.get_or_insert_with("data-button-style".into(), || "bordered".into());
+        out.insert("data-native".into(), String::new());
     }
     if node.node_type == NodeType::Image {
         if let Some(role) = node
@@ -732,16 +1323,55 @@ pub fn props_of(node: &NodeFacts<'_>) -> SortedMap<String, String> {
             .str(PropId::ImageSource)
             .and_then(|s| s.strip_prefix("symbol:"))
         {
-            let symbol = exact_kernel::generated::symbol(role);
-            out.insert(
-                "data-symbol-path".into(),
-                symbol.map(|s| s.1).unwrap_or("").into(),
-            );
-            // A filled role's path is a silhouette, drawn filled, not stroked.
-            if symbol.is_some_and(|s| s.2) {
+            // A role, an icon token's form, or `sf/` a role's Apple name (LLP 1121 D10).
+            let symbol = exact_kernel::symbol_path(role);
+            out.insert("data-symbol-source".into(), format!("symbol:{role}"));
+            match exact_kernel::Icon::parse(role).filter(|i| i.path.is_empty() && !i.svg.is_empty())
+            {
+                // An icon's SVG that is no template: the page draws the file.
+                Some(icon) => {
+                    out.insert("src".into(), format!("assets/{}", icon.svg));
+                    out.insert("data-symbol-file".into(), String::new());
+                }
+                None => {
+                    out.insert(
+                        "data-symbol-path".into(),
+                        symbol.map(|s| s.d).unwrap_or("").into(),
+                    );
+                }
+            }
+            // A filled path is a silhouette, drawn filled, not stroked: a
+            // role's even-odd, an icon's paths each nonzero (`d`s joined by `;`).
+            if symbol.is_some_and(|s| s.filled) {
                 out.insert("data-symbol-fill".into(), String::new());
             }
-            out.insert("alt".into(), String::new());
+            if let Some(s) = symbol.filter(|s| s.filled && !s.even_odd) {
+                out.insert("data-symbol-nonzero".into(), String::new());
+                out.insert("data-symbol-viewbox".into(), s.view_box.into());
+            }
+            // Its author's `color` it draws in, untinted (LLP 1121 stage 9 B; glue.js).
+            if node.symbol_color {
+                out.insert("data-symbol-color".into(), String::new());
+            }
+            // Decorative unless the author named it (`alt`, `aria-label`).
+            if !out.contains_key("alt") {
+                out.insert("alt".into(), String::new());
+            }
+        }
+    }
+    // A link to an absolute URL leaves the app, as natively (the system
+    // browser): a new browsing context, unless the author named a `target`
+    // (chat F11, hn-reader F3). `external` marks the default, which the JS
+    // target's runtime recomputes as a bound `href` changes (rt.js `P`).
+    if element(node) == "a" {
+        match out.get("target").map(String::as_str) {
+            Some("_blank") => _ = out.insert("rel".into(), "noopener".into()),
+            Some(_) => {}
+            None if out.get("href").is_some_and(|h| leaves_app(h)) => {
+                out.insert("target".into(), "_blank".into());
+                out.insert("rel".into(), "external noopener".into());
+            }
+            None => {}
         }
     }
     // A role the element already has natively is left off (ARIA in HTML:
@@ -750,7 +1380,9 @@ pub fn props_of(node: &NodeFacts<'_>) -> SortedMap<String, String> {
     let implicit = match (element(node), out.get("type").map(String::as_str)) {
         ("button", _) => Some("button"),
         ("input", Some("checkbox")) => Some("checkbox"),
+        ("input", Some("radio")) => Some("radio"),
         ("a", _) if out.contains_key("href") => Some("link"),
+        ("progress", _) => Some("progressbar"),
         _ => None,
     };
     if implicit.is_some() && out.get("role").map(String::as_str) == implicit {
@@ -760,11 +1392,90 @@ pub fn props_of(node: &NodeFacts<'_>) -> SortedMap<String, String> {
 }
 
 #[cfg(test)]
-mod name_tests {
-    #[test]
-    fn prop_names_are_ascii() {
-        for prop in exact_kernel::PropId::ALL {
-            assert!(prop.name().is_ascii(), "{}", prop.name());
+#[path = "element_name_tests.rs"]
+mod name_tests;
+
+impl<D: exact_runner::DataSource> super::Host<D> {
+    /// A view's CSS as the page has it: the rows, the host's additions, a
+    /// folded text's (LLP 1007.001) and its paint isolation.
+    pub(crate) fn view_css(&self, node: &exact_kernel::NodeRef<'_>) -> String {
+        let kernel = self.runner.kernel();
+        let m = self.mirror.get(&node.id);
+        let (css, _) = crate::css::css_text(&css_style(kernel, node), &self.font_names);
+        let css = host_css(
+            kernel,
+            node,
+            css,
+            tag_for(node, m.is_some_and(|m| m.in_button)),
+        );
+        let css = folded_css(kernel, node, css, m.is_some_and(|m| m.handled));
+        let handled = |c| self.mirror.get(&c).is_some_and(|m| m.handled);
+        let css = blocks(css, holds_folded(kernel, node, &handled));
+        self.paint_css(node, css)
+    }
+
+    /// Refresh isolation in newly computed or server-cached CSS. An authored
+    /// `isolate` keeps its value; required isolation overrides authored `auto`.
+    pub(super) fn paint_css(&self, node: &NodeRef<'_>, css: String) -> String {
+        if node.style.mask.has(StyleId::Isolation) && !self.layers.isolated(node.id) {
+            return css;
+        }
+        let css = css
+            .split_inclusive(';')
+            .filter(|row| !row.starts_with("isolation:"))
+            .collect();
+        super::layers::with_isolation(css, self.layers.isolated(node.id))
+    }
+
+    /// Refresh child dependencies: text folds (LLP 1007.001), button metrics
+    /// and a progress's width in block flow.
+    pub(super) fn refold(&mut self, id: exact_kernel::ViewId, batch: &mut crate::batch::Batch) {
+        let kernel = self.runner.kernel();
+        let children = kernel.node(id).map(|n| n.children()).unwrap_or_default();
+        // A button's fold reads its parent's rows ([`content_tall`]): a
+        // button child is refolded, and so is the one text it holds.
+        let held = |c: &exact_kernel::ViewId| {
+            let n = kernel
+                .node(*c)
+                .filter(|n| n.node_type == NodeType::Pressable)?;
+            let t = n.children();
+            (t.len() == 1).then(|| t[0])
+        };
+        let texts: Vec<_> = children.iter().filter_map(held).collect();
+        for child in std::iter::once(id).chain(children).chain(texts) {
+            let Some(node) = kernel.node(child) else {
+                continue;
+            };
+            if child != id
+                && !matches!(node.node_type, NodeType::Text | NodeType::Pressable)
+                && !is_progress(&node.facts())
+            {
+                continue;
+            }
+            let css = self.view_css(&node);
+            if let Some(m) = self.mirror.get_mut(&child).filter(|m| m.css != css) {
+                batch.style(child, &css);
+                m.css = css;
+            }
         }
     }
+}
+#[cfg(test)]
+#[path = "element_tests.rs"]
+mod dataset_tests;
+
+fn datetime_text(n: f64) -> Option<String> {
+    if !exact_kernel::time::instant(n) {
+        return None;
+    }
+    let n = n.trunc();
+    let (year, month, day) = exact_num::date::civil((n / 86_400_000.0).floor() as i64);
+    let ms = n.rem_euclid(86_400_000.0) as u64;
+    Some(format!(
+        "{year:04}-{month:02}-{day:02}T{:02}:{:02}:{:02}.{:03}Z",
+        ms / 3_600_000,
+        ms / 60_000 % 60,
+        ms / 1000 % 60,
+        ms % 1000
+    ))
 }

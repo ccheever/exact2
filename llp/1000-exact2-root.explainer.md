@@ -6,7 +6,7 @@
 **Systems:** All
 **Author:** Charlie Cheever / Claude (Fable 5)
 **Date:** 2026-08-28
-**Related:** LLP 1001, LLP 1002, LLP 1003, LLP 1004, LLP 1005, LLP 1006, LLP 1007, LLP 0552, LLP 0491, LLP 0507, LLP 0486
+**Related:** LLP 1001, LLP 1002, LLP 1003, LLP 1004, LLP 1005, LLP 1006, LLP 1007, LLP 1115, LLP 0552, LLP 0491, LLP 0507, LLP 0486
 
 ## Summary
 
@@ -52,6 +52,10 @@ and this one does not. Read them first.
 - `num/` — `exact-num`, number text as std reads it without std's tables
   (a correctly rounded decimal-to-float parse); a leaf under motion, text flow,
   the kernel, the runner and the web host. LLP 1047 §6.
+- `svg-filter/` — `exact-svg-filter`, a resolved SVG filter as a chain of
+  primitives and its flat wire form (LLP 1055.000 D14); a leaf under the kernel,
+  which re-exports it as `svg::filter`, and under `exact-svg-raster`, which
+  therefore does not compile the kernel (LLP 1036.000 §12).
 - `plan/` — `exact-plan`, the plan format: tables, bytecode, and the validating
   decoder, generated from `plan/tables/format.json`. Depends on nothing. LLP 1005.
 - `runner/` — `exact-runner`, the plan runner: the VM, keyed instances, kernel
@@ -65,7 +69,13 @@ and this one does not. Read them first.
   the real DOM, CSS computed once from the kernel's rows, springs lowered to
   frames, a no-`unsafe` ABI, the glue, the headless-Chrome smoke, the motion
   parity harness (`parity.mjs`), and the dev loop (`bun host/web/dev.mjs`:
-  edit `app.contract`, the page restarts in ~20 ms). LLP 1007.
+  edit `app.contract`, the page rebuilds and reloads; `--wasm` is the resident
+  loop that restarts the plan in place in ~20 ms). LLP 1007.
+- `host/web-js/` — the web's default build (LLP 1071): the plan compiled to one
+  ES module over a ~20 KB runtime that drives the DOM directly. `build.mjs`
+  makes it; a game, delivery's oracle and the parity smokes keep `--wasm`.
+- `host/render/` — the render host (LLP 1048): pages pre-rendered per request by
+  a Rust renderer, then adopted in place by the runtime rather than hydrated.
 - `host/apple/` — `exact-apple`, the Apple host: the runner and kernel as a static
   library with a C ABI (`include/exact.h`), the kernel's own layout with CoreText
   measurement through a registered callback, `exact-motion` as the executor, typed
@@ -73,6 +83,13 @@ and this one does not. Read them first.
   UIKit one — the same package shape, run on a simulator — with `swift/` what the
   two share: the bridge, CoreText, the agent's clock, the GPU module's ABI. LLP
   1008 (§9 for iOS).
+- `host/terminal/` — `exact-terminal`, the terminal host (LLP 1101, accepted
+  2026-10-06; built as LLP 1101.000/.001 record): a terminal entry laid out in
+  `ch`/`lh` cells and painted into a cell grid from the kernel tree — inline,
+  settled transcript entries printed once into the terminal's own scrollback
+  and retired, the live tail diffed in place; or full screen. Its own escape
+  writer, `vte` for input, `rustix` for the tty; headless under the agent's
+  verbs. Apps: `apps/harness` (a coding agent) and `apps/todo`.
 - `host/linux/` — `exact-linux`, the Linux host and the first that paints: the
   runner and kernel natively, cosmic-text measuring and painting from one
   paragraph cache, `exact-motion` as the executor, and the kernel tree drawn
@@ -84,17 +101,23 @@ and this one does not. Read them first.
   is the app's executable. LLP 1015.
 - `host/apple-update/`, `host/linux-update/` — optional delivery adapters
   above their hosts (LLP 1030 D4). App bake selects the adapter entry for
-  `L=A`, the core entry for `L=0`; neither core host depends on `exact-update`.
+  `L=A`, the core entry for `L=0`. Neither core host links `exact-update`: an
+  `L=0` binary omits the updater, keys, store and check path.
 - `gpu/` — `exact-gpu`, the GPU canvas (LLP 1009): the `Surface` trait an app's
   GPU crate implements against wgpu, the module that runs surfaces on a device,
   and its ABI — a C ABI for the `dylib` the macOS presenter `dlopen`s, wasm-bindgen
   exports for the wasm the page fetches — both loaded on demand after the first
-  pixel. `apps/caltrain/gpu` is the app's module: the line map.
+  pixel. `apps/caltrain/gpu` is the app's module: the aurora, the glass and the
+  deck. The line map left it for Canvas 2D (LLP 1056), drawn by the data crate.
 - `vendor/taffy/` — Taffy 0.9.2 plus six Exact patches (`EXACT-PATCHES.md`).
-- `scripts/` — `caps` and `boot` (two of the five checks), `metrics` (the startup and
-  speed numbers in one run, diagnostic), and `issue` (filesystem issues, `docs/issues.md`).
-- `skills/`, `.claude/skills/` — the orchestrate skill and the LLP skills (installed
-  from `ccheever/llp@v0.5.1`; receipt in `.llp/skills-receipt.json`).
+- `scripts/` — `caps` and `boot` (two of the six checks), `metrics` (the startup and
+  speed numbers in one run, diagnostic), `issue` (filesystem issues, `docs/issues.md`),
+  and `exact.mjs` (`exact new`, `setup`, `contract`, `run`, `install`).
+- `docs/` — the guides for people and agents building apps: `start-here.md` (the one
+  required read, LLP 1115 D7) and its recipes, then for lookup Contract for agents,
+  for humans, its grammar, the pitfalls, and the developer reference (LLP 1086).
+- `skills/`, `.claude/skills/` — the orchestrate and panel skills from cdcstack, and the
+  LLP skills (installed from `ccheever/llp@v0.5.2`; receipt in `.llp/skills-receipt.json`).
 
 The graph is layered on purpose, and that is the whole modularity story: each
 crate depends on strictly less than the one above it — `plan` and `motion` on
@@ -120,27 +143,45 @@ motion parity harness, the resident dev driver — the same day again, LLP 1007
 operations once in the runner, one export on each ABI, one driver with a carrier
 per host, and the smoke as a script of its operations.)
 
-## The five checks
+## The six checks
 
-`build` · `test` · `lint` · `caps` · `boot`
+`build` · `test` · `lint` · `caps` · `boot` · `workspace`
 
 ```sh
 cargo build --all-targets --keep-going
-cargo test --lib --bins --tests --no-fail-fast
+cargo test --tests --no-fail-fast
 cargo clippy --all-targets --keep-going -- -D warnings; cargo fmt --all -- --check
 bun scripts/caps.mjs
 bun scripts/boot.mjs   # counts the module graph before first pixel: host glue only, no app JS
+cargo check --workspace --all-targets --keep-going   # every crate compiles; the pinned Bun first on PATH
 ```
 
-Cargo's three cover the root `default-members` (deterministic, in-process
-crates); the async lane runs them with `--workspace`, the UIKit XCTests for commits
-under `host/apple`, then `metrics.mjs --long`.
+Cargo's first three cover the root `default-members` (deterministic, in-process
+crates). The sixth (Charlie, 2026-10-12) compiles every crate of the workspace and
+runs none of their tests: on 2026-10-11 `exact-web-js` and `exact-linux`'s tests
+did not compile on `main` while the five passed. App crates' build scripts run
+Bun, so an older one than `package.json` pins fails it. The async lane runs the
+first three with `--workspace`, tests the separate
+`game/Cargo.toml` workspace with `--locked --no-fail-fast`, runs UIKit XCTests, touch smoke
+and the tvOS compile (`build.mjs --tvos --no-install`: no simulator; Charlie, 2026-10-12)
+when the coalesced commit range changes anything outside documentation-only paths
+(`llp/`, `issues/`, `rules/`, `docs/`, `QUEUE.md`, or a `*.md` file). This includes
+separately built modules, build scripts, and fixtures. The lane then runs
+`metrics.mjs --long`.
+Its hourly tier 2 installs tvOS on an Apple TV simulator and cross-compiles the Linux host with every Linux app
+and the Windows host with Windows Desk for their actual targets. Tier 2
+requires those Rust targets, Zig's C and C++ cross compilers and the pinned
+Linux Hermes bundle on the Mac. These
+Cargo checks qualify source compilation only; window presentation, KMS, and
+input devices still require native machines.
 
 ## Durable constraints (from the rules, restated for orientation)
 
-- **The web is the standard.** A semantic that could follow CSS follows CSS —
-  defaults, property names, value vocabularies, behavior. Deviations are declared
-  with a reason (LLP 1001 §1). `AGENTS.md` carries the same rule.
+- **Write the web, ship the platform** (LLP 1115, 2026-10-09; it replaced "the web is
+  the standard" here). Authors write CSS: property names, value vocabularies and
+  layout defaults follow CSS, and a layout deviation is declared with a reason (LLP
+  1001 §1). What the author leaves unsaid that a person can see or feel is the
+  platform's. Author > platform > CSS default. `AGENTS.md` carries the same rule.
 - Delete; don't deprecate. No compat shims before 1.0. Names change.
 - Generated files are built, never committed (`kernel/build.rs` → `OUT_DIR`).
 - 1,500 lines per source file; vendored code exempt.

@@ -85,7 +85,7 @@ impl Game for Layers {
     type Args = ();
     fn setup(w: &mut World, _: &()) {
         w.insert_resource(Environment {
-            background: Some([0.; 3]),
+            background: Some([0.; 3].into()),
             bloom: None,
             fog: None,
             ..Environment::default()
@@ -101,7 +101,7 @@ impl Game for Layers {
             w.spawn((
                 Transform::default().with_scale(if i == 0 { [-1., 1., 1.] } else { [1.; 3] }),
                 Sprite {
-                    color,
+                    color: color.into(),
                     layer,
                     ..Sprite::new("white.tex", [2., 2.])
                 },
@@ -111,7 +111,7 @@ impl Game for Layers {
             w.spawn((
                 Transform::at(x, 0., 0.),
                 Sprite {
-                    color: [1., 1., 1., 0.5],
+                    color: [1., 1., 1., 0.5].into(),
                     alpha: AlphaMode::Mask,
                     cutoff,
                     ..Sprite::new("white.tex", [2., 2.])
@@ -137,7 +137,7 @@ fn equal_depth_uses_layer_then_slot_and_mask_respects_cutoff_with_signed_scale()
         filter: [Filter::Nearest; 3],
         ..TextureData::default()
     });
-    let mut s = WorldSurface::<Layers, crate::ModelPresentation, true>::default();
+    let mut s = WorldSurface::<Layers, crate::ModelExecutor, true>::default();
     s.device_ready(exact_gpu::wgpu::Features::empty());
     s.bind(&[], None).unwrap();
     for _ in 0..4 {
@@ -155,6 +155,7 @@ fn equal_depth_uses_layer_then_slot_and_mask_respects_cutoff_with_signed_scale()
         period_ms: 0.,
         children_generation: 0,
         shader_generation: 0,
+        headroom: 1.0,
     };
     let pixels = fixture::render(&gpu, &mut s, &frame).unwrap().0;
     let [r, g, b, _] = pixels.at(50, 50);
@@ -213,7 +214,7 @@ fn retired_sprite_waits_for_redelivery_and_reuses_identical_texture() {
         mips: vec![vec![255; 4]],
         ..TextureData::default()
     });
-    let mut s = WorldSurface::<Cosmetic, crate::ModelPresentation, true>::default();
+    let mut s = WorldSurface::<Cosmetic, crate::ModelExecutor, true>::default();
     s.device_ready(exact_gpu::wgpu::Features::empty());
     s.bind(&[], None).unwrap();
     assert_eq!(s.assets().requests, ["white.tex"]);
@@ -227,6 +228,7 @@ fn retired_sprite_waits_for_redelivery_and_reuses_identical_texture() {
         period_ms: 0.,
         children_generation: 0,
         shader_generation: 0,
+        headroom: 1.0,
     };
     let before = fixture::render(&gpu, &mut s, &frame).unwrap().0;
     for (name, retired) in [("away.tex", "white.tex"), ("white.tex", "away.tex")] {
@@ -440,7 +442,7 @@ fn same_owner_sprite_then_particle_is_pinned_and_adjacent_sprites_batch() {
         type Args = ();
         fn setup(w: &mut World, _: &()) {
             w.insert_resource(Environment {
-                background: Some([0.; 3]),
+                background: Some([0.; 3].into()),
                 bloom: None,
                 fog: None,
                 ..Default::default()
@@ -449,7 +451,7 @@ fn same_owner_sprite_then_particle_is_pinned_and_adjacent_sprites_batch() {
             w.spawn((
                 Transform::default(),
                 Sprite {
-                    color: [0., 0., 1., 0.5],
+                    color: [0., 0., 1., 0.5].into(),
                     ..Sprite::new("white.tex", [2., 2.])
                 },
                 Emitter {
@@ -483,7 +485,7 @@ fn same_owner_sprite_then_particle_is_pinned_and_adjacent_sprites_batch() {
     let Some(gpu) = crate::test_device::device_or_skip(exact_gpu::fixture::device()) else {
         return;
     };
-    let mut s = WorldSurface::<Mixed, crate::ModelPresentation, true>::default();
+    let mut s = WorldSurface::<Mixed, crate::ModelExecutor, true>::default();
     s.device_ready(exact_gpu::wgpu::Features::empty());
     s.bind(&[], None).unwrap();
     s.assets();
@@ -505,6 +507,7 @@ fn same_owner_sprite_then_particle_is_pinned_and_adjacent_sprites_batch() {
         period_ms: 0.,
         children_generation: 0,
         shader_generation: 0,
+        headroom: 1.0,
     };
     let pixels = fixture::render(&gpu, &mut s, &f).unwrap().0;
     let [r, _, b, _] = pixels.at(50, 50);
@@ -545,8 +548,9 @@ fn same_owner_sprite_then_particle_is_pinned_and_adjacent_sprites_batch() {
     assert_eq!(r.quads.reallocations(), 0);
 }
 
+// The refusal is caught here rather than by `should_panic`, so a Mac without a GPU skips the
+// test instead of failing it for not panicking
 #[test]
-#[should_panic(expected = "particles must prepare before drawing")]
 fn r14_unprepared_particle_draw_names_the_refusal() {
     let Some(gpu) = crate::test_device::device_or_skip(exact_gpu::fixture::device()) else {
         return;
@@ -557,11 +561,72 @@ fn r14_unprepared_particle_draw_names_the_refusal() {
         wgpu::TextureFormat::Rgba8Unorm,
     );
     r.quads.order.push(crate::quads::Order {
-        kind: crate::quads::Kind::Particle(false),
+        viewmodel: false,
+        kind: crate::quads::Kind::Particle(false, u32::MAX, false, false),
         depth: 0.,
         layer: 0,
         slot: 0,
         index: 0,
     });
-    r.quads.order::<false>(&gpu.device, &gpu.queue);
+    let refused = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        r.quads.order::<false>(&gpu.device, &gpu.queue)
+    }))
+    .expect_err("an unprepared particle draw is refused");
+    let message = refused
+        .downcast_ref::<String>()
+        .map(String::as_str)
+        .or_else(|| refused.downcast_ref::<&str>().copied())
+        .unwrap_or_default();
+    assert!(
+        message.contains("particles must prepare before drawing"),
+        "{message}"
+    );
+}
+
+#[test]
+fn soft_looks_without_drawn_particles_keep_one_forward_pass() {
+    let Some(gpu) = crate::test_device::device_or_skip(fixture::device()) else {
+        return;
+    };
+    let mut w = World::new(60, 0);
+    // A soft emitter that has emitted nothing.
+    w.spawn((
+        Transform::default(),
+        Emitter {
+            rate: 0.,
+            ..Default::default()
+        },
+        ParticleLook {
+            soft: 1.,
+            ..Default::default()
+        },
+    ));
+    let mut renderer =
+        crate::Renderer::new(&gpu.device, &gpu.queue, wgpu::TextureFormat::Rgba8Unorm);
+    let mut feed = crate::Feed::default();
+    feed.feed(&w, &mut renderer).unwrap();
+    let texture = gpu.device.create_texture(&wgpu::TextureDescriptor {
+        label: None,
+        size: wgpu::Extent3d {
+            width: 16,
+            height: 16,
+            depth_or_array_layers: 1,
+        },
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format: wgpu::TextureFormat::Rgba8Unorm,
+        usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+        view_formats: &[],
+    });
+    let frame = crate::FrameInput::default();
+    renderer.draw(&texture.create_view(&Default::default()), (16, 16), &frame);
+    assert!(
+        !renderer.quads.soft_active(),
+        "no soft particle drawn: no split"
+    );
+    assert!(
+        !renderer.targets.retained,
+        "the forward depth stays transient"
+    );
 }

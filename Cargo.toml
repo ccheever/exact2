@@ -1,21 +1,33 @@
 [workspace]
-members = ["examples/ios/calendar/data", "examples/ios/calendar/apple", "examples/ios/calendar/web", "examples/macos/calendar/data", "examples/macos/calendar/apple", "examples/macos/calendar/web", "apps/video-player/data", "apps/video-player/apple", "apps/video-player/web", "data/host", "apps/fieldnotes/data", "data", "apps/update-lab/logic", "logic/bake", "apps/caltrain/logic", "logic", "logic/abi", "apps/update-lab/data", "apps/update-lab/web", "apps/update-lab/apple", "kernel", "motion", "plan", "runner", "contract/syntax", "contract/types", "contract/analyze", "contract/lower", "contract/cli", "apps/caltrain", "apps/caltrain/data", "host/web", "host/web-js", "host/web-js/motion", "host/web-capabilities", "host/web-geometry", "host/render", "apps/caltrain/web", "host/apple", "host/apple-update", "apps/caltrain/apple", "host/linux", "host/linux-update", "apps/caltrain/linux", "gpu", "gpu/reflect", "apps/caltrain/gpu", "js", "js/bake", "js/value", "js/web", "update", "filesystem", "apps/fieldnotes/web", "apps/fieldnotes/apple", "apps/markdown/parse", "apps/markdown/data", "apps/markdown/apple", "apps/markdown/web", "apps/llp/data", "apps/llp/apple", "apps/llp/web", "apps/weatherlight/web", "apps/realworld/web", "apps/weatherlight/apple", "apps/weatherlight/gpu", "apps/weatherlight/linux", "apps/typetour/data", "apps/typetour/apple", "apps/typetour/web", "apps/typetour/linux", "apps/interaction-gallery/data", "apps/interaction-gallery/web", "apps/interaction-gallery/apple", "apps/interaction-gallery/linux", "apps/markdown-stress/data", "apps/markdown-stress/web", "apps/markdown-stress/apple", "apps/markdown-stress/linux", "apps/messages-stress/linux", "apps/completion-storm/apple", "apps/completion-storm/linux", "apps/messages-stress/data", "apps/messages-stress/web", "apps/messages-stress/apple", "apps/completion-storm/data", "apps/completion-storm/web", "route", "num", "host/raster", "host/svg-raster", "apps/exact-live/data", "apps/exact-live/web", "apps/exact-live/apple", "apps/exact-live/linux", "apps/textflow/data", "apps/textflow/web", "apps/textflow/apple", "apps/textflow/linux", "textflow", "markdown", "markdown/editor", "apps/reflow/data", "apps/reflow/web", "apps/reflow/apple", "apps/reflow/linux", "bake", "apps/sparkline/data", "apps/sparkline/web", "apps/sparkline/apple", "apps/sparkline/linux", "apps/svg-gallery/data", "apps/svg-gallery/web", "apps/svg-gallery/apple", "apps/svg-gallery/linux", "apps/native-fixture/data", "apps/native-fixture/web", "apps/native-fixture/apple", "apps/native-fixture/linux", "apps/photo-editor/data", "apps/photo-editor/web", "apps/photo-editor/apple", "apps/photo-editor/linux", "apps/map-demo/data", "apps/map-demo/web", "apps/map-demo/apple", "apps/map-demo/linux", "canvas", "apps/canvas-gallery/apple", "apps/canvas-gallery/web", "apps/canvas-gallery/linux", "apps/recorder/web", "apps/recorder/apple", "apps/auth-fixture/web", "apps/auth-fixture/apple", "apps/carousel/data", "apps/carousel/web", "apps/carousel/apple", "apps/carousel/linux", "apps/spark/data", "apps/spark/web", "apps/spark/apple", "apps/spark/linux", "apps/motion-gallery/data", "apps/motion-gallery/web", "apps/motion-gallery/apple", "apps/motion-gallery/linux", "apps/expose/web", "apps/expose/apple", "apps/expose/linux", "canvas/vello"]
+members = ["apps/windows-desk", "examples/calendar/data", "examples/calendar/ios", "examples/calendar/macos", "examples/calendar/web", "grants", "apps/messages/web", "apps/messages/apple", "apps/messages/linux", "apps/shelf/web", "apps/shelf/apple", "apps/shelf/android", "apps/video-player/data", "apps/video-player/apple", "apps/video-player/web", "data/host", "apps/fieldnotes/data", "data", "apps/update-lab/logic", "logic/bake", "apps/caltrain/logic", "logic", "logic/abi", "apps/update-lab/data", "apps/update-lab/web", "apps/update-lab/apple", "kernel", "motion", "plan", "runner", "contract/syntax", "contract/types", "contract/analyze", "contract/lower", "contract/cli", "semantics/difftest", "apps/caltrain", "apps/caltrain/data", "host/web", "host/web-js", "host/web-js/motion", "host/web-capabilities", "host/web-geometry", "host/render", "apps/caltrain/web", "host/apple", "host/apple-update", "apps/caltrain/apple", "host/linux", "host/terminal", "apps/harness/data", "apps/harness/host", "host/windows", "host/linux-update", "apps/caltrain/linux", "apps/caltrain/android", "apps/unsaid/android", "gpu", "gpu/reflect", "apps/caltrain/gpu", "js", "js/bake", "js/value", "js/web", "update", "filesystem", "apps/fieldnotes/web", "apps/fieldnotes/apple", "apps/markdown/parse", "apps/markdown/data", "apps/markdown/apple", "apps/markdown/web", "apps/llp/data", "apps/llp/apple", "apps/llp/web", "apps/llp/terminal", "apps/weatherlight/web", "apps/realworld/web", "apps/weatherlight/apple", "apps/weatherlight/gpu", "apps/weatherlight/linux", "apps/weatherlight/android", "apps/typetour/data", "apps/typetour/apple", "apps/typetour/web", "apps/typetour/linux", "apps/typetour/android", "apps/interaction-gallery/data", "apps/interaction-gallery/web", "apps/interaction-gallery/apple", "apps/interaction-gallery/linux", "apps/markdown-stress/data", "apps/markdown-stress/web", "apps/markdown-stress/apple", "apps/markdown-stress/linux", "apps/messages-stress/linux", "apps/completion-storm/apple", "apps/completion-storm/linux", "apps/messages-stress/data", "apps/messages-stress/web", "apps/messages-stress/apple", "apps/completion-storm/data", "apps/completion-storm/web", "route", "num", "svg-filter", "host/raster", "host/svg-raster", "apps/exact-live/data", "apps/exact-live/web", "apps/exact-live/apple", "apps/exact-live/linux", "apps/textflow/data", "apps/textflow/web", "apps/textflow/apple", "apps/textflow/linux", "textflow", "markdown", "markdown/editor", "apps/reflow/data", "apps/reflow/web", "apps/reflow/apple", "apps/reflow/linux", "bake", "apps/sparkline/data", "apps/sparkline/web", "apps/sparkline/apple", "apps/sparkline/linux", "apps/svg-gallery/data", "apps/svg-gallery/web", "apps/svg-gallery/apple", "apps/svg-gallery/linux", "apps/native-fixture/data", "apps/native-fixture/web", "apps/native-fixture/apple", "apps/native-fixture/linux", "apps/native-fixture/android", "apps/module-fixture/data", "apps/module-fixture/linux", "apps/module-fixture/android", "apps/photo-editor/data", "apps/photo-editor/web", "apps/photo-editor/apple", "apps/photo-editor/linux", "apps/map-demo/data", "apps/map-demo/web", "apps/map-demo/apple", "apps/map-demo/linux", "canvas", "color", "tamber", "apps/canvas-gallery/apple", "apps/canvas-gallery/web", "apps/canvas-gallery/linux", "apps/recorder/web", "apps/recorder/apple", "apps/auth-fixture/web", "apps/auth-fixture/apple", "apps/carousel/data", "apps/carousel/web", "apps/carousel/apple", "apps/carousel/linux", "apps/hello/data", "apps/hello/apple", "apps/activity-fixture/data", "apps/activity-fixture/apple", "apps/theme-fixture/data", "apps/theme-fixture/apple", "apps/theme-fixture/web", "apps/spark/data", "apps/spark/web", "apps/spark/apple", "apps/spark/linux", "apps/motion-gallery/data", "apps/motion-gallery/web", "apps/motion-gallery/apple", "apps/motion-gallery/linux", "apps/expose/web", "apps/expose/apple", "apps/expose/linux", "canvas/vello", "apps/duo-lab/apple", "apps/duo-lab/web", "apps/duo-lab/linux", "apps/color-gallery/apple", "apps/color-gallery/web", "apps/variable-type/apple", "apps/variable-type/web", "apps/variable-type/linux", "apps/variable-type/android", "apps/shared-elements/data", "apps/shared-elements/web", "apps/shared-elements/apple", "apps/shared-elements/linux", "apps/metronome/data", "apps/metronome/web", "apps/metronome/apple", "apps/metronome/linux", "apps/tamber-host/data", "apps/tamber-host/apple", "apps/tamber-host/web", "apps/tamber-host/android", "apps/material-specimens/linux", "apps/material-specimens/android", "host/svg-file"]
 # The blocking gate (rules/RULES.md): deterministic, in-process crates. Hosts,
-# GPU, Hermes, platform shells and stress fixtures run in the async lane,
-# which adds `--workspace` to the same commands.
+# GPU, Hermes, platform shells and stress fixtures are compiled by the gate's
+# sixth check (`cargo check --workspace --all-targets`) and run in the async lane,
+# which adds `--workspace` to the same commands. The web host is here (Charlie,
+# 2026-10-05): warm, its tests add about 5 s at load ~30 (20–35 s under heavy
+# load); its Bun-launching test is the async lane's. So is the Apple host's Rust
+# (Charlie, 2026-10-06), its real-socket, wall-clock and toolchain-launching
+# (Bun, Swift, nested cargo) tests the async lane's.
 default-members = [
-    "examples/ios/calendar/data",
-    "kernel", "motion", "num", "plan", "runner", "route",
+    "host/web",
+    "host/apple",
+    "examples/calendar/data",
+    "grants",
+    "kernel", "motion", "num", "svg-filter", "plan", "runner", "route",
     "contract/syntax", "contract/types", "contract/analyze", "contract/lower", "contract/cli", "bake",
     "markdown", "markdown/editor", "textflow", "update", "data", "logic", "logic/abi",
-    "filesystem", "host/raster", "host/web-js/motion", "host/svg-raster", "js/value", "canvas",
+    "filesystem", "host/raster", "host/web-js/motion", "host/svg-raster", "host/svg-file", "js/value", "canvas", "color", "tamber",
     "apps/caltrain", "apps/caltrain/data", "apps/completion-storm/data", "apps/exact-live/data",
     "apps/fieldnotes/data", "apps/interaction-gallery/data", "apps/llp/data", "apps/markdown/data",
     "apps/markdown/parse", "apps/markdown-stress/data", "apps/textflow/data", "apps/typetour/data",
     "apps/update-lab/data", "apps/video-player/data", "apps/sparkline/data", "apps/svg-gallery/data", "apps/carousel/data", "apps/motion-gallery/data", "apps/spark/data",
+    "apps/shared-elements/data",
+    # The terminal host, an official platform (LLP 1101); its writer tests
+    # run against a terminal emulator (LLP 1101.002 §0 P2).
+    "host/terminal",
 ]
 # Vendored path dependencies are built, not linted or tested here.
-exclude = ["vendor", "snapback4", "apps/messages"]
+exclude = ["vendor", "snapback4"]
 resolver = "2"
 
 [workspace.package]
@@ -27,13 +39,21 @@ license = "MIT"
 # in vendor/taffy/EXACT-PATCHES.md.
 [patch.crates-io]
 taffy = { path = "vendor/taffy" }
-# Pinned 0.19.0, font admission and span reservation fixes; see vendor/cosmic-text/EXACT-PATCHES.md.
-cosmic-text = { path = "vendor/cosmic-text" }
-# wgpu-hal 30.0.1 with two Metal patches (no empty command buffers; a frame's
-# presentations on its submit); see vendor/wgpu-hal/EXACT-PATCHES.md. exact-gpu's
-# build script refuses a workspace without this line.
+# Parley and fontique 0.11.1 plus Exact patches (base direction, font admission,
+# line breaking, soft hyphens, faces described ahead of time); see
+# vendor/parley/EXACT-PATCHES.md and vendor/fontique/EXACT-PATCHES.md.
+parley = { path = "vendor/parley" }
+fontique = { path = "vendor/fontique" }
+# wgpu-hal 30.0.1 with Metal patches (no empty command buffers; a frame's
+# presentations on its submit) and Vulkan ones (a swapchain image's views and
+# framebuffers kept; no PRESENT-to-PRESENT barrier); see
+# vendor/wgpu-hal/EXACT-PATCHES.md. exact-gpu's build script refuses a
+# workspace without this line.
 wgpu-hal = { path = "vendor/wgpu-hal" }
 
+# A production bake for an Apple target says `lto = "fat"` on Cargo's command
+# line (`buildBake`, scripts/app.mjs): 4.8% less binary for 16 s of that build.
+# Not here, because every developer tool builds at `release` too.
 [profile.release]
 opt-level = 3
 lto = "thin"
@@ -47,6 +67,19 @@ panic = "abort"
 [profile.release.build-override]
 strip = false
 
+# A native production build that optimizes for size over speed (LLP 1047.001
+# D9): an app whose manifest says `host.<platform>.optimize: "size"`, and an
+# embed (`host/apple/build.mjs --embed`) unless it says otherwise. The web's
+# choices, natively; its own directory, so an app built for speed and another
+# built for size never rebuild each other.
+[profile.size]
+inherits = "release"
+opt-level = "z"
+lto = "fat"
+
+[profile.size.build-override]
+strip = false
+
 # The wasm shipped to browsers: size over speed (the runner's work is sub-millisecond;
 # every byte is fetch, parse, and compile). `host/web/build.mjs` builds with this and
 # runs `wasm-opt -Oz` on top when binaryen is installed.
@@ -57,46 +90,69 @@ lto = "fat"
 
 [profile.dev]
 opt-level = 0
-debug = true
+# File and line for panics and backtraces, without variables and types for a
+# debugger: a one-line kernel edit rebuilds the workspace's targets in about a
+# third less CPU, and `target/debug` is half the size. For lldb, build with
+# `CARGO_PROFILE_DEV_DEBUG=true`.
+debug = "line-tables-only"
 
-# Keep the CPU rasterizer's per-pixel loops fast during development and tests.
-[profile.dev.package.tiny-skia]
+# Every dependency outside the workspace is optimized, as the game workspace's
+# are: tests spend much of their time in them, and nobody steps through them.
+# That covers the logic sources' wasm interpreter (a test spends a source's
+# whole fuel budget), the CPU rasterizer's per-pixel loops, naga translating
+# vello's shaders for every GPU painter, PNG and image bytes, font discovery and
+# parsing, and the filesystem helper's base64 JSON. Across the heaviest test
+# binaries it saved 16% of their CPU; a cold, uncached build of the Linux host's
+# tests takes 63% more CPU, paid once per dependency change. The workspace's
+# own crates stay unoptimized for debugging, except the four below.
+[profile.dev.package."*"]
 opt-level = 3
 
-# Keep PNG screenshot and image byte loops fast in the same development loop.
-[profile.dev.package.png]
-opt-level = 3
-[profile.dev.package.miniz_oxide]
-opt-level = 3
-[profile.dev.package.crc32fast]
+# Keep number text's own tests fast: they hold its parsing and printing to
+# std's bits over tens of thousands of seeded inputs each.
+[profile.dev.package.exact-num]
 opt-level = 3
 
-# Keep font discovery and parsing fast for headless development and tests.
-[profile.dev.package.fontdb]
-opt-level = 3
-[profile.dev.package.ttf-parser]
+# Keep URL encoding fast: the runner's tests encode strings at the 64 MiB
+# string limit, byte by byte.
+[profile.dev.package.exact-route]
 opt-level = 3
 
 # The tooling filesystem helper carries every dev generation's bytes as
 # base64 JSON; unoptimized, decoding a megabyte is most of an edit's latency.
 [profile.dev.package.exact-filesystem]
 opt-level = 3
-[profile.dev.package.serde_json]
-opt-level = 3
-[profile.dev.package.base64]
+
+# The design server folds each frame of a dragged colour through the whole
+# design (a scrub, LLP 1121 D13): unoptimized, ~6 ms of a 16.7 ms frame on the
+# Bluesky clone; optimized, ~1 ms.
+[profile.dev.package.exact-tamber]
 opt-level = 3
 
-# Development Apple builds (`host/apple/build.mjs` unless the trust is
-# production): release's optimizations without whole-graph LTO, so touching
-# one line of the host rebuilds in seconds (20 s through build.mjs at load
-# 650, against 57–228 s). Startup is ~5% slower and the binary ~1 MB larger
-# than release (Charlie, 2026-09-24); a production bake keeps `release`.
-[profile.apple-dev]
+# Development native builds — an Apple app (`host/apple/build.mjs` unless the
+# trust is production), the Linux host an agent drives (`cargo build --profile
+# host-dev -p caltrain-linux`) and an app's render entry at build time:
+# release's optimizations without whole-graph LTO, so touching one line of a
+# host rebuilds in seconds. Through build.mjs that was 20 s at load 650,
+# against 57–228 s; the Linux host on a Ryzen 3600 rebuilds a touched kernel in
+# 3.4 s, against 102 s at `release`, whose one codegen unit compiles the kernel
+# in 58 s on one core before a 36 s LTO link. Startup is ~5% slower and the
+# binary ~1 MB larger than release (Charlie, 2026-09-24); what ships is baked
+# at `release`. `lto = "off"`, which also drops the thin LTO rustc runs inside
+# each crate, was measured (an M4, 2026-10-04) and not taken: a cold build's
+# Rust is 21% less CPU and a rebuild no faster, while the runner's boot work is
+# 13% slower and the executable 3 MB larger.
+[profile.host-dev]
 inherits = "release"
 lto = false
 codegen-units = 16
 incremental = true
-[profile.apple-dev.build-override]
+# Every dylib of a development build was already built unstripped (Xcode 27's
+# strip, above), each by an override that made its dependencies separate
+# units. Said once here, the archive, the GPU crate and the host's two
+# on-demand modules are one profile, and Cargo compiles what they share once.
+strip = false
+[profile.host-dev.build-override]
 strip = false
 
 # Fast independent business-logic links in the resident development loop.

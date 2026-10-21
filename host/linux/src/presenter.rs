@@ -1,6 +1,5 @@
-//! The presenter: what a painter holds beyond the kernel — scroll offsets,
-//! images, focus, the pointer — and the operations that touch it: frames,
-//! hit-testing, presses, wheels, typing, the clock, screenshots.
+//! The presenter: painter state beyond the kernel — scrolling, images, focus
+//! and the pointer — and operations from frames through input to screenshots.
 //!
 //! @ref LLP 1015 §4; LLP 1010 §3 (scroll chaining: the web's
 //! `overscroll-behavior: auto`); LLP 1012 (the five host-side operations)
@@ -12,7 +11,7 @@
 //! takes in a browser. A wheel goes to the innermost scroll container under
 //! the point that can take its dominant axis, else to the page.
 use crate::gpu::Gpu;
-use crate::host::{Host, HostError};
+use crate::host::{Host, HostError, PlanBytes};
 use crate::image::AssetResolver;
 use crate::image::{Assets, Images};
 use crate::paint::{
@@ -31,17 +30,37 @@ use std::sync::Arc;
 use std::time::Duration;
 use tiny_skia::Pixmap;
 
+pub mod access;
+mod addressed_tap;
+mod ahead;
+mod alert;
 mod arrange;
 mod arrange_geometry;
+mod arrive;
+mod back;
+pub mod bars;
+mod build_channel;
 mod clock;
 mod collection;
+mod commands;
 mod contact;
 mod control;
 mod delivery;
+mod device;
 mod display_frame;
 mod events;
+mod feedback;
+mod field;
+#[cfg(test)]
+mod field_tests;
+mod group;
+mod hatch;
+mod painter;
 mod pan_release;
 mod picker;
+mod pointer;
+mod radio;
+mod range_frame;
 #[cfg(test)]
 mod save_tests;
 mod svg_hit;
@@ -52,33 +71,77 @@ mod content_region;
 #[cfg(test)]
 #[path = "content_region/presenter_tests.rs"]
 mod content_region_tests;
+#[cfg(test)]
+#[path = "content_region/wide_tests.rs"]
+mod content_region_wide_tests;
+#[cfg(any(target_os = "android", test))]
+mod feed;
 mod height;
 mod height_drag;
 #[cfg(test)]
 mod height_drag_tests;
+mod hosted;
 mod images;
-mod preferences;
+mod links;
+mod palette;
+pub mod preferences;
+mod requests;
 mod retained_action;
+mod reveal;
+#[cfg(test)]
+mod scroll_anchor_tests;
+mod scroll_end;
+mod scrollers;
+mod wheel;
+use scroll_end::Completion;
+#[cfg(all(test, not(windows)))]
+mod scroll_end_tests;
+mod shortcuts;
+#[cfg(target_os = "android")]
+pub(crate) mod still;
 mod swipe;
+pub mod top;
 mod transform;
 mod transform_geometry;
 mod typing;
+mod window;
 
 #[cfg(test)]
-#[path = "presenter/collection_tests.rs"]
 mod collection_tests;
-
 #[cfg(test)]
-#[path = "presenter/swipe_tests.rs"]
-mod swipe_tests;
-
-#[cfg(test)]
-#[path = "presenter/events_tests.rs"]
 mod events_tests;
+#[cfg(test)]
+mod kept_rows_tests;
+#[cfg(test)]
+mod spacing_tests;
+#[cfg(test)]
+mod swipe_tests;
+#[cfg(test)]
+mod visibility_tests;
+
+pub use clock::{wall_since, Wall};
+pub use device::{touch_only, Device, Pointing};
+pub use hosted::action as field_action;
+use painter::cpu_info;
+pub(crate) use painter::PainterBoot;
+pub use painter::{set_custom_painter, PainterChoice, PainterFactory, PainterInfo};
+pub(crate) use palette::reported_accent;
+pub use palette::{material, Material, Palette, MATERIAL_ROLES};
+pub use pointer::PointerKind;
+pub use requests::{Haptic, Pick, Request};
+pub use scrollers::{Scroller, Under, PAGE};
+pub use window::{Chrome, Window};
 
 /// The presenter: one host, its painter, and the host state.
 pub struct Presenter<D: DataSource> {
+    /// Scrolled lists whose collection turn waits for the frame (see
+    /// [`Presenter::set_deferred_collections`]); `None` when turns run at once.
+    deferred_collections: Option<Vec<ViewId>>,
     pub(crate) host: Host<D>,
+    /// The scroller the last wheel moved.
+    last_wheel: Option<ViewId>,
+    /// The display's clock while it owns time, given to every host (`clock.rs`)
+    live_clock: Option<clock::Wall>,
     pub(crate) surfaces: crate::surfaces::Surfaces,
     module: Option<crate::delivery::Module>,
     painted: bool,
@@ -87,62 +150,130 @@ pub struct Presenter<D: DataSource> {
     pending_dev: Option<crate::fetch::Generation>,
     pending_update: bool,
     text: Shared,
+    /// A touch down's press, to lay out ahead (`ahead.rs`).
+    ahead: Option<ahead::Ahead>,
     pub(crate) brush: Painter,
     viewport: (f32, f32),
     scroll: BTreeMap<ViewId, (f32, f32)>,
+    scroll_end: scroll_end::State,
     page: (f32, f32),
     images: Images,
     pub(crate) assets: Assets,
     /// The binary's `compat.json` (LLP 1030 D3a), once handed over: a
     /// reload boots a fresh runner, which is told again.
     pub(crate) compat: String,
+    /// How many hosts this presenter has had: a frame sampler starts over
+    /// when another replaces the one it measured (LLP 1079 D3).
+    pub(crate) hosts: u64,
     pub(crate) focus: Option<ViewId>,
+    /// Last connected path from the focused node, for a removal commit.
+    focus_out: Vec<(ViewId, Event)>,
+    /// The current pointer press may yield its focus to a newly mounted field.
+    pub(crate) autofocus_from: Option<ViewId>,
     /// The text field typed into since it took the focus: its `change`
     /// fires on blur or Enter, HTML's commit (LLP 1069.001 D4).
     pub(crate) edited: Option<ViewId>,
+    /// Each text field's selection (x2apps codeedit #2), kept for the value
+    /// it indexes, focused or not: the next key there edits at it.
+    pub(crate) fields: BTreeMap<ViewId, field::FieldMark>,
+    /// The modifier keys held, each side a bit (Shift, Control, Alt, Meta,
+    /// left then right): a `key` event's flags (`KeyboardEvent.shiftKey`…).
+    pub(crate) held: u8,
+    /// The keys whose down a shortcut took at a world's canvas: their up
+    /// belongs to no handler and no world (b6 review B1).
+    pub(crate) shortcut_keys: std::collections::BTreeSet<String>,
     /// Unbound checkboxes' own states, as a browser keeps an uncontrolled
     /// control's (LLP 1069.001 D4); a bound one draws its `checked`.
     pub(crate) controls: BTreeMap<ViewId, bool>,
+    /// A date's, range's or select's choice, or a field's typed text, since
+    /// its bound value last changed, beside that bound value
+    /// (`paint::control::choice`, `field_text`).
+    pub(crate) chosen: BTreeMap<ViewId, (String, String)>,
     /// The select whose menu is open (LLP 1069.001 D7).
     pub(crate) menu: Option<ViewId>,
     autofocus_processed: std::collections::BTreeSet<ViewId>,
+    /// What the focus's following of the route keeps (`arrive.rs`).
+    route_focus: arrive::State,
     pointer: Option<(f32, f32)>,
     /// The nodes with a `hover` handler under the pointer, innermost first.
     hovered: Vec<ViewId>,
+    /// Where the pointer last moved for hover (`hover_at`): a frame that
+    /// moves content under it hovers again there (`follow_pointer`).
+    hover_point: Option<(f32, f32)>,
+    /// The node holding the pointer's `pointerdown` until it lifts: the innermost hearing a pointer event, which hears the moves.
+    pointer_held: Option<exact_kernel::NodeKey>,
+    /// The nodes from the held one up that hear `pointerdown` or
+    /// `pointerup`, innermost first: each hears the up.
+    pointer_path: Vec<exact_kernel::NodeKey>,
+    /// During a pointer or wheel walk, a retired contact is cancelled when it
+    /// ends so no other walk runs inside it ([`Presenter::retire_pointer`]).
+    pointer_walking: bool,
+    /// The held pointer's buttons as DOM counts them: 1 primary, 2 secondary, 4 middle (review b5-b 1).
+    pointer_buttons: u8,
+    pub(crate) pads: crate::surfaces::controls::PadRoute,
     pub(crate) control_bindings: BTreeMap<(u32, u32), crate::surfaces::ControlBinding>,
     pub(crate) control_contact: Option<(ViewId, f32, f32)>,
     boxes: Vec<PaintedBox>,
+    /// Bumped whenever `boxes` is replaced.
+    boxes_serial: u64,
+    /// The fields `rangeFrame` reads, as painted beside `boxes`.
+    ranges: std::rc::Rc<range_frame::Painted>,
     pub(crate) dirty: bool,
-    /// The app's `setScheme` (`None`: follow the system) and the system's
-    /// appearance, which only an agent sets here (LLP 1061 D5).
+    /// The app's `setScheme` (`None`: follow the system) and the appearance
+    /// its shell or an agent says (LLP 1061 D5); light until either does.
     pub(crate) scheme: (Option<bool>, bool),
+    /// The device's settings as its shell last told them (LLP 1115.001 D3.1).
+    device: Option<Device>,
+    /// Pointer kind and drag slop: mouse and shared slop until a shell says (D7.4).
+    pointer_kind: PointerKind,
+    slop: f64,
+    /// The shell's window, its insets, and the page's place in it (D3.3).
+    window: window::State,
+    /// What a shell that scrolls by itself was told of its scrollers (D7.3).
+    reader: scrollers::Reader,
+    /// The colours last painted (D4), and what this asks of its shell (D5).
+    colors: palette::State,
+    requests: requests::State,
+    /// The text fields the shell hosts, as it was told them (D8).
+    hosted: hosted::State,
+    /// The top layer's open surface, where a shell makes windows (D10).
+    top: top::State,
+    alert: Option<alert::Open>,
+    /// The shell's top app bar and navigation bar, where it has them (D11).
+    bars: bars::State,
+    /// The accessibility tree its shell was last told, where one asks (D13).
+    access: access::State,
+    /// The viewport segments the agent set (LLP 1078 D7), for `layout.env`;
+    /// the posture and counts are the runner's.
+    pub(crate) segments: Vec<exact_kernel::Rect>,
     /// A failed painter's blank fallback cannot bless an update generation.
-    last_frame_succeeded: bool,
+    pub(crate) last_frame_succeeded: bool,
     pub(crate) display: display_frame::State,
-    /// Which painter was asked for (`Auto` may change its mind after a
-    /// failed frame).
+    /// Requested painter (`Auto` may change its mind after a failed frame).
     choice: PainterChoice,
-    /// How long the font scan took at boot, milliseconds (the one cost that
-    /// is the machine's, not the app's).
+    /// Boot font-scan milliseconds: the machine's cost, not the app's.
     pub fonts_ms: f64,
     /// The painter, for the report.
     pub painter: PainterInfo,
     /// The executor for a request that leaves the process (LLP 1016 D2).
     executor: crate::executor::Executor,
-    /// Requests whose continuation a source held at dispatch (LLP 1027.002
-    /// D3): released after a later commit, by token.
+    /// Requests held at dispatch, released after a later commit (LLP 1027.002 D3).
     parked: BTreeMap<u64, exact_runner::RequestOut>,
     refusal_turn: bool,
     collection: collection::State,
     contact: Option<contact::Contact>,
     retained_motion: Option<retained_action::MotionPermit>,
     arrange: Option<arrange::State>,
+    group: Option<group::State>,
     transform_geometry: transform_geometry::State,
     /// The update store, once the app opened one (LLP 1026 D9; `app.rs`).
     updates: Option<Box<dyn crate::delivery::Store>>,
     /// The commands the last commits' actions asked for, for the loop that
     /// runs them (`run_commands`).
     commands: Vec<exact_runner::Command>,
+    /// Range replacement selects wait until the action's commands finish.
+    field_select_tasks: Vec<ViewId>,
+    field_change_tasks: std::collections::BTreeSet<ViewId>,
     /// Driven by the agent (`agent.rs`): a `share` is held, never refused
     /// (LLP 1069.003 D6).
     pub(crate) agent: bool,
@@ -153,82 +284,13 @@ pub struct Presenter<D: DataSource> {
     content_registration: Option<crate::content_region::ContentRegionRegistration>,
     last_region_frame: Option<Arc<Pixmap>>,
     last_region_scale: Option<u32>,
+    /// The app's hatches (LLP 1075.003.000.001; `presenter/hatch.rs`).
+    pub(crate) hatches: crate::hatches::Session,
 }
 /// Two decimals, the agent API's precision.
 fn r2(x: f32) -> f64 {
     (x as f64 * 100.0).round() / 100.0
 }
-/// Which backend paints.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum PainterChoice {
-    /// The GPU when there is an adapter, else the CPU with a note on stderr.
-    Auto,
-    /// vello over wgpu; a boot error when there is no adapter.
-    Gpu,
-    /// tiny-skia.
-    Cpu,
-}
-impl PainterChoice {
-    /// `EXACT_PAINTER`: `gpu`, `cpu`, or unset (auto).
-    pub fn from_env() -> PainterChoice {
-        match std::env::var("EXACT_PAINTER").as_deref() {
-            Ok("gpu") => PainterChoice::Gpu,
-            Ok("cpu") => PainterChoice::Cpu,
-            _ => PainterChoice::Auto,
-        }
-    }
-}
-
-/// What the painter is, for the smoke's report.
-#[derive(Debug, Clone)]
-pub struct PainterInfo {
-    /// `"gpu"` or `"cpu"`.
-    pub name: &'static str,
-    /// The adapter and API, on the GPU.
-    pub adapter: Option<String>,
-    /// Device creation, milliseconds, on the GPU.
-    pub device_ms: f64,
-    /// Shader compilation, milliseconds, on the GPU.
-    pub shaders_ms: f64,
-    /// Whether the shaders came from the pipeline cache on disk.
-    pub cached: bool,
-}
-
-fn cpu_info() -> PainterInfo {
-    PainterInfo {
-        name: "cpu",
-        adapter: None,
-        device_ms: 0.0,
-        shaders_ms: 0.0,
-        cached: false,
-    }
-}
-
-fn open_backend(choice: PainterChoice) -> Result<(Box<dyn Backend>, PainterInfo), String> {
-    let cpu = || (Box::new(Raster::new()) as Box<dyn Backend>, cpu_info());
-    match choice {
-        PainterChoice::Cpu => Ok(cpu()),
-        PainterChoice::Gpu | PainterChoice::Auto => match Gpu::new() {
-            Ok(g) => {
-                let info = PainterInfo {
-                    name: "gpu",
-                    adapter: Some(format!("{} ({})", g.adapter, g.api)),
-                    device_ms: g.device_ms,
-                    shaders_ms: g.shaders_ms,
-                    cached: g.cached,
-                };
-                Ok((Box::new(g), info))
-            }
-            Err(e) if choice == PainterChoice::Auto => {
-                // A note, not an error (the smoke reads stderr for errors).
-                eprintln!("painting on the CPU: no GPU ({e})");
-                Ok(cpu())
-            }
-            Err(e) => Err(format!("no GPU: {e}")),
-        },
-    }
-}
-
 impl<D: DataSource> Presenter<D> {
     /// Boot the app under a viewport (points) at a device scale, with its
     /// asset root. The boot error, if any, is reported beside the presenter
@@ -259,24 +321,26 @@ impl<D: DataSource> Presenter<D> {
         assets: PathBuf,
         choice: PainterChoice,
     ) -> Result<(Presenter<D>, Option<String>), HostError> {
-        Self::boot_with_assets(
-            plan,
+        let (mut presenter, error) = Self::boot_with_assets(
+            PlanBytes::Copied(plan),
             data,
             viewport,
             scale,
             Assets::embedded(assets),
-            choice,
+            PainterBoot::selected(choice),
             None,
             "/",
             None,
-        )
+        )?;
+        presenter.measure();
+        Ok((presenter, error))
     }
 
     /// Boot from entry zero or one selected generation. The selected asset
     /// roster is complete: absent names cannot fall through to `root`.
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn boot_selected(
-        plan: &[u8],
+        plan: PlanBytes<'_>,
         data: D,
         viewport: (f32, f32),
         scale: f32,
@@ -285,6 +349,7 @@ impl<D: DataSource> Presenter<D> {
         (compat, delivery): (&str, exact_runner::Delivery),
         launch: &str,
         region: Option<crate::content_region::ContentRegionRegistration>,
+        painter: PainterBoot,
     ) -> Result<(Presenter<D>, Option<String>), HostError> {
         let assets = match selected {
             Some(set) => Assets::selected(root, set),
@@ -296,27 +361,29 @@ impl<D: DataSource> Presenter<D> {
             viewport,
             scale,
             assets,
-            PainterChoice::from_env(),
+            painter,
             Some(delivery),
             launch,
             region,
         )?;
         presenter.compat = compat.to_string();
+        presenter.measure();
         Ok((presenter, error))
     }
 
     #[allow(clippy::too_many_arguments)]
     fn boot_with_assets(
-        plan: &[u8],
+        plan: PlanBytes<'_>,
         data: D,
         viewport: (f32, f32),
         scale: f32,
         assets: Assets,
-        choice: PainterChoice,
+        painter: PainterBoot,
         delivery: Option<exact_runner::Delivery>,
         launch: &str,
         region: Option<crate::content_region::ContentRegionRegistration>,
     ) -> Result<(Presenter<D>, Option<String>), HostError> {
+        let choice = painter.choice;
         if region.is_some() && choice != PainterChoice::Cpu {
             return Err(HostError::Painter(
                 "content-region trial requires explicit CPU painting (EXACT_PAINTER=cpu)".into(),
@@ -327,15 +394,15 @@ impl<D: DataSource> Presenter<D> {
                 .map_err(|e| HostError::Painter(format!("content raster context: {e:?}")))?;
         }
         let t = std::time::Instant::now();
-        let decoded = Plan::decode(plan).map_err(HostError::Plan)?;
+        let decoded = plan.decode().map_err(HostError::Plan)?;
         let text = TextEngine::shared_for_assets(&decoded, &assets);
         if let Some(reason) = assets.take_refusal() {
             return Err(HostError::Asset(reason));
         }
         let fonts_ms = t.elapsed().as_secs_f64() * 1000.0;
-        let (backend, painter) = open_backend(choice).map_err(HostError::Painter)?;
-        let (mut host, error) = Host::boot_at_with_region(
-            plan,
+        let (backend, painter) = painter.open().map_err(HostError::Painter)?;
+        let (mut host, error) = Host::boot_decoded(
+            decoded,
             data,
             Box::new(Measurer(text.clone())),
             viewport.0,
@@ -344,8 +411,12 @@ impl<D: DataSource> Presenter<D> {
             delivery,
             launch,
             region,
+            Some(text.clone()),
         )?;
+        // @ref LLP 1115.000 D10.3 — a hairline is one device pixel of this.
+        let error = error.or(host.set_display_scale(f64::from(scale)));
         let mut images = Images::with_assets(assets.clone());
+        images.fit(viewport, scale);
         if assets.is_selected() {
             if let Some(error) = error {
                 return Err(HostError::Layout(error));
@@ -370,6 +441,7 @@ impl<D: DataSource> Presenter<D> {
             host.log(note.to_string());
         }
         let mut p = Presenter {
+            last_wheel: None,
             host,
             executor,
             parked: BTreeMap::new(),
@@ -379,26 +451,60 @@ impl<D: DataSource> Presenter<D> {
             retained_motion: None,
             transform_geometry: Default::default(),
             arrange: None,
+            group: None,
             brush: Painter::new(text.clone(), scale, backend),
             text,
+            ahead: None,
             viewport,
             scroll: BTreeMap::new(),
+            scroll_end: Default::default(),
             page: (0.0, 0.0),
             images,
             assets,
             compat: String::new(),
+            hosts: 0,
             focus: None,
+            focus_out: Vec::new(),
+            autofocus_from: None,
             edited: None,
+            fields: BTreeMap::new(),
+            held: 0,
+            shortcut_keys: Default::default(),
             controls: BTreeMap::new(),
+            chosen: BTreeMap::new(),
             menu: None,
             autofocus_processed: Default::default(),
+            route_focus: Default::default(),
             pointer: None,
             hovered: Vec::new(),
+            hover_point: None,
+            pointer_held: None,
+            pointer_path: Vec::new(),
+            pointer_walking: false,
+            pointer_buttons: 0,
             control_contact: None,
+            pads: Default::default(),
             control_bindings: BTreeMap::new(),
             boxes: Vec::new(),
+            boxes_serial: 0,
+            ranges: Default::default(),
             dirty: true,
+            deferred_collections: None,
+            live_clock: None,
             scheme: (None, false),
+            device: None,
+            pointer_kind: PointerKind::Mouse,
+            slop: exact_motion::gesture::SLOP,
+            window: Default::default(),
+            reader: Default::default(),
+            colors: Default::default(),
+            requests: Default::default(),
+            hosted: Default::default(),
+            top: Default::default(),
+            alert: None,
+            bars: Default::default(),
+            access: Default::default(),
+            segments: Vec::new(),
             surfaces: Default::default(),
             module: None,
             painted: false,
@@ -413,12 +519,16 @@ impl<D: DataSource> Presenter<D> {
             painter,
             updates: None,
             commands: Vec::new(),
+            field_select_tasks: Vec::new(),
+            field_change_tasks: Default::default(),
             agent: false,
             booting: true,
             content_registration: region,
             last_region_frame: None,
             last_region_scale: None,
+            hatches: Default::default(),
         };
+        p.read_ranges();
         p.set_system_scheme(false);
         let e = p.after_commit();
         p.booting = false;
@@ -428,81 +538,9 @@ impl<D: DataSource> Presenter<D> {
         Ok((p, error.or(e)))
     }
 
-    /// Run the last commits' commands (LLP 1005 §3): delivery belongs to the
-    /// store (LLP 1030 D7); `setScheme` chooses this painter's `light-dark()`
-    /// appearance (LLP 1034 D2); anything else is named.
-    pub fn run_commands(&mut self, mut data: impl FnMut() -> D) {
-        for c in std::mem::take(&mut self.commands) {
-            match c.name.as_str() {
-                "deliveryCheck" => {
-                    if !self.check_update() {
-                        eprintln!("exact update: no store, or a check is already running");
-                    }
-                }
-                "deliveryActivate" => self.pending_update = true,
-                // The app's chosen appearance is what a `light-dark()` colour
-                // resolves to here (LLP 1034 D2); `system` is no override.
-                "setScheme" => self.app_scheme(match c.args.first() {
-                    Some(v) if v.as_str() == Some("dark") => Some(true),
-                    Some(v) if v.as_str() == Some("light") => Some(false),
-                    _ => None,
-                }),
-                "copyText" => eprintln!("exact: copyText unsupported on the headless/DRM host"),
-                // No share sheet here: refused into the journal, or held for
-                // the agent like every host (LLP 1069.003 D6).
-                "share" => {
-                    let share = exact_runner::share::Share::from_args(&c.args);
-                    let runner = self.host.runner_mut();
-                    exact_runner::share::arm(runner, share, c.source, self.agent, false);
-                }
-                // `blur()` drops the focus; `blur(id)` only when that node holds it.
-                "blur" => {
-                    let holds = |name: &str| {
-                        self.focus
-                            .and_then(|id| self.host.kernel().node(id))
-                            .is_some_and(|n| n.props.str(PropId::Id) == Some(name))
-                    };
-                    if match c.args.first().and_then(exact_plan::Value::as_str) {
-                        Some(s) => holds(s),
-                        None => true,
-                    } {
-                        self.blur();
-                    }
-                }
-                "selectText" => eprintln!("exact: selectText unsupported on the headless/DRM host"),
-                // @ref LLP 1069.002 D8 — refused with `cancel`; the agent's
-                // substitute answers (D9).
-                "showPicker" => match c.args.first().and_then(exact_plan::Value::as_str) {
-                    Some(id) => self.show_picker(&id.to_string()),
-                    _ => eprintln!("exact: showPicker requires an element id"),
-                },
-                // @ref LLP 1069.010 D3 — no save panel here: refused with
-                // `cancel`, or held for the agent like every host.
-                "saveFile" => self.save_file(&c.args),
-                // @ref LLP 1069.010 D2 — no picker here either: refused with
-                // `cancel`, or held for the agent.
-                name @ ("showOpenFilePicker" | "showDirectoryPicker" | "showSaveFilePicker") => {
-                    self.document_picker(name, &c.args)
-                }
-                other => eprintln!("exact: unknown command {other}"),
-            }
-        }
-        if self.pending_update {
-            self.pending_update = false;
-            match self.activate_update(data()) {
-                Ok(true) => {}
-                Ok(false) => eprintln!("exact update: nothing is staged"),
-                Err(HostError::PreparingModule) => self.pending_update = true,
-                Err(e) => eprintln!("exact update: activate: {e}"),
-            }
-        }
-    }
-
-    /// The dev loop's restart: boot the new plan with state carried; every
-    /// picture and offset goes, and focus stays at its place (`restore_focus`)
-    /// (LLP 1007 §6).
+    /// The dev loop's restart, state carried; pictures and offsets go, focus stays (LLP 1007 §6).
     pub fn reload(&mut self, plan: &[u8], data: D) -> Result<Option<String>, HostError> {
-        self.reload_module(plan, data, self.module.clone())
+        self.reload_module(plan, data, self.module.clone(), false)
     }
 
     /// Replace a local development pair transactionally, carrying compatible state.
@@ -511,6 +549,7 @@ impl<D: DataSource> Presenter<D> {
         plan: &[u8],
         data: D,
         module: Option<crate::delivery::Module>,
+        let_go: bool,
     ) -> Result<Option<String>, HostError> {
         if self.content_registration.is_some() {
             return Err(HostError::Layout(
@@ -533,6 +572,7 @@ impl<D: DataSource> Presenter<D> {
             &candidate_text,
             &mut carried,
             self.host.runner().delivery(),
+            let_go,
         )?;
         let (mut host, error) = Host::boot_with(
             plan,
@@ -547,7 +587,15 @@ impl<D: DataSource> Presenter<D> {
             return Err(HostError::Layout(error));
         }
         self.restore_time(&mut host)?;
+        let shaders = self
+            .surfaces
+            .prepare_shaders(&self.compat, &self.assets)
+            .map_err(HostError::Asset)?;
+        self.surfaces
+            .commit_shaders(shaders)
+            .map_err(HostError::Asset)?;
         self.host = host;
+        self.replaced();
         if self.display.new_session() {
             self.painted = false;
         }
@@ -563,49 +611,13 @@ impl<D: DataSource> Presenter<D> {
         self.retained_motion = None;
         self.transform_geometry = Default::default();
         self.arrange = None;
-        self.brush.arrange_lift = None;
+        self.group = None;
+        self.brush.lift = Default::default();
         self.page = (0.0, 0.0);
         self.images.reset();
         self.restore_focus(kept);
         let e = self.after_commit();
         Ok(e)
-    }
-
-    /// A restart with carried state (a dev reload, a delivered update)
-    /// replaces the tree. Focus follows the focused node's place in the
-    /// runner's tree — its index among its siblings at each level, and its
-    /// type — and the restarted tree autofocuses nothing; a node mounted
-    /// later still may.
-    fn focus_place(&self) -> Option<(Vec<usize>, NodeType)> {
-        let (kernel, roots) = (self.host.kernel(), self.host.runner().roots());
-        let node_type = kernel.node(self.focus?)?.node_type;
-        let (mut path, mut at) = (Vec::new(), self.focus?);
-        loop {
-            let parent = kernel.node(at)?.parent;
-            let siblings = parent.map_or(Some(roots.clone()), |p| {
-                kernel.node(p).map(|n| n.children())
-            })?;
-            path.push(siblings.iter().position(|&id| id == at)?);
-            let Some(parent) = parent else { break };
-            at = parent;
-        }
-        path.reverse();
-        Some((path, node_type))
-    }
-    fn restore_focus(&mut self, kept: Option<(Vec<usize>, NodeType)>) {
-        let kernel = self.host.kernel();
-        let rows = kernel.rows(None).unwrap_or_default();
-        self.autofocus_processed = rows.iter().map(|r| r.id).collect();
-        let target = kept.and_then(|(path, node_type)| {
-            let (mut ids, mut id) = (self.host.runner().roots(), None);
-            for index in path {
-                let at = *ids.get(index)?;
-                ids = kernel.node(at)?.children();
-                id = Some(at);
-            }
-            id.filter(|&id| kernel.node(id).is_some_and(|n| n.node_type == node_type))
-        });
-        self.focus = target.filter(|&id| self.focusable(id) && !self.host.route_visibility(id).1);
     }
 
     /// The host.
@@ -653,6 +665,11 @@ impl<D: DataSource> Presenter<D> {
         self.focus
     }
 
+    /// Paint again at the next frame (a host whose surface came back).
+    pub fn repaint(&mut self) {
+        self.dirty = true;
+    }
+
     /// Whether the picture is stale.
     pub fn dirty(&self) -> bool {
         self.dirty
@@ -672,13 +689,31 @@ impl<D: DataSource> Presenter<D> {
     }
 
     /// The viewport changed.
+    pub fn resize_scaled(&mut self, width: f32, height: f32, scale: f32) -> Option<String> {
+        if !scale.is_finite() || scale <= 0.0 {
+            return Some("display scale must be finite and positive".into());
+        }
+        self.brush.scale = scale;
+        self.dirty = true;
+        let told = self.host.set_display_scale(f64::from(scale));
+        told.or(self.resize(width, height))
+    }
+
+    /// A display needs another animation or GPU canvas frame.
+    pub fn wants_display_frames(&self) -> bool {
+        self.wants_frames() || self.surfaces.has_rendered_canvas()
+    }
+
+    /// The viewport changed.
     pub fn resize(&mut self, width: f32, height: f32) -> Option<String> {
         let error = self.host.resize(width, height);
         if error.is_some() {
             return error;
         }
         let geometry_changed = self.viewport != (width, height);
+        self.dirty |= geometry_changed;
         self.viewport = (width, height);
+        self.images.fit(self.viewport, self.brush.scale);
         if geometry_changed {
             self.collection.advance_all();
         }
@@ -689,7 +724,7 @@ impl<D: DataSource> Presenter<D> {
     /// offsets stay in range, focus stays on a live input, the picture is
     /// stale.
     pub(crate) fn after_commit(&mut self) -> Option<String> {
-        self.dirty = true;
+        self.dirty |= self.brush.paint_epoch != Some(self.host.kernel().epoch());
         self.finish_commit()
     }
 
@@ -697,8 +732,9 @@ impl<D: DataSource> Presenter<D> {
         let error = self.service_commit();
         self.size_controls();
         self.queue_collections();
-        let refined = self.refine_collections();
+        let refined = crate::traced(c"exact refine collections", || self.refine_collections());
         let geometry = self.refresh_transform_geometry();
+        self.sync_surface();
         error.or(refined).or(geometry)
     }
 
@@ -709,20 +745,34 @@ impl<D: DataSource> Presenter<D> {
     }
 
     fn service_commit(&mut self) -> Option<String> {
+        self.restore_scroll_anchors();
+        self.alert_sync();
         // What the commit asked the host to run goes to the executor (LLP
         // 1016 D2); the reply comes back through `pump`. Its commands wait
         // for the loop (`run_commands`).
+        self.hatches.stale = true;
         // A continuation is dispatched here, on this thread, after the
         // commit that handed it out (LLP 1027.002 D3); one a source holds
         // is parked and released after a later commit.
         self.executor
             .forget(|ticket| self.host.runner().holds(ticket));
         if !self.host.has_ordered_request_refusals() {
-            self.executor.resume_ordered();
+            for (ticket, reason) in self.executor.resume_ordered() {
+                self.host.refuse_request(ticket, reason, true);
+                self.executor.notify();
+            }
         }
         self.cancel_removed_controls();
+        self.forget_replaced_choices();
+        self.sync_field_values();
         let admitted = self.host.grants();
         for r in self.host.take_requests() {
+            // A deadline the surface and auth paths can't keep: the executor
+            // refuses it at admission, fencing later ordered work.
+            if r.request.timeout_refusal().is_some() {
+                self.run_dispatch(r, exact_runner::Dispatch::Missing);
+                continue;
+            }
             if r.request.surface.is_some() {
                 self.surfaces.enqueue(r, &admitted);
                 continue;
@@ -738,10 +788,9 @@ impl<D: DataSource> Presenter<D> {
             let dispatch = match r.request.continuation {
                 Some(token) => self.host.dispatch_work(token),
                 None if r.request.is_native() => self.host.native_work(&r.request),
-                None => {
-                    self.run_dispatch(r, exact_runner::Dispatch::Missing);
-                    continue;
-                }
+                // @ref LLP 1103 D1 — a driver fault fails it before transport.
+                None => (self.host.runner_mut().fault_dispatch(&r))
+                    .unwrap_or(exact_runner::Dispatch::Missing),
             };
             self.run_dispatch(r, dispatch);
         }
@@ -750,12 +799,18 @@ impl<D: DataSource> Presenter<D> {
                 self.run_dispatch(r, dispatch);
             }
         }
+        // Socket frames of the commits that stood (LLP 1016.000 D7).
+        let executor = &self.executor;
+        self.host
+            .runner_mut()
+            .publish_sockets(|batch| executor.socket(batch));
         let commands = self.host.take_commands();
         if !commands.is_empty() {
             self.commands.extend(commands);
             self.executor.notify();
         }
-        let mut error = self.sync_images();
+        let renewed = self.renew();
+        let mut error = renewed.or(self.sync_images());
         if !self.booting {
             error = error.or_else(|| {
                 self.assets
@@ -763,50 +818,21 @@ impl<D: DataSource> Presenter<D> {
                     .map(|reason| format!("selected asset refused: {reason}"))
             });
         }
-        if let Some(f) = self.focus {
-            if self.host.kernel().node(f).is_none() || self.host.route_visibility(f).1 {
-                self.focus = None;
-                self.dirty = true;
-            }
+        // A focusout can synchronously reveal the route this commit hid.
+        self.retire_scroll_ends();
+        let (focus_sent, focus_error) = self.clear_removed_focus();
+        error = error.or(focus_error);
+        if focus_sent {
+            return error;
         }
         self.sync_authored_scroll();
         self.dirty |= self.clamp_scroll();
         self.retire_pointer();
         self.arrange_settled();
         self.dirty |= error.is_some();
-        let live: std::collections::BTreeSet<_> = self
-            .host
-            .kernel()
-            .rows(None)
-            .unwrap_or_default()
-            .iter()
-            .map(|r| r.id)
-            .collect();
-        self.autofocus_processed.retain(|id| live.contains(id));
-        {
-            for id in live {
-                let node = self.host.kernel().node(id).unwrap();
-                if self.autofocus_processed.contains(&id)
-                    || node.props.bool(PropId::Autofocus) != Some(true)
-                    || !self.focusable(id)
-                    || self.host.route_visibility(id).1
-                {
-                    continue;
-                }
-                if !self
-                    .box_of(id)
-                    .is_some_and(|b| b.rect.2 > 0.0 && b.rect.3 > 0.0)
-                {
-                    continue;
-                }
-                self.autofocus_processed.insert(id);
-                if self.focus.is_none() {
-                    self.focus = Some(id);
-                    self.dirty = true;
-                }
-                break;
-            }
-        }
+        // The focus a commit leaves: its `autofocus`, then the route's.
+        error = error.or(self.autofocus());
+        self.arrive();
         error
     }
 
@@ -821,6 +847,8 @@ impl<D: DataSource> Presenter<D> {
                 }
                 Ok(())
             }
+            // A re-ask: settled in its ordered place, no work (LLP 1041 §8.4).
+            exact_runner::Dispatch::Again => self.executor.again(&r),
             exact_runner::Dispatch::Host(_) | exact_runner::Dispatch::Missing => {
                 self.executor.run(r, None)
             }
@@ -851,11 +879,35 @@ impl<D: DataSource> Presenter<D> {
         size
     }
 
+    /// Views commits renewed (LLP 1078) start as new ones: a scroller at its
+    /// start, a picture only of the source its node names.
+    fn renew(&mut self) -> Option<String> {
+        let renewed = self.host.take_renewed();
+        if renewed.is_empty() {
+            return None;
+        }
+        for id in &renewed {
+            self.scroll_end.forget(*id);
+            self.dirty |= self.scroll.remove(id).is_some();
+        }
+        self.renew_scroll_anchors(&renewed);
+        self.hosted_renewed(&renewed);
+        self.hatches.renewed.extend(&renewed);
+        let reports = self.images.renew(self.host.kernel(), &renewed);
+        if reports.is_empty() {
+            return None;
+        }
+        self.dirty = true;
+        self.host.set_intrinsics(reports)
+    }
+
     fn clamp_scroll(&mut self) -> bool {
+        self.restore_scroll_anchors();
         let collection_limits = self.collection_scroll_limits();
         let kernel = self.host.kernel();
         let region = self.host.content_region();
         let mut gone = Vec::new();
+        let mut clamped = Vec::new();
         let mut changed = false;
         for (id, off) in self.scroll.iter_mut() {
             match kernel.node(*id) {
@@ -872,11 +924,17 @@ impl<D: DataSource> Presenter<D> {
                             )
                         })
                         .clamp(*off);
-                    changed |= *off != next;
+                    if *off != next {
+                        clamped.push((*id, *off, next));
+                        changed = true;
+                    }
                     *off = next;
                 }
                 None => gone.push(*id),
             }
+        }
+        for (id, before, after) in clamped {
+            self.rebase_clamped_anchor(id, before, after);
         }
         changed |= !gone.is_empty();
         for id in gone {
@@ -887,6 +945,8 @@ impl<D: DataSource> Presenter<D> {
         let page = self.page;
         self.page.0 = self.page.0.clamp(0.0, (doc.0 - viewport.0).max(0.0));
         self.page.1 = self.page.1.clamp(0.0, (doc.1 - viewport.1).max(0.0));
+        self.rebase_clamped_anchor(PAGE, page, self.page);
+        self.publish_scroll();
         changed || self.page != page
     }
 
@@ -906,6 +966,24 @@ impl<D: DataSource> Presenter<D> {
             .copied()
     }
 
+    /// How far scroll container `id`'s offset travels on each axis (LLP 1012 `rx`/`ry`): the bounds its offset is
+    /// clamped to, as `clamp_scroll` reads them.
+    fn scroll_range(&self, id: ViewId, collection_limits: &BTreeMap<ViewId, f32>) -> (f32, f32) {
+        let kernel = self.host.kernel();
+        let Some(node) = kernel.node(id) else {
+            return (0., 0.);
+        };
+        let bounds = self.display.bounds(kernel, id).unwrap_or_else(|| {
+            self.brush.scroll_bounds(
+                kernel,
+                self.host.content_region(),
+                &node,
+                collection_limits.get(&id).copied(),
+            )
+        });
+        (bounds.max.0.max(0.), bounds.max.1.max(0.))
+    }
+
     /// The agent's `layout`: every node's box in the viewport (scroll
     /// folded in), scroll containers with their offsets, by id. With a
     /// `node`, the runner's explanation of that node (LLP 1035.002 D1) plus
@@ -918,14 +996,36 @@ impl<D: DataSource> Presenter<D> {
         let mut boxes: Vec<PaintedBox> = self.boxes().to_vec();
         boxes.sort_by_key(|b| b.id);
         let mut s = String::new();
-        // LLP 1012 §1: this host has no safe area or software keyboard.
+        // LLP 1012 §1: the insets a device's shell told (`window.rs`; zeros
+        // on a host with none, which has no safe area or software keyboard);
+        // the fold is whatever the agent preferred (LLP 1078 D7).
+        let fold = self.host.runner().viewport().fold;
+        let [top, right, bottom, left, keyboard] = self.env_insets().map(|v| num(r2(v)));
         let _ = write!(
             s,
-            "{{\"clock\":{},\"viewport\":{{\"w\":{},\"h\":{}}},\"env\":{{\"safe-area-inset-top\":0,\"safe-area-inset-right\":0,\"safe-area-inset-bottom\":0,\"safe-area-inset-left\":0,\"keyboard-inset-height\":0}},\"nodes\":[",
+            "{{\"clock\":{},\"viewport\":{{\"w\":{},\"h\":{}}},\"env\":{{\"safe-area-inset-top\":{top},\"safe-area-inset-right\":{right},\"safe-area-inset-bottom\":{bottom},\"safe-area-inset-left\":{left},\"keyboard-inset-height\":{keyboard},\"device-posture\":\"{}\",\"horizontal-viewport-segments\":{},\"vertical-viewport-segments\":{},\"viewport-segments\":[",
             num(clock),
             num(r2(vw)),
-            num(r2(vh))
+            num(r2(vh)),
+            fold.posture.keyword(),
+            fold.cols,
+            fold.rows
         );
+        for (i, r) in self.segments.iter().enumerate() {
+            if i > 0 {
+                s.push(',');
+            }
+            let _ = write!(
+                s,
+                "[{},{},{},{}]",
+                num(r2(r.x)),
+                num(r2(r.y)),
+                num(r2(r.width)),
+                num(r2(r.height))
+            );
+        }
+        s.push_str("]},\"nodes\":[");
+        let limits = self.collection_scroll_limits();
         for (i, b) in boxes.iter().enumerate() {
             if i > 0 {
                 s.push(',');
@@ -940,7 +1040,15 @@ impl<D: DataSource> Presenter<D> {
                 num(r2(b.rect.3))
             );
             if let Some((sx, sy)) = b.scroll {
-                let _ = write!(s, ",\"sx\":{},\"sy\":{}", num(r2(sx)), num(r2(sy)));
+                let (rx, ry) = self.scroll_range(b.id, &limits);
+                let _ = write!(
+                    s,
+                    ",\"sx\":{},\"sy\":{},\"rx\":{},\"ry\":{}",
+                    num(r2(sx)),
+                    num(r2(sy)),
+                    num(r2(rx)),
+                    num(r2(ry))
+                );
             }
             s.push('}');
         }
@@ -992,11 +1100,31 @@ impl<D: DataSource> Presenter<D> {
                 }
                 detail.push(']');
             }
-            let _ = write!(
-                detail,
-                ",\"native\":{{\"unavailable\":true}},\"observed\":{{\"clock\":{}}}}}",
-                num(clock)
-            );
+            detail.push_str(",\"native\":{\"unavailable\":true");
+            if let Some(source) = self
+                .host
+                .runner()
+                .kernel()
+                .node(id)
+                .filter(|n| n.node_type == NodeType::Image)
+                .and_then(|n| n.props.str(PropId::ImageSource))
+                .filter(|s| s.starts_with("symbol:"))
+            {
+                let name = &source[7..];
+                let reason = if name == "sf/" || name.is_empty() {
+                    "empty"
+                } else if !name.starts_with("sf/") && exact_kernel::symbol_path(name).is_none() {
+                    "role"
+                } else {
+                    "platform"
+                };
+                detail.push_str(",\"symbol\":{\"found\":false,\"source\":");
+                quote(source, &mut detail);
+                detail.push_str(",\"name\":");
+                quote(name.strip_prefix("sf/").unwrap_or(name), &mut detail);
+                let _ = write!(detail, ",\"reason\":\"{reason}\"}}");
+            }
+            let _ = write!(detail, "}},\"observed\":{{\"clock\":{}}}}}", num(clock));
             s.push_str(",\"node\":");
             s.push_str(&detail);
         }
@@ -1018,166 +1146,58 @@ impl<D: DataSource> Presenter<D> {
         false
     }
 
-    /// The deepest painted box under a point (viewport points), through
-    /// every clip.
+    /// The deepest painted box under a point (viewport points), through every clip.
     pub fn hit(&mut self, x: f32, y: f32) -> Option<ViewId> {
-        if !self.display.contains(x, y) {
+        self.hit_with_visibility(x, y, false)
+    }
+
+    /// Ordinary mouse releases use current CSS eligibility even before the
+    /// next display flip. Retained regions keep their picture's hit policy.
+    pub(super) fn hit_after_pointerdown(&mut self, x: f32, y: f32) -> Option<ViewId> {
+        self.hit_with_visibility(x, y, true)
+    }
+
+    fn hit_with_visibility(&mut self, x: f32, y: f32, current: bool) -> Option<ViewId> {
+        // Under an open surface of the top layer the page is inert.
+        if !self.display.contains(x, y) || (self.top_open() && self.alert.is_none()) {
             return None;
         }
         self.boxes();
+        self.painted_hit(x, y, current)
+    }
+
+    /// The deepest box of the latest paint under a point, as [`Self::hit`]
+    /// finds it once the boxes are fresh and the page takes a press.
+    pub(super) fn painted_hit(&self, x: f32, y: f32, current: bool) -> Option<ViewId> {
         self.boxes
             .iter()
             .rev()
-            .find(|b| {
-                b.contains(x, y)
+            .filter(|b| {
+                self.alert_allows(b.id)
+                    && b.contains(x, y)
+                    && crate::paint::hits(self.host.kernel(), b, x, y)
                     && !self.host.route_visibility(b.id).1
                     && self.display.allows(self.host.kernel(), b.id)
             })
-            .map(|b| self.svg_hit(b, x, y))
-    }
-
-    /// The agent's `tap`: a press at the node's center through the same
-    /// path a pointer takes.
-    pub fn tap(&mut self, id: ViewId) -> Result<String, String> {
-        self.boxes();
-        if self.host.route_visibility(id).1 || self.placement_hidden(id) {
-            return Err(format!("view {id} is hidden or inert"));
-        }
-        if crate::navigation::popover_invoker(self.host.kernel(), id) {
-            return Err(crate::navigation::POPOVER_UNSUPPORTED.into());
-        }
-        let b = self
-            .box_of(id)
-            .ok_or_else(|| format!("no view {id} on screen"))?;
-        let (x, y) = b.center();
-        let mut hit = self.hit(x, y);
-        while hit.is_some() && hit != Some(id) {
-            hit = hit.and_then(|n| self.host.kernel().node(n).and_then(|n| n.parent));
-        }
-        if hit != Some(id) {
-            return Err(format!(
-                "view {id} is covered or not hit at its projected center"
-            ));
-        }
-        let now = self.host.now();
-        let actual = self.hit(x, y).and_then(|hit| {
-            self.control_target(hit)
-                .or_else(|| self.handler_target(hit, EventKind::Press))
-        });
-        if let Some(actual) = actual.filter(|actual| {
-            *actual != id
-                && !self.drawn_in(*actual, id)
-                && self
-                    .control_target(id)
-                    .or_else(|| self.handler_target(id, EventKind::Press))
-                    != Some(*actual)
-        }) {
-            return Err(format!(
-                "view {id} activates view {actual} at its projected center"
-            ));
-        }
-        let activated = self.press_at(x, y, now);
-        if actual.is_some() && activated.is_none() {
-            return Err(format!("view {id} did not accept activation"));
-        }
-        let id = activated.unwrap_or(id);
-        Ok(format!(
-            "{{\"tapped\":{id},\"at\":[{},{}]}}",
-            num(r2(x)),
-            num(r2(y))
-        ))
-    }
-
-    /// A wheel at a point (the web's sign: a positive `dy` scrolls down).
-    /// A phase-less tick is its own gesture and is not split (LLP 1070 G2,
-    /// Chrome's measured tick): the innermost scroll container under the point
-    /// that can take ANY of its components takes those it can, clamped, and
-    /// the rest is dropped. One that can take none chains to the next scroller
-    /// up, then the page, unless its `overscroll-behavior` is `contain` or
-    /// `none` on an axis the tick moves along: it keeps (drops) the tick.
-    pub fn wheel_at(&mut self, x: f32, y: f32, dx: f32, dy: f32) {
-        if (dx == 0.0 && dy == 0.0) || !self.display.contains(x, y) {
-            return;
-        }
-        if let Err(error) = self.pointer_cancel(self.pointer_now()) {
-            self.host.log(error);
-        }
-        let mut at = self.hit(x, y);
-        let collection_limits = self.collection_scroll_limits();
-        let kernel = self.host.kernel();
-        while let Some(id) = at {
-            let Some(node) = kernel.node(id) else { break };
-            let bounds = self.display.bounds(kernel, id).unwrap_or_else(|| {
-                self.brush.scroll_bounds(
-                    kernel,
-                    self.host.content_region(),
-                    &node,
-                    collection_limits.get(&id).copied(),
-                )
-            });
-            let (ox, oy) = bounds.axes;
-            if ox == Overflow::Scroll || oy == Overflow::Scroll {
-                let max = bounds.max;
-                let off = self.scroll.get(&id).copied().unwrap_or((0.0, 0.0));
-                let takes = |scrolls: bool, d: f32, off: f32, max: f32| {
-                    scrolls
-                        && d != 0.0
-                        && max > 0.0
-                        && ((d > 0.0 && off < max) || (d < 0.0 && off > 0.0))
-                };
-                let take_x = takes(ox == Overflow::Scroll, dx, off.0, max.0);
-                let take_y = takes(oy == Overflow::Scroll, dy, off.1, max.1);
-                if take_x || take_y {
-                    let nx = if take_x {
-                        (off.0 + dx).clamp(0.0, max.0)
-                    } else {
-                        off.0
-                    };
-                    let ny = if take_y {
-                        (off.1 + dy).clamp(0.0, max.1)
-                    } else {
-                        off.1
-                    };
-                    self.scroll.insert(id, (nx, ny));
-                    self.dirty = true;
-                    self.collection_scrolled(id);
-                    if let Some(error) = self.refresh_transform_geometry() {
-                        self.host.log(error);
-                    }
-                    return;
+            .find_map(|b| {
+                let mut hit = *b;
+                if current && !self.brush.region_blocks_action(b.id) {
+                    let node = self.host.kernel().node(b.id)?;
+                    hit.pointer_hit = node
+                        .computed_row(exact_kernel::StyleId::PointerEvents, |s| s.pointer_events)
+                        != exact_kernel::PointerEvents::None
+                        && crate::paint::paints(self.host.kernel(), b.id, None);
                 }
-                // At its edge (or with no travel) along every component the
-                // tick has: a contained axis ends the chain here.
-                let contained = |b: exact_kernel::OverscrollBehavior| {
-                    b != exact_kernel::OverscrollBehavior::Auto
-                };
-                if (dx != 0.0 && contained(node.style.overscroll_behavior_x))
-                    || (dy != 0.0 && contained(node.style.overscroll_behavior_y))
-                {
-                    return;
-                }
-            }
-            at = self.display.parent(kernel, id);
-        }
-        let doc = self.document();
-        let viewport = self.display.viewport().unwrap_or(self.viewport);
-        let max = ((doc.0 - viewport.0).max(0.0), (doc.1 - viewport.1).max(0.0));
-        let next = (
-            (self.page.0 + dx).clamp(0.0, max.0),
-            (self.page.1 + dy).clamp(0.0, max.1),
-        );
-        if next != self.page {
-            self.page = next;
-            self.dirty = true;
-            if let Some(error) = self.refresh_transform_geometry() {
-                self.host.log(error);
-            }
-        }
+                self.svg_hit(&hit, x, y)
+            })
     }
 
     /// The agent's wheel: over the node's center.
     pub fn wheel(&mut self, id: ViewId, dx: f32, dy: f32) -> Result<String, String> {
-        if self.host.route_visibility(id).1 {
+        if !dx.is_finite() || !dy.is_finite() {
+            return Err("wheel needs finite deltas".into());
+        }
+        if !self.alert_allows(id) || self.host.route_visibility(id).1 {
             return Err(format!("view {id} is hidden or inert"));
         }
         let b = self
@@ -1248,19 +1268,23 @@ impl<D: DataSource> Presenter<D> {
             let refined = self.refine_collections();
             return region_error
                 .or(refined)
-                .or(self.refresh_transform_geometry());
+                .or(self.refresh_transform_geometry())
+                .or(self.deliver_scroll_ends());
         }
         let e = self.host.fulfill_all(outcomes, now_ms);
         let after = self.after_commit();
-        region_error.or(e).or(after)
+        let ends = self.deliver_scroll_ends();
+        region_error.or(e).or(after).or(ends)
     }
 
     /// The executor's wake: readable when a reply is queued (for `poll`).
+    #[cfg(unix)]
     pub fn executor_fd(&self) -> std::os::unix::io::RawFd {
         self.executor.fd()
     }
 
     /// Metadata, decode completion or changed budget demand wakes an idle display.
+    #[cfg(unix)]
     pub fn image_fd(&self) -> std::os::unix::io::RawFd {
         self.images.wake_fd()
     }
@@ -1270,10 +1294,46 @@ impl<D: DataSource> Presenter<D> {
         self.host.runner().has_pending()
     }
 
+    /// Another host took over: it is measured as the last was, and counted.
+    pub(crate) fn replaced(&mut self) {
+        self.read_ranges();
+        self.scroll_end = Default::default();
+        self.give_clock();
+        // A new kernel may have the same epoch.
+        self.brush.paint_epoch = None;
+        // A new runner reuses view ids and node keys: an unbound control's
+        // own state, a choice or typed text (LLP 1069.001 D4), an edit to
+        // commit, a caret, an open menu, a hover or a held pointer is not
+        // its tree's, as Apple's reset and the web's rebuilt page have it.
+        self.chosen.clear();
+        self.controls.clear();
+        self.edited = None;
+        self.fields.clear();
+        self.menu = None;
+        self.hovered.clear();
+        self.pointer_held = None;
+        self.pointer_path.clear();
+        self.hatch_reset();
+        self.top_replaced();
+        self.wakelock_replaced();
+        self.hosts += 1;
+        self.measure();
+    }
+
+    /// Measure the work of every binary but a production one (LLP 1079
+    /// D1), once its compat is known: the runner boots measuring nothing.
+    pub(crate) fn measure(&mut self) {
+        let on = !exact_runner::delivery::production(&self.compat);
+        self.host.runner_mut().measure(on, true);
+        // The live table is development's too (LLP 1121 stage 4).
+        self.host.runner_mut().admit_live(Some(&self.compat));
+    }
+
     /// The binary's delivery facts (LLP 1030 D7), from its `compat.json`:
     /// a `delivery` resource is answered again, and the picture follows.
     pub fn set_delivery_from_compat(&mut self, json: &str) -> Option<String> {
         self.compat = json.to_string();
+        self.measure();
         let e = self.host.set_delivery_from_compat(json);
         let after = self.after_commit();
         e.or(after)
@@ -1284,7 +1344,9 @@ impl<D: DataSource> Presenter<D> {
         let (e, paint) = self.host.advance_effects(now_ms);
         self.dirty |= paint;
         let after = self.finish_commit();
-        e.or(after)
+        self.hatch_timers(now_ms);
+        let ends = self.deliver_scroll_ends();
+        e.or(after).or(ends)
     }
 
     /// A display frame for the frame tasks (LLP 1073 D5): timers due by
@@ -1293,12 +1355,21 @@ impl<D: DataSource> Presenter<D> {
         let (e, paint) = self.host.frame(now_ms);
         self.dirty |= paint;
         let after = self.finish_commit();
-        e.or(after)
+        self.hatch_presented(now_ms);
+        let ends = self.deliver_scroll_ends();
+        e.or(after).or(ends)
     }
 
     /// A motion frame.
     pub fn tick(&mut self, now_ms: f64) {
+        let animating = self.host.motion()
+            || self.arrange.is_some()
+            || self.group.is_some()
+            || self.focus.is_some()
+            || self.brush.moving();
         if self.host.tick(now_ms) {
+            self.hatches.stale = true;
+            self.dirty = true;
             self.clamp_scroll();
             self.queue_collections();
             if let Some(error) = self.refresh_transform_geometry() {
@@ -1306,7 +1377,10 @@ impl<D: DataSource> Presenter<D> {
             }
         }
         self.tick_arrange(self.host.now());
-        self.dirty = true;
+        if let Some(error) = self.deliver_scroll_ends() {
+            self.host.log(error);
+        }
+        self.dirty |= animating;
     }
 
     /// The pixels, as a PNG at `path`.
@@ -1329,14 +1403,24 @@ impl<D: DataSource> Presenter<D> {
     pub fn rect_of(&mut self, id: ViewId) -> Option<Rect4> {
         self.box_of(id).map(|b| b.rect)
     }
-
     /// A scroll container's offset.
     pub fn scroll_of(&self, id: ViewId) -> (f32, f32) {
         self.scroll.get(&id).copied().unwrap_or((0.0, 0.0))
     }
-
     /// How many nodes are live.
     pub fn node_count(&self) -> usize {
         self.host.kernel().live_count()
     }
+}
+
+/// Whether `id` is live and reachable from a root (in [`Kernel::rows`]).
+fn attached(kernel: &exact_kernel::Kernel, id: ViewId) -> bool {
+    let mut at = kernel.node(id);
+    while let Some(node) = at {
+        if node.is_root {
+            return true;
+        }
+        at = node.parent.and_then(|p| kernel.node(p));
+    }
+    false
 }

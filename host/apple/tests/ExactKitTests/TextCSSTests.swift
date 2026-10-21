@@ -2,10 +2,46 @@
 // without `line-clamp`, and `tabular-nums`, as the browser renders them.
 import XCTest
 import CoreText
+import CExact
 @testable import ExactKit
 
 final class TextCSSTests: XCTestCase {
     let engine = TextEngine(resolve: { _ in nil })
+
+    func testRuntimeInstalledFamiliesSelectTheirOwnFacesAndWidths() throws {
+        guard !TextEngine.installedFaces("Arial").isEmpty,
+              !TextEngine.installedFaces("Menlo").isEmpty else { throw missing("fonts", "Arial or Menlo unavailable") }
+        let engine = TextEngine(resolve: { _ in nil })
+        let arial = Array("Arial".utf8), menlo = Array("Menlo".utf8)
+        arial.withUnsafeBufferPointer { a in
+            menlo.withUnsafeBufferPointer { m in
+                var rows = [ExactFontFace(), ExactFontFace()]
+                rows[0].family = a.baseAddress; rows[0].family_len = a.count; rows[0].stack = 8
+                rows[1].family = m.baseAddress; rows[1].family_len = m.count; rows[1].stack = 9
+                rows.withUnsafeMutableBufferPointer { buffer in
+                    var catalog = ExactFontCatalog()
+                    catalog.faces = UnsafePointer(buffer.baseAddress); catalog.count = buffer.count
+                    withUnsafePointer(to: &catalog) { engine.install($0) }
+                }
+            }
+        }
+        let a = engine.font(size: 20, weight: 400, family: 8, italic: false) as CTFont
+        let m = engine.font(size: 20, weight: 400, family: 9, italic: false) as CTFont
+        XCTAssertEqual(CTFontCopyFamilyName(a) as String, "Arial")
+        XCTAssertEqual(CTFontCopyFamilyName(m) as String, "Menlo")
+        let text = "The quick brown fox 0123456789"
+        let width = { (font: CTFont) in CTLineGetTypographicBounds(
+            CTLineCreateWithAttributedString(NSAttributedString(string: text, attributes: [.font: font])), nil, nil, nil) }
+        XCTAssertNotEqual(width(a), width(m))
+    }
+
+    func testHTMLMaxlengthCountsUTF16AndAllowsDeletingAnAuthoredLongValue() {
+        let props = ["maxlength": "3"]
+        XCTAssertEqual(TextInputLimit.prefix("a😀b", props: props), "a😀")
+        XCTAssertFalse(TextInputLimit.allows("abc", range: NSRange(location: 3, length: 0), replacement: "d", props: props))
+        XCTAssertTrue(TextInputLimit.allows("long authored", range: NSRange(location: 4, length: 1), replacement: "", props: props))
+        XCTAssertEqual(TextInputLimit.prefix("12345", props: ["type": "number", "maxlength": "3"]), "12345")
+    }
 
     private func run(_ text: String, numeric: Int = 0) -> Run {
         Run(text: text, size: 16, weight: 400, family: 0, italic: false, lineHeight: nil, letterSpacing: 0, numeric: numeric)
@@ -138,6 +174,147 @@ final class TextCSSTests: XCTestCase {
         }
     }
 
+    /// A declared variable face draws at its declared weight on the `wght`
+    /// axis, as a browser draws an `@font-face` (the Bluesky clone's Inter,
+    /// whose first named instance is Thin); a static face is left as it is.
+    func testADeclaredVariableFaceTakesItsWeightOnTheAxis() throws {
+        let fonts = URL(fileURLWithPath: #filePath).deletingLastPathComponent().appendingPathComponent("../../../../")
+        let inter = try Data(contentsOf: fonts.appendingPathComponent("host/apple/tests/fonts/InterVariable.ttf").standardized)
+        let first = (CTFontManagerCreateFontDescriptorsFromData(inter as CFData) as! [CTFontDescriptor])[0]
+        func wght(_ d: CTFontDescriptor) -> Double? {
+            (CTFontCopyVariation(CTFontCreateWithFontDescriptor(d, 16, nil)) as? [NSNumber: NSNumber])?[0x77676874 as NSNumber]?.doubleValue
+        }
+        XCTAssertEqual(wght(first), 100, "the file's first named instance is Thin")
+        // CoreText leaves an axis at its default (Inter's 400) out of the variation.
+        XCTAssertEqual(wght(TextEngine.declaredFace(first, weight: 400)) ?? 400, 400)
+        XCTAssertEqual(wght(TextEngine.declaredFace(first, weight: 600)), 600)
+        XCTAssertEqual(wght(TextEngine.declaredFace(first, weight: 1000)), 900, "clamped to the axis")
+        let dejavu = try Data(contentsOf: fonts.appendingPathComponent("scripts/fixtures/fonts/assets/DejaVuSans.ttf").standardized)
+        let plain = (CTFontManagerCreateFontDescriptorsFromData(dejavu as CFData) as! [CTFontDescriptor])[0]
+        XCTAssertTrue(TextEngine.declaredFace(plain, weight: 700) === plain)
+        // Through registration: one file declared at 400 and 600, as an app's
+        // `font "Inter"` block does, draws each weight on the axis.
+        let engine = TextEngine(resolve: { _ in nil }, read: { _ in inter })
+        let family = Array("Inter".utf8), source = Array("inter.ttf".utf8)
+        family.withUnsafeBufferPointer { f in
+            source.withUnsafeBufferPointer { src in
+                var faces = [400, 600].map { w -> ExactFontFace in
+                    var face = ExactFontFace()
+                    face.family = f.baseAddress; face.family_len = f.count
+                    face.source = src.baseAddress; face.source_len = src.count
+                    face.stack = 8; face.weight = UInt16(w); face.italic = 0
+                    return face
+                }
+                faces.withUnsafeMutableBufferPointer { rows in
+                    var catalog = ExactFontCatalog()
+                    catalog.faces = UnsafePointer(rows.baseAddress); catalog.count = rows.count
+                    withUnsafePointer(to: &catalog) { engine.install($0) }
+                }
+            }
+        }
+        func drawn(_ weight: Int) -> Double? {
+            (CTFontCopyVariation(engine.font(size: 16, weight: weight, family: 8, italic: false) as CTFont) as? [NSNumber: NSNumber])?[0x77676874 as NSNumber]?.doubleValue
+        }
+        XCTAssertEqual(drawn(400) ?? 400, 400)
+        XCTAssertEqual(drawn(600), 600)
+        XCTAssertEqual(drawn(700), 600, "700 matches the 600 face, drawn at its declared weight")
+    }
+
+    /// LLP 1019 D9: `font-variation-settings` draws after the weight, the
+    /// width and the size, each axis it names winning; `font-stretch` on a
+    /// platform face is its `wdth`, as Chrome and WebKit set San Francisco's.
+    func testFontVariationSettingsWinAndAPlatformFaceStretches() throws {
+        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().appendingPathComponent("../../../../")
+        let flex = try Data(contentsOf: root.appendingPathComponent("host/linux/tests/fonts/RobotoFlex-subset.ttf").standardized)
+        let engine = TextEngine(resolve: { _ in nil }, read: { _ in flex })
+        let family = Array("Flex".utf8), source = Array("flex.ttf".utf8)
+        family.withUnsafeBufferPointer { f in
+            source.withUnsafeBufferPointer { src in
+                var face = ExactFontFace()
+                face.family = f.baseAddress; face.family_len = f.count
+                face.source = src.baseAddress; face.source_len = src.count
+                face.stack = 8; face.weight = 100; face.weight_max = 1000
+                face.stretch_min = 250; face.stretch_max = 1510; face.italic = 0
+                var catalog = ExactFontCatalog()
+                withUnsafePointer(to: &face) { row in
+                    catalog.faces = row; catalog.count = 1
+                    withUnsafePointer(to: &catalog) { engine.install($0) }
+                }
+            }
+        }
+        func tag(_ s: String) -> UInt32 { s.utf8.reduce(0) { $0 << 8 | UInt32($1) } }
+        func width(_ family: Int, _ weight: Int, _ stretch: CGFloat, _ axes: [FontAxis] = []) -> CGFloat {
+            let font = engine.font(size: 48, weight: weight, family: family, italic: false, stretch: stretch, variations: axes)
+            let line = CTLineCreateWithAttributedString(NSAttributedString(string: "EXACT", attributes: [.font: font]))
+            return CGFloat(CTLineGetTypographicBounds(line, nil, nil, nil))
+        }
+        XCTAssertEqual(width(8, 700, 100, [FontAxis(tag: tag("wdth"), value: 50)]), width(8, 700, 50))
+        XCTAssertEqual(width(8, 700, 100, [FontAxis(tag: tag("wght"), value: 300)]), width(8, 300, 100))
+        XCTAssertEqual(width(8, 700, 100, [FontAxis(tag: tag("GRAD"), value: 150)]), width(8, 700, 100), "a grade keeps the advances")
+        // system-ui (stack 0): San Francisco's `wdth` is the stretch.
+        XCTAssertLessThan(width(0, 400, 75), width(0, 400, 100))
+        XCTAssertLessThan(width(0, 400, 100), width(0, 400, 125))
+        XCTAssertEqual(width(0, 400, 75), width(0, 400, 100, [FontAxis(tag: tag("wdth"), value: 75)]))
+    }
+
+    /// LLP 1019 D2, D8: a face declared over a weight range and a width range
+    /// draws each request on `wght` and `wdth`, clamped to the ranges, as a
+    /// browser draws an `@font-face` with range descriptors; matching treats
+    /// a range as its value nearest the request (CSS Fonts 4 §5.2).
+    func testADeclaredRangeDrawsEachWeightAndWidthOnTheAxes() throws {
+        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().appendingPathComponent("../../../../")
+        let flex = try Data(contentsOf: root.appendingPathComponent("host/linux/tests/fonts/RobotoFlex-subset.ttf").standardized)
+        let engine = TextEngine(resolve: { _ in nil }, read: { _ in flex })
+        let family = Array("Flex".utf8), source = Array("flex.ttf".utf8)
+        family.withUnsafeBufferPointer { f in
+            source.withUnsafeBufferPointer { src in
+                var face = ExactFontFace()
+                face.family = f.baseAddress; face.family_len = f.count
+                face.source = src.baseAddress; face.source_len = src.count
+                face.stack = 8; face.weight = 100; face.weight_max = 1000
+                face.stretch_min = 250; face.stretch_max = 1510; face.italic = 0
+                var catalog = ExactFontCatalog()
+                withUnsafePointer(to: &face) { row in
+                    catalog.faces = row; catalog.count = 1
+                    withUnsafePointer(to: &catalog) { engine.install($0) }
+                }
+            }
+        }
+        // CoreText reports no variation for this file's fonts, so each is
+        // measured against the file drawn at explicit axes.
+        let file = (CTFontManagerCreateFontDescriptorsFromData(flex as CFData) as! [CTFontDescriptor])[0]
+        func line(_ font: CTFont) -> CGFloat {
+            let line = CTLineCreateWithAttributedString(NSAttributedString(string: "EXACT", attributes: [.font: font]))
+            return CGFloat(CTLineGetTypographicBounds(line, nil, nil, nil))
+        }
+        func width(_ weight: Int, _ stretch: CGFloat) -> CGFloat {
+            line(engine.font(size: 48, weight: weight, family: 8, italic: false, stretch: stretch) as CTFont)
+        }
+        func reference(wght: Double, wdth: Double, opsz: Double = 48) -> CGFloat {
+            let axes: [NSNumber: NSNumber] = [0x77676874: wght as NSNumber, 0x77647468: wdth as NSNumber, 0x6f70737a: opsz as NSNumber]
+            let d = CTFontDescriptorCreateCopyWithAttributes(file, [kCTFontVariationAttribute: axes] as CFDictionary)
+            return line(CTFontCreateWithFontDescriptor(d, 48, nil))
+        }
+        XCTAssertEqual(width(650, 75), reference(wght: 650, wdth: 75))
+        XCTAssertEqual(width(1000, 200), reference(wght: 1000, wdth: 151), "clamped to the declared range")
+        XCTAssertNotEqual(reference(wght: 650, wdth: 75), reference(wght: 650, wdth: 75, opsz: 14),
+                          "opsz is the size, as `font-optical-sizing: auto` sets it")
+        XCTAssertLessThan(width(700, 50), width(700, 100))
+        XCTAssertLessThan(width(700, 100), width(700, 125))
+        XCTAssertLessThan(width(300, 100), width(900, 100))
+
+        let regular = RegisteredFace(family: "Flex", generic: nil, weight: 400, italic: false, descriptor: file)
+        let ranged = RegisteredFace(family: "Flex", generic: nil, weights: 500...900, stretches: 100...100, italic: false, descriptor: file)
+        XCTAssertEqual(TextEngine.matched([regular, ranged], weight: 750, italic: false).weights, 500...900)
+        XCTAssertEqual(TextEngine.matched([regular, ranged], weight: 420, italic: false).weights, 500...900,
+                       "for 420, weights up to 500 come before lighter ones")
+        XCTAssertEqual(TextEngine.matched([regular, ranged], weight: 380, italic: false).weights, 400...400)
+        let condensed = RegisteredFace(family: "Flex", generic: nil, weights: 400...400, stretches: 75...75, italic: false, descriptor: file)
+        XCTAssertEqual(TextEngine.matched([regular, condensed], weight: 400, italic: false, stretch: 80).stretches, 75...75,
+                       "at or below normal width, narrower faces come first")
+        XCTAssertEqual(TextEngine.matched([regular, condensed], weight: 400, italic: false, stretch: 110).stretches, 100...100)
+    }
+
     func testEllipsisEndsAnOverWideLineOnlyWhereItPaints() {
         var s = spec([run("a nowrap label that is much wider than its box")], whiteSpace: 2)
         s.ellipsis = true
@@ -201,4 +378,19 @@ final class TextCSSTests: XCTestCase {
         XCTAssertEqual(node.inlineLink(at: hit), "https://example.com")
     }
     #endif
+
+    /// A clamp's last line wider than its box, one word longer than the
+    /// line, ends in "…" as UILabel's tail truncation does (notes at the
+    /// largest text size, round 22: "Packing" ran over the row's time);
+    /// layout keeps the word's width, as CSS measures it.
+    func testLineClampTruncatesAWordLongerThanItsLastLine() {
+        let clamped = Spec(runs: [run("Packing")], align: 0, lineClamp: 1, color: [0, 0, 0, 255])
+        let natural = engine.paragraph(clamped, width: .infinity).width
+        let p = engine.paragraph(clamped, width: natural / 2)
+        XCTAssertNotNil(p.clampedRange)
+        XCTAssertLessThanOrEqual(CTLineGetTypographicBounds(p.lines[0], nil, nil, nil), Double(natural / 2) + 0.5)
+        XCTAssertEqual(p.width, natural, accuracy: 1.0 / 64)
+        // One that fits takes no ellipsis.
+        XCTAssertNil(engine.paragraph(clamped, width: natural + 1).clampedRange)
+    }
 }

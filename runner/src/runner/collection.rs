@@ -11,6 +11,32 @@ impl<D: DataSource> Runner<D> {
             .map(Tree::collections)
             .unwrap_or_default()
     }
+    /// Each mounted list's view, data generation and axis ([`Tree::collection_data`]).
+    pub fn collection_data(&self) -> Vec<(ViewId, u64, bool)> {
+        self.tree
+            .as_ref()
+            .map(Tree::collection_data)
+            .unwrap_or_default()
+    }
+    /// One list's entry of [`Runner::collections`].
+    pub fn collection(&self, view: ViewId) -> Option<CollectionSnapshot> {
+        self.tree.as_ref().and_then(|tree| tree.collection(view))
+    }
+    /// [`Tree::collection_mounted`].
+    pub fn collection_mounted(&self, view: ViewId, out: &mut Vec<(ViewId, u64)>) {
+        out.clear();
+        if let Some(tree) = &self.tree {
+            tree.collection_mounted(view, out);
+        }
+    }
+    /// [`Runner::collections`] with only each list's first mounted row
+    /// ([`Tree::collections_shallow`]).
+    pub fn collections_shallow(&self) -> Vec<CollectionSnapshot> {
+        self.tree
+            .as_ref()
+            .map(Tree::collections_shallow)
+            .unwrap_or_default()
+    }
     /// Bound borrowed traversal and count all collections/rows before copying
     /// numeric host snapshots. No keys, records or action frames are captured.
     pub fn collections_bounded(
@@ -81,15 +107,36 @@ impl<D: DataSource> Runner<D> {
         let mut tree = self.tree.take().expect("booted");
         let mut ids = std::mem::take(&mut self.ids);
         let result = {
+            let cell_margins = |view| super::collection::cell_margins(&self.kernel, view);
+            let scroll_margin = |view| scroll_margin(&self.kernel, view);
+            let scroll_padding = |view| scroll_padding(&self.kernel, view);
             let mut update = Update::new(self.env(&[], &[]), &self.sites, &mut ids);
+            update.fonts = Some(self.fonts.clone());
+            update.reuse = self.reuse;
+            update.scroll_padding = Some(&scroll_padding);
+            update.scroll_margin = Some(&scroll_margin);
+            if self.kernel.arena().env().cell_spaces {
+                update.cell_margins = Some(&cell_margins);
+            }
             tree.update_collection(&mut update, feedback, fill)
-                .map(|changed| (changed, update.ops, update.surfaces, update.notes))
+                .map(|changed| {
+                    (
+                        changed,
+                        update.ops,
+                        update.surfaces,
+                        update.notes,
+                        update.renewed,
+                        update.shown,
+                    )
+                })
         };
         self.tree = Some(tree);
         self.ids = ids;
         let ((changed, edge), ops, surfaces) = match result {
-            Ok((changed, ops, surfaces, notes)) => {
+            Ok((changed, ops, surfaces, notes, renewed, shown)) => {
                 self.notes = notes;
+                self.renewed = renewed;
+                self.shown.extend(shown);
                 (changed, ops, surfaces)
             }
             Err(error) => {
@@ -105,8 +152,16 @@ impl<D: DataSource> Runner<D> {
             receipts: Vec::new(),
             now_ms: self.now_ms,
             error: None,
+            stopped_on_request: false,
         };
-        if changed || !ops.is_empty() {
+        // A row that showed with animations waiting on it is a commit of its
+        // own when the report changed nothing else (LLP 1055 D13).
+        let revealed = self
+            .shown
+            .revealed
+            .iter()
+            .any(|v| self.kernel.is_awaiting(*v));
+        if changed || !ops.is_empty() || revealed {
             match self.apply(ops) {
                 Ok(receipt) => {
                     self.publish_surfaces(surfaces);
@@ -121,6 +176,29 @@ impl<D: DataSource> Runner<D> {
                 }
             }
         }
+        // @ref LLP 1010 — a list on a route its stack keeps covered (a deep
+        // link's root, a feed under a thread) is hidden and inert: its edge
+        // waits, armed, for the route to show, so nothing is asked for a
+        // screen the reader has not seen (`release_held_edges`).
+        let edge = match edge {
+            Some(edges) if self.inactive(view) => {
+                let tree = self.tree.as_mut().expect("booted");
+                tree.rearm_collection_edge(view, edges.first);
+                if !self.held_edges.contains(&view) {
+                    self.held_edges.push(view);
+                    let name = if edges.first == EventKind::Reachstart {
+                        "reachstart"
+                    } else {
+                        "reachend"
+                    };
+                    self.log(format!(
+                        "{name} view {view} waits: its list is on a covered route; it is offered when the route shows"
+                    ));
+                }
+                None
+            }
+            edge => edge,
+        };
         if let Some(edges) = edge {
             let mut end_after_noop = edges.end_after_noop;
             for (position, event) in [edges.first, EventKind::Reachend].into_iter().enumerate() {
@@ -146,7 +224,7 @@ impl<D: DataSource> Runner<D> {
                     break;
                 }
                 let first_ticket = self.next_ticket;
-                match self.dispatch_edge(view, event) {
+                match self.arrived(|r| r.dispatch_edge(view, event)) {
                     Ok((receipt, changed)) => {
                         result.receipts.push(Timed {
                             at_ms: self.now_ms,
@@ -179,7 +257,70 @@ impl<D: DataSource> Runner<D> {
                 }
             }
         }
+        result.now_ms = self.now_ms;
         Ok(result)
+    }
+    /// List `view`'s port is at `offset` (from its first row, as a report's):
+    /// the rows mounted out of the port that now show stop holding what
+    /// waits for them (LLP 1055 D13), in a commit of their own. No report:
+    /// the window and its rows stay the last report's, for a host that
+    /// waits for more travel before its next one.
+    pub fn collection_shown(&mut self, view: ViewId, offset: f64) -> Result<Advanced, RunnerError> {
+        if self.poisoned {
+            return Err(RunnerError::Poisoned);
+        }
+        let mut result = Advanced {
+            receipts: Vec::new(),
+            now_ms: self.now_ms,
+            error: None,
+            stopped_on_request: false,
+        };
+        if !offset.is_finite() {
+            return Ok(result);
+        }
+        let mut tree = self.tree.take().expect("booted");
+        let mut ids = std::mem::take(&mut self.ids);
+        let shown = {
+            let mut update = Update::new(self.env(&[], &[]), &self.sites, &mut ids);
+            update.fonts = Some(self.fonts.clone());
+            tree.show_collection(&mut update, view, offset);
+            update.shown
+        };
+        self.tree = Some(tree);
+        self.ids = ids;
+        self.shown.extend(shown);
+        if (self.shown.revealed.iter()).any(|v| self.kernel.is_awaiting(*v)) {
+            match self.apply(Vec::new()) {
+                Ok(receipt) => result.receipts.push(Timed {
+                    at_ms: self.now_ms,
+                    receipt,
+                }),
+                Err(error) => {
+                    self.poison();
+                    return Err(error);
+                }
+            }
+        }
+        Ok(result)
+    }
+    /// After an ordinary commit: a list whose edge waited under a covered
+    /// route asks its host for a report once the route shows, which offers
+    /// the edge it reaches then.
+    pub(super) fn release_held_edges(&mut self) -> Result<(), RunnerError> {
+        for view in std::mem::take(&mut self.held_edges) {
+            if !self.tree.as_ref().expect("booted").has_collection(view) {
+                continue;
+            }
+            if self.inactive(view) {
+                self.held_edges.push(view);
+            } else {
+                self.tree
+                    .as_mut()
+                    .expect("booted")
+                    .wake_collection_edge(view)?;
+            }
+        }
+        Ok(())
     }
     /// Called once per ordinary commit, after settlement. Follow targets across
     /// continuation tickets, discard unmounted owners, and wake each ready edge
@@ -259,4 +400,87 @@ impl EdgeState {
                         .any(|((ak, av), (bk, bv))| ak != bk || !equivalent(av, bv))
             })
     }
+}
+
+impl<D: DataSource> Runner<D> {
+    /// After a batch applies (LLP 1055 D13): the views it renewed, taken.
+    pub(super) fn settle_shown(
+        &mut self,
+        shown: crate::instance::collection::shown::RowsShown,
+        receipt: &mut exact_kernel::CommitReceipt,
+    ) -> Vec<ViewId> {
+        // Rows that showed stop holding their animations, and rows mounted
+        // out of their port start to, before a host hears the commit.
+        let renewed = std::mem::take(&mut self.renewed);
+        for view in shown.revealed {
+            // A row bound again where it shows is heard as new (`renewed`),
+            // which starts it: only a row that stayed is named revealed.
+            if self.kernel.reveal(view) && !renewed.contains(&view) {
+                receipt.revealed.extend(self.kernel.arena().key_of(view));
+            }
+        }
+        for view in shown.awaiting {
+            self.kernel.await_view(view);
+        }
+        renewed
+    }
+}
+
+/// `view`'s `scroll-padding`, top, right, bottom, left, in points, as its
+/// committed style resolves it now ([`Update::scroll_padding`]): `env()` and a
+/// computed value resolved.
+pub(super) fn scroll_padding(kernel: &exact_kernel::Kernel, view: ViewId) -> [f64; 4] {
+    let Some(node) = kernel.node(view) else {
+        return [0.0; 4];
+    };
+    let env = kernel.arena().env();
+    let r = &node.style.rare;
+    let sides = [
+        r.scroll_padding_top,
+        r.scroll_padding_right,
+        r.scroll_padding_bottom,
+        r.scroll_padding_left,
+    ];
+    std::array::from_fn(|i| match sides[i].resolve(env) {
+        exact_kernel::Dimension::Points(n) => f64::from(on_grid(env, n, CELLS[i])),
+        _ => 0.0,
+    })
+}
+
+/// Each side's cell, top, right, bottom, left.
+const CELLS: [f32; 4] = {
+    use exact_kernel::style::cells::{COLUMN, ROW};
+    [ROW, COLUMN, ROW, COLUMN]
+};
+
+/// A scroll length as a terminal lays its spaces out: whole cells under its
+/// space rule (LLP 1121 stage 11 (c)), so a keyed jump stays on the rows.
+fn on_grid(env: &exact_kernel::Env, px: f32, cell: f32) -> f32 {
+    match env.cell_spaces {
+        true => exact_kernel::style::cells::space(px, cell),
+        false => px,
+    }
+}
+
+/// A row root's margins as the kernel laid them out (whole cells under a
+/// terminal's space rule), for a keyed list jump.
+pub(super) fn cell_margins(kernel: &exact_kernel::Kernel, view: ViewId) -> [f64; 4] {
+    kernel
+        .laid_margins(view)
+        .map_or([0.0; 4], |m| m.map(f64::from))
+}
+
+/// The expanded target box used by a keyed list jump.
+pub(super) fn scroll_margin(kernel: &exact_kernel::Kernel, view: ViewId) -> [f64; 4] {
+    let Some(node) = kernel.node(view) else {
+        return [0.0; 4];
+    };
+    let (env, r) = (kernel.arena().env(), &node.style.rare);
+    let sides = [
+        r.scroll_margin_top,
+        r.scroll_margin_right,
+        r.scroll_margin_bottom,
+        r.scroll_margin_left,
+    ];
+    std::array::from_fn(|i| f64::from(on_grid(env, sides[i].at_basis(env, 0.0), CELLS[i])))
 }

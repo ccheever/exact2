@@ -1,4 +1,4 @@
-//! Drag timelines in Contract (LLP 1057.003 D1, D4): `drag-timeline`,
+//! Drag timelines in Contract (LLP 1057.003 D1, D4): `-exact-drag-timeline`,
 //! `animation-timeline`, `animation-range` and `timeline-scope` reach the
 //! kernel's rows, the siblings' name resolves through the scope, and a
 //! timeline drives paint rows only (Q1): a bound animation whose keyframes
@@ -18,7 +18,7 @@ impl DataSource for NoData {
     }
 }
 
-const APP: &str = "keyframes fade\n  from opacity=1\n  to opacity=0 background-color=\"#000\"\ncomponent App\n  state zoom = 1\n  action zoomIn writes zoom\n    zoom = 2\n  view\n    column testId=\"clip\" timeline-scope=\"--dismiss\"\n      box testId=\"backdrop\" animation=(zoom == 1 ? \"fade 1s linear both\" : \"none\") animation-timeline=\"--dismiss\" animation-range=\"0 300px\"\n      box testId=\"photo\" drag-timeline=\"--dismiss\" translate=\"0px 0px\"\n      button testId=\"zoom\" press=zoomIn\n        text \"2×\"\n";
+const APP: &str = "keyframes fade\n  from opacity=1\n  to opacity=0 background-color=\"#000\"\ncomponent App\n  state zoom = 1\n  action zoomIn\n    zoom = 2\n  view\n    column testId=\"clip\" timeline-scope=\"--dismiss\"\n      box testId=\"backdrop\" animation=(zoom == 1 ? \"fade 1s linear both\" : \"none\") animation-timeline=\"--dismiss\" animation-range=\"0 300px\"\n      box testId=\"photo\" -exact-drag-timeline=\"--dismiss\" translate=\"0px 0px\"\n      button testId=\"zoom\" press=zoomIn\n        text \"2×\"\n";
 
 #[test]
 fn the_rows_reach_the_kernel_and_a_computed_animation_keeps_its_binding() {
@@ -39,7 +39,7 @@ fn the_rows_reach_the_kernel_and_a_computed_animation_keeps_its_binding() {
             .clone()
     };
     assert_eq!(
-        style(&r, "photo").drag_timeline,
+        style(&r, "photo").rare.drag_timeline,
         DragTimeline {
             name: Some("--dismiss".into()),
             axis: Axis::Y
@@ -47,13 +47,13 @@ fn the_rows_reach_the_kernel_and_a_computed_animation_keeps_its_binding() {
     );
     let backdrop = style(&r, "backdrop");
     assert_eq!(
-        backdrop.animation_timeline,
+        backdrop.rare.animation_timeline,
         AnimationTimeline(Some("--dismiss".into()))
     );
     assert_eq!(backdrop.animation_range, AnimationRange(Some([0.0, 300.0])));
     assert_eq!(backdrop.animation.0[0].name, "fade");
     assert_eq!(
-        style(&r, "clip").timeline_scope,
+        style(&r, "clip").rare.timeline_scope,
         TimelineScope::Names("--dismiss".into())
     );
     // The backdrop and the photo are siblings: the clip's scope finds it.
@@ -81,7 +81,7 @@ fn the_rows_reach_the_kernel_and_a_computed_animation_keeps_its_binding() {
     let backdrop = style(&r, "backdrop");
     assert!(backdrop.animation.0.is_empty(), "zoomed, nothing follows");
     assert_eq!(
-        backdrop.animation_timeline,
+        backdrop.rare.animation_timeline,
         AnimationTimeline(Some("--dismiss".into()))
     );
 }
@@ -136,8 +136,11 @@ fn a_timeline_drives_paint_rows_only() {
 #[test]
 fn a_row_outside_its_grammar_is_refused_by_name() {
     for (attr, says) in [
-        ("drag-timeline=\"dismiss\"", "drag-timeline"),
-        ("drag-timeline=\"--dismiss z\"", "drag-timeline"),
+        ("-exact-drag-timeline=\"dismiss\"", "-exact-drag-timeline"),
+        (
+            "-exact-drag-timeline=\"--dismiss z\"",
+            "-exact-drag-timeline",
+        ),
         ("animation-timeline=\"scroll()\"", "animation-timeline"),
         ("animation-range=\"0% 100%\"", "animation-range"),
         ("timeline-scope=\"--a --b\"", "timeline-scope"),

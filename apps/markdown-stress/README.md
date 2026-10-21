@@ -57,8 +57,8 @@ bun host/web/serve.mjs --origin target/markdown-stress-dist --loopback 4321
 
 bun host/apple/build.mjs markdown-stress-apple --run
 
-cargo build --release -p markdown-stress-linux
-EXACT_AGENT=1 EXACT_PAINTER=cpu target/release/markdown-stress-linux
+cargo build --profile host-dev -p markdown-stress-linux
+EXACT_AGENT=1 EXACT_PAINTER=cpu target/host-dev/markdown-stress-linux
 ```
 
 The web dev loop is `bun host/web/dev.mjs --app markdown-stress`.
@@ -86,8 +86,8 @@ need separate proof.
 The same executable can select a complete cold paragraph before its first layout:
 
 ```sh
-EXACT_PAINTER=cpu target/release/markdown-stress-linux --content-region=1048576
-EXACT_PAINTER=cpu target/release/markdown-stress-linux --content-region=4194304
+EXACT_PAINTER=cpu target/host-dev/markdown-stress-linux --content-region=1048576
+EXACT_PAINTER=cpu target/host-dev/markdown-stress-linux --content-region=4194304
 ```
 
 These are nominal source budgets, with the unchanged complete-chunk generator.
@@ -192,8 +192,8 @@ cargo test -p markdown-stress-data
 cargo test -p markdown-stress-data --test it fixtures:: -- --ignored
 cargo clippy -p markdown-stress-data -p markdown-stress-web -p markdown-stress-apple -p markdown-stress-linux --all-targets -- -D warnings
 
-# Start the local web server first; set CHROME to an installed Chrome binary
-# if it is not at the shared driver's default /Applications/Google Chrome.app.
+# Start the local web server first. The driver uses Playwright's Chromium;
+# set CHROME to use another browser.
 bun apps/markdown-stress/smoke.mjs web
 # Build each native host first, and run Linux on a Linux machine for Linux evidence.
 bun apps/markdown-stress/smoke.mjs macos
@@ -243,8 +243,9 @@ The four workspace crates depend on the existing `apps/markdown/parse` crate;
 no framework edit is required to run.
 
 The view components are copied from `apps/markdown/app.contract` because Contract
-does not currently import view components across app files. Parsing, block shapes,
-value conversion and theme tokens are shared; there is no second Markdown parser.
+does not currently import view components across app files. Parsing, block shapes
+and value conversion are shared, and the root `theme` block says the readers'
+palette (LLP 1095 D4); there is no second Markdown parser.
 The opt-in variable-height block window uses the shared runner collection and
 host measurement/anchor path. `data/tests/windowed.rs` exercises the actual
 1 MiB / 26,885-block document through scrolling, width changes, typing, reparse

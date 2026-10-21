@@ -36,8 +36,6 @@ pub(crate) enum TransferError {
     CatalogMismatch,
     SourceMismatch,
     StaleResult,
-    FontCapture,
-    UnrepresentableCatalog,
     CatalogExhausted,
 }
 /// The scale used by CPU glyph rasterization, exactly bound to each job.
@@ -68,9 +66,6 @@ impl FontRecipe {
     }
     pub fn capture_cost(&self) -> CaptureCost {
         self.0.cost
-    }
-    pub fn mapped_face(&self, old: fontdb::ID) -> Option<fontdb::ID> {
-        self.0.remap.get(&old).copied()
     }
 }
 pub(crate) struct RasterCatalog {
@@ -118,8 +113,9 @@ impl PreparedText {
 }
 pub(super) struct Layout {
     pub(super) index: ink::Index,
-    lines: Arc<Vec<Vec<cosmic_text::LayoutLine>>>,
+    lines: Arc<Lines>,
     baselines: Arc<Vec<f32>>,
+    bottoms: Arc<Vec<f32>>,
     metrics: TextMetrics,
     capacity: usize,
     #[cfg(test)]
@@ -152,7 +148,7 @@ impl CompletedText {
     }
     pub fn layout_capacity_bytes(&self) -> usize {
         self.layout.as_ref().map_or(0, |l| {
-            l.capacity
+            (l.capacity + l.lines.capacity_bytes())
                 .saturating_sub(self.input.source.0.shape.get().map_or(0, |s| s.1))
         })
     }
@@ -187,7 +183,7 @@ pub(crate) fn snapshot_catalog(engine: &TextEngine) -> Result<CatalogSnapshot, T
 /// Send-owned output of background font capture/construction. Not a UI Catalog.
 pub(crate) struct PreparedCatalog {
     recipe: FontRecipe,
-    raster_fonts: FontSystem,
+    raster_fonts: parley::FontContext,
 }
 impl PreparedCatalog {
     pub fn recipe(&self) -> &FontRecipe {
@@ -205,7 +201,7 @@ pub(crate) fn prepare_catalog_generation(
         raster_fonts,
     })
 }
-/// UI attachment only. No FontSystem constructor, file read, shape or layout.
+/// UI attachment only. No font registration, file read, shape or layout.
 pub(crate) fn adopt_catalog_generation(prepared: PreparedCatalog) -> (FontRecipe, RasterCatalog) {
     let PreparedCatalog {
         recipe,
@@ -335,17 +331,11 @@ impl FontWorker {
         let width = match input.request.offer().width {
             AxisOffer::Definite(w) => Some(w),
             AxisOffer::MaxContent => None,
-            AxisOffer::MinContent => {
-                let wrap = (source.spec.overflow_wrap == exact_kernel::OverflowWrap::BreakWord)
-                    .then_some(Wrap::Word);
-                #[cfg(test)]
-                work::add(|n| n.layouts += 1);
-                Some(shaped.layout(Some(0.), wrap).width)
-            }
+            AxisOffer::MinContent => Some(shaped.min_content().ceil()),
         };
         #[cfg(test)]
         work::add(|n| n.layouts += 1);
-        let p = shaped.layout(width, None);
+        let p = shaped.layout(width);
         let metrics = if source.spec.is_empty() {
             TextMetrics::default()
         } else {
@@ -373,8 +363,9 @@ impl FontWorker {
             Some(Arc::new(Layout {
                 index,
                 metrics,
-                lines: p.layouts,
+                lines: p.layouts().clone(),
                 baselines: p.baselines,
+                bottoms: p.bottoms,
                 capacity: p.resident_capacity_bytes,
                 #[cfg(test)]
                 lifetime: p.layout_lifetime,
@@ -439,8 +430,11 @@ pub(crate) fn adopt(
                 data.clone(),
                 *bytes,
             )),
-            layouts: l.lines.clone(),
+            record: std::cell::OnceCell::from(l.lines.clone()),
+            remake: None,
+            measured: RefCell::new(None),
             baselines: l.baselines.clone(),
+            bottoms: l.bottoms.clone(),
             flow: None,
             #[cfg(test)]
             layout_lifetime: l.lifetime.clone(),

@@ -7,7 +7,7 @@ use std::process::Command;
 
 fn bun(script: &str) -> String {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-    let result = Command::new("bun")
+    let result = Command::new(std::env::var_os("BUN").unwrap_or_else(|| "bun".into()))
         .current_dir(root)
         .args(["--input-type=module", "-e", script])
         .output()
@@ -21,6 +21,7 @@ fn bun(script: &str) -> String {
 }
 
 #[test]
+#[ignore = "async lane: launches Bun; bun scripts/async.mjs runs it"]
 fn development_opening_metadata_is_app_specific_and_opt_in() {
     bun(r#"
 import assert from 'node:assert/strict';
@@ -28,7 +29,9 @@ import {mkdirSync, mkdtempSync, rmSync, writeFileSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join, resolve} from 'node:path';
 import {developmentURLScheme} from './scripts/app.mjs';
-import {appleArtifacts, developmentAdmission, developmentLaunchEnvironment, developmentLinks, infoPlist, macInfoPlist} from './host/apple/build.mjs';
+import {appleArtifacts, developmentAdmission, developmentLinks, infoPlist, macInfoPlist} from './host/apple/build.mjs';
+// Moved beside the simulator and device helpers (28a2ee81d).
+import {developmentLaunchEnvironment} from './host/apple/devices.mjs';
 import {developmentOpenPage} from './host/web/serve.mjs';
 const dir = mkdtempSync(join(tmpdir(), 'exact-development-link-'));
 try {
@@ -57,10 +60,12 @@ const resources = resolve(appleArtifacts(app, {destination:'macos', trust:'devel
 mkdirSync(resources, {recursive:true});
 writeFileSync(join(resources, 'receipt.json'), JSON.stringify({development:admission}));
 const page = 'http://192.168.1.20:8765/deep?q=1#x';
-assert.deepEqual(developmentLinks(app, page), [{destination:'macos', href:`${scheme}://open?url=${encodeURIComponent(page)}&token=${admission.token}`}]);
-assert.deepEqual(developmentLinks(app, 'http://192.168.1.21:8765/'), []);
+assert.deepEqual(developmentLinks(app, page, {local:true}), [{destination:'macos', href:`${scheme}://open?url=${encodeURIComponent(page)}&token=${admission.token}`}]);
+assert.deepEqual(developmentLinks(app, 'http://192.168.1.21:8765/', {local:true}), []);
+// Only to a local request: a LAN peer's, a proxied one's or an unsaid one's has none.
+for (const access of [{local:false}, {allowed:true, local:false}, undefined]) assert.deepEqual(developmentLinks(app, page, access), []);
 writeFileSync(join(resources, 'receipt.json'), JSON.stringify({development:null}));
-assert.deepEqual(developmentLinks(app, page), []);
+assert.deepEqual(developmentLinks(app, page, {local:true}), []);
 const html = developmentOpenPage(app);
 assert.ok(!html.includes(app.displayName)); assert.ok(html.includes('&lt;img'));
 assert.ok(!html.includes('<script>bad')); assert.ok(html.includes(scheme + '://open?url='));
@@ -71,6 +76,7 @@ assert.ok(html.includes('cannot detect whether a client is installed'));
 
 #[cfg(target_os = "macos")]
 #[test]
+#[ignore = "async lane: launches Bun and the Swift compiler; bun scripts/async.mjs runs it"]
 fn swift_development_link_admits_only_its_dev_server_and_token() {
     // What build.mjs bakes and the link a dev server offers for that build,
     // read here exactly as a development bundle's Info.plist is.
@@ -87,7 +93,7 @@ try {
   mkdirSync(resources, {recursive:true});
   writeFileSync(join(resources, 'receipt.json'), JSON.stringify({development:admission}));
   const page = 'http://192.168.1.20:8765/deep?q=x%26y#frag';
-  process.stdout.write(JSON.stringify({plist:macInfoPlist(app, {development:admission}), link:developmentLinks(app, page)[0].href, page}));
+  process.stdout.write(JSON.stringify({plist:macInfoPlist(app, {development:admission}), link:developmentLinks(app, page, {local:true})[0].href, page}));
 } finally { rmSync(dir, {recursive:true, force:true}); }
 "#);
     // Compile the actual Foundation-only opening code, not a parallel parser.
@@ -169,6 +175,7 @@ precondition(!ExactDevelopmentLink.claims(link("https://x.test/", token)) && !Ex
 
 #[cfg(target_os = "macos")]
 #[test]
+#[ignore = "async lane: launches the Swift compiler; bun scripts/async.mjs runs it"]
 fn local_development_plan_loads_the_pair_and_retries_partial_writes() {
     let source = include_str!("../../Sources/ExactKit/PlanURL.swift")
         .split("/// Explicit development-only opening action")
@@ -187,6 +194,8 @@ public final class ExactApp {
     func applyGeneration(_ g: ExactGeneration, label: String, commit: () -> Bool) -> Bool {
         precondition(commit()); generations.append(g); return true
     }
+    var initial: ExactGeneration?
+    func installInitial(_ g: ExactGeneration) { initial = g }
 }
 let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
 try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -197,12 +206,16 @@ func write(_ name: String, _ value: String) throws {
 let app = ExactApp(), candidate = ExactDevelopmentPlan(directory.appendingPathComponent("app.plan").path)
 try write("app.plan", "plan")
 precondition(!candidate.hasModule && candidate.apply(to: app) && app.plain == 1)
+precondition(candidate.installInitial(on: app) == "app.plan has no module beside it" && app.initial == nil)
 let bare = candidate.revision
 try write("app.module.json", "receipt")
 let partial = candidate.revision
 precondition(partial != bare && candidate.hasModule)
 precondition(!candidate.apply(to: app) && app.plain == 1 && app.generations.isEmpty)
+precondition(candidate.installInitial(on: app)?.hasPrefix("local generation refused") == true && app.initial == nil)
 try write("app.hbc", "bytecode")
+// The pair as the launch generation (LLP 1116.003): installed whole, never applied over a running plan.
+precondition(candidate.installInitial(on: app) == nil && app.initial?.module.bytecode == Data("bytecode".utf8) && app.generations.isEmpty)
 precondition(candidate.revision != partial && candidate.apply(to: app))
 let pair = app.generations.last!
 precondition(pair.plan == Data("plan".utf8) && pair.module.receipt == Data("receipt".utf8))
@@ -242,6 +255,38 @@ app.mode = "off"; precondition(candidate.apply(to: app) && app.generations.last!
 "#;
     let result = Command::new("swift")
         .args(["-swift-version", "5", "-e", &format!("{source}\n{checks}")])
+        .output()
+        .unwrap();
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+}
+
+#[test]
+#[ignore = "async lane: launches Bun; bun scripts/async.mjs runs it"]
+fn a_build_is_stamped_with_its_time_commits_and_kind() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let result = Command::new(std::env::var_os("BUN").unwrap_or_else(|| "bun".into()))
+        .current_dir(root)
+        .args(["test", "./host/apple/buildinfo.test.mjs"])
+        .output()
+        .unwrap();
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+}
+
+#[test]
+#[ignore = "async lane: launches Bun; bun scripts/async.mjs runs it"]
+fn a_production_build_compiles_no_inspect_mode() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let result = Command::new(std::env::var_os("BUN").unwrap_or_else(|| "bun".into()))
+        .current_dir(root)
+        .args(["test", "./host/apple/inspect-gate.test.mjs"])
         .output()
         .unwrap();
     assert!(

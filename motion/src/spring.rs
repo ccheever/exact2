@@ -1,6 +1,6 @@
 //! The spring: the one timing function CSS does not have.
 //!
-//! @ref LLP 1002 §2 (declared deviation: `spring()`)
+//! @ref LLP 1002 §2 (declared deviation: `-exact-spring()`)
 //!
 //! A damped harmonic oscillator in closed form, sampled at true elapsed time
 //! from its anchor, so a sample depends on the clock and never on the frame
@@ -13,8 +13,9 @@
 
 use crate::math;
 
-/// A spring's physical parameters (WebKit's `spring()` proposal, minus the
-/// initial velocity, which comes from the value's motion at start).
+/// A spring's physical parameters, `-exact-spring(stiffness, damping, mass)`.
+/// WebKit's own `spring()` takes mass first and an initial velocity, which
+/// here comes from the value's motion at start (LLP 1081 §1).
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct SpringConfig {
     /// Spring constant. Larger pulls harder toward the target.
@@ -46,6 +47,8 @@ pub enum SpringError {
     NegativeDamping,
     /// Mass must be positive.
     NonPositiveMass,
+    /// Finite parameters produced coefficients or samples outside f64's range.
+    OutOfRange,
 }
 
 /// Below this displacement and speed, the spring is at rest. Absolute, in the
@@ -89,6 +92,20 @@ impl SpringConfig {
         if self.mass <= 0.0 {
             return Err(SpringError::NonPositiveMass);
         }
+        let alpha = self.damping / (2.0 * self.mass);
+        let omega_squared = self.stiffness / self.mass;
+        let discriminant = alpha * alpha - omega_squared;
+        if !alpha.is_finite() || !omega_squared.is_finite() || !discriminant.is_finite() {
+            return Err(SpringError::OutOfRange);
+        }
+        for elapsed in [0.0, 1.0 / SAMPLE_RATE, MAX_DURATION] {
+            for velocity in [f32::MAX as f64, -(f32::MAX as f64)] {
+                let sample = self.sample(f32::MAX as f64, velocity, elapsed);
+                if !sample.displacement.is_finite() || !sample.velocity.is_finite() {
+                    return Err(SpringError::OutOfRange);
+                }
+            }
+        }
         Ok(())
     }
 
@@ -100,6 +117,38 @@ impl SpringConfig {
     /// The state at `elapsed` seconds after being released at `displacement`
     /// from the target with `velocity`. Closed form in all three regimes.
     pub fn sample(&self, displacement: f64, velocity: f64, elapsed: f64) -> SpringSample {
+        let original = self.sample_original(displacement, velocity, elapsed);
+        if original.displacement.is_finite() && original.velocity.is_finite() {
+            return original;
+        }
+        if elapsed == 0.0 {
+            return SpringSample {
+                displacement,
+                velocity,
+            };
+        }
+        let scale = displacement.abs().max(velocity.abs());
+        if scale > f32::MAX as f64 {
+            // The oscillator is linear in both initial values. Evaluate a
+            // unit-sized release, then bound a result beyond f64's range.
+            let unit = self.sample_unscaled(displacement / scale, velocity / scale, elapsed);
+            let restore = |value: f64| {
+                let scaled = value * scale;
+                if scaled.is_infinite() {
+                    f64::MAX.copysign(scaled)
+                } else {
+                    scaled
+                }
+            };
+            return SpringSample {
+                displacement: restore(unit.displacement),
+                velocity: restore(unit.velocity),
+            };
+        }
+        self.sample_unscaled(displacement, velocity, elapsed)
+    }
+
+    fn sample_original(&self, displacement: f64, velocity: f64, elapsed: f64) -> SpringSample {
         let alpha = self.damping / (2.0 * self.mass);
         let omega_squared = self.stiffness / self.mass;
         let discriminant = alpha * alpha - omega_squared;
@@ -139,6 +188,63 @@ impl SpringConfig {
         }
     }
 
+    fn sample_unscaled(&self, displacement: f64, velocity: f64, elapsed: f64) -> SpringSample {
+        let alpha = self.damping / (2.0 * self.mass);
+        let omega_squared = self.stiffness / self.mass;
+        let discriminant = alpha * alpha - omega_squared;
+        let epsilon = omega_squared * 1.0e-12;
+        let decay = math::exp(-alpha * elapsed);
+        let (x, v) = if discriminant < -epsilon {
+            let omega_d = math::sqrt(-discriminant);
+            let a = displacement;
+            let b = (velocity + alpha * displacement) / omega_d;
+            let phase = omega_d * elapsed;
+            let cosine = math::cos(phase);
+            let sine = math::sin(phase);
+            if b.is_finite() {
+                (
+                    decay * (a * cosine + b * sine),
+                    decay
+                        * ((-alpha * a + b * omega_d) * cosine + (-alpha * b - a * omega_d) * sine),
+                )
+            } else {
+                // The coefficient can overflow for a tiny frequency even
+                // though its product with sin(omega_d * elapsed) is finite.
+                let sine_over_omega = sine / omega_d;
+                (
+                    decay * (a * cosine + velocity * sine_over_omega + alpha * a * sine_over_omega),
+                    decay
+                        * (velocity * cosine
+                            - alpha * velocity * sine_over_omega
+                            - omega_squared * a * sine_over_omega),
+                )
+            }
+        } else if discriminant.abs() <= epsilon {
+            let a = displacement;
+            let b = velocity + alpha * displacement;
+            (
+                decay * (a + b * elapsed),
+                decay * (b - alpha * (a + b * elapsed)),
+            )
+        } else {
+            let root = math::sqrt(discriminant);
+            let r1 = -omega_squared / (alpha + root);
+            let r2 = -alpha - root;
+            let e1 = math::exp(r1 * elapsed);
+            let e2 = math::exp(r2 * elapsed);
+            let phi = -e1 * math::expm1((r2 - r1) * elapsed) / (r1 - r2);
+            let moving = velocity - r1 * displacement;
+            (
+                displacement * e1 + moving * phi,
+                r1 * displacement * e1 + moving * (r1 * phi + e2),
+            )
+        };
+        SpringSample {
+            displacement: x,
+            velocity: v,
+        }
+    }
+
     /// Seconds until the spring released at `displacement` with `velocity`
     /// first samples at rest on the [`SAMPLE_RATE`] grid, capped at
     /// [`MAX_DURATION`]. Zero when it is already at rest.
@@ -163,7 +269,7 @@ impl SpringConfig {
     /// second, each at the f32 its CSS text carries, so a browser playing
     /// the text and an engine playing the value agree to the bit. How a
     /// property no spring drives as physics plays one (LLP 1062 D3), and
-    /// how the web writes a `layout-transition` spring (LLP 1063).
+    /// how the web writes a `-exact-layout-transition` spring (LLP 1063).
     pub fn easing(&self) -> (f64, crate::easing::Easing) {
         use crate::easing::{Easing, LinearStop};
         let (duration, frames) = keyframes(self, 1.0, 0.0, 0.0);

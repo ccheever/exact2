@@ -1,0 +1,63 @@
+# Code review: declarative nav basics, LLP 1075.003 §9.10 (151c5c0a5..b7d195a0d), 2026-10-03 (astra)
+
+- **Family:** OpenAI — `gpt-6-astra` via `codex exec` (codex-cli 0.157.1), reasoning effort xhigh, read-only sandbox, `-C` a detached worktree at `b7d195a0d`.
+- **Method:** one brief (sha256 `31fe0e9fdce293c1eb9e7f952e0440d1ea32f3ea49688a7ef5a8f1f63a03d8f9`), the same one sent to grok; round 1; blind to the other review. Requested by Charlie through the coordinator ("Declarative nav basics"). The author (Claude) is not a reviewer.
+- **Transcription:** the run's final message (`--output-last-message`), unedited.
+- **Verdict:** DO NOT LAND.
+- **Disposition:** checked in the source; fixed in `4cd44c10f` except #5, argued:
+  1. *Active search.* Fixed defensively: while a header's search is active, `routeShowsBar` answers what UIKit has, so neither `showBar`, the covers nor the development check touch it. Driven on the simulator (fixture Home, a real tap into the bar's field and typing "ab"): UIKit's search presentation stays through the typing's batches. A unit test could not activate the controller in the test host (`isActive` stays false), so none was added.
+  2. *Inline inset latch.* Fixed. An inline title's `scrollOrigin` and `scrollCollapsed` are both the inset it has at each report (no slack), the sampling runs only while the bar is as the route wants it, and `collapse` clears `scrollCollapsed` with `scrollOrigin`.
+  3. *First-child changes.* Fixed. `SetChildren` rederives a covered box (and each box a child left) through `cover::children_changed`; test `a_route_whose_replaced_header_leaves_takes_back_its_inset`. A producer detaches before it destroys, so `SetChildren` is where a header leaves.
+  4. *A box holding the heading as avatar.* Fixed: a candidate that holds the heading is walked into, never an avatar.
+  5. *Avatar width.* Argued, and §9.10 corrected: width and height are layout rows, which never reach the host for a replaced header (`style_json` drops them), so the avatar is §9.6's drawn face at the bar's 36-point image size. The fixture's avatar is now `border-radius="50%"`, which draws a circle at any size.
+  6. *Tests absent.* Fixed: `host/apple/tests/ExactKitTests/NavigationBasicsIOSTests.swift` was left unstaged (the package's directory is `tests`, lower case); now committed. A real interactive pop is not drivable here (axe's edge drags do not start UIKit's pop recognizer, as the Signal Clone's diary found); the cancel is tested through the `willShow` calls UIKit makes.
+
+---
+
+1. **Must-fix — [NavigationBarIOS.swift:383](/tmp/rv-nav1/host/apple/Sources/ExactKit/IOS/NavigationBarIOS.swift:383): ordinary updates fight active search.** `HeaderSearch` sets `hidesNavigationBarDuringPresentation = true`, but every settled batch now calls `showBar`, which restores the bar because the route has a header. Activating Home’s search and typing therefore requests the opposite of [UIKit’s search presentation behavior](https://developer.apple.com/documentation/uikit/uisearchcontroller/hidesnavigationbarduringpresentation). The existing search test only calls the results updater; it never activates search. **Fix:** account for active search in visibility reconciliation, cover measurement and ownership checks; test actual activation, typing and dismissal.
+
+2. **Must-fix — [NavigationBarIOS.swift:503](/tmp/rv-nav1/host/apple/Sources/ExactKit/IOS/NavigationBarIOS.swift:503): inline scrollers inherit stale collapse limits.** Inline scrollers now participate in `scrollCollapsed`’s lifetime minimum tracking. Rotate Chat to a smaller top inset and back: the old minimum remains, and [NodeViewIOS.swift:930](/tmp/rv-nav1/host/apple/Sources/ExactKit/IOS/NodeViewIOS.swift:930) subtracts the difference as collapse slack. An authored scroll-to-end consequently stops short even though the inline title cannot collapse. The inset tracking also runs before the new transition-cover guard. **Fix:** distinguish inline inset mapping from large-title collapse, rebase measurements when geometry changes, and test end assignments after rotation and barless-route transitions.
+
+3. **Must-fix — [cover.rs:80](/tmp/rv-nav1/kernel/src/kernel/cover.rs:80): first-child changes leave cached parent padding stale.** `header_inset` introduces a dependency on the parent’s first child, but `SetChildren`, destruction and reparenting only synchronize children; they do not restyle the parent. Starting with the new test’s 106-point covered route, detach its padded header while retaining the 44-point edge cover: content remains at 106 instead of 44. Clearing the detached header’s cover cannot repair its former parent. **Fix:** rederive affected covered parents when their first child changes, including both parents during reparenting; add structural invalidation tests.
+
+4. **Should-fix — [NavigationTitleIOS.swift:34](/tmp/rv-nav1/host/apple/Sources/ExactKit/IOS/NavigationTitleIOS.swift:34): a heading’s ancestor can become its avatar.** For a pressable title row containing a filled column with the heading and subtitle, `BadgeFace(box:)` accepts that column before traversal reaches the heading. `continue` then skips both texts: the heading is painted inside a spurious avatar and the subtitle disappears. **Fix:** exclude candidates containing the heading and descend through them; accept avatar boxes strictly before it.
+
+5. **Should-fix — [NavigationTitleIOS.swift:112](/tmp/rv-nav1/host/apple/Sources/ExactKit/IOS/NavigationTitleIOS.swift:112): avatar width ignores §9.10.** The title uses `BadgeFace.image`, whose renderer always produces 36×36 points. Thus the fixture’s authored 32-point avatar—and the specification’s 40-point example—both render at 36. **Fix:** carry the authored width, clamped to 20–40, into title-avatar rendering and its change signature, retaining the existing bar-item size.
+
+6. **Should-fix — [1075.003-native-platform-control-merged.plan.md:1259](/tmp/rv-nav1/llp/1075.003-native-platform-control-merged.plan.md:1259): the claimed UIKit tests are absent.** `NavigationBasicsIOSTests.swift` is neither in this worktree nor in commit `b7d195a0d`; no existing UIKit test exercises the new Chat/Photo routes. Passing the existing suite therefore does not establish the documented title, tab-hiding or cancelled-pop coverage. **Fix:** commit the claimed tests and exercise a real interactive transition/cancellation, including restored geometry and scroll mapping.
+
+Verdict: DO NOT LAND
+## Round 2, 2026-10-03
+
+- **Method:** `codex exec` as round 1, `-C` a detached worktree at `4cd44c10f`; brief sha256 `4df2ed648b8683738f6a33c2b11b6cc10c43894e17c3cb5385d79f3bcce9073e` (the fixes `b7d195a0d..4cd44c10f` against this review's round-1 findings and dispositions). Blind to grok's round 2.
+- **Verdict:** LAND WITH FIXES.
+- **Disposition:** all three fixed in `ff593ecc4`:
+  1. *Direct `DestroyView`.* `Detach::flush` rederives each surviving parent's cover after pruning; test `a_replaced_header_destroyed_outright_leaves_no_inset`.
+  2. *Cancellation coverage.* `testAnInteractivePopFromARouteWithoutABarCancelsAndCompletes` drives a percent-driven pop from Photo under UIKit's coordinator: the bar shows mid-pop, hides on the cancel, and after the completed pop Chat's insets, its zero slack and its scroll end are as before.
+  3. *Search claim.* §9.10 now says the active search was driven on the simulator, not in XCTest.
+
+---
+
+1. **Must-fix — [kernel/src/txn.rs:977](/tmp/rv-nav1/kernel/src/txn.rs:977): round-1 #3 remains partly unfixed.** Direct `DestroyView` prunes and synchronizes the surviving parent without rederiving its cover-dependent padding. Destroying header 3 in the 106-point covered-route fixture therefore leaves content at 106 instead of 44. Detaching first is a runner convention, not a kernel requirement; direct destruction is explicitly tested elsewhere. **Fix:** call `cover_children_changed` from `Detach::flush` after pruning, and add a direct-destruction regression test.
+
+2. **Should-fix — [NavigationBasicsIOSTests.swift:174](/tmp/rv-nav1/host/apple/tests/ExactKitTests/NavigationBasicsIOSTests.swift:174): round-1 #6’s cancellation coverage remains missing.** Calling `willShow` twice with `animated: false` creates no transition coordinator, interactive progress or cancellation. It cannot verify cover preservation or restored scroll mapping. The stated automation limitation does not prevent this: [NavigationBarIOSTests.swift:202](/tmp/rv-nav1/host/apple/tests/ExactKitTests/NavigationBarIOSTests.swift:202) already drives and cancels a real `UIPercentDrivenInteractiveTransition`. **Fix:** adapt that harness to Photo → Chat; assert visibility, content geometry and scroll-to-end mapping after cancellation and completion.
+
+3. **Nit — [1075.003-native-platform-control-merged.plan.md:1269](/tmp/rv-nav1/llp/1075.003-native-platform-control-merged.plan.md:1269): active-search XCTest coverage is still falsely claimed.** The committed suite contains no search-activation test, consistent with the author’s disposition. **Fix:** describe the simulator verification separately and remove the XCTest claim, or add the actual lifecycle test.
+
+Verdict: LAND WITH FIXES
+## Round 3 (the last), 2026-10-03
+
+- **Method:** `codex exec` as round 1, `-C` a detached worktree at `ff593ecc4`; brief sha256 `95979aaa57139a818dbfba20e7a361d683c3cee51c3de75694e0ba8f412a4f6c` (the fixes `4cd44c10f..ff593ecc4` against this review's round-2 findings and dispositions). Blind to grok's round 3.
+- **Verdict:** LAND WITH FIXES.
+- **Disposition:** fixed in `17ca1be8a`: the in-place `setTabBarHidden` runs only when Exact's own tab container shows its bar (`tabBarShows`, the container being `tabController`), and under the agent `followTablist` writes nothing. No agent-mode XCTest was added (the UIKit tests run without `EXACT_AGENT`); the guard is the same `tabBarShows` the container's other writes use.
+
+---
+
+Round-2 findings are addressed: [destruction invalidation](/tmp/rv-nav1/kernel/src/txn.rs:979), [interactive cancellation test](/tmp/rv-nav1/host/apple/tests/ExactKitTests/NavigationBasicsIOSTests.swift:192), and [search coverage wording](/tmp/rv-nav1/llp/1075.003-native-platform-control-merged.plan.md:1249). Tests were not run during this read-only review.
+
+1. **Should-fix — [NavigationTitleIOS.swift:209](/tmp/rv-nav1/host/apple/Sources/ExactKit/IOS/NavigationTitleIOS.swift:209): in-place tablist changes can expose the native bar under agent mode.** With `EXACT_AGENT=1`, keep a pushed route selected and change its tablist from `display: none` to `flex`. This branch calls `setTabBarHidden(false, …)`, clearing [UIKit’s hidden state](https://developer.apple.com/documentation/uikit/uitabbarcontroller/istabbarhidden) despite the agent’s deliberate hiding at [NavigationTabsIOS.swift:122](/tmp/rv-nav1/host/apple/Sources/ExactKit/IOS/NavigationTabsIOS.swift:122). Both native and authored bars can then appear, while cover reporting still excludes native bars under the agent. **Fix:** gate native tab-bar reconciliation with `tabBarShows` and restrict it to Exact’s tab controller; add an agent-mode regression for this in-place visibility change.
+
+Verdict: LAND WITH FIXES
+---
+
+**Landed** (rebased onto origin/main): b7d195a0d → 748378eeb, 4cd44c10f → 0426b282e, ff593ecc4 → 64468ec7a, 17ca1be8a → 3c0ab0327.

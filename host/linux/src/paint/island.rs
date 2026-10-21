@@ -38,7 +38,7 @@ impl Painter {
     /// Paint into a transparent island covering `rect` (points in the
     /// frame's space, whole device pixels), `paint` given the shift that
     /// maps frame points to island points. `None` when it has no area.
-    pub(super) fn island(
+    pub(in crate::paint) fn island(
         &mut self,
         rect: Rect4,
         paint: impl FnOnce(&mut Painter, Transform),

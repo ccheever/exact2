@@ -12,7 +12,7 @@
 // — Core Animation's own properties when it can say the box (one border, one
 // radius, no gradient), else drawn, as the node's `draw(_:)` draws it — and a
 // node that clips its children clips them to the shown box through a mask.
-#if os(iOS)
+#if os(iOS) || os(tvOS)
 import UIKit
 #else
 import AppKit
@@ -57,7 +57,7 @@ extension NodeView {
         if host.sublayers?.first !== s { host.insertSublayer(s, at: 0) }
         let box = CGRect(x: 0, y: 0, width: max(0, bounds.width * layoutScale.x), height: max(0, bounds.height * layoutScale.y))
         if s.frame != box { s.frame = box }
-        #if os(iOS)
+        #if os(iOS) || os(tvOS)
         s.contentsScale = traitCollection.displayScale
         #else
         s.contentsScale = window?.backingScaleFactor ?? 2
@@ -82,11 +82,12 @@ extension NodeView {
 
     private func surfaceChanged() {
         applyShadow(outline: roundedPath(in: bounds).cgPath)
-        #if os(iOS)
+        #if os(iOS) || os(tvOS)
         applyBoxLayer()
         applyGradientLayer()
         setNeedsDisplay()
         #else
+        syncEllipticalClip()
         needsDisplay = true
         #endif
     }
@@ -97,22 +98,37 @@ extension NodeView {
         let sides = ["top", "right", "bottom", "left"]
         let uniform = number("border_width")
         let widths = sides.map { number("border_width_" + $0, uniform) }
+        let styles = sides.map { style["border_style_" + $0]?.string ?? "solid" }
         let top = color("border_color_top", .clear)
         let colors = sides.map { color("border_color_" + $0, top).cgColor }
-        let radii = ["top_left", "top_right", "bottom_right", "bottom_left"].map { number("border_radius_" + $0) }
-        let fill = channels("background_color").map { CGColor(srgbRed: $0[0] / 255, green: $0[1] / 255, blue: $0[2] / 255, alpha: $0[3] / 255) }
-        let gradient = Gradient(style["background_image"])
+        let sizes = BorderPaint.radii(style, in: box)
+        let radii = sizes.map { $0.width }
+        let authored = channels("background_color").map { CGColor(srgbRed: $0[0] / 255, green: $0[1] / 255, blue: $0[2] / 255, alpha: $0[3] / 255) }
+        let fill = authored ?? fieldGround
+        let gradients = Gradient.layers(style["background_image"])
         let radius = radii.max() ?? 0
-        let said = gradient == nil
+        let shape = CornerShape(style["corner_shape"])
+        // A background clipped inside the border box is drawn, in the clip `paintBackground` takes (`backgroundOutline`).
+        let clipped = backgroundClip != "border-box"
+        let said = !clipped && !styles.contains(where: { $0 == "dotted" || $0 == "dashed" }) && gradients.isEmpty && (shape == nil || shape?.isAppleContinuous == true) && sizes.allSatisfy { $0.width == $0.height }
             && widths.allSatisfy { $0 == widths[0] } && (widths[0] == 0 || colors.allSatisfy { $0 == colors[0] })
             && radii.allSatisfy { $0 == 0 || $0 == radius } && radius <= min(box.width, box.height) / 2
         if said {
             var corners: CACornerMask = []
             let masks: [CACornerMask] = [.layerMinXMinYCorner, .layerMaxXMinYCorner, .layerMaxXMaxYCorner, .layerMinXMaxYCorner]
             for (r, mask) in zip(radii, masks) where r > 0 { corners.insert(mask) }
+            // The design's Field under a field's own bezel: on the bezel's corners (BoxLayerIOS.swift).
+            var radius = radius
+            #if os(iOS)
+            if authored == nil, fill != nil, radius == 0, !isCellField {
+                radius = FieldChromeCache.textareaRadius
+                corners = [.layerMinXMinYCorner, .layerMaxXMinYCorner, .layerMaxXMaxYCorner, .layerMinXMaxYCorner]
+            }
+            #endif
             s.drawn = nil; s.contents = nil
             s.backgroundColor = fill
             s.cornerRadius = radius
+            s.cornerCurve = shape == nil ? .circular : .continuous
             if radius > 0 { s.maskedCorners = corners }
             s.borderWidth = widths[0]
             s.borderColor = colors[0]
@@ -122,9 +138,13 @@ extension NodeView {
             s.drawn = { [weak self] ctx, rect in
                 guard let self else { return }
                 let path = self.roundedPath(in: rect).cgPath
-                if let fill { ctx.addPath(path); ctx.setFillColor(fill); ctx.fillPath() }
-                gradient?.paint(ctx, clip: path, box: rect.insetBy(left: widths[3], top: widths[0], right: widths[1], bottom: widths[2]), dark: dark)
-                BorderPaint.paint(ctx, box: rect, widths: widths, colors: colors, radii: radii)
+                if let ground = clipped ? self.backgroundOutline(path, in: rect) : path {
+                    if let fill { ctx.addPath(ground); ctx.setFillColor(fill); ctx.fillPath() }
+                    for gradient in gradients.reversed() {
+                        gradient.paint(ctx, clip: ground, box: rect.insetBy(left: widths[3], top: widths[0], right: widths[1], bottom: widths[2]), dark: dark)
+                    }
+                }
+                BorderPaint.paint(ctx, box: rect, widths: widths, colors: colors, radii: sizes, styles: styles, shape: shape)
             }
             s.setNeedsDisplay()
         }
@@ -147,7 +167,7 @@ extension NodeView {
         let target: CALayer?
         if let box = clipBox?.layer { target = box }
         else if let scroller { target = scroller }
-        else if clipsToBounds, hostLayer?.mask == nil || hostLayer?.mask === s.clip {
+        else if clipsToBounds, (clipPath == nil && boxFilter == nil && style["mask_image"] == nil) || hostLayer?.mask === s.clip {
             clipsToBounds = false
             s.clippedSelf = true
             target = hostLayer

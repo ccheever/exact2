@@ -5,7 +5,8 @@ import { createFileStore, lockPaths } from './storage-fs.js';
 // No shared memory or isolation headers: keep the database in WASM memory and
 // atomically publish its complete SQLite file after each successful mutation.
 // This costs O(database size) per write; a connection exclusively locks its file.
-const ready = sqlite3InitModule({ locateFile: file => new URL(file, import.meta.url).href });
+const ready = sqlite3InitModule({ locateFile: file => file === 'sqlite3.wasm'
+  ? new URL('./sqlite3.wasm', import.meta.url).href : new URL(file, import.meta.url).href });
 const clients = new Map();
 let retiring = Promise.resolve();
 const limit = 16 * 1024 * 1024;

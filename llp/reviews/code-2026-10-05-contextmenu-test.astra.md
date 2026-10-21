@@ -1,0 +1,10 @@
+# Round 1
+No concrete defects found in **9b5534371**.
+
+- **Diagnosis:** sound, though the single failure doesn’t conclusively establish its cause. A 50 ms run-loop spin is not a completion barrier for the queued press. The reported 2.2 s duration doesn’t establish that the callback ran.
+- **Determinism:** [ContextMenuMacTests.swift:56](/Users/admin/projects/exact2-wt-hidtext/host/apple/tests/ExactKitTests/ContextMenuMacTests.swift:56) now waits for the actual press. This removes the fixed-delay race, but a 10 s timeout still permits failure under sufficiently severe starvation or a blocked main thread.
+- **Assertions:** line 53 still rejects a synchronous press; line 57 checks exactly `[5]`. This proves deferred delivery, not a particular numbered run-loop iteration. The expectation created at line 50 also defaults to asserting on overfulfilment, so a second fulfilment is a legitimate failure, not an incidental flake. [Apple documentation](https://developer.apple.com/documentation/xctest/xctestexpectation/assertforoverfulfill)
+- **Pick validity:** [MenusMac.swift:411](/Users/admin/projects/exact2-wt-hidtext/host/apple/Sources/ExactKit/Mac/MenusMac.swift:411) has no evident intermittent rejection in this fixture: row identity, ancestry, title and presentation remain unchanged; the hidden popover is explicitly exempted by `shown`; and constructing the menu without a source skips invoker validation.
+- **Single delivery:** `pick` admits one selection and schedules one callback. [PresenterMac.swift:772](/Users/admin/projects/exact2-wt-hidtext/host/apple/Sources/ExactKit/Mac/PresenterMac.swift:772) invokes `onPress` once because row 5 has a press handler. The hook only appends and fulfils. Neither version establishes that an arbitrarily delayed future duplicate can never occur, but this implementation has no such second dispatch.
+
+Static review only; I did not rerun XCTest or modify files.

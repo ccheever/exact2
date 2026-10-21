@@ -61,10 +61,15 @@ const images = new Map();
 /** One canvas: the element, its context, and what the replayer keeps. */
 class Replayer {
   constructor(el, op) {
-    this.el = el; this.lifetime = op.lifetime; this.generation = op.generation;
+    // Its getContext settings (LLP 1100 D12a), which an element keeps from
+    // its first context: other settings take a new element.
+    const settings = { colorSpace: op.p3 ? "display-p3" : "srgb", colorType: op.float16 ? "float16" : "unorm8" }, key = `${settings.colorSpace} ${settings.colorType}`;
+    if (el.exactSettings !== undefined && el.exactSettings !== key) { const fresh = el.cloneNode(false); el.replaceWith(fresh); el = fresh; }
+    el.exactSettings = key;
+    this.el = el; this.lifetime = op.lifetime; this.generation = op.generation; this.p3 = op.p3 === true;
     // Assigning the bitmap's size clears it and resets the context (HTML).
     el.width = op.w; el.height = op.h;
-    this.ctx = el.getContext("2d");
+    this.ctx = el.getContext("2d", settings);
     this.base = op.scale; this.author = [1, 0, 0, 1, 0, 0]; this.plain = true; this.stack = []; this.objects = new Map(); this.srcs = new Map();
     this.scratch = new Path2D();
     this.ctx.setTransform(this.base, 0, 0, this.base, 0, 0);
@@ -93,7 +98,8 @@ class Replayer {
     if (view.byteLength < 8 || view.getUint32(0, true) !== MAGIC || view.getUint32(4, true) !== 1) return false;
     const ctx = this.ctx;
     let n = new Float64Array(64);
-    const rgba = (i) => colorText(n[i], n[i + 1], n[i + 2], n[i + 3]);
+    // A `display-p3` canvas's colours are Display P3 bytes.
+    const rgba = this.p3 ? (i) => `color(display-p3 ${n[i] / 255} ${n[i + 1] / 255} ${n[i + 2] / 255} / ${n[i + 3]})` : (i) => colorText(n[i], n[i + 1], n[i + 2], n[i + 3]);
     // A list in wasm memory is 8-aligned, as its records are: read it
     // through typed arrays over the memory itself (little-endian, as wasm
     // is); a DataView otherwise.
@@ -178,7 +184,7 @@ class Replayer {
         case 72: /* putImageData */ {
           const [x, y, w, h] = k, px = new Uint8ClampedArray(w * h * 4);
           for (let i = 0; i < w * h; i++) { const v = k[4 + i]; px[i * 4] = Math.floor(v / 16777216); px[i * 4 + 1] = (v >>> 16) & 255; px[i * 4 + 2] = (v >>> 8) & 255; px[i * 4 + 3] = v & 255; }
-          ctx.putImageData(new ImageData(px, w, h), x, y);
+          ctx.putImageData(new ImageData(px, w, h, { colorSpace: this.p3 ? "display-p3" : "srgb" }), x, y);
           break;
         }
         case 80: /* pMoveTo */ this.scratch.moveTo(k[0], k[1]); break;
@@ -206,6 +212,7 @@ globalThis.exact.canvas2dGlue = function canvas2dGlue(o) {
   const canvases = new Map(); // view id -> Replayer
   const reported = new Map(); // view id -> "w h scale"
   const waiting = new Set(); // watched views whose first geometry is not in yet
+  const watched = new Map(); // view id -> the element its latest watch is on
   let settle = null, frames = false, framing = false;
   const agentMode = AGENT_ADMITTED && new URL(location.href).searchParams.has("agent");
   const surfaceOf = (el) => el && [...el.children].find(c => c.dataset && c.dataset.surface !== undefined);
@@ -228,10 +235,31 @@ globalThis.exact.canvas2dGlue = function canvas2dGlue(o) {
   const observer = new ResizeObserver(entries => {
     for (const e of entries) {
       const id = Number(e.target.dataset.view), box = e.contentBoxSize?.[0];
+      // (An element its id's latest watch is not on, a replaced or removed one, reports nothing for that id.)
+      if (watched.get(id) !== e.target) continue;
       report(id, e.target, box ? box.inlineSize : e.contentRect.width, box ? box.blockSize : e.contentRect.height);
     }
     if (!waiting.size && settle) { settle.resolve(); settle = null; }
   });
+  // A canvas's first geometry where the observer has not given it a second on: a page in a frame scrolled out of
+  // view delivers no ResizeObserver entries (nor frames), and readiness waits on it (`settled`). Its content box, as
+  // layout has it now; the observer's own entry, when it comes, reports again only if it differs.
+  // A canvas gone before then waits for nothing; a newer watch of its id owns its own wait. The content box is the
+  // computed size (fractional, as the observer's), less padding and border where the box sizes its border; none for a
+  // canvas with no box (`display: none` here or above: its computed size is the authored one); and inline then block,
+  // as the observer's entry gives it, in a vertical writing mode.
+  function firstGeometry(id, el) {
+    if (!waiting.has(id) || watched.get(id) !== el) return;
+    if (o.views.get(id) !== el) { waiting.delete(id); watched.delete(id); observer.unobserve(el); }
+    else if (!el.getClientRects().length) report(id, el, 0, 0);
+    else {
+      const cs = getComputedStyle(el), px = v => parseFloat(v) || 0, edge = cs.boxSizing === "border-box";
+      const inner = (size, a, b) => Math.max(0, px(size) - (edge ? px(cs[`padding${a}`]) + px(cs[`padding${b}`]) + px(cs[`border${a}Width`]) + px(cs[`border${b}Width`]) : 0));
+      const width = inner(cs.width, "Left", "Right"), height = inner(cs.height, "Top", "Bottom");
+      if (/^(vertical|sideways)/.test(cs.writingMode ?? "")) report(id, el, height, width); else report(id, el, width, height);
+    }
+    if (!waiting.size && settle) { settle.resolve(); settle = null; }
+  }
   // A display-scale change is a new generation (D4): every canvas reports again.
   const rescale = () => matchMedia(`(resolution: ${devicePixelRatio}dppx)`).addEventListener("change", () => {
     for (const id of reported.keys()) { const el = o.views.get(id); if (el) { observer.unobserve(el); observer.observe(el); } }
@@ -294,7 +322,8 @@ globalThis.exact.canvas2dGlue = function canvas2dGlue(o) {
       }
       const el = o.views.get(op.id);
       if (!el) return;
-      if (op.watch) { waiting.add(op.id); observer.observe(el); return; }
+      // (A new element's first geometry is always sent: a replaced view of one id and size is a new canvas to its runner.)
+      if (op.watch) { const old = watched.get(op.id); if (old && old !== el) observer.unobserve(old); waiting.add(op.id); watched.set(op.id, el); reported.delete(op.id); observer.observe(el); if (!agentMode) setTimeout(() => firstGeometry(op.id, el), 1000); return; }
       const surface = surfaceOf(el);
       if (!surface) return;
       if (op.fresh) canvases.set(op.id, new Replayer(surface, op));

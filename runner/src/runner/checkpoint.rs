@@ -40,7 +40,7 @@ impl<D: DataSource> Runner<D> {
         data: D,
         kernel: Kernel,
         checkpoint: &Checkpoint,
-        snapshot: Vec<(String, String)>,
+        snapshot: Vec<(String, Vec<u8>)>,
         delivery: Delivery,
         viewport: crate::Viewport,
         launch: &str,
@@ -67,7 +67,7 @@ impl<D: DataSource> Runner<D> {
         data: D,
         kernel: Kernel,
         checkpoint: &Checkpoint,
-        snapshot: Vec<(String, String)>,
+        snapshot: Vec<(String, Vec<u8>)>,
         delivery: Delivery,
         viewport: crate::Viewport,
         launch: &str,
@@ -156,6 +156,9 @@ impl<D: DataSource> Runner<D> {
                 value: crate::held::Held::new(value.clone()),
                 store_revision: self.store.revision(),
                 placeholder: false,
+                kept_seed: false,
+                answered_for: None,
+                origin: 0,
             });
             *seed = true;
         }

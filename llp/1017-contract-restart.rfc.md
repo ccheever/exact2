@@ -140,3 +140,59 @@ Sol (ultra) and Grok (xhigh) each saw r2 and the other's sub-LLP, answered §8's
 ## Process note
 
 `rules/DEFERRED.md` §Process: no refine loops, no READY verdicts. This document had none; it is one read of the record, written in a day, with paths so the read can be checked. Linked into `llp/current/` once the working set had room (15 of 15 with it; a peer session archived two links the same afternoon). The same question was then put, blind and with §5–§8 withheld, to two outside families: Grok 4.6 (LLP 1017.001) and GPT-5.6 Sol via codex (LLP 1017.002) — each with the same brief, the same capsule, and the same two worked samples, so the three answers read side by side. Where this document and a diary disagree, the diary is the record.
+
+## 11. The tail call (Charlie, 2026-10-03)
+
+*Amended by LLP 1089 (built 2026-10-04): the tail call is one case of a call,
+which may stand anywhere a statement may and may name an action of the same
+component or an injected action too. `inline/tail.rs` became
+`inline/calls.rs`, the `@check:` statement became `Stmt::Call`,
+`syntax-tail-cycle` and `syntax-tail-call` became `syntax-call-cycle` and
+`syntax-call-target`, and `tail_call.rs` became `calls.rs`. The text below is
+the 2026-10-03 rule.*
+
+P4c had child actions reach their parent only through `action` props bound
+to elements, so a child could not decide, in its own logic, to tell its
+parent. The Signal Clone's photo viewer is the consumer: a drag's release
+decides whether to dismiss. The workaround moved the viewer's pan, zoom and
+dismissal state to the root. Charlie, asked through the coordinator: yes.
+
+**The rule.** A child's action may call one of its `action` props as its last
+statement, or as the last statement of the branches of a last `if` or `match`
+(tail position). The arguments complete the prop's parameters, after any
+curried at the use (`close=dismiss("photo")`). Anywhere else the call is
+still refused (`type-unknown-command`, which now names the tail position).
+An action still does not call a root action by name, and nothing returns a
+value.
+
+**What it means.** The compiler marks the call while inlining (`@tail:<action>`,
+`contract/syntax/src/inline.rs`) and then puts the named action's statements
+in its place (`inline/tail.rs`). Its parameters become `let`s of the call's
+arguments, renamed apart. The call is exactly those statements run last in
+the caller. It is one commit, every statement reads the state as the action
+found it (as any statement in an action does), and the callee's writes land
+after the caller's (`a = 1` then a callee's `a = 2` leaves 2). The writes
+allowlist is the union, because it is computed from the inlined body. No
+plan opcode and no runtime change, so both runners and every host run it
+already. Hygiene: every name the caller binds (its parameters, its
+`let`s and `match` bindings) and every parameter and binder of a callee is
+renamed apart, using `@`, which an author cannot write. So an inlined
+statement reads the root's state, never a caller's local of the same
+spelling, and in a chain an inner action never reads an outer action's
+parameter. The callee's own parameters are substituted in its own body
+before its own tail calls are resolved. Each call leaves an `@check:<action>`
+statement with its arguments. The type pass holds those arguments to the
+callee's parameter types (curried ones included), and lowering emits
+nothing for it. The arguments are also typed in the child's own scope, so a
+child cannot pass a root name it never had. A cycle is refused
+(`syntax-tail-cycle`), and so is an action prop argument that does not name
+an action, such as a ternary (`syntax-tail-call`). The first version refused a
+caller `let` that hid a callee read. Astra's and Grok's review showed it
+missed parameters and chains, so renaming apart replaced the refusal.
+
+Tests: `contract/cli/tests/it/tail_call.rs`, run on the runner. They cover a
+conditional dismiss, curried arguments ahead of the call's own, reads before
+and writes after the caller's, the refusal anywhere but the tail, a caller
+parameter and local spelled like root state, a chain through an intermediate
+action's parameter, argument types against the callee, and an argument the
+child never had. DEFERRED records the ruling under **Actions**.

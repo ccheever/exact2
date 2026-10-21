@@ -11,6 +11,7 @@ fn timer_deadline_tracks_ordered_catch_up_and_absence() {
         action,
         once: false,
         frame: false,
+        ..plan.timers[0]
     });
     let mut r = Runner::boot(
         plan,
@@ -69,6 +70,7 @@ fn a_one_shot_timer_fires_once_then_owes_no_deadline() {
         action,
         once: true,
         frame: false,
+        ..plan.timers[0]
     };
     let mut r = Runner::boot(
         plan,
@@ -96,6 +98,7 @@ fn a_one_shot_timer_fires_once_then_owes_no_deadline() {
         action,
         once: true,
         frame: false,
+        ..plan.timers[0]
     });
     let mut r = Runner::boot(
         plan,
@@ -134,6 +137,7 @@ fn a_frame_task_fires_once_per_presented_frame_and_each_virtual_frame_on_a_seek(
         action,
         once: false,
         frame: true,
+        ..plan.timers[0]
     });
     let mut r = Runner::boot(
         plan,

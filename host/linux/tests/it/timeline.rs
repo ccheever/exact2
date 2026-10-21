@@ -1,54 +1,41 @@
 //! Drag timelines on Linux (LLP 1057.003 D2, D4): the painter presents what
 //! the engine's frame gives, so a backdrop bound to a photo's
-//! `drag-timeline` follows the presenter's contact and the release spring,
+//! `-exact-drag-timeline` follows the presenter's contact and the release spring,
 //! at f(photo) in every frame, with nothing Linux-specific; and in a list of
 //! cards that each drive `--swipe`, each row's label follows its own card.
 use exact_linux::{presenter::PainterChoice, Presenter};
-use exact_runner::{DataError, DataSource};
 use std::path::PathBuf;
-
-#[derive(Default)]
-struct Empty;
-impl DataSource for Empty {
-    fn query(
-        &mut self,
-        name: &str,
-        _: &[exact_runner::Value],
-    ) -> Result<exact_runner::Value, DataError> {
-        Err(DataError::UnknownSource(name.into()))
-    }
-}
 
 const APP: &str = r##"keyframes fade
   from opacity=1
   to opacity=0
 component App
   state y = 0
-  action geometry(w: number, h: number, pw: number, ph: number) writes y
+  action geometry(w: number, h: number, pw: number, ph: number)
     y = y
-  action release(px: number, py: number, s: number, vx: number, vy: number, vs: number) writes y
+  action release(px: number, py: number, s: number, vx: number, vy: number, vs: number)
     y = (py > 120 ? 900 : 0)
   view
     box width="100%" height="100%"
       box testId="clip" timeline-scope="--dismiss" position="absolute" left=0 top=0 width=300 height=400 overflow="hidden" box-sizing="border-box" padding=0 border-width=0
         box testId="backdrop" position="absolute" left=0 top=0 width="100%" height="100%" background-color="#172521" animation="fade 1s linear both" animation-timeline="--dismiss" animation-range="0px 300px"
-        box id="photo" testId="photo" width="100%" height="100%" box-sizing="border-box" margin=0 padding=0 border-width=0 translate=`0px ${y}px` transition="translate spring(300, 30, 1)" drag-timeline="--dismiss y"
+        box id="photo" testId="photo" width="100%" height="100%" box-sizing="border-box" margin=0 padding=0 border-width=0 translate=`0px ${y}px` transition="translate -exact-spring(300, 30, 1)" -exact-drag-timeline="--dismiss y"
           box testId="handle" position="absolute" left=0 top=0 width="100%" height="100%" transformDragFor="photo" transformgeometry=geometry transformrelease=release touch-action="none"
 "##;
 
-fn id(p: &Presenter<Empty>, name: &str) -> u32 {
+fn id(p: &Presenter<()>, name: &str) -> u32 {
     let k = p.host().kernel();
     k.node_by_key(k.find_by_test_id(name)[0]).unwrap().id
 }
 
 /// The photo's presented `y` and the backdrop's presented opacity.
-fn shown(p: &Presenter<Empty>) -> (f32, f32) {
+fn shown(p: &Presenter<()>) -> (f32, f32) {
     let photo = p.host().presented(id(p, "photo"));
     let backdrop = p.host().presented(id(p, "backdrop"));
     (photo.translate.1, backdrop.opacity)
 }
 
-fn follows(p: &Presenter<Empty>) -> (f32, f32) {
+fn follows(p: &Presenter<()>) -> (f32, f32) {
     let (y, o) = shown(p);
     let f = (1. - y / 300.).clamp(0., 1.);
     assert!(
@@ -62,7 +49,7 @@ fn follows(p: &Presenter<Empty>) -> (f32, f32) {
 fn a_backdrop_follows_the_contact_and_the_release_spring_in_every_frame() {
     let (mut p, error) = Presenter::boot_with(
         &contract::compile(APP).unwrap().encode(),
-        Empty,
+        (),
         (400., 500.),
         1.,
         PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/../../apps/caltrain")),
@@ -114,17 +101,17 @@ component Row
   props
     n: number
   state kept = false
-  action keep writes kept
+  action keep
     kept = not kept
   view
     box testId=`row-${n}` timeline-scope="--swipe" width=300 height=56 flex-shrink=0 position="relative" overflow="hidden" box-sizing="border-box" padding=0 border-width=0
       box testId=`label-${n}` position="absolute" left=0 top=0 width=64 height="100%" animation="reveal 1s linear both" animation-timeline="--swipe" animation-range="0px 64px"
-      box testId=`card-${n}` swiperight=keep touch-action="pan-y" width="100%" height="100%" position="relative" box-sizing="border-box" margin=0 padding=0 border-width=0 transition="translate spring(300, 30, 1)" drag-timeline="--swipe x"
+      box testId=`card-${n}` swiperight=keep touch-action="pan-y" width="100%" height="100%" position="relative" box-sizing="border-box" margin=0 padding=0 border-width=0 transition="translate -exact-spring(300, 30, 1)" -exact-drag-timeline="--swipe x"
         text (kept ? "kept" : "") testId=`kept-${n}`
 "##;
 
 /// Each row's card `x` and its label's opacity and scale.
-fn rows(p: &Presenter<Empty>) -> Vec<(f32, f32, f32)> {
+fn rows(p: &Presenter<()>) -> Vec<(f32, f32, f32)> {
     (1..=4)
         .map(|n| {
             let card = p.host().presented(id(p, &format!("card-{n}")));
@@ -135,7 +122,7 @@ fn rows(p: &Presenter<Empty>) -> Vec<(f32, f32, f32)> {
 }
 
 /// Row 2's label at f(its card), and every other row at rest.
-fn only_row_two(p: &Presenter<Empty>) -> f32 {
+fn only_row_two(p: &Presenter<()>) -> f32 {
     let shown = rows(p);
     let (x, opacity, scale) = shown[1];
     let f = (x / 64.).clamp(0., 1.);
@@ -153,7 +140,7 @@ fn only_row_two(p: &Presenter<Empty>) -> f32 {
 fn in_a_list_of_cards_each_label_follows_its_own_card() {
     let (mut p, error) = Presenter::boot_with(
         &contract::compile(LIST).unwrap().encode(),
-        Empty,
+        (),
         (400., 500.),
         1.,
         PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/../../apps/caltrain")),
@@ -223,22 +210,22 @@ const UNRESOLVED: &str = r##"keyframes fade
   to opacity=1
 component App
   state two = true
-  action flip writes two
+  action flip
     two = not two
-  action noop writes two
+  action noop
     two = two
   view
     column width=300 height="100%"
       box testId="flip" press=flip width=300 height=40 flex-shrink=0
       box testId="m-row" width=300 height=40 position="relative" flex-shrink=0
         box testId="m-label" position="absolute" left=0 top=0 width=64 height=40 opacity=0.55 animation="fade 1s linear both" animation-timeline="--t" animation-range="0px 64px"
-        box testId="m-card" swiperight=noop touch-action="pan-y" width="100%" height="100%" position="relative" transition="translate spring(300, 30, 1)" drag-timeline="--t x"
+        box testId="m-card" swiperight=noop touch-action="pan-y" width="100%" height="100%" position="relative" transition="translate -exact-spring(300, 30, 1)" -exact-drag-timeline="--t x"
       box testId="z-row" timeline-scope="--t" width=300 height=40 position="relative" flex-shrink=0
         box testId="z-label" position="absolute" left=0 top=0 width=64 height=40 opacity=0.55 animation="fade 1s linear both" animation-timeline="--t" animation-range="0px 64px"
       box testId="t-row" timeline-scope="--t" width=300 height=80 position="relative" flex-shrink=0
         box testId="t-label" position="absolute" left=0 top=0 width=64 height=40 opacity=0.55 animation="fade 1s linear both" animation-timeline="--t" animation-range="0px 64px"
-        box testId="t-card-a" swiperight=noop touch-action="pan-y" width="100%" height=40 position="relative" transition="translate spring(300, 30, 1)" drag-timeline="--t x"
-        box testId="t-card-b" width="100%" height=40 position="relative" drag-timeline=(two ? "--t x" : "none")
+        box testId="t-card-a" swiperight=noop touch-action="pan-y" width="100%" height=40 position="relative" transition="translate -exact-spring(300, 30, 1)" -exact-drag-timeline="--t x"
+        box testId="t-card-b" width="100%" height=40 position="relative" -exact-drag-timeline=(two ? "--t x" : "none")
 "##;
 
 /// What Chrome 154 shows (the phase 3 probe): a name no element in scope
@@ -250,7 +237,7 @@ component App
 fn an_unresolved_name_holds_time_zero_and_an_inactive_one_has_no_effect() {
     let (mut p, error) = Presenter::boot_with(
         &contract::compile(UNRESOLVED).unwrap().encode(),
-        Empty,
+        (),
         (400., 500.),
         1.,
         PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/../../apps/caltrain")),
@@ -258,7 +245,7 @@ fn an_unresolved_name_holds_time_zero_and_an_inactive_one_has_no_effect() {
     )
     .unwrap();
     assert!(error.is_none(), "{error:?}");
-    let shown = |p: &Presenter<Empty>| {
+    let shown = |p: &Presenter<()>| {
         ["m-label", "z-label", "t-label", "t-card-a"].map(|t| {
             let v = p.host().presented(id(p, t));
             if t.ends_with("card-a") {
@@ -269,7 +256,7 @@ fn an_unresolved_name_holds_time_zero_and_an_inactive_one_has_no_effect() {
         })
     };
     assert_eq!(shown(&p), [0., 0.55, 0.55, 0.]);
-    let swipe = |p: &mut Presenter<Empty>, y: f32, at: f64| {
+    let swipe = |p: &mut Presenter<()>, y: f32, at: f64| {
         assert!(p.pointer_down(100., y, at).unwrap());
         assert!(
             p.pointer_move(108., y, at + 8.).unwrap(),
@@ -277,7 +264,7 @@ fn an_unresolved_name_holds_time_zero_and_an_inactive_one_has_no_effect() {
         );
         assert!(p.pointer_move(148., y, at + 24.).unwrap());
     };
-    let settle = |p: &mut Presenter<Empty>, y: f32, at: f64| {
+    let settle = |p: &mut Presenter<()>, y: f32, at: f64| {
         assert!(p.pointer_up(148., y, at).unwrap());
         for frame in 1..=90 {
             p.tick(at + frame as f64 * 16.);
@@ -319,22 +306,22 @@ keyframes rise
   to scale=1
 component App
   state x = 0
-  action geometry(w: number, h: number, pw: number, ph: number) writes x
+  action geometry(w: number, h: number, pw: number, ph: number)
     x = x
-  action release(px: number, py: number, s: number, vx: number, vy: number, vs: number) writes x
+  action release(px: number, py: number, s: number, vx: number, vy: number, vs: number)
     x = ((px > 120 or vx > 800) ? 600 : 0)
   view
     box width="100%" height="100%"
       box testId="clip" timeline-scope="--fling" position="absolute" left=0 top=0 width=300 height=400 overflow="hidden" box-sizing="border-box" padding=0 border-width=0
         box testId="next" position="absolute" left=40 top=20 width=220 height=280 animation="rise 1s linear both" animation-timeline="--fling" animation-range="-300px 300px"
-        box id="top" testId="top" width="100%" height="100%" box-sizing="border-box" margin=0 padding=0 border-width=0 translate=`${x}px 0px` transition="translate spring(300, 30, 1)" drag-timeline="--fling x"
+        box id="top" testId="top" width="100%" height="100%" box-sizing="border-box" margin=0 padding=0 border-width=0 translate=`${x}px 0px` transition="translate -exact-spring(300, 30, 1)" -exact-drag-timeline="--fling x"
           box testId="face" position="absolute" left=40 top=20 width=220 height=280 transform-origin="50% 100%" animation="tilt 1s linear both" animation-timeline="--fling" animation-range="-300px 300px"
           box testId="handle" position="absolute" left=0 top=0 width="100%" height="100%" transformDragFor="top" transformgeometry=geometry transformrelease=release touch-action="none"
 "##;
 
 /// The top card's presented `x`, after checking its face's tilt and the next
 /// card's rise against it.
-fn dealt(p: &Presenter<Empty>) -> f32 {
+fn dealt(p: &Presenter<()>) -> f32 {
     let x = p.host().presented(id(p, "top")).translate.0;
     let tilt = p.host().presented(id(p, "face")).rotate;
     let rise = p.host().presented(id(p, "next")).scale;
@@ -353,7 +340,7 @@ fn dealt(p: &Presenter<Empty>) -> f32 {
 fn a_thrown_card_tilts_its_face_and_raises_the_next_in_every_frame() {
     let (mut p, error) = Presenter::boot_with(
         &contract::compile(DECK).unwrap().encode(),
-        Empty,
+        (),
         (400., 500.),
         1.,
         PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/../../apps/caltrain")),

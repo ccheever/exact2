@@ -51,7 +51,7 @@ impl Drop for AppDir {
     }
 }
 
-const APP: &str = "component App\n  state count = 2\n  action more writes count\n    count = count + 1\n  view\n    column\n      text t(\"title\") testId=\"title\"\n      text t(\"greeting\", name=\"Ada\", count=count) testId=\"greeting\"\n      text \"fixed\" testId=\"fixed\"\n      text t(\"only-base\") testId=\"only\"\n";
+const APP: &str = "component App\n  state count = 2\n  action more\n    count = count + 1\n  view\n    column\n      text t(\"title\") testId=\"title\"\n      text t(\"greeting\", name=\"Ada\", count=count) testId=\"greeting\"\n      text \"fixed\" testId=\"fixed\"\n      text t(\"only-base\") testId=\"only\"\n";
 
 const EN: &str = r#"{"title": "Journal", "greeting": "Hi {name}, {count} entries", "only-base": "Base only", "unused": "Never baked"}"#;
 const EN_GB: &str = r#"{"title": "Diary"}"#;
@@ -227,7 +227,7 @@ fn the_base_locale_matches_without_case_and_is_baked_first() {
 
 #[test]
 fn interpolation_refuses_expansion_past_the_vms_string_cap() {
-    let src = "component App\n  state label = \"\"\n  action expand(s: string) writes label\n    label = t(\"large\", name=s)\n  view\n    text label\n";
+    let src = "component App\n  state label = \"\"\n  action expand(s: string)\n    label = t(\"large\", name=s)\n  view\n    text label\n";
     let table = serde_json::json!({ "large": "{name}".repeat(1025) }).to_string();
     let app = AppDir::new(src, &[("strings/en.json", &table)]);
     let mut r = boot(app.compile().unwrap());
@@ -320,7 +320,7 @@ fn every_table_refusal_is_reported_in_one_run() {
 #[test]
 fn a_loop_variable_named_t_leaves_t_callable_in_a_child() {
     let app = AppDir::new(
-        "shape Row\n  id: string\ncomponent App\n  resource rows = rows() as shape list<Row>\n  view\n    Rows(rows=rows)\ncomponent Rows\n  props\n    rows: list<Row>\n  view\n    column\n      each t in rows key=t.id\n        text t(\"hi\") testId=t.id\n",
+        "shape Row\n  id: string\ncomponent App\n  resource rows = rows() as shape Row[]\n  view\n    Rows(rows=rows)\ncomponent Rows\n  props\n    rows: Row[]\n  view\n    column\n      for t in rows key=t.id\n        text t(\"hi\") testId=t.id\n",
         &[("strings/en.json", r#"{"hi": "Hello"}"#)],
     );
     assert!(app.compile().is_ok(), "{:?}", app.refusals());
@@ -456,4 +456,66 @@ fn the_default_place_reanswers_resolved_locale_when_its_table_changes() {
     assert_eq!(text(&r, "locale"), "en");
     r.set_place("en-US", "UTC", None).unwrap();
     assert_eq!(text(&r, "locale"), "en-US");
+}
+
+#[test]
+fn finite_strings_flow_into_navigation_presentation_and_string_commands() {
+    let source = r#"routes nav
+  home "/"
+    item "/item/:item"
+shape Choice
+  value: enum<"draft", "published">
+component App
+  resource choice = exactSurface("world") as shape Choice
+  state label = ""
+  action present(value: enum<"draft", "published">)
+    label = t("hi", name=value)
+    nav = push(nav, path("item", value))
+    postMessage(value, "world")
+  action fromField
+    present(choice.value)
+  action commands(value: enum<"draft", "published">)
+    scrollIntoView(value)
+    scrollBy(value, 1, 2)
+    setSelectionRange(value, 0, 1, value)
+    playSound(value)
+    load(value)
+    fastSeek(value, 0)
+  action tick
+    label = t("hi", name=choice.value)
+  task poll key=choice.value
+    after(1000, tick)
+  view
+    column width=(true ? 100 : choice.value)
+      canvas surface=world()
+      text label testId="label"
+"#;
+    let app = AppDir::new(source, &[("strings/en.json", r#"{"hi":"Hi {name}"}"#)]);
+    let mut r = boot(app.compile().unwrap());
+    r.take_commands();
+    r.act("fromField", vec![]).unwrap();
+    assert_eq!(text(&r, "label"), "Hi draft");
+    assert_eq!(r.take_router_change().unwrap().url, "/item/draft");
+    assert_eq!(
+        r.take_commands().pop().unwrap().args,
+        [Value::str("draft"), Value::str("world")]
+    );
+    r.act("present", vec![Value::str("published")]).unwrap();
+    assert_eq!(text(&r, "label"), "Hi published");
+    assert_eq!(r.take_router_change().unwrap().url, "/item/published");
+    assert!(r.act("present", vec![Value::str("invalid")]).is_err());
+    assert_eq!(text(&r, "label"), "Hi published");
+    // Enum shape fields independently flow through all ordinary string sinks.
+    let fields = source
+        .replace("scrollIntoView(value)", "scrollIntoView(choice.value)")
+        .replace("scrollBy(value,", "scrollBy(choice.value,")
+        .replace(
+            "setSelectionRange(value, 0, 1, value)",
+            "setSelectionRange(choice.value, 0, 1, choice.value)",
+        )
+        .replace("playSound(value)", "playSound(choice.value)")
+        .replace("load(value)", "load(choice.value)")
+        .replace("fastSeek(value,", "fastSeek(choice.value,");
+    let app = AppDir::new(&fields, &[("strings/en.json", r#"{"hi":"Hi {name}"}"#)]);
+    app.compile().unwrap();
 }

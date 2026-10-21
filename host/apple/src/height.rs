@@ -193,7 +193,8 @@ impl<D: DataSource> Host<D> {
                 };
                 // CSS uses the opt-in at transition start. Changing that flag
                 // alone does not cancel an already running transition.
-                if !allowed
+                if height == Dimension::Auto
+                    && !allowed
                     && !(previous.as_ref() == Some(&height)
                         && self.engine.is_active(motion_node(*key), Property::Height))
                 {
@@ -208,7 +209,7 @@ impl<D: DataSource> Host<D> {
                     .style
                     .transition
                     .clone();
-                eligible.insert(*key, (height, transitions));
+                eligible.insert(*key, (height, transitions, allowed));
             }
         }
         let measured = if auto.is_empty() {
@@ -230,7 +231,7 @@ impl<D: DataSource> Host<D> {
         // No engine mutation precedes successful measurement of the whole set.
         for (key, previous) in &mut self.height_transitions {
             let id = motion_node(*key);
-            let Some((height, transitions)) = eligible.get(key) else {
+            let Some((height, transitions, allowed)) = eligible.get(key) else {
                 if self.height_owner != Some(*key) {
                     self.engine.remove_property(id, Property::Height);
                 }
@@ -252,7 +253,12 @@ impl<D: DataSource> Host<D> {
             let active = self.engine.is_active(id, Property::Height);
             // Content changes under a settled auto height are ordinary layout,
             // not a new transition. During motion, retarget without a jump.
+            // Leaving settled auto needs the opt-in; an active sample is a length.
             if previous.is_none()
+                || (!active
+                    && !allowed
+                    && previous.as_ref() == Some(&Dimension::Auto)
+                    && previous.as_ref() != Some(height))
                 || (!active
                     && previous.as_ref() == Some(height)
                     && self.engine.target(id, Property::Height) != Some(value))

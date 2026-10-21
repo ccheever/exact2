@@ -6,3 +6,6 @@ rustflags = ["-C", "llvm-args=-fp-contract=off"]
 # refuses a build under this promise that lacks them (engine/build.rs).
 [env]
 EXACT_GAME_FP_CONTRACT = "off"
+# Engine acquisition is the explicit installer step (`exact setup`), never a
+# side effect of a generated shell's Cargo build.
+HERMES_LEAN_SYS_OFFLINE = { value = "1", force = true }

@@ -95,9 +95,51 @@ impl<D: DataSource> Host<D> {
             .transpose()
     }
 
+    /// The size a text field's own font starts at, `px` points, where the
+    /// page's initial 16 is not it: a shell that hosts the platform's field
+    /// sets it by the device's font scale (LLP 1115.001 D8), and under the
+    /// Material look a button's with it, whose title is label-large in sp.
+    /// Laid out again when a field read it; whether anything changed.
+    pub fn set_field_font_size(&mut self, px: f32) -> Result<bool, String> {
+        let kernel = self.runner.kernel_mut();
+        let mut styles = crate::paint::control::control_text_styles();
+        styles.field.size = px;
+        styles.textarea.size = px;
+        if crate::paint::look::material() {
+            styles.button.size = px;
+        }
+        let env = exact_kernel::Env {
+            control_text_styles: Some(styles),
+            ..kernel.env().clone()
+        };
+        match kernel.set_env(env) {
+            Ok(true) => self.layout().map(|_| true),
+            Ok(false) => Ok(false),
+            Err(e) => Err(format!("field font: {e:?}")),
+        }
+    }
+
     // Mandatory layout entries always reconcile eligibility and use fresh epochs.
     // Failed layout invalidates this cache; unchanged samples must retry recovery.
-    pub(super) fn layout(&mut self) -> Result<bool, String> {
+    pub(crate) fn layout(&mut self) -> Result<bool, String> {
+        let result = self.layout_anchored();
+        if result.is_ok() {
+            self.scroll_anchors
+                .laid_out(self.runner.kernel(), &self.runner.roots());
+        }
+        result
+    }
+
+    fn layout_anchored(&mut self) -> Result<bool, String> {
+        if let Some((text, installed)) = self.font_sync.as_mut() {
+            if self.runner.runtime_font_count() != *installed {
+                text.borrow_mut().install_runtime(
+                    self.runner.plan().stacks.len(),
+                    &self.runner.runtime_font_stacks(),
+                );
+                *installed = self.runner.runtime_font_count();
+            }
+        }
         #[cfg(test)]
         {
             self.layout_calls += 1;
@@ -120,6 +162,7 @@ impl<D: DataSource> Host<D> {
                 region.layout(self.runner.kernel_mut(), roots[0], Offer::definite(w, h))?;
             if let Some(receipt) = region.receipt() {
                 self.runner.report_flow_skipped(&receipt.shell.flow_skipped);
+                self.runner.moved(&receipt.shell.changed);
             }
             self.height_projection = None;
             self.height_layout_valid = true;
@@ -127,14 +170,18 @@ impl<D: DataSource> Host<D> {
         }
         let mut changed = false;
         for root in self.runner.roots() {
-            let receipt = self
-                .runner
-                .kernel_mut()
-                .compute_layout_presented(root, Offer::definite(w, h), projection.as_slice())
-                .map_err(|e| format!("layout: {e:?}"))?;
+            let kernel = self.runner.kernel_mut();
+            let receipt = crate::text::cache::deferring_eviction(|| {
+                kernel.compute_layout_presented(root, Offer::definite(w, h), projection.as_slice())
+            })
+            .map_err(|e| format!("layout: {e:?}"))?;
             // @ref LLP 1043.000 §3 D4/D7 — flow-only changes damage the paragraph.
             self.runner.report_flow_skipped(&receipt.flow_skipped);
+            self.runner
+                .report_fragment_skipped(&receipt.fragment_skipped);
+            self.runner.moved(&receipt.changed);
             self.flow_damage.layout(&receipt);
+            self.row_dirty.layout(&receipt);
             changed |= !receipt.changed.is_empty() || !receipt.flow_changed.is_empty();
         }
         self.height_projection = projection;

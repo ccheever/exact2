@@ -1,5 +1,6 @@
 // Synthetic conformance plan: per-row state in keyed rows, component
-// derives, fn, map/filter, string and number formatting in the roster.
+// derives, fn, map/filter, string and number formatting in the roster. A
+// key that changes with its item unchanged is a new row (jukebox F19).
 fn clamp(v: number, lo: number, hi: number): number = max(lo, min(hi, v))
 
 shape Location
@@ -14,22 +15,25 @@ shape Station
 
 component Rows
   resource loc = defaultLocation() as shape Location
-  resource line = stations(loc) as shape list<Station>
-  resource close = nearest(loc, 4) as shape list<Station>
+  resource line = stations(loc) as shape Station[]
+  resource close = nearest(loc, 4) as shape Station[]
   state near = false
   state dropped = false
-  derive names = map(filter(near ? close : line, s => not dropped or s.zone != 3), s => s.name)
+  derive names = (near ? close : line).filter(s => not dropped or s.zone != 3).map(s => s.name)
   state scale = 1.5
   state positioned = false
   state flex = true
-  action paint writes positioned, flex
+  state epoch = 0
+  action rekey
+    epoch = epoch + 1
+  action paint
     positioned = not positioned
     flex = not flex
-  action reverse writes near
+  action reverse
     near = not near
-  action drop writes dropped
+  action drop
     dropped = not dropped
-  action grow writes scale
+  action grow
     scale = scale * 2
   view
     column testId="root" gap=4 padding=8
@@ -40,6 +44,7 @@ component Rows
       button press=grow testId="grow"
         text `scale ${scale} floor ${floor(scale)} clamp ${clamp(scale, 0, 4)}`
       button "Toggle paint facts" press=paint testId="paint"
+      button `rekey ${epoch}` press=rekey testId="rekey"
       box
         box position="absolute" width=20 height=20
         box position=(positioned ? "relative" : "static") testId="bound-position" height=20
@@ -47,19 +52,22 @@ component Rows
         box z-index=0 width=20 height=20
         box width=20 height=20 testId="after-z"
       box
-        each n in names key=n
+        for n in names key=n
           box height=2 testId=`paint-row-${n}`
             box position="absolute" width=1 height=1
-      each n in names key=n
+      if positioned
+        for n in names key=n
+          text n testId=`conditional-row-${n}`
+      for n in names key=`${n}@${epoch}`
         Row(name=n)
-      text `${length(names)} names, empty ${isEmpty(names)}, ${toString(1 / 3)}, ${trim("  x  ")}, ${includes("grace", "ace")}` testId="summary"
+      text `${names.length} names, empty ${names.isEmpty()}, ${(1 / 3).toString()}, ${"  x  ".trim()}, ${"grace".includes("ace")}` testId="summary"
 
 component Row
   props
     name: string
   state count = 0
   derive label = `${name} × ${count}`
-  action bump writes count
+  action bump
     count = count + 1
   view
     button press=bump testId=`bump-${name}`

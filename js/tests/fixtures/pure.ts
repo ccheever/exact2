@@ -1,5 +1,25 @@
 // The same utility corpus runs in Hermes and Chrome. Returning JSON keeps the
 // Contract signature small; the separate transfer corpus also uses Bun's JSON.
+// What an object says of itself never steers a copy (review r4a 5, 9, 10):
+// its own `constructor`, getters and tags, a key named `__proto__`, holes.
+function steered() {
+  const proto=structuredClone(JSON.parse('{"__proto__":{"admin":true},"ok":1}'));
+  const bytes=new Uint8Array([1,2]);
+  Object.defineProperty(bytes,'constructor',{value:function(){return new Uint8Array([99,99]);}});
+  Object.defineProperty(bytes,'buffer',{get(){return new ArrayBuffer(8);}});
+  const bytesCopy=structuredClone(bytes), sortedBytes=bytes.toSorted(), withBytes=bytes.with(0,7);
+  const date=new Date(5); Object.defineProperty(date,'getTime',{value:()=>9});
+  const fake={[Symbol.toStringTag]:'Date',n:1};
+  const map=new Map([[1,2]]); Object.defineProperty(map,'forEach',{value:()=>{}});
+  const re=/a/g; Object.defineProperty(re,'flags',{value:'i'}); Object.defineProperty(re,'global',{value:false});
+  let visits=0;
+  const holes=[2,,1].toSorted(); holes.map(()=>visits++);
+  return {proto:[Object.keys(proto),Object.getPrototypeOf(proto)===Object.prototype,'admin' in proto,JSON.stringify(proto)],
+    bytes:[Array.from(bytesCopy),Object.getPrototypeOf(bytesCopy)===Uint8Array.prototype,bytesCopy.buffer.byteLength,Array.from(sortedBytes),Object.getPrototypeOf(sortedBytes)===Uint8Array.prototype,Array.from(withBytes)],
+    date:structuredClone(date).getTime(), fake:[Object.keys(structuredClone(fake)),typeof (structuredClone(fake) as any).getTime],
+    map:[...structuredClone(map)], re:[structuredClone(re).flags,structuredClone(re).source],
+    holes:[holes.length,0 in holes,1 in holes,2 in holes,visits]};
+}
 export function exercise(source: string): string {
   const encoder = new TextEncoder();
   if(source==='text') {
@@ -19,7 +39,12 @@ export function exercise(source: string): string {
       }
     }
     const view = new DataView(new Uint8Array([88,0,65,89]).buffer,1,2);
-    return JSON.stringify({labels,splitCases,encoded:Array.from(encoder.encode('a\0é😀\ud800z\udfff')),into,bytes:Array.from(bytes),chunks,rejected,reset:fatal.decode(new Uint8Array([65])),bom:new TextDecoder('utf8',{ignoreBOM:true}).decode(new Uint8Array([239,187,191])),view:decoder.decode(view),invalid:decoder.decode(new Uint8Array([0xed,0xa0,0x80,0xe2,0x28,0xa1]))});
+    const utf16 = new Uint8Array([255,254,65,0,61,216,0,222]);
+    const utf16le = new TextDecoder('utf-16le').decode(utf16);
+    let utf16Fatal=false;
+    try{new TextDecoder('utf-16le',{fatal:true}).decode(new Uint8Array([65]));}catch(e){utf16Fatal=e instanceof TypeError;}
+    const utf16Bom=[new TextDecoder('utf-16le').decode(new Uint8Array([255,254,65,0])),new TextDecoder('utf-16le',{ignoreBOM:true}).decode(new Uint8Array([255,254,65,0]))];
+    return JSON.stringify({labels,splitCases,encoded:Array.from(encoder.encode('a\0é😀\ud800z\udfff')),into,bytes:Array.from(bytes),chunks,rejected,reset:fatal.decode(new Uint8Array([65])),bom:new TextDecoder('utf8',{ignoreBOM:true}).decode(new Uint8Array([239,187,191])),utf16le,utf16Fatal,utf16Bom,view:decoder.decode(view),invalid:decoder.decode(new Uint8Array([0xed,0xa0,0x80,0xe2,0x28,0xa1]))});
   }
   if(source==='url') {
     const url = new URL('../c?q=a%20b&x=1&x=2#old','https://例え.テスト/a/b/');
@@ -32,6 +57,136 @@ export function exercise(source: string): string {
     const seen=[iterator.next().value];live.append('b','2');seen.push(iterator.next().value);
     const visits:string[]=[];live.forEach((v,k)=>{visits.push(k+v);if(k==='a')live.append('c','3');});
     return JSON.stringify({seen,visits,first,linked,href:url.href,same:params===url.searchParams,entries:Array.from(params),bad:URL.canParse('/x'),parse:URL.parse('not a url'),nul:new URLSearchParams([['\0','\0']]).get('\0')});
+  }
+  if(source==='standard') {
+    // What a web developer expects of a data module (docs/reference.md):
+    // the globals Hermes is given (js/src/standard.js, Ibex's abort.js).
+    const shared={n:1}, cyclic:any={shared,list:[shared,shared],when:new Date(86400000),re:/a+/gi,
+      map:new Map<unknown,unknown>([[shared,'k'],['v',shared]]),set:new Set([1,shared]),bytes:new Uint8Array([1,2,3]).subarray(1),
+      boxed:Object('s'),big:12n,error:new RangeError('far',{cause:shared}),sparse:[1,,3],get read(){return 'got';}};
+    cyclic.self=cyclic;
+    const copy=structuredClone(cyclic);
+    const refused=[()=>{},Symbol('s'),Promise.resolve(),new WeakMap()].map(v=>{try{structuredClone(v);return 'cloned';}catch(e){return (e as DOMException).name;}});
+    const controller=new AbortController(), heard:string[]=[];
+    controller.signal.addEventListener('abort',()=>heard.push('listener'));
+    controller.signal.onabort=()=>heard.push('onabort');
+    controller.abort();
+    let thrown='';
+    try{controller.signal.throwIfAborted();}catch(e){thrown=(e as DOMException).name;}
+    const any=AbortSignal.any([new AbortController().signal,AbortSignal.abort('why')]);
+    return JSON.stringify({
+      distinct:copy!==cyclic&&copy.shared!==shared, shared:copy.list[0]===copy.list[1]&&copy.list[0]===copy.shared&&copy.map.get('v')===copy.shared,
+      cyclic:copy.self===copy, when:copy.when.getTime(), re:[copy.re.source,copy.re.flags], map:[...copy.map.values()].length, set:copy.set.has(copy.shared),
+      bytes:[Array.from(copy.bytes),copy.bytes.byteOffset,copy.bytes.buffer.byteLength], boxed:typeof copy.boxed, big:String(copy.big),
+      error:[copy.error instanceof RangeError,copy.error.message,copy.error.cause===copy.shared], sparse:[copy.sparse.length,1 in copy.sparse], read:copy.read,
+      refused, aborted:[controller.signal.aborted,(controller.signal.reason as DOMException).name,thrown,heard], any:[any.aborted,any.reason],
+      sorted:[[3,1,2].toSorted(),[3,1,2].toSorted((a,b)=>b-a),Array.prototype.toSorted.call({length:2,0:'b',1:'a'})],
+      typed:[Array.from(new Int8Array([1,-2,3]).toReversed()),Array.from(new Int8Array([3,-2,1]).toSorted()),Array.from(new Int8Array([1,2,3]).with(-1,9))],
+      newer:[[1,2,3].at(-1),[1,2,3].findLast(n=>n<3),Object.groupBy([1,2,3],n=>n%2?'odd':'even'),'a.b'.replaceAll('.','/'),typeof Promise.withResolvers],
+      ...steered(),
+    });
+  }
+  if(source==='microtask') {
+    const order:string[]=[];
+    queueMicrotask(()=>order.push('first'));
+    Promise.resolve().then(()=>order.push('promise'));
+    queueMicrotask(()=>{order.push('throws');throw new Error('reported, not rejected');});
+    queueMicrotask(()=>order.push('after'));
+    order.push('sync');
+    return new Promise<string>(done=>queueMicrotask(()=>done(JSON.stringify(order)))) as unknown as string;
+  }
+  if(source==='abort') {
+    // A fetch's `signal`, before and after the request starts; the reply of
+    // the aborted one is never awaited.
+    const early=fetch('https://example.invalid/early',{signal:AbortSignal.abort()}).then(()=>'fetched',e=>(e as Error).name);
+    const controller=new AbortController();
+    const late=fetch('https://example.invalid/late',{signal:controller.signal}).then(()=>'fetched',e=>(e as Error).name);
+    controller.abort(new Error('mine'));
+    // An abort listener the app added first cannot stop the fetch's own
+    // (review r4a 8); a signal that is no AbortSignal is a TypeError.
+    const quiet=new AbortController();
+    quiet.signal.addEventListener('abort',e=>e.stopImmediatePropagation());
+    const suppressed=fetch('https://example.invalid/quiet',{signal:quiet.signal}).then(()=>'fetched',e=>(e as Error).name);
+    quiet.abort();
+    const bad=fetch('https://example.invalid/bad',{signal:{aborted:false} as unknown as AbortSignal}).then(()=>'fetched',e=>(e as Error).name);
+    return Promise.all([early,late,late.then(()=>controller.signal.reason.message),suppressed,bad]).then(JSON.stringify) as unknown as string;
+  }
+  if(source==='hooks') {
+    const hook=(globalThis as any).__exact_ibex2_abort_hooks;
+    return JSON.stringify({present:'__exact_ibex2_abort_hooks' in globalThis,own:typeof hook?.own,subscribe:typeof hook?.subscribe});
+  }
+  // Intl.NumberFormat as the browser formats it (x2apps stocks #3: Hermes
+  // on macOS printed `9,274,743` for compact): compact in its displays,
+  // currency and percent, each in a few locales.
+  if(source==='intl') {
+    const values=[0,-0,0.5,0.0123,1,12,999,999.9,1000,1234,1250,9999,12345,99999,123456,999999,1e6,1234567,9274743,99999999,543578062292.7,1e12,1.5e13,-2500,-9274743,1e15];
+    const locales=['en-US','de-DE','fr-FR','ja-JP','es-ES','en-GB','pt-BR','it-IT','zh-CN','ko-KR','en-IN','hi-IN'];
+    const out:Record<string,string[]>={};
+    for(const locale of locales) for(const [name,options] of [
+      ['compact',{notation:'compact'}],
+      ['compact2',{notation:'compact',maximumFractionDigits:2}],
+      ['compact-sd',{notation:'compact',maximumSignificantDigits:3}],
+    ] as [string,Intl.NumberFormatOptions][]) out[locale+' '+name]=values.map(v=>new Intl.NumberFormat(locale,options).format(v));
+    out['en-US toLocaleString']=values.map(v=>v.toLocaleString('en-US',{notation:'compact'}));
+    for(const locale of ['en-US','de-DE','fr-FR']) {
+      out[locale+' currency']=[1234.5,-0.41,166.07].map(v=>new Intl.NumberFormat(locale,{style:'currency',currency:'USD'}).format(v));
+      out[locale+' percent']=[0.0041,-0.0041,0.5].map(v=>new Intl.NumberFormat(locale,{style:'percent',minimumFractionDigits:2}).format(v));
+      out[locale+' resolved']=[new Intl.NumberFormat(locale,{notation:'compact'}).resolvedOptions().notation as string];
+    }
+    // A half rounds away from zero, from the number's shortest digits
+    // (X72: Apple's engine rounded USD 0.825 to even, `$0.82`), in each
+    // style and digit option, and by the formatter's roundingMode.
+    const halves=[0.825,1.005,2.675,0.125,-0.825], usd={style:'currency',currency:'USD'} as const;
+    const format=(options:object,v:number)=>{try{return new Intl.NumberFormat('en-US',options).format(v);}catch(e){return (e as Error).name;}};
+    out['en-US currency halves']=halves.map(v=>format(usd,v));
+    out['en-US currency halfExpand']=halves.map(v=>format({...usd,roundingMode:'halfExpand'},v));
+    out['en-US currency toLocaleString']=halves.map(v=>v.toLocaleString('en-US',usd));
+    out['de-DE currency halves']=halves.map(v=>new Intl.NumberFormat('de-DE',usd).format(v));
+    out['en-US yen halves']=[1234.5,-1234.5,0.5,2.5].map(v=>format({style:'currency',currency:'JPY'},v));
+    out['en-US percent halves']=[0.125,0.0125,-0.125,0.995,0.005].map(v=>format({style:'percent'},v));
+    out['en-US percent2 halves']=[0.00125,-0.00125,0.012345].map(v=>format({style:'percent',minimumFractionDigits:2},v));
+    out['en-US significant halves']=[0.125,12.5,1250,-0.0125,9.95,0.000125].map(v=>format({maximumSignificantDigits:2},v));
+    out['en-US scientific halves']=[1234.5,0.00012345,1.0005,-1234.5].map(v=>format({notation:'scientific'},v));
+    out['en-US decimal halves']=[1.0005,-1.0005,2.5,0.1+0.2,1234567890123.4567,-0.0001].map(v=>format({},v));
+    out['en-US integer halves']=[2.5,3.5,-2.5,0.5].map(v=>format({maximumFractionDigits:0},v));
+    for(const mode of ['ceil','floor','expand','trunc','halfCeil','halfFloor','halfExpand','halfTrunc','halfEven','up'])
+      out['en-US roundingMode '+mode]=[1.25,-1.25,1.35,1.21,-1.21,1.2,-0.01].map(v=>format({maximumFractionDigits:1,roundingMode:mode},v))
+        .concat([1250,-1250,1350,12500].map(v=>format({notation:'compact',roundingMode:mode},v)));
+    // Compact the prelude prints in full (a currency or percent, a long
+    // display, a locale it has no table for), at values Chrome's compact
+    // prints with the same digits.
+    out['en-US compact currency halves']=[0.825,0.125,-0.825].map(v=>format({...usd,notation:'compact'},v));
+    for(const mode of ['halfEven','floor','ceil'])
+      out['en-US compact currency '+mode]=[0.825,0.829,-0.821].map(v=>format({...usd,notation:'compact',roundingMode:mode},v));
+    out['en-US compact percent halves']=[0.125,-0.125,0.165].map(v=>format({style:'percent',notation:'compact'},v));
+    out['en-US compact long halves']=[0.0125,-0.0125,0.0145].map(v=>format({notation:'compact',compactDisplay:'long'},v));
+    out['sk-SK compact halves']=[0.0125,-0.0125,0.0145].map(v=>new Intl.NumberFormat('sk-SK',{notation:'compact'}).format(v));
+    const nf=new Intl.NumberFormat('en-US');
+    out['en-US resolved roundingMode']=[nf,new Intl.NumberFormat('en-US',{roundingMode:'floor'} as Intl.NumberFormatOptions),new Intl.NumberFormat('en-US',{notation:'compact',roundingMode:'halfEven'} as Intl.NumberFormatOptions)]
+      .map(f=>String((f.resolvedOptions() as {roundingMode?:string}).roundingMode)).concat([String(nf.format===nf.format),typeof Object.getOwnPropertyDescriptor(Intl.NumberFormat.prototype,'format')?.get]);
+    // Intl.Locale and its week (#118): the tag, every field, and getWeekInfo(), or the error's name.
+    const fields=['baseName','language','script','region','variants','calendar','caseFirst','collation','firstDayOfWeek','hourCycle','numeric','numberingSystem'];
+    const locale=(tag:unknown,options?:object):string[]=>{
+      try{const l:any=new (Intl as any).Locale(tag,options);return [String(l),...fields.map(f=>String(l[f])),JSON.stringify(l.getWeekInfo()),Object.prototype.toString.call(l),JSON.stringify(l)];}
+      catch(e){return [(e as Error).name];}
+    };
+    for(const tag of ['en-US','de-DE','ar-EG','ar-SA','ja-JP','ko-KR','en-GB','fa-IR','hi-IN','he-IL','ps-AF','dv-MV','ug-UG','en-AU','fr-CA','pt-BR','pt-PT','es-419','en-001',
+      'en','de','ar','fa','he','zh','zh-Hant','pt','und','sr-Latn','pa-Arab','fil','yue','EN-latn-us-u-ca-gregory-hc-h12','en-u-fw-mon','en-US-u-fw-sat','en-u-fw-xyz',
+      'de-u-rg-uszzzz','en-u-kn','en-u-kn-false','en-u-nu-arab-ca-islamic','de-DE-1996-fonipa','sl-rozaj-biske-1994','en-a-foo-b-bar-u-ca-gregory','en-US-x-foo','en-t-de',
+      'en-u-attr-ca-gregory','en-u-ca-gregory-ca-buddhist','','not_a_tag','en-','i-klingon','x-private','en-US-US','en-1996-1996','en-u','root',
+      'ar-AE','en-AE','en-US-u-ca-iso8601','ar-EG-u-ca-iso8601','en-US-u-ca-iso8601-fw-sun','en-u-ca','en-u-kf','en-u-hc','en-u-co','en-u-nu','en-u-fw',
+      'und-Arab','und-Deva','en-Shaw','pi-Thai','en-t-12','en-t-en-foo','en-t-de-k0-tech','en-t-k0-tech-h0-hybrid','en-t-ja-Latn-JP'])
+      out['Locale '+tag]=locale(tag);
+    for(const [tag,options] of [['en',{region:'GB',calendar:'gregory',hourCycle:'h23',firstDayOfWeek:'mon'}],['en',{numeric:true}],['en',{numeric:false}],['en',{firstDayOfWeek:0}],
+      ['en',{firstDayOfWeek:7}],['en',{firstDayOfWeek:'monday'}],['en',{calendar:'Gregory'}],['en',{hourCycle:'h25'}],['en',{caseFirst:false}],['en-US',{language:'de'}],
+      ['en',{region:'419'}],['en',{language:'en-US'}],['en-u-ca-buddhist',{calendar:'gregory'}],['ar',{region:'SA'}],['de',{region:'US'}],
+      ['en',{variants:'fonipa'}],['en-1996',{variants:'FONIPA-1994'}],['en',{variants:''}],['en',{variants:'fonipa-fonipa'}],['en',{variants:'ab'}]] as [string,object][])
+      out['Locale '+tag+' '+JSON.stringify(options)]=locale(tag,options);
+    for(const tag of [undefined,null,5]) out['Locale '+String(tag)]=locale(tag);
+    out['Locale en with null options']=locale('en',null as unknown as object);
+    out['Locale length']=[String((Intl as any).Locale.length)];
+    out['Locale of a Locale']=locale(new (Intl as any).Locale('de-DE-u-ca-gregory'),{region:'AT'});
+    return JSON.stringify(out);
   }
   if(source==='base64') {
     const inputs=['','Zg','Zh','Zg==','Zm8','Zm9','Zm9v',' /w==\n','AA=='];
@@ -81,9 +236,12 @@ function transfer(mode:string):unknown {
 }
 // Exercise the actual native envelope parser, including replies the ordinary
 // serializer cannot emit. Restore stringify before it visits capture paths.
+// An async mode replaces the call's envelope; a sync one the reply its settle
+// gives after the checkpoint (a value given at once is a call too).
 function wire(text:string,mode:string):unknown {
   const stringify=JSON.stringify;
   JSON.stringify=((value:unknown,replacer:never,space:never)=>{
+    if(!mode.startsWith('async')&&(value as {tag?:number}|null)?.tag===3) return stringify(value,replacer,space);
     JSON.stringify=stringify;
     stringify(value,replacer,space);
     return text;

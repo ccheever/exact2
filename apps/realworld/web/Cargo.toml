@@ -8,6 +8,14 @@ build = "build.rs"
 
 [lib]
 crate-type = ["cdylib", "rlib"]
+test = false
+bench = false
+
+[[bin]]
+name = "realworld-render"
+path = "src/bin/realworld-render.rs"
+test = false
+bench = false
 
 [dependencies]
 exact-logic = { path = "../../../logic" }

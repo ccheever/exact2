@@ -316,7 +316,12 @@ fn inline_detached_and_reused_keys_are_ineligible_but_numeric_roots_are_allowed(
 
 #[test]
 fn height_transition_roundtrips_exwf_without_changing_previous_property_codes() {
-    for (code, property) in Property::ALL.into_iter().enumerate() {
+    // A path's `d` rides past the wire's codes (LLP 1055.000 D15).
+    for (code, property) in Property::ALL
+        .into_iter()
+        .enumerate()
+        .chain([(Property::D as usize, Property::D)])
+    {
         if property == Property::ShadowColor {
             continue; // named only by `box-shadow`; refused on the wire (LLP 1062)
         }
@@ -386,7 +391,16 @@ fn property_retirement_precedes_readoption_and_preserves_other_live_holds() {
     assert!(e.has_hold(opacity_hold.token));
     let mut mask = exact_kernel::StyleMask::EMPTY;
     mask.set(StyleId::Height);
-    k.apply(0, 3, &[Op::ClearStyle { id: 3, mask }]).unwrap();
+    k.apply(
+        0,
+        3,
+        &[Op::ClearStyle {
+            id: 3,
+            mask,
+            written: false,
+        }],
+    )
+    .unwrap();
     k.height_motion_sync(owner).apply(&mut e).unwrap();
     assert_eq!(
         e.value(node, Property::Height),
@@ -725,7 +739,15 @@ fn clearing_the_row_makes_later_changes_immediate() {
     let mut mask = exact_kernel::StyleMask::EMPTY;
     mask.set(StyleId::Transition);
     let receipt = kernel
-        .apply(0, 2, &[Op::ClearStyle { id: 1, mask }])
+        .apply(
+            0,
+            2,
+            &[Op::ClearStyle {
+                id: 1,
+                mask,
+                written: false,
+            }],
+        )
         .unwrap();
     kernel.motion_sync(&receipt).apply(&mut engine).unwrap();
     assert_eq!(kernel.node(1).unwrap().style.transition, Transitions::NONE);
@@ -983,7 +1005,11 @@ fn clearing_or_zeroing_the_kernel_transition_during_hold_snaps_on_end() {
             let declaration = if clear {
                 let mut mask = exact_kernel::StyleMask::EMPTY;
                 mask.set(StyleId::Transition);
-                Op::ClearStyle { id: 1, mask }
+                Op::ClearStyle {
+                    id: 1,
+                    mask,
+                    written: false,
+                }
             } else {
                 Op::SetStyle {
                     id: 1,

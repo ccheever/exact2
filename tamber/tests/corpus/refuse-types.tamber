@@ -1,0 +1,18 @@
+tamber types
+
+theme
+  hue.percent = oklch(from #ff0000 l c 50%)
+  hsl.hue.percent = hsl(from red 50% 100% 50%)
+  hue.sum = oklch(from #ff0000 l c calc(h + 0.5turn))
+  rgb.angle = rgb(90deg 0 0)
+  missing = color(srgb 1 none 0)
+  mix.missing = color-mix(in srgb, color(srgb 1 none 0), lime)
+  number.plus.percent = rgb(from #000 calc(r + 50%) g b)
+  absolute.plus = rgb(calc(10 + 50%) 0 0)
+  powerless = oklch(from white 0.5 0.2 h)
+  platform.name = -exact-platform-color(ios bogus, #000)
+  current = currentcolor
+  platform.wide = -exact-platform-color(ios systemTealColor, oklch(0.7 0.1 200))
+  platform.twice = -exact-platform-color(ios a, ios b, #000)
+  mix.number = color-mix(in srgb, red 20, blue)
+  powerless.lch = lch(from lab(50 0.001 0) 50 40 h)

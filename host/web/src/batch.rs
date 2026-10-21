@@ -11,6 +11,7 @@ use exact_num::{push_text, text, Piece, Shortest};
 pub struct Batch {
     ops: Vec<String>,
     collection_accepted: bool,
+    seq: Option<(u64, u64)>,
 }
 
 /// Validate before token translation or storage/continuation serialization.
@@ -32,7 +33,7 @@ pub(crate) fn request_refusal(request: &exact_runner::Request) -> Option<&'stati
             return Some("independent HTTP response limit must be 1..=64 MiB");
         }
     }
-    None
+    request.timeout_refusal().or(request.body_from_refusal())
 }
 
 pub(crate) fn quote(s: &str, out: &mut String) {
@@ -117,6 +118,10 @@ impl Batch {
         let key = |i: usize| keys.map_or("null".into(), |k| format!("\"{}\"", motion_node(k[i])));
         self.ops.push(format!("{{\"op\":\"reorder-drag\",\"id\":{view},\"runtime\":\"{runtime}\",\"handleKey\":\"{}\",\"list\":{},\"listKey\":{},\"wrapper\":{},\"wrapperKey\":{},\"rootKey\":{},\"rowEpoch\":\"{}\"}}",motion_node(handle),id(0),key(0),id(1),key(1),key(2),binding.map_or(0,|b|b.row_epoch)));
     }
+    /// One op already written as JSON (a grouped reorder's, LLP 1094).
+    pub(crate) fn push_op(&mut self, json: String) {
+        self.ops.push(json);
+    }
     pub(crate) fn reorder_state(
         &mut self,
         runtime: u64,
@@ -188,6 +193,17 @@ impl Batch {
                 s.push(',');
             }
             id.push_to(&mut s);
+        }
+        s.push_str("],\"visits\":[");
+        for (i, (id, url)) in change.visits.iter().enumerate() {
+            if i > 0 {
+                s.push(',');
+            }
+            s.push('[');
+            id.push_to(&mut s);
+            s.push(',');
+            quote(url, &mut s);
+            s.push(']');
         }
         s.push_str("]}");
         self.ops.push(s);
@@ -321,6 +337,28 @@ impl Batch {
         self.ops.push(s);
     }
 
+    /// `{"op":"theme","css":…}`: the theme's `:root` rule (LLP 1095 D4), at
+    /// a boot whose plan has one (none for an empty rule), and after a live
+    /// edit moves the roles (LLP 1121 stage 5).
+    pub fn theme(&mut self, css: &str) {
+        if css.is_empty() {
+            return;
+        }
+        let mut s = String::from("{\"op\":\"theme\",\"css\":");
+        quote(css, &mut s);
+        s.push('}');
+        self.ops.push(s);
+    }
+
+    /// `{"op":"looks","id":…,"css":…}`: a view's state-look rules for the
+    /// page's looks sheet (LLP 1121 D8), `""` to drop them.
+    pub fn looks(&mut self, id: u32, css: &str) {
+        let mut s = text!("{{\"op\":\"looks\",\"id\":{},\"css\":", id);
+        quote(css, &mut s);
+        s.push('}');
+        self.ops.push(s);
+    }
+
     /// `{"op":"style","id":…,"css":…}` — the whole `cssText`.
     pub fn style(&mut self, id: u32, css: &str) {
         let mut s = text!("{{\"op\":\"style\",\"id\":{},\"css\":", id);
@@ -344,14 +382,15 @@ impl Batch {
 
     /// `{"op":"animate","id":…,"property":…,"delay":ms,"duration":ms,"values":[…]}`
     /// — a spring's frames, evenly spaced; `translate` values are `[x,y]`
-    /// pairs, the rest numbers. No values means stop playing the property.
+    /// pairs, `[x,y,px,py]` with percentages of the box (chess diary #4),
+    /// the rest numbers. No values means stop playing the property.
     pub fn animate(
         &mut self,
         id: u32,
         property: &str,
         delay_ms: f64,
         duration_ms: f64,
-        values: &[(f64, f64)],
+        values: &[[f64; 4]],
         pair: bool,
     ) {
         self.animate_op(None, id, property, (delay_ms, duration_ms), values, pair);
@@ -367,7 +406,7 @@ impl Batch {
         id: u32,
         property: &str,
         (delay_ms, duration_ms): (f64, f64),
-        values: &[(f64, f64)],
+        values: &[[f64; 4]],
     ) {
         let pair = property == "translate";
         self.animate_op(
@@ -386,7 +425,7 @@ impl Batch {
         id: u32,
         property: &str,
         (delay_ms, duration_ms): (f64, f64),
-        values: &[(f64, f64)],
+        values: &[[f64; 4]],
         pair: bool,
     ) {
         let mut s = text!("{{\"op\":\"animate\",\"id\":{},\"property\":", id);
@@ -401,12 +440,14 @@ impl Batch {
             delay_ms,
             duration_ms
         );
-        for (i, (x, y)) in values.iter().enumerate() {
+        for (i, [x, y, px, py]) in values.iter().enumerate() {
             if i > 0 {
                 s.push(',');
             }
             let (x, y) = (Shortest(*x), Shortest(*y));
-            if pair {
+            if pair && (*px != 0.0 || *py != 0.0) {
+                push_text!(&mut s, "[{},{},{},{}]", x, y, Shortest(*px), Shortest(*py));
+            } else if pair {
                 push_text!(&mut s, "[{},{}]", x, y);
             } else {
                 x.push_to(&mut s);
@@ -461,10 +502,11 @@ impl Batch {
     /// A 2D canvas's stamped lists (LLP 1056 D4), in order, as `[address,
     /// length]` pairs in this wasm's memory: the glue replays them in place,
     /// with no text between (the host keeps them alive for the batch);
-    /// `fresh` starts a new bitmap at `w`×`h`.
+    /// `fresh` starts a new bitmap at `w`×`h`, `p3` and `float16` its
+    /// getContext settings (LLP 1100 D12a).
     pub fn canvas2d(&mut self, c: &exact_runner::CanvasList) {
         let mut s = text!(
-            "{{\"op\":\"canvas2d\",\"id\":{},\"lifetime\":{},\"generation\":{},\"seq\":{},\"fresh\":{},\"w\":{},\"h\":{},\"scale\":{},\"stretch\":{},\"lists\":[",
+            "{{\"op\":\"canvas2d\",\"id\":{},\"lifetime\":{},\"generation\":{},\"seq\":{},\"fresh\":{},\"w\":{},\"h\":{},\"scale\":{},\"stretch\":{},\"p3\":{},\"float16\":{},\"lists\":[",
             c.view,
             Shortest(c.lifetime as f64),
             c.generation,
@@ -473,7 +515,9 @@ impl Batch {
             c.pixel_width,
             c.pixel_height,
             Shortest(c.scale),
-            c.stretch
+            c.stretch,
+            c.settings.p3,
+            c.settings.float16
         );
         for (i, l) in c.lists.iter().enumerate() {
             if i > 0 {
@@ -581,6 +625,9 @@ impl Batch {
                 max_response_bytes
             );
         }
+        if let Some(ms) = r.request.timeout_ms {
+            push_text!(&mut s, ",\"timeoutMs\":{}", ms);
+        }
         s.push_str(",\"method\":");
         quote(&r.request.method, &mut s);
         s.push_str(",\"url\":");
@@ -596,7 +643,19 @@ impl Batch {
             quote(v, &mut s);
             s.push(']');
         }
-        s.push_str("],\"body\":\"");
+        s.push(']');
+        // `exactBodyFrom` (LLP 1108 D6 R2): the page reads the app file
+        // into the body (http-body.js), under the request's grants.
+        if let Some(path) = &r.request.body_from {
+            s.push_str(",\"bodyFrom\":");
+            quote(path, &mut s);
+        }
+        // Absent is `follow` (http-body.js)
+        if r.request.redirect != exact_runner::Redirect::Follow {
+            s.push_str(",\"redirect\":");
+            quote(r.request.redirect.name(), &mut s);
+        }
+        s.push_str(",\"body\":\"");
         s.push_str(&exact_runner::agent::base64(&r.request.body));
         s.push_str("\",\"cache\":\"");
         s.push_str(if r.forced { "reload" } else { "default" });
@@ -612,35 +671,51 @@ impl Batch {
 
     /// `{"op":"store","tier":"secret","name":…,"value":…|null}` — a secret
     /// the app kept or forgot (LLP 1018 D1), for the page to persist after
-    /// the commit (`localStorage` under `exact.secret.<name>`).
+    /// the commit (`localStorage` under `exact.secret.<name>`); `"plain"`
+    /// for a persisted state (LLP 1116 D5), kept under its own name. A kept
+    /// answer's bytes go as base64, since `localStorage` holds text.
     pub fn store(&mut self, w: &exact_runner::StoreWrite) {
-        let mut s = String::from("{\"op\":\"store\",\"tier\":\"secret\",\"name\":");
+        let tier = if w.name.starts_with(exact_runner::Store::STATE) {
+            "plain"
+        } else {
+            "secret"
+        };
+        let mut s = format!("{{\"op\":\"store\",\"tier\":\"{tier}\",\"name\":");
         quote(&w.name, &mut s);
         s.push_str(",\"value\":");
         match &w.value {
-            Some(v) => quote(v, &mut s),
+            Some(v) if w.name.starts_with(exact_runner::Store::KEPT) => {
+                quote(&exact_runner::agent::base64(v), &mut s)
+            }
+            Some(v) => quote(&String::from_utf8_lossy(v), &mut s),
             None => s.push_str("null"),
         }
         s.push('}');
         self.ops.push(s);
     }
 
-    /// `{"op":"grants","lines":[…]}` — the hosts the app may reach (LLP 1016
-    /// D6), once at boot; the page refuses a request outside them itself.
+    /// `{"op":"grants","lines":[…]}` — what the app may reach (LLP 1016 D6),
+    /// once at boot, from the runner's one parse of the whole set; the page
+    /// refuses a request outside them itself. A set that does not parse
+    /// grants nothing, as on a native host: `lines` is empty and `error`
+    /// says why, for the page to name in each refusal.
     pub fn grants(&mut self, grants: &str) {
+        let parsed = exact_runner::grants::parse(grants);
         let mut s = String::from("{\"op\":\"grants\",\"lines\":[");
-        for (i, line) in grants
-            .lines()
-            .map(str::trim)
-            .filter(|l| !l.is_empty())
-            .enumerate()
-        {
+        for (i, line) in parsed.iter().flat_map(|set| set.lines()).enumerate() {
             if i > 0 {
                 s.push(',');
             }
             quote(line, &mut s);
         }
-        s.push_str("]}");
+        s.push(']');
+        if let Err(errors) = &parsed {
+            s.push_str(",\"error\":");
+            quote(&exact_runner::grants::refusal(errors), &mut s);
+        }
+        s.push_str(",\"set\":");
+        s.push_str(&exact_runner::grants::normalized_json(grants));
+        s.push('}');
         self.ops.push(s);
     }
 
@@ -664,13 +739,112 @@ impl Batch {
         self.ops.push(s);
     }
 
+    /// `{"op":"sound","files":[…],"ops":[…]}` (LLP 1096 D7): the voice
+    /// table's ops, `{"op":"play","id":…,"sound":…,"at":…,"gain":…}` (with
+    /// `playbackRate` and `pan` when not 1 and 0, LLP 1125 D10) and
+    /// `{"op":"end","id":…,"at":…}`, in runner milliseconds. `plan` at a
+    /// boot names the files to decode, in declaration order (a new boot
+    /// silences the last one's voices); nothing is sent when there is
+    /// nothing to say.
+    pub fn sound(
+        &mut self,
+        ops: Vec<exact_runner::sound::SoundOp>,
+        plan: Option<&exact_plan::Plan>,
+    ) {
+        use exact_runner::sound::SoundOp;
+        let files = plan.filter(|p| !p.sounds.is_empty());
+        if ops.is_empty() && files.is_none() {
+            return;
+        }
+        let mut s = String::from("{\"op\":\"sound\"");
+        if let Some(plan) = files {
+            s.push_str(",\"files\":[");
+            for (i, row) in plan.sounds.iter().enumerate() {
+                if i > 0 {
+                    s.push(',');
+                }
+                quote(plan.str(row.src), &mut s);
+            }
+            s.push(']');
+        }
+        s.push_str(",\"ops\":[");
+        for (i, op) in ops.iter().enumerate() {
+            if i > 0 {
+                s.push(',');
+            }
+            match op {
+                SoundOp::Play {
+                    id,
+                    sound,
+                    at,
+                    gain,
+                    playback_rate,
+                    pan,
+                } => {
+                    push_text!(
+                        &mut s,
+                        "{{\"op\":\"play\",\"id\":{},\"sound\":{},\"at\":{},\"gain\":{}",
+                        id,
+                        sound,
+                        Shortest(*at),
+                        Shortest(*gain)
+                    );
+                    if *playback_rate != 1.0 {
+                        push_text!(&mut s, ",\"playbackRate\":{}", Shortest(*playback_rate));
+                    }
+                    if *pan != 0.0 {
+                        push_text!(&mut s, ",\"pan\":{}", Shortest(*pan));
+                    }
+                    s.push('}');
+                }
+                SoundOp::End { id, at } => push_text!(
+                    &mut s,
+                    "{{\"op\":\"end\",\"id\":{},\"at\":{}}}",
+                    id,
+                    Shortest(*at)
+                ),
+                // A sequence step's haptic, at its time (LLP 1125 D3).
+                SoundOp::Haptic { id, kind, at } => {
+                    push_text!(&mut s, "{{\"op\":\"haptic\",\"id\":{},\"kind\":", id);
+                    quote(kind, &mut s);
+                    push_text!(&mut s, ",\"at\":{}}}", Shortest(*at));
+                }
+                SoundOp::Unhaptic { id } => {
+                    push_text!(&mut s, "{{\"op\":\"unhaptic\",\"id\":{}}}", id)
+                }
+            }
+        }
+        s.push_str("]}");
+        self.ops.push(s);
+    }
+
+    /// This batch's ops, for another batch to carry (`Host::ending`).
+    pub(crate) fn into_ops(self) -> Vec<String> {
+        self.ops
+    }
+
+    /// The runner's timed outputs since the last take (LLP 1096 D7, LLP
+    /// 1125 D7): the voice table's `sound` op and the MIDI queue's `midi`
+    /// op; at a `boot`, the files to decode and whether MIDI's arm loads.
+    pub fn timed<D: exact_runner::DataSource>(
+        &mut self,
+        runner: &mut exact_runner::Runner<D>,
+        boot: bool,
+    ) {
+        self.sound(runner.take_sounds(), boot.then(|| runner.plan()));
+        let uses = boot && exact_runner::uses::uses_midi(runner.plan());
+        if let Some(op) = exact_runner::midi::batch_op(&runner.take_midi(), uses) {
+            self.ops.push(op);
+        }
+    }
+
     /// `{"op":"destroy","id":…}`.
     pub fn destroy(&mut self, id: u32) {
         self.ops.push(text!("{{\"op\":\"destroy\",\"id\":{}}}", id));
     }
 
     /// `{"op":"exit","id":…,"css":…}` — the view leaves with `css`, the CSS
-    /// `animation` list of its `exit-animation` (LLP 1063): the page keeps
+    /// `animation` list of its `-exact-exit-animation` (LLP 1063): the page keeps
     /// it, inert, where it was until the exit ends. Its `destroy` ops follow
     /// as usual.
     pub fn exit(&mut self, id: u32, css: &str) {
@@ -700,6 +874,14 @@ impl Batch {
         }
         s.push_str("]}");
         self.ops.push(s);
+    }
+
+    /// The kernel transactions this batch carries, `"seq":[first,last]`, when
+    /// the runner measures (LLP 1079 D3): a development page's frame sampler
+    /// joins its frames to them.
+    pub fn seq(mut self, range: Option<(u64, u64)>) -> Batch {
+        self.seq = range;
+        self
     }
 
     /// @ref LLP 1043.000 §3 D8 — carry the runner deadline, not a poll interval.
@@ -732,6 +914,9 @@ impl Batch {
         }
         if self.collection_accepted {
             s.push_str(",\"accepted\":true");
+        }
+        if let Some((first, last)) = self.seq {
+            push_text!(&mut s, ",\"seq\":[{},{}]", first, last);
         }
         push_text!(
             &mut s,
@@ -817,5 +1002,45 @@ mod quote_tests {
             super::quote(s, &mut quoted);
             assert!(a.starts_with(&format!("[{quoted},")), "{a}");
         }
+    }
+}
+
+#[cfg(test)]
+mod store_tests {
+    use exact_runner::StoreWrite;
+
+    /// A kept answer's bytes cross `localStorage` as base64 and come back
+    /// whole; a secret is its text.
+    #[test]
+    fn a_kept_answers_bytes_round_trip_through_the_page() {
+        let bytes = vec![0, 255, b'|', 0x80, b'\0'];
+        let mut batch = super::Batch::new();
+        batch.store(&StoreWrite {
+            name: "exact.kept.answer".into(),
+            value: Some(bytes.clone()),
+        });
+        batch.store(&StoreWrite {
+            name: "token".into(),
+            value: Some(b"s3cret".to_vec()),
+        });
+        let out = batch.finish(None, false, 0.0, None);
+        assert!(
+            out.contains("\"name\":\"exact.kept.answer\",\"value\":\"AP98gAA=\""),
+            "{out}"
+        );
+        assert!(
+            out.contains("\"name\":\"token\",\"value\":\"s3cret\""),
+            "{out}"
+        );
+        // An older build's hex is kept empty: never used, and still forgettable
+        let page = "exact.kept.answer\0AP98gAA=\0token\0s3cret\0exact.kept.hex\0!!";
+        assert_eq!(
+            crate::abi::page_snapshot(page.as_bytes()),
+            [
+                ("exact.kept.answer".to_string(), bytes),
+                ("token".to_string(), b"s3cret".to_vec()),
+                ("exact.kept.hex".to_string(), Vec::new())
+            ]
+        );
     }
 }

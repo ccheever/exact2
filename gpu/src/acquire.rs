@@ -23,8 +23,11 @@
 //! for a render that would draw nothing — at 120 Hz, every tick.
 //!
 //! wgpu holds no device lock while it waits (only the surface's layer), so
-//! the other canvases' submits and presents run meanwhile. A resize and a
-//! seekable clock take the texture in flight, waiting for it.
+//! the other canvases' submits and presents run meanwhile. A seekable clock
+//! takes the texture in flight, waiting for it; so does a resize, except on
+//! Android, where it configures once the texture has landed
+//! ([`Acquire::reconfigure`]). A canvas whose window goes does not wait
+//! ([`Acquire::retire`]).
 
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{mpsc, Arc};
@@ -32,10 +35,17 @@ use std::sync::{mpsc, Arc};
 /// The texture a surface's acquisition returned.
 pub(crate) type Current = wgpu::CurrentSurfaceTexture;
 
+/// A texture the thread presents before it acquires the next.
+type Present = Option<(wgpu::Queue, wgpu::SurfaceTexture)>;
+
 /// One canvas's acquisitions: at most one in flight.
 #[derive(Default)]
 pub(crate) struct Acquire {
-    worker: Option<(mpsc::Sender<()>, mpsc::Receiver<Current>)>,
+    worker: Option<(
+        mpsc::Sender<Present>,
+        mpsc::Receiver<Current>,
+        std::thread::JoinHandle<()>,
+    )>,
     in_flight: bool,
     /// A render went without a texture since the last one it drew into, or
     /// the next one was asked for with the presenter waiting on it; shared
@@ -52,14 +62,91 @@ pub(crate) struct Acquire {
     surface: Option<Arc<wgpu::Surface<'static>>>,
 }
 
+/// An acquisition thread the canvas hung up on ([`Acquire::retire`]), and
+/// its surface: the module drops both once the thread has ended
+/// (`Module::reap`).
+pub(crate) struct Retired {
+    thread: std::thread::JoinHandle<()>,
+    surface: Option<Arc<wgpu::Surface<'static>>>,
+}
+
+impl Retired {
+    /// Whether the thread has ended, its own handle on the surface dropped.
+    pub(crate) fn finished(&self) -> bool {
+        self.thread.is_finished()
+    }
+
+    /// Wait for the thread to end, then drop the surface here.
+    pub(crate) fn join(self) {
+        let _ = self.thread.join();
+        let surface = self.surface;
+        crate::swapchains(|| drop(surface));
+    }
+}
+
+impl Drop for Acquire {
+    fn drop(&mut self) {
+        // Every path that lets a canvas's acquisition go retires it; on
+        // Android the surface must not be destroyed on the thread (`Retired`).
+        #[cfg(target_os = "android")]
+        if let Some(retired) = self.retire() {
+            retired.join();
+        }
+    }
+}
+
 impl Acquire {
+    /// Hang up on the thread without waiting for it. It may be inside an
+    /// acquisition that ends only when the compositor releases an image —
+    /// on Android not before the window's `surfaceDestroyed` returns, which
+    /// waits for this — and it ends when that does. Its surface is kept
+    /// with it: on Android, destroying the swapchain waits for the device
+    /// to be idle, which must not race the presenter's submits, so the
+    /// surface is dropped on the presenter's thread, not the acquiring one.
+    pub(crate) fn retire(&mut self) -> Option<Retired> {
+        let worker = self.worker.take();
+        let surface = self.surface.take();
+        // The thread keeps the old flags; a thread spawned later gets new ones.
+        self.in_flight = false;
+        self.starved = Default::default();
+        self.sent = Default::default();
+        self.taken = 0;
+        let (ask, answers, thread) = worker?;
+        drop(ask);
+        // A texture that landed and was never taken goes here, through the
+        // surface `surface` still holds.
+        drop(answers);
+        Some(Retired { thread, surface })
+    }
+
+    /// Whether the surface may be configured again now: nothing of it is
+    /// acquired. A texture that has landed is discarded. One still in flight
+    /// is waited for, except on Android, where the compositor may hold the
+    /// image until a window callback the presenter is waiting on returns:
+    /// there the canvas waits for it to land as a starved one does, and
+    /// configures in a later render.
+    pub(crate) fn reconfigure(&mut self) -> bool {
+        #[cfg(target_os = "android")]
+        if !self.landed() {
+            self.starved.store(true, Ordering::SeqCst);
+            return false;
+        }
+        drop(self.take(true));
+        true
+    }
+
     /// Whether this platform acquires off the presenter's thread: iOS, where
     /// it was measured first, and macOS, where the shader-only Extra Heavy
     /// feed spent 54% of the main thread in `nextDrawable` (2026-09-28). An
     /// occluded window's drawable wait now starves the canvas instead of
     /// holding the main thread; the AppKit presenter's guard stays for the
     /// agent's clock, which acquires on the main thread.
-    pub(crate) const ENABLED: bool = cfg!(any(target_os = "ios", target_os = "macos"));
+    pub(crate) const ENABLED: bool = cfg!(any(
+        target_os = "ios",
+        target_os = "tvos",
+        target_os = "macos",
+        target_os = "android"
+    ));
 
     /// Whether a texture asked for at a present is waited on
     /// ([`Self::request_awaited`]): where the presenter reads
@@ -67,13 +154,37 @@ impl Acquire {
     /// the UIKit presenter. The AppKit presenter renders every starved
     /// canvas whenever any texture lands, which with this would draw a
     /// canvas twice in a frame; it keeps asking at the tick until it does
-    /// the same.
-    pub(crate) const AWAITED: bool = cfg!(any(target_os = "ios", test));
+    /// the same. Android also wakes only a render that missed its texture,
+    /// through the reader's existing executor descriptor.
+    pub(crate) const AWAITED: bool = cfg!(any(target_os = "ios", target_os = "tvos", test));
 
     /// Ask for `target`'s next texture, unless one is already in flight.
     pub(crate) fn request(&mut self, target: &Arc<wgpu::Surface<'static>>) {
+        self.ask(target, None);
+    }
+
+    /// Present `texture` on the thread, then acquire `target`'s next one: on
+    /// Android a present is a binder call into the compositor that takes the
+    /// presenter's thread about a millisecond, and, once the GPU has fallen
+    /// behind, waits there for the frame before (Adreno 630). When one is
+    /// already in flight, `texture` is presented here.
+    #[cfg(target_os = "android")]
+    pub(crate) fn present_then_request(
+        &mut self,
+        target: &Arc<wgpu::Surface<'static>>,
+        queue: &wgpu::Queue,
+        texture: wgpu::SurfaceTexture,
+    ) {
+        if let Some((queue, texture)) = self.ask(target, Some((queue.clone(), texture))) {
+            queue.present(texture);
+        }
+    }
+
+    /// Send the thread `present` and a request, unless one is in flight;
+    /// what was not sent comes back.
+    fn ask(&mut self, target: &Arc<wgpu::Surface<'static>>, present: Present) -> Present {
         if self.in_flight {
-            return;
+            return present;
         }
         if self.worker.is_none() {
             self.taken = 0;
@@ -82,11 +193,18 @@ impl Acquire {
             self.surface = Some(target.clone());
         }
         match &self.worker {
-            Some((ask, _)) if ask.send(()).is_ok() => self.in_flight = true,
-            _ => {
-                self.worker = None;
-                self.surface = None;
-            }
+            Some((ask, _, _)) => match ask.send(present) {
+                Ok(()) => {
+                    self.in_flight = true;
+                    None
+                }
+                Err(mpsc::SendError(present)) => {
+                    self.worker = None;
+                    self.surface = None;
+                    present
+                }
+            },
+            None => present,
         }
     }
 
@@ -128,7 +246,7 @@ impl Acquire {
         if !self.in_flight {
             return None;
         }
-        let (_, answer) = self.worker.as_ref()?;
+        let (_, answer, _) = self.worker.as_ref()?;
         let got = if wait {
             answer.recv().map_err(|_| mpsc::TryRecvError::Disconnected)
         } else {
@@ -151,13 +269,15 @@ impl Acquire {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, target_os = "macos"))]
 impl Acquire {
     /// Hang up on the thread (it exits, dropping its handle on the surface)
     /// and hand back the channel it answers on.
     pub(crate) fn hang_up(&mut self) -> Option<mpsc::Receiver<Current>> {
-        let (ask, answer) = self.worker.take()?;
+        let (ask, answer, thread) = self.worker.take()?;
         drop(ask);
+        // This test takes the answer only after the worker has released its surface.
+        let _ = thread.join();
         Some(answer)
     }
 }
@@ -186,14 +306,21 @@ fn spawn(
     target: Arc<wgpu::Surface<'static>>,
     starved: Arc<AtomicBool>,
     sent: Arc<AtomicUsize>,
-) -> Option<(mpsc::Sender<()>, mpsc::Receiver<Current>)> {
-    let (ask, asked) = mpsc::channel::<()>();
+) -> Option<(
+    mpsc::Sender<Present>,
+    mpsc::Receiver<Current>,
+    std::thread::JoinHandle<()>,
+)> {
+    let (ask, asked) = mpsc::channel::<Present>();
     let (answer, answers) = mpsc::channel::<Current>();
-    std::thread::Builder::new()
+    let thread = std::thread::Builder::new()
         .name("exact-gpu-acquire".into())
         .spawn(move || {
             interactive();
-            while asked.recv().is_ok() {
+            while let Ok(present) = asked.recv() {
+                if let Some((queue, texture)) = present {
+                    crate::swapchains(|| queue.present(texture));
+                }
                 if answer.send(target.get_current_texture()).is_err() {
                     break;
                 }
@@ -204,7 +331,7 @@ fn spawn(
             }
         })
         .ok()?;
-    Some((ask, answers))
+    Some((ask, answers, thread))
 }
 
 /// The presenter waits on this thread's answer within a frame, so it runs
@@ -225,9 +352,13 @@ fn interactive() {
 fn interactive() {}
 
 #[cfg(all(test, target_os = "macos"))]
-mod tests {
+pub(crate) mod tests {
     use crate::{fixture, wgpu, Frame, Module, Registry, Surface, SurfaceError, Value};
     use std::sync::atomic::{AtomicUsize, Ordering};
+
+    /// Held by a test that registers the presenter's acquisition callback,
+    /// which is one for the process.
+    pub(crate) static CALLBACK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
     #[link(name = "QuartzCore", kind = "framework")]
     extern "C" {}
@@ -287,6 +418,7 @@ mod tests {
             period_ms: 0.,
             children_generation: 0,
             shader_generation: 0,
+            headroom: 1.0,
         }
     }
 
@@ -306,6 +438,7 @@ mod tests {
     /// `landed` says so without a render having to ask.
     #[test]
     fn a_waiting_canvas_hears_its_drawable_land_without_asking_again() {
+        let _callback = CALLBACK.lock();
         let Some(gpu) = fixture::device_or_skip(fixture::device()) else {
             return;
         };
@@ -348,6 +481,18 @@ mod tests {
         assert!(!m.starved(id));
         assert!(m.flush());
         super::on_acquire(None);
+        let target = m.instances[&id].presentation.clone().unwrap();
+        m.detach(id);
+        within_two_seconds("the acquisition thread ends", || {
+            m.reap();
+            m.retired.is_empty()
+        });
+        assert_eq!(
+            std::sync::Arc::strong_count(&target),
+            1,
+            "the module released the swapchain once its acquisition thread ended"
+        );
+        drop(target);
         drop(m);
         drop(layer);
     }

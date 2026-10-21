@@ -7,6 +7,7 @@ use ed25519_dalek::{Signer, SigningKey};
 use exact_update::{canonical_bytes, sha256_hex, Check, Embedded, Store};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::sync::RwLock;
 
 pub(crate) const ORIGIN: &str = "https://cdn.example/apps/caltrain";
 pub(crate) const APP: &str = "com.exact.caltrain";
@@ -227,7 +228,29 @@ pub(crate) fn embedded(keys: &[(&str, [u8; 32])]) -> Embedded {
 }
 
 pub(crate) fn open(temp: &Temp) -> Store {
-    Store::open(temp.path(), embedded(&[])).unwrap()
+    open_store(temp.path(), embedded(&[])).unwrap()
+}
+
+/// A spawned process holds a copy of every open descriptor, a store's
+/// `owner.lock` too, until its exec closes them; a store dropped in that
+/// window keeps its lock, and reopening it finds an "exclusive owner".
+/// Under load that window is long enough to fail a parallel run. A spawn
+/// holds this for writing ([`finished`]) and an open for reading
+/// ([`open_store`]), so no reopen meets a child's copy.
+static SPAWN: RwLock<()> = RwLock::new(());
+
+/// [`Store::open`], never while a test is spawning a process.
+pub(crate) fn open_store(dir: &Path, embedded: Embedded) -> Result<Store, String> {
+    let _open = SPAWN.read().unwrap_or_else(|e| e.into_inner());
+    Store::open(dir, embedded)
+}
+
+/// `command` run to its end, no store opening meanwhile. Its exit is the
+/// barrier: Rust's spawn returns after the exec, but on Linux glibc's vfork
+/// wakes the parent before the kernel closes the child's CLOEXEC copies.
+pub(crate) fn finished(command: &mut std::process::Command) -> std::process::Output {
+    let _spawn = SPAWN.write().unwrap_or_else(|e| e.into_inner());
+    command.output().expect("spawn")
 }
 
 pub(crate) fn entry_names(temp: &Temp) -> Vec<String> {

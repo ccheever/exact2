@@ -10,9 +10,9 @@ use exact_plan::asm::Asm;
 use exact_plan::{Opcode, Stdlib};
 
 /// A host command's arguments in the order its hosts read them. `share`'s
-/// are named (LLP 1069.003 D1) and lower as `(title, text, url)`, `None`
-/// for an absent one, so the plan's `Command` op stays positional.
-pub(crate) fn command_args<'e>(name: &str, args: &'e [Expr]) -> Vec<Option<&'e Expr>> {
+/// are named (LLP 1069.003 D1) and lower as `(title, text, url, files)`,
+/// `None` for an absent one, so the plan's `Command` op stays positional.
+pub fn command_args<'e>(name: &str, args: &'e [Expr]) -> Vec<Option<&'e Expr>> {
     let named = |want: &str| {
         args.iter().find_map(|a| match a {
             Expr::NamedArg(n, value, _) if n == want => Some(value.as_ref()),
@@ -20,20 +20,55 @@ pub(crate) fn command_args<'e>(name: &str, args: &'e [Expr]) -> Vec<Option<&'e E
         })
     };
     // @ref LLP 1070.000 §1: the list, the key, then the options in a fixed
-    // order, `none` where the author left the web's default.
+    // order, `none` where the author left the web's default: six, the
+    // runner's own. An element's (minesweeper F3) is four, the id and the
+    // options, which the runner leaves to its host.
     if name == "scrollIntoView" {
         let mut out: Vec<_> = args
             .iter()
             .filter(|a| !matches!(a, Expr::NamedArg(..)))
             .map(Some)
             .collect();
-        out.extend(["block", "inline", "behavior", "row"].map(named));
+        let element = out.len() == 1;
+        out.extend(["block", "inline", "behavior"].map(named));
+        if !element {
+            out.push(named("row"));
+            out.push(named("offset"));
+        }
         return out;
     }
-    if name != "share" {
-        return args.iter().map(Some).collect();
+    if matches!(name, "showPopover" | "togglePopover") {
+        return vec![args.first(), named("source")];
     }
-    ["title", "text", "url"]
+    // `saveFile(id, text=, suggestedName=)` lowers as `(id, none,
+    // suggestedName, text)`: four, where the copy of a file is three.
+    if name == "saveFile" && args.iter().any(|a| matches!(a, Expr::NamedArg(..))) {
+        return vec![args.first(), None, named("suggestedName"), named("text")];
+    }
+    // @ref LLP 1096 D2, LLP 1125 D10 — the sound first, then `at`, `gain`,
+    // `group`, `playbackRate` and `pan`, `none` where the author left the
+    // default (now, 1, no group, 1, centred).
+    if name == "playSound" {
+        let src = args.iter().find(|a| !matches!(a, Expr::NamedArg(..)));
+        return std::iter::once(src)
+            .chain(["at", "gain", "group", "playbackRate", "pan"].map(named))
+            .collect();
+    }
+    // @ref LLP 1125 D7 — the output and the data, then `at` (`none` for now).
+    if name == "sendMIDI" {
+        let mut positional = args.iter().filter(|a| !matches!(a, Expr::NamedArg(..)));
+        return vec![positional.next(), positional.next(), named("at")];
+    }
+    // The Web Share API's members, the Notification API's title and
+    // options, and `stopSounds`' group, in a fixed order, `none` where the
+    // author gave none.
+    let order: &[&str] = match name {
+        "share" => &["title", "text", "url", "files"],
+        "showNotification" => &["title", "body", "tag", "showTrigger", "navigate"],
+        "stopSounds" => &["group"],
+        _ => return args.iter().map(Some).collect(),
+    };
+    order
         .iter()
         .map(|want| {
             args.iter().find_map(|a| match a {
@@ -88,7 +123,7 @@ pub(crate) fn compile(
         Expr::NamedArg(_, _, span) => {
             return err(
                 "lower-named-argument",
-                "named arguments belong to a canvas surface binding",
+                "named arguments go to a component use, a shape's call (`Row(title=…)`), `empty(…)`, `t(…)`, a canvas `surface=` binding and `share`, `scrollIntoView`; another call's arguments are positional",
                 *span,
             )
         }
@@ -96,9 +131,15 @@ pub(crate) fn compile(
             asm.simple(Opcode::None);
             Ty::Option(Box::new(Ty::Unknown))
         }
-        Expr::EmptyList(_) => {
-            asm.list(0);
-            Ty::List(Box::new(Ty::Unknown))
+        // `[a, b]` (LLP 1088 §9.1): the items, then `List n`.
+        Expr::List(items, _) => {
+            let mut item = Ty::Unknown;
+            for x in items {
+                let t = compile(l, asm, x, scope, locals)?;
+                item = item.unify(&t).unwrap_or(Ty::Unknown);
+            }
+            asm.list(items.len() as u32);
+            Ty::List(Box::new(item))
         }
         Expr::Some(inner, _) => {
             let t = compile(l, asm, inner, scope, locals)?;
@@ -134,7 +175,7 @@ pub(crate) fn compile(
                         asm.str(id);
                     }
                     TemplatePart::Expr(x) => {
-                        if compile(l, asm, x, scope, locals)? != Ty::String {
+                        if !compile(l, asm, x, scope, locals)?.is_string() {
                             asm.call(Stdlib::ToString);
                         }
                     }
@@ -230,22 +271,28 @@ pub(crate) fn compile(
                 let template = l.path_expr(args, *span, scope)?;
                 return compile(l, asm, &template, scope, locals);
             }
-            if contract_types::strings::is_text_call(name, scope) {
+            if !l.fns.contains_key(name.as_str())
+                && contract_types::strings::is_text_call(name, scope)
+            {
                 return l.text_call(asm, args, *span, scope, locals);
             }
-            if name == "failed" {
+            if name == "failed" || name == "failure" {
                 let [Expr::Ident(target, _)] = args.as_slice() else {
-                    return err("lower-failed", "`failed(x)` names one resource", *span);
+                    return err("lower-failed", format!("`{name}(x)` names one resource"), *span);
                 };
-                let Some((Ref::Resource(i), _)) = scope.lookup(target) else {
-                    return err(
-                        "lower-failed",
-                        format!("`{target}` is not a resource"),
-                        *span,
-                    );
-                };
-                asm.failed_resource(l.resources[i as usize]);
-                return Ok(Ty::Bool);
+                match scope.lookup(target) {
+                    Some((Ref::Resource(i), _)) => {
+                        let r = l.resources[i as usize];
+                        if name == "failed" { asm.failed_resource(r); } else { asm.failure_resource(r); }
+                    }
+                    Some((Ref::Mutation(i), _)) => {
+                        let m = l.mutations[i as usize];
+                        if name == "failed" { asm.failed_mutation(m); } else { asm.failure_mutation(m); }
+                    }
+                    _ => return err("lower-failed", format!("`{target}` is not a resource or mutation"), *span),
+                }
+                if name == "failed" { return Ok(Ty::Bool); }
+                return Ok(Ty::Option(Box::new(Ty::Record("Failure".into()))));
             }
             if name == "pending" {
                 // Typed already: one name, a resource or a mutation.
@@ -268,6 +315,9 @@ pub(crate) fn compile(
                     }
                 };
                 return Ok(Ty::Bool);
+            }
+            if contract_types::records::is_record_call(name, &l.types.shapes) {
+                return record(l, asm, name, args, scope, locals);
             }
             if let Some((f, shared)) = l.fns.get(name.as_str()).copied() {
                 // A `fn` (LLP 1017 P5), expanded here: each argument bound
@@ -317,6 +367,11 @@ pub(crate) fn compile(
             {
                 return callback_call(l, asm, f, list, callback, scope, locals);
             }
+            if let (Some(Stdlib::SortBy), [list, callback, rest @ ..]) =
+                (Stdlib::from_name(name), args.as_slice())
+            {
+                return sort_by(l, asm, list, callback, rest, scope, locals);
+            }
             let Some(f) = Stdlib::from_name(name) else {
                 return err(
                     "lower-unknown-function",
@@ -324,14 +379,51 @@ pub(crate) fn compile(
                     *span,
                 );
             };
+            // `x.length` of a record reads its `length` field, as the checker
+            // resolved it (contract_types `infer_length`).
+            if let (Stdlib::Length, [obj]) = (f, args.as_slice()) {
+                let t = compile(l, asm, obj, scope, locals)?;
+                if let Ty::Record(shape) = &t {
+                    let Some((index, ty)) = l.types.shapes.field(shape, "length") else {
+                        return err("lower-unknown-field", format!("`{shape}` has no field `length`"), *span);
+                    };
+                    let ty = ty.clone();
+                    asm.field(index as u16);
+                    return Ok(ty);
+                }
+                asm.call(f);
+                return Ok(Ty::Number);
+            }
             let mut given = Vec::with_capacity(args.len());
             for a in args {
                 given.push(compile(l, asm, a, scope, locals)?);
             }
+            // The defaults of trailing optional parameters the call omitted
+            // (LLP 1088 D2): the plan's call always carries the full arity.
+            for &d in f.omitted(args.len()) {
+                match d {
+                    exact_plan::StdlibDefault::Number(n) => {
+                        asm.number(n);
+                    }
+                    exact_plan::StdlibDefault::Str(s) => {
+                        let id = l.b.str(s);
+                        asm.str(id);
+                    }
+                }
+            }
             asm.call(f);
-            match (f, given.first()) {
-                // `first(list<T>)` is `option<T>` (LLP 1054.000 C4).
-                (Stdlib::First | Stdlib::At, Some(Ty::List(item))) => Ty::Option(item.clone()),
+            match (f, given.first(), given.get(1)) {
+                // `first(T[])` is `option<T>` (LLP 1054.000 C4).
+                (Stdlib::First | Stdlib::At, Some(Ty::List(item)), _) => Ty::Option(item.clone()),
+                // A list's own type, or text's (LLP 1088 §9.1).
+                (Stdlib::Concat, Some(a), Some(b)) => a.unify(b).unwrap_or(Ty::Unknown),
+                (Stdlib::Slice, Some(Ty::Enum(_)), _) => Ty::String,
+                (Stdlib::Slice, Some(t @ (Ty::String | Ty::List(_))), _) => t.clone(),
+                (Stdlib::Flat, Some(Ty::List(item)), _) => match &**item {
+                    Ty::List(_) => (**item).clone(),
+                    _ => Ty::List(Box::new(Ty::Unknown)),
+                },
+                (Stdlib::Concat | Stdlib::Slice | Stdlib::Flat, ..) => Ty::Unknown,
                 _ => Ty::from_roster(f.returns()),
             }
         }
@@ -378,7 +470,7 @@ pub(crate) fn compile(
                     let ta = compile(l, asm, a, scope, locals)?;
                     let tb = compile(l, asm, b, scope, locals)?;
                     asm.simple(match op {
-                        BinOp::Add if ta == Ty::String => Opcode::Concat,
+                        BinOp::Add if ta.is_string() => Opcode::Concat,
                         BinOp::Add => Opcode::Add,
                         BinOp::Sub => Opcode::Sub,
                         BinOp::Mul => Opcode::Mul,
@@ -393,7 +485,7 @@ pub(crate) fn compile(
                         BinOp::And | BinOp::Or => unreachable!(),
                     });
                     match op {
-                        BinOp::Add if ta == Ty::String && tb == Ty::String => Ty::String,
+                        BinOp::Add if ta.is_string() && tb.is_string() => Ty::String,
                         BinOp::Add | BinOp::Sub | BinOp::Mul | BinOp::Div | BinOp::Rem
                             if ta == Ty::Number && tb == Ty::Number =>
                         {
@@ -465,14 +557,126 @@ pub(crate) fn compile(
             asm.drop_local();
             ty
         }
+        Expr::Typed(value, ty, span) => {
+            let t = compile(l, asm, value, scope, locals)?;
+            contract_types::ascribe(&t, value, ty, &l.types.shapes, *span, scope).map_err(|e| LowerError {
+                id: e.id,
+                message: e.message,
+                span: e.span,
+            })?
+        }
         Expr::Arrow { span, .. } => {
             return err(
                 "lower-arrow-position",
-                "an arrow function is only the second argument of `map` or `filter`",
+                "an arrow function is only the argument of `xs.map(…)` or `xs.filter(…)`",
                 *span,
             )
         }
     })
+}
+
+/// `Shape(field=expr, …)` or `Shape(base, field=expr, …)` (LLP 1035.005.000
+/// D3), checked already: each field's value in declaration order, then
+/// `Record`. A copy binds its base once as a local and reads each field it
+/// keeps from there.
+fn record(
+    l: &mut Lowerer<'_>,
+    asm: &mut Asm,
+    shape: &str,
+    args: &[Expr],
+    scope: &Scope,
+    locals: &mut u16,
+) -> Result<Ty, LowerError> {
+    let fields: Vec<String> = l.types.shapes.map[shape]
+        .iter()
+        .map(|(f, _)| f.clone())
+        .collect();
+    let base = match contract_types::records::base(args) {
+        Some(b) => {
+            compile(l, asm, b, scope, locals)?;
+            asm.bind_local();
+            *locals += 1;
+            Some(*locals - 1)
+        }
+        None => None,
+    };
+    for (i, field) in fields.iter().enumerate() {
+        let named = args.iter().find_map(|a| match a {
+            Expr::NamedArg(n, value, _) if n == field => Some(value.as_ref()),
+            _ => None,
+        });
+        match (named, base) {
+            (Some(value), _) => {
+                compile(l, asm, value, scope, locals)?;
+            }
+            (None, Some(local)) => {
+                asm.load_local(local);
+                asm.field(i as u16);
+            }
+            (None, None) => {
+                return err(
+                    "lower-record-field",
+                    format!("`{shape}(…)` has no `{field}`"),
+                    args.first().map(Expr::span).unwrap_or_default(),
+                )
+            }
+        }
+    }
+    let ty = Ty::Record(shape.to_owned());
+    let id = l.ty_id(&ty)?;
+    asm.record(id);
+    if base.is_some() {
+        *locals -= 1;
+        asm.drop_local();
+    }
+    Ok(ty)
+}
+
+/// `sortBy(list, callback, direction?)` (@ref LLP 1116.016 §5): the list
+/// bound as the next local, then the roster's `sortBy` on that list, its keys
+/// (a `Map` of the callback over it) and whether it is descending:
+///
+/// ```text
+/// <list> BindLocal; LoadLocal n; LoadLocal n; Map end <key> end:
+/// Bool desc; Call sortBy; DropLocal
+/// ```
+///
+/// So each key is computed once, on the `Map`'s list step, and the call
+/// orders the items without running code.
+fn sort_by(
+    l: &mut Lowerer<'_>,
+    asm: &mut Asm,
+    list: &Expr,
+    callback: &Expr,
+    rest: &[Expr],
+    scope: &Scope,
+    locals: &mut u16,
+) -> Result<Ty, LowerError> {
+    let descending = match rest {
+        [] => false,
+        [Expr::Str(d, _)] if d == "asc" => false,
+        [Expr::Str(d, _)] if d == "desc" => true,
+        _ => {
+            return err(
+                "lower-sort-direction",
+                "the direction of `sortBy` is `\"asc\"` or `\"desc\"`",
+                callback.span(),
+            )
+        }
+    };
+    let listed = compile(l, asm, list, scope, locals)?;
+    asm.bind_local();
+    let at = *locals;
+    *locals += 1;
+    asm.load_local(at);
+    asm.load_local(at);
+    let keys = callback_body(l, asm, Opcode::Map, listed.clone(), callback, scope, locals);
+    *locals -= 1;
+    keys?;
+    asm.bool(descending);
+    asm.call(Stdlib::SortBy);
+    asm.drop_local();
+    Ok(listed)
 }
 
 /// `map(list, callback)` or `filter(list, callback)` (LLP 1017.003 D5):
@@ -488,10 +692,34 @@ fn callback_call(
     locals: &mut u16,
 ) -> Result<Ty, LowerError> {
     let listed = compile(l, asm, list, scope, locals)?;
+    let op = if f == Stdlib::Map {
+        Opcode::Map
+    } else {
+        Opcode::Filter
+    };
+    let result = callback_body(l, asm, op, listed.clone(), callback, scope, locals)?;
+    Ok(if f == Stdlib::Map {
+        Ty::List(Box::new(result))
+    } else {
+        listed
+    })
+}
+
+/// `op` (`Map` or `Filter`) over the list on the stack, of type `listed`,
+/// with `callback`'s body inline: the type of what the body leaves.
+fn callback_body(
+    l: &mut Lowerer<'_>,
+    asm: &mut Asm,
+    op: Opcode,
+    listed: Ty,
+    callback: &Expr,
+    scope: &Scope,
+    locals: &mut u16,
+) -> Result<Ty, LowerError> {
     let Expr::Arrow { params, body, span } = callback else {
         return err(
             "lower-arrow-position",
-            format!("the second argument of `{}` is an arrow function", f.name()),
+            "a callback is an arrow function",
             callback.span(),
         );
     };
@@ -507,14 +735,7 @@ fn callback_call(
         );
     }
     let end = asm.label();
-    asm.each_item(
-        if f == Stdlib::Map {
-            Opcode::Map
-        } else {
-            Opcode::Filter
-        },
-        end,
-    );
+    asm.each_item(op, end);
     let base = *locals;
     *locals += 2;
     let mut inner = scope.clone();
@@ -530,9 +751,5 @@ fn callback_call(
     *locals -= 2;
     let result = result?;
     asm.place(end);
-    Ok(if f == Stdlib::Map {
-        Ty::List(Box::new(result))
-    } else {
-        listed
-    })
+    Ok(result)
 }

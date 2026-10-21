@@ -7,7 +7,7 @@ import { spawnSync } from 'node:child_process';
 import { arch, cpus, platform, release } from 'node:os';
 import { resolve } from 'node:path';
 import { open } from '../../scripts/agent.mjs';
-import { resolveApp } from '../../scripts/app.mjs';
+import { linuxBinary, resolveApp } from '../../scripts/app.mjs';
 import { appleArtifacts } from '../../host/apple/build.mjs';
 
 const args = process.argv.slice(2);
@@ -25,7 +25,7 @@ mkdirSync(output, { recursive: true });
 const appInfo = resolveApp('markdown-stress');
 const executable = host === 'macos'
   ? process.env.EXACT_MAC_BIN ?? appleArtifacts(appInfo).binary
-  : process.env.EXACT_LINUX_BIN ?? resolve(appInfo.target, 'release/markdown-stress-linux');
+  : process.env.EXACT_LINUX_BIN ?? linuxBinary(appInfo);
 const percentile = values => {
   const v = values.toSorted((a, b) => a - b);
   const q = p => v[Math.ceil(v.length * p) - 1];

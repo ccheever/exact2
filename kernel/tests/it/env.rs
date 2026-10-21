@@ -4,7 +4,7 @@
 
 use exact_kernel::{
     Dimension, Edge, Env, Kernel, KernelError, LayoutError, MonospaceMeasurer, NodeType, Offer, Op,
-    StyleId, StyleProps, StyleValue,
+    Rect, SegmentVar, StyleId, StyleProps, StyleValue,
 };
 
 /// A root padded by the insets (top plain, bottom plus 12) with one child.
@@ -86,7 +86,14 @@ fn setting_the_insets_relayouts_the_nodes_that_read_them() {
         .compute_layout(1, Offer::definite(390.0, 844.0))
         .unwrap();
     assert!(kernel.set_env(Env::new(62.0, 0.0, 34.0, 0.0)).unwrap());
-    assert_eq!(kernel.env(), Env::new(62.0, 0.0, 34.0, 0.0));
+    assert_eq!(
+        kernel.env(),
+        Env {
+            viewport_width: 390.0,
+            viewport_height: 844.0,
+            ..Env::new(62.0, 0.0, 34.0, 0.0)
+        }
+    );
     let receipt = kernel
         .compute_layout(1, Offer::definite(390.0, 844.0))
         .unwrap();
@@ -197,4 +204,564 @@ fn env_lengths_travel_the_wire() {
         other.node(7).unwrap().style.margin_left,
         Dimension::Env(Edge::Left, -2.0)
     );
+}
+
+/// LLP 1078 D3: a root with two panes sized by the segment variables — the
+/// detail pane positioned at the second segment's left — and the host's
+/// `set_segments`, `set_env`'s twin.
+fn segmented_tree() -> Kernel {
+    exact_kernel::link_segments();
+    let mut kernel = Kernel::with_monospace();
+    let mut root = StyleProps::default();
+    root.set_dynamic(StyleId::Height, &StyleValue::Percent(100.0))
+        .unwrap();
+    let mut list = StyleProps::default();
+    list.set_dynamic(
+        StyleId::Width,
+        &StyleValue::Text("env(viewport-segment-width 0 0)".into()),
+    )
+    .unwrap();
+    list.set_dynamic(StyleId::Height, &StyleValue::Number(40.0))
+        .unwrap();
+    let mut detail = StyleProps::default();
+    detail
+        .set_dynamic(StyleId::PositionType, &StyleValue::Text("absolute".into()))
+        .unwrap();
+    detail
+        .set_dynamic(
+            StyleId::Left,
+            &StyleValue::Text("env(viewport-segment-left 1 0)".into()),
+        )
+        .unwrap();
+    detail
+        .set_dynamic(
+            StyleId::Top,
+            &StyleValue::Text("env(viewport-segment-top 1 0)".into()),
+        )
+        .unwrap();
+    detail
+        .set_dynamic(
+            StyleId::Width,
+            &StyleValue::Text("calc(env(viewport-segment-width 1 0) - 10px)".into()),
+        )
+        .unwrap();
+    detail
+        .set_dynamic(StyleId::Height, &StyleValue::Number(40.0))
+        .unwrap();
+    let mut plain = StyleProps::default();
+    plain
+        .set_dynamic(StyleId::Height, &StyleValue::Number(20.0))
+        .unwrap();
+    let ops = vec![
+        Op::CreateView {
+            id: 1,
+            node_type: NodeType::View,
+        },
+        Op::SetStyle {
+            id: 1,
+            patch: Box::new(root),
+        },
+        Op::CreateView {
+            id: 2,
+            node_type: NodeType::View,
+        },
+        Op::SetStyle {
+            id: 2,
+            patch: Box::new(list),
+        },
+        Op::CreateView {
+            id: 3,
+            node_type: NodeType::View,
+        },
+        Op::SetStyle {
+            id: 3,
+            patch: Box::new(detail),
+        },
+        Op::CreateView {
+            id: 4,
+            node_type: NodeType::View,
+        },
+        Op::SetStyle {
+            id: 4,
+            patch: Box::new(plain),
+        },
+        Op::SetChildren {
+            id: 1,
+            children: vec![2, 3, 4],
+        },
+        Op::AttachRoot { id: 1 },
+    ];
+    kernel.apply(0, 1, &ops).unwrap();
+    kernel
+}
+
+/// The Duo at 130°: two 455.5-point columns with a 40-point band between.
+fn duo_segments() -> Vec<Rect> {
+    vec![
+        Rect::new(0.0, 0.0, 455.5, 669.0),
+        Rect::new(495.5, 0.0, 455.5, 669.0),
+    ]
+}
+
+#[test]
+fn segment_lengths_take_initial_values_until_the_host_sets_segments() {
+    let mut kernel = segmented_tree();
+    assert_eq!(kernel.env().cols, 1);
+    kernel
+        .compute_layout(1, Offer::definite(951.0, 669.0))
+        .unwrap();
+    // One segment: `width` is auto (a block fills; an empty absolute box
+    // shrinks to nothing), `left` and `top` are auto (the static position,
+    // after the list), the calc width is auto too.
+    assert_eq!(frame(&kernel, 2), (0.0, 0.0, 951.0, 40.0));
+    assert_eq!(frame(&kernel, 3), (0.0, 40.0, 0.0, 40.0));
+    assert_eq!(frame(&kernel, 4), (0.0, 40.0, 951.0, 20.0));
+}
+
+#[test]
+fn setting_the_segments_relayouts_the_nodes_that_read_them() {
+    let mut kernel = segmented_tree();
+    kernel
+        .compute_layout(1, Offer::definite(951.0, 669.0))
+        .unwrap();
+    assert!(kernel.set_segments(2, 1, duo_segments()).unwrap());
+    let env = kernel.env();
+    assert_eq!((env.cols, env.rows, env.segments.len()), (2, 1, 2));
+    let receipt = kernel
+        .compute_layout(1, Offer::definite(951.0, 669.0))
+        .unwrap();
+    assert_eq!(frame(&kernel, 2), (0.0, 0.0, 455.5, 40.0), "the list pane");
+    assert_eq!(
+        frame(&kernel, 3),
+        (495.5, 0.0, 445.5, 40.0),
+        "the detail pane, past the band"
+    );
+    assert_eq!(frame(&kernel, 4), (0.0, 40.0, 951.0, 20.0), "untouched");
+    assert_eq!(receipt.changed.len(), 2, "the two panes: {receipt:?}");
+    // The same grid again: nothing to re-derive.
+    assert!(!kernel.set_segments(2, 1, duo_segments()).unwrap());
+    // Flat: one segment, the initial values return.
+    assert!(kernel.set_segments(1, 1, vec![]).unwrap());
+    kernel
+        .compute_layout(1, Offer::definite(951.0, 669.0))
+        .unwrap();
+    assert_eq!(frame(&kernel, 2), (0.0, 0.0, 951.0, 40.0));
+    // The insets are their own call, and leave the grid alone (every
+    // `env()` reader is re-derived either way).
+    kernel.set_segments(2, 1, duo_segments()).unwrap();
+    assert!(kernel.set_env(Env::new(0.0, 84.0, 34.0, 0.0)).unwrap());
+    assert_eq!(kernel.env().cols, 2);
+    assert_eq!(kernel.env().right, 84.0);
+}
+
+#[test]
+fn a_malformed_grid_is_refused_and_the_segments_survive_a_reset() {
+    let mut kernel = segmented_tree();
+    let refused = Err(KernelError::from(LayoutError::InvalidSegments));
+    assert_eq!(kernel.set_segments(2, 1, vec![]), refused);
+    assert_eq!(kernel.set_segments(0, 1, vec![]), refused);
+    assert_eq!(
+        kernel.set_segments(1, 1, vec![Rect::new(0.0, 0.0, 1.0, 1.0)]),
+        refused
+    );
+    assert_eq!(
+        kernel.set_segments(
+            2,
+            1,
+            vec![
+                Rect::new(0.0, 0.0, f32::NAN, 1.0),
+                Rect::new(0.0, 0.0, 1.0, 1.0)
+            ]
+        ),
+        refused
+    );
+    assert_eq!(kernel.env().cols, 1, "nothing applied");
+    kernel.set_segments(2, 1, duo_segments()).unwrap();
+    kernel.reset();
+    assert_eq!(
+        kernel.env().segments,
+        duo_segments(),
+        "the host's, not the tree's"
+    );
+    let mut kernel = segmented_tree();
+    kernel.set_segments(2, 1, duo_segments()).unwrap();
+    kernel
+        .compute_layout(1, Offer::definite(951.0, 669.0))
+        .unwrap();
+    let mut again = kernel.rehydrate(Box::new(MonospaceMeasurer::default()));
+    assert_eq!(again.env(), kernel.env());
+    again
+        .compute_layout(1, Offer::definite(951.0, 669.0))
+        .unwrap();
+    assert_eq!(frame(&again, 3), frame(&kernel, 3));
+}
+
+#[test]
+fn segment_lengths_travel_the_wire() {
+    use exact_kernel::wire;
+    exact_kernel::link_segments();
+    let mut root = StyleProps::default();
+    root.set_dynamic(
+        StyleId::MarginLeft,
+        &StyleValue::Text("calc(env(viewport-segment-right 0 1) - 2px)".into()),
+    )
+    .unwrap();
+    let ops = vec![
+        Op::CreateView {
+            id: 7,
+            node_type: NodeType::View,
+        },
+        Op::SetStyle {
+            id: 7,
+            patch: Box::new(root),
+        },
+        Op::AttachRoot { id: 7 },
+    ];
+    let frame = wire::encode(0, 2, &ops);
+    let mut other = Kernel::with_monospace();
+    other.apply_frame(&frame).unwrap();
+    assert_eq!(
+        other.node(7).unwrap().style.margin_left,
+        Dimension::Segment(SegmentVar::Right, 0, 1, -2.0)
+    );
+    let bytes = other.export(None).unwrap();
+    assert!(!bytes.is_empty());
+}
+
+#[test]
+fn viewport_lengths_resolve_against_the_window_and_follow_resize() {
+    let mut k = Kernel::with_monospace();
+    let mut root = StyleProps::default();
+    root.set_dynamic(StyleId::Width, &StyleValue::Text("50vw".into()))
+        .unwrap();
+    root.set_dynamic(StyleId::Height, &StyleValue::Text("25dvh".into()))
+        .unwrap();
+    root.set_dynamic(StyleId::PaddingTop, &StyleValue::Text("5vmin".into()))
+        .unwrap();
+    k.apply(
+        0,
+        1,
+        &[
+            Op::CreateView {
+                id: 1,
+                node_type: NodeType::View,
+            },
+            Op::SetStyle {
+                id: 1,
+                patch: Box::new(root),
+            },
+            Op::AttachRoot { id: 1 },
+        ],
+    )
+    .unwrap();
+    k.compute_layout(1, Offer::definite(800.0, 600.0)).unwrap();
+    assert_eq!(frame(&k, 1), (0.0, 0.0, 400.0, 180.0));
+    k.compute_layout(1, Offer::definite(400.0, 800.0)).unwrap();
+    assert_eq!(frame(&k, 1), (0.0, 0.0, 200.0, 220.0));
+}
+
+#[test]
+fn compact_inset_sums_clamp_only_at_the_finite_length_limits() {
+    for (inset, offset, expected) in [
+        (3e38, 1e38, f32::MAX),
+        (-3e38, -1e38, f32::MIN),
+        (3e38, -3e38, 0.0),
+        (24.0, -32.0, -8.0),
+        (24.0, 12.0, 36.0),
+    ] {
+        let env = Env::new(inset, 0.0, 0.0, 0.0);
+        assert!(env.is_finite());
+        // Spell the exact compact f32 value, not a decimal that math retains
+        // at f64 precision until the completed calculation is narrowed.
+        let offset = f64::from(offset as f32);
+        let source = format!("calc(env(safe-area-inset-top) + {offset}px)");
+        let d = Dimension::parse_env(&source).unwrap();
+        assert_eq!(d.resolve(&env), Dimension::Points(expected), "{source}");
+    }
+}
+
+#[test]
+fn compact_segment_sums_clamp_and_undefined_segments_stay_auto() {
+    exact_kernel::link_segments();
+    for (width, offset, expected) in [
+        (3e38, 1e38, f32::MAX),
+        (-3e38, -1e38, f32::MIN),
+        (3e38, -3e38, 0.0),
+        (24.0, -32.0, -8.0),
+        (24.0, 12.0, 36.0),
+    ] {
+        let env = Env::default().with_segments(
+            2,
+            1,
+            vec![Rect::new(0.0, 0.0, width, 100.0), Rect::default()],
+        );
+        assert!(env.is_finite());
+        let offset = f64::from(offset as f32);
+        let source = format!("calc(env(viewport-segment-width 0 0) + {offset}px)");
+        let d = Dimension::parse_env(&source).unwrap();
+        assert_eq!(d.resolve(&env), Dimension::Points(expected), "{source}");
+        assert_eq!(d.resolve(&Env::default()), Dimension::Auto);
+    }
+}
+
+#[test]
+fn a_compact_env_sum_keeps_positioned_layout_finite() {
+    let mut kernel = Kernel::with_monospace();
+    let mut child = StyleProps::default();
+    for (id, value) in [
+        (StyleId::PositionType, "absolute"),
+        (StyleId::Left, "calc(env(safe-area-inset-left) + 1e38px)"),
+        (StyleId::Top, "calc(env(safe-area-inset-top) - 1e38px)"),
+        (StyleId::Width, "10px"),
+        (StyleId::Height, "10px"),
+    ] {
+        child
+            .set_dynamic(id, &StyleValue::Text(value.into()))
+            .unwrap();
+    }
+    kernel
+        .apply(
+            0,
+            1,
+            &[
+                Op::CreateView {
+                    id: 1,
+                    node_type: NodeType::View,
+                },
+                Op::CreateView {
+                    id: 2,
+                    node_type: NodeType::View,
+                },
+                Op::SetStyle {
+                    id: 2,
+                    patch: Box::new(child),
+                },
+                Op::SetChildren {
+                    id: 1,
+                    children: vec![2],
+                },
+                Op::AttachRoot { id: 1 },
+            ],
+        )
+        .unwrap();
+    kernel.set_env(Env::new(-3e38, 0.0, 0.0, 3e38)).unwrap();
+    kernel
+        .compute_layout(1, Offer::definite(400.0, 800.0))
+        .unwrap();
+    assert_eq!(frame(&kernel, 2), (f32::MAX, f32::MIN, 10.0, 10.0));
+}
+
+#[test]
+fn compact_segment_edges_preserve_cancellation_before_narrowing() {
+    exact_kernel::link_segments();
+    for var in ["right", "bottom"] {
+        for (origin, size, offset, expected) in [
+            (3e38, 3e38, -3e38, 3e38),
+            (-3e38, -3e38, 3e38, -3e38),
+            (3e38, 3e38, 0.0, f32::MAX),
+            (-3e38, -3e38, 0.0, f32::MIN),
+            (20.0, 40.0, -70.0, -10.0),
+        ] {
+            let env = Env::default().with_segments(
+                2,
+                1,
+                vec![Rect::new(origin, origin, size, size), Rect::default()],
+            );
+            assert!(env.is_finite());
+            let source = format!("calc(env(viewport-segment-{var} 0 0) + {offset}px)");
+            let d = Dimension::parse_env(&source).unwrap();
+            assert_eq!(d.resolve(&env), Dimension::Points(expected), "{source}");
+            assert_eq!(d.resolve(&Env::default()), Dimension::Auto);
+        }
+    }
+}
+
+#[test]
+fn an_authored_offset_is_not_rounded_to_the_environment_precision() {
+    let env = Env::new(16_777_216., 0., 0., 0.);
+    let d = Dimension::parse_env("calc(env(safe-area-inset-top) - 16777217px)").unwrap();
+    assert_eq!(d.resolve(&env), Dimension::Points(-1.));
+}
+
+/// An escaped space ends no name: `safe-area-inset-left\20` (or `\a0`, a
+/// no-break space) is another variable, as CSS tokenizes it, so a
+/// declaration that names it fares as one naming any unknown variable does,
+/// never reading the inset; a fallback's own `env()` is held to the same.
+#[test]
+fn an_escaped_space_in_a_name_is_another_variable() {
+    exact_kernel::link_segments();
+    let accepted = |text: &str| {
+        let mut style = StyleProps::default();
+        style
+            .set_dynamic(StyleId::PaddingLeft, &StyleValue::Text(text.into()))
+            .is_ok()
+    };
+    for space in [r"\20", r"\a0"] {
+        for (escaped, unknown) in [
+            (
+                "env(safe-area-inset-left{}, 30px)",
+                "env(safe-area-inset-lefts, 30px)",
+            ),
+            (
+                "max(1px, env(safe-area-inset-left{}, 30px))",
+                "max(1px, env(safe-area-inset-lefts, 30px))",
+            ),
+            (
+                "calc(env(-exact-layout-margins-inset-left{}) + 7px)",
+                "calc(env(-exact-layout-margins-inset-lefts) + 7px)",
+            ),
+            (
+                "env(viewport-segment-width{} 0 0, 30px)",
+                "env(viewport-segment-widths 0 0, 30px)",
+            ),
+            (
+                "env(viewport-segment-width 1 0, env(safe-area-inset-left{}, 30px))",
+                "env(viewport-segment-width 1 0, env(safe-area-inset-lefts, 30px))",
+            ),
+        ] {
+            let escaped = escaped.replace("{}", space);
+            assert!(!accepted(unknown), "{unknown}");
+            assert!(!accepted(&escaped), "{escaped}");
+        }
+    }
+    for known in [
+        "env(viewport-segment-width 1 0, env(safe-area-inset-left, 30px))",
+        "env(safe-area-inset-left, env(viewport-segment-width +0 0, 30px))",
+        "env(viewport-segment-width +1 +0)",
+        r"env(safe-\61rea-inset-left, 30px)",
+    ] {
+        assert!(accepted(known), "{known}");
+    }
+}
+
+/// LLP 1121 stage 11 (c): under the terminal's space rule a padding that
+/// resolves to points (a `calc()` of an `env()` included) lays out in whole
+/// cells, rows down; turning the rule on or off after a layout lays every
+/// box out again, plain px included.
+#[test]
+fn the_terminal_space_rule_rounds_resolved_spaces_and_relays_when_it_turns() {
+    let mut kernel = tree();
+    let mut child = StyleProps::default();
+    child
+        .set_dynamic(StyleId::MarginTop, &StyleValue::Number(8.0))
+        .unwrap();
+    child
+        .set_dynamic(StyleId::MarginLeft, &StyleValue::Number(12.0))
+        .unwrap();
+    kernel
+        .apply(
+            0,
+            2,
+            &[Op::SetStyle {
+                id: 2,
+                patch: Box::new(child),
+            }],
+        )
+        .unwrap();
+    kernel
+        .compute_layout(1, Offer::definite(320.0, 480.0))
+        .unwrap();
+    // Off: the inset is 0, so the top padding is 0 and the bottom's calc
+    // 12 px; the child's own margins 8 down and 12 across.
+    assert_eq!(frame(&kernel, 2), (12.0, 8.0, 308.0, 40.0));
+    kernel.set_cell_spaces(true);
+    kernel
+        .compute_layout(1, Offer::definite(320.0, 480.0))
+        .unwrap();
+    // On: 8 px down is none, 12 px across one column (8); the root's 12 px
+    // bottom a row, its content shorter by 4.
+    assert_eq!(frame(&kernel, 2), (8.0, 0.0, 312.0, 40.0));
+    let root = kernel.node(1).unwrap().key;
+    assert_eq!(kernel.resolved_padding(root).map(|p| p.3), Some(16.0));
+    kernel.set_cell_spaces(false);
+    kernel
+        .compute_layout(1, Offer::definite(320.0, 480.0))
+        .unwrap();
+    assert_eq!(frame(&kernel, 2), (12.0, 8.0, 308.0, 40.0));
+    assert_eq!(kernel.resolved_padding(root).map(|p| p.3), Some(12.0));
+}
+
+/// LLP 1121 stage 11 (c): a multi-column box's gap is a space across too,
+/// whole columns under the terminal's rule (12 px is one, 8).
+#[test]
+fn a_multicol_gap_is_whole_columns_under_the_terminal_space_rule() {
+    let gap_of = |cells: bool| {
+        let mut kernel = Kernel::with_monospace();
+        kernel.set_cell_spaces(cells);
+        let mut root = StyleProps::default();
+        for (id, v) in [
+            (StyleId::Width, StyleValue::Number(320.0)),
+            (StyleId::ColumnCount, StyleValue::Number(2.0)),
+            (StyleId::ColumnGap, StyleValue::Number(12.0)),
+        ] {
+            root.set_dynamic(id, &v).unwrap();
+        }
+        let mut child = StyleProps::default();
+        child
+            .set_dynamic(StyleId::Height, &StyleValue::Number(40.0))
+            .unwrap();
+        let ops = vec![
+            Op::CreateView {
+                id: 1,
+                node_type: NodeType::View,
+            },
+            Op::SetStyle {
+                id: 1,
+                patch: Box::new(root),
+            },
+            Op::CreateView {
+                id: 2,
+                node_type: NodeType::View,
+            },
+            Op::SetStyle {
+                id: 2,
+                patch: Box::new(child),
+            },
+            Op::SetChildren {
+                id: 1,
+                children: vec![2],
+            },
+            Op::AttachRoot { id: 1 },
+        ];
+        kernel.apply(0, 1, &ops).unwrap();
+        kernel
+            .compute_layout(1, Offer::definite(320.0, 480.0))
+            .unwrap();
+        let key = kernel.node(1).unwrap().key;
+        kernel.columns(key).map(|c| c.gap)
+    };
+    assert_eq!(gap_of(false), Some(12.0));
+    assert_eq!(gap_of(true), Some(8.0));
+}
+
+/// The margins a keyed jump reads (`Kernel::laid_margins`): as layout reads
+/// them, whole cells under the terminal's rule, a percentage none.
+#[test]
+fn laid_margins_are_whole_cells_and_a_percentage_none() {
+    let mut kernel = tree();
+    let mut child = StyleProps::default();
+    for (id, v) in [
+        (StyleId::MarginTop, StyleValue::Number(8.0)),
+        (StyleId::MarginBottom, StyleValue::Number(14.0)),
+        (
+            StyleId::MarginLeft,
+            StyleValue::Text("calc(10% + 14px)".into()),
+        ),
+        (StyleId::MarginRight, StyleValue::Number(12.0)),
+    ] {
+        child.set_dynamic(id, &v).unwrap();
+    }
+    kernel
+        .apply(
+            0,
+            2,
+            &[Op::SetStyle {
+                id: 2,
+                patch: Box::new(child),
+            }],
+        )
+        .unwrap();
+    assert_eq!(kernel.laid_margins(2), Some([8.0, 12.0, 14.0, 0.0]));
+    kernel.set_cell_spaces(true);
+    assert_eq!(kernel.laid_margins(2), Some([0.0, 8.0, 16.0, 0.0]));
 }

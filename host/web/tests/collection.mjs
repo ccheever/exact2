@@ -10,6 +10,7 @@ import { inflateSync } from 'node:zlib';
 import { resolve } from 'node:path';
 import { Cdp } from '../../../scripts/agent.mjs';
 import { webContentType } from '../serve.mjs';
+import { chromium } from '../../../scripts/agent-launch.mjs';
 const dir = process.env.EXACT_COLLECTION_TEST, dist = resolve(dir, 'dist');
 const gallery = process.env.EXACT_COLLECTION_GALLERY === '1';
 const javascript = resolve(process.env.EXACT_COLLECTION_JS ?? 'host/web');
@@ -62,7 +63,7 @@ function fixture(plan, trackFrames) {
       },
       exact_collection_feedback(n) {
         const d = new DataView(w.memory.buffer, input, n);
-        collectionSmoke.focus = d.getUint32(56, true); collectionSmoke.interaction = d.getUint32(60, true);
+        collectionSmoke.focus = d.getUint32(72, true); collectionSmoke.interaction = d.getUint32(76, true);
         collectionSmoke.calls++; const len = capture(w.exact_collection_feedback(n));
         queueMicrotask(() => { if (collectionSmoke.geometry) collectionSmoke.postFeedback.push(collectionSmoke.geometry()); });
         return len;
@@ -82,7 +83,7 @@ const server = createServer((req, res) => {
   catch { res.writeHead(404); res.end(); }
 });
 await new Promise(r => server.listen(0, '127.0.0.1', r));
-const child = spawn(process.env.CHROME ?? '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+const child = spawn(chromium().executable,
   ['--headless=new', '--no-sandbox', '--remote-debugging-pipe', '--disable-background-networking', `--user-data-dir=${dir}/chrome`, 'about:blank'],
   { stdio: ['ignore', 'ignore', 'ignore', 'pipe', 'pipe'] });
 const cdp = new Cdp(child.stdio[3], child.stdio[4]), errors = [];
@@ -173,6 +174,10 @@ try {
   assert.equal(await evaluate('document.activeElement.dataset.testid'), 'row-0', 'focused pinned row must keep DOM focus');
   assert.equal(await evaluate(`document.querySelector('[data-testid="row-1"]') !== null`), true, 'one distant interaction pin');
   await call('Input.insertText', { text: 'typing across a virtual window' });
+  assert.equal(await evaluate('document.activeElement.value'), 'typing across a virtual window');
+  // The fixture binds change=edit: commit the text with Enter, keeping its focus pin.
+  await call('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Enter', code: 'Enter', text: '\r', windowsVirtualKeyCode: 13 });
+  await call('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13 });
   await until(`document.querySelector('[data-testid="echo"]').textContent === 'typing across a virtual window'`);
   // Inserting into an offscreen focused editor intentionally reveals its caret.
   // Scroll away again before checking that releasing pins retires distant rows.
@@ -183,7 +188,7 @@ try {
   await until(`!document.querySelector('[data-testid="row-0"]') && !document.querySelector('[data-testid="row-1"]')`);
   const anchored = await evaluate(`(() => { const port=document.querySelector('[data-testid="list"]'), top=port.getBoundingClientRect().top; const row=collectionSmoke.snapshots[0].rows.find(r=>{const b=document.querySelector('[data-view="'+r.view+'"]').getBoundingClientRect();return b.bottom>top;}); return {index:row.index,offset:document.querySelector('[data-view="'+row.view+'"]').getBoundingClientRect().top-top}; })()`);
   await evaluate(`document.querySelector('[data-testid="grow"]').click()`);
-  await until('collectionSmoke.snapshots[0]?.rows.every(r => r.measured && r.height === 64)');
+  await until('collectionSmoke.snapshots[0]?.rows.every(r => r.measured && r.size === 64)');
   const afterGrow = await evaluate(`(() => {const row=collectionSmoke.snapshots[0].rows.find(r=>r.index===${anchored.index}); return document.querySelector('[data-view="'+row.view+'"]').getBoundingClientRect().top-document.querySelector('[data-testid="list"]').getBoundingClientRect().top;})()`);
   assert(Math.abs(afterGrow - anchored.offset) < 1, `anchor moved: ${anchored.offset} -> ${afterGrow}`);
   assert(middle.state.maxRows <= 26, JSON.stringify(middle));

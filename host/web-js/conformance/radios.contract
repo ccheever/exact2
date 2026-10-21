@@ -1,0 +1,49 @@
+// Synthetic conformance plan: HTML's radio and a text field's selection
+// (x2apps survey #2, codeedit #2). A radio checks itself and unchecks its
+// group (`name`) at once, its `change` carrying its `value`; a checked radio
+// tapped again fires nothing; the arrows move the check to the next enabled
+// radio of the group, wrapping, past a disabled one; a group whose action
+// refuses snaps back. A checkbox's `InputEvent` names its `value`. A text
+// field's `input` carries its selection, `setSelectionRange` sets it without
+// the focus (and fires `select`), and the next key at the field replaces it.
+component Radios
+  state color = "red"
+  state locked = "a"
+  state refusals = 0
+  state flavor = ""
+  state body = ""
+  state caret = ""
+  state picked = ""
+  action pick(value: string)
+    color = value
+  action refuse(value: string)
+    refusals = refusals + 1
+  action toggled(on: bool, e: InputEvent)
+    flavor = `${e.value} ${on}`
+  action edited(text: string, e: InputEvent)
+    body = text
+    caret = `${e.selectionStart} ${e.selectionEnd}`
+  action selected(e: InputEvent)
+    picked = `${e.value} ${e.selectionStart}-${e.selectionEnd} ${e.selectionDirection}`
+  action jump
+    setSelectionRange("editor", 1, 3, "backward")
+  action collapse
+    setSelectionRange("editor", 2, 2)
+  view
+    column testId="root" gap=8 padding=8 background-color="#ffffff"
+      row gap=12 align-items="center"
+        input type="radio" name="color" value="red" checked=color == "red" change=pick aria-label="Red" testId="red"
+        input type="radio" name="color" value="green" checked=color == "green" change=pick aria-label="Green" testId="green"
+        input type="radio" name="color" value="gray" checked=color == "gray" change=pick disabled=true aria-label="Gray" testId="gray"
+        input type="radio" name="color" value="blue" checked=color == "blue" change=pick aria-label="Blue" testId="blue"
+      row gap=12 align-items="center"
+        input type="radio" name="locked" value="a" checked=locked == "a" change=refuse aria-label="A" testId="locked-a"
+        input type="radio" name="locked" value="b" checked=locked == "b" change=refuse aria-label="B" testId="locked-b"
+        input type="checkbox" value="mint" checked=false change=toggled aria-label="Mint" testId="mint"
+      textarea id="editor" value=body input=edited select=selected aria-label="Editor" testId="editor" rows=3
+      row gap=12
+        button press=jump testId="jump"
+          text "Select"
+        button press=collapse testId="collapse"
+          text "Caret"
+      text `${color} ${locked} ${refusals} ${flavor}|${caret}|${picked}` testId="values"

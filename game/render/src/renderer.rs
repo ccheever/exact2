@@ -1,6 +1,11 @@
-mod culling;
+pub(crate) mod culling;
 mod draw;
+mod local;
 mod passes;
+pub(crate) use passes::Bound;
+mod prepass;
+pub(crate) mod probe;
+pub(crate) mod shadow_cache;
 use crate::buffers::{bytes, Buffer, Targets};
 use crate::pipeline::Pipelines;
 use crate::{
@@ -17,6 +22,7 @@ use std::ops::Range;
 pub(crate) const RETIRED_BUDGET: u64 = 64 * 1024 * 1024;
 
 pub(crate) struct Mesh {
+    pub(crate) outline: Option<crate::outline::Hull>,
     pub(crate) indices: Range<u32>,
     pub(crate) vertex_bytes: u64,
     pub(crate) asset: bool,
@@ -30,45 +36,110 @@ pub(crate) struct Mesh {
     cap: f32,
     capsule: bool,
     plain: bool,
+    /// The largest ball about the origin inside it, or zero: occludes nothing
+    /// (occlusion.rs `inscribed`); and whether it is a box (`boxed`).
+    pub(crate) inscribed: f32,
+    pub(crate) boxed: bool,
 }
 
-/// Persistent GPU arenas, tick history and draw lists; model pipelines prepare on arrival.
+/// Persistent GPU arenas, tick history and draw lists; model pipelines compile on first use.
 /// Storage capacity is declared by `STORAGE_BINDINGS`; uses 4× MSAA HDR and WebGPU.
 pub struct RendererWithAssets<const ASSETS: bool> {
     pub(crate) device: wgpu::Device,
     pub(crate) queue: wgpu::Queue,
+    slot_capacity: u32,
     pub(crate) pipelines: Pipelines,
     pub(crate) models: crate::models::Models,
+    pub(crate) outlines: Option<crate::outline::Pipelines>,
     pub(crate) quads: crate::quads::Quads,
     model_batches: Vec<Option<crate::MaterialId>>,
+    pub(crate) model_poses_current: bool,
     pub(crate) slot_list: Vec<u32>,
     pub(crate) uniform: wgpu::Buffer,
+    prepass_active: bool,
     transforms: [Buffer; 2],
     attachment_matrices: Buffer,
     attachment_words: Vec<f32>,
     current: usize,
     materials: Buffer,
+    // Each slot's material draws the grid (negative alpha), and how many do: a
+    // frame with none compiles the forward shader without it.
+    grid: Vec<bool>,
+    pub(crate) grids: u32,
     slots: Buffer,
     scene_binds: [wgpu::BindGroup; 2],
     /// The same scene group over the culled lists: binding 4 is a dynamic window.
     culled_binds: [wgpu::BindGroup; 2],
-    culled_key: (wgpu::Buffer, u64),
+    culled_key: ListsKey,
+    /// The camera's occlusion culling (occlusion.rs), made on first use.
+    occlusion: Option<crate::occlusion::Occlusion>,
+    /// This frame draws last frame's camera lists as occluders.
+    occluding: bool,
+    occlusion_items: usize,
+    /// The last frame's cull wrote the camera lists the next frame may occlude with.
+    cull_drew: bool,
     pub(crate) cull: crate::cull::Cull,
     pub(crate) environment: crate::ibl::EnvironmentLight,
-    vertices: Buffer,
-    indices: Buffer,
+    pub(crate) lights: crate::lights::Lights,
+    /// Timestamp pairs this frame wrote (`timing::GPU_PASS_NAMES` bits), so a
+    /// readback never reports a pass that did not run.
+    pub(crate) timed: std::cell::Cell<u64>,
+    pub(crate) local: Option<crate::local_shadows::LocalMaps>,
+    pub(crate) local_plan: crate::local_shadows::Plan,
+    pub(crate) local_culls: Vec<local::LocalCull>,
+    /// Group 1 of forward passes; rebuilt when a shadow texture is replaced.
+    pub(crate) shadow_sample: wgpu::BindGroup,
+    shadow_sample_stale: bool,
+    shadow_placeholder: wgpu::TextureView,
+    shadow_comparison: wgpu::Sampler,
+    /// Nearest, clamped to the edge: `textureGather` of four cascade texels.
+    shadow_gather: wgpu::Sampler,
+    pub(crate) vertices: Buffer,
+    pub(crate) indices: Buffer,
     pub(crate) meshes: Vec<Mesh>,
     pub(crate) mesh_uploads: u64,
-    batches: Vec<Batch>,
-    targets: Targets,
+    pub(crate) batches: Vec<Batch>,
+    batch_coverage: Vec<bool>,
+    /// A drawn batch is in the viewmodel layer this frame.
+    viewmodels: bool,
+    /// Levels of detail: one per entity per frame.
+    pub(crate) levels: crate::lod::Levels,
+    // Soft particles have drawn: keep the forward depth retained.
+    soft_retained: bool,
+    // This frame's visible environment map is resident.
+    pub(crate) sky_ready: bool,
+    pub(crate) targets: Targets,
+    // A direct frame's attachments (`encode_hooked`), made at its target's size;
+    // a look frame that counts particles keeps its own, retained between passes.
+    pub(crate) direct_targets: Option<crate::buffers::DirectTargets>,
+    look_direct: Option<crate::buffers::DirectTargets>,
+    direct_retained: bool,
+    // Frames may draw direct: at one sample everywhere, where the picture is the
+    // tone pass's; at four on phones and tablets, whose tiling GPUs it is for.
+    // Elsewhere four would move MSAA edges (each sample is tonemapped before the
+    // resolve), and pinned pixels with them, for little gain.
+    pub(crate) allow_direct: bool,
+    // Frames drawn direct since construction (`Stats::direct_frames`).
+    pub(crate) direct_frames: u64,
     counts: Stats,
     shadows: Option<ShadowMaps>,
     bloom: Option<BloomTargets>,
+    ssao: Option<crate::ssao::Ssao>,
+    pub(crate) water: crate::water::Passes,
+    water_effects: crate::WaterEffects,
     texture_creations: u64,
     hook_binding: Option<crate::hooks::FrameBinding>,
     custom_bindings: Option<crate::hooks::MaterialBindings>,
     hook_targets: Option<crate::hooks::HookTargets>,
     pub(crate) hook_metrics: Option<Box<crate::hooks::metrics::Metrics>>,
+    /// A look frame's instruments, armed for one encode (`probe.rs`).
+    pub(crate) probe: Option<probe::Probe>,
+    /// Records the probe has built: an unarmed frame builds none (tests).
+    pub(crate) probe_built: std::cell::Cell<u64>,
+    // The live frames' levels of detail, kept while a look frame selects its own.
+    look_levels: Option<Vec<(u32, Option<u8>)>>,
+    // The look frames' shadow-texel pipeline, its layout and its counter.
+    shadow_texels: Option<(wgpu::ComputePipeline, wgpu::BindGroupLayout, wgpu::Buffer)>,
 }
 
 // Use the uploaded affine records and the same presence test as transform.wgsl.
@@ -110,7 +181,13 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
             let start = at;
             let mirrored = self.slot_mirrored(self.slot_list[at as usize], frame);
             at += 1;
-            if frame.attachments.is_empty() && (!ASSETS || self.model_batches[index].is_none()) {
+            // A model batch shares its nodes' parity; only owners with a negative
+            // scale axis or an attachment can differ within it.
+            if frame.attachments.is_empty()
+                && (!ASSETS
+                    || self.model_batches[index].is_none()
+                    || !self.models.any_mirrored_owner())
+            {
                 at = end;
             } else {
                 while at < end && self.slot_mirrored(self.slot_list[at as usize], frame) == mirrored
@@ -124,8 +201,62 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
     /// Compile effect pipelines for this output format and retain the device/queue.
     /// Draw targets must match this format; RGBA/BGRA unorm and sRGB are supported.
     /// Particle capacity prepares with emitters; asset arenas may compact retired spans.
+    /// Whether a frame that needs no HDR image draws tonemapped straight into the
+    /// target (README "Direct frames"): the default at one scene sample, and at
+    /// four on Android and iOS.
+    pub fn set_direct(&mut self, allow: bool) {
+        self.allow_direct = allow;
+    }
+
+    /// Which of a `Water` resource's effects frames draw (both by default):
+    /// a present-time choice that leaves the saved resource as it is.
+    pub fn set_water_effects(&mut self, effects: crate::WaterEffects) {
+        self.water_effects = effects;
+    }
+
+    /// Select diffuse-only lighting before preparing any models. Default: physical.
+    pub fn with_matte_models(mut self, matte: bool) -> Self {
+        assert!(
+            self.pipelines.models.is_none(),
+            "set model lighting before preparing models"
+        );
+        self.pipelines.matte_models = matte;
+        self
+    }
+
+    /// Cull the camera's draws by occlusion (occlusion.rs) on frames whose lists
+    /// hold at least `items` slots: 32,768 by default, `usize::MAX` never.
+    pub fn set_occlusion_items(&mut self, items: usize) {
+        self.occlusion_items = items;
+    }
+
     pub fn new(device: &wgpu::Device, queue: &wgpu::Queue, format: wgpu::TextureFormat) -> Self {
-        let pipelines = Pipelines::new(device, format);
+        Self::with_samples(device, queue, format, exact_game::SceneSamples::Four)
+    }
+    /// Construct a renderer with one or four scene samples per pixel.
+    pub fn with_samples(
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        format: wgpu::TextureFormat,
+        samples: exact_game::SceneSamples,
+    ) -> Self {
+        Self::configured(device, queue, format, samples, false)
+    }
+    /// Opt into an opaque depth prepass at 1×. Equal-depth colour fragments pass;
+    /// coplanar surfaces therefore follow draw order. Custom materials disable it.
+    pub fn configured(
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        format: wgpu::TextureFormat,
+        samples: exact_game::SceneSamples,
+        depth_prepass: bool,
+    ) -> Self {
+        let samples = samples.count();
+        assert!(
+            !depth_prepass || samples == 1,
+            "depth prepass requires one scene sample"
+        );
+        let pipelines = Pipelines::configured(device, format, samples, depth_prepass);
         let uniform = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("game frame"),
             size: (frame::FLOATS * 4) as u64,
@@ -159,7 +290,9 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
             wgpu::BufferUsages::STORAGE,
             "game attachment matrices",
         );
-        let environment = crate::ibl::EnvironmentLight::new(device, false);
+        let environment =
+            crate::ibl::EnvironmentLight::new(device, false, pipelines.cache.handle.as_ref());
+        let lights = crate::lights::Lights::new(device);
         let retained_binds = scene_binds(
             device,
             &pipelines.scene_layout,
@@ -169,53 +302,145 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
             (&slots.raw, None),
             &attachment_matrices,
             &environment,
+            &lights,
         );
-        let cull = crate::cull::Cull::new(device);
-        let culled_key = (cull.compacted.raw.clone(), cull.window);
+        let cull = crate::cull::Cull::new(device, pipelines.cache.handle.as_ref());
+        let culled_key = (cull.compacted.raw.clone(), cull.binding());
         let culled_binds = scene_binds(
             device,
             &pipelines.scene_layout,
             &uniform,
             &transforms,
             &materials,
-            (&cull.compacted.raw, Some(cull.window)),
+            (&cull.compacted.raw, cull.binding()),
             &attachment_matrices,
             &environment,
+            &lights,
         );
-        let targets = Targets::new(device, (64, 64), &pipelines.tone_layout, &uniform);
+        let targets = Targets::with_retention(
+            device,
+            (64, 64),
+            &pipelines.tone_layout,
+            &uniform,
+            false,
+            samples,
+        );
+        let shadow_placeholder = crate::local_shadows::placeholder(device);
+        let shadow_comparison = device.create_sampler(&wgpu::SamplerDescriptor {
+            label: Some("game shadow comparison"),
+            compare: Some(wgpu::CompareFunction::LessEqual),
+            mag_filter: wgpu::FilterMode::Linear,
+            min_filter: wgpu::FilterMode::Linear,
+            ..Default::default()
+        });
+        let shadow_gather = device.create_sampler(&wgpu::SamplerDescriptor {
+            label: Some("game shadow gather"),
+            ..Default::default()
+        });
+        let shadow_sample = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("game shadow sample"),
+            layout: &pipelines.shadow_layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(&shadow_placeholder),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::Sampler(&shadow_comparison),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: wgpu::BindingResource::TextureView(&shadow_placeholder),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 3,
+                    resource: wgpu::BindingResource::Sampler(&shadow_gather),
+                },
+            ],
+        });
+        let limits = device.limits();
+        let slot_capacity = (limits
+            .max_storage_buffer_binding_size
+            .min(limits.max_buffer_size)
+            / 64)
+            .min(u64::from(u32::MAX)) as u32;
         Self {
             models: crate::models::Models::default(),
-            quads: crate::quads::Quads::new::<ASSETS>(device, queue, &uniform),
+            quads: crate::quads::Quads::new::<ASSETS>(
+                device,
+                queue,
+                &uniform,
+                (samples, format),
+                pipelines.cache.handle.as_ref(),
+            ),
             model_batches: Vec::new(),
+            model_poses_current: false,
             slot_list: Vec::new(),
             device: device.clone(),
             queue: queue.clone(),
+            slot_capacity,
             pipelines,
+            outlines: None,
             uniform,
+            prepass_active: false,
             transforms,
             attachment_matrices,
             attachment_words: Vec::new(),
             current: 1,
             materials,
+            grid: Vec::new(),
+            grids: 0,
             slots,
             scene_binds: retained_binds,
             culled_binds,
             culled_key,
+            occlusion: None,
+            occluding: false,
+            occlusion_items: crate::occlusion::ITEMS,
+            cull_drew: false,
             cull,
             environment,
+            lights,
+            timed: std::cell::Cell::new(0),
+            local: None,
+            local_plan: Default::default(),
+            local_culls: Vec::new(),
+            shadow_sample,
+            shadow_sample_stale: false,
+            shadow_placeholder,
+            shadow_comparison,
+            shadow_gather,
             vertices: Buffer::new(device, 1024, wgpu::BufferUsages::VERTEX, "game vertices"),
             indices: Buffer::new(device, 1024, wgpu::BufferUsages::INDEX, "game indices"),
             meshes: Vec::new(),
             mesh_uploads: 0,
             batches: Vec::new(),
+            batch_coverage: Vec::new(),
+            viewmodels: false,
+            levels: Default::default(),
+            soft_retained: false,
+            sky_ready: false,
             targets,
+            direct_targets: None,
+            look_direct: None,
+            direct_retained: false,
+            allow_direct: samples == 1 || cfg!(any(target_os = "android", target_os = "ios")),
+            direct_frames: 0,
             shadows: None,
             bloom: None,
-            texture_creations: 4,
+            ssao: None,
+            water: Default::default(),
+            water_effects: Default::default(),
+            texture_creations: if samples == 1 { 3 } else { 4 },
             hook_binding: None,
             custom_bindings: None,
             hook_targets: None,
             hook_metrics: None,
+            probe: None,
+            probe_built: Default::default(),
+            look_levels: None,
+            shadow_texels: None,
             counts: Stats {
                 draws: 1,
                 triangles: 1,
@@ -227,6 +452,7 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
     /// Swap history roles. The caller makes every live slot current before drawing.
     /// Feed retains matching target pages instead of copying the previous buffer.
     pub fn begin_tick(&mut self) {
+        self.model_poses_current = false;
         let previous = self.current;
         self.current = 1 - self.current;
         self.transforms[self.current].live = self.transforms[previous].live;
@@ -242,9 +468,49 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
         if values.is_empty() {
             return Ok(());
         }
+        self.model_poses_current = false;
         self.check_capacity("transforms", end)?;
         self.ensure_slots(end);
         self.transforms[self.current].write(&self.queue, u64::from(first_slot) * 40, bytes(values));
+        // Slots past the history's high-water mark have never had a previous
+        // pose: an entity spawned in an earlier tick of a multi-tick advance
+        // is no longer `fresh` when the presentation feeds. It starts with its
+        // current pose as history, as a fresh one does.
+        let history = &mut self.transforms[1 - self.current];
+        let known = history.live / 40;
+        if end > known {
+            let from = known.max(u64::from(first_slot));
+            let skip = (from - u64::from(first_slot)) as usize * 10;
+            history.write(&self.queue, from * 40, bytes(&values[skip..]));
+        }
+        Ok(())
+    }
+
+    /// [`Self::write_transforms`] of `floats` floats that `fill` writes, as bytes,
+    /// into the queue's staging memory. Slots new to the history take the
+    /// copying path, which writes them there too.
+    pub(crate) fn write_transforms_with(
+        &mut self,
+        first_slot: u32,
+        floats: usize,
+        fill: &mut crate::buffers::Fill<'_>,
+    ) -> Result<(), RenderError> {
+        let end = record_end(first_slot, floats, 10);
+        if floats == 0 {
+            return Ok(());
+        }
+        if end > self.transforms[1 - self.current].live / 40 {
+            return self.write_transforms(first_slot, &crate::buffers::filled(floats, fill));
+        }
+        self.model_poses_current = false;
+        self.check_capacity("transforms", end)?;
+        self.ensure_slots(end);
+        self.transforms[self.current].write_with(
+            &self.queue,
+            u64::from(first_slot) * 40,
+            floats as u64 * 4,
+            fill,
+        );
         Ok(())
     }
 
@@ -258,6 +524,7 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
         if values.is_empty() {
             return Ok(());
         }
+        self.model_poses_current = false;
         self.check_capacity("transforms", end)?;
         self.ensure_slots(end);
         self.transforms[1 - self.current].write(
@@ -279,6 +546,7 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
         if values.is_empty() {
             return Ok(());
         }
+        self.model_poses_current = false;
         self.check_capacity("transforms", end)?;
         self.ensure_slots(end);
         for buffer in &mut self.transforms {
@@ -300,6 +568,21 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
         self.ensure_slots(end);
         self.materials
             .write(&self.queue, u64::from(first_slot) * 48, bytes(values));
+        let first = first_slot as usize;
+        if self.grid.len() < first + values.len() / 12 {
+            self.grid.resize(first + values.len() / 12, false);
+        }
+        for (k, record) in values.chunks_exact(12).enumerate() {
+            let grid = record[3] < 0.;
+            if grid != self.grid[first + k] {
+                self.grid[first + k] = grid;
+                if grid {
+                    self.grids += 1;
+                } else {
+                    self.grids -= 1;
+                }
+            }
+        }
         Ok(())
     }
 
@@ -421,6 +704,7 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
                 .unwrap_or(self.meshes.len()),
         );
         let mesh = Mesh {
+            outline: None,
             vertex_bytes: size_of_val(vertices) as u64,
             asset: false,
             indices: (index_start / 4) as u32..(index_end / 4) as u32,
@@ -431,6 +715,12 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
             cap,
             capsule,
             plain,
+            inscribed: if capsule {
+                0.0
+            } else {
+                crate::occlusion::inscribed(vertices, indices)
+            },
+            boxed: crate::occlusion::boxed(vertices, indices),
         };
         self.cull.epoch += 1;
         if id.0 == self.meshes.len() {
@@ -468,7 +758,7 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
             .models
             .loaded
             .values()
-            .flat_map(|m| m.nodes.iter().filter(|n| n.3.is_some()).map(|n| n.0 .0))
+            .flat_map(|m| m.weighted_meshes())
             .collect();
         let weight_bytes = skinned
             .iter()
@@ -522,6 +812,9 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
                     target.live = target_start + bytes;
                 }
             }
+            if let Some(hull) = &mesh.outline {
+                hull.rebase(&self.queue, (v.live / size_of::<Vertex>() as u64) as u32);
+            }
             mesh.base_vertex = (v.live / size_of::<Vertex>() as u64) as i32;
             mesh.indices = (i.live / 4) as u32..((i.live + n) / 4) as u32;
             v.live += mesh.vertex_bytes;
@@ -552,13 +845,7 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
     /// Maximum slot count under the device's granted adapter limits and the widest
     /// arena (64-byte affine attachments). Valid slot indices are strictly below this count.
     pub fn max_slots(&self) -> u32 {
-        (self
-            .device
-            .limits()
-            .max_storage_buffer_binding_size
-            .min(self.device.limits().max_buffer_size)
-            / 64)
-            .min(u64::from(u32::MAX)) as u32
+        self.slot_capacity
     }
 
     /// Diagnostic readback of the GPU's per-view culling results. While on, each
@@ -570,6 +857,10 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
     /// cascades 0–2 (zero where absent). `None` until one arrives.
     pub fn culled(&mut self) -> Option<[u64; 4]> {
         self.cull.culled(&self.device)
+    }
+    /// Camera-view triangles the GPU cull kept, from the same read as `culled`.
+    pub fn culled_triangles(&self) -> Option<u64> {
+        self.cull.culled_triangles()
     }
 
     fn check_capacity(&self, arena: &'static str, end: u64) -> Result<(), RenderError> {
@@ -594,7 +885,11 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
         }
     }
 
-    fn rebind(&mut self) {
+    /// Record that this frame wrote timestamp pair `pair`.
+    pub(crate) fn mark(&self, pair: u32) {
+        self.timed.set(self.timed.get() | 1 << pair);
+    }
+    pub(crate) fn rebind(&mut self) {
         self.scene_binds = scene_binds(
             &self.device,
             &self.pipelines.scene_layout,
@@ -604,31 +899,39 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
             (&self.slots.raw, None),
             &self.attachment_matrices,
             &self.environment,
+            &self.lights,
         );
         self.rebind_culled();
+        self.rebind_locals();
     }
     fn rebind_culled(&mut self) {
-        self.culled_key = (self.cull.compacted.raw.clone(), self.cull.window);
+        self.culled_key = (self.cull.compacted.raw.clone(), self.cull.binding());
         self.culled_binds = scene_binds(
             &self.device,
             &self.pipelines.scene_layout,
             &self.uniform,
             &self.transforms,
             &self.materials,
-            (&self.cull.compacted.raw, Some(self.cull.window)),
+            (&self.cull.compacted.raw, self.cull.binding()),
             &self.attachment_matrices,
             &self.environment,
+            &self.lights,
         );
     }
 }
+
+/// The culled lists a scene group binds: their buffer and binding size
+/// (`Cull::binding`).
+type ListsKey = (wgpu::Buffer, Option<u64>);
 
 fn record_end(first: u32, len: usize, stride: usize) -> u64 {
     assert!(len.is_multiple_of(stride), "incomplete slot record");
     u64::from(first) + (len / stride) as u64
 }
 
-// `slots` is the retained list (whole buffer, offset zero) or the culled lists
-// through a fixed window whose dynamic offset selects one view's group region.
+// `slots` is the retained list or the culled lists, whole at offset zero, or the
+// culled lists through a fixed window whose dynamic offset selects one view's
+// group region (`Cull::binding`).
 #[allow(clippy::too_many_arguments)]
 fn scene_binds(
     device: &wgpu::Device,
@@ -639,6 +942,7 @@ fn scene_binds(
     slots: (&wgpu::Buffer, Option<u64>),
     attachments: &Buffer,
     environment: &crate::ibl::EnvironmentLight,
+    lights: &crate::lights::Lights,
 ) -> [wgpu::BindGroup; 2] {
     std::array::from_fn(|current| {
         let slots = match slots.1 {
@@ -658,6 +962,10 @@ fn scene_binds(
             attachments.raw.as_entire_binding(),
             wgpu::BindingResource::TextureView(&environment.view),
             wgpu::BindingResource::Sampler(&environment.sampler),
+            lights.buffer.raw.as_entire_binding(),
+            lights.opacity.raw.as_entire_binding(),
+            wgpu::BindingResource::TextureView(&environment.sky_view),
+            wgpu::BindingResource::Sampler(&environment.sky_sampler),
         ];
         let entries = resources.map({
             let mut binding = 0;
@@ -685,6 +993,31 @@ pub(crate) fn viewport(pass: &mut wgpu::RenderPass<'_>, size: (u32, u32)) {
 #[cfg(test)]
 mod packing_tests {
     use super::*;
+    /// A slot first written after a history swap (an entity spawned in an
+    /// earlier tick of a multi-tick advance, so never `fresh` when the
+    /// presentation feeds) has no history yet; it draws without interpolation
+    /// instead of refusing the batch.
+    #[test]
+    fn slots_first_written_after_a_swap_take_their_current_pose_as_history() {
+        let Some(gpu) = crate::test_device::device_or_skip(exact_gpu::fixture::device()) else {
+            return;
+        };
+        let mut r = RendererWithAssets::<false>::new(
+            &gpu.device,
+            &gpu.queue,
+            wgpu::TextureFormat::Rgba8Unorm,
+        );
+        let (vertices, indices) = crate::shapes::plane();
+        let mesh = r.add_mesh(&vertices, &indices);
+        let pose = [0., 0., 0., 0., 0., 0., 1., 1., 1., 1.];
+        r.write_transforms_both(0, &pose).unwrap();
+        r.write_materials(0, &[1.; 12 * 3000]).unwrap();
+        r.begin_tick();
+        r.write_transforms(0, &pose.repeat(3000)).unwrap();
+        r.set_batches(&[Batch::new(mesh, 0..3000)], &(0..3000).collect::<Vec<_>>())
+            .unwrap();
+        assert!(r.transforms.iter().all(|b| b.live == 3000 * 40));
+    }
     #[test]
     fn primitive_batches_skip_model_allocations_and_keep_attachment_winding() {
         let Some(gpu) = crate::test_device::device_or_skip(exact_gpu::fixture::device()) else {
@@ -797,7 +1130,7 @@ mod e10_tests {
         type Args = ();
         fn setup(w: &mut World, _: &()) {
             w.insert_resource(Environment {
-                background: Some([0.; 3]),
+                background: Some([0.; 3].into()),
                 fog: None,
                 ..Default::default()
             });
@@ -830,6 +1163,7 @@ mod e10_tests {
             period_ms: 0.,
             children_generation: 0,
             shader_generation: 0,
+            headroom: 1.0,
         };
         let dark = fixture::render(&gpu, &mut surface, &frame)
             .unwrap()

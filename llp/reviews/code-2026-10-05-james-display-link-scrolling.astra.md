@@ -1,0 +1,21 @@
+# Code review: James's display-link scrolling: one display link, an owed-work pump, press feedback on the render server (d9f97e21a..9810e6959), 2026-10-05 (astra)
+
+- **Family:** OpenAI. `gpt-6-astra` via `codex exec`, reasoning effort xhigh, sandbox read-only, `-C` a detached worktree at `9810e6959`.
+- **Method:** one brief (sha256 `42e7b6005d2e00459ef9f7cd40fa0454567efd4b2cada7150803f3c32d0c179a`), shared with grok. Round 1, blind to the other review. The authors (James's commits, cherry-picked by Claude) are not reviewers.
+- **Transcription:** the final message, unedited.
+- **Verdict:** DO NOT LAND.
+- **Disposition (r2):** 1 taken: `SvgFilterLive` no longer drops itself from the clock in `deinit`, which could run on its encode queue; the clock is main-thread only and lets a released owner go at the next frame (it holds owners weakly). 2 taken: `rebind` and a flight's start remove the press's render-server ease (`stopPressEase`), and a held release goes only for the press it was held for (it checks `press.start`). 3 taken: the ease records the origin it was built about; when `applyTransform` finds the origin moved under a running ease it rebuilds it about the new one, begun at the aim's time, so its progress is kept. 4 taken: `FrameClock` invalidates its link in `deinit`. Tests: `testThePressEaseFollowsTheBoxAndNotItsNextNode`, `testAHeldReleaseIsForItsOwnPress`. No Thread Sanitizer run.
+
+---
+
+DO NOT LAND
+
+1. **MATERIAL — SVG teardown can race the shared clock.** [SvgFilterLive.swift:183](host/apple/Sources/ExactKit/SvgFilterLive.swift:183) calls `drop(self)` during deinit. If removal overlaps the worker’s `self?.encode(p)` at line 204, the final reference can die on that worker. [FrameClockIOS.swift:44](host/apple/Sources/ExactKit/IOS/FrameClockIOS.swift:44) then accesses its unsynchronized dictionary concurrently with main-thread dispatch/registration. Confine clock access to main; remove this deinit access or marshal cleanup safely. Add teardown-during-encode coverage under Thread Sanitizer.
+
+2. **MATERIAL — Press animations survive row reuse.** [PressFeedback.swift:151](host/apple/Sources/ExactKit/PressFeedback.swift:151) installs `"press"` on the layer, but [NodePoolIOS.swift:332](host/apple/Sources/ExactKit/IOS/NodePoolIOS.swift:332) permits released buttons to pool, and `rebind` at line 539 resets only the model/press state. Reusing a row during its release ease therefore animates the replacement row. The delayed release at `PressFeedback.swift:163` also lacks an incarnation check and can release a replacement’s newer press. Remove the animation on recycling and guard callbacks by incarnation and press generation; test immediate reuse during a held release.
+
+3. **MATERIAL — Resizing during a press uses the old transform origin.** [PressFeedback.swift:156](host/apple/Sources/ExactKit/PressFeedback.swift:156) captures the origin in the additive matrix once. [PresenterIOS.swift:1045](host/apple/Sources/ExactKit/IOS/PresenterIOS.swift:1045) subsequently resizes and recomputes the model without updating that animation. A top-left-origin button growing from 200 to 400 points with `press-scale: .5` is displaced 25 points at factor `.75`—confirmed numerically. Rebase the active animation when bounds/origin changes, preserving progress. Test presentation geometry during that resize; the existing fixed-geometry test misses it.
+
+4. **MINOR — Clock tests leave display links running.** [FrameClockIOSTests.swift:29](host/apple/tests/ExactKitTests/FrameClockIOSTests.swift:29) releases its local clock with an active registration. The run loop retains the link, its target holds the clock weakly, and [FrameClockIOS.swift:67](host/apple/Sources/ExactKit/IOS/FrameClockIOS.swift:67) has no matching invalidation on deinit. Subsequent tests inherit permanent no-op callbacks. Invalidate on clock destruction and test that lifetime.
+
+Changed source files meet the 1,500-line limit. No prior matching review found. UIKit tests were not run in this read-only checkout.

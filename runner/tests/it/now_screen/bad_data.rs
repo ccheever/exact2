@@ -55,6 +55,7 @@ pub(super) fn fragile() -> Runner<Fragile> {
             kind: BindingKind::Prop,
             id: PropId::Text as u16,
             expr: text,
+            written: true,
         }],
         &[],
         None,
@@ -145,11 +146,13 @@ fn an_invalid_value_from_data_unsets_its_row_and_is_journaled() {
                 kind: BindingKind::Style,
                 id: StyleId::BackgroundColor as u16,
                 expr: background,
+                written: true,
             },
             BindingsRow {
                 kind: BindingKind::Prop,
                 id: PropId::AccessibilityPosInSet as u16,
                 expr: set_in,
+                written: true,
             },
         ],
         &[],
@@ -190,6 +193,15 @@ fn an_invalid_value_from_data_unsets_its_row_and_is_journaled() {
     assert!(r
         .journal()
         .any(|l| l.contains("invalid background-color value \"not a colour\"; unset")));
+    assert!(
+        r.kernel()
+            .node(view)
+            .unwrap()
+            .style
+            .written
+            .has(StyleId::BackgroundColor),
+        "an invalid authored value keeps its declaration's unset intent"
+    );
     r.act("paint", vec![Value::str("#445566")]).unwrap();
     assert!(has_background(&r));
     assert_eq!(position(&r), Some(exact_kernel::PropValue::Int(1)));

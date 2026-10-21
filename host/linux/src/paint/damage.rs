@@ -4,6 +4,22 @@
 use super::*;
 use exact_kernel::{CommitReceipt, LayoutReceipt, NodeKey, PositionType, WrapFlow};
 use std::collections::BTreeSet;
+
+/// Text-field carets and neutral value-field rings can lie outside flow damage.
+pub(super) fn field_focus_ink(kernel: &Kernel, focus: Option<ViewId>) -> bool {
+    focus.is_some_and(|id| {
+        kernel.node(id).is_some_and(|node| {
+            node.node_type == NodeType::TextInput
+                || (look::neutral()
+                    && node.node_type == NodeType::Control
+                    && matches!(
+                        node.props.str(PropId::Type),
+                        Some("select" | "date" | "time" | "datetime-local")
+                    ))
+        })
+    })
+}
+
 #[derive(Default)]
 pub(crate) struct Changes {
     keys: BTreeSet<NodeKey>,
@@ -51,7 +67,7 @@ pub(super) struct Retained {
     pub last: Vec<Rect4>,
     pub dark: bool,
     pub unsupported: bool,
-    pub caret: bool,
+    pub focus_ink: bool,
 }
 impl Painter {
     /// Current accepted paragraph, shared with pixels, hit metadata and the agent.
@@ -79,16 +95,20 @@ impl Painter {
             return;
         };
         if changes.full
+            || self.alert.is_some()
             || self.damage.unsupported
+            || !self.overlays.is_empty()
             || !changes.flow
             || self.damage.dark != self.dark
             || page != (0., 0.)
             || !scroll.is_empty()
             || pointer.is_some()
-            // Button focus has no ink; only an input caret invalidates this
-            // optimization. Also retire a caret painted in the previous frame.
-            || self.damage.caret
-            || focus.is_some_and(|id| host.kernel().node(id).is_some_and(|n| n.node_type == NodeType::TextInput))
+            // Field focus paints beyond the flow leaves. Retire the previous
+            // frame's field focus ink too, when focus has moved elsewhere.
+            || self.damage.focus_ink
+            || field_focus_ink(host.kernel(), focus)
+            // A focus's look (LLP 1121 D8) paints beyond its node's region.
+            || focus.is_some_and(|id| host.kernel().node(id).is_some_and(|n| !n.looks().is_empty()))
             || host.content_region().is_some()
             || pixels.width() != (viewport.0 * self.scale).round() as u32
             || pixels.height() != (viewport.1 * self.scale).round() as u32
@@ -132,7 +152,7 @@ impl Painter {
             }
             for (x, y, w, h) in rects {
                 let pad = if n.node_type == NodeType::Text {
-                    n.computed_style(StyleMask::INHERITED).font_size
+                    n.computed_row(exact_kernel::StyleId::FontSize, |s| s.font_size)
                 } else {
                     2.0
                 };

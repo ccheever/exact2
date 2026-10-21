@@ -1,18 +1,12 @@
-#[path = "../../../../bake/tests/support/mod.rs"]
-mod baked;
 #[path = "../../../../render/tests/fixture/device.rs"]
 mod gpu_test;
 use exact_game::*;
 use skinned_fixture_logic::{Options, SmallGame};
 fn assets() -> std::collections::BTreeMap<String, Vec<u8>> {
-    baked::assets(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../art/fox.glb")).unwrap()
+    exact_game_bake::game_art(env!("CARGO_MANIFEST_DIR")).unwrap()
 }
 fn sim() -> Sim<SmallGame> {
-    let assets = assets();
-    let mut s = Sim::with_assets(Options::default(), |name| {
-        assets.get(name).cloned().ok_or(name.to_owned())
-    })
-    .unwrap();
+    let mut s: Sim<SmallGame> = sim_with_art!(Options::default()).unwrap();
     s.viewport(1280., 720.);
     s
 }
@@ -236,7 +230,7 @@ fn dev_carry_changed_blend_keeps_pose_and_open_keeps_saved_definitions() {
             SmallGame::tick(w, i, a);
         }
     }
-    fn surface<G: Game>() -> WorldSurface<G, exact_game_render::ModelPresentation, true> {
+    fn surface<G: Game>() -> WorldSurface<G, exact_game_render::ModelExecutor, true> {
         let mut s = WorldSurface::default();
         s.bind(&[Value::Number(0.)], None).unwrap();
         for _ in 0..16 {
@@ -282,7 +276,7 @@ fn moving_skin_and_shadow_pixels() {
     else {
         return;
     };
-    let mut s = WorldSurface::<SmallGame, exact_game_render::ModelPresentation, true>::default();
+    let mut s = WorldSurface::<SmallGame, exact_game_render::ModelExecutor, true>::default();
     s.device_ready(wgpu::Features::empty());
     s.bind(&[Value::Number(0.)], None).unwrap();
     for _ in 0..16 {
@@ -300,6 +294,7 @@ fn moving_skin_and_shadow_pixels() {
         period_ms: 0.,
         children_generation: 0,
         shader_generation: 0,
+        headroom: 1.0,
     };
     let (bind, _) = fixture::render(&gpu, &mut s, &frame).unwrap();
     frame.now_ms = 1000.;

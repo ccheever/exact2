@@ -17,9 +17,9 @@ fn fixture() -> Host<NoData> {
     let plan = contract::compile(r#"component App
   state target = 1
   state showing = true
-  action retarget writes target
+  action retarget
     target = 0.25
-  action remove writes showing
+  action remove
     showing = false
   view
     column
@@ -27,7 +27,7 @@ fn fixture() -> Host<NoData> {
         text "retarget"
       button testId="remove" press=remove
         text "remove"
-      when showing
+      if showing
         box testId="row" opacity=target transition="opacity 180ms ease-out, translate 180ms ease-out"
           text "row"
 "#).unwrap().encode();
@@ -162,7 +162,7 @@ fn catching_an_inflight_return_uses_engine_presentation_without_a_jump() {
 fn timer_fixture() -> Host<NoData> {
     let plan = contract::compile(r#"component App
   state target = 1
-  action retarget writes target
+  action retarget
     target = 0.25
   task timer mount
     every(100, retarget)

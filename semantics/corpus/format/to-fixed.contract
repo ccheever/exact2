@@ -1,0 +1,39 @@
+// toFixed (LLP 1102 §3.2, decided (c)): JavaScript's Number.prototype.toFixed
+// on the binary value (1.005 at 2 is "1.00", 8.345 at 2 is "8.35"), a tie
+// away from zero on the exact value, the sign of any negative (-0.001 at 2
+// is "-0.00", -0 is "0.00"), 1e21 and up as toString prints them, and "" for
+// a non-finite number (D7), where JavaScript prints NaN or Infinity.
+component App
+  state x = 1.005
+  state zero = 0
+  derive fixed = `${x.toFixed(2)} ${x.toFixed(0)} ${x.toFixed(20)}`
+  derive rounding = `${(1.45).toFixed(1)} ${(2.5).toFixed(0)} ${(-2.5).toFixed(0)} ${(0.5).toFixed(0)} ${(1.255).toFixed(2)} ${(8.345).toFixed(2)} ${(10.235).toFixed(2)}`
+  derive signs = `${(-0.001).toFixed(2)} ${(-0).toFixed(2)} ${(123.456).toFixed(1)} ${(0.0004).toFixed(3)}`
+  derive big = `${(1000000000000000000000).toFixed(2)} ${(-1000000000000000000000).toFixed(0)} ${(999999999999999900000).toFixed(2)}`
+  derive bad = `[${(1 / zero).toFixed(2)}][${(zero / zero).toFixed(0)}]`
+  action set(v: number)
+    x = v
+  view
+    column
+      text fixed testId="fixed"
+      text rounding testId="rounding"
+      text signs testId="signs"
+      text big testId="big"
+      text bad testId="bad"
+      text (0.1).toFixed(100) testId="long"
+      button "neg" press=set(-1.5) testId="neg"
+      button "tiny" press=set(0.000001) testId="tiny"
+
+test "values"
+  expect text "fixed" == "1.00 1 1.00499999999999989342"
+  expect text "rounding" == "1.4 3 -3 1 1.25 8.35 10.23"
+  expect text "signs" == "-0.00 0.00 123.5 0.000"
+  expect text "big" == "1e+21 -1e+21 999999999999999868928.00"
+  expect text "bad" == "[][]"
+  expect text "long" == "0.1000000000000000055511151231257827021181583404541015625000000000000000000000000000000000000000000000"
+
+test "changed"
+  tap "neg"
+  expect text "fixed" == "-1.50 -2 -1.50000000000000000000"
+  tap "tiny"
+  expect text "fixed" == "0.00 0 0.00000100000000000000"

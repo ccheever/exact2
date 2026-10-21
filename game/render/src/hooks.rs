@@ -10,7 +10,7 @@ pub(crate) mod metrics;
 mod pipelines;
 mod targets;
 pub(crate) use materials::MaterialBindings;
-pub use materials::{CustomMaterial, MaterialGpu, MATERIAL_WGSL};
+pub use materials::{CustomMaterial, MaterialGpu, MATERIAL_SHADOWS_WGSL, MATERIAL_WGSL};
 pub use pipelines::Pipelines;
 pub(crate) use targets::{FrameBinding, HookTargets};
 
@@ -39,6 +39,12 @@ impl<'a> RenderWorld<'a> {
         for (entity, value) in self.0.query::<&C>().iter() {
             visit(entity, value);
         }
+    }
+    /// Whether the stock renderer draws `entity`: `World::is_visible`, false
+    /// when it or any Parent ancestor is `Visible(false)`. Hooks that draw on
+    /// behalf of entities should skip hidden ones the same way.
+    pub fn is_visible(&self, entity: Entity) -> bool {
+        self.0.is_visible(entity)
     }
     /// Resolve a named entity, including its generation.
     pub fn named(&self, name: &str) -> Option<Entity> {
@@ -388,6 +394,20 @@ impl HookClock {
         HookTime {
             dt,
             reset,
+            paused,
+            seekable: frame.seekable,
+            points: (frame.width, frame.height),
+            scale: frame.scale,
+            shader_generation: frame.shader_generation,
+        }
+    }
+    /// A look frame's time (LLP 1127.000): `frame` held, no time passing, and
+    /// the clock untouched, so the next live frame's delta is the one it would
+    /// have had without the look.
+    pub fn held(&self, frame: &exact_gpu::Frame, generation: u64, paused: bool) -> HookTime {
+        HookTime {
+            dt: 0.,
+            reset: self.last.is_none() || self.generation != Some(generation),
             paused,
             seekable: frame.seekable,
             points: (frame.width, frame.height),

@@ -1,0 +1,31 @@
+// LLP 1104 r8: UIKit fields by default; each authored axis stands alone.
+component NativeControls
+  view
+    column testId="native-controls" padding=16 gap=8 background-color="light-dark(#ffffff, #000000)"
+      text "Native text controls" font-weight=700
+      row gap=8 align-items="start"
+        input testId="plain" placeholder="Plain field" flex-grow=1 flex-basis=0 min-width=0
+        textarea testId="textarea" placeholder="Textarea" rows=2 flex-grow=1 flex-basis=0 min-width=0
+      input testId="password" type="password" value="secret"
+      input testId="search" type="search" placeholder="Search"
+      input testId="email" type="email" placeholder="Email"
+      input testId="number" type="number" placeholder="Number"
+      input testId="disabled" disabled=true value="Disabled"
+      input testId="color" color="#d02030" value="Color"
+      input testId="font-size" font-size=26 value="Font size 26"
+      input testId="text-align" text-align="center" value="Centered"
+      input testId="accent-color" accent-color="#34c759" value="Green caret"
+      input testId="padding" padding=10 value="Padding 10"
+      input testId="letter-spacing" letter-spacing=2 value="Letter spacing"
+      input testId="background-bare" background-color="#eeeeee" value="Background: bare"
+      input testId="border-bare" border="1px solid #888888" value="Border: bare"
+      input testId="radius-bare" border-radius=8 value="Radius: bare"
+      input testId="explicit-bare" appearance="none" value="Appearance none"
+      column font-size=22 font-style="italic" line-height=2 letter-spacing=2 color="red" gap=8
+        text "Parent: 22 italic / 2 / red"
+        input testId="inherit-field" value="Platform body field"
+        textarea testId="inherit-textarea" value="Platform body textarea" rows=2
+      input testId="em-padding" padding="1em" value="Padding 1em"
+      row align-items="baseline" gap=8
+        input testId="baseline-field" height=60 width=180 value="Tall field"
+        text "Baseline" testId="baseline-text"

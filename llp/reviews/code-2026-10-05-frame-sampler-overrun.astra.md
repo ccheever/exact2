@@ -1,0 +1,19 @@
+# Code review: the frame sampler sees missed render deadlines (d9f97e21a..804463c76), 2026-10-05 (astra)
+
+- **Family:** OpenAI. `gpt-6-astra` via `codex exec`, reasoning effort xhigh, sandbox read-only, `-C` a detached worktree at `804463c76`.
+- **Method:** one brief (sha256 `5c46ded2c4917c07dc41b109f8ba83107c129168936a8a6298e211afa44eedd1`), shared with grok. Round 1, blind to the other review. The author (Claude) is not a reviewer.
+- **Transcription:** the final message, unedited.
+- **Verdict:** LAND WITH CHANGES.
+- **Disposition (r2):** 1 taken: a callback that comes inside a turn which began before the last target and has not slept is that target's overrun by the callback's wall time (`observe(now:target:at:)`, before the target is replaced). 2 taken: the turn that installs the observers is timed from then. Nested activations: a nested loop's `beforeWaiting` ends the turn, which is right, since Core Animation commits there too. 3 taken: `stop` drops an unsampled overrun and the turn's start. Tests: two callbacks in one turn; overrun, stop, restart, two on-time callbacks; and `FrameSamplerIOSTests` checks the observers are on the main run loop in the common modes while the link runs and gone after `stop`.
+
+---
+
+LAND WITH CHANGES
+
+1. **MATERIAL — A new callback can erase a crossed deadline.** [FrameSampler.swift:157](host/apple/Sources/ExactKit/FrameSampler.swift:157) replaces `target` before the unfinished turn is checked. Example: wake at 1 ms, target 16.67; work continues until 21 ms, with another callback advancing the target to 33.33 before `beforeWaiting`. Both `missed` and `overrun` remain zero. Ready sources can run without intervening sleep notifications, including inside nested loops ([Apple’s run-loop sequence](https://developer.apple.com/library/archive/documentation/Cocoa/Conceptual/Multithreading/RunLoopManagement/RunLoopManagement.html)). **Fix:** account for a crossed target using actual wall time before replacing it. Test multiple callbacks within one uninterrupted turn, including a turn spanning several targets.
+
+2. **MATERIAL — Work before the first wake notification is invisible.** [FrameSampler.swift:127](host/apple/Sources/ExactKit/FrameSampler.swift:127) initializes `turnBegan` only on `afterWaiting`; installation and run-loop entry leave it nil. A ready callback can establish the first target and overrun it before the loop ever sleeps. A native Core Foundation probe reproduced this event order and zero recorded overrun. **Fix:** initialize the current awake interval when installing observers and handle entry/exit across nested activations and tracking modes. [FrameSamplerTests.swift:26](host/apple/tests/ExactKitTests/FrameSamplerTests.swift:26) manually supplies every boundary; deleting observer installation entirely would leave it green. Add an observer-driven regression.
+
+3. **MATERIAL — An overrun leaks across stopped segments.** [FrameSampler.swift:109](host/apple/Sources/ExactKit/FrameSampler.swift:109) clears `target` but preserves `overrun` and `turnBegan`. If the window hides after an overrun but before its next sample, resuming establishes a new baseline, then [line 169](host/apple/Sources/ExactKit/FrameSampler.swift:169) attaches the old overrun to an unrelated new frame. **Fix:** settle or discard pending segment timing and clear the turn start on stop. Test overrun → stop → restart → two punctual callbacks.
+
+No presentation skip changed; the earlier idle-tick dispositions remain intact. Production sampler creation remains gated, observer captures are weak, and per-turn work is constant. Changed sources meet the line cap. No earlier overrun reviews were present. Formatter checks passed; XCTest was not run because this read-only checkout has no build artifacts.

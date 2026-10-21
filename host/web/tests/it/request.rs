@@ -14,16 +14,16 @@ component App
   state who = ""
   mutation session as shape Session
   derive busy = pending(session)
-  action setWho(v) writes who
+  action setWho(v)
     who = v
-  action submit writes session
+  action submit
     send session = login(who)
   view
     column testId="app"
       input value=who change=setWho testId="who"
       button press=submit aria-label="Log in" testId="login"
         text "Log in"
-      when busy
+      if busy
         text "Logging in…" testId="busy"
       match session
         case some(s)
@@ -66,6 +66,9 @@ impl DataSource for Later {
     fn grants(&self) -> &'static str {
         "net.fetch https://api.castle.test\n"
     }
+    fn replacement(&self, _: &[u8], _: &str, _: Vec<u8>) -> Result<Self, DataError> {
+        Ok(Later)
+    }
 }
 
 fn view(host: &Host<Later>, test_id: &str) -> u32 {
@@ -79,7 +82,9 @@ fn a_send_leaves_as_a_request_op_and_the_reply_commits() {
     let baked = contract::bake(plan, Later).unwrap();
     let (mut host, first) = Host::boot(&baked.encode(), Later, Default::default(), "/").unwrap();
     assert!(
-        first.contains("{\"op\":\"grants\",\"lines\":[\"net.fetch https://api.castle.test\"]}"),
+        first.contains(
+            "{\"op\":\"grants\",\"lines\":[\"net.fetch https://api.castle.test\"],\"set\":"
+        ),
         "{first}"
     );
     assert!(!first.contains("\"op\":\"request\""));
@@ -129,7 +134,7 @@ fn a_send_leaves_as_a_request_op_and_the_reply_commits() {
 }
 
 #[test]
-fn module_replacement_preserves_the_owner_of_an_in_flight_post() {
+fn a_dev_module_replacement_swaps_with_a_post_in_flight_and_an_update_refuses() {
     let plan = contract::bake(contract::compile(SRC).unwrap(), Later)
         .unwrap()
         .encode();
@@ -139,12 +144,30 @@ fn module_replacement_preserves_the_owner_of_an_in_flight_post() {
     bridge.input_write(b"ada");
     bridge.dispatch(view(&host, "who"), 1, 3, 0.0);
     bridge.dispatch(view(&host, "login"), 0, 0, 0.0);
-    bridge.input_write(b"candidate");
-    let len = bridge.boot_module([0, 0, 9], Later);
+    assert_eq!(bridge.request_active(1.0), 1);
+    let mut input = plan.clone();
+    input.extend_from_slice(b"module");
+    // An update refuses while a request is out; the running app keeps it.
+    bridge.input_write(&input);
+    let len = bridge.boot_module([plan.len(), 0, 6], Later, false);
     assert!(String::from_utf8_lossy(bridge.output_bytes(len as usize)).contains("in-flight"));
-    bridge.input_write(b"{}");
-    let len = bridge.fulfill(1.0, 0, 200, 0, 2, 5.0);
-    assert!(String::from_utf8_lossy(bridge.output_bytes(len as usize)).contains("Signed in as ada"));
+    assert_eq!(bridge.request_active(1.0), 1);
+    // The dev loop's swap does not wait on it, as an app may always have a
+    // request out (LLP 1007 §6), and the new runner carries what was typed.
+    bridge.input_write(&input);
+    let len = bridge.boot_module([plan.len(), 0, 6], Later, true);
+    let out = String::from_utf8_lossy(bridge.output_bytes(len as usize)).into_owned();
+    assert!(out.contains("\"error\":null"), "{out}");
+    assert!(out.contains("\"value\":\"ada\""), "{out}");
+    assert!(
+        out.contains("Signed out") && !out.contains("Logging in"),
+        "{out}"
+    );
+    assert_eq!(
+        bridge.request_active(1.0),
+        0,
+        "the old runner's POST is let go"
+    );
 }
 
 #[test]
@@ -232,4 +255,61 @@ fn surface_batch_and_outcomes_keep_their_typed_kind() {
     assert!(wire.contains(r#""op":"surfaceWork""#));
     assert!(wire.contains("surface request combines multiple host-work kinds"));
     assert!(!wire.contains(r#""payload":"#));
+}
+
+/// Crew's set (the port report of 2026-09-24, F1): one camelCase secret name
+/// among good lines. A native host holds nothing of it; neither does the web.
+#[derive(Default)]
+struct Crew;
+
+impl DataSource for Crew {
+    fn query(&mut self, source: &str, _: &[Value]) -> Result<Value, DataError> {
+        Err(DataError::Unavailable(source.into()))
+    }
+    fn answer(
+        &mut self,
+        store: &mut exact_runner::Store,
+        _: &str,
+        _: &[Value],
+    ) -> Result<Answer, DataError> {
+        store.set("token", "t")?;
+        Ok(Answer::Later(Request::get("https://crew.test/session")))
+    }
+    fn grants(&self) -> &'static str {
+        "net.fetch https://crew.test\nsecret.keep crewHost\nsecret.keep token\n"
+    }
+}
+
+#[test]
+fn grants_that_do_not_parse_reach_the_page_as_none_with_the_reason() {
+    const WHY: &str = "the app's grants did not parse: line 2: `crewHost` is not a secret name ([a-z0-9._-]{1,64})";
+    let plan = contract::compile(SRC).unwrap();
+    let baked = contract::bake(plan, Crew).unwrap();
+    let (mut host, first) = Host::boot(&baked.encode(), Crew, Default::default(), "/").unwrap();
+    assert!(
+        first.contains(&format!(
+            "{{\"op\":\"grants\",\"lines\":[],\"error\":\"{WHY}\",\"set\":"
+        )),
+        "{first}"
+    );
+    let journal = |host: &Host<Crew>| host.runner().journal().collect::<Vec<_>>().join("\n");
+    assert!(
+        journal(&host).contains(&format!("{WHY}; nothing is granted")),
+        "said once at boot: {}",
+        journal(&host)
+    );
+    // The store names nothing either, `token` included, and says why.
+    host.dispatch(view_of(&host, "who"), Event::Change("ada".into()));
+    let batch = host.dispatch(view_of(&host, "login"), Event::Press);
+    assert!(!batch.contains("\"op\":\"request\""), "{batch}");
+    assert!(
+        journal(&host).contains(&format!("secret token is not granted: {WHY}")),
+        "{}",
+        journal(&host)
+    );
+}
+
+fn view_of<D: DataSource>(host: &Host<D>, test_id: &str) -> u32 {
+    let k = host.runner().kernel();
+    k.node_by_key(k.find_by_test_id(test_id)[0]).unwrap().id
 }

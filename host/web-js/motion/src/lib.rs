@@ -71,14 +71,15 @@ impl Motion {
             && ok
     }
 
-    /// A node's targets after a commit, at `now`: translate x and y, scale,
-    /// rotate (degrees), opacity. The first observation of a node is taken
-    /// as it is (nothing transitions), as the kernel's `adopt` does.
-    pub fn observe(&mut self, node: u64, values: [f64; 5], now: f64) -> Result<(), EngineError> {
+    /// A node's targets after a commit, at `now`: translate x and y, its x
+    /// and y percentages of the box, scale, rotate (degrees), opacity. The
+    /// first observation of a node is taken as it is (nothing transitions),
+    /// as the kernel's `adopt` does.
+    pub fn observe(&mut self, node: u64, values: [f64; 7], now: f64) -> Result<(), EngineError> {
         self.seek(now)?;
-        let [x, y, scale, rotate, opacity] = values;
+        let [x, y, px, py, scale, rotate, opacity] = values;
         let targets = [
-            Value::new(x, y),
+            Value::four(x, y, px, py),
             Value::scalar(scale),
             Value::scalar(rotate),
             Value::scalar(opacity),
@@ -287,8 +288,10 @@ impl Motion {
                         frames.duration,
                         frames.values.len() as f64,
                     ]);
+                    // Four numbers a frame: translate's lengths and
+                    // percentages; one of them for the rest.
                     for v in &frames.values {
-                        out.extend([v.x, v.y]);
+                        out.extend([v.x, v.y, v.z, v.w]);
                     }
                 }
                 None => {

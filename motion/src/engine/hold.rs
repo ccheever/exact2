@@ -106,6 +106,15 @@ impl Engine {
         now_s: f64,
         presented: Option<[Value; 2]>,
     ) -> Result<Option<TransformHold>, EngineError> {
+        (self.links.begin_transform_hold)(self, node, now_s, presented)
+    }
+
+    pub(super) fn begin_transform_hold_full(
+        &mut self,
+        node: u64,
+        now_s: f64,
+        presented: Option<[Value; 2]>,
+    ) -> Result<Option<TransformHold>, EngineError> {
         self.begin_transform_hold_with_counter(node, now_s, presented, &NEXT_SERIAL)
     }
 
@@ -124,8 +133,9 @@ impl Engine {
         let values = presented.unwrap_or_else(|| {
             keys.map(|key| {
                 let slot = &self.slots[&key];
-                slot.running()
-                    .map_or(slot.presented(), |running| running.sample(now_s).value)
+                slot.running().map_or(slot.presented(), |running| {
+                    running.sample(now_s.max(self.shown)).value
+                })
             })
         });
         for (key, value) in keys.into_iter().zip(values) {
@@ -139,6 +149,7 @@ impl Engine {
             slot.set_presented(values[i]);
             slot.set_running(None);
             self.running.remove(&key);
+            self.played.remove(&key);
             slot.set_owner(Some(Owner::Held(serial + i as u64)));
             self.dirty.insert(key);
             HoldStart {
@@ -163,6 +174,15 @@ impl Engine {
     /// Invalid live input leaves both presentations, curves and clock intact.
     /// See [`TransformHold`] for independent terminal cleanup obligations.
     pub fn update_transform_hold(
+        &mut self,
+        held: TransformHold,
+        now_s: f64,
+        values: [Value; 2],
+    ) -> Result<bool, EngineError> {
+        (self.links.update_transform_hold)(self, held, now_s, values)
+    }
+
+    pub(super) fn update_transform_hold_full(
         &mut self,
         held: TransformHold,
         now_s: f64,
@@ -202,6 +222,16 @@ impl Engine {
         now_s: f64,
         presented: Option<Value>,
     ) -> Result<Option<HoldStart>, EngineError> {
+        (self.links.begin_hold)(self, node, property, now_s, presented)
+    }
+
+    pub(super) fn begin_hold_full(
+        &mut self,
+        node: u64,
+        property: Property,
+        now_s: f64,
+        presented: Option<Value>,
+    ) -> Result<Option<HoldStart>, EngineError> {
         let key = (node, property);
         if !self.slots.contains_key(&key) {
             return Ok(None);
@@ -212,8 +242,15 @@ impl Engine {
         self.validate_time(now_s)?;
         let serial = allocate_serial(&NEXT_SERIAL)?;
         self.advance(now_s)?;
+        // A played transition presents its target; its host shows its curve
+        let at = self.sample_time();
+        let played = self.played.remove(&key);
         let slot = self.slots.get_mut(&key).expect("adopted property");
-        let value = presented.unwrap_or(slot.presented());
+        let shown = match slot.running() {
+            Some(running) if played => running.sample(at).value,
+            _ => slot.presented(),
+        };
+        let value = presented.unwrap_or(shown);
         slot.set_presented(value);
         slot.set_running(None);
         self.running.remove(&key);
@@ -264,6 +301,15 @@ impl Engine {
         now_s: f64,
         value: Value,
     ) -> Result<bool, EngineError> {
+        (self.links.update_hold)(self, token, now_s, value)
+    }
+
+    pub(super) fn update_hold_full(
+        &mut self,
+        token: HoldToken,
+        now_s: f64,
+        value: Value,
+    ) -> Result<bool, EngineError> {
         if !self.has_hold(token) {
             return Ok(false);
         }
@@ -284,6 +330,10 @@ impl Engine {
     /// host whose platform measures none (LLP 1057.001 §3). `None` for a stale
     /// token or a non-finite time.
     pub fn hold_velocity(&self, token: HoldToken, now_s: f64) -> Option<Value> {
+        (self.links.hold_velocity)(self, token, now_s)
+    }
+
+    pub(super) fn hold_velocity_full(&self, token: HoldToken, now_s: f64) -> Option<Value> {
         if !self.has_hold(token) || !now_s.is_finite() {
             return None;
         }
@@ -299,6 +349,10 @@ impl Engine {
     /// [`Engine::hold_velocity`] measures the shown motion. Presentation is
     /// untouched. `false` for a stale token or a non-finite sample.
     pub fn track_hold(&mut self, token: HoldToken, now_s: f64, shown: Value) -> bool {
+        (self.links.track_hold)(self, token, now_s, shown)
+    }
+
+    pub(super) fn track_hold_full(&mut self, token: HoldToken, now_s: f64, shown: Value) -> bool {
         if !self.has_hold(token) || !now_s.is_finite() || !shown.is_finite() {
             return false;
         }
@@ -313,7 +367,7 @@ impl Engine {
             let slots = &self.slots;
             self.held.retain(|serial, _| {
                 slots
-                    .values()
+                    .entries()
                     .any(|slot| slot.owner() == Some(Owner::Held(*serial)))
             });
         }
@@ -330,6 +384,15 @@ impl Engine {
     /// Stale tokens return `false` before checking time or velocity; invalid
     /// live input leaves the hold and clock unchanged. Holds alone are quiescent.
     pub fn end_hold(
+        &mut self,
+        token: HoldToken,
+        now_s: f64,
+        end: HoldEnd,
+    ) -> Result<bool, EngineError> {
+        (self.links.end_hold)(self, token, now_s, end)
+    }
+
+    pub(super) fn end_hold_full(
         &mut self,
         token: HoldToken,
         now_s: f64,
@@ -360,11 +423,21 @@ impl Engine {
             });
         // Do not use observe: its unchanged-target fast path deliberately
         // suppresses redundant commits, whereas this is a presentation release.
+        // A fling keeps its release instant; a cancel or a release at rest
+        // waits for the first presented frame, as an authored curve does
+        // (LLP 1003.001 D6).
+        let fling = velocity != Value::ZERO;
+        let at = now_s.max(self.shown);
+        let pend = (self.start_on_frame && !fling).then_some(at);
         let mut running = declaration.map(|declaration| {
-            Running::start(declaration, from, slot.target, velocity, now_s, from, 1.0)
+            let start = if pend.is_some() { at } else { now_s };
+            let mut curve =
+                Running::start(declaration, from, slot.target, velocity, start, from, 1.0);
+            curve.pending = pend;
+            curve
         });
         let presented = if let Some(curve) = &running {
-            let sample = curve.sample(now_s);
+            let sample = curve.sample(at);
             if sample.done {
                 running = None;
             }
@@ -378,6 +451,9 @@ impl Engine {
         slot.set_owner(owner);
         if slot.running().is_some() {
             self.running.insert(key);
+            if pend.is_some() {
+                self.pending.insert(key);
+            }
         }
         self.dirty.insert(key);
         Ok(true)

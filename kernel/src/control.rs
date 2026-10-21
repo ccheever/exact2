@@ -5,7 +5,7 @@
 //! The rules here are HTML's, so the runner can hold every host to them: a
 //! select's value is one of its enabled options' values.
 
-use crate::generated::{NodeType, PropId};
+use crate::generated::{NodeType, PropId, StyleId};
 use crate::id::ViewId;
 use crate::kernel::{Kernel, NodeRef};
 use crate::props::PropList;
@@ -18,6 +18,9 @@ pub enum ControlKind {
     Checkbox,
     /// `input type="checkbox" switch`.
     Switch,
+    /// `input type="radio"` (x2apps survey #2): one of the radios of its
+    /// `name` ([`Kernel::radio_group`]).
+    Radio,
     /// `input type="file"` (LLP 1069.002).
     File,
     /// `select`, its options the node's children.
@@ -30,6 +33,15 @@ pub enum ControlKind {
     Time,
     /// `input type="datetime-local"`: a date, `T`, a time; no zone.
     DateTimeLocal,
+    /// `button appearance="auto"`: the platform's button (LLP 1069.011),
+    /// its title and image its children.
+    Button,
+    /// `progress` with no `value`: HTML's indeterminate progress, shown as
+    /// the platform's activity indicator (LLP 1069.001, amended 2026-10-07).
+    Progress,
+    /// `progress` with a `value`: HTML's determinate progress bar, the
+    /// platform's own ([`Progress`]; LLP 1116 D8).
+    ProgressBar,
 }
 
 impl ControlKind {
@@ -39,31 +51,67 @@ impl ControlKind {
             return None;
         }
         Some(match props.str(PropId::Type) {
+            Some("button") => ControlKind::Button,
+            Some("progress")
+                if props.get(PropId::Value).is_some() || props.get(PropId::Start).is_some() =>
+            {
+                ControlKind::ProgressBar
+            }
+            Some("progress") => ControlKind::Progress,
             Some("file") => ControlKind::File,
             Some("select") => ControlKind::Select,
             Some("range") => ControlKind::Range,
             Some("date") => ControlKind::Date,
             Some("time") => ControlKind::Time,
             Some("datetime-local") => ControlKind::DateTimeLocal,
+            Some("radio") => ControlKind::Radio,
             _ if props.str(PropId::AccessibilityRole) == Some("switch") => ControlKind::Switch,
             _ => ControlKind::Checkbox,
         })
     }
 
-    /// The content size a host that reports none shows (LLP 1069.001 D3):
-    /// Chrome's 13×13 checkbox, Safari's 38×22 desktop switch, and a select
-    /// one line of Chrome's 13.33 px control font tall, Chrome's 129×16
-    /// range, and the date types one line of it wide enough for their
-    /// value. A host that knows its control's size reports it.
-    pub fn default_size(self) -> (f32, f32) {
+    /// The content size a host that reports none shows (LLP 1069.001 D3),
+    /// for a control whose font size is `em`.
+    ///
+    /// A checkbox, a radio, a switch and a range's height are the look's
+    /// this process draws, rows of the schema's `metrics` (LLP 1115.000
+    /// D17). Under the neutral look they follow the control's font size (a
+    /// mark is the line's height, 20 px at 16), as the page's sheet sizes
+    /// them, so the kernel and a page lay the same box out. In every other
+    /// column they are Chrome's bare control under the web reset, and the
+    /// switch WebKit's own box, 38 × 22: an Apple host shows them until it
+    /// reports its control's size, and Android's reader paints them.
+    ///
+    /// The rest are the same in every look: an empty select, the page's
+    /// 36 px tall select (its line, padding and line), and a date, time or
+    /// local date-time control in the same field look (LLP 1116.001 D1),
+    /// Chrome's on macOS with an empty value. A host that knows any
+    /// control's size reports it.
+    pub fn default_size(self, em: f32) -> (f32, f32) {
+        use crate::generated::metric;
+        // None of these rows is in `rem`, and each has a value in every column.
+        let look = |index| crate::style::metrics::length(index, em, em).unwrap_or(0.0);
         match self {
-            ControlKind::Checkbox | ControlKind::File => (13.0, 13.0),
-            ControlKind::Switch => (38.0, 22.0),
-            ControlKind::Select => (64.0, 19.0),
-            ControlKind::Range => (129.0, 16.0),
-            ControlKind::Date => (96.0, 19.0),
-            ControlKind::Time => (64.0, 19.0),
-            ControlKind::DateTimeLocal => (160.0, 19.0),
+            ControlKind::Checkbox | ControlKind::Radio => {
+                (look(metric::MARK_SIZE), look(metric::MARK_SIZE))
+            }
+            ControlKind::Switch => (look(metric::SWITCH_WIDTH), look(metric::SWITCH_HEIGHT)),
+            ControlKind::File => (347.0, 25.0),
+            ControlKind::Select => (46.0, 36.0),
+            ControlKind::Range => (129.0, look(metric::RANGE_HEIGHT)),
+            ControlKind::Date => (164.0, 36.0),
+            ControlKind::Time => (131.796_88, 36.0),
+            ControlKind::DateTimeLocal => (247.0, 36.0),
+            // UIKit's medium button, rounded (LLP 1069.011 §2: 63.33 × 34.33
+            // for a short title): frame one until the host reports.
+            ControlKind::Button => (64.0, 34.0),
+            // UIKit's medium activity indicator, 20 × 20, on every host: it
+            // is the size, not a host's report (LLP 1069.001, amended
+            // 2026-10-07).
+            ControlKind::Progress => (20.0, 20.0),
+            // `10em` by `1em` at CSS's 16 px. Layout reads the node's own
+            // font size ([`progress_size`]), never this.
+            ControlKind::ProgressBar => (160.0, 16.0),
         }
     }
 
@@ -194,6 +242,90 @@ impl Range {
     }
 }
 
+/// A determinate progress's `value` and `max` by HTML's rules (the
+/// `progress` element's current value and maximum): `max` is 1 unless it
+/// reads as a number above 0; `value` is 0 unless it reads as one, and
+/// then held to 0 and `max` (LLP 1116 D8).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Progress {
+    /// The current value.
+    pub value: f64,
+    /// The maximum.
+    pub max: f64,
+}
+
+impl Progress {
+    /// A progress's value and maximum from its props.
+    pub fn of(props: &PropList) -> Progress {
+        let max = number(props.str(PropId::Max))
+            .filter(|m| *m > 0.0)
+            .unwrap_or(1.0);
+        let value = number(props.str(PropId::Value))
+            .unwrap_or(0.0)
+            .clamp(0.0, max);
+        Progress { value, max }
+    }
+
+    /// How much of the bar is filled, 0 to 1 (HTML's `position`).
+    pub fn fraction(&self) -> f64 {
+        self.value / self.max
+    }
+}
+
+/// A determinate `progress`'s box (LLP 1116 D8; LLP 1115.000 D10.2). It is
+/// HTML's `<progress>` made a block: a box with no content of its own whose
+/// intrinsic size is `10em` by `1em` ([`progress_size`]; on the page,
+/// `contain-intrinsic-size`), so with `width: auto` it fills a block
+/// container as a `<div>` does and is `10em` wide where CSS sizes a box by
+/// its content: a flex row's basis, a shrink-to-fit box. It shrinks below
+/// that in a flex row (the page's `min-width: 0`), so a bar that is as wide
+/// as its row gives way to its neighbours. Lowering writes it `width: 100%`;
+/// under no width row at all it keeps the UA sheet's `width: 10em`, and
+/// under no height row the UA's `height: 1em`, in a border box (Chrome 154,
+/// as Gecko and WebKit). Its font size is a layout row, so a change to it
+/// restyles the node. `kernel/tests/it/browser_controls.rs` holds each case
+/// to Chrome's boxes.
+pub(crate) fn progress_box(arena: &crate::arena::NodeArena, slot: u32, s: &mut taffy::Style) {
+    let style = arena.style(slot);
+    let em = arena.computed_source(slot, StyleId::FontSize).font_size;
+    s.item_is_table = false;
+    if !style.mask.has(StyleId::Width) {
+        s.size.width = taffy::prelude::length(10.0 * em);
+    }
+    if !style.mask.has(StyleId::Height) {
+        s.size.height = taffy::prelude::length(em);
+    }
+    if !style.mask.has(StyleId::BoxSizing) {
+        s.box_sizing = taffy::style::BoxSizing::BorderBox;
+    }
+    if style.min_width == crate::Dimension::Auto {
+        s.min_size.width = taffy::prelude::length(0.0);
+    }
+}
+
+/// A determinate `progress`'s intrinsic size, `10em` by `1em` of its own
+/// font size: what it falls back to where no row sizes an axis, whatever
+/// size the host's own bar reports (UIKit's is 4 points tall).
+pub(crate) fn progress_size(arena: &crate::arena::NodeArena, slot: u32) -> (f32, f32) {
+    let em = arena.computed_source(slot, StyleId::FontSize).font_size;
+    (10.0 * em, em)
+}
+
+/// A range whose `width` is a percentage shrinks below its intrinsic width
+/// in a flex row, as Chrome's does (CSS Sizing 3 §5.2.2: a form control
+/// with a percentage width is compressible, its automatic minimum zero): a
+/// range is `width: 100%` unless its author says otherwise (LLP 1115.000
+/// D10.2), and beside a row's other children it takes what they leave.
+/// An authored `min-width` is the author's.
+pub(crate) fn range_box(arena: &crate::arena::NodeArena, slot: u32, s: &mut taffy::Style) {
+    let style = arena.style(slot);
+    if matches!(style.width, crate::Dimension::Percent(_))
+        && style.min_width == crate::Dimension::Auto
+    {
+        s.min_size.width = taffy::prelude::length(0.0);
+    }
+}
+
 /// One `option` of a `select`, as a menu shows it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Choice {
@@ -205,6 +337,35 @@ pub struct Choice {
     pub label: String,
     /// Whether it may not be chosen.
     pub disabled: bool,
+}
+
+/// A button's face (LLP 1069.011.000 D1): what every host projection shows
+/// of it — a toolbar item, a tab, a menu row, a swipe action, a shortcut —
+/// read live from its direct children, a custom `button` (`Pressable`) and a
+/// native one (`ControlKind::Button`) alike.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct PressFace {
+    /// Its first `text` child's text, white space collapsed; a blank title is
+    /// none.
+    pub title: Option<String>,
+    /// The second text, the platform's semantic subtitle (LLP 1069.011.001 D3).
+    pub subtitle: Option<String>,
+    /// Axis and child order resolved to the platform's image placement.
+    pub placement: crate::ButtonImagePlacement,
+    /// Its one `image` child's symbol (`send`, or `sf/paperplane` for an SF
+    /// Symbol by name), without `symbol:`.
+    pub symbol: Option<String>,
+    /// Whether that image child is a raster instead (the projection keeps its
+    /// own path for it).
+    pub raster: bool,
+    /// Whether the image comes before the title (the inline start).
+    pub leading: bool,
+    /// Its `aria-label`.
+    pub label: Option<String>,
+    /// Whether projections can show its direct children: at most one `text`
+    /// and one `image`, with nothing else (LLP 1069.011.000 D1). A native
+    /// button can additionally carry `subtitle` without fitting a projection.
+    pub fits: bool,
 }
 
 /// Whether `node` is an `option`: a text node the `option` tag made.
@@ -249,6 +410,81 @@ impl Kernel {
             .collect()
     }
 
+    /// A radio's group, HTML's radio button group: every attached radio of
+    /// its non-empty `name`, in tree order, itself included; itself alone
+    /// when its name is empty or it is not attached. Empty for a node that
+    /// is not a radio.
+    pub fn radio_group(&self, view: ViewId) -> Vec<ViewId> {
+        let Some(radio) = self.node(view) else {
+            return Vec::new();
+        };
+        if ControlKind::of(radio.node_type, radio.props) != Some(ControlKind::Radio) {
+            return Vec::new();
+        }
+        let name = radio.props.str(PropId::Name).unwrap_or("");
+        if name.is_empty() {
+            return vec![view];
+        }
+        let mut group = Vec::new();
+        let mut stack: Vec<ViewId> = self.roots().into_iter().rev().collect();
+        while let Some(id) = stack.pop() {
+            let Some(node) = self.node(id) else { continue };
+            if ControlKind::of(node.node_type, node.props) == Some(ControlKind::Radio)
+                && node.props.str(PropId::Name) == Some(name)
+            {
+                group.push(id);
+            }
+            stack.extend(node.children().into_iter().rev());
+        }
+        if !group.contains(&view) {
+            return vec![view];
+        }
+        group
+    }
+
+    /// The radio an arrow key moves the check to from `view` (HTML: the
+    /// next or previous enabled radio of its group, wrapping): `None` when
+    /// no other enabled radio is in its group.
+    pub fn radio_step(&self, view: ViewId, forward: bool) -> Option<ViewId> {
+        let group = self.radio_group(view);
+        let at = group.iter().position(|id| *id == view)?;
+        let n = group.len();
+        (1..n)
+            .map(|i| {
+                group[if forward {
+                    (at + i) % n
+                } else {
+                    (at + n - i) % n
+                }]
+            })
+            .find(|id| {
+                self.node(*id)
+                    .is_some_and(|r| r.props.bool(PropId::Disabled) != Some(true))
+            })
+    }
+
+    /// A radio's value, HTML's: its `value`, or `on` when it has none.
+    pub fn radio_value(&self, view: ViewId) -> String {
+        self.node(view)
+            .and_then(|r| r.props.str(PropId::Value).map(str::to_owned))
+            .unwrap_or_else(|| "on".into())
+    }
+
+    /// A button's face (LLP 1069.011.000 D1), its children read as they now
+    /// stand (an `if` between them included); `None` for a node that is not
+    /// a custom or native button.
+    pub fn press_face(&self, view: ViewId) -> Option<PressFace> {
+        let slot = self.arena().slot_of(view)?;
+        self.arena().press_face(slot)
+    }
+
+    /// Computed native face rows, with masks recording only authored rows.
+    /// A live query beside `press_face`, shared with measurement, avoids a
+    /// second style snapshot that a host could read from a different epoch.
+    pub fn button_face_style(&self, view: ViewId) -> Option<crate::ButtonFaceStyle> {
+        self.arena().button_face_style(self.arena().slot_of(view)?)
+    }
+
     /// The option a select shows: the one whose value its `value` names;
     /// with no `value`, the first enabled option, as an uncontrolled HTML
     /// select starts. `None` when its value names no option.
@@ -259,6 +495,38 @@ impl Kernel {
             None => choices.into_iter().find(|c| !c.disabled),
         }
     }
+}
+
+/// HTML's maxlength applies to text field types and textarea, not number or controls.
+pub fn text_maxlength(props: &crate::PropList) -> Option<usize> {
+    if props.str(PropId::SemanticTag) != Some("textarea")
+        && !matches!(
+            props.str(PropId::Type).unwrap_or("text"),
+            "text" | "search" | "url" | "tel" | "email" | "password"
+        )
+    {
+        return None;
+    }
+    props
+        .get(PropId::Maxlength)
+        .and_then(crate::PropValue::as_int)
+        .and_then(|n| usize::try_from(n).ok())
+}
+
+/// A user-entered replacement truncated on a scalar boundary to the HTML UTF-16 limit.
+/// Authored value updates never call this; they may be longer than maxlength.
+pub fn limit_text<'a>(props: &crate::PropList, text: &'a str) -> &'a str {
+    let Some(limit) = text_maxlength(props) else {
+        return text;
+    };
+    let mut length = 0;
+    for (index, scalar) in text.char_indices() {
+        length += scalar.len_utf16();
+        if length > limit {
+            return &text[..index];
+        }
+    }
+    text
 }
 
 #[cfg(test)]
@@ -381,6 +649,36 @@ mod tests {
     }
 
     #[test]
+    fn a_progress_holds_its_value_to_htmls_bounds() {
+        let mut props = PropList::default();
+        props.set(PropId::Type, PropValue::Str("progress".into()));
+        assert_eq!(
+            ControlKind::of(NodeType::Control, &props),
+            Some(ControlKind::Progress),
+            "no value: the activity indicator"
+        );
+        props.set(PropId::Value, PropValue::Str("0.25".into()));
+        assert_eq!(
+            ControlKind::of(NodeType::Control, &props),
+            Some(ControlKind::ProgressBar)
+        );
+        let p = Progress::of(&props);
+        assert_eq!((p.value, p.max, p.fraction()), (0.25, 1.0, 0.25));
+        props.set(PropId::Max, PropValue::Str("8".into()));
+        props.set(PropId::Value, PropValue::Str("3".into()));
+        assert_eq!(Progress::of(&props).fraction(), 0.375);
+        props.set(PropId::Value, PropValue::Str("9".into()));
+        assert_eq!(Progress::of(&props).value, 8.0, "above max: max");
+        props.set(PropId::Value, PropValue::Str("-1".into()));
+        assert_eq!(Progress::of(&props).value, 0.0, "below 0: 0");
+        props.set(PropId::Value, PropValue::Str("lots".into()));
+        assert_eq!(Progress::of(&props).value, 0.0, "unreadable: 0");
+        props.set(PropId::Max, PropValue::Str("0".into()));
+        props.set(PropId::Value, PropValue::Str("0.5".into()));
+        assert_eq!(Progress::of(&props).max, 1.0, "a max of 0 or less: 1");
+    }
+
+    #[test]
     fn a_selects_options_are_its_children_by_htmls_rules() {
         let k = select();
         let choices = k.select_choices(2);
@@ -395,5 +693,59 @@ mod tests {
             ControlKind::of(NodeType::Control, k.node(2).unwrap().props),
             Some(ControlKind::Select)
         );
+    }
+
+    #[test]
+    fn a_radios_group_is_its_name_in_tree_order() {
+        let mut k = Kernel::with_monospace();
+        let mut ops = vec![Op::CreateView {
+            id: 1,
+            node_type: NodeType::View,
+        }];
+        for (id, name, disabled) in [
+            (2, "a", false),
+            (3, "b", false),
+            (4, "a", true),
+            (5, "a", false),
+            (6, "", false),
+        ] {
+            ops.push(Op::CreateView {
+                id,
+                node_type: NodeType::Control,
+            });
+            ops.push(Op::SetProp {
+                id,
+                prop: PropId::Type,
+                value: PropValue::Str("radio".into()),
+            });
+            ops.push(Op::SetProp {
+                id,
+                prop: PropId::Name,
+                value: PropValue::Str(name.into()),
+            });
+            if disabled {
+                ops.push(Op::SetProp {
+                    id,
+                    prop: PropId::Disabled,
+                    value: PropValue::Bool(true),
+                });
+            }
+        }
+        ops.push(Op::SetChildren {
+            id: 1,
+            children: vec![2, 3, 4, 5, 6],
+        });
+        ops.push(Op::AttachRoot { id: 1 });
+        k.apply(0, 1, &ops).unwrap();
+        assert_eq!(k.radio_group(2), vec![2, 4, 5]);
+        assert_eq!(k.radio_group(3), vec![3]);
+        assert_eq!(k.radio_group(6), vec![6], "no name: a group of its own");
+        assert!(k.radio_group(1).is_empty());
+        // The arrows skip a disabled radio and wrap.
+        assert_eq!(k.radio_step(2, true), Some(5));
+        assert_eq!(k.radio_step(5, true), Some(2));
+        assert_eq!(k.radio_step(2, false), Some(5));
+        assert_eq!(k.radio_step(3, true), None);
+        assert_eq!(k.radio_value(2), "on");
     }
 }

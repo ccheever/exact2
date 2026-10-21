@@ -6,6 +6,7 @@ import { cpSync, readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { Cdp } from '../../../scripts/agent.mjs';
 import { serveStatic } from '../serve.mjs';
+import { chromium } from '../../../scripts/agent-launch.mjs';
 const dir=process.env.EXACT_MOTION_TEST,dist=resolve(dir,'dist');
 assert(process.env.EXACT_MOTION_DIST,'set EXACT_MOTION_DIST to a current pure Rust web dist built with EXACT_WEB_LINK=all');
 cpSync(process.env.EXACT_MOTION_DIST,dist,{recursive:true});
@@ -25,7 +26,7 @@ function fixture(plan) {
 }
 writeFileSync(dist+'/index.html',readFileSync(dist+'/index.html','utf8').replace('<script type="module" src="./glue.js"></script>',`<script>(${fixture})(${JSON.stringify([...readFileSync(dir+'/app.plan')])})</script><script type="module" src="./glue.js"></script>`));
 const server=createServer((req,res)=>serveStatic(dist,req,res));await new Promise(r=>server.listen(0,'127.0.0.1',r));
-const child=spawn(process.env.CHROME??'/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',['--headless=new','--no-sandbox','--remote-debugging-pipe','--disable-background-networking',`--user-data-dir=${dir}/chrome`,'about:blank'],{stdio:['ignore','ignore','ignore','pipe','pipe']});
+const child=spawn(chromium().executable,['--headless=new','--no-sandbox','--remote-debugging-pipe','--disable-background-networking',`--user-data-dir=${dir}/chrome`,'about:blank'],{stdio:['ignore','ignore','ignore','pipe','pipe']});
 const cdp=new Cdp(child.stdio[3],child.stdio[4]),errors=[];
 const exited=new Promise(r=>child.on('exit',()=>{cdp.fail('Chrome closed');r();}));
 try {

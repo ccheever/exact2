@@ -1,11 +1,18 @@
 // The standalone Mac menu bar: standard application and window commands,
-// with app-declared shortcuts in File, Go and Settings. File — New Window ⌘N
+// with app-declared shortcuts in File, Edit, View, Go and Settings by their
+// chords (ShortcutsMac.swift; studio diary R16). Go — Back ⌘[ from a pushed
+// route (LLP 1115.000 D5.1, BackMac.swift). File — New Window ⌘N
 // exists under `launch_handler` `navigate-new` (LLP 1069.010 D4), Open… ⌘O
 // when the app declares documents it opens (LLP 1033);
 // Edit always (the field editor's command keys — ⌘A/X/C/V/Z — are menu
-// equivalents, not key bindings; without this they are dead); Develop —
+// equivalents, not key bindings; without this they are dead), with Paste
+// and Match Style, Find, Spelling and Grammar, Substitutions,
+// Transformations and Speech as AppKit's template has them; Help, with
+// AppKit's search field (LLP 1115 D8); Develop —
 // Reload ⌘R, Open Project… ⇧⌘O behind a document app, App Info… ⌘D —
-// unless EXACT_DEV_MENU=0. Native AppKit above the presenter, so it is
+// in a development build only (LLP 1115.000 D7.8: a release build has no
+// such menu and takes none of its chords; EXACT_DEV_MENU=0 or =1, at build
+// or launch, says otherwise for either). Native AppKit above the presenter, so it is
 // alive even when the plan is broken; reload re-fetches a live connection,
 // else restarts from the dev loop's plan when one is named (the watcher's
 // own path, state carried), else from the baked plan, fresh. Host
@@ -13,10 +20,15 @@
 // none of this.
 #if os(macOS)
 import AppKit
+import ExactCore
 
 final class DevMenuTarget: NSObject {
+    #if EXACT_WIDGET_GALLERY
+    @objc func widgets(_ sender: Any?) { WidgetGallery.show() }
+    #endif
     @objc func reload(_ sender: Any?) { DevMenu.reload() }
     @objc func info(_ sender: Any?) { DevMenu.showInfo() }
+    @objc func saveTrace(_ sender: Any?) { DevMenu.saveTrace() }
     @objc func openProject(_ sender: Any?) { DevMenu.openProject() }
     @objc func openDocument(_ sender: Any?) { DevMenu.openDocument() }
 }
@@ -68,9 +80,11 @@ final class RecentMenu: NSObject, NSMenuDelegate {
             item.image = icon
         }
         if !urls.isEmpty { menu.addItem(.separator()) }
-        let clear = menu.addItem(withTitle: "Clear Menu", action: #selector(NSDocumentController.clearRecentDocuments(_:)), keyEquivalent: "")
-        clear.target = NSDocumentController.shared
+        // Clearing ends what each app keeps too (LLP 1069.010.000 D6).
+        menu.addItem(withTitle: "Clear Menu", action: #selector(clear(_:)), keyEquivalent: "").target = self
     }
+
+    @objc func clear(_ sender: Any?) { KeptDocuments.clear() }
 
     @objc func open(_ sender: NSMenuItem) {
         guard let url = sender.representedObject as? URL else { return }
@@ -83,7 +97,22 @@ final class RecentMenu: NSObject, NSMenuDelegate {
 public enum DevMenu {
     static let target = DevMenuTarget()
     static let editTarget = EditMenuTarget()
-    public static var enabled: Bool { ExactEnv.environment["EXACT_DEV_MENU"] != "0" }
+    static let goTarget = GoMenuTarget()
+    /// Whether a build has the Develop menu and its chords (LLP 1115.000
+    /// D7.8): a development build does, a release build does not, as a
+    /// shipped Mac app has no such menu. A release build is one baked with
+    /// production trust (its `compat.json`, which an app with no updater does
+    /// not record) or stamped `release` or `archive` by `build.mjs`
+    /// (`ExactBuildKind`: production trust, or `--distribution`, what
+    /// `exact release` signs). An unstamped host (a test's) is a
+    /// development one. `EXACT_DEV_MENU`, at build or launch, says otherwise
+    /// for either (`ExactEnv.devMenu`).
+    static func develops(kind: String?, production: Bool, override: Bool?) -> Bool {
+        override ?? (!production && (kind ?? "debug") == "debug")
+    }
+    /// This build's answer, read once.
+    public static let enabled = develops(kind: ExactEnv.appMetadata["ExactBuildKind"] as? String, production: ExactEnv.productionBake,
+                                         override: ExactEnv.devMenu)
     /// The session the menu reloads, describes and opens into: the key
     /// window's, which the adapter that owns the windows keeps current.
     nonisolated(unsafe) public static weak var session: ExactSession?
@@ -91,17 +120,30 @@ public enum DevMenu {
     /// plan file (`EXACT_DEV_PLAN`) or `EXACT_PLAN`, else the baked plan.
     nonisolated(unsafe) static var planPath: String?
 
+    nonisolated(unsafe) private static var widgetGenerationObserver: NSObjectProtocol?
     public static func install(session: ExactSession, planPath: String?) {
+        if widgetGenerationObserver == nil {
+            widgetGenerationObserver = NotificationCenter.default.addObserver(forName: Notification.Name("ExactWidgetGeneration"), object: nil, queue: .main) { _ in
+                guard let session = DevMenu.session else { return }
+                NSApp.mainMenu = makeMenu(shortcuts: session.presenter.shortcuts, documents: ExactDocuments.declared)
+            }
+        }
         DevMenu.session = session
         DevMenu.planPath = planPath
         NSApp.mainMenu = makeMenu(shortcuts: session.presenter.shortcuts, documents: ExactDocuments.declared)
     }
 
-    static func makeMenu(shortcuts: ShortcutHost, documents: Bool) -> NSMenu {
+    /// Each document's commands and root removal policy follow the key window.
+    public static func select(session: ExactSession) {
+        guard DevMenu.session !== session else { return }
+        install(session: session, planPath: planPath)
+    }
+
+    static func makeMenu(shortcuts: ShortcutHost, documents: Bool, develop: Bool = enabled) -> NSMenu {
         let bar = NSMenu()
         let appItem = NSMenuItem()
         bar.addItem(appItem)
-        let appMenu = NSMenu(title: ExactEnv.appName)
+        let appMenu = ShortcutMenu(title: ExactEnv.appName)
         appMenu.addItem(withTitle: "About \(ExactEnv.appName)", action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)), keyEquivalent: "")
         appMenu.addItem(.separator())
         let services = NSMenu(title: "Services")
@@ -117,7 +159,7 @@ public enum DevMenu {
         appItem.submenu = appMenu
         let fileItem = NSMenuItem()
         bar.addItem(fileItem)
-        let file = NSMenu(title: "File")
+        let file = ShortcutMenu(title: "File")
         fileItem.submenu = file
         // ⌘N and the tab bar's + open an empty window with a session of its
         // own (LLP 1069.010 D4), whether or not the app opens documents:
@@ -140,7 +182,7 @@ public enum DevMenu {
         // copy, paste, and undo.
         let editItem = NSMenuItem()
         bar.addItem(editItem)
-        let edit = NSMenu(title: "Edit")
+        let edit = ShortcutMenu(title: "Edit")
         edit.addItem(withTitle: "Undo", action: Selector(("undo:")), keyEquivalent: "z")
         let redo = edit.addItem(withTitle: "Redo", action: Selector(("redo:")), keyEquivalent: "z")
         redo.keyEquivalentModifierMask = [.command, .shift]
@@ -148,25 +190,53 @@ public enum DevMenu {
         edit.addItem(withTitle: "Cut", action: #selector(NSText.cut(_:)), keyEquivalent: "x")
         edit.addItem(withTitle: "Copy", action: #selector(NSText.copy(_:)), keyEquivalent: "c")
         edit.addItem(withTitle: "Paste", action: #selector(NSText.paste(_:)), keyEquivalent: "v")
+        let matchStyle = edit.addItem(withTitle: "Paste and Match Style", action: #selector(NSTextView.pasteAsPlainText(_:)), keyEquivalent: "v")
+        matchStyle.keyEquivalentModifierMask = [.command, .option, .shift]
         edit.addItem(withTitle: "Delete", action: #selector(NSText.delete(_:)), keyEquivalent: "")
         let selectAll = edit.addItem(withTitle: "Select All", action: #selector(EditMenuTarget.selectAll(_:)), keyEquivalent: "a")
         selectAll.target = editTarget
+        // Find, Spelling and Grammar, Substitutions and Transformations, as
+        // Xcode's macOS app template has them (LLP 1115 D8): the responder
+        // chain's own actions, which a field's `NSTextView` answers and
+        // validates, disabled where nothing does.
+        edit.addItem(.separator())
+        edit.addItem(withTitle: "Find", action: nil, keyEquivalent: "").submenu = findMenu()
+        edit.addItem(withTitle: "Spelling and Grammar", action: nil, keyEquivalent: "").submenu = spellingMenu()
+        edit.addItem(withTitle: "Substitutions", action: nil, keyEquivalent: "").submenu = substitutionsMenu()
+        edit.addItem(withTitle: "Transformations", action: nil, keyEquivalent: "").submenu = transformationsMenu()
+        // Speech, as Apple's HIG and every AppKit text app have it (#141):
+        // the responder chain's own actions, a field's `NSTextView` reading
+        // its selection or its text, the session's view the selected text.
+        let speech = NSMenu(title: "Speech")
+        speech.addItem(withTitle: "Start Speaking", action: #selector(NSTextView.startSpeaking(_:)), keyEquivalent: "")
+        speech.addItem(withTitle: "Stop Speaking", action: #selector(NSTextView.stopSpeaking(_:)), keyEquivalent: "")
+        edit.addItem(withTitle: "Speech", action: nil, keyEquivalent: "").submenu = speech
         editItem.submenu = edit
-        let view = NSMenu(title: "View")
+        let view = ShortcutMenu(title: "View")
+        // Show Sidebar ⌃⌘S (LLP 1115.002 D3): the split view controller's
+        // own action, which names the item for what it will do. There only
+        // while the window's sidebar is the app's root tab bar (`ShortcutHost.sync`).
+        let sidebar = view.addItem(withTitle: "Show Sidebar", action: #selector(NSSplitViewController.toggleSidebar(_:)), keyEquivalent: "s")
+        sidebar.keyEquivalentModifierMask = [.command, .control]
+        sidebar.isHidden = true
         let fullScreen = view.addItem(withTitle: "Enter Full Screen", action: #selector(NSWindow.toggleFullScreen(_:)), keyEquivalent: "f")
         fullScreen.keyEquivalentModifierMask = [.command, .control]
         bar.addItem(withTitle: "View", action: nil, keyEquivalent: "").submenu = view
-        let go = NSMenu(title: "Go")
+        let go = ShortcutMenu(title: "Go")
+        // Back ⌘[, first, as Finder's and Safari's is (LLP 1115.000 D5.1):
+        // the way back from a pushed route in the key window. The app's own
+        // ⌘[ command stands in for it, and an app with no navigation has
+        // no Go menu (`ShortcutHost.sync`).
+        go.addItem(withTitle: "Back", action: #selector(GoMenuTarget.back(_:)), keyEquivalent: "[").target = goTarget
         bar.addItem(withTitle: "Go", action: nil, keyEquivalent: "").submenu = go
-        let window = NSMenu(title: "Window")
+        let window = ShortcutMenu(title: "Window")
         window.addItem(withTitle: "Minimize", action: #selector(NSWindow.performMiniaturize(_:)), keyEquivalent: "m")
         window.addItem(withTitle: "Zoom", action: #selector(NSWindow.performZoom(_:)), keyEquivalent: "")
         window.addItem(.separator())
         window.addItem(withTitle: "Bring All to Front", action: #selector(NSApplication.arrangeInFront(_:)), keyEquivalent: "")
         bar.addItem(withTitle: "Window", action: nil, keyEquivalent: "").submenu = window
         NSApp.windowsMenu = window
-        shortcuts.attach(file, application: appMenu, navigation: go)
-        if enabled {
+        if develop {
             let devItem = NSMenuItem()
             bar.addItem(devItem)
             let dev = NSMenu(title: "Develop")
@@ -175,9 +245,76 @@ public enum DevMenu {
             project.target = target
             if documents { project.keyEquivalentModifierMask = [.command, .shift] }
             dev.addItem(withTitle: "App Info…", action: #selector(DevMenuTarget.info(_:)), keyEquivalent: "d").target = target
+            #if EXACT_WIDGET_GALLERY
+            if WidgetGallery.available { dev.addItem(withTitle: "Widgets…", action: #selector(DevMenuTarget.widgets(_:)), keyEquivalent: "").target = target }
+            #endif
+            // LLP 1079 D5: the session's journal, frames and work, for the agent (`agent.mjs trace <file>`).
+            let trace = dev.addItem(withTitle: "Save Trace", action: #selector(DevMenuTarget.saveTrace(_:)), keyEquivalent: "t")
+            trace.keyEquivalentModifierMask = [.command, .option]
+            trace.target = target
             devItem.submenu = dev
         }
+        // Help last, after Develop (LLP 1115 D8): AppKit puts its search
+        // field at the top of the menu it is told is Help, and `showHelp:`
+        // opens the app's help book, or says there is none.
+        let help = ShortcutMenu(title: "Help")
+        help.addItem(withTitle: "\(ExactEnv.appName) Help", action: #selector(NSApplication.showHelp(_:)), keyEquivalent: "?")
+        bar.addItem(withTitle: "Help", action: nil, keyEquivalent: "").submenu = help
+        NSApp.helpMenu = help
+        shortcuts.attach(file, application: appMenu, navigation: go, edit: edit, view: view, window: window, help: help)
         return bar
+    }
+
+    /// Edit ▸ Find, as AppKit's template has it: `performTextFinderAction:`
+    /// with `NSTextFinder.Action`'s tags, and Jump to Selection.
+    static func findMenu() -> NSMenu {
+        let menu = NSMenu(title: "Find")
+        let rows: [(String, String, NSEvent.ModifierFlags, NSTextFinder.Action)] = [
+            ("Find…", "f", .command, .showFindInterface),
+            ("Find and Replace…", "f", [.command, .option], .showReplaceInterface),
+            ("Find Next", "g", .command, .nextMatch),
+            ("Find Previous", "g", [.command, .shift], .previousMatch),
+            ("Use Selection for Find", "e", .command, .setSearchString),
+        ]
+        for (title, key, mask, action) in rows {
+            let item = menu.addItem(withTitle: title, action: #selector(NSResponder.performTextFinderAction(_:)), keyEquivalent: key)
+            item.keyEquivalentModifierMask = mask
+            item.tag = action.rawValue
+        }
+        menu.addItem(withTitle: "Jump to Selection", action: #selector(NSResponder.centerSelectionInVisibleArea(_:)), keyEquivalent: "j")
+        return menu
+    }
+
+    static func spellingMenu() -> NSMenu {
+        let menu = NSMenu(title: "Spelling and Grammar")
+        menu.addItem(withTitle: "Show Spelling and Grammar", action: #selector(NSText.showGuessPanel(_:)), keyEquivalent: ":")
+        menu.addItem(withTitle: "Check Document Now", action: #selector(NSText.checkSpelling(_:)), keyEquivalent: ";")
+        menu.addItem(.separator())
+        menu.addItem(withTitle: "Check Spelling While Typing", action: #selector(NSTextView.toggleContinuousSpellChecking(_:)), keyEquivalent: "")
+        menu.addItem(withTitle: "Check Grammar With Spelling", action: #selector(NSTextView.toggleGrammarChecking(_:)), keyEquivalent: "")
+        menu.addItem(withTitle: "Correct Spelling Automatically", action: #selector(NSTextView.toggleAutomaticSpellingCorrection(_:)), keyEquivalent: "")
+        return menu
+    }
+
+    static func substitutionsMenu() -> NSMenu {
+        let menu = NSMenu(title: "Substitutions")
+        menu.addItem(withTitle: "Show Substitutions", action: #selector(NSTextView.orderFrontSubstitutionsPanel(_:)), keyEquivalent: "")
+        menu.addItem(.separator())
+        menu.addItem(withTitle: "Smart Copy/Paste", action: #selector(NSTextView.toggleSmartInsertDelete(_:)), keyEquivalent: "")
+        menu.addItem(withTitle: "Smart Quotes", action: #selector(NSTextView.toggleAutomaticQuoteSubstitution(_:)), keyEquivalent: "")
+        menu.addItem(withTitle: "Smart Dashes", action: #selector(NSTextView.toggleAutomaticDashSubstitution(_:)), keyEquivalent: "")
+        menu.addItem(withTitle: "Smart Links", action: #selector(NSTextView.toggleAutomaticLinkDetection(_:)), keyEquivalent: "")
+        menu.addItem(withTitle: "Data Detectors", action: #selector(NSTextView.toggleAutomaticDataDetection(_:)), keyEquivalent: "")
+        menu.addItem(withTitle: "Text Replacement", action: #selector(NSTextView.toggleAutomaticTextReplacement(_:)), keyEquivalent: "")
+        return menu
+    }
+
+    static func transformationsMenu() -> NSMenu {
+        let menu = NSMenu(title: "Transformations")
+        menu.addItem(withTitle: "Make Upper Case", action: #selector(NSResponder.uppercaseWord(_:)), keyEquivalent: "")
+        menu.addItem(withTitle: "Make Lower Case", action: #selector(NSResponder.lowercaseWord(_:)), keyEquivalent: "")
+        menu.addItem(withTitle: "Capitalize", action: #selector(NSResponder.capitalizeWord(_:)), keyEquivalent: "")
+        return menu
     }
 
     /// File ▸ Open Recent (LLP 1069.010 D5): `NSDocumentController`'s
@@ -197,6 +334,21 @@ public enum DevMenu {
         else { return [] }
         menu.delegate?.menuNeedsUpdate?(menu)
         return menu.items.map { $0.isSeparatorItem ? "—" : $0.title }
+    }
+
+    /// The menu bar as drawn, for the agent's `state` (studio diary R16):
+    /// each menu's shown items, with the chord each answers (`⇧⌘Z`).
+    public static var menuBar: [[String: Any]] {
+        (NSApp.mainMenu?.items ?? []).dropFirst().compactMap(\.submenu).map { menu in
+            menu.delegate?.menuNeedsUpdate?(menu)
+            return ["title": menu.title, "items": menu.items.filter { !$0.isHidden }.map { item -> String in
+                if item.isSeparatorItem { return "—" }
+                guard !item.keyEquivalent.isEmpty else { return item.title }
+                let m = item.keyEquivalentModifierMask
+                let chord = (m.contains(.control) ? "⌃" : "") + (m.contains(.option) ? "⌥" : "") + (m.contains(.shift) ? "⇧" : "") + (m.contains(.command) ? "⌘" : "")
+                return "\(item.title) \(chord)\(item.keyEquivalent.uppercased())"
+            }]
+        }
     }
 
     /// The typed URL — the affordance a physical device actually uses
@@ -234,11 +386,13 @@ public enum DevMenu {
         }
         let started = CACurrentMediaTime()
         let batch = session.boot(size: session.presenter.viewportSize)
-        print("reloaded in \(String(format: "%.1f", (CACurrentMediaTime() - started) * 1000)) ms\(batch.error.map { " — \($0)" } ?? "")")
+        // stderr, never stdout: stdout is the agent's reply channel on macOS,
+        // and a reply-shaped line there answers the driver's next request.
+        fputs("exact: reloaded in \(String(format: "%.1f", (CACurrentMediaTime() - started) * 1000)) ms\(batch.error.map { " — \($0)" } ?? "")\n", stderr)
     }
 
     static func info() -> String {
-        var lines = [CommandLine.arguments[0]]
+        var lines = BuildInfo.lines(ExactEnv.appMetadata, device: BuildInfo.device()) + [CommandLine.arguments[0]]
         if let status = ExactApp.shared.connectionStatus { lines.append("url: \(status)") }
         if let path = ExactEnv.environment["EXACT_DEV_PLAN"] {
             let m = (try? FileManager.default.attributesOfItem(atPath: path))?[.modificationDate] as? Date
@@ -249,6 +403,7 @@ public enum DevMenu {
             lines.append("plan: baked")
         }
         lines.append("app dir: \(ExactApp.shared.assetRoot.path)")
+        if let failure = WidgetContainer.publicationFailure { lines.append("widget generation: \(failure)") }
         if let session {
             let size = session.presenter.viewportSize
             lines.append("session: \(session.label) · viewport: \(Int(size.width))×\(Int(size.height)) · \(session.viewCount) views")
@@ -257,16 +412,48 @@ public enum DevMenu {
         return lines.joined(separator: "\n")
     }
 
+    /// The release notes, scrollable, under the alert's text.
+    static func notesView(_ notes: String) -> NSView {
+        let scroll = NSScrollView(frame: NSRect(x: 0, y: 0, width: 360, height: 160))
+        scroll.hasVerticalScroller = true
+        scroll.borderType = .bezelBorder
+        let text = NSTextView(frame: scroll.bounds)
+        text.isEditable = false
+        text.string = notes
+        text.autoresizingMask = [.width]
+        scroll.documentView = text
+        return scroll
+    }
+
     static func showInfo() {
-        let text = info()
+        let shown = info(), notes = BuildInfo.notes(ExactEnv.appMetadata)
+        let text = BuildInfo.text([shown], notes: notes)
         let alert = NSAlert()
         alert.messageText = "Exact"
-        alert.informativeText = text
+        alert.informativeText = shown
+        if let notes { alert.accessoryView = notesView(notes) }
         alert.addButton(withTitle: "OK")
         alert.addButton(withTitle: "Copy")
         if alert.runModal() == .alertSecondButtonReturn {
             NSPasteboard.general.clearContents()
             NSPasteboard.general.setString(text, forType: .string)
+        }
+    }
+
+    /// Save Trace (LLP 1079 D5), ⌥⌘T: where it went, or why not.
+    static func saveTrace() {
+        guard let session else { return }
+        let alert = NSAlert()
+        alert.messageText = "Trace"
+        switch session.saveTrace() {
+        case .success(let url):
+            alert.informativeText = url.path
+            alert.addButton(withTitle: "OK")
+            alert.addButton(withTitle: "Show in Finder")
+            if alert.runModal() == .alertSecondButtonReturn { NSWorkspace.shared.activateFileViewerSelecting([url]) }
+        case .failure(let error):
+            alert.informativeText = "Not saved: \(error)"
+            alert.runModal()
         }
     }
 

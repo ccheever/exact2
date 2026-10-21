@@ -1,0 +1,11 @@
+// The stage 11 gate app with no design of its own: @exact/scale-fixture-cards and
+// @exact/scale-fixture-notes read each host's base values for space.md, radius.md and
+// radius.lg (the gate's "with no app value set" line).
+use Card from "@exact/scale-fixture-cards"
+use Note from "@exact/scale-fixture-notes"
+
+component App
+  view
+    column testId="root" width=360 gap=8 padding-top=120 background-color="#ffffff"
+      Card(title="A card")
+      Note(body="A note")

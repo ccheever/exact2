@@ -1,7 +1,6 @@
 use crate::values::quote;
 use crate::{
-    json, spatial, Clock, Data, DataError, Entity, Game, Parent, Reader, Sim, Vec2, Vec3, Visible,
-    World,
+    json, spatial, Clock, Data, DataError, Entity, Game, Parent, Reader, Sim, Vec2, Vec3, World,
 };
 use std::collections::BTreeMap;
 use std::fmt::Write;
@@ -21,6 +20,16 @@ struct Request {
     x: Option<f32>,
     y: Option<f32>,
     since: u64,
+    from: u64,
+    limit: Option<u64>,
+    resources: bool,
+    key: Option<String>,
+    phase: Option<String>,
+    stick: Option<String>,
+    value: Option<[f32; 2]>,
+    pad: u32,
+    events: bool,
+    event_type: Option<String>,
 }
 impl Request {
     fn parse(text: &str) -> Result<Self, DataError> {
@@ -30,6 +39,8 @@ impl Request {
         while let Some(f) = r.field()? {
             match f.as_str() {
                 "op" => q.op.read(&mut r)?,
+                "events" => q.events.read(&mut r)?,
+                "event_type" => q.event_type = Some(r.string()?),
                 "entity" => q.entity = Some(r.string()?),
                 "under" => q.under = Some(r.string()?),
                 "settle" => q.settle.read(&mut r)?,
@@ -61,11 +72,50 @@ impl Request {
                     }
                 }
                 "since" => q.since.read(&mut r)?,
+                "from" => q.from.read(&mut r)?,
+                "limit" => {
+                    let mut n = 0u64;
+                    n.read(&mut r)?;
+                    if n == 0 || n > MAX_PAGE as u64 {
+                        return Err(DataError::new(format!(
+                            "limit must be 1..={MAX_PAGE}; page with from"
+                        ))
+                        .at("limit"));
+                    }
+                    q.limit = Some(n);
+                }
+                "resources" => q.resources.read(&mut r)?,
+                "key" => q.key = Some(r.string()?),
+                "phase" => q.phase = Some(r.string()?),
+                "stick" => q.stick = Some(r.string()?),
+                "value" => {
+                    let mut v = [0f32; 2];
+                    v.read(&mut r)?;
+                    q.value = Some(v);
+                }
+                "pad" => q.pad.read(&mut r)?,
                 _ => r.skip()?,
             }
         }
         r.finish()?;
         Ok(q)
+    }
+}
+// Entity listings answer in pages: `from` an offset in hierarchy preorder, at most
+// `limit` entities (512 by default), with `total` and the `next` offset.
+const PAGE: usize = 512;
+const MAX_PAGE: usize = 100_000;
+fn page(q: &Request, start: usize, end: usize) -> (usize, usize) {
+    let from = start
+        .saturating_add(q.from.min(usize::MAX as u64) as usize)
+        .min(end);
+    let limit = q.limit.map_or(PAGE, |n| n as usize);
+    (from, from.saturating_add(limit).min(end))
+}
+fn page_tail(out: &mut String, to: usize, start: usize, end: usize) {
+    write!(out, "\"truncated\":{},\"total\":{}", to < end, end - start).unwrap();
+    if to < end {
+        write!(out, ",\"next\":{}", to - start).unwrap();
     }
 }
 fn encode<T: Data>(v: &T) -> Result<String, String> {
@@ -156,23 +206,21 @@ impl<G: Game> Sim<G> {
     }
     /// Named content failures; readiness must never hide a failed declaration.
     pub fn asset_failures(&self) -> impl Iterator<Item = &str> {
-        self.world
-            .assets
-            .states
-            .values()
-            .filter_map(|s| match s {
-                crate::asset::AssetState::Failed(reason) => Some(reason.as_str()),
-                _ => None,
-            })
-            .chain(
-                self.world
-                    .assets
-                    .refusal
-                    .iter()
-                    .map(|(_, reason)| reason.as_str()),
-            )
+        self.world.assets.states.values().filter_map(|s| match s {
+            crate::asset::AssetState::Failed(reason) => Some(reason.as_str()),
+            _ => None,
+        })
     }
 
+    fn paranoid_json(&self) -> String {
+        let mode = match self.paranoid_mode {
+            crate::Paranoid::Off => "0",
+            crate::Paranoid::Save => "1",
+            crate::Paranoid::FreshGame => "fresh-game",
+        };
+        let (skipped, owed) = self.paranoid_samples().unwrap_or((0, false));
+        format!(",\"paranoid\":{{\"mode\":\"{mode}\",\"checked\":{},\"skipped\":{skipped},\"owed\":{owed}}}", self.paranoid_checked)
+    }
     /// Answer the engine half of an agent request as JSON, always tagged with tick.
     /// Component/resource Data uses [] for None and [value] for Some(value).
     pub fn agent(&mut self, request: &str) -> String {
@@ -234,8 +282,9 @@ impl<G: Game> Sim<G> {
                 let subtree = q.under.as_deref().map(|n| resolve(w,n)).transpose()?;
                 let start = subtree.and_then(|e| all.iter().position(|(a,_,_)| *a == e)).unwrap_or(0);
                 let end = if subtree.is_some() { (start+1..all.len()).find(|&i| all[i].2 <= all[start].2).unwrap_or(all.len()) } else { all.len() };
+                let (from, to) = page(&q, start, end);
                 let mut out = format!("{{\"tick\":{tick},\"entities\":[");
-                for (i, &(e, parent, depth)) in all[start..end].iter().take(512).enumerate() {
+                for (i, &(e, parent, depth)) in all[from..to].iter().enumerate() {
                     if i != 0 { out.push(','); }
                     out.push('{');
                     identity_into(&mut out, w, e);
@@ -248,16 +297,20 @@ impl<G: Game> Sim<G> {
                     }
                     out.push_str("],\"tags\":[]}");
                 }
-                write!(out, "],\"truncated\":{}}}", end-start > 512).unwrap();
+                out.push_str("],");
+                page_tail(&mut out, to, start, end);
+                out.push('}');
                 Ok(out)
             }
+            "state" if q.events => Ok(format!("{{\"tick\":{tick},\"hash\":\"0x{:016x}\",\"events\":{}}}", w.hash(), w.events_json(q.event_type.as_deref())?)),
             "state" if q.entity.as_deref() == Some("*") => {
                 let all = hierarchy(w)?;
                 let subtree = q.under.as_deref().map(|n| resolve(w,n)).transpose()?;
                 let start = subtree.and_then(|e| all.iter().position(|(a,_,_)| *a == e)).unwrap_or(0);
                 let end = if subtree.is_some() { (start+1..all.len()).find(|&i| all[i].2 <= all[start].2).unwrap_or(all.len()) } else { all.len() };
+                let (from, to) = page(&q, start, end);
                 let mut entities = String::new();
-                for (i, &(e, _, _)) in all[start..end].iter().take(512).enumerate() {
+                for (i, &(e, _, _)) in all[from..to].iter().enumerate() {
                     if i != 0 { entities.push(','); }
                     entities.push('{');
                     identity_into(&mut entities, w, e);
@@ -265,7 +318,11 @@ impl<G: Game> Sim<G> {
                     entities.push_str(&w.components_json(e).map_err(|e| e.to_string())?);
                     entities.push('}');
                 }
-                Ok(format!("{{\"tick\":{tick},\"hash\":\"0x{:016x}\",\"entities\":[{entities}],\"truncated\":{}{}}}", w.hash(), end-start > 512, if q.busy { format!(",\"busy\":{}", encode(&self.changing(self.quiescent()))?) } else { String::new() }))
+                let mut tail = if self.edits_admitted || w.set_seen.get() { String::from("\"developmentEdits\":true,") } else { String::new() };
+                tail.push_str(&format!("\"queuedSets\":{},", self.queued_sets()));
+                page_tail(&mut tail, to, start, end);
+                let resources = if q.resources { format!(",\"resources\":{}", w.resources_json().map_err(|e| e.to_string())?) } else { String::new() };
+                Ok(format!("{{\"tick\":{tick},\"hash\":\"0x{:016x}\",\"tableEdits\":{},\"entities\":[{entities}],{tail}{resources}{}}}", w.hash(), self.table_edits(), if q.busy { format!(",\"busy\":{}", encode(&self.changing(self.quiescent()))?) } else { String::new() }))
             }
             "state" if q.entity.is_some() => {
                 let e = resolve(w,q.entity.as_deref().unwrap())?;
@@ -274,8 +331,8 @@ impl<G: Game> Sim<G> {
             }
             "state" => {
                 let host_input = self.host_input();
-                Ok(format!("{{\"tick\":{tick},\"world\":{{\"name\":{},\"tick\":{tick},\"hz\":{},\"seed\":{},\"hash\":\"0x{:016x}\",\"entities\":{},\"paused\":{},\"loading\":{},\"assets\":{},\"restarted\":{},\"restored\":{}{},\"args\":{},\"resources\":{},\"audio\":{},\"input\":{{\"actions\":{},\"held\":{},\"forwarded\":{},\"controls\":{},\"forwardedControls\":{},\"controlContacts\":{}}},\"published\":{}}}}}",
-                quote(G::NAME), w.hz(), w.seed(), w.hash(), w.len(), G::paused(&self.args), encode(&w.assets.states.iter().filter(|(_, s)| **s == crate::asset::AssetState::Pending).map(|(n, _)| n.clone()).collect::<Vec<_>>())?, w.assets.state_json(), self.restarted, self.restored, self.restored_from.as_ref().filter(|_| self.restored).map_or_else(String::new, |a| format!(",\"restoredFrom\":{a}")), self.args_json, w.resources_json().map_err(|e|e.to_string())?, crate::audio::state(w), self.input.actions().json(), encode(&self.input.keys)?, encode(&host_input.keys)?, encode(&self.input.held_controls())?, encode(&host_input.held_controls())?, encode(&host_input.control_contacts())?, w.published_json(true)))
+                Ok(format!("{{\"tick\":{tick},\"world\":{{\"name\":{},\"tick\":{tick},\"hz\":{},\"seed\":{},\"hash\":\"0x{:016x}\",\"entities\":{},\"paused\":{},\"loading\":{},\"assets\":{},\"restarted\":{},\"restored\":{}{}{},\"tableEdits\":{},\"args\":{},\"resources\":{},\"audio\":{},\"input\":{},\"published\":{}}}}}",
+                quote(G::NAME), w.hz(), w.seed(), w.hash(), w.len(), G::paused(&self.args), encode(&w.assets.states.iter().filter(|(_, s)| **s == crate::asset::AssetState::Pending).map(|(n, _)| n.clone()).collect::<Vec<_>>())?, w.assets.state_json(), self.restarted, self.restored, self.restored_from.as_ref().filter(|_| self.restored).map_or_else(String::new, |a| format!(",\"restoredFrom\":{a}")), if self.edits_admitted || w.set_seen.get() { ",\"developmentEdits\":true".to_owned() } else { String::new() } + &format!(",\"queuedSets\":{}", self.queued_sets()) + &self.paranoid_json(), self.table_edits(), self.args_json, w.resources_json().map_err(|e|e.to_string())?, crate::audio::state(w), self.input.state_json(&host_input, self.refused_posts)?, w.published_json(true)))
             },
             "layout" if q.entity.is_some() => {
                 let e = resolve(w,q.entity.as_deref().ok_or("layout needs an entity")?)?;
@@ -297,7 +354,55 @@ impl<G: Game> Sim<G> {
                 Ok(format!("{{\"tick\":{tick},\"hash\":\"0x{:016x}\",\"quiescent\":{quiescent},\"changing\":{changing}{deadline}}}", w.hash()))
             },
             "logs" => Ok(w.journal_json(q.since)),
+            "type" | "tap" => self.synthesize_pad(&q),
             _ => Err(format!("unknown op `{}`; use tree, screenshot, tap, type, state, layout, logs or clock",q.op)),
+        }
+    }
+    /// The agent's pad (LLP 1046.001 D3): `type <canvas> key Gamepad…` and
+    /// `tap <canvas> stick left|right x y`, each the pad's whole state queued
+    /// at the request's clock, as a host reports a real one.
+    fn synthesize_pad(&mut self, q: &Request) -> Result<String, String> {
+        let index = q.pad;
+        if index >= crate::MAX_PADS {
+            return Err(format!(
+                "pad {index} is past the {} a host may report",
+                crate::MAX_PADS
+            ));
+        }
+        let tick = self.world.tick();
+        let reply = |what: String| {
+            format!("{{\"tick\":{tick},{what},\"pad\":{index},\"delivery\":\"synthesized\"}}")
+        };
+        match (q.op.as_str(), &q.key, &q.stick) {
+            ("type", Some(key), None) => {
+                if crate::input::pad_index(key).is_none() {
+                    return Err(format!("world type takes a pad button, as `type world key GamepadSouth`; pad buttons: {}", crate::PAD_BUTTONS.join(", ")));
+                }
+                let phases: &[f32] = match q.phase.as_deref() {
+                    None => &[1., 0.],
+                    Some("down") => &[1.],
+                    Some("up") => &[0.],
+                    Some(other) => return Err(format!("key: not a phase: {other} (down, up)")),
+                };
+                for &value in phases {
+                    self.pad_button(index, key, value);
+                }
+                Ok(reply(format!("\"typed\":{}{}", quote(key), q.phase.as_deref().map_or_else(String::new, |p| format!(",\"phase\":{}", quote(p))))))
+            }
+            ("tap", None, Some(stick)) => {
+                let pad = match stick.as_str() {
+                    "left" => crate::Pad::Left,
+                    "right" => crate::Pad::Right,
+                    other => return Err(format!("stick: `{other}` is not left or right")),
+                };
+                let [x, y] = q.value.ok_or("tap stick needs its x and y, as `tap world stick left 0.7 -0.2`")?;
+                if !(-1.0..=1.0).contains(&x) || !(-1.0..=1.0).contains(&y) {
+                    return Err(format!("stick values must be in [-1, 1], got {x} {y}"));
+                }
+                self.pad_stick(index, pad, x, y);
+                Ok(reply(format!("\"stick\":{},\"value\":[{},{}]", quote(stick), encode(&x)?, encode(&y)?)))
+            }
+            _ => Err(format!("world {} takes a pad: `type world key GamepadSouth` or `tap world stick left 0.7 -0.2`", q.op)),
         }
     }
     fn layout_json(&self, e: Entity) -> Result<String, String> {
@@ -333,7 +438,7 @@ impl<G: Game> Sim<G> {
                     encode(&depth)?,
                     format!(
                         "{{\"inFrustum\":{},\"behindCamera\":{behind},\"distance\":{}}}",
-                        inside && w.get::<Visible>(e).is_none_or(|v| v.0),
+                        inside && w.is_visible(e),
                         encode(&distance)?
                     ),
                 )

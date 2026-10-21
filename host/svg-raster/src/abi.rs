@@ -48,7 +48,7 @@ pub unsafe extern "C" fn exact_svg_raster_filter(
             std::slice::from_raw_parts_mut(pixels, w * h * 4),
         )
     };
-    let Some(filter) = exact_kernel::svg::filter::Filter::decode(program) else {
+    let Some(filter) = exact_svg_filter::Filter::decode(program) else {
         return 1;
     };
     crate::filter::run(

@@ -3,7 +3,9 @@ use crate::data::text::{Fixed, Float};
 use crate::{math, Component, Data, Entity, Resource, Vec3, World};
 use std::collections::BTreeMap;
 mod sound;
+mod spatial;
 pub use sound::{Fade, Sample, Sound};
+pub use spatial::{DistanceModel, Spatial};
 
 /// Oscillator shape. Noise uses a fixed local integer stream, never the world's RNG.
 #[derive(Data, Default, Clone, Copy, Debug)]
@@ -321,6 +323,8 @@ pub struct Voice {
     pub pan: f32,
     /// Gain ramp, for fading in or out.
     pub fade: Option<Fade>,
+    /// Per-voice distance controls; absent uses the attached entity or defaults.
+    pub spatial: Option<Spatial>,
 }
 impl Voice {
     /// Whether this voice repeats its definition.
@@ -333,6 +337,7 @@ impl Voice {
     }
 }
 /// Finite voices and their saved identity allocator.
+/// audio::step expires voices; play/stop/fade author changes explicitly in tick.
 #[derive(Default, Clone)]
 pub struct Voices {
     /// Currently playing voices.
@@ -366,6 +371,7 @@ impl Data for Voices {
     }
 }
 /// A sound attached to an entity; looping belongs to its definition.
+/// audio::step applies its playback intent after game logic.
 #[derive(Component, Clone)]
 pub struct AudioSource {
     /// Sound definition name.
@@ -401,6 +407,7 @@ impl AudioSource {
 /// A stable handle returned by `Play::start`.
 pub type VoiceId = u64;
 /// Saved master gain and source journal baseline.
+/// audio::step updates the baseline; the audio executor reads the gain.
 #[derive(Resource, Clone)]
 pub struct Audio {
     /// Linear master gain, default 1; games can set this from a live argument.
@@ -503,7 +510,7 @@ pub fn fade(world: &mut World, id: VoiceId, seconds: f32) {
         ));
     }
 }
-/// The ears. `step` refuses extra listeners, keeping the lowest entity index.
+/// The ears. audio::step refuses extra listeners, keeping the lowest entity index.
 #[derive(Component, Default, Clone)]
 pub struct AudioListener;
 
@@ -584,6 +591,7 @@ impl World {
                 offset: 0.0,
                 pan: 0.0,
                 fade: None,
+                spatial: None,
             },
         }
     }
@@ -612,6 +620,12 @@ impl Play<'_> {
     /// Play without spatial attenuation.
     pub fn ui(mut self) -> Self {
         self.voice.at = At::Ui;
+        self
+    }
+    /// Set distance attenuation for this voice.
+    pub fn spatial(mut self, spatial: Spatial) -> Self {
+        assert!(spatial.valid(), "invalid spatial audio controls");
+        self.voice.spatial = Some(spatial);
         self
     }
     /// Set play gain.
@@ -714,6 +728,9 @@ fn detach(world: &World, entity: Entity) {
         for voice in &mut voices.voices {
             if matches!(voice.at, At::Entity(e) if e == entity) {
                 voice.position = world.current_global(entity).map(|t| t.translation.into());
+                voice.spatial = voice
+                    .spatial
+                    .or_else(|| world.get::<Spatial>(entity).map(|s| *s));
             }
         }
     }
@@ -722,6 +739,7 @@ fn detach(world: &World, entity: Entity) {
 /// Fixed-tick housekeeping, called after game logic like `physics::step`.
 /// No audio resources are added to worlds that do not use sound.
 pub fn step(world: &mut World) {
+    let _span = world.span("audio::step");
     if !world.has_audio() {
         if let Some((entity, _)) = world.query::<&AudioSource>().iter().next() {
             panic!(

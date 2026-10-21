@@ -85,6 +85,20 @@ impl<D: DataSource> Host<D> {
         self.finish(batch, None)
     }
 
+    /// The platform's colours resolve differently (LLP 1095 D1): paint
+    /// motion re-targets, transitioning under each owner's row (D6).
+    /// `first`: the session's first report, a correction without motion.
+    pub(super) fn repaint_colors(&mut self, batch: &mut Batch, first: bool) {
+        if let Some(retired) = self.paint.motion.colors_changed(
+            self.runner.kernel(),
+            &mut self.engine,
+            self.now_ms / 1000.0,
+            first,
+        ) {
+            self.retire_paint(retired, batch);
+        }
+    }
+
     /// A view's own appearance, when the presenter finds it differs from the
     /// session's (LLP 1062 D4): its node's colours resolve by it. The first
     /// report for a view corrects what was presented without motion, as the
@@ -128,7 +142,7 @@ mod tests {
     #[test]
     fn destroying_an_inline_run_releases_its_inherited_paint() {
         let plan = contract::compile(
-            "component App\n  state on = false\n  state shown = true\n  action go writes on\n    on = true\n  action hide writes shown\n    shown = false\n  view\n    column color=(on ? \"#ffffff\" : \"#000000\") transition=\"color 1s linear\"\n      button \"Go\" testId=\"go\" press=go\n      button \"Hide\" testId=\"hide\" press=hide\n      text\n        when shown\n          text \"Run\" testId=\"run\"\n",
+            "component App\n  state on = false\n  state shown = true\n  action go\n    on = true\n  action hide\n    shown = false\n  view\n    column color=(on ? \"#ffffff\" : \"#000000\") transition=\"color 1s linear\"\n      button \"Go\" testId=\"go\" press=go\n      button \"Hide\" testId=\"hide\" press=hide\n      text\n        if shown\n          text \"Run\" testId=\"run\"\n",
         ).unwrap();
         let (mut host, _) = Host::boot(
             &plan.encode(),

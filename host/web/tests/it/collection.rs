@@ -31,15 +31,15 @@ fn plan() -> Vec<u8> {
     let source = r#"shape Row
   index: number
 component App
-  resource rows = rows() as shape list<Row>
+  resource rows = rows() as shape Row[]
   state shown = true
   state rowHeight = 32
   state typed = ""
-  action edit(value) writes typed
+  action edit(value)
     typed = value
-  action grow writes rowHeight
+  action grow
     rowHeight = 64
-  action hide writes shown
+  action hide
     shown = not shown
   view
     column
@@ -48,9 +48,9 @@ component App
       button press=grow testId="grow"
         text "Grow"
       text typed testId="echo"
-      when shown
+      if shown
         list virtualized=true height=180 width=320 testId="list"
-          each x in rows key=x.index
+          for x in rows key=x.index
             column height=rowHeight
               input value=typed change=edit testId=`row-${x.index}` height=16
               text `${x.index}` height=16
@@ -66,6 +66,7 @@ fn facts(snapshot: &CollectionSnapshot) -> CollectionFeedback {
         port_cross: 320.0,
         port_main: 180.0,
         cross: 305.0,
+        padding: [0.0; 2],
         focus_view: None,
         interaction_view: None,
         measurements: snapshot
@@ -134,7 +135,7 @@ fn bridge_rejects_oversized_input_and_uses_the_common_le_decoder() {
     exact_web::link(exact_web_capabilities::ALL);
     bridge.boot(&plan, NoData, 390.0, 844.0, "/");
     let bytes = facts(&host.runner().collections()[0]).encode().unwrap();
-    bridge.advance(25.0, false);
+    bridge.advance(25.0, 0);
     bridge.input_write(&bytes);
     let len = bridge.collection_feedback(bytes.len() + 1);
     assert!(String::from_utf8_lossy(bridge.output_bytes(len as usize))
@@ -168,15 +169,15 @@ fn edge_action_receipts_and_refusal_keep_committed_feedback_in_the_host_batch() 
 component App
   state refused = false
   state reached = false
-  resource rows = rows(refused) as shape list<Row>
-  action end writes refused, reached
+  resource rows = rows(refused) as shape Row[]
+  action end
     refused = {refuse}
     reached = true
   view
     column
       text (reached ? "edge committed" : "before") testId="status"
       list virtualized=true height=180 width=320 reachend=end
-        each x in rows key=x.index
+        for x in rows key=x.index
           text `${{x.index}}` height=32
 "#
         );
@@ -237,7 +238,7 @@ fn real_browser_collection_feedback_and_navigation() {
     // fixture-specific data implementation or an authored scroll event handler.
     let baked = contract::bake(exact_plan::Plan::decode(&plan()).unwrap(), NoData).unwrap();
     std::fs::write(dir.join("app.plan"), baked.encode()).unwrap();
-    let output = Command::new("bun")
+    let output = Command::new(std::env::var_os("BUN").unwrap_or_else(|| "bun".into()))
         .arg("host/web/tests/collection.mjs")
         .env("EXACT_COLLECTION_TEST", &dir)
         .current_dir(root)
@@ -262,11 +263,11 @@ fn real_browser_bidirectional_edges_and_state_only_deferral_become_idle() {
 component App
   state first = 0
   state ended = 0
-  resource rows = rows(2) as shape list<Row>
-  action start writes first
+  resource rows = rows(2) as shape Row[]
+  action start
     if first > 0
       first = 0
-  action end writes ended, first
+  action end
     ended = ended + 1
     first = 6
   view
@@ -274,7 +275,7 @@ component App
       text `${first}` testId="steps"
       text `${ended}` testId="ends"
       list virtualized=true height=180 width=320 reachstart=start reachend=end testId="list"
-        each x in rows key=x.index + first * 2
+        for x in rows key=x.index + first * 2
           text `${x.index + first * 2}` height=1
 "#;
     for (case, source) in [
@@ -294,7 +295,7 @@ component App
         std::fs::create_dir_all(&dir).unwrap();
         let baked = contract::bake(contract::compile(&source).unwrap(), NoData).unwrap();
         std::fs::write(dir.join("app.plan"), baked.encode()).unwrap();
-        let output = Command::new("bun")
+        let output = Command::new(std::env::var_os("BUN").unwrap_or_else(|| "bun".into()))
             .arg("host/web/tests/collection.mjs")
             .env("EXACT_COLLECTION_TEST", &dir)
             .env("EXACT_COLLECTION_EDGES", case)
@@ -319,16 +320,16 @@ fn real_browser_authored_jump_builds_its_rows_before_it_moves() {
     let source = r#"shape Row
   index: number
 component App
-  resource rows = rows() as shape list<Row>
+  resource rows = rows() as shape Row[]
   state target = 0
-  action go writes target
+  action go
     target = 20000
   view
     column
       button press=go testId="go"
         text "Go"
       list virtualized=true height=180 width=320 scrollTop=target testId="list"
-        each x in rows key=x.index
+        for x in rows key=x.index
           text `${x.index}` height=32
 "#;
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
@@ -336,7 +337,7 @@ component App
     std::fs::create_dir_all(&dir).unwrap();
     let baked = contract::bake(contract::compile(source).unwrap(), NoData).unwrap();
     std::fs::write(dir.join("app.plan"), baked.encode()).unwrap();
-    let output = Command::new("bun")
+    let output = Command::new(std::env::var_os("BUN").unwrap_or_else(|| "bun".into()))
         .arg("host/web/tests/collection.mjs")
         .env("EXACT_COLLECTION_TEST", &dir)
         .env("EXACT_COLLECTION_JUMP", "1")

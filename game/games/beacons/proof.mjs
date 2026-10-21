@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
-import {readFileSync} from 'node:fs';
+import {readFileSync, writeFileSync} from 'node:fs';
 import {resolve} from 'node:path';
-import {proof} from '../../proof.mjs';
+import {proof, captureWorld, diffWorlds, formatWorldDiff, equal, axNames} from '../../proof.mjs';
 import {crop, decodePng, diff} from '../../../scripts/png.mjs';
 
 export async function walkTo(world, check, x, z) {
@@ -22,8 +22,14 @@ export async function walkTo(world, check, x, z) {
   check(`walk reaches (${x}, ${z}) within 0.15 m`,Math.hypot(p[0]-x,p[2]-z)<0.15,p);
 }
 
-// Build products stay beside this game, including in callers with a shared target.
-if (import.meta.main) process.env.CARGO_TARGET_DIR = resolve(import.meta.dir, 'target');
+export function compare(rows, {root}) {
+  const captures = rows.map(row => JSON.parse(readFileSync(resolve(root,
+    `${row.host}-0-${row.repeat}`, 'tap-timing.json'), 'utf8')));
+  if (captures.some(capture => !equal(capture, captures[0])))
+    throw new Error('tap timing differs on the first affected tick across hosts');
+  console.log('TAPS first affected tick and world hash agree across hosts');
+}
+
 if (import.meta.main) await proof(import.meta, async ({open, check, equal, out, host, pin, pinSave, say}) => {
   const node = (tree, id) => tree.nodes.find(n => n.props?.testId === id);
   const world = s => s.world('world');
@@ -53,14 +59,24 @@ if (import.meta.main) await proof(import.meta, async ({open, check, equal, out, 
   {
     const s = await open();
     const title = await s.tree();
-    check('title has focused, accessible Play', node(title,'play')?.focused === true && node(title,'play')?.accessibleName === 'Play');
+    const titleAx = await axNames(s);
+    check('title has focused, accessible Play', node(title,'play')?.focused === true && (titleAx.unavailable || titleAx.name('play') === 'Play'));
     check('title has no world', !node(title,'world'));
     await s.tap('play');
     const initial = await snapshot(s);
     pin(0, initial);
     check('six seeded crates', initial.entities.filter(e => /^crate-/.test(e.name)).length === 6);
     check('capsule radius 0.4 height 1.8', equal(await world(s).get('player','Mesh'), {Capsule:{height:1.8,radius:0.4}}));
+    const beforeMove = await captureWorld(s);
     await world(s).hold('KeyW',1500);
+    const afterMove = await captureWorld(s);
+    const movement = diffWorlds(beforeMove, afterMove);
+    check('world diff identifies the player movement field', movement.changes.some(c =>
+      c.path === 'entities["player"].Transform.position[2]' && c.before === 0 && c.after < -5));
+    check('unchanged world capture compares equal', diffWorlds(afterMove, await captureWorld(s)).total === 0);
+    writeFileSync(resolve(out, 'before-move.json'), JSON.stringify(beforeMove));
+    writeFileSync(resolve(out, 'after-move.json'), JSON.stringify(afterMove));
+    say(formatWorldDiff(movement));
     const p = await position(s);
     check('W exactly 1.5 s: expected (0, 0.9, -5.3666644), tolerance 1 mm', Math.hypot(p[0],p[1]-0.9,p[2]+5.3666644) < 0.001,p);
     pin(90,await snapshot(s));
@@ -68,9 +84,13 @@ if (import.meta.main) await proof(import.meta, async ({open, check, equal, out, 
     await world(s).tap('KeyE'); await world(s).run(100);
     check('E outside range lights nothing', !(await world(s).get('beacon-1','Beacon')).lit);
     await walkTo(world(s),check,8,0);
+    // Light is an action of the `beacon` input context, on only within reach of one.
+    const contexts = async () => (await world(s).resources()).InputContexts?.active ?? [];
+    check('within reach of a beacon its input context is on', equal(await contexts(), ['beacon']), await contexts());
     const glowFrames = host === 'web' ? {unlit:await captureGlow(s,'unlit')} : null;
     await world(s).tap('KeyE');
     await world(s).run(100);
+    check('a lit beacon is out of reach: the context is off', equal(await contexts(), []), await contexts());
     const [glow] = await world(s).get('beacon-1','Glow');
     check('saved Glow declares a half-second transition from 0 to 1', glow.start_value === 0 && glow.target === 1 && glow.duration === 0.5, glow);
     const observed = await snapshot(s);
@@ -104,7 +124,8 @@ if (import.meta.main) await proof(import.meta, async ({open, check, equal, out, 
     const paused = await snapshot(s);
     await world(s).run(2000);
     check('Pause freezes every entity and the tick for 2 seconds', equal(paused,await snapshot(s)));
-    check('Pause becomes accessible Resume', node(await s.tree(),'pause')?.accessibleName === 'Resume');
+    const pausedAx = await axNames(s);
+    check('Pause becomes accessible Resume', node(await s.tree(),'pause')?.props && (pausedAx.unavailable || pausedAx.name('pause') === 'Resume'));
     await s.tap('pause');
     await world(s).key_up('KeyW'); await world(s).run(200);
     if (host !== 'linux') await s.screenshot(resolve(out,`beacons-${host}.png`));
@@ -150,7 +171,8 @@ if (import.meta.main) await proof(import.meta, async ({open, check, equal, out, 
   await world(restored).tap('KeyE'); await world(restored).run(600);
   const won = await restored.tree();
   check('all three light and win UI appears',node(won,'hud-lit')?.props.text === 'Beacons 3 / 3' && !!node(won,'victory'));
-  check('Play again has focus and accessible name',node(won,'again')?.focused === true && node(won,'again')?.accessibleName === 'Play again');
+  const wonAx = await axNames(restored);
+  check('Play again has focus and accessible name',node(won,'again')?.focused === true && (wonAx.unavailable || wonAx.name('again') === 'Play again'));
   await restored.tap('again');
   check('restart clears count and resets player',node(await restored.tree(),'hud-lit')?.props.text === 'Beacons 0 / 3' && equal(await position(restored),[0,0.9,0]));
   const logs = await restored.logs();
@@ -163,5 +185,49 @@ if (import.meta.main) await proof(import.meta, async ({open, check, equal, out, 
   await world(restored).run(100);
   await restored.type('world',{key:'Space',phase:'up'});
   check('click Pause then Resume leaves Space to jump', (await position(restored))[1] > 0.9);
+  // Keep world-changing taps in parity coverage, including fractional boundaries.
+  await world(restored).settle();
+  const taps = [];
+  for (const offset of [0, 0.001, 16.665, 16.667, 0.333, 1500]) {
+    await world(restored).run(offset);
+    const before = await snapshot(restored);
+    await world(restored).tap('Space');
+    await world(restored).run(16.667);
+    const after = await snapshot(restored);
+    check(`tap at offset ${offset} changes the next tick`, after.tick === before.tick + 1
+      && (await world(restored).get('player', 'Character')).airborne);
+    taps.push({offset, before:{tick:before.tick,hash:before.hash}, after:{tick:after.tick,hash:after.hash}});
+    await world(restored).run(1000);
+  }
+  writeFileSync(resolve(out, 'tap-timing.json'), JSON.stringify(taps));
+  // Sprint is a 200 ms hold: Shift held 100 ms walks, held 250 ms runs, released walks.
+  await world(restored).settle();
+  const speed = async () => (await world(restored).get('player', 'Character')).speed;
+  await world(restored).key_down('ShiftLeft'); await world(restored).run(100);
+  const early = await speed();
+  await world(restored).run(150);
+  const held = await speed();
+  await world(restored).key_up('ShiftLeft'); await world(restored).run(50);
+  check('a 200 ms Shift hold runs and its release walks', equal([early, held, await speed()], [4, 7, 4]), [early, held]);
+  // LLP 1127.003 §4: from one checkpoint, a held key and the agent's full pad
+  // stick reach the same world; a partial stick (the negative control) another.
+  await world(restored).settle();
+  const base = resolve(out, 'pad-base.world');
+  await world(restored).save(base);
   await restored.close();
+  const drive = async (input) => {
+    const t = await open({fresh:true, world:base});
+    await t.tap('play');
+    const reply = await input(t);
+    await world(t).run(500);
+    const {hash, tick} = await snapshot(t);
+    await t.close();
+    return {hash, tick, delivery:reply?.delivery};
+  };
+  const keyed = await drive(t => t.type('world', {key:'KeyD', for:1500}));
+  const stick = await drive(t => t.tap('world', {stick:'left', value:[1, 0], for:1500}));
+  const partial = await drive(t => t.tap('world', {stick:'left', value:[0.7, 0], for:1500}));
+  check('from one checkpoint a full pad stick and a held key reach the same world hash',
+    stick.delivery === 'synthesized' && stick.tick === keyed.tick && stick.hash === keyed.hash, {keyed, stick});
+  check('and a partial stick reaches another (the negative control)', partial.tick === keyed.tick && partial.hash !== keyed.hash, {keyed, partial});
 });

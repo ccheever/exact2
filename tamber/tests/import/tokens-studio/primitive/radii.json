@@ -1,0 +1,12 @@
+{
+  "borderRadius": {
+    "lg": {
+      "value": "8",
+      "type": "borderRadius"
+    },
+    "none": {
+      "value": "0",
+      "type": "borderRadius"
+    }
+  }
+}

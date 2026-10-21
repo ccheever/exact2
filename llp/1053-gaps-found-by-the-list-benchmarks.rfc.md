@@ -47,7 +47,7 @@ Astra (`gpt-6-astra`, reasoning max) and Grok (served as `grok-4.6-build`, xhigh
 | G3 `flex-grow` | longhand; non-negative validation for grow and shrink; `flex: 1` versus `flex-grow: 1` cases |
 | G4 `font-variant-numeric` | `normal` and `tabular-nums` only, other keywords refused by name; web emits CSS; Apple carries it through the measure ABI into a CoreText feature; Linux passes `tnum` to cosmic-text; cache identities include it |
 | G5 `white-space: nowrap` | internally `white-space-collapse` × `text-wrap-mode`; CSS collapsing preparation on native; min-content = max-content for nowrap; real inline ellipsis (`overflow: hidden` + `text-overflow: ellipsis`) without `line-clamp` on Apple and Linux; the text-flow walker and protocol; `pre-line` (preserve-breaks × wrap: only a line feed is a forced break, as in Chrome) in the same pass, since collapsing on native turns `normal`'s newlines into spaces |
-| G7 `font-family` choices | ternary / `match` over literal family names, each arm resolved to a stack id at compile time; declared-face validation preserved; runtime strings refused |
+| G7 `font-family` choices | ternary / `match` over literal family names, each arm resolved to a stack id at compile time; declared-face validation preserved. Charlie's 2026-10-11 LLP 1019 D2 amendment also admits runtime installed/generic family strings. |
 | `direction` | stop renaming it to `flex-direction`; bind `StyleId::Direction` |
 
 **Deferred:**
@@ -143,7 +143,7 @@ Cost: moderate (three engines). Parity cases against the browser are required.
 
 Cost: moderate (a new row, an enum, and one shared Rust transform so hosts do not diverge). It is a kernel-side transform, so hosts shape already-transformed strings.
 
-**G7 expression-valued `font-family`: add, limited to declared fonts and CSS generic families.** Today a per-run choice of monospace needs a `when` branch per run, which is clumsy and doubles row nodes. Allow an expression whose values are declared families or generics (`ui-monospace`, `ui-serif`, `system-ui`), resolved through the plan's font table at runtime. Refuse unknown names at compile time when they are literal. Cost: small to moderate.
+**G7 expression-valued `font-family`: admitted.** Literal choices use plan stack ids and retain declared-face checks. Charlie's 2026-10-11 LLP 1019 D2 amendment additionally admits strings from state or data naming installed/generic families and CSS fallback lists. Runtime strings use session-scoped ids on native hosts; bundled faces remain compile-time. Refuse unsupported generics in literals.
 
 **G8 keyed partial answers: measure first, then decide.** The runner already re-evaluates by key and shares unchanged records. What a 10,000-row re-send costs per tick is unknown: a runner benchmark of one 10,000-row answer replaced with one field changed should report the time.
 - If it is under about 1 ms per tick on the phone, document the pattern and stop.

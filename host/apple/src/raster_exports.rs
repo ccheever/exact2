@@ -37,10 +37,19 @@ macro_rules! raster_exports {
         pub extern "C" fn exact_raster_status(id: u64, request: u64) -> u32 {
             $crate::raster::status(id, request)
         }
-        /// Admit a decode on a worker with a bounded condition wait.
+        /// The raster gate's wakes so far, read before a worker looks for metadata work.
         #[no_mangle]
-        pub extern "C" fn exact_raster_next_decode(timeout_ms: u32) -> $crate::raster::RasterWork {
-            $crate::raster::next_decode(timeout_ms)
+        pub extern "C" fn exact_raster_wake_sequence() -> u64 {
+            $crate::raster::wake_sequence()
+        }
+        /// Admit a decode on a worker with a bounded condition wait, ended
+        /// early by a wake since `since`.
+        #[no_mangle]
+        pub extern "C" fn exact_raster_next_decode(
+            timeout_ms: u32,
+            since: u64,
+        ) -> $crate::raster::RasterWork {
+            $crate::raster::next_decode(timeout_ms, since)
         }
         /// Test a worker permit before allocating.
         #[no_mangle]

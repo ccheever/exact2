@@ -1,5 +1,4 @@
 use crate::Stats;
-use exact_game::data::text::Float;
 use std::fmt::Write;
 #[cfg(test)]
 thread_local! { pub(crate) static CLOCK_READS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) }; }
@@ -52,59 +51,7 @@ fn performance_now() -> f64 {
     }
     PERFORMANCE.with(web_sys::Performance::now)
 }
-#[derive(Default)]
-pub(crate) struct Ring {
-    values: Vec<f64>,
-    len: usize,
-    next: usize,
-    count: u64,
-    sum: f64,
-    max: f64,
-}
-impl Ring {
-    pub(crate) fn arm(&mut self, reset: bool) {
-        if reset {
-            *self = Self::default();
-        }
-        self.values.resize(16384, 0.);
-    }
-    pub fn push(&mut self, value: f64) {
-        if !value.is_finite() || value < 0.0 {
-            return;
-        }
-        self.count += 1;
-        self.sum += value;
-        self.max = self.max.max(value);
-        if self.values.is_empty() {
-            return;
-        }
-        self.values[self.next] = value;
-        self.next = (self.next + 1) % self.values.len();
-        self.len = (self.len + 1).min(self.values.len());
-    }
-    pub(crate) fn json(&self, out: &mut String) {
-        let mut values = self.values[..self.len].to_vec();
-        values[..self.len].sort_unstable_by(f64::total_cmp);
-        let p = |percent: usize| {
-            if self.len == 0 {
-                0.0
-            } else {
-                values[(self.len * percent).div_ceil(100) - 1]
-            }
-        };
-        write!(
-            out,
-            "{{\"p50\":{},\"p95\":{},\"p99\":{},\"max\":{},\"count\":{},\"mean\":{}}}",
-            Float(p(50)),
-            Float(p(95)),
-            Float(p(99)),
-            Float(self.max),
-            self.count,
-            Float(self.sum / self.count.max(1) as f64)
-        )
-        .unwrap();
-    }
-}
+pub(crate) use exact_game::diagnostics::Ring;
 #[derive(Default)]
 pub(crate) struct Perf {
     frame: Ring,
@@ -117,6 +64,14 @@ pub(crate) struct Perf {
     pub pixels: (u32, u32),
     /// Instances drawn per view (camera, cascades 0–2) in the last read frame.
     pub culled: Option<[u64; 4]>,
+    /// Camera-view triangles the GPU cull kept in that frame (levels of detail
+    /// and frustum culling applied, unlike `stats.triangles`).
+    pub culled_triangles: Option<u64>,
+    /// Local lights drawn and dropped beyond `MAX_LIGHTS` in the last frame.
+    lights: (usize, usize),
+    /// Look frames drawn (LLP 1127.000) and the bytes they read back.
+    pub look: (u64, u64),
+    warned: bool,
 }
 impl Perf {
     pub fn armed(&self) -> bool {
@@ -160,6 +115,20 @@ impl Perf {
         }
         self.last_live = Some(now);
     }
+    /// Record the frame's light counts; the first frame that drops lights says so.
+    pub fn lights(&mut self, drawn: usize, dropped: usize) {
+        self.lights = (drawn, dropped);
+        if dropped > 0 && !std::mem::replace(&mut self.warned, true) {
+            let message = format!(
+                "{dropped} local lights dropped beyond the {} nearest the camera",
+                crate::MAX_LIGHTS
+            );
+            #[cfg(target_arch = "wasm32")]
+            web_sys::console::warn_1(&message.into());
+            #[cfg(not(target_arch = "wasm32"))]
+            eprintln!("{message}");
+        }
+    }
     pub fn append(&self, out: &mut String) {
         out.push_str(",\"perf\":{\"wallClock\":true");
         write!(out, ",\"armed\":{}", self.armed()).unwrap();
@@ -176,14 +145,27 @@ impl Perf {
         }
         write!(
             out,
-            ",\"draws\":{},\"instances\":{},\"triangles\":{}",
-            self.stats.draws, self.stats.instances, self.stats.triangles
+            ",\"draws\":{},\"instances\":{},\"triangles\":{},\"directFrames\":{}",
+            self.stats.draws, self.stats.instances, self.stats.triangles, self.stats.direct_frames
+        )
+        .unwrap();
+        write!(
+            out,
+            ",\"lights\":{{\"drawn\":{},\"dropped\":{}}}",
+            self.lights.0, self.lights.1
+        )
+        .unwrap();
+        write!(
+            out,
+            ",\"look\":{{\"frames\":{},\"readbackBytes\":{}}}",
+            self.look.0, self.look.1
         )
         .unwrap();
         match self.culled {
             Some([camera, a, b, c]) => write!(
                 out,
-                ",\"culled\":{{\"camera\":{camera},\"shadows\":[{a},{b},{c}]}}}}"
+                ",\"culled\":{{\"camera\":{camera},\"cameraTriangles\":{},\"shadows\":[{a},{b},{c}]}}}}",
+                self.culled_triangles.unwrap_or(0)
             ),
             None => write!(out, ",\"culled\":null}}"),
         }
@@ -222,5 +204,49 @@ mod tests {
             json,
             r#"{"p50":149,"p95":284,"p99":296,"max":299,"count":300,"mean":149.5}"#
         );
+    }
+}
+
+// One monotonic host domain for engine spans, including wasm (std::Instant is unavailable there).
+pub(crate) fn clock_ms() -> f64 {
+    #[cfg(target_arch = "wasm32")]
+    {
+        performance_now()
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        thread_local! { static ORIGIN: std::time::Instant = std::time::Instant::now(); }
+        ORIGIN.with(|t| t.elapsed().as_secs_f64() * 1000.)
+    }
+}
+
+#[derive(Default)]
+pub(crate) struct PerfRequest {
+    pub perf_reset: bool,
+    pub perf: bool,
+    pub span_since: Option<u64>,
+    pub trace_export: bool,
+}
+impl PerfRequest {
+    pub fn parse(text: &str) -> Result<Self, exact_game::DataError> {
+        use exact_game::{Data, Reader};
+        let mut r = exact_game::json::Decoder::new(text);
+        let mut q = Self::default();
+        r.begin_struct()?;
+        while let Some(field) = r.field()? {
+            match field.as_str() {
+                "perf_reset" => q.perf_reset.read(&mut r)?,
+                "perf" => q.perf.read(&mut r)?,
+                "trace_export" => q.trace_export.read(&mut r)?,
+                "span_since" => {
+                    let mut n = 0u64;
+                    n.read(&mut r)?;
+                    q.span_since = Some(n);
+                }
+                _ => r.skip()?,
+            }
+        }
+        r.finish()?;
+        Ok(q)
     }
 }

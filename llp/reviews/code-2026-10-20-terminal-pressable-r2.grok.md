@@ -1,0 +1,13 @@
+# Code review: the terminal taps a pressable box (QUEUE), round 2 of 2, 2026-10-20 (grok)
+
+- **Family:** xAI. Grok 4.7 via the grok CLI, xhigh, `--max-turns 400 --no-plan --no-subagents --deny Edit --deny Write`, a throwaway worktree at `1e1cb58bd6`.
+- **Method:** one brief (sha256 `633401a2692ff48e5037a155a16091090b9172310ced7a5713e9cefe7a5ff1d6`), blind to the other reviewer; the commit as amended after the previous pass; 2 rounds (a host fix, the lead's 20:00Z task), then narrow checks of the last fixes. The author (Claude) is not a reviewer.
+- **Transcription:** the final message, unedited but for the worktree path prefix.
+- **Verdict:** approve with changes (1 SHOULD-FIX).
+- **Disposition:** pre-existing (the autofocus refill predates the commit); QUEUE names it ("Round 2").
+
+**Verdict: SHOULD-FIX.** Round 1 holds. A node is tappable only when paint recorded it in `shown`, so a button scrolled out of a pressable box, or a box with `visibility: hidden`, is refused by `tap`, `type`, and `wheel`. A click takes an inline run inside the hit when that run has a `press` or an `href`. A non-focusable press does not scroll. The slot fill and the component surface are clicked, and the inner button does not press its column. `cargo test -p exact-terminal` passed (64).
+
+1. **SHOULD-FIX — A box press's blur does not stick when any control has `autofocus`.** `host/terminal/src/host.rs:934`. `press_with_inner` calls `focus(None)`, then `dispatch`s the press (`host.rs:936`). Every commit with an empty focus refills it from `autofocus()` (`host.rs:440`) and does not send a focus event. The blur handler has already run, and the next key types into that control. If nothing was focused, the click focuses it. `a_press_on_a_box_blurs_the_field_and_scrolls_nothing` never sets `autofocus` (`screen.rs:862`), so it stays green. Do not refill `autofocus` after a press that cleared focus.
+
+Checked and not graded: the terminal mouse dispatches `Press` and follows a run's `href` only. `pointerdown`, `dblclick`, `contextmenu`, and `hover` are not terminal events, and a hit with no `press` would swallow the click, so they should stay out of `hits`. `disabled` on a box stays hittable, as on a `div` and as this host's controls. `handlers_of` runs only for a visible non-control past the row clip; an empty handler list does not allocate. The new tests are synchronous, fixed at 40×20, and match on exact strings. Removing `marker-toggle` leaves `press=toggle` on the marker boxes; no script in the repo taps that id. The marker parse test passed. The IR half of `bun test` did not run here because `@exact/cards` is not installed.

@@ -176,10 +176,13 @@ fn specials_and_edges_print_as_core_prints_them() {
 #[test]
 fn random_bit_patterns_print_as_core_prints_them() {
     let mut rng = Rng(0x9e37_79b9_7f4a_7c15);
-    for _ in 0..50_000 {
-        check64(f64::from_bits(rng.next()));
-        check32(f32::from_bits(rng.next() as u32));
-    }
+    let bits: Vec<(u64, u32)> = (0..50_000)
+        .map(|_| (rng.next(), rng.next() as u32))
+        .collect();
+    crate::tests::par(&bits, |&(a, b)| {
+        check64(f64::from_bits(a));
+        check32(f32::from_bits(b));
+    });
 }
 
 #[test]

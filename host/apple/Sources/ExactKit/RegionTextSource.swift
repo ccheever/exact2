@@ -31,8 +31,13 @@ struct RegionTextRun: Sendable {
     let lineHeight: CGFloat?
     let letterSpacing: CGFloat
     let color: CGColor
+    /// `Run.fixedInk`: its colour is one its author fixed.
+    let fixedInk: Bool
     let underline: Bool
     let strike: Bool
+    /// A decorating box's colour for a line its own colour does not draw (`Run.propagate`).
+    let underlineColor: CGColor?
+    let strikeColor: CGColor?
     let href: String
     let range: NSRange
 }
@@ -45,6 +50,10 @@ final class RegionTextSource: Sendable {
     let direction: Int
     let lineClamp: Int
     let overflowWrap: Int
+    /// CSS `text-wrap-style: balance` (`Spec.balance`).
+    let balance: Bool
+    /// CSS `text-box`: `Spec`'s trim, over and under edges.
+    let textBox: (trim: Int, over: Int, under: Int)
     /// A preserved tab's stop interval (CSS `tab-size: 8`), as the engine's
     /// paragraphs have it; nil when no tab is preserved.
     let tabInterval: CGFloat?
@@ -72,13 +81,19 @@ final class RegionTextSource: Sendable {
             return RegionTextRun(text: run.text, font: font(run), lineHeight: run.lineHeight,
                                  letterSpacing: run.letterSpacing,
                                  color: TextEngine.color(run.color ?? spec.color).cgColor,
-                                 underline: run.decoration.contains("underline") || (run.decoration.isEmpty && !run.href.isEmpty),
-                                 strike: run.decoration.contains("line-through"), href: run.href,
+                                 fixedInk: run.fixedInk && run.color != nil,
+                                 underline: run.underlined || run.underlineColor != nil,
+                                 strike: run.decoration.contains("line-through") || run.strikeColor != nil,
+                                 underlineColor: run.underlined ? nil : run.underlineColor.map { TextEngine.color($0).cgColor },
+                                 strikeColor: run.decoration.contains("line-through") ? nil : run.strikeColor.map { TextEngine.color($0).cgColor },
+                                 href: run.href,
                                  range: NSRange(location: offset, length: count))
         }
         let base = spec.strut ?? spec.runs.first
         strut = base.map(font); strutExplicit = base?.lineHeight != nil
         align = spec.align; direction = spec.direction; lineClamp = spec.lineClamp; overflowWrap = spec.overflowWrap
+        textBox = (spec.textBoxTrim, spec.textBoxOver, spec.textBoxUnder)
+        balance = spec.balance
         text = spec.runs.map(\.text).joined()
         tabInterval = spec.preserves && text.contains("\t") ? base.map { TextEngine.tabInterval(font($0).value, letterSpacing: $0.letterSpacing) } : nil
         utf16Count = offset
@@ -122,8 +137,11 @@ final class RegionTextSource: Sendable {
                 NSAttributedString.Key(kCTForegroundColorAttributeName as String): run.color,
             ]
             if run.letterSpacing != 0 { attributes[.kern] = run.letterSpacing }
+            if run.fixedInk { attributes[.exactFixedInk] = true }
             if run.underline { attributes[.underlineStyle] = NSUnderlineStyle.single.rawValue }
             if run.strike { attributes[.strikethroughStyle] = NSUnderlineStyle.single.rawValue }
+            if let c = run.underlineColor { attributes[NSAttributedString.Key(kCTUnderlineColorAttributeName as String)] = c }
+            if let c = run.strikeColor { attributes[.strikethroughColor] = c }
             value.append(NSAttributedString(string: run.text, attributes: attributes))
         }
         TextEngine.setBaseDirection(value, direction: direction)

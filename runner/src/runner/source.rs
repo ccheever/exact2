@@ -22,6 +22,40 @@ impl Interrupt {
     }
 }
 
+/// A host's wake for a pending [`DataSource::preload`]. A source holds at
+/// most one at a time, so retries while an image loads add no waiters.
+#[derive(Default)]
+pub struct PreloadWake {
+    wake: Option<std::sync::Arc<dyn Fn() + Send + Sync>>,
+    asked: std::sync::Arc<std::sync::atomic::AtomicBool>,
+}
+
+impl PreloadWake {
+    /// Use `wake` for later asks. A source still holding the previous wake
+    /// no longer counts as asked.
+    pub fn set(&mut self, wake: std::sync::Arc<dyn Fn() + Send + Sync>) {
+        self.wake = Some(wake);
+        self.asked = Default::default();
+    }
+
+    /// Ask `source` to wake the host once it can answer, unless it already
+    /// holds this wake.
+    pub fn ask<D: DataSource + ?Sized>(&self, source: &D) {
+        use std::sync::atomic::Ordering;
+        let Some(wake) = self.wake.clone() else {
+            return;
+        };
+        if self.asked.swap(true, Ordering::AcqRel) {
+            return;
+        }
+        let asked = self.asked.clone();
+        source.when_preloaded(Box::new(move || {
+            asked.store(false, Ordering::Release);
+            wake()
+        }));
+    }
+}
+
 /// Where a source's long native calls go (`native.later` in TypeScript):
 /// the host hands each [`Request::is_native`] request's body and a [`Reply`]
 /// to the handler, off the renderer and off the I/O workers, and the call
@@ -38,7 +72,13 @@ pub struct NativeSlots {
     hosted: std::sync::Mutex<Option<NativeHandler>>,
     hosted_call: std::sync::Mutex<Option<NativeCall>>,
     announce: std::sync::Mutex<Option<Announce>>,
+    sync: std::sync::Mutex<Option<SyncAnswers>>,
 }
+
+/// Each module's synchronous form, by `extension.name`: the runner's answer
+/// now, or `None` where the host's own implementation answers (LLP 1133.002
+/// D14).
+pub type SyncAnswers = std::collections::BTreeMap<String, Option<Vec<u8>>>;
 
 /// Where a host takes the device topics a native module announces
 /// ([`Native::changed`]), from any thread (LLP 1016.002).
@@ -90,13 +130,45 @@ impl Native {
         *self.0.hosted_call.lock().unwrap_or_else(|e| e.into_inner()) = call;
     }
 
-    /// The app module's synchronous call, if the host installed one.
+    /// The app module's synchronous call, if the host installed one. A
+    /// module's synchronous form (`{"extension", "sync", "args"}`) is
+    /// answered by the runner's table first ([`Native::sync`]).
     pub fn hosted_call(&self) -> Option<NativeCall> {
-        self.0
-            .hosted_call
-            .lock()
+        let call = (self.0.hosted_call.lock())
             .unwrap_or_else(|e| e.into_inner())
-            .clone()
+            .clone()?;
+        let slots = self.0.clone();
+        Some(std::sync::Arc::new(move |body: &[u8]| {
+            let named = serde_json::from_slice::<serde_json::Value>(body)
+                .ok()
+                .and_then(|v| {
+                    Some(format!(
+                        "{}.{}",
+                        v.get("extension")?.as_str()?,
+                        v.get("sync")?.as_str()?
+                    ))
+                });
+            let Some(key) = named else { return call(body) };
+            let table = slots.sync.lock().unwrap_or_else(|e| e.into_inner());
+            match table.as_ref().and_then(|t| t.get(&key)) {
+                Some(Some(answer)) => Ok(answer.clone()),
+                Some(None) => {
+                    drop(table);
+                    call(body)
+                }
+                None => Ok(br#"{"error":"NotSupportedError"}"#.to_vec()),
+            }
+        }))
+    }
+
+    /// The modules' synchronous answers now (the runner's).
+    pub fn sync(&self, answers: SyncAnswers) {
+        *self.0.sync.lock().unwrap_or_else(|e| e.into_inner()) = Some(answers);
+    }
+
+    /// Whether the runner has said its synchronous answers.
+    pub fn synced(&self) -> bool {
+        (self.0.sync.lock().unwrap_or_else(|e| e.into_inner())).is_some()
     }
 
     /// Whether the host installed an app module.
@@ -128,6 +200,30 @@ impl Native {
     }
 }
 
+/// The continuation token of a module's background work (LLP 1097 D5):
+/// reserved, as an executor's own tokens are, and passed through every
+/// composer unchanged, so a forwarder never consumes a round's token and a
+/// [`DataSource::forgotten`] never prunes it.
+pub const BACKGROUND: u64 = u64::MAX - 2;
+
+/// A module's storage (LLP 1097 D8): `state.background`, and the
+/// `background` count a `clock` reply carries. Its operations are counted
+/// module-wide, an answer's and the background's alike, as the JS target,
+/// which has no owners, counts them.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct BackgroundState {
+    /// Operations waiting behind the one in flight.
+    pub queued: u64,
+    /// Operations in flight: 0 or 1.
+    pub in_flight: u64,
+    /// Operations that landed, since load.
+    pub done: u64,
+    /// Operations that failed, since load.
+    pub failed: u64,
+    /// The last failure's journal line.
+    pub last: Option<String>,
+}
+
 /// A request still in flight, as [`DataSource::forgotten`] names it.
 #[derive(Debug, Clone, Copy)]
 pub struct InFlight<'a> {
@@ -141,6 +237,38 @@ pub struct InFlight<'a> {
     /// (`None` for a fetch or storage request, or where a forwarder can no
     /// longer tell): what tells two calls with equal arguments apart.
     pub continuation: Option<u64>,
+}
+
+/// One send to a mutation that declares `refreshes` on the resource being
+/// overlaid ([`DataSource::overlay`]), in send order.
+#[derive(Debug, Clone, Copy)]
+pub struct Write<'a> {
+    /// The send's id: distinct for every send, stable while it waits,
+    /// runs and lands.
+    pub id: u64,
+    /// The mutation's name.
+    pub mutation: &'a str,
+    /// The source the send asked.
+    pub source: &'a str,
+    /// Its arguments as sent.
+    pub args: &'a [Value],
+    /// Its reply once landed; `None` while it is pending.
+    pub reply: Option<&'a Value>,
+    /// Landed, and the answer was asked after it landed: the answer should
+    /// include it. An overlay that finds it does not yet (a server that is
+    /// not read-after-write consistent) lays it over and keeps it.
+    pub answered: bool,
+}
+
+/// What an overlay shows ([`DataSource::overlay`]): the value, and the
+/// answered writes ([`Write::answered`]) the answer does not include yet,
+/// which go on showing. Every other answered write is retired.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Overlaid {
+    /// What the resource shows.
+    pub value: Value,
+    /// The ids of answered writes still to show.
+    pub keep: Vec<u64>,
 }
 
 /// What a request answers: a resource or a mutation, by its index in the
@@ -166,9 +294,54 @@ impl Target {
     }
 }
 
+/// Borrowed bytes of one pinned snapshot cohort (LLP 1126 D8).
+#[derive(Clone, Copy)]
+pub struct SnapshotModule<'a> {
+    /// Producer receipt admitting both the entry plan and bytecode.
+    pub receipt: &'a str,
+    /// Hermes bytecode; copied once into the engine's owned allocation.
+    pub bytecode: &'a [u8],
+    /// Encoded entry plan, checked against the receipt before activation.
+    pub plan: &'a [u8],
+    /// Entry kind within the receipt's plans map.
+    pub kind: &'a str,
+}
+
 /// The app's data source: the one seam through which computation enters
 /// (LLP 1004 D4). Implemented once, in Rust, by the app's data crate.
 pub trait DataSource {
+    /// Prepare a disposable, read-only snapshot refresh before activation.
+    /// Bytecode and its receipt come from the app's pinned generation, never
+    /// from a separately selected update (LLP 1126.000 WP5).
+    fn prepare_snapshot(
+        &mut self,
+        module: Option<SnapshotModule<'_>>,
+        deadline: std::time::Instant,
+    ) -> Result<(), DataError> {
+        let _ = deadline;
+        if module.is_some() {
+            return Err(DataError::Unavailable(
+                "this source accepts no snapshot bytecode".into(),
+            ));
+        }
+        Ok(())
+    }
+
+    /// Successful storage effects since the last host commit. A host may
+    /// invalidate another process's read snapshot; no data crosses this ping.
+    fn take_storage_changed(&mut self) -> bool {
+        false
+    }
+
+    /// A native module wrote the app's files itself (`context.wrote`): the
+    /// next commit reports a storage change as a TypeScript write would.
+    fn note_storage_changed(&mut self) {}
+
+    /// Session that may use document handles minted by this host.
+    fn set_document_owner(&mut self, owner: u64) {
+        let _ = owner;
+    }
+
     /// Host-selected application directories. Configuration records paths only;
     /// implementations must defer opening storage until after first pixel.
     fn configure_storage(
@@ -225,6 +398,45 @@ pub trait DataSource {
         let _ = token;
     }
 
+    /// Work the module started that no answer waits for (LLP 1097 D5): the
+    /// next round, a continuation under [`BACKGROUND`], or `None`. The
+    /// runner polls it whenever no round is out; it arms only when the
+    /// module's storage operation in flight is the background's, and
+    /// returns `None` while a round is out. A source that forwards
+    /// `dispatch` forwards this, `background_landed`, `background_state`
+    /// and `take_logs` too.
+    fn background(&mut self, store: &Store) -> Option<crate::request::Request> {
+        let _ = store;
+        None
+    }
+
+    /// A background round's outcome: the next round, or `None` when the
+    /// operation in flight is no longer the background's or nothing was
+    /// delivered. It makes no commit: no Contract `then` runs, no resource
+    /// is asked again (D4).
+    fn background_landed(
+        &mut self,
+        store: &Store,
+        outcome: Outcome,
+    ) -> Result<Option<crate::request::Request>, DataError> {
+        let _ = (store, outcome);
+        Ok(None)
+    }
+
+    /// The module's background storage now, or `None` for a source that
+    /// has none (LLP 1097 D8).
+    fn background_state(&self) -> Option<BackgroundState> {
+        None
+    }
+
+    /// The module's journal lines since the last take (LLP 1012, LLP 1097
+    /// D8): console output, including a refused answer's turn, plus failed
+    /// storage and unhandled rejections. The runner writes them to the
+    /// journal after each answer and reply, and after a background round.
+    fn take_logs(&mut self) -> Vec<String> {
+        Vec::new()
+    }
+
     /// Activate deferred logic after first pixel; binary-bound sources do nothing.
     fn activate(&mut self) -> Result<(), DataError> {
         Ok(())
@@ -243,6 +455,14 @@ pub trait DataSource {
     /// This may load code, but must not create app instances or release effects.
     fn preload(&self) -> Result<bool, DataError> {
         Ok(true)
+    }
+
+    /// Call `wake`, from any thread, once a pending [`DataSource::preload`]
+    /// would no longer answer false. A source whose `preload` can answer
+    /// false overrides this; the default wakes at once, so a wrapper that
+    /// forwards `preload` forwards this too, or its host retries unpaced.
+    fn when_preloaded(&self, wake: Box<dyn FnOnce() + Send>) {
+        wake()
     }
 
     /// Pair candidate logic with a plan, preserving this binary's admitted
@@ -344,7 +564,9 @@ pub trait DataSource {
     /// 0067): one grant per line — `net.fetch <origin>` (matched whole, or `scheme://*.domain` for every host under one domain), `secret.keep
     /// <name>`. A request outside them fails as `Refused` on every host
     /// before any executor sees it; a secret outside them reads as absent
-    /// and refuses a write. Empty: nothing.
+    /// and refuses a write. Empty: nothing. The set is read whole
+    /// ([`crate::grants`]): one line that does not parse refuses the bake,
+    /// and on a device grants nothing.
     fn grants(&self) -> &str {
         ""
     }
@@ -387,8 +609,28 @@ pub trait DataSource {
     /// a target (`answer`) is its own to keep. A source that forwards
     /// `answer_for` forwards this too, translating any continuation token it
     /// remapped back to the one its child handed out.
-    fn forgotten(&mut self, in_flight: &[InFlight<'_>]) {
-        let _ = in_flight;
+    /// `store` supplies read context for external work that must finish.
+    /// Its reply and any Store writes are discarded, never committed here.
+    fn forgotten(&mut self, store: &Store, in_flight: &[InFlight<'_>]) {
+        let _ = (store, in_flight);
+    }
+
+    /// What `source(args)` shows while `writes` affect it: `answer` with
+    /// the writes laid over it, as the source knows they change it (rows
+    /// added or removed, counts moved). Synchronous and without effects;
+    /// called inside settlement whenever the answer, its arguments or the
+    /// writes change, and only while there are writes. `None` shows the
+    /// answer and retires every answered write. A source that forwards to
+    /// another forwards this too.
+    fn overlay(
+        &mut self,
+        source: &str,
+        args: &[Value],
+        answer: &Value,
+        writes: &[Write<'_>],
+    ) -> Result<Option<Overlaid>, DataError> {
+        let _ = (source, args, answer, writes);
+        Ok(None)
     }
 
     /// A handle another thread may trigger to stop this source's running
@@ -483,11 +725,34 @@ pub enum DataError {
     UnknownSource(String),
     BadArguments(String),
     Unavailable(String),
+    /// Build-time storage cannot answer; use the resource placeholder until activation.
+    DeferredAtBake(String),
     /// The seam to a loaded Rust module could not carry the call (an
     /// answer over its bound, a trap): the source is there but cannot
     /// answer now. A resource asked this fails; it does not refuse the
     /// commit (LLP 1071 §7, Charlie's ruling of 2026-09-29).
     Interface(String),
+    /// A failure whose class `failure(x)` names (LLP 1109 D3): a request's
+    /// or a storage call's that a TypeScript module let through, or an
+    /// answer its seam found outside its shape, or a runtime TypeScript
+    /// throw (`error`). The resource fails or the send ends unsent; the
+    /// asking commit stands (LLP 1027.000 D3). Bake and replacement
+    /// validation still refuse it. A Rust source's own error is `Unavailable`.
+    /// The third field carries an application reason (`failure(x).reason`).
+    Failed(crate::failure::FailureCode, String, String),
+}
+
+impl std::fmt::Display for DataError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::UnknownSource(name) => write!(f, "unknown source: {name}"),
+            Self::BadArguments(reason)
+            | Self::Unavailable(reason)
+            | Self::DeferredAtBake(reason)
+            | Self::Interface(reason)
+            | Self::Failed(_, reason, _) => f.write_str(reason),
+        }
+    }
 }
 
 #[cfg(test)]

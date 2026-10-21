@@ -1,17 +1,27 @@
 {
   "ticks": {
-    "60": "0x75937d48d7228e0b",
-    "120": "0xe159fb2c42740548"
+    "60": "0xfaca59677d1c344f",
+    "120": "0x5cd6ed3af60b820a"
   },
   "saves": {
-    "continuation": "f96d70aea8f9fbb72257bb0ed99ca3da2b1f5319dfe00e8191c88f9f7fde855d"
+    "continuation": "2f5338e02cda7774856ade2a3446cc997099420bd7e7c19f79daf46fafe1d343"
   },
   "hosts": [
     "linux",
     "web"
   ],
+  "modes": [
+    "0",
+    "1",
+    "fresh-game"
+  ],
+  "profiles": [
+    "gpu-dev"
+  ],
+  "inputs": "5100280688172207d0d083b4e921134342e27b16f970be632a47115c50268183",
+  "sourceInputs": "3083079398d99f5a2fbb9a2e887b34b88d3a619545f67f29e56549eb9328c342",
   "game": "skinned-fixture",
-  "generated": "bun game/prove.mjs skinned-fixture --repin --hosts linux,web",
-  "at": "64b5af14d0b08d4f35be20a08502e4834ad5f133",
-  "reason": "D6 imports Fox into metres once, replacing model/socket reciprocal scales; tick-60 joint bases now express metres"
+  "generated": "bun game/prove.mjs skinned-fixture --repin --hosts 'linux,web'",
+  "at": "1afbc5f64088fb9219aa2d56a54b27c296a536dd",
+  "reason": "EXSIM v8 (player: u8, pads) over EXGAME v6: continuation bytes change; tick hashes unchanged"
 }

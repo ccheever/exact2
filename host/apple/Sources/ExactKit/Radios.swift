@@ -1,0 +1,175 @@
+// `input type="radio"` (x2apps survey #2), projected as the checkbox is:
+// AppKit's radio button, and on UIKit (which has none) a circle drawn as
+// Safari iOS draws one (`ExactRadio`). Exact owns the group, never the
+// platform: AppKit groups radio buttons that share a superview and an action,
+// and these live one per node, so the group is HTML's — every radio of one
+// non-empty `name` in the window, in tree order (`exact_radio_group`, the
+// kernel's `radio_group`). A click checks at once and unchecks the rest,
+// fires `input` then `change` with the radio's value, and then the whole
+// group shows its bound `checked` again (LLP 1069.001 D4's snap-back).
+import Foundation
+#if canImport(AppKit)
+import AppKit
+#else
+import UIKit
+#endif
+
+/// A radio's group as the kernel reads it (`exact_radio_group`): its
+/// radios in tree order, itself included, and the enabled radio each arrow
+/// moves the check to.
+struct RadioGroup: Equatable {
+    var group: [UInt32] = []
+    var next: UInt32?
+    var previous: UInt32?
+
+    init(json: Data) {
+        guard let o = try? JSONSerialization.jsonObject(with: json) as? [String: Any] else { return }
+        group = (o["group"] as? [Int] ?? []).map { UInt32($0) }
+        next = (o["next"] as? Int).map { UInt32($0) }
+        previous = (o["previous"] as? Int).map { UInt32($0) }
+    }
+}
+
+extension NodeView {
+    /// An `input type="radio"`: a control node HTML lets the person focus.
+    var isRadio: Bool { kind == "control" && props["type"] == "radio" }
+    /// HTML's one Tab stop per radio group: its checked radio, else (none
+    /// checked) its first enabled one.
+    var radioTabStop: Bool {
+        guard isRadio, !formDisabled, let controls = presenter?.controls else { return false }
+        let members = controls.radioMembers(id)
+        if members.contains(where: controls.radioShows) { return controls.radioShows(id) }
+        return members.first { presenter?.views[$0]?.formDisabled == false } == id
+    }
+
+    /// The `radiogroup` an authored ARIA radio belongs to: a pressable
+    /// `button role="radio"` whose parent element is a radio group the host
+    /// draws as written, with no segmented control standing in for it (its
+    /// `appearance: none`, a vertical group). Such a group takes WAI-ARIA's
+    /// radio group keys (APG, "Radio Group Pattern"), as an `input
+    /// type="radio"` group takes HTML's. On tvOS the focus engine moves
+    /// between radios by geometry, and none is a group.
+    var ariaRadioGroup: NodeView? {
+        #if os(tvOS)
+        return nil
+        #else
+        guard isButton, props["accessibilityRole"] == "radio", handlers.contains("press") else { return nil }
+        var up = superview
+        while let view = up, !(view is NodeView) { up = view.superview }
+        guard let owner = up as? NodeView, owner.props["accessibilityRole"] == "radiogroup",
+              presenter?.segments.control(of: owner.id) == nil else { return nil }
+        return owner
+        #endif
+    }
+
+    /// The radios of an authored radio group a person can reach, in tree
+    /// order: enabled, not inert, shown (`display`, `visibility`), and
+    /// `keeping` (the focused one) whatever it is.
+    static func ariaRadios(of owner: NodeView, keeping: NodeView? = nil) -> [NodeView] {
+        owner.container.subviews.compactMap { $0 as? NodeView }.filter {
+            $0.isButton && $0.props["accessibilityRole"] == "radio" && $0.handlers.contains("press")
+                && ($0 === keeping || !$0.formDisabled && !$0.inert && !$0.isHidden && !$0.cssVisibilityHidden)
+        }
+    }
+
+    /// An authored radio group's one Tab stop: its checked radio
+    /// (`aria-checked`), else its first enabled one.
+    var ariaRadioTabStop: Bool {
+        guard let owner = ariaRadioGroup else { return false }
+        let radios = Self.ariaRadios(of: owner)
+        return (radios.first { $0.props["accessibilityChecked"] == "true" } ?? radios.first) === self
+    }
+}
+
+extension ControlHost {
+    /// The radios of `id`'s group, itself alone when the kernel has none.
+    func radioMembers(_ id: UInt32) -> [UInt32] {
+        let group = radioGroup?(id).group ?? []
+        return group.isEmpty ? [id] : group
+    }
+
+    /// Whether radio `id` shows checked: its control's state, else its bound one.
+    func radioShows(_ id: UInt32) -> Bool {
+        if let control = controls[id] { return radioOn(control) }
+        return presenter.views[id]?.props["checked"] == "true"
+    }
+
+    /// A click on radio `id`, the host's own and the agent's alike: an
+    /// unchecked enabled radio is checked and the rest of its group unchecked
+    /// at once, then `input` and `change` carry its value (HTML's, `on` when
+    /// it has none); a checked one fires nothing. True when it was checked.
+    @discardableResult
+    func checkRadio(_ id: UInt32) -> Bool {
+        guard let node = presenter.views[id], node.isRadio, !node.formDisabled, !node.inert, !radioShows(id) else { return false }
+        for other in radioMembers(id) where other != id { showRadio(other, false) }
+        showRadio(id, true)
+        presenter.controlValue(id, node.props["value"] ?? "on", input: true, change: true)
+        snapRadios()
+        return true
+    }
+
+    /// After the action's commit every bound radio shows its `checked`
+    /// again: an action that wrote nothing unchecks the clicked radio and
+    /// rechecks the one before. A radio with no `checked` keeps its own.
+    func snapRadios() {
+        for (id, kind) in kinds where kind == "radio" {
+            if let on = presenter.views[id]?.props["checked"] { showRadio(id, on == "true") }
+        }
+    }
+
+    /// A key's default action at a focused radio, after its `key` handlers
+    /// (none prevented it): ArrowDown and ArrowRight move the focus and the
+    /// check to the next enabled radio of the group in tree order, ArrowUp
+    /// and ArrowLeft to the previous, wrapping; Space checks it. True when
+    /// the key was the radio's.
+    func radioKey(_ node: NodeView, _ name: String, held: String) -> Bool {
+        if let owner = node.ariaRadioGroup { return ariaRadioKey(node, owner, name, held: held) }
+        guard node.isRadio, !node.formDisabled, !node.inert, held.isEmpty || held == "Shift+" else { return false }
+        switch name {
+        case " ":
+            checkRadio(node.id)
+            return true
+        case "ArrowDown", "ArrowRight", "ArrowUp", "ArrowLeft":
+            let group = radioGroup?(node.id)
+            let forward = name == "ArrowDown" || name == "ArrowRight"
+            guard let to = (forward ? group?.next : group?.previous).flatMap({ presenter.views[$0] }) else { return true }
+            focusRadio(to, keyboard: true)
+            checkRadio(to.id)
+            return true
+        default:
+            return false
+        }
+    }
+
+    /// An arrow at an authored radio moves the focus to the next radio of its
+    /// group a person can reach, in tree order (ArrowDown, and ArrowRight in a
+    /// left-to-right group) or the previous (ArrowUp, ArrowLeft), wrapping,
+    /// and presses it: the author's action is what checks it. A right-to-left
+    /// group swaps Left and Right, as the web's `radioArrow` does
+    /// (`host/web/input-glue.js`). Space and Enter are the button's own.
+    private func ariaRadioKey(_ node: NodeView, _ owner: NodeView, _ name: String, held: String) -> Bool {
+        guard !node.formDisabled, !node.inert, held.isEmpty || held == "Shift+",
+              ["ArrowDown", "ArrowRight", "ArrowUp", "ArrowLeft"].contains(name) else { return false }
+        let radios = NodeView.ariaRadios(of: owner, keeping: node)
+        guard let at = radios.firstIndex(where: { $0 === node }), radios.count > 1 else { return true }
+        let rtl = (owner.style["direction"]?.string ?? presenter.documentDirection) == "rtl"
+        let forward = name == "ArrowDown" || name == (rtl ? "ArrowLeft" : "ArrowRight")
+        let step = forward ? 1 : radios.count - 1
+        let to = radios[(at + step) % radios.count]
+        focusRadio(to, keyboard: true)
+        presenter.press(to.id)
+        return true
+    }
+
+    /// The agent's `type <radio> true`: checked as a click checks it. A
+    /// radio is never typed `false`: HTML unchecks one only by checking
+    /// another of its group.
+    func typeRadio(_ node: NodeView, _ value: String) -> [String: Any] {
+        guard value == "true" else {
+            return ["error": value == "false" ? "radio \(node.id) cannot be typed false: a radio is unchecked by checking another of its group"
+                : "radio \(node.id) takes true, not \"\(value)\""]
+        }
+        if !radioShows(node.id), activate(node) != true { return ["error": "control #\(node.id) is disabled, inert or not shown"] }
+        return ["typed": Int(node.id), "checked": radioShows(node.id), "delivery": "host-activation", "native": "control"]
+    }
+}

@@ -1,12 +1,42 @@
 use super::*;
+use crate::generated::BorderStyle;
+
+#[test]
+fn cursor_is_inherited_non_layout_css_with_its_keyword_vocabulary() {
+    assert!(StyleId::Cursor.inherited());
+    assert!(!StyleId::Cursor.affects_layout());
+    let mut style = StyleProps::default();
+    assert_eq!(style.cursor.name(), "auto");
+    // CSS's keywords (the targeting cursors, and the rest the macOS and
+    // Windows hosts map); image cursors are not admitted.
+    for name in [
+        "auto",
+        "default",
+        "crosshair",
+        "pointer",
+        "not-allowed",
+        "grab",
+    ] {
+        style
+            .set_dynamic(StyleId::Cursor, &StyleValue::Text(name.into()))
+            .unwrap();
+        assert_eq!(style.cursor.name(), name);
+    }
+    for value in ["hand", "url(cursor.png), crosshair", "invalid"] {
+        assert!(style
+            .set_dynamic(StyleId::Cursor, &StyleValue::Text(value.into()))
+            .is_err());
+    }
+}
+use taffy::prelude::{line, span};
 
 #[test]
 fn percent_converts_exactly_once() {
     let d = Dimension::Percent(50.0);
     let env = Env::default();
-    assert_eq!(d.to_taffy(&env), percent(0.5_f32));
+    assert_eq!(d.floor_taffy(&env), percent(0.5_f32));
     assert_eq!(d.to_lpa(&env), percent(0.5_f32));
-    assert_eq!(d.to_lp(&env), percent(0.5_f32));
+    assert_eq!(d.floor_lp(&env, 0.0), percent(0.5_f32));
 }
 
 #[test]
@@ -23,30 +53,71 @@ fn env_lengths_parse_by_the_css_grammar_and_resolve_against_the_environment() {
         Dimension::parse_env("calc(env(safe-area-inset-bottom) + 12px)"),
         Some(Dimension::Env(Edge::Bottom, 12.0))
     );
+    // CSS requires whitespace around `-`: the unspaced form is invalid.
     assert_eq!(
         Dimension::parse_env("calc(env(safe-area-inset-right)-2.5px)"),
+        None
+    );
+    assert_eq!(
+        Dimension::parse_env("calc(env(safe-area-inset-right) - 2.5px)"),
         Some(Dimension::Env(Edge::Right, -2.5))
+    );
+    // Addition commutes: the length may come first (CSS's grammar).
+    assert_eq!(
+        Dimension::parse_env("calc(300px + env(safe-area-inset-bottom))"),
+        Some(Dimension::Env(Edge::Bottom, 300.0))
+    );
+    assert_eq!(
+        Dimension::parse_env("calc( 2.5px  +\tenv(safe-area-inset-left) )"),
+        Some(Dimension::Env(Edge::Left, 2.5))
     );
     for bad in [
         "env(safe-area-inset-middle)",
         "env(keyboard-inset-height)",
         "calc(env(safe-area-inset-top) + 12)",
-        "calc(env(safe-area-inset-top) * 2)",
-        "calc(12px + env(safe-area-inset-top))",
-        "env(safe-area-inset-top, 0px)",
+        "calc(12px+env(safe-area-inset-top))",
+        "calc(12px +env(safe-area-inset-top))",
+        "calc(12 px + env(safe-area-inset-top))",
+        "calc(12 + env(safe-area-inset-top))",
         "12px",
         "auto",
     ] {
         assert_eq!(Dimension::parse_env(bad), None, "{bad}");
     }
+    // A fallback is CSS Environment Variables 1's, substituted where the
+    // variable is undefined before the row reads the value: held as written
+    let mut s = StyleProps::default();
+    s.set_dynamic(
+        StyleId::Width,
+        &StyleValue::Text("env(safe-area-inset-top, 0px)".into()),
+    )
+    .unwrap();
+    assert!(matches!(s.width, Dimension::Compare(_)));
+    // One grammar for every calc(): these are valid CSS and reduce.
+    assert_eq!(
+        Dimension::parse_env("calc(12px + env(safe-area-inset-top) + 1px)"),
+        Some(Dimension::Env(Edge::Top, 13.0))
+    );
+    for tree in [
+        "calc(env(safe-area-inset-top) * 2)",
+        "calc(12px - env(safe-area-inset-top))",
+    ] {
+        assert!(
+            matches!(Dimension::parse_env(tree), Some(Dimension::Compare(..))),
+            "{tree}"
+        );
+    }
     let env = Env::new(62.0, 0.0, 34.0, 0.0);
-    assert_eq!(Dimension::Env(Edge::Top, 0.0).to_lp(&env), length(62.0_f32));
+    assert_eq!(
+        Dimension::Env(Edge::Top, 0.0).floor_lp(&env, 0.0),
+        length(62.0_f32)
+    );
     assert_eq!(
         Dimension::Env(Edge::Bottom, 12.0).to_lpa(&env),
         length(46.0_f32)
     );
     assert_eq!(
-        Dimension::Env(Edge::Left, 8.0).to_taffy(&env),
+        Dimension::Env(Edge::Left, 8.0).floor_taffy(&env),
         length(8.0_f32)
     );
     // Environment and explicit pixel lengths share dimension decoding.
@@ -115,7 +186,7 @@ fn scroll_containers_scroll_on_the_block_axis_by_default() {
 }
 
 #[test]
-fn a_colour_parses_as_hex_or_as_css_rgb_notation() {
+fn a_colour_parses_as_css_writes_it() {
     let red = Some(Color::rgba(255, 0, 0, 255));
     assert_eq!(Color::parse(" #f00 "), red);
     assert_eq!(Color::parse("rgb(255, 0, 0)"), red);
@@ -126,6 +197,24 @@ fn a_colour_parses_as_hex_or_as_css_rgb_notation() {
     assert_eq!(Color::parse("transparent"), clear);
     assert_eq!(Color::parse(" Transparent "), clear);
     assert_eq!(Color::parse("transparentt"), None);
+    // CSS's named colours, in any ASCII case (CSS Color 4 §6.1).
+    assert_eq!(Color::parse("red"), red);
+    assert_eq!(
+        Color::parse("hsl(120 100% 25% / 50%)"),
+        Some(Color::rgba(0, 128, 0, 128))
+    );
+    assert_eq!(
+        Color::parse(" Gray "),
+        Some(Color::rgba(128, 128, 128, 255))
+    );
+    assert_eq!(
+        Color::parse("REBECCAPURPLE"),
+        Some(Color::rgba(102, 51, 153, 255))
+    );
+    assert_eq!(
+        Color::parse("lightgoldenrodyellow"),
+        Some(Color::rgba(250, 250, 210, 255))
+    );
     let half = Some(Color::rgba(255, 0, 0, 128));
     assert_eq!(Color::parse("rgba(255, 0, 0, 0.5)"), half);
     assert_eq!(Color::parse("rgba(255, 0, 0, 50%)"), half);
@@ -146,11 +235,73 @@ fn a_colour_parses_as_hex_or_as_css_rgb_notation() {
         "rgb(a, b, c)",
         "rgb(nan, 0, 0)",
         "rgb(255, 0, 0",
-        "hsl(0, 100%, 50%)",
-        "red",
+        "reddish",
+        "lightgoldenrodyellowish",
+        "blurple",
+        "oklch(0.7 0.1 200)",
     ] {
         assert_eq!(Color::parse(text), None, "{text}");
     }
+    // The rest of CSS Color 4's sRGB forms, as the web paints them: one
+    // parser for every host (feed F13).
+    assert_eq!(Color::parse("hsl(0, 100%, 50%)"), red);
+    assert_eq!(Color::parse("hsla(0deg 100% 50% / 50%)"), half);
+    assert_eq!(Color::parse("HWB(0 0% 0%)"), red);
+    assert_eq!(Color::parse("Red"), red);
+    assert_eq!(
+        Color::parse("hsl(326, 55%, 52%)"),
+        Some(Color::rgba(0xc8, 0x41, 0x8e, 255))
+    );
+    // A wide form keeps its space (LLP 1100 D2); it resolves to its sRGB clip.
+    assert_eq!(Color::parse("oklch(0.7 0.1 200 / 0.5)"), None);
+    assert_eq!(
+        ColorValue::parse_light_dark("oklch(0.7 0.1 200 / 0.5)")
+            .unwrap()
+            .resolve(false),
+        Color::rgba(64, 177, 183, 128)
+    );
+}
+
+#[test]
+fn a_modern_colour_keeps_its_space_and_its_text() {
+    use super::wide::wide;
+    let p3 = ColorValue::parse_light_dark("color(display-p3 1 0 0)").unwrap();
+    let ColorValue::Wide(id) = p3 else {
+        panic!("{p3:?}")
+    };
+    let w = wide(id).unwrap();
+    assert_eq!(&*w.text, "color(display-p3 1 0 0)");
+    assert_eq!(w.light.space, exact_color::Space::DisplayP3);
+    assert!(!p3.is_scheme_aware());
+    assert_eq!(
+        ColorValue::parse_light_dark(" color(display-p3 100% 0 0) "),
+        Some(p3)
+    );
+    assert_eq!(p3.resolve(false), Color::rgba(255, 0, 0, 255));
+    let pair = ColorValue::parse_light_dark("light-dark(oklch(0.9 0.05 200), #000)").unwrap();
+    let ColorValue::Wide(id) = pair else {
+        panic!("{pair:?}")
+    };
+    assert_eq!(
+        &*wide(id).unwrap().text,
+        "light-dark(oklch(0.9 0.05 200), #000000ff)"
+    );
+    assert!(pair.is_scheme_aware());
+    assert_eq!(pair.resolve(true), Color::rgba(0, 0, 0, 255));
+    // Two legacy halves stay an 8-bit pair.
+    assert!(matches!(
+        ColorValue::parse_light_dark("light-dark(red, hsl(0 0% 0%))"),
+        Some(ColorValue::LightDark(..))
+    ));
+    let mut css = String::new();
+    crate::gradient::color_css(&mut css, p3);
+    assert_eq!(css, "color(display-p3 1 0 0)");
+    let mut w = crate::wire::codec::Writer::new();
+    w.color_value(pair);
+    let bytes = w.into_vec();
+    assert_eq!(bytes[0], 4);
+    let mut r = crate::wire::codec::Reader::new(&bytes);
+    assert_eq!(r.color_value().unwrap(), pair);
 }
 
 #[test]
@@ -210,11 +361,18 @@ fn a_colour_row_takes_a_pair_dynamically_as_a_dimension_takes_env() {
     .expect("a colour row takes CSS's own function");
     assert_eq!(
         s.background_color,
-        ColorValue::LightDark(
+        Some(ColorValue::LightDark(
             Color::parse_hex("#ffffff").unwrap(),
             Color::parse_hex("#17181b").unwrap()
-        )
+        ))
     );
+    // `currentcolor` is the keyword, which a host resolves to `color`.
+    s.set_dynamic(
+        StyleId::BackgroundColor,
+        &StyleValue::Text("currentColor".into()),
+    )
+    .expect("a background takes currentcolor");
+    assert_eq!(s.background_color, None);
     // And still takes a plain colour, which is the common case.
     s.set_dynamic(StyleId::TextColor, &StyleValue::Text("#112233".into()))
         .expect("a hex is still a colour");
@@ -242,15 +400,12 @@ fn color_channels() {
 fn grid_tracks_lower_to_engine_tracks() {
     let mut p = StyleProps::default();
     p.display = Display::Grid;
-    p.grid_template_columns = GridTracks(vec![
+    p.rare.grid_template_columns = GridTracks::from_tracks(vec![
         GridTrack::Fr(1.0),
         GridTrack::Points(40.0),
         GridTrack::Auto,
     ]);
-    p.grid_row = GridPlacement {
-        start: GridLine::Line(1),
-        end: GridLine::Span(2),
-    };
+    p.rare.grid_row = GridPlacement::from_lines(GridLine::Line(1), GridLine::Span(2));
     let s = p.to_taffy(NodeType::View, &Env::default());
     assert_eq!(s.grid_template_columns.len(), 3);
     assert_eq!(s.grid_row.start, line(1));
@@ -317,30 +472,67 @@ fn calc_lengths_parse_one_percent_and_one_pixel_term_and_resolve_by_basis() {
             "{text}"
         );
     }
+    // CSS Syntax 3 closes a block the text ends inside, as a browser does
+    assert_eq!(
+        Dimension::parse_calc("calc(100% - 89px"),
+        Some(Dimension::Calc(100.0, -89.0))
+    );
     for bad in [
         "calc(100%-89px)",
         "calc(100% -89px)",
         "calc(100% - 89)",
         "calc(100% - 0)",
-        "calc(100% * 2)",
-        "calc(50% + 50%)",
-        "calc(10px + 20px)",
-        "calc(100%)",
-        "calc(1e39% - 1px)",
         "calc(nan% - 1px)",
-        "calc(env(safe-area-inset-top) + 50%)",
-        "calc(100% - 89px",
         "100%",
         "89px",
     ] {
         assert_eq!(Dimension::parse_calc(bad), None, "{bad}");
     }
+    // Valid CSS one grammar reduces (CSS Values 4 §10): like terms add,
+    // a number scales, an environment length and a percentage may mix.
+    assert_eq!(
+        Dimension::parse_calc("calc(100% * 2)"),
+        Some(Dimension::Percent(200.0))
+    );
+    assert_eq!(
+        Dimension::parse_calc("calc(50% + 50%)"),
+        Some(Dimension::Percent(100.0))
+    );
+    assert_eq!(
+        Dimension::parse_calc("calc(10px + 20px)"),
+        Some(Dimension::Points(30.0))
+    );
+    assert_eq!(
+        Dimension::parse_calc("calc(100%)"),
+        Some(Dimension::Percent(100.0))
+    );
+    // A percentage beside an environment term is a tree the engine
+    // resolves against its basis at layout, under the layout's environment
+    let Some(Dimension::Compare(tree)) =
+        Dimension::parse_calc("calc(env(safe-area-inset-top) + 50%)")
+    else {
+        panic!("a percentage beside a term is a tree");
+    };
+    let taffy::style::ExpandedLengthPercentageAuto::Calc(tree_handle) =
+        Dimension::Compare(tree).to_lpa(&Env::default()).expand()
+    else {
+        panic!("a tree with a percentage is a calc handle");
+    };
+    {
+        let _layout = super::LayoutEnv::set(&Env::new(62.0, 0.0, 0.0, 0.0));
+        assert_eq!(resolve_calc(tree_handle, 400.0), 262.0);
+    }
+    assert_eq!(
+        resolve_calc(tree_handle, 400.0),
+        200.0,
+        "the environment outside a layout"
+    );
     let env = Env::default();
-    let width = Dimension::Calc(100.0, -89.0).to_taffy(&env);
-    assert_eq!(width, Dimension::Calc(100.0, -89.0).to_taffy(&env));
-    assert_ne!(width, Dimension::Calc(100.0, -88.0).to_taffy(&env));
+    let length = Dimension::Calc(100.0, -89.0).to_lpa(&env);
+    assert_eq!(length, Dimension::Calc(100.0, -89.0).to_lpa(&env));
+    assert_ne!(length, Dimension::Calc(100.0, -88.0).to_lpa(&env));
     let mut handle = None;
-    if let taffy::style::ExpandedDimension::Calc(h) = width.expand() {
+    if let taffy::style::ExpandedLengthPercentageAuto::Calc(h) = length.expand() {
         handle = Some(h);
     }
     let handle = handle.expect("a calc() is a calc handle");
@@ -354,11 +546,396 @@ fn calc_lengths_parse_one_percent_and_one_pixel_term_and_resolve_by_basis() {
     .unwrap();
     assert_eq!(s.width, Dimension::Calc(100.0, -89.0));
     assert!(!uses_env(&s));
+    // Unit algebra is refused by name, not valid Level 4 the kernel holds
+    assert!(matches!(
+        s.set_dynamic(StyleId::Width, &StyleValue::Text("calc(1px * 2px)".into())),
+        Err(StyleValueError::BadComparison { reason, .. }) if reason.contains("a length times")
+    ));
+}
+
+/// LLP 1078 D3, D10: the viewport segment variables parse by CSS-ENV-1's
+/// grammar, refuse by name, resolve against the grid, and travel the wire.
+#[test]
+fn segment_lengths_parse_resolve_and_refuse_by_name() {
+    use env::EnvRefusal;
+    env::link();
+    let seg = |v, x, y, plus| Dimension::Segment(v, x, y, plus);
     assert_eq!(
-        s.set_dynamic(StyleId::Width, &StyleValue::Text("calc(1px + 2px)".into())),
-        Err(StyleValueError::WrongKind {
-            style: StyleId::Width,
-            expected: "number, px, rem or em length, percent, auto, calc(<percent> ± <px>), or env(safe-area-inset-*)",
-        })
+        Dimension::parse_env("env(viewport-segment-width 0 0)"),
+        Some(seg(SegmentVar::Width, 0, 0, 0.0))
     );
+    assert_eq!(
+        Dimension::parse_env(" env( viewport-segment-left  1   0 ) "),
+        Some(seg(SegmentVar::Left, 1, 0, 0.0))
+    );
+    assert_eq!(
+        Dimension::parse_env("calc(env(viewport-segment-height 0 1) - 12px)"),
+        Some(seg(SegmentVar::Height, 0, 1, -12.0))
+    );
+    assert_eq!(
+        Dimension::parse_env("calc(env(viewport-segment-right 15 15) + 2.5px)"),
+        Some(seg(SegmentVar::Right, 15, 15, 2.5))
+    );
+    for (var, name) in SegmentVar::ALL
+        .iter()
+        .zip(["width", "height", "top", "left", "bottom", "right"])
+    {
+        assert_eq!(var.name(), name);
+        assert_eq!(SegmentVar::from_name(name), Some(*var));
+        assert_eq!(SegmentVar::from_index(*var as u8), Some(*var));
+    }
+    // Refused by name (D10), never silently zero.
+    for (bad, why) in [
+        ("env(viewport-segment-width 0)", EnvRefusal::IndexCount),
+        ("env(viewport-segment-width)", EnvRefusal::IndexCount),
+        ("env(viewport-segment-width 0 0 0)", EnvRefusal::IndexCount),
+        ("env(viewport-segment-width -1 0)", EnvRefusal::IndexForm),
+        ("env(viewport-segment-width 0.5 0)", EnvRefusal::IndexForm),
+        ("env(viewport-segment-width 0 16)", EnvRefusal::IndexRange),
+        (
+            "env(viewport-segment-width 999999999999 0)",
+            EnvRefusal::IndexRange,
+        ),
+        (
+            "env(viewport-segment-middle 0 0)",
+            EnvRefusal::UnknownVariable,
+        ),
+        ("env(safe-area-inset-top 0 0)", EnvRefusal::UnknownVariable),
+        ("env(keyboard-inset-height)", EnvRefusal::UnknownVariable),
+        (
+            "calc(env(viewport-segment-width 0) + 1px)",
+            EnvRefusal::IndexCount,
+        ),
+    ] {
+        let parsed = super::calc::parse(bad).map_err(|r| match r {
+            super::calc::Refused::Env(e) => e,
+            super::calc::Refused::Comparison(why) => panic!("{bad}: {why}"),
+        });
+        assert_eq!(parsed, Err(why), "{bad}");
+        assert_eq!(Dimension::parse_env(bad), None, "{bad}");
+        let mut s = StyleProps::default();
+        assert_eq!(
+            s.set_dynamic(StyleId::Width, &StyleValue::Text(bad.into())),
+            Err(StyleValueError::BadEnv {
+                style: StyleId::Width,
+                refusal: why
+            }),
+            "{bad}"
+        );
+    }
+    // Not env() forms at all: other grammars get their turn.
+    for not in [
+        "calc(50% + 10px)",
+        "12px",
+        "auto",
+        "calc(env(viewport-segment-width 0 0) * 2)",
+    ] {
+        assert_eq!(env::parse(not), Ok(None), "{not}");
+    }
+    // Two columns with a 40-point band between them (the Duo at 130°), in a
+    // 951 × 669 viewport.
+    let env = Env::new(0.0, 84.0, 34.0, 0.0).with_segments(
+        2,
+        1,
+        vec![
+            Rect::new(0.0, 0.0, 455.5, 669.0),
+            Rect::new(495.5, 0.0, 455.5, 669.0),
+        ],
+    );
+    assert!(env.segments_consistent() && env.is_finite());
+    let at = |v, x, y, plus| seg(v, x, y, plus).resolve(&env);
+    assert_eq!(at(SegmentVar::Width, 0, 0, 0.0), Dimension::Points(455.5));
+    assert_eq!(at(SegmentVar::Left, 1, 0, 0.0), Dimension::Points(495.5));
+    assert_eq!(at(SegmentVar::Right, 0, 0, 0.0), Dimension::Points(455.5));
+    assert_eq!(at(SegmentVar::Right, 1, 0, -1.0), Dimension::Points(950.0));
+    assert_eq!(at(SegmentVar::Top, 1, 0, 0.0), Dimension::Points(0.0));
+    assert_eq!(at(SegmentVar::Bottom, 1, 0, 12.0), Dimension::Points(681.0));
+    assert_eq!(at(SegmentVar::Height, 0, 0, 0.0), Dimension::Points(669.0));
+    // Past the grid, or on a one-segment viewport: undefined.
+    assert_eq!(at(SegmentVar::Width, 0, 1, 0.0), Dimension::Auto);
+    assert_eq!(at(SegmentVar::Width, 2, 0, 0.0), Dimension::Auto);
+    assert_eq!(
+        seg(SegmentVar::Width, 0, 0, 0.0).resolve(&Env::default()),
+        Dimension::Auto
+    );
+    // The insets still resolve beside the grid.
+    assert_eq!(
+        Dimension::Env(Edge::Right, 0.0).resolve(&env),
+        Dimension::Points(84.0)
+    );
+    assert_eq!(
+        env.with_insets(1.0, 2.0, 3.0, 4.0).segments,
+        env.segments,
+        "insets leave the grid"
+    );
+    // A malformed grid.
+    assert!(!Env::default()
+        .with_segments(2, 1, vec![])
+        .segments_consistent());
+    assert!(!Env::default()
+        .with_segments(0, 1, vec![])
+        .segments_consistent());
+    assert!(!Env::default()
+        .with_segments(1, 1, vec![Rect::new(0.0, 0.0, 1.0, 1.0)])
+        .segments_consistent());
+    // The style reads the environment.
+    let mut s = StyleProps::default();
+    s.set_dynamic(
+        StyleId::Width,
+        &StyleValue::Text("env(viewport-segment-width 1 0)".into()),
+    )
+    .unwrap();
+    assert!(uses_env(&s));
+    assert_eq!(
+        s.to_taffy(NodeType::View, &env).size.width,
+        length(455.5_f32)
+    );
+}
+
+/// An undefined segment length is invalid at computed-value time: the row
+/// takes its initial value — `auto` for a width, 0 for a margin, 0 for a
+/// padding (the table's defaults), not `auto` everywhere.
+#[test]
+fn an_undefined_segment_length_takes_the_rows_initial_value() {
+    env::link();
+    let mut s = StyleProps::default();
+    for (row, text) in [
+        (StyleId::Width, "env(viewport-segment-width 0 0)"),
+        (StyleId::MarginLeft, "env(viewport-segment-left 1 0)"),
+        (
+            StyleId::PaddingTop,
+            "calc(env(viewport-segment-top 0 0) + 8px)",
+        ),
+        (StyleId::Left, "env(viewport-segment-left 1 0)"),
+    ] {
+        s.set_dynamic(row, &StyleValue::Text(text.into())).unwrap();
+    }
+    let one = Env::default();
+    let t = s.to_taffy(NodeType::View, &one);
+    assert_eq!(t.size.width, auto());
+    assert_eq!(
+        t.margin.left,
+        length(0.0_f32),
+        "margin's initial value is 0"
+    );
+    assert_eq!(t.padding.top, length(0.0_f32));
+    assert_eq!(t.inset.left, auto());
+    // The authored rows are untouched: the next environment resolves them.
+    assert_eq!(s.width, Dimension::Segment(SegmentVar::Width, 0, 0, 0.0));
+    let two = one.with_segments(
+        2,
+        1,
+        vec![
+            Rect::new(0.0, 0.0, 100.0, 300.0),
+            Rect::new(140.0, 0.0, 100.0, 300.0),
+        ],
+    );
+    let t = s.to_taffy(NodeType::View, &two);
+    assert_eq!(t.size.width, length(100.0_f32));
+    assert_eq!(t.margin.left, length(140.0_f32));
+    assert_eq!(t.padding.top, length(8.0_f32));
+    assert_eq!(t.inset.left, length(140.0_f32));
+}
+
+/// Wire kinds 8–13: a kind byte, the points, then the two indices.
+#[test]
+fn segment_lengths_round_trip_the_wire() {
+    use crate::wire::codec::{Reader, Writer};
+    env::link();
+    for var in SegmentVar::ALL {
+        for d in [
+            Dimension::Segment(var, 0, 0, 0.0),
+            Dimension::Segment(var, 1, 0, -12.5),
+            Dimension::Segment(var, 15, 15, 3.0),
+        ] {
+            let mut w = Writer::new();
+            w.dimension(d);
+            let bytes = w.into_vec();
+            assert_eq!(bytes.len(), 7, "{d:?}");
+            assert_eq!(bytes[0], 8 + var as u8);
+            let mut r = Reader::new(&bytes);
+            assert_eq!(r.dimension(StyleId::Width, true).unwrap(), d);
+        }
+    }
+    // An index past 15 on the wire is not a dimension.
+    let mut r = Reader::new(&[8, 0, 0, 0, 0, 16, 0]);
+    assert!(r.dimension(StyleId::Width, true).is_err());
+}
+
+#[test]
+fn overflow_auto_has_scroll_sizing_and_zero_automatic_minimum() {
+    let mut s = StyleProps::default();
+    s.set_dynamic(StyleId::OverflowX, &StyleValue::Text("auto".into()))
+        .unwrap();
+    let t = s.to_taffy(NodeType::View, &Env::default());
+    assert_eq!(
+        (t.overflow.x, t.overflow.y),
+        (
+            taffy::style::Overflow::Scroll,
+            taffy::style::Overflow::Scroll
+        )
+    );
+}
+
+#[test]
+fn a_bare_node_s_colour_is_the_platform_s_text_colour_and_its_tint_the_accent() {
+    // LLP 1095 stage 2: CSS's initial `color` is `CanvasText`, a system
+    // colour; a host with it shows the platform's, never a snapshot.
+    let s = StyleProps::default();
+    let canvas_text = roles::role("CanvasText").unwrap();
+    assert_eq!(s.text_color, ColorValue::Role(canvas_text));
+    assert_eq!(roles::role_of(canvas_text).unwrap().ios, "labelColor");
+    // The tint is the platform's own for a symbol nobody tinted, which the
+    // host keeps dynamic (LLP 1115.000 D3.9): the view's tint on iOS, as
+    // UIKit draws a template image, and the secondary label colour on the
+    // Mac, as AppKit draws one. It was `AccentColor` on both.
+    let symbol = roles::role("-exact-symbol").unwrap();
+    assert_eq!(s.tint_color, Some(ColorValue::Role(symbol)));
+    assert_eq!(roles::role_of(symbol).unwrap().ios, "@tint");
+    assert_eq!(roles::role_of(symbol).unwrap().macos, "secondaryLabelColor");
+    // Where no host reports one it is the accent's pair, as it was.
+    let accent = roles::role("AccentColor").unwrap();
+    assert_eq!(roles::role_fallback(symbol), roles::role_fallback(accent));
+    // Everywhere else the role's pair: black on light, white on dark.
+    assert_eq!(
+        s.text_color.resolve(false),
+        Color::parse_hex("#000000").unwrap()
+    );
+    assert_eq!(
+        s.text_color.resolve(true),
+        Color::parse_hex("#ffffff").unwrap()
+    );
+    assert!(s.text_color.is_scheme_aware());
+}
+
+/// LLP 1100 D3.
+#[test]
+fn a_profiles_colour_is_the_platforms_to_draw() {
+    use super::profiled::{declarations, profiled, Source};
+    let dci = ColorValue::parse_light_dark("color(--dci-p3 1 0.5 0)").unwrap();
+    let ColorValue::Profiled(id) = dci else {
+        panic!("{dci:?}")
+    };
+    let p = profiled(id).unwrap();
+    assert_eq!(p.source, Source::Named("kCGColorSpaceDCIP3"));
+    assert_eq!(&*p.text, "color(--dci-p3 1 0.5 0)");
+    assert_eq!(dci.fallback(), ColorValue::Fixed(Color::TRANSPARENT));
+    assert!(
+        ColorValue::parse_light_dark("color(--dci-p3 1 0.5)").is_none(),
+        "three components"
+    );
+    assert!(
+        ColorValue::parse_light_dark("color(--nobody 1 0 0)").is_none(),
+        "undeclared"
+    );
+    let _profiles = declarations([("--kernel-test-cmyk", "assets/cmyk.icc", "perceptual")]);
+    let cmyk =
+        ColorValue::parse_light_dark("color(--kernel-test-cmyk 0.1 0.8 0.2 0.05 / 50%)").unwrap();
+    let ColorValue::Profiled(id) = cmyk else {
+        panic!("{cmyk:?}")
+    };
+    let p = profiled(id).unwrap();
+    assert_eq!(
+        p.source,
+        Source::Icc {
+            src: "assets/cmyk.icc".into(),
+            intent: "perceptual".into()
+        }
+    );
+    assert_eq!((p.components.len(), p.alpha), (4, 0.5));
+    let mut w = crate::wire::codec::Writer::new();
+    w.color_value(cmyk);
+    let bytes = w.into_vec();
+    assert_eq!(bytes[0], 6);
+    assert_eq!(
+        crate::wire::codec::Reader::new(&bytes)
+            .color_value()
+            .unwrap(),
+        cmyk
+    );
+    let why =
+        crate::gradient::BackgroundImage::check("linear-gradient(red, color(--dci-p3 1 0 0))")
+            .unwrap_err();
+    assert!(why.contains("never mixed"), "{why}");
+}
+
+#[test]
+fn takes_text_is_what_set_dynamic_reads_on_a_number_row() {
+    use crate::generated::StyleCodec;
+    // A text of each form a number row's conversion has an arm for.
+    let texts = [
+        "1",
+        "1px",
+        "1rem",
+        "1em",
+        "none",
+        "auto",
+        "normal",
+        "45deg",
+        "thin",
+        "medium",
+        "1s",
+        "0.25turn",
+        "blur(1px)",
+        "1px red",
+        "0 0 1px",
+    ];
+    link_backdrop_filter();
+    for row in StyleId::ALL {
+        // A bound string reaches the row as text, or as `Percent` or `Auto`
+        // (`runner/src/bridge.rs`, `set_style`).
+        let values = texts
+            .iter()
+            .map(|t| StyleValue::Text((*t).into()))
+            .chain([StyleValue::Percent(50.0), StyleValue::Auto]);
+        let reads = values
+            .into_iter()
+            .any(|v| StyleProps::default().set_dynamic(row, &v).is_ok());
+        let number = matches!(
+            row.codec(),
+            StyleCodec::F32 | StyleCodec::U8 | StyleCodec::U16 | StyleCodec::U32 | StyleCodec::I32
+        );
+        if number {
+            assert_eq!(takes_text(row), reads, "{row:?}");
+        } else {
+            assert!(takes_text(row), "{row:?}");
+        }
+    }
+    for row in [
+        StyleId::Opacity,
+        StyleId::FlexGrow,
+        StyleId::ZIndex,
+        StyleId::FontWeight,
+    ] {
+        assert!(!takes_text(row), "{row:?}");
+    }
+    for row in [
+        StyleId::FontSize,
+        StyleId::LetterSpacing,
+        StyleId::StrokeWidth,
+    ] {
+        assert!(takes_text(row), "{row:?}");
+    }
+}
+
+#[test]
+fn clip_keeps_content_minimums_without_becoming_a_scroll_container() {
+    use taffy::Overflow as O;
+    for (x, y, expected) in [
+        ("clip", "clip", (O::Clip, O::Clip)),
+        ("clip", "visible", (O::Clip, O::Visible)),
+        ("visible", "clip", (O::Visible, O::Clip)),
+        ("clip", "hidden", (O::Hidden, O::Hidden)),
+        ("auto", "clip", (O::Scroll, O::Hidden)),
+    ] {
+        let mut style = StyleProps::default();
+        style
+            .set_dynamic(StyleId::OverflowX, &StyleValue::Text(x.into()))
+            .unwrap();
+        style
+            .set_dynamic(StyleId::OverflowY, &StyleValue::Text(y.into()))
+            .unwrap();
+        let layout = style.to_taffy(NodeType::View, &Env::default());
+        assert_eq!((layout.overflow.x, layout.overflow.y), expected);
+    }
 }

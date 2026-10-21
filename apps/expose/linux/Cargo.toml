@@ -12,6 +12,8 @@ build = "build.rs"
 [[bin]]
 name = "expose-render"
 path = "src/bin/expose-render.rs"
+test = false
+bench = false
 
 [dependencies]
 exact-js = { path = "../../../js" }

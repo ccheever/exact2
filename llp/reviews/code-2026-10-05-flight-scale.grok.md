@@ -1,0 +1,40 @@
+# Code review: a flying view that is not an image is scaled whole (LLP 1013.000 D4.4 as amended), 2026-10-05 (grok)
+
+- **Family:** xAI. `grok-4.7` via the grok CLI, reasoning effort xhigh, `--no-subagents`, `--cwd /tmp/x21`.
+- **Method:** one brief (sha256 `0a56e175953718082dcce4d4ac0aa1bc182b5e3be66fd489948136a500f200a1`), shared with astra. Round 1, blind to the other review. Reviewed the staged diff in a worktree at df7dc73a5. The author (Claude) is not a reviewer.
+- **Transcription:** the review's findings and verdict, unedited.
+- **Verdict:** NOT READY.
+- **Disposition (r2):** r1 findings 1-3 taken by a redesign: a view that is not an image now keeps its own bounds (its slot's size) for the whole flight and is scaled by shown width over layout width inside a new `FlightClip` view, whose frame is the shown box and whose corner radius is the interpolated one in the shown box's units (`masksToBounds`). Nothing the node lays out from its bounds changes (borders, gradients, materials, fields, scroll ports, text rasters). The layout is `slot.bounds.size`, not the converted rectangle, and the destination radius is converted by `to.width / layout.width` (a scaled ancestor). An interrupted flight is captured from the clip (iOS `convert`, macOS AppKit conversion of the unscaled clip, so an unlayered content view is right). Place-went: still in its clip, the view stands at the clip's top left, unscaled, at its own size; the clip goes; land, forget and reset remove the clip. `applyTransform` keeps the flight's scale while `FlightLook.scale` is set. Finding 4 taken: tests now fly through the real paths without a repair call (a transform-origin style change on iOS, an AppKit layout on macOS), and cover a scaled ancestor, an interrupted flight (macOS with the content view unlayered) and a landing whose place went; the existing `FlightsIOSTests` find the flight layer through the clip. Images are unchanged. Finding 2 (macOS capture through a nil content layer): taken as above.
+
+---
+
+NOT READY
+
+1. **must-fix** — A non-image flight changes the view’s own layout height to the clip every frame, so the surface is repainted into that clip instead of being scaled. `host/apple/Sources/ExactKit/IOS/FlightsIOS.swift:252`, `host/apple/Sources/ExactKit/Mac/FlightsMac.swift:222`, `host/apple/Sources/ExactKit/FlightScale.swift:27`.
+
+`FlightScale.bounds` is `(slot.width, shown.height / scale)`. iOS assigns that to `view.bounds`; macOS assigns it to `view.frame`. That does clip to the shown box (`masksToBounds` clips local bounds, then the scale maps them onto `shown`), and the iOS position math is right for any `anchorPoint`: `bounds * scale == shown.size` and `position = shown.origin + anchor * shown.size`, so the scaled box lands on `shown`. It is the wrong clip. D4.4 says the slot’s layout is scaled whole and then clipped, the way a view-transition snapshot is (`inline-size: 100%; block-size: auto` keeps the snapshot’s aspect). Shrinking bounds reflows everything that reads them:
+
+- Borders and gradients are laid out in `applyBoxLayer` / `applyGradientLayer` to the clip height, so the bottom stroke and the gradient’s end color sit on the shown box’s bottom edge. On a 402×714 card opening from 56×84, the bottom border should stay at `714 * scale` and be clipped away until the box is tall enough.
+- `setFrameSize` (macOS) and `layoutSubviews` (iOS) recompute material/glass radii from the clip box.
+- Scroll views, materials, and clip boxes have flexible width and height, so the port resizes; `layoutSubviews` then sets fields and text areas to `contentBox()` of the clip.
+- `NodeLayer.display` / `updateLayer` call `textRasters.ensure`, whose key includes `bounds.size`, so a flying paragraph re-rasters at the clip height (line-clamp and ellipsis included).
+
+Direct children with no autoresizing mask keep their frames, which is why the card/text test stays green.
+
+Keep bounds at the slot’s full size for the whole flight. Scale by `shown.width / slot.width` about the top: on iOS, `position = anchor * (slot.size * scale)` inside a clip whose frame is `shown`; on macOS, pin `anchorPoint` to `.zero`, put the view at the clip’s origin with the slot’s size, and `setAffineTransform` the scale. Give the clip `masksToBounds` and the interpolated corner radius in shown-box points. Do not write the node’s bounds, mask, or subview frames. Clear that clip on land.
+
+2. **must-fix** — An interrupted macOS flight records the unscaled frame, not the box on screen. `host/apple/Sources/ExactKit/Mac/FlightsMac.swift:71`.
+
+`beginFlight` prefers `leaver.layer.convert(bounds, to: content.layer)`, then `leaver.convert(bounds, to: content)`. The window’s content view is `ExactView`, which never sets `wantsLayer`, so `content.layer` is nil and the fallback always runs. AppKit view conversion ignores the layer scale (the comment above this line says so). The frame is `(shown.origin, slot.width × shown.height/scale)`, so the captured size is the visual size divided by the scale. Halfway from a 56×84 thumbnail to a 402×714 card, the next flight starts from about 402×700 instead of 229×399. The radius fix on line 79 (`cornerRadius * scale`) is the on-screen radius; the rectangle is not. iOS `convert` includes the view transform, so that side is fine.
+
+In the `flightLook.scale` branch, build the visual rect in the flight layer (frame origin, size `bounds.size * scale`; anchor is the top in that flipped layer) and `superview.convert` that rect to the content view. Do not use `NSView.convert` of the unscaled bounds. If finding 1 adds a clip view, convert that clip view’s bounds instead.
+
+3. **must-fix** — The place-went path clears the scale and then writes the wrong size in the flight layer’s coordinates. `host/apple/Sources/ExactKit/IOS/FlightsIOS.swift:127`, `host/apple/Sources/ExactKit/Mac/FlightsMac.swift:121`.
+
+Normal land reinserts into the slot’s parent and then applies `f.geometry` / `f.frame` / `slot.frame`. That path does clear the scale. Place-went runs when the slot’s parent is already gone, while the view is still in the flight layer. `f.geometry` and `f.frame` are parent coordinates, and neither is set at lift (only if a later frame op arrives). iOS then `applyGeometry`s those coordinates into the flight layer, or sets `bounds` to `slot.bounds.size` with `transform = .identity`, which keeps the center and jumps the top-left. macOS sets `view.frame = f.frame` only when a frame op was stored; otherwise `applyTransform` drops the scale and the view keeps the unscaled flight frame, so a card that was on screen at 229×399 appears at about 402×700. `forgetFlight` and `resetFlights` only nil `flightLook` and remove the view; the pool’s `rebind` clears the transform and the create op sets the frame, so those two are not the visible hole.
+
+On place-went, if the view is still in the flight container, read the visual rect before clearing the scale, set the transform back to identity, and set the frame to the slot’s size with that visual top-left — not `f.geometry` / `f.frame` origin. If a roots change already reparented it, only clear the scale (`flightLook = nil`, identity transform, `applyTransform()`) and do not write bounds.
+
+4. **should-fix** — The new tests lock in the clip-height model and never reach the paths above. `host/apple/tests/ExactKitTests/FlightScaleIOSTests.swift:13`, `host/apple/tests/ExactKitTests/FlightScaleMacTests.swift:35`.
+
+The iOS test asserts `bounds == (402, 600)` for a 714-tall slot, and both tests only fly a plain view plus a fixed-frame child. No border, gradient, glass, scroll, field, or text raster, so finding 1 does not fail them. No second `beginFlight` while the first view is up, so finding 2 does not fail them. The mac test sets `content.wantsLayer = true`, which is the one case where `content.layer` exists; production does not. No place-went coverage. Assert the full slot size, a border still at the scaled slot edge, an interrupted macOS capture equal to the shown rect with `wantsLayer` left false, and a place-went view with an identity transform and the slot’s size.

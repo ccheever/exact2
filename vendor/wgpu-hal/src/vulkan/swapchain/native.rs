@@ -288,11 +288,18 @@ impl Surface for NativeSurface {
             .map(|i| Arc::new(Mutex::new(SwapchainPresentSemaphores::new(i))))
             .collect::<Vec<_>>();
 
+        // EXACT (EXACT-PATCHES.md, 6).
+        let identities = images
+            .iter()
+            .map(|_| device.shared.texture_identity_factory.next())
+            .collect();
+
         Ok(Box::new(NativeSwapchain {
             raw,
             functor,
             device: Arc::clone(&device.shared),
             images,
+            identities,
             fence,
             config: config.clone(),
             acquire_semaphores,
@@ -317,6 +324,9 @@ pub(crate) struct NativeSwapchain {
     functor: khr::swapchain::Device,
     device: Arc<DeviceShared>,
     images: Vec<vk::Image>,
+    /// EXACT (EXACT-PATCHES.md, 6): each image's identity, the same at
+    /// every acquire, so the device's views and framebuffers of it serve.
+    identities: Vec<crate::vulkan::ResourceIdentity<vk::Image>>,
     /// Fence used to wait on the acquired image.
     fence: Option<vk::Fence>,
     config: crate::SurfaceConfiguration,
@@ -369,6 +379,8 @@ pub(crate) struct NativeSwapchain {
 
 impl Drop for NativeSwapchain {
     fn drop(&mut self) {
+        // EXACT (EXACT-PATCHES.md, 6): normally done by `release_resources`.
+        self.device.forget_surface_images(&self.identities);
         unsafe {
             self.functor.destroy_swapchain(self.raw, None);
         }
@@ -395,23 +407,31 @@ impl Swapchain for NativeSwapchain {
             unsafe { device.shared.raw.destroy_fence(fence, None) }
         }
 
+        // EXACT (EXACT-PATCHES.md, 6): the device is idle.
+        device.shared.forget_surface_images(&self.identities);
+
+        // EXACT (EXACT-PATCHES.md, 12): semaphores a surface texture still
+        // holds are left to it, never destroyed. wgpu-core keeps an acquired
+        // texture through `unconfigure` only when its device is lost (its
+        // discard checks the device first); the texture's drop makes no
+        // Vulkan call.
+        let mut held = 0;
         // We cannot take this by value, as the function returns `self`.
         for semaphore in self.acquire_semaphores.drain(..) {
-            let arc_removed = Arc::into_inner(semaphore).expect(
-                "Trying to destroy a SwapchainAcquireSemaphore that is still in use by a SurfaceTexture",
-            );
-            let mutex_removed = arc_removed.into_inner();
-
-            unsafe { mutex_removed.destroy(&device.shared.raw) };
+            match Arc::into_inner(semaphore) {
+                Some(mutex) => unsafe { mutex.into_inner().destroy(&device.shared.raw) },
+                None => held += 1,
+            }
         }
 
         for semaphore in self.present_semaphores.drain(..) {
-            let arc_removed = Arc::into_inner(semaphore).expect(
-                "Trying to destroy a SwapchainPresentSemaphores that is still in use by a SurfaceTexture",
-            );
-            let mutex_removed = arc_removed.into_inner();
-
-            unsafe { mutex_removed.destroy(&device.shared.raw) };
+            match Arc::into_inner(semaphore) {
+                Some(mutex) => unsafe { mutex.into_inner().destroy(&device.shared.raw) },
+                None => held += 1,
+            }
+        }
+        if held > 0 {
+            log::warn!("{held} swapchain semaphore sets are left to surface textures still held");
         }
     }
 
@@ -525,7 +545,8 @@ impl Swapchain for NativeSwapchain {
             return Err(crate::SurfaceError::Outdated);
         }
 
-        let identity = self.device.texture_identity_factory.next();
+        // EXACT (EXACT-PATCHES.md, 6): the image's own identity.
+        let identity = self.identities[index as usize];
 
         let texture = crate::vulkan::SurfaceTexture {
             index,
@@ -540,6 +561,7 @@ impl Swapchain for NativeSwapchain {
                     depth: 1,
                 },
                 identity,
+                surface_image: true,
             },
             metadata: Box::new(NativeSurfaceTextureMetadata {
                 acquire_semaphores: acquire_semaphore_arc,

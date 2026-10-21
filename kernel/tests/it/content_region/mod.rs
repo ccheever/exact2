@@ -1,5 +1,6 @@
 #![allow(clippy::field_reassign_with_default)]
 //! Kernel publication only: manual paragraph completion, no host/worker claim.
+mod live_time;
 mod support;
 use exact_kernel::*;
 use std::rc::Rc;
@@ -212,8 +213,9 @@ fn registration_refuses_auto_sized_outer_box_and_ordinary_layout_cannot_bypass_g
     .unwrap();
     let b = binding(&k);
     assert!(k.set_content_region(Some(b)).is_err());
-    // LLP 1074 T1: a static owner is refused too. A trial lays the owner
-    // out as the top of its own tree, where it contains every absolutely
+    // LLP 1074 T1: a static owner over an absolutely positioned box (the
+    // fixture's placeholder) is refused too. A trial lays the owner out as
+    // the top of its own tree, where it contains every absolutely
     // positioned descendant; the ordinary tree must agree.
     let mut k = fixture();
     let mut s = StyleProps::default();
@@ -224,12 +226,25 @@ fn registration_refuses_auto_sized_outer_box_and_ordinary_layout_cannot_bypass_g
         0,
         &[Op::SetStyle {
             id: 2,
-            patch: Box::new(s),
+            patch: Box::new(s.clone()),
         }],
     )
     .unwrap();
     let b = binding(&k);
     assert!(k.set_content_region(Some(b)).is_err());
+    // With nothing absolute under it, they agree: the compiler leaves such a
+    // clipping box static (487f14493), and it registers.
+    k.apply(
+        0,
+        0,
+        &[Op::SetStyle {
+            id: 5,
+            patch: Box::new(s),
+        }],
+    )
+    .unwrap();
+    let b = binding(&k);
+    assert!(k.set_content_region(Some(b)).is_ok());
 }
 
 #[test]
@@ -1073,7 +1088,8 @@ fn review_grid_baseline_dependency_requires_refusal_or_ordinary_shell_parity() {
     let mut root = StyleProps::default();
     root.mask = mask(&[StyleId::Display, StyleId::GridTemplateColumns]);
     root.display = Display::Grid;
-    root.grid_template_columns = GridTracks(vec![GridTrack::Points(200.), GridTrack::Points(200.)]);
+    root.rare.grid_template_columns =
+        GridTracks::from_tracks(vec![GridTrack::Points(200.), GridTrack::Points(200.)]);
     k.apply(
         0,
         0,
@@ -1122,7 +1138,7 @@ fn region_receipt_carries_resolved_exclusions_with_selected_frames() {
     ball.left = Dimension::Points(60.);
     ball.position_type = PositionType::Absolute;
     ball.wrap_flow = WrapFlow::Both;
-    ball.shape_outside = ShapeOutside::parse("circle()").unwrap();
+    ball.rare.shape_outside = ShapeOutside::parse("circle()").unwrap();
     ball.mask = mask(&[
         StyleId::Width,
         StyleId::Height,
@@ -1183,6 +1199,7 @@ fn region_receipt_carries_resolved_exclusions_with_selected_frames() {
     assert!(!r.shell.changed.contains(&key(&k, 4)));
 }
 mod flex;
+mod native_fields;
 mod projection;
 
 // Split-profile acceptance tests; baseline uses a separate existing-API fragment.

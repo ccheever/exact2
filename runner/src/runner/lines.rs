@@ -38,6 +38,78 @@ pub(super) fn query(resource: &str, source: &str) -> String {
     text!("query {}: {}", resource, source)
 }
 
+/// A source not ready at boot: the bake's answer shows until it is ready
+/// and answers again (LLP 1048.003 D6; feed F24). The web JS target says
+/// the same (`rt.js`).
+pub(super) fn build_time(resource: &str) -> String {
+    text!(
+        "{} shows its build-time answer until its source answers",
+        resource
+    )
+}
+
+/// A store reader's build-time answer is the bake's empty store's; a store
+/// holding secrets shows its placeholder instead (LLP 1027 D4, 2026-10-10).
+pub(super) fn secrets_unseen(resource: &str) -> String {
+    text!(
+        "{} shows its placeholder until its source answers: the store holds secrets its build-time answer did not see",
+        resource
+    )
+}
+
+/// That ask answered: the line says whether the first frame was right.
+pub(super) fn revalidated(resource: &str, same: bool) -> String {
+    let what = if same {
+        "equal to its build-time answer"
+    } else {
+        "replaces its build-time answer"
+    };
+    text!("{} answered: {}", resource, what)
+}
+
+/// A kept answer the first frame shows, with its identifying arguments
+/// (the first 200 characters, and `…` when there were more).
+pub(super) fn kept_shown(resource: &str, args: &str) -> String {
+    let args = shortened(args);
+    text!(
+        "{} shows its kept answer from the last session, kept for {}",
+        resource,
+        args
+    )
+}
+
+/// Arguments as a journal line shows them: the first 200 characters, and
+/// `…` when there were more.
+pub(super) fn shortened(args: &str) -> String {
+    let mut shown: String = args.chars().take(200).collect();
+    if shown.len() < args.len() {
+        shown.push('…');
+    }
+    shown
+}
+
+/// A kept answer the first frame does not show, and why (LLP 1027 D4,
+/// LLP 1027.005 D3): `kept` is what it was kept for, when it decoded.
+pub(super) fn kept_refused(resource: &str, kept: Option<&str>, why: &str) -> String {
+    match kept {
+        Some(kept) => text!(
+            "{} refused its kept answer: kept for {}, {}",
+            resource,
+            shortened(kept),
+            why
+        ),
+        None => text!("{} refused its kept answer: {}", resource, why),
+    }
+}
+
+/// A kept answer the fresh one contradicts (LLP 1027 D4, LLP 1102 §3.17).
+pub(super) fn kept_contradicted(resource: &str) -> String {
+    text!(
+        "{} answered differently from its kept answer: the first frame showed the last session's value until its source answered",
+        resource
+    )
+}
+
 pub(super) fn advanced(fired: usize, epoch: u64) -> String {
     let plural = if fired == 1 { "" } else { "s" };
     text!("advance → {} timer{} fired, epoch {}", fired, plural, epoch)
@@ -56,8 +128,37 @@ pub(super) fn kept(ticket: u64, name: &str) -> String {
     )
 }
 
+/// A watched topic changed while a request was in flight (LLP 1016.002 D4).
+pub(super) fn waits_for(topic: &str, ticket: u64, name: &str) -> String {
+    text!(
+        "changed {}: request {} ({}) lands first, then it is asked again",
+        topic,
+        ticket,
+        name
+    )
+}
+
+/// That request's reply landed (or failed): the resource is asked again.
+pub(super) fn asked_again(ticket: u64, name: &str) -> String {
+    text!(
+        "{}: asked again, a watched topic changed while request {} was in flight",
+        name,
+        ticket
+    )
+}
+
 pub(super) fn forgot(ticket: u64, name: &str) -> String {
     text!("forget request {} ({})", ticket, name)
+}
+
+/// Sends that waited and were never asked (LLP 1092 D4).
+pub(super) fn forgot_waiting(n: usize, name: &str) -> String {
+    text!(
+        "forgot {} waiting send{} ({})",
+        n,
+        if n == 1 { "" } else { "s" },
+        name
+    )
 }
 
 pub(super) fn enqueued(ticket: u64, name: &str, request: &Request) -> String {
@@ -91,6 +192,18 @@ pub(super) fn dropped(ticket: u64, summary: &str) -> String {
     )
 }
 
+pub(super) fn unsent(name: &str) -> String {
+    text!("send {}: waits until the data source is ready", name)
+}
+
+pub(super) fn unsent_refused(name: &str, error: &str) -> String {
+    text!(
+        "send {}, made before the data source was ready, refused: {}",
+        name,
+        error
+    )
+}
+
 pub(super) fn one_more(name: &str) -> String {
     text!("{}: the reply asks for one more request", name)
 }
@@ -107,6 +220,10 @@ pub(super) fn event(kind: &str, view: u32) -> String {
 /// The action an event ran, appended to its line.
 pub(super) fn ran(what: &mut String, action: &str) {
     exact_num::push_text!(what, " ({})", action);
+}
+
+pub(super) fn send_failed_now(name: &str, why: &str) -> String {
+    text!("send {} failed: {}; it ends unsent", name, why)
 }
 
 pub(super) fn failed_now(name: &str, why: &str) -> String {

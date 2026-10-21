@@ -10,9 +10,10 @@
 //! and handles no events (its `svg` is the one hit and accessibility box).
 
 use crate::{err, tags, LowerError, Lowerer};
-use contract_syntax::{Attr, Expr, File, Span, TemplatePart};
+use contract_syntax::{Attr, BinOp, Expr, File, Span, TemplatePart};
 use exact_motion::animation::LONGHANDS;
 use exact_motion::{Animation, Animations, Keyframes, Property};
+use std::cell::Cell;
 
 /// The filter primitives and their children (LLP 1055.000 D14), each a
 /// `SvgFe` node whose `fe` prop is its tag.
@@ -184,7 +185,7 @@ const FE_ATTRS: [&str; 47] = [
     "feScale",
     "xChannelSelector",
     "yChannelSelector",
-    "order",
+    "feOrder",
     "kernelMatrix",
     "divisor",
     "bias",
@@ -324,6 +325,7 @@ fn shared(attr: &str) -> bool {
             | "marker-mid"
             | "marker-end"
             | "animation"
+            | "-exact-animation-trigger"
             | "transition"
             | "testId"
             | "id"
@@ -386,15 +388,30 @@ impl Lowerer<'_> {
                         name => &[name],
                     };
                     let known = a.name == "animation-timing-function"
-                        || names
-                            .iter()
-                            .all(|n| Property::from_name(n).is_some_and(|p| p != Property::Height));
+                        || names.iter().all(|n| {
+                            // A font axis moves by `transition` alone (LLP 1019 §13 D10).
+                            Property::from_author_name(n).is_some_and(|p| {
+                                !matches!(
+                                    p,
+                                    Property::Height | Property::FontWeight | Property::FontStretch
+                                )
+                            })
+                        });
+                    if let (false, Some(new)) = (known, crate::tags::renamed(&a.name)) {
+                        ok = false;
+                        errors.push(LowerError {
+                            id: "lower-keyframe-property",
+                            message: format!("`{}` is spelled `{new}` (LLP 1081)", a.name),
+                            span: a.span,
+                        });
+                        continue;
+                    }
                     if !known {
                         ok = false;
                         errors.push(LowerError {
                             id: "lower-keyframe-property",
                             message: format!(
-                                "`{}` cannot animate: keyframes take opacity, translate, scale, rotate, stroke-dashoffset, r, cx, cy, x, y, rx, ry, color, background-color, border-color and its sides, tint-color, box-shadow, fill, stroke and animation-timing-function (LLP 1055.000 D6, D15; LLP 1062 D9)",
+                                "`{}` cannot animate: keyframes take opacity, translate, scale, rotate, stroke-dashoffset, r, cx, cy, x, y, rx, ry, color, background-color, border-color and its sides, -exact-tint-color, box-shadow, fill, stroke and animation-timing-function (LLP 1055.000 D6, D15; LLP 1062 D9)",
                                 a.name
                             ),
                             span: a.span,
@@ -415,6 +432,65 @@ impl Lowerer<'_> {
                         });
                         continue;
                     };
+                    // @ref LLP 1121 D3 — a motion token the fold returned.
+                    let value =
+                        crate::motion::folded(&a.name, &value, &crate::theme::motion_tokens())
+                            .unwrap_or(value);
+                    // @ref LLP 1081 D2 — a keyframe value is checked as an
+                    // attribute's is: an old spelling, and a bare role in a
+                    // colour, are refused with their new names.
+                    let rows = match crate::tags::attr(&a.name) {
+                        Some(crate::tags::AttrTarget::Styles(rows)) => rows,
+                        _ => &[],
+                    };
+                    let colour = names.iter().any(|n| {
+                        Property::from_author_name(n)
+                            .is_some_and(|p| p.is_color() || p == Property::BoxShadow)
+                    });
+                    if a.name == "scale" && value.split_whitespace().nth(1).is_some() {
+                        ok = false;
+                        errors.push(LowerError {
+                            id: "lower-keyframes",
+                            message: format!("`scale=\"{value}\"` in `keyframes {}`: exact2's `scale` is one factor for both axes, here and on a row; a per-axis scale is not built. A bar can grow by `translate` inside a box that clips (`overflow=\"hidden\"`)", decl.name),
+                            span: a.span,
+                        });
+                        continue;
+                    }
+                    // A design token is the colour it stands for (LLP 1121 D3).
+                    let value = match colour.then(|| crate::keyframes::tokens(&value, &self.theme))
+                    {
+                        None => value,
+                        Some(Ok(resolved)) => resolved,
+                        Some(Err(why)) => {
+                            ok = false;
+                            errors.push(LowerError {
+                                id: "lower-keyframes",
+                                message: format!("`{}=\"{value}\"` in `keyframes {}`: {why}; animate an opacity layer of each colour instead", a.name, decl.name),
+                                span: a.span,
+                            });
+                            continue;
+                        }
+                    };
+                    let hint = crate::style_names::renamed_token(&value, rows)
+                        .map(|(old, new)| format!("`{old}` is spelled `{new}` (LLP 1081)"))
+                        .or_else(|| {
+                            colour
+                                .then(|| crate::edits::role_hint(&value, true))
+                                .flatten()
+                                .map(|edit| edit.clause())
+                        });
+                    if let Some(hint) = hint {
+                        ok = false;
+                        errors.push(LowerError {
+                            id: "lower-keyframes",
+                            message: format!(
+                                "`{}=\"{value}\"` in `keyframes {}`: {hint}",
+                                a.name, decl.name
+                            ),
+                            span: a.span,
+                        });
+                        continue;
+                    }
                     for name in names {
                         css.push_str(&format!("{name}:{value};"));
                     }
@@ -478,6 +554,11 @@ impl Lowerer<'_> {
             );
         }
         for a in attrs {
+            // A module tag's own prop named like an SVG attribute (`fx`)
+            // is the module's (LLP 1024 D1).
+            if crate::native::leftover(tag, a) {
+                continue;
+            }
             // A `clipPath` by reference clips SVG elements (LLP 1055.000 D10);
             // a box's `clip-path` is a path.
             if matches!(tag, "text" | "tspan") && element && a.name == "rotate" {
@@ -554,7 +635,10 @@ impl Lowerer<'_> {
                     Some(tags::AttrTarget::Handler("press"))
                 ) {
                     "a definition handles no events: it renders only where it is referenced (LLP 1055.000 D17)"
-                } else if matches!(tags::attr(&a.name), Some(tags::AttrTarget::Handler(_))) {
+                } else if matches!(
+                    tags::attr_valued(&a.name, &a.value),
+                    Some(tags::AttrTarget::Handler(_))
+                ) {
                     "an SVG element takes `press` so far; its other handlers are a later stage (LLP 1055.000 D17)"
                 } else {
                     "it does not apply to an SVG element"
@@ -565,13 +649,25 @@ impl Lowerer<'_> {
                     a.span,
                 );
             }
-            if matches!(a.name.as_str(), "animation" | "exit-animation") {
+            let length = match a.name.as_str() {
+                "textX" => Some("x"),
+                "textY" => Some("y"),
+                "textDx" => Some("dx"),
+                "textDy" => Some("dy"),
+                "x1" | "y1" | "x2" | "y2" | "fx" | "fy" | "fr" | "markerWidth" | "markerHeight"
+                | "refX" | "refY" => Some(a.name.as_str()),
+                _ => None,
+            };
+            if let Some(name) = length.filter(|_| element) {
+                check_length(name, &a.value)?;
+            }
+            if matches!(a.name.as_str(), "animation" | "-exact-exit-animation") {
                 self.check_animation_names(tag, &a.value)?;
             }
             if a.name == "animation" && timeline_bound(attrs) {
                 self.check_timeline_rows(&a.value)?;
             }
-            if a.name == "exit-animation" {
+            if a.name == "-exact-exit-animation" {
                 exit_ends(&a.value)?;
             }
         }
@@ -696,6 +792,24 @@ impl Lowerer<'_> {
         };
         let short = attrs.iter().find(|a| a.name == "animation");
         let literal = |e: &Expr| matches!(e, Expr::Str(..) | Expr::Number(..));
+        // A list's items: its commas outside parentheses, so an easing
+        // function (`cubic-bezier(0.2, 0, 0, 1)`) is one.
+        let items = |text: &str| -> Vec<String> {
+            let (mut out, mut depth, mut start) = (Vec::new(), 0usize, 0);
+            for (i, c) in text.char_indices() {
+                match c {
+                    '(' => depth += 1,
+                    ')' => depth = depth.saturating_sub(1),
+                    ',' if depth == 0 => {
+                        out.push(text[start..i].trim().to_string());
+                        start = i + 1;
+                    }
+                    _ => {}
+                }
+            }
+            out.push(text[start..].trim().to_string());
+            out
+        };
         let text = |e: &Expr| match e {
             Expr::Str(s, _) => s.clone(),
             Expr::Number(n, _) => exact_num::Shortest(*n).to_string(),
@@ -723,10 +837,7 @@ impl Lowerer<'_> {
         {
             let mut list = base;
             if let Some(names) = longs.iter().find(|a| a.name == "animation-name") {
-                let names: Vec<String> = text(&names.value)
-                    .split(',')
-                    .map(|n| n.trim().to_string())
-                    .collect();
+                let names: Vec<String> = items(&text(&names.value));
                 list = names
                     .iter()
                     .enumerate()
@@ -738,10 +849,7 @@ impl Lowerer<'_> {
                     .collect();
             }
             for a in longs.iter().filter(|a| a.name != "animation-name") {
-                let items: Vec<String> = text(&a.value)
-                    .split(',')
-                    .map(|v| v.trim().to_string())
-                    .collect();
+                let items: Vec<String> = items(&text(&a.value));
                 for (i, entry) in list.iter_mut().enumerate() {
                     entry
                         .set_longhand(&a.name, &items[i % items.len()])
@@ -760,7 +868,7 @@ impl Lowerer<'_> {
                     parts.push(TemplatePart::Text(" ".into()));
                 }
                 match longs.iter().find(|a| a.name == *name) {
-                    Some(a) if literal(&a.value) && text(&a.value).contains(',') => {
+                    Some(a) if literal(&a.value) && items(&text(&a.value)).len() > 1 => {
                         return Err(bad(a.span, format!("`{}` is a list, and another part is computed: a computed animation is one animation", a.name)))
                     }
                     Some(a) if literal(&a.value) => parts.push(TemplatePart::Text(text(&a.value))),
@@ -779,28 +887,31 @@ impl Lowerer<'_> {
             name: "animation".into(),
             value,
             span: first.span,
+            written: longs.iter().chain(short.iter()).any(|a| a.written),
         });
         Ok(Some(out))
     }
 }
 
 /// Whether a node's animations follow a named timeline: any
-/// `animation-timeline` but a literal `auto`.
+/// `animation-timeline` but a literal `auto` or a clock timeline, which
+/// keeps them on the clock (LLP 1055.002).
 fn timeline_bound(attrs: &[Attr]) -> bool {
     attrs.iter().any(|a| {
         a.name == "animation-timeline"
-            && !matches!(&a.value, Expr::Str(v, _) if v.trim().eq_ignore_ascii_case("auto"))
+            && !matches!(&a.value, Expr::Str(v, _)
+                if v.trim().eq_ignore_ascii_case("auto") || v.trim().starts_with("-exact-clock("))
     })
 }
 
-/// An `exit-animation` must end (LLP 1063 D2): its node is removed when it
+/// An `-exact-exit-animation` must end (LLP 1063 D2): its node is removed when it
 /// does, so an `infinite` or `paused` literal is refused here.
 fn exit_ends(value: &Expr) -> Result<(), LowerError> {
     match value {
         Expr::Str(text, span) => match Animations::parse(text) {
             Ok(list) if list.validate_ending().is_err() => err(
                 "lower-exit-endless",
-                "an `exit-animation` must end: its node is removed when it does, so it cannot be `infinite` or `paused`",
+                "an `-exact-exit-animation` must end: its node is removed when it does, so it cannot be `infinite` or `paused`",
                 *span,
             ),
             _ => Ok(()),
@@ -811,6 +922,218 @@ fn exit_ends(value: &Expr) -> Result<(), LowerError> {
         }
         _ => Ok(()),
     }
+}
+
+// These props bypass CSS length resolution. NUL represents only unknown text;
+// literal neighbors, including empty strings and separators, stay intact.
+fn length_text(value: &Expr, bindings: &[(&str, &Expr)], budget: &Cell<usize>) -> String {
+    if budget.get() == 0 {
+        return "\0".into();
+    }
+    budget.set(budget.get() - 1);
+    match value {
+        Expr::Str(text, _) => text.clone(),
+        Expr::Number(n, _) => exact_num::Shortest(*n).to_string(),
+        Expr::Ident(name, _) => bindings
+            .iter()
+            .rposition(|(bound, _)| *bound == name)
+            .map(|i| length_text(bindings[i].1, &bindings[..i], budget))
+            .unwrap_or_else(|| "\0".into()),
+        Expr::Template(parts, _) => parts
+            .iter()
+            .map(|part| match part {
+                TemplatePart::Text(text) => text.clone(),
+                TemplatePart::Expr(value) => length_text(value, bindings, budget),
+            })
+            .collect(),
+        Expr::Binary(BinOp::Add, a, b, _) => {
+            crate::keyframes::constant(value, &[]).unwrap_or_else(|| {
+                length_text(a, bindings, budget) + &length_text(b, bindings, budget)
+            })
+        }
+        Expr::Let {
+            name, value, body, ..
+        } => {
+            let mut bindings = bindings.to_vec();
+            bindings.push((name, value));
+            length_text(body, &bindings, budget)
+        }
+        Expr::Typed(body, ..) => length_text(body, bindings, budget),
+        _ => "\0".into(),
+    }
+}
+
+fn check_length(name: &str, value: &Expr) -> Result<(), LowerError> {
+    // Shared derives can expand exponentially. Stop static inspection after a
+    // bounded number of visits; larger expressions stay unchecked like dynamic inputs.
+    check_length_fragment(name, value, "", "", &[], &Cell::new(4096))
+}
+
+fn check_length_fragment(
+    name: &str,
+    value: &Expr,
+    prefix: &str,
+    suffix: &str,
+    bindings: &[(&str, &Expr)],
+    budget: &Cell<usize>,
+) -> Result<(), LowerError> {
+    check_length_choices(name, value, prefix, suffix, bindings, budget)?;
+    let text = format!("{prefix}{}{suffix}", length_text(value, bindings, budget));
+    if budget.get() == 0 {
+        return Ok(());
+    }
+    check_length_text(name, &text, value.span())
+}
+
+// Splice one choice at a time into its literal neighbors. Other independent
+// choices remain unknown, so the work does not enumerate their combinations.
+fn check_length_choices(
+    name: &str,
+    value: &Expr,
+    prefix: &str,
+    suffix: &str,
+    bindings: &[(&str, &Expr)],
+    budget: &Cell<usize>,
+) -> Result<(), LowerError> {
+    if budget.get() == 0 {
+        return Ok(());
+    }
+    budget.set(budget.get() - 1);
+    match value {
+        Expr::Ternary(_, yes, no, _)
+        | Expr::Match {
+            some: yes,
+            none: no,
+            ..
+        } => {
+            check_length_fragment(name, yes, prefix, suffix, bindings, budget)?;
+            check_length_fragment(name, no, prefix, suffix, bindings, budget)
+        }
+        Expr::Ident(bound, _) => {
+            if let Some(i) = bindings.iter().rposition(|(name, _)| *name == bound) {
+                check_length_choices(name, bindings[i].1, prefix, suffix, &bindings[..i], budget)?;
+            }
+            Ok(())
+        }
+        Expr::Let {
+            name: bound,
+            value,
+            body,
+            ..
+        } => {
+            let mut bindings = bindings.to_vec();
+            bindings.push((bound, value));
+            check_length_choices(name, body, prefix, suffix, &bindings, budget)
+        }
+        Expr::Typed(body, ..) => check_length_choices(name, body, prefix, suffix, bindings, budget),
+        Expr::Template(parts, _) => {
+            let text: Vec<_> = parts
+                .iter()
+                .map(|part| match part {
+                    TemplatePart::Text(text) => text.clone(),
+                    TemplatePart::Expr(value) => length_text(value, bindings, budget),
+                })
+                .collect();
+            for (i, part) in parts.iter().enumerate() {
+                if let TemplatePart::Expr(value) = part {
+                    check_length_choices(
+                        name,
+                        value,
+                        &format!("{prefix}{}", text[..i].concat()),
+                        &format!("{}{suffix}", text[i + 1..].concat()),
+                        bindings,
+                        budget,
+                    )?;
+                }
+            }
+            Ok(())
+        }
+        Expr::Binary(BinOp::Add, a, b, _) => {
+            check_length_choices(
+                name,
+                a,
+                prefix,
+                &format!("{}{suffix}", length_text(b, bindings, budget)),
+                bindings,
+                budget,
+            )?;
+            check_length_choices(
+                name,
+                b,
+                &format!("{prefix}{}", length_text(a, bindings, budget)),
+                suffix,
+                bindings,
+                budget,
+            )
+        }
+        _ => Ok(()),
+    }
+}
+
+fn check_length_text(name: &str, text: &str, span: Span) -> Result<(), LowerError> {
+    use exact_kernel::svg::Length;
+
+    let keywords: &[&str] = match name {
+        "refX" => &["left", "center", "right"],
+        "refY" => &["top", "center", "bottom"],
+        _ => &[],
+    };
+    if keywords.contains(&text.trim_matches(|c: char| c == '\0' || c.is_whitespace())) {
+        return Ok(());
+    }
+    let refuse = |value: &str| {
+        err(
+            "lower-svg-length",
+            format!("`{value}` on SVG `{name}` is refused (LLP 1055.000 D4): use user units (unitless), px, in, cm, mm, pt, pc or %"),
+            span,
+        )
+    };
+    if let Some((before, _)) = text.split_once('(') {
+        let before = before.trim_end();
+        let start = before
+            .trim_end_matches(|c: char| c.is_ascii_alphabetic() || c == '-')
+            .len();
+        return refuse(&format!("{}()", &before[start..]));
+    }
+    for word in text.split(|c: char| c == ',' || c.is_ascii_whitespace()) {
+        let mut fragments = word.split('\0').peekable();
+        let mut after_unknown = false;
+        while let Some(fragment) = fragments.next() {
+            let start = fragment
+                .trim_end_matches(|c: char| c.is_ascii_alphabetic())
+                .len();
+            let unit = &fragment[start..];
+            let open_start = after_unknown && start == 0;
+            let open_end = fragments.peek().is_some();
+            after_unknown = true;
+            if unit.is_empty() || Length::parse(&format!("1{unit}")).is_some() {
+                continue;
+            }
+            // A trailing e can become an exponent only across unknown text.
+            if open_end
+                && matches!(unit, "e" | "E")
+                && (open_start || exact_num::parse_f64(&fragment[..start]).is_ok())
+            {
+                continue;
+            }
+            let unit = unit.to_ascii_lowercase();
+            let completes = |known: &str| match (open_start, open_end) {
+                (true, true) => known.contains(&unit),
+                (true, false) => known.ends_with(&unit),
+                (false, true) => known.starts_with(&unit),
+                (false, false) => false,
+            };
+            if Length::ABSOLUTE_UNITS
+                .iter()
+                .any(|(known, _)| completes(known))
+                || keywords.iter().any(|known| completes(known))
+            {
+                continue;
+            }
+            return refuse(&fragment[start..]);
+        }
+    }
+    Ok(())
 }
 
 /// SVG length props take text (LLP 1055.000 D4): a number literal becomes
@@ -830,8 +1153,9 @@ fn coerce(tag: &str, in_svg: bool, attrs: &[Attr]) -> Option<Vec<Attr>> {
     // SVG text's `x`, `y`, `dx`, `dy` are position lists, not geometry
     // rows (LLP 1055.000 D11): they lower to their own props.
     let text = tag == "tspan" || (tag == "text" && in_svg);
-    // @ref LLP 1055.000 D14 — a primitive's `dx`, `dy` and `scale`, and a
-    // light's `x`, `y`, `z`, are props: the plain names are rows.
+    // @ref LLP 1055.000 D14 — a primitive's `dx`, `dy`, `scale` and
+    // `order`, and a light's `x`, `y`, `z`, are props: the plain names are
+    // rows.
     if FE.contains(&tag) {
         let light = tag.ends_with("Light");
         let renamed: Vec<Attr> = attrs
@@ -842,6 +1166,8 @@ fn coerce(tag: &str, in_svg: bool, attrs: &[Attr]) -> Option<Vec<Attr>> {
                     "dy" => "feDy",
                     "scale" => "feScale",
                     "radius" => "feRadius",
+                    // CSS `order` is a flex or grid item's (feed F19).
+                    "order" => "feOrder",
                     "x" if light => "lightX",
                     "y" if light => "lightY",
                     "z" if light => "lightZ",
@@ -849,8 +1175,7 @@ fn coerce(tag: &str, in_svg: bool, attrs: &[Attr]) -> Option<Vec<Attr>> {
                 };
                 Attr {
                     name: name.into(),
-                    value: a.value.clone(),
-                    span: a.span,
+                    ..a.clone()
                 }
             })
             .collect();
@@ -870,8 +1195,7 @@ fn coerce(tag: &str, in_svg: bool, attrs: &[Attr]) -> Option<Vec<Attr>> {
                 };
                 Attr {
                     name: name.into(),
-                    value: a.value.clone(),
-                    span: a.span,
+                    ..a.clone()
                 }
             })
             .collect();
@@ -902,9 +1226,8 @@ fn coerce(tag: &str, in_svg: bool, attrs: &[Attr]) -> Option<Vec<Attr>> {
                         unreachable!("unitless is a string")
                     };
                     return Attr {
-                        name: a.name.clone(),
                         value: Expr::Number(exact_num::parse_f64(t.trim()).unwrap_or(0.0), *span),
-                        span: a.span,
+                        ..a.clone()
                     };
                 }
                 if !is_length_prop(&a.name) {
@@ -915,11 +1238,7 @@ fn coerce(tag: &str, in_svg: bool, attrs: &[Attr]) -> Option<Vec<Attr>> {
                     Expr::Number(n, span) => Expr::Str(exact_num::Shortest(*n).to_string(), *span),
                     other => Expr::Template(vec![TemplatePart::Expr(other.clone())], a.span),
                 };
-                Attr {
-                    name: a.name.clone(),
-                    value,
-                    span: a.span,
-                }
+                Attr { value, ..a.clone() }
             })
             .collect(),
     )

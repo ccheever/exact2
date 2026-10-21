@@ -93,19 +93,26 @@ fn identity_and_grants_are_the_bakes_and_the_modules_agree() {
     assert!(abi_supported("1") && abi_supported(&ABI.to_string()));
     let mut names = m.sources();
     names.sort_unstable();
-    // `exactDelivery` is the plan's too (LLP 1030 D7): the runner answers it
-    // before the data seam, so the module is never asked for it and need
-    // not export it.
+    // `exactDelivery` (LLP 1030 D7), `exactViewport` (the TV fit,
+    // 1e6cb3bb0), `exactActivities` and the three activity sends (LLP
+    // 1126.001 WP9) are the plan's too: the runner answers them before the
+    // data seam, so the module is never asked for them and need not
+    // export them.
     assert_eq!(
         names,
         [
             "board",
             "defaultLocation",
+            "endActivity",
+            "exactActivities",
             "exactDelivery",
+            "exactViewport",
             "nearest",
             "search",
+            "startActivity",
             "station",
-            "stations"
+            "stations",
+            "updateActivity",
         ]
     );
     // The bake's word and the module's must agree, by name.

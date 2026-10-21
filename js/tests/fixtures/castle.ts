@@ -22,6 +22,7 @@ const API = "https://api.castle.xyz/graphql";
 const LOGIN = "mutation Login($who: String!, $password: String!) { loginV2(who: $who, password: $password) { token username } }";
 
 const idle: Session = { ok: false, username: "", error: "" };
+let flushing = false, lastError = "";
 
 function text(args: unknown[], i: number): string {
   const v = args[i];
@@ -95,6 +96,56 @@ async function refusedLater(): Promise<Session> {
   await fetch("https://api.castle.xyz/ping");
   throw new Error("after the fetch");
 }
+// A Snapback refusal as the snapback4 driver throws it (`refused`): its code
+// is `failure(x).reason`; an `E_OFFLINE` one is also a fetch's `Network`.
+async function refusedWhy(offline: string): Promise<Session> {
+  await fetch("https://api.castle.xyz/ping");
+  const code = offline ? "E_OFFLINE" : "SLOT_FULL", error = Object.assign(new Error(`${code}: no`), { code, reason: code });
+  // `name` is defined, not assigned: Error.prototype's is read-only here (frozen intrinsics).
+  throw offline ? Object.defineProperties(error, { name: { value: "FetchError" }, kind: { value: "Network" } }) : error;
+}
+
+// One fetch two answers share, as a page's code memoizes one (hn-reader
+// F7): the second answer awaits the first's request, not one of its own.
+const items = new Map<string, Promise<string>>();
+function item(id: string): Session | Promise<Session> {
+  if (!id) return idle;
+  if (!items.has(id)) items.set(id, fetch(`https://api.castle.xyz/item/${id}`).then(r => r.text()));
+  return items.get(id)!.then(error => ({ ok: true, username: id, error }));
+}
+
+// It awaits the shared fetch, then fetches again: that continuation runs as
+// the answer whose reply settled the shared one, so its request lands among
+// that answer's tickets (review r4a 1).
+async function followup(id: string): Promise<Session> {
+  if (!id) return idle;
+  const first = await item(id);
+  const more = await fetch(`https://api.castle.xyz/comments/${id}`);
+  return { ok: true, username: id, error: first.error + " + " + await more.text() };
+}
+
+// A save that does not await its POST: the answer is given at once, the
+// request still goes (a browser runs it), even while another answer is in
+// flight (Grok's batch 2 review, runtime).
+async function saveQuietly(id: string): Promise<Session> {
+  void fetch(`https://api.castle.xyz/save/${id}`, { method: "POST", body: id });
+  return { ok: true, username: id, error: "saved" };
+}
+
+// One controller for every fetch (review r4a 7): a browser realm's fetch
+// watches its signal with a listener it removes when the fetch settles;
+// Hermes's watches through Ibex's own abort hooks and adds none.
+const reusedController = new AbortController();
+const listening = { added: 0, removed: 0 };
+{
+  const signal = reusedController.signal as any, add = signal.addEventListener, remove = signal.removeEventListener;
+  signal.addEventListener = function (...args: unknown[]) { listening.added++; return add.apply(this, args); };
+  signal.removeEventListener = function (...args: unknown[]) { listening.removed++; return remove.apply(this, args); };
+}
+async function reused(): Promise<Session> {
+  await fetch("https://api.castle.xyz/reused", { signal: reusedController.signal });
+  return { ok: true, username: "", error: `${listening.added}/${listening.removed}` };
+}
 
 async function parallel(): Promise<Session> {
   const [a, b] = await Promise.all([fetch("https://api.castle.xyz/a"), fetch("https://api.castle.xyz/b")]);
@@ -110,7 +161,12 @@ function answer(source: string, args: unknown[], store: Store): unknown {
     case "stuck": return stuck();
     case "refused": return refused();
     case "refusedLater": return refusedLater();
+    case "refusedWhy": return refusedWhy(text(args, 0));
     case "parallel": return parallel();
+    case "item": case "thread": return item(text(args, 0));
+    case "followup": return followup(text(args, 0));
+    case "reused": return reused();
+    case "saveQuietly": return saveQuietly(text(args, 0));
     // An answer that keeps coming (LLP 1016.000): each event, and the end.
     case "events": return fetch("https://api.castle.xyz/events?since=" + args[0], {
       exactStream: (e: { type: string; data: string; lastEventId: string; coalesced: number; message?: string }) =>
@@ -126,6 +182,62 @@ function answer(source: string, args: unknown[], store: Store): unknown {
       method: "POST",
       ...(args[2] ? { exactIndependentHttp: { maxResponseBytes: args[1] } } : {}),
     }).then(r => r.text());
+    // A send that marks the module busy across its fetch, and the mark.
+    case "flush":
+      flushing = true;
+      return fetch("https://api.castle.xyz/send", { method: "POST", body: text(args, 0) })
+        .then(r => r.text(), (e: { kind: string; message: string }) => { lastError = `${e.kind}: ${e.message}`; return "failed"; })
+        .finally(() => { flushing = false; });
+    case "flushing": return `${flushing} ${lastError}`;
+    // A BufferSource body goes as its bytes (LLP 1069.002 D4): a view into
+    // the middle of a buffer, the buffer itself, and a DataView, each once.
+    case "upload": {
+      const all = new Uint8Array([9, 0, 255, 128, 10, 13, 0, 9]);
+      const body = args[0] === "buffer" ? all.buffer : args[0] === "dataview" ? new DataView(all.buffer, 1, 6) : all.subarray(1, 7);
+      const sent = fetch("https://api.castle.xyz/blob", { method: "POST", headers: { "content-type": "image/png" }, body });
+      all[1] = 7; // a write after the call changes nothing sent
+      return sent.then(r => r.text());
+    }
+    // Fetch's refusals of a body, before any request: any body on a GET or
+    // HEAD, and what Web IDL's BufferSource leaves out. A detached buffer is
+    // no bytes. "unsupported" where the engine has no such buffer.
+    case "oddUpload": {
+      const B = ArrayBuffer as unknown as { new (n: number, o?: { maxByteLength: number }): ArrayBuffer; prototype: { transfer?: () => ArrayBuffer } };
+      let init: RequestInit;
+      if (args[0] === "get") init = { body: new ArrayBuffer(0) };
+      else if (args[0] === "head") init = { method: "HEAD", body: new Uint8Array(1) };
+      else if (args[0] === "shared") {
+        if (typeof SharedArrayBuffer === "undefined") return "unsupported";
+        init = { method: "POST", body: new Uint8Array(new SharedArrayBuffer(2)) };
+      } else if (args[0] === "resizable") {
+        const b = new B(3, { maxByteLength: 6 }) as ArrayBuffer & { resizable?: boolean };
+        if (b.resizable !== true) return "unsupported";
+        init = { method: "POST", body: new Uint8Array(b) };
+      } else {
+        const b = new Uint8Array([1, 2]).buffer as ArrayBuffer & { transfer?: () => ArrayBuffer };
+        if (typeof b.transfer !== "function") return "unsupported";
+        b.transfer();
+        init = { method: "POST", body: new Uint8Array(b) };
+      }
+      return fetch("https://api.castle.xyz/blob", init).then(r => r.text(), (e: Error) => `refused: ${e.message}`);
+    }
+    // A deadline for the whole exchange: a timeout rejects with its kind.
+    case "timed": return fetch("https://api.castle.xyz/slow", { exactTimeout: args[0] } as RequestInit)
+      .then(r => r.text(), (e: { kind: string; message: string }) => `failed: ${e.kind}: ${e.message}`);
+    case "redirected": return fetch("https://api.castle.xyz/moved", {
+      ...(args[0] === "" ? {} : { redirect: args[0] }),
+    }).then(r => r.status + " " + (r.headers.get("location") ?? ""));
+    // A `redirect` getter that throws rejects the fetch, which the source can recover from.
+    case "redirectThrows": return fetch("https://api.castle.xyz/moved", {
+      get redirect(): RequestRedirect { throw new Error("no mode"); },
+    }).then(() => "sent", (e: Error) => `recovered: ${e.message}`);
+    // A bad mode is a TypeError before an aborted signal's reason, as Fetch checks it first.
+    case "redirectAborted": {
+      const aborted = new AbortController();
+      aborted.abort(new Error("stop"));
+      return fetch("https://api.castle.xyz/moved", { redirect: "sideways" as RequestRedirect, signal: aborted.signal })
+        .then(() => "sent", (e: Error) => `${e instanceof TypeError ? "TypeError" : "other"}: ${e.message}`);
+    }
     default: throw new DataError("UnknownSource", source);
   }
 }

@@ -2,6 +2,10 @@
 struct DrawInstance {
     transform: u32, material: u32, data: u32, palette: u32,
     local: mat4x4f, normal: mat4x4f,
+    // The record's tint and added emission (NodeMaterials, MaterialOverrides).
+    // glow.w's bits point at a merged draw's per-part looks; custom shaders
+    // draw unmerged, so it is zero here.
+    tint: vec4f, glow: vec4f,
 }
 @group(3) @binding(0) var<storage, read> draw_instances: array<DrawInstance>;
 fn draw_instance(i:u32) -> DrawInstance { return draw_instances[slots[i]-2147483648u]; }

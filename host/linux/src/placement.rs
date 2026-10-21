@@ -113,6 +113,30 @@ pub(crate) fn warp_clipped(
     scale: f32,
     viewport: (f32, f32),
 ) -> Option<(Pixmap, Rect4)> {
+    warp_with(source, h, planes, scale, viewport, false)
+}
+
+/// [`warp_clipped`] with soft edges: past the picture is transparent, so a
+/// box's warped outline is antialiased as a browser draws a 3D layer's
+/// (LLP 1077 D8). A canvas child keeps its opaque edges.
+pub(crate) fn warp_soft(
+    source: &Pixmap,
+    h: [f32; 9],
+    planes: [[f32; 3]; 2],
+    scale: f32,
+    viewport: (f32, f32),
+) -> Option<(Pixmap, Rect4)> {
+    warp_with(source, h, planes, scale, viewport, true)
+}
+
+fn warp_with(
+    source: &Pixmap,
+    h: [f32; 9],
+    planes: [[f32; 3]; 2],
+    scale: f32,
+    viewport: (f32, f32),
+    soft: bool,
+) -> Option<(Pixmap, Rect4)> {
     let inv = inverse(h)?;
     let b = clipped_bounds(
         &h,
@@ -146,12 +170,14 @@ pub(crate) fn warp_clipped(
             continue;
         }
         let (x, y) = (x * scale, y * scale);
+        // Soft edges reach a pixel past the picture, fading to nothing.
+        let edge = if soft { 1. } else { 0. };
         if !x.is_finite()
             || !y.is_finite()
-            || x < 0.
-            || y < 0.
-            || x >= source.width() as f32
-            || y >= source.height() as f32
+            || x < -edge
+            || y < -edge
+            || x >= source.width() as f32 + edge
+            || y >= source.height() as f32 + edge
         {
             continue;
         }
@@ -165,9 +191,15 @@ pub(crate) fn warp_clipped(
             (0, 1, (1. - fx) * fy),
             (1, 1, fx * fy),
         ] {
+            let (sx, sy) = (ix + dx, iy + dy);
+            let outside =
+                sx < 0 || sy < 0 || sx >= source.width() as i32 || sy >= source.height() as i32;
+            if soft && outside {
+                continue;
+            }
             let (sx, sy) = (
-                (ix + dx).clamp(0, source.width() as i32 - 1),
-                (iy + dy).clamp(0, source.height() as i32 - 1),
+                sx.clamp(0, source.width() as i32 - 1),
+                sy.clamp(0, source.height() as i32 - 1),
             );
             let index = (sy as usize * source.width() as usize + sx as usize) * 4;
             for (c, value) in rgba.iter_mut().enumerate() {

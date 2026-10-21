@@ -59,7 +59,8 @@ pub fn draw_request(r: &DrawRequest<'_>) -> Result<Vec<u8>, String> {
         }
         None => w.u8(0),
     }
-    w.u8(u8::from(r.rtl));
+    // Bit 0 `rtl`, bit 1 a `display-p3` canvas (LLP 1100 D12a).
+    w.u8(u8::from(r.rtl) | (u8::from(r.p3) << 1));
     finish(w)
 }
 
@@ -143,7 +144,8 @@ impl<D: DataSource> super::Session<D> {
                 a: r.f64().map_err(error)?,
             }),
         };
-        let rtl = r.u8().map_err(error)? == 1;
+        let flags = r.u8().map_err(error)?;
+        let (rtl, p3) = (flags & 1 == 1, flags & 2 == 2);
         end(&r)?;
         let at = match recorders.0.iter().position(|r| r.0 == canvas) {
             Some(at) => at,
@@ -165,6 +167,7 @@ impl<D: DataSource> super::Session<D> {
             images: Default::default(),
             current_color,
             rtl,
+            p3,
         });
         let request = DrawRequest {
             canvas,
@@ -176,6 +179,7 @@ impl<D: DataSource> super::Session<D> {
             frame,
             current_color,
             rtl,
+            p3,
         };
         let reply = match self.data.draw(&request, &ctx) {
             Drawn::Now(reply) => reply,

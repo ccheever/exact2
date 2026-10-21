@@ -1,0 +1,29 @@
+tamber refused
+
+component
+  params
+    a: color = red
+
+component Card
+  inset: length = 8px
+
+component Card2
+  params
+    a: color = red
+    a: color = blue
+    b = red
+    c: length = 4px
+      when tone=cool: 6px
+  params
+    d: color = red
+
+component Card2
+  params
+    e: color = red
+
+component Empty
+  params
+
+component NoKind
+  params
+    pin: = red

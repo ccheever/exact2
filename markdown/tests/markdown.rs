@@ -655,68 +655,76 @@ fn this_repositorys_own_documents_hold_the_invariants() {
             .filter(|p| p.extension().is_some_and(|x| x == "md")),
     );
     assert!(files.len() > 50);
-    for file in files {
-        let source = std::fs::read_to_string(&file).unwrap();
-        let units = source.encode_utf16().count() as u32;
-        let styled = style(&source, None);
-        let name = file.display();
-        assert!(
-            styled
-                .spans
-                .windows(2)
-                .all(|w| w[0].range.end <= w[1].range.start),
-            "{name}: spans overlap"
-        );
-        assert!(
-            styled.hidden.windows(2).all(|w| w[0].end < w[1].start),
-            "{name}: hidden ranges overlap"
-        );
-        assert!(
-            styled
-                .paragraphs
-                .windows(2)
-                .all(|w| w[0].range.end <= w[1].range.start),
-            "{name}: paragraphs overlap"
-        );
-        for range in styled
-            .spans
-            .iter()
-            .map(|s| s.range)
-            .chain(styled.hidden.iter().copied())
-            .chain(styled.replaced.iter().map(|r| r.range))
-        {
-            assert!(
-                range.start < range.end && range.end <= units,
-                "{name}: {range:?}"
-            );
+    // The documents are independent: check them on every core.
+    let threads = std::thread::available_parallelism().map_or(4, |n| n.get());
+    std::thread::scope(|scope| {
+        for chunk in files.chunks(files.len().div_ceil(threads)) {
+            scope.spawn(move || chunk.iter().for_each(|f| document_holds_the_invariants(f)));
         }
-        let text: usize = segments(&source, 4096)
-            .iter()
-            .map(|s| if let Segment::Text(t) = s { t.len() } else { 0 })
-            .sum();
-        assert!(text <= source.len(), "{name}");
+    });
+}
+
+fn document_holds_the_invariants(file: &std::path::Path) {
+    let source = std::fs::read_to_string(file).unwrap();
+    let units = source.encode_utf16().count() as u32;
+    let styled = style(&source, None);
+    let name = file.display();
+    assert!(
+        styled
+            .spans
+            .windows(2)
+            .all(|w| w[0].range.end <= w[1].range.start),
+        "{name}: spans overlap"
+    );
+    assert!(
+        styled.hidden.windows(2).all(|w| w[0].end < w[1].start),
+        "{name}: hidden ranges overlap"
+    );
+    assert!(
+        styled
+            .paragraphs
+            .windows(2)
+            .all(|w| w[0].range.end <= w[1].range.start),
+        "{name}: paragraphs overlap"
+    );
+    for range in styled
+        .spans
+        .iter()
+        .map(|s| s.range)
+        .chain(styled.hidden.iter().copied())
+        .chain(styled.replaced.iter().map(|r| r.range))
+    {
         assert!(
-            plain(&source).len() <= source.len() + styled.replaced.len() * 3,
-            "{name}"
+            range.start < range.end && range.end <= units,
+            "{name}: {range:?}"
         );
-        // Commands reanalyze the whole source; the short documents are enough.
-        for at in [units / 3, units].into_iter().filter(|_| units < 12_000) {
-            for command in [
-                Command::Bold,
-                Command::Newline,
-                Command::Bullet,
-                Command::CodeBlock,
-                Command::Quote,
-                Command::Footnote,
-            ] {
-                let done = edit(&source, Range::caret(at), command);
-                let after = done.apply(&source);
-                assert!(
-                    done.selection.end <= after.encode_utf16().count() as u32,
-                    "{name}"
-                );
-                style(&after, Some(done.selection));
-            }
+    }
+    let text: usize = segments(&source, 4096)
+        .iter()
+        .map(|s| if let Segment::Text(t) = s { t.len() } else { 0 })
+        .sum();
+    assert!(text <= source.len(), "{name}");
+    assert!(
+        plain(&source).len() <= source.len() + styled.replaced.len() * 3,
+        "{name}"
+    );
+    // Commands reanalyze the whole source; the short documents are enough.
+    for at in [units / 3, units].into_iter().filter(|_| units < 12_000) {
+        for command in [
+            Command::Bold,
+            Command::Newline,
+            Command::Bullet,
+            Command::CodeBlock,
+            Command::Quote,
+            Command::Footnote,
+        ] {
+            let done = edit(&source, Range::caret(at), command);
+            let after = done.apply(&source);
+            assert!(
+                done.selection.end <= after.encode_utf16().count() as u32,
+                "{name}"
+            );
+            style(&after, Some(done.selection));
         }
     }
 }
@@ -728,7 +736,7 @@ fn pieces_flatten_a_document_into_runs_one_engine_paints() {
     let text: String = out.iter().map(|p| p.text.as_str()).collect();
     assert_eq!(
         text,
-        "Title\n\nA bold link and code.\n\n•  one\n☑  two\n   wrapped\n\n▎ quoted\n\nlet a;\n\n──────────\n\nEnd[1].\n\n[1] Note."
+        "Title\n\nA bold link and code.\n\n• one\n☑ two\nwrapped\n\n▎ quoted\n\nlet a;\n\n──────────\n\nEnd[1].\n\n[1] Note."
     );
     let title = &out[0];
     assert!(
@@ -770,6 +778,47 @@ fn pieces_flatten_a_document_into_runs_one_engine_paints() {
     }
     assert_eq!(pieces(""), Vec::<Piece>::new());
     assert_eq!(pieces("plain")[0].text, "plain");
+}
+
+#[test]
+fn a_list_item_hangs_its_marker_in_its_indent_as_the_browser_does() {
+    // LLP 1045 D4: a list item's paragraph starts 40 px in per level (the
+    // UA sheet's `padding-inline-start`), its marker outside, its end at the
+    // indent; a continuation line starts at the indent with no marker.
+    let out =
+        pieces("Body\n\n- one\n  more\n  - two\n    - three\n\n9. nine\n10) ten\n\n> - [ ] quoted");
+    let hung: Vec<(&str, f32)> = out
+        .iter()
+        .filter(|p| p.hang)
+        .map(|p| (p.text.as_str(), p.indent))
+        .collect();
+    assert_eq!(
+        hung,
+        [
+            ("• ", 40.0),
+            ("◦ ", 80.0),
+            ("▪ ", 120.0),
+            ("9. ", 40.0),
+            ("10) ", 40.0),
+            ("▎ ☐ ", 40.0)
+        ]
+    );
+    // Every piece of an item carries its indent, its last newline too, and
+    // nothing outside a list has one.
+    let one = out.iter().position(|p| p.text == "• ").unwrap();
+    assert_eq!(out[one + 1].text, "one\nmore");
+    assert_eq!(out[one + 1].indent, 40.0);
+    assert_eq!(
+        (out[one + 2].text.as_str(), out[one + 2].indent),
+        ("\n", 40.0)
+    );
+    assert!(!out[one + 1].hang);
+    assert!(out[..one].iter().all(|p| p.indent == 0.0 && !p.hang));
+    assert!(out
+        .iter()
+        .any(|p| p.text.starts_with("nine") && p.indent == 40.0 && p.source.is_some()));
+    let text: String = out.iter().map(|p| p.text.as_str()).collect();
+    assert!(text.ends_with("9. nine\n10) ten\n\n▎ ☐ quoted"), "{text:?}");
 }
 
 #[test]

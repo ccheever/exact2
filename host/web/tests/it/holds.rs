@@ -13,10 +13,10 @@ const SOURCE: &str = r##"component App
   state color = "#ff0000"
   state shown = true
   state count = 0
-  action retarget writes target, color
+  action retarget
     target = 24
     color = "#0000ff"
-  action swipe writes count, shown
+  action swipe
     count = count + 1
     shown = false
   view
@@ -24,8 +24,8 @@ const SOURCE: &str = r##"component App
       button press=retarget testId="retarget"
         text "retarget"
       text `${count}` testId="count"
-      when shown
-        column testId="row" scale=target background-color=color transition="translate spring(180, 12, 1), scale spring(180, 12, 1)" swiperight=swipe
+      if shown
+        column testId="row" scale=target background-color=color transition="translate -exact-spring(180, 12, 1), scale -exact-spring(180, 12, 1)" swiperight=swipe
           text "row"
 "##;
 fn boot() -> Host<NoData> {
@@ -219,22 +219,22 @@ fn real_wasm_swipe_takeover_style_commits_and_deletion() {
   state blocked = false
   state disabled = false
   state tint = "#ff0000"
-  state returning = "translate 0s spring(180, 12, 1) 100ms"
-  action edit(value) writes draft, tint
+  state returning = "translate 0s -exact-spring(180, 12, 1) 100ms"
+  action edit(value)
     draft = value
     tint = "#0000ff"
-  action plain writes returning
+  action plain
     returning = "none"
-  action arm writes kill
+  action arm
     kill = true
-  action deactivate writes blocked
+  action deactivate
     blocked = true
-  action disable writes disabled
+  action disable
     disabled = true
-  action enable writes blocked, disabled
+  action enable
     blocked = false
     disabled = false
-  action swipe writes count, shown
+  action swipe
     count = count + 1
     shown = not kill
   view
@@ -254,10 +254,10 @@ fn real_wasm_swipe_takeover_style_commits_and_deletion() {
         text "Enable and return"
       column navigationBack="back" navigationKey=(blocked ? "other" : "held")
         column navigationKey="held" testId="held-route"
-          when shown
+          if shown
             column testId="row" disabled=disabled swiperight=swipe touch-action="pan-y" width=300 height=90 background-color=tint transition=returning
               text "Swipe" height=30
-              text "Reply" testId="indicator" swipeIndicator=true opacity=0 scale=0.5 transition="opacity spring(180, 12, 1), scale spring(180, 12, 1)"
+              text "Reply" testId="indicator" swipeIndicator=true opacity=0 scale=0.5 transition="opacity -exact-spring(180, 12, 1), scale -exact-spring(180, 12, 1)"
         column navigationKey="other"
           button id="back" press=enable
             text "Back"
@@ -267,12 +267,13 @@ fn real_wasm_swipe_takeover_style_commits_and_deletion() {
     std::fs::create_dir_all(&dir).unwrap();
     let plan = contract::bake(contract::compile(source).unwrap(), NoData).unwrap();
     std::fs::write(dir.join("app.plan"), plan.encode()).unwrap();
-    let output = std::process::Command::new("bun")
-        .arg("host/web/tests/holds.mjs")
-        .env("EXACT_MOTION_TEST", &dir)
-        .current_dir(root)
-        .output()
-        .unwrap();
+    let output =
+        std::process::Command::new(std::env::var_os("BUN").unwrap_or_else(|| "bun".into()))
+            .arg("host/web/tests/holds.mjs")
+            .env("EXACT_MOTION_TEST", &dir)
+            .current_dir(root)
+            .output()
+            .unwrap();
     eprintln!("{}", String::from_utf8_lossy(&output.stdout));
     std::fs::remove_dir_all(dir).unwrap();
     assert!(
@@ -291,8 +292,8 @@ fn hold_input_drains_other_advanced_properties_without_animating_the_hold() {
             "background-color=color opacity=(target == 24 ? 0.5 : 1)",
         )
         .replace(
-            "scale spring(180, 12, 1)\"",
-            "scale spring(180, 12, 1), opacity spring(180, 12, 1)\"",
+            "scale -exact-spring(180, 12, 1)\"",
+            "scale -exact-spring(180, 12, 1), opacity -exact-spring(180, 12, 1)\"",
         );
     exact_web::link(exact_web_capabilities::ALL);
     let mut host = Host::boot(

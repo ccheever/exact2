@@ -34,16 +34,12 @@ function assets(entry) {
   cancelAssets(entry, new Set(retired));
   for (const name of names) {
     if ([...assetFlights].some(f => f.entry === entry && f.name === name && !f.cancelled)) continue;
-    if (assetFlights.size >= 256) {
-      module.gpu_asset_failed(id, name, "host limit is 256 queued and active asset flights");
-      continue;
-    }
-    const flight = {entry, name, deadline:performance.now() + deadlineMs, controller:new AbortController(), cancelled:false};
+    const flight = {entry, name, controller:new AbortController(), cancelled:false};
     assetFlights.add(flight);
     flight.promise = new Promise(resolve => { flight.resolve = resolve; });
     flight.run = async () => {
       let bytes = null, failure;
-      const deadline = flight.deadline;
+      const deadline = performance.now() + deadlineMs;
       if (!assetName(name)) failure = "invalid asset name";
       else if (devAssets() instanceof Map) {
         bytes = devAssets().get(`assets/${name}`)?.bytes ?? null;

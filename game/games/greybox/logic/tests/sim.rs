@@ -13,6 +13,7 @@ fn sim() -> Sim<Greybox> {
 #[test]
 fn forward_parity_and_seek_invariance() {
     let mut one = sim();
+    one.assert_pin(include_str!("../../pins.json"));
     let mut many = sim();
     let mut uneven = sim();
     for s in [&mut one, &mut many, &mut uneven] {
@@ -68,11 +69,13 @@ fn save_mid_run_retains_clock_input_and_future_events() {
         code: "Space".into(),
         down: true,
         at_ms: 1011.0,
+        player: 0,
     });
     s.input(InputEvent::Key {
         code: "Space".into(),
         down: false,
         at_ms: 1012.0,
+        player: 0,
     });
     s.run(713.123);
     let saved = s.save().unwrap();
@@ -203,6 +206,12 @@ fn soundscape_journals_ground_distance_beacon_and_camera_wind() {
         .any(|e| e.line.contains("loop wind on ")));
     assert_eq!(s.get::<AudioSource>("camera").unwrap().sound, "wind");
     s.tap("KeyE");
+    s.run(17.0);
+    assert!(!s
+        .world()
+        .journal()
+        .iter()
+        .any(|e| e.line.contains("sfx chime at beacon-1 ")));
     s.run(17.0);
     assert!(s
         .world()

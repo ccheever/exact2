@@ -7,6 +7,8 @@
  * presenter's main thread). A call on a destroyed handle, or one made while
  * another call is in progress on the same runtime (from a callback), is
  * refused with a batch whose error says so — never a trap.
+ * A re-entrant refusal also says "busy":true: no runner turn completed, so
+ * the presenter must keep its clock, timers, motion and owed canvas draws.
  *
  * The web host's buffer discipline over C: the app never hands the host a
  * pointer the host did not give out. exact_in(rt, len) resizes the runtime's
@@ -30,7 +32,7 @@
 #include <stdint.h>
 
 /* The ABI's version: part of the compatibility id (LLP 1030 D3a). */
-#define EXACT_ABI_VERSION 10
+#define EXACT_ABI_VERSION 16
 
 #ifdef __cplusplus
 extern "C" {
@@ -45,11 +47,12 @@ typedef struct ExactRasterDemand {
     uint64_t view, view_generation, source, generation;
     uint32_t width, height, natural_width, natural_height;
     uint32_t priority; /* 0 visible, 1 overscan */
+    uint32_t variant;  /* storage (LLP 1100 D7): 1 sRGB8, 2 own-space 8, 3 deep 16F, 4 HDR 16F, 5 reduced 8 */
     uint64_t encoded_bytes, header_bytes, stride, scratch_bytes;
 } ExactRasterDemand;
 typedef struct ExactRasterWork {
     uint64_t permit, session, source, generation, charge;
-    uint32_t width, height;
+    uint32_t width, height, variant;
 } ExactRasterWork;
 typedef struct ExactRasterReady { uint64_t lease, payload; } ExactRasterReady;
 typedef struct ExactRasterStats {
@@ -62,12 +65,15 @@ typedef struct ExactRasterStats {
 uint64_t exact_raster_session_create(uint64_t budget);
 /* Update capacity without releasing displayed or in-flight backings. */
 void exact_raster_session_budget(uint64_t session, uint64_t budget);
-/* 0 reset, 1 pause, 2 resume, 3 shutdown, 4 trim. */
+/* 0 reset, 1 pause, 2 resume, 3 shutdown, 4 trim, 5 wake a worker (a source to read). */
 void exact_raster_session_control(uint64_t session, uint32_t op);
 uint64_t exact_raster_request(uint64_t session, ExactRasterDemand demand);
 void exact_raster_cancel(uint64_t session, uint64_t request);
 uint32_t exact_raster_status(uint64_t session, uint64_t request);
-ExactRasterWork exact_raster_next_decode(uint32_t timeout_ms);
+/* The gate's wakes so far: read before a worker looks for a source to read,
+   and passed to next_decode, which then returns at once at any wake since. */
+uint64_t exact_raster_wake_sequence(void);
+ExactRasterWork exact_raster_next_decode(uint32_t timeout_ms, uint64_t since);
 uint32_t exact_raster_is_cancelled(uint64_t permit);
 /* Transfers one retained immutable native payload, even on stale completion.
  * Scratch must already be gone. release(payload) may run on any thread. */
@@ -77,6 +83,16 @@ void exact_raster_charge_release(uint64_t charge);
 ExactRasterReady exact_raster_take_ready(uint64_t session, uint64_t request);
 void exact_raster_lease_release(uint64_t lease);
 ExactRasterStats exact_raster_stats(uint64_t session);
+
+/* An SVG file as an image (LLP 1011.001 D4). header: 1 when bytes begin an SVG,
+ * writing its natural size (CSS pixels) into size[0..2]; else 0. scene: the
+ * file resolved at width x height CSS pixels as the svg op's JSON, in a buffer
+ * of *out_len bytes to free with exact_svg_image_free; *flags bit 0 means the
+ * picture has text (drawn on the main thread, where the fonts are), bit 1 that
+ * the file was refused, the buffer then holding the reason. */
+uint32_t exact_svg_image_header(const uint8_t *bytes, size_t len, double *size);
+uint8_t *exact_svg_image_scene(const uint8_t *bytes, size_t len, double width, double height, size_t *out_len, uint32_t *flags);
+void exact_svg_image_free(uint8_t *ptr, size_t len);
 
 /* Width/height offers below zero mean "as the content wants". */
 #define EXACT_MAX_CONTENT (-1.0f)
@@ -92,9 +108,13 @@ typedef struct ExactTextRun {
     uint8_t has_line_height; /* 0 normal, 1 explicit used length */
     float line_height;     /* points; zero is a real length */
     float letter_spacing;  /* points per glyph */
-    uint8_t font_variant_numeric; /* CSS bits: 1 tabular-nums (the face's tnum) */
+    uint8_t font_variant_numeric; /* CSS bits: 1 tabular-nums */
     uint8_t has_inline_box;
     float inline_width, inline_height, inline_baseline;
+    float font_stretch;    /* CSS font-stretch, percent of normal width */
+    uint8_t variation_count;      /* CSS font-variation-settings: axes set */
+    uint32_t variation_tags[8];   /* each a big-endian OpenType tag ('wght') */
+    float variation_values[8];    /* in the axis's own units */
 } ExactTextRun;
 
 /* LLP 1053 G5. CSS white space collapsing (normal, nowrap, pre-line) of a paragraph's
@@ -112,6 +132,30 @@ size_t exact_text_collapse(const uint8_t *utf8, size_t len, const size_t *lens, 
  * its length and static bytes at *out, `~` first when another is drawn in its place; 0 when
  * the schema has no such material. */
 size_t exact_material_platform(const uint8_t *name, size_t len, uint8_t platform, const uint8_t **out);
+
+/* LLP 1066. Resolve length stops/repetition for a painted box. UTF-8 CSS in,
+ * JSON out; returns bytes needed, writing nothing when cap is too small. */
+size_t exact_gradient(const uint8_t *css, size_t len, float width, float height,
+                      uint8_t dark, uint8_t *out, size_t cap);
+
+/* LLP 1077 D1. A box outline with shaped corners as one closed polygon: `shape` 4 K values
+ * (NaN is -exact-continuous), `radii` 8 (top-left first, horizontal then vertical, reduced).
+ * Writes x,y pairs into `out` when `cap` holds them all; returns the point count. */
+size_t exact_corner_outline(const float *shape, float x, float y, float width, float height,
+    const float *radii, float *out, size_t cap);
+
+/* Intern a CSS calculation tree; return 0 for invalid or compact lengths.
+ * The returned handle has no environment; exact_calc_create supplies it. */
+uint32_t exact_calc_parse(const uint8_t *text, size_t len);
+
+/* A style owns this environment snapshot until destroy. Values: top, right, bottom, left,
+ * viewport width/height (the window's when a sheet is open), segment cols/rows, the layout
+ * regions' count (0 or 20) and the regions (LLP 1123 D10), the title-bar area's count (0 or 4)
+ * and its x,y,w,h, then x,y,w,h per segment. create copies them and returns NULL for malformed input or an unknown handle.
+ * resolve borrows a live context; destroy consumes it exactly once (NULL is allowed). */
+void *exact_calc_create(uint32_t handle, const double *values, size_t count);
+double exact_calc_resolve(const void *context, double basis);
+void exact_calc_destroy(void *context);
 
 /* LLP 1043.000 D5-D7. Same-thread TextShape lifetime, independent of runtime.
  * Non-null buffers must be aligned and valid for their stated counts. */
@@ -143,6 +187,11 @@ ExactFlowResult exact_textflow_flow(uint64_t handle, const ExactFlowShape *shape
     ExactFlowFragment *out, size_t cap);
 /* Zero, stale, and repeated free are harmless. */
 void exact_textflow_free(uint64_t handle);
+/* Where a line may end in a paragraph (Chrome's opportunities, the walker's):
+ * ascending UTF-16 offsets, the last its length. Words as in prepare. Writes
+ * min(count,cap) to out (null is a query); returns count, 0 for invalid UTF-8. */
+size_t exact_text_line_breaks(const uint8_t *utf8, size_t len,
+    const uint32_t *words, size_t word_count, uint32_t *out, size_t cap);
 
 typedef struct ExactInlinePosition { float x, y; } ExactInlinePosition;
 
@@ -162,7 +211,15 @@ typedef struct ExactMeasureRequest {
     const ExactFlowShape *exclusions;
     size_t exclusion_count;
     uint8_t markup;        /* 1: the one run is Markdown source; expand it with exact_markup_pieces (LLP 1045 D3) */
-    ExactInlinePosition *inline_positions; /* optional synchronous output, count points; metrics.baseline then names the last line */
+    float text_indent;     /* CSS text-indent, points: the first line's inset from its start edge */
+    uint8_t hyphens;       /* CSS hyphens: 0 manual (the initial value), 1 none (soft hyphens already arrive as U+034F), 2 auto */
+    const uint8_t *lang;   /* the document language, UTF-8 (auto's hyphenation points); lang_len 0 is unknown */
+    size_t lang_len;
+    uint8_t text_box_trim;  /* CSS text-box-trim: 0 none, 1 trim-start, 2 trim-end, 3 trim-both */
+    uint8_t text_box_over;  /* text-box-edge over: 0 text, 1 cap, 2 ex */
+    uint8_t text_box_under; /* text-box-edge under: 0 text, 1 alphabetic */
+    uint8_t text_wrap_style; /* CSS text-wrap-style: 0 auto, 1 balance (LLP 1001 §6) */
+    ExactInlinePosition *inline_positions;
 } ExactMeasureRequest;
 
 /* LLP 1045 D3/D4. Markdown source into display pieces, the same for measure and paint. */
@@ -173,12 +230,15 @@ typedef struct ExactMarkupPiece {
     uint8_t italic, mono, strike;
     uint8_t role;                       /* 0 ink, 1 code, 2 link, 3 marker, 4 quote */
     const uint8_t *href; size_t href_len; /* a link's target; null when none */
+    float indent;                       /* CSS px: the head indent of the paragraph it is in (a list item's) */
+    uint8_t hang;                       /* 1: a list marker, hung before the indent, its end at it */
 } ExactMarkupPiece;
 /* Writes the pieces and their count, valid until exact_markup_free(handle). Zero on invalid UTF-8. */
 uint64_t exact_markup_pieces(const uint8_t *utf8, size_t len, const ExactMarkupPiece **out, size_t *count);
 /* Styling for an editor, as JSON (see host/apple/src/markup.rs `style`): paragraphs, spans, hidden
- * ranges and replacements over the source in UTF-16 units; the selection reveals markers it touches
- * (sel_start UINT32_MAX for none). Valid until exact_markup_free(handle). */
+ * ranges, replacements and link destinations over the source in UTF-16 units; the selection reveals
+ * markers it touches, never a link destination (sel_start UINT32_MAX for none). Valid until
+ * exact_markup_free(handle). */
 uint64_t exact_markup_style(const uint8_t *utf8, size_t len, uint32_t sel_start, uint32_t sel_end, const uint8_t **out, size_t *count);
 /* UTF-16 replacement JSON: {replacements:[[start,end,text],...],selection:[start,end]}.
  * Invalid commands return {error:...}; the original source is unchanged. */
@@ -216,7 +276,10 @@ typedef struct ExactFontFace {
     const uint8_t *source;
     size_t source_len;
     uint16_t stack;
-    uint16_t weight;
+    uint16_t weight;       /* CSS weight, or the low end of a variable face's range */
+    uint16_t weight_max;   /* the range's high end; equal to weight for one weight */
+    uint16_t stretch_min;  /* widths in tenths of a percent; 1000 is normal */
+    uint16_t stretch_max;
     uint8_t italic;
 } ExactFontFace;
 
@@ -237,6 +300,43 @@ typedef void (*ExactWakeFn)(void *ctx);
 /* Lifecycle. */
 ExactRuntime exact_create(void);
 void exact_destroy(ExactRuntime rt);
+/* LLP 1104: UIKit's body font, installed in the host registry before layout. */
+typedef struct {
+    const uint8_t *family; size_t family_len;
+    uint16_t family_id; float size; uint16_t weight; uint8_t italic;
+} ExactControlFont;
+/* kind: 0 field/textarea, 1 mini, 2 small, 3 medium/default, 4 large button. */
+typedef ExactControlFont (*ExactControlTextFn)(void *ctx, uint8_t kind);
+/* kind: 0 field, 1 secure, 2 search, 3 textarea; plus 4 for a field in a
+ * grouped list's row (LLP 1116.005 D2), borderless in its cell on iOS. */
+typedef struct {
+    uint8_t kind; uint16_t family_id; float size; uint16_t weight; uint8_t italic;
+} ExactFieldChromeRequest;
+typedef struct {
+    float top, right, bottom, left, minimum_height; uint8_t provisional;
+} ExactFieldChrome;
+typedef ExactFieldChrome (*ExactFieldChromeFn)(void *ctx, const ExactFieldChromeRequest *request);
+void exact_set_control_text(ExactRuntime rt, ExactControlTextFn text, ExactFieldChromeFn chrome);
+/* LLP 1069.011.001 D11: identical face/row JSON for sizing and drawing. */
+typedef struct {
+    const uint8_t *face; size_t face_len; uint8_t width_kind; float width;
+} ExactButtonMeasureRequest;
+typedef struct { float width, height; uint8_t provisional; } ExactButtonMeasure;
+typedef ExactButtonMeasure (*ExactButtonMeasureFn)(void *ctx, const ExactButtonMeasureRequest *request);
+void exact_set_button_measure(ExactRuntime rt, ExactButtonMeasureFn measure);
+uint32_t exact_control_text_changed(ExactRuntime rt);
+
+typedef struct {
+    double datetime, now, relative_value;
+    uint32_t relative_unit;
+    double utc_offset;
+    const uint8_t *format; size_t format_len;
+    const uint8_t *locale; size_t locale_len;
+    const uint8_t *time_zone; size_t time_zone_len;
+} ExactTimeRequest;
+/* Return the UTF-8 byte count, writing at most cap bytes. Zero: fallback children. */
+typedef size_t (*ExactTimeFormatFn)(void *, const ExactTimeRequest *, uint8_t *, size_t);
+void exact_set_time_format(ExactRuntime rt, ExactTimeFormatFn format);
 void exact_set_measure(ExactRuntime rt, ExactMeasureFn measure, void *ctx);   /* NULL: a monospace reference measurer */
 /* LLP 1056 D8: one Canvas 2D run measured with Core Text where the draw
  * runs, with the context exact_set_measure was given. The strings live for
@@ -256,6 +356,18 @@ typedef struct ExactCanvasText {
 typedef struct ExactCanvasMetrics { double v[11]; } ExactCanvasMetrics;
 typedef ExactCanvasMetrics (*ExactCanvasTextFn)(void *ctx, const ExactCanvasText *run);
 void exact_set_canvas_text(ExactRuntime rt, ExactCanvasTextFn measure);
+/* LLP 1093 D6: each line box's bottom, in content coordinates, of the paragraph a request
+ * answers, with exact_set_measure's context. Writes min(count, cap) floats and returns count.
+ * NULL (the default) keeps every paragraph whole in a multi-column flow. */
+typedef size_t (*ExactLinesFn)(void *ctx, const ExactMeasureRequest *request, float *out, size_t cap);
+void exact_set_lines(ExactRuntime rt, ExactLinesFn lines);
+/* A system symbol's natural size, measured before layout: an Apple symbol name (UTF-8, not
+ * NUL-terminated), its point size and CSS weight. Writes width and height to out and returns 1,
+ * or 0 when it cannot say; called with exact_set_measure's context, and only beside a text
+ * measurer it registered: with the reference measurer, as with NULL (the default), a symbol is
+ * the size its view reports. */
+typedef uint8_t (*ExactSymbolFn)(void *ctx, const uint8_t *name, size_t len, float font_size, uint16_t font_weight, float *out);
+void exact_set_symbol_measure(ExactRuntime rt, ExactSymbolFn measure);
 void exact_set_wake(ExactRuntime rt, ExactWakeFn wake, void *ctx);
 void exact_set_fonts(ExactRuntime rt, ExactFontsFn fonts, void *ctx);
 
@@ -274,6 +386,13 @@ void exact_app_answer(void *slot, uint32_t status, const uint8_t *bytes, size_t 
 void exact_app_changed(ExactRuntime rt, const uint8_t *topic, size_t len);
 void exact_app_reply(void *reply, uint32_t status, const uint8_t *bytes, size_t len);
 
+/* A document the app kept was forgotten by the app (LLP 1069.010.000 D5):
+ * called on a storage worker's thread with the object's device and inode;
+ * the host takes it off NSDocumentController's recents on the main thread.
+ * One hook for the process. */
+typedef void (*ExactForgottenFn)(uint64_t device, uint64_t inode);
+void exact_on_document_forgotten(ExactForgottenFn forgotten);
+
 /* Buffers. exact_in returns NULL for a handle nobody holds. */
 uint8_t *exact_in(ExactRuntime rt, size_t len);
 const uint8_t *exact_out(ExactRuntime rt);
@@ -285,15 +404,29 @@ uint32_t exact_baked_compat(ExactRuntime rt);
  * viewport. Returns the first batch's length. A boot that fails leaves the
  * running app, if any, exactly as it was. */
 uint32_t exact_boot(ExactRuntime rt, float width, float height);
+/* Snapshot-only boot: concatenated plan bytes, UTF-8 kind and optional props JSON.
+ * Pure boot reads no store or secrets. Timeline refresh is the only data step. */
+uint32_t exact_boot_entry(ExactRuntime rt, size_t plan, size_t kind, size_t props, float width, float height);
+uint32_t exact_entry_timeline(ExactRuntime rt, double now_ms, double remaining_ms, const uint8_t *receipt, size_t receipt_len, const uint8_t *module, size_t module_len);
+/* Gallery-only query: a fresh data seam and scratch store, no host activation. */
+uint32_t exact_refresh_entry(ExactRuntime rt, double now_ms);
 uint32_t exact_boot_plan(ExactRuntime rt, size_t len, float width, float height);
 uint32_t exact_prepare_plan(ExactRuntime rt, uint64_t token, size_t len, float width, float height);
 uint32_t exact_commit_plan(ExactRuntime rt);
 /* Admitted generation: concatenated plan, pairing receipt, compiled module.
  * A nonzero token supplies signed delivery facts. Identity and grants match
- * the binary; the caller admits the development origin or signed assets. */
-uint32_t exact_prepare_module(ExactRuntime rt, uint64_t token, size_t plan, size_t receipt, size_t module, float width, float height);
+ * the binary; the caller admits the development origin or signed assets.
+ * Requests in flight refuse it (`"requests":true`) unless let_go, nonzero
+ * only for a dev generation past its settle window (LLP 1007 §6). */
+uint32_t exact_prepare_module(ExactRuntime rt, uint64_t token, size_t plan, size_t receipt, size_t module, float width, float height, uint32_t let_go);
+/* After first pixel: activate the data source (evaluate a TypeScript module)
+ * without committing, so a presenter can run it off its own thread before
+ * exact_data_ready. Optional; a no-op once activated. */
+void exact_prepare_data(ExactRuntime rt);
 /* Call after first pixel, never as a prerequisite to painting the baked frame. */
 uint32_t exact_data_ready(ExactRuntime rt);
+/* A peer committed to the shared store. Does not activate before first pixel. */
+uint32_t exact_store_changed(ExactRuntime rt, uint32_t retry_only);
 void exact_discard_plan(ExactRuntime rt);
 /* Content has settled (a scroll came to rest): the tree and the motion
  * engine give back storage beyond the live nodes. Changes nothing shown. */
@@ -310,7 +443,20 @@ uint32_t exact_fulfill_surface(ExactRuntime rt, uint64_t ticket, uint32_t kind, 
 /* LLP 1038 D5/D8: input URL -> UTF-8 canonical location in exact_out.
  * The launch setter takes that location before any boot/prepare call. */
 uint32_t exact_location_of(ExactRuntime rt, size_t len);
+/* NUL-delimited UTF-8 href, declared protocol, and path template; 0 if no match. */
+uint32_t exact_protocol_location_of(ExactRuntime rt, size_t len);
+/* LLP 1038 §7: 1 when the input location names a declared route (a followed
+ * link to it navigates in the app), else 0. */
+uint32_t exact_route_matches(ExactRuntime rt, size_t len);
 uint32_t exact_set_launch_location(ExactRuntime rt, size_t len);
+/* LLP 1115 D5: the location of the visit beneath visit `id` on its stack,
+ * UTF-8 in exact_out, length 0 when none — where the host's own Back goes
+ * for a route with no authored Back control. Not a batch. */
+uint32_t exact_location_beneath(ExactRuntime rt, uint64_t id);
+/* LLP 1115 D5: the platform's own Back from visit `id` for a route with no
+ * authored Back control under a root with no `navigate` handler: the
+ * router's `back` as a commit of its own. A batch. */
+uint32_t exact_host_back(ExactRuntime rt, uint64_t id, double now_ms);
 /* kind: 0 = press, 1 = change, 2 = hover in, 3 = hover out, 4 = focus,
  * 5 = blur, 6 = key, 7 = submit, 8 = iframe load, 9 = iframe message,
  * 10 = contextmenu, 11 = dblclick, 12 = swiperight, 13 = scroll (UTF-8 scrollLeft,scrollTop),
@@ -323,11 +469,51 @@ uint32_t exact_set_launch_location(ExactRuntime rt, size_t len);
  * 22 = refresh (the platform's pull-to-refresh control fired; no payload);
  * 28 = panrelease (UTF-8 vx,vy; px/s, once when a pan that began ends; a
  *      cancelled contact releases at 0,0; LLP 1057 §10.6);
+ * 29 = pointerdown, 30 = pointerup, 31 = pointermove (UTF-8
+ *      offsetX,offsetY,buttons,pressure,pointerType,pointerId,clientX,clientY:
+ *      content-box CSS px, DOM's buttons bits, 0 to 1, mouse|pen|touch, then
+ *      the viewport point; LLP 1056 §3 stage 3, LLP 1094 D11);
+ * 40 = a text field's input, 41 its change, 42 its select (UTF-8
+ *      start,end,direction,text: UTF-16 offsets, forward|backward|none, then
+ *      the whole value verbatim; x2apps codeedit #2);
+ * 48 = range replacement input (same payload as 40, inputType insertReplacementText);
+ * 49 = close (dialog); 50 = toggle: UTF-8 oldState,newState (open or closed).
+ * 6 = key (keydown), 43 = keyup and 44 = keycapture (#140): UTF-8 chord (`Shift+Meta+b`),
+ *      optionally newline, KeyboardEvent.code (`KeyB`, "" unknown), newline,
+ *      true|false for repeat;
+ * 46 = focusin, 47 = focusout (#283): UTF-8 `<target byte length>:<target id>`
+ *      then `0` (no relatedTarget) or `1<related id>`;
  * any other kind is refused with an error batch.
  * Format lists are space-separated command tokens. Link keeps the remaining bytes.
  * A change's text, key's name, or guest message is the payload in the input
  * buffer's first len bytes. */
 uint32_t exact_dispatch(ExactRuntime rt, uint32_t view, uint32_t kind, size_t len, double now_ms);
+/* A scroll container the presenter shows (or, nonzero page, the page) now
+ * stands at left, top CSS px (scrollLeft, scrollTop), handler or not: what
+ * frame() and measure() subtract from the kernel's scroll-free box, so an
+ * action reads the box where the viewer sees it (LLP 1051.000 D1). No batch. */
+void exact_scrolled(ExactRuntime rt, uint32_t page, uint32_t view, double left, double top);
+/* An inline run's shaped fragments, united in viewport coordinates. Called
+ * synchronously on the runtime owner; UI work is served on main. */
+typedef struct { double x, y, width, height; uint32_t available; } ExactInlineFrame;
+typedef ExactInlineFrame (*ExactInlineFrameFn)(void *ctx, uint32_t view);
+typedef ExactInlineFrame (*ExactRangeFrameFn)(void *ctx, uint32_t view, uint32_t start, uint32_t end);
+void exact_set_inline_geometry(ExactRuntime rt, ExactInlineFrameFn read, ExactRangeFrameFn range, void *ctx);
+/* A textarea's decorations (LLP 1114.007): UTF-8 JSON {record, current, styles} in,
+ * {provisional, spans, styles} out, valid until the next call on this thread; null when
+ * the request does not parse. */
+const uint8_t *exact_field_decorations(const uint8_t *input, size_t len, size_t *count);
+/* Open top-layer views in back-to-front order, with viewport x/y/width/height
+ * in four doubles per id: where the host shows each, a block's root by its
+ * block's rectangle (the root sits in it by its own frame) and any other view
+ * by its border box, before its own CSS transform, which the runner applies.
+ * Structural reads use their actual presentation. `modal` is the index of
+ * the first view of the frontmost modal presentation, or UINT32_MAX while
+ * none is open: it and the views after it are live, and the views before it
+ * and the page are inert behind it. `clips` is null or four viewport
+ * x/y/width/height doubles per id; NaN at x means no clip for that entry.
+ * A clip bounds hits and visibility without changing the frame's mapping. */
+void exact_top_layer(ExactRuntime rt, const uint32_t *views, const double *rects, const double *clips, uint32_t count, uint32_t modal);
 /* Versioned LE collection feedback in exact_in; returns the ordinary batch. */
 uint32_t exact_collection_feedback(ExactRuntime rt, size_t len, double now_ms);
 /* The agent's tap <list> into <key> (LLP 1070.000): "key\nblock\ninline" in
@@ -353,6 +539,25 @@ uint32_t exact_transform_motion(uint32_t rt, uint32_t len);
 uint32_t exact_reorder_begin(ExactRuntime rt, uint32_t handle, double scroll_top, double now_ms);
 uint32_t exact_reorder_move(ExactRuntime rt, uint64_t token, double dy, double scroll_top, uint32_t inside, double now_ms);
 uint32_t exact_reorder_end(ExactRuntime rt, uint64_t token, uint32_t drop, double dy, double scroll_top, uint32_t inside, double velocity, double now_ms);
+/* Dropping across lists (reorderGroup, LLP 1094 D5-D9). A grouped grip lifts
+ * with group_begin: ghost nonzero when the host draws the row in its top
+ * layer (the runner then hides the row itself until group_finish); zero for
+ * a key's or custom action's session. move_into hands the ghost centre's y in
+ * target's (a grouped list view) content, at target_scroll_top as its
+ * collection feedback reports it; inside zero (the centre in no grouped
+ * port) keeps the certified gap. step: 1 earlier, 2 later, 3 the previous
+ * grouped list, 4 the next. group_end drops into the session's target
+ * (nonzero) or cancels; a holding drop ignores a cancel. Every reply, and
+ * every later batch that changes it, carries {"op":"reorder","group":true,
+ * "token","list","wrapper","phase":"active"|"holding"|"cancelling"|
+ * "settling"|"finished"|"refused","dispatched","ending":null|"landed"|"gone"|
+ * "timeout","target","row"}: row is the wrapper that holds the dragged row
+ * now, where a ghost lands. A new lift is refused until group_finish. */
+uint32_t exact_reorder_group_begin(ExactRuntime rt, uint32_t handle, double scroll_top, uint32_t ghost, double now_ms);
+uint32_t exact_reorder_move_into(ExactRuntime rt, uint64_t token, uint32_t target, double content_y, double target_scroll_top, uint32_t inside, double now_ms);
+uint32_t exact_reorder_step(ExactRuntime rt, uint64_t token, uint32_t step, double now_ms);
+uint32_t exact_reorder_group_end(ExactRuntime rt, uint64_t token, uint32_t drop, double now_ms);
+uint32_t exact_reorder_group_finish(ExactRuntime rt, uint64_t token, double now_ms);
 uint32_t exact_hold_begin(ExactRuntime rt, uint32_t view, uint32_t property, double now_ms);
 uint32_t exact_has_hold(ExactRuntime rt, uint64_t token);
 uint32_t exact_hold_update(ExactRuntime rt, uint64_t token, double x, double y, double now_ms);
@@ -362,6 +567,28 @@ uint32_t exact_hold_end(ExactRuntime rt, uint64_t token, uint32_t cancel, double
 /* A recognition threshold exact2 defines itself: 0 the swipe knee, 1 its
  * resistance, 2 the leading edge a swipe yields, 3 the drag slop (LLP 1057.001 §3). */
 double exact_gesture_constant(uint32_t which);
+/* A route's header as its bar shows it (LLP 1115.001 D11): the kernel's rule
+ * (kernel/src/bars.rs), which the Android host reads from the kernel's own
+ * tree, over this host's mirror of the route. words: the route, then its first
+ * child's subtree, in preorder, two words a node: its facts and the count of
+ * its children. Facts: 1 a heading (a text whose role is heading), 2 an
+ * input type="search", 4 a tablist, 8 it hears press, 16 a button that opens a
+ * popover, 32 its id is the stack's Back control's, 64 a header, 128
+ * display: none, 256 a route that says navigationBar="none"; a heading's
+ * aria-level (1 to 6, else 0) shifted left 16. flags: 1 the platform's own Back
+ * stands for the Back control on this route, 2 the header as the bar is
+ * projected from it (none for a route that says no bar, or a hidden header).
+ * Writes to out, naming nodes by their place in words: the header, the heading,
+ * its level, one more than the pressable around the heading, the search field
+ * and the tablist (0: none), the counts of leading items, trailing items and
+ * all items, then those three lists. Returns the count written; 0 for a route
+ * that is not header-shaped, or an answer longer than cap. No runtime. */
+uint32_t exact_header_shape(const uint32_t *words, size_t count, uint32_t flags, uint32_t *out, size_t cap);
+/* What a route shows of the platform's bar (LLP 1115.000 D5.2): 0 its header,
+ * 1 the platform's Back alone, 2 nothing. facts: 1 the route says
+ * navigationBar="none", 2 its header is the bar's, 4 it is pushed, 8 the
+ * platform's bar has a Back button. */
+uint32_t exact_route_bar(uint32_t facts);
 /* The pan contact's release velocity where the platform measures none (AppKit,
  * the iOS agent's recognized contact; LLP 1057 §10.6, 1057.001 §3): the engine's
  * tracker, one per runtime. A sample is the pointer in viewport CSS px at t
@@ -373,28 +600,93 @@ uint32_t exact_pan_sample(ExactRuntime rt, uint32_t first, double x, double y, d
 double exact_pan_velocity(ExactRuntime rt, uint32_t axis, double t);
 /* The runner's clock: timers. Nonzero until_request stops after a timer that
  * sends, the clock at its due time (an agent's jump; the wall clock passes 0). */
-uint32_t exact_advance(ExactRuntime rt, double now_ms, uint32_t until_request);
+uint32_t exact_advance(ExactRuntime rt, double now_ms, uint32_t mode);
 /* @ref LLP 1073 D5: a presented display frame — timers due by now_ms, then
  * every frame task once at it. The batch says "frames" while one wants it. */
 uint32_t exact_frame(ExactRuntime rt, double now_ms);
+/* @ref LLP 1003.001 D5: exact_frame at the target now_ms, the wall at wall_ms
+ * stopping the motion engine's input clock. */
+uint32_t exact_frame_at(ExactRuntime rt, double now_ms, double wall_ms);
+/* @ref LLP 1003.001 D7: nonzero, motion a commit begins waits for the first
+ * presented frame, in every host booted after; zero at the agent's takeover,
+ * where what waits starts at at_ms. Returns the batch's length. */
+uint32_t exact_start_on_frame(ExactRuntime rt, uint32_t on, double at_ms);
 /* Whether the display drives frame tasks: exact_frame turns it on; 0 when the
  * agent's clock takes over, whose advances then fire virtual frames. */
 uint32_t exact_present_frames(ExactRuntime rt, uint32_t on);
+/// The presenter's clock owns time (`wall`, milliseconds in the runner's
+/// domain), or the agent's seekable one does (NULL): the timers RFC, D1.
+typedef double (*ExactWallFn)(void);
+uint32_t exact_set_live_clock(ExactRuntime rt, ExactWallFn wall);
 /* Input: name alone clears; name NUL JSON publishes a current record. */
 uint32_t exact_surface_record(ExactRuntime rt, size_t len);
 /* @ref LLP 1027.000.000: the date — Unix ms at clock zero, minutes east of UTC. */
 uint32_t exact_set_time(ExactRuntime rt, double epoch_at_zero, double utc_offset);
+/* The date the next boot or candidate settles under, told before it; the
+ * running runner is not told. A date that does not validate is ignored. */
+uint32_t exact_set_launch_time(ExactRuntime rt, double epoch_at_zero, double utc_offset);
+/* Where the viewer is, as exact_set_place's input (locale NUL timeZone NUL
+ * seed), for the next boot or candidate; the running runner is not told.
+ * Returns zero when accepted, otherwise an error batch length; keeps the last valid fact. */
+uint32_t exact_set_launch_place(ExactRuntime rt, size_t len);
 /* Beside the date: the locale and IANA time zone, as locale NUL timeZone input. */
 uint32_t exact_set_place(ExactRuntime rt, size_t len);
+/* @ref LLP 1126.001 WP9: declare the packaged arm before boot, then deliver
+ * its source snapshots or send completions through the input buffer. */
+void exact_link_activities(ExactRuntime rt);
+uint32_t exact_activities(ExactRuntime rt, size_t len);
+/* @ref LLP 1125 D6-D8: a MIDI message, JSON in the input buffer: the MIDI
+ * arm's {"ports":…} or {"messages":…}, or the agent's `prefer midi` and
+ * `tap midi`. Returns the batch length. */
+uint32_t exact_midi(ExactRuntime rt, size_t len);
+/* @ref LLP 1124 D7: the agent's `prefer extension`, JSON in the input buffer:
+ * a native module source's preferred value. Returns the batch length. */
+uint32_t exact_extension(ExactRuntime rt, size_t len);
+/* @ref LLP 1133.001 D4: the extensions the app's module composes, one name a
+ * line in the input buffer: the runner sends their names to the module. */
+void exact_bind_extensions(ExactRuntime rt, size_t len);
+/* @ref LLP 1121 D5: app modes, `axis=value` pins comma-separated (the agent's `prefer mode`); a leading `?` only checks them. */
+uint32_t exact_set_mode(ExactRuntime rt, size_t len);
+/* @ref LLP 1121 D13, stage 4: a live design batch or snapshot frame from the dev
+ * stream (JSON), applied in place; the batch says `live`: applied, stale,
+ * structure or refused. Development builds only. */
+uint32_t exact_design_rows(ExactRuntime rt, size_t len);
+/* @ref LLP 1121 D12, stage 5: the binding core. A request
+ * `{"view": id, "names": [token, …]}` (view 0: the session's root) in the
+ * input buffer; answers `{"inputs": "…", "colors": {token: colour|null}}`,
+ * UTF-8 in exact_out, each colour as a row crosses it, null for a name the
+ * plan lacks or a value that is no colour (the binding keeps its fallback).
+ * `inputs` moves when anything the answer read does. A view that is not live,
+ * or names that are not strings, answer {"error"}. Not a batch. */
+uint32_t exact_tamber(ExactRuntime rt, size_t len);
+/* The design digest the running app runs (its plan's, or the live table's
+ * applied since), UTF-8 in exact_out, length 0 before boot. Not a batch. */
+uint32_t exact_design_digest(ExactRuntime rt);
+/* The running plan's digest, UTF-8 in exact_out, length 0 before boot. */
+uint32_t exact_plan_digest(ExactRuntime rt);
 /* @ref LLP 1061 D4, LLP 1069.000 D1: the user's display preferences, told
  * after boot and on each change — bit 0 reduced motion, bit 1 reduced
- * transparency, bit 2 contrast more, bit 3 contrast less, bit 4 a dark system. */
+ * transparency, bit 2 contrast more, bit 3 contrast less, bit 4 a dark system;
+ * bits 5–10 input/gamut/range (runner/src/viewport.rs), bits 11–13 display mode
+ * (LLP 1039 D7): 0 standalone, 1 browser, 2 fullscreen, 3 minimal-ui,
+ * 4 window-controls-overlay, 5 picture-in-picture, 6 tabbed. */
 uint32_t exact_set_preferences(ExactRuntime rt, uint32_t bits);
 /* @ref LLP 1069.000 D2: the page's facts, told after boot and on each change —
  * bit 0 hidden, bit 1 offline, bit 2 a share sheet. */
 uint32_t exact_set_page(ExactRuntime rt, uint32_t bits);
+/* 1 when the running plan reads `onLine`, and before boot: only then does
+ * the host watch the network. */
+uint32_t exact_reads_on_line(ExactRuntime rt);
 /* @ref LLP 1069.000 D3: the root font size `rem` follows, in points. */
 uint32_t exact_set_root_font_size(ExactRuntime rt, double px);
+/* @ref LLP 1115 D6, LLP 1115.000 D13.4: whether a confirmation's rows are an
+ * alert's (explanatory text, one cancel, at most three buttons): 1 or 0. The
+ * kernel's rule, which lowering and the Linux host read too; needs no runtime. */
+uint32_t exact_confirmation_is_alert(uint32_t texts, uint32_t actions, uint32_t cancels);
+/* @ref LLP 1115.000 D10.3: the display's scale, device pixels a point, which a
+ * hairline (`-exact-hairline`) is one device pixel of; told after boot and when
+ * the view moves to another display. */
+uint32_t exact_set_display_scale(ExactRuntime rt, double scale);
 /* @ref LLP 1039: re-answer viewport facts and relayout in the same batch. */
 /// The display's scale and physical memory for Canvas 2D (LLP 1056 D4);
 /// callable before boot. Returns the batch length.
@@ -410,8 +702,17 @@ void exact_canvas_held(ExactRuntime rt, uint32_t view, uint32_t held);
  * turn's batch says "canvasOwed" and exact_canvas_draw runs the draws, off the
  * turns main waits on; a tick draws in its own turn. */
 void exact_canvas_defer(ExactRuntime rt, uint32_t deferred);
+/* LLP 1079 D1: runtimes booted from now count each plan site's work for perf
+ * from the first ask, exact_measure_work, not from boot (a release build's
+ * choice). exact_measure_work starts this runtime's count; returns 0. */
+void exact_measure_work_later(void);
+uint32_t exact_measure_work(ExactRuntime rt);
 uint32_t exact_canvas_draw(ExactRuntime rt);
 uint32_t exact_resize(ExactRuntime rt, float width, float height);
+/* A placement root's resolved margins and its width's authorship (LLP 1126.001 WP10): exact_out
+ * holds JSON [margin left, top, right, bottom, authored width 0|1, minimum border-box width] with no batch around it, or
+ * {"error": …}; returns its length. */
+uint32_t exact_placement_box(ExactRuntime rt, uint32_t view);
 /* Opaque row key in the input buffer; UINT32_MAX means absent. */
 uint32_t exact_list_index(ExactRuntime rt, uint32_t view, uint32_t len);
 /* Two concatenated UTF-8 keys in input; empty first key selects all text.
@@ -424,6 +725,41 @@ uint32_t exact_list_text(ExactRuntime rt, uint32_t view, uint32_t first_len,
  * safe area itself. A change re-sends the style of every node that reads
  * them and lays out again. */
 uint32_t exact_insets(ExactRuntime rt, float top, float right, float bottom, float left);
+/* @ref LLP 1123 D10: the layout regions' insets (points) from the layout
+ * viewport, what env(-exact-<region>-inset-<edge>) resolves to: count is 20,
+ * five regions (safe area with corner adaptation, layout margins, layout
+ * margins with corner adaptation, readable content, readable content with
+ * corner adaptation) of top, right, bottom, left each; or 0, when every
+ * region is the safe area. A change re-sends the style of every node that
+ * reads the environment and lays out again. */
+uint32_t exact_regions(ExactRuntime rt, const float *insets, uint32_t count);
+/* The title-bar area beside the window's controls (points, from the layout
+ * viewport), what env(titlebar-area-x|y|width|height) resolves to (Window
+ * Controls Overlay): count is 4, x, y, width, height (all zero while the area
+ * is hidden), or 0, when the window gives none and each variable is undefined.
+ * A change re-sends the style of every node that reads the environment and
+ * lays out again. */
+uint32_t exact_titlebar_area(ExactRuntime rt, const float *rect, uint32_t count);
+/* @ref LLP 1075.003 §9.11: the window's own size (points), whatever is
+ * presented in it — what every viewport unit (vw, vh, vmin, vmax and kin) resolves against
+ * everywhere, root and every sheet, never a sheet's viewport (exact_segments
+ * sends the window's segments too). A nonpositive size clears it. */
+uint32_t exact_screen(ExactRuntime rt, float width, float height);
+/* What changed of the view at once, from the input buffer's first len bytes,
+ * little-endian 32-bit words: a mask of what is given (1 the window's size,
+ * 2 the safe-area insets, 4 the layout regions, 8 the viewport), the
+ * window's width and height (nonpositive clears it), the insets top, right,
+ * bottom, left, the viewport's width and height, the regions' count (20 or
+ * 0) and their insets: exact_screen, exact_insets, exact_regions and
+ * exact_resize in one batch under one layout. */
+uint32_t exact_view(ExactRuntime rt, size_t len);
+/* @ref LLP 1078 D4: the device's posture (0 continuous, 1 folded) and the
+ * viewport segments a fold makes — cols × rows rects, row-major, each
+ * x y w h as four little-endian floats in the input buffer (count rects;
+ * none for 1 × 1). Sets the kernel's env(viewport-segment-*) grid and
+ * exactViewport's three fields in one batch, as exact_resize sets the
+ * viewport and preferences together. */
+uint32_t exact_segments(ExactRuntime rt, uint32_t posture, uint32_t cols, uint32_t rows, uint32_t count);
 /* The presenter's appearance (nonzero: dark), which a light-dark() colour
  * under paint motion resolves by; a change transitions it (LLP 1062). */
 uint32_t exact_scheme(ExactRuntime rt, uint32_t dark);
@@ -431,7 +767,15 @@ uint32_t exact_scheme(ExactRuntime rt, uint32_t dark);
  * differs from the session's: its node's light-dark() colours resolve by it
  * (LLP 1062). */
 uint32_t exact_view_scheme(ExactRuntime rt, uint32_t view, uint32_t dark);
+/** LLP 1095 D1: every colour reference the presenter should resolve, as JSON
+ *  `[[kind, id, "name"], …]` in the output buffer; returns its length. */
+uint32_t exact_color_references(ExactRuntime rt);
+/** LLP 1095 D1: what the presenter resolved them to, as LE records in the
+ *  input buffer (u8 kind, u8 dark, u16 id, u8 r, g, b, a); returns the
+ *  batch's length. */
+uint32_t exact_colors(ExactRuntime rt, size_t len);
 uint32_t exact_tick(ExactRuntime rt, double now_ms);      /* a motion frame, only while "motion" is true */
+uint32_t exact_tick_at(ExactRuntime rt, double now_ms, double frame_ms); /* LLP 1003.001 D5: for the frame presented at frame_ms */
 /* An image node loaded: its bitmap's pixel counts, taken one-for-one as
  * points (never divided by the backing scale — a 2× asset is not half its
  * pixels wide, as on the web); a width or height ≤ 0 clears it (the load
@@ -441,9 +785,44 @@ uint32_t exact_intrinsic(ExactRuntime rt, uint32_t view, float width, float heig
 /* exact_intrinsic for several views under one layout: the input buffer's
  * first len bytes are LE records of (uint32 view, float width, float height). */
 uint32_t exact_intrinsics(ExactRuntime rt, size_t len);
+/* What native containers cover of boxes (LLP 1075.003 §3.5) under one
+ * layout: LE records of (uint32 view, uint32 kind — 0 clears, 1 edges,
+ * 2 whole — float top, right, bottom, left). Edges add to the box's
+ * padding; a whole box is laid out as display: none. Kind 10 is a cells
+ * list's rows' cell margin (LLP 1138: float left, right, then two unused),
+ * 11 clears it. */
+uint32_t exact_host_covers(ExactRuntime rt, size_t len);
 /* A select's options (LLP 1069.001 D5), JSON in the output buffer, not a
  * batch: {"options":[{"value","label","disabled"}],"chosen":index|null}. */
 uint32_t exact_select_options(ExactRuntime rt, uint32_t view);
+/* A radio's group (x2apps survey #2), JSON in the output buffer, not a batch:
+ * {"group":[view...],"next":view|null,"previous":view|null} — the radios of its
+ * name in tree order, and the enabled radio ArrowDown/ArrowUp moves the check to. */
+uint32_t exact_radio_group(ExactRuntime rt, uint32_t view);
+/* A navigation root's tabs by the kernel's rule (LLP 1115.001 D11), JSON in the
+ * output buffer, not a batch: {"tablist":view,"tabs":[view...],"panels":[view...],
+ * "unsaid":bool,"covered":bool}, the tabs that name a panel and those panels in tab
+ * order, whether the app left the bar's placement unsaid (the web's rule for its
+ * sidebar, LLP 1116.004 D1.1), and whether the tablist is covered whole; null for
+ * one stack. */
+uint32_t exact_root_tabs(ExactRuntime rt, uint32_t view);
+/* Whether the stack whose root route is `view` shows that route as a list beside
+ * its detail, by the runner's rule (LLP 1115.002 D4), JSON in the output buffer,
+ * not a batch: {"list":view|null,"width":number|null,"rows":[[route,row]...]}, the
+ * list whose row pushes, the list column's width where `navigationSplit` names one,
+ * and each route above the root that is a row's detail with that row; null for a
+ * stack that pushes. */
+/* `retained` is a previous list to keep while empty and still eligible, or 0. */
+uint32_t exact_stack_split(ExactRuntime rt, uint32_t view, uint32_t retained);
+/* A button's face, custom or native (LLP 1069.011.000 D1), JSON in the output
+ * buffer, not a batch: {"button":bool,"title":string|null,"symbol":apple-name|null,
+ * "raster","leading","fits":bool,"label":string|null,"style",...the native style}. */
+uint32_t exact_press_face(ExactRuntime rt, uint32_t view);
+/* A grouped list's sections and rows (LLP 1084 D4), JSON in the output
+ * buffer, not a batch: {"style","sections":[{"view","header","footer","rows":
+ * [{"view","custom","symbol","title","secondary","subtitle","accessory",
+ * "target","pressable","destructive","disabled"}]}]}, or null. */
+uint32_t exact_grouped_list(ExactRuntime rt, uint32_t view);
 
 /* The agent API (LLP 1012): a request in the input buffer's first len bytes
  * ({"op":"tree"} / "state" / "logs" / "settle"), the reply in the output

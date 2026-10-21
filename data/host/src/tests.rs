@@ -101,10 +101,12 @@ impl Drop for Paths {
 #[derive(Clone)]
 struct Fixture {
     request: Request,
+    grants: &'static str,
 }
 impl Fixture {
     fn new() -> Self {
         Self {
+            grants: GRANTS,
             request: storage::request(
                 "fs.writeFile",
                 json!({"path":"app:/data/note","text":"hello"}),
@@ -117,7 +119,7 @@ impl DataSource for Fixture {
         "com.exact.storage-test"
     }
     fn grants(&self) -> &str {
-        GRANTS
+        self.grants
     }
     fn query(&mut self, _: &str, _: &[Value]) -> Result<Value, DataError> {
         Ok(Value::Number(7.))
@@ -495,7 +497,8 @@ fn invalid_utf8_is_never_repaired_into_an_effectful_request() {
     assert!(storage::response(super::native::run(
         host.directories.as_ref(),
         GRANTS,
-        payload
+        payload,
+        0,
     ))
     .is_err());
     assert!(
@@ -541,7 +544,11 @@ impl DataSource for Continuing {
     fn dispatch(&mut self, _: u64, _: &Store) -> exact_runner::Dispatch {
         exact_runner::Dispatch::Host(7)
     }
-    fn forgotten(&mut self, in_flight: &[exact_runner::InFlight<'_>]) {
+    fn forgotten(
+        &mut self,
+        _store: &exact_runner::Store,
+        in_flight: &[exact_runner::InFlight<'_>],
+    ) {
         self.heard
             .borrow_mut()
             .extend(in_flight.iter().map(|f| f.continuation));
@@ -570,7 +577,7 @@ fn forgotten_hands_a_child_its_own_tokens_and_lets_go_of_the_rest() {
         continuation: Some(continuation),
     };
     // The second replaced the first: the child hears its own token back.
-    host.forgotten(&[in_flight(second)]);
+    host.forgotten(&store, &[in_flight(second)]);
     assert_eq!(heard.borrow().as_slice(), [Some(7)]);
     assert!(matches!(
         host.dispatch(first, &store),
@@ -581,7 +588,7 @@ fn forgotten_hands_a_child_its_own_tokens_and_lets_go_of_the_rest() {
         host.dispatch(second, &store),
         exact_runner::Dispatch::Host(7)
     ));
-    host.forgotten(&[in_flight(second)]);
+    host.forgotten(&store, &[in_flight(second)]);
     assert_eq!(heard.borrow().as_slice(), [Some(7), None]);
 }
 
@@ -599,7 +606,7 @@ fn a_document_path_reads_and_writes_the_chosen_file_under_its_grant() {
     let run = |grants: &str, op: &str, args: serde_json::Value| {
         let payload =
             serde_json::to_vec(&serde_json::json!({"version":1,"op":op,"args":args})).unwrap();
-        storage::response(super::native::run(None, grants, &payload))
+        storage::response(super::native::run(None, grants, &payload, 9001))
     };
     let read = run(
         "fs.read doc:/",
@@ -622,10 +629,10 @@ fn a_document_path_reads_and_writes_the_chosen_file_under_its_grant() {
         "fs.readFile",
         serde_json::json!({"path": doc}),
     );
-    assert!(refused.unwrap_err().contains("not granted"));
+    assert!(refused.unwrap_err().starts_with("denied: "));
     let write = serde_json::json!({"path": doc, "text": "# B"});
     let refused = run("fs.read doc:/", "fs.atomicWriteFile", write.clone());
-    assert!(refused.unwrap_err().contains("fs.write doc:/"));
+    assert_eq!(refused.unwrap_err(), "denied: fs.write");
     run("fs.read doc:/\nfs.write doc:/", "fs.atomicWriteFile", write).unwrap();
     assert_eq!(std::fs::read_to_string(folder.join("a.md")).unwrap(), "# B");
     let escape = format!("{folder_doc}/../secret");
@@ -641,6 +648,685 @@ fn a_document_path_reads_and_writes_the_chosen_file_under_its_grant() {
         "fs.readFile",
         serde_json::json!({"path": doc}),
     );
-    assert!(gone.unwrap_err().contains("no such document"));
+    assert!(gone.unwrap_err().contains("document ENOENT:"));
     let _ = std::fs::remove_dir_all(dir);
+}
+
+/// LLP 1069.010.000 D2a: a write that expects the stat it read is refused
+/// `ECHANGED`, writing nothing, once another writer changed the file, and
+/// lands while the file is as read.
+#[test]
+fn a_write_that_expects_what_it_read_is_refused_once_the_file_changed() {
+    let dir = std::env::temp_dir().join(format!("exact-doc-expect-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let file = dir.join("drawing.json");
+    std::fs::write(&file, "one").unwrap();
+    let doc = exact_data::documents::mint(&file, 9004).unwrap();
+    let run = |op: &str, args: serde_json::Value| {
+        let payload =
+            serde_json::to_vec(&serde_json::json!({"version":1,"op":op,"args":args})).unwrap();
+        storage::response(super::native::run(
+            None,
+            "fs.read doc:/\nfs.write doc:/",
+            &payload,
+            9004,
+        ))
+    };
+    let read = run("fs.stat", serde_json::json!({"path": doc})).unwrap();
+    let expect = serde_json::json!({"modifiedMs": read["modifiedMs"], "size": read["size"]});
+    // Another program saves a longer file.
+    std::fs::write(&file, "another program's").unwrap();
+    let refused = run(
+        "fs.atomicWriteFile",
+        serde_json::json!({"path": doc, "text": "mine", "expect": expect}),
+    );
+    assert!(refused.unwrap_err().starts_with("document ECHANGED: "));
+    assert_eq!(std::fs::read_to_string(&file).unwrap(), "another program's");
+    let now = run("fs.stat", serde_json::json!({"path": doc})).unwrap();
+    let expect = serde_json::json!({"modifiedMs": now["modifiedMs"], "size": now["size"]});
+    run(
+        "fs.atomicWriteFile",
+        serde_json::json!({"path": doc, "text": "mine", "expect": expect}),
+    )
+    .unwrap();
+    assert_eq!(std::fs::read_to_string(&file).unwrap(), "mine");
+    exact_data::documents::forget(9004);
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+/// LLP 1069.010.000 D5: under `doc.keep` the app lists what it keeps and
+/// forgets one; without it both are refused. The app's own atomic save keeps
+/// its document (D4).
+#[test]
+#[cfg(unix)]
+fn the_kept_list_reads_and_forgets_under_doc_keep() {
+    use exact_data::documents::kept;
+    let dir = std::env::temp_dir().join(format!("exact-doc-kept-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let file = dir.join("drawing.json");
+    std::fs::write(&file, "one").unwrap();
+    kept::open(9005, "test.storage.kept", &dir.join("kept.json"));
+    let doc = kept::keep(9005, &file, "", "readwrite").unwrap();
+    let run = |grants: &str, op: &str, args: serde_json::Value| {
+        let payload =
+            serde_json::to_vec(&serde_json::json!({"version":1,"op":op,"args":args})).unwrap();
+        storage::response(super::native::run(None, grants, &payload, 9005))
+    };
+    let keeps = "fs.read doc:/\nfs.write doc:/\ndoc.keep";
+    let listed = run(keeps, "fs.recentDocuments", serde_json::json!({})).unwrap();
+    assert_eq!(listed[0]["path"], doc.as_str());
+    assert_eq!(listed[0]["kind"], "file");
+    let refused = run("fs.read doc:/", "fs.recentDocuments", serde_json::json!({}));
+    assert!(refused.unwrap_err().contains("needs the doc.keep grant"));
+    let atomic = serde_json::json!({"path": doc, "text": "two"});
+    run(keeps, "fs.atomicWriteFile", atomic).unwrap();
+    kept::held(9005, std::slice::from_ref(&file));
+    assert_eq!(
+        run(keeps, "fs.recentDocuments", serde_json::json!({})).unwrap()[0]["path"],
+        doc.as_str(),
+        "the app's own save is still the document kept"
+    );
+    run(keeps, "fs.forgetDocument", serde_json::json!({"path": doc})).unwrap();
+    let again = run(keeps, "fs.forgetDocument", serde_json::json!({"path": doc}));
+    assert!(again.unwrap_err().starts_with("document ENOENT: "));
+    assert_eq!(
+        run(keeps, "fs.recentDocuments", serde_json::json!({})).unwrap(),
+        serde_json::json!([])
+    );
+    kept::end(9005);
+    exact_data::documents::forget(9005);
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+/// LLP 1069.010.000 D4: a kept file renamed while the app was closed is
+/// read at its new name through the path it was kept by.
+#[test]
+#[cfg(unix)]
+fn a_kept_file_renamed_between_launches_reads_through_its_kept_path() {
+    use exact_data::documents::kept::{self, Identity};
+    let dir = std::env::temp_dir().join(format!("exact-doc-renamed-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let dir = std::fs::canonicalize(&dir).unwrap();
+    std::fs::write(dir.join("moved.md"), "kept").unwrap();
+    let (identity, _) = Identity::of(&dir.join("moved.md")).unwrap();
+    // What an earlier launch wrote, before the file was renamed.
+    let n = 900_000 + u64::from(std::process::id() % 1000);
+    let set = serde_json::json!({"version": 1, "next": n + 1, "documents": [{
+        "n": n, "name": "chosen.md", "kind": "file", "mode": "readwrite", "opened": 1,
+        "device": identity.device, "inode": identity.inode,
+        "path": dir.join("chosen.md").to_str().unwrap(), "bookmark": ""}]});
+    std::fs::write(dir.join("kept.json"), set.to_string()).unwrap();
+    kept::open(9006, "test.storage.renamed", &dir.join("kept.json"));
+    kept::restore(9006, &[(n, dir.join("moved.md"), None)]);
+    let doc = format!("doc:/{n}/chosen.md");
+    let run = |op: &str, path: &str| {
+        let payload =
+            serde_json::to_vec(&serde_json::json!({"version":1,"op":op,"args":{"path": path}}))
+                .unwrap();
+        storage::response(super::native::run(None, "fs.read doc:/", &payload, 9006))
+    };
+    let read = run("fs.readFile", &doc).unwrap();
+    assert_eq!(read["base64"], exact_runner::agent::base64(b"kept"));
+    assert!(run("fs.readFile", &format!("doc:/{n}/moved.md")).is_err());
+    assert!(
+        run("fs.readdir", &doc).is_err(),
+        "still one file, not a folder"
+    );
+    kept::end(9006);
+    exact_data::documents::forget(9006);
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+/// Exercise the activated Rust storage continuation, not only path resolution.
+#[test]
+#[cfg(unix)]
+fn chosen_folders_refuse_symlinks_for_every_document_operation() {
+    use std::os::unix::fs::symlink;
+    let root = Paths::new();
+    let folder = root.0.join("chosen");
+    let outside = root.0.join("outside");
+    std::fs::create_dir_all(&folder).unwrap();
+    std::fs::create_dir(&outside).unwrap();
+    std::fs::write(outside.join("secret"), "outside").unwrap();
+    symlink(outside.join("secret"), folder.join("link")).unwrap();
+    symlink(&outside, folder.join("dir-link")).unwrap();
+    let doc = exact_data::documents::mint(&folder, 9002).unwrap();
+    let mut host = Storage::new(Fixture {
+        grants: "fs.read doc:/\nfs.write doc:/",
+        ..Fixture::new()
+    });
+    host.set_document_owner(9002);
+    host.activate().unwrap();
+    let mut call = |op: &str, relative: &str| {
+        run(
+            &mut host,
+            storage::request(
+                op,
+                json!({"path":format!("{doc}/{relative}"),"text":"inside"}),
+            ),
+        )
+    };
+    for path in ["link", "dir-link/secret"] {
+        for op in [
+            "fs.readFile",
+            "fs.writeFile",
+            "fs.appendFile",
+            "fs.atomicWriteFile",
+            "fs.stat",
+            "fs.readdir",
+            "fs.mkdir",
+            "fs.rm",
+        ] {
+            let error = call(op, path).unwrap_err();
+            assert!(error.contains(&doc), "{op}: {error}");
+            assert!(
+                !error.contains(root.0.to_str().unwrap()),
+                "physical path leaked: {error}"
+            );
+        }
+    }
+    assert!(call("fs.mkdir", "dir-link/new/deep").is_err());
+    assert!(!outside.join("new").exists());
+    assert_eq!(
+        std::fs::read_to_string(outside.join("secret")).unwrap(),
+        "outside"
+    );
+    call("fs.mkdir", "sub/deep").unwrap();
+    call("fs.writeFile", "sub/deep/note").unwrap();
+    call("fs.appendFile", "sub/deep/note").unwrap();
+    assert_eq!(
+        call("fs.readFile", "sub/deep/note").unwrap()["base64"],
+        exact_runner::agent::base64(b"insideinside")
+    );
+    assert!(call("fs.rm", "sub/deep")
+        .unwrap_err()
+        .contains("document ENOTEMPTY:"));
+    call("fs.atomicWriteFile", "sub/deep/note").unwrap();
+    call("fs.rm", "sub/deep/note").unwrap();
+    call("fs.rm", "sub/deep").unwrap();
+    assert_eq!(call("fs.readdir", "sub").unwrap(), json!([]));
+    // Metadata, deletion and atomic replacement require no read permission on
+    // the file being replaced; the directory's own authority is enough.
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::write(folder.join("reference-mode"), "old").unwrap();
+    std::fs::create_dir(folder.join("reference-dir")).unwrap();
+    call("fs.writeFile", "doc-mode").unwrap();
+    let mode = |name: &str| {
+        std::fs::metadata(folder.join(name))
+            .unwrap()
+            .permissions()
+            .mode()
+            & 0o777
+    };
+    assert_eq!(mode("doc-mode"), mode("reference-mode"));
+    assert_eq!(mode("sub"), mode("reference-dir"));
+    std::fs::write(folder.join("write-only"), "old").unwrap();
+    std::fs::set_permissions(
+        folder.join("write-only"),
+        std::fs::Permissions::from_mode(0o200),
+    )
+    .unwrap();
+    assert_eq!(call("fs.stat", "write-only").unwrap()["size"], 3);
+    call("fs.atomicWriteFile", "write-only").unwrap();
+    std::fs::set_permissions(
+        folder.join("write-only"),
+        std::fs::Permissions::from_mode(0o200),
+    )
+    .unwrap();
+    call("fs.rm", "write-only").unwrap();
+    // A symlink explicitly chosen by the person still selects its target.
+    let selected = exact_data::documents::mint(&folder.join("link"), 9002).unwrap();
+    assert_eq!(
+        run(
+            &mut host,
+            storage::request("fs.readFile", json!({"path":selected}))
+        )
+        .unwrap()["base64"],
+        exact_runner::agent::base64(b"outside")
+    );
+    let save = exact_data::documents::mint(&folder.join("new.txt"), 9002).unwrap();
+    run(
+        &mut host,
+        storage::request("fs.writeFile", json!({"path":save,"text":"saved"})),
+    )
+    .unwrap();
+    assert_eq!(
+        std::fs::read_to_string(folder.join("new.txt")).unwrap(),
+        "saved"
+    );
+    exact_data::documents::forget(9002);
+}
+
+#[test]
+fn queued_document_work_uses_its_sessions_owner() {
+    let root = Paths::new();
+    let folder = root.0.join("chosen");
+    std::fs::create_dir_all(&folder).unwrap();
+    std::fs::write(folder.join("note"), "private").unwrap();
+    let doc = exact_data::documents::mint(&folder, 9010).unwrap();
+    let request = storage::request("fs.readFile", json!({"path":format!("{doc}/note")}));
+    let mut owner = Storage::new(Fixture {
+        grants: "fs.read doc:/",
+        request: request.clone(),
+    });
+    owner.set_document_owner(9010);
+    owner.activate().unwrap();
+    let queued = take(&mut owner);
+    let mut other = Storage::new(Fixture {
+        grants: "fs.read doc:/",
+        request: request.clone(),
+    });
+    other.set_document_owner(9011);
+    other.activate().unwrap();
+    assert_eq!(
+        storage::response(queued()).unwrap()["base64"],
+        exact_runner::agent::base64(b"private")
+    );
+    assert!(run(&mut other, request)
+        .unwrap_err()
+        .contains("document ENOENT:"));
+    let root_path = format!("doc:/{}", doc["doc:/".len()..].split('/').next().unwrap());
+    assert!(run(
+        &mut other,
+        storage::request("fs.readdir", json!({"path":root_path}))
+    )
+    .unwrap_err()
+    .contains("document ENOENT:"));
+    exact_data::documents::forget(9011);
+    assert_eq!(
+        run(
+            &mut owner,
+            storage::request("fs.readdir", json!({"path":doc}))
+        )
+        .unwrap(),
+        json!(["note"])
+    );
+    owner.source.request = storage::request("fs.readFile", json!({"path":format!("{doc}/note")}));
+    let queued = take(&mut owner);
+    exact_data::documents::forget(9010);
+    assert!(storage::response(queued())
+        .unwrap_err()
+        .contains("document ENOENT:"));
+}
+
+#[test]
+fn filesystem_results_stop_at_the_encoded_response_limit() {
+    let root = Paths::new();
+    let paths = root.directories();
+    std::fs::create_dir_all(&paths.data).unwrap();
+    let boundary = ((storage::MAX_BYTES - 13) / 4) * 3;
+    let file = paths.data.join("large");
+    std::fs::File::create(&file)
+        .unwrap()
+        .set_len(boundary as u64)
+        .unwrap();
+    let mut host = Storage::new(Fixture::new());
+    root.configure(&mut host);
+    host.activate().unwrap();
+    let read = || storage::request("fs.readFile", json!({"path":"app:/data/large"}));
+    let answer = run(&mut host, read()).unwrap();
+    assert_eq!(answer["base64"].as_str().unwrap().len(), (boundary / 3) * 4);
+    std::fs::OpenOptions::new()
+        .write(true)
+        .open(&file)
+        .unwrap()
+        .set_len((boundary + 1) as u64)
+        .unwrap();
+    assert_eq!(
+        run(&mut host, read()).unwrap_err(),
+        "storage result exceeds its byte limit"
+    );
+    let document = exact_data::documents::mint(&file, 9020).unwrap();
+    host.set_document_owner(9020);
+    assert!(matches!(
+        super::native::run(
+            None,
+            "fs.read doc:/",
+            &serde_json::to_vec(&json!({"version":1,"op":"fs.readFile","args":{"path":document}})).unwrap(),
+            9020,
+        ),
+        Outcome::Failed {
+            kind: FailureKind::Unsupported,
+            message,
+        } if message == "storage result exceeds its byte limit"
+    ));
+    exact_data::documents::forget(9020);
+}
+
+#[test]
+#[cfg(unix)]
+fn document_work_stays_on_the_selected_directory_during_path_swaps() {
+    use std::os::unix::fs::symlink;
+    use std::sync::{atomic::AtomicBool, Arc};
+    let root = Paths::new();
+    let folder = root.0.join("chosen");
+    let outside = root.0.join("outside");
+    std::fs::create_dir_all(&folder).unwrap();
+    std::fs::create_dir(&outside).unwrap();
+    std::fs::write(folder.join("note"), "inside").unwrap();
+    std::fs::write(outside.join("note"), "outside").unwrap();
+    let doc = exact_data::documents::mint(&folder, 9003).unwrap();
+    std::fs::rename(&folder, root.0.join("moved")).unwrap();
+    symlink(&outside, &folder).unwrap();
+    let mut host = Storage::new(Fixture {
+        grants: "fs.read doc:/\nfs.write doc:/",
+        ..Fixture::new()
+    });
+    host.set_document_owner(9003);
+    host.activate().unwrap();
+    let mut call = |op: &str, name: &str| {
+        run(
+            &mut host,
+            storage::request(op, json!({"path":format!("{doc}/{name}"),"text":"written"})),
+        )
+    };
+    assert_eq!(
+        call("fs.readFile", "note").unwrap()["base64"],
+        exact_runner::agent::base64(b"inside")
+    );
+    call("fs.writeFile", "note").unwrap();
+    assert_eq!(
+        std::fs::read_to_string(root.0.join("moved/note")).unwrap(),
+        "written"
+    );
+    let moved = root.0.join("moved");
+    symlink(outside.join("note"), moved.join("race")).unwrap();
+    let stop = Arc::new(AtomicBool::new(false));
+    let swaps = Arc::new(AtomicU64::new(0));
+    let attacker = std::thread::spawn({
+        let stop = stop.clone();
+        let swaps = swaps.clone();
+        let outside = outside.clone();
+        move || {
+            while !stop.load(Ordering::Acquire) {
+                std::fs::write(moved.join("swap"), "inside").unwrap();
+                std::fs::rename(moved.join("swap"), moved.join("race")).unwrap();
+                symlink(outside.join("note"), moved.join("swap")).unwrap();
+                std::fs::rename(moved.join("swap"), moved.join("race")).unwrap();
+                swaps.fetch_add(1, Ordering::Release);
+            }
+        }
+    });
+    for _ in 0..128 {
+        if let Ok(value) = call("fs.readFile", "race") {
+            assert_ne!(value["base64"], exact_runner::agent::base64(b"outside"));
+        }
+        let _ = call("fs.writeFile", "race");
+        let _ = call("fs.appendFile", "race");
+        let _ = call("fs.rm", "race");
+    }
+    stop.store(true, Ordering::Release);
+    attacker.join().unwrap();
+    assert!(swaps.load(Ordering::Acquire) > 0);
+    assert_eq!(
+        std::fs::read_to_string(outside.join("note")).unwrap(),
+        "outside"
+    );
+    exact_data::documents::forget(9003);
+}
+
+/// A drive that names no scratch store (trivia F7): the request is answered,
+/// with the web's refusal word for word, which the module can handle — where
+/// an unconfigured host refuses the answer itself.
+#[test]
+fn an_agent_drive_without_a_store_answers_with_the_webs_refusal() {
+    let mut host = Storage::new(Fixture::new());
+    host.agent = true;
+    host.activate().unwrap();
+    let refused = run(
+        &mut host,
+        storage::request("fs.readFile", json!({"path":"app:/data/x"})),
+    );
+    assert_eq!(
+        refused,
+        Err("storage is unavailable in agent mode unless the drive names a scratch store (--storage <name>)".into())
+    );
+    // The first refused read or write is said in the journal, for the driver's note; a second is not.
+    let lines = host.take_logs();
+    assert_eq!(lines.len(), 1);
+    assert!(lines[0].starts_with("storage refused (agent): "));
+    let _ = run(
+        &mut host,
+        storage::request("fs.writeFile", json!({"path":"app:/data/y","text":"y"})),
+    );
+    assert!(host.take_logs().is_empty());
+    host.agent = false;
+    host.source.request = storage::request("fs.readFile", json!({"path":"app:/data/x"}));
+    assert!(host
+        .answer(&mut Store::default(), "operation", &[])
+        .is_err());
+}
+
+#[test]
+fn storage_forwards_source_console_lines_once() {
+    struct Logging(Vec<String>);
+    impl DataSource for Logging {
+        fn query(
+            &mut self,
+            _: &str,
+            _: &[exact_plan::Value],
+        ) -> Result<exact_plan::Value, DataError> {
+            Ok(exact_plan::Value::Unit)
+        }
+        fn take_logs(&mut self) -> Vec<String> {
+            std::mem::take(&mut self.0)
+        }
+    }
+    let mut source = Storage::new(Logging(vec!["console error".into()]));
+    assert_eq!(source.take_logs(), ["console error"]);
+    assert!(source.take_logs().is_empty());
+}
+
+/// A Rust source's `fs.compressImage` (LLP 1069.002 A1.1): the operation a
+/// TypeScript source's `storage.fs.compressImage` runs, through ibex2's
+/// executor and the platform codec. On Apple the fixture comes back upright
+/// as a JPEG; elsewhere the call is refused as `unsupported`.
+#[test]
+fn compress_image_answers_a_rust_source_as_typescripts() {
+    let paths = Paths::new();
+    let mut host = Storage::new(Fixture::new());
+    paths.configure(&mut host);
+    host.activate().unwrap();
+    run(
+        &mut host,
+        storage::request("fs.mkdir", json!({"path":"app:/data/in"})),
+    )
+    .unwrap();
+    std::fs::write(
+        paths.0.join("data/in/photo.jpg"),
+        include_bytes!("../../../scripts/fixtures/picker/oriented-gps.jpg"),
+    )
+    .unwrap();
+    let compress = |to: &str, dimension: Json, bytes: Json| {
+        storage::request(
+            "fs.compressImage",
+            json!({"path":"app:/data/in/photo.jpg","destination":to,"maxDimension":dimension,"maxBytes":bytes}),
+        )
+    };
+    let result = run(
+        &mut host,
+        compress("app:/data/out.jpg", json!(32), json!(2_000_000)),
+    );
+    if cfg!(target_vendor = "apple") {
+        let size = std::fs::metadata(paths.0.join("data/out.jpg"))
+            .unwrap()
+            .len();
+        assert_eq!(
+            result.unwrap(),
+            json!({"path":"app:/data/out.jpg","type":"image/jpeg","size":size,"width":24,"height":32})
+        );
+        let err = run(
+            &mut host,
+            compress("app:/data/unfit.jpg", json!(64), json!(1)),
+        )
+        .unwrap_err();
+        assert!(err.starts_with("compressImage: unfit: "), "{err}");
+        // A source over 64 MiB is the documented `too-large`, not the
+        // generic result limit its bounded read hits first.
+        let big = std::fs::File::create(paths.0.join("data/in/big.jpg")).unwrap();
+        big.set_len(64 * 1024 * 1024 + 1).unwrap();
+        let err = run(
+            &mut host,
+            storage::request(
+                "fs.compressImage",
+                json!({"path":"app:/data/in/big.jpg","destination":"app:/data/big-out.jpg","maxDimension":32,"maxBytes":2_000_000}),
+            ),
+        )
+        .unwrap_err();
+        assert!(err.starts_with("compressImage: too-large: "), "{err}");
+    } else {
+        assert_eq!(
+            result.unwrap_err(),
+            "compressImage: unsupported: no image codec"
+        );
+    }
+    for (request, expected) in [
+        (
+            compress("app:/cache/out.jpg", json!(32), json!(100)),
+            "denied: fs.write",
+        ),
+        (
+            compress("doc:/1/out.jpg", json!(32), json!(100)),
+            "compressImage: needs app:/ paths",
+        ),
+        (
+            compress("app:/data/x.jpg", json!(0), json!(100)),
+            "compressImage: invalid: maxDimension",
+        ),
+        (
+            compress("app:/data/x.jpg", json!(32), json!("100")),
+            "storage: maxBytes must be a number",
+        ),
+    ] {
+        let err = run(&mut host, request).unwrap_err();
+        assert!(err.starts_with(expected), "{err}");
+    }
+    assert!(!paths.0.join("data/x.jpg").exists());
+}
+
+/// A Rust source's upload from a file (LLP 1108 D6 R2): the storage composer
+/// passes `Request::body_from` through untouched, the path alone, for the
+/// host's executor to read when it sends the request.
+#[test]
+fn a_rust_sources_body_from_passes_to_the_host_as_its_path() {
+    let mut host = Storage::new(Fixture::new());
+    let mut upload = Request::get("https://example.test/upload").body_from("app:/data/photo.jpg");
+    upload.method = "POST".into();
+    host.source.request = upload.clone();
+    host.configure_storage("data".into(), "cache".into(), "tmp".into())
+        .unwrap();
+    host.activate().unwrap();
+    let mut store = Store::default();
+    let Answer::Later(request) = host.answer(&mut store, "upload", &[]).unwrap() else {
+        panic!("an upload is a request")
+    };
+    assert_eq!(request, upload);
+}
+
+/// A losing cancellation is not an abandoned upload. Consume the successful
+/// output only after the pinned-parent publication returns its real result.
+#[test]
+fn image_cancellation_orders_publication_and_the_consumer_reads_only_success() {
+    use ibex2::stdlib::{app_fs::AppDirectories, fs_image::*};
+    use std::sync::{mpsc, Arc};
+    let paths = Paths::new();
+    let roots = paths.directories();
+    for path in [&roots.data, &roots.cache, &roots.temporary] {
+        std::fs::create_dir_all(path).unwrap();
+    }
+    std::fs::write(roots.data.join("source"), b"source").unwrap();
+    std::fs::write(roots.data.join("out.jpg"), b"old").unwrap();
+    let directories =
+        Arc::new(AppDirectories::new(&roots.data, &roots.cache, &roots.temporary).unwrap());
+    let grants = Arc::new(ibex2::grant::GrantSet::parse(GRANTS).unwrap());
+    struct Codec;
+    impl ImageCodec for Codec {
+        fn limits(&self) -> CodecLimits {
+            CodecLimits {
+                max_pixels: 1,
+                max_scratch_bytes: 1,
+            }
+        }
+        fn encode(
+            &self,
+            source: &[u8],
+            _: ImageRequest,
+            control: &WorkControl,
+        ) -> Result<CompressedImage, ibex2::boundary::HostError> {
+            control.check()?;
+            assert_eq!(source, b"source");
+            Ok(CompressedImage {
+                bytes: b"published".to_vec(),
+                width: 1,
+                height: 1,
+            })
+        }
+    }
+    let limits = WorkLimits::default();
+    let work = ImageWork::new(limits);
+    let service = ImageService::new(Arc::new(Codec), limits).unwrap();
+    let prepare = || {
+        ImageJob::prepare(
+            &work,
+            Some(&service),
+            Some(directories.clone()),
+            grants.clone(),
+            "app:/data/source",
+            "app:/data/out.jpg",
+            ImageRequest {
+                max_dimension: 1,
+                max_bytes: 100,
+                format: Default::default(),
+            },
+        )
+        .unwrap()
+    };
+    let abandoned = prepare();
+    let first = abandoned.handle();
+    assert_eq!(first.cancel(), CancelResult::Abandoned);
+    assert!(abandoned.execute().is_err());
+    assert_eq!(std::fs::read(roots.data.join("out.jpg")).unwrap(), b"old");
+    assert!(first.take_outcome().unwrap().is_err());
+
+    let job = prepare();
+    let second = job.handle();
+    assert_ne!(first.id(), second.id());
+    let (entered, observed) = mpsc::sync_channel(1);
+    let (release, proceed) = mpsc::sync_channel(1);
+    let worker = std::thread::spawn(move || {
+        job.execute_with_commit_observer(move |_| {
+            entered.send(()).unwrap();
+            proceed
+                .recv_timeout(std::time::Duration::from_secs(20))
+                .unwrap();
+        })
+    });
+    observed
+        .recv_timeout(std::time::Duration::from_secs(20))
+        .unwrap();
+    assert_eq!(second.cancel(), CancelResult::CommitStarted);
+    assert_eq!(
+        first.cancel(),
+        CancelResult::Abandoned,
+        "an old handle cannot cancel new work"
+    );
+    assert_eq!(std::fs::read(roots.data.join("out.jpg")).unwrap(), b"old");
+    release.send(()).unwrap();
+    let result = worker.join().unwrap().unwrap();
+    assert_eq!(second.take_outcome(), Some(Ok(result)));
+    let outcome = super::native::run(
+        Some(&roots),
+        GRANTS,
+        br#"{"version":1,"op":"fs.readFile","args":{"path":"app:/data/out.jpg"}}"#,
+        0,
+    );
+    let Outcome::Storage(bytes) = outcome else {
+        panic!("the committed output is consumable")
+    };
+    assert_eq!(
+        serde_json::from_slice::<Json>(&bytes).unwrap()["base64"],
+        exact_runner::agent::base64(b"published")
+    );
+    assert_eq!(work.outstanding_workers(), 0);
+    assert_eq!(work.pending_completions(), 0);
 }

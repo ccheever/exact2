@@ -1,3 +1,18 @@
+import { memo, P, S } from "./rt.js";
+
+// Geometry attributes accept simple lengths across engines. Other dynamic
+// values keep the CSS path, including its hairline and motion handling.
+export function svgGeometry(e, name, read, style = S) {
+  const value = memo(read);
+  const attribute = memo(() => {
+    const v = value();
+    return typeof v === "number" ? (Number.isFinite(v) ? v : null)
+      : typeof v === "string" && /^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:e[+-]?\d+)?(?:px|%|vw|vh|vmin|vmax)?$/i.test(v.trim()) ? v : null;
+  });
+  P(e, name, attribute);
+  style(e, name, "px", () => attribute() == null ? value() : null);
+}
+
 // A dynamic SVG `transform` on the JS target (rt.js re-exports it; bundled
 // only into a plan with the row).
 /** SVG's `transform` grammar restated as CSS's (kernel `TransformList`):

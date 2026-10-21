@@ -14,15 +14,15 @@ const SOURCE: &str = r#"component App
   state extent = 180
   state display = "block"
   state shown = true
-  action tall writes extent
+  action tall
     extent = 640
-  action short writes extent
+  action short
     extent = 240
-  action hide writes display
+  action hide
     display = "none"
-  action show writes display
+  action show
     display = "block"
-  action remove writes shown
+  action remove
     shown = false
   view
     column
@@ -37,8 +37,8 @@ const SOURCE: &str = r#"component App
       button press=remove testId="remove"
         text "Remove"
       column display=display
-        when shown
-          column testId="panel" height=extent max-height=400 box-sizing="border-box" transition="height spring(180, 12, 1), translate spring(180, 12, 1)"
+        if shown
+          column testId="panel" height=extent max-height=400 box-sizing="border-box" transition="height -exact-spring(180, 12, 1), translate -exact-spring(180, 12, 1)"
             text "Panel"
       column testId="other" height=120
         text "Other"

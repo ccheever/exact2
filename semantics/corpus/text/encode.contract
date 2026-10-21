@@ -1,0 +1,32 @@
+// encodeURIComponent: UTF-8 bytes, all but A-Z a-z 0-9 - _ . ! ~ * ' ( )
+// percent-encoded in upper-case hex.
+component App
+  state s = "a b&c=d"
+  derive e = encodeURIComponent(s)
+  action set(v: string)
+    s = v
+  view
+    column
+      input value=s change=set testId="in"
+      text e testId="e"
+
+test "reserved characters"
+  expect text "e" == "a%20b%26c%3Dd"
+  type "in" "-_.!~*'()"
+  expect text "e" == "-_.!~*'()"
+  type "in" "/?#[]@$,;:+"
+  expect text "e" == "%2F%3F%23%5B%5D%40%24%2C%3B%3A%2B"
+
+test "non-ascii"
+  type "in" "ü"
+  expect text "e" == "%C3%BC"
+  type "in" "日本"
+  expect text "e" == "%E6%97%A5%E6%9C%AC"
+  type "in" "😀"
+  expect text "e" == "%F0%9F%98%80"
+
+test "controls and quotes"
+  type "in" "\"%\n"
+  expect text "e" == "%22%25%0A"
+  type "in" ""
+  expect text "e" == ""

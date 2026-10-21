@@ -14,10 +14,10 @@ fn markdown_is_a_markup_prop_that_can_be_markdown() {
     assert!(constant.has(Capability::Markdown));
     assert_eq!(constant.to_string(), "markdown");
     // Another constant selects nothing; a computed one might be Markdown.
-    let other = used("component A\n  view\n    text \"**b**\" markup=\"plain\"\n");
+    let other = used("component A\n  view\n    text \"**b**\" markup=\"none\"\n");
     assert_eq!(other, Uses::NONE);
     let computed = used(
-        "component A\n  state rich = true\n  view\n    text \"**b**\" markup=(rich ? \"markdown\" : \"plain\")\n",
+        "component A\n  state rich = true\n  view\n    text \"**b**\" markup=(rich ? \"markdown\" : \"none\")\n",
     );
     assert!(computed.has(Capability::Markdown));
 }
@@ -26,13 +26,18 @@ fn markdown_is_a_markup_prop_that_can_be_markdown() {
 fn motion_is_a_spring_or_a_gesture_that_holds_a_value() {
     let css =
         used("component A\n  view\n    text \"a\" opacity=0.5 transition=\"opacity 200ms ease\"\n");
-    assert_eq!(css, Uses::NONE, "CSS plays an easing transition");
+    // The browser plays an easing transition; a native engine plays it as
+    // `transitions` (LLP 1047.001), never as motion.
+    assert_eq!(css.to_string(), "transitions");
+    assert!(!css.has(Capability::Motion));
+    let none = used("component A\n  view\n    text \"a\" opacity=0.5 transition=\"none\"\n");
+    assert_eq!(none, Uses::NONE, "a transition of none plays nothing");
     let spring = used(
-        "component A\n  view\n    text \"a\" scale=1.5 transition=\"scale spring(180, 12, 1)\"\n",
+        "component A\n  view\n    text \"a\" scale=1.5 transition=\"scale -exact-spring(180, 12, 1)\"\n",
     );
     assert!(spring.has(Capability::Motion));
     let swipe = used(
-        "component A\n  state n = 0\n  action swipe writes n\n    n = n + 1\n  view\n    text \"a\" swiperight=swipe\n",
+        "component A\n  state n = 0\n  action swipe\n    n = n + 1\n  view\n    text \"a\" swiperight=swipe\n",
     );
     assert!(swipe.has(Capability::Motion));
     assert!(
@@ -40,11 +45,11 @@ fn motion_is_a_spring_or_a_gesture_that_holds_a_value() {
         "a swipe holds a value but tracks no handle"
     );
     let pan = used(
-        "component A\n  state n = 0\n  action move(dx: number, dy: number) writes n\n    n = n + dx\n  view\n    text \"a\" pan=move\n",
+        "component A\n  state n = 0\n  action move(dx: number, dy: number)\n    n = n + dx\n  view\n    text \"a\" pan=move\n",
     );
     assert_eq!(pan, Uses::NONE, "a pan commits state; it holds nothing");
     let release = used(
-        "component A\n  state n = 0\n  action move(dx: number, dy: number) writes n\n    n = n + dx\n  view\n    text \"a\" pan=move panrelease=move\n",
+        "component A\n  state n = 0\n  action move(dx: number, dy: number)\n    n = n + dx\n  view\n    text \"a\" pan=move panrelease=move\n",
     );
     assert!(
         release.has(Capability::Motion) && !release.has(Capability::Drag),
@@ -56,7 +61,7 @@ fn motion_is_a_spring_or_a_gesture_that_holds_a_value() {
     assert!(drag.has(Capability::Motion) && drag.has(Capability::Drag));
     assert_eq!(
         spring.with(Capability::Markdown).to_string(),
-        "markdown, motion"
+        "markdown, motion, transitions"
     );
 }
 
@@ -64,7 +69,7 @@ fn motion_is_a_spring_or_a_gesture_that_holds_a_value() {
 fn collections_are_lists_the_host_windows() {
     let list = |attrs: &str| {
         used(&format!(
-            "component A\n  resource rows = rows() as shape list<string>\n  view\n    list {attrs}\n      each x in rows key=x\n        column\n          text x\n"
+            "component A\n  resource rows = rows() as shape string[]\n  view\n    list {attrs}\n      for x in rows key=x\n        column\n          text x\n"
         ))
     };
     assert_eq!(list("height=100"), Uses::NONE, "a plain list is the core's");
@@ -102,19 +107,36 @@ fn format_is_a_call_of_format_date_or_format_number_anywhere() {
     assert_eq!(time, Uses::NONE);
     let date = used("component A\n  view\n    text formatDate(0, 0, \"medium\")\n");
     assert_eq!(date.to_string(), "format");
+    let day = used("component A\n  view\n    text formatDay(0, 0, 0, \"list\")\n");
+    assert_eq!(day.to_string(), "format");
     // In an action's body, a derive, a callback and an inlined `fn` too.
     let action = used(
-        "component A\n  state s = \"\"\n  action set writes s\n    s = formatNumber(1250, \"compact\")\n  view\n    button s press=set\n",
+        "component A\n  state s = \"\"\n  action set\n    s = formatNumber(1250, \"compact\")\n  view\n    button s press=set\n",
     );
     assert!(action.has(Capability::Format));
     let callback = used(
-        "component A\n  resource xs = xs() as shape list<number>\n  derive ys = map(xs, x => formatNumber(x, \"compact\"))\n  view\n    text join(ys, \",\")\n",
+        "component A\n  resource xs = xs() as shape number[]\n  derive ys = xs.map(x => formatNumber(x, \"compact\"))\n  view\n    text ys.join(\",\")\n",
     );
     assert!(callback.has(Capability::Format));
     let wrapped = used(
         "fn count(n: number): string = formatNumber(n, \"compact\")\ncomponent A\n  view\n    text count(3)\n",
     );
     assert!(wrapped.has(Capability::Format));
+}
+
+/// LLP 1088 D2: `toLowerCase` and `toUpperCase` reach the case tables
+/// `text-transform` links, so a call links them; `slice` and `replaceAll`
+/// need nothing.
+#[test]
+fn to_lower_case_links_the_case_tables_and_slice_links_nothing() {
+    let cut = used(
+        "component A\n  state s = \"Ab\"\n  view\n    text s.slice(1).replaceAll(\"b\", \"c\")\n",
+    );
+    assert_eq!(cut, Uses::NONE);
+    let lower = used("component A\n  state s = \"Ab\"\n  view\n    text s.toLowerCase()\n");
+    assert_eq!(lower.to_string(), "text_transform");
+    let upper = used("component A\n  state s = \"Ab\"\n  view\n    text s.toUpperCase()\n");
+    assert_eq!(upper.to_string(), "text_transform");
 }
 
 #[test]
@@ -137,7 +159,7 @@ fn drag_timelines_are_linked_by_use() {
     // @ref LLP 1057.003 — the web core carries their grammar only when a plan sets a row.
     assert!(!used("component A\n  view\n    text \"a\"\n").has(Capability::Timelines));
     for row in [
-        "drag-timeline=\"--dismiss\"",
+        "-exact-drag-timeline=\"--dismiss\"",
         "animation-timeline=\"--dismiss\"",
         "animation-range=\"0px 300px\"",
         "timeline-scope=\"--dismiss\"",
@@ -184,7 +206,8 @@ fn css_animations_are_linked_by_use() {
     )
     .has(Capability::Animations));
     assert!(
-        used("component A\n  view\n    box exit-animation=\"none\"\n").has(Capability::Animations)
+        used("component A\n  view\n    box -exact-exit-animation=\"none\"\n")
+            .has(Capability::Animations)
     );
 }
 
@@ -196,6 +219,40 @@ fn gradients_are_linked_by_use() {
         "component A\n  view\n    view background-image=\"linear-gradient(#000, #fff)\"\n"
     )
     .has(Capability::Gradients));
+}
+
+#[test]
+fn data_words_and_tabs_are_linked_by_use() {
+    // @ref LLP 1075.003 §3.3, §3.7 — the web core carries neither the
+    // `dataset` reading nor the tabs' walk unless a plan binds the row.
+    let plain = used("component A\n  view\n    box testId=\"a\"\n");
+    assert!(!plain.has(Capability::Dataset) && !plain.has(Capability::Tabs));
+    let words = used("component A\n  view\n    box data-screen=\"home\"\n");
+    assert_eq!(words.to_string(), "dataset");
+    let tabs = used(
+        "component A\n  view\n    column\n      row role=\"tablist\"\n        button role=\"tab\" aria-controls=\"one\"\n          text \"One\"\n      column role=\"tabpanel\" id=\"one\"\n",
+    );
+    assert_eq!(tabs.to_string(), "tabs");
+}
+
+#[test]
+fn grid_grammars_are_linked_by_any_grid_row() {
+    assert!(!used("component A\n  view\n    box display=\"grid\"\n").has(Capability::Grid));
+    for (row, value, alternative) in [
+        ("grid-template-columns", "1fr 2fr", "auto"),
+        ("grid-template-rows", "auto 40px", "25%"),
+        ("grid-column", "1 / span 2", "auto"),
+        ("grid-row", "rail / 2", "span 2"),
+        ("grid-auto-flow", "column dense", "row"),
+        ("justify-items", "safe center", "stretch"),
+    ] {
+        let literal = used(&format!("component A\n  view\n    box {row}=\"{value}\"\n"));
+        assert!(literal.has(Capability::Grid), "literal {row}");
+        let dynamic = used(&format!(
+            "component A\n  state on = true\n  view\n    box {row}=(on ? \"{value}\" : \"{alternative}\")\n"
+        ));
+        assert!(dynamic.has(Capability::Grid), "dynamic {row}");
+    }
 }
 
 #[test]
@@ -218,6 +275,25 @@ fn share_is_a_plan_that_runs_the_command() {
 }
 
 #[test]
+fn notifications_are_a_plan_that_runs_show_or_close_notification() {
+    // Linked by use on the web (QUEUE.md's standing rule: the web cores' size).
+    assert!(!used("component A\n  view\n    text \"a\"\n").has(Capability::Notifications));
+    for call in [
+        "showNotification(title=\"Stretch\")",
+        "closeNotification(\"stretch\")",
+    ] {
+        let notifies = used(&format!(
+            "component A\n  action go\n    {call}\n  view\n    button \"Go\" press=go\n"
+        ));
+        assert!(notifies.has(Capability::Notifications) && !notifies.has(Capability::Share));
+    }
+    assert_eq!(
+        Uses::NONE.with(Capability::Notifications).to_string(),
+        "notifications"
+    );
+}
+
+#[test]
 fn documents_are_a_plan_that_runs_save_file_or_a_file_picker() {
     // @ref LLP 1069.010 — linked by use on the web (the web core's size).
     assert!(!used("component A\n  view\n    text \"a\"\n").has(Capability::Documents));
@@ -233,6 +309,30 @@ fn the_picker_is_a_file_input_or_show_picker() {
     assert!(!used("component A\n  view\n    text \"a\"\n").has(Capability::Picker));
     let input = used("component A\n  view\n    input type=\"file\" accept=\"image/*\" id=\"f\"\n");
     assert!(input.has(Capability::Picker));
+}
+
+/// LLP 1047.001.000 E: iOS's photo picker is a file input whose `accept` is
+/// only images and videos (the compiler takes only a literal); a document
+/// input links the picker without it.
+#[test]
+fn the_media_picker_is_a_file_input_that_accepts_only_media() {
+    let input = |attrs: &str| {
+        used(&format!("component A\n  view\n    column\n      input type=\"file\" id=\"f\"{attrs}\n      text \"a\"\n"))
+    };
+    for media in [" accept=\"image/*\"", " accept=\"image/png, video/mp4\""] {
+        let uses = input(media);
+        assert!(
+            uses.has(Capability::Picker) && uses.has(Capability::MediaPicker),
+            "{media}"
+        );
+    }
+    for document in ["", " accept=\"image/*, */*\"", " accept=\"*/*\""] {
+        let uses = input(document);
+        assert!(
+            uses.has(Capability::Picker) && !uses.has(Capability::MediaPicker),
+            "{document}"
+        );
+    }
 }
 
 #[test]
@@ -258,4 +358,29 @@ fn svg_islands_are_a_mask_a_filter_element_or_a_filter_on_an_svg_element() {
     assert!(!filters(
         "component A\n  view\n    box filter=\"blur(2px)\"\n"
     ));
+}
+
+/// LLP 1047.001 D2: a grouped list (`list appearance="auto"`, which Contract
+/// marks with `listStyle`) is a native capability; a plain list is not.
+#[test]
+fn a_grouped_list_is_a_list_whose_appearance_is_auto() {
+    let plain = used("component A\n  view\n    list\n      text \"a\"\n");
+    assert!(!plain.has(Capability::GroupedLists));
+    let grouped = used(
+        "component A\n  view\n    list appearance=\"auto\"\n      section\n        text \"a\"\n",
+    );
+    assert!(grouped.has(Capability::GroupedLists));
+    assert_eq!(grouped.to_string(), "grouped_lists");
+}
+
+/// LLP 1115.001.000 D2: a date or time control, which on Android links
+/// Compose Material 3 for its picker.
+#[test]
+fn dates_are_a_date_or_time_control() {
+    for kind in ["date", "time", "datetime-local"] {
+        let plan = format!("component A\n  view\n    input type=\"{kind}\" value=\"\"\n");
+        assert!(used(&plan).has(Capability::Dates), "{kind}");
+    }
+    assert!(!used("component A\n  view\n    input value=\"\"\n").has(Capability::Dates));
+    assert!(!used("component A\n  view\n    input type=\"file\"\n").has(Capability::Dates));
 }

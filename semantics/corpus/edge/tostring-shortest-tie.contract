@@ -1,0 +1,15 @@
+// Number#toString when two shortest digit strings both round-trip: the
+// double 900719925474099.25 lies exactly halfway between ...099.2 and
+// ...099.3 (the spacing there is 0.125). ECMA-262 Number::toString picks
+// the candidate closest to the value and, on a tie, the even one: "…099.2".
+component App
+  state x = 900719925474099.25
+  state y = 900719925474099.75
+  view
+    column
+      text `${x}` testId="x"
+      text `${y}` testId="y"
+
+test "tie goes to even digit"
+  expect text "x" == "900719925474099.2"
+  expect text "y" == "900719925474099.8"

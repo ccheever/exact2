@@ -10,6 +10,14 @@ build = "build.rs"
 [lib]
 name = "reflow_web"
 crate-type = ["cdylib", "rlib"]
+test = false
+bench = false
+
+[[bin]]
+name = "reflow-dev"
+path = "src/bin/reflow-dev.rs"
+test = false
+bench = false
 
 [dependencies]
 exact-logic = { path = "../../../logic" }

@@ -1,10 +1,12 @@
 // Portable Rust storage operations use the same filesystem and SQLite services
 // as TS. Handles never cross this boundary. @ref LLP 1027.001 D2.
-import { createFileSystem } from './storage-fs.js';
+import { createFileSystem, requestBody } from './storage-fs.js';
 import { createSqlite } from './storage-sqlite.js';
 import { agentStorageRefusal, storageKey } from './storage-environment.js';
+import { grantError } from './grant-admission.js';
 import './documents-glue.js';
 const maxBytes = 16 << 20;
+let toldAgent = false;
 const encoder = new TextEncoder();
 const bytes = args => {
   if (typeof args.text === 'string') return encoder.encode(args.text);
@@ -30,9 +32,8 @@ const wire = value => {
 const result = r => ({changes:String(r.changes),lastInsertRowid:String(r.lastInsertRowid)});
 function base64(bytes) { let text='';for (let i=0;i<bytes.length;i+=16384)text+=String.fromCharCode(...bytes.subarray(i,i+16384));return btoa(text); }
 export function createStorageRequests(appId, admitted) {
-  const services = new Map(), key = storageKey(appId, location.href); let disposed = false;
+  const services = new Map(), key = storageKey(appId); let disposed = false;
   const check = () => { if(disposed)throw new Error('storage source unloaded'); };
-  const lines = admitted.split('\n').map(s=>s.trim()).filter(Boolean);
   return {
     async run(payload, scope = null) {
       try {
@@ -40,7 +41,9 @@ export function createStorageRequests(appId, admitted) {
         if (encoder.encode(payload).length > maxBytes) throw new Error('storage request exceeds its byte limit');
         const request=JSON.parse(payload), {op,args}=request;
         scope ??= admitted;
-        if (typeof scope!=='string' || scope.split('\n').map(s=>s.trim()).filter(Boolean).some(s=>!lines.includes(s))) throw new Error("source scope exceeds the app's admitted grants");
+        const invalid=grantError(scope);if(invalid)throw new Error(invalid);
+        // Two app files, never a document (LLP 1069.002 A1.1): refused before the document branch.
+        if (op==='fs.compressImage' && ![args?.path,args?.destination].every(p=>typeof p==='string'&&p.startsWith('app:/'))) throw new Error('compressImage: needs app:/ paths');
         // A document the person chose is not app storage (LLP 1069.010 D1).
         if (request.version===1 && typeof args?.path==='string' && args.path.startsWith('doc:/')) {
           const data=['fs.writeFile','fs.atomicWriteFile','fs.appendFile'].includes(op)?bytes(args):null;
@@ -48,10 +51,15 @@ export function createStorageRequests(appId, admitted) {
           if(encoded.length>maxBytes)throw new Error('storage result exceeds its byte limit');
           return encoded;
         }
-        if (key == null) throw new Error(agentStorageRefusal);
+        if (key == null) {
+          // The first refused read or write is said once, as on every host (trivia F7): the page's console reaches the driver's logs.
+          if (!toldAgent) { toldAgent = true; console.warn(`storage refused (agent): ${agentStorageRefusal}`); }
+          throw new Error(agentStorageRefusal);
+        }
         if (request.version!==1 || !args || typeof args.path!=='string' || !args.path.startsWith('app:/')) throw new Error('invalid portable storage request');
-        if (!services.has(scope)) services.set(scope,{fs:createFileSystem(key,scope),sqlite:createSqlite(key,scope)});
-        const {fs,sqlite}=services.get(scope); let value;
+        const scopeKey=scope.seal;
+        if (!services.has(scopeKey)) services.set(scopeKey,{fs:createFileSystem(key,scope),sqlite:createSqlite(key,scope)});
+        const {fs,sqlite}=services.get(scopeKey); let value;
         if (op==='sqlite' || op==='sqlite.transaction') {
           if (!Array.isArray(args.commands) || args.commands.length>10000) throw new Error('invalid SQLite commands');
           const commands=args.commands.map(c=>{
@@ -78,6 +86,8 @@ export function createStorageRequests(appId, admitted) {
             case 'fs.rename':case 'fs.copyFile':
               if(typeof args.destination!=='string'||!args.destination.startsWith('app:/'))throw new Error('portable storage needs an app:/ destination');
               value=await fs[op.slice(3)](args.path,args.destination);break;
+            case 'fs.compressImage':
+              value=await fs.compressImage(args.path,args.destination,{maxDimension:args.maxDimension,maxBytes:args.maxBytes,...(args.type==null?{}:{type:args.type})});break;
             case 'fs.mkdir':case 'fs.rm':case 'fs.readdir':case 'fs.realpath':case 'fs.stat':value=await fs[op.slice(3)](args.path);break;
             default:throw new Error('unsupported storage operation '+op);
           }
@@ -92,4 +102,4 @@ export function createStorageRequests(appId, admitted) {
   };
 }
 
-if(globalThis.exact)globalThis.exact.createStorageRequests=createStorageRequests;
+if(globalThis.exact){globalThis.exact.createStorageRequests=createStorageRequests;globalThis.exact.requestBody=requestBody;}

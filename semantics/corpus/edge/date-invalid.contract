@@ -1,0 +1,21 @@
+// A text change to a date input that is not HTML's date format, or is
+// outside min/max. The runner refuses (InvalidValue); the semantics
+// delivers the string.
+component App
+  state day = ""
+  action setDay(v: string)
+    day = v
+  view
+    input type="date" value=day min="2026-01-01" max="2026-12-31" change=setDay testId="day"
+
+test "valid date"
+  type "day" "2026-09-27"
+  expect state day == "2026-09-27"
+
+test "not a date"
+  type "day" "tomorrow"
+  expect state day == ""
+
+test "after max"
+  type "day" "2027-01-05"
+  expect state day == ""

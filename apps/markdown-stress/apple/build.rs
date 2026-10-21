@@ -4,7 +4,7 @@
 use contract::DataSource;
 
 fn main() {
-    println!("cargo:rerun-if-changed=../app.contract");
+    contract::rerun_if_changed(std::path::Path::new("../app.contract"));
     println!("cargo:rerun-if-changed=../app.json");
     println!("cargo:rerun-if-changed=../data");
     println!("cargo:rerun-if-changed=../../markdown/parse");
@@ -22,7 +22,7 @@ fn main() {
     let app_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
     let target = std::env::var("TARGET").unwrap_or_default();
     let platform = match std::env::var("CARGO_CFG_TARGET_OS").as_deref() {
-        Ok("ios") => "ios",
+        Ok("ios" | "watchos") => "ios",
         _ => "macos",
     };
     let manifest = contract::Manifest::read(&app_dir).unwrap_or_else(|e| panic!("app.json: {e}"));
@@ -30,27 +30,30 @@ fn main() {
     let grants = source.grants();
     let compat = exact_bake::compatibility_id(&app_dir, platform, &target, &manifest, Some(grants))
         .unwrap_or_else(|e| panic!("compatibility id: {e}"));
-    std::fs::write(out_dir.join("compat.json"), compat.to_json()).unwrap();
     let host = if compat.inputs["store"]["L"] == "0" {
         "exact_apple"
     } else {
         "exact_apple_update"
     };
+    // What the archive links, as its compatibility inputs name it (LLP 1047.001 D2).
+    let linked = exact_bake::apple_link(&compat, host);
+    std::fs::write(out_dir.join("compat.json"), compat.to_json()).unwrap();
     std::fs::write(
         out_dir.join("entry.rs"),
         format!(
             "{}\nfn region_launch() -> Option<exact_apple::content_region::ContentRegionRegistration> {{
     let value = match std::env::var(\"EXACT_CONTENT_REGION\") {{ Ok(v) => v, Err(std::env::VarError::NotPresent) => return None, Err(_) => panic!(\"invalid content-region launch value\") }};
-    if cfg!(target_os = \"ios\") {{ panic!(\"content-region AppKit trial is unavailable on iOS\"); }}
+    if cfg!(any(target_os = \"ios\", target_os = \"watchos\")) {{ panic!(\"content-region AppKit trial is unavailable on iOS and watchOS\"); }}
     let activate = match value.as_str() {{ \"1048576\" => \"launchParagraph1MiB\", \"4194304\" => \"launchParagraph4MiB\", _ => panic!(\"EXACT_CONTENT_REGION requires 1048576 or 4194304\") }};
     Some(exact_apple::content_region::ContentRegionRegistration {{ activate: Some(activate), owner: \"markdown-region-owner\", content: \"markdown-region-content\", pending: \"markdown-region-pending\" }})
-}}\n{host}::host!(AppData, PLAN, COMPAT, None, ::std::ptr::null(), AppData::default, region_launch());\n",
+}}\n{}{host}::host!(AppData, PLAN, COMPAT, None, ::std::ptr::null(), AppData::default, region_launch(); linked = EXACT_LINKED);\n",
             contract::rust_entry(
                 "markdown_stress_data::NativeMarkdownStress",
                 "markdown_stress_data::NativeMarkdownStress::default()",
                 compat.inputs["rustMode"].as_str().unwrap()
             )
-            .unwrap()
+            .unwrap(),
+            linked
         ),
     )
     .unwrap();

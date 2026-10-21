@@ -3,22 +3,53 @@
 // — the safe area of its own container, or the whole of it when the first
 // root says `viewport-fit="cover"`, the safe-area insets then going to the
 // kernel for its `env()` lengths (LLP 1008 §9) — and, under
-// `interactive-widget="resizes-content"`, the keyboard's top. The plan
+// `interactive-widget="resizes-content"` (the default, LLP 1116 D2), the
+// keyboard's top. The plan
 // boots at the first layout that has a size and follows every later size
 // (a rotation, a split) and every change of the insets. Bounded
 // containment: the session's page scrolls inside this view exactly as the
 // standalone host's does.
-#if os(iOS)
+#if os(iOS) || os(tvOS)
 import UIKit
 
 public final class ExactView: UIView {
     public let session: ExactSession
     private var fitPending = false
+    /// The canvas's colour, which this view shows wherever the viewport does
+    /// not reach (`paintUnderKeys`).
+    private var canvas: UIColor?
     private var lastSize = CGSize.zero
     private var lastInsets = UIEdgeInsets.zero
+    /// The layout regions last told (LLP 1123 D10); `nil` until a booted
+    /// runner has them.
+    private var lastRegions: [CGFloat]?
+    private var lastFold = ViewportFold.flat
+    private var lastScreen: CGSize?
+    /// The hinge's last status from `UIHingeInteraction` (1 closed, 2
+    /// partially open, 3 fully open; nil before it reports or without a
+    /// hinge), and how many layouts have re-read the division regions since
+    /// it last changed while they disagreed with it (LLP 1078 D5).
+    private var hingeStatus: Int?
+    private var regionRereads = 0
+    private static let regionRereadLimit = 5
     private var lastDisplayScale: CGFloat = 0
     private var keyboardProbe: UIView?
+    /// What this view adds beside the viewport, for `layout agree` (LLP 1080.001 D3).
+    var inspectionOwned: [UIView] { keyboardProbe.map { [$0] } ?? [] }
     private var keyboardObserver: NSObjectProtocol?
+    /// Fits again once the keyboard has stopped moving (see `init`).
+    private var keyboardSettled: [NSObjectProtocol] = []
+    /// The keys' top the last fit took from the guide (nil: down, or the
+    /// guide not read); a new height waiting out its burst, and the last
+    /// height the guide showed while it waits (`settledGuideTop`).
+    private var guideTop: CGFloat?
+    private var guideHold: DispatchWorkItem?
+    private var guideSeen: CGFloat?
+    private var guideReleased = false
+    /// When an editor last began editing, which opens the window in which
+    /// the keys' height jitters, and the observers that say so.
+    private var editorBegan: CFTimeInterval = -.infinity
+    private var editingObservers: [NSObjectProtocol] = []
     /// The adapter's hook for the first root's `viewport-fit` and its
     /// canvas colour (the window's background under the safe areas is the
     /// window's business).
@@ -27,33 +58,94 @@ public final class ExactView: UIView {
     /// The adapter's hook for the head's title (LLP 1048.003 D1): the scene
     /// title is the app's to set. It hears the current title when set.
     public var onTitle: ((String?) -> Void)? { didSet { onTitle?(session.presenter.title) } }
+    #if os(iOS)
+    /// The status bar's style the app declared (LLP 1105), for the
+    /// controller that hosts this view to return from
+    /// `preferredStatusBarStyle`, and the hook that says it changed, called
+    /// inside the change's animation (a fade, when the app asks for one) and
+    /// with the current style when set: call `setNeedsStatusBarAppearanceUpdate`.
+    public var statusBarStyle: UIStatusBarStyle { session.presenter.statusBar.style }
+    public var onStatusBarStyle: ((UIStatusBarStyle) -> Void)? { didSet { onStatusBarStyle?(statusBarStyle) } }
+    #endif
 
     public init(session: ExactSession) {
         self.session = session
         super.init(frame: .zero)
-        // The launch screen's colour (the manifest's `launch`) until the first frame names the canvas.
-        backgroundColor = UIColor(named: "ExactLaunch") ?? .white
+        // The launch screen's colour (the manifest's `launch`) until the first
+        // frame names the canvas; unset, the platform's (LLP 1115 D2).
+        backgroundColor = UIColor(named: "ExactLaunch") ?? .platformBackground(in: nil)
+        canvas = backgroundColor
         addSubview(session.presenter.viewport)
+        #if !os(tvOS)
         keyboardObserver = NotificationCenter.default.addObserver(
             forName: UIResponder.keyboardWillChangeFrameNotification, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.installKeyboardProbe() }
         }
+        #endif
         session.view = self
         session.presenter.onViewportFit = { [weak self] in self?.setNeedsLayout(); self?.onViewportFit?() }
-        session.presenter.onCanvasColor = { [weak self] color in self?.backgroundColor = color; self?.onCanvasColor?(color) }
+        session.presenter.onCanvasColor = { [weak self] color in self?.canvas = color; self?.paintUnderKeys(); self?.onCanvasColor?(color) }
         session.presenter.onTitle = { [weak self] title in self?.onTitle?(title) }
+        #if os(iOS)
+        session.presenter.onStatusBar = { [weak self] choice in self?.onStatusBarStyle?(choice.style) }
+        #endif
         session.presenter.onKeyboardResize = { [weak self] in self?.fit() }
+        // A pop that takes the editing route away moves the keys with it: the
+        // hide arrives while the transition freezes the viewport, and once
+        // the editor is gone no later notification concerns this session.
+        // Without this the page stayed laid out above keys that had left —
+        // the bottom of the list missing after a swipe back. Fitting is
+        // idempotent, so fit again when the keyboard has settled.
+        // tvOS has no keyboard frame notifications.
+        #if !os(tvOS)
+        keyboardSettled = [UIResponder.keyboardDidHideNotification, UIResponder.keyboardDidChangeFrameNotification].map { name in
+            NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated { self?.fit() }
+            }
+        }
+        editingObservers = [UITextField.textDidBeginEditingNotification, UITextView.textDidBeginEditingNotification].map { name in
+            NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated { self?.editorBegan = CACurrentMediaTime() }
+            }
+        }
+        #endif
         session.presenter.observeKeyboard()
-        registerForTraitChanges([UITraitUserInterfaceStyle.self, UITraitDisplayScale.self]) { (view: ExactView, _: UITraitCollection) in view.reportScheme(); view.setNeedsLayout() }
+        registerForTraitChanges([UITraitPreferredContentSizeCategory.self, UITraitLegibilityWeight.self, UITraitDisplayScale.self]) { (view: ExactView, _: UITraitCollection) in view.session.controlTextChanged() }
+        registerForTraitChanges([UITraitUserInterfaceStyle.self, UITraitDisplayScale.self, UITraitAccessibilityContrast.self]) { (view: ExactView, _: UITraitCollection) in view.reportScheme(); view.setNeedsLayout() }
+        // The tvOS SDK has no Swift UITraitDefinition for this trait. OS
+        // suppression still applies to its layers without a re-decode (D9).
+        #if os(iOS)
+        if #available(iOS 26, *) {
+            registerForTraitChanges([UITraitHDRHeadroomUsageLimit.self]) { (view: ExactView, _: UITraitCollection) in view.session.rasters.displayChanged() }
+        }
+        #endif
+        // A hinge moving from flat to a book angle changes the division
+        // regions' `isActive` without changing any bounds; nothing else would
+        // lay out again (LLP 1078 D5). The status is kept: the posture
+        // follows it, and a layout whose regions disagree with it re-reads
+        // them on the following frames (`fit`).
+        ReservedRegions.observeHinge(on: self) { [weak self] status in
+            guard let self else { return }
+            session.presenter.hingeReported = true
+            if status != nil { session.presenter.hasFold = true }
+            if status != hingeStatus { hingeStatus = status; regionRereads = 0 }
+            setNeedsLayout()
+        }
     }
 
     /// Paint motion resolves `light-dark()` by this view's appearance (LLP 1062).
     /// A system appearance change reaches the view as a trait change too:
     /// `prefers-color-scheme` is told again (LLP 1069.000 D1).
-    private func reportScheme() { session.scheme(dark: traitCollection.userInterfaceStyle == .dark); session.tellPreferences() }
+    private func reportScheme() { session.scheme(dark: traitCollection.userInterfaceStyle == .dark); session.tellPreferences(); session.natives.scopesChanged() }
+    /// An app or window tint changed: `AccentColor` is reported again (LLP 1095 D9).
+    public override func tintColorDidChange() { super.tintColorDidChange(); session.reportColors() }
 
     required init?(coder: NSCoder) { nil }
-    deinit { keyboardObserver.map(NotificationCenter.default.removeObserver) }
+    deinit {
+        keyboardObserver.map(NotificationCenter.default.removeObserver)
+        keyboardSettled.forEach(NotificationCenter.default.removeObserver)
+        editingObservers.forEach(NotificationCenter.default.removeObserver)
+    }
 
     /// A zero-size dependent makes UIKit lay this view out as its keyboard
     /// guide moves: frame notifications alone omit interactive drag frames.
@@ -61,6 +153,7 @@ public final class ExactView: UIView {
     /// the window gives the window a layout engine, and every view added
     /// after joins it (`_switchToLayoutEngine:`), which a list pays for each
     /// view of each row it builds. No node view uses a constraint.
+    #if !os(tvOS)
     private func installKeyboardProbe() {
         guard keyboardProbe == nil else { return }
         keyboardObserver.map(NotificationCenter.default.removeObserver)
@@ -77,6 +170,57 @@ public final class ExactView: UIView {
         ])
         keyboardProbe = probe
     }
+    #endif
+
+    /// The guide's top for a fit, settled as `Presenter.keyboardChanged`
+    /// settles the notifications. Moving the focus between fields rebuilds
+    /// the keys, and their height passes through the other keyboard's for a
+    /// frame or two with no animation (347, 320, 347 points on an iPhone Air
+    /// between a text and a password field). The guide follows it, and a fit
+    /// laid out each step flashed the page. So for 0.3 s after an editor
+    /// begins, while the keys stay up, a new height outside an animation
+    /// waits 80 ms for the last of the burst. A show, a hide, a drag, a
+    /// change inside an animation (the keyboard's own, a rotation's) and a
+    /// later one (the AutoFill bar arriving as typing starts) apply at once.
+    private func settledGuideTop(_ live: CGFloat?) -> CGFloat? {
+        if let held = guideTop, let live, abs(live - held) > 0.5, !guideReleased,
+           CACurrentMediaTime() - editorBegan < 0.3,
+           UIView.inheritedAnimationDuration == 0, !session.presenter.interactiveKeyboardDrag {
+            if guideHold == nil || guideSeen != live {
+                guideHold?.cancel()
+                let work = DispatchWorkItem { [weak self] in self?.releaseKeyboardGuide() }
+                guideHold = work
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.08, execute: work)
+            }
+            guideSeen = live
+            return held
+        }
+        forgetKeyboardGuide()
+        guideTop = live
+        return live
+    }
+
+    /// Nothing held: the fit read the guide's height as it is, or did not read the guide.
+    private func forgetKeyboardGuide() {
+        guideHold?.cancel()
+        guideHold = nil
+        guideSeen = nil
+        guideReleased = false
+        guideTop = nil
+    }
+
+    /// A guide height waiting out its burst (`settledGuideTop`).
+    var holdsKeyboardGuide: Bool { guideHold != nil }
+
+    /// The held height applies now: its burst is over, or a press or a pop
+    /// needs the page at rest (`Presenter.flushKeyboardResize`).
+    func releaseKeyboardGuide() {
+        guard let hold = guideHold else { return }
+        hold.cancel()
+        guideHold = nil
+        guideReleased = true
+        fit()
+    }
 
     /// The first root's `viewport-fit` prop (`"cover"` or nothing).
     public var viewportFit: String? { session.presenter.viewportFit }
@@ -86,18 +230,60 @@ public final class ExactView: UIView {
         fit()
     }
 
+    #if os(iOS)
+    // aria-keyshortcuts as key commands (ShortcutsIOS, gallery F18).
+    // Shortcut focus is not text entry. UIKit may reload a menu's previous
+    // responder's input views; an explicit empty view prevents its default
+    // software keyboard while preserving the hardware-key responder chain.
+    // Input views are inherited up that chain: return nil when a text field
+    // owns focus, so it still receives the system keyboard.
+    private lazy var shortcutInputView = UIView(frame: .zero)
+    public override var inputView: UIView? { isFirstResponder ? shortcutInputView : nil }
+    public override var canBecomeFirstResponder: Bool { true }
+    public override var keyCommands: [UIKeyCommand]? { session.presenter.shortcutCommands(#selector(exactShortcut(_:))) }
+    @objc private func exactShortcut(_ command: UIKeyCommand) { session.presenter.performShortcut(command) }
+    // This view holds the focus while nothing else does: a hardware key that
+    // no shortcut took reaches the first root's `keycapture`, `key` and
+    // `keyup` handlers, and ⌘X, ⌘C and ⌘V its `cut`, `copy` and `paste`,
+    // as the DOM's `window` listeners hear them at `<body>` (`keyRoot`).
+    public override func pressesBegan(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
+        if isFirstResponder, let key = presses.first?.key, let root = session.presenter.keyRoot, root.hardwareKey(key, down: true) { return }
+        super.pressesBegan(presses, with: event)
+    }
+    public override func pressesEnded(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
+        if isFirstResponder, let key = presses.first?.key, let root = session.presenter.keyRoot { _ = root.hardwareKey(key, down: false) }
+        super.pressesEnded(presses, with: event)
+    }
+    private func rootHearer(_ action: Selector) -> NodeView? {
+        guard isFirstResponder, let root = session.presenter.keyRoot, root.clipboardHearer(action)?.node === root else { return nil }
+        return root
+    }
+    public override func canPerformAction(_ action: Selector, withSender sender: Any?) -> Bool {
+        if [#selector(copy(_:)), #selector(cut(_:)), #selector(paste(_:))].contains(action) { return rootHearer(action) != nil }
+        return super.canPerformAction(action, withSender: sender)
+    }
+    public override func copy(_ sender: Any?) { rootHearer(#selector(copy(_:)))?.clipboard(#selector(copy(_:))) }
+    public override func cut(_ sender: Any?) { rootHearer(#selector(cut(_:)))?.clipboard(#selector(cut(_:))) }
+    public override func paste(_ sender: Any?) { rootHearer(#selector(paste(_:)))?.clipboard(#selector(paste(_:))) }
+    #endif
+
     public override func willMove(toWindow newWindow: UIWindow?) {
         // Child didMoveToWindow callbacks can retry focus before our own
         // didMoveToWindow. Wait until their native owners have been installed.
         if newWindow != nil { session.presenter.navigation.willMount() }
+        if newWindow !== window { session.natives.windowLeaving(window) }   // its window hatch ends while the window is there
         super.willMove(toWindow: newWindow)
     }
 
     public override func didMoveToWindow() {
         super.didMoveToWindow()
+        // The window it joined takes the accent; one it left has its own back
+        session.presenter.accent.apply()
         if window != nil { reportScheme() }
+        session.tellPage() // `hasFocus` is this window's scene's (#114)
+        session.natives.scopesChanged()
         session.rasters.setPaused(window == nil)
-        session.canvases.lifecycle.refresh()
+        session.canvases.refreshLifecycle()
         if window == nil {
             session.presenter.menus.unmounted()
             session.presenter.modals.unmounted()
@@ -110,6 +296,11 @@ public final class ExactView: UIView {
                 fit()
                 session.presenter.navigation.mounted()
                 session.presenter.syncAccessibility()
+                #if os(iOS)
+                // Nothing focused (autofocus has run): this view holds the
+                // focus, so a hardware keyboard's shortcuts are heard (ShortcutsIOS).
+                if session.presenter.focusedNode == nil { _ = becomeFirstResponder() }
+                #endif
             }
         }
         // Mounted and visible participate in frame demand (D3): an unmounted
@@ -118,21 +309,46 @@ public final class ExactView: UIView {
     }
 
     /// Frame the viewport to the safe area or the whole view — and, under
-    /// `interactive-widget="resizes-content"`, to the keyboard's top, where
+    /// `resizes-content` (`keyboardPolicy`), to the keyboard's top, where
     /// the bottom inset is the keyboard's and not the home indicator's (the
     /// web's rule) — and, once booted, tell the kernel about new insets or a
     /// new size. Called inside the keyboard's animation block, so the frames
     /// the batch sets animate with the keyboard (LLP 1008 §9).
+    /// The viewport's bands past the page's area (LLP 1130 D1); the document
+    /// moves inside them and keeps its offset, as the area does.
+    private func setPageMargins(_ margins: UIEdgeInsets) {
+        let presenter = session.presenter
+        guard presenter.pageMargins != margins else { return }
+        presenter.pageMargins = margins
+        presenter.fitDocument()
+        presenter.reachPageEdges()
+    }
+
     func fit() {
         let presenter = session.presenter
-        // Containment may synchronously lay us out during a partial batch.
-        // Let the next layout read the fully mounted tree before resizing it.
-        if presenter.applying {
+        // A native callback served for the owner cannot resize the runtime
+        // yet. Keep the latest geometry pending until that callback returns.
+        if Owner.shared.isServingMain {
             if !fitPending {
                 fitPending = true
                 DispatchQueue.main.async { [weak self] in
                     guard let self else { return }
                     self.fitPending = false
+                    guard self.session.state != .destroyed else { return }
+                    self.fit()
+                }
+            }
+            return
+        }
+        // Containment may synchronously lay us out during a partial batch.
+        // Finish that batch, then resize synchronously before returning to UIKit.
+        if presenter.applying {
+            if !fitPending {
+                fitPending = true
+                presenter.afterBatch { [weak self] in
+                    guard let self else { return }
+                    self.fitPending = false
+                    guard self.session.state != .destroyed else { return }
                     self.fit()
                 }
             }
@@ -142,26 +358,41 @@ public final class ExactView: UIView {
         // hide notification is not a request to drop the composer below
         // those moving keys; keep the current viewport until it settles.
         guard !presenter.navigation.preservesKeyboardViewport else { return }
-        let container = presenter.modals.coordinateView ?? self
-        let safe = container.safeAreaInsets
+        // @ref LLP 1123 D1 — the document is the session view's; a
+        // presentation lays its routes out in their own blocks (D2)
+        let safe = safeAreaInsets
         let cover = presenter.viewportFit == "cover"
-        var frame = cover ? container.bounds : container.bounds.inset(by: safe)
+        // A native primary container takes the whole view, its bars shown
+        // or not, as UIKit's do: a bar's material reaches under the status
+        // bar. Its routes keep their content inside its safe area through
+        // covers (LLP 1075.003 §3.5); `env()` stays what the page authored.
+        let whole = cover || presenter.navigation.wantsWholeView
+        var frame = whole ? bounds : bounds.inset(by: safe)
         var insets = cover ? safe : .zero
-        if presenter.interactiveWidget == "resizes-content" {
+        if presenter.keyboardPolicy == "resizes-content" {
             let top: CGFloat
-            // A sheet's guide remains in its local coordinates as UIKit moves
-            // the sheet, including during interactive dismissal.
-            // A focused editor uses that same local guide. After rotation the
-            // notification can include margin above the keys; after a cancelled
-            // pop it can still announce hiding. Neither replaces the guide's
-            // occupied geometry while this session retains its editor.
+            // The session view's own keyboard layout guide, while a sheet is up
+            // or an editor holds focus (a sheet's routes read the sheet's
+            // guide, `OwnerBlocks.block`). After rotation the notification
+            // can include margin above the keys; after a cancelled pop it can
+            // still announce hiding. Neither replaces the guide's occupied
+            // geometry while this session retains its editor.
             if presenter.interactiveKeyboardDrag || presenter.modals.active ||
                 presenter.hasKeyboardEditor {
-                let guide = container.keyboardLayoutGuide.layoutFrame
-                top = guide.height > safe.bottom + 1 ? guide.minY : .infinity
+                #if os(tvOS)
+                // tvOS has no keyboard layout guide.
+                top = .infinity
+                #else
+                let guide = keyboardLayoutGuide.layoutFrame
+                top = settledGuideTop(guide.height > safe.bottom + 1 ? guide.minY : nil) ?? .infinity
+                #endif
             } else if let edge = presenter.keyboardTop, let window {
-                top = container.convert(CGPoint(x: 0, y: edge), from: window).y
-            } else { top = .infinity }
+                forgetKeyboardGuide()
+                top = convert(CGPoint(x: 0, y: edge), from: window).y
+            } else {
+                forgetKeyboardGuide()
+                top = .infinity
+            }
             presenter.keyboardInset = min(max(0, frame.maxY - max(top, frame.minY)), frame.height)
             if top < frame.maxY {
                 frame.size.height = max(0, top - frame.minY)
@@ -169,11 +400,23 @@ public final class ExactView: UIView {
             }
         }
         guard frame.width > 0, frame.height > 0 else { return }
+        // A page with no container keeps its area (`frame`) and is drawn in a
+        // viewport that takes the whole view, past the status bar and the
+        // home indicator, which its content scrolls under (LLP 1130 D1); not
+        // past keys that end the area (`resizes-content`), nor on tvOS,
+        // whose safe area is the overscan margin.
+        var physical = frame
+        #if os(iOS)
+        if !whole {
+            let bottom = frame.maxY < bounds.inset(by: safe).maxY - 0.5 ? frame.maxY : bounds.maxY
+            physical = CGRect(x: bounds.minX, y: bounds.minY, width: bounds.width, height: bottom - bounds.minY)
+        }
+        #endif
         // Display changes can leave logical bounds unchanged. Update resources
         // independently of the resize commit, from this view's local traits.
         // The raster budget follows this view's own bounds — the panel it
-        // covers — never the frame a keyboard or a sheet clips the viewport
-        // to: a keyboard rising is not a smaller display, and a shrink trims
+        // covers — never the frame a keyboard clips the viewport to: a
+        // keyboard rising is not a smaller display, and a shrink trims
         // the cold cache and halves queued decodes in place.
         let scale = max(1, traitCollection.displayScale)
         session.rasters.fit(size: bounds.size, scale: scale)
@@ -181,50 +424,160 @@ public final class ExactView: UIView {
             lastDisplayScale = scale
             session.apply(session.runtime.canvasDisplay(scale: scale, memory: ProcessInfo.processInfo.physicalMemory))
             session.rasters.displayChanged()
+            session.tellDisplayScale() // a hairline is one device pixel of this display (LLP 1115.000 D10.3)
+            session.presenter.regridAll()
         }
-        var size = frame.size
+        var size = frame.size // the page's area, whatever the viewport's frame
+        // LLP 1075.003 §9.11: the window, the document's frame before the
+        // keyboard trims it, which the viewport units and segments read
+        let screenFrame = whole ? bounds : bounds.inset(by: safe)
+        var screen: CGSize? = screenFrame.size
         // The agent's explicit viewport size is shared with web/macOS/Linux.
         // Fit those logical points into the device window; hit testing and
         // captures still use the viewport's own coordinate system.
         let env = ExactEnv.environment
+        var regions: [CGFloat]? = nil
         if env["EXACT_AGENT"] == "1", let width = Double(env["EXACT_WINDOW_WIDTH"] ?? ""),
            let height = Double(env["EXACT_WINDOW_HEIGHT"] ?? ""),
            width.isFinite, height.isFinite, width > 0, height > 0 {
             size = CGSize(width: width, height: height)
+            screen = size
             let scale = min(frame.width / size.width, frame.height / size.height)
             presenter.viewport.transform = CGAffineTransform(scaleX: scale, y: scale)
             presenter.viewport.bounds = CGRect(origin: .zero, size: size)
             presenter.viewport.center = CGPoint(x: frame.midX, y: frame.midY)
             insets = .zero
+            setPageMargins(.zero)
         } else {
             presenter.viewport.transform = .identity
-            if presenter.viewport.frame != frame { presenter.viewport.frame = frame }
+            if presenter.viewport.frame != physical { presenter.viewport.frame = physical }
+            setPageMargins(UIEdgeInsets(top: frame.minY - physical.minY, left: frame.minX - physical.minX,
+                                        bottom: physical.maxY - frame.maxY, right: physical.maxX - frame.maxX))
+            // UIKit's layout regions from the viewport (LLP 1123 D10), or,
+            // without `cover`, from its safe area, as `env()` is zero then
+            // even where a native container takes the whole view; none under
+            // the agent's explicit size, where the insets are zero too
+            regions = LayoutRegionsIOS.insets(of: self, viewport: cover ? frame : frame.intersection(bounds.inset(by: safe)))
         }
         guard size.width > 0, size.height > 0 else { return }
+        // The fold (LLP 1078 D5): the container's active division regions,
+        // converted into the viewport's space, split it into segments; the
+        // posture is folded while any is active or the hinge says it is
+        // partially open. Below 27.1 there are none.
+        let bent = hingeStatus == 2
+        // The window's, not a sheet's (LLP 1075.003 §9.11).
+        let fold = Self.fold(of: self, viewport: screenFrame, size: screen ?? size, hingeBent: bent)
+        if fold.hasFold { presenter.hasFold = true }
+        // The regions can trail the hinge's update by a frame (the handler
+        // runs before UIKit flips `isActive`), so a reading that disagrees
+        // with the hinge is taken again on the next frames, a bounded number
+        // of times per hinge change: a scene whose regions are never
+        // reported (seen on the 27.1 simulator) keeps the hinge's posture and
+        // stops asking.
+        if ReservedRegions.available, hingeStatus != nil, bent != (fold.activeDivisions > 0), regionRereads < Self.regionRereadLimit {
+            regionRereads += 1
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in self?.setNeedsLayout() }
+        }
         if !session.booted {
+            // A refused boot is terminal (LLP 1031 D8): the session says why
+            // in `bootError`, and a layout does not ask again.
+            if case .failed = session.state { return }
             lastSize = size
             lastInsets = insets
+            lastFold = fold.fold
             session.boot(size: size)
             // The first batch made the roots: one that covers the screen is
-            // framed to it now, before anything is drawn.
-            fit()
+            // framed to it now, before anything is drawn. A refused boot made
+            // none, and fitting it again would boot again, without end.
+            if session.booted { fit() }
             return
+        }
+        // The window's size, the insets, the regions and the viewport in one
+        // batch: after a boot under a tab bar all four change at once.
+        var change = Runtime.ViewChange()
+        if screen != lastScreen {
+            lastScreen = screen
+            change.screen = .some(screen)
         }
         if insets != lastInsets {
             lastInsets = insets
             presenter.insets = insets
-            session.insets(top: insets.top, right: insets.right, bottom: insets.bottom, left: insets.left)
+            change.insets = (insets.top, insets.right, insets.bottom, insets.left)
         }
-        if size != lastSize {
-            lastSize = size
-            session.resize(size)
+        if regions ?? [] != lastRegions {
+            lastRegions = regions ?? []
+            presenter.regions = regions
+            change.regions = .some(regions)
         }
+        let resized = size != lastSize
+        if resized { lastSize = size; change.size = size }
+        session.view(change)
+        if change.insets != nil || resized { session.natives.scopesChanged() }
+        if resized {
+            // The keys came or went: the tab bar stays under them, and the
+            // field being edited is shown in what they leave (LLP 1116.003
+            // D2.1). Usually already done in the keyboard's animation; this
+            // catches a guide that moved after its notification.
+            presenter.navigation.fitOwner()
+            // The routes the document holds end where it does (`OwnerBlocks.block`)
+            presenter.owners.publish()
+            if presenter.keyboardInset > 0 { presenter.revealEditorAsTheKeysMove() }
+        }
+        if fold.fold != lastFold {
+            lastFold = fold.fold
+            session.segments(fold.fold)
+        }
+        paintUnderKeys()
+    }
+
+    /// What shows below the viewport while the keyboard ends it above the
+    /// screen's bottom (`resizes-content`): behind the keyboard's accessory
+    /// bar (the pads' ± and Done, LLP 1116.003 D7), which UIKit draws with no
+    /// fill of its own, the colour the content at the viewport's bottom edge
+    /// goes on with, a grouped list's background as a hand-built screen's
+    /// list shows there, never the canvas's band across the width (LLP
+    /// 1116.006 D6).
+    private func paintUnderKeys() {
+        let edge = session.presenter.keyboardInset > 0 ? session.presenter.bottomEdgeColor() : nil
+        let color = edge ?? canvas
+        if let color, backgroundColor != color { backgroundColor = color }
+        // A sheet's own surface is what shows there while one is up (LLP
+        // 1116.008 D8: a number pad's Done bar over a grouped form's sheet
+        // drew white across the list's grey): the list's colour goes on
+        // under the keys, and the sheet's own surface returns with them.
+        #if os(iOS)
+        if let sheet = session.presenter.modals.coordinateView {
+            let surface = edge ?? .platformBackground(in: sheet)
+            if sheet.backgroundColor != surface { sheet.backgroundColor = surface }
+        }
+        #endif
+    }
+
+    /// The segments the container's division regions make of the viewport
+    /// framed at `frame` in the container's coordinates (`size` is the
+    /// viewport's own, which an agent's window override may scale), with
+    /// the posture `folded` while the hinge is bent even without an active
+    /// region; whether the device reported a fold at all (a region, active
+    /// or not); and how many regions are active.
+    static func fold(of container: UIView, viewport frame: CGRect, size: CGSize, hingeBent: Bool = false) -> (fold: ViewportFold, hasFold: Bool, activeDivisions: Int) {
+        guard let divisions = ReservedRegions.divisions(of: container) else { return (.flat, false, 0) }
+        let scale = CGPoint(x: size.width / frame.width, y: size.height / frame.height)
+        let active = divisions.filter(\.active).map { d in
+            CGRect(x: (d.frame.minX - frame.minX) * scale.x, y: (d.frame.minY - frame.minY) * scale.y, width: d.frame.width * scale.x, height: d.frame.height * scale.y)
+        }
+        return (Segments.split(viewport: size, dividers: active, hingeBent: hingeBent), !divisions.isEmpty, active.count)
     }
 
     /// After a restart from a new plan (the dev loop): the new runner knows
-    /// nothing of the insets — hand them over again, and fit the root.
+    /// nothing of the insets or the fold — hand them over again (the fold
+    /// always: the bake's flat answer must never stand in for the device's,
+    /// LLP 1078 D5), and fit the root.
     func rebooted() {
+        // A new runner has no screen: tell it again first (Grok's review).
+        if let screen = lastScreen { session.view(Runtime.ViewChange(screen: .some(screen))) }
         if lastInsets != .zero { session.insets(top: lastInsets.top, right: lastInsets.right, bottom: lastInsets.bottom, left: lastInsets.left) }
+        lastRegions = nil  // the next fit tells the new runner
+        session.segments(lastFold)
         reportScheme()
         fit()
     }

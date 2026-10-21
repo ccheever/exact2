@@ -1,0 +1,35 @@
+// A test has no colour scheme; look at both before calling it done:
+//   bun exact.mjs agent web --storage s1 "screenshot .exact/light.png" "prefer prefers-color-scheme dark" "screenshot .exact/dark.png"
+// A test that depends on the day pins `epoch` and `time-zone`; none waits in real time.
+test "a drink is logged with its day, kept across a relaunch, and undone"
+  epoch "2026-03-14T18:00:00Z"
+  time-zone "America/Los_Angeles"
+  expect text "history-empty" == "Nothing yet. Tap an amount to log a drink."
+  tap "add-250"
+  tap "add-500"
+  clock data
+  expect state log.total == 750
+  expect state log.entries.0 .day == "2026-03-14"
+  reload
+  expect state log.total == 750
+  tap "undo"
+  clock data
+  expect state log.total == 250
+
+test "the day turns over at local midnight: the total starts again and the drink is history"
+  epoch "2026-03-15T06:59:00Z"
+  time-zone "America/Los_Angeles"
+  tap "add-500"
+  clock data
+  expect state log.total == 500
+  clock +120000
+  clock data
+  expect state today == "2026-03-15"
+  expect state log.total == 0
+  expect state log.entries.0 .day == "2026-03-14"
+
+test "a wide window keeps the buttons a phone's width apart"
+  size 1100x800
+  tap "add-500"
+  clock data
+  expect state log.total == 500

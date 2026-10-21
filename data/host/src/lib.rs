@@ -9,11 +9,11 @@ use std::{
     path::PathBuf,
 };
 #[cfg(not(target_arch = "wasm32"))]
-mod documents;
-#[cfg(not(target_arch = "wasm32"))]
 mod native;
 #[cfg(all(test, not(target_arch = "wasm32")))]
 mod tests;
+#[cfg(all(test, windows))]
+mod windows_native_tests;
 
 /// Host-configured app directories; recorded without opening them.
 #[derive(Clone)]
@@ -36,24 +36,38 @@ enum Pending {
 /// host worker. On the web the dedicated request is executed by browser storage.
 pub struct Storage<D> {
     source: D,
+    document_owner: u64,
     directories: Option<Directories>,
     active: bool,
     effects: bool,
     next: u64,
     pending: BTreeMap<u64, Pending>,
     alive: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    /// A scripted drive (`EXACT_AGENT=1`): storage is the scratch store it
+    /// names, else none.
+    agent: bool,
+    /// Lines for the journal beside the source's own: the first write such a
+    /// drive refuses, as a TypeScript source's prelude says it (LLP 1102 §3.17).
+    logs: Vec<String>,
+    #[cfg(not(target_arch = "wasm32"))]
+    told_agent: bool,
 }
 impl<D> Storage<D> {
     /// Wrap a source without creating storage or starting any thread.
     pub fn new(source: D) -> Self {
         Self {
             source,
+            document_owner: 0,
             directories: None,
             active: false,
             effects: false,
             next: 0,
             pending: BTreeMap::new(),
             alive: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(true)),
+            agent: std::env::var("EXACT_AGENT").as_deref() == Ok("1"),
+            logs: Vec::new(),
+            #[cfg(not(target_arch = "wasm32"))]
+            told_agent: false,
         }
     }
 }
@@ -70,6 +84,11 @@ impl<D: DataSource> Storage<D> {
     ) -> Result<Answer, DataError> {
         let mut answer = result?;
         if let Answer::Later(request) = &mut answer {
+            // Storage becomes a continuation below: a deadline on it is
+            // refused, not dropped.
+            if let Some(why) = request.timeout_refusal() {
+                return Err(unavailable(why));
+            }
             if request.http != exact_runner::HttpScheduling::Ordered
                 && (request.storage.is_some() || request.continuation.is_some())
             {
@@ -91,9 +110,15 @@ impl<D: DataSource> Storage<D> {
                     .map_err(|_| unavailable("storage request must be UTF-8"))?;
                 #[cfg(not(target_arch = "wasm32"))]
                 {
-                    // A chosen document is not app storage: it needs no app
-                    // directories (LLP 1069.010 D1).
-                    if self.directories.is_none() && !native::document(payload) {
+                    // A chosen document or a Windows disk path is not app
+                    // storage: it needs no app directories (LLP 1069.010 D1).
+                    // A drive that names no scratch store has no directories
+                    // either: its request is answered with the web's refusal,
+                    // which the module can handle (`native::agent_refusal`).
+                    if self.directories.is_none()
+                        && !native::independent_storage(payload)
+                        && !self.agent
+                    {
                         return Err(unavailable(
                             "storage is unavailable in an unconfigured host",
                         ));
@@ -128,8 +153,27 @@ fn unavailable(s: impl Into<String>) -> DataError {
     DataError::Unavailable(s.into())
 }
 impl<D: DataSource> DataSource for Storage<D> {
+    fn prepare_snapshot(
+        &mut self,
+        module: Option<exact_runner::SnapshotModule<'_>>,
+        deadline: std::time::Instant,
+    ) -> Result<(), DataError> {
+        self.source.prepare_snapshot(module, deadline)
+    }
+    fn take_storage_changed(&mut self) -> bool {
+        self.source.take_storage_changed()
+    }
+
+    fn set_document_owner(&mut self, owner: u64) {
+        self.document_owner = owner;
+        self.source.set_document_owner(owner);
+    }
+
     fn preload(&self) -> Result<bool, DataError> {
         self.source.preload()
+    }
+    fn when_preloaded(&self, wake: Box<dyn FnOnce() + Send>) {
+        self.source.when_preloaded(wake)
     }
     fn query(&mut self, name: &str, args: &[Value]) -> Result<Value, DataError> {
         self.source.query(name, args)
@@ -239,6 +283,8 @@ impl<D: DataSource> DataSource for Storage<D> {
     fn replacement(&self, plan: &[u8], receipt: &str, module: Vec<u8>) -> Result<Self, DataError> {
         let mut next = Self::new(self.source.replacement(plan, receipt, module)?);
         next.directories = self.directories.clone();
+        next.document_owner = self.document_owner;
+        next.agent = self.agent;
         Ok(next)
     }
     fn placement(&self) -> Placement {
@@ -250,11 +296,20 @@ impl<D: DataSource> DataSource for Storage<D> {
     fn native(&self) -> Option<exact_runner::Native> {
         self.source.native()
     }
+    fn overlay(
+        &mut self,
+        source: &str,
+        args: &[Value],
+        answer: &Value,
+        writes: &[exact_runner::Write<'_>],
+    ) -> Result<Option<exact_runner::Overlaid>, DataError> {
+        self.source.overlay(source, args, answer, writes)
+    }
     /// Continuation tokens are this source's own: each goes back to its
     /// child's where the child handed one out (a storage request's never
     /// did, and one already dispatched can't be told any more), and an entry
     /// the runner no longer has in flight is let go.
-    fn forgotten(&mut self, in_flight: &[InFlight<'_>]) {
+    fn forgotten(&mut self, store: &exact_runner::Store, in_flight: &[InFlight<'_>]) {
         let view: Vec<InFlight<'_>> = in_flight
             .iter()
             .map(|f| InFlight {
@@ -269,10 +324,14 @@ impl<D: DataSource> DataSource for Storage<D> {
             .collect();
         let tokens: HashSet<u64> = in_flight.iter().filter_map(|f| f.continuation).collect();
         self.pending.retain(|outer, _| tokens.contains(outer));
-        self.source.forgotten(&view);
+        self.source.forgotten(store, &view);
     }
 
     fn dispatch(&mut self, token: u64, store: &Store) -> Dispatch {
+        // The module's background round passes through (LLP 1097 D5).
+        if token == exact_runner::BACKGROUND {
+            return self.source.dispatch(token, store);
+        }
         match self.pending.get(&token) {
             Some(Pending::Child(child)) => {
                 let child = *child;
@@ -316,13 +375,48 @@ impl<D: DataSource> DataSource for Storage<D> {
         }
     }
 
+    fn background(&mut self, store: &Store) -> Option<exact_runner::Request> {
+        self.source.background(store)
+    }
+
+    fn background_landed(
+        &mut self,
+        store: &Store,
+        outcome: Outcome,
+    ) -> Result<Option<exact_runner::Request>, DataError> {
+        self.source.background_landed(store, outcome)
+    }
+
+    fn background_state(&self) -> Option<exact_runner::BackgroundState> {
+        self.source.background_state()
+    }
+
+    fn take_logs(&mut self) -> Vec<String> {
+        let mut lines = std::mem::take(&mut self.logs);
+        lines.extend(self.source.take_logs());
+        lines
+    }
+
     fn continuation(&mut self, token: u64) -> Option<Box<dyn FnOnce() -> Outcome + Send>> {
+        if token == exact_runner::BACKGROUND {
+            return self.source.continuation(token);
+        }
         match self.pending.remove(&token)? {
             Pending::Child(token) => self.source.continuation(token),
             #[cfg(not(target_arch = "wasm32"))]
             Pending::Storage(payload, grants) => {
                 let paths = self.directories.clone();
+                let owner = self.document_owner;
                 let alive = self.alive.clone();
+                let refused =
+                    paths.is_none() && self.agent && !native::independent_storage(&payload);
+                if refused && !self.told_agent {
+                    self.told_agent = true;
+                    self.logs.push(format!(
+                        "storage refused (agent): {}",
+                        native::AGENT_REFUSAL
+                    ));
+                }
                 Some(Box::new(move || {
                     if !alive.load(std::sync::atomic::Ordering::Acquire) {
                         return Outcome::Failed {
@@ -330,7 +424,10 @@ impl<D: DataSource> DataSource for Storage<D> {
                             message: "storage source unloaded".into(),
                         };
                     }
-                    native::run(paths.as_ref(), &grants, &payload)
+                    if refused {
+                        return native::agent_refusal();
+                    }
+                    native::run(paths.as_ref(), &grants, &payload, owner)
                 }))
             }
         }

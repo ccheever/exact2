@@ -15,7 +15,7 @@ use contract_syntax::{Attr, File, Node, Span};
 use contract_types::{Scope, Ty};
 use exact_kernel::{NodeType, PropId, StyleId};
 use exact_plan::asm::Asm;
-use exact_plan::{BindingKind, BindingsRow};
+use exact_plan::BindingsRow;
 
 /// HTML's reserved hyphenated names (SVG and MathML elements).
 const RESERVED: [&str; 8] = [
@@ -56,23 +56,28 @@ pub(crate) fn tag(name: &str) -> Option<Tag> {
 
 /// Whether an attribute on a module tag is a leftover: a module prop, not a
 /// row of the table. A renamed spelling (`fontSize`) is still refused with
-/// its CSS name, and `class` is the style mechanism.
+/// its CSS name, `class` is the style mechanism, and a `data-` word is the
+/// element's dataset, as a custom element's is (LLP 1075.003 §3.3).
 pub(crate) fn leftover(tag: &str, a: &Attr) -> bool {
     is_module_tag(tag)
         && a.name != "class"
+        && crate::dataset::word(&a.name).is_none()
         && (tags::attr(&a.name).is_none() || crate::svg::svg_only_prop(&a.name))
         && tags::renamed(&a.name).is_none()
 }
 
 /// A known attribute a module tag cannot use, refused by name. The table
-/// binds before the module (LLP 1024 D1), so `appearance="dark"` on
-/// `ghostty-terminal` would set a style row the leaf box never draws and
-/// the module would never see the prop: rows of a text leaf (the schema's
-/// text mask, `color`, `text-decoration-line`) and of a form control
-/// (LLP 1069.001 D6's `appearance`, `accent-color`, `caret-color`, and the
-/// control props) are refused on a module tag, naming what the word means.
-/// Layout, box and paint rows, the handlers, `testId`, `id` and ARIA stay
-/// the box's: the author sizes and places a module like any leaf.
+/// binds before the module (LLP 1024 D1), so a known word on a module tag
+/// binds to its box, and the box uses only what any leaf box uses: layout,
+/// box and paint rows, the handlers, `testId`, `id`, `role`, ARIA,
+/// `disabled` and `inert` (the module's interaction suppression reads them),
+/// and `tabindex`
+/// — an allow-list (@ref LLP 1088 D7.2, paint F7: `command` set a host
+/// command the module never saw). Every other known word is refused, naming
+/// what it is: a text row (`color`), a form control's row (`appearance`)
+/// or prop (`value`), or another element's attribute (`command`, `href`).
+/// `class` and `data-*` never reach here, and an SVG element's own props
+/// (`svg_only_prop`, `mode`) stay the module's.
 pub(crate) fn refused(tag: &str, a: &Attr) -> Option<LowerError> {
     if !is_module_tag(tag) || leftover(tag, a) {
         return None;
@@ -96,8 +101,19 @@ pub(crate) fn refused(tag: &str, a: &Attr) -> Option<LowerError> {
                 return None;
             }
         }
+        // The box hears every event Contract names, and a module sends nine
+        // of them (`NativeViews.kinds`): any other event's name on a module
+        // tag is a handler nothing fires, so a prop named like one
+        // (`playing`, `ended`) is refused rather than bound to silence.
+        tags::AttrTarget::Handler(_) if !MODULE_EVENTS.contains(&a.name.as_str()) => {
+            "an event the box hears and a module never sends (a module sends press, change, hover, focus, blur, key, submit, load and message)"
+        }
+        tags::AttrTarget::Handler(_) | tags::AttrTarget::Flex => return None,
+        // A hatch names its own refusal on a module (`lower-hatch-module`).
+        _ if a.name == "hatch" => return None,
+        _ if BOX_PROPS.contains(&a.name.as_str()) || a.name.starts_with("aria-") => return None,
         _ if CONTROL_PROPS.contains(&a.name.as_str()) => "a form control's prop",
-        _ => return None,
+        _ => "another element's attribute",
     };
     Some(LowerError {
         id: "lower-native-attr",
@@ -109,10 +125,38 @@ pub(crate) fn refused(tag: &str, a: &Attr) -> Option<LowerError> {
     })
 }
 
+/// A module tag's attribute refused for what the name means elsewhere (a
+/// renamed spelling such as `size`, another element's `rows` or `name`)
+/// says what to do about it, as `refused` does: a module prop with a name
+/// Contract knows never reaches the module.
+pub(crate) fn name_the_fix(n: &Node, mut e: LowerError) -> LowerError {
+    let Node::Element { tag, attrs, .. } = n else {
+        return e;
+    };
+    if is_module_tag(tag)
+        && matches!(e.id, "lower-unknown-attr" | "lower-attr-tag")
+        && attrs.iter().any(|a| a.span == e.span)
+    {
+        e.message.push_str(&format!(
+            "; on `{tag}` a name Contract knows binds to the box, not the module (LLP 1024 D1), so give the module prop another name"
+        ));
+    }
+    e
+}
+
+/// The props besides ARIA's that any leaf box takes, so a module's too.
+const BOX_PROPS: [&str; 6] = ["testId", "id", "role", "disabled", "inert", "tabindex"];
+
+/// The events a native view sends its box (`ExactNativeEvents`; the Apple
+/// host's `NativeViews.kinds`), the only handlers a module tag can fire.
+const MODULE_EVENTS: [&str; 9] = [
+    "press", "change", "hover", "focus", "blur", "key", "submit", "load", "message",
+];
+
 /// The form-control props (LLP 1069.001, LLP 1069.002) a module's box has
 /// no use for. `checked` is refused on every tag but `input` before this
 /// runs (`controls::control`); it is listed so the set reads whole.
-const CONTROL_PROPS: [&str; 17] = [
+const CONTROL_PROPS: [&str; 20] = [
     "value",
     "placeholder",
     "autofocus",
@@ -124,12 +168,15 @@ const CONTROL_PROPS: [&str; 17] = [
     "multiple",
     "readonly",
     "inputmode",
+    "enterkeyhint",
+    "autocomplete",
     "autocapitalize",
     "autocorrect",
     "spellcheck",
     "markup",
     "emojiPicker",
     "checked",
+    "name",
 ];
 
 /// Every module tag the file's views name, with where: the driver checks
@@ -150,7 +197,6 @@ pub fn module_tags(file: &File) -> Vec<(String, Span)> {
                     walk(children, out);
                 }
                 Node::Use { children, .. } => walk(children, out),
-                Node::Provide { body, .. } => walk(body, out),
                 Node::When {
                     then, otherwise, ..
                 } => {
@@ -186,11 +232,12 @@ impl Lowerer<'_> {
         locals: u16,
         bindings: &mut Vec<BindingsRow>,
     ) -> Result<(), LowerError> {
-        bindings.push(BindingsRow {
-            kind: BindingKind::Prop,
-            id: PropId::NativeViewModuleName as u16,
-            expr: self.b.constant(&exact_plan::Value::str(tag)),
-        });
+        let module = self.b.constant(&exact_plan::Value::str(tag));
+        bindings.push(crate::prop_row(
+            PropId::NativeViewModuleName,
+            module,
+            crate::IMPLIED,
+        ));
         let mut keyed: std::collections::BTreeMap<&str, &Attr> = Default::default();
         for a in leftovers {
             keyed.insert(a.name.as_str(), a);
@@ -200,7 +247,12 @@ impl Lowerer<'_> {
         for (key, a) in &keyed {
             asm.str(self.b.str(key));
             let ty = crate::expr::compile(self, &mut asm, &a.value, scope, &mut depth)?;
-            let scalar = |t: &Ty| matches!(t, Ty::String | Ty::Number | Ty::Bool | Ty::Unknown);
+            let scalar = |t: &Ty| {
+                matches!(
+                    t,
+                    Ty::String | Ty::Enum(_) | Ty::Number | Ty::Bool | Ty::Unknown
+                )
+            };
             let admitted = match &ty {
                 Ty::Option(inner) => scalar(inner),
                 t => scalar(t),
@@ -216,11 +268,12 @@ impl Lowerer<'_> {
             }
         }
         asm.native_props(keyed.len() as u32);
-        bindings.push(BindingsRow {
-            kind: BindingKind::Prop,
-            id: PropId::NativeViewProps as u16,
-            expr: self.b.code(asm),
-        });
+        let written = leftovers.iter().any(|a| a.written);
+        bindings.push(crate::prop_row(
+            PropId::NativeViewProps,
+            self.b.code(asm),
+            written,
+        ));
         Ok(())
     }
 }
@@ -237,6 +290,7 @@ mod tests {
             name: name.into(),
             value: contract_syntax::Expr::Ident("v".into(), Default::default()),
             span: Default::default(),
+            written: true,
         };
         for name in [
             "mode", "seed", "values", "in", "viewBox", "offset", "orient",
@@ -256,6 +310,7 @@ mod tests {
             name: name.into(),
             value: contract_syntax::Expr::Ident("v".into(), Default::default()),
             span: Default::default(),
+            written: true,
         };
         for name in [
             "appearance",
@@ -276,6 +331,16 @@ mod tests {
             "inputmode",
             "spellcheck",
             "markup",
+            "command",
+            "commandfor",
+            "href",
+            "src",
+            "popover",
+            "virtualized",
+            "playing",
+            "ended",
+            "timeupdate",
+            "scroll",
         ] {
             let e = super::refused("ghostty-terminal", &attr(name))
                 .unwrap_or_else(|| panic!("{name} was not refused"));
@@ -306,6 +371,9 @@ mod tests {
             "aria-label",
             "role",
             "inert",
+            "disabled",
+            "tabindex",
+            "aria-hidden",
             "load",
             "press",
             "change",

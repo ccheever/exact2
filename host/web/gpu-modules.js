@@ -16,7 +16,10 @@ const hosts = new Map(); // stem -> a registered gpu-glue.js instance
 const loading = new Map(); // stem -> its import, from the moment it was needed
 const queued = new Map(); // stem -> view -> [name, values], until its instance registers
 const views = new Map(); // view -> stem
-const afterPaint = () => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+const names = new Map(); // view -> its surface name
+// After a rendering opportunity (two frames) or a second, whichever is first: a page in a frame scrolled out of view
+// gets no frames (navigation.js `afterPaint`); frames only under the agent, whose clock owns time.
+const afterPaint = () => new Promise(resolve => { requestAnimationFrame(() => requestAnimationFrame(resolve)); if (!exact.agent) setTimeout(resolve, 1000); });
 function need(stem, deferred = true) {
   if (!loading.has(stem)) loading.set(stem, (deferred ? afterPaint() : Promise.resolve())
     .then(() => import(`./gpu-glue.js?artifact=${stem}`))
@@ -25,17 +28,41 @@ function need(stem, deferred = true) {
 }
 const each = (method, ...args) => { for (const host of hosts.values()) host[method]?.(...args); };
 const hostOf = view => hosts.get(views.get(view));
+const posts = [];
 
 const router = {
   register(stem, host) {
     hosts.set(stem, host);
     for (const [view, [name, values]] of queued.get(stem) ?? []) host.surface(view, name, values);
     queued.delete(stem);
+    for (const [name, text, at] of posts.splice(0)) router.post(name, text, at);
   },
+  // postMessage(name, text): to the artifact owning the surface, in order, held until it
+  // loads, at most exact.postBound per name as each artifact holds them. The refusal, or null.
+  post(name, text, at) {
+    const host = hosts.get(stemOf(name));
+    if (host) return host.post(name, text, at);
+    const bound = exact.postBound ?? 64;
+    if (posts.filter(([held]) => held === name).length >= bound) {
+      const refused = `postMessage: dropped: ${bound} posts already wait for surface "${name}"`;
+      console.warn(`exact: ${refused}`);
+      return refused;
+    }
+    posts.push([name, text, at]);
+    return null;
+  },
+  // The driver's `post` (LLP 1139.004 D1), as gpu-glue.js answers it for one artifact.
+  surfaceOf: view => names.get(view),
+  liveSurface() {
+    const live = [...new Set(names.values())];
+    return live.length === 1 ? live[0] : live.length ? {error:`post: ${live.length} worlds are live (${live.join(", ")}); name one: post <surface> <text>`} : undefined;
+  },
+  waiting: name => posts.some(([held]) => held === name) || hosts.get(stemOf(name))?.waiting(name) === true,
   surface(view, name, values, deferred = true) {
     const stem = stemOf(name);
     if (views.has(view) && views.get(view) !== stem) this.destroy(view);
     views.set(view, stem);
+    names.set(view, name);
     const host = hosts.get(stem);
     if (host) return host.surface(view, name, values);
     if (!queued.has(stem)) queued.set(stem, new Map());
@@ -45,6 +72,7 @@ const router = {
   destroy(view) {
     const stem = views.get(view);
     views.delete(view);
+    names.delete(view);
     queued.get(stem)?.delete(view);
     hosts.get(stem)?.destroy(view);
   },
@@ -80,7 +108,7 @@ const router = {
     return () => { for (const commit of commits) commit(); };
   },
   placementHidden: el => [...hosts.values()].some(host => host.placementHidden(el)),
-  reset(carry) { each("reset", carry); queued.clear(); views.clear(); },
+  reset(carry) { each("reset", carry); queued.clear(); views.clear(); names.clear(); },
   // Dev only (dev.js): a module's rebuilt artifact; one not loaded yet reads
   // its version from `exact.gpuVersions` when it loads.
   swap(version, module) { return hosts.get(module ? `gpu/${module}` : "gpu")?.swap(version) ?? { ms: 0, errors: [] }; },
@@ -90,6 +118,8 @@ const router = {
   drainRecords: () => each("drainRecords"),
   layout: () => each("layout"),
   schedule: () => each("schedule"),
+  retier: tier => each("retier", tier),
+  live: on => [...hosts.values()].flatMap(host => host.live?.(on) ?? []),
   beforeStyle: el => each("beforeStyle", el),
   afterStyle: el => each("afterStyle", el),
 };
@@ -98,3 +128,5 @@ exact.gpu = router;
 // artifacts load now.
 for (const s of exact.pendingSurfaces ?? []) if (s.generation === exact.generation) router.surface(s.id, s.name, s.values, false);
 exact.pendingSurfaces = [];
+for (const p of exact.pendingPosts ?? []) if (p.generation === exact.generation) router.post(p.name, p.text, p.at);
+exact.pendingPosts = [];

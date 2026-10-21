@@ -1,8 +1,10 @@
 import XCTest
 import CoreGraphics
 @testable import ExactKit
+@testable import ExactDrag
 
 final class TransformDragTests: XCTestCase {
+    override class func setUp() { super.setUp(); ExactDrag.install() } // LLP 1047.001 D4
     func testPacketMatchesFrozen120ByteOffsetsAndPreservesHighIdentities() {
         let packet = TransformDragPacket(op: 13, runtime: UInt64.max - 1,
             handleKey: 9_007_199_254_740_993, targetKey: 0xffff_ffff_0000_0001,

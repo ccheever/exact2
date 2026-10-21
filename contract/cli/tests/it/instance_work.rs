@@ -30,17 +30,17 @@ component App
   state draft = ""
   state revision = 0
   state suffix = "a"
-  resource rows = rows(revision) as shape list<Row>
-  action edit(value) writes draft
+  resource rows = rows(revision) as shape Row[]
+  action edit(value)
     draft = value
-  action revise writes revision
+  action revise
     revision = revision + 1
-  action rename writes suffix
+  action rename
     suffix = "b"
   view
     column
       input value=draft change=edit testId="input"
-      each r in rows key=r.id
+      for r in rows key=r.id
         text `${r.label} ${suffix}` testId=`row-${r.id}`
 "#;
 fn boot(source: &str) -> Runner<Rows> {
@@ -60,7 +60,7 @@ fn text(r: &Runner<Rows>, id: &str) -> String {
         .props
         .iter()
         .find_map(|(p, v)| match v {
-            PropValue::Str(s) if p.name() == "text" => Some(s.clone()),
+            PropValue::Str(s) if p.name() == "text" => Some(s.to_string()),
             _ => None,
         })
         .unwrap()
@@ -95,7 +95,7 @@ component Counter
   props
     id: number
   state n = 0
-  action increment writes n
+  action increment
     n = n + 1
   view
     button press=increment testId=`button-${id}`
@@ -117,7 +117,7 @@ component Counter
 fn clock_and_inactive_branch_dependencies_are_not_lost() {
     let source=APP.replace("  action rename", "  task producer mount\n    every(10, revise)\n  action rename")
         .replace("        text `${r.label} ${suffix}` testId=`row-${r.id}`",
-        "        when revision == 0\n          text `${now()}` testId=`row-${r.id}`\n        else\n          text suffix testId=`row-${r.id}`");
+        "        if revision == 0\n          text `${performanceNow()}` testId=`row-${r.id}`\n        else\n          text suffix testId=`row-${r.id}`");
     let mut r = boot(&source);
     assert_eq!(text(&r, "row-0"), "0");
     r.advance(10.0).unwrap();
@@ -133,7 +133,7 @@ fn clock_changes_in_an_otherwise_unchanged_list_update_the_rows() {
             "  action rename",
             "  task producer mount\n    every(10, rename)\n  action rename",
         )
-        .replace("`${r.label} ${suffix}`", "`${now()}`");
+        .replace("`${r.label} ${suffix}`", "`${performanceNow()}`");
     let mut r = boot(&source);
     r.advance(10.0).unwrap();
     assert_eq!(text(&r, "row-500"), "10");
@@ -184,7 +184,7 @@ fn pending_mutation_flags_invalidate_rows_without_changing_their_data() {
             Ok(Answer::Now(Value::Number(1.0)))
         }
     }
-    let source=APP.replace("  state draft", "  mutation result as shape number\n  action submit writes result\n    send result = submit()\n  state draft")
+    let source=APP.replace("  state draft", "  mutation result as shape number\n  action submit\n    send result = submit()\n  state draft")
         .replace("`${r.label} ${suffix}`", "`${pending(result)}`");
     let mut r = Runner::boot(
         contract::compile(&source).unwrap(),
@@ -201,7 +201,7 @@ fn pending_mutation_flags_invalidate_rows_without_changing_their_data() {
             .props
             .iter()
             .find_map(|(p, v)| match v {
-                PropValue::Str(s) if p.name() == "text" => Some(s.clone()),
+                PropValue::Str(s) if p.name() == "text" => Some(s.to_string()),
                 _ => None,
             })
             .unwrap()
@@ -255,7 +255,7 @@ fn signed_zero_changes_are_observable_inside_an_unchanged_row_key() {
             .props
             .iter()
             .find_map(|(p, v)| match v {
-                PropValue::Str(s) if p.name() == "text" => Some(s.clone()),
+                PropValue::Str(s) if p.name() == "text" => Some(s.to_string()),
                 _ => None,
             })
             .unwrap()
@@ -264,4 +264,188 @@ fn signed_zero_changes_are_observable_inside_an_unchanged_row_key() {
     r.act("revise", vec![]).unwrap();
     assert_eq!(text(&r), "false");
     assert_eq!(r.last_instance_work().rows_reused, 0);
+}
+
+/// `perf <target>` (LLP 1079 D1–D2): site totals across lifetimes, the
+/// hygiene number, and receipt membership split by who changed the node.
+#[test]
+fn perf_counts_each_sites_work_across_its_instances_lifetimes() {
+    struct Three;
+    impl DataSource for Three {
+        fn query(&mut self, _: &str, _: &[Value]) -> Result<Value, DataError> {
+            Ok(Value::list(
+                (0..3).map(|i| Value::Number(i as f64)).collect(),
+            ))
+        }
+    }
+    const PERF: &str = r##"
+component App
+  resource ids = three() as shape number[]
+  state hot = -1
+  state tick = 0
+  state tint = "#000000"
+  action hover(id: number)
+    hot = id
+  action step
+    tick = tick + 1
+  action recolor
+    tint = "#ff0000"
+  view
+    column testId="list" color=tint
+      for r in ids key=r
+        row testId=`row-${r}`
+          if hot == r
+            text `hot ${r}` testId=`hot-${r}`
+          else
+            text `cold ${r}` testId=`cold-${r}`
+          text `${r} ${tick > 100}` font-size=12 testId=`tick-${r}`
+"##;
+    let mut r = Runner::boot(
+        contract::compile(PERF).unwrap(),
+        Three,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    let ask = |r: &Runner<Three>, target: &str| -> serde_json::Value {
+        serde_json::from_str(&exact_runner::agent::handle(
+            r,
+            &serde_json::json!({"op":"perf", "target":target}).to_string(),
+        ))
+        .unwrap()
+    };
+    // Production trust: the host never measures, and the read says so.
+    assert!(ask(&r, "list")["error"]
+        .as_str()
+        .unwrap()
+        .contains("production trust"));
+    r.measure(true, false);
+    let site = |reply: &serde_json::Value, test_id: &str, r: &Runner<Three>| {
+        let key = r.kernel().find_by_test_id(test_id)[0];
+        let view = r.kernel().node_by_key(key).unwrap().id;
+        let site = r.site_of(view).unwrap().0 .0 as u64;
+        reply["sites"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|s| s["site"] == site)
+            .unwrap()
+            .clone()
+    };
+    let before = ask(&r, "list");
+    let seq = before["seq"].as_u64().unwrap();
+    // Live instances seed `created` when measuring begins.
+    assert_eq!(site(&before, "cold-1", &r)["created"], 3);
+    assert_eq!(site(&before, "cold-1", &r)["live"], 3);
+    assert!(before.get("moved").is_none() && site(&before, "row-1", &r).get("moved").is_none());
+
+    // Hovering row 1 retires its cold text and realizes a hot one; leaving
+    // it does the reverse: churn the retired count keeps after the views go.
+    r.act("hover", vec![Value::Number(1.0)]).unwrap();
+    r.act("hover", vec![Value::Number(-1.0)]).unwrap();
+    let after = ask(&r, "list");
+    assert!(after["seq"].as_u64().unwrap() >= seq + 2);
+    let cold = site(&after, "cold-1", &r);
+    assert_eq!(
+        (cold["created"].as_u64(), cold["retired"].as_u64()),
+        (Some(4), Some(1))
+    );
+    assert_eq!(cold["live"], 3);
+    // The hot site has no live instance now, and still shows its totals.
+    let hot = after["sites"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|s| s["created"] == 1 && s["retired"] == 1)
+        .expect("the hot text's site, statically under the list")
+        .clone();
+    assert_eq!(hot["instances"], 0);
+    // A read of every root keeps it too: its churn is not lost to a trace.
+    let every: serde_json::Value =
+        serde_json::from_str(&exact_runner::agent::handle(&r, r#"{"op":"perf"}"#)).unwrap();
+    assert!(every["sites"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|s| s["site"] == hot["site"]));
+
+    // Every tick re-evaluates the three tick texts, and each comes out as
+    // before: the hygiene number, with nothing authored.
+    let ticked = site(&after, "tick-0", &r);
+    for _ in 0..5 {
+        r.act("step", vec![]).unwrap();
+    }
+    let later = ask(&r, "list");
+    let tick = site(&later, "tick-0", &r);
+    let delta = |k: &str| tick[k].as_u64().unwrap() - ticked[k].as_u64().unwrap();
+    assert_eq!((delta("evaluated"), delta("unchanged")), (15, 15));
+    assert_eq!(delta("authored"), 0);
+
+    // A color on the list is inherited by every text under it: their own
+    // ops did not touch them.
+    r.act("recolor", vec![]).unwrap();
+    let tinted = ask(&r, "list");
+    let text = site(&tinted, "tick-0", &r);
+    assert_eq!(
+        text["inherited"].as_u64().unwrap() - tick["inherited"].as_u64().unwrap(),
+        3
+    );
+    assert_eq!(text["authored"], tick["authored"]);
+    assert_eq!(
+        site(&tinted, "list", &r)["authored"].as_u64().unwrap()
+            - site(&later, "list", &r)["authored"].as_u64().unwrap(),
+        1
+    );
+    assert_eq!(tinted["walked"], 10);
+    assert_eq!(tinted["truncated"], false);
+}
+
+/// LLP 1079 D3: measuring begun after boot, at a release build's first ask,
+/// reports in a batch trailer only the transactions after it, and a second
+/// ask moves nothing.
+#[test]
+fn work_measured_from_the_first_ask_reports_only_the_transactions_after_it() {
+    let mut r = boot(
+        r#"
+component App
+  state tick = 0
+  action step
+    tick = tick + 1
+  view
+    text `${tick}` testId="tick"
+"#,
+    );
+    for _ in 0..5 {
+        r.act("step", vec![]).unwrap();
+    }
+    assert_eq!(r.seq_range(), None, "nothing is reported while unmeasured");
+    let perf = |r: &Runner<Rows>| exact_runner::agent::handle(r, r#"{"op":"perf"}"#);
+    r.measure_later(None);
+    assert!(
+        perf(&r).contains("not measured until first asked"),
+        "{}",
+        perf(&r)
+    );
+    r.measure_later(Some(r#"{"inputs":{"trust":"production"}}"#));
+    assert!(perf(&r).contains("production trust"), "{}", perf(&r));
+    r.measure_later(None);
+    let asked = r.seq();
+    r.measure_from_now(None, false);
+    assert_eq!(
+        r.seq_range(),
+        None,
+        "the unmeasured transactions are not reported"
+    );
+    r.act("step", vec![]).unwrap();
+    assert_eq!(r.seq_range(), Some((asked + 1, r.seq())));
+    assert!(perf(&r).contains("\"sites\""), "{}", perf(&r));
+    r.act("step", vec![]).unwrap();
+    let reported = r.seq() - 1;
+    r.measure_from_now(None, false);
+    assert_eq!(
+        r.seq_range(),
+        Some((reported + 1, r.seq())),
+        "a second ask keeps the cursor"
+    );
 }

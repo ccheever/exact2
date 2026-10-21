@@ -128,6 +128,10 @@ New rows (`schema.json`):
 
 `opacity` is the existing row. On `g` it is group opacity, as in CSS.
 
+> **Amended by LLP 1115.000 D3.8 (2026-10-11).** `fill`'s initial value is `currentcolor`,
+> not SVG's black, on every host: a shape nobody filled is its text's colour. Declared in
+> LLP 1001; the web's stylesheet says it on the outermost `svg`.
+
 **Which inputs are props and which are rows follows SVG 2.** A property CSS can set (and so animate) is a row. An attribute CSS cannot set (`points`, `d`, `x1`…`y2`, `x`, `y`, `rx`, `ry`, `pathLength`, `viewBox`, `preserveAspectRatio`) is a prop. `d` is a CSS property in Chrome only; it stays an attribute here, so it is not animatable in v1.
 
 `paint` and `dasharray` use the kernel's existing `CssValue` codec shape (the wire carries the CSS text, as `clip-path` and `aspect-ratio` do), so the web host emits exactly what was authored.
@@ -221,6 +225,48 @@ CSS starts an animation when an element that has it is inserted, so an inserted 
 - **Apple:** new layers. iOS's view pool recycles a UIView only after the old node is destroyed. Its reset contract (`NodePoolIOS.swift`) is extended to remove all CA animations and the `svg` scene layer, so a recycled view never carries an old row's animation.
 
 A row that stays mounted while its data changes keeps its node, so a live tick redraws the line at once with no replay. The pulse keeps its phase while `cx`/`cy` move it to the new last point, which is what the browser does. On Apple, a geometry change during the draw-in re-lowers the dash animation with the new length and the *same* begin time, so its phase is kept.
+
+### D13. When an animation in a list row starts: `animation-trigger`
+
+**Added 2026-10-06, after D1–D12 landed; numbered in the order it was decided.**
+
+D8's rule has a consequence on a virtualized list. The list mounts rows ahead of its port (a viewport of lead, more at speed), so an animation that starts when its node is inserted has run, or finished, before its row arrives. Measured on the crypto list (Pixel 10 Pro XL): at 1,000 dp/s a row is mounted about 0.9 s before it shows and its 600 ms draw-in is never seen; at 3,000 dp/s and up every row on screen shows the last half of it.
+
+**Ruling (Charlie, 2026-10-06):** "would be nice to have this be an option the developer can choose. i think the default should be the one that looks better feels better higher framerate, etc. if we have to pick one go with that".
+
+**The option.** A style row, `animation-trigger`, with two values:
+- `view` (the default): a node inside a row that a virtualized list mounted out of its port holds its animations at their start, exactly as `animation-play-state: paused` holds them, until the row first overlaps the port. Then they start, from their start. Anywhere else (no list above it, or a row mounted where it already shows) it is `none`.
+- `none`: the animations start when the node is inserted (CSS Animations 1 §3; D8).
+
+The name is the one CSS's scroll-triggered animations use for the same idea (a time-based animation started by a view condition). The values are ours: that proposal's grammar is still moving, and this is the one case of it we need. It is once per mount: a row that leaves the port and returns does not replay; a row bound to another item (LLP 1078) is a new mount and waits again if it is out of the port.
+
+**Why `view` is the default.** Both were measured on crypto, Pixel 10 Pro XL, three interleaved fling runs each, against Views (which starts its draw-in when the row comes on screen):
+
+| | 1k | 3k | 6k | 12k | 24k |
+|---|---|---|---|---|---|
+| CPU+GPU mW, `none` | 284 | 363 | 386 | 379 | 422 |
+| CPU+GPU mW, `view` | 322 | 351 | 360 | 355 | 385 |
+| CPU+GPU mW, Views | 334 | 319 | 309 | 321 | 355 |
+| CPU ms/s, `none` | 903 | 1302 | 1399 | 1385 | 1449 |
+| CPU ms/s, `view` | 990 | 1167 | 1213 | 1266 | 1355 |
+| path masks (hwuiTask) ms/s, `none` | 22 | 276 | 281 | 175 | 124 |
+| path masks ms/s, `view` | 119 | 168 | 139 | 83 | 48 |
+
+Frame rate is 120 for both at every speed, and late frames are the same (19 and 23 of about 14,000). What differs is what is seen and what it costs:
+- With `none`, a slow scroll never shows the draw-in the developer wrote: rows arrive finished. With `view` it plays as each row arrives, at every speed at which a row can be read.
+- With `view` a fast fling shows less of each line (a row is on screen for a tenth of a second), as Views does; with `none` it shows more, because the animation is already half done.
+- `view` costs less from 3,000 dp/s up (it draws the short first half of each path where `none` draws the long second half, and animates nothing out of view) and more at 1,000 dp/s, where it is drawing an animation `none` never showed.
+
+An animation written for a row is written to be seen, so `view` is the default. `none` is one attribute away for a list whose rows should arrive settled.
+
+**How it is built.** The list knows which rows it mounted out of the port and when a host's report puts one in it (`runner/src/instance/collection/shown.rs`); it tells the kernel, which knows whether anything below that row waits (`Kernel::await_view`, `reveal`). While a row waits, the kernel hands motion that node's `animation` row with every entry paused (`Kernel::animation_row`); the commit that reveals the row names it in `CommitReceipt::revealed`, and `motion_sync` restates the row unpaused, which the engine starts as a resumed animation. A plan without `@keyframes` tracks nothing, and a row with no waiting animation costs no commit. Rows built before the first report wait for it.
+
+**Hosts.**
+- **Linux and Android:** built; the engine's plays carry the hold, and the Android reader's lowered layers read it.
+- **Apple:** the same `motion_sync` feeds its engine, and a held play is one it already lowers as paused. Not run on a device for this change; owed.
+- **Web:** not built, and declared in LLP 1001. The browser starts a CSS animation at insertion. The JS target emits no declaration for the row; to match, its list runtime would set `animation-play-state: paused` on a row it mounts out of the port and clear it when the row intersects (an `IntersectionObserver` on the list, or the window arithmetic it already does). On the wasm target the glue would write the paused row from `Kernel::animation_row` and rewrite it for `revealed`.
+
+**Not in scope:** visibility in anything but the row's own list (a row of an inner list waits for the outer row too, since the kernel looks up through every waiting row, but a list scrolled out of a page's own scroller is not looked at); a trigger that replays; non-list content.
 
 ### D9. The fill policy (LLP 1050.000)
 
@@ -371,3 +417,14 @@ D6 and §9 kept colour motion out. LLP 1055.000 D6 admitted it for SVG's
 the same kernel seam (`color_targets`, `Kernel::paint_sync`) and the same
 Apple mechanism (a restyle carrying the presented value). `rules/DEFERRED.md`
 §Motion records it as pending Charlie's ruling on the take.
+
+## Addendum C (2026-10-07): `points` from numbers, and why it stays a string prop
+
+A chart's `points` built point by point in the view (``join(map(series, (p, i) => `${x},${y}`), " ")``) was a tenth of a scrolling crypto list's exact thread on the Android Canvas host: 48 closure calls, 96 number formats and 48 template strings in the VM for each row that mounted. Three ways to carry numbers were weighed.
+
+- **A typed prop** (`PropValue` gains a list of numbers; the plan, the wire, the document export and every host learn it). It removes the string and its parse. Measured, the parse is a fortieth of a row's recording (`exact_num::parse` under `svg::scene::resolve`), 0.3% of the thread; the rest of `resolve` is not the string's. Not worth a fifth prop kind on every carrier.
+- **A kernel cache of the parsed path keyed by the string.** A row that scrolls in has a string no row had; only a turn back hits. Not built.
+- **What Contract already has: `join` over numbers** (LLP 1017.003 D4 prints a number as `toString` does, natively). `points=join(c.points, " ")`, with `points: list<number>` in the row (x then y per point; SVG's grammar takes whitespace alone), is one roster call. No surface changes, and string `points` is untouched.
+
+**Decision: the third.** The numeric form of `points` is a `list<number>` joined with a space; where the mapping to the box is arithmetic per point, the data source does it and the row carries the result. Crypto probe, Pixel 10 Pro XL, five speeds both ways: 6.47 to 5.13 G instructions, the exact thread 8-10% lower at 6,000-12,000 dp/s. A view that maps in Contract (`map` with a closure per point) still pays the VM for it; making that cheap is the VM's business, not SVG's.
+

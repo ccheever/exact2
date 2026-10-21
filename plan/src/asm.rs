@@ -113,12 +113,12 @@ impl Asm {
         self.op(Opcode::LoadParam, &[Arg::U16(i)])
     }
 
-    /// Push the `each` item `depth` scopes out.
+    /// Push the `for` item `depth` scopes out.
     pub fn load_item(&mut self, depth: u16) -> &mut Self {
         self.op(Opcode::LoadItem, &[Arg::U16(depth)])
     }
 
-    /// Push the position of the `each` row `depth` scopes out.
+    /// Push the position of the `for` row `depth` scopes out.
     pub fn load_index(&mut self, depth: u16) -> &mut Self {
         self.op(Opcode::LoadIndex, &[Arg::U16(depth)])
     }
@@ -187,9 +187,25 @@ impl Asm {
         self.op(Opcode::PendingMutation, &[Arg::Idx(m.0)])
     }
 
+    /// Whether the mutation's most recent send failed.
+    pub fn failed_mutation(&mut self, m: MutationsId) -> &mut Self {
+        self.op(Opcode::FailedMutation, &[Arg::Idx(m.0)])
+    }
+
+    /// The mutation's most recent failure, or none.
+    pub fn failure_mutation(&mut self, m: MutationsId) -> &mut Self {
+        self.op(Opcode::FailureMutation, &[Arg::Idx(m.0)])
+    }
+
     /// Push whether a resource's latest request for its current arguments failed.
     pub fn failed_resource(&mut self, r: ResourcesId) -> &mut Self {
         self.op(Opcode::FailedResource, &[Arg::Idx(r.0)])
+    }
+
+    /// Push `none`, or `some` of why a resource's latest request for its
+    /// current arguments failed (LLP 1109 D3).
+    pub fn failure_resource(&mut self, r: ResourcesId) -> &mut Self {
+        self.op(Opcode::FailureResource, &[Arg::Idx(r.0)])
     }
 
     /// Pop into the locals stack.

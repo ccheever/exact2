@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Night mode from Android 14: Material's dark `surface`, as the platform has it (values-v34), and light icons
+         in the bars over it. -->
+    <style name="ExactLaunch" parent="@android:style/Theme.DeviceDefault.NoActionBar">
+        <item name="android:windowSplashScreenBackground">@android:color/system_surface_dark</item>
+        <item name="android:windowBackground">@android:color/system_surface_dark</item>
+        <item name="android:windowSplashScreenAnimatedIcon">@android:color/transparent</item>
+        <item name="android:windowSplashScreenIconBackgroundColor">@android:color/transparent</item>
+        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:windowLightNavigationBar">false</item>
+    </style>
+</resources>
