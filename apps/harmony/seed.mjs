@@ -210,16 +210,81 @@ for (const k of Object.keys(people)) {
   }
 }
 
-const out = fileURLToPath(new URL('./seed.json', import.meta.url));
+// Arguments, all known or refused: `--json <file>` (where the rows go: seed.json
+// beside this file by default), `--post [origin]` (empty that dev server and seed
+// it; an origin may come anywhere, so `bun exact.mjs seed --force <origin>`,
+// which arrives as `--post --force <origin>`, means that origin), and `--force`
+// or `--reset`. More than one origin, or anything else, is refused.
+let json = null, post = false, force = false;
+const origins = [];
+for (let i = 2; i < process.argv.length; i++) {
+  const a = process.argv[i];
+  if (a === '--json' && process.argv[i + 1] && !process.argv[i + 1].startsWith('--')) json = process.argv[++i];
+  else if (a === '--post') post = true;
+  else if (a === '--force' || a === '--reset') force = true;
+  else if (/^https?:\/\//.test(a)) origins.push(a);
+  else { console.error(`seed: no argument ${a} (it takes --post [origin], --force or --reset, and --json <file>)`); process.exit(2); }
+}
+if (origins.length > 1) { console.error(`seed: one origin, not ${origins.join(' and ')}`); process.exit(2); }
+if (origins.length && !post) { console.error(`seed: an origin (${origins[0]}) is for --post`); process.exit(2); }
+
+const out = json ?? fileURLToPath(new URL('./seed.json', import.meta.url));
 writeFileSync(out, JSON.stringify(rows, null, 1) + '\n');
 console.log(`${rows.length} rows → ${out}`);
 
-// `--post [origin]`: empty the running dev server and seed it with these rows.
-const flag = process.argv.indexOf('--post');
-if (flag >= 0) {
-  const origin = process.argv[flag + 1] ?? 'http://127.0.0.1:4400';
-  const res = await fetch(`${origin}/dev/reset`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(rows) });
+/** The dev server's `/dev/status`, proven whole, or a refusal that nothing was erased. */
+async function devStatus(origin) {
+  let r;
+  try { r = await fetch(`${origin}/dev/status`, { signal: AbortSignal.timeout(5000) }); }
+  catch (e) { throw new Error(`nothing answered at ${origin} (${e.cause?.code ?? e.message})`); }
+  if (!r.ok) throw new Error(`${origin}/dev/status answered ${r.status}`);
+  const s = await r.json().catch(() => null);
+  const named = (v) => typeof v === 'string' && v.length > 0;
+  if (!named(s?.storeId) || !named(s.instance) || !Number.isInteger(s.pid) || s.pid <= 0 || !named(s.personas?.[0])) {
+    throw new Error(`${origin} is no snapback4 dev server (no storeId, instance, pid or persona in /dev/status)`);
+  }
+  return s;
+}
+
+/** The store's commit head (`seq`), which no reset turns back: 0 only for a store never written to. */
+async function head(origin, status) {
+  const r = await fetch(`${origin}/changes?since=0`, { headers: { 'x-snapback-persona': status.personas[0] }, signal: AbortSignal.timeout(5000) });
+  const c = r.ok ? await r.json().catch(() => null) : null;
+  if (!Number.isInteger(c?.seq) || c.seq < 0 || c.store_id !== status.storeId) throw new Error(`${origin}/changes gave no head for store ${status.storeId}`);
+  return c.seq;
+}
+
+// `--post`: seed the dev server with these rows. Unasked only where nothing was
+// ever written (the store's head is 0; a reset is itself a commit, so a store
+// seeded before counts as written to), and then by `/seed`, an upsert that erases
+// nothing, so a write landing after the head was read stays. (Not one to a row
+// this seed writes, which it updates: only if another seed of this server landed
+// between this one's head read and its seed and someone edited what it wrote; no
+// request can make the head check and the seed one step.) What a store holds can't be read whole
+// from outside (a query shows only what a persona may see), so any other store,
+// in memory or not, may hold what people wrote and is refused unless `--force`
+// (or `--reset`) says to empty it first (`/dev/reset`). Both name the dev
+// instance they asked, so a server started in its place refuses them (409).
+if (post) {
+  const origin = new URL(origins[0] ?? 'http://127.0.0.1:4400').origin;
+  const fail = (m) => { console.error(`seed: ${m}; nothing was erased`); process.exit(1); };
+  let before, n, now;
+  try { before = await devStatus(origin); n = await head(origin, before); } catch (e) { fail(e.message); }
+  if (n !== 0 && !force) {
+    console.error(`seed: the server at ${origin} has been written to (${n} commits${before.temporary === true ? ', in memory' : ', kept on disk'}), so it may hold what people wrote. Seeding it would ERASE EVERYONE'S MESSAGES, channels and profiles there, for every person using it. Nothing was erased. If this is a server of your own whose data you mean to lose, run it again with --force.`);
+    process.exit(1);
+  }
+  let res;
+  if (!force) res = await fetch(`${origin}/seed`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-snapback-dev-instance': before.instance }, body: JSON.stringify(rows) });
+  else {
+    // The same server still (its instance, store and process), as it was asked.
+    try { now = await devStatus(origin); } catch (e) { fail(e.message); }
+    if (now.instance !== before.instance || now.storeId !== before.storeId || now.pid !== before.pid) fail(`the server at ${origin} changed while it was asked (store ${before.storeId} → ${now.storeId})`);
+    res = await fetch(`${origin}/dev/reset`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-snapback-dev-instance': before.instance }, body: JSON.stringify(rows) });
+  }
   const body = await res.text();
-  if (!res.ok) { console.error(`${origin}/dev/reset: ${res.status} ${body}`); process.exit(1); }
+  let answer = null;
+  try { answer = JSON.parse(body); } catch {}
+  if (!res.ok || answer?.denied) { console.error(`${res.url}: ${res.status} ${body}`); process.exit(1); }
   console.log(`${origin}: ${body}`);
 }
