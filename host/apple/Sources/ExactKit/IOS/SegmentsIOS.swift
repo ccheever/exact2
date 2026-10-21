@@ -597,6 +597,18 @@ final class SegmentHost: NSObject, UIGestureRecognizerDelegate, UITabBarDelegate
         return (control, CGRect(x: share * CGFloat(slot), y: 0, width: share, height: control.bounds.height))
     }
 
+    /// The tab bar a tablist is drawn as (`project`) and the item standing
+    /// for the tab `node` is (or is in), or nil.
+    func barItem(of node: NodeView) -> (bar: UITabBar, item: UITabBarItem)? {
+        for (owner, ids) in members {
+            guard let bar = bars[owner], let items = bar.items, items.count == ids.count,
+                  let index = ids.firstIndex(where: { id in id == node.id || presenter.views[id].map { node.isDescendant(of: $0) } == true })
+            else { continue }
+            return (bar, items[index])
+        }
+        return nil
+    }
+
     func observation(_ node: NodeView) -> [String: Any]? {
         if let entry = members.first(where: { $0.value.contains(node.id) }), let bar = bars[entry.key],
            let index = entry.value.firstIndex(of: node.id) {
