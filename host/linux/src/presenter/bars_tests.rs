@@ -613,3 +613,53 @@ fn a_host_with_no_such_shell_paints_the_header_and_the_tablist_in_the_page() {
     let (header, list) = (p.rect_of(header).unwrap(), p.rect_of(list).unwrap());
     assert!(near(header.1, 0.0) && near(list.1, header.3));
 }
+
+/// A TV's remote reaches what the bars stand for (LLP 1115.001.003 D4): Up
+/// from the list's first button is the header's More, lit in its bar and
+/// opened by Select; Down from the list's last button is a destination.
+#[test]
+fn a_tvs_remote_reaches_the_bars_targets() {
+    let (mut p, _) = barred(APP);
+    let tv = Device {
+        night: false,
+        font_scale: 1.0,
+        locale: "en-US".into(),
+        rtl: false,
+        hour24: false,
+        reduced_motion: false,
+        bold_text: false,
+        high_contrast: false,
+        touch: false,
+        tv: true,
+        touch_slop: 0.0,
+        dates: String::new(),
+    };
+    assert_eq!(p.set_device(&tv), None);
+    assert_eq!(p.fit_window(), None);
+    let key = |p: &mut Presenter<Nothing>, code: &str, key: &str| {
+        p.hardware_key(code, key, true, false);
+        p.hardware_key(code, key, false, false);
+    };
+    assert!(p.reader_bars(2.0).is_some());
+    p.set_focus(Some(id(&p, "open")), 0.);
+    key(&mut p, "ArrowUp", "ArrowUp");
+    assert_eq!(p.focus(), Some(id(&p, "more")), "the header's button");
+    assert!(p.reader_bars(2.0).is_some(), "its bar is told again, lit");
+    key(&mut p, "Select", "Enter");
+    let surface = p.surface().expect("Select opens its menu");
+    assert_eq!(surface.kind, crate::presenter::top::SurfaceKind::Menu);
+    assert!(p.dismiss_surface(0.));
+    p.set_focus(Some(id(&p, "open-quiet")), 0.);
+    key(&mut p, "ArrowDown", "ArrowDown");
+    let tabs = [id(&p, "tab-home"), id(&p, "tab-other")];
+    assert!(
+        p.focus().is_some_and(|f| tabs.contains(&f)),
+        "a destination"
+    );
+    p.set_focus(Some(tabs[0]), 0.);
+    key(&mut p, "ArrowRight", "ArrowRight");
+    assert_eq!(p.focus(), Some(tabs[1]));
+    key(&mut p, "Select", "Enter");
+    p.run_commands(|| Nothing);
+    assert_eq!(top(&mut p).title, "Other");
+}

@@ -180,3 +180,80 @@ fn a_phones_back_leaves_that_button_alone() {
     assert!(!p.system_back(0.));
     assert!(!text(&p, "log").contains("back;"));
 }
+
+/// Two radios of one group in a row, then a button.
+const RADIOS: &str = r#"component App
+  state pick = "a"
+  action choose(value: string)
+    pick = value
+  view
+    row width=600 height=100 gap=20
+      input type="radio" name="g" value="a" checked=(pick == "a") change=choose testId="ra" width=40 height=40
+      input type="radio" name="g" value="b" checked=(pick == "b") change=choose testId="rb" width=40 height=40
+      button "Go" testId="go" width=100 height=40
+"#;
+
+#[test]
+fn the_remote_reaches_every_radio_of_a_group_and_select_checks_one() {
+    let (mut p, error) = Presenter::boot_with(
+        &crate::test_plan(RADIOS),
+        (),
+        (600., 400.),
+        1.,
+        PathBuf::new(),
+        PainterChoice::Cpu,
+    )
+    .unwrap();
+    assert!(error.is_none(), "{error:?}");
+    let mut tv = boot(true).device().unwrap().clone();
+    tv.tv = true;
+    assert!(p.set_device(&tv).is_none());
+    p.advance(16.);
+    p.set_focus(Some(id(&p, "ra")), 0.);
+    press(&mut p, "Select", "Enter");
+    assert_eq!(arrow(&mut p, "ArrowRight"), "rb", "the unchecked option");
+    press(&mut p, "Select", "Enter");
+    let k = p.host().kernel();
+    let rb = k.node_by_key(k.find_by_test_id("rb")[0]).unwrap();
+    assert_eq!(rb.props.bool(PropId::Checked), Some(true));
+    assert_eq!(arrow(&mut p, "ArrowRight"), "go");
+}
+
+#[test]
+fn a_held_select_presses_once_and_toggles_once() {
+    let mut p = boot(true);
+    let held = |p: &mut Presenter<()>| {
+        p.hardware_key("Select", "Enter", true, false);
+        p.hardware_key("Select", "Enter", true, true);
+        p.hardware_key("Select", "Enter", true, true);
+        p.hardware_key("Select", "Enter", false, false);
+        p.advance(16.);
+    };
+    p.set_focus(Some(id(&p, "a")), 0.);
+    held(&mut p);
+    assert_eq!(
+        text(&p, "log").matches("a;").count(),
+        1,
+        "{}",
+        text(&p, "log")
+    );
+    p.set_focus(Some(id(&p, "check")), 0.);
+    held(&mut p);
+    let k = p.host().kernel();
+    let check = k.node_by_key(k.find_by_test_id("check")[0]).unwrap();
+    assert_eq!(
+        check.props.bool(PropId::Checked),
+        Some(true),
+        "toggled once"
+    );
+}
+
+#[test]
+fn a_held_arrow_keeps_moving_the_focus() {
+    let mut p = boot(true);
+    p.set_focus(Some(id(&p, "a")), 0.);
+    p.hardware_key("ArrowRight", "ArrowRight", true, false);
+    assert_eq!(focused(&p), "x");
+    p.hardware_key("ArrowLeft", "ArrowLeft", true, true);
+    assert_eq!(focused(&p), "a", "a repeat moves too");
+}

@@ -251,8 +251,16 @@ impl<D: DataSource> Presenter<D> {
         let Some(window) = self.window.window else {
             return false;
         };
-        let at = self.window.frame.map_or(0.0, |frame| frame[0]) + x;
+        let at = self.page_origin().0 + x;
         at < window.gestures[3] || at >= window.size.0 - window.gestures[1]
+    }
+
+    /// Where the page's top left is in the window, points: (0, 0) where
+    /// the shell told no window or the page covers it.
+    pub(super) fn page_origin(&self) -> (f32, f32) {
+        self.window
+            .frame
+            .map_or((0.0, 0.0), |frame| (frame[0], frame[1]))
     }
 
     /// `layout.env`'s insets (LLP 1012 §1): the four safe-area insets the
