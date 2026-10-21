@@ -5,8 +5,9 @@
 // chat/composerAttachmentFiles.ts (fileAttachmentStagingLimit) and
 // packages/contracts/src/chatAttachment.ts. All three stage their files the same way
 // (composer-attach-stage.ts): images join the draft's image shelf (the SnapShot drafts,
-// uploaded as `image` attachments on send); other files become inline file chips
-// (composer-editor-attach.ts), and what cannot be attached is named in the error.
+// uploaded as `image` attachments on send), or, while the composer answers a question, that
+// question's shelf (question-attachments.ts), uploaded with its answer; other files become
+// inline file chips (composer-editor-attach.ts), and what cannot be attached is named in the error.
 import { obj, str, num, type Obj } from '../client/domain';
 import { ClientError, type Native } from '../client/protocol';
 import type { T3Client } from '../client/client';
@@ -78,7 +79,7 @@ export async function attachIncoming(client: T3Client, native: Native, origin: s
  */
 export async function stageFiles(client: T3Client, native: Native, sources: AttachSource[]): Promise<Obj[]> {
   if (!client.projectId) throw new ClientError('Choose a project first.');
-  const key = client.draftKey, limit = attachStagingLimit(client), staged: Obj[] = [];
+  const key = client.attachmentKey, limit = attachStagingLimit(client), staged: Obj[] = [];
   let room = MAX_ATTACHMENTS - reservedAttachments(client);
   for (const source of sources) {
     const stat = await statSource(source);
@@ -91,7 +92,7 @@ export async function stageFiles(client: T3Client, native: Native, sources: Atta
       staged.push(file);
     }
   }
-  return key === client.draftKey ? staged : (await releaseStaged(client, native, staged), []);
+  return key === client.attachmentKey ? staged : (await releaseStaged(client, native, staged), []);
 }
 
 /** Staged files nothing will reference: a shelf image's draft and a file's copy go. */
@@ -104,18 +105,19 @@ export async function releaseStaged(client: T3Client, native: Native, files: Obj
 
 /**
  * addComposerFiles over staged files (a drop, a paste, Attach files, or the sidebar row drop's, legacy-sidebar-drop.ts):
- * images join the shelf; other files become chips; what cannot be attached is named in one error. `owner`: the composer
+ * images join the shelf (a question's has no image chips: its answer carries them beside it); other files become chips;
+ * what cannot be attached is named in one error. `owner`: the composer
  * the chips go into at its caret (`editorInsert` refuses another thread's editor; then they join the end of the stored
  * draft).
  */
 export async function addAttachedFiles(client: T3Client, native: Native, files: Obj[], imageChips = imagesGetChips(client), owner = ''): Promise<void> {
-  const key = client.draftKey;
+  const key = client.attachmentKey, threadKey = client.draftKey, question = key !== threadKey;
   const identity = { generation: client.generation, snapshotOwner: client.snapshotOwner, fieldOwner: composerFieldOwner(client) };
-  const current = () => identity.generation === client.generation && identity.snapshotOwner === client.snapshotOwner && identity.fieldOwner === composerFieldOwner(client) && key === client.draftKey;
+  const current = () => identity.generation === client.generation && identity.snapshotOwner === client.snapshotOwner && identity.fieldOwner === composerFieldOwner(client) && key === client.attachmentKey;
   let error = '';
   const accepted: Obj[] = [], chips: DraftFile[] = [];
   let reserved = reservedAttachments(client);
-  const release = holdDraftFiles(client.local, key);
+  const release = holdDraftFiles(client.local, threadKey); // a file chip's file is the thread draft's, in an answer too
   try {
     for (const file of files) {
       if (!current()) { await releaseStaged(client, native, [file]); continue; }
@@ -140,7 +142,7 @@ export async function addAttachedFiles(client: T3Client, native: Native, files: 
       reserved += 1;
     }
     if (accepted.length) client.local.snapshotDrafts[key] = [...(client.local.snapshotDrafts[key] ?? []), ...accepted];
-    const inserted = await insertFileChips(client, native, chips, imageChips ? accepted : [], owner || identity.snapshotOwner);
+    const inserted = await insertFileChips(client, native, chips, imageChips && !question ? accepted : [], owner || identity.snapshotOwner);
     if (current()) client.error = error || (!inserted ? 'The prompt changed before attachment references could be inserted. Attach the files again.' : '');
   } finally { release(); }
 }

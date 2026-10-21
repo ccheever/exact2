@@ -24,6 +24,7 @@ import { isUsageLimitsCommand, usageLimitsOffered, openUsageLimits } from '../co
 import { feedbackCommandFor, feedbackInFlight, sendFeedback } from '../composer/composer-feedback';
 import { threadContextRecords, withMessageContext } from '../composer/composer-editor';
 import { projectPendingUserInputAnswer } from '../timeline/thread-links';
+import { questionDraftKey } from '../composer/question-attachments';
 import { pendingThreadImports } from '../composer/composer-thread-import';
 import { annotationAttachedToDraft, annotationSendMarked, takeAnnotationSend } from '../browser/browser-annotation'; // an annotation's send
 import { markAnnotationSend } from '../browser/browser-annotation';
@@ -364,7 +365,10 @@ function carryAnswer(this: T3Client, text: string): void {
   const prompt = this.local.drafts[this.draftKey] || '';
   this.local.drafts[this.draftKey] = prompt.trim() ? `${prompt.trimEnd()}\n\n${text}` : text;
 }
-/** The composer's Submit/Next and Return advance; the last question answers the provider. */
+/**
+ * The composer's Submit/Next and Return advance; the last question answers the provider, each question's attachments
+ * beside its answer (onRespondToUserInput): its shelf's images, then the files its answer's chips name.
+ */
 async function submitAnswers(this: T3Client, native: Native, storage: Files, id: string, custom?: string): Promise<void> {
   if (custom !== undefined && custom !== '') setCustomAnswer(this, custom);
   const requestId = id || activeInput(this)?.input.requestId || '';
@@ -380,9 +384,11 @@ async function submitAnswers(this: T3Client, native: Native, storage: Files, id:
     const attachmentsByQuestionId: Obj = {};
     for (const [id, answer] of Object.entries(answers)) {
       assertOwner();
-      const attachments = await composerFileAttachments(this, native, typeof answer === 'string' ? answer : '', assertOwner);
+      const images = await this.uploadSnapshots(native, storage, questionDraftKey(owner.environmentId, owner.threadId, requestId, id), assertOwner);
       assertOwner();
-      if (attachments.length) attachmentsByQuestionId[id] = attachments;
+      const files = await composerFileAttachments(this, native, typeof answer === 'string' ? answer : '', assertOwner);
+      assertOwner();
+      if (images.length || files.length) attachmentsByQuestionId[id] = [...images, ...files];
     }
     await dispatchRequest.call(this, native, storage, { type: 'runtime-request.respond', threadId: owner.threadId, requestId, answers: projected,
       ...(Object.keys(attachmentsByQuestionId).length ? { attachmentsByQuestionId } : {}) }, 'Answers', assertOwner);

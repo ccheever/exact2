@@ -20,7 +20,7 @@ export async function snapshotOps(this: T3Client, op: string, id: string, value:
       const previous = this.snapshotDrafts;
       const image = previous.find(image => image.id === id);
       if (!image) throw new ClientError('That draft attachment is unavailable.');
-      const key = this.draftKey;
+      const key = this.attachmentKey;
       const changedSource = await removeAttachmentReferences(this, native, key, 'image', id, { focus: value, removedImage: id, applied: async current => {
         const files = nativeFiles(current), latest = this.local.snapshotDrafts[key] ?? [];
         this.local.snapshotDrafts[key] = latest.filter(entry => entry.id !== id);

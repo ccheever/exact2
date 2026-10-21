@@ -194,7 +194,11 @@ The app has no desktop self-update feed, so its own download/restart step is abs
 - Requests: approvals, single/multiple-choice and free-text questions. While an approval is pending the
   composer stays usable: Send declines the approvals it shows, then steers the turn with the message
   (`declineForRedirect` in `client-ops-composer.ts`); a draft edited meanwhile stays unsent. A typed answer
-  stays with its thread until the question resolves.
+  stays with its thread until the question resolves. While the composer answers a question the server lets
+  carry attachments, its shelf is that question's (`question-attachments.ts`): a dropped, pasted or picked image
+  joins it without a chip, as does a SnapShot taken while the question is open (pinned when the capture is
+  first seen); the answer uploads each question's images beside its file chips, and the drafts go when the
+  request resolves.
 - Version control in the workspace card (`src/details/git*`): the branch picker (search, create
   a ref with Enter, check out, "Start from origin"), the git actions quick action and
   menu, the commit dialog (file selection, message, "Commit on new branch"), the

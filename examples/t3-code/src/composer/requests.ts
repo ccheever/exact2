@@ -1,7 +1,8 @@
 // Pending approvals and questions, adapted from T3 Code (MIT); see LICENSE-T3.
 // Sources at 74541bab17: packages/client-runtime/src/state/threadRequests.ts, apps/web/src/pendingUserInput.ts,
 // apps/web/src/components/chat/ComposerPendingApproval{Panel,Actions}.tsx,
-// ComposerPendingUserInputPanel.tsx, ComposerPrimaryActions.tsx and
+// ComposerPendingUserInputPanel.tsx, ComposerPrimaryActions.tsx, chat/usePendingThreadRequests.ts,
+// chat/ChatComposer.tsx (questionAttachmentTarget, questionTakesSnapShots) and
 // packages/client-runtime/src/work-log/userInput.ts. The server owns every answer.
 import { arr, obj, str, type Obj } from '../client/domain';
 import { ClientError } from '../client/protocol';
@@ -13,6 +14,7 @@ import { markdownEnv, messageChips } from '../timeline/message-chips';
 import { relabelThreadLinks } from '../timeline/thread-links';
 import { renderCodexInlineDirectivesAsMarkdown } from '../highlight/codex-directives.js';
 import { markdownThreadGlyphs } from '../timeline/markdown-thread-glyphs';
+import { questionDraftKey, questionDraftPrefix, releaseQuestionDrafts } from './question-attachments';
 
 /** One draft per question (`request::question`) and one per request (its question index). */
 export type RequestDraft = { selected: string[]; custom: string; index: number };
@@ -63,13 +65,25 @@ export function pendingRequests(projection: Obj): { approvals: PendingApproval[]
 }
 
 function draft(client: T3Client, key: string): RequestDraft { return client.answers[key] ?? { selected: [], custom: '', index: 0 }; }
-/** resolvePendingUserInputAnswer: a non-empty custom answer outranks selected options. */
-export function resolveAnswer(question: Question, answer: RequestDraft | undefined): string | string[] | null {
+/** A question's attachments: its image count, and whether they keep it unanswered (a server that takes none). */
+type QuestionAttachments = { count: number; blocked: boolean };
+/**
+ * resolvePendingUserInputAnswer: a non-empty custom answer outranks selected options; with neither, attachments alone
+ * answer a question that takes a custom answer, as an empty one. Attachments the server cannot take answer nothing.
+ */
+export function resolveAnswer(question: Question, answer: RequestDraft | undefined, attachments: QuestionAttachments = { count: 0, blocked: false }): string | string[] | null {
+  if (attachments.blocked) return null;
   const custom = !question.allowCustom || answer?.custom === undefined ? null
     : question.initialAnswer !== undefined ? answer.custom : answer.custom.trim() || null;
   if (custom !== null && custom.length > 0) return custom;
   const selected = [...new Set(answer?.selected ?? [])].filter(value => question.options.some(option => option.value === value));
-  return question.multiSelect ? (selected.length ? selected : custom) : selected[0] ?? custom;
+  const fallback = custom ?? (question.allowCustom && attachments.count > 0 ? '' : null);
+  return question.multiSelect ? (selected.length ? selected : fallback) : selected[0] ?? fallback;
+}
+const questionAttachmentsSupported = (client: T3Client) => obj(obj(client.config.environment).capabilities).questionAttachments === true;
+function questionAttachments(client: T3Client, requestId: string, questionId: string): QuestionAttachments {
+  const count = client.threadId ? (client.local.snapshotDrafts[questionDraftKey(client.environmentId, client.threadId, requestId, questionId)] ?? []).length : 0;
+  return { count, blocked: count > 0 && !questionAttachmentsSupported(client) };
 }
 function progress(client: T3Client, input: PendingInput) {
   for (const question of input.questions) {
@@ -82,12 +96,12 @@ function progress(client: T3Client, input: PendingInput) {
   const answers: Record<string, string | string[]> = {};
   let complete = input.questions.length > 0;
   for (const entry of input.questions) {
-    const resolved = resolveAnswer(entry, client.answers[`${input.requestId}::${entry.id}`]);
+    const resolved = resolveAnswer(entry, client.answers[`${input.requestId}::${entry.id}`], questionAttachments(client, input.requestId, entry.id));
     if (resolved === null) complete = false; else answers[entry.id] = resolved;
   }
   const current = active ? client.answers[`${input.requestId}::${active.id}`] : undefined;
   return { index, active, answers, complete, last: index >= input.questions.length - 1,
-    canAdvance: !!active && resolveAnswer(active, current) !== null, custom: active?.allowCustom ? current?.custom ?? '' : '' };
+    canAdvance: !!active && resolveAnswer(active, current, questionAttachments(client, input.requestId, active.id)) !== null, custom: active?.allowCustom ? current?.custom ?? '' : '' };
 }
 export function activeInput(client: T3Client) {
   const input = pendingRequests(client.projection).inputs[0];
@@ -119,6 +133,25 @@ export function composerInput(client: T3Client) {
   return input ? { input, ...progress(client, input) } : undefined;
 }
 
+/** questionAttachmentTarget: the draft of the question the composer answers, whose shelf the composer shows. */
+export function questionAttachmentKey(client: T3Client): string | null {
+  const current = client.threadId ? composerInput(client) : undefined;
+  return current?.active ? questionDraftKey(client.environmentId, client.threadId, current.input.requestId, current.active.id) : null;
+}
+/**
+ * questionTakesSnapShots: the composer's question takes a SnapShot while the server takes question attachments, the
+ * question takes a custom answer and its answer is not being submitted. `requestKeys`: every question draft of its
+ * request, whose attachments share one answer's limit.
+ */
+export function openQuestionDraft(client: T3Client): { key: string; requestKeys: string[] } | null {
+  const current = client.threadId ? composerInput(client) : undefined;
+  if (!current?.active || !current.active.allowCustom || !questionAttachmentsSupported(client)) return null;
+  if (str(client.pending?.payload.requestId) === current.input.requestId) return null;
+  const { environmentId, threadId } = client, requestId = current.input.requestId;
+  return { key: questionDraftKey(environmentId, threadId, requestId, current.active.id),
+    requestKeys: current.input.questions.map(question => questionDraftKey(environmentId, threadId, requestId, question.id)) };
+}
+
 function responseReason(client: T3Client, resumable: boolean): string {
   if (!resumable) return NOT_RESUMABLE;
   if (client.connection !== 'connected') return 'Reconnect to respond to this request.';
@@ -133,13 +166,17 @@ function responseReason(client: T3Client, resumable: boolean): string {
 const operable = (client: T3Client) => client.scopes.includes('orchestration:operate');
 
 /**
- * pruneResolvedUserInputDrafts: the open thread's answer drafts for requests no longer pending go. A thread whose
- * detail has not arrived keeps them: missing detail is not resolution.
+ * pruneResolvedUserInputDrafts: the open thread's answer drafts and question attachment drafts for requests no longer
+ * pending go. A thread whose detail has not arrived keeps them: missing detail is not resolution.
  */
 function pruneAnswers(client: T3Client): void {
   if (!client.threadId || str(obj(client.projection.thread).id) !== client.threadId) return;
-  const pending = new Set(pendingRequests(client.projection).inputs.map(input => input.requestId)), answers = client.answers;
+  const inputs = pendingRequests(client.projection).inputs, answers = client.answers;
+  const pending = new Set(inputs.map(input => input.requestId));
   for (const key of Object.keys(answers)) if (!pending.has(key.split('::')[0]!)) delete answers[key];
+  const { environmentId, threadId } = client;
+  const retained = new Set(inputs.flatMap(input => input.questions.map(question => questionDraftKey(environmentId, threadId, input.requestId, question.id))));
+  releaseQuestionDrafts(client.local.snapshotDrafts, client.local.snapshotReleases, questionDraftPrefix(environmentId, threadId), retained);
 }
 /** The composer shows the first pending approval, else the first pending question (ChatComposer). */
 export function requestPresentation(client: T3Client) {
