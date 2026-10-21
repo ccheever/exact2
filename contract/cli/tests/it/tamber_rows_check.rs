@@ -1144,3 +1144,47 @@ fn a_marked_wrapper_in_a_swipe_keeps_its_look() {
         &design.replace("gap = 8px", "gap = #444444"),
     );
 }
+
+/// A component used as a section's row with another use of it inside: the
+/// outer's look yields, the inner's (the same declaration, another
+/// instance) is judged, in the build's words (Astra's re-check of
+/// 0c1dd8f1a3).
+#[test]
+fn a_nested_instance_of_a_yielding_row_keeps_its_look() {
+    let design = "tamber t\n\ntheme\n  ink = #111111\n  gap = 8px\n";
+    let contract = "use Card from \"@acme/reading\"\ncomponent App\n  view\n    column\n      list appearance=\"auto\" height=300\n        section\n          Plate()\n            Plate()\n              text \"x\"\n      Card()\ncomponent Plate\n  slot\n  view\n    column -exact-row-look=\"platform\" padding-left=\"gap\"\n      children\n";
+    same_words(
+        &reading("rows-row-look-nested"),
+        design,
+        contract,
+        json!({"op": "set-token", "name": "gap", "value": "#444444"}),
+        &design.replace("gap = 8px", "gap = #444444"),
+    );
+}
+
+/// A section's row put in its own swipe (`delete=`) is given to the
+/// grouped row rebuilt: it yields its look all the same, and a write
+/// breaking it is accepted, as the build accepts it.
+#[test]
+fn a_deletable_rows_look_yields() {
+    let dir = reading("rows-row-look-delete");
+    let design = "tamber t\n\ntheme\n  ink = #111111\n  gap = 8px\n";
+    std::fs::write(dir.join("app.tamber"), design).unwrap();
+    std::fs::write(
+        dir.join("app.contract"),
+        "use Card from \"@acme/reading\"\ncomponent App\n  state z = 0\n  action remove(id: string)\n    z = 1\n  view\n    column\n      list appearance=\"auto\" height=300\n        section\n          row delete=remove(\"1\") -exact-row-look=\"platform\" padding-left=\"gap\"\n            text \"One\"\n      Card()\n",
+    )
+    .unwrap();
+    contract::compile_path(&dir.join("app.contract")).unwrap();
+    let mut s = Serve::start(&dir, &[]);
+    s.ask(json!({"method": "propose", "ops": [{"op": "set-token", "name": "ink", "value": "#444444"}]}));
+    let w = transaction(
+        &mut s,
+        &dir,
+        json!({"op": "set-token", "name": "gap", "value": "#444444"}),
+    );
+    assert!(w.get("ok").is_some(), "{w}");
+    drop(s);
+    contract::compile_path(&dir.join("app.contract")).unwrap();
+    let _ = std::fs::remove_dir_all(&dir);
+}

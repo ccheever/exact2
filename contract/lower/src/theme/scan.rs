@@ -111,10 +111,11 @@ struct Around<'a> {
     left: bool,
     within: Option<std::sync::Arc<Vec<super::rows::Fonts>>>,
     grouped: Grouped,
-    /// The nodes of the section row around it that lowering styles as the
+    /// The nodes of the section rows around it that lowering styles as the
     /// grouped row (`grouped::row`, which yields a marked node's look), by
-    /// where they are written.
-    yielding: Option<std::sync::Arc<Vec<Span>>>,
+    /// their place in the expanded tree (an address: each expanded copy of
+    /// a component is its own).
+    yielding: Option<std::sync::Arc<Vec<usize>>>,
 }
 
 /// Where a node sits in a grouped list: among its sections, in a section's
@@ -307,20 +308,29 @@ impl Said {
                     // grouped row, it or the content a swipe written by hand
                     // names (`swipe_rows::grouped` asked, recording whom it
                     // gives `row`).
+                    // (A grouped list in such a row adds its own rows' to
+                    // those around it.)
                     let yielding = match grouped == Grouped::Row
                         && !matches!(tag.as_str(), "header" | "footer")
                     {
                         true => {
-                            let styled = std::cell::RefCell::new(Vec::new());
+                            let around = yielding.as_deref().cloned().unwrap_or_default();
+                            let styled = std::cell::RefCell::new(around);
+                            // (A row put in its own swipe, `delete=`, is given
+                            // rebuilt: it is this node.)
                             crate::swipe_rows::grouped(node, &|n, _| {
-                                styled.borrow_mut().push(n.span());
+                                let rebuilt = n.span() == *span && !std::ptr::eq(n, node);
+                                let at = if rebuilt { node } else { n };
+                                styled.borrow_mut().push(at as *const Node as usize);
                                 n.clone()
                             });
                             Some(std::sync::Arc::new(styled.into_inner()))
                         }
                         false => yielding,
                     };
-                    let yields = yielding.as_ref().is_some_and(|y| y.contains(span))
+                    let yields = yielding
+                        .as_ref()
+                        .is_some_and(|y| y.contains(&(node as *const Node as usize)))
                         && a.iter().any(|a| a.name == crate::row_look::ROW_LOOK);
                     // An `audio`'s `display` is lowering's to write
                     // (`media::audio_rows`, from its class's rows with its
