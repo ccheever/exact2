@@ -112,6 +112,18 @@ test('unpaired iPad sidebar uses a list label while compact Home keeps the envir
   expect(emptyView(client, background, { query: 'needle' }).emptyTitle).toBe('No matching threads');
 });
 
+test('compact Home checks the unknown catalog before showing a settled empty catalog', () => {
+  const client = new T3Client(), background = new EnvironmentFleet();
+  expect(emptyView(client, background, { surface: 'compact', catalogLoaded: false })).toMatchObject({
+    items: [], emptyTitle: 'Loading environments', emptyDetail: 'Checking saved environments on this device.',
+    loading: true, addEnvironment: true, fullPageEmpty: true,
+  });
+  expect(emptyView(client, background, { surface: 'compact', catalogLoaded: true })).toMatchObject({
+    items: [], emptyTitle: 'No environments connected', emptyDetail: 'Add an environment to load projects and start coding sessions.',
+    loading: false, addEnvironment: true, fullPageEmpty: true,
+  });
+});
+
 test('only an unfiltered empty catalogue is full-page Home; filtered and sidebar empties stay in the list', () => {
   const client = new T3Client(), background = new EnvironmentFleet();
   expect(emptyView(client, background, { surface: 'compact' }).fullPageEmpty).toBe(true);
