@@ -1,7 +1,7 @@
 // The ACP stand-in, offline: what install.mjs writes where the T3 server's ACP Registry catalog
 // reads it, the agent's ACP v1 replies in each mode, and `forget`.
 import { afterAll, describe, expect, test } from "bun:test";
-import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { AGENT, forget, install, installPaths, registryIndex, status } from "./install.mjs";
@@ -98,6 +98,15 @@ describe("the agent", () => {
     expect(readFileSync(join(repo, "notes/plan.md"), "utf8")).toStartWith("# Plan");
     expect(readFileSync(join(repo, "notes/outline.ts"), "utf8")).toContain("export function title");
     expect(notes.find((note) => note.params.update.sessionUpdate === "tool_call")!.params.update).toMatchObject({ kind: "edit", status: "completed" });
+    // Each "Write <n> notes" turn writes n new files, so every such turn's checkpoint has n files.
+    for (const round of [1, 2]) {
+      notes.length = 0;
+      await talk(executable, [{ method: "session/load", params: { sessionId, cwd: repo, mcpServers: [] } }, { method: "session/prompt", params: { sessionId, prompt: first("Write 3 notes") } }], notes);
+      const written = notes.find((note) => note.params.update.sessionUpdate === "tool_call")!.params.update;
+      expect(written).toMatchObject({ kind: "edit", status: "completed", title: "Write 3 notes" });
+      expect(new Set(written.locations.map((location: { path: string }) => location.path.replace(/note-\d\.md$/, ""))).size).toBe(1);
+      expect(readdirSync(join(repo, "notes")).filter((name) => name.startsWith("batch-")).length).toBe(round);
+    }
 
     // The permission request goes to the client; the turn ends with its answer.
     const child = Bun.spawn([executable], { stdin: "pipe", stdout: "pipe", env: {}, cwd: root });

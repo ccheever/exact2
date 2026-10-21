@@ -11,10 +11,15 @@ import { rememberDiffLayout } from '../appearance/settings-appearance-look';
 import { diffReview, loadDiffFiles } from '../diff/diff-review';
 import { type Native, type Files } from './protocol';
 import { letGo } from './let-go';
+import { panelState } from '../panel/panel-surfaces';
+
+/** Opening or closing the Diff is the person's panel choice (rightPanelStore userAction), which a proactive opening respects. */
+const PANEL_CHOICES = new Set(['close-diff', 'diff', 'checkpoint-diff', 'turn-diff']);
 
 /** The changes panel: open (a turn's checkpoint, a scope), refresh, whitespace, view options, copy a path, close. */
 export async function diffOps(this: T3Client, op: string, id: string, value: string, n: number, native: Native, storage: Files, out: OpOut): Promise<boolean> {
   let resultMessage = '';
+  if (PANEL_CHOICES.has(op)) panelState(this).userRevision++;
   try {
     if (op === 'close-diff') { this.diffOpen = false; this.diffLoading = false; }
     else if (op === 'diff-view' && id === 'copy') { await this.call(native, { op: 'copyText', text: value }); resultMessage = 'Copied file path'; }
