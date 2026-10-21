@@ -283,10 +283,10 @@ bitmap stays shared and unchanged; no tinted asset enters the image cache.
   body spools to a temporary file read once for its header (256 KiB) and
   once to decode. Responses are cached on disk only (`URLCache`, 64 MiB,
   `Caches/exact-raster-http`, the HTTP cache headers' policy); decoded
-  pixels are the session's raster budget. ImageIO decodes rasters only: an
-  SVG, remote or under `assets/`, does not draw, and is the `error` `not an
-  image format this host decodes`, as is any whole body ImageIO cannot size.
-  Linux loads no remote source.
+  pixels are the session's raster budget. An SVG, remote or under `assets/`,
+  is drawn as a picture at the box's size (LLP 1011.001; the same on Linux);
+  any other whole body ImageIO cannot size is the `error` `not an image
+  format this host decodes`. Linux loads no remote source.
 - **Events:** the loader sends a node that hears it the source's `load`
   when its first decode lands, or its `error` with the reason (the HTTP
   status, `URLError`'s description, the raster refusal), each once per
@@ -413,7 +413,7 @@ symbols (rasters are tinted since 2026-09-27); Linux symbols; a placeholder
 of the host's own while an image loads or after it fails (the kernel measures
 an unknown axis as 0; macOS paints nothing; the browser paints its own
 broken-image icon and the `alt` text — the app draws its own fallback from
-`load` and `error`, §2); SVG sources on Apple (§4; built 2026-10-20 as LLP 1011.001: a picture drawn at the box's size, with two declared deviations); a fetch policy the app
+`load` and `error`, §2); SVG sources on Apple and Linux (§4; built 2026-10-20 as LLP 1011.001: a picture drawn at the box's size, with two declared deviations); a fetch policy the app
 sets — HTML's `referrerpolicy`, a refusal of redirects (`redirect="error"`),
 a byte cap below the host's (`max-bytes`) — each a vocabulary proposal
 (#121), not built; Linux remote sources; a block-flow image at its intrinsic

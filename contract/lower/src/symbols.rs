@@ -89,46 +89,10 @@ fn constant(parts: &[TemplatePart]) -> Option<String> {
     })
 }
 
-/// An image source's warnings: a symbol by another spelling (`aliases`) and an SVG file
-/// (`svg_source`).
+/// An image source's warnings: a symbol by another spelling (`aliases`). An SVG file draws
+/// as a picture on every host (LLP 1011.001), so none names one.
 pub(crate) fn image_source(e: &Expr, platform: &mut Vec<LowerError>) -> Vec<LowerError> {
-    let mut out = aliases(e, platform);
-    out.extend(svg_source(e));
-    out
-}
-
-/// `lower-image-svg`: a literal image source naming an SVG file. The web and Apple draw it
-/// as a picture (LLP 1011.001); Linux decodes rasters only, so there the image is blank and
-/// nothing at run time says why. The drawing that works everywhere is an `svg` element with
-/// the file's paths, or an icon token for a one-colour glyph. Retired when Linux draws it.
-pub(crate) fn svg_source(e: &Expr) -> Vec<LowerError> {
-    let sources: Vec<(String, contract_syntax::Span)> = match e {
-        Expr::Template(parts, span) if constant(parts).is_some() => {
-            vec![(constant(parts).unwrap_or_default(), *span)]
-        }
-        Expr::Str(s, span) => vec![(s.clone(), *span)],
-        Expr::Ternary(_, a, b, _) => {
-            return svg_source(a).into_iter().chain(svg_source(b)).collect();
-        }
-        _ => Vec::new(),
-    };
-    sources
-        .into_iter()
-        .filter(|(s, _)| {
-            let path = s.split(['?', '#']).next().unwrap_or("");
-            !s.starts_with("symbol:")
-                && !s.starts_with("data:")
-                && path.len() > 4
-                && path.to_ascii_lowercase().ends_with(".svg")
-        })
-        .map(|(s, span)| LowerError {
-            id: "lower-image-svg",
-            message: format!(
-                "image `{s}` is an SVG, which draws on the web, iOS and macOS as a picture (LLP 1011.001) and is blank on Linux, whose host decodes rasters only; where Linux ships, inline the file's paths as an `svg` element, or for a one-colour glyph make it an icon token (`icons` in app.tamber)"
-            ),
-            span,
-        })
-        .collect()
+    aliases(e, platform)
 }
 
 /// `lower-symbol-alias`: a literal source that names a role by another spelling builds as the

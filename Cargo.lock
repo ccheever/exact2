@@ -1389,6 +1389,7 @@ dependencies = [
  "exact-raster",
  "exact-route",
  "exact-runner",
+ "exact-svg-file",
  "exact-svg-raster",
  "exact-textflow",
  "exact-update",
