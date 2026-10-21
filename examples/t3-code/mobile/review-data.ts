@@ -100,14 +100,14 @@ function validIds(files: ReviewPatchFile[], ids: string[] | undefined, defaultEx
   if (ids === undefined) return defaultExpanded ? files.map(file => file.id) : [];
   const current = new Set(files.map(file => file.id)); return ids.filter(id => current.has(id));
 }
-function sectionFiles(section: Section | undefined): { file: ReviewPatchFile; notice: string; pending: boolean; error: boolean }[] {
+function sectionFiles(section: Section | undefined): { file: ReviewPatchFile; headerStatus: ReviewPatchFile['status']; notice: string; pending: boolean; error: boolean }[] {
   if (!section) return [];
-  if (!section.lazy) return reviewPatch(section.diff ?? '', section.id).files.map(file => ({ file, notice: '', pending: false, error: false }));
+  if (!section.lazy) return reviewPatch(section.diff ?? '', section.id).files.map(file => ({ file, headerStatus: file.status, notice: '', pending: false, error: false }));
   return section.lazy.files.map(stat => {
     const patch = section.lazy!.patches.get(stat.path), parsed = patch?.state === 'loaded' ? reviewPatch(patch.diff, section.id).files : [];
     const file = parsed.find(row => row.path === stat.path) ?? (parsed.length === 1 ? parsed[0] : undefined);
     return { file: { ...(file ?? { path: stat.path, previous: stat.previousPath ?? '', status: stat.previousPath ? 'renamed' : 'modified', binary: false, hunks: [], pureRename: false }),
-      id: stat.path, path: stat.path, additions: stat.additions, deletions: stat.deletions }, pending: !patch || patch.state === 'loading', error: patch?.state === 'error',
+      id: stat.path, path: stat.path, additions: stat.additions, deletions: stat.deletions }, headerStatus: file?.status ?? 'modified', pending: !patch || patch.state === 'loading', error: patch?.state === 'error',
       notice: !patch || patch.state === 'loading' ? 'Loading diff…' : patch.state === 'error' ? 'Could not load diff. Select the file to retry.'
         : patch.truncated ? 'File preview exceeds the size limit. Counts include all changes.' : file ? '' : 'Could not display file preview.' };
   });
@@ -135,12 +135,12 @@ export function mobileReviewSnapshot(dark = false, client: T3Client = mobileClie
   const viewedIds = new Set(validIds(currentFiles, state.ui?.viewed[state.selected], false));
   const composerOwner = mobileComposerTarget(client).owner;
   const comments = state.comments.filter(entry => entry.composerOwner === composerOwner && (mobileComposerTargetText(client, mobileComposerTarget(client)) ?? '').includes(`review-comment/${entry.contextId})`));
-  for (const { file, notice, pending, error } of loaded) {
+  for (const { file, headerStatus, notice, pending, error } of loaded) {
     const expanded = expandedIds.has(file.id), viewed = viewedIds.has(file.id);
     files.push({ id: file.id, name: file.path.split('/').at(-1) ?? file.path, path: file.path, previousPath: file.previous,
       additions: file.additions, deletions: file.deletions, expanded, viewed, pending, error, notice });
     rows.push({ ...reviewRow(`file:${file.id}`, 'file'), markerId: file.id, path: file.path, title: file.path, detail: file.previous !== file.path ? file.previous : '',
-      expanded, viewed, additions: file.additions, deletions: file.deletions, action: 'toggle' });
+      expanded, viewed, additions: file.additions, deletions: file.deletions, action: 'toggle', change: headerStatus });
     if (!expanded) continue;
     if (notice) rows.push({ ...reviewRow(`notice:${file.id}`, 'notice'), path: file.path, detail: notice, action: error ? 'retry' : '' });
     if (pending || error) continue;
