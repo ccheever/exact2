@@ -70,6 +70,8 @@ pub struct Run {
     pub letter_spacing: f32,
     /// CSS `font-variant-numeric` bits (LLP 1053 G4): 1 is `tabular-nums`.
     pub font_variant_numeric: u8,
+    /// Atomic inline margin-box metrics, with no glyph ink.
+    pub inline_box: Option<exact_kernel::InlineBox>,
 }
 
 #[cfg(test)]
@@ -85,11 +87,18 @@ impl Clone for Run {
             line_height: self.line_height,
             letter_spacing: self.letter_spacing,
             font_variant_numeric: self.font_variant_numeric,
+            inline_box: self.inline_box,
         }
     }
 }
 
 impl Run {
+    /// The kernel's complete run, including an optional atomic box.
+    pub fn from_run(run: &exact_kernel::TextRun<'_>) -> Self {
+        let mut value = Self::from_style(&run.text, run.style);
+        value.inline_box = run.inline_box;
+        value
+    }
     /// Project the kernel's resolved text style for measuring and painting.
     pub fn from_style(text: &str, style: exact_kernel::TextStyle) -> Self {
         #[cfg(test)]
@@ -103,6 +112,7 @@ impl Run {
             line_height: style.line_height,
             letter_spacing: style.letter_spacing,
             font_variant_numeric: style.font_variant_numeric,
+            inline_box: None,
         }
     }
 }
@@ -144,11 +154,7 @@ impl Spec {
     pub fn from_request(request: &TextMeasureRequest<'_>) -> Spec {
         Spec {
             strut: Run::from_style("", request.paragraph.strut),
-            runs: request
-                .runs
-                .iter()
-                .map(|r| Run::from_style(&r.text, r.style))
-                .collect(),
+            runs: request.runs.iter().map(Run::from_run).collect(),
             align: request.paragraph.text_align,
             line_clamp: request.paragraph.line_clamp,
             overflow_wrap: request.paragraph.overflow_wrap,
@@ -863,6 +869,9 @@ impl TextEngine {
         }
         let paint = PixmapPaint::default();
         let mut draw = |g: &LayoutGlyph, baseline: f32, ink: RunPaint| {
+            if paragraph.source.spec.runs[g.metadata].inline_box.is_some() {
+                return;
+            }
             #[cfg(test)]
             {
                 self.ink_visits += 1;
@@ -915,6 +924,9 @@ impl TextEngine {
         type Runs = Vec<(Key, Vec<(u32, f32, f32)>)>;
         let mut runs: Runs = Vec::new();
         for (g, baseline, _) in paragraph.paint_glyphs(palette) {
+            if paragraph.source.spec.runs[g.metadata].inline_box.is_some() {
+                continue;
+            }
             let key = (
                 g.font_id,
                 g.font_weight.0,
@@ -965,6 +977,47 @@ fn premultiply(r: u8, g: u8, b: u8, a: u8) -> [u8; 4] {
 pub struct Measurer(pub Shared);
 
 impl TextMeasurer for Measurer {
+    fn inline_baseline(&mut self, request: &TextMeasureRequest<'_>) -> Option<f32> {
+        let spec = Spec::from_request(request);
+        let width = match request.width {
+            AxisOffer::Definite(w) => Some(w),
+            _ => None,
+        };
+        self.0
+            .borrow_mut()
+            .paragraph(&spec, width)
+            .baselines()
+            .last()
+            .copied()
+    }
+
+    fn inline_positions(
+        &mut self,
+        request: &TextMeasureRequest<'_>,
+    ) -> Vec<exact_kernel::InlinePosition> {
+        let spec = Spec::from_request(request);
+        let width = match request.width {
+            AxisOffer::Definite(w) => Some(w),
+            _ => None,
+        };
+        let paragraph = self.0.borrow_mut().paragraph(&spec, width);
+        let runs = &spec.runs;
+        paragraph
+            .layout_runs()
+            .flat_map(|line| {
+                line.glyphs.iter().filter_map(move |g| {
+                    runs[g.metadata]
+                        .inline_box
+                        .map(|b| exact_kernel::InlinePosition {
+                            run: g.metadata,
+                            x: g.x,
+                            y: line.line_y - b.baseline,
+                        })
+                })
+            })
+            .collect()
+    }
+
     fn set_language(&mut self, language: &str) {
         let mut engine = self.0.borrow_mut();
         let catalog = engine.catalog.borrow();
@@ -1070,3 +1123,6 @@ mod span_capacity_tests;
 #[cfg(test)]
 #[path = "text/css_tests.rs"]
 mod css_tests;
+#[cfg(test)]
+#[path = "text/inline_tests.rs"]
+mod inline_tests;

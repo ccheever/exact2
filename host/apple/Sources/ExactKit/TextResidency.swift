@@ -15,11 +15,13 @@ enum TextMetricKey {
     }
     private static func fields(_ r: Run, _ h: inout Hasher) {
         fields(r.size, r.weight, r.family, r.italic, r.lineHeight, r.letterSpacing, r.numeric, &h)
+        h.combine(r.inlineBox)
     }
     private static func fields(_ r: ExactTextRun, _ h: inout Hasher) {
         fields(CGFloat(r.font_size), Int(r.font_weight), Int(r.font_family), r.italic != 0,
                r.has_line_height != 0 ? CGFloat(r.line_height) : nil, CGFloat(r.letter_spacing),
                Int(r.font_variant_numeric), &h)
+        h.combine(TextInlineBox(r))
     }
     static func hash(_ spec: Spec) -> Int {
         var h = Hasher()
@@ -57,6 +59,7 @@ enum TextMetricKey {
             && (raw.has_line_height != 0 ? CGFloat(raw.line_height) : nil) == owned.lineHeight
             && CGFloat(raw.letter_spacing) == owned.letterSpacing
             && Int(raw.font_variant_numeric) == owned.numeric
+            && TextInlineBox(raw) == owned.inlineBox
     }
     static func matches(_ request: ExactMeasureRequest, _ geometry: Spec) -> Bool {
         // An expanded Markdown request has more runs than its one source run;

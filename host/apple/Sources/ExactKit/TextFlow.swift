@@ -176,7 +176,10 @@ extension TextEngine {
     /// Explicit CSS line boxes permit fallback ink to overflow without growing.
     func lineBox(_ spec: Spec, line: CTLine) -> (above: CGFloat, below: CGFloat, explicit: Bool) {
         let strut = spec.strut ?? spec.runs.first
-        func extents(_ run: Run) -> (CGFloat, CGFloat) { CSSLineBox.extents(font(run) as CTFont, height: run.lineHeight) }
+        func extents(_ run: Run) -> (CGFloat, CGFloat) {
+            if let b=run.inlineBox {return (b.baseline,b.height-b.baseline)}
+            return CSSLineBox.extents(font(run) as CTFont, height: run.lineHeight)
+        }
         let minimum = strut.map(extents) ?? (0, 0)
         var above = minimum.0, below = minimum.1
         var aboveExplicit = strut?.lineHeight != nil, belowExplicit = aboveExplicit
@@ -195,7 +198,7 @@ extension TextEngine {
                 defer { offset = end }
                 guard offset < range.location + range.length && end > range.location else { continue }
                 matched = true
-                if authored.lineHeight != nil {
+                if authored.lineHeight != nil || authored.inlineBox != nil {
                     let (a, b) = extents(authored); include(a, b, explicit: true)
                 } else { includesNormal = true }
             }

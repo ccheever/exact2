@@ -73,8 +73,8 @@ pub use style::{
 };
 pub use text::case::link as link_text_transform;
 pub use text::{
-    Markup, MonospaceMeasurer, ParagraphStamp, TextMeasureRequest, TextMeasurer, TextMetrics,
-    TextRun, TextStyle,
+    InlineBox, InlinePosition, Markup, MonospaceMeasurer, ParagraphStamp, TextMeasureRequest,
+    TextMeasurer, TextMetrics, TextRun, TextStyle,
 };
 pub use transform::TransformDragBinding;
 pub use txn::{CommitReceipt, Exit, MAX_DEPTH};

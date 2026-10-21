@@ -19,8 +19,18 @@ pub(super) fn text_palette(
         });
     } else {
         for child in node.children() {
-            if let Some(child) = kernel.node(child).filter(|c| c.node_type == NodeType::Text) {
-                text_palette(kernel, &child, dark, out);
+            if let Some(child) = kernel.node(child).filter(|c| {
+                (c.node_type == NodeType::Text || c.is_inline_box())
+                    && c.style.display != exact_kernel::Display::None
+            }) {
+                if child.is_inline_box() {
+                    out.push(RunPaint {
+                        color: [0, 0, 0, 0],
+                        source: child.id,
+                    });
+                } else {
+                    text_palette(kernel, &child, dark, out);
+                }
             }
         }
     }
@@ -48,9 +58,16 @@ pub(super) fn text_backgrounds(
         out.push(inherited);
     } else {
         for child in node.children() {
-            if let Some(child) = kernel.node(child).filter(|c| c.node_type == NodeType::Text) {
+            if let Some(child) = kernel.node(child).filter(|c| {
+                (c.node_type == NodeType::Text || c.is_inline_box())
+                    && c.style.display != exact_kernel::Display::None
+            }) {
                 let background = own(&child).or(inherited);
-                text_backgrounds(kernel, &child, background, dark, out);
+                if child.is_inline_box() {
+                    out.push(None);
+                } else {
+                    text_backgrounds(kernel, &child, background, dark, out);
+                }
             }
         }
     }

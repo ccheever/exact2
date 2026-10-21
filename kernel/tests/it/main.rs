@@ -30,6 +30,7 @@ mod rem;
 mod support {
     pub mod reader;
 }
+mod inline_chat;
 mod review_fixes;
 mod style_dynamic;
 mod svg;

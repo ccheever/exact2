@@ -162,6 +162,16 @@ impl<'a> NodeRef<'a> {
         self.arena.is_inline_run(self.slot)
     }
 
+    /// Whether this node participates as an atomic box in its parent's paragraph.
+    pub fn is_inline_box(&self) -> bool {
+        self.arena.is_inline_box(self.slot)
+    }
+
+    /// Its resolved typographic size, available after native layout.
+    pub fn inline_box(&self) -> Option<crate::text::InlineBox> {
+        self.arena.inline_boxes.get(&self.slot).copied()
+    }
+
     /// The canonical ordered runs used to measure this paragraph. Inline
     /// descendants have no independent boxes; painting uses the owner's
     /// content width and these same inherited metric styles.

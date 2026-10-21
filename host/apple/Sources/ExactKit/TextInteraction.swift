@@ -37,9 +37,15 @@ extension NodeView {
     var paragraphText: String {
         props["text"] ?? inlineText.lazy.filter(\.paints).map(\.text).joined()
     }
+    var paragraphAccessibilityText: String {
+        props["text"] ?? inlineText.filter(\.paints).map { run in
+            if !run.isBox {return run.text}
+            return run.props["accessibilityLabel"] ?? presenter?.views[run.id]?.paragraphText ?? ""
+        }.joined()
+    }
     func updateTextAccessibility() {
         guard isParagraph else { return }
-        let label = props["accessibilityLabel"] ?? paragraphText
+        let label = props["accessibilityLabel"] ?? paragraphAccessibilityText
         #if os(macOS)
         setAccessibilityElement(true)
         if let level = Int(props["accessibilityHeadingLevel"] ?? ""), (1...6).contains(level) {
@@ -55,7 +61,7 @@ extension NodeView {
         #else
         // UIKit does not visit a container's children when it is itself an
         // accessibility element. Expose the paragraph plus its link targets.
-        isAccessibilityElement = !inlineText.contains(where: { !($0.props["href"] ?? "").isEmpty || !$0.handlers.isEmpty || $0.props["accessibilityLabel"] != nil })
+        isAccessibilityElement = !inlineText.contains(where: { $0.isBox || !($0.props["href"] ?? "").isEmpty || !$0.handlers.isEmpty || $0.props["accessibilityLabel"] != nil })
         accessibilityTraits.insert(.staticText)
         accessibilityLabel = label
         #endif
@@ -68,19 +74,20 @@ extension NodeView {
         return paragraph.selectionRects(NSRange(location: lo, length: hi - lo), align: spec.align, in: contentBox(), dirty: bounds)
     }
     func textAccessibilityChildren() -> [Any]? {
-        let interactive = inlineText.filter { !($0.props["href"] ?? "").isEmpty || !$0.handlers.isEmpty || $0.props["accessibilityLabel"] != nil }
-        guard !interactive.isEmpty else { return nil }
+        let boxes: [Any] = inlineText.filter(\.isBox).compactMap {presenter?.views[$0.id]}.filter {!$0.isHidden}
+        let interactive = inlineText.filter { !$0.isBox && (!($0.props["href"] ?? "").isEmpty || !$0.handlers.isEmpty || $0.props["accessibilityLabel"] != nil) }
+        guard !interactive.isEmpty || !boxes.isEmpty else { return nil }
         let text = paragraphText as NSString
         let children: [Any] = interactive.map { InlineAccessibility(owner: self, run: $0, text: text) }
         #if os(macOS)
-        return children
+        return children + boxes
         #else
         let paragraph = UIAccessibilityElement(accessibilityContainer: self)
-        paragraph.accessibilityLabel = props["accessibilityLabel"] ?? (text as String)
+        paragraph.accessibilityLabel = props["accessibilityLabel"] ?? paragraphAccessibilityText
         paragraph.accessibilityLanguage = presenter?.documentLanguage
         paragraph.accessibilityTraits = .staticText
         paragraph.accessibilityFrameInContainerSpace = contentBox()
-        return [paragraph] + children
+        return [paragraph] + children + boxes
         #endif
     }
 }

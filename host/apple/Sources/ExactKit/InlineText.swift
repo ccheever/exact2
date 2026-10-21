@@ -28,6 +28,7 @@ struct InlineText {
     }
 
     var text: String { lightRun.text }
+    var isBox: Bool { lightRun.inlineBox != nil }
     func run(dark: Bool) -> Run {
         var value = lightRun
         if dark { value.color = darkColor; value.background = darkBackground }
@@ -89,7 +90,7 @@ extension Presenter {
             let count = rows[i].paints ? rows[i].text.utf16.count : 0
             rows[i].range = NSRange(location: offset, length: count)
             offset += count
-            inlineOwners[rows[i].id] = (id, i)
+            if !rows[i].isBox { inlineOwners[rows[i].id] = (id, i) }
         }
         // Container runs expose the union of their descendants, including nested links.
         for i in rows.indices.reversed() {

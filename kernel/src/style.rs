@@ -1200,7 +1200,7 @@ impl StyleProps {
         s.display = match self.display {
             // A document's metadata takes no space (LLP 1048.003 D1).
             _ if node_type.is_metadata() => taffy::style::Display::None,
-            Display::Block => taffy::style::Display::Block,
+            Display::Block | Display::InlineBlock => taffy::style::Display::Block,
             Display::Flex => taffy::style::Display::Flex,
             Display::None => taffy::style::Display::None,
             Display::Grid => taffy::style::Display::Grid,
@@ -1255,6 +1255,9 @@ impl StyleProps {
             width: self.width.to_taffy(env),
             height: self.height.to_taffy(env),
         };
+        if self.display == Display::InlineBlock && self.width == Dimension::Auto {
+            s.size.width = taffy::style::Dimension::fit_content();
+        }
         s.min_size = taffy::geometry::Size {
             width: self.min_width.to_lpa(env),
             height: self.min_height.to_lpa(env),
