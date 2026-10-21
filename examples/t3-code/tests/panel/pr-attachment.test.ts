@@ -1,3 +1,4 @@
+import { contractComponent } from '../support/contract-action-fixture';
 // The details card's pull request rows, the Pull request (P)
 // surface, sent attachment previews and the persisted Files preferences, against
 // the reference's rules (ThreadDetailsPrRows / ThreadDetailsPrRow, useOpenPrLink,
@@ -7,6 +8,7 @@ import { afterEach, describe, expect, test } from 'bun:test';
 import type { T3Client } from '../../src/client/client';
 import type { Native } from '../../src/client/protocol';
 import { panelState, surfaceLocal, panelView, availability } from '../../src/panel/panel-surfaces';
+import { openPullRequestIn } from '../../src/panel/pr-attachment-surfaces';
 import { filesLocal } from '../../src/panel/files-surface';
 import { prRowsView, prTarget, rowAction, checksRollup, statusTooltip, providerOfUrl, prSurfaceId, threadPrTarget, forgetRowDetail, sidebarPrBadge } from '../../src/panel/pr-surface';
 import { previewKind, previewDelimiter, findAttachment } from '../../src/panel/attachment-surface';
@@ -148,12 +150,49 @@ describe('the Pull request (P) surface', () => {
     replies['projects.listEntries'] = () => ({ entries: [] });
     const view = await panelView(client, null, 1);
     expect(view.tabs[0]).toMatchObject({ kind: 'pull-request', title: '#72', icon: 'git-pull-request-arrow', tone: '' });
-    expect(view.pr).toEqual({ selected: JSON.stringify({ projectId: 'p1', host: 'github.com', repository: 'ccheever/exact2', number: 72 }), number: 72, label: '#72' });
+    expect(view.pr).toEqual({ selected: JSON.stringify({ projectId: 'p1', host: 'github.com', repository: 'ccheever/exact2', number: 72 }), number: 72, label: '#72', surface: state.active, tab: 'summary' });
     // The details row opens the same kind of surface through the link's project; the tab is its peer.
     await surfaceLocal(client, native, 'linked-pr-open', '', URL72);
     expect(state.surfaces.map(entry => entry.id)).toEqual(['pull-request:p1:github.com:ccheever%2Fexact2:72', 'pull-request:p2:github.com:ccheever%2Fexact2:72']);
     await surfaceLocal(client, native, 'close', state.active, '');
     expect(state.surfaces.length).toBe(1);
+  });
+  // rightPanelStore setPullRequestDetailTab: the tab a surface was left on comes back with it.
+  test('a pull request surface keeps its detail tab, which reopening keeps and a fallback does not touch', async () => {
+    const { client, replies } = fakeClient();
+    replies['projects.listEntries'] = () => ({ entries: [] });
+    await surfaceLocal(client, native, 'open', '', 'pull-request');
+    const state = panelState(client), id = state.active, revision = state.userRevision;
+    await surfaceLocal(client, native, 'pr-tab', id, 'code');
+    // The revision moves, so the panels' save writes the choice at once (syncRightPanels skips an untouched panel).
+    expect([(await panelView(client, null, 1)).pr.tab, state.userRevision]).toEqual(['code', revision + 1]);
+    await surfaceLocal(client, native, 'pr-tab', id, 'code');
+    expect(state.userRevision).toBe(revision + 1);
+    await surfaceLocal(client, native, 'pr-tab', id, 'nonsense');
+    await surfaceLocal(client, native, 'open', '', 'pull-request');
+    expect((await panelView(client, null, 1)).pr).toMatchObject({ surface: id, tab: 'code' });
+  });
+  // "Ask about this guide stop" (pages-pr-detail.ts guide-ask) opens the surface on its Guide tab: the window's
+  // prSurfaceTab task then shows that tab rather than putting the Summary back.
+  test('a surface opened on a tab keeps it; opened again without one, it keeps the tab it was left on', async () => {
+    const { client, replies } = fakeClient();
+    replies['projects.listEntries'] = () => ({ entries: [] });
+    const target = threadPrTarget(client)!;
+    openPullRequestIn(panelState(client), target, 'guide');
+    expect((await panelView(client, null, 1)).pr.tab).toBe('guide');
+    openPullRequestIn(panelState(client), target);
+    expect((await panelView(client, null, 1)).pr.tab).toBe('guide');
+  });
+  test('the window saves a tab chosen on a thread\'s surface and shows the saved one when that surface shows', () => {
+    const root = contractComponent('app.contract', 'T3Code');
+    const sent: unknown[][] = [];
+    const scope = (utilityPage: string) => ({ utilityPage, shell: { panel: { kind: 'pull-request', pr: { surface: 'pull-request:s1', tab: 'timeline' } } }, command: (...args: unknown[]) => sent.push(args) });
+    const state = { prTab: 'summary' };
+    root.call('prSetTab', state, scope(''), ['code']);
+    root.call('prSetTab', state, scope('pull-requests'), ['guide']);
+    expect([state.prTab, sent]).toEqual(['guide', [['shelllocal:surface-pr-tab', 'pull-request:s1', 'code', 0]]]);
+    root.call('prSurfaceTabShown', state, scope(''), []);
+    expect(state.prTab).toBe('timeline');
   });
   test('a pull request tab wears its linked snapshot\'s lifecycle', async () => {
     const { client } = fakeClient();

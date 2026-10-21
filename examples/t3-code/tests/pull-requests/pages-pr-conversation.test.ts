@@ -49,31 +49,47 @@ describe('the Summary tab (PullRequestSummaryTab)', () => {
   const view = presentSummary({ detail: detail(), activity: conversation(), activityPending: false, activityError: '', now: NOW, listEntry: null });
   test('hides bot and finished comments until the filter shows them, and windows what is left from the newest', () => {
     expect([view.activeCount, view.filterLabel, view.showBots, view.showResolved]).toEqual([16, '6 hidden', false, false]);
-    expect(view.newest.filter(card => card.fromEnd < 10).map(card => card.id)).toEqual(['changes', 'c13', 'c12', 'c11', 'c10', 'c9', 'c8', 'c7', 'c6', 'c5']);
-    // "Show 6 older comments (6 hidden)" is the window's (pages-pr-summary.contract PrdShowOlder over activeCount - shown).
+    expect(view.newest.filter(item => item.fromEnd < 10).map(item => item.card.id)).toEqual(['changes', 'c13', 'c12', 'c11', 'c10', 'c9', 'c8', 'c7', 'c6', 'c5']);
+    // "Show 6 older conversations (6 hidden)" is the window's (pages-pr-summary.contract PrdShowOlder over activeCount - shown).
     expect(view.oldest[0]?.fromEnd).toBe(15);
-    expect(view.newest.some(card => card.id.startsWith('bot') || card.finished)).toBe(false);
+    expect(view.newest.some(item => item.card.id.startsWith('bot') || item.finished)).toBe(false);
   });
   test('the filter shows bots and finished work in the one list, finished work collapsed', () => {
     const all = presentSummary({ detail: detail(), activity: conversation(), activityPending: false, activityError: '', now: NOW, listEntry: null, filter: { bots: true, resolved: true } });
     expect([all.activeCount, all.filterLabel, all.filteredOutText]).toEqual([22, 'Filter', '']);
-    expect(all.newest.filter(card => card.finished).map(card => [card.id, card.finishedLabel])).toEqual([['resolved-line', 'Resolved'], ['dismissed', 'Review dismissed']]);
-    expect(all.newest.find(card => card.id === 'resolved-line')?.location).toBe('src/validate.js:6');
+    expect(all.newest.filter(item => item.finished).map(item => [item.card.id, item.card.finishedLabel])).toEqual([['resolved-line', 'Resolved'], ['dismissed', 'Review dismissed']]);
+    expect(all.newest.find(item => item.card.id === 'resolved-line')?.card.location).toBe('src/validate.js:6');
     // A resolved bot comment is both kinds: it shows only when both are shown.
     const bots = presentSummary({ detail: detail(), activity: conversation(), activityPending: false, activityError: '', now: NOW, listEntry: null, filter: { bots: true, resolved: false } });
     expect([bots.activeCount, bots.filterLabel]).toEqual([20, '2 hidden']);
   });
   test('a line remark names its place, and says when the line has moved on', () => {
-    const outdated = view.newest.find(card => card.id === 'outdated-line')!;
+    const outdated = view.newest.find(item => item.card.id === 'outdated-line')!.card;
     expect([outdated.location, outdated.outdated]).toEqual(['src/validate.js:8', true]);
     // A marker-only bot body still renders what follows the marker; a review's verdict reads as its badge.
-    expect(view.newest.find(card => card.id === 'changes')).toMatchObject({ outcome: 'changes-requested', outcomeLabel: 'Changes requested', bodyId: 'pr-comment:changes' });
+    expect(view.newest.find(item => item.card.id === 'changes')?.card).toMatchObject({ outcome: 'changes-requested', outcomeLabel: 'Changes requested', bodyId: 'pr-comment:changes' });
   });
   test('a conversation the filter hides whole says so', () => {
-    const only = { ...conversation(), comments: [remark('b', 5, { author: person('ci-helper[bot]', { isBot: true }) })] };
+    const only = { ...conversation(), comments: [remark('b', 5, { author: person('ci-helper[bot]', { isBot: true }) })], reviewThreads: [] };
     expect(presentSummary({ detail: detail(), activity: only, activityPending: false, activityError: '', now: NOW, listEntry: null }).filteredOutText).toBe('The only comment is hidden by the filter.');
-    const bots = { ...conversation(), comments: [0, 1, 2].map(index => remark(`b${index}`, 5 - index, { author: person('ci-helper[bot]', { isBot: true }) })) };
+    const bots = { ...conversation(), comments: [0, 1, 2].map(index => remark(`b${index}`, 5 - index, { author: person('ci-helper[bot]', { isBot: true }) })), reviewThreads: [] };
     expect(presentSummary({ detail: detail(), activity: bots, activityPending: false, activityError: '', now: NOW, listEntry: null }).filteredOutText).toBe('All 3 comments are hidden by the filter.');
+  });
+  // PullRequestSummaryTab: replies stay under their finding, as one conversation.
+  test('a review thread is one conversation: the finding, its replies under it, and the replies this page did not read', () => {
+    const activity = { ...conversation(), comments: [remark('finding', 50, { kind: 'review-comment', path: 'src/validate.js', body: 'Empty input?' }), remark('loose', 40)],
+      commentCount: 2, reviewThreads: [{ id: 't9', path: 'src/validate.js', line: 3, side: 'right', isResolved: false, isOutdated: false, commentCount: 5, comments: [
+        { id: 'finding' }, { id: 'reply-1', author: person('second'), body: 'Handled in the next commit.', createdAt: at(30), url: 'https://github.com/acme/playground/pull/115#r1' },
+        { id: 'reply-2', author: person('primary'), body: 'Thanks.', createdAt: at(20), url: null }] }] };
+    const summary = presentSummary({ detail: detail(), activity, activityPending: false, activityError: '', now: NOW, listEntry: null });
+    expect(summary.newest.map(item => [item.card.id, item.replies.map(reply => reply.id)])).toEqual([['loose', []], ['finding', ['reply-1', 'reply-2']]]);
+    const thread = summary.newest[1]!;
+    expect([thread.card.location, thread.replies.map(reply => [reply.reply, reply.location, reply.fix]), thread.replyCount, thread.moreReplies, thread.moreUrl]).toEqual([
+      'src/validate.js:3', [[true, '', ''], [true, '', '']], '4 replies', '2 more replies', 'https://github.com/acme/playground/pull/115#finding']);
+    // The title counts the distinct remarks read where the host counted fewer; the window counts conversations.
+    expect([summary.commentsTitle, summary.activeCount]).toEqual(['Comments (4)', 2]);
+    const resolved = presentSummary({ detail: detail(), activity: { ...activity, reviewThreads: [{ ...activity.reviewThreads[0]!, isResolved: true }] }, activityPending: false, activityError: '', now: NOW, listEntry: null, filter: { bots: false, resolved: true } });
+    expect(resolved.newest[1]).toMatchObject({ finished: true, replyCount: '4 replies' });
   });
   test('the filter is the device\'s: one choice for every pull request, kept with the pages preferences', () => {
     const client = { local: {} };
@@ -96,7 +112,7 @@ describe('the Summary tab (PullRequestSummaryTab)', () => {
   });
   test('a truncated conversation says so with the reference words and the count read', () => {
     const cut = presentSummary({ detail: detail(), activity: { ...conversation(), commentsTruncated: true, reviewThreadsTruncated: true }, activityPending: false, activityError: '', now: NOW, listEntry: null });
-    expect([cut.truncated, cut.truncatedText]).toEqual([true, 'This conversation is longer than this page reads in one go. The most recent 22 are here; open it on the host to read the rest.']);
+    expect([cut.truncated, cut.truncatedText]).toEqual([true, 'This conversation is only partially loaded. 22 comments are loaded; open it on the host to read the rest.']);
   });
   test('checks a newer list rollup contradicts are out of date', () => {
     const listEntry = { updatedAt: at(1), checksState: 'failing' };
@@ -110,10 +126,14 @@ describe('the Summary tab (PullRequestSummaryTab)', () => {
 describe('the Timeline tab (PullRequestTimelineTab)', () => {
   test('folds consecutive remarks, keeps verdicts and commits as rows, and counts in the tab bar', () => {
     const view = presentTimeline({ detail: detail(), activity: conversation(), activityPending: false, activityError: '', now: NOW });
-    expect(view.newest.map(row => row.kind)).toEqual(['verdict', 'commit', 'comments', 'verdict', 'comments', 'commit', 'opened']);
+    // A review thread stands alone at its finding's time (ReviewThreadEvent), splitting the remarks around it.
+    expect(view.newest.map(row => row.kind)).toEqual(['verdict', 'commit', 'comments', 'thread', 'comments', 'thread', 'comments', 'verdict', 'comments', 'commit', 'opened']);
     expect(view.newest[0]).toMatchObject({ outcome: 'changes-requested', stale: false, outcomeLabel: 'Changes requested' });
-    expect(view.newest[3]).toMatchObject({ kind: 'verdict', outcome: 'dismissed', stale: true, staleLabel: 'Review dismissed earlier changes' });
-    expect(view.oldest.map(row => row.kind)).toEqual(['opened', 'commit', 'comments', 'verdict', 'comments', 'commit', 'verdict']);
+    expect(view.newest[7]).toMatchObject({ kind: 'verdict', outcome: 'dismissed', stale: true, staleLabel: 'Review dismissed earlier changes' });
+    // A resolved thread opens folded; an open one, outdated or not, opens expanded; the finding's card drops its path.
+    expect([view.newest[3], view.newest[5]].map(row => [row!.location, row!.resolved, row!.outdated, row!.expanded, row!.cards.map(card => [card.id, card.path])])).toEqual([
+      ['src/validate.js:8', false, true, true, [['outdated-line', '']]], ['src/validate.js:6', true, false, false, [['resolved-line', '']]]]);
+    expect(view.oldest.map(row => row.kind)).toEqual(['opened', 'commit', 'comments', 'verdict', 'comments', 'thread', 'comments', 'thread', 'comments', 'commit', 'verdict']);
     expect([view.comments, view.commentsAria, view.commits, view.commitsAria, view.approvals]).toEqual(['22', '22 comments', '2', '2 commits', 0]);
   });
   test('says "…" while the activity reads and "—" when it failed', () => {

@@ -55,6 +55,8 @@ shape PrSurface
   selected: string
   number: number
   label: string
+  surface: string
+  tab: string
 shape AttachmentSurface
   id: string
   // The first crumb: "Attachment", or "Draft" for a composer file chip's preview, which also has Remove from draft and Close.

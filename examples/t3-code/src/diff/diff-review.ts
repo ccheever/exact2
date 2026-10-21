@@ -136,7 +136,7 @@ function openDraft(client: T3Client, state: T3Client['diffState'], scope: string
   const comment = buildDiffReviewComment({ id, sectionId: '', sectionTitle: '', filePath: path, lines: reviewLinesOf(state, target), range, text: '' });
   if (!comment) return '';
   state.selection = { scope, path, range };
-  state.draft = { scope, path, id, range, rangeLabel: comment.rangeLabel };
+  state.draft = { scope, path, previous: target.previous, status: target.status, id, range, rangeLabel: comment.rangeLabel };
   noteDraftFocus(client, true);
   return '';
 }

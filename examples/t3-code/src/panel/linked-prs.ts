@@ -1,6 +1,6 @@
 // The Linked pull requests surface (MIT reference, see LICENSE-T3:
 // components/pullRequest/ThreadPullRequestsPanel.tsx, pullRequestListLines.ts,
-// PullRequestListRow.tsx, packages/shared/src/threadPullRequests.ts, upstream
+// PullRequestListRow.tsx, packages/shared/src/threadPullRequests.ts at 74541bab17, upstream
 // 9c161462c9 "watch for changes"): the thread's visible links as stacked rows, the
 // row menu (Copy link, Open, Watch for changes / Stop watching, Unlink) and the
 // footer. Watch and unlink are orchestration commands (thread.pull-request.watch,
@@ -47,8 +47,18 @@ export function resolveChains(links: Obj[]): PullRequestChain[] {
     stacks.set(id, [...(stacks.get(id) ?? []), link]);
   }
   for (const members of stacks.values()) {
-    const order = new Map(arr(obj(members[0]!.stack).layers).map((layer, index) => [num(layer.number), index]));
-    members.sort((a, b) => (order.get(num(a.number)) ?? 0) - (order.get(num(b.number)) ?? 0));
+    // Saved snapshots can lag behind newer members of the same stack: the layer list that names the
+    // most members orders them (the longer on a tie, the earlier on a tie of both); the rest follow.
+    const memberNumbers = new Set(members.map(member => num(member.number)));
+    const layersOf = (member: Obj) => arr(obj(member.stack).layers);
+    const coverageOf = (layers: Obj[]) => layers.filter(layer => memberNumbers.has(num(layer.number))).length;
+    let layers = layersOf(members[0]!), coverage = coverageOf(layers);
+    for (const member of members.slice(1)) {
+      const candidate = layersOf(member), candidateCoverage = coverageOf(candidate);
+      if (candidateCoverage > coverage || (candidateCoverage === coverage && candidate.length > layers.length)) { layers = candidate; coverage = candidateCoverage; }
+    }
+    const order = new Map(layers.map((layer, index) => [num(layer.number), index]));
+    members.sort((a, b) => (order.get(num(a.number)) ?? layers.length) - (order.get(num(b.number)) ?? layers.length));
     for (const member of members) placed.add(keyOf(member));
     chains.push({ kind: 'native', layers: members, depths: members.map((_, index) => index) });
   }

@@ -24,10 +24,11 @@ import { diffFileTreeEntries, diffTreeRows, ancestorDirectories, collectDirector
 import { decodeClientPrefs } from '../settings/settings-core';
 import { rememberDiffLayout } from '../appearance/settings-appearance-look';
 import { pagesPrefs } from '../pages/pages-prefs';
+import { sourceControlHostName } from '../shared/source-control-hosts';
 import { nextPendingReviewCommentId, pullRequestReviewKey, pullRequestReviewStore } from './pages-pr-writes-logic';
 import type { WriteReference } from './pages-pr-writes';
 import {
-  adoptDiffSlice, areAllDiffFilesCollapsed, fnv1a32, isLineInFileDiff, orderDiffFiles, renderablePatch, resolveDiffReviewPosition, reviewPositionAnchor, toggleFileDiffFoldForViewed,
+  adoptDiffSlice, areAllDiffFilesCollapsed, describePullRequestDiffError, fnv1a32, isLineInFileDiff, orderDiffFiles, renderablePatch, resolveDiffReviewPosition, reviewPositionAnchor, toggleFileDiffFoldForViewed,
   type DiffFoldOverride, type DiffSlice, type PrDiffFile, type PrDiffSide, type PullRequestReviewPosition, type RenderablePatch,
 } from './pages-pr-code-logic';
 import { BASE, codeRows, fileKey, hiddenCount, isCollapsed, type CodeItem } from './pages-pr-code-rows';
@@ -45,6 +46,8 @@ type Draft = { fileKey: string; path: string; oldPath: string | null; position: 
 export type CodeState = {
   find: DiffFind;
   key: string; mounted: boolean; commit: string | null; refresh: number;
+  /** The server's refresh epoch last seen (pullRequests.subscribeRefreshes), null before the first read. */
+  epoch: number | null;
   slices: readonly DiffSlice[]; cursor: string | null; diffDue: boolean; diffError: string;
   parsed: Map<string, RenderablePatch>;
   toggled: ReadonlySet<string>; foldOverride: DiffFoldOverride; visibleCommits: number;
@@ -58,7 +61,7 @@ const states = new WeakMap<object, CodeState>();
 const prefs = (client: { local: object }) => decodeClientPrefs((client.local as { clientSettings?: unknown }).clientSettings);
 export function createCodeState(client: { local: object }, key: string): CodeState {
   const settings = prefs(client);
-  return { find: new DiffFind(), key, mounted: false, commit: null, refresh: 0, slices: [], cursor: null, diffDue: true, diffError: '', parsed: new Map(), toggled: new Set(), foldOverride: null,
+  return { find: new DiffFind(), key, mounted: false, commit: null, refresh: 0, epoch: null, slices: [], cursor: null, diffDue: true, diffError: '', parsed: new Map(), toggled: new Set(), foldOverride: null,
     visibleCommits: COMMIT_PAGE_SIZE, ignoreWhitespace: settings.diffIgnoreWhitespace, wrap: settings.wordWrap, orphansOpen: false, treeClosed: new Set(), treeSelected: '',
     reveal: null, selection: null, drag: null, draft: null, contents: {}, expansions: {}, contentsDue: new Map(), viewed: new FilesViewedStore(), threads: emptyThreadState(), shown: '' };
 }
@@ -90,7 +93,9 @@ function scope(code: CodeState, commit: string | null): void {
  * environment's own HTTP read, filesViewed, setFilesViewed and diffFileContents its routed requests); sent to the focused
  * server instead, a pull request listed on a paired server answered HTTP 503 (provider-unsupported) from the embedded one.
  */
-export type CodeContext = { client: T3Client; reference: WriteReference; detail: Obj; activity: Obj | null; environmentId?: string; state?: CodeState };
+export type CodeContext = { client: T3Client; reference: WriteReference; detail: Obj; activity: Obj | null; environmentId?: string; state?: CodeState;
+  /** Whether "Add to agent" can take the lines (onAddToAgentSelection): agent context is local, so lines are selectable without comment permission. */
+  allowAsk?: boolean };
 const host = (reference: WriteReference) => ({ projectId: reference.projectId, ...(reference.host ? { host: reference.host } : {}), repository: reference.repository, number: reference.number });
 const commitsOf = (activity: Obj | null) => arr(activity?.commits).slice().sort((left, right) => Date.parse(str(right.committedDate)) - Date.parse(str(left.committedDate)));
 const contentsKeyOf = (code: CodeState, path: string) => `${scopeKey(code)}::${path}`;
@@ -106,10 +111,17 @@ function signature(code: CodeState): string {
  * asked for. 'wake' when something new should be shown before they run (the caller presents and
  * asks again); the reads run otherwise.
  */
-export async function readCode(ctx: CodeContext & { native: Native; tab: string; refresh: number }): Promise<'wake' | 'done'> {
+export async function readCode(ctx: CodeContext & { native: Native; tab: string; refresh: number; epoch?: number }): Promise<'wake' | 'done'> {
   const { client, native, reference, detail, activity } = ctx, key = pullRequestReviewKey(reference), listedOn = ctx.environmentId ?? '';
   const code = ctx.state ?? codeState(client, `${client.environmentId}|${key}`);
   await tellReaders(client, native);
+  // backgroundRefreshToken: a change the server announced (a turn finishing) reads the first slice and
+  // the ticks again with the loaded slices kept, so the list keeps its scroll; adoptDiffSlice drops what changed.
+  if (ctx.epoch !== undefined && ctx.epoch !== code.epoch) {
+    // A first slice that failed is read again too (its error gives way to the answer).
+    if (code.epoch !== null && code.mounted && (code.slices.length > 0 || code.diffError)) { code.cursor = null; code.diffDue = true; code.diffError = ''; code.viewed.due = true; }
+    code.epoch = ctx.epoch;
+  }
   if (ctx.tab === 'code') code.mounted = true;
   if (!code.mounted || obj(detail.capabilities).diff !== true) return 'done';
   // The panel's Refresh goes around the host's cache: the diff from its first page, and the ticks.
@@ -211,13 +223,16 @@ export type PrCodeView = ReturnType<typeof emptyCode>;
 export function emptyCode() {
   return {
     available: false, mounted: false, key: '', phase: 'loading', message: '', raw: [] as { id: string; reason: string; text: string }[],
+    // PullRequestDiffUnavailableState: what a failed first slice says, and where the host shows the change.
+    errorTitle: '', errorDescription: '', providerName: '', url: '',
     scopeLabel: 'All commits', allSelected: true, hasCommits: false, commits: [] as { oid: string; short: string; headline: string; selected: boolean }[], moreCommits: 0,
     filesLabel: '0 files', viewedShown: false, viewedCount: '', viewedWord: 'viewed', viewedHere: false, viewedError: '', viewedTruncated: false, withheld: false, commentsOff: false,
     ignoreWhitespace: true, allCollapsed: false, hasFiles: false, layout: 'stacked', wrap: true, tree: false,
     find: new DiffFind().view(), items: [] as CodeItem[], truncated: false, threads: [] as PrThreadCard[], footer: '', footerFailed: false,
     orphansLabel: '', orphanCount: 0, orphanSummary: '', orphansOpen: false, orphans: [] as { path: string; threads: { id: string; line: string }[] }[],
     treeRows: [] as DiffTreeRow[], treeLabel: '', treeCount: 0, treeFolders: false, treeAllOpen: true, treeFooter: '', treeBusy: false,
-    revealPath: '', revealNonce: 0, draftOpen: false, canComment: false, viewedQueued: 0, threadPending: false,
+    // `canComment`: lines can be selected (the gutter is on); `reviewable`: the draft can join the review, else it goes to the agent only.
+    revealPath: '', revealNonce: 0, draftOpen: false, canComment: false, reviewable: false, viewedQueued: 0, threadPending: false,
   };
 }
 type Body = { id: string; kind: string; title: string; body: string };
@@ -241,6 +256,7 @@ export function presentCode(ctx: CodeContext & { now: number }): { view: PrCodeV
   // What this host can do, and what this account may.
   const review = obj(capabilities.review), inlineComment = review.inlineComment === true && permissions.comment === true;
   const canCommentOnLines = inlineComment && code.commit === null;
+  const canSelectLines = code.commit === null && (inlineComment || ctx.allowAsk === true);
   view.commentsOff = code.commit !== null && inlineComment;
   const parsed = parsedSlices(code), files = filesOf(code), paths = files.map(file => file.path);
   const nextCursor = code.slices.at(-1)?.nextCursor ?? null;
@@ -280,12 +296,12 @@ export function presentCode(ctx: CodeContext & { now: number }): { view: PrCodeV
     annotations: path => ({
       threads: threads.filter(thread => placed.has(str(thread.id)) && str(thread.path) === path).map(thread => ({ id: str(thread.id), side: (thread.side === 'left' ? 'left' : 'right') as PrDiffSide, line: num(thread.line) })),
       pending: pending.filter(comment => comment.path === path).map(comment => ({ id: comment.id, body: comment.body, position: comment.position as PullRequestReviewPosition })),
-      draft: draft && draft.path === path ? { position: draft.position, label: `${draft.path}:${reviewPositionAnchor(draft.position).line}` } : null,
+      draft: draft && canSelectLines && draft.path === path ? { position: draft.position, label: `${draft.path}:${reviewPositionAnchor(draft.position).line}` } : null,
     }),
     selection: draft ? { path: draft.path, range: draft.range } : code.selection, contents: code.contents, contentsKey: path => contentsKeyOf(code, path), expansions: code.expansions,
   });
   const marked = markDiffRows(rows.items, code.find); view.find = code.find.view(marked.target);
-  view.items = marked.items; view.truncated = rows.truncated; view.draftOpen = draft !== null && canCommentOnLines; view.canComment = canCommentOnLines;
+  view.items = marked.items; view.truncated = rows.truncated; view.draftOpen = draft !== null && canSelectLines; view.canComment = canSelectLines; view.reviewable = canCommentOnLines;
   view.hasFiles = files.length > 0;
   view.allCollapsed = areAllDiffFilesCollapsed(paths, new Set(files.filter(file => isCollapsed({ foldOverride: effectiveFold(client, code), toggled: code.toggled }, file)).map(fileKey)));
   // The footer only while something is still owed.
@@ -311,7 +327,12 @@ export function presentCode(ctx: CodeContext & { now: number }): { view: PrCodeV
   // The states that take the list's place: loading, the error, the raw text, nothing changed.
   const raw = nextCursor === null ? parsed.flatMap((entry, index) => (entry?.kind === 'raw' ? [{ id: `raw:${index}`, reason: entry.reason, text: entry.text }] : [])) : [];
   view.raw = raw;
-  if (code.slices.length === 0 && code.diffError) { view.phase = 'error'; view.message = code.diffError; }
+  if (code.slices.length === 0 && code.diffError) {
+    view.phase = 'error'; view.message = code.diffError;
+    view.providerName = sourceControlHostName(str(detail.provider, 'github')); view.url = str(detail.url);
+    const words = describePullRequestDiffError(code.diffError, view.providerName);
+    view.errorTitle = words.title; view.errorDescription = words.description;
+  }
   else if (code.slices.length === 0) view.phase = 'loading';
   else if (files.length === 0 && raw.length > 0) view.phase = 'raw';
   else if (rows.items.length === 0 && nextCursor === null) { view.phase = 'empty'; view.message = code.commit === null ? 'This pull request has no file changes.' : 'This commit has no file changes.'; }
