@@ -3211,6 +3211,11 @@ can nest, add or subtract lengths, and multiply or divide by a number:
 order is `clamp(MIN, VAL, MAX)`, not React Native's `clamp(value, min, max)`.
 Native hosts resolve percentages during layout and update calculations when
 insets or viewport dimensions change. The web uses CSS functions directly.
+The insets are the document's: on the web the browser's, and on a native host the
+device's under `viewport-fit="cover"` and 0 under `auto`, even on iOS when a root
+`tablist` or navigation stack takes the whole screen; there a box at the root that
+pads with them stays under the status bar
+([pitfall](agent-pitfalls.md#native-presentation-and-navigation-ios)).
 Sizes, padding and radii clamp negative results to zero; margins and insets keep
 them. `env(titlebar-area-x|y|width|height)` is the title bar beside a Mac window's
 traffic lights under `viewport-fit="cover"` and is undefined elsewhere, so give it a
