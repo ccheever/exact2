@@ -273,7 +273,8 @@ export function observe(views, inactive = () => false) {
         if (hit && hit !== el && !el.contains(hit) && !hit.contains(el)) {
           // What is drawn over its middle at rest (the subtree beside it the hit is in), scrolled clear or not.
           let c = hit; while (c.parentElement && !c.parentElement.contains(el)) c = c.parentElement;
-          item.beneath = viewOf(c);
+          const cb = c.getBoundingClientRect();
+          item.beneath = { by: viewOf(c), x: r2(cb.left), y: r2(cb.top), w: r2(cb.width), h: r2(cb.height) };
           if (!reach(el, hit, false, my)) item.cover = { by: viewOf(hit), name: hit.localName, kind: modal && !modal.contains(hit) ? 'sheet' : 'node' };
         }
       }
