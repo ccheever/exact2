@@ -75,6 +75,51 @@ fn a_face_box_carries_its_authored_size_and_loses_it() {
     assert!(cleared, "no longer a fixed box: {next}");
 }
 
+#[test]
+fn a_direct_header_photo_carries_its_authored_size_without_a_fill() {
+    let src = r#"component App
+  state wide = false
+  action widen
+    wide = not wide
+  view
+    header
+      button press=widen testId="go"
+        image "league.png" width=(wide ? "auto" : 26) height=26 testId="league"
+"#;
+    let plan = contract::bake(contract::compile(src).unwrap(), NoData).unwrap();
+    let (mut host, first) = Host::boot(
+        &plan.encode(),
+        NoData,
+        Box::new(MonospaceMeasurer::default()),
+        402.0,
+        874.0,
+    )
+    .unwrap();
+    let id = |host: &Host<NoData>, t: &str| {
+        let k = host.runner().kernel();
+        k.node_by_key(k.find_by_test_id(t)[0]).unwrap().id
+    };
+    let photo = id(&host, "league");
+    assert_eq!(
+        props_of(&first, photo).unwrap()["faceBoxSize"],
+        "26x26",
+        "a direct image needs no filled wrapper: {first}"
+    );
+    let go = id(&host, "go");
+    let next = host.dispatch_at(go, Event::Press, 0.0);
+    let v: serde_json::Value = serde_json::from_str(&next).unwrap();
+    assert!(
+        v["ops"].as_array().unwrap().iter().any(|op| {
+            op["op"] == "props"
+                && op["id"] == photo
+                && op["clear"]
+                    .as_array()
+                    .is_some_and(|c| c.iter().any(|k| k == "faceBoxSize"))
+        }),
+        "an automatic width clears the authored size: {next}"
+    );
+}
+
 /// A bar item's drawn face (`ChipFace`, BarFaceIOS.swift): a header the bar
 /// replaces is laid out as `display: none`, so the style a childless box is
 /// sent carries its authored size, and a row's its authored gap; a box with

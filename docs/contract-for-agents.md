@@ -2106,8 +2106,11 @@ main navigationKey=`${top(nav).id}` navigationBack="back" navigate=follow displa
   dot (a childless filled box) beside its label, or a label in a `font-family`,
   `font-size` or `font-weight` of yours, is drawn as written, in its colours, as the
   item's image inside the bar's capsule (a "● Clock" chip in 12-point monospace).
-  A filled box holding a text or symbol (an avatar, a badge) is drawn without the
-  capsule. Leave the font unsaid for an ordinary Edit or Done.
+  A filled box holding a text, symbol or photo (an avatar, a badge) is drawn without
+  the capsule. A photo directly inside the button keeps the capsule and its colours,
+  `object-fit` and corners; authored width and height set its face between 20 and 44
+  points, otherwise 36. Photos refresh when their images load, including on a menu
+  invoker. Leave the font unsaid for an ordinary Edit or Done.
 - A readout nothing presses (a "● Clock" or "Saved" beside the title) is
   `role="status"` in the header, beside the buttons; not a disabled button, which
   is no item. It is an item on its side of the heading, a custom view in the bar's

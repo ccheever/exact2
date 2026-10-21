@@ -445,6 +445,60 @@ final class NavigationBarIOSTests: XCTestCase {
         XCTAssertGreaterThan(try pixel(shown(), 16, 16)[1], 230)
     }
 
+    func testADirectPhotoRefreshesItsNativeMenuItemAfterLoading() throws {
+        let session = try fixture("bar-direct-photo", module: false), p = session.presenter
+        let nav = try XCTUnwrap(p.navigation.primaryNavigation)
+        let route = try XCTUnwrap(nav.topViewController as? RouteController)
+        let button = try node(session, "menu-item"), picture = UInt32.max - 1024
+        p.apply(wireBatch([
+            ["op": "create", "id": picture, "kind": "image", "props": ["imageSource": "league.png", "faceBoxSize": "26x26"], "style": ["object_fit": "contain"]],
+            ["op": "children", "id": button.id, "ids": [picture]],
+        ]))
+        func item() throws -> UIBarButtonItem {
+            try XCTUnwrap(route.navigationItem.leftBarButtonItems?.first { $0.accessibilityIdentifier == "menu-item" })
+        }
+        let placeholder = try XCTUnwrap(try item().image, "an image-only invoker has a face before its bitmap arrives")
+        XCTAssertEqual(placeholder.size, CGSize(width: 26, height: 26))
+        XCTAssertNotNil(try item().menu)
+        XCTAssertEqual(try item().accessibilityLabel, "More")
+        let image = try XCTUnwrap(p.views[picture])
+        XCTAssertEqual(p.navigation.headerPhotoSize(image), CGSize(width: 26, height: 26))
+        XCTAssertEqual(image.bounds.size, .zero, "the projected header supplies no ordinary image frame")
+        let root = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("exact-bar-direct-photo-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: false)
+        let loader = session.rasters, resolver = AssetResolver(root: root)
+        defer {
+            loader.shutdown(); image.raster = nil
+            try? FileManager.default.removeItem(at: root); withExtendedLifetime(resolver) {}
+        }
+        let format = UIGraphicsImageRendererFormat(); format.scale = 1; format.preferredRange = .standard
+        let photo = UIGraphicsImageRenderer(size: CGSize(width: 52, height: 52), format: format).image { context in
+            UIColor.red.setFill(); context.fill(CGRect(x: 0, y: 0, width: 52, height: 52))
+        }
+        try XCTUnwrap(photo.pngData()).write(to: root.appendingPathComponent("league.png"))
+        image.loadGeneration += 1
+        loader.load(image, source: "league.png", resolver: resolver)
+        until("the direct photo refreshes the menu item without a data batch") {
+            image.raster != nil && (try? item().image) !== placeholder
+        }
+        let loaded = try XCTUnwrap(try item().image)
+        XCTAssertEqual(loaded.size, CGSize(width: 26, height: 26))
+        XCTAssertEqual(loaded.renderingMode, .alwaysOriginal)
+        let bitmap = try XCTUnwrap(loaded.cgImage)
+        var pixel = [UInt8](repeating: 0, count: 4)
+        try pixel.withUnsafeMutableBytes { bytes in
+            let context = try XCTUnwrap(CGContext(data: bytes.baseAddress, width: 1, height: 1, bitsPerComponent: 8, bytesPerRow: 4,
+                space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGBitmapInfo.byteOrder32Big.rawValue | CGImageAlphaInfo.premultipliedLast.rawValue))
+            context.draw(bitmap, in: CGRect(x: -13, y: -13, width: 26, height: 26))
+        }
+        XCTAssertGreaterThan(pixel[0], 230, "the photo keeps its colour")
+        XCTAssertLessThan(pixel[1], 20)
+        XCTAssertNotNil(try item().menu, "the photo stays a native menu invoker")
+        XCTAssertEqual(try item().accessibilityLabel, "More")
+        XCTAssertNil(try item().action)
+        if #available(iOS 26.0, *) { XCTAssertFalse(try item().hidesSharedBackground) }
+    }
+
     /// A bar item takes the colour its author wrote on its button, or the
     /// tint written on its symbol (LLP 1115.000 D2): a header's Cancel in the
     /// app's accent, a Delete in the platform's red. A colour the button

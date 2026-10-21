@@ -250,8 +250,8 @@ struct HeaderShape: Equatable {
     }
 }
 
-/// A bar item's face drawn from a button whose one child is a filled box
-/// holding text, a symbol or a photo (an avatar, a badge): CSS's colours and
+/// A bar item's face drawn from a button whose one child is a photo or a
+/// filled box holding text, a symbol or a photo: CSS's colours and
 /// corners at the bar's image size, light and dark, as UIKit draws a
 /// raster item image (`.alwaysOriginal`).
 struct BadgeFace: Equatable {
@@ -272,15 +272,17 @@ struct BadgeFace: Equatable {
         guard kids.count == 1, let box = kids.first else { return nil }
         let glass = Materials.glass(button.props["backgroundMaterial"])
         self.init(box: box, authored: glass)
-        self.glass = glass
+        self.glass = glass || box.kind == "image"
     }
-    /// The face of a filled box holding text, a symbol or a photo (a title's
-    /// avatar, §9.10, too). `authored`: draw it at the size the author gave
-    /// the box (`faceBoxSize`, the authored points a replaced header has no frame for), between 20
-    /// and 44, as a title's avatar is; otherwise at a bar item's 36.
+    /// A direct photo or a filled box, including a title's avatar (§9.10).
+    /// `faceBoxSize` carries authored points when the replaced header has no
+    /// frame. Direct photos and `authored` boxes use it, clamped to 20 to 44;
+    /// otherwise a bar item's 36.
     init?(box: NodeView, authored: Bool = false) {
-        guard box.channels("background_color") != nil else { return nil }
-        var text = "", symbol: String?, ink: NodeView?, pictured: NodeView?
+        let direct = box.kind == "image" && box.faceSymbol == nil &&
+            (box.imageSource ?? box.props["imageSource"]).map { !$0.hasPrefix("symbol:") } == true
+        guard direct || box.channels("background_color") != nil else { return nil }
+        var text = "", symbol: String?, ink: NodeView?, pictured: NodeView? = direct ? box : nil
         func walk(_ node: NodeView) {
             for case let child as NodeView in node.container.subviews {
                 if child.kind == "image", let name = child.faceSymbol { symbol = symbol ?? name; ink = ink ?? child }
@@ -300,7 +302,7 @@ struct BadgeFace: Equatable {
         func colours(_ dark: Bool) -> [[Double]] {
             [box.channels("background_color", dark: dark) ?? [0, 0, 0, 0], ink?.channels(key, dark: dark) ?? (dark ? [1, 1, 1, 1] : [0, 0, 0, 1])]
         }
-        let given = authored ? box.props["faceBoxSize"].flatMap { s -> CGFloat? in
+        let given = authored || direct ? box.props["faceBoxSize"].flatMap { s -> CGFloat? in
             let parts = s.split(separator: "x").compactMap { Double($0) }
             return parts.count == 2 ? CGFloat(min(parts[0], parts[1])) : nil
         } : nil
