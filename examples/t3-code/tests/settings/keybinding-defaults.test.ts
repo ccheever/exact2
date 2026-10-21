@@ -40,8 +40,8 @@ describe('composer send shortcuts', () => {
 // sends (KeybindingsSettings.logic.test.ts's table, then the cases the native T3KeyChord normalized by hand).
 describe('the keybinding recorder (key-recorder.contract)', () => {
   const fns = contractFns('key-recorder.contract');
-  const chord = (key: string, code: string, mods = '') =>
-    fns.recorderBinding!(key as never, code as never, mods.includes('meta') as never, mods.includes('ctrl') as never, mods.includes('alt') as never, mods.includes('shift') as never);
+  const chord = (key: string, code: string, mods = '', layout = false) =>
+    fns.recorderBinding!(key as never, code as never, mods.includes('meta') as never, mods.includes('ctrl') as never, mods.includes('alt') as never, mods.includes('shift') as never, layout as never);
   test('records the reference\'s bindings', () => {
     expect(chord('K', 'KeyK', 'meta shift')).toBe('mod+shift+k');
     expect(chord('k', 'KeyK')).toBe('k');
@@ -75,11 +75,28 @@ describe('the keybinding recorder (key-recorder.contract)', () => {
     expect(chord('ö', 'Semicolon', 'meta')).toBe('mod+;');
     expect(chord('K', 'KeyK', 'shift alt ctrl meta')).toBe('mod+ctrl+alt+shift+k');
   });
+  // KeybindingsSettings.logic.test.ts (#15972): Settings › Keybindings records the layout's character; the action editor
+  // keeps the physical key. Option keeps the physical key in both.
+  test('Settings records the layout character; a US shifted glyph at its US key is that key with Shift', () => {
+    expect(chord('#', 'Backslash', '', true)).toBe('#');
+    expect(chord('#', 'Backslash', '')).toBe('\\');
+    expect(chord("'", 'Backslash', 'shift', true)).toBe("shift+'");
+    expect(chord("'", 'Backslash', 'shift')).toBe('shift+\\');
+    expect(chord('¡', 'Digit1', 'alt', true)).toBe('alt+1');
+    expect(chord('{', 'BracketLeft', 'meta', true)).toBe('mod+{');
+    expect(chord('{', 'BracketLeft', 'meta shift', true)).toBe('mod+shift+[');
+    expect(chord('@', 'Digit2', 'meta shift', true)).toBe('mod+shift+2');
+    expect(chord('1', 'Digit1', 'meta shift', true)).toBe('mod+shift+1'); // AZERTY's Shift+&
+    expect(chord('/', 'Digit7', 'shift', true)).toBe('shift+/'); // German Shift+7
+    expect(chord('K', 'KeyK', 'meta shift', true)).toBe('mod+shift+k');
+    expect(chord('ArrowUp', 'ArrowUp', 'ctrl', true)).toBe('ctrl+arrowup');
+    expect(chord('Meta', 'MetaLeft', 'meta', true)).toBe('');
+  });
   test('its capture handler takes every key: Escape cancels, a chord is reported once, a modifier alone waits', () => {
     const recorder = contractComponent('key-recorder.contract', 'KeyRecorder');
     const run = (key: string, code: string, mods = '', recording = true) => {
       const calls: string[] = [];
-      const scope = { ...fns, recording, capture: (value: string) => calls.push(`capture:${value}`), preventDefault: () => calls.push('prevent'), stopPropagation: () => calls.push('stop') };
+      const scope = { ...fns, recording, layout: false, capture: (value: string) => calls.push(`capture:${value}`), preventDefault: () => calls.push('prevent'), stopPropagation: () => calls.push('stop') };
       const event = { key, code, metaKey: mods.includes('meta'), ctrlKey: mods.includes('ctrl'), altKey: mods.includes('alt'), shiftKey: mods.includes('shift'), repeat: false };
       recorder.call('keys', {}, scope, [key, event]);
       return calls;
@@ -100,9 +117,9 @@ describe('the keybinding recorder (key-recorder.contract)', () => {
   test('both recorders mount it in their modal row; the action editor\'s Escape and blur keep the old binding', async () => {
     const source = (file: string) => Bun.file(appPath(file)).text();
     const settings = await source('settings-keybindings.contract'), actions = await source('settings-b-actions.contract');
-    expect(settings).toContain('KeyRecorder(prompt=(recording ? "Press shortcut" : "Unassigned"), value=(recording ? "" : value), recording=recording, autofocus=true, label=`Keybinding for ${label}`, testId=`keybinding-recorder-${rowId}`, capture=took, cancel=took("blur"))');
-    expect(settings).toContain('KeyRecorder(prompt="Unassigned", value=value, recording=false, autofocus=false, label=`Keybinding for ${label}`, testId=`keybinding-field-${rowId}`, capture=took, cancel=idleLeft)');
-    expect(actions).toContain('KeyRecorder(prompt="Press shortcut", value="", recording=true, autofocus=true, label="Keybinding", testId="action-keybinding-recorder", capture=capture, cancel=capture("escape"))');
+    expect(settings).toContain('KeyRecorder(prompt=(recording ? "Press shortcut" : "Unassigned"), value=(recording ? "" : value), recording=recording, autofocus=true, label=`Keybinding for ${label}`, layout=true, testId=`keybinding-recorder-${rowId}`, capture=took, cancel=took("blur"))');
+    expect(settings).toContain('KeyRecorder(prompt="Unassigned", value=value, recording=false, autofocus=false, label=`Keybinding for ${label}`, layout=true, testId=`keybinding-field-${rowId}`, capture=took, cancel=idleLeft)');
+    expect(actions).toContain('KeyRecorder(prompt="Press shortcut", value="", recording=true, autofocus=true, label="Keybinding", layout=false, testId="action-keybinding-recorder", capture=capture, cancel=capture("escape"))');
     expect(actions).toContain('row class=AeField align-items="center" aria-modal=true testId="action-keybinding-recording"');
     const view = await source('key-recorder.contract');
     // The reference's Input: a text field named for its command, the prompt its placeholder (VoiceOver reads both).

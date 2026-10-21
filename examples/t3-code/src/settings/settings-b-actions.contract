@@ -95,7 +95,7 @@ component ProjectActionEditor
     autoOpen = previewUrl != "" ? not autoOpen : autoOpen
   action askDelete(on: bool)
     confirming = on
-  derive payload = `id=${encodeURIComponent(item.id)}&name=${encodeURIComponent(name)}&command=${encodeURIComponent(command)}&icon=${icon}&setup=${setup ? "true" : "false"}&settle=${settle ? "true" : "false"}&wait=${wait ? "true" : "false"}&keybinding=${encodeURIComponent(keybinding)}&preview=${encodeURIComponent(previewUrl)}&auto=${autoOpen ? "true" : "false"}`
+  derive payload = `id=${encodeURIComponent(item.id)}&name=${encodeURIComponent(name)}&command=${encodeURIComponent(command)}&icon=${icon}&setup=${setup ? "true" : "false"}&settle=${settle ? "true" : "false"}&wait=${wait ? "true" : "false"}&keybinding=${encodeURIComponent(keybinding)}&initial=${encodeURIComponent(item.keybinding)}&preview=${encodeURIComponent(previewUrl)}&auto=${autoOpen ? "true" : "false"}`
   derive dialogTargets = [(busy ? "action-cancel" : "action-choose-icon"), "action-close"]
   derive dialogTargets2 = ["action-delete-cancel", (busy ? "action-delete-cancel" : "action-delete-confirm")]
   view
@@ -132,7 +132,7 @@ component ProjectActionEditor
             // While it records the row is the window's modal scope, as Settings' recorder is (no shortcut button outside it hears the chord).
             if recording
               row class=AeField align-items="center" aria-modal=true testId="action-keybinding-recording"
-                KeyRecorder(prompt="Press shortcut", value="", recording=true, autofocus=true, label="Keybinding", testId="action-keybinding-recorder", capture=capture, cancel=capture("escape"))
+                KeyRecorder(prompt="Press shortcut", value="", recording=true, autofocus=true, label="Keybinding", layout=false, testId="action-keybinding-recorder", capture=capture, cancel=capture("escape"))
             else
               button press=record aria-label="Keybinding" disabled=busy class=AeField display="flex" flex-direction="row" align-items="center" testId="action-keybinding"
                 text (keybinding == "" ? "Press shortcut" : keybinding) font-size="0.875rem" line-height="1.25rem" line-clamp=1 color=(keybinding == "" ? "light-dark(#71717b, #818181)" : "light-dark(#27272a, #f5f5f5)")
