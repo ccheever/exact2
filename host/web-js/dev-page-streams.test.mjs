@@ -5,7 +5,7 @@
 import { afterEach, expect, test } from 'bun:test';
 import { spawnOwned, stopAll } from '../../scripts/test-children.mjs';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
-import { createServer } from 'node:http';
+import { createServer, request } from 'node:http';
 import { connect, createServer as createSocketServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
@@ -43,6 +43,13 @@ test('a page that closes is no build of the loop any more, by 127.0.0.1 or by lo
     const six = await new Promise(ok => { const t = createSocketServer(); t.once('error', () => ok(false)); t.listen(0, '::1', () => t.close(() => ok(true))); });
     if (six) await new Promise((ok, fail) => { const c = connect(port, '::1'); c.once('connect', () => { c.destroy(); ok(); }); c.once('error', e => fail(new Error(`the loop does not answer on [::1]: ${e.code}`))); });
     else console.warn('no IPv6 loopback here: only 127.0.0.1 is checked');
+    // The development gate through the [::1] server (reload1's condition): a localhost request is local, so it is given
+    // the token; another name at this port is refused.
+    if (six) {
+      const token = (host) => new Promise((ok, fail) => request({ host: '::1', port, path: '/__tamber/token', headers: { host } }, (res) => { let body = ''; res.on('data', d => { body += d; }); res.on('end', () => ok({ status: res.statusCode, token: res.statusCode === 200 ? typeof JSON.parse(body).token : null })); }).on('error', fail).end());
+      expect(await token(`localhost:${port}`)).toEqual({ status: 200, token: 'string' });
+      expect((await token(`evil.example:${port}`)).status).toBe(421);
+    }
     for (const host of six ? ['127.0.0.1', 'localhost'] : ['127.0.0.1']) {
       const context = await browser.newContext(), page = await context.newPage();
       await page.goto(`http://${host}:${port}/`);
