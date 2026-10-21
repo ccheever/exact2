@@ -13,8 +13,8 @@ import { spawn, spawnSync } from 'node:child_process';
 import { createHash, randomBytes } from 'node:crypto';
 import { closeSync, cpSync, existsSync, mkdirSync, openSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { connect } from 'node:net';
-import { tmpdir } from 'node:os';
-import { resolve } from 'node:path';
+import { homedir, tmpdir } from 'node:os';
+import { dirname, resolve } from 'node:path';
 import { iosTriple } from './build.mjs';
 import { claimLive } from '../../scripts/app.mjs';
 import { phoneBridge } from './devices.mjs';
@@ -207,6 +207,51 @@ async function keptRunner(udid, appId, key) {
   return { socket, talk, kept };
 }
 
+// What starting an XCTest UI session turns on in a simulator's com.apple.Accessibility, and leaves on across
+// reboots. With ApplicationAccessibilityEnabled on, every app loads UIKit's accessibility runtime at launch: euxy's
+// main→didFinishLaunching went from 10 ms to 1.4 s (AccessibilityEnabled alone: 0.1 s; iPhone 17, iOS 27). A
+// session needs all three on (without them a kept runner's tap never finishes and a menu's rows are not found), so
+// it turns them on and puts them back at its end; a write takes effect at the next launch, with no reboot.
+const AX = 'com.apple.Accessibility', AX_KEYS = ['AutomationEnabled', 'AccessibilityEnabled', 'ApplicationAccessibilityEnabled'];
+/** `defaults <args>` in simulator `udid`, asynchronously: each spawn costs about 0.35 s, so a session runs them
+ * together. One that has not answered in 10 s is killed, and fails: the device's lock waits on it. */
+const simDefaults = (udid, args) => new Promise((done) => {
+  const p = spawn('xcrun', ['simctl', 'spawn', udid, 'defaults', ...args], { stdio: ['ignore', 'pipe', 'pipe'] });
+  const timer = setTimeout(() => { try { p.kill('SIGKILL'); } catch {} }, 10000);
+  let out = '', err = '';
+  p.stdout.on('data', (d) => { out += d; });
+  p.stderr.on('data', (d) => { err += d; });
+  p.on('error', (e) => { clearTimeout(timer); done({ status: -1, out, err: String(e) }); });
+  p.on('close', (status, signal) => { clearTimeout(timer); done({ status: signal ? -1 : status, out, err: signal ? 'no answer in 10 s' : err }); });
+});
+/** The three keys as simulator `udid` has them (`'1'`, `'0'`, or undefined when unset), or null when it could not say. */
+async function accessibilityKeys(udid) {
+  const r = await simDefaults(udid, ['read', AX]);
+  if (r.status !== 0 && !/does not exist/.test(r.err)) return null;
+  return Object.fromEntries(AX_KEYS.map((k) => [k, new RegExp(`^\\s*${k} = (\\d+);`, 'm').exec(r.out)?.[1]]));
+}
+/** The keys as a session finds them: the record a session killed before its end left of what it found, else read
+ * now and recorded (`record`, a file; under the device's lock, so no other session's). Null when they could not be read. */
+export async function foundAccessibility(udid, record, read = accessibilityKeys) {
+  try { return JSON.parse(readFileSync(record, 'utf8')); } catch { /* none: this session reads them */ }
+  const keys = await read(udid);
+  if (keys) { mkdirSync(dirname(record), { recursive: true }); writeFileSync(record, JSON.stringify(keys)); }
+  return keys;
+}
+/** The keys put back as a session `found` them. AutomationEnabled already on means an earlier session's XCTest left
+ * all three on (a person sets ApplicationAccessibilityEnabled alone, for `tree --ax`), so they go back to unset.
+ * Resolves with what failed, or null. */
+export async function restoreAccessibility(udid, found, run = simDefaults) {
+  const left = found.AutomationEnabled === '1';
+  const failed = (await Promise.all(AX_KEYS.map(async (k) => {
+    const v = left ? undefined : found[k];
+    const r = await run(udid, v == null ? ['delete', AX, k] : ['write', AX, k, '-bool', v === '1' ? 'true' : 'false']);
+    // Deleting a key or domain that is not there fails, and leaves what was wanted.
+    return r.status === 0 || (v == null && /Could not find key|not found/.test(r.err)) ? null : `${k}: ${r.err.trim() || `exit ${r.status}`}`;
+  }))).filter(Boolean);
+  return failed.length ? failed.join('; ') : null;
+}
+
 /**
  * The runner for `appId` on simulator `udid`: the device's kept one when it
  * answers (a connection, milliseconds), else a new one, started and waited
@@ -216,12 +261,24 @@ async function keptRunner(udid, appId, key) {
  * kept, cloak }`: `ask` sends one line and resolves with its reply, or with an error
  * at `RUNNER_MS`, which also ends the runner (a stalled runner never hangs a
  * drive). On a `foldable` simulator (the iPhone Duo) `cloak` follows
- * SpringBoard's fold cloak (cloak.mjs), which a real touch waits out.
+ * SpringBoard's fold cloak (cloak.mjs), which a real touch waits out. The
+ * simulator's accessibility keys are on for the session and put back when it
+ * ends (`AX_KEYS`).
  */
 export async function openTouches({ udid, appId, foldable }) {
-  const release = lock(udid);
+  const lockRelease = lock(udid);
   const started = Date.now();
   const cloak = foldable ? watchCloak(udid) : null;
+  const axRecord = resolve(homedir(), '.cache/exact/simulator-accessibility', `${udid}.json`), axFound = foundAccessibility(udid, axRecord);
+  let restored = null;
+  // Unread keys were never turned on: the session ends before a write or a runner's start (`readKeys`).
+  const putBack = () => (restored ??= axFound.then(async (keys) => {
+    if (!keys) return;
+    const failed = await restoreAccessibility(udid, keys);
+    if (failed) console.error(`note: the simulator's accessibility was not put back (${failed}), so its launches stay about a second slower until the next --touch platform drive ends`);
+    else rmSync(axRecord, { force: true });
+  }));
+  const release = async () => { await putBack(); lockRelease(); };
   let socket = null, talk = null, kept = null, child = null, bridge = null, exited = null, reused = false;
   // Ends the runner: hang up, then end xcodebuild by its recorded PID — this
   // process's child is waited for (3 s, then SIGKILL) and the lock kept if it
@@ -230,22 +287,35 @@ export async function openTouches({ udid, appId, foldable }) {
     cloak?.close();
     try { socket?.destroy(); } catch {}
     bridge?.close();
-    if (child && child.exitCode == null && child.signalCode == null) {
-      let gone = false;
-      for (const signal of ['SIGTERM', 'SIGKILL']) {
-        try { child.kill(signal); } catch {}
-        if ((gone = (await within(exited, 3000, () => 'timeout')) !== 'timeout')) break;
-      }
-      if (!gone) throw new Error(`the touch runner's xcodebuild (PID ${child.pid}) did not exit after SIGKILL; the device's touch lock and its record ${keptPath(udid)} are kept`);
-      rmSync(keptPath(udid), { force: true });
-    } else await retire(udid, kept);
-    release();
+    try {
+      if (child && child.exitCode == null && child.signalCode == null) {
+        let gone = false;
+        for (const signal of ['SIGTERM', 'SIGKILL']) {
+          try { child.kill(signal); } catch {}
+          if ((gone = (await within(exited, 3000, () => 'timeout')) !== 'timeout')) break;
+        }
+        if (!gone) throw new Error(`the touch runner's xcodebuild (PID ${child.pid}) did not exit after SIGKILL; the device's touch lock and its record ${keptPath(udid)} are kept`);
+        rmSync(keptPath(udid), { force: true });
+      } else await retire(udid, kept);
+    } catch (e) { await putBack(); throw e; } // the lock is kept while a runner may live; the keys go back regardless
+    await release();
   };
+  // The keys are found (and recorded) before anything turns them on. Unread, the session ends here and leaves them
+  // as they are: with no record, the next session could not tell a person's setting from what this one left.
+  const readKeys = async () => { if (!(await axFound)) throw new Error("the simulator's accessibility settings (com.apple.Accessibility) could not be read, so a session could not put them back after it; is the simulator booted?"); };
   try {
     const identity = runnerKey();
     const found = await keptRunner(udid, appId, identity.key);
-    if (found) ({ socket, talk, kept } = found), reused = true;
+    if (found) {
+      ({ socket, talk, kept } = found), reused = true;
+      // A new runner's XCTest turns them on; a kept one needs them written.
+      await readKeys();
+      const failed = (await Promise.all(AX_KEYS.map((k) => simDefaults(udid, ['write', AX, k, '-bool', 'true']))))
+        .map((r, i) => r.status === 0 ? null : `${AX_KEYS[i]}: ${r.err.trim() || `exit ${r.status}`}`).filter(Boolean);
+      if (failed.length) throw new Error(`the simulator's accessibility, which the kept touch runner needs, could not be turned on: ${failed.join('; ')}`);
+    }
     else {
+      await readKeys();
       const { app } = touchRunner(udid, identity);
       bridge = await phoneBridge();
       const run = resolve(tmpdir(), `exact-touches-${udid}.xctestrun`), log = resolve(tmpdir(), `exact-touches-${udid}.log`);
@@ -302,7 +372,7 @@ export async function openTouches({ udid, appId, foldable }) {
         closing = Promise.resolve(null);
         cloak?.close();
         socket.end();
-        release();
+        await release();
       },
     };
   } catch (error) {

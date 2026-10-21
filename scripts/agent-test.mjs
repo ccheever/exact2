@@ -374,7 +374,6 @@ export function driveNotes(s, { host, storage, origins = [] }) {
   let peek = 0, probes = 0, clocked = false, replies = 0, checkedClock = false;
   return async (op, reply) => {
     if (s.carrier?.installNote) note('install', s.carrier.installNote); // a Release build replaced for the drive (devices.mjs `keepInstalledRelease`)
-    if (s.carrier?.axNote) note('ax', s.carrier.axNote); // the simulator's accessibility, which this drive's touches turned on
     // The agent paints a menu where the app presents UIKit's pull-down: the euxy port read it as an app bug.
     // Only a tap that activated (not a hover, wheel, pinch or a contact's phase), and only once.
     if (op === 'tap' && reply?.tapped != null && ['activation', 'host-activation'].includes(reply.delivery) && reply.phase == null && reply.wheel == null && reply.error == null

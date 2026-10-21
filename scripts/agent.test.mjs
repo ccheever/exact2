@@ -579,11 +579,9 @@ test('a screenshot with a system sheet held says it is not drawn, and where the 
   const s = (touch, extra = {}) => ({ launchFacts: {}, carrier: { touch, ...extra }, op: async () => ({ lines: [], next: 0 }), state: async () => ({ pending }) });
   console.error = (line) => said.push(line);
   try {
-    await driveNotes(s('agent', { installNote: 'kept the Release build', axNote: 'accessibility is on' }), { host: 'ios', storage: 's1' })('screenshot');
-    assert.equal(said.length, 4);
+    await driveNotes(s('agent', { installNote: 'kept the Release build' }), { host: 'ios', storage: 's1' })('screenshot');
+    assert.equal(said.length, 3);
     assert.match(said[0], /^note: kept the Release build$/);
-    assert.match(said[1], /^note: accessibility is on$/);
-    said.splice(1, 1);
     assert.match(said[1], /no share sheet: under the agent it is held \(@1\).*under --touch platform the real one is presented/);
     assert.doesNotMatch(said[2], /--touch platform/);
     said.length = 0;

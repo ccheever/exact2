@@ -17,10 +17,16 @@ port's screens with the original's ([ios-driving](ios-driving.md)). Porting a Re
 read [its pitfalls](../agent-pitfalls.md#porting-a-react-native-app) first.
 
 **What ships.** `ios --release` builds what ships (`--prebuild --release` early: its first build
-is minutes; `EXACT_UPDATE_TRUST=production bun exact.mjs agent ios …` drives it). Time launches
-on a simulator no `--touch platform` drive has used: it leaves accessibility on, about 1 s slower.
-To turn it off: `xcrun simctl spawn <udid> defaults write com.apple.Accessibility
-AutomationEnabled -bool false`, then `xcrun simctl shutdown <udid>` and `boot <udid>`.
+is minutes; `EXACT_UPDATE_TRUST=production bun exact.mjs agent ios …` drives it). A
+`--touch platform` drive turns the simulator's accessibility on while it runs (an app launched
+with it on loads UIKit's accessibility runtime: about 1.4 s) and puts back what it found when it
+ends. A launch still that slow (`main→didFinishLaunching` over a second) had it on from before;
+this one line turns it off for the next launch, with no reboot:
+
+```sh
+for k in AutomationEnabled AccessibilityEnabled ApplicationAccessibilityEnabled; do xcrun simctl spawn <udid> defaults delete com.apple.Accessibility $k; done
+```
+
 A launch times the installed build, never a plan an `agent ios` drive swapped in: `bun exact.mjs
 ios` each variant first. `SIMCTL_CHILD_EXACT_SMOKE=1 xcrun simctl launch --console-pty <udid>
 <bundle id>` prints Exact's phases to first draw (exec→main, scene, runner and layout, apply,
