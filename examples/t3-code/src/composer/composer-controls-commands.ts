@@ -11,7 +11,8 @@ import { ClientError, activeRun, launchPayload, type Files, type Native } from '
 import { pushToast } from '../shell/toast';
 import { beginQueuedEdit, cancelQueuedEdit, queuedDrop, queueState, removeQueuedEditAttachment } from './composer-controls-queue';
 import { branchMenu, dismissBranchMismatch, restoreThreadBranch, selectBranch, setEnvMode } from './composer-controls-branch';
-import { attachFiles } from './composer-controls-attach';
+import { attachIncoming, type IncomingFiles } from './composer-controls-attach';
+import { queueRowDrop } from '../sidebar/legacy-sidebar-drop';
 import { openUsageLimits, closeUsageLimits, changeLimitRecovery, usageLocal } from './composer-controls-usage';
 import { feedbackLocal } from './composer-feedback';
 import type { T3Client } from '../client/client';
@@ -257,7 +258,10 @@ export async function composerLocal(client: T3Client, _native: Native, _storage:
   if (op === 'queued-edit') { beginQueuedEdit(client, id); return ''; }
   if (op === 'env-mode') { setEnvMode(client, value); return ''; }
   if (op === 'previous-worktree') { setEnvMode(client, 'previous'); return ''; }
-  if (op === 'attach') return attachFiles(client, _native);
+  if (op === 'attach-files') { // a drop, a paste, Attach files or a sidebar row's drop (app.contract attachFiles)
+    const incoming = JSON.parse(value) as IncomingFiles;
+    return id === 'row' ? queueRowDrop(client, incoming.target, incoming) : attachIncoming(client, _native, id, incoming);
+  }
   if (op === 'branch-mismatch-dismiss') { dismissBranchMismatch(client, id); return ''; }
   if (op === 'branch-menu') return branchMenu(client, _native, value);
   // The compact strip's workspace trigger has no context menu (BranchToolbar's MobileRunContextSelector).

@@ -3,70 +3,31 @@ import AppKit
 import AVFoundation
 import UniformTypeIdentifiers
 
-/// The composer's Attach files (ChatComposer's hidden file input): an
-/// NSOpenPanel of any files. Supported images (GIF, HEIC, HEIF, JPEG, PNG,
-/// WebP) become PNG draft images beside SnapShot's (the shelf and the upload
-/// read them from there). Other files within the server's staging limit are
-/// copied into staged/ for the draft's file chips (composer-editor-attach.ts)
-/// and read back once, at send; the rest are reported so the client can say
-/// why they were not attached. Under the agent the files are the isolated data
-/// root's attach/ directory, so a drive supplies them without a panel.
+/// What Exact's storage cannot do for a staged copy of an attached file. TypeScript stages a drop's, a paste's and
+/// Attach files' files (composer-attach-stage.ts): an image as a draft beside SnapShot's, any other file within the
+/// server's limit in composer-files/, and reads and removes them (composer-staged-copies.ts). This makes a video's first
+/// frame (AVFoundation) and the typed link a video or audio file plays from (`composerAttachMedia`), and names a
+/// staged copy for a chip's preview (`stagedFile`).
 final class T3ComposerAttach {
-    static let maxImageBytes = 10 * 1024 * 1024
-    /// PROVIDER_SEND_TURN_MAX_FILE_BYTES: no server limit stages more.
-    static let maxFileBytes = 50 * 1024 * 1024
     private let drafts: URL
     private let staged: URL
-    private let imports: URL?
 
-    init(dataRoot: URL, agent: Bool) {
+    init(dataRoot: URL) {
         drafts = dataRoot.appendingPathComponent("snapshots", isDirectory: true).appendingPathComponent("drafts", isDirectory: true)
         staged = dataRoot.appendingPathComponent("composer-files", isDirectory: true)
-        imports = agent ? dataRoot.appendingPathComponent("attach", isDirectory: true) : nil
     }
 
-    /// The MIME type a browser's File would carry for this name; a generic file otherwise.
-    static func mimeType(of url: URL) -> String {
-        UTType(filenameExtension: url.pathExtension.lowercased())?.preferredMIMEType ?? "application/octet-stream"
-    }
-
-    /// A plain file: copied into staged/ when the server takes files of its size (`fileLimit`, 0 when it takes none).
-    func stageFile(_ url: URL, size: Int, fileLimit: Int) -> [String: Any] {
-        let name = url.lastPathComponent
-        var file: [String: Any] = ["kind": "file", "name": name, "sizeBytes": size, "mimeType": Self.mimeType(of: url)]
-        guard size > 0, fileLimit > 0, size <= min(fileLimit, Self.maxFileBytes) else { return file }
-        let id = UUID().uuidString.lowercased()
-        do {
-            try FileManager.default.createDirectory(at: staged, withIntermediateDirectories: true)
-            try FileManager.default.copyItem(at: url, to: staged.appendingPathComponent(id))
-        } catch { return ["kind": "unreadable", "name": name, "sizeBytes": size] }
-        file["id"] = id
-        // A video or audio file plays from a typed link beside the copy, whose extension tells AVFoundation its type
-        // (the Contract players, composer-attachments.ts stagedMediaSrc); a video's tile shows its first frame.
-        if Self.isVideo(url) || Self.isAudio(url) {
-            let ext = url.pathExtension.lowercased()
-            try? FileManager.default.linkItem(at: staged.appendingPathComponent(id), to: staged.appendingPathComponent("\(id).\(ext)"))
-        }
-        if Self.isVideo(url) {
-            try? FileManager.default.createDirectory(at: drafts, withIntermediateDirectories: true)
-            // The frame at its natural (oriented) size names the preview's; the poster keeps at most 512 px.
-            if let frame = Self.firstFrame(of: url), Self.writePNG(Self.scaled(frame, to: 512), to: drafts.appendingPathComponent("\(id).png")) {
-                file["videoWidth"] = frame.width; file["videoHeight"] = frame.height
-            }
-        }
-        return file
-    }
-
-    /// videoMimeType's extensions that AVFoundation can open.
-    static func isVideo(_ url: URL) -> Bool {
-        guard let type = UTType(filenameExtension: url.pathExtension.lowercased()) else { return false }
-        return type.conforms(to: .movie)
-    }
-
-    /// An audio file AudioPreview plays.
-    static func isAudio(_ url: URL) -> Bool {
-        guard let type = UTType(filenameExtension: url.pathExtension.lowercased()) else { return false }
-        return type.conforms(to: .audio)
+    /// A video or audio file plays from a typed link beside the copy, whose extension tells AVFoundation its type
+    /// (the Contract players, composer-attachments.ts stagedMediaSrc); a video's tile shows its first frame, whose
+    /// natural (oriented) size names the preview's; the poster keeps at most 512 px.
+    func media(_ copy: URL, ext: String, video: Bool) -> [String: Any] {
+        let id = copy.lastPathComponent, clean = ext.lowercased().filter { $0.isLetter || $0.isNumber }
+        let typed = clean.isEmpty ? copy : staged.appendingPathComponent("\(id).\(clean)")
+        if typed != copy { try? FileManager.default.linkItem(at: copy, to: typed) }
+        guard video else { return [:] }
+        try? FileManager.default.createDirectory(at: drafts, withIntermediateDirectories: true)
+        guard let frame = Self.firstFrame(of: typed), Self.writePNG(Self.scaled(frame, to: 512), to: drafts.appendingPathComponent("\(id).png")) else { return [:] }
+        return ["videoWidth": frame.width, "videoHeight": frame.height]
     }
 
     /// prepareVideoFirstFrame: the frame near 0.1 s (the nearest one for a shorter video), oriented.
@@ -113,98 +74,16 @@ final class T3ComposerAttach {
         return url
     }
 
-    /// `composerAttachPick`, `composerAttachRead` (a staged file's bytes, once, at send) and `composerAttachRemove`.
+    /// `composerAttachMedia`.
     func perform(_ request: [String: Any], reply: @escaping ([String: Any]) -> Void) {
         let generation = request["generation"] as? Int ?? 0
         let fail = { (message: String) in reply(["ok": false, "generation": generation, "error": ["kind": "Attach", "message": message]]) }
-        switch request["op"] as? String {
-        case "composerAttachPick": pick(request, reply: reply)
-        case "composerAttachRead":
-            guard let url = stagedURL(request) else { return fail("That attached file is unavailable.") }
-            DispatchQueue.global(qos: .userInitiated).async {
-                let data = try? Data(contentsOf: url)
-                let value: [String: Any]
-                if let data, data.count > 0, data.count <= Self.maxFileBytes {
-                    value = ["ok": true, "generation": generation, "value": ["base64": data.base64EncodedString(), "sizeBytes": data.count]]
-                } else {
-                    value = ["ok": false, "generation": generation, "error": ["kind": "Attach", "message": "The attached file was not saved."]]
-                }
-                DispatchQueue.main.async { reply(value) }
-            }
-        case "composerAttachRemove":
-            if let url = stagedURL(request) {
-                try? FileManager.default.removeItem(at: url)
-                // A video's typed link and first frame go with it.
-                let id = url.lastPathComponent
-                for link in (try? FileManager.default.contentsOfDirectory(at: staged, includingPropertiesForKeys: nil)) ?? [] where link.lastPathComponent.hasPrefix("\(id).") {
-                    try? FileManager.default.removeItem(at: link)
-                }
-                try? FileManager.default.removeItem(at: drafts.appendingPathComponent("\(id).png"))
-            }
-            reply(["ok": true, "generation": generation, "value": ["removed": true]])
-        default: fail("Unknown attach operation.")
-        }
-    }
-
-    /// classifyComposerAttachmentFile: a supported image, an image type the provider cannot take, or a plain file.
-    static func kind(of url: URL) -> String {
-        guard let type = UTType(filenameExtension: url.pathExtension.lowercased()) else { return "file" }
-        let supported: [UTType] = [.gif, .heic, .heif, .jpeg, .png, .webP]
-        if supported.contains(where: { type.conforms(to: $0) }) { return "image" }
-        return type.conforms(to: .image) ? "unsupported-image" : "file"
-    }
-
-    /// One picked file as the client sees it; images are re-encoded as PNG drafts, plain files staged.
-    /// `imageMaxEdge`: the long edge a PNG, JPEG or HEIC image is scaled down to (T3ImageFit), before its size is checked.
-    func stage(_ url: URL, fileLimit: Int = 0, imageMaxEdge: Int = 0) -> [String: Any] {
-        let name = url.lastPathComponent
-        let size = (try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
-        let kind = Self.kind(of: url)
-        if kind == "file" { return stageFile(url, size: size, fileLimit: fileLimit) }
-        guard kind == "image" else { return ["kind": kind, "name": name, "sizeBytes": size] }
-        // A PNG within the edge keeps its own bytes (and size: the chip and shelf report the file's); other images are re-encoded.
-        let original = try? Data(contentsOf: url)
-        let fitted = original.flatMap { T3ImageFit.fit($0, maxEdge: imageMaxEdge) }
-        let isPNG = original.map { $0.starts(with: [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]) && NSBitmapImageRep(data: $0) != nil } ?? false
-        guard let png = fitted?.data ?? (isPNG ? original : NSImage(contentsOf: url).flatMap({ $0.tiffRepresentation }).flatMap({ NSBitmapImageRep(data: $0) })
-                .flatMap({ $0.representation(using: .png, properties: [:]) })) else {
-            return ["kind": "unreadable", "name": name, "sizeBytes": size]
-        }
-        guard png.count <= Self.maxImageBytes else { return ["kind": "too-large", "name": name, "sizeBytes": png.count] }
-        let id = UUID().uuidString.lowercased()
-        do {
-            try FileManager.default.createDirectory(at: drafts, withIntermediateDirectories: true)
-            try png.write(to: drafts.appendingPathComponent("\(id).png"), options: .atomic)
-        } catch { return ["kind": "unreadable", "name": name, "sizeBytes": size] }
-        let base = (name as NSString).deletingPathExtension
-        // Draft storage is PNG even for GIF/WebP; retain their exclusion from downscaling at upload.
-        return ["kind": "image", "id": id, "name": "\(base.isEmpty ? "image" : base).png", "sizeBytes": png.count,
-                "downscalable": original.map { T3ImageFit.downscalable($0) } ?? false]
-    }
-
-    func pick(_ request: [String: Any], reply: @escaping ([String: Any]) -> Void) {
-        let generation = request["generation"] as? Int ?? 0
-        let fileLimit = request["fileLimit"] as? Int ?? 0, imageMaxEdge = request["imageMaxEdge"] as? Int ?? 0
-        let finish = { (urls: [URL]) in
-            let files = urls.prefix(100).map { self.stage($0, fileLimit: fileLimit, imageMaxEdge: imageMaxEdge) }
-            reply(["ok": true, "generation": generation, "value": ["files": files]])
-        }
-        if let imports {
-            let urls = (try? FileManager.default.contentsOfDirectory(at: imports, includingPropertiesForKeys: nil))?
-                .filter { !$0.lastPathComponent.hasPrefix(".") }.sorted { $0.lastPathComponent < $1.lastPathComponent } ?? []
-            // A drive's files are consumed once, like a panel's selection.
-            let picked = urls.map { self.stage($0, fileLimit: fileLimit, imageMaxEdge: imageMaxEdge) }
-            for url in urls { try? FileManager.default.removeItem(at: url) }
-            return reply(["ok": true, "generation": generation, "value": ["files": picked]])
-        }
-        DispatchQueue.main.async {
-            let panel = NSOpenPanel()
-            panel.allowsMultipleSelection = true
-            panel.canChooseDirectories = false
-            panel.canChooseFiles = true
-            panel.prompt = "Attach"
-            let done: (NSApplication.ModalResponse) -> Void = { response in finish(response == .OK ? panel.urls : []) }
-            if let window = NSApp.keyWindow ?? NSApp.mainWindow { panel.beginSheetModal(for: window, completionHandler: done) } else { done(panel.runModal()) }
+        guard request["op"] as? String == "composerAttachMedia" else { return fail("Unknown attach operation.") }
+        guard let url = stagedURL(request), FileManager.default.fileExists(atPath: url.path) else { return fail("That attached file is unavailable.") }
+        let ext = request["ext"] as? String ?? "", video = request["video"] as? Bool ?? false
+        DispatchQueue.global(qos: .userInitiated).async {
+            let value = self.media(url, ext: ext, video: video)
+            DispatchQueue.main.async { reply(["ok": true, "generation": generation, "value": value]) }
         }
     }
 }

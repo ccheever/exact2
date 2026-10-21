@@ -376,10 +376,12 @@ component LegacyProject
 // port, the worktree glyph, the terminal glyph and the meta slot (remote machine, the ⌘ jump label or the
 // relative time), which Archive covers on hover or while the focus is in the row (group-hover and
 // group-focus-within: Archive stays in the tab order at opacity 0); with Archive confirmation on, the first
-// press shows Confirm, which takes the focus. The row's button is a file drop target (the `t3-row-drop`
-// hatch, T3RowDrop.swift: a file drag rings it, a drop opens the thread with the files in its composer).
+// press shows Confirm, which takes the focus. The row's button is a file drop target (makeWorkspaceFileDropHandlers):
+// a file drag rings it (ring-1 ring-inset ring-primary/70), a drop opens the thread with the files in its composer
+// (legacy-sidebar-drop.ts).
 component LegacyThread
   inject
+    attachFiles: action
     hoverTipAt: action
     threadJumpHints: bool // a thread.jump.N shortcut's modifiers held alone for 200 ms (app.contract)
   props
@@ -434,6 +436,12 @@ component LegacyThread
   // Ctrl leaves the pull request to the system browser, handlePrClick), not a native click monitor's.
   action openPress(e: MouseEvent)
     open(t.id, e.metaKey ? "click:meta" : (e.shiftKey ? "click:shift" : "click"))
+  state fileDrag = false
+  action fileDragged(value: bool)
+    fileDrag = value
+  action filesDropped(e: DragEvent)
+    fileDrag = false
+    attachFiles("row", e.files, [], false, `${isOpen ? "1" : "0"}\t${t.id}\t${t.dropKey}`)
   action prPress(e: MouseEvent)
     run("legacy-pr", t.id, (e.metaKey or e.ctrlKey) ? `mod:${page}` : page)
   state prMiddleDown = false
@@ -492,7 +500,7 @@ component LegacyThread
         row width="100%" height="2rem" padding-left="0.5rem" padding-right="0.5rem" box-sizing="border-box" align-items="center" border-radius="0.375rem" background-color=surface
           LegacyRenameField(t=t, local=local, run=run, within=within)
       else
-        button cursor="pointer" press=openPress dblclick=local("legacy-rename-start", t.id, "") contextmenu=openMenu contextPopover="legacy-thread-menu" focus=within("row", true) blur=within("row", false) hatch="t3-row-drop" data-thread-key=t.dropKey data-thread-open=(isOpen ? "1" : "0") aria-label=t.label aria-current=(isOpen ? "page" : "false") testId=`thread-${t.id}` width="100%" height="2rem" padding-left="0.5rem" padding-right="0.5rem" box-sizing="border-box" gap="0.5rem" border-radius="0.375rem" border-width=0 background-color=surface display="flex" flex-direction="row" align-items="center" id=`thread-${t.id}`
+        button cursor="pointer" press=openPress dblclick=local("legacy-rename-start", t.id, "") contextmenu=openMenu contextPopover="legacy-thread-menu" focus=within("row", true) blur=within("row", false) dragenter=fileDragged(true) dragleave=fileDragged(false) drop=filesDropped aria-label=t.label aria-current=(isOpen ? "page" : "false") testId=`thread-${t.id}` width="100%" height="2rem" padding-left="0.5rem" padding-right="0.5rem" box-sizing="border-box" gap="0.5rem" border-radius="0.375rem" border-width=0 background-color=surface box-shadow=(fileDrag ? "inset 0 0 0 1px light-dark(#1b4ed8b3, #346bf1b3)" : "none") display="flex" flex-direction="row" align-items="center" id=`thread-${t.id}`
           row flex=1 min-width=0 gap="0.375rem" align-items="center"
             // handlePrClick: the pull request beside the thread, on the Pull Requests page, or as a link (legacy-sidebar-links.ts).
             LegacyRowTip(label=(t.prPending ? "" : t.prTooltip), side="top", align="start", tipId=`legacy-tip-pr-${t.id}`, shown=(t.prIcon != ""), relay=innerHover)

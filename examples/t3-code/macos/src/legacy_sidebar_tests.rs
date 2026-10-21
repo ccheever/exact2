@@ -1,5 +1,5 @@
 //! The compiled app's command-completion actions, using the existing plan fixture.
-//! Native field selection and row-drop input remain separate AppKit qualifications.
+//! Native field selection remains a separate AppKit qualification.
 
 use super::composer_accessibility_tests::{measure, Replies};
 use super::PLAN;

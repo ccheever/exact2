@@ -493,6 +493,8 @@ final class MenuTests: XCTestCase {
         XCTAssertEqual(pasteText.keyEquivalent, "v")
         XCTAssertEqual(pasteText.keyEquivalentModifierMask, [.command, .shift])
         XCTAssertEqual(pasteText.action, #selector(NSTextView.pasteAsPlainText(_:)))
+        XCTAssertTrue(pasteText.target === menus, "the prompt's Paste as Text is a paste the Contract hears (T3Menus.pasteAsPlainText)")
+        XCTAssertFalse(menus.validateMenuItem(pasteText), "with no prompt and no responder that pastes as text")
         XCTAssertEqual(view.items.map { $0.isSeparatorItem ? "—" : "\($0.title)\($0.isHidden ? " (hidden)" : "") \($0.keyEquivalent)" },
                        ["Actual Size 0", "Zoom In =", "Zoom In (hidden) +", "Zoom Out -", "—", "Enter Full Screen f"])
     }
@@ -727,7 +729,7 @@ suite.addTest(QuitHoldTests.defaultTestSuite)
 suite.addTest(MenuTests.defaultTestSuite)
 suite.addTest(InstalledFontTests.defaultTestSuite)
 suite.run()
-guard let run = suite.testRun, run.executionCount == 47 else { print("Menus: unexpected test count \(suite.testRun?.executionCount ?? 0)"); exit(1) }
+guard let run = suite.testRun, run.executionCount == 49 else { print("Menus: unexpected test count \(suite.testRun?.executionCount ?? 0)"); exit(1) }
 print("Menus: \(run.executionCount) tests, \(run.totalFailureCount) failures")
 exit(run.hasSucceeded ? 0 : 1)
 
