@@ -516,6 +516,11 @@ shape Snapshot
   diffTreeAllOpen: bool
   diffCommentOpen: bool
   diffLoadingLabel: string
+  // Loading with no answer for this selection yet (DiffPanel isLoadingSelectedPatch): only then the skeleton shows.
+  diffPending: bool
+  // A turn diff's named file to scroll to, and the reveal request that bumps each time it is opened (DiffPanel revealDiffFile).
+  diffReveal: number
+  diffRevealTarget: string
   projects: Project[]
   searchFirstId: string
   snoozePresets: SnoozePreset[]

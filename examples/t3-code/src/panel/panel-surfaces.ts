@@ -16,7 +16,8 @@ import { selectDeviceTarget } from '../device/device-session';
 import type { T3Client } from '../client/client';
 import { obj, str, type Obj } from '../client/domain';
 import { ClientError, type Files, type Native } from '../client/protocol';
-import { diffRequest, adoptDiff, diffNotGit } from '../diff/diff';
+import { diffRequest, adoptDiff, diffNotGit, selectScope } from '../diff/diff';
+import { loadDiffFiles } from '../diff/diff-review';
 import { fileIconToken } from '../shared/timeline-files';
 import { visiblePullRequests } from './shell-pr';
 import { filesView, filesHidden, filesLocal, ensureFile, ensureTree, reconcileFiles, emptyFiles, pendingPaths, type FilesView } from './files-surface';
@@ -172,19 +173,47 @@ export function availability(client: T3Client) {
   };
 }
 
-/** Reopens the Diff from its tab: the client's own request for the remembered scope (client.ts diff()). */
-async function showDiff(client: T3Client, native: Native): Promise<void> {
+/**
+ * Shows the Diff: the client's own request for its scope (client-ops-diff.ts diff()). A Diff that opens from elsewhere
+ * (⌘D, the launcher, "+", a close that lands on it, the restored panel) starts on Changes; a press on its tab resumes the
+ * scope in progress (ChatView's generic-open reset and resolveExplicitDiffOpenOnActivate).
+ */
+async function showDiff(client: T3Client, native: Native, resume = false): Promise<void> {
+  if (!resume && !client.diffOpen && client.threadId) selectScope(client, 'branch');
   client.diffOpen = true; client.diffError = '';
   let request;
   try { request = diffRequest(client); } catch (error) { client.diffText = ''; client.diffError = error instanceof Error ? error.message : String(error); return; }
   if (request.scope !== client.diffState.scopeKey) client.diffText = '';
-  const threadId = client.threadId;
+  const threadId = client.threadId, epoch = client.threadEpoch, asked = JSON.stringify(request);
   client.diffLoading = true;
   try {
     const result = await client.restAccess(native).request(request.method, request.payload)
-    if (threadId === client.threadId && client.diffOpen) client.diffText = adoptDiff(client, request, result);
+    // A superseded reply (another thread, or a scope chosen meanwhile) never replaces the newer one.
+    if (epoch === client.threadEpoch && threadId === client.threadId && client.diffOpen && JSON.stringify(diffRequest(client)) === asked) {
+      client.diffText = adoptDiff(client, request, result);
+      await loadDiffFiles(client, native); // a large preview's first four files, as the panel's own open reads them
+    }
   } catch (error) { if (threadId === client.threadId && !letGo(error)) client.diffError = error instanceof Error ? error.message : String(error); }
   finally { if (threadId === client.threadId) client.diffLoading = false; }
+}
+
+/**
+ * A thread switch closes the client's Diff (client.diffOpen), but the thread's panel keeps its surfaces: one whose Diff
+ * was showing shows it again, on Changes (ChatView's reset when activeThreadRef changes with the Diff open). Called once
+ * the switch has set the thread: the Diff stays open so the panel view keeps it (syncDiff), and loads from nothing.
+ */
+export function holdThreadDiff(client: T3Client): boolean {
+  const state = panelState(client), active = state.surfaces.find(entry => entry.id === state.active);
+  if (!state.visible || active?.kind !== 'diff') return false;
+  client.diffOpen = true; client.diffText = ''; client.diffError = '';
+  client.diffState.source = null; client.diffState.lazy = null;
+  return true;
+}
+/** After the thread's detail is in: the held Diff asks for its thread's Changes. */
+export async function reopenThreadDiff(client: T3Client, native: Native, held: boolean): Promise<void> {
+  if (!held || !client.diffOpen) return;
+  if (client.threadId) selectScope(client, 'branch');
+  await showDiff(client, native, true);
 }
 
 /** Opens one surface kind as the reference's onAdd* handlers do; unavailable kinds are ignored. */
@@ -258,7 +287,8 @@ export async function surfaceLocal(client: T3Client, native: Native, op: string,
     if (surface.kind === 'terminal') focusPanelTerminal(client);
     if (surface.kind === 'device') selectDeviceTarget(client, panelKey(client), surface.device);
     selectBrowserTab(client, surface); // setActivePreviewTab: ⇧⌘J shows this tab again
-    if (surface.kind === 'diff') await showDiff(client, native);
+    // The reference's Diff remounts on its tab: a turn diff's named file is revealed again (DiffPanel externalRevealRef).
+    if (surface.kind === 'diff') { if (!client.diffOpen) client.diffState.revealed = ''; await showDiff(client, native, true); }
     else { client.diffOpen = false; if (surface.kind === 'file') await ensureFile(client, native, surface.path, false); if (surface.kind === 'files') await ensureTree(client, native); }
     return '';
   }
