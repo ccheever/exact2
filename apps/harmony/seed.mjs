@@ -254,13 +254,14 @@ async function head(origin, status) {
   return c.seq;
 }
 
-// `--post`: empty the dev server and seed it with these rows. Unasked only where
-// nothing was ever written: the store's head is 0 (a reset is itself a commit, so
-// a store seeded before counts as written to). What a store holds can't be read
-// whole from outside (a query shows only what a persona may see), so any other
-// store, in memory or not, may hold what people wrote and is refused unless
-// `--force` (or `--reset`) says to erase it. The reset names the dev instance it
-// asked, so a server started in its place in between refuses it (409).
+// `--post`: seed the dev server with these rows. Unasked only where nothing was
+// ever written (the store's head is 0; a reset is itself a commit, so a store
+// seeded before counts as written to), and then by `/seed`, an upsert that erases
+// nothing, so a write landing after the head was read stays. What a store holds
+// can't be read whole from outside (a query shows only what a persona may see),
+// so any other store, in memory or not, may hold what people wrote and is refused
+// unless `--force` (or `--reset`) says to empty it first (`/dev/reset`). That reset
+// names the dev instance it asked, so a server started in its place refuses it (409).
 if (post) {
   const origin = new URL(origins[0] ?? 'http://127.0.0.1:4400').origin;
   const fail = (m) => { console.error(`seed: ${m}; nothing was erased`); process.exit(1); };
@@ -270,11 +271,17 @@ if (post) {
     console.error(`seed: the server at ${origin} has been written to (${n} commits${before.temporary === true ? ', in memory' : ', kept on disk'}), so it may hold what people wrote. Seeding it would ERASE EVERYONE'S MESSAGES, channels and profiles there, for every person using it. Nothing was erased. If this is a server of your own whose data you mean to lose, run it again with --force.`);
     process.exit(1);
   }
-  // The same server still (its instance, store and process), as it was asked.
-  try { now = await devStatus(origin); } catch (e) { fail(e.message); }
-  if (now.instance !== before.instance || now.storeId !== before.storeId || now.pid !== before.pid) fail(`the server at ${origin} changed while it was asked (store ${before.storeId} → ${now.storeId})`);
-  const res = await fetch(`${origin}/dev/reset`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-snapback-dev-instance': before.instance }, body: JSON.stringify(rows) });
+  let res;
+  if (!force) res = await fetch(`${origin}/seed`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(rows) });
+  else {
+    // The same server still (its instance, store and process), as it was asked.
+    try { now = await devStatus(origin); } catch (e) { fail(e.message); }
+    if (now.instance !== before.instance || now.storeId !== before.storeId || now.pid !== before.pid) fail(`the server at ${origin} changed while it was asked (store ${before.storeId} → ${now.storeId})`);
+    res = await fetch(`${origin}/dev/reset`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-snapback-dev-instance': before.instance }, body: JSON.stringify(rows) });
+  }
   const body = await res.text();
-  if (!res.ok) { console.error(`${origin}/dev/reset: ${res.status} ${body}`); process.exit(1); }
+  let answer = null;
+  try { answer = JSON.parse(body); } catch {}
+  if (!res.ok || answer?.denied) { console.error(`${res.url}: ${res.status} ${body}`); process.exit(1); }
   console.log(`${origin}: ${body}`);
 }
