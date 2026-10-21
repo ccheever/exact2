@@ -791,3 +791,28 @@ test("a node of the variant gallery's generated source (the JS dev loop's build 
     expect(stateRung({ name: 'opacity' }, { state: 'hover', origin: 'class:Cell', at }, app, read)).toEqual({ rung: null, reason: why });
   }
 });
+
+test("a selection on a variant gallery cell, joined: its literal rows read only by the gallery's reason, its token rows still the app's token rung (variant gallery G4)", () => {
+  const dir = mkdtempSync(joinPath(tmpdir(), 'exact-inspect-gallery-'));
+  try {
+    const live = joinPath(dir, 'node_modules/.cache/exact-gallery/com.x/live');
+    mkdirSync(live, { recursive: true });
+    const gallery = joinPath(live, 'app.contract'), text = 'component Gallery\n  view\n    column background-color="surface.card" opacity=1\n';
+    writeFileSync(gallery, text);
+    const line = 3, at = (attr) => ({ file: gallery, line, col: text.split('\n')[line - 1].indexOf(attr) + 1, end_col: text.split('\n')[line - 1].indexOf(attr) + 1 + attr.length });
+    const map = { digest: 'g1', sources: [{ file: gallery, sha256: sha(text) }], nodes: [
+      { file: gallery, line, col: 5, end_col: 11, component: 'Gallery', chain: [], bindings: [{ row: 'background_color', origin: 'own', at: at('background-color'), attr: 'background-color' }, { row: 'opacity', origin: 'own', at: at('opacity'), attr: 'opacity' }] },
+    ] };
+    const selected = { node: 1, site: 0, instance: [], tuple: {}, rows: [
+      { name: 'background_color', value: '#fff', source: 'authored', token: { names: ['surface.card'], text: 'surface.card', modes: '', implied: false } },
+      { name: 'opacity', value: 1, source: 'authored' },
+    ] };
+    const s = join({ id: 'web-js-2' }, selected, map, { app: dir });
+    const why = "the variant gallery's generated source: read-only (its tokens and params are the app's)";
+    expect(s.rows.map(r => [r.name, r.editable.rung, r.editable.token ?? null, r.editable.template ?? null])).toEqual([
+      ['background_color', 'token', 'surface.card', null],
+      ['opacity', null, null, null],
+    ]);
+    expect(s.rows[1].editable.reason).toBe(why);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});

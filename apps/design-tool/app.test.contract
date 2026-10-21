@@ -2242,7 +2242,7 @@ test "the variant gallery: a toggle beside a local canvas frames the dev loop's 
 
 test "a gallery copy in the grid: listed as the gallery's, never sent where a moved copy leads, nor reloaded there; one moved leads no other (variant gallery G4)"
   request POST "/__stub/restart" {} as ada
-  request POST "/__stub/copies" {"gallery": ["exact-copy-2"]} as ada
+  request POST "/__stub/copies" {"gallery": ["exact-copy-2"], "noNavigate": ["exact-copy-3"]} as ada
   type "name" "Ada"
   tap "save-name"
   clock data
@@ -2266,7 +2266,7 @@ test "a gallery copy in the grid: listed as the gallery's, never sent where a mo
   clock data
   clock +1000 real
   clock data
-  expect text "grid-note-exact-copy-3" == "dark · dark-style=dim · 16px · /post/3"
+  expect text "grid-note-exact-copy-3" == "dark · dark-style=dim · 16px · /post/3 · reloaded there: its build can't navigate"
   expect text "grid-note-exact-copy-2" == "dark · dark-style=black · 16px · /"
   // The gallery's copy moved: no copy follows it.
   request POST "/__stub/move" {"build": "copy-2", "location": "/x"} as ada
@@ -2275,6 +2275,39 @@ test "a gallery copy in the grid: listed as the gallery's, never sent where a mo
   clock +1000 real
   clock data
   expect text "grid-note-exact-copy-1" == "light · 16px · /post/3"
-  expect text "grid-note-exact-copy-3" == "dark · dark-style=dim · 16px · /post/3"
+  expect text "grid-note-exact-copy-3" == "dark · dark-style=dim · 16px · /post/3 · reloaded there: its build can't navigate"
+  // The gallery on: every copy frames it, the one reloaded at the app's place too.
+  tap "canvas-gallery"
+  clock +1000 real
+  clock data
+  clock +1000 real
+  clock data
+  clock +1000 real
+  clock data
+  expect text "grid-note-exact-copy-3" == "dark · dark-style=dim · 16px · /__dev/gallery/"
+  expect text "grid-note-exact-copy-1" == "light · 16px · /__dev/gallery/"
   type "canvas-view" "one"
+  request POST "/__stub/restart" {} as ada
+
+test "a gallery cell selected: its literal rows read only, the gallery's reason said, no row, promote, tokenize or detach control; its token row's edit is still the app's token (variant gallery G4)"
+  type "name" "Ada"
+  tap "save-name"
+  clock data
+  request POST "/__stub/event" {"event": "builds", "builds": [{"id": "web-js-2", "host": "web-js", "page": "gallery", "capabilities": ["pin", "inspect", "hold"], "status": {"scheme": "dark", "contrast": "no-preference", "mode": {"dark-style": "dim"}, "rootFontSize": 16, "revision": 0}, "pin": null, "pinRevision": 0}]} as ada
+  clock +1
+  clock data
+  expect text "build-name-web-js-2" == "web-js · web-js-2 · the gallery"
+  tap "inspect-toggle"
+  clock data
+  clock +1
+  clock data
+  request POST "/__stub/event" {"event": "selection", "build": "web-js-2", "node": 1, "site": 0, "instance": [], "tuple": {"dark-style": "dim", "density": "regular"}, "trimmed": false, "readOnly": null, "source": {"file": "/repo/node_modules/.cache/exact-gallery/com.x/live/app.contract", "line": 3, "col": 5, "end_col": 11, "component": "Gallery", "chain": []}, "rows": [{"name": "background_color", "value": "#1e2732ff", "source": "authored", "origin": "own", "token": {"names": ["surface.card"], "text": "surface.card", "modes": "dark-style=dim", "implied": false}, "editable": {"rung": "token", "token": "surface.card", "modes": "dark-style=dim"}}, {"name": "opacity", "value": 1, "source": "authored", "origin": "own", "editable": {"rung": null, "reason": "the variant gallery's generated source: read-only (its tokens and params are the app's)"}}]} as ada
+  clock +1
+  clock data
+  expect text "selrow-edit-background-color" == "Edit surface.card"
+  expect text "selrow-reason-opacity" == "the variant gallery's generated source: read-only (its tokens and params are the app's)"
+  expect tree missing "selrow-row-opacity"
+  expect tree missing "selrow-param-opacity"
+  expect tree missing "selrow-detach-opacity"
+  expect tree missing "selrow-state-opacity"
   request POST "/__stub/restart" {} as ada

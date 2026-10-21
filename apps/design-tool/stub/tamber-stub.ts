@@ -448,7 +448,7 @@ Bun.serve({ hostname, port: Number(port), routes: {
       present.clear();
       // (A restart revokes every paired client: the tokens were in memory.)
       paired = []; gone.clear(); codes.clear(); remote = []; minted = 0; refusePairing.clear(); canvasAt = ''; forgeLocal = false;
-      copyDelays = {}; noNavigate = []; refuseLater = []; navs.length = 0; LIBRARY = {};
+      copyDelays = {}; noNavigate = []; galleryCopies = []; refuseLater = []; navs.length = 0; LIBRARY = {};
       // (The files as they were before the first package post: what any number of posts merged in, gone.)
       if (filesBefore) FILES = filesBefore;
       PACKAGED = null; filesBefore = null;

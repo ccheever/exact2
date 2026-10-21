@@ -95,7 +95,7 @@ const heldText = (h: Build['holding']) => !h.hold ? '' : `${h.held?.state === h.
 const owned = new Map<string, { pin?: { json: string; revision: number }; hold?: { state: string; instance: string } }>();
 const asked = new Map<string, string>();
 const seen = new Map<string, string>(), sentTo = new Map<string, string>(), sentAt = new Map<string, number>(), went = new Map<string, string>(), reloaded = new Map<string, string>(), refusals = new Map<string, number>();
-let run = '', place = '', handle = '', chosen = 0, policy = '', passNo = 0;
+let run = '', place = '', handle = '', chosen = 0, policy = '', passNo = 0, framed = '';
 let shown: { sel: object; e: any; facts: Pin; location: string; words: string; chosen: number } | null = null;
 // The passes asked: each runs in turn, and one a newer ask has superseded
 // sends nothing more (the newer pass reconciles from what is then).
@@ -155,6 +155,8 @@ export function gridSources(call: Call, builds: () => Map<string, Build & { pinR
     let src: URL | null = null;
     try { src = at ? new URL(at) : null; } catch { src = null; }
     if (!src) tiles = [];
+    // Another page framed (the variant gallery's, or the app's again): where copies were sent or reloaded was the old page's.
+    if (at !== framed) { framed = at; reloaded.clear(); sentTo.clear(); went.clear(); seen.clear(); place = ''; }
     // Each tile's page: the dev loop's, or the place it was reloaded at; a new page waits for its own word.
     const shownNames = new Set(tiles.map(t => t.name));
     for (const n of NAMES) if (!shownNames.has(n)) { srcs.delete(n); copies.delete(n); reloaded.delete(n); }
