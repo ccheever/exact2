@@ -987,11 +987,13 @@ public final class ExactSession {
     }
 
     /// A batch that changes nothing the presenter shows: no ops, no error,
-    /// no control's viewless contents (`controls`, LLP 1069.011 §9), and the
-    /// motion, spatial, frame-task, canvas and owed-draw state as they stand.
-    /// Its timer deadline is the caller's to compare.
+    /// no control's viewless contents (`controls`, LLP 1069.011 §9), no
+    /// page facts the app moved (`setMode`, `setRootFontSize`) or wake lock,
+    /// and the motion, spatial, frame-task, canvas and owed-draw state as
+    /// they stand. Its timer deadline is the caller's to compare.
     func changesNothing(_ batch: Batch) -> Bool {
         batch.ops.isEmpty && !batch.controls && batch.error == nil && batch.canvasImages.isEmpty
+            && !batch.facts && batch.wakelock == nil
             && batch.motion == frames.motion && batch.spatial == frames.spatial && batch.canvasOwed == canvasOwed
             && batch.canvas == frames.canvas2d && batch.frames == frames.tasks
     }
@@ -1017,6 +1019,7 @@ public final class ExactSession {
         guard !ownerInFlight, changesNothing(batch) else { apply(batch); return }
         // Its transactions are reported once (LLP 1079 D3): account for them, at no presentation cost.
         sampler?.batch(batch.seq, ms: 0)
+        if let q = batch.seq { natives.hatchClock.seq = q.1 } // its commits are the hatches' latest
         timerDue = batch.timerDueMs
         scheduleClock(due: batch.timerDueMs)
         // What the pass did that a scroll moves (`scrolledWithoutPass`).
