@@ -1286,7 +1286,16 @@ public final class ExactSession {
     public func resize(_ size: CGSize) { guard booted, state != .destroyed else { return }; apply(runtime.resize(width: size.width, height: size.height)) }
     public func insets(top: CGFloat, right: CGFloat, bottom: CGFloat, left: CGFloat) { guard booted, state != .destroyed else { return }; apply(runtime.insets(top: top, right: right, bottom: bottom, left: left)) }
     /// What changed of the view (`Runtime.ViewChange`); the window's size is what every viewport unit resolves against everywhere (LLP 1075.003 §9.11).
-    func view(_ change: Runtime.ViewChange) { guard booted, state != .destroyed, !change.isEmpty else { return }; if let screen = change.screen { screenSize = screen }; apply(runtime.view(change)) }
+    /// `fold`: a fold on the kernel's grid whose rects go with the change (a keyboard's), kept as `segments` keeps one.
+    func view(_ change: Runtime.ViewChange, fold: ViewportFold? = nil) {
+        var change = change
+        change.segments = fold?.rects
+        guard booted, state != .destroyed, !change.isEmpty else { return }
+        if let screen = change.screen { screenSize = screen }
+        let batch = runtime.view(change)
+        if let fold, batch.error == nil { presenter.fold = fold }
+        apply(batch)
+    }
     private(set) var screenSize: CGSize? // the screen last told, for the agent's synthetic segments
     /// The device's posture and the viewport segments a fold makes (LLP 1078 D4, D5): the view's reading,
     /// kept for the agent's `layout.env` and told to the kernel and the runner in one batch.

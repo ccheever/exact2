@@ -662,13 +662,15 @@ package final class Runtime {
     /// What changed of the view at once (`exact_view`): each part given is
     /// told, the window's size (`.some(nil)` clears it), the safe-area
     /// insets, the layout regions (`.some(nil)` when every region is the
-    /// safe area) and the viewport, in one batch under one layout.
+    /// safe area), the viewport and the segments' rects on the grid the
+    /// kernel has (a keyboard's), in one batch under one layout.
     package struct ViewChange {
         package var screen: CGSize?? = nil
         package var insets: (top: CGFloat, right: CGFloat, bottom: CGFloat, left: CGFloat)? = nil
         package var regions: [CGFloat]?? = nil
         package var size: CGSize? = nil
-        package var isEmpty: Bool { screen == nil && insets == nil && regions == nil && size == nil }
+        package var segments: [CGRect]? = nil
+        package var isEmpty: Bool { screen == nil && insets == nil && regions == nil && size == nil && segments == nil }
         package init(screen: CGSize?? = nil, insets: (top: CGFloat, right: CGFloat, bottom: CGFloat, left: CGFloat)? = nil,
                      regions: [CGFloat]?? = nil, size: CGSize? = nil) {
             self.screen = screen; self.insets = insets; self.regions = regions; self.size = size
@@ -681,10 +683,12 @@ package final class Runtime {
         if change.insets != nil { mask |= 2 }
         if change.regions != nil { mask |= 4 }
         if change.size != nil { mask |= 8 }
+        if change.segments != nil { mask |= 16 }
         let screen = (change.screen ?? nil) ?? .zero, insets = change.insets ?? (0, 0, 0, 0), size = change.size ?? .zero
         let floats = [screen.width, screen.height, insets.top, insets.right, insets.bottom, insets.left, size.width, size.height]
-        var bytes = Data(capacity: (10 + regions.count) * 4)
-        for word in [mask] + floats.map({ Float($0).bitPattern }) + [UInt32(regions.count)] + regions.map({ Float($0).bitPattern }) {
+        let rects = change.segments.map { rects in [UInt32(rects.count)] + rects.flatMap { [$0.minX, $0.minY, $0.width, $0.height].map { Float($0).bitPattern } } } ?? []
+        var bytes = Data(capacity: (10 + regions.count + rects.count) * 4)
+        for word in [mask] + floats.map({ Float($0).bitPattern }) + [UInt32(regions.count)] + regions.map({ Float($0).bitPattern }) + rects {
             withUnsafeBytes(of: word.littleEndian) { bytes.append(contentsOf: $0) }
         }
         return on { read(exact_view(rt, write(bytes))) }

@@ -33,23 +33,24 @@ component Reply
 - Scrolling content alone on its screen (an article, a document, a feed, a list) stays
   where it is on either fold, as
   [Apple's adaptive-layout talk](https://developer.apple.com/videos/play/tech-talks/111463/)
-  says and UIKit's list does (iOS 27.1), its title in UIKit's bar.
+  says and UIKit's list does.
 - **This recipe puts a pane like the reply on a book fold's trailing segment by
-  default** (segment 1, left to right), as the talk moves an alert there, to stay under
-  the outer display as the device closes. Exact moves no pane by itself. The side is
-  yours: segment 0 keeps the pane leading. A route that is itself the pane on the
-  trailing segment keeps its title with `navigationBar=(book ? "none" : "auto")`: on a
-  book fold its first-child `header` paints in it as written, with its own Back if
-  pushed; otherwise it is UIKit's bar.
+  default** (segment 1, left to right), as the talk moves an alert there, near the outer
+  display as the device closes; the other keeps it leading. A route that is itself the
+  pane on the trailing segment keeps its title with
+  `navigationBar=(book ? "none" : "auto")`: on a book fold its first-child `header`
+  paints in it as written, with its own Back if pushed; otherwise it is UIKit's bar.
 - On iOS a route moved off a window edge is still padded as if it reached it: its top
   on a laptop fold, its right on a book fold's segment 0.
 - Two panes go in reading order, the first on the leading segment: segment 1 in
   right-to-left text, as segments count from the left.
-- Folded like a laptop, controls you place yourself go on the bottom segment, as Apple's
-  talk says: cap a bottom sheet's `max-height` at both the room below its header and
+- Folded like a laptop, controls you place yourself go on the bottom segment, as the talk
+  says: cap a bottom sheet's `max-height` at both the room below its header and
   `calc(100% - env(viewport-segment-top 0 1))`, with its containing block from the
-  viewport's top. On iOS the keyboard covers that segment and ends the viewport above
-  it, which leaves the second cap nothing: duo-lab's note sheet lifts it then.
-- Change values on one node, as above, so a fold keeps a field's text; UIKit can still
-  end the editing when the device switches panels.
+  viewport's top. On iOS a keyboard over that segment leaves its top below the
+  viewport, 0 tall (Chrome moves or drops it): duo-lab's note sheet lifts that cap.
+- Place panes by segment edges, ending one under the keyboard at `100%` or
+  `bottom: 0`: hosts differ on segment heights.
+- Change values on one node so a fold keeps a field's text; UIKit may still end editing
+  as the device switches panels.
 - UIKit's alerts and sheets on a fold: [Folds on iOS](../contract-for-agents.md#folds-on-ios).

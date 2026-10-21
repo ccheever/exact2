@@ -15,6 +15,22 @@ struct ViewportFold: Equatable {
     var rects: [CGRect] = []
     static let flat = ViewportFold()
 
+    /// The fold under a keyboard that ends the viewport at `viewport`
+    /// (`resizes-content`; LLP 1078, "As built (the keyboard)"): the posture,
+    /// the count and each segment's top and left stay the window's, and every
+    /// segment ends where the viewport does if it ends first, never below
+    /// zero, as Chrome ends its segments at the visible viewport. Chrome also
+    /// clips the band to the viewport, moving the lower segment up to its end
+    /// or dropping the fold; this keeps the band where the hinge is (LLP 1001).
+    func ending(at viewport: CGSize) -> ViewportFold {
+        var fold = self
+        fold.rects = rects.map { r in
+            CGRect(x: r.minX, y: r.minY, width: max(0, min(r.maxX, viewport.width) - r.minX),
+                   height: max(0, min(r.maxY, viewport.height) - r.minY))
+        }
+        return fold
+    }
+
     /// `layout.env`'s four names (LLP 1012 §1; LLP 1078 D7).
     var env: [String: Any] {
         ["device-posture": posture, "horizontal-viewport-segments": cols, "vertical-viewport-segments": rows,
