@@ -1,5 +1,8 @@
-// Run `bunx snapback4 dev --port 4400` in the directory above. Each test starts
-// the server from the demo data, dated as the server dates it.
+// Run them against a server of their own: `bun scripts/memory-backend-test.mjs
+// apps/harmony/app` from exact2's root starts `snapback4 dev --memory` on a free
+// port and points the build there. Each test empties that server and loads the
+// demo data, dated as the server dates it, so never point them at a server
+// whose data matters.
 fresh "../seed.json"
 epoch now
 

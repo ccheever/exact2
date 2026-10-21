@@ -153,6 +153,10 @@ export function checks(sha, since, selection = {}) {
     // This document proof builds Weatherlight's wasm target. Keep it out of
     // glue's seconds loop while retaining it in the asynchronous lane.
     ['web-build-test', 'env', [...required, 'bun', 'test', './host/web/tests/document.test.mjs', '--test-name-pattern', "a TypeScript app's served document"]],
+    // Harmony's end-to-end tests on the web, against a Snapback server of
+    // their own in memory on a free port: never the origin app.ts names,
+    // where a live server real people use listens on this machine.
+    ['harmony', 'env', [...required, 'bun', 'scripts/memory-backend-test.mjs', 'apps/harmony/app']],
     // The web build's JS target against the wasm runner, step by step (LLP
     // 1071 §4; Charlie, 2026-09-28): minutes and a network, so never blocking.
     ['conform', 'bun', ['host/web-js/conform.mjs', ...WEB_APPS, '--synthetic', '--build', '--linux', '--strict', '--wasm-root', resolve(STATE_DIR, 'conform-wasm'), '--out', resolve(STATE_DIR, 'conform')]],

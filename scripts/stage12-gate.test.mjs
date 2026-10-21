@@ -6,7 +6,7 @@ import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { allowOf, beforeDrift, cloneConform, flakyOf, durationMs, slotCheckTimes, conformFailures, conformRead, conformReport, conformSame, renderedIds, renderedLibrary, viewportTop, BASELINE_TAG, comparePixels, expected, lines, releaseIdentity, parse, pixelDiff, RESTYLE, SCREENS, screenOps, WEB_NOISE } from './stage12-gate.mjs';
+import { allowOf, beforeDrift, cloneConform, flakyOf, durationMs, slotCheckTimes, conformFailures, conformRead, conformReport, conformSame, renderedIds, renderedLibrary, viewportTop, BASELINE_TAG, comparePixels, expected, lines, releaseIdentity, releaseSources, parse, pixelDiff, RESTYLE, SCREENS, screenOps, WEB_NOISE } from './stage12-gate.mjs';
 
 test('the command line', () => {
   expect(parse(['baseline', '--copy', '/c'])).toBe('baseline needs --copy and --out');
@@ -242,4 +242,10 @@ test('a boot flake in conform: rerun alone three times, at most two, never twice
   const q3 = ['a', 'b', 'c'].map(t => `- **Conformance's \`${t}\` fixture fails now and then`).join('\n');
   const r3 = flakyOf(three, base, fresh(), () => true, q3);
   expect([r3.failing.length, r3.seen.length]).toEqual([3, 3]);
+});
+
+test('release identity compares an app beside its Snapback backend (apps/<app>/app/, Harmony) as every app', () => {
+  const sources = releaseSources();
+  expect(sources).toContain('apps/harmony/app/app.contract');
+  expect(sources).not.toContain('apps/library-gate/app.contract');
 });

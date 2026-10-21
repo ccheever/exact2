@@ -20,8 +20,14 @@ cd app && bun exact.mjs seed             # demo data: six people, eight channels
 bun exact.mjs web                        # http://127.0.0.1:<port>, rebuilt on save
 bun exact.mjs mac --run                  # the Mac app
 bun exact.mjs ios --run                  # an iPhone simulator
-bun exact.mjs test web                   # the tests, each from the demo data
+bun ../../../scripts/memory-backend-test.mjs apps/harmony/app   # the tests (the app named from exact2's root)
 ```
+
+The tests run against a server of their own: `scripts/memory-backend-test.mjs`
+starts `snapback4 dev --memory` on a free port, builds the web app against it
+(`EXACT_BACKEND_ORIGIN`) and stops it after. Each test empties the server it
+reaches (`fresh`), so never run `bun exact.mjs test web` against a server whose
+data matters. The async lane runs them this way.
 
 `bun exact.mjs seed` empties the dev server and loads `seed.json`, which
 `seed.mjs` writes with times relative to now. The tests load the same file
