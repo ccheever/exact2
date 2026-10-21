@@ -58,6 +58,7 @@ component SettingsInformation
   props
     data: InformationData
     route: string
+    routeKey: string
     query: string
     dismissSearchKeyboard: bool
     legalConfiguration: string
@@ -77,7 +78,7 @@ component SettingsInformation
     else
       column flex=1 min-height=0 background-color=colors.sheet font-family="DM Sans"
         scroll id="settings-information-scroll" flex=1 min-height=0
-          column gap=(route == "settingsOpenSourceLicenses" ? 0 : 21) padding-left=(route == "settingsOpenSourceLicenses" ? 0 : 17.5) padding-right=(route == "settingsOpenSourceLicenses" ? 0 : 17.5) padding-top=(route == "settingsOpenSourceLicenses" ? 0 : 14) padding-bottom=bottom
+          column gap=(route == "settingsOpenSourceLicenses" ? 0 : 21) padding-left=(route == "settingsOpenSourceLicenses" ? 0 : 17.5) padding-right=(route == "settingsOpenSourceLicenses" ? 0 : 17.5) padding-top=(route == "settingsOpenSourceLicenses" ? 0 : 14) padding-bottom=(route == "settingsOpenSourceLicenses" and data.licensesReady ? 74 : bottom)
             if route == "settingsAbout"
               column gap=7
                 SettingsSectionLabel(title="App", colors=colors, roles=roles)
@@ -111,7 +112,7 @@ component SettingsInformation
             else if route == "settingsOpenSourceLicense"
               text "This license notice is unavailable." padding-top=42 text-align="center" font-size=roles.body.size color=colors.muted
         if route == "settingsOpenSourceLicenses" and data.licensesReady
-          t3-information-search query=query dismiss-keyboard=dismissSearchKeyboard change=queryChanged height=64 flex-shrink=0 testId="licenses-search"
+          t3-information-search route-key=routeKey query=query dismiss-keyboard=dismissSearchKeyboard change=queryChanged position="absolute" width=0 height=0 pointer-events="none" aria-hidden=true testId="licenses-search"
 component InformationAboutRow
   props
     icon: string
