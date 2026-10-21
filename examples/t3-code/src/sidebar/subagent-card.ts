@@ -2,7 +2,7 @@
 // accounts share the provider, then the effort and speed it runs with), status,
 // elapsed time, the workspace rows that differ from the parent, and a one-line preview.
 // Adapted from T3 Code 1e2ecbd975 (MIT); see LICENSE-T3. Sources:
-// apps/web/src/components/chat/SubagentTooltipContent.tsx (at 9c161462c9),
+// apps/web/src/components/chat/SubagentTooltipContent.tsx (at 74541bab17),
 // packages/client-runtime/src/state/subagentDisplay.ts (resolveSubagentMetadata,
 // subagentDetailPreview), subagentRuntime.ts (isTerminalSubagentStatus) and
 // providerInstanceDisplay.ts (shouldShowInstanceBadge,
@@ -11,7 +11,7 @@
 // resolveProviderInstanceDisplayName is the snapshot's displayName, else the
 // humanized instance id; elapsed time is the caller's string.
 import { arr, obj, str, type Obj } from '../client/domain';
-import { formatModelSlugName, resolveSelectableModel, traitsSpeed } from '../composer/composer-controls-model';
+import { formatModelSlugName, REASONING_EFFORT_OPTION_IDS, resolveSelectableModel, traitsSpeed } from '../composer/composer-controls-model';
 
 const TERMINAL = new Set(['completed', 'failed', 'cancelled', 'interrupted', 'rolled_back', 'idle']);
 const WORKING = ['running', 'in_progress', 'pending', 'waiting'];
@@ -73,7 +73,7 @@ export function subagentTraits(input: { model: string | null; provider?: Obj; pr
   const childModel = str(selection?.model).trim(), childSlug = provider ? resolveSelectableModel(driver, childModel, models) || childModel : childModel;
   const matching = selection && childSlug === slug && str(selection.instanceId) === str(input.providerInstanceId) ? arr(selection.options) : [];
   const value = (id: string) => { const entry = matching.find(option => option.id === id)?.value; return typeof entry === 'string' ? entry : ''; };
-  const effort = ['reasoningEffort', 'effort', 'reasoning', 'variant'].map(value).find(Boolean) ?? '';
+  const effort = REASONING_EFFORT_OPTION_IDS.map(value).find(Boolean) ?? '';
   let speed = '';
   for (const descriptor of provider ? arr(obj(models.find(candidate => candidate.slug === slug)?.capabilities).optionDescriptors) : []) {
     const saved = matching.find(option => option.id === descriptor.id)?.value;
