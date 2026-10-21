@@ -778,6 +778,7 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
         frame.origin.x -= reach.left
         frame.size.width += reach.left + reach.right
         assign(collection, \.frame, frame)
+        refreshLooks()
         for cell in collection.visibleCells {
             guard let cell = cell as? GroupedCell, let id = cell.row else { continue }
             carry(id, into: cell)

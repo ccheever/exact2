@@ -24,15 +24,34 @@ extension GroupedListView {
     /// a line that moved lays the list out again after the update (or,
     /// carried as a cell shows, at the next projection sync).
     func look(_ id: UInt32, row: NodeView) {
+        mark(id, leadingSymbol(of: row))
+        let line = lineStart(id)
+        if customLooks[id]?.line != line { customLooks[id]?.line = line; resized = true }
+    }
+
+    /// Every custom row noted, carried now or not, its mark checked again
+    /// before the visible ones are carried: an image that left a row
+    /// offscreen goes back to its own look.
+    func refreshLooks() {
+        for id in Array(customLooks.keys) {
+            guard let row = host.presenter.views[id] else { forgetLook(id); continue }
+            mark(id, leadingSymbol(of: row))
+        }
+    }
+
+    /// The row `id`'s leading symbol is `symbol` now: the one it marked
+    /// before is cleared unless another row marks it now, and one another
+    /// row marked is that row's no longer, whatever order rows are carried in.
+    private func mark(_ id: UInt32, _ symbol: NodeView?) {
         var look = customLooks[id] ?? CustomLook()
-        let symbol = leadingSymbol(of: row)
         if look.symbol !== symbol {
-            look.symbol?.listSymbol = false
-            symbol?.listSymbol = true
+            if let old = look.symbol, !customLooks.contains(where: { $0.key != id && $0.value.symbol === old }) { old.listSymbol = false }
+            if let symbol {
+                for (other, seen) in customLooks where other != id && seen.symbol === symbol { customLooks[other]?.symbol = nil }
+                symbol.listSymbol = true
+            }
             look.symbol = symbol
         }
-        let line = lineStart(id)
-        if look.line != line { look.line = line; resized = true }
         customLooks[id] = look
     }
 
@@ -45,14 +64,13 @@ extension GroupedListView {
     /// The row's first shown child when it is the sheet's leading symbol: a
     /// `symbol:` image no accessory names, in the sheet's slot, so an image
     /// its author sized or fitted otherwise, or one a column row holds, is
-    /// left as laid out. (One its author gave exactly the sheet's box and
-    /// fit is drawn as the sheet's: the host sees the rows, not who wrote
-    /// them.)
+    /// left as laid out, as is one whose fit or size its author wrote at
+    /// all (`wrote`: the sheet's rows are the compiler's).
     private func leadingSymbol(of row: NodeView) -> NodeView? {
         let first = row.container.subviews.lazy.compactMap { $0 as? NodeView }.first { $0.style["display"]?.string != "none" }
         guard let image = first, image.kind == "image", (image.props["imageSource"] ?? "").hasPrefix("symbol:"),
               !["chevron.forward", "chevron.right", "checkmark"].contains(image.props["symbolName"] ?? ""),
-              image.style["object_fit"]?.string == "contain" else { return nil }
+              image.style["object_fit"]?.string == "contain", !["object_fit", "width", "height"].contains(where: image.wrote) else { return nil }
         let size = image.grid?.layout.size ?? image.bounds.size
         return abs(size.width - Self.symbolSlot.width) < 0.5 && abs(size.height - Self.symbolSlot.height) < 0.5 ? image : nil
     }

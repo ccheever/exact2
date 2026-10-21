@@ -123,6 +123,11 @@ final class GroupedCustomRowsIOSTests: GroupedListFixture {
         XCTAssertFalse(image.listSymbol, "its author's size")
         p.apply(wireBatch([["op": "frame", "id": 30, "x": 16.0, "y": 20.5, "w": 24.0, "h": 20.0]]))
         XCTAssertTrue(image.listSymbol, "the sheet's slot")
+        // A fit its author wrote, even the sheet's own value, is theirs.
+        p.apply(wireBatch([["op": "style", "id": 30, "style": ["font_size": 17.0, "object_fit": "contain", "written": ["object_fit"]]]]))
+        XCTAssertFalse(image.listSymbol, "its author's contain")
+        p.apply(wireBatch([["op": "style", "id": 30, "style": ["font_size": 17.0, "object_fit": "contain"]]]))
+        XCTAssertTrue(image.listSymbol)
         host(p).lists[1]?.remove()
         XCTAssertFalse(image.listSymbol, "gone with the list")
     }
