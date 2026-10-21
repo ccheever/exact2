@@ -76,6 +76,9 @@ const factsOf = (st: any): Pin => ({ ...(st?.scheme ? { scheme: String(st.scheme
 const factsText = (st: any) => !st ? '' : [st.scheme, ...Object.entries(st.mode ?? {}).map(([a, v]) => `${a}=${v}`), st.rootFontSize && `${st.rootFontSize}px`, st.location].filter(Boolean).join(' · ');
 /** The most copies through a gateway: its one origin's connections (six) less room for reports. */
 export const GATEWAY_MOST = 4;
+// Each build a copy shows, by the copy's label, as the grid last laid its tiles out (the Inspector names a build so).
+const labels = new Map<string, string>();
+export const copyLabel = (build: string) => labels.get(build) ?? '';
 /** A tile's page: its own loopback name on the dev loop's port; through a gateway, the gateway's page. */
 export const tileSrc = (src: URL, name: string, local: boolean) => local ? `${src.protocol}//${name}.localhost:${src.port}${src.pathname}` : src.href;
 const appText = (app: any) => [app?.scheme, ...Object.entries(app?.mode ?? {}).map(([a, v]) => `${a}=${v}`), app?.rootFontSize && `root ${app.rootFontSize}`].filter(Boolean).join(', ');
@@ -187,6 +190,7 @@ export function gridSources(call: Call, builds: () => Map<string, Build & { pinR
     if (view === 'states' && shown) place = shown.location;
     else if (!moving) place = '';
     const views = [];
+    labels.clear();
     for (const t of tiles) {
       const b = of(t);
       let words = '';
@@ -227,6 +231,7 @@ export function gridSources(call: Call, builds: () => Map<string, Build & { pinR
       }
       const st = b?.status, back = reloaded.get(t.name);
       const reason = b?.unsupported ? `${b.unsupported.what}${b.unsupported.detail ? `: ${b.unsupported.detail}` : ''}` : '';
+      if (b) labels.set(b.id, t.label);
       views.push({
         name: t.name, label: t.label, build: b?.id ?? '', ready: !!b,
         src: srcs.get(t.name) ?? '',

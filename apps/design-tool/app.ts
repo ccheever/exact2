@@ -14,7 +14,7 @@ import { componentsOf, levelsOf } from './components';
 import { baseColumns, groupOf, shippedOf, sourceOf, writable } from './base';
 import { pageOf } from './origins';
 import { pairingSources } from './pairing';
-import { gridSources } from './grid';
+import { copyLabel, gridSources } from './grid';
 import { GONE, wire, type Reply } from './wire';
 import { heldEvent, holdingOf, holdNote, letGo, type Holding } from './holds';
 import { paramInfoOf, rescopeOf, tokenOfIn, type ParamInfo, type Rescope } from './rescope';
@@ -334,7 +334,7 @@ function wroteMine(ok: { write?: number; diff?: string }, redoneBy = '') {
 // gap, a new run), then the build events. Each with the revision of the
 // last pin frame it was sent (`pinRevision`, whoever sent it), and the last
 // command it could not apply, kept while that pin is its pin.
-type BuildState = { id: string; host: string; page: string; status: any; plan: string | null; planDigest: string | null; design: string | null; pin: any; pinRevision: number; unsupported: { what: string; detail: string | null } | null; holding: Holding; navRefusals?: number };
+type BuildState = { inspectRefused?: string | null; id: string; host: string; page: string; status: any; plan: string | null; planDigest: string | null; design: string | null; pin: any; pinRevision: number; unsupported: { what: string; detail: string | null } | null; holding: Holding; navRefusals?: number };
 let buildsNow = new Map<string, BuildState>();
 // The latest selection (the server's join, LLP 1122 D5) with what it was
 // made under; a stale one stays stale until a fresh selection (a reload back
@@ -381,13 +381,23 @@ const buildRows = () => [...buildsNow.values()].map(b => {
     unsupported: b.unsupported ? `${b.unsupported.what}${b.unsupported.detail ? `: ${b.unsupported.detail}` : ''}` : '',
   };
 });
+/** The builds whose page refused inspect mode, as the Inspector says them (at most three, then a count): named as
+ * the grid names its copy, else as the Builds list names the build. */
+const refusalRows = () => {
+  const refused = [...buildsNow.values()].filter(b => b.inspectRefused != null);
+  const named = (b: BuildState) => { const copy = copyLabel(b.id); return copy ? `The ${copy} copy (${b.host})` : `${b.host} · ${b.id}${b.page === 'gallery' ? ' · the gallery' : ''}`; };
+  return {
+    refusals: refused.slice(0, 3).map(b => ({ id: b.id, text: `${named(b)} could not turn Inspect on${b.inspectRefused ? `: ${b.inspectRefused}` : ''}. Stop inspecting and Inspect again to retry.` })),
+    refusedMore: Math.max(0, refused.length - 3),
+  };
+};
 const buildOf = (b: any, was?: BuildState): BuildState => {
   // Its hold's last word as the listing moves it, and none asked of a hold gone.
   const id = String(b.id), holding = holdingOf(b, was?.holding), note = holdNote(holding, was?.holding, holdNotes.get(id) ?? '');
   if (note) holdNotes.set(id, note); else holdNotes.delete(id);
   // Another hold, none, or a new frame of the same one (its report forgotten at the server): asked afresh.
   if (!sameHold(holding.hold, was?.holding.hold) || (holding.hold && was?.holding.held && !holding.held)) { forgetHeld(id); asked.delete(id); }
-  return { id, host: String(b.host ?? was?.host ?? ''), page: b.page === 'gallery' ? 'gallery' : '', status: b.status ?? null, plan: b.plan ?? null, planDigest: 'planDigest' in b ? (typeof b.planDigest === 'string' ? b.planDigest : null) : was?.planDigest ?? null, design: b.design ?? null, pin: b.pin ?? null, pinRevision: Number(b.pinRevision ?? 0), unsupported: b.unsupported ?? null, holding, navRefusals: was?.navRefusals };
+  return { id, host: String(b.host ?? was?.host ?? ''), page: b.page === 'gallery' ? 'gallery' : '', status: b.status ?? null, plan: b.plan ?? null, planDigest: 'planDigest' in b ? (typeof b.planDigest === 'string' ? b.planDigest : null) : was?.planDigest ?? null, design: b.design ?? null, pin: b.pin ?? null, pinRevision: Number(b.pinRevision ?? 0), unsupported: b.unsupported ?? null, holding, navRefusals: was?.navRefusals, inspectRefused: was ? was.inspectRefused ?? null : b.unsupported?.what === 'inspect' ? String(b.unsupported.detail ?? '') : null };
 };
 /** The server's list, whole: a build it no longer lists is gone. */
 const takeBuilds = (list: any[], client = '') => {
@@ -395,7 +405,7 @@ const takeBuilds = (list: any[], client = '') => {
   for (const b of list ?? []) owned(b, client);
 };
 // This tool's inspect mode on a build, as its record says (tamber/1.6).
-const owned = (b: any, client: string) => { if (client && b && 'inspector' in b) { if (b.inspector === client) inspectOn.add(String(b.id)); else inspectOn.delete(String(b.id)); } };
+const owned = (b: any, client: string) => { if (client && b && 'inspector' in b) { if (b.inspector === client) { inspectOn.add(String(b.id)); const s = buildsNow.get(String(b.id)); if (s) s.inspectRefused = null; } else inspectOn.delete(String(b.id)); } };
 // The app's design file, as hello names it: what "" reads.
 let designFile = '';
 let lastFiles: Record<string, string> = {};
@@ -1013,7 +1023,7 @@ const sources: Sources = {
     if (client !== polled) { polled = client; inspectOn.clear(); resync = true; }
     const { error, reply, used } = await call('/__tamber/events', epoch ? { after: since, epoch, client, ...(heldAt.epoch === epoch ? { held: heldAt.revision } : {}) } : { after: 0, wait: false, client }, 40000);
     answers += 1;
-    const state = () => ({ answer: answers, seq: place.seq, epoch: place.epoch, files: `${fileChanges} ${digestKey(lastFiles)}`, paced: scrubsOpen.size ? `scrub ${scrubMoves} ${fileChanges} ${commitsTold}` : `answer ${answers}`, clients: `${clientMoves}`, recent, undo: undoStack.length, redo: redoStack.length, session, held, builds: buildRows() });
+    const state = () => ({ answer: answers, seq: place.seq, epoch: place.epoch, files: `${fileChanges} ${digestKey(lastFiles)}`, paced: scrubsOpen.size ? `scrub ${scrubMoves} ${fileChanges} ${commitsTold}` : `answer ${answers}`, clients: `${clientMoves}`, recent, undo: undoStack.length, redo: redoStack.length, session, held, builds: buildRows(), ...refusalRows() });
     if (error) return { ok: false, error, missed: false, ...state() };
     if (gen !== polls) return { ok: true, error: '', missed: false, ...state() };
     const r = reply as { events?: unknown[]; seq?: number; epoch?: string; missed?: boolean; held?: number; proposals?: any[] };
@@ -1102,6 +1112,8 @@ const sources: Sources = {
         // (A navigation its page refused, counted: the grid reloads that copy at the place instead, LLP 1122 T7.)
         if (b && e.what === 'navigate') b.navRefusals = (b.navRefusals ?? 0) + 1;
         if (e.what === 'hold') holdNotes.set(String(e.build), `This build cannot hold that state${e.detail ? `: ${e.detail}` : ''}.`);
+        // A refused inspect, said in the Inspector until the build inspects after all, is asked again, or goes.
+        if (b && e.what === 'inspect') b.inspectRefused = String(e.detail ?? '');
         if (e.what === 'inspect' && selectionNow && String(selectionNow.e.build) === String(e.build)) selectionNow.stale ||= `its page could not inspect it${e.detail ? ` (${e.detail})` : ''}`;
       }
       // A selection joined to source, with what it was made under.
@@ -1109,6 +1121,7 @@ const sources: Sources = {
       // from before the hold moved (or unasked) is asked for again.
       else if (e.event === 'selection') {
         const b = buildsNow.get(String(e.build)), held = e.held && asked.get(String(e.build)) === JSON.stringify(b?.holding.hold ?? null);
+        if (b) b.inspectRefused = null;
         selectionNow = { e: held || !e.held ? e : { ...e, held: undefined }, at: buildKey(b), axes: JSON.stringify(designAxes), scheme: schemeOf(e, b), stale: '', files: i < lastWrite ? '' : digestKey(filesAt), visit: visitOf(e) };
       }
       // Inspect mode's owners as they move (tamber/1.6): this client's on or
@@ -1413,7 +1426,8 @@ const sources: Sources = {
     return error ? { ok: false, error, note: '' } : { ok: true, error: '', note: '' };
   },
   sendInspect: async ([client, on]) => {
-    // Inspect mode on every build that can (LLP 1122 D4), or off.
+    // Inspect mode on every build that can (LLP 1122 D4), or off; asked again, the refusals said before go.
+    for (const b of buildsNow.values()) b.inspectRefused = null;
     const { error, reply } = await call('/__tamber', { method: 'inspect', client, on });
     if (error) return { ok: false, error, note: '' };
     const ok = reply.ok as { builds: string[]; unsupported: string[] };

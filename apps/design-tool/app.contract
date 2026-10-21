@@ -181,6 +181,10 @@ shape Imported
 // root font size from its status, its pin, whether its status has caught
 // up with the last pin frame the server sent it (any client's pin, or a
 // hand-back), and the last command it could not apply.
+shape InspectRefusal
+  id: string
+  text: string
+
 shape Build
   id: string
   host: string
@@ -336,6 +340,9 @@ shape Changes
   session: number
   held: Held[]
   builds: Build[]
+  // The builds whose page refused inspect mode, said in the Inspector (at most three), and how many more.
+  refusals: InspectRefusal[]
+  refusedMore: number
   // The files' digests as the poll has them: what a design read follows
   // (a build's status, a scrub's frame or a proposal moves `seq`, not them).
   files: string
@@ -1685,8 +1692,13 @@ component DesignTool
                   text (i.ok ? i.note : i.error) color=(i.ok ? "-exact-secondary-label" : "-exact-system-red") font="-exact-footnote" testId="inspect-result"
                 case none
                   text "" display="none"
+              if inspected.inspecting
+                for r in changes.refusals key=r.id
+                  text r.text color="-exact-system-orange" font="-exact-footnote" testId=`inspect-refused-${r.id}`
+                if changes.refusedMore > 0
+                  text `and ${changes.refusedMore} more builds could not turn Inspect on` color="-exact-system-orange" font="-exact-footnote" testId="inspect-refused-more"
               if not inspected.has
-                text "Turn on Inspect, then click a view in the canvas or on a device: its source, rows and tokens show here." color="-exact-secondary-label" testId="no-selection"
+                text (inspected.inspecting ? "Click a view in the canvas or on a device: its source, rows and tokens show here." : "Turn on Inspect, then click a view in the canvas or on a device: its source, rows and tokens show here.") color="-exact-secondary-label" testId="no-selection"
               else
                 column gap=4 testId="selection"
                   text inspected.source font="-exact-headline" testId="selection-source"
