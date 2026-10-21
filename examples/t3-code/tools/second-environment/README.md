@@ -71,7 +71,9 @@ hub answers the CLIProxyAPI management calls the server makes (reference
 Limits draws a Codex pool and a Claude pool with a segment per account (`usage-seg-<pool>-<window>-<n>`,
 indexes from 0).
 Two Codex accounts bank reset credits, so their popover has "Use reset" and its confirm; a
-consumed credit empties that account's session window. `stop all` stops the hub and the GitHub API stand-in too.
+consumed credit empties that account's session window. The hub's resets are real times from now, so
+drive Limits with `--epoch now`; at the driver's default epoch (2026-01-01) every window reads as resetting months
+away and its even-pace mark sits at the bar's end. `stop all` stops the hub and the GitHub API stand-in too.
 
 `seed second --pull-request` puts a `gh` stand-in (`gh-standin.mjs`) first on that server's
 `PATH` and adds "Notes branch thread" to `shared-notes` on the branch `feature/notes`; the seed
@@ -94,7 +96,7 @@ stand-in answers the calls the reference server makes for these (`GitHubCli.ts`,
 the stand-in), logs each to `envs/<name>/gh-calls.log` and refuses every other one.
 
 `drive` runs `scripts/agent.mjs macos` on the newest bundle (`EXACT_MAC_BIN` overrides) at
-1280x840. In a fresh store the app opens its welcome wizard: the drive pairs each `--pair`
+1280x840 (`--size`, `--storage` and `--epoch` pass through to the driver). In a fresh store the app opens its welcome wizard: the drive pairs each `--pair`
 environment there (a fresh single-use token each; the driver's echo of it is redacted), then
 finishes the wizard with "Do not import projects", and runs your ops. `--local` also starts
 "This machine" on the fixture's local home and port, with that home's provider directories and
