@@ -53,6 +53,8 @@ shape BrowserPanel
   zoomLabel: string
   zoomSerial: number
   colorScheme: string
+  // The main window's zoom: a desktop tab's layout divides its own zoom by it (useBrowserLayoutZoomFactor).
+  windowZoom: number
   viewportMode: string
   viewportWidth: number
   viewportHeight: number
@@ -99,3 +101,5 @@ shape BrowserMini
   separateWindow: bool
   width: number
   height: number
+  // The main window's zoom (T3BrowserView.swift `window-zoom`).
+  windowZoom: number

@@ -365,8 +365,29 @@ final class BrowserAnnotateTests: XCTestCase {
         XCTAssertNil(overlay(), "cancel() takes the overlay down")
     }
 
+    /// Manager.test.ts (74541bab17) cropAnnotationScreenshot's rows: an offscreen pick is refused, not clamped onto an edge.
+    func testACropKeepsOnlyPixelsOfThePickAndRefusesOneOutOfView() {
+        let size = CGSize(width: 800, height: 600)
+        let crop = { (rect: CGRect?, targets: [CGRect], scale: CGFloat) in T3BrowserAnnotation.cropRegion(rect: rect, targets: targets, scale: scale, size: size) }
+        // Clipped to the snapshot, at whole points, scaled by the page zoom.
+        XCTAssertEqual(crop(CGRect(x: -20, y: 580, width: 100, height: 60), [CGRect(x: 0, y: 590, width: 50, height: 5)], 1), CGRect(x: 0, y: 580, width: 80, height: 20))
+        XCTAssertEqual(crop(CGRect(x: 10.5, y: 10.5, width: 20, height: 20), [CGRect(x: 15, y: 15, width: 10, height: 10)], 2), CGRect(x: 21, y: 21, width: 40, height: 40))
+        XCTAssertEqual(crop(nil, [], 1), CGRect(origin: .zero, size: size))
+        // Every target scrolled out of view: the padding alone overlaps the viewport.
+        XCTAssertNil(crop(CGRect(x: 10, y: -40, width: 100, height: 50), [CGRect(x: 30, y: -30, width: 60, height: 20)], 1))
+        XCTAssertNil(crop(CGRect(x: 780, y: 10, width: 100, height: 50), [CGRect(x: 800, y: 20, width: 60, height: 20)], 1))
+        // A rect wholly past an edge has no pixels, whatever its targets.
+        XCTAssertNil(crop(CGRect(x: 900, y: 10, width: 50, height: 50), [CGRect(x: 10, y: 10, width: 5, height: 5)], 1))
+        // A zero-height line on the top edge paints; one above it does not.
+        XCTAssertNotNil(crop(CGRect(x: 0, y: -20, width: 100, height: 40), [CGRect(x: 10, y: 0, width: 50, height: 0)], 1))
+        XCTAssertNil(crop(CGRect(x: 0, y: -20, width: 100, height: 40), [CGRect(x: 10, y: -1, width: 50, height: 0)], 1))
+        let annotation: [String: Any] = ["elements": [["rect": ["x": 1, "y": 2, "width": 3, "height": 4]]], "regions": [["rect": ["x": 5, "y": 6, "width": 7, "height": 8]]],
+                                         "strokes": [["bounds": ["x": 9, "y": 10, "width": 11, "height": 12]], ["bounds": "bogus"]]]
+        XCTAssertEqual(T3BrowserAnnotation.targetRects(annotation), [CGRect(x: 1, y: 2, width: 3, height: 4), CGRect(x: 5, y: 6, width: 7, height: 8), CGRect(x: 9, y: 10, width: 11, height: 12)])
+    }
+
     func testTheCaptureRectAndThePageWorldsFindingsAreCheckedLikeTheReference() {
-        XCTAssertEqual(T3BrowserAnnotation.normalizeCaptureRect(["x": 10.6, "y": -3, "width": 20.2, "height": 5]), CGRect(x: 10, y: 0, width: 21, height: 5))
+        XCTAssertEqual(T3BrowserAnnotation.normalizeCaptureRect(["x": 10.6, "y": -3, "width": 20.2, "height": 5]), CGRect(x: 10.6, y: -3, width: 20.2, height: 5))
         XCTAssertNil(T3BrowserAnnotation.normalizeCaptureRect(["x": 0, "y": 0, "width": 0, "height": 5]))
         XCTAssertNil(T3BrowserAnnotation.normalizeCaptureRect(["x": 0, "y": 0, "width": "wide", "height": 5]))
         XCTAssertNil(T3BrowserAnnotation.normalizeCaptureRect(nil))
