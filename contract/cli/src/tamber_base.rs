@@ -240,53 +240,48 @@ fn bases_of(folding: &exact_tamber::Folding, name: &str) -> Vec<String> {
     out
 }
 
-/// The base names `name` reaches in each tuple, on its light and dark side
-/// (stage 13 D4, *1.16*), as `resolve` walks a tuple: its line there
-/// (`tamber_levels::line_in`: the `when` holding most, one naming an axis
-/// under `scheme=dark` on the dark side alone), the base names that line
-/// names (an unset one bare, a set one as the token it names), and those
-/// each token it names reaches in the same tuple and side; never a word in
-/// a string. One `{modes, light, dark}` a tuple, in `resolve`'s order.
+/// The base names `name` reaches in each tuple (stage 13 D4, *1.16*), as
+/// the checker folded that tuple (`Checked::by_tuple`): the unset ones its
+/// value there reads bare, the set ones it names, and those of the tokens
+/// it names, in the same tuple, through any chain; a line no tuple selects
+/// in none. One `{modes, light, dark}` a tuple, in `resolve`'s order: a
+/// base name is a length's, whose light and dark sides are one (a `when`
+/// under `scheme=dark` is a colour's alone, `tamber-under-kind`), so the
+/// sides are alike.
 fn bases_by_tuple(folding: &exact_tamber::Folding, name: &str) -> Vec<Value> {
-    let design = &folding.design;
-    let token = |n: &str| design.tokens.iter().find(|t| t.name.value == n);
-    let reach = |tuple: usize, dark: bool| {
+    let index: std::collections::HashMap<&str, &exact_tamber::Checked> = folding
+        .tokens
+        .iter()
+        .map(|t| (t.name.as_str(), t))
+        .collect();
+    let reach = |tuple: usize| {
         let mut out: Vec<String> = Vec::new();
-        let mut seen: Vec<&str> = Vec::new();
+        let mut seen: std::collections::HashSet<&str> = Default::default();
         let mut stack = vec![name];
         while let Some(n) = stack.pop() {
-            if seen.contains(&n) {
+            if !seen.insert(n) {
                 continue;
             }
-            seen.push(n);
-            let Some(t) = token(n) else { continue };
-            let line = contract::tamber_levels::line_in(t, &design.axes, tuple, dark);
-            let words = named_words(line);
-            for w in &words {
-                if scale::is_base(w) && !out.iter().any(|b| b == w) {
-                    out.push(w.to_string());
+            let Some((names, bases)) = index.get(n).and_then(|t| t.by_tuple.get(tuple)) else {
+                continue;
+            };
+            for b in bases
+                .iter()
+                .chain(names.iter().filter(|m| scale::is_base(m)))
+            {
+                if !out.contains(b) {
+                    out.push(b.clone());
                 }
             }
             // (named tokens next, in the order written)
-            stack.extend(words.iter().rev().filter(|w| token(w).is_some()));
+            stack.extend(names.iter().rev().map(String::as_str));
         }
         out
     };
     (0..folding.tuples)
         .map(|tuple| {
-            json!({"modes": modes_of(&design.axes, tuple), "light": reach(tuple, false), "dark": reach(tuple, true)})
-        })
-        .collect()
-}
-
-/// The words a value text writes outside its quoted strings, as names are
-/// written (a family's `"space.md"` names nothing).
-fn named_words(text: &str) -> Vec<&str> {
-    text.split('"')
-        .step_by(2)
-        .flat_map(|part| {
-            part.split(|c: char| !(c.is_ascii_alphanumeric() || "-_.".contains(c)))
-                .filter(|w| !w.is_empty())
+            let bases = reach(tuple);
+            json!({"modes": modes_of(&folding.design.axes, tuple), "light": bases, "dark": bases})
         })
         .collect()
 }

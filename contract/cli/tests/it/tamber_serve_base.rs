@@ -462,3 +462,45 @@ fn a_shadow_over_base_names_answers_its_lengths_as_written() {
     assert_eq!(one["lengths"], json!([0.0, 1.0, 2.0]), "{plain}");
     assert!(one.get("length_texts").is_none(), "{plain}");
 }
+
+/// `bases_by_tuple` is what the checker resolved in each tuple (stage 13
+/// D4, round 1): a function's name, a shadow's `inset`, a type's style and
+/// a quoted family are no references, though a token is named like each.
+#[test]
+fn bases_by_tuple_is_what_each_tuple_resolves() {
+    let design = "tamber t
+
+axes
+  density = roomy | tight
+
+theme
+  calc = space.sm
+  inset = space.sm
+  italic = space.sm
+  pad.c = calc(space.md * 2)
+  shade: box-shadow = inset 0 space.md 8px #000000
+  body.i: type = italic space.lg
+  body.q: type = space.lg 'space.md'
+  mixed = 4px
+    when density=tight: calc(space.xs * 2)
+";
+    let dir = app("base-by-tuple", design);
+    let mut s = Serve::start(&dir, &[]);
+    let by = |s: &mut Serve, name: &str| {
+        s.ask(json!({"method": "explain", "token": name})).0["ok"]["bases_by_tuple"].clone()
+    };
+    let both = |a: &[&str], b: &[&str]| {
+        json!([
+            {"modes": {"density": "roomy"}, "light": a, "dark": a},
+            {"modes": {"density": "tight"}, "light": b, "dark": b},
+        ])
+    };
+    assert_eq!(by(&mut s, "pad.c"), both(&["space.md"], &["space.md"]));
+    assert_eq!(by(&mut s, "shade"), both(&["space.md"], &["space.md"]));
+    assert_eq!(by(&mut s, "body.i"), both(&["space.lg"], &["space.lg"]));
+    assert_eq!(by(&mut s, "body.q"), both(&["space.lg"], &["space.lg"]));
+    // Each tuple its own line.
+    assert_eq!(by(&mut s, "mixed"), both(&[], &["space.xs"]));
+    drop(s);
+    let _ = std::fs::remove_dir_all(&dir);
+}

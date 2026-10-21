@@ -630,11 +630,13 @@ tuple:
   each up in `describe`'s `base`). A base name read from a file that is not the design's, or
   a design that is refused, is refused as any token is.
   Beside it, `bases_by_tuple` (*1.16*, stage 13 D4): one `{modes, light, dark}` a tuple, in
-  `resolve`'s tuple order with its `modes`, each side the base names that tuple's own line reaches
-  (the `when` holding most, one naming an axis `under scheme=dark` on the dark side alone) and
-  those the tokens it names reach in the same tuple and side, a branch no tuple selects left out
-  (`label.gap = 4px` / `when density=roomy: card.pad`, with `card.pad`'s `when density=tight:
-  space.sm`, reaches `space.sm` in no tuple, though `bases` lists it).
+  `resolve`'s tuple order with its `modes`, each side the base names the token's value in that
+  tuple reaches as the checker folds it there (an unset one read bare, a set one as the token it
+  names) and those of the tokens it names in the same tuple, a branch no tuple selects left out,
+  never a function's name, a keyword or a word in a string (`label.gap = 4px` / `when
+  density=roomy: card.pad`, with `card.pad`'s `when density=tight: space.sm`, reaches `space.sm`
+  in no tuple, though `bases` lists it). A base name is a length's, whose light and dark sides are
+  one (a `when` under `scheme=dark` is a colour's alone), so the two sides are alike.
 
 `resolve` gives a residual's stored form and its fallback, labelled; its concrete value on a
 given build (`resolve-on`) comes with LLP 1122 T2b, from that build's `selected` report, as its
