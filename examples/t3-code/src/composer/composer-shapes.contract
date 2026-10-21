@@ -133,7 +133,10 @@ shape ComposerBranches
   envMachine: string
   envMachineLabel: string
   envOptions: RunOnOption[]
+  // "Add to another machine": the machines the project can be cloned onto (useAddProjectTargets).
+  envAdd: RunOnOption[]
   envMenuWidth: number
+  envAddMenuWidth: number
   // The host-resource load the root's balanceLoad task sends ("" when none is due).
   balanceFetch: string
   originShown: bool

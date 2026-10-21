@@ -18,11 +18,16 @@ function fixture(comment: string) {
   return client;
 }
 
-for (const kind of ['approval', 'user_input']) test(`an unsaved comment survives a ${kind} replacing the composer`, async () => {
+/** A pending question, which takes the composer as its answer. */
+function ask(client: T3Client) {
+  client.projection.runtimeRequests = [{ id: 'request', status: 'pending', kind: 'user_input' }];
+  client.projection.turnItems = [{ type: 'user_input_request', requestId: 'request', questions: [{ id: 'q', question: 'Next?', options: [] }] }];
+}
+
+test('an unsaved comment survives a question replacing the composer', async () => {
   const client = fixture('Check the edge cases');
   expect(preserveCitationDraft(client)).toBe(false);
-  client.projection.runtimeRequests = [{ id: 'request', status: 'pending', kind }];
-  if (kind === 'user_input') client.projection.turnItems = [{ type: 'user_input_request', requestId: 'request', questions: [{ id: 'q', question: 'Next?', options: [] }] }];
+  ask(client);
   await composerEditorView(client, null);
   const href = /\[Assistant quote\]\(([^)]+)\)/.exec(client.draft)![1]!;
   expect(parseAssistantCitationHref(href)?.comment).toBe('Check the edge cases');
@@ -31,20 +36,28 @@ for (const kind of ['approval', 'user_input']) test(`an unsaved comment survives
   expect(preserveCitationDraft(client)).toBe(false);
 });
 
+test('a pending approval leaves the composer and its unsaved comment alone (a93b03c8a5)', async () => {
+  const client = fixture('Check the edge cases');
+  client.projection.runtimeRequests = [{ id: 'request', status: 'pending', kind: 'approval' }];
+  await composerEditorView(client, null);
+  expect(client.draft).toBe(`Review ${link} please`);
+  expect(preserveCitationDraft(client)).toBe(false);
+});
+
 test('a later edit, another thread, cancellation and over-length comments cannot overwrite the prompt', () => {
   const edited = fixture('comment');
   edited.local.drafts[edited.draftKey] = 'newer prompt';
-  edited.projection.runtimeRequests = [{ status: 'pending' }];
+  ask(edited);
   expect(preserveCitationDraft(edited)).toBe(false);
   expect(edited.draft).toBe('newer prompt');
   const other = fixture('comment');
-  other.threadId = 'another'; other.projection.runtimeRequests = [{ status: 'pending' }];
+  other.threadId = 'another'; ask(other);
   expect(preserveCitationDraft(other)).toBe(false);
   expect(other.draft).toBe('');
   for (const comment of ['cancelled', 'x'.repeat(8001)]) {
     const client = fixture(comment);
     if (comment === 'cancelled') clearCitationDraft(client, 7);
-    client.projection.runtimeRequests = [{ status: 'pending' }];
+    ask(client);
     expect(preserveCitationDraft(client)).toBe(false);
     expect(client.draft).toBe(`Review ${link} please`);
   }
@@ -55,7 +68,7 @@ test('identical quote chips keep separate comments through a request replacement
   client.local.drafts[client.draftKey] = `${link} and ${link}`;
   registerCitationDraft(client, { open: true, kind: 'citation', surface: 'composer', seq: 8, owner: client.snapshotOwner, link, start: link.length + 5 });
   noteCitationDraft(client, 8, 'second chip');
-  client.projection.runtimeRequests = [{ status: 'pending' }];
+  ask(client);
   await composerEditorView(client, null);
   const comments = [...client.draft.matchAll(/\[Assistant quote\]\(([^)]+)\)/g)].map(match => parseAssistantCitationHref(match[1]!)?.comment);
   expect(comments).toEqual([undefined, 'second chip']);
@@ -63,7 +76,7 @@ test('identical quote chips keep separate comments through a request replacement
 
 test('the last input still commits if a request removes the native editor before its input operation reaches the data module', async () => {
   const client = fixture('earlier input');
-  client.projection.runtimeRequests = [{ status: 'pending' }];
+  ask(client);
   noteCitationDraft(client, 7, 'last inpu');
   noteCitationDraft(client, 7, 'last input');
   const href = /\[Assistant quote\]\(([^)]+)\)/.exec(client.draft)![1]!;
@@ -77,12 +90,11 @@ test('background authentication requests do not replace the composer or save its
   expect(client.draft).toBe(`Review ${link} please`);
 });
 
-for (const kind of ['approval', 'user_input']) test(`the window retires its typed copy after a citation rewrite through ${kind}`, async () => {
+test('the window retires its typed copy after a citation rewrite through a question', async () => {
   const client = fixture('Retain this unsaved review note.');
   const draft = client.draft, composerOwner = 'current-thread';
   const draftOwner = composerOwner + requestPresentation(client).requestKey;
-  client.projection.runtimeRequests = [{ id: 'request', status: 'pending', kind }];
-  if (kind === 'user_input') client.projection.turnItems = [{ type: 'user_input_request', requestId: 'request', questions: [{ id: 'q', question: 'Next?', options: [] }] }];
+  ask(client);
   await composerEditorView(client, null);
   client.projection.runtimeRequests = [];
   const data = { requestKey: requestPresentation(client).requestKey, draft: client.draft };

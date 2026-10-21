@@ -22,7 +22,8 @@ import { turnItemHasDetail, turnItemNeedsDetailFetch } from './timeline-item-det
 import { arr, num, obj, str, type Activity, type Message, type Obj } from '../client/domain';
 import { ClientError, activeRun, type Files, type Native } from '../client/protocol';
 import type { T3Client } from '../client/client';
-import { availableRevertTurnCounts, deriveRows, findRevertCheckpoint, rowKey, turnFoldRunIds, type Row, type RowInput } from './timeline-rows';
+import { latestUnheldRun } from './worktree-card-run';
+import { availableRevertTurnCounts, deriveRows, findRevertCheckpoint, rowKey, runTurnEnded, turnFoldRunIds, type Row, type RowInput } from './timeline-rows';
 import { displayFailed, entryDisplayLabel, entryIcon, inspectorDetail, isToolLike, liveThoughtLine, thoughtText, threadReadLabel, workspaceRelativePath, type WorkEntry } from './timeline-worklog';
 import { eventRow } from './timeline-events';
 import { messageCodeBlocks } from '../highlight/timeline-highlight';
@@ -352,6 +353,7 @@ function rowInput(client: T3Client, setup = threadWorktreeSetup(client)): RowInp
   const provider = arr(client.config.providers).find(provider => provider.instanceId === obj(obj(projection.thread).modelSelection).instanceId);
   return { rows: client.thread ? arr(projection.visibleTurnItems) : [], runs, attempts: arr(projection.attempts), nodes: arr(projection.nodes),
     checkpoints: arr(projection.checkpoints), isWorking: !!running || runless !== '', runningRunId: str(running?.id), latestRun: runs[runs.length - 1] ?? null,
+    latestRunTurnEnded: runTurnEnded(projection, latestUnheldRun(projection)), // deriveLatestThreadRun's run, without the usage-limit presentation
     // orchestrationV2RunWorkStartedAt: a wake run keeps the start of the work it continues.
     activeStartedAt: running ? str(running.workStartedAt ?? running.startedAt ?? running.requestedAt) : runless, runlessWorkActive: runless !== '', worktreeSetup: setup.snapshot,
     expandedRuns: threadFindExpanded(client) ? new Set(runs.map(run => str(run.id))) : open('fold'), expandedAttempts: threadFindExpanded(client) ? new Set(arr(projection.attempts).map(attempt => str(attempt.id))) : open('attempt'), expandedGroups: open('group'), root, rollback: provider?.supportsConversationRollback !== false,
@@ -519,7 +521,7 @@ export function userMessagePresentation(item: Obj): { text: string; attribution:
 
 type RowActivity = Activity & Required<Pick<Activity, 'tone' | 'ok' | 'reasoning' | 'expandable' | 'detail' | 'status' | 'targetId' | 'answer' | 'retryRunId' | 'outputState' | 'detailOpen' | 'iconLight' | 'iconDark'
   | 'results' | 'changePath' | 'stats' | 'additions' | 'deletions' | 'diffRunId' | 'diffPath' | 'startedMs' | 'initials' | 'driverIcon' | 'targetLabel' | 'modelLine' | 'effort' | 'speed' | 'speedLabel'
-  | 'replArguments' | 'linkPrefix' | 'linkTitle' | 'linkThreadId' | 'terminal' | 'terminalTruncated' | 'terminalSpans' | 'toolImages'>> & { timeTip: string };
+  | 'replArguments' | 'linkPrefix' | 'linkTitle' | 'linkThreadId' | 'badge' | 'badgeColor' | 'terminal' | 'terminalTruncated' | 'terminalSpans' | 'toolImages'>> & { timeTip: string };
 const blankActivity = (activity: Activity): RowActivity => ({
   tone: '', ok: true, reasoning: false, expandable: true, detail: '', status: '', targetId: '', answer: '', retryRunId: '', timeTip: '',
   ...activity, replArguments: activity.replArguments ?? [], terminal: activity.terminal ?? false, terminalTruncated: activity.terminalTruncated ?? false, terminalSpans: activity.terminalSpans ?? [], toolImages: activity.toolImages ?? [], outputState: activity.outputState ?? '', detailOpen: activity.detailOpen ?? false, iconLight: activity.iconLight ?? '', iconDark: activity.iconDark ?? '',
@@ -527,7 +529,7 @@ const blankActivity = (activity: Activity): RowActivity => ({
   deletions: activity.deletions ?? 0, diffRunId: activity.diffRunId ?? '', diffPath: activity.diffPath ?? '', startedMs: activity.startedMs ?? 0,
   initials: activity.initials ?? '', driverIcon: activity.driverIcon ?? '', targetLabel: activity.targetLabel ?? '',
   modelLine: activity.modelLine ?? '', effort: activity.effort ?? '', speed: activity.speed ?? '', speedLabel: activity.speedLabel ?? '',
-  linkPrefix: activity.linkPrefix ?? '', linkTitle: activity.linkTitle ?? '', linkThreadId: activity.linkThreadId ?? '' });
+  linkPrefix: activity.linkPrefix ?? '', linkTitle: activity.linkTitle ?? '', linkThreadId: activity.linkThreadId ?? '', badge: activity.badge ?? '', badgeColor: activity.badgeColor ?? '' });
 
 /**
  * Timeline rows as Contract draws them, every Message field present. T3 shows

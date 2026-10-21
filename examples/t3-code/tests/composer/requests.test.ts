@@ -78,11 +78,10 @@ describe('approvals', () => {
     expect((await command('approval', 'a', 'accept')).message).toBe('This approval is no longer live.');
     expect(committed).toHaveLength(0);
   });
-  test('approve dispatches only advertised decisions and blocks composer sends', async () => {
+  test('approve dispatches only advertised decisions', async () => {
     const { command, committed } = harness({
       runtimeRequests: [{ id: 'a', kind: 'command', status: 'pending', responseCapability: { type: 'live' } }],
       turnItems: [{ id: 'x', type: 'approval_request', requestId: 'a', prompt: 'run ls' }] });
-    expect((await command('send', '', 'hello')).message).toBe('Resolve this approval request to continue.');
     expect((await command('approval', 'a', 'acceptAlways')).message).toContain('approval options offered');
     await command('approval', 'a', 'acceptForSession');
     expect(committed).toEqual([{ type: 'runtime-request.respond', threadId: 't1', requestId: 'a', decision: 'acceptForSession', commandId: 'id-1' }]);

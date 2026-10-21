@@ -1,10 +1,12 @@
-// Hosts too old for this client (T3 Code 1e2ecbd975, MIT, see LICENSE-T3: connection/compatibility.ts,
+// Hosts too old for this client (T3 Code 74541bab17, MIT, see LICENSE-T3: connection/compatibility.ts,
 // onboarding.ts preparePairingRegistration, outdatedHostUpdate.ts updateOutdatedHost, resolver.ts
-// prepareForUpdate, state/server.ts updateServer). A host whose orchestration protocol is older cannot
-// open a session, but one that can update itself is still paired (saved switched off) and can be
-// updated from here: a bare socket without the protocol gate carries only the self-update RPCs, whose
-// wire shape has not changed across protocol versions. Then the descriptor is polled until the host
-// answers protocol 2, and the environment is switched back on. A connected server that is only older
+// prepareForUpdate, registry.ts setCompatibility, state/server.ts updateServer). A host whose orchestration
+// protocol is older cannot open a session, but one that can update itself is still paired and can be
+// updated from here. Incompatibility pauses its connection without changing the saved on/off choice: the
+// session stops as unsupported. A bare socket without the protocol gate carries only the self-update RPCs,
+// whose wire shape has not changed across protocol versions. Then the descriptor is polled until the host
+// answers protocol 2, the environment is switched on and its stopped sessions connect again (`compatible`).
+// A host already updated by hand skips the update and is switched back on at once. A connected server that is only older
 // than this client runs the same job (`mode: "connected"`): its socket names protocol 2, the request
 // carries the config's capabilities and extra payload, and the restart is proven by the descriptor
 // reporting the target version.
@@ -42,7 +44,11 @@ interface Run {
   label: string; selfUpdate: string; deadline: number; nextPollAt: number; stepRunning: boolean;
 }
 
-export interface OutdatedHooks { catalog: Catalog; http: Http; now(): number; wall(now: number): string; changed(): void }
+export interface OutdatedHooks {
+  catalog: Catalog; http: Http; now(): number; wall(now: number): string; changed(): void;
+  /** setCompatibility(environment, null) on a switched-on environment: the sessions an incompatible server stopped connect again. */
+  compatible(environment: string): void;
+}
 
 export class OutdatedHosts {
   jobs: Record<string, Job> = {};
@@ -131,7 +137,8 @@ export class OutdatedHosts {
     if (grant.token_type !== 'Bearer' || !str(grant.access_token)) throw new TransportFailure('Protocol', 'The server did not issue a bearer access token.');
     this.hooks.catalog.saveToken(str(grant.access_token), origin, environment);
     this.hooks.catalog.remember(origin, descriptor, this.hooks.wall(this.hooks.now()));
-    this.hooks.catalog.setEnabled(environment, false);
+    // registerPairingConnection: a pairing switches the environment on; its connection then stops as unsupported.
+    this.hooks.catalog.setEnabled(environment, true);
     this.hooks.changed();
     return { origin, environmentId: environment, label, serverVersion: str(descriptor.serverVersion), message: blocked.message, serverUpdateRequired: true };
   }
@@ -218,6 +225,13 @@ export class OutdatedHosts {
     run.label = label;
     if (!this.jobs[run.key]?.label) this.setJob(run.key, { label });
     if (str(descriptor.environmentId) !== run.environment) { this.fail(run.key, `${label} is a different environment now. Pair with it again.`); return ''; }
+    // A host updated by hand is already compatible, and a bare socket would be refused with 426, so there is nothing to update.
+    if (!run.connected && protocolOf(descriptor) === PROTOCOL_VERSION) {
+      this.switchBackOn(run, descriptor);
+      this.end(run.key);
+      this.setJob(run.key, { status: 'done', resultVersion: str(descriptor.serverVersion) });
+      return '';
+    }
     // A connected server's config names its capabilities; an outdated host's descriptor does.
     const capabilities = run.connected && Object.keys(run.capabilities).length ? run.capabilities : obj(descriptor.capabilities);
     if (!canSelfUpdate({ capabilities })) { this.fail(run.key, `Update T3 Code on ${label} manually; it cannot update itself.`); return ''; }
@@ -315,6 +329,13 @@ export class OutdatedHosts {
     this.setJob(run.key, { stage: 'resuming' });
   }
 
+  /** updateOutdatedHost's switchBackOn: the new descriptor, the switch on, and a fresh connection. */
+  private switchBackOn(run: Run, descriptor: Obj): void {
+    this.hooks.catalog.remember(run.origin, descriptor, this.hooks.wall(this.hooks.now()));
+    this.hooks.catalog.setEnabled(run.environment, true);
+    this.hooks.compatible(run.environment);
+  }
+
   private async poll(run: Run): Promise<void> {
     let descriptor: Obj | null = null;
     try { descriptor = await this.descriptor(run.origin); } catch (error) { if (letGoAbort(error)) throw error; descriptor = null; }
@@ -325,8 +346,7 @@ export class OutdatedHosts {
       if (this.hooks.now() >= run.deadline) { this.fail(run.key, `The server did not resume on t3@${run.target}.`); return; }
     } else {
       if (descriptor && protocolOf(descriptor) === PROTOCOL_VERSION) {
-        this.hooks.catalog.remember(run.origin, descriptor, this.hooks.wall(this.hooks.now()));
-        this.hooks.catalog.setEnabled(run.environment, true);
+        this.switchBackOn(run, descriptor);
         this.end(run.key);
         this.setJob(run.key, { status: 'done', resultVersion: str(descriptor.serverVersion) });
         return;

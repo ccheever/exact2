@@ -178,7 +178,7 @@ describe('Thread details › Automations', () => {
 });
 
 describe('tracked clones on the client', () => {
-  test('the viewed draft shows the banner and cannot send; other drafts get the toast', async () => {
+  test('the viewed draft shows the banner and cannot send; once viewed, only a failure toasts (74541bab17)', async () => {
     const { client, calls } = fakeClient();
     client.threadId = '';
     await watchLive(client, native);
@@ -189,8 +189,12 @@ describe('tracked clones on the client', () => {
     await cloneToasts(client, native);
     expect(toasts(client).some(toast => toast.title === 'Cloning pr-demo')).toBe(false);
     client.projectId = 'p2';
+    liveEvent(client, { key: PROJECT_CLONES_KEY, subscriptionId: subscriptionOf(calls, 'subscribeProjectClones'), value: [{ projectId: 'p1', destinationPath: '/work/pr-demo', repository: null, phase: 'running', stage: 'receiving', percent: 40, detail: null, error: null }] });
     await cloneToasts(client, native);
-    expect(toasts(client).find(toast => toast.title === 'Cloning pr-demo')).toMatchObject({ kind: 'loading', timeoutMs: 0, action: { label: 'Cancel', op: 'shell:clone-cancel', id: 'p1', value: 'env' } });
+    expect(toasts(client).some(toast => toast.title === 'Cloning pr-demo')).toBe(false);
+    liveEvent(client, { key: PROJECT_CLONES_KEY, subscriptionId: subscriptionOf(calls, 'subscribeProjectClones'), value: [{ projectId: 'p1', destinationPath: '/work/pr-demo', repository: null, phase: 'failed', stage: 'receiving', percent: 40, detail: null, error: 'boom' }] });
+    await cloneToasts(client, native);
+    expect(toasts(client).find(toast => toast.title === 'Failed to clone pr-demo')).toMatchObject({ kind: 'error', timeoutMs: 0, action: { label: 'Retry', op: 'shell:clone-retry', id: 'p1', value: 'env' } });
   });
   test('Cancel and Retry reach projectClone.*; Remove project deletes without force and leaves the draft', async () => {
     const { client, calls } = fakeClient();
