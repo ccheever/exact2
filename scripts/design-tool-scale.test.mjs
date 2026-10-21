@@ -76,9 +76,9 @@ test('stage 11 on a real server: the base scale read-only with each shipped plat
     const box = id => laid.nodes.find(n => (n.props?.testId ?? n.testId) === id);
     const cells = shipped.map(c => box(`token-base-cell-space.md-${c}`));
     expect(cells.every(Boolean)).toBe(true);
-    for (let i = 1; i < cells.length; i++) { expect(cells[i].x).toBeGreaterThan(cells[i - 1].x); expect(cells[i].y).toBeLessThan(cells[0].y + cells[0].h); expect(cells[0].y).toBeLessThan(cells[i].y + cells[i].h); }
+    for (let i = 1; i < cells.length; i++) { expect(cells[i].x).toBeGreaterThanOrEqual(cells[i - 1].x + cells[i - 1].w); expect(cells[i].y).toBeLessThan(cells[0].y + cells[0].h); expect(cells[0].y).toBeLessThan(cells[i].y + cells[i].h); }
     expect(cells[0].x).toBeGreaterThan(box('token-source-space.md').x);
-    expect(box('set-for-app-space.md').x).toBeGreaterThan(cells.at(-1).x);
+    expect(box('set-for-app-space.md').x).toBeGreaterThanOrEqual(cells.at(-1).x + cells.at(-1).w);
     const node = (t, id) => t.nodes.find(n => n.props.testId === id);
     const text = (t, id) => node(t, id)?.props.text;
     const [first, expanded, setAsked, setDone, setCell, backDone, undone, pkgCell, pkgSet, pkgBack, aliasCell, overCell] = trees;

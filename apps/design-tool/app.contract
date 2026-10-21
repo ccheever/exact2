@@ -948,6 +948,13 @@ component DesignTool
   task fading when lit.names.length > 0 key=`${lit.epoch}-${lit.file}-${lit.seq}`
     after(3000, fade)
   // Each answer asks again: at once after one, after 3 s after a failure.
+  // The rows nothing sets that the Inspector folds now (the selection's, and its held state's): never the row being
+  // edited, none once shown for this selection.
+  derive foldedRows = initialFor == inspected.key ? [] : inspected.rows.filter(r => r.initial and not (editTarget != "" and (editTarget == r.edit or editTarget == r.state))).map(r => r.name)
+  derive foldedHeld = initialFor == inspected.key ? [] : inspected.heldRows.filter(r => r.initial and not (editTarget != "" and (editTarget == r.edit or editTarget == r.state))).map(r => r.name)
+  // Another selection folds the rows nothing sets again: they are opened for one selection at a time.
+  task refold when initialFor != "" and initialFor != inspected.key key=inspected.key
+    after(1, foldAgain)
   task follow when not pending(changes) and changes.ok key=changes.answer
     after(1, advance)
   task retry when not pending(changes) and not changes.ok key=changes.answer
@@ -1118,6 +1125,8 @@ component DesignTool
       send inspectSent = sendInspect(client, not inspected.inspecting)
   action showInitial(key: string)
     initialFor = key
+  action foldAgain
+    initialFor = ""
   action editState(target: string, value: string)
     // A style's state part row (T4): `set-state`, which rebuilds, so no scrub.
     if scrubShown
@@ -1724,7 +1733,7 @@ component DesignTool
                           text ""
                       if inspected.heldNote != ""
                         text inspected.heldNote color="-exact-system-orange" font="-exact-footnote" testId="held-note"
-                      for r in inspected.heldRows.filter(r => not r.initial or initialFor == inspected.key or (editTarget != "" and (editTarget == r.edit or editTarget == r.state))) key=r.name
+                      for r in inspected.heldRows.filter(r => not foldedHeld.includes(r.name)) key=r.name
                         row gap=8 align-items="center" flex-wrap="wrap" testId=`heldrow-${r.name}`
                           text r.name font="-exact-footnote" width="9rem"
                           text r.value font="-exact-caption1" font-family="ui-monospace, monospace" flex=1 min-width=0
@@ -1740,11 +1749,11 @@ component DesignTool
                               text r.editLabel
                           if r.reason != ""
                             text r.reason color="-exact-secondary-label" font="-exact-caption1" testId=`heldrow-reason-${r.name}`
-                      if initialFor != inspected.key and inspected.heldRows.filter(r => r.initial and not (editTarget != "" and (editTarget == r.edit or editTarget == r.state))).length > 0
-                        button press=showInitial(inspected.key) aria-label=`Show ${inspected.heldRows.filter(r => r.initial and not (editTarget != "" and (editTarget == r.edit or editTarget == r.state))).length} more held rows nothing sets (initial values)` testId="heldrow-initial"
-                          text `${inspected.heldRows.filter(r => r.initial and not (editTarget != "" and (editTarget == r.edit or editTarget == r.state))).length} more rows nothing sets (initial values)`
+                      if foldedHeld.length > 0
+                        button press=showInitial(inspected.key) aria-label=`Show ${foldedHeld.length} more held rows nothing sets (initial values)` testId="heldrow-initial"
+                          text `${foldedHeld.length} more rows nothing sets (initial values)`
                   // Rows nothing sets, folded behind one control, but never the row being edited.
-                  for r in inspected.rows.filter(r => not r.initial or initialFor == inspected.key or (editTarget != "" and (editTarget == r.edit or editTarget == r.state))) key=r.name
+                  for r in inspected.rows.filter(r => not foldedRows.includes(r.name)) key=r.name
                     row gap=8 align-items="center" flex-wrap="wrap" testId=`selrow-${r.name}`
                       text r.name font="-exact-footnote" width="9rem"
                       text r.value font="-exact-caption1" font-family="ui-monospace, monospace" flex=1 min-width=0
@@ -1781,9 +1790,9 @@ component DesignTool
                           text "Detach to this template"
                       if r.rung == "" and r.reason != ""
                         text r.reason color="-exact-secondary-label" font="-exact-caption1" testId=`selrow-reason-${r.name}`
-                  if initialFor != inspected.key and inspected.rows.filter(r => r.initial and not (editTarget != "" and (editTarget == r.edit or editTarget == r.state))).length > 0
-                    button press=showInitial(inspected.key) aria-label=`Show ${inspected.rows.filter(r => r.initial and not (editTarget != "" and (editTarget == r.edit or editTarget == r.state))).length} more rows nothing sets (initial values)` testId="selrow-initial"
-                      text `${inspected.rows.filter(r => r.initial and not (editTarget != "" and (editTarget == r.edit or editTarget == r.state))).length} more rows nothing sets (initial values)`
+                  if foldedRows.length > 0
+                    button press=showInitial(inspected.key) aria-label=`Show ${foldedRows.length} more rows nothing sets (initial values)` testId="selrow-initial"
+                      text `${foldedRows.length} more rows nothing sets (initial values)`
               if impactToken != ""
                 column gap=2 testId="impact"
                   row gap=8 align-items="center"

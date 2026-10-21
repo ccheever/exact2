@@ -87,7 +87,7 @@ export function selectionView(s: Selected | null, stale: string, axes: Axis[], c
   // A held row's source is the place its part is written (an object), a base row's a word.
   const partAt = (x: any) => `${String(x.file ?? '').split('/').pop()}:${x.line}`;
   const row = (r: any) => ({
-    // Nothing sets it: the Inspector folds it, unless it is the row in play (finding #3 of the clone's pass).
+    // Nothing sets it (its initial value): the Inspector folds it behind a count, unless it is the row being edited.
     initial: r.source === 'initial',
     name: r.state ? `:${r.state} ${ACTIVE[String(r.name)] ?? rowName(String(r.name))}` : rowName(String(r.name)), value: typeof r.value === 'string' ? r.value : JSON.stringify(r.value),
     source: r.source && typeof r.source === 'object' ? `${r.state ? `:${r.state} part at ` : ''}${partAt(r.source)}` : `${SOURCES[r.source] ?? String(r.source)}${r.source === 'inherited' && r.from != null ? ` from #${r.from}` : ''}${r.origin ? ` (${r.origin})` : ''}${r.token?.implied ? ' · a mode boundary' : ''}`,
