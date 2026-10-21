@@ -398,6 +398,10 @@ public final class ExactSession {
     var clockTimer: Timer?
     /// The runner deadline `clockTimer` fires for.
     var clockDue: Double?
+    /// The last two timer advances changed nothing the presenter shows,
+    /// and no batch has applied since (`scheduleClock`).
+    var timersQuiet: Bool { quietTimerAdvances >= 2 }
+    private(set) var quietTimerAdvances = 0
     /// An advance of a deadline already due is running (`advanceIfDue`)
     var advancingDue = false
     /// The agent's clock (milliseconds) when the driver owns time; nil runs
@@ -1008,7 +1012,8 @@ public final class ExactSession {
     /// before its handler ran is reconciled by the pass (a refused tab), and
     /// the agent's clock seeks native animations through it. Slices published
     /// before it land first (T4), and it is asked again (a fling's fills).
-    func applyUnlessEmpty(_ batch: Batch, scrolled: Bool = false) {
+    /// `timer`: a clock advance's, which `timersQuiet` counts.
+    func applyUnlessEmpty(_ batch: Batch, scrolled: Bool = false, timer: Bool = false) {
         guard !batch.busy else { return }
         guard !applying else { apply(batch); return }
         if !landing, ownerInFlight, hasPublished {
@@ -1020,6 +1025,7 @@ public final class ExactSession {
         // Its transactions are reported once (LLP 1079 D3): account for them, at no presentation cost.
         sampler?.batch(batch.seq, ms: 0)
         if let q = batch.seq { natives.hatchClock.seq = q.1 } // its commits are the hatches' latest
+        if timer { quietTimerAdvances = min(quietTimerAdvances + 1, 2) }
         timerDue = batch.timerDueMs
         scheduleClock(due: batch.timerDueMs)
         // What the pass did that a scroll moves (`scrolledWithoutPass`).
@@ -1049,6 +1055,7 @@ public final class ExactSession {
     package func apply(_ batch: Batch) {
         guard state != .destroyed, !batch.busy else { return }
         appliedBatches += 1
+        quietTimerAdvances = 0
         // A slice the owner committed before this batch applies first (T4).
         if !applying, !landing, ownerInFlight, hasPublished {
             // What the landed slices leave owed is asked after this batch,
