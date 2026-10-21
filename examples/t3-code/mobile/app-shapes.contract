@@ -83,10 +83,6 @@ shape Viewport
   height: number
   prefersColorScheme: string
   prefersReducedMotion: bool
-shape PairingFields
-  source: string
-  host: string
-  code: string
 shape Theme
   screen: string
   sheet: string
