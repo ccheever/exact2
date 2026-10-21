@@ -380,6 +380,27 @@ final class ContentOwnersIOSTests: XCTestCase {
                        .init(top: 106, right: 0, bottom: 83, left: 0), "the whole view's route: the bar and the status bar")
     }
 
+    func testASheetScrollsToItsBottomRegardlessOfTheDocumentsViewportFit() throws {
+        let size = UIScreen.main.bounds.size
+        let session = try fixture("owner-cover-sheet", size, plan: "EXACT_COVER_SCROLL_PLAN")
+        let p = session.presenter
+        p.press(try node(session, "open-picker").id)
+        _ = try mountSheet(at: CGRect(x: 0, y: 300, width: size.width, height: size.height - 300))
+        let route = try node(session, "route-picker")
+        let c = try XCTUnwrap(p.navigation.controllers[route.id])
+        // This window manually mounts the sheet without UIKit's completed
+        // presentation. Supply the edge-attached sheet's home-indicator inset.
+        c.additionalSafeAreaInsets.bottom = 34
+        c.view.layoutIfNeeded()
+        let scroll = try node(session, "picker-scroll")
+        until("the sheet has its own block") { self.laidOut(session, route.id) == c.view.bounds.size }
+        XCTAssertTrue(c.edgeScroll === scroll, "the document's cover setting must not clip the sheet above the home indicator")
+        let sv = try XCTUnwrap(scroll.scrollView)
+        XCTAssertEqual(scroll.convert(scroll.bounds, to: c.view).maxY, c.view.bounds.maxY, accuracy: 0.5)
+        until("UIKit insets the sheet's scroller") { sv.adjustedContentInset.bottom >= 34 }
+        XCTAssertGreaterThanOrEqual(sv.adjustedContentInset.bottom, c.view.safeAreaInsets.bottom)
+    }
+
     /// A sheet's route ends only at a docked keyboard (LLP 1123 C26): the
     /// sheet's keyboard layout guide counts none without the keys, so a
     /// focused field with no keyboard up (a hardware keyboard, as in this
