@@ -186,6 +186,119 @@ fn an_absolute_footer_in_a_covered_route_clears_the_bar_it_rests_on() {
     assert!((y - (844.0 - 84.4 - 40.0)).abs() < 0.5, "{y}");
 }
 
+/// A pane at the route's foot, `position: absolute` from 400 to the bottom.
+fn pane(id: u32) -> Vec<Op> {
+    vec![
+        Op::CreateView {
+            id,
+            node_type: NodeType::View,
+        },
+        Op::SetStyle {
+            id,
+            patch: Box::new(style(&[
+                (StyleId::PositionType, StyleValue::Text("absolute".into())),
+                (StyleId::Top, StyleValue::Number(400.0)),
+                (StyleId::Bottom, StyleValue::Number(0.0)),
+                (StyleId::Left, StyleValue::Number(0.0)),
+                (StyleId::Right, StyleValue::Number(0.0)),
+            ])),
+        },
+    ]
+}
+
+/// A pane made once the route is already covered (duo-lab's detail pane,
+/// made anew as the device folds) rests on the bar as one made before; one
+/// moved out to a box with no cover reaches that box's bottom.
+#[test]
+fn an_absolute_child_made_in_or_moved_out_of_a_covered_route_follows_its_parent() {
+    let mut kernel = route();
+    kernel
+        .set_host_cover(2, Some(HostCover::Edges([0.0, 0.0, 83.0, 0.0])))
+        .unwrap();
+    let mut ops = pane(5);
+    ops.push(Op::SetChildren {
+        id: 2,
+        children: vec![3, 4, 5],
+    });
+    kernel.apply(0, 1, &ops).unwrap();
+    assert_eq!(
+        frame(&mut kernel, 5),
+        (0.0, 400.0, 390.0, 361.0),
+        "it ends on the bar, 83 above the route's bottom"
+    );
+    // A box beside the route, filling the root, with no cover.
+    let mut ops = vec![
+        Op::CreateView {
+            id: 6,
+            node_type: NodeType::View,
+        },
+        Op::SetStyle {
+            id: 6,
+            patch: Box::new(style(&[
+                (StyleId::PositionType, StyleValue::Text("absolute".into())),
+                (StyleId::Top, StyleValue::Number(0.0)),
+                (StyleId::Bottom, StyleValue::Number(0.0)),
+                (StyleId::Left, StyleValue::Number(0.0)),
+                (StyleId::Right, StyleValue::Number(0.0)),
+            ])),
+        },
+        Op::SetChildren {
+            id: 1,
+            children: vec![2, 6],
+        },
+    ];
+    ops.push(Op::SetChildren {
+        id: 6,
+        children: vec![5],
+    });
+    kernel.apply(1, 2, &ops).unwrap();
+    assert_eq!(
+        frame(&mut kernel, 5),
+        (0.0, 400.0, 390.0, 444.0),
+        "moved out, it reaches its new parent's bottom"
+    );
+}
+
+/// A pane at the route's top follows the route's top cover when a replaced
+/// header hands it its inset, and when that inset changes.
+#[test]
+fn an_absolute_child_follows_the_top_cover_a_replaced_header_hands_over() {
+    let mut kernel = header_padded();
+    let mut ops = pane(5);
+    ops.push(Op::SetStyle {
+        id: 5,
+        patch: Box::new(style(&[(StyleId::Top, StyleValue::Number(0.0))])),
+    });
+    ops.push(Op::SetChildren {
+        id: 2,
+        children: vec![3, 4, 5],
+    });
+    kernel.apply(4, 5, &ops).unwrap();
+    kernel
+        .set_host_cover(2, Some(HostCover::Edges([44.0, 0.0, 0.0, 0.0])))
+        .unwrap();
+    assert_eq!(frame(&mut kernel, 5).1, 44.0, "the bar's 44");
+    kernel.set_host_cover(3, Some(HostCover::Whole)).unwrap();
+    assert_eq!(
+        frame(&mut kernel, 5).1,
+        106.0,
+        "the status bar's 62 the header handed over, and the bar's 44"
+    );
+    kernel.set_env(Env::new(20.0, 0.0, 0.0, 0.0)).unwrap();
+    assert_eq!(frame(&mut kernel, 5).1, 64.0, "a new inset reaches it too");
+    let unpadded = style(&[(StyleId::PaddingTop, StyleValue::Number(0.0))]);
+    let op = Op::SetStyle {
+        id: 3,
+        patch: Box::new(unpadded),
+    };
+    kernel.apply(5, 6, &[op]).unwrap();
+    assert_eq!(
+        frame(&mut kernel, 5).1,
+        44.0,
+        "and the header's padding gone"
+    );
+}
+
 #[test]
 fn a_header_the_bar_replaces_takes_no_space_until_the_cover_is_cleared() {
     let mut kernel = route();

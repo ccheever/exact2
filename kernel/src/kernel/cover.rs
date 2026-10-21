@@ -94,27 +94,22 @@ impl Kernel {
         } else {
             Vec::new()
         };
-        // And an absolutely positioned child is placed past the edges the
-        // cover names (`apply`), so its engine style is derived again.
+        // And an absolutely positioned child is placed past its parent's
+        // covered edges (`apply`): the box's own children when its edges
+        // change, and its parent's when it is replaced or given back, which
+        // changes the parent's top cover (`header_inset`).
         let edges = |c: Option<HostCover>| matches!(c, Some(HostCover::Edges(_)));
-        let positioned: Vec<u32> = if edges(before) || edges(cover) {
-            let arena = &self.arena;
-            (arena.children(slot).iter().copied())
-                .filter(|&c| arena.style(c).position_type == crate::PositionType::Absolute)
-                .collect()
-        } else {
-            Vec::new()
-        };
-        for slot in std::iter::once(slot)
-            .chain(parent)
-            .chain(blocks)
-            .chain(positioned)
-        {
-            if let (Some(node), Some(layout)) = (self.arena.taffy(slot), self.layout.as_deref_mut())
-            {
-                layout.restyle(&self.arena, slot, node);
-                layout.mark_dirty(node);
-            }
+        let mut slots = vec![slot];
+        if edges(before) || edges(cover) {
+            slots.extend(positioned(&self.arena, slot));
+        }
+        if let Some(p) = parent {
+            slots.push(p);
+            slots.extend(positioned(&self.arena, p));
+        }
+        slots.extend(blocks);
+        if let Some(layout) = self.layout.as_deref_mut() {
+            restyle(&self.arena, layout, slots);
         }
         Ok(())
     }
@@ -292,18 +287,54 @@ pub(crate) fn without_inset(arena: &NodeArena, slot: u32, s: &mut taffy::style::
 }
 
 /// A box's children changed: a covered box's top cover may hold its first
-/// child's inset (`header_inset`), so its engine style is derived again.
+/// child's inset (`header_inset`), and an absolutely positioned child is
+/// placed past its parent's covered edges (`apply`), which a style derived
+/// under another parent or none does not do. The box (when covered) and its
+/// positioned children are derived again.
 pub(crate) fn children_changed(
     arena: &NodeArena,
     layout: &mut dyn LayoutMirror,
     slot: u32,
     touched: &mut Vec<crate::NodeKey>,
 ) {
-    if let (Some(HostCover::Edges(_)), Some(node)) = (arena.cover(slot), arena.taffy(slot)) {
-        layout.restyle(arena, slot, node);
-        layout.mark_dirty(node);
-    }
+    let covered = matches!(arena.cover(slot), Some(HostCover::Edges(_)));
+    restyle(
+        arena,
+        layout,
+        covered
+            .then_some(slot)
+            .into_iter()
+            .chain(positioned(arena, slot)),
+    );
     crate::rows::children_changed(arena, layout, slot, touched);
+}
+
+/// `slot`'s replaced first child's padding changed, which its top cover
+/// takes (`header_inset`): `slot` and the positioned children placed past
+/// that cover are derived again.
+pub(crate) fn restyle_covered(arena: &NodeArena, layout: &mut dyn LayoutMirror, slot: u32) {
+    restyle(
+        arena,
+        layout,
+        std::iter::once(slot).chain(positioned(arena, slot)),
+    );
+}
+
+/// The absolutely positioned children of `slot`, which `apply` places past
+/// its covered edges.
+fn positioned(arena: &NodeArena, slot: u32) -> impl Iterator<Item = u32> + '_ {
+    let absolute = move |c: &u32| arena.style(*c).position_type == crate::PositionType::Absolute;
+    arena.children(slot).iter().copied().filter(absolute)
+}
+
+/// Derive the engine styles of `slots` again; one that comes out changed is
+/// laid out again (`LayoutTree::write_style`).
+fn restyle(arena: &NodeArena, layout: &mut dyn LayoutMirror, slots: impl IntoIterator<Item = u32>) {
+    for slot in slots {
+        if let Some(node) = arena.taffy(slot) {
+            layout.restyle(arena, slot, node);
+        }
+    }
 }
 
 /// The top inset a box's replaced first child cleared for itself: that

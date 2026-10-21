@@ -1388,9 +1388,8 @@ fn style_changed(
         }
         // A replaced header's padding is part of its route's top cover.
         if arena.cover(slot) == Some(crate::kernel::HostCover::Whole) {
-            if let Some((p, node)) = arena.parent(slot).and_then(|p| Some((p, arena.taffy(p)?))) {
-                layout.restyle(arena, p, node);
-                layout.mark_dirty(node);
+            if let Some(p) = arena.parent(slot) {
+                crate::kernel::restyle_covered(arena, layout, p);
             }
         }
         receipt.layout_invalidated = true;

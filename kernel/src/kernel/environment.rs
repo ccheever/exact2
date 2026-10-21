@@ -157,12 +157,17 @@ impl Kernel {
         let users: Vec<u32> = self
             .arena
             .iter_live()
-            // A covered box too: its top cover can hold an inset (cover.rs).
+            // A covered box too: its top cover can hold an inset (cover.rs),
+            // and its positioned children are placed past it.
             .filter(|s| {
                 cells_changed
                     || uses_env(self.arena.style(*s))
                     || self.arena.cover(*s).is_some()
                     || self.arena.neutral_alert(*s)
+                    || (self.arena.style(*s).position_type == crate::PositionType::Absolute
+                        && self.arena.parent(*s).is_some_and(|p| {
+                            matches!(self.arena.cover(p), Some(super::HostCover::Edges(_)))
+                        }))
             })
             .collect();
         for slot in &users {

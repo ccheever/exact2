@@ -41,7 +41,7 @@ pub use block::{BlockAxis, HostBlock};
 pub use cover::HostCover;
 pub(crate) use cover::{
     added_padding as cover_padding, apply as apply_cover,
-    children_changed as cover_children_changed, published_extent,
+    children_changed as cover_children_changed, published_extent, restyle_covered,
 };
 pub use sticky::StickyConstraint;
 
