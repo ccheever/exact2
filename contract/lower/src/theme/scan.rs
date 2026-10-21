@@ -91,7 +91,8 @@ pub(crate) struct Said {
     /// the keyframes, so its value is the plan's structure.
     pub folded: BTreeSet<String>,
     /// Each element's style row whose value is literal (strings or numbers,
-    /// or a `?:` or `match` whose arms all are; never a `let`): what the design server checks
+    /// or a `?:` or `match` whose arms all are; never a `let`), an SVG
+    /// element's as lowering renames and coerces it: what the design server checks
     /// again, the compiler's way, when a write reaches a token it names
     /// ([`super::rows::check`]); a font row with its node's fonts; and each
     /// whose value is computed, with its type where it is known.
@@ -132,14 +133,15 @@ impl Said {
         for s in &file.styles {
             attrs(&s.attrs);
         }
-        // Each node, with whether it is inside an `svg`, whose rows are left
-        // to the build: lowering renames some attributes into props by
-        // element (`fePointLight x` is `lightX`) and coerces some; and
-        // whether a `for` or a `match` binds a name around it, which the
-        // root's scope does not type.
-        let mut stack: Vec<(&Node, bool, bool)> =
-            root.view.iter().map(|n| (n, false, false)).collect();
-        while let Some((node, svg, local)) = stack.pop() {
+        // Each node, with whether an `svg` encloses it and its parent's tag,
+        // as lowering's `svg::in_svg` reads them (an SVG element's rows are
+        // renamed and coerced first, `svg::coerce_lengths`: `fePointLight x`
+        // is the prop `lightX`, a unitless `rect x` a number); and whether a
+        // `for` or a `match` binds a name around it, which the root's scope
+        // does not type.
+        let mut stack: Vec<(&Node, bool, Option<&str>, bool)> =
+            root.view.iter().map(|n| (n, false, None, false)).collect();
+        while let Some((node, svg, parent, local)) = stack.pop() {
             match node {
                 Node::Element {
                     tag,
@@ -148,7 +150,8 @@ impl Said {
                     ..
                 } => {
                     attrs(a);
-                    let svg = svg || tag == "svg";
+                    let coerced =
+                        crate::svg::coerce_lengths(tag, crate::svg::in_svg(svg, parent), a);
                     // An element's own rows, which the build checks where it
                     // lowers the element (a style's are checked where a node
                     // applies it, and may be overridden there).
@@ -156,48 +159,57 @@ impl Said {
                     // they aren't known (an unknown class, the build's). A
                     // computed row with its type, a string only when the
                     // root's scope types it so with no local name around.
-                    if !svg {
-                        let mut fonts = None;
-                        for r in a.iter() {
-                            let computed = match super::rows::literal_row(r) {
-                                true => None,
-                                false if super::rows::computed_row(r) => Some(
-                                    (!local)
-                                        .then(|| super::rows::typed(&r.value, scope))
-                                        .flatten()
-                                        .filter(contract_types::Ty::is_string)
-                                        .unwrap_or(contract_types::Ty::Unknown),
-                                ),
-                                false => continue,
-                            };
-                            let fonts = match super::rows::font_row(&r.name) {
-                                false => None,
-                                true => match fonts.get_or_insert_with(|| {
-                                    super::rows::Fonts::of(file, a, !children.is_empty(), &declared)
-                                }) {
-                                    Some(f) => Some(f.clone()),
-                                    None => continue,
-                                },
-                            };
-                            rows.push(super::rows::Said {
-                                attr: r.clone(),
-                                fonts,
-                                computed,
-                            });
-                        }
+                    let mut fonts = None;
+                    for r in coerced.as_deref().unwrap_or(a) {
+                        let computed = match super::rows::literal_row(r) {
+                            true => None,
+                            false if super::rows::computed_row(r) => Some(
+                                (!local)
+                                    .then(|| super::rows::typed(&r.value, scope))
+                                    .flatten()
+                                    .filter(contract_types::Ty::is_string)
+                                    .unwrap_or(contract_types::Ty::Unknown),
+                            ),
+                            false => continue,
+                        };
+                        let fonts = match super::rows::font_row(&r.name) {
+                            false => None,
+                            true => match fonts.get_or_insert_with(|| {
+                                super::rows::Fonts::of(file, a, !children.is_empty(), &declared)
+                            }) {
+                                Some(f) => Some(f.clone()),
+                                None => continue,
+                            },
+                        };
+                        rows.push(super::rows::Said {
+                            attr: r.clone(),
+                            fonts,
+                            computed,
+                        });
                     }
-                    stack.extend(children.iter().map(|c| (c, svg, local)));
+                    let inside = svg || tag == "svg";
+                    stack.extend(
+                        children
+                            .iter()
+                            .map(|c| (c, inside, Some(tag.as_str()), local)),
+                    );
                 }
                 Node::When {
                     then, otherwise, ..
-                } => stack.extend(then.iter().chain(otherwise).map(|c| (c, svg, local))),
-                Node::Each { body, .. } => stack.extend(body.iter().map(|c| (c, svg, true))),
+                } => stack.extend(
+                    then.iter()
+                        .chain(otherwise)
+                        .map(|c| (c, svg, parent, local)),
+                ),
+                Node::Each { body, .. } => {
+                    stack.extend(body.iter().map(|c| (c, svg, parent, true)))
+                }
                 Node::Match { some, none, .. } => {
-                    stack.extend(some.1.iter().map(|c| (c, svg, true)));
-                    stack.extend(none.iter().map(|c| (c, svg, local)));
+                    stack.extend(some.1.iter().map(|c| (c, svg, parent, true)));
+                    stack.extend(none.iter().map(|c| (c, svg, parent, local)));
                 }
                 Node::Use { children, .. } => {
-                    stack.extend(children.iter().map(|c| (c, svg, local)))
+                    stack.extend(children.iter().map(|c| (c, svg, parent, local)))
                 }
                 Node::Children { .. } => {}
             }

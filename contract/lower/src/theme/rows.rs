@@ -21,6 +21,10 @@
 //! arms, and, where its type is a string for certain ([`typed`]), every
 //! number token a number row's value may name (stage 13 D2).
 //!
+//! An SVG element's rows are judged as lowering lowers them, renamed and
+//! coerced first (`svg::coerce_lengths`, stage 13 D3): a light's `x` is the
+//! prop `lightX`, no row; a rect's `x` a row, a unitless one a number.
+//!
 //! Not checked here, and still caught by the build after a miss: a
 //! computed row whose type the root's scope doesn't give (a call, a `for`'s
 //! item), whose number tokens are the build's; a row through a `let`; a

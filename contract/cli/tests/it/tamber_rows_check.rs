@@ -205,15 +205,8 @@ fn an_arm_of_a_choice_is_refused_at_its_literal() {
     );
 }
 
-/// A computed row whose type the root's scope doesn't give (a `for`'s
-/// item) is the build's (a number row's computed string reads every number
-/// token, a refusal of its own); a row whose other arm already fails is the
-/// build's too, though this arm breaks (theme2's Q1: the authored row
-/// passed or it didn't). An `svg` subtree's rows are left
-/// to the build whole: lowering renames some of its attributes into props
-/// by element (`fePointLight x` is `lightX`) and coerces some, so a rect's
-/// `x`, still a row the build refuses as a colour, is the build's here.
-/// None of these writes is refused.
+/// A row whose other arm already fails is the build's, though this arm
+/// breaks (theme2's Q1: the authored row passed or it didn't). Not refused.
 #[test]
 fn rows_the_build_judges_otherwise_are_left_to_it() {
     let dir = reading("rows-left");
@@ -224,24 +217,22 @@ fn rows_the_build_judges_otherwise_are_left_to_it() {
     .unwrap();
     std::fs::write(
         dir.join("app.contract"),
-        "use Card from \"@acme/reading\"\ncomponent App\n  state on = false\n  state picks = [\"2\"]\n  view\n    column padding=(on ? \"good\" : \"bad\")\n      for p in picks\n        button \"Go\" -exact-press-scale=p\n      svg width=10 height=10 viewBox=\"0 0 10 10\"\n        rect x=\"pos\" width=10 height=10\n      Card()\n",
+        "use Card from \"@acme/reading\"\ncomponent App\n  state on = false\n  view\n    column padding=(on ? \"good\" : \"bad\")\n      Card()\n",
     )
     .unwrap();
     let mut s = Serve::start(&dir, &[]);
     s.ask(json!({"method": "propose", "ops": [{"op": "set-token", "name": "ink", "value": "#444444"}]}));
-    for (name, value) in [("good", "#333333"), ("one", "0"), ("pos", "#123456")] {
-        let w = transaction(
-            &mut s,
-            &dir,
-            json!({"op": "set-token", "name": name, "value": value}),
-        );
-        let refused: Vec<&Value> = w["error"]["diagnostics"]
-            .as_array()
-            .map(|d| d.iter().filter(|d| d["file"] == "app.contract").collect())
-            .unwrap_or_default();
-        assert!(refused.is_empty(), "{name}: {w}");
-        assert!(w.get("ok").is_some(), "{name}: {w}");
-    }
+    let w = transaction(
+        &mut s,
+        &dir,
+        json!({"op": "set-token", "name": "good", "value": "#333333"}),
+    );
+    let refused: Vec<&Value> = w["error"]["diagnostics"]
+        .as_array()
+        .map(|d| d.iter().filter(|d| d["file"] == "app.contract").collect())
+        .unwrap_or_default();
+    assert!(refused.is_empty(), "{w}");
+    assert!(w.get("ok").is_some(), "{w}");
     drop(s);
     let _ = std::fs::remove_dir_all(&dir);
 }
@@ -671,5 +662,48 @@ fn a_family_write_breaking_an_italic_beside_it_is_refused() {
         &contract,
         json!({"op": "set-token", "name": "family.text", "value": "\"Fixture Sans\""}),
         &design.replace("\"Both\"", "\"Fixture Sans\""),
+    );
+}
+
+/// A computed row whose type the root's scope doesn't give (a `for`'s
+/// item) is the build's: a number row's computed string reads every number
+/// token, which the build judges. Not refused here; the build refuses it.
+#[test]
+fn a_computed_row_the_check_cannot_type_is_the_builds() {
+    let dir = reading("rows-computed-local");
+    let design = "tamber t\n\ntheme\n  ink = #111111\n  one = 1\n";
+    std::fs::write(dir.join("app.tamber"), design).unwrap();
+    std::fs::write(
+        dir.join("app.contract"),
+        "use Card from \"@acme/reading\"\ncomponent App\n  state picks = [\"2\"]\n  view\n    column\n      for p in picks key=p\n        button \"Go\" -exact-press-scale=p\n      Card()\n",
+    )
+    .unwrap();
+    contract::compile_path(&dir.join("app.contract")).unwrap();
+    let mut s = Serve::start(&dir, &[]);
+    s.ask(json!({"method": "propose", "ops": [{"op": "set-token", "name": "ink", "value": "#444444"}]}));
+    let w = transaction(
+        &mut s,
+        &dir,
+        json!({"op": "set-token", "name": "one", "value": "0"}),
+    );
+    assert!(w.get("ok").is_some(), "{w}");
+    drop(s);
+    assert!(contract::compile_path(&dir.join("app.contract")).is_err());
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Stage 13 D3: an `svg` subtree's rows are judged as lowering lowers
+/// them, renamed and coerced first (`svg::coerce_lengths`): a rect's `x`
+/// is a row, refused as a colour in the build's words.
+#[test]
+fn an_svg_elements_row_is_judged() {
+    let design = "tamber t\n\ntheme\n  ink = #111111\n  pos = 8px\n";
+    let contract = "use Card from \"@acme/reading\"\ncomponent App\n  view\n    column\n      svg width=10 height=10 viewBox=\"0 0 10 10\"\n        rect x=\"pos\" y=\"2\" width=10 height=10\n      Card()\n";
+    same_words(
+        &reading("rows-svg"),
+        design,
+        contract,
+        json!({"op": "set-token", "name": "pos", "value": "#123456"}),
+        &design.replace("pos = 8px", "pos = #123456"),
     );
 }
