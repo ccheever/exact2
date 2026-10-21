@@ -2,8 +2,9 @@
 // Changes from the reference:
 // - `splitFilePathPosition` / `formatFilePathPosition` come from `terminal-host/src/shims/markdown-links.ts` (client-runtime markdownLinks.ts).
 // - `isMacPlatform` comes from `terminal-host/src/shims/utils.ts` (lib/utils.ts).
-// - `FILE_PATH_PATTERN` takes 74541bab17's Unicode path segments; its bare relative paths still split
-//   only on `/`, as 1e2ecbd975's do.
+// - 74541bab17's Unicode path segments and quoted paths (`QUOTED_FILE_PATH_PATTERN`, with a position
+//   after the closing quote), except that relative paths split only on `/`, as 1e2ecbd975's do:
+//   backslash-separated relative paths are Windows-only.
 import {
   formatFilePathPosition,
   splitFilePathPosition,
@@ -42,6 +43,8 @@ const URL_PATTERN = /https?:\/\/[^\s"'`<>]+/giu;
 // every frame, so separator-free output must not be rescanned at every suffix.
 const FILE_PATH_PATTERN =
   /(?:~\/|\.{1,2}\/|\/|[A-Za-z]:[\\/]|\\\\)[^\s"'`<>]+|(?<![\p{L}\p{M}\p{N}._-])[\p{L}\p{M}\p{N}._-]+(?:\/[\p{L}\p{M}\p{N}._-]+)+(?::\d+){0,2}/gu;
+const QUOTED_FILE_PATH_PATTERN =
+  /(["'`])(?<path>(?:~\/|\.{1,2}\/|\/|[A-Za-z]:[\\/]|\\\\|[\p{L}\p{M}\p{N}._ -]+\/)[^\r\n]*?|[\p{L}\p{M}\p{N}._ -]+\.[\p{L}\p{M}\p{N}_-]+(?::\d+){0,2})\1(?<position>(?::\d+){0,2})/gu;
 const TRAILING_PUNCTUATION_PATTERN = /[.,;!?]+$/;
 // Paths also drop a trailing colon: compilers end `file:line:col:` with one.
 const TRAILING_PATH_PUNCTUATION_PATTERN = /[.,;:!?]+$/;
@@ -82,11 +85,13 @@ function collectMatches(
   pattern.lastIndex = 0;
 
   for (const rawMatch of line.matchAll(pattern)) {
-    const raw = rawMatch[0];
-    const start = rawMatch.index ?? -1;
+    const quotedPath = rawMatch.groups?.path;
+    const raw =
+      quotedPath === undefined ? rawMatch[0] : quotedPath + (rawMatch.groups?.position ?? "");
+    const start = (rawMatch.index ?? -1) + (quotedPath === undefined ? 0 : 1);
     if (start < 0 || raw.length === 0) continue;
 
-    const trimmed = trimClosingDelimiters(raw, kind);
+    const trimmed = quotedPath === undefined ? trimClosingDelimiters(raw, kind) : raw;
     if (trimmed.length === 0) continue;
     if (kind === "path" && isTerminalUrl(trimmed)) continue;
 
@@ -94,7 +99,8 @@ function collectMatches(
       kind,
       text: trimmed,
       start,
-      end: start + trimmed.length,
+      // A position outside quotes spans the closing quote in the terminal buffer.
+      end: start + trimmed.length + (rawMatch.groups?.position ? 1 : 0),
     };
 
     const collides = [...existing, ...matches].some((other) => overlaps(candidate, other));
@@ -147,8 +153,12 @@ function inferHomeFromCwd(cwd: string): string | undefined {
 
 export function extractTerminalLinks(line: string): TerminalLinkMatch[] {
   const urlMatches = collectMatches(line, "url", URL_PATTERN, []);
-  const pathMatches = collectMatches(line, "path", FILE_PATH_PATTERN, urlMatches);
-  return [...urlMatches, ...pathMatches].toSorted((a, b) => a.start - b.start);
+  const quotedMatches = collectMatches(line, "path", QUOTED_FILE_PATH_PATTERN, urlMatches);
+  const pathMatches = collectMatches(line, "path", FILE_PATH_PATTERN, [
+    ...urlMatches,
+    ...quotedMatches,
+  ]);
+  return [...urlMatches, ...quotedMatches, ...pathMatches].toSorted((a, b) => a.start - b.start);
 }
 
 export function isTerminalUrl(value: string): boolean {
