@@ -155,12 +155,24 @@ extension NodeView {
     /// The corner of a popover's default surface (LLP 1021; theme2
     /// 2026-10-21 19:55): the compiler marks a popover whose author wrote no
     /// surface (`defaultSurface`), and the host sends the corner only where
-    /// this platform's metrics give one (`popover-radius`: iOS's). A menu is
-    /// the platform's own. Nil: no default surface here.
+    /// this platform's metrics give one (`popover-radius`: iOS's, measured
+    /// against iOS 26's glass popover on iOS 27; an earlier iOS draws the
+    /// glass's ultra-thin stand-in with that corner and shadow, unmeasured
+    /// against the pre-glass popover, no older runtime being installed). It
+    /// is a popover while `popover` says so; a menu, by its role or as a
+    /// node's context menu, is the platform's own. Nil: none here.
     var defaultSurfaceRadius: CGFloat? {
-        guard props["defaultSurface"] == "true", props["accessibilityRole"] != "menu",
+        guard props["defaultSurface"] == "true", props["popover"] != nil, props["accessibilityRole"] != "menu",
               let radius = props["defaultSurfaceRadius"].flatMap(Double.init) else { return nil }
+        #if os(iOS)
+        if let id = props["id"], presenter?.carrying("contextPopover").contains(where: { $0.props["contextPopover"] == id }) == true { return nil }
+        #endif
         return CGFloat(radius)
+    }
+
+    /// Whether its author wrote a corner, even 0: theirs, not the default's.
+    var writesCorner: Bool {
+        style["border_radius"] != nil || ["top_left", "top_right", "bottom_right", "bottom_left"].contains { style["border_radius_" + $0] != nil }
     }
 
     /// That surface's shadow, black at the metrics' alpha, offset down and

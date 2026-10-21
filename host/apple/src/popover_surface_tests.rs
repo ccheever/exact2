@@ -38,12 +38,14 @@ fn a_popover_with_no_surface_of_its_authors_is_sent_the_platforms_corner() {
     let props = |t: &str| host.props_of(&k.node_by_key(k.find_by_test_id(t)[0]).unwrap());
     let bare = props("bare");
     assert_eq!(bare.get("defaultSurface").map(String::as_str), Some("true"));
-    // These tests run on the Mac, whose column has no corner.
+    // On the Mac, whose column has no corner, none is sent.
+    #[cfg(target_os = "macos")]
     assert_eq!(
         bare.get("defaultSurfaceRadius"),
         None,
         "the Mac's system popover draws its own"
     );
+    #[cfg(target_os = "macos")]
     assert_eq!(bare.get("defaultSurfaceShadow"), None);
     let filled = props("filled");
     assert_eq!(filled.get("defaultSurface"), None, "its author's surface");

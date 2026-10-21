@@ -1658,7 +1658,7 @@
       "id": 280,
       "name": "defaultSurface",
       "kind": "bool",
-      "_comment": "@ref LLP 1021 (theme2 2026-10-21 18:45, 19:55): the compiler's mark on a `popover` whose author wrote no surface (no background, border, box-shadow or `backgroundMaterial`, on it or its class). A host that paints the popover itself draws the platform's default popover surface under it (iOS: UIKit's popover glass, its corner the metrics' `popover-radius`); the web keeps the UA's popover style, the Mac its system popover, and a popover presented as a menu ignores it. Never authored."
+      "_comment": "@ref LLP 1021 (theme2 2026-10-21 18:45, 19:55): the compiler's mark on a `popover` whose author wrote no surface (no background, border, box-shadow or `backgroundMaterial`, on it or its class). A host that paints the popover itself draws the platform's default popover surface under it (iOS: UIKit's popover glass, its corner the metrics' `popover-radius`; before iOS 26 the glass's ultra-thin stand-in with that corner and shadow, unmeasured against the pre-glass popover since no older runtime was installed); the web keeps the UA's popover style, the Mac its system popover, and a popover presented as a menu ignores it. Never authored."
     }
   ],
   "_enums": "Wire discriminant is the 0-based index. An unknown discriminant is a typed decode rejection, never a fallback.",
