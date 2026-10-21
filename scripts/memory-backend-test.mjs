@@ -54,14 +54,35 @@ const step = (what, cmd, args, opts) => {
 
 const alive = (child) => child?.pid !== undefined && child.exitCode === null && child.signalCode === null;
 
-/** `child` stopped: SIGTERM, then SIGKILL if it has not exited within the grace period. */
+/** `pid`'s descendants, deepest first (a build's own builder, the driver's browser). */
+function descendants(pid) {
+  const r = spawnSync('ps', ['-A', '-o', 'pid=,ppid='], { encoding: 'utf8' });
+  const kids = new Map();
+  for (const line of (r.stdout ?? '').split('\n')) {
+    const [p, pp] = line.trim().split(/\s+/).map(Number);
+    if (p && pp) kids.set(pp, [...(kids.get(pp) ?? []), p]);
+  }
+  const out = [];
+  const walk = (p) => { for (const k of kids.get(p) ?? []) { walk(k); out.push(k); } };
+  walk(pid);
+  return out;
+}
+
+const signal = (pids, sig) => { for (const p of pids) try { process.kill(p, sig); } catch { /* gone */ } };
+
+/** `child` and everything it started stopped: SIGTERM, then SIGKILL to what remains after the grace period. */
 async function stop(child) {
   if (!alive(child)) return;
+  const tree = descendants(child.pid);
   const exited = new Promise((ok) => child.once('exit', ok));
+  signal(tree, 'SIGTERM');
   child.kill('SIGTERM');
-  const timer = setTimeout(() => { if (alive(child)) child.kill('SIGKILL'); }, GRACE_MS);
+  const timer = setTimeout(() => { signal(tree, 'SIGKILL'); if (alive(child)) child.kill('SIGKILL'); }, GRACE_MS);
   await exited;
   clearTimeout(timer);
+  // What outlived its parent's exit, and what it started since.
+  const left = [...new Set([...tree, ...tree.flatMap(descendants)])].filter((p) => { try { process.kill(p, 0); return true; } catch { return false; } });
+  if (left.length) { signal(left, 'SIGTERM'); await new Promise((ok) => setTimeout(ok, 1000)); signal(left, 'SIGKILL'); }
 }
 
 export async function main(argv) {
@@ -99,6 +120,8 @@ export async function main(argv) {
       child.once('error', fail);
       child.once('exit', (code) => ok(code ?? 1));
     });
+    // (observed at once: a spawn that fails is thrown where the step awaits it)
+    done.catch(() => {});
     return { child, done };
   };
 
@@ -106,6 +129,7 @@ export async function main(argv) {
     const { child: server, done: serverDone } = run(resolveBinary(), ['dev', '--port', '0', '--memory', '--no-watch'],
       { cwd: backend, stdio: ['ignore', 'pipe', 'inherit'], env: { ...process.env, SNAPBACK4_SUPERVISOR_PID: String(process.pid) } });
     // Readiness is the first stdout line, the listening URL.
+    if (!server.stdout) throw await serverDone.then((code) => new Error(`snapback4 dev --memory did not start (exit ${code})`), (e) => e);
     const lines = createInterface({ input: server.stdout });
     let timer;
     const url = await Promise.race([
