@@ -572,8 +572,9 @@ screen, 2026-10-16.)
   of the same sheet needed `margin-bottom=-10` and nothing. `layout` (no target) gives
   the scroller's line, `#465 [lane-form] ScrollView 0,214 402×660 … port 0,214 402×626`:
   the inset is its frame's bottom less its `port`'s, 874 − 840 = 34 here (the
-  scrollport ends where UIKit's inset begins). The original's gap is its padding, which `screenshot
-  … compare ref/x.png` measures as the last row's offset. Write `padding-bottom` = that
+  scrollport ends where UIKit's inset begins; the content still shows through the inset
+  down to the frame's bottom, as a hand-built scroll view's does). The original's gap is
+  its padding, which `screenshot … compare ref/x.png` measures as the last row's offset. Write `padding-bottom` = that
   gap less the inset; where that is negative, write `padding-bottom=0` and the rest as a
   negative `margin-bottom` on the scroller itself, which lowers its end into the inset:
   padding cannot go below zero, and a negative margin on the last child does not move
