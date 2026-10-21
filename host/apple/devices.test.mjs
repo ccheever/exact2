@@ -5,7 +5,7 @@ import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, ut
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { decodePng, encodePng } from '../../scripts/png.mjs';
-import { chooseSimulator, crashReports, crashSummary, crashWatch, forwardedEnv, simulator, withDisplay, withMaterials, phoneBridge, softwareKeyboard } from './devices.mjs';
+import { chooseSimulator, crashReports, crashSummary, crashWatch, forwardedEnv, installedAlready, simulator, withDisplay, withMaterials, phoneBridge, softwareKeyboard } from './devices.mjs';
 import { spawn } from 'node:child_process';
 import { createConnection } from 'node:net';
 import { once } from 'node:events';
@@ -116,6 +116,40 @@ test('of several booted simulators, the one with the app installed; of several s
     console.error = quiet;
     for (const k of ['PATH', 'DEVELOPER_DIR', 'HAS']) if (saved[k] === undefined) delete process.env[k]; else process.env[k] = saved[k];
     rmSync(bin, { recursive: true, force: true });
+  }
+});
+
+test('an installed bundle is found where simctl last said, and simctl is asked again when it is not there', () => {
+  // A fake `xcrun simctl get_app_container` that counts its calls and names `installed`.
+  const dir = mkdtempSync(resolve(tmpdir(), 'devices-installed-')), records = resolve(dir, 'records'), calls = resolve(dir, 'calls');
+  const built = resolve(dir, 'built/App.app'), installed = resolve(dir, 'installed/App.app');
+  const saved = { PATH: process.env.PATH, DEVELOPER_DIR: process.env.DEVELOPER_DIR };
+  const count = () => (existsSync(calls) ? readFileSync(calls, 'utf8').length : 0);
+  const place = (root, executable) => {
+    mkdirSync(resolve(root, '_CodeSignature'), { recursive: true });
+    for (const [file, text] of [['App', executable], ['receipt.json', '{}'], ['_CodeSignature/CodeResources', 'signed']]) {
+      writeFileSync(resolve(root, file), text);
+      utimesSync(resolve(root, file), 1_700_000_000, 1_700_000_000);
+    }
+  };
+  try {
+    writeFileSync(resolve(dir, 'xcrun'), `#!/bin/sh\nprintf x >> '${calls}'\necho '${installed}'\n`);
+    chmodSync(resolve(dir, 'xcrun'), 0o755);
+    process.env.PATH = `${dir}:${saved.PATH}`;
+    process.env.DEVELOPER_DIR ??= '/Applications/Xcode.app/Contents/Developer';
+    place(built, 'build one'); place(installed, 'build one');
+    expect([installedAlready('U1', 'com.example.app', built, 'App', { records }), count()]).toEqual([true, 1]);
+    expect([installedAlready('U1', 'com.example.app', built, 'App', { records }), count()]).toEqual([true, 1]);
+    // Another build there (another executable): simctl is asked, and the answer is that it is not this build.
+    place(installed, 'build two!');
+    expect([installedAlready('U1', 'com.example.app', built, 'App', { records }), count()]).toEqual([false, 2]);
+    // Its directory gone (a reinstall moves it): simctl is asked again.
+    rmSync(resolve(dir, 'installed'), { recursive: true });
+    expect([installedAlready('U1', 'com.example.app', built, 'App', { records }), count()]).toEqual([false, 3]);
+  } finally {
+    process.env.PATH = saved.PATH;
+    if (saved.DEVELOPER_DIR === undefined) delete process.env.DEVELOPER_DIR;
+    rmSync(dir, { recursive: true, force: true });
   }
 });
 

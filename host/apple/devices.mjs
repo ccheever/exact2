@@ -200,9 +200,14 @@ export function simulators() {
 /** The simulator to use — `pick` (a udid or a name; EXACT_SIM by default), else the one booted iPhone, else the iPhone Pro on the newest iOS — booted and waited for. When several are booted, the one `app` (a bundle id) is installed on, and of several so, the one the app in `dir` last used (its `.exact/simulator`, written when a simulator is named or chosen so), said on stderr; refused when that is none or several, naming how to choose: `hint`, the caller's own way. With `tv`, the same choice among Apple TVs on tvOS. An iPhone is one by its device type, not its name: a simulator renamed `work-phone` is still one. */
 const saidSimulator = new Set(); // a verify opens a dozen sessions: the choice is said once
 export function simulator(pick = process.env.EXACT_SIM, options = {}) { return bootSimulator(chooseSimulator(pick, options)); }
+/** `simulators()` as it was a moment ago in this process: a drive chooses its simulator before it takes the store's
+ *  lock and again when it launches, a fraction of a second apart. A boot here forgets it; a shutdown by another process
+ *  in between fails the launch, where a fresh list would have booted it. */
+let chosenFrom = null;
+const recentSimulators = () => (chosenFrom && Date.now() - chosenFrom.at < 5000 ? chosenFrom : chosenFrom = { at: Date.now(), all: simulators() }).all;
 /** `simulator`'s choice, booting nothing: what a drive locks before it launches (agent.mjs `resolveDevice`). */
 export function chooseSimulator(pick = process.env.EXACT_SIM, { tv = false, hint = 'EXACT_SIM=<udid|name>', app, dir } = {}) {
-  const all = simulators();
+  const all = recentSimulators();
   const version = (d) => Number(/(?:iOS|tvOS)-(\d+)-(\d+)/.exec(d.runtime)?.slice(1).join('.') ?? 0);
   const kind = (d) => d.type || d.name.replaceAll(' ', '-');
   const iphones = all.filter((d) => (tv ? /SimRuntime\.tvOS/.test(d.runtime) && /^Apple-TV/.test(kind(d)) : /SimRuntime\.iOS/.test(d.runtime) && /^iPhone/.test(kind(d)))).sort((a, b) => version(b) - version(a) || a.name.localeCompare(b.name));
@@ -238,6 +243,7 @@ export function chooseSimulator(pick = process.env.EXACT_SIM, { tv = false, hint
 function bootSimulator(dev) {
   // Booted is a boot finished (Booting is its own state): only another waits, which costs a booted one 0.2–0.5 s.
   if (dev.state === 'Booted') return dev;
+  chosenFrom = null;
   const b = read('xcrun', ['simctl', 'boot', dev.udid]);
   if (b.status !== 0 && !/current state: Booted/.test(b.stderr)) throw new Error('simctl boot: ' + b.stderr);
   const s = read('xcrun', ['simctl', 'bootstatus', dev.udid, '-b']);
@@ -261,17 +267,25 @@ export function showSimulator(dev, background = false) {
 }
 
 /** Whether the simulator's installed `id` is the bundle at `bundle` as built: its executable, receipt and signature
- *  the same size and time (simctl install keeps both). A drive then skips the install, 0.3–0.5 s of each launch. */
-export function installedAlready(udid, id, bundle, executable) {
+ *  the same size and time (simctl install keeps both). A drive then skips the install, 0.3–0.5 s of each launch. The
+ *  bundle's container is looked in first where `simctl get_app_container` last said it was (~0.1 s, each drive): a
+ *  reinstall or a removal takes that directory away, and any other answer asks simctl again. */
+export function installedAlready(udid, id, bundle, executable, { records = resolve(homedir(), '.cache/exact/simulator-installs') } = {}) {
+  const same = (installed) => {
+    try {
+      return [executable, 'receipt.json', '_CodeSignature/CodeResources'].every((file) => {
+        const a = statSync(resolve(installed, file)), b = statSync(resolve(bundle, file));
+        return a.size === b.size && a.mtimeMs === b.mtimeMs;
+      });
+    } catch { return false; }
+  };
+  const record = resolve(records, `${udid}-${id}`);
+  try { if (same(readFileSync(record, 'utf8'))) return true; } catch { /* none remembered */ }
   const r = read('xcrun', ['simctl', 'get_app_container', udid, id, 'app']);
   if (r.status !== 0) return false;
   const installed = r.stdout.trim();
-  try {
-    return [executable, 'receipt.json', '_CodeSignature/CodeResources'].every((file) => {
-      const a = statSync(resolve(installed, file)), b = statSync(resolve(bundle, file));
-      return a.size === b.size && a.mtimeMs === b.mtimeMs;
-    });
-  } catch { return false; }
+  try { mkdirSync(records, { recursive: true }); writeFileSync(record, installed); } catch { /* asked again next time */ }
+  return same(installed);
 }
 
 /** The build of `id` installed on a simulator: its bundle's path, its receipt's `build.trust` (`unreceipted` with
@@ -325,16 +339,24 @@ export function keepInstalledRelease(udid, id, bundle, executable, { records = r
  *  left as it is and `note` says the keyboard may be hidden. Before clearing it the drive writes a record under
  *  `records`, removed only once the key is back: a drive that was killed, or whose write failed, leaves it, and the
  *  next drive on that simulator puts the key back first, unless the drive that wrote it is still running. */
-export function softwareKeyboard(udid, { owned = false, records = resolve(homedir(), '.cache/exact/simulator-keyboard') } = {}) {
-  const defaults = (...args) => read('xcrun', ['simctl', 'spawn', udid, 'defaults', ...args, 'com.apple.keyboard.preferences', 'AutomaticMinimizationEnabled', ...(args[0] === 'write' ? ['-bool', 'true'] : [])], { timeout: 20000 });
-  const record = resolve(records, `${udid}.json`);
+const keyboardArgs = (udid, verb) => ['simctl', 'spawn', udid, 'defaults', verb, 'com.apple.keyboard.preferences', 'AutomaticMinimizationEnabled', ...(verb === 'write' ? ['-bool', 'true'] : [])];
+const minimized = (r) => r.status === 0 && /^\s*1\s*$/.test(r.stdout ?? '');
+const minimizedNote = (udid) => `this simulator minimizes its software keyboard (AutomaticMinimizationEnabled = 1, kept since the Mac's keyboard was attached), so a focused field shows none in a screenshot, unlike an iPhone; a simulator the drive boots has it cleared for the drive, or clear it here: xcrun simctl spawn ${udid} defaults delete com.apple.keyboard.preferences AutomaticMinimizationEnabled`;
+/** The setting a killed drive left cleared, put back (`softwareKeyboard`): unless the drive that cleared it still runs. */
+function keyboardLeft(udid, record, defaults) {
   const putBack = () => { if (defaults('write').status !== 0) return false; rmSync(record, { force: true }); return true; };
   let left = null;
   try { left = JSON.parse(readFileSync(record, 'utf8')); } catch {}
   if (left && !(Number.isInteger(left.pid) && left.pid !== process.pid && pidAlive(left.pid))) putBack();
+  return putBack;
+}
+export function softwareKeyboard(udid, { owned = false, records = resolve(homedir(), '.cache/exact/simulator-keyboard') } = {}) {
+  const defaults = (verb) => read('xcrun', keyboardArgs(udid, verb), { timeout: 20000 });
+  const record = resolve(records, `${udid}.json`);
+  const putBack = keyboardLeft(udid, record, defaults);
   const r = defaults('read');
-  if (r.status !== 0 || !/^\s*1\s*$/.test(r.stdout ?? '')) return { cleared: false, note: null, restore() {} };
-  if (!owned) return { cleared: false, restore() {}, note: `this simulator minimizes its software keyboard (AutomaticMinimizationEnabled = 1, kept since the Mac's keyboard was attached), so a focused field shows none in a screenshot, unlike an iPhone; a simulator the drive boots has it cleared for the drive, or clear it here: xcrun simctl spawn ${udid} defaults delete com.apple.keyboard.preferences AutomaticMinimizationEnabled` };
+  if (!minimized(r)) return { cleared: false, note: null, restore() {} };
+  if (!owned) return { cleared: false, restore() {}, note: minimizedNote(udid) };
   mkdirSync(records, { recursive: true });
   writeFileSync(record, JSON.stringify({ pid: process.pid, value: 1 }));
   if (defaults('delete').status !== 0) { rmSync(record, { force: true }); return { cleared: false, note: 'the simulator\'s software keyboard is minimized and could not be shown (simctl spawn defaults delete failed)', restore() {} }; }
@@ -345,8 +367,30 @@ const saidKeyboard = new Set(); // the hidden keyboard's note, once a process: a
 /** `open()`'s carrier with the software keyboard shown for a focused field on a simulator this drive booted
  *  (`softwareKeyboard`), its setting put back when the drive closes, fails to open, or the driver exits (a killed
  *  drive's, by the next drive on that simulator); on any other simulator, the note that the keyboard may be hidden. */
-export async function withSoftwareKeyboard(dev, open) {
-  const keyboard = softwareKeyboard(dev.udid, { owned: !!dev.bootedHere });
+export async function withSoftwareKeyboard(dev, open, { records = resolve(homedir(), '.cache/exact/simulator-keyboard') } = {}) {
+  // On a simulator another booted the setting is only read, for the note: beside the launch, not before it (~0.2 s).
+  if (!dev.bootedHere) {
+    keyboardLeft(dev.udid, resolve(records, `${dev.udid}.json`), (verb) => read('xcrun', keyboardArgs(dev.udid, verb), { timeout: 20000 }));
+    const said = saidKeyboard.has(dev.udid) ? null : new Promise((done) => {
+      useXcode();
+      let out = '';
+      const child = spawn('xcrun', keyboardArgs(dev.udid, 'read'), { stdio: ['ignore', 'pipe', 'ignore'] });
+      const bound = setTimeout(() => child.kill('SIGKILL'), 20000);
+      child.stdout.on('data', (d) => { out += d; });
+      child.on('error', () => { clearTimeout(bound); done(); });
+      child.on('close', (status) => {
+        clearTimeout(bound);
+        if (minimized({ status, stdout: out }) && !saidKeyboard.has(dev.udid)) { saidKeyboard.add(dev.udid); console.error(`note: ${minimizedNote(dev.udid)}`); }
+        done();
+      });
+    });
+    let carrier;
+    try { carrier = await open(); } finally { if (!carrier) await said; }
+    const close = carrier.close.bind(carrier);
+    carrier.close = async (...args) => { try { return await close(...args); } finally { await said; } };
+    return carrier;
+  }
+  const keyboard = softwareKeyboard(dev.udid, { owned: true, records });
   if (keyboard.note && !saidKeyboard.has(dev.udid)) { saidKeyboard.add(dev.udid); console.error(`note: ${keyboard.note}`); }
   const restore = () => keyboard.restore();
   process.once('exit', restore);
