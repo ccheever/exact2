@@ -15,6 +15,7 @@ import { renderablePatch } from '../../src/pull-requests/pages-pr-code-logic';
 import { composerReplyEvent } from '../../src/composer/composer-replies';
 import { presentTimeline } from '../../src/pull-requests/pages-pr-timeline';
 import { codeRows, type RowsInput } from '../../src/pull-requests/pages-pr-code-rows';
+import { PR_REFRESH_KEY, prRefreshEvent } from '../../src/pull-requests/pages-pr-refresh';
 
 const NOW = Date.parse('2026-10-08T12:00:00Z');
 const at = (minutesAgo: number) => new Date(NOW - minutesAgo * 60_000).toISOString();
@@ -165,10 +166,51 @@ describe('the Code tab and its slices (PullRequestCodeTab, POST /api/pull-reques
     expect(counts()).toEqual([[1, 1]]);
     expect(f.of('prDiff')).toHaveLength(1);
   });
+  // A turn finishing (the server's refresh announcement) reads the first slice and the ticks again
+  // with the loaded slices kept, so the list keeps its scroll.
+  test('a server refresh keeps the loaded slices on screen and reads the first slice again', async () => {
+    const f = fixture();
+    let view = await walk(f);
+    expect(view.codeTab.filesLabel).toBe('310 files');
+    const viewed = f.of('pullRequests.filesViewed').length;
+    prRefreshEvent(f.client, { key: PR_REFRESH_KEY, subscriptionId: '1-1', value: 1 });
+    prRefreshEvent(f.client, { key: PR_REFRESH_KEY, subscriptionId: '1-1', value: 2 });
+    const during = await f.ask();
+    expect([during.codeTab.phase, during.codeTab.filesLabel]).toEqual(['files', '310 files']);
+    view = await f.settle();
+    expect(f.of('prDiff').map(call => call.payload.cursor ?? 'first')).toEqual(['first', '100', '200', '300', 'first']);
+    expect(f.of('pullRequests.filesViewed').length).toBe(viewed + 1);
+    // The same first page changes nothing: every file stays, none folds or reloads.
+    expect([view.codeTab.phase, view.codeTab.filesLabel, view.codeTab.items.filter(item => item.kind === 'pr-file').length]).toEqual(['files', '310 files', 310]);
+  });
+  test('a server refresh reads a first slice that failed again', async () => {
+    let fail = true;
+    const f = fixture({}, payload => { if (fail) throw new ClientError('HTTP 502: GitHub did not answer', 'HTTP'); return SLICES[String(payload.cursor ?? 'first')]; });
+    expect((await f.settle()).codeTab.phase).toBe('error');
+    fail = false;
+    prRefreshEvent(f.client, { key: PR_REFRESH_KEY, subscriptionId: '1-1', value: 1 });
+    prRefreshEvent(f.client, { key: PR_REFRESH_KEY, subscriptionId: '1-1', value: 2 });
+    const view = await f.settle();
+    expect([view.codeTab.phase, view.codeTab.filesLabel]).toEqual(['files', '100 files+']);
+  });
   test('a first slice that fails takes the list\'s place, under the toolbar', async () => {
     const f = fixture({}, () => { throw new ClientError('This pull request diff is too large.', 'PullRequestOperationError'); });
     const view = await f.settle();
     expect([view.codeTab.phase, view.codeTab.message, view.codeTab.hasCommits]).toEqual(['error', 'This pull request diff is too large.', true]);
+    // PullRequestDiffUnavailableState: what failed, Try again, and the change on the host.
+    expect([view.codeTab.errorTitle, view.codeTab.errorDescription, view.codeTab.providerName, view.codeTab.url]).toEqual(["Couldn't load the changes",
+      "The environment couldn't load this pull request's diff. Try again, or view the changes on GitHub.", 'GitHub', 'https://github.com/acme/playground/pull/114']);
+  });
+  test('a rate-limited first slice says the host is limiting requests, and Try again reads it again', async () => {
+    let limited = true;
+    const f = fixture({}, payload => { if (limited) throw new ClientError('HTTP 403: API rate limit exceeded for user ID 1.', 'HTTP'); return SLICES[String(payload.cursor ?? 'first')]; });
+    let view = await f.settle();
+    expect([view.codeTab.errorTitle, view.codeTab.errorDescription]).toEqual(['GitHub rate limit reached',
+      "GitHub is temporarily limiting requests, so this diff couldn't be loaded. Try again after the limit resets, or view the changes on GitHub."]);
+    limited = false;
+    await f.press('retry');
+    view = await f.settle();
+    expect([view.codeTab.phase, view.codeTab.filesLabel]).toEqual(['files', '100 files+']);
   });
 });
 
@@ -520,6 +562,26 @@ describe('Refresh (the panel\'s, which the Code tab follows)', () => {
 });
 
 describe('"Add to agent" (PullRequestCodeTab finishSelection)', () => {
+  // Agent context is local, so a reader who may not comment on the host still selects lines for "Add to agent".
+  test('without comment permission the lines still open a draft, which goes to the agent and not the review', async () => {
+    const readOnly = { 'pullRequests.detail': () => detail({ viewerPermissions: { comment: false, resolve: false, verdicts: [], actions: [] } }) };
+    const f = fixture(readOnly);
+    (f.client as unknown as { scopes: string[] }).scopes = ['orchestration:operate'];
+    await walk(f);
+    await f.press('fold', 'src/catalog.js');
+    let view = await f.settle();
+    expect([view.codeTab.canComment, view.codeTab.reviewable]).toEqual([true, false]);
+    await f.press('begin', 'additions|2|src/catalog.js');
+    view = await f.settle();
+    expect([view.codeTab.draftOpen, view.codeTab.items.find(item => item.kind === 'pr-draft')?.label]).toEqual([true, 'src/catalog.js:2']);
+    await f.press('add', 'Why one?');
+    expect(pullRequestReviewStore(f.client).pending(pullRequestReviewKey(reference))).toEqual([]);
+    expect(draftSelection(f.client, reference, detail(), 'Why one?')).toMatchObject({ filePath: 'src/catalog.js', rangeLabel: '+2', text: 'Why one?' });
+    // A client that may not operate threads has nowhere to send them: the gutter stays off.
+    const viewer = fixture(readOnly);
+    await walk(viewer);
+    expect((await viewer.settle()).codeTab.canComment).toBe(false);
+  });
   test('the draft\'s lines become the review-comment chip the hand-off carries, and the draft closes', async () => {
     const f = fixture();
     await walk(f);

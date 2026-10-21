@@ -69,7 +69,7 @@ export function taskModelMarks(providers: Obj[], draftKey: string): TaskModelMar
 type BranchRef = { value: string; label: string; search: string; badge: string; remote: boolean };
 /**
  * BranchPickerRefItem: the name and its tag (current, worktree, remote, default). `remote` is the ref's own isRemote, which
- * the trigger reads (settings-scheduled.contract taskBaseLabel: "origin/" only for a listed local branch).
+ * the trigger reads (settings-scheduled.contract taskBaseLabel: "(remote)" only for a listed local branch).
  */
 export function branchRef(ref: Obj, projectCwd: string): BranchRef {
   const name = str(ref.name), worktree = str(ref.worktreePath);
@@ -233,7 +233,7 @@ export async function scheduledPage(client: T3Client, native: Native | null | un
     const marks = taskModelMarks(arr(config.providers), draft.modelKey);
     // Base-branch refs for each selectable project (WorktreeBaseBranchPicker's vcs.listRefs), the picker's search and
     // pages for the project it shows, and the base when the shown list does not have it: the picker's selectedRefQuery
-    // asks for it by name (limit 10), so a local branch past the first page still reads "From origin/<ref>". The base is
+    // asks for it by name (limit 10), so a local branch past the first page still reads "From <ref> (remote)". The base is
     // the draft's in its project, and the editor's (`taskBase`, settings-scheduled.contract taskPicker). A failed lookup
     // leaves it unknown.
     // The dialog's identity (the reference keys it by the environment it opened on and the task): a new task keeps its

@@ -644,4 +644,43 @@ mod link_tests {
             .collect();
         assert_eq!(drawn, vec![("#notes", "link-start")]);
     }
+
+    /// A thread link is one chip (MarkdownThreadLink → ThreadContextChip): its words stay together, its href stays for
+    /// message-chips.ts to resolve, and it is not a web link.
+    #[test]
+    fn a_thread_link_is_one_thread_chip() {
+        let Value::Record(doc) = document(
+            Value::str("a"),
+            "Continued in [Fix the flaky build](t3-thread://v1/thread-42) yesterday.",
+        ) else {
+            panic!("document")
+        };
+        let Value::List(blocks) = &doc[1] else {
+            panic!("blocks")
+        };
+        let Value::Record(block) = &blocks[0] else {
+            panic!("block")
+        };
+        let Value::List(runs) = &block[7] else {
+            panic!("runs")
+        };
+        let chips: Vec<(String, String, String)> = runs
+            .iter()
+            .filter_map(|run| {
+                let Value::Record(fields) = run else {
+                    panic!("run")
+                };
+                let text = |at: usize| fields[at].as_str().unwrap_or("").to_string();
+                (!text(5).is_empty()).then(|| (text(1), text(5), text(6)))
+            })
+            .collect();
+        assert_eq!(
+            chips,
+            vec![(
+                "Fix the flaky build".into(),
+                "t3-thread://v1/thread-42".into(),
+                "context-thread".into()
+            )]
+        );
+    }
 }

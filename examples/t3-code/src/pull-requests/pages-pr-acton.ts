@@ -13,7 +13,7 @@ import { fleet } from '../connections/settings-b-fleet';
 import { environmentRequest, prEnvironments, readsPullRequests } from './pages-pr-environments';
 import { resolvePickableEnvironments, type PickableEnvironment } from './pages-pr-routing';
 import { prState, writeTaskToDraft, type HandoffTask } from '../details/pr-row-actions';
-import { preparePayload } from '../details/pr-row-logic';
+import { OFF_HEAD_CHECKOUT_TOAST, checkoutFailureDescription, preparePayload } from '../details/pr-row-logic';
 import { ensureDraftThreadId, withHandoffThread } from '../composer/draft-thread-id';
 
 /** The reader's choice, for the pull request it was made on only (the panel shows another one every time it opens). */
@@ -85,7 +85,7 @@ export async function actOnHandoff(client: T3Client, native: Native, acting: Pic
         withHandoffThread(preparePayload({ ...detail, workspaceRoot: acting.workspaceRoot }, mode), threadId), { write: true });
     } catch (error) {
       if (letGo(error)) throw error;
-      pushToast(client, { kind: 'error', title: 'Could not prepare the pull request checkout', ...(error instanceof Error && error.message ? { description: error.message } : {}), key: 'pr-handoff' });
+      pushToast(client, { kind: 'error', title: 'Could not prepare the pull request checkout', description: checkoutFailureDescription(error), key: 'pr-handoff' });
       return '';
     }
     void loading;
@@ -93,7 +93,8 @@ export async function actOnHandoff(client: T3Client, native: Native, acting: Pic
     (client.local.composerControls.contexts ??= {})[draftKey] = { envMode: worktreePath ? 'worktree' : 'local', branch, worktreePath };
     if (task) writeTaskToDraft(client, draftKey, task);
     await moveTo(client, native, acting);
-    pushToast(client, task ? { kind: 'success', title: 'Checkout ready', description: 'The task is in the composer — read it over, then send.', key: 'pr-handoff' }
+    pushToast(client, prepared.isOnPullRequestHead === false ? { ...OFF_HEAD_CHECKOUT_TOAST, key: 'pr-handoff' }
+      : task ? { kind: 'success', title: 'Checkout ready', description: 'The task is in the composer — read it over, then send.', key: 'pr-handoff' }
       : { kind: 'success', title: mode === 'local' ? 'Checked out here' : 'Checked out', key: 'pr-handoff',
         description: mode === 'local' ? "This repository is on the pull request's branch, with a thread open on it." : 'The pull request is in its own worktree, with a thread open on it.' });
     return 'sidebar:new-thread';

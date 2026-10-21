@@ -119,7 +119,7 @@ export function presentGuide(client: T3Client, reference: GuideReference, detail
   const capabilities = obj(detail.capabilities), permissions = obj(detail.viewerPermissions), review = obj(capabilities.review);
   view.canAsk = client.ready && can(client, 'orchestration:operate');
   const verdicts = Array.isArray(review.verdicts) ? review.verdicts : [], allowed = Array.isArray(permissions.verdicts) ? permissions.verdicts : [];
-  view.canFinish = verdicts.some(verdict => allowed.includes(verdict));
+  view.canFinish = verdicts.some(verdict => ['comment', 'approve', 'request-changes'].includes(verdict as string) && allowed.includes(verdict)); // unknown verdicts are dropped
   const bodies: { id: string; kind: string; title: string; body: string }[] = [];
   if (!guide) return { view, bodies };
   const progress = guideProgress(client, entry), position = clampGuidePosition(progress.position, guide.stops.length), stop = guide.stops[position];

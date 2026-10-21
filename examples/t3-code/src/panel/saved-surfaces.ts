@@ -17,10 +17,12 @@ export type RestoredSurface =
   | { id: string; kind: 'terminal'; path: ''; line: 0; terminal: PanelTerminal }
   | { id: 'diff'; kind: 'diff'; path: ''; line: 0 }
   | { id: string; kind: 'device'; path: ''; line: 0; device?: DeviceTarget; title?: string }
-  | { id: string; kind: 'pull-request'; path: ''; line: 0; pr: PrTarget }
+  | { id: string; kind: 'pull-request'; path: ''; line: 0; pr: PrTarget; detailTab?: string }
   | { id: string; kind: 'attachment'; path: string; line: 0; attachment: AttachmentMeta };
-export type SurfaceEntry = { id: string; kind: string; path: string; line: number; folderTrail?: unknown; pr?: unknown; attachment?: unknown; device?: unknown; title?: string; terminal?: unknown };
+export type SurfaceEntry = { id: string; kind: string; path: string; line: number; folderTrail?: unknown; pr?: unknown; detailTab?: unknown; attachment?: unknown; device?: unknown; title?: string; terminal?: unknown };
 export const RESTORED_KINDS = new Set(['terminal', 'diff', 'device', 'pull-request', 'attachment']);
+/** PullRequestDetailTab: the tab a pull request surface was left on (rightPanelStore `detailTab`). */
+export const isDetailTab = (value: unknown): value is string => value === 'summary' || value === 'guide' || value === 'timeline' || value === 'code';
 
 /** rightPanelStore's DeviceTabTarget, or nothing when malformed. */
 export function deviceTarget(value: unknown): DeviceTarget | undefined {
@@ -60,7 +62,7 @@ export function keepRestored(surface: SurfaceEntry): RestoredSurface | null {
   }
   if (surface.kind === 'pull-request') {
     const pr = prTargetOf(surface.pr);
-    return pr ? { id: prSurfaceId(pr), kind: 'pull-request', path: '', line: 0, pr } : null;
+    return pr ? { id: prSurfaceId(pr), kind: 'pull-request', path: '', line: 0, pr, ...(isDetailTab(surface.detailTab) ? { detailTab: surface.detailTab } : {}) } : null;
   }
   if (surface.kind === 'attachment') {
     const attachment = attachmentOf(surface.attachment);
@@ -71,7 +73,8 @@ export function keepRestored(surface: SurfaceEntry): RestoredSurface | null {
 
 /** A saved record's surface fields as read back (the raw entry, before keepRestored re-validates it). */
 export function readRestored(entry: Obj): SurfaceEntry {
-  return { id: str(entry.id), kind: str(entry.kind), path: str(entry.path), line: num(entry.line), folderTrail: entry.folderTrail, pr: entry.pr, attachment: entry.attachment, device: entry.device, title: str(entry.title), terminal: entry.terminal };
+  return { id: str(entry.id), kind: str(entry.kind), path: str(entry.path), line: num(entry.line), folderTrail: entry.folderTrail, pr: entry.pr, attachment: entry.attachment, device: entry.device, title: str(entry.title), terminal: entry.terminal,
+    ...(isDetailTab(entry.detailTab) ? { detailTab: entry.detailTab } : {}) };
 }
 
 /** What the restored panel must do once it is in place: reopen the Diff's own panel and name the device. */

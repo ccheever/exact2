@@ -14,8 +14,8 @@ The app carries the official T3 server release (the CLI archive of the release b
 reference pin, unmodified; `server-runtime/runtime-pin.json`) and runs it as its own local
 server, "This machine". It does not modify T3 Code.
 
-The reference is T3 Code `9c161462c9` (`referencePin` in `server-runtime/runtime-pin.json`;
-the client mirrors Nightly `0.1.1-nightly.20261018.3302`, `version-skew.ts`). Ported files name
+The reference is T3 Code `74541bab17` (`referencePin` in `server-runtime/runtime-pin.json`;
+the client mirrors Nightly `0.1.2-nightly.20261021.3457`, `version-skew.ts`). Ported files name
 the reference files they follow, and T3 Code's MIT notice is kept in `LICENSE-T3`.
 
 macOS is the only target: there is no web, iOS or Linux build of this app.
@@ -264,10 +264,14 @@ The app has no desktop self-update feed, so its own download/restart step is abs
   Map to), welcome wizard. The palette's "New thread without a project" and the new-thread
   heading's No project open the machine's folder for threads without a project the same
   way (`scratch-project.ts`, 845ddd9354).
-- Pull request detail: besides the Summary and Timeline, the Code tab (`pages-pr-code*`: the
-  change or one commit's change a slice at a time, Viewed ticks, line comments into the review
-  being written, the host's conversations on their lines), hand-offs and quick actions
-  (`pages-pr-handoffs*`, `pages-pr-quick*`) and the thread links (`pages-pr-links*`).
+- Pull request detail: besides the Summary and Timeline (a review thread's replies under its
+  finding, a page of conversations at a time), the Code tab (`pages-pr-code*`: the change or one
+  commit's change a slice at a time, read again with the loaded slices kept when the server
+  announces a change; Viewed ticks, line comments into the review being written, or to the agent
+  where the reader may not comment; the host's conversations on their lines; what a failed diff
+  read means, with Try again), hand-offs and quick actions (`pages-pr-handoffs*`,
+  `pages-pr-quick*`) and the thread links (`pages-pr-links*`). A thread's pull request surface
+  keeps the tab it was left on.
 - Terminal: the thread terminal drawer below the chat column (`terminal.contract`,
   `terminal-drawer*.ts`; T3 Code's ThreadTerminalDrawer in its drawer mode): sessions on the
   server, split and close, the drawer's state kept per thread. The terminal is T3 Code's own
@@ -338,9 +342,13 @@ when it was the last focus, else to the last switched-on saved environment with 
 credential, else to the primary while the Local environment switch is on (`relaunch-reconnect.ts`);
 while the server starts, the window shows the connecting state (the host opens the first window
 before the server is ready, exact2 #117). A launch reopens no thread: the reference's window loads `/`
-every time (DesktopWindow.ts, ElectronProtocol.ts `getDesktopUrl`), whose IndexDraftLanding waits until
-every switched-on environment's shell is in and opens a new draft in the most recently active project of
-any environment (by latest user message; a visit is not activity). The clone does the same
+every time (DesktopWindow.ts, ElectronProtocol.ts `getDesktopUrl`), whose IndexDraftLanding opens a new
+draft in the most recently active project (by latest user message; a visit is not activity) of the
+environments whose shells are in, without waiting for a slow one; only a workspace with no project yet
+waits until every switched-on environment's shell is in. This machine is always in that first pick: with the
+Local environment switch on, the reference creates its window only once the local backend is ready
+(DesktopWindow.ts `createMainIfBackendReady`), so the clone's landing waits for the local environment while
+its backend is starting or its shell is not in yet. The clone does the same
 (`home-landing.ts`), focusing that project's environment when it is not the one the launch reconnected.
 The window keeps its frame across launches (the host's frame autosave, restored after the window's final
 style since exact2 #113). Settings ›
@@ -553,6 +561,8 @@ Differences that belong to the app:
 - An image inside a link's text has no tooltip and no keyboard menu key.
 - In the composer, a review comment's popover shows its comment and diff as plain text (the
   reference renders Markdown and a highlighted diff); a sent pull request chip has no hover card.
+- Proactive panels is a setting with no effect: no surface opens on its own when a pull request is
+  linked or a turn's diff lands (the reference's `useProactivePanels`).
 
 Some checks need a person: physical modifier chords, right-click menus, real pointer drags
 and hovers, macOS notification and screen-capture grants, provider installs and logins, and
@@ -592,7 +602,14 @@ above.
   floating preview works.
 - No development web view inspection on Android: the clone does not run on Android yet.
 - A citation or an attached file is a link label in the composer and a chip in the References row
-  below it, not the reference's inline chip: the Markdown editor has no atomic links.
+  below it, not the reference's inline chip: the Markdown editor has no atomic links. The app still
+  treats each reference as one unit, as the chip is: Backspace or Delete at it (⌃H and ⌃D too)
+  removes all of its source in one undo step, and ⌥ takes the spaces between as well; a caret put
+  inside it moves to the nearer edge of its shown label; a selection that cuts it takes it whole,
+  so a cut or copy does too; an unmodified ← or → at its edge steps over it; text typed,
+  pasted or dropped inside it goes after it; and text put over a selection that holds it
+  replaces the whole selection, its hidden destination included. A citation is known by its
+  `t3-citation:` destination, whatever its label reads.
 - Held Shift or ⌘ does nothing after the focused control unmounts (opening Linked pull requests from
   the panel launcher, or at launch with no thread open) until the next click: with nothing focused,
   the window root hears no keys, where Chromium's `window` listeners hear every key.
@@ -980,7 +997,7 @@ README) give This machine plus two lane environments, a machines list, and an AC
 --turns` threads on the stand-in with a completed turn, a turn that edits files (a turn diff), an
 approval waiting and a context meter, and its `$frontend-design` skill; the seed itself an empty
 project and a project action; `seed second --pull-request` a thread whose branch has an open pull
-request, with a patch and a review thread, from a `gh` stand-in; and `machines.mjs up --older` a
+request, with checks, comments, a review thread and a patch, from `gh` and GitHub API stand-ins; and `machines.mjs up --older` a
 server older than the client that streams a scripted self-update.
 
 **Framework issues opened by this app:** open on main is

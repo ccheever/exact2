@@ -17,8 +17,14 @@
     "morphicons": "1.7.1",
     "oniguruma-parser": "0.12.2",
     "oniguruma-to-es": "4.3.6",
+    "remark-gfm": "4.0.1",
     "remark-parse": "11.0.0",
     "unified": "11.0.5",
     "unbash": "5.0.0"
+  },
+  "overrides": {
+    "mdast-util-find-and-replace": "3.0.2",
+    "mdast-util-gfm-strikethrough": "2.0.0",
+    "micromark-extension-gfm-table": "2.1.1"
   }
 }

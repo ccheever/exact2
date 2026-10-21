@@ -33,7 +33,7 @@ use ProjectsPage from "./src/settings/settings-projects.contract"
 use SbPicker from "./src/settings/settings-b-icons.contract"
 use PickerCatalog, PickerTarget, ComposerBranches from "./src/composer/composer-shapes.contract"
 use ComposerEditorView from "./src/composer/composer-editor.contract"
-use ComposerRichView, ComposerIntentReply, ComposerIntentMetadata, ComposerFieldObservation, ComposerFieldCommand, ComposerFieldResult, ComposerFieldAcknowledgement from "./src/composer/composer-rich.contract"
+use ComposerRichView, ComposerIntentReply, ComposerIntentMetadata, ComposerFieldObservation, ComposerFieldCommand, ComposerFieldResult, ComposerFieldAcknowledgement, composerChipEdge, composerChipInside, composerChipDeletes, composerChipWordDeletes, composerChipStep, composerChipOverlaps from "./src/composer/composer-rich.contract"
 use ComposerChipRequest from "./src/composer/composer-chip-controls.contract"
 use promptPreviewSample from "./src/appearance/settings-prompt-preview.contract"
 use ChipPopover, ComposerChipFinish from "./src/composer/composer-chip-popover.contract"
@@ -136,7 +136,7 @@ component T3Code
   // or ends (a connect, a retry or a disconnect changes it inside an answer, which nothing else reads), and once
   // whenever the delivering answer reports a table the tick has not published (a socket closed, a slot's attempt got
   // its URL).
-  derive transportAnswering = `${pending(threadFind)}${pending(threadFindMaintained)}${pending(serverBrowserUploaded)}${pending(data)}${pending(balanceLoaded)}${pending(attachmentUrls)}${pending(home)}${pending(usage)}${pending(usageShortcuts)}${pending(prList)}${pending(prDetail)}${pending(welcome)}${pending(timelineDisclosureChanged)}${pending(timelineReadsRefreshed)}${pending(timelineReadsRefreshedNext)}${pending(workspaceDiscovery)}${pending(workspaceRefreshed)}${pending(palette)}${pending(paletteChanged)}${pending(providerAuthChanged)}${pending(providerUpdateRun)}${pending(changed)}${pending(localChanged)}${pending(filesAdded)}${pending(inlineDocumentChanged)}${pending(prQuickChanged)}${pending(prConfirmChanged)}${pending(secretAnswered)}${pending(prHandoffChanged)}${pending(terminalFocusChanged)}${pending(fileCommentChanged)}${pending(lineDragChanged)}${pending(terminalChanged)}${pending(fragmentChanged)}${pending(providerPage)}${pending(providerWizard)}${pending(connectionsPage)}${pending(acpAgents)}${pending(bindings)}${pending(scheduled)}${pending(shortcuts)}${pending(sourceControl)}${pending(integrations)}${pending(storageSettings)}${pending(archives)}${pending(licenses)}${pending(diagnostics)}${pending(snapshotSettings)}${pending(settingsNavigation)}${pending(settingsCore)}${pending(settings)}${pending(projectsSettings)}${pending(sbSshHosts)}${pending(sshPrompt)}${pending(sshAnswered)}${pending(pairFields)}${pending(sbPicker)}${pending(catalog)}${pending(editor)}${pending(chip)}${pending(branches)}${pending(sidebarLaunch)}${pending(automationRecordingServed0)}${pending(automationRecordingServed1)}${pending(automationRecordingServed2)}${pending(automationRecordingServed3)}${pending(themeLive)}${pending(shell)}${pending(details)}${pending(canvas)}${pending(terminalDrawer)}`
+  derive transportAnswering = `${pending(threadFind)}${pending(threadFindMaintained)}${pending(serverBrowserUploaded)}${pending(data)}${pending(balanceLoaded)}${pending(attachmentUrls)}${pending(home)}${pending(usage)}${pending(usageShortcuts)}${pending(prList)}${pending(prDetail)}${pending(welcome)}${pending(timelineDisclosureChanged)}${pending(timelineReadsRefreshed)}${pending(timelineReadsRefreshedNext)}${pending(workspaceDiscovery)}${pending(workspaceRefreshed)}${pending(palette)}${pending(paletteChanged)}${pending(providerAuthChanged)}${pending(providerUpdateRun)}${pending(changed)}${pending(localChanged)}${pending(filesAdded)}${pending(inlineDocumentChanged)}${pending(prQuickChanged)}${pending(prConfirmChanged)}${pending(secretAnswered)}${pending(prHandoffChanged)}${pending(draftLeft)}${pending(terminalFocusChanged)}${pending(fileCommentChanged)}${pending(lineDragChanged)}${pending(terminalChanged)}${pending(fragmentChanged)}${pending(providerPage)}${pending(providerWizard)}${pending(connectionsPage)}${pending(acpAgents)}${pending(bindings)}${pending(scheduled)}${pending(shortcuts)}${pending(sourceControl)}${pending(integrations)}${pending(storageSettings)}${pending(archives)}${pending(licenses)}${pending(diagnostics)}${pending(snapshotSettings)}${pending(settingsNavigation)}${pending(settingsCore)}${pending(settings)}${pending(projectsSettings)}${pending(sbSshHosts)}${pending(sshPrompt)}${pending(sshAnswered)}${pending(pairFields)}${pending(sbPicker)}${pending(catalog)}${pending(editor)}${pending(chip)}${pending(branches)}${pending(sidebarLaunch)}${pending(automationRecordingServed0)}${pending(automationRecordingServed1)}${pending(automationRecordingServed2)}${pending(automationRecordingServed3)}${pending(themeLive)}${pending(shell)}${pending(details)}${pending(canvas)}${pending(terminalDrawer)}`
   task transportAnswered key=transportAnswering
     after(1, transportPump)
   task transportRepublish when transportInbox.table > transportTable.rev key=transportInbox.table
@@ -304,6 +304,7 @@ component T3Code
     citeEnd
     restScrolled
     restGesture
+    releaseUndoClaim
   // AssistantCitationSource: View source brings the cited answer's text to min(120pt, a third of the transcript) under
   // its top (the answer's column, `cite-<row>`, has 2pt of padding above it). A row the list has not built is approached
   // by its key first; each later pass places the built answer again until it holds (rows measured as they mount move
@@ -575,8 +576,9 @@ component T3Code
   resource prDetail = prDetail(utilityPage == "pull-requests" ? prSelected : shell.panel.pr.selected, prRefresh, wallTime.epochAtZero + elapsed, data.revision, page.visibilityState == "visible", windowReturns, prTab, utilityPage == "pull-requests", floor(liveNow / 5000), page.visibilityState == "visible" and not settingsOpen and ((utilityPage == "pull-requests" and prPanelOpen) or (utilityPage == "" and shell.panel.open and shell.panel.kind == "pull-request"))) as shape PrDetailView // the page, the linked threads' 10 s tick
   task guideDisabled when prDetail.phase == "content" and prTab == "guide" and not prDetail.guide.enabled
     after(1, guideFallback)
+  // An unavailable tab falls back to the Summary without becoming the surface's remembered tab.
   action guideFallback
-    prSetTab("summary")
+    prTab = "summary"
   state guideFinishHandled = ""
   task guideFinishRequested when prDetail.guide.finishNonce > 0 and guideFinishHandled != `${prDetail.guide.key}:${prDetail.guide.finishNonce}` key=`${prDetail.guide.key}:${prDetail.guide.finishNonce}`
     after(1, guideFinishOpen)
@@ -625,11 +627,19 @@ component T3Code
     prPanelOpen = not prPanelOpen
   action prReload
     prRefresh = prRefresh + 1
+  // A thread's pull request surface remembers its tab (rightPanelStore setPullRequestDetailTab):
+  // a choice there is kept with the surface, and showing that surface again, in its thread, shows it.
   action prSetTab(value: string)
     prTab = value
+    if utilityPage == "" and shell.panel.kind == "pull-request" and shell.panel.pr.surface != ""
+      send prTabSaved = command("shelllocal:surface-pr-tab", shell.panel.pr.surface, value, 0)
+  task prSurfaceTab when utilityPage == "" and shell.panel.open and shell.panel.kind == "pull-request" and shell.panel.pr.surface != "" key=`${shell.panel.key}|${shell.panel.pr.surface}`
+    after(1, prSurfaceTabShown)
+  action prSurfaceTabShown
+    prTab = shell.panel.pr.tab
   action prAct(op: string, value: string)
     if op == "guide-write" and not prDetail.guide.hasGuide
-      prTab = "guide"
+      prSetTab("guide")
     if op == "quick" or op == "close-batch"
       send prQuickChanged = command(`pageslocal:pr-act-${op == "quick" ? "queue" : op}`, "", value, 0)
     else if not commandPending
@@ -908,10 +918,14 @@ component T3Code
   mutation inlineDocumentChanged as shape Change queue refreshes data
   mutation secretAnswered as shape Change queue refreshes data then dispatchTimelineReads
   mutation localChanged as shape Change refreshes data
+  // A pull request surface's remembered tab (prSetTab); queued, so quick tab presses land in order.
+  mutation prTabSaved as shape Change queue
   // A drop on the chat column or a legacy row, a paste into the composer, or Attach files' picks (composer-controls-attach.ts
   // attachIncoming, legacy-sidebar-drop.ts queueRowDrop). Queued: a second drop waits for the first.
   mutation filesAdded as shape Change queue refreshes data then filesAddedDone
   mutation prHandoffChanged as shape Change refreshes data // a checkout hand-off's second half, its own send
+  // A new thread opened while the draft's launch is in flight: its own send, so the launch's reply is not let go (draft-launch.ts).
+  mutation draftLeft as shape Change refreshes data
   mutation terminalFocusChanged as shape Change refreshes data
   mutation fileCommentChanged as shape Change queue refreshes data // the Files preview's line comments (chatLocal)
   mutation lineDragChanged as shape Change queue refreshes data // a diff gutter drag's press, moves and release, each in turn
@@ -926,6 +940,10 @@ component T3Code
   action fragmentOpened
     match fragmentChanged
       case some(result)
+        // A pull request link the system handed over: the Pull Requests page on that pull request.
+        if result.message.startsWith("sidebar:pr-page:")
+          openPage("pull-requests")
+          prSelect(result.message.slice(16))
         if result.message == "sidebar:new-thread"
           draftOwner = "__unset__"
           jumpRequest = jumpRequest + 1
@@ -1004,7 +1022,7 @@ component T3Code
   state licenseExpanded = ""
   state licenseRetry = 0
   state diagnosticPeriod = "15m"
-  resource shortcuts = keyboardDispatch(data.threads, browseProvider, modelQuery, composerFocused, data.running, modelsOpen, data.threadId == "", modal, settingsOpen, data.diffOpen or shell.panel.open, data.revision, paletteOpen, paletteMode, utilityPage == "pull-requests" and prSelected != "" and prPanelOpen ? prDetail.numberLabel : "", data.sidebar.undoUntil > wallTime.epochAtZero + max(liveNow, elapsed), settingsRoute, utilityPage, modelTarget.id, confirmOp, shell.panel.kind, prTab == "code") as shape KeyDispatch[]
+  resource shortcuts = keyboardDispatch(data.threads, browseProvider, modelQuery, composerFocused, data.running, modelsOpen, data.threadId == "", modal, settingsOpen, data.diffOpen or shell.panel.open, data.revision, paletteOpen, paletteMode, utilityPage == "pull-requests" and prSelected != "" and prPanelOpen ? prDetail.numberLabel : "", data.sidebar.undoUntil > wallTime.epochAtZero + max(liveNow, elapsed), settingsRoute, utilityPage, modelTarget.id, confirmOp, shell.panel.kind, prTab == "code", undoClaimed) as shape KeyDispatch[]
   resource sourceControl = sourceControlPage(settingsEnvironmentId, settingsProjectId, settingsOpen and settingsRoute == "source-control", settingsRefresh, data.revision, settingsMachine, settingsProjectKey, settingsCheckout) as shape SourceControlPage
   resource integrations = integrationsPage(settingsEnvironmentId, settingsProjectId, settingsOpen and settingsRoute == "integrations", settingsRefresh, data.revision, settingsMachine, settingsProjectKey, settingsCheckout, fdaPoll) as shape IntegrationsPage
   state fdaPoll = 0 // Poll Full Disk Access every 1.5 s and on window focus, only while visible; fdaPoll refreshes the wizard.
@@ -1081,8 +1099,12 @@ component T3Code
     themeReveal = role
   task themeInspectRevealed when themeReveal != "" and settingsCore.editor.open and settingsCore.editor.filter == "" and (settingsCore.editor.advanced or themeReveal == "canvas" or themeReveal == "accent") key=themeReveal
     after(1, themeRevealed)
+  // ThemeEditorPanel's reveal glides, and jumps under Reduce Motion.
   action themeRevealed
-    scrollIntoView(`theme-editor-row-${themeReveal}`, block="nearest", behavior="smooth")
+    if viewport.prefersReducedMotion
+      scrollIntoView(`theme-editor-row-${themeReveal}`, block="nearest", behavior="instant")
+    else
+      scrollIntoView(`theme-editor-row-${themeReveal}`, block="nearest", behavior="smooth")
     themeReveal = ""
   state themeUsage = []
   task themeUsageRefresh when settingsCore.editor.open key=settingsCore.editor.session
@@ -1412,6 +1434,12 @@ component T3Code
           composerIntentCaretSeen = true
       else if e.value == composerText and (e.selectionStart != composerIntentObserved.start or e.selectionEnd != composerIntentObserved.end)
         composerIntentClear("The prompt changed. Please try that edit again.")
+    else if not e.isComposing and composerRichCurrent and e.value == composerText and composerChipInside(richComposer.chips, e.selectionStart, e.selectionEnd)
+      // The selection never ends inside a reference, as at the reference's atom chip (composerChipEdge); so a cut or
+      // copy takes a reference whole.
+      let collapsed = e.selectionStart == e.selectionEnd
+      let start = composerChipEdge(richComposer.chips, e.selectionStart, collapsed ? 0 : -1)
+      setSelectionRange("composer", start, collapsed ? start : composerChipEdge(richComposer.chips, e.selectionEnd, 1), e.selectionDirection)
     composerSelectionObserved(e, composerComposing)
   action composerSelectionObserved(e: InputEvent, composing: bool)
     if e.value == composerText
@@ -1425,14 +1453,23 @@ component T3Code
       if composerIntentQueue.length > 0
         composerIntentClear("The prompt changed. Please try that edit again.")
     else if e.cancelable and e.value == composerText and composerRichCurrent
-      if e.inputType == "insertParagraph" or e.inputType == "insertLineBreak"
+      // ⌃H, ⌃D and word deletion at a reference remove it whole, as ⌫ and ⌦ do (composerGrammarKey).
+      let back = e.inputType == "deleteContentBackward" or e.inputType == "deleteWordBackward"
+      let word = e.inputType == "deleteWordBackward" or e.inputType == "deleteWordForward"
+      if (e.inputType == "deleteContentBackward" or e.inputType == "deleteContentForward") and composerChipDeletes(richComposer.chips, e.selectionStart, e.selectionEnd, back) or word and composerChipWordDeletes(richComposer.chips, composerText, e.selectionStart, e.selectionEnd, back)
+        preventDefault()
+        composerIntentRequest("key", "", `${word ? "Word" : ""}${back ? "Backspace" : "Delete"}`, false, false, e.selectionStart, e.selectionEnd, e.isComposing)
+      else if e.inputType == "insertParagraph" or e.inputType == "insertLineBreak"
         preventDefault()
         composerIntentRequest("key", "", "Enter", e.inputType == "insertLineBreak" or composerShift or (composerRequiresModifier and not composerCommand), composerCommand, e.selectionStart, e.selectionEnd, e.isComposing)
       else
         match e.data
           case some(text)
-            // Typed at an empty fence's closing line, text opens the body line (composerCodeInput).
-            if e.inputType == "insertFromPaste" or (e.inputType == "insertText" and richComposer.blocks.filter((b) => b.kind == "code" and not b.bodyLine and e.selectionStart == b.bodyStart and e.selectionEnd == b.bodyStart).length > 0)
+            // Typed at an empty fence's closing line, text opens the body line (composerCodeInput); typed or dropped
+            // inside a reference, it goes after it; put over a selection that holds a reference, it replaces the
+            // whole selection, the reference's source included (composer-source-session.ts input).
+            let typed = e.inputType == "insertText" or e.inputType == "insertReplacementText" or e.inputType == "insertFromDrop"
+            if e.inputType == "insertFromPaste" or (typed and (composerChipInside(richComposer.chips, e.selectionStart, e.selectionEnd) or composerChipOverlaps(richComposer.chips, e.selectionStart, e.selectionEnd))) or (e.inputType == "insertText" and richComposer.blocks.filter((b) => b.kind == "code" and not b.bodyLine and e.selectionStart == b.bodyStart and e.selectionEnd == b.bodyStart).length > 0)
               preventDefault()
               composerIntentRequest(e.inputType == "insertFromPaste" ? "paste" : "input", text, "", false, false, e.selectionStart, e.selectionEnd, e.isComposing)
           case none
@@ -1472,7 +1509,19 @@ component T3Code
     composerComposing = composing
   action composerGrammarKey(k: string, e: KeyboardEvent, composing: bool)
     let heldCommand = e.metaKey or e.ctrlKey
-    if composerRichCurrent and composerSelectionCurrent and not composing and not editor.menu.open and not editor.stash.menuOpen and not e.altKey
+    let chipKeys = composerRichCurrent and composerSelectionCurrent and not composing and not editor.menu.open and not editor.stash.menuOpen and not heldCommand
+    if (k == "Backspace" or k == "Delete") and chipKeys and (e.altKey ? composerChipWordDeletes(richComposer.chips, composerText, composerSelectionStart, composerSelectionEnd, k == "Backspace") : composerChipDeletes(richComposer.chips, composerSelectionStart, composerSelectionEnd, k == "Backspace"))
+      // ⌫ or ⌦ at a reference removes all of its source in one undo step, as at the reference's atom chip; ⌥ also
+      // takes the spaces between, as word deletion does.
+      preventDefault()
+      stopPropagation()
+      composerIntentRequest("key", "", e.altKey ? `Word${k}` : k, e.shiftKey, false, composerSelectionStart, composerSelectionEnd, composing)
+    else if (k == "ArrowLeft" or k == "ArrowRight") and chipKeys and composerIntentQueue.length == 0 and not e.shiftKey and not e.altKey and composerSelectionStart == composerSelectionEnd and composerChipStep(richComposer.chips, composerSelectionStart, k == "ArrowLeft") >= 0
+      // An unmodified ← or → at a reference's edge steps over it (ComposerPromptEditorTiptap handleKeyDown).
+      preventDefault()
+      stopPropagation()
+      setSelectionRange("composer", composerChipStep(richComposer.chips, composerSelectionStart, k == "ArrowLeft"), composerChipStep(richComposer.chips, composerSelectionStart, k == "ArrowLeft"))
+    else if composerRichCurrent and composerSelectionCurrent and not composing and not editor.menu.open and not editor.stash.menuOpen and not e.altKey
       if not heldCommand and not e.shiftKey and composerSelectionStart == composerSelectionEnd and ((k == "ArrowUp" and richComposer.historyPrevious) or (k == "ArrowDown" and richComposer.historyNext))
         let caret = rangeFrame("composer", composerSelectionStart, composerSelectionStart)
         let edge = rangeFrame("composer", k == "ArrowUp" ? 0 : composerText.length, k == "ArrowUp" ? 0 : composerText.length)
@@ -1514,12 +1563,28 @@ component T3Code
   state speedModifierState = ShortcutModifierState(metaKey=false, ctrlKey=false, altKey=false, shiftKey=false)
   derive speedModeHeld = speedModifiers(speedModifierState)
   action modifierKey(down: bool, e: KeyboardEvent, editable: bool)
+    // ThreadUndoShortcut: a held undo chord undoes once, so its repeats are cancelled even after the notice is gone,
+    // where they would reach the composer's own undo; any other key but a modifier hands the chord back to fields.
+    if down and e.repeat and undoHeldKey != "" and (e.metaKey or e.ctrlKey) and e.key.toLowerCase() == undoHeldKey
+      preventDefault()
+      stopPropagation()
+    else if down and not e.repeat and e.key != "Alt" and e.key != "Control" and e.key != "Meta" and e.key != "Shift"
+      undoHeldKey = ""
+      releaseUndoClaim()
     let held = shortcutModifierStateAfterKeyboardEvent(shortcutModifiers, down, e)
     if not areShortcutModifierStatesEqual(held, shortcutModifiers)
       shortcutModifiers = held
     let speed = editable ? emptyShortcutModifierState() : shortcutModifierStateAfterKeyboardEvent(speedModifierState, down, e)
     if not areShortcutModifierStatesEqual(speed, speedModifierState)
       speedModifierState = speed
+  // showThreadUndoNotice's claim: each new notice owns the undo chord even in the composer, until another key or an
+  // edit releases it (modifierKey, write); a collapsed sidebar shows no notice, so the composer keeps its own undo.
+  state undoReleasedUntil = 0
+  state undoHeldKey = ""
+  derive undoClaimed = data.sidebarOpen and data.sidebar.undoUntil > undoReleasedUntil
+  action releaseUndoClaim
+    if data.sidebar.undoUntil > undoReleasedUntil
+      undoReleasedUntil = data.sidebar.undoUntil
   action modifierEditableFocus
     if anyShortcutModifier(speedModifierState)
       speedModifierState = emptyShortcutModifierState()
@@ -1668,10 +1733,7 @@ component T3Code
             keybindingPrevious = ""
             keybindingRecording = false
             if restEditor == "project-remove" and restSubject == ""
-              settingsOpen = false
-              settingsProjectKey = ""
-              settingsProjectId = ""
-              settingsCheckout = ""
+              projectRemoved()
             if result.message != "task-webhook-keep"
               restEditor = ""
             settingsRefresh = settingsRefresh + 1
@@ -1750,6 +1812,8 @@ component T3Code
   action chooseAttachments
     showPicker("composer-attach-input")
   action command(op: string, id: string, value: string, n: number)
+    if op == "sidebar:undo" and id != ""
+      undoHeldKey = id // the undo chord's key (keyboard-dispatch.ts chordKey), whose repeats modifierKey cancels
     if op.startsWith("secretlocal:")
       send secretAnswered = command(op, id, value, n)
     else if op == "chatlocal:item-detail"
@@ -1974,6 +2038,11 @@ component T3Code
     taskBase = ""
   action restLocal(op: string, value: string)
     send localChanged = command(`restlocal:${op}`, `${settingsEnvironmentId}:${settingsProjectId}`, value, 0)
+  // ProjectDetail removeMembers: removing a whole project returns to the Projects overview, on the same machine.
+  action projectRemoved
+    settingsProjectKey = ""
+    settingsProjectId = ""
+    settingsCheckout = ""
   action restRaw(op: string, id: string, value: string) // a settings editor's command, also as rest and restInput (T3Window)
     if not commandPending
       commandPending = true
@@ -2143,7 +2212,9 @@ component T3Code
     draggedWidth = 0
     send localChanged = command("sidebarlocal:width-reset", "", "", 0)
   action sidebarNewThread(e: MouseEvent) // ⇧-click creates at once (the press's own modifiers; a chord's press has none)
-    if not commandPending
+    if commandPending and data.draftLaunching and (data.sidebar.projectGroupCount <= 1 or e.shiftKey)
+      draftBeside()
+    else if not commandPending
       if data.sidebar.projectGroupCount > 1
         commandPending = true
         send changed = command("sidebar:new-thread-click", "", e.shiftKey ? "shift" : "", 0)
@@ -2155,8 +2226,20 @@ component T3Code
           jumpRequest = jumpRequest + 1
           focus("composer")
           utilityPage = ""
+  // The new-thread shortcut while the draft's launch (its worktree setup among it) is in flight: a fresh draft in the
+  // same project, beside the launch (ChatView onSend markPromotedDraftThreadByRef).
+  action draftBeside
+    // The fresh draft may send while the launch's own send is still answering.
+    commandPending = false
+    draftOwner = "__unset__"
+    send draftLeft = command("new-thread", "", "", 0)
+    jumpRequest = jumpRequest + 1
+    focus("composer")
+    utilityPage = ""
   action newThread
-    if not commandPending
+    if commandPending and data.draftLaunching
+      draftBeside()
+    else if not commandPending
       if data.projectId != ""
         draftOwner = "__unset__"
         commandPending = true
@@ -2168,6 +2251,7 @@ component T3Code
         projectsOpen = true
   action write(value: string, e: InputEvent)
     composerIntentInput(value, e)
+    releaseUndoClaim() // a paste from a menu, dictation or a drop edits without a key
     let inputSerial = composerFieldInputSerial + 1
     composerFieldInputSerial = inputSerial
     send composerFieldChanged = composerFieldObserved(ComposerFieldObservation(generation=richComposer.generation, snapshotOwner=data.snapshotOwner, owner=richComposerOwner, value=value, start=e.selectionStart, end=e.selectionEnd, composing=e.isComposing, live=composerFieldLive, focused=composerFocused, inputSerial=inputSerial), true)
@@ -2592,5 +2676,15 @@ component T3Code
     after(1, citeDismissed)
   action citeDismissed
     citeDismissals = citeDismissals + 1
+  // Cite back after a scroll: the transcript's scrollend (the offset still for 100 ms) and 50 ms more make the reference's
+  // 150 ms after the last scroll (observeSelectionActions' SELECTION_SCROLL_SETTLE_MS).
+  state citeSettleAsked = 0
+  state citeSettleDone = 0
+  task citeSettle when citeSettleAsked > citeSettleDone key=citeSettleAsked
+    after(50, citeSettleOver)
+  action citeSettleOver
+    citeSettleDone = citeSettleAsked
+  action citeSettleAsk(seq: number)
+    citeSettleAsked = seq
   view
-    T3Window(promptLinkPage=promptLinkPage, promptLinkNavigate=promptLinkNavigate, promptLinkAct=promptLinkAct, data=data, viewport=viewport, scheme=scheme, hoverTip=hoverTip, hoverShown=hoverShown, hoverTipAt=hoverTipAt, themeInspecting=themeInspecting, setThemeInspecting=setThemeInspecting, themeRevealRequest=themeRevealRequest, themeUsage=themeUsage, settingsCore=settingsCore, sshPrompt=sshPrompt, modal=modal, shell=shell, wallTime=wallTime, liveNow=liveNow, elapsed=elapsed, sidebarWidth=sidebarWidth, commandPending=commandPending, lineageStopping=lineageStopping, settings=settings, utilityPage=utilityPage, home=home, paletteShow=paletteShow, openThread=openThread, sidebarLocal=sidebarLocal, sidebarRun=sidebarRun, openSettings=openSettings, openPage=openPage, pageBack=pageBack, openProviderSettings=openProviderSettings, sidebarHoverId=sidebarHoverId, openProjects=openProjects, sidebarNewThread=sidebarNewThread, selectThread=selectThread, command=command, resizeSidebar=resizeSidebar, resetSidebarWidth=resetSidebarWidth, noticeExit=noticeExit, noticeDismiss=noticeDismiss, pageCover=pageCover, canvas=canvas, canvasGesture=canvasGesture, rightPanel=rightPanel, narrowDiff=narrowDiff, detailsOpen=detailsShown, details=details, jumpRequest=jumpRequest, composerOwner=composerOwner, markdown=markdown, earlier=earlier, attachmentUrls=attachmentUrls, conversationWidth=conversationWidth, editor=editor, chip=chip, chipCovered=chipCovered, composerKey=composerKey, composerDrop=composerDrop, editorOp=editorOp, chipFocusChanged=chipFocusChanged, openModels=openModels, composerText=composerText, modelsOpen=modelsOpen, optionsOpen=optionsOpen, write=write, send=send, composerFocus=composerFocus, composerBlur=composerBlur, openOptions=openOptions, removeSnapshot=removeSnapshot, menuPick=menuPick, branches=branches, terminalDrawer=terminalDrawer, confirmOp=confirmOp, diffWidth=diffWidth, resizeDiff=resizeDiff, finishDiffResize=finishDiffResize, prDetail=prDetail, prMarkdown=prMarkdown, filesMarkdown=filesMarkdown, prTab=prTab, prSetTab=prSetTab, prReload=prReload, prAct=prAct, prCopy=prCopy, usage=usage, usageShortcuts=usageShortcuts, usageMetricSet=usageMetricSet, usageWindowSet=usageWindowSet, usageBreakdownSet=usageBreakdownSet, usageRefreshNow=usageRefreshNow, prList=prList, prTyped=prTyped, prQuery=prQuery, prSelected=prSelected, prPanelOpen=prPanelOpen, prTogglePanel=prTogglePanel, prType=prType, prControl=prControl, prSelect=prSelect, prClose=prClose, openConnectionsPage=openConnectionsPage, welcomeImport=welcomeImport, popoverSession=popoverSession, closeOptions=closeOptions, menuCommand=menuCommand, branchQuery=branchQuery, searchBranches=searchBranches, projectsOpen=projectsOpen, manageProject=manageProject, selectProject=selectProject, settingsOpen=settingsOpen, connecting=connecting, settingsThemeDialog=settingsThemeDialog, settingsNavigation=settingsNavigation, settingsRoute=settingsRoute, settingsQuery=settingsQuery, settingsMenu=settingsMenu, editSettingsQuery=editSettingsQuery, coreSearchKey=coreSearchKey, corePick=corePick, coreClearSearch=coreClearSearch, settingsScrollTop=settingsPageScrollTop, settingsPage=settingsPage, coreMenuClose=coreMenuClose, coreMenu=coreMenu, coreChange=coreChange, coreNavigate=coreNavigate, coreScope=coreScope, coreNoticeScope=coreNoticeScope, coreThemeDialog=coreThemeDialog, sourceControl=sourceControl, modalError=modalError, restLocal=restLocal, importWizardFocusMoved=importWizardFocusMoved, integrations=integrations, snapshotSettings=snapshotSettings, settingsCommand=settingsCommand, previewSnapshotSound=previewSnapshotSound, bindings=bindings, keybindingQuery=keybindingQuery, keybindingOpen=keybindingOpen, keybindingPrevious=keybindingPrevious, keybindingCommand=keybindingCommand, keybindingKey=keybindingKey, keybindingWhen=keybindingWhen, keybindingRecording=keybindingRecording, editKeybindingQuery=editKeybindingQuery, newKeybinding=newKeybinding, cancelKeybinding=cancelKeybinding, chooseKeybindingCommand=chooseKeybindingCommand, editKeybinding=editKeybinding, editKeybindingKey=editKeybindingKey, editKeybindingWhen=editKeybindingWhen, recordKeybinding=recordKeybinding, captureKeybinding=captureKeybinding, scheduled=scheduled, restEditor=restEditor, storageSettings=storageSettings, archives=archives, licenses=licenses, licenseQuery=licenseQuery, editLicenseQuery=editLicenseQuery, toggleLicense=toggleLicense, retryLicenses=retryLicenses, diagnostics=diagnostics, selectDiagnosticPeriod=selectDiagnosticPeriod, refreshSettings=refreshSettings, copyDiagnostic=copyDiagnostic, connectionsPage=connectionsPage, pendingModal=pendingModal, providerPage=providerPage, providerDialog=providerDialog, providerOp=providerOp, providerAccent=providerAccent, projectsSettings=projectsSettings, settingsThemeSubject=settingsThemeSubject, coreThemeChange=coreThemeChange, coreThemeLive=coreThemeLive, welcome=welcome, welcomeStep=welcomeStep, welcomeLink=welcomeLink, welcomePairOpen=welcomePairOpen, welcomeGo=welcomeGo, welcomeEditLink=welcomeEditLink, welcomePair=welcomePair, welcomeTogglePair=welcomeTogglePair, welcomeSetup=welcomeSetup, welcomeFinish=welcomeFinish, shortcuts=shortcuts, newThread=newThread, deviceSetting=deviceSetting, selectProvider=selectProvider, selectModel=selectModel, pickModel=pickModel, taskModelPick=taskModelPick, paletteRun=paletteRun, restSubject=restSubject, sbPicker=sbPicker, sbQuery=sbQuery, sbLettersEdited=sbLettersEdited, sbLetters=sbLetters, sbEmoji=sbEmoji, sbSet=sbSet, origin=origin, pairFields=pairFields, sbSshHosts=sbSshHosts, sbSshHost=sbSshHost, providerWizard=providerWizard, acpAgents=acpAgents, wizardStep=wizardStep, wizardLabelSet=wizardLabelSet, wizardLabel=wizardLabel, wizardIdSet=wizardIdSet, wizardId=wizardId, acpQuery=acpQuery, wizardManual=wizardManual, providerTarget=providerTarget, providerVisit=providerVisit, catalog=catalog, modelQuery=modelQuery, modelTarget=modelTarget, closeModels=closeModels, searchModels=searchModels, paletteOpen=paletteOpen, palette=palette, paletteQuery=paletteQuery, paletteHighlight=paletteHighlight, paletteScroll=paletteScroll, paletteBusy=paletteBusy, paletteEdit=paletteEdit, paletteKey=paletteKey, paletteHover=paletteHover, paletteClose=paletteClose, paletteFlag=paletteFlag, answerRevert=answerRevert, confirmTitle=confirmTitle, confirmBody=confirmBody, confirmDestructive=confirmDestructive, confirmUi=confirmUi, toastHover=toastHover, toastHovering=toastHovering, toastAct=toastAct, sshResponding=sshResponding, sshAnswer=sshAnswer, providerAuthPending=pending(providerAuthChanged), sidebarHoverRoot=sidebarHover, panelUiRoot=panelUi, detailsActRoot=detailsAct, titleMenuPickRoot=titleMenuPick, chatLocal=chatLocal, prConfirmDisarm=prConfirmDisarm, scrollToEnd=scrollToEnd, foldHold=foldHold, releaseFold=releaseFold, titleSend=titleSend, openConnectionRoot=openConnection, closeConnectionRoot=closeConnection, editOriginRoot=editOrigin, editCredentialRoot=editCredential, connectionOp=connectionOp, connectionRemove=connectionRemove, connectionMenu=connectionMenu, connectionAskRemove=connectionAskRemove, connectionToggleMenu=connectionToggleMenu, closeModalRoot=closeModal, clearModalError=clearModalError, restOpenRoot=restOpen, restCloseRoot=restClose, taskBaseRoot=restTaskBase, restRawRoot=restRaw, settingsEnvironmentId=settingsEnvironmentId, settingsProjectId=settingsProjectId, providerUiRoot=providerUi, providerAddRoot=providerAdd, composerFocused=composerFocused, modifierKey=modifierKey, modifierEditableFocus=modifierEditableFocus, modifiersPasted=modifiersForget, speedModeHeld=speedModeHeld, threadJumpHints=threadJumpHints, canRest=canRest, citeWaitDone=citeWaitDone, citeWaitAsk=citeWaitAsk, citeDismissals=citeDismissals)
+    T3Window(promptLinkPage=promptLinkPage, promptLinkNavigate=promptLinkNavigate, promptLinkAct=promptLinkAct, data=data, viewport=viewport, scheme=scheme, hoverTip=hoverTip, hoverShown=hoverShown, hoverTipAt=hoverTipAt, themeInspecting=themeInspecting, setThemeInspecting=setThemeInspecting, themeRevealRequest=themeRevealRequest, themeUsage=themeUsage, settingsCore=settingsCore, sshPrompt=sshPrompt, modal=modal, shell=shell, wallTime=wallTime, liveNow=liveNow, elapsed=elapsed, sidebarWidth=sidebarWidth, commandPending=commandPending, lineageStopping=lineageStopping, settings=settings, utilityPage=utilityPage, home=home, paletteShow=paletteShow, openThread=openThread, sidebarLocal=sidebarLocal, sidebarRun=sidebarRun, openSettings=openSettings, openPage=openPage, pageBack=pageBack, openProviderSettings=openProviderSettings, sidebarHoverId=sidebarHoverId, openProjects=openProjects, sidebarNewThread=sidebarNewThread, selectThread=selectThread, command=command, resizeSidebar=resizeSidebar, resetSidebarWidth=resetSidebarWidth, noticeExit=noticeExit, noticeDismiss=noticeDismiss, pageCover=pageCover, canvas=canvas, canvasGesture=canvasGesture, rightPanel=rightPanel, narrowDiff=narrowDiff, detailsOpen=detailsShown, details=details, jumpRequest=jumpRequest, composerOwner=composerOwner, markdown=markdown, earlier=earlier, attachmentUrls=attachmentUrls, conversationWidth=conversationWidth, editor=editor, chip=chip, chipCovered=chipCovered, composerKey=composerKey, composerDrop=composerDrop, editorOp=editorOp, chipFocusChanged=chipFocusChanged, openModels=openModels, composerText=composerText, modelsOpen=modelsOpen, optionsOpen=optionsOpen, write=write, send=send, composerFocus=composerFocus, composerBlur=composerBlur, openOptions=openOptions, removeSnapshot=removeSnapshot, menuPick=menuPick, branches=branches, terminalDrawer=terminalDrawer, confirmOp=confirmOp, diffWidth=diffWidth, resizeDiff=resizeDiff, finishDiffResize=finishDiffResize, prDetail=prDetail, prMarkdown=prMarkdown, filesMarkdown=filesMarkdown, prTab=prTab, prSetTab=prSetTab, prReload=prReload, prAct=prAct, prCopy=prCopy, usage=usage, usageShortcuts=usageShortcuts, usageMetricSet=usageMetricSet, usageWindowSet=usageWindowSet, usageBreakdownSet=usageBreakdownSet, usageRefreshNow=usageRefreshNow, prList=prList, prTyped=prTyped, prQuery=prQuery, prSelected=prSelected, prPanelOpen=prPanelOpen, prTogglePanel=prTogglePanel, prType=prType, prControl=prControl, prSelect=prSelect, prClose=prClose, openConnectionsPage=openConnectionsPage, welcomeImport=welcomeImport, popoverSession=popoverSession, closeOptions=closeOptions, menuCommand=menuCommand, branchQuery=branchQuery, searchBranches=searchBranches, projectsOpen=projectsOpen, manageProject=manageProject, selectProject=selectProject, settingsOpen=settingsOpen, connecting=connecting, settingsThemeDialog=settingsThemeDialog, settingsNavigation=settingsNavigation, settingsRoute=settingsRoute, settingsQuery=settingsQuery, settingsMenu=settingsMenu, editSettingsQuery=editSettingsQuery, coreSearchKey=coreSearchKey, corePick=corePick, coreClearSearch=coreClearSearch, settingsScrollTop=settingsPageScrollTop, settingsPage=settingsPage, coreMenuClose=coreMenuClose, coreMenu=coreMenu, coreChange=coreChange, coreNavigate=coreNavigate, coreScope=coreScope, coreNoticeScope=coreNoticeScope, coreThemeDialog=coreThemeDialog, sourceControl=sourceControl, modalError=modalError, restLocal=restLocal, importWizardFocusMoved=importWizardFocusMoved, integrations=integrations, snapshotSettings=snapshotSettings, settingsCommand=settingsCommand, previewSnapshotSound=previewSnapshotSound, bindings=bindings, keybindingQuery=keybindingQuery, keybindingOpen=keybindingOpen, keybindingPrevious=keybindingPrevious, keybindingCommand=keybindingCommand, keybindingKey=keybindingKey, keybindingWhen=keybindingWhen, keybindingRecording=keybindingRecording, editKeybindingQuery=editKeybindingQuery, newKeybinding=newKeybinding, cancelKeybinding=cancelKeybinding, chooseKeybindingCommand=chooseKeybindingCommand, editKeybinding=editKeybinding, editKeybindingKey=editKeybindingKey, editKeybindingWhen=editKeybindingWhen, recordKeybinding=recordKeybinding, captureKeybinding=captureKeybinding, scheduled=scheduled, restEditor=restEditor, storageSettings=storageSettings, archives=archives, licenses=licenses, licenseQuery=licenseQuery, editLicenseQuery=editLicenseQuery, toggleLicense=toggleLicense, retryLicenses=retryLicenses, diagnostics=diagnostics, selectDiagnosticPeriod=selectDiagnosticPeriod, refreshSettings=refreshSettings, copyDiagnostic=copyDiagnostic, connectionsPage=connectionsPage, pendingModal=pendingModal, providerPage=providerPage, providerDialog=providerDialog, providerOp=providerOp, providerAccent=providerAccent, projectsSettings=projectsSettings, settingsThemeSubject=settingsThemeSubject, coreThemeChange=coreThemeChange, coreThemeLive=coreThemeLive, welcome=welcome, welcomeStep=welcomeStep, welcomeLink=welcomeLink, welcomePairOpen=welcomePairOpen, welcomeGo=welcomeGo, welcomeEditLink=welcomeEditLink, welcomePair=welcomePair, welcomeTogglePair=welcomeTogglePair, welcomeSetup=welcomeSetup, welcomeFinish=welcomeFinish, shortcuts=shortcuts, newThread=newThread, deviceSetting=deviceSetting, selectProvider=selectProvider, selectModel=selectModel, pickModel=pickModel, taskModelPick=taskModelPick, paletteRun=paletteRun, restSubject=restSubject, sbPicker=sbPicker, sbQuery=sbQuery, sbLettersEdited=sbLettersEdited, sbLetters=sbLetters, sbEmoji=sbEmoji, sbSet=sbSet, origin=origin, pairFields=pairFields, sbSshHosts=sbSshHosts, sbSshHost=sbSshHost, providerWizard=providerWizard, acpAgents=acpAgents, wizardStep=wizardStep, wizardLabelSet=wizardLabelSet, wizardLabel=wizardLabel, wizardIdSet=wizardIdSet, wizardId=wizardId, acpQuery=acpQuery, wizardManual=wizardManual, providerTarget=providerTarget, providerVisit=providerVisit, catalog=catalog, modelQuery=modelQuery, modelTarget=modelTarget, closeModels=closeModels, searchModels=searchModels, paletteOpen=paletteOpen, palette=palette, paletteQuery=paletteQuery, paletteHighlight=paletteHighlight, paletteScroll=paletteScroll, paletteBusy=paletteBusy, paletteEdit=paletteEdit, paletteKey=paletteKey, paletteHover=paletteHover, paletteClose=paletteClose, paletteFlag=paletteFlag, answerRevert=answerRevert, confirmTitle=confirmTitle, confirmBody=confirmBody, confirmDestructive=confirmDestructive, confirmUi=confirmUi, toastHover=toastHover, toastHovering=toastHovering, toastAct=toastAct, sshResponding=sshResponding, sshAnswer=sshAnswer, providerAuthPending=pending(providerAuthChanged), sidebarHoverRoot=sidebarHover, panelUiRoot=panelUi, detailsActRoot=detailsAct, titleMenuPickRoot=titleMenuPick, chatLocal=chatLocal, prConfirmDisarm=prConfirmDisarm, scrollToEnd=scrollToEnd, foldHold=foldHold, releaseFold=releaseFold, titleSend=titleSend, openConnectionRoot=openConnection, closeConnectionRoot=closeConnection, editOriginRoot=editOrigin, editCredentialRoot=editCredential, connectionOp=connectionOp, connectionRemove=connectionRemove, connectionMenu=connectionMenu, connectionAskRemove=connectionAskRemove, connectionToggleMenu=connectionToggleMenu, closeModalRoot=closeModal, clearModalError=clearModalError, restOpenRoot=restOpen, restCloseRoot=restClose, taskBaseRoot=restTaskBase, restRawRoot=restRaw, settingsEnvironmentId=settingsEnvironmentId, settingsProjectId=settingsProjectId, providerUiRoot=providerUi, providerAddRoot=providerAdd, releaseUndoClaim=releaseUndoClaim, composerFocused=composerFocused, modifierKey=modifierKey, modifierEditableFocus=modifierEditableFocus, modifiersPasted=modifiersForget, speedModeHeld=speedModeHeld, threadJumpHints=threadJumpHints, canRest=canRest, citeSettleDone=citeSettleDone, citeSettleAsk=citeSettleAsk, citeWaitDone=citeWaitDone, citeWaitAsk=citeWaitAsk, citeDismissals=citeDismissals)

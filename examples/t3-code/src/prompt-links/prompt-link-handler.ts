@@ -1,4 +1,4 @@
-// T3 Code 9c161462c9 (MIT, LICENSE-T3): components/promptLinks/{NewThreadLinkView,ThreadLinkPrompt}.tsx, and
+// T3 Code 74541bab17 (MIT, LICENSE-T3): components/promptLinks/{NewThreadLinkView,ThreadLinkPrompt}.tsx, and
 // components/desktop/DesktopWebLinkCoordinator.tsx for a web link or an HTML file the system hands the app.
 // The connection fleet supplies the reference's environment registry; draft and checkout operations are shared with the app.
 import type { T3Client } from '../client/client';
@@ -25,6 +25,8 @@ import { activeRef } from '../terminal/terminal-drawer-view';
 import type { ScopedThreadRef } from '../terminal/terminal-ui-state';
 import { surfaceStore } from '../panel/panel-surfaces';
 import { ensureDraftThreadId } from '../composer/draft-thread-id';
+import { prLinksOpenInApp } from '../panel/pr-surface';
+import { pullRequestPageSelection } from '../sidebar/legacy-sidebar-links';
 
 type Project = Obj & { environmentId: string };
 type Pending = { link: NewThreadLink; repository: PromptLinkRepository; project?: Project };
@@ -62,7 +64,10 @@ async function openProject(client: T3Client, native: Native, storage: Files, pro
     await client.refresh(native, storage);
   } else await client.openProjectDraft(native, str(project.id));
 }
-function placeDraft(client: T3Client, link: NewThreadLink, extraPrompt = ''): void {
+/** The new-thread draft of the project a link opened: named, not read from the window, so a link opened from a thread
+ *  never lands in that thread (ThreadLinkPrompt's isThreadRoutePathname guard). */
+const draftKeyOf = (project: { environmentId: string; id?: unknown }): string => `${project.environmentId}:new:${str(project.id)}`;
+function placeDraft(client: T3Client, link: NewThreadLink, key: string, extraPrompt = ''): void {
   const notes: string[] = [];
   if (link.kind === 'new' && link.provider !== null) {
     const resolved = resolvePromptLinkModelSelection(arr(client.config.providers), { provider: link.provider, model: link.model });
@@ -72,7 +77,7 @@ function placeDraft(client: T3Client, link: NewThreadLink, extraPrompt = ''): vo
       : `The link asked for ${link.model}, which ${link.provider} does not offer here, so its default model is used.`);
   }
   const text = [link.prompt?.text, extraPrompt].filter(Boolean).join('\n\n');
-  if (text) placeLinkedPrompt(client, client.draftKey, { text, hiddenCharacters: link.prompt?.hiddenCharacters ?? 0 }, notes);
+  if (text) placeLinkedPrompt(client, key, { text, hiddenCharacters: link.prompt?.hiddenCharacters ?? 0 }, notes);
 }
 async function openScratch(client: T3Client, native: Native, storage: Files, link: NewThreadLink): Promise<void> {
   const latest = lastActiveEnvironment(client), list = environments(client);
@@ -88,7 +93,7 @@ async function openScratch(client: T3Client, native: Native, storage: Files, lin
     id = await openRemoteScratch(client, native, entry);
   }
   await openProject(client, native, storage, { id, environmentId: environment.id });
-  placeDraft(client, link, link.kind === 'pull-request' ? promptLinkPullRequestUrl(link.pullRequest) : '');
+  placeDraft(client, link, draftKeyOf({ id, environmentId: environment.id }), link.kind === 'pull-request' ? promptLinkPullRequestUrl(link.pullRequest) : '');
   states.delete(client);
 }
 async function openThread(client: T3Client, native: Native, storage: Files, environmentId: string, threadId: string): Promise<void> {
@@ -161,6 +166,12 @@ async function openWebLink(client: T3Client, native: Native, storage: Files, url
 }
 
 export async function openPromptLink(client: T3Client, native: Native, storage: Files, value: string): Promise<string> {
+  if (!promptLinkAppPath(value) && isWebUrl(value) && prLinksOpenInApp(client)) {
+    // A pull request link a connected project reads opens the pull request view (openLink tries useOpenChangeRequestLink
+    // with a plain click first). promptLinksReady already waits for the environments' projects.
+    const selection = pullRequestPageSelection(client, value);
+    if (selection) return `sidebar:pr-page:${selection}`;
+  }
   // A web link leaves an open prompt-link dialog open, as the reference's does.
   if (!promptLinkAppPath(value) && (isWebUrl(value) || value.startsWith('file:'))) return await openWebLink(client, native, storage, value);
   dismissPromptLink(client);
@@ -202,7 +213,7 @@ export async function openPromptLink(client: T3Client, native: Native, storage: 
         description: "This puts the pull request's code in a new worktree and runs your project's setup script on it.", pending });
     } else {
       await openProject(client, native, storage, project);
-      placeDraft(client, link);
+      placeDraft(client, link, draftKeyOf(project));
       return 'sidebar:new-thread';
     }
     return '';
@@ -243,7 +254,7 @@ export async function promptLinkAction(client: T3Client, native: Native, storage
       if (pending.link.kind === 'pull-request') states.set(client, { status: 'failed', title: `Cloning ${owner}/${name}`, description: 'Open this link again when the clone finishes.', pending: null });
       else {
         await openProject(client, native, storage, { id: result.projectId, environmentId: environment.id });
-        placeDraft(client, pending.link);
+        placeDraft(client, pending.link, draftKeyOf({ id: result.projectId, environmentId: environment.id }));
         states.delete(client);
       }
     } else { states.set(client, state); return ''; }

@@ -101,7 +101,9 @@ describe('offline banner', () => {
     noteServerUpdateClock(client, serverClock(client).reconnecting, '');
     const items = systemComposerNotices(client);
     expect(items.map(item => item.id)).toEqual([`server-version:${environmentId}`]);
-    expect(items[0]).toMatchObject({ title: 'Updating server', description: 'Restarting…', sep: true, icon: 'spinner', priority: 1, liveRole: 'status' });
+    expect(items[0]).toMatchObject({ title: 'Updating server', description: 'Restarting…', icon: 'spinner', priority: 1 });
+    // A plain title and description: the details come from a clipped description, not a tooltip on the title.
+    expect(items[0]!.tip).toBeUndefined();
     expect(serverUpdateView(client).attention).toBe(true);
   });
 
@@ -142,7 +144,7 @@ describe('server update notice', () => {
     const { client, command, saved } = harness();
     setJobs({ [key]: job({ status: 'failed', stage: 'installing', message: 'Server update failed: The package could not be verified.', attempt: 'f1' }) });
     expect(systemComposerNotices(client).at(-1)).toMatchObject({ title: 'Could not update server', description: 'Server update failed: The package could not be verified.',
-      variant: 'error', icon: 'circle-alert', iconTone: 'error', liveRole: 'alert', actionLabel: 'Retry', dismissId: 'f1' });
+      variant: 'error', icon: 'circle-alert', iconTone: 'error', actionLabel: 'Retry', dismissId: 'f1' });
     await command('su:dismiss', 'f1');
     expect(systemComposerNotices(client).some(item => item.id.startsWith('server-version'))).toBe(false);
     expect(JSON.parse(saved()).shell.versionMismatchDismissals).toEqual([`${environmentId}:${CLIENT_VERSION}:0.0.45`]);

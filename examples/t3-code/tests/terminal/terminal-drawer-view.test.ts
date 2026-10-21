@@ -127,6 +127,21 @@ describe('terminal drawer commands', () => {
     expect(reopened).toMatchObject({ terminalOpen: true, terminalHeight: 630, terminalIds: ['term-1'], activeTerminalId: 'term-1' });
   });
 
+  test('the drawer stops short of pushing the composer into the header (resolveTerminalDrawerMaxHeight)', async () => {
+    const { client } = fixture();
+    await run(client, 'toggle');
+    await terminalDrawerView(client, null, 840, 0);
+    await run(client, 'height', 'env-a:thread-1', '600');
+    const drawer = contractComponent('terminal.contract', 'TerminalDrawer'), state = drawer.state();
+    const view = await terminalDrawerView(client, null, 840, 0);
+    const height = (viewportHeight: number, composerHeight: number) => drawer.derives(state, { view, viewportHeight, composerHeight, look: { panelMs: 0 },
+      reduced: false, min: Math.min, max: Math.max, floor: Math.floor, command: () => {} }).height;
+    // 75% of an 840pt window is 630; the 52pt header and a 170pt composer leave 618 of the column.
+    expect(height(840, 0)).toBe(600);
+    expect(height(840, 300)).toBe(488);
+    // Below the 180pt minimum the column's room still wins.
+    expect(height(400, 250)).toBe(98);
+  });
   test('a smaller window and a drag returning to its start preserve the preferred height', async () => {
     const { client } = fixture();
     await run(client, 'toggle');
@@ -136,7 +151,7 @@ describe('terminal drawer commands', () => {
     const state = drawer.state(), sent: unknown[][] = [];
     const view = await terminalDrawerView(client, null, 620, 0);
     expect(view.height).toBe(465);
-    const scope = { view, viewportHeight: 620, look: { panelMs: 0 }, reduced: false,
+    const scope = { view, viewportHeight: 620, composerHeight: 0, look: { panelMs: 0 }, reduced: false,
       min: Math.min, max: Math.max, floor: Math.floor, command: (...args: unknown[]) => sent.push(args) };
     const call = (name: string, dy: number) => drawer.call(name, state, { ...scope, ...drawer.derives(state, scope) }, [0, dy]);
     call('resize', 20);

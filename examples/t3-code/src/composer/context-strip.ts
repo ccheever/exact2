@@ -10,7 +10,11 @@
 // never has a timeline); hostsRestingComposerControls is false, because a resting card here draws
 // its own controls row (composer-controls.contract ComposerFooter `resting`) and the strip is not
 // mounted while the card rests (app-main.contract), so the strip never hosts those controls.
+// useLabelsOverflow (BranchToolbar.tsx at 74541bab17, with resolveContextStripLabelsCompact) reads the
+// laid-out strip from the module's frames and anchors instead of the DOM.
 import type { T3Client } from '../client/client';
+import { obj } from '../client/domain';
+import { probeKey } from './composer-menus';
 import { environmentOptions, NO_RUN_ON } from '../details/git-env';
 import { runOnMenuWidth } from './composer-menus';
 import { autoIndicator, withAutoOption } from './auto-balance';
@@ -62,4 +66,47 @@ export function gitlessStrip<T extends Strip>(client: T3Client, hidden: T, persi
   const shown = autoIndicator(client, active); // "Auto balance" leads the group while it is offered
   return { ...hidden, ...NO_RUN_ON, envShow: true, envMachine: shown.machine, envMachineLabel: shown.label,
     envOptions: draft ? withAutoOption(client, options) : [], envMenuWidth, envLocked: !draft, show: true, gitless: true };
+}
+
+const CONTEXT_STRIP_COMPACT_EXPAND_HYSTERESIS_PX = 16;
+export function resolveContextStripLabelsCompact(input: { compact: boolean; neededWidth: number; availableWidth: number }): boolean {
+  return input.compact
+    ? input.neededWidth > input.availableWidth - CONTEXT_STRIP_COMPACT_EXPAND_HYSTERESIS_PX
+    : input.neededWidth > input.availableWidth;
+}
+
+/** A label in the strip and the anchor names its control and text report under (ComposerStrip: `sc:` and `sl:`). */
+export type StripLabel = { anchor: string; text: string };
+type StripLayout = { labels: StripLabel[]; controls: string[]; compact: boolean };
+const stripLayouts = new WeakMap<T3Client, StripLayout>();
+type StripFields = { show: boolean; gitless: boolean; envLocked: boolean; envShow: boolean; envLabel: string; envMachineLabel: string; branchLabel: string; prShow: boolean };
+/** The controls and labels the strip view draws, for the measurement below (composer-controls-branch.ts calls it). */
+export function noteStripLayout(client: T3Client, view: StripFields): void {
+  const workspace = view.envLocked ? { anchor: 'locked', text: view.gitless ? view.envMachineLabel : view.envLabel }
+    : { anchor: 'workspace', text: view.gitless || view.envShow ? view.envMachineLabel : view.envLabel };
+  const labels = !view.show ? [] : view.gitless ? [workspace] : [workspace, { anchor: 'branch', text: view.branchLabel }];
+  const controls = !view.show ? [] : view.gitless ? [workspace.anchor] : [workspace.anchor, ...(view.prShow ? ['pr'] : []), 'branch'];
+  stripLayouts.set(client, { labels, controls, compact: stripLayouts.get(client)?.compact ?? false });
+}
+/** The strip's label texts, laid out by the composer's text probes for their natural widths. */
+export function stripLabelTexts(client: T3Client): string[] {
+  return (stripLayouts.get(client)?.labels ?? []).map(label => label.text).filter(Boolean);
+}
+/**
+ * useLabelsOverflow: the labels give way to their icons once the controls, each label at its natural width (up to its
+ * 240pt cap), need more than the strip's content box. The strip's 7pt inline padding and 1pt border on each side are
+ * not free space. A compact strip expands again only with 16pt to spare.
+ */
+export function stripLabelsCompact(client: T3Client, rootFontSize: number): boolean {
+  const layout = stripLayouts.get(client);
+  if (!layout || !layout.controls.length) return false;
+  const anchors = obj(client.presentation.anchors), strip = obj(client.presentation.frames).strip;
+  const stripWidth = Array.isArray(strip) ? Number(strip[2]) : NaN;
+  if (!(stripWidth > 0)) return layout.compact;
+  const width = (name: string) => { const value = anchors[name]; return Array.isArray(value) ? Number(value[1]) || 0 : 0; };
+  const rem = rootFontSize / 16, widths = layout.controls.map(name => width(`sc:${name}`)).filter(value => value > 1);
+  let needed = widths.reduce((sum, value) => sum + value, 0) + 4 * rem * Math.max(0, widths.length - 1);
+  for (const label of layout.labels) needed += Math.max(0, Math.min(width(probeKey(label.text, 12, 400)) * rem, 240 * rem) - width(`sl:${label.anchor}`));
+  layout.compact = resolveContextStripLabelsCompact({ compact: layout.compact, neededWidth: needed, availableWidth: stripWidth - 16 * rem });
+  return layout.compact;
 }

@@ -106,7 +106,11 @@ export async function composerWrites(this: T3Client, op: string, id: string, val
     // composer.increaseEffort / composer.decreaseEffort (keyboard-dispatch.ts): id is the direction.
     else if (op === 'effort-step') await stepReasoningEffort(this, native, id === '-1' ? -1 : 1, (option, choice) => changeModelOption.call(this, native, storage, option, choice, true));
     else if (op === 'runtime' || op === 'interaction') await changeMode.call(this, native, storage, op, value);
-    else if (op === 'stop') {
+    else if (op === 'stop' && this.threadStopOffered) {
+      // A paginated projection can omit commands still running from earlier turns, so the server picks the run.
+      const [commandId] = await this.ids(native, 1);
+      await this.dispatch(native, storage, { type: 'thread.stop', commandId, threadId: this.threadId }, 'Stop');
+    } else if (op === 'stop') {
       const run = activeRun(this.projection);
       if (!run) throw new ClientError('There is no active turn to stop.');
       const [commandId] = await this.ids(native, 1);
@@ -169,7 +173,7 @@ async function send(this: T3Client, native: Native, storage: Files, value: strin
   const serverWorkspace = selection.threadId && !setupQueue ? serverThreadWorkspace(this) : null;
   const attachments = [...await this.uploadSnapshots(native, storage), ...await composerFileAttachments(this, native, text)]; // + folded pastes (composer-editor-files.ts)
   assertOwner();
-  const title = launchTitle(text, str(this.snapshotDrafts[0]?.name), str(attachments.find(attachment => attachment.type === 'file')?.name)); // onSend's titleSeed
+  const title = launchTitle(text, attachments); // onSend's titleSeed
   const [commandId, messageId, freshThreadId] = await this.ids(native, 3), launchKey = this.draftKey, threadId = selection.threadId ? freshThreadId : launchThreadId(this, launchKey, freshThreadId); // a draft launches as its own id
   assertOwner();
   if (selection.threadId) {
