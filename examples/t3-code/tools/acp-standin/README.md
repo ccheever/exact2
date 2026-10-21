@@ -11,7 +11,9 @@ reply: " and the first line of the user's words, a `usage_update` (12,480 of 200
 the thread has a context meter), then the stop reason `end_turn`. Two first lines do more, in
 the session's directory: "Edit the notes" edits `README.md` and writes `notes/plan.md` and
 `notes/outline.ts` before the turn ends, so the turn's checkpoint (a Git snapshot the server
-takes) has a diff; "Ask before editing the notes" first sends `session/request_permission` for an `edit` tool call, which the
+takes) has a diff; "Write <n> notes [after <s>s]" waits s seconds, then writes n new files under
+`notes/batch-<time>/`, so every such turn's checkpoint has n files (three open the diff on their own
+with Settings › General › Proactive panels on, and the wait lets a drive see the turn running); "Ask before editing the notes" first sends `session/request_permission` for an `edit` tool call, which the
 server turns into an approval on a thread in the runtime mode "approval-required" (in
 "full-access" it allows it itself), and writes `notes/approved.md` only if allowed. "Read the thread <id> for <n>s" thinks first (a
 reasoning item headed "Checking the other thread"), then holds a running `t3_thread_read` tool call
