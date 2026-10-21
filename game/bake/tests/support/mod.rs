@@ -9,7 +9,7 @@ pub fn assets(path: impl AsRef<Path>) -> Result<BTreeMap<String, Vec<u8>>, Strin
         .ok_or("invalid art stem")?;
     let name = format!("{stem}.model");
     let mut result = BTreeMap::new();
-    result.insert(name.clone(), exact_game_bake::encode(&name, &model)?);
+    result.insert(name.clone(), exact_game_bake::encode_model(&name, &model)?);
     for (name, texture) in textures {
         result.insert(name.clone(), exact_game_bake::encode(&name, &texture)?);
     }

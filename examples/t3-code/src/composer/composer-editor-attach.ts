@@ -1,11 +1,12 @@
 import { requestComposerField } from './composer-field-request';
-// Attach files for files that are not images (ChatComposer addComposerAttachments,
-// composerAttachmentFiles.ts): within the server's staging limit a picked file is
-// copied into the device's staged files (T3ComposerAttach.swift) and its inline
-// file chip goes in at the caret (insertAttachmentReferences); the send uploads
-// it and binds it like a folded paste (composer-editor-files.ts).
+// Attached files that are not images (ChatComposer addComposerAttachments,
+// composerAttachmentFiles.ts): within the server's staging limit a dropped, pasted or
+// picked file is copied into the device's staged files (composer-attach-stage.ts) and
+// its inline file chip goes in at the caret (insertAttachmentReferences); the send
+// uploads it and binds it like a folded paste (composer-editor-files.ts).
+import { removeStaged } from './composer-staged-copies';
 import type { T3Client } from '../client/client';
-import { bridgeReply, type Native } from '../client/protocol';
+import type { Native } from '../client/protocol';
 import { obj, str, type Obj } from '../client/domain';
 import { contextId, contextLabel, contextLink, contextReferences, stripContextReferences } from './composer-editor-menu';
 import { MAX_FILE_BYTES, draftFiles, fileChipLink, fileStagingLimit, formatAttachmentSize, holdDraftFiles, referencedFiles, setDraftFiles, type DraftFile } from './composer-editor-files';
@@ -26,7 +27,7 @@ export function fileTooLargeMessage(name: string, maxUploadBytes: number): strin
 }
 
 /**
- * One picked plain file (`kind: "file"` from composerAttachPick): the draft file
+ * One plain file staged for a chip (`kind: "file"`, composer-attach-stage.ts): the draft file
  * it becomes, or the reference's reason it was refused.
  */
 export function acceptAttachedFile(client: T3Client, file: Obj, limit = attachStagingLimit(client)): { file: DraftFile | null; error: string } {
@@ -103,6 +104,6 @@ export function reservedAttachments(client: T3Client): number {
 }
 
 /** A staged copy no draft will reference (a pick past the attachment limit). */
-export async function releaseStagedFile(native: Native, file: Obj): Promise<void> {
-  if (file.kind === 'file' && str(file.id)) await bridgeReply(native, { op: 'composerAttachRemove', id: str(file.id) }).catch(() => undefined);
+export async function releaseStagedFile(_native: Native, file: Obj): Promise<void> {
+  if (file.kind === 'file' && str(file.id)) await removeStaged(str(file.id));
 }

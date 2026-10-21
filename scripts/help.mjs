@@ -92,7 +92,7 @@ export const HELP = {
       ['--remote <host:port>', 'with a design: a TLS-only listener for paired remote clients (a certificate made for this run; its fingerprint printed)'],
       ['--trust-tunnel <port>', 'with a design: a loopback port for a tunnel you run; only paired tokens work through it'],
       ['--allow-plugin-origin', 'with a design: a sandboxed page (a Figma plugin) may call the wire with a paired token, here and through the tunnel'],
-      ['--relay <host[:port]> · --relay-account <label> · --relay-cert <file> · --relay-key <file> · --relay-name <tool>', 'with a design: dial out to a hosted relay that hands clients down unopened (its names\' certificate and key; --relay-name <tool> <canvas>, names of your own)'],
+      ['--relay <host[:port]> · --relay-account <label> · --relay-cert <file> · --relay-key <file> · --relay-name <tool> · --relay-dns-hook <command> · --relay-acme <url> · --require-caa', 'with a design: dial out to a hosted relay that hands clients down unopened; its names\' certificate got by ACME (or yours, --relay-cert/--relay-key); --relay-name <tool> <canvas>, names of your own, their ACME record put up by your --relay-dns-hook, run in its own process group and stopped with it on a timeout or close (a command that leaves the group, by setsid, is yours to stop) (--require-caa: refuse until your CAA records pin it)'],
       ['--wasm', 'the resident wasm loop (a game\'s always): a plan restarts in place, state carried'],
       ['--pair-ttl <duration>', 'a paired design client\'s token lifetime (90m, 12h, 2d; default 12h)'],
     ],
@@ -163,7 +163,7 @@ Ops      a target is a testId, else a view's exact text or label
   clock data|settle|+<ms> [real]    land in-flight work · end transitions
   check [dark|both]  what is wrong · screenshot <png> [over <ms> every <ms>] [window]  window: bars
   screenshot <png> compare <ref> · prefer <feature> <value> · fail|pass fetch <prefix>`,
-    bodyAll: `Builds if stale, launches, runs each quoted op on the agent's clock and closes. No --storage, no storage; --reset-storage empties a native store, --keep-storage keeps a web or compare's.
+    bodyAll: `Builds if stale, launches, runs each quoted op on the agent's clock and closes. A game's world: post [<surface>] <text> is a message its next tick reads (type <surface> message <text>). No --storage, no storage; --reset-storage empties a native store, --keep-storage keeps a web or compare's. A deep link is typed on the navigate= root: "type <root> euxy://p/1" (macOS, iOS: through protocol_handlers, no alert).
 Ports    web: --port/EXACT_PORT, else a named store’s port (20000-47999), else free. ${NATIVE_PORTS}`,
     example: 'bun exact.mjs agent web --storage s1 tree "tap add" "screenshot .exact/a.png"',
   },
@@ -343,7 +343,7 @@ Ports    none. Runs to completion.`,
       ['--trust-tunnel <port>', 'serve: a loopback port for a tunnel you run; only paired tokens work through it'],
       ['--allow-host <name>', 'serve: the public name of a tunnel to --trust-tunnel with its own certificate; repeatable'],
       ['--allow-plugin-origin', 'serve: a sandboxed page (a Figma plugin) may call the wire with a paired token'],
-      ['--relay <host[:port]> · --relay-account <label> · --relay-cert <file> · --relay-key <file> · --relay-name <tool>', 'serve: dial out to a hosted relay that hands clients down unopened (its names\' certificate and key; --relay-name <tool> <canvas>, names of your own)'],
+      ['--relay <host[:port]> · --relay-account <label> · --relay-cert <file> · --relay-key <file> · --relay-name <tool> · --relay-dns-hook <command> · --relay-acme <url> · --require-caa', 'serve: dial out to a hosted relay that hands clients down unopened; its names\' certificate got by ACME (or yours, --relay-cert/--relay-key); --relay-name <tool> <canvas>, names of your own, their ACME record put up by your --relay-dns-hook, run in its own process group and stopped with it on a timeout or close (a command that leaves the group, by setsid, is yours to stop) (--require-caa: refuse until your CAA records pin it)'],
       ['--pair-ttl <duration>', 'serve: a paired client\'s token lifetime (90m, 12h, 2d; default 12h)'],
       ['--scope <s>', 'pair: the code\'s scope, read, propose or write'],
       ['--name <name>', 'pair: the name the paired client is listed by'],
@@ -407,9 +407,9 @@ Ports    none. Runs to completion.`,
   },
   feedback: {
     line: 'the authoring diary: preview, send, or set this project\'s standing answer',
-    usage: 'bun exact.mjs feedback [preview|send [--yes]|delete <id>|status|always|never|ask|local]',
-    flags: [['--yes', 'with send: do not ask first on a terminal']],
-    body: `  preview (the default)    exactly what send would send, redacted
+    usage: 'bun exact.mjs feedback [preview|send [--yes] [--readme]|delete <id>|status|always|never|ask|local]',
+    flags: [['--yes', 'with send: do not ask first on a terminal'], ['--readme', 'with send: attach the README (and AGENTS.md\'s own notes) too']],
+    body: `  preview (the default)    exactly what send would send, redacted; the README offered beside it
   send · delete <id>       send it · delete a sent diary by its receipt
   status                   the standing answer, and what is unsent
   always|never|ask|local   set the answer (local: keep the diary, never ask or send)
@@ -456,12 +456,13 @@ Ports    none; send makes one HTTPS request. Runs to completion.`,
   },
   prove: {
     line: 'the game\'s proof: a first baseline in pins.json, then checks against it',
-    usage: 'bun exact.mjs prove [--hosts <list>] [--repeat <n>] [--compare-saves] [--repin]',
+    usage: 'bun exact.mjs prove [--hosts <list>] [--repeat <n>] [--compare-saves] [--repin] [--release]',
     flags: [
       ['--hosts <list>', 'comma-separated, of web,linux,windows,macos,ios (default this machine\'s native host)'],
       ['--repeat <n>', 'runs per host (default 1)'],
       ['--compare-saves', 'also require identical saves across hosts'],
       ['--repin', 'accept new pins once every host and mode agrees'],
+      ['--release', 'also check native release and shipping web; --repin publishes coverage'],
       ['--continue <run>', 'reuse the snapshot and completed legs of artifacts/prove/<run>'],
       ['--device', 'ios on a connected phone'],
       ['--phone <udid|name>', 'which phone, with --device'],

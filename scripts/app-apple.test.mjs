@@ -181,6 +181,37 @@ test('device grants derive the plists, their translations and the release entitl
   } finally { rmSync(dir, { recursive: true, force: true }); }
 }, 60_000);
 
+test('`device.local-network` writes the Local Network prompt on both Apple hosts, over the dev client\'s default (LLP 1069.008 D2, D4)', () => {
+  const reach = { base: 'en', locales: ['en', 'fr'], usage: { NSLocalNetworkUsageDescription: { en: 'Finds servers nearby.', fr: 'Trouve les serveurs.' } } };
+  const app = (host) => ({ id: 'com.example.fixture', displayName: 'Fixture', manifest: { host } });
+  const flat = (plist) => plist.replace(/>\s+</g, '><');
+  const prompt = /<key>NSLocalNetworkUsageDescription<\/key><string>Finds servers nearby.<\/string>/;
+  for (const plist of [macInfoPlist(app({}), { reach }), infoPlist(app({}), false, { reach })]) assert.match(plist, prompt);
+  // The dev client's reach keeps its ATS key; its prompt gives way to the grant's.
+  for (const localNetworking of [true, 'Reaches the dev server.']) {
+    const ios = flat(infoPlist(app({ ios: { localNetworking } }), false, { reach }));
+    assert.match(ios, prompt);
+    assert.match(ios, /<key>NSAllowsLocalNetworking<\/key><true\/>/);
+    assert.equal(ios.match(/NSLocalNetworkUsageDescription/g).length, 1);
+  }
+  assert.match(infoPlist(app({ ios: { localNetworking: true } })), /Connects to your dev server on the local network./);
+  assert.doesNotMatch(macInfoPlist(app({ ios: { localNetworking: true } })), /NSLocalNetworkUsageDescription/);
+});
+
+test('`host.macos.oneTimeCodeAutofill: "marked"` keeps codes to marked fields; absent, the platform\'s default', async () => {
+  const { readManifest } = await import('./app.mjs');
+  const app = (host) => ({ id: 'com.example.fixture', displayName: 'Fixture', manifest: { host } });
+  assert.match(macInfoPlist(app({ macos: { oneTimeCodeAutofill: 'marked' } })).replace(/>\s+</g, '><'), /<key>NSAutoFillRequiresTextContentTypeForOneTimeCodeOnMac<\/key><true\/>/);
+  for (const plist of [macInfoPlist(app({})), infoPlist(app({ macos: { oneTimeCodeAutofill: 'marked' } }))]) assert.doesNotMatch(plist, /OneTimeCode/);
+  const dir = mkdtempSync(resolve(tmpdir(), 'exact-otc-'));
+  try {
+    const save = (value) => writeFileSync(resolve(dir, 'app.json'), JSON.stringify({ name: 'Fixture', app: { id: 'com.example.fixture', name: 'Fixture' }, host: { macos: { oneTimeCodeAutofill: value } } }));
+    save('marked');
+    assert.equal(readManifest(dir, 'fixture').host.macos.oneTimeCodeAutofill, 'marked');
+    for (const bad of ['any', true]) { save(bad); assert.throws(() => readManifest(dir, 'fixture'), /oneTimeCodeAutofill/); }
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
 test('`appTransportSecurity` writes ATS for web content only; absent, no key (#106)', async () => {
   const { readManifest } = await import('./app.mjs');
   const ats = { appTransportSecurity: { allowsArbitraryLoadsInWebContent: true } };

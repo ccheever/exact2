@@ -57,9 +57,8 @@ test "each tab keeps its own stack"
   ([persisted-setting](persisted-setting.md)).
 - A tab is built when first selected, then stays: its stack, drafts and scroll survive
   switches; a test taps a tab before reading inside it. Reselecting the shown tab pops it.
-- Links, Back, Forward and deep links reach `navigate`. `go` and `push` add to
-  the selected tab's stack, whatever tab declares the route; into its own tab:
-  `go(select(nav, "history"), url)` or `open(nav, url)`.
+- Links, Back, Forward and deep links reach `navigate`. `go` and `push` can put a route
+  on the selected tab, whatever tab declares it; `open(nav, url)` lands in its own.
 - Hide the bar with `display="none"`, never `if`, which loses the panels' routes.
 - A Mac window, or a web window 900 px up, draws the root column's last-child tablist as a
   sidebar; a tablist you arrange yourself stays yours.

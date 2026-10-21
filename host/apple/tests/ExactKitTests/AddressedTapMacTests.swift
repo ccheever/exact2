@@ -139,5 +139,28 @@ final class AddressedTapMacTests: XCTestCase {
         XCTAssertNil(agent.tap(["id": 23])["error"])
         XCTAssertEqual(presses(), [2, 2])
     }
+
+    /// A run that presses nothing is clicked on a fragment it paints, as the
+    /// web's driver clicks the span, not at its paragraph's middle (the
+    /// paragraph's other text there): a `user-select: all` run is selected.
+    func testATapOnARunThatPressesNothingLandsOnItsText() throws {
+        let (agent, presses) = rows()
+        let p = try XCTUnwrap(session?.presenter)
+        p.apply(wireBatch([
+            ["op": "create", "id": 20, "kind": "text", "style": ["font_size": 16.0]],
+            ["op": "children", "id": 1, "ids": [2, 4, 6, 8, 20]],
+            ["op": "frame", "id": 20, "x": 0.0, "y": 600.0, "w": 400.0, "h": 20.0],
+            ["op": "paragraph", "id": 20, "runs": [
+                ["id": 21, "parent": 20, "paint": true, "props": ["text": "Folder: "]],
+                ["id": 22, "parent": 20, "paint": true, "props": ["text": "/tmp/work"], "style": ["user_select": "all"]],
+                ["id": 23, "parent": 20, "paint": true, "props": ["text": ". Check the path and the folder."]],
+            ]],
+        ]))
+        p.viewport.layoutSubtreeIfNeeded()
+        let reply = agent.tap(["id": NSNumber(value: 22)])
+        XCTAssertNil(reply["error"], "\(reply)")
+        XCTAssertEqual(p.selection.selectedText(), "/tmp/work", "the click landed in the run: \(reply)")
+        XCTAssertEqual(presses(), [])
+    }
 }
 #endif

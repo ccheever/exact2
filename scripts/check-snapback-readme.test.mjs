@@ -3,7 +3,7 @@ import {mkdtempSync,readFileSync,rmSync,writeFileSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {checkReadmeVersion,checkReceipt,checkRepository,digest,testedFiles} from './check-snapback-readme.mjs';
-import {commitFiles,extractExamples,refreshClaims,stopServer} from './retest-snapback-readme.mjs';
+import {commitFiles,devArgs,extractExamples,refreshClaims,stopServer} from './retest-snapback-readme.mjs';
 
 test('qualification refuses stale version claims and a different wave pin',()=>{
   expect(checkReadmeVersion('tested as written against 0.4.29\ntested as written against\n0.4.29','0.4.29')).toEqual({version:'0.4.29',claims:2});
@@ -44,6 +44,8 @@ test('the retest extracts every complete authored app including its exact test c
   expect(examples[4].blocks[3]).toContain('fresh\nepoch now');
   expect(()=>extractExamples(readme,recipe.replace('```contract-test','```text'))).toThrow(/literal reload/);
   expect(refreshClaims('tested as written against\n0.4.29\n(2026-10-15)','0.4.30','2026-10-16')).toBe('tested as written against 0.4.30 (2026-10-16)');
+  // Only the password-only app's dev is started with its development doors open, as its section says.
+  expect(examples.map(example=>devArgs(example.blocks[0],4400).includes('--unsafe-dev-doors'))).toEqual([false,false,true,false,false]);
 });
 
 test('the committed pins, authored sources and claims have a complete execution receipt',()=>{

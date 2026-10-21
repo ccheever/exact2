@@ -459,6 +459,22 @@ impl Kernel {
         if out.title.is_none() {
             out.custom = true;
         }
+        // UIKit's content configuration draws none of the row's box: a row
+        // whose author wrote an edge of it, or its background image, is its
+        // own views, carried, as every other host draws it (LLP 1084 D7).
+        let w = &row.style.written;
+        if out.authored_edge
+            || [
+                (StyleId::BorderWidthTop, StyleId::BorderStyleTop),
+                (StyleId::BorderWidthRight, StyleId::BorderStyleRight),
+                (StyleId::BorderWidthBottom, StyleId::BorderStyleBottom),
+                (StyleId::BorderWidthLeft, StyleId::BorderStyleLeft),
+            ]
+            .iter()
+            .any(|&(width, line)| w.has(width) || w.has(line))
+        {
+            out.custom = true;
+        }
         out.action = out.pressable
             && row.props.str(PropId::Href).is_none()
             && out.accessory == Accessory::None
@@ -606,14 +622,15 @@ pub(crate) fn apply_margins(arena: &NodeArena, slot: u32, s: &mut taffy::style::
     }
 }
 
-/// Whether the margins of a grouped list reach `slot` where it stands: a
-/// list four boxes up at most has them (a `delete=` row's content is the
-/// deepest box `apply_margins` moves).
+/// Whether the margins of a grouped list, or a cells list's (LLP 1138),
+/// reach `slot` where it stands: a list four boxes up at most has them (a
+/// `delete=` row's content is the deepest box `apply_margins` moves).
 pub(crate) fn reached(arena: &NodeArena, slot: u32) -> bool {
-    arena.has_grouped_margins()
+    (arena.has_grouped_margins()
         && std::iter::successors(arena.parent(slot), |s| arena.parent(*s))
             .take(4)
-            .any(|s| arena.grouped_margins(s).is_some())
+            .any(|s| arena.grouped_margins(s).is_some()))
+        || crate::rows::in_cells(arena, slot)
 }
 
 /// Style `slot` and what it holds again, as deep as the margins reach from

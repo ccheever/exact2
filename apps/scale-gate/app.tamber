@@ -5,5 +5,5 @@ tamber scalepackages
 
 theme
   space.md = 20px
-  notes.rule = #00ff00  scheme=fixed
+  scale-fixture-notes.rule = #00ff00  scheme=fixed
   probe.ground = #ffffff  scheme=fixed

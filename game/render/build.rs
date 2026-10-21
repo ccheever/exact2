@@ -67,6 +67,9 @@ fn main() {
         "soft",
         "count",
         "soft_count",
+        "water",
+        "caustics",
+        "shafts",
     ] {
         let path = format!("src/shaders/{name}.wgsl");
         println!("cargo:rerun-if-changed={path}");

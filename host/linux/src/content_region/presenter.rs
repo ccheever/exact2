@@ -223,6 +223,10 @@ impl<D: DataSource> Presenter<D> {
         self.boxes = boxes;
         self.boxes_serial += 1;
         if self.last_frame_succeeded {
+            self.ranges.shown.set(self.ranges.session());
+        }
+        self.publish_ranges();
+        if self.last_frame_succeeded {
             self.host.flow_damage.clear();
         }
         if self.last_frame_succeeded && !deferred {

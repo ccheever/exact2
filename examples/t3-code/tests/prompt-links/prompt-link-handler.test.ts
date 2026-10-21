@@ -7,8 +7,12 @@ import { toasts } from '../../src/shell/toast';
 import { paletteCommand } from '../../src/palette/palette-commands';
 import { chatLocal } from '../../src/timeline/timeline-presentation';
 import { fleet, environmentKey, type FleetEntry } from '../../src/connections/settings-b-fleet';
+import { surfaceStore } from '../../src/panel/panel-surfaces';
+import { primary, type PrimaryTarget } from '../../src/connections/local-primary';
 
 class LinkBackend extends Backend {
+  previewRefusal = '';
+  failIds = false;
   override status() { return { ...super.status(), environmentId: str(obj(this.config.environment).environmentId) }; }
   override async later(input: unknown): Promise<unknown> {
     const request = obj(input);
@@ -29,6 +33,16 @@ class LinkBackend extends Backend {
       this.shell.projects = [...arr(this.shell.projects).filter(project => project.id !== 'scratch'), { id: 'scratch', title: 'Scratch', workspaceRoot: '/scratch' }];
       return this.good({ projectId: 'scratch' });
     }
+    if (request.op === 'ids' && this.failIds) return this.bad('no ids');
+    if (request.op === 'request' && request.method === 'preview.list') return this.good({ sessions: [], serverEpoch: 'epoch-1', revision: 1 });
+    if (request.op === 'request' && request.method === 'preview.open') {
+      this.calls.push(request);
+      if (this.previewRefusal) return this.bad(this.previewRefusal);
+      const payload = obj(request.payload);
+      return this.good({ threadId: payload.threadId, tabId: `tab-${++this.serial}`, navStatus: { _tag: 'Loading', url: str(payload.url), title: '' }, canGoBack: false, canGoForward: false, updatedAt: '2026-10-21T00:00:00.000Z' });
+    }
+    if (request.op === 'request' && request.method === 'assets.createUrl') { this.calls.push(request); return this.good({ relativeUrl: '/api/assets/token/page.html' }); }
+    if (request.op === 'browserSync') return this.good({});
     if (request.op === 'request' && request.method === 'git.preparePullRequestThread') {
       this.calls.push(request);
       return this.good({ branch: 'pr-7', worktreePath: '/worktrees/pr-7' });
@@ -197,4 +211,63 @@ test('without a recent or primary Scratch machine, multiple offerings require a 
     expect(native.calls.some(call => call.method === 'projects.ensureScratch')).toBe(false);
     expectNotSent(native);
   } finally { for (const key of keys) fleet.entries.delete(key); }
+});
+
+const previewOpens = (native: Backend) => native.calls.filter(call => call.method === 'preview.open').map(call => obj(call.payload));
+const panelOf = (client: T3Client, threadId: string) => surfaceStore(client).panels.get(`env1:${threadId}`);
+
+test('a web link opens a thread without a project with its Browser panel maximized; the next one joins that panel', async () => {
+  const { client, native, open } = await setup();
+  const first = await open('https://example.com/docs');
+  expect(first.message).toBe('sidebar:new-thread');
+  expect(client.projectId).toBe('scratch');
+  const [opened] = previewOpens(native);
+  expect(opened).toMatchObject({ url: 'https://example.com/docs' });
+  const threadId = str(opened!.threadId);
+  const panel = panelOf(client, threadId)!;
+  expect([panel.visible, panel.maximized, panel.active.startsWith('browser:')]).toEqual([true, true, true]);
+  // The thread on screen shows a Browser tab now, so the next link opens beside it, not in another new thread.
+  expect((await open('http://localhost:5173/')).message).toBe('');
+  expect(native.calls.filter(call => call.method === 'projects.ensureScratch')).toHaveLength(1);
+  expect(previewOpens(native).at(-1)).toMatchObject({ threadId, url: 'http://localhost:5173/' });
+  expect(promptLinkView(client).show).toBe(false);
+  expectNotSent(native);
+});
+
+test('an HTML file opens from its signed asset URL, and a link the browser refuses is a toast that names it', async () => {
+  const { client, native, open } = await setup();
+  primary.target = { environmentId: 'env1', httpBaseUrl: 'http://127.0.0.1:3773' } as PrimaryTarget;
+  try {
+    await open('file:///Users/me/My%20Page.html');
+    expect(native.calls.find(call => call.method === 'assets.createUrl')?.payload).toMatchObject({ resource: { _tag: 'media-file', path: '/Users/me/My Page.html' } });
+    expect(previewOpens(native).at(-1)?.url).toBe('http://127.0.0.1:3773/api/assets/token/page.html');
+    native.previewRefusal = 'Preview is unavailable.';
+    await open('https://example.com/');
+    expect(toasts(client).at(-1)).toMatchObject({ kind: 'error', title: 'Could not open the link', description: 'Preview is unavailable.' });
+    expect(promptLinkView(client).show).toBe(false);
+  } finally { primary.target = null; }
+});
+
+test('without This machine an HTML file opens nowhere: no other server is asked to serve it', async () => {
+  const { client, native, open } = await setup();
+  await open('file:///Users/me/page.html');
+  expect(toasts(client).at(-1)).toMatchObject({ title: 'Could not open the link', description: 'file:///Users/me/page.html' });
+  expect(native.calls.some(call => call.method === 'projects.ensureScratch' || call.method === 'assets.createUrl')).toBe(false);
+});
+
+test('a web link that cannot open its new thread is a toast, not the prompt-link dialog', async () => {
+  const { client, native, open } = await setup();
+  native.failIds = true;
+  await open('https://example.com/');
+  expect(toasts(client).at(-1)).toMatchObject({ title: 'Could not open the link' });
+  expect(promptLinkView(client).show).toBe(false);
+  expect(previewOpens(native)).toHaveLength(0);
+});
+
+test('a web link leaves an open prompt-link dialog open', async () => {
+  const { client, open } = await setup();
+  await open('t3code://new?prompt=Read+me&repo=missing/repo');
+  expect(promptLinkView(client)).toMatchObject({ show: true, title: "You don't have missing/repo" });
+  await open('https://example.com/');
+  expect(promptLinkView(client)).toMatchObject({ show: true, title: "You don't have missing/repo" });
 });

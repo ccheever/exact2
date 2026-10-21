@@ -765,7 +765,7 @@ package final class Presenter {
         defer { fieldsWaiting = outerWaiting }
         defer { applyLanguage(batch); applyWakeLock(batch) }
         if applySnapshots(batch) { return }
-        PaintOrder.begin()
+        PaintOrder.begin(); let schemes = ColorSchemes.begin(); defer { schemes.end() }
         let post = Self.signposts.beginInterval("apply")
         defer { Self.signposts.endInterval("apply", post) }
         collections.beginBatch(batch)
@@ -990,7 +990,7 @@ package final class Presenter {
             default: break
             }
         }
-        regridMoved()
+        schemes.end(); regridMoved() // every override and move made: the traits before anything reads them
         flats.flush()
         // A view the flush promoted and mounted may have moved its children.
         while !gridMoved.isEmpty { regridMoved(); flats.flush() }

@@ -90,7 +90,7 @@ fn open(r: &mut Runner<NoData>, names: &[&str]) {
                 "pop" => [0.0, 0.0, 50.0, 50.0],
                 _ => unreachable!(),
             };
-            (view, rect)
+            (view, rect, None)
         })
         .collect();
     r.top_layer_frames(&frames, None);
@@ -184,4 +184,146 @@ fn selectors_reach_modal_descendants_under_an_inert_ancestor() {
     let mut r = fixture("inert=true", "popover=\"manual\"");
     open(&mut r, &["upper", "pop"]);
     read(&mut r, 120.0, 120.0, "page", &["page"], &["page"]);
+}
+
+#[test]
+fn a_top_layer_clip_bounds_reads_without_rescaling_descendants() {
+    fn present(r: &mut Runner<NoData>, frames: &[TopLayerFrame], modal: Option<usize>) -> Scrolled {
+        r.top_layer_frames(frames, modal);
+        let mut scrolled = Scrolled::default();
+        scrolled.top_layer_frames(r.kernel(), frames, modal);
+        scrolled
+    }
+    for (dialog, boundary, modal) in [
+        ("", None, true),
+        ("overflow-y=\"auto\"", None, true),
+        ("popover=\"manual\"", None, false),
+        ("popover=\"manual\"", Some(0), true),
+    ] {
+        let mut r = fixture("", dialog);
+        let upper = view_of(r.kernel(), "upper").unwrap();
+        let child = view_of(r.kernel(), "upper-child").unwrap();
+        let frame = [100.0, 100.0, 200.0, 200.0];
+        let scrolled = present(
+            &mut r,
+            &[(upper, frame, Some([110.0, 110.0, 30.0, 20.0]))],
+            boundary,
+        );
+        let matches: &[&str] = if modal {
+            &["upper", "upper-child"]
+        } else {
+            &["page", "upper", "upper-child"]
+        };
+        let inside: &[&str] = if modal {
+            &["upper-child", "upper"]
+        } else {
+            &["upper-child", "upper", "page"]
+        };
+        let outside: &[&str] = if modal { &[] } else { &["page"] };
+        for (x, y) in [
+            (105.0, 120.0),
+            (120.0, 105.0),
+            (140.0, 120.0),
+            (120.0, 130.0),
+        ] {
+            read(
+                &mut r,
+                x,
+                y,
+                if modal { "none" } else { "page" },
+                outside,
+                matches,
+            );
+        }
+        read(&mut r, 120.0, 120.0, "upper-child", inside, matches);
+        let child_frame = kernel_frame(r.kernel(), &scrolled, child);
+        assert_eq!(
+            (
+                child_frame.x,
+                child_frame.y,
+                child_frame.width,
+                child_frame.height
+            ),
+            (100.0, 100.0, 50.0, 50.0)
+        );
+        let upper_frame = kernel_frame(r.kernel(), &scrolled, upper);
+        assert_eq!(
+            (
+                upper_frame.x,
+                upper_frame.y,
+                upper_frame.width,
+                upper_frame.height
+            ),
+            (100.0, 100.0, 200.0, 200.0)
+        );
+        let (_, _, visible, ratio) = intersection(r.kernel(), &scrolled, child);
+        assert!(visible);
+        assert_eq!(ratio, 30.0 * 20.0 / (50.0 * 50.0));
+
+        let scrolled = present(
+            &mut r,
+            &[(upper, frame, Some([180.0, 180.0, 20.0, 20.0]))],
+            boundary,
+        );
+        read(
+            &mut r,
+            120.0,
+            120.0,
+            if modal { "none" } else { "page" },
+            outside,
+            if modal {
+                &["upper"]
+            } else {
+                &["page", "upper"]
+            },
+        );
+        let (_, _, visible, ratio) = intersection(r.kernel(), &scrolled, child);
+        // A scrolling root measures against itself, as under a pane's block clip.
+        assert_eq!(visible, dialog.contains("overflow"));
+        assert_eq!(ratio, 0.0);
+        assert_eq!(kernel_frame(r.kernel(), &scrolled, child), child_frame);
+
+        let scrolled = present(
+            &mut r,
+            &[(upper, frame, Some([100.0, 100.0, 0.0, 0.0]))],
+            boundary,
+        );
+        read(
+            &mut r,
+            120.0,
+            120.0,
+            if modal { "none" } else { "page" },
+            outside,
+            if modal { &[] } else { &["page"] },
+        );
+
+        assert_eq!(kernel_frame(r.kernel(), &scrolled, child), child_frame);
+
+        let scrolled = present(&mut r, &[(upper, frame, None)], boundary);
+        read(&mut r, 105.0, 105.0, "upper-child", inside, matches);
+        assert_eq!(kernel_frame(r.kernel(), &scrolled, child), child_frame);
+        let (_, _, visible, ratio) = intersection(r.kernel(), &scrolled, child);
+        assert!(visible);
+        assert_eq!(ratio, 1.0);
+    }
+}
+
+#[test]
+fn a_lifted_popover_above_a_sheet_escapes_its_clip() {
+    let mut r = fixture("", "");
+    let upper = view_of(r.kernel(), "upper").unwrap();
+    let pop = view_of(r.kernel(), "pop").unwrap();
+    r.top_layer_frames(
+        &[
+            (
+                upper,
+                [100.0, 100.0, 200.0, 200.0],
+                Some([180.0, 180.0, 20.0, 20.0]),
+            ),
+            (pop, [0.0, 0.0, 50.0, 50.0], None),
+        ],
+        Some(0),
+    );
+    read(&mut r, 20.0, 20.0, "pop", &["pop"], &["upper", "pop"]);
+    read(&mut r, 120.0, 120.0, "none", &[], &["upper", "pop"]);
 }

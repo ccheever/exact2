@@ -2,6 +2,6 @@
   "name": "@exact/cards",
   "version": "0.1.0",
   "private": true,
-  "description": "A fixture package for LLP 1121 stage 11's gate: a card styled by its own design, whose spacing and corner are base names.",
+  "description": "Library components for cards (LLP 1139): a post card's shell and an Attie card, restyled by their params and the package's tokens.",
   "exports": { ".": "./index.contract" }
 }

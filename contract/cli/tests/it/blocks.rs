@@ -87,7 +87,7 @@ fn a_subtree_in_a_host_block_is_read_where_its_host_shows_it() {
     let sheet = view(&r, "sheet");
     block(&mut r, sheet, 300.0, 500.0);
     lay_out(&mut r);
-    r.top_layer_frames(&[(sheet, [10.0, 200.0, 300.0, 500.0])], None);
+    r.top_layer_frames(&[(sheet, [10.0, 200.0, 300.0, 500.0], None)], None);
     r.act("read", vec![]).unwrap();
     assert_eq!(num(&r, "width"), 300.0, "the block's width, not the page's");
     assert_eq!(
@@ -232,7 +232,7 @@ fn a_blocks_rectangle_holds_its_root_by_the_roots_own_frame() {
     assert_eq!((num(&r, "x"), num(&r, "y")), (20.0, 40.0));
     // In the top layer, the block's rectangle in viewport points
     r.place_blocks(&[(route, None)]);
-    r.top_layer_frames(&[(route, [100.0, 200.0, 150.0, 250.0])], None);
+    r.top_layer_frames(&[(route, [100.0, 200.0, 150.0, 250.0], None)], None);
     r.act("read", vec![]).unwrap();
     assert_eq!(
         (num(&r, "x"), num(&r, "y"), num(&r, "width")),
@@ -456,7 +456,7 @@ fn a_block_clips_what_is_reached_in_it() {
     let hit =
         |r: &Runner<NoData>, name: &str| r.slot(name).and_then(Value::as_str).map(str::to_owned);
     // A sheet 200 points wide at x 100: the route's 400 points overflow it
-    r.top_layer_frames(&[(route, [100.0, 0.0, 200.0, 500.0])], None);
+    r.top_layer_frames(&[(route, [100.0, 0.0, 200.0, 500.0], None)], None);
     r.act("read", vec![]).unwrap();
     assert_eq!(hit(&r, "inside").as_deref(), Some("near"));
     assert_ne!(
@@ -467,7 +467,7 @@ fn a_block_clips_what_is_reached_in_it() {
     // Translated 120 points left, the near button is at -20..80: out of the sheet
     r.act("shift", vec![]).unwrap();
     lay_out(&mut r);
-    r.top_layer_frames(&[(route, [100.0, 0.0, 200.0, 500.0])], None);
+    r.top_layer_frames(&[(route, [100.0, 0.0, 200.0, 500.0], None)], None);
     r.act("read", vec![]).unwrap();
     assert_ne!(
         hit(&r, "left").as_deref(),
@@ -514,7 +514,7 @@ fn an_inert_ancestor_keeps_a_lifted_block_from_being_reached() {
     block(&mut r, route, 200.0, 500.0);
     lay_out(&mut r);
     let hit = |r: &Runner<NoData>| r.slot("hit").and_then(Value::as_str).map(str::to_owned);
-    r.top_layer_frames(&[(route, [100.0, 0.0, 200.0, 500.0])], None);
+    r.top_layer_frames(&[(route, [100.0, 0.0, 200.0, 500.0], None)], None);
     r.act("read", vec![]).unwrap();
     assert_eq!(
         hit(&r).as_deref(),
@@ -523,7 +523,7 @@ fn an_inert_ancestor_keeps_a_lifted_block_from_being_reached() {
     );
     r.act("calm", vec![]).unwrap();
     lay_out(&mut r);
-    r.top_layer_frames(&[(route, [100.0, 0.0, 200.0, 500.0])], None);
+    r.top_layer_frames(&[(route, [100.0, 0.0, 200.0, 500.0], None)], None);
     r.act("read", vec![]).unwrap();
     assert_eq!(hit(&r).as_deref(), Some("sheet-button"));
 }
@@ -556,7 +556,7 @@ fn a_lifted_block_inherits_visibility_and_pointer_events() {
         let route = view(&r, "route");
         block(&mut r, route, 200.0, 500.0);
         lay_out(&mut r);
-        r.top_layer_frames(&[(route, [100.0, 0.0, 200.0, 500.0])], None);
+        r.top_layer_frames(&[(route, [100.0, 0.0, 200.0, 500.0], None)], None);
         r.act("read", vec![]).unwrap();
         r.slot("hit").and_then(Value::as_str).map(str::to_owned)
     };
@@ -617,7 +617,7 @@ fn a_modal_presentation_makes_the_document_behind_it_inert_to_point_reads() {
         block(&mut r, route, 200.0, 500.0);
         lay_out(&mut r);
         // A medium sheet: the lower part of the screen, from y 250
-        r.top_layer_frames(&[(route, [100.0, 250.0, 200.0, 250.0])], modal);
+        r.top_layer_frames(&[(route, [100.0, 250.0, 200.0, 250.0], None)], modal);
         r.act("read", vec![]).unwrap();
         let slot = |name: &str| r.slot(name).and_then(Value::as_str).map(str::to_owned);
         (slot("outside"), slot("under"), slot("all"))
@@ -677,7 +677,7 @@ fn the_modal_boundary_holds_for_an_inert_sheet_and_for_selectors() {
         let route = view(&r, "route");
         block(&mut r, route, 200.0, 500.0);
         lay_out(&mut r);
-        r.top_layer_frames(&[(route, [100.0, 250.0, 200.0, 250.0])], Some(0));
+        r.top_layer_frames(&[(route, [100.0, 250.0, 200.0, 250.0], None)], Some(0));
         r.act("read", vec![]).unwrap();
         let slot = |name: &str| r.slot(name).and_then(Value::as_str).map(str::to_owned);
         (slot("outside"), slot("all"), slot("matched"))
@@ -732,7 +732,7 @@ fn a_block_of_no_height_holds_its_root_by_its_frame() {
         )
         .unwrap();
     lay_out(&mut r);
-    r.top_layer_frames(&[(route, [100.0, 200.0, 300.0, 0.0])], None);
+    r.top_layer_frames(&[(route, [100.0, 200.0, 300.0, 0.0], None)], None);
     r.act("read", vec![]).unwrap();
     assert_eq!(
         num(&r, "x"),
@@ -783,10 +783,10 @@ fn every_box_from_where_the_host_begins_the_presentation_is_live() {
     let [lower, first, gone, top] = routes;
     // The lower sheet at the left, the front one's two routes beside it
     let frames = [
-        (lower, [0.0, 0.0, 200.0, 500.0]),
-        (gone, [f64::NAN, 0.0, 200.0, 500.0]),
-        (first, [200.0, 0.0, 100.0, 500.0]),
-        (top, [300.0, 0.0, 100.0, 500.0]),
+        (lower, [0.0, 0.0, 200.0, 500.0], None),
+        (gone, [f64::NAN, 0.0, 200.0, 500.0], None),
+        (first, [200.0, 0.0, 100.0, 500.0], None),
+        (top, [300.0, 0.0, 100.0, 500.0], None),
     ];
     let mut read = |modal: Option<usize>| {
         r.top_layer_frames(&frames, modal);

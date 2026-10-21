@@ -20,6 +20,7 @@ pub(super) fn library_dir() -> Option<PathBuf> {
 
 /// Load `abi` with a device and register the app's shaders.
 pub(super) fn load(abi: &Abi) -> Result<(), String> {
+    agent_tier(abi);
     if unsafe { abi.symbol::<unsafe extern "C" fn() -> u32>(b"gpu_load")() } != 0 {
         return Err(abi.error().unwrap_or_else(|| "gpu_load failed".into()));
     }

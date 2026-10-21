@@ -441,12 +441,16 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
     unowned let host: GroupedListHost
     let collection: UICollectionView
     private(set) var model = GroupedListModel()
-    private var source: UICollectionViewDiffableDataSource<UInt32, UInt32>!
+    private var source: GroupedSource!
     private var rows: [UInt32: GroupedListModel.Row] = [:]
     /// Some row is custom: its views, carried, are laid out by the kernel.
     private(set) var carriesCustomRows = false
     /// Each row's symbol tint as last configured.
     private var looks: [UInt32: BatchValue?] = [:]
+    /// Whether the list's author wrote its background, as its layout last drew it. What the author writes wins (LLP
+    /// 1115 §2), as it replaces the sheet's grouped ground on the other hosts (LLP 1084 D7): the list's own layer paints
+    /// it in its box and UIKit's grounds are clear, so `transparent` shows what is behind the list around its cards.
+    private var writesGround = false
     /// The theme's roles this list last drew with (LLP 1095 D4): a new table
     /// (an update, a dev reload) configures every row and the layout again.
     private var theme = ThemeRoles.generation
@@ -476,7 +480,7 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
     /// The list's background past the viewport's edges (`hem`), and the
     /// list's colours it was painted from.
     private var skirt: UIView?
-    private var skirtKey: [[Double]?] = []
+    private var skirtKey: [CGColor?] = []
     #endif
     /// Whether `view` is this list's background past the viewport's edges.
     func owns(skirt view: UIView) -> Bool {
@@ -501,7 +505,7 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
         let footer = UICollectionView.SupplementaryRegistration<UICollectionViewListCell>(elementKind: UICollectionView.elementKindSectionFooter) { [unowned self] view, _, path in
             label(view, header: false, section: path.section)
         }
-        source = UICollectionViewDiffableDataSource(collectionView: collection) { view, path, id in
+        source = GroupedSource(collectionView: collection) { view, path, id in
             view.dequeueConfiguredReusableCell(using: cell, for: path, item: id)
         }
         source.supplementaryViewProvider = { view, kind, path in
@@ -538,13 +542,25 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
         view.marginsIgnoreSafeArea()
     }
 
+    /// The theme's ground for the list's appearance where it replaces the platform's (LLP 1095 D4): a plain list's is
+    /// the page's (`UIColor.platformBackground`), a grouped one's the grouped role.
+    private var themeGround: UIColor? {
+        let root = host.presenter.root
+        return model.appearance == .plain ? ThemeRoles.color("background", in: root) ?? ThemeRoles.color("Canvas", in: root)
+            : ThemeRoles.color("grouped-background", in: root)
+    }
+    #if os(iOS)
+    /// The ground where none is written: the theme's, else UIKit's for the list's appearance.
+    private var platformGround: UIColor { themeGround ?? (model.appearance == .plain ? .systemBackground : .systemGroupedBackground) }
+    #endif
+
     /// Each section's header and footer exist only where it has the text.
     private func layout() -> UICollectionViewLayout {
         UICollectionViewCompositionalLayout { [weak self] index, environment in
             guard let self else { return nil }
             var c = UICollectionLayoutListConfiguration(appearance: model.appearance)
-            // The theme's grouped ground where it replaces the role (LLP 1095 D4).
-            if let ground = ThemeRoles.color("grouped-background", in: host.presenter.root) { c.backgroundColor = ground }
+            // Clear where the author wrote one (`writesGround`), else the theme's; nil leaves UIKit's.
+            if let ground = writesGround ? .clear : themeGround { c.backgroundColor = ground }
             let s = section(at: index)
             c.headerMode = s?.header == nil ? .none : .supplementary
             c.footerMode = s?.footer == nil ? .none : .supplementary
@@ -613,7 +629,9 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
         let previous = model, old = rows
         let rethemed = theme != ThemeRoles.generation
         theme = ThemeRoles.generation
-        let restyled = next.style != previous.style || rethemed
+        let writes = owner.wrote("background_color")
+        let restyled = next.style != previous.style || rethemed || writes != writesGround
+        writesGround = writes
         model = next
         rows = Dictionary(next.sections.flatMap { $0.rows }.map { ($0.view, $0) }, uniquingKeysWith: { a, _ in a })
         carriesCustomRows = rows.values.contains(where: \.custom)
@@ -650,6 +668,13 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
             }
         }
         snapshot.reconfigureItems(changed.filter { $0 != flipping })
+        #if os(iOS)
+        // Sections each headed by one letter (Contacts' A to Z) have UIKit's
+        // section index at the trailing edge, as a hand-built list of them
+        // does (`indexTitles(for:)`); a jump lands on a section's first row.
+        let lettered = next.sections.allSatisfy { s in s.header.map { $0.count == 1 && ($0.first!.isLetter || $0 == "#") } == true }
+        source.titles = lettered ? Dictionary(next.sections.map { ($0.view, $0.header!) }, uniquingKeysWith: { a, _ in a }) : [:]
+        #endif
         // Headers and footers live in the sections' layout: one that came,
         // went or changed lays the list out again.
         let texts = previous.sections.map { [$0.header, $0.footer] } != next.sections.map { [$0.header, $0.footer] }
@@ -657,6 +682,12 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
             || !recarded.isEmpty // separators are the section layout's
         let regapped = previous.sections.map(\.spaceAbove) != next.sections.map(\.spaceAbove) || previous.spaceBelow != next.spaceBelow
         if restyled { collection.setCollectionViewLayout(layout(), animated: false) }
+        #if os(iOS)
+        // The collection view's own background shows through a clear section ground and below a short list, and UIKit
+        // gives it the appearance's ground only for a layout with none of its own, so it is set here.
+        let ground = writesGround ? .clear : platformGround
+        if collection.backgroundColor != ground { collection.backgroundColor = ground }
+        #endif
         // An unchanged snapshot can reset UIKit's estimated geometry and
         // adjust its offset after the core's pending scroll write. Remounting
         // still refreshes switches and custom boxes; changed parts reconfigure.
@@ -807,12 +838,30 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
             skirt = made
             return made
         }()
-        // The list's own background in each appearance: the sheet's grouped grey, or the author's.
-        let sides = [owner.channels("background_color", dark: false), owner.channels("background_color", dark: true)]
+        // The list's own background in each appearance, as its layer paints it: the author's, else the platform's.
+        let sides = [owner.cgColor("background_color", dark: false), owner.cgColor("background_color", dark: true)]
         if sides != skirtKey || view.backgroundColor == nil {
             skirtKey = sides
-            view.backgroundColor = UIColor { [weak root = host.presenter.root] traits in sides[traits.userInterfaceStyle == .dark ? 1 : 0].map(TextEngine.color) ?? ThemeRoles.color("grouped-background", in: root, or: .systemGroupedBackground) }
+            view.backgroundColor = UIColor { [weak self, weak owner] traits in
+                if let colour = owner?.cgColor("background_color", dark: traits.userInterfaceStyle == .dark) { return UIColor(cgColor: colour) }
+                // A background written with no colour (`initial`) is none, as the list's box is.
+                guard let self, !writesGround else { return .clear }
+                return platformGround
+            }
         }
+        // Only past the list's box, where the list itself paints: a translucent colour is not laid over itself.
+        let local = CGRect(origin: .zero, size: reach.size), path = UIBezierPath(rect: local)
+        path.append(UIBezierPath(rect: box.offsetBy(dx: -reach.minX, dy: -reach.minY)))
+        let mask = view.layer.mask as? CAShapeLayer ?? {
+            let made = CAShapeLayer()
+            made.fillRule = .evenOdd
+            view.layer.mask = made
+            return made
+        }()
+        CATransaction.begin(); CATransaction.setDisableActions(true)
+        mask.frame = local
+        mask.path = path.cgPath
+        CATransaction.commit()
         // Inside the viewport, behind the document: the viewport now covers the whole view.
         let document = presenter.root
         if view.superview !== viewport || viewport.subviews.firstIndex(of: view).map({ $0 > (viewport.subviews.firstIndex(of: document) ?? 0) }) == true {
@@ -1290,6 +1339,22 @@ extension UICollectionViewListCell {
     func marginsIgnoreSafeArea() {
         insetsLayoutMarginsFromSafeArea = false
         contentView.insetsLayoutMarginsFromSafeArea = false
+    }
+}
+
+/// The list's data, and its section index: each section's title, read
+/// against the sections UIKit has, which it asks about before and after a
+/// snapshot is applied. No index unless every section has a title and a row.
+final class GroupedSource: UICollectionViewDiffableDataSource<UInt32, UInt32> {
+    var titles: [UInt32: String] = [:]
+    override func indexTitles(for collectionView: UICollectionView) -> [String]? {
+        let shown = snapshot()
+        let all = shown.sectionIdentifiers.compactMap { titles[$0] }
+        let full = shown.sectionIdentifiers.allSatisfy { shown.numberOfItems(inSection: $0) > 0 }
+        return all.count > 1 && all.count == shown.numberOfSections && full ? all : nil
+    }
+    override func collectionView(_ collectionView: UICollectionView, indexPathForIndexTitle title: String, at index: Int) -> IndexPath {
+        IndexPath(item: 0, section: index)
     }
 }
 

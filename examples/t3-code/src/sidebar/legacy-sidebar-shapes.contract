@@ -64,7 +64,7 @@ shape LegacySidebarView
   searchShortcut: string
   confirmArchive: bool
   noProjects: bool
-  jumpHints: bool
+  jumpModifiers: string[]
   dialog: string
   dialogTarget: string
   dialogTitle: string

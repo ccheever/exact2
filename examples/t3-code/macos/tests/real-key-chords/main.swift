@@ -9,7 +9,7 @@ import XCTest
 // the session's match misses and AppKit's menu matches). An agent's key goes straight to the window, so only this
 // path can lose a chord. Every ⌘ chord of the reference's defaults that holds in an open thread is sent here as the
 // window server sends it (a CGEvent-backed NSEvent through NSApp.sendEvent), from the composer and with nothing
-// focused, past the clone's own monitors (T3Menus, T3Composer with its launcher-letter guard, T3ComposerInput, T3LatinChords, T3Sidebar,
+// focused, past the clone's own monitors (T3Menus, T3Composer with its launcher-letter guard, T3ComposerInput, T3LatinChords,
 // T3TextContextMenu, T3ComposerIntent, RightPanelTabsInput, T3ActivityInput) and its menu bar
 // (T3Menus.augment, T3MenuBar.arrange) over the host's, and must reach the host's monitor and the host's item for
 // that chord, leaving the composer's text and the focus alone. The host's parts are stand-ins, as in menu-bar: its bar
@@ -164,7 +164,7 @@ final class Fixture {
     let window = NSWindow(contentRect: NSRect(x: 240, y: 240, width: 640, height: 420), styleMask: [.titled, .closable], backing: .buffered, defer: false)
     let composerText = NSTextView(frame: NSRect(x: 20, y: 300, width: 600, height: 80))
     let composer = T3Composer(), menus = T3Menus()
-    let composerInput = T3ComposerInput(), latinChords = T3LatinChords(agent: false), sidebar = T3Sidebar(agent: false, changed: { _ in })
+    let composerInput = T3ComposerInput(), latinChords = T3LatinChords(agent: false)
     let textMenu = T3TextContextMenu(agent: false), intent = T3ComposerIntent()
     let panelTabs = RightPanelTabsInput(), activity = T3ActivityInput(changed: { _ in })
     var elements: [ExactElement] = []
@@ -198,7 +198,7 @@ final class Fixture {
         let tabElement = element(.t3Anchor, "", 6, tab, ["anchor": "tab-editor:files"])
         activate()
         menus.updatesDisabledReason = { "no feed" }
-        sidebar.install(); textMenu.install()
+        textMenu.install()
         // T3Module.element's order.
         for element in [composerElement, sendElement, tabElement] {
             panelTabs.install(element); composer.install(element); menus.install(element); composerInput.install(element)

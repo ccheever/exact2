@@ -82,6 +82,7 @@ pub struct WorldSurface<G: Game, P: Executor = (), const ASSETS: bool = false, H
     hidden: bool,
     interrupted: bool,
     look: look::Look<ASSETS>,
+    rung: Option<crate::quality::Rung>,
 }
 impl<G: Game, P: Executor, const ASSETS: bool, H: crate::Hooks> WorldSurface<G, P, ASSETS, H> {
     /// Bake-owned development capability; production modules refuse live edits.
@@ -296,9 +297,10 @@ impl<G: Game, P: Executor, const ASSETS: bool, H: crate::Hooks> Surface
     for WorldSurface<G, P, ASSETS, H>
 {
     fn render_scale(&self) -> f32 {
-        self.sim
-            .as_ref()
-            .map_or(1.0, |sim| G::render_scale(sim.args()))
+        self.raster_scale()
+    }
+    fn retier(&mut self) -> bool {
+        self.retier_rung()
     }
     fn clock(&mut self, seekable: bool) {
         self.seekable = seekable;
@@ -442,7 +444,7 @@ impl<G: Game, P: Executor, const ASSETS: bool, H: crate::Hooks> Surface
                     device,
                     queue,
                     format,
-                    G::SAMPLES,
+                    crate::quality::samples(self.rung, G::SAMPLES),
                     G::DEPTH_PREPASS,
                 )
                 .with_matte_models(G::MATTE_MODELS),
@@ -858,6 +860,8 @@ impl<G: Game, P: Executor, const ASSETS: bool, H: crate::Hooks> Surface
             } else {
                 ",\"device\":false"
             });
+            let scale = G::render_scale(sim.args());
+            crate::quality::row(self.rung, G::SAMPLES, scale, &mut reply);
             self.perf.append(&mut reply);
             reply.pop();
             reply.push_str(",\"tickSpans\":");
@@ -1081,7 +1085,7 @@ mod residency_tests {
         s.device_ready(wgpu::Features::empty());
         s.bind(&[], None).unwrap();
         let model = model();
-        let bytes = exact_game::bin::to_vec(&model);
+        let bytes = exact_game::asset::encode_model(&model);
         let tex = include_bytes!("../../bake/tests/fixtures/crate/0-srgb-straight.tex");
         s.assets();
         s.asset("hero.model", Ok(&bytes));
@@ -1136,7 +1140,7 @@ mod residency_tests {
         let mut model = model();
         let texture = include_bytes!("../../bake/tests/fixtures/crate/0-srgb-straight.tex");
         s.assets();
-        s.asset("hero.model", Ok(&exact_game::bin::to_vec(&model)));
+        s.asset("hero.model", Ok(&exact_game::asset::encode_model(&model)));
         s.asset(&model.textures[0], Ok(texture));
         let (before, _) = exact_gpu::fixture::render(&gpu, &mut s, &frame()).unwrap();
         assert!(!s.render.as_ref().unwrap().0.models.records.is_empty());
@@ -1160,7 +1164,7 @@ mod residency_tests {
             "retired geometry leaked before redelivery"
         );
         model.materials[0].base_color = [1., 0., 0., 1.];
-        s.asset("hero.model", Ok(&exact_game::bin::to_vec(&model)));
+        s.asset("hero.model", Ok(&exact_game::asset::encode_model(&model)));
         exact_gpu::fixture::render(&gpu, &mut s, &frame()).unwrap();
         assert!(
             s.render.as_ref().unwrap().0.models.records.is_empty(),
@@ -1192,7 +1196,7 @@ mod residency_tests {
         model.meshes[0].positions.resize(80_000 * 3, 0.);
         model.meshes[0].normals.resize(80_000 * 3, 0.);
         model.meshes[0].uvs.resize(80_000 * 2, 0.);
-        let bytes = exact_game::bin::to_vec(&model);
+        let bytes = exact_game::asset::encode_model(&model);
         let tex = include_bytes!("../../bake/tests/fixtures/crate/0-srgb-straight.tex");
         s.assets();
         s.asset("hero.model", Ok(&bytes));
@@ -1238,7 +1242,7 @@ mod residency_tests {
         ));
         s.assets();
         s.asset("hero.model", Ok(&bytes));
-        s.asset("peer.model", Ok(&exact_game::bin::to_vec(&peer)));
+        s.asset("peer.model", Ok(&exact_game::asset::encode_model(&peer)));
         let live = s
             .sim
             .as_ref()
@@ -1312,7 +1316,7 @@ mod residency_tests {
                 .get_mut::<exact_game::Mesh>("hero")
                 .unwrap() = exact_game::Mesh::asset(&name);
             s.assets();
-            s.asset(&name, Ok(&exact_game::bin::to_vec(&model)));
+            s.asset(&name, Ok(&exact_game::asset::encode_model(&model)));
             s.asset(&model.textures[0], Ok(&bytes));
             s.prepare_assets(&gpu.device, &gpu.queue, wgpu::TextureFormat::Rgba8Unorm);
             let live = s
@@ -1377,7 +1381,9 @@ mod residency_tests {
         surface.bind(&[], None).unwrap();
         surface.asset(
             "fox.model",
-            Ok(&exact_game::bin::to_vec(&crate::test_model::skinned_model())),
+            Ok(&exact_game::asset::encode_model(
+                &crate::test_model::skinned_model(),
+            )),
         );
         surface.asset(
             "fox/0-srgb-straight.tex",
@@ -1469,7 +1475,7 @@ mod residency_tests {
             .collect();
         for _ in 0..3 {
             model.meshes[0].positions[0] += 0.01;
-            surface.asset("fox.model", Ok(&exact_game::bin::to_vec(&model)));
+            surface.asset("fox.model", Ok(&exact_game::asset::encode_model(&model)));
             exact_gpu::fixture::render(&gpu, &mut surface, &frame).unwrap();
             let renderer = &surface.render.as_ref().unwrap().0;
             assert_eq!(

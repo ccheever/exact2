@@ -12,10 +12,11 @@
 // with Control held and `deltaY` of -100 × the magnification, which is how
 // a browser on a Mac delivers one, so one handler zooms on both hosts.
 //
-// Files dragged in from Finder land on the innermost node that declares
-// `drop`: each a `doc:` handle minted for this session (LLP 1069.010 D1),
-// of the types the manifest's `file_handlers` declares — the bound the
-// pickers keep (D2) — and refused into the journal otherwise.
+// Files and folders dragged in from Finder land on the innermost node that
+// declares `drop`, a field under the pointer included: each a `doc:` handle
+// minted for this session (LLP 1069.010 D1), of any type (the 2026-10-11
+// any-file waiver, extended to `drop`). `dragenter` and `dragleave` bracket
+// the drag over each node that hears them (FileDragMac.swift).
 #if os(macOS)
 import AppKit
 import UniformTypeIdentifiers
@@ -422,34 +423,21 @@ extension NodeView {
         return "\(Double(point.x - box.minX)),\(Double(point.y - box.minY)),\(dx),\(dy),0,\(KeyCodes.held(held))"
     }
 
-    /// A node that hears `drop` takes files dragged over it; one that no
-    /// longer does gives them back to whatever is under it.
+    /// A node that hears `drop`, `dragenter` or `dragleave` is a destination
+    /// for files dragged over it (FileDragMac.swift); one that no longer does
+    /// gives them back to whatever is under it.
     func syncDropTypes() {
-        if handlers.contains("drop") { registerForDraggedTypes([.fileURL]) } else { unregisterDraggedTypes() }
+        if !handlers.isDisjoint(with: FileDrag.events) { registerForDraggedTypes([.fileURL]) } else { unregisterDraggedTypes() }
     }
 
-    /// The dragged files this node would take: file URLs of a type the
-    /// manifest declares.
-    private func droppable(_ info: NSDraggingInfo) -> [URL] {
-        guard handlers.contains("drop"), !disabled, !inert else { return [] }
-        let urls = info.draggingPasteboard.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL] ?? []
-        return urls.filter(ExactDocuments.accepts)
-    }
-
-    package override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
-        droppable(sender).isEmpty ? [] : .copy
-    }
-
-    package override func draggingUpdated(_ sender: NSDraggingInfo) -> NSDragOperation {
-        droppable(sender).isEmpty ? [] : .copy
-    }
-
-    package override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
-        drop(droppable(sender), at: sender.draggingLocation)
-    }
+    package override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation { FileDrag.moved(self, sender) ?? [] }
+    package override func draggingUpdated(_ sender: NSDraggingInfo) -> NSDragOperation { FileDrag.moved(self, sender) ?? [] }
+    package override func draggingExited(_ sender: NSDraggingInfo?) { FileDrag.exited(self, sender) }
+    package override func performDragOperation(_ sender: NSDraggingInfo) -> Bool { FileDrag.perform(self, sender) ?? false }
+    package override func draggingEnded(_ sender: NSDraggingInfo) { FileDrag.ended() }
 
     /// The innermost node from `view` up that hears `drop`: what a drag
-    /// over it lands on (the agent's `tap … drop`).
+    /// over it lands on, a field inside it included (the agent's `tap … drop`).
     static func dropTarget(_ view: NSView) -> NodeView? {
         var next: NSView? = view
         while let view = next {
@@ -459,21 +447,33 @@ extension NodeView {
         return nil
     }
 
-    /// Files dropped at a window point: each of a declared type minted for
-    /// this session and delivered with the `DragEvent`'s line.
+    /// Files and folders dropped at a window point, of any type: each minted
+    /// for this session and delivered with the `DragEvent`'s line.
     func drop(_ urls: [URL], at windowPoint: NSPoint) -> Bool {
         guard let presenter, let session = presenter.session else { return false }
-        // A dropped file is one the person chose (LLP 1069.010.000 D3): kept,
-        // it arrives as the path it is kept by.
-        let docs = urls.filter(ExactDocuments.accepts).compactMap { session.keepDocument($0, noting: true) ?? session.mintDocument($0) }
+        let docs = Self.droppedDocuments(urls, accepts: { ExactDocuments.accepts($0) },
+                                         keep: { session.keepDocument($0, noting: true) }, mint: session.mintDocument)
         guard !docs.isEmpty else {
-            session.log("drop: refused: no file of a type this app declares")
+            session.log("drop: refused: no file could be opened")
             return false
         }
-        let point = local(windowPoint), box = contentBox()
-        let held = KeyCodes.held(NSEvent.modifierFlags)
-        presenter.mouseEvent(id, 38, "\(Double(point.x - box.minX)),\(Double(point.y - box.minY)),\(held)\n" + docs.joined(separator: "\n"))
+        presenter.mouseEvent(id, 38, dragLine(windowPoint) + "\n" + docs.joined(separator: "\n"))
         return true
+    }
+
+    /// The handles of dropped `urls`. A file of a type the manifest declares
+    /// is a document the person chose (LLP 1069.010.000 D3): kept, it arrives
+    /// as the path it is kept by, and joins Open Recent. Any other file, and a
+    /// folder (a directory handle, its path undisclosed; `fs.stat` tells the
+    /// two apart), is content: minted for this session alone, as a paste's is.
+    static func droppedDocuments(_ urls: [URL], accepts: (URL) -> Bool, keep: (URL) -> String?, mint: (URL) -> String?) -> [String] {
+        urls.filter(\.isFileURL).compactMap { url in (accepts(url) ? keep(url) : nil) ?? mint(url) }
+    }
+
+    /// A `DragEvent`'s point line: from the content box, and the modifiers held.
+    func dragLine(_ windowPoint: NSPoint) -> String {
+        let point = local(windowPoint), box = contentBox()
+        return "\(Double(point.x - box.minX)),\(Double(point.y - box.minY)),\(KeyCodes.held(NSEvent.modifierFlags))"
     }
 }
 

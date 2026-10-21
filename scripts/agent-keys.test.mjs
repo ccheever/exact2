@@ -2,7 +2,7 @@
 // a keyboard does (#140), each repeat a keydown whose `repeat` is true.
 import { test, expect } from 'bun:test';
 import { chordKeys } from './agent-playwright.mjs';
-import { KEY_REPEAT, validateKey, typeFor, cdpKey, withHeldModifiers, browserKey, nativeKey, typeArguments, typeCommand, tapWords, intoArguments, MalformedOperation, clockSlices } from './agent-keys.mjs';
+import { KEY_REPEAT, validateKey, typeFor, cdpKey, withHeldModifiers, browserKey, nativeKey, typeArguments, typeCommand, tapWords, intoArguments, MalformedOperation, clockSlices, postCommand, postInto, resizeArguments } from './agent-keys.mjs';
 import { open } from './agent.mjs';
 import { launchFacts } from './agent-launch.mjs';
 
@@ -129,4 +129,25 @@ test('typed host refusals precede driver frames for arbitrary messages and nativ
   try { hostReply(reply); throw new Error('accepted'); }
   catch (error) { expect(error.reply).toBe(reply); expect(error.stack.split('\n')[0]).toBe(refusalMessage(reply)); }
   await expect(nativeKey({id:2, opts:{key:'Enter'}, ask:async () => reply})).rejects.toThrow(refusalMessage(reply));
+});
+
+test('post is type <surface> message <text>: one word or one quoted string, the surface optional (LLP 1139.004 D1)', async () => {
+  expect(postCommand('post spawn-gulper')).toEqual([null, { message: 'spawn-gulper' }]);
+  expect(postCommand('post world "spawn gulper 3"')).toEqual(['world', { message: 'spawn gulper 3' }]);
+  expect(postCommand("post 'spawn gulper'")).toEqual([null, { message: 'spawn gulper' }]);
+  expect(typeCommand('type world message spawn gulper')).toEqual(['world', { message: 'spawn gulper' }]);
+  expect(() => postCommand('post world spawn gulper')).toThrow('quote text of several words');
+  expect(() => postCommand('post')).toThrow(MalformedOperation);
+  // The wire's `type` with a `message`: a canvas the tree finds by its id, else the name as a surface's, else none.
+  const sent = [], s = { find: async (t) => t === 'tank' ? { id: 7, world: { tick: 0 } } : t === 'title' ? { id: 3 } : undefined,
+    op: async (req) => (sent.push(req), { posted: req.surface ?? 'world', delivery: 'posted' }), landed: async (r) => r };
+  for (const target of [null, 'tank', 'title', 'ocean']) await postInto(s, target, 'spawn', { host: 'web', timing: 'agent' });
+  expect(sent).toEqual([{ op: 'type', message: 'spawn' }, { op: 'type', message: 'spawn', id: 7 }, { op: 'type', message: 'spawn', surface: 'title' }, { op: 'type', message: 'spawn', surface: 'ocean' }]);
+  await expect(postInto({ ...s, held: 'a drag' }, null, 'spawn', {})).rejects.toThrow('finger is down');
+});
+
+test('resize takes <w>x<h> and <w> <h>, and its refusal names both (LLP 1139.004 D4)', () => {
+  expect(resizeArguments(['1280x800'])).toEqual([1280, 800]);
+  expect(resizeArguments(['1280', '800'])).toEqual([1280, 800]);
+  for (const words of [['1280'], ['1280', 'by', '800'], ['1280x'], []]) expect(() => resizeArguments(words)).toThrow('resize <w>x<h> or resize <w> <h>');
 });

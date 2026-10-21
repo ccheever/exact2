@@ -617,6 +617,12 @@ const NATIVE_ROWS: &[StyleId] = &[
     StyleId::ExitAnimation,
 ];
 
+/// Whether a native button's box may carry row `id` ([`NATIVE_ROWS`]): what
+/// a library control's `control` group takes (LLP 1139 D6).
+pub(crate) fn native_row(id: StyleId) -> bool {
+    NATIVE_ROWS.contains(&id)
+}
+
 /// The motion a native button may carry: its opacity and transforms.
 fn native_motion(p: exact_motion::Property) -> bool {
     use exact_motion::Property as P;

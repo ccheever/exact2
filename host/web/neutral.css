@@ -109,6 +109,12 @@
      never the dim the shell gives a pressable that is no row: the hover's (above, and here for a row that is a link
      of text) and a stronger one while it is held. An authored press replaces it, as it replaces the dim. The
      keyboard's ring is drawn inside the row, where the list's own clip cannot cut it. */
+  /* A row's inset (LLP 1138): the cell's margin at each end, the row's box the cell, as the kernel's `list-row-inset`
+     gives every host that lays out itself. The row is the list's child, the one in a windowed row's wrapper, or a
+     swipe's content, its first child where the swipe has no leading actions (a `delete=` row's); the swipe itself takes
+     none, and a form control keeps its own padding. More specific than a button's own (a row may be one); what the
+     author writes is inline and wins. */
+  #exact-root :is([data-listrows] > :not([data-listitemkey], [swipecontent]), [data-listrows] > [data-listitemkey] > :not([swipecontent]), [data-listrows] > [swipecontent]:not([swipeleading]) > :first-child, [data-listrows] > [data-listitemkey] > [swipecontent]:not([swipeleading]) > :first-child):not(input, select, textarea, progress) { padding-left: 16px; padding-right: 16px; box-sizing: border-box; }
   #exact-root [data-listrows] > :not(:last-child, [aria-hidden="true"], [data-exact-said~="border-bottom"], [data-listitemkey]:has(> [data-exact-said~="border-bottom"]), :has(+ [data-exact-said~="border-top"]), :has(+ [data-listitemkey] > [data-exact-said~="border-top"])) { box-shadow: inset 0 -1px 0 var(--exact-separator); }
   @media (hover: hover) {
     #exact-root :where([data-listrows], [data-listrows] > [data-listitemkey]) > a[data-view][href]:hover:not([data-button-style], [data-exact-surface], :has(:is(button, a[href], input, select, textarea, [data-exact-on~="press"]):hover)) { background-image: var(--exact-hover-wash, linear-gradient(var(--exact-quaternary-fill) 0 0)); }

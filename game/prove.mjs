@@ -15,6 +15,7 @@ const option = (flag, fallback) => args.includes(flag) ? args[args.indexOf(flag)
 const device = args.includes('--device'), phone = option('--phone');
 if (args.includes('--phone') && (!device || !phone || phone.startsWith('--'))) throw new Error('--phone requires --device and a device name or identifier');
 let repin = args.includes('--repin');
+let release = args.includes('--release');
 const repeat = Number(option('--repeat', '1'));
 if (!/^[a-z][a-z0-9-]*$/.test(name ?? '') || !Number.isSafeInteger(repeat) || repeat < 1) {
   throw new Error('Usage: bun game/prove.mjs <name|path> --hosts web,linux,windows,ios --repeat 2 --compare-saves');
@@ -26,7 +27,8 @@ const continuation = option('--continue');
 const continuedRoot = continuation ? resolve(existsSync(continuation) ? continuation : resolve(app, 'artifacts/prove', continuation)) : null;
 const saved = continuedRoot ? JSON.parse(readFileSync(resolve(continuedRoot, 'legs.json'), 'utf8')) : null;
 if (saved && repin && !saved.repin) throw new Error('continue refused: repin changed');
-if (saved) repin = saved.repin;
+if (saved && release && !saved.config.release) throw new Error('continue refused: release matrix changed');
+if (saved) { repin = saved.repin; release = saved.config.release ?? false; }
 if (!existsSync(script)) throw new Error(`No proof for ${name}`);
 const progress = startStatus(app, 'prove');
 const pinFile = resolve(app, 'pins.json');
@@ -39,7 +41,7 @@ if (firstPins && !repin) {
   repin = true;
 }
 const defaultNative = process.platform === 'win32' ? 'windows' : 'linux';
-const hosts = option('--hosts', saved?.hosts?.join(',') ?? (repin || args.includes('--compare-saves') ? `${defaultNative},web` : defaultNative)).split(',');
+const hosts = option('--hosts', saved?.hosts?.join(',') ?? (repin || release || args.includes('--compare-saves') ? `${defaultNative},web` : defaultNative)).split(',');
 if (!hosts.length || new Set(hosts).size !== hosts.length || hosts.some(h => !['web','linux','windows','macos','ios'].includes(h))) {
   throw new Error('Use --hosts linux,windows,web,macos,ios to select distinct proof hosts');
 }
@@ -49,15 +51,22 @@ if (device && !hosts.includes('ios')) throw new Error('--device requires ios in 
 const artifacts = resolve(app, 'artifacts/prove');
 mkdirSync(artifacts, {recursive:true});
 const root = continuedRoot ?? mkdtempSync(resolve(artifacts, 'run-'));
-const config = {hosts, repeat, repin, compareSaves:args.includes('--compare-saves'), device, phone:phone ?? null, env:Object.fromEntries(['EXACT_GAME_PROOF_PROFILE','RUSTUP_TOOLCHAIN','RUSTFLAGS','CARGO_TARGET_DIR','CARGO_BUILD_BUILD_DIR','EXACT_UPDATE_TRUST','EXACT_GAME_PARANOID_COMPARE'].map(key => [key,process.env[key] ?? null]))};
+const config = {hosts, repeat, repin, release, compareSaves:args.includes('--compare-saves'), device, phone:phone ?? null, env:Object.fromEntries(['EXACT_GAME_PROOF_PROFILE','RUSTUP_TOOLCHAIN','RUSTFLAGS','CARGO_TARGET_DIR','CARGO_BUILD_BUILD_DIR','EXACT_UPDATE_TRUST','EXACT_GAME_PARANOID_COMPARE'].map(key => [key,process.env[key] ?? null]))};
 if (saved && JSON.stringify(saved.config) !== JSON.stringify(config)) throw new Error('continue refused: requested host/mode/profile matrix or device changed');
 if (saved) validateSnapshot(saved.snapshot, resolve(import.meta.dir, '..'), sourceApp);
 const buildTarget = resolve(process.env.CARGO_TARGET_DIR ?? resolve(sourceApp,'target'));
 const buildEnvironment = {CARGO_TARGET_DIR:buildTarget, CARGO_BUILD_BUILD_DIR:resolve(process.env.CARGO_BUILD_BUILD_DIR ?? buildTarget)};
 // A game without Git can include its generated assets in the captured tree.
 // Finish that bake before recording immutable copies, including after adding art.
+const testedInputs = !repin && gameDefaults(sourceApp)?.game ? inventory(resolve(import.meta.dir, '..'), sourceApp) : null;
+if (testedInputs) {
+  progress.set({phase:'test-rust'});
+  const result = spawnSync(process.execPath, [resolve(import.meta.dir, 'app/shells.mjs'), sourceApp, '--test'], {env:{...process.env, ...buildEnvironment}, stdio:'inherit'});
+  if (result.status !== 0) throw new Error('test-rust failed');
+}
 if (!saved && gameDefaults(sourceApp)?.game) prepareProofTree(sourceApp, {...process.env, ...buildEnvironment});
 const record = saved ?? {version:1, before:previous, repin, hosts, config, snapshot:snapshot(resolve(import.meta.dir, '..'), sourceApp, root), legs:{}};
+if (testedInputs) assertInventory(testedInputs, record.snapshot.inputs);
 app = record.snapshot.src;
 const checkSDK = () => {
   const sdkOnly = values => Object.fromEntries(Object.entries(values).filter(([name]) => name.startsWith('sdk/')));
@@ -114,7 +123,7 @@ const run = async (host, index, build = false, mode = '0', profile = process.env
   if (![0,3].includes(code)) throw Object.assign(new Error(`${host} mode ${mode} ${build ? 'build' : index} failed: ${out}/run.log\n${log.slice(-2500)}`), {summary, webUnavailable:host === 'web' && webUnavailable(log)});
   return summary;
 };
-if (repin) {
+if (repin || release) {
   // A baseline records only a game that holds the determinism contract.
   const game = gameDefaults(app)?.game;
   if (game) {
@@ -143,22 +152,27 @@ if (repin) {
     }, host);
     if (!unavailable) exercised.push(host);
   }
-  for (const host of [native, ...hosts.includes('web') ? ['web'] : []])
+  for (const host of release ? [native, ...hosts.includes('web') ? ['web'] : []] : [])
     try { rows.push(await run(host, 1, false, '0', 'release')); }
     catch (error) { if (lookOnlyFailure(error.summary)) rows.push(error.summary); else errors.push(error); }
   for (const error of errors) console.error(error.message);
   if (errors.length) throw new Error(`repin refused: mode/host proof failed; pins.json unchanged; inspect ${root}/*/run.log and rerun the named proof with --paranoid`);
   checkSDK();
-  const candidate = agreePins(rows, before, hosts, app);
-  const command = record.command ??= proofCommand(import.meta.path, local ? sourceApp : name, ...(args.includes('--repin') ? ['--repin'] : []), '--hosts', exercised.join(','), ...(device ? ['--device'] : []), ...(phone ? ['--phone', phone] : []));
+  const candidate = agreePins(rows, before, hosts, app, {release});
+  const command = record.command ??= proofCommand(import.meta.path, local ? sourceApp : name, ...(args.includes('--repin') ? ['--repin'] : []), ...(release ? ['--release'] : []), '--hosts', exercised.join(','), ...(device ? ['--device'] : []), ...(phone ? ['--phone', phone] : []));
   const inputs = pinInputs(rows), sourceInputs = pinSourceInputs(rows);
   const after = {...candidate, inputs, sourceInputs, game:previous.game ?? name, generated:command, at:record.at ??= pinRevision(sourceApp, sourceInputs), ...(option('--reason', '') ? {reason:option('--reason', '')} : {})};
   for (const section of ['ticks', 'saves']) for (const [key, value] of Object.entries(after[section]))
     console.log(`${section} ${key}: ${before[section]?.[key] ?? '(new)'} → ${value}`);
   if (!exercised.includes('web')) console.log(`WEB not exercised; pins record ${exercised.join(',')} only, no web agreement claimed.`);
   writeJSON(resolve(root, 'legs.json'), record);
-  writeJSON(pinFile, after);
-  console.log(`PROOF PASS ${name}: baseline published after host/mode agreement`);
+  if (repin) {
+    writeJSON(pinFile, after);
+    console.log(`PROOF PASS ${name}: ${release ? 'baseline published after host/mode agreement' : 'development baseline published after host/mode agreement; release not pinned; run prove --repin --release'}`);
+  } else {
+    console.log(`PROOF PASS ${name}: release matrix checked; pins.json unchanged`);
+    if (!(previous.profiles ?? ['release']).includes('release')) console.log('UNVERIFIED: release not pinned; run prove --repin --release to publish coverage');
+  }
 } else {
 // Each proof checks its own build receipt. Only multiple hosts need a separate
 // serial bake phase before their independent processes can run in parallel.

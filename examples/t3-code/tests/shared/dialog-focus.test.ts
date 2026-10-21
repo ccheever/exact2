@@ -23,11 +23,14 @@ const testId = (line: string) => /testId=(?:"([^"]+)"|`([^`]+)`)/.exec(line)?.sl
 describe('dialog focus lifecycle uses the actual previous focus', () => {
   const window = contractComponent('app-window.contract', 'T3Window');
   function fixture() {
-    const state: Env = { dialogFocusId: '', dialogFocusOwner: '', dialogFocusPopup: '', dialogFocusInvoker: '', dialogFrames: [], dialogSeated: [], documentPermissionReturnKey: '', documentPermissionReturnSource: '' };
+    const state: Env = { focusEditable: false, dialogFocusId: '', dialogFocusOwner: '', dialogFocusPopup: '', dialogFocusInvoker: '', dialogFrames: [], dialogSeated: [], documentPermissionReturnKey: '', documentPermissionReturnSource: '' };
     const live = new Set<string>(), menus = new Set<string>(), inert = new Set<string>(), focused: string[] = [], observedFocus: string[] = [];
     const scope = {
       none: null,
-      querySelectorAll: (selector: string) => { expect(['[data-dialog-focus~="open"]', '[data-dialog-return~="menu"]']).toContain(selector); return [...(selector.includes('dialog-return') ? menus : live)].filter(id => !inert.has(id)); },
+      querySelectorAll: (selector: string) => {
+        expect(['[data-dialog-focus~="open"]', '[data-dialog-return~="menu"]', '[data-editable~="yes"]']).toContain(selector);
+        return selector.includes('editable') ? [] : [...(selector.includes('dialog-return') ? menus : live)].filter(id => !inert.has(id));
+      },
       frame: (id: string) => ({ unavailable: !live.has(id), width: live.has(id) ? 400 : 0, height: live.has(id) ? 300 : 0 }),
       dialogFrame: (owner: string, returns: { owner: string; target: string }[]) => ({ owner, returns }),
       dialogReturn: (owner: string, target: string, popup: string, invoker: string) => ({ owner, target, popup, invoker }),

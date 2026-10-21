@@ -3,7 +3,7 @@
 use crate::block::{self, Block, BlockKind, MarkerKind, B};
 use crate::inline::{self, Construct, Mark};
 use crate::offsets::Offsets;
-use crate::{Range, LINK, MARKER};
+use crate::{Range, IMAGE, LINK, MARKER};
 use std::collections::BTreeMap;
 
 /// A block's paragraph style.
@@ -96,6 +96,17 @@ pub struct Styled {
     pub replaced: Vec<Replaced>,
     /// Every footnote label, in the order its first reference appears.
     pub footnotes: Vec<Footnote>,
+    /// Every bracketed link and image, in source order.
+    pub links: Vec<LinkSyntax>,
+}
+
+/// A bracketed link's or image's own syntax, whether hidden or revealed.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct LinkSyntax {
+    /// Its opener: `[`, or an image's `![`.
+    pub open: Range,
+    /// Its `](target)`, a title included.
+    pub close: Range,
 }
 
 /// A footnote of the document: its label, and where it is written.
@@ -349,6 +360,17 @@ pub(crate) fn analyze(source: &str, reveal: Option<B>) -> Analysis {
 pub fn style(source: &str, reveal: Option<Range>) -> Styled {
     let offsets = Offsets::new(source);
     let analysis = analyze(source, reveal.map(|r| offsets.range8(r)));
+    // A link's label is scanned before the link, so an image in it comes first.
+    let mut links: Vec<LinkSyntax> = analysis
+        .constructs
+        .iter()
+        .filter(|c| c.kind & (LINK | IMAGE) != 0 && source[c.inner.end..].starts_with("]("))
+        .map(|c| LinkSyntax {
+            open: offsets.range16(&(c.outer.start..c.inner.start)),
+            close: offsets.range16(&(c.inner.end..c.outer.end)),
+        })
+        .collect();
+    links.sort_by_key(|l| l.open.start);
     Styled {
         paragraphs: analysis
             .blocks
@@ -403,5 +425,6 @@ pub fn style(source: &str, reveal: Option<Range>) -> Styled {
                 definition: definition.as_ref().map(|r| offsets.range16(r)),
             })
             .collect(),
+        links,
     }
 }

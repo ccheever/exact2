@@ -78,6 +78,7 @@ impl<G: Game> Sim<G> {
             "paranoid {:?} tick {tick}: world hash; rerun bun game/games/{}/proof.mjs linux --paranoid",
             mode, G::ID
         );
+        self.paranoid_checked += 1;
         self.world_us = horizon;
         self.paranoid_skipped = skipped;
         self.last_us = host;

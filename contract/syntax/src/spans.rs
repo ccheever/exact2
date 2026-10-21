@@ -1,5 +1,6 @@
 //! Exhaustive source-range traversal for compiler-owned AST transformations.
 
+use crate::anatomy::{Anatomy, Mark, PartDecl};
 use crate::params::{ComponentParam, ParamAttr, ParamValue, Params};
 use crate::{ast::*, sequence::Sequence, ModuleDecl, ModuleKind, PlatformWords, Span};
 
@@ -85,7 +86,7 @@ macro_rules! structs {
 }
 structs! {
     NameSpans { names, sources }
-    File { names, routes, uses, fonts, sounds, shapes, styles, decorations, decoration_scopes, keyframes, timelines, color_profiles, theme, design, package_designs, fns, modules, tests, launch, components }
+    File { names, routes, uses, fonts, sounds, shapes, styles, decorations, decoration_scopes, keyframes, timelines, color_profiles, theme, design, package_designs, library, library_packages, fns, modules, tests, launch, components }
     KeyframesDecl { name, frames, span }
     TimelineDecl { name, span }
     ColorProfileDecl { name, attrs, span }
@@ -107,7 +108,10 @@ structs! {
     ShapeDecl { name, fields, span }
     Field { name, ty, span }
     Component { name, props, injects, provides, slot, states, persist, derives, resources,
-        mutations, actions, tasks, sequences, view, params, span }
+        mutations, actions, tasks, sequences, view, params, anatomy, span }
+    Anatomy { parts, marks }
+    PartDecl { name, groups, span }
+    Mark { part, span, node, own }
     Params { identity, list }
     ComponentParam { name, kind, default, default_span, attrs, span }
     ParamAttr { name, value, span }

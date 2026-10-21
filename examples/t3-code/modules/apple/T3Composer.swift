@@ -30,6 +30,12 @@ final class T3Composer {
 
     var status: [String: Any] { ["anchors": anchorFrames] }
 
+    /// The prompt's text view while it has the keyboard (Edit › Paste as Text, T3Menus).
+    var focusedTextView: NSTextView? {
+        guard let view = editor.textView, view.isEditable, view.window?.firstResponder === view else { return nil }
+        return view
+    }
+
     func install(_ element: ExactElement) {
         editor.install(element)
         if element.hatch == .t3Anchor {
@@ -112,9 +118,10 @@ final class T3Composer {
 
     struct Routed { let event: NSEvent? }
 
-    /// ⇧⌘V is Paste as Text (T3ComposerPasteHook); a printable key or ⌘V with nothing editable
-    /// focused goes to the composer, which takes focus. Nil leaves the event to
-    /// the others; `Routed` holds what goes on (nil: the key is taken).
+    /// ⇧⌘V is Paste as Text (T3ComposerEditor.pasteAsText). ⌘V in the composer with only image data on the
+    /// pasteboard is the text view's paste, which AppKit's Paste (disabled for it) would not send. A printable key or
+    /// ⌘V with nothing editable focused goes to the composer, which takes focus. Nil leaves the event to the others;
+    /// `Routed` holds what goes on (nil: the key is taken).
     func editorKey(_ event: NSEvent) -> Routed? {
         guard event.type == .keyDown, let composer, composer.isLive, let view = composer.textView, view.isEditable,
               let window = view.window, event.window === window, window.attachedSheet == nil,
@@ -122,7 +129,11 @@ final class T3Composer {
         let flags = event.modifierFlags.intersection([.command, .control, .option, .shift])
         let key = event.charactersIgnoringModifiers?.lowercased() ?? ""
         if flags == [.command, .shift], key == "v", window.firstResponder === view {
-            view.pasteAsPlainText(nil)
+            editor.pasteAsText(view)
+            return Routed(event: nil)
+        }
+        if flags == .command, key == "v", window.firstResponder === view, T3ComposerEditor.pastesOnlyFiles(.general) {
+            view.paste(nil)
             return Routed(event: nil)
         }
         // A launcher letter goes on to Exact's key route (never type-to-focus), where its

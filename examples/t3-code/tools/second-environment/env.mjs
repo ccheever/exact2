@@ -6,9 +6,10 @@
 //                                         its projects and threads (idempotent); --turns adds the
 //                                         threads with a turn, answered by the ACP stand-in; --limits
 //                                         starts the usage hub stand-in and makes it a source;
-//                                         --pull-request the gh stand-in and a thread on its branch
+//                                         --pull-request the gh and GitHub API stand-ins (the server
+//                                         restarts behind the latter) and a thread on its branch
 //   bun env.mjs status                    each environment: pid, port, id, label, projects and threads with ids
-//   bun env.mjs stop <name|all>           stops the servers this fixture started (recorded pids only; all: the hub too)
+//   bun env.mjs stop <name|all>           stops the servers this fixture started (recorded pids only; all: the stand-ins too)
 //   bun env.mjs drive [--local] [--pair second,third] [--keep-welcome] [--storage S] [--size WxH] [--json] -- <op> …
 //                                         an agent drive of the bundle: with --local "This machine" too,
 //                                         each named environment paired in the welcome wizard (fresh
@@ -17,7 +18,7 @@
 import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
-import { ENVIRONMENTS, LOCAL_PORT, offlineEnv, checkPort, checkout, envDir, example, fixturePaths, forgetKeychain, localHome, pairingUrl, welcomeWait, recorded, routeOf, seed, shellOf, startServer, stopHub, stopServer } from "./lib.mjs";
+import { ENVIRONMENTS, LOCAL_PORT, offlineEnv, checkPort, checkout, envDir, example, fixturePaths, forgetKeychain, localHome, pairingUrl, welcomeWait, recorded, routeOf, seed, shellOf, startServer, stopGithubApi, stopHub, stopServer } from "./lib.mjs";
 
 const paths = fixturePaths();
 const nameArg = (index = 3) => {
@@ -89,7 +90,10 @@ if (import.meta.main) {
     else if (command === "stop") {
       const names = process.argv[3] === "all" ? Object.keys(ENVIRONMENTS) : [nameArg()];
       for (const name of names) { const stopped = await stopServer(paths, name); console.log(`${name}: ${stopped ? `stopped pid ${stopped.pid}` : "not running"}`); }
-      if (process.argv[3] === "all") { const hub = await stopHub(paths); console.log(`usage hub: ${hub ? `stopped pid ${hub.pid}` : "not running"}`); }
+      if (process.argv[3] === "all") {
+        const hub = await stopHub(paths); console.log(`usage hub: ${hub ? `stopped pid ${hub.pid}` : "not running"}`);
+        const github = await stopGithubApi(paths); console.log(`GitHub API stand-in: ${github ? `stopped pid ${github.pid}` : "not running"}`);
+      }
     } else if (command === "status") {
       for (const name of existsSync(paths.envs) ? readdirSync(paths.envs) : []) {
         const running = recorded(paths, name);

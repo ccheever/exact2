@@ -108,3 +108,13 @@ test('URL comparison does not select its URLs or label as apps', () => {
   expect(named).toEqual([]);
   expect(options['--label']).toBe('preview');
 });
+
+test("a { slots } Linux entry skips only the slots it names; a stop skips none", async () => {
+  const { withoutSlots } = await import('./conform-linux.mjs');
+  const slots = { geometry: 'caret width 0', sizes: 'caret 0×18', draft: 'hi' };
+  expect(withoutSlots({ slots: ['sizes'], why: 'fonts' }, slots)).toEqual({ geometry: 'caret width 0', draft: 'hi' });
+  expect(withoutSlots({ slots: ['nope'], why: 'x' }, slots)).toEqual(slots);
+  expect(withoutSlots(['tap measure', 'why'], slots)).toEqual(slots);
+  expect(withoutSlots(undefined, slots)).toEqual(slots);
+  expect(withoutSlots({ slots: ['sizes'] }, undefined)).toBe(undefined);
+});

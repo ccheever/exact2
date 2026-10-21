@@ -67,6 +67,8 @@ export async function fixture(options = {}) {
   const source = readFileSync(process.env.E2B_GPU_SOURCE || new URL('../gpu-glue.js', import.meta.url), 'utf8')
     .replace('import { assetDelivery } from "./gpu-assets.js";', '')
     .replace('import { inertAncestor } from "./navigation.js";', '')
+    .replace('import { chooseTier, TIERS } from "./gpu-tier.js";', 'const TIERS = ["high", "mid", "low"], chooseTier = async () => "high";')
+    .replace('import { showRefusal } from "./gpu-refusal.js";', 'const showRefusal = () => {};')
     .replaceAll('import.meta.url', '"http://fixture/"')
     .replace('import { pacer } from "./pace.js";', 'const pacer = () => Object.assign(now => now, {period_ms: 1000 / 120});') // the frame clock is tested in pace.test.mjs
     .replace('await import(`./gpu.js?g=${version}`)', 'await candidate(version)')

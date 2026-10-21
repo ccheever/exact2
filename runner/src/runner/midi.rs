@@ -12,10 +12,18 @@ use exact_plan::{EventKind, TypeKind, Value};
 
 /// The queue for `plan`, its readers found, its access by the grant.
 pub(super) fn queue<D: DataSource>(plan: &exact_plan::Plan, data: &D) -> Midi {
-    let readers = (0..plan.resources.len())
+    let readers: Vec<usize> = (0..plan.resources.len())
         .filter(|&i| plan.str(plan.resources[i].source) == SOURCE)
         .collect();
-    Midi::new(readers, crate::device::granted(data.grants(), "midi"))
+    let reads_sent = readers.iter().any(|&i| {
+        let ty = plan.type_(plan.resources[i].ty);
+        ty.fields
+            .iter()
+            .any(|f| plan.str(plan.field(f).name) == "sent")
+    });
+    let mut midi = Midi::new(readers, crate::device::granted(data.grants(), "midi"));
+    midi.reads_sent = reads_sent;
+    midi
 }
 
 /// Whether `data` is one whole message clock in reads (LLP 1125 D9):
@@ -100,9 +108,13 @@ impl<D: DataSource> Runner<D> {
                         .collect()
                 })
                 .unwrap_or_default();
-            fields.push(self.midi.field(name, &port_fields).ok_or_else(|| {
-                DataError::Unavailable(format!("{SOURCE} has no field `{name}`"))
-            })?);
+            fields.push(
+                self.midi
+                    .field(name, &port_fields, self.now_ms)
+                    .ok_or_else(|| {
+                        DataError::Unavailable(format!("{SOURCE} has no field `{name}`"))
+                    })?,
+            );
         }
         Ok(Value::record(fields))
     }
@@ -123,7 +135,8 @@ impl<D: DataSource> Runner<D> {
     /// The `exactMIDI` readers answered again by a commit of their own (a
     /// request the agent answered), as `exactTransport`'s are.
     pub(super) fn midi_answered(&mut self) -> Result<CommitReceipt, RunnerError> {
-        self.midi.answer_due = f64::INFINITY;
+        // A reader of `sent` is answered again when the next message goes.
+        self.midi.answer_due = self.midi.next_sent(self.now_ms);
         let readers = self.midi.readers.clone();
         self.commit_again(readers, "midi")
     }

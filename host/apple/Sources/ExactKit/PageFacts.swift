@@ -32,8 +32,24 @@ package enum PageFacts {
     /// What the build channel's `pin` set (LLP 1122 D4), over the platform's
     /// and the agent's; nil hands it back.
     nonisolated(unsafe) static var pinnedRootFontSize: Double?
+    /// The device's GPU tier (LLP 1139.003 D2) as the page facts' bits 11–12
+    /// code: 0 `high`, 1 `mid`, 2 `low`. The GPU module's answer from its
+    /// Metal device once it loads (`high` before, as on a Mac); under the
+    /// agent the drive's, `high` until `prefer gpu-tier`, which the module is
+    /// told before its device is made.
+    nonisolated(unsafe) package static var gpuTier: UInt32 = 0 {
+        didSet { if gpuTier != oldValue { changed() } }
+    }
+    nonisolated(unsafe) package static var agentGpuTier: UInt32 = 0 {
+        didSet { if agentGpuTier != oldValue { changed() } }
+    }
+    package static var tier: UInt32 { substituted ? agentGpuTier : gpuTier }
+    /// Each loaded GPU module's way to take the agent's tier and remake its
+    /// renderers at the new rung (`gpu_tier`, `gpu_retier`), by artifact: a
+    /// module loaded again replaces its own.
+    nonisolated(unsafe) package static var retiers: [String: (UInt32) -> Void] = [:]
     /// The drive's values stand in for the machine's (LLP 1069.007 D2, D8).
-    static let substituted = ExactEnv.agentMode && ExactEnv.environment["EXACT_DEVICE"] != "real"
+    package static let substituted = ExactEnv.agentMode && ExactEnv.environment["EXACT_DEVICE"] != "real"
     private static let agentChanged = Notification.Name("ExactPageFactsChanged")
     private static func changed() { NotificationCenter.default.post(name: agentChanged, object: nil) }
 
@@ -266,12 +282,13 @@ package enum PageFacts {
     /// of `window` and whose view is in `page`: bit 0 hidden, bit 1 offline,
     /// bit 2 a share sheet, bit 3 the document pickers, bit 4 without focus,
     /// bit 7 about to be suspended, bits 8 and 9 a share takes files and
-    /// pictures, bit 10 put away, bits 16–31 the restores. A session whose
+    /// pictures, bit 10 put away, bits 11–12 the GPU tier, bits 16–31 the
+    /// restores. A session whose
     /// plan does not read `onLine` starts no monitor for it.
     static func bits(_ window: FocusWindow?, page: FocusWindow? = nil, readsOnLine: Bool = true) -> UInt32 {
         let online = readsOnLine ? onLine : lastOnLine
         let transitions = (persisted(page) ? 1024 : 0) | UInt32(restores(page) & 0xFFFF) << 16
-        return (hidden ? 1 : 0) | (online ? 0 : 2) | (canShare ? 4 : 0) | (canOpenFiles ? 8 : 0) | (hasFocus(window) ? 0 : 16) | (suspended ? 128 : 0) | (canShareFiles ? 256 : 0) | (canSharePictures ? 512 : 0) | transitions
+        return (hidden ? 1 : 0) | (online ? 0 : 2) | (canShare ? 4 : 0) | (canOpenFiles ? 8 : 0) | (hasFocus(window) ? 0 : 16) | (suspended ? 128 : 0) | (canShareFiles ? 256 : 0) | (canSharePictures ? 512 : 0) | (tier & 3) << 11 | transitions
     }
 
     /// Calls `changed` on the main queue when any reading may have changed;

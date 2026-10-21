@@ -18,7 +18,7 @@ test('a signalled leg resumes, collecting exit 3, and publishes byte-identical f
     if (process.env.EDIT_SOURCE_APP) writeFileSync(process.env.EDIT_SOURCE_APP+'/logic/src/lib.rs','2');
     const out = process.env.EXACT_PROOF_OUT;
     mkdirSync(out,{recursive:true});
-    const summary = {host, mode, status:'UNVERIFIED', failures:[], seconds:0, inputs:'a'.repeat(64), sourceInputs:'b'.repeat(64), pins:{ticks:{1:'0x'+BigInt(value).toString(16).padStart(16,'0')}, saves:{checkpoint:'c'.repeat(64)}}, worlds:[], saves:[]};
+    const summary = {host, mode, status:'UNVERIFIED', failures:[], seconds:0, inputs:'a'.repeat(64), sourceInputs:'b'.repeat(64), pins:{ticks:{1:'0x'+(BigInt(value) + (process.env.RELEASE_DRIFT === '1' && process.env.EXACT_GAME_PROOF_PROFILE === 'release' ? 1n : 0n)).toString(16).padStart(16,'0')}, saves:{checkpoint:'c'.repeat(64)}}, worlds:[], saves:[]};
     writeFileSync(out+'/summary.json',JSON.stringify(summary));
     process.exit(3);
   `);
@@ -29,8 +29,22 @@ test('a signalled leg resumes, collecting exit 3, and publishes byte-identical f
   };
   try {
     const first = await run(); expect(first.code, first.text).toBe(0);
-    expect(first.text).toContain('PROOF PASS sample: baseline published');
+    expect(first.text).toContain('PROOF PASS sample: development baseline published');
     const expected = readFileSync(pinFile,'utf8');
+    expect(JSON.parse(expected).profiles).toEqual(['gpu-dev']);
+    expect(Object.keys(JSON.parse(readFileSync(resolve(first.root,'legs.json'))).legs)).toHaveLength(7);
+    const drift = await run(['--repin', '--release'], {RELEASE_DRIFT:'1'});
+    expect(drift.code).toBe(1);
+    expect(drift.text).toContain('release proof missing, failed, or disagrees with gpu-dev');
+    expect(readFileSync(pinFile,'utf8')).toBe(expected);
+    const checked = await run(['--release']);
+    expect(checked.code, checked.text).toBe(0);
+    expect(readFileSync(pinFile,'utf8')).toBe(expected);
+    const ship = await run(['--repin', '--release']);
+    expect(ship.code, ship.text).toBe(0);
+    expect(ship.text).toContain('baseline published after host/mode agreement');
+    expect(JSON.parse(readFileSync(pinFile)).profiles).toEqual(['gpu-dev','release']);
+    expect(Object.keys(JSON.parse(readFileSync(resolve(ship.root,'legs.json'))).legs)).toHaveLength(9);
     writeFileSync(pinFile, '{"ticks":{},"saves":{}}');
     const interrupted = await run([], {KILL_PROOF_LEG:'1'});
     expect(interrupted.code).toBe(1);

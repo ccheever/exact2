@@ -86,6 +86,15 @@ test('an iOS drag without real touches scrolls the scroller it starts on', async
   expect(r.delivery).toBe('recognized');
   expect(r.scrolledBy).toEqual([0, 300]);
   expect(r.drag).toEqual(expect.objectContaining({ dx: 0, dy: -300 }));
+  expect(r.note).toBeUndefined();
+});
+
+// euxy FRICTION 9: a sheet's scroller as tall as its form took drags that moved nothing, and said nothing.
+test('an iOS drag that scrolls nothing says what to look at', async () => {
+  const r = await iosDrive(() => ({ tapped: 9, at: [200, 370], scrolledBy: [0, 0], delivery: 'recognized', native: 'scroll' })).run();
+  expect(r.note).toContain('nothing scrolled');
+  expect(r.note).toContain('`layout content`');
+  expect(r.note).toContain('lower-scroll-grows');
 });
 
 test('an iOS drag the host cannot recognize fails, naming --touch platform', async () => {
@@ -277,6 +286,26 @@ test('a real tap whose view left the window before the lift says so', async () =
     touches: { async ask(req) { return req.op === 'foreground' ? { state: 'runningForeground' } : { injected: {} }; } } });
   expect(await tap({ viewGone: true })).toEqual(expect.objectContaining({ delivery: 'platform', viewGone: true }));
   expect((await tap({})).viewGone).toBeUndefined();
+});
+
+// A tap whose down the window had only at or after the finger's lift says so in its reply, with when the window had
+// it, and the driver refuses nothing for it: the touch smoke taps a grouped row's switch again when the state is
+// unchanged. Only a tap's down and lift arriving together were measured to lose anything: a contact that takes the
+// drag path, as a held one does, says nothing.
+test('a real tap whose down reached the window after its lift says so', async () => {
+  const aim = { orientation: 'portrait', session: 'main', generation: 1, screen: { x: 0, y: 0, w: 400, h: 800 }, point: [30, 20], viewport: [400, 800], at: [30, 20], window: [30, 20], seq: 4, hit: 7 };
+  const tap = (dispatched, drag) => realTap({ id: 7, drag,
+    ask: async (req) => (req.aim ? { aim } : { log: [{ seq: 5, touch: 1, phase: 'began', t: 1, dispatched, at: [30, 20], view: 'Control', node: 7, session: 'main', generation: 1 }, { seq: 6, touch: 1, phase: 'ended', t: 1.05, at: [30, 20], view: 'Control', node: 7, session: 'main', generation: 1 }], truncated: false }),
+    touches: { async ask(req) { return req.op === 'foreground' ? { state: 'runningForeground' } : { injected: {} }; } } });
+  const late = await tap(1.3);
+  expect(late).toEqual(expect.objectContaining({ delivery: 'platform', downAfterLift: true }));
+  expect(late.touch.dispatched).toBe(1.3);
+  expect((await tap(1.05)).downAfterLift).toBe(true);
+  expect((await tap(1.01)).downAfterLift).toBeUndefined();
+  const unrecorded = await tap(undefined);
+  expect(unrecorded.downAfterLift).toBeUndefined();
+  expect('dispatched' in unrecorded.touch).toBe(false);
+  expect((await tap(1.3, { dx: 0, dy: 0, press: 0, over: 0, hold: 0 })).downAfterLift).toBeUndefined();
 });
 
 // On the Duo a real touch waits out SpringBoard's fold cloak (cloak.mjs) before its first aim, and a touch still lost

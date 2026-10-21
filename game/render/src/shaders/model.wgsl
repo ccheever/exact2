@@ -66,7 +66,7 @@ fn model_shade(input:ModelVarying, front:bool, visibility:f32) -> vec4<f32> {
     let albedo=vec3<shading>(base.rgb);
     var color=ambient(n,v,albedo,metallic,roughness)*shading(ao)+vec3<shading>(emission*baked.emission_cutoff.rgb*input.part_emission)+vec3<shading>(input.glow.xyz);
     if frame.sun_direction_illuminance.w>0.0 {
-        color+=brdf(n,v,(-frame.sun_direction_illuminance.xyz),albedo,metallic,roughness)*vec3<shading>(frame.sun_color_count.xyz)*shading(frame.sun_direction_illuminance.w)*shading(visibility);
+        color+=brdf(n,v,(-frame.sun_direction_illuminance.xyz),albedo,metallic,roughness)*vec3<shading>(frame.sun_color_count.xyz)*shading(frame.sun_direction_illuminance.w)*shading(visibility*water_caustics(input.world));
     }
     if LIGHTS && frame.fill_direction_illuminance.w>0.0 { color+=fill_light(n,v,albedo,metallic,roughness); }
     if LIGHTS { add_local_lights(&color,input.clip.xy,input.world,n,v,albedo,metallic,roughness,true); }
