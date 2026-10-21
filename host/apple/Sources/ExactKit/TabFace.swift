@@ -45,10 +45,14 @@ struct TabFace: Equatable {
         self.badge = badges.count == 1 ? badges[0] : nil
         self.icon = icon
         self.raster = symbol == nil ? raster : nil
-        base = symbol.map { $0.hasSuffix(".fill") && !FaceSymbol.isPath($0) ? String($0.dropLast(5)) : $0 }
+        base = symbol.map(Self.base)
         title = label
         disabled = tab.disabled
         accessibilityDisabled = tab.ariaUnavailable
+    }
+    /// `symbol` without a `.fill` ending (`base`); a path token as it is.
+    static func base(_ symbol: String) -> String {
+        symbol.hasSuffix(".fill") && !FaceSymbol.isPath(symbol) ? String(symbol.dropLast(5)) : symbol
     }
     /// A source the bar can read without fetching: the app's own file or a
     /// bundled asset, never a `symbol:`, `data:` or remote one.
@@ -57,6 +61,11 @@ struct TabFace: Equatable {
     }
 
     #if canImport(UIKit)
+    /// A tab bar's selected glyph for `base`: its `.fill` variant, nil for a
+    /// path or a symbol without one.
+    static func filled(_ base: String) -> UIImage? {
+        FaceSymbol.isPath(base) ? nil : UIImage(systemName: base + ".fill")
+    }
     /// The raster at `url` as a tab bar item's glyph: fitted in `points`
     /// square at the screen's scale and template-rendered, so the bar tints
     /// it as it tints an SF Symbol (UIKit renders a tab's image as a

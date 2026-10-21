@@ -88,8 +88,17 @@ private final class ExactSegmentedControl: LabelledSegmentedControl {
 private final class ExactTabBar: UITabBar {
     let ownerID: UInt32
     var onMeasure: (() -> Void)?
+    private var room: CGFloat = 0
     override func layoutSubviews() {
         super.layoutSubviews()
+        // UIKit sizes a tab button's label in the room the bar has when it first lays the
+        // button out (its height less its bottom inset), and again only for a new appearance
+        // or new traits, so a bar laid out before its box took its measured height kept its
+        // labels cut short. When the room grows, a new appearance has them sized again, a turn
+        // later: an appearance set during this layout sized them in the old room.
+        let room = bounds.height - safeAreaInsets.bottom
+        if room > self.room { DispatchQueue.main.async { [weak self] in if let self { standardAppearance = standardAppearance.copy() } } }
+        self.room = room
         onMeasure?()
     }
     init(ownerID: UInt32) {
@@ -429,6 +438,7 @@ final class SegmentHost: NSObject, UIGestureRecognizerDelegate, UITabBarDelegate
         if current.count != faces.count || zip(current, faces).contains(where: { $0.title != $1.title || $0.madeWith != made($1.symbol) }) {
             bar.setItems(faces.enumerated().map { index, face in
                 let item = TabBarItem(title: face.title, image: FaceSymbol.image(face.symbol, points: points), tag: index)
+                item.selectedImage = TabFace.filled(TabFace.base(face.symbol))
                 item.made = made(face.symbol)
                 return item
             }, animated: false)
