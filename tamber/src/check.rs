@@ -12,39 +12,6 @@ use std::collections::{BTreeSet, HashMap, HashSet};
 /// A design's tuples are capped (LLP 1121 D5).
 pub const MAX_TUPLES: usize = 64;
 
-thread_local! {
-    /// Whether a check on this thread records [`Checked::by_tuple`]
-    /// ([`traced`]).
-    static TRACED: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
-}
-
-/// `f` with every check it makes on this thread recording what each
-/// token's value names in each tuple ([`Checked::by_tuple`]): `explain`'s
-/// (stage 13 D4). Other checks keep none, so a large design's fold costs
-/// no more for it.
-pub fn traced<T>(f: impl FnOnce() -> T) -> T {
-    struct Put(bool);
-    impl Drop for Put {
-        fn drop(&mut self) {
-            TRACED.with(|t| t.set(self.0));
-        }
-    }
-    let _put = Put(TRACED.with(|t| t.replace(true)));
-    f()
-}
-
-/// What a token's value names in each full app tuple, as it folds there:
-/// a line no tuple selects in none.
-#[derive(Debug, Clone, Default, PartialEq)]
-pub struct ByTuple {
-    /// Each distinct reading: the tokens named, by their index in
-    /// `Folding::tokens`, and the unset base names read bare, first time
-    /// each.
-    pub reads: Vec<(Vec<u32>, Vec<String>)>,
-    /// Per tuple, its reading's index in `reads` (empty with no reads).
-    pub at: Vec<u8>,
-}
-
 /// A checked token: its values, one per full app tuple.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Checked {
@@ -71,9 +38,9 @@ pub struct Checked {
     /// selects included, first time each (stage 11 D's `bases`).
     pub bases: Vec<String>,
     /// What its value names in each full app tuple, as it folds there
-    /// (stage 13 D4, `explain`'s `bases_by_tuple`), in a [`traced`] check;
+    /// (stage 13 D4, `explain`'s `bases_by_tuple`), in a [`crate::traced`] check;
     /// empty when no value names anything, and in any other check.
-    pub by_tuple: ByTuple,
+    pub by_tuple: crate::ByTuple,
     /// Marked `scheme=fixed`: one colour in every scheme by design, which the
     /// one-scheme warning leaves alone.
     pub fixed: bool,
@@ -126,7 +93,7 @@ struct Checker<'a> {
     /// Each token's dials its own values name, by index.
     reads: Vec<BTreeSet<usize>>,
     stack: Vec<usize>,
-    /// Whether it records [`Checked::by_tuple`] ([`traced`]).
+    /// Whether it records [`Checked::by_tuple`] ([`crate::traced`]).
     traced: bool,
     /// The tuple each frame of `stack` folds a token's value at, `None`
     /// where it checks a value no tuple selects (`unselected`), or where
@@ -164,7 +131,7 @@ pub(crate) fn check(design: &Design, vocab: &Vocab) -> CheckResult {
             || unset(w)
     };
     let mut c = Checker {
-        traced: TRACED.with(|t| t.get()),
+        traced: crate::trace::on(),
         design,
         errors: Vec::new(),
         names: HashMap::new(),
@@ -233,7 +200,7 @@ pub(crate) fn check(design: &Design, vocab: &Vocab) -> CheckResult {
                 reads: Vec::new(),
                 names: Vec::new(),
                 bases: Vec::new(),
-                by_tuple: ByTuple::default(),
+                by_tuple: crate::ByTuple::default(),
                 fixed,
                 pairs,
             },

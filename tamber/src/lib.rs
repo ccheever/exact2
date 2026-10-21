@@ -34,9 +34,10 @@ mod residual;
 mod session;
 mod shadow;
 mod syntax;
+mod trace;
 mod typeface;
 
-pub use check::{traced, ByTuple, Checked, MAX_TUPLES};
+pub use check::{Checked, MAX_TUPLES};
 pub use component::{Component, Param};
 pub use edit::{apply, apply_all, apply_all_with, undo, Edited, Op, WhenLine};
 pub use fmt::format;
@@ -49,6 +50,7 @@ pub use residual::{Atom, Residual};
 pub use session::{plan, Class, Planned, Refused, Retention, Synthetic};
 pub use shadow::{Shadow, ShadowLength, Shadows};
 pub use syntax::{parse, At, Axis, Design, Dial, DialKind, Token, When};
+pub use trace::{traced, ByTuple};
 pub use typeface::Type;
 
 /// A refusal, at a line and column of the source.
