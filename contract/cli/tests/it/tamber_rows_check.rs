@@ -865,3 +865,70 @@ fn an_element_lowering_refuses_first_is_the_builds() {
     drop(s);
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// A look a marked row yields to a grouped list's (`-exact-row-look`) is
+/// dropped before lowering checks it (`row_look::yielded`): never judged,
+/// so a write breaking it is accepted, as the build accepts it (Astra's D3
+/// round 2).
+#[test]
+fn a_yielded_row_look_is_not_judged() {
+    let dir = reading("rows-row-look");
+    let design = "tamber t\n\ntheme\n  ink = #111111\n  gap = 8px\n";
+    std::fs::write(dir.join("app.tamber"), design).unwrap();
+    std::fs::write(
+        dir.join("app.contract"),
+        "use Card from \"@acme/reading\"\ncomponent App\n  view\n    column\n      list appearance=\"auto\" height=300\n        section\n          svg width=20 height=20 -exact-row-look=\"platform\" padding-left=\"gap\"\n      Card()\n",
+    )
+    .unwrap();
+    contract::compile_path(&dir.join("app.contract")).unwrap();
+    let mut s = Serve::start(&dir, &[]);
+    s.ask(json!({"method": "propose", "ops": [{"op": "set-token", "name": "ink", "value": "#444444"}]}));
+    let w = transaction(
+        &mut s,
+        &dir,
+        json!({"op": "set-token", "name": "gap", "value": "#444444"}),
+    );
+    assert!(w.get("ok").is_some(), "{w}");
+    drop(s);
+    contract::compile_path(&dir.join("app.contract")).unwrap();
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A file whose whole build fails before the write, for a reason of its own
+/// (an `svg` with a positional argument, which lowering refuses before its
+/// rows and its children's), is refused in the build's own words: once the
+/// background build says so, no row of it is the write's (the reviews'
+/// round 3 of stage 13 D).
+#[test]
+fn a_file_whose_build_fails_leaves_its_rows_to_the_build() {
+    let dir = reading("rows-build-fails");
+    let design = "tamber t\n\ntheme\n  ink = #111111\n  pos = 8px\n";
+    std::fs::write(dir.join("app.tamber"), design).unwrap();
+    std::fs::write(
+        dir.join("app.contract"),
+        "use Card from \"@acme/reading\"\ncomponent App\n  view\n    column\n      svg \"oops\" width=20 height=20\n        rect x=\"pos\" width=10 height=10\n      Card()\n",
+    )
+    .unwrap();
+    let built = contract::compile_path(&dir.join("app.contract")).unwrap_err();
+    assert_eq!(built.id, "lower-positional");
+    let mut s = Serve::start(&dir, &[]);
+    // The background whole build's verdict: every answer `rebuild`.
+    let ink = json!({"method": "propose", "ops": [{"op": "set-token", "name": "ink", "value": "#444444"}]});
+    let mut said = false;
+    for _ in 0..200 {
+        if s.ask(ink.clone()).0["ok"]["class"] == "rebuild" {
+            said = true;
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+    assert!(said, "the whole build's failure is never said");
+    let w = transaction(
+        &mut s,
+        &dir,
+        json!({"op": "set-token", "name": "pos", "value": "#123456"}),
+    );
+    assert!(w.get("ok").is_some(), "{w}");
+    drop(s);
+    let _ = std::fs::remove_dir_all(&dir);
+}

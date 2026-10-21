@@ -232,6 +232,9 @@ impl Said {
                         Ok(Some(rows)) => rows.as_slice(),
                         _ => own,
                     };
+                    // A look a marked row yields to a grouped list's is
+                    // dropped there (`row_look::yielded`): never kept.
+                    let yields = a.iter().any(|a| a.name == crate::row_look::ROW_LOOK);
                     let left = left
                         || boxed.is_err()
                         || !prepared(file, tag, in_svg, parent, a, own, *span);
@@ -246,10 +249,11 @@ impl Said {
                     let mut fonts = None;
                     // A module tag's row lowering refuses is never judged
                     // (`native::refused`, before any check of it).
-                    for r in own
-                        .iter()
-                        .filter(|r| !left && crate::native::refused(tag, r).is_none())
-                    {
+                    for r in own.iter().filter(|r| {
+                        !left
+                            && !(yields && crate::row_look::look(r))
+                            && crate::native::refused(tag, r).is_none()
+                    }) {
                         let computed = match super::rows::kept(r) {
                             Some(false) => None,
                             Some(true) if !local => match super::rows::typed(&r.value, scope) {

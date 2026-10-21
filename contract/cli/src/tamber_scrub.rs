@@ -172,6 +172,14 @@ impl Server {
         if *key != self.sources_key() || rows.is_empty() || contract {
             return Ok(());
         }
+        // A file a whole build under this retention failed (before the
+        // write, for a reason of its own: an element lowering refuses
+        // before its rows, say) is refused in the build's own words, and
+        // no row's refusal could be them: the rows are the build's (stage
+        // 13 D, the reviews' rounds 2 and 3).
+        if self.checker.seen_failed(&self.last_key) {
+            return Ok(());
+        }
         let Some((_, after, _)) = planned.files.iter().find(|(p, _, _)| *p == self.design) else {
             return Ok(());
         };
