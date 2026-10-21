@@ -1,6 +1,6 @@
 // T3's model picker catalog: ModelPickerContent.tsx (rail, filtering, legacy
 // section), modelOrdering.ts, and modelPickerSearch.ts and shared searchRanking.ts
-// as of 9c161462c9.
+// as of 74541bab17.
 // Browsing and searching never change the composer's selection; only a chosen
 // row commits one (`command("model", …)`).
 import { arr, obj, str, type Obj } from '../client/domain';
@@ -184,11 +184,13 @@ export function pickerCatalog(client: { config: Obj; local: { favoriteModels: st
     list = items.filter(item => item.providerId === selected)
       .sort((a, b) => Number(b.favorite) - Number(a.favorite) || original(a) - original(b));
   }
-  const legacy = !searching && selected !== 'favorites' ? list.filter(item => item.legacy) : [];
+  // A favorited legacy model stays among the current ones (with the favorites first), not in the Legacy section.
+  const inLegacy = (item: Item) => item.legacy && !item.favorite;
+  const legacy = !searching && selected !== 'favorites' ? list.filter(inLegacy) : [];
   // The unsearched view's rows (legacy header included): a search keeps the height it had (a6aebbe2e0).
   const rest = selected === 'favorites' ? items.filter(item => item.favorite) : items.filter(item => item.providerId === selected);
-  const restLegacy = selected !== 'favorites' ? rest.filter(item => item.legacy).length : 0;
-  const ordered: Array<Item | null> = legacy.length ? [...list.filter(item => !item.legacy), null, ...legacy] : list;
+  const restLegacy = selected !== 'favorites' ? rest.filter(inLegacy).length : 0;
+  const ordered: Array<Item | null> = legacy.length ? [...list.filter(item => !inLegacy(item)), null, ...legacy] : list;
   // Several models chosen for a new thread (composer-controls-fanout.ts): each chosen row is selected and checked.
   const fan = target ? null : fanoutSelections(client as unknown as T3Client);
   const fanKeys = new Set((fan ?? []).map(selection => `${selection.instanceId}:${selection.model}`));
@@ -199,7 +201,7 @@ export function pickerCatalog(client: { config: Obj; local: { favoriteModels: st
   const rows = ordered.map((item, index) => item === null
     ? { key: `legacy:${selected}`, kind: 'legacy', id: '', providerId: selected, name: 'Legacy models', label: `${legacy.length} models`,
       driver: '', favorite: false, selected: false, isNew: false, index, highlighted: false, expanded: false, checked: false, reason: '', jump: '', jumpKey: '' }
-    : row(item, index, legacy.length && item.legacy ? 'legacy-model' : 'model'));
+    : row(item, index, legacy.length && inLegacy(item) ? 'legacy-model' : 'model'));
   // The rail's instance badges count only its own (enabled) entries, as ModelPickerSidebar does.
   // Locked-out instances follow the compatible ones, disabled.
   const enabled = providers.filter(provider => provider.enabled === true);
@@ -212,7 +214,7 @@ export function pickerCatalog(client: { config: Obj; local: { favoriteModels: st
     selectable: (pickerReady(provider) || (setup && shouldOfferModelPickerSetup(provider, pickerOptions(provider)))) && matchesLock(provider, lock),
     label: railLabel(provider, !matchesLock(provider, lock)), selected: str(provider.instanceId) === selected, ...badge(provider, enabled) }));
   const at = rail.findIndex(entry => entry.selected);
-  // expandedLegacyInstances starts with the active instance when its model is a legacy one.
+  // expandedLegacyInstances starts with the active instance when its model is a legacy one it has not favorited.
   const legacyDefault = selected === current.providerId && legacy.some(item => item.id === current.modelId);
   const updateRequired = (searching ? providers.filter(provider => matchesLock(provider, lock)) : providers.filter(provider => provider.instanceId === selected))
     .flatMap(provider => { const message = formatProviderUpdateRequiredNotice(provider, query); return message ? [{ id: str(provider.instanceId), message }] : []; });

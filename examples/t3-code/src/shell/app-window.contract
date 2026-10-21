@@ -45,7 +45,7 @@ use ThemeEditorHost from "../appearance/settings-appearance-editor.contract"
 use SidebarOverlays from "../sidebar/sidebar-overlays.contract"
 use ChatCanvasView from "./chat-canvas.contract"
 use TerminalDrawerView, TerminalDrawer from "../terminal/terminal.contract"
-use HoverTip, HoverLayer, HoverText, HoverScopes, HoverCode from "./hover-layer.contract"
+use HoverTip, HoverLayer, HoverText, HoverScopes, HoverCode, HoverModelName from "./hover-layer.contract"
 use StripPrTipCard from "../composer/strip-pr-badge.contract"
 use PaFreshnessCard from "../pull-requests/pages-pr-actions.contract"
 use WorkflowMemberCard from "../details/lineage-workflows.contract"
@@ -1035,6 +1035,8 @@ component T3Window
               HoverScopes(tip=hoverTip)
             else if hoverTip.kind == "code"
               HoverCode(tip=hoverTip)
+            else if hoverTip.kind == "model-name"
+              HoverModelName(tip=hoverTip)
             else
               HoverText(tip=hoverTip)
       // Separate close/open layouts preserve replacement focus lineage without a child-owned timer.
