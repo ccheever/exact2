@@ -19,7 +19,8 @@
      - Emphasis is a fill, never a weight: filled, tinted, gray, bordered (the unsaid button, an outline), plain.
      - A state adds one thing: hover a wash of the control's ink (`-exact-quaternary-fill`, where a pointer hovers),
        pressed a stronger one, keyboard focus the browser's own ring, disabled the grey ink (`GrayText`'s), invalid
-       the red line, selected the accent or a raised chip.
+       the red line, selected the accent or a raised chip. A button that draws no box, plain or borderless, takes no
+       wash: held, it fades.
 
      Every length and ratio below is a row of the schema's `metrics`, in its neutral column: the kernel sizes a control
      by those rows, and a host that paints its own controls (the Linux desktop, Windows) draws from them (LLP 1115.000
@@ -41,10 +42,10 @@
   html { background-color: var(--exact-background); color: var(--exact-label); }
 
   /* Buttons. One box: 36 px (44 on a touch device) in every engine, so a line's height is said (`normal` is each
-     engine's own, 18 px or 20 for the system font), a 1 px edge every style keeps so they line up, no dimmed face
-     while pressed. `bordered` and the unsaid button are an outline in the label's ink; `gray` a neutral fill; `filled`
-     the accent under the ink that reads on it; `tinted` and `plain` the accent as ink. `destructive` is the red as the
-     button's accent, so an outline or a grey button takes red ink. */
+     engine's own, 18 px or 20 for the system font), and a 1 px edge every style keeps so they line up. `bordered` and
+     the unsaid button are an outline in the label's ink; `gray` a neutral fill; `filled` the accent under the ink that
+     reads on it; `tinted` and `plain` the accent as ink. `destructive` is the red as the button's accent, so an outline
+     or a grey button takes red ink. */
   #exact-root button[data-button-style] { min-height: 2.25em; min-width: 2.25em; border: 1px solid transparent; padding: .4375em 1em; line-height: 1.25; }
   #exact-root button[data-button-style]:has(> img:only-child):not([navigationPresentation="modal"] > header button[aria-label]) { padding-inline: .5em; }
   @media (any-pointer: coarse) { #exact-root button[data-button-style] { min-height: 44px; min-width: 44px; } }
@@ -54,7 +55,6 @@
      CSS's own again and the label is centred in the box that was written, which is the box the kernel lays out. */
   #exact-root button[data-button-style][data-exact-said~="height"] { min-height: auto; padding-block: 0; }
   #exact-root button[data-button-style][data-exact-said~="width"] { min-width: auto; padding-inline: 0; }
-  #exact-root button[data-button-style][data-pressed] > * { opacity: 1; }
   #exact-root button:is([data-button-style="bordered"], [data-button-style="gray"]) { background-color: transparent; color: var(--exact-label); }
   #exact-root button[data-button-style="bordered"] { border-color: var(--exact-line); }
   #exact-root button[data-button-style="gray"] { background-color: var(--exact-secondary-fill); }
@@ -70,15 +70,21 @@
   @media (hover: hover) {
     #exact-root button:is([data-button-style="bordered"], [data-button-style="gray"]):not([role="tab"], [role="radio"], :disabled):hover { background-color: transparent; background-image: linear-gradient(var(--exact-quaternary-fill) 0 0); }
     #exact-root button[data-button-style="gray"]:not([role="tab"], [role="radio"], :disabled):hover { background-color: var(--exact-secondary-fill); }
-    #exact-root button:is([data-button-style="plain"], [data-button-style="borderless"]):not(:disabled):hover { background-image: linear-gradient(var(--exact-quaternary-fill) 0 0); }
     #exact-root button:is([data-button-style="tinted"], [data-button-style="bordered-tinted"]):not(:disabled):hover { background-color: color-mix(in srgb, var(--exact-accent, AccentColor) 12%, transparent); background-image: linear-gradient(color-mix(in srgb, currentColor 8%, transparent) 0 0); }
     #exact-root button:is([data-button-style="filled"], [data-button-style="bordered-prominent"]):not(:disabled):hover { background-color: var(--exact-accent, AccentColor); background-image: linear-gradient(color-mix(in srgb, currentColor 12%, transparent) 0 0); }
   }
   #exact-root button:is([data-button-style="bordered"], [data-button-style="gray"]):not([role="tab"], [role="radio"])[data-pressed] { background-color: transparent; background-image: linear-gradient(var(--exact-tertiary-fill) 0 0); }
   #exact-root button[data-button-style="gray"]:not([role="tab"], [role="radio"])[data-pressed] { background-color: var(--exact-secondary-fill); }
-  #exact-root button:is([data-button-style="plain"], [data-button-style="borderless"])[data-pressed] { background-image: linear-gradient(var(--exact-tertiary-fill) 0 0); }
   #exact-root button:is([data-button-style="tinted"], [data-button-style="bordered-tinted"])[data-pressed] { background-image: linear-gradient(color-mix(in srgb, currentColor 16%, transparent) 0 0); }
   #exact-root button:is([data-button-style="filled"], [data-button-style="bordered-prominent"])[data-pressed] { background-image: linear-gradient(color-mix(in srgb, currentColor 22%, transparent) 0 0); }
+  /* A plain or borderless button draws no box, as UIKit's do, so it takes no wash, hovered or held (the Mac's
+     borderless button shows no hover either). Held, its face fades as theirs does: `UIButton.Configuration.plain()`
+     and `.borderless()` draw their ink at 75% while highlighted (measured on iOS 27). The face is its children, and
+     the name a sheet's bar draws in place of a symbol (`::after`, below), not the button, so the focus ring keeps its
+     ink. An authored press replaces the fade, as it replaces the shell's dim (index.html); a disabled button takes
+     none, and a menu's or a chooser's row keeps its own look. */
+  #exact-root button:is([data-button-style="plain"], [data-button-style="borderless"])[data-pressed]:not(:disabled, :is([role="menu"], [data-exact-chooser]) *, [style*="--exact-press:"], [style*="--exact-press-opacity:"], [style*="--exact-press-opacity-to:"], [style*="--exact-press-background-color:"], [style*="--exact-press-color:"]) > *,
+  #exact-root button:is([data-button-style="plain"], [data-button-style="borderless"])[data-pressed]:not(:disabled, :is([role="menu"], [data-exact-chooser]) *, [style*="--exact-press:"], [style*="--exact-press-opacity:"], [style*="--exact-press-opacity-to:"], [style*="--exact-press-background-color:"], [style*="--exact-press-color:"])::after { opacity: .75; }
   /* Disabled, in every style (LLP 1116.005 D8): the grey ink, and the neutral fill where the style filled with the
      accent; an outline fades to a divider. */
   #exact-root button[data-button-style]:disabled { color: var(--exact-gray-text); background-image: none; }

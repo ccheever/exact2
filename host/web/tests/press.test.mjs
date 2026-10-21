@@ -44,9 +44,10 @@ const page = sheet + `
 // declare no feedback (a box, one that hears `hover`, a custom button, a
 // link, a card holding a button and a field), those whose press is the
 // author's (a scale, `pointerdown`, an `opacity` of its own), a native
-// button, a game's action, a disabled custom button, rows of a list (plain,
-// virtualized, grouped, and a button inside a grouped row), an item of a
-// sideways virtualized list, and a scrim over the window, shown on demand.
+// button and a `plain` one, a game's action, a disabled custom button, rows
+// of a list (plain, virtualized, grouped, and a button inside a grouped row),
+// an item of a sideways virtualized list, and a scrim over the window, shown
+// on demand.
 const unsaid = sheet + `
 <style>#exact-root > *, #exact-root [role] * { min-height: 24px; } #away { height: 60px; }</style>
 <div id="exact-root" style="padding:20px;width:300px">
@@ -59,6 +60,7 @@ const unsaid = sheet + `
   <div id="drawn" data-exact-on="press pointerdown pointerup">draws its own</div>
   <div id="faded" data-exact-on="press" style="opacity:0.4">faded</div>
   <button id="native" type="button" data-button-style="filled" data-native="" data-exact-on="press"><span>native</span></button>
+  <button id="text" type="button" data-button-style="plain" data-native="" data-exact-on="press"><span id="text-face">text</span></button>
   <button id="action" type="button" data-action="jump">action</button>
   <button id="off" type="button" disabled data-exact-on="press">off</button>
   <button id="ownoff" type="button" disabled data-exact-on="press" data-disabledstyled="true">its own disabled look</button>
@@ -343,6 +345,9 @@ check('a pressable that declares no feedback dims while pressed; a row, a native
     expect(await held('faded', 'faded')).toBe('0.4');
     // A native control keeps its own feedback, a game's action is held, and a disabled custom button takes no press.
     expect(await held('native', 'native')).toBe('1');
+    // A plain button draws no box: its face fades while held (neutral.css), and the button, and so its focus ring,
+    // does not.
+    expect(await held('text', 'text', 'text-face')).toBe('1,0.75');
     expect(await held('action', 'action')).toBe('1');
     expect(await held('off', 'off')).toBe('0.5');
 
@@ -402,7 +407,8 @@ check('a pressable that declares no feedback dims while pressed; a row, a native
     expect([await shown('box'), await marked('box', 'data-pressed')]).toEqual(['1', false]);
     expect(await keyed('box', 'Enter', 'box')).toBe('1');
     expect(await keyed('row', 'Space', 'row')).toBe('1'); // a row from the keyboard is still its cell
-    expect(await evaluate('clicks.join()')).toBe('custom,box,box,row');
+    expect(await keyed('text', 'Space', 'text', 'text-face')).toBe('1,0.75');
+    expect(await evaluate('clicks.join()')).toBe('custom,box,box,row,text');
     // Another key's release leaves the mark; it goes when the focus leaves with Space still down.
     await evaluate(`document.getElementById('box').focus()`);
     await key('keyDown', 'Space');
@@ -421,6 +427,10 @@ check('a pressable that declares no feedback dims while pressed; a row, a native
     expect([await shown('inner', 'outer'), await marked('inner', 'data-pressed')]).toEqual(['0.65,1', true]);
     await finger('touchEnd');
     expect(await marked('inner', 'data-pressed')).toBe(false);
+    await finger('touchStart', await centre('text'));
+    expect(await shown('text', 'text-face')).toBe('1,0.75');
+    await finger('touchEnd');
+    expect(await shown('text', 'text-face')).toBe('1,1');
     // The window losing focus lets it go, and so does a gesture claiming the contact (motion-glue's swipe): a later
     // move inside the box does not press it again.
     await finger('touchStart', await centre('inner'));
