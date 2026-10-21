@@ -133,7 +133,8 @@ fn the_gallery_places_each_cell_refuses_one_the_compiler_wont_take_and_leaves_th
     let manifest: serde_json::Value =
         serde_json::from_str(&std::fs::read_to_string(out.join("app.json")).unwrap()).unwrap();
     assert_eq!(manifest["tamber"], "../../../app.tamber");
-    assert_eq!(manifest["app"]["id"], "com.acme.fx.gallery");
+    // The app's own id: the gallery's plan runs in the app's build (its wasm checks the id).
+    assert_eq!(manifest["app"]["id"], "com.acme.fx");
     let after = (
         plan(&dir),
         contract::tamber_params::params_of(&dir.join("app.contract")).files,
@@ -249,7 +250,7 @@ fn the_gallery_never_writes_over_the_apps_sources_nor_where_another_install_is_r
     // The app's own directory, a directory among its sources, a file this didn't write.
     for (out, why) in [
         (dir.clone(), "the app's own directory"),
-        (dir.join("src"), "never among its sources"),
+        (dir.join("src"), "never among sources"),
     ] {
         let e = contract::gallery::generate(&app, &out).unwrap_err();
         assert!(e.contains(why), "{e}");
@@ -266,10 +267,28 @@ fn the_gallery_never_writes_over_the_apps_sources_nor_where_another_install_is_r
         "component Mine\n  view\n    text \"m\"\n"
     );
     assert_eq!(std::fs::read_to_string(&app).unwrap(), APP);
-    // A cache no node_modules of the app's reaches.
+    // A manifest alone this didn't write, and one linked back to the app's: never written over.
+    let lone = dir.join("target/lone");
+    write(&lone, &[("app.json", "{}")]);
+    let e = contract::gallery::generate(&app, &lone).unwrap_err();
+    assert!(e.contains("not a gallery this wrote"), "{e}");
+    let linked = dir.join("target/linked");
+    std::fs::create_dir_all(&linked).unwrap();
+    std::os::unix::fs::symlink(dir.join("app.json"), linked.join("app.json")).unwrap();
+    let e = contract::gallery::generate(&app, &linked).unwrap_err();
+    assert!(e.contains("not a gallery this wrote"), "{e}");
+    let manifest = r#"{"app": {"id": "com.acme.fx", "name": "Fx"}}"#;
+    assert_eq!(
+        std::fs::read_to_string(dir.join("app.json")).unwrap(),
+        manifest
+    );
+    // Outside the app, a directory among sources (no node_modules or target in its path); and a cache no
+    // node_modules of the app's reaches.
     let away = std::env::temp_dir().join(format!("exact2-gallery-away-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&away);
-    let e = contract::gallery::generate(&app, &away).unwrap_err();
+    let e = contract::gallery::generate(&app, &away.join("docs")).unwrap_err();
+    assert!(e.contains("never among sources"), "{e}");
+    let e = contract::gallery::generate(&app, &away.join("target/g")).unwrap_err();
     assert!(e.contains("can't reach the app's packages"), "{e}");
     let _ = std::fs::remove_dir_all(&away);
     let _ = std::fs::remove_dir_all(&dir);
@@ -336,7 +355,7 @@ fn each_component_is_the_declaration_the_apps_use_reaches_spelled_as_the_app_spe
         manifest["app"]["id"]
             .as_str()
             .unwrap()
-            .ends_with(".gallery"),
+            .starts_with("com.exact."),
         "{manifest}"
     );
     let _ = std::fs::remove_dir_all(&dir);
@@ -380,4 +399,76 @@ fn a_shape_the_loader_renamed_is_brought_by_its_own_name_and_a_refusal_at_a_libr
         "{text}"
     );
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn the_design_reads_the_apps_assets_and_a_shape_is_brought_by_the_name_the_package_exports() {
+    let dir = fixture("assets");
+    let lib = dir.join("node_modules/@acme/lib");
+    // `Card` and its `Info` in a file the entry re-exports, `Info` as `PublicInfo`.
+    std::fs::write(lib.join("card.contract"), CARD).unwrap();
+    std::fs::write(
+        lib.join("index.contract"),
+        "use Card, Info as PublicInfo from \"./card.contract\"\n",
+    )
+    .unwrap();
+    std::fs::write(
+        dir.join("app.contract"),
+        "use Card from \"@acme/lib\"\n\ncomponent App\n  view\n    column\n      text \"a\"\n",
+    )
+    .unwrap();
+    // A design whose icon is an SVG under the app's assets.
+    write(
+        &dir,
+        &[
+            ("assets/icons/a.svg", "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\"><path d=\"M0 0h24v24H0z\"/></svg>\n"),
+            ("app.tamber", "tamber app\n\ntheme\n  lib.pad = 6px\n\nicons\n  icon.a = icon(svg \"icons/a.svg\")\n"),
+        ],
+    );
+    let out = dir.join("node_modules/.cache/exact-gallery");
+    let g = contract::gallery::generate(&dir.join("app.contract"), &out).expect("the gallery");
+    assert!(g.cells.iter().all(|c| c.refused.is_none()), "{:?}", g.cells);
+    let text = std::fs::read_to_string(&g.source).unwrap();
+    assert!(
+        text.contains("use PublicInfo from \"@acme/lib\"")
+            && text.contains("info=PublicInfo(title=\"title\", n=0)"),
+        "{text}"
+    );
+    assert_eq!(
+        std::fs::read_link(out.join("assets")).unwrap(),
+        dir.join("assets").canonicalize().unwrap()
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A library package's own example app inside its tree, linking the
+/// package by its name: the app's own `use`s, by the loader's record.
+#[test]
+fn an_app_inside_its_library_package_is_the_apps_own_and_a_compiler_record_has_a_placeholder() {
+    let root = std::env::temp_dir().join(format!("exact2-gallery-holding-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    let pkg = root.join("pkg");
+    write(
+        &pkg,
+        &[
+            ("package.json", &package("@x/pkg", r#"{".":"./index.contract"}"#)),
+            ("pkg.tamber", "tamber pkg\n\ntheme\n  pkg.pad = 4px\n"),
+            ("index.contract", "component Note\n  props\n    marks: TextDecorations\n  parts\n    face: paint\n  view\n    text marks.value part=\"face\"\n"),
+            ("example/app.contract", "use Note from \"@x/pkg\"\n\ncomponent App\n  view\n    column\n      Note(marks=TextDecorations(value=\"v\", spans=[]))\n"),
+        ],
+    );
+    std::fs::create_dir_all(pkg.join("example/node_modules/@x")).unwrap();
+    std::os::unix::fs::symlink(&pkg, pkg.join("example/node_modules/@x/pkg")).unwrap();
+    let app = pkg.join("example/app.contract");
+    contract::compile_path(&app).unwrap_or_else(|e| panic!("{e:?}"));
+    let out = pkg.join("example/node_modules/.cache/exact-gallery");
+    let g = contract::gallery::generate(&app, &out).expect("the gallery");
+    assert_eq!(g.cells.len(), 1, "{:?}", g.cells);
+    assert_eq!(g.cells[0].refused, None);
+    let text = std::fs::read_to_string(&g.source).unwrap();
+    assert!(
+        text.contains(r#"Note(marks=TextDecorations(value="value", spans=[]))"#),
+        "{text}"
+    );
+    let _ = std::fs::remove_dir_all(&root);
 }

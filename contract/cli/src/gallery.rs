@@ -8,13 +8,15 @@
 //! it folds the app's current tokens and params. A cell the compiler
 //! refuses says so in place ("can't place: …"); the rest still show.
 //! Nothing here touches a build of the app: `<dir>` is the caller's build
-//! cache, never the app's sources (refused inside the app but under its
-//! `node_modules` or `target`), and must reach the app's packages.
+//! cache, under a `node_modules` or `target` directory (which git and
+//! describe's files don't hold), and must reach the app's packages where
+//! the app reaches them.
 
 use crate::CompileError;
 use contract_syntax::scope::Kind;
 use contract_syntax::{Component, File, TypeExpr};
-use std::collections::{BTreeMap, HashMap, HashSet};
+use contract_types::Ty;
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::fmt::Write as _;
 use std::path::{Component as Part, Path, PathBuf};
 
@@ -98,8 +100,10 @@ pub fn generate(app_contract: &Path, out: &Path) -> Result<Gallery, String> {
     let out = destination(out, &root)?;
     let packages = roots(&sources);
     let mut taken: HashSet<String> = ["Gallery", "noop"].iter().map(|s| s.to_string()).collect();
-    let placed = placed(&file, &sources, &packages, &out, &mut taken);
+    let placed = placed(&file, &sources, &mut taken);
     let shapes = shapes(&placed, &file, &sources, &mut taken);
+    let compiler = compiler_records();
+    assets(&root, &out)?;
     // An app with no design file of its own: the gallery has none either, the packages' still folded.
     let design = crate::design_path(&root.join("app.contract"));
     std::fs::write(
@@ -129,7 +133,12 @@ pub fn generate(app_contract: &Path, out: &Path) -> Result<Gallery, String> {
     // itself, a unit) refuses its cells before any compile.
     for c in &mut cells {
         let p = of(&placed, c);
-        if let Err(why) = args(p.component, &file, &shapes, &c.values) {
+        if p.specifier.starts_with('.') {
+            c.refused = Some(format!(
+                "the app reaches it by a relative path ({}), which the gallery can't follow from its cache",
+                p.specifier
+            ));
+        } else if let Err(why) = args(p.component, &file, &shapes, &compiler, &c.values) {
             c.refused = Some(why);
         }
     }
@@ -139,6 +148,7 @@ pub fn generate(app_contract: &Path, out: &Path) -> Result<Gallery, String> {
     // The gallery must reach the app's packages where the app does: its components' `use` lines alone, loaded.
     let probe: String = placed
         .iter()
+        .filter(|p| !p.specifier.starts_with('.'))
         .map(|p| {
             format!(
                 "use {} as {} from {}\n",
@@ -153,7 +163,7 @@ pub fn generate(app_contract: &Path, out: &Path) -> Result<Gallery, String> {
         .collect();
     reaches(&path, &probe, &out, &packages)?;
     for _ in 0..=cells.len() + 1 {
-        let s = source(&placed, &file, &shapes, &cells, None);
+        let s = source(&placed, &file, &shapes, &compiler, &cells, None);
         write(&s.text)?;
         let errors = match crate::compile_path_all(&path, false) {
             Ok(_) => {
@@ -176,7 +186,7 @@ pub fn generate(app_contract: &Path, out: &Path) -> Result<Gallery, String> {
             if cells[i].refused.is_some() {
                 continue;
             }
-            let alone = source(&placed, &file, &shapes, &cells, Some(i));
+            let alone = source(&placed, &file, &shapes, &compiler, &cells, Some(i));
             write(&alone.text)?;
             if let Err(errors) = crate::compile_path_all(&path, false) {
                 let e = errors.iter().find(|e| !e.is_warning()).or(errors.first());
@@ -281,45 +291,73 @@ fn destination(out: &Path, root: &Path) -> Result<PathBuf, String> {
             out.display()
         ));
     }
-    if let Ok(inside) = canon.strip_prefix(&root) {
-        let cache = matches!(inside.components().next(), Some(Part::Normal(n)) if n == "node_modules" || n == "target");
-        if !cache {
-            return Err(format!(
-                "{}: inside the app, the gallery goes under its node_modules or target (a build cache), never among its sources",
-                out.display()
-            ));
-        }
+    let cache = canon
+        .components()
+        .any(|c| matches!(c, Part::Normal(n) if n == "node_modules" || n == "target"));
+    if !cache {
+        return Err(format!(
+            "{}: the gallery goes under a node_modules or target directory (a build cache), never among sources",
+            out.display()
+        ));
     }
-    let existing = canon.join("app.contract");
-    if let Ok(text) = std::fs::read_to_string(&existing) {
-        if !text.starts_with(HEADER) {
+    // Ours, or nothing: a link (one back to the app's own files) or a file this didn't write is never written over.
+    let ours =
+        std::fs::read_to_string(canon.join("app.contract")).is_ok_and(|t| t.starts_with(HEADER));
+    for name in ["app.contract", "app.json"] {
+        let at = canon.join(name);
+        let Ok(meta) = std::fs::symlink_metadata(&at) else {
+            continue;
+        };
+        if meta.file_type().is_symlink() || !ours {
             return Err(format!(
                 "{}: not a gallery this wrote: refusing to overwrite it",
-                existing.display()
+                at.display()
             ));
         }
     }
     Ok(canon)
 }
 
-/// Each package the app links, by name, at its canonical root.
-fn roots(sources: &crate::sources::Sources) -> BTreeMap<String, PathBuf> {
-    crate::sources::packages::packages(sources)
-        .0
-        .into_iter()
-        .filter_map(|p| Some((p.name.clone(), p.root.canonicalize().ok()?)))
+/// The gallery's `assets` is the app's (a link), so its design reads the
+/// icons and images the app's does.
+fn assets(root: &Path, out: &Path) -> Result<(), String> {
+    let link = out.join("assets");
+    if std::fs::symlink_metadata(&link).is_ok_and(|m| m.file_type().is_symlink()) {
+        std::fs::remove_file(&link).map_err(|e| format!("{}: {e}", link.display()))?;
+    } else if link.exists() {
+        return Err(format!(
+            "{}: not a link this made: refusing to replace it",
+            link.display()
+        ));
+    }
+    let theirs = root.join("assets");
+    if !theirs.is_dir() {
+        return Ok(());
+    }
+    #[cfg(unix)]
+    let made = std::os::unix::fs::symlink(&theirs, &link);
+    #[cfg(windows)]
+    let made = std::os::windows::fs::symlink_dir(&theirs, &link);
+    made.map_err(|e| format!("{}: {e}", link.display()))
+}
+
+/// Every package root the app's sources were read from, canonical (each
+/// installed alias of one package is its one root).
+fn roots(sources: &crate::sources::Sources) -> BTreeSet<PathBuf> {
+    sources
+        .origins
+        .iter()
+        .filter_map(|o| match o {
+            crate::resolve::Origin::Package { root, .. } => root.canonicalize().ok(),
+            _ => None,
+        })
         .collect()
 }
 
-/// Whether the gallery at `path` loads, each package it links at the
-/// app's own root: a cache another install shadows, or none reaches, is
-/// refused rather than showing another version.
-fn reaches(
-    path: &Path,
-    text: &str,
-    out: &Path,
-    app: &BTreeMap<String, PathBuf>,
-) -> Result<(), String> {
+/// Whether the gallery at `path` loads, each package it reads at one of
+/// the app's own roots: a cache another install shadows, or none reaches,
+/// is refused rather than showing another version.
+fn reaches(path: &Path, text: &str, out: &Path, app: &BTreeSet<PathBuf>) -> Result<(), String> {
     let (_, sources) = crate::sources::load(path, text, out).map_err(|e| {
         format!(
             "{}: the gallery can't reach the app's packages from here ({})",
@@ -327,13 +365,12 @@ fn reaches(
             first(e)
         )
     })?;
-    for (name, root) in roots(&sources) {
-        if let Some(theirs) = app.get(&name).filter(|r| **r != root) {
+    for root in roots(&sources) {
+        if !app.contains(&root) {
             return Err(format!(
-                "{}: the gallery reaches {name} at {}, the app at {}: put it where the app's node_modules is reached",
+                "{}: the gallery reaches a package at {}, which the app doesn't read: put it where the app's node_modules is reached",
                 out.display(),
-                root.display(),
-                theirs.display()
+                root.display()
             ));
         }
     }
@@ -354,24 +391,27 @@ fn unique(want: &str, taken: &mut HashSet<String>) -> String {
 
 /// The exported library components the app's own files `use`, each once,
 /// in the order the app first names them: as the loader resolved each
-/// `use` (`Sources::imports`), so a re-export's rename, an exports subpath
-/// and an installed alias are the declaration the app reaches; the gallery
-/// spells each `use` as the app does.
+/// `use` (`Sources::imports`, in the files the loader says are the app's),
+/// so a re-export's rename, an exports subpath and an installed alias are
+/// the declaration the app reaches; the gallery spells each `use` as the
+/// app does. One the app reaches by a relative path is listed, its cells
+/// refused: the gallery can't follow that path from its cache.
 fn placed<'a>(
     file: &'a File,
     sources: &crate::sources::Sources,
-    packages: &BTreeMap<String, PathBuf>,
-    out: &Path,
     taken: &mut HashSet<String>,
 ) -> Vec<Placed<'a>> {
     let mut parsed: HashMap<u32, Option<File>> = HashMap::new();
     let mut found: Vec<Placed> = Vec::new();
     for import in sources.imports.iter().filter(|i| i.kind == Kind::Component) {
-        let path = sources.path(import.span).to_path_buf();
-        let real = path.canonicalize().unwrap_or_else(|_| path.clone());
-        if packages.values().any(|p| real.starts_with(p)) {
+        // The app's own files by the loader's record (an app inside its library package's tree too).
+        if !matches!(
+            sources.origins.get(import.span.source_id as usize),
+            Some(crate::resolve::Origin::App)
+        ) {
             continue;
         }
+        let path = sources.path(import.span).to_path_buf();
         let Some(c) = file.components.iter().find(|c| c.name == import.name) else {
             continue;
         };
@@ -398,17 +438,15 @@ fn placed<'a>(
         }) else {
             continue;
         };
-        // A relative specifier, written from the app's file, is rewritten from the gallery's.
-        let specifier = if u.path.starts_with('.') {
-            let at = path.parent().unwrap_or(Path::new(".")).join(&u.path);
-            relative(out, &at.canonicalize().unwrap_or(at))
-        } else {
-            u.path.clone()
-        };
+        // A call names a component by a capital: an export spelled otherwise is brought under one.
+        let mut want = n.name.clone();
+        if !want.starts_with(|c: char| c.is_ascii_uppercase()) {
+            want = format!("C{want}");
+        }
         found.push(Placed {
-            local: unique(&n.name, taken),
+            local: unique(&want, taken),
             export: n.name.clone(),
-            specifier,
+            specifier: u.path.clone(),
             identity,
             component: c,
             variants: contract_lower::anatomy::described(c, file).variants,
@@ -427,7 +465,6 @@ fn shapes(
     taken: &mut HashSet<String>,
 ) -> HashMap<String, Shape> {
     let mut out: HashMap<String, Shape> = HashMap::new();
-    let mut parsed: HashMap<u32, Option<File>> = HashMap::new();
     for p in placed {
         for name in needed(p.component, file) {
             if out.contains_key(&name) {
@@ -436,15 +473,16 @@ fn shapes(
             let Some(decl) = file.shapes.iter().find(|s| s.name == name) else {
                 continue;
             };
-            let own = parsed.entry(decl.span.source_id).or_insert_with(|| {
-                let text = std::fs::read_to_string(sources.path(decl.span)).ok()?;
-                contract_syntax::parse_source(&text, decl.span.source_id).ok()
-            });
-            let export = own
-                .as_ref()
-                .and_then(|f| f.shapes.iter().find(|s| s.span == decl.span))
-                .map(|s| s.name.clone())
+            let declaring = sources.path(decl.span).to_path_buf();
+            let declared = parse(&declaring, decl.span.source_id)
+                .and_then(|f| {
+                    f.shapes
+                        .iter()
+                        .find(|s| s.span == decl.span)
+                        .map(|s| s.name.clone())
+                })
                 .unwrap_or_else(|| name.clone());
+            let export = exported(&p.specifier, &declaring, &declared, sources).unwrap_or(declared);
             out.insert(
                 name,
                 Shape {
@@ -458,12 +496,65 @@ fn shapes(
     out
 }
 
-/// The gallery's `app.json`: the app's identity (as [`crate::Manifest`]
-/// reads it, defaults included) marked as its gallery, and its design by
-/// a path from `out`.
+fn parse(path: &Path, source_id: u32) -> Option<File> {
+    contract_syntax::parse_source(&std::fs::read_to_string(path).ok()?, source_id).ok()
+}
+
+/// The name the file `specifier` reaches gives the shape `declared` of
+/// file `declaring`: its own, or a re-export's (`use Info as PublicInfo
+/// from "./card.contract"`); `None` when it gives none this can see.
+fn exported(
+    specifier: &str,
+    declaring: &Path,
+    declared: &str,
+    sources: &crate::sources::Sources,
+) -> Option<String> {
+    let parts: Vec<&str> = specifier.split('/').collect();
+    let take = if specifier.starts_with('@') { 2 } else { 1 };
+    let (name, sub) = (parts.get(..take)?.join("/"), parts.get(take..)?.join("/"));
+    let (root, manifest) = sources.origins.iter().find_map(|o| match o {
+        crate::resolve::Origin::Package {
+            name: n,
+            root,
+            manifest,
+            ..
+        } if *n == name => Some((root.clone(), manifest.clone())),
+        _ => None,
+    })?;
+    let json: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(manifest).ok()?).ok()?;
+    let entry = if sub.is_empty() {
+        crate::resolve::package_entry(&json)
+    } else {
+        crate::resolve::package_subpath(&json, &sub)?
+    };
+    let target = root.join(entry.trim_start_matches("./"));
+    let real = |p: &Path| p.canonicalize().unwrap_or_else(|_| p.to_path_buf());
+    let (target, declaring) = (real(&target), real(declaring));
+    if target == declaring {
+        return Some(declared.to_owned());
+    }
+    let reached = parse(&target, 0)?;
+    reached.uses.iter().find_map(|u| {
+        let from = real(&target.parent()?.join(&u.path));
+        (from == declaring)
+            .then(|| {
+                u.names
+                    .iter()
+                    .find(|n| n.name == declared)
+                    .map(|n| n.local().to_owned())
+            })
+            .flatten()
+    })
+}
+
+/// The gallery's `app.json`: the app's own identity (as [`crate::Manifest`]
+/// reads it, defaults included), since the gallery's plan runs in the
+/// app's own build (its wasm checks the plan's app id), named as its
+/// gallery; and its design by a path from `out`.
 fn gallery_manifest(app: &crate::Manifest, design: Option<&Path>, out: &Path) -> String {
     let mut json = serde_json::json!({
-        "app": { "id": format!("{}.gallery", app.id), "name": format!("{} gallery", app.name) },
+        "app": { "id": app.id, "name": format!("{} gallery", app.name) },
     });
     if let Some(design) = design {
         let design = design
@@ -506,6 +597,7 @@ fn source(
     placed: &[Placed],
     file: &File,
     shapes: &HashMap<String, Shape>,
+    compiler: &BTreeMap<String, Vec<(String, Ty)>>,
     cells: &[Cell],
     only: Option<usize>,
 ) -> Source {
@@ -598,7 +690,7 @@ fn source(
             }
             None => {
                 let p = of(placed, c);
-                let args = args(p.component, file, shapes, &c.values).unwrap_or_default();
+                let args = args(p.component, file, shapes, compiler, &c.values).unwrap_or_default();
                 let _ = writeln!(s, "          {}({})", c.component, args.join(", "));
                 if p.component.slot {
                     let _ = writeln!(
@@ -618,11 +710,58 @@ fn source(
     }
 }
 
+/// The compiler's own records an app builds (`MediaMetadata`,
+/// `TextDecorations`, `TextDecorationSpan`), each field's type, as the
+/// type checker declares them.
+fn compiler_records() -> BTreeMap<String, Vec<(String, Ty)>> {
+    let shapes = contract_syntax::parse("component G\n  view\n    column\n")
+        .ok()
+        .and_then(|f| contract_types::check_declarations(&f).ok());
+    contract_types::records::COMPILER_RECORDS
+        .iter()
+        .filter_map(|n| Some((n.to_string(), shapes.as_ref()?.map.get(*n)?.clone())))
+        .collect()
+}
+
+/// A compiler record's placeholder, by its checked field types.
+fn compiler_record(
+    name: &str,
+    records: &BTreeMap<String, Vec<(String, Ty)>>,
+    depth: usize,
+) -> Result<String, String> {
+    let fields = records
+        .get(name)
+        .ok_or_else(|| format!("no shape {name}"))?;
+    if depth > 4 {
+        return Err(format!("the record {name} nests too deep"));
+    }
+    let fields = fields
+        .iter()
+        .map(|(f, ty)| {
+            Ok(format!(
+                "{f}={}",
+                match ty {
+                    Ty::String => literal(f),
+                    Ty::Number => "0".into(),
+                    Ty::Bool => "false".into(),
+                    Ty::Option(_) => "none".into(),
+                    Ty::List(_) => "[]".into(),
+                    Ty::Enum(options) => literal(options.first().map(String::as_str).unwrap_or("")),
+                    Ty::Record(r) => compiler_record(r, records, depth + 1)?,
+                    other => return Err(format!("no placeholder for {other}")),
+                }
+            ))
+        })
+        .collect::<Result<Vec<_>, String>>()?;
+    Ok(format!("{name}({})", fields.join(", ")))
+}
+
 /// Each prop's argument: a variant's value in the cell, else a placeholder.
 fn args(
     c: &Component,
     file: &File,
     shapes: &HashMap<String, Shape>,
+    compiler: &BTreeMap<String, Vec<(String, Ty)>>,
     values: &[(String, String)],
 ) -> Result<Vec<String>, String> {
     c.props
@@ -634,7 +773,7 @@ fn args(
                 }
                 Some((_, v)) => literal(v),
                 None => match &p.ty {
-                    Some(ty) => placeholder(ty, &p.name, file, shapes, &mut Vec::new())
+                    Some(ty) => placeholder(ty, &p.name, file, shapes, compiler, &mut Vec::new())
                         .map_err(|why| format!("{} ({why})", p.name))?,
                     None => return Err(format!("{} (no type written)", p.name)),
                 },
@@ -655,6 +794,7 @@ fn placeholder(
     name: &str,
     file: &File,
     shapes: &HashMap<String, Shape>,
+    compiler: &BTreeMap<String, Vec<(String, Ty)>>,
     seen: &mut Vec<String>,
 ) -> Result<String, String> {
     Ok(match ty {
@@ -672,7 +812,7 @@ fn placeholder(
                     return Err(format!("the shape {shape} holds itself"));
                 }
                 let Some(decl) = file.shapes.iter().find(|s| s.name == shape) else {
-                    return Err(format!("no shape {shape}"));
+                    return compiler_record(shape, compiler, 0);
                 };
                 let local = shapes.get(shape).map_or(shape, |s| s.local.as_str());
                 seen.push(shape.to_owned());
@@ -680,7 +820,7 @@ fn placeholder(
                     .fields
                     .iter()
                     .map(|f| {
-                        placeholder(&f.ty, &f.name, file, shapes, seen)
+                        placeholder(&f.ty, &f.name, file, shapes, compiler, seen)
                             .map(|v| format!("{}={v}", f.name))
                     })
                     .collect::<Result<Vec<_>, _>>();
@@ -701,8 +841,9 @@ fn needed(c: &Component, file: &File) -> Vec<String> {
             {
                 return;
             }
-            out.push(t.clone());
+            // A compiler record (`TextDecorations`) is built in: nothing to bring.
             if let Some(decl) = file.shapes.iter().find(|s| s.name == *t) {
+                out.push(t.clone());
                 for f in &decl.fields {
                     walk(&f.ty, file, out);
                 }
@@ -779,13 +920,13 @@ mod tests {
         let none = HashMap::new();
         let tree = file.components.iter().find(|c| c.name == "Tree").unwrap();
         assert_eq!(
-            args(tree, &file, &none, &[]),
+            args(tree, &file, &none, &BTreeMap::new(), &[]),
             Err("root (the shape Node holds itself)".into())
         );
         let line = file.components.iter().find(|c| c.name == "Line").unwrap();
         // A placeholder's option and list end its walk; a unit has none.
         assert_eq!(
-            args(line, &file, &none, &[]),
+            args(line, &file, &none, &BTreeMap::new(), &[]),
             Err("nothing (a unit)".into())
         );
         let only_head = Component {
@@ -793,7 +934,7 @@ mod tests {
             ..line.clone()
         };
         assert_eq!(
-            args(&only_head, &file, &none, &[]),
+            args(&only_head, &file, &none, &BTreeMap::new(), &[]),
             Ok(vec![
                 r#"head=Chain(label="label", next=none, rest=[])"#.to_string()
             ])
