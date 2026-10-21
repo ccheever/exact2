@@ -41,6 +41,8 @@ final class RouteController: UIViewController {
     /// The scroller that is the route's last in-flow child, which reaches
     /// the screen's bottom edge (LLP 1116 D2).
     weak var edgeScroll: NodeView?
+    /// The bottom cover the route has with no such scroller (`reportCovers`).
+    var bottomClearance: CGFloat = 0
     /// The targets of the bar items projected from its header.
     var barPresses: [BarPress] = []
     /// The bar items of its header's readouts, by node, kept across
@@ -51,9 +53,16 @@ final class RouteController: UIViewController {
     /// The title Exact drew from the heading's group, and the subtitle it
     /// wrote; whether the root's tablist was hidden when it last looked (§9.10).
     var titleView: HeaderTitleView?, subtitle: String?, tablistHidden: Bool?
+    /// The route appeared, first or again after a cancelled swipe: a zoom
+    /// push's landing hears it (ZoomPushIOS).
+    var appeared: (() -> Void)?
     init(_ node: NodeView) {
         self.node = node
         super.init(nibName: nil, bundle: nil)
+    }
+    override func viewDidAppear(_ animated: Bool) {
+        super.viewDidAppear(animated)
+        appeared?()
     }
     required init?(coder: NSCoder) { nil }
     // The bar's height changed (a push to an inline title, a rotation, a
@@ -604,6 +613,12 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
                 let pushOrPop = NavigationRules.isPushOrPop(from: nav.viewControllers.map(ObjectIdentifier.init), to: stack.map(ObjectIdentifier.init))
                 let arrives = stack.count > 1 && nav.viewControllers.first === stack.first
                     && !nav.viewControllers.contains { $0 === stack.last }
+                #if os(iOS)
+                // A route pushed from a source zooms from it (ZoomPushIOS).
+                if (pushOrPop || arrives), stack.count > 1, let top = stack.last as? RouteController, !nav.viewControllers.contains(where: { $0 === top }) {
+                    prepareZoomPush(top, beneath: stack[stack.count - 2] as? RouteController)
+                }
+                #endif
                 nav.setViewControllers(stack, animated: (pushOrPop || arrives) && index == owners.count - 1 && mounted.count == boundaries.count && !ExactEnv.agentFreezes && !unanimated && nav.view.window != nil)
                 recordOwned(nav)
                 // A press that pushed may hand its control's focus to the arriving route's first autofocus (PressHandoffIOS).
@@ -896,9 +911,11 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
     /// never captured at a gesture's start (`NavigationRules.backControl`).
     private var backControl: NodeView? {
         guard let route = selectedRoute else { return nil }
+        let routes = routeIDs.compactMap { presenter.views[$0] }
         return NavigationRules.backControl(named: container?.props["navigationBack"], among: presenter.carrying("id"),
                                            id: \.id, htmlID: { $0.props["id"] }, pressable: { $0.handlers.contains("press") }, disabled: \.disabled,
-                                           inActiveRoute: { $0 === route || $0.isDescendant(of: route) })
+                                           inActiveRoute: { $0 === route || $0.isDescendant(of: route) },
+                                           inAnyRoute: { control in routes.contains { control === $0 || control.isDescendant(of: $0) } })
     }
 
     private var selectedRoute: NodeView? {
@@ -908,7 +925,7 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
 
     /// How Back goes from the selected route, resolved at use as its
     /// control is (`NavigationRules.back`, LLP 1115 D5).
-    private var back: NavigationRules.Back? {
+    var back: NavigationRules.Back? {
         guard let root = container, let route = selectedRoute else { return nil }
         return NavigationRules.back(control: backControl?.id, declared: declaresBack(route), hearsNavigate: root.handlers.contains("navigate"),
                                     beneath: { [presenter] in route.props["navigationKey"].flatMap { presenter.session?.runtime.locationBeneath($0) } })

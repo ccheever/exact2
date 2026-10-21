@@ -3,6 +3,10 @@
 #![deny(unsafe_code)]
 #![deny(missing_docs)]
 
+#[cfg_attr(not(windows), allow(dead_code))]
+mod pad_poll;
+#[cfg(windows)]
+mod pads;
 #[cfg(windows)]
 mod window;
 

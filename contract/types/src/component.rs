@@ -613,6 +613,8 @@ pub(crate) fn handler_attr(name: &str) -> bool {
             | "midimessage"
             | "wheel"
             | "drop"
+            | "dragenter"
+            | "dragleave"
             | "swiperight"
             | "refresh"
             | "reachstart"
@@ -1405,9 +1407,10 @@ pub(crate) fn action_call(
         return err(
             "type-arity",
             format!(
-                "`{name}` takes at most {} argument(s), given {}",
+                "`{name}` takes at most {} argument(s), given {}{}",
                 params.len(),
-                args.len()
+                args.len(),
+                crate::shadows::note(name, Some(scope.component()), shapes)
             ),
             span,
         );
@@ -1417,7 +1420,10 @@ pub(crate) fn action_call(
         if !checks::accepts_expr(pt, arg, &t, scope, shapes) {
             return err(
                 "type-argument",
-                format!("`{name}` expects `{pt}`, given `{t}`"),
+                format!(
+                    "`{name}` expects `{pt}`, given `{t}`{}",
+                    crate::shadows::note(name, Some(scope.component()), shapes)
+                ),
                 arg.span(),
             );
         }

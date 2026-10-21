@@ -3,7 +3,7 @@
 - **Upstream:** `taffy` 0.14.0, crates.io package supplied offline at
   `~/Library/Caches/exact2-textflow/taffy-0.14.0/` (M8, 2026-09-18).
   Its `.cargo_vcs_info.json` pins commit `77f385683c1d698c91a23a259f87fdddf26925fb`.
-- **Why vendored:** patches 3, 4, 5, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60 and 61 below remain. `[patch.crates-io]`
+- **Why vendored:** patches 3, 4, 5, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61 and 62 below remain. `[patch.crates-io]`
   selects this copy; the kernel declares `taffy = "0.14"`.
 - **Owner:** Charlie Cheever (kernel/layout).
 - **Features:** std, taffy_tree, flexbox, grid, block_layout, content_size, calc.
@@ -1959,6 +1959,19 @@ without `max-height` it changes from 120×30 to 120×120. Controls cover definit
 width and height, columns, grid, content exceeding the floor, centered and
 stretched lines, reverse wrapping, nowrap, ratio 2, padding and borders under
 both box-sizing modes, a zero minimum and hidden overflow.
+
+## Patch 62: allocate rare style fields only when needed
+
+`Style` keeps its grid templates, automatic tracks, names, areas, placements
+and `multicol` in one optional `Arc<RareStyle>`. Absent fields read shared
+initial values; clones share the allocation and writes copy it on demand.
+Default construction and conversion of an all-default group keep no allocation.
+Equality compares field values, including an allocated default group and NaNs,
+so the kernel's value interning and `engine_hash` retain their meaning. Ordinary
+block and flex styles no longer carry the grid vectors and placements inline:
+with Exact's features on 64-bit hosts, `Style` falls from 600 to 256 bytes
+(`RcInner<Style>`: 272). The kernel adapter keeps their rare group absent.
+Layout inputs are unchanged.
 
 ## Cargo workspace boundary
 

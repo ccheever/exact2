@@ -915,9 +915,12 @@ async function rejects(action, matches) {
   ];
   const refused = refusals.map(([names, why]) => { try { portableAssetNames(names); return false; } catch (error) { return why.test(error.message); } });
   let accepted = true;
-  for (const names of [['a/b.png', 'a/c.png', 'A-b_c.1.png'], ['deck/index.html', 'deck/index.html.map']]) {
+  for (const names of [['a/b.png', 'a/c.png', 'A-b_c.1.png'], ['deck/index.html', 'deck/index.html.map'], ['photo@2x.png', 'photo@3x.png']]) {
     try { portableAssetNames(names); } catch { accepted = false; }
   }
+  // Every refused name in one answer, one per line.
+  try { portableAssetNames(['two words.png', 'Logo.png', 'logo.png', 'ok.png', 'caf\u00e9.png']); accepted = false; }
+  catch (error) { const lines = error.message.split('\n'); if (lines.length !== 3 || !/two words/.test(lines[0]) || !/differ only by case/.test(lines[1]) || !/caf\u00e9/.test(lines[2])) accepted = false; }
   const app = { id: 'com.exact.names', displayName: 'Names', manifest: {} };
   const stream = { channel: 'prod', compatibilityId: 'a'.repeat(32) };
   const planBytes = Buffer.from('plan');

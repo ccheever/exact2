@@ -116,7 +116,7 @@ final class AlertHost {
         guard let menus = presenter?.menus, pop.props["accessibilityRole"] == "alertdialog",
               pop.props["popover"] != nil || pop.props["semanticTag"] == "dialog" else { return nil }
         if pop.props["semanticTag"] == "dialog", pop.props["closedby"] == "any" { return nil }
-        let children = pop.container.subviews.compactMap { $0 as? NodeView }
+        let children = pop.confirmationRows
         let actions = children.filter { $0.isButton && $0.handlers.contains("press") }
         let cancels = children.filter { $0.isButton && !$0.handlers.contains("press") && closes($0, pop, popover: popover) }
         let texts = children.filter { $0.kind == "text" }

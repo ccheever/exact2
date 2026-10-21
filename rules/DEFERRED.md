@@ -195,6 +195,11 @@ the Markdown reader's remaining surfaces and Fieldnotes' backups. Take: none
 named (Charlie: "idk what to trade it for, maybe relax the limit slightly").
 **Waived (Charlie, 2026-10-11, coding-agent file attachments):** `input type="file"`
 with no `accept` (or `accept="*/*"`) may pick any file, with no trade.
+**Extended (Daehyeon Mun, 2026-10-20; no trade):** for the same consumer,
+T3 Code's composer, whose drop, paste and Attach files are one path, `drop`
+takes files and folders of any type, and a paste carries its files
+(`ClipboardEvent.files`, pasted image data as a PNG), each a `doc:` handle
+(LLP 1069.010, "Files dropped or pasted").
 Specific `accept` types remain bounded as above. `capture` stays refused
 (the camera is a native module, §Components, 2026-10-02). Linux editing is v2
 (Charlie, 2026-09-21): web, iOS and macOS first; Linux reads.
@@ -862,6 +867,11 @@ browser as the oracle, the same shape layout already has. In exchange, not in v1
   high, the fallback is dropping `-exact-layout-transition` and keeping
   `-exact-exit-animation`. Still out: animating any other layout property, and laying
   out per frame.
+  **Expanded (Charlie, 2026-10-20, "ok do those things pls", of a list naming it;
+  take waived, none offered):** `transition` on `font-weight` and `font-stretch`,
+  the runner laying the text out again each frame (LLP 1019 §13 D10). Unblocks
+  variable type that moves, as the browser and Expo SDK 58 draw it. Every other
+  layout property stays out.
 - **Decay and sequence drivers.** A spring carries release velocity; nothing
   else needs a driver. (`@keyframes` and repeat came off; see below.)
 - **Reduced-motion policy in the engine.** The producer emits `transition: none`

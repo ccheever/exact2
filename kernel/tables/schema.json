@@ -1533,7 +1533,7 @@
       "id": 259,
       "name": "navigationBar",
       "kind": "str",
-      "_comment": "@ref LLP 1115.000 D5.2: a route's say over the platform's navigation bar, `none` (a full-bleed screen: no bar, and the edge swipe still pops) or `auto` (the default: the route's header as the bar, else the system Back alone on a pushed route). iOS reads it; hosts with no bar of their own ignore it."
+      "_comment": "@ref LLP 1115.000 D5.2: a route's say over the platform's navigation bar, `none` (a full-bleed screen: no bar, and the edge swipe still pops), `transparent` (the bar as `auto` has it, drawn clear at the top of the route's scroller, whose content starts under it as under a fixed transparent header on the web: a hero photo bleeds to the top, and the bar's material comes as the content scrolls) or `auto` (the default: the route's header as the bar, else the system Back alone on a pushed route). iOS reads it; hosts with no bar of their own ignore it."
     },
     {
       "id": 260,
@@ -1650,6 +1650,12 @@
     },
     {
       "id": 279,
+      "name": "alertPart",
+      "kind": "str",
+      "_comment": "The part of an alert (an alert-shaped `dialog role=\"alertdialog\"`) a child is: `title` (its first text, when it has no `aria-label`), `message` (the box of its texts) or `actions` (the box of its buttons), so a host that draws the alert can scroll a long message while the title and buttons stay in view; a host that presents the platform's alert reads through the boxes. The compiler's, never authored."
+    },
+    {
+      "id": 280,
       "name": "safeArea",
       "kind": "str",
       "_comment": "LLP 1123 D4: -exact-safe-area on an owner's authored root, auto (default), none, or the top/right/bottom/left edges whose local clearance is disabled. Not inherited. UIKit's vertical scroller executors cancel only the opted-out edges' automatic contributions."
@@ -2761,6 +2767,7 @@
       "bit": 30,
       "field": "aspect_ratio",
       "snapshot": "admit",
+      "rare": true,
       "terminal": "admit",
       "codec": "aspect-ratio",
       "layout": true,
@@ -3923,6 +3930,7 @@
     {
       "bit": 181,
       "field": "column_width",
+      "rare": true,
       "codec": "dimension",
       "admitsAuto": true,
       "refusesPercent": true,
@@ -4106,6 +4114,7 @@
     {
       "bit": 205,
       "field": "placeholder_color",
+      "rare": true,
       "codec": "color",
       "default": 0,
       "_comment": "@ref LLP 1104 D3: CSS `::placeholder { color }`, written as Contract's `::placeholder` part block on a text field (`input` of a text type, `textarea`). An unset mask (the default, 0, is never read) is the platform's own placeholder colour: UIKit's placeholderText, AppKit's placeholderTextColor, the browser's UA `::placeholder`. Its own alpha is the only opacity. Not inherited (it is the field's own part)."
@@ -4200,9 +4209,19 @@
       "layout": true,
       "default": 100,
       "_comment": "@ref LLP 1019 D8: CSS `font-stretch` (Fonts 4's `font-width`), a percentage of the face's normal width, 100 normal; `<percentage>` or a keyword (`condensed` 75, …). It selects among a family's faces before style and weight (CSS Fonts 4 §5.2), and a face declared over a `wdth` range draws at it on that axis. Inherited, as in CSS."
+    },
+    {
+      "bit": 217,
+      "field": "font_variation_settings",
+      "snapshot": "admit",
+      "codec": "font-variations",
+      "inherited": true,
+      "text": true,
+      "layout": true,
+      "_comment": "@ref LLP 1019 D9: CSS `font-variation-settings`, `normal` or up to eight `\"tag\" <number>` axes, applied after font-weight, font-stretch and optical sizing and winning for the same axis (CSS Fonts 4 §7.2). Inherited, as in CSS."
     }
   ],
-  "_transitions": "The `transition` row is CSS `transition` (LLP 1002): count u8 (≤8), then per declaration property u8 (0 all, then 1 + `Property`: 1 translate, 2 scale, 3 rotate, 4 opacity, 5 height, 6 stroke-dashoffset, 7 r, 8 color, 9 background-color, 10 fill, 11 stroke, 12 cx, 13 cy, 14 x, 15 y, 16 rx, 17 ry, 18 border-top-color, 19 border-right-color, 20 border-bottom-color, 21 border-left-color, 22 -exact-tint-color, 23 box-shadow — LLP 1062; 24, box-shadow's colour alone, is refused; 25 is CSS's `border-color` shorthand; 26 is a path's `d`, LLP 1055.000 D15), duration f32 s, delay f32 s, easing u8 (0 linear, 1 ease, 2 ease-in, 3 ease-out, 4 ease-in-out, 5 cubic-bezier + 4×f32, 6 steps + u16 count + u8 position, 7 spring + f32 stiffness/damping/mass, 8 linear() + u8 count + count×(f32 input, f32 output)). Its Rust type lives in exact-motion; the kernel owns the bytes.",
+  "_transitions": "The `transition` row is CSS `transition` (LLP 1002): count u8 (≤8), then per declaration property u8 (0 all, then 1 + `Property`: 1 translate, 2 scale, 3 rotate, 4 opacity, 5 height, 6 stroke-dashoffset, 7 r, 8 color, 9 background-color, 10 fill, 11 stroke, 12 cx, 13 cy, 14 x, 15 y, 16 rx, 17 ry, 18 border-top-color, 19 border-right-color, 20 border-bottom-color, 21 border-left-color, 22 -exact-tint-color, 23 box-shadow — LLP 1062; 24, box-shadow's colour alone, is refused; 25 font-weight, 26 font-stretch — LLP 1019 §13 D10; 27 is CSS's `border-color` shorthand; 28 is a path's `d`, LLP 1055.000 D15), duration f32 s, delay f32 s, easing u8 (0 linear, 1 ease, 2 ease-in, 3 ease-out, 4 ease-in-out, 5 cubic-bezier + 4×f32, 6 steps + u16 count + u8 position, 7 spring + f32 stiffness/damping/mass, 8 linear() + u8 count + count×(f32 input, f32 output)). Its Rust type lives in exact-motion; the kernel owns the bytes.",
   "_animations": "The `animation` row is CSS `animation` (LLP 1055 D5): count u8 (≤8), then per animation name (str), duration f32 s, delay f32 s, easing (as `_transitions`, never a spring), iteration count f32 (+inf is `infinite`), direction u8 (0 normal, 1 reverse, 2 alternate, 3 alternate-reverse), fill u8 (0 none, 1 forwards, 2 backwards, 3 both), paused u8, then its keyframes: count u8 (≤32), per keyframe offset f32 in [0,1], easing flag u8 (0 the animation's, 1 followed by an easing), count u8, per value property u8 (as `Property`), then its components as f32: one, four for `translate` (x and y lengths in points, then x and y percentages of the box), three for `box-shadow` (offset x, y and blur, in points; its colour is the next value, `box-shadow`'s colour half), four for a colour (premultiplied sRGB red, green, blue, alpha; LLP 1055.000 D6), a colour then u8 1 and four more for the dark half of a `light-dark()` pair, else u8 0 (LLP 1062 D9). Its Rust type lives in exact-motion; the kernel owns the bytes.",
   "_opcodes": "The closed wire-visible op list for EXWF frame revision 1. There is no op count on the wire; consumers iterate by validated lengths.",
   "opcodes": [
@@ -4921,7 +4940,7 @@
       "adjust"
     ]
   ],
-  "_symbols": "[role, Apple system symbol name, browser SVG path in a 24-unit box]. The path is stroked; a filled state is its own role, `<role>-fill` for Apple's `<name>.fill`, whose path is a filled silhouette (even-odd, so a cutout is a subpath). Two roles may share an Apple glyph when Material draws their meanings apart (`reorder`, `menu`); the Apple name then answers to the earlier row. Portable roles only; symbol:sf/<name> passes an opaque name directly to Apple (LLP 1035.004.000), without a table entry. The sf namespace is reserved.",
+  "_symbols": "[role, Apple system symbol name, browser SVG path in a 24-unit box]. The path keeps to about the box's 20-unit live area, which the web draws an em across, as an SF Symbol's glyph is (the neutral look's `symbol-scale`). The path is stroked; a filled state is its own role, `<role>-fill` for Apple's `<name>.fill`, whose path is a filled silhouette (even-odd, so a cutout is a subpath). Two roles may share an Apple glyph when Material draws their meanings apart (`reorder`, `menu`); the Apple name then answers to the earlier row. Portable roles only; symbol:sf/<name> passes an opaque name directly to Apple (LLP 1035.004.000), without a table entry. The sf namespace is reserved.",
   "_symbolAliases": "[alias, role]. Other spellings a `symbol:` source answers to, beside the role itself and Apple's name for it (dots, dashes and underscores are one: `chevron.right`, `chevron-right`, `chevron_right`): Material's names and the common guesses that mean this role and no other. An alias keeps the distinctions the roles make (filled or outlined, enclosed or bare): a name for a symbol no role draws is no alias and is refused. Never a role, never another spelling's key; `sf/` stays reserved. The lowering rewrites a source to its role, so the plan and every host see the role, and warns (`lower-symbol-alias`) once per use (LLP 1116.007 D3.1).",
   "_materials": "[name, iOS UIBlurEffect.Style (or glass / glassClear: UIGlassEffect), macOS NSVisualEffectView.Material (or glass / glassClear: NSGlassEffectView), web and Linux blur px, web saturate %, light tint, dark tint]. @ref LLP 1053.000 D4: `backgroundMaterial`'s whole vocabulary, one row per platform material, kebab-case one-to-one. A `~` marks a platform without that material: it draws the one named instead and logs so once. The web and Linux columns are stated approximations of Apple's look, not parity. Hosts never admit a platform name directly.",
   "_buttonStyles": "[name, iOS 26+ UIButton.Configuration factory, the factory before iOS 26, macOS NSButton look (borderless, push, push-accent: the accent as bezelColor, glass: NSBezelStyleGlass on macOS 26 else push, glass-accent), web and Linux look (ua: the browser's own button, text, soft, fill, glass, glass-fill)]. @ref LLP 1069.011 D2: `buttonStyle`'s whole vocabulary, kebab-case one-to-one with Apple's names. A `~` marks a platform drawing a stand-in, silently; the agent reports the requested and the drawn style. Hosts never admit a platform name directly.",
@@ -5337,7 +5356,7 @@
       "#282828b3"
     ]
   ],
-  "_colors": "@ref LLP 1095 D2, LLP 1115.000 D3.2: the colour roles, CSS's system colours first (written by their CSS names), then Exact's (written `-exact-<name>`). Each row: the name; WebKit's `-apple-system-*` alias or empty; UIColor's and NSColor's class property (`@tint` the view's inherited tint, which on the Mac is the nearest authored `accent-color` and else `controlAccentColor`; `/a` an alpha); Apple's light and dark pair, which an Apple host shows before it reports its own and every other host shows until it says otherwise (the separator, the system red and blue and the tint were measured on an iOS 27 simulator, 2026-10-11); then the neutral light and dark pair, no platform's palette: what the web resolves the role to under the neutral look (LLP 1115.000 D4) and what a host that paints its own controls shows (D17), once that host says so (`roles::set_column`). The last row, `symbol`, is what a symbol nobody tinted draws in, the initial `-exact-tint-color` (LLP 1115.000 D3.9): the tint on iOS, the secondary label colour on the Mac. In the neutral column a text role reads at 4.5:1 or better on every background role of its scheme, and an ink on its own fill does (`AccentColorText` on `AccentColor`, `ButtonText` on `ButtonFace`, `HighlightText` on `Highlight`, `FieldText` on `Field`); `kernel/src/style/roles.rs` holds it to that.",
+  "_colors": "@ref LLP 1095 D2, LLP 1115.000 D3.2: the colour roles, CSS's system colours first (written by their CSS names), then Exact's (written `-exact-<name>`). Each row: the name; WebKit's `-apple-system-*` alias or empty; UIColor's and NSColor's class property (`@tint` the view's inherited tint, which on the Mac is the nearest authored `accent-color` and else `controlAccentColor`; `/a` an alpha); Apple's light and dark pair, which an Apple host shows before it reports its own and every other host shows until it says otherwise (measured from UIKit on an iOS 27.0 simulator, in sRGB); the web draws it too, or in Safari WebKit's alias but for the backgrounds (host/web/look.mjs, LLP 1115.000 D4). Then the neutral light and dark pair, no platform's palette: what a host that paints its own controls shows (D17), and what the web's kernel resolves a role to that its page does not report, once a host says so (`roles::set_column`). The last row, `symbol`, is what a symbol nobody tinted draws in, the initial `-exact-tint-color` (LLP 1115.000 D3.9): the tint on iOS, the secondary label colour on the Mac. In the neutral column a text role reads at 4.5:1 or better on every background role of its scheme, and an ink on its own fill does (`AccentColorText` on `AccentColor`, `ButtonText` on `ButtonFace`, `HighlightText` on `Highlight`, `FieldText` on `Field`); `kernel/src/style/roles.rs` holds it to that.",
   "colors": [
     [
       "Canvas",
@@ -5524,8 +5543,8 @@
       "-apple-system-opaque-separator",
       "opaqueSeparatorColor",
       "gridColor",
-      "#c6c6c8",
-      "#38383a",
+      "#e7e7e8",
+      "#2a2a2c",
       "#e0e0e0",
       "#383838"
     ],
@@ -5654,8 +5673,8 @@
       "-apple-system-orange",
       "systemOrangeColor",
       "systemOrangeColor",
-      "#ff9500",
-      "#ff9f0a",
+      "#ff8d28",
+      "#ff9230",
       "#a94e00",
       "#eb874a"
     ],
@@ -5665,7 +5684,7 @@
       "systemYellowColor",
       "systemYellowColor",
       "#ffcc00",
-      "#ffd60a",
+      "#ffd600",
       "#886602",
       "#c79e42"
     ],
@@ -5684,8 +5703,8 @@
       "",
       "systemMintColor",
       "systemMintColor",
-      "#00c7be",
-      "#63e6e2",
+      "#00c8b3",
+      "#00dac3",
       "#007e68",
       "#54b9a1"
     ],
@@ -5694,8 +5713,8 @@
       "-apple-system-teal",
       "systemTealColor",
       "systemTealColor",
-      "#30b0c7",
-      "#40c8e0",
+      "#00c3d0",
+      "#00d2e0",
       "#017b7f",
       "#52b7ba"
     ],
@@ -5704,8 +5723,8 @@
       "",
       "systemCyanColor",
       "systemCyanColor",
-      "#32ade6",
-      "#64d2ff",
+      "#00c0e8",
+      "#3cd3fe",
       "#007894",
       "#50b3d2"
     ],
@@ -5724,8 +5743,8 @@
       "-apple-system-indigo",
       "systemIndigoColor",
       "systemIndigoColor",
-      "#5856d6",
-      "#5e5ce6",
+      "#6155f5",
+      "#6d7cff",
       "#5555dc",
       "#8e9aff"
     ],
@@ -5734,8 +5753,8 @@
       "-apple-system-purple",
       "systemPurpleColor",
       "systemPurpleColor",
-      "#af52de",
-      "#bf5af2",
+      "#cb30e0",
+      "#db34f2",
       "#8840c6",
       "#be85f9"
     ],
@@ -5754,8 +5773,8 @@
       "-apple-system-brown",
       "systemBrownColor",
       "systemBrownColor",
-      "#a2845e",
-      "#ac8e68",
+      "#ac7f5e",
+      "#b78a66",
       "#896340",
       "#c09d7f"
     ],
@@ -5784,9 +5803,9 @@
   "lengths": [
     "hairline"
   ],
-  "_lengthRamps": "@ref LLP 1137: the length ramps, written `-exact-<name>` on any length row but a font's size and line height, as a named length is. Each is a length at every `textStyleBodies` body size, read at the root font size as a text style's size is (UIKit's Dynamic Type): `accessory-checkmark-width` and `-height` are the checkmark accessory of UIKit's list cell, measured on the iOS 27 simulator at each content size category (`~/audits/exact2-no-tells-2026-10-11/grouped-symbol-probe/ramp.txt`; the 13 body, which iOS has no category for, is the 14's scaled), which grows with the text to AX2, steps back at AX3 and grows again.",
-  "lengthRamps": [["accessory-checkmark-width", [14.55, 15.67, 17.33, 18.33, 19, 21.67, 24, 26.33, 31.33, 37.33, 36, 42.33, 48]], ["accessory-checkmark-height", [13.62, 14.67, 15.67, 16.67, 17.33, 19.67, 21.33, 24, 28.67, 34.33, 32.67, 38.67, 43.33]]],
-  "_metrics": "@ref LLP 1115.002 D6, D8.4; LLP 1115.000 D17: the looks Exact draws itself, as data. Each row: a name, its kind, then its value in each column: iOS, the Mac, the web's first look (LLP 1116 D1) and the neutral look (LLP 1115.000 D4 part B). A row of three cells (a name, a kind, a value) is the neutral look's own and has no value in the other columns. A seventh cell is Android's Material look's (LLP 1115.001.001 D2.4): Compose Material 3's value at the pinned version, which `host/android/reference/rows.json` traces to its symbol and `tokens.mjs` checks against the pinned source; a row without one reads the web's first look's there. The `field-` and `state-` rows at the end are the Material look's own. A process reads one column (`style::metrics::column`): its platform's where an Apple host said it (`set_column`); the neutral look's where the process shows that look's colours (`style::roles::set_column`, the one switch for the look's colours and its metrics), which the web does and a host that paints its own controls with no platform toolkit under it, the Linux desktop and Windows (D17); Android's Material look's where Android's reader says it; else the web's first look. The kinds say what reads a row. `style`: the CSS value of the style row it is written on: a number of px (or a row's bare number: a weight, a flex factor), a keyword (`auto`, `right`, `mini`, `flex-start`), a percentage, a text style or a colour role by its own name, a `light-dark()` pair, or `unset` for no row at all in that column. `style length` (LLP 1121 stage 11 B, theme2's unit flag): a `style` row written on a length property (a gap, an inset, a corner, a width or height, a padding, a margin, an offset), whose number is px; the build holds the marker to the row's name both ways, and a base scale cell may name only such a row or a `length` one. A sheet the compiler writes names it as `-exact-<name>` and holds no number of its own; an author never writes one (lowering refuses the name, and the runner refuses it on a row its author wrote). The kernel reads the name as its value in the process's column when the row is set, so every reader and the wire see the value; the web's JS target, which keeps no kernel, reads a bound name in its build's column when it compiles (`host/web-js/src/style.rs`, `metric_map`). `length`: px as a number, or text in `em` (of the control's font size) or `rem` (of the root's). `number`: a ratio, a weight or an opacity. Code reads these two (`style::metrics::length`, `number`, by the row's place in `generated::metric`): the kernel's size for a control no host measured (`ControlKind::default_size`), and the Linux painter's shapes (`host/linux/src/paint/look.rs`). `unset` in any kind is no value in that column. A state is a row of its own, named for it: `-coarse` under a coarse pointer, `-hover`, `-pressed`. The `grouped-` rows are the grouped list's (`list appearance=\"auto\"`, `contract/lower/src/grouped.rs`): iOS's and the web's first look's are the sheet's values as they were (UIKit's measured list, LLP 1084 §2; the three surfaces still its literal pairs), the Mac's are SwiftUI's grouped `Form` measured on macOS 27.0.1 (LLP 1115.002 §1 and stage 4's as-built; `~/audits/exact2-no-tells-2026-10-11/mac-structure/` and `mac-grouped/`; a section is at most 744 wide there: the form's 704 and the card's 20 either side; a row is `border-box` with its insets as padding, LLP 1084 D7, so its minimum heights count its padding: the Mac's 36-point row is 36 here, and `grouped-button-` rows keep a destructive row the Mac's content-box push button), and the neutral look's are the first look's on the neutral grounds with a surface's corners. The rows after them are the neutral look's metrics, which the web's sheet (`host/web/neutral.css`, and the shell's where the look keeps it) writes as CSS and `host/web/tests/neutral-look.test.mjs` holds to this table: a control is `control-height` tall with `control-radius` corners and a `control-line` edge; a surface that floats or groups has `surface-radius` corners; a mark (a checkbox, a radio, a switch's and a range's height) is `mark-size`; elevation is flat, `raised-` or `modal-`. Four of them have a value in every column, because the kernel sizes a control by them in every look: `mark-size`, `switch-width`, `switch-height` and `range-height` are Chrome's bare controls outside the neutral look (the switch WebKit's box), what an Apple host shows before it reports its own and Android's reader paints.",
+  "_lengthRamps": "@ref LLP 1137: the length ramps, written `-exact-<name>` on any length row but a font's size and line height, as a named length is. Each is a length at every `textStyleBodies` body size, read at the root font size as a text style's size is (UIKit's Dynamic Type): `accessory-checkmark-width` and `-height` are the checkmark accessory of UIKit's list cell, measured on the iOS 27 simulator at each content size category (`~/audits/exact2-no-tells-2026-10-11/grouped-symbol-probe/ramp.txt`; the 13 body, which iOS has no category for, is the 14's scaled), which grows with the text to AX2, steps back at AX3 and grows again. `accessibility-stack-gap` is 8 through the largest standard size and wider than any line at the accessibility sizes (from the 28 body, AX1): as the gap between items of a wrapping row, it stacks them there, as UIKit's value cell and a hand-built cell's stack of labels turn vertical (`prefersSideBySideTextAndSecondaryText` off).",
+  "lengthRamps": [["accessory-checkmark-width", [14.55, 15.67, 17.33, 18.33, 19, 21.67, 24, 26.33, 31.33, 37.33, 36, 42.33, 48]], ["accessory-checkmark-height", [13.62, 14.67, 15.67, 16.67, 17.33, 19.67, 21.33, 24, 28.67, 34.33, 32.67, 38.67, 43.33]], ["accessibility-stack-gap", [8, 8, 8, 8, 8, 8, 8, 8, 2000, 2000, 2000, 2000, 2000]]],
+  "_metrics": "@ref LLP 1115.002 D6, D8.4; LLP 1115.000 D17: the looks Exact draws itself, as data. Each row: a name, its kind, then its value in each column: iOS, the Mac, the web's first look (LLP 1116 D1) and the neutral look (LLP 1115.000 D4 part B). A row of three cells (a name, a kind, a value) is the neutral look's own and has no value in the other columns. A seventh cell is Android's Material look's (LLP 1115.001.001 D2.4): Compose Material 3's value at the pinned version, which `host/android/reference/rows.json` traces to its symbol and `tokens.mjs` checks against the pinned source; a row without one reads the web's first look's there. The `field-` and `state-` rows at the end are the Material look's own. A process reads one column (`style::metrics::column`): its platform's where an Apple host said it (`set_column`); the neutral look's where the process shows that look's colours (`style::roles::set_column`, the one switch for the look's colours and its metrics), which the web does and a host that paints its own controls with no platform toolkit under it, the Linux desktop and Windows (D17); Android's Material look's where Android's reader says it; else the web's first look. The kinds say what reads a row. `style`: the CSS value of the style row it is written on: a number of px (or a row's bare number: a weight, a flex factor), a keyword (`auto`, `right`, `mini`, `flex-start`), a percentage, a text style or a colour role by its own name, a `light-dark()` pair, or `unset` for no row at all in that column. `style length` (LLP 1121 stage 11 B, theme2's unit flag): a `style` row written on a length property (a gap, an inset, a corner, a width or height, a padding, a margin, an offset), whose number is px; the build holds the marker to the row's name both ways, and a base scale cell may name only such a row or a `length` one. A sheet the compiler writes names it as `-exact-<name>` and holds no number of its own; an author never writes one (lowering refuses the name, and the runner refuses it on a row its author wrote). The kernel reads the name as its value in the process's column when the row is set, so every reader and the wire see the value; the web's JS target, which keeps no kernel, reads a bound name in its build's column when it compiles (`host/web-js/src/style.rs`, `metric_map`). `length`: px as a number, or text in `em` (of the control's font size) or `rem` (of the root's). `number`: a ratio, a weight or an opacity. Code reads these two (`style::metrics::length`, `number`, by the row's place in `generated::metric`): the kernel's size for a control no host measured (`ControlKind::default_size`), and the Linux painter's shapes (`host/linux/src/paint/look.rs`). `unset` in any kind is no value in that column. A state is a row of its own, named for it: `-coarse` on a touch device (the web's `any-pointer: coarse`: any coarse input, normally a touch screen), `-hover`, `-pressed`. The `grouped-` rows are the grouped list's (`list appearance=\"auto\"`, `contract/lower/src/grouped.rs`): iOS's and the web's first look's are the sheet's values as they were (UIKit's measured list, LLP 1084 §2; the three surfaces still its literal pairs), the Mac's are SwiftUI's grouped `Form` measured on macOS 27.0.1 (LLP 1115.002 §1 and stage 4's as-built; `~/audits/exact2-no-tells-2026-10-11/mac-structure/` and `mac-grouped/`; a section is at most 744 wide there: the form's 704 and the card's 20 either side; a row is `border-box` with its insets as padding, LLP 1084 D7, so its minimum heights count its padding: the Mac's 36-point row is 36 here, and `grouped-button-` rows keep a destructive row the Mac's content-box push button), and the neutral look's are the first look's on the neutral grounds with a surface's corners. The rows after them are the neutral look's metrics, which the web's sheet (`host/web/neutral.css`, and the shell's where the look keeps it) writes as CSS and `host/web/tests/neutral-look.test.mjs` holds to this table: a control is `control-height` tall with `control-radius` corners and a `control-line` edge; a surface that floats or groups has `surface-radius` corners; a mark (a checkbox, a radio, a switch's and a range's height) is `mark-size`; elevation is flat, `raised-` or `modal-`. Four of them have a value in every column, because the kernel sizes a control by them in every look: `mark-size`, `switch-width`, `switch-height` and `range-height` are Chrome's bare controls outside the neutral look (the switch WebKit's box), what an Apple host shows before it reports its own and Android's reader paints.",
   "metrics": [
     ["header-ground", "style", "-exact-background"],
     ["header-color", "style", "-exact-label"],
@@ -5838,8 +5857,10 @@
     ["grouped-row-inset-symbol", "style length", 56, 10, 56, 56],
     ["grouped-row-padding-end", "style length", 16, 10, 16, 16],
     ["grouped-swipe-margin", "style length", 0, 10, 0, 0],
+    ["grouped-swipe-max-width", "style length", "unset", "calc(100% - 10px)", "unset", "unset"],
     ["grouped-swipe-padding", "style length", 16, 0, 16, 16],
     ["grouped-row-gap", "style length", 8, 8, 8, 8],
+    ["grouped-value-gap", "style length", "-exact-accessibility-stack-gap", 8, "-exact-accessibility-stack-gap", "-exact-accessibility-stack-gap"],
     ["grouped-stack-min-height", "style length", 52, 36, 52, 52],
     ["grouped-stack-padding-block", "style length", 15, 10, 15, 15],
     ["grouped-lines-padding-block", "style length", 15, 0, 15, 15],
@@ -5876,6 +5897,7 @@
     ["control-height-coarse", "length", 44],
     ["control-radius", "length", 8],
     ["control-line", "length", 1],
+    ["list-row-inset", "length", 16, 16, 16, 16, 16],
     ["control-line-alpha", "number", 0.45],
     ["control-line-height", "number", 1.25],
     ["control-weight", "number", 500],
@@ -5889,11 +5911,16 @@
     ["button-padding-block", "length", "0.4375em"],
     ["button-padding-inline", "length", "1em"],
     ["button-padding-inline-symbol", "length", "0.5em"],
+    ["symbol-scale", "number", 1.2],
+    ["button-symbol-scale", "number", 1.5],
+    ["button-image-gap", "length", 8],
     ["button-tint-alpha", "number", 0.12],
     ["button-hover-tinted", "number", 0.08],
     ["button-hover-filled", "number", 0.12],
     ["button-pressed-tinted", "number", 0.16],
-    ["button-pressed-filled", "number", 0.22],
+    ["button-pressed-alpha", "number", 0.75],
+    ["button-pressed-lighten", "number", 0.2],
+    ["bar-hover-alpha", "number", 0.65],
     ["field-padding-block", "length", "0.4375em"],
     ["field-padding-block-coarse", "length", "0.6875em"],
     ["field-padding-inline", "length", "0.75em"],
@@ -5934,6 +5961,7 @@
     ["alert-action-gap", "length", 12],
     ["alert-title", "length", "1.125em"],
     ["alert-message-gap", "length", 16],
+    ["alert-scroll-gutter", "length", 8],
     ["menu-min-width", "length", "11rem"],
     ["menu-max-width", "length", "20rem"],
     ["menu-margin", "length", 16],
@@ -5945,8 +5973,9 @@
     ["menu-row-gap", "length", "0.5em"],
     ["sheet-wide", "length", 900],
     ["sheet-width", "length", "35rem"],
-    ["sheet-max-height", "length", "45rem"],
+    ["sheet-height", "length", "45rem"],
     ["sheet-margin", "length", 64],
+    ["sheet-top", "length", 12],
     ["raised-shadow-y", "length", 4],
     ["raised-shadow-blur", "length", 12],
     ["raised-shadow-alpha", "number", 0.12],
@@ -5991,13 +6020,13 @@
     ["radio-disabled-opacity", "number", "unset", "unset", "unset", "unset", 0.38],
     ["touch-target", "length", "unset", "unset", "unset", "unset", 48]
   ],
-  "_scale": "@ref LLP 1121 stage 11 B (ruling 3, theme2's approvals 09:56 and 10:57). The base scale: nine names an app's views read with no design defining them (`space.xs` to `space.xl`, `radius.sm` to `radius.full`), each a length in each column the metrics table has, and the terminal's. Each row: the name, then its cell for iOS, the Mac, the neutral look, Android's Material look and the terminal. There is no web column: every web build draws the neutral look, so `Column::Web` (a process that says no column, and Material's fallback) reads the neutral cell (theme2, 2026-10-19). A cell is never a bare number: it says where its value comes from, and the build refuses any other form (no arithmetic, no literal without a source). `=<metric>`: that metrics row's value in the same column (a `length`, or a `style` row's px), read when the kernel builds, so the cell cannot drift from it; only where the metric names the same role (a row's inset is space.md, a row gap space.sm, a control's corner radius.md, a card's or surface's corner radius.lg, a mark's corner radius.sm), or where theme2 ruled a role stretch, recorded in docs/scale-measured.md with its reason (the Mac's space.xl). `{\"px\": n, \"measured\": id}`: a value measured on the platform, `id` an entry of docs/scale-measured.md saying what was drawn or read, where, how and the number (scripts/measure-scale.mjs). `{\"px\": n, \"guideline\": id}`: a value a published guideline states (Material 3's spacing and shape scales), or the neutral look's own steps (LLP 1115.000 D17), `id` an entry of the same page with its citation. `full` (radius.full only): one oversized length, `style::scale::RADIUS_FULL`, which every host clamps into a pill by CSS's corner-overlap rule. The terminal's cells: `{\"cells\": n}`, a spacing of n cells (`n ch`), and `0` for a radius, which a terminal never draws. Units are px (points) with no Dynamic Type scaling (ruling 6; QUEUE has the opt-in). A kernel test holds every cell to its source and each look's steps in order (xs \u2264 sm \u2264 md \u2264 lg \u2264 xl, radius sm \u2264 md \u2264 lg; radius.full left out); `style::scale` is the one table any reader of the base takes (the design server's describe, resolve and explain read it in stage 10's D).",
+  "_scale": "@ref LLP 1121 stage 11 B (ruling 3, theme2's approvals 09:56 and 10:57). The base scale: nine names an app's views read with no design defining them (`space.xs` to `space.xl`, `radius.sm` to `radius.full`), each a length in each column the metrics table has, and the terminal's. Each row: the name, then its cell for iOS, the Mac, the neutral look, Android's Material look and the terminal. There is no web column: every web build draws the neutral look, so `Column::Web` (a process that says no column, and Material's fallback) reads the neutral cell (theme2, 2026-10-19). A cell is never a bare number: it says where its value comes from, and the build refuses any other form (no arithmetic, no literal without a source). `=<metric>`: that metrics row's value in the same column (a `length`, or a `style` row's px), read when the kernel builds, so the cell cannot drift from it; only where the metric names the same role (a row's inset is space.md, a row gap space.sm, a control's corner radius.md, a card's or surface's corner radius.lg, a mark's corner radius.sm). `{\"stretch\": \"=<metric>\", \"why\": \"…\"}` (LLP 1121 stage 13 D5): that metrics row's value as `=<metric>` reads it, for a role it doesn't name, where theme2 ruled the stretch; `why` says why in a line, and docs/scale-measured.md's `=<metric>` entry under Role stretches gives the measurement and the ruling (the Mac's space.xl). `{\"px\": n, \"measured\": id}`: a value measured on the platform, `id` an entry of docs/scale-measured.md saying what was drawn or read, where, how and the number (scripts/measure-scale.mjs). `{\"px\": n, \"guideline\": id}`: a value a published guideline states (Material 3's spacing and shape scales), or the neutral look's own steps (LLP 1115.000 D17), `id` an entry of the same page with its citation. `full` (radius.full only): one oversized length, `style::scale::RADIUS_FULL`, which every host clamps into a pill by CSS's corner-overlap rule. The terminal's cells: `{\"cells\": n}`, a spacing of n cells (`n ch`), and `0` for a radius, which a terminal never draws. Units are px (points) with no Dynamic Type scaling (ruling 6; QUEUE has the opt-in). A kernel test holds every cell to its source and each look's steps in order (xs \u2264 sm \u2264 md \u2264 lg \u2264 xl, radius sm \u2264 md \u2264 lg; radius.full left out); `style::scale` is the one table any reader of the base takes (the design server's describe, resolve and explain read it in stage 10's D).",
   "scale": [
     ["space.xs", {"px": 5, "measured": "ios-button-small-inset-top"}, {"px": 6, "measured": "mac-grid-spacing"}, {"px": 4, "guideline": "neutral-steps"}, {"px": 4, "guideline": "m3-spacing"}, {"cells": 0}],
     ["space.sm", "=grouped-row-gap", "=grouped-row-gap", "=grouped-row-gap", "=grouped-row-gap", {"cells": 1}],
     ["space.md", "=grouped-row-inset", "=grouped-row-inset", "=grouped-row-inset", "=grouped-row-inset", {"cells": 1}],
     ["space.lg", {"px": 20, "measured": "ios-button-large-inset-leading"}, {"px": 20, "measured": "mac-window-margin"}, {"px": 24, "guideline": "neutral-steps"}, {"px": 24, "guideline": "m3-spacing"}, {"cells": 2}],
-    ["space.xl", {"px": 35, "measured": "ios-inset-grouped-section-gap"}, "=grouped-label-inset", {"px": 32, "guideline": "neutral-steps"}, {"px": 32, "guideline": "m3-spacing"}, {"cells": 2}],
+    ["space.xl", {"px": 35, "measured": "ios-inset-grouped-section-gap"}, {"stretch": "=grouped-label-inset", "why": "a grouped section label's inset, the Mac's largest grouped spacing: its headerless gap between sections (10) is below space.lg"}, {"px": 32, "guideline": "neutral-steps"}, {"px": 32, "guideline": "m3-spacing"}, {"cells": 2}],
     ["radius.sm", {"px": 5.6, "measured": "ios-cornerstyle-small-44"}, {"px": 5, "measured": "mac-checkbox-corner"}, "=mark-radius", {"px": 4, "guideline": "m3-shape"}, 0],
     ["radius.md", {"px": 17, "measured": "ios-button-medium-corner"}, {"px": 6, "measured": "mac-push-regular-corner"}, "=control-radius", {"px": 8, "guideline": "m3-shape"}, 0],
     ["radius.lg", "=grouped-card-radius", "=grouped-card-radius", "=surface-radius", {"px": 12, "guideline": "m3-shape"}, 0],

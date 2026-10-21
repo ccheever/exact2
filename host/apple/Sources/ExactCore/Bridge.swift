@@ -93,13 +93,17 @@ package struct RuntimeHooks {
     package static let headless = RuntimeHooks(decodeBatch: { Batch.decodeWire($0, resolver: $1) }, symbolMeasure: SymbolMeasure.measure)
 }
 
+/// A top-layer view, its viewport frame and optional viewport clip (LLP 1123 D2).
+/// Clipping bounds reads without changing the box's mapping.
+package typealias TopLayerFrame = (UInt32, CGRect, CGRect?)
+
 /// A runtime handle and its calls. `destroy` is idempotent at this layer and
 /// one-shot at the C boundary; a call after it is refused by the library by
 /// name, never a trap.
 package final class Runtime {
     package let rt: ExactRuntime
     private(set) package var destroyed = false
-    package var topLayer: (() -> (frames: [(UInt32, CGRect)], modal: Int?))?
+    package var topLayer: (() -> (frames: [TopLayerFrame], modal: Int?))?
     package var inlineFrame: ((UInt32) -> CGRect?)?
     package var rangeFrame: ((UInt32, UInt32, UInt32) -> CGRect?)?
     #if DEBUG
@@ -136,10 +140,16 @@ package final class Runtime {
         let (open, modal) = topLayer?() ?? ([], nil)
         let ids = open.map(\.0)
         let rects = open.flatMap { [Double($0.1.minX), Double($0.1.minY), Double($0.1.width), Double($0.1.height)] }
+        let clips = open.flatMap { entry -> [Double] in
+            guard let clip = entry.2 else { return [.nan, 0, 0, 0] }
+            return [Double(clip.minX), Double(clip.minY), Double(clip.width), Double(clip.height)]
+        }
         return Owner.shared.sync({
             ids.withUnsafeBufferPointer { ids in
                 rects.withUnsafeBufferPointer { rects in
-                    exact_top_layer(rt, ids.baseAddress, rects.baseAddress, UInt32(open.count), modal.map(UInt32.init) ?? .max)
+                    clips.withUnsafeBufferPointer { clips in
+                        exact_top_layer(rt, ids.baseAddress, rects.baseAddress, clips.baseAddress, UInt32(open.count), modal.map(UInt32.init) ?? .max)
+                    }
                 }
             }
             return body()
@@ -282,6 +292,8 @@ package final class Runtime {
             return read(exact_prepare_module(rt, token, plan.count, module.receipt.count, module.bytecode.count, Float(width), Float(height), letGo ? 1 : 0))
         }
     }
+    /// Activates the data source without committing (`exact_prepare_data`); run it on the owner.
+    package func prepareData() { on { exact_prepare_data(rt) } }
     package func dataReady() -> Batch { on { read(exact_data_ready(rt)) } }
     package func storeChanged(retryOnly: Bool = false) -> Batch { on { read(exact_store_changed(rt, retryOnly ? 1 : 0)) } }
     package func discardPlan() { on { exact_discard_plan(rt) } }
@@ -410,6 +422,16 @@ package final class Runtime {
     }
     /// A frame's tick on the owner, not waited for (LLP 1072 §7.1); `frame`
     /// is the display frame it is for (LLP 1003.001 D5).
+    /// `calls`, in order, on the owner and not waited for: each batch goes to
+    /// `done` there (LLP 1027.007 P1).
+    package func later(_ calls: [(Runtime) -> Batch], done: @escaping (Batch) -> Void) {
+        Owner.shared.post { [self] in
+            for call in calls {
+                guard !destroyed else { return }
+                done(call(self))
+            }
+        }
+    }
     package func tickAsync(now: Double, frame: Double? = nil, done: @escaping (Batch) -> Void) {
         Owner.shared.post { [self] in
             guard !destroyed else { return }
@@ -431,7 +453,8 @@ package final class Runtime {
     }
     /// The clipboard's `copy` (32), `cut` (33) or `paste` (34) with its
     /// plain text; a `contextmenu` (10) with its pointer line, a `wheel`
-    /// (37), a `drop` (38), or a popover `toggle` (50) with theirs (`Event::of_host_kind`).
+    /// (37), a `drop` (38), a file drag's `dragenter` (55) or `dragleave` (56), a
+    /// paste with files (57), or a popover `toggle` (50) with theirs (`Event::of_host_kind`).
     package func clipboard(_ view: UInt32, _ kind: UInt32, _ text: String, now: Double) -> Batch {
         on { read(exact_dispatch(rt, view, kind, write(text), now)) }
     }
@@ -639,13 +662,15 @@ package final class Runtime {
     /// What changed of the view at once (`exact_view`): each part given is
     /// told, the window's size (`.some(nil)` clears it), the safe-area
     /// insets, the layout regions (`.some(nil)` when every region is the
-    /// safe area) and the viewport, in one batch under one layout.
+    /// safe area), the viewport and the segments' rects on the grid the
+    /// kernel has (a keyboard's), in one batch under one layout.
     package struct ViewChange {
         package var screen: CGSize?? = nil
         package var insets: (top: CGFloat, right: CGFloat, bottom: CGFloat, left: CGFloat)? = nil
         package var regions: [CGFloat]?? = nil
         package var size: CGSize? = nil
-        package var isEmpty: Bool { screen == nil && insets == nil && regions == nil && size == nil }
+        package var segments: [CGRect]? = nil
+        package var isEmpty: Bool { screen == nil && insets == nil && regions == nil && size == nil && segments == nil }
         package init(screen: CGSize?? = nil, insets: (top: CGFloat, right: CGFloat, bottom: CGFloat, left: CGFloat)? = nil,
                      regions: [CGFloat]?? = nil, size: CGSize? = nil) {
             self.screen = screen; self.insets = insets; self.regions = regions; self.size = size
@@ -658,10 +683,12 @@ package final class Runtime {
         if change.insets != nil { mask |= 2 }
         if change.regions != nil { mask |= 4 }
         if change.size != nil { mask |= 8 }
+        if change.segments != nil { mask |= 16 }
         let screen = (change.screen ?? nil) ?? .zero, insets = change.insets ?? (0, 0, 0, 0), size = change.size ?? .zero
         let floats = [screen.width, screen.height, insets.top, insets.right, insets.bottom, insets.left, size.width, size.height]
-        var bytes = Data(capacity: (10 + regions.count) * 4)
-        for word in [mask] + floats.map({ Float($0).bitPattern }) + [UInt32(regions.count)] + regions.map({ Float($0).bitPattern }) {
+        let rects = change.segments.map { rects in [UInt32(rects.count)] + rects.flatMap { [$0.minX, $0.minY, $0.width, $0.height].map { Float($0).bitPattern } } } ?? []
+        var bytes = Data(capacity: (10 + regions.count + rects.count) * 4)
+        for word in [mask] + floats.map({ Float($0).bitPattern }) + [UInt32(regions.count)] + regions.map({ Float($0).bitPattern }) + rects {
             withUnsafeBytes(of: word.littleEndian) { bytes.append(contentsOf: $0) }
         }
         return on { read(exact_view(rt, write(bytes))) }

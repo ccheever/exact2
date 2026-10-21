@@ -20,12 +20,18 @@ pub fn materials(
     let mut cache = BTreeMap::new();
     let mut payloads: Sources = BTreeMap::new();
     for material in doc.materials() {
+        // Kept for every slot, so the names read by index as the file lists them.
+        let name = material.name().unwrap_or_default().to_owned();
         if !used.contains(&material.index().unwrap()) {
-            out.materials.push(MaterialData::default());
+            out.materials.push(MaterialData {
+                name,
+                ..Default::default()
+            });
             continue;
         }
         let pbr = material.pbr_metallic_roughness();
         let mut m = MaterialData {
+            name,
             base_color: pbr.base_color_factor(),
             metallic: pbr.metallic_factor(),
             roughness: pbr.roughness_factor(),

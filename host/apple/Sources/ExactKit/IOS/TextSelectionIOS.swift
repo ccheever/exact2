@@ -27,6 +27,13 @@
 // A tap still presses: UIKit's single taps swallow a touch, so they are off
 // until something is selected, when a tap in the text clears the selection
 // and presses nothing, as in a text view.
+//
+// CSS `user-select: all` (CSS UI 4 §6.1): a selection that takes part of
+// such an element takes all of it, so a long press, a double tap or a handle
+// that reaches into one selects the element, not a word. A tap selects
+// nothing, as on a `UITextView`: a click's selection is the web's, not
+// UIKit's. One selection is inside one paragraph, so an element around the
+// paragraph selects the paragraph.
 #if os(iOS)
 import CoreText
 import UIKit
@@ -43,9 +50,11 @@ final class TextSelectionHost {
     var pasteboard = UIPasteboard.general
     init(_ presenter: Presenter) { self.presenter = presenter }
 
-    /// Whether `node` is text a reader can select now.
+    /// Whether `node` is text a reader can select now: all of it, or only
+    /// its `user-select: all` runs (`SelectableText.atomic`).
     func admits(_ node: NodeView) -> Bool {
-        node.isParagraph && presenter?.views[node.id] === node && node.textSelectable && !node.inert && !node.isHidden
+        node.isParagraph && presenter?.views[node.id] === node && !node.inert && !node.isHidden
+            && (node.textSelectable || node.inlineText.contains(where: \.selectsAll))
     }
     func text(for node: NodeView) -> SelectableText? { texts.first { $0.node === node } }
     /// The selection, if there is one: its paragraph, and its range in that
@@ -223,7 +232,9 @@ final class SelectableText: UIResponder, UITextInput, UITextInteractionDelegate 
     }
     private func set(_ range: NSRange) {
         let lo = min(max(0, range.location), text.length), hi = min(max(lo, NSMaxRange(range)), text.length)
-        let next = NSRange(location: lo, length: hi - lo)
+        let asked = NSRange(location: lo, length: hi - lo), next = atomic(asked)
+        // UIKit's own gesture asked for less: it is shown what it got.
+        if next != asked { display?.setNeedsSelectionUpdate() }
         guard next != selected else { return }
         selected = next
         syncTaps()
@@ -261,6 +272,27 @@ final class SelectableText: UIResponder, UITextInput, UITextInteractionDelegate 
         display?.isActivated = true
         display?.setNeedsSelectionUpdate()
         return true
+    }
+    /// What a range that takes part of a `user-select: all` element becomes:
+    /// one that takes all of it. An empty range stays empty. In a paragraph
+    /// whose own text is not selectable, only those runs are: a range that
+    /// takes none of them selects nothing.
+    private func atomic(_ range: NSRange) -> NSRange {
+        guard let node, range.length > 0 else { return range }
+        if node.selectAllElement != nil { return NSRange(location: 0, length: text.length) }
+        let own = node.textSelectable
+        var lo = own ? range.location : Int.max, hi = own ? NSMaxRange(range) : Int.min
+        for whole in runs(of: node) where whole.location < NSMaxRange(range) && NSMaxRange(whole) > range.location {
+            lo = min(lo, whole.location); hi = max(hi, NSMaxRange(whole))
+        }
+        return hi > lo ? NSRange(location: lo, length: hi - lo) : NSRange(location: 0, length: 0)
+    }
+    /// The `user-select: all` inline runs, in this paragraph's offsets.
+    private func runs(of node: NodeView) -> [NSRange] {
+        node.inlineText.filter(\.selectsAll).map {
+            let lo = node.shapedOffset($0.range.location)
+            return NSRange(location: lo, length: node.shapedOffset(NSMaxRange($0.range)) - lo)
+        }
     }
 
     // MARK: the responder
@@ -417,6 +449,7 @@ extension Presenter {
         guard let found = textSelection.selectWord(in: node, at: node.convert(point, from: nil)) else { return nil }
         return ["text": found.text, "start": found.range.location, "end": NSMaxRange(found.range)]
     }
+
 }
 
 extension NodeView {

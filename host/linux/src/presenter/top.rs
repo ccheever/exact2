@@ -1063,7 +1063,7 @@ impl<D: DataSource> Presenter<D> {
                 [x - f64::from(px), y - f64::from(py), w, h]
             }
         };
-        let frames = [(open.node, rect)];
+        let frames = [(open.node, rect, None)];
         let modal = open.modal.then_some(0);
         self.host.runner_mut().top_layer_frames(&frames, modal);
     }

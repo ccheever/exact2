@@ -18,6 +18,14 @@ final class PromptField: NSObject, UITextFieldDelegate {
     private weak var presenter: Presenter?
     private weak var field: UITextField?
     private var heard: String?
+    struct Snapshot {
+        weak var node: NodeView?
+        let incarnation: UInt64
+        let value: String?
+        let text: String
+        let selection: NSRange?
+    }
+    private var restoring: Snapshot?
     /// The alert's own delegate for the field, which answers what this does
     /// not.
     private weak var alertDelegate: UITextFieldDelegate?
@@ -27,6 +35,25 @@ final class PromptField: NSObject, UITextFieldDelegate {
     init(_ node: NodeView, presenter: Presenter) { self.node = node; self.presenter = presenter }
     /// Whether UIKit's field holds the focus, and so raises the software keyboard.
     var editing: Bool { field?.isFirstResponder == true }
+
+    func snapshot() -> Snapshot? {
+        guard let node = live(), let field else { return nil }
+        return Snapshot(node: node, incarnation: node.incarnation, value: node.props["value"],
+                        text: field.text ?? "", selection: node.liveSelection)
+    }
+    func restore(_ state: Snapshot) {
+        guard let node = live(), node === state.node, node.incarnation == state.incarnation,
+              node.props["value"] == state.value, let field else { return }
+        field.text = state.text
+        restoring = state
+    }
+    func restoreSelection() {
+        defer { restoring = nil }
+        guard let state = restoring, let node = live(), node.incarnation == state.incarnation,
+              node.props["value"] == state.value, field?.text == state.text, let selection = state.selection else { return }
+        // UIKit focuses the prompt during presentation; setting its range earlier is lost.
+        _ = node.showSelection(selection)
+    }
 
     /// Give UIKit's field what the authored one says: its value, placeholder,
     /// name and keyboard (`type`, `inputmode`, `autocomplete`, `autocapitalize`,

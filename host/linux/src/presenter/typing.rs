@@ -273,9 +273,11 @@ impl<D: DataSource> Presenter<D> {
         }
         let text = if kind == EventKind::Paste { text } else { "" };
         if let Some(target) = target {
-            let error = self
-                .host
-                .dispatch_at(target, Event::Clipboard(kind, text.to_owned()), now);
+            let error = self.host.dispatch_at(
+                target,
+                Event::Clipboard(kind, text.to_owned(), Vec::new()),
+                now,
+            );
             if let Some(e) = error.or(self.after_commit()) {
                 return Err(e);
             }
@@ -571,8 +573,13 @@ impl<D: DataSource> Presenter<D> {
             return;
         }
         let Some(id) = self.focus else {
-            // From no focus, Tab takes the first stop (LLP 1088 D7.3).
-            if name == "Tab" {
+            // With no focus the root's handlers hear the key; then, unless
+            // one prevented it, Tab takes the first stop (LLP 1088 D7.3).
+            let (error, prevented) = self.key_event(EventKind::Key, name, code, repeat, now_ms);
+            if let Some(e) = error {
+                eprintln!("exact: {e}");
+            }
+            if name == "Tab" && !prevented && self.focus.is_none() {
                 if let Some(e) = self.move_focus(self.modifiers().shift, now_ms) {
                     eprintln!("exact: {e}");
                 }

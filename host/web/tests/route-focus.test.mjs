@@ -10,7 +10,7 @@ import { test, expect } from 'bun:test';
 import { readFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { resolve } from 'node:path';
-import { cdpBrowser, chromium } from '../../../scripts/agent-launch.mjs';
+import { cdpBrowser, chromium, suiteBrowser } from '../../../scripts/agent-launch.mjs';
 import { withLook } from '../look.mjs';
 import { need } from '../../../scripts/coverage.mjs';
 import { readyPage } from './page.mjs';
@@ -39,6 +39,9 @@ const page = withLook(readFileSync(resolve(WEB, 'index.html'), 'utf8')).match(/<
           <button id="row-far" data-exact-router-press="true" style="height:60px">Far</button>
         </div>
         <div id="menu" role="menu" popover="auto"><button id="m-1">Open</button><button id="m-2" disabled>Share</button><a id="m-3" href="#x">Copy</a><button id="m-4">Remove</button></div>
+        <div id="chooser" role="alertdialog" aria-label="Open in" popover="auto"><button id="c-1" data-exact-on="press">Maps</button><button id="c-2" data-exact-on="press">Google Maps</button><button id="c-cancel">Cancel</button></div>
+        <div id="bar-menu" role="menu" popover="auto"><button id="b-1">Bump</button><button id="b-open-in" popovertarget="chooser" popovertargetaction="show">Open in…</button></div>
+        <button id="chooser-open" popovertarget="chooser">Open in</button>
       </div>
     </div>
     <div role="tabpanel" id="p2" style="flex:1;position:relative">
@@ -48,7 +51,7 @@ const page = withLook(readFileSync(resolve(WEB, 'index.html'), 'utf8')).match(/<
   </main>
 </div>
 <script type="module">
-  import { navigation, inertAncestor } from './navigation.js';
+  import { navigation, inertAncestor, sheetLeaves } from './navigation.js';
   import { createInputHandlers } from './input-glue.js';
   const root = document.getElementById('exact-root'), nav = document.getElementById('nav'), panel = document.getElementById('p1');
   const stack = window.stack = [['list', '/']];
@@ -71,7 +74,7 @@ const page = withLook(readFileSync(resolve(WEB, 'index.html'), 'utf8')).match(/<
     route.querySelector('#back')?.addEventListener('click', () => pop());
     panel.append(route); stack.push([key, url]); show();
   };
-  window.pop = () => { const [key] = stack.pop(); document.getElementById('route-' + key).remove(); show(undefined, [stack.length]); };
+  window.pop = () => { const [key] = stack.pop(), route = document.getElementById('route-' + key); if (!sheetLeaves(route)) route.remove(); show(undefined, [stack.length]); };
   window.replace = (key, url) => { const [old] = stack.pop(); document.getElementById('route-' + old).remove(); stack.push(['x', url]); stack.pop(); push(key, url); };
   navigation.connect(root, () => false, () => {}, () => pop(), () => {}, href => href.startsWith("/item/"));
   document.getElementById('row-1').addEventListener('click', () => push('1', '/item/1'));
@@ -91,15 +94,21 @@ const page = withLook(readFileSync(resolve(WEB, 'index.html'), 'utf8')).match(/<
   window.ready = true;
 </script>`;
 
-/** The page in headless Chrome at `width`: `test(evaluate, press, key)` with a real click on a node's middle and a real key. */
-async function inChrome(test, width = 600) {
+/** The page and the glue it imports, served on a local port. */
+async function serve() {
   const server = createServer((req, res) => {
     if (req.url === '/') { res.writeHead(200, { 'content-type': 'text/html' }); res.end(page); return; }
-    const file = ['navigation.js', 'input-glue.js', 'prompt-glue.js'].find(name => req.url === '/' + name);
+    const file = ['navigation.js', 'input-glue.js', 'prompt-glue.js', 'alert-message.js'].find(name => req.url === '/' + name);
     if (!file) { res.writeHead(404); res.end(); return; }
     res.writeHead(200, { 'content-type': 'text/javascript' }); res.end(readFileSync(resolve(WEB, file)));
   });
   await new Promise((ok) => server.listen(0, '127.0.0.1', ok));
+  return server;
+}
+
+/** The page in headless Chrome at `width`: `test(evaluate, press, key)` with a real click on a node's middle and a real key. */
+async function inChrome(test, width = 600, motion = false) {
+  const server = await serve();
   const suite = await cdpBrowser({ args: [`--window-size=${width},900`] }), { cdp } = suite;
   try {
     const { sessionId } = await suite.page();
@@ -110,6 +119,9 @@ async function inChrome(test, width = 600) {
       return reply.result.value;
     };
     await call('Emulation.setDeviceMetricsOverride', { width, height: 900, deviceScaleFactor: 1, mobile: false });
+    // No motion unless a check asks for it: a press lands where a sheet's control is at once (neutral-look.test.mjs
+    // holds the motion).
+    await call('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-reduced-motion', value: motion ? 'no-preference' : 'reduce' }] });
     await readyPage(cdp, sessionId, `http://127.0.0.1:${server.address().port}/`);
     const press = async (id) => {
       const at = await evaluate(`(() => { const r = document.getElementById(${JSON.stringify(id)}).getBoundingClientRect(); return { x: r.x + r.width / 2, y: r.y + r.height / 2 }; })()`);
@@ -264,6 +276,30 @@ check('a tablist\'s tabs and a menu\'s items move by the arrow keys', () => inCh
   // With the menu closed, and in a field, the arrows are the page's own.
   await evaluate(`document.getElementById('menu').hidePopover(); document.getElementById('search').focus()`);
   expect(await after('ArrowDown')).toBe('search list');
+  // A chooser its button opened is drawn as a menu and moves as one, from its button into it, its hidden cancel no stop.
+  await evaluate(`document.getElementById('chooser-open').focus()`);
+  await enter(key);
+  expect(await evaluate(`document.getElementById('chooser').matches(':popover-open[data-exact-chooser]')`)).toBe(true);
+  expect(await after('ArrowDown')).toBe('c-1 list');
+  expect(await after('ArrowDown')).toBe('c-2 list');
+  expect(await after('ArrowDown')).toBe('c-1 list');
+  expect(await after('End')).toBe('c-2 list');
+  expect(await after('Home')).toBe('c-1 list');
+  await evaluate(`document.getElementById('chooser').hidePopover()`);
+  // One a menu's row opens (an app bar's "Open in…") stands over the menu, which stays open beneath it, the row being
+  // its invoker. The keys go to the chooser on top, the last to open, whichever of the two is written first: Down, Up,
+  // Home and End from the row, and Down from the page, where WebKit leaves the focus after a click.
+  for (const written of ['first', 'last']) {
+    if (written === 'last') await evaluate(`document.getElementById('bar-menu').after(document.getElementById('chooser'))`);
+    await evaluate(`document.getElementById('bar-menu').showPopover(); document.getElementById('b-open-in').focus()`);
+    await enter(key);
+    const seen = [await evaluate(`[...document.querySelectorAll(':popover-open')].map(p => p.id + (p.hasAttribute('data-exact-chooser') ? ' chooser' : '')).sort()`)];
+    for (const name of ['ArrowDown', 'ArrowUp', 'Home', 'End']) { await evaluate(`document.getElementById('b-open-in').focus()`); seen.push(await after(name)); }
+    await evaluate(`document.activeElement.blur()`);
+    seen.push(await after('ArrowDown'));
+    expect([written, ...seen]).toEqual([written, ['bar-menu', 'chooser chooser'], 'c-1 list', 'c-2 list', 'c-1 list', 'c-2 list', 'c-1 list']);
+    await evaluate(`document.getElementById('chooser').hidePopover(); document.getElementById('bar-menu').hidePopover()`);
+  }
 }), 60000);
 
 check('a root tab bar drawn as a sidebar moves by Up and Down', () => inChrome(async (evaluate, press, key) => {
@@ -319,3 +355,65 @@ check('Back returns focus inside a modal beneath an inert ancestor', () => inChr
   await press('row-1');
   expect(await evaluate(`document.getElementById('row-1').inert = true; pop(); focus()[0]`)).toBe('list-title');
 }), 60000);
+
+// A sheet sliding away (navigation.js `sheetLeaves`) is no route: one that opens from another button while it leaves,
+// and closes, gives the focus back to that button.
+check('a sheet sliding away is no route to the focus', () => inChrome(async (evaluate, press) => {
+  const risen = (id) => evaluate(`document.getElementById('route-${id}').getAnimations().forEach(a => a.finish())`);
+  await press('add');
+  await risen('add');
+  await press('back');
+  // It is still leaving (held), when another button opens a sheet.
+  expect(await evaluate(`(() => { const g = document.querySelector('[data-exiting]'); g.getAnimations().forEach(a => a.pause()); return g.getAttribute('navigationPresentation'); })()`)).toBe('modal');
+  await evaluate(`{ const b = Object.assign(document.createElement('button'), { id: 'add-2', textContent: 'Another' }); b.addEventListener('click', () => push('add-2', '/add-2', { sheet: true, heading: 'Another' })); document.querySelector('#list header').append(b); }`);
+  await press('add-2');
+  await risen('add-2');
+  await press('back');
+  expect(await evaluate('focus()[0]')).toBe('add-2');
+}, 600, true), 60000);
+
+// A sheet closed with the focus inside it and no press there (the browser's Back, the app's own close) gives the focus
+// back to the button that opened it as it slides away, as it does when it is gone at once.
+check('a sheet that slides away with the focus in it gives the focus back', () => inChrome(async (evaluate, press) => {
+  await evaluate('window.withField = true');
+  await press('add');
+  await evaluate("document.getElementById('field-add').focus()");
+  expect(await evaluate(`pop(); [focus()[0], document.getElementById('route-add')?.hasAttribute('data-exiting')]`)).toEqual(['add', true]);
+}, 600, true), 60000);
+
+// A focus the opener's own focus handler moves on as the focus comes back (an app's `focus` action, whose commands run
+// as it is dispatched) is left where the handler put it.
+check('a focus the opener moves on as a sheet closes stays where it moved', () => inChrome(async (evaluate, press) => {
+  await evaluate("document.getElementById('add').addEventListener('focus', () => { if (window.armed) { window.armed = false; document.getElementById('search').focus(); } })");
+  await press('add');
+  await evaluate("document.getElementById('route-add').getAnimations().forEach(a => a.finish()); window.armed = true");
+  await press('back');
+  expect(await evaluate('[focus()[0], window.armed]')).toEqual(['search', false]);
+}, 600, true), 60000);
+
+// The focus in a frame or a shadow root inside the sheet, which a blur does not take from a frame in Firefox, comes
+// back to the button too, in every engine.
+for (const engine of ['chromium', 'firefox', 'webkit']) test(`${engine}: a sheet that slides away with the focus in a frame or a shadow root gives the focus back`, async () => {
+  const server = await serve(), browser = await suiteBrowser(engine);
+  try {
+    const seen = [];
+    for (const kind of ['frame', 'shadow field', 'shadow frame']) {
+      const context = await browser.newContext({ viewport: { width: 600, height: 900 }, reducedMotion: 'no-preference' }), tab = await context.newPage();
+      await tab.goto(`http://127.0.0.1:${server.address().port}/`);
+      await tab.waitForFunction('window.ready === true');
+      await tab.click('#add');
+      await tab.evaluate(async (kind) => {
+        const sheet = document.getElementById('route-add'), inner = document.createElement(kind.endsWith('frame') ? 'iframe' : 'input');
+        sheet.getAnimations().forEach(a => a.finish());
+        if (inner.localName === 'iframe') inner.srcdoc = '<input id="in-frame">';
+        if (kind.startsWith('shadow')) { const view = document.createElement('photo-editor'); view.attachShadow({ mode: 'open' }).append(inner); sheet.append(view); } else sheet.append(inner);
+        if (inner.localName === 'iframe') { await new Promise(r => { inner.onload = r; }); inner.focus(); inner.contentDocument.getElementById('in-frame').focus(); } else inner.focus();
+      }, kind);
+      const now = await tab.evaluate(() => { pop(); return focus()[0]; });
+      await tab.waitForTimeout(500);
+      seen.push([kind, now, await tab.evaluate(() => focus()[0])]);
+      await context.close();
+    }
+    expect([engine, seen]).toEqual([engine, [['frame', 'add', 'add'], ['shadow field', 'add', 'add'], ['shadow frame', 'add', 'add']]]);
+  } finally { await browser.close(); server.close(); }
+}, 90000);

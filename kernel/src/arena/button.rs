@@ -5,6 +5,8 @@ use crate::{ButtonFaceStyle, ButtonImagePlacement, ControlKind, PressFace};
 pub(crate) struct ButtonInputs {
     env: crate::Env,
     neutral_tab_root: Option<f32>,
+    /// A list row's inset (LLP 1138), which the face's padding takes.
+    row_inset: Option<[f32; 2]>,
     nodes: Vec<ButtonNode>,
 }
 
@@ -19,7 +21,10 @@ struct ButtonNode {
 
 impl ButtonInputs {
     pub(crate) fn matches(&self, arena: &NodeArena, slot: u32) -> bool {
-        if self.env != *arena.env() || self.neutral_tab_root != arena.neutral_tab_root(slot) {
+        if self.env != *arena.env()
+            || self.neutral_tab_root != arena.neutral_tab_root(slot)
+            || self.row_inset != crate::rows::row_inset(arena, slot)
+        {
             return false;
         }
         let slots = arena.subtree(slot);
@@ -151,6 +156,7 @@ impl NodeArena {
         ButtonInputs {
             env: self.env.clone(),
             neutral_tab_root: self.neutral_tab_root(slot),
+            row_inset: crate::rows::row_inset(self, slot),
             nodes: self
                 .subtree(slot)
                 .into_iter()
@@ -265,6 +271,20 @@ impl NodeArena {
             StyleId::ColumnGap,
             StyleId::FlexDirection,
         ]));
+        // A list's row inset (LLP 1138) is the padding the host measures and
+        // places the title by, at an end its author wrote none of.
+        if let Some([left, right]) = crate::rows::row_inset(self, slot) {
+            for (id, length) in [(StyleId::PaddingLeft, left), (StyleId::PaddingRight, right)] {
+                if !own.written.has(id) {
+                    let side = match id {
+                        StyleId::PaddingLeft => &mut button.padding_left,
+                        _ => &mut button.padding_right,
+                    };
+                    *side = crate::style::Dimension::Points(length);
+                    button.mask.set(id);
+                }
+            }
+        }
         // The Neutral tab's floor is below an own minimum, including a clear.
         // Keep this provenance when narrowing the host's configuration rows.
         if neutral_tab_root.is_some() && own.mask.has(StyleId::MinHeight) {

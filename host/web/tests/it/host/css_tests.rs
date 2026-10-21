@@ -603,7 +603,7 @@ fn explicit_clears_preserve_special_host_row_contracts() {
             "accent-color:unset;--exact-accent:unset;",
             false,
         ),
-        (ControlSize, "--exact-control-font-size:medium;", false),
+        (ControlSize, "--exact-control-font-size:1rem;", false),
         (ExitAnimation, "", false),
         (RotateAxis, "", false),
         (SymbolRendering, "", true),
@@ -696,4 +696,44 @@ fn fit_is_navigations_property() {
         "--exact-fit:shrink;"
     );
     assert_eq!(declared(&[(StyleId::Fit, text("none"))]), "");
+}
+
+/// LLP 1069.011.001 D8: a mini or small control is titled in the
+/// subheadline's `rem` and keeps no touch floor; medium in the body's, large
+/// in the body's × 18/16.
+#[test]
+fn a_control_size_writes_its_title_in_rem_and_its_touch_floor() {
+    use exact_kernel::StyleId;
+    let below = "--exact-control-font-size:0.875rem;--exact-touch-floor:0px;";
+    for (size, css) in [
+        ("mini", below),
+        ("small", below),
+        ("medium", "--exact-control-font-size:1rem;"),
+        ("large", "--exact-control-font-size:1.125rem;"),
+    ] {
+        assert_eq!(
+            declared(&[(StyleId::ControlSize, text(size))]),
+            css,
+            "{size}"
+        );
+    }
+}
+
+/// WebKit parses `user-select` but selects by `-webkit-user-select` alone
+/// (Playwright WebKit, measured), so the row writes both names (but for `auto`,
+/// which writes neither).
+#[test]
+fn user_select_writes_the_webkit_name_too() {
+    use exact_kernel::{StyleId, StyleProps, StyleValue};
+    for value in ["none", "text", "all"] {
+        let mut s = StyleProps::default();
+        s.set_dynamic(StyleId::UserSelect, &StyleValue::Text(value.into()))
+            .unwrap();
+        let (css, skipped) = css_text(&s, &[]);
+        assert!(skipped.is_empty(), "{skipped:?}");
+        assert!(
+            css.contains(&format!("-webkit-user-select:{value};user-select:{value};")),
+            "{css}"
+        );
+    }
 }

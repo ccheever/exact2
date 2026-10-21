@@ -34,8 +34,8 @@ impl<D: DataSource> Bridge<D> {
         let out = if !rest.is_empty() {
             self.refusal("covers: truncated record")
         } else {
-            let (mut covers, mut blocks, mut placements, mut margins) =
-                (Vec::new(), Vec::new(), Vec::new(), Vec::new());
+            let (mut covers, mut blocks, mut placements, mut margins, mut lists) =
+                (Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new());
             for r in records {
                 let word = |i: usize| [r[i], r[i + 1], r[i + 2], r[i + 3]];
                 let edge = |i: usize| f32::from_le_bytes(word(i));
@@ -69,6 +69,8 @@ impl<D: DataSource> Bridge<D> {
                         }),
                     )),
                     9 => margins.push((view, None)),
+                    10 => lists.push((view, Some([edge(8), edge(12)]))),
+                    11 => lists.push((view, None)),
                     1 => {
                         let edges = [edge(8), edge(12), edge(16), edge(20)];
                         covers.push((view, Some(exact_kernel::HostCover::Edges(edges))));
@@ -82,7 +84,7 @@ impl<D: DataSource> Bridge<D> {
                 }
             }
             self.host.as_mut().map_or_else(not_booted, |h| {
-                h.set_claims(&covers, &blocks, &placements, &margins)
+                h.set_claims(&covers, &blocks, &placements, &margins, &lists)
             })
         };
         self.emit(out)

@@ -5,7 +5,8 @@
 pub const SESSION_BYTES: u64 = 32 * 1024 * 1024;
 pub const RUNNING_DECODES: usize = 2;
 pub const DELIVERY_CELLS: usize = 2;
-/// Includes queued, running, ready-but-undelivered, and failed requests.
+/// Queued (waiting on the budget or not), running, and ready-but-untaken
+/// decodes; a delivered picture and a failed decode hold no place.
 pub const PENDING_JOBS: usize = 64;
 /// Live subscriptions plus detached cache entries pinned by external leases.
 pub const SUBSCRIPTIONS: usize = 1024;

@@ -6,7 +6,7 @@ import UIKit
 /// popover, the top live route modal's view or the viewport.
 final class PopoverLayer: UIView {
     private struct Host { weak var controller: UIViewController? }
-    private let hosts: [Host]
+    private var hosts: [Host]
     let order: Int
     private(set) weak var sheet: UIViewController?
     private weak var popover: UIView?
@@ -21,6 +21,13 @@ final class PopoverLayer: UIView {
         autoresizingMask = [.flexibleWidth, .flexibleHeight]
     }
     required init?(coder: NSCoder) { nil }
+
+    /// Relocating the same open dialog preserves the popover's opening order.
+    func replaceHost(_ old: UIViewController, with controller: UIViewController) {
+        for index in hosts.indices where hosts[index].controller === old {
+            hosts[index] = Host(controller: controller)
+        }
+    }
 
     func mount(in presenter: Presenter) {
         mounting = true

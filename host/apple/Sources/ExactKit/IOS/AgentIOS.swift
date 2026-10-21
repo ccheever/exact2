@@ -144,7 +144,7 @@ extension Agent {
         // `scrollIntoView`) and an element reveal are UIKit's scroll
         // animation under platform timing (LLP 1070.000 §11, §14): the fixed
         // point is where it lands, within settle's bound (LLP 1035.003 D5).
-        if !presenter.collections.animating.isEmpty || presenter.elementScrolls.revealsInFlight || session.natives.activationQueued || presenter.launchAutofocusPending { return true }
+        if !presenter.collections.animating.isEmpty || presenter.elementScrolls.revealsInFlight || session.activationInFlight || presenter.launchAutofocusPending { return true }
         guard let editor = pendingTextReveal else { return false }
         guard let node = editor.owner, presenter.views[node.id] === node,
               node.textArea === editor, !presenter.navigation.isInactiveRoute(containing: node),
@@ -290,6 +290,13 @@ extension Agent {
                 "ry": r2(max(0, sv.contentSize.height + i.top + i.bottom - sv.bounds.height))]
     }
 
+    /// `v`'s scrollport (LLP 1012 `port`): `sv` less the room UIKit insets its content by (a bar, the keyboard), carried
+    /// out as `v`'s box is, through transforms and a canvas's placement.
+    func port(of v: NodeView, _ sv: UIScrollView) -> [Double] {
+        let f = box(v, region: v.convert(v.scrollPort(sv), from: sv))
+        return [f.minX, f.minY, f.width, f.height].map(Agent.r2)
+    }
+
     func layout() -> [String: Any] {
         let vp = presenter.viewport
         var nodes: [[String: Any]] = []
@@ -313,6 +320,7 @@ extension Agent {
                 n["sx"] = Agent.r2(sv.contentOffset.x)
                 n["sy"] = Agent.r2(sv.contentOffset.y + v.scrollTopInset(sv))
                 n.merge(Agent.range(of: sv)) { _, new in new }
+                n["port"] = port(of: v, sv)
                 // How far past its own ends it sits: a stretched bounce is a
                 // state a driver cannot read from the offset alone.
                 let past = { (value: CGFloat, start: CGFloat, end: CGFloat) -> CGFloat in
@@ -470,7 +478,7 @@ extension Agent {
             if hiddenBy == nil, s.isHidden || (s.alpha == 0 && (s as? NodeView)?.placement == nil) { hiddenBy = describe(s) }
             if inertBy == nil, !s.isUserInteractionEnabled { inertBy = describe(s) }
             if let n = s as? NodeView {
-                if let sv = n.scrollView { chain.append(["id": Int(n.id), "sx": Agent.r2(sv.contentOffset.x), "sy": Agent.r2(sv.contentOffset.y + n.scrollTopInset(sv))].merging(Agent.range(of: sv)) { a, _ in a }) } // CSS scrollTop, as `tree` reads it
+                if let sv = n.scrollView { chain.append(["id": Int(n.id), "sx": Agent.r2(sv.contentOffset.x), "sy": Agent.r2(sv.contentOffset.y + n.scrollTopInset(sv)), "port": port(of: n, sv)].merging(Agent.range(of: sv)) { a, _ in a }) } // CSS scrollTop, as `tree` reads it
                 else if n.scrollDormant { chain.append(["id": Int(n.id), "sx": 0.0, "sy": 0.0, "rx": 0.0, "ry": 0.0]) }
                 if n.clipsToBounds || n.clipBox != nil { clippers.append((n, "overflow")) }
                 if n.clipPath != nil { clippers.append((n, "clip-path")) }
@@ -549,6 +557,8 @@ extension Agent {
 
     func tap(_ req: [String: Any]) -> [String: Any] {
         if req["holdState"] != nil { return holdTap(req) } // a held state (LLP 1122 D8, HeldState.swift)
+        // A drag of files from outside the app is the Mac's and the web's (FileDragMac.swift).
+        if req["drop"] != nil || req["dragenter"] != nil || req["dragleave"] != nil { return ["delivery": "unsupported", "reason": "iOS has no drag of files from outside the app: no drop, dragenter or dragleave"] }
         // A header node the app's navigation bar leaves out is not there to
         // tap, whatever the agent's chrome paints (LLP 1116 D2).
         if let id = req["id"] as? Int, let node = presenter.views[UInt32(id)], let why = presenter.navigation.unshownByBar()[node.id] {
@@ -672,6 +682,10 @@ extension Agent {
         }
         guard let v = view(req), let win = v.window else { return ["error": "no view \(req["id"] ?? "?") on screen"] }
         var b = v.tapBox(box(v))
+        // A run is touched on a fragment it paints (the web's driver taps
+        // the span's), not at its paragraph's middle.
+        if ["at", "x", "y"].allSatisfy({ req[$0] == nil }), (req["id"] as? Int).map({ presenter.inlineText(UInt32($0)) != nil }) == true,
+           let q = tapPoint(req, node: v) { b = CGRect(origin: q, size: .zero) }
         // A plain press: `at` is a point in the target, the press whatever a
         // finger there reaches; without one, the target's own press
         // (`AgentAddressedTap.swift`).
@@ -794,7 +808,7 @@ extension Agent {
         // What the finger reaches, taken where it lands (`fingerReach`):
         // what the pointer events below do to the tree never sends the press
         // elsewhere, as a real contact keeps its target.
-        let reach = fingerReach(hit, at: p)
+        var reach = fingerReach(hit, at: p)
         // A finger's `pointerdown` as it lands and `pointerup` as it lifts,
         // before what the lift does (DOM's order), as `PointerRecognizer`
         // hears a real touch before the node does; a held contact's lift
@@ -808,6 +822,7 @@ extension Agent {
         let held = Agent.heldPrefix(req)
         MainActor.assumeIsolated { HeldState.input(at: hit) } // the finger lands where its hit was checked: a held node there lets go (HeldState.swift)
         fingerPointer(.down, fingers, at: p, held: held)
+        reach.rearm(presenter)
         fingerPointer(.up, fingers, at: p, held: held)
         var reply: [String: Any] = ["tapped": Int(v.id), "at": at].merging(lift(reach, at: p, held: held)) { a, _ in a }
         // Its middle reaches a control inside it: the tap landed beside it.
@@ -1046,7 +1061,7 @@ extension Agent {
         guard !v.disabled else { return ["error": "view \(v.id) is disabled"] }
         // An inert view takes no input, as a person cannot reach it (HTML inert; a modal presentation's background)
         guard !v.inert else { return ["error": "view \(v.id) is inert"] }
-        if let edit = req["clipboard"] as? String { return clipboardType(v, edit, req["text"] as? String) }
+        if let edit = req["clipboard"] as? String { return withAgentPasteboard(req) { clipboardType(v, edit, req["text"] as? String, board: $0) } }
         if session.canvases.wantsInput(v.id) {
             if let routed = canvasRouted(v, req) { return routed }
             // The world hears the key a chord names, not the chord's string.
@@ -1116,7 +1131,8 @@ extension Agent {
                 else if let f = v.field { if !f.isFirstResponder { _ = f.becomeFirstResponder() } }
                 else if v.canBecomeFirstResponder, !v.isFirstResponder { _ = v.becomeFirstResponder() }
             }
-            let focus = v.field != nil || v.textArea != nil || v.isFirstResponder || v.handlers.contains("press") ? v : nil
+            // With nothing focused the first root hears it, as a keyboard's key reaches it (`ExactView`).
+            let focus = v.field != nil || v.textArea != nil || v.isFirstResponder || v.handlers.contains("press") ? v : presenter.focusedNode == nil ? presenter.keyRoot : nil
             // The release's `keyup` handlers at the focus (#140): after the
             // down, or when a held key comes up. A modifier's own keydown
             // holds it and its keyup no longer does, as DOM's.
@@ -1337,7 +1353,7 @@ extension Agent {
         let painted = presenter.menus.presented.filter { $0.window != nil && !$0.isHidden }
         if !painted.isEmpty, ExactEnv.agentPaints {
             r["painted"] = painted.map { n -> [String: Any] in ["id": Int(n.id), "testId": n.props["testId"] ?? NSNull()] }
-            r["paintedNote"] = "the agent, not the app, painted the open popover in this picture, in the page (LLP 1021 D4): the app shows a menu as UIKit's menu at its button (a context menu's with its preview). To see the real one, drive with --touch platform: a screenshot with the menu up is then the window's, the menu in it"
+            r["paintedNote"] = "the agent, not the app, painted the open popover in this picture, in the page (LLP 1021 D4); the app shows it as UIKit's (a menu at its button), which a screenshot shows under --touch platform"
         }
         let bars = presenter.navigation.paintedForBars()
         if !bars.isEmpty {

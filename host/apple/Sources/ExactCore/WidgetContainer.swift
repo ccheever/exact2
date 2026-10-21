@@ -54,9 +54,17 @@ public enum WidgetContainer {
     /// all published generations; reclamation needs cross-process leases first.
     public static func pin(generation: String? = nil) throws -> URL {
         guard let root else { throw HeadlessSession.Failure(description: "widget App Group is unavailable") }
-        return try pin(root: root, generation: generation, compatibility: compatibility)
+        return try pin(root: root, generation: generation, compatibility: compatibility, embedded: embeddedGeneration)
     }
-    package static func pin(root: URL, generation: String? = nil, compatibility: String) throws -> URL {
+    /// The bundle's own embedded plan, `ExactWidgetGeneration`: the app's
+    /// and its extension's are one build's.
+    public static var embeddedGeneration: String? { Bundle.main.object(forInfoDictionaryKey: "ExactWidgetGeneration") as? String }
+    /// A published generation is pinned only when the binary that
+    /// published it is this one (`embedded`): after a binary update the
+    /// published plan is the old app's until the new app launches and
+    /// publishes, and the extension's embedded copy is the newer, so a
+    /// mismatch refuses and the caller falls back to it.
+    package static func pin(root: URL, generation: String? = nil, compatibility: String, embedded: String? = nil) throws -> URL {
         let base = root.appendingPathComponent("widget-generations", isDirectory: true)
         let name = try generation ?? String(contentsOf: base.appendingPathComponent("current"), encoding: .utf8)
         guard name.count == 64, name.allSatisfy({ $0.isHexDigit }) else { throw CocoaError(.fileReadCorruptFile) }
@@ -64,9 +72,12 @@ public enum WidgetContainer {
         guard try String(contentsOf: directory.appendingPathComponent("compatibility"), encoding: .utf8) == compatibility else {
             throw HeadlessSession.Failure(description: "widget generation belongs to another compatibility cohort")
         }
+        if let embedded, (try? String(contentsOf: directory.appendingPathComponent("embedded"), encoding: .utf8)) != embedded {
+            throw HeadlessSession.Failure(description: "widget generation was published by another binary")
+        }
         return directory
     }
-    package static func pinCurrent(_ assets: AssetResolver, root: URL? = WidgetContainer.root, compatibility: String? = nil) throws -> URL {
+    package static func pinCurrent(_ assets: AssetResolver, root: URL? = WidgetContainer.root, compatibility: String? = nil, embedded: String? = nil) throws -> URL {
         let cohort = compatibility ?? self.compatibility
         guard let root else { throw HeadlessSession.Failure(description: "widget App Group is unavailable") }
         // Only a missing or older pointer is the publisher's to fix; a corrupt
@@ -75,7 +86,7 @@ public enum WidgetContainer {
         guard FileManager.default.fileExists(atPath: current.path) else {
             throw HeadlessSession.Failure(description: "widget generation not yet published")
         }
-        let directory = try pin(root: root, compatibility: cohort)
+        let directory = try pin(root: root, compatibility: cohort, embedded: embedded)
         guard directory.lastPathComponent == generationDigest(compatibility: cohort, publicationID: assets.publicationID) else {
             throw HeadlessSession.Failure(description: "widget generation not yet published")
         }
@@ -115,7 +126,7 @@ public enum WidgetContainer {
         guard let root, let kinds = entryKinds() else { return }
         publisher.async {
             do {
-                guard try publish(assets, root: root, kinds: kinds, compatibility: compatibility, typescript: typescript) else { return }
+                guard try publish(assets, root: root, kinds: kinds, compatibility: compatibility, typescript: typescript, embedded: embeddedGeneration) else { return }
                 DispatchQueue.main.async {
                     do { try signal(root: root) { try reloadTimelines() }; report(nil) }
                     catch { report(error) }
@@ -160,9 +171,10 @@ public enum WidgetContainer {
     package static func publish(_ assets: AssetResolver, bundle: Bundle = .main, root: URL? = WidgetContainer.root) throws -> Bool {
         guard let root, let kinds = entryKinds(of: bundle) else { return false }
         let typescript = bundle.object(forInfoDictionaryKey: "ExactWidgetTypeScript") as? Bool == true
-        return try publish(assets, root: root, kinds: kinds, compatibility: compatibility, typescript: typescript)
+        return try publish(assets, root: root, kinds: kinds, compatibility: compatibility, typescript: typescript,
+                           embedded: bundle.object(forInfoDictionaryKey: "ExactWidgetGeneration") as? String)
     }
-    package static func publish(_ assets: AssetResolver, root: URL, kinds: [String], compatibility: String, typescript: Bool = false) throws -> Bool {
+    package static func publish(_ assets: AssetResolver, root: URL, kinds: [String], compatibility: String, typescript: Bool = false, embedded: String? = nil) throws -> Bool {
         // A signed bake or accepted delivery identifies the bytes already. An
         // unchanged launch reads only current, without opening any asset.
         let digest = generationDigest(compatibility: compatibility, publicationID: assets.publicationID)
@@ -190,6 +202,7 @@ public enum WidgetContainer {
                 try bytes.write(to: file)
             }
             try Data(compatibility.utf8).write(to: staging.appendingPathComponent("compatibility"))
+            if let embedded { try Data(embedded.utf8).write(to: staging.appendingPathComponent("embedded")) }
             try fm.moveItem(at: staging, to: final)
         }
         try Data(digest.utf8).write(to: current, options: .atomic)

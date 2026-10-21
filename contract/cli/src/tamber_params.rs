@@ -17,11 +17,17 @@ use std::path::Path;
 pub struct AppParams {
     /// Every param, as a token.
     pub tokens: Vec<ParamToken>,
+    /// Each component that names parts, by identity and name, with what the
+    /// Tamber IR says of its anatomy (LLP 1139 D5; the IR file only).
+    pub library: Vec<(String, String, contract_lower::anatomy::Described)>,
     /// Every component's identity.
     pub identities: Vec<String>,
     /// Each source's file, by source id, as a diagnostic names it: relative
     /// to the app's directory where it is inside it.
     pub files: Vec<String>,
+    /// Each source's path on this machine, by source id: what is read (an
+    /// authored default's text), never what an answer says.
+    pub paths: Vec<std::path::PathBuf>,
     /// The app's Contract did not load (the build says why): its params are
     /// unknown, not none.
     pub failed: bool,
@@ -62,6 +68,24 @@ pub fn params_of(app_contract: &Path) -> AppParams {
         Ok((file, sources)) => AppParams {
             tokens: params::tokens(&file),
             identities: params::identities(&file),
+            library: file
+                .components
+                .iter()
+                .filter(|c| {
+                    !c.anatomy.parts.is_empty()
+                        || c.params
+                            .identity
+                            .as_ref()
+                            .is_some_and(|i| file.library.contains(i))
+                })
+                .map(|c| {
+                    (
+                        c.params.identity.clone().unwrap_or_else(|| c.name.clone()),
+                        c.name.clone(),
+                        contract_lower::anatomy::described(c, &file),
+                    )
+                })
+                .collect(),
             packages: file.package_designs.clone(),
             inline: file.theme.is_some(),
             package_roots: crate::sources::packages::packages(&sources)
@@ -72,13 +96,11 @@ pub fn params_of(app_contract: &Path) -> AppParams {
             files: sources
                 .paths()
                 .iter()
-                .map(|p| {
-                    p.strip_prefix(&dir)
-                        .unwrap_or(p)
-                        .to_string_lossy()
-                        .into_owned()
-                })
+                // As every answer names a file (`tamber_uses::shown`): never
+                // with this machine's directories.
+                .map(|p| crate::tamber_uses::shown(p, &dir))
                 .collect(),
+            paths: sources.paths().to_vec(),
             failed: false,
         },
         // Its packages' roots as far as it loaded (a source past them can't be read): still the server's
@@ -297,6 +319,82 @@ fn short(p: &ParamToken, identities: &[String], all: &[ParamToken]) -> Option<St
     (!ambiguous).then(|| format!("{name}.{}", p.param.name))
 }
 
+/// The IR's `library` block (LLP 1139 D5): each component that names parts,
+/// its parts with their groups and slot, and its variant props.
+pub fn library(app: &AppParams, design: Option<&exact_tamber::Design>) -> Value {
+    // The tokens each chain row's value reaches, folded with the app's
+    // design and its packages' (what the server re-checks on a write).
+    let folding =
+        contract_lower::with_package_designs(design.cloned(), &app.packages).and_then(|d| {
+            exact_tamber::check_design(laid(&d, app), &contract_lower::tamber_vocab()).ok()
+        });
+    let reaches = |value: &str| -> Vec<String> {
+        let value = value.trim();
+        // A base name the design leaves unset, or an expression over base
+        // names: the base names it reads.
+        let bases = || {
+            exact_kernel::style::scale::named_in(value)
+                .into_iter()
+                .map(str::to_string)
+                .collect()
+        };
+        let Some(f) = &folding else { return bases() };
+        let reached = |name: &str| {
+            std::iter::once(name.to_string()).chain(contract_lower::anatomy::slot::reach(f, name))
+        };
+        match f.tokens.iter().any(|t| t.name == value) {
+            // The token and all it reaches, transitively, base names too.
+            true => reached(value).collect(),
+            // An expression: each token it names and all they reach, and its
+            // base names.
+            false => {
+                let mut all: Vec<String> = bases();
+                for w in value
+                    .split(|c: char| !(c.is_ascii_alphanumeric() || "-_.".contains(c)))
+                    .filter(|w| f.tokens.iter().any(|t| t.name == *w))
+                {
+                    for r in reached(w) {
+                        if !all.contains(&r) {
+                            all.push(r);
+                        }
+                    }
+                }
+                all
+            }
+        }
+    };
+    Value::Array(
+        app.library
+            .iter()
+            .map(|(identity, name, d)| {
+                let chain: Vec<Value> = d
+                    .chain
+                    .iter()
+                    .map(|(tag, rows)| {
+                        let mut tokens: Vec<String> = Vec::new();
+                        for (_, v) in rows {
+                            for t in reaches(v) {
+                                if !tokens.contains(&t) {
+                                    tokens.push(t);
+                                }
+                            }
+                        }
+                        json!({"tag": tag, "rows": rows.iter().map(|(r, v)| json!([r, v])).collect::<Vec<_>>(), "tokens": tokens})
+                    })
+                    .collect();
+                json!({
+                    "identity": identity,
+                    "name": name,
+                    "parts": d.parts.iter().map(|(n, g, slot)| json!({"name": n, "groups": g, "slot": slot})).collect::<Vec<_>>(),
+                    "variants": d.variants.iter().map(|(p, o)| json!({"prop": p, "options": o})).collect::<Vec<_>>(),
+                    "library": d.library,
+                    "chain": chain,
+                })
+            })
+            .collect(),
+    )
+}
+
 /// The `components` block for `all`, each param's value per tuple folded
 /// with `design` (the app's, or none).
 pub fn components(
@@ -307,6 +405,8 @@ pub fn components(
     let all = app.tokens.as_slice();
     let design = design.cloned().unwrap_or_default();
     let folding = exact_tamber::check_design(laid(&design, app), vocab).ok();
+    // What each param's default reaches (stage 12 B2-levels, *1.15*).
+    let designs = crate::tamber_levels::Designs::parsed("", Some(design.clone()), app, vocab);
     let mut out: Vec<Value> = Vec::new();
     let mut seen: Vec<&str> = Vec::new();
     for p in all {
@@ -365,7 +465,7 @@ pub fn components(
                         Some(json!(t.values.iter().map(|v| v.css()).collect::<Vec<_>>()))
                     }
                 });
-                json!({
+                let mut row = json!({
                     "name": q.full,
                     "short": short(q, &app.identities, &app.tokens),
                     "param": q.param.name,
@@ -383,7 +483,11 @@ pub fn components(
                     "help": attr("help"),
                     "group": attr("group"),
                     "priority": num("priority").unwrap_or(2.0),
-                })
+                });
+                if let Some(reaches) = designs.reaches(q) {
+                    row["reaches"] = reaches;
+                }
+                row
             })
             .collect();
         let name = p
@@ -391,6 +495,33 @@ pub fn components(
             .rsplit_once('#')
             .map_or(p.identity.as_str(), |(_, c)| c);
         out.push(json!({"identity": p.identity, "name": name, "params": list}));
+    }
+    // An exported library component's parts and variant props (LLP 1139 D5,
+    // stage 12 D3, *1.15*), from C's IR, with params or without (one with
+    // none listed with `params: []`).
+    for (identity, _, d) in app.library.iter().filter(|(_, _, d)| d.library) {
+        let at = match out.iter().position(|c| c["identity"] == identity.as_str()) {
+            Some(i) => i,
+            None => {
+                // (named from its identity, as one with params is: never the compiler's renamed `Badge__index`)
+                let name = identity
+                    .rsplit_once('#')
+                    .map_or(identity.as_str(), |(_, c)| c);
+                out.push(json!({"identity": identity, "name": name, "params": []}));
+                out.len() - 1
+            }
+        };
+        out[at]["library"] = json!(true);
+        out[at]["parts"] = json!(d
+            .parts
+            .iter()
+            .map(|(n, g, slot)| json!({"name": n, "groups": g, "slot": slot}))
+            .collect::<Vec<_>>());
+        out[at]["variants"] = json!(d
+            .variants
+            .iter()
+            .map(|(p, o)| json!({"prop": p, "options": o}))
+            .collect::<Vec<_>>());
     }
     Value::Array(out)
 }

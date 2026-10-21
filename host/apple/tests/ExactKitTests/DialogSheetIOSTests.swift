@@ -947,10 +947,13 @@ final class DialogSheetIOSTests: XCTestCase {
         let sheet = try sheet(controller)
         settle { !p.menus.inTransition }
         let previous = p.openTopLayer
+        XCTAssertEqual(previous.frames.map { $0.0 }, [2])
+        XCTAssertEqual(previous.modal, 0)
         p.dialogCommand("showModal", "confirm")
         settle { !p.menus.inTransition }
         XCTAssertTrue(sheet.presentedViewController is UIAlertController)
         let open = p.openTopLayer
+        XCTAssertEqual(open.frames.map { $0.0 }, [2, 20])
         XCTAssertEqual(open.frames.last?.0, 20)
         XCTAssertEqual(open.modal, open.frames.count - 1)
         p.dialogCommand("close", "confirm")
@@ -976,6 +979,8 @@ final class DialogSheetIOSTests: XCTestCase {
                 settle { !p.menus.inTransition }
             }
             let previous = p.openTopLayer
+            XCTAssertEqual(previous.frames.map { $0.0 }, overSheet ? [2] : [])
+            XCTAssertEqual(previous.modal, overSheet ? 0 : nil)
             let host = overSheet ? try sheet(controller) : controller
             func checkBoundary() {
                 let open = p.openTopLayer

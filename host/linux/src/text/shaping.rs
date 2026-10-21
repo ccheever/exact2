@@ -87,15 +87,18 @@ pub(super) fn push_style(
     }
     // CSS `font-optical-sizing: auto` (CSS Fonts 4 §2.7): a face's `opsz` is
     // the size, as the browser and CoreText set it; one without the axis
-    // ignores it. Parley applies it after fontique's synthesis.
+    // ignores it. Parley applies it after fontique's synthesis, and
+    // `font-variation-settings` after it, each axis winning over the
+    // weight's, the width's and the size's (CSS Fonts 4 §7.2, LLP 1019 D9).
+    let mut axes = vec![parley::FontVariation::new(
+        parley::setting::Tag::new(b"opsz"),
+        run.size,
+    )];
+    axes.extend(run.variations.axes().iter().map(|(tag, value)| {
+        parley::FontVariation::new(parley::setting::Tag::new(&tag.to_be_bytes()), *value)
+    }));
     builder.push(
-        StyleProperty::FontVariations(parley::FontVariations::List(
-            vec![parley::FontVariation::new(
-                parley::setting::Tag::new(b"opsz"),
-                run.size,
-            )]
-            .into(),
-        )),
+        StyleProperty::FontVariations(parley::FontVariations::List(axes.into())),
         range.clone(),
     );
     if run.stretch != 100.0 {
@@ -157,7 +160,9 @@ pub(super) struct ShapedSource {
 /// lease. A width locks each layout while it breaks it.
 pub(super) struct ShapeData {
     pub(super) lines: Vec<HardLine>,
-    strut: (f32, f32),
+    pub(super) strut: (f32, f32),
+    /// The strut's font's ascent and descent: an empty line's text box.
+    pub(super) strut_font: (f32, f32),
     pub(super) run_metrics: Vec<FontMetrics>,
 }
 
@@ -330,6 +335,7 @@ impl ShapedSource {
             data: Arc::new(ShapeData {
                 lines,
                 strut,
+                strut_font: (ascent, descent),
                 run_metrics,
             }),
             accessible_capacity_bytes: 0,

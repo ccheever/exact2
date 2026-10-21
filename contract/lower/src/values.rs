@@ -144,6 +144,7 @@ pub(crate) fn describe(e: &StyleValueError) -> String {
         StyleValueError::BadBackgroundImage { .. } => "expected none, or up to four of linear-gradient(…), radial-gradient(…) and conic-gradient(…)".into(),
         StyleValueError::BadMaskImage { .. } => "expected none, or one linear-gradient(…), radial-gradient(…) or conic-gradient(…)".into(),
         StyleValueError::BadTextShadow { .. } => "expected none, or one shadow: <offset-x> <offset-y> [<blur>] and an optional colour".into(),
+        StyleValueError::BadFontVariations { .. } => "expected normal, or up to eight axes as `\"wght\" 650, \"wdth\" 90`: a quoted four-character tag and a number".into(),
         StyleValueError::BadCornerShape { .. } => "expected one to four of round, squircle, square, bevel, scoop, notch, superellipse(<number>) or -exact-continuous".into(),
         StyleValueError::BadDragTimeline { .. } => "expected none, or a `--name` and an optional axis (`x` or `y`)".into(),
         StyleValueError::BadAnimationTimeline { .. } => "expected auto or a `--name`".into(),
@@ -432,11 +433,11 @@ fn style_value(
             {
                 return err("lower-css-resize", "CSS resize handles are not implemented by the native layout presenters; only `resize=\"none\"` is portable. Other values require user-controlled box geometry, not a different property name", span);
             }
-            // @ref LLP 1115.000 D11.6 — `text` is honoured where a host has
-            // text selection (the web, macOS, iOS); the other two name a
-            // selection behaviour no native presenter has.
-            if rows.contains(&StyleId::UserSelect) && matches!(v.as_str(), "all" | "contain") {
-                return err("lower-css-user-select", format!("CSS `user-select=\"{v}\"` is not implemented by the native presenters: `all` selects an element whole on one press and `contain` keeps a selection from leaving its element, and their text selection ownership has neither. Supported values are auto, none and text"), span);
+            // @ref LLP 1115.000 D11.6 — `text` and `all` are honoured where a
+            // host has text selection (the web, macOS, iOS); `contain` names
+            // a selection behaviour no native presenter has.
+            if rows.contains(&StyleId::UserSelect) && v == "contain" {
+                return err("lower-css-user-select", "CSS `user-select=\"contain\"` is not implemented by the native presenters: it keeps a selection from leaving its element, and their text selection ownership has no such bound. Supported values are auto, none, text and all", span);
             }
             if rows.contains(&StyleId::PositionArea)
                 && !StyleId::PositionArea.enum_names().contains(&v.trim())
@@ -538,7 +539,7 @@ fn style_value(
             // ask a browser to choose: none is implemented; leaving the
             // attribute off follows the surrounding scheme.
             if rows.contains(&StyleId::ColorScheme) && !matches!(v.trim(), "light" | "dark") {
-                return err("lower-attr-value", format!("`color-scheme=\"{v}\"`: exact2 implements `light` and `dark` on a subtree (LLP 1034 §8); leave it off to follow the surrounding scheme. CSS's `normal`, `light dark` and `only` are not implemented"), span);
+                return err("lower-attr-value", format!("`color-scheme=\"{v}\"`: exact2 implements `light` and `dark` on a subtree (LLP 1034 §8); leave it off to follow the surrounding scheme. CSS's `normal`, `light dark` and `only` are not implemented. A Theme setting (Auto, Light, Dark) is `setScheme(\"system\" | \"light\" | \"dark\")` in the action; `color-scheme` fixes a subtree's scheme"), span);
             }
             if rows.contains(&StyleId::ShapeMargin) && v.trim().ends_with('%') {
                 return err("lower-attr-value", "percentage `shape-margin` is not implemented in exact2 v1; use a nonnegative length in points/px", span);
@@ -988,7 +989,7 @@ pub(crate) fn check_prop_value(
     let words: Option<(&[&str], &str)> = match prop {
         PropId::StatusBarAnimation => Some((&["none", "fade"], "`status-bar-animation` takes \"none\" or \"fade\"")),
         // @ref LLP 1115.000 D5.2 — no bar is something a route says, in one word.
-        PropId::NavigationBar => Some((&["none", "auto"], "`navigationBar` takes \"none\" (this route shows no navigation bar: a full-bleed screen that draws its own way back) or \"auto\" (the platform's bar, the default)")),
+        PropId::NavigationBar => Some((&["none", "auto", "transparent"], "`navigationBar` takes \"none\" (this route shows no navigation bar: a full-bleed screen that draws its own way back), \"transparent\" (the bar drawn clear at the top of the route's scroller, whose content starts under it: a full-bleed picture) or \"auto\" (the platform's bar, the default)")),
         // A sheet's grabber, said or left to the platform (LLP 1115 §2).
         PropId::NavigationGrabber => Some((&["visible", "hidden", "auto"], "`navigationGrabber` takes \"visible\", \"hidden\" or \"auto\" (the default: the platform's, a grabber on a sheet with several detents)")),
         PropId::FocusGuide => Some((&["auto"], "`focusGuide` takes \"auto\"")),

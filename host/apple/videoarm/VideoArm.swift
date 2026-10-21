@@ -79,6 +79,11 @@ private final class VideoArm: NSObject, NowPlayingPlayer {
     var invalidated = false
     var generation = 0
     var posterGeneration = 0
+    /// HTML's show-poster flag, cleared: playback or a seek has begun since
+    /// the source loaded. The poster still shows until the presentation has
+    /// a frame to show instead (`frameReady`).
+    var posterDismissed = false
+    var displayObservations: [NSKeyValueObservation] = []
     var pendingSeek: Double?
     /// A seek in flight: HTML's official playback position, which `currentTime`
     /// reads at once, while AVPlayer still reports where it was (jukebox F20).
@@ -115,10 +120,10 @@ private final class VideoArm: NSObject, NowPlayingPlayer {
         #if os(macOS)
         container.wantsLayer = true; container.layer?.masksToBounds = true
         presentation.player = player
-        poster.imageScaling = .scaleProportionallyUpOrDown
+        poster.imageScaling = .scaleAxesIndependently
         #else
         container.clipsToBounds = true
-        poster.contentMode = .scaleAspectFit
+        poster.contentMode = .scaleToFill
         poster.isUserInteractionEnabled = false
         #endif
         #if os(macOS)
@@ -126,6 +131,9 @@ private final class VideoArm: NSObject, NowPlayingPlayer {
         #endif
         container.addSubview(poster)
         poster.isHidden = true
+        #if os(macOS)
+        displayObservations = [presentation.observe(\.isReadyForDisplay, options: [.new]) { [weak self] _, _ in self?.displayReadinessChanged() }]
+        #endif
         playerObservations = [
             player.observe(\.timeControlStatus, options: [.new]) { [weak self] _, _ in self?.timeStatusChanged() },
             player.observe(\.rate, options: [.new]) { [weak self] _, _ in self?.rateChanged() },
@@ -201,6 +209,7 @@ private final class VideoArm: NSObject, NowPlayingPlayer {
                 "videoWidth": naturalSize.width, "videoHeight": naturalSize.height,
                 "error": (lastError ?? player.currentItem?.error?.localizedDescription).map { $0 as Any } ?? NSNull(),
                 "src": props["src"] ?? "", "renderer": renderer, "generation": generation, "fullscreen": isFullscreen,
+                "poster": poster.image == nil ? "none" : poster.isHidden ? "hidden" : "shown", "frameReady": frameReady,
                 // @ref LLP 1100 D11
                 "hdr": hdrItem, "eligibleForHDR": AVPlayer.eligibleForHDRPlayback,
                 "dynamicRange": props["dynamicRangeLimit"] ?? "no-limit"]
@@ -280,7 +289,7 @@ private final class VideoArm: NSObject, NowPlayingPlayer {
         if paused != lastPaused { lastPaused = paused; emit(paused ? "pause" : "play"); if !paused { NowPlaying.shared.played(self) } }
         if status != lastTimeStatus {
             lastTimeStatus = status
-            if status == .playing { poster.isHidden = true; emit("playing") }
+            if status == .playing { posterDismissed = true; showPoster(); emit("playing") }
             if status == .waitingToPlayAtSpecifiedRate { emit("waiting") }
         }
     }
@@ -393,6 +402,7 @@ private final class VideoArm: NSObject, NowPlayingPlayer {
         player.replaceCurrentItem(with: nil)
         naturalSize = .zero
         itemReady = false; seekTarget = nil; atEnd = false
+        posterDismissed = false; showPoster()
         pendingSeek = props["currentTime"].flatMap(Double.init)
         guard let source = props["src"], !source.isEmpty, let url = URL(string: source) else { return }
         // preload is a hint: AVKit may prepare an item so its native Play control works.
@@ -450,7 +460,7 @@ private final class VideoArm: NSObject, NowPlayingPlayer {
     }
     func seek(_ time: Double) {
         guard player.currentItem?.status == .readyToPlay else { pendingSeek = time; return }
-        poster.isHidden = true
+        posterDismissed = true; showPoster()
         seekTarget = time; seeks += 1; atEnd = false
         emit("seeking")
         let token = generation, mine = seeks
@@ -464,19 +474,58 @@ private final class VideoArm: NSObject, NowPlayingPlayer {
             }
         }
     }
+    /// Whether the presentation has the item's first frame to show.
+    var frameReady: Bool {
+        #if os(macOS)
+        return presentation.isReadyForDisplay
+        #else
+        return controller?.isReadyForDisplay ?? inline?.playerLayer.isReadyForDisplay ?? false
+        #endif
+    }
+    /// The poster shows until playback or a seek has begun and a frame is
+    /// ready to replace it, as a page's does: hidden when playback begins,
+    /// it left a blank box for the 50 ms to 1 s AVPlayer takes to draw.
+    func showPoster() {
+        poster.isHidden = poster.image == nil || posterDismissed && frameReady
+    }
+    /// The poster's place by `object-fit`, as the video's frames take it
+    /// (the container clips): a poster drawn to fit while the video covers
+    /// would jump as the first frame replaced it.
+    var posterFrame: CGRect {
+        let bounds = container.bounds
+        guard let size = poster.image?.size, size.width > 0, size.height > 0, bounds.width > 0, bounds.height > 0 else { return bounds }
+        let x = bounds.width / size.width, y = bounds.height / size.height
+        let scale: CGFloat
+        switch props["objectFit"] ?? "contain" {
+        case "fill": return bounds
+        case "cover": scale = max(x, y)
+        case "none": scale = 1
+        case "scale-down": scale = min(1, min(x, y))
+        default: scale = min(x, y)
+        }
+        let width = size.width * scale, height = size.height * scale
+        return CGRect(x: bounds.midX - width / 2, y: bounds.midY - height / 2, width: width, height: height)
+    }
+    func displayReadinessChanged() {
+        guard Thread.isMainThread else { DispatchQueue.main.async { [weak self] in self?.displayReadinessChanged() }; return }
+        guard !invalidated else { return }
+        showPoster()
+    }
     /// An HDR poster is decoded with its gain map: UIKit's reader must be
-    /// asked; `NSImage` keeps it (LLP 1100 D11).
+    /// asked; `NSImage` keeps it (LLP 1100 D11). A remote one is fetched
+    /// through the shared HTTP cache; either is decoded here, off the main
+    /// thread.
     func loadPoster() {
         posterGeneration += 1
         let token = posterGeneration
         poster.image = nil; poster.isHidden = true
         guard let source = props["poster"], let url = URL(string: source) else { return }
-        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-            let data = try? Data(contentsOf: url)
+        let show: (Data?) -> Void = { [weak self] data in
             #if !os(macOS)
             let image = data.flatMap { data -> UIImage? in
                 var configuration = UIImageReader.Configuration()
                 configuration.prefersHighDynamicRange = true
+                configuration.preparesImagesForDisplay = true
                 return UIImageReader(configuration: configuration).image(data: data)
             }
             #else
@@ -485,9 +534,17 @@ private final class VideoArm: NSObject, NowPlayingPlayer {
             DispatchQueue.main.async {
                 guard let self, !self.invalidated, self.posterGeneration == token, let image else { return }
                 self.poster.image = image
+                self.poster.frame = self.posterFrame
                 self.applyDynamicRange()
-                self.poster.isHidden = self.player.rate != 0
+                self.showPoster()
             }
+        }
+        if url.isFileURL {
+            DispatchQueue.global(qos: .userInitiated).async { show(try? Data(contentsOf: url)) }
+        } else {
+            URLSession.shared.dataTask(with: url) { data, response, _ in
+                show((response as? HTTPURLResponse).map { (200..<300).contains($0.statusCode) } == true ? data : nil)
+            }.resume()
         }
     }
 
@@ -568,6 +625,8 @@ private final class VideoArm: NSObject, NowPlayingPlayer {
             #endif
             applyDynamicRange()
             container.insertSubview(native.view, belowSubview: poster)
+            displayObservations = [native.observe(\.isReadyForDisplay, options: [.new]) { [weak self] _, _ in self?.displayReadinessChanged() }]
+            showPoster() // the controller has no frame yet
             inline?.playerLayer.player = nil
             inline?.removeFromSuperview()
             inline = nil
@@ -578,6 +637,7 @@ private final class VideoArm: NSObject, NowPlayingPlayer {
             surface.playerLayer.player = player
             surface.playerLayer.videoGravity = gravity
             inline = surface
+            displayObservations = [surface.playerLayer.observe(\.isReadyForDisplay, options: [.new]) { [weak self] _, _ in self?.displayReadinessChanged() }]
             applyDynamicRange()
             container.insertSubview(surface, belowSubview: poster)
         }
@@ -611,7 +671,7 @@ private final class VideoArm: NSObject, NowPlayingPlayer {
         if let layer = inline?.playerLayer, layer.videoGravity != gravity { layer.videoGravity = gravity }
         // Full screen keeps the element's `object-fit`, as the web's does.
         if let fullscreen, fullscreen.videoGravity != gravity { fullscreen.videoGravity = gravity }
-        guard let presentation else { poster.frame = container.bounds; return }
+        guard let presentation else { poster.frame = posterFrame; return }
         #endif
         var frame = container.bounds
         if (fit == "none" || fit == "scale-down"), naturalSize.width > 0, naturalSize.height > 0 {
@@ -619,7 +679,7 @@ private final class VideoArm: NSObject, NowPlayingPlayer {
             frame = CGRect(x: (frame.width - naturalSize.width * scale) / 2, y: (frame.height - naturalSize.height * scale) / 2, width: naturalSize.width * scale, height: naturalSize.height * scale)
         }
         if presentation.superview === container { presentation.frame = frame }
-        poster.frame = container.bounds
+        poster.frame = posterFrame
     }
     func invalidate() {
         guard !invalidated else { return }
@@ -627,7 +687,7 @@ private final class VideoArm: NSObject, NowPlayingPlayer {
         NowPlaying.shared.left(self)
         player.pause()
         if let tick { player.removeTimeObserver(tick) }; tick = nil
-        observations.removeAll(); playerObservations.removeAll()
+        observations.removeAll(); playerObservations.removeAll(); displayObservations.removeAll()
         notifications.forEach(NotificationCenter.default.removeObserver); notifications.removeAll()
         player.replaceCurrentItem(with: nil)
         #if os(iOS) || os(tvOS)

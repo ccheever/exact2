@@ -154,7 +154,7 @@ impl Kernel {
         if let Some(r) = &mut self.region {
             r.invalidate();
         }
-        let users: Vec<u32> = self
+        let mut users: Vec<u32> = self
             .arena
             .iter_live()
             // A covered box too: its top cover can hold an inset (cover.rs).
@@ -165,6 +165,12 @@ impl Kernel {
                     || self.arena.neutral_alert(*s)
             })
             .collect();
+        // And a covered box's absolute children, placed past that inset.
+        let positioned: Vec<u32> = (users.iter())
+            .filter(|&&s| matches!(self.arena.cover(s), Some(super::HostCover::Edges(_))))
+            .flat_map(|&s| super::cover::positioned_children(&self.arena, s))
+            .collect();
+        users.extend(positioned);
         for slot in &users {
             if let (Some(node), Some(layout)) =
                 (self.arena.taffy(*slot), self.layout.as_deref_mut())

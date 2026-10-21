@@ -3,10 +3,10 @@
 import { agentReads, agentStorageRefusal, directories, emptyRead, storageKey } from './storage-environment.js';
 let fileFactory, sqliteFactory, toldAgent = false;
 
-export function createStorage(win, admitted, scope, key = storageKey(admitted.appId)) {
+export function createStorage(win, admitted, scope, key = storageKey(admitted.appId), timers = undefined) {
   // Once storage has been used, a replacement reserves its owner before the
   // old realm is disposed, retaining the shared SQLite worker across reloads.
-  let fs = key && fileFactory?.(key, admitted.grantSet);
+  let fs = key && fileFactory?.(key, admitted.grantSet, timers);
   let sqlite = key && sqliteFactory?.(key, admitted.grantSet);
   let fsLoading, sqliteLoading;
   const queues = new Map(), waiters = new Map(), retired = new WeakSet();
@@ -53,7 +53,7 @@ export function createStorage(win, admitted, scope, key = storageKey(admitted.ap
   const fileSystem = () => fs ? Promise.resolve(fs) : fsLoading ??= import('./storage-fs.js').then(({ createFileSystem }) => {
     fileFactory = createFileSystem;
     if (disposed) throw unavailable();
-    return fs = createFileSystem(key, admitted.grantSet);
+    return fs = createFileSystem(key, admitted.grantSet, timers);
   });
   const databaseSystem = () => sqlite ? Promise.resolve(sqlite) : sqliteLoading ??= import('./storage-sqlite.js').then(({ createSqlite }) => {
     sqliteFactory = createSqlite;
@@ -147,10 +147,11 @@ export function createStorage(win, admitted, scope, key = storageKey(admitted.ap
       return enqueue(async active => { const backend = await fileSystem(); active(); return backend[method](...captured); }, clone, () => {}, true, method);
     };
   }
-  // The prelude hands `compressImage` its options as two numbers (LLP
-  // 1069.002 A1); app files only, so never the documents' backend.
-  files.compressImage = (from, to, maxDimension, maxBytes) =>
-    enqueue(async active => { const backend = await fileSystem(); active(); return backend.compressImage(from, to, {maxDimension, maxBytes}); }, clone, () => {}, true, 'compressImage');
+  // The prelude hands `compressImage` its options as two numbers and the
+  // media type (LLP 1069.002 A1, A1.11); app files only, so never the
+  // documents' backend.
+  files.compressImage = (from, to, maxDimension, maxBytes, type) =>
+    enqueue(async active => { const backend = await fileSystem(); active(); return backend.compressImage(from, to, {maxDimension, maxBytes, type}); }, clone, () => {}, true, 'compressImage');
   return {
     reserve, abandon,
     capability: Object.freeze({fs:Object.freeze(files),sqlite:Object.freeze({open:path => enqueue(async active => {

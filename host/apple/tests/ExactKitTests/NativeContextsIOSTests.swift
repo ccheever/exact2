@@ -257,8 +257,7 @@ final class NativeContextsIOSTests: XCTestCase {
         XCTAssertEqual((0..<3).map { segments.titleForSegment(at: $0) }, ["Day", "Week", "Month"])
         // A face that becomes a symbol drops its title.
         p.buttonFace = { [unowned self] id in id == 2 ? self.face(nil, symbol: "sun.max", label: "Day") : self.face(id == 3 ? "Week" : "Month") }
-        p.views[2]?.props["accessibilityLabel"] = "Day"
-        p.segments.sync()
+        p.apply(wireBatch([["op": "props", "id": 2, "set": ["accessibilityLabel": "Day"], "clear": []]]))
         XCTAssertNotNil(segments.imageForSegment(at: 0))
         XCTAssertEqual(segments.titleForSegment(at: 0) ?? "", "", "an image segment shows no title")
         // Symbols alone, named by their labels: image segments.
@@ -389,6 +388,19 @@ final class NativeContextsIOSTests: XCTestCase {
         XCTAssertEqual(node("period-Week")?.props["accessibilityChecked"], "false")
         p.segments.sync()
         XCTAssertEqual(segments.selectedSegmentIndex, 2)
+        // The same choice with radios that paint the chosen one (a class on
+        // one arm, LLP 1104 D2): the plan makes the group the author's, so
+        // it is never a segmented control, before a pick or after it, and its
+        // radios keep the group's keys.
+        let tint = try XCTUnwrap(node("tint"))
+        XCTAssertTrue(tint.subviews.compactMap { $0 as? UISegmentedControl }.isEmpty)
+        XCTAssertEqual(node("tint-Day")?.isHidden, false)
+        XCTAssertTrue(node("tint-Day")?.ariaRadioGroup === tint)
+        p.press(try XCTUnwrap(node("tint-Day")).id)
+        p.segments.sync()
+        XCTAssertTrue(tint.subviews.compactMap { $0 as? UISegmentedControl }.isEmpty, "a pick does not project it")
+        XCTAssertEqual(node("tint-Day")?.props["accessibilityChecked"], "true")
+        XCTAssertTrue(node("tint-Week")?.ariaRadioGroup === tint)
     }
 
     /// LLP 1116.003 (r5 weather: "ExactSegmentedControl covers its middle"):
@@ -587,7 +599,7 @@ final class NativeContextsIOSTests: XCTestCase {
         XCTAssertEqual(p.menus.activate(try XCTUnwrap(p.views[1])), true)
         XCTAssertNotNil(controller.presentedViewController as? UIAlertController)
         names[3] = "Citymapper"
-        p.menus.sync()
+        p.apply(facesBatch())
         XCTAssertNil(p.menus.observation(), "the sheet is gone")
         XCTAssertEqual(p.menus.activate(try XCTUnwrap(p.views[3])), false)
         XCTAssertEqual(pressed, [])

@@ -116,8 +116,10 @@ impl<D: DataSource> Runner<D> {
         }
     }
 
-    /// Whether any resource reads `key`: its source's own reader, or an
-    /// answer whose data code read it.
+    /// Whether any resource reads `key`: its source's own reader, an answer
+    /// whose data code read it, or one asked again that is reading it now.
+    /// A fresh answer's topics replace the last one's before its module
+    /// request lands (`settlement.rs`), so that request is a reader too.
     fn read_by_any(&self, key: &str) -> bool {
         let Some(row) = self.plan.modules.iter().find(|m| self.key(m) == key) else {
             return false;
@@ -125,6 +127,11 @@ impl<D: DataSource> Runner<D> {
         let source = self.plan.sources[row.source.0 as usize].name;
         (0..self.plan.resources.len()).any(|i| {
             self.plan.resources[i].source == source || self.watching[i].iter().any(|t| t == key)
+        }) || self.pending.iter().any(|p| {
+            (p.keepable.as_ref())
+                .and_then(|r| self.module_topic(&r.body))
+                .as_deref()
+                == Some(key)
         })
     }
 }

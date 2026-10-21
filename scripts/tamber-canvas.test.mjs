@@ -852,10 +852,11 @@ test('a session evicted past the cap takes its streams with it; a client has at 
 
 test('the JS loop\'s page reloads afresh when its checkpoint is refused (a canvas below write), and its script still parses', () => {
   const s = readFileSync(new URL('../host/web-js/dev.mjs', import.meta.url), 'utf8');
-  const head = 'const client = (n, revision) => `';
+  // (Its gallery page's options at their defaults: the app's own page.)
+  const head = "const client = (n, revision, { base = '/__dev', stream = '/__dev/page', page = null } = {}) => `";
   const i = s.indexOf(head) + head.length - 1, j = s.indexOf('</script>`;', i) + '</script>`'.length;
   const names = [...new Set([...s.slice(i, j).matchAll(/\$\{([^}]*)\}/g)].flatMap(m => m[1].match(/\b[A-Z_]{3,}\b/g) ?? []))].filter(n => n !== 'JSON');
-  const html = new Function('n', 'revision', ...names, `return ${s.slice(i, j)};`)(3, 'r', ...names.map(() => []));
+  const html = new Function('n', 'revision', 'base', 'stream', 'page', ...names, `return ${s.slice(i, j)};`)(3, 'r', '/__dev', '/__dev/page', null, ...names.map(() => []));
   const code = html.replace(/^<script>/, '').replace(/<\/script>$/, '');
   expect(() => new Function(code)).not.toThrow();
   // The 403 is checked before the failure that keeps the old page.

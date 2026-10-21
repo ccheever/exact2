@@ -25,6 +25,7 @@ mod actions;
 mod inputs;
 mod lines;
 mod messages;
+pub(crate) use messages::folds;
 mod native;
 mod title;
 mod value;
@@ -34,7 +35,7 @@ use native::native_row;
 pub(crate) use native::{margins_said, native_rows};
 
 use crate::{err, swipe_rows, LowerError};
-use contract_syntax::{Attr, Expr, Node, Span};
+use contract_syntax::{Attr, Expr, Node, Span, TemplatePart};
 
 /// `listStyle`'s names (D2), UIKit's three list appearances.
 pub(crate) const STYLES: &[&str] = &["inset-grouped", "grouped", "plain"];
@@ -638,7 +639,14 @@ fn section(style: &'static str, node: &Node, first: bool) -> Result<Node, LowerE
     })
 }
 
-/// A literal `symbol:` image source's Apple name, as the kernel names it.
+/// A symbol a prop or an expression names (`symbol:${name}`, a library
+/// row's): a symbol, which one known only when it runs, so no accessory (a
+/// row writes its chevron or checkmark literally). Its Apple name stands
+/// for any.
+const NAMED_SYMBOL: &str = "symbol";
+
+/// A `symbol:` image source's Apple name, as the kernel names it; a source
+/// a template writes (`symbol:${name}`) is [`NAMED_SYMBOL`].
 fn symbol(node: &Node) -> Option<&str> {
     let Node::Element {
         tag, positional, ..
@@ -658,6 +666,10 @@ fn symbol(node: &Node) -> Option<&str> {
                 other => other.strip_prefix("sf/").unwrap_or(other),
             })
         }
+        ("image", Some(Expr::Template(parts, _))) => match parts.first() {
+            Some(TemplatePart::Text(text)) if text.starts_with("symbol:") => Some(NAMED_SYMBOL),
+            _ => None,
+        },
         _ => None,
     }
 }
@@ -776,7 +788,16 @@ fn s_val(value: &str, span: Span) -> Expr {
 /// its form shows one (the Mac's, LLP 1115.002 D6).
 /// `swiped`: the row is a swipe's content, which the platform's list
 /// carries as a custom row.
+/// A grouped list's row: the sheet's rows, without the look of an element
+/// that yields it to the row (`row_look`).
 fn row(node: &Node, separated: bool, swiped: bool) -> Node {
+    match crate::row_look::yielded(node) {
+        Some(own) => styled(&own, separated, swiped),
+        None => styled(node, separated, swiped),
+    }
+}
+
+fn styled(node: &Node, separated: bool, swiped: bool) -> Node {
     let Node::Element {
         tag,
         attrs,
@@ -825,8 +846,10 @@ fn row(node: &Node, separated: bool, swiped: bool) -> Node {
     // a symbol before it at most, nothing at its trailing edge) is in the
     // platform's action ink: the tint in UIKit's list, as SwiftUI's
     // `List { Button }` and a hand-built action cell draw it. The kernel
-    // reads the same shape (`GroupedRow::action`).
-    let ink = if tag == "button" && action_cell(children) {
+    // reads the same shape (`GroupedRow::action`). A row that says whether
+    // it is selected is a choice, whose mark comes and goes: never one.
+    let choice = attrs.iter().any(|a| a.name == "aria-selected");
+    let ink = if tag == "button" && !choice && action_cell(children) {
         mv("action-color", span)
     } else {
         label()
@@ -1379,6 +1402,15 @@ fn part(child: &Node, at: Place<'_>, texts: &mut Count) -> Node {
                 _ => stack_of_lines(child, margins),
             }
         }
+        // The row's one part, a box the author laid its content out in (a
+        // button's face in a `row`), fills the cell, as a hand-built cell
+        // pins its stack to its content view's edges. As wide as its
+        // content, a bar in it was a share of its label's width (polls,
+        // round 29).
+        ("row" | "column" | "view", _) if i == 0 && last == 0 && !sized(child) => with(
+            child,
+            vec![attr("flex-grow", title_grow(), at), n("min-width", 0.0, at)],
+        ),
         _ => child.clone(),
     }
 }

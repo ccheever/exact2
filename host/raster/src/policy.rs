@@ -150,6 +150,11 @@ struct SessionState {
     evicted: u64,
 }
 impl SessionState {
+    /// The entries that hold a place in the queue ([`PENDING_JOBS`]): queued,
+    /// decoding (a cancelled decode still running counts: its slot and
+    /// reservation are held), ready and not yet taken. A delivered picture
+    /// is cache and a failed decode its views' answer; neither drains by
+    /// itself, so neither may refuse a new request.
     fn pending(&self) -> usize {
         self.entries
             .values()
@@ -159,7 +164,7 @@ impl SessionState {
                     Phase::Ready {
                         delivery: false,
                         ..
-                    }
+                    } | Phase::Failed(_)
                 )
             })
             .count()
@@ -554,9 +559,7 @@ impl RasterSession {
                 entry.requests.len() == 1
                     && matches!(
                         entry.phase,
-                        Phase::Queued { .. }
-                            | Phase::Failed(_)
-                            | Phase::Ready { delivery: true, .. }
+                        Phase::Queued { .. } | Phase::Ready { delivery: true, .. }
                     )
             });
             if session.pending() - usize::from(removable) >= PENDING_JOBS {

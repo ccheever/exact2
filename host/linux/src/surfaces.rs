@@ -144,6 +144,8 @@ impl Abi {
             if let Ok(at) = abi.library.get::<*const ()>(b"gpu_load_headless") {
                 crate::android::release_module_pages_too(*at as *const std::ffi::c_void);
             }
+            // Before either path: a headless world's look frames make a device too.
+            agent_tier(&abi);
             if abi.rendered {
                 #[cfg(windows)]
                 for name in ["gpu_window_frame", "gpu_window_detach"] {
@@ -1013,6 +1015,18 @@ impl Surfaces {
         self.deliver_posts();
         true
     }
+    /// The surface name of canvas `view`.
+    pub(crate) fn surface_of(&self, view: u32) -> Option<&str> {
+        self.canvases.get(&view).map(|c| c.name.as_str())
+    }
+    /// The surface names of the canvases on the page.
+    pub(crate) fn surface_names(&self) -> BTreeSet<&str> {
+        self.canvases.values().map(|c| c.name.as_str()).collect()
+    }
+    /// Whether posts to `name` still wait for a canvas of it.
+    pub(crate) fn waiting(&self, name: &str) -> bool {
+        self.posts.contains_key(name)
+    }
     /// Deliver held posts whose surface has a live canvas now, in order.
     pub(crate) fn deliver_posts(&mut self) {
         let names: Vec<String> = self.posts.keys().cloned().collect();
@@ -1068,6 +1082,11 @@ impl Surfaces {
     }
 }
 impl<D: DataSource> Presenter<D> {
+    /// `prefer gpu-tier`: the modules take the tier and remake their renderers.
+    pub fn retier_surfaces(&mut self, code: u8) {
+        self.surfaces.retier(code);
+        self.dirty = true;
+    }
     /// Presentation visibility and interruption, independent of saved simulation.
     pub fn surface_lifecycle(&mut self, hidden: bool, interrupted: bool) {
         self.surfaces.lifecycle(hidden, interrupted);
@@ -1075,6 +1094,18 @@ impl<D: DataSource> Presenter<D> {
 
     /// Settle mounted GPU surfaces after first pixel and forward their public state.
     pub fn sync_surfaces(&mut self) {
+        // The module's GPU tier is the page's (LLP 1139.003 D2).
+        if let Some(tier) = self.surfaces.tier() {
+            let page = self.host.runner().page();
+            if page.gpu_tier != tier {
+                if let Some(e) = self.set_page(exact_runner::Page {
+                    gpu_tier: tier,
+                    ..page
+                }) {
+                    self.surfaces.error = Some(e);
+                }
+            }
+        }
         // LLP 1056: the 2D canvases' draws for this turn's commits.
         self.dirty |= self
             .host
@@ -1428,3 +1459,7 @@ mod tests;
 #[cfg(test)]
 #[path = "surface_controls_tests.rs"]
 mod control_tests;
+
+#[path = "surfaces/tier.rs"]
+mod tier;
+use tier::agent_tier;

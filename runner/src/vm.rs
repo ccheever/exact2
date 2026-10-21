@@ -9,8 +9,10 @@
 //! trusted. There is no closure, no heap of the VM's own, no ambient read that
 //! is not an operand: `performanceNow()` reads the clock the runner passes in.
 
+mod decoded;
 mod list_call;
 mod prepared;
+use decoded::Decoded;
 use list_call::list_call;
 pub(crate) use prepared::Prepared;
 
@@ -157,7 +159,7 @@ impl Extent {
             Value::List(_) | Value::Record(_) | Value::Option(Some(_)) => None,
             v if v.is_str() => Some(Extent {
                 nodes: 1,
-                bytes: v.as_str().unwrap_or_default().len() as u64,
+                bytes: v.text_len() as u64,
                 depth: 0,
             }),
             _ => Some(Extent {
@@ -252,7 +254,7 @@ fn measure(v: &Value, depth: u32, total: &mut Extent, pc: usize) -> Result<(), T
     }
     total.nodes += 1;
     match v {
-        v if v.is_str() => total.bytes += v.as_str().unwrap_or_default().len() as u64,
+        v if v.is_str() => total.bytes += v.text_len() as u64,
         Value::List(items) | Value::Record(items) => {
             total.check(pc)?;
             for item in items.iter() {
@@ -409,6 +411,7 @@ pub fn eval(code: &[u8], env: &Env<'_>, allowed_writes: &[u32]) -> Result<Outcom
 pub(crate) struct Scratch {
     machine: Machine<Value, Extent>,
     extents: Extents,
+    decoded: Decoded,
 }
 
 impl Default for Scratch {
@@ -418,6 +421,7 @@ impl Default for Scratch {
         Self {
             machine,
             extents: Extents::default(),
+            decoded: Decoded::default(),
         }
     }
 }
@@ -506,6 +510,7 @@ fn eval_machine(
         cursor: Reader::new(code),
         out: Outcome::default(),
         extents: std::mem::take(&mut scratch.extents),
+        decoded: std::mem::take(&mut scratch.decoded),
         steps: 0,
     };
     let value = machine::run(&mut run, &mut scratch.machine);
@@ -515,6 +520,8 @@ fn eval_machine(
     scratch.machine.callbacks.clear();
     run.extents.0.clear();
     scratch.extents = run.extents;
+    run.decoded.clear();
+    scratch.decoded = run.decoded;
     run.out.value = value?;
     Ok(run.out)
 }
@@ -673,6 +680,7 @@ struct Run<'e, 'a> {
     cursor: Reader<'e>,
     out: Outcome,
     extents: Extents,
+    decoded: Decoded,
     steps: u32,
 }
 
@@ -684,6 +692,9 @@ impl Host<Value> for Run<'_, '_> {
         if pos >= self.code.len() {
             return Ok(None);
         }
+        if let Some(kept) = self.decoded.get(pos) {
+            return Ok(Some(kept));
+        }
         // Straight-line code reads on from the last instruction; a jump or a
         // callback's next item moves the cursor.
         if self.cursor.position() != pos {
@@ -693,7 +704,9 @@ impl Host<Value> for Run<'_, '_> {
                 .map_err(|_| Trap::Malformed { pc: pos })?;
         }
         let ins = decode(&mut self.cursor)?;
-        Ok(Some((ins, self.cursor.position())))
+        let next = self.cursor.position();
+        self.decoded.keep(pos, ins, next);
+        Ok(Some((ins, next)))
     }
 
     #[inline]
@@ -989,8 +1002,11 @@ impl Host<Value> for Run<'_, '_> {
         self.out.refreshes.push(r as u32);
     }
 
+    /// Called as each callback item begins: from the first, instructions
+    /// are kept decoded.
     #[inline]
     fn steps(&mut self, n: usize, pc: usize) -> Result<(), Trap> {
+        self.decoded.start(self.code.len());
         step(&mut self.steps, n, pc)
     }
 
@@ -1026,7 +1042,7 @@ mod tests {
     use exact_plan::asm::Asm;
     use exact_plan::builder::PlanBuilder;
 
-    fn run(body: Asm) -> Result<Outcome, Trap> {
+    pub(super) fn run(body: Asm) -> Result<Outcome, Trap> {
         run_reusing(body, &mut Scratch::default())
     }
 

@@ -74,6 +74,22 @@ final class BarReadoutIOSTests: XCTestCase {
         XCTAssertTrue(shape.group?.glyphs.isEmpty ?? true)
     }
 
+    /// A disabled button is UIKit's disabled bar item, shown dimmed, though
+    /// nothing presses it (the euxy port's "● Clock" written as one); one
+    /// neither pressed nor disabled is still the page's.
+    func testADisabledButtonIsADisabledItemThoughNothingPressesIt() throws {
+        let button = { (id: Int, props: [String: String]) -> [String: Any] in
+            ["op": "create", "id": id, "kind": "control", "props": ["type": "button", "accessibilityRole": "button"].merging(props) { $1 }]
+        }
+        let p = route([button(4, ["disabled": "true", "accessibilityLabel": "Clock"]), button(5, ["accessibilityLabel": "Idle"]),
+                       button(6, ["disabled": "false", "accessibilityLabel": "Enabled"])], kids: [4, 5, 6])
+        let shape = try XCTUnwrap(HeaderShape(route: try XCTUnwrap(p.views[1]), back: nil, projected: true))
+        XCTAssertEqual(shape.trailing.map(\.id), [4])
+        XCTAssertTrue(shape.trailing.first?.disabled ?? false)
+        XCTAssertTrue(shape.placed.contains { $0.id == 4 })
+        XCTAssertFalse(shape.placed.contains { $0.id == 5 || $0.id == 6 })
+    }
+
     /// With no `aria-label` a readout says the words it shows: a hidden
     /// text in it is not spoken.
     func testItsWordsAreTheOnesItShows() throws {
@@ -112,6 +128,35 @@ final class BarReadoutIOSTests: XCTestCase {
         XCTAssertEqual(Double(face.opacities[0]), 0.4, accuracy: 0.001, "the status's own opacity")
         XCTAssertEqual(item.label, "Connected")
         XCTAssertTrue(shape.placed.contains { $0.id == 4 })
+    }
+
+    /// A readout with words and no padding written is as wide as its face
+    /// plus a title item's inset each side, as a hand-built
+    /// `UIBarButtonItem(title:)` is, so the capsule's ends clear its words; a
+    /// side its author wrote is the author's, and a dot alone takes none.
+    func testUnsaidPaddingBesideWordsIsATitleItemsInset() throws {
+        func view(_ style: [String: Any], words: Bool = true) throws -> ReadoutView {
+            let p = route([status(4, style: style), ["op": "create", "id": 5, "kind": "view", "style": dot]] + (words ? [text(6, "Clock")] : []),
+                          kids: [4], more: [["op": "children", "id": 4, "ids": words ? [5, 6] : [5]]])
+            let route = RouteController(try XCTUnwrap(p.views[1]))
+            let shape = try XCTUnwrap(HeaderShape(route: route.node, back: nil, projected: true))
+            let view = try XCTUnwrap(p.navigation.barItems(shape.trailing, route).first?.customView as? ReadoutView)
+            window.addSubview(view)
+            p.navigation.showReadouts(shape, in: route)
+            view.layoutIfNeeded()
+            return view
+        }
+        let inset = HeaderShape.Item.titleInset
+        XCTAssertEqual(inset, 12)
+        let unsaid = try view([:])
+        let face = unsaid.stack.systemLayoutSizeFitting(UIView.layoutFittingCompressedSize).width
+        XCTAssertGreaterThan(face, 7 + 20, "a dot and a word")
+        XCTAssertEqual(unsaid.intrinsicContentSize.width, face + 2 * inset, accuracy: 0.01)
+        XCTAssertEqual(unsaid.stack.frame.minX, inset, accuracy: 0.01)
+        let written = try view(["padding_left": 4, "padding_right": 0, "written": ["padding_left", "padding_right"]])
+        XCTAssertEqual(written.intrinsicContentSize.width, face + 4, accuracy: 0.01, "the author's sides")
+        let dotAlone = try view([:], words: false)
+        XCTAssertEqual(dotAlone.intrinsicContentSize.width, 7, accuracy: 0.01, "no words, no inset")
     }
 
     /// The bar item's view: the author's direction with padding kept on

@@ -98,14 +98,16 @@ bun exact.mjs contract vocab timers dates-and-days task        # a timer, a day'
 |a number field, a stepper's `step`|`number-field`, `stepper`|
 |a chat that opens at its newest message|`chat-thread`|
 |a welcome at first launch|`first-launch`|
-|SQLite, grants|`files-and-grants`|
+|records kept across launches, a saved library (`state` holds values, not records): a JSON file, SQLite, grants|`files-and-grants`|
+|dice, a shuffle, a random pick or name (Contract has no `random()`: copy the recipe's `roll`)|`random-rolls`, `random-and-shuffle`|
 |location, or anything the person must allow|`permissions`|
 |another wide layout, a chart|`web-look`, `responsive-columns`, `content-design`|
-|video, a map, the camera (drawing is boxes and SVG, not Swift)|`native-views`|
+|a video, a looping hero clip, a song (the `video` and `audio` elements, with a `poster`)|["Sound, MIDI and media"](contract-for-agents.md#sound-midi-and-media)|
+|a map, the camera (drawing is boxes and SVG, not Swift)|`native-views`|
 |a shared server (Snapback): wiring, tests, sign-in|`snapback`, `snapback-tests`, `snapback-auth`|
 |ports, Bun, Chrome and its stores|`ports-and-browsers`|
 |porting an app, a release build, helpers sharing a port|`porting-and-release`|
-|a metronome, drum machine, sequencer or MIDI app: sound, MIDI, a transport (built in; write no native audio module)|["Sound, MIDI and media"](contract-for-agents.md#sound-midi-and-media); `apps/metronome`|
+|a metronome, drum machine, sequencer or MIDI app: sound, MIDI, a transport (built in; write no native audio module)|`sequencer`; ["Sound, MIDI and media"](contract-for-agents.md#sound-midi-and-media); `apps/metronome`|
 |transitions, keyframes, exit and layout animation|`motion`|
 |brand colours, light and dark, icon tokens|`theme`, `tamber`|
 |a module in Swift that `app.ts` asks; launch arguments|`native-module`|

@@ -857,9 +857,16 @@ row's value is the expression.
   take), a param's range included. A bare unset base name in a ranged param is checked the
   same way, per column, where it was refused before.
 - **What is refused:** `rem`, `em` or `%` beside a base name (as in any `calc()`), a base name
-  times or over a length (a base name's or px), a length added to a number, and shadow lengths
-  over a base name (`tamber-base-expression`, QUEUE). A base name the app's design sets folds
-  through as before.
+  times or over a length (a base name's or px), and a length added to a number. A base name the
+  app's design sets folds through as before.
+- *Amended 2026-10-20 (stage 12 B3; theme2's sign-off):* **a shadow token's lengths** may be any
+  of these: a bare base name, a length token, or a `calc()`, `min()`, `max()` or `clamp()` over
+  length tokens and base names. One length path for every shadow length: over a base the design
+  leaves unset it is kept, each host folding it in its own column (each base read recorded, so an
+  edit of it sets the row again); over px tokens and set bases it folds to px, so a shadow over
+  `space.md` keeps working when the app sets `space.md`. The compiler checks every column, its
+  blur never negative and its lengths within the limits. A literal `box-shadow` row's lengths
+  stay px (QUEUE).
 
 **Packages.** A package (`packages/reading`) may ship `<package>.tamber` with tokens named
 under its package (`reading.measure`, `reading.body`), which its views use. The app's design
@@ -1266,7 +1273,10 @@ component PostButton
   modes, and a change to it re-folds every param and token that reads it.
 - **Its identity is stable.** A component's identity is its declaring file, relative to its
   app or package root, and its name: `post.contract#PostButton`, or
-  `@scope/reading/article.contract#Article` for a package's. A param's full name is that
+  `@scope/reading/article.contract#Article` for a package's. A package outside the app needs a
+  name in its `package.json` (`contract-package-unnamed`, the path fix): its place from the app
+  would spell this machine's directories. A root file linked into the app's tree from elsewhere (a symlink, as
+  conform's corpus fixtures are) in no named package is the app's own, named where the link sits (one in a named package keeps its name); a file a `use` reaches is its target's (the path fix's follow-up). A param's full name is that
   identity and the param (`post.contract#PostButton.radius`). The short form
   `PostButton.radius` is accepted wherever it is unambiguous and refused where two
   components share the name (`tamber-param-ambiguous`); an import alias (`use X as Y`)
@@ -1564,7 +1574,7 @@ Android's reader and the terminal.
     `radius.sm/md/lg/full`, each base value from an existing metric or measured, never a
     multiplier, in px/points with no Dynamic Type scaling; an app may override a base name, a
     package may not; only the listed names are reserved; package components stay stage 12's.
-12. **A component library**: `.contract` packages over Tamber, with params (D15) as their
+12. **A component library** (*closed 2026-10-21; LLP 1139, its gate met, §10 there*): `.contract` packages over Tamber, with params (D15) as their
     tweakable surface and anatomy as checked data, keeping exact1 Facet's rule, "a recipe
     styles parts; it never forecloses slots". Its own RFC. **Gate:** set by that RFC; its
     first consumer is named before it starts.
@@ -3262,7 +3272,10 @@ mistaken for one. There are 88 symbol roles plus 58 aliases, not 76.
     value (a text, an attribute that is no row, a function's argument, a condition, a state, a
     derive, an action) is refused (`tamber-param-scope`), naming the param.
   - A param named where no component owns it is refused (`tamber-param-scope`): in a `style` or a
-    `keyframes`, which any component may apply; in a state's or a derive's value. So is one in
+    `keyframes`, which any component may apply; in a state's or a derive's value. *Amended
+    2026-10-20 (LLP 1139 D3, stage 12 C3; theme2's ruling, one rule for every component):* a
+    `style` one component's view alone applies is that component's, and its `param.*` are that
+    component's params; one another component applies too is no one's and stays refused. So is one in
     what a row computes (a function's argument, a condition, a comparison, a callback): what it
     computes is data the param's value never reaches, and a duration there would never be written
     in. A package's file is named by the package's declared name: the nearest directory above the
@@ -4605,6 +4618,134 @@ the loopback rewrite is functional, not a security boundary; the hosted relay is
 
 **Stage 10 is closed.** The `tamber/1.13` window is closed; the next wire change takes `tamber/1.14` (stage 11).
 
+**A fix after the close, under `tamber/1.15` (it opens the version; stage 11 closed `tamber/1.14`): no answer names the machine's directories.** It changes what every client reads in a `file` field (a local one too: app-relative or `<package>/<path>`, no longer absolute), so it is a version, not a fix inside 1.14. `hello` reports `tamber/1.15`; docs/tamber-protocol.md opens its bullet.
+`uses` gave a site's `file` as the source map's absolute path for a package's file and, past a link such as macOS's
+`/tmp`, for the app's own. A remote client saw the machine's directories. Every site file in `uses` and in
+`explain`'s icon sites is now named from the app's directory, as `explain` names a param's file
+(`node_modules/@acme/reading/index.contract`), by one helper (`tamber_uses::shown`); a package linked from outside
+the app keeps its path from `node_modules` on. A transaction's refusal names its file the same way. As a backstop,
+the server drops the app's directory, as given or canonical, from every answer's text, so a read error says
+`app.tamber: Permission denied`. Test: `tamber_serve_packages.rs` `no_answer_names_the_machines_directories`:
+`uses` on a package component's param gives the relative path, and ten answers and their events, plus a read error,
+hold neither form of the directory. It fails without the fix, checked by hand.
+The JS server (theme2's ruling: leaking local directories to remote clients is a fix): `hello`'s `app` stays the
+path for the local client, which `tamber tool` tells its own server by, and is the directory's name for any other
+(paired, through B's door or a tunnel; stage 10c's relay has no door on main yet). Every reply, stream event and
+long poll a client that is not local gets has the app's directory (as given and real) and the home directory
+dropped (a selection's source in a package was the map's absolute path). docs/tamber-protocol.md says so. Test:
+`tamber-remote.test.mjs`'s `no answer to a remote client names this machine's directories`, through the real design
+server with the app under the home directory. A paired client through B's TLS door asks hello, describe, resolve,
+explain, uses, a refused `set-row` on a package's file and a checker refusal with spans (`propose`, `transaction`),
+then hello through the tunnel and a long poll. No reply holds the app's or the home directory in either form,
+`hello.app` is the name, `uses` names `node_modules/@acme/reading/index.contract`, and the local hello is unchanged.
+It fails without the fix, checked by hand. `outline`, which takes `uses`'s sites, reads a file named from the app's
+directory as well as the map's own (its path, as given and real), so the design tool's outline of a token's sites
+still finds them (`tamber-server.test.mjs`'s wasm inspect test, which caught it).
+
+**After the path fix's review round 1 (Astra WRONG; Grok RIGHT WITH CHANGES; one rework):**
+- **No blanket replacement.** The Rust backstop in `Server::handle` and the JS one over replies, events and long polls
+  replaced the app's and home directory's text anywhere. That corrupted authored data: a token value holding
+  `<app>/assets/icon.svg`, a history's text, `/tmp/x` inside `/private/tmp/x`, and `/Users/admin` inside
+  `/Users/administrator`. The Rust one hit local clients too. Both are gone.
+- **Path metadata through one rule.** A file is named from the app's directory where it is in it (as given or
+  real); else from its package, the nearest directory above it whose `package.json` has a name
+  (`<name>/<path inside it>`, as D15's `sources::home` names a package's file, so a `file:` link outside the app and
+  the home directory is unique and stable); else `<outside>/<its name>`. Rust keeps it in `tamber_uses::shown` (for
+  `uses`, explain's icon sites and param file through `AppParams.files`, and a refusal's diagnostics), and JS in
+  `scripts/tamber-paths.mjs` `pathName`. JS applies it, by `file` fields only, to every reply and every event for
+  every client: a selection's source and chain, `inspect`, and the long poll. The stale-map and moved-file messages
+  of `tamber-inspect.mjs` name their file the same way.
+- **Machine-written messages are scrubbed at path boundaries,** for a client that is not local. The app's
+  directory becomes `<app>` and the home directory `~`, longest first, in the given and real forms, only where a
+  whole path starts and ends. It applies only to an `error`'s messages (and its diagnostics') and the `down` event's,
+  including the two 503s that bypassed it: a subscribe while down, and a long poll past the `down` event. Authored
+  text is not read.
+- **`outline` matches by the rule.** Each location's file and each map node's file are named by `pathName` and
+  compared, so a package linked from outside the app round-trips and two packages' same-named files stay apart. A
+  map's named nodes are kept per map read, since a map can move under one plan digest.
+- **Tests:**
+  - `scripts/tamber-paths.test.mjs`: the rule (inside the app, through its real path, through a link inside it, a
+    package's own path outside it, outside both); the boundaries (`/private/tmp/xy`, `<home>istrator`); and that
+    only an error's and `down`'s messages are scrubbed, never a commit's.
+  - `tamber-remote.test.mjs`, through the real design server, with the app under the home directory and
+    `@acme/linked` linked from outside both. A build is registered on the dev loop's channel whose map names the
+    package's real path. A paired client through B's door asks hello, describe, resolve, explain, uses ×2, a
+    refused `set-row` and a checker refusal (propose, transaction), and inspect. It also reads the selection in the
+    long poll (`@acme/linked/index.contract`), outlines `uses`'s site (it reaches the build: sites `[0]`), and asks
+    hello through the tunnel. No reply holds the app's, the home or the linked directory in either form, except
+    describe's authored metadata. Authored text (the token's `help` holding the app's path, the commit's message
+    naming it) is byte-identical to the local and the remote client.
+  - A design server that is down (it says the app's path on stderr): the remote subscribe and long poll are 503 with
+    `<app>`, and the `down` event in a long poll from the start is scrubbed too. Both tests fail without the
+    rework, checked by hand.
+  - `tamber_serve_packages.rs` `authored_text_holding_the_apps_path_is_kept`: a local proposal's diff, describe's
+    metadata and a scrub's fold keep a `help` value holding the app's path byte for byte.
+  - `tamber-server.test.mjs`'s wasm inspect test now expects the selection's file as `app.contract`.
+- **Not covered (round 1's view; wrong, see round 2):** a machine message naming a linked package's directory outside
+  the app and the home directory. A compile refusal does name one.
+
+**After the path fix's review round 2 (Astra WRONG; Grok RIGHT WITH CHANGES; their findings overlap):**
+- **A linked package's directory in a message is its name.** A compile or load refusal names a file by its path: a
+  missing named design (`sources/packages.rs`), an unreadable `use` target (`sources.rs`), resolution
+  (`resolve.rs`), and a transaction's diagnostics, which `uses`, `explain` and the others carry as `the app does
+  not build: …`. Round 2 rewrote each package root found under the app's `node_modules`. Its quick re-check found
+  that misses a nested dependency, a `node_modules` installed above the app, and Bun's per-file links (whose files
+  link into a store). So the scrubber no longer lists roots. In a machine message to a client that is not local,
+  every absolute path (a run from `/`, `~/` or a drive letter, up to white space, a quote, a backtick, `)` or a `:`
+  before a line number) is named by `pathName`, but a server's route (`/__…`), exempted by name: app-relative, its
+  package's `<name>/<path inside>`, or `<outside>/<name>`. It resolves from the path's nearest existing ancestor
+  (realpath, then the nearest named `package.json`), so a missing file under a missing directory of a package is
+  still the package's. (Re-check 2: a guard that kept a token unless it or its parent existed let a manifest's
+  `dist/theme.tamber`, never built, through whole.) Rust's `shown` resolves the same way. A `:line:col` after it
+  stays, and so does a sentence's full stop. The app's directory itself reads `<app>`, the home directory `~`, and
+  the app and home rule stays as a backstop for any other mention.
+- **Motion sites through a linked package keep their site.** `motion_sites` named its files for the reply before
+  `motion_instances` joined them against the elements' paths, so a linked package's duration or easing use lost its
+  instance (`site: null`) and its outline. It keeps the loader's path through the join; the finished reply is named
+  (`relative_files`).
+- **explain reads where the file is.** `AppParams` keeps each source's path on this machine (`paths`) beside its
+  name (`files`). explain reads a param's default as written through the path, so an outside package's `"4px"` keeps
+  its spelling. Only the emitted `file` is the name.
+- **The rest named too:** the subscribe snapshot (named, and scrubbed for a client that is not local), the long
+  poll's `proposals`, and export's `baseline` (`shown`, no `unwrap_or` to the absolute path).
+- **Tests:**
+  - `tamber-paths.test.mjs`: each path in a message is named and keeps its `:line:col` (`app.contract:3:7`); a
+    route is left, and a missing file under a missing directory is still named (`dist/theme.tamber`); a longer name
+    beside the app's or the home's is named from what exists above it (`<outside>/…`). A package's file is `<name>/…` however it is installed: a
+    link outside the app, a dependency nested in its `node_modules`, a `node_modules` above the app, and a Bun-style
+    per-file link into a store.
+  - `tamber-remote.test.mjs`: a design server that is down, whose stderr names a package's file outside the app
+    and the home directory, reads `… writes <app> (it read @acme/far/index.contract:2:1; no @acme/far/dist/theme.tamber)` to a remote client, in the
+    503s and the `down` event. `@acme/linked`, outside the app and the home directory, names a design under a `dist/` that was
+    never built (`dist/theme.tamber`). The local client's `uses` refusal holds the path; a paired client's refusals (`uses`, `explain`) hold
+    neither the outside directory nor the app's nor the home's, and `uses` says `@acme/linked/missing.tamber`. It
+    fails without the package rewrite.
+  - `tamber_serve_packages.rs` `a_package_linked_from_outside_keeps_its_motion_sites_and_its_defaults`: a linked
+    package outside the app. `uses` of a duration its view writes finds each instance (`site` set), named
+    `@acme/linked/index.contract`; `explain` gives the param's default as written (`"4px"`); neither names the
+    outside directory. It fails with either fix reverted.
+
+**After the path fix's re-check 3 (Astra; theme2's ruling: refuse it):**
+- **A package outside the app needs a name.** A linked package whose `package.json` has no `name` got an identity from its place from the app (`../../../Users/alice/shared/cards/index.contract#Card`),
+  which `describe` and `explain` sent whole and every param's full name carried. It is now a compile refusal,
+  `contract-package-unnamed`, at the `use` that reaches it: "the package `a` is outside the app and its `package.json`
+  has no `name`: a package outside the app needs a name in its package.json", naming the package as the `use` does,
+  never its path. `sources::home` answers none for it and the loader refuses, so no relative identity is made.
+- **A linked package ends at its root.** `home` walked every directory above a file to the app's, so a package with no
+  name inside an outer directory whose `package.json` has a name took that name: the same leak by another route. A
+  package's file is now named only by a directory between it and its package's root. A package that holds its own
+  test app (`packages/geolocation/test/fixture`) is its own: its root's name names it, where it was `../../…` before.
+- **Apps unchanged.** `contract build --json --errors-only` of all 90 `app.contract` roots in the checkout, before and
+  after: the same diagnostics (74 build, 16 refused as before). None hits the refusal; the geolocation fixture did
+  until the package-holds-the-app case above.
+- **Tests:** `tamber_params_tools.rs` `an_unnamed_package_outside_the_app_is_refused_even_inside_a_named_directory`
+  (two unnamed linked packages, refused at the app's `use` line with the package's `use` name and no directory of
+  theirs; again inside an outer named directory; named, two identities by their names) and
+  `a_package_holding_its_own_test_app_names_its_files_by_its_name`; `tamber-remote.test.mjs`'s
+  unnamed `@acme/linked` linked from outside the app and the home directory: a paired client's hello, describe,
+  explain, resolve and uses hold neither its directories nor its name nor any `../`, and `uses` says the refusal. Each
+  fails without the change.
+
 ### Stage 11, commit B1: the base scale table (draft for theme2)
 
 Built to the approved plan (`~/x2theme/x2p4-s11b-plan.md`, theme2's 09:56 approval and its conditions) and theme2's 10:57
@@ -5352,3 +5493,228 @@ Stage 12 §B's first commit, under no wire change (the server's existing fields 
   - After the key's second re-check (Astra): a reference is found by its folded form but keyed as written, so two tokens differing only in case (`Foo`, `foo`) stay two; a chain moved from one to the other builds again (`two_tokens_of_one_name_in_two_cases_stay_two`, failing without the fix)
   - After the key's fourth re-check (Astra; theme2's pre-approved fallback): the key holds a value VERBATIM whenever it names anything (a name of the designs, as folded, or any dotted word, a package token or a component's generated `param.…` name the designs don't declare); only a literal that names nothing (a hex, a length, `light-dark(#fff, #000)`, `rgba(…)`) is kept by its rough kind, so its edit is a cache hit. Each design's header name is keyed too (a package header repaired joins its tokens). So a non-literal value edit now recomputes retention, as an alias move does. Re-measured on the clone copy (/tmp/bsky-bench.py, debug, median of 5, ms; old key vs this key): a literal edit 370 vs 364 (warm 10 vs 12, a cache hit); an alias move 399 (the old key never rebuilt) vs 3354 (a whole-app compile, as round 3's key). A unit test in tamber_walk.rs holds the key's rules.
   - After the key's fifth re-check (Astra): every string the key holds (names, values, metadata, params, component params) is written quoted, so a metadata value decoding to a newline can't spell another token's row (a unit test, failing without the quoting)..
+### Stage 12, commit B2-levels: a param's three levels (draft for theme2)
+
+Stage 12 §B's levels, under `tamber/1.15` (stage 12 D1 opened it; B2-levels adds a clause to its one summary line).
+
+- **One walker** (`contract::tamber_levels`, library). Per tuple it starts at the app's own value of a param (its
+  `params` line, by its full name or a short name only it answers, with that line's `when` for the tuple), else the
+  param's default. It then follows each bare reference, in order: another param (its app value or its default), the
+  app's token (a role's spelling in any case), then a package's token, each line's value in the tuple. It goes at
+  most 8 hops (`HOPS`) and stops at a line whose value is no reference (a literal or an expression), at a base name or
+  at a role. It answers `Step {level, name}`, the level that wins and the name there: `app-param`, `app-token`,
+  `package`, `base`, `role`, or `default`. `default` is not in the plan's list: it is the param's own default being a
+  literal or an expression, the one case none of the five names (theme2: it stays; a tool's word for it is "the
+  component's default"). rt1's stage 12 D3 reads the same walker; its
+  signature was sent to rt1.
+- **`resolve` of a param**: each tuple adds `level` and `name`, from the walker.
+- **`explain` and `resolve` of a param**: `levels: {token, app, base, param}` when the default is a reference;
+  `levels: null`, explicitly, for a literal or an expression (theme2's ruling; round 1).
+  - `token` is the first token the default names, `{name, package?, file, line, value}`: a package's own line with
+    stage 11 A2's `package` and `file` exactly, else the app's.
+  - `app` is the app's override of that package token, `{file, line, value}`, or null.
+  - `base` is the base name every tuple reaches, as stage 11 D's `bases` names it, or null when the tuples' walks
+    differ or one reaches none (theme2's ruling; each tuple's own is on `resolve`'s tuples).
+  - `param` is the app's own value, `{file, line, value}`, or null; `param.set` stays.
+- **`describe`**: a param whose default is a bare reference adds `reaches: {token, base, app_set}`, compact.
+- **Tests** (`contract/cli/tests/it/tamber_levels.rs`, through the server, with `@acme/reading`'s Contract `Card`
+  and its design's `Map`):
+  - each level wins in turn on one param: the package's line, the app's override (`levels.app`), the app's value
+    (`levels.param`, and `param.set` kept), and an app value naming an app token;
+  - a chain of package tokens;
+  - a base name (`Card.inset` through `reading.gap = space.md`), a role (`AccentColor`), and an expression
+    (`levels: null`, its tuples `default`);
+  - `describe`'s `reaches`;
+  - levels differing by tuple (`reading.gap` 12px, `when mode=b: space.lg`): `app-token` then `base`, and
+    `levels.base` null; then a `when` sending one tuple to another base (`space.md`, `when mode=b: space.lg`):
+    each tuple's base, and `levels.base` null; with no `when`, `space.md` in both and `levels.base` `space.md`;
+  - a chain of ten app tokens stopping after eight (`c7`).
+
+**After review round 1 (Astra RIGHT WITH CHANGES, Grok RIGHT WITH CHANGES):**
+- **Roles as the checker keys them** (Astra 1 = Grok 1). A role's override is found in either spelling and any case,
+  as `tamber/src/check.rs` `role_key` reads it: `Secondary-Label = …` or `-exact-Secondary-Label = …` overrides
+  `-exact-secondary-label`, and `accentcolor = …` overrides `AccentColor`. An app value written `secondary-label`
+  reaches the override too. A role or its override is named by the row spelling the fold publishes. Only a row
+  spelling stops the walk as a role, as the fold names a role.
+- **Icon params** (Astra 3). `resolve` and `explain` of an icon param returned before the additions; both return
+  paths now carry them (`Designs::annotate`, one call for every param). The walker reads the app's icon tokens. A
+  package's icons are not read yet (`tamber-package-block`), so a package icon param's default is a literal.
+- **`levels.token` walks** (Astra 4 = Grok 2). A default naming another param (`edge: color = param.pin` in a
+  `.tamber`, `edge: length = "param.inset"` in Contract) follows params' defaults, never the app's `params` lines, at
+  most 8 hops, to the first app or package token (`reading.pin`, `reading.gap`).
+- **References, not literals** (Astra 5). A reference is a bare name that is a param, an app token or icon, a package
+  token, a base name or a role's row spelling. `transparent` and `-1` are literals. A literal or an expression
+  default answers `levels: null`, explicitly. describe's `reaches` stays omitted there.
+- **`levels.base`** (Astra 2): every tuple's walk agreeing (folded in from theme2's ruling above).
+- **Tests** (Grok 3): `reaches.app_set` true under an override; a chain's `levels.token` is its first token
+  (`reading.chain`); an app-set `space.md = 10px` wins as `app-token`. Two new tests:
+  `a_roles_override_in_either_spelling_and_an_app_set_base_name` (both spellings, mixed case, the fold's value
+  agreeing) and `icon_params_param_aliases_and_literals` (a literal package icon param with `levels: null`, an app
+  component's icon param naming the app's icon, the app setting the package's icon param through its icon and as
+  written, both aliases, `transparent` and `-1`). Each fails on the commit before.
+
+**After review round 2 (Astra RIGHT WITH CHANGES, Grok RIGHT WITH CHANGES):**
+- **`levels.token` keeps the walk's cap** (Astra 1 = Grok 1). `levels` took the default's reference and then followed
+  8 more params, one hop past the walk. The default's reference is now the first hop, so `levels.token` and
+  `reaches.token` name a line the walk can reach: at most 7 params passed, the token at hop 8.
+- **A light/dark pair stops on its line** (Grok 2). A `when` naming an axis `under scheme=dark` makes a colour's pair
+  (the checker's `under_value`: light from the line without that axis, dark from the `when`). The walk followed the
+  dark side alone. It now follows neither: the line owning the pair wins, so `level` and `name` match the tuple's
+  light/dark value.
+- **Tests:**
+  - `levels_token_keeps_the_walks_eight_hops`: nine `.tamber` params, each naming the next and the last
+    `reading.pin` (eight aliases): the tuple's level is `default` on the last param, `levels.token` and
+    `reaches.token` null. Eight reach `reading.pin` at hop 8, and both say it.
+  - `a_light_dark_pair_stops_on_its_line`: `reading.chain = #ffffff` with `when dark-style=dim: reading.pin`: both
+    tuples `app-token` `reading.chain`, the dim tuple light `#ffffff`, dark `#333333`.
+  - `two_axes_overlapping_whens_on_a_package_token_and_an_app_param` (Astra 2): axes `mode` and `size`. A package
+    token has `when mode=b`, `when size=l` and `when mode=b size=l`; then the app's `params` line has its own
+    `when size=l` and `when mode=a size=l`. Every tuple's modes, level, name and value are asserted.
+  - Each fails with its fix reverted (checked by hand: `0..HOPS`; the pair arm removed; the first holding `when` in
+    place of the most specific).
+- **§10's lead sentence** (Grok 3) says `levels: null` for a literal or an expression, as the wire does.
+- **After review round 3 (Astra RIGHT, Grok RIGHT):** two NITs taken: the test summary says `levels: null` for an expression, and the stage-4 `uses` comment in contract/cli/src/lib.rs sits on `tamber_uses` again.
+- **Follow-up: a level per side** (theme2's 19:30 ruling, option (a), from dtool2's T1 reviewers' counterexample). A
+  tuple's value carries a light and a dark side, but its level was one: with every `when` on an axis `under
+  scheme=dark`, the pair arm made the owning line win both sides, though Light follows the line's own value. Each
+  tuple's `level` and `name` are now `{light, dark}`, each side walked on its own as the fold picks it: dark the most specific holding `when` of all, light the
+  most specific holding `when` naming no axis under `scheme=dark`, either the line's own value when none holds (the
+  pair arm above is gone).
+  `levels.base` is the base every tuple reaches on both sides. It changes the type of a field added in this open 1.15
+  window, which no released client reads: a correction within the window, said on the 1.15 line. rt1's D3 and
+  dtool2's T1 read the per-side shape.
+  - Tests: `a_params_line_with_dark_only_whens_wins_dark_and_follows_its_reference_light` (the counterexample: an
+    app `params` line `Map.pin = reading.chain` with dark-only `when` lines: light `package` `reading.pin`, dark
+    `app-param` in both tuples; red with the light side taking dark's `when`s); `a_light_dark_pair_is_walked_per_side`
+    (was `…stops_on_its_line`: the dim tuple's dark side now `package` `reading.pin`); the other tests assert both
+    sides alike where no axis is under `scheme=dark`.
+  - After round 1 (Astra RIGHT WITH CHANGES, Grok RIGHT): `mixed_axis_whens_are_walked_per_side` (Astra 1, Grok 1):
+    `when` lines mixing an axis under `scheme=dark` with a normal one on an app `params` line, and a two-axis normal
+    `when` outranking one under dark on a package token, each side's level, name and value asserted (red with
+    `.all(under)` for `.any(under)`); the docs say the light side takes the most specific `when` naming no axis under
+    dark, not the line's own value alone (Astra 2).
+
+### Stage 12, commit B3: shadows over base names, per host column (draft for theme2)
+
+theme2's 15:30 ruling on the plan (`~/x2theme/x2p4-s12b3-plan.md`; QUEUE's two items, the lead's 15:20Z). D11's
+2026-10-20 amendment reaches a shadow token's lengths. The schema, SCHEMA_DIGEST, FORMAT_DIGEST, `BoxShadows`, its
+codec and the wire don't move: the theme row's value is the shadow's text, its lengths written as B2's expressions.
+
+- **Tamber.** A shadow's length is a `ShadowLength`: px, or a B2 `Residual` over base names the design leaves
+  unset. A bare unset base name (read through `Names::base` first, so the "any other value" refusal no longer fires
+  in a shadow), a token aliasing one, a `Length::Base` token (inlined, its bases read), and a length's `calc()`,
+  `min()`, `max()` or `clamp()` over one (B2's own fold, so `calc(space.md)` is `space.md`) are kept. B2's refusals
+  hold as they are. `Shadows::css()` writes each residual's text: `0px calc(space.md * 2) 4px #000000ff`. The
+  token's `bases` gain every base its shadows read. A literal blur is still refused when negative; one over base
+  names is checked per column by the build. A base name the design sets is its token and folds to px, as before.
+- **Kernel.** `theme::measure_at` folds a shadow entry whose text names a base: `scale::fold_lengths` splits it at
+  white space and commas outside parentheses, folds each item naming a base (each base read as an alias reads it,
+  the design's own first, the read recorded, under the row's own rule for a varying token) with the kernel's
+  `calc()` to px in this process's column, and keeps every other item and separator byte for byte. The unchanged
+  `BoxShadows`/`TextShadow` codec reads the result, so Apple, Linux, Android, the terminal (cells as px) and the
+  wasm web get the column's px by one path. The runner's `set_tokens` keeps what a re-set row read beside what it
+  read before (`ThemeIndex::also_read`), so a later edit of a base a token's new value reads sets the row again.
+- **Lowering.** A shadow token is checked in every column (`scale::refusal`): its lengths must fold, and the row's
+  codec must take the folded text (a blur not negative, a length within a shadow's limits). The first column that
+  fails is refused, `tamber-base-expression`, naming the column and the expression (`card.shadow` is `0px 1px
+  calc(space.lg - space.xs * 3.5) #000000ff`, the shadow `0px 1px -1px #000000ff` on mac, which no host draws: a
+  blur radius is never negative). A row naming the token checks each column's text (`scale::expanded`), as a
+  length's px.
+- **JS target.** The token's CSS is the row's CSS for the build's column (colours as css.rs writes them, every
+  length said) with each length written over a base its property's `var()` or B2's `calc()` over them
+  (`base_scale::shadow`); a shadow over a base name declares the scale's nine properties. A release's static row is
+  the column's px, as the kernel folds it.
+- **Outside Exact.** The DTCG export folds each length with the base's px (the neutral column), the shadow's text in
+  `$extensions.exact.lossy`; `tamber gen`'s CSS writes the neutral column's px (`Shadows::folded`).
+- **The literal's word (QUEUE's item).** A refused shadow, border or gradient literal is looked at again: a word
+  with a `.` that names no token of the design and no role is `tamber-unknown-token` (`` `box-shadow="0px 0px 8px
+  eu.nope"`: `eu.nope` is no token of this app's design and no role``); in a shadow, a length token or a base name
+  is `tamber-kind`, pointing to a shadow token (`` a shadow row's lengths are px: name a shadow token (`x:
+  box-shadow = 0 space.md 4px black`) to read `space.md` ``). A literal shadow stays px (theme2's Q1: QUEUE). The
+  kernel's own message is unchanged.
+- **Wire.** One clause on the `tamber/1.15` line (theme2's Q2): a shadow token's `bases` list the base names its
+  lengths read. Per-column folded shadow text in `explain` and `resolve` is QUEUE's, beside D1's per-column values.
+- **Tests:** `contract/cli/tests/it/tamber_base_shadow.rs` (each kept form and its text, folded in the neutral, mac
+  and iOS columns; `bases`; a base the design sets; B2's refusals in a shadow; a negative blur on mac alone and an
+  unfoldable length, each naming its column; the literal's words; `uses` of an inlined length token; the DTCG
+  export); `tamber_shadows.rs` (a live `set-token space.md` re-setting a shadow row over it; the unknown colour now
+  `tamber-unknown-token`); `tamber_serve_base.rs` (`resolve`'s `lengths` as written, `explain`'s `bases`);
+  `tests/base_expression.rs` (a shadow row in each of the five columns, in its own
+  process); kernel `style::scale` (`fold_lengths`; `measure` of a shadow entry, the design's base first, every read
+  recorded, a varying base refused); tamber `shadow` (text, `bases`, `folded`); web-js `base_scale_tests` (the
+  `var()` text, a release row, a development build's property); host/web `tests/base_scale.rs` (a wasm boot's
+  `box-shadow` in the neutral column, through the kernel).
+
+**After review round 1 (Astra, Grok; theme2's rulings T1–T3):**
+- **A length's function in a shadow folds as a length's** (Astra 1, blocking). `calc(space.md * 2)` in a shadow
+  compiled while `space.md` was unset and was refused, read as a colour, once the design set it. Every `calc()`,
+  `min()`, `max()` and `clamp()` in a shadow now folds by B2's length fold whatever it names: px, a px length token
+  (`calc(gap * 2)`) or a base the design sets give px, an unset base a residual. Main read such a function over px or
+  a length token as a colour and refused it; it is accepted now, by the one path.
+- **`length_texts`** (theme2's T1). `resolve`'s shadow `lengths` keep their type: a length over base names is null
+  there, and a parallel `length_texts` (only when one is) gives every length's text, px ones too (`["0px",
+  "space.md", "calc(space.sm * 2)"]`). The 1.15 clause names `bases` and `length_texts`.
+- **A state look keeps what it newly read** (Grok 1). `looks::op` returns the tokens a look read as resolved again,
+  and `set_tokens` adds them to the look's (`ThemeIndex::looks_read`), as a row's: a `:hover` shadow re-set to read
+  `space.md` follows the next edit of `space.md`. The bits are added, never replaced (Grok 3's nit, left so and said
+  in `also_read`'s comment): a stale bit costs one re-set that changes nothing.
+- **A base name or length token in a border or gradient literal** (Grok 2) is no unknown token: the row's own refusal
+  stands (`lower-css-shorthand`, `lower-attr-value`). Only a dotted identifier is looked up as a token (Astra 4): a
+  letter first, then letters, digits, `.`, `_` and `-`; a number, a dimension (`-1.5px`) or a function
+  (`rgb(0.5 0.25)`) keeps the row's width or colour refusal.
+- **A colour function is kept whole by `fold_lengths`** (Grok 4): `rgb()`, `hsl()`, `lab()`, `oklch()`, `color()`,
+  `color-mix()`, `light-dark()` and their kin are never folded as lengths, a base name inside one left for the codec
+  to refuse.
+- **An export from before the header's shadow clause** (theme2's T3, Grok 5) still finds its baseline, by the header's
+  design digest: kept, or the design's own export; one value edited in it proposes exactly that edit (Astra 5).
+- **Tests:** `a_shadows_function_folds_as_a_lengths_whatever_it_names` (unset then set; `calc(gap * 2)`; px; a pick
+  over both), the literal's words for a border's and a gradient's base name and length token,
+  `state_looks::a_look_follows_a_base_its_shadows_new_value_reads`, `tamber_serve_base`'s `length_texts` (and none
+  for a px shadow), kernel `fold_lengths`' colour functions, tamber `an_export_from_before_the_shadow_clause_still_finds_its_baseline`.
+
+**After review round 2 (Astra RIGHT WITH CHANGES, Grok RIGHT WITH CHANGES; every round 1 item confirmed):**
+- **`fold_lengths` folds only a length** (Astra 1): a bare word, or a `calc()`, `min()`, `max()` or `clamp()` in any
+  case; every other function is kept whole, so a platform colour whose asset is named `space.md`
+  (`-exact-platform-color(ios named:space.md, #000)`) or a `contrast-color()` no longer makes a px shadow unfoldable.
+- **A literal's name is Tamber's** (Astra 2): `scan::dotted_name` is tamber's own `is_name` (now exported) with a `.`,
+  so `_eu.nope` is looked up as a token.
+- **An unkinded shadow of lengths' functions** (Grok 1): `shadow::looks` counts a `calc()`, `min()`, `max()` or
+  `clamp()` as a length, so `card.shadow = 0 max(1px, 2px) calc(2px * 3) black` gets "reads as a shadow: write its
+  kind", not a colour's refusal.
+- **Tests:** kernel `fold_lengths` (a platform colour, `contrast-color()`, `CALC()`);
+  `a_platform_colour_named_for_a_base_is_kept_whole` (box and text); `an_unkinded_shadow_of_functions_asks_for_its_kind`
+  (both repros); the literal's words for `_eu.nope` on a shadow and a border.
+
+**After review round 3 (Astra RIGHT WITH CHANGES, Grok RIGHT WITH CHANGES; every earlier item confirmed):**
+- **One length predicate** (both): `scale::is_length_item` (px, unitless `0`, a bare base name, or a `calc()`,
+  `min()`, `max()` or `clamp()` in any case) is what `fold_lengths` folds and what the JS target's shadow rewrite
+  counts as a length, so a platform colour whose asset is named `space.md` stays a colour there too, on a box and a
+  text shadow, and no inserted length is paired with it.
+- **QUEUE's per-column shadow entry** (Astra) says theme2's shape: `lengths` null for a length over base names, with
+  `length_texts`.
+- **An unkinded value's functions over plain numbers** (Grok) are a number's: `shadow::looks` counts a `calc()`,
+  `min()`, `max()` or `clamp()` as a length only over a dimension, a length token or dial, a named length or an
+  unset base name, so `n = min(1, 2) max(3, 4) calc(5)` keeps its earlier refusal.
+- **Tests:** web-js `a_shadow_over_base_names_writes_their_properties` (the platform colour, box and text, as the
+  row's CSS); kernel `is_length_item`; `an_unkinded_shadow_of_functions_asks_for_its_kind` (functions over base
+  names, and over numbers).
+
+**Follow-up: per-column shadow values** (`tamber/1.16`'s first change, stage 12 having closed: hello bumps; QUEUE's B3 entry beside D1's, the lead's 20:40Z task;
+theme2's 20:50 ruling on `~/x2theme/x2p4-s12-shadowcols-plan.md`). A shadow token's value with a length over unset
+base names gets D1's `columns` in D1's places: `explain`'s value, each `when` line (as the first tuple choosing it
+folds it) and each of `resolve`'s tuples, `{ios, mac, neutral, material: {value}}`, each `value` the whole shadow's
+text as that column's host reads it, by the kernel's own `scale::fold_lengths` over the scale table's column (never
+a copy; a colour, a platform colour named `space.md` included, kept whole). Each of `resolve`'s shadows with
+`length_texts` gains `columns: {col: {value, lengths}}` (Q2): its own text there and every length's px as a number,
+in `lengths`' order, never null. No terminal column for a shadow (Q1): the terminal draws none, the doc's one stated
+exception to D1's "left out only where it doesn't fold". A px-only shadow, or one over a base the app sets (folded
+to px), has no `columns` key. rt1's D1 carry-overs hold: a zero is never negative (`calc(space.md * -0)` compiles to
+a px length of -0, which the per-shadow numbers write 0; the kernel's `calc()` folds no zero to -0), a default's
+columns come from the first tuple choosing it, read per column, and the key is absent, not empty. The code is
+`shadow_columns_of` and `one_shadow_columns` beside `columns_of` in contract/cli/src/tamber_base.rs; D1's length path
+is unchanged.
+- Tests (`contract/cli/tests/it/tamber_serve_shadow_columns.rs`, every expected px from the kernel's evaluator): a box
+  shadow over `space.md` and `calc(space.sm * 2)` (explain, its px-only `when`, resolve's token and per-shadow
+  columns); a `when` line's list with a px-only shadow among two over bases; a default the first tuple doesn't
+  choose; a text shadow; a platform colour named `space.md`; px-only and app-set shadows with no key; a length
+  keeping `terminal` while a shadow has none; no -0.

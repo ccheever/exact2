@@ -335,7 +335,7 @@ fn stage_rust_bundle(
         serde_json::from_slice(&receipt).map_err(|e| format!("Rust bundle receipt: {e}"))?;
     if meta["version"].as_u64() != Some(1)
         || meta["kind"] != "rust"
-        || meta["abi"].as_u64() != Some(2)
+        || meta["abi"].as_u64() != Some(crate::compat::RUST_ABI.into())
     {
         return Err("Rust bundle has an unsupported receipt or ABI".into());
     }
@@ -521,7 +521,7 @@ fn artifact_graph(
             b.kind == exact_plan::BindingKind::Prop
                 && exact_kernel::PropId::from_wire(b.id) == Some(exact_kernel::PropId::Hatch)
         })
-        .filter_map(|b| crate::colors::literal(plan, b))
+        .filter_map(|b| crate::colors::literal(plan, &b))
         .filter(|word| handled.iter().any(|h| h == word))
         .collect();
     marked.sort_unstable();
@@ -645,7 +645,7 @@ fn launch_background(plan: &exact_plan::Plan) -> &'static str {
     let literal = |node: &exact_plan::NodesRow, kind, id: u16| {
         node.bindings.iter().find_map(|b| {
             let b = plan.binding(b);
-            (b.kind == kind && b.id == id).then(|| crate::colors::literal(plan, b))
+            (b.kind == kind && b.id == id).then(|| crate::colors::literal(plan, &b))
         })
     };
     let route = plan.nodes.iter().find(|node| {
@@ -655,7 +655,7 @@ fn launch_background(plan: &exact_plan::Plan) -> &'static str {
             && literal(node, Prop, PropId::TestId as u16) != Some(Some("not-found"))
     });
     let ground = route.and_then(|node| {
-        literal(node, Style, exact_kernel::StyleId::BackgroundColor as u16).flatten()
+        literal(&node, Style, exact_kernel::StyleId::BackgroundColor as u16).flatten()
     });
     if ground == Some("-exact-grouped-background") {
         "grouped"
@@ -713,10 +713,16 @@ fn apply_release(compat: &mut Compat, bytes: &[u8], plan: &[u8]) -> Result<(), S
         || envelope.stream.compatibility_id != compat.id
         || envelope.stream.seq == 0
     {
-        return Err(
-            "publisher receipt does not name this app, channel, cohort and a published sequence"
-                .into(),
-        );
+        return Err(format!(
+            "publisher receipt names {} {} {} seq {}; this binary is {} {} {}",
+            envelope.app_id,
+            envelope.stream.channel,
+            envelope.stream.compatibility_id,
+            envelope.stream.seq,
+            baked.embedded.app_id,
+            baked.embedded.channel,
+            compat.id
+        ));
     }
     if envelope.plan.sha256 != compat.embedded["plan"]["sha256"]
         || envelope.plan.bytes != plan.len() as u64
@@ -1002,7 +1008,7 @@ component App
         let inputs =
             json!({"app":"com.exact.caltrain","grantCeiling":"","rustGrants":"","rustMode":"wasm"});
         let module = b"\0asm\x01\0\0\0";
-        let receipt = json!({"version":1,"kind":"rust","abi":2,"appId":inputs["app"],"grants":"",
+        let receipt = json!({"version":1,"kind":"rust","abi":crate::compat::RUST_ABI,"appId":inputs["app"],"grants":"",
             "target":"wasm32-unknown-unknown","executor":"wasm",
             "plan":{"file":"app.plan","sha256":hash(plan),"bytes":plan.len()},
             "module":{"file":"app.module.wasm","sha256":hash(module),"bytes":module.len()}});

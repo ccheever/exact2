@@ -105,6 +105,9 @@ pub fn abi_supported(abi: &str) -> bool {
 pub const STORAGE_TYPES: &str = ibex2::bindings::TYPESCRIPT;
 /// The per-call wall-clock budget a module is held to, unless the host says otherwise.
 pub const DEFAULT_BUDGET_MS: f64 = 100.0;
+/// A module load longer than this is journalled: on an iPhone 17 Pro Max a 2 MB
+/// catalog built at the top level took 314 ms, all of it after first pixel.
+const SLOW_LOAD_MS: f64 = 50.0;
 /// The runtime's heap ceiling, unless the host says otherwise.
 pub const DEFAULT_MAX_HEAP: u32 = 64 << 20;
 
@@ -454,6 +457,7 @@ impl Module {
         if self.engine.is_some() {
             return Ok(());
         }
+        let started = Instant::now();
         let engine = self.load_engine().map_err(|error| {
             if self.watch.take() {
                 "exact-js: the module was interrupted while it loaded".to_string()
@@ -472,6 +476,12 @@ impl Module {
             return Err("exact-js: the module's grants differ from what the bake recorded".into());
         }
         self.engine = Some(engine);
+        let took_ms = started.elapsed().as_secs_f64() * 1e3;
+        if took_ms > SLOW_LOAD_MS {
+            self.logs.push(format!(
+                "the module's top level took {took_ms:.0} ms to evaluate, and every answer waits for it after first pixel: compute what a source needs in that source, or once on its first call"
+            ));
+        }
         Ok(())
     }
 

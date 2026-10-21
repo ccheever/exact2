@@ -62,7 +62,6 @@ style Segment
   flex-basis=0
   padding-top=6
   padding-bottom=6
-  align-items="center"
 style SegmentText
   font-size=13
   font-weight=600

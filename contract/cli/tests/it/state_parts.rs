@@ -198,7 +198,10 @@ fn a_host_states_look_is_recorded_one_a_state() {
         looks[0].bindings.len, 4,
         "a border colour is its four sides"
     );
-    let own: Vec<u16> = plan.nodes[node.0 as usize]
+    let own: Vec<u16> = plan
+        .nodes
+        .get(node.0 as usize)
+        .unwrap()
         .bindings
         .iter()
         .map(|b| plan.binding(b).id)
@@ -556,9 +559,10 @@ fn a_param_read_only_by_a_state_part_is_reached() {
             .computed(StyleId::Opacity)
     );
     assert!(o.contains("0.6") || o.contains("0.59999"), "{o}");
-    // In a style's state part, which any component may apply, a param is
-    // out of scope, as in a style's row.
-    std::fs::write(dir.join("app.contract"), "component App\n  view\n    PostButton()\n\nstyle Look\n  :active\n    background-color = \"param.fill\"\n\ncomponent PostButton\n  params\n    fill: color = \"accent.fill\"\n  view\n    column class=Look background-color=\"param.fill\"\n      text \"Post\"\n").unwrap();
+    // In a style's state part, which another component applies too, a
+    // param is out of scope, as in a style's row; one component alone
+    // applying it reads its params (LLP 1139 D3).
+    std::fs::write(dir.join("app.contract"), "component App\n  view\n    PostButton()\n    column class=Look\n      text \"x\"\n\nstyle Look\n  :active\n    background-color = \"param.fill\"\n\ncomponent PostButton\n  params\n    fill: color = \"accent.fill\"\n  view\n    column class=Look background-color=\"param.fill\"\n      text \"Post\"\n").unwrap();
     let e = contract::compile_path(&dir.join("app.contract")).unwrap_err();
     assert_eq!(e.id, "tamber-param-scope", "{e:?}");
     let _ = std::fs::remove_dir_all(&dir);

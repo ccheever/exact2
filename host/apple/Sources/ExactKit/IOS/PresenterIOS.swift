@@ -428,13 +428,13 @@ package final class Presenter {
     /// A `key` handler called `stopPropagation()` (`keyDown(at:_:)`, KeyEvents.swift).
     var propagationStopped = false
 
-    /// One native focus intent, bound to the actual editor across controller
-    /// transitions. Replacing a node with the same HTML id cannot inherit it.
-    private var pendingFocus: (node: NodeView, args: [Any], selectText: Bool, reason: String)?
+    /// One focus intent, bound to the editor even without an authored id.
+    /// Replacing a node with the same HTML id cannot inherit it.
+    private var pendingFocus: (node: NodeView, name: String?, selectText: Bool, reason: String)?
     private var deliveringFocus = false; lazy var elementScrolls = ElementScrolls(self) // held `scrollIntoView` requests (IntoView.swift)
     var pendingFocusObservation: [String: String]? {
-        guard let pending = pendingFocus, let name = pending.args.first as? String else { return nil }
-        return ["target": name, "reason": pending.reason]
+        guard let pending = pendingFocus else { return nil }
+        return ["target": pending.name ?? "#\(pending.node.id)", "reason": pending.reason]
     }
 
     func cancelPendingFocus() { pendingFocus = nil }
@@ -443,7 +443,7 @@ package final class Presenter {
     func flushPendingFocus() {
         guard let pending = pendingFocus, !applying, !navigation.defersFocus, !modals.defersFocus else { return }
         guard views[pending.node.id] === pending.node,
-              pending.node.props["id"] == pending.args.first as? String,
+              pending.node.props["id"] == pending.name,
               !navigation.isInactiveRoute(containing: pending.node) else {
             pendingFocus = nil
             session?.log("pending focus cancelled: its target or route was replaced")
@@ -452,7 +452,7 @@ package final class Presenter {
         guard pending.node.window != nil, pending.node.bounds.width > 0, pending.node.bounds.height > 0 else { return }
         pendingFocus = nil
         deliveringFocus = true
-        focusElement(pending.args, selectText: pending.selectText)
+        focus(pending.node, selectText: pending.selectText)
         deliveringFocus = false
     }
 
@@ -520,22 +520,22 @@ package final class Presenter {
             session?.log("focus \"\(name)\" refused: no live node with that id")
             return
         }
-        focus(target, args, selectText: selectText)
+        focus(target, selectText: selectText)
     }
 
     /// A hatch's `focus()` on the node it resolved (LLP 1075.003 §3.4).
-    func focusNode(_ target: NodeView) { focus(target, [target.props["id"] ?? ""], selectText: false) }
+    func focusNode(_ target: NodeView) { focus(target, selectText: false) }
 
     /// The node an action's `focus()` last named, delivered yet or not: a field's Return reads it to learn whether its `submit` asked for the keyboard back (LLP 1115.000 D9.2).
     weak var focusAsked: NodeView?
-    private func focus(_ target: NodeView, _ args: [Any], selectText: Bool) {
+    private func focus(_ target: NodeView, selectText: Bool) {
         focusAsked = target
         let name = target.props["id"] ?? "#\(target.id)"
         // UIKit may not announce its next transition until after the outgoing
         // sheet starts dismissing. The selected route's editor already exists,
         // but cannot receive focus until its controller mounts it in a window.
         if !deliveringFocus, navigation.defersFocus || modals.defersFocus || target.window == nil {
-            pendingFocus = (target, args, selectText, navigation.defersFocus
+            pendingFocus = (target, target.props["id"], selectText, navigation.defersFocus
                 ? "navigation is still transitioning" : modals.defersFocus
                 ? "the sheet is still presenting" : "the target is not mounted")
             flushPendingFocus()
@@ -765,7 +765,7 @@ package final class Presenter {
         defer { fieldsWaiting = outerWaiting }
         defer { applyLanguage(batch); applyWakeLock(batch) }
         if applySnapshots(batch) { return }
-        PaintOrder.begin()
+        PaintOrder.begin(); let schemes = ColorSchemes.begin(); defer { schemes.end() }
         let post = Self.signposts.beginInterval("apply")
         defer { Self.signposts.endInterval("apply", post) }
         collections.beginBatch(batch)
@@ -817,13 +817,13 @@ package final class Presenter {
                 flushPendingFocus(); elementScrolls.flush()
             }
         }
-        var beganGeometry = false
-        var touchedIDs: [UInt32] = []
+        var beganGeometry = false, touchedIDs: [UInt32] = []
         let rowsOnly = onlyListRows(batch)
+        if batch.controls { controls.facesChanged() }
         for op in batch.ops {
             let kind = op.op
             switch kind {
-            case .create, .props, .style, .children, .paragraph, .flow, .frame: touchedIDs.append(op.id)
+            case .create, .props, .style, .children, .paragraph, .flow, .frame: touchedIDs.append(op.id); controls.faceChanged(op.id)
             default: break
             }
             if kind == .create || kind == .frame || kind == .content { moved = true }
@@ -990,7 +990,7 @@ package final class Presenter {
             default: break
             }
         }
-        regridMoved()
+        schemes.end(); regridMoved() // every override and move made: the traits before anything reads them
         flats.flush()
         // A view the flush promoted and mounted may have moved its children.
         while !gridMoved.isEmpty { regridMoved(); flats.flush() }
@@ -1013,7 +1013,7 @@ package final class Presenter {
         playPauseKey.sync()
         #endif
         segments.sync()
-        controls.sync(contents: batch.controls, touched: touchedIDs)
+        controls.sync(contents: false)
         #if os(tvOS)
         // A remembered node's replacement owns focus only after its native
         // control exists, so retarget guides in this same batch after sync.

@@ -37,6 +37,10 @@ struct TextRasterImage {
     var cast: IOSurface? = nil
     #endif
     var castHeadroom: Float = 0
+    /// The one colour the paragraph paints in, when `image` is its coverage
+    /// alone (one byte a pixel) for a layer to show in that colour
+    /// (`TextRasterJob.tints`); nil when `image` holds the colours.
+    var tint: CGColor? = nil
 }
 
 extension TextRasterImage {
@@ -80,6 +84,10 @@ struct TextRasterJob {
     /// Core Animation doesn't map a layer shadow's color to the limit. Runs'
     /// own HDR shadows (`exactShadow`) are painted there too.
     var shadow: TextRunShadow? = nil
+    /// Paint one-colour text as coverage alone, for a layer that colours it
+    /// as it composites (`TextRasterImage.tint`): a quarter of the bytes,
+    /// and Core Graphics' cheaper glyph path, as a `UILabel`'s backing store.
+    var tints = false
 
     static let maxInkOverflow: CGFloat = 256
     /// `input` within `limit` (the box and its ink allowance) and `clip`, out
@@ -104,6 +112,7 @@ struct TextRasterJob {
     /// and a shadow cast 512 points to one side about 2 MB.
     static let maxShadowReach: CGFloat = 512
     private static let srgb = CGColorSpace(name: CGColorSpace.sRGB)!
+    private static let gray = CGColorSpaceCreateDeviceGray()
     private static let p3 = CGColorSpace(name: CGColorSpace.displayP3)!
     private static let extended = CGColorSpace(name: CGColorSpace.extendedSRGB)!
     /// The bitmap's space and its colours' peak (LLP 1100 D2, D8): extended
@@ -226,6 +235,15 @@ struct TextRasterJob {
               pixelWidth < CGFloat(Int.max), pixelHeight < CGFloat(Int.max) else { return nil }
         let width = Int(pixelWidth), height = Int(pixelHeight)
         let (space, headroom, deep) = format
+        if let tint = tints && headroom == 0 && !deep ? oneColor(lines) : nil {
+            guard let mask = bitmap(width: width, height: height, space: Self.srgb, headroom: 0, deep: false, alphaOnly: true, paint: {
+                paint(lines, positions, frame: frame, height: height, scale: scale, pass: .ink, into: $0)
+            }) else { return nil }
+            var out = TextRasterImage(mask.pixels, frame: frame, covered: covered, headroom: 0)
+            // The colour's alpha is in the coverage already.
+            out.tint = tint.copy(alpha: 1)
+            return out
+        }
         // Runs' own HDR shadows, each once.
         var casters: [TextRunShadow] = []
         source.enumerateAttribute(.exactShadow, in: NSRange(location: 0, length: source.length)) { value, _, _ in
@@ -264,6 +282,37 @@ struct TextRasterJob {
         return out
     }
 
+    /// The colour every glyph and decoration paints in, when nothing else in
+    /// the paragraph has one (no stroke, inline background, run shadow or
+    /// decoration of another colour) and no glyph brings its own (an emoji's).
+    private func oneColor(_ lines: [CTLine]) -> CGColor? {
+        var color: CGColor?, other = false
+        let all = NSRange(location: 0, length: source.length)
+        source.enumerateAttributes(in: all) { attributes, _, stop in
+            if attributes[.exactHidden] != nil {
+                return
+            }
+            let ink = (attributes[.foregroundColor] as? PlatformColor)?.cgColor
+            guard let ink, color == nil || color == ink,
+                  attributes[.exactBackground] == nil, attributes[.exactShadow] == nil, attributes[.shadow] == nil,
+                  attributes[.strokeColor] == nil, ((attributes[.strokeWidth] as? NSNumber)?.doubleValue ?? 0) == 0,
+                  [NSAttributedString.Key.underlineColor, .strikethroughColor].allSatisfy({ key in
+                      attributes[key].map { ($0 as? PlatformColor)?.cgColor == ink } ?? true
+                  })
+            else { other = true; stop.pointee = true; return }
+            color = ink
+        }
+        guard !other, let color else { return nil }
+        for line in lines {
+            for run in CTLineGetGlyphRuns(line) as! [CTRun] {
+                let value = (CTRunGetAttributes(run) as NSDictionary)[kCTFontAttributeName] as CFTypeRef?
+                if let value, CFGetTypeID(value) == CTFontGetTypeID(),
+                   CTFontGetSymbolicTraits(value as! CTFont).contains(.traitColorGlyphs) { return nil }
+            }
+        }
+        return color
+    }
+
     #if os(iOS) || os(tvOS)
     private typealias Pixels = CGImage
     #else
@@ -271,13 +320,14 @@ struct TextRasterJob {
     #endif
 
     /// One bitmap: `deep` is half float in extended sRGB, tagged with its
-    /// headroom; else four bytes a pixel. `keepsImage`: the pixels as an
-    /// image too, to draw from.
-    private func bitmap(width: Int, height: Int, space: CGColorSpace, headroom: Float, deep: Bool, keepsImage: Bool = false,
-                        paint: (CGContext) -> Void) -> (pixels: Pixels, image: CGImage?)? {
-        let pixelBytes = deep ? 8 : 4
+    /// headroom; `alphaOnly` one byte a pixel, coverage alone; else four
+    /// bytes a pixel. `keepsImage`: the pixels as an image too, to draw from.
+    private func bitmap(width: Int, height: Int, space: CGColorSpace, headroom: Float, deep: Bool, alphaOnly: Bool = false,
+                        keepsImage: Bool = false, paint: (CGContext) -> Void) -> (pixels: Pixels, image: CGImage?)? {
+        let pixelBytes = deep ? 8 : alphaOnly ? 1 : 4
         let bitmapInfo = deep
             ? CGImageAlphaInfo.premultipliedLast.rawValue | CGBitmapInfo.floatComponents.rawValue | CGBitmapInfo.byteOrder16Little.rawValue
+            : alphaOnly ? CGImageAlphaInfo.alphaOnly.rawValue
             : CGImageAlphaInfo.premultipliedFirst.rawValue | CGBitmapInfo.byteOrder32Little.rawValue
         #if os(macOS)
         guard width > 0, height > 0,
@@ -307,7 +357,7 @@ struct TextRasterJob {
         guard !rowOverflow, !overflow else { return nil }
         return withScratch(bytes) { scratch -> (pixels: Pixels, image: CGImage?)? in
             guard let ctx = CGContext(data: scratch, width: width, height: height, bitsPerComponent: deep ? 16 : 8,
-                                      bytesPerRow: row & ~63, space: space, bitmapInfo: bitmapInfo)
+                                      bytesPerRow: row & ~63, space: alphaOnly ? Self.gray : space, bitmapInfo: bitmapInfo)
             else { return nil }
             paint(ctx)
             guard var image = ctx.makeImage() else { return nil }

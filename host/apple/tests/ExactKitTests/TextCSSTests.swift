@@ -220,6 +220,43 @@ final class TextCSSTests: XCTestCase {
         XCTAssertEqual(drawn(700), 600, "700 matches the 600 face, drawn at its declared weight")
     }
 
+    /// LLP 1019 D9: `font-variation-settings` draws after the weight, the
+    /// width and the size, each axis it names winning; `font-stretch` on a
+    /// platform face is its `wdth`, as Chrome and WebKit set San Francisco's.
+    func testFontVariationSettingsWinAndAPlatformFaceStretches() throws {
+        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().appendingPathComponent("../../../../")
+        let flex = try Data(contentsOf: root.appendingPathComponent("host/linux/tests/fonts/RobotoFlex-subset.ttf").standardized)
+        let engine = TextEngine(resolve: { _ in nil }, read: { _ in flex })
+        let family = Array("Flex".utf8), source = Array("flex.ttf".utf8)
+        family.withUnsafeBufferPointer { f in
+            source.withUnsafeBufferPointer { src in
+                var face = ExactFontFace()
+                face.family = f.baseAddress; face.family_len = f.count
+                face.source = src.baseAddress; face.source_len = src.count
+                face.stack = 8; face.weight = 100; face.weight_max = 1000
+                face.stretch_min = 250; face.stretch_max = 1510; face.italic = 0
+                var catalog = ExactFontCatalog()
+                withUnsafePointer(to: &face) { row in
+                    catalog.faces = row; catalog.count = 1
+                    withUnsafePointer(to: &catalog) { engine.install($0) }
+                }
+            }
+        }
+        func tag(_ s: String) -> UInt32 { s.utf8.reduce(0) { $0 << 8 | UInt32($1) } }
+        func width(_ family: Int, _ weight: Int, _ stretch: CGFloat, _ axes: [FontAxis] = []) -> CGFloat {
+            let font = engine.font(size: 48, weight: weight, family: family, italic: false, stretch: stretch, variations: axes)
+            let line = CTLineCreateWithAttributedString(NSAttributedString(string: "EXACT", attributes: [.font: font]))
+            return CGFloat(CTLineGetTypographicBounds(line, nil, nil, nil))
+        }
+        XCTAssertEqual(width(8, 700, 100, [FontAxis(tag: tag("wdth"), value: 50)]), width(8, 700, 50))
+        XCTAssertEqual(width(8, 700, 100, [FontAxis(tag: tag("wght"), value: 300)]), width(8, 300, 100))
+        XCTAssertEqual(width(8, 700, 100, [FontAxis(tag: tag("GRAD"), value: 150)]), width(8, 700, 100), "a grade keeps the advances")
+        // system-ui (stack 0): San Francisco's `wdth` is the stretch.
+        XCTAssertLessThan(width(0, 400, 75), width(0, 400, 100))
+        XCTAssertLessThan(width(0, 400, 100), width(0, 400, 125))
+        XCTAssertEqual(width(0, 400, 75), width(0, 400, 100, [FontAxis(tag: tag("wdth"), value: 75)]))
+    }
+
     /// LLP 1019 D2, D8: a face declared over a weight range and a width range
     /// draws each request on `wght` and `wdth`, clamped to the ranges, as a
     /// browser draws an `@font-face` with range descriptors; matching treats

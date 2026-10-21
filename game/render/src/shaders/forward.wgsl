@@ -86,7 +86,7 @@ fn shade(input: Surface, visibility: f32) -> vec4<f32> {
     if frame.sun_direction_illuminance.w > 0.0 {
         let l = -frame.sun_direction_illuminance.xyz;
         color += brdf(n, v, l, albedo, metallic, roughness) * vec3<shading>(frame.sun_color_count.xyz)
-            * shading(frame.sun_direction_illuminance.w) * shading(visibility);
+            * shading(frame.sun_direction_illuminance.w) * shading(visibility * water_caustics(input.world));
     }
     if LIGHTS {
         if frame.fill_direction_illuminance.w > 0.0 {

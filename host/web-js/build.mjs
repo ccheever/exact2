@@ -1,5 +1,5 @@
 import { asyncContext, bundleOptions, lowered, webImplementations } from '../../js/bake/src/typescript.mjs';
-import { hatchWords, moduleDirectory } from '../../scripts/app.mjs';
+import { hatchWords, moduleDirectory, webAppManifest } from '../../scripts/app.mjs';
 // The web build's JS target: `bun host/web-js/build.mjs <app> [--plan <baked app.plan>] [--out <dir>]`.
 //
 // 1. `exact-web-js js` compiles the plan (the app's Contract, or a baked
@@ -85,13 +85,7 @@ const input = opt('--plan') ?? opt('--contract') ?? resolve(appDir, 'app.contrac
 const manifest = JSON.parse(readFileSync(resolve(appDir, 'app.json'), 'utf8'));
 // documents-glue reads the app's web manifest lazily. The JS path exits from
 // host/web/build.mjs after this builder succeeds, so it owns the same artifact.
-const webManifestKeys = ['name', 'short_name', 'description', 'id', 'start_url', 'display', 'theme_color', 'background_color', 'icons', 'lang', 'orientation', 'file_handlers', 'protocol_handlers', 'launch_handler'];
-const webManifest = Object.fromEntries(webManifestKeys.filter(key => manifest[key] !== undefined).map(key => [key, manifest[key]]));
-if (webManifest.file_handlers) webManifest.file_handlers = webManifest.file_handlers.filter(handler => !Object.keys(handler.accept ?? {}).includes('inode/directory'));
-if (!webManifest.file_handlers?.length) delete webManifest.file_handlers;
-webManifest.name ??= manifest.app?.name ?? manifest.name;
-webManifest.start_url ??= '/';
-webManifest.lang ??= 'en';
+const webManifest = webAppManifest(manifest, manifest.app?.name ?? manifest.name);
 writeFileSync(resolve(out, 'manifest.json'), JSON.stringify(webManifest, null, 2) + '\n');
 // Rust data: the app's own module (`rust.module`), or a module generated
 // from the DataSource its web build bakes with (host/web-js/module.mjs).
@@ -398,7 +392,7 @@ writeFileSync(resolve(gen, 'main.js'), [
   ...(notifies ? ["import './notify.js';"] : []),
   ...(soundTable ? [`import { install as sounds } from './sounds.js'; sounds(${soundTable});`] : []),
   ...(wakelock ? ["import { install as wakelock } from './wakelock.js'; wakelock();"] : []),
-  "import { data, journal, clock, advance, commit, inflight, Views, viewId, After, Clocked, R, resolvedLocale, Resources, Mutations, writeRecords } from './rt.js';",
+  "import { data, journal, clock, advance, commit, inflight, Views, viewId, After, Clocked, R, resolvedLocale, Resources, Mutations, writeRecords, agentMode } from './rt.js';",
   ...(production ? [] : ["import { develop } from './perf.js';", "import { goTo } from './rt.js';"]),
   // A data module's answers, watched from before the app asks (seam.js).
   ...(production || !asks ? [] : ["import { seam } from './perf.js';", 'seam();']),
@@ -425,16 +419,37 @@ writeFileSync(resolve(gen, 'main.js'), [
   // A development page counts its work and samples its frames (LLP 1079); the agent adapter, only when the agent drives it.
   // The served plan's digest, which a development page's `perf` names (LLP 1079 D2).
   ...(production ? [] : [`  globalThis.exact.plan = ${JSON.stringify(createHash('sha256').update(readFileSync(opt('--plan') ? resolve(opt('--plan')) : resolve(gen, 'app.plan'))).digest('hex'))};`, "  globalThis.exact.goTo = goTo;", "  develop(globalThis.exact).catch(console.error);", "  if (clock.agent) globalThis.exact.ready = import('./agent.js').then(m => m.install(globalThis.exact));"]),
+  "  booted?.();",
   "};",
+  // The declared fonts are the stylesheet's `font-display: optional` faces (src/faces.rs): a face first needed while it
+  // still loads is never used on the page, so with a slow or uncached font file the page kept the fallback for good,
+  // where the wasm host waits up to 100 ms for its faces before its first render (glue.js prepareFonts). The first
+  // render here waits the same way: each face loads, for at most 100 ms, and one loaded by then is used.
+  // Only the plan's own faces (`ExactPlanStack<n>`, exact_web::host::fonts), never another stylesheet's. While it
+  // waits, `exact.ready` is a promise the boot settles, so a reader that finds the TypeScript data's early
+  // `globalThis.exact` (the dev client, inspect) waits for the runtime rather than reading a half-made one.
+  "const faces = typeof document === 'object' && document.fonts ? [...document.fonts].filter(f => /^\"?ExactPlanStack\\d+\"?$/.test(f.family) && f.status !== 'loaded') : [];",
+  "const fonts = faces.length ? Promise.race([Promise.all(faces.map(f => f.load().catch(() => {}))), new Promise(r => setTimeout(r, 100))]) : null;",
+  "let booted; if (fonts) (globalThis.exact ??= {}).ready = new Promise(r => { booted = r; });",
+  // What armed itself at module load (sounds' output, a native page module's connection) reads `clock.agent` in a
+  // callback that a font wait lets run before the first render, where `mount` sets it: set it now.
+  "if (fonts) clock.agent = agentMode();",
+  "const go = f => fonts ? fonts.then(f) : f();",
+  // Under the agent, an animation the first renders start (an indeterminate progress's turn) is held at the clock it
+  // began at after each commit, before a frame shows it, until agent.js, which loads after the first render, takes it
+  // (its `register`): never left on the browser's clock, nor turned on the compositor first (LLP 1069.001: a spinner
+  // follows the agent's clock), as the wasm host holds each commit's at once.
+  "if (agentMode()) { const early = (globalThis.exact ??= {}).early = new WeakMap(); After.push(globalThis.exact.holdEarly = () => { for (const a of document.getAnimations()) if (!early.has(a) && a.playState === 'running' && (!a.timeline || a.timeline instanceof DocumentTimeline)) { early.set(a, clock.now); a.pause(); a.currentTime = 0; } }); }",
   ...(rust ? [
     // Rust data: loaded after first pixel, asked synchronously once ready;
     // a plan with a resource that has no compiled value waits for it.
     // Counted in flight, so `clock settle` waits for the source to be ready.
     "const load = () => import('./rust-data.js').then(m => m.install(data, sources)).finally(() => inflight.n--);",
     "inflight.n++;",
-    `if (wait || ${mixed}) load().then(start); else { start(); requestAnimationFrame(() => setTimeout(load)); }`,
-  ] : ['start();']),
-  ...(containerHatches ? ["requestAnimationFrame(() => requestAnimationFrame(() => import('./hatches.js').then(m => m.containers())));"] : []),
+    `if (wait || ${mixed}) load().then(() => go(start)); else go(() => { start(); requestAnimationFrame(() => setTimeout(load)); });`,
+  ] : ['go(start);']),
+  // After the first render, which a font wait may defer (`containers()` reads the runtime's `globalThis.exact`).
+  ...(containerHatches ? ["go(() => requestAnimationFrame(() => requestAnimationFrame(() => import('./hatches.js').then(m => m.containers()))));"] : []),
 ].join('\n'));
 for (const f of ['agent.js', 'check.js', 'perf.js', 'seam.js', 'rust-data.js', 'list.js', 'facts.js', 'modules.js', 'symbols.js', 'motion.js', 'drag-target.js', 'transform.js', 'svg-transform.js', 'dataset.js', 'format.js', 'hatches.js', 'arrange.js', 'reorder.js', 'flow.js', 'native.js', 'shared.js']) cpSync(resolve(here, f), resolve(gen, f));
 // The web host's own pieces the runtime loads (glue.mjs).

@@ -104,6 +104,7 @@ pub struct GroupedRow {
     /// symbol before it at most, and nothing at its trailing edge, whose
     /// title the platform's list draws in the tint (LLP 1116.019 D6), as
     /// the sheet's `grouped-action-color` does (`contract/lower/src/grouped.rs`).
+    /// A row with `aria-selected` is a choice, never one.
     pub action: bool,
     /// `destructive`.
     pub destructive: bool,
@@ -159,6 +160,16 @@ pub struct TextFont {
     pub family: u16,
     /// `font-variant-numeric`'s bits (1: `tabular-nums`).
     pub numeric: u8,
+    /// Which of the five its author said, by [`TextFont::SAID`]'s bits: the
+    /// host keeps the platform's own for the rest (LLP 1115.000 D2), so a
+    /// family written on the page leaves a cell's size and weight UIKit's.
+    pub said: u8,
+}
+
+impl TextFont {
+    /// The bits of `said`, in [`FONT`]'s order: size, weight, style, family
+    /// and numerals.
+    pub const SAID: [u8; 5] = [1, 2, 4, 8, 16];
 }
 
 /// The rows a text's font is made of.
@@ -182,16 +193,22 @@ impl TextLook {
             rows.set(row);
         }
         let s = node.computed_style(rows);
+        let said = FONT
+            .iter()
+            .zip(TextFont::SAID)
+            .filter(|(row, _)| node.says(**row))
+            .fold(0, |said, (_, bit)| said | bit);
         let font = TextFont {
             size: s.font_size,
             weight: s.font_weight,
             italic: s.font_style == FontStyle::Italic,
             family: s.font_family,
             numeric: s.font_variant_numeric,
+            said,
         };
         let mut look = TextLook {
             color: node.says(StyleId::TextColor).then_some(s.text_color),
-            font: FONT.iter().any(|row| node.says(*row)).then_some(font),
+            font: (said != 0).then_some(font),
             ..TextLook::default()
         };
         let clamp = node.style.line_clamp;
@@ -459,8 +476,28 @@ impl Kernel {
         if out.title.is_none() {
             out.custom = true;
         }
+        // UIKit's content configuration draws none of the row's box: a row
+        // whose author wrote an edge of it, or its background image, is its
+        // own views, carried, as every other host draws it (LLP 1084 D7).
+        let w = &row.style.written;
+        if out.authored_edge
+            || [
+                (StyleId::BorderWidthTop, StyleId::BorderStyleTop),
+                (StyleId::BorderWidthRight, StyleId::BorderStyleRight),
+                (StyleId::BorderWidthBottom, StyleId::BorderStyleBottom),
+                (StyleId::BorderWidthLeft, StyleId::BorderStyleLeft),
+            ]
+            .iter()
+            .any(|&(width, line)| w.has(width) || w.has(line))
+        {
+            out.custom = true;
+        }
+        // A row that says whether it is selected (`aria-selected`, true or
+        // false) is a choice, as a checkmark list's rows are: its title is
+        // the label's whether or not its mark shows now, never an action's.
         out.action = out.pressable
             && row.props.str(PropId::Href).is_none()
+            && !row.props.contains(PropId::AccessibilitySelected)
             && out.accessory == Accessory::None
             && out.secondary.is_none()
             && !out.subtitle
@@ -606,14 +643,15 @@ pub(crate) fn apply_margins(arena: &NodeArena, slot: u32, s: &mut taffy::style::
     }
 }
 
-/// Whether the margins of a grouped list reach `slot` where it stands: a
-/// list four boxes up at most has them (a `delete=` row's content is the
-/// deepest box `apply_margins` moves).
+/// Whether the margins of a grouped list, or a cells list's (LLP 1138),
+/// reach `slot` where it stands: a list four boxes up at most has them (a
+/// `delete=` row's content is the deepest box `apply_margins` moves).
 pub(crate) fn reached(arena: &NodeArena, slot: u32) -> bool {
-    arena.has_grouped_margins()
+    (arena.has_grouped_margins()
         && std::iter::successors(arena.parent(slot), |s| arena.parent(*s))
             .take(4)
-            .any(|s| arena.grouped_margins(s).is_some())
+            .any(|s| arena.grouped_margins(s).is_some()))
+        || crate::rows::in_cells(arena, slot)
 }
 
 /// Style `slot` and what it holds again, as deep as the margins reach from

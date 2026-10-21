@@ -13,6 +13,9 @@
 import { pacer } from "./pace.js";
 import { assetDelivery } from "./gpu-assets.js";
 import { inertAncestor } from "./navigation.js";
+import { padPoller } from "./gpu-pads.js";
+import { chooseTier, TIERS } from "./gpu-tier.js";
+import { showRefusal } from "./gpu-refusal.js";
 const artifact = new URL(import.meta.url).searchParams.get("artifact");
 const stem = artifact ?? "gpu";
 let gpu;
@@ -76,6 +79,7 @@ let pendingCutover;
 const RECOVERY_LIMIT = 5;
 let recoveryTimer, recoveryFailures = 0, recoveryErrorLogged = false, recoveryTerminalLogged = false, lossDuringRecovery = false;
 let terminalDevice = false;
+let tierCode = 0; // the GPU tier this page told its modules (gpu-tier.js `TIERS`)
 let raf = null;
 let finishReady;
 const ready = new Promise((resolve) => { finishReady = resolve; });
@@ -118,6 +122,7 @@ const pendingRecovery = () => {
 };
 async function settleModule() {
   await ready;
+  await Promise.all([...surfaces.values()].map(e => e.refusalPage?.ready));
   if (trapped()) return [];
   const deadline = performance.now() + 2500;
   while ((recoveringDevice || recoveryTimer) && performance.now() < deadline) await new Promise(resolve => setTimeout(resolve, 0));
@@ -263,6 +268,8 @@ function resetRecovery() {
 function fallback(entry) {
   if (entry.fallbackApplied) return;
   entry.fallbackApplied = true;
+  // No adapter: the canvas's box says why, and world requests are refused by type (LLP 1139.003 D1).
+  if (api.recovery?.code === "no-adapter") { entry.unsupported = refusal(api.recovery.error); showRefusal(entry); }
   entry.terminal = true;
   entry.wants = false;
   for (const row of entry.children ?? []) restoreChild(row);
@@ -276,8 +283,8 @@ function fallback(entry) {
 function terminalRecovery(outcome) {
   terminalDevice = true;
   recoveryFailures = RECOVERY_LIMIT;
-  for (const entry of surfaces.values()) fallback(entry);
   api.recovery = outcome;
+  for (const entry of surfaces.values()) fallback(entry);
 }
 function reportRecovery(error, terminal) {
   if (!recoveryErrorLogged || (terminal && !recoveryTerminalLogged)) {
@@ -379,7 +386,10 @@ function headroom(el) {
 function renderModule(entry, now) {
   if (entry.terminal || (hidden && !exact.now) || recoveringDevice || recoveryTimer) return;
   const { w, h, s } = size(entry.el);
-  const pw = Math.max(1, Math.round(w * s)), ph = Math.max(1, Math.round(h * s));
+  // The backing store is the raster the module draws: a world's render scale (its quality rung) shrinks it, and CSS stretches it to the box.
+  // In f32, as the module's Frame::pixels rounds it, so the two agree to the pixel.
+  const f = Math.fround, rs = gpu.gpu_render_scale?.(entry.id) ?? 1, scaled = f(f(s) * f(rs));
+  const pw = Math.max(1, Math.round(f(f(w) * scaled))), ph = Math.max(1, Math.round(f(f(h) * scaled)));
   if (entry.el.width !== pw || entry.el.height !== ph) { entry.el.width = pw; entry.el.height = ph; }
   supplyChildren(entry);
   if (entry.hdr) gpu.gpu_headroom(entry.id, headroom(entry.host ?? entry.el));
@@ -442,6 +452,10 @@ function frame(now) {
 }
 
 function schedule() { if (!trapped() && (!hidden || exact.now) && raf === null) raf = requestAnimationFrame(frame); }
+// An editable element takes the keyboard from a world (its `focusin` blurs it), and the pads with it.
+const editable = target => target instanceof Element && target.closest('input, textarea, select, [contenteditable]:not([contenteditable="false"])');
+// Pads go to the world whose canvas has focus, as keys do.
+padPoller(() => [...surfaces.values()].find(e => e.pads && live(e.view) === e && e.host.contains(document.activeElement) && !editable(document.activeElement)) ?? null);
 
 // Creation/binding is a hard result. Staging never publishes or attaches listeners.
 function create(entry, module, carry) {
@@ -567,6 +581,9 @@ function listen(entry) {
     if (recoveringDevice) recoveringDevice.then(deliver); else deliver();
   };
   const controls = entry.controls ??= new Map(), controlKeys = entry.controlKeys ??= new Map();
+  // The pads this world was last sent (gpu-pads.js); a blur forgets them, so a pad still held reports again.
+  entry.pads = new Map();
+  entry.sendPad = value => send({ timeStamp: performance.now() }, value);
   const control = target => {
     const node = target instanceof Element ? target.closest('button[data-action]') : null;
     return node && node.closest('[data-gpu-input]') === el && node.getAttribute('data-action') && !node.disabled && !node.hidden && !node.closest('[hidden]') && !inertAncestor(node) ? node : null;
@@ -652,12 +669,11 @@ function listen(entry) {
     delete entry.restoredCarry;
   };
   entry.resampleHeld();
-  const editable = target => target instanceof Element && target.closest('input, textarea, select, [contenteditable]:not([contenteditable="false"])');
   const blur = event => {
     entry.resampleHeld();
     for (const [id, owner] of controls) sendControl(event, owner, "cancel", id);
     for (const [code, owner] of controlKeys) sendControl(event, owner, "cancel", code === "Space" ? 4294967294 : 4294967293);
-    held.clear(); controls.clear(); controlKeys.clear(); send(event, { t: "blur" });
+    held.clear(); controls.clear(); controlKeys.clear(); entry.pads.clear(); send(event, { t: "blur" });
   };
   // A pointer-owned control may coexist with a focused editor outside this canvas.
   const pressedKey = (event, down) => {
@@ -802,19 +818,28 @@ const api = {
     messages(entry);schedule();
   },
   // postMessage(id, text) from Contract: one input event, stamped at the call,
-  // delivered in order; held until the canvas's surface exists.
+  // delivered in order; held until the canvas's surface exists. The refusal, or null.
   post(name, text, at) {
     const queued = posts.get(name) ?? posts.set(name, []).get(name);
-    if (queued.length >= (exact.postBound ?? 64)) { console.warn(`exact: postMessage: dropped: ${exact.postBound ?? 64} posts already wait for surface "${name}"`); return; }
+    if (queued.length >= (exact.postBound ?? 64)) { const refused = `postMessage: dropped: ${exact.postBound ?? 64} posts already wait for surface "${name}"`; console.warn(`exact: ${refused}`); return refused; }
     queued.push(JSON.stringify({ t: "message", text, at }));
     deliverPosts(name);
+    return null;
   },
+  // The driver's `post` (LLP 1139.004 D1): a canvas's surface name, the page's
+  // one world's, and whether posts to a name still wait for its canvas.
+  surfaceOf: (view) => surfaces.get(view)?.name,
+  liveSurface() {
+    const names = [...new Set([...surfaces.values()].filter(e => !e.terminal && exact.views.get(e.view) === e.host).map(e => e.name))]; // a canvas on the page, its world live or loading
+    return names.length === 1 ? names[0] : names.length ? {error:`post: ${names.length} worlds are live (${names.join(", ")}); name one: post <surface> <text>`} : undefined;
+  },
+  waiting: (name) => posts.has(name),
   wantsInput: (view) => live(view)?.wantsInput === true,
   answers: (request) => request.entity !== undefined || request.world === true || request.contact !== undefined,
   handle(request, ask, tagged) {
     if (trapped()) return trapped();
     const entry = live(request.id);
-    if (!entry) return surfaces.get(request.id)?.refused ?? refusal(`view ${request.id} has no world`, "canvas");
+    if (!entry) return surfaces.get(request.id)?.refused ?? surfaces.get(request.id)?.unsupported ?? refusal(`view ${request.id} has no world`, "canvas");
     if (request.op === "tap" && request.contact !== undefined) {
       entry.resampleHeld?.();
       const owner = entry.controls?.get(request.contact);
@@ -823,6 +848,12 @@ const api = {
       if (ok) entry.controls.delete(request.contact);
       messages(entry); schedule();
       return ok ? tagged({phase:request.phase, delivery:"recognized"}) : {error:gpu.gpu_error()};
+    }
+    // The agent's pad (LLP 1127.003 D3): the world queues it as a host's pad event.
+    if ((request.op === "type" && /^Gamepad/.test(request.key ?? "")) || (request.op === "tap" && request.stick !== undefined)) {
+      if (!entry.wantsInput) return { error: `view ${request.id}'s surface does not take input` };
+      const reply = agent(request.id, request) ?? { error: `view ${request.id} has no world` };
+      return reply.error ? reply : tagged(reply);
     }
     if (request.op === "focus") {
       if (!entry.wantsInput) return { error: `view ${request.id}'s surface does not take input` };
@@ -867,6 +898,8 @@ const api = {
     if (request.op !== "logs") { const failed = [...surfaces.values()].find(e => e.refused); if (failed) return failed.refused; }
     if (api.answers(request)) return restoreReply(reply);
     if (request.op === "tree") for (const node of reply.nodes ?? []) {
+      const page = surfaces.get(node.id)?.refusalPage;
+      if (page) node.status = page.text; // the refusal page's role=status (LLP 1139.003 D1)
       const summary = agent(node.id, { op: "tree", summary: true });
       if (summary?.world) node.world = summary.world;
     }
@@ -939,7 +972,7 @@ const api = {
   },
   destroy(view) {
     const entry = surfaces.get(view);
-    if (entry) { cancelAssets(entry); for (const row of entry.children ?? []) restoreChild(row); }
+    if (entry) { cancelAssets(entry); for (const row of entry.children ?? []) restoreChild(row); entry.refusalPage?.remove(); }
     if (entry?.id) { retainEdits(entry); gpu.gpu_destroy(entry.id); }
     // The observer would fire once more as the element leaves the page, for
     // a surface the module no longer has (found by the agent smoke, which
@@ -1030,6 +1063,17 @@ const api = {
     schedule();
     return worlds;
   },
+  /// The agent's `prefer gpu-tier` (LLP 1139.003 D2): each canvas's renderer
+  /// is made again at the new tier's rung, on the same device, under the same
+  /// world and surface; a rung is otherwise read once, when a renderer is made.
+  retier(tier) {
+    tierCode = Math.max(0, TIERS.indexOf(tier));
+    if (!loaded || terminalDevice || trapped()) return;
+    gpu.gpu_tier?.(tierCode);
+    gpu.gpu_retier?.();
+    for (const entry of surfaces.values()) if (entry.id && !entry.terminal) entry.wants = true;
+    schedule();
+  },
   /// Time moved (the agent's `clock`): render what wants a frame, once.
   schedule() { for (const entry of surfaces.values()) if (entry.id && !entry.terminal && entry.wants) { entry.wants = false; gpu.gpu_bind_at(entry.id, JSON.stringify(entry.values), exact.now?.()); } schedule(); },
 };
@@ -1083,6 +1127,7 @@ async function swap(version) {
   const start = performance.now(), next = guardedModule(await loadModule(version)), staged = [];
   const carrier = { worldCarry: exact.worldCarry };
   try {
+    next.gpu_tier?.(tierCode);
     await next.gpu_load();
     if (exact.now) next.gpu_seekable(true);
     if (sentPeriod) next.gpu_period(sentPeriod);
@@ -1137,7 +1182,10 @@ async function swap(version) {
 const t0 = performance.now();
 try {
   const version = (stem === "gpu" ? exact.gpuVersion : exact.gpuVersions?.[stem]) ?? 0;
+  // The tier is chosen before the device is made, from the adapter's facts (LLP 1139.003 D2).
+  tierCode = Math.max(0, TIERS.indexOf(await chooseTier(exact.pageFacts)));
   gpu = guardedModule(await loadModule(version));
+  gpu.gpu_tier?.(tierCode);
   await gpu.gpu_load();
   if (exact.now) gpu.gpu_seekable(true);
   replaceShaders(await loadShaders(gpu));

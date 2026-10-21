@@ -39,6 +39,10 @@ pub struct FieldFace {
     /// The face's file and its index in a collection (`path#index`), or
     /// empty for the device's default family.
     pub family: String,
+    /// Its axes as CSS writes `font-variation-settings` (`'wght' 650,
+    /// 'wdth' 87.5`): the weight, `font-stretch` on `wdth` and the run's own
+    /// settings after them (LLP 1019 D9); empty when only the weight is set.
+    pub axes: String,
 }
 
 /// The shell's own text field, asked during layout.
@@ -134,7 +138,31 @@ pub(crate) fn face(
         },
         line: style.line_height.map_or(0.0, |h| (h * scale).max(0.0)),
         family: family(engine, style, italic),
+        axes: axes(style),
     }
+}
+
+/// [`FieldFace::axes`]: `wght`, `wdth` from `font-stretch`, then each axis
+/// of `font-variation-settings`, the last setting of a tag winning.
+fn axes(style: &exact_kernel::TextStyle) -> String {
+    if style.font_stretch == 100.0 && style.font_variations.is_empty() {
+        return String::new();
+    }
+    let mut axes = vec![(*b"wght", f32::from(style.font_weight))];
+    if style.font_stretch != 100.0 {
+        axes.push((*b"wdth", style.font_stretch));
+    }
+    for (tag, value) in style.font_variations.axes() {
+        let tag = tag.to_be_bytes();
+        match axes.iter_mut().find(|(t, _)| *t == tag) {
+            Some(axis) => axis.1 = *value,
+            None => axes.push((tag, *value)),
+        }
+    }
+    axes.iter()
+        .map(|(tag, value)| format!("'{}' {value}", String::from_utf8_lossy(tag)))
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
 /// The file `style`'s family resolves to here, with its collection index
@@ -218,4 +246,20 @@ pub(crate) fn measure(
     };
     let sane = |v: f32| v.is_finite() && v >= 0.0;
     (sane(metrics.width) && sane(metrics.height) && sane(baseline)).then_some(metrics)
+}
+
+#[cfg(test)]
+mod axes_tests {
+    /// An Android field's face takes the weight, the stretch and the
+    /// settings as one `font-variation-settings` string, the last winning.
+    #[test]
+    fn a_fields_axes_are_its_weight_width_and_settings() {
+        let mut style = exact_kernel::TextStyle::from_style(&exact_kernel::StyleProps::default());
+        assert_eq!(super::axes(&style), "");
+        style.font_weight = 600;
+        style.font_stretch = 87.5;
+        style.font_variations =
+            exact_kernel::style::FontVariations::parse(r#""GRAD" 150, "wght" 650"#).unwrap();
+        assert_eq!(super::axes(&style), "'wght' 650, 'wdth' 87.5, 'GRAD' 150");
+    }
 }

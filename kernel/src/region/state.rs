@@ -152,6 +152,17 @@ impl RegionState {
             self.invalidate()
         }
     }
+    /// Lay the region out again when its owner is `slot` or within it: a
+    /// change to `slot`'s rows' insets changes the owner's content box but
+    /// may leave its border box, the offer, as it was.
+    pub fn within(&mut self, arena: &NodeArena, slot: u32) {
+        if arena
+            .resolve(self.binding.owner)
+            .is_some_and(|o| o == slot || arena.is_ancestor(slot, o))
+        {
+            self.invalidate()
+        }
+    }
     pub fn resolve(
         &mut self,
         request: &RegionTextRequest,
@@ -894,7 +905,7 @@ fn flex_height_independent(arena: &NodeArena, owner: u32) -> bool {
         // automatic main-axis content minimum. Aspect transfer is not admitted.
         && limit(s.min_width)
         && limit(s.max_width)
-        && s.aspect_ratio.preferred().is_none()
+        && s.rare.aspect_ratio.preferred().is_none()
         && [s.margin_top, s.margin_right, s.margin_bottom, s.margin_left]
             .into_iter().all(zero)
         && [s.top, s.right, s.bottom, s.left]

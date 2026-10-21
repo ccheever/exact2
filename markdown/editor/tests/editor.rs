@@ -507,3 +507,60 @@ fn an_app_caret_in_hidden_syntax_moves_to_its_visible_edge() {
     p.e.set_selection(99, 99);
     assert_eq!(p.e.selection(), (9, 9));
 }
+
+/// `link_destinations` over `text`, each as its opener and its closer.
+fn destinations(text: &str) -> Vec<(String, String)> {
+    let units = u(text);
+    let piece = |a: u32, b: u32| String::from_utf16(&units[a as usize..b as usize]).unwrap();
+    let styled = exact_markdown::style(text, None);
+    exact_markdown_editor::link_destinations(text, &styled)
+        .into_iter()
+        .map(|[o, oe, c, ce]| (piece(o, oe), piece(c, ce)))
+        .collect()
+}
+
+#[test]
+fn link_destinations_are_each_links_own_syntax() {
+    let pair = |o: &str, c: &str| (o.to_string(), c.to_string());
+    // A long percent-encoded target, a title, an image and a file link.
+    let cite = "t3-citation://v1?text=%E2%80%9Cquoted%E2%80%9D&comment=a%20b";
+    let text =
+        format!("Ask [Assistant quote]({cite}) and [x](y \"t\") ![i](p.png) [a.rs](./src/a.rs)");
+    assert_eq!(
+        destinations(&text),
+        [
+            pair("[", &format!("]({cite})")),
+            pair("[", "](y \"t\")"),
+            pair("![", "](p.png)"),
+            pair("[", "](./src/a.rs)"),
+        ]
+    );
+    // Exactly the destination, whatever hidden syntax is beside it.
+    assert_eq!(
+        destinations("[a](b)[c](d)"),
+        [pair("[", "](b)"), pair("[", "](d)")]
+    );
+    assert_eq!(destinations("**[a](b)**"), [pair("[", "](b)")]);
+    assert_eq!(destinations("[*a*](b)"), [pair("[", "](b)")]);
+    assert_eq!(destinations("[`x`](y)"), [pair("[", "](y)")]);
+    assert_eq!(
+        destinations("[![i](p)](u)"),
+        [pair("[", "](u)"), pair("![", "](p)")]
+    );
+    // One that spans a line break stays shown; code and plain brackets hide nothing.
+    assert!(destinations("[a](\nb)").is_empty());
+    assert!(destinations("`[a](b)` [c] (d) <https://e.f>").is_empty());
+    // The editor's own caret rule over the same run: from its start to its
+    // end, a caret sits after it.
+    let close = |text: &str| {
+        let styled = exact_markdown::style(text, None);
+        let [_, _, a, b] = exact_markdown_editor::link_destinations(text, &styled)[0];
+        (a, b)
+    };
+    let (a, b) = close(&text);
+    let mut p = Page::open(&text);
+    for at in [a, a + 1, b - 1, b] {
+        p.caret(at);
+        assert_eq!(p.e.selection(), (b, b), "{at}");
+    }
+}

@@ -167,3 +167,124 @@ fn setup_reconstructs_generated_geometry_and_drops_old_identities() {
     assert_eq!(sim.world().save(), fresh.world().save());
     sim.restore(&fresh.save().unwrap()).unwrap();
 }
+
+/// A generated model's identity is in every save of a world that holds it.
+/// Material names (LLP 1139.004 D3) are informational: model record 2 writes
+/// no name for an unnamed material, so the identity, and the saves, of
+/// existing generated models stay as they were.
+#[test]
+fn an_unnamed_material_keeps_a_generated_models_identity() {
+    let mut w = World::new(60, 0);
+    w.generated("rock.model", triangle()).unwrap();
+    let model = w.model("rock.model").unwrap();
+    assert_eq!(model.materials.len(), 1);
+    assert_eq!(exact_game::hash::of(model), 9794033405689772318);
+}
+
+/// The material record's name rule is the record's alone: present when not
+/// empty, absent meaning unnamed, assigned on every read. The other fields
+/// keep the codec's lossless encoding, negative zero included, and the hash
+/// tells a named material from an unnamed one.
+#[test]
+fn the_material_record_round_trips_its_name_and_every_bit() {
+    use exact_game::asset::MaterialData;
+    use exact_game::{bin, hash};
+    let named = MaterialData {
+        name: "Hull".into(),
+        metallic: -0.0,
+        roughness: 0.0,
+        ..Default::default()
+    };
+    let back: MaterialData = bin::from_slice(&bin::to_vec(&named)).unwrap();
+    assert_eq!(back.name, "Hull");
+    assert_eq!(back.metallic.to_bits(), (-0.0f32).to_bits());
+    assert_eq!(back.roughness.to_bits(), 0.0f32.to_bits());
+    // A stale value never survives a read of a record without a name.
+    let mut dirty = named.clone();
+    bin::read_into(&bin::to_vec(&MaterialData::default()), &mut dirty).unwrap();
+    assert_eq!(dirty.name, "");
+    let unnamed = MaterialData {
+        name: String::new(),
+        ..named.clone()
+    };
+    assert_ne!(hash::of(&named), hash::of(&unnamed));
+    assert_ne!(
+        hash::of(&named),
+        hash::of(&MaterialData {
+            name: "Hul".into(),
+            ..named.clone()
+        })
+    );
+    // Only the name is optional: the derive has no attribute that drops a field by value.
+    assert_ne!(
+        hash::of(&MaterialData {
+            metallic: 1.0,
+            roughness: 0.0,
+            ..unnamed.clone()
+        }),
+        hash::of(&MaterialData {
+            metallic: 0.0,
+            roughness: 1.0,
+            ..unnamed.clone()
+        })
+    );
+}
+
+/// A baked `.model` file is versioned (`asset::MODEL_RECORD`); a file of an
+/// older bake or another record is refused by name, never read as unnamed.
+#[test]
+fn a_model_of_another_record_is_refused_by_name() {
+    use exact_game::asset::{decode_model, encode_model, Model, MODEL_RECORD};
+    let model = Model::default();
+    let file = encode_model(&model);
+    assert_eq!(&file[..8], b"EXMODEL\x02");
+    assert_eq!(MODEL_RECORD, 2);
+    decode_model(&file).unwrap();
+    let old = exact_game::bin::to_vec(&model);
+    let error = decode_model(&old).unwrap_err();
+    assert!(
+        error.contains("baked before model records") && error.contains("bake art/ again"),
+        "{error}"
+    );
+    let mut later = file.clone();
+    later[7] = 3;
+    let error = decode_model(&later).unwrap_err();
+    assert!(
+        error.contains("model record 3") && error.contains("reads record 2"),
+        "{error}"
+    );
+}
+
+/// A complete record (a tuning table's JSON) names every material field, as the
+/// derive's records must; only the name may be absent. A short record and
+/// trailing input are refused.
+#[test]
+fn a_complete_material_record_requires_every_field_but_its_name() {
+    use exact_game::asset::{MaterialData, Table};
+    use exact_game::{bin, json};
+    let table = Table::of::<MaterialData>("material.json");
+    let error = table.decode("{}").err().unwrap().to_string();
+    assert!(
+        error.contains("missing field") && error.contains("base_color"),
+        "{error}"
+    );
+    let full = json::to_string(&MaterialData::default()).unwrap();
+    assert!(!full.contains("\"name\""), "{full}");
+    table.decode(&full).unwrap();
+    let named = json::to_string(&MaterialData {
+        name: "Hull".into(),
+        ..Default::default()
+    })
+    .unwrap();
+    table.decode(&named).unwrap();
+    let short = full.replacen("\"metallic\":1.0,", "", 1);
+    assert_ne!(short, full);
+    let error = table.decode(&short).err().unwrap().to_string();
+    assert!(
+        error.contains("missing field") && error.contains("metallic"),
+        "{error}"
+    );
+    let mut trailing = bin::to_vec(&MaterialData::default());
+    trailing.push(0);
+    assert!(bin::from_slice::<MaterialData>(&trailing).is_err());
+}

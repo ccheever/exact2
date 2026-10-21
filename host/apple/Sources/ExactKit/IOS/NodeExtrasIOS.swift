@@ -26,6 +26,8 @@ final class TextSpecs {
     var cached: Spec?
     var raster: CGImage?
     var rasterLayer: CALayer?
+    /// The view whose layer `rasterLayer` is when the ink is one colour.
+    var rasterTint: TintInk?
     var rasterFrame = CGRect.zero
     var rasterScale: CGFloat = 1
     var flowShapes: [TextFlowShape] = []
@@ -199,6 +201,7 @@ extension NodeView {
     var cachedTextSpec: Spec? { get { specs?.cached } set { if newValue != nil || specs != nil { textMore.cached = newValue } } }
     var textRaster: CGImage? { get { specs?.raster } set { if newValue != nil || specs != nil { textMore.raster = newValue } } }
     var textRasterLayer: CALayer? { get { specs?.rasterLayer } set { if newValue != nil || specs != nil { textMore.rasterLayer = newValue } } }
+    var textRasterTint: TintInk? { get { specs?.rasterTint } set { if newValue != nil || specs != nil { textMore.rasterTint = newValue } } }
     var textRasterFrame: CGRect { get { specs?.rasterFrame ?? .zero } set { if newValue != .zero || specs != nil { textMore.rasterFrame = newValue } } }
     var textRasterScale: CGFloat { get { specs?.rasterScale ?? 1 } set { if newValue != 1 || specs != nil { textMore.rasterScale = newValue } } }
     var flowShapes: [TextFlowShape] { get { specs?.flowShapes ?? [] } set { if !newValue.isEmpty || specs != nil { textMore.flowShapes = newValue } } }
@@ -379,6 +382,13 @@ extension NodeView {
         return UIEdgeInsets(top: inset.top - content.top, left: inset.left - content.left,
                             bottom: inset.bottom - content.bottom, right: inset.right - content.right)
     }
+    /// Its scrollport in `sv`'s bounds: `sv` less those insets, empty where they overlap (CSS's `clientWidth` and
+    /// `clientHeight` never go below zero).
+    func scrollPort(_ sv: UIScrollView) -> CGRect {
+        let b = sv.bounds, p = scrollPortInsets(sv)
+        return CGRect(x: b.minX + min(p.left, b.width), y: b.minY + min(p.top, b.height),
+                      width: max(0, b.width - p.left - p.right), height: max(0, b.height - p.top - p.bottom))
+    }
     /// The least content height UIKit takes: the box, or for a scroller
     /// UIKit insets, the port between the insets the kernel lays its content
     /// out in (LLP 1116.000 D1.2), so a page shorter than that port does not
@@ -406,7 +416,7 @@ extension NodeView {
     /// as an attribute or a row of its class. The style says so row by row
     /// (`written`); it is false of a value the node only inherits and of a
     /// row the compiler implied (a sheet's, a heading's, a tag's own).
-    func wrote(_ key: String) -> Bool {
+    package func wrote(_ key: String) -> Bool {
         guard case .array(let rows)? = style["written"] else { return false }
         return rows.contains(.string(key))
     }

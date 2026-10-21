@@ -635,6 +635,25 @@ for (const concern of ['defaults', 'nowrap', 'clamp', 'floor', 'disabled accent'
   }, {html});
 });
 
+// A face stacked in a column centres its image on its title when the image is narrower than the title's column, as the
+// Linux host paints it; the face keeps the button's alignment.
+browserCheck('native button stacked image', async () => {
+  // A column's areas and spacing, as `rows` in host/web/src/button_css.rs writes them for `flex-direction: column`.
+  const column = `--exact-button-leading-areas:'image' 'space' 'title';--exact-button-columns:minmax(var(--exact-button-title-min,min-content),auto);--exact-button-space:var(--exact-button-row-space);--exact-button-space-width:0px;--exact-button-space-height:var(--exact-button-row-gap,1em);--exact-button-stacked:1;`;
+  const button = (id, style = '') => `<button id="${id}" data-native data-button-style="filled" style="display:grid;width:160px;font-size:20px;${column}${style}"><img alt=""><span data-exact-text>Unlock now</span></button>`;
+  const html = SHIPPED.replace('<div id="exact-root"></div>', `<div id="exact-root">${button('centre')}${button('start', 'text-align:start;--exact-button-align:start;')}</div>`).replace('<script type="module" src="./glue.js"></script>', '');
+  await withDocument('/', async tab => {
+    const page = await tab(true);
+    await page.until("document.readyState === 'complete'", 'stacked fixture');
+    const facts = await page(`(() => { const mid = r => Math.round(r.left + r.width / 2); return Object.fromEntries(['centre', 'start'].map(id => { const b = document.getElementById(id); return [id, [b.querySelector('img'), b.querySelector('span'), b].map(e => mid(e.getBoundingClientRect()))]; })); })()`);
+    const [image, title, button] = facts.centre;
+    expect([image, title]).toEqual([button, button]);
+    const [startImage, startTitle, startButton] = facts.start;
+    expect(startImage).toBe(startTitle);
+    expect(startTitle).toBeLessThan(startButton);
+  }, {html});
+});
+
 // LLP 1116.003 D3.1, as the neutral look draws it (LLP 1115.000 D4 part B):
 // the ink on an accent fill is white or black, whichever reads at 4.5:1 or
 // better on the accent as the scheme resolves it. A pale dark-scheme accent
@@ -801,9 +820,13 @@ browserCheck('date and time controls take the field look', async () => {
 // dark). An authored background is the box's, under the track, as on iOS.
 browserCheck('a determinate progress is the accent over the system fill in light and dark', async () => {
   const shell = SHIPPED;
-  // As both targets write a role's accent: `accent-color` and the custom property beside it.
-  const accent = (role, pair) => `accent-color:var(--exact-${role}, ${pair});--exact-accent:var(--exact-${role}, ${pair});`;
-  const teal = accent('system-teal', 'light-dark(#30b0c7, #40c8e0)'), indigo = accent('system-indigo', 'light-dark(#5856d6, #5e5ce6)');
+  // As both targets write a role's accent: `accent-color` and the custom property beside it. A role is Apple's pair
+  // (look.mjs, from the schema), light and dark.
+  const apple = (role) => JSON.parse(readFileSync(resolve(ROOT, 'kernel/tables/schema.json'), 'utf8')).colors.find(([name]) => name === role).slice(4, 6);
+  const rgb = (hex) => [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16));
+  const [tealPair, indigoPair] = [apple('system-teal'), apple('system-indigo')];
+  const accent = (role, [light, dark]) => `accent-color:var(--exact-${role}, light-dark(${light}, ${dark}));--exact-accent:var(--exact-${role}, light-dark(${light}, ${dark}));`;
+  const teal = accent('system-teal', tealPair), indigo = accent('system-indigo', indigoPair);
   const bar = (id, style) => `<progress id="${id}" value="0.25" max="1" style="width:160px;margin:8px;${style}"></progress>`;
   // A box of the look's `-exact-fill` over the same ground as the bars beside it: what a track is drawn in.
   const fill = (id, under = '') => `<div style="width:160px;margin:8px;${under}"><div id="${id}" style="height:16px;background-color:var(--exact-fill)"></div></div>`;
@@ -825,24 +848,25 @@ browserCheck('a determinate progress is the accent over the system fill in light
     expect([light.join() === '255,255,255', dark.join() === '0,0,0', red.join() === '255,0,0']).toEqual([false, false, false]);
     for (const id of ['teal-light', 'indigo-light']) { near(at(id, 120, 8), light, `${id} track`); near(at(id, 120, 2), [255, 255, 255], `${id} above its track`); }
     for (const id of ['teal-dark', 'indigo-dark']) { near(at(id, 120, 8), dark, `${id} track`); near(at(id, 120, 2), [0, 0, 0], `${id} above its track`); }
-    near(at('teal-light', 20, 8), [0x30, 0xb0, 0xc7], 'teal bar in light');
-    near(at('indigo-light', 20, 8), [0x58, 0x56, 0xd6], 'indigo bar in light');
-    near(at('teal-dark', 20, 8), [0x40, 0xc8, 0xe0], 'teal bar in dark');
-    near(at('indigo-dark', 20, 8), [0x5e, 0x5c, 0xe6], 'indigo bar in dark');
+    near(at('teal-light', 20, 8), rgb(tealPair[0]), 'teal bar in light');
+    near(at('indigo-light', 20, 8), rgb(indigoPair[0]), 'indigo bar in light');
+    near(at('teal-dark', 20, 8), rgb(tealPair[1]), 'teal bar in dark');
+    near(at('indigo-dark', 20, 8), rgb(indigoPair[1]), 'indigo bar in dark');
     near(at('authored', 120, 2), [255, 0, 0], 'the authored background is the box');
     near(at('authored', 120, 8), red, 'the track over it');
-    near(at('authored', 20, 8), [0x30, 0xb0, 0xc7], 'the bar over it');
+    near(at('authored', 20, 8), rgb(tealPair[0]), 'the bar over it');
   }, {html});
 });
 
-browserCheck('modal routes use the platform canvas, keep author paint, and reveal the sheet beneath on Back', async () => {
+// The page's ground is the look's background role (Apple's, black in dark; not each engine's own `Canvas`).
+browserCheck('modal routes use the page\'s ground, keep author paint, and reveal the sheet beneath on Back', async () => {
   const css = SHIPPED.match(/<style>([\s\S]*?)<\/style>/)[1];
   const html = `<!doctype html><style>${css}</style><style>#exact-root#exact-root .authored {background-color:rgb(20,40,60)}</style>
     <div id="exact-root"><main id="nav" navigationKey="2" navigationBack="back">
       <section id="home" navigationKey="0"><button>Home</button></section>
       <section id="first" navigationKey="1" navigationPresentation="modal"><button>First sheet</button></section>
       <section id="second" navigationKey="2" navigationPresentation="modal"><button>Second sheet</button></section>
-    </main><div id="canvas" style="background-color:Canvas"></div><div id="bare"></div></div>`;
+    </main><div id="canvas" style="background-color:var(--exact-background)"></div><div id="bare"></div></div>`;
   await withDocument('/', async tab => {
     const page = await tab(true);
     await page.until("document.readyState === 'complete'", 'modal fixture');
@@ -861,7 +885,8 @@ browserCheck('modal routes use the platform canvas, keep author paint, and revea
       expect(facts.second.background).toBe(facts.canvas.background);
       expect(facts.second.background).not.toBe('rgba(0, 0, 0, 0)');
       expect(facts.bare.background).toBe('rgba(0, 0, 0, 0)');
-      expect(facts.home.visibility).toBe('hidden');
+      // The page under the sheets is drawn too, covered: it shows above a narrow sheet's top.
+      expect([facts.home.visibility, facts.home.covered, facts.home.inert]).toEqual(['visible', true, true]);
       expect(facts.first.covered).toBe(true);
       expect(facts.first.inert).toBe(true);
       expect(facts.second.inert).toBe(false);

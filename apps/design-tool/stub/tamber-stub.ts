@@ -93,6 +93,14 @@ let held: Record<string, unknown>[] = [], holds = 0;
 // gives that name, and posts that id to the page framing it. A copy of a
 // name in `noNavigate` can't navigate. Each navigate is kept, in order.
 let copyDelays: Record<string, number> = {}, noNavigate: string[] = [], refuseLater: string[] = [];
+// Copies whose pages are the variant gallery's (`page: 'gallery'`, no `navigate`), as a test asks.
+let galleryCopies: string[] = [];
+// Stage 12 D3's describe of library components (LLP 1139 D5), as a test turns it on (`/__stub/library`): per
+// identity, its `parts` and `variants`, on describe's component entry (added when the app has none by that name).
+let LIBRARY: Record<string, { name: string; parts: unknown[]; variants: unknown[] }> = {};
+// A package's component with params on describe, and the app's own Contract sources in its files (a server lists
+// them since 1.11), as a test turns them on (`/__stub/package-component`).
+let PACKAGED: { components: Record<string, unknown>[]; files: Record<string, string>; tokens?: Record<string, string>; base?: Record<string, unknown>[]; resolve?: Record<string, unknown[]>; refuse?: string[] } | null = null, filesBefore: Record<string, string> | null = null;
 const navs: { client: string; build: string; location: string }[] = [];
 const COPY_PAGE = `<!doctype html><title>copy</title><p id="at"></p><script>(async () => {
   const r = await fetch('/__stub/copy', { method: 'POST', body: JSON.stringify({ name: window.name, location: location.pathname + location.search }) });
@@ -101,7 +109,7 @@ const COPY_PAGE = `<!doctype html><title>copy</title><p id="at"></p><script>(asy
   document.getElementById('at').textContent = id ?? 'no copy';
 })();</script>`;
 /** A copy's build as the server would list it: its facts its pin's (a page reports what it paints). */
-const copyBuild = (id: string, name: string, location = '/') => ({ id, host: 'web', capabilities: ['pin', 'inspect', 'hold', ...(noNavigate.includes(name) ? [] : ['navigate'])], plan: 'g1', planDigest: 'c'.repeat(64), design: 'd1',
+const copyBuild = (id: string, name: string, location = '/') => ({ id, host: 'web', ...(galleryCopies.includes(name) ? { page: 'gallery' } : {}), capabilities: ['pin', 'inspect', 'hold', ...(noNavigate.includes(name) || galleryCopies.includes(name) ? [] : ['navigate'])], plan: 'g1', planDigest: 'c'.repeat(64), design: 'd1',
   status: { scheme: 'light', contrast: 'no-preference', mode: {}, rootFontSize: 16, revision: 0, location }, pin: null, pinRevision: 0, hold: null, held: null, unsupported: null });
 const copyFacts = (b: any, pin: any) => ({ ...b.status, scheme: pin?.scheme ?? 'light', mode: pin?.mode ?? {}, rootFontSize: pin?.rootFontSize ?? 16 });
 // What a page reports held when a refresh asks it again (`/__stub/held-answer`).
@@ -300,10 +308,21 @@ Bun.serve({ hostname, port: Number(port), routes: {
       if (['describe', 'resolve', 'explain', 'propose'].includes(request.method) && (request.file ?? 'app.tamber') !== 'app.tamber') return send({ error: { message: `the stub has no design in ${request.file}` } }, 400);
       // Its digests are the stub's own, which hello and the events carry.
       if (request.method === 'describe' && refuseDescribe && describePasses-- <= 0) return send({ error: { message: refuseDescribe } }, 400);
-      if (request.method === 'describe') { const ir = { ...DIALS.describe.ir, ...(reversed ? { axes: [...DIALS.describe.ir.axes].reverse() } : {}) }; return send({ ok: { ...DIALS.describe, ir, files: FILES } }); }
+      if (request.method === 'describe') { const ir: Record<string, any> = { ...DIALS.describe.ir, ...(reversed ? { axes: [...DIALS.describe.ir.axes].reverse() } : {}) };
+        if (PACKAGED) ir.components = [...ir.components, ...PACKAGED.components];
+        // (A token a package's design defines: its describe row says the package.)
+        if (PACKAGED?.tokens) ir.tokens = ir.tokens.map((t: { name: string }) => (PACKAGED!.tokens![t.name] ? { ...t, package: PACKAGED!.tokens![t.name] } : t));
+        if (Object.keys(LIBRARY).length) { const known = ir.components.map((c: { identity: string }) => c.identity); ir.components = [...ir.components.map((c: { identity: string }) => (LIBRARY[c.identity] ? { ...c, ...LIBRARY[c.identity] } : c)), ...Object.entries(LIBRARY).filter(([id]) => !known.includes(id)).map(([identity, l]) => ({ identity, params: [], ...l }))]; } return send({ ok: { ...DIALS.describe, ir, files: FILES, ...(PACKAGED?.base ? { base: PACKAGED.base } : {}) } }); }
       // Reordered axes put each tuple at its index in the new order.
       const at = (modes: Record<string, string>) => [...DIALS.describe.ir.axes].reverse().reduce((n: number, a: { name: string; values: string[] }) => n * a.values.length + a.values.indexOf(modes[a.name]), 0);
       const order = (tuples: { modes: Record<string, string> }[]) => !reversed ? tuples : [...tuples].sort((x, y) => at(x.modes) - at(y.modes));
+      // A package param's resolve, its tuples' winning level and name (stage 12 B2-levels), as the test gives them.
+      // (Each of the design's tuples, by its modes as a token's resolve gives them, its level the test's in turn: one given
+      // as a string is both sides', as `{light, dark}` each side's.)
+      const sides = (g: Record<string, unknown>) => Object.fromEntries(Object.entries(g).map(([k, v]) => [k, (k === 'level' || k === 'name') && typeof v === 'string' ? { light: v, dark: v } : v]));
+      const packagedParam = PACKAGED?.components.some(c => ((c.params ?? []) as { name: string }[]).some(p => p.name === request.token));
+      if (request.method === 'resolve' && packagedParam && PACKAGED!.refuse?.includes(request.token)) return send({ error: { message: `the server could not resolve ${request.token}` } }, 400);
+      if (request.method === 'resolve' && packagedParam) { const given = (PACKAGED!.resolve?.[request.token] ?? [{ level: 'default', name: request.token }]) as Record<string, unknown>[]; return send({ ok: { token: request.token, files: FILES, tuples: order(DIALS.resolve['space.gap'].tuples.map((u: Record<string, unknown>, i: number) => ({ modes: u.modes, ...sides(given[i % given.length]) }))) } }); }
       // surface.card's dark side moves once app.tamber does (an event's
       // `files`), so a change to it has cells that moved.
       if (request.method === 'resolve' && request.token === 'surface.card' && FILES['app.tamber'] !== 'a'.repeat(64)) {
@@ -429,7 +448,10 @@ Bun.serve({ hostname, port: Number(port), routes: {
       present.clear();
       // (A restart revokes every paired client: the tokens were in memory.)
       paired = []; gone.clear(); codes.clear(); remote = []; minted = 0; refusePairing.clear(); canvasAt = ''; forgeLocal = false;
-      copyDelays = {}; noNavigate = []; refuseLater = []; navs.length = 0;
+      copyDelays = {}; noNavigate = []; galleryCopies = []; refuseLater = []; navs.length = 0; LIBRARY = {};
+      // (The files as they were before the first package post: what any number of posts merged in, gone.)
+      if (filesBefore) FILES = filesBefore;
+      PACKAGED = null; filesBefore = null;
       scrubs.lost();
       scrubs = sessions();
       LIVE = false;
@@ -437,6 +459,9 @@ Bun.serve({ hostname, port: Number(port), routes: {
       return send({ ok: true });
     },
   },
+  // (Its files join every reply's, as the server's own Contract sources are in each.)
+  '/__stub/package-component': { POST: async (req) => { if (!driver(req)) return send({ message: 'Not found.' }, 404); PACKAGED = await req.json(); filesBefore ??= FILES; FILES = { ...FILES, ...PACKAGED!.files }; return send({ ok: true }); } },
+  '/__stub/library': { POST: async (req) => { if (!driver(req)) return send({ message: 'Not found.' }, 404); LIBRARY = await req.json(); return send({ ok: true }); } },
   '/__stub/hold': {
     POST: async (req) => {
       if (!driver(req)) return send({ message: 'Not found.' }, 404);
@@ -458,6 +483,7 @@ Bun.serve({ hostname, port: Number(port), routes: {
       PAGE = `http://127.0.0.1:${copies.port}`;
       copyDelays = body.delays ?? {};
       noNavigate = body.noNavigate ?? [];
+      galleryCopies = body.gallery ?? [];
       refuseLater = body.refuseLater ?? [];
       return send({ ok: true });
     },

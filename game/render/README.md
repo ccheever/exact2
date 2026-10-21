@@ -52,7 +52,7 @@ and `error()` for a named rejected replacement. Never step or mutate the simulat
 
 Stages are compute before shadows, opaque, background after sky, an optional
 surface continuation, and optional HDR post before bloom/tone. Geometry uses
-`Game::SAMPLES` (4× MSAA by default); hooks use `FrameView.sample_count`. `SCENE_COPY` supplies resolved HDR and positive view-space depth (zero for
+`Game::SAMPLES` (4× MSAA by default; one under the `Low` rung of `Game::quality`); hooks use `FrameView.sample_count`. `SCENE_COPY` supplies resolved HDR and positive view-space depth (zero for
 sky); `FINAL_DEPTH` requests final sampled depth independently; `HDR_POST` supplies
 a distinct HDR output. Respect the active rectangle inside bucketed textures.
 The refractor writes depth. Transparent objects behind it and intersecting
@@ -312,7 +312,8 @@ engine's saved types.
   Fog is enabled by default. Default density is 0.012/m and height falloff 0.1/m; absent fog colour uses horizon.
   `Fog::linear(near, far)` selects three.js-style near/far fog instead: smoothstep
   of camera-space forward depth, not radial distance. Set `color: Some(clear)`
-  to match a flat background. Linear fog leaves the sky unchanged. Both fog modes
+  to match a flat background. Linear fog leaves the sky unchanged (but under
+  [water](#water)). Both fog modes
   apply to primitive/model surfaces, outline hulls, sprites and particles.
 - `Environment.tone_mapping = ToneMapping::None` skips ACES; exposure and bloom
   still precede the linear-to-sRGB transfer. Disable bloom and use exposure 1
@@ -351,6 +352,88 @@ engine's saved types.
   65.2/63.4 to 67.9/65.4 fps. The default is off; measure on the target GPU before
   enabling. HDR's timestamp is `opaque depth prepass`; direct frames include
   depth in `forward + sky`.
+
+### Water
+
+Inserting the engine's `Water` resource (or setting `FrameInput::water`) adds three
+things, all WGSL in this crate on every host's backend, each read from the frame
+uniform's water words (`water.rs`), so no pipeline varies with them:
+
+- **The surface** (`shaders/water.wgsl`): one full-screen triangle in the forward
+  pass after the sky and the hook's background, before translucency. Each pixel
+  meets its ray with the plane at `height` and shades it. From below it writes that
+  point's depth: the part of an object beyond the surface is hidden, the part on the
+  camera's side draws over it. From above it writes none, so translucency drawn
+  after it under the surface shows as an opaque object there does. From below: inside Snell's window (48.6° from the zenith at an index
+  of 1.333) the sky as the sky pass draws it, by Schlick's transmittance; outside
+  it, total reflection of the environment's lower hemisphere; then the fog over
+  the distance to the surface. From above: the sky's reflection, premultiplied
+  over what the forward pass drew beneath, which shows through by `clarity`; no
+  refracted copy of the scene is made. Two summed waves on the displayed time
+  bend the normals and fade where a pixel spans half a wavelength.
+- **Fog under water**: with water, `frame.wgsl`'s fog counts only the part of each
+  ray below the height, for every surface, the sky and the water itself, wherever
+  the camera is: exponential fog integrates over it, linear fog (`Fog::linear`)
+  takes its view depth. With water, linear fog covers the sky's submerged rays too
+  (open water fades to the fog's colour as under exponential fog), and still leaves
+  rays over the water alone. An orthographic camera's rays each start on its own
+  point of the near plane, not at the camera's position.
+- **Caustics** (`shaders/caustics.wgsl`): a factor on the sun's direct term in the
+  primitive and model forward shaders, for fragments below the height: two layers
+  of a tiling cell net, scrolled apart by the wave speed, read where the
+  fragment's ray to the sun crosses the surface. It multiplies the shadow
+  visibility, so a shadowed surface has none, and it is normalized to the net's
+  mean, so it moves light rather than adding it. A net finer than the pixels fades
+  to that mean. Custom materials' `MATERIAL_SHADOWS_WGSL` declares
+  `water_caustics(world)` for them to multiply in. Translucent primitives
+  (`quad.wgsl`'s lit quads) take none.
+- **Shafts** (`shaders/shafts.wgsl`): an HDR pass after ambient occlusion and before
+  the hook's post and bloom, for rays that start below the surface (a perspective
+  camera's all start at its position; an orthographic camera's each at its own
+  point) with the sun shining down (a sun below the horizon sends none). Each pixel
+  marches 24 steps towards the sun's refracted direction on screen (up to `length`
+  of the frame's height, and no further than the sun's own point) through the
+  forward pass's depth, which it keeps for the pass: where the surface is in sight
+  the light passes, broken by a pattern drifting with the waves; where something
+  stands in front of it, its shadow streaks the water. The result is scaled by the
+  fog's share over the pixel's distance (either fog mode) and by a Henyey-Greenstein
+  phase (g = 0.6) of the pixel's own ray, and added. Without fog there are no
+  shafts. A scene-copy hook's continuation keeps the depth for it, as for SSAO; its
+  GPU time is the `water shafts` pair.
+
+With water a frame is never [direct](#direct-frames). `Renderer::set_water_effects`
+clears caustics or shafts at present time: the frame draws as if the resource had
+none, and the resource is unchanged (`tests/water.rs`). A look frame lists the
+surface as a `water surface` draw and the shafts as one `water shafts` summary.
+The surface draws in the world's viewport and scissor whatever the hook's
+background stage left set.
+Not drawn: reflections or refractions of objects, an object above the surface seen
+from below (the surface hides it), or a shadow cast into the shafts by something
+the frame cannot see in front of the surface (a lid above it still lets them in).
+
+`tests/water.rs` measures each in look frames of a pool under
+`Environment::underwater()`, the surface 2 m over the camera, the sun 35° up
+ahead (Apple M5 Max, Metal; the oracles are bands, which every host is held to):
+
+| Oracle | Measured | Fails it |
+|---|---|---|
+| Upper quarter, 50° up, mean luminance at least the recipe band's top + 0.1 (0.43) | 0.484 | no water 0.169; a flat opaque quad 0.045 |
+| Pitched 45°: top fifth (in the window) less bottom fifth (outside) above 0.2 | 0.260 | no water 0.000; flat quad −0.033 |
+| From 1 m above a floor 1 m down: lower half's hue within 10° of the floor's without water | 135.5° against 136.5° | flat quad 188.6° |
+| The window's look frame: no tell | none | |
+| Lit sand, 64 × 64 patch: variance at least 4× that without caustics | 0.00609 against 0.000206 (29.5×) | strength 0, a constant: 1× |
+| The same patch in the sun's shadow: variance at most 1.05 × that without caustics + 1e-6 (the absolute term covers 8-bit quantization of a near-flat patch), and mean within 5% | 0.0000010 against 0.0000010; 0.1245 both | a net on the ambient light: variance 0.0035 |
+| Murky water (`clarity` 0, black) from 1 m above, pitched 15° down: steep band under 0.03, grazing band 0.03 brighter | 0.005, 0.148 | nothing drawn from above: steep 0.317 |
+| Orthographic camera from below, 44° up: the surface's variance above 1e-4 | 0.0050 | one hit for every ray: 0.0000 |
+| A sun 20° below the horizon: the frame with shafts is the frame without | 0 bytes differ | |
+| Linear fog: a glowing pillar 3 m over the water, 30 m off, brighter than with no water's clip; shafts add over 0.02 | 0.685 against 0.186; 0.196 against 0.114 | |
+| A scene-copy hook, and a background hook that leaves a quarter viewport: bytes that differ from no hook | under 1% (0 measured) | 75% and 65% |
+| Water with neither caustics nor shafts in a still scene, 100 ms on: bytes changed; a restored non-default `Water` runs on to the same frame | 28% | |
+| From above, a red cube under clear water at alpha 0.99 and opaque: each against itself with no water | 1.052 and 1.063 | the surface writing depth: the translucent cube hidden |
+| Orthographic, 44° up, rays starting over and under the water: the dry top band against an all-dry frame; shafts' change to it; their change to the wet bottom band, also with the camera's centre over the water; under an opaque ceiling just beneath the surface, their change (none can have a source) | 0.5099 both; 0; 0.173 and 0.183; 0.0012 | a source found behind its ray: 0.042 under the ceiling |
+| Linear fog under water, no floor, 30° down: the open water against exponential fog's; and without water | 0.1694 both; 0.0786 | |
+| A 24-pixel column, pitched 20°: towards the sun less turned 40°, at least 0.05 | 0.098 | without shafts 0.000 (held within 0.01) |
+| Below a dark box crossing that column at 4 m/s, darker than open water | 0.221 against 0.245 at 2 s; 0.236 both at 4 s | |
 
 ### Toon models
 
@@ -685,7 +768,7 @@ frames late and asynchronously, `perf.culled` (instances each view drew: `camera
 `shadows[0..3]`) and, where timestamps are granted, `world.gpuMs` rings for every
 pass by `GPU_PASS_NAMES`: forward, the cascades, local shadows, `cull`, skin palettes,
 the environment prefilter, SSAO, each bloom level (and `bloom`, first start to last
-end), tonemap, depth resolves and hook stages; the translucent run (particles,
+end), tonemap, depth resolves, the water's shafts and hook stages; the translucent run (particles,
 blended models) and inside-pass hook stages where the device times inside passes.
 A pass the frame did not run is not read. GPU timings also fill under the agent's
 virtual clock (seekable frames), so `state world perf:true` then `clock +ms` times
@@ -772,7 +855,9 @@ until it has, and the driver asks again.
   Tells see brightness and coverage, not colour or composition: a grey meadow, a
   model facing backwards and an overflowing panel take a look at the picture.
 - **Particle coverage** (`quad_coverage.rs`): counted by the particle draws
-  themselves. While armed, each particle draw uses the probe variant of its own
+  themselves. Blended primitive triangles share the dot shader, but have their own
+  batches and are never counted or judged as particles. While armed, each
+  particle draw uses the probe variant of its own
   pipeline (`shaders/count.wgsl`, `soft_count.wgsl`): the same vertex path, dot
   shape, texture alpha and soft fade, blended into the frame as ever. A fragment
   counts when its contribution is above zero (alpha, times the brightest channel
@@ -810,13 +895,14 @@ until it has, and the driver asks again.
 - **Draws**: each draw in pass order (occluders, sun shadow cascades, local shadow
   layers, the depth prepass, forward, translucent, post) with its batch (a
   primitive shape, a model and material, a particle look or a sprite's texture),
-  winding (camera-facing for quads), pipeline variant (for a quad, the pipeline
+  winding (camera-facing for sprites and particles, counter-clockwise for blended
+  primitive triangles), pipeline variant (for a quad, the pipeline
   bound at its draw), instances submitted and kept
   after culling (from the camera's, cascades' and local shadow layers' indirect
   arguments), a particle draw's counted fragments, whether it covered a sample and
   the attachments it writes (blended draws and the split translucent pass, whose
   depth is read-only, write colour alone). A hook's draws, the outline hulls,
-  bloom's passes and ambient occlusion are one entry each, marked `summary`.
+  bloom's passes, ambient occlusion and the water's shafts are one entry each, marked `summary`.
   Coverage there is an occlusion query around each draw of the forward and
   translucent passes, sized after the frame's groups are prepared: whether any
   sample passed the depth test, not how many (Metal's visibility results are
@@ -1080,8 +1166,9 @@ keep texels on whole device pixels; fractional display scales can give uneven
 physical widths with nearest sampling.
 
 Primitives with `Material.color[3]` in the half-open range `(0.0..1.0)` join this same sorted quad arena: each
-triangle is one instance (the quad's second triangle is degenerate), compatible
-with untextured straight-alpha particles. One halo and a hundred share one draw;
+triangle is one instance (the quad's second triangle is degenerate), drawn with
+the untextured straight-alpha particle shader but in batches of its own, so the
+look oracle never counts a mesh as particles. One halo and a hundred share one draw;
 triangles still cost derivation, upload and sorting. Their look is flat
 hemisphere/directional diffuse light plus emission and fog; PBR, local-light
 shadows and procedural grids stay on opaque primitives. They depth-test without

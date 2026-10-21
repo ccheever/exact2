@@ -30,10 +30,19 @@ pub struct ImageFile {
     pub height: u32,
     pub size: u64,
 }
+/// Exact patch 9 (exact2 LLP 1069.002 A1.11): what the codec encodes; JPEG
+/// unless the app asks for a PNG, which keeps alpha.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ImageFormat {
+    #[default]
+    Jpeg,
+    Png,
+}
 #[derive(Debug, Clone, Copy)]
 pub struct ImageRequest {
     pub max_dimension: u32,
     pub max_bytes: u64,
+    pub format: ImageFormat,
 }
 /// Provider declarations used for preallocation checks and Ibex admission.
 /// The provider must check decoded pixels before decoding, bound retained encoded
@@ -615,6 +624,7 @@ mod tests {
                 ImageRequest {
                     max_dimension: 16,
                     max_bytes: 32,
+                    format: ImageFormat::Jpeg,
                 },
             )
             .unwrap()
@@ -872,7 +882,8 @@ mod tests {
             "app:/data/out",
             ImageRequest {
                 max_dimension: 16,
-                max_bytes: 32
+                max_bytes: 32,
+                format: ImageFormat::Jpeg,
             }
         )
         .is_err());
@@ -934,7 +945,8 @@ mod tests {
             "app:/data/out",
             ImageRequest {
                 max_dimension: 16,
-                max_bytes: 32
+                max_bytes: 32,
+                format: ImageFormat::Jpeg,
             }
         )
         .is_err());
@@ -969,7 +981,8 @@ mod tests {
             "app:/data/out",
             ImageRequest {
                 max_dimension: 16,
-                max_bytes: 32
+                max_bytes: 32,
+                format: ImageFormat::Jpeg,
             }
         )
         .is_err());
@@ -989,6 +1002,7 @@ mod tests {
             ImageRequest {
                 max_dimension: 1,
                 max_bytes: 1,
+                format: ImageFormat::Jpeg,
             },
         )
         .err()
@@ -1017,6 +1031,7 @@ mod tests {
             ImageRequest {
                 max_dimension: 1,
                 max_bytes: 1,
+                format: ImageFormat::Jpeg,
             },
         )
         .err()
@@ -1061,6 +1076,7 @@ mod tests {
                 ImageRequest {
                     max_dimension: 2,
                     max_bytes: 32,
+                    format: ImageFormat::Jpeg,
                 },
             )
             .unwrap();

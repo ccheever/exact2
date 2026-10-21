@@ -14,7 +14,9 @@
 //! region arms around it, so each place a fill renders is its own instance
 //! with its own state (owned by the arm around that `children`).
 
-use crate::ast::{Action, Attr, Binding, Component, Expr, File, Node, Param, Stmt, TypeExpr};
+use crate::ast::{
+    Action, Attr, Binding, Component, Expr, File, Node, Param, ResourceDecl, Stmt, TypeExpr,
+};
 use crate::notfound::{implicit_notfound, implicit_notfound_view};
 use crate::parser::SyntaxError;
 use std::collections::{BTreeMap, BTreeSet};
@@ -48,6 +50,22 @@ pub fn lifted(name: &str, n: u32) -> String {
     format!("{name}#{n}")
 }
 
+/// The sources a child may read itself: the device's facts, which hold no
+/// app data and open no request, the same for every instance.
+pub const DEVICE_FACTS: &[&str] = &["exactViewport", "exactPage"];
+
+/// Whether `r` reads a device fact, as a child may declare.
+pub fn reads_device(r: &ResourceDecl) -> bool {
+    DEVICE_FACTS.contains(&r.source.as_str()) && r.args.is_empty() && r.placeholder.is_none()
+}
+
+/// The root's name for child `component`'s device-fact resource `name`:
+/// one for every instance, as the answer is. `@` cannot appear in an
+/// authored identifier.
+pub fn hoisted(component: &str, name: &str) -> String {
+    format!("{name}@{component}")
+}
+
 /// The root's view with every component use inlined.
 pub fn inline(file: &File) -> Result<Vec<Node>, SyntaxError> {
     Ok(expand(file)?.root.view)
@@ -57,6 +75,7 @@ pub fn inline(file: &File) -> Result<Vec<Node>, SyntaxError> {
 /// `state`s and `action`s of every stateful child use, renamed apart with
 /// the use's number, each owned by the instance it belongs to ([`Owner`]);
 /// a child's `derive` is an expression substituted at each read.
+#[derive(Debug, Clone, PartialEq)]
 pub struct Expanded {
     /// The root, with the children's declarations appended.
     pub root: Component,
@@ -248,8 +267,18 @@ fn expand_with_sites(
         sequences: source.sequences.clone(),
         view: Vec::new(),
         params: source.params.clone(),
+        anatomy: source.anatomy.clone(),
         span: source.span,
     };
+    // A child's device facts are the root's resources, one a component.
+    for c in file.components.iter().skip(1) {
+        for r in c.resources.iter().filter(|r| reads_device(r)) {
+            root.resources.push(ResourceDecl {
+                name: hoisted(&c.name, &r.name),
+                ..r.clone()
+            });
+        }
+    }
     // @ref LLP 1038 D3 — a compiler slot, before authored initializers and
     // before the per-use states are lifted. `none` is only an AST placeholder;
     // types supplies Router and lowering leaves its initialization to launch.

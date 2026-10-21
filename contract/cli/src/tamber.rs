@@ -426,23 +426,35 @@ fn fmt(path: &Path, src: &str, check: bool) -> ExitCode {
 }
 
 /// The design's IR, with its app's components' params (LLP 1121 D15) when
-/// it declares any: under `components` by full name, never among the
+/// it declares any, or uses an exported library component (its parts and
+/// variants, stage 12 D3): under `components` by full name, never among the
 /// tokens by their names below the IR.
 fn ir(
     src: &str,
     app: &contract::tamber_params::AppParams,
     folding: &exact_tamber::Folding,
 ) -> String {
-    if app.tokens.is_empty() {
+    if app.tokens.is_empty() && app.library.is_empty() {
         return folding.ir();
     }
     let Ok(mut ir) = serde_json::from_str::<serde_json::Value>(&folding.ir()) else {
         return folding.ir();
     };
-    contract::tamber_params::hide(&mut ir);
-    let design = exact_tamber::parse(src).ok();
-    ir["components"] =
-        contract::tamber_params::components(app, design.as_ref(), &contract_lower::tamber_vocab());
+    // (as `describe` lists them: a library component with no params too, stage 12 D3)
+    if !app.tokens.is_empty() || app.library.iter().any(|(_, _, d)| d.library) {
+        contract::tamber_params::hide(&mut ir);
+        let design = exact_tamber::parse(src).ok();
+        ir["components"] = contract::tamber_params::components(
+            app,
+            design.as_ref(),
+            &contract_lower::tamber_vocab(),
+        );
+    }
+    // Parts and variants, in the IR file only (LLP 1139 D5; theme2's Q2).
+    if !app.library.is_empty() {
+        ir["library"] =
+            contract::tamber_params::library(app, exact_tamber::parse(src).ok().as_ref());
+    }
     serde_json::to_string_pretty(&ir).unwrap_or_else(|_| folding.ir())
 }
 

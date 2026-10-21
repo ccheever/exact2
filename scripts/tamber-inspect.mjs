@@ -18,12 +18,18 @@
 //   offered beside; a style's state part, the state rung (T4); a row reached
 //   by inheritance is a link to its token, never this node's edit; anything
 //   else is read-only, with its reason.
+// - **Library** (*1.15*, LLP 1139 D5). A node of an exported library
+//   component's own view names its declaring identity and part
+//   (`source.library`, and each row with a map origin, a held state's rows
+//   the held node's), from the map only: one the host's report carries is
+//   dropped on every path.
 // - **Outline.** Each build that can inspect is told the sites of its own
 //   plan at the selection's source location (`outline {sites}`), every copy
 //   of the node.
 import { createHash } from 'node:crypto';
 import { request } from 'node:http';
 import { readFileSync, realpathSync } from 'node:fs';
+import { pathName } from './tamber-paths.mjs';
 
 const sha256 = bytes => createHash('sha256').update(bytes).digest('hex');
 
@@ -71,14 +77,16 @@ export function mapFor(bytes, digest) {
 }
 
 /** Why a file the map names has moved since it was compiled, or ''. */
-function moved(map, file, read) {
+function moved(map, file, read, app = null) {
+  // Named as an answer names a file (`tamber-paths.mjs`), never this machine's path.
+  const shown = app ? pathName(file, app) : file;
   const known = (map.sources ?? []).find(s => s.file === file);
-  if (!known) return `${file} is not in the build's source map`;
+  if (!known) return `${shown} is not in the build's source map`;
   // A compiled-in module is nowhere on disk, and cannot move.
   if (!file.startsWith('/')) return '';
   let now;
-  try { now = sha256(read(file)); } catch { return `${file} is gone since this build`; }
-  return now === known.sha256 ? '' : `${file} changed since this build: select it again once it has reloaded`;
+  try { now = sha256(read(file)); } catch { return `${shown} is gone since this build`; }
+  return now === known.sha256 ? '' : `${shown} changed since this build: select it again once it has reloaded`;
 }
 
 /** Why the design a token rung would edit is not the one the build runs,
@@ -87,19 +95,21 @@ function moved(map, file, read) {
  * design it serves now (`served {digest, source}`, a value edit the build
  * took live), when the build reports running that. Fails closed: a design
  * the map does not name, or one that cannot be read, is a reason. */
-function designMoved(map, build, served, file, read) {
+function designMoved(map, build, served, file, read, app = null) {
   // Gone from where the server looks (a deleted file): the map's own entry,
   // whose read then fails.
   file ??= (map.sources ?? []).find(s => /\.tamber$/.test(s.file))?.file ?? null;
   if (!file) return '';
+  // Named as an answer names a file (`tamber-paths.mjs`), never this machine's path.
+  const shown = app ? pathName(file, app) : file;
   const real = f => { try { return realpathSync(f); } catch { return f; } };
   const known = (map.sources ?? []).find(s => s.file === file || real(s.file) === real(file));
-  if (!known) return `the app's design ${file} is not in the build's source map`;
+  if (!known) return `the app's design ${shown} is not in the build's source map`;
   let now;
-  try { now = sha256(read(file)); } catch { return `${file} is gone since this build`; }
+  try { now = sha256(read(file)); } catch { return `${shown} is gone since this build`; }
   if (now === known.sha256) return '';
   if (served?.digest && served.source === now && build.design === served.digest) return '';
-  return `${file} changed since this build, which has not taken it: select again once it has`;
+  return `${shown} changed since this build, which has not taken it: select again once it has`;
 }
 
 // A declared token's name (a dotted word, a role's spelling); a synthetic
@@ -172,15 +182,20 @@ export function named(token, params) {
 /** A `selected` report as the server publishes it: its rows' token names
  * scrubbed of IR param tokens as the join's are. */
 export function published(selected, params) {
-  if (!selected?.rows) return selected;
-  return { ...selected, rows: scrubbed(selected.rows, params), ...(selected.held ? { held: heldOf(selected.held, params) } : {}) };
+  if (!selected || typeof selected !== 'object') return selected;
+  return { ...selected, ...(selected.rows ? { rows: scrubbed(selected.rows, params) } : {}), ...(selected.held ? { held: heldOf(selected.held, params) } : {}) };
 }
-const scrubbed = (rows, params) => (rows ?? []).map(r => (r.token ? { ...r, token: named(r.token, params).token } : r));
+// (a `library` is the map's to say, never the host report's: dropped from what the host sent, on every path, a
+// row's own and its source's)
+const bare = ({ library: _host, ...r }) => (r.source && typeof r.source === 'object' ? { ...r, source: (({ library: _said, ...at }) => at)(r.source) } : r);
+const scrubbed = (rows, params) => (rows ?? []).map(bare).map(r => (r.token ? { ...r, token: named(r.token, params).token } : r));
 // A held state's rows (LLP 1121 stage 8 E), scrubbed as the selection's.
-const heldOf = (held, params) => ({ ...held, rows: scrubbed(held.rows, params) });
+const heldOf = ({ library: _host, ...held }, params) => ({ ...held, rows: scrubbed(held.rows, params) });
 
 // A row by the name its author wrote: an `:active` part's as the press paint carries it (AUTHORED, below).
-const authored = name => AUTHORED[name] ?? String(name).replace(/_/g, '-');
+const authored = name => AUTHORED[name] ?? WRITTEN[name] ?? String(name).replace(/_/g, '-');
+// Rows a part may fold whose attribute is named otherwise (contract/lower/src/states.rs RUNNER_ROWS).
+const WRITTEN = { text_color: 'color', tint_color: '-exact-tint-color' };
 // A state part's row as its author wrote it at its place (`at`, in `lines`): a look's border side is the `border-color`
 // written there, its four sides whole, or the side's own longhand (`border-top-color`), as the source says; null for
 // another, which no edit of this row may write. Else its name (`authored`).
@@ -205,6 +220,7 @@ export function stateRung(row, b, app, read = readFileSync, own = null) {
   if (!b?.state || !b.at?.file) return null;
   if (!/^class:[A-Za-z_][\w-]*$/.test(b.origin ?? '')) return null;
   const rel = app && b.at.file.startsWith(`${app}/`) ? b.at.file.slice(app.length + 1) : null;
+  if (galleryFile(b.at.file)) return { rung: null, reason: GALLERY };
   if (!rel || b.at.file.includes('/node_modules/') || (own && !own.has(rel))) return { rung: null, reason: `a package's style (${b.origin.slice(6)}): read-only here` };
   let lines;
   try { lines = String(read(b.at.file)).split('\n'); } catch { return null; }
@@ -229,6 +245,11 @@ const styleAbove = (lines, line) => {
   }
   return null;
 };
+
+// The variant gallery's generated source (`contract gallery`, the JS dev loop's build cache: under a node_modules's
+// .cache/exact-gallery or the repo's target/dev-gallery), which no operation writes: its tokens and params are the app's.
+const galleryFile = (file) => /\/(?:node_modules\/\.cache\/exact-gallery|target\/dev-gallery)\//.test(file ?? '');
+const GALLERY = "the variant gallery's generated source: read-only (its tokens and params are the app's)";
 
 // A file of the app's own Contract sources, relative to the app (`own`, the
 // server's list, when given), or null for a package's.
@@ -258,6 +279,7 @@ export function rowRung(row, b, map, app, instances = 1, read = readFileSync, ow
   // A layout row (D14, the map's `layout`): the author's, as `set-row` says; a token or param it reads is offered.
   if (b.layout) return { rung: null, layout: true, reason: `\`${b.attr}\` is a layout row: layout is the author's (LLP 1122 D14); edit it in the source, or at a param's or token's rung where it reads one` };
   const rel = ownFile(b.at.file, app, own);
+  if (galleryFile(b.at.file)) return { rung: null, reason: GALLERY };
   if (!rel) return { rung: null, reason: style ? `a package's style (${style}): read-only here` : 'a package\'s component: read-only here' };
   let lines;
   try { lines = String(read(b.at.file)).split('\n'); } catch { return null; }
@@ -387,7 +409,8 @@ const asBase = b => (b?.origin ? b : null);
  * `map` (null when the build's map is not here). */
 export function join(build, selected, map, { read = readFileSync, served = null, design = null, params = new Map(), app = null, own = null } = {}) {
   const base = { build: build.id, node: selected.node, site: selected.site, instance: selected.instance, tuple: selected.tuple, trimmed: !!selected.trimmed, ...(selected.held ? { held: heldOf(selected.held, params) } : {}) };
-  const rows = (selected.rows ?? []).map(r => { const n = named(r.token, params); return { ...r, ...(r.token ? { token: n.token } : {}), unread: n.unread }; });
+  // (a `library` is the map's to say, never the host report's: dropped from what the host sent)
+  const rows = (selected.rows ?? []).map(bare).map(r => { const n = named(r.token, params); return { ...r, ...(r.token ? { token: n.token } : {}), unread: n.unread }; });
   if (!map) return { ...base, source: null, rows: rows.map(({ unread, ...r }) => ({ ...r, editable: { rung: null, reason: 'no source map for this build\'s plan' } })), readOnly: 'no source map for this build\'s plan' };
   const node = map.nodes[selected.site];
   if (!node) return { ...base, source: null, rows: rows.map(({ unread, ...r }) => ({ ...r, editable: { rung: null, reason: 'the site is not in the source map' } })), readOnly: 'the site is not in the source map' };
@@ -397,8 +420,13 @@ export function join(build, selected, map, { read = readFileSync, served = null,
   // An `:active` row is written in its part (LLP 1121 D8): its file counts too, and the held node's.
   const placed = n => n ? [n.file, ...(n.chain ?? []).map(c => c.file), ...(n.bindings ?? []).flatMap(b => [b.at, ...(b.states ?? []).map(p => p.at)].flatMap(at => at ? [at.file] : []))] : [];
   const files = [...new Set([...placed(node), ...(owner !== node ? placed(owner) : [])])];
-  const readOnly = files.map(f => moved(map, f, read)).find(Boolean) || designMoved(map, build, served, design, read) || null;
-  const source = { file: node.file, line: node.line, col: node.col, end_col: node.end_col, component: node.component, chain: node.chain ?? [] };
+  const readOnly = files.map(f => moved(map, f, read, app)).find(Boolean) || designMoved(map, build, served, design, read, app) || null;
+  // The exported library component whose own view the node is of, and its part (LLP 1139 D5, *1.15*): from the map
+  // (`part=` never reaches a host), beside `component`, the map's bare declared name (two packages can share one; an
+  // alias the app imports it by is in neither); absent outside one (a slot's fill is the caller's).
+  const libraryOf = n => (typeof n?.library === 'string' ? { identity: n.library, part: typeof n.part === 'string' ? n.part : null } : null);
+  const library = libraryOf(node);
+  const source = { file: node.file, line: node.line, col: node.col, end_col: node.end_col, component: node.component, chain: node.chain ?? [], ...(library ? { library } : {}) };
   // A source node's copies (a template edit is every one's): one a call-site chain, as a hold's replay
   // counts them (a `button "…"`'s label shares its span and chain, and is no second copy).
   const copiesOf = n => Math.max(1, new Set(sitesAt(map, n).filter(i => same(map.nodes[i], n)).map(i => JSON.stringify((map.nodes[i].chain ?? []).map(c => [c.file, c.line, c.col])))).size);
@@ -408,7 +436,9 @@ export function join(build, selected, map, { read = readFileSync, served = null,
   // (the press it resolved to, named on a node inside it: stage 9 E), its site's map node.
   if (base.held) {
     const ownerBound = owner === node ? bound : new Map((owner?.bindings ?? []).map(b => [b.row, b]));
-    const ownerSource = owner === node ? source : owner && { file: owner.file, line: owner.line, col: owner.col, end_col: owner.end_col, component: owner.component, chain: owner.chain ?? [] };
+    // (the held node's own library and part, where it is of a library component's view)
+    const ownerLibrary = owner === node ? library : libraryOf(owner);
+    const ownerSource = owner === node ? source : owner && { file: owner.file, line: owner.line, col: owner.col, end_col: owner.end_col, component: owner.component, chain: owner.chain ?? [], ...(ownerLibrary ? { library: ownerLibrary } : {}) };
     // Edited where it is held (T4): only where the build names that node (its held site); else shown, not offered.
     const heldHere = Number.isSafeInteger(base.held.site) && !!owner;
     base.held = { ...base.held, rows: (base.held.rows ?? []).map((r, i) => {
@@ -421,7 +451,7 @@ export function join(build, selected, map, { read = readFileSync, served = null,
       // (Whether it reads a param not yet read: from the host's own report, before its names were scrubbed.)
       const unread = named(selected.held.rows?.[i]?.token, params).unread;
       const offered = !heldHere || readOnly ? null : editable({ ...r, source: 'authored', state: b?.state }, b?.origin ?? null, params, unread, stateRung(r, b, app, read, own), b?.state ? rowRung(r, b, map, app, copiesOf(owner), read, own) : null);
-      return { ...r, ...(authored ? { name: authored, row: r.name } : {}), state: base.held.state, source: b?.state && b.at ? b.at : ownerSource ?? null, ...(offered ? { editable: offered } : {}) };
+      return { ...r, ...(authored ? { name: authored, row: r.name } : {}), state: base.held.state, source: b?.state && b.at ? b.at : ownerSource ?? null, ...(b?.origin && ownerLibrary ? { library: ownerLibrary } : {}), ...(offered ? { editable: offered } : {}) };
     }) };
   }
   return {
@@ -436,10 +466,71 @@ export function join(build, selected, map, { read = readFileSync, served = null,
       const written = b?.at && !b.state ? { at: { ...b.at, ...(sha(b.at.file) ? { sha256: sha(b.at.file) } : {}) }, attr: b.attr, ...(b.layout ? { layout: true } : {}) } : {};
       const part = b?.state ? { state: b.state, ...(b.at ? { at: b.at } : {}) } : written;
       const { unread, ...row } = r;
-      const offered = editable({ ...row, ...part }, origin, params, unread, stateRung(row, b, app, read, own), rowRung(row, b, map, app, copies, read, own));
-      return { ...row, origin, ...part, editable: readOnly ? { rung: null, reason: readOnly, link: offered.link ?? offered.param ?? offered.token ?? null } : offered };
+      // A folded `:disabled` or `:checked` row (queue item (2)) is the runtime's choice over its base and its parts,
+      // so `dynamic`: where the map says both, it is read as its base, its rung the base's, each part beside it in
+      // `states` with its own (theme2's and review2's 04:24). One the map can't explain stays dynamic, read-only.
+      const folds = asBase(bound.get(r.name)) && row.source === 'dynamic' ? (bound.get(r.name).states ?? []).filter(p => p.state === 'disabled' || p.state === 'checked') : [];
+      const rung = rowRung(row, b, map, app, copies, read, own);
+      // (Its base's token, from the base as written, whichever branch the runtime shows now.)
+      const base = folds.length ? writtenToken(row, writtenAt(b, b.attr, read, map), params) : null;
+      const shown = base ? { ...row, source: 'authored', token: base.token } : row;
+      const offered = editable({ ...shown, ...part }, origin, params, unread || !!base?.unread, stateRung(row, b, app, read, own), rung);
+      const shut = o => (readOnly ? { rung: null, reason: readOnly, link: o.link ?? o.param ?? o.token ?? null } : o);
+      const states = folds.map(p => {
+        const v = { row: r.name, origin: p.origin, state: p.state, at: p.at }, w = rowRung(row, v, map, app, copies, read, own), st = stateRung(row, v, app, read, own);
+        // A part's edit is that part's alone: never a param its value names, which the base and every other use share
+        // (nor refused for one the row the host shows reads).
+        const e = editable({ ...row, source: 'authored', token: writtenToken(row, writtenAt(v, null, read), params, true).token, state: p.state }, p.origin, params, false, st, w);
+        // (Its place; a part with none, a conditional class's, its node's.)
+        const at = p.at ?? node;
+        return { state: p.state, source: { file: at.file, line: at.line, col: at.col, end_col: at.end_col }, editable: shut(e) };
+      });
+      return { ...row, origin, ...part, ...(origin && library ? { library } : {}), editable: shut(offered), ...(folds.length ? { states } : {}) };
     }),
   };
+}
+
+/** A row's value as written at its place (`b.at`), its base attribute's (`attr`) or, for a part, by the name written
+ * there (`writtenAs`), the component it is written in (the top-level `component` above it, none under another
+ * declaration), and that component's identity (`<home>#<component>`, its file's home as `map` says it); null where
+ * the file can't be read or the place says no such name. Read whether or not the file is the app's own: a param a
+ * package's component reads is overridden in the app's design. */
+function writtenAt(b, attr, read, map = null) {
+  if (!b?.at?.file) return null;
+  let lines;
+  try { lines = String(read(b.at.file)).split('\n'); } catch { return null; }
+  const name = attr ?? writtenAs(lines, b.at, b.row);
+  if (!name) return null;
+  let component = null;
+  for (let i = b.at.line - 2; i >= 0; i--) {
+    const l = lines[i] ?? '';
+    if (/^\S/.test(l) && !/^\/\//.test(l)) { component = /^component\s+([A-Za-z_][\w-]*)/.exec(l)?.[1] ?? null; break; }
+  }
+  const home = (map?.sources ?? []).find(x => x.file === b.at.file)?.home;
+  return { text: plainAt(lines[b.at.line - 1] ?? '', b.at.col, name), component, identity: home && component ? `${home}#${component}` : null };
+}
+
+/** The token a folded row's base or part reads, from its value as written (`w`, `writtenAt`'s), whichever branch the
+ * runtime shows now (queue item (2)): a param, one `param.<name>`, by its full name, its component's identity and
+ * the name (`<home>#<component>.<name>`, as the compiler names it), among the params read; never for a part
+ * (`part`), whose edit is its own; a token by its name or its role's spelling (any case, `-exact-`) where the row's
+ * names hold it; else none. `unread` where that param is not read (yet, or the map names no home for its file). */
+function writtenToken(row, w, params, part = false) {
+  const names = row.token?.names ?? [], modes = row.token?.modes ?? '';
+  const text = typeof w?.text === 'string' ? w.text.trim() : null;
+  const none = { token: { names: [], text: text ?? '', modes } };
+  if (text == null) return none;
+  const name = /^param\.([A-Za-z_][\w-]*)$/.exec(text)?.[1];
+  if (name) {
+    if (part) return none;
+    const full = w.identity ? `${w.identity}.${name}` : null;
+    const param = full && [...params.values()].find(p => p.param === full);
+    return param ? { token: { names: [param.param], text: param.param, modes } } : { ...none, unread: true };
+  }
+  // (A role's `-exact-` spelling in any case, as the kernel parses it; any other name exactly: a custom token's case
+  // is its own, so `Brand.Fill` is never `brand.fill`.)
+  const low = text.toLowerCase(), token = names.find(n => n === text || (low.startsWith('-exact-') && low.slice(7) === n));
+  return token ? { token: { names: [token], text: token, modes } } : none;
 }
 
 /** The sites of `map` at `source`'s location: every copy of that node. */
@@ -532,13 +623,14 @@ export function current(build, report) {
 /** Why `map` is not the sources as they are now (a file it compiled has
  * changed or gone since), or '': a span from a fresh compile (`uses`) is
  * looked up in it only while it is. */
-export function staleMap(map, read = readFileSync) {
+export function staleMap(map, read = readFileSync, app = null) {
   for (const { file, sha256: digest } of map.sources ?? []) {
     // A design edit moves no span (and a live one keeps the plan).
     if (!file.startsWith('/') || /\.tamber$/.test(file)) continue;
+    const shown = app ? pathName(file, app) : file;
     let now;
-    try { now = sha256(read(file)); } catch { return `${file} is gone since the running plan`; }
-    if (now !== digest) return `${file} changed since the running plan: outline once it has reloaded`;
+    try { now = sha256(read(file)); } catch { return `${shown} is gone since the running plan`; }
+    if (now !== digest) return `${shown} changed since the running plan: outline once it has reloaded`;
   }
   return '';
 }

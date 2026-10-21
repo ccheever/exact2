@@ -821,6 +821,7 @@ fn fixture_writes_one_or_two_pages_while_moving_and_none_at_rest() {
         code: "KeyW".into(),
         down: true,
         at_ms: 0.,
+        player: 0,
     });
     let writes = |r: &Recording| {
         r.calls
@@ -842,11 +843,13 @@ fn fixture_writes_one_or_two_pages_while_moving_and_none_at_rest() {
         code: "KeyW".into(),
         down: false,
         at_ms: 1600.001,
+        player: 0,
     });
     sim.input(exact_game::InputEvent::Key {
         code: "KeyE".into(),
         down: true,
         at_ms: 1600.001,
+        player: 0,
     });
     let mut glowing = 0;
     let mut previous_emissive = 0.;

@@ -44,7 +44,7 @@ test('the tool opens on the theme fixture, shows its hello, and an agent\'s writ
     expect(drive.exitCode, driveSaid).toBe(0);
     const replies = out.seen.filter(l => l.startsWith('{')).map(l => JSON.parse(l));
     const { hello, changes } = replies.findLast(r => r.resources).resources;
-    expect(hello).toMatchObject({ ok: true, protocol: 'tamber/1.15', app });
+    expect(hello).toMatchObject({ ok: true, protocol: 'tamber/1.16', app });
     expect(hello.files.map(f => f.path)).toEqual(['app.contract', 'app.tamber']);
     expect(changes.recent[0]).toMatchObject({ kind: 'changed', who: 'agent:codex', files: ['app.tamber'], tokens: ['surface.card'] });
     // One tool per machine: while it runs, another app's is refused, naming
@@ -393,7 +393,10 @@ test('expressions are kept unless pinned, "only this mode" adds a when, redo wri
       'clock +1', 'clock data', 'tap undo', 'clock data', 'tap redo', 'clock data', 'tap undo', 'clock data',
       'clock +1', 'clock data', 'type new-name surface.raised', 'type new-value light-dark(#ffffff, #202020)', 'tap add-token', 'clock data', 'tap apply', 'clock data',
       'clock +1', 'clock data', 'tap cell-surface.raised-0-light', 'clock data', 'type rename-to surface.lifted', 'tap rename', 'clock data', 'tap apply', 'clock data',
-      'clock +1', 'clock data', 'tap cell-surface.lifted-0-light', 'clock data', 'tap remove', 'clock settle', 'tap confirm-remove-yes', 'clock settle', 'clock data', 'tap apply', 'clock data',
+      'clock +1', 'clock data', 'tap cell-surface.lifted-0-light', 'clock data',
+      // Settled before the dialog opens: a settle runs the tool's follow task (a commit later), whose read of a file
+      // the rename wrote reloads the branch panel, and with it the dialog, were it open.
+      'clock settle', 'clock data', 'tap remove', 'tap confirm-remove-yes', 'clock settle', 'clock data', 'tap apply', 'clock data',
       // The unformatted line itself, edited and undone.
       'clock +1', 'clock data', 'tap cell-text.primary-0-light', 'clock data', 'type branch-value light-dark(#000000, #e7e9ea)', 'type branch-value key Enter', 'clock data', 'tap apply', 'clock data',
       'clock +1', 'clock data', 'tap undo', 'clock data', 'state',
@@ -1110,7 +1113,9 @@ test('T2b: inspect from the tool selects a view in the canvas frame, shows its s
   await new Promise(ok => listener.close(ok));
   const dist = mkdtempSync(join(tmpdir(), 'exact-design-tool-inspect-dist-'));
   const dev = spawnOwned(process.execPath, [resolve(ROOT, 'host/web/dev.mjs'), '--app', 'theme-fixture', '--wasm', '--port', String(port)], { cwd: ROOT, env: { ...process.env, EXACT_WEB_DIST: dist }, stdio: ['ignore', 'pipe', 'pipe'] });
-  const browser = await suiteBrowser();
+  // Site isolation on, as desktop Chrome has it: the pinned headless shell (the default browser without CHROME) runs a
+  // cross-site frame in its parent's process unless told, so the check below could never pass there.
+  const browser = await suiteBrowser('chromium', { args: ['--site-per-process'] });
   let tool;
   try {
     const base = `http://127.0.0.1:${port}`;
@@ -1131,9 +1136,15 @@ test('T2b: inspect from the tool selects a view in the canvas frame, shows its s
     const frame = page.frames().find(f => f.url().startsWith(base.replace('127.0.0.1', 'localhost')));
     await frame.locator('#exact-inspect').waitFor();
     // Another site than the tool's: the browser runs it out of the tool's
-    // process (an iframe target of its own).
-    const { targetInfos } = await (await page.context().newCDPSession(page)).send('Target.getTargets');
-    expect(targetInfos.some(t => t.type === 'iframe' && t.url.startsWith(base.replace('127.0.0.1', 'localhost')))).toBe(true);
+    // process (an iframe target of its own, with site isolation on, above).
+    // Its target's URL can trail the frame's first navigation, so it is asked
+    // again for a while; a frame in the tool's own process never shows as one.
+    const cdp = await page.context().newCDPSession(page), here = base.replace('127.0.0.1', 'localhost');
+    let isolated = false;
+    for (const end = Date.now() + 10_000; Date.now() < end; await Bun.sleep(200)) {
+      if ((await cdp.send('Target.getTargets')).targetInfos.some(t => t.type === 'iframe' && t.url.startsWith(here))) { isolated = true; break; }
+    }
+    expect(isolated).toBe(true);
     const at = await frame.locator('[data-testid="swap"]').boundingBox();
     await page.mouse.click(at.x + at.width / 2, at.y + at.height / 2);
     const line = readFileSync(resolve(ROOT, 'apps/theme-fixture/app.contract'), 'utf8').split('\n').findIndex(l => l.includes('text "Swap pins"')) + 1;

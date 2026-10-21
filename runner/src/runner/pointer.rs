@@ -198,6 +198,18 @@ impl DropEvent {
         })
     }
 
+    /// A file drag's `dragenter` or `dragleave`: the point line alone, no
+    /// files (the DOM's are protected until the drop).
+    pub fn parse_point(payload: &str) -> Option<DropEvent> {
+        let ([offset_x, offset_y], held) = numbers(payload)?;
+        Some(DropEvent {
+            offset_x,
+            offset_y,
+            files: Vec::new(),
+            held,
+        })
+    }
+
     /// The `DragEvent` record, its fields in the compiler's order.
     pub fn value(&self) -> Value {
         Value::record(vec![
@@ -297,6 +309,12 @@ mod tests {
         assert!(d.held.shift);
         for bad in ["5,6", "5,6\n/tmp/a.board", "x\ndoc:/1/a"] {
             assert!(DropEvent::parse(bad).is_none(), "{bad}");
+        }
+        // A drag's enter or leave is the point alone.
+        let enter = DropEvent::parse_point("1.5,2,Meta").unwrap();
+        assert!(enter.files.is_empty() && enter.held.meta && enter.offset_x == 1.5);
+        for bad in ["", "1", "1,2\ndoc:/1/a", "NaN,0"] {
+            assert!(DropEvent::parse_point(bad).is_none(), "{bad}");
         }
     }
 }

@@ -423,6 +423,20 @@ pub(crate) fn package_design(root: &Path, manifest: &Path) -> Option<PackageDesi
     })
 }
 
+/// A package's entry file, relative to its root: what its `package.json`
+/// `exports` maps `.` to, else `index.contract` (LLP 1121 D11, LLP 1139 D0).
+pub(crate) fn package_entry(manifest: &serde_json::Value) -> String {
+    let entry = entry(&manifest["exports"], "").unwrap_or_else(|| "./index.contract".to_owned());
+    entry.strip_prefix("./").unwrap_or(&entry).to_owned()
+}
+
+/// What a package's `package.json` `exports` maps subpath `sub` to
+/// (`card` → `./src/card.contract`), as the loader resolves it; `None` when
+/// it maps nothing there.
+pub(crate) fn package_subpath(manifest: &serde_json::Value, sub: &str) -> Option<String> {
+    entry(&manifest["exports"], sub)
+}
+
 /// The namespace a package's design tokens are named under (LLP 1121
 /// D11): the last part of its name (`@exact/reading` → `reading`).
 pub(crate) fn namespace(name: &str) -> &str {

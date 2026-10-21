@@ -197,6 +197,7 @@ private final class Presentation {
     /// from the photo as it is then, zoomed or panned.
     var sampleLanding: (() -> Void)?
     var alreadyDismissed = false
+    var presentationsDidDismiss: (() -> Void)?
 
     init(host: ModalHost, route: NodeView, navigation: UIViewController,
          background: UIViewController) {
@@ -664,6 +665,7 @@ final class ModalHost: NSObject, UIAdaptivePresentationControllerDelegate {
                 presenter.transformGeometry.changed()
                 presenter.syncModal()
                 drainRetired()
+                presenter.menus.resumeAfterRouteDismissal()
             }
         }
         if guarded {
@@ -690,6 +692,7 @@ final class ModalHost: NSObject, UIAdaptivePresentationControllerDelegate {
         if !layer.alreadyDismissed { presenter.cancelPendingFocus() }
         presenter.elementScrolls.cancel(inside: layer.controller.view)
         let controller = layer.controller
+        layer.presentationsDidDismiss = presenter.menus.retire(over: controller, removing: layer.route)
         presenter.navigation.retireNavigation(layer.navigation, preserving: controller.retiringNavigation != nil)
         layers.removeLast()
         endPress(layer)
@@ -704,11 +707,19 @@ final class ModalHost: NSObject, UIAdaptivePresentationControllerDelegate {
 
     private func drainRetired() {
         guard dismissing == nil, let layer = retiring.first, !layer.presenting else { return }
+        let above = sequence(first: layer.controller.presentedViewController, next: { $0?.presentedViewController })
+        if let moving = above.compactMap({ $0 }).first(where: { $0.isBeingPresented || $0.isBeingDismissed }),
+           let coordinator = moving.transitionCoordinator,
+           coordinator.animate(alongsideTransition: nil, completion: { [weak self] _ in
+               DispatchQueue.main.async { self?.drainRetired() }
+           }) { return }
         dismissing = layer
         let completion = { [weak self, layer] in
             guard let self, dismissing === layer else { return }
             dismissing = nil
             retiring.removeAll { $0 === layer }
+            layer.presentationsDidDismiss?()
+            layer.presentationsDidDismiss = nil
             // Its routes, if they live on, give their blocks back (LLP 1123 D2)
             presenter.owners.publish()
             #if os(iOS)
@@ -718,6 +729,7 @@ final class ModalHost: NSObject, UIAdaptivePresentationControllerDelegate {
             DispatchQueue.main.async { [weak self] in
                 guard let self else { return }
                 drainRetired()
+                defer { presenter.menus.resumeAfterRouteDismissal() }
                 guard let session = presenter.session, session.state != .destroyed else { return }
                 presenter.navigation.modalDidDismiss()
                 fit()
@@ -727,8 +739,10 @@ final class ModalHost: NSObject, UIAdaptivePresentationControllerDelegate {
                 presenter.syncModal()
             }
         }
-        if layer.alreadyDismissed || layer.controller.presentingViewController == nil { completion() }
-        else { layer.controller.dismiss(animated: layer.animated, completion: completion) }
+        if !layer.alreadyDismissed, let owner = layer.controller.presentingViewController {
+            // Dismissing the route itself would dismiss only what it presents.
+            owner.dismiss(animated: layer.animated, completion: completion)
+        } else { completion() }
     }
 
     private func refusesDismissal(of route: NodeView) -> Bool {

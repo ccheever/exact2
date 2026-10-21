@@ -12,7 +12,7 @@
 use crate::code::{self, Scope, Uses};
 use crate::style;
 use exact_kernel::{NodeType, PropId, StyleId};
-use exact_plan::{BindingKind, EventKind, Plan, RegionKind, Value};
+use exact_plan::{BindingKind, EventKind, NodesId, Plan, RegionKind, Value};
 use exact_web::host::template::Parts;
 use std::fmt::Write as _;
 
@@ -145,8 +145,7 @@ struct Em<'a> {
     uses: Uses,
     out: String,
     classes: Vec<String>,
-    /// Each distinct set of state looks (LLP 1121 D8), `data-exact-looks`
-    /// index plus one.
+    /// Each distinct set of state looks (LLP 1121 D8), `data-exact-looks` index plus one.
     looks: Vec<Vec<(u8, String)>>,
 
     paint: bool,
@@ -167,8 +166,7 @@ struct Em<'a> {
     /// Possible height and transform owners whose motion values must be observed.
     heights: std::collections::BTreeSet<u32>,
     transforms: std::collections::BTreeSet<u32>,
-    /// The `@keyframes` that animate `scale` (a pressed node plays their
-    /// `-exact-press` copies).
+    /// The `@keyframes` that animate `scale` (a pressed node plays their `-exact-press` copies).
     press_keyframes: Vec<String>,
     /// Whether a dynamic row can reference an element (`url(#…)`): nodes
     /// with an `id` then name it (`data-exact-id`, rt.js `Sr`).
@@ -893,7 +891,7 @@ impl Em<'_> {
 
     fn node(&mut self, i: u32, parent: &str, scope: &Scope) -> Result<(), String> {
         let plan = self.plan;
-        let row = &plan.nodes[i as usize];
+        let row = &plan.node(NodesId(i));
         let node_type = NodeType::from_wire(row.node_type).ok_or("unknown node type")?;
 
         if node_type == NodeType::Head {
@@ -1210,7 +1208,7 @@ impl Em<'_> {
                 .map_err(|x| format!("node {i}: {x}"))?;
             let at = self.out.len();
             let (raw, f) = (f.clone(), self.counted(i, k, f));
-            self.paint_binding(node_type, b, &e, &f);
+            self.paint_binding(node_type, &b, &e, &f);
             match b.kind {
                 BindingKind::Prop if markdown && b.id == PropId::Text as u16 => {
                     self.markdown(&e, &f)
@@ -1243,7 +1241,7 @@ impl Em<'_> {
                         let _ = write!(self.out, "{}({e});", self.uses.rt("cp"));
                     }
                 }
-                BindingKind::Style => self.style_row(i, b, &parts, &e, &f)?,
+                BindingKind::Style => self.style_row(i, &b, &parts, &e, &f)?,
             }
             // The row item's fields it reads (LLP 1071.000 D3).
             if let Some(m) = crate::reads::field_mask(&raw).filter(|_| self.out.len() > at) {
@@ -1298,6 +1296,8 @@ impl Em<'_> {
                 | EventKind::Midimessage
                 | EventKind::Wheel
                 | EventKind::Drop
+                | EventKind::Dragenter
+                | EventKind::Dragleave
                 | EventKind::Play
                 | EventKind::Playing
                 | EventKind::Pause
@@ -1434,11 +1434,8 @@ impl Em<'_> {
         );
         let mut init = "void 0".to_string();
         let mut at_end = "!1".to_string();
-        for b in plan.nodes[i as usize]
-            .bindings
-            .iter()
-            .map(|b| plan.binding(b))
-        {
+        let bindings = plan.node(NodesId(i)).bindings;
+        for b in bindings.iter().map(|b| plan.binding(b)) {
             let value = match style::literal(plan, plan.code(b.expr)) {
                 Some(v) => value_js(&v),
                 None => code::expression(plan, plan.code(b.expr), scope, &mut self.uses)

@@ -174,6 +174,37 @@ test('a drive shows the software keyboard on a simulator it booted and puts the 
   }
 });
 
+test('a touch session records the accessibility keys it found and puts them back so, or unset after a session that left them on', async () => {
+  const { foundAccessibility, restoreAccessibility } = await import('./touches.mjs');
+  // What a session found is recorded, and a session after one killed before its end takes that record, not the keys
+  // the killed one left on.
+  const dir = mkdtempSync(resolve(tmpdir(), 'touches-ax-')), record = resolve(dir, 'sim/U1.json');
+  try {
+    let reads = 0;
+    const read = async () => { reads++; return reads === 1 ? { ApplicationAccessibilityEnabled: '1' } : { AutomationEnabled: '1', AccessibilityEnabled: '1', ApplicationAccessibilityEnabled: '1' }; };
+    expect(await foundAccessibility('U1', record, read)).toEqual({ ApplicationAccessibilityEnabled: '1' });
+    expect(await foundAccessibility('U1', record, read)).toEqual({ ApplicationAccessibilityEnabled: '1' });
+    expect(reads).toBe(1);
+    rmSync(record);
+    expect(await foundAccessibility('U1', record, async () => null)).toBe(null);
+    expect(existsSync(record)).toBe(false);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+  // `defaults` as a simulator answers: a delete of a key it lacks fails, saying so; `status` is each write's, `gone` each other delete's.
+  const put = async (found, status = 0, gone = { status: 1, err: "Error: Could not find key 'k' in domain 'com.apple.Accessibility'." }) => {
+    const calls = [];
+    const failed = await restoreAccessibility('U1', found, async (udid, args) => { calls.push(args.filter((a) => a !== 'com.apple.Accessibility').join(' ')); return args[0] === 'write' ? { status, out: '', err: 'no' } : { out: '', ...gone }; });
+    return { calls: calls.sort(), failed };
+  };
+  // A simulator no session had used, and one whose person turned ApplicationAccessibilityEnabled on for `tree --ax`.
+  expect(await put({})).toEqual({ calls: ['delete AccessibilityEnabled', 'delete ApplicationAccessibilityEnabled', 'delete AutomationEnabled'], failed: null });
+  expect((await put({ ApplicationAccessibilityEnabled: '1', AccessibilityEnabled: '0' })).calls).toEqual(['delete AutomationEnabled', 'write AccessibilityEnabled -bool false', 'write ApplicationAccessibilityEnabled -bool true']);
+  // AutomationEnabled already on: an earlier session (or a killed drive) left all three, so all go.
+  expect((await put({ AutomationEnabled: '1', AccessibilityEnabled: '1', ApplicationAccessibilityEnabled: '1' })).calls).toEqual(['delete AccessibilityEnabled', 'delete ApplicationAccessibilityEnabled', 'delete AutomationEnabled']);
+  expect((await put({ ApplicationAccessibilityEnabled: '1' }, 1)).failed).toBe('ApplicationAccessibilityEnabled: no');
+  // A delete that failed otherwise (the simulator gone, no answer) is a failure, so the record is kept for the next session.
+  expect((await put({ ApplicationAccessibilityEnabled: '1' }, 0, { status: -1, err: 'no answer in 10 s' })).failed).toBe('AutomationEnabled: no answer in 10 s; AccessibilityEnabled: no answer in 10 s');
+});
+
 // 8x16 pixels at scale 2: a 4x8-point window. The app drew it red; the display shows the status bar (rows 0-1) green,
 // glass over rows 12-15 blue, and the keyboard, when there is one, from row 8 down. `paint` changes rows of a picture.
 const RED = [255, 0, 0, 255], BLUE = [0, 0, 255, 255], GREEN = [0, 255, 0, 255], GREY = [128, 128, 128, 255];

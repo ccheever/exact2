@@ -32,7 +32,7 @@
 #include <stdint.h>
 
 /* The ABI's version: part of the compatibility id (LLP 1030 D3a). */
-#define EXACT_ABI_VERSION 15
+#define EXACT_ABI_VERSION 16
 
 #ifdef __cplusplus
 extern "C" {
@@ -84,6 +84,16 @@ ExactRasterReady exact_raster_take_ready(uint64_t session, uint64_t request);
 void exact_raster_lease_release(uint64_t lease);
 ExactRasterStats exact_raster_stats(uint64_t session);
 
+/* An SVG file as an image (LLP 1011.001 D4). header: 1 when bytes begin an SVG,
+ * writing its natural size (CSS pixels) into size[0..2]; else 0. scene: the
+ * file resolved at width x height CSS pixels as the svg op's JSON, in a buffer
+ * of *out_len bytes to free with exact_svg_image_free; *flags bit 0 means the
+ * picture has text (drawn on the main thread, where the fonts are), bit 1 that
+ * the file was refused, the buffer then holding the reason. */
+uint32_t exact_svg_image_header(const uint8_t *bytes, size_t len, double *size);
+uint8_t *exact_svg_image_scene(const uint8_t *bytes, size_t len, double width, double height, size_t *out_len, uint32_t *flags);
+void exact_svg_image_free(uint8_t *ptr, size_t len);
+
 /* Width/height offers below zero mean "as the content wants". */
 #define EXACT_MAX_CONTENT (-1.0f)
 #define EXACT_MIN_CONTENT (-2.0f)
@@ -100,6 +110,9 @@ typedef struct ExactTextRun {
     float letter_spacing;  /* points per glyph */
     uint8_t font_variant_numeric; /* CSS bits: 1 tabular-nums (the face's tnum) */
     float font_stretch;    /* CSS font-stretch, percent of normal width */
+    uint8_t variation_count;      /* CSS font-variation-settings: axes set */
+    uint32_t variation_tags[8];   /* each a big-endian OpenType tag ('wght') */
+    float variation_values[8];    /* in the axis's own units */
 } ExactTextRun;
 
 /* LLP 1053 G5. CSS white space collapsing (normal, nowrap, pre-line) of a paragraph's
@@ -218,8 +231,9 @@ typedef struct ExactMarkupPiece {
 /* Writes the pieces and their count, valid until exact_markup_free(handle). Zero on invalid UTF-8. */
 uint64_t exact_markup_pieces(const uint8_t *utf8, size_t len, const ExactMarkupPiece **out, size_t *count);
 /* Styling for an editor, as JSON (see host/apple/src/markup.rs `style`): paragraphs, spans, hidden
- * ranges and replacements over the source in UTF-16 units; the selection reveals markers it touches
- * (sel_start UINT32_MAX for none). Valid until exact_markup_free(handle). */
+ * ranges, replacements and link destinations over the source in UTF-16 units; the selection reveals
+ * markers it touches, never a link destination (sel_start UINT32_MAX for none). Valid until
+ * exact_markup_free(handle). */
 uint64_t exact_markup_style(const uint8_t *utf8, size_t len, uint32_t sel_start, uint32_t sel_end, const uint8_t **out, size_t *count);
 /* UTF-16 replacement JSON: {replacements:[[start,end,text],...],selection:[start,end]}.
  * Invalid commands return {error:...}; the original source is unchanged. */
@@ -400,6 +414,10 @@ uint32_t exact_commit_plan(ExactRuntime rt);
  * Requests in flight refuse it (`"requests":true`) unless let_go, nonzero
  * only for a dev generation past its settle window (LLP 1007 §6). */
 uint32_t exact_prepare_module(ExactRuntime rt, uint64_t token, size_t plan, size_t receipt, size_t module, float width, float height, uint32_t let_go);
+/* After first pixel: activate the data source (evaluate a TypeScript module)
+ * without committing, so a presenter can run it off its own thread before
+ * exact_data_ready. Optional; a no-op once activated. */
+void exact_prepare_data(ExactRuntime rt);
 /* Call after first pixel, never as a prerequisite to painting the baked frame. */
 uint32_t exact_data_ready(ExactRuntime rt);
 /* A peer committed to the shared store. Does not activate before first pixel. */
@@ -487,8 +505,10 @@ const uint8_t *exact_field_decorations(const uint8_t *input, size_t len, size_t 
  * Structural reads use their actual presentation. `modal` is the index of
  * the first view of the frontmost modal presentation, or UINT32_MAX while
  * none is open: it and the views after it are live, and the views before it
- * and the page are inert behind it. */
-void exact_top_layer(ExactRuntime rt, const uint32_t *views, const double *rects, uint32_t count, uint32_t modal);
+ * and the page are inert behind it. `clips` is null or four viewport
+ * x/y/width/height doubles per id; NaN at x means no clip for that entry.
+ * A clip bounds hits and visibility without changing the frame's mapping. */
+void exact_top_layer(ExactRuntime rt, const uint32_t *views, const double *rects, const double *clips, uint32_t count, uint32_t modal);
 /* Versioned LE collection feedback in exact_in; returns the ordinary batch. */
 uint32_t exact_collection_feedback(ExactRuntime rt, size_t len, double now_ms);
 /* The agent's tap <list> into <key> (LLP 1070.000): "key\nblock\ninline" in
@@ -718,15 +738,19 @@ uint32_t exact_titlebar_area(ExactRuntime rt, const float *rect, uint32_t count)
 /* @ref LLP 1075.003 §9.11: the window's own size (points), whatever is
  * presented in it — what every viewport unit (vw, vh, vmin, vmax and kin) resolves against
  * everywhere, root and every sheet, never a sheet's viewport (exact_segments
- * sends the window's segments too). A nonpositive size clears it. */
+ * sends the window's segment grid too, its tops and lefts; a keyboard ends the
+ * segments with the viewport, LLP 1078). A nonpositive size clears it. */
 uint32_t exact_screen(ExactRuntime rt, float width, float height);
 /* What changed of the view at once, from the input buffer's first len bytes,
  * little-endian 32-bit words: a mask of what is given (1 the window's size,
- * 2 the safe-area insets, 4 the layout regions, 8 the viewport), the
- * window's width and height (nonpositive clears it), the insets top, right,
- * bottom, left, the viewport's width and height, the regions' count (20 or
- * 0) and their insets: exact_screen, exact_insets, exact_regions and
- * exact_resize in one batch under one layout. */
+ * 2 the safe-area insets, 4 the layout regions, 8 the viewport, 16 the
+ * segments' rects), the window's width and height (nonpositive clears it),
+ * the insets top, right, bottom, left, the viewport's width and height, the
+ * regions' count (20 or 0) and their insets, then, with 16, the rects' count
+ * and each rect's x y w h, on the grid exact_segments set: exact_screen,
+ * exact_insets, exact_regions, exact_resize and a keyboard's segment extents
+ * in one batch under one layout. Rects off the grid, or not finite, are
+ * refused and change nothing. */
 uint32_t exact_view(ExactRuntime rt, size_t len);
 /* @ref LLP 1078 D4: the device's posture (0 continuous, 1 folded) and the
  * viewport segments a fold makes — cols × rows rects, row-major, each
@@ -763,7 +787,9 @@ uint32_t exact_intrinsics(ExactRuntime rt, size_t len);
 /* What native containers cover of boxes (LLP 1075.003 §3.5) under one
  * layout: LE records of (uint32 view, uint32 kind — 0 clears, 1 edges,
  * 2 whole — float top, right, bottom, left). Edges add to the box's
- * padding; a whole box is laid out as display: none. */
+ * padding; a whole box is laid out as display: none. Kind 10 is a cells
+ * list's rows' cell margin (LLP 1138: float left, right, then two unused),
+ * 11 clears it. */
 uint32_t exact_host_covers(ExactRuntime rt, size_t len);
 /* A select's options (LLP 1069.001 D5), JSON in the output buffer, not a
  * batch: {"options":[{"value","label","disabled"}],"chosen":index|null}. */

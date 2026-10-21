@@ -152,7 +152,7 @@ fn sim() -> Sim<Living> {
         }],
         ..Default::default()
     };
-    let model = bin::to_vec(&model);
+    let model = exact_game::asset::encode_model(&model);
     Sim::with_assets((), |name| match name {
         "fox.model" => Ok(model.clone()),
         _ => Err(name.to_owned()),

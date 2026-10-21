@@ -117,10 +117,14 @@ snapshot. Exact's render and non-Apple executors consume that portable path.
 
 Patch 9's app interface stays Exact's and is replayed on a refresh:
 `bindings/storage.d.ts` declares `compressImage(from, to, {maxDimension,
-maxBytes})` resolving to `{path, type, size, width, height}`, as Exact's docs
+maxBytes, type})` resolving to `{path, type, size, width, height}`, as Exact's docs
 give it, and Exact's prelude (`js/src/prelude.js`) adapts that to upstream's
 positional binding (`compressImage(from, to, maxDimension, maxBytes)`, replying
-`width\theight\tsize`). The October 13 refresh replaced the declaration with
+`width\theight\tsize`). Exact adds a fifth positional argument, the media type
+(exact2 LLP 1069.002 A1.11, 2026-10-20): `boundary_abi.rs` reads it into
+`fs_image::ImageRequest::format` (`ImageFormat::Jpeg` when absent, `Png`; any
+other value is an invalid argument), and the codec is Exact's. Replay both on a
+refresh. The October 13 refresh replaced the declaration with
 the positional form; `contract/cli/tests/it/typescript.rs` now pins it. Upstream
 now preserves Exact's app error branches: a source over the read cap is
 `compressImage: too-large:`, and a trial deadline before publication is

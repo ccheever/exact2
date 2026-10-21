@@ -278,6 +278,10 @@ public final class Agent {
             if req["aim"] == nil, req["log"] == nil { r = completingInput(r) }
             session.canvases.settle(now: session.now())
             Agent.reply(tagged(r))
+        case "type" where req["message"] != nil:
+            let r = completingInput(post(req))
+            session.canvases.settle(now: session.now())
+            Agent.reply(tagged(r))
         case "type":
             let r = completingInput(releaseCanvasKey(req) ?? type(req))
             session.canvases.settle(now: session.now())
@@ -544,6 +548,10 @@ public final class Agent {
             case ("can-share-pictures", "true"), ("can-share-pictures", "false"): facts.canSharePictures = value == "true"
             case ("can-open-files", "true"), ("can-open-files", "false"): facts.canOpenFiles = value == "true"
             case ("has-focus", "true"), ("has-focus", "false"): facts.hasFocus = value == "true"
+            // The fact, and each module's tier: its renderers are made again at the new rung (LLP 1139.003 D2).
+            case ("gpu-tier", "high"), ("gpu-tier", "mid"), ("gpu-tier", "low"):
+                PageFacts.agentGpuTier = ["high", "mid", "low"].firstIndex(of: value).map(UInt32.init) ?? 0
+                for retier in PageFacts.retiers.values { retier(PageFacts.agentGpuTier) }
             case ("root-font-size", _) where (Double(value) ?? 0) > 0 && Float(Double(value)!).isFinite: facts.rootFontSize = Double(value)!
             // Bold Text (LLP 1115.000 D12.3), as the person's setting reaches the kernel.
             case ("bold-text", "true"), ("bold-text", "false"): boldText = value == "true"
@@ -582,6 +590,7 @@ public final class Agent {
                                        "can-share-pictures": PageFacts.canSharePictures, "can-open-files": PageFacts.canOpenFiles,
                                        "has-focus": PageFacts.hasFocus(session.pageWindow), "root-font-size": PageFacts.rootFontSize,
                                        "display-scale": PageFacts.displayScale(session.presenter.viewport),
+                                       "gpu-tier": ["high", "mid", "low", "low"][Int(PageFacts.tier & 3)],
                                        "bold-text": DisplayPreferences.boldText]
         #if os(macOS)
         if let keyboardNavigation { KeyboardNavigation.agent = keyboardNavigation }
@@ -867,6 +876,31 @@ public final class Agent {
         return out
     }
 
+    /// The driver's `post` (LLP 1139.004 D1): `postMessage(text, surface)` as
+    /// the app sends it, into canvas `id`'s surface, the named one, or the
+    /// page's one world. A surface with no live canvas holds it, as it holds
+    /// the app's posts.
+    func post(_ req: [String: Any]) -> [String: Any] {
+        let canvases = session.canvases, text = req["message"] as? String ?? ""
+        let name: String
+        if let id = (req["id"] as? NSNumber)?.uint32Value {
+            guard let n = canvases.surfaceName(id) else { return ["error": "view \(id) has no world"] }
+            name = n
+        } else if let n = req["surface"] as? String {
+            name = n
+        } else {
+            let names = canvases.surfaceNames()
+            guard names.count == 1 else {
+                return ["error": names.isEmpty ? "post: no world is live; name its surface (post <surface> <text>) to hold the message until one is"
+                    : "post: \(names.count) worlds are live (\(names.joined(separator: ", "))); name one: post <surface> <text>"]
+            }
+            name = names[0]
+        }
+        if session.webviews.hasFrame(name) { return ["error": "post: \(name) is an iframe's id, not a world surface"] }
+        if let refused = canvases.post(name, text) { return ["error": "post refused: \(refused)"] }
+        return ["posted": name, "delivery": "posted", "held": canvases.waiting(name) ? true : nil].compactMapValues { $0 }
+    }
+
     /// To `to`, and what is in flight lands before a timer fires — the
     /// runner keeps one request per target (LLP 1016 D5), so a tick's send
     /// would drop the reply of the one before it: the jump stops after each
@@ -967,7 +1001,7 @@ public final class Agent {
     }
 
     /// Whether the launch left work for a later main-queue turn.
-    func launchQueued() -> Bool { session.natives.activationQueued || session.presenter.launchAutofocusPending }
+    func launchQueued() -> Bool { session.activationInFlight || session.presenter.launchAutofocusPending }
 
     /// Turn the run loop until that work has run, or until `deadline`.
     func drainLaunch(until deadline: Date) -> Bool {

@@ -103,6 +103,46 @@ component Row
     }
 }
 
+/// A call that fails to type against an action or `fn` named like a
+/// standard function says the name is the app's (the euxy port's action
+/// `sortBy(key)` beside a `derive` calling the standard `sortBy`).
+#[test]
+fn a_refused_call_of_a_name_that_shadows_a_standard_function_says_so() {
+    let shadowed = |src: &str, id: &str, line: u32, kind: &str| {
+        let e = contract::compile(src).unwrap_err();
+        assert_eq!(e.id, id, "{e}");
+        let note = format!(
+            "`sortBy` here is your {kind} at line {line}, which shadows the standard function `sortBy`"
+        );
+        assert!(e.message.contains(&note), "{e}");
+    };
+    let rows = "shape Row\n  n: number\n";
+    let action = format!(
+        "{rows}component App\n  state rows = [Row(n=1)]\n  state key = \"\"\n  derive sorted = sortBy(rows, r => r.n, \"desc\")\n  action sortBy(k: string)\n    key = k\n  view\n    text `${{sorted.length}}`\n"
+    );
+    shadowed(&action, "type-arity", 7, "action");
+    let action = action.replace("sortBy(rows, r => r.n, \"desc\")", "sortBy(1)");
+    shadowed(&action, "type-argument", 7, "action");
+    let fun = format!(
+        "{rows}fn sortBy(k: string): string = k\ncomponent App\n  state rows = [Row(n=1)]\n  view\n    text `${{sortBy(rows, r => r.n).length}}`\n"
+    );
+    shadowed(&fun, "type-arity", 3, "`fn`");
+    // Another component's string prop of the name is no part of it.
+    let other = "component Row\n  props\n    sortBy: string\n  view\n    text sortBy\n";
+    shadowed(&format!("{fun}{other}"), "type-arity", 3, "`fn`");
+    // A child's action, lifted into the root as `sortBy#1`, is found under its own name.
+    let lifted = "component App\n  view\n    Used()\ncomponent Used\n  state n = 0\n  action sortBy(k: number)\n    n = k\n  view\n    Child(sortBy=sortBy)\ncomponent Child\n  props\n    sortBy: action\n  view\n    button \"x\" press=sortBy(\"wrong\")\n";
+    shadowed(lifted, "type-argument", 6, "action");
+    // With a second component declaring the name, which one it is goes unsaid.
+    let twice = format!("{lifted}component AAA\n  state m = 0\n  action sortBy(k: number)\n    m = k\n  view\n    text \"a\"\n");
+    let e = contract::compile(&twice).unwrap_err();
+    assert_eq!(e.id, "type-argument", "{e}");
+    assert!(!e.message.contains("here is your"), "{e}");
+    // A name that shadows nothing says nothing more.
+    let e = contract::compile(&action.replace("sortBy", "pick")).unwrap_err();
+    assert!(!e.message.contains("shadows"), "{e}");
+}
+
 /// LLP 1088 D4 reads an initializer's call targets as `infer` resolves
 /// them: a roster call or a file `fn` that shares a state's name is not
 /// that state, and a state named like the roster call it starts from

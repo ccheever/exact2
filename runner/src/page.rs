@@ -10,8 +10,9 @@
 //! (Navigation Timing's `type`), and whether the page is put away in, and
 //! how often it came back from, the back/forward cache (`pagehide` and
 //! `pageshow` with `persisted`). The host observes them; the app reads them
-//! by field name from one reserved source.
-//! @ref LLP 1069.000 D2; LLP 1069.003 D5; LLP 1069.010 D2, D8; LLP 1125 D12
+//! by field name from one reserved source. The word also carries the
+//! device's GPU tier, which an app reads as `exactViewport().gpuTier`.
+//! @ref LLP 1069.000 D2; LLP 1069.003 D5; LLP 1069.010 D2, D8; LLP 1125 D12; LLP 1139.003 D2
 
 use exact_plan::Value;
 
@@ -35,6 +36,9 @@ pub const FIELDS: &[&str] = &[
 /// `PerformanceNavigationTiming.type`, or none where the app is no page a
 /// browser loaded (a native app's launch).
 pub const NAVIGATION_TYPES: [&str; 4] = ["", "navigate", "reload", "back_forward"];
+
+/// The GPU tier's words, by their wire code (bits 11–12; 3 reads `low`).
+pub const GPU_TIERS: [&str; 4] = ["high", "mid", "low", "low"];
 
 /// What the host last said. The default is the bake's answer: a visible,
 /// online page with focus and no share sheet.
@@ -79,6 +83,11 @@ pub struct Page {
     /// How many times this launch the page came back from being put away:
     /// its `pageshow` events with `persisted` true. Counted modulo 2^16.
     pub restores: u16,
+    /// The device's GPU tier as an index into [`GPU_TIERS`]: chosen once,
+    /// before the GPU device is made, from the adapter's facts or the
+    /// screen's class; `high` (0) under the agent until `prefer gpu-tier`
+    /// (LLP 1139.003 D2). Read as `exactViewport().gpuTier`.
+    pub gpu_tier: u8,
 }
 
 impl Default for Page {
@@ -95,6 +104,7 @@ impl Default for Page {
             suspended: false,
             persisted: false,
             restores: 0,
+            gpu_tier: 0,
         }
     }
 }
@@ -103,9 +113,10 @@ impl Page {
     /// The hosts' wire form: bit 0 hidden, bit 1 offline, bit 2 can share,
     /// bit 3 can open files, bit 4 without focus, bits 5–6 the navigation
     /// type, bit 7 about to be suspended, bit 8 shares files, bit 9 shares
-    /// an element's picture, bit 10 put away (`persisted`), bits 16–31 the
-    /// restores; other bits are ignored. Zero is visible, online, focused,
-    /// no share sheet, no pickers, no navigation, never put away.
+    /// an element's picture, bit 10 put away (`persisted`), bits 11–12 the
+    /// GPU tier (0 high, 1 mid, 2 low), bits 16–31 the restores; other bits
+    /// are ignored. Zero is visible, online, focused, no share sheet, no
+    /// pickers, no navigation, never put away, a `high` GPU tier.
     pub fn from_bits(bits: u32) -> Self {
         Self {
             hidden: bits & 1 != 0,
@@ -118,6 +129,7 @@ impl Page {
             can_share_files: bits & 256 != 0,
             can_share_pictures: bits & 512 != 0,
             persisted: bits & 1024 != 0,
+            gpu_tier: ((bits >> 11) & 3) as u8,
             restores: (bits >> 16) as u16,
         }
     }
@@ -134,7 +146,13 @@ impl Page {
             | (u32::from(self.can_share_files) << 8)
             | (u32::from(self.can_share_pictures) << 9)
             | (u32::from(self.persisted) << 10)
+            | (u32::from(self.gpu_tier & 3) << 11)
             | (u32::from(self.restores) << 16)
+    }
+
+    /// The GPU tier's word: `low`, `mid` or `high`.
+    pub fn gpu_tier(&self) -> &'static str {
+        GPU_TIERS[usize::from(self.gpu_tier & 3)]
     }
 
     /// How the browser loaded the page, the web's word, or `""` in a
@@ -192,6 +210,14 @@ mod tests {
             Page::default().field("restores"),
             Some(exact_plan::Value::Number(0.0))
         );
+        // LLP 1139.003 D2: bits 11–12, zero `high`, beside `persisted` (bit 10).
+        assert_eq!(Page::default().gpu_tier(), "high");
+        assert_eq!(Page::from_bits(1 << 11).gpu_tier(), "mid");
+        assert_eq!(Page::from_bits(2 << 11 | 1024).gpu_tier(), "low");
+        assert!(Page::from_bits(2 << 11 | 1024).persisted);
+        for bits in [1 << 11, 2 << 11 | 1024 | 5 << 16] {
+            assert_eq!(Page::from_bits(bits).bits(), bits);
+        }
         let page = Page::from_bits(0b1111);
         assert!(page.hidden && !page.on_line && page.can_share && page.can_open_files);
         assert!(!Page::from_bits(0b111).can_open_files);

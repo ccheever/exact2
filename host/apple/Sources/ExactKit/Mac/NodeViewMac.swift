@@ -100,7 +100,7 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         }
     }
     var clipPath: CGPath?, clipRule = CGPathFillRule.winding
-    package var handlers: Set<String> = [] { didSet { video?.update(); if handlers.contains("hover") != oldValue.contains("hover") || handlers.contains("pointermove") != oldValue.contains("pointermove") { syncHoverTracking() }; if handlers.contains("drop") != oldValue.contains("drop") { syncDropTypes() }; syncDisabledLook() } } // the media events the player reports; a hover handler's tracking area; a drop handler's dragged types; a disabled pressable's look
+    package var handlers: Set<String> = [] { didSet { video?.update(); if handlers.contains("hover") != oldValue.contains("hover") || handlers.contains("pointermove") != oldValue.contains("pointermove") { syncHoverTracking() }; if handlers.intersection(FileDrag.events) != oldValue.intersection(FileDrag.events) { syncDropTypes() }; syncDisabledLook() } } // the media events the player reports; a hover handler's tracking area; a drop handler's dragged types; a disabled pressable's look
     var translatePx = CGPoint.zero, translatePercent = CGPoint.zero // `translate`: its lengths, and its percentages of the box (chess diary #4)
     var layoutOffset = CGPoint.zero, layoutScale = CGPoint(x: 1, y: 1) // layout*: the box layout moved it from (LLP 1063)
     var surface: SurfaceLayer? { didSet { layerPaintCache = nil } } // its surface at a layout transition's size (`Surface.swift`)
@@ -1037,6 +1037,7 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         if old["accent_color"] != s["accent_color"] { accentChanged() }
         if s["transform_origin"] != origin { applyTransform() }
         applySpace(changedFrom: old)
+        decorationChanged(from: old)
         syncDynamicRange(from: old)
         let uniformBorder = number("border_width")
         hasBoxPaint = s["background_color"] != nil || s["background_image"] != nil
@@ -1142,7 +1143,8 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         styleTextArea()
         if let f = field, pageField == nil, let t = text { // a field in the toolbar is AppKit's to style
             (f.currentEditor() as? NSTextView)?.insertionPointColor = caretColor
-            f.font = t.font(size: number("font_size", PageFacts.defaultRootFontSize), weight: Int(number("font_weight", 400)), family: Int(number("font_family")), italic: (style["font_style"]?.string) == "italic", numeric: Int(number("font_variant_numeric")))
+            f.font = t.font(size: number("font_size", PageFacts.defaultRootFontSize), weight: Int(number("font_weight", 400)), family: Int(number("font_family")), italic: (style["font_style"]?.string) == "italic", numeric: Int(number("font_variant_numeric")),
+            stretch: CGFloat(number("font_stretch", 100)), variations: FontAxis.of(style["font_variation_settings"]))
             f.textColor = fieldInk
             applyPlaceholder(f)
             styleNativeField()
