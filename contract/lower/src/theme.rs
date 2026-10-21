@@ -314,7 +314,11 @@ impl Lowerer<'_> {
         crate::params::add_to(&mut design, &kinded, &identities);
         let scope = self.types.component_scope(root, &self.types.components[0]);
         let typing = rows::Typing::new(scope.clone(), self.types.shapes.clone());
-        let mut said = Said::of(file, root, &design, &self.declared_fonts, &typing, &scope);
+        let declared = std::sync::Arc::new(rows::Declared::new(
+            self.declared_fonts.clone(),
+            self.font_files.clone(),
+        ));
+        let mut said = Said::of(file, root, &design, &declared, &typing, &scope);
         // The rows a design server's write check reads again (`rows`).
         rows::note(std::mem::take(&mut said.rows));
         // D7's retention, left for the design server before the design is

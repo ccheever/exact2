@@ -754,3 +754,67 @@ fn a_computed_call_is_the_builds() {
     contract::compile_path(&dir.join("app.contract")).unwrap();
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// A module tag's text row is refused by lowering before any check of it
+/// (`native::refused`), so it never passed: a write making its type token
+/// a family is not the write's (Astra's D1 round 2).
+#[test]
+fn a_module_tags_text_row_is_not_judged() {
+    let dir = reading("rows-font-module");
+    // The module the view shows is one the app declares.
+    let manifest = dir.join("app.json");
+    let mut json: Value = std::fs::read_to_string(&manifest)
+        .ok()
+        .and_then(|t| serde_json::from_str(&t).ok())
+        .unwrap_or_else(|| json!({"name": "T", "app": {"id": "com.exact.t", "name": "T"}}));
+    json["modules"] = json!(["my-view"]);
+    std::fs::write(&manifest, json.to_string()).unwrap();
+    let design = "tamber t\n\ntheme\n  ink = #111111\n  body = 400 1rem Georgia\n";
+    std::fs::write(dir.join("app.tamber"), design).unwrap();
+    std::fs::write(
+        dir.join("app.contract"),
+        "use Card from \"@acme/reading\"\ncomponent App\n  view\n    column\n      my-view font=\"body\"\n      Card()\n",
+    )
+    .unwrap();
+    let src = std::fs::read_to_string(dir.join("app.contract")).unwrap();
+    let built = contract::compile_path_source_all(&dir.join("app.contract"), &src, false)
+        .err()
+        .unwrap_or_default();
+    assert!(
+        built.iter().any(|e| e.id == "lower-native-attr"),
+        "{built:?}"
+    );
+    let mut s = Serve::start(&dir, &[]);
+    s.ask(json!({"method": "propose", "ops": [{"op": "set-token", "name": "ink", "value": "#444444"}]}));
+    let w = transaction(
+        &mut s,
+        &dir,
+        json!({"op": "set-token", "name": "body", "value": "\"Georgia\""}),
+    );
+    assert!(w.get("ok").is_some(), "{w}");
+    drop(s);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A grouped list's label folded from an `if` chain of texts is one text
+/// lowering builds at its first arm's place: the arms' rows are the
+/// build's, which refuses the write at the first arm; the check never
+/// refuses it at the second (Astra's D1 round 2).
+#[test]
+fn a_folded_labels_arms_are_the_builds() {
+    let dir = reading("rows-folded-label");
+    let design = "tamber t\n\ntheme\n  ink = #111111\n  mute = #777777\n";
+    std::fs::write(dir.join("app.tamber"), design).unwrap();
+    std::fs::write(
+        dir.join("app.contract"),
+        "use Card from \"@acme/reading\"\ncomponent App\n  state on = false\n  view\n    column\n      list appearance=\"auto\"\n        section\n          header\n            if on\n              text \"A\" color=\"mute\"\n            else\n              text \"B\" color=\"mute\"\n          row\n            text \"row\"\n      Card()\n",
+    )
+    .unwrap();
+    contract::compile_path(&dir.join("app.contract")).unwrap();
+    let mut s = Serve::start(&dir, &[]);
+    s.ask(json!({"method": "propose", "ops": [{"op": "set-token", "name": "ink", "value": "#444444"}]}));
+    let w = transaction(&mut s, &dir, json!({"op": "remove-token", "name": "mute"}));
+    assert!(w.get("ok").is_some(), "{w}");
+    drop(s);
+    let _ = std::fs::remove_dir_all(&dir);
+}

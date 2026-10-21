@@ -87,7 +87,33 @@ impl PartialEq for Typing {
 pub struct Fonts {
     attrs: Vec<Attr>,
     children: bool,
-    declared: Arc<BTreeMap<String, DeclaredFont>>,
+    declared: Arc<Declared>,
+}
+
+/// The app's declared fonts as a build read them, and each file whose
+/// faces' weights it read from the file itself (an `auto` face): its path,
+/// length and time, so a check after the file changes leaves font rows to
+/// the build (Astra's D1 round 2).
+#[derive(Debug, Default, PartialEq)]
+pub struct Declared {
+    fonts: BTreeMap<String, DeclaredFont>,
+    files: Vec<FontFile>,
+}
+
+/// A font file a build read, as `std::fs::metadata` said it then.
+pub(crate) type FontFile = (std::path::PathBuf, u64, Option<std::time::SystemTime>);
+
+impl Declared {
+    pub(crate) fn new(fonts: BTreeMap<String, DeclaredFont>, files: Vec<FontFile>) -> Declared {
+        Declared { fonts, files }
+    }
+
+    /// Whether a file the build read has changed since.
+    fn stale(&self) -> bool {
+        self.files.iter().any(|(path, len, time)| {
+            std::fs::metadata(path).map_or(true, |m| m.len() != *len || m.modified().ok() != *time)
+        })
+    }
 }
 
 impl Fonts {
@@ -99,7 +125,7 @@ impl Fonts {
         file: &contract_syntax::File,
         attrs: &[Attr],
         children: bool,
-        declared: &Arc<BTreeMap<String, DeclaredFont>>,
+        declared: &Arc<Declared>,
     ) -> Option<Fonts> {
         let style = |name: &str| {
             file.styles
@@ -395,11 +421,19 @@ pub fn check(
         }
     }
     let reaches = |w: &str| hit.contains(w);
+    // A font file the build read has changed: font rows are the build's.
+    let stale = rows
+        .iter()
+        .find_map(|r| r.fonts.as_ref())
+        .is_some_and(|f| f.declared.stale());
     // A row's own literals, and its node's `font-family`'s (a write to a
     // family token reaches `font-weight=700` beside it).
     let reached: Vec<&Row> = rows
         .iter()
         .filter(|r| {
+            if stale && r.fonts.is_some() {
+                return false;
+            }
             if reads_numbers(r) {
                 return true;
             }
@@ -581,7 +615,7 @@ fn judge(
     let (a, fonts) = (&r.attr, r.fonts.as_ref());
     // A family list lowering refuses stops the element before any font
     // check (`nodes.rs`'s `font_use(expanded)?`): not judged here.
-    let uses = match fonts.map(|f| crate::fonts::font_use(&f.declared, &f.attrs)) {
+    let uses = match fonts.map(|f| crate::fonts::font_use(&f.declared.fonts, &f.attrs)) {
         Some(Err(_)) => return Ok(false),
         Some(Ok(uses)) => uses,
         None => Vec::new(),
@@ -592,7 +626,7 @@ fn judge(
         _ => None,
     };
     if let (Some((kind, uses)), Some(f)) = (kind, fonts) {
-        return crate::type_tokens::tokens_named(a, kind, uses, &f.declared, f.children)
+        return crate::type_tokens::tokens_named(a, kind, uses, &f.declared.fonts, f.children)
             .map(|named| named.is_some());
     }
     let rows = crate::tags::rows(a);
@@ -684,6 +718,65 @@ mod tests {
         );
         assert_eq!(super::super::ROLES.with(|r| r.borrow().len()), 1);
         assert_eq!(crate::scale::declared(), vec!["kept".to_string()]);
+    }
+
+    /// A font file the build read that has changed since leaves the font
+    /// rows to the build (Astra's D1 round 2): `body` made `700` over a
+    /// family whose faces the build read as 400 alone is refused while the
+    /// file is as it was, and not once it changes (it may be variable now).
+    #[test]
+    fn a_changed_font_file_leaves_font_rows_to_the_build() {
+        let file = std::env::temp_dir().join(format!("exact-rows-font-{}", std::process::id()));
+        std::fs::write(&file, b"static").unwrap();
+        let m = std::fs::metadata(&file).unwrap();
+        let fonts = [(
+            "F".to_string(),
+            DeclaredFont {
+                stack: exact_plan::StacksId(0),
+                faces: vec![(400, false)],
+            },
+        )];
+        let declared = Arc::new(Declared::new(
+            fonts.into_iter().collect(),
+            vec![(file.clone(), m.len(), m.modified().ok())],
+        ));
+        let parse = |t: &str| tamber::parse(t).unwrap();
+        let before = "tamber t\n\ntheme\n  body = 400 1rem \"F\"\n";
+        let after = parse("tamber t\n\ntheme\n  body = 700 1rem \"F\"\n");
+        let folded = tamber::check_design(after.clone(), &super::super::vocab()).unwrap();
+        let row = Row {
+            attr: Attr {
+                name: "font".into(),
+                value: Expr::Str("body".into(), Span::default()),
+                span: Span::default(),
+                written: true,
+            },
+            places: vec![Place::plain(Span::default())],
+            fonts: Some(Fonts {
+                attrs: Vec::new(),
+                children: false,
+                declared,
+            }),
+            computed: None,
+        };
+        let rows = [row];
+        let check = || {
+            check(
+                &rows,
+                &["body"],
+                &after,
+                &folded,
+                || Some(parse(before)),
+                &[],
+                &[],
+            )
+        };
+        let broken = check();
+        assert_eq!(broken.len(), 1, "{broken:?}");
+        assert_eq!(broken[0].error.id, "lower-font-face");
+        std::fs::write(&file, b"variable now").unwrap();
+        assert!(check().is_empty());
+        let _ = std::fs::remove_file(&file);
     }
 
     /// A `font` row naming no type token isn't judged here, so it never

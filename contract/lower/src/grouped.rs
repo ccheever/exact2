@@ -278,6 +278,13 @@ pub(crate) fn sections(style: &'static str, children: &[Node]) -> Result<Vec<Nod
         .collect()
 }
 
+/// Whether `c` is a `header` or `footer` lowering folds into one text
+/// (LLP 1116.017 D3) when it labels a grouped list's section: the design
+/// server's write check leaves its rows to the build (`theme::scan`).
+pub(crate) fn folds(c: &Node) -> bool {
+    (is(c, "header") || is(c, "footer")) && messages::fold_label(c).is_some()
+}
+
 /// `node` with `f` applied to each element it is or holds through `if`,
 /// `for` and `match`.
 fn over(

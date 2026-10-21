@@ -7,7 +7,7 @@ use super::role_named;
 use contract_syntax::{Attr, Component, Expr, File, Node, Span, Stmt, TemplatePart};
 use exact_kernel::{StyleCodec, StyleId};
 use exact_tamber::Design;
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeSet;
 
 /// CSS's colour functions: an expression over a token is one of them.
 const COLOUR_FNS: &[&str] = &[
@@ -109,7 +109,7 @@ impl Said {
         file: &File,
         root: &Component,
         design: &Design,
-        declared: &BTreeMap<String, crate::DeclaredFont>,
+        declared: &std::sync::Arc<super::rows::Declared>,
         typing: &super::rows::Typing,
         scope: &contract_types::Scope,
     ) -> Said {
@@ -117,7 +117,6 @@ impl Said {
         let mut computed = false;
         let mut computed_measure = false;
         let mut rows: Vec<super::rows::Said> = Vec::new();
-        let declared = std::sync::Arc::new(declared.clone());
         let mut attrs = |attrs: &[Attr]| {
             for a in attrs {
                 let colour = colour_attr(&a.name);
@@ -141,9 +140,16 @@ impl Said {
         // is the prop `lightX`, a unitless `rect x` a number); and whether a
         // `for` or a `match` binds a name around it, which the root's scope
         // does not type.
-        let mut stack: Vec<(&Node, bool, Option<&str>, bool)> =
-            root.view.iter().map(|n| (n, false, None, false)).collect();
-        while let Some((node, svg, parent, local)) = stack.pop() {
+        // A grouped list's label folded from an `if` chain of texts
+        // (`grouped::folds`) holds one text lowering builds anew, at its
+        // first arm's place: the chain's rows are left to the build
+        // (`left`).
+        let mut stack: Vec<(&Node, bool, Option<&str>, bool, bool)> = root
+            .view
+            .iter()
+            .map(|n| (n, false, None, false, false))
+            .collect();
+        while let Some((node, svg, parent, local, left)) = stack.pop() {
             match node {
                 Node::Element {
                     tag,
@@ -163,7 +169,13 @@ impl Said {
                     // not at all when a local name is around (its scope is
                     // the region's) or its form doesn't say its type.
                     let mut fonts = None;
-                    for r in coerced.as_deref().unwrap_or(a) {
+                    // A module tag's row lowering refuses is never judged
+                    // (`native::refused`, before any check of it).
+                    let own = coerced.as_deref().unwrap_or(a);
+                    for r in own
+                        .iter()
+                        .filter(|r| !left && crate::native::refused(tag, r).is_none())
+                    {
                         let computed = match super::rows::kept(r) {
                             Some(false) => None,
                             Some(true) if !local => match super::rows::typed(&r.value, scope) {
@@ -175,7 +187,7 @@ impl Said {
                         let fonts = match super::rows::font_row(&r.name) {
                             false => None,
                             true => match fonts.get_or_insert_with(|| {
-                                super::rows::Fonts::of(file, a, !children.is_empty(), &declared)
+                                super::rows::Fonts::of(file, a, !children.is_empty(), declared)
                             }) {
                                 Some(f) => Some(f.clone()),
                                 None => continue,
@@ -188,10 +200,11 @@ impl Said {
                         });
                     }
                     let inside = svg || tag == "svg";
+                    let left = left || crate::grouped::folds(node);
                     stack.extend(
                         children
                             .iter()
-                            .map(|c| (c, inside, Some(tag.as_str()), local)),
+                            .map(|c| (c, inside, Some(tag.as_str()), local, left)),
                     );
                 }
                 Node::When {
@@ -199,17 +212,17 @@ impl Said {
                 } => stack.extend(
                     then.iter()
                         .chain(otherwise)
-                        .map(|c| (c, svg, parent, local)),
+                        .map(|c| (c, svg, parent, local, left)),
                 ),
                 Node::Each { body, .. } => {
-                    stack.extend(body.iter().map(|c| (c, svg, parent, true)))
+                    stack.extend(body.iter().map(|c| (c, svg, parent, true, left)))
                 }
                 Node::Match { some, none, .. } => {
-                    stack.extend(some.1.iter().map(|c| (c, svg, parent, true)));
-                    stack.extend(none.iter().map(|c| (c, svg, parent, local)));
+                    stack.extend(some.1.iter().map(|c| (c, svg, parent, true, left)));
+                    stack.extend(none.iter().map(|c| (c, svg, parent, local, left)));
                 }
                 Node::Use { children, .. } => {
-                    stack.extend(children.iter().map(|c| (c, svg, parent, local)))
+                    stack.extend(children.iter().map(|c| (c, svg, parent, local, left)))
                 }
                 Node::Children { .. } => {}
             }

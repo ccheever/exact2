@@ -159,6 +159,12 @@ impl Lowerer<'_> {
                 let axes = std::fs::read(&canonical)
                     .map(|bytes| crate::font_axes::read(&bytes))
                     .unwrap_or_default();
+                if face.weight.is_none() {
+                    if let Ok(m) = std::fs::metadata(&canonical) {
+                        self.font_files
+                            .push((canonical.clone(), m.len(), m.modified().ok()));
+                    }
+                }
                 let weight = face.weight.unwrap_or_else(|| {
                     axes.wght.map_or([400, 400], |[low, high]| {
                         [
