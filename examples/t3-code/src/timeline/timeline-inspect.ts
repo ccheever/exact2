@@ -42,6 +42,18 @@ export function notificationChildThreadId(item: Obj): string {
 const OUTCOME_STATUS: Record<string, string> = { completed: 'completed', failed: 'failed', cancelled: 'cancelled' };
 const OUTCOME_LABEL: Record<string, string> = { completed: 'Finished', failed: 'Failed', cancelled: 'Stopped', updated: 'Updated', unknown: 'Finished' };
 
+const ACTIVE_SUBAGENT = new Set(['pending', 'running', 'waiting']);
+/**
+ * V2LifecycleRow.logic.ts subagentResumedSince (T3 Code 74541bab17): whether a subagent started another run after a
+ * notification reported its final outcome (Claude resumes a finished subagent under the same id). An active subagent
+ * always is, even when the notification arrived late from the queue; a settled one is when it started after it.
+ */
+export function subagentResumedSince(agent: Obj, notifiedAt: string): boolean {
+  if (ACTIVE_SUBAGENT.has(str(agent.status))) return true;
+  if (typeof agent.startedAt !== 'string') return false;
+  const notified = Date.parse(notifiedAt), started = Date.parse(agent.startedAt);
+  return !Number.isNaN(notified) && !Number.isNaN(started) && started > notified;
+}
 /**
  * SubagentNotificationLink: a notification about a subagent the parent knows
  * drawn as that subagent's card, with the status it reported then (no dot for
@@ -52,6 +64,8 @@ export function notificationSubagent(item: Obj, subagents: Obj[], createdAt: str
   const agent = childThreadId ? subagents.find(candidate => candidate.childThreadId === childThreadId) : undefined;
   if (!agent) return null;
   const outcome = str(item.outcome, 'unknown'), status = OUTCOME_STATUS[outcome] ?? '';
+  // A subagent resumed since this notification shows its live status, not the outcome reported then.
+  if (status && subagentResumedSince(agent, createdAt)) return { ...subagent(agent, { agents: [], providers }), id: str(item.id, str(agent.id)), targetId: childThreadId, timestamp: createdAt };
   const card = subagent({ ...agent, status: status || str(agent.status) }, { agents: [], providers });
   // The event's time stands where the elapsed time would: it never ticks.
   return { ...card, id: str(item.id, card.id), result: OUTCOME_LABEL[outcome] ?? 'Finished', output: time, startedMs: 0, failed: status === 'failed',

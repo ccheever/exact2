@@ -598,7 +598,7 @@ component MarkedText
 fn webLink(href: string): bool = href.startsWith("http://") or href.startsWith("https://")
 // A link whose click does something on every word: a web link opens, a fragment scrolls to its heading;
 // a mailto, irc or xmpp link's click opens nothing, word or not.
-fn pressLink(href: string): bool = webLink(href) or href.startsWith("#") or href.startsWith("t3-thread://v1/")
+fn pressLink(href: string): bool = webLink(href) or href.startsWith("#")
 // A run of a link that is not a pull request link (a pull request link's words are each a link of their own, PrLinkRun).
 fn linkRun(run: ChatRun, chips: ChipView[]): bool = (run.kind == "link" or run.kind == "link-start") and chips.filter((chip) => chip.kind == "pr-link" and chip.href == run.href).length == 0
 
@@ -609,7 +609,6 @@ component FlowRuns
   inject
     linkOpen: action
     linkMenu: action
-    threadGlyphs: ThreadLinkGlyph[]
     fragmentJump: action
   props
     runs: ChatRun[]
@@ -647,13 +646,9 @@ component FlowRuns
         // code` inside the `<a>`, after the favicon).
         if run.kind == "link-start" and linkRun(run, chips)
           link href=run.href press=open(run.href) contextmenu=linkMenu(run.href) aria-label=run.label cursor="pointer" text-decoration-line="none" display="flex" flex-direction="row" flex-shrink=0 align-items="flex-start" title=""
-            if webLink(run.href) or run.href.startsWith("t3-thread://v1/")
+            if webLink(run.href)
               box width="0.875rem" height="1.421875rem" margin-left="0.21875rem" margin-right="0.175rem" padding-top="0.28125rem" box-sizing="border-box" flex-shrink=0
-                if threadGlyphs.filter((entry) => entry.href == run.href).length > 0
-                  for entry in threadGlyphs.filter((entry) => entry.href == run.href) key=entry.href
-                    SidebarProjectGlyph(g=entry.glyph, size=14, dim=false)
-                else
-                  TimelineIcon(name=(run.href.startsWith("t3-thread://v1/") ? "messages-square" : "globe"), size=14, color="light-dark(#1447e6, #50a2ff)")
+                TimelineIcon(name="globe", size=14, color="light-dark(#1447e6, #50a2ff)")
             if not run.mono
               text white-space="pre" flex-shrink=0 font-size=size line-height="1.421875rem" font-weight=(run.weight > weight ? run.weight : weight) font-style=run.slant text-decoration-line=(run.strike ? "line-through" : "none") color="light-dark(#1447e6, #50a2ff)"
                 FindParts(parts=run.findParts)
@@ -983,6 +978,8 @@ component AttachmentChipBody
         ChipFace(run=run, chip=chip, urls=urls)
 
 component ChipFace
+  inject
+    threadGlyphs: ThreadLinkGlyph[]
   props
     run: ChatRun
     chip: ChipView
@@ -993,7 +990,11 @@ component ChipFace
     if chip.kind != "file" and (chip.kind == "image" and urls.filter((entry) => entry.id == chip.target).length > 0)
       for entry in urls.filter((entry) => entry.id == chip.target) key=entry.id
         image entry.url aria-hidden=true width="0.875rem" height="0.875rem" flex-shrink=0 border-radius="0.25rem" object-fit="cover"
-    if chip.kind != "file" and not (chip.kind == "image" and urls.filter((entry) => entry.id == chip.target).length > 0)
+    // ThreadContextChip: a thread with a known project leads with the project's icon (ProjectFavicon), else MessagesSquare.
+    if chip.kind == "thread" and threadGlyphs.filter((entry) => entry.href == chip.href).length > 0
+      for entry in threadGlyphs.filter((entry) => entry.href == chip.href) key=entry.href
+        SidebarProjectGlyph(g=entry.glyph, size=14, dim=false)
+    if chip.kind != "file" and not (chip.kind == "image" and urls.filter((entry) => entry.id == chip.target).length > 0) and not (chip.kind == "thread" and threadGlyphs.filter((entry) => entry.href == chip.href).length > 0)
       TimelineIcon(name=chipIcon(chipFamily(chip.kind)), size=14, color=chipInk(chipFamily(chip.kind)))
     text min-width=0 max-width="18rem" line-clamp=1 font-size="0.75rem" font-weight=500 line-height="0.9375rem" white-space="pre" color=chipInk(chipFamily(chip.kind)) text-decoration-line=(run.strike ? "line-through" : "none")
       if run.findParts.map((part) => part.text).join("") == chip.label

@@ -170,7 +170,7 @@ component ConnectionsPanel
       ThisMachineSection(machine=page.thisMachine, net=page.network, wide=rowWide, busy=busy, op=op, ask=remove)
       // Shown whenever this session can read or grant access, whatever the exposure.
       if page.network.visible and page.network.clientsVisible
-        AuthorizedClients(net=page.network, busy=busy, ask=remove, op=op)
+        AuthorizedClients(net=page.network, busy=busy, ask=remove, op=op, still=still)
       column width="100%" gap="0.625rem"
         PvSectionTitle(title="Environments")
           row gap="0.25rem" align-items="center"

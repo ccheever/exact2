@@ -151,15 +151,17 @@ export function resolveDispatchMode(running: boolean, followUp: string, alternat
 export function sendQueuesBehindSetup(client: T3Client): boolean {
   return !!client.threadId && ['preparing', 'starting'].includes(str(activeRun(client.projection)?.status));
 }
-/** ChatView's active /compact request, until its compaction item completes. */
+/** ChatView's isCompacting: a compaction running in the active run (an automatic one too), or an active /compact
+ * request until its compaction item settles. */
 export function isCompacting(client: T3Client): boolean {
   const run = activeRun(client.projection);
   if (!run) return false;
   const items = arr(client.projection.visibleTurnItems).map(row => obj(row.item));
+  if (items.some(item => item.type === 'compaction' && item.runId != null && item.runId === run.id && item.status === 'running')) return true;
   const latestUser = items.filter(item => item.type === 'user_message').at(-1);
   return !!latestUser && latestUser.runId === run.id && str(latestUser.text).trim().toLowerCase() === '/compact'
     && arr(latestUser.attachments).length === 0
-    && !items.some(item => item.type === 'compaction' && item.runId === run.id && item.status === 'completed');
+    && !items.some(item => item.type === 'compaction' && item.runId === run.id && ['completed', 'failed', 'interrupted', 'cancelled'].includes(str(item.status)));
 }
 export function followUpBehavior(client: T3Client): string {
   return str((client.local as { clientSettings?: Obj }).clientSettings?.followUpBehavior, 'queue') === 'steer' ? 'steer' : 'queue';

@@ -19,6 +19,7 @@ import { activeRef, terminalOpen } from '../terminal/terminal-drawer-view'; // C
 import { annotatingInThread, sendChordsWhileAnnotating } from '../browser/browser-annotation'; // ⌘↩ in Annotate
 import { measuredLabels } from './composer-measure';
 import { atRootFontSize, composerMenus, effortMenuWidth, measured, probe, probeKey, traitsMenuHeight } from './composer-menus';
+import { anchorFrame } from '../shared/laid-out-widths';
 import { clampInterfaceFontSize } from '../appearance/appearance-fonts';
 import { environmentView } from '../details/git-env';
 import { ULTRATHINK_LOCKED_MESSAGE, ultrathinkTraits, withImplicitFastModeDefault } from './composer-provider-state';
@@ -262,7 +263,8 @@ export function composerSnapshot(client: T3Client, now = 0) {
   const activityAt = !activity ? -1 : after < 0 ? ranked.length : after, activityFront = activityAt === 0;
   // `activityBefore`: the stacked activity strip floats just before this notice; `activityLast`: after every notice.
   const rootFontSize = clampInterfaceFontSize((client.local as { clientSettings?: { fontSizeInterface?: unknown } }).clientSettings?.fontSizeInterface);
-  const notices = withNoticeDetails(client, ranked, rootFontSize).map((notice, index) => ({ ...notice, front: !activityFront && index === 0, activityBefore: !activityFront && index === activityAt }));
+  const notices = withNoticeDetails(client, ranked, rootFontSize).map((notice, index) => ({ ...notice, front: !activityFront && index === 0, activityBefore: !activityFront && index === activityAt,
+    titleDetails: noticeTitleDetails(client.presentation, notice, rootFontSize) }));
   const activityLast = !!activity && !activityFront && activityAt === ranked.length;
   const queue = queuedView(client), action = primaryAction(client, phase);
   if (queue.queueEditing) Object.assign(action, { sendLabel: 'Update queued message', sendIcon: 'check', sendTooltip: 'Update queued message', sendRunning: true });
@@ -287,7 +289,23 @@ export function composerSnapshot(client: T3Client, now = 0) {
     sendTipWidth: Math.ceil(measured(client.presentation, action.sendTooltip, 12, 400) + 18),
     // Menu widths from measured texts (composer-menus.ts); Run on's labels join the probes.
     ...composerMenus(client.presentation, view, environmentView(client).envOptions.map(option => option.label),
-      [probe(action.sendTooltip, 12, 400), ...notices.filter(measurable).flatMap(notice => descriptionTexts(notice).map(([text, weight]) => probe(text, 12, weight))), ...stripLabelTexts(client).map(text => probe(text, 12, 400))]),
+      [probe(action.sendTooltip, 12, 400), ...notices.filter(measurable).flatMap(notice => descriptionTexts(notice).map(([text, weight]) => probe(text, 12, weight))), ...stripLabelTexts(client).map(text => probe(text, 12, 400)), ...notices.map(notice => probe(notice.title, 12, 500))]),
     stripCompact: stripLabelsCompact(client, rootFontSize),
     syncStatus: bar.subagent ? '' : sync, activity: bar.subagent ? '' : activity, activityFront: !bar.subagent && activityFront, activityLast: !bar.subagent && activityLast, notices, resetConfirm: bar.subagent ? '' : usageConfirm(client), implementX: anchors.implement.x, implementWidth: anchors.implement.width }, rootFontSize);
+}
+
+/**
+ * ComposerBannerStack NoticeText (T3 Code 74541bab17): whether a notice's plain title is cut off, from its natural width
+ * (its probe, scaled as withNoticeDetails scales the description's) against the content row it shares with the
+ * description, which shrinks to nothing first, and the description's own details button while that shows. The title's
+ * details button never counts against the title, so showing it cannot keep itself shown.
+ */
+export function noticeTitleDetails(presentation: Obj, notice: { id: string; title: string; tip: string; description: string; redact: string; segments: unknown[]; machines: unknown[]; details?: boolean }, rootFontSize = 16): boolean {
+  if (notice.tip || notice.machines.length > 0 || !notice.title) return false;
+  const content = anchorFrame(presentation, `notice-content:${notice.id}`);
+  const probed = anchorFrame(presentation, probe(notice.title, 12, 500).key);
+  if (!content || !probed) return false;
+  const scale = rootFontSize / 16, described = !!(notice.description || notice.redact || notice.segments.length);
+  const after = (described ? 4 : 0) + (notice.details ? 28 : 0);
+  return probed[1] * scale > content[1] - after * scale + 0.5;
 }
