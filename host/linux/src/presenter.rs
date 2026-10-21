@@ -60,6 +60,7 @@ mod pan_release;
 mod picker;
 mod pointer;
 mod radio;
+mod range_frame;
 #[cfg(test)]
 mod save_tests;
 mod svg_hit;
@@ -216,6 +217,8 @@ pub struct Presenter<D: DataSource> {
     boxes: Vec<PaintedBox>,
     /// Bumped whenever `boxes` is replaced.
     boxes_serial: u64,
+    /// The fields `rangeFrame` reads, as painted beside `boxes`.
+    ranges: std::rc::Rc<range_frame::Painted>,
     pub(crate) dirty: bool,
     /// The app's `setScheme` (`None`: follow the system) and the appearance
     /// its shell or an agent says (LLP 1061 D5); light until either does.
@@ -484,6 +487,7 @@ impl<D: DataSource> Presenter<D> {
             control_bindings: BTreeMap::new(),
             boxes: Vec::new(),
             boxes_serial: 0,
+            ranges: Default::default(),
             dirty: true,
             deferred_collections: None,
             live_clock: None,
@@ -524,6 +528,7 @@ impl<D: DataSource> Presenter<D> {
             last_region_scale: None,
             hatches: Default::default(),
         };
+        p.read_ranges();
         p.set_system_scheme(false);
         let e = p.after_commit();
         p.booting = false;
@@ -1291,6 +1296,7 @@ impl<D: DataSource> Presenter<D> {
 
     /// Another host took over: it is measured as the last was, and counted.
     pub(crate) fn replaced(&mut self) {
+        self.read_ranges();
         self.scroll_end = Default::default();
         self.give_clock();
         // A new kernel may have the same epoch.

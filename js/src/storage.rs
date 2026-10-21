@@ -267,6 +267,10 @@ impl fs_image::ImageCodec for ImageCodec {
     ) -> Result<fs_image::CompressedImage, ibex2::boundary::HostError> {
         exact_data::image::compress_controlled(
             bytes,
+            match request.format {
+                fs_image::ImageFormat::Jpeg => exact_data::image::Format::Jpeg,
+                fs_image::ImageFormat::Png => exact_data::image::Format::Png,
+            },
             request.max_dimension,
             request.max_bytes,
             control.deadline(),

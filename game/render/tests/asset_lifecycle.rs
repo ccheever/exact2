@@ -24,7 +24,10 @@ fn deferred_refusal_reports_once_and_leaves_fresh_world_usable() {
     surface
         .restore(b"invalid save", exact_gpu::Restore::Open)
         .unwrap();
-    surface.asset("crate.model", Ok(&bin::to_vec(&Model::default())));
+    surface.asset(
+        "crate.model",
+        Ok(&exact_game::asset::encode_model(&Model::default())),
+    );
     assert!(surface.take_error().unwrap().0.contains("save"));
     assert!(surface.take_error().is_none());
     assert!(surface.error().is_none());
@@ -35,7 +38,10 @@ fn deferred_refusal_reports_once_and_leaves_fresh_world_usable() {
 fn pending_restore_never_escapes_as_a_current_save() {
     let mut source = Sim::<Art>::new(()).unwrap();
     source
-        .asset("crate.model", Some(&bin::to_vec(&Model::default())))
+        .asset(
+            "crate.model",
+            Some(&exact_game::asset::encode_model(&Model::default())),
+        )
         .unwrap();
     source.run(500.);
     let mut surface = fresh();
@@ -116,7 +122,7 @@ fn loaded_content_reprepares_after_device_loss() {
     let (model, mut textures) = exact_game_bake::assets(&path).unwrap();
     // The authored RGBA8 names: what a device without block families fetches.
     textures.retain(|name, _| model.textures.contains(name));
-    surface.asset("crate.model", Ok(&bin::to_vec(&model)));
+    surface.asset("crate.model", Ok(&exact_game::asset::encode_model(&model)));
     for (name, texture) in &textures {
         surface.asset(name, Ok(&bin::to_vec(texture)));
     }
@@ -163,7 +169,7 @@ fn attaching_a_device_after_headless_delivery_requests_texture_bytes() {
     let (model, mut textures) = exact_game_bake::assets(&path).unwrap();
     // The authored RGBA8 names: what a device without block families fetches.
     textures.retain(|name, _| model.textures.contains(name));
-    surface.asset("crate.model", Ok(&bin::to_vec(&model)));
+    surface.asset("crate.model", Ok(&exact_game::asset::encode_model(&model)));
     for (name, texture) in &textures {
         surface.asset(name, Ok(&bin::to_vec(texture)));
     }
@@ -186,7 +192,10 @@ fn deferred_restore_preserves_the_last_texture_until_upload() {
     textures.retain(|name, _| model.textures.contains(name));
     let mut source = Sim::<Art>::new(()).unwrap();
     source
-        .asset("crate.model", Some(&bin::to_vec(&model)))
+        .asset(
+            "crate.model",
+            Some(&exact_game::asset::encode_model(&model)),
+        )
         .unwrap();
     for (name, texture) in &textures {
         source.asset(name, Some(&bin::to_vec(texture))).unwrap();
@@ -195,7 +204,7 @@ fn deferred_restore_preserves_the_last_texture_until_upload() {
     let mut surface = fresh();
     surface.device_ready(exact_gpu::wgpu::Features::empty());
     surface.restore(&save, exact_gpu::Restore::Open).unwrap();
-    surface.asset("crate.model", Ok(&bin::to_vec(&model)));
+    surface.asset("crate.model", Ok(&exact_game::asset::encode_model(&model)));
     for (name, texture) in &textures {
         surface.asset(name, Ok(&bin::to_vec(texture)));
     }
@@ -234,7 +243,7 @@ fn replacement_device_draws_identical_pixels() {
     let (model, mut textures) = exact_game_bake::assets(&path).unwrap();
     // The authored RGBA8 names: what a device without block families fetches.
     textures.retain(|name, _| model.textures.contains(name));
-    surface.asset("crate.model", Ok(&bin::to_vec(&model)));
+    surface.asset("crate.model", Ok(&exact_game::asset::encode_model(&model)));
     for (name, texture) in &textures {
         surface.asset(name, Ok(&bin::to_vec(texture)));
     }
@@ -308,7 +317,7 @@ fn textureless_live_model_survives_unrelated_retirement_and_module_device_loss()
     for material in &mut model.materials {
         *material = Default::default();
     }
-    let bytes = bin::to_vec(&model);
+    let bytes = exact_game::asset::encode_model(&model);
     let mut module = Module::new(&REGISTRY);
     module.set_gpu(gpu);
     module.set_seekable(true);

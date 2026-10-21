@@ -235,10 +235,56 @@ fn a_board_hears_its_menu_point_its_wheel_its_drop_and_its_unload() {
         Event::of_host_kind(38, "12,30\n/etc/passwd").is_err(),
         "only minted handles drop"
     );
+    // A folder is a handle as a file is (`fs.stat` tells them apart).
+    r.dispatch(world, event(38, "0,0\ndoc:/5/photos")).unwrap();
+    assert_eq!(r.slot("dropped"), Some(&Value::str("1 doc:/5/photos 0")));
     r.take_commands();
     r.dispatch(world, event(36, "")).unwrap();
     assert!(
         r.take_commands().iter().any(|c| c.name == "preventDefault"),
         "unsaved: the window stays"
     );
+}
+
+/// A file drag over a column (the oracle's chat column, T3 Code
+/// `ChatView.tsx`): `dragenter` and `dragleave` bracket it so the app can
+/// draw a drop overlay; their `DragEvent` has the point and no files.
+#[test]
+fn a_column_hears_a_file_drag_enter_and_leave() {
+    const COLUMN: &str = r#"component App
+  state over = false
+  state at = ""
+  action entered(e: DragEvent)
+    over = true
+    at = `${e.offsetX},${e.offsetY},${e.files.length}`
+  action left
+    over = false
+  view
+    column testId="column" width=300 height=200 dragenter=entered dragleave=left
+"#;
+    let plan = contract::compile(COLUMN).unwrap_or_else(|e| panic!("{e}"));
+    let mut r = Runner::boot(
+        plan,
+        NoData,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    let column = r
+        .kernel()
+        .node_by_key(r.kernel().find_by_test_id("column")[0])
+        .unwrap()
+        .id;
+    assert_eq!(
+        r.handlers_of(column),
+        vec![EventKind::Dragenter, EventKind::Dragleave]
+    );
+    r.dispatch(column, Event::of_host_kind(55, "7,9").unwrap())
+        .unwrap();
+    assert_eq!(r.slot("over"), Some(&Value::Bool(true)));
+    assert_eq!(r.slot("at"), Some(&Value::str("7,9,0")));
+    r.dispatch(column, Event::of_host_kind(56, "0,0").unwrap())
+        .unwrap();
+    assert_eq!(r.slot("over"), Some(&Value::Bool(false)));
 }

@@ -78,6 +78,10 @@ impl Lowerer<'_> {
             *span,
         )?;
         let native_button = button.as_ref().is_some_and(|b| b.native);
+        // A `button` part as the platform draws it (LLP 1139 D6).
+        if let Some(b) = button.as_ref() {
+            self.button_part(*span, b.native, b.bare_reason.as_deref());
+        }
         if native_button {
             let margins = grouped::margins_said(attrs)
                 || expanded.as_deref().is_some_and(grouped::margins_said);
@@ -545,6 +549,44 @@ impl Lowerer<'_> {
                 } else {
                     Origin::Own(written)
                 };
+                // A folded `:disabled` or `:checked` row (LLP 1122's queue
+                // item (2)): its base's attribute where an author wrote it,
+                // and each part folded over it, each the class's by its span.
+                let fold = (states.as_ref())
+                    .filter(|s| index >= s.base_len && index < s.pressed)
+                    .map(|s| &s.folds[index - s.base_len]);
+                let origin = match fold {
+                    Some(fold) => {
+                        let class_of = |span: &Span| {
+                            class_label.as_ref().filter(|_| class_spans.contains(span))
+                        };
+                        let base = fold.base.as_ref().map(|(span, name)| {
+                            let w = crate::Written {
+                                span: *span,
+                                name: name.clone(),
+                            };
+                            Box::new(match class_of(span) {
+                                Some(label) => Origin::Class(
+                                    label.clone(),
+                                    (!label.contains('/')).then_some(w),
+                                ),
+                                None => Origin::Own(Some(w)),
+                            })
+                        });
+                        let parts = (fold.parts.iter())
+                            .map(|(state, span)| Origin::State {
+                                of: Box::new(match class_of(span) {
+                                    Some(label) => Origin::Class(label.clone(), None),
+                                    None => Origin::Own(None),
+                                }),
+                                state,
+                                span: *span,
+                            })
+                            .collect();
+                        Origin::Folded { base, parts }
+                    }
+                    None => origin,
+                };
                 // `:active`'s, lowered to the press paint: where it is written.
                 let origin = match pressed {
                     true => Origin::State {
@@ -809,14 +851,25 @@ impl Lowerer<'_> {
         }
         if let Some(sites) = &mut self.sites {
             debug_assert_eq!(sites.nodes.len(), id.0 as usize);
-            sites.nodes.push(sites::node_site(
+            let mut site = sites::node_site(
                 *span,
                 *instance,
                 button,
                 &bindings,
                 origins.as_deref().expect("site origins"),
                 look_sites,
-            ));
+            );
+            site.part = self
+                .part_names
+                .iter()
+                .find(|(node, _)| node == span)
+                .map(|(_, part)| part.clone());
+            site.library = self
+                .library_nodes
+                .iter()
+                .find(|(node, _)| node == span)
+                .map(|(_, identity)| identity.clone());
+            sites.nodes.push(site);
         }
         let children = if let Some(sections) = sections {
             std::borrow::Cow::Owned(sections)

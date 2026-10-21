@@ -331,7 +331,10 @@ final class T3SnapShot {
                     data = fitted.data
                     try data.write(to: path, options: .atomic)
                 }
-                guard data.count <= 10 * 1024 * 1024, data.starts(with: [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]) else { fail("The captured image is too large or invalid."); return }
+                // A capture is a PNG; an attached image keeps its own PNG, JPEG, GIF or WebP bytes (composer-attach-stage.ts).
+                let signatures: [[UInt8]] = [[0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a], [0xff, 0xd8, 0xff], Array("GIF8".utf8)]
+                let webP = data.count >= 12 && data.starts(with: Array("RIFF".utf8)) && data.subdata(in: 8..<12) == Data("WEBP".utf8)
+                guard data.count <= 10 * 1024 * 1024, webP || signatures.contains(where: { data.starts(with: $0) }) else { fail("The captured image is too large or invalid."); return }
                 complete(["id": id, "base64": data.base64EncodedString(), "sizeBytes": data.count])
             } catch { fail("Could not read the saved draft image.") }
         case "snapshotDraftSize":

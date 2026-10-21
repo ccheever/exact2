@@ -217,6 +217,8 @@ fn walk(file: &mut File, scope: &Scope, seen: Option<&mut Seen>) -> Result<(), S
         theme: _,
         design: _,
         package_designs: _,
+        library: _,
+        library_packages: _,
         fns,
         modules,
         tests,
@@ -325,6 +327,7 @@ impl Rewriter<'_> {
             sequences,
             view,
             params: _,
+            anatomy: _,
             span,
         } = c;
         self.scope.rename(Kind::Component, name, *span)?;

@@ -172,7 +172,7 @@ describe('legacy menus (LegacySidebar.tsx)', () => {
 
 interface Fake { client: T3Client; calls: Obj[]; writes: Obj[]; dispatched: Obj[]; drafts: string[]; opened: string[] }
 const identity = (name: string) => ({ projectMark: name.slice(0, 2), projectInk: 'ink', projectSurface: 'surface' });
-function fake(threads: Obj[], options: { settings?: Obj; threadId?: string; picks?: string[]; projects?: Obj[]; hints?: boolean } = {}): Fake {
+function fake(threads: Obj[], options: { settings?: Obj; threadId?: string; picks?: string[]; projects?: Obj[] } = {}): Fake {
   const calls: Obj[] = [], writes: Obj[] = [], dispatched: Obj[] = [], drafts: string[] = [], opened: string[] = [], picks = [...(options.picks ?? [])];
   let ids = 0;
   const client = {
@@ -182,7 +182,7 @@ function fake(threads: Obj[], options: { settings?: Obj; threadId?: string; pick
       { command: 'chat.new', shortcut: { key: 'n', modKey: true } }, { command: 'commandPalette.toggle', shortcut: { key: 'k', modKey: true } },
       { command: 'thread.previous', shortcut: { key: '[', modKey: true, shiftKey: true } }, { command: 'thread.next', shortcut: { key: ']', modKey: true, shiftKey: true } }] },
     environmentId: 'env', threadId: options.threadId ?? '', projectId: 'p1', query: '', connection: 'connected', writable: true, ready: true, revision: 1,
-    presentation: { sidebarJumpHints: options.hints === true },
+    presentation: {},
     local: { drafts: {}, snapshotDrafts: {}, deviceSettings: { timestampFormat: '24-hour' }, groupingMode: 'repository', groupingOverrides: {}, selections: {},
       clientSettings: { legacySidebarEnabled: true, confirmThreadArchive: false, confirmThreadDelete: true, sidebarProjectSortOrder: 'updated_at', sidebarThreadSortOrder: 'updated_at', sidebarThreadPreviewCount: 6, ...(options.settings ?? {}) } },
     projectGroups() { return client.shell.projects.map(project => ({ key: `env:${project.workspaceRoot}`, name: project.title, members: [project] })); },
@@ -266,8 +266,8 @@ describe('legacy projection (LegacySidebar.tsx SidebarProjectItem)', () => {
     expect(sidebarPrefs(client).projectOrder).toEqual(['env:/alpha', 'env:/beta']);
     expect(() => sidebarLocal(client, native, 'legacy-sort-threads', '', 'manual')).toThrow();
   });
-  test('jump labels and traversal follow the visible order; ⌘ shows labels for the first nine', () => {
-    const { client } = fake([...many(2), thread('b', { projectId: 'p2', latestUserMessageAt: at(55) })], { threadId: 'p1-t0', hints: true });
+  test('jump labels and traversal follow the visible order; the first nine rows carry labels for ⌘ to show', () => {
+    const { client } = fake([...many(2), thread('b', { projectId: 'p2', latestUserMessageAt: at(55) })], { threadId: 'p1-t0' });
     const view = legacySidebarSnapshot(client, NOW, { projectIdentity: identity });
     expect(view.projects.flatMap(project => project.threads.map(row => [row.id, row.jump]))).toEqual([['b', '⌘1'], ['p1-t0', '⌘2'], ['p1-t1', '']]);
     expect(legacyTraversal(client)).toMatchObject({ previous: 'b', next: 'p1-t1' });

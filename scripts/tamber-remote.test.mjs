@@ -655,3 +655,282 @@ test('round 3 of E1: the real wire through the tunnel to a sandboxed page: the l
     expect(six.status).not.toBe(403);
   } finally { await doors.close(); await wire.close(); }
 });
+
+// tamber/1.15 (round 1's rework): what a client reads of this
+// machine's files. Every `file` is named by one rule (from the app, from its
+// package, or `<outside>/…`); a client that is not local (paired, through B's
+// door or a tunnel) gets machine-written messages without this machine's
+// directories and `hello.app` as the directory's name; authored text comes
+// back byte for byte to every client. Through the real design server
+// (`contract tamber serve --stdio`), with the app under the home directory
+// and a package linked from outside both, and a build registered with a
+// source map naming that package's real path.
+async function pairedApp(dir) {
+  let doors = null;
+  const { readFileSync: read, realpathSync } = await import('node:fs');
+  const { createHash } = await import('node:crypto');
+  const linkedFile = realpathSync(join(dir, 'node_modules/@acme/linked/index.contract'));
+  const P1 = '1'.repeat(64);
+  const map = { digest: P1, sources: [{ file: linkedFile, sha256: createHash('sha256').update(read(linkedFile)).digest('hex') }], nodes: [{ file: linkedFile, line: 5, col: 5, end_col: 11, component: 'LinkedCard', chain: [], bindings: [{ row: 'padding_top', origin: 'own' }] }] };
+  const wire = tamberServer({ appDir: dir, log: () => {}, remote: () => doors?.list() ?? [], sourceMap: () => Buffer.from(JSON.stringify(map)) });
+  const warned = [];
+  doors = await openRemote(wire, { remote: { host: '127.0.0.1', port: 0 }, tunnel: 0 }, { say: () => {}, warn: l => warned.push(l) });
+  await wire.ready;
+  const { origin, fingerprint } = doors.info();
+  const port = Number(new URL(origin).port), tunnelPort = Number(/127\.0\.0\.1:(\d+)/.exec(warned.join('\n'))[1]);
+  let token = null;
+  await wire.handle({ method: 'GET', headers: {} }, { writeHead() {}, setHeader() {}, end(t) { token = JSON.parse(t).token; } }, new URL('http://127.0.0.1/__tamber/token'), { allowed: true, local: true });
+  const local = async (body, path = '/__tamber') => {
+    let text = '';
+    const req = Object.assign(new PassThrough(), { method: 'POST', headers: { 'x-exact-tamber-token': token }, socket: { remoteAddress: '127.0.0.1' } });
+    const res = { writeHead() {}, setHeader() {}, write(t) { text += t; }, end(t) { text += t ?? ''; } };
+    queueMicrotask(() => req.end(JSON.stringify(body)));
+    await wire.handle(req, res, new URL(`http://127.0.0.1${path}`), { allowed: true, local: true });
+    return text;
+  };
+  const { connect: tlsConnect } = await import('node:tls');
+  const pair = async scope => {
+    const minted = JSON.parse(await local({ method: 'pair-code', scope, name: scope }));
+    const body = JSON.stringify({ code: minted.ok.code, name: scope });
+    const answer = await new Promise(ok => {
+      let text = '';
+      const s = tlsConnect({ host: '127.0.0.1', port, rejectUnauthorized: false }, () => {
+        expect(s.getPeerCertificate().fingerprint256).toBe(fingerprint);
+        s.write(`POST /__tamber/pair HTTP/1.1\r\nHost: 127.0.0.1:${port}\r\nContent-Type: application/json\r\nContent-Length: ${Buffer.byteLength(body)}\r\nConnection: close\r\n\r\n${body}`);
+      });
+      s.on('data', d => (text += d));
+      s.on('close', () => ok(text));
+      s.on('error', () => ok(text));
+    });
+    const answered = answer.slice(answer.indexOf('\r\n\r\n') + 4);
+    return JSON.parse(answered.slice(answered.indexOf('{'), answered.lastIndexOf('}') + 1)).ok.token;
+  };
+  const remote = (paired, body, path = '/__tamber', via = 'door') => via === 'door'
+    ? send(true, port, { method: 'POST', path, headers: { 'x-exact-tamber-token': paired, 'content-type': 'application/json' }, body: JSON.stringify(body) })
+    : send(false, tunnelPort, { method: 'POST', path, headers: { 'x-exact-tamber-token': paired, 'content-type': 'application/json' }, body: JSON.stringify(body) });
+  return { wire, doors, local, pair, remote, P1, linkedFile };
+}
+
+/** An app under the repo's target/ (inside the home directory) whose design
+ * holds its own path in an authored value, a git history whose commit names
+ * it too, and `@acme/linked` linked from a directory outside the app and
+ * the home directory. */
+async function machineApp() {
+  const { execFileSync } = await import('node:child_process');
+  const root = new URL('..', import.meta.url).pathname;
+  mkdirSync(join(root, 'target'), { recursive: true });
+  const dir = mkdtempSync(join(root, 'target', 'tamber-paths-'));
+  const outside = mkdtempSync(join(tmpdir(), 'tamber-linked-'));
+  writeFileSync(join(outside, 'package.json'), '{"name":"@acme/linked","version":"1.0.0","exports":{".":"./index.contract"}}');
+  writeFileSync(join(outside, 'index.contract'), 'component LinkedCard\n  params\n    inset: length = "4px"\n  view\n    column padding="param.inset"\n      text "x"\n');
+  mkdirSync(join(dir, 'node_modules/@acme'), { recursive: true });
+  const { symlinkSync } = await import('node:fs');
+  symlinkSync(outside, join(dir, 'node_modules/@acme/linked'));
+  writeFileSync(join(dir, 'app.contract'), 'use LinkedCard from "@acme/linked"\ncomponent App\n  view\n    column background-color="ink"\n      LinkedCard()\n');
+  const authored = `${dir}/assets/icon.svg`;
+  writeFileSync(join(dir, 'app.tamber'), `tamber t\n\ntheme\n  ink = #111111  help="${authored}"\n`);
+  const git = (...a) => execFileSync('git', ['-C', dir, ...a], { stdio: 'pipe' });
+  git('init', '-q'); git('add', 'app.tamber', 'app.contract');
+  git('-c', 'user.name=t', '-c', 'user.email=t@example.com', 'commit', '-q', '-m', `design at ${dir}`);
+  return { dir, outside, authored };
+}
+
+test('no answer to a remote client names this machine\'s directories; authored text comes back whole', async () => {
+  const { homedir } = await import('node:os');
+  const { realpathSync } = await import('node:fs');
+  const { basename } = await import('node:path');
+  const { dir, outside, authored } = await machineApp();
+  const app = await pairedApp(dir);
+  const machine = [...new Set([dir, realpathSync(dir), homedir(), realpathSync(homedir()), outside, realpathSync(outside)])];
+  try {
+    // The local tool's hello: the app's path, as before.
+    expect(JSON.parse(await app.local({ method: 'hello' })).ok.app).toBe(dir);
+    const writer = await app.pair('write');
+    // A build on the dev loop's channel, its map naming the package's real path.
+    const frames = [], b = app.wire.channel.open(f => frames.push(f));
+    app.wire.channel.report(JSON.stringify({ nonce: b.nonce, kind: 'register', id: 'web-1', host: 'web', capabilities: ['pin', 'inspect'], plan: 'g', planDigest: app.P1 }));
+    app.wire.channel.report(JSON.stringify({ nonce: b.nonce, kind: 'status', scheme: 'light', revision: 0, planDigest: app.P1 }));
+    await app.remote(writer, { client: 'laptop', wait: false }, '/__tamber/events');
+    app.wire.channel.inspect('laptop', null, { on: true });
+    const selected = { node: 0, site: 0, instance: [], planDigest: app.P1, tuple: {}, rows: [] };
+    expect(app.wire.channel.report(JSON.stringify({ nonce: b.nonce, kind: 'selected', selected, inspect: frames.filter(f => f.kind === 'inspect').at(-1).seq, plan: 'g', revision: 0 })).status).toBe(204);
+    const files = JSON.parse(await app.local({ method: 'hello' })).ok.files;
+    const asked = [
+      [writer, { method: 'hello', client: 'laptop' }],
+      [writer, { method: 'describe' }],
+      [writer, { method: 'resolve', token: 'LinkedCard.inset' }],
+      [writer, { method: 'explain', token: 'LinkedCard.inset' }],
+      [writer, { method: 'uses', token: 'LinkedCard.inset' }],
+      [writer, { method: 'uses', token: 'ink' }],
+      [writer, { method: 'propose', ops: [{ op: 'set-row', file: 'node_modules/@acme/linked/index.contract', at: { line: 5, col: 5 }, sha256: '0'.repeat(64), row: 'padding_top', value: '8px' }] }],
+      [writer, { method: 'propose', ops: [{ op: 'set-token', name: 'ink', value: 'nowhere.at.all' }] }],
+      [writer, { method: 'transaction', client: 'laptop', files, ops: [{ op: 'set-token', name: 'ink', value: 'nowhere.at.all' }] }],
+      [writer, { method: 'inspect', client: 'laptop', refresh: true }],
+    ];
+    const replies = [];
+    for (const [who, request] of asked) replies.push([request, await app.remote(who, request)]);
+    const body = i => JSON.parse(replies[i][1].text);
+    expect(body(0).ok.app).toBe(basename(dir));
+    expect(body(0).ok.protocol).toBe('tamber/1.15'); // this change opened 1.15
+    const sites = body(4).ok.sites;
+    expect(sites.length).toBeGreaterThan(0);
+    const linkedName = sites[0].file;
+    expect(['@acme/linked/index.contract', 'node_modules/@acme/linked/index.contract']).toContain(linkedName);
+    expect(body(3).ok.param.file).toBe(linkedName);
+    expect(body(5).ok.sites.every(s => s.file === 'app.contract')).toBe(true);
+    // The selection in the long poll: the package's name for its file.
+    expect(body(9).ok).toBeDefined();
+    const polled = await app.remote(writer, { client: 'laptop', after: 0, wait: false }, '/__tamber/events');
+    replies.push([{ path: '/__tamber/events' }, polled]);
+    expect(JSON.parse(polled.text).events.find(e => e.event === 'selection').source.file).toBe('@acme/linked/index.contract');
+    // The tool outlines `uses`'s site: it reaches the build's map, whose file is the real path.
+    const outlined = await app.remote(writer, { method: 'outline', client: 'laptop', at: sites });
+    replies.push([{ method: 'outline' }, outlined]);
+    expect(JSON.parse(outlined.text).ok.builds).toEqual(['web-1']);
+    expect(frames.filter(f => f.kind === 'outline').at(-1)).toEqual({ kind: 'outline', sites: [0], plan: app.P1 });
+    replies.push([{ method: 'hello', via: 'tunnel' }, await app.remote(writer, { method: 'hello' }, '/__tamber', 'tunnel')]);
+    expect(JSON.parse(replies.at(-1)[1].text).ok.app).toBe(basename(dir));
+    for (const [request, r] of replies) {
+      expect([request, r.status !== undefined]).toEqual([request, true]);
+      // (describe's metadata holds the authored path: held to it below.)
+      if (request.method === 'describe') continue;
+      for (const m of machine) expect([request, m, r.text.includes(m)]).toEqual([request, m, false]);
+    }
+    // Authored text: the token's value and the history's commit message, byte for byte, to both.
+    for (const request of [{ method: 'describe' }, { method: 'history' }]) {
+      const mine = JSON.parse(await app.local(request)).ok, theirs = JSON.parse((await app.remote(writer, request)).text).ok;
+      const pick = request.method === 'describe' ? o => o.meta.tokens.ink : o => o.commits[0].message;
+      if (request.method === 'describe') expect(pick(mine)).toEqual([['help', authored]]);
+      else expect(pick(mine)).toStartWith(`design at ${dir}`);
+      expect(pick(theirs)).toEqual(pick(mine));
+    }
+  } finally {
+    await app.doors.close();
+    await app.wire.close();
+    rmSync(dir, { recursive: true, force: true });
+    rmSync(outside, { recursive: true, force: true });
+  }
+}, 600_000);
+
+test('a design server that is down says so to a remote client without this machine\'s directories', async () => {
+  const { homedir } = await import('node:os');
+  const { realpathSync } = await import('node:fs');
+  const dir = mkdtempSync(join(new URL('..', import.meta.url).pathname, 'target', 'tamber-down-'));
+  // And a package's file outside the app and the home directory, as a stderr line might name it.
+  const outside = mkdtempSync(join(tmpdir(), 'tamber-down-pkg-'));
+  writeFileSync(join(outside, 'package.json'), '{"name":"@acme/far"}');
+  writeFileSync(join(outside, 'index.contract'), 'x');
+  // A design server that stops at once, saying the app's path as the real one does.
+  const dying = () => {
+    const child = Object.assign(new EventEmitter(), { stdin: new PassThrough(), stdout: new PassThrough(), stderr: new PassThrough(), exitCode: null, signalCode: null });
+    child.kill = () => {};
+    setTimeout(() => { child.stderr.write(`contract tamber serve: another tamber server writes ${realpathSync(dir)} (it read ${realpathSync(outside)}/index.contract:2:1; no ${realpathSync(outside)}/dist/theme.tamber)\n`); child.exitCode = 1; child.emit('exit', 1); }, 20);
+    return child;
+  };
+  let doors = null;
+  const wire = tamberServer({ appDir: dir, spawnServe: dying, log: () => {}, remote: () => doors?.list() ?? [] });
+  doors = await openRemote(wire, { remote: { host: '127.0.0.1', port: 0 } }, { say: () => {} });
+  try {
+    for (let i = 0; i < 100 && !wire.down; i++) await new Promise(ok => setTimeout(ok, 20));
+    expect(wire.down).toContain(realpathSync(dir));
+    let token = null;
+    await wire.handle({ method: 'GET', headers: {} }, { writeHead() {}, setHeader() {}, end(t) { token = JSON.parse(t).token; } }, new URL('http://127.0.0.1/__tamber/token'), { allowed: true, local: true });
+    let text = '';
+    const req = Object.assign(new PassThrough(), { method: 'POST', headers: { 'x-exact-tamber-token': token }, socket: { remoteAddress: '127.0.0.1' } });
+    queueMicrotask(() => req.end(JSON.stringify({ method: 'pair-code', scope: 'read', name: 'laptop' })));
+    await wire.handle(req, { writeHead() {}, setHeader() {}, write(t) { text += t; }, end(t) { text += t ?? ''; } }, new URL('http://127.0.0.1/__tamber'), { allowed: true, local: true });
+    const code = JSON.parse(text).ok.code;
+    const port = Number(new URL(doors.info().origin).port);
+    const paired = JSON.parse((await send(true, port, { method: 'POST', path: '/__tamber/pair', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ code, name: 'laptop' }) })).text).ok.token;
+    const headers = { 'x-exact-tamber-token': paired, 'content-type': 'application/json' };
+    const subscribe = await send(true, port, { method: 'POST', path: '/__tamber/subscribe', headers, body: '{"client":"laptop"}' });
+    // A long poll from now: nothing after its `after` but the server's end.
+    const poll = await send(true, port, { method: 'POST', path: '/__tamber/events', headers, body: '{"wait":false}' });
+    // One from the start: the `down` event, its message without the paths too.
+    const all = await send(true, port, { method: 'POST', path: '/__tamber/events', headers, body: '{"after":0,"wait":false}' });
+    expect(JSON.parse(all.text).events.find(e => e.event === 'down').message).toBe('contract tamber serve: another tamber server writes <app> (it read @acme/far/index.contract:2:1; no @acme/far/dist/theme.tamber)');
+    const machine = new Set([dir, realpathSync(dir), homedir(), realpathSync(homedir()), outside, realpathSync(outside)]);
+    for (const m of machine) expect(all.text.includes(m)).toBe(false);
+    for (const r of [subscribe, poll]) {
+      expect(r.status).toBe(503);
+      expect(JSON.parse(r.text).error.message).toContain('<app>');
+      for (const m of machine) expect(r.text.includes(m)).toBe(false);
+      expect(r.text).toContain('@acme/far/index.contract:2:1');
+    }
+  } finally {
+    await doors.close();
+    await wire.close();
+    rmSync(dir, { recursive: true, force: true });
+    rmSync(outside, { recursive: true, force: true });
+  }
+});
+
+// Round 2 (Astra 1 = Grok 1): a compile refusal names a linked package's file
+// by its path; to a remote client that package, outside the app and the home
+// directory, is named by its package's name.
+test('a linked package outside the app whose design (under a missing dist/) is missing is named by its package to a remote client', async () => {
+  const { homedir } = await import('node:os');
+  const { realpathSync } = await import('node:fs');
+  const { dir, outside } = await machineApp();
+  // Its manifest names a design under a `dist/` that was never built: refused with that design's path.
+  writeFileSync(join(outside, 'package.json'), '{"name":"@acme/linked","version":"1.0.0","exports":{".":"./index.contract"},"tamber":"dist/theme.tamber"}');
+  const app = await pairedApp(dir);
+  try {
+    const writer = await app.pair('write');
+    const machine = [...new Set([dir, realpathSync(dir), homedir(), realpathSync(homedir()), outside, realpathSync(outside)])];
+    const local = JSON.parse(await app.local({ method: 'uses', token: 'ink' }));
+    expect(JSON.stringify(local)).toContain(realpathSync(outside));
+    let refused = 0;
+    for (const request of [{ method: 'uses', token: 'ink' }, { method: 'explain', token: 'LinkedCard.inset' }, { method: 'describe' }]) {
+      const r = await app.remote(writer, request);
+      const answer = JSON.parse(r.text);
+      // (An answer that is no refusal holds the authored path, which goes as written.)
+      if (!answer.error) continue;
+      refused += 1;
+      if (request.method === 'uses') expect(r.text).toContain('@acme/linked/dist/theme.tamber');
+      for (const m of machine) expect([request.method, m, r.text.includes(m)]).toEqual([request.method, m, false]);
+    }
+    expect(refused).toBeGreaterThan(0);
+    // The local tool reads the path itself.
+  } finally {
+    await app.doors.close();
+    await app.wire.close();
+    rmSync(dir, { recursive: true, force: true });
+    rmSync(outside, { recursive: true, force: true });
+  }
+}, 600_000);
+
+// The path fix's last finding (theme2: refuse it): a package linked from
+// outside the app and the home directory whose `package.json` has no `name`
+// is a compile refusal, `contract-package-unnamed`, at the app's `use`,
+// naming the package as the `use` does (`uses` says it). No answer to a remote client carries
+// any of its path: not its directories, nor its place from the app
+// (`../../…`) as an identity.
+test('an unnamed package linked from far outside the app is refused, and no remote answer carries its path', async () => {
+  const { homedir } = await import('node:os');
+  const { realpathSync } = await import('node:fs');
+  const { basename } = await import('node:path');
+  const { dir, outside, authored } = await machineApp();
+  writeFileSync(join(outside, 'package.json'), '{"version":"1.0.0","exports":{".":"./index.contract"}}');
+  const app = await pairedApp(dir);
+  try {
+    const writer = await app.pair('write');
+    const machine = [...new Set([dir, realpathSync(dir), homedir(), realpathSync(homedir()), outside, realpathSync(outside), basename(outside), '../'])];
+    let refused = 0;
+    for (const request of [{ method: 'hello' }, { method: 'describe' }, { method: 'explain', token: 'LinkedCard.inset' }, { method: 'resolve', token: 'LinkedCard.inset' }, { method: 'uses', token: 'ink' }]) {
+      const r = await app.remote(writer, request);
+      // (The design's authored `help` holds the app's path, and goes as written.)
+      const text = r.text.replaceAll(JSON.stringify(authored).slice(1, -1), '');
+      if (text.includes('the package `@acme/linked` is outside the app and its `package.json` has no `name`')) refused += 1;
+      for (const m of machine) expect([request.method, m, text.includes(m)]).toEqual([request.method, m, false]);
+    }
+    expect(refused).toBeGreaterThan(0);
+    // `uses` says why the app does not build, to the local tool too.
+    expect(await app.local({ method: 'uses', token: 'ink' })).toContain('needs a name in its package.json');
+  } finally {
+    await app.doors.close();
+    await app.wire.close();
+    rmSync(dir, { recursive: true, force: true });
+    rmSync(outside, { recursive: true, force: true });
+  }
+}, 600_000);

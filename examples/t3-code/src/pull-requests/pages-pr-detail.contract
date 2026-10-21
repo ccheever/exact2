@@ -260,7 +260,7 @@ component PrdBody
   derive current = tab == "guide" and detail.guide.enabled ? "guide" : tab == "timeline" ? "timeline" : (tab == "code" and detail.codeTab.available ? "code" : "summary")
   derive condensed = current == "timeline" ? foldTimeline : current == "code" ? foldCode : foldSummary
   action guideKeys(k: string, e: KeyboardEvent)
-    if current == "guide" and detail.guide.hasGuide and not guideKeysBlocked and not querySelectorAll("[data-guide-editable~=\"yes\"]").includes(dialogFocusId) and not e.metaKey and not e.ctrlKey and not e.altKey and not e.shiftKey and (k == "j" or k == "k")
+    if current == "guide" and detail.guide.hasGuide and not guideKeysBlocked and not querySelectorAll("[data-editable~=\"yes\"]").includes(dialogFocusId) and not e.metaKey and not e.ctrlKey and not e.altKey and not e.shiftKey and (k == "j" or k == "k")
       preventDefault()
       guideNavigate(max(0, min(detail.guide.position + (k == "j" ? 1 : -1), detail.guide.stopCount - 1)))
       scrollIntoView("guide-tour-scroll", "guide-tour-top", block="start")

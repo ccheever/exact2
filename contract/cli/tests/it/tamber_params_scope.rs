@@ -20,6 +20,36 @@ fn build(name: &str, src: &str) -> Result<exact_plan::Plan, contract::CompileErr
 }
 
 #[test]
+fn a_style_owned_in_its_file_and_applied_from_another_is_shared() {
+    // `Look` is Card's in card.contract; the app applying it too makes it
+    // shared, its `param.` names no one's (LLP 1139 D3).
+    let card = "style Look\n  padding = \"param.inset\"\ncomponent Card\n  params\n    inset: length = \"8px\"\n  view\n    column class=Look\n      text \"c\"\n";
+    let app_src = "use Card, Look from \"./card.contract\"\ncomponent App\n  view\n    column class=Look\n      Card()\n";
+    let path = app(
+        "owned-elsewhere",
+        &[
+            ("app.contract", app_src),
+            ("card.contract", card),
+            ("app.tamber", DESIGN),
+        ],
+    );
+    let e = contract::compile_path(&path).unwrap_err();
+    assert_eq!(e.id, "tamber-param-scope", "{e:?}");
+    assert!(e.message.contains("`App` applies it too"), "{}", e.message);
+    // Card alone applying it: Card's.
+    let alone = "use Card from \"./card.contract\"\ncomponent App\n  view\n    Card()\n";
+    let path = app(
+        "owned-alone",
+        &[
+            ("app.contract", alone),
+            ("card.contract", card),
+            ("app.tamber", DESIGN),
+        ],
+    );
+    contract::compile_path(&path).unwrap_or_else(|e| panic!("{e:?}"));
+}
+
+#[test]
 fn a_param_named_where_no_component_owns_it_is_refused_and_one_passed_is_the_childs() {
     let style = r##"style Card
   padding = "param.inset"
@@ -30,7 +60,15 @@ component App
     column class=Card margin="param.inset"
       text "x"
 "##;
-    assert_eq!(build("style", style).unwrap_err().id, "tamber-param-scope");
+    // One component alone applies the style: it reads that component's
+    // params (LLP 1139 D3, stage 12 C3). A second applying it: no one's.
+    build("style", style).unwrap();
+    let shared =
+        format!("{style}component Other\n  view\n    column class=Card\n      text \"y\"\n");
+    assert_eq!(
+        build("style-shared", &shared).unwrap_err().id,
+        "tamber-param-scope"
+    );
     let arg = r##"component App
   params
     fill: color = "#ffffff"

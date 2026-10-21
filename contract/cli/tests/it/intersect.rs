@@ -390,7 +390,7 @@ fn native_intersect_reads_a_block_where_its_host_shows_it() {
     let list = id(&r, "list");
     r.scrolled(Some(page), 0.0, 300.0);
     r.scrolled(Some(list), 0.0, 80.0);
-    r.top_layer_frames(&[(route, [50.0, 100.0, 300.0, 500.0])], None);
+    r.top_layer_frames(&[(route, [50.0, 100.0, 300.0, 500.0], None)], None);
     assert_eq!(
         first(&mut r),
         (true, 1.0),

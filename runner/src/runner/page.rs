@@ -22,9 +22,14 @@ impl<D: DataSource> Runner<D> {
             return Ok(None);
         }
         let previous = std::mem::replace(&mut self.page, page);
+        // The GPU tier is read through `exactViewport` (LLP 1139.003 D2).
+        let tier = previous.gpu_tier != page.gpu_tier;
         let which: Vec<usize> = (0..self.plan.resources.len())
-            .filter(|i| self.plan.str(self.plan.resources[*i].source) == SOURCE)
-            .filter(|i| self.page_reads_changed(*i, previous))
+            .filter(|i| {
+                let source = self.plan.str(self.plan.resources[*i].source);
+                (source == SOURCE && self.page_reads_changed(*i, previous))
+                    || (tier && source == crate::viewport::SOURCE)
+            })
             .collect();
         // About to be suspended: a sequence stops in this commit, once it
         // stands, and the commit carries its ends to the output (LLP 1125 D4).

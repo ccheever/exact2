@@ -15,7 +15,7 @@ import type { T3Client } from '../client/client';
 import { letGo } from '../client/let-go';
 import { holdPullRequestRefreshes, liveRefreshAsked, liveRefreshDue, noteViewRefreshed, pullRequestRefreshEpoch, viewRefreshedAt } from './pages-pr-refresh';
 import { listRelist, overrideListEntries, settleListOverrides } from './pages-pr-actions'; // the panel's onActed
-import { emptyChecksPopover, emptyStackPopover, quickPopovers, quickRow, readSpeedMode } from './pages-pr-quick';
+import { emptyChecksPopover, emptyStackPopover, quickPopovers, quickRow, flushQuickInvalidations } from './pages-pr-quick';
 import { pullRequestEntryKey, pullRequestEntryViewer } from './pages-pr-routing'; // several servers' rows
 import { environmentQueries, filterKeyOf, foldAnswers, largestPullRequestReadCount, listTargets, loadMore, noteAnswer, noteShowing, orderAnswer, pagingFooter, refreshPaging, statsBatches, type ListTarget } from './pages-pr-paging';
 import { openOnHostLabel } from '../shared/context-menus'; // the number's menu label
@@ -467,11 +467,11 @@ export async function pullRequestsPage(client: T3Client, native: Native | null |
   // The list footer (Load more, Loading more, Narrow your search) and a failed read over shown rows.
   Object.assign(presented, pagingFooter(client, round.key, cached.result?.truncated === true, arr(answered?.entries).length, false, false));
   presented.listError = answered && cached.error ? `${cached.error} Showing the last pull requests loaded.` : '';
-  // The rows' quick actions with their pending state, speed mode, and the open popovers.
+  // The rows' quick actions with their pending state, and the open popovers.
   const byKey = new Map(arr(answered?.entries).map(entry => [entryKey(entry), entry]));
   for (const group of presented.groups) group.rows = group.rows.map(row => { const entry = byKey.get(row.key); return entry ? { ...row, ...quickRow(client, entry) } : row; });
   native.watch?.('t3.pr');
-  presented.speedMode = await readSpeedMode(client, native);
+  await flushQuickInvalidations(client, native);
   Object.assign(presented, await quickPopovers(client, native, arr(answered?.entries), input.now).then(({ checks, stack }) => ({ checksPopover: checks, stackPopover: stack })));
   lastDrawn.set(client, { environmentId: client.environmentId, view: presented });
   return presented;
@@ -507,7 +507,7 @@ export function emptyList(prefs: PrPrefs, query: string) {
     draftIcon: DRAFT_ICONS[prefs.draft || 'all'] ?? 'layers', reviewIcon: REVIEW_ICONS[prefs.review || 'all'] ?? 'layers', checksIcon: CHECKS_ICONS[prefs.checks || 'all'] ?? 'layers',
     filterBadge: filterCount > 0 ? String(filterCount) : '', providerIconOnly: !!prefs.host,
     // Shift alone held (the rows' quick actions show), and the open row popovers.
-    speedMode: false, checksPopover: emptyChecksPopover(), stackPopover: emptyStackPopover(),
+    checksPopover: emptyChecksPopover(), stackPopover: emptyStackPopover(),
     // The list footer ("more", "loading", "narrow") and a failed read over the rows shown.
     footer: '', footerText: '', loadDisabled: false, listError: '',
   };

@@ -749,6 +749,6 @@ install page, and the stress harnesses. They're in
 
 The workspace is MIT-licensed (`Cargo.toml`).
 
-Exact’s Snapback4 adapter uses published **0.4.29** with the matching immutable
-Rust source revision `59fb4ead1ba18569369523bba55b56713cc275e9`.
+Exact’s Snapback4 adapter uses published **0.4.33** with the matching immutable
+Rust source revision `3653cae823145170df3e720f5e321bd1b5b4d79d`.
 See [the adapter guide](snapback4/README.md) for wiring and device rebuilds.

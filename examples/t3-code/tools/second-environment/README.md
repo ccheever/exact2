@@ -71,15 +71,21 @@ hub answers the CLIProxyAPI management calls the server makes (reference
 Limits draws a Codex pool and a Claude pool with a segment per account (`usage-seg-<pool>-<window>-<n>`,
 indexes from 0).
 Two Codex accounts bank reset credits, so their popover has "Use reset" and its confirm; a
-consumed credit empties that account's session window. `stop all` stops the hub too.
+consumed credit empties that account's session window. `stop all` stops the hub and the GitHub API stand-in too.
 
 `seed second --pull-request` puts a `gh` stand-in (`gh-standin.mjs`) first on that server's
 `PATH` and adds "Notes branch thread" to `shared-notes` on the branch `feature/notes`; the seed
-waits until the server has linked the stand-in's open pull request, #7 "Keep the notes in one
-place". The thread then has the sidebar's PR glyph and the chat header's link, the Pull Requests
-page lists #7, and its detail panel has the actions menu, Merge (whose confirm merges nothing: the
-stand-in refuses `gh pr merge`) and, on its Code tab, a one-file patch with an unresolved review
-thread on `README.md` line 3 and its Reply. The
+waits until the server has found the stand-in's open pull request, #7 "Keep the notes in one
+place", for the branch, then links it to the thread (the panel's Linked pull requests list it,
+with Shift's quick actions). The pinned server reads pull requests from GitHub's API over HTTPS
+with the token `gh auth token` gives it, so the seed starts it again behind the GitHub API
+stand-in (`github-api-standin.mjs`, port `T3_FIXTURE_GITHUB_PORT`, default 16592, and the next
+port): a proxy that tunnels `api.github.com` to its own HTTPS server, whose certificate a CA made
+under `<root>/github-api` signs (the server trusts it by `NODE_EXTRA_CA_CERTS`), and refuses every
+other host. It answers the head lookup, the lookup by number and the summary
+(`api-calls.log` there lists each request); the detail panel's reads, which the gh stand-in
+answered for an older server (the actions menu, Merge, the patch and the review thread on
+`README.md` line 3), are not answered over the API yet. The
 stand-in answers the calls the reference server makes for these (`GitHubCli.ts`,
 `GitHubPullRequestCli.ts`; `gh auth token` gets a placeholder, which the server hands back only to
 the stand-in), logs each to `envs/<name>/gh-calls.log` and refuses every other one.
@@ -108,8 +114,8 @@ the thread reads it again. The menu needs real input (below); the row's answer t
 be driven by sending it through the server's API while the app runs.
 
 What an agent drive cannot do here: choose an item of a native context menu (under the agent it
-answers dismissed: nothing is chosen and its items are not logged), or drop a file on a sidebar row (the row takes drops
-through a native hatch, not a Contract `drop`). Those rows need real input.
+answers dismissed: nothing is chosen and its items are not logged). That row needs real input. A
+file drop on a sidebar row is the row's Contract `drop`: `tap thread-<id> drop <path…>`.
 
 ## Real input (a normal launch)
 

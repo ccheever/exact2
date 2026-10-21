@@ -6,7 +6,8 @@ import UniformTypeIdentifiers
 /// the host's: Edit gains Paste as Text (⇧⌘V; the host files a paste variant after Paste and
 /// gives Edit its Speech since exact2 #226, but an app item is a Contract button's press, and
 /// this one is the responder chain's `pasteAsPlainText:` as the reference's pasteAndMatchStyle
-/// is: `-exact-menu` gives a press, not a responder-chain role), View gains Actual Size, Zoom In
+/// is, the prompt's a `paste` heard as Paste as Text: `-exact-menu` gives a press, not a
+/// responder-chain role), View gains Actual Size, Zoom In
 /// and Zoom Out (the main window's zoom, Electron's 0.5-level steps). Settings… (⌘,) is the
 /// host's placement of the app's Meta+, command. ⌘Q from the keyboard goes through the
 /// Quit shortcut setting (QuitHold.ts); Quit from the menu stays immediate. Check for
@@ -38,6 +39,8 @@ final class T3Menus: NSObject, NSMenuItemValidation, NSMenuDelegate {
     private lazy var helpUpdatesItem = makeUpdatesItem()
     /// File, View, Edit › Undo and the host's extra menus as the reference bar has them (T3MenuBar.swift).
     let keys = T3MenuBar()
+    /// The prompt, whose Paste as Text is a `paste` the Contract hears as one (T3ComposerEditor.pasteAsText).
+    weak var composer: T3Composer?
 
     override init() {
         super.init()
@@ -122,6 +125,7 @@ final class T3Menus: NSObject, NSMenuItemValidation, NSMenuDelegate {
             let paste = edit.indexOfItem(withTitle: "Paste")
             let item = NSMenuItem(title: "Paste as Text", action: #selector(NSTextView.pasteAsPlainText(_:)), keyEquivalent: "v")
             item.keyEquivalentModifierMask = [.command, .shift]
+            item.target = self
             edit.insertItem(item, at: paste >= 0 ? paste + 1 : edit.numberOfItems)
             let selectAll = edit.indexOfItem(withTitle: "Select All")
             if selectAll > 0, edit.item(at: selectAll - 1)?.isSeparatorItem == false { edit.insertItem(.separator(), at: selectAll) }
@@ -240,7 +244,19 @@ final class T3Menus: NSObject, NSMenuItemValidation, NSMenuDelegate {
         for item in ordered { menu.addItem(item) }
     }
 
-    func validateMenuItem(_ item: NSMenuItem) -> Bool { item.action == #selector(checkForUpdates(_:)) || window != nil }
+    func validateMenuItem(_ item: NSMenuItem) -> Bool {
+        if item.action == #selector(pasteAsPlainText(_:)) {
+            if composer?.focusedTextView != nil { return true }
+            guard let target = NSApp.target(forAction: #selector(NSTextView.pasteAsPlainText(_:)), to: nil, from: item) else { return false }
+            return (target as? NSMenuItemValidation)?.validateMenuItem(item) ?? true
+        }
+        return item.action == #selector(checkForUpdates(_:)) || window != nil
+    }
+    /// Edit › Paste as Text: the prompt's, else the first responder's own `pasteAsPlainText:`.
+    @objc func pasteAsPlainText(_ sender: Any?) {
+        if let composer, let view = composer.focusedTextView { return composer.editor.pasteAsText(view) }
+        NSApp.sendAction(#selector(NSTextView.pasteAsPlainText(_:)), to: nil, from: sender)
+    }
     @objc func actualSize(_ sender: Any?) { setZoom(0) }
     @objc func zoomIn(_ sender: Any?) { setZoom(zoomLevel + 0.5) }
     @objc func zoomOut(_ sender: Any?) { setZoom(zoomLevel - 0.5) }

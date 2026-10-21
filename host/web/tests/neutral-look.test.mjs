@@ -74,6 +74,7 @@ test('the neutral sheet\'s lengths and ratios are the metric table\'s neutral co
     'menu-min-width': ['min-width'], 'menu-max-width': ['max-width'], 'menu-margin': ['max-width'], 'menu-padding': ['padding'], 'menu-offset': ['margin'],
     'menu-row-height': ['min-height'], 'menu-row-padding-block': ['padding'], 'menu-row-padding-inline': ['padding'], 'menu-row-gap': ['--exact-button-space-width'],
     'sheet-wide': ['@media'], 'sheet-width': ['width'], 'sheet-max-height': ['max-height'], 'sheet-margin': ['width', 'max-height'],
+    'list-row-inset': ['padding-left', 'padding-right'],
     'raised-shadow-y': ['--exact-raised'], 'raised-shadow-blur': ['--exact-raised'], 'modal-shadow-y': ['--exact-modal'], 'modal-shadow-blur': ['--exact-modal'],
   };
   // The look keeps this one from the shell's sheet, which is where it is written.
@@ -279,7 +280,9 @@ for (const engine of ['chromium', 'firefox', 'webkit']) test(`${engine}: the neu
       const LINE_BETWEEN = [scheme === 'light' ? [0, 0, 0, 0.12] : [255, 255, 255, 0.16], true, ['0px', '-1px', '0px', '0px']];
       expect([at('rows'), await page.evaluate(() => ['row-1', 'row-2', 'row-own', 'row-before', 'row-top', 'row-last'].map(separator))])
         .toEqual([at('rows'), [LINE_BETWEEN, LINE_BETWEEN, null, null, LINE_BETWEEN, null]]);
-      expect([at('row heights'), await page.evaluate(() => [box('row-1')[3], box('row-own')[3], box('rows')[3]])]).toEqual([at('row heights'), [44, 46, 268]]);
+      // A row's box is the cell's (LLP 1138): its own edge is inside its height, and its content is inset 16.
+      expect([at('row heights'), await page.evaluate(() => [box('row-1')[3], box('row-own')[3], box('rows')[3]])]).toEqual([at('row heights'), [44, 44, 264]]);
+      expect([at('row inset'), await page.evaluate(() => [css('row-1', 'paddingLeft'), css('row-1', 'paddingRight')])]).toEqual([at('row inset'), ['16px', '16px']]);
       expect([at('windowed rows'), await page.evaluate(() => ['spacer', 'cell-a', 'cell-b', 'cell-c'].map(separator))]).toEqual([at('windowed rows'), [null, LINE_BETWEEN, null, null]]);
       expect([at('no mark'), await page.evaluate(() => separator('none-1'))]).toEqual([at('no mark'), null]);
       // A row that presses: the hover's wash, a stronger one while held (never the dim), the ring inside the row.

@@ -396,6 +396,11 @@ pub struct PaintedBox {
 }
 
 impl PaintedBox {
+    /// Placed by a perspective (`space.rs`), so no rectangle bounds it.
+    pub(crate) fn projected(&self) -> bool {
+        self.projective.is_some()
+    }
+
     /// The surface's box through the same transform the painter used.
     /// Projective canvas placements have no affine surface observation.
     pub fn surface(&self, shown: Presented) -> Option<Rect4> {

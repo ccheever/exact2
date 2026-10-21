@@ -2,6 +2,8 @@ import { describe, expect, test } from 'bun:test';
 import { opened } from '../support/composer-controls-fixture';
 import { obj, type Obj } from '../../src/client/domain';
 import { draftFiles, fileChipLink, stageTextAttachment } from '../../src/composer/composer-editor-files';
+import { STAGED } from '../../src/composer/composer-staged-copies';
+import { memoryFiles, text } from '../support/app-files-fixture';
 
 type Gate = 'read' | 'mint' | 'upload' | 'ids' | 'persist';
 type Switch = 'thread' | 'environment' | 'origin' | 'generation' | 'request';
@@ -12,7 +14,9 @@ async function questionSubmission(gate?: Gate) {
     [{ id: 'first', question: 'First scope', allowCustomAnswer: true, options: [] }, { id: 'second', question: 'Second scope', allowCustomAnswer: true, options: [] }] }];
   const first = stageTextAttachment(client, 'first context', 'first.txt', 'text/plain', 'first-file');
   const second = stageTextAttachment(client, 'second context', 'second.txt', 'text/plain', 'second-file');
-  if (gate === 'read') first.source = 'attached';
+  // An attached file's bytes are its staged copy in the app's storage (composer-staged-copies.ts).
+  const copy = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', { fs } = memoryFiles({ [`${STAGED}/${copy}`]: text('first context') });
+  if (gate === 'read') { first.source = 'attached'; first.id = copy; }
   client.answers.questions = { selected: [], custom: '', index: 1 };
   client.answers['questions::first'] = { selected: [], custom: fileChipLink(first), index: 0 };
   client.answers['questions::second'] = { selected: [], custom: fileChipLink(second), index: 0 };
@@ -22,16 +26,20 @@ async function questionSubmission(gate?: Gate) {
   const entered = new Promise<void>(resolve => { reached = resolve; });
   const held = new Promise<void>(resolve => { release = resolve; });
   const calls: { request: Obj; afterSwitch: boolean }[] = [];
-  const original = native.later.bind(native), write = disk.fs.atomicWriteFile.bind(disk.fs);
+  const original = native.later.bind(native), write = disk.fs.atomicWriteFile.bind(disk.fs), read = fs.readFile.bind(fs);
+  fs.readFile = async (path: string) => {
+    calls.push({ request: { op: 'readStaged', path }, afterSwitch: changed });
+    if (waiting && gate === 'read' && path.startsWith(STAGED)) { waiting = false; reached(); await held; }
+    return read(path);
+  };
   native.later = async input => {
     const request = obj(input); calls.push({ request, afterSwitch: changed });
-    if (waiting && ((gate === 'read' && request.op === 'composerAttachRead') || (gate === 'mint' && request.method === 'attachments.createUploadUrl')
+    if (waiting && ((gate === 'mint' && request.method === 'attachments.createUploadUrl')
       || (gate === 'upload' && request.op === 'uploadAttachment') || (gate === 'ids' && request.op === 'ids'))) {
       waiting = false; reached(); await held;
     }
-    if (request.op === 'composerAttachRead') return native.ok({ base64: btoa('first context') });
     if (request.method === 'attachments.createUploadUrl') return native.ok({ attachmentId: `uploaded-${obj(request.payload).name}`, relativeUrl: '/api/attachments/upload/test' });
-    if (request.op === 'uploadAttachment' || request.op === 'composerAttachRemove') return native.ok({});
+    if (request.op === 'uploadAttachment') return native.ok({});
     return original(input);
   };
   disk.fs.atomicWriteFile = async (path, bytes) => {
@@ -53,7 +61,7 @@ describe('pending question submission ownership', () => {
       stageTextAttachment(client, 'replacement context', 'replacement.txt', 'text/plain', 'second-file');
       release(); await submitting;
       expect(native.committed.filter(request => request.type === 'runtime-request.respond')).toEqual([]);
-      expect(calls.filter(call => call.afterSwitch && ['composerAttachRead', 'uploadAttachment'].includes(String(call.request.op)))).toEqual([]);
+      expect(calls.filter(call => call.afterSwitch && ['readStaged', 'uploadAttachment'].includes(String(call.request.op)))).toEqual([]);
       expect(calls.filter(call => call.afterSwitch && ['attachments.createUploadUrl', 'orchestration.dispatchCommand'].includes(String(call.request.method)))).toEqual([]);
       expect(client.local.pending).toEqual({});
       expect(client.local.drafts[draftKey]).toBe('Keep the original draft');

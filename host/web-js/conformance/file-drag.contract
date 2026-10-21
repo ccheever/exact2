@@ -1,0 +1,29 @@
+// linux: the Linux host takes no drag from outside the app and pastes text only
+// Files dragged in and pasted (LLP 1069.010, "Files dropped or pasted"): a
+// drag over the column, then into its textarea, is one enter; a drop on the
+// textarea is the column's, with no dragleave after it; a paste's files and
+// an image's data are `doc:` handles; a paste of text alone is the field's.
+component FileDrag
+  state over = false
+  state enters = 0
+  state leaves = 0
+  state got = ""
+  state pasted = ""
+  action entered(e: DragEvent)
+    over = true
+    enters = enters + 1
+  action left
+    over = false
+    leaves = leaves + 1
+  action dropped(e: DragEvent)
+    got = e.files.join(" ")
+  action pastedIn(e: ClipboardEvent)
+    if e.files.length > 0
+      pasted = e.files.join(" ")
+      preventDefault()
+  view
+    column testId="column" width=400 height=300 padding=16 gap=8 dragenter=entered dragleave=left drop=dropped
+      textarea testId="composer" paste=pastedIn
+      text `${enters} ${leaves} ${over}` testId="counts"
+      text got testId="got"
+      text pasted testId="pasted"

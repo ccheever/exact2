@@ -270,7 +270,7 @@ mod e11_assets_restore {
         let mut sim = Sim::<Declared>::new(()).unwrap();
         sim.asset(
             "crate.model",
-            Some(&crate::bin::to_vec(&crate::asset::Model::default())),
+            Some(&crate::asset::encode_model(&crate::asset::Model::default())),
         )
         .unwrap();
         let saved = sim.save().unwrap();

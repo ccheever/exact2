@@ -203,6 +203,51 @@ fn a_hand_written_swipes_nested_content_is_the_grouped_row() {
     );
 }
 
+const ARMS: &str = "list appearance=\"auto\" flex=1
+  section
+    for n in notes key=n.id
+      scroll swipeContent=`row-${n.id}` swipeTrailing=`flag-${n.id}` testId=`swipe-${n.id}` overflow-x=\"scroll\" overflow-y=\"hidden\" scrollbar-width=\"none\" scroll-snap-type=\"x mandatory\"
+        if n.locked
+          button press=open(n.id) id=`row-${n.id}` testId=`note-${n.id}` width=\"100%\" flex-shrink=0 scroll-snap-align=\"start\"
+            text n.title testId=`title-${n.id}`
+            image \"symbol:lock\"
+        else
+          button press=open(n.id) id=`row-${n.id}` testId=`note-${n.id}` width=\"100%\" flex-shrink=0 scroll-snap-align=\"start\"
+            text n.title testId=`title-${n.id}`
+            image \"symbol:forward-chevron\" testId=`chevron-${n.id}`
+        button press=remove(n.id) id=`flag-${n.id}` flex-shrink=0 scroll-snap-align=\"start\"
+          text \"Flag\"
+    button press=open(\"plain\") testId=\"plain\"
+      text \"Plain\" testId=\"title-plain\"
+      image \"symbol:forward-chevron\" testId=\"chevron-plain\"";
+
+/// A hand-written swipe whose content is written in each arm of an `if` is
+/// the grouped row in either arm, as a direct child is.
+#[test]
+fn a_hand_written_swipes_content_in_an_if_is_the_grouped_row() {
+    let r = boot(ARMS);
+    let k = r.kernel();
+    let frame = |t: &str| k.node(id(&r, t).unwrap()).unwrap().frame;
+    for n in ["1", "2"] {
+        let (row, title, scroll) = (
+            frame(&format!("note-{n}")),
+            frame(&format!("title-{n}")),
+            frame(&format!("swipe-{n}")),
+        );
+        assert_eq!(row.height, 52.0, "{n}: a row's height");
+        assert_eq!(
+            title.x,
+            frame("title-plain").x,
+            "{n}: the text at the row's inset"
+        );
+        assert_eq!(
+            title.x - scroll.x,
+            16.0,
+            "{n}: the scroll at the card's edge"
+        );
+    }
+}
+
 #[test]
 fn a_cells_delete_is_its_swipe() {
     let mut r = boot("list flex=1\n  for n in notes key=n.id\n    row id=`own-${n.id}` delete=remove(n.id) testId=`note-${n.id}`\n      text n.title");

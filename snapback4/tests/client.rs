@@ -10,8 +10,10 @@ use std::net::TcpStream;
 use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
 
+// Since 0.4.33 dev refuses a persona the schema does not declare: these are every one the tests send.
 const SCHEMA: &str = r#"
 use identity
+use personas alice, bob, erin, frank, gina, hana, ida, kai, lena, mona, ned, nia, ola, pia, rae, sam
 table messages:
   author: principal
   body: text <=50

@@ -273,9 +273,11 @@ impl<D: DataSource> Presenter<D> {
         }
         let text = if kind == EventKind::Paste { text } else { "" };
         if let Some(target) = target {
-            let error = self
-                .host
-                .dispatch_at(target, Event::Clipboard(kind, text.to_owned()), now);
+            let error = self.host.dispatch_at(
+                target,
+                Event::Clipboard(kind, text.to_owned(), Vec::new()),
+                now,
+            );
             if let Some(e) = error.or(self.after_commit()) {
                 return Err(e);
             }

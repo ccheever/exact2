@@ -282,12 +282,15 @@ fn css_text_in(
             (StyleId::ColorScheme, RowValue::Enum("normal")) => {
                 out.push_str("color-scheme:inherit;")
             }
+            // WebKit parses `user-select` but selects by the prefixed name only.
+            (StyleId::UserSelect, RowValue::Enum(v)) => {
+                push_text!(&mut out, "-webkit-user-select:{};user-select:{};", v, v)
+            }
             // LLP 1069.011.001 D8–D9: browser-owned absolute sizes and corners.
             (StyleId::ControlSize, RowValue::Enum(size)) => {
                 let size = match *size {
                     "mini" => "x-small",
-                    "small" => "small",
-                    "large" => "large",
+                    size @ ("small" | "large") => size,
                     _ => "medium",
                 };
                 push_text!(&mut out, "--exact-control-font-size:{};", size);

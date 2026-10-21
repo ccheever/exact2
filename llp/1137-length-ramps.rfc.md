@@ -36,8 +36,20 @@ sheet's `grouped-checkmark-width` and `-height` metrics name them in the iOS col
 the web's, whose first look is iOS's whole, and the neutral look's, which is the web's
 here; the Mac keeps its fixed size, as AppKit's does not grow with a text size.
 
+### D3 — stacking at the accessibility sizes
+
+`accessibility-stack-gap` is 8 through the largest standard size and 2000, wider than any
+line, from the AX1 body (28) up. As the `column-gap` of a row that wraps it puts each item
+on its own line at the accessibility sizes only, as UIKit's value cell stacks its title and
+value there (`prefersSideBySideTextAndSecondaryText` off) and a hand-built cell's stack of
+labels turns vertical. A grouped row's boxed title and value take it on iOS, the web and
+the neutral look (`grouped-value-gap`); the Mac's form keeps its pair side by side. A
+browser whose root size falls between two bodies reads a gap in between, which still
+stacks a phone's row from about a 24-pixel root.
+
 ## The gate
 
 A carried row's checkmark on the iOS 27 simulator measures 19 × 17.33 at the default text
 size and 48 × 43.33 at AX5 (`layout`), as UIKit's; the kernel's unit test reads the ramp at
-five root sizes; the six checks.
+five root sizes; `grouped_value_ios.rs` puts a short value beside its title at the
+largest standard size and under it at AX1 to AX5; the six checks.

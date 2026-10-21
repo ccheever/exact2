@@ -145,8 +145,7 @@ struct Em<'a> {
     uses: Uses,
     out: String,
     classes: Vec<String>,
-    /// Each distinct set of state looks (LLP 1121 D8), `data-exact-looks`
-    /// index plus one.
+    /// Each distinct set of state looks (LLP 1121 D8), `data-exact-looks` index plus one.
     looks: Vec<Vec<(u8, String)>>,
 
     paint: bool,
@@ -167,8 +166,7 @@ struct Em<'a> {
     /// Possible height and transform owners whose motion values must be observed.
     heights: std::collections::BTreeSet<u32>,
     transforms: std::collections::BTreeSet<u32>,
-    /// The `@keyframes` that animate `scale` (a pressed node plays their
-    /// `-exact-press` copies).
+    /// The `@keyframes` that animate `scale` (a pressed node plays their `-exact-press` copies).
     press_keyframes: Vec<String>,
     /// Whether a dynamic row can reference an element (`url(#…)`): nodes
     /// with an `id` then name it (`data-exact-id`, rt.js `Sr`).
@@ -1298,6 +1296,8 @@ impl Em<'_> {
                 | EventKind::Midimessage
                 | EventKind::Wheel
                 | EventKind::Drop
+                | EventKind::Dragenter
+                | EventKind::Dragleave
                 | EventKind::Play
                 | EventKind::Playing
                 | EventKind::Pause

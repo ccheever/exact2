@@ -1,0 +1,17 @@
+# Code review: design-tool.test T2b's canvas frame target asked again (main red on a loaded machine), quick review, 2026-10-20 (astra)
+
+- **Family:** OpenAI. GPT-6 Astra via codex exec, reasoning effort max, read-only sandbox, a throwaway worktree at `ff59dc3c45`.
+- **Method:** one brief (sha256 `084262f96f24c17c1769597173a99d2744e1185b2b8444e2ce8e6fa4c18ee6ff`), shared by both reviewers, each blind to the other's review; commit ff59dc3c45 (the main-red standing permission's quick review). The author (Claude) is not a reviewer.
+- **Transcription:** the final message, unedited.
+- **Verdict:** nothing blocks (3 NIT).
+- **Disposition:** (1) taken: the comment says the lag is the likely cause, from one loaded run; (3) taken: the loop breaks on a hit; (2) noted (the URL-prefix predicate on a fresh context and an allocated port), no change.
+
+**Nothing blocks HEAD (`ff59dc3c45`). No SHOULD-FIX findings.**
+
+1. **NIT — treat the precise failure explanation as a hypothesis** ([line 1134](/tmp/rv-dt-t2b/scripts/design-tool.test.mjs:1134)). A renderer/browser timing gap is plausible: Chromium can create an OOPIF target before navigation finishes, while its reported URL comes from the browser’s last committed URL. However, `getTargets` reads current state; this is not merely a delayed `targetInfoChanged` event. A Playwright `Frame` can appear before its OOPIF target, but successfully querying that OOPIF’s DOM already requires its target session. Thus “target created after the frame appeared” alone doesn’t explain failure **after `waitFor()`**. The failed target list or a protocol trace would distinguish these cases. [Chromium implementation](https://raw.githubusercontent.com/chromium/chromium/156.0.8078.4/content/browser/devtools/render_frame_devtools_agent_host.cc), [Playwright implementation](https://raw.githubusercontent.com/microsoft/playwright/v1.64.1/packages/playwright-core/src/server/chromium/crPage.ts).
+
+2. **NIT — the existing matcher has a qualification, but polling preserves its protection** ([line 1140](/tmp/rv-dt-t2b/scripts/design-tool.test.mjs:1140)). A canvas that remains in the tool’s process cannot itself produce the required `iframe` target. Persistent same-site placement or disabled isolation therefore still fails; waiting does not manufacture a pass. The pre-existing caveat is that `getTargets` is browser-wide: another matching iframe could satisfy this URL-prefix predicate because it does not verify frame identity. The fixture’s fresh context and allocated port make that unlikely. A target entry also isn’t proof of renderer health; a persistent crash would still fail the subsequent canvas interaction and selection assertions. Polling could tolerate transient recovery, so a passing retry does not establish the original cause. [Target enumeration](https://raw.githubusercontent.com/chromium/chromium/156.0.8078.4/content/browser/devtools/protocol/target_handler.cc).
+
+3. **NIT — an unnecessary 200 ms sleep follows success** ([line 1139](/tmp/rv-dt-t2b/scripts/design-tool.test.mjs:1139)). The `for` update expression executes before checking `!isolated` again. Break immediately on a match, or sleep only after a miss. Otherwise the loop is correct: immediate first query, one fixed deadline, sequential awaited requests, and safe reuse of the CDP session for fresh snapshots. Errors propagate. The ten seconds bounds starting another attempt; it does not cancel an outstanding CDP request.
+
+Read-only review; no files changed, builds, or test suites run.

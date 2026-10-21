@@ -59,7 +59,10 @@ fn baked() -> BTreeMap<String, Vec<u8>> {
         .iter()
         .map(|(name, t)| (name.clone(), bin::to_vec(t)))
         .collect();
-    data.insert("crate.model".into(), bin::to_vec(&model));
+    data.insert(
+        "crate.model".into(),
+        exact_game::asset::encode_model(&model),
+    );
     data
 }
 

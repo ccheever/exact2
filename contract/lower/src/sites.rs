@@ -38,6 +38,13 @@ pub struct NodeSite {
     pub looks: Vec<(&'static str, Vec<(StyleId, Origin)>)>,
     /// The button's compile-time appearance decision, absent on other tags.
     pub button: Option<ButtonSite>,
+    /// The part its element is named as (LLP 1139 D2, D5): what the
+    /// selection report's `library` joins, since `part=` reaches no host.
+    pub part: Option<String>,
+    /// The declaring identity of the exported library component whose own
+    /// view the element is of (LLP 1139 D0, D5); a slot fill's nodes are
+    /// their caller's.
+    pub library: Option<String>,
 }
 
 /// Development-only button admission and migration facts (LLP 1104 D2, D9).
@@ -93,6 +100,16 @@ pub enum Origin {
         /// The state part's row.
         span: Span,
     },
+    /// A row a `:disabled` or `:checked` part folds into one value over
+    /// its base (LLP 1122's queue item (2)): the base's attribute where an
+    /// author wrote it, none for one the node takes unwritten, and each
+    /// part folded over it (each an [`Origin::State`]).
+    Folded {
+        /// The base's origin and attribute; none where no author wrote it.
+        base: Option<Box<Origin>>,
+        /// Each part folded over it.
+        parts: Vec<Origin>,
+    },
 }
 
 impl Origin {
@@ -104,6 +121,9 @@ impl Origin {
             Origin::Class(name, _) => format!("class:{name}"),
             Origin::Tag => "tag".into(),
             Origin::State { of, .. } => of.label(),
+            Origin::Folded { base, .. } => {
+                base.as_ref().map_or_else(|| "own".into(), |b| b.label())
+            }
         }
     }
 
@@ -114,6 +134,7 @@ impl Origin {
         match self {
             Origin::Own(w) | Origin::Class(_, w) => w.as_ref(),
             Origin::Tag | Origin::State { .. } => None,
+            Origin::Folded { base, .. } => base.as_ref().and_then(|b| b.written()),
         }
     }
 }
@@ -169,6 +190,8 @@ pub(crate) fn node_site(
         rows: style_rows(bindings, origins),
         looks,
         button,
+        part: None,
+        library: None,
     }
 }
 

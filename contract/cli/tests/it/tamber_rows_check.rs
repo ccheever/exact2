@@ -1,0 +1,438 @@
+//! The design server's write check of the rows a write reaches (LLP 1121
+//! D3 and D7; QUEUE's "the server's write check doesn't see a Contract
+//! row's kind", theme2's 14:19 ruling): a write that breaks a literal row
+//! that passed is refused in the compiler's own words, at the row, as
+//! `contract build` refuses the design it would write.
+#![cfg(unix)]
+
+use super::tamber_package_params::reading;
+use super::tamber_serve::{digest, Serve};
+use serde_json::{json, Value};
+use std::path::Path;
+
+fn transaction(s: &mut Serve, dir: &Path, op: Value) -> Value {
+    s.ask(json!({"method": "transaction", "client": "one", "files": {"app.tamber": digest(&dir.join("app.tamber"))}, "ops": [op]}))
+        .0
+}
+
+/// The server refuses `op`, and `contract build` refuses the design the
+/// write would leave (`written`), with the same id and words, at the same
+/// row.
+fn same_words(dir: &Path, design: &str, contract: &str, op: Value, written: &str) {
+    std::fs::write(dir.join("app.tamber"), design).unwrap();
+    std::fs::write(dir.join("app.contract"), contract).unwrap();
+    let mut s = Serve::start(dir, &[]);
+    let (first, _) = s.ask(json!({"method": "propose", "ops": [{"op": "set-token", "name": "ink", "value": "#444444"}]}));
+    assert!(first.get("ok").is_some(), "{first}");
+    let refused = transaction(&mut s, dir, op);
+    drop(s);
+    let d = &refused["error"]["diagnostics"][0];
+    assert!(d.is_object(), "the write is refused: {refused}");
+    // The design it would have written, built.
+    std::fs::write(dir.join("app.tamber"), written).unwrap();
+    let built = contract::compile_path(&dir.join("app.contract")).unwrap_err();
+    assert_eq!(d["id"], built.id, "{refused}");
+    assert_eq!(d["message"], built.message, "{refused}");
+    assert_eq!(d["line"], built.span.line, "{refused}");
+    assert_eq!(d["col"], built.span.col, "{refused}");
+    assert_eq!(d["file"], "app.contract");
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+const DESIGN: &str =
+    "tamber t\n\ntheme\n  ink = #111111\n  gap = 8px\n  one = 1\n  scale = one\n  mute = #777777\n";
+const CONTRACT: &str = "use Card from \"@acme/reading\"\ncomponent App\n  view\n    column padding=\"gap\" color=\"mute\"\n      button \"Go\" -exact-press-scale=\"scale\"\n      Card()\n";
+
+#[test]
+fn a_kind_change_is_refused_in_the_compilers_words() {
+    same_words(
+        &reading("rows-kind"),
+        DESIGN,
+        CONTRACT,
+        json!({"op": "set-token", "name": "gap", "value": "#444444"}),
+        &DESIGN.replace("gap = 8px", "gap = #444444"),
+    );
+}
+
+#[test]
+fn a_press_scale_through_an_alias_and_by_a_value_is_refused() {
+    same_words(
+        &reading("rows-alias"),
+        DESIGN,
+        CONTRACT,
+        json!({"op": "set-token", "name": "scale", "value": "ink"}),
+        &DESIGN.replace("scale = one", "scale = ink"),
+    );
+    same_words(
+        &reading("rows-value"),
+        DESIGN,
+        CONTRACT,
+        json!({"op": "set-token", "name": "one", "value": "0"}),
+        &DESIGN.replace("one = 1", "one = 0"),
+    );
+}
+
+#[test]
+fn a_removed_token_a_row_names_is_refused() {
+    same_words(
+        &reading("rows-removed"),
+        DESIGN,
+        CONTRACT,
+        json!({"op": "remove-token", "name": "mute"}),
+        &DESIGN.replace("  mute = #777777\n", ""),
+    );
+}
+
+/// Through a chain of references: `scale = step`, `step = one`, and a write
+/// to `one` reaches `-exact-press-scale="scale"`. (A package token over a
+/// base name made the wrong kind, `reading.gap: length = space.md` with a
+/// colour `space.md`, is the package fold's refusal, at the design line,
+/// before any row.)
+#[test]
+fn a_write_reaches_a_row_through_references() {
+    let design = "tamber t\n\ntheme\n  ink = #111111\n  one = 1\n  step = one\n  scale = step\n";
+    let contract = "use Card from \"@acme/reading\"\ncomponent App\n  view\n    column\n      button \"Go\" -exact-press-scale=\"scale\"\n      Card()\n";
+    same_words(
+        &reading("rows-reach"),
+        design,
+        contract,
+        json!({"op": "set-token", "name": "one", "value": "0"}),
+        &design.replace("one = 1", "one = 0"),
+    );
+}
+
+/// Through a base name (`.bases`): `pad = calc(space.md * 2)` under
+/// `padding="pad"`, and a write that sets the app's `space.md` negative.
+#[test]
+fn a_write_reaches_a_row_through_a_base_name() {
+    let design = "tamber t\n\ntheme\n  ink = #111111\n  pad = calc(space.md * 2)\n";
+    let contract = "use Card from \"@acme/reading\"\ncomponent App\n  view\n    column padding=\"pad\"\n      Card()\n";
+    same_words(
+        &reading("rows-base"),
+        design,
+        contract,
+        json!({"op": "set-token", "name": "space.md", "value": "-4px"}),
+        &format!("{design}  space.md = -4px\n"),
+    );
+}
+
+/// Only the rows the build checks are the map's (Astra's round 1): a style
+/// no node applies, and an element's row a shorthand writes, are no row
+/// of it, so a write breaking them is the build's to judge (the build
+/// accepts the first).
+#[test]
+fn an_unused_style_and_a_shorthand_are_not_judged() {
+    let dir = reading("rows-unused");
+    std::fs::write(
+        dir.join("app.tamber"),
+        "tamber t\n\ntheme\n  ink = #111111\n  mute = #777777\n",
+    )
+    .unwrap();
+    std::fs::write(
+        dir.join("app.contract"),
+        "use Card from \"@acme/reading\"\nstyle Loud\n  color = \"mute\"\ncomponent App\n  view\n    column border=\"1px solid ink\"\n      Card()\n",
+    )
+    .unwrap();
+    let mut s = Serve::start(&dir, &[]);
+    s.ask(json!({"method": "propose", "ops": [{"op": "set-token", "name": "ink", "value": "#444444"}]}));
+    let w = transaction(&mut s, &dir, json!({"op": "remove-token", "name": "mute"}));
+    assert!(
+        w.get("ok").is_some(),
+        "an unused style's token removed: {w}"
+    );
+    drop(s);
+    contract::compile_path(&dir.join("app.contract")).unwrap();
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Rows alike (one name, one value) are judged once and each refused at
+/// its own place, as the build refuses each.
+#[test]
+fn rows_alike_are_each_refused_at_their_place() {
+    let dir = reading("rows-alike");
+    let design = "tamber t\n\ntheme\n  ink = #111111\n  mute = #777777\n";
+    let contract = "use Card from \"@acme/reading\"\ncomponent App\n  view\n    column color=\"mute\"\n      text \"a\" color=\"mute\"\n      Card()\n";
+    std::fs::write(dir.join("app.tamber"), design).unwrap();
+    std::fs::write(dir.join("app.contract"), contract).unwrap();
+    let mut s = Serve::start(&dir, &[]);
+    s.ask(json!({"method": "propose", "ops": [{"op": "set-token", "name": "ink", "value": "#444444"}]}));
+    let w = transaction(&mut s, &dir, json!({"op": "remove-token", "name": "mute"}));
+    drop(s);
+    let mut got: Vec<(u64, u64, String)> = w["error"]["diagnostics"]
+        .as_array()
+        .unwrap_or_else(|| panic!("{w}"))
+        .iter()
+        .map(|d| {
+            (
+                d["line"].as_u64().unwrap(),
+                d["col"].as_u64().unwrap(),
+                d["message"].as_str().unwrap().to_string(),
+            )
+        })
+        .collect();
+    got.sort();
+    std::fs::write(
+        dir.join("app.tamber"),
+        design.replace("  mute = #777777\n", ""),
+    )
+    .unwrap();
+    let src = std::fs::read_to_string(dir.join("app.contract")).unwrap();
+    let mut built: Vec<(u64, u64, String)> =
+        contract::compile_path_source_all(&dir.join("app.contract"), &src, false)
+            .err()
+            .unwrap_or_default()
+            .into_iter()
+            .filter(|e| e.id == "tamber-unknown-token")
+            .map(|e| (e.span.line as u64, e.span.col as u64, e.message))
+            .collect();
+    built.sort();
+    assert_eq!(got, built);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// An arm of a choice is refused at its own literal, as the build refuses
+/// it (Astra's round 2).
+#[test]
+fn an_arm_of_a_choice_is_refused_at_its_literal() {
+    let design = "tamber t\n\ntheme\n  ink = #111111\n  mute = #777777\n";
+    let contract = "use Card from \"@acme/reading\"\ncomponent App\n  state on = false\n  view\n    column color=(on ? \"mute\" : \"#000000\")\n      Card()\n";
+    same_words(
+        &reading("rows-arm"),
+        design,
+        contract,
+        json!({"op": "remove-token", "name": "mute"}),
+        &design.replace("  mute = #777777\n", ""),
+    );
+}
+
+/// A row with a computed arm is the build's (a number row's computed arm
+/// reads every number token, a refusal of its own); a row whose other arm
+/// already fails is the build's too, though this arm breaks (theme2's Q1:
+/// the authored row passed or it didn't). An `svg` subtree's rows are left
+/// to the build whole: lowering renames some of its attributes into props
+/// by element (`fePointLight x` is `lightX`) and coerces some, so a rect's
+/// `x`, still a row the build refuses as a colour, is the build's here.
+/// None of these writes is refused.
+#[test]
+fn rows_the_build_judges_otherwise_are_left_to_it() {
+    let dir = reading("rows-left");
+    std::fs::write(
+        dir.join("app.tamber"),
+        "tamber t\n\ntheme\n  ink = #111111\n  good = 8px\n  bad = #222222\n  one = 1\n  pos = 8px\n",
+    )
+    .unwrap();
+    std::fs::write(
+        dir.join("app.contract"),
+        "use Card from \"@acme/reading\"\ncomponent App\n  state on = false\n  state other = \"2\"\n  view\n    column padding=(on ? \"good\" : \"bad\")\n      button \"Go\" -exact-press-scale=(on ? \"one\" : other)\n      svg width=10 height=10 viewBox=\"0 0 10 10\"\n        rect x=\"pos\" width=10 height=10\n      Card()\n",
+    )
+    .unwrap();
+    let mut s = Serve::start(&dir, &[]);
+    s.ask(json!({"method": "propose", "ops": [{"op": "set-token", "name": "ink", "value": "#444444"}]}));
+    for (name, value) in [("good", "#333333"), ("one", "0"), ("pos", "#123456")] {
+        let w = transaction(
+            &mut s,
+            &dir,
+            json!({"op": "set-token", "name": name, "value": value}),
+        );
+        let refused: Vec<&Value> = w["error"]["diagnostics"]
+            .as_array()
+            .map(|d| d.iter().filter(|d| d["file"] == "app.contract").collect())
+            .unwrap_or_default();
+        assert!(refused.is_empty(), "{name}: {w}");
+        assert!(w.get("ok").is_some(), "{name}: {w}");
+    }
+    drop(s);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A plain row and an arm alike (one name, one literal) are each refused
+/// where the build refuses each: a shadow's at the attribute, the arm's at
+/// its literal (Astra's round 3: columns 14 and 25).
+#[test]
+fn a_plain_row_and_an_arm_alike_keep_their_places() {
+    let dir = reading("rows-plain-arm");
+    let design = "tamber t\n\ntheme\n  ink = #111111\n  mute = #777777\n";
+    let contract = "use Card from \"@acme/reading\"\ncomponent App\n  state on = false\n  view\n    column box-shadow=(on ? \"0 0 2px mute\" : \"none\")\n      text \"a\" box-shadow=\"0 0 2px mute\"\n      Card()\n";
+    std::fs::write(dir.join("app.tamber"), design).unwrap();
+    std::fs::write(dir.join("app.contract"), contract).unwrap();
+    let mut s = Serve::start(&dir, &[]);
+    s.ask(json!({"method": "propose", "ops": [{"op": "set-token", "name": "ink", "value": "#444444"}]}));
+    let w = transaction(&mut s, &dir, json!({"op": "remove-token", "name": "mute"}));
+    drop(s);
+    let mut got: Vec<(u64, u64, String)> = w["error"]["diagnostics"]
+        .as_array()
+        .unwrap_or_else(|| panic!("{w}"))
+        .iter()
+        .map(|d| {
+            (
+                d["line"].as_u64().unwrap(),
+                d["col"].as_u64().unwrap(),
+                d["message"].as_str().unwrap().to_string(),
+            )
+        })
+        .collect();
+    got.sort();
+    std::fs::write(
+        dir.join("app.tamber"),
+        design.replace("  mute = #777777\n", ""),
+    )
+    .unwrap();
+    let src = std::fs::read_to_string(dir.join("app.contract")).unwrap();
+    let mut built: Vec<(u64, u64, String)> =
+        contract::compile_path_source_all(&dir.join("app.contract"), &src, false)
+            .err()
+            .unwrap_or_default()
+            .into_iter()
+            .map(|e| (e.span.line as u64, e.span.col as u64, e.message))
+            .collect();
+    built.sort();
+    assert_eq!(got, built);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A literal a `derive` binds is checked where it is bound, not as the
+/// row's: removing the token it names is the build's (which accepts it
+/// here), never a refusal (Astra's round 2).
+#[test]
+fn a_bound_literal_is_not_judged_as_the_rows() {
+    let dir = reading("rows-bound");
+    std::fs::write(
+        dir.join("app.tamber"),
+        "tamber t\n\ntheme\n  ink = #111111\n  mute = #777777\n",
+    )
+    .unwrap();
+    std::fs::write(
+        dir.join("app.contract"),
+        "use Card from \"@acme/reading\"\ncomponent App\n  view\n    column\n      Tint()\n      Card()\ncomponent Tint\n  derive preferred = \"mute\"\n  derive chosen = (preferred != \"\" ? preferred : \"#000000\")\n  view\n    text \"t\" color=chosen\n",
+    )
+    .unwrap();
+    let mut s = Serve::start(&dir, &[]);
+    s.ask(json!({"method": "propose", "ops": [{"op": "set-token", "name": "ink", "value": "#444444"}]}));
+    let w = transaction(&mut s, &dir, json!({"op": "remove-token", "name": "mute"}));
+    assert!(w.get("ok").is_some(), "{w}");
+    drop(s);
+    contract::compile_path(&dir.join("app.contract")).unwrap();
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A row that already fails is the build's: a write touching its token,
+/// turning one failure into another, isn't refused (theme2's Q1).
+#[test]
+fn a_row_already_failing_does_not_block_a_write() {
+    let dir = reading("rows-already");
+    std::fs::write(
+        dir.join("app.tamber"),
+        "tamber t\n\ntheme\n  ink = #111111\n  gap = #222222\n",
+    )
+    .unwrap();
+    std::fs::write(
+        dir.join("app.contract"),
+        "use Card from \"@acme/reading\"\ncomponent App\n  view\n    column padding=\"gap\"\n      Card()\n",
+    )
+    .unwrap();
+    let mut s = Serve::start(&dir, &[]);
+    s.ask(json!({"method": "propose", "ops": [{"op": "set-token", "name": "ink", "value": "#444444"}]}));
+    let w = transaction(
+        &mut s,
+        &dir,
+        json!({"op": "set-token", "name": "gap", "value": "#333333"}),
+    );
+    assert!(w.get("ok").is_some(), "{w}");
+    drop(s);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// The map is the Contract's: a reused retention build's is a fresh one's
+/// (the retention oracle's way).
+#[test]
+fn the_row_map_of_a_reused_build_is_a_fresh_ones() {
+    let dir = reading("rows-oracle");
+    std::fs::write(dir.join("app.tamber"), DESIGN).unwrap();
+    std::fs::write(dir.join("app.contract"), CONTRACT).unwrap();
+    let root = dir.join("app.contract");
+    let first = contract::retention_build(&root, None);
+    assert!(!first.rows.is_empty());
+    std::fs::write(
+        dir.join("app.tamber"),
+        DESIGN.replace("scale = one", "scale = gap"),
+    )
+    .unwrap();
+    let reused = contract::retention_build(&root, first.kept);
+    assert!(reused.reused);
+    let fresh = contract::retention_build(&root, None);
+    assert_eq!(reused.rows, fresh.rows);
+    assert_eq!(reused.paths, fresh.paths);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// D2's budget, through the check's whole entry (the planned design's fold
+/// included): 102 distinct rows (six row names over seventeen tokens, each
+/// an alias of one base), every one reached by a write to the base, after
+/// the best of ten. The Bluesky clone's map is 833 distinct rows (73,151
+/// as written), and a write to one of its tokens reaches at most 7 (a
+/// probe, not this test).
+/// A passing write binds once; a breaking one folds and binds `before` too.
+#[test]
+fn a_worst_case_write_is_checked_within_the_budget() {
+    let names = [
+        "padding",
+        "margin-top",
+        "gap",
+        "row-gap",
+        "border-radius",
+        "width",
+    ];
+    let tokens: String = (0..17).map(|i| format!("  t{i} = base\n")).collect();
+    let design = |base: &str| format!("tamber t\n\ntheme\n  base = {base}\n{tokens}");
+    let rows: Vec<contract_lower::rows::Row> = (0..102)
+        .map(|i| contract_syntax::Attr {
+            name: names[i % names.len()].into(),
+            value: contract_syntax::Expr::Str(
+                format!("t{}", i / names.len()),
+                contract_syntax::Span::default(),
+            ),
+            span: contract_syntax::Span::default(),
+            written: true,
+        })
+        .map(|attr| contract_lower::rows::Row {
+            attr,
+            places: vec![contract_lower::rows::Place::plain(
+                contract_syntax::Span::default(),
+            )],
+        })
+        .collect();
+    let vocab = contract_lower::tamber_vocab();
+    let parse = |t: &str| exact_tamber::parse(t).unwrap();
+    let before = design("8px");
+    let run = |base: &str| {
+        let began = std::time::Instant::now();
+        let after = parse(&design(base));
+        let folded = exact_tamber::check_design(after.clone(), &vocab).unwrap();
+        let broken = contract_lower::rows::check(
+            &rows,
+            &["base"],
+            &folded.design,
+            &folded,
+            || Some(parse(&before)),
+            &[],
+            &[],
+        );
+        (broken.len(), began.elapsed())
+    };
+    // The best of ten (a run takes a few ms): the suite runs beside other
+    // tests, each with its server, on the machine.
+    let best = |base: &str, want: usize| {
+        (0..10)
+            .map(|_| {
+                let (n, took) = run(base);
+                assert_eq!(n, want);
+                took
+            })
+            .min()
+            .unwrap()
+    };
+    let took = best("12px", 0);
+    assert!(took.as_millis() < 10, "a passing write: {took:?}");
+    let took = best("#202020", 102);
+    assert!(took.as_millis() < 10, "a breaking write: {took:?}");
+}

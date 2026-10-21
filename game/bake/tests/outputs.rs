@@ -359,8 +359,7 @@ fn source_units_normalize_geometry_and_real_test_payloads() {
     source["asset"]["extras"] = serde_json::json!({"metersPerUnit":0.025});
     fs::write(&path, source.to_string()).unwrap();
     let data = support::assets(&path).unwrap();
-    let after: exact_game::asset::Model =
-        exact_game::bin::from_slice(&data["crate.model"]).unwrap();
+    let after = exact_game::asset::decode_model(&data["crate.model"]).unwrap();
     for (a, b) in after.meshes[0]
         .positions
         .iter()
@@ -437,7 +436,7 @@ fn identical_model_textures_bake_once_under_their_content_name() {
     exact_game_bake::bake_art(&app).unwrap();
     let model = |name: &str| {
         let bytes = fs::read(app.join("assets").join(name)).unwrap();
-        exact_game::bin::from_slice::<exact_game::asset::Model>(&bytes).unwrap()
+        exact_game::asset::decode_model(&bytes).unwrap()
     };
     let fence = model("fence.model").textures;
     assert_eq!(model("crate.model").textures, [CRATE_TEX]);

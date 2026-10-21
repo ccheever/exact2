@@ -157,7 +157,9 @@ pub(super) struct ShapedSource {
 /// lease. A width locks each layout while it breaks it.
 pub(super) struct ShapeData {
     pub(super) lines: Vec<HardLine>,
-    strut: (f32, f32),
+    pub(super) strut: (f32, f32),
+    /// The strut's font's ascent and descent: an empty line's text box.
+    pub(super) strut_font: (f32, f32),
     pub(super) run_metrics: Vec<FontMetrics>,
 }
 
@@ -330,6 +332,7 @@ impl ShapedSource {
             data: Arc::new(ShapeData {
                 lines,
                 strut,
+                strut_font: (ascent, descent),
                 run_metrics,
             }),
             accessible_capacity_bytes: 0,

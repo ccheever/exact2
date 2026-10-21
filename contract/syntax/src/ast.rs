@@ -54,6 +54,14 @@ pub struct File {
     /// The designs of the packages the app's sources link (LLP 1121 D11),
     /// each `<name>.tamber` beside its package's entry, set by the driver.
     pub package_designs: Vec<DesignSource>,
+    /// The identities of the exported library components (LLP 1139 D0):
+    /// each component a private package that ships a design declares in
+    /// its entry, or re-exports there; set by the driver.
+    pub library: Vec<String>,
+    /// The names of the app's library packages (LLP 1139 D0): each linked
+    /// package that is `"private": true` and ships a design; set by the
+    /// driver.
+    pub library_packages: Vec<String>,
     /// `fn` declarations, in order (LLP 1017 P5).
     pub fns: Vec<FnDecl>,
     /// Native modules' sources and sends, read from packages (LLP 1133.001).
@@ -707,6 +715,8 @@ pub struct Component {
     pub view: Vec<Node>,
     /// The `params` section and the component's identity (LLP 1121 D15).
     pub params: crate::params::Params,
+    /// Its parts and the nodes named as them (LLP 1139 D2).
+    pub anatomy: crate::anatomy::Anatomy,
     /// Where.
     pub span: Span,
 }
