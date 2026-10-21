@@ -34,7 +34,7 @@ use native::native_row;
 pub(crate) use native::{margins_said, native_rows};
 
 use crate::{err, swipe_rows, LowerError};
-use contract_syntax::{Attr, Expr, Node, Span};
+use contract_syntax::{Attr, Expr, Node, Span, TemplatePart};
 
 /// `listStyle`'s names (D2), UIKit's three list appearances.
 pub(crate) const STYLES: &[&str] = &["inset-grouped", "grouped", "plain"];
@@ -638,7 +638,14 @@ fn section(style: &'static str, node: &Node, first: bool) -> Result<Node, LowerE
     })
 }
 
-/// A literal `symbol:` image source's Apple name, as the kernel names it.
+/// A symbol a prop or an expression names (`symbol:${name}`, a library
+/// row's): a symbol, which one known only when it runs, so no accessory (a
+/// row writes its chevron or checkmark literally). Its Apple name stands
+/// for any.
+const NAMED_SYMBOL: &str = "symbol";
+
+/// A `symbol:` image source's Apple name, as the kernel names it; a source
+/// a template writes (`symbol:${name}`) is [`NAMED_SYMBOL`].
 fn symbol(node: &Node) -> Option<&str> {
     let Node::Element {
         tag, positional, ..
@@ -658,6 +665,10 @@ fn symbol(node: &Node) -> Option<&str> {
                 other => other.strip_prefix("sf/").unwrap_or(other),
             })
         }
+        ("image", Some(Expr::Template(parts, _))) => match parts.first() {
+            Some(TemplatePart::Text(text)) if text.starts_with("symbol:") => Some(NAMED_SYMBOL),
+            _ => None,
+        },
         _ => None,
     }
 }
