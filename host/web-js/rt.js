@@ -1078,6 +1078,7 @@ export { onResize, onIntersect } from "./observers.js";
 /** Page geometry (LLP 1051.000), fetched after first paint by `geo`; unavailable before loading.
  * Answers use the runner's Geometry: x, y, width, height, provisional, unavailable. */
 let Geo = null, Geometry = null;
+export const geoLoading = () => Geometry; // its load once `geo` asked (else null): a first element size (observers.js) waits for it
 export function geo() {
   if (Geometry || typeof requestAnimationFrame !== "function" || globalThis.__exactRender) return;
   inflight.n++;
