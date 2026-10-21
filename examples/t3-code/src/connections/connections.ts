@@ -357,7 +357,7 @@ export async function runConnectionOp(native: Native, op: string, id: string, va
       // A host with a space reaches no server: the reference's request fails at the transport (parsePairing).
       if ('unreachable' in target && target.unreachable) throw new ClientError(environmentFetchFailure(target.origin), 'Network');
       if (connected) {
-        // 22e9d35613 preparePairingRegistration: an outdated host that can update itself is still saved (switched off).
+        // preparePairingRegistration: an outdated host that can update itself is still saved, switched on; its connection stops as unsupported.
         // Pairing this machine's own server saves nothing (the reference's register is a no-op for the primary's id).
         const paired = await call(native, { op: 'pairEnvironment', ...withStandardScope(target), primaryEnvironmentId: primary.target?.environmentId ?? '' }).catch(async error => {
           if (!(error instanceof ClientError) || error.kind !== 'Protocol') throw error;

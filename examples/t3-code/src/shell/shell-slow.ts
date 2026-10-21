@@ -1,10 +1,11 @@
 // Slow request notice. The first half is a port of the reference's request latency state
-// (MIT reference at 1e2ecbd975: apps/web/src/rpc/requestLatencyState.ts, tests in
+// (MIT reference at 74541bab17: apps/web/src/rpc/requestLatencyState.ts, tests in
 // requestLatencyState.test.ts; the toast in components/SlowRpcRequestToastCoordinator.tsx and the
 // observer in connection/platform.ts rpcRequestObserver). Each unary RPC is timed from the moment
 // it is sent and ends with its own reply: 15 s, or 120 s for server.updateProvider,
-// server.refreshProviders and server.updateServer. One request past its threshold joins a single
-// "Some requests are slow" warning that is updated in place and closed when the last one ends.
+// server.refreshProviders, server.updateServer and vcs.refreshStatus. One request past its threshold
+// joins a single "Some requests are slow" warning that is updated in place and closed when the last
+// one ends. Each row names the method and the environment's label.
 //
 // exact2-required changes to the port:
 //  - There are no timers and no `Date.now()`. Every function takes `now`, and a request becomes
@@ -30,9 +31,10 @@ import { obj, str } from '../client/domain';
 
 export const SLOW_RPC_ACK_THRESHOLD_MS = 15_000;
 /**
- * Some requests are slow by design: they shell out to a package manager on the server and only
- * respond once the install finishes. Warning about those after 15 s is noise, so they get a much
- * longer leash.
+ * Some requests are slow by design. Provider and server updates shell out to a package manager and
+ * only respond once the install finishes. A VCS status refresh fetches, may auto-pull, looks up the
+ * pull request, and first waits for any background refresh of the same repository, which often
+ * totals over 15 s. Warning about those after 15 s is noise, so they get a much longer leash.
  */
 export const LONG_RUNNING_RPC_ACK_THRESHOLD_MS = 120_000;
 export const MAX_TRACKED_RPC_ACK_REQUESTS = 256;
@@ -48,8 +50,10 @@ export interface SlowRpcAckRequest {
 }
 export interface RequestLatencyState { pending: Map<string, SlowRpcAckRequest>; slow: SlowRpcAckRequest[] }
 
-const UNTRACKED_RPC_ACK_METHODS = new Set(['previewAutomation.connect', 'server.getUsageSummary']);
-const LONG_RUNNING_RPC_ACK_METHODS = new Set(['server.updateProvider', 'server.refreshProviders', 'server.updateServer']);
+// Background reports nobody waits on. A busy host delays them first, and warning about a request the
+// user never made does not say what is wrong.
+const UNTRACKED_RPC_ACK_METHODS = new Set(['previewAutomation.connect', 'server.getUsageSummary', 'server.reportClientActivity']);
+const LONG_RUNNING_RPC_ACK_METHODS = new Set(['server.updateProvider', 'server.refreshProviders', 'server.updateServer', 'vcs.refreshStatus']);
 
 export const createRequestLatencyState = (): RequestLatencyState => ({ pending: new Map(), slow: [] });
 
@@ -147,7 +151,8 @@ export function trackRpc(client: T3Client, request: unknown, now?: number): RpcA
   if (value.op !== 'request' || !method || !shouldTrackRpcAck(method)) return Object.assign(() => undefined, { requestId: '' });
   const state = slowState(client);
   const requestId = `${client.environmentId}:${nextId++}`;
-  const entry: Entry = { requestId, method, tag: `${method} · ${client.environmentId}`, environmentId: client.environmentId, generation: client.generation, anchor: state.lastNow || null, startedAt: null };
+  const label = str(obj(client.config.environment).label) || client.environmentId;
+  const entry: Entry = { requestId, method, tag: `${method} · ${label}`, environmentId: client.environmentId, generation: client.generation, anchor: state.lastNow || null, startedAt: null };
   state.entries.set(requestId, entry);
   while (state.entries.size > MAX_TRACKED_RPC_ACK_REQUESTS) end(state, state.entries.keys().next().value!);
   if (typeof now === 'number' && Number.isFinite(now) && now > 0) start(state, entry, now);

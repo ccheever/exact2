@@ -1,5 +1,5 @@
-// One authenticated connection to a T3 server (T3 Code 9c161462c9, MIT, see LICENSE-T3:
-// packages/client-runtime/src/rpc/client.ts same-session resubscribe, connection/supervisor.ts,
+// One authenticated connection to a T3 server (T3 Code 74541bab17, MIT, see LICENSE-T3:
+// packages/client-runtime/src/rpc/client.ts same-session resubscribe, rpc/session.ts, connection/supervisor.ts,
 // driver.ts, resolver.ts, authorization/remote.ts). The connect flow is `/.well-known/t3/environment`,
 // `/oauth/token` for a pairing, `/api/auth/session`, `/api/auth/websocket-ticket`, then `wsTicket` on
 // the socket's URL.
@@ -22,9 +22,9 @@ import { Inbox } from './transport-inbox';
 import { RouteState, blocks, json, type Http, type HttpReply } from './transport-routes';
 import { credentialOrigins, type Catalog, type Route } from './transport-catalog';
 import {
-  TransportFailure, MAXIMUM_BYTES, PING_INTERVAL_MS, PONG_TIMEOUT_MS, QUICK_PROBE_MS, FOREGROUND_PROBE_MS, SOCKET_OPEN_TIMEOUT_MS,
+  TransportFailure, MAXIMUM_BYTES, PING_INTERVAL_MS, PONG_TIMEOUT_MS, UNRESPONSIVE_HOST_HINT, QUICK_PROBE_MS, FOREGROUND_PROBE_MS, SOCKET_OPEN_TIMEOUT_MS,
   BACKOFF_RESET_AFTER_MS, compatibility, credential as parseCredential, decode, encode, exchangeForm, exchangeScopes, failure as wireFailure, failureMessage, failureReason,
-  identifier, letGoAbort, origin as parseOrigin, path as onOrigin, remoteRequestFailure, request as wireRequest, retriesStream, retryDelayMs, streamRetryMs, trimmed, utf8Length,
+  identifier, letGoAbort, notConnected, origin as parseOrigin, path as onOrigin, remoteRequestFailure, request as wireRequest, retriesStream, retryDelayMs, streamRetryMs, trimmed, utf8Length,
   type Frame,
 } from './transport-wire';
 import type { ActivityReporter } from './transport-activity';
@@ -98,7 +98,9 @@ export class Session {
   private outboxBytes = 0;
   private probing: { id: string; deadline: number; waiters: Done[] } | null = null;
   private probeUnanswered = false;
+  /** When the server last sent a frame, and whether a Ping has gone unanswered since (the pinger's `lastSeen`, `awaitingResponse`). */
   private lastPong = 0;
+  private awaitingPong = false;
   private nextPing = 0;
   /** The attempt whose connect flow is running, in whichever answer runs it; -1 when none is. */
   flowRunning = -1;
@@ -128,6 +130,10 @@ export class Session {
     this.routes = new RouteState(hooks.http);
   }
 
+  /** The connection's label in its failures (PreparedConnection.label): the server's own, else its host. */
+  private get label(): string { return str(this.descriptor.label) || hostOf(this.origin) || 'The server'; }
+  /** A socket that never opened (rpc/session.ts). Over a direct route there is no network hint: that is for T3 Connect. */
+  private get unopened(): string { return `${this.label} could not establish a WebSocket connection.`; }
   private nextID(): string { this.serial += 1; return `${this.generation}-${this.serial}`; }
   private ok(value: unknown): Reply { return { ok: true, generation: this.generation, value: value ?? null }; }
   private bad(failure: TransportFailure): Reply { return { ok: false, generation: this.generation, error: this.failure(failure).json() }; }
@@ -250,7 +256,11 @@ export class Session {
     return result.slice(0, 700);
   }
   failure(error: unknown): TransportFailure {
-    if (error instanceof TransportFailure) return new TransportFailure(error.kind, this.clean(error.message), error.uncertain, error.reason, this.clean(error.detail), error.context);
+    if (error instanceof TransportFailure) {
+      const cleaned = new TransportFailure(error.kind, this.clean(error.message), error.uncertain, error.reason, this.clean(error.detail), error.context);
+      cleaned.unavailable = error.unavailable;
+      return cleaned;
+    }
     return new TransportFailure('Network', this.clean(error instanceof Error ? error.message : String(error)));
   }
 
@@ -455,20 +465,22 @@ export class Session {
     if (event.type === 'message') {
       try {
         const data = typeof event.data === 'string' ? event.data : new TextDecoder().decode(event.data as ArrayBuffer);
-        for (const frame of decode(data)) { if (this.generation !== epoch) return; this.consume(frame, epoch, handle); }
+        const frames = decode(data);
+        if (frames.length) { this.lastPong = this.hooks.now(); this.awaitingPong = false; }
+        for (const frame of frames) { if (this.generation !== epoch) return; this.consume(frame, epoch, handle); }
       } catch (error) { this.connectionFailed(this.failure(error), epoch); }
       if (handle) this.flush(handle);
       return;
     }
     if (event.type === 'close') {
-      this.connectionFailed(new TransportFailure('Network', `The server connection closed (${event.code ?? 1006}).`), epoch);
+      this.connectionFailed(new TransportFailure('Network', this.socket ? `${this.label} disconnected.` : this.unopened), epoch);
       return;
     }
     if (event.type === 'error') {
       const status = event.status ?? 0;
       if (status === 401 || status === 403) return this.connectionFailed(new TransportFailure('Authentication', 'The server refused the socket credential. Pair again.'), epoch);
       if (status === 426) return this.connectionFailed(new TransportFailure('Protocol', 'The server refused orchestration protocol 2.'), epoch);
-      this.connectionFailed(new TransportFailure('Network', event.message || 'The server WebSocket did not open.'), epoch);
+      this.connectionFailed(new TransportFailure('Network', this.socket ? `${this.label} disconnected.` : this.unopened), epoch);
     }
   }
 
@@ -490,13 +502,13 @@ export class Session {
         this.routes.schedule(now);
       }
     } catch { /* the catalog keeps what it had */ }
-    this.lastPong = now; this.nextPing = now + PING_INTERVAL_MS;
+    this.lastPong = now; this.awaitingPong = false; this.nextPing = now + PING_INTERVAL_MS;
     this.flush(handle);
   }
 
   private consume(frame: Frame, epoch: number, handle: SocketHandle | undefined): void {
     const tag = str(frame._tag);
-    if (tag === 'Pong') { this.lastPong = this.hooks.now(); return; }
+    if (tag === 'Pong') return;
     if (tag === 'Ping') { this.reply(handle, { _tag: 'Pong' }); return; }
     if (tag === 'Defect' || tag === 'ClientProtocolError') throw wireFailure(frame);
     const id = identifier(frame.requestId);
@@ -583,7 +595,7 @@ export class Session {
   /** One RPC. A shared read joins an identical one still pending (an answer asked again sends nothing new). */
   rpc(request: Obj, done: Done): void {
     try {
-      if (this.state !== 'connected') throw new TransportFailure('Disconnected', 'The server is not connected.');
+      if (this.state !== 'connected') throw notConnected();
       const method = str(request.method);
       if (!method) throw this.argument('request requires a method.');
       const payload = request.payload ?? {};
@@ -623,7 +635,7 @@ export class Session {
   }
 
   private subscribe(request: Obj): Reply {
-    if (this.state !== 'connected') throw new TransportFailure('Disconnected', 'The server is not connected.');
+    if (this.state !== 'connected') throw notConnected();
     const method = str(request.method), key = str(request.key);
     if (!method || !key) throw this.argument('subscribe requires a key and method.');
     if (this.streams.size >= 16 && ![...this.streams.values()].includes(key)) throw new TransportFailure('Busy', 'Too many subscriptions are open.');
@@ -664,13 +676,16 @@ export class Session {
         this.finish(call, generation => ({ ok: false, generation, error: timeout.json() }));
       }
       if (this.probing && now >= this.probing.deadline) {
-        const label = str(this.descriptor.label) || hostOf(this.origin) || 'The server';
-        this.connectionFailed(new TransportFailure('Network', `${label} did not respond to a connection health check.`), this.generation);
-      } else if (now - this.lastPong > PONG_TIMEOUT_MS) {
-        this.connectionFailed(new TransportFailure('Network', 'The server stopped responding.'), this.generation);
+        this.connectionFailed(new TransportFailure('Network', `${this.label} did not respond to a connection health check.`), this.generation);
       } else if (now >= this.nextPing) {
         this.nextPing = now + PING_INTERVAL_MS;
-        this.sendFrame({ _tag: 'Ping' });
+        if (this.awaitingPong && now - this.lastPong > PONG_TIMEOUT_MS) {
+          // The socket opened, so the network path worked: a host that goes quiet is more often overloaded or asleep than blocked.
+          this.connectionFailed(new TransportFailure('Network', `${this.label} stopped responding for ${PONG_TIMEOUT_MS / 1000}s. ${UNRESPONSIVE_HOST_HINT}`), this.generation);
+        } else {
+          this.awaitingPong = true;
+          this.sendFrame({ _tag: 'Ping' });
+        }
       }
       for (const [key, due] of [...this.retryDue]) {
         if (due.at > now) continue;
@@ -681,7 +696,7 @@ export class Session {
       }
       if (this.routes.nextCheckAt && now >= this.routes.nextCheckAt) { this.routes.schedule(now); this.check += 1; }
     } else if (this.url && this.openDeadline && now >= this.openDeadline) {
-      this.connectionFailed(new TransportFailure('Network', 'The server WebSocket did not open.'), this.generation);
+      this.connectionFailed(new TransportFailure('Network', this.unopened), this.generation);
     }
     if (this.reconnectAt !== null && now >= this.reconnectAt && this.wantsConnection) { this.reconnectAt = null; this.start(); }
   }
@@ -703,7 +718,8 @@ export class Session {
     for (const id of [...this.activityLeases.keys()]) this.releaseLease(id);
     this.connectedAt = null;
     const waiters = this.probing?.waiters ?? []; this.probing = null;
-    const failed = (generation: number): Reply => ({ ok: false, generation, error: this.failure(reason).json() });
+    // The session is gone, so nothing that waited on it reached a live one (the reference's EnvironmentRpcUnavailableError).
+    const failed = (generation: number): Reply => ({ ok: false, generation, error: this.failure(reason).with({ unavailable: true }).json() });
     for (const waiter of waiters) this.deliver(waiter, failed(this.generation));
     this.socket = null; this.url = ''; this.openDeadline = 0;
     if (dropSocket) this.attempt += 1;
@@ -735,7 +751,10 @@ export class Session {
     const now = this.hooks.now();
     const exhausted = this.walkExhausted; this.walkExhausted = false;
     if (this.routes.walking) this.routes.exhausted();
-    this.failureKind = problem.kind; this.failureTrace = this.lastHTTPTrace; this.lastHTTPTrace = '';
+    // A session came up, so losing it is not a failed connection (supervisor.ts, a socket the OS killed while the app
+    // was suspended, say): the reconnect reports no failure until it fails itself. Those waiting on it still learn why.
+    const established = this.connectedAt !== null;
+    this.failureKind = established ? '' : problem.kind; this.failureTrace = established ? '' : this.lastHTTPTrace; this.lastHTTPTrace = '';
     // The ladder restarts only after the lost connection stayed up 30 s.
     if (this.connectedAt !== null && now - this.connectedAt >= BACKOFF_RESET_AFTER_MS) this.failures = 0;
     // A health check asked and the connection failed before answering: reconnect now.
@@ -752,19 +771,21 @@ export class Session {
         try { this.hooks.catalog.forgetToken(this.routes.current?.credential ?? this.origin, environment); } catch { /* kept */ }
         this.token = '';
       }
+      this.failureKind = problem.kind;
       this.setStatus('error', problem.message);
       for (const waiter of waiters) this.deliver(waiter, this.ok(this.status()));
       return;
     }
+    const reported = established ? '' : `${problem.message} `;
     let delay: number;
     if (failedProbe) {
       // Only this first attempt skips the ladder; if it fails too, backoff resumes from the start.
       this.failures = 0; delay = 0;
-      this.setStatus('reconnecting', `${problem.message} Reconnecting in 0s…`);
+      this.setStatus('reconnecting', `${reported}Reconnecting in 0s…`);
     } else {
       this.failures += 1;
       delay = retryDelayMs(this.failures - 1, this.hooks.random());
-      this.setStatus('reconnecting', `${problem.message} Reconnecting in ${Math.round(delay / 1000)}s…`);
+      this.setStatus('reconnecting', `${reported}Reconnecting in ${Math.round(delay / 1000)}s…`);
     }
     this.reconnectAt = now + delay;
     for (const waiter of waiters) this.deliver(waiter, this.ok(this.status()));
@@ -787,6 +808,17 @@ export class Session {
     this.wantsConnection = true; this.failures = 0;
     this.start();
     return this.attemptHere();
+  }
+
+  /**
+   * setCompatibility(null) then connect (registry.ts): a session an incompatible server stopped starts again once
+   * that server is compatible. One the user disconnected, or that stopped for another reason, stays as it is.
+   */
+  resumeCompatible(): void {
+    if (!this.alive || this.wantsConnection || this.state !== 'error' || this.failureKind !== 'Protocol' || !this.origin) return;
+    this.failureKind = ''; this.failureTrace = '';
+    this.wantsConnection = true; this.failures = 0;
+    this.start();
   }
 
   private disconnect(request: Obj): Reply {
@@ -883,7 +915,7 @@ export class Session {
   // MARK: HTTP ops
 
   private async previewStreamAccess(): Promise<Reply> {
-    if (this.state !== 'connected') throw new TransportFailure('Disconnected', 'The server is not connected.');
+    if (this.state !== 'connected') throw notConnected();
     const epoch = this.generation, origin = this.origin;
     const ticket = str(obj(await this.http('/api/auth/websocket-ticket', { epoch, method: 'POST' })).ticket);
     if (!ticket) throw new TransportFailure('Protocol', 'The server did not issue a WebSocket ticket.');
@@ -894,14 +926,14 @@ export class Session {
   }
 
   private async readHTTP(request: Obj): Promise<Reply> {
-    if (this.state !== 'connected') throw new TransportFailure('Disconnected', 'The server is not connected.');
+    if (this.state !== 'connected') throw notConnected();
     const target = str(request.path);
     if (!target || (str(request.method) || 'GET') !== 'GET' || request.body !== undefined) throw this.argument('The client HTTP interface is read-only.');
     return this.ok(await this.http(target, { epoch: this.generation, large: true, long: request.long === true }));
   }
 
   private async uploadAttachment(request: Obj): Promise<Reply> {
-    if (this.state !== 'connected') throw new TransportFailure('Disconnected', 'The server is not connected.');
+    if (this.state !== 'connected') throw notConnected();
     // A folded paste uploads as UTF-8 text and an attached file under its own type, up to 50MB; anything without a type is a captured PNG.
     const declared = str(request.contentType);
     const typed = !!declared && /^[A-Za-z0-9!#$&^_.+-]+\/[A-Za-z0-9!#$&^_.+-]+(;[ A-Za-z0-9=._-]*)?$/.test(declared);
@@ -918,7 +950,7 @@ export class Session {
 
   /** `POST /api/pull-requests/diff` (PullRequestDiffInput; the reference's client gives it 60 s); identical reads join. */
   private async pullRequestDiff(request: Obj): Promise<Reply> {
-    if (this.state !== 'connected') throw new TransportFailure('Disconnected', 'The server is not connected.');
+    if (this.state !== 'connected') throw notConnected();
     const body = pullRequestDiffBody(request.payload);
     const key = `${this.generation}\n${body}`;
     const joined = this.pendingDiffs.get(key);
