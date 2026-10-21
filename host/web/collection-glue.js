@@ -55,6 +55,7 @@ export function applyCollectionFeedback(batch, applyBatch) {
 export function collectionController({ root, views, report, settled=()=>{}, agent = false,
   requestFrame = fn => requestAnimationFrame(fn), cancelFrame = id => cancelAnimationFrame(id), now = () => performance.now() }) {
   const states = new Map(), dirty = new Set(), waiting = new Set(), rowOwners = new WeakMap(), doc = root.ownerDocument;
+  let scrollsFired = 0; // scroll events the lists' ports have delivered (fireOwedScrolls)
   let settling = false, frame = null, delivering = false, interaction = null, reportsLeft = 4, notification=false, reported = 0;
   // LLP 1050.000 stage 1. The browser scrolls on its own thread and never
   // waits for rows (the declared deviation), so each frame's reports share a
@@ -337,6 +338,7 @@ export function collectionController({ root, views, report, settled=()=>{}, agen
     dirty.delete(s); waiting.delete(s); s.observer.disconnect();
     for (const row of s.rows) if (row.el) rowOwners.delete(row.el);
     s.port.removeEventListener('scroll', s.scrolled);
+    s.ackTarget?.removeEventListener('scroll', s.acked, { capture: true });
     s.port.removeEventListener('scrollend', s.scrollEnded);
     s.el.style.overflowAnchor = s.anchor;
     for (const name of INPUT) s.port.removeEventListener(name, s.touched);
@@ -435,7 +437,7 @@ export function collectionController({ root, views, report, settled=()=>{}, agen
             sequence: BigInt(snapshot.scrollSequence), offset: port[AXES[axis].offset],
             dimensions: null, signature: null, lastFacts: null, corrected: null, anchor: el.style.overflowAnchor };
           // A smooth correction's ticks are never sampled as travel.
-          s.scrolled = () => { s.owesScroll = false; const animated = s.animating != null, changed = scrollChanged(s); if (!animated) sample(s); if (changed) enqueue(s, true); };
+          s.scrolled = () => { const animated = s.animating != null, changed = scrollChanged(s); if (!animated) sample(s); if (changed) enqueue(s, true); };
           s.touched = () => { s.input = true; stopAnimation(s); };
           for (const name of INPUT) port.addEventListener(name, s.touched, { passive: true });
           s.observer = new ResizeObserver(entries => {
@@ -459,6 +461,12 @@ export function collectionController({ root, views, report, settled=()=>{}, agen
             } else if (pending) enqueue(s); // Coalesce an own notification, never replenish.
           });
           port.addEventListener('scroll', s.scrolled, { passive: true });
+          // A scroll event acknowledged before any reader's handler (capture runs
+          // first at the target), so a jump that handler makes stays owed; the
+          // viewport's scroll events fire at the document.
+          s.acked = () => { s.owesScroll = false; scrollsFired++; };
+          s.ackTarget = port === doc.scrollingElement ? doc : port;
+          s.ackTarget.addEventListener('scroll', s.acked, { passive: true, capture: true });
           // A smooth correction that ended short of its target (clamped, or
           // the reader took over) reports where it rests.
           s.scrollEnded = () => {
@@ -614,13 +622,13 @@ export function collectionController({ root, views, report, settled=()=>{}, agen
       for (const s of states.values()) if (s.owesScroll) n++;
       return n;
     },
-    // Waits, up to `frames` frames, while scrolls are owed: true when some
-    // were and at least one fired (so its handler's work wants a round).
+    // Waits, up to `frames` frames, while scrolls are owed: `fired`, any
+    // event delivered meanwhile (its handler's work wants a round), and what
+    // is still `owed` when the frames ran out (not settled).
     async fireOwedScrolls(frames = 8) {
-      const owed = this.owedScrolls();
-      if (!owed) return false;
+      const before = scrollsFired;
       for (let f = 0; f < frames && this.owedScrolls(); f++) await new Promise(r => requestAnimationFrame(() => setTimeout(r, 0)));
-      return this.owedScrolls() < owed;
+      return { fired: scrollsFired > before, owed: this.owedScrolls() };
     },
     dataReady() {
       // A refused pre-activation action stays armed. Retry unchanged geometry

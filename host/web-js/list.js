@@ -852,7 +852,7 @@ function load() {
     Published = "";
     publish();
   }).catch(e => console.error("exact: collections:", e)).finally(() => inflight.n--);
-  (globalThis.exact ??= {}).lists = { settle: () => Controller?.settle(), pending: () => Loading, fireOwedScrolls: async () => await Controller?.fireOwedScrolls() ?? false,
+  (globalThis.exact ??= {}).lists = { settle: () => Controller?.settle(), pending: () => Loading, fireOwedScrolls: async () => await Controller?.fireOwedScrolls() ?? { fired: false, owed: 0 }, owedScrolls: () => Controller?.owedScrolls() ?? 0,
     into: (view, key, block = "start", inline = "nearest") => {
       for (const a of [block, inline]) if (!ALIGN.includes(a)) throw Object.assign(new Error(`no alignment ${a}: start, center, end or nearest`), { malformed: true });
       return intoView(`#${view}`, key, block, inline, null, view);

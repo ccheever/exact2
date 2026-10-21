@@ -493,7 +493,7 @@ export function afterPaintPieces(load, o) {
   const collections = { commit: items => (items.length ? commit : reconcile)(items) };
   for (const name of ['reset', 'dataReady', 'releaseInteraction', 'settle']) collections[name] = call('collections', name, false);
   collections.jump = call('collections', 'jump');
-  collections.restyled = () => live?.collections.restyled(); collections.fireOwedScrolls = async () => await live?.collections.fireOwedScrolls() ?? false; // nothing to restyle, and no list moved, before the piece
+  collections.restyled = () => live?.collections.restyled(); collections.fireOwedScrolls = async () => await live?.collections.fireOwedScrolls() ?? { fired: false, owed: 0 }; collections.owedScrolls = () => live?.collections.owedScrolls() ?? 0; // nothing to restyle, and no list moved, before the piece
   // @ref LLP 1056 D7 — Canvas 2D's replayer and ResizeObserver: its own piece, injected after a rendering opportunity (`afterPaint`) after the first 2D canvas's op.
   let c2d = null, c2dLoading = null; const c2dQueue = [];
   const canvas2d = (op) => {

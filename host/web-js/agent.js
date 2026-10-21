@@ -383,7 +383,8 @@ export function install(exact) {
             // A list's offset this moved owes a `scroll` event the browser fires
             // at a rendering step; its reader's handler runs then (collection-glue
             // `owedScrolls`): wait those frames, then go round again for what it did.
-            if (await exact.lists?.fireOwedScrolls()) continue;
+            const scrolls = await exact.lists?.fireOwedScrolls();
+            if (scrolls?.fired || scrolls?.owed) continue;
             if (exact.inflight.n > holds().length) continue;
             // Animations (and springs, `settleAt`) that end later move the clock there; an
             // armed `then` runs now, and what it starts is settled in the next round.
@@ -408,6 +409,8 @@ export function install(exact) {
           if (gpuPending.length) return gpuPendingReply(req, gpuPending);
           const waiting = holds();
           if (waiting.length) return { clock: exact.clock.now, settled: false, reason: 'device', tickets: waiting.map(h => h.ticket) };
+          // A list still owing a scroll event its reader hasn't had is not settled.
+          if (exact.lists?.owedScrolls?.()) return { clock: exact.clock.now, settled: false, reason: 'scroll' };
           return { clock: exact.clock.now, settled: !exact.inflight.n };
         }
         // A jump that crosses timers stops after each timer whose commit
