@@ -64,6 +64,9 @@ component T3Window
     // and its count of dismissals on focus loss or a changed transcript context.
     citeWaitDone: number
     citeWaitAsk: action
+    // The root's 50 ms after a scroll's end before a parked Cite shows again (done to `citeSettleDone`).
+    citeSettleDone: number
+    citeSettleAsk: action
     citeDismissals: number
     themeInspecting: bool
     setThemeInspecting: action
@@ -604,17 +607,18 @@ component T3Window
   // It hides as the timeline scrolls or the window is resized (observeSelectionActions' scroll and resize), and the press
   // sends the quote with the window frame of the selection's last line, measured again, then clears the selection
   // (`removeAllRanges()` after `onCite`). A scroll only parks it (`citeParked`, restoreAfterScroll at 74541bab17): once the
-  // timeline stops (`scrollend`, where the reference waits 150 ms after the last scroll) it comes back at the selection's
-  // last line, measured again, while that line is still in the timeline; a press, a withdrawal or a new offer forgets it.
+  // timeline stops (`scrollend`) it comes back at the selection's last line, measured again, while that line is still in the
+  // timeline, and shows after the root's 50 ms more (`citeSettles`); a press, a withdrawal or a new offer forgets it.
   state citeOffer = CiteOffer(source="", ranges="", stream="", size=0, x=0, y=0, end="", lx=0, ly=0, lw=-1, lh=0)
   state citeFor = ""
   state citeParked = ""
+  state citeSettles = 0
   state citeThread = ""
   state citeViewport = ""
   // A double-click's wait (`citeWaits` asked, the root's `citeWaitDone` over) and the dismissal count at the offer.
   state citeWaits = 0
   state citeDismissedAt = 0
-  derive citeShows = citeFor != "" and citeThread == data.threadId and citeViewport == `${viewport.width}x${viewport.height}` and citeWaits <= citeWaitDone and citeDismissedAt == citeDismissals and not pageCover and not settingsOpen and not modal
+  derive citeShows = citeFor != "" and citeThread == data.threadId and citeViewport == `${viewport.width}x${viewport.height}` and citeWaits <= citeWaitDone and citeDismissedAt == citeDismissals and not pageCover and not settingsOpen and not modal and citeSettles <= citeSettleDone
   action citeOfferSet(offer: CiteOffer)
     citeOffer = offer
     citeFor = offer.source
@@ -639,9 +643,12 @@ component T3Window
   action citeSettled
     let box = frame(citeOffer.end)
     let bounds = frame("transcript")
+    let next = citeSettles + 1
     if citeParked != "" and citeParked == citeOffer.source and citeLineShown(citeOffer, box, bounds)
       citeOffer = citeRestored(citeOffer, box, bounds)
       citeFor = citeParked
+      citeSettles = next
+      citeSettleAsk(next)
     citeParked = ""
   action citePress
     let end = frame(citeOffer.end)

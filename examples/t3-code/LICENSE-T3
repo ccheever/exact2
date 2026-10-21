@@ -506,7 +506,7 @@ Minimap preview parser dependencies
 The bundled Markdown parser (tools/generate/minimap-preview-text.mjs) reads an answer's GitHub-flavoured
 Markdown as plain text for the minimap's preview. Besides the Codex parser's packages above, it includes:
 
-markdown-table@3.0.4, mdast-util-find-and-replace@3.0.3, mdast-util-gfm@3.1.0, mdast-util-gfm-footnote@2.1.0, micromark-extension-gfm-table@2.1.1, remark-gfm@4.0.1
+markdown-table@3.0.4, mdast-util-find-and-replace@3.0.2, mdast-util-gfm@3.1.0, mdast-util-gfm-footnote@2.1.0, micromark-extension-gfm-table@2.1.1, remark-gfm@4.0.1
 
 (The MIT License)
 

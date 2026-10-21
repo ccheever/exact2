@@ -23,6 +23,7 @@
     "unbash": "5.0.0"
   },
   "overrides": {
+    "mdast-util-find-and-replace": "3.0.2",
     "mdast-util-gfm-strikethrough": "2.0.0",
     "micromark-extension-gfm-table": "2.1.1"
   }

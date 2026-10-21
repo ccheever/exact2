@@ -238,8 +238,8 @@ describe('the window draws Cite and sends it (app-window.contract)', () => {
   // Evaluate the actual visibility derive without unrelated window derives and their unrelated resources.
   const shows = (state: Env, scope: Env) => value(source('app-window.contract').match(/^  derive citeShows = (.+)$/m)![1]!, { ...scope, ...state });
   const scope = () => ({ data: { threadId: 't' }, viewport: { width: 1280, height: 840 }, citeDismissals: 0,
-    citeWaitDone: 0, pageCover: false, settingsOpen: false, modal: false });
-  const state = (): Env => ({ citeOffer: {}, citeFor: '', citeParked: '', citeThread: '', citeViewport: '', citeWaits: 0, citeDismissedAt: 0, keybindingField: '' });
+    citeWaitDone: 0, citeSettleDone: 0, pageCover: false, settingsOpen: false, modal: false });
+  const state = (): Env => ({ citeOffer: {}, citeFor: '', citeParked: '', citeSettles: 0, citeThread: '', citeViewport: '', citeWaits: 0, citeDismissedAt: 0, keybindingField: '' });
 
   test.each(['Escape', 'clear', 'key', 'outside'])('%s during the double-click delay cancels the future offer', (dismiss) => {
     const w = state(), props = scope(), a = answer();
@@ -310,16 +310,26 @@ describe('the window draws Cite and sends it (app-window.contract)', () => {
 
   // observeSelectionActions' restoreAfterScroll and the toolbar's visibility check (T3 Code 74541bab17, #15818).
   test('a scroll parks Cite; when the timeline stops it returns at the last line measured again, if that line is still shown', () => {
-    const w: Env = { citeOffer: {}, citeFor: '', citeParked: '', citeThread: '', citeViewport: '', citeDismissedAt: 0, outsideDown: false, keybindingField: '' };
+    const w: Env = { citeOffer: {}, citeFor: '', citeParked: '', citeSettles: 0, citeThread: '', citeViewport: '', citeWaits: 0, citeDismissedAt: 0, outsideDown: false, keybindingField: '' };
     const props = { data: { threadId: 't' }, viewport: { width: 1280, height: 840 }, citeDismissals: 0 };
+    const asked: number[] = [];
     const settle = (text: ReturnType<typeof geometry> | { unavailable: true }) =>
-      window.call('citeSettled', w, { ...cite, ...std, frame: (id: string) => id === 'transcript' ? transcript : text }, []);
+      window.call('citeSettled', w, { ...cite, ...std, citeSettleAsk: (n: number) => asked.push(n), frame: (id: string) => id === 'transcript' ? transcript : text }, []);
     window.call('citeOfferSet', w, props, [offer]);
     window.call('citeScrolled', w, {}, [0, 120]);
     expect([w.citeFor, w.citeParked]).toEqual(['', '["t","a"]']);
-    // The answer moved 200 pt up: Cite at the last line's right and bottom + 4 there.
+    // The answer moved 200 pt up: Cite at the last line's right and bottom + 4 there, shown once the root's 50 ms are over.
     settle(geometry(280, 151.42, 672, 45.5));
-    expect(w).toMatchObject({ citeFor: '["t","a"]', citeParked: '', citeOffer: { ...offer, x: 280 + 221.2, y: 151.42 + 23.83 + 21 + 4 } });
+    expect(w).toMatchObject({ citeFor: '["t","a"]', citeParked: '', citeSettles: 1, citeOffer: { ...offer, x: 280 + 221.2, y: 151.42 + 23.83 + 21 + 4 } });
+    expect(asked).toEqual([1]);
+    const visible = { ...scope(), ...props };
+    expect(shows(w, visible)).toBe(false);
+    expect(shows(w, { ...visible, citeSettleDone: 1 })).toBe(true);
+    const root = contractComponent('app.contract', 'T3Code'), r: Env = { citeSettleAsked: 0, citeSettleDone: 0 };
+    root.call('citeSettleAsk', r, {}, [1]);
+    root.call('citeSettleOver', r, {}, []);
+    expect(r).toEqual({ citeSettleAsked: 1, citeSettleDone: 1 });
+    expect(source('app.contract')).toContain('  task citeSettle when citeSettleAsked > citeSettleDone key=citeSettleAsked\n    after(50, citeSettleOver)');
     // Scrolled until the last line left the timeline's top, or its row was let go: it stays hidden.
     window.call('citeScrolled', w, {}, [0, 900]);
     settle(geometry(280, 0, 672, 45.5));

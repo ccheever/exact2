@@ -34,6 +34,16 @@ describe('timeline minimap', () => {
     expect([item!.label, item!.excerpt]).toEqual([userText,
       'Operators Use either option from the docs. Operator Meaning a | b either Match **/*.ts files [x] deployment complete Note: old new Next line # install deps - **not bold** const snake_case = a * b; foo bar Critical answer']);
   });
+  test('a thread past 256 answered turns renders each preview once, not on every snapshot', () => {
+    const answer = (i: number) => `## Heading ${i}\n\nSome **bold** text with \`code\` and [a link](https://x.y/${i}).\n\n| a | b |\n|---|---|\n| 1 | 2 |\n\n`.repeat(10);
+    const many = Array.from({ length: 300 }, (_, i) => [{ id: `u${i}`, kind: 'user', body: `q${i}` }, { id: `a${i}`, kind: 'assistant', body: answer(i) }]).flat();
+    const first = minimapItems(many);
+    const started = performance.now();
+    for (let pass = 0; pass < 5; pass++) expect(minimapItems(many)).toEqual(first);
+    // Rendered on every snapshot, 300 previews took about half a second; read from the cache, well under a millisecond.
+    expect((performance.now() - started) / 5).toBeLessThan(20);
+    expect(first[299]!.excerpt.startsWith('Heading 299 Some bold text with code and a link.')).toBe(true);
+  });
   test('only the first 1,500 units of a long answer are read', () => {
     const [item] = minimapItems([{ id: 'u', kind: 'user', body: 'q' }, { id: 'a', kind: 'assistant', body: `${'word '.repeat(400)}**tail**` }]);
     expect(item!.excerpt.length).toBeLessThan(1_500);
@@ -169,6 +179,13 @@ describe('the lit strips and the current one follow the rows on screen', () => {
     expect(reading(0, 0)).toEqual([['u0'], 0]);
     expect(transcript(drawn).current).toBe(-1); // no report yet: no current strip
   });
+});
+
+// ThreadTerminalDrawer over TimelineMinimap at 74541bab17 (#14383): the rail centres on the timeline, which ends at an
+// open drawer's top, and what of it runs past that edge is clipped, as the drawer covers it there.
+test('the minimap spans the timeline and clips its vertical overflow', () => {
+  expect(source('timeline-minimap.contract')).toContain('column wheel=wheel position="absolute" top=0 bottom=0 left=0 width="4.5rem" overflow-x="visible" overflow-y="clip" pointer-events="none"');
+  expect(source('timeline-minimap.contract')).not.toContain('height=(windowHeight - 52)');
 });
 
 describe('A strip or chevron jumps through the public keyed command', () => {

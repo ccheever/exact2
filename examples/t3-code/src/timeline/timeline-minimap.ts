@@ -12,23 +12,22 @@ export interface MinimapItem { id: string; index: number; label: string; excerpt
 
 const compact = (text: string) => text.replace(/\s+/g, ' ').trim();
 
-// The reference renders a preview's Markdown only when it is hovered; every snapshot here carries every preview, so
-// each answer's text is rendered once (a streaming answer once per new text).
-const previews = new Map<string, string>();
-function previewText(markdown: string): string {
-  if (!markdown) return '';
-  let text = previews.get(markdown);
-  if (text === undefined) {
-    text = compact(minimapPreviewText(markdown));
-    if (previews.size >= 256) previews.delete(previews.keys().next().value!);
-  } else previews.delete(markdown);
-  previews.set(markdown, text);
+// The reference renders a preview's Markdown only when it is hovered; every snapshot here carries every preview, so each
+// answer's first 1,500 units are rendered once. The cache keeps only what the current rows use, so it never outgrows
+// the thread (a streaming answer replaces its own entry).
+let previews = new Map<string, string>();
+function previewText(markdown: string, next: Map<string, string>): string {
+  const key = markdown.slice(0, 1_500);
+  if (!key) return '';
+  let text = next.get(key) ?? previews.get(key);
+  if (text === undefined) text = compact(minimapPreviewText(key));
+  next.set(key, text);
   return text;
 }
 
 /** deriveTimelineMinimapItems and resolveTimelineMinimapPreview over the rows Contract draws. */
 export function minimapItems(rows: readonly MinimapRow[]): MinimapItem[] {
-  const items: MinimapItem[] = [];
+  const items: MinimapItem[] = [], next = new Map<string, string>();
   rows.forEach((row, index) => {
     if (row.kind !== 'user') return;
     let excerpt = '';
@@ -37,7 +36,8 @@ export function minimapItems(rows: readonly MinimapRow[]): MinimapItem[] {
       if (candidate.kind === 'user') break;
       if (candidate.kind === 'assistant') excerpt = candidate.body;
     }
-    items.push({ id: row.id, index: items.length, label: compact(row.body) || 'User message', excerpt: previewText(excerpt), row: index });
+    items.push({ id: row.id, index: items.length, label: compact(row.body) || 'User message', excerpt: previewText(excerpt, next), row: index });
   });
+  previews = next;
   return items;
 }
