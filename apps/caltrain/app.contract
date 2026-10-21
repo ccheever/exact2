@@ -303,13 +303,13 @@ component Content
             text "An update is ready" font-size="0.8125em" font-weight=600 color="#5a4a1a" testId="update-ready"
             button press=activateUpdate aria-label="Apply the update now" testId="delivery-activate" padding=8 border-radius=8 background-color="#1e3a5f"
               text "Update now" font-size="0.75em" font-weight=600 color="#ffffff"
-        header width="100%" background-color="#ffffffd9" border-radius=16 padding=14 box-sizing="border-box"
+        header width="100%" background-color="light-dark(#ffffffd9, #1c1c1ed9)" border-radius=16 padding=14 box-sizing="border-box"
           row justify-content="space-between" align-items="center"
             column gap=2
               image "assets/caltrain.png" width=96 object-fit="contain" aria-label="A Caltrain train" testId="logo"
               text "Caltrain" font-size="0.8125em" font-weight=700 letter-spacing=1.2 color=accent testId="brand"
               text station.name font-size="1.5em" font-weight=700 testId="station-name" role="heading" aria-level=1
-              text `${distanceText(station.distance)} · ${walkText(station.distance)}` font-size="0.75em" color="#666666"
+              text `${distanceText(station.distance)} · ${walkText(station.distance)}` font-size="0.75em" color="-exact-secondary-label"
             column gap=6 align-items="flex-end"
               // The development host's Reload, as its dev menu has it. Only a
               // The large buttons, the full width of the column: a remote's Up
@@ -317,11 +317,11 @@ component Content
               column gap=6 align-items="flex-end" width="100%" focusGuide="auto"
                 // TV shows it: a Siri Remote has no gesture for the dev menu.
                 if tv
-                  button press=reloadApp aria-label="Reload" testId="reload" padding=8 border-radius=8 background-color="#eeeeee"
+                  button press=reloadApp aria-label="Reload" testId="reload" padding=8 border-radius=8 background-color="-exact-fill"
                     text "Reload" font-size="0.75em" font-weight=600
-                button press=openStations aria-label="Change station" testId="change-station" padding=8 border-radius=8 background-color="#eeeeee"
+                button press=openStations aria-label="Change station" testId="change-station" padding=8 border-radius=8 background-color="-exact-fill"
                   text "Change station" font-size="0.8125em" font-weight=600
-                button press=openDeck aria-label="Open web deck" testId="open-deck" padding=8 border-radius=8 background-color="#eeeeee"
+                button press=openDeck aria-label="Open web deck" testId="open-deck" padding=8 border-radius=8 background-color="-exact-fill"
                   text "Web deck" font-size="0.75em" font-weight=600
               if activities.linked
                 column gap=6 align-items="flex-end"
@@ -373,7 +373,7 @@ component Content
               text "Next stop" font-size="0.75em" font-weight=700 letter-spacing=1.2 color="#8a5a2b"
               text station.name font-size="2.125em" font-weight=800 color="#2a1f14" testId="aurora-title"
               text `${distanceText(station.distance)} · ${walkText(station.distance)} · the whole app laid out by the kernel, painted by CoreText, composed by the surface` font-size="0.75em" color="#5a4a3a"
-          canvas surface=allStations.map(selectedId, northBoard, nowMs, tv ? 24 : 16) width="100%" height="15em" border-radius=16 testId="line-map"
+          canvas surface=allStations.map(selectedId, northBoard, nowMs, tv ? 24 : 16) width="100%" height="15em" border-radius=16 background-color="-exact-secondary-background" testId="line-map"
             column height="100%" box-sizing="border-box" padding-top=16 padding-bottom=16 justify-content="space-between"
               for s in allStations key=s.id
                 row align-items="center" height="1.25em" testId=`map-${s.id}`
@@ -382,9 +382,9 @@ component Content
                     if s.id == selectedId
                       view width="0.875em" height="0.875em" border-radius="0.4375em" background-color="#bf382b"
                     else
-                      view width="0.4375em" height="0.4375em" border-radius="0.21875em" background-color="#666666"
+                      view width="0.4375em" height="0.4375em" border-radius="0.21875em" background-color="-exact-system-gray"
                   view flex=1 padding-left=10
-                    text s.name font-size="0.875em" color="#444444" testId=`map-name-${s.id}`
+                    text s.name font-size="0.875em" color="-exact-secondary-label" testId=`map-name-${s.id}`
       Pane(tv=tv)
         if screen == "home"
           section role="region" aria-label="Departures" display="flex" flex-direction="column" gap=14 testId="home-screen"
@@ -392,30 +392,30 @@ component Content
               canvas surface=stack(northBoard, focus, deck, nowMs) width="100%" height=460 testId="deck"
                 for d in northBoard key=d.id
                   button press=focusDeparture(d.id) aria-label=`Train ${d.train}` testId=`card-${d.id}` width="100%" text-align="start"
-                    column border-radius=16 padding=16 gap=6 background-color="#ffffff" width="100%" box-sizing="border-box"
+                    column border-radius=16 padding=16 gap=6 background-color="-exact-secondary-background" width="100%" box-sizing="border-box"
                       row gap=8 align-items="flex-end"
                         text countdownText(d.at, nowMs) font-size="1.875em" font-weight=800
-                        text "min" font-size="0.8125em" color="#666666"
-                      text `${formatTime(d.at, 0, "short")} · Train ${d.train} · ${d.service} to ${d.headsign}` font-size="0.8125em" color="#444444"
+                        text "min" font-size="0.8125em" color="-exact-secondary-label"
+                      text `${formatTime(d.at, 0, "short")} · Train ${d.train} · ${d.service} to ${d.headsign}` font-size="0.8125em" color="-exact-secondary-label"
             else
               DirectionCard(title="Northbound", board=northBoard, nowMs=nowMs, focusDeparture=focusDeparture, testId="board-north")
             DirectionCard(title="Southbound", board=southBoard, nowMs=nowMs, focusDeparture=focusDeparture, testId="board-south")
         else
-          section role="region" aria-label="Stations" display="flex" flex-direction="column" gap=12 testId="stations-screen" background-color="#ffffffd9" border-radius=16 padding=14 box-sizing="border-box"
-            input appearance="none" value=query input=setQuery focus=focusSearch blur=blurSearch key=searchKey placeholder="Search stations" aria-label="Search stations" testId="station-search" padding=12 border-radius=10 border-style="solid" border-width=1 border-color="#cccccc"
+          section role="region" aria-label="Stations" display="flex" flex-direction="column" gap=12 testId="stations-screen" background-color="light-dark(#ffffffd9, #1c1c1ed9)" border-radius=16 padding=14 box-sizing="border-box"
+            input appearance="none" value=query input=setQuery focus=focusSearch blur=blurSearch key=searchKey placeholder="Search stations" aria-label="Search stations" testId="station-search" padding=12 border-radius=10 border-style="solid" border-width=1 border-color="-exact-separator"
             if searchFocused
-              text `searching · last key ${lastKey}` font-size="0.6875em" color="#999999" testId="search-hint"
+              text `searching · last key ${lastKey}` font-size="0.6875em" color="-exact-tertiary-label" testId="search-hint"
             if query == ""
               column gap=8
-                text "Nearest" font-size="0.75em" font-weight=700 letter-spacing=0.8 color="#999999"
+                text "Nearest" font-size="0.75em" font-weight=700 letter-spacing=0.8 color="-exact-tertiary-label"
                 for s in nearby key=s.id
                   StationRow(station=s, press=selectStation, hover=hoverStation, hot=(hoverOn and s.id == hoverId))
-                text "All stations" font-size="0.75em" font-weight=700 letter-spacing=0.8 color="#999999"
+                text "All stations" font-size="0.75em" font-weight=700 letter-spacing=0.8 color="-exact-tertiary-label"
                 for s in allStations key=s.id
                   StationRow(station=s, press=selectStation, hover=hoverStation, hot=(hoverOn and s.id == hoverId))
             else
               column gap=8
-                text "Matches" font-size="0.75em" font-weight=700 letter-spacing=0.8 color="#999999"
+                text "Matches" font-size="0.75em" font-weight=700 letter-spacing=0.8 color="-exact-tertiary-label"
                 for s in matches key=s.id
                   StationRow(station=s, press=selectStation, hover=hoverStation, hot=(hoverOn and s.id == hoverId))
             button appearance="none" press=goHome aria-label="Back" aria-keyshortcuts="Escape" testId="stations-back"
@@ -448,16 +448,16 @@ component DirectionCard
     focusDeparture: action
     testId: string
   view
-    column border-radius=16 padding=16 gap=10 background-color="#ffffffd9" testId=testId
+    column border-radius=16 padding=16 gap=10 background-color="light-dark(#ffffffd9, #1c1c1ed9)" testId=testId
       text title font-size="0.8125em" font-weight=700 color=accent
       if board.isEmpty()
-        text "No more trains today" font-size="0.875em" color="#666666"
+        text "No more trains today" font-size="0.875em" color="-exact-secondary-label"
       else
         for d in board key=d.id
           // Focusable, so Tab and a TV remote can reach each departure.
           row gap=8 align-items="center" focus=focusDeparture(d.id) aria-label=`Train ${d.train}` testId=`dep-${d.id}`
             text countdownText(d.at, nowMs) font-size="1.75em" font-weight=700 testId=`countdown-${d.id}`
-            text `min · ${formatTime(d.at, 0, "short")} · Train ${d.train} · ${d.service} to ${d.headsign}` font-size="0.8125em" color="#666666"
+            text `min · ${formatTime(d.at, 0, "short")} · Train ${d.train} · ${d.service} to ${d.headsign}` font-size="0.8125em" color="-exact-secondary-label"
 
 component StationRow
   props
@@ -471,8 +471,8 @@ component StationRow
       // two rows on one view instead of retiring five views and building
       // five more (`perf stations-screen during "tap station-mv hover"`,
       // LLP 1079 §8).
-      row justify-content="space-between" align-items="center" padding-top=10 padding-bottom=10 border-bottom-style="solid" border-bottom-width=1 border-color="#e0e0e0" width="100%" background-color=(hot ? "#f2f2f2" : "#00000000") testId=(hot ? `station-hot-${station.id}` : `row-${station.id}`)
+      row justify-content="space-between" align-items="center" padding-top=10 padding-bottom=10 border-bottom-style="solid" border-bottom-width=1 border-color="-exact-separator" width="100%" background-color=(hot ? "-exact-secondary-fill" : "#00000000") testId=(hot ? `station-hot-${station.id}` : `row-${station.id}`)
         column gap=2
           text station.name font-size="0.9375em" font-weight=600
-          text `Zone ${station.zone}` font-size="0.75em" color="#999999"
-        text distanceText(station.distance) font-size="0.75em" color="#666666"
+          text `Zone ${station.zone}` font-size="0.75em" color="-exact-tertiary-label"
+        text distanceText(station.distance) font-size="0.75em" color="-exact-secondary-label"
