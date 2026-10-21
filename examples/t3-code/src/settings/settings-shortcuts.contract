@@ -52,7 +52,7 @@ component ShortcutDispatch
         if item.kind == "thread"
           ShortcutButton(item=item, press=selectThread(item.target))
         if item.kind == "chat-new"
-          ShortcutButton(item=item, press=chatNew)
+          ShortcutEventButton(item=item, press=chatNew)
         if item.kind == "new-thread"
           ShortcutButton(item=item, press=newThread)
         if item.kind == "appearance"
@@ -117,11 +117,32 @@ component ShortcutDispatch
             text item.label font-size=1
 
 component ShortcutButton
+  inject
+    releaseUndoClaim: action
   props
     item: KeyDispatch
     press: action
+  // ThreadUndoShortcut releases the undo notice's claim on any other key, a chord this button takes included.
+  action pressed
+    if item.command != "thread.undo"
+      releaseUndoClaim()
+    press()
   view
-    button hatch="t3-terminal-key" data-anchor=item.command press=press aria-keyshortcuts=item.chord tabindex=-1 aria-label=item.label testId=`shortcut-${item.command}` width=1 height=1 overflow="hidden" padding=0 border-width=0 background-color="#00000000"
+    button hatch="t3-terminal-key" data-anchor=item.command press=pressed aria-keyshortcuts=item.chord tabindex=-1 aria-label=item.label testId=`shortcut-${item.command}` width=1 height=1 overflow="hidden" padding=0 border-width=0 background-color="#00000000"
+      text item.label font-size=1
+
+// ShortcutButton for an action that reads the press's event (chat.new: ⇧-click creates at once; a chord's press has none).
+component ShortcutEventButton
+  inject
+    releaseUndoClaim: action
+  props
+    item: KeyDispatch
+    press: action
+  action pressed(e: MouseEvent)
+    releaseUndoClaim()
+    press(e)
+  view
+    button hatch="t3-terminal-key" data-anchor=item.command press=pressed aria-keyshortcuts=item.chord tabindex=-1 aria-label=item.label testId=`shortcut-${item.command}` width=1 height=1 overflow="hidden" padding=0 border-width=0 background-color="#00000000"
       text item.label font-size=1
 
 // View › Reload and Force Reload (DesktopApplicationMenu.ts:233-234, Electron's `reload` and `forceReload` roles): the
