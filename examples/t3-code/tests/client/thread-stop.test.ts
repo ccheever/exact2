@@ -61,11 +61,13 @@ describe('Stop', () => {
     expect(older.dispatched.map(payload => payload.type)).toEqual(['run.interrupt']);
   });
 
-  test('Lineage Stop sends thread.stop to the child without reading its projection', async () => {
-    const { client, dispatched, requests } = fixture(true);
+  test('Lineage Stop reads only the owner\'s projection, then sends thread.stop to the child after the parent\'s stop', async () => {
+    const task = { id: 'task', threadId: 'thread', childThreadId: 'kid', runId: 'r2', origin: 'app_owned', status: 'running' };
+    const { client, dispatched, requests } = fixture(true, { ...running, subagents: [task] });
     await shellCommand(client, native, files, 'stop-subagent', 'kid', '');
-    expect(requests).toEqual([]);
-    expect(dispatched).toEqual([{ type: 'thread.stop', commandId: 'cmd-1', threadId: 'kid' }]);
+    expect(requests).toEqual(['orchestration.getThreadProjection']);
+    expect(dispatched).toEqual([{ type: 'subagent.stop', commandId: 'cmd-1', threadId: 'thread', runId: 'r2', subagentId: 'task' },
+      { type: 'thread.stop', commandId: 'cmd-2', threadId: 'kid' }]);
   });
 });
 
