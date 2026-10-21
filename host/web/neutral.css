@@ -25,7 +25,8 @@
      Every length and ratio below is a row of the schema's `metrics`, in its neutral column: the kernel sizes a control
      by those rows, and a host that paints its own controls (the Linux desktop, Windows) draws from them (LLP 1115.000
      D17). host/web/tests/neutral-look.test.mjs holds this sheet to the table, so a number changes there and here
-     together.
+     together. The one exception, which the census names, is the line a bar's level-1 title takes (below): the large
+     title's size at iOS's large-title line height.
 
      The roles this sheet and the shell's name, as the neutral column's pairs (the same test holds them to the table;
      apple-colors.test.mjs holds the Apple pairs a build lays over them), and the look's own few values. The line is the
@@ -230,6 +231,20 @@
      page's `color` (its own, written, wins). Its title is the route's heading at its level's size; nothing collapses.
      A button nobody styled is the bar's: no outline, and the Back button the bar draws is one of them. */
   :where(#exact-root [navigationkey] > header) { background-color: var(--exact-background); backdrop-filter: none; box-shadow: none; border-bottom: 1px solid var(--exact-separator); color: var(--exact-label); }
+  /* A level-1 heading in a route's bar stands where iOS draws its large title, in a bar that collapses as the page
+     scrolls. The web's bar never collapses, so the title keeps its level's size (`title1`, LLP 1115 D3) and takes at
+     least the large title's line, centred in it by equal margins: the bar is as tall as with the large title, and the
+     title stays centred beside the bar's buttons. The line is the large title's size at the web's 16 px root
+     (`textStyles`) at iOS's large-title line height, 1.2 (about 41 pt for its 34 pt); on the wasm runtime it is the
+     large title's only at a 16 px root (QUEUE.md). A title with no text yet keeps the line, and so does a smaller size
+     or line height the author writes, as on iOS, where the bar reads neither. Margins leave the heading's box to the
+     author (its height, its background, what a clamp clips), and an author's margin wins. The heading is found
+     roughly as the shared rule finds the bar's title (`kernel/src/bars.rs`): under the route's first child, a
+     `header`, outside any top layer, and as a `span` in the title's button. A route in a presented stack has an inline
+     title, as in UIKit (LLP 1116.020 D2): the presented route, a route pushed after it while it is not leaving, and a
+     route leaving with it. Naming `h1`–`h6` gives the rule the specificity of the shell's heading reset (`margin: 0`),
+     which it beats by coming later. */
+  :where(#exact-root [navigationkey]:not(:is([navigationPresentation="modal"], [navigationPresentation="fullscreen"]), :is([navigationPresentation="modal"], [navigationPresentation="fullscreen"]):not([data-exiting]) ~ *, :is([navigationPresentation="modal"], [navigationPresentation="fullscreen"]) ~ [data-exiting]) > header:first-child) :is(h1, h2, h3, h4, h5, h6, span):where([role="heading"][aria-level="1"]:not([popover] *, dialog *)) { min-height: 1lh; margin-block: max(0px, (2.0625rem * 1.2 - 1lh) / 2); }
   #exact-root [navigationkey] > header button[data-button-style="bordered"]:not([role="tab"], [role="radio"]) { border-color: transparent; }
   #exact-root [navigationkey] > header::part(back) { box-sizing: border-box; min-height: 2.25em; padding: 0 .625em 0 .375em; color: var(--exact-label); font-weight: 500; cursor: default; --exact-back-press: 1; }
   #exact-root [navigationkey] > header::part(back):focus-visible { outline: revert; outline-offset: 2px; }
