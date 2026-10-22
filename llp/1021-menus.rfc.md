@@ -954,6 +954,17 @@ skipped. A Mac's context menu has no preview, and the HIG offers none. A
 picked item presses as the menu closes, once, by the button menu's rules (no
 invoker to recheck). `isMenuShaped` ignores the preview row.
 
+**Over an open popover (2026-10-22).** A node inside an open popover asks
+for its menu without closing that popover: the menu nests in it, as HTML's
+popover stack nests a popover shown with a source inside an open one (HTML,
+"topmost popover ancestor"). Chrome, Firefox and WebKit keep the outer
+popover open under the context menu and after it closes
+(`host/web/tests/context-popover.test.mjs`). macOS had closed every open
+popover before popping up the menu; it now closes only the auto popovers
+above the nearest one holding the node, leaving a manual one open as HTML
+does, and the agent's painted menu on iOS does the same. UIKit's own context menu closes nothing. Implementer: Claude,
+2026-10-22.
+
 **Web (both targets).** The node's `contextpopover` attribute is wired
 (`rt.js` `cp`, `glue.js`). Its `contextmenu` prevents the browser's menu,
 and after the node's own action the popover opens with

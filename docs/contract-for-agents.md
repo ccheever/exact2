@@ -2423,7 +2423,8 @@ does (open the conversation). iOS presents UIKit's context menu, with the row
 lifting and the preview popping into the screen its press pushes; macOS an
 `NSMenu` without the preview; the web and the agent open the popover anchored to
 the node. The node's own `contextmenu` action runs first, so one popover can
-serve every row of a list. The agent opens it with `tap <node> contextmenu`
+serve every row of a list. A node inside an open popover opens its menu over
+that popover, which stays open, as HTML nests them. The agent opens it with `tap <node> contextmenu`
 ([LLP 1021](../llp/1021-menus.rfc.md) §5.1).
 
 #### A confirmation
