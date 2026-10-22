@@ -49,10 +49,10 @@ final class T3ComposerEditor {
     private(set) var folds: [[String: Any]] = []
     private(set) var notices: [[String: String]] = []
     private(set) var foldLimit = 0
-    var pastingAsText = false
     var pasteDetector: (String) -> Bool = T3ComposerEditor.isPaste
-    /// Where Paste as Text's paste waits for its key's press (the tests run it themselves).
-    var nextTurn: (@escaping () -> Void) -> Void = { DispatchQueue.main.async(execute: $0) }
+    /// Whether the change is Paste as Text's, whose text stays inline however large (ChatComposer
+    /// consumePasteAsTextShortcut's bypassAutoAttachment).
+    var pastingAsText: () -> Bool = { T3ComposerEditor.isPasteAsTextKey(NSApp.currentEvent) }
 
     init(changed: @escaping (String) -> Void) {
         self.changed = changed
@@ -201,7 +201,7 @@ final class T3ComposerEditor {
 
     func shouldChange(_ view: NSTextView, range: NSRange, text: String?) -> Bool {
         guard view === textView, let text, view.isEditable, !view.hasMarkedText() else { return true }
-        if !pastingAsText, !text.isEmpty, let allowed = foldPaste(view, range: range, text: text) { return allowed }
+        if !pastingAsText(), !text.isEmpty, let allowed = foldPaste(view, range: range, text: text) { return allowed }
         return true
     }
 
@@ -231,26 +231,15 @@ final class T3ComposerEditor {
         return false
     }
 
-    /// Paste as Text (⇧⌘V, Edit › Paste as Text; ChatComposer isPasteAsTextShortcut): the text view's own paste, so
-    /// Exact's `paste` carries the pasteboard's files, after a press of the hidden `paste-as-text` key that tells the
-    /// Contract this paste is Paste as Text (composer.contract `pasted`). AppKit's `pasteAsPlainText:` fires no `paste`.
-    /// The key's press runs on the next turn (ExactElement.click), so the paste follows it there. Its text stays inline
-    /// however large (`pastingAsText`).
-    func pasteAsText(_ view: NSTextView) {
-        key("paste-as-text")?.click()
-        nextTurn { [weak self, weak view] in
-            guard let self, let view, view === self.textView, view.isEditable, !view.hasMarkedText() else { return }
-            let was = self.pastingAsText
-            self.pastingAsText = true
-            view.paste(nil)
-            self.pastingAsText = was
-        }
-    }
-
-    /// A pasteboard AppKit's plain text view will not paste from (its Paste is disabled: no type it reads), which still
-    /// carries files for Exact's `paste`: image data alone, as a screenshot copied to the clipboard.
-    static func pastesOnlyFiles(_ pasteboard: NSPasteboard) -> Bool {
-        pasteboard.string(forType: .string) == nil && (pasteboard.data(forType: .png) != nil || pasteboard.data(forType: .tiff) != nil)
+    /// ⇧⌘V (isPasteAsTextShortcut) or the host's Paste and Match Style, ⌥⇧⌘V: the text view's `pasteAsPlainText:`
+    /// runs inside the key's event, as the composer's `key` handler arms Paste as Text on it (composer.contract
+    /// `richKey`). Paste as Text chosen with the pointer has no key, so its large text folds as a Paste's does.
+    /// A key that types no ASCII letter is its physical key's (Korean 2-Set's ㅍ on V), as the clone's chords match.
+    static func isPasteAsTextKey(_ event: NSEvent?) -> Bool {
+        guard let event, event.type == .keyDown,
+              event.modifierFlags.intersection([.command, .control, .shift]) == [.command, .shift] else { return false }
+        let typed = event.charactersIgnoringModifiers?.lowercased() ?? ""
+        return typed == "v" || (!typed.unicodeScalars.allSatisfy(\.isASCII) && event.keyCode == 9)
     }
 
     static func isPaste(_ text: String) -> Bool {
