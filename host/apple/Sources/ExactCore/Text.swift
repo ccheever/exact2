@@ -853,7 +853,8 @@ package final class TextEngine {
             if length > 0 { s.setAttributes(a, range: NSRange(location: offset, length: length)) }
             offset += length
         }
-        if spec.lineClamp > 0, s.length > 0, let block = spec.strut ?? spec.runs.first {
+        if spec.lineClamp > 0, s.length > 0, var block = spec.strut ?? spec.runs.first {
+            if block.shadow == spec.shadow { block.shadow = nil }
             var a: [NSAttributedString.Key: Any] = [.font: font(block)]
             if block.letterSpacing != 0 { a[.kern] = block.letterSpacing }
             presentation?.attributes(block, color: spec.color, attributes: &a)

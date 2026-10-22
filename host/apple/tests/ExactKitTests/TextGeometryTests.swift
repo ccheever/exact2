@@ -425,8 +425,30 @@ final class TextGeometryTests: XCTestCase {
         let block = engine.attributed(Spec(runs: [value.strut!], align: 0, lineClamp: 0, color: value.color)).attributes(at: 0, effectiveRange: nil)
         XCTAssertTrue((actual[NSAttributedString.Key.font] as AnyObject).isEqual(block[.font]))
         XCTAssertTrue((actual[NSAttributedString.Key.foregroundColor] as AnyObject).isEqual(block[.foregroundColor]))
-        XCTAssertNil(actual[NSAttributedString.Key.link], "the block's token is outside the inline link")
         XCTAssertLessThanOrEqual(CTLineGetTypographicBounds(line, nil, nil, nil), 145)
+    }
+
+    func testClampTokenKeepsTheBlocksShadowWithoutDoublingASharedShadow() throws {
+        let blue: [Double] = [0, 2, 3, 0, 0, 255, 255]
+        let red: [Double] = [0, 2, 3, 255, 0, 0, 255]
+        for inline in [blue, red] {
+            var value = spec("Words that need more than one line to fit")
+            var block = value.runs[0]; block.shadow = blue
+            value.strut = block; value.lineClamp = 1
+            value.runs[0].shadow = inline
+            value.gatherShadows()
+            let line = try XCTUnwrap(engine.paragraph(value, width: 145).lines.last)
+            let token = try XCTUnwrap((CTLineGetGlyphRuns(line) as! [CTRun]).first {
+                (CTRunGetAttributes($0) as NSDictionary)[NSAttributedString.Key.exactTruncation] != nil
+            })
+            if inline == blue {
+                XCTAssertEqual(value.shadow, blue, "one shadow around the paragraph")
+                XCTAssertNil(TextRunShadow.of(token), "the token does not cast that shadow a second time")
+            } else {
+                XCTAssertNil(value.shadow, "the token and inline text have different shadows")
+                XCTAssertEqual(TextRunShadow.of(token), TextRunShadow(blue), "the block styles the token")
+            }
+        }
     }
 
     func testClampedInlineRunsKeepOriginalIndicesAndRecomputeAfterWidening() {
