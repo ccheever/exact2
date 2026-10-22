@@ -313,6 +313,37 @@ test('abandoned native guard retains its slot until terminal proof and recorded 
   expect((await f.c(f.main).status()).leases).toEqual({});
 });
 
+test('missing process start times block live owners but release after same-boot PID absence', async () => {
+  const f = fixture(); await f.start(); const c = f.c(f.a);
+  const ready = join(f.dir, 'missing-start-ready');
+  const running = f.cli(f.a, ['run', ...own(f.ta), '--', process.execPath, '-e', `require('fs').writeFileSync(${JSON.stringify(ready)}, 'ready');setInterval(()=>{},1000)`]);
+  await waitFile(ready);
+  const state = await c.status();
+  const [key, lease] = Object.entries(state.leases).find(([, l]) => l.task === f.ta.id);
+  const child = state.tasks[f.ta.id].processes.find(p => p.role === 'child');
+  const guard = state.tasks[f.ta.id].processes.find(p => p.role === 'guard');
+  expect(child.started).toBeTruthy(); expect(guard.started).toBeTruthy();
+  await c.transaction(s => {
+    s.leases[key].guard.started = null;
+    for (const p of s.tasks[f.ta.id].processes) p.started = null;
+  });
+  await expect(c.stop(f.ta.id, f.ta.thread, child.pid)).rejects.toThrow('unknown process identity');
+  await expect(c.auditRun(f.ta.id, f.ta.thread, audit(f.ta, lease.operation))).rejects.toThrow('launcher still live or unknown');
+  expect(processIdentity(child.pid)?.started).toBe(child.started);
+  process.kill(child.pid, 'SIGTERM'); await running;
+  expect(processIdentity(child.pid)).toBeNull(); expect(processIdentity(guard.pid)).toBeNull();
+  // A failed final census can leave the dead launcher in the running phase.
+  await c.transaction(s => {
+    s.leases[key].phase = 'running';
+    s.leases[key].guard.bootId = 'another-boot';
+    s.tasks[f.ta.id].processes.push({ ...guard, started: null });
+  });
+  await expect(c.auditRun(f.ta.id, f.ta.thread, audit(f.ta, lease.operation))).rejects.toThrow('launcher still live or unknown');
+  await c.transaction(s => { s.leases[key].guard.bootId = guard.bootId; });
+  expect((await c.auditRun(f.ta.id, f.ta.thread, audit(f.ta, lease.operation))).held).toBe(false);
+  expect((await c.status()).leases).toEqual({});
+});
+
 test('port and storage receipts collide across processes and release for reuse', async () => {
   const f = fixture(); await f.start();
   const claim = task => f.cli(task.worktree, ['resource-claim', ...own(task), '--kind', 'port', '--value', 'fixture-host:49161']);

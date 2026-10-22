@@ -39,10 +39,10 @@ export function processIdentity(pid) {
   }
 }
 function processState(receipt, bindings) {
-  if (!processHostMatches(receipt, { host: hostname(), bootId }, bindings) || !receipt.started) return 'unknown';
+  if (!processHostMatches(receipt, { host: hostname(), bootId }, bindings)) return 'unknown';
   const current = processIdentity(receipt.pid);
   if (!current) return 'dead';
-  if (!current.started) return 'unknown';
+  if (!receipt.started || !current.started) return 'unknown';
   return current.started === receipt.started ? 'live' : 'dead';
 }
 function groupMembers(group) {
