@@ -646,3 +646,30 @@ fn the_rust_binding_is_the_plans_modules_with_their_wire_names() {
         .unwrap_or_else(|e| panic!("{e:?}"));
     assert_eq!(contract::module_rust(&plan).unwrap().lines().count(), 1);
 }
+
+#[test]
+fn a_positional_name_has_a_rust_binding_from_its_declaration() {
+    let declaration = include_str!("../tray/exact.json");
+    let rust = contract::module_rust_declared(declaration).unwrap();
+    for expected in [
+        "pub mod tray {",
+        // A record keyed by string: its values by the kinds `of` names.
+        "pub enum TrayItemValue {",
+        "Text(String),",
+        "Bytes(Vec<u8>),",
+        "Path(String),",
+        "pub struct TrayItem(pub Vec<(String, TrayItemValue)>);",
+        "[\"application/octet-stream\", \"text/plain\"].contains(&kind)",
+        // Positional parameters, the sequence's place, the reply of a send that answers nothing.
+        "pub fn put(items: &[TrayItem]) -> Result<exact_runner::Request, m::ModuleError>",
+        "pub fn put_text(text: &str) -> Result<exact_runner::Request, m::ModuleError>",
+        "m::sequence(&mut args, &SEQUENCE_PUT);",
+        "pub fn put_reply(outcome: &exact_runner::Outcome) -> Result<(), m::ModuleError>",
+    ] {
+        assert!(rust.contains(expected), "{expected}\n---\n{rust}");
+    }
+    // An interface with no positional name has none.
+    let none =
+        r#"{"kind":"interface","name":"@x/y","names":[{"send":"a","options":{},"answers":null}]}"#;
+    assert_eq!(contract::module_rust_declared(none).unwrap(), "");
+}

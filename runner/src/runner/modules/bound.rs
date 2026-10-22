@@ -22,7 +22,15 @@ use serde_json::json;
 impl<D: DataSource> Runner<D> {
     /// The host's implementations answer `extensions` (outside the agent):
     /// their names' readers are asked again, of the module now.
+    /// Each is a name, or a name and, after a space, the JSON of what its
+    /// sends are admitted by (`admitted.rs`).
     pub fn bind_extensions(&mut self, extensions: &[&str]) {
+        self.extensions.admitted.declared.clear();
+        let names: Vec<String> = (extensions.iter())
+            .map(|line| self.extensions.admitted.bind(line))
+            .collect();
+        let extensions: Vec<&str> = names.iter().map(String::as_str).collect();
+        let extensions = &extensions[..];
         self.extensions.bound = extensions.iter().map(|e| e.to_string()).collect();
         if extensions.is_empty() {
             return;

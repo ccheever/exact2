@@ -1,0 +1,56 @@
+shape Said
+  said: string
+
+component App
+  mutation bytes as shape Said
+  mutation file as shape Said
+  mutation denied as shape Said
+  mutation race as shape Said
+  mutation big as shape Said
+  action putBytes
+    send bytes = trayBytes()
+  action putFile
+    send file = trayFile()
+  action putDenied
+    send denied = trayDenied()
+  action putRace
+    send race = trayRace()
+  action putBig
+    send big = trayBig()
+  view
+    column
+      button testId="bytes" press=putBytes
+        text "Bytes"
+      button testId="file" press=putFile
+        text "File"
+      button testId="denied" press=putDenied
+        text "Denied"
+      button testId="race" press=putRace
+        text "Race"
+      button testId="big" press=putBig
+        text "Big"
+      match bytes
+        case some(s)
+          text testId="bytes-said" s.said
+        case none
+          text testId="bytes-said" "none"
+      match file
+        case some(s)
+          text testId="file-said" s.said
+        case none
+          text testId="file-said" "none"
+      match denied
+        case some(s)
+          text testId="denied-said" s.said
+        case none
+          text testId="denied-said" "none"
+      match race
+        case some(s)
+          text testId="race-said" s.said
+        case none
+          text testId="race-said" "none"
+      match big
+        case some(s)
+          text testId="big-said" s.said
+        case none
+          text testId="big-said" "none"

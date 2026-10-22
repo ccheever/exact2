@@ -14,6 +14,8 @@ export function composedModule(packages, ownModule) {
     '    override func release(_ name: String) { impl.release(name) }',
     '}');
   lines.push(`let exactExtensions: [String: (ExactModuleContext) -> ExactExtensionAdapter] = [${packages.map(p => `${JSON.stringify(p.extension)}: { ExactAdapter_${p.module}($0) }`).join(', ') || ':'}]`);
+  // What the runner admits each one's sends by (LLP 1133.006 D8 items 3 and 4), as JSON, which the roster carries.
+  lines.push(`let exactExtensionAdmission: [String: String] = [${packages.map(p => `${JSON.stringify(p.extension)}: ${JSON.stringify(JSON.stringify(p.admission ?? {}))}`).join(', ') || ':'}]`);
   if (!ownModule) lines.push('final class ExactComposedModule: ExactModule {}', 'let exactModule: ExactModule.Type = ExactComposedModule.self');
   return lines.join('\n') + '\n';
 }
