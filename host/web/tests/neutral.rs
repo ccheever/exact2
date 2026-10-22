@@ -18,6 +18,7 @@ fn a_web_boot_uses_neutral_roles_and_marks_without_a_look_fact() {
     exact_web::link(exact_web_capabilities::ALL);
     let plan = contract::compile(
         r##"component App
+  state inset = 0
   view
     column border-color="-exact-separator"
       input type="checkbox" testId="check"
@@ -34,6 +35,12 @@ fn a_web_boot_uses_neutral_roles_and_marks_without_a_look_fact() {
       button width=84 height=24 testId="sized"
         text "Go"
       button height=28 testId="short"
+        text "Go"
+      button padding-top=0 padding-bottom=0 testId="padded"
+        text "Go"
+      button padding=8 testId="inset"
+        text "Go"
+      button padding=inset testId="bound"
         text "Go"
       list appearance="auto" testId="list"
         section
@@ -110,8 +117,8 @@ fn a_web_boot_uses_neutral_roles_and_marks_without_a_look_fact() {
         !created(&neutral, "bar").contains("data-exact-said"),
         "a determinate bar's colour is no ring's"
     );
-    // A platform button's written size, which the look's floor yields to; an
-    // unsized button keeps the floor.
+    // A platform button's written size or padding, which the look's floor
+    // yields to on that axis; an unsized button keeps the floor.
     assert!(!created(&neutral, "unsized").contains("data-exact-said"));
     assert!(
         created(&neutral, "sized").contains("\"data-exact-said\":\"width height\""),
@@ -122,6 +129,19 @@ fn a_web_boot_uses_neutral_roles_and_marks_without_a_look_fact() {
         created(&neutral, "short").contains("\"data-exact-said\":\"height\""),
         "{}",
         created(&neutral, "short")
+    );
+    assert!(
+        created(&neutral, "padded").contains("\"data-exact-said\":\"padding-block\""),
+        "{}",
+        created(&neutral, "padded")
+    );
+    assert!(
+        created(&neutral, "inset").contains("\"data-exact-said\":\"padding-inline padding-block\""),
+        "{}",
+        created(&neutral, "inset")
+    );
+    assert!(
+        created(&neutral, "bound").contains("\"data-exact-said\":\"padding-inline padding-block\"")
     );
     // LLP 1115.000 D16: a list whose rows are cells carries Contract's mark
     // on every boot, a list whose author opted out does not, and a row is

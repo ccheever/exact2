@@ -22,6 +22,8 @@ component Buttons
           text "Spaced"
         button "A long single line truncated native title" appearance="auto" width=150 white-space="nowrap" testId="nowrap"
         button "Authored disabled fill" appearance="auto" buttonStyle="filled" accent-color="#ff0000" disabled=true testId="authored-off"
+      button "Bound padding" appearance="auto" buttonStyle="plain" padding=(changed ? 8 : 0) testId="bound-padding"
+      button "Bound size" appearance="auto" width=(changed ? 80 : 100) height=(changed ? 20 : 24) testId="bound-size"
       button "Unsized bordered" appearance="auto" testId="default"
       button "Sign In" appearance="auto" buttonStyle="filled" -exact-control-size=(changed ? "mini" : "large") -exact-corner-style=(changed ? "small" : "capsule") font-weight=600 testId="sign-in"
       button "Resend Code" appearance="auto" buttonStyle="gray" color="AccentColor" testId="resend"
