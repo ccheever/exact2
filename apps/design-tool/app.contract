@@ -422,6 +422,14 @@ shape ParamRow
   // Whether the app's line is a literal with no when branch (its own value
   // then wins on both scheme sides).
   levelSelf: bool
+  // A colour param's colour in each of the token grid's columns, labelled as they are, and the chain to it in
+  // words (none for another kind).
+  swatches: ParamSwatch[]
+  words: string
+
+shape ParamSwatch
+  label: string
+  css: string
 
 // A package param's winning level for the first tuple (stage 12 B2-levels,
 // each side's), read after the design: raw (the tooltip), and said: one
@@ -2473,6 +2481,12 @@ component ParamControl
   view
     column gap=2 testId=`param-${r.short}`
       DialControl(c=r.c, locked=locked, focused=focused, onNumber=onNumber, onText=onText, onStep=onStep, onRelease=onRelease)
+      // Its colour per grid column, each with its value as words (not colour alone), and the chain to it.
+      if r.swatches.length > 0
+        row gap=6 align-items="center" flex-wrap="wrap" padding="0 4px" testId=`param-${r.short}-swatches`
+          for s in r.swatches key=s.label
+            view width=18 height=18 border-radius=4 background-color=s.css border="1px solid -exact-separator" role="img" aria-label=`${s.label}: ${s.css}` title=`${s.label}: ${s.css}` testId=`param-${r.short}-swatch-${s.label}`
+          text r.words color="-exact-secondary-label" font="-exact-footnote" testId=`param-${r.short}-words`
       row gap=8 align-items="center" padding="0 4px"
         text (r.package ? (r.set ? `set for this app · the package's default ${r.default}` : `the package's default ${r.default}: a change here is set for this app`) : r.set ? `set here · default ${r.default}` : "the default") color="-exact-secondary-label" font="-exact-footnote" flex=1 testId=`param-${r.short}-source`
         if r.set
