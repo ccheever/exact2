@@ -298,17 +298,16 @@ final class ControlHost: NSObject {
             // title and grows taller, as a pop-up button does under Auto Layout,
             // rather than running past its box (unit-converter at the largest
             // text size, round 22). Its width stays the widest option's (D3).
-            var narrowed: CGFloat?
             if owner.props["type"] == "select", let button = control as? UIButton, box.width > 0, box.width < natural.width - 0.5 {
-                narrowed = box.width
                 natural.height = max(natural.height, selectHeight(button, width: box.width))
             }
+            let fillsSelect = owner.props["type"] == "select"
+            #else
+            let fillsSelect = false
             #endif
-            // A slider's track spans its box, as the web's does; a native
-            // button fills it, its chrome inside (LLP 1069.011 D6); the
-            // others keep their own size. A select aligns its closed value
-            // inside the box; unstyled controls stay centred.
-            if control is NativeButtonIOS {
+            if fillsSelect {
+                assign(control, \.frame, box)
+            } else if control is NativeButtonIOS {
                 // The box is the button's alignment rect, as its natural size is.
                 let frame = control.frame(forAlignmentRect: box)
                 if control.frame != frame { control.frame = frame }
@@ -316,18 +315,9 @@ final class ControlHost: NSObject {
                 #if os(tvOS)
                 let width = natural.width
                 #else
-                let width = control is UISlider ? box.width : narrowed ?? natural.width
+                let width = control is UISlider ? box.width : natural.width
                 #endif
-                var x = box.midX - width / 2
-                #if os(iOS)
-                if owner.props["type"] == "select" {
-                    switch selectAlignment(owner) {
-                    case .left: x = box.minX
-                    case .right: x = box.maxX - width
-                    default: break
-                    }
-                }
-                #endif
+                let x = box.midX - width / 2
                 assign(control, \.frame, CGRect(x: x, y: box.midY - natural.height / 2,
                                                 width: width, height: natural.height))
             }

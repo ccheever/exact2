@@ -633,6 +633,26 @@ final class NativeButtonsIOSTests: XCTestCase {
         return button.convert(title.bounds, from: title)
     }
 
+    private func popupIndicatorRect(_ button: UIButton) throws -> CGRect {
+        button.layoutIfNeeded()
+        func images(_ v: UIView) -> [UIImageView] { (v as? UIImageView).map { [$0] } ?? v.subviews.flatMap(images) }
+        let image = try XCTUnwrap(images(button).first)
+        return button.convert(image.bounds, from: image)
+    }
+
+    func testSelectBoxKeepsItsIndicatorAtTheInlineEnd() throws {
+        let p = selectPresenter(selectMenu())
+        let node = try XCTUnwrap(p.views[3]), select = try XCTUnwrap(p.controls.controls[3] as? UIButton)
+        let reference = popupReference(selectMenu(), alignment: .fill)
+        reference.frame = node.contentBox()
+        _ = try popupTitleRect(select)
+        XCTAssertEqual(try popupIndicatorRect(select), try popupIndicatorRect(reference))
+        XCTAssertEqual(select.frame, node.contentBox(), "the whole authored content box opens the menu")
+        XCTAssertEqual(select.contentHorizontalAlignment, .fill)
+        XCTAssertEqual(select.titleLabel?.textAlignment, .left)
+        reference.removeFromSuperview()
+    }
+
     func testSelectAlignmentMovesItsNativeTitleWithoutRebuildingTheMenu() throws {
         let menu = selectMenu(), p = selectPresenter(selectMenu())
         let node = try XCTUnwrap(p.views[3]), select = try XCTUnwrap(p.controls.controls[3] as? UIButton)
@@ -645,40 +665,31 @@ final class NativeButtonsIOSTests: XCTestCase {
         p.apply(wireBatch([["op": "frame", "id": 3, "x": 0.0, "y": 0.0,
                             "w": Double(natural.width), "h": 52.0]]))
         let originalMenu = try XCTUnwrap(select.menu)
-        let reference = popupReference(menu, alignment: .center)
+        let reference = popupReference(menu, alignment: .fill)
         reference.frame = CGRect(origin: .zero, size: select.bounds.size)
         defer { reference.removeFromSuperview() }
         var titleRects: [String: CGRect] = [:]
-        let cases: [(String?, UIControl.ContentHorizontalAlignment)] = [
-            (nil, .center), ("right", .right), ("left", .left), ("center", .center), (nil, .center)
-        ]
-        for (alignment, expected) in cases {
+        for alignment in [nil, "right", "left", "center", nil] as [String?] {
             let style: [String: Any] = alignment.map { ["text_align": $0] } ?? [:]
             p.apply(wireBatch([["op": "style", "id": 3, "style": style]]))
-            if reference.contentHorizontalAlignment != expected {
-                reference.contentHorizontalAlignment = expected
-                let configuration = reference.configuration
-                reference.configuration = nil
-                reference.configuration = configuration
-            }
-            let actual = try popupTitleRect(select), native = try popupTitleRect(reference)
+            let actual = try popupTitleRect(select)
+            XCTAssertEqual(try popupIndicatorRect(select), try popupIndicatorRect(reference), "alignment leaves the native indicator at the inline end")
             XCTAssertEqual(select.currentTitle, "Plain")
-            XCTAssertEqual(actual.minX, native.minX, accuracy: 0.5, "restyled \(alignment ?? "default") popup matches UIKit")
-            XCTAssertEqual(actual.width, native.width, accuracy: 0.5)
-            XCTAssertTrue(select.menu === originalMenu, "a style-only change keeps the native menu")
-            XCTAssertEqual(p.controls.naturalSize(select, node), natural, "alignment does not change widest-option sizing")
-            XCTAssertEqual(select.frame.width, natural.width)
+            XCTAssertTrue(select.menu === originalMenu)
+            XCTAssertEqual(p.controls.naturalSize(select, node), natural)
+            XCTAssertEqual(select.frame, node.contentBox())
             titleRects[alignment ?? "default"] = actual
         }
+        XCTAssertEqual(try XCTUnwrap(titleRects["left"]).minX, 0, accuracy: 0.5)
         XCTAssertGreaterThan(try XCTUnwrap(titleRects["right"]).minX, try XCTUnwrap(titleRects["center"]).minX)
         XCTAssertLessThan(try XCTUnwrap(titleRects["left"]).minX, try XCTUnwrap(titleRects["center"]).minX)
-        XCTAssertEqual(titleRects["default"], titleRects["center"], "clearing alignment restores UIKit's centering")
+        XCTAssertEqual(titleRects["default"], titleRects["left"], "an unstyled standalone select starts at the leading edge")
     }
 
     func testSelectLogicalEdgesRespectDirectionInsideAWidePaddedBox() throws {
         let p = selectPresenter(selectMenu())
         let node = try XCTUnwrap(p.views[3]), select = try XCTUnwrap(p.controls.controls[3] as? UIButton)
-        let natural = p.controls.naturalSize(select, node), menu = try XCTUnwrap(select.menu)
+        let menu = try XCTUnwrap(select.menu)
         let cases: [(String, String, UIControl.ContentHorizontalAlignment)] = [
             ("start", "ltr", .left), ("end", "ltr", .right),
             ("start", "rtl", .right), ("end", "rtl", .left),
@@ -692,16 +703,18 @@ final class NativeButtonsIOSTests: XCTestCase {
             let content = node.contentBox()
             XCTAssertEqual(content.minX, 17)
             XCTAssertEqual(content.maxX, 291)
-            let x = expected == .left ? content.minX : expected == .right ? content.maxX - natural.width : content.midX - natural.width / 2
-            XCTAssertEqual(select.frame.minX, x, accuracy: 0.001)
-            XCTAssertEqual(select.frame.midY, content.midY, accuracy: 0.001)
-            XCTAssertEqual(select.frame.size, natural)
-            XCTAssertEqual(select.contentHorizontalAlignment, expected)
+            XCTAssertEqual(select.frame, content)
+            _ = try popupTitleRect(select)
+            XCTAssertEqual(select.titleLabel?.textAlignment, expected == .left ? .left : expected == .right ? .right : .center)
+            let indicator = try popupIndicatorRect(select)
+            if direction == "rtl" { XCTAssertEqual(indicator.minX, 0, accuracy: 0.5) }
+            else { XCTAssertEqual(indicator.maxX, select.bounds.maxX, accuracy: 0.5) }
             XCTAssertTrue(select.menu === menu)
             XCTAssertEqual(node.bounds.width, 320, "alignment preserves the authored slot")
         }
         p.apply(wireBatch([["op": "style", "id": 3, "style": ["direction": "rtl"]]]))
-        XCTAssertEqual(select.contentHorizontalAlignment, .center, "clearing alignment restores UIKit's centering even in RTL")
+        _ = try popupTitleRect(select)
+        XCTAssertEqual(select.titleLabel?.textAlignment, .right, "the default follows RTL")
         XCTAssertEqual(select.frame.midX, node.contentBox().midX, accuracy: 0.001)
     }
 
@@ -721,9 +734,10 @@ final class NativeButtonsIOSTests: XCTestCase {
         defer { reference.removeFromSuperview() }
         let wrapped = reference.sizeThatFits(CGSize(width: narrow, height: CGFloat.greatestFiniteMagnitude)).height
         XCTAssertGreaterThan(wrapped, natural.height, "the title takes two lines there")
-        XCTAssertEqual(select.frame.height, ceil(wrapped), accuracy: 0.5)
+        XCTAssertEqual(p.controls.selectHeight(select, width: narrow), ceil(wrapped), accuracy: 0.5)
+        XCTAssertEqual(select.frame, node.contentBox())
         p.apply(wireBatch([["op": "frame", "id": 3, "x": 0.0, "y": 0.0, "w": 320.0, "h": 52.0]]))
-        XCTAssertEqual(select.frame.size, natural)
+        XCTAssertEqual(select.frame, node.contentBox())
     }
 
     func testAlignedSelectKeepsItsChoiceEventsAndWidestOptionMeasurement() throws {
@@ -744,14 +758,15 @@ final class NativeButtonsIOSTests: XCTestCase {
         XCTAssertNil(choice["error"])
         XCTAssertEqual(heard, ["input:wide", "change:wide"])
         XCTAssertEqual(select.currentTitle, "Chocolate Strawberry")
-        XCTAssertEqual(select.contentHorizontalAlignment, .right)
+        _ = try popupTitleRect(select)
+        XCTAssertEqual(select.titleLabel?.textAlignment, .right)
         XCTAssertTrue(select.showsMenuAsPrimaryAction)
         XCTAssertTrue(select.changesSelectionAsPrimaryAction)
         XCTAssertEqual(p.controls.naturalSize(select, node), natural)
         XCTAssertEqual(p.controls.valueObservation(select)?["value"] as? String, "wide")
-        let reference = popupReference(menu, alignment: .right)
+        let reference = popupReference(menu, alignment: .fill)
         reference.frame = CGRect(origin: .zero, size: select.bounds.size)
-        XCTAssertEqual(try popupTitleRect(select).minX, try popupTitleRect(reference).minX, accuracy: 0.5)
+        XCTAssertEqual(try popupIndicatorRect(select), try popupIndicatorRect(reference))
         reference.removeFromSuperview()
         XCTAssertNotNil(p.controls.type(node, "off")?["error"], "disabled menu options stay unavailable")
         XCTAssertEqual(heard, ["input:wide", "change:wide"], "a refused choice emits nothing")
