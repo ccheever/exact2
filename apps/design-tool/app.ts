@@ -1013,7 +1013,7 @@ const sources: Sources = {
     if (client !== polled) { polled = client; inspectOn.clear(); resync = true; }
     const { error, reply, used } = await call('/__tamber/events', epoch ? { after: since, epoch, client, ...(heldAt.epoch === epoch ? { held: heldAt.revision } : {}) } : { after: 0, wait: false, client }, 40000);
     answers += 1;
-    const state = () => ({ answer: answers, seq: place.seq, epoch: place.epoch, files: `${fileChanges} ${digestKey(lastFiles)}`, paced: scrubsOpen.size ? `scrub ${scrubMoves} ${fileChanges} ${commitsTold}` : `answer ${answers}`, clients: `${clientMoves}`, recent, undo: undoStack.length, redo: redoStack.length, session, held, builds: buildRows(), ...refusalRows(buildsNow.values()) });
+    const state = () => ({ answer: answers, seq: place.seq, epoch: place.epoch, files: `${fileChanges} ${digestKey(lastFiles)}`, paced: scrubsOpen.size ? `scrub ${scrubMoves} ${fileChanges} ${commitsTold}` : `answer ${answers}`, committable: `${session} ${fileChanges} ${commitsTold}`, clients: `${clientMoves}`, recent, undo: undoStack.length, redo: redoStack.length, session, held, builds: buildRows(), ...refusalRows(buildsNow.values()) });
     if (error) return { ok: false, error, missed: false, ...state() };
     if (gen !== polls) return { ok: true, error: '', missed: false, ...state() };
     const r = reply as { events?: unknown[]; seq?: number; epoch?: string; missed?: boolean; held?: number; proposals?: any[] };
@@ -1204,11 +1204,11 @@ const sources: Sources = {
     };
   },
   loadScope: async ([client]) => {
-    // What a commit would take now (a dry run, of the run the poll is on),
-    // so Commit is on when there is something, writes from before the tool
-    // opened among them, a refusal to say, or no answer (it says why when
-    // pressed). Read again with each poll answer (while a scrub is open,
-    // only when the files move or a commit is told).
+    // What a commit would take now (a dry run, of the run the poll is on), so Commit is on when there is something,
+    // writes from before the tool opened among them, a refusal to say, or no answer (it says why when pressed).
+    // Read again only when the files move, a commit is told or the server starts again; never for no one
+    // (`design-tool:`, before the name).
+    if (!client || client.endsWith(':')) return { open: 0, refused: false, unavailable: false };
     const dry = await call('/__tamber', { method: 'commit', client, dry: true }, 15000, heldToken || undefined);
     const refused = ((dry.reply.error as { refused?: unknown[] } | undefined)?.refused ?? []).length;
     const nothing = /nothing to commit|written nothing/.test(dry.error);

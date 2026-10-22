@@ -354,6 +354,9 @@ shape Changes
   // commit's dry run, a token's uses and a draft's proposal are read again
   // on, so a scrub's frames and its builds' statuses cost no reads.
   paced: string
+  // What a commit could take moves only with these: the files' changes, the commits told and another run. The
+  // commit's dry run is read on it, not on each answer, so a session with nothing to commit isn't asked again and again.
+  committable: string
   // Each client paired or gone, and each start again: the clients read again on it.
   clients: string
 
@@ -897,13 +900,16 @@ component DesignTool
   // The changeset follows the long poll and each design read (which
   // measures what changed); history is read when shown.
   resource changeset = loadChangeset(file, since, design.answer) as shape Changeset else empty(ok=true)
-  resource scope = loadScope(client, changes.paced) as shape Scope else empty(open=0, refused=false, unavailable=false)
+  resource scope = loadScope(client, changes.committable) as shape Scope else empty(open=0, refused=false, unavailable=false)
   // The items of held proposals picked for "Accept picked"
   // (`<proposal>:<index>`), and the last change whose highlight has faded.
   state picked: string[] = []
   state faded = ""
   resource lit = loadLit(file, design.answer, faded) as shape Lit else empty(seq=0)
   state historyShown = false
+  // The server's files and their digests, folded below the canvas and the tokens (the hands-on pass: 25 rows came
+  // before either on the clone).
+  state filesShown = false
   state historyPages = 1
   resource history = loadHistory(historyShown, historyPages, since, epoch) as shape History else empty(ok=true)
   mutation committed as shape Committed refreshes changeset, scope
@@ -1470,6 +1476,8 @@ component DesignTool
       send committed = commitSession(client)
   action toggleHistory
     historyShown = not historyShown
+  action toggleFiles
+    filesShown = not filesShown
   action moreHistory
     historyPages = historyPages + 1
   action newerHistory
@@ -1543,11 +1551,6 @@ component DesignTool
               text `${hello.protocol} · IR format ${hello.format}` color="-exact-secondary-label" testId="protocol"
               if not hello.local
                 text (canWrite ? `Paired with this design server as ${hello.client}, at write.` : canPropose ? `Paired as ${hello.client}, at propose: an edit is held for review, for someone with write to accept; undo, commit, pins, holds, outlines, inspect mode and scrubs are greyed.` : `Paired as ${hello.client}, at read: you see the design, its history and the inspector's last selections; edits, pins, holds and the rest are greyed.`) color="-exact-system-orange" font="-exact-footnote" testId="paired-scope"
-            column gap=4 testId="files"
-              for f in hello.files key=f.path
-                row gap=12
-                  text f.path flex=1 testId=`file-${f.path}`
-                  text f.digest.slice(0, 12) color="-exact-secondary-label" font="-exact-footnote" testId=`digest-${f.path}`
             // Pairing (LLP 1122 D12, T6): a code for a client on another
             // machine, at a scope, with each remote door to check it by; the
             // clients paired, each revoked here. The local tool's alone.
@@ -2165,6 +2168,14 @@ component DesignTool
                   row gap=12
                     text r.label width=160
                     text r.ratio testId=`ratio-${r.column}`
+            column gap=4 testId="files"
+              button press=toggleFiles aria-label=`${filesShown ? "Hide" : "Show"} the ${hello.files.length} files and their digests` testId="toggle-files"
+                text (filesShown ? "Hide files" : `Files (${hello.files.length})`)
+              if filesShown
+                for f in hello.files key=f.path
+                  row gap=12
+                    text f.path flex=1 testId=`file-${f.path}`
+                    text f.digest.slice(0, 12) color="-exact-secondary-label" font="-exact-footnote" testId=`digest-${f.path}`
             column gap=8 testId="inbox"
               text "Proposals" role="heading" aria-level=2
               if changes.held.length == 0
