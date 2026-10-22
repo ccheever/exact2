@@ -5764,6 +5764,29 @@ design can't do yet" (1). D11 is amended (above).
   says so). Tests: `a_package_contracts_icon_param_reads_its_packages_assets` (with and without a design, the
   app's same-named file unused, the graph, a write's check, the refusal, the app's `params` line), and resolve's
   fields in `describe_and_explain_name_a_package_icons_package_and_file`.
+- **After review round 1 (Astra, Grok: RIGHT WITH CHANGES).** Astra 3 = Grok 1 and Astra 8 are the commit above.
+  - A package component's icon param may name its own package's icons (Astra 1): `references` counts them as its
+    own.
+  - A write's plan folds the package's icons beside the app's design (Astra 2): `tamber_params::joined_all` gives
+    the tokens and the icons, and `params::Params` gains `joined_icons`, which `laid` adds under `icons` (one the
+    design defines is the design's), so an app icon naming a package's doesn't refuse an unrelated write.
+  - A package's SVG is confined to its package (Astra 4 = Grok 2): `Home::leaves` canonicalizes a package's file
+    that is there and requires it under the package's own canonical `assets/`; else `tamber-icon-svg` ("leaves
+    the package"). The build, `draws`, the write's check and `tamber check`'s copy refuse it, and the source graph
+    lists no such file as a source (the link is consulted, so mending it rebuilds). The app's `assets/` stay
+    unconfined: they are the author's to arrange, and the web stages them as they are.
+  - A package-only design (no app design, no params) folds in the source graph too (Astra 5), so its SVGs are
+    build inputs.
+  - A package SVG edit is announced (Astra 6): the local wire's `hello {paths: true}` gives each package
+    `assets`, a digest of the package SVGs the build reads (path and bytes; one looked for and absent by its
+    path), and `scripts/tamber-package-designs.mjs` compares it with the design's digest, so an edit announces a
+    `changed` naming the package's design. A client's hello carries neither.
+  - A `color` on any drawn element makes an SVG no template, for every icon (Astra 7): two `currentColor` fills
+    under two `color`s are two colours.
+  - Tests: `package_icons.rs`'s `a_package_param_may_name_its_own_packages_icon`, `a_write_folds_the_packages_icons`,
+    `a_package_svg_linked_out_of_its_package_is_refused` (a linked file, a linked `assets/`, the graph, `draws`,
+    a write), `a_package_only_design_lists_its_svgs`, `a_package_svg_edit_moves_its_assets_digest`; the module test
+    in `scripts/tamber-package-designs.test.mjs` (an SVG edit announced); `icon_svg`'s `color` cases.
 - **Unchanged:** every app's plan and `tamber check` output (no app has a package icon), and `@exact/cards` and
   `@exact/actions`, whose icons are still path functions (their move to icon tokens is the follow-up).
 - **Tests:** `contract/cli/tests/it/package_icons.rs` (the namespace and its refusal; an alias within the package

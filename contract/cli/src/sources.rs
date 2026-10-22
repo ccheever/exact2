@@ -624,11 +624,14 @@ pub(crate) fn graph(path: &Path, src: &str, app_root: &Path) -> SourceGraph {
         .and_then(|d| std::fs::read_to_string(d).ok())
     {
         Some(text) => Some(text),
-        None => (!params.is_empty()).then(|| "tamber app\n".to_string()),
+        // Its packages' designs alone fold too: their icons' SVGs are read (round 1, Astra 5).
+        None => {
+            (!params.is_empty() || !package_designs.is_empty()).then(|| "tamber app\n".to_string())
+        }
     };
     // With its packages' tokens, which an app token may name (D11); a
     // package's SVG under its root, a source of the package (stage 13).
-    let icons: Vec<(PathBuf, Origin)> = text
+    let icons: Vec<(PathBuf, Option<Origin>)> = text
         .and_then(|text| exact_tamber::parse(&text).ok())
         .and_then(|d| contract_lower::with_package_designs(Some(d), &package_designs))
         .and_then(|mut d| {
@@ -655,15 +658,21 @@ pub(crate) fn graph(path: &Path, src: &str, app_root: &Path) -> SourceGraph {
                 .icons
                 .iter()
                 .filter_map(|i| {
-                    let path = home(i).svg(i.svg.as_ref()?)?;
-                    Some((path, origin(i).unwrap_or(Origin::App)))
+                    let home = home(i);
+                    let path = home.svg(i.svg.as_ref()?)?;
+                    // A package's link out of its `assets/` is refused by the build: its bytes are
+                    // no source, but the link is looked at, so mending it rebuilds (round 1, Astra 4).
+                    let origin = (!home.leaves(&path)).then(|| origin(i).unwrap_or(Origin::App));
+                    Some((path, origin))
                 })
                 .collect()
         })
         .unwrap_or_default();
     // One not there yet is looked for, as a hidden import is, so making it
     // rebuilds.
-    let (icons, missing): (Vec<_>, Vec<_>) = icons.into_iter().partition(|(p, _)| p.is_file());
+    let (icons, missing): (Vec<_>, Vec<_>) = icons
+        .into_iter()
+        .partition(|(p, o)| o.is_some() && p.is_file());
     let missing = missing.into_iter().map(|(p, _)| p);
     sources.extend(design.map(|path| Source {
         path,
@@ -676,11 +685,12 @@ pub(crate) fn graph(path: &Path, src: &str, app_root: &Path) -> SourceGraph {
     // The files that say which components are the library's (LLP 1139 D0).
     let library = library::read(&loader.sources, app_root).read;
     let missing: Vec<PathBuf> = missing.into_iter().chain(unmade).collect();
-    sources.extend(
-        icons
-            .into_iter()
-            .map(|(path, origin)| Source { path, origin }),
-    );
+    sources.extend(icons.into_iter().filter_map(|(path, origin)| {
+        Some(Source {
+            path,
+            origin: origin?,
+        })
+    }));
     SourceGraph {
         sources,
         packages: loader.sources.packages,

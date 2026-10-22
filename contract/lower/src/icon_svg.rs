@@ -253,6 +253,17 @@ pub(crate) fn read(text: &str) -> Result<Svg, String> {
                     (format!("its `<{name}>` has a `{p}`"), fix_lost(p))
                 });
             }
+            // A `color` sets what `currentColor` paints, so two paths both
+            // `currentColor` may still be two colours (round 1, Astra 7):
+            // taken as no template wherever one is set.
+            if property(&attrs, "color").is_some() {
+                note(&mut why, || {
+                    (
+                        format!("its `<{name}>` sets a `color`"),
+                        "remove the `color` and fill every path in one plain colour (`fill=\"black\"`): the host paints it in the text's colour",
+                    )
+                });
+            }
         }
         match name {
             // A nested viewport places and scales what it holds.
@@ -401,6 +412,23 @@ mod tests {
             read(r#"<svg viewBox="0 0 24 24"><linearGradient id="a"/><path d="M0 0h1"/></svg>"#)
                 .unwrap();
         assert!(gradient.not_template.unwrap().contains("linearGradient"));
+        // Two `currentColor` fills under two `color`s are two colours
+        // (round 1, Astra 7); a `color` in a style too.
+        for svg in [
+            r#"<svg viewBox="0 0 24 24"><path fill="currentColor" color="red" d="M0 0h1"/><path fill="currentColor" color="blue" d="M2 2h1"/></svg>"#,
+            r#"<svg viewBox="0 0 24 24"><g style="color: red"><path fill="currentColor" d="M0 0h1"/></g></svg>"#,
+        ] {
+            let coloured = read(svg).unwrap();
+            assert!(
+                coloured
+                    .not_template
+                    .as_deref()
+                    .is_some_and(|w| w.contains("sets a `color`")),
+                "{coloured:?}"
+            );
+        }
+        let plain = read(r#"<svg viewBox="0 0 24 24"><path fill="currentColor" d="M0 0h1"/><path fill="currentColor" d="M2 2h1"/></svg>"#).unwrap();
+        assert_eq!(plain.not_template, None);
         assert!(read(r#"<svg viewBox="0 0 0 24"><path d="M0 0"/></svg>"#).is_err());
         assert!(read(r#"<svg><path d="M0 0"/></svg>"#).is_err());
     }

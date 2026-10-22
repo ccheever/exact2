@@ -768,9 +768,13 @@ impl Server {
         let files = files_json(&self.read_files(true)?);
         let mut out = json!({"protocol": PROTOCOL, "format": exact_tamber::FORMAT, "builds": [], "files": files});
         let paths = request["paths"] == json!(true);
-        crate::tamber_packages::packaged(&self.app_params(), &mut out, paths);
+        let app = self.app_params();
+        crate::tamber_packages::packaged(&app, &mut out, paths);
         if paths {
-            out["watch"] = crate::tamber_packages::watched(&self.dir.join("app.contract"));
+            let at = self.dir.join("app.contract");
+            let graph = contract::source_graph(&at);
+            crate::tamber_packages::assets(&app, &mut out, &graph);
+            out["watch"] = crate::tamber_packages::watched(&at, &graph);
         }
         Ok(out)
     }

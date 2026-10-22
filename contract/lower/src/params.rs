@@ -212,6 +212,7 @@ pub fn folds(params: &[ParamToken], components: &[String]) -> exact_tamber::para
             .collect(),
         components: components.to_vec(),
         joined: Vec::new(),
+        joined_icons: Vec::new(),
     }
 }
 

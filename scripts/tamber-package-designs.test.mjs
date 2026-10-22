@@ -67,6 +67,19 @@ test('hello and describe list the package designs read-only; a change to one on 
   expect(JSON.stringify(taken)).toContain('reading.ink');
 }, 120_000);
 
+test('a package SVG its design reads, edited, is announced as a change of the design (stage 13)', async () => {
+  const star = d => `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="${d}"/></svg>`;
+  mkdirSync(join(dir, 'node_modules/@acme/reading/assets'), { recursive: true });
+  writeFileSync(join(dir, 'node_modules/@acme/reading/assets/star.svg'), star('M1 1h22v22H1Z'));
+  let { seq } = await post({ after: 0, wait: false }, '/__tamber/events');
+  writeFileSync(pkg(), 'tamber reading\n\ntheme\n  reading.card = #112233\n\nicons\n  reading.star = icon(sf "star", svg "star.svg")\n');
+  await until(async () => (await post({ after: seq, wait: false }, '/__tamber/events')).events?.find(e => e.event === 'changed' && e.edited?.includes('@acme/reading/reading.tamber')));
+  ({ seq } = await post({ after: 0, wait: false }, '/__tamber/events'));
+  writeFileSync(join(dir, 'node_modules/@acme/reading/assets/star.svg'), star('M2 2h20v20H2Z'));
+  const drawn = await until(async () => (await post({ after: seq, wait: false }, '/__tamber/events')).events?.find(e => e.event === 'changed' && e.edited?.includes('@acme/reading/reading.tamber')));
+  expect(drawn.client).toBe(null);
+}, 120_000);
+
 test('a package design made where none was is announced; a client\'s hello never carries paths', async () => {
   const hello = await post({ method: 'hello', paths: true });
   expect(hello.ok.watch).toBeUndefined();
