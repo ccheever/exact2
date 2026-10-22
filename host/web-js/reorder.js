@@ -52,7 +52,7 @@ export function install({ internals: { Collection, Lists, Views, find, minEpoch,
       if (!source) return false;
       const p = this.index.pos.get(source);
       this.preview = { binding, token, source, before: this.index.order[p + 1] ?? null, height: this.index.h[p], terminal: false, pinOwned: true, handle, certified: null,
-        outgoing: false, holding: false, stepped: false, grouped: false };
+        outgoing: false, holding: false, dropped: false, stepped: false, grouped: false };
       this.emitPreview();
       return true;
     },
@@ -74,8 +74,25 @@ export function install({ internals: { Collection, Lists, Views, find, minEpoch,
       if (!p || p.terminal || p.holding || !(p.stepped || p.certified && GEOMETRY.every(k => p.certified[k] === g[k]))) return null;
       if (!this.index.pos.has(p.source) || (p.before !== null && !this.index.pos.has(p.before))) return null;
       const drop = [p.source.slice(2), p.before === null ? null : p.before.slice(2)];
+      p.dropped = true;
       this.endPreview();
       return drop;
+    },
+    dropAnchor() {
+      const p = this.preview, g = this.geometry;
+      if (!p || !(p.dropped || p.holding) || !g) return null;
+      return { source:p.source, anchor:this.index.anchor(this.anchorOffset(g.offset), g.port_main, this.follows(), p.source) };
+    },
+    committedAnchor(ordinary, drop) {
+      if (!drop) return ordinary;
+      const order = drop.anchor.order, now = this.index.pos.get(drop.source), old = order.indexOf(drop.source);
+      if (now === undefined || old < 0) return ordinary; // deletion keeps the neighbour fallback (index.rs)
+      let before, after;
+      for (let i = old - 1; i >= 0 && before === undefined; i--) before = this.index.pos.get(order[i]);
+      for (let i = old + 1; i < order.length && after === undefined; i++) after = this.index.pos.get(order[i]);
+      if (!(before > now || after < now)) return ordinary;
+      if (this.preview) this.preview.dropped = false;
+      return drop.anchor;
     },
     // A hold is ended only by its own endings (LLP 1094 D8, `endHold`).
     endPreview() {

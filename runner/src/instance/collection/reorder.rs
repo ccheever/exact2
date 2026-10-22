@@ -10,6 +10,8 @@ pub(super) struct Preview {
     pub(super) before: Option<String>,
     pub(super) height: f64,
     pub(super) terminal: bool,
+    /// A dispatched drop whose move has not yet selected its data anchor.
+    pub(super) dropped: bool,
     pub(super) pin_owned: bool,
     pub(super) handle: ViewId,
     pub(super) certified: Option<ReorderGeometry>,
@@ -109,6 +111,7 @@ impl Collection {
             before,
             height: self.index.height(position).unwrap(),
             terminal: false,
+            dropped: false,
             pin_owned: true,
             handle,
             certified,
@@ -177,6 +180,7 @@ impl Collection {
             None => None,
         };
         let item = self.keys[source].as_str().unwrap().to_owned();
+        self.preview.as_mut().unwrap().dropped = true;
         self.end_preview(u)?;
         Ok(Some((item, before)))
     }
@@ -366,6 +370,53 @@ impl Offsets {
             -self.height
         } else {
             0.0
+        }
+    }
+}
+
+pub(super) struct DropAnchor {
+    source: String,
+    anchor: index::Anchor,
+}
+
+impl Collection {
+    pub(super) fn drop_anchor(&self) -> Result<Option<DropAnchor>, InstanceError> {
+        let Some(p) = self.preview.as_ref().filter(|p| p.dropped || p.holding) else {
+            return Ok(None);
+        };
+        let Some(g) = &self.geometry else {
+            return Ok(None);
+        };
+        Ok(Some(DropAnchor {
+            source: p.source.clone(),
+            anchor: self
+                .index
+                .capture_anchor_excluding(
+                    self.anchor_offset(g.offset),
+                    g.port_main,
+                    self.follows(),
+                    Some(&p.source),
+                )
+                .map_err(index_error)?,
+        }))
+    }
+
+    pub(super) fn committed_anchor(
+        &mut self,
+        ordinary: Option<index::Anchor>,
+        drop: Option<DropAnchor>,
+    ) -> Option<index::Anchor> {
+        let Some(drop) = drop else {
+            return ordinary;
+        };
+        if self.index.moved_since(&drop.anchor, &drop.source) {
+            if let Some(p) = &mut self.preview {
+                p.dropped = false;
+            }
+            Some(drop.anchor)
+        } else {
+            // A source that left the list keeps the ordinary deletion fallback.
+            ordinary
         }
     }
 }
