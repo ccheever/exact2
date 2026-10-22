@@ -35,7 +35,7 @@ pub mod document;
 mod element;
 #[path = "template.rs"]
 pub mod template;
-use element::{css_style, css_style_named, host_css, in_button, props_for, svg_props, tag_for};
+use element::{css_style, host_css, in_button, props_for, svg_props, tag_for};
 #[path = "height_drag.rs"]
 mod height_drag;
 pub use height_drag::HeightDragBinding;
