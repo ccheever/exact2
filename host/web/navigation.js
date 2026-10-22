@@ -1111,17 +1111,17 @@ export function launchLocation(platform = globalThis) {
   const rest = q.toString();
   return pathname + (rest ? '?' + rest : '');
 }
-// The drive's facts are the launch URL's, even after a route changes the
-// address bar (storage-environment.js `launchHref`).
+// Drive facts use the launch URL after route changes too (storage-environment.js `launchHref`).
 const launched = () => new URL(globalThis.performance?.getEntriesByType?.('navigation')[0]?.name ?? location.href).searchParams;
-let pageTime;
-export const reportTime = (elapsed) => (pageTime ??= timeReporter(launched()))(elapsed);
-let pagePlace;
-export const reportPlace = () => (pagePlace ??= placeReporter(launched()))();
+let pageTime; export const reportTime = (elapsed) => (pageTime ??= timeReporter(launched()))(elapsed);
+let pagePlace; export const reportPlace = () => (pagePlace ??= placeReporter(launched()))();
 // A store write in the page (LLP 1018 D6, LLP 1116 D5, LLP 1027 D4): a secret or state the quota refuses sets the kept answers aside, a cache the runner bounds together, and is tried once more, the kept answers put back if it fails again; a kept answer it refuses leaves the older one, which the next launch may still match, and is said.
 export function storeInPage(storage, name, value, warn = console.warn) { const key = name.startsWith("exact.state.") ? name : "exact.secret." + name, write = () => value == null ? storage.removeItem(key) : storage.setItem(key, value);
-  try { try { write(); } catch (e) { if (name.startsWith("exact.kept.") || !/quota/i.test(e?.name ?? "")) throw e; const aside = Array.from({ length: storage.length }, (_, i) => storage.key(i)).filter(k => k?.startsWith("exact.secret.exact.kept.")).map(k => [k, storage.getItem(k)]); for (const [k] of aside) storage.removeItem(k); try { write(); } catch (again) { for (const [k, v] of aside) try { storage.setItem(k, v); } catch {} throw again; } } } catch (e) { warn("exact: store", name, String(e)); } }
-
+  try { try { write(); } catch (e) { if (name.startsWith("exact.kept.") || !/quota/i.test(e?.name ?? "")) throw e; const aside = Array.from({ length: storage.length }, (_, i) => storage.key(i)).filter(k => k?.startsWith("exact.secret.exact.kept.")).map(k => [k, storage.getItem(k)]); for (const [k] of aside) storage.removeItem(k); try { write(); } catch (again) { for (const [k, v] of aside) try { storage.setItem(k, v); } catch {} throw again; } } } catch (e) { warn("exact: store", name, String(e)); return false; } return true; }
+/** Failed writes belong to the page until a later commit persists or replaces them. */ export function pageStore(storage = () => localStorage, warn = console.warn) { const pending = new Map();
+  return { set(name, value) { pending.set(name, { value, warned: false }); }, flush() { for (const [name, entry] of pending) {
+    const report = (...line) => { if (!entry.warned) { entry.warned = true; warn(...line); } }; try { if (storeInPage(storage(), name, entry.value, report)) pending.delete(name); } catch (e) { report("exact: store", name, String(e)); }
+  } } }; }
 // An iframe guest's origin as authored when its `src` or `sandbox` was committed (an opaque
 // sandbox posts as "null"), which a `message` from it must match. The authored document owns
 // the channel: a later load revokes it until the app commits a new source.
