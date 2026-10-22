@@ -22,6 +22,28 @@ test "it asks for the person's name once, then shows the server's hello"
   reload
   expect text "person" == "design-tool:Ada"
 
+test "a dev loop whose page won't let this tool frame it is said above the canvas, and the line goes once it does"
+  type "name" "Ada"
+  tap "save-name"
+  clock data
+  expect tree missing "canvas-refused"
+  request POST "/__stub/canvas-check" {"via": "http://127.0.0.1:5173", "allowed": false, "origins": ["http://localhost:5173", "http://127.0.0.1:9999"]} as ada
+  request POST "/__stub/event" {"client": "agent:codex", "edited": ["app.tamber"], "changed": []} as ada
+  clock +1
+  clock data
+  clock +1
+  clock data
+  expect text "canvas-refused" == "The dev loop at http://127.0.0.1:5173 lets only http://localhost:5173 http://127.0.0.1:9999 frame its page, not this tool, so the canvas stays empty: start the loop with EXACT_TOOL_PORT=7740."
+  // The loop started again with the tool's port: asked again with hello, the line goes.
+  request POST "/__stub/canvas-check" {"via": "http://127.0.0.1:5173", "allowed": true, "origins": []} as ada
+  request POST "/__stub/event" {"client": "agent:codex", "edited": ["app.tamber"], "changed": []} as ada
+  clock +1
+  clock data
+  clock +1
+  clock data
+  expect tree missing "canvas-refused"
+  request POST "/__stub/restart" {} as ada
+
 test "no server: a clear way to start one, and Try Again"
   fail fetch "http://127.0.0.1:7740"
   type "name" "Ada"
