@@ -96,7 +96,7 @@ component PostCard
               flex-shrink=0
             if badge != ""
               column align-self="center" margin-left="cards.badge-hang" flex-shrink=0
-                VerifiedBadge(badge=badge, size="cards.badge-size")
+                VerifiedBadge(badge=badge, size="cards.badge-size", ink="cards.badge", mark="cards.badge-mark")
             text `@${handle}` font-size="cards.text-size"
               line-height="cards.text-line"
               white-space="nowrap"
