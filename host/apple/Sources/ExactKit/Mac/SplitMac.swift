@@ -79,7 +79,7 @@ final class SplitHost {
     /// the title and the list's stays over its rows. Either way each
     /// header's buttons are over its own column (`splitHeaderRoutes`,
     /// HeaderMac.swift; `WindowToolbarHost.present`).
-    static let listOwnsWindow = true
+    var listOwnsWindow = true { didSet { if listOwnsWindow != oldValue { sync() } } }
     /// A stack that pushes, not a split: the driver's own chrome (`--chrome
     /// agent`), as it paints the header, the tablist and a list's rows. A
     /// test of the pushed stack says so.
@@ -110,6 +110,8 @@ final class SplitHost {
     /// Whether a window shows the split: the stack splits, and the window's
     /// owner composed a controller that holds this session's view.
     var active: Bool { shown != nil && capable }
+    /// The session's document spans both panes while its window is split.
+    var agentRoot: NSView { active ? controller?.view ?? presenter.viewport : presenter.viewport }
     private var capable: Bool { controller?.holds(presenter) == true }
     /// Whether the window's owner should compose a controller: a stack of
     /// this session has split. It stays wanted while the session runs, so a

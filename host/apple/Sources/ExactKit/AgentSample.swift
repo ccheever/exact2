@@ -18,10 +18,11 @@ extension Agent {
             return CGPoint(x: x, y: y)
         }
         guard !points.isEmpty else { return ["malformed": true, "error": "sample needs points: sample <x> <y> [<x> <y>…], in view points"] }
-        let view = presenter.viewport
         #if os(iOS) || os(tvOS)
+        let view = presenter.viewport
         let layer = view.layer
         #else
+        let view = presenter.navigation.split.agentRoot
         guard let layer = view.layer else { return ["error": "the session's view has no layer"] }
         #endif
         #if os(iOS) || os(tvOS)

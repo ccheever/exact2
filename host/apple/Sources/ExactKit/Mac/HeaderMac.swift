@@ -328,7 +328,7 @@ extension NavigationHost {
     var splitHeaderRoutes: (root: NodeView, owner: NodeView, beside: NodeView?)? {
         guard split.active, let shown = split.shown else { return nil }
         guard let detail = shown.detail else { return (shown.root, shown.list, nil) }
-        return SplitHost.listOwnsWindow ? (shown.root, shown.list, detail) : (shown.root, detail, shown.list)
+        return split.listOwnsWindow ? (shown.root, shown.list, detail) : (shown.root, detail, shown.list)
     }
 }
 #endif
