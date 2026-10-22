@@ -175,7 +175,12 @@ export function install(exact) {
   // nearest view that declares it, else `initial`; values are the browser's
   // computed ones, under the runner's row names.
   const INHERITED = { text_color: 'color', font_family: 'font-family', font_size: 'font-size', font_weight: 'font-weight', font_style: 'font-style', line_height: 'line-height', letter_spacing: 'letter-spacing', font_variant_numeric: 'font-variant-numeric', direction: 'direction', white_space: 'white-space', overflow_wrap: 'overflow-wrap', text_align: 'text-align', text_indent: 'text-indent', hyphens: 'hyphens', widows: 'widows', orphans: 'orphans' };
-  const rowOf = prop => Object.keys(INHERITED).find(k => INHERITED[k] === prop) ?? prop.replace(/^-+/, '').replace(/-/g, '_');
+  // The runner's names where CSS spells a row otherwise: a border side's
+  // colour, style and width, a corner's radius, `position`, and Exact's own
+  // custom properties for a symbol's tint and the pressed scale.
+  const SPELLED = { position: 'position_type', '--exact-tint': 'tint_color', '--exact-press': 'press_scale' };
+  const rowOf = prop => Object.keys(INHERITED).find(k => INHERITED[k] === prop) ?? SPELLED[prop]
+    ?? prop.replace(/^border-(top|right|bottom|left)-(color|style|width)$/, 'border-$2-$1').replace(/^border-(top|bottom)-(left|right)-radius$/, 'border-radius-$1-$2').replace(/^-+/, '').replace(/-/g, '_');
   // A class's rule may be nested: the build wraps them all in
   // `#exact-root#exact-root { & .cN { … } }` for specificity (emit.rs).
   const declared = el => {
@@ -193,7 +198,12 @@ export function install(exact) {
     if (!el || !el.isConnected) return { error: `stale node #${nid} (incarnation 1)` };
     const own = declared(el), cs = getComputedStyle(el), style = {};
     // A row naming a token that varies by an app axis says which (modes.js, LLP 1121 D7).
-    for (const [p, text] of own) if (!p.startsWith('--')) { const token = exact.modes?.token(el, p, text); style[rowOf(p)] = { value: cs.getPropertyValue(p), ...(token ? { token } : {}), source: el.$css?.[p] !== undefined ? 'dynamic' : 'authored' }; }
+    // `value` is the resolved value (a box's used width, say); `computed`,
+    // where the browser has a typed computed style, the value before layout
+    // (an svg's written width, though flex shrinks it), as the runner's are.
+    const typed = el.computedStyleMap?.();
+    const computedOf = p => { try { return typed?.get(p)?.toString(); } catch { return undefined; } };
+    for (const [p, text] of own) if (!p.startsWith('--') || SPELLED[p]) { const token = exact.modes?.token(el, p, text), computed = computedOf(p); style[rowOf(p)] = { value: cs.getPropertyValue(p), ...(computed !== undefined ? { computed } : {}), ...(token ? { token } : {}), source: el.$css?.[p] !== undefined ? 'dynamic' : 'authored' }; }
     for (const [row, prop] of Object.entries(INHERITED)) {
       if (own.has(prop)) continue;
       let from = null;
