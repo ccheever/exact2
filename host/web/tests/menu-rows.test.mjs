@@ -28,7 +28,9 @@ const page = `<!doctype html>
   <button id="confirm" commandfor="sure" command="show-modal">Clear…</button>
   <button id="toDialog" popovertarget="picker">Becomes the dialog's</button>
   <button id="toPicker" commandfor="sure" command="show-modal">Becomes the picker's</button>
+  <button id="notDialog" commandfor="plain" command="show-modal">A dialog's command on no dialog</button>
 </div>
+<div id="plain">Plain</div>
 <dialog id="sure">Sure?</dialog>
 <div id="submenu" popover role="menu"><button id="deep">Deep</button><button id="deeper" popovertarget="picker">Pick from the submenu</button></div>
 <div id="picker" popover><button id="emoji">👍</button></div>
@@ -44,6 +46,7 @@ const page = `<!doctype html>
   document.getElementById('toDialog').addEventListener('click', e => { e.currentTarget.removeAttribute('popovertarget'); e.currentTarget.setAttribute('commandfor', 'sure'); e.currentTarget.setAttribute('command', 'show-modal'); });
   document.getElementById('toPicker').addEventListener('click', e => { e.currentTarget.setAttribute('commandfor', 'picker'); e.currentTarget.setAttribute('command', 'show-popover'); });
   window.commands = [];
+  document.getElementById('plain').addEventListener('command', e => commands.push('plain ' + e.command));
   document.getElementById('sure').addEventListener('command', e => commands.push(e.command));
   window.open = () => ['menu', 'submenu', 'picker', 'manual'].filter(id => document.getElementById(id).matches(':popover-open'));
   // What opened each popover, as its beforetoggle says.
@@ -176,4 +179,13 @@ check('a row its press retargets acts on what it names then, a dialog\'s command
   await until('open()', ['picker']);
   expect(await evaluate('sources.picker')).toBe('opener');
   expect(await evaluate(`document.getElementById('sure').open`)).toBe(false);
+}), 60000);
+
+check('a dialog\'s command on what is no dialog does nothing and fires no event', () => inChrome(async (evaluate, press, until) => {
+  await press('opener');
+  await until('open()', ['menu']);
+  await press('notDialog');
+  await evaluate('new Promise(r => setTimeout(r, 100))');
+  expect(await evaluate('commands')).toEqual([]);
+  expect(await evaluate('open()')).toEqual(['menu']);
 }), 60000);
