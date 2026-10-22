@@ -44,6 +44,37 @@ final class InitialFocusMacTests: XCTestCase {
         """
     }
 
+    func testTheFirstAgentReadDrainsTheQueuedLaunchAutofocus() throws {
+        _ = NSApplication.shared
+        let bytes = try plan(source(autofocus: true))
+        for op in ["tree", "state", "layout"] {
+            let session = ExactApp.shared.makeSession()
+            defer { session.destroy() }
+            XCTAssertNil(session.boot(plan: bytes, size: CGSize(width: 400, height: 300)).error)
+            let view = ExactView(session: session)
+            let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: [.titled], backing: .buffered, defer: false)
+            window.isReleasedWhenClosed = false
+            window.contentView = view
+            defer { window.close() }
+            let p = session.presenter
+            p.releaseLaunchAutofocus()
+            XCTAssertTrue(p.launchAutofocusPending)
+            let pipe = Pipe(), savedOut = Agent.out, savedRoutes = Agent.routes
+            Agent.out = pipe.fileHandleForWriting
+            Agent.routes = [("launch", session)]
+            Agent.handle("{\"op\":\"\(op)\"}")
+            Agent.out = savedOut; Agent.routes = savedRoutes
+            try pipe.fileHandleForWriting.close()
+            let reply = try XCTUnwrap(try JSONSerialization.jsonObject(with: pipe.fileHandleForReading.readDataToEndOfFile()) as? [String: Any])
+            XCTAssertNil(reply["error"], "\(op): \(reply)")
+            XCTAssertFalse(p.launchAutofocusPending, "\(op) drains the launch before replying")
+            XCTAssertEqual(p.focusedNode?.props["testId"], "second", op)
+            let firstFocus = p.focusedNode
+            RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.05))
+            XCTAssertTrue(p.focusedNode === firstFocus, "the next read sees the same focus")
+        }
+    }
+
     /// The launch autofocus, and with it the window's first key view, as the
     /// session runs them the turn after its first frame.
     private func launched(_ p: Presenter) {
